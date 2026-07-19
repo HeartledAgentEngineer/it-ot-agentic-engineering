@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_ElevatorState" Id="{a1b2c3d4-e5f6-7890-abcd-ef1234567801}">
+    <Declaration><![CDATA[TYPE E_ElevatorState :
+(
+    eInit               := 0,   // Initialisierung
+    eIdle               := 1,   // Bereit, warte auf Ruf
+    eDoorClosing        := 11,  // Tür schließt
+    eDecideDirection    := 20,  // Fahrtrichtung bestimmen
+    eMovingUp           := 30,  // Fahrt aufwärts
+    eMovingDown         := 31,  // Fahrt abwärts
+    eBraking            := 38,  // Anhalten an Etage
+    eDoorOpening        := 40,  // Tür öffnet
+    eWaitingAtFloor     := 50,  // Wartezeit an Etage
+    eFireMode           := 90,  // Feuerwehr-Modus: Fahrt zu EG, Tür dauerhaft offen
+    eEmergency          := 99   // Not-Halt aktiv
+) DINT;
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_Elevator" Id="{a1b2c3d4-e5f6-7890-abcd-ef1234567803}">
+    <Declaration><![CDATA[VAR_GLOBAL
+    // ═══════════════════════════════════════════════════════════════
+    //  INPUTS — Hardware → PLC
+    //  Werden im Simulationsmodus vom Node.js Backend via ADS geschrieben
+    // ═══════════════════════════════════════════════════════════════
+
+    // Stockwerk-Sensoren (Lichtschranken / Endschalter)
+    bSensorFloor1       AT %I*  : BOOL;     // Sensor Etage 1 (EG)
+    bSensorFloor2       AT %I*  : BOOL;     // Sensor Etage 2 (1.OG)
+    bSensorFloor3       AT %I*  : BOOL;     // Sensor Etage 3 (2.OG)
+
+    // Tür-Endschalter
+    bDoorIsOpen         AT %I*  : BOOL;     // Endschalter: Tür vollständig offen
+    bDoorIsClosed       AT %I*  : BOOL;     // Endschalter: Tür vollständig geschlossen
+
+    // Sicherheit
+    bEmergency          AT %I*  : BOOL;     // Not-Halt (NC: FALSE = ausgelöst)
+    bLightCurtain       AT %I*  : BOOL;     // Lichtgitter Tür (TRUE = ausgelöst)
+    bFireAlarm          AT %I*  : BOOL;     // Feuermelder (TRUE = Alarm aktiv)
+    bOverload           AT %I*  : BOOL;     // Überladungssensor (TRUE = zu schwer)
+    bDoorHold           AT %I*  : BOOL;     // Türhalte-Taster (TRUE = Tür offen halten)
+
+    // Ruftasten außen — Richtungsabhängig
+    bCallFloor1         AT %I*  : BOOL;     // Ruftaste EG (legacy, gleichwertig mit Up)
+    bCallFloor2         AT %I*  : BOOL;     // Ruftaste 1.OG (legacy)
+    bCallFloor3         AT %I*  : BOOL;     // Ruftaste 2.OG (legacy, gleichwertig mit Down)
+    bCallFloor1Up       AT %I*  : BOOL;     // Außenruf EG aufwärts ↑
+    bCallFloor2Up       AT %I*  : BOOL;     // Außenruf 1.OG aufwärts ↑
+    bCallFloor2Down     AT %I*  : BOOL;     // Außenruf 1.OG abwärts ↓
+    bCallFloor3Down     AT %I*  : BOOL;     // Außenruf 2.OG abwärts ↓
+
+    // Kabinentasten innen
+    bCabinCall1         AT %I*  : BOOL;     // Kabinentaste → EG
+    bCabinCall2         AT %I*  : BOOL;     // Kabinentaste → 1.OG
+    bCabinCall3         AT %I*  : BOOL;     // Kabinentaste → 2.OG
+
+    // ═══════════════════════════════════════════════════════════════
+    //  OUTPUTS — PLC → Hardware
+    //  Werden vom Node.js Backend via ADS gelesen zur Physik-Simulation
+    // ═══════════════════════════════════════════════════════════════
+
+    bMotorUp            AT %Q*  : BOOL;     // Antrieb aufwärts
+    bMotorDown          AT %Q*  : BOOL;     // Antrieb abwärts
+    bBrake              AT %Q*  : BOOL;     // Bremse (TRUE = gelöst / freigegeben)
+    bDoorOpenCmd        AT %Q*  : BOOL;     // Befehl: Tür öffnen
+    bDoorCloseCmd       AT %Q*  : BOOL;     // Befehl: Tür schließen
+
+    // Etagenanzeige in der Kabine
+    bLightFloor1        AT %Q*  : BOOL;     // Anzeige EG aktiv
+    bLightFloor2        AT %Q*  : BOOL;     // Anzeige 1.OG aktiv
+    bLightFloor3        AT %Q*  : BOOL;     // Anzeige 2.OG aktiv
+
+    // Statusanzeigen neue Funktionen
+    bFireAlarmLight     AT %Q*  : BOOL;     // Feuerwehrmodus-Anzeige (z.B. rote LED)
+    bOverloadLight      AT %Q*  : BOOL;     // Überladungsanzeige (z.B. gelbe LED)
+    bDoorHoldLight      AT %Q*  : BOOL;     // Türhalte aktiv (z.B. blaue LED)
+
+    // ═══════════════════════════════════════════════════════════════
+    //  STATUS — Für ADS / HMI Zugriff
+    // ═══════════════════════════════════════════════════════════════
+    stElevator          : ST_ElevatorData;  // Gesamtstatus (HMI liest diesen Block)
+
+END_VAR
+]]></Declaration>
+  </GVL>
+</TcPlcObject>

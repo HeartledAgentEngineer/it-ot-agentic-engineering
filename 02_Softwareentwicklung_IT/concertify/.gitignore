@@ -1,0 +1,52 @@
+.env
+.cache
+__pycache__/
+*.pyc
+*.tmp
+server.pid
+.track_cache.json
+concert_data.tmp
+=0.40.0
+
+# Server/Test-Logs (lokal, nicht ins Repo)
+server.log
+server.stderr.log
+server_out.txt
+server_start.log
+server_status.log
+server_test.log
+
+# Debug-Dumps
+page_dump.html
+
+# Daten-Backups (lokal, nicht ins Repo — werden manuell vor groesseren Eingriffen erstellt)
+concert_data.backup_*.json
+
+# Laufzeit-State (taeglicher API-Counter)
+setlistfm_quota.json
+
+# Persistente Playlists-Daten (lokale Daten, kein Code)
+saved_playlists.json
+
+# SQLite-Datenbank (Laufzeit-Datenbestand, kein Code)
+concertify.db
+*.db-journal
+*.db-wal
+
+# Local Claude-Config
+.claude/settings.local.json
+
+# Pytest-Cache
+.pytest_cache/
+.test-tmp/
+
+# Lokale Python-Umgebung
+.venv/
+
+# Temporaere Planungs-, Brainstorming- und Arbeitsdateien (lokaler Entwickler-Weg)
+brainstorm_*.md
+alignment_*.md
+plan_*.md
+TASKS.md
+roadmap.md
+HANDOVER.md

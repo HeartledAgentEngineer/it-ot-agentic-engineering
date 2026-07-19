@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>TwinCAT Elevator — 3D Simulation / Live</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #d4ecf5; overflow: hidden; font-family: 'Inter', 'Segoe UI', sans-serif; color: #2c4a5a; }
+
+  #canvas { position: fixed; top: 0; left: 0; display: block; }
+
+  /* ── Connection badge ─────────────────────────── */
+  #badge {
+    position: fixed; top: 14px; left: 14px; z-index: 100;
+    padding: 5px 14px; border-radius: 20px; font-size: 10px;
+    letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600;
+    border: 1px solid; transition: all 0.4s; backdrop-filter: blur(8px);
+  }
+  #badge.sim { background: rgba(255,248,230,0.85); border-color: #e0a800; color: #996600; }
+  #badge.live { background: rgba(230,248,240,0.85); border-color: #2eaa6a; color: #1a7a4a; }
+  #badge.connecting { background: rgba(230,240,255,0.85); border-color: #4488cc; color: #2255aa; }
+
+  /* ── Right panel ───────────────────────────────── */
+  #panel {
+    position: fixed; top: 0; right: 0;
+    width: 288px; height: 100vh;
+    background: rgba(250, 253, 255, 0.94);
+    border-left: 1px solid rgba(100,160,200,0.2);
+    display: flex; flex-direction: column;
+    padding: 18px 16px 10px;
+    gap: 10px;
+    backdrop-filter: blur(16px);
+    overflow-y: auto;
+    box-shadow: -4px 0 24px rgba(40,90,130,0.08);
+  }
+
+  .panel-header {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase; font-weight: 600;
+    color: #2c6e8a; text-align: center;
+    border-bottom: 1px solid rgba(80,150,200,0.2);
+    padding-bottom: 10px;
+  }
+  .panel-header span { color: #2aaa70; }
+
+  /* state box */
+  .state-box {
+    background: linear-gradient(135deg, #f0f8ff, #e8f5f0);
+    border: 1px solid rgba(80,160,120,0.3);
+    border-radius: 8px; padding: 10px 12px; text-align: center;
+  }
+  .state-lbl { font-size: 9px; letter-spacing: 2px; color: #7aabb8; text-transform: uppercase; }
+  .state-val { font-size: 15px; font-weight: 600; color: #1a7a50; letter-spacing: 1px; margin-top: 3px; }
+
+  /* bars */
+  .bar-wrap { }
+  .bar-row { display: flex; justify-content: space-between; font-size: 9px; color: #88aabb; letter-spacing: 0.5px; margin-bottom: 3px; }
+  .bar-bg { height: 5px; background: #e8f0f5; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; transition: width 80ms linear; border-radius: 3px; }
+  .bar-h  { background: linear-gradient(90deg,#3aabcc,#5dd4ee); }
+  .bar-d  { background: linear-gradient(90deg,#4aaa70,#7adda0); }
+
+  /* section title */
+  .sec { font-size: 9px; letter-spacing: 2px; color: #9abbc8; text-transform: uppercase;
+         border-bottom: 1px solid rgba(80,150,200,0.15); padding-bottom: 4px; margin-top: 2px; font-weight: 600; }
+
+  /* floor call buttons */
+  .floor-row { display: flex; gap: 10px; justify-content: center; }
+  .floor-btn {
+    width: 68px; height: 68px; border-radius: 50%;
+    border: 2px solid rgba(80,160,200,0.3); background: #f5faff; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: 600; color: #3a7a9a;
+    transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+    user-select: none; box-shadow: 0 2px 8px rgba(40,90,130,0.08);
+  }
+  .floor-btn:hover { border-color: #4aabb8; box-shadow: 0 4px 16px rgba(40,160,180,0.2); transform: translateY(-1px); }
+  .floor-btn.lit {
+    background: linear-gradient(135deg,#e8fff5,#d0f5e8); border-color: #2aaa70;
+    color: #1a8050; box-shadow: 0 4px 16px rgba(42,170,112,0.3);
+  }
+
+  /* control buttons */
+  .btn-row { display: flex; gap: 6px; }
+  .btn {
+    flex: 1; padding: 8px 4px; border: 1px solid rgba(80,150,200,0.25); background: #f5faff;
+    color: #3a7a9a; font-family: inherit; font-size: 10px; letter-spacing: 0.5px;
+    text-transform: uppercase; cursor: pointer; border-radius: 6px; transition: all 0.15s;
+    user-select: none; font-weight: 600;
+  }
+  .btn:hover { background: #e8f5ff; border-color: #4aabb8; }
+  .btn.active { background: linear-gradient(135deg,#e8fff5,#d5f0e8); border-color: #2aaa70; color: #1a7a50; }
+  .btn.red { border-color: rgba(220,60,60,0.35); color: #cc4040; background: #fff5f5; }
+  .btn.red:hover { background: #ffe8e8; border-color: #ee4444; }
+  .btn.red.active { background: #ffe0e0; border-color: #cc3030; color: #aa2020; }
+
+  /* LED grid */
+  .led-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 6px; }
+  .led-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #88aabc; }
+  .led {
+    width: 8px; height: 8px; border-radius: 50%; background: #dde8ee;
+    flex-shrink: 0; transition: all 0.15s;
+  }
+  .led.g  { background: #22cc88; box-shadow: 0 0 5px #22cc8899; }
+  .led.r  { background: #ee4444; box-shadow: 0 0 5px #ee444499; }
+  .led.y  { background: #ffaa00; box-shadow: 0 0 5px #ffaa0099; }
+  .led.b  { background: #44aaee; box-shadow: 0 0 5px #44aaee99; }
+
+  /* data rows */
+  .data-tbl { width: 100%; border-collapse: collapse; font-size: 10px; }
+  .data-tbl td { padding: 3px 0; border-bottom: 1px solid rgba(80,150,200,0.1); }
+  .data-tbl td:first-child { color: #99bbc8; }
+  .data-tbl td:last-child  { color: #2a6a8a; text-align: right; font-weight: 600; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; bottom: 14px; left: 14px;
+    font-size: 10px; color: rgba(255,255,255,0.55); letter-spacing: 0.5px;
+    pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<!-- ── Connection Badge ──────────────────────────── -->
+<div id="badge" class="connecting">⬤ Verbinde TC...</div>
+
+<!-- ── Control Panel ─────────────────────────────── -->
+<div id="panel">
+  <div class="panel-header">🏥 <span>Klinikum</span> Aufzug</div>
+
+  <div class="state-box">
+    <div class="state-lbl">FB_Elevator · eStep</div>
+    <div class="state-val" id="stateVal">Maintenance</div>
+  </div>
+
+  <div class="bar-wrap">
+    <div class="bar-row"><span>HEIGHT (fHeight)</span><span id="hPct">0.0%</span></div>
+    <div class="bar-bg"><div class="bar-fill bar-h" id="hBar" style="width:0%"></div></div>
+  </div>
+  <div class="bar-wrap">
+    <div class="bar-row"><span>DOOR (fDoor)</span><span id="dPct">0.0%</span></div>
+    <div class="bar-bg"><div class="bar-fill bar-d" id="dBar" style="width:0%"></div></div>
+  </div>
+
+  <div class="sec">Ruftaster</div>
+  <div class="floor-row">
+    <button class="floor-btn" id="b2OG" onmousedown="pressCall('2OG',true)" onmouseup="pressCall('2OG',false)" onmouseleave="pressCall('2OG',false)">2.OG</button>
+    <button class="floor-btn" id="bOG" onmousedown="pressCall('OG',true)" onmouseup="pressCall('OG',false)" onmouseleave="pressCall('OG',false)">1.OG</button>
+    <button class="floor-btn" id="bEG" onmousedown="pressCall('EG',true)" onmouseup="pressCall('EG',false)" onmouseleave="pressCall('EG',false)">EG</button>
+  </div>
+
+  <div class="sec">System</div>
+  <div class="btn-row">
+    <button class="btn red" id="bStop" onclick="toggle('stop')">NOT-HALT</button>
+    <button class="btn" id="bMaint" onclick="toggle('maint')">WARTUNG</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="bLG" onmousedown="lightCurtain(true)" onmouseup="lightCurtain(false)" onmouseleave="lightCurtain(false)">LICHTGITTER</button>
+  </div>
+
+  <div class="sec">I/O Ausgänge (ST_Outputs)</div>
+  <div class="led-grid">
+    <div class="led-item"><div class="led" id="l_mu"></div>bMotorUp</div>
+    <div class="led-item"><div class="led" id="l_md"></div>bMotorDown</div>
+    <div class="led-item"><div class="led" id="l_ms"></div>bMotorSlow</div>
+    <div class="led-item"><div class="led" id="l_do"></div>bDoorOpen</div>
+    <div class="led-item"><div class="led" id="l_dc"></div>bDoorClose</div>
+    <div class="led-item"><div class="led" id="l_ls"></div>bLampStop</div>
+    <div class="led-item"><div class="led" id="l_lm"></div>bLampMaint</div>
+    <div class="led-item"><div class="led" id="l_a2"></div>bAck2OG</div>
+    <div class="led-item"><div class="led" id="l_ao"></div>bAckOG</div>
+    <div class="led-item"><div class="led" id="l_ae"></div>bAckEG</div>
+  </div>
+
+  <div class="sec">I/O Eingänge (ST_Inputs)</div>
+  <div class="led-grid">
+    <div class="led-item"><div class="led" id="l_l2g"></div>bLimit2OG</div>
+    <div class="led-item"><div class="led" id="l_log"></div>bLimitOG</div>
+    <div class="led-item"><div class="led" id="l_leg"></div>bLimitEG</div>
+    <div class="led-item"><div class="led" id="l_dop"></div>bDoorOpen</div>
+    <div class="led-item"><div class="led" id="l_dcs"></div>bDoorClosed</div>
+    <div class="led-item"><div class="led" id="l_c2g"></div>bCall2OG</div>
+    <div class="led-item"><div class="led" id="l_cog"></div>bCallOG</div>
+    <div class="led-item"><div class="led" id="l_ceg"></div>bCallEG</div>
+    <div class="led-item"><div class="led" id="l_stp"></div>bStop</div>
+    <div class="led-item"><div class="led" id="l_mnt"></div>bMaint</div>
+  </div>
+
+  <div class="sec">Live Data</div>
+  <table class="data-tbl">
+    <tr><td>fHeight</td><td id="d_h">0.000</td></tr>
+    <tr><td>fDoor</td><td id="d_d">0.000</td></tr>
+    <tr><td>bMemCall2OG</td><td id="d_2g">FALSE</td></tr>
+    <tr><td>bMemCallOG</td><td id="d_og">FALSE</td></tr>
+    <tr><td>bMemCallEG</td><td id="d_eg">FALSE</td></tr>
+    <tr><td>doorTimer (s)</td><td id="d_tm">0.000</td></tr>
+    <tr><td>PLC Zyklen</td><td id="d_cy">0</td></tr>
+  </table>
+</div>
+
+<div id="tip">Maus: Drehen | Scroll: Zoom | Shift+Drag: Verschieben | <b>F</b>: First-Person</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ════════════════════════════════════════════════════════
+//  PLC SIMULATION  (1:1 Abbild von FB_Elevator + FB_ElevatorSim)
+// ════════════════════════════════════════════════════════
+
+// E_Step (aus E_Step.TcDUT)
+const E = {
+  Stopped:     'Stopped',
+  Maintenance: 'Maintenance',
+  Ready:       'Ready',
+  MoveFastUp:  'MoveFastUp',
+  MoveFastDown:'MoveFastDown',
+  DoorOpening: 'DoorOpening',
+  DoorOpenWait:'DoorOpenWait',
+  DoorClosing: 'DoorClosing',
+};
+
+// ST_Inputs / ST_Outputs / FB_Elevator Variablen
+const stIn  = { bLimitOG:false, bLimit2OG:false, bLimitEG:false, bDoorOpen:false, bDoorClosed:true,
+                bLightCurtain:false, bCallOG:false, bCall2OG:false, bCallEG:false, bStop:false, bMaint:true };
+const stOut = { bMotorUp:false, bMotorDown:false, bMotorSlow:false,
+                bDoorCmdOpen:false, bDoorCmdClose:false,
+                bLampStop:false, bLampMaint:false, bAckOG:false, bAck2OG:false, bAckEG:false };
+
+// HMI inputs (aus MAIN.TcPOU)
+const hmi = { callOG:false, call2OG:false, callEG:false };
+
+// FB_Elevator interne Variablen
+const fb = {
+  eStep:        E.Maintenance,   // Initial: Maintenance (wie im TwinCAT-Code)
+  bMemCallOG:   false,
+  bMemCall2OG:  false,
+  bMemCallEG:   false,
+  bShutdownReq: false,
+  doorTimer:    0.0,             // TON simuliert
+  timerRunning: false,
+};
+
+// FB_ElevatorSim Variablen
+const sim = {
+  fHeight: 0.0,        // 0=EG, 50=1.OG, 100=2.OG
+  fDoor:   0.0,        // 0=zu, 100=auf
+  fSpeedLift: 25.0,    // units/s → 4 Sekunden EG↔OG
+  fSpeedDoor: 100.0,   // units/s → 1 Sekunde öffnen/schließen
+};
+
+let plcCycle = 0;
+
+// ── FB_ElevatorSim ─────────────────────────────────────
+function runSim(dt) {
+  // Bewegung
+  if (stOut.bMotorUp)   sim.fHeight = Math.min(100, sim.fHeight + sim.fSpeedLift * dt);
+  if (stOut.bMotorDown) sim.fHeight = Math.max(0,   sim.fHeight - sim.fSpeedLift * dt);
+  if (stOut.bDoorCmdOpen)  sim.fDoor = Math.min(100, sim.fDoor + sim.fSpeedDoor * dt);
+  if (stOut.bDoorCmdClose) sim.fDoor = Math.max(0,   sim.fDoor - sim.fSpeedDoor * dt);
+
+  // Sensoren generieren
+  stIn.bLimitEG    = sim.fHeight <= 2.0;
+  stIn.bLimitOG    = sim.fHeight >= 48.0 && sim.fHeight <= 52.0;
+  stIn.bLimit2OG   = sim.fHeight >= 98.0;
+  stIn.bDoorClosed = sim.fDoor   <= 1.0;
+  stIn.bDoorOpen   = sim.fDoor   >= 99.0;
+}
+
+// ── FB_Elevator (exakt wie TwinCAT-Code) ──────────────
+function runElevator(dt) {
+  // Ausgänge zurücksetzen
+  stOut.bMotorUp = stOut.bMotorDown = stOut.bMotorSlow = false;
+  stOut.bDoorCmdOpen = stOut.bDoorCmdClose = false;
+  stOut.bLampStop = stOut.bLampMaint = false;
+
+  // 1. INPUT PROCESSING
+  // HMI-Tasten + Hardware-Taster (aus MAIN.TcPOU)
+  stIn.bCallOG  = hmi.callOG;
+  stIn.bCall2OG = hmi.call2OG;
+  stIn.bCallEG  = hmi.callEG;
+
+  if (stIn.bCallOG)  fb.bMemCallOG  = true;
+  if (stIn.bCall2OG) fb.bMemCall2OG = true;
+  if (stIn.bCallEG)  fb.bMemCallEG  = true;
+  stOut.bAckOG  = fb.bMemCallOG;
+  stOut.bAck2OG = fb.bMemCall2OG;
+  stOut.bAckEG  = fb.bMemCallEG;
+
+  if (stIn.bMaint) { fb.bShutdownReq = true; }
+  else if (fb.eStep === E.Maintenance) { fb.bShutdownReq = false; }
+
+  // NOT-HALT (RETURN entspricht)
+  if (stIn.bStop) {
+    fb.eStep = E.Stopped;
+    fb.bMemCallOG = false; fb.bMemCall2OG = false; fb.bMemCallEG = false;
+    stOut.bLampStop = true;
+    return;
+  }
+
+  // 2. STATE MACHINE
+  switch (fb.eStep) {
+
+    case E.Stopped:
+      stOut.bLampStop = true;
+      if (!stIn.bStop && !stIn.bMaint) fb.eStep = E.Ready;
+      break;
+
+    case E.Maintenance:
+      stOut.bLampMaint = true;
+      if (!stIn.bMaint) fb.eStep = E.Ready;
+      break;
+
+    case E.Ready:
+      if (fb.bShutdownReq) {
+        fb.eStep = E.Maintenance;
+        break;
+      }
+      // Bereits an gerufener Etage → Tür auf
+      if ((fb.bMemCall2OG && stIn.bLimit2OG) ||
+          (fb.bMemCallOG  && stIn.bLimitOG)  ||
+          (fb.bMemCallEG  && stIn.bLimitEG)) {
+        fb.eStep = E.DoorOpening;
+        break;
+      }
+      // Richtung bestimmen (fHeight: 0=EG, 50=1.OG, 100=2.OG)
+      { const h = sim.fHeight;
+        if      (fb.bMemCall2OG && !stIn.bLimit2OG)   fb.eStep = E.MoveFastUp;
+        else if (fb.bMemCallOG  && h < 45)             fb.eStep = E.MoveFastUp;
+        else if (fb.bMemCallOG  && h > 55)             fb.eStep = E.MoveFastDown;
+        else if (fb.bMemCallEG  && !stIn.bLimitEG)     fb.eStep = E.MoveFastDown;
+      }
+      break;
+
+    case E.MoveFastUp:
+      stOut.bMotorUp = true;
+      if      (stIn.bLimit2OG)                    fb.eStep = E.DoorOpening;
+      else if (stIn.bLimitOG && fb.bMemCallOG)    fb.eStep = E.DoorOpening;
+      break;
+
+    case E.MoveFastDown:
+      stOut.bMotorDown = true;
+      if      (stIn.bLimitEG)                     fb.eStep = E.DoorOpening;
+      else if (stIn.bLimitOG && fb.bMemCallOG)    fb.eStep = E.DoorOpening;
+      break;
+
+    case E.DoorOpening:
+      stOut.bDoorCmdOpen = true;
+      if (stIn.bDoorOpen) {
+        if (stIn.bLimit2OG) fb.bMemCall2OG = false;
+        if (stIn.bLimitOG)  fb.bMemCallOG  = false;
+        if (stIn.bLimitEG)  fb.bMemCallEG  = false;
+        fb.doorTimer = 0;
+        fb.timerRunning = true;
+        fb.eStep = E.DoorOpenWait;
+      }
+      break;
+
+    case E.DoorOpenWait:
+      // Lichtgitter: Timer pausieren → Tür bleibt offen
+      if (!stIn.bLightCurtain) {
+        if (fb.timerRunning) fb.doorTimer += dt;
+      }
+      if (fb.doorTimer >= 3.0) {
+        fb.timerRunning = false;
+        fb.eStep = E.DoorClosing;
+      }
+      break;
+
+    case E.DoorClosing:
+      // Lichtgitter: Schließen unterbrechen → zurück zu DoorOpening
+      if (stIn.bLightCurtain) {
+        fb.eStep = E.DoorOpening;
+      } else {
+        stOut.bDoorCmdClose = true;
+        if (stIn.bDoorClosed) fb.eStep = E.Ready;
+      }
+      break;
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  THREE.JS SCENE
+// ════════════════════════════════════════════════════════
+
+const PW = 280; // panel width
+const W = () => window.innerWidth - PW;
+const H = () => window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.setSize(W(), H());
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc8e8f5);
+scene.fog = new THREE.FogExp2(0xc8e8f5, 0.008);
+
+const camera = new THREE.PerspectiveCamera(42, W()/H(), 0.1, 200);
+camera.position.set(14, 6, 22);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(2, 4, 2);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 4;
+controls.maxDistance = 30;
+controls.update();
+
+// ── Lighting ───────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xd8eef8, 2.2));
+
+// Sunlight from upper right
+const dirLight = new THREE.DirectionalLight(0xfff8ee, 2.5);
+dirLight.position.set(14, 22, 12);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(2048, 2048);
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 60;
+dirLight.shadow.camera.left = -18;
+dirLight.shadow.camera.right = 18;
+dirLight.shadow.camera.top = 18;
+dirLight.shadow.camera.bottom = -6;
+scene.add(dirLight);
+
+// Cool sky fill light from left
+const fillLight = new THREE.DirectionalLight(0xaaccee, 0.8);
+fillLight.position.set(-10, 8, 5);
+scene.add(fillLight);
+
+// Cabin interior point light
+const cabinPL = new THREE.PointLight(0xfff5e0, 3.5, 5.0);
+scene.add(cabinPL);
+
+// Floor accent lights — warm white
+const floorLightEG = new THREE.PointLight(0xfff0cc, 0.8, 5);
+floorLightEG.position.set(-2.5, 0.3, 1);
+scene.add(floorLightEG);
+
+const floorLightOG = new THREE.PointLight(0xfff0cc, 0.8, 5);
+floorLightOG.position.set(-2.5, 4.3, 1);
+scene.add(floorLightOG);
+
+// ── Materials ──────────────────────────────────────────
+const MAT = {
+  concrete: new THREE.MeshStandardMaterial({ color:0xdce8f0, roughness:0.7,  metalness:0.0 }),
+  steel:    new THREE.MeshStandardMaterial({ color:0xd0dce8, roughness:0.15, metalness:0.75 }),
+  cabin:    new THREE.MeshStandardMaterial({ color:0xa8c0d0, roughness:0.25, metalness:0.65,
+                                             side:THREE.DoubleSide }),
+  door:     new THREE.MeshStandardMaterial({ color:0xdcecf5, roughness:0.08, metalness:0.90 }),
+  glass:    new THREE.MeshStandardMaterial({ color:0x9fd8ea, transparent:true, opacity:0.22,
+                                             roughness:0.0, metalness:0.05, side:THREE.DoubleSide }),
+  floor:    new THREE.MeshStandardMaterial({ color:0xe8f2f8, roughness:0.6,  metalness:0.1 }),
+  emitGrn:  new THREE.MeshStandardMaterial({ color:0x22cc88, emissive:0x22cc88, emissiveIntensity:1.2 }),
+  emitRed:  new THREE.MeshStandardMaterial({ color:0xff5555, emissive:0xff4444, emissiveIntensity:1.2 }),
+  emitBlu:  new THREE.MeshStandardMaterial({ color:0x44aaee, emissive:0x44aaee, emissiveIntensity:1.2 }),
+  emitOff:  new THREE.MeshStandardMaterial({ color:0xd0dce5, roughness:0.7 }),
+  rail:     new THREE.MeshStandardMaterial({ color:0xb8ccd8, roughness:0.15, metalness:0.95 }),
+  wall:     new THREE.MeshStandardMaterial({ color:0xeaf3f8, roughness:0.6,  metalness:0.0 }),
+  glass2:   new THREE.MeshStandardMaterial({ color:0xaaddc8, transparent:true, opacity:0.15,
+                                             roughness:0.0, metalness:0.1, side:THREE.DoubleSide }),
+  grass:    new THREE.MeshStandardMaterial({ color:0x7abe5a, roughness:0.9,  metalness:0.0 }),
+  path:     new THREE.MeshStandardMaterial({ color:0xd8cbb8, roughness:0.8,  metalness:0.0 }),
+  bark:     new THREE.MeshStandardMaterial({ color:0x8a6a48, roughness:0.95, metalness:0.0 }),
+  foliage:  new THREE.MeshStandardMaterial({ color:0x58a840, roughness:0.8,  metalness:0.0,
+                                             transparent:true, opacity:0.92 }),
+};
+
+// ── Scene constants ────────────────────────────────────
+const FLOOR_EG  = 0.0;
+const FLOOR_OG  = 4.0;   // 1.OG
+const FLOOR_2OG = 8.0;   // 2.OG
+const SHAFT_W   = 2.1;
+const SHAFT_D   = 2.1;
+const SHAFT_H   = 12.0;
+const CABIN_W   = 1.75;
+const CABIN_D   = 1.75;
+const CABIN_H   = 2.3;
+
+function box(w,h,d,mat,x,y,z, shadow=true) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z);
+  if(shadow){ m.castShadow=true; m.receiveShadow=true; }
+  scene.add(m); return m;
+}
+
+// ── Ground — Wiese ──────────────────────────────────────
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), MAT.grass);
+ground.rotation.x = -Math.PI/2; ground.position.y = -0.02; ground.receiveShadow = true;
+scene.add(ground);
+// Weg / Pfad (von Fassade zum Parkbereich)
+const pathMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 30), MAT.path);
+pathMesh.rotation.x = -Math.PI/2; pathMesh.position.set(0, -0.01, 15); pathMesh.receiveShadow = true;
+scene.add(pathMesh);
+
+// ── Building — Krankenhaus Glasfassade ─────────────────
+const SLAB_GAP = SHAFT_W / 2 + 0.13;
+const SLAB_W   = 5 - SLAB_GAP;
+const SLAB_CX  = SLAB_GAP + SLAB_W / 2;
+[FLOOR_EG, FLOOR_OG, FLOOR_2OG, FLOOR_2OG + CABIN_H + 0.3].forEach(y => {
+  box(SLAB_W, 0.18, 5, MAT.floor, -SLAB_CX, y - 0.09, -0.5);
+  box(SLAB_W, 0.18, 5, MAT.floor,  SLAB_CX, y - 0.09, -0.5);
+});
+
+// Weiße Rahmenstruktur (senkrechte Pfosten)
+[-3.35, -1.35, 1.35, 3.35].forEach(x =>
+  box(0.12, SHAFT_H, 0.12, MAT.concrete, x, SHAFT_H/2 - 0.5, -2.75));
+// Waagerechte Riegel pro Etage
+[0.0, 4.0, 8.0, 11.6].forEach(y =>
+  box(8, 0.12, 0.12, MAT.concrete, 0, y, -2.75));
+
+// Glasfassade Hauptgebäude (links + rechts vom Schacht)
+[-2.35, 2.35].forEach(x =>
+  box(2.0, SHAFT_H, 0.08, MAT.glass2, x, SHAFT_H/2 - 0.5, -2.75));
+
+// Schachtrückwand (weiß)
+box(SHAFT_W + 0.4, SHAFT_H, 0.20, MAT.wall, 0, SHAFT_H/2 - 0.5, -SHAFT_D/2 - 0.12);
+// Schachtseiten (weiß)
+[-SHAFT_W/2 - 0.12, SHAFT_W/2 + 0.12].forEach(x =>
+  box(0.18, SHAFT_H, SHAFT_D + 0.4, MAT.wall, x, SHAFT_H/2 - 0.5, 0));
+
+// Glasfront Schacht
+const glassFront = box(SHAFT_W, SHAFT_H, 0.04, MAT.glass, 0, SHAFT_H/2 - 0.5, SHAFT_D/2 + 0.02, false);
+
+// Führungsschienen
+[-0.65, 0.65].forEach(x => box(0.04, SHAFT_H-0.6, 0.04, MAT.rail, x, SHAFT_H/2 - 0.5, -0.35));
+
+// ── Krankenhaus-Flügel (rechts, transparent) ────────────
+const WING_W = 9, WING_H = SHAFT_H, WING_D = 7;
+// Glasfassade Flügel (groß, transparent)
+const wingGlassMat = new THREE.MeshStandardMaterial({
+  color:0xb8dff0, transparent:true, opacity:0.18, roughness:0, metalness:0.1, side:THREE.DoubleSide
+});
+// Vordere Glaswand Flügel
+const wingFront = new THREE.Mesh(new THREE.BoxGeometry(WING_W, WING_H, 0.08), wingGlassMat);
+wingFront.position.set(3.5 + WING_W/2, WING_H/2 - 0.5, SHAFT_D/2 + 0.02);
+scene.add(wingFront);
+// Glasdecke Flügel
+const wingRoof = new THREE.Mesh(new THREE.BoxGeometry(WING_W, 0.15, WING_D + 1), wingGlassMat.clone());
+wingRoof.position.set(3.5 + WING_W/2, WING_H - 0.5, -WING_D/2 + 0.5);
+scene.add(wingRoof);
+// Weiße Pfosten Flügel
+[0, 2.5, 5, 7.5, 9].forEach(dx =>
+  box(0.14, WING_H, 0.14, MAT.concrete, 3.5 + dx, WING_H/2 - 0.5, SHAFT_D/2));
+// Flügel-Etagenplatten
+[0, 4.0, 8.0, WING_H - 0.5].forEach(y =>
+  box(WING_W, 0.14, WING_D + 1, MAT.floor, 3.5 + WING_W/2, y - 0.07, -WING_D/2 + 0.5));
+// Seitenwand Flügel (transparent)
+const wingSide = new THREE.Mesh(new THREE.BoxGeometry(0.08, WING_H, WING_D), wingGlassMat.clone());
+wingSide.position.set(3.5 + WING_W, WING_H/2 - 0.5, -WING_D/2 + 0.5);
+scene.add(wingSide);
+
+// ── Gebäude-Glasfassade (Haupteingang) — weiter vorne ───
+const FACADE_Z = SHAFT_D/2 + 5.5;   // Fassade 5.5m vor Schachttür
+const FACADE_W = 12;
+const FACADE_H = SHAFT_H;
+
+// Glasfassade (zentral + links + rechts)
+const facadeMat = new THREE.MeshStandardMaterial({
+  color:0xb8dff8, transparent:true, opacity:0.20, roughness:0, metalness:0.08, side:THREE.DoubleSide
+});
+const facadeGlass = new THREE.Mesh(new THREE.BoxGeometry(FACADE_W, FACADE_H, 0.08), facadeMat);
+facadeGlass.position.set(0, FACADE_H/2 - 0.5, FACADE_Z);
+scene.add(facadeGlass);
+
+// Weiße Rahmen-Pfosten Fassade
+[-5.5, -2.8, 0, 2.8, 5.5].forEach(dx =>
+  box(0.14, FACADE_H, 0.14, MAT.concrete, dx, FACADE_H/2 - 0.5, FACADE_Z));
+// Horizontale Riegel Fassade
+[0, 4.0, 8.0, FACADE_H - 0.5].forEach(y =>
+  box(FACADE_W, 0.12, 0.12, MAT.concrete, 0, y, FACADE_Z));
+
+// ── Flure auf jeder Etage ────────────────────────────────
+// Korridorbreite: von Schachttür (z = SHAFT_D/2) bis Fassade (z = FACADE_Z)
+const CORR_D = FACADE_Z - SHAFT_D/2;  // Tiefe des Korridors
+const CORR_W = 8;                       // Breite (±4 von Mitte)
+const CORR_Z = SHAFT_D/2 + CORR_D/2;  // Mittelpunkt Z
+
+[FLOOR_EG, FLOOR_OG, FLOOR_2OG].forEach((y, i) => {
+  // Korridor-Bodenplatte
+  const corrFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(CORR_W, 0.14, CORR_D),
+    new THREE.MeshStandardMaterial({ color:0xf0f4f8, roughness:0.55, metalness:0.05 })
+  );
+  corrFloor.position.set(0, y - 0.07, CORR_Z);
+  corrFloor.receiveShadow = true;
+  scene.add(corrFloor);
+
+  // Korridor-Decke (außer EG)
+  if (i > 0 || true) {
+    const corrCeil = new THREE.Mesh(
+      new THREE.BoxGeometry(CORR_W, 0.12, CORR_D),
+      new THREE.MeshStandardMaterial({ color:0xfafcff, roughness:0.5, metalness:0.0 })
+    );
+    corrCeil.position.set(0, y + CABIN_H - 0.06, CORR_Z);
+    scene.add(corrCeil);
+  }
+
+  // Korridor-Seitenwände (links + rechts, teilweise für Durchblick)
+  [-CORR_W/2, CORR_W/2].forEach(wx => {
+    const wallMat = new THREE.MeshStandardMaterial({
+      color:0xe8f2f8, roughness:0.6, metalness:0.0, transparent:true, opacity:0.75, side:THREE.DoubleSide
+    });
+    const corrWall = new THREE.Mesh(new THREE.BoxGeometry(0.10, CABIN_H, CORR_D * 0.55), wallMat);
+    corrWall.position.set(wx, y + CABIN_H/2, CORR_Z + CORR_D*0.1);
+    scene.add(corrWall);
+  });
+
+  // Handlauf / Brüstung an den Korridor-Seiten
+  [-CORR_W/2 + 0.08, CORR_W/2 - 0.08].forEach(wx => {
+    box(0.05, 0.05, CORR_D * 0.55, MAT.rail, wx, y + 1.0, CORR_Z + CORR_D*0.1);
+  });
+
+  // Korridorleuchten (Deckenspots)
+  if (i >= 0) {
+    [CORR_Z - CORR_D*0.2, CORR_Z + CORR_D*0.2].forEach(lz => {
+      const spotLight = new THREE.PointLight(0xfff8ee, 0.6, 4.5);
+      spotLight.position.set(0, y + CABIN_H - 0.3, lz);
+      scene.add(spotLight);
+    });
+  }
+});
+
+// ── Eingangsvordach (an der Fassade) ────────────────────
+box(6, 0.14, 2.5, MAT.floor, 0, 3.5, FACADE_Z + 1.2);
+[-2.2, 2.2].forEach(x => box(0.12, 3.5, 0.12, MAT.concrete, x, 1.75, FACADE_Z + 2.2));
+
+// Eingangsstufen
+[0.14, 0.28, 0.42].forEach((h, i) =>
+  box(3.5, 0.14, 0.45, MAT.path, 0, h/2, FACADE_Z + 0.5 + i*0.45));
+
+// ── Bäume im Park ──────────────────────────────────────
+function makeTree(x, z, h=3.5, r=1.1) {
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, h*0.38, 8), MAT.bark);
+  trunk.position.set(x, h*0.19, z); trunk.castShadow = true; scene.add(trunk);
+  // Krone (zwei überlagerte Kegel)
+  [0, h*0.12].forEach((dy, i) => {
+    const cr = r * (1 - i*0.2);
+    const ch = h * (0.72 - i*0.12);
+    const crown = new THREE.Mesh(new THREE.ConeGeometry(cr, ch, 10), MAT.foliage.clone());
+    crown.position.set(x, h*0.38 + dy + ch/2, z);
+    crown.castShadow = true; scene.add(crown);
+  });
+}
+// Bäume links vom Eingang
+makeTree(-5,  8, 4.5, 1.3);
+makeTree(-7, 12, 3.8, 1.1);
+makeTree(-5, 16, 5.0, 1.4);
+makeTree(-9, 14, 3.5, 1.0);
+// Bäume rechts vom Eingang
+makeTree( 5,  8, 4.2, 1.2);
+makeTree( 7, 14, 3.6, 1.0);
+makeTree( 5, 18, 5.5, 1.5);
+// Parkbäume weiter weg
+makeTree(-12, 10, 5.0, 1.5);
+makeTree( 14,  8, 4.8, 1.4);
+
+// ── Cabin ──────────────────────────────────────────────
+const cabinGroup = new THREE.Group();
+scene.add(cabinGroup);
+
+// Walls werden über cabinParts zur cabinGroup hinzugefügt (weiter unten)
+
+// Light fixture on ceiling
+const fixture = new THREE.Mesh(new THREE.SphereGeometry(0.1,16,16),
+  new THREE.MeshStandardMaterial({color:0xffeedd,emissive:0xffeedd,emissiveIntensity:3}));
+fixture.position.set(0, CABIN_H/2 - 0.08, 0);
+
+// Cabin door panels (split left/right)
+const DPAN_W = (CABIN_W/2 - 0.06);
+const DPAN_H = CABIN_H - 0.10;
+const cabinDoorL = new THREE.Mesh(new THREE.BoxGeometry(DPAN_W, DPAN_H, 0.05), MAT.door.clone());
+const cabinDoorR = new THREE.Mesh(new THREE.BoxGeometry(DPAN_W, DPAN_H, 0.05), MAT.door.clone());
+cabinDoorL.position.set(-CABIN_W/4,  0, CABIN_D/2);
+cabinDoorR.position.set( CABIN_W/4,  0, CABIN_D/2);
+
+// Etagenanzeige-Streifen oben an der Kabinentür (ein horizontaler LED-Balken)
+const floorIndMat = new THREE.MeshStandardMaterial({
+  color:0x44aadd, emissive:0x44aadd, emissiveIntensity:0.6, roughness:0.3
+});
+const floorInd = new THREE.Mesh(new THREE.BoxGeometry(CABIN_W - 0.15, 0.06, 0.03), floorIndMat);
+floorInd.position.set(0, CABIN_H/2 - 0.15, CABIN_D/2 + 0.02);
+
+// Kleine LED-Punkte für EG/1OG/2OG (winzig, im Türrahmen oben)
+const mkLed = (x,y) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.015), MAT.emitOff.clone());
+  m.position.set(x, y, CABIN_D/2 + 0.01); return m;
+};
+const ledCabEG  = mkLed(-0.35, CABIN_H/2 - 0.15);
+const ledCab1OG = mkLed( 0.0,  CABIN_H/2 - 0.15);
+const ledCab2OG = mkLed( 0.35, CABIN_H/2 - 0.15);
+
+[cabinDoorL, cabinDoorR, fixture, floorInd, ledCabEG, ledCab1OG, ledCab2OG].forEach(m => cabinGroup.add(m));
+// Add walls to cabin group
+cabinGroup.children[0]; // prevent re-adding — add inline:
+const cabinParts = [
+  new THREE.Mesh(new THREE.BoxGeometry(CABIN_W,CABIN_H,0.06),MAT.cabin),
+  new THREE.Mesh(new THREE.BoxGeometry(0.06,CABIN_H,CABIN_D),MAT.cabin),
+  new THREE.Mesh(new THREE.BoxGeometry(0.06,CABIN_H,CABIN_D),MAT.cabin),
+  new THREE.Mesh(new THREE.BoxGeometry(CABIN_W,0.06,CABIN_D),MAT.steel),
+  new THREE.Mesh(new THREE.BoxGeometry(CABIN_W,0.06,CABIN_D),MAT.steel),
+];
+const offsets = [
+  [0,0,-CABIN_D/2],[- CABIN_W/2,0,0],[CABIN_W/2,0,0],
+  [0,-CABIN_H/2,0],[0,CABIN_H/2,0]
+];
+cabinParts.forEach((m,i)=>{ m.position.set(...offsets[i]); cabinGroup.add(m); });
+cabinGroup.add(fixture);
+
+// ── Interior Button Panel (right wall, clickable in FP) ─
+const intPanelMat = new THREE.MeshStandardMaterial({ color:0x8aaabb, roughness:0.3, metalness:0.75 });
+const intPanel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.55, 0.18), intPanelMat);
+intPanel.position.set(CABIN_W/2 - 0.015, 0.12, 0.25);
+cabinGroup.add(intPanel);
+
+// Button factory: sticks out of right wall (-x direction)
+function makeIntBtn(zPos, yPos, col) {
+  const mat = new THREE.MeshStandardMaterial({
+    color: col, emissive: col, emissiveIntensity: 0.2, roughness: 0.3, metalness: 0.8
+  });
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.025, 16), mat);
+  m.rotation.z = Math.PI / 2;   // cylinder points inward along x
+  m.position.set(CABIN_W/2 - 0.02, yPos, zPos);
+  cabinGroup.add(m);
+  return m;
+}
+const intBtnEG   = makeIntBtn(0.18, -0.10, 0x0044cc);   // EG  — blau
+const intBtnOG   = makeIntBtn(0.18,  0.10, 0xaaaa00);   // 1.OG — gelb
+const intBtn2OG  = makeIntBtn(0.18,  0.30, 0x00aa44);   // 2.OG — grün
+const intBtnStop = makeIntBtn(0.32,  0.10, 0xcc2200);   // Stop — rot
+
+// Raycaster for FP button clicks
+const fpRaycaster = new THREE.Raycaster();
+const intBtnMap = [
+  { mesh: intBtnEG,   action: () => { window.pressCall('EG',  true); setTimeout(()=>window.pressCall('EG', false),120); } },
+  { mesh: intBtnOG,   action: () => { window.pressCall('OG',  true); setTimeout(()=>window.pressCall('OG', false),120); } },
+  { mesh: intBtn2OG,  action: () => { window.pressCall('2OG', true); setTimeout(()=>window.pressCall('2OG',false),120); } },
+  { mesh: intBtnStop, action: () => { window.toggle('stop'); } },
+];
+
+let _fpClickX = 0, _fpClickY = 0;
+
+renderer.domElement.addEventListener('mousedown', e => {
+  _fpClickX = e.clientX; _fpClickY = e.clientY;
+});
+renderer.domElement.addEventListener('click', e => {
+  if (!fpMode) return;
+  if (Math.abs(e.clientX-_fpClickX) > 6 || Math.abs(e.clientY-_fpClickY) > 6) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width)  * 2 - 1,
+    -((e.clientY - rect.top)  / rect.height) * 2 + 1
+  );
+  fpRaycaster.setFromCamera(mouse, camera);
+  const hits = fpRaycaster.intersectObjects(intBtnMap.map(b => b.mesh));
+  if (hits.length) {
+    const hit = intBtnMap.find(b => b.mesh === hits[0].object);
+    if (hit) {
+      hit.action();
+      hits[0].object.material.emissiveIntensity = 1.5;
+      setTimeout(() => { hits[0].object.material.emissiveIntensity = 0.2; }, 300);
+    }
+  }
+});
+
+// ── Landing Doors ──────────────────────────────────────
+function makeLandingDoors(floorY) {
+  const g = new THREE.Group();
+  g.position.set(0, floorY + CABIN_H/2, 0);
+  const LDPW = SHAFT_W/2 - 0.06;
+  const dL = new THREE.Mesh(new THREE.BoxGeometry(LDPW, CABIN_H-0.08, 0.07), MAT.door.clone());
+  const dR = new THREE.Mesh(new THREE.BoxGeometry(LDPW, CABIN_H-0.08, 0.07), MAT.door.clone());
+  dL.position.set(-SHAFT_W/4, 0, SHAFT_D/2 - 0.035);
+  dR.position.set( SHAFT_W/4, 0, SHAFT_D/2 - 0.035);
+  g.add(dL, dR);
+  scene.add(g);
+  return { group: g, dL, dR };
+}
+const ldEG  = makeLandingDoors(FLOOR_EG);
+const ldOG  = makeLandingDoors(FLOOR_OG);
+const ld2OG = makeLandingDoors(FLOOR_2OG);
+
+// ── Call button panels ─────────────────────────────────
+function makePanel(floorY) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 0.04),
+    new THREE.MeshStandardMaterial({color:0x1a2a35,roughness:0.5}));
+  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.065,0.065,0.03,16),
+    MAT.emitOff.clone());
+  btn.rotation.x = Math.PI/2;
+  btn.position.z = 0.03;
+  g.add(base, btn);
+  g.position.set(-SHAFT_W/2 - 0.25, floorY + 1.1, SHAFT_D/2 - 0.15);
+  scene.add(g);
+  return { btn };
+}
+const panelEG  = makePanel(FLOOR_EG);
+const panelOG  = makePanel(FLOOR_OG);
+const panel2OG = makePanel(FLOOR_2OG);
+
+// ── Floating floor labels (sprites) ───────────────────
+function makeTextSprite(text, color='#4488ff') {
+  const c = document.createElement('canvas'); c.width=128; c.height=64;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 128, 64);                   // transparent background
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.roundRect(4, 4, 120, 56, 8);
+  ctx.fill();
+  ctx.font = 'bold 34px Courier New';
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false});
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(0.7, 0.35, 1);
+  return spr;
+}
+const lblEG  = makeTextSprite('EG',  '#2a7a9a'); lblEG.position.set(-4,  0.4, 0); scene.add(lblEG);
+const lbl1OG = makeTextSprite('1.OG','#2a7a9a'); lbl1OG.position.set(-4, 4.4, 0); scene.add(lbl1OG);
+const lbl2OG = makeTextSprite('2.OG','#2a7a9a'); lbl2OG.position.set(-4, 8.4, 0); scene.add(lbl2OG);
+
+// ── Partikel (keine — saubere Architekturdarstellung) ───
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+const PCOUNT = 1; // dummy, damit spätere Referenzen nicht crashen
+
+// ── Motion trail (glow strip when moving) ─────────────
+const trailGeo = new THREE.BufferGeometry();
+const trailPositions = new Float32Array(60 * 3); // 20 history positions * 2 sides * 3
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions,3));
+const trailMat = new THREE.LineBasicMaterial({color:0x0088ff,transparent:true,opacity:0.0});
+const trail = new THREE.Line(trailGeo, trailMat);
+scene.add(trail);
+let trailHistory = [];
+
+// ════════════════════════════════════════════════════════
+//  UI HELPERS
+// ════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+
+function setLed(id, on, cls='g') {
+  const el = $(id); if(!el) return;
+  el.className = on ? `led ${cls}` : 'led';
+}
+
+function updateUI() {
+  $('stateVal').textContent = fb.eStep;
+
+  const h = sim.fHeight, d = sim.fDoor;
+  $('hBar').style.width  = h + '%';  $('hPct').textContent  = h.toFixed(1) + '%';
+  $('dBar').style.width  = d + '%';  $('dPct').textContent  = d.toFixed(1) + '%';
+
+  $('b2OG').className = 'floor-btn' + (fb.bMemCall2OG ? ' lit' : '');
+  $('bOG').className  = 'floor-btn' + (fb.bMemCallOG  ? ' lit' : '');
+  $('bEG').className  = 'floor-btn' + (fb.bMemCallEG  ? ' lit' : '');
+  $('bStop').className = 'btn red' + (stIn.bStop ? ' active' : '');
+  $('bMaint').className = 'btn' + (stIn.bMaint ? ' active' : '');
+  $('bLG').className   = 'btn' + (stIn.bLightCurtain ? ' active' : '');
+
+  // Outputs
+  setLed('l_mu', stOut.bMotorUp,   'g');
+  setLed('l_md', stOut.bMotorDown, 'g');
+  setLed('l_ms', stOut.bMotorSlow, 'y');
+  setLed('l_do', stOut.bDoorCmdOpen,  'g');
+  setLed('l_dc', stOut.bDoorCmdClose, 'y');
+  setLed('l_ls', stOut.bLampStop,  'r');
+  setLed('l_lm', stOut.bLampMaint, 'b');
+  setLed('l_ao', stOut.bAckOG,  'g');
+  setLed('l_a2', stOut.bAck2OG, 'g');
+  setLed('l_ae', stOut.bAckEG,  'g');
+
+  // Inputs
+  setLed('l_log', stIn.bLimitOG,  'b');
+  setLed('l_l2g', stIn.bLimit2OG, 'b');
+  setLed('l_leg', stIn.bLimitEG,  'b');
+  setLed('l_dop', stIn.bDoorOpen,  'g');
+  setLed('l_dcs', stIn.bDoorClosed,'g');
+  setLed('l_c2g', stIn.bCall2OG,   'y');
+  setLed('l_cog', stIn.bCallOG,    'y');
+  setLed('l_ceg', stIn.bCallEG,    'y');
+  setLed('l_stp', stIn.bStop,      'r');
+  setLed('l_mnt', stIn.bMaint,     'b');
+
+  // Data
+  $('d_h').textContent  = sim.fHeight.toFixed(3);
+  $('d_d').textContent  = sim.fDoor.toFixed(3);
+  $('d_2g').textContent = fb.bMemCall2OG ? 'TRUE' : 'FALSE';
+  $('d_og').textContent = fb.bMemCallOG  ? 'TRUE' : 'FALSE';
+  $('d_eg').textContent = fb.bMemCallEG  ? 'TRUE' : 'FALSE';
+  $('d_tm').textContent = fb.doorTimer.toFixed(3);
+  $('d_cy').textContent = plcCycle;
+}
+
+// ════════════════════════════════════════════════════════
+//  3D UPDATE
+// ════════════════════════════════════════════════════════
+function update3D() {
+  const h = sim.fHeight / 100;  // 0..1
+  const d = sim.fDoor   / 100;  // 0..1
+
+  // Cabin Y position
+  const cabinY = FLOOR_EG + h * (FLOOR_2OG - FLOOR_EG) + CABIN_H / 2;
+  cabinGroup.position.set(0, cabinY, 0);
+  cabinPL.position.set(0, cabinY + 0.3, 0.2);
+
+  // Cabin light color
+  if (stIn.bStop)       cabinPL.color.setHex(0xff6644);
+  else if (stIn.bMaint) cabinPL.color.setHex(0x88bbff);
+  else if (stOut.bMotorUp || stOut.bMotorDown) cabinPL.color.setHex(0xddf0ff);
+  else                  cabinPL.color.setHex(0xfff8ee);
+
+  cabinPL.intensity = stIn.bStop ? 2.5 : 4.0;
+
+  // Cabin door animation
+  const maxSlide = CABIN_W/2 - 0.04;
+  const doorSlide = d * maxSlide;
+  cabinDoorL.position.x = -CABIN_W/4 - doorSlide;
+  cabinDoorR.position.x =  CABIN_W/4 + doorSlide;
+
+  // Landing doors — open only when cabin is at that floor
+  const atEG  = sim.fHeight < 6;
+  const at1OG = sim.fHeight > 44 && sim.fHeight < 56;
+  const at2OG = sim.fHeight > 94;
+  const ldMaxSlide = SHAFT_W/2 - 0.04;
+
+  ldEG.dL.position.x  = -SHAFT_W/4 - (atEG  ? d*ldMaxSlide : 0);
+  ldEG.dR.position.x  =  SHAFT_W/4 + (atEG  ? d*ldMaxSlide : 0);
+  ldOG.dL.position.x  = -SHAFT_W/4 - (at1OG ? d*ldMaxSlide : 0);
+  ldOG.dR.position.x  =  SHAFT_W/4 + (at1OG ? d*ldMaxSlide : 0);
+  ld2OG.dL.position.x = -SHAFT_W/4 - (at2OG ? d*ldMaxSlide : 0);
+  ld2OG.dR.position.x =  SHAFT_W/4 + (at2OG ? d*ldMaxSlide : 0);
+
+  // Call button glow
+  function updateBtn(panel, active) {
+    panel.btn.material.color.setHex(active ? 0x00ff99 : 0x1a2535);
+    panel.btn.material.emissive = panel.btn.material.color;
+    panel.btn.material.emissiveIntensity = active ? 2.0 : 0;
+  }
+  updateBtn(panelEG,  fb.bMemCallEG);
+  updateBtn(panelOG,  fb.bMemCallOG);
+  updateBtn(panel2OG, fb.bMemCall2OG);
+
+  // Etagen-LEDs im Türrahmen (klein, diskret)
+  function updateCabinLed(led, active) {
+    led.material.color.setHex(active ? 0x22ddaa : 0xc0d8e8);
+    led.material.emissive.setHex(active ? 0x22ddaa : 0x000000);
+    led.material.emissiveIntensity = active ? 1.2 : 0;
+  }
+  updateCabinLed(ledCabEG,  stIn.bLimitEG);
+  updateCabinLed(ledCab1OG, stIn.bLimitOG);
+  updateCabinLed(ledCab2OG, stIn.bLimit2OG);
+  // Etagen-Anzeigestreifen Farbe je nach Stockwerk
+  floorInd.material.color.setHex(stIn.bLimitEG ? 0x44ddaa : stIn.bLimitOG ? 0x44aaee : stIn.bLimit2OG ? 0x88ccff : 0x4488aa);
+  floorInd.material.emissive.setHex(floorInd.material.color.getHex());
+  floorInd.material.emissiveIntensity = 0.7;
+
+  // Cabin body — subtile Aufhellung beim Fahren
+  const moving = stOut.bMotorUp || stOut.bMotorDown;
+  MAT.cabin.emissive = MAT.cabin.emissive || new THREE.Color();
+  MAT.cabin.emissive.setHex(moving ? 0xaaccdd : 0x000000);
+  MAT.cabin.emissiveIntensity = moving ? 0.08 : 0;
+
+  // Trail effect
+  if (moving) {
+    trailHistory.push(cabinY);
+    if (trailHistory.length > 20) trailHistory.shift();
+    trailMat.opacity = Math.min(0.5, trailMat.opacity + 0.05);
+  } else {
+    trailMat.opacity = Math.max(0, trailMat.opacity - 0.02);
+    if (trailHistory.length > 0) trailHistory.shift();
+  }
+
+  // Glass shaft subtle pulse when lift moving
+  MAT.glass.opacity = moving ? 0.28 : 0.20;
+}
+
+// ════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ════════════════════════════════════════════════════════
+let tcMode = false;   // true = Daten kommen von TwinCAT
+let ws     = null;
+
+// ── First-Person Modus ──────────────────────────────────
+let fpMode  = false;
+let fpYaw   = Math.PI;   // start looking toward door (+z)
+let fpPitch = 0;
+let fpDrag  = false;
+let fpLastX = 0, fpLastY = 0;
+
+renderer.domElement.addEventListener('mousedown', e => {
+  if (fpMode) { fpDrag = true; fpLastX = e.clientX; fpLastY = e.clientY; }
+});
+renderer.domElement.addEventListener('mouseup',   () => { fpDrag = false; });
+renderer.domElement.addEventListener('mousemove', e => {
+  if (!fpMode || !fpDrag) return;
+  fpYaw   -= (e.clientX - fpLastX) * 0.003;
+  fpPitch -= (e.clientY - fpLastY) * 0.003;
+  fpPitch  = Math.max(-1.1, Math.min(1.1, fpPitch));
+  fpLastX  = e.clientX; fpLastY = e.clientY;
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key !== 'f' && e.key !== 'F') return;
+  fpMode = !fpMode;
+  controls.enabled = !fpMode;
+  if (!fpMode) {
+    camera.fov = 42;
+    camera.updateProjectionMatrix();
+    camera.position.set(9, 4, 13);
+    controls.target.set(0, 3, 0);
+    controls.update();
+  } else {
+    camera.fov = 80;
+    camera.updateProjectionMatrix();
+    fpYaw   = 0;
+    fpPitch = 0;
+  }
+});
+
+let last = performance.now();
+
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt  = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  // Im TC-Modus kommen Daten von TwinCAT → JS-Sim pausieren
+  if (!tcMode) {
+    runSim(dt);
+    runElevator(dt);
+    plcCycle++;
+  }
+
+  update3D();
+  updateUI();
+
+  // ── First-Person Kamera ───────────────────────────────
+  if (fpMode) {
+    const cabinY = cabinGroup.position.y;
+    camera.position.set(0, cabinY + 0.35, 0.45);
+    const dx = Math.sin(fpYaw)   * Math.cos(fpPitch);
+    const dy = Math.sin(fpPitch);
+    const dz = Math.cos(fpYaw)   * Math.cos(fpPitch);
+    camera.lookAt(
+      camera.position.x + dx,
+      camera.position.y + dy,
+      camera.position.z + dz
+    );
+  } else {
+    controls.update();
+  }
+
+  renderer.render(scene, camera);
+}
+
+loop();
+
+// ── Resize ─────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  renderer.setSize(W(), H());
+  camera.aspect = W() / H();
+  camera.updateProjectionMatrix();
+});
+
+// ════════════════════════════════════════════════════════
+//  BUTTON EVENTS (global, called from HTML)
+// ════════════════════════════════════════════════════════
+window.pressCall = (floor, down) => {
+  if (floor === 'OG')  hmi.callOG  = down;
+  if (floor === '2OG') hmi.call2OG = down;
+  if (floor === 'EG')  hmi.callEG  = down;
+};
+
+window.toggle = (what) => {
+  if (what === 'stop')  stIn.bStop  = !stIn.bStop;
+  if (what === 'maint') stIn.bMaint = !stIn.bMaint;
+};
+
+window.lightCurtain = (down) => {
+  if (tcMode) {
+    wsWrite('lightCurtain', down);
+  } else {
+    stIn.bLightCurtain = down;
+  }
+};
+
+// ════════════════════════════════════════════════════════
+//  TWINCAT LIVE MODE  —  WebSocket ↔ ADS Bridge
+//  Wenn server.js läuft, übernimmt TC die Daten.
+//  Kein Server → läuft weiter als reine JS-Simulation.
+// ════════════════════════════════════════════════════════
+
+const badge = document.getElementById('badge');
+
+function setBadge(mode) {
+  // mode: 'sim' | 'live' | 'connecting'
+  const labels = { sim: '⬤ JS Simulation', live: '⬤ TwinCAT Live', connecting: '⬤ Verbinde TC...' };
+  badge.className = `${mode}`;
+  badge.textContent = labels[mode];
+}
+
+function wsWrite(key, value) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'write', key, value }));
+  }
+}
+
+function connectWS() {
+  setBadge('connecting');
+  ws = new WebSocket('ws://localhost:3000');
+
+  ws.onopen = () => {
+    console.log('[WS] Verbunden mit ADS-Bridge');
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+
+    if (msg.type === 'status') {
+      if (!msg.adsConnected) {
+        tcMode = false;
+        setBadge('connecting');
+      }
+      return;
+    }
+
+    if (msg.type === 'state') {
+      if (!msg.adsConnected) {
+        tcMode = false;
+        setBadge('sim');
+        return;
+      }
+
+      // ── TwinCAT Daten in lokalen Zustand schreiben ──
+      tcMode = true;
+      setBadge('live');
+
+      // Simulator-Physik überschreiben
+      sim.fHeight = msg.fHeight ?? sim.fHeight;
+      sim.fDoor   = msg.fDoor   ?? sim.fDoor;
+
+      // FB_Elevator Zustand
+      fb.eStep       = msg.eStep       ?? fb.eStep;
+      fb.bMemCallOG  = msg.bMemCallOG  ?? fb.bMemCallOG;
+      fb.bMemCall2OG = msg.bMemCall2OG ?? fb.bMemCall2OG;
+      fb.bMemCallEG  = msg.bMemCallEG  ?? fb.bMemCallEG;
+      fb.doorTimer   = msg.doorTimer   ?? fb.doorTimer;
+
+      // ST_Outputs (Motorausgänge)
+      stOut.bMotorUp      = msg.bMotorUp      ?? false;
+      stOut.bMotorDown    = msg.bMotorDown     ?? false;
+      stOut.bMotorSlow    = msg.bMotorSlow     ?? false;
+      stOut.bDoorCmdOpen  = msg.bDoorCmdOpen   ?? false;
+      stOut.bDoorCmdClose = msg.bDoorCmdClose  ?? false;
+      stOut.bLampStop     = msg.bLampStop      ?? false;
+      stOut.bLampMaint    = msg.bLampMaint     ?? false;
+      stOut.bAckOG        = msg.bAckOG         ?? false;
+      stOut.bAck2OG       = msg.bAck2OG        ?? false;
+      stOut.bAckEG        = msg.bAckEG         ?? false;
+
+      // ST_Inputs (Sensoren)
+      stIn.bLimitOG    = msg.bLimitOG    ?? false;
+      stIn.bLimit2OG   = msg.bLimit2OG   ?? false;
+      stIn.bLimitEG    = msg.bLimitEG    ?? false;
+      stIn.bDoorOpen   = msg.bDoorOpen   ?? false;
+      stIn.bDoorClosed = msg.bDoorClosed ?? false;
+      stIn.bCallOG     = msg.bCallOG     ?? false;
+      stIn.bCall2OG    = msg.bCall2OG    ?? false;
+      stIn.bCallEG     = msg.bCallEG     ?? false;
+      stIn.bStop       = msg.bStop       ?? false;
+      stIn.bMaint      = msg.bMaint      ?? false;
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('[WS] Verbindung getrennt — Fallback auf JS-Simulation');
+    tcMode = false;
+    setBadge('sim');
+    ws = null;
+    setTimeout(connectWS, 4000);  // Automatisch wiederverbinden
+  };
+
+  ws.onerror = () => {
+    // onclose wird danach aufgerufen
+    tcMode = false;
+    setBadge('sim');
+  };
+}
+
+// ── Button-Overrides für TC-Modus ──────────────────────
+// Im TC-Modus → Befehle via WS an TwinCAT schicken
+// Im Sim-Modus → lokale Variablen direkt setzen (bereits implementiert)
+
+const _origPressCall = window.pressCall;
+window.pressCall = (floor, down) => {
+  if (tcMode) {
+    if (floor === 'OG')  wsWrite('callOG',  down);
+    else if (floor === '2OG') wsWrite('call2OG', down);
+    else wsWrite('callEG', down);
+  } else {
+    _origPressCall(floor, down);
+  }
+};
+
+const _origToggle = window.toggle;
+window.toggle = (what) => {
+  if (tcMode) {
+    if (what === 'stop')  wsWrite('stop',  !stIn.bStop);
+    if (what === 'maint') wsWrite('maint', !stIn.bMaint);
+  } else {
+    _origToggle(what);
+  }
+};
+
+// TC-Modus: JS-Simulation pausieren (Daten kommen von TwinCAT)
+// Sim-Modus: JS-Simulation läuft normal
+// → Die loop()-Funktion prüft tcMode bereits via sim/fb Variablen-Override
+
+// Verbindungsversuch starten (schlägt still fehl wenn kein Server läuft)
+setTimeout(connectWS, 500);
+
+// Im Sim-Modus Badge nach kurzer Zeit setzen
+setTimeout(() => { if (!tcMode && !ws) setBadge('sim'); }, 2000);
+
+</script>
+</body>
+</html>

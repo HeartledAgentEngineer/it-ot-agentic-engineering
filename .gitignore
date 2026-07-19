@@ -1,0 +1,103 @@
+# Private & Bewerbungsdaten ausschließen
+Bewerbungen/
+KI-Manger-Kurs/
+Claude_Code_Automatisierung_Leitfaden.txt
+KI-Agenten_optimieren_TwinCAT-Code_autonom.m4a
+claude_code_masterclass_zusammenfassung.md
+
+# Agenten- & KI-Spezifische Ordner
+.agents/
+...agents/
+.claude/
+ORIGINAL_REQUEST.md
+backlog.md
+firmen_architektur_diagramm.md
+
+# Temporäre Skripte & Hilfsdateien
+set_clipboard.ps1
+sync_rules.ps1
+tempbit_test.json
+workflow-skills.zip
+workflow-skills/
+
+# Standard Programmiersprachen-Ignorieren
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+.env
+**/.env
+
+# Betriebssystem-Dateien
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# RAG-Systeme spezifische Ausschlüsse (Sicherheitsrisiken)
+02_Softwareentwicklung_IT/RAG-Systeme/chrome_profile/
+02_Softwareentwicklung_IT/RAG-Systeme/downloads/
+02_Softwareentwicklung_IT/RAG-Systeme/temp_uploads/
+02_Softwareentwicklung_IT/RAG-Systeme/KI-Manger-Kurs-data/
+02_Softwareentwicklung_IT/RAG-Systeme/*.html
+02_Softwareentwicklung_IT/RAG-Systeme/*.png
+02_Softwareentwicklung_IT/RAG-Systeme/*.json
+02_Softwareentwicklung_IT/RAG-Systeme/.env
+
+# RAG-Systeme rechtliche Ausschlüsse (Plattform-Scraper & private Kursdaten)
+02_Softwareentwicklung_IT/RAG-Systeme/*.js
+02_Softwareentwicklung_IT/RAG-Systeme/compile_handbook.py
+02_Softwareentwicklung_IT/RAG-Systeme/convert_json_to_md.py
+02_Softwareentwicklung_IT/RAG-Systeme/update_paths_db.py
+# Lokale TwinCAT-Lehrseite (lokal behalten, nicht in Git)
+01_IT-OT_Integration/TwinCAT Projekts/schrittketten_lehrseite.html
+
+# TwinCAT-Temporaerdateien & Backups
+*.~u
+*.tsproj.bak
+*.plcproj.bak
+*.user
+
+# Android-Projekte (lokal behalten, aus Git ausschließen wegen Client-Key-Risiko)
+02_Softwareentwicklung_IT/Concertify Android Prototyp/
+02_Softwareentwicklung_IT/typeFREE/android/
+
+# Dokumenten-Automatisierung (Skripte versionieren, aber lokale Ausgaben ignorieren)
+02_Softwareentwicklung_IT/document_automation/output/
+02_Softwareentwicklung_IT/document_automation/*.docx
+02_Softwareentwicklung_IT/document_automation/*.pdf
+
+# Build- & IDE-Artefakte (Visual Studio / TwinCAT / PyInstaller)
+.vs/
+_Boot/
+_CompileInfo/
+_Libraries/
+*.suo
+*.tclrs
+build/
+dist/
+*.exe
+
+# Laufzeit- & private Daten (bleiben lokal, nicht im Portfolio)
+02_Softwareentwicklung_IT/concertify/concert_data.json
+02_Softwareentwicklung_IT/RAG-Systeme/logged_in.flag
+02_Softwareentwicklung_IT/typeFREE/test.txt
+
+# Interne Arbeitsdateien & Dev-Skripte (lokal nutzbar, nicht im Portfolio)
+02_Softwareentwicklung_IT/concertify/docs/archive/
+02_Softwareentwicklung_IT/concertify/docs/superpowers/
+02_Softwareentwicklung_IT/RAG-Systeme/brainstorm.md
+02_Softwareentwicklung_IT/RAG-Systeme/plan.md
+02_Softwareentwicklung_IT/RAG-Systeme/implementation_plan.md
+02_Softwareentwicklung_IT/RAG-Systeme/Anleitung RAG.md
+02_Softwareentwicklung_IT/RAG-Systeme/Hybrid_Cloud_Infrastruktur_und_Anti_Gravity_Fallback.md
+02_Softwareentwicklung_IT/concertify/debug_*.py
+02_Softwareentwicklung_IT/concertify/patch_*.py
+02_Softwareentwicklung_IT/concertify/test_bb*.py
+02_Softwareentwicklung_IT/concertify/test_leipzig.py
+02_Softwareentwicklung_IT/concertify/fetch_leipzig.py
+02_Softwareentwicklung_IT/concertify/inject_bb.py
+02_Softwareentwicklung_IT/concertify/diag_support.py
+02_Softwareentwicklung_IT/concertify/clean_duplicate_*.py
+02_Softwareentwicklung_IT/concertify/resolve_uris*.py
+02_Softwareentwicklung_IT/concertify/search_log.py

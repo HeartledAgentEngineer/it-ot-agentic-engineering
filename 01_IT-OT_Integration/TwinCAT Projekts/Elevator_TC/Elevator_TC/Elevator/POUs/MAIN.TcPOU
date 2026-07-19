@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="MAIN" Id="{cfd090f0-c0b3-4ece-b4e6-95adceb6c6bc}">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+    fbElevator  : FB_Elevator;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// ═══════════════════════════════════════════════════════════════
+//  MAIN — Aufzugsteuerung Elevator
+//  Aufgerufen von PlcTask alle 10ms
+// ═══════════════════════════════════════════════════════════════
+
+fbElevator(
+    bEnable := TRUE     // Dauerbetrieb — Not-Halt kommt über GVL_Elevator.bEmergency
+);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

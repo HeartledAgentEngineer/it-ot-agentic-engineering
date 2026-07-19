@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anschreiben - Max Mustermann</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --dark: #1E3A5F;
+    --med: #3D5A85;
+    --text: #2D2D2D;
+    --muted: #666666;
+    --white: #FFFFFF;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #525659;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 0;
+  }
+
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: var(--white);
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.6;
+    color: var(--text);
+    padding: 25mm 20mm;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* --- ABSENDER --- */
+  .sender {
+    text-align: right;
+    margin-bottom: 15mm;
+    font-size: 9.5pt;
+    color: var(--muted);
+  }
+  .sender-name {
+    font-weight: 700;
+    color: var(--dark);
+    font-size: 11pt;
+    margin-bottom: 2px;
+  }
+
+  /* --- EMPFÄNGER --- */
+  .recipient {
+    margin-bottom: 15mm;
+    font-size: 9.5pt;
+  }
+  .recipient-company {
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* --- DATUM --- */
+  .date {
+    text-align: right;
+    margin-bottom: 8mm;
+    font-size: 9.5pt;
+    color: var(--muted);
+  }
+
+  /* --- BETREFF --- */
+  .subject {
+    font-weight: 700;
+    font-size: 12pt;
+    color: var(--dark);
+    margin-bottom: 8mm;
+    border-bottom: 2px solid var(--dark);
+    padding-bottom: 4px;
+  }
+
+  /* --- INHALT --- */
+  .content p {
+    margin-bottom: 5mm;
+    text-align: justify;
+  }
+
+  /* --- GRUSSFORMEL --- */
+  .salutation {
+    margin-top: 8mm;
+    margin-bottom: 12mm;
+  }
+
+  /* --- ANLAGEN --- */
+  .enclosures {
+    font-size: 9pt;
+    color: var(--muted);
+    border-top: 1px solid #E0E0E0;
+    padding-top: 4px;
+    margin-top: 15mm;
+  }
+
+  @media print {
+    body { background: none; padding: 0; display: block; }
+    .page {
+      box-shadow: none;
+      width: 210mm;
+      height: 297mm;
+      padding: 25mm 20mm;
+    }
+  }
+  @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- Absender -->
+  <div class="sender">
+    <div class="sender-name">Max Mustermann</div>
+    Musterstraße 1 &middot; 12345 Musterstadt<br>
+    Tel: +49 123 4567890 &middot; E-Mail: max.mustermann@example.com
+  </div>
+
+  <!-- Empfänger -->
+  <div class="recipient">
+    <div class="recipient-company">Musterfirma GmbH</div>
+    Personalabteilung<br>
+    Musterweg 10 &middot; 54321 Beispielfeld
+  </div>
+
+  <!-- Datum -->
+  <div class="date">
+    Musterstadt, den 18. Juli 2026
+  </div>
+
+  <!-- Betreff -->
+  <div class="subject">
+    Bewerbung als Automatisierungsingenieur (m/w/d) &ndash; Referenznummer 12345
+  </div>
+
+  <!-- Inhalt -->
+  <div class="content">
+    <p>Sehr geehrte Damen und Herren,</p>
+
+    <p>
+      mit großem Interesse habe ich Ihre Stellenausschreibung für die Position des Automatisierungsingenieurs in Ihrem Hause gelesen. Als Absolvent im Bereich Elektro- und Informationstechnik mit fundierter Praxiserfahrung in der SPS-Programmierung und der softwareseitigen Anbindung von Steuerungssystemen möchte ich mein Profil gerne in Ihr Team einbringen.
+    </p>
+
+    <p>
+      In meiner bisherigen beruflichen Tätigkeit konnte ich weitreichende Kenntnisse im Sondermaschinenbau und der schnellen Stückgutlogik sammeln. Dabei war ich für die vollständige Implementierung modularer Schrittketten sowie die Konzeption nutzerfreundlicher Visualisierungsschnittstellen (HMI) verantwortlich. Mein Fokus liegt hierbei stets auf strukturierten, wartbaren Abläufen und der nahtlosen Integration von Steuerungsebene und Unternehmensprozessen.
+    </p>
+
+    <p>
+      Darüber hinaus zeichnet mich eine ausgeprägte Affinität für moderne Softwarewerkzeuge aus. Die Automatisierung wiederkehrender Aufgaben und Abläufe &ndash; beispielsweise durch maßgeschneiderte Node.js- und Python-Pipelines &ndash; ist für mich ein unverzichtbarer Teil effizienter Ingenieursarbeit geworden. Ich schätze das kooperative Umfeld und die Möglichkeit, neue technologische Standards pragmatisch im Sinne des Anwenders zu etablieren.
+    </p>
+
+    <p>
+      Über eine Einladung zu einem persönlichen Gespräch, um Ihnen meine Motivation und Fähigkeiten näher vorzustellen, freue ich mich sehr.
+    </p>
+  </div>
+
+  <!-- Grußformel -->
+  <div class="salutation">
+    Mit freundlichen Grüßen,<br><br><br>
+    Max Mustermann
+  </div>
+
+  <!-- Anlagen -->
+  <div class="enclosures">
+    <strong>Anlagen:</strong> Lebenslauf, Bachelorzeugnis, Arbeitszeugnisse, Zertifikate
+  </div>
+</div>
+
+</body>
+</html>

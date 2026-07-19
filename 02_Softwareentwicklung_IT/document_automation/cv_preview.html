@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lebenslauf - Max Mustermann</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --dark: #1E3A5F;
+    --med: #3D5A85;
+    --side-bg: #EBF0F5;
+    --text: #2D2D2D;
+    --muted: #666666;
+    --white: #FFFFFF;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #525659;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+    padding: 40px 0;
+  }
+
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: var(--white);
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 9.5pt;
+    color: var(--text);
+    display: grid;
+    grid-template-columns: 28% 1fr;
+    grid-template-rows: auto 1fr;
+    grid-column-gap: 18px;
+    grid-row-gap: 12px;
+    padding: 12mm;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* --- HEADER --- */
+  .header {
+    grid-column: 1 / -1;
+    background: var(--dark);
+    padding: 22px 28px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header h1 {
+    color: var(--white);
+    font-size: 24pt;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+  .header .subtitle {
+    color: #9DB8D9;
+    font-size: 11pt;
+    font-weight: 400;
+  }
+  .header-tag {
+    color: #9DB8D9;
+    font-size: 8pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    border: 1px solid rgba(157, 184, 217, 0.4);
+    padding: 4px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* --- SIDEBAR --- */
+  .sidebar {
+    background: var(--side-bg);
+    padding: 20px 0;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .side-header {
+    background: var(--dark);
+    color: var(--white);
+    font-size: 8.5pt;
+    font-weight: 600;
+    padding: 6px 14px;
+    margin-top: 14px;
+    letter-spacing: 0.5px;
+  }
+  .side-item {
+    padding: 3px 14px;
+    font-size: 8.5pt;
+    line-height: 1.4;
+  }
+  .side-item.spaced { margin-top: 8px; }
+
+  /* --- MAIN --- */
+  .main {
+    padding: 4px 8px 12px 0;
+  }
+  .main-header {
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--dark);
+    border-bottom: 3px solid var(--dark);
+    padding-bottom: 4px;
+    margin-top: 14px;
+    margin-bottom: 10px;
+    letter-spacing: 0.3px;
+  }
+
+  /* Kurzprofil */
+  .profil {
+    font-size: 9.5pt;
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+
+  /* Job entries */
+  .job-head {
+    margin-top: 12px;
+    margin-bottom: 2px;
+  }
+  .job-head .company {
+    font-weight: 600;
+    font-size: 10pt;
+  }
+  .job-head .period {
+    color: var(--muted);
+    font-size: 9pt;
+    margin-left: 8px;
+  }
+  .job-role {
+    color: var(--med);
+    font-weight: 600;
+    font-size: 9.5pt;
+    margin-bottom: 4px;
+  }
+  .bullet {
+    padding-left: 14px;
+    position: relative;
+    font-size: 9pt;
+    line-height: 1.45;
+    margin-bottom: 2px;
+  }
+  .bullet::before {
+    content: "\2013";
+    position: absolute;
+    left: 0;
+    color: var(--med);
+    font-weight: 600;
+  }
+
+  /* Education */
+  .edu-title {
+    font-weight: 600;
+    font-size: 10pt;
+    margin-top: 10px;
+  }
+  .edu-school {
+    color: var(--med);
+    font-size: 9pt;
+  }
+  .edu-detail {
+    color: var(--muted);
+    font-size: 8.5pt;
+    margin-bottom: 8px;
+  }
+
+  @media print {
+    body { background: none; padding: 0; display: block; }
+    .page {
+      box-shadow: none;
+      width: 210mm;
+      height: 297mm;
+      padding: 12mm;
+      page-break-after: always;
+      break-after: page;
+    }
+  }
+  @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- SEITE 1 -->
+<div class="page">
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <h1>Max Mustermann</h1>
+      <div class="subtitle">Automatisierungsingenieur B.Sc.</div>
+    </div>
+    <div class="header-tag">Teil 1 von 2</div>
+  </div>
+
+  <!-- SIDEBAR SEITE 1 -->
+  <div class="sidebar">
+    <div class="side-header">KONTAKT</div>
+    <div class="side-item spaced">Musterstraße 1</div>
+    <div class="side-item">12345 Musterstadt</div>
+    <div class="side-item spaced">+49 123 4567890</div>
+    <div class="side-item">max.mustermann@example.com</div>
+    <div class="side-item spaced">
+      <a href="https://example.com/verify/profile" target="_blank" style="color: var(--dark); text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 5px;">
+        <span>LinkedIn-Profil</span>
+      </a>
+    </div>
+    <div class="side-item spaced">01.01.1990</div>
+
+    <div class="side-header">SYSTEMKOMPETENZ</div>
+    <div class="side-item">Vernetztes Denken</div>
+    <div class="side-item">KI-gestützte Entwicklung (Claude Code, LLMs)</div>
+    <div class="side-item">Modulare &amp; wartbare Softwareentwicklung</div>
+    <div class="side-item">Systemüberblick: Maschine bis ERP</div>
+    <div class="side-item">Echtzeit- &amp; event-basierte Systeme</div>
+    <div class="side-item">Systemanalyse &amp; Systemoptimierung</div>
+
+    <div class="side-header">STEUERUNGSTECHNIK</div>
+    <div class="side-item">IEC 61131-3 (ST, SFC, FUP)</div>
+    <div class="side-item">Siemens TIA Portal / WinCC Unified</div>
+    <div class="side-item">TwinCAT 3 / Beckhoff</div>
+    <div class="side-item">Profinet / EtherCAT</div>
+    <div class="side-item">OPC UA / Beckhoff ADS</div>
+  </div>
+
+  <!-- MAIN SEITE 1 -->
+  <div class="main">
+    <div class="main-header">KURZPROFIL</div>
+    <p class="profil">
+      Erfahrener Automatisierungsingenieur mit Bachelor in Elektro- und Informationstechnik.
+      Ich denke in Gesamtsystemen und bringe fundierte Praxis in der Digitalisierung mit
+      &mdash; von der Maschinenprogrammierung bis zur Büroautomation. Neben der
+      SPS-Programmierung entwickle ich sehr gerne Software-Werkzeuge in verschiedenen
+      Sprachen, um einen direkten Mehrwert für mein Kollegenumfeld und die Kunden zu bieten.
+    </p>
+
+    <div class="main-header" style="margin-top: 10px;">BERUFSERFAHRUNG</div>
+
+    <div class="job-head">
+      <span class="company">Musterfirma Aerosol GmbH</span>
+      <span class="period">01/2026 &ndash; heute</span>
+    </div>
+    <div class="job-role">Automatisierungsingenieur &ndash; Musterstadt</div>
+    <div class="bullet">Sondermaschinenbau und Montageanlagen: Konzeption und Inbetriebnahme</div>
+    <div class="bullet">Ablaufsteuerung in ST mit parallelen Schrittketten; Signalanalyse mit TwinCAT Scope</div>
+    <div class="bullet">Visualisierungen und HMI-Oberflächen in Visual Basic mit ADS-Anbindung; Prozessdatenspeicherung</div>
+    <div class="bullet">Analyse, Weiterentwicklung und modularer Strukturaufbau von SPS-Code</div>
+    <div class="bullet">IPC-Setup auf Referenzprojektbasis, Softwareverteilung via PowerShell-Skripte</div>
+
+    <div class="job-head">
+      <span class="company">Musterfirma Verfahrenstechnik KG</span>
+      <span class="period">08/2023 &ndash; 12/2025</span>
+    </div>
+    <div class="job-role">Automatisierungsingenieur &ndash; Reinbek</div>
+    <div class="bullet">Maschinenbau in der Verfahrenstechnik von Schüttgütern</div>
+    <div class="bullet">PLC- &amp; HMI-Programmierung im Siemens TIA Portal</div>
+    <div class="bullet">Entwicklung wiederverwendbarer Programm- und Visualisierungsbausteine</div>
+    <div class="bullet">Durchgängiger Anlagen-Workflow nach DIN EN 81346: P&amp;ID, Betriebsmittellisten bis zur Steuerungslogik</div>
+  </div>
+</div>
+
+<!-- SEITE 2 -->
+<div class="page">
+  <!-- CONTINUATION HEADER -->
+  <div class="header" style="padding: 14px 28px;">
+    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <h2 style="color: var(--white); font-size: 15pt; font-weight: 700; display: inline-block;">Max Mustermann</h2>
+      <span style="color: #9DB8D9; font-size: 10pt; font-weight: 400; display: inline-block; vertical-align: middle;">Automatisierungsingenieur B.Sc. &mdash; Lebenslauf</span>
+    </div>
+    <div class="header-tag">Teil 2 von 2</div>
+  </div>
+
+  <!-- SIDEBAR SEITE 2 -->
+  <div class="sidebar">
+    <div class="side-header" style="margin-top: 14px;">PROGRAMMIERUNG</div>
+    <div class="side-item">Prozedurale Programmierung (C)</div>
+    <div class="side-item">Objektorientierte Programmierung (Java)</div>
+    <div class="side-item">Git-Versionierung</div>
+    <div class="side-item">C# / .NET / WinForms</div>
+    <div class="side-item">Visual Basic / VB.NET</div>
+
+    <div class="side-header">SPRACHEN</div>
+    <div class="side-item">Deutsch &mdash; Muttersprache</div>
+    <div class="side-item">Englisch &mdash; Fortgeschritten</div>
+
+    <div class="side-header">ZERTIFIKATE</div>
+    <div class="side-item spaced">
+      <a href="https://example.com/verify/ki-manager" target="_blank" style="color: var(--dark); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+        <span>KI-Manager</span>
+      </a>
+    </div>
+    <div class="side-item" style="color: var(--muted); font-size: 8pt; margin-top: -2px;">Musterakademie &mdash; 07/2026</div>
+
+    <div class="side-item spaced">
+      <a href="https://example.com/verify/claude-code" target="_blank" style="color: var(--dark); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+        <span>Claude Code Masterclass</span>
+      </a>
+    </div>
+    <div class="side-item" style="color: var(--muted); font-size: 8pt; margin-top: -2px;">Musterakademie &mdash; 07/2026</div>
+
+    <div class="side-header">ENGAGEMENT</div>
+    <div class="side-item">Kulturelles &amp; soziales Engagement im Stadtteilverein</div>
+
+    <div class="side-header">INTERESSEN</div>
+    <div class="side-item">Kooperative Gesellschaftsspiele</div>
+    <div class="side-item">Tischtennis &amp; Yoga</div>
+    <div class="side-item">Konzert- &amp; Festivalbesuche</div>
+  </div>
+
+  <!-- MAIN SEITE 2 -->
+  <div class="main">
+    <div class="main-header" style="margin-top: 4px;">BERUFSERFAHRUNG (FORTSETZUNG)</div>
+
+    <div class="job-head">
+      <span class="company">Musterverein Spielemobil</span>
+      <span class="period">08/2018 &ndash; 08/2019</span>
+    </div>
+    <div class="job-role">Bundesfreiwilligendienst &ndash; Mölln</div>
+    <div class="bullet">Betreuung des Spielemobils, Organisation und Reparatur von Gesellschaftsspielen</div>
+    <div class="bullet">Seminare zu Kommunikation, Psychologie, Pädagogik und Jugendarbeit</div>
+
+    <div class="main-header">AUSBILDUNG</div>
+
+    <div class="edu-title">Elektro- und Informationstechnik</div>
+    <div class="edu-school">B.Sc. &mdash; Hochschule für angewandte Wissenschaften</div>
+    <div class="edu-detail">2019 &ndash; 2023 | Vertiefung: Energie- und Automatisierungstechnik</div>
+
+    <div class="edu-title">Abitur</div>
+    <div class="edu-school">Technisches Gymnasium</div>
+    <div class="edu-detail">2015 &ndash; 2018 | Erste Kenntnisse Elektro- &amp; Informationstechnik</div>
+
+    <div class="edu-title">Mittelstufe</div>
+    <div class="edu-school">Gymnasium Musterstadt</div>
+    <div class="edu-detail">2009 &ndash; 2015</div>
+  </div>
+</div>
+
+</body>
+</html>

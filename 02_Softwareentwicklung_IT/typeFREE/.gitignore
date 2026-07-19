@@ -1,0 +1,12 @@
+# API Keys - niemals hochladen!
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# System
+.DS_Store
+Thumbs.db

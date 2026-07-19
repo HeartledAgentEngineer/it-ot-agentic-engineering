@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Elevator" Id="{a1b2c3d4-e5f6-7890-abcd-ef1234567805}" SpecialFunc="None">
+    <Declaration><![CDATA[// ═══════════════════════════════════════════════════════════════
+//  FB_Elevator — Aufzugsteuerung (Schrittkette)
+//  Verwaltet Rufe, Fahrtrichtung, Tür und Not-Halt
+// ═══════════════════════════════════════════════════════════════
+FUNCTION_BLOCK FB_Elevator
+VAR_INPUT
+    bEnable         : BOOL;     // Freigabe (FALSE = alles aus)
+END_VAR
+VAR
+    // Schrittkette
+    eStep           : E_ElevatorState;
+
+    // Tür-Baustein
+    fbDoor          : FB_Door;
+
+    // Timer
+    fbWaitTimer     : TON;      // Wartezeit an Etage
+    fbBrakeTimer    : TON;      // Bremszeit nach Anhalten
+
+    // Interne Zustandsvariablen
+    nCurrentFloor   : INT := 1;         // Startposition: EG
+    nTargetFloor    : INT := 0;
+    arCallQueue     : ARRAY[1..3] OF BOOL;
+
+    // Flankenauswertung Ruftasten (bestehend)
+    fbEdgeCall1         : R_TRIG;
+    fbEdgeCall2         : R_TRIG;
+    fbEdgeCall3         : R_TRIG;
+    fbEdgeCabin1        : R_TRIG;
+    fbEdgeCabin2        : R_TRIG;
+    fbEdgeCabin3        : R_TRIG;
+
+    // Flankenauswertung Richtungsrufe außen
+    fbEdgeCall1Up       : R_TRIG;   // EG ↑
+    fbEdgeCall2Up       : R_TRIG;   // 1.OG ↑
+    fbEdgeCall2Down     : R_TRIG;   // 1.OG ↓
+    fbEdgeCall3Down     : R_TRIG;   // 2.OG ↓
+
+    // Flankenauswertung Feuerwehr / Türhalte
+    fbEdgeFireAlarm     : R_TRIG;
+    fbEdgeDoorHold      : R_TRIG;
+
+    // Hilfs-Variablen
+    nIdx            : INT;
+    nMinDist        : INT;
+    nDist           : INT;
+    nDirection      : INT := 0;   // SCAN: 1=aufwärts, -1=abwärts, 0=neutral
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// ═══════════════════════════════════════════════════════════════
+//  SICHERHEIT — Prioritäten (höchste zuerst)
+// ═══════════════════════════════════════════════════════════════
+// 1. Not-Halt
+IF NOT GVL_Elevator.bEmergency OR NOT bEnable THEN
+    eStep := eEmergency;
+// 2. Feuerwehr-Modus (nur wenn kein Not-Halt)
+ELSIF GVL_Elevator.bFireAlarm AND eStep <> eFireMode AND eStep <> eEmergency THEN
+    eStep := eFireMode;
+END_IF
+
+// ═══════════════════════════════════════════════════════════════
+//  STATUSANZEIGEN (dauerhaft aktuell)
+// ═══════════════════════════════════════════════════════════════
+GVL_Elevator.bFireAlarmLight := (eStep = eFireMode);
+GVL_Elevator.bOverloadLight  := GVL_Elevator.bOverload;
+GVL_Elevator.bDoorHoldLight  := GVL_Elevator.bDoorHold;
+
+// ═══════════════════════════════════════════════════════════════
+//  RUFTASTEN — Flankenauswertung (einmalige Übernahme in Queue)
+//  Im Feuerwehr-Modus werden keine neuen Rufe angenommen
+// ═══════════════════════════════════════════════════════════════
+IF eStep <> eFireMode AND eStep <> eEmergency THEN
+    // Legacy-Außenrufe
+    fbEdgeCall1(CLK := GVL_Elevator.bCallFloor1);
+    fbEdgeCall2(CLK := GVL_Elevator.bCallFloor2);
+    fbEdgeCall3(CLK := GVL_Elevator.bCallFloor3);
+    // Kabinentasten
+    fbEdgeCabin1(CLK := GVL_Elevator.bCabinCall1);
+    fbEdgeCabin2(CLK := GVL_Elevator.bCabinCall2);
+    fbEdgeCabin3(CLK := GVL_Elevator.bCabinCall3);
+    // Richtungsrufe außen ↑/↓
+    fbEdgeCall1Up  (CLK := GVL_Elevator.bCallFloor1Up);
+    fbEdgeCall2Up  (CLK := GVL_Elevator.bCallFloor2Up);
+    fbEdgeCall2Down(CLK := GVL_Elevator.bCallFloor2Down);
+    fbEdgeCall3Down(CLK := GVL_Elevator.bCallFloor3Down);
+
+    // Rufe in Queue eintragen
+    IF fbEdgeCall1.Q   OR fbEdgeCabin1.Q OR fbEdgeCall1Up.Q   THEN arCallQueue[1] := TRUE; END_IF
+    IF fbEdgeCall2.Q   OR fbEdgeCabin2.Q OR fbEdgeCall2Up.Q
+                       OR fbEdgeCall2Down.Q                    THEN arCallQueue[2] := TRUE; END_IF
+    IF fbEdgeCall3.Q   OR fbEdgeCabin3.Q OR fbEdgeCall3Down.Q THEN arCallQueue[3] := TRUE; END_IF
+END_IF
+
+// Ruf für aktuelles Stockwerk sofort löschen wenn Tür offen
+IF GVL_Elevator.bDoorIsOpen THEN
+    arCallQueue[nCurrentFloor] := FALSE;
+END_IF
+
+// ═══════════════════════════════════════════════════════════════
+//  STOCKWERK-SENSOR — Aktuelles Stockwerk aktualisieren
+// ═══════════════════════════════════════════════════════════════
+IF GVL_Elevator.bSensorFloor1 THEN nCurrentFloor := 1; END_IF
+IF GVL_Elevator.bSensorFloor2 THEN nCurrentFloor := 2; END_IF
+IF GVL_Elevator.bSensorFloor3 THEN nCurrentFloor := 3; END_IF
+
+// ═══════════════════════════════════════════════════════════════
+//  SCHRITTKETTE
+// ═══════════════════════════════════════════════════════════════
+CASE eStep OF
+
+    // ── Step 0: Initialisierung ─────────────────────────────
+    eInit:
+        GVL_Elevator.bMotorUp       := FALSE;
+        GVL_Elevator.bMotorDown     := FALSE;
+        GVL_Elevator.bBrake         := FALSE;
+        GVL_Elevator.bDoorOpenCmd   := FALSE;
+        GVL_Elevator.bDoorCloseCmd  := FALSE;
+        arCallQueue[1] := FALSE;
+        arCallQueue[2] := FALSE;
+        arCallQueue[3] := FALSE;
+        eStep := eIdle;
+
+    // ── Step 1: Bereit (SCAN-Algorithmus) ──────────────────
+    eIdle:
+        nTargetFloor := 0;
+
+        IF nDirection >= 0 THEN
+            // Aufwärts: nächsten Ruf auf gleicher oder höherer Etage
+            FOR nIdx := nCurrentFloor TO 3 DO
+                IF arCallQueue[nIdx] THEN nTargetFloor := nIdx; EXIT; END_IF
+            END_FOR
+            // Kein Ruf aufwärts → Richtung wechseln, abwärts suchen
+            IF nTargetFloor = 0 THEN
+                FOR nIdx := nCurrentFloor TO 1 BY -1 DO
+                    IF arCallQueue[nIdx] THEN nTargetFloor := nIdx; EXIT; END_IF
+                END_FOR
+                IF nTargetFloor > 0 THEN nDirection := -1; END_IF
+            ELSE
+                nDirection := 1;
+            END_IF
+        ELSE
+            // Abwärts: nächsten Ruf auf gleicher oder niedrigerer Etage
+            FOR nIdx := nCurrentFloor TO 1 BY -1 DO
+                IF arCallQueue[nIdx] THEN nTargetFloor := nIdx; EXIT; END_IF
+            END_FOR
+            // Kein Ruf abwärts → Richtung wechseln, aufwärts suchen
+            IF nTargetFloor = 0 THEN
+                FOR nIdx := nCurrentFloor TO 3 DO
+                    IF arCallQueue[nIdx] THEN nTargetFloor := nIdx; EXIT; END_IF
+                END_FOR
+                IF nTargetFloor > 0 THEN nDirection := 1; END_IF
+            ELSE
+                nDirection := -1;
+            END_IF
+        END_IF
+
+        IF nTargetFloor = 0 THEN
+            nDirection := 0;  // Keine Rufe → neutral
+        ELSIF nTargetFloor = nCurrentFloor THEN
+            eStep := eDoorOpening;
+        ELSE
+            eStep := eDoorClosing;
+        END_IF
+
+    // ── Step 11: Tür schließen ─────────────────────────────
+    eDoorClosing:
+        // Lichtgitter ODER Überladung: Schließen unterbrechen → Tür wieder öffnen
+        IF GVL_Elevator.bLightCurtain OR GVL_Elevator.bOverload THEN
+            GVL_Elevator.bDoorCloseCmd := FALSE;
+            GVL_Elevator.bDoorOpenCmd  := TRUE;
+            eStep := eDoorOpening;
+        ELSE
+            GVL_Elevator.bDoorOpenCmd  := FALSE;
+            GVL_Elevator.bDoorCloseCmd := TRUE;
+            fbDoor(
+                bOpenCmd  := GVL_Elevator.bDoorOpenCmd,
+                bCloseCmd := GVL_Elevator.bDoorCloseCmd,
+                bIsOpen   := GVL_Elevator.bDoorIsOpen,
+                bIsClosed := GVL_Elevator.bDoorIsClosed
+            );
+            IF fbDoor.bReady THEN
+                eStep := eDecideDirection;
+            END_IF
+        END_IF
+
+    // ── Step 20: Fahrtrichtung bestimmen ───────────────────
+    eDecideDirection:
+        GVL_Elevator.bDoorCloseCmd := FALSE;
+        GVL_Elevator.bBrake        := TRUE;  // Bremse lösen
+        IF nTargetFloor > nCurrentFloor THEN
+            eStep := eMovingUp;
+        ELSIF nTargetFloor < nCurrentFloor THEN
+            eStep := eMovingDown;
+        ELSE
+            eStep := eDoorOpening;
+        END_IF
+
+    // ── Step 30: Fahrt aufwärts ────────────────────────────
+    eMovingUp:
+        GVL_Elevator.bMotorUp   := TRUE;
+        GVL_Elevator.bMotorDown := FALSE;
+        GVL_Elevator.bBrake     := TRUE;
+        // Anhalten wenn Zielsensor aktiv
+        IF (nTargetFloor = 1 AND GVL_Elevator.bSensorFloor1)
+        OR (nTargetFloor = 2 AND GVL_Elevator.bSensorFloor2)
+        OR (nTargetFloor = 3 AND GVL_Elevator.bSensorFloor3) THEN
+            eStep := eBraking;
+        END_IF
+
+    // ── Step 31: Fahrt abwärts ─────────────────────────────
+    eMovingDown:
+        GVL_Elevator.bMotorUp   := FALSE;
+        GVL_Elevator.bMotorDown := TRUE;
+        GVL_Elevator.bBrake     := TRUE;
+        // Anhalten wenn Zielsensor aktiv
+        IF (nTargetFloor = 1 AND GVL_Elevator.bSensorFloor1)
+        OR (nTargetFloor = 2 AND GVL_Elevator.bSensorFloor2)
+        OR (nTargetFloor = 3 AND GVL_Elevator.bSensorFloor3) THEN
+            eStep := eBraking;
+        END_IF
+
+    // ── Step 38: Anhalten (Bremsrampe) ────────────────────
+    eBraking:
+        GVL_Elevator.bMotorUp   := FALSE;
+        GVL_Elevator.bMotorDown := FALSE;
+        fbBrakeTimer(IN := TRUE, PT := T#500MS);
+        IF fbBrakeTimer.Q THEN
+            fbBrakeTimer(IN := FALSE);
+            GVL_Elevator.bBrake  := FALSE;  // Bremse setzen
+            nCurrentFloor        := nTargetFloor;
+            eStep := eDoorOpening;
+        END_IF
+
+    // ── Step 40: Tür öffnen ────────────────────────────────
+    eDoorOpening:
+        GVL_Elevator.bBrake        := FALSE;
+        GVL_Elevator.bDoorCloseCmd := FALSE;
+        GVL_Elevator.bDoorOpenCmd  := TRUE;
+        fbDoor(
+            bOpenCmd  := GVL_Elevator.bDoorOpenCmd,
+            bCloseCmd := GVL_Elevator.bDoorCloseCmd,
+            bIsOpen   := GVL_Elevator.bDoorIsOpen,
+            bIsClosed := GVL_Elevator.bDoorIsClosed
+        );
+        IF fbDoor.bReady THEN
+            arCallQueue[nCurrentFloor] := FALSE;
+            eStep := eWaitingAtFloor;
+        END_IF
+
+    // ── Step 50: Wartezeit an Etage ────────────────────────
+    eWaitingAtFloor:
+        // Lichtgitter, Türhalte-Taster ODER Überladung: Timer stoppen → Tür bleibt offen
+        IF GVL_Elevator.bLightCurtain OR GVL_Elevator.bDoorHold OR GVL_Elevator.bOverload THEN
+            fbWaitTimer(IN := FALSE);
+        ELSE
+            fbWaitTimer(IN := TRUE, PT := T#4S);
+            IF fbWaitTimer.Q THEN
+                fbWaitTimer(IN := FALSE);
+                GVL_Elevator.bDoorOpenCmd := FALSE;
+                eStep := eIdle;
+            END_IF
+        END_IF
+
+    // ── Step 90: Feuerwehr-Modus ───────────────────────────
+    eFireMode:
+        // Alle normalen Rufe ignorieren, Queue löschen
+        arCallQueue[1] := FALSE;
+        arCallQueue[2] := FALSE;
+        arCallQueue[3] := FALSE;
+
+        GVL_Elevator.bDoorCloseCmd := FALSE;
+
+        IF nCurrentFloor = 1 AND GVL_Elevator.bSensorFloor1 THEN
+            // Angekommen in EG → Motor stopp, Bremse, Tür dauerhaft auf
+            GVL_Elevator.bMotorUp     := FALSE;
+            GVL_Elevator.bMotorDown   := FALSE;
+            GVL_Elevator.bBrake       := FALSE;
+            GVL_Elevator.bDoorOpenCmd := TRUE;
+            // Feuerwehrmodus verlassen wenn Alarm aufgehoben
+            IF NOT GVL_Elevator.bFireAlarm THEN
+                eStep := eInit;
+            END_IF
+        ELSIF nCurrentFloor > 1 THEN
+            // Fahrt zu EG — Tür schließen falls noch offen
+            IF NOT GVL_Elevator.bDoorIsClosed THEN
+                GVL_Elevator.bDoorOpenCmd  := FALSE;
+                GVL_Elevator.bDoorCloseCmd := TRUE;
+            ELSE
+                GVL_Elevator.bDoorCloseCmd := FALSE;
+                GVL_Elevator.bMotorUp      := FALSE;
+                GVL_Elevator.bMotorDown    := TRUE;
+                GVL_Elevator.bBrake        := TRUE;
+            END_IF
+        ELSE
+            // Im Schacht zwischen Etagen → weiter abwärts
+            GVL_Elevator.bMotorUp   := FALSE;
+            GVL_Elevator.bMotorDown := TRUE;
+            GVL_Elevator.bBrake     := TRUE;
+        END_IF
+
+    // ── Step 99: Not-Halt ──────────────────────────────────
+    eEmergency:
+        GVL_Elevator.bMotorUp       := FALSE;
+        GVL_Elevator.bMotorDown     := FALSE;
+        GVL_Elevator.bBrake         := FALSE;
+        GVL_Elevator.bDoorCloseCmd  := FALSE;
+        GVL_Elevator.bDoorOpenCmd   := TRUE;   // Tür auf im Notfall
+        // Freigabe wieder aktiv → zurück zu Init
+        IF GVL_Elevator.bEmergency AND bEnable THEN
+            eStep := eInit;
+        END_IF
+
+END_CASE
+
+// ═══════════════════════════════════════════════════════════════
+//  ETAGENANZEIGE
+// ═══════════════════════════════════════════════════════════════
+GVL_Elevator.bLightFloor1 := (nCurrentFloor = 1);
+GVL_Elevator.bLightFloor2 := (nCurrentFloor = 2);
+GVL_Elevator.bLightFloor3 := (nCurrentFloor = 3);
+
+// ═══════════════════════════════════════════════════════════════
+//  STATUS-BLOCK FÜR HMI (ADS liest GVL_Elevator.stElevator)
+// ═══════════════════════════════════════════════════════════════
+GVL_Elevator.stElevator.nCurrentFloor  := nCurrentFloor;
+GVL_Elevator.stElevator.nTargetFloor   := nTargetFloor;
+GVL_Elevator.stElevator.eState         := eStep;
+GVL_Elevator.stElevator.bDoorOpen      := GVL_Elevator.bDoorIsOpen;
+GVL_Elevator.stElevator.bMoving        := GVL_Elevator.bMotorUp OR GVL_Elevator.bMotorDown;
+GVL_Elevator.stElevator.bEmergencyStop := NOT GVL_Elevator.bEmergency;
+GVL_Elevator.stElevator.arCallQueue    := arCallQueue;
+// Neue Funktionen
+GVL_Elevator.stElevator.bFireMode      := (eStep = eFireMode);
+GVL_Elevator.stElevator.bOverload      := GVL_Elevator.bOverload;
+GVL_Elevator.stElevator.bDoorHold      := GVL_Elevator.bDoorHold;
+GVL_Elevator.stElevator.nDirection     := nDirection;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

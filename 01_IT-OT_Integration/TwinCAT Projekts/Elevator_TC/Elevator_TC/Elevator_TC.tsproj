@@ -1,0 +1,198 @@
+<?xml version="1.0"?>
+<TcSmProject xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2012/07/TcSmProject" TcSmVersion="1.0" TcVersion="3.1.4026.21">
+	<Project ProjectGUID="{B0E9D9AE-EAC7-AA39-EC34-7ECA276DD537}" Target64Bit="true" ShowHideConfigurations="#x6">
+		<System>
+			<Tasks>
+				<Task Id="3" Priority="20" CycleTime="100000" AmsPort="350" AdtTasks="true">
+					<Name>PlcTask</Name>
+				</Task>
+				<Task Id="4" Priority="21" CycleTime="100000" AmsPort="351" AdtTasks="true">
+					<Name>PlcTask1</Name>
+				</Task>
+			</Tasks>
+		</System>
+		<Plc>
+			<Project GUID="{0D24C0E7-772B-4287-8A1D-DF64A93BA7D7}" Name="Elevator" PrjFilePath="Elevator\Elevator.plcproj" TmcFilePath="Elevator\Elevator.tmc" ReloadTmc="true" AmsPort="851" FileArchiveSettings="#x000e" SymbolicMapping="true">
+				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcHash="{05E44581-46DD-E850-EBE5-5501E0C36A16}" TmcPath="Elevator\Elevator.tmc">
+					<Name>Elevator Instance</Name>
+					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
+					<Vars VarGrpType="2" AreaNo="1">
+						<Name>PlcTask Outputs</Name>
+						<Var>
+							<Name>GVL_Elevator.bMotorUp</Name>
+							<Comment><![CDATA[ Antrieb aufwärts]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bMotorDown</Name>
+							<Comment><![CDATA[ Antrieb abwärts]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bBrake</Name>
+							<Comment><![CDATA[ Bremse (TRUE = gelöst / freigegeben)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorOpenCmd</Name>
+							<Comment><![CDATA[ Befehl: Tür öffnen]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorCloseCmd</Name>
+							<Comment><![CDATA[ Befehl: Tür schließen]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bLightFloor1</Name>
+							<Comment><![CDATA[ Anzeige EG aktiv]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bLightFloor2</Name>
+							<Comment><![CDATA[ Anzeige 1.OG aktiv]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bLightFloor3</Name>
+							<Comment><![CDATA[ Anzeige 2.OG aktiv]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bFireAlarmLight</Name>
+							<Comment><![CDATA[ Feuerwehrmodus-Anzeige (z.B. rote LED)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bOverloadLight</Name>
+							<Comment><![CDATA[ Überladungsanzeige (z.B. gelbe LED)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorHoldLight</Name>
+							<Comment><![CDATA[ Türhalte aktiv (z.B. blaue LED)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="1">
+						<Name>PlcTask Inputs</Name>
+						<Var>
+							<Name>GVL_Elevator.bSensorFloor1</Name>
+							<Comment><![CDATA[ Sensor Etage 1 (EG)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bSensorFloor2</Name>
+							<Comment><![CDATA[ Sensor Etage 2 (1.OG)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bSensorFloor3</Name>
+							<Comment><![CDATA[ Sensor Etage 3 (2.OG)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorIsOpen</Name>
+							<Comment><![CDATA[ Endschalter: Tür vollständig offen]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorIsClosed</Name>
+							<Comment><![CDATA[ Endschalter: Tür vollständig geschlossen]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bEmergency</Name>
+							<Comment><![CDATA[ Not-Halt (NC: FALSE = ausgelöst)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor1</Name>
+							<Comment><![CDATA[ Ruftaste EG (legacy, gleichwertig mit Up)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor2</Name>
+							<Comment><![CDATA[ Ruftaste 1.OG (legacy)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor3</Name>
+							<Comment><![CDATA[ Ruftaste 2.OG (legacy, gleichwertig mit Down)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCabinCall1</Name>
+							<Comment><![CDATA[ Kabinentaste → EG]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCabinCall2</Name>
+							<Comment><![CDATA[ Kabinentaste → 1.OG]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCabinCall3</Name>
+							<Comment><![CDATA[ Kabinentaste → 2.OG]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bLightCurtain</Name>
+							<Comment><![CDATA[ Lichtgitter Tür (TRUE = ausgelöst)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bFireAlarm</Name>
+							<Comment><![CDATA[ Feuermelder (TRUE = Alarm aktiv)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bOverload</Name>
+							<Comment><![CDATA[ Überladungssensor (TRUE = zu schwer)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bDoorHold</Name>
+							<Comment><![CDATA[ Türhalte-Taster (TRUE = Tür offen halten)]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor1Up</Name>
+							<Comment><![CDATA[ Außenruf EG aufwärts ↑]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor2Up</Name>
+							<Comment><![CDATA[ Außenruf 1.OG aufwärts ↑]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor2Down</Name>
+							<Comment><![CDATA[ Außenruf 1.OG abwärts ↓]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_Elevator.bCallFloor3Down</Name>
+							<Comment><![CDATA[ Außenruf 2.OG abwärts ↓]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+					</Vars>
+					<Contexts>
+						<Context>
+							<Id>0</Id>
+							<Name>PlcTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010040</OTCID>
+							</ManualConfig>
+							<Priority>21</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+					</Contexts>
+					<TaskPouOids>
+						<TaskPouOid Prio="21" OTCID="#x08502001"/>
+					</TaskPouOids>
+				</Instance>
+			</Project>
+		</Plc>
+	</Project>
+</TcSmProject>

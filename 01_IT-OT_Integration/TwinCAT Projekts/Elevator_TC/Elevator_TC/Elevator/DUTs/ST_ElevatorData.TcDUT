@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_ElevatorData" Id="{a1b2c3d4-e5f6-7890-abcd-ef1234567802}">
+    <Declaration><![CDATA[TYPE ST_ElevatorData :
+STRUCT
+    nCurrentFloor   : INT;                      // Aktuelles Stockwerk (1-3)
+    nTargetFloor    : INT;                      // Zielstockwerk (1-3)
+    eState          : E_ElevatorState;          // Aktueller Zustand (Schrittkette)
+    rPosition       : REAL;                     // Position 0.0-100.0 (vom Backend gesetzt)
+    bDoorOpen       : BOOL;                     // Tür ist offen
+    bMoving         : BOOL;                     // Aufzug fährt gerade
+    bEmergencyStop  : BOOL;                     // Not-Halt aktiv
+    arCallQueue     : ARRAY[1..3] OF BOOL;      // Ausstehende Rufe je Etage
+    // ── Neue Funktionen ─────────────────────────────────────────
+    bFireMode       : BOOL;                     // Feuerwehr-Modus aktiv
+    bOverload       : BOOL;                     // Überladung erkannt
+    bDoorHold       : BOOL;                     // Türhalte-Taster gedrückt
+    nDirection      : INT;                      // Fahrtrichtung: 1=auf, -1=ab, 0=neutral
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

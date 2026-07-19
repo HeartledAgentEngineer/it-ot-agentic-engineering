@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Wissensdatenbank</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-decor-1"></div>
+    <div class="background-decor-2"></div>
+
+    <div class="app-container">
+        <!-- Sidebar / Upload Area -->
+        <div class="sidebar glass" style="overflow-y: auto;">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🧠</span>
+                    <h2>RAG System</h2>
+                </div>
+                <p class="subtitle">Persönlicher Wissens-Assistent</p>
+            </div>
+            
+            <div class="upload-section">
+                <h3>Dokument hinzufügen</h3>
+                <p class="section-desc">Lade eine PDF-Datei hoch, um sie über Mistral OCR & Gemini zu indizieren.</p>
+                
+                <div class="file-drop-area" id="dropArea">
+                    <svg class="upload-icon" viewBox="0 0 24 24" width="48" height="48">
+                        <path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                    </svg>
+                    <span id="fileLabel">PDFs, MDs, TXTs oder JSONs hierher ziehen oder klicken</span>
+                    <input type="file" id="fileInput" accept=".pdf,.md,.txt,.json" multiple style="display: none;">
+                </div>
+                
+                <button id="uploadBtn" class="btn btn-primary" disabled>
+                    <span class="btn-text">Datei indizieren</span>
+                    <span class="spinner" id="uploadSpinner" style="display: none;"></span>
+                </button>
+                
+                <div class="status-box" id="statusBox" style="display: none;">
+                    <div class="status-indicator"></div>
+                    <span class="status-text" id="statusText">Bereit</span>
+                </div>
+                
+                <!-- Dokumenten-Manager-Sektion -->
+                <div class="document-manager-section" style="margin-top: 25px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px;">
+                    <h3 style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; color: #c084fc; font-weight: 600;">
+                        <span>Indizierte Dateien</span>
+                        <button onclick="loadDocumentsList()" style="background: none; border: none; cursor: pointer; color: #a855f7; font-size: 0.8rem; font-weight: 500;" onmouseover="this.style.color='#c084fc'" onmouseout="this.style.color='#a855f7'">🔄 Aktualisieren</button>
+                    </h3>
+                    
+                    <!-- Massenaktionen-Leiste -->
+                    <div id="bulkActionsBar" style="display: none; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.03); padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 0.75rem; border: 1px solid rgba(255, 255, 255, 0.05); gap: 10px;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #e2e8f0; font-weight: 500;">
+                            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" style="cursor: pointer;">
+                            <span>Alle</span>
+                        </label>
+                        <div style="display: flex; gap: 6px;">
+                            <button onclick="bulkReindex()" title="Alle ausgewählten Dateien neu indizieren" style="background: rgba(192, 132, 252, 0.15); border: 1px solid rgba(192, 132, 252, 0.3); color: #c084fc; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(192, 132, 252, 0.3)'" onmouseout="this.style.background='rgba(192, 132, 252, 0.15)'">🔄 Re-Index</button>
+                            <button onclick="bulkDelete()" title="Alle ausgewählten Dateien löschen" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.3)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.15)'">🗑️ Löschen</button>
+                        </div>
+                    </div>
+                    
+                    <div id="documentListContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 5px;">
+                        <p style="color: #94a3b8; font-size: 0.85rem; font-style: italic;">Lade Liste...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                <p>v1.0 • Sebastian</p>
+            </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="chat-area glass">
+            <div class="chat-header">
+                <div class="chat-title-info">
+                    <h3>Wissens-Assistent</h3>
+                    <div class="online-status">
+                        <span class="dot"></span>
+                        <span>Bereit für Fragen</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="message bot">
+                    <div class="message-content">
+                        Hallo! Ich bin dein RAG-Assistent. Lade links ein Dokument hoch und stelle mir Fragen dazu. Ich werde dir ausschließlich auf Basis der indizierten Daten antworten und meine Quellen nennen.
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <div class="chat-input-wrapper">
+                    <input type="text" id="chatInput" placeholder="Stelle eine Frage an dein Wissen..." autocomplete="off">
+                    <button id="sendBtn" class="btn-send">
+                        <svg viewBox="0 0 24 24" width="20" height="20">
+                            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropArea = document.getElementById('dropArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileLabel = document.getElementById('fileLabel');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadSpinner = document.getElementById('uploadSpinner');
+        const statusBox = document.getElementById('statusBox');
+        const statusText = document.getElementById('statusText');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        let selectedFiles = [];
+
+        // Dateiauswahl Drag & Drop
+        dropArea.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', (e) => {
+            handleFileSelection(e.target.files);
+        });
+
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('dragover');
+        });
+
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.classList.remove('dragover');
+        });
+
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragover');
+            handleFileSelection(e.dataTransfer.files);
+        });
+
+        function handleFileSelection(files) {
+            selectedFiles = [];
+            const invalidFiles = [];
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (['pdf', 'md', 'txt', 'json'].includes(ext)) {
+                    selectedFiles.push(file);
+                } else {
+                    invalidFiles.push(file.name);
+                }
+            }
+            
+            if (selectedFiles.length > 0) {
+                if (invalidFiles.length > 0) {
+                    showStatus(`${selectedFiles.length} Datei(en) ausgewählt (${invalidFiles.length} ungültige übersprungen)`, 'info');
+                } else {
+                    showStatus(`${selectedFiles.length} Datei(en) ausgewählt`, 'info');
+                }
+                
+                // Layout-Schutz: Zeige bei mehreren Dateien nur die Anzahl, sonst den Namen
+                if (selectedFiles.length === 1) {
+                    fileLabel.textContent = selectedFiles[0].name;
+                } else {
+                    fileLabel.textContent = `${selectedFiles.length} Dateien bereit zum Indizieren`;
+                }
+                
+                uploadBtn.disabled = false;
+            } else {
+                showStatus('Keine gültigen PDF-, MD-, TXT- oder JSON-Dateien ausgewählt!', 'error');
+                selectedFiles = [];
+                fileLabel.textContent = 'PDFs, MDs, TXTs oder JSONs hierher ziehen oder klicken';
+                uploadBtn.disabled = true;
+            }
+        }
+
+        // Upload triggern (/sync)
+        uploadBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) return;
+
+            uploadBtn.disabled = true;
+            uploadSpinner.style.display = 'inline-block';
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                showStatus(`Indiziere Datei ${i + 1} von ${selectedFiles.length}: "${file.name}"...`, 'loading');
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('/sync', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        successCount++;
+                        appendBotMessage(`Ich habe das Dokument "${file.name}" erfolgreich eingelesen und gelernt!`);
+                    } else {
+                        failCount++;
+                        appendBotMessage(`Fehler bei "${file.name}": ${result.detail || 'Serverfehler'}`);
+                    }
+                } catch (error) {
+                    failCount++;
+                    appendBotMessage(`Netzwerkfehler bei "${file.name}"`);
+                }
+            }
+
+            if (failCount === 0) {
+                showStatus(`Erfolgreich! Alle ${successCount} Dateien indiziert.`, 'success');
+            } else {
+                showStatus(`${successCount} erfolgreich, ${failCount} fehlgeschlagen.`, 'error');
+            }
+
+            selectedFiles = [];
+            fileLabel.textContent = 'PDFs, MDs, TXTs oder JSONs hierher ziehen oder klicken';
+            fileInput.value = '';
+            uploadSpinner.style.display = 'none';
+            
+            // Liste der Dokumente aktualisieren
+            loadDocumentsList();
+        });
+
+        // Chat Frage senden (/chat)
+        async function sendMessage() {
+            const text = chatInput.value.trim();
+            if (!text) return;
+
+            // Nachricht im Chat anzeigen
+            appendUserMessage(text);
+            chatInput.value = '';
+            
+            // Bot Ladeindikator anzeigen
+            const typingIndicator = appendTypingIndicator();
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: text })
+                });
+
+                typingIndicator.remove();
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    appendBotMessage(result.answer, result.sources);
+                } else {
+                    appendBotMessage(`Fehler beim Abrufen der Antwort: ${result.detail || 'Serverfehler'}`);
+                }
+            } catch (error) {
+                typingIndicator.remove();
+                appendBotMessage('Netzwerkfehler. Bitte stelle sicher, dass der Backend-Server läuft.');
+            }
+            
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Hilfsfunktionen für Chat-Ausgabe
+        function appendUserMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'message user';
+            div.innerHTML = `<div class="message-content">${escapeHTML(text)}</div>`;
+            chatMessages.appendChild(div);
+        }
+
+        function appendBotMessage(text, sources = []) {
+            const div = document.createElement('div');
+            div.className = 'message bot';
+            
+            let sourceHtml = '';
+            if (sources && sources.length > 0) {
+                sourceHtml = '<div class="sources-list" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; width: 100%;">';
+                sources.forEach((src, idx) => {
+                    const isExternal = src.url.startsWith('http') && !src.url.includes(window.location.host);
+                    const icon = isExternal ? '🌐' : '📄';
+                    const hoverTitle = isExternal 
+                        ? `Online-Lektion aufrufen: ${src.url}`
+                        : `Pfad: pCloud -> RAG_Documents -> ${src.name}`;
+                    
+                    // Zeige den Pfad direkt auf dem Chip an (wichtig für Handys ohne Maus-Hover)
+                    const pathText = isExternal 
+                        ? '' 
+                        : ` <span style="font-size: 0.7rem; color: #94a3b8; margin-left: 4px; font-weight: normal;">(pCloud: /RAG_Documents/${escapeHTML(src.name)})</span>`;
+                    
+                    // Pfad-Backslashes für JavaScript-Aufruf escapen
+                    const escapedPath = src.original_path ? src.original_path.replace(/\\/g, '\\\\') : '';
+                    
+                    // Lokale Buttons nur für Desktop einblenden (über User-Agent Weiche)
+                    const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+                    const localActionsHtml = isMobile || isExternal
+                        ? ''
+                        : `
+                          <button onclick="event.preventDefault(); event.stopPropagation(); openLocalFile('${escapeHTML(escapedPath)}')" 
+                                  title="Datei auf diesem PC öffnen" 
+                                  style="background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 0.85rem; 
+                                         display: inline-flex; align-items: center; border-radius: 4px; transition: all 0.2s;"
+                                  onmouseover="this.style.background='rgba(255,255,255,0.15)';"
+                                  onmouseout="this.style.background='none';">🖥️</button>
+                          <button onclick="event.preventDefault(); event.stopPropagation(); openLocalFolder('${escapeHTML(escapedPath)}')" 
+                                  title="Ordner im Explorer öffnen" 
+                                  style="background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 0.85rem; 
+                                         display: inline-flex; align-items: center; border-radius: 4px; transition: all 0.2s;"
+                                  onmouseover="this.style.background='rgba(255,255,255,0.15)';"
+                                  onmouseout="this.style.background='none';">📂</button>
+                        `;
+                        
+                    sourceHtml += `
+                        <a href="${src.url}" target="_blank" rel="noopener noreferrer" class="source-badge" 
+                           style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; 
+                                  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1); 
+                                  color: #e2e8f0; font-size: 0.8rem; text-decoration: none; transition: all 0.2s;"
+                           onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'; this.style.borderColor='rgba(255, 255, 255, 0.2)';"
+                           onmouseout="this.style.background='rgba(255, 255, 255, 0.08)'; this.style.borderColor='rgba(255, 255, 255, 0.1)';"
+                           title="${escapeHTML(hoverTitle)}">
+                           <span style="color: #c084fc; font-weight: 600;">[${idx + 1}]</span> ${icon} ${escapeHTML(src.name)}${pathText}
+                           ${localActionsHtml}
+                        </a>`;
+                });
+                sourceHtml += '</div>';
+            }
+
+            // Text formatieren (einfache Zeilenumbrüche und Markdown-Fettgedruckt)
+            let formattedText = escapeHTML(text)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            // Zitate [1], [2] im Text suchen und durch klickbare Links ersetzen
+            if (sources && sources.length > 0) {
+                sources.forEach((src, idx) => {
+                    const citationNum = idx + 1;
+                    const citationRegex = new RegExp(`\\[${citationNum}\\]`, 'g');
+                    
+                    const hoverTitle = src.url.startsWith('http') && !src.url.includes(window.location.host)
+                        ? `Online-Lektion: ${src.name}`
+                        : `Datei öffnen: ${src.name}`;
+                        
+                    formattedText = formattedText.replace(citationRegex, `
+                        <a href="${src.url}" target="_blank" rel="noopener noreferrer" class="inline-citation" 
+                           style="color: #c084fc; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 0 2px;"
+                           title="${escapeHTML(hoverTitle)}">[${citationNum}]</a>
+                    `);
+                });
+            }
+
+            div.innerHTML = `
+                <div class="message-content">
+                    ${formattedText}
+                    ${sourceHtml}
+                </div>
+            `;
+            chatMessages.appendChild(div);
+        }
+
+        async function openLocalFile(filePath) {
+            try {
+                const response = await fetch(`/open-file?path=${encodeURIComponent(filePath)}`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(`Fehler: ${err.detail}`);
+                }
+            } catch (error) {
+                alert('RAG-Server Verbindungsfehler.');
+            }
+        }
+
+        async function openLocalFolder(filePath) {
+            try {
+                const response = await fetch(`/open-folder?path=${encodeURIComponent(filePath)}`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(`Fehler: ${err.detail}`);
+                }
+            } catch (error) {
+                alert('RAG-Server Explorer-Verbindungsfehler.');
+            }
+        }
+
+        function appendTypingIndicator() {
+            const div = document.createElement('div');
+            div.className = 'message bot typing';
+            div.innerHTML = `
+                <div class="message-content">
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            chatMessages.appendChild(div);
+            return div;
+        }
+
+        function showStatus(text, type) {
+            statusBox.style.display = 'flex';
+            statusBox.className = `status-box ${type}`;
+            statusText.textContent = text;
+        }
+
+        // Dokumentenliste vom Server laden und anzeigen
+        async function loadDocumentsList() {
+            const container = document.getElementById('documentListContainer');
+            const bulkBar = document.getElementById('bulkActionsBar');
+            try {
+                const response = await fetch('/documents');
+                if (!response.ok) throw new Error("Fehler beim Laden");
+                const docs = await response.json();
+                
+                container.innerHTML = '';
+                if (docs.length === 0) {
+                    container.innerHTML = '<p style="color: #94a3b8; font-size: 0.85rem; font-style: italic;">Keine Dokumente indiziert.</p>';
+                    if (bulkBar) bulkBar.style.display = 'none';
+                    return;
+                }
+                
+                // Massenleiste einblenden
+                if (bulkBar) {
+                    bulkBar.style.display = 'flex';
+                    document.getElementById('selectAllCheckbox').checked = false;
+                }
+                
+                docs.forEach(doc => {
+                    const row = document.createElement('div');
+                    row.className = 'doc-row';
+                    row.style = 'display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.05); padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);';
+                    
+                    const isCourse = doc.name.includes('Lektion') || !doc.original_path;
+                    const icon = isCourse ? '🌐' : '📄';
+                    const hoverTitle = doc.original_path ? doc.original_path : 'Online-Kursdaten (Lernplattform)';
+                    
+                    // Checkbox für Multi-Auswahl
+                    const checkboxHtml = `<input type="checkbox" class="doc-checkbox" data-filename="${escapeHTML(doc.name)}" onchange="updateBulkBarVisibility()" style="margin-right: 8px; cursor: pointer; width: 14px; height: 14px;">`;
+                    
+                    row.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 2px; overflow: hidden; width: 75%;">
+                            ${checkboxHtml}
+                            <div style="display: flex; flex-direction: column; gap: 2px; overflow: hidden;">
+                                <span style="font-size: 0.82rem; font-weight: 500; color: #e2e8f0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" title="${escapeHTML(hoverTitle)}">
+                                    ${icon} ${escapeHTML(doc.name)}
+                                </span>
+                                <span style="font-size: 0.68rem; color: #94a3b8;">${doc.chunks} Absätze</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 4px;">
+                            <button onclick="reindexDoc('${escapeHTML(doc.name)}', this)" title="Neu indizieren (neue Absatz-Methode)" 
+                                    style="background: none; border: none; cursor: pointer; padding: 4px; font-size: 0.85rem; border-radius: 4px; transition: all 0.2s;"
+                                    onmouseover="this.style.background='rgba(192, 132, 252, 0.2)';"
+                                    onmouseout="this.style.background='none';">🔄</button>
+                            <button onclick="deleteDoc('${escapeHTML(doc.name)}', this)" title="Löschen" 
+                                    style="background: none; border: none; cursor: pointer; padding: 4px; font-size: 0.85rem; border-radius: 4px; transition: all 0.2s;"
+                                    onmouseover="this.style.background='rgba(239, 68, 68, 0.2)';"
+                                    onmouseout="this.style.background='none';">🗑️</button>
+                        </div>
+                    `;
+                    container.appendChild(row);
+                });
+            } catch (error) {
+                container.innerHTML = '<p style="color: #ef4444; font-size: 0.85rem;">Fehler beim Laden der Dokumente.</p>';
+                if (bulkBar) bulkBar.style.display = 'none';
+            }
+        }
+
+        // Multi-Auswahl-Hilfsfunktionen
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.doc-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+        }
+
+        function updateBulkBarVisibility() {
+            const checkboxes = document.querySelectorAll('.doc-checkbox');
+            const checked = document.querySelectorAll('.doc-checkbox:checked');
+            const master = document.getElementById('selectAllCheckbox');
+            if (master) {
+                master.checked = checkboxes.length === checked.length && checkboxes.length > 0;
+            }
+        }
+
+        async function bulkReindex() {
+            const checked = document.querySelectorAll('.doc-checkbox:checked');
+            if (checked.length === 0) {
+                alert('Bitte wähle mindestens eine Datei aus.');
+                return;
+            }
+            if (!confirm(`Möchtest du die ${checked.length} ausgewählten Dateien wirklich neu indizieren?\n\nDie alten Chunks werden gelöscht und alle Dateien werden nach der neuen Absatz-Methode frisch eingelesen.`)) return;
+            
+            showStatus(`Indiziere ${checked.length} Dateien neu...`, 'loading');
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (let i = 0; i < checked.length; i++) {
+                const fileName = checked[i].getAttribute('data-filename');
+                showStatus(`Re-Indiziere Datei ${i + 1} von ${checked.length}: "${fileName}"...`, 'loading');
+                try {
+                    const response = await fetch(`/documents/reindex?file_name=${encodeURIComponent(fileName)}`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    failCount++;
+                }
+            }
+            
+            showStatus(`Re-Indizierung beendet: ${successCount} erfolgreich, ${failCount} fehlgeschlagen.`, failCount === 0 ? 'success' : 'error');
+            loadDocumentsList();
+        }
+
+        async function bulkDelete() {
+            const checked = document.querySelectorAll('.doc-checkbox:checked');
+            if (checked.length === 0) {
+                alert('Bitte wähle mindestens eine Datei aus.');
+                return;
+            }
+            if (!confirm(`Möchtest du alle Chunks der ${checked.length} ausgewählten Dateien unwiderruflich aus der Datenbank löschen?`)) return;
+            
+            showStatus(`Lösche ${checked.length} Dateien...`, 'loading');
+            
+            let successCount = 0;
+            let failCount = 0;
+            let totalDeletedChunks = 0;
+            
+            for (let i = 0; i < checked.length; i++) {
+                const fileName = checked[i].getAttribute('data-filename');
+                showStatus(`Lösche Datei ${i + 1} von ${checked.length}: "${fileName}"...`, 'loading');
+                try {
+                    const response = await fetch(`/documents/${encodeURIComponent(fileName)}`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        successCount++;
+                        totalDeletedChunks += result.deleted_chunks;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    failCount++;
+                }
+            }
+            
+            showStatus(`Löschen beendet: ${successCount} Dateien (${totalDeletedChunks} Chunks) entfernt, ${failCount} fehlgeschlagen.`, failCount === 0 ? 'success' : 'error');
+            loadDocumentsList();
+        }
+
+        async function reindexDoc(fileName, button) {
+            if (!confirm(`Möchtest du "${fileName}" wirklich neu indizieren (überschreiben)?\n\nDie Datei wird gelöscht und frisch nach der neuen Absatz-Chunking-Methode eingelesen.`)) return;
+            const originalText = button.textContent;
+            button.textContent = '⏳';
+            button.disabled = true;
+            try {
+                const response = await fetch(`/documents/reindex?file_name=${encodeURIComponent(fileName)}`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    loadDocumentsList();
+                } else {
+                    alert(`Fehler: ${result.detail}`);
+                }
+            } catch (error) {
+                alert('Verbindungsfehler.');
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        async function deleteDoc(fileName, button) {
+            if (!confirm(`Möchtest du alle Chunks von "${fileName}" unwiderruflich aus der Datenbank löschen?`)) return;
+            const originalText = button.textContent;
+            button.textContent = '⏳';
+            button.disabled = true;
+            try {
+                const response = await fetch(`/documents/${encodeURIComponent(fileName)}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(`Erfolgreich gelöscht: ${result.deleted_chunks} Chunks entfernt.`);
+                    loadDocumentsList();
+                } else {
+                    alert(`Fehler: ${result.detail}`);
+                }
+            } catch (error) {
+                alert('Verbindungsfehler.');
+            } finally {
+                button.textContent = originalText;
+                button.disabled = false;
+            }
+        }
+
+        // Beim Laden der Seite Dokumentenliste abrufen
+        document.addEventListener('DOMContentLoaded', loadDocumentsList);
+
+        function escapeHTML(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    </script>
+</body>
+</html>

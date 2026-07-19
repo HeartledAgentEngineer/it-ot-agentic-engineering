@@ -1,0 +1,25 @@
+{
+  "name": "document-automation-engine",
+  "version": "1.0.0",
+  "description": "Automated PDF and OpenXML Generation Engine for CVs and Cover Letters",
+  "main": "build_cv.js",
+  "scripts": {
+    "build:cv": "node build_cv.js",
+    "build:pdf": "node build_pdf.js",
+    "merge": "node merge_pdfs.js"
+  },
+  "keywords": [
+    "docx",
+    "openxml",
+    "puppeteer",
+    "pdf-lib",
+    "document-automation"
+  ],
+  "author": "Max Mustermann",
+  "license": "MIT",
+  "dependencies": {
+    "docx": "^8.2.0",
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^21.5.0"
+  }
+}

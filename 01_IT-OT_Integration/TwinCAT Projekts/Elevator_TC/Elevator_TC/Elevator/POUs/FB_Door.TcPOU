@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_Door" Id="{a1b2c3d4-e5f6-7890-abcd-ef1234567804}" SpecialFunc="None">
+    <Declaration><![CDATA[// ═══════════════════════════════════════════════════════════════
+//  FB_Door — Türsteuerung Aufzug
+//  Steuert Öffnen/Schließen und überwacht Endschalter + Timeout
+// ═══════════════════════════════════════════════════════════════
+FUNCTION_BLOCK FB_Door
+VAR_INPUT
+    bOpenCmd        : BOOL;     // Befehl: Tür öffnen
+    bCloseCmd       : BOOL;     // Befehl: Tür schließen
+    bIsOpen         : BOOL;     // Endschalter: Tür vollständig offen
+    bIsClosed       : BOOL;     // Endschalter: Tür vollständig geschlossen
+END_VAR
+VAR_OUTPUT
+    bDoorOpenOut    : BOOL;     // → Türmotor auffahren
+    bDoorCloseOut   : BOOL;     // → Türmotor zufahren
+    bReady          : BOOL;     // Tür hat Endposition erreicht (bereit)
+    bTimeout        : BOOL;     // Fehler: Endschalter kam nicht innerhalb T#10S
+END_VAR
+VAR
+    fbTimeout       : TON;      // Sicherheits-Timeout
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// Türmotor ansteuern solange Endposition nicht erreicht
+bDoorOpenOut  := bOpenCmd  AND NOT bIsOpen   AND NOT bTimeout;
+bDoorCloseOut := bCloseCmd AND NOT bIsClosed AND NOT bTimeout;
+
+// Bereit wenn Endposition erreicht oder kein Befehl aktiv
+bReady := (bOpenCmd  AND bIsOpen)
+       OR (bCloseCmd AND bIsClosed)
+       OR (NOT bOpenCmd AND NOT bCloseCmd);
+
+// Timeout-Überwachung: Motor läuft aber Endschalter kommt nicht
+fbTimeout(
+    IN := bDoorOpenOut OR bDoorCloseOut,
+    PT := T#10S
+);
+
+IF fbTimeout.Q THEN
+    bTimeout      := TRUE;
+    bDoorOpenOut  := FALSE;
+    bDoorCloseOut := FALSE;
+END_IF
+
+// Timeout zurücksetzen wenn kein Befehl aktiv
+IF NOT bOpenCmd AND NOT bCloseCmd THEN
+    bTimeout := FALSE;
+END_IF
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
