@@ -1,11 +1,11 @@
 # Agentic Engineering — Portfolio: Software von der Web-Anwendung bis zur Maschinensteuerung
 
-> **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a **self-developed**, phase-based agentic-engineering workflow, documented at the end of this page.
+> **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a disciplined, phase-based agentic-engineering workflow, documented at the end of this page.
 
 Alle Projekte hier sind mit KI-Coding-Agenten entstanden — nach festem Regelwerk, nicht ad hoc.
-Das Regelwerk dahinter ([CLAUDE.md](CLAUDE.md)) habe ich selbst entwickelt und über mehrere
-Projekte verfeinert; entstanden ist es neben der Arbeit in der Automatisierungstechnik, heute
-wende ich es vor allem auf Anwendungssoftware an. Das Repository bündelt zwei getrennte Domänen:
+Das Regelwerk dahinter ([CLAUDE.md](CLAUDE.md)) habe ich aus etablierten Praktiken
+zusammengestellt und über mehrere Projekte an meine Arbeit angepasst; entstanden ist es neben
+der Arbeit in der Automatisierungstechnik, heute wende ich es vor allem auf Anwendungssoftware an. Das Repository bündelt zwei getrennte Domänen:
 
 * **[02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md):** Eigenständige Software-Projekte: Web-Anwendung (Flask), systemweites Diktier-Tool (Windows), semantische Wissensdatenbank (RAG) und deklarative Dokumentengenerierung.
 * **[01_IT-OT_Integration](01_IT-OT_Integration/README.md):** Kopplung einer industriellen SPS-Steuerung (TwinCAT 3, Structured Text) mit einer browserbasierten 3D-Visualisierung über eine Node.js-ADS-Brücke — als Hardware-in-the-Loop-Simulation ohne physische Anlage.
