@@ -9,7 +9,7 @@ Dieser Bereich bündelt die reinen IT-Software-Projekte des Portfolios: eine Fla
 | Projekt | Stack | Status (ehrlich) | Doku |
 |---|---|---|---|
 | **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events; Clients für Spotify (spotipy/OAuth), Ticketmaster, setlist.fm, Eventim, Bandsintown, Tavily, Gemini | Funktionaler Prototyp — Single-User, läuft nur lokal, kein Deployment | [README](concertify/README.md) |
-| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`), Groq (`llama-3.1-8b-instant`), globale Keyboard-Hooks, System-Tray | Produktiv im täglichen Eigeneinsatz (Windows); Android-Companion eingestellt (siehe unten) | [README](typeFREE/README.md) |
+| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`), Groq (`llama-3.1-8b-instant`), globale Keyboard-Hooks, System-Tray, pytest | Produktiv im täglichen Eigeneinsatz (Windows); 46 automatisierte Prüfungen; Android-Companion eingestellt (siehe unten) | [README](typeFREE/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche aus Vektor- und BM25-Suche (RRF) | Funktionaler Prototyp (CLI + Web-UI) — Einzelnutzer, kein Rechte-/Mandantenkonzept | [README](RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil als lokales Einzelplatz-Tool; Daten anonymisiert, Ausgaben nicht versioniert | [README](document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen — Rapid-Prototyping-Demo, keine Weiterentwicklung geplant | [README](eichhoernchen_spiel/README.md) |
@@ -30,7 +30,7 @@ flowchart LR
     end
 
     Concertify[Concertify<br/>Flask · SQLite · SSE]
-    TypeFree[typeFREE<br/>Windows-Client · Hotkey F5]
+    TypeFree[typeFREE<br/>Windows-Client · Hotkey Alt+Ä]
     RAG[RAG-System<br/>FastAPI · ingest.py · query_db.py]
 
     subgraph Konzertdaten [Konzert- & Setlist-Quellen]
