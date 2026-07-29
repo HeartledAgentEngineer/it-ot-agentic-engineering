@@ -87,7 +87,7 @@ Am Ende jeder Workflow-Phase (siehe 8-Phasen-Workflow unten) **immer** folgendes
 ### Phasen-Disziplin & Umgang mit Ablenkungen/Abweichungen
 
 * **Themen-Abweichungen abfangen:** Wenn der Nutzer während einer Phase vom Thema abweicht oder neue Ideen einbringt, darf der Agent nicht sofort mitspringen. Stattdessen wird ein neuer To-Do- oder Brainstorming-Punkt erstellt, um später darauf zurückzukehren. Der Fokus der aktuellen Phase bleibt geschützt.
-* **Keine Phasen überspringen:** Phasen wie **Testing (Phase 5)**, **Refactor (Phase 7)** und **Commit/Aufräumen (Phase 8)** dürfen **NIEMALS** übersprungen werden. Verifikation, Testen, Verbessern und Aufräumen sind essenziell.
+* **Keine Phasen überspringen:** Phasen wie **Testing (Phase 5)**, **Refactor (Phase 7)** und **Commit/Aufräumen (Phase 8)** dürfen **NIEMALS** übersprungen werden. Verifikation, Testen, Verbessern und Aufräumen sind essenziell. Dazu zählt die Fremdprüfung durch `/critic` — ein sauberes Protokoll ist kein Ersatz für Tests, und ein leeres Protokoll ist keine Freigabe.
 * **Ehrlichkeit bei Fehlern:** Wenn der Agent etwas vergessen hat oder ein Fehler unterlaufen ist, muss er dies offen und direkt kommunizieren ("Ich habe X vergessen...").
 * **Kein unstrukturiertes Springen:** Der Agent achtet aktiv darauf, nicht unkontrolliert zwischen Planungen (Phase 3) und Ausführungen (Phase 4) hin- und herzuspringen. Phasenübergänge müssen immer erst per Dialog freigegeben werden.
 * **Maximale Einbindung & Alignment-Priorität ("Grill me"):** Der Agent darf architektonische oder gestalterische Entscheidungen niemals selbstständig treffen oder raten. Er muss bei der kleinsten Unklarheit oder an wichtigen Gabelungen sofort ein "Grill-Me"-Alignment (Phase 2) vorschlagen, um dem Nutzer die volle Kontrolle als Architekt/Designer zu lassen.
@@ -100,6 +100,7 @@ Am Ende jeder Workflow-Phase (siehe 8-Phasen-Workflow unten) **immer** folgendes
   * **Namenskonventionen:** Präfixe einhalten (`b` für BOOL, `r` für REAL, `i` für INT, `di` für DINT, `ui` für UINT, `udi` für UDINT, `iStep` für Schrittketten).
   * **iStep-Schrittketten:** Zehner-Schritte (10, 20, 30...). Aktionen in Transitionen nur für Latch-Momente (Einfrieren von Encoder-Werten).
   * **Keine Online-Änderungen:** Der Agent liefert nur Code-Blaupausen. Das Einspielen, Kompilieren und der "Online Change" an der SPS erfolgen ausschließlich manuell durch Sebastian.
+  * **Kein Fremdmodell für SPS-Code:** `/critic` schickt Code an Google. Im kostenlosen Tier nutzt Google die Inhalte zur Produktverbesserung. **SPS-, OT- und Kundencode wird niemals über `/critic` geprüft** — nur Projekte aus `02_Softwareentwicklung_IT`.
   
 * **Wenn in 02_Softwareentwicklung_IT:**
   * **Aesthetics:** Moderne Designs, vibrant colors, harmonische Paletten, dark modes, Google Fonts. Keine Standard-Browser-Aesthetics.
@@ -118,7 +119,7 @@ Für jedes Feature diesen Zyklus einhalten. Nach jeder Phase `/clear` (Context-R
 2. **Phase 2 — Alignment:** "Grill me" phase. Alle Unklarheiten klären, als `alignment.md` sichern.
 3. **Phase 3 — Planung:** Vertical Slice (Ende-zu-Ende) wählen, Teststrategie festlegen, als `plan.md` sichern.
 4. **Phase 4 — Implementierung:** Nur den Plan abarbeiten, kein Scope-Creep.
-5. **Phase 5 — Testing:** UX-Feedback geben, Bedienbarkeit prüfen.
+5. **Phase 5 — Testing:** UX-Feedback geben, Bedienbarkeit prüfen. Danach Fremdprüfung durch ein zweites KI-Modell via `/critic`. Befunde werden vorgelegt, Sebastian entscheidet je Punkt — nie automatisch beheben.
 6. **Phase 6 — Recap:** Erklärung & Diagramm durch KI (NIEMALS überspringen!).
-7. **Phase 7 — Refactor:** Code vereinfachen, aufräumen (NIEMALS überspringen!).
+7. **Phase 7 — Refactor:** Code vereinfachen, aufräumen (NIEMALS überspringen!). Danach `/critic` als Gegenprobe: Hat das Aufräumen etwas kaputtgemacht?
 8. **Phase 8 — Commit / PR:** Atomic Commits lokal machen. Markdown-Phasendateien löschen. Feierabend-Push manuell durch Nutzer!

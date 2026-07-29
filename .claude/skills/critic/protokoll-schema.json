@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["befunde"],
+  "properties": {
+    "befunde": {
+      "type": "array",
+      "description": "Alle gefundenen Probleme. Leeres Array, wenn nichts gefunden wurde.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["datei", "zeile", "schweregrad", "problem", "vorschlag"],
+        "properties": {
+          "datei": {
+            "type": "string",
+            "description": "Pfad relativ zum Projektordner"
+          },
+          "zeile": {
+            "type": "integer",
+            "description": "Zeilennummer des Problems"
+          },
+          "schweregrad": {
+            "type": "string",
+            "enum": ["KRITISCH", "HOCH", "MITTEL", "NIEDRIG"]
+          },
+          "problem": {
+            "type": "string",
+            "description": "Was ist falsch. Ein Satz, Deutsch, kein Fliesstext."
+          },
+          "vorschlag": {
+            "type": "string",
+            "description": "Wie es zu beheben waere. Ein Satz, Deutsch."
+          }
+        }
+      }
+    }
+  }
+}
