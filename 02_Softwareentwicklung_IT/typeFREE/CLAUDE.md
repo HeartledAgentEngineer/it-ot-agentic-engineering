@@ -23,7 +23,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook` |
 | API-Keys | `OPENAI_API_KEY` + `GROQ_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
-| Tests | `windows/tests/` — 20 Prüfungen mit pytest, alle gegen reine Funktionen |
+| Tests | `windows/tests/` — 53 Prüfungen mit pytest in 10 Dateien, alle gegen reine Funktionen |
 
 ## Versionierte Struktur
 
@@ -37,7 +37,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 20 Prüfungen (Hotkey, Mikrofon, Zeitgrenze, Import)
+    └── tests/                 ← 53 Prüfungen in 10 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
