@@ -9,10 +9,11 @@
 // Der API-Key kommt aus GEMINI_API_KEY. Er wird per Header uebertragen,
 // nie ueber die URL, und nie ausgegeben.
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 const STANDARD_MODELL = "gemini-flash-latest";
+const AGY_PFAD = "C:\\Users\\sebas\\AppData\\Local\\agy\\bin\\agy.exe";
 
 const ANWEISUNG = `Du bist ein strenger Senior Code Reviewer. Pruefe den folgenden Code.
 
@@ -77,17 +78,54 @@ const argumente = process.argv.slice(2);
 const modellIndex = argumente.indexOf("--modell");
 const modell = modellIndex !== -1 ? argumente[modellIndex + 1] : STANDARD_MODELL;
 
-const key = keyHolen();
-if (!key) {
-  console.error("FEHLER: GEMINI_API_KEY ist nicht gesetzt.");
-  process.exit(2);
-}
+const nutzeAgy = argumente.includes("--agy");
 
 let inhalt;
 try {
   inhalt = inhaltSammeln(argumente);
 } catch (fehler) {
   console.error(`FEHLER: ${fehler.message}`);
+  process.exit(2);
+}
+
+// --- Weg 2: Antigravity (agy). 20 Anfragen/Tag, dafuer ohne API-Schluessel. ---
+if (nutzeAgy) {
+  const prompt = ANWEISUNG + inhalt;
+  // Windows begrenzt Kommandozeilen auf ~32k Zeichen. Groessere Diffs abfangen,
+  // statt sie abgeschnitten zu pruefen - ein halbes Review ist schlimmer als keins.
+  if (prompt.length > 30000) {
+    console.error(
+      `FEHLER: Umfang zu gross fuer agy (${prompt.length} Zeichen, Grenze 30000).\n` +
+        `Weniger Dateien pruefen oder ohne --agy laufen lassen (API-Weg hat kein Limit).`,
+    );
+    process.exit(2);
+  }
+  // --sandbox: agy darf nichts ausfuehren. Der Code steckt im Prompt, damit agy
+  // keine Werkzeug-Rechte braucht - im Hintergrundbetrieb wuerden die abgelehnt.
+  const lauf = spawnSync(AGY_PFAD, ["--sandbox", "-p", prompt], {
+    encoding: "utf8",
+    maxBuffer: 20e6,
+  });
+  if (lauf.error) {
+    console.error(`FEHLER: agy nicht startbar (${lauf.error.message}).`);
+    console.error(`Erwartet unter: ${AGY_PFAD}`);
+    process.exit(1);
+  }
+  const ausgabe = (lauf.stdout ?? "").trim();
+  if (!ausgabe || /permission|no output produced/i.test(ausgabe)) {
+    console.error("FEHLER: agy lieferte kein Protokoll.");
+    console.error(ausgabe || lauf.stderr?.slice(0, 400) || "(keine Ausgabe)");
+    process.exit(1);
+  }
+  console.log(ausgabe);
+  console.error(`\n[Modell: Antigravity (agy) | Kontingent: 20 Anfragen/Tag]`);
+  process.exit(0);
+}
+
+// --- Weg 1: Gemini Developer-API. 1.500 Anfragen/Tag. ---
+const key = keyHolen();
+if (!key) {
+  console.error("FEHLER: GEMINI_API_KEY ist nicht gesetzt.");
   process.exit(2);
 }
 
