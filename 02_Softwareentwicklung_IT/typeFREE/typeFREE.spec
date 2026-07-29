@@ -10,7 +10,9 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # tkinter wird nicht mehr benutzt (Hotkey-Auswahl liegt im Tray-Menü) —
+    # ohne diesen Ausschluss packt PyInstaller es trotzdem mit ein.
+    excludes=['tkinter'],
     noarchive=False,
     optimize=0,
 )

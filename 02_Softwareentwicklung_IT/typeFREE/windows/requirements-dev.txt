@@ -1,0 +1,2 @@
+# Zusätzlich zu requirements.txt — nur für die Tests, nicht in der EXE
+pytest>=8.0
