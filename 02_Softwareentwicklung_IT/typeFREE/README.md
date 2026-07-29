@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 46 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 53 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei.
 
 ---
 
