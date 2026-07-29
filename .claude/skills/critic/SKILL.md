@@ -55,6 +55,7 @@ Im kostenlosen Tier nutzt Google übermittelte Inhalte zur Produktverbesserung. 
 
 ## Wann einsetzen
 
+- **Phase 3 (Planung) — höchster Wert.** `plan.md` gegen `alignment.md` prüfen lassen: fehlende Voraussetzungen, unbelegte Annahmen, Widersprüche, Tests für Features aus einem anderen Durchgang. Ein gefundener Planungsmangel spart einen ganzen Durchgang; ein gefundener Codefehler nur einen Fix.
 - **Phase 5 (Testing)** — nachdem der Slice läuft, bevor UX-Feedback gegeben wird
 - **Phase 7 (Refactor)** — als Gegenprobe, ob das Aufräumen etwas kaputt gemacht hat
 - Bei allem mit Nebenläufigkeit, Fremdeingaben, Dateisystem oder Netzwerk
@@ -62,7 +63,8 @@ Im kostenlosen Tier nutzt Google übermittelte Inhalte zur Produktverbesserung. 
 ## Wann NICHT
 
 - **Nie in Phase 4.** Kritik während des Bauens zerfasert die Implementierung.
-- Nicht bei Markdown, Konfiguration oder reinen Umbenennungen.
+- **Nicht in Phase 2.** Dort ist Sebastian die prüfende Instanz — was er *will*, kann kein Modell beurteilen. Dafür ist `grill-me` da.
+- Nicht bei **Prosa**-Markdown (README, Doku) oder reinen Umbenennungen. **Wohl aber** bei `plan.md` und `alignment.md` — ein Plan ist Spezifikation, kein Text.
 - Nicht als Ersatz für Tests. Der Critic findet andere Dinge als ein Testlauf, nicht dieselben.
 
 ## Ablauf
