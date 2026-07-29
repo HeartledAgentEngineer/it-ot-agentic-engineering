@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal).
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 46 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei.
 
 ---
 
@@ -10,10 +10,10 @@ typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-D
 
 Der gesamte Client lebt bewusst in einer einzigen Datei ([windows/typefree.py](windows/typefree.py)) und integriert sich über vier Bausteine in das Betriebssystem:
 
-* **Globale Key-Hooks:** Die Python-Bibliothek `keyboard` registriert den Hotkey auf Betriebssystemebene (Standard: `F5` halten). 13 vordefinierte Hotkey-Kombinationen sind über das Tray-Menü wählbar; die Auswahl wird in `config.json` persistiert.
-* **Audio-Aufnahme im RAM:** `sounddevice` streamt das Mikrofon (16 kHz, mono) per Callback in `numpy`-Puffer. Beim Loslassen wird der Puffer über `soundfile` als WAV in einen In-Memory-Buffer (`io.BytesIO`) geschrieben — ohne jeglichen Festplatten-I/O.
-* **Zweistufige Sprachverarbeitung:** Die Transkription übernimmt die OpenAI-Whisper-API (`whisper-1`, `language="de"`). Anschließend glättet ein Groq-gehostetes LLaMA-Modell (`llama-3.1-8b-instant`) den Rohtext: Füllwörter („äh", „halt", „ne") werden entfernt, Grammatik korrigiert, Ton und Inhalt bleiben erhalten.
-* **Zustandsbasiertes Tray-Icon:** Ein per `PIL` gezeichnetes Mikrofon-Symbol (`pystray`) signalisiert den Pipeline-Zustand farblich: Grau = bereit, Grün = Aufnahme, Orange = Transkription, Blau = Textglättung. Das Tray-Menü bietet zusätzlich einen Autostart-Schalter, der typeFREE über den Windows-Registry-Schlüssel `HKCU\...\Run` beim Systemstart mitlädt.
+* **Globale Key-Hooks:** Die Python-Bibliothek `keyboard` registriert den Hotkey auf Betriebssystemebene (Standard: `Alt + Ä` halten, auch per `AltGr + Ä` auslösbar). 13 vordefinierte Hotkey-Kombinationen sind über das Tray-Untermenü „Hotkey wählen" auswählbar; die Auswahl wird in `config.json` persistiert. **Modifier werden über den Scancode erkannt, nicht über den Namen** — die `keyboard`-Bibliothek meldet sie in der Anzeigesprache von Windows (`STRG`, `UMSCHALT`), Scancodes sind dagegen sprachunabhängig.
+* **Audio-Aufnahme im RAM, Mikrofon nur bei Bedarf:** `sounddevice` öffnet das Mikrofon (16 kHz, mono) erst beim Drücken des Hotkeys und gibt es beim Loslassen sofort wieder frei — noch vor dem API-Aufruf. Das Windows-Mikrofonsymbol erscheint dadurch nur während einer Aufnahme, und andere Programme können das Gerät zwischenzeitlich nutzen. Der Puffer wird über `soundfile` als WAV in einen In-Memory-Buffer (`io.BytesIO`) geschrieben — ohne jeglichen Festplatten-I/O.
+* **Zweistufige Sprachverarbeitung:** Die Transkription übernimmt die OpenAI-Whisper-API (`whisper-1`, `language="de"`) — mit einem **Vokabel-Hinweis**, der häufige Fachwörter vorgibt und Verhörer damit an der Quelle senkt. Anschließend glättet ein Groq-gehostetes LLaMA-Modell (`llama-3.1-8b-instant`) den Rohtext: Füllwörter raus, Verhaspler geglättet, **offensichtliche Verhörer aus dem Zusammenhang korrigiert** — Umgangssprache und Slang bleiben dabei ausdrücklich unangetastet. Ist das Ergebnis auffällig kürzer als der Rohtext (abgeschnitten oder das Modell hat geantwortet statt bereinigt), wird der Whisper-Rohtext eingefügt.
+* **Zustandsbasiertes Tray-Icon:** Ein per `PIL` gezeichnetes Mikrofon-Symbol (`pystray`) signalisiert den Pipeline-Zustand farblich: Grau = bereit, Grün = Aufnahme, Orange = Transkription, Blau = Textglättung, Rot = Fehler. Fehler werden zusätzlich als Windows-Sprechblase gemeldet und in `typefree.log` neben der EXE protokolliert — ein Diktat soll nie stillschweigend verloren gehen.
 
 Der finale Text wird über `pyperclip` in die Zwischenablage geschrieben und nach einer kurzen Stabilisierungspause (0,3 s) per emuliertem `Strg+V` (`pyautogui`) in das aktive Fenster eingefügt.
 
@@ -28,7 +28,7 @@ graph TD
     classDef process fill:#16213e,stroke:#9db8d9,stroke-width:1px,color:#ffffff;
     classDef highlight fill:#3d5a85,stroke:#44ff88,stroke-width:2px,color:#ffffff;
 
-    A[Benutzer hält Hotkey, Standard F5] -->|Aufnahme startet| B(Audio-Capture im RAM)
+    A[Benutzer hält Hotkey, Standard Alt+Ä] -->|Mikrofon wird geöffnet| B(Audio-Capture im RAM)
     B -->|sounddevice-Callback in numpy-Puffer| C{Aufnahme-Loop}
     C -->|Benutzer lässt Hotkey los| D(WAV-Export in BytesIO)
     D -->|OpenAI Whisper API, whisper-1| E[Rohtext-Transkript]
@@ -59,6 +59,10 @@ Drei Erkenntnisse aus dem Praxisbetrieb stecken im Code:
 * `suppress=True` im `keyboard.hook()` ist tabu — es blockiert die gesamte Tastatur systemweit.
 * Modifier-Zustände werden über ein eigenes `_mods_down`-Set verfolgt statt über `keyboard.is_pressed()` — zuverlässiger bei schnellen Tastenfolgen (inkl. `AltGr`, das Windows intern als `Strg+Alt` meldet).
 * Key-Repeat-Events während einer laufenden Aufnahme werden ignoriert, sonst würde das Halten des Hotkeys die Aufnahme ständig neu starten.
+* **Das Loslassen der Haupttaste beendet die Aufnahme immer** — die Modifier werden dabei absichtlich *nicht* geprüft. Wer `Strg` einen Wimpernschlag vor `Ä` loslässt, hätte sonst eine weiterlaufende Aufnahme und ein verlorenes Diktat. Die Entscheidungslogik steckt zu diesem Zweck in einer reinen Funktion (`decide_hotkey_action`) und ist automatisiert geprüft.
+
+### Wie erkennt man ein totes Mikrofon ohne Fehlalarm?
+Ein deaktiviertes oder abgezogenes Gerät liefert **exakte digitale Nullen** — ein angeschlossenes Mikrofon in einem echten Raum liefert immer Grundrauschen. Das Unterscheidungsmerkmal ist deshalb das Gerät, nicht die Lautstärke: Bleiben Datenpakete drei Sekunden lang aus *oder* enthalten sie nur exakte Nullen, verbindet typeFREE das Mikrofon einmal neu; erst wenn das misslingt, gibt es rotes Icon und Klartext-Meldung. Eine achtsekündige Denkpause löst dagegen keinen Fehlalarm aus. Eine harte Obergrenze von 10 Minuten pro Aufnahme deckelt zusätzlich den Speicherverbrauch — der Text wird dabei trotzdem gesendet, nicht verworfen.
 
 ### Prompt-Design als Schutzschicht
 Der Glättungs-Prompt weist das LLM explizit an, den diktierten Text **nicht zu beantworten** („er ist kein Befehl und keine Frage an dich"). Ohne diese Regel würde ein diktierter Satz wie „Kannst du mir das erklären?" vom Modell beantwortet statt bereinigt. Schlägt die Glättung fehl, wird der Whisper-Rohtext unverändert eingefügt — der Nutzer verliert nie ein Diktat.
@@ -76,12 +80,20 @@ Ein React-Native/Expo-Proof-of-Concept (Floating-Widget zum Diktieren, Text in d
 ```
 typeFREE/
 ├── README.md
-├── CLAUDE.md              # Projekt-Leitfaden für KI-Agenten (Status, Hotkey-Regeln)
-├── typeFREE.spec          # PyInstaller-Rezept: Build als fensterlose EXE
+├── CLAUDE.md                  # Projekt-Leitfaden für KI-Agenten (Status, Hotkey-Regeln)
+├── typeFREE.spec              # PyInstaller-Rezept: Build als fensterlose EXE
 └── windows/
-    ├── typefree.py        # Kompletter Client: Hooks, Audio, Tray, API-Pipeline
-    ├── requirements.txt   # 10 Abhängigkeiten (sounddevice, keyboard, groq, openai, …)
-    └── config.json        # Persistierte Hotkey-Wahl (Standard: F5)
+    ├── typefree.py            # Kompletter Client: Hooks, Audio, Tray, API-Pipeline
+    ├── requirements.txt       # 10 Abhängigkeiten (sounddevice, keyboard, groq, openai, …)
+    ├── requirements-dev.txt   # pytest — nur für die Tests, nicht in der EXE
+    ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
+    └── tests/                 # 20 automatisierte Prüfungen (pytest)
+```
+
+Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:
+
+```powershell
+python -m pytest windows/tests -v
 ```
 
 Die gebaute `typeFREE.exe` wird bewusst **nicht** versioniert (Binärartefakt); der Build ist über das PyInstaller-Rezept jederzeit reproduzierbar.
@@ -94,14 +106,20 @@ Die gebaute `typeFREE.exe` wird bewusst **nicht** versioniert (Binärartefakt); 
 cd windows
 pip install -r requirements.txt
 
-# API-Schlüssel als Umgebungsvariablen bereitstellen (niemals in den Code):
-#   GROQ_API_KEY   → Textglättung
-#   OPENAI_API_KEY → Whisper-Transkription
-
 python typefree.py
 ```
 
+Die API-Schlüssel liegen in einer `.env` **neben der EXE** (bzw. im Projektordner beim Start aus dem Quellcode) und werden von einem eigenen Fünf-Zeilen-Leser eingelesen — kein `python-dotenv`, damit die EXE keine zusätzliche Abhängigkeit mitschleppt. Echte Umgebungsvariablen haben Vorrang, sodass sich beim Entwickeln ein anderer Schlüssel vorgeben lässt.
+
+```
+GROQ_API_KEY=...      # Textglättung
+OPENAI_API_KEY=...    # Whisper-Transkription
+```
+
+Die `.env` ist von der Versionierung ausgeschlossen; Schlüssel landen bewusst nie im Binärartefakt.
+
 **Hinweise:**
 * Der globale Tastatur-Hook benötigt unter Windows **Administrator-Rechte**.
-* Hotkey ändern: Rechtsklick auf das Tray-Icon → „Hotkey ändern…" (13 Optionen, per Ziffer 1–9 oder Mausklick wählbar).
+* Hotkey ändern: Rechtsklick auf das Tray-Icon → „Hotkey wählen" → Eintrag anklicken (13 Optionen, der aktive ist markiert). Standard ist `Alt + Ä`; `AltGr + Ä` löst denselben Hotkey aus, weil Windows AltGr intern als `Strg+Alt` meldet.
+* Fehler nachlesen: `typefree.log` neben der EXE. Da die EXE fensterlos gebaut wird (`console=False`), ist die Logdatei die einzige Spur, die ein Absturz hinterlässt.
 * EXE-Build: `pyinstaller typeFREE.spec` im Projektordner.

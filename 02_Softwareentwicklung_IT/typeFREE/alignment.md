@@ -50,7 +50,7 @@ typeFREE ist ohne Zutun verfügbar: Es startet bei der Anmeldung mit Admin-Recht
 | 10 | Unterscheidungsmerkmal ist **das Gerät, nicht die Lautstärke** | Ein echter Raum liefert immer Grundrauschen; exakte Null bedeutet zuverlässig „abgeklemmt" |
 | 11 | **Loslassen beendet die Aufnahme. Immer.** Auch wenn ein Modifier zuerst losgelassen wird | Behebt das „Abrutschen"; Voraussetzung für den Wechsel auf eine Strg-Kombination |
 | 12 | Harte Obergrenze **10 Minuten**, Text wird trotzdem gesendet | Stoppt das Speicherleck, ohne ein reales Diktat abzuschneiden |
-| 13 | Neuer Standard-Hotkey **Strg + Shift + Ä** | F5 kollidiert mit der Funktionstasten-Belegung des Rechners |
+| 13 | ~~Neuer Standard-Hotkey **Strg + Shift + Ä**~~ → **korrigiert am 2026-07-29 (Phase 5): Standard bleibt `Alt + Ä` (Index 10)** | Die Annahme „Standard ist F5" stammte aus `windows/config.json` — die wurde beim Start aus dem Quellcode aber **nie gelesen** (falscher Pfad, in Phase 5 behoben). Sebastians tatsächlicher Alltags-Hotkey stand in `dist/config.json` und war seit immer `Alt + Ä`. `AltGr + Ä` löst denselben aus, weil Windows AltGr als Strg+Alt meldet — damit ist auch der AltGr-Wunsch erfüllt, ohne neuen Code. |
 | 14 | Aufnahme-Modus bleibt **Halten** | Umschalt-Modus ist gewünscht, aber ein eigener Slice |
 | 15 | **Nur Fehler** werden gemeldet, der Aufnahme-Ballon entfällt | Das grüne Tray-Icon reicht als Rückmeldung für den Normalfall |
 | 16 | **Guthaben leer** wird an der fehlgeschlagenen Anfrage erkannt → rotes Icon + Klartext | Zuverlässiges Signal ohne Zusatzabfrage und ohne zweiten Schlüssel |
@@ -66,7 +66,7 @@ typeFREE ist ohne Zutun verfügbar: Es startet bei der Anmeldung mit Admin-Recht
 ## Slice-Zuschnitt
 
 **Durchgang 1 — Stabilität und Mikrofon**
-`main()`-Umbau · `.env`-Leser · Mikrofon nur bei Bedarf · 3-Sekunden-Wächter mit Neuverbindung · Loslassen-Fix · 10-Minuten-Grenze · Logdatei und Fehler-Abfänger · Herunterfahren nicht mehr blockieren · nur Fehler-Meldungen · Hotkey-Standard `Strg+Shift+Ä` · vier Tests
+`main()`-Umbau · `.env`-Leser · Mikrofon nur bei Bedarf · 3-Sekunden-Wächter mit Neuverbindung · Loslassen-Fix · 10-Minuten-Grenze · Logdatei und Fehler-Abfänger · Herunterfahren nicht mehr blockieren · nur Fehler-Meldungen · Hotkey-Standard `Alt + Ä` (Korrektur aus Phase 5, siehe Entscheidung 13) · vier Tests
 
 **Durchgang 2 — Autostart, Umzug und Feinschliff**
 Programmordner unter `%LOCALAPPDATA%` · `einrichten.cmd` · Aufgabenplanung · 3-Fehlstart-Regel · Kosten mitrechnen · Guthaben-Erkennung · neue Groq-Anweisung · README-Abschnitt
@@ -90,7 +90,7 @@ Programmordner unter `%LOCALAPPDATA%` · `einrichten.cmd` · Aufgabenplanung · 
 
 - [ ] Sebastian baut die EXE nach dem Umbau selbst neu (`pyinstaller typeFREE.spec`)
 - [ ] Der Tastatur-Hook braucht tatsächlich Admin-Rechte — die README behauptet es, gemessen wurde es nie
-- [ ] Wie typeFREE **heute** an die API-Schlüssel kommt, ist weiterhin ungeklärt (nicht als Umgebungsvariable, `.env` wird nicht gelesen)
+- [x] **GEKLÄRT am 2026-07-29 (Phase 5):** typeFREE kam bisher über **Umgebungsvariablen der Terminal-Sitzung** an die Schlüssel — dauerhaft gesetzt ist keine (`HKCU\Environment` geprüft, leer). Die `.env` im Projektordner enthält nur Platzhalter (`YOUR_OPENAI_API_KEY`), `dist/.env` enthält den echten OpenAI-Schlüssel, aber **keinen** Groq-Schlüssel. Der alte Code hat beide Dateien nie gelesen.
 - [ ] Die neue Groq-Anweisung gehört in Durchgang 2, nicht in Durchgang 1
 - [ ] Der Programmordner unter `%LOCALAPPDATA%` liegt in keiner Cloud-Synchronisation
 - [ ] Ein Diktat dauert im Alltag deutlich unter 10 Minuten
@@ -98,6 +98,31 @@ Programmordner unter `%LOCALAPPDATA%` · `einrichten.cmd` · Aufgabenplanung · 
 ## Offene Punkte
 
 - [ ] **Win+H selbst testen** — denselben Absatz einmal mit Win+H, einmal mit typeFREE diktieren, danach den Lokal-Slice neu bewerten
+- [ ] **NUR EINE INSTANZ ZULASSEN — Voraussetzung für Durchgang 2.** Am 2026-07-29 liefen versehentlich zwei typeFREE gleichzeitig: beide mit eigenem Tastatur-Hook, beide nahmen auf, beide fügten ein — **jedes Diktat kam doppelt und wurde doppelt bezahlt**, und beide schrieben in dieselbe Logdatei. Das ist kein Randfall: **Entscheidung 3** (Aufgabenplanung prüft regelmäßig und startet neu) erzeugt genau diese Situation systematisch. Ohne Sperre stapelt die Selbstheilung Instanzen. Lösungsansatz: benannter Windows-Mutex oder Sperrdatei beim Start; ist er belegt, meldet die zweite Instanz das im Klartext und beendet sich. **Muss vor der Aufgabenplanung gebaut werden.**
+
+- [ ] **Ergebnis der neuen Anweisung, gemessen am 2026-07-29 (Phase 5) — teilweise erfolgreich:**
+
+  | Fall | alte Anweisung | neue Anweisung | Urteil |
+  |---|---|---|---|
+  | „Das ist ein zweiter Test" (von Whisper korrekt erkannt) | machte „zweite Test" daraus | unverändert gelassen | ✅ neue Anweisung zerstört korrekten Text nicht mehr |
+  | „Ich **glaube**, das ist nicht so gut" | „Ich **denke** …" | „Ich **denke** …" | ❌ **versagt.** Das Verbot des Wortersetzens wurde ignoriert |
+
+  Vermutete Ursache: `llama-3.1-8b-instant` ist das kleinste Groq-Modell; Verbote („NICHT umformulieren") befolgen kleine Modelle am schlechtesten. Nächster Hebel: größeres Groq-Modell testen und Antwortzeit dabei messen — Groq lag bisher unter einer Sekunde, Whisper brauchte 2–6 Sekunden, es ist also Luft. Zweiter Hebel: die Verbote als Positivbeispiele umschreiben statt als Verbotsliste.
+
+- [ ] **Echte Prüffälle für die neue Groq-Anweisung**, aufgezeichnet am 2026-07-29 in Phase 5 (aus `typefree.log`). Die neue Anweisung muss an diesen fünf Fällen gemessen werden — der letzte ist neu:
+
+  | Whisper hörte | Groq machte daraus | Soll |
+  |---|---|---|
+  | „ich wollte **gucken**, ob das …" | „ich wollte **wissen**, ob das …" | „gucken" **behalten** — Umgangssprache ist keine Fehlerquelle |
+  | „Das ist ein **Zweigetest**" | unverändert | zu „zweiter Test" korrigieren — aus dem Zusammenhang erkennbar |
+  | „die **Ants** wurden rausgefiltert" | unverändert | zu „die **Ähms**" korrigieren; Sebastian musste von Hand nachbessern |
+  | „ja **genau**, ich wollte …" | „ja, ich wollte …" | ✅ so richtig, Füllwort entfernt |
+  | „Ich **glaube**, das ist nicht so gut" | „Ich **denke**, …" | „glaube" **behalten** — auch die neue Anweisung scheitert hier noch |
+
+  Bemerkenswert: Beide Verhörer blieben stehen, beide Füllwörter verschwanden — die heutige Anweisung tut genau das, was sie sagt, und nicht mehr.
+
+- [ ] **Anforderungen an die neue Groq-Anweisung (Entscheidung 19), von Sebastian in Phase 5 ergänzt:** Wie soll mit **Wiederholungen** („also, also ich meine…"), **Selbstkorrekturen** („nein, eher…") und **Verhasplern** umgegangen werden? Die heutige Anweisung nennt nur Füllwörter und Grammatik — Verhaspler werden nur zufällig mitbereinigt (belegt am 2026-07-29: Whisper hörte „blödsinnig undeutlich rede", Groq machte „blödsinnig rede"), echte Wiederholungen bleiben stehen. Muss zusammen mit der Verhörer-Korrektur entschieden werden, damit die Anweisung nicht widersprüchlich wird.
+- [ ] **`AltGr + Ä` als Hotkey** — von Sebastian in Phase 5 gewünscht, steht nicht in der Auswahlliste. Braucht eine Entscheidung, weil Windows **AltGr als Strg+Alt** meldet: Seit der Scancode-Erkennung (Fix vom 2026-07-29) setzt ein AltGr-Druck **beide** Modifier. Folgen: `Alt + Ä` und `Strg + Ä` aus der Liste lösen künftig auch bei `AltGr + Ä` aus, und `Strg + Alt + M` würde bei `AltGr + M` feuern. Ein echtes, eindeutiges `AltGr + Ä` bräuchte die Unterscheidung von linkem Alt und rechtem Alt über das Extended-Flag des Ereignisses. Eigener Slice.
 - [ ] **Umschalt-Modus** („einmal drücken zum Starten/Beenden") mit Auswahl im Tray-Menü
 - [ ] **Lokale Transkription** mit `faster-whisper` — `small` läuft ~6× Echtzeit auf CPU, `large-v3` ~3×; spürbar langsamer als die API, dafür kostenlos und ohne Datenabfluss
 - [ ] **EU-Anbieter** als Mittelweg prüfen (deutsches Whisper-Hosting, Azure OpenAI Westeuropa)
@@ -116,7 +141,7 @@ Programmordner unter `%LOCALAPPDATA%` · `einrichten.cmd` · Aufgabenplanung · 
 ## Erfolgskriterien für Phase 5
 
 - [ ] Nach einem PC-Neustart ist das Tray-Icon ohne jedes Zutun da
-- [ ] Nach Zuklappen und Aufwachen funktioniert `Strg+Shift+Ä` **sofort** beim ersten Versuch
+- [ ] Nach Zuklappen und Aufwachen funktioniert `Alt + Ä` **sofort** beim ersten Versuch
 - [ ] typeFREE über den Task-Manager beenden → binnen 5 Minuten ist es von selbst zurück
 - [ ] Mikrofon in den Windows-Einstellungen deaktivieren → rotes Icon **und** Klartext-Meldung binnen 3 Sekunden
 - [ ] Beim Drücken denkt Sebastian 8 Sekunden nach, ohne zu sprechen → **kein** Fehlalarm
