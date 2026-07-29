@@ -82,6 +82,26 @@ Die Groq-Anweisung wurde am 29.07. umgebaut (Verhörer korrigieren, Umgangssprac
 
 Vermutete Ursache: `llama-3.1-8b-instant` ist das kleinste Groq-Modell; Verbote befolgen kleine Modelle am schlechtesten. **Nächste Hebel:** größeres Groq-Modell testen (Zeit ist da — Groq lag unter 1 s, Whisper bei 2–6 s); Verbote als Positivbeispiele umschreiben statt als Verbotsliste.
 
+### Nächster Slice-Kandidat: Transkription zu Groq umziehen
+
+Am 30.07.2026 von Sebastian gemeldet: **zu langsam**, und **Deutsch-Englisch-Mischung bei schnellem Sprechen** wird schlecht erkannt. Beide Beschwerden zeigen auf denselben Schritt.
+
+Gemessene Zeiten aus `typefree.log` vom 29.07.2026:
+
+| Schritt | Dauer |
+|---|---|
+| OpenAI Whisper `whisper-1` | **2–6 s** — der Bremsklotz |
+| Groq-Glättung | unter 1 s |
+| Einfügen samt Stabilisierungspause | 0,3 s |
+
+**Vorschlag:** Transkription auf Groq `whisper-large-v3-turbo` umstellen.
+
+- Groqs Inferenzgeschwindigkeit ist an der Glättung schon belegt (unter 1 s)
+- `whisper-large-v3` ist bei Sprachwechsel innerhalb eines Satzes besser als `whisper-1`; das feste `language="de"` könnte entfallen
+- Ein Anbieter, ein Schlüssel — OpenAI entfällt vollständig, `WHISPER_VOKABULAR` bleibt
+
+**Muss gemessen werden, nicht angenommen:** Messlatte sind die Zeiten oben und die aufgezeichneten Prüffälle. Ob `large-v3-turbo` auf Deutsch so genau ist wie `whisper-1`, ist offen.
+
 ### Sprachmischung — von Sebastian am 30.07.2026 gemeldet
 
 Englische Sätze und englische Fachbegriffe werden schlecht erkannt. **Ursache im Code:** `language="de"` ist im Whisper-Aufruf festgeschrieben, Whisper versucht also auch bei Englisch, deutsche Wörter zu hören. Drei Stufen, aufsteigend nach Aufwand:
