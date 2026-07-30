@@ -52,6 +52,9 @@ Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projek
 ## Verzeichnisstruktur
 
 ```
+├── .claude/skills/                      # Ausführbare Agenten-Verfahren
+│   ├── grill-me/                        #   Alignment-Interview (Phase 2)
+│   └── critic/                          #   Fremdprüfung durch zweites Modell (pruefe.mjs)
 ├── 01_IT-OT_Integration/
 │   └── TwinCAT Projekts/
 │       ├── README.md
@@ -66,8 +69,9 @@ Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projek
 │   ├── RAG-Systeme/                    # ingest.py · query_db.py · main.py (FastAPI) · static/
 │   ├── document_automation/            # build_cv.js · build_pdf.js · merge_pdfs.js
 │   └── eichhoernchen_spiel/            # index.html (Canvas-Demo)
-├── CLAUDE.md                           # Globales Agenten-Regelwerk
-├── sync-rules.ps1                      # Regelwerk-Vererbung in die Bereiche
+├── CLAUDE.md                           # Globales Agenten-Regelwerk (die eine Quelle)
+├── AGENTS.md                           # Herstellerneutraler Wegweiser auf CLAUDE.md
+├── sync-rules.ps1                      # Erzeugt die Bereichs-CLAUDE.md aus CLAUDE_EXTENDS.md
 └── README.md
 ```
 
@@ -93,11 +97,50 @@ Alle Projekte wurden in Zusammenarbeit mit KI-Coding-Agenten entwickelt — nich
 
 ### Phasenbasierter Entwicklungszyklus
 
-Jedes Feature durchläuft acht Phasen: **Brainstorm → Alignment → Planung → Implementierung → Testing → Recap → Refactor → Commit**. Zwei Regeln stechen heraus: Im *Alignment* werden alle architektonischen Verzweigungen per Interview geklärt, bevor Code entsteht; *Testing*, *Refactor* und *Recap* dürfen nie übersprungen werden. Gearbeitet wird in kleinen vertikalen Slices mit atomaren Commits.
+Jedes Feature durchläuft acht Phasen: **Brainstorm → Alignment → Planung → Implementierung → Testing → Recap → Refactor → Commit**. Gearbeitet wird in kleinen vertikalen Slices mit atomaren Commits; nach jeder Phase wird der Agenten-Kontext geleert, weil Modelle bei wenig und präzisem Kontext am zuverlässigsten arbeiten. Drei Regeln stechen heraus:
 
-### Regelwerk-Vererbung
+* Im *Alignment* werden alle architektonischen Verzweigungen per Interview geklärt, bevor Code entsteht — der Agent trifft keine Gestaltungsentscheidung selbst.
+* *Testing*, *Recap* und *Refactor* dürfen nie übersprungen werden.
+* In den Phasen *Planung*, *Testing* und *Refactor* prüft ein **fremdes Modell** gegen (siehe unten). In der *Implementierung* ist das ausdrücklich untersagt: Kritik während des Bauens zerfasert die Umsetzung.
 
-Die Agenten-Richtlinien sind hierarchisch aufgebaut: Ein globales Regelwerk ([CLAUDE.md](CLAUDE.md)) wird per [sync-rules.ps1](sync-rules.ps1) mit bereichsspezifischen `CLAUDE_EXTENDS.md`-Dateien verschmolzen — z. B. SPS-Namenskonventionen (Ungarische Präfixe, Zehner-Schrittketten) in der OT-Domäne oder Design-Vorgaben in der IT-Domäne. Änderungen am globalen Regelwerk propagieren so kontrolliert in alle Projekte.
+### Ein Regelwerk, drei Einstiege
+
+Damit die Regeln nicht an mehreren Stellen auseinanderlaufen, gibt es genau **eine** Quelle:
+
+| Datei | Rolle |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Die Quelle: Leitplanken, Arbeitsweise, 8-Phasen-Workflow |
+| [AGENTS.md](AGENTS.md) | Herstellerneutraler Wegweiser für Agenten, die diese Konvention lesen (Codex, Antigravity, Cursor) — er verweist, er kopiert nicht |
+| `CLAUDE_EXTENDS.md` je Bereich | Nur die Zusatzregeln der Domäne: SPS-Namenskonventionen (Ungarische Präfixe, Zehner-Schrittketten) in OT, Design- und SEO-Vorgaben in IT |
+
+[sync-rules.ps1](sync-rules.ps1) erzeugt daraus die Bereichs-`CLAUDE.md`: ein Verweis auf die Wurzel-Datei plus die lokale Erweiterung.
+
+**Der Umbau dahinter:** Ursprünglich kopierte das Skript das komplette Basis-Regelwerk in jede Bereichsdatei. Das erzeugte zwei Probleme — die Kopien konnten unbemerkt von der Quelle abdriften, und jeder Agent lud dieselben ~130 Zeilen ein zweites Mal in seinen Kontext. Heute steht dort ein zweizeiliger Verweis; die Basisregeln liest der Agent ohnehin von der Wurzel aus mit.
+
+### Zwei ausführbare Skills statt Prosa-Regeln
+
+Die zwei heikelsten Stellen im Zyklus sind nicht als Merksatz formuliert, sondern als Verfahren mit festem Ablauf, Abbruchkriterium und einer Tabelle typischer Ausreden samt Gegenrede.
+
+**[`grill-me`](.claude/skills/grill-me/SKILL.md) — der Grill *vor* dem Bauen.** Alignment als ausführbares Verfahren: erst ein Register aus 8–15 Annahmen zum Widersprechen, dann sokratische Einzelfragen — eine pro Nachricht, immer mit 2–4 konkreten Optionen und einer begründeten Empfehlung, sodass eine Antwort aus einem Buchstaben bestehen kann. Danach drei Angriffe auf das eigene Ergebnis (*„Das scheitert, wenn …"*), erst dann die `alignment.md`. Die eiserne Regel: keine Datei-Änderung am Zielprojekt, bevor das Alignment freigegeben ist. Zeichnen sich mehr als ~15 Fragen ab, gilt nicht die Fragenzahl als Problem, sondern der Slice — dann wird geteilt.
+
+**[`critic`](.claude/skills/critic/SKILL.md) — der Grill *nach* dem Bauen.** Generator-Critic-Muster über zwei Modellfamilien: ein Modell baut, ein Modell einer anderen Familie prüft, weil beide unterschiedliche blinde Flecken haben. Zwei Konstruktionsprinzipien: Das fremde Modell bekommt den Code im Prompt übergeben — es liest keine Dateien und führt nichts aus. Und es liefert **Befunde, keine Urteile**: entschieden wird je Punkt vom Menschen, nie automatisch behoben. Einstiegspunkt ist [`pruefe.mjs`](.claude/skills/critic/pruefe.mjs), das Prompt, Format und Fehlerbehandlung mitbringt:
+
+| Motor | Aufruf | Kontingent | Einschränkung |
+|---|---|---|---|
+| Gemini-API (Standard) | ohne Flag | 1.500 Läufe/Tag | API-Schlüssel nötig, per Header übertragen — nie in der URL |
+| Antigravity | `--agy` | 20 Läufe/Tag | kein Schlüssel nötig, max. 30.000 Zeichen |
+| Codex (Sonderfall) | explizit | Monatskontingent | schärfer bei Nebenläufigkeit, nur auf ausdrücklichen Wunsch |
+
+### Was die Fremdprüfung messbar gelehrt hat
+
+1. **Großer Prüfumfang kostet Befunde.** Gleicher Code, gleiches Modell: Bei 27.000 Tokens meldete der Critic einen schweren Befund (Feldzugriff auf ein möglicherweise nicht gesetztes Objekt). Im Wiederholungslauf mit 62.000 Tokens fehlte genau dieser Befund. Konsequenz: lieber drei gezielte Läufe über einzelne Dateien als einer über alles — das Kontingent ist reichlich, die Aufmerksamkeit des Modells ist der Engpass.
+2. **Schweregrade sind unzuverlässig.** Dieselbe SQL-Injection kam je nach Modell als *kritisch* oder *hoch* zurück, ein sicherer Absturz als *mittel*. Jeder Befund wird deshalb nachgestuft und die Korrektur kenntlich gemacht, statt das Protokoll durchzureichen.
+3. **Ein leeres Protokoll ist keine Freigabe.** Die Fremdprüfung findet andere Dinge als ein Testlauf, nicht dieselben — sie ersetzt die Testphase nicht.
+4. **Fehlerausgaben nie unterdrücken.** Wird `stderr` verworfen, ist ein Kontingent- oder Authentifizierungsfehler nicht mehr von einem leeren Ergebnis zu unterscheiden. Genau daran ist der erste Aufbau mehrfach gescheitert.
+
+### Grenze der Fremdprüfung: was das Repository nicht verlässt
+
+Im kostenlosen Tier nutzt der Anbieter übermittelte Inhalte zur Produktverbesserung. Deshalb geht ausschließlich Code aus [02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md) an ein fremdes Modell. **SPS- und OT-Code aus [01_IT-OT_Integration](01_IT-OT_Integration/README.md), Kundendaten und alles unter NDA sind ausgenommen** — festgehalten als Bereichsdirektive in [CLAUDE.md](CLAUDE.md), nicht als guter Vorsatz.
 
 ### Qualitäts-Gates: Architekt & Wächter
 
