@@ -7,8 +7,9 @@ __pycache__/
 venv/
 .venv/
 
-# Logdatei liegt neben der EXE
+# Logdatei und Kostenzählung liegen neben der EXE
 *.log
+verbrauch.json
 
 # System
 .DS_Store

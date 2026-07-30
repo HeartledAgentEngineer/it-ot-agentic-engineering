@@ -114,11 +114,77 @@ is_recording  = False
 audio_frames  = []
 lock          = threading.Lock()
 tray_icon     = None
+verbrauch     = {}      # Whisper-Kosten, wird in main() aus der Datei geladen
 _stream       = None    # sounddevice.InputStream — nur während der Aufnahme
 
 # ── Audio-Einstellungen ──────────────────────────────────────────────────────
 SAMPLE_RATE = 16000
 CHANNELS    = 1
+
+# ── Kostenzählung für Whisper ─────────────────────────────────────────────────
+# Whisper wird nach Audiolänge abgerechnet, sekundengenau. Die Länge ist im
+# Programm exakt bekannt — der Preis lässt sich also ohne Zusatzabfrage und
+# ohne zweiten Zugangsschlüssel mitrechnen (Entscheidung 18).
+# Groq bleibt außen vor: dort gilt das kostenlose Tier.
+WHISPER_PREIS_JE_MINUTE = 0.006          # US-Dollar, Stand 07/2026
+VERBRAUCH_PATH = os.path.join(_base, 'verbrauch.json')
+
+
+def whisper_kosten(sekunden, preis_je_minute=WHISPER_PREIS_JE_MINUTE):
+    """Kosten für eine Audiolänge in Sekunden."""
+    return sekunden / 60.0 * preis_je_minute
+
+
+def verbrauch_buchen(verbrauch, sekunden, monat):
+    """Bucht ein Diktat. Reine Funktion — gibt einen neuen Stand zurück.
+
+    Wechselt der Monat, beginnt der Monatszähler neu; die Gesamtsumme läuft
+    weiter.
+    """
+    neu = dict(verbrauch)
+    if neu.get('monat') != monat:
+        neu['monat'] = monat
+        neu['monat_sekunden'] = 0.0
+        neu['monat_diktate'] = 0
+    neu['monat_sekunden'] = neu.get('monat_sekunden', 0.0) + sekunden
+    neu['monat_diktate'] = neu.get('monat_diktate', 0) + 1
+    neu['gesamt_sekunden'] = neu.get('gesamt_sekunden', 0.0) + sekunden
+    neu['gesamt_diktate'] = neu.get('gesamt_diktate', 0) + 1
+    return neu
+
+
+def _minuten_und_betrag(sekunden):
+    """„12,4 min · 0,07 $" — deutsche Schreibweise mit Komma."""
+    minuten = f'{sekunden / 60.0:.1f}'.replace('.', ',')
+    betrag = f'{whisper_kosten(sekunden):.2f}'.replace('.', ',')
+    return f'{minuten} min · {betrag} $'
+
+
+def verbrauch_text(verbrauch):
+    """Zwei Zeilen für das Tray-Menü: dieser Monat und insgesamt."""
+    monat = verbrauch.get('monat_sekunden', 0.0)
+    gesamt = verbrauch.get('gesamt_sekunden', 0.0)
+    diktate = verbrauch.get('gesamt_diktate', 0)
+    return (f'Diesen Monat: {_minuten_und_betrag(monat)}\n'
+            f'Insgesamt: {_minuten_und_betrag(gesamt)} ({diktate} Diktate)')
+
+
+def load_verbrauch():
+    """Liest den Stand. Fehlt oder ist die Datei kaputt, wird bei null begonnen."""
+    try:
+        with open(VERBRAUCH_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_verbrauch(verbrauch):
+    try:
+        with open(VERBRAUCH_PATH, 'w', encoding='utf-8') as f:
+            json.dump(verbrauch, f, indent=2)
+    except Exception:
+        log.exception('Verbrauch konnte nicht gespeichert werden')
+
 
 # ── Hotkey-Konfiguration ──────────────────────────────────────────────────────
 # Zwei Betriebsarten, zwei richtige Orte:
@@ -269,6 +335,12 @@ def _start_tray(on_ready=None):
     menu = pystray.Menu(
         pystray.MenuItem('typeFREE', None, enabled=False),
         pystray.MenuItem(lambda item: f"Hotkey: {active_hotkey['label']}",
+                         None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        # Kosten. Die Lambdas werden bei jedem Öffnen neu ausgewertet.
+        pystray.MenuItem(lambda item: verbrauch_text(verbrauch).split('\n')[0],
+                         None, enabled=False),
+        pystray.MenuItem(lambda item: verbrauch_text(verbrauch).split('\n')[1],
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Hotkey wählen', _hotkey_submenu()),
@@ -551,7 +623,7 @@ WHISPER_VOKABULAR = (
 
 
 def stop_and_transcribe():
-    global is_recording
+    global is_recording, verbrauch
 
     with lock:
         if not is_recording:
@@ -562,7 +634,8 @@ def stop_and_transcribe():
 
     _close_stream()          # Mikrofon SOFORT freigeben, vor dem Netzaufruf
     _status_transcribing()
-    log.info('Sende %.1f s Audio an Whisper', recorded_seconds(frames))
+    dauer = recorded_seconds(frames)
+    log.info('Sende %.1f s Audio an Whisper', dauer)
 
     if not frames:
         _status_idle()
@@ -596,6 +669,13 @@ def stop_and_transcribe():
         time.sleep(0.3)
         pyautogui.hotkey('ctrl', 'v')
         _status_idle()        # nur im Erfolgsfall zurück auf grau
+
+        # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
+        verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'))
+        save_verbrauch(verbrauch)
+        log.info('Kosten dieses Diktats: %.4f $ · Monat bisher: %.2f $',
+                 whisper_kosten(dauer),
+                 whisper_kosten(verbrauch['monat_sekunden']))
 
     except Exception as e:
         log.exception('Transkription fehlgeschlagen')
@@ -669,12 +749,13 @@ def on_key_event(event):
 
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, client, openai_client
+    global active_hotkey, client, openai_client, verbrauch
 
     load_env_file()
     setup_logging()
 
     active_hotkey = load_hotkey_config()
+    verbrauch = load_verbrauch()
     client        = Groq(api_key=os.environ.get('GROQ_API_KEY') or 'FEHLT')
     openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY') or 'FEHLT')
 
