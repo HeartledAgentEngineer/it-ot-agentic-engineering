@@ -13,9 +13,7 @@ if (-not (Test-Path $GlobalBaseFile)) {
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host '   KI-REGEL-COMPILER (OOP-Inheritance)           ' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host 'Lese globale Basisklasse (CLAUDE.md)...' -ForegroundColor Yellow
-
-$BaseContent = Get-Content $GlobalBaseFile -Raw -Encoding utf8
+Write-Host 'Pruefe globale Basisklasse (CLAUDE.md)...' -ForegroundColor Yellow
 
 # Suche nach allen CLAUDE_EXTENDS.md in den Unterordnern (max. 3 Ebenen tief)
 $ExtendsFiles = Get-ChildItem -Path $PSScriptRoot -Filter 'CLAUDE_EXTENDS.md' -Recurse -Depth 3
@@ -39,15 +37,24 @@ foreach ($ExtendsFile in $ExtendsFiles) {
     
     $ExtendsContent = Get-Content $ExtendsFile.FullName -Raw -Encoding utf8
     
+    # Relativen Pfad zur globalen Basis ermitteln (z. B. ../CLAUDE.md)
+    Push-Location $ProjectDir
+    $RelBase = ((Resolve-Path -Relative $GlobalBaseFile) -replace '\\', '/') -replace '^\./', ''
+    Pop-Location
+
     $Header = "<!--" + $NL
     $Header += "  DIESE DATEI WURDE AUTOMATISCH GENERIERT (sync-rules.ps1)" + $NL
     $Header += "  AENDERUNGEN IN DIESER DATEI WERDEN BEIM NAECHSTEN RUN UEBERSCHRIEBEN!" + $NL
     $Header += "  Bitte aendere die globale CLAUDE.md im Hauptverzeichnis oder die lokale CLAUDE_EXTENDS.md." + $NL
     $Header += "-->" + $NL + $NL
 
-    $Separator = $NL + $NL + "<!-- LOKALE PROJEKT-ERWEITERUNGEN (EXTENDS) -->" + $NL + $NL
+    # Verweis statt Vollkopie: die Basisregeln stehen nur noch an einer Stelle.
+    $Pointer = '> **Basis-Regelwerk:** Es gelten weiterhin die globalen KI-Direktiven aus `' + $RelBase + '` (Workspace-Wurzel).' + $NL
+    $Pointer += '> Sie sind hier bewusst nicht kopiert, damit es nur eine Quelle gibt. Claude Code liest sie von sich aus mit.' + $NL
 
-    $CombinedContent = $Header + $BaseContent + $Separator + $ExtendsContent
+    $Separator = $NL + "<!-- LOKALE PROJEKT-ERWEITERUNGEN (EXTENDS) -->" + $NL + $NL
+
+    $CombinedContent = $Header + $Pointer + $Separator + $ExtendsContent
     
     Set-Content -Path $TargetFile -Value $CombinedContent -Encoding utf8
     Write-Host "[OK] CLAUDE.md erfolgreich generiert in: $ProjectDir" -ForegroundColor Green
