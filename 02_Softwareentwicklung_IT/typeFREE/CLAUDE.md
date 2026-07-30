@@ -65,7 +65,7 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
 
 - Programmordner unter `%LOCALAPPDATA%`, `einrichten.cmd`, Windows-Aufgabenplanung (Anmeldung, Aufwachen, regelmäßige Prüfung, „Mit höchsten Privilegien")
 - Nach 3 Fehlstarts in Folge aufgeben und einmalig im Klartext melden
-- Kosten selbst mitrechnen und im Tray-Menü anzeigen (Whisper $0,006/Min sekundengenau; Groq liefert Token mit)
+- ~~Kosten mitrechnen und im Tray-Menü anzeigen~~ → **erledigt am 30.07.2026**, aus Durchgang 2 vorgezogen. `whisper_kosten`, `verbrauch_buchen`, `verbrauch_text` als reine Funktionen, Stand in `verbrauch.json` neben der EXE. Nur Whisper — Groq läuft im kostenlosen Tier. Gebucht wird erst nach erfolgreichem Einfügen. Offen geblieben: Groq-Tokenzahl anzeigen (kostet nichts, wäre nur Information)
 - Leeres Guthaben an der fehlgeschlagenen Anfrage erkennen → rotes Icon, aber weiterlaufen
 - README-Abschnitt „Warum nicht Win+H"
 
