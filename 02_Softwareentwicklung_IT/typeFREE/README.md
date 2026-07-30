@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 62 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei, die Transkriptionskosten laufen sichtbar im Tray-Menü mit.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 67 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei, die Transkriptionskosten laufen sichtbar im Tray-Menü mit.
 
 ---
 
@@ -88,7 +88,7 @@ typeFREE/
     ├── requirements.txt       # 10 Abhängigkeiten (sounddevice, keyboard, groq, openai, …)
     ├── requirements-dev.txt   # pytest — nur für die Tests, nicht in der EXE
     ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
-    └── tests/                 # 62 automatisierte Prüfungen in 11 Dateien (pytest)
+    └── tests/                 # 67 automatisierte Prüfungen in 11 Dateien (pytest)
 ```
 
 Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:

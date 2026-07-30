@@ -110,6 +110,37 @@ def test_meldung_ueberlebt_ein_kaputtes_tray_icon(monkeypatch, caplog):
     assert 'irgendwas ging schief' in caplog.text
 
 
+def test_fremdmeldung_verraet_keinen_schluessel():
+    """Ein Anbieter, der den Schlüssel NICHT maskiert, darf uns nicht verraten.
+
+    OpenAI maskiert selbst (`YOUR_OPE*******_KEY`, am 29.07.2026 beobachtet).
+    Verlassen darf man sich darauf nicht — ein Zwischenserver oder ein anderer
+    Dienst muss das nicht tun.
+    """
+    meldung = ("401 Unauthorized: key sk-proj-AbCdEf0123456789AbCdEf0123456789"
+               " is invalid")
+    sauber = typefree._ohne_schluessel(meldung)
+    assert 'sk-proj-AbCdEf' not in sauber
+    assert '401 Unauthorized' in sauber       # der Rest bleibt lesbar
+
+
+def test_groq_schluessel_wird_auch_erkannt():
+    sauber = typefree._ohne_schluessel('Fehler mit gsk_ABCdef0123456789ABCdef01')
+    assert 'gsk_ABCdef' not in sauber
+
+
+def test_meldung_ohne_schluessel_bleibt_unveraendert():
+    text = 'Verbindung zum Server fehlgeschlagen'
+    assert typefree._ohne_schluessel(text) == text
+
+
+def test_report_error_filtert_vor_der_anzeige(tray):
+    typefree.report_error('401: key sk-proj-AbCdEf0123456789AbCdEf0123456789 ungültig')
+    text, _ = tray.sprechblasen[0]
+    assert 'sk-proj-AbCdEf' not in text
+    assert 'sk-proj-AbCdEf' not in tray.title
+
+
 def test_kuerzen_faltet_zeilenumbrueche_weg():
     """Ein Traceback im Tooltip wäre unlesbar — Umbrüche werden zu Leerzeichen."""
     ergebnis = typefree._kuerze('erste Zeile\nzweite Zeile', 100)

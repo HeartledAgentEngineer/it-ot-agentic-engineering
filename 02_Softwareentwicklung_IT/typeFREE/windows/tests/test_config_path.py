@@ -24,6 +24,12 @@ def test_konfigurationsdatei_ist_wirklich_vorhanden():
     assert pathlib.Path(typefree.CONFIG_PATH).exists()
 
 
+def test_pfade_enthalten_keine_rueckwaertsschritte():
+    """Ein „..\" mitten im Pfad steht sonst in jeder Protokollzeile."""
+    for pfad in (typefree.LOG_PATH, typefree.VERBRAUCH_PATH, typefree._base):
+        assert '..' not in pfad, pfad
+
+
 def test_gespeicherte_wahl_wird_auch_gelesen():
     """Was load_hotkey_config liefert, muss zum Inhalt der Datei passen."""
     import json

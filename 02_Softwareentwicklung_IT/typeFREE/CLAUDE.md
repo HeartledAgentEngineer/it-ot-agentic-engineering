@@ -24,7 +24,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | API-Keys | `OPENAI_API_KEY` + `GROQ_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
 | Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Groq läuft im kostenlosen Tier |
-| Tests | `windows/tests/` — 62 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
+| Tests | `windows/tests/` — 67 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
 
 ## Versionierte Struktur
 
@@ -38,7 +38,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 62 Prüfungen in 11 Dateien
+    └── tests/                 ← 67 Prüfungen in 11 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
@@ -58,26 +58,18 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
 
 ## Offene Arbeit (Stand 2026-07-30, nach Durchgang 1)
 
-### ⚠️ ZUERST: Phase 7 (Refactor) für Durchgang 1 nachholen
+### ⚠️ ZUERST: Gegenprobe durch `/critic` nach Phase 7
 
-Durchgang 1 ist durch Phase 1–6 und 8 gelaufen, **Phase 7 wurde übersprungen** — am 29.07. war der Berechtigungsprüfer für Terminalbefehle ausgefallen, und ohne Testnetz sollte nichts aufgeräumt werden. Danach nicht nachgeholt. Vor Durchgang 2 erledigen. 62 Prüfungen liegen als Netz bereit.
+**Phase 7 ist am 30.07.2026 erledigt** — drei Punkte, jeder mit Testlauf danach:
 
-**① Log-Pfad zusammenfassen** — eine Zeile. `_base` enthält beim Start aus dem Quellcode ein `..`, dadurch steht in jedem Protokolleintrag:
+1. **Log-Pfad zusammengefasst.** `abspath` um die `_base`-Berechnung; vorher stand `windows\..\` mitten in jedem Protokolleintrag. Betrifft `.env`, `typefree.log`, `config.json` und `verbrauch.json` gemeinsam. Neue Prüfung: keiner dieser Pfade enthält `..`
+2. **Gemeinsame Variablen sichtbar geschützt.** `_stream` sowie die zwei Zeitstempel laufen jetzt über `lock`, dazu die Helfer `_uhren_stellen` und `_uhren_lesen`. **Wichtig:** Im `audio_callback` liegen die Zeitstempel im *bestehenden* Lock-Abschnitt, und `block_is_silent` bleibt davor — der Callback läuft im Audio-Thread und darf nicht warten, sonst gibt es Aussetzer. Ein zweites Sperren an dieser Stelle wäre ein Rückschritt gewesen
+3. **Fremdfehlertext gefiltert.** `_ohne_schluessel` ersetzt alles, was wie ein Schlüssel aussieht (`sk-`, `sk-proj-`, `gsk_`), durch `[SCHLÜSSEL ENTFERNT]` — vor Protokoll, Tooltip und Sprechblase. Vier neue Prüfungen
 
-```
-ist:   ...\typeFREE\windows\..\typefree.log
-soll:  ...\typeFREE\typefree.log
-```
+**Offen: die Gegenprobe.** Der Skill verlangt nach Phase 7 einen `/critic`-Lauf — hat das Aufräumen etwas kaputt gemacht? Aufruf über `node .claude/skills/critic/pruefe.mjs`, nicht über `agy` direkt.
 
-Lösung: `os.path.abspath(...)` um die `_base`-Berechnung in `typefree.py` Zeile 35. Betrifft auch `CONFIG_PATH`, `VERBRAUCH_PATH` und die `.env`-Suche — alle hängen an `_base`.
-
-**② Gemeinsame Variablen sichtbar schützen** (Critic-Befund 3 vom 29.07., NIEDRIG). `_stream`, `_last_data_at` und `_last_signal_at` werden von mehreren Threads ohne Lock gelesen und geschrieben. In CPython folgenlos — Gleitkomma-Zuweisungen sind atomar, der doppelte `_close_stream` ist durch `try/except` abgefangen. **Wert des Fixes ist Lesbarkeit, nicht Korrektheit:** ein `with lock` macht die Absicht sichtbar.
-
-**③ Fremdfehlertext filtern** (Critic-Befund 2 vom 29.07., MITTEL). `stop_and_transcribe` gibt den Ausnahme-Text unbesehen an `report_error` weiter, also in Sprechblase und Protokoll. Belegt ist kein Leck — OpenAI maskiert Schlüssel selbst (`YOUR_OPE*******_KEY`, am 29.07. so beobachtet). Aber ein anderer Anbieter oder ein Zwischenserver muss das nicht tun.
-
-**Danach: Gegenprobe durch `/critic`** — hat das Aufräumen etwas kaputt gemacht? So verlangt es der Skill für Phase 7.
-
-Nebenbei: `typefree.py` hat **781 Zeilen**. Die Aufteilungsgrenze aus diesem Dokument liegt bei 800 — nach Durchgang 2 wird sie fallen.
+> [!IMPORTANT]
+> **`typefree.py` hat jetzt 827 Zeilen — die Aufteilungsgrenze von 800 ist überschritten.** Phase 7 sollte vereinfachen und hat die Datei über die Schwelle geschoben: Filter, Lock-Helfer und Kostenrechnung kosten Zeilen. Aufteilen widerspricht aber Entscheidung 20 („Eine Datei bleibt es"), die damals begründet wurde: Das Testproblem löste der `main()`-Umbau, nicht die Aufteilung. **Braucht eine Entscheidung von Sebastian**, kein stilles Aufteilen.
 
 ### Voraussetzung — muss VOR dem Autostart gebaut werden
 

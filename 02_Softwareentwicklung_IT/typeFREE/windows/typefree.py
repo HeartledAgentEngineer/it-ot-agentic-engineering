@@ -14,6 +14,7 @@ import sys
 import json
 import time
 import logging
+import re
 import threading
 from logging.handlers import RotatingFileHandler
 
@@ -28,11 +29,14 @@ from PIL import Image, ImageDraw
 from groq import Groq
 from openai import OpenAI
 
-# Basis-Pfad (für config.json)
+# Basis-Pfad für .env, Logdatei und Kostenzählung.
+# `abspath` fasst den Pfad zusammen — ohne es stand in jeder Protokollzeile und
+# jeder Fehlermeldung ein „windows\..\" mitten im Pfad.
 if getattr(sys, 'frozen', False):
     _base = os.path.dirname(sys.executable)
 else:
-    _base = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    _base = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 
 # ── API-Schlüssel aus der .env neben der EXE ──────────────────────────────────
@@ -263,6 +267,18 @@ BALLOON_MESSAGE_MAX  = 256    # szInfo
 BALLOON_TITLE        = 'typeFREE — Fehler'    # 17 Zeichen, Grenze wäre 64
 
 
+# Fehlermeldungen kommen von fremden Diensten und werden ungeprüft angezeigt
+# und protokolliert. OpenAI maskiert Schlüssel selbst — verlassen darf man sich
+# darauf nicht. Diese Muster deckt der Filter ab: OpenAI (sk-, sk-proj-) und
+# Groq (gsk_).
+_SCHLUESSEL_MUSTER = re.compile(r'\b(?:sk-(?:proj-)?|gsk_)[A-Za-z0-9_\-]{8,}')
+
+
+def _ohne_schluessel(text):
+    """Ersetzt alles, was wie ein API-Schlüssel aussieht, durch einen Hinweis."""
+    return _SCHLUESSEL_MUSTER.sub('[SCHLÜSSEL ENTFERNT]', str(text))
+
+
 def _kuerze(text, grenze):
     """Macht aus beliebigem Text eine einzeilige Zeichenfolge im Längenlimit."""
     text = ' '.join(str(text).split())
@@ -283,6 +299,7 @@ def report_error(nachricht):
     die letzte Verteidigungslinie und darf deshalb selbst nie eine Ausnahme
     nach oben durchlassen.
     """
+    nachricht = _ohne_schluessel(nachricht)
     log.error(nachricht)
     try:
         _set_tray_icon(ICON_ERROR, f'typeFREE — Fehler: {nachricht}')
@@ -376,9 +393,28 @@ def _status_polishing():
 # ── Mikrofon-Überwachung ──────────────────────────────────────────────────────
 MIC_TIMEOUT_SECONDS = 3.0
 
+# Diese drei Werte teilen sich vier Threads: Audio-Callback, Wächter,
+# Sende-Thread und Hauptthread. In CPython sind einzelne Zuweisungen atomar,
+# ein Wettlauf würde also höchstens einen um einen Takt veralteten Zeitstempel
+# liefern. Trotzdem läuft jeder Zugriff über `lock` — die Absicht soll im Code
+# stehen, nicht in einer Fußnote über die Speicherverwaltung von CPython.
 _last_data_at   = 0.0    # Zeitpunkt des letzten Datenpakets (time.monotonic)
 _last_signal_at = 0.0    # Zeitpunkt des letzten Pakets mit echtem Signal
 _session        = 0      # zählt Aufnahmen, damit alte Wächter sich beenden
+
+
+def _uhren_stellen(jetzt):
+    """Setzt beide Zeitstempel auf denselben Moment."""
+    global _last_data_at, _last_signal_at
+    with lock:
+        _last_data_at = jetzt
+        _last_signal_at = jetzt
+
+
+def _uhren_lesen():
+    """Liest beide Zeitstempel als zusammengehörendes Paar."""
+    with lock:
+        return _last_data_at, _last_signal_at
 
 
 def _open_stream():
@@ -394,9 +430,15 @@ def _open_stream():
 
 
 def _close_stream():
-    """Gibt das Mikrofon frei. Mehrfacher Aufruf ist unschädlich."""
+    """Gibt das Mikrofon frei. Mehrfacher Aufruf ist unschädlich.
+
+    Der Tausch läuft unter `lock`, damit von zwei Threads gleichzeitig nur
+    einer den Stream in die Hand bekommt. Niemals aus einem Abschnitt heraus
+    aufrufen, der `lock` schon hält — `threading.Lock` ist nicht reentrant.
+    """
     global _stream
-    stream, _stream = _stream, None
+    with lock:
+        stream, _stream = _stream, None
     if stream is None:
         return
     try:
@@ -438,7 +480,6 @@ def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
 
 def _reconnect_microphone():
     """Einmaliger Versuch, das Mikrofon neu zu öffnen. Setzt die Uhren zurück."""
-    global _last_data_at, _last_signal_at
     log.warning('Mikrofon antwortet nicht — neu verbinden')
     _close_stream()
     try:
@@ -446,9 +487,7 @@ def _reconnect_microphone():
     except Exception:
         log.exception('Neu verbinden fehlgeschlagen')
         return False
-    jetzt = time.monotonic()
-    _last_data_at   = jetzt
-    _last_signal_at = jetzt
+    _uhren_stellen(time.monotonic())
     return True
 
 
@@ -476,7 +515,8 @@ def _watch_recording(session):
                              name='transcribe', daemon=True).start()
             return
 
-        if is_microphone_dead(time.monotonic(), _last_data_at, _last_signal_at):
+        daten_uhr, signal_uhr = _uhren_lesen()
+        if is_microphone_dead(time.monotonic(), daten_uhr, signal_uhr):
             if not reconnected and _reconnect_microphone():
                 reconnected = True
                 continue
@@ -504,23 +544,29 @@ def audio_callback(indata, frames, time_info, status):
     if not is_recording:
         return
     jetzt = time.monotonic()
-    _last_data_at = jetzt
-    if not block_is_silent(indata):
-        _last_signal_at = jetzt
+    # Die numpy-Prüfung bleibt VOR dem Lock: Dieser Callback läuft im
+    # Audio-Thread und darf nicht länger warten als nötig, sonst gibt es
+    # Aussetzer in der Aufnahme.
+    hat_signal = not block_is_silent(indata)
     with lock:
+        _last_data_at = jetzt
+        if hat_signal:
+            _last_signal_at = jetzt
         audio_frames.append(indata.copy())
 
 
 # ── Aufnahme starten ──────────────────────────────────────────────────────────
 def start_recording():
     global is_recording, audio_frames, _last_data_at, _last_signal_at, _session
+    jetzt = time.monotonic()
+    # Alles in EINEM Abschnitt: leerer Puffer, gestellte Uhren und die neue
+    # Sitzungsnummer gehören zusammen und dürfen nicht halb sichtbar werden.
     with lock:
         audio_frames = []
-    jetzt = time.monotonic()
-    _last_data_at   = jetzt
-    _last_signal_at = jetzt
-    _session += 1
-    session = _session
+        _last_data_at   = jetzt
+        _last_signal_at = jetzt
+        _session += 1
+        session = _session
 
     try:
         _open_stream()
