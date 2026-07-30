@@ -31,17 +31,17 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 
 ```mermaid
 flowchart LR
-    subgraph OT [01 — IT-OT-Integration]
-        Elevator[Aufzug Digital Twin<br/>TwinCAT 3 SPS · ADS-Brücke · 3D-HMI]
+    subgraph OT["01 — IT-OT-Integration"]
+        Elevator["Aufzug Digital Twin<br/>TwinCAT 3 SPS · ADS-Brücke · 3D-HMI"]
     end
-    subgraph IT [02 — Softwareentwicklung IT]
-        Concertify[Concertify<br/>Flask-Webapp]
-        TypeFree[typeFREE<br/>Windows-Diktier-Client]
-        RAG[RAG-System<br/>Wissensdatenbank]
-        DocAuto[Document Automation<br/>PDF/DOCX-Generator]
-        Spiel[Eichhörnchen-Spiel<br/>Canvas-Demo]
+    subgraph IT["02 — Softwareentwicklung IT"]
+        Concertify["Concertify<br/>Flask-Webapp"]
+        TypeFree["typeFREE<br/>Windows-Diktier-Client"]
+        RAG["RAG-System<br/>Wissensdatenbank"]
+        DocAuto["Document Automation<br/>PDF/DOCX-Generator"]
+        Spiel["Eichhörnchen-Spiel<br/>Canvas-Demo"]
     end
-    Methodik[Agentic-Engineering-Methodik<br/>CLAUDE.md · sync-rules.ps1] -.-> OT
+    Methodik["Agentic-Engineering-Methodik<br/>CLAUDE.md · sync-rules.ps1"] -.-> OT
     Methodik -.-> IT
 ```
 
