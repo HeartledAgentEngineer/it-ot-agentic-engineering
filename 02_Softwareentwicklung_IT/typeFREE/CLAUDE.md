@@ -56,7 +56,28 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
 - **Startbefehle gehören in `main()`:** Seiteneffekte beim Import (Threads, Tray, Config) machen die Datei untestbar
 - **Totes Mikrofon erkennt man an exakter digitaler Null**, nicht an leiser Lautstärke — ein echtes Gerät liefert immer Grundrauschen
 
-## Offene Arbeit (Stand 2026-07-29, nach Durchgang 1)
+## Offene Arbeit (Stand 2026-07-30, nach Durchgang 1)
+
+### ⚠️ ZUERST: Phase 7 (Refactor) für Durchgang 1 nachholen
+
+Durchgang 1 ist durch Phase 1–6 und 8 gelaufen, **Phase 7 wurde übersprungen** — am 29.07. war der Berechtigungsprüfer für Terminalbefehle ausgefallen, und ohne Testnetz sollte nichts aufgeräumt werden. Danach nicht nachgeholt. Vor Durchgang 2 erledigen. 62 Prüfungen liegen als Netz bereit.
+
+**① Log-Pfad zusammenfassen** — eine Zeile. `_base` enthält beim Start aus dem Quellcode ein `..`, dadurch steht in jedem Protokolleintrag:
+
+```
+ist:   ...\typeFREE\windows\..\typefree.log
+soll:  ...\typeFREE\typefree.log
+```
+
+Lösung: `os.path.abspath(...)` um die `_base`-Berechnung in `typefree.py` Zeile 35. Betrifft auch `CONFIG_PATH`, `VERBRAUCH_PATH` und die `.env`-Suche — alle hängen an `_base`.
+
+**② Gemeinsame Variablen sichtbar schützen** (Critic-Befund 3 vom 29.07., NIEDRIG). `_stream`, `_last_data_at` und `_last_signal_at` werden von mehreren Threads ohne Lock gelesen und geschrieben. In CPython folgenlos — Gleitkomma-Zuweisungen sind atomar, der doppelte `_close_stream` ist durch `try/except` abgefangen. **Wert des Fixes ist Lesbarkeit, nicht Korrektheit:** ein `with lock` macht die Absicht sichtbar.
+
+**③ Fremdfehlertext filtern** (Critic-Befund 2 vom 29.07., MITTEL). `stop_and_transcribe` gibt den Ausnahme-Text unbesehen an `report_error` weiter, also in Sprechblase und Protokoll. Belegt ist kein Leck — OpenAI maskiert Schlüssel selbst (`YOUR_OPE*******_KEY`, am 29.07. so beobachtet). Aber ein anderer Anbieter oder ein Zwischenserver muss das nicht tun.
+
+**Danach: Gegenprobe durch `/critic`** — hat das Aufräumen etwas kaputt gemacht? So verlangt es der Skill für Phase 7.
+
+Nebenbei: `typefree.py` hat **781 Zeilen**. Die Aufteilungsgrenze aus diesem Dokument liegt bei 800 — nach Durchgang 2 wird sie fallen.
 
 ### Voraussetzung — muss VOR dem Autostart gebaut werden
 
