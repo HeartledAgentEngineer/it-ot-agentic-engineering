@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 53 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow im Claude-Code-Terminal) · 62 automatisierte Prüfungen · Betriebshärtung abgeschlossen: Mikrofon wird nur während der Aufnahme belegt, Aufnahmen sind auf 10 Minuten begrenzt, jeder Fehler landet in einer Logdatei, die Transkriptionskosten laufen sichtbar im Tray-Menü mit.
 
 ---
 
@@ -14,6 +14,7 @@ Der gesamte Client lebt bewusst in einer einzigen Datei ([windows/typefree.py](w
 * **Audio-Aufnahme im RAM, Mikrofon nur bei Bedarf:** `sounddevice` öffnet das Mikrofon (16 kHz, mono) erst beim Drücken des Hotkeys und gibt es beim Loslassen sofort wieder frei — noch vor dem API-Aufruf. Das Windows-Mikrofonsymbol erscheint dadurch nur während einer Aufnahme, und andere Programme können das Gerät zwischenzeitlich nutzen. Der Puffer wird über `soundfile` als WAV in einen In-Memory-Buffer (`io.BytesIO`) geschrieben — ohne jeglichen Festplatten-I/O.
 * **Zweistufige Sprachverarbeitung:** Die Transkription übernimmt die OpenAI-Whisper-API (`whisper-1`, `language="de"`) — mit einem **Vokabel-Hinweis**, der häufige Fachwörter vorgibt und Verhörer damit an der Quelle senkt. Anschließend glättet ein Groq-gehostetes LLaMA-Modell (`llama-3.1-8b-instant`) den Rohtext: Füllwörter raus, Verhaspler geglättet, **offensichtliche Verhörer aus dem Zusammenhang korrigiert** — Umgangssprache und Slang bleiben dabei ausdrücklich unangetastet. Ist das Ergebnis auffällig kürzer als der Rohtext (abgeschnitten oder das Modell hat geantwortet statt bereinigt), wird der Whisper-Rohtext eingefügt.
 * **Zustandsbasiertes Tray-Icon:** Ein per `PIL` gezeichnetes Mikrofon-Symbol (`pystray`) signalisiert den Pipeline-Zustand farblich: Grau = bereit, Grün = Aufnahme, Orange = Transkription, Blau = Textglättung, Rot = Fehler. Fehler werden zusätzlich als Windows-Sprechblase gemeldet und in `typefree.log` neben der EXE protokolliert — ein Diktat soll nie stillschweigend verloren gehen.
+* **Mitlaufende Kostenrechnung:** Das Tray-Menü zeigt Minuten und Betrag für den laufenden Monat und insgesamt. Whisper wird mit $0,006/Minute sekundengenau abgerechnet, und die Audiolänge ist im Programm exakt bekannt — die Kosten lassen sich also ohne Zusatzabfrage und ohne zweiten Zugangsschlüssel mitrechnen. Gebucht wird erst nach erfolgreichem Einfügen: für fehlgeschlagene Anfragen erscheint kein Betrag.
 
 Der finale Text wird über `pyperclip` in die Zwischenablage geschrieben und nach einer kurzen Stabilisierungspause (0,3 s) per emuliertem `Strg+V` (`pyautogui`) in das aktive Fenster eingefügt.
 
@@ -87,7 +88,7 @@ typeFREE/
     ├── requirements.txt       # 10 Abhängigkeiten (sounddevice, keyboard, groq, openai, …)
     ├── requirements-dev.txt   # pytest — nur für die Tests, nicht in der EXE
     ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
-    └── tests/                 # 20 automatisierte Prüfungen (pytest)
+    └── tests/                 # 62 automatisierte Prüfungen in 11 Dateien (pytest)
 ```
 
 Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:

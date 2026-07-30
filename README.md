@@ -20,7 +20,7 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 |---|---|---|---|
 | **Aufzug Digital Twin** | TwinCAT 3 (Structured Text), Node.js, `ads-client`, WebSockets, Three.js | Funktionaler Prototyp (HIL-Simulation) | [README](01_IT-OT_Integration/TwinCAT%20Projekts/README.md) |
 | **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
-| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`), Groq (`llama-3.1-8b-instant`), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 53 automatisierte Prüfungen | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
+| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`), Groq (`llama-3.1-8b-instant`), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 62 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |

@@ -23,7 +23,8 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook` |
 | API-Keys | `OPENAI_API_KEY` + `GROQ_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
-| Tests | `windows/tests/` — 53 Prüfungen mit pytest in 10 Dateien, alle gegen reine Funktionen |
+| Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Groq läuft im kostenlosen Tier |
+| Tests | `windows/tests/` — 62 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
 
 ## Versionierte Struktur
 
@@ -37,7 +38,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 53 Prüfungen in 10 Dateien
+    └── tests/                 ← 62 Prüfungen in 11 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
