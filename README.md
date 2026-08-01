@@ -30,22 +30,38 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 ### Portfolio-Landkarte
 
 ```mermaid
-flowchart LR
+graph LR
     subgraph OT["01 — IT-OT-Integration"]
-        Elevator["Aufzug Digital Twin<br/>TwinCAT 3 SPS · ADS-Brücke · 3D-HMI"]
+        E["Aufzug Digital Twin (TwinCAT 3 · ADS · 3D-HMI)"]
     end
+
     subgraph IT["02 — Softwareentwicklung IT"]
-        Concertify["Concertify<br/>Flask-Webapp"]
-        TypeFree["typeFREE<br/>Windows-Diktier-Client"]
-        RAG["RAG-System<br/>Wissensdatenbank"]
-        DocAuto["Document Automation<br/>PDF/DOCX-Generator"]
-        Spiel["Eichhörnchen-Spiel<br/>Canvas-Demo"]
+        C["Concertify (Flask)"]
+        T["typeFREE (Windows)"]
+        R["RAG-System (FastAPI)"]
+        D["Document Automation (Node.js)"]
+        S["Eichhörnchen-Spiel (Canvas)"]
     end
-    Methodik["Agentic-Engineering-Methodik<br/>CLAUDE.md · sync-rules.ps1"] -.-> OT
-    Methodik -.-> IT
+
+    subgraph APIs["Angebundene KI- & Cloud-APIs"]
+        WA["OpenAI Whisper · Groq Llama"]
+        VA["Mistral Embed · Google Gemini"]
+        SA["Spotify · Ticketmaster"]
+    end
+
+    subgraph AE["Agentic Engineering Plattform"]
+        CLI["VS Code + Cline · Claude Code · Antigravity"]
+        MOD["DeepSeek V4 · Gemini 2.5 Flash · Haiku (OpenRouter)"]
+        WF["8-Phasen-Workflow · Fremdprüfung · DSGVO-Zone"]
+    end
+
+    AE -.-> OT
+    AE -.-> IT
+    AE -.-> APIs
 ```
 
-Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projekt-READMEs.
+Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projekt-READMEs.  
+Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereichs-README](02_Softwareentwicklung_IT/README.md#architektur--datenflüsse).
 
 ---
 
@@ -93,7 +109,29 @@ Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projek
 
 ## Agentic Engineering als Methode
 
-Alle Projekte wurden in Zusammenarbeit mit KI-Coding-Agenten entwickelt — nicht ad hoc, sondern entlang eines festen Regelwerks, das selbst Teil des Repositories ist.
+Alle Projekte sind mit KI-Coding-Agenten entstanden — nicht ad hoc, sondern entlang eines festen Regelwerks, das selbst Teil des Repositories ist.  
+Dieser Abschnitt beschreibt nicht nur die Methode, sondern auch die **persönliche Reise**, die dahinter steht: 9 Monate Experimentieren mit Plattformen, Modellen und Kostenmodellen, deren Erkenntnisse in jeden Aspekt des Workflows eingeflossen sind.
+
+### Meine Reise: Von Claude Code zum Multi-Modell-System
+
+| Zeit | Setup | Warum? |
+|---|---|---|
+| **2025** | Erste Gehversuche: Chatbots personalisiert, System-Prompts mit Ingenieurs-Denkweise optimiert | Prä-Agenten-Ära — den Grundstein für strukturierte Prompt-Architektur gelegt |
+| **Januar 2026** | Start mit **Claude Code** (Enterprise-Team-Lizenz, Sonnet, Opus) | Erster KI-Coding-Agent im professionellen Einsatz |
+| **März–Mai 2026** | Berufliche Praxis: TwinCAT 3, VB.NET-HMI, IO-Listen-Generierung, Schaltplan-Vergleich | KI als "Experience-Partner" — schneller lernen, nicht langsamer; Vorreiter im Team gegen alte Denkweise |
+| **Juni–Juli 2026** | **Antigravity** + Google One (2× 12 €) — Test günstigerer Alternative | Kosten sparen, aber unzufrieden mit Ergebnissen |
+| **August 2026** | **VS Code + Cline** (Agent-Harness) + **OpenRouter** + Multi-Modell | Claude Code-Limits verschärft; DSGVO-konforme, kosteneffiziente Alternative gefunden |
+
+**Das heutige Setup:** Nicht *ein* Tool, sondern ein orchestriertes System aus Plattformen und Modellen:
+
+| Aufgabe | Werkzeug | Modell |
+|---|---|---|
+| Planung & Implementierung | VS Code + Cline | **DeepSeek V4** (kostengünstig) |
+| Bildverarbeitung | VS Code + Cline (Modell-Wechsel) | **Gemini 2.5 Flash** (beste Bild-Interpretation) |
+| Fremdprüfung (Critic) | OpenRouter (API-Gateway) | **Anthropic Haiku** (DSGVO-konform, andere Modellfamilie) |
+| Alternativ-Plattformen | Claude Code / Antigravity | Je nach Verfügbarkeit & Kontingent |
+
+> **Die Kern-Erkenntnis:** Nicht das Tool entscheidet über Qualität, sondern das **System aus orchestrierten Modellen**, das je nach Aufgabe, Kosten und Compliance das passende Modell wählt.
 
 ### Phasenbasierter Entwicklungszyklus
 
@@ -127,7 +165,8 @@ Die zwei heikelsten Stellen im Zyklus sind nicht als Merksatz formuliert, sonder
 
 | Motor | Aufruf | Kontingent | Einschränkung |
 |---|---|---|---|
-| Gemini-API (Standard) | ohne Flag | 1.500 Läufe/Tag | API-Schlüssel nötig, per Header übertragen — nie in der URL |
+| **Haiku via OpenRouter** (DSGVO-Standard) | `--openrouter` oder Flag-frei | API-Kosten | DSGVO-konform, Daten nicht zur Produktverbesserung; API-Key per Header |
+| Gemini-API (Fallback) | `--gemini` | 1.500 Läufe/Tag | API-Schlüssel nötig, per Header übertragen — nie in der URL |
 | Antigravity | `--agy` | 20 Läufe/Tag | kein Schlüssel nötig, max. 30.000 Zeichen |
 | Codex (Sonderfall) | explizit | Monatskontingent | schärfer bei Nebenläufigkeit, nur auf ausdrücklichen Wunsch |
 
@@ -138,9 +177,21 @@ Die zwei heikelsten Stellen im Zyklus sind nicht als Merksatz formuliert, sonder
 3. **Ein leeres Protokoll ist keine Freigabe.** Die Fremdprüfung findet andere Dinge als ein Testlauf, nicht dieselben — sie ersetzt die Testphase nicht.
 4. **Fehlerausgaben nie unterdrücken.** Wird `stderr` verworfen, ist ein Kontingent- oder Authentifizierungsfehler nicht mehr von einem leeren Ergebnis zu unterscheiden. Genau daran ist der erste Aufbau mehrfach gescheitert.
 
+### DSGVO-konforme Zone: OpenRouter als API-Gateway
+
+Ein zentrales Merkmal der aktuellen Architektur: **OpenRouter dient als DSGVO-konformes API-Gateway**, das die Nutzung von Modellen (z. B. Anthropic Haiku für die Fremdprüfung) ermöglicht, ohne dass Daten zur Produktverbesserung verwendet werden dürfen.
+
+| Aspekt | Umsetzung |
+|---|---|
+| Datenverarbeitung | OpenRouter verarbeitet Anfragen DSGVO-konform; keine Nutzung der Inhalte für Modell-Training |
+| API-Key-Handling | Schlüssel per Header (nie in der URL), zusätzlich abgesichert durch `.env` und `.gitignore` |
+| Kostenkontrolle | Pay-per-Use statt Abo — günstiger als Flatrate-Modelle bei geringem Volumen |
+| Zukunfts-Roadmap | Concertify soll von direkter Gemini-API auf OpenRouter umgestellt werden |
+
 ### Grenze der Fremdprüfung: was das Repository nicht verlässt
 
-Im kostenlosen Tier nutzt der Anbieter übermittelte Inhalte zur Produktverbesserung. Deshalb geht ausschließlich Code aus [02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md) an ein fremdes Modell. **SPS- und OT-Code aus [01_IT-OT_Integration](01_IT-OT_Integration/README.md), Kundendaten und alles unter NDA sind ausgenommen** — festgehalten als Bereichsdirektive in [CLAUDE.md](CLAUDE.md), nicht als guter Vorsatz.
+Im kostenlosen Tier nutzt der Anbieter übermittelte Inhalte zur Produktverbesserung. Deshalb geht ausschließlich Code aus [02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md) an ein fremdes Modell. **SPS- und OT-Code aus [01_IT-OT_Integration](01_IT-OT_Integration/README.md), Kundendaten und alles unter NDA sind ausgenommen** — festgehalten als Bereichsdirektive in [CLAUDE.md](CLAUDE.md), nicht als guter Vorsatz.  
+Selbst mit OpenRouter bleibt diese Grenze bestehen — DSGVO-konform heißt nicht automatisch "darf das Repository verlassen".
 
 ### Qualitäts-Gates: Architekt & Wächter
 
