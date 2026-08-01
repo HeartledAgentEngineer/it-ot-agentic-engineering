@@ -106,3 +106,4 @@ dist/
 02_Softwareentwicklung_IT/concertify/clean_duplicate_*.py
 02_Softwareentwicklung_IT/concertify/resolve_uris*.py
 02_Softwareentwicklung_IT/concertify/search_log.py
+.aider*

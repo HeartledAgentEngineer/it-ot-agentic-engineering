@@ -20,7 +20,7 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 |---|---|---|---|
 | **Aufzug Digital Twin** | TwinCAT 3 (Structured Text), Node.js, `ads-client`, WebSockets, Three.js | Funktionaler Prototyp (HIL-Simulation) | [README](01_IT-OT_Integration/TwinCAT%20Projekts/README.md) |
 | **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
-| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`), Groq (`llama-3.1-8b-instant`), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 67 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
+| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`, direkt + OpenRouter-Fallback), OpenRouter/Gemini 2.0 Flash (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 67 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |
@@ -44,9 +44,11 @@ graph LR
     end
 
     subgraph APIs["Angebundene KI- & Cloud-APIs"]
-        WA["OpenAI Whisper · Groq Llama"]
-        VA["Mistral Embed · Google Gemini"]
-        SA["Spotify · Ticketmaster"]
+        WH["OpenAI Whisper (direkt + OpenRouter)"]
+        G2F["Gemini 2.0 Flash (via OpenRouter)"]
+        MB["Mistral Embed"]
+        G2["Google Gemini (direkt)"]
+        SP["Spotify · Ticketmaster · setlist.fm"]
     end
 
     subgraph AE["Agentic Engineering Plattform"]
@@ -55,9 +57,12 @@ graph LR
         WF["8-Phasen-Workflow · Fremdprüfung · DSGVO-Zone"]
     end
 
-    AE -.-> OT
-    AE -.-> IT
-    AE -.-> APIs
+    C["Concertify (Flask)"] --> SP
+    C --> G2
+    T["typeFREE (Windows)"] --> WH
+    T --> G2F
+    R["RAG-System (FastAPI)"] --> G2
+    R --> MB
 ```
 
 Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projekt-READMEs.  

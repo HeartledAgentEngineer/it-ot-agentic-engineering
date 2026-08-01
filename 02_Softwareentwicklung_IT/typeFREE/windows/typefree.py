@@ -13,6 +13,7 @@ import io
 import sys
 import json
 import time
+import ctypes
 import logging
 import re
 import threading
@@ -111,8 +112,9 @@ def _log_uncaught_in_thread(args):
 
 
 # ── Zustand (wird erst in main() bzw. bei der Aufnahme gefüllt) ───────────────
-client        = None    # Groq
-openai_client = None    # OpenAI / Whisper
+groq_client           = None    # Groq (wird durch OpenRouter für Glättung ersetzt)
+openai_whisper_client = None    # OpenAI / Whisper (für direkte OpenAI-Aufrufe)
+openrouter_client     = None    # OpenRouter für Glättung und Whisper-Fallback
 active_hotkey = None
 is_recording  = False
 audio_frames  = []
@@ -634,8 +636,8 @@ def _polished_is_plausible(raw_text, polished):
 
 def polish_text(raw_text):
     try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+        response = openrouter_client.chat.completions.create(
+            model="google/gemini-2.0-flash-001",
             messages=[
                 {"role": "system", "content": POLISH_ANWEISUNG},
                 {"role": "user",
@@ -696,17 +698,28 @@ def stop_and_transcribe():
     buffer.name = 'audio.wav'
 
     try:
-        transcript = openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=buffer,
-            language="de",
-            prompt=WHISPER_VOKABULAR,
-        )
+        # Try with direct OpenAI Whisper first
+        try:
+            transcript = openai_whisper_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=buffer,
+                language="de",
+                prompt=WHISPER_VOKABULAR,
+            )
+        except Exception as e:
+            log.warning(f"Direct OpenAI Whisper failed: {e}. Falling back to OpenRouter Whisper.")
+            # Fallback to OpenRouter Whisper
+            transcript = openrouter_client.audio.transcriptions.create(
+                model="openai/whisper-large-v3", # Use the specific OpenRouter Whisper model
+                file=buffer,
+                language="de",
+                prompt=WHISPER_VOKABULAR,
+            )
         raw_text = transcript.text.strip()
         log.info('Erkannt: %s', raw_text)
 
         _status_polishing()
-        log.info('Glätte Text mit Groq')
+        log.info('Glätte Text mit OpenRouter')
         polished = polish_text(raw_text)
         final_text = polished if polished else raw_text
         log.info('Geglättet: %s', final_text)
@@ -793,17 +806,76 @@ def on_key_event(event):
                          name='transcribe', daemon=True).start()
 
 
+# ── Nur eine Instanz ──────────────────────────────────────────────────────────
+# Ein benannter Mutex, kein Sperrdatei-Ansatz: Windows gibt ihn beim
+# Prozessende IMMER frei, auch nach einem Absturz oder Abschuss im
+# Task-Manager. Eine liegengebliebene Sperrdatei wäre schlimmer als keine —
+# dann startet typeFREE nie wieder, weil es sich für schon laufend hält.
+MUTEX_NAME = r'Local\typeFREE_einzelinstanz'
+_ERROR_ALREADY_EXISTS = 183
+_mutex_handle = None
+
+
+def ist_autostart(argumente):
+    """Wurde mit `--autostart` gestartet? (Aufgabenplanung, Slice 2c)"""
+    return '--autostart' in argumente[1:]
+
+
+def zweitstart_verhalten(schon_da, autostart):
+    """Reine Entscheidung: 'weiter', 'melden_und_beenden' oder 'still_beenden'."""
+    if not schon_da:
+        return 'weiter'
+    return 'still_beenden' if autostart else 'melden_und_beenden'
+
+
+def sperre_belegen(name=MUTEX_NAME):
+    """Nimmt den Mutex. Gibt zurück, ob schon eine Instanz läuft."""
+    global _mutex_handle
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    _mutex_handle = kernel32.CreateMutexW(None, False, name)
+    return ctypes.get_last_error() == _ERROR_ALREADY_EXISTS
+
+
+def _meldung_zeigen(titel, text):
+    """Windows-Meldungsfenster ohne Tray-Icon. 0x40 = Info-Symbol."""
+    ctypes.windll.user32.MessageBoxW(0, text, titel, 0x40)
+
+
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, client, openai_client, verbrauch
+    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch
 
     load_env_file()
     setup_logging()
 
+    # Vor allem anderen: Eine zweite Instanz darf nicht einmal kurz einen
+    # Tastatur-Hook einhängen — sonst käme jedes Diktat doppelt an.
+    autostart = ist_autostart(sys.argv)
+    verhalten = zweitstart_verhalten(sperre_belegen(), autostart)
+    if verhalten != 'weiter':
+        log.warning('typeFREE läuft bereits — dieser Start wird beendet '
+                    '(%s)', verhalten)
+        if verhalten == 'melden_und_beenden':
+            _meldung_zeigen(
+                'typeFREE läuft bereits',
+                'Es läuft schon ein typeFREE. Ein zweites würde jedes Diktat '
+                'doppelt einfügen und doppelt kosten.\n\n'
+                'Das laufende findest du als Mikrofon-Symbol in der '
+                'Taskleiste.')
+        return
+
     active_hotkey = load_hotkey_config()
     verbrauch = load_verbrauch()
-    client        = Groq(api_key=os.environ.get('GROQ_API_KEY') or 'FEHLT')
-    openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY') or 'FEHLT')
+    # OpenRouter client for polishing and Whisper fallback
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ.get('OPENROUTER_API_KEY') or 'FEHLT',
+    )
+
+    # OpenAI client for direct Whisper (primary)
+    openai_whisper_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY') or 'FEHLT')
+
 
     log.info('typeFREE gestartet — Hotkey: %s', active_hotkey['label'])
     keyboard.hook(on_key_event)
@@ -817,7 +889,7 @@ def main():
 def _report_missing_keys(icon):
     """Wird aufgerufen, sobald das Tray-Icon sichtbar ist."""
     icon.visible = True
-    fehlend = [n for n in ('OPENAI_API_KEY', 'GROQ_API_KEY') if not os.environ.get(n)]
+    fehlend = [n for n in ('OPENAI_API_KEY', 'OPENROUTER_API_KEY') if not os.environ.get(n)]
     if fehlend:
         report_error(f"Kein API-Schlüssel gefunden: {', '.join(fehlend)}. "
                      f"Bitte .env neben der EXE prüfen.")

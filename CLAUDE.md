@@ -5,7 +5,7 @@
 > ### 🔴 SICHERHEITS-LEITPLANKE: KONTROLLIERTER GIT-PUSH-WORKFLOW
 > * Der KI-Agent darf **niemals autonom** und ohne Rücksprache einen `git push` im Hintergrund ausführen (Schutz vor automatischem Secrets-Leakage).
 > * **Erlaubt:** Lokale `git commit`s zur Absicherung von Zwischenschritten.
-> * **Vorgehen für Push:** Der Agent darf einen `git push` im Terminal vorschlagen und triggern. Der Befehl muss jedoch zwingend durch den Nutzer über den Bestätigungsdialog des CLI-Tools (Sandbox) manuell geprüft und freigegeben werden. Alternativ kann der Push manuell über TortoiseGit erfolgen.
+> * **Vorgehen für Push:** Der Agent darf einen `git push` ausschließlich vorschlagen — nie selbst triggern oder ausführen. Sebastian entscheidet, ob er den Push manuell (z. B. über TortoiseGit oder `git push` im Terminal) durchführt oder den Agenten per expliziter Aufforderung damit beauftragt. Der Bestätigungsdialog des CLI-Tools (Sandbox) dient dabei der Sicherheitsprüfung, ersetzt aber nicht die manuelle Entscheidung.
 
 ---
 ---
@@ -117,7 +117,7 @@ Für jedes Feature diesen Zyklus einhalten. Nach jeder Phase `/clear` (Context-R
 
 1. **Phase 1 — Brainstorm:** Ideen sortieren, als `brainstorm.md` sichern.
 2. **Phase 2 — Alignment:** "Grill me" phase. Alle Unklarheiten klären, als `alignment.md` sichern.
-3. **Phase 3 — Planung:** Vertical Slice (Ende-zu-Ende) wählen, Teststrategie festlegen, als `plan.md` sichern.
+3. **Phase 3 — Planung:** Vertical Slice (Ende-zu-Ende) wählen, Teststrategie festlegen, als `plan.md` sichern. **Vor Freigabe der Implementierung (Phase 4) muss der Plan durch `/critic` (Fremdprüfung) gegengeprüft werden. Befunde auswerten, Plan ggf. anpassen. Erst nach Freigabe durch Sebastian geht es in Phase 4.**
 4. **Phase 4 — Implementierung:** Nur den Plan abarbeiten, kein Scope-Creep.
 5. **Phase 5 — Testing:** UX-Feedback geben, Bedienbarkeit prüfen. Danach Fremdprüfung durch ein zweites KI-Modell via `/critic`. Befunde werden vorgelegt, Sebastian entscheidet je Punkt — nie automatisch beheben.
 6. **Phase 6 — Recap:** Erklärung & Diagramm durch KI (NIEMALS überspringen!).
