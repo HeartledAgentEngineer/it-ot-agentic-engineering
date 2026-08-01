@@ -122,5 +122,5 @@ Für jedes Feature diesen Zyklus einhalten. Nach jeder Phase `/clear` (Context-R
 4. **Phase 4 — Implementierung:** Nur den Plan abarbeiten, kein Scope-Creep.
 5. **Phase 5 — Testing:** UX-Feedback geben, Bedienbarkeit prüfen. Danach Fremdprüfung durch ein zweites KI-Modell via `/critic`. Befunde werden vorgelegt, Sebastian entscheidet je Punkt — nie automatisch beheben.
 6. **Phase 6 — Recap:** Erklärung & Diagramm durch KI (NIEMALS überspringen!).
-7. **Phase 7 — Refactor:** Code vereinfachen, aufräumen (NIEMALS überspringen!). Danach `/critic` als Gegenprobe: Hat das Aufräumen etwas kaputtgemacht?
+7. **Phase 7 — Refactor:** Code vereinfachen, aufräumen (NIEMALS überspringen!). **Dokumentation prüfen: READMEs (Root, Bereich, Projekt) auf Aktualität – Stack, APIs, Architektur, Mermaid-Diagramme – bei relevanten Änderungen (neue APIs, Architektur-Entscheidungen, Workflow-Änderungen) aktualisieren.** Danach `/critic` als Gegenprobe: Hat das Aufräumen etwas kaputtgemacht?
 8. **Phase 8 — Commit / PR:** Atomic Commits lokal machen. Markdown-Phasendateien löschen. **Nach dem Commit zwingend fragen: „Soll ich pushen (ja/nein)?" — bei 'ja' führt Sebastian den Push selbst aus (z. B. `git push` im Terminal oder TortoiseGit), da der Agent keinen autonomen Push ausführen darf.**
