@@ -6,16 +6,34 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        'keyboard',
+        'sounddevice',
+        'soundfile',
+        'numpy',
+        'pyperclip',
+        'pyautogui',
+        'pystray',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageDraw',
+        'groq',
+        'openai',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     # tkinter wird nicht mehr benutzt (Hotkey-Auswahl liegt im Tray-Menü) —
     # ohne diesen Ausschluss packt PyInstaller es trotzdem mit ein.
-    excludes=['tkinter'],
+    excludes=['tkinter', 'tkinter.filedialog', 'tkinter.font'],
     noarchive=False,
     optimize=0,
 )
+
+# UAC-Manifest für Admin-Rechte (keyboard-Hook benötigt das)
+# Siehe: https://pyinstaller.org/en/stable/man/EXE.html#cmdoption-uac-admin
+a.datas += [('typeFREE.exe.manifest', '.\\typeFREE.exe.manifest', 'DATA')]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -37,4 +55,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=True,
 )
