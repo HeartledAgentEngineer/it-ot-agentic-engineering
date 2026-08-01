@@ -239,7 +239,7 @@ def load_hotkey_config():
 def save_hotkey_config(index):
     """Speichert gewählten Hotkey-Index."""
     try:
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump({'hotkey_index': index}, f)
     except Exception:
         log.exception('Hotkey speichern fehlgeschlagen')
@@ -604,8 +604,13 @@ POLISH_ANWEISUNG = (
     "'die Ants wurden rausgefiltert' → 'die Ähms wurden rausgefiltert'. "
     "Korrigiere nur bei klarem Zusammenhang — beim geringsten Zweifel lässt "
     "du das Wort unverändert stehen.\n"
-    "2. FÜLLWÖRTER ENTFERNEN: ähm, äh, halt, ne, sowie 'also' und 'genau', "
-    "wenn sie keine Bedeutung tragen.\n"
+    "2. FÜLLWÖRTER ENTFERNEN: Entferne Füllwörter – in allen Schreibweisen "
+    "(groß, klein, Satzanfang, Satzmitte): 'ähm'/'Ähm'/'ÄHM', 'äh'/'Äh', "
+    "'mhm', 'ah', 'oh', 'halt', 'ne', 'naja', sowie 'also' und 'genau', "
+    "wenn sie ohne inhaltliche Bedeutung gesagt wurden.\n"
+    "   Ausnahme: Wenn ein Wort offensichtlich als Fachbegriff, Abkürzung "
+    "oder Eigenname dient (z.B. 'Das ist ein ÄHM' als Bezeichnung), lass "
+    "es unverändert stehen.\n"
     "3. VERHASPLER GLÄTTEN: doppelt gesprochene Wörter und abgebrochene "
     "Satzanfänge entfernen.\n"
     "4. Satzzeichen und Groß-/Kleinschreibung korrigieren.\n\n"
@@ -707,7 +712,7 @@ def stop_and_transcribe():
                 prompt=WHISPER_VOKABULAR,
             )
         except Exception as e:
-            log.warning(f"Direct OpenAI Whisper failed: {e}. Falling back to OpenRouter Whisper.")
+            log.warning('Direct OpenAI Whisper failed: %s. Falling back to OpenRouter Whisper.', e)
             # Fallback to OpenRouter Whisper
             transcript = openrouter_client.audio.transcriptions.create(
                 model="openai/whisper-large-v3", # Use the specific OpenRouter Whisper model
@@ -738,7 +743,7 @@ def stop_and_transcribe():
 
     except Exception as e:
         log.exception('Transkription fehlgeschlagen')
-        report_error(f'Text konnte nicht erzeugt werden: {e}')
+        report_error('Text konnte nicht erzeugt werden: %s' % e)
 
 
 # ── Tastenerkennung ───────────────────────────────────────────────────────────
@@ -870,11 +875,11 @@ def main():
     # OpenRouter client for polishing and Whisper fallback
     openrouter_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=os.environ.get('OPENROUTER_API_KEY') or 'FEHLT',
+        api_key=os.environ.get('OPENROUTER_API_KEY'),
     )
 
     # OpenAI client for direct Whisper (primary)
-    openai_whisper_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY') or 'FEHLT')
+    openai_whisper_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
 
     log.info('typeFREE gestartet — Hotkey: %s', active_hotkey['label'])

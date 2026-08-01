@@ -69,17 +69,17 @@ def test_geglaetteter_text_wird_durchgelassen(monkeypatch):
         'ja, dann können wir den nächsten Slice angehen, den mit dem Autostart '
         'und der Aufgabenplanung.'
     )
-    monkeypatch.setattr(typefree, 'client', groq_attrappe(antwort=erwartet))
+    monkeypatch.setattr(typefree, 'openrouter_client', groq_attrappe(antwort=erwartet))
     assert typefree.polish_text(ROHTEXT) == erwartet
 
 
 def test_abgeschnittene_antwort_fuehrt_zum_rohtext(monkeypatch):
-    monkeypatch.setattr(typefree, 'client', groq_attrappe(antwort=ROHTEXT[:40]))
+    monkeypatch.setattr(typefree, 'openrouter_client', groq_attrappe(antwort=ROHTEXT[:40]))
     assert typefree.polish_text(ROHTEXT) is None
 
 
 def test_fehler_bei_groq_fuehrt_zum_rohtext(monkeypatch):
-    monkeypatch.setattr(typefree, 'client',
+    monkeypatch.setattr(typefree, 'openrouter_client',
                         groq_attrappe(fehler=RuntimeError('401')))
     assert typefree.polish_text(ROHTEXT) is None
 
@@ -89,7 +89,7 @@ def test_fehler_bei_groq_fuehrt_zum_rohtext(monkeypatch):
 def test_anweisung_verlangt_verhoerer_korrektur_und_slang_schonung(monkeypatch):
     """Die zwei Kernanliegen aus Entscheidung 19 müssen in der Anweisung stehen."""
     attrappe = groq_attrappe(antwort=ROHTEXT)
-    monkeypatch.setattr(typefree, 'client', attrappe)
+    monkeypatch.setattr(typefree, 'openrouter_client', attrappe)
     typefree.polish_text(ROHTEXT)
 
     anweisung = attrappe.aufrufe[0]['messages'][0]['content'].lower()
@@ -100,6 +100,6 @@ def test_anweisung_verlangt_verhoerer_korrektur_und_slang_schonung(monkeypatch):
 def test_token_grenze_reicht_fuer_ein_langes_diktat(monkeypatch):
     """Zehn Minuten Sprache sind grob 1500 Wörter — 1000 Tokens genügen nicht."""
     attrappe = groq_attrappe(antwort=ROHTEXT)
-    monkeypatch.setattr(typefree, 'client', attrappe)
+    monkeypatch.setattr(typefree, 'openrouter_client', attrappe)
     typefree.polish_text(ROHTEXT)
     assert attrappe.aufrufe[0]['max_tokens'] >= 4000

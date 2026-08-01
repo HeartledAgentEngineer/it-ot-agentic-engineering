@@ -116,10 +116,11 @@ Für jedes Feature diesen Zyklus einhalten. Nach jeder Phase `/clear` (Context-R
 * **Phase-Wechsel-Freigabe:** Ein Wechsel in eine neue Phase darf **NIEMALS** automatisch geschehen. Der Agent muss den Phasenwechsel explizit vorschlagen, eine kurze Einführung in die anstehende Phase geben (was ansteht und was gemacht werden soll) und dies über einen interaktiven Auswahl-Dialog (mit dem `ask_question` Tool) durch den Nutzer freigeben lassen.
 
 1. **Phase 1 — Brainstorm:** Ideen sortieren, als `brainstorm.md` sichern.
-2. **Phase 2 — Alignment:** "Grill me" phase. Alle Unklarheiten klären, als `alignment.md` sichern.
+1b. **Phase 1b — Pre-Alignment (grillAnAgent):** `node .claude/skills/grillAnAgent/grillAnAgent.mjs brainstorm.md` ausführen. Der Host lädt Haiku als Kritiker ein. Bei vollem Konsens (keine strittigen Punkte) → einmal abnicken, Phase 2 überspringen. Bei Uneinigkeit → nur die strittigen Punkte gehen in Phase 2.
+2. **Phase 2 — Alignment:** "Grill me" phase. Nur noch ungeklärte Punkte aus grillAnAgent klären, als `alignment.md` sichern.
 3. **Phase 3 — Planung:** Vertical Slice (Ende-zu-Ende) wählen, Teststrategie festlegen, als `plan.md` sichern. **Vor Freigabe der Implementierung (Phase 4) muss der Plan durch `/critic` (Fremdprüfung) gegengeprüft werden. Befunde auswerten, Plan ggf. anpassen. Erst nach Freigabe durch Sebastian geht es in Phase 4.**
 4. **Phase 4 — Implementierung:** Nur den Plan abarbeiten, kein Scope-Creep.
 5. **Phase 5 — Testing:** UX-Feedback geben, Bedienbarkeit prüfen. Danach Fremdprüfung durch ein zweites KI-Modell via `/critic`. Befunde werden vorgelegt, Sebastian entscheidet je Punkt — nie automatisch beheben.
 6. **Phase 6 — Recap:** Erklärung & Diagramm durch KI (NIEMALS überspringen!).
 7. **Phase 7 — Refactor:** Code vereinfachen, aufräumen (NIEMALS überspringen!). Danach `/critic` als Gegenprobe: Hat das Aufräumen etwas kaputtgemacht?
-8. **Phase 8 — Commit / PR:** Atomic Commits lokal machen. Markdown-Phasendateien löschen. Feierabend-Push manuell durch Nutzer!
+8. **Phase 8 — Commit / PR:** Atomic Commits lokal machen. Markdown-Phasendateien löschen. **Nach dem Commit zwingend fragen: „Soll ich pushen (ja/nein)?" — bei 'ja' führt Sebastian den Push selbst aus (z. B. `git push` im Terminal oder TortoiseGit), da der Agent keinen autonomen Push ausführen darf.**

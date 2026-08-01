@@ -4,7 +4,7 @@
 
 Systemweite Voice-to-Text-App für Windows:
 - Hotkey halten (Standard `Alt + Ä`, auch per `AltGr + Ä` auslösbar; über das Tray-Untermenü „Hotkey wählen" umstellbar) → Mikrofon wird geöffnet und nimmt auf
-- Loslassen → OpenAI Whisper transkribiert → Groq glättet → Text wird per Zwischenablage (Strg+V) eingefügt
+- Loslassen → OpenAI Whisper transkribiert → OpenRouter/Gemini glättet → Text wird per Zwischenablage (Strg+V) eingefügt
 - Funktioniert systemweit: Terminal, Browser, jedes Textfeld
 
 Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
@@ -13,18 +13,18 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | OpenAI Whisper API `whisper-1`, `language="de"`, plus `prompt=WHISPER_VOKABULAR` (Fachwörter vorgeben → weniger Verhörer an der Quelle) |
-| Text-Glättung | Groq `llama-3.1-8b-instant`: Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler **oder unplausibel kurzem Ergebnis** Rückfall auf den Rohtext |
+| Transkription | OpenAI Whisper API `whisper-1`, `language="de"`, plus `prompt=WHISPER_VOKABULAR` (Fachwörter vorgeben → weniger Verhörer an der Quelle). Fallback auf OpenRouter `openai/whisper-large-v3` |
+| Text-Glättung | OpenRouter `google/gemini-2.0-flash-001`: Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler **oder unplausibel kurzem Ergebnis** Rückfall auf den Rohtext |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT` |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
 | Text einfügen | `pyperclip` + `pyautogui` (Strg+V — unterstützt Umlaute) |
 | Status | `pystray`-Tray-Icon, fünf Farben: grau/grün/orange/blau/**rot = Fehler**; kein Overlay, kein tkinter |
 | Fehlermeldung | Windows-Sprechblase über `tray_icon.notify` + rotes Icon, das rot bleibt bis zur nächsten erfolgreichen Aufnahme |
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook` |
-| API-Keys | `OPENAI_API_KEY` + `GROQ_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
+| API-Keys | `OPENAI_API_KEY` + `OPENROUTER_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
-| Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Groq läuft im kostenlosen Tier |
-| Tests | `windows/tests/` — 67 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
+| Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Glättung läuft über OpenRouter |
+| Tests | `windows/tests/` — 73 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
 
 ## Versionierte Struktur
 
@@ -38,7 +38,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 67 Prüfungen in 11 Dateien
+    └── tests/                 ← 73 Prüfungen in 11 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
@@ -55,89 +55,60 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
 - **Logdatei ist Pflicht:** Bei `console=False` in der Spec hinterlässt ein Absturz sonst keine Spur. `StreamHandler` nur anlegen, wenn `sys.stdout` existiert — in der EXE ist es `None`
 - **Startbefehle gehören in `main()`:** Seiteneffekte beim Import (Threads, Tray, Config) machen die Datei untestbar
 - **Totes Mikrofon erkennt man an exakter digitaler Null**, nicht an leiser Lautstärke — ein echtes Gerät liefert immer Grundrauschen
+- **Dateien nie ohne `encoding=` öffnen** — sonst Encoding-Fehler auf nicht-englischen Systemen
+- **Strukturierte Logging-Parameter statt f-Strings** — `log.warning('msg %s', var)` statt `log.warning(f'msg {var}')`
 
-## Offene Arbeit (Stand 2026-07-30, nach Durchgang 1)
+## Erledigt (Stand 01.08.2026)
 
-### ⚠️ ZUERST: Gegenprobe durch `/critic` nach Phase 7
+### Durchgang 1 — „Stabilität und Mikrofon" ✅
+- `main()`-Umbau: Import sicher, Tray im Hauptthread, Seiteneffekte in `main()`
+- Hotkey-Logik: Loslassen beendet IMMER, Modifier-Tracking über Scancodes
+- Mikrofon-Wächter: totes Gerät erkennen, Zeitgrenze 10 Min
+- `.env`-Leser (eigener, kein python-dotenv)
+- Logdatei + Fehler-Abfänger + rotes Icon bei Fehler
+- tkinter entfernt, Hotkey-Auswahl im Tray-Menü
+- Registry-Autostart entfernt
+- Mikrofon nur während der Aufnahme geöffnet
+- **Einzelinstanz-Sperre** ✅ Benannter Windows-Mutex `Local\typeFREE_einzelinstanz`
 
-**Phase 7 ist am 30.07.2026 erledigt** — drei Punkte, jeder mit Testlauf danach:
+### Durchgang 2 — begonnen
+- **Kosten anzeigen** ✅ Whisper-Kosten im Tray-Menü
+- **Prompt verbessert** ✅ Füllwörter-Filter (01.08.2026): alle Schreibweisen, neue Füllwörter, Fachbegriff-Ausnahme
+- **Tests gefixt** ✅ 73/73 Prüfungen grün (Referenz `client` → `openrouter_client`)
 
-1. **Log-Pfad zusammengefasst.** `abspath` um die `_base`-Berechnung; vorher stand `windows\..\` mitten in jedem Protokolleintrag. Betrifft `.env`, `typefree.log`, `config.json` und `verbrauch.json` gemeinsam. Neue Prüfung: keiner dieser Pfade enthält `..`
-2. **Gemeinsame Variablen sichtbar geschützt.** `_stream` sowie die zwei Zeitstempel laufen jetzt über `lock`, dazu die Helfer `_uhren_stellen` und `_uhren_lesen`. **Wichtig:** Im `audio_callback` liegen die Zeitstempel im *bestehenden* Lock-Abschnitt, und `block_is_silent` bleibt davor — der Callback läuft im Audio-Thread und darf nicht warten, sonst gibt es Aussetzer. Ein zweites Sperren an dieser Stelle wäre ein Rückschritt gewesen
-3. **Fremdfehlertext gefiltert.** `_ohne_schluessel` ersetzt alles, was wie ein Schlüssel aussieht (`sk-`, `sk-proj-`, `gsk_`), durch `[SCHLÜSSEL ENTFERNT]` — vor Protokoll, Tooltip und Sprechblase. Vier neue Prüfungen
+## Offene Arbeit
 
-**Offen: die Gegenprobe.** Der Skill verlangt nach Phase 7 einen `/critic`-Lauf — hat das Aufräumen etwas kaputt gemacht? Aufruf über `node .claude/skills/critic/pruefe.mjs`, nicht über `agy` direkt.
-
-> [!IMPORTANT]
-> **`typefree.py` hat jetzt 827 Zeilen — die Aufteilungsgrenze von 800 ist überschritten.** Phase 7 sollte vereinfachen und hat die Datei über die Schwelle geschoben: Filter, Lock-Helfer und Kostenrechnung kosten Zeilen. Aufteilen widerspricht aber Entscheidung 20 („Eine Datei bleibt es"), die damals begründet wurde: Das Testproblem löste der `main()`-Umbau, nicht die Aufteilung. **Braucht eine Entscheidung von Sebastian**, kein stilles Aufteilen.
-
-### Voraussetzung — muss VOR dem Autostart gebaut werden
-
-- **Nur eine Instanz zulassen.** Am 29.07.2026 liefen versehentlich zwei typeFREE: beide mit eigenem Tastatur-Hook, beide nahmen auf, beide fügten ein — **jedes Diktat kam doppelt und wurde doppelt bezahlt**, beide schrieben in dieselbe Logdatei. Kein Randfall: Eine Aufgabenplanung, die regelmäßig prüft und neu startet, erzeugt das systematisch. Lösung: benannter Windows-Mutex oder Sperrdatei beim Start; ist er belegt, meldet die zweite Instanz das im Klartext und beendet sich.
+### ⚠️ Critic-Gegenprobe für Slice A (Prompt-Änderungen)
+Nach Phase 7 einen `/critic`-Lauf auf die geänderten Stellen:
+```bash
+cd "C:\Users\sebas\Desktop\workspace agentic engineering"
+node .claude/skills/critic/pruefe.mjs "02_Softwareentwicklung_IT\typeFREE\windows\typefree.py"
+```
 
 ### Durchgang 2 — „Autostart, Umzug und Feinschliff"
 
-- Programmordner unter `%LOCALAPPDATA%`, `einrichten.cmd`, Windows-Aufgabenplanung (Anmeldung, Aufwachen, regelmäßige Prüfung, „Mit höchsten Privilegien")
-- Nach 3 Fehlstarts in Folge aufgeben und einmalig im Klartext melden
-- ~~Kosten mitrechnen und im Tray-Menü anzeigen~~ → **erledigt am 30.07.2026**, aus Durchgang 2 vorgezogen. `whisper_kosten`, `verbrauch_buchen`, `verbrauch_text` als reine Funktionen, Stand in `verbrauch.json` neben der EXE. Nur Whisper — Groq läuft im kostenlosen Tier. Gebucht wird erst nach erfolgreichem Einfügen. Offen geblieben: Groq-Tokenzahl anzeigen (kostet nichts, wäre nur Information)
-- Leeres Guthaben an der fehlgeschlagenen Anfrage erkennen → rotes Icon, aber weiterlaufen
-- README-Abschnitt „Warum nicht Win+H"
+- **Unsichtbarer Start** `einrichten.cmd` — typeFREE mit `pythonw` starten (kein Terminal-Fenster)
+- **Windows-Aufgabenplanung** — Autostart bei Anmeldung + Aufwachen, Admin-Rechte, regelmäßige Prüfung
+- **Fehlstart-Erkennung** — nach 3 Fehlstarts in Folge aufgeben und einmalig melden
+- **Guthaben-Prüfung** — leeres Guthaben an fehlgeschlagener API-Anfrage erkennen → rotes Icon, weiterlaufen
+- **README-Abschnitt** „Warum nicht Win+H"
 
-### Textqualität — begonnen, nicht fertig
+### Textqualität — offene Punkte
 
-Die Groq-Anweisung wurde am 29.07. umgebaut (Verhörer korrigieren, Umgangssprache schonen). Ergebnis **teilweise**:
-
-| Fall | Ergebnis |
-|---|---|
-| „Das ist ein zweiter Test" (korrekt erkannt) | ✅ bleibt heil — die alte Anweisung machte „zweite Test" daraus |
-| „Ich **glaube**, das ist nicht so gut" | ❌ wird zu „Ich **denke**" — das Verbot des Wortersetzens wird ignoriert |
-| „ich wollte **gucken**" | ❌ wurde zu „wollte **wissen**" (vor dem Umbau gemessen, danach nicht erneut geprüft) |
-| „Zweigetest", „die **Ants**" (statt „Ähms") | Verhörer, vor dem Umbau nicht korrigiert |
-
-Vermutete Ursache: `llama-3.1-8b-instant` ist das kleinste Groq-Modell; Verbote befolgen kleine Modelle am schlechtesten. **Nächste Hebel:** größeres Groq-Modell testen (Zeit ist da — Groq lag unter 1 s, Whisper bei 2–6 s); Verbote als Positivbeispiele umschreiben statt als Verbotsliste.
-
-### Nächster Slice-Kandidat: Transkription zu Groq umziehen
-
-Am 30.07.2026 von Sebastian gemeldet: **zu langsam**, und **Deutsch-Englisch-Mischung bei schnellem Sprechen** wird schlecht erkannt. Beide Beschwerden zeigen auf denselben Schritt.
-
-Gemessene Zeiten aus `typefree.log` vom 29.07.2026:
-
-| Schritt | Dauer |
-|---|---|
-| OpenAI Whisper `whisper-1` | **2–6 s** — der Bremsklotz |
-| Groq-Glättung | unter 1 s |
-| Einfügen samt Stabilisierungspause | 0,3 s |
-
-**Vorschlag:** Transkription auf Groq `whisper-large-v3-turbo` umstellen.
-
-- Groqs Inferenzgeschwindigkeit ist an der Glättung schon belegt (unter 1 s)
-- `whisper-large-v3` ist bei Sprachwechsel innerhalb eines Satzes besser als `whisper-1`; das feste `language="de"` könnte entfallen
-- Ein Anbieter, ein Schlüssel — OpenAI entfällt vollständig, `WHISPER_VOKABULAR` bleibt
-
-**Muss gemessen werden, nicht angenommen:** Messlatte sind die Zeiten oben und die aufgezeichneten Prüffälle. Ob `large-v3-turbo` auf Deutsch so genau ist wie `whisper-1`, ist offen.
-
-### Sprachmischung — von Sebastian am 30.07.2026 gemeldet
-
-Englische Sätze und englische Fachbegriffe werden schlecht erkannt. **Ursache im Code:** `language="de"` ist im Whisper-Aufruf festgeschrieben, Whisper versucht also auch bei Englisch, deutsche Wörter zu hören. Drei Stufen, aufsteigend nach Aufwand:
-
-1. `WHISPER_VOKABULAR` um englische Fachbegriffe erweitern — billig, hilft aber nur bei Begriffen **innerhalb** deutscher Sätze
-2. `language="de"` weglassen → Whisper erkennt die Sprache selbst. Preis: kurze deutsche Äußerungen werden gelegentlich als andere Sprache erkannt
-3. **Sprachwahl im Tray-Menü** (Deutsch / Englisch / automatisch) — die saubere Lösung, eigener Slice
-
-Zusätzlich: Die Groq-Anweisung sagt nichts über gemischte Sprache. Sie müsste englische Fachbegriffe ausdrücklich unangetastet lassen, sonst eindeutscht sie sie. **Muss gemessen werden, nicht geraten** — dieselbe Falle wie bei „glaube → denke".
+Die Glättung läuft jetzt über OpenRouter `google/gemini-2.0-flash-001`:
+- Füllwörter werden hoffentlich besser erkannt (Prompt-Verschärfung vom 01.08.)
+- „glaube → denke" und „gucken → wissen" müssen nochmal gemessen werden
+- Englische Fachbegriffe in deutschen Sätzen werden nicht geschont
 
 ### Weitere Ideen
 
 - **Umschalt-Modus** („einmal drücken zum Starten/Beenden") mit Auswahl im Tray-Menü
-- **Lokale Transkription** mit `faster-whisper` — `small` ~6× Echtzeit auf CPU, `large-v3` ~3×; langsamer als die API, dafür kostenlos und ohne Datenabfluss
-- **Win+H selbst testen** — denselben Absatz einmal mit Win+H, einmal mit typeFREE diktieren, danach den Lokal-Slice neu bewerten
+- **Lokale Transkription** mit `faster-whisper`
 - **EU-Anbieter** prüfen (deutsches Whisper-Hosting, Azure OpenAI Westeuropa)
-- **Datenschutz auf dem Arbeitgeber-PC** klären, bevor dort diktiert wird
-- **`AltGr + Ä` als eigener Eintrag** — heute nicht nötig, weil `Alt + Ä` (Index 10) auch auf AltGr anspringt. Ein *eindeutiges* AltGr bräuchte die Unterscheidung von linkem und rechtem Alt über das Extended-Flag. Achtung: Seit der Scancode-Erkennung setzt AltGr **beide** Modifier — `Strg + Alt + M` würde bei `AltGr + M` feuern
-- Groq-Whisper (`whisper-large-v3-turbo`) als schnellere Transkriptions-Alternative
-- Android-APK via EAS Build (Widget schwebt über anderen Apps)
-- Bei über 800 Zeilen `typefree.py` gezielt aufteilen (Stand 29.07.: ~640)
-- Log-Pfad wird als `...\windows\..\typefree.log` geschrieben — funktioniert, ist aber unschön; `os.path.abspath` in `_base`
+- **Datenschutz auf dem Arbeitgeber-PC** klären
+- **`AltGr + Ä` als eigener Eintrag**
+- **Android-APK** via EAS Build
+- **Sprachwahl im Tray-Menü** (Deutsch / Englisch / automatisch)
 
 ## Arbeitsweise mit Claude
 
