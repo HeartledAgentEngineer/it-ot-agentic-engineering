@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+# Schlankes Build-Rezept für typeFREE
+# Nur die wirklich benötigten Module – kein pandas/scipy/lxml-Ballast.
 
 a = Analysis(
     ['windows\\typefree.py'],
@@ -17,21 +18,37 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageDraw',
-        'groq',
         'openai',
+        'groq',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # tkinter wird nicht mehr benutzt (Hotkey-Auswahl liegt im Tray-Menü) —
-    # ohne diesen Ausschluss packt PyInstaller es trotzdem mit ein.
-    excludes=['tkinter', 'tkinter.filedialog', 'tkinter.font'],
+    excludes=[
+        # GUI-Toolkits – nicht benötigt
+        'tkinter', 'PyQt5', 'PySide', 'PySide2', 'wx',
+        # Datenanalyse – nicht benötigt
+        'pandas', 'scipy', 'sympy', 'statsmodels',
+        # Machine Learning – nicht benötigt
+        'sklearn', 'tensorflow', 'torch', 'keras', 'xgboost',
+        # Bilderverarbeitung (außer PIL) – nicht benötigt
+        'opencv', 'matplotlib', 'plotly', 'bokeh', 'seaborn',
+        # Web/Cloud SDKs – nicht benötigt
+        'flask', 'django', 'fastapi', 'boto3', 'azure', 'google',
+        # Datenformate – nicht benötigt
+        'lxml', 'pyarrow', 'bs4', 'yaml', 'toml',
+        # Tests – nicht in EXE
+        'pytest', 'unittest', 'nose',
+        # Sonstige
+        'jupyter', 'notebook', 'ipython',
+        # OpenCV-spezifisch (oft von anderen Libs hereingeholt)
+        'cv2',
+    ],
     noarchive=False,
     optimize=0,
 )
 
 # UAC-Manifest für Admin-Rechte (keyboard-Hook benötigt das)
-# Siehe: https://pyinstaller.org/en/stable/man/EXE.html#cmdoption-uac-admin
 a.datas += [('typeFREE.exe.manifest', '.\\typeFREE.exe.manifest', 'DATA')]
 
 pyz = PYZ(a.pure)

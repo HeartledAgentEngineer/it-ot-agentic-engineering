@@ -9,7 +9,7 @@ echo.
 
 REM Prüfen, ob die EXE existiert
 set "PROJEKT=%~dp0..\"
-set "EXE=%PROJEKT%dist\typeFREE\typeFREE.exe"
+set "EXE=%PROJEKT%dist\typeFREE.exe"
 
 if not exist "%EXE%" (
     echo FEHLER: typeFREE.exe nicht gefunden.
