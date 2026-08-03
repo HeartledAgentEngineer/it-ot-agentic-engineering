@@ -124,9 +124,42 @@ set PYTHONPATH=. && python -m pytest windows/tests -v
 
 ---
 
-## 5. Setup
+## 5. Schnellstart
 
-### Variante A: Als Python-Skript (für Entwicklung)
+### Empfohlen: Installations-Assistent (für Endanwender und Weitergabe)
+
+Der `installer/`-Ordner enthält ein fertiges Paket — keine Vorkenntnisse nötig:
+
+```powershell
+installer\setup.cmd            # Rechtsklick → "Als Administrator ausführen"
+```
+
+**Schritt für Schritt:**
+1. `installer\setup.cmd` mit Rechtsklick → **„Als Administrator ausführen"**
+2. **OpenRouter API-Key** eintragen (kostenlos, $1 Startguthaben — für die Textglättung)
+3. Optional: **OpenAI API-Key** (nur bei eigenem Guthaben — für Whisper-Transkription)
+4. Fertig — typeFREE läuft sofort im Tray
+
+Der Assistent erledigt automatisch:
+* Installation nach `%ProgramFiles%\typeFREE`
+* Desktop-Verknüpfung, Startmenü-Eintrag und Autostart
+* **Windows "Apps & Features"**-Eintrag (Deinstallation wie jede andere Windows-App)
+* DSGVO-konforme Einrichtung (OpenRouter Zero Data Retention aktiviert)
+
+**Wichtig:** Der Empfänger muss **keine System-Umgebungsvariablen** setzen — alle Keys stehen editierbar in der `.env` neben der EXE.
+
+**Deinstallation:** Windows-Taste → Einstellungen → Apps → Installierte Apps → typeFREE → Deinstallieren.
+
+**Hinweise:**
+* Der globale Tastatur-Hook benötigt unter Windows **Administrator-Rechte** — daher das UAC-Manifest in der EXE. Ohne Admin installiert der Assistent nach `%USERPROFILE%\typeFREE` (Hotkey funktioniert, kein Autostart).
+* Hotkey ändern: Rechtsklick auf das Tray-Icon → „Hotkey wählen" → Eintrag anklicken (13 Optionen, der aktive ist markiert). Standard ist `Alt + Ä`.
+* Fehler nachlesen: `typefree.log` neben der EXE. Da die EXE fensterlos gebaut wird (`console=False`), ist die Logdatei die einzige Spur, die ein Absturz hinterlässt.
+
+---
+
+### Alternativ: Entwicklung und Eigenbau
+
+#### Variante A: Als Python-Skript
 
 ```powershell
 cd windows
@@ -145,7 +178,7 @@ Echte Umgebungsvariablen haben Vorrang, sodass sich beim Entwickeln ein anderer 
 
 Für unsichtbaren Start (kein Terminal-Fenster): `windows/einrichten.cmd` ausführen.
 
-### Variante B: Als EXE (für den produktiven Einsatz)
+#### Variante B: Als EXE bauen
 
 ```powershell
 pyinstaller typeFREE.spec
@@ -162,29 +195,4 @@ Dieses Skript:
 2. Startet typeFREE mit Admin-Rechten (UAC)
 3. Richtet auf Wunsch die Windows-Aufgabenplanung ein (Autostart bei Anmeldung + Aufwachen)
 
-### Variante C: Installations-Assistent (für Weitergabe an Dritte)
-
-Der `installer/`-Ordner enthält ein fertiges Paket:
-
-```powershell
-installer\setup.cmd            # Rechtsklick → "Als Administrator ausführen"
-```
-
-Der Assistent:
-1. Fragt den **OpenRouter API-Key** ab (kostenlos, $1 Startguthaben)
-2. Fragt optional den **OpenAI API-Key** an (nur bei eigenem Guthaben — sonst OpenRouter-Fallback)
-3. Installiert in `%ProgramFiles%\typeFREE`
-4. Erstellt Desktop-Verknüpfung, Startmenü-Eintrag und Deinstallations-Skript
-5. Richtet Autostart bei Windows-Anmeldung + Aufwachen ein
-6. Registriert typeFREE in **Windows "Apps & Features"** (Einstellungen → Apps → Deinstallieren)
-7. Zeigt DSGVO-Hinweise (OpenRouter speichert keine Daten, Data Training deaktivieren)
-
-**Der Empfänger muss keine System-Umgebungsvariablen setzen** — alle Keys stehen editierbar in der `.env` neben der EXE.
-
-**Deinstallation:** Windows-Taste → Einstellungen → Apps → Installierte Apps → typeFREE → Deinstallieren.
-
-**Hinweise:**
-* Der globale Tastatur-Hook benötigt unter Windows **Administrator-Rechte** — daher das UAC-Manifest in der EXE. Ohne Admin installiert der Assistent nach `%USERPROFILE%\typeFREE` (Hotkey funktioniert, kein Autostart).
-* Hotkey ändern: Rechtsklick auf das Tray-Icon → „Hotkey wählen" → Eintrag anklicken (13 Optionen, der aktive ist markiert). Standard ist `Alt + Ä`.
-* Fehler nachlesen: `typefree.log` neben der EXE. Da die EXE fensterlos gebaut wird (`console=False`), ist die Logdatei die einzige Spur, die ein Absturz hinterlässt.
-* Die EXE wird bewusst **nicht** versioniert (Binärartefakt); der Build ist über das PyInstaller-Rezept jederzeit reproduzierbar.
+Die EXE wird bewusst **nicht** versioniert (Binärartefakt); der Build ist über das PyInstaller-Rezept jederzeit reproduzierbar.
