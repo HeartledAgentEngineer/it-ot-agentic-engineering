@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 73 automatisierte Prüfungen · Prompt-Verschärfung gegen Füllwörter (08/2026) · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 84 automatisierte Prüfungen · Prompt-Verschärfung gegen Füllwörter (08/2026) · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
 
 ---
 
@@ -59,11 +59,13 @@ Zeichenweise Tastaturemulation scheitert regelmäßig an Umlauten, Sonderzeichen
 Die komplette Kette Mikrofon → `numpy` → WAV-Struktur → API-Upload läuft im Arbeitsspeicher — keine SSD-I/O-Last, keine temporären Dateien.
 
 ### Warum nicht Win+H?
-Windows' eigene Diktierfunktion (Win+H) hat zwei entscheidende Nachteile:
-1. **Keine Textextraktion:** Win+H speichert den diktierten Text nur intern im aktiven Textfeld. Du kannst ihn nicht kopieren, nicht in ein anderes Fenster verschieben, nicht nachbearbeiten.
-2. **Bleibendes Popup:** Das Diktier-Popup schließt sich nicht von selbst — du musst es manuell wegklicken. Das stört den Workflow erheblich.
+Windows' eigene Diktierfunktion (Win+H) ist brauchbar, hat aber mehrere praktische Nachteile:
+1. **Bleibendes Popup:** Das Diktier-Popup schließt sich nicht von selbst — du musst es manuell wegklicken. Das stört den Workflow erheblich.
+2. **Sprachqualität & Filterung:** Die Erkennung und Füllwort-Filterung von Win+H ist schwächer als die zweistufige Whisper+Gemini-Pipeline von typeFREE.
+3. **Undurchsichtige Datenverarbeitung:** Es ist nicht transparent, ob oder wie Microsoft die Sprachdaten verarbeitet, ob sie internetabhängig sind oder lokal bleiben.
+4. **Nicht anpassbar:** Die Audio-Qualität, das Vokabular und die Textnachbearbeitung lassen sich nicht beeinflussen.
 
-typeFREE umgeht beide Probleme: Der Text landet per Zwischenablage systemweit in **jedem** Fenster, und das minimale Tray-Icon bleibt unsichtbar im Hintergrund.
+typeFREE umgeht diese Probleme: Die zweistufige Pipeline (Whisper + Gemini über OpenRouter) liefert bessere Erkennung und Filterung, die Datenverarbeitung ist transparent (OpenRouter DSGVO-konform, kein Training auf Nutzerdaten), und das minimale Tray-Icon bleibt unsichtbar im Hintergrund — kein Popup, das geschlossen werden muss.
 
 ### Hotkey-Handling: gelernte Stolperfallen
 Drei Erkenntnisse aus dem Praxisbetrieb stecken im Code:
@@ -91,6 +93,19 @@ typeFREE/
 ├── CLAUDE.md                  # Projekt-Leitfaden für KI-Agenten (Status, Hotkey-Regeln)
 ├── typeFREE.spec              # PyInstaller-Rezept: Build als fensterlose EXE
 ├── typeFREE.exe.manifest      # UAC-Manifest für Admin-Rechte (requireAdministrator)
+├── installer/                 # Installationspaket für Weitergabe
+│   ├── setup.cmd              # Installations-Assistent (API-Key, Autostart, Verknüpfungen)
+│   ├── setup.cmd.manifest     # UAC-Dekoration
+│   ├── installer_lib.py       # Installations-Logik (Python, testbar)
+│   ├── deinstallieren.cmd     # Vollständige Entfernung (auch aus "Apps & Features")
+│   ├── ANLEITUNG-API-KEY.html # DSGVO-konforme Einrichtung
+│   ├── config.json            # Hotkey-Voreinstellung
+│   ├── autostart_admin.cmd    # Notfall-Autostart
+│   └── typeFREE.exe           # Vorgefertigte EXE
+├── build/
+│   ├── autostart_admin.cmd
+│   ├── autostart_einrichten.ps1
+│   └── build_installer.cmd    # baut EXE und kopiert in installer/
 └── windows/
     ├── typefree.py            # Kompletter Client: Hooks, Audio, Tray, API-Pipeline
     ├── requirements.txt       # Abhängigkeiten (sounddevice, keyboard, openai, …)
@@ -98,13 +113,13 @@ typeFREE/
     ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
     ├── einrichten.cmd         # Setup für Python-Skript-Modus (pythonw)
     ├── einrichten_exe.cmd     # Setup für EXE-Modus (Admin, Aufgabenplanung)
-    └── tests/                 # 73 automatisierte Prüfungen in 11 Dateien (pytest)
+    └── tests/                 # 84 automatisierte Prüfungen in 12 Dateien (pytest)
 ```
 
-Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze, Textglättung —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:
+Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze, Textglättung, Installations-Logik —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:
 
 ```powershell
-python -m pytest windows/tests -v
+set PYTHONPATH=. && python -m pytest windows/tests -v
 ```
 
 ---
@@ -147,8 +162,29 @@ Dieses Skript:
 2. Startet typeFREE mit Admin-Rechten (UAC)
 3. Richtet auf Wunsch die Windows-Aufgabenplanung ein (Autostart bei Anmeldung + Aufwachen)
 
+### Variante C: Installations-Assistent (für Weitergabe an Dritte)
+
+Der `installer/`-Ordner enthält ein fertiges Paket:
+
+```powershell
+installer\setup.cmd            # Rechtsklick → "Als Administrator ausführen"
+```
+
+Der Assistent:
+1. Fragt den **OpenRouter API-Key** ab (kostenlos, $1 Startguthaben)
+2. Fragt optional den **OpenAI API-Key** an (nur bei eigenem Guthaben — sonst OpenRouter-Fallback)
+3. Installiert in `%ProgramFiles%\typeFREE`
+4. Erstellt Desktop-Verknüpfung, Startmenü-Eintrag und Deinstallations-Skript
+5. Richtet Autostart bei Windows-Anmeldung + Aufwachen ein
+6. Registriert typeFREE in **Windows "Apps & Features"** (Einstellungen → Apps → Deinstallieren)
+7. Zeigt DSGVO-Hinweise (OpenRouter speichert keine Daten, Data Training deaktivieren)
+
+**Der Empfänger muss keine System-Umgebungsvariablen setzen** — alle Keys stehen editierbar in der `.env` neben der EXE.
+
+**Deinstallation:** Windows-Taste → Einstellungen → Apps → Installierte Apps → typeFREE → Deinstallieren.
+
 **Hinweise:**
-* Der globale Tastatur-Hook benötigt unter Windows **Administrator-Rechte** — daher das UAC-Manifest in der EXE.
+* Der globale Tastatur-Hook benötigt unter Windows **Administrator-Rechte** — daher das UAC-Manifest in der EXE. Ohne Admin installiert der Assistent nach `%USERPROFILE%\typeFREE` (Hotkey funktioniert, kein Autostart).
 * Hotkey ändern: Rechtsklick auf das Tray-Icon → „Hotkey wählen" → Eintrag anklicken (13 Optionen, der aktive ist markiert). Standard ist `Alt + Ä`.
 * Fehler nachlesen: `typefree.log` neben der EXE. Da die EXE fensterlos gebaut wird (`console=False`), ist die Logdatei die einzige Spur, die ein Absturz hinterlässt.
 * Die EXE wird bewusst **nicht** versioniert (Binärartefakt); der Build ist über das PyInstaller-Rezept jederzeit reproduzierbar.
