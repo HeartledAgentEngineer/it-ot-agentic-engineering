@@ -1,148 +1,147 @@
-"""ChromaDB client for vector storage and retrieval."""
+"""Simple JSON-based memory store (drop-in replacement for ChromaDB on ARM)."""
 
+import json
 import logging
 import uuid
+import os
+import numpy as np
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-class ChromaClient:
-    """Manages the ChromaDB vector database for memory storage."""
+class SimpleMemoryStore:
+    """File-based vector memory store using numpy + JSON.
+    
+    Drop-in replacement for ChromaDB that works on ARM/Android.
+    Persists to a JSON file. Can be migrated to ChromaDB later.
+    """
 
     def __init__(self):
         self.persist_dir = settings.chroma_persist_dir
-        self.collection_name = settings.chroma_collection_name
-        self._client: Optional[chromadb.Client] = None
-        self._collection: Optional[chromadb.Collection] = None
+        self.store_path = os.path.join(self.persist_dir, "memory_store.json")
+        self._memories: List[Dict[str, Any]] = []
+        self._loaded = False
 
     def connect(self) -> None:
-        """Initialize ChromaDB client and get/create collection."""
-        try:
-            self._client = chromadb.PersistentClient(
-                path=self.persist_dir,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
-            self._collection = self._client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-            logger.info(
-                "ChromaDB connected. Collection '%s' has %d items.",
-                self.collection_name,
-                self._collection.count(),
-            )
-        except Exception as e:
-            logger.error("Failed to connect to ChromaDB: %s", e)
-            raise
+        """Load or create the memory file."""
+        os.makedirs(self.persist_dir, exist_ok=True)
+        if os.path.exists(self.store_path):
+            try:
+                with open(self.store_path, "r", encoding="utf-8") as f:
+                    self._memories = json.load(f)
+                logger.info("Memory store loaded: %d items", len(self._memories))
+            except Exception as e:
+                logger.warning("Could not load memory store, starting fresh: %s", e)
+                self._memories = []
+        else:
+            self._memories = []
+            logger.info("Memory store created (empty)")
+        self._loaded = True
 
-    @property
-    def collection(self) -> chromadb.Collection:
-        if self._collection is None:
+    def count(self) -> int:
+        """Number of stored items."""
+        if not self._loaded:
             self.connect()
-        return self._collection  # type: ignore
+        return len(self._memories)
 
     def add_memory(
         self,
         content: str,
-        embedding: List[float],
+        embedding: Optional[List[float]] = None,
         category: str = "fact",
         importance: int = 3,
         conversation_id: Optional[str] = None,
     ) -> str:
-        """Add a new memory to the vector store."""
+        """Add a memory entry."""
+        if not self._loaded:
+            self.connect()
         memory_id = str(uuid.uuid4())
-        metadata: Dict[str, Any] = {
+        entry: Dict[str, Any] = {
+            "id": memory_id,
             "content": content,
             "category": category,
             "importance": importance,
             "timestamp": datetime.utcnow().isoformat(),
+            "embedding": embedding,
         }
         if conversation_id:
-            metadata["conversation_id"] = conversation_id
-
-        self.collection.add(
-            embeddings=[embedding],
-            metadatas=[metadata],
-            ids=[memory_id],
-        )
+            entry["conversation_id"] = conversation_id
+        self._memories.append(entry)
+        self._persist()
         logger.debug("Added memory: %s... (id=%s)", content[:50], memory_id)
         return memory_id
 
     def search_memories(
         self, query_embedding: List[float], top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Search for the most relevant memories."""
-        if self.collection.count() == 0:
+        """Cosine-similarity search over stored embeddings."""
+        if not self._loaded:
+            self.connect()
+        if not self._memories:
             return []
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k, self.collection.count()),
-        )
+        indexed = [m for m in self._memories if m.get("embedding") is not None]
+        if not indexed:
+            return []
 
-        memories = []
-        if results["metadatas"] and results["metadatas"][0]:
-            for i, metadata in enumerate(results["metadatas"][0]):
-                memories.append(
-                    {
-                        "id": results["ids"][0][i] if results["ids"] else None,
-                        "content": metadata.get("content", ""),
-                        "category": metadata.get("category", "fact"),
-                        "importance": metadata.get("importance", 3),
-                        "timestamp": metadata.get("timestamp", ""),
-                        "distance": results["distances"][0][i]
-                        if results.get("distances")
-                        else None,
-                    }
-                )
-        return memories
+        q = np.array(query_embedding, dtype=np.float32)
+        matrix = np.array([m["embedding"] for m in indexed], dtype=np.float32)
+
+        norms = np.linalg.norm(matrix, axis=1)
+        q_norm = np.linalg.norm(q)
+        if q_norm == 0 or (norms == 0).any():
+            return []
+        similarities = (matrix @ q) / (norms * q_norm)
+
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
+        results = []
+        for idx in top_indices:
+            m = indexed[idx]
+            results.append({
+                "id": m["id"],
+                "content": m["content"],
+                "category": m.get("category", "fact"),
+                "importance": m.get("importance", 3),
+                "timestamp": m.get("timestamp", ""),
+                "distance": float(1.0 - similarities[idx]),
+            })
+        return results
 
     def get_all_memories(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get all stored memories."""
-        if self.collection.count() == 0:
-            return []
-
-        results = self.collection.get(limit=limit)
-
-        memories = []
-        if results["metadatas"]:
-            for i, metadata in enumerate(results["metadatas"]):
-                memories.append(
-                    {
-                        "id": results["ids"][i] if results["ids"] else None,
-                        "content": metadata.get("content", ""),
-                        "category": metadata.get("category", "fact"),
-                        "importance": metadata.get("importance", 3),
-                        "timestamp": metadata.get("timestamp", ""),
-                    }
-                )
-        return memories
-
-    def count(self) -> int:
-        """Get the number of stored memories."""
-        return self.collection.count()
+        """Return stored memories (without embeddings)."""
+        if not self._loaded:
+            self.connect()
+        return [
+            {k: v for k, v in m.items() if k != "embedding"}
+            for m in self._memories[-limit:]
+        ]
 
     def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory by ID."""
-        try:
-            self.collection.delete(ids=[memory_id])
+        """Remove a memory by ID."""
+        if not self._loaded:
+            self.connect()
+        before = len(self._memories)
+        self._memories = [m for m in self._memories if m["id"] != memory_id]
+        if len(self._memories) < before:
+            self._persist()
             return True
-        except Exception as e:
-            logger.error("Failed to delete memory %s: %s", memory_id, e)
-            return False
+        return False
 
     def clear_all(self) -> None:
-        """Delete all memories (for testing)."""
-        if self.collection.count() > 0:
-            self.collection.delete(ids=self.collection.get()["ids"])
+        """Delete all memories."""
+        self._memories = []
+        self._persist()
+        logger.info("Memory store cleared")
+
+    def _persist(self) -> None:
+        """Write memory store to disk."""
+        os.makedirs(self.persist_dir, exist_ok=True)
+        with open(self.store_path, "w", encoding="utf-8") as f:
+            json.dump(self._memories, f, indent=2, ensure_ascii=False)
 
 
-# Singleton instance
-chroma_client = ChromaClient()
+# Singleton – same name as before, so imports stay compatible
+chroma_client = SimpleMemoryStore()
