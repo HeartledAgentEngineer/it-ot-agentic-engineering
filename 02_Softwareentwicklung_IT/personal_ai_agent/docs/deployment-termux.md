@@ -63,18 +63,21 @@ ssh -p 8022 <handy-ip>
 
 ### tmux-Session starten (auf dem Handy in Termux):
 ```bash
-cd ~/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent/backend
+cd ~/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent
 tmux new -s agent
 ```
 
 ### Innerhalb der tmux-Session: Backend starten
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+# WICHTIG: --app-dir backend ist nötig, damit Python das 'app'-Modul findet
+cd ~/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir backend
 ```
 
 ### Vom PC aus in die tmux-Session schauen:
 ```bash
 ssh -p 8022 <handy-ip>
+cd ~/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent
 tmux attach -t agent
 # → Siehst live, was das Backend loggt
 ```
@@ -124,7 +127,7 @@ const API_BASE = 'http://192.168.178.XX:8080';
 ```bash
 # Vom PC aus:
 ssh -p 8022 <handy-ip>
-cd ~/it-ot-agentic-engineering
+cd ~/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent
 git pull
 
 # Backend neustarten:
