@@ -1,10 +1,8 @@
-"""Memory service combining embeddings, vector storage, and LLM extraction."""
+"""Memory service – stores conversation facts (embeddings optional)."""
 
 import logging
+import warnings
 from typing import List, Dict, Any, Optional
-
-import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
@@ -12,38 +10,27 @@ from app.services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
 
+# Try to load sentence-transformers; if torch is missing, disable embeddings
+_embeddings_available = False
+_embedder = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+    _embedder = SentenceTransformer(settings.embedding_model)
+    _embeddings_available = True
+    logger.info("Embedding model '%s' loaded successfully.", settings.embedding_model)
+except Exception as e:
+    logger.warning(
+        "Embedding model NOT available (%s). "
+        "Vector memory search will be disabled until sentence-transformers + torch are installed.",
+        e,
+    )
+
 
 class MemoryService:
-    """Orchestrates memory operations: embedding, storage, retrieval, extraction."""
+    """Orchestrates memory operations: storage, retrieval, extraction."""
 
-    def __init__(self):
-        self._embedder: Optional[SentenceTransformer] = None
-        self._embedder_loaded = False
-
-    def _load_embedder(self) -> None:
-        """Lazy-load the embedding model."""
-        if not self._embedder_loaded:
-            try:
-                logger.info(
-                    "Loading embedding model: %s...", settings.embedding_model
-                )
-                self._embedder = SentenceTransformer(settings.embedding_model)
-                self._embedder_loaded = True
-                logger.info("Embedding model loaded successfully.")
-            except Exception as e:
-                logger.error("Failed to load embedding model: %s", e)
-                raise
-
-    @property
-    def embedder(self) -> SentenceTransformer:
-        if self._embedder is None:
-            self._load_embedder()
-        return self._embedder  # type: ignore
-
-    def _get_embedding(self, text: str) -> List[float]:
-        """Generate embedding vector for text."""
-        embedding = self.embedder.encode(text, normalize_embeddings=True)
-        return embedding.tolist()
+    # ── store ──────────────────────────────────────────────────────
 
     def store_memory(
         self,
@@ -52,8 +39,15 @@ class MemoryService:
         importance: int = 3,
         conversation_id: Optional[str] = None,
     ) -> str:
-        """Generate embedding and store a memory."""
-        embedding = self._get_embedding(content)
+        """Store a memory (with embedding if available)."""
+        embedding = None
+        if _embeddings_available and _embedder is not None:
+            try:
+                vec = _embedder.encode(content, normalize_embeddings=True)
+                embedding = vec.tolist()
+            except Exception as e:
+                logger.debug("Embedding failed, storing without vector: %s", e)
+
         memory_id = chroma_client.add_memory(
             content=content,
             embedding=embedding,
@@ -64,19 +58,29 @@ class MemoryService:
         logger.info("Stored memory: %s (category=%s)", content[:80], category)
         return memory_id
 
+    # ── retrieve ───────────────────────────────────────────────────
+
     def retrieve_relevant_memories(
         self, query: str, top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Retrieve memories relevant to a query."""
+        """Retrieve memories relevant to a query (vector search if possible)."""
         if chroma_client.count() == 0:
             return []
 
-        query_embedding = self._get_embedding(query)
-        memories = chroma_client.search_memories(
-            query_embedding=query_embedding, top_k=top_k
-        )
-        logger.debug("Retrieved %d relevant memories", len(memories))
-        return memories
+        if _embeddings_available and _embedder is not None:
+            try:
+                query_vec = _embedder.encode(query, normalize_embeddings=True)
+                return chroma_client.search_memories(
+                    query_embedding=query_vec.tolist(), top_k=top_k
+                )
+            except Exception as e:
+                logger.debug("Vector search failed, returning empty: %s", e)
+                return []
+        else:
+            # No embeddings – return last N memories as simple context
+            return chroma_client.get_all_memories(limit=top_k)
+
+    # ── extract & store (LLM-based) ───────────────────────────────
 
     def extract_and_store_memories(
         self, user_message: str, llm_reply: str, conversation_id: Optional[str] = None
@@ -86,7 +90,7 @@ class MemoryService:
         stored_ids = []
 
         for fact in facts:
-            if len(fact) > 10:  # Ignore very short/empty facts
+            if len(fact) > 10:
                 memory_id = self.store_memory(
                     content=fact,
                     category="fact",
@@ -98,6 +102,8 @@ class MemoryService:
         if stored_ids:
             logger.info("Extracted and stored %d new memories", len(stored_ids))
         return stored_ids
+
+    # ── query ──────────────────────────────────────────────────────
 
     def get_all_memories(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get all stored memories."""
