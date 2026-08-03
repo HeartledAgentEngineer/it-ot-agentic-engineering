@@ -24,7 +24,8 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | API-Keys | `OPENAI_API_KEY` + `OPENROUTER_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
 | Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — 73 Prüfungen mit pytest in 11 Dateien, alle gegen reine Funktionen |
+| Tests | `windows/tests/` — 84 Prüfungen mit pytest in 12 Dateien, alle gegen reine Funktionen |
+| Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
 
 ## Versionierte Struktur
 
@@ -33,15 +34,26 @@ typeFREE/
 ├── CLAUDE.md
 ├── README.md
 ├── typeFREE.spec              ← PyInstaller-Build aus dem Projekt-Root
+├── installer/                 ← Installationspaket
+│   ├── setup.cmd              ← Installations-Assistent (Batch)
+│   ├── installer_lib.py       ← Installations-Logik (Python, testbar)
+│   ├── __init__.py
+│   ├── ANLEITUNG-API-KEY.html ← DSGVO-konforme Einrichtung (Schritt 6)
+│   ├── config.json            ← Hotkey-Voreinstellung
+│   └── autostart_admin.cmd    ← Notfall-Autostart
+├── build/
+│   ├── autostart_admin.cmd    ← separate Admin-Autostart-Hilfe
+│   ├── autostart_einrichten.ps1
+│   └── build_installer.cmd    ← baut EXE und kopiert in installer/
 └── windows/
     ├── typefree.py            ← Hauptscript
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 73 Prüfungen in 11 Dateien
+    └── tests/                 ← 84 Prüfungen in 12 Dateien
 ```
 
-Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
+Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer erzeugt) sowie der Android-PoC
 (Expo/React Native Floating Widget — existiert nur lokal).
 
 ## Wichtige technische Erkenntnisse
@@ -71,10 +83,16 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` sowie der Android-PoC
 - Mikrofon nur während der Aufnahme geöffnet
 - **Einzelinstanz-Sperre** ✅ Benannter Windows-Mutex `Local\typeFREE_einzelinstanz`
 
-### Durchgang 2 — begonnen
+### Durchgang 2 — „Autostart, Installer und DSGVO" ✅
 - **Kosten anzeigen** ✅ Whisper-Kosten im Tray-Menü
 - **Prompt verbessert** ✅ Füllwörter-Filter (01.08.2026): alle Schreibweisen, neue Füllwörter, Fachbegriff-Ausnahme
 - **Tests gefixt** ✅ 73/73 Prüfungen grün (Referenz `client` → `openrouter_client`)
+- **Windows-Aufgabenplanung** ✅ Autostart bei Anmeldung + Aufwachen (`build/autostart_admin.cmd`)
+- **`einrichten_exe.cmd`** ✅ automatische UAC-Erhöhung eingebaut
+- **Installer-Paket** ✅ `installer/setup.cmd` mit API-Key-Abfrage, Desktop-Verknüpfung, Startmenü, Deinstallations-Skript
+- **DSGVO-Anleitung** ✅ Schritt 6 in `ANLEITUNG-API-KEY.html`: Zero Data Retention + Data Training deaktivieren
+- **Installer-Tests** ✅ 11 neue Prüfungen in `test_installer.py` (84 insgesamt)
+- **`installer/installer_lib.py`** ✅ Installations-Logik als testbare Python-Funktionen
 
 ## Offene Arbeit
 
@@ -85,13 +103,14 @@ cd "C:\Users\sebas\Desktop\workspace agentic engineering"
 node .claude/skills/critic/pruefe.mjs "02_Softwareentwicklung_IT\typeFREE\windows\typefree.py"
 ```
 
-### Durchgang 2 — „Autostart, Umzug und Feinschliff"
+### Durchgang 2 Fortsetzung — „Feinschliff"
 
 - **Unsichtbarer Start** `einrichten.cmd` — typeFREE mit `pythonw` starten (kein Terminal-Fenster)
-- **Windows-Aufgabenplanung** — Autostart bei Anmeldung + Aufwachen, Admin-Rechte, regelmäßige Prüfung
 - **Fehlstart-Erkennung** — nach 3 Fehlstarts in Folge aufgeben und einmalig melden
 - **Guthaben-Prüfung** — leeres Guthaben an fehlgeschlagener API-Anfrage erkennen → rotes Icon, weiterlaufen
 - **README-Abschnitt** „Warum nicht Win+H"
+- **`setup.cmd` auf `installer_lib.py` umstellen** — damit der Installer nicht doppelte Logik im Batch hält
+- **Inno-Setup-Installer** — falls gewünscht, kann der Batch-Installer später durch ein `setup.iss` ersetzt werden
 
 ### Textqualität — offene Punkte
 
@@ -114,5 +133,7 @@ Die Glättung läuft jetzt über OpenRouter `google/gemini-2.0-flash-001`:
 
 - Sprache: **Deutsch**
 - Erklärungen: immer WARUM, nicht nur WAS
+- **Vor jeder Dateiänderung / jedem Befehl:** Sicherheitsinfo aus CLAUDE.md ausgeben
+- **Vor Build:** Tests ausführen (`pytest windows/tests/`)
+- **Vor Weitergabe:** Critic-Lauf (`node .claude/skills/critic/pruefe.mjs windows/typefree.py`)
 - Jeden Schritt erst erklären, dann auf Bestätigung warten
-- Commits: nur wenn explizit gewünscht

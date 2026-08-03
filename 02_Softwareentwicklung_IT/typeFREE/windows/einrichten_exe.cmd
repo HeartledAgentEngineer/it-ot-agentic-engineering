@@ -2,15 +2,35 @@
 title typeFREE Einrichtung (EXE-Modus)
 chcp 65001 >nul
 
+REM ============================================
+REM   Automatische Admin-Erhöhung per UAC
+REM ============================================
+REM Prüfen, ob wir bereits Admin sind
+openfiles >nul 2>&1
+if %errorlevel% neq 0 (
+    echo.
+    echo typeFREE benoetigt Administrator-Rechte fuer:
+    echo   - Tastatur-Hook (globaler Hotkey)
+    echo   - Aufgabenplanung (Autostart)
+    echo.
+    echo Starte mit Administrator-Rechten neu ...
+    powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs"
+    exit /b 0
+)
+
+REM ============================================
+REM   Ab hier: wir sind Administrator
+REM ============================================
 echo ============================================
 echo   typeFREE - Einrichtung (EXE-Modus)
 echo ============================================
 echo.
 
-REM Prüfen, ob die EXE existiert
+REM EXE-Pfad ermitteln
 set "PROJEKT=%~dp0..\"
 set "EXE=%PROJEKT%dist\typeFREE.exe"
 
+REM Prüfen, ob die EXE existiert
 if not exist "%EXE%" (
     echo FEHLER: typeFREE.exe nicht gefunden.
     echo.
@@ -26,16 +46,14 @@ if not exist "%EXE%" (
 echo EXE gefunden: %EXE%
 echo.
 
-REM EXE als Admin testen – per Rechtsklick "Als Administrator ausführen"
+REM ============================================
+REM   typeFREE starten
+REM ============================================
 echo ============================================
 echo   typeFREE starten
 echo ============================================
 echo.
-echo Starte typeFREE... (Admin-Rechte fuer Tastatur-Hook)
-echo.
-
-REM ShellRunAs für Admin-Rechte – startet die UAC-Abfrage
-REM /runas startet als Administrator
+echo Starte typeFREE als Administrator ...
 powershell -Command "Start-Process '%EXE%' -Verb RunAs"
 if %errorlevel% equ 0 (
     echo typeFREE wurde gestartet (Admin).
@@ -50,31 +68,30 @@ echo ============================================
 echo   Aufgabenplanung einrichten (Autostart)
 echo ============================================
 echo.
+echo typeFREE kann automatisch starten bei:
+echo   - Windows-Anmeldung (Neustart / Hochfahren)
+echo   - Aufwachen aus Ruhezustand
+echo.
+echo Dafuer wird eine Aufgabe in der Windows Aufgabenplanung angelegt.
+echo.
 echo Soll typeFREE automatisch beim Anmelden starten?
 choice /C JN /M "Autostart einrichten"
 if %errorlevel% equ 1 (
     echo.
     echo Erstelle Aufgabenplanung fuer Benutzer %USERNAME%...
-    
-    REM Aufgabenplanung: Start bei Anmeldung, max. Privilegien
+
+    REM Aufgabe 1: Start bei Anmeldung (logon)
     schtasks /Create /SC ONLOGON /TN "typeFREE" /TR "'%EXE%' --autostart" /RL HIGHEST /F /IT
-    
-    REM Zweite Aufgabe: Start beim Aufwachen aus Ruhezustand
+
+    REM Aufgabe 2: Start beim Aufwachen aus Ruhezustand (Event 107)
     schtasks /Create /SC ONEVENT /EC System /MO "*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and EventID=107]]" /TN "typeFREE-Aufwachen" /TR "'%EXE%' --autostart" /RL HIGHEST /F /IT
-    
-    if %errorlevel% equ 0 (
-        echo.
-        echo ✅ Aufgabenplanung eingerichtet:
-        echo   - Start bei Anmeldung
-        echo   - Start beim Aufwachen
-        echo.
-        echo HINWEIS: Die Aufgabenplanung startet typeFREE im Hintergrund.
-        echo Ein Neustart oder eine erneute Anmeldung aktiviert den Autostart.
-    ) else (
-        echo.
-        echo ⚠️  Fehler beim Einrichten der Aufgabenplanung.
-        echo Bitte CMD als Administrator ausfuehren.
-    )
+
+    echo.
+    echo ✅ Aufgabenplanung eingerichtet:
+    echo   - typeFREE  → Start bei Anmeldung
+    echo   - typeFREE-Aufwachen → Start beim Aufwachen
+    echo.
+    echo Hinweis: Die Aufgaben werden ab dem naechsten Neustart wirksam.
 ) else (
     echo Autostart uebersprungen.
 )
@@ -85,6 +102,11 @@ echo   Fertig!
 echo ============================================
 echo.
 echo typeFREE-EXE: %EXE%
+echo.
+echo Wichtige Dateien (neben der EXE):
+echo   .env              - Hier kommen die API-Keys rein
+echo   config.json       - Hotkey-Einstellungen
+echo   typefree.log      - Fehler- und Ereignisprotokoll
 echo.
 echo Zum manuellen Start:
 echo   EXE direkt als Admin ausfuehren (Rechtsklick - Als Administrator)

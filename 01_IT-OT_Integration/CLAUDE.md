@@ -9,67 +9,49 @@
 
 <!-- LOKALE PROJEKT-ERWEITERUNGEN (EXTENDS) -->
 
-# BEREICHS-ERWEITERUNG: AUTOMATISIERUNGSTECHNIK (OT)
+# BEREICHS-ERWEITERUNG: AUTOMATISIERUNGSTECHNIK (OT) — Theoretischer Entwurf
 
-Dieses Regelwerk erweitert die globalen KI-Direktiven um hochspezifische Richtlinien für TwinCAT 3 (IEC 61131-3).
-
----
-
-## 1. BECKHOFF VARIABLEN-NAMENSKONVENTIONEN
-
-Jede Variable muss streng nach Beckhoff-Sicherheits-Konventionen mit dem passenden Typ-Präfix deklariert werden:
-
-* `b`  - BOOL (z. B. `bStart`, `bBereit`)
-* `r`  - REAL (z. B. `rSollwert`, `rIstwert`)
-* `i`   - INT (z. B. `iZaehler`, `iStep`)
-* `di`  - DINT (z. B. `diPosition`, `diWinkelLatch`)
-* `ui`  - UINT (z. B. `uiIndex`)
-* `udi` - UDINT (z. B. `udiZaehler`)
-* `t`  - TIME (z. B. `tVerzoegerung`)
-* `s`  - STRING (z. B. `sFehlermeldung`)
-* `st` - STRUCT (z. B. `stHMI_Data`)
-* `fb` - FUNCTION_BLOCK (z. B. `fbHauptantrieb`)
-* `e`  - ENUM (z. B. `eMaschinenZustand`)
+> **⚠️ DSGVO-Konformität hat Vorrang.** Dieses Regelwerk erweitert die globalen KI-Direktiven um Leitplanken für TwinCAT 3 (IEC 61131-3). Es dient als Vorlage für eine spätere Nutzung — aktuell ist der OT-Bereich nicht aktiv. **Verfahrenstechnisches Wissen (Prozess-Know-how, kundenspezifische Logik) darf niemals das Repository verlassen, auch nicht über DSGVO-konforme Gateways.**
 
 ---
 
-## 2. ESTEP-SCHRITTKETTEN-KONVENTION (ENUM-BASIERT)
+## 🔒 DSGVO & Sicherheit
 
-Deine Schrittketten müssen pragmatisch und deterministisch als Enum-Abläufe in `CASE eStep OF` (unter Verwendung von sprechenden Konstanten mit expliziter Zahlenzuweisung) entworfen werden:
-
-* **Datentyp:** `eStep : E_State` (Enum abgeleitet von `DINT` / `INT`).
-* **Zehner-Schritte:** Standard-Abläufe mit festen Nummern in 10, 20, 30, 40... deklarieren.
-* **Flexibilität:** Lücken freihalten (z. B. 11, 12, 15), um später Zwischenschritte einfügen zu können.
-* **Kommentare:** Jeder Schritt MUSS im Code kommentiert werden:
-  `eFoerderband_An: (* [10] Förderband läuft *)`
+* **Kein Abfluss von Verfahrenstechnik-Wissen:** Prozess-Know-how, kundenspezifische Algorithmen und Anlagenlogik verlassen niemals das Repository — auch nicht zur Prüfung über OpenRouter. Die Fremdprüfung (`/critic`) ist für OT-Code gesperrt.
+* **Nur DSGVO-konforme Modelle:** Wenn externe Modelle für OT-Code verwendet werden, dann ausschließlich Modelle ohne Datenweitergabe für Training (OpenRouter/Claude/Haiku). OpenAI, Groq etc. sind ausgeschlossen.
+* **Safety bleibt Hardware:** Not-Halt, Feuerwehr-Modus und sicherheitsrelevante Logik werden nie von einem KI-Agenten programmiert oder verändert.
 
 ---
 
-## 3. LATCH-ARCHITEKTUR (Wert-Einfrierung)
+## 📐 Namenskonventionen (Stilfrage, nicht sicherheitsrelevant)
 
-Der Latch-Mechanismus ist das entscheidende Bindeglied zwischen Steuerfluss und schnellem Datenfluss (Esterel-Prinzip):
+Diese Konventionen dienen der Lesbarkeit — sie haben keine sicherheitstechnische Bedeutung:
 
-* **Das Prinzip:** Encoder- oder Messwerte werden exakt beim Sensor-Trigger eingefroren. Alle weiteren Schritte rechnen mit dem Latch-Wert, nicht mit dem Live-Encoder.
-* **Die Ausnahme:** Das Einfrieren des Wertes erfolgt als **"Aktion in der Transition"** direkt im Umschalt-Moment. Das ist ein bewährtes Design-Pattern für schnelle Maschinen (700 Teile/Min):
-  ```pascal
-  IF bSensor AND NOT bSensorLast THEN
-      nWinkelLatch := Encoder.nPosition;   (* Latch-Moment *)
-      nNestNr      := NestDetekt.nAktuell;
-      iStep        := 20;
-  END_IF
-  bSensorLast := bSensor;
-  ```
+| Präfix | Typ | Beispiel |
+|---|---|---|
+| `b` | BOOL | `bStart` |
+| `r` | REAL | `rSollwert` |
+| `i` | INT | `iZaehler` |
+| `di` | DINT | `diPosition` |
+| `ui` | UINT | `uiIndex` |
+| `udi` | UDINT | `udiZaehler` |
+| `t` | TIME | `tVerzoegerung` |
+| `s` | STRING | `sFehlermeldung` |
+| `st` | STRUCT | `stHMI_Data` |
+| `fb` | FUNCTION_BLOCK | `fbHauptantrieb` |
+| `e` | ENUM | `eMaschinenZustand` |
+
+Schrittketten in Zehner-Schritten (10, 20, 30…) mit Enum (`eStep : E_State`), Lücken für spätere Erweiterungen freilassen.
 
 ---
 
-## 4. DATEI-REGISTRIERUNGS-WORKFLOW (.PLCPROJ XML)
+## 📁 Datei-Registrierung (Bautechnisch)
 
-Wenn eine neue `.TcPOU` (Funktionsbaustein) oder `.TcDUT` (Struct/Enum) erstellt wird, muss diese zwingend in der XML-Projektdatei (`.plcproj`) registriert werden, damit sie in der XAE Shell sofort sichtbar ist:
+Neue `.TcPOU` oder `.TcDUT` müssen in der `.plcproj` registriert werden:
 
 ```xml
 <Compile Include="POUs\FB_Name.TcPOU">
   <SubType>Code</SubType>
 </Compile>
 ```
-*Der Pfad der `.plcproj` liegt im PLC-Unterordner des Maschinenprojekts.*
 

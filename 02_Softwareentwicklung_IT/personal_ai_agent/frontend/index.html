@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f1a">
+    <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
+    <title>Personal AI Agent</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-content">
+                <h1 class="app-title">🤖 Agent</h1>
+                <span id="status-indicator" class="status offline" title="Verbindungsstatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Offline</span>
+                </span>
+            </div>
+        </header>
+
+        <!-- Chat Messages -->
+        <main id="chat-container">
+            <div id="messages">
+                <!-- Welcome message -->
+                <div class="message assistant">
+                    <div class="message-content">
+                        <p>👋 Hallo! Ich bin dein persönlicher KI-Assistent.</p>
+                        <p>Stell mir eine Frage oder erzähl mir etwas – ich merke mir Dinge für dich!</p>
+                        <p class="hint">💡 <em>Ich bin spezialisiert auf Netzwerktechnik, IT-Security und Systemadministration.</em></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="loading" class="hidden">
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <span class="loading-text">Denke nach...</span>
+            </div>
+        </main>
+
+        <!-- Input Area -->
+        <footer id="input-area">
+            <div class="input-wrapper">
+                <button id="mic-btn" class="icon-btn" title="Spracheingabe (kommt bald)" disabled>
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                        <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                </button>
+                <textarea id="message-input" rows="1" placeholder="Nachricht eingeben..." maxlength="10000"></textarea>
+                <button id="send-btn" class="icon-btn send-btn" title="Nachricht senden" disabled>
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                        <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </div>
+            <p class="footer-note">
+                DeepSeek V4 Flash · Gedächtnis aktiv
+            </p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

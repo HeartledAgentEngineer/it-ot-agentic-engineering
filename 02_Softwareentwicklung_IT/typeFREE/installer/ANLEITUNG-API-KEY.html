@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>typeFREE – API-Key einrichten</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f7fa;
+    color: #1a1a2e;
+    line-height: 1.6;
+    padding: 2rem 1rem;
+  }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 {
+    font-size: 1.75rem;
+    color: #16213e;
+    margin-bottom: 0.25rem;
+  }
+  .subtitle {
+    color: #666;
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #0f3460;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+  }
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .step-header h2 { font-size: 1.15rem; font-weight: 600; }
+  .step-body { padding-left: 2.5rem; }
+  .step-body p { margin-bottom: 0.5rem; }
+  .step-body ol, .step-body ul { margin: 0.5rem 0 0.5rem 1.25rem; }
+  .step-body li { margin-bottom: 0.35rem; }
+  code {
+    background: #eef1f5;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+    word-break: break-all;
+  }
+  .key-box {
+    background: #f0f4ff;
+    border: 2px dashed #0f3460;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 0.75rem 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+    color: #16213e;
+  }
+  .tip {
+    background: #e6f7ee;
+    border-left: 4px solid #2ecc71;
+    padding: 0.75rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+  }
+  .warning {
+    background: #fff8e6;
+    border-left: 4px solid #f39c12;
+    padding: 0.75rem 1rem;
+    border-radius: 0 8px 8px 0;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
+  }
+  hr { border: none; border-top: 1px solid #e0e0e0; margin: 1.5rem 0; }
+  .footer {
+    text-align: center;
+    color: #999;
+    font-size: 0.85rem;
+    margin-top: 2rem;
+  }
+  @media (max-width: 480px) {
+    .step-body { padding-left: 0; }
+    .step-header { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>🔑 typeFREE – API-Key einrichten</h1>
+  <p class="subtitle">In 2 Minuten hast du deinen eigenen Schlüssel –<br>kostenlos und ohne Kreditkarte.</p>
+
+  <!-- Schritt 1 -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">1</span>
+      <h2>OpenRouter-Webseite öffnen</h2>
+    </div>
+    <div class="step-body">
+      <p>Öffne deinen Browser und rufe diese Seite auf:</p>
+      <p><a href="https://openrouter.ai/keys" target="_blank"><code>https://openrouter.ai/keys</code></a></p>
+    </div>
+  </div>
+
+  <!-- Schritt 2 -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">2</span>
+      <h2>Registrieren oder anmelden</h2>
+    </div>
+    <div class="step-body">
+      <p><strong>Du hast noch keinen Account?</strong></p>
+      <ol>
+        <li>Klicke auf <strong>"Sign Up"</strong> (oben rechts)</li>
+        <li>Wähle <strong>"Continue with Google"</strong> oder melde dich mit einer E-Mail-Adresse an</li>
+        <li>Nach der Registrierung bekommst du <strong>1 $ Startguthaben</strong> geschenkt</li>
+      </ol>
+      <p><strong>Du hast schon einen Account?</strong></p>
+      <ol>
+        <li>Klicke auf <strong>"Log In"</strong></li>
+        <li>Melde dich mit Google oder E-Mail an</li>
+      </ol>
+      <div class="tip">
+        💡 Das Startguthaben reicht für <strong>hunderte Diktate</strong> – die Verarbeitung kostet nur Bruchteile eines Cents pro Minute.
+      </div>
+    </div>
+  </div>
+
+  <!-- Schritt 3 -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">3</span>
+      <h2>API-Key erstellen</h2>
+    </div>
+    <div class="step-body">
+      <p>Nach der Anmeldung siehst du die <strong>API-Key-Übersicht</strong>:</p>
+      <ol>
+        <li>Klicke auf die Schaltfläche <strong>"+ Create Key"</strong></li>
+        <li>Gib einen Namen ein, z.B. <code>typeFREE</code> (nur für dich zur Erkennung)</li>
+        <li>Klicke auf <strong>"Create"</strong></li>
+      </ol>
+      <div class="warning">
+        ⚠️ <strong>Merke:</strong> Der Key wird <em>nur einmal</em> angezeigt. Kopiere ihn sofort!
+      </div>
+    </div>
+  </div>
+
+  <!-- Schritt 4 -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">4</span>
+      <h2>Key kopieren</h2>
+    </div>
+    <div class="step-body">
+      <p>Dein Key sieht ungefähr so aus:</p>
+      <div class="key-box">HIER-DEINEN-OPENROUTER-API-KEY-EINFUEGEN</div>
+      <p>Klicke auf das <strong>Kopier-Symbol</strong> neben dem Key, um ihn in die Zwischenablage zu kopieren.</p>
+    </div>
+  </div>
+
+  <!-- Schritt 5 -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">5</span>
+      <h2>Im Installer einfügen</h2>
+    </div>
+    <div class="step-body">
+      <p>Starte den typeFREE-Installer:</p>
+      <ol>
+        <li>Doppelklicke auf <strong>setup.cmd</strong></li>
+        <li>Bestätige die UAC-Abfrage mit <strong>"Ja"</strong></li>
+        <li>Im Schritt <strong>2/4: API-Key</strong> fügst du den kopierten Key ein:</li>
+      </ol>
+      <ul>
+        <li>Klicke mit der rechten Maustaste in das Eingabefeld → <strong>Einfügen</strong></li>
+        <li>Oder drücke <code>Strg + V</code></li>
+      </ul>
+      <div class="tip">
+        💡 Der Key wird in der Datei <code>.env</code> gespeichert. Du kannst ihn später jederzeit ändern, indem du die <code>.env</code>-Datei im typeFREE-Ordner mit einem Texteditor öffnest.
+      </div>
+    </div>
+  </div>
+
+  <!-- Schritt 6: Datenschutz -->
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">6</span>
+      <h2>Datenschutz einstellen (DSGVO)</h2>
+    </div>
+    <div class="step-body">
+      <div class="warning">
+        ⚠️ <strong>Wichtig für die DSGVO:</strong> typeFREE sendet deine Sprachaufnahmen an OpenRouter zur Verarbeitung.
+        Damit deine Daten nicht für Training oder andere Zwecke verwendet werden, musst du die
+        Datenschutzeinstellungen in deinem OpenRouter-Konto anpassen.
+      </div>
+
+      <p>Öffne die Datenschutz-Seite:</p>
+      <p><a href="https://openrouter.ai/settings/privacy" target="_blank"><code>https://openrouter.ai/settings/privacy</code></a></p>
+
+      <p><strong>Zero Data Retention (ZDR) – <span style="color:#2ecc71;">ALLE aktivieren</span></strong></p>
+      <p>Setze bei allen fünf Optionen den Haken:</p>
+      <ul>
+        <li><strong>Non-frontier</strong> – Alle Non-frontier-Modelle müssen ZDR-Endpunkte nutzen</li>
+        <li><strong>Anthropic</strong> – Nur über Bedrock/Vertex, keine First-Party-Endpunkte</li>
+        <li><strong>OpenAI</strong> – Nur über Azure, keine First-Party-Endpunkte</li>
+        <li><strong>Google</strong> – Nur über Vertex, kein AI Studio</li>
+        <li><strong>xAI</strong> – Keine datenspeichernden Endpunkte</li>
+      </ul>
+      <div class="tip">
+        💡 ZDR sorgt dafür, dass deine Audiodaten nach der Verarbeitung sofort gelöscht werden
+        und nicht auf den Servern der KI-Anbieter verbleiben.
+      </div>
+
+      <p><strong>Data Training – <span style="color:#e74c3c;">ALLE deaktiviert lassen</span></strong></p>
+      <p>Stelle sicher, dass diese vier Optionen <strong>KEINEN</strong> Haken haben:</p>
+      <ul>
+        <li><strong>Allow paid endpoints that train on request data</strong> – Aus</li>
+        <li><strong>Allow free endpoints that train on request data</strong> – Aus</li>
+        <li><strong>Allow free endpoints that publish prompts</strong> – Aus</li>
+        <li><strong>Allow 1% data discount in workspaces</strong> – Aus</li>
+      </ul>
+      <div class="warning">
+        ⚠️ Mit diesen Einstellungen wird OpenRouter <strong>keine deiner Daten</strong> für KI-Training,
+        Produktverbesserung oder Veröffentlichung verwenden. Du erfüllst damit die DSGVO-Anforderungen.
+      </div>
+
+      <p><strong>Providers (Routing) – Optional</strong></p>
+      <p>Die Provider-Allowlist kannst du erstmal leer lassen. typeFREE funktioniert mit den
+      Standard-Einstellungen. Falls du später bestimmte Anbieter ausschließen möchtest,
+      kannst du hier eine Liste deiner vertrauenswürdigen Provider eintragen.</p>
+
+      <p>Nachdem du alles eingestellt hast, siehst du oben auf der Seite eine grüne
+      Bestätigung: <strong>"Settings saved"</strong>.</p>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="card">
+    <div class="step-header">
+      <span class="step-number">❓</span>
+      <h2>Hilfe / Probleme</h2>
+    </div>
+    <div class="step-body">
+      <p><strong>Der Installer startet nicht?</strong></p>
+      <ul>
+        <li>Rechtsklick auf <code>setup.cmd</code> → <strong>"Als Administrator ausführen"</strong></li>
+        <li>Windows Defender fragt nach → <strong>"Trotzdem ausführen"</strong></li>
+      </ul>
+      <p><strong>Key funktioniert nicht?</strong></p>
+      <ul>
+        <li>Öffne die <code>.env</code>-Datei im typeFREE-Ordner und prüfe, ob der Key vollständig ist</li>
+        <li>Er muss mit <code>OPENROUTER_API_KEY=sk-or-v1-...</code> beginnen</li>
+        <li>Keine Leerzeichen vor oder nach dem Gleichheitszeichen</li>
+      </ul>
+      <p><strong>typeFREE startet nicht automatisch?</strong></p>
+      <ul>
+        <li>Im Installer Schritt 4/4 "Autostart" mit <strong>"J"</strong> bestätigen</li>
+        <li>Oder die <code>build\autostart_admin.cmd</code> als Administrator ausführen</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="footer">
+    <p>typeFREE – Open-Source-Spracherkennung für Windows</p>
+  </div>
+
+</div>
+</body>
+</html>

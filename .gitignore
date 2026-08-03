@@ -107,3 +107,6 @@ dist/
 02_Softwareentwicklung_IT/concertify/resolve_uris*.py
 02_Softwareentwicklung_IT/concertify/search_log.py
 .aider*
+
+# Chats von GPT, GEMINI, Claude
+Chats von GPT, GEMINI, Claude/

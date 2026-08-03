@@ -1,6 +1,8 @@
 # 🚨 GLOBALE KI-DIREKTIVEN: AGENTEN-BETRIEBSSYSTEM
 ## Haupt-Workspace — Workspace Agentic Engineering
 
+> **Session-Kontext:** Lies `.claude/memory/CONTEXT.md` — Sebastians Profil, offene Aufgaben, Tech-Setup. Datei ist gitignored.
+
 > [!CAUTION]
 > ### 🔴 SICHERHEITS-LEITPLANKE: KONTROLLIERTER GIT-PUSH-WORKFLOW
 > * Der KI-Agent darf **niemals autonom** und ohne Rücksprache einen `git push` im Hintergrund ausführen (Schutz vor automatischem Secrets-Leakage).
