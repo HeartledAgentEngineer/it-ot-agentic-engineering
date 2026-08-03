@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
-from app.router import chat, memory, auth
+from app.router import chat, memory, auth, transcribe
 
 # Configure logging
 logging.basicConfig(
@@ -90,6 +90,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(auth.router)
+app.include_router(transcribe.router)
 
 # Serve frontend static files at / (MUST be after API routers)
 if os.path.isdir(FRONTEND_DIR):

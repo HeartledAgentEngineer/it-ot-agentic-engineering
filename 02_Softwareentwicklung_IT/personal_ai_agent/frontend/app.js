@@ -7,13 +7,14 @@
  * - TTS (Text-to-Speech) via SpeechSynthesis API
  * - Auto-Resize der Texteingabe
  * - Markdown-Unterstützung für Antworten
+ * - Spracheingabe via MediaRecorder + OpenRouter Whisper (wie TypeFREE)
  */
 
 /**
  * BACKEND-ADRESSE
  * ----------------
- * Lokaler PC-Test:     'http://localhost:8080'
- * Handy (Heimnetz):    'http://192.168.178.XX:8080'  (IP deines Handys)
+ * Lokaler PC-Test:     'http://localhost:9091'
+ * Handy (Heimnetz):    'http://192.168.178.XX:9091'  (IP deines Handys)
  * 
  * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
  *             nie im Frontend-Code.
@@ -28,6 +29,8 @@ const state = {
     isProcessing: false,
     isOnline: false,
     messages: [],
+    isRecording: false,
+    isTranscribing: false,
 };
 
 // =========================================
@@ -47,28 +50,16 @@ const dom = {
 // Utility: Simple Markdown Parser
 // =========================================
 function parseMarkdown(text) {
-    // Code blocks
     text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
         return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
     });
-
-    // Inline code
     text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Bold
     text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-    // Italic
     text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-    // Unordered lists
     text = text.replace(/^- (.+)$/gm, '<li>$1</li>');
     text = text.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-
-    // Line breaks
     text = text.replace(/\n\n/g, '</p><p>');
     text = text.replace(/\n/g, '<br>');
-
     return `<p>${text}</p>`;
 }
 
@@ -84,23 +75,16 @@ function escapeHtml(text) {
 function addMessage(content, role) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
-
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
-
     if (role === 'assistant') {
         contentDiv.innerHTML = parseMarkdown(content);
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
     }
-
     div.appendChild(contentDiv);
     dom.messages.appendChild(div);
-
-    // Scroll to bottom
     dom.messages.parentElement.scrollTop = dom.messages.parentElement.scrollHeight;
-
-    // Store in state
     state.messages.push({ role, content });
 }
 
@@ -108,7 +92,7 @@ function setLoading(loading) {
     state.isProcessing = loading;
     dom.loading.classList.toggle('hidden', !loading);
     dom.input.disabled = loading;
-    dom.sendBtn.disabled = loading || !dom.input.value.trim();
+    updateSendButton();
 }
 
 function setOnline(online) {
@@ -118,7 +102,21 @@ function setOnline(online) {
 }
 
 function updateSendButton() {
-    dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing;
+    dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing || state.isRecording;
+}
+
+function setMicStatus(status) {
+    dom.micBtn.classList.remove('recording', 'transcribing', 'polishing');
+    if (status) {
+        dom.micBtn.classList.add(status);
+    }
+    const titles = {
+        '': 'Spracheingabe',
+        'recording': 'Aufnahme läuft ... (Klicken zum Stoppen)',
+        'transcribing': 'Transkribiere ...',
+        'polishing': 'Glätte Text ...',
+    };
+    dom.micBtn.title = titles[status] || 'Spracheingabe';
 }
 
 // =========================================
@@ -151,10 +149,8 @@ function updateFooterNote(memoryCount) {
 
 async function sendMessage(text) {
     if (state.isProcessing || !text.trim()) return;
-
     setLoading(true);
     addMessage(text, 'user');
-
     try {
         const res = await fetch(`${API_BASE}/api/chat`, {
             method: 'POST',
@@ -164,23 +160,16 @@ async function sendMessage(text) {
                 conversation_id: state.conversationId,
             }),
         });
-
         if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         }
-
         const data = await res.json();
         state.conversationId = data.conversation_id;
         addMessage(data.reply, 'assistant');
-
-        // Update memory count in footer
-        updateFooterNote(
-            document.querySelector('.footer-note')
-        );
-
-        // Auto-speak the response (TTS)
+        if (data.memory_count !== undefined) {
+            updateFooterNote(data.memory_count);
+        }
         speakResponse(data.reply);
-
         return data;
     } catch (err) {
         console.error('Chat error:', err);
@@ -196,16 +185,50 @@ async function sendMessage(text) {
     }
 }
 
+async function sendAudioForTranscription(audioBlob) {
+    if (state.isTranscribing) return;
+    state.isTranscribing = true;
+    setMicStatus('transcribing');
+    try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'audio.webm');
+        const res = await fetch(`${API_BASE}/api/transcribe`, {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        // /critic #7: data.text muss ein String sein
+        if (typeof data.text === 'string' && data.text.trim()) {
+            setMicStatus('polishing');
+            dom.input.value = data.text;
+            dom.input.style.height = 'auto';
+            dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+            await handleSubmit();
+        } else if (data.error) {
+            addMessage(`⚠️ **Spracherkennung fehlgeschlagen**\n\n${data.error}`, 'assistant');
+        }
+    } catch (err) {
+        console.error('Transcription error:', err);
+        addMessage(
+            `⚠️ **Transkriptionsfehler**\n\nKonnte Audio nicht verarbeiten.\n`
+            + `- Fehler: ${err.message}`,
+            'assistant'
+        );
+    } finally {
+        state.isTranscribing = false;
+        setMicStatus('');
+    }
+}
+
 // =========================================
 // TTS (Text-to-Speech)
 // =========================================
 function speakResponse(text) {
-    if (!window.speechSynthesis) return;
-
-    // Only speak if the page is visible and not too many messages
-    if (document.hidden) return;
-
-    // Extract plain text from markdown (remove formatting)
+    if (!window.speechSynthesis || document.hidden) return;
     const plainText = text
         .replace(/```[\s\S]*?```/g, '')
         .replace(/`([^`]+)`/g, '$1')
@@ -213,41 +236,105 @@ function speakResponse(text) {
         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
         .replace(/\n+/g, ' ')
         .trim();
-
-    if (!plainText || plainText.length > 500) return; // Don't read very long responses
-
-    // Cancel any ongoing speech
+    if (!plainText || plainText.length > 500) return;
     window.speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(plainText);
     utterance.lang = 'de-DE';
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
-
-    // Try to find a German voice
     const voices = window.speechSynthesis.getVoices();
     const germanVoice = voices.find(v => v.lang.startsWith('de'));
-    if (germanVoice) {
-        utterance.voice = germanVoice;
-    }
-
+    if (germanVoice) utterance.voice = germanVoice;
     window.speechSynthesis.speak(utterance);
 }
 
-// Also load voices early
 if (window.speechSynthesis) {
-    window.speechSynthesis.getVoices(); // Trigger loading
+    window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => {
         window.speechSynthesis.getVoices();
     };
 }
 
 // =========================================
+// MediaRecorder – Spracheingabe (wie TypeFREE)
+// =========================================
+let mediaRecorder = null;
+let audioChunks = [];
+let audioStream = null;
+
+function releaseAudioStream() {
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+    }
+}
+
+async function startRecording() {
+    try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const options = {};
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            options.mimeType = 'audio/webm;codecs=opus';
+        }
+        mediaRecorder = new MediaRecorder(audioStream, options);
+        audioChunks = [];
+        state.isRecording = true;
+        setMicStatus('recording');
+        dom.input.placeholder = 'Aufnahme läuft ...';
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            state.isRecording = false;
+            dom.input.placeholder = 'Nachricht eingeben...';
+            releaseAudioStream();
+            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+            audioChunks = [];
+            if (audioBlob.size > 0) sendAudioForTranscription(audioBlob);
+        };
+
+        mediaRecorder.onerror = () => {
+            state.isRecording = false;
+            setMicStatus('');
+            dom.input.placeholder = 'Nachricht eingeben...';
+            releaseAudioStream();
+            addMessage('⚠️ Fehler bei der Audio-Aufnahme.', 'assistant');
+        };
+
+        mediaRecorder.start();
+    } catch (err) {
+        console.warn('Mikrofon-Zugriff verweigert:', err);
+        setMicStatus('');
+        dom.input.placeholder = 'Nachricht eingeben...';
+        addMessage(
+            '⚠️ **Mikrofon-Zugriff verweigert.**\n\n'
+            + 'Bitte erlaube den Mikrofon-Zugriff in den Browser-Einstellungen.',
+            'assistant'
+        );
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+    }
+}
+
+dom.micBtn.addEventListener('click', () => {
+    if (state.isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+});
+
+// =========================================
 // Event Handlers
 // =========================================
 dom.input.addEventListener('input', () => {
-    // Auto-resize textarea
     dom.input.style.height = 'auto';
     dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
     updateSendButton();
@@ -265,11 +352,9 @@ dom.sendBtn.addEventListener('click', handleSubmit);
 async function handleSubmit() {
     const text = dom.input.value.trim();
     if (!text || state.isProcessing) return;
-
     dom.input.value = '';
     dom.input.style.height = 'auto';
     updateSendButton();
-
     await sendMessage(text);
 }
 
@@ -279,10 +364,7 @@ async function handleSubmit() {
 let healthCheckInterval = null;
 
 function startHealthChecks() {
-    // Check immediately
     checkHealth();
-
-    // Then every 30 seconds
     healthCheckInterval = setInterval(checkHealth, 30000);
 }
 

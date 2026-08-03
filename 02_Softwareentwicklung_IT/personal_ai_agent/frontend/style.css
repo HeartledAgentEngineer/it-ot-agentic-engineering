@@ -326,6 +326,26 @@ body {
     cursor: not-allowed;
 }
 
+/* ── Mikrofon-Status (wie TypeFREE-Tray) ────────────────────────────────── */
+#mic-btn.recording {
+    color: #00cc44;
+    animation: micPulse 1s infinite ease-in-out;
+}
+
+#mic-btn.transcribing {
+    color: #cc7700;
+}
+
+#mic-btn.polishing {
+    color: #0077cc;
+}
+
+@keyframes micPulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.1); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
 .send-btn {
     color: var(--accent);
 }
