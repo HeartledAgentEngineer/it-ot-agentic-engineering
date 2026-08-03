@@ -18,7 +18,7 @@
  * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
  *             nie im Frontend-Code.
  */
-const API_BASE = localStorage.getItem('api_base') || 'http://localhost:8080';
+const API_BASE = localStorage.getItem('api_base') || 'http://localhost:9091';
 
 // =========================================
 // State

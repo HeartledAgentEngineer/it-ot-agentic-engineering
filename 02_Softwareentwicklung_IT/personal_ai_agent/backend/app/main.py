@@ -1,10 +1,12 @@
 """FastAPI application entry point."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
@@ -18,6 +20,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Path to frontend directory (relative to this backend/app/main.py)
+FRONTEND_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,14 +34,14 @@ async def lifespan(app: FastAPI):
     logger.info("Personal AI Agent – Starting up...")
     logger.info("=" * 50)
 
-    # Initialize ChromaDB
+    # Initialize memory store
     try:
         chroma_client.connect()
         memory_count = chroma_client.count()
         logger.info("Memory store ready: %d memories", memory_count)
     except Exception as e:
         logger.warning(
-            "ChromaDB initialization failed: %s. "
+            "Memory store initialization failed: %s. "
             "Memory features will be unavailable until restart.",
             e,
         )
@@ -79,10 +86,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers
+# Register API routers (they define their own /api prefix)
 app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(auth.router)
+
+# Serve frontend static files at / (MUST be after API routers)
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+    logger.info("Frontend served from: %s", FRONTEND_DIR)
+else:
+    logger.warning("Frontend directory not found: %s", FRONTEND_DIR)
 
 
 @app.get("/api/health", tags=["system"])
@@ -94,15 +108,5 @@ async def health_check():
         "status": "ok",
         "version": "0.1.0",
         "llm_configured": llm_service.is_configured,
-        "memory_count": chroma_client.count() if chroma_client._collection else 0,
-    }
-
-
-@app.get("/", tags=["system"])
-async def root():
-    """Root redirect to API docs."""
-    return {
-        "message": "Personal AI Agent API",
-        "docs": "/docs",
-        "health": "/api/health",
+        "memory_count": chroma_client.count(),
     }
