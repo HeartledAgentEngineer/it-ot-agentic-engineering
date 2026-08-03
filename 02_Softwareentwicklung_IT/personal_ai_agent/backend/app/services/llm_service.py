@@ -109,6 +109,7 @@ class LLMService:
                 messages=messages,  # type: ignore
                 temperature=0.7,
                 max_tokens=2048,
+                extra_body={"provider": {"allow_fallbacks": True}},
             )
 
             reply = response.choices[0].message.content or ""
@@ -152,6 +153,7 @@ class LLMService:
                 messages=[{"role": "user", "content": extraction_prompt}],  # type: ignore
                 temperature=0.1,
                 max_tokens=500,
+                extra_body={"provider": {"allow_fallbacks": True}},
             )
 
             raw = response.choices[0].message.content or "[]"
