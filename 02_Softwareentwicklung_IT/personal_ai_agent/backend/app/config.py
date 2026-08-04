@@ -1,7 +1,16 @@
 """Configuration management using pydantic-settings."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+# Pfade werden am Projektordner verankert, nicht am Arbeitsverzeichnis.
+# Sonst entscheidet der Ordner, aus dem uvicorn gestartet wurde, darüber,
+# ob Schlüssel, Gedächtnis und System-Prompt gefunden werden – und ein
+# Fehlstart legt still ein leeres Gedächtnis an, ohne Fehlermeldung.
+BASE_DIR = Path(__file__).resolve().parents[2]   # .../personal_ai_agent
+BACKEND_DIR = BASE_DIR / "backend"
 
 
 class Settings(BaseSettings):
@@ -19,14 +28,14 @@ class Settings(BaseSettings):
     port: int = 8080
 
     # ChromaDB
-    chroma_persist_dir: str = "./chroma_data"
+    chroma_persist_dir: str = str(BASE_DIR / "chroma_data")
     chroma_collection_name: str = "agent_memories"
 
     # Embedding
     embedding_model: str = "all-MiniLM-L6-v2"
 
-    # System Prompt
-    system_prompt_file: str = "./system_prompt.md"
+    # System Prompt (liegt in backend/, nicht im Projektordner)
+    system_prompt_file: str = str(BACKEND_DIR / "system_prompt.md")
 
     # Logging
     log_level: str = "INFO"
@@ -38,7 +47,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 1440  # 24h
 
     class Config:
-        env_file = ".env"
+        # Beide üblichen Ablageorte akzeptieren, damit es egal ist, wo die
+        # .env liegt. Der hintere Eintrag gewinnt, falls es beide gibt.
+        env_file = (BASE_DIR / ".env", BACKEND_DIR / ".env")
         env_file_encoding = "utf-8"
 
 
