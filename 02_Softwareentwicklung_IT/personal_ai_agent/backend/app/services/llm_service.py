@@ -241,7 +241,8 @@ class LLMService:
         try:
             # OpenAI-kompatibler Call via OpenRouter (exakt wie TypeFREE)
             buffer = io.BytesIO(audio_bytes)
-            buffer.name = 'audio.webm'
+            # TypeFREE sendet WAV – OpenRouter/Whisper erwartet WAV, kein WebM
+            buffer.name = 'audio.wav'
 
             response = self.client.audio.transcriptions.create(
                 model="openai/whisper-large-v3",
