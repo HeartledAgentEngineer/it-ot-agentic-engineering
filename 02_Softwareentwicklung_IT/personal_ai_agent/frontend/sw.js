@@ -6,12 +6,15 @@
  * - Cache für statische Assets
  */
 
-const CACHE_NAME = 'personal-ai-agent-v1';
+// Version hochzählen, sobald sich eine Datei aus STATIC_ASSETS ändert –
+// sonst liefert der Cache-first-Handler unten weiter die alte Fassung aus.
+const CACHE_NAME = 'personal-ai-agent-v2';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
     '/style.css',
     '/app.js',
+    '/pcm-recorder.js',
     '/manifest.json',
 ];
 

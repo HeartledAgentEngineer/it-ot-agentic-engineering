@@ -6,7 +6,7 @@ import logging
 import httpx
 from typing import List, Dict, Any, Optional
 
-from openai import OpenAI
+from openai import OpenAI, APIStatusError
 
 from app.config import settings
 
@@ -269,6 +269,19 @@ class LLMService:
             text = (response.text or "").strip()
             logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
             return text if text else None
+
+        except APIStatusError as e:
+            # OpenRouter reicht Anbieter-Fehler nur als "Provider returned 400"
+            # durch. Der eigentliche Grund steht im rohen Antwort-Body.
+            try:
+                body = e.response.text[:1000]
+            except Exception:
+                body = "<Body nicht lesbar>"
+            logger.error(
+                "Transkription abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
+                e.status_code, e, body,
+            )
+            return None
 
         except Exception as e:
             logger.error("Whisper-Transkription fehlgeschlagen: %s", e)

@@ -92,14 +92,6 @@ app.include_router(memory.router)
 app.include_router(auth.router)
 app.include_router(transcribe.router)
 
-# Serve frontend static files at / (MUST be after API routers)
-if os.path.isdir(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
-    logger.info("Frontend served from: %s", FRONTEND_DIR)
-else:
-    logger.warning("Frontend directory not found: %s", FRONTEND_DIR)
-
-
 @app.get("/api/health", tags=["system"])
 async def health_check():
     """Health check endpoint."""
@@ -111,3 +103,13 @@ async def health_check():
         "llm_configured": llm_service.is_configured,
         "memory_count": chroma_client.count(),
     }
+
+
+# Serve frontend static files at / – MUSS als Letztes registriert werden.
+# Starlette matcht Routen in Registrierungsreihenfolge; dieser Mount fängt
+# alles unter / ab und würde jede danach definierte API-Route verdecken.
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+    logger.info("Frontend served from: %s", FRONTEND_DIR)
+else:
+    logger.warning("Frontend directory not found: %s", FRONTEND_DIR)

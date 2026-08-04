@@ -7,7 +7,7 @@
  * - TTS (Text-to-Speech) via SpeechSynthesis API
  * - Auto-Resize der Texteingabe
  * - Markdown-Unterstützung für Antworten
- * - Spracheingabe via MediaRecorder + OpenRouter Whisper (wie TypeFREE)
+ * - Spracheingabe via AudioWorklet (WAV) + OpenRouter (wie TypeFREE)
  */
 
 /**
@@ -191,7 +191,7 @@ async function sendAudioForTranscription(audioBlob) {
     setMicStatus('transcribing');
     try {
         const formData = new FormData();
-        formData.append('file', audioBlob, 'audio.webm');
+        formData.append('file', audioBlob, 'audio.wav');
         const res = await fetch(`${API_BASE}/api/transcribe`, {
             method: 'POST',
             body: formData,
@@ -257,70 +257,128 @@ if (window.speechSynthesis) {
 }
 
 // =========================================
-// MediaRecorder – Spracheingabe (wie TypeFREE)
+// Spracheingabe – WAV-Aufnahme (wie TypeFREE)
 // =========================================
-let mediaRecorder = null;
-let audioChunks = [];
+// MediaRecorder liefert nur WebM/Opus; der Transkriptions-Anbieter lehnt das
+// mit HTTP 400 ab. WAV/PCM-16 geht zuverlässig durch – genau wie bei TypeFREE.
+// Deshalb greifen wir die rohen PCM-Blöcke über einen AudioWorklet ab und
+// bauen die WAV-Datei selbst. Mono, 16 Bit, native Abtastrate des Geräts.
+let audioContext = null;
+let workletNode = null;
+let sourceNode = null;
 let audioStream = null;
+let pcmChunks = [];
 
 function releaseAudioStream() {
+    if (workletNode) {
+        workletNode.port.onmessage = null;
+        workletNode.disconnect();
+        workletNode = null;
+    }
+    if (sourceNode) {
+        sourceNode.disconnect();
+        sourceNode = null;
+    }
+    if (audioContext) {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+    }
     if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
     }
 }
 
+/** Float32-Blöcke [-1,1] → WAV-Datei (PCM 16 Bit, Mono). */
+function encodeWav(chunks, sampleRate) {
+    let samples = 0;
+    for (const chunk of chunks) samples += chunk.length;
+
+    const buffer = new ArrayBuffer(44 + samples * 2);
+    const view = new DataView(buffer);
+    const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + samples * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);              // Länge des fmt-Blocks
+    view.setUint16(20, 1, true);               // Format: unkomprimiertes PCM
+    view.setUint16(22, 1, true);               // Kanäle: Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);  // Bytes pro Sekunde
+    view.setUint16(32, 2, true);               // Bytes pro Sample-Frame
+    view.setUint16(34, 16, true);              // Bits pro Sample
+    writeString(36, 'data');
+    view.setUint32(40, samples * 2, true);
+
+    let offset = 44;
+    for (const chunk of chunks) {
+        for (let i = 0; i < chunk.length; i++) {
+            const s = Math.max(-1, Math.min(1, chunk[i]));
+            view.setInt16(offset, s * 0x7FFF, true);
+            offset += 2;
+        }
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+}
+
 async function startRecording() {
     try {
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const options = {};
-        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-            options.mimeType = 'audio/webm;codecs=opus';
-        }
-        mediaRecorder = new MediaRecorder(audioStream, options);
-        audioChunks = [];
+        audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1 },
+        });
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        // Auf Android startet der Context oft angehalten.
+        if (audioContext.state === 'suspended') await audioContext.resume();
+        await audioContext.audioWorklet.addModule('pcm-recorder.js');
+
+        pcmChunks = [];
+        sourceNode = audioContext.createMediaStreamSource(audioStream);
+        workletNode = new AudioWorkletNode(audioContext, 'pcm-recorder');
+        workletNode.port.onmessage = (event) => pcmChunks.push(event.data);
+        sourceNode.connect(workletNode);
+        // Ohne Verbindung zur destination zieht die Audio-Engine keine Daten.
+        // Der Worklet schreibt nichts in seine Ausgänge – bleibt also stumm.
+        workletNode.connect(audioContext.destination);
+
         state.isRecording = true;
         setMicStatus('recording');
         dom.input.placeholder = 'Aufnahme läuft ...';
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) audioChunks.push(event.data);
-        };
-
-        mediaRecorder.onstop = () => {
-            state.isRecording = false;
-            dom.input.placeholder = 'Nachricht eingeben...';
-            releaseAudioStream();
-            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-            audioChunks = [];
-            if (audioBlob.size > 0) sendAudioForTranscription(audioBlob);
-        };
-
-        mediaRecorder.onerror = () => {
-            state.isRecording = false;
-            setMicStatus('');
-            dom.input.placeholder = 'Nachricht eingeben...';
-            releaseAudioStream();
-            addMessage('⚠️ Fehler bei der Audio-Aufnahme.', 'assistant');
-        };
-
-        mediaRecorder.start();
     } catch (err) {
-        console.warn('Mikrofon-Zugriff verweigert:', err);
+        console.warn('Aufnahme konnte nicht gestartet werden:', err);
+        releaseAudioStream();
+        state.isRecording = false;
         setMicStatus('');
         dom.input.placeholder = 'Nachricht eingeben...';
         addMessage(
-            '⚠️ **Mikrofon-Zugriff verweigert.**\n\n'
-            + 'Bitte erlaube den Mikrofon-Zugriff in den Browser-Einstellungen.',
+            '⚠️ **Mikrofon nicht verfügbar.**\n\n'
+            + 'Bitte erlaube den Mikrofon-Zugriff in den Browser-Einstellungen.\n'
+            + `- Fehler: ${err.message}`,
             'assistant'
         );
     }
 }
 
 function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
+    if (!state.isRecording) return;
+
+    const sampleRate = audioContext ? audioContext.sampleRate : 48000;
+    const chunks = pcmChunks;
+    pcmChunks = [];
+
+    state.isRecording = false;
+    dom.input.placeholder = 'Nachricht eingeben...';
+    releaseAudioStream();
+
+    if (!chunks.length) {
+        setMicStatus('');
+        return;
     }
+    sendAudioForTranscription(encodeWav(chunks, sampleRate));
 }
 
 dom.micBtn.addEventListener('click', () => {
