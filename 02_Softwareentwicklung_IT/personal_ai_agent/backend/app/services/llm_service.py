@@ -259,12 +259,14 @@ class LLMService:
                 buffer.name = 'audio.webm'
                 logger.warning("Audio zu kurz (%d Bytes) – sende als WebM", len(audio_bytes))
 
+            # OpenRouter ignoriert allow_fallbacks beim Audio-Endpoint.
+            # Azure ist in der Allowlist und hostet Whisper DSGVO-konform (EU-RZ).
             response = self.client.audio.transcriptions.create(
                 model="openai/whisper-large-v3",
                 file=buffer,
                 language="de",
                 prompt=WHISPER_VOKABULAR,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body={"provider": {"order": ["Azure"]}},
             )
             text = (response.text or "").strip()
             logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
