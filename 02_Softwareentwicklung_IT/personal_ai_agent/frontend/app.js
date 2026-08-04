@@ -13,13 +13,13 @@
 /**
  * BACKEND-ADRESSE
  * ----------------
- * Lokaler PC-Test:     'http://localhost:9091'
- * Handy (Heimnetz):    'http://192.168.178.XX:9091'  (IP deines Handys)
+ * Lokaler PC-Test:     'http://localhost:8080'
+ * Handy (Heimnetz):    'http://192.168.178.XX:8080'  (IP deines Handys)
  * 
  * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
  *             nie im Frontend-Code.
  */
-const API_BASE = localStorage.getItem('api_base') || 'http://localhost:9091';
+const API_BASE = localStorage.getItem('api_base') || 'http://localhost:8080';
 
 // =========================================
 // State
