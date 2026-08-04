@@ -264,6 +264,7 @@ class LLMService:
                 file=buffer,
                 language="de",
                 prompt=WHISPER_VOKABULAR,
+                extra_body={"provider": {"allow_fallbacks": True}},
             )
             text = (response.text or "").strip()
             logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
