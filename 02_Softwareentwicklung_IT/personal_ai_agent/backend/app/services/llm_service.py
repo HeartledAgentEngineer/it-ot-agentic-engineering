@@ -239,10 +239,25 @@ class LLMService:
             return None
 
         try:
-            # OpenAI-kompatibler Call via OpenRouter (exakt wie TypeFREE)
+            # Audiodaten in BytesIO
             buffer = io.BytesIO(audio_bytes)
-            # TypeFREE sendet WAV – OpenRouter/Whisper erwartet WAV, kein WebM
-            buffer.name = 'audio.wav'
+
+            # Format anhand der Magic Bytes erkennen (nicht nur Extension)
+            # WebM/Matroska beginnt mit 0x1A 0x45 0xDF 0xA3
+            # WAV beginnt mit "RIFF" (0x52 0x49 0x46 0x46)
+            if len(audio_bytes) >= 4:
+                if audio_bytes[:4] == b'\x1a\x45\xdf\xa3':
+                    buffer.name = 'audio.webm'
+                    logger.debug("Audio-Format erkannt: WebM")
+                elif audio_bytes[:4] == b'RIFF':
+                    buffer.name = 'audio.wav'
+                    logger.debug("Audio-Format erkannt: WAV")
+                else:
+                    buffer.name = 'audio.webm'
+                    logger.debug("Audio-Format unbekannt – sende als WebM")
+            else:
+                buffer.name = 'audio.webm'
+                logger.warning("Audio zu kurz (%d Bytes) – sende als WebM", len(audio_bytes))
 
             response = self.client.audio.transcriptions.create(
                 model="openai/whisper-large-v3",
@@ -251,7 +266,7 @@ class LLMService:
                 prompt=WHISPER_VOKABULAR,
             )
             text = (response.text or "").strip()
-            logger.debug("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
+            logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
             return text if text else None
 
         except Exception as e:
