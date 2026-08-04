@@ -4,7 +4,7 @@ import io
 import json
 import logging
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Iterator, Optional
 
 from openai import OpenAI, APIStatusError
 
@@ -54,6 +54,17 @@ POLISH_ANWEISUNG = (
 
 # API-Timeout für Audio-Transkription und Glättung (30s, /critic Befund #4/#5)
 API_TIMEOUT_SECONDS = 30
+
+# Stimme für die Sprachausgabe. Microsoft läuft über Azure (EU-Rechenzentrum),
+# also derselbe datenschutzrechtliche Weg wie bei der Transkription.
+TTS_MODELL = "microsoft/mai-voice-2-flash"
+
+# Hinweistext bei fehlendem Schlüssel – von chat() und chat_stream() geteilt.
+NICHT_KONFIGURIERT = (
+    "⚠️ **OpenRouter nicht konfiguriert.**\n\n"
+    "Bitte setze den `OPENROUTER_API_KEY` in der `.env`-Datei.\n"
+    "Du bekommst einen Key unter: https://openrouter.ai/keys"
+)
 
 
 class LLMService:
@@ -108,6 +119,69 @@ class LLMService:
 
         return "\n".join(context_parts)
 
+    def _build_messages(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        memories: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, str]]:
+        """Nachrichtenliste für einen LLM-Aufruf zusammenbauen.
+
+        Wird von chat() und chat_stream() gemeinsam genutzt, damit beide
+        Wege garantiert denselben Kontext sehen.
+        """
+        system_prompt = self.load_system_prompt()
+
+        # Add memory context to system prompt if memories exist
+        memory_context = self._build_memory_context(memories or [])
+        if memory_context:
+            system_prompt += memory_context
+
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+        ]
+
+        # Add conversation history (last 10 messages for context)
+        if conversation_history:
+            for msg in conversation_history[-10:]:
+                messages.append(msg)
+
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    def chat_stream(
+        self,
+        user_message: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        memories: Optional[List[Dict[str, Any]]] = None,
+    ) -> Iterator[str]:
+        """Wie chat(), liefert die Antwort aber Stück für Stück.
+
+        Yields:
+            Textstücke in der Reihenfolge, in der das Modell sie erzeugt.
+        """
+        if not self.is_configured:
+            yield NICHT_KONFIGURIERT
+            return
+
+        messages = self._build_messages(user_message, conversation_history, memories)
+
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,  # type: ignore
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+            extra_body={"provider": {"allow_fallbacks": True}},
+        )
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                yield delta.content
+
     def chat(
         self,
         user_message: str,
@@ -125,31 +199,9 @@ class LLMService:
             The LLM's response text
         """
         if not self.is_configured:
-            return (
-                "⚠️ **OpenRouter nicht konfiguriert.**\n\n"
-                "Bitte setze den `OPENROUTER_API_KEY` in der `.env`-Datei.\n"
-                "Du bekommst einen Key unter: https://openrouter.ai/keys"
-            )
+            return NICHT_KONFIGURIERT
 
-        system_prompt = self.load_system_prompt()
-
-        # Add memory context to system prompt if memories exist
-        memory_context = self._build_memory_context(memories or [])
-        if memory_context:
-            system_prompt += memory_context
-
-        # Build message list
-        messages: List[Dict[str, str]] = [
-            {"role": "system", "content": system_prompt},
-        ]
-
-        # Add conversation history (last 10 messages for context)
-        if conversation_history:
-            for msg in conversation_history[-10:]:
-                messages.append(msg)
-
-        # Add current user message
-        messages.append({"role": "user", "content": user_message})
+        messages = self._build_messages(user_message, conversation_history, memories)
 
         try:
             response = self.client.chat.completions.create(
@@ -285,6 +337,49 @@ class LLMService:
 
         except Exception as e:
             logger.error("Whisper-Transkription fehlgeschlagen: %s", e)
+            return None
+
+    # ── Sprachausgabe (natürliche Stimme statt Browser-Roboter) ─────────────
+    def speak(self, text: str) -> Optional[bytes]:
+        """Wandelt Text in gesprochenes Audio (MP3).
+
+        Nutzt microsoft/mai-voice-2-flash – derselbe Microsoft/Azure-Weg wie
+        die Transkription, damit die DSGVO-Linie erhalten bleibt.
+
+        Returns:
+            MP3-Daten oder None bei Fehler.
+        """
+        if not self.is_configured or not text.strip():
+            return None
+
+        try:
+            # Bewusst ohne voice-Parameter: Welche Stimmnamen das Modell
+            # akzeptiert, ist nicht dokumentiert. Meckert der Anbieter,
+            # nennt der geloggte Body unten die zulässigen Werte.
+            response = self.client.audio.speech.create(
+                model=TTS_MODELL,
+                input=text,
+                response_format="mp3",
+            )
+            audio = response.read()
+            logger.info(
+                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes)", len(text), len(audio)
+            )
+            return audio or None
+
+        except APIStatusError as e:
+            try:
+                body = e.response.text[:1000]
+            except Exception:
+                body = "<Body nicht lesbar>"
+            logger.error(
+                "Sprachausgabe abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
+                e.status_code, e, body,
+            )
+            return None
+
+        except Exception as e:
+            logger.error("Sprachausgabe fehlgeschlagen: %s", e)
             return None
 
     # ── Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────────

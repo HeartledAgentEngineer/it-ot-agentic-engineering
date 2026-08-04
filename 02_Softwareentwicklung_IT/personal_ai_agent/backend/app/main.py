@@ -2,7 +2,9 @@
 
 import logging
 import os
+import socket
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
-from app.router import chat, memory, auth, transcribe
+from app.router import chat, memory, auth, transcribe, speak
 
 # Configure logging
 logging.basicConfig(
@@ -91,17 +93,39 @@ app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(auth.router)
 app.include_router(transcribe.router)
+app.include_router(speak.router)
+
+def _lan_ip() -> Optional[str]:
+    """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
+
+    Der UDP-Socket wird nur nominell "verbunden" – dabei wählt das
+    Betriebssystem die Schnittstelle, über die es hinausgehen würde, und
+    verrät so die eigene Adresse im Heimnetz.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(0.2)
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except Exception:
+        return None
+
 
 @app.get("/api/health", tags=["system"])
 async def health_check():
     """Health check endpoint."""
     from app.services.llm_service import llm_service
 
+    lan_ip = _lan_ip()
+
     return {
         "status": "ok",
         "version": "0.1.0",
         "llm_configured": llm_service.is_configured,
         "memory_count": chroma_client.count(),
+        # Damit man vom PC aus zugreifen kann, ohne den Server zu beenden.
+        "lan_ip": lan_ip,
+        "lan_url": f"http://{lan_ip}:{settings.port}" if lan_ip else None,
     }
 
 

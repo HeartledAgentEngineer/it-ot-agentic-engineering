@@ -8,7 +8,7 @@
 
 // Version hochzählen, sobald sich eine Datei aus STATIC_ASSETS ändert –
 // sonst liefert der Cache-first-Handler unten weiter die alte Fassung aus.
-const CACHE_NAME = 'personal-ai-agent-v2';
+const CACHE_NAME = 'personal-ai-agent-v3';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -46,6 +46,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
+
+    // Streaming gar nicht anfassen: Ginge die Antwort durch den Service
+    // Worker, könnte sie gepuffert werden – dann erschiene der Text wieder
+    // als Block statt nach und nach.
+    if (url.pathname === '/api/chat/stream') {
+        return;
+    }
 
     // API-Calls: Network-first (nie cachen)
     if (url.pathname.startsWith('/api/')) {

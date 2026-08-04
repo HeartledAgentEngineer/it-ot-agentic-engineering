@@ -72,6 +72,12 @@ function escapeHtml(text) {
 // =========================================
 // UI Functions
 // =========================================
+function scrollToBottom() {
+    dom.messages.parentElement.scrollTop = dom.messages.parentElement.scrollHeight;
+}
+
+/** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
+ *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
@@ -84,8 +90,9 @@ function addMessage(content, role) {
     }
     div.appendChild(contentDiv);
     dom.messages.appendChild(div);
-    dom.messages.parentElement.scrollTop = dom.messages.parentElement.scrollHeight;
+    scrollToBottom();
     state.messages.push({ role, content });
+    return contentDiv;
 }
 
 function setLoading(loading) {
@@ -147,39 +154,155 @@ function updateFooterNote(memoryCount) {
     }
 }
 
+/** Hängt einen Vorlese-Knopf an eine fertige Antwort. */
+function addSpeakButton(contentDiv, text) {
+    const btn = document.createElement('button');
+    btn.className = 'speak-btn';
+    btn.title = 'Vorlesen';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16">'
+        + '<path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
+        + 'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06'
+        + 'c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+
+    // Einmal geholtes Audio wird behalten – ein zweiter Klick kostet nichts.
+    let audioUrl = null;
+
+    btn.addEventListener('click', async () => {
+        if (audioUrl) {
+            new Audio(audioUrl).play();
+            return;
+        }
+        btn.disabled = true;
+        btn.classList.add('busy');
+        try {
+            const res = await fetch(`${API_BASE}/api/speak`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text.slice(0, 2000) }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            audioUrl = URL.createObjectURL(await res.blob());
+            new Audio(audioUrl).play();
+        } catch (err) {
+            // Lieber Roboterstimme als gar nichts.
+            console.warn('Sprachausgabe nicht verfügbar, nutze Browser-Stimme:', err);
+            speakResponse(text);
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('busy');
+        }
+    });
+
+    contentDiv.parentElement.appendChild(btn);
+}
+
+/** Beendet eine Antwortblase: Markdown rendern, Verlauf und Fußzeile setzen. */
+function finishReply(contentDiv, entry, antwort, abschluss) {
+    contentDiv.innerHTML = parseMarkdown(antwort);
+    entry.content = antwort;
+    addSpeakButton(contentDiv, antwort);
+    if (abschluss) {
+        if (abschluss.conversation_id) state.conversationId = abschluss.conversation_id;
+        if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
+    }
+    scrollToBottom();
+}
+
+/** Rückfallweg auf den nicht-streamenden Endpunkt. */
+async function sendMessageFallback(text, contentDiv, entry) {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, conversation_id: state.conversationId }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    finishReply(contentDiv, entry, data.reply, data);
+    return data;
+}
+
 async function sendMessage(text) {
     if (state.isProcessing || !text.trim()) return;
     setLoading(true);
     addMessage(text, 'user');
+
+    // Leere Blase anlegen, die sich während des Streams füllt.
+    const contentDiv = addMessage('', 'assistant');
+    const entry = state.messages[state.messages.length - 1];
+
+    let antwort = '';
+    let abschluss = null;
+
     try {
-        const res = await fetch(`${API_BASE}/api/chat`, {
+        const res = await fetch(`${API_BASE}/api/chat/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message: text,
-                conversation_id: state.conversationId,
-            }),
+            body: JSON.stringify({ message: text, conversation_id: state.conversationId }),
         });
-        if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let puffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            puffer += decoder.decode(value, { stream: true });
+
+            // Ereignisse sind durch eine Leerzeile getrennt; ein
+            // unvollständiger Rest bleibt für die nächste Runde liegen.
+            const bloecke = puffer.split('\n\n');
+            puffer = bloecke.pop();
+
+            for (const block of bloecke) {
+                const zeile = block.split('\n').find(z => z.startsWith('data: '));
+                if (!zeile) continue;
+                let daten;
+                try {
+                    daten = JSON.parse(zeile.slice(6));
+                } catch {
+                    continue;
+                }
+
+                if (daten.delta) {
+                    if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
+                    antwort += daten.delta;
+                    // Während des Streams nur Text setzen. Markdown erst am
+                    // Ende, sonst zerlegt es halbfertige Sternchen und Codeblöcke.
+                    contentDiv.textContent = antwort;
+                    scrollToBottom();
+                } else if (daten.error) {
+                    throw new Error(daten.error);
+                } else if (daten.done) {
+                    abschluss = daten;
+                }
+            }
         }
-        const data = await res.json();
-        state.conversationId = data.conversation_id;
-        addMessage(data.reply, 'assistant');
-        if (data.memory_count !== undefined) {
-            updateFooterNote(data.memory_count);
-        }
-        speakResponse(data.reply);
-        return data;
+
+        if (!antwort) throw new Error('Leere Antwort vom Server');
+        finishReply(contentDiv, entry, antwort, abschluss);
+        return abschluss;
+
     } catch (err) {
+        // Kam schon Text an, ist der Stream mittendrin gerissen – dann steht
+        // das Bruchstück da und ein zweiter Anlauf würde doppelt abrechnen.
+        if (!antwort) {
+            console.warn('Streaming fehlgeschlagen, versuche Normalweg:', err);
+            try {
+                return await sendMessageFallback(text, contentDiv, entry);
+            } catch (err2) {
+                err = err2;
+            }
+        }
         console.error('Chat error:', err);
-        addMessage(
-            `⚠️ **Verbindungsfehler**\n\nKonnte den Agenten nicht erreichen.\n`
-            + `Stelle sicher, dass der Server läuft:\n`
+        contentDiv.innerHTML = parseMarkdown(
+            (antwort ? antwort + '\n\n' : '')
+            + `⚠️ **Verbindungsfehler**\n\nKonnte den Agenten nicht erreichen.\n`
             + `- URL: ${API_BASE}\n`
-            + `- Fehler: ${err.message}`,
-            'assistant'
+            + `- Fehler: ${err.message}`
         );
+        entry.content = antwort;
     } finally {
         setLoading(false);
     }

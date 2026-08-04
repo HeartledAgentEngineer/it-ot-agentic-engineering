@@ -350,6 +350,42 @@ body {
     color: var(--accent);
 }
 
+/* ── Vorlese-Knopf an fertigen Antworten ────────────────────────────────── */
+.speak-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 6px;
+    margin-top: 2px;
+    border-radius: var(--radius-sm);
+    opacity: 0.55;
+    display: inline-flex;
+    align-items: center;
+    transition: opacity 0.2s, color 0.2s;
+}
+
+.speak-btn:hover:not(:disabled) {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.speak-btn:disabled {
+    cursor: wait;
+}
+
+.speak-btn.busy {
+    animation: speakPulse 1s infinite ease-in-out;
+    color: var(--accent);
+    opacity: 1;
+}
+
+@keyframes speakPulse {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.4; }
+    100% { opacity: 1; }
+}
+
 .send-btn:not(:disabled):hover {
     background: var(--accent);
     color: white;

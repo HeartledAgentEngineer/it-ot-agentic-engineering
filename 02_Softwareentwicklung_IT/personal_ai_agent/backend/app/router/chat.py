@@ -1,9 +1,11 @@
 """Chat API routes."""
 
+import json
 import logging
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.models import ChatRequest, ChatResponse
 from app.services.llm_service import llm_service
@@ -31,6 +33,40 @@ def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
     return new_id
 
 
+def _finish_exchange(conversation_id: str, user_message: str, reply: str) -> int:
+    """Austausch in den Verlauf schreiben und daraus Erinnerungen ableiten.
+
+    Wird von beiden Chat-Wegen genutzt. Beim Streaming läuft das auch dann,
+    wenn der Client mitten im Stream abbricht – sonst wäre das Gespräch weg.
+
+    Returns:
+        Anzahl neu gespeicherter Erinnerungen.
+    """
+    if not reply:
+        return 0
+
+    history = conversations[conversation_id]
+    history.append({"role": "user", "content": user_message})
+    history.append({"role": "assistant", "content": reply})
+
+    try:
+        return len(
+            memory_service.extract_and_store_memories(
+                user_message=user_message,
+                llm_reply=reply,
+                conversation_id=conversation_id,
+            )
+        )
+    except Exception as e:
+        logger.warning("Gedächtnis-Extraktion fehlgeschlagen: %s", e)
+        return 0
+
+
+def _sse(payload: Dict[str, Any]) -> str:
+    """Ein Ereignis im Server-Sent-Events-Format."""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Process a chat message and return the LLM response."""
@@ -50,27 +86,67 @@ async def chat(request: ChatRequest):
             memories=memories,
         )
 
-        # 3. Store user message and assistant reply in conversation history
-        history.append({"role": "user", "content": request.message})
-        history.append({"role": "assistant", "content": reply})
-
-        # 4. Extract and store new memories from this exchange
-        stored_memory_ids = memory_service.extract_and_store_memories(
-            user_message=request.message,
-            llm_reply=reply,
-            conversation_id=conversation_id,
-        )
+        # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
+        memories_created = _finish_exchange(conversation_id, request.message, reply)
 
         return ChatResponse(
             reply=reply,
             conversation_id=conversation_id,
             memories_used=len(memories),
-            memories_created=len(stored_memory_ids),
+            memories_created=memories_created,
         )
 
     except Exception as e:
         logger.error("Chat error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
+    conversation_id = _get_or_create_conversation(request.conversation_id)
+    history = conversations[conversation_id]
+    memories = memory_service.retrieve_relevant_memories(request.message, top_k=5)
+
+    def ereignisse():
+        teile: List[str] = []
+        try:
+            try:
+                for stueck in llm_service.chat_stream(
+                    user_message=request.message,
+                    conversation_history=history,
+                    memories=memories,
+                ):
+                    teile.append(stueck)
+                    yield _sse({"delta": stueck})
+            except Exception as e:
+                logger.error("Streaming fehlgeschlagen: %s", e)
+                yield _sse({"error": str(e)})
+        finally:
+            # Läuft auch bei Abbruch durch den Client (Bildschirmsperre,
+            # Verbindungsverlust). Hier wird bewusst nichts gesendet – ein
+            # yield waehrend GeneratorExit wuerde einen Fehler ausloesen.
+            anzahl_neu = _finish_exchange(
+                conversation_id, request.message, "".join(teile)
+            )
+
+        # Wird uebersprungen, wenn der Client abgebrochen hat.
+        yield _sse({
+            "done": True,
+            "conversation_id": conversation_id,
+            "memories_used": len(memories),
+            "memories_created": anzahl_neu,
+            "memory_count": memory_service.get_memory_count(),
+        })
+
+    return StreamingResponse(
+        ereignisse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # verhindert Pufferung durch Zwischenschichten
+        },
+    )
 
 
 @router.get("/conversations")
