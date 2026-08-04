@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 WHISPER_VOKABULAR = (
     'typeFREE, Hotkey, Tray, Slice, Commit, Repository, Branch, Refactor, '
     'Alignment, Phase, Prüfung, Logdatei, Scancode, Whisper, Groq, '
-    'Claude Code, Python, TwinCAT, SPS, Aufgabenplanung, zweiter Test, Ähm'
+    'Claude Code, Python, TwinCAT, SPS, Aufgabenplanung, zweiter Test,'
 )
 
 # ── Text-Glättungs-Anweisung (1:1 aus TypeFREE übernommen) ───────────────────
@@ -259,14 +259,12 @@ class LLMService:
                 buffer.name = 'audio.webm'
                 logger.warning("Audio zu kurz (%d Bytes) – sende als WebM", len(audio_bytes))
 
-            # OpenRouter ignoriert allow_fallbacks beim Audio-Endpoint.
-            # Azure ist in der Allowlist und hostet Whisper DSGVO-konform (EU-RZ).
+            # MAI-Transcribe 1.5 von Microsoft (via Azure, DSGVO-konform, EU-RZ)
+            # Kein language-Parameter (wird nicht unterstützt, erkennt Sprache automatisch)
+            # Kein prompt/Vokabular (wird nicht unterstützt)
             response = self.client.audio.transcriptions.create(
-                model="openai/whisper-large-v3",
+                model="microsoft/mai-transcribe-1.5",
                 file=buffer,
-                language="de",
-                prompt=WHISPER_VOKABULAR,
-                extra_body={"provider": {"order": ["Azure"]}},
             )
             text = (response.text or "").strip()
             logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
