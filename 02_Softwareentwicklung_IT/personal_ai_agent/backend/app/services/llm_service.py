@@ -336,11 +336,47 @@ class LLMService:
             return None
 
     # ── Sprachausgabe (natürliche Stimme statt Browser-Roboter) ─────────────
-    def speak(self, text: str) -> Optional[bytes]:
+    def list_voices(self) -> List[Dict[str, Any]]:
+        """Verfügbare Sprachmodelle samt Stimmen von OpenRouter holen.
+
+        Braucht keinen Schlüssel – die Modell-Liste ist öffentlich.
+        """
+        try:
+            antwort = httpx.get(
+                f"{self.base_url}/models",
+                params={"output_modalities": "speech"},
+                timeout=10,
+            )
+            antwort.raise_for_status()
+            modelle = antwort.json().get("data", [])
+        except Exception as e:
+            logger.error("Stimmliste konnte nicht geladen werden: %s", e)
+            return []
+
+        return [
+            {
+                "model": m["id"],
+                "name": m.get("name", m["id"]),
+                "dollar_pro_mio_token": round(
+                    float(m.get("pricing", {}).get("prompt") or 0) * 1_000_000, 2
+                ),
+                "voices": m.get("supported_voices") or [],
+            }
+            for m in modelle
+        ]
+
+    def speak(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Optional[bytes]:
         """Wandelt Text in gesprochenes Audio (MP3).
 
-        Nutzt microsoft/mai-voice-2-flash – derselbe Microsoft/Azure-Weg wie
-        die Transkription, damit die DSGVO-Linie erhalten bleibt.
+        Args:
+            text: Vorzulesender Text
+            voice: Stimme; ohne Angabe die aus der Konfiguration
+            model: Modell; ohne Angabe das aus der Konfiguration
 
         Returns:
             MP3-Daten oder None bei Fehler.
@@ -348,19 +384,22 @@ class LLMService:
         if not self.is_configured or not text.strip():
             return None
 
+        modell = model or settings.tts_model
+        stimme = voice or settings.tts_voice
+
         try:
             # voice ist im SDK ein Pflichtparameter – ohne ihn scheitert der
             # Aufruf schon in Python, bevor eine Anfrage rausgeht.
             response = self.client.audio.speech.create(
-                model=settings.tts_model,
-                voice=settings.tts_voice,
+                model=modell,
+                voice=stimme,
                 input=text,
                 response_format="mp3",
             )
             audio = response.read()
             logger.info(
-                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, Stimme=%s)",
-                len(text), len(audio), settings.tts_voice,
+                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, %s / %s)",
+                len(text), len(audio), modell, stimme,
             )
             return audio or None
 

@@ -146,6 +146,14 @@ body {
     justify-content: flex-end;
 }
 
+/* Antworten als Spalte: Sonst landet der Vorlese-Knopf als Flex-Nachbar
+   rechts neben der Sprechblase statt darunter. */
+.message.assistant {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
 .message-content {
     max-width: 85%;
     padding: 12px 16px;
@@ -372,6 +380,11 @@ body {
 
 .speak-btn:disabled {
     cursor: wait;
+}
+
+.speak-btn.playing {
+    color: var(--accent);
+    opacity: 1;
 }
 
 .speak-btn.failed {

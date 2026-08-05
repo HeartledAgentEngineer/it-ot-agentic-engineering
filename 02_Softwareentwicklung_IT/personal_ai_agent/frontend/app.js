@@ -94,8 +94,26 @@ function parseMarkdownPartial(text) {
 // =========================================
 // UI Functions
 // =========================================
-function scrollToBottom() {
-    dom.messages.parentElement.scrollTop = dom.messages.parentElement.scrollHeight;
+/** Steht die Ansicht nah genug am unteren Rand? */
+function isAtBottom(toleranz = 80) {
+    const el = dom.messages.parentElement;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < toleranz;
+}
+
+/**
+ * Nach unten scrollen.
+ *
+ * Ohne `force` nur dann, wenn der Nutzer ohnehin unten steht. Scrollt er
+ * während einer laufenden Antwort nach oben, um etwas nachzulesen, bleibt
+ * die Ansicht dort stehen, statt ihm ständig weggerissen zu werden.
+ *
+ * Wichtig: Der Zustand muss VOR dem Einfügen neuen Inhalts geprüft werden –
+ * danach ist die Seite bereits gewachsen und man steht nie mehr "unten".
+ */
+function scrollToBottom(force = false) {
+    if (!force && !isAtBottom()) return;
+    const el = dom.messages.parentElement;
+    el.scrollTop = el.scrollHeight;
 }
 
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
@@ -112,7 +130,7 @@ function addMessage(content, role) {
     }
     div.appendChild(contentDiv);
     dom.messages.appendChild(div);
-    scrollToBottom();
+    scrollToBottom(true);   // eigene Aktion – hier wird immer nachgezogen
     state.messages.push({ role, content });
     return contentDiv;
 }
@@ -182,24 +200,50 @@ function updateFooterNote(memoryCount) {
     }
 }
 
+const SYMBOL_LAUTSPRECHER = '<svg viewBox="0 0 24 24" width="16" height="16">'
+    + '<path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
+    + 'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06'
+    + 'c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+
+const SYMBOL_PAUSE = '<svg viewBox="0 0 24 24" width="16" height="16">'
+    + '<path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+
+// Nur eine Wiedergabe gleichzeitig – sonst reden zwei Antworten durcheinander.
+let laufendeWiedergabe = null;
+
 /** Hängt einen Vorlese-Knopf an eine fertige Antwort. */
 function addSpeakButton(contentDiv, text) {
     const btn = document.createElement('button');
     btn.className = 'speak-btn';
     btn.title = 'Vorlesen';
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16">'
-        + '<path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
-        + 'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06'
-        + 'c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+    btn.innerHTML = SYMBOL_LAUTSPRECHER;
 
-    // Einmal geholtes Audio wird behalten – ein zweiter Klick kostet nichts.
-    let audioUrl = null;
+    // Einmal geholtes Audio wird behalten – Wiederholen kostet nichts.
+    let audio = null;
+
+    const zeigeZustand = (spielt) => {
+        btn.innerHTML = spielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
+        btn.title = spielt ? 'Pause' : 'Vorlesen';
+        btn.classList.toggle('playing', spielt);
+    };
+
+    const starte = () => {
+        if (laufendeWiedergabe && laufendeWiedergabe !== audio) {
+            laufendeWiedergabe.pause();
+        }
+        laufendeWiedergabe = audio;
+        audio.play();
+    };
 
     btn.addEventListener('click', async () => {
-        if (audioUrl) {
-            new Audio(audioUrl).play();
+        // Schon geladen: Klick schaltet zwischen Abspielen und Pause um,
+        // statt die Ausgabe von vorne zu starten.
+        if (audio) {
+            if (audio.paused) starte();
+            else audio.pause();
             return;
         }
+
         btn.disabled = true;
         btn.classList.add('busy');
         try {
@@ -209,8 +253,11 @@ function addSpeakButton(contentDiv, text) {
                 body: JSON.stringify({ text: text.slice(0, 2000) }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            audioUrl = URL.createObjectURL(await res.blob());
-            new Audio(audioUrl).play();
+            audio = new Audio(URL.createObjectURL(await res.blob()));
+            audio.addEventListener('play', () => zeigeZustand(true));
+            audio.addEventListener('pause', () => zeigeZustand(false));
+            audio.addEventListener('ended', () => zeigeZustand(false));
+            starte();
         } catch (err) {
             // Lieber Roboterstimme als gar nichts – und wenn auch die nicht
             // will, muss man das sehen. Vorher scheiterten beide stumm.
@@ -230,6 +277,7 @@ function addSpeakButton(contentDiv, text) {
 
 /** Beendet eine Antwortblase: Markdown rendern, Verlauf und Fußzeile setzen. */
 function finishReply(contentDiv, entry, antwort, abschluss) {
+    const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
     entry.content = antwort;
     addSpeakButton(contentDiv, antwort);
@@ -237,7 +285,7 @@ function finishReply(contentDiv, entry, antwort, abschluss) {
         if (abschluss.conversation_id) state.conversationId = abschluss.conversation_id;
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
     }
-    scrollToBottom();
+    if (untenGewesen) scrollToBottom(true);
 }
 
 /** Rückfallweg auf den nicht-streamenden Endpunkt. */
@@ -307,8 +355,9 @@ async function sendMessage(text) {
                     const jetzt = performance.now();
                     if (jetzt - letztesRendern > 80) {
                         letztesRendern = jetzt;
+                        const untenGewesen = isAtBottom();
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
-                        scrollToBottom();
+                        if (untenGewesen) scrollToBottom(true);
                     }
                 } else if (daten.error) {
                     throw new Error(daten.error);
