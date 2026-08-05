@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Embedding
     embedding_model: str = "all-MiniLM-L6-v2"
 
+    # Sprachausgabe – Microsoft läuft über Azure (EU-Rechenzentrum).
+    # Gültige Stimmen liefert:
+    #   GET /api/v1/models?output_modalities=speech → supported_voices
+    tts_model: str = "microsoft/mai-voice-2-flash"
+    tts_voice: str = "de-DE-Klaus:MAI-Voice-2"
+
     # System Prompt (liegt in backend/, nicht im Projektordner)
     system_prompt_file: str = str(BACKEND_DIR / "system_prompt.md")
 

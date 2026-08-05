@@ -374,6 +374,11 @@ body {
     cursor: wait;
 }
 
+.speak-btn.failed {
+    color: #cc4444;
+    opacity: 1;
+}
+
 .speak-btn.busy {
     animation: speakPulse 1s infinite ease-in-out;
     color: var(--accent);

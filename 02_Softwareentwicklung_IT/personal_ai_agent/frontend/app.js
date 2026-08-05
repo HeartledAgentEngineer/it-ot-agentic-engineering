@@ -13,13 +13,21 @@
 /**
  * BACKEND-ADRESSE
  * ----------------
- * Lokaler PC-Test:     'http://localhost:8080'
- * Handy (Heimnetz):    'http://192.168.178.XX:8080'  (IP deines Handys)
- * 
+ * Standardmäßig dieselbe Adresse, von der die Seite geladen wurde. Das
+ * Backend liefert das Frontend selbst aus, also stimmt das immer – egal ob
+ * man am Handy über localhost draufgeht oder vom PC über die Heimnetz-IP.
+ *
+ * Vorher stand hier fest 'http://localhost:8080'. Vom PC aus zeigte das auf
+ * den PC selbst, wo kein Server läuft – die App meldete "Offline".
+ *
+ * Abweichender Server nur zum Ausprobieren:
+ *   localStorage.setItem('api_base', 'http://192.168.178.118:8080')
+ *
  * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
  *             nie im Frontend-Code.
  */
-const API_BASE = localStorage.getItem('api_base') || 'http://localhost:8080';
+const API_BASE = localStorage.getItem('api_base')
+    || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
 
 // =========================================
 // State
@@ -69,6 +77,20 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+/**
+ * Markdown für einen noch unfertigen Text.
+ *
+ * Ein angefangener Codeblock wird für die Anzeige provisorisch geschlossen –
+ * sonst stünden die drei Backticks als roher Text da, bis das Gegenstück
+ * eintrifft. Halbfertige Sternchen brauchen keine Behandlung: Sie finden
+ * kein Gegenstück, bleiben sichtbar und formatieren sich von selbst,
+ * sobald es ankommt.
+ */
+function parseMarkdownPartial(text) {
+    const fences = (text.match(/```/g) || []).length;
+    return parseMarkdown(fences % 2 === 1 ? text + '\n```' : text);
+}
+
 // =========================================
 // UI Functions
 // =========================================
@@ -109,7 +131,13 @@ function setOnline(online) {
 }
 
 function updateSendButton() {
-    dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing || state.isRecording;
+    // Während der Aufnahme bleibt der Knopf bedienbar: Ein Druck darauf
+    // beendet die Aufnahme und schickt das Diktat gleich ab.
+    if (state.isRecording) {
+        dom.sendBtn.disabled = false;
+        return;
+    }
+    dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing;
 }
 
 function setMicStatus(status) {
@@ -184,9 +212,13 @@ function addSpeakButton(contentDiv, text) {
             audioUrl = URL.createObjectURL(await res.blob());
             new Audio(audioUrl).play();
         } catch (err) {
-            // Lieber Roboterstimme als gar nichts.
+            // Lieber Roboterstimme als gar nichts – und wenn auch die nicht
+            // will, muss man das sehen. Vorher scheiterten beide stumm.
             console.warn('Sprachausgabe nicht verfügbar, nutze Browser-Stimme:', err);
-            speakResponse(text);
+            if (!speakResponse(text)) {
+                btn.classList.add('failed');
+                btn.title = 'Vorlesen fehlgeschlagen – Grund steht im Server-Log';
+            }
         } finally {
             btn.disabled = false;
             btn.classList.remove('busy');
@@ -232,6 +264,7 @@ async function sendMessage(text) {
 
     let antwort = '';
     let abschluss = null;
+    let letztesRendern = 0;   // Zeitbremse fürs Neuzeichnen während des Streams
 
     try {
         const res = await fetch(`${API_BASE}/api/chat/stream`, {
@@ -268,10 +301,15 @@ async function sendMessage(text) {
                 if (daten.delta) {
                     if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
                     antwort += daten.delta;
-                    // Während des Streams nur Text setzen. Markdown erst am
-                    // Ende, sonst zerlegt es halbfertige Sternchen und Codeblöcke.
-                    contentDiv.textContent = antwort;
-                    scrollToBottom();
+                    // Nicht bei jedem Häppchen neu zeichnen – das Neuaufbauen
+                    // der Blase würde auf dem Handy ruckeln. Der endgültige
+                    // Aufbau passiert ohnehin in finishReply().
+                    const jetzt = performance.now();
+                    if (jetzt - letztesRendern > 80) {
+                        letztesRendern = jetzt;
+                        contentDiv.innerHTML = parseMarkdownPartial(antwort);
+                        scrollToBottom();
+                    }
                 } else if (daten.error) {
                     throw new Error(daten.error);
                 } else if (daten.done) {
@@ -350,8 +388,12 @@ async function sendAudioForTranscription(audioBlob) {
 // =========================================
 // TTS (Text-to-Speech)
 // =========================================
+/** Rückfall-Vorleser über die Browser-Stimme. Gibt zurück, ob es geklappt hat. */
 function speakResponse(text) {
-    if (!window.speechSynthesis || document.hidden) return;
+    if (!window.speechSynthesis) {
+        console.warn('Browser-Stimme nicht verfügbar.');
+        return false;
+    }
     const plainText = text
         .replace(/```[\s\S]*?```/g, '')
         .replace(/`([^`]+)`/g, '$1')
@@ -359,7 +401,14 @@ function speakResponse(text) {
         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
         .replace(/\n+/g, ' ')
         .trim();
-    if (!plainText || plainText.length > 500) return;
+    // Obergrenze großzügig: Als Rückfall ist eine lange Vorlesung besser
+    // als gar keine. Vorher lag sie bei 500 Zeichen und hat den Rückfall
+    // bei fast jeder Antwort stillschweigend verschluckt.
+    if (!plainText) return false;
+    if (plainText.length > 3000) {
+        console.warn('Text zu lang für die Browser-Stimme (%d Zeichen).', plainText.length);
+        return false;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(plainText);
     utterance.lang = 'de-DE';
@@ -370,6 +419,7 @@ function speakResponse(text) {
     const germanVoice = voices.find(v => v.lang.startsWith('de'));
     if (germanVoice) utterance.voice = germanVoice;
     window.speechSynthesis.speak(utterance);
+    return true;
 }
 
 if (window.speechSynthesis) {
@@ -449,6 +499,21 @@ function encodeWav(chunks, sampleRate) {
 }
 
 async function startRecording() {
+    // Ohne sicheren Kontext (localhost oder HTTPS) entfernt der Browser die
+    // Mikrofon-Schnittstelle ersatzlos – sie fehlt dann, statt eine
+    // Berechtigung zu verweigern. Es gibt also nichts zu erlauben.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        addMessage(
+            '⚠️ **Spracheingabe ist hier nicht möglich.**\n\n'
+            + 'Der Browser gibt das Mikrofon nur über `localhost` oder HTTPS frei. '
+            + `Diese Seite läuft über \`${location.origin}\`.\n\n`
+            + 'Zum Diktieren die App direkt am Handy öffnen: `http://localhost:8080`',
+            'assistant'
+        );
+        setMicStatus('');
+        return;
+    }
+
     try {
         audioStream = await navigator.mediaDevices.getUserMedia({
             audio: { channelCount: 1 },
@@ -470,7 +535,8 @@ async function startRecording() {
 
         state.isRecording = true;
         setMicStatus('recording');
-        dom.input.placeholder = 'Aufnahme läuft ...';
+        dom.input.placeholder = 'Aufnahme läuft – Senden beendet sie';
+        updateSendButton();
     } catch (err) {
         console.warn('Aufnahme konnte nicht gestartet werden:', err);
         releaseAudioStream();
@@ -496,6 +562,7 @@ function stopRecording() {
     state.isRecording = false;
     dom.input.placeholder = 'Nachricht eingeben...';
     releaseAudioStream();
+    updateSendButton();
 
     if (!chunks.length) {
         setMicStatus('');
@@ -531,6 +598,12 @@ dom.input.addEventListener('keydown', (e) => {
 dom.sendBtn.addEventListener('click', handleSubmit);
 
 async function handleSubmit() {
+    // Läuft gerade eine Aufnahme, bedeutet Senden bzw. Enter: Aufnahme
+    // beenden. Transkription und Absenden laufen danach von selbst weiter.
+    if (state.isRecording) {
+        stopRecording();
+        return;
+    }
     const text = dom.input.value.trim();
     if (!text || state.isProcessing) return;
     dom.input.value = '';

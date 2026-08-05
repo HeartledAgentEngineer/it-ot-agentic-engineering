@@ -55,10 +55,6 @@ POLISH_ANWEISUNG = (
 # API-Timeout für Audio-Transkription und Glättung (30s, /critic Befund #4/#5)
 API_TIMEOUT_SECONDS = 30
 
-# Stimme für die Sprachausgabe. Microsoft läuft über Azure (EU-Rechenzentrum),
-# also derselbe datenschutzrechtliche Weg wie bei der Transkription.
-TTS_MODELL = "microsoft/mai-voice-2-flash"
-
 # Hinweistext bei fehlendem Schlüssel – von chat() und chat_stream() geteilt.
 NICHT_KONFIGURIERT = (
     "⚠️ **OpenRouter nicht konfiguriert.**\n\n"
@@ -353,17 +349,18 @@ class LLMService:
             return None
 
         try:
-            # Bewusst ohne voice-Parameter: Welche Stimmnamen das Modell
-            # akzeptiert, ist nicht dokumentiert. Meckert der Anbieter,
-            # nennt der geloggte Body unten die zulässigen Werte.
+            # voice ist im SDK ein Pflichtparameter – ohne ihn scheitert der
+            # Aufruf schon in Python, bevor eine Anfrage rausgeht.
             response = self.client.audio.speech.create(
-                model=TTS_MODELL,
+                model=settings.tts_model,
+                voice=settings.tts_voice,
                 input=text,
                 response_format="mp3",
             )
             audio = response.read()
             logger.info(
-                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes)", len(text), len(audio)
+                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, Stimme=%s)",
+                len(text), len(audio), settings.tts_voice,
             )
             return audio or None
 
