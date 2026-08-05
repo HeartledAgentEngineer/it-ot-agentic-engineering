@@ -146,12 +146,19 @@ body {
     justify-content: flex-end;
 }
 
-/* Antworten als Spalte: Sonst landet der Vorlese-Knopf als Flex-Nachbar
-   rechts neben der Sprechblase statt darunter. */
+/* Antworten: Sprechblase und Vorlese-Bedienung nebeneinander, aber oben
+   ausgerichtet. Ohne align-items stünde die Bedienung senkrecht zentriert
+   neben dem Text – bei langen Antworten also irgendwo in der Mitte. */
 .message.assistant {
-    flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
+    gap: 4px;
+}
+
+.speak-controls {
+    display: flex;
+    gap: 0;
+    flex-shrink: 0;
+    padding-top: 6px;
 }
 
 .message-content {

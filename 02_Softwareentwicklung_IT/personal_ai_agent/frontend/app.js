@@ -208,88 +208,214 @@ const SYMBOL_LAUTSPRECHER = '<svg viewBox="0 0 24 24" width="16" height="16">'
 const SYMBOL_PAUSE = '<svg viewBox="0 0 24 24" width="16" height="16">'
     + '<path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
 
-// Nur eine Wiedergabe gleichzeitig – sonst reden zwei Antworten durcheinander.
-let laufendeWiedergabe = null;
+const SYMBOL_STOPP = '<svg viewBox="0 0 24 24" width="16" height="16">'
+    + '<path fill="currentColor" d="M6 6h12v12H6z"/></svg>';
 
-/** Hängt einen Vorlese-Knopf an eine fertige Antwort. */
-function addSpeakButton(contentDiv, text) {
-    const btn = document.createElement('button');
-    btn.className = 'speak-btn';
-    btn.title = 'Vorlesen';
-    btn.innerHTML = SYMBOL_LAUTSPRECHER;
+// Nur ein Vorleser gleichzeitig – sonst reden zwei Antworten durcheinander.
+let aktiverVorleser = null;
 
-    // Einmal geholtes Audio wird behalten – Wiederholen kostet nichts.
-    let audio = null;
+// Ab dieser Länge wird ein Stück abgeschickt. Kürzere Sätze werden gesammelt,
+// sonst entsteht für jedes "Ja." eine eigene Anfrage.
+const MIN_STUECK_LAENGE = 60;
 
-    const zeigeZustand = (spielt) => {
-        btn.innerHTML = spielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
-        btn.title = spielt ? 'Pause' : 'Vorlesen';
-        btn.classList.toggle('playing', spielt);
+/** Räumt Markdown aus einem Stück, damit die Stimme keine Sternchen liest. */
+function textFuerStimme(text) {
+    return text
+        .replace(/```/g, '')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/[*_#>]/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Vorlese-Bedienung oben rechts an einer Antwort.
+ *
+ * Liest mit, während die Antwort noch geschrieben wird: Sobald ein Stück
+ * Text abgeschlossen ist, wird es geholt und in eine Warteschlange gelegt.
+ * Die Stimme läuft dem Text hinterher, statt auf das Ende zu warten.
+ *
+ * @param messageDiv  Die Nachrichten-Hülle (Geschwister der Sprechblase)
+ * @param holeText    Liefert den bisher eingetroffenen Volltext
+ * @param istFertig   Sagt, ob die Antwort vollständig ist
+ */
+function addSpeakControls(messageDiv, holeText, istFertig) {
+    const leiste = document.createElement('div');
+    leiste.className = 'speak-controls';
+
+    const abspielBtn = document.createElement('button');
+    abspielBtn.className = 'speak-btn';
+    abspielBtn.title = 'Vorlesen';
+    abspielBtn.innerHTML = SYMBOL_LAUTSPRECHER;
+
+    const stoppBtn = document.createElement('button');
+    stoppBtn.className = 'speak-btn stop';
+    stoppBtn.title = 'Stopp';
+    stoppBtn.innerHTML = SYMBOL_STOPP;
+    stoppBtn.hidden = true;   // erst sichtbar, wenn etwas läuft
+
+    leiste.appendChild(abspielBtn);
+    leiste.appendChild(stoppBtn);
+    messageDiv.appendChild(leiste);
+
+    let aktiv = false;        // Vorlesen überhaupt eingeschaltet?
+    let pausiert = false;
+    let gelesenBis = 0;       // Position im Rohtext, bis wohin abgeschickt wurde
+    let warteschlange = [];
+    let aktuellesAudio = null;
+    let holtGerade = false;
+
+    const zeigeZustand = () => {
+        const spielt = aktiv && !pausiert;
+        abspielBtn.innerHTML = spielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
+        abspielBtn.title = spielt ? 'Pause' : 'Vorlesen';
+        abspielBtn.classList.toggle('playing', spielt);
+        stoppBtn.hidden = !aktiv;
     };
 
-    const starte = () => {
-        if (laufendeWiedergabe && laufendeWiedergabe !== audio) {
-            laufendeWiedergabe.pause();
+    /** Nächstes abgeschlossenes Stück, oder null wenn noch nichts fertig ist. */
+    const naechstesStueck = () => {
+        const rest = holeText().slice(gelesenBis);
+        if (!rest) return null;
+
+        // Ein Stück endet an einem Satzzeichen oder Absatz. Ist die Antwort
+        // fertig, wird der Rest genommen, auch ohne Satzzeichen.
+        const treffer = rest.match(/^[\s\S]*?(?:[.!?…:](?=\s|$)|\n)/);
+        let stueck = treffer ? treffer[0] : (istFertig() ? rest : null);
+        if (stueck === null) return null;
+
+        // Kurze Sätze sammeln, bis genug beisammen ist – sonst entsteht für
+        // jedes "Ja." eine eigene Anfrage.
+        if (!istFertig() && stueck.trim().length < MIN_STUECK_LAENGE
+            && stueck.length < rest.length) {
+            return null;
         }
-        laufendeWiedergabe = audio;
-        audio.play();
+
+        gelesenBis += stueck.length;
+        return stueck;
     };
 
-    btn.addEventListener('click', async () => {
-        // Schon geladen: Klick schaltet zwischen Abspielen und Pause um,
-        // statt die Ausgabe von vorne zu starten.
-        if (audio) {
-            if (audio.paused) starte();
-            else audio.pause();
-            return;
-        }
-
-        btn.disabled = true;
-        btn.classList.add('busy');
+    /** Holt fortlaufend fertige Stücke, solange welche da sind. */
+    const nachfuellen = async () => {
+        if (holtGerade || !aktiv) return;
+        holtGerade = true;
         try {
-            const res = await fetch(`${API_BASE}/api/speak`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text.slice(0, 2000) }),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            audio = new Audio(URL.createObjectURL(await res.blob()));
-            audio.addEventListener('play', () => zeigeZustand(true));
-            audio.addEventListener('pause', () => zeigeZustand(false));
-            audio.addEventListener('ended', () => zeigeZustand(false));
-            starte();
+            while (aktiv) {
+                const stueck = naechstesStueck();
+                if (stueck === null) break;
+
+                const sauber = textFuerStimme(stueck);
+                if (sauber.length < 2 || !/[a-zA-ZäöüÄÖÜß]/.test(sauber)) continue;
+
+                const res = await fetch(`${API_BASE}/api/speak`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: sauber.slice(0, 2000) }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                if (!aktiv) break;   // während des Holens gestoppt
+
+                warteschlange.push(new Audio(URL.createObjectURL(await res.blob())));
+                spieleWeiter();
+            }
         } catch (err) {
-            // Lieber Roboterstimme als gar nichts – und wenn auch die nicht
-            // will, muss man das sehen. Vorher scheiterten beide stumm.
-            console.warn('Sprachausgabe nicht verfügbar, nutze Browser-Stimme:', err);
-            if (!speakResponse(text)) {
-                btn.classList.add('failed');
-                btn.title = 'Vorlesen fehlgeschlagen – Grund steht im Server-Log';
+            console.warn('Vorlesen abgebrochen:', err);
+            if (!warteschlange.length && !aktuellesAudio) {
+                // Nichts konnte geholt werden – Browser-Stimme als Rückfall.
+                if (!speakResponse(holeText())) {
+                    abspielBtn.classList.add('failed');
+                    abspielBtn.title = 'Vorlesen fehlgeschlagen – Grund steht im Server-Log';
+                }
+                halte(true);
             }
         } finally {
-            btn.disabled = false;
-            btn.classList.remove('busy');
+            holtGerade = false;
+            abspielBtn.classList.remove('busy');
         }
+    };
+
+    function spieleWeiter() {
+        if (!aktiv || pausiert || aktuellesAudio) return;
+        const naechstes = warteschlange.shift();
+        if (!naechstes) return;
+        aktuellesAudio = naechstes;
+        aktuellesAudio.onended = () => {
+            aktuellesAudio = null;
+            spieleWeiter();
+            // Am Ende angekommen und nichts mehr zu erwarten? Zurücksetzen.
+            if (!aktuellesAudio && !warteschlange.length && istFertig()
+                && gelesenBis >= holeText().length) {
+                halte(true);
+            }
+        };
+        aktuellesAudio.play().catch(err => console.warn('Wiedergabe:', err));
+    }
+
+    /** Anhalten. Mit zuruecksetzen=true wird auch der Fortschritt verworfen. */
+    function halte(zuruecksetzen) {
+        if (aktuellesAudio) {
+            aktuellesAudio.pause();
+            aktuellesAudio = null;
+        }
+        warteschlange = [];
+        aktiv = false;
+        pausiert = false;
+        if (zuruecksetzen) gelesenBis = 0;
+        if (aktiverVorleser === steuerung) aktiverVorleser = null;
+        zeigeZustand();
+    }
+
+    abspielBtn.addEventListener('click', () => {
+        if (aktiv && !pausiert) {
+            pausiert = true;
+            if (aktuellesAudio) aktuellesAudio.pause();
+            zeigeZustand();
+            return;
+        }
+        if (aktiv && pausiert) {
+            pausiert = false;
+            if (aktuellesAudio) aktuellesAudio.play();
+            else spieleWeiter();
+            zeigeZustand();
+            return;
+        }
+        // Neu starten – ein anderer laufender Vorleser wird abgelöst.
+        if (aktiverVorleser && aktiverVorleser !== steuerung) aktiverVorleser.stopp();
+        aktiverVorleser = steuerung;
+        aktiv = true;
+        pausiert = false;
+        abspielBtn.classList.add('busy');
+        zeigeZustand();
+        nachfuellen();
     });
 
-    contentDiv.parentElement.appendChild(btn);
+    stoppBtn.addEventListener('click', () => halte(true));
+
+    const steuerung = {
+        /** Wird gerufen, wenn neuer Text eingetroffen ist. */
+        neuerText: () => { if (aktiv && !pausiert) nachfuellen(); },
+        stopp: () => halte(true),
+    };
+    return steuerung;
 }
 
 /** Beendet eine Antwortblase: Markdown rendern, Verlauf und Fußzeile setzen. */
-function finishReply(contentDiv, entry, antwort, abschluss) {
+function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
     entry.content = antwort;
-    addSpeakButton(contentDiv, antwort);
     if (abschluss) {
         if (abschluss.conversation_id) state.conversationId = abschluss.conversation_id;
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
     }
+    // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
+    if (vorleser) vorleser.neuerText();
     if (untenGewesen) scrollToBottom(true);
 }
 
 /** Rückfallweg auf den nicht-streamenden Endpunkt. */
-async function sendMessageFallback(text, contentDiv, entry) {
+async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -297,7 +423,9 @@ async function sendMessageFallback(text, contentDiv, entry) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    finishReply(contentDiv, entry, data.reply, data);
+    zustand.text = data.reply;
+    zustand.fertig = true;
+    finishReply(contentDiv, entry, data.reply, data, vorleser);
     return data;
 }
 
@@ -313,6 +441,18 @@ async function sendMessage(text) {
     let antwort = '';
     let abschluss = null;
     let letztesRendern = 0;   // Zeitbremse fürs Neuzeichnen während des Streams
+
+    // Gemeinsamer Zustand für den Vorleser – er muss auch aus dem Rückfallweg
+    // heraus erreichbar sein, deshalb ein Objekt statt einfacher Variablen.
+    const zustand = { text: '', fertig: false };
+
+    // Bedienung steht sofort bereit: Man kann das Vorlesen starten, während
+    // die Antwort noch geschrieben wird.
+    const vorleser = addSpeakControls(
+        contentDiv.parentElement,
+        () => zustand.text,
+        () => zustand.fertig,
+    );
 
     try {
         const res = await fetch(`${API_BASE}/api/chat/stream`, {
@@ -349,6 +489,8 @@ async function sendMessage(text) {
                 if (daten.delta) {
                     if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
                     antwort += daten.delta;
+                    zustand.text = antwort;
+                    vorleser.neuerText();
                     // Nicht bei jedem Häppchen neu zeichnen – das Neuaufbauen
                     // der Blase würde auf dem Handy ruckeln. Der endgültige
                     // Aufbau passiert ohnehin in finishReply().
@@ -368,7 +510,8 @@ async function sendMessage(text) {
         }
 
         if (!antwort) throw new Error('Leere Antwort vom Server');
-        finishReply(contentDiv, entry, antwort, abschluss);
+        zustand.fertig = true;
+        finishReply(contentDiv, entry, antwort, abschluss, vorleser);
         return abschluss;
 
     } catch (err) {
@@ -377,11 +520,12 @@ async function sendMessage(text) {
         if (!antwort) {
             console.warn('Streaming fehlgeschlagen, versuche Normalweg:', err);
             try {
-                return await sendMessageFallback(text, contentDiv, entry);
+                return await sendMessageFallback(text, contentDiv, entry, zustand, vorleser);
             } catch (err2) {
                 err = err2;
             }
         }
+        zustand.fertig = true;   // Vorleser soll nicht ewig auf Nachschub warten
         console.error('Chat error:', err);
         contentDiv.innerHTML = parseMarkdown(
             (antwort ? antwort + '\n\n' : '')
