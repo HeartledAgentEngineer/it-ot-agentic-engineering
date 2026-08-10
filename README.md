@@ -1,4 +1,4 @@
-# Agentic Engineering — Portfolio: Software von der Web-Anwendung bis zur Maschinensteuerung
+﻿# Agentic Engineering — Portfolio: Software von der Web-Anwendung bis zur Maschinensteuerung
 
 > **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a disciplined, phase-based agentic-engineering workflow, documented at the end of this page.
 
