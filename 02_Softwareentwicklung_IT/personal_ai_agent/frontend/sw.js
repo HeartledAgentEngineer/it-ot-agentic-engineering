@@ -8,7 +8,7 @@
 
 // Version hochzählen, sobald sich eine Datei aus STATIC_ASSETS ändert –
 // sonst liefert der Cache-first-Handler unten weiter die alte Fassung aus.
-const CACHE_NAME = 'personal-ai-agent-v8';
+const CACHE_NAME = 'personal-ai-agent-v9';
 const STATIC_ASSETS = [
     '/',
     '/index.html',

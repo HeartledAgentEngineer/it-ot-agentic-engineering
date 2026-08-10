@@ -365,29 +365,38 @@ body {
     color: var(--accent);
 }
 
-/* ── Websuche-Schalter in der Kopfzeile ─────────────────────────────────── */
-.header-toggle {
+/* ── Werkzeugleiste unter der Eingabe ───────────────────────────────────── */
+/* Bewusst hier und nicht in der Kopfzeile: Bei geöffneter Tastatur ist
+   der obere Bildschirmrand auf dem Handy nicht mehr erreichbar. */
+.input-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.tool-toggle {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    margin-left: auto;
-    margin-right: 12px;
-    padding: 5px 10px;
+    padding: 4px 10px;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--text-secondary);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.2s;
+    flex-shrink: 0;
 }
 
-.header-toggle:hover {
+.tool-toggle:hover {
     color: var(--text-primary);
     border-color: var(--text-secondary);
 }
 
-.header-toggle.active {
+.tool-toggle.active {
     color: var(--accent);
     border-color: var(--accent);
     background: var(--accent-glow);
@@ -476,10 +485,10 @@ body {
 }
 
 .footer-note {
-    text-align: center;
     font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 8px;
+    margin-left: auto;   /* schiebt sich nach rechts, Werkzeuge bleiben links */
+    text-align: right;
 }
 
 /* =========================================
