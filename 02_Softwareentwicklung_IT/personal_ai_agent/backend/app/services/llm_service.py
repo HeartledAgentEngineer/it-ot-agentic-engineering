@@ -118,19 +118,33 @@ class LLMService:
 
         return "\n".join(context_parts)
 
-    def _extra_body(self, web_search: bool) -> Dict[str, Any]:
+    def _extra_body(self, web_search: str = "off") -> Dict[str, Any]:
         """Zusatzfelder für den LLM-Aufruf.
 
         Die Anbieter-Einstellung muss dabei erhalten bleiben – wird sie vom
         Suchplugin überschrieben, fällt die Ausweichlogik weg.
+
+        Zwei Wege zur Websuche, die sich grundlegend unterscheiden:
+
+        - ``manual`` nutzt das Plugin. Es sucht **einmal pro Anfrage**, egal
+          worum es geht – auch bei "danke". Der Nutzer entscheidet über den
+          Schalter, wann das sinnvoll ist.
+        - ``auto`` nutzt das Server-Werkzeug. Das Modell ruft es nur auf, wenn
+          es aktuelle Angaben braucht; OpenRouter führt die Suche selbst aus.
+          Es kostet also nur bei tatsächlicher Suche.
         """
         extra: Dict[str, Any] = {"provider": {"allow_fallbacks": True}}
-        if web_search:
-            # "auto" heißt: Das Modell entscheidet selbst, ob es sucht.
-            # Ohne das würde auch bei "danke" gesucht – und jede Suche kostet.
-            extra["plugins"] = [
-                {"id": "web", "mode": "auto", "max_results": WEB_MAX_RESULTS}
-            ]
+
+        if web_search == "manual":
+            extra["plugins"] = [{"id": "web", "max_results": WEB_MAX_RESULTS}]
+        elif web_search == "auto":
+            # Bewusst über extra_body statt über den tools-Parameter des SDK:
+            # Der Typ ist OpenRouter-eigen und passt nicht in dessen Schema.
+            extra["tools"] = [{
+                "type": "openrouter:web_search",
+                "parameters": {"max_results": WEB_MAX_RESULTS},
+            }]
+
         return extra
 
     @staticmethod
@@ -197,7 +211,7 @@ class LLMService:
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
-        web_search: bool = False,
+        web_search: str = "off",
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -247,7 +261,7 @@ class LLMService:
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
-        web_search: bool = False,
+        web_search: str = "off",
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -255,7 +269,7 @@ class LLMService:
             user_message: The user's current message
             conversation_history: Previous messages in this conversation
             memories: Relevant memories retrieved from vector DB
-            web_search: Websuche zulassen (kostet je Anfrage extra)
+            web_search: "off", "manual" oder "auto" (siehe _extra_body)
 
         Returns:
             Antworttext und Liste der Fundstellen (leer ohne Websuche)

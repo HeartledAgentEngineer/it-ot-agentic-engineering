@@ -216,6 +216,36 @@ body {
     padding: 0;
 }
 
+/* ── Tabellen ───────────────────────────────────────────────────────────── */
+/* Eigener Rahmen mit Querlauf: Auf dem Handy passt eine Tabelle sonst nicht
+   in die Sprechblase und schiebt die ganze Seite in die Breite. */
+.table-wrap {
+    overflow-x: auto;
+    margin: 10px 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+.message-content table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    min-width: 100%;
+}
+
+.message-content th,
+.message-content td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.message-content th {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .hint {
     font-size: 0.85rem;
     color: var(--text-muted);
@@ -400,6 +430,12 @@ body {
     color: var(--accent);
     border-color: var(--accent);
     background: var(--accent-glow);
+}
+
+/* "auto" sichtbar von "bei jeder Nachricht" unterscheiden: gestrichelter
+   Rand steht für "nur wenn nötig". */
+.tool-toggle.auto {
+    border-style: dashed;
 }
 
 /* ── Quellenangaben unter einer Antwort ─────────────────────────────────── */

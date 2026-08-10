@@ -1,7 +1,7 @@
 """Pydantic models for request/response validation."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 
 
@@ -16,7 +16,10 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
     conversation_id: Optional[str] = None
     # Websuche kostet je Anfrage extra, deshalb standardmäßig aus.
-    web_search: bool = False
+    #   off    – gar keine Suche
+    #   manual – sucht bei jeder Nachricht (Plugin, eine Suche pro Anfrage)
+    #   auto   – das Modell entscheidet selbst (Server-Werkzeug)
+    web_search: Literal["off", "manual", "auto"] = "off"
 
 
 class ChatResponse(BaseModel):

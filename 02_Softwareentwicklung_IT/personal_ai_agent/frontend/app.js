@@ -30,6 +30,34 @@ const API_BASE = localStorage.getItem('api_base')
     || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
 
 // =========================================
+// Websuche – drei Zustände
+// =========================================
+const WEB_MODI = ['off', 'manual', 'auto'];
+
+const WEB_TEXTE = {
+    off: {
+        label: 'Web',
+        titel: 'Websuche aus – antippen für „bei jeder Nachricht"',
+    },
+    manual: {
+        label: 'Web an',
+        titel: 'Sucht bei JEDER Nachricht – rund 0,8 Cent pro Stück, auch bei „danke"',
+    },
+    auto: {
+        label: 'Web auto',
+        titel: 'Das Modell entscheidet selbst, ob es sucht – kostet nur bei echter Suche',
+    },
+};
+
+/** Gespeicherten Modus lesen. Übersetzt die frühere Ja/Nein-Speicherung mit. */
+function ladeWebModus() {
+    const gespeichert = localStorage.getItem('web_search');
+    if (gespeichert === '1') return 'manual';   // alte Fassung: eingeschaltet
+    if (WEB_MODI.includes(gespeichert)) return gespeichert;
+    return 'off';
+}
+
+// =========================================
 // State
 // =========================================
 const state = {
@@ -40,7 +68,7 @@ const state = {
     isRecording: false,
     isTranscribing: false,
     // Websuche kostet je Anfrage extra – Wunsch bleibt zwischen Sitzungen erhalten.
-    webSearch: localStorage.getItem('web_search') === '1',
+    webSearch: ladeWebModus(),
 };
 
 // =========================================
@@ -60,18 +88,61 @@ const dom = {
 // =========================================
 // Utility: Simple Markdown Parser
 // =========================================
-function parseMarkdown(text) {
-    text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
+/** Zeichenweise Auszeichnung – auch innerhalb von Tabellenzellen gebraucht. */
+function inlineMarkdown(text) {
+    return text
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+/** Eine Markdown-Tabelle in HTML umsetzen. */
+function tabelleZuHtml(kopfZeile, koerper) {
+    const zellen = (zeile) =>
+        zeile.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(z => inlineMarkdown(z.trim()));
+
+    const kopf = zellen(kopfZeile);
+    const zeilen = koerper.trim().split('\n').filter(z => z.trim());
+
+    let html = '<div class="table-wrap"><table><thead><tr>';
+    kopf.forEach(z => { html += `<th>${z}</th>`; });
+    html += '</tr></thead><tbody>';
+    zeilen.forEach(zeile => {
+        html += '<tr>';
+        zellen(zeile).forEach(z => { html += `<td>${z}</td>`; });
+        html += '</tr>';
     });
-    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    return html + '</tbody></table></div>';
+}
+
+function parseMarkdown(text) {
+    // Fertige Blöcke werden geparkt und erst ganz am Ende wieder eingesetzt.
+    // Sonst zerlegt die Absatz- und Zeilenumbruch-Behandlung weiter unten
+    // ihr Innenleben – aus Tabellenzeilen würden <br> mitten im <table>.
+    const geparkt = [];
+    const parke = (html) => `\u0000${geparkt.push(html) - 1}\u0000`;
+
+    text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+        parke(`<pre><code>${escapeHtml(code.trim())}</code></pre>`));
+
+    // Tabelle: Kopfzeile, Trennzeile aus Strichen, dann beliebig viele Zeilen.
+    text = text.replace(
+        /^[ \t]*\|(.+)\|[ \t]*\r?\n[ \t]*\|[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|[ \t]*\r?\n((?:[ \t]*\|.*\|[ \t]*\r?\n?)*)/gm,
+        (_, kopf, koerper) => parke(tabelleZuHtml(kopf, koerper)));
+
+    text = inlineMarkdown(text);
     text = text.replace(/^- (.+)$/gm, '<li>$1</li>');
     text = text.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
     text = text.replace(/\n\n/g, '</p><p>');
     text = text.replace(/\n/g, '<br>');
-    return `<p>${text}</p>`;
+
+    let html = `<p>${text}</p>`;
+    // Blockelemente gehören nicht in einen Absatz – <table> in <p> ist
+    // ungültig und der Browser würde den Absatz vorzeitig schließen.
+    html = html.replace(/<p>\s*(\u0000\d+\u0000)\s*<\/p>/g, '$1');
+    html = html.replace(/<br>\s*(\u0000\d+\u0000)/g, '$1');
+    html = html.replace(/(\u0000\d+\u0000)\s*<br>/g, '$1');
+    return html.replace(/\u0000(\d+)\u0000/g, (_, i) => geparkt[i]);
 }
 
 function escapeHtml(text) {
@@ -161,14 +232,25 @@ function updateSendButton() {
     dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing;
 }
 
-function setWebSearch(an) {
-    state.webSearch = an;
-    localStorage.setItem('web_search', an ? '1' : '0');
-    dom.webBtn.classList.toggle('active', an);
-    dom.webBtn.setAttribute('aria-pressed', an ? 'true' : 'false');
-    dom.webBtn.title = an
-        ? 'Websuche an – jede Suche kostet rund 0,7 Cent'
-        : 'Websuche aus – jede Suche kostet rund 0,7 Cent';
+function setWebSearch(modus) {
+    if (!WEB_MODI.includes(modus)) modus = 'off';
+    state.webSearch = modus;
+    localStorage.setItem('web_search', modus);
+
+    const texte = WEB_TEXTE[modus];
+    dom.webBtn.classList.toggle('active', modus !== 'off');
+    dom.webBtn.classList.toggle('auto', modus === 'auto');
+    dom.webBtn.setAttribute('aria-pressed', modus !== 'off' ? 'true' : 'false');
+    dom.webBtn.title = texte.titel;
+
+    const beschriftung = dom.webBtn.querySelector('span');
+    if (beschriftung) beschriftung.textContent = texte.label;
+}
+
+/** Reihum: aus → bei jeder Nachricht → Modell entscheidet → aus */
+function naechsterWebModus() {
+    const i = WEB_MODI.indexOf(state.webSearch);
+    return WEB_MODI[(i + 1) % WEB_MODI.length];
 }
 
 /** Hängt die Fundstellen unter eine Antwort. */
@@ -833,7 +915,7 @@ function stopRecording() {
     sendAudioForTranscription(encodeWav(chunks, sampleRate));
 }
 
-dom.webBtn.addEventListener('click', () => setWebSearch(!state.webSearch));
+dom.webBtn.addEventListener('click', () => setWebSearch(naechsterWebModus()));
 
 dom.micBtn.addEventListener('click', () => {
     if (state.isRecording) {
