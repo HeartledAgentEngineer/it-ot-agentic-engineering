@@ -14,6 +14,7 @@ claude_code_masterclass_zusammenfassung.md
 !/.claude/
 /.claude/*
 !/.claude/skills/
+!/.claude/settings.json
 ORIGINAL_REQUEST.md
 backlog.md
 firmen_architektur_diagramm.md
