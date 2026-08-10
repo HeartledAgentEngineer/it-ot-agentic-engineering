@@ -80,10 +80,11 @@ async def chat(request: ChatRequest):
         )
 
         # 2. Get LLM response with memory context
-        reply = llm_service.chat(
+        reply, quellen = llm_service.chat(
             user_message=request.message,
             conversation_history=history,
             memories=memories,
+            web_search=request.web_search,
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -94,6 +95,7 @@ async def chat(request: ChatRequest):
             conversation_id=conversation_id,
             memories_used=len(memories),
             memories_created=memories_created,
+            sources=quellen,
         )
 
     except Exception as e:
@@ -110,15 +112,23 @@ async def chat_stream(request: ChatRequest):
 
     def ereignisse():
         teile: List[str] = []
+        quellen: List[Dict[str, str]] = []
         try:
             try:
-                for stueck in llm_service.chat_stream(
+                for ereignis in llm_service.chat_stream(
                     user_message=request.message,
                     conversation_history=history,
                     memories=memories,
+                    web_search=request.web_search,
                 ):
-                    teile.append(stueck)
-                    yield _sse({"delta": stueck})
+                    if ereignis.get("sources"):
+                        quellen.extend(ereignis["sources"])
+                        yield _sse({"sources": ereignis["sources"]})
+                        continue
+                    stueck = ereignis.get("delta")
+                    if stueck:
+                        teile.append(stueck)
+                        yield _sse({"delta": stueck})
             except Exception as e:
                 logger.error("Streaming fehlgeschlagen: %s", e)
                 yield _sse({"error": str(e)})
@@ -137,6 +147,8 @@ async def chat_stream(request: ChatRequest):
             "memories_used": len(memories),
             "memories_created": anzahl_neu,
             "memory_count": memory_service.get_memory_count(),
+            # Nochmals gesammelt – falls ein Zwischenereignis verloren ging.
+            "sources": quellen,
         })
 
     return StreamingResponse(

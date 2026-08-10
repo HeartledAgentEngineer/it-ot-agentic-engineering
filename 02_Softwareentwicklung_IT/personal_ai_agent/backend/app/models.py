@@ -5,10 +5,18 @@ from typing import Optional, List
 from datetime import datetime
 
 
+class Source(BaseModel):
+    """Eine Fundstelle aus der Websuche."""
+    url: str
+    title: str
+
+
 class ChatRequest(BaseModel):
     """Incoming chat message from the user."""
     message: str = Field(..., min_length=1, max_length=10000)
     conversation_id: Optional[str] = None
+    # Websuche kostet je Anfrage extra, deshalb standardmäßig aus.
+    web_search: bool = False
 
 
 class ChatResponse(BaseModel):
@@ -17,6 +25,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     memories_used: int = 0
     memories_created: int = 0
+    sources: List[Source] = []
 
 
 class MemoryItem(BaseModel):

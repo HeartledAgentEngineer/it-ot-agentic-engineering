@@ -4,7 +4,7 @@ import io
 import json
 import logging
 import httpx
-from typing import List, Dict, Any, Iterator, Optional
+from typing import List, Dict, Any, Iterator, Optional, Tuple
 
 from openai import OpenAI, APIStatusError
 
@@ -54,6 +54,9 @@ POLISH_ANWEISUNG = (
 
 # API-Timeout für Audio-Transkription und Glättung (30s, /critic Befund #4/#5)
 API_TIMEOUT_SECONDS = 30
+
+# Websuche: Wie viele Treffer OpenRouter beisteuern soll.
+WEB_MAX_RESULTS = 5
 
 # Hinweistext bei fehlendem Schlüssel – von chat() und chat_stream() geteilt.
 NICHT_KONFIGURIERT = (
@@ -115,6 +118,50 @@ class LLMService:
 
         return "\n".join(context_parts)
 
+    def _extra_body(self, web_search: bool) -> Dict[str, Any]:
+        """Zusatzfelder für den LLM-Aufruf.
+
+        Die Anbieter-Einstellung muss dabei erhalten bleiben – wird sie vom
+        Suchplugin überschrieben, fällt die Ausweichlogik weg.
+        """
+        extra: Dict[str, Any] = {"provider": {"allow_fallbacks": True}}
+        if web_search:
+            # "auto" heißt: Das Modell entscheidet selbst, ob es sucht.
+            # Ohne das würde auch bei "danke" gesucht – und jede Suche kostet.
+            extra["plugins"] = [
+                {"id": "web", "mode": "auto", "max_results": WEB_MAX_RESULTS}
+            ]
+        return extra
+
+    @staticmethod
+    def _quellen(annotations: Any) -> List[Dict[str, str]]:
+        """Aus den Anmerkungen einer Antwort eine schlichte Quellenliste bauen.
+
+        Die Form schwankt je nach Anbieter zwischen Wörterbuch und Objekt,
+        deshalb wird beides abgeklopft und Unbrauchbares übersprungen.
+        """
+        gefunden: List[Dict[str, str]] = []
+        for eintrag in annotations or []:
+            try:
+                if isinstance(eintrag, dict):
+                    typ = eintrag.get("type")
+                    daten = eintrag.get("url_citation") or {}
+                else:
+                    typ = getattr(eintrag, "type", None)
+                    roh = getattr(eintrag, "url_citation", None)
+                    daten = roh if isinstance(roh, dict) else {
+                        "url": getattr(roh, "url", None),
+                        "title": getattr(roh, "title", None),
+                    }
+                if typ != "url_citation":
+                    continue
+                url = daten.get("url")
+                if url:
+                    gefunden.append({"url": url, "title": daten.get("title") or url})
+            except Exception:
+                continue
+        return gefunden
+
     def _build_messages(
         self,
         user_message: str,
@@ -150,14 +197,16 @@ class LLMService:
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
-    ) -> Iterator[str]:
+        web_search: bool = False,
+    ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
         Yields:
-            Textstücke in der Reihenfolge, in der das Modell sie erzeugt.
+            `{"delta": "..."}` für Textstücke,
+            `{"sources": [...]}` sobald neue Fundstellen auftauchen.
         """
         if not self.is_configured:
-            yield NICHT_KONFIGURIERT
+            yield {"delta": NICHT_KONFIGURIERT}
             return
 
         messages = self._build_messages(user_message, conversation_history, memories)
@@ -168,34 +217,51 @@ class LLMService:
             temperature=0.7,
             max_tokens=2048,
             stream=True,
-            extra_body={"provider": {"allow_fallbacks": True}},
+            extra_body=self._extra_body(web_search),
         )
 
+        gesehen: set = set()
         for chunk in stream:
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+            if not delta:
+                continue
+
+            # Quellen können an jedem Häppchen hängen, nicht nur am ersten
+            # oder letzten – deshalb bei jedem nachsehen und doppelte
+            # Adressen herausfiltern.
+            neue = [
+                q for q in self._quellen(getattr(delta, "annotations", None))
+                if q["url"] not in gesehen
+            ]
+            if neue:
+                gesehen.update(q["url"] for q in neue)
+                yield {"sources": neue}
+
+            if delta.content:
+                yield {"delta": delta.content}
 
     def chat(
         self,
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
+        web_search: bool = False,
+    ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
         Args:
             user_message: The user's current message
             conversation_history: Previous messages in this conversation
             memories: Relevant memories retrieved from vector DB
+            web_search: Websuche zulassen (kostet je Anfrage extra)
 
         Returns:
-            The LLM's response text
+            Antworttext und Liste der Fundstellen (leer ohne Websuche)
         """
         if not self.is_configured:
-            return NICHT_KONFIGURIERT
+            return NICHT_KONFIGURIERT, []
 
         messages = self._build_messages(user_message, conversation_history, memories)
 
@@ -205,20 +271,23 @@ class LLMService:
                 messages=messages,  # type: ignore
                 temperature=0.7,
                 max_tokens=2048,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(web_search),
             )
 
-            reply = response.choices[0].message.content or ""
+            nachricht = response.choices[0].message
+            reply = nachricht.content or ""
+            quellen = self._quellen(getattr(nachricht, "annotations", None))
             logger.debug(
-                "LLM response received (%d tokens, model=%s)",
+                "LLM response received (%d tokens, model=%s, %d Quellen)",
                 response.usage.total_tokens if response.usage else 0,
                 response.model,
+                len(quellen),
             )
-            return reply
+            return reply, quellen
 
         except Exception as e:
             logger.error("LLM API call failed: %s", e)
-            return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{str(e)}\n```"
+            return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{str(e)}\n```", []
 
     def extract_memories(self, user_message: str, llm_reply: str) -> List[str]:
         """Ask the LLM to extract facts that should be memorized.

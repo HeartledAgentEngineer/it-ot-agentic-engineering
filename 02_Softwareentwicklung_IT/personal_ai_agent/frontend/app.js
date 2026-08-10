@@ -39,6 +39,8 @@ const state = {
     messages: [],
     isRecording: false,
     isTranscribing: false,
+    // Websuche kostet je Anfrage extra – Wunsch bleibt zwischen Sitzungen erhalten.
+    webSearch: localStorage.getItem('web_search') === '1',
 };
 
 // =========================================
@@ -50,6 +52,7 @@ const dom = {
     input: document.getElementById('message-input'),
     sendBtn: document.getElementById('send-btn'),
     micBtn: document.getElementById('mic-btn'),
+    webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
 };
@@ -156,6 +159,53 @@ function updateSendButton() {
         return;
     }
     dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing;
+}
+
+function setWebSearch(an) {
+    state.webSearch = an;
+    localStorage.setItem('web_search', an ? '1' : '0');
+    dom.webBtn.classList.toggle('active', an);
+    dom.webBtn.setAttribute('aria-pressed', an ? 'true' : 'false');
+    dom.webBtn.title = an
+        ? 'Websuche an – jede Suche kostet rund 0,7 Cent'
+        : 'Websuche aus – jede Suche kostet rund 0,7 Cent';
+}
+
+/** Hängt die Fundstellen unter eine Antwort. */
+function addSources(contentDiv, quellen) {
+    if (!quellen || !quellen.length) return;
+    const box = document.createElement('div');
+    box.className = 'sources';
+
+    const titel = document.createElement('span');
+    titel.className = 'sources-title';
+    titel.textContent = quellen.length === 1 ? 'Quelle' : 'Quellen';
+    box.appendChild(titel);
+
+    quellen.forEach((q, i) => {
+        const a = document.createElement('a');
+        a.href = q.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = `${i + 1}. ${q.title}`;
+        box.appendChild(a);
+    });
+    contentDiv.appendChild(box);
+}
+
+/** Fundstellen zusammenführen, doppelte Adressen fliegen raus. */
+function mergeQuellen(...listen) {
+    const gesehen = new Set();
+    const ergebnis = [];
+    for (const liste of listen) {
+        for (const q of liste || []) {
+            if (q && q.url && !gesehen.has(q.url)) {
+                gesehen.add(q.url);
+                ergebnis.push(q);
+            }
+        }
+    }
+    return ergebnis;
 }
 
 function setMicStatus(status) {
@@ -405,6 +455,8 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
     entry.content = antwort;
+    // Muss nach dem Setzen von innerHTML kommen, sonst wird es überschrieben.
+    if (abschluss) addSources(contentDiv, abschluss.sources);
     if (abschluss) {
         if (abschluss.conversation_id) state.conversationId = abschluss.conversation_id;
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
@@ -419,7 +471,11 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, conversation_id: state.conversationId }),
+        body: JSON.stringify({
+            message: text,
+            conversation_id: state.conversationId,
+            web_search: state.webSearch,
+        }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
@@ -441,6 +497,7 @@ async function sendMessage(text) {
     let antwort = '';
     let abschluss = null;
     let letztesRendern = 0;   // Zeitbremse fürs Neuzeichnen während des Streams
+    let quellen = [];         // Fundstellen der Websuche, während sie eintreffen
 
     // Gemeinsamer Zustand für den Vorleser – er muss auch aus dem Rückfallweg
     // heraus erreichbar sein, deshalb ein Objekt statt einfacher Variablen.
@@ -458,7 +515,11 @@ async function sendMessage(text) {
         const res = await fetch(`${API_BASE}/api/chat/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text, conversation_id: state.conversationId }),
+            body: JSON.stringify({
+            message: text,
+            conversation_id: state.conversationId,
+            web_search: state.webSearch,
+        }),
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
@@ -501,6 +562,9 @@ async function sendMessage(text) {
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
                         if (untenGewesen) scrollToBottom(true);
                     }
+                } else if (daten.sources) {
+                    // Können an jedem Häppchen hängen, deshalb laufend sammeln.
+                    quellen = mergeQuellen(quellen, daten.sources);
                 } else if (daten.error) {
                     throw new Error(daten.error);
                 } else if (daten.done) {
@@ -511,6 +575,11 @@ async function sendMessage(text) {
 
         if (!antwort) throw new Error('Leere Antwort vom Server');
         zustand.fertig = true;
+        // Zwischendurch eingetroffene Quellen mit denen aus dem Abschluss
+        // zusammenführen – doppelte Adressen fallen dabei weg.
+        abschluss = Object.assign({}, abschluss, {
+            sources: mergeQuellen(quellen, abschluss && abschluss.sources),
+        });
         finishReply(contentDiv, entry, antwort, abschluss, vorleser);
         return abschluss;
 
@@ -764,6 +833,8 @@ function stopRecording() {
     sendAudioForTranscription(encodeWav(chunks, sampleRate));
 }
 
+dom.webBtn.addEventListener('click', () => setWebSearch(!state.webSearch));
+
 dom.micBtn.addEventListener('click', () => {
     if (state.isRecording) {
         stopRecording();
@@ -828,6 +899,7 @@ if ('serviceWorker' in navigator) {
 // Init
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
+    setWebSearch(state.webSearch);   // gespeicherten Wunsch wiederherstellen
     startHealthChecks();
     dom.input.focus();
     updateSendButton();
