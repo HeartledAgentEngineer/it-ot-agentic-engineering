@@ -1,34 +1,81 @@
-# AGENTS.md — Einstieg für KI-Agenten
+# Workspace Agentic Engineering — Kernregeln
 
-Dieser Workspace steuert **alle** KI-Agenten (Claude Code, Codex, Antigravity, Cursor)
-über eine einzige Regeldatei:
+Diese Datei gilt werkzeugübergreifend (Claude Code, Cline, Cursor, Codex).
+Sie ist die einzige Quelle der Kernregeln — Änderungen nur hier.
 
-> ### 👉 [`CLAUDE.md`](CLAUDE.md) in der Workspace-Wurzel
-> Das ist die einzige Quelle. Bitte zuerst vollständig lesen, bevor du etwas änderst.
+## Wo welche Regeln stehen
 
-Diese Datei hier ist bewusst nur ein Wegweiser — die Regeln werden **nicht** kopiert,
-damit sie nicht an zwei Stellen auseinanderlaufen können.
+| Ebene | Datei | Wann sie gilt |
+|---|---|---|
+| Kern | `AGENTS.md` (diese Datei) | immer, in jedem Werkzeug |
+| Claude-Code-Spezifisches | `CLAUDE.md` | immer, nur in Claude Code |
+| Bereich | `01_IT-OT_Integration/CLAUDE.md`, `02_Softwareentwicklung_IT/CLAUDE.md` | sobald Dateien aus dem Bereich gelesen werden |
+| Projekt | z. B. `02_Softwareentwicklung_IT/typeFREE/CLAUDE.md` | sobald Dateien des Projekts gelesen werden |
 
-## Zusätzliche Bereichsregeln
+**Die Bereichs- und Projekt-`CLAUDE.md` werden von `sync-rules.ps1` aus der
+jeweiligen `CLAUDE_EXTENDS.md` erzeugt.** Sie sind nicht von Hand zu
+bearbeiten — Änderungen gehen beim nächsten Lauf verloren. Stattdessen die
+zugehörige `CLAUDE_EXTENDS.md` ändern und das Skript erneut ausführen.
 
-Je nachdem, wo du arbeitest, gilt zusätzlich:
+## Sprache
 
-| Bereich | Zusatzregeln |
-|---|---|
-| `01_IT-OT_Integration/` | [`01_IT-OT_Integration/CLAUDE.md`](01_IT-OT_Integration/CLAUDE.md) — TwinCAT-/SPS-Konventionen |
-| `02_Softwareentwicklung_IT/` | [`02_Softwareentwicklung_IT/CLAUDE.md`](02_Softwareentwicklung_IT/CLAUDE.md) — Design- und Web-Richtlinien |
+Antworten auf Deutsch. Fachbegriffe beim ersten Auftreten in einem Halbsatz
+erklären.
 
-Diese beiden Bereichsdateien werden von [`sync-rules.ps1`](sync-rules.ps1) aus der jeweiligen
-`CLAUDE_EXTENDS.md` erzeugt. **Nicht von Hand bearbeiten** — Änderungen gehen beim nächsten
-Lauf verloren. Stattdessen die `CLAUDE_EXTENDS.md` ändern und das Skript erneut ausführen.
+## Sicherheit: Git
 
-## Die zwei harten Leitplanken
+- Autonom erlaubt: lesen, lokal ändern, lokal committen.
+- `git push` bleibt bei Sebastian. Der Agent schlägt einen Push vor und wartet
+  auf die Ausführung durch Sebastian.
 
-Hier bewusst wiederholt, damit sie auch ein Agent sieht, der nur diese Datei liest:
+## Sicherheit: Persönliche Datenarchive
 
-1. **Niemals `git push`.** Lokale Commits sind erlaubt. Ein Push wird ausschließlich von
-   Sebastian selbst freigegeben (Schutz vor versehentlichem Secrets-Leak).
-2. **Keine Online-Änderungen an der SPS.** In `01_IT-OT_Integration` werden nur
-   Code-Blaupausen geliefert; Einspielen und Online Change macht Sebastian manuell.
+`Chats von GPT, GEMINI, Claude/` enthält vollständige Chat-Archive und
+Google-Takeout-Daten. Die Sperre in `.gitignore` (Zeile 112) bleibt unverändert
+bestehen. Soll etwas daraus versioniert werden, wird die Datei außerhalb dieses
+Ordners neu angelegt.
 
-Alles Weitere — Sprache, Arbeitsweise, der 8-Phasen-Workflow — steht in [`CLAUDE.md`](CLAUDE.md).
+## Sicherheit: OT-Systeme
+
+Änderungen an einer laufenden SPS führt Sebastian manuell aus. Der Agent
+liefert Code-Blaupausen.
+
+## Arbeitsweise
+
+- Pro Antwort eine Änderung, dann Rückmeldung abwarten.
+- Vor jeder Auswahlfrage zuerst dieses Briefing ausgeben:
+  **Was** (1–2 Sätze) · **Warum** · **Was bleibt unverändert** ·
+  **Risiko** (Keins / Gering / Mittel / Hoch)
+
+## Autonomiegrenze
+
+Autonom: lesen, lokal ändern, lokal committen, Tests ausführen.
+Rückfrage: alles, was den Rechner verlässt oder ein fremdes System erreicht
+(Push, Deploy, SPS, Versand, Veröffentlichung).
+
+## Fertig ist, was verifiziert ist
+
+Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts Exit-Code 0
+liefert. Ohne Prüfbefehl: benennen, welcher fehlt.
+
+## Automatischer Durchlauf
+
+Feature-Arbeit läuft über den Workflow in `.claude/skills/phase/SKILL.md`,
+aufgerufen mit `/phase`. Ein Durchlauf ohne Zwischenfreigaben ist nur erlaubt,
+wenn alle drei Punkte zutreffen:
+
+1. Das Projekt hat einen Prüfbefehl mit Exit-Code.
+2. Die Regeln stehen in `.claude/settings.json`, nicht nur in dieser Datei.
+3. Es ist kein OT-/SPS-Code.
+
+Trifft eines nicht zu, wird jede Änderung einzeln vorgelegt.
+
+## Kontext-Hygiene
+
+Ab etwa 60 % Kontextnutzung oder am Phasenende: Zwischenstand in die
+Phasendatei schreiben und `/clear` vorschlagen.
+
+## Ablenkungen
+
+Neue Ideen während einer laufenden Phase werden als To-do notiert und nach der
+Phase aufgegriffen.
