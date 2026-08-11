@@ -6,9 +6,15 @@
  * - Cache für statische Assets
  */
 
-// Version hochzählen, sobald sich eine Datei aus STATIC_ASSETS ändert –
-// sonst liefert der Cache-first-Handler unten weiter die alte Fassung aus.
-const CACHE_NAME = 'personal-ai-agent-v10';
+// Version hochzählen, wenn sich die Liste unten ändert. Für Änderungen an
+// index.html, app.js oder style.css ist das seit v11 nicht mehr nötig: Der
+// Fetch-Handler holt sie zuerst aus dem Netz (siehe unten).
+//
+// Warum die Umstellung: Die alte Cache-first-Strategie verlangte, bei jeder
+// Frontend-Änderung diese Zahl von Hand zu erhöhen. Wird es vergessen –
+// und es wird vergessen –, liefert das Handy nach einem `git pull`
+// weiterhin die alte Oberfläche aus, ohne jeden Hinweis darauf.
+const CACHE_NAME = 'personal-ai-agent-v11';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -67,21 +73,31 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Statische Assets: Cache-first
+    // Statische Assets: Netzwerk zuerst, Cache als Rückfall.
+    //
+    // Umgekehrt zur früheren Fassung. Cache-first war schneller, lieferte aber
+    // nach einem Update so lange die alte Oberfläche aus, bis jemand daran
+    // dachte, CACHE_NAME hochzuzählen. Offline bleibt voll erhalten – der
+    // Cache wird bei jeder erfolgreichen Antwort aufgefrischt und greift,
+    // sobald das Netz wegfällt. Der Preis ist ein Roundtrip beim Start,
+    // im Heimnetz nicht spürbar.
     event.respondWith(
-        caches.match(request).then((cached) => {
-            return cached || fetch(request).then((response) => {
-                return caches.open(CACHE_NAME).then((cache) => {
-                    cache.put(request, response.clone());
-                    return response;
-                });
-            }).catch(() => {
-                // Offline-Fallback
+        fetch(request)
+            .then((response) => {
+                // Nur brauchbare Antworten in den Cache legen. Eine 404 als
+                // Offline-Fassung zu konservieren wäre schlimmer als nichts.
+                if (response && response.ok) {
+                    const kopie = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(request, kopie));
+                }
+                return response;
+            })
+            .catch(() => caches.match(request).then((cached) => {
+                if (cached) return cached;
                 if (request.mode === 'navigate') {
                     return caches.match('/index.html');
                 }
                 return new Response('Offline', { status: 503 });
-            });
-        })
+            }))
     );
 });
