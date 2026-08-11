@@ -596,6 +596,15 @@ class LLMService:
         return round(wert, 3) if wert >= 0 else None
 
     @staticmethod
+    def _whitelist() -> set:
+        """Anbieter-Slugs des Kontos. Leere Menge heißt "unbekannt"."""
+        return {
+            s.strip().lower()
+            for s in (settings.provider_whitelist or "").split(",")
+            if s.strip()
+        }
+
+    @staticmethod
     def _ist_chat_modell(model_id: str) -> bool:
         """Aussortieren, was in einer Chat-Auswahl nichts verloren hat.
 
@@ -632,7 +641,11 @@ class LLMService:
             return []
 
     def _anbieter_richtlinien(self) -> Dict[str, Dict[str, Any]]:
-        """Datenschutz-Profil je Anbieter, abrufbar über Anzeigename UND Slug.
+        """Anbieter-Datensatz je Anbieter, abrufbar über Anzeigename UND Slug.
+
+        Liefert den ganzen Eintrag (mit ``slug`` und ``dataPolicy``), nicht nur
+        die Richtlinie: Der Slug wird gebraucht, um gegen die Whitelist des
+        Kontos abzugleichen.
 
         Beide Schlüssel sind nötig: Die Endpunktliste eines Modells nennt den
         Anzeigenamen ("Mancer 2") und einen Tag ("mancer/fp4"), der Katalog
@@ -653,14 +666,13 @@ class LLMService:
             antwort.raise_for_status()
             roh = antwort.json()
             for anbieter in roh.get("data", roh) or []:
-                richtlinie = anbieter.get("dataPolicy") or {}
                 for schluessel in (
                     anbieter.get("displayName"),
                     anbieter.get("slug"),
                     anbieter.get("name"),
                 ):
                     if schluessel:
-                        profile[schluessel] = richtlinie
+                        profile[schluessel] = anbieter
         except Exception as e:
             logger.warning("Anbieter-Richtlinien nicht abrufbar: %s", e)
 
@@ -690,6 +702,7 @@ class LLMService:
             return {}
 
         kopf = {"Authorization": f"Bearer {self.api_key}"}
+        whitelist = self._whitelist()
 
         def zaehle(mid: str) -> Tuple[str, Optional[Dict[str, int]]]:
             try:
@@ -701,14 +714,22 @@ class LLMService:
 
             gesamt = speichernd = unbekannt = 0
             for e in endpunkte:
-                gesamt += 1
-                richtlinie = (
+                anbieter = (
                     profile.get(e.get("provider_name"))
                     or profile.get((e.get("tag") or "").split("/")[0])
                 )
-                if richtlinie is None:
+                # Ist die Whitelist bekannt, zählen nur Anbieter, die dieses
+                # Konto überhaupt erreichen kann. Sonst stünde an einem Modell
+                # "8 von 21 speichern", obwohl für Sebastian nur zwei Anbieter
+                # in Frage kommen und davon einer speichert.
+                if anbieter is not None and whitelist:
+                    if (anbieter.get("slug") or "").lower() not in whitelist:
+                        continue
+
+                gesamt += 1
+                if anbieter is None:
                     unbekannt += 1
-                elif richtlinie.get("retainsPrompts"):
+                elif (anbieter.get("dataPolicy") or {}).get("retainsPrompts"):
                     speichernd += 1
             return mid, {
                 "anbieter_gesamt": gesamt,
@@ -861,13 +882,20 @@ class LLMService:
             return {"id": model_id, "anbieter": [], "fehler": str(e)}
 
         profile = self._anbieter_richtlinien()
+        whitelist = self._whitelist()
         anbieter = []
         for endpunkt in daten.get("endpoints") or []:
             name = endpunkt.get("provider_name") or "unbekannt"
             # Der Tag lautet "slug/quantisierung" – der Slug davor ist der
             # zweite Weg zum Profil, falls der Anzeigename nicht passt.
             tag = (endpunkt.get("tag") or "").split("/")[0]
-            richtlinie = profile.get(name) or profile.get(tag)
+            eintrag = profile.get(name) or profile.get(tag)
+            richtlinie = (eintrag or {}).get("dataPolicy") if eintrag else None
+
+            # Anbieter außerhalb der Whitelist werden gekennzeichnet, nicht
+            # verschwiegen: Sie sind der Grund, eine Whitelist später zu ändern.
+            slug = ((eintrag or {}).get("slug") or tag or "").lower()
+            erreichbar = (not whitelist) or (slug in whitelist)
 
             if richtlinie is None:
                 # Ohne Profil bleibt es ausdrücklich unbekannt. Hier "nein"
@@ -880,6 +908,7 @@ class LLMService:
                     "speichert": None,
                     "aufbewahrung_tage": None,
                     "agb_url": None,
+                    "erreichbar": erreichbar,
                     "kontext": endpunkt.get("context_length"),
                 })
                 continue
@@ -892,13 +921,19 @@ class LLMService:
                 # Die AGB des Anbieters – zum Nachlesen, ausdrücklich KEIN
                 # Nachweis eines Auftragsverarbeitungsvertrags.
                 "agb_url": richtlinie.get("termsOfServiceURL"),
+                "erreichbar": erreichbar,
                 "kontext": endpunkt.get("context_length"),
             })
+
+        # Erreichbare zuerst – was das Konto nicht ansteuern kann, ist
+        # Hintergrundwissen und gehört nach unten.
+        anbieter.sort(key=lambda a: not a["erreichbar"])
 
         return {
             "id": model_id,
             "name": daten.get("name") or model_id,
             "anbieter": anbieter,
+            "whitelist_aktiv": bool(whitelist),
         }
 
     # ── Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────────

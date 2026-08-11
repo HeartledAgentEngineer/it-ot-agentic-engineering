@@ -30,6 +30,20 @@ class Settings(BaseSettings):
     # Der Chat darüber ist für dieses Konto gesperrt (HTTP 403, Enterprise).
     openrouter_eu_base_url: str = "https://eu.openrouter.ai/api/v1"
 
+    # Anbieter-Whitelist des OpenRouter-Kontos ("Allowed Providers"),
+    # kommaseparierte Slugs. Leer bedeutet "unbekannt" – dann werden alle
+    # Anbieter weltweit gezählt und die Oberfläche schreibt das auch dazu.
+    #
+    # Warum das von Hand gepflegt werden muss: OpenRouter gibt die Whitelist
+    # über keine Route heraus. `GET /api/v1/key` liefert nur Nutzungsdaten.
+    # ACHTUNG: Wird sie im OpenRouter-Konto geändert, muss dieser Wert
+    # nachgezogen werden – sonst rechnet die Anzeige mit einem alten Stand.
+    #
+    # Stand 11.08.2026:
+    #   ai21,azure,cohere,google-vertex,nebius,mistral,cloudflare,
+    #   digitalocean,amazon-bedrock,black-forest-labs,claude-on-aws
+    provider_whitelist: str = ""
+
     # Modellauswahl – datenschutz-konform.
     # Die erlaubten Modelle werden dynamisch über GET /models/user geladen
     # (OpenRouter respektiert dabei die Privacy-/Provider-Einstellungen des

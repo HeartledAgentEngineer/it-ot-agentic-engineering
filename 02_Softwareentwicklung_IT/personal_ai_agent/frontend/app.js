@@ -77,6 +77,9 @@ const state = {
     modellHinweis: '',
     // Aktive Filter-Chips im Auswahl-Blatt, kombinierbar (UND-Verknüpfung).
     filters: new Set(),
+    // Kennt das Backend die Anbieter-Whitelist des Kontos? Ohne sie beziehen
+    // sich alle Anbieterzahlen auf den Weltmarkt, nicht auf die eigene Lage.
+    whitelistAktiv: false,
     // Datenschutz-Riegel: schickt provider.data_collection="deny" mit.
     noRetention: localStorage.getItem('no_retention') === '1',
 };
@@ -406,7 +409,14 @@ async function ladeKatalog(erzwingen = false) {
         const daten = await res.json();
         state.katalog = daten.models || [];
         state.favoriten = daten.favoriten || [];
+        state.whitelistAktiv = Boolean(daten.whitelist_aktiv);
         state.modellHinweis = daten.hinweis || '';
+        if (!state.whitelistAktiv) {
+            state.modellHinweis =
+                'Anbieterzahlen gelten weltweit – trage PROVIDER_WHITELIST in die .env ein, '
+                + 'damit nur deine erreichbaren Anbieter gezählt werden. '
+                + state.modellHinweis;
+        }
         // Ohne eigene Wahl gilt das Modell aus der Server-Konfiguration.
         if (!state.model && daten.aktuell) state.model = daten.aktuell;
         if (daten.notliste) {
@@ -454,8 +464,14 @@ function zeileFuer(m, nutzbar = true) {
     } else if (m.anbieter_speichernd) {
         const b = document.createElement('span');
         b.className = 'badge warn';
-        b.textContent = `${m.anbieter_speichernd}/${m.anbieter_gesamt} speichern`;
-        b.title = 'Ohne Datenschutz-Riegel kann die Anfrage bei einem dieser Anbieter landen';
+        // "weltweit" ist kein Beiwerk: Ohne bekannte Whitelist zählt die Zahl
+        // alle Anbieter der Welt, nicht die, die dein Konto erreichen kann.
+        b.textContent = state.whitelistAktiv
+            ? `${m.anbieter_speichernd}/${m.anbieter_gesamt} speichern`
+            : `${m.anbieter_speichernd}/${m.anbieter_gesamt} weltweit`;
+        b.title = state.whitelistAktiv
+            ? 'Ohne Datenschutz-Riegel kann die Anfrage bei einem dieser Anbieter landen'
+            : 'Gezählt über alle Anbieter weltweit – deine Whitelist ist dem Backend nicht bekannt';
         top.appendChild(b);
     }
     if (m.eu) {
@@ -591,8 +607,14 @@ async function zeigeDetails(modelId) {
         const res = await fetch(`${API_BASE}/api/models/${modelId}/details`);
         if (!res.ok) return;
         const daten = await res.json();
-        const anbieter = daten.anbieter || [];
-        if (!anbieter.length) return;
+        const alleAnbieter = daten.anbieter || [];
+        if (!alleAnbieter.length) return;
+
+        // Nur die Anbieter beurteilen, die dieses Konto auch erreichen kann.
+        // Die übrigen stehen als Fußnote darunter – sie sind der Grund, eine
+        // Whitelist später zu ändern, aber nicht Teil der aktuellen Lage.
+        const anbieter = alleAnbieter.filter(a => a.erreichbar !== false);
+        const gesperrt = alleAnbieter.filter(a => a.erreichbar === false);
 
         // Drei Zustände, nicht zwei: true, false und "kein Profil gefunden".
         // Unbekanntes als "speichert nicht" zu zeigen wäre ein falsches
@@ -602,7 +624,8 @@ async function zeigeDetails(modelId) {
         const zeilen = [
             `**Modell gewechselt:** ${daten.name || modelId}`,
             '',
-            `${anbieter.length} mögliche Anbieter, davon ${speichernd.length} mit Speicherung.`,
+            `${anbieter.length} ${daten.whitelist_aktiv ? 'für dich erreichbare' : 'mögliche'} `
+            + `Anbieter, davon ${speichernd.length} mit Speicherung.`,
         ];
         if (speichernd.length) {
             const namen = speichernd
@@ -616,6 +639,10 @@ async function zeigeDetails(modelId) {
         }
         if (unbekannt.length) {
             zeilen.push(`❓ Ohne Angabe: ${unbekannt.map(a => a.name).join(', ')}`);
+        }
+        if (gesperrt.length) {
+            zeilen.push('', `_Nicht in deiner Whitelist (${gesperrt.length}): `
+                + `${gesperrt.map(a => a.name).slice(0, 8).join(', ')}_`);
         }
         zeilen.push('', `_${daten.hinweis || ''}_`);
         addMessage(zeilen.join('\n'), 'assistant');

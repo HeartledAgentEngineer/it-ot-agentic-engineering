@@ -68,6 +68,10 @@ def models():
         "total": len(liste),
         "eu_verfuegbar": sum(1 for m in liste if m.get("eu")),
         "speicherfrei_verfuegbar": sum(1 for m in liste if m.get("speicherfrei")),
+        # Sagt dem Frontend, ob die Anbieterzahlen fuer dieses Konto gelten
+        # oder weltweit. Ohne die Unterscheidung waere "8 von 21 speichern"
+        # eine Zahl, die niemandes Lage beschreibt.
+        "whitelist_aktiv": bool(llm_service._whitelist()),
         # Damit das Frontend erklaeren kann, warum die Liste kurz ist,
         # statt eine leere Auswahl zu zeigen.
         "notliste": notliste,
