@@ -1,11 +1,11 @@
 ﻿<!--
   DIESE DATEI WURDE AUTOMATISCH GENERIERT (sync-rules.ps1)
   AENDERUNGEN IN DIESER DATEI WERDEN BEIM NAECHSTEN RUN UEBERSCHRIEBEN!
-  Bitte aendere die globale CLAUDE.md im Hauptverzeichnis oder die lokale CLAUDE_EXTENDS.md.
+  Bitte aendere die globale AGENTS.md im Hauptverzeichnis oder die lokale CLAUDE_EXTENDS.md.
 -->
 
-> **Basis-Regelwerk:** Es gelten weiterhin die globalen KI-Direktiven aus `../CLAUDE.md` (Workspace-Wurzel).
-> Sie sind hier bewusst nicht kopiert, damit es nur eine Quelle gibt. Claude Code liest sie von sich aus mit.
+> **Basis-Regelwerk:** Es gelten weiterhin die Kernregeln aus `../AGENTS.md` (Workspace-Wurzel).
+> Sie sind hier bewusst nicht kopiert, damit es nur eine Quelle gibt. Claude Code zieht sie ueber die Wurzel-CLAUDE.md mit herein, Cline liest sie nativ.
 
 <!-- LOKALE PROJEKT-ERWEITERUNGEN (EXTENDS) -->
 
@@ -17,14 +17,13 @@
 
 ## 🔒 DSGVO & Sicherheit
 
-* **Kein Abfluss von Verfahrenstechnik-Wissen:** Prozess-Know-how, kundenspezifische Algorithmen und Anlagenlogik verlassen niemals das Repository — auch nicht zur Prüfung über OpenRouter. Die Fremdprüfung (`/critic`) ist für OT-Code gesperrt.
+* **Kein Abfluss von Verfahrenstechnik-Wissen:** Prozess-Know-how, kundenspezifische Algorithmen und Anlagenlogik verlassen niemals das Repository — auch nicht zur Prüfung über OpenRouter. Die Fremdprüfung (`/critic`) ist für OT-Code **nur über das DSGVO-konforme OpenRouter-Gateway erlaubt** (Modell: Haiku via OpenRouter, kein Training). Gemini-API und andere Direktverbindungen sind für OT-Code gesperrt.
 * **Nur DSGVO-konforme Modelle:** Wenn externe Modelle für OT-Code verwendet werden, dann ausschließlich Modelle ohne Datenweitergabe für Training (OpenRouter/Claude/Haiku). OpenAI, Groq etc. sind ausgeschlossen.
 * **Safety bleibt Hardware:** Not-Halt, Feuerwehr-Modus und sicherheitsrelevante Logik werden nie von einem KI-Agenten programmiert oder verändert.
 
 ---
 
-## 📐 Namenskonventionen (Stilfrage, nicht sicherheitsrelevant)
-
+## 📐 Namenskonventionen
 Diese Konventionen dienen der Lesbarkeit — sie haben keine sicherheitstechnische Bedeutung:
 
 | Präfix | Typ | Beispiel |

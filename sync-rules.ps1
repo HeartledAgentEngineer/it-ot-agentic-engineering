@@ -3,17 +3,17 @@
 # KI-Regel-Compiler (OOP-Inheritance) für den Agenten-Workspace
 # ==============================================================================
 
-$GlobalBaseFile = Join-Path $PSScriptRoot 'CLAUDE.md'
+$GlobalBaseFile = Join-Path $PSScriptRoot 'AGENTS.md'
 
 if (-not (Test-Path $GlobalBaseFile)) {
-    Write-Error 'Globale CLAUDE.md im Hauptverzeichnis nicht gefunden! Bitte erstelle sie im Hauptordner.'
+    Write-Error 'Globale AGENTS.md im Hauptverzeichnis nicht gefunden! Bitte erstelle sie im Hauptordner.'
     exit
 }
 
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host '   KI-REGEL-COMPILER (OOP-Inheritance)           ' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host 'Pruefe globale Basisklasse (CLAUDE.md)...' -ForegroundColor Yellow
+Write-Host 'Pruefe globale Basisklasse (AGENTS.md)...' -ForegroundColor Yellow
 
 # Suche nach allen CLAUDE_EXTENDS.md in den Unterordnern (max. 3 Ebenen tief)
 $ExtendsFiles = Get-ChildItem -Path $PSScriptRoot -Filter 'CLAUDE_EXTENDS.md' -Recurse -Depth 3
@@ -45,12 +45,12 @@ foreach ($ExtendsFile in $ExtendsFiles) {
     $Header = "<!--" + $NL
     $Header += "  DIESE DATEI WURDE AUTOMATISCH GENERIERT (sync-rules.ps1)" + $NL
     $Header += "  AENDERUNGEN IN DIESER DATEI WERDEN BEIM NAECHSTEN RUN UEBERSCHRIEBEN!" + $NL
-    $Header += "  Bitte aendere die globale CLAUDE.md im Hauptverzeichnis oder die lokale CLAUDE_EXTENDS.md." + $NL
+    $Header += "  Bitte aendere die globale AGENTS.md im Hauptverzeichnis oder die lokale CLAUDE_EXTENDS.md." + $NL
     $Header += "-->" + $NL + $NL
 
     # Verweis statt Vollkopie: die Basisregeln stehen nur noch an einer Stelle.
-    $Pointer = '> **Basis-Regelwerk:** Es gelten weiterhin die globalen KI-Direktiven aus `' + $RelBase + '` (Workspace-Wurzel).' + $NL
-    $Pointer += '> Sie sind hier bewusst nicht kopiert, damit es nur eine Quelle gibt. Claude Code liest sie von sich aus mit.' + $NL
+    $Pointer = '> **Basis-Regelwerk:** Es gelten weiterhin die Kernregeln aus `' + $RelBase + '` (Workspace-Wurzel).' + $NL
+    $Pointer += '> Sie sind hier bewusst nicht kopiert, damit es nur eine Quelle gibt. Claude Code zieht sie ueber die Wurzel-CLAUDE.md mit herein, Cline liest sie nativ.' + $NL
 
     $Separator = $NL + "<!-- LOKALE PROJEKT-ERWEITERUNGEN (EXTENDS) -->" + $NL + $NL
 

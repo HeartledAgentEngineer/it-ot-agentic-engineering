@@ -274,8 +274,16 @@ Ein zentrales Merkmal der aktuellen Architektur: **OpenRouter dient als DSGVO-ko
 
 ### Grenze der Fremdprüfung: was das Repository nicht verlässt
 
-Im kostenlosen Tier nutzt der Anbieter übermittelte Inhalte zur Produktverbesserung. Deshalb geht ausschließlich Code aus [02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md) an ein fremdes Modell. **SPS- und OT-Code aus [01_IT-OT_Integration](01_IT-OT_Integration/README.md), Kundendaten und alles unter NDA sind ausgenommen** — festgehalten als Bereichsdirektive in [CLAUDE.md](CLAUDE.md), nicht als guter Vorsatz.  
-Selbst mit OpenRouter bleibt diese Grenze bestehen — DSGVO-konform heißt nicht automatisch "darf das Repository verlassen".
+Im kostenlosen Tier nutzt ein Anbieter übermittelte Inhalte zur Produktverbesserung. Die Grenze verläuft deshalb **nicht** zwischen den beiden Domänen, sondern zwischen den Motoren und den Inhalten:
+
+| | IT-Code (`02_…`) | OT-Code (`01_…`) | Prozess-Know-how, Kundenlogik, NDA |
+|---|---|---|---|
+| **OpenRouter / Haiku** | erlaubt | erlaubt | **nie** |
+| **Gemini-API direkt, Antigravity** | erlaubt | gesperrt | **nie** |
+
+Der Grund für die mittlere Spalte: OpenRouter verarbeitet als Gateway DSGVO-konform und schließt die Nutzung zum Modell-Training aus — die Direktverbindungen tun das im kostenlosen Tier nicht. Die rechte Spalte kennt dagegen keine Ausnahme, unabhängig vom Motor: **DSGVO-konform heißt nicht automatisch „darf den Rechner verlassen".** Verfahrenstechnisches Wissen und alles unter NDA bleiben lokal.
+
+Festgehalten ist das als Bereichsdirektive in [01_IT-OT_Integration/CLAUDE_EXTENDS.md](01_IT-OT_Integration/CLAUDE_EXTENDS.md) und in der [CLAUDE.md](CLAUDE.md) der Wurzel — an einer Stelle entschieden, nicht als guter Vorsatz.
 
 ### Qualitäts-Gates: Architekt & Wächter
 
