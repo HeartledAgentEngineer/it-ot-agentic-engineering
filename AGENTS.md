@@ -58,6 +58,15 @@ Rückfrage: alles, was den Rechner verlässt oder ein fremdes System erreicht
 Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts Exit-Code 0
 liefert. Ohne Prüfbefehl: benennen, welcher fehlt.
 
+Vor jeder Aussage über Fertigstellung — auch vor „läuft", „behoben", „grün":
+1. Welcher Befehl belegt sie? 2. Befehl frisch und vollständig ausführen.
+3. Ausgabe und Exit-Code lesen. 4. Deckt die Ausgabe die Behauptung?
+5. Erst dann die Aussage — zusammen mit dem Beleg.
+
+Wurde der Befehl nicht in dieser Antwort ausgeführt, gilt er als nicht
+ausgeführt. Ein früherer Lauf, die Erfolgsmeldung eines Subagenten und
+„müsste jetzt gehen" sind keine Belege.
+
 ## Automatischer Durchlauf
 
 Feature-Arbeit läuft über den Workflow in `.claude/skills/phase/SKILL.md`,

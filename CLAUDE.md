@@ -11,6 +11,8 @@
   der zugehörigen `CLAUDE_EXTENDS.md` erzeugt.
 - Suche und Testläufe an die Subagenten `rechercheur` und `tester` geben, damit
   Suchtreffer und Logs nicht im Hauptkontext landen.
+- Fehler, fehlgeschlagene Tests und unerwartetes Verhalten laufen über den Skill
+  `fehlersuche` — Ursache vor Reparatur. Er lädt von selbst, ohne Aufruf.
 - Fremdprüfung: `node .claude/skills/critic/pruefe.mjs`.
   - IT-Code (`02_Softwareentwicklung_IT`): alle Motoren erlaubt.
   - OT-Code (`01_IT-OT_Integration`): **nur** über das OpenRouter-Gateway

@@ -66,7 +66,7 @@ Nur `plan.md` abarbeiten, kein Scope-Creep.
 **Phase 5 — Testing** *(Pflichtphase)*
 Sebastian bedient die Software selbst und gibt das UX-Urteil ab. Danach
 Fremdprüfung durch `/critic`. Befunde werden vorgelegt, Sebastian entscheidet
-je Punkt — nie automatisch beheben.
+je Punkt — nie automatisch beheben. Vorher greift die **Belegpflicht** (unten).
 
 **Phase 6 — Recap**
 Erklärung und Diagramm.
@@ -78,8 +78,26 @@ neuen APIs, Architektur-Entscheidungen oder Workflow-Änderungen aktualisieren.
 Danach `/critic` als Gegenprobe: Hat das Aufräumen etwas kaputtgemacht?
 
 **Phase 8 — Commit** *(Pflichtphase)*
-Atomic Commits lokal. Markdown-Phasendateien löschen. Danach fragen:
-„Soll gepusht werden?" — bei Ja führt Sebastian den Push selbst aus.
+Atomic Commits lokal. Markdown-Phasendateien löschen. Vor dem Commit greift die
+**Belegpflicht** (unten). Danach fragen: „Soll gepusht werden?" — bei Ja führt
+Sebastian den Push selbst aus.
+
+## Belegpflicht — gilt in Phase 5 und Phase 8
+
+`AGENTS.md` verlangt: keine Aussage über Fertigstellung ohne frisch ausgeführten
+Beleg. Konkret für diesen Workflow:
+
+| Behauptung | Beleg | Reicht **nicht** |
+|---|---|---|
+| Tests grün | Ausgabe des Prüfbefehls, 0 Fehlschläge, Exit-Code 0 | ein früherer Lauf in derselben Sitzung |
+| Fehler behoben | ursprüngliches Symptom erneut geprüft | „Code geändert, also müsste es gehen" |
+| Subagent fertig | `git diff` oder `git status` zeigt die Änderung | die Erfolgsmeldung des Subagenten |
+| Anforderung erfüllt | `plan.md` Punkt für Punkt durchgegangen | „Tests sind grün" |
+| Regressionstest wirkt | einmal rot gesehen, dann grün | der Test besteht auf Anhieb |
+
+Die Zeile zum Subagenten ist keine Förmlichkeit: `rechercheur` und `tester`
+melden Erfolg, ohne dass ihr Ergebnis im Hauptkontext sichtbar wäre. Ungeprüft
+übernommen, ist das eine Behauptung ohne Beleg.
 
 ## Phasen-Disziplin
 
