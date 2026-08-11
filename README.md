@@ -20,7 +20,7 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 |---|---|---|---|
 | **Aufzug Digital Twin** | TwinCAT 3 (Structured Text), Node.js, `ads-client`, WebSockets, Three.js | Funktionaler Prototyp (HIL-Simulation) | [README](01_IT-OT_Integration/TwinCAT%20Projekts/README.md) |
 | **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
-| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`, direkt + OpenRouter-Fallback), OpenRouter/Gemini 2.5 Flash (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 67 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
+| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`, direkt + OpenRouter-Fallback), OpenRouter/Gemini 2.5 Flash (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 84 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |
@@ -199,6 +199,20 @@ Eine Regel in einer Markdown-Datei ist eine **Bitte an das Modell**. Sie beschre
 | `allow` | git-Lesebefehle, `add`/`commit`, Prüfbefehle, Fremdprüfer | damit ein Durchlauf nicht an jedem Testlauf stehenbleibt |
 
 Die `deny`-Zeile ersetzt eine frühere Absichtserklärung durch eine tatsächliche Sperre; die `ask`-Zeile macht aus „der Agent pusht nicht" einen Riegel. Erst dadurch wird Automatik verantwortbar: Die `allow`-Liste macht den Durchlauf überhaupt möglich, `ask` und `deny` machen ihn vertretbar.
+
+### Das Verifier-Gate: woran „fertig" hängt
+
+Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts **Exit-Code 0** liefert — nicht, wenn er plausibel aussieht. Diese Befehle sind ausgeführt, nicht abgeschrieben:
+
+| Projekt | Prüfbefehl | Ergebnis |
+|---|---|---|
+| typeFREE | `set PYTHONPATH=. && python -m pytest windows/tests -q` | 84 Prüfungen, Exit 0 |
+| concertify | `python -m pytest tests -q` | 180 Prüfungen, Exit 0 |
+| RAG-Systeme, document_automation, personal_ai_agent | **noch keiner** | — |
+
+Daran hängt, wie viel Leine ein Projekt bekommt: Wo ein Gate existiert, läuft der Ausführungsblock durch. Wo keins existiert, wird jede Änderung einzeln vorgelegt — und der fehlende Prüfbefehl wird benannt, statt durch „sieht gut aus" ersetzt zu werden. Einen Befehl zu erfinden, der nichts prüft, wäre schlechter als keiner.
+
+Für den OT-Bereich gibt es dieses Gate **grundsätzlich nicht**: SPS-Code wird manuell eingespielt, ein Testlauf auf einer laufenden Anlage ist keine Option. Dieser Bereich bleibt dauerhaft an der kurzen Leine, und der Agent liefert dort nur Blaupausen.
 
 ### Portabilität über Werkzeuggrenzen
 

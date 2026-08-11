@@ -9,6 +9,7 @@
       "Bash(node .claude/skills/critic/pruefe.mjs:*)",
       "Bash(python -m py_compile:*)",
       "Bash(python -m pytest:*)",
+      "Bash(PYTHONPATH=. python -m pytest:*)",
       "Bash(npm test:*)"
     ],
     "ask": [
