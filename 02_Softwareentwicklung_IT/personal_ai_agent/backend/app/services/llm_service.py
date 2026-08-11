@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import time
 import httpx
 from typing import List, Dict, Any, Iterator, Optional, Tuple
 
@@ -58,6 +59,12 @@ API_TIMEOUT_SECONDS = 30
 # Websuche: Wie viele Treffer OpenRouter beisteuern soll.
 WEB_MAX_RESULTS = 5
 
+# Datenschutz-Profile der Anbieter. Kein Teil der dokumentierten API, sondern
+# der Endpunkt, den OpenRouters eigene Oberfläche benutzt – er kann sich also
+# ohne Ankündigung ändern. Fällt er aus, läuft die Modellliste ohne
+# Datenschutz-Detail weiter; sie darf nicht daran hängen.
+ALL_PROVIDERS_URL = "https://openrouter.ai/api/frontend/v1/all-providers"
+
 # Hinweistext bei fehlendem Schlüssel – von chat() und chat_stream() geteilt.
 NICHT_KONFIGURIERT = (
     "⚠️ **OpenRouter nicht konfiguriert.**\n\n"
@@ -73,6 +80,11 @@ class LLMService:
         self.api_key = settings.openrouter_api_key
         self.model = settings.llm_model
         self.base_url = settings.openrouter_base_url
+
+        # Zwischenspeicher für den Modellkatalog. Ein Abruf sind drei
+        # HTTP-Anfragen, und die Liste ändert sich höchstens täglich.
+        self._modelle_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
+        self._anbieter_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
 
         if not self.api_key:
             logger.warning("No OpenRouter API key configured!")
@@ -176,6 +188,40 @@ class LLMService:
                 continue
         return gefunden
 
+    @staticmethod
+    def fehlertext(e: Exception) -> str:
+        """Aus einem API-Fehler eine Meldung machen, mit der man etwas anfangen kann.
+
+        OpenRouter lehnt ein Modell ab, wenn kein Anbieter zu den Privacy-
+        Einstellungen des Kontos passt. Die rohe Antwort lautet dann etwa
+        „No allowed providers are available" – das liest sich wie ein
+        Serverfehler, ist aber eine Einstellungssache und in einem Klick
+        behoben, wenn man weiß, woran es liegt.
+        """
+        if isinstance(e, APIStatusError):
+            try:
+                body = e.response.text[:500]
+            except Exception:
+                body = ""
+            logger.error("OpenRouter lehnte ab (HTTP %s): %s", e.status_code, body)
+
+            klein = body.lower()
+            if any(h in klein for h in (
+                "no allowed providers", "no endpoints found", "data policy",
+            )):
+                return (
+                    "⚠️ **Dieses Modell ist mit deinen Datenschutz-Einstellungen "
+                    "nicht nutzbar.**\n\nOpenRouter findet keinen Anbieter, der "
+                    "zu deiner Provider-Whitelist passt. Wähle ein anderes Modell."
+                )
+            if "regional routing" in klein:
+                return (
+                    "⚠️ **EU-Routing ist für dieses Konto nicht freigeschaltet.**\n\n"
+                    "Es erfordert einen Enterprise-Vertrag bei OpenRouter."
+                )
+
+        return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{e}\n```"
+
     def _build_messages(
         self,
         user_message: str,
@@ -212,8 +258,12 @@ class LLMService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
         web_search: str = "off",
+        model: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
+
+        Args:
+            model: Abweichendes Modell; ohne Angabe das aus der Konfiguration.
 
         Yields:
             `{"delta": "..."}` für Textstücke,
@@ -226,7 +276,7 @@ class LLMService:
         messages = self._build_messages(user_message, conversation_history, memories)
 
         stream = self.client.chat.completions.create(
-            model=self.model,
+            model=model or self.model,
             messages=messages,  # type: ignore
             temperature=0.7,
             max_tokens=2048,
@@ -262,6 +312,7 @@ class LLMService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
         web_search: str = "off",
+        model: Optional[str] = None,
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -270,6 +321,7 @@ class LLMService:
             conversation_history: Previous messages in this conversation
             memories: Relevant memories retrieved from vector DB
             web_search: "off", "manual" oder "auto" (siehe _extra_body)
+            model: Abweichendes Modell; ohne Angabe das aus der Konfiguration
 
         Returns:
             Antworttext und Liste der Fundstellen (leer ohne Websuche)
@@ -281,7 +333,7 @@ class LLMService:
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=model or self.model,
                 messages=messages,  # type: ignore
                 temperature=0.7,
                 max_tokens=2048,
@@ -301,7 +353,7 @@ class LLMService:
 
         except Exception as e:
             logger.error("LLM API call failed: %s", e)
-            return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{str(e)}\n```", []
+            return self.fehlertext(e), []
 
     def extract_memories(self, user_message: str, llm_reply: str) -> List[str]:
         """Ask the LLM to extract facts that should be memorized.
@@ -500,6 +552,233 @@ class LLMService:
         except Exception as e:
             logger.error("Sprachausgabe fehlgeschlagen: %s", e)
             return None
+
+    # ── Modellkatalog ───────────────────────────────────────────────────────
+    @staticmethod
+    def _preis_pro_mio(roh: Any) -> Optional[float]:
+        """Rohpreis je Token in Dollar je Million umrechnen.
+
+        Modelle mit variablem Preis (``openrouter/auto``) tragen im Katalog
+        den Platzhalter ``-1000000``. Als Zahl angezeigt stünde dort ein
+        negativer Betrag – deshalb wird daraus ``None`` („variabel").
+        """
+        try:
+            wert = float(roh or 0) * 1_000_000
+        except (TypeError, ValueError):
+            return None
+        return round(wert, 3) if wert >= 0 else None
+
+    @staticmethod
+    def _ist_chat_modell(model_id: str) -> bool:
+        """Aussortieren, was in einer Chat-Auswahl nichts verloren hat.
+
+        - ``~``-Präfix: interne Alias-Einträge auf andere Modelle
+        - ``:batch``: asynchrone Stapelverarbeitung, antwortet nicht sofort
+        - ``:free``: genau die Tarife, in denen Anbieter die Daten
+          verwerten dürfen – das Gegenteil dessen, was hier gesucht wird
+        """
+        return not (
+            model_id.startswith("~")
+            or ":batch" in model_id
+            or ":free" in model_id
+        )
+
+    def _katalog(self, pfad: str, basis: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Eine Katalogseite holen.
+
+        ``/models/user`` liefert nur mit Schlüssel etwas – OpenRouter wendet
+        darauf die Provider-Whitelist und die Privacy-Einstellungen des Kontos
+        an. Ohne Schlüssel kommt 401 zurück, dann bleibt die Liste leer und
+        der Aufrufer entscheidet, was er anzeigt.
+        """
+        url = f"{basis or self.base_url}{pfad}"
+        try:
+            antwort = httpx.get(
+                url,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            antwort.raise_for_status()
+            return antwort.json().get("data", []) or []
+        except Exception as e:
+            logger.error("Modellkatalog nicht abrufbar (%s): %s", url, e)
+            return []
+
+    def _anbieter_richtlinien(self) -> Dict[str, Dict[str, Any]]:
+        """Datenschutz-Profil je Anbieter, abrufbar über Anzeigename UND Slug.
+
+        Beide Schlüssel sind nötig: Die Endpunktliste eines Modells nennt den
+        Anzeigenamen ("Mancer 2") und einen Tag ("mancer/fp4"), der Katalog
+        dagegen den Slug ("mancer"). Über nur einen von beiden bleiben
+        einzelne Anbieter ohne Treffer.
+
+        Fällt der Endpunkt aus, kommt ein leeres Wörterbuch zurück – die
+        Modellliste funktioniert dann weiterhin, nur ohne Datenschutzangaben.
+        """
+        jetzt = time.monotonic()
+        cache = self._anbieter_cache
+        if cache["daten"] is not None and jetzt - cache["zeit"] < settings.models_cache_ttl:
+            return cache["daten"]
+
+        profile: Dict[str, Dict[str, Any]] = {}
+        try:
+            antwort = httpx.get(ALL_PROVIDERS_URL, timeout=15)
+            antwort.raise_for_status()
+            roh = antwort.json()
+            for anbieter in roh.get("data", roh) or []:
+                richtlinie = anbieter.get("dataPolicy") or {}
+                for schluessel in (
+                    anbieter.get("displayName"),
+                    anbieter.get("slug"),
+                    anbieter.get("name"),
+                ):
+                    if schluessel:
+                        profile[schluessel] = richtlinie
+        except Exception as e:
+            logger.warning("Anbieter-Richtlinien nicht abrufbar: %s", e)
+
+        cache.update({"zeit": jetzt, "daten": profile})
+        return profile
+
+    def _notliste(self) -> List[Dict[str, Any]]:
+        """Minimalliste, wenn der Katalog nicht erreichbar ist.
+
+        Besser eine kurze Liste als eine leere Auswahl – sonst steht der
+        Nutzer vor einem Feld ohne jede Option und weiß nicht, warum.
+        """
+        ids = [
+            m.strip()
+            for m in settings.allowed_models_fallback.split(",")
+            if m.strip()
+        ]
+        return [
+            {
+                "id": mid,
+                "name": mid,
+                "eingabe_pro_mio": None,
+                "ausgabe_pro_mio": None,
+                "context_length": None,
+                "tools": False,
+                "eu": False,
+                "notliste": True,
+            }
+            for mid in ids
+        ]
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        """Alle Modelle, die dieses Konto tatsächlich benutzen darf.
+
+        ``/models/user`` filtert serverseitig nach Provider-Whitelist,
+        Privacy-Einstellungen und Guardrails – anders als der öffentliche
+        Katalog, der alles zeigt, auch das Gesperrte.
+
+        Das Feld ``eu`` sagt: Dieses Modell *würde* über den EU-Endpunkt
+        bedient. Nutzbar ist das nur mit einem Enterprise-Vertrag; der
+        Chat darüber wird für dieses Konto mit HTTP 403 abgelehnt.
+        """
+        jetzt = time.monotonic()
+        cache = self._modelle_cache
+        if cache["daten"] is not None and jetzt - cache["zeit"] < settings.models_cache_ttl:
+            return cache["daten"]
+
+        roh = self._katalog("/models/user")
+        if not roh:
+            return self._notliste()
+
+        eu_ids = {
+            m.get("id")
+            for m in self._katalog("/models/user", settings.openrouter_eu_base_url)
+        }
+
+        modelle: List[Dict[str, Any]] = []
+        for m in roh:
+            mid = m.get("id") or ""
+            if not mid or not self._ist_chat_modell(mid):
+                continue
+            preise = m.get("pricing") or {}
+            modelle.append({
+                "id": mid,
+                "name": m.get("name") or mid,
+                "eingabe_pro_mio": self._preis_pro_mio(preise.get("prompt")),
+                "ausgabe_pro_mio": self._preis_pro_mio(preise.get("completion")),
+                "context_length": m.get("context_length"),
+                # Wird in Slice D2 gebraucht: Gedächtnis-Werkzeuge laufen
+                # nicht auf jedem Modell.
+                "tools": "tools" in (m.get("supported_parameters") or []),
+                "eu": mid in eu_ids,
+            })
+
+        # Günstigste zuerst; Modelle ohne festen Preis ans Ende.
+        modelle.sort(key=lambda x: (
+            x["ausgabe_pro_mio"] is None,
+            x["ausgabe_pro_mio"] or 0,
+        ))
+
+        logger.info(
+            "Modellkatalog geladen: %d nutzbar, davon %d EU-fähig",
+            len(modelle), sum(1 for m in modelle if m["eu"]),
+        )
+        cache.update({"zeit": jetzt, "daten": modelle})
+        return modelle
+
+    def model_details(self, model_id: str) -> Dict[str, Any]:
+        """Wer bedient dieses Modell – und was macht er mit den Daten?
+
+        Wird erst beim Antippen eines Modells abgerufen. Alle Modelle vorab
+        abzufragen wäre eine Anfrage pro Modell und damit unvertretbar.
+        """
+        try:
+            antwort = httpx.get(
+                f"{self.base_url}/models/{model_id}/endpoints",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=15,
+            )
+            antwort.raise_for_status()
+            daten = antwort.json().get("data") or {}
+        except Exception as e:
+            logger.error("Anbieterliste für %s nicht abrufbar: %s", model_id, e)
+            return {"id": model_id, "anbieter": [], "fehler": str(e)}
+
+        profile = self._anbieter_richtlinien()
+        anbieter = []
+        for endpunkt in daten.get("endpoints") or []:
+            name = endpunkt.get("provider_name") or "unbekannt"
+            # Der Tag lautet "slug/quantisierung" – der Slug davor ist der
+            # zweite Weg zum Profil, falls der Anzeigename nicht passt.
+            tag = (endpunkt.get("tag") or "").split("/")[0]
+            richtlinie = profile.get(name) or profile.get(tag)
+
+            if richtlinie is None:
+                # Ohne Profil bleibt es ausdrücklich unbekannt. Hier "nein"
+                # einzutragen wäre ein falsches Sicherheitsversprechen –
+                # genau an der Stelle, an der es am meisten schadet.
+                logger.info("Kein Datenschutz-Profil für Anbieter %r (tag %r)", name, tag)
+                anbieter.append({
+                    "name": name,
+                    "trainiert": None,
+                    "speichert": None,
+                    "aufbewahrung_tage": None,
+                    "agb_url": None,
+                    "kontext": endpunkt.get("context_length"),
+                })
+                continue
+
+            anbieter.append({
+                "name": name,
+                "trainiert": bool(richtlinie.get("training")),
+                "speichert": bool(richtlinie.get("retainsPrompts")),
+                "aufbewahrung_tage": richtlinie.get("retentionDays"),
+                # Die AGB des Anbieters – zum Nachlesen, ausdrücklich KEIN
+                # Nachweis eines Auftragsverarbeitungsvertrags.
+                "agb_url": richtlinie.get("termsOfServiceURL"),
+                "kontext": endpunkt.get("context_length"),
+            })
+
+        return {
+            "id": model_id,
+            "name": daten.get("name") or model_id,
+            "anbieter": anbieter,
+        }
 
     # ── Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────────
     def polish_text(self, raw_text: str) -> Optional[str]:

@@ -69,6 +69,12 @@ const state = {
     isTranscribing: false,
     // Websuche kostet je Anfrage extra – Wunsch bleibt zwischen Sitzungen erhalten.
     webSearch: ladeWebModus(),
+    // Gewähltes Modell. null = das aus der Server-Konfiguration.
+    model: localStorage.getItem('model') || null,
+    // Katalog, wie ihn /api/models liefert. Wird beim ersten Öffnen geholt.
+    katalog: null,
+    favoriten: [],
+    modellHinweis: '',
 };
 
 // =========================================
@@ -83,6 +89,13 @@ const dom = {
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
+    modelBtn: document.getElementById('model-btn'),
+    modelLabel: document.getElementById('model-label'),
+    modelSheet: document.getElementById('model-sheet'),
+    modelClose: document.getElementById('model-close'),
+    modelSearch: document.getElementById('model-search'),
+    modelList: document.getElementById('model-list'),
+    modelHint: document.getElementById('model-hint'),
 };
 
 // =========================================
@@ -328,8 +341,246 @@ async function checkHealth() {
 function updateFooterNote(memoryCount) {
     const note = document.querySelector('.footer-note');
     if (note) {
-        note.textContent = `DeepSeek V4 Flash · ${memoryCount} Erinnerungen`;
+        note.textContent = `${memoryCount} Erinnerungen`;
     }
+}
+
+// =========================================
+// Modellauswahl
+// =========================================
+/* Hier stand der Modellname früher fest verdrahtet in der Fußzeile – und
+   zwar ein anderer als der, der tatsächlich lief. Deshalb kommt der Name
+   jetzt ausschließlich vom Server. */
+
+/** Kurzform für den Knopf: "anthropic/claude-sonnet-5" → "claude-sonnet-5"
+ *
+ *  Bewusst aus der ID abgeleitet und nicht aus dem Katalognamen: der lautet
+ *  etwa "DeepSeek: DeepSeek V4 Flash 0423" und beansprucht zwei Drittel der
+ *  Werkzeugleiste. Der volle Name steht in der Auswahlliste. */
+const LABEL_MAX = 18;
+
+function kurzName(id) {
+    if (!id) return 'Modell';
+    const kurz = id.includes('/') ? id.split('/').pop() : id;
+    return kurz.length > LABEL_MAX ? kurz.slice(0, LABEL_MAX - 1) + '…' : kurz;
+}
+
+function setModelLabel() {
+    if (dom.modelLabel) dom.modelLabel.textContent = kurzName(state.model);
+    if (dom.modelBtn) {
+        dom.modelBtn.classList.toggle('active', Boolean(state.model));
+        dom.modelBtn.title = state.model
+            ? `Modell: ${state.model} – antippen zum Wechseln`
+            : 'Modell wählen';
+    }
+}
+
+/** Preis lesbar machen. null bedeutet "variabel", nicht "kostenlos". */
+function preisText(m) {
+    if (m.eingabe_pro_mio === null && m.ausgabe_pro_mio === null) return 'Preis variabel';
+    const ein = m.eingabe_pro_mio === null ? '?' : m.eingabe_pro_mio;
+    const aus = m.ausgabe_pro_mio === null ? '?' : m.ausgabe_pro_mio;
+    return `$${ein} ein / $${aus} aus je Mio`;
+}
+
+function kontextText(m) {
+    if (!m.context_length) return '';
+    const k = m.context_length;
+    return k >= 1000000 ? `${(k / 1000000).toFixed(1)} Mio Kontext`
+         : k >= 1000    ? `${Math.round(k / 1000)}k Kontext`
+         : `${k} Kontext`;
+}
+
+async function ladeKatalog(erzwingen = false) {
+    if (state.katalog && !erzwingen) return state.katalog;
+    try {
+        const res = await fetch(`${API_BASE}/api/models`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const daten = await res.json();
+        state.katalog = daten.models || [];
+        state.favoriten = daten.favoriten || [];
+        state.modellHinweis = daten.hinweis || '';
+        // Ohne eigene Wahl gilt das Modell aus der Server-Konfiguration.
+        if (!state.model && daten.aktuell) state.model = daten.aktuell;
+        if (daten.notliste) {
+            state.modellHinweis =
+                'Der Modellkatalog war nicht erreichbar – dies ist eine Notliste. '
+                + state.modellHinweis;
+        }
+        setModelLabel();
+        return state.katalog;
+    } catch (err) {
+        console.warn('Modellkatalog konnte nicht geladen werden:', err);
+        state.katalog = [];
+        state.modellHinweis = 'Modellliste nicht erreichbar. Läuft das Backend?';
+        return [];
+    }
+}
+
+/** Grobe Schätzung der bisherigen Gesprächslänge in Token. */
+function geschaetzteToken() {
+    const zeichen = state.messages.reduce((s, m) => s + (m.content || '').length, 0);
+    return Math.round(zeichen / 3);
+}
+
+function zeileFuer(m, nutzbar = true) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'model-row'
+        + (m.id === state.model ? ' selected' : '')
+        + (nutzbar ? '' : ' unavailable');
+
+    const top = document.createElement('div');
+    top.className = 'model-row-top';
+
+    const name = document.createElement('span');
+    name.className = 'model-name';
+    name.textContent = m.name || m.id;
+    top.appendChild(name);
+
+    if (m.eu) {
+        const b = document.createElement('span');
+        b.className = 'badge eu';
+        // Bewusst "EU-fähig", nicht "EU": Das Routing selbst ist für dieses
+        // Konto gesperrt (403) und braucht einen Enterprise-Vertrag.
+        b.textContent = 'EU-fähig';
+        b.title = 'Würde über den EU-Endpunkt bedient – erfordert einen Enterprise-Vertrag';
+        top.appendChild(b);
+    }
+    if (m.tools === false) {
+        const b = document.createElement('span');
+        b.className = 'badge warn';
+        b.textContent = 'ohne Werkzeuge';
+        b.title = 'Beherrscht keine Werkzeugaufrufe';
+        top.appendChild(b);
+    }
+    row.appendChild(top);
+
+    const meta = document.createElement('span');
+    meta.className = 'model-meta';
+    if (!nutzbar) {
+        meta.textContent = 'nicht mehr mit deinen Einstellungen nutzbar';
+    } else {
+        const teile = [preisText(m), kontextText(m)].filter(Boolean);
+        meta.textContent = teile.join(' · ');
+    }
+    row.appendChild(meta);
+
+    if (nutzbar) {
+        row.addEventListener('click', () => waehleModell(m));
+    }
+    return row;
+}
+
+function gruppenTitel(text) {
+    const h = document.createElement('div');
+    h.className = 'sheet-group';
+    h.textContent = text;
+    return h;
+}
+
+function zeichneListe() {
+    const suche = (dom.modelSearch.value || '').trim().toLowerCase();
+    dom.modelList.innerHTML = '';
+    const alle = state.katalog || [];
+
+    if (!alle.length) {
+        dom.modelList.appendChild(gruppenTitel('Keine Modelle verfügbar'));
+        return;
+    }
+
+    if (!suche) {
+        dom.modelList.appendChild(gruppenTitel('Favoriten'));
+        state.favoriten.forEach(id => {
+            const treffer = alle.find(m => m.id === id);
+            // Nicht mehr verfügbare Favoriten bleiben sichtbar und ausgegraut –
+            // sonst verschwinden sie still und man rätselt, warum.
+            dom.modelList.appendChild(
+                treffer ? zeileFuer(treffer) : zeileFuer({ id, name: id }, false)
+            );
+        });
+        dom.modelList.appendChild(gruppenTitel(`Alle ${alle.length} Modelle`));
+    }
+
+    alle
+        .filter(m => !suche || m.id.toLowerCase().includes(suche)
+                            || (m.name || '').toLowerCase().includes(suche))
+        .slice(0, 120)
+        .forEach(m => dom.modelList.appendChild(zeileFuer(m)));
+}
+
+async function waehleModell(m) {
+    // Modelle unterscheiden sich um den Faktor 100 in der Kontextlänge. Ein
+    // Wechsel mitten in einem langen Gespräch kann sofort scheitern.
+    const belegt = geschaetzteToken();
+    if (m.context_length && belegt > m.context_length * 0.7) {
+        const weiter = confirm(
+            `Dieses Gespräch ist bereits rund ${belegt.toLocaleString('de-DE')} Token lang.\n`
+            + `${m.name || m.id} fasst ${m.context_length.toLocaleString('de-DE')}.\n\n`
+            + 'Der Verlauf passt möglicherweise nicht mehr. Trotzdem wechseln?'
+        );
+        if (!weiter) return;
+    }
+
+    state.modelVorher = state.model;
+    state.model = m.id;
+    localStorage.setItem('model', m.id);
+    setModelLabel();
+    schliesseBlatt();
+    await zeigeDetails(m.id);
+}
+
+/** Datenschutz-Profil unter der Antwort einblenden, wenn gewechselt wurde. */
+async function zeigeDetails(modelId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/models/${modelId}/details`);
+        if (!res.ok) return;
+        const daten = await res.json();
+        const anbieter = daten.anbieter || [];
+        if (!anbieter.length) return;
+
+        // Drei Zustände, nicht zwei: true, false und "kein Profil gefunden".
+        // Unbekanntes als "speichert nicht" zu zeigen wäre ein falsches
+        // Sicherheitsversprechen.
+        const speichernd = anbieter.filter(a => a.speichert === true);
+        const unbekannt = anbieter.filter(a => a.speichert === null);
+        const zeilen = [
+            `**Modell gewechselt:** ${daten.name || modelId}`,
+            '',
+            `${anbieter.length} mögliche Anbieter, davon ${speichernd.length} mit Speicherung.`,
+        ];
+        if (speichernd.length) {
+            const namen = speichernd
+                .map(a => a.aufbewahrung_tage ? `${a.name} (${a.aufbewahrung_tage} T.)` : a.name)
+                .slice(0, 6);
+            zeilen.push(`Speichern Prompts: ${namen.join(', ')}`);
+        }
+        const trainierend = anbieter.filter(a => a.trainiert === true);
+        if (trainierend.length) {
+            zeilen.push(`⚠️ Trainieren auf Daten: ${trainierend.map(a => a.name).join(', ')}`);
+        }
+        if (unbekannt.length) {
+            zeilen.push(`❓ Ohne Angabe: ${unbekannt.map(a => a.name).join(', ')}`);
+        }
+        zeilen.push('', `_${daten.hinweis || ''}_`);
+        addMessage(zeilen.join('\n'), 'assistant');
+    } catch (err) {
+        console.warn('Modell-Details nicht abrufbar:', err);
+    }
+}
+
+function schliesseBlatt() {
+    dom.modelSheet.hidden = true;
+}
+
+async function oeffneBlatt() {
+    dom.modelSheet.hidden = false;
+    dom.modelSearch.value = '';
+    dom.modelList.innerHTML = '';
+    dom.modelList.appendChild(gruppenTitel('Lade Modelle …'));
+    await ladeKatalog();
+    dom.modelHint.textContent = state.modellHinweis;
+    zeichneListe();
 }
 
 const SYMBOL_LAUTSPRECHER = '<svg viewBox="0 0 24 24" width="16" height="16">'
@@ -557,6 +808,7 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
             message: text,
             conversation_id: state.conversationId,
             web_search: state.webSearch,
+            model: state.model,
         }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -598,10 +850,11 @@ async function sendMessage(text) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-            message: text,
-            conversation_id: state.conversationId,
-            web_search: state.webSearch,
-        }),
+                message: text,
+                conversation_id: state.conversationId,
+                web_search: state.webSearch,
+                model: state.model,
+            }),
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
@@ -678,12 +931,28 @@ async function sendMessage(text) {
         }
         zustand.fertig = true;   // Vorleser soll nicht ewig auf Nachschub warten
         console.error('Chat error:', err);
-        contentDiv.innerHTML = parseMarkdown(
-            (antwort ? antwort + '\n\n' : '')
-            + `⚠️ **Verbindungsfehler**\n\nKonnte den Agenten nicht erreichen.\n`
-            + `- URL: ${API_BASE}\n`
-            + `- Fehler: ${err.message}`
-        );
+
+        // Lehnt OpenRouter das Modell ab, hilft eine Verbindungsfehler-Meldung
+        // nicht weiter – dann muss das Modell zurück, sonst scheitert auch die
+        // nächste Nachricht wieder.
+        const abgelehnt = /nicht nutzbar|allowed providers|Enterprise/i.test(err.message || '');
+        if (abgelehnt && state.model) {
+            const zurueck = state.modelVorher || null;
+            state.model = zurueck;
+            if (zurueck) localStorage.setItem('model', zurueck);
+            else localStorage.removeItem('model');
+            setModelLabel();
+            contentDiv.innerHTML = parseMarkdown(
+                `${err.message}\n\n_Zurückgewechselt auf ${kurzName(zurueck)}._`
+            );
+        } else {
+            contentDiv.innerHTML = parseMarkdown(
+                (antwort ? antwort + '\n\n' : '')
+                + `⚠️ **Verbindungsfehler**\n\nKonnte den Agenten nicht erreichen.\n`
+                + `- URL: ${API_BASE}\n`
+                + `- Fehler: ${err.message}`
+            );
+        }
         entry.content = antwort;
     } finally {
         setLoading(false);
@@ -917,6 +1186,20 @@ function stopRecording() {
 
 dom.webBtn.addEventListener('click', () => setWebSearch(naechsterWebModus()));
 
+dom.modelBtn.addEventListener('click', oeffneBlatt);
+dom.modelClose.addEventListener('click', schliesseBlatt);
+dom.modelSearch.addEventListener('input', zeichneListe);
+
+// Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
+// natürlichste Geste, um ein Blatt wieder loszuwerden.
+dom.modelSheet.addEventListener('click', (e) => {
+    if (e.target === dom.modelSheet) schliesseBlatt();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !dom.modelSheet.hidden) schliesseBlatt();
+});
+
 dom.micBtn.addEventListener('click', () => {
     if (state.isRecording) {
         stopRecording();
@@ -982,7 +1265,11 @@ if ('serviceWorker' in navigator) {
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
     setWebSearch(state.webSearch);   // gespeicherten Wunsch wiederherstellen
+    setModelLabel();                 // zeigt vorerst die gespeicherte Wahl
     startHealthChecks();
     dom.input.focus();
     updateSendButton();
+    // Katalog im Hintergrund holen: Danach steht der richtige Anzeigename am
+    // Knopf, und das Blatt geht beim ersten Antippen ohne Wartezeit auf.
+    ladeKatalog();
 });

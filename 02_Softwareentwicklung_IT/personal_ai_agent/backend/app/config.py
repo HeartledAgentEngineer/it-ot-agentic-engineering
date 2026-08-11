@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List, Optional
 
 # Pfade werden am Projektordner verankert, nicht am Arbeitsverzeichnis.
 # Sonst entscheidet der Ordner, aus dem uvicorn gestartet wurde, darüber,
@@ -19,9 +19,45 @@ class Settings(BaseSettings):
     # OpenRouter
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    # OpenRouter model name – bei Neuinstallation auf aktuelle Version prüfen!
-    # https://openrouter.ai/models?q=deepseek
-    llm_model: str = "deepseek/deepseek-chat"
+    # Geprüft am 11.08.2026: deepseek-chat ist mit den Privacy-/Provider-
+    # Einstellungen dieses Kontos NICHT routbar und kostet bei der Ausgabe
+    # das 3,7-Fache (1,029 statt 0,280 $/Mio). Die Oberfläche behauptete
+    # ohnehin schon "V4 Flash" – hier stand nur nie das passende Modell.
+    llm_model: str = "deepseek/deepseek-v4-flash"
+
+    # Nur für den Modellkatalog, NIE für Chat-Aufrufe: Über diese Adresse
+    # lässt sich abfragen, welche Modelle EU-in-Region bedient würden.
+    # Der Chat darüber ist für dieses Konto gesperrt (HTTP 403, Enterprise).
+    openrouter_eu_base_url: str = "https://eu.openrouter.ai/api/v1"
+
+    # Modellauswahl – datenschutz-konform.
+    # Die erlaubten Modelle werden dynamisch über GET /models/user geladen
+    # (OpenRouter respektiert dabei die Privacy-/Provider-Einstellungen des
+    # Accounts). Kommt die API nicht an, greift diese Fallback-Liste.
+    # Kommagetrennte Modell-IDs.
+    allowed_models_fallback: str = "deepseek/deepseek-v4-flash"
+
+    # Schnellauswahl in der Oberfläche, nach Preis gestaffelt. Alle vier am
+    # 11.08.2026 gegen /models/user geprüft. Wer hier nicht mehr nutzbar ist,
+    # wird ausgegraut statt still entfernt – sonst merkt man Änderungen nicht.
+    #   gpt-5-nano          sparsam
+    #   deepseek-v4-flash   Alltag, 1 Mio Kontext
+    #   deepseek-v4-pro     mehr Substanz
+    #   claude-sonnet-5     stark
+    # Preise stehen bewusst nicht hier: /models/user liefert die des jeweils
+    # routbaren Anbieters, die von den Katalogpreisen abweichen (V4 Flash
+    # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
+    favorite_models: List[str] = [
+        "openai/gpt-5-nano",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro",
+        "anthropic/claude-sonnet-5",
+    ]
+
+    # Wie lange die Modell-Liste im Speicher gecacht bleibt (Sekunden).
+    # 6 Stunden: Der Katalog ändert sich selten, und jeder Abruf sind drei
+    # HTTP-Anfragen. Für einen Test kurzzeitig kleiner setzen.
+    models_cache_ttl: int = 21600
 
     # Server
     host: str = "0.0.0.0"

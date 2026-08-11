@@ -528,6 +528,205 @@ body {
 }
 
 /* =========================================
+   Modellauswahl – Blatt von unten
+   =========================================
+   Bewusst kein <select>: 100+ Einträge in einem Aufklappmenü sind auf dem
+   Handy unbedienbar. Stattdessen Favoriten oben, Suchfeld darunter. */
+
+#model-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+}
+
+#model-sheet[hidden] {
+    display: none;
+}
+
+.sheet-panel {
+    background: var(--bg-secondary);
+    border-top-left-radius: var(--radius);
+    border-top-right-radius: var(--radius);
+    border-top: 1px solid var(--border);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    /* Sanft hereinfahren – ein Blatt, das aufpoppt, wirkt wie ein Fehler. */
+    animation: sheet-up 0.22s ease-out;
+}
+
+@keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+}
+
+.sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.sheet-head h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-right: auto;
+}
+
+.sheet-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 6px;
+}
+
+.sheet-close:hover { color: var(--text-primary); }
+
+#model-search {
+    width: 100%;
+    padding: 9px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-family: inherit;
+}
+
+#model-search:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.sheet-search { padding: 10px 16px; flex-shrink: 0; }
+
+.sheet-list {
+    overflow-y: auto;
+    padding: 4px 10px 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sheet-group {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 12px 6px 6px;
+}
+
+.model-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.model-row:hover { background: var(--bg-tertiary); }
+
+.model-row.selected {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+}
+
+/* Nicht mehr nutzbare Favoriten bleiben sichtbar, statt still zu
+   verschwinden – sonst merkt man eine Änderung der Einstellungen nie. */
+.model-row.unavailable {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.model-row-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.model-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.badge {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.badge.eu {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.badge.warn {
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.sheet-note {
+    padding: 10px 16px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+/* Detailansicht: wer bedient das Modell, was macht er mit den Daten */
+.model-details {
+    padding: 6px 12px 10px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.provider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.provider-row:last-child { border-bottom: none; }
+.provider-row .name { flex: 1 1 auto; color: var(--text-primary); }
+.provider-row a { color: var(--accent); text-decoration: none; }
+.provider-row a:hover { text-decoration: underline; }
+
+/* =========================================
    Utility Classes
    ========================================= */
 

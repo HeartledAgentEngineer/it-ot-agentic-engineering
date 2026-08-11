@@ -63,8 +63,7 @@
                 </button>
             </div>
             <!-- Werkzeugleiste direkt an der Eingabe: Bei geöffneter Tastatur
-                 ist die Kopfzeile auf dem Handy nicht mehr erreichbar.
-                 Hier kommt später auch die Modellauswahl hinein. -->
+                 ist die Kopfzeile auf dem Handy nicht mehr erreichbar. -->
             <div class="input-tools">
                 <button id="web-btn" class="tool-toggle" aria-pressed="false"
                         title="Websuche aus – jede Suche kostet rund 0,7 Cent">
@@ -73,9 +72,32 @@
                     </svg>
                     <span>Web</span>
                 </button>
-                <span class="footer-note">DeepSeek V4 Flash · Gedächtnis aktiv</span>
+                <button id="model-btn" class="tool-toggle" title="Modell wählen">
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                        <path fill="currentColor" d="M12 2l2.4 5.4L20 8.6l-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.6-1.2z"/>
+                    </svg>
+                    <span id="model-label">Modell</span>
+                </button>
+                <span class="footer-note">Gedächtnis aktiv</span>
             </div>
         </footer>
+    </div>
+
+    <!-- Modellauswahl. Liegt ausserhalb von #app, damit sie den Chat
+         überlagert statt ihn zu verschieben. -->
+    <div id="model-sheet" hidden>
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Modell wählen">
+            <div class="sheet-head">
+                <h2>Modell wählen</h2>
+                <button id="model-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div class="sheet-search">
+                <input id="model-search" type="search" placeholder="Alle Modelle durchsuchen …"
+                       autocomplete="off" aria-label="Modelle durchsuchen">
+            </div>
+            <div id="model-list" class="sheet-list"></div>
+            <p id="model-hint" class="sheet-note"></p>
+        </div>
     </div>
 
     <script src="app.js"></script>

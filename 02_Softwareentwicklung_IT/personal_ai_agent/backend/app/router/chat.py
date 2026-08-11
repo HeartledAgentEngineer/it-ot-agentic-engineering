@@ -85,6 +85,7 @@ async def chat(request: ChatRequest):
             conversation_history=history,
             memories=memories,
             web_search=request.web_search,
+            model=request.model,
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -120,6 +121,7 @@ async def chat_stream(request: ChatRequest):
                     conversation_history=history,
                     memories=memories,
                     web_search=request.web_search,
+                    model=request.model,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])
@@ -131,7 +133,9 @@ async def chat_stream(request: ChatRequest):
                         yield _sse({"delta": stueck})
             except Exception as e:
                 logger.error("Streaming fehlgeschlagen: %s", e)
-                yield _sse({"error": str(e)})
+                # Übersetzt Ablehnungen wegen der Datenschutz-Einstellungen in
+                # einen Satz, der sagt, was zu tun ist.
+                yield _sse({"error": llm_service.fehlertext(e)})
         finally:
             # Läuft auch bei Abbruch durch den Client (Bildschirmsperre,
             # Verbindungsverlust). Hier wird bewusst nichts gesendet – ein

@@ -20,6 +20,10 @@ class ChatRequest(BaseModel):
     #   manual – sucht bei jeder Nachricht (Plugin, eine Suche pro Anfrage)
     #   auto   – das Modell entscheidet selbst (Server-Werkzeug)
     web_search: Literal["off", "manual", "auto"] = "off"
+    # Abweichendes Modell für diese eine Anfrage. Ohne Angabe gilt das aus
+    # der Konfiguration – so bleibt das Backend zustandslos und zwei Geräte
+    # kommen sich nicht in die Quere.
+    model: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
