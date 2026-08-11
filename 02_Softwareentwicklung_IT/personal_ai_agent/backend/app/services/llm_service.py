@@ -4,8 +4,10 @@ import io
 import json
 import logging
 import time
-import httpx
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Iterator, Optional, Tuple
+
+import httpx
 
 from openai import OpenAI, APIStatusError
 
@@ -65,6 +67,11 @@ WEB_MAX_RESULTS = 5
 # Datenschutz-Detail weiter; sie darf nicht daran hängen.
 ALL_PROVIDERS_URL = "https://openrouter.ai/api/frontend/v1/all-providers"
 
+# Wie viele Anbieterabfragen gleichzeitig laufen. Mit 16 sind rund 110 Modelle
+# in etwa einer Sekunde durch; höher zu gehen bringt nichts und riskiert nur
+# eine Drosselung.
+INDEX_PARALLEL = 16
+
 # Hinweistext bei fehlendem Schlüssel – von chat() und chat_stream() geteilt.
 NICHT_KONFIGURIERT = (
     "⚠️ **OpenRouter nicht konfiguriert.**\n\n"
@@ -85,6 +92,7 @@ class LLMService:
         # HTTP-Anfragen, und die Liste ändert sich höchstens täglich.
         self._modelle_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
         self._anbieter_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
+        self._index_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
 
         if not self.api_key:
             logger.warning("No OpenRouter API key configured!")
@@ -130,8 +138,22 @@ class LLMService:
 
         return "\n".join(context_parts)
 
-    def _extra_body(self, web_search: str = "off") -> Dict[str, Any]:
+    def _extra_body(
+        self,
+        web_search: str = "off",
+        no_retention: bool = False,
+    ) -> Dict[str, Any]:
         """Zusatzfelder für den LLM-Aufruf.
+
+        ``no_retention`` setzt ``provider.data_collection = "deny"``. Ohne
+        diesen Riegel entscheidet OpenRouters Routing, bei welchem Anbieter
+        die Anfrage landet – und 75 der nutzbaren Modelle haben mindestens
+        einen Anbieter, der Prompts speichert. Der Riegel macht daraus eine
+        Zusicherung: Passt kein Anbieter, wird die Anfrage abgelehnt, statt
+        still bei einem speichernden zu landen.
+
+        Die Kontoeinstellungen bleiben davon unberührt und gelten weiterhin
+        als Untergrenze – der Parameter kann nur zusätzlich einschränken.
 
         Die Anbieter-Einstellung muss dabei erhalten bleiben – wird sie vom
         Suchplugin überschrieben, fällt die Ausweichlogik weg.
@@ -146,6 +168,9 @@ class LLMService:
           Es kostet also nur bei tatsächlicher Suche.
         """
         extra: Dict[str, Any] = {"provider": {"allow_fallbacks": True}}
+
+        if no_retention:
+            extra["provider"]["data_collection"] = "deny"
 
         if web_search == "manual":
             extra["plugins"] = [{"id": "web", "max_results": WEB_MAX_RESULTS}]
@@ -259,6 +284,7 @@ class LLMService:
         memories: Optional[List[Dict[str, Any]]] = None,
         web_search: str = "off",
         model: Optional[str] = None,
+        no_retention: bool = False,
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -281,7 +307,7 @@ class LLMService:
             temperature=0.7,
             max_tokens=2048,
             stream=True,
-            extra_body=self._extra_body(web_search),
+            extra_body=self._extra_body(web_search, no_retention),
         )
 
         gesehen: set = set()
@@ -313,6 +339,7 @@ class LLMService:
         memories: Optional[List[Dict[str, Any]]] = None,
         web_search: str = "off",
         model: Optional[str] = None,
+        no_retention: bool = False,
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -337,7 +364,7 @@ class LLMService:
                 messages=messages,  # type: ignore
                 temperature=0.7,
                 max_tokens=2048,
-                extra_body=self._extra_body(web_search),
+                extra_body=self._extra_body(web_search, no_retention),
             )
 
             nachricht = response.choices[0].message
@@ -640,6 +667,70 @@ class LLMService:
         cache.update({"zeit": jetzt, "daten": profile})
         return profile
 
+    def _datenschutz_index(self, model_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Je Modell zählen, wie viele seiner Anbieter Prompts speichern.
+
+        Es gibt keinen Sammelabruf dafür. Der ``providers``-Parameter des
+        Katalogs sieht danach aus, liefert bei langen Anbieterlisten aber
+        unvollständige Ergebnisse (nachgeprüft: ``amazon/nova-micro-v1`` wird
+        ausschließlich von Amazon Bedrock bedient und fehlt trotzdem), und auf
+        ``/models/user`` wird er ganz ignoriert. Bleibt der Einzelabruf –
+        parallel sind rund 110 Modelle in etwa einer Sekunde durch.
+        """
+        jetzt = time.monotonic()
+        cache = self._index_cache
+        if cache["daten"] is not None and jetzt - cache["zeit"] < settings.models_cache_ttl:
+            return cache["daten"]
+
+        profile = self._anbieter_richtlinien()
+        if not profile:
+            # Ohne Richtlinien wäre jede Aussage geraten. Lieber keine treffen
+            # als eine falsche – der Filter bleibt dann einfach leer.
+            logger.warning("Kein Anbieter-Profil verfügbar – Datenschutz-Index entfällt.")
+            return {}
+
+        kopf = {"Authorization": f"Bearer {self.api_key}"}
+
+        def zaehle(mid: str) -> Tuple[str, Optional[Dict[str, int]]]:
+            try:
+                antwort = client.get(f"{self.base_url}/models/{mid}/endpoints", headers=kopf)
+                antwort.raise_for_status()
+                endpunkte = (antwort.json().get("data") or {}).get("endpoints") or []
+            except Exception:
+                return mid, None
+
+            gesamt = speichernd = unbekannt = 0
+            for e in endpunkte:
+                gesamt += 1
+                richtlinie = (
+                    profile.get(e.get("provider_name"))
+                    or profile.get((e.get("tag") or "").split("/")[0])
+                )
+                if richtlinie is None:
+                    unbekannt += 1
+                elif richtlinie.get("retainsPrompts"):
+                    speichernd += 1
+            return mid, {
+                "anbieter_gesamt": gesamt,
+                "anbieter_speichernd": speichernd,
+                "anbieter_unbekannt": unbekannt,
+            }
+
+        client = httpx.Client(timeout=20)
+        try:
+            with ThreadPoolExecutor(max_workers=INDEX_PARALLEL) as pool:
+                ergebnisse = list(pool.map(zaehle, model_ids))
+        finally:
+            client.close()
+
+        index = {mid: daten for mid, daten in ergebnisse if daten is not None}
+        logger.info(
+            "Datenschutz-Index: %d von %d Modellen erfasst",
+            len(index), len(model_ids),
+        )
+        cache.update({"zeit": jetzt, "daten": index})
+        return index
+
     def _notliste(self) -> List[Dict[str, Any]]:
         """Minimalliste, wenn der Katalog nicht erreichbar ist.
 
@@ -696,6 +787,8 @@ class LLMService:
             if not mid or not self._ist_chat_modell(mid):
                 continue
             preise = m.get("pricing") or {}
+            parameter = m.get("supported_parameters") or []
+            eingaben = (m.get("architecture") or {}).get("input_modalities") or []
             modelle.append({
                 "id": mid,
                 "name": m.get("name") or mid,
@@ -704,9 +797,35 @@ class LLMService:
                 "context_length": m.get("context_length"),
                 # Wird in Slice D2 gebraucht: Gedächtnis-Werkzeuge laufen
                 # nicht auf jedem Modell.
-                "tools": "tools" in (m.get("supported_parameters") or []),
+                "tools": "tools" in parameter,
+                "reasoning": "reasoning" in parameter,
+                "bilder": "image" in eingaben,
+                "dateien": "file" in eingaben,
                 "eu": mid in eu_ids,
             })
+
+        # Anbieter-Datenschutz je Modell anreichern. Steht der Index nicht zur
+        # Verfügung, bleibt das Feld None – "unbekannt", nicht "unbedenklich".
+        index = self._datenschutz_index([m["id"] for m in modelle])
+        for m in modelle:
+            eintrag = index.get(m["id"])
+            if eintrag is None:
+                m["speicherfrei"] = None
+                m["anbieter_gesamt"] = None
+                m["anbieter_speichernd"] = None
+            else:
+                m["anbieter_gesamt"] = eintrag["anbieter_gesamt"]
+                m["anbieter_speichernd"] = eintrag["anbieter_speichernd"]
+                # Null Anbieter heißt nicht "sicher", sondern "keine Angabe".
+                # Betrifft z. B. openrouter/free – ausgerechnet dort wäre ein
+                # grünes Abzeichen die falscheste aller Auskünfte.
+                if eintrag["anbieter_gesamt"] == 0:
+                    m["speicherfrei"] = None
+                else:
+                    m["speicherfrei"] = (
+                        eintrag["anbieter_speichernd"] == 0
+                        and eintrag["anbieter_unbekannt"] == 0
+                    )
 
         # Günstigste zuerst; Modelle ohne festen Preis ans Ende.
         modelle.sort(key=lambda x: (
@@ -715,8 +834,10 @@ class LLMService:
         ))
 
         logger.info(
-            "Modellkatalog geladen: %d nutzbar, davon %d EU-fähig",
-            len(modelle), sum(1 for m in modelle if m["eu"]),
+            "Modellkatalog geladen: %d nutzbar, %d EU-fähig, %d ohne speichernden Anbieter",
+            len(modelle),
+            sum(1 for m in modelle if m["eu"]),
+            sum(1 for m in modelle if m["speicherfrei"]),
         )
         cache.update({"zeit": jetzt, "daten": modelle})
         return modelle

@@ -608,7 +608,40 @@ body {
     border-color: var(--accent);
 }
 
-.sheet-search { padding: 10px 16px; flex-shrink: 0; }
+.sheet-search { padding: 10px 16px 6px; flex-shrink: 0; }
+
+.sheet-filters {
+    display: flex;
+    gap: 6px;
+    padding: 2px 16px 10px;
+    overflow-x: auto;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.sheet-filters::-webkit-scrollbar { display: none; }
+
+.filter-chip {
+    flex-shrink: 0;
+    padding: 5px 11px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.73rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.filter-chip:hover { color: var(--text-primary); }
+
+.filter-chip.on {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-glow);
+}
 
 .sheet-list {
     overflow-y: auto;

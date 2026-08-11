@@ -86,6 +86,7 @@ async def chat(request: ChatRequest):
             memories=memories,
             web_search=request.web_search,
             model=request.model,
+            no_retention=request.no_retention,
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -122,6 +123,7 @@ async def chat_stream(request: ChatRequest):
                     memories=memories,
                     web_search=request.web_search,
                     model=request.model,
+                    no_retention=request.no_retention,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])

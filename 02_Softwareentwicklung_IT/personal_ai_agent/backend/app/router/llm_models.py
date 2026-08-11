@@ -39,8 +39,12 @@ HAFTUNGSHINWEIS = (
 )
 
 
+# Bewusst `def` statt `async def`: Der Katalogaufbau macht rund 110 parallele
+# HTTP-Abrufe und braucht etwa eine Sekunde. In einer async-Funktion würde das
+# den Event-Loop blockieren und den laufenden Chat-Stream ausbremsen; als
+# synchrone Funktion schiebt FastAPI sie in einen Threadpool.
 @router.get("/models")
-async def models():
+def models():
     """Alle Modelle, die dieses Konto tatsächlich benutzen darf.
 
     `eu: true` heisst: Dieses Modell *wuerde* ueber den EU-Endpunkt bedient.
@@ -63,6 +67,7 @@ async def models():
         "models": liste,
         "total": len(liste),
         "eu_verfuegbar": sum(1 for m in liste if m.get("eu")),
+        "speicherfrei_verfuegbar": sum(1 for m in liste if m.get("speicherfrei")),
         # Damit das Frontend erklaeren kann, warum die Liste kurz ist,
         # statt eine leere Auswahl zu zeigen.
         "notliste": notliste,
@@ -72,7 +77,7 @@ async def models():
 
 
 @router.get("/models/{model_id:path}/details")
-async def model_details(model_id: str):
+def model_details(model_id: str):
     """Anbieter eines Modells samt Datenschutz-Profil.
 
     `model_id` enthaelt einen Schraegstrich (`anthropic/claude-sonnet-5`),

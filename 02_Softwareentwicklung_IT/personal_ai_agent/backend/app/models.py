@@ -24,6 +24,10 @@ class ChatRequest(BaseModel):
     # der Konfiguration – so bleibt das Backend zustandslos und zwei Geräte
     # kommen sich nicht in die Quere.
     model: Optional[str] = None
+    # Datenschutz-Riegel: schickt provider.data_collection="deny" mit, damit
+    # die Anfrage garantiert nicht bei einem Anbieter landet, der Prompts
+    # speichert. Passt keiner, wird sie abgelehnt – sichtbar statt still.
+    no_retention: bool = False
 
 
 class ChatResponse(BaseModel):

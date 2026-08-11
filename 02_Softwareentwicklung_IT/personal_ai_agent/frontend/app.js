@@ -75,6 +75,10 @@ const state = {
     katalog: null,
     favoriten: [],
     modellHinweis: '',
+    // Aktive Filter-Chips im Auswahl-Blatt, kombinierbar (UND-Verknüpfung).
+    filters: new Set(),
+    // Datenschutz-Riegel: schickt provider.data_collection="deny" mit.
+    noRetention: localStorage.getItem('no_retention') === '1',
 };
 
 // =========================================
@@ -96,6 +100,9 @@ const dom = {
     modelSearch: document.getElementById('model-search'),
     modelList: document.getElementById('model-list'),
     modelHint: document.getElementById('model-hint'),
+    modelFilters: document.getElementById('model-filters'),
+    privacyBtn: document.getElementById('privacy-btn'),
+    privacyLabel: document.getElementById('privacy-label'),
 };
 
 // =========================================
@@ -438,6 +445,19 @@ function zeileFuer(m, nutzbar = true) {
     name.textContent = m.name || m.id;
     top.appendChild(name);
 
+    if (m.speicherfrei) {
+        const b = document.createElement('span');
+        b.className = 'badge eu';
+        b.textContent = 'kein Speichern';
+        b.title = 'Keiner der möglichen Anbieter speichert Prompts';
+        top.appendChild(b);
+    } else if (m.anbieter_speichernd) {
+        const b = document.createElement('span');
+        b.className = 'badge warn';
+        b.textContent = `${m.anbieter_speichernd}/${m.anbieter_gesamt} speichern`;
+        b.title = 'Ohne Datenschutz-Riegel kann die Anfrage bei einem dieser Anbieter landen';
+        top.appendChild(b);
+    }
     if (m.eu) {
         const b = document.createElement('span');
         b.className = 'badge eu';
@@ -479,6 +499,18 @@ function gruppenTitel(text) {
     return h;
 }
 
+/** Filter-Chips sind UND-verknüpft: jeder weitere schränkt weiter ein. */
+function passtZuFiltern(m) {
+    for (const f of state.filters) {
+        if (f === 'bilder') {
+            if (!m.bilder && !m.dateien) return false;
+        } else if (!m[f]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function zeichneListe() {
     const suche = (dom.modelSearch.value || '').trim().toLowerCase();
     dom.modelList.innerHTML = '';
@@ -489,7 +521,12 @@ function zeichneListe() {
         return;
     }
 
-    if (!suche) {
+    const gefiltert = alle.filter(passtZuFiltern);
+    const aktiv = state.filters.size > 0;
+
+    // Favoriten nur zeigen, wenn weder gesucht noch gefiltert wird – sonst
+    // stehen oben Einträge, die der Filter gerade ausschließen sollte.
+    if (!suche && !aktiv) {
         dom.modelList.appendChild(gruppenTitel('Favoriten'));
         state.favoriten.forEach(id => {
             const treffer = alle.find(m => m.id === id);
@@ -502,11 +539,29 @@ function zeichneListe() {
         dom.modelList.appendChild(gruppenTitel(`Alle ${alle.length} Modelle`));
     }
 
-    alle
-        .filter(m => !suche || m.id.toLowerCase().includes(suche)
-                            || (m.name || '').toLowerCase().includes(suche))
-        .slice(0, 120)
-        .forEach(m => dom.modelList.appendChild(zeileFuer(m)));
+    const treffer = gefiltert.filter(m =>
+        !suche || m.id.toLowerCase().includes(suche)
+               || (m.name || '').toLowerCase().includes(suche));
+
+    if (aktiv || suche) {
+        dom.modelList.appendChild(gruppenTitel(
+            treffer.length ? `${treffer.length} von ${alle.length} Modellen`
+                           : 'Keine Treffer – Filter lockern'
+        ));
+    }
+
+    treffer.slice(0, 120).forEach(m => dom.modelList.appendChild(zeileFuer(m)));
+}
+
+function setPrivacy(an) {
+    state.noRetention = an;
+    localStorage.setItem('no_retention', an ? '1' : '0');
+    dom.privacyBtn.classList.toggle('active', an);
+    dom.privacyBtn.setAttribute('aria-pressed', an ? 'true' : 'false');
+    dom.privacyLabel.textContent = an ? 'Riegel an' : 'Riegel';
+    dom.privacyBtn.title = an
+        ? 'Nur Anbieter ohne Speicherung. Passt keiner, wird die Anfrage abgelehnt statt still weitergereicht.'
+        : 'Datenschutz-Riegel aus – OpenRouter darf zu Anbietern routen, die Prompts speichern';
 }
 
 async function waehleModell(m) {
@@ -809,6 +864,7 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
             conversation_id: state.conversationId,
             web_search: state.webSearch,
             model: state.model,
+            no_retention: state.noRetention,
         }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -1189,6 +1245,17 @@ dom.webBtn.addEventListener('click', () => setWebSearch(naechsterWebModus()));
 dom.modelBtn.addEventListener('click', oeffneBlatt);
 dom.modelClose.addEventListener('click', schliesseBlatt);
 dom.modelSearch.addEventListener('input', zeichneListe);
+dom.privacyBtn.addEventListener('click', () => setPrivacy(!state.noRetention));
+
+dom.modelFilters.addEventListener('click', (e) => {
+    const chip = e.target.closest('.filter-chip');
+    if (!chip) return;
+    const f = chip.dataset.filter;
+    if (state.filters.has(f)) state.filters.delete(f);
+    else state.filters.add(f);
+    chip.classList.toggle('on', state.filters.has(f));
+    zeichneListe();
+});
 
 // Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
 // natürlichste Geste, um ein Blatt wieder loszuwerden.
@@ -1266,6 +1333,7 @@ if ('serviceWorker' in navigator) {
 document.addEventListener('DOMContentLoaded', () => {
     setWebSearch(state.webSearch);   // gespeicherten Wunsch wiederherstellen
     setModelLabel();                 // zeigt vorerst die gespeicherte Wahl
+    setPrivacy(state.noRetention);   // Riegel-Zustand wiederherstellen
     startHealthChecks();
     dom.input.focus();
     updateSendButton();
