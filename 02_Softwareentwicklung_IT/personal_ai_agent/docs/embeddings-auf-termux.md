@@ -1,8 +1,34 @@
 # Embeddings auf Termux — Befundlage
 
-> Erstellt 11.08.2026. Übergabe an den Strang „Wissensdatenbank aus den
-> Chat-Archiven". Alles unter „Geprüft" ist am Code nachgesehen, alles unter
-> „Offen" ausdrücklich nicht.
+> Erstellt 11.08.2026. Alles unter „Geprüft" ist am Code nachgesehen, alles
+> unter „Offen" ausdrücklich nicht.
+
+> ## ⚠️ Nachtrag 12.08.2026 — der Wissensspeicher ist längst anders gelöst
+>
+> Dieses Dokument entstand als Übergabe an den Strang „Wissensdatenbank aus den
+> Chat-Archiven". Der läuft in einer eigenen Sitzung und war zu diesem Zeitpunkt
+> **schon viel weiter**, als hier angenommen. Plan und Fortschritt stehen in
+> `C:\Users\sebas\.claude\plans\resilient-sleeping-kurzweil.md`.
+>
+> Dort ist ein **vierter Weg** umgesetzt, den der Abschnitt „Drei Wege" unten
+> gar nicht kennt: **SQLite plus `mistral-embed` über API**. Damit stellt sich
+> die PyTorch-Frage für den Wissensspeicher nicht mehr — Scheibe 1 und 2 sind
+> technisch fertig (35.893 Nachrichten, 26.354 Chunks, 175 Tests grün).
+>
+> **Die Abschnitte „Drei Wege" und „Prüfschritte" unten gelten deshalb nicht
+> mehr für den Wissensspeicher.** Wer sie für bare Münze nimmt, plant an einer
+> fertigen Lösung vorbei.
+>
+> **Weiterhin gültig bleibt alles über das `personal_ai_agent`-Gedächtnis:**
+> Dort steht `sentence-transformers` nach wie vor in einem `try/except`, und
+> der Fallback liefert die neuesten statt der passenden Einträge. Das ist ein
+> eigenes Problem und von der Wissensdatenbank unberührt.
+>
+> Zwei Befunde von dort, die auch hier zählen:
+> - **OpenRouter kann keine Embeddings** — 0 von 118 Modellen des Kontos.
+>   Die ZDR-Einstellungen greifen dafür also gar nicht.
+> - **Mistral direkt ohne ZDR: 30 rollierende Tage Aufbewahrung.** ZDR gibt es
+>   nur im Scale-Plan und nur auf genehmigten Antrag.
 
 ## Kurzfassung
 
