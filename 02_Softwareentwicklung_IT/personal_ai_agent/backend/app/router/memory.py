@@ -61,6 +61,20 @@ async def memory_count():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/vektoren")
+async def vektoren_nachruesten():
+    """Bettet Erinnerungen nach, die noch keinen Vektor haben.
+
+    Bewusst von Hand ausgeloest: Es kostet einen API-Aufruf je Eintrag.
+    Ohne Vektor findet die Bedeutungssuche einen Eintrag nie.
+    """
+    try:
+        return memory_service.ruste_vektoren_nach()
+    except Exception as e:
+        logger.error("Nachruesten fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/wiederholungen")
 async def wiederholungen_aufraeumen(
     ausfuehren: bool = Query(

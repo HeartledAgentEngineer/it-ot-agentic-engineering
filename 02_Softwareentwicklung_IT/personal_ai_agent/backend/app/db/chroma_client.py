@@ -119,6 +119,27 @@ class SimpleMemoryStore:
             for m in self._memories[-limit:]
         ]
 
+    def eintraege_ohne_vektor(self) -> List[Dict[str, Any]]:
+        """Eintraege, die noch nicht eingebettet sind - id und Inhalt."""
+        if not self._loaded:
+            self.connect()
+        return [
+            {"id": m["id"], "content": m.get("content", "")}
+            for m in self._memories
+            if not m.get("embedding")
+        ]
+
+    def setze_vektor(self, memory_id: str, embedding: List[float]) -> bool:
+        """Traegt einen nachtraeglich berechneten Vektor ein."""
+        if not self._loaded:
+            self.connect()
+        for m in self._memories:
+            if m["id"] == memory_id:
+                m["embedding"] = embedding
+                self._persist()
+                return True
+        return False
+
     def delete_memory(self, memory_id: str) -> bool:
         """Remove a memory by ID."""
         if not self._loaded:
