@@ -58,10 +58,17 @@ class MemoryItem(BaseModel):
 
 
 class MemoryCreate(BaseModel):
-    """Request to create a memory."""
-    content: str
-    category: str = "fact"
-    importance: int = 3
+    """Request to create a memory.
+
+    Die Grenzen sind dieselben wie in MemoryItem, und das ist keine
+    Doppelung aus Ordnungsliebe: Ohne sie liesz sich ein Eintrag anlegen,
+    der beim Auslesen die Validierung nicht mehr passierte. Ein einziger
+    solcher Eintrag - etwa mit category "beruf" - machte die gesamte
+    Liste unlesbar, nicht nur ihn selbst.
+    """
+    content: str = Field(..., min_length=1, max_length=5000)
+    category: str = Field(default="fact", pattern="^(fact|preference|context|project)$")
+    importance: int = Field(default=3, ge=1, le=5)
     conversation_id: Optional[str] = None
 
 
