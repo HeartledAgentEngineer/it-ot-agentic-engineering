@@ -28,6 +28,10 @@ class ChatRequest(BaseModel):
     # die Anfrage garantiert nicht bei einem Anbieter landet, der Prompts
     # speichert. Passt keiner, wird sie abgelehnt – sichtbar statt still.
     no_retention: bool = False
+    # Chat-Archive mitdurchsuchen. Standard an – ohne den Wissensspeicher
+    # kann der Agent nichts über die eigene Vergangenheit sagen. Abschaltbar,
+    # falls eine Frage nichts damit zu tun hat.
+    archiv: bool = True
 
 
 class ChatResponse(BaseModel):
@@ -37,6 +41,7 @@ class ChatResponse(BaseModel):
     memories_used: int = 0
     memories_created: int = 0
     sources: List[Source] = []
+    archiv_used: int = 0
 
 
 class MemoryItem(BaseModel):

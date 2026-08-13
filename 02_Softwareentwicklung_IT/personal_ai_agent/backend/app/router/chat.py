@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.models import ChatRequest, ChatResponse
+from app.services.archiv_service import archiv_service
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -67,6 +68,21 @@ def _sse(payload: Dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _archiv_treffer(frage: str, aktiv: bool) -> List[Dict[str, Any]]:
+    """Passende Stellen aus den Chat-Archiven holen.
+
+    Scheitert die Suche, geht die Anfrage trotzdem durch – nur ohne
+    Vergangenheitswissen. Ein kaputtes Archiv darf den Chat nicht lahmlegen.
+    """
+    if not aktiv or not archiv_service.is_available:
+        return []
+    try:
+        return archiv_service.hybrid(frage)
+    except Exception as e:
+        logger.warning("Archivsuche uebersprungen: %s", e)
+        return []
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Process a chat message and return the LLM response."""
@@ -79,6 +95,10 @@ async def chat(request: ChatRequest):
             request.message, top_k=5
         )
 
+        # 1b. Passende Stellen aus den Chat-Archiven – das, was den Agenten
+        # über die eigene Vergangenheit sprechen lässt.
+        archiv = _archiv_treffer(request.message, request.archiv)
+
         # 2. Get LLM response with memory context
         reply, quellen = llm_service.chat(
             user_message=request.message,
@@ -87,6 +107,7 @@ async def chat(request: ChatRequest):
             web_search=request.web_search,
             model=request.model,
             no_retention=request.no_retention,
+            archiv=archiv,
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -98,6 +119,7 @@ async def chat(request: ChatRequest):
             memories_used=len(memories),
             memories_created=memories_created,
             sources=quellen,
+            archiv_used=len(archiv),
         )
 
     except Exception as e:
@@ -111,6 +133,7 @@ async def chat_stream(request: ChatRequest):
     conversation_id = _get_or_create_conversation(request.conversation_id)
     history = conversations[conversation_id]
     memories = memory_service.retrieve_relevant_memories(request.message, top_k=5)
+    archiv = _archiv_treffer(request.message, request.archiv)
 
     def ereignisse():
         teile: List[str] = []
@@ -124,6 +147,7 @@ async def chat_stream(request: ChatRequest):
                     web_search=request.web_search,
                     model=request.model,
                     no_retention=request.no_retention,
+                    archiv=archiv,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])
@@ -153,6 +177,7 @@ async def chat_stream(request: ChatRequest):
             "memories_used": len(memories),
             "memories_created": anzahl_neu,
             "memory_count": memory_service.get_memory_count(),
+            "archiv_used": len(archiv),
             # Nochmals gesammelt – falls ein Zwischenereignis verloren ging.
             "sources": quellen,
         })

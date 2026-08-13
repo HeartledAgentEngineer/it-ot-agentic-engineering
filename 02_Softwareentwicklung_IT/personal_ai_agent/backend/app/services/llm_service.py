@@ -247,11 +247,41 @@ class LLMService:
 
         return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{e}\n```"
 
+    @staticmethod
+    def _build_archiv_context(treffer: List[Dict[str, Any]]) -> str:
+        """Archiv-Fundstellen für den System-Prompt aufbereiten.
+
+        Mit Quelle und Datum, damit das Modell sagen kann, *woher* es etwas
+        weiß. Ein Assistent, der über die eigene Vergangenheit spricht, ohne
+        die Fundstelle nennen zu können, ist nicht überprüfbar – und damit
+        wertlos, sobald er sich irrt.
+        """
+        if not treffer:
+            return ""
+
+        teile = [
+            "\n## AUS DEINEN FRÜHEREN GESPRÄCHEN "
+            "(Archiv – nenne Quelle und Datum, wenn du dich darauf beziehst):"
+        ]
+        for t in treffer:
+            datum = (t.get("beginn") or "")[:10]
+            quelle = t.get("source") or "unbekannt"
+            titel = t.get("title") or ""
+            kopf = f"[{quelle}, {datum}]" + (f" {titel}" if titel else "")
+            # Gekürzt: Ein Chunk kann sehr lang sein, und fünf davon
+            # ungekürzt verdrängen die eigentliche Unterhaltung.
+            text = (t.get("text") or "").strip()
+            if len(text) > 1200:
+                text = text[:1200] + " […]"
+            teile.append(f"{kopf}\n{text}")
+        return "\n\n".join(teile)
+
     def _build_messages(
         self,
         user_message: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
+        archiv: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, str]]:
         """Nachrichtenliste für einen LLM-Aufruf zusammenbauen.
 
@@ -264,6 +294,12 @@ class LLMService:
         memory_context = self._build_memory_context(memories or [])
         if memory_context:
             system_prompt += memory_context
+
+        # Fundstellen aus dem Chat-Archiv – das, was den Agenten überhaupt
+        # erst über die eigene Vergangenheit sprechen lässt.
+        archiv_context = self._build_archiv_context(archiv or [])
+        if archiv_context:
+            system_prompt += archiv_context
 
         messages: List[Dict[str, str]] = [
             {"role": "system", "content": system_prompt},
@@ -285,6 +321,7 @@ class LLMService:
         web_search: str = "off",
         model: Optional[str] = None,
         no_retention: bool = False,
+        archiv: Optional[List[Dict[str, Any]]] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -299,13 +336,17 @@ class LLMService:
             yield {"delta": NICHT_KONFIGURIERT}
             return
 
-        messages = self._build_messages(user_message, conversation_history, memories)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv)
 
         stream = self.client.chat.completions.create(
             model=model or self.model,
             messages=messages,  # type: ignore
             temperature=0.7,
-            max_tokens=2048,
+            # 4096 statt 2048: Reasoning-Modelle (76 der 109 nutzbaren) zaehlen
+            # ihre Denkschritte gegen dieses Budget. Mit 2048 verbraucht etwa
+            # gpt-5-nano alles im Nachdenken und liefert eine LEERE Antwort –
+            # ohne Fehlermeldung, was die Ursache gut versteckt.
+            max_tokens=4096,
             stream=True,
             extra_body=self._extra_body(web_search, no_retention),
         )
@@ -340,6 +381,7 @@ class LLMService:
         web_search: str = "off",
         model: Optional[str] = None,
         no_retention: bool = False,
+        archiv: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -356,14 +398,14 @@ class LLMService:
         if not self.is_configured:
             return NICHT_KONFIGURIERT, []
 
-        messages = self._build_messages(user_message, conversation_history, memories)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv)
 
         try:
             response = self.client.chat.completions.create(
                 model=model or self.model,
                 messages=messages,  # type: ignore
                 temperature=0.7,
-                max_tokens=2048,
+                max_tokens=4096,   # siehe chat_stream: Reasoning zaehlt mit
                 extra_body=self._extra_body(web_search, no_retention),
             )
 

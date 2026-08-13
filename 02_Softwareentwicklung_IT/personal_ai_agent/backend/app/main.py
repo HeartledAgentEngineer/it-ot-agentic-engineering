@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
-from app.router import chat, memory, auth, transcribe, speak, llm_models
+from app.router import chat, memory, auth, transcribe, speak, llm_models, archiv
 
 # Configure logging
 logging.basicConfig(
@@ -95,6 +95,7 @@ app.include_router(auth.router)
 app.include_router(transcribe.router)
 app.include_router(speak.router)
 app.include_router(llm_models.router)
+app.include_router(archiv.router)
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

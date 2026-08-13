@@ -84,6 +84,33 @@ class Settings(BaseSettings):
     # Embedding
     embedding_model: str = "all-MiniLM-L6-v2"
 
+    # Wissensspeicher aus den Chat-Archiven (Schwesterprojekt
+    # "Chats von GPT, GEMINI, Claude"). Nur lesender Zugriff.
+    # Leer = nicht eingebunden, der Agent laeuft dann wie bisher.
+    #
+    # Auf dem Handy liegt sie ueblicherweise unter:
+    #   /sdcard/Download/memory.db
+    # oder nach dem Verschieben in Termux:
+    #   /data/data/com.termux/files/home/memory.db
+    archiv_db_path: str = ""
+
+    # Vektordatei zum Archiv (rohe float32-Matrix, 30.891 x 1024).
+    # Ohne sie laeuft nur die Volltextsuche – die findet Woerter, aber keine
+    # Bedeutung. Fuer "erzaehl mir von damals" braucht es die Vektoren.
+    archiv_vektor_path: str = ""
+
+    # Schluessel fuer die Frage-Einbettung. Die Chunks sind bereits gerechnet;
+    # was fehlt, ist ein Vektor fuer die jeweilige Frage – ein Aufruf je
+    # Suche, wenige Zehntausendstel Cent. Ohne Schluessel bleibt es beim
+    # Volltext.
+    mistral_api_key: str = ""
+    mistral_embed_model: str = "mistral-embed"
+
+    # Wie viele Archiv-Treffer hoechstens in den Prompt wandern. Jeder Treffer
+    # ist ein Gespraechsausschnitt und kostet Token – fuenf sind ein
+    # brauchbarer Ausgleich zwischen Kontext und Kosten.
+    archiv_top_k: int = 5
+
     # Sprachausgabe – Microsoft läuft über Azure (EU-Rechenzentrum).
     # Gültige Stimmen liefert:
     #   GET /api/v1/models?output_modalities=speech → supported_voices
