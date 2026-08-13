@@ -14,7 +14,7 @@
 // Frontend-Änderung diese Zahl von Hand zu erhöhen. Wird es vergessen –
 // und es wird vergessen –, liefert das Handy nach einem `git pull`
 // weiterhin die alte Oberfläche aus, ohne jeden Hinweis darauf.
-const CACHE_NAME = 'personal-ai-agent-v11';
+const CACHE_NAME = 'personal-ai-agent-v12';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -22,6 +22,8 @@ const STATIC_ASSETS = [
     '/app.js',
     '/pcm-recorder.js',
     '/manifest.json',
+    '/icon-192.png',
+    '/icon-512.png',
 ];
 
 // Install: Cache statische Assets
