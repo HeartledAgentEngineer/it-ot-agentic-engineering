@@ -1,0 +1,72 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#
+# WIDGET-KNOPF: Agent starten und Oberflaeche oeffnen
+#
+# Ein Druck auf dem Startbildschirm macht beides: Server hochfahren und
+# danach die Oberflaeche aufmachen. Kein Tippen, kein Kopieren von
+# Befehlen — genau das war der Grund, warum der Agent zu selten benutzt
+# wurde.
+#
+# Laeuft der Server schon, wird nur die Oberflaeche geoeffnet. Zweimal
+# tippen startet also keinen zweiten Server.
+#
+# Einrichtung einmalig:  ./termux/einrichten.sh
+
+skript="$0"
+[ -L "$skript" ] && skript="$(readlink "$skript")"
+HIER="$(cd "$(dirname "$skript")" && pwd)"
+. "$HIER/gemeinsam.sh"
+
+# Laeuft er schon? Dann nur nach vorn holen.
+if agent_antwortet; then
+    oberflaeche_oeffnen
+    melde "Agent laeuft bereits"
+    exit 0
+fi
+
+cd "$PROJEKT" || { melde "Projektordner nicht gefunden"; exit 1; }
+
+echo "── Aktualisieren ──────────────────────────────"
+# --ff-only: Bei lokalen Aenderungen lieber abbrechen als mitten im Start
+# einen Merge-Konflikt zu erzeugen.
+if git pull --ff-only; then
+    echo "Stand: $(git log --oneline -1)"
+else
+    echo "⚠️  git pull fehlgeschlagen – es startet der alte Stand."
+    echo "    Nachsehen mit: git status"
+fi
+
+# Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
+command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
+
+cd backend || { melde "backend/ fehlt"; exit 1; }
+
+echo
+echo "── Server startet ─────────────────────────────"
+echo "Beenden: Strg+C  (Lautstaerke-hoch + C)"
+echo
+
+# Im Hintergrund, damit dieses Skript weiterlaufen und danach die
+# Oberflaeche oeffnen kann. Die Ausgabe bleibt im Terminal sichtbar.
+python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" &
+server=$!
+
+# Warten, bis er wirklich antwortet. Das Laden der Vektordatei dauert
+# einige Sekunden; ein sofortiger Browseraufruf liefe ins Leere.
+bereit=0
+for _ in $(seq 1 90); do
+    sleep 1
+    if agent_antwortet; then bereit=1; break; fi
+    # Ist der Server unterwegs gestorben, endet das Warten sofort.
+    kill -0 "$server" 2>/dev/null || break
+done
+
+if [ "$bereit" = "1" ]; then
+    oberflaeche_oeffnen
+else
+    melde "Server kam nicht hoch – Meldung steht im Terminal"
+fi
+
+# Haelt das Skript am Leben, solange der Server laeuft. Ohne das wuerde
+# die Widget-Session enden und den Server mitnehmen.
+wait "$server"
