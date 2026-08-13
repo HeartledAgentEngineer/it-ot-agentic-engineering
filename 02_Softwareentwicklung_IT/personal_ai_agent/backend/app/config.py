@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     # System Prompt (liegt in backend/, nicht im Projektordner)
     system_prompt_file: str = str(BACKEND_DIR / "system_prompt.md")
 
+    # Persoenlicher Teil des System-Prompts. Wird angehaengt, wenn die Datei
+    # existiert, und ist per .gitignore vom Repo ausgenommen - dasselbe
+    # Muster wie .env und .env.example.
+    #
+    # Grund: Das Repo ist oeffentlich. Profil, Geraete und Haltung des
+    # Nutzers gehen niemanden etwas an, der sich den Code ansieht. Die
+    # oeffentliche Datei beschreibt nur, wie der Agent arbeitet.
+    system_prompt_local_file: str = str(BACKEND_DIR / "system_prompt.local.md")
+
     # Logging
     log_level: str = "INFO"
 

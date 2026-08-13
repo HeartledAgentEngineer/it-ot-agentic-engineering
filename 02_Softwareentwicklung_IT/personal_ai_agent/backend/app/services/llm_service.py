@@ -116,16 +116,36 @@ class LLMService:
         return self.client is not None and bool(self.api_key)
 
     def load_system_prompt(self) -> str:
-        """Load the system prompt from file."""
+        """Laedt den System-Prompt: oeffentlicher Teil plus persoenlicher.
+
+        Der oeffentliche Teil steht im Repo und beschreibt nur, wie der
+        Agent arbeitet. Der persoenliche Teil (Profil, Geraete, Haltung)
+        liegt in einer gitignorierten Datei daneben und ist optional -
+        fehlt sie, laeuft der Agent ohne Wissen ueber den Nutzer weiter.
+        """
         try:
             with open(settings.system_prompt_file, "r", encoding="utf-8") as f:
-                return f.read().strip()
+                prompt = f.read().strip()
         except FileNotFoundError:
             logger.warning(
                 "System prompt file not found: %s. Using default.",
                 settings.system_prompt_file,
             )
-            return "Du bist ein hilfreicher KI-Assistent."
+            prompt = "Du bist ein hilfreicher KI-Assistent."
+
+        try:
+            with open(settings.system_prompt_local_file, "r", encoding="utf-8") as f:
+                persoenlich = f.read().strip()
+            if persoenlich:
+                prompt = f"{prompt}\n\n{persoenlich}"
+        except FileNotFoundError:
+            # Normalfall auf einem frisch geklonten Rechner - kein Fehler.
+            logger.debug(
+                "Kein persoenlicher System-Prompt unter %s",
+                settings.system_prompt_local_file,
+            )
+
+        return prompt
 
     def _build_memory_context(self, memories: List[Dict[str, Any]]) -> str:
         """Build a memory context string from retrieved memories."""
