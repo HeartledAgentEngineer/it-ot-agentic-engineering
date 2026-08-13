@@ -513,7 +513,10 @@ function zeileFuer(m, nutzbar = true) {
     name.textContent = m.name || m.id;
     top.appendChild(name);
 
-    if (m.speicherfrei) {
+    // Bei aktivem Riegel stehen ohnehin nur speicherfreie Modelle in der
+    // Liste – dann ist die Plakette an jedem Eintrag reines Rauschen. Sie
+    // erscheint nur, wenn der Riegel aus ist und die Liste gemischt wäre.
+    if (m.speicherfrei && !state.noRetention) {
         const b = document.createElement('span');
         b.className = 'badge eu';
         b.textContent = 'kein Speichern';

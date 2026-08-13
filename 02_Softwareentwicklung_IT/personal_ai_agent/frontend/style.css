@@ -453,6 +453,12 @@ body {
     display: none;
 }
 
+/* Aus demselben Grund ist dieser Filter wirkungslos: Er schraenkt auf
+   speicherfreie Modelle ein, und andere stehen gar nicht mehr in der Liste. */
+#model-filters [data-filter="speicherfrei"] {
+    display: none;
+}
+
 /* ── Werkzeugleiste unter der Eingabe ───────────────────────────────────── */
 /* Bewusst hier und nicht in der Kopfzeile: Bei geöffneter Tastatur ist
    der obere Bildschirmrand auf dem Handy nicht mehr erreichbar. */
