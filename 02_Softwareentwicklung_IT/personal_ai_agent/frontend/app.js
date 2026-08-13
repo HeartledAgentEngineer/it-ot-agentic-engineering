@@ -83,7 +83,12 @@ const state = {
     // sich alle Anbieterzahlen auf den Weltmarkt, nicht auf die eigene Lage.
     whitelistAktiv: false,
     // Datenschutz-Riegel: schickt provider.data_collection="deny" mit.
-    noRetention: localStorage.getItem('no_retention') === '1',
+    //
+    // Fest auf an, und der Schalter ist aus der Leiste genommen. Der frühere
+    // Wert aus dem Speicher wird bewusst ignoriert: Ausgeblendet UND
+    // abschaltbar wäre die gefährliche Kombination – man hielte sich für
+    // geschützt, weil man den Schalter nicht mehr sieht.
+    noRetention: true,
     // Der AbortController der laufenden Antwort, sonst null. Dient zugleich
     // als Antwort auf die Frage "schreibt der Agent gerade?" – die
     // Denke-nach-Anzeige taugt dafuer nicht, die verschwindet schon beim
@@ -461,6 +466,17 @@ async function ladeKatalog(erzwingen = false) {
                 'Der Modellkatalog war nicht erreichbar – dies ist eine Notliste. '
                 + state.modellHinweis;
         }
+        // Sagen, dass gefiltert wird. Eine Liste, die stillschweigend die
+        // Hälfte weglässt, lässt einen sonst nach Modellen suchen, die da
+        // sein müssten.
+        if (state.noRetention) {
+            const ausgeblendet = state.katalog.filter(m => !m.speicherfrei).length;
+            if (ausgeblendet) {
+                state.modellHinweis =
+                    `${ausgeblendet} Modelle sind ausgeblendet – ihre Anbieter dürfen Prompts speichern. `
+                    + state.modellHinweis;
+            }
+        }
         setModelLabel();
         return state.katalog;
     } catch (err) {
@@ -554,6 +570,12 @@ function gruppenTitel(text) {
 
 /** Filter-Chips sind UND-verknüpft: jeder weitere schränkt weiter ein. */
 function passtZuFiltern(m) {
+    // Bei aktivem Riegel sind speichernde Anbieter ohnehin gesperrt. Sie
+    // trotzdem aufzulisten hieße, Modelle anzubieten, die beim Absenden
+    // scheitern – und die Angabe "1/2 speichern" beantwortet die einzige
+    // Frage nicht, die zählt: kann ich das nehmen oder nicht.
+    if (state.noRetention && !m.speicherfrei) return false;
+
     for (const f of state.filters) {
         if (f === 'bilder') {
             if (!m.bilder && !m.dateien) return false;

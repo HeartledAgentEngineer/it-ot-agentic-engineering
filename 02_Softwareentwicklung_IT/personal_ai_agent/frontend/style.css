@@ -447,6 +447,12 @@ body {
     color: white;
 }
 
+/* Der Riegel bleibt dauerhaft an und braucht deshalb keinen Schalter mehr.
+   Die Modellauswahl zeigt ohnehin nur noch, was damit nutzbar ist. */
+#privacy-btn {
+    display: none;
+}
+
 /* ── Werkzeugleiste unter der Eingabe ───────────────────────────────────── */
 /* Bewusst hier und nicht in der Kopfzeile: Bei geöffneter Tastatur ist
    der obere Bildschirmrand auf dem Handy nicht mehr erreichbar. */
