@@ -80,6 +80,7 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 │   │   ├── phase/                       #   8-Phasen-Workflow, nur auf Abruf (/phase)
 │   │   ├── grill-me/                    #   Alignment-Interview (Phase 2)
 │   │   ├── grillAnAgent/                #   Brainstorm-Grill (Phase 1)
+│   │   ├── fehlersuche/                 #   Ursache vor Reparatur, greift von selbst
 │   │   └── critic/                      #   Fremdprüfung durch zweites Modell (pruefe.mjs)
 │   └── agents/                          # Subagenten mit eigenem Kontextfenster
 │       ├── rechercheur.md               #   Codesuche, gibt nur Fundstellen zurück
@@ -214,6 +215,38 @@ Daran hängt, wie viel Leine ein Projekt bekommt: Wo ein Gate existiert, läuft 
 
 Für den OT-Bereich gibt es dieses Gate **grundsätzlich nicht**: SPS-Code wird manuell eingespielt, ein Testlauf auf einer laufenden Anlage ist keine Option. Dieser Bereich bleibt dauerhaft an der kurzen Leine, und der Agent liefert dort nur Blaupausen.
 
+**Die Belegpflicht dahinter.** Ein Prüfbefehl nützt nichts, wenn „fertig" gesagt wird, ohne ihn auszuführen. Deshalb steht in `AGENTS.md` nicht nur die Regel, sondern das Verfahren: Welcher Befehl belegt die Behauptung? Frisch und vollständig ausführen. Ausgabe und Exit-Code lesen. Deckt die Ausgabe die Behauptung? Erst dann die Aussage — mit dem Beleg. Wurde ein Befehl nicht in derselben Antwort ausgeführt, gilt er als nicht ausgeführt.
+
+Der Punkt, der in der Praxis am häufigsten greift, betrifft die Subagenten:
+
+| Behauptung | Beleg | Reicht **nicht** |
+|---|---|---|
+| Tests grün | Ausgabe des Prüfbefehls, Exit-Code 0 | ein früherer Lauf |
+| Fehler behoben | ursprüngliches Symptom erneut geprüft | „Code geändert, müsste gehen" |
+| **Subagent fertig** | **`git diff` zeigt die Änderung** | **die Erfolgsmeldung des Subagenten** |
+| Anforderung erfüllt | `plan.md` Punkt für Punkt geprüft | „Tests sind grün" |
+
+`rechercheur` und `tester` melden Erfolg, ohne dass ihr Ergebnis im Hauptkontext sichtbar wäre — genau der Vorteil, der sie nützlich macht, macht ihre Meldung unüberprüfbar. Ungeprüft übernommen ist das eine Behauptung ohne Beleg.
+
+### Kontext als knappe Ressource — gemessen statt geschätzt
+
+Der Auslöser des Regelumbaus war ein schnell aufgebrauchtes Nutzungskontingent. Die naheliegende Vermutung — die Regeldateien seien zu groß — hat sich bei der Messung als **falsch** erwiesen:
+
+| Posten beim Sitzungsstart | Anteil |
+|---|---|
+| Werkzeuge und System-Prompt der Plattform | 16,5k |
+| MCP-Werkzeuge (aktiv) | 7,3k |
+| Skills | 4,1k |
+| Regeldateien (`AGENTS.md`, `CLAUDE.md`, Gedächtnis) | 4,0k |
+| **Gesamt** | **32,1k von 1 Mio — 3 %** |
+
+Bei drei Prozent Auslastung kann die Startlast nicht der Treiber gewesen sein. Der Treiber war die **Anzahl der Turns**: Der ursprüngliche Workflow verlangte an jeder der sieben Phasengrenzen eine menschliche Freigabe, ohne ein einziges maschinelles Prüf-Gate — jede Rückfrage kostet einen vollständigen Durchlauf über den gesamten Kontext.
+
+Zwei Konsequenzen daraus, und beide sind der eigentliche Ertrag dieses Umbaus:
+
+* **Turns einsparen statt Zeichen.** Verifier-Gate und Subagenten ersetzen Bestätigungsklicks durch durchgesetzte Regeln und Prüfbefehle. Das ist der große Hebel; kürzere Regeldateien sind der kleine.
+* **Werkzeuge nach Bauart auswählen, nicht nach Thema.** Skill-Beschreibungen liegen in *jedem* Request im Kontext, Commands und Agents laden erst beim Aufruf, MCP-Werkzeuge werden seit Claude Code v2.1.7 verzögert geladen. In diesem Setup sind 55,1k an MCP-Werkzeugen vorhanden, aber nur 7,3k tatsächlich geladen. Fremde Plugins werden deshalb nach der Zahl ihrer Skills ausgewählt — bevorzugt solche mit null.
+
 ### Portabilität über Werkzeuggrenzen
 
 Der Zustand einer laufenden Arbeit liegt bei mir **in Dateien, nicht im Kontextfenster**: `brainstorm.md`, `alignment.md`, `plan.md`. Das ist der Grund, warum ein `/clear` nach jeder Phase nichts kostet — und derselbe Grund, warum ein Wechsel des Werkzeugs mitten im Projekt funktioniert.
@@ -228,7 +261,9 @@ Wer in Cline weiterarbeitet, verliert den `/phase`-Skill und die Subagenten. Die
 
 ### Ausführbare Skills statt Prosa-Regeln
 
-Die heikelsten Stellen im Zyklus sind nicht als Merksatz formuliert, sondern als Verfahren mit festem Ablauf, Abbruchkriterium und einer Tabelle typischer Ausreden samt Gegenrede. Vier Skills liegen im Repository: [`phase`](.claude/skills/phase/SKILL.md) hält den Ablauf selbst vor und lädt nur auf Aufruf, [`grillAnAgent`](.claude/skills/grillAnAgent/SKILL.md) grillt den Brainstorm, und die beiden folgenden sind die eigentlichen Qualitätsgrills.
+Die heikelsten Stellen im Zyklus sind nicht als Merksatz formuliert, sondern als Verfahren mit festem Ablauf, Abbruchkriterium und einer Tabelle typischer Ausreden samt Gegenrede. Fünf Skills liegen im Repository: [`phase`](.claude/skills/phase/SKILL.md) hält den Ablauf selbst vor und lädt nur auf Aufruf, [`grillAnAgent`](.claude/skills/grillAnAgent/SKILL.md) grillt den Brainstorm, [`fehlersuche`](.claude/skills/fehlersuche/SKILL.md) greift bei jedem Fehler von selbst — und die beiden folgenden sind die eigentlichen Qualitätsgrills.
+
+**[`fehlersuche`](.claude/skills/fehlersuche/SKILL.md) — Ursache vor Reparatur.** Vier Phasen mit einer Sperre davor: keine Reparatur ohne benannte Ursache. Der wirksamste Teil ist die Anweisung, bei mehreren beteiligten Bauteilen an *jeder* Grenze auszugeben, was hinein- und was herausgeht, statt am wahrscheinlichsten Verdächtigen herumzuprobieren — danach steht fest, welches Bauteil versagt. Abgebrochen wird nach zwei gescheiterten Versuchen, und dann wird nicht „geht immer noch nicht" gemeldet, sondern der eigentliche Befund: *Wenn jede Reparatur anderswo ein neues Problem aufdeckt, ist nicht der Fehler das Problem, sondern die Annahme über die Architektur.*
 
 **[`grill-me`](.claude/skills/grill-me/SKILL.md) — der Grill *vor* dem Bauen.** Alignment als ausführbares Verfahren: erst ein Register aus 8–15 Annahmen zum Widersprechen, dann sokratische Einzelfragen — eine pro Nachricht, immer mit 2–4 konkreten Optionen und einer begründeten Empfehlung, sodass eine Antwort aus einem Buchstaben bestehen kann. Danach drei Angriffe auf das eigene Ergebnis (*„Das scheitert, wenn …"*), erst dann die `alignment.md`. Die eiserne Regel: keine Datei-Änderung am Zielprojekt, bevor das Alignment freigegeben ist. Zeichnen sich mehr als ~15 Fragen ab, gilt nicht die Fragenzahl als Problem, sondern der Slice — dann wird geteilt.
 
