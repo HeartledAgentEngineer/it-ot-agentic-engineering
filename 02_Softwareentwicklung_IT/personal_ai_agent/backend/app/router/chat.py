@@ -2,11 +2,13 @@
 
 import json
 import logging
+import os
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.config import settings
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.llm_service import llm_service
@@ -16,9 +18,50 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-# In-memory conversation store (MVP – later replace with DB)
+# Gespraeche. Frueher lagen sie ausschliesslich hier im Arbeitsspeicher -
+# jeder Serverneustart, jeder Absturz und jedes Update loeschten damit den
+# gesamten Verlauf. Fuer einen Agenten, der sich Dinge merken soll, ist das
+# ein Widerspruch: Das Gedaechtnis ueberlebte, das Gespraech nicht.
 conversations: Dict[str, List[Dict[str, str]]] = {}
 next_conversation_id: int = 1
+
+# Liegt neben dem Gedaechtnis, damit alles Dauerhafte an einem Ort steht.
+VERLAUF_DATEI = os.path.join(settings.chroma_persist_dir, "conversations.json")
+
+
+def _lade_verlauf() -> None:
+    """Holt die Gespraeche von der Platte. Fehlt die Datei, faengt es leer an."""
+    global next_conversation_id
+    try:
+        with open(VERLAUF_DATEI, "r", encoding="utf-8") as f:
+            daten = json.load(f)
+        conversations.update(daten.get("conversations", {}))
+        next_conversation_id = int(daten.get("next_id", 1))
+        logger.info(
+            "Gespraechsverlauf geladen: %d Gespraeche", len(conversations)
+        )
+    except FileNotFoundError:
+        logger.info("Kein gespeicherter Verlauf – erster Start")
+    except Exception as e:
+        # Eine kaputte Datei darf den Server nicht am Starten hindern.
+        logger.warning("Verlauf nicht lesbar, beginne leer: %s", e)
+
+
+def _speichere_verlauf() -> None:
+    """Schreibt den Verlauf weg. Fehler hier duerfen den Chat nicht abbrechen."""
+    try:
+        os.makedirs(settings.chroma_persist_dir, exist_ok=True)
+        with open(VERLAUF_DATEI, "w", encoding="utf-8") as f:
+            json.dump(
+                {"next_id": next_conversation_id, "conversations": conversations},
+                f,
+                ensure_ascii=False,
+            )
+    except Exception as e:
+        logger.warning("Verlauf konnte nicht gespeichert werden: %s", e)
+
+
+_lade_verlauf()
 
 
 def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
@@ -49,6 +92,10 @@ def _finish_exchange(conversation_id: str, user_message: str, reply: str) -> int
     history = conversations[conversation_id]
     history.append({"role": "user", "content": user_message})
     history.append({"role": "assistant", "content": reply})
+    # Sofort wegschreiben, nicht erst beim Beenden: Ein Serverabsturz oder
+    # ein hartes Beenden der App darf hoechstens den laufenden Austausch
+    # kosten, nicht das ganze Gespraech.
+    _speichere_verlauf()
 
     try:
         return len(
@@ -205,4 +252,19 @@ async def list_conversations():
             for cid, msgs in conversations.items()
         ],
         "total": len(conversations),
+    }
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """Liefert die Nachrichten eines Gespraechs.
+
+    Damit kann die Oberflaeche nach einem Neustart dort weitermachen, wo
+    sie war. Ohne das waere der Verlauf zwar gespeichert, aber unsichtbar.
+    """
+    if conversation_id not in conversations:
+        raise HTTPException(status_code=404, detail="Gespräch nicht gefunden")
+    return {
+        "id": conversation_id,
+        "messages": conversations[conversation_id],
     }

@@ -61,7 +61,10 @@ function ladeWebModus() {
 // State
 // =========================================
 const state = {
-    conversationId: null,
+    // Merkt sich, welches Gespräch zuletzt lief. Ohne das stünde die
+    // Oberfläche nach jedem Neuladen vor einem leeren Fenster, obwohl der
+    // Server den Verlauf noch hat.
+    conversationId: localStorage.getItem('conversation_id') || null,
     isOnline: false,
     messages: [],
     isRecording: false,
@@ -897,7 +900,10 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // Muss nach dem Setzen von innerHTML kommen, sonst wird es überschrieben.
     if (abschluss) addSources(contentDiv, abschluss.sources);
     if (abschluss) {
-        if (abschluss.conversation_id) state.conversationId = abschluss.conversation_id;
+        if (abschluss.conversation_id) {
+            state.conversationId = abschluss.conversation_id;
+            localStorage.setItem('conversation_id', abschluss.conversation_id);
+        }
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
     }
     // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
@@ -1471,11 +1477,46 @@ if ('serviceWorker' in navigator) {
 // =========================================
 // Init
 // =========================================
+/**
+ * Holt das zuletzt geführte Gespräch zurück in die Oberfläche.
+ *
+ * Der Server hält den Verlauf seit Neuestem auf der Platte. Ohne diesen
+ * Schritt wäre er zwar gespeichert, aber unsichtbar – nach jedem Neustart
+ * stünde wieder ein leeres Fenster da.
+ */
+async function stelleVerlaufWiederHer() {
+    if (!state.conversationId) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations/${state.conversationId}`);
+        if (!res.ok) {
+            // 404: Der Server kennt das Gespräch nicht mehr. Dann ist der
+            // Verweis wertlos und verschwindet, statt bei jedem Start
+            // erneut ins Leere zu greifen.
+            if (res.status === 404) {
+                localStorage.removeItem('conversation_id');
+                state.conversationId = null;
+            }
+            return;
+        }
+        const daten = await res.json();
+        const nachrichten = daten.messages || [];
+        if (!nachrichten.length) return;
+
+        for (const m of nachrichten) {
+            addMessage(m.content, m.role === 'user' ? 'user' : 'assistant');
+        }
+        scrollToBottom(true);
+    } catch (err) {
+        console.warn('Verlauf nicht abrufbar:', err);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     setWebSearch(state.webSearch);   // gespeicherten Wunsch wiederherstellen
     setModelLabel();                 // zeigt vorerst die gespeicherte Wahl
     setPrivacy(state.noRetention);   // Riegel-Zustand wiederherstellen
     startHealthChecks();
+    stelleVerlaufWiederHer();
     dom.input.focus();
     updateSendButton();
     // Katalog im Hintergrund holen: Danach steht der richtige Anzeigename am
