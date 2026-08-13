@@ -208,6 +208,10 @@ class MemoryService:
         """Get the number of stored memories."""
         return chroma_client.count()
 
+    def loesche_erinnerung(self, memory_id: str) -> bool:
+        """Loescht einen einzelnen Eintrag. True, wenn es ihn gab."""
+        return chroma_client.delete_memory(memory_id)
+
     def clear_memories(self) -> None:
         """Clear all memories (for testing)."""
         chroma_client.clear_all()

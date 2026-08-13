@@ -94,3 +94,24 @@ async def clear_memories():
     except Exception as e:
         logger.error("Failed to clear memories: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Muss hinter /clear und /count stehen: Ein Pfadplatzhalter faengt sonst
+# auch diese Namen ab, und "clear" waere ploetzlich eine Erinnerungs-ID.
+@router.delete("/{memory_id}")
+async def einzelne_erinnerung_loeschen(memory_id: str):
+    """Loescht einen einzelnen Eintrag.
+
+    Noetig, weil das Gedaechtnis auch Falsches aufnimmt - erfundene
+    Vorlieben etwa. Bisher blieb nur, alles zu leeren; ein einzelner
+    falscher Eintrag kostete dann auch alle richtigen.
+    """
+    try:
+        if not memory_service.loesche_erinnerung(memory_id):
+            raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+        return {"status": "geloescht", "id": memory_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Loeschen fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))

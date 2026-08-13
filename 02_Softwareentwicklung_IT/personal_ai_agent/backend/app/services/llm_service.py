@@ -437,12 +437,34 @@ class LLMService:
         if not self.is_configured:
             return []
 
+        # Die Anweisung ist bewusst abweisend formuliert. Die frühere Fassung
+        # bat um "maximal 3 wichtige Fakten" – eine Aufforderung zu liefern,
+        # der ein Modell auch dann nachkommt, wenn nichts dasteht. So
+        # entstanden erfundene Einträge wie "Lieblings-Protokoll: WireGuard",
+        # bloß weil das Wort im Gespräch vorkam.
+        #
+        # Die Antwort des Assistenten steht weiterhin im Text, weil ein Fakt
+        # oft erst durch sie eindeutig wird ("Wie alt bin ich?" – "42").
+        # Deshalb der ausdrückliche Riegel, aus ihr nichts abzuleiten: Sonst
+        # wurde die Selbstbeschreibung des Agenten zum Beruf des Nutzers.
         extraction_prompt = (
-            "Extrahiere aus folgendem Dialog maximal 3 wichtige Fakten, "
-            "die über den Nutzer gemerkt werden sollten (z.B. Name, Vorlieben, "
-            "Projekte, persönliche Details). "
+            "Du pflegst ein Gedächtnis über den Nutzer. Ein falscher Eintrag "
+            "richtet dort mehr Schaden an als ein fehlender, denn er wird "
+            "später als Tatsache behandelt.\n\n"
+            "Übernimm ausschließlich, was der Nutzer ausdrücklich über sich "
+            "selbst gesagt hat – Name, Beruf, Vorlieben, Projekte, "
+            "persönliche Umstände.\n\n"
+            "Nicht übernehmen:\n"
+            "- alles aus der Antwort des Assistenten; sie beschreibt nicht "
+            "den Nutzer, auch wenn sie in der Ich-Form spricht\n"
+            "- Themen, die nur erwähnt oder gefragt wurden. Nach etwas zu "
+            "fragen heißt nicht, es zu mögen oder zu benutzen\n"
+            "- Erschlossenes, Vermutetes, Ausgeschmücktes\n"
+            "- Vorübergehendes wie eingestellte Modelle oder Schalter\n\n"
+            "In aller Regel gibt ein Dialog nichts her. Dann ist [] die "
+            "richtige Antwort. Höchstens 3 Einträge, lieber keinen.\n\n"
             "Antworte NUR mit einer JSON-Liste von Strings, z.B.: "
-            '["Fakt 1", "Fakt 2"]. Wenn nichts zu merken ist, antworte mit [].\n\n'
+            '["Fakt 1", "Fakt 2"] oder [].\n\n'
             f"Nutzer: {user_message}\n"
             f"Assistent: {llm_reply}"
         )
