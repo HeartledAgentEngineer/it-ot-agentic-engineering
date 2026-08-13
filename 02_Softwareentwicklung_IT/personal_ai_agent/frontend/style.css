@@ -182,6 +182,37 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+/* ── Wartende Nachricht ─────────────────────────────────────────────────── */
+/* Getippt, aber noch nicht abgeschickt: Der Agent schreibt noch an der
+   vorigen Antwort. Gestrichelter Rand und gedaempfte Farbe zeigen auf einen
+   Blick, dass diese Blase noch nicht gilt. */
+.message.user.queued {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.message.user.queued .message-content {
+    background: transparent;
+    border: 1px dashed var(--accent);
+    color: var(--text-secondary);
+}
+
+.queued-note {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-family: inherit;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.queued-note:hover {
+    color: #cc4444;
+}
+
 .message-content p {
     margin-bottom: 8px;
 }
@@ -393,6 +424,19 @@ body {
 
 .send-btn {
     color: var(--accent);
+}
+
+/* Der Knopf im Stopp-Zustand: gleiche Stelle, andere Bedeutung – die Farbe
+   muss den Unterschied allein tragen, weil der Daumen ohnehin schon dort ist. */
+/* Wie beim Mikrofon-Status ueber die ID: Der Zustand muss die Grundfarbe
+   des Knopfes sicher schlagen, egal was spaeter im Blatt noch kommt. */
+#send-btn.stopping {
+    color: #cc4444;
+}
+
+#send-btn.stopping:not(:disabled):hover {
+    background: #cc4444;
+    color: white;
 }
 
 /* ── Werkzeugleiste unter der Eingabe ───────────────────────────────────── */

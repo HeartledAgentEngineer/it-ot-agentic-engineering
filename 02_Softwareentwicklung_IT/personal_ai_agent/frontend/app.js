@@ -62,7 +62,6 @@ function ladeWebModus() {
 // =========================================
 const state = {
     conversationId: null,
-    isProcessing: false,
     isOnline: false,
     messages: [],
     isRecording: false,
@@ -82,6 +81,14 @@ const state = {
     whitelistAktiv: false,
     // Datenschutz-Riegel: schickt provider.data_collection="deny" mit.
     noRetention: localStorage.getItem('no_retention') === '1',
+    // Der AbortController der laufenden Antwort, sonst null. Dient zugleich
+    // als Antwort auf die Frage "schreibt der Agent gerade?" – die
+    // Denke-nach-Anzeige taugt dafuer nicht, die verschwindet schon beim
+    // ersten Textstueck.
+    abbruch: null,
+    // Nachrichten, die waehrend einer laufenden Antwort abgeschickt wurden.
+    // Eintraege: { text, element } – element ist die graue Wartet-Blase.
+    warteschlange: [],
 };
 
 // =========================================
@@ -232,12 +239,21 @@ function addMessage(content, role) {
     return contentDiv;
 }
 
+/** Schaltet nur die "Denke nach..."-Anzeige. Ob wirklich etwas laeuft,
+ *  steht in state.abbruch – die Anzeige verschwindet schon beim ersten
+ *  Textstueck, die Antwort laeuft danach aber weiter. */
 function setLoading(loading) {
-    state.isProcessing = loading;
     dom.loading.classList.toggle('hidden', !loading);
-    dom.input.disabled = loading;
+    // Die Eingabe bleibt absichtlich offen: Waehrend der Agent schreibt, soll
+    // man schon die naechste Nachricht tippen und anhaengen koennen.
     updateSendButton();
 }
+
+const SYMBOL_SENDEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
+    + '<path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
+
+const SYMBOL_ABBRECHEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
+    + '<path fill="currentColor" d="M7 7h10v10H7z"/></svg>';
 
 function setOnline(online) {
     state.isOnline = online;
@@ -245,6 +261,15 @@ function setOnline(online) {
     dom.statusText.textContent = online ? 'Online' : 'Offline';
 }
 
+/**
+ * Der Sende-Knopf hat drei Gesichter, je nach Lage:
+ *
+ *   Antwort laeuft, Eingabe leer   → Stopp: bricht die Antwort ab
+ *   Antwort laeuft, Eingabe gefuellt → Senden: haengt an die Warteschlange an
+ *   nichts laeuft                  → Senden: schickt sofort ab
+ *
+ * Ein eigener dritter Knopf waere auf dem Handy nur verlorene Daumenflaeche.
+ */
 function updateSendButton() {
     // Während der Aufnahme bleibt der Knopf bedienbar: Ein Druck darauf
     // beendet die Aufnahme und schickt das Diktat gleich ab.
@@ -252,7 +277,15 @@ function updateSendButton() {
         dom.sendBtn.disabled = false;
         return;
     }
-    dom.sendBtn.disabled = !dom.input.value.trim() || state.isProcessing;
+    const hatText = !!dom.input.value.trim();
+    const stoppModus = !!state.abbruch && !hatText;
+
+    dom.sendBtn.innerHTML = stoppModus ? SYMBOL_ABBRECHEN : SYMBOL_SENDEN;
+    dom.sendBtn.classList.toggle('stopping', stoppModus);
+    dom.sendBtn.title = stoppModus
+        ? 'Antwort abbrechen'
+        : (state.abbruch ? 'Nachricht anhängen – wird danach gesendet' : 'Nachricht senden');
+    dom.sendBtn.disabled = !hatText && !stoppModus;
 }
 
 function setWebSearch(modus) {
@@ -673,9 +706,6 @@ const SYMBOL_LAUTSPRECHER = '<svg viewBox="0 0 24 24" width="16" height="16">'
 const SYMBOL_PAUSE = '<svg viewBox="0 0 24 24" width="16" height="16">'
     + '<path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
 
-const SYMBOL_STOPP = '<svg viewBox="0 0 24 24" width="16" height="16">'
-    + '<path fill="currentColor" d="M6 6h12v12H6z"/></svg>';
-
 // Nur ein Vorleser gleichzeitig – sonst reden zwei Antworten durcheinander.
 let aktiverVorleser = null;
 
@@ -709,19 +739,15 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     const leiste = document.createElement('div');
     leiste.className = 'speak-controls';
 
+    // Ein einziger Knopf steuert alles: Vorlesen starten, dann pausieren und
+    // fortsetzen. Ein zweiter Stopp-Knopf war daneben nur Ballast — auf dem
+    // Handy zaehlt jeder Millimeter Daumenflaeche.
     const abspielBtn = document.createElement('button');
     abspielBtn.className = 'speak-btn';
     abspielBtn.title = 'Vorlesen';
     abspielBtn.innerHTML = SYMBOL_LAUTSPRECHER;
 
-    const stoppBtn = document.createElement('button');
-    stoppBtn.className = 'speak-btn stop';
-    stoppBtn.title = 'Stopp';
-    stoppBtn.innerHTML = SYMBOL_STOPP;
-    stoppBtn.hidden = true;   // erst sichtbar, wenn etwas läuft
-
     leiste.appendChild(abspielBtn);
-    leiste.appendChild(stoppBtn);
     messageDiv.appendChild(leiste);
 
     let aktiv = false;        // Vorlesen überhaupt eingeschaltet?
@@ -736,7 +762,6 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
         abspielBtn.innerHTML = spielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
         abspielBtn.title = spielt ? 'Pause' : 'Vorlesen';
         abspielBtn.classList.toggle('playing', spielt);
-        stoppBtn.hidden = !aktiv;
     };
 
     /** Nächstes abgeschlossenes Stück, oder null wenn noch nichts fertig ist. */
@@ -855,7 +880,6 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
         nachfuellen();
     });
 
-    stoppBtn.addEventListener('click', () => halte(true));
 
     const steuerung = {
         /** Wird gerufen, wenn neuer Text eingetroffen ist. */
@@ -903,7 +927,11 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 }
 
 async function sendMessage(text) {
-    if (state.isProcessing || !text.trim()) return;
+    if (state.abbruch || !text.trim()) return;
+    // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
+    // Griff, an dem der Stopp-Knopf zieht.
+    const controller = new AbortController();
+    state.abbruch = controller;
     setLoading(true);
     addMessage(text, 'user');
 
@@ -938,6 +966,7 @@ async function sendMessage(text) {
                 web_search: state.webSearch,
                 model: state.model,
             }),
+            signal: controller.signal,
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
@@ -1002,6 +1031,18 @@ async function sendMessage(text) {
         return abschluss;
 
     } catch (err) {
+        // Selbst abgebrochen: Das ist kein Fehler, sondern der ausdrückliche
+        // Wunsch. Kein Rückfallweg – der würde die Anfrage neu stellen und
+        // damit genau das tun, was gerade gestoppt werden sollte.
+        if (err.name === 'AbortError') {
+            zustand.fertig = true;
+            entry.content = antwort;
+            contentDiv.innerHTML = parseMarkdown(
+                (antwort ? antwort + '\n\n' : '') + '*Abgebrochen.*'
+            );
+            return null;
+        }
+
         // Kam schon Text an, ist der Stream mittendrin gerissen – dann steht
         // das Bruchstück da und ein zweiter Anlauf würde doppelt abrechnen.
         if (!antwort) {
@@ -1026,7 +1067,7 @@ async function sendMessage(text) {
             else localStorage.removeItem('model');
             setModelLabel();
             contentDiv.innerHTML = parseMarkdown(
-                `${err.message}\n\n_Zurückgewechselt auf ${kurzName(zurueck)}._`
+                `${err.message}\n\n*Zurückgewechselt auf ${kurzName(zurueck)}.*`
             );
         } else {
             contentDiv.innerHTML = parseMarkdown(
@@ -1038,6 +1079,9 @@ async function sendMessage(text) {
         }
         entry.content = antwort;
     } finally {
+        // Nur zuruecksetzen, wenn niemand zwischenzeitlich einen neuen Lauf
+        // gestartet hat – sonst wuerde dessen Stopp-Knopf ins Leere greifen.
+        if (state.abbruch === controller) state.abbruch = null;
         setLoading(false);
     }
 }
@@ -1320,6 +1364,62 @@ dom.input.addEventListener('keydown', (e) => {
 
 dom.sendBtn.addEventListener('click', handleSubmit);
 
+/**
+ * Legt eine Nachricht als graue Blase in den Verlauf, die noch nicht
+ * abgeschickt ist. Sie kommt bewusst nicht in state.messages – dort steht
+ * nur, was der Agent auch wirklich gesehen hat.
+ */
+function zeigeWartendeNachricht(text) {
+    const div = document.createElement('div');
+    div.className = 'message user queued';
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.innerHTML = `<p>${escapeHtml(text)}</p>`;
+    div.appendChild(contentDiv);
+
+    const verwerfen = document.createElement('button');
+    verwerfen.type = 'button';
+    verwerfen.className = 'queued-note';
+    verwerfen.textContent = 'wartet – tippen zum Verwerfen';
+    verwerfen.addEventListener('click', () => {
+        state.warteschlange = state.warteschlange.filter(e => e.element !== div);
+        div.remove();
+    });
+    div.appendChild(verwerfen);
+
+    dom.messages.appendChild(div);
+    scrollToBottom(true);
+    return div;
+}
+
+/** Bricht die laufende Antwort ab und legt Wartendes zurück in die Eingabe. */
+function brichAb() {
+    if (!state.abbruch) return;
+    state.abbruch.abort();
+
+    // Was noch wartete, darf nicht stillschweigend verschwinden – es landet
+    // zurück im Eingabefeld, damit nichts Getipptes verloren geht.
+    if (state.warteschlange.length) {
+        const offen = state.warteschlange.map(e => e.text);
+        state.warteschlange.forEach(e => e.element.remove());
+        state.warteschlange = [];
+        const bestand = dom.input.value.trim();
+        dom.input.value = (bestand ? bestand + '\n' : '') + offen.join('\n');
+        dom.input.dispatchEvent(new Event('input'));
+    }
+}
+
+/** Schickt ab und arbeitet danach nach und nach ab, was sich angesammelt hat. */
+async function sendeUndArbeiteAb(text) {
+    await sendMessage(text);
+    while (state.warteschlange.length) {
+        const naechste = state.warteschlange.shift();
+        naechste.element.remove();
+        await sendMessage(naechste.text);
+    }
+}
+
 async function handleSubmit() {
     // Läuft gerade eine Aufnahme, bedeutet Senden bzw. Enter: Aufnahme
     // beenden. Transkription und Absenden laufen danach von selbst weiter.
@@ -1328,11 +1428,25 @@ async function handleSubmit() {
         return;
     }
     const text = dom.input.value.trim();
-    if (!text || state.isProcessing) return;
+
+    // Leere Eingabe bei laufender Antwort heißt: abbrechen.
+    if (!text) {
+        if (state.abbruch) brichAb();
+        return;
+    }
+
     dom.input.value = '';
     dom.input.style.height = 'auto';
+
+    // Schreibt der Agent noch, wird angehängt statt dazwischenzufunken.
+    if (state.abbruch) {
+        state.warteschlange.push({ text, element: zeigeWartendeNachricht(text) });
+        updateSendButton();
+        return;
+    }
+
     updateSendButton();
-    await sendMessage(text);
+    await sendeUndArbeiteAb(text);
 }
 
 // =========================================
