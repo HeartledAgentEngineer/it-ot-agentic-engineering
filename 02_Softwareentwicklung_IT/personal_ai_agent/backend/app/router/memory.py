@@ -61,6 +61,26 @@ async def memory_count():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/wiederholungen")
+async def wiederholungen_aufraeumen(
+    ausfuehren: bool = Query(
+        default=False,
+        description="false zeigt nur, was wegfiele; erst true loescht wirklich",
+    )
+):
+    """Raeumt mehrfach gespeicherte Fakten aus dem Gedaechtnis.
+
+    Standardmaessig ein Trockenlauf. Das ist Absicht: Geloeschtes ist hier
+    nicht wiederherstellbar, und wer aufraeumt, sollte vorher sehen, was
+    verschwindet. Der jeweils aelteste Eintrag bleibt stehen.
+    """
+    try:
+        return memory_service.entferne_wiederholungen(nur_zeigen=not ausfuehren)
+    except Exception as e:
+        logger.error("Aufraeumen fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/clear")
 async def clear_memories():
     """Clear all memories (dangerous – for testing only)."""
