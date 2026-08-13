@@ -45,6 +45,11 @@ except Exception as e:
 # Zeichenvergleich. Lieber eine Dublette zu viel als ein Fakt zu wenig.
 AEHNLICHKEIT_SCHWELLE = 0.90
 
+# Bis zu dieser Zahl wandert der ganze Speicher in den Prompt, statt eine
+# Auswahl zu treffen. 300 Eintraege sind grob 5.000 Token - bei heutigen
+# Kontextfenstern belanglos, und billiger als eine Auswahl, die danebengreift.
+ALLES_MITGEBEN_BIS = 300
+
 
 def _normalisiert(text: str) -> str:
     """Kleinschreibung, ohne Satzzeichen, ohne doppelte Leerzeichen."""
@@ -158,9 +163,24 @@ class MemoryService:
     def retrieve_relevant_memories(
         self, query: str, top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Retrieve memories relevant to a query (vector search if possible)."""
-        if chroma_client.count() == 0:
+        """Erinnerungen fuer den Prompt holen.
+
+        Solange der Speicher klein ist, wird gar nicht ausgewaehlt, sondern
+        alles mitgegeben. Das loest ein Problem, das die Auswahl selbst
+        erzeugte: Ohne lokalen Embedder - auf dem Handy der Normalfall -
+        lieferte sie nicht die passenden, sondern schlicht die neuesten
+        Eintraege. Bei 16 Erinnerungen sah der Agent elf davon nie.
+
+        Die Rechnung dahinter: 70 Eintraege waren zusammen rund 1.260 Token.
+        Erst bei einigen hundert lohnt Auswahl wieder - dann aber ueber
+        Vektoren, wie beim Archiv, nicht ueber das Alter.
+        """
+        anzahl = chroma_client.count()
+        if anzahl == 0:
             return []
+
+        if anzahl <= ALLES_MITGEBEN_BIS:
+            return chroma_client.get_all_memories(limit=ALLES_MITGEBEN_BIS)
 
         if _embeddings_available and _embedder is not None:
             try:
