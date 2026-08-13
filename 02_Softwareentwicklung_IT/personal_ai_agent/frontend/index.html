@@ -22,6 +22,11 @@
                 <!-- Ohne diesen Knopf lief alles in einem endlosen Gespräch.
                      Ein Themenwechsel schleppte die letzten zehn Nachrichten
                      mit, seit der Verlauf Neustarts übersteht dauerhaft. -->
+                <button id="chats-btn" class="icon-btn" title="Frühere Gespräche">
+                    <svg viewBox="0 0 24 24" width="22" height="22">
+                        <path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/>
+                    </svg>
+                </button>
                 <button id="new-chat-btn" class="icon-btn" title="Neues Gespräch beginnen">
                     <svg viewBox="0 0 24 24" width="22" height="22">
                         <path fill="currentColor" d="M12 5v14M5 12h14" stroke="currentColor"
@@ -105,6 +110,20 @@
 
     <!-- Modellauswahl. Liegt ausserhalb von #app, damit sie den Chat
          überlagert statt ihn zu verschieben. -->
+    <!-- Frühere Gespräche. Ohne diese Liste lagen sie zwar dauerhaft auf
+         dem Gerät, waren aber nicht erreichbar: Die Oberfläche holte
+         höchstens das zuletzt geführte zurück. -->
+    <div id="chat-sheet" hidden>
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Frühere Gespräche">
+            <div class="sheet-head">
+                <h2>Frühere Gespräche</h2>
+                <button id="chats-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div id="chat-list" class="sheet-list"></div>
+            <p id="chat-hint" class="sheet-note"></p>
+        </div>
+    </div>
+
     <div id="model-sheet" hidden>
         <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Modell wählen">
             <div class="sheet-head">

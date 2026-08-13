@@ -591,7 +591,10 @@ body {
    Bewusst kein <select>: 100+ Einträge in einem Aufklappmenü sind auf dem
    Handy unbedienbar. Stattdessen Favoriten oben, Suchfeld darunter. */
 
-#model-sheet {
+/* Beide Blätter teilen sich Aussehen und Verhalten – Modellwahl und
+   Gesprächsliste unterscheiden sich nur im Inhalt. */
+#model-sheet,
+#chat-sheet {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -602,8 +605,43 @@ body {
     backdrop-filter: blur(3px);
 }
 
-#model-sheet[hidden] {
+#model-sheet[hidden],
+#chat-sheet[hidden] {
     display: none;
+}
+
+/* Eine Zeile der Gesprächsliste. */
+.chat-row {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.chat-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* Das gerade geöffnete Gespräch. */
+.chat-row.aktiv {
+    color: var(--accent);
+}
+
+.chat-row .chat-vorschau {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .sheet-panel {

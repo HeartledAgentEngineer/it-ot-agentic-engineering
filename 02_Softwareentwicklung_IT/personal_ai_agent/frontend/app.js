@@ -109,6 +109,11 @@ const dom = {
     sendBtn: document.getElementById('send-btn'),
     micBtn: document.getElementById('mic-btn'),
     newChatBtn: document.getElementById('new-chat-btn'),
+    chatsBtn: document.getElementById('chats-btn'),
+    chatSheet: document.getElementById('chat-sheet'),
+    chatsClose: document.getElementById('chats-close'),
+    chatList: document.getElementById('chat-list'),
+    chatHint: document.getElementById('chat-hint'),
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
@@ -1365,6 +1370,7 @@ dom.modelSheet.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !dom.modelSheet.hidden) schliesseBlatt();
+    if (e.key === 'Escape' && !dom.chatSheet.hidden) schliesseChatBlatt();
 });
 
 dom.micBtn.addEventListener('click', () => {
@@ -1393,6 +1399,13 @@ dom.input.addEventListener('keydown', (e) => {
 
 dom.sendBtn.addEventListener('click', handleSubmit);
 dom.newChatBtn.addEventListener('click', neuesGespraech);
+dom.chatsBtn.addEventListener('click', oeffneChatBlatt);
+dom.chatsClose.addEventListener('click', schliesseChatBlatt);
+// Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
+// natürlichste Geste, um ein Blatt wieder loszuwerden.
+dom.chatSheet.addEventListener('click', (e) => {
+    if (e.target === dom.chatSheet) schliesseChatBlatt();
+});
 
 /**
  * Legt eine Nachricht als graue Blase in den Verlauf, die noch nicht
@@ -1548,40 +1561,88 @@ async function letzteGespraechsId() {
     }
 }
 
-async function stelleVerlaufWiederHer() {
-    // Kennt der Browser kein Gespräch – neues Gerät, gelöschter Speicher,
-    // anderer Browser –, wird das zuletzt geführte geholt. Sonst stünde man
-    // vor einem leeren Fenster, obwohl der Server den Verlauf hat.
-    if (!state.conversationId) {
-        state.conversationId = await letzteGespraechsId();
-        if (state.conversationId) {
-            localStorage.setItem('conversation_id', state.conversationId);
-        }
-    }
-    if (!state.conversationId) return;
+/** Zeigt die Nachrichten eines Gesprächs an. True, wenn es sie gab. */
+async function zeigeGespraech(id) {
     try {
-        const res = await fetch(`${API_BASE}/api/conversations/${state.conversationId}`);
-        if (!res.ok) {
-            // 404: Der Server kennt das Gespräch nicht mehr. Dann ist der
-            // Verweis wertlos und verschwindet, statt bei jedem Start
-            // erneut ins Leere zu greifen.
-            if (res.status === 404) {
-                localStorage.removeItem('conversation_id');
-                state.conversationId = null;
-            }
-            return;
-        }
-        const daten = await res.json();
-        const nachrichten = daten.messages || [];
-        if (!nachrichten.length) return;
+        const res = await fetch(`${API_BASE}/api/conversations/${id}`);
+        if (!res.ok) return false;
+        const nachrichten = (await res.json()).messages || [];
+        if (!nachrichten.length) return false;
+
+        const willkommen = document.getElementById('welcome');
+        dom.messages.innerHTML = '';
+        if (willkommen) dom.messages.appendChild(willkommen);
+        state.messages = [];
 
         for (const m of nachrichten) {
             addMessage(m.content, m.role === 'user' ? 'user' : 'assistant');
         }
+        state.conversationId = id;
+        localStorage.setItem('conversation_id', id);
         scrollToBottom(true);
+        return true;
     } catch (err) {
-        console.warn('Verlauf nicht abrufbar:', err);
+        console.warn('Gespräch nicht abrufbar:', err);
+        return false;
     }
+}
+
+/** Füllt das Blatt mit den gespeicherten Gesprächen, jüngstes zuerst. */
+async function zeichneGespraeche() {
+    dom.chatList.innerHTML = '';
+    dom.chatHint.textContent = '';
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const liste = (await res.json()).conversations || [];
+        const mitInhalt = liste.filter(c => c.message_count > 0).reverse();
+
+        if (!mitInhalt.length) {
+            dom.chatHint.textContent = 'Noch keine gespeicherten Gespräche.';
+            return;
+        }
+
+        for (const c of mitInhalt) {
+            const knopf = document.createElement('button');
+            knopf.type = 'button';
+            knopf.className = 'chat-row' + (c.id === state.conversationId ? ' aktiv' : '');
+            knopf.innerHTML =
+                `<strong>${escapeHtml(c.id)}</strong> · ${c.message_count} Nachrichten`
+                + `<span class="chat-vorschau">${escapeHtml(c.last_message || '')}</span>`;
+            knopf.addEventListener('click', async () => {
+                if (await zeigeGespraech(c.id)) schliesseChatBlatt();
+            });
+            dom.chatList.appendChild(knopf);
+        }
+    } catch (err) {
+        dom.chatHint.textContent = 'Gespräche nicht abrufbar – läuft der Server?';
+        console.warn('Gesprächsliste:', err);
+    }
+}
+
+function oeffneChatBlatt() {
+    dom.chatSheet.hidden = false;
+    zeichneGespraeche();
+}
+
+function schliesseChatBlatt() {
+    dom.chatSheet.hidden = true;
+}
+
+async function stelleVerlaufWiederHer() {
+    // Zuerst das gemerkte Gespräch. Klappt das nicht – unbekannte Kennung,
+    // neues Gerät, geleerter Browserspeicher –, wird das jüngste geholt.
+    //
+    // Dieser Rückfall fehlte zunächst: Bei einer Kennung, die der Server
+    // nicht mehr kannte, brach der Vorgang ab und man stand vor einem
+    // leeren Fenster, obwohl vier Gespräche bereitlagen.
+    if (state.conversationId && await zeigeGespraech(state.conversationId)) return;
+
+    localStorage.removeItem('conversation_id');
+    state.conversationId = null;
+
+    const juengste = await letzteGespraechsId();
+    if (juengste) await zeigeGespraech(juengste);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
