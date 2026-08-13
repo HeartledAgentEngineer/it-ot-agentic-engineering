@@ -64,6 +64,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 10px;
+}
+
+/* Schiebt Status und Neu-Knopf nach rechts zusammen. Ohne das verteilte
+   space-between die drei Elemente gleichmaeszig und der Status landete
+   einsam in der Mitte. */
+.app-title {
+    margin-right: auto;
 }
 
 .app-title {

@@ -19,14 +19,24 @@
                     <span class="status-dot"></span>
                     <span class="status-text">Offline</span>
                 </span>
+                <!-- Ohne diesen Knopf lief alles in einem endlosen Gespräch.
+                     Ein Themenwechsel schleppte die letzten zehn Nachrichten
+                     mit, seit der Verlauf Neustarts übersteht dauerhaft. -->
+                <button id="new-chat-btn" class="icon-btn" title="Neues Gespräch beginnen">
+                    <svg viewBox="0 0 24 24" width="22" height="22">
+                        <path fill="currentColor" d="M12 5v14M5 12h14" stroke="currentColor"
+                              stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
             </div>
         </header>
 
         <!-- Chat Messages -->
         <main id="chat-container">
             <div id="messages">
-                <!-- Welcome message -->
-                <div class="message assistant">
+                <!-- Welcome message. Die ID wird gebraucht, damit sie beim
+                     Leeren der Anzeige stehen bleibt. -->
+                <div class="message assistant" id="welcome">
                     <div class="message-content">
                         <p>👋 Hallo! Ich bin dein persönlicher KI-Assistent.</p>
                         <p>Stell mir eine Frage oder erzähl mir etwas – ich merke mir Dinge für dich!</p>

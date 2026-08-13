@@ -103,6 +103,7 @@ const dom = {
     input: document.getElementById('message-input'),
     sendBtn: document.getElementById('send-btn'),
     micBtn: document.getElementById('mic-btn'),
+    newChatBtn: document.getElementById('new-chat-btn'),
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
@@ -1369,6 +1370,7 @@ dom.input.addEventListener('keydown', (e) => {
 });
 
 dom.sendBtn.addEventListener('click', handleSubmit);
+dom.newChatBtn.addEventListener('click', neuesGespraech);
 
 /**
  * Legt eine Nachricht als graue Blase in den Verlauf, die noch nicht
@@ -1484,7 +1486,56 @@ if ('serviceWorker' in navigator) {
  * Schritt wäre er zwar gespeichert, aber unsichtbar – nach jedem Neustart
  * stünde wieder ein leeres Fenster da.
  */
+/**
+ * Beginnt ein neues Gespräch: Anzeige leeren, Verweis lösen.
+ *
+ * Das alte Gespräch bleibt auf der Platte liegen — hier wird nichts
+ * gelöscht, nur beiseitegelegt. Die neue Kennung vergibt der Server beim
+ * nächsten Absenden von allein.
+ */
+function neuesGespraech() {
+    if (state.abbruch) brichAb();
+
+    state.conversationId = null;
+    localStorage.removeItem('conversation_id');
+    state.messages = [];
+    state.warteschlange = [];
+
+    // Alles außer der Begrüßung entfernen.
+    const willkommen = document.getElementById('welcome');
+    dom.messages.innerHTML = '';
+    if (willkommen) dom.messages.appendChild(willkommen);
+
+    dom.input.value = '';
+    updateSendButton();
+    dom.input.focus();
+}
+
+/** Holt die Kennung des zuletzt geführten Gesprächs vom Server. */
+async function letzteGespraechsId() {
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations`);
+        if (!res.ok) return null;
+        const daten = await res.json();
+        const liste = daten.conversations || [];
+        // Der Server hängt neue Gespräche hinten an, das letzte ist das jüngste.
+        const letztes = liste.filter(c => c.message_count > 0).pop();
+        return letztes ? letztes.id : null;
+    } catch {
+        return null;
+    }
+}
+
 async function stelleVerlaufWiederHer() {
+    // Kennt der Browser kein Gespräch – neues Gerät, gelöschter Speicher,
+    // anderer Browser –, wird das zuletzt geführte geholt. Sonst stünde man
+    // vor einem leeren Fenster, obwohl der Server den Verlauf hat.
+    if (!state.conversationId) {
+        state.conversationId = await letzteGespraechsId();
+        if (state.conversationId) {
+            localStorage.setItem('conversation_id', state.conversationId);
+        }
+    }
     if (!state.conversationId) return;
     try {
         const res = await fetch(`${API_BASE}/api/conversations/${state.conversationId}`);
