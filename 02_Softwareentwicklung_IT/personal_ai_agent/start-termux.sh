@@ -18,7 +18,16 @@
 
 set -u
 
-PROJEKT="${PROJEKT:-$HOME/personal_ai_agent}"
+# Der Projektordner ist der Ordner, in dem dieses Skript liegt. Ueber
+# ~/.shortcuts ist $0 ein Symlink, der zuerst aufgeloest werden muss.
+#
+# Vorher stand hier fest $HOME/personal_ai_agent. Das passte nie zur
+# Anleitung, die das Repo nach ~/it-ot-agentic-engineering/... klont — das
+# Skript brach also gleich in der ersten Zeile ab. Selbst herausfinden, wo
+# man liegt, geht immer; raten geht schief.
+skript="$0"
+[ -L "$skript" ] && skript="$(readlink "$skript")"
+PROJEKT="${PROJEKT:-$(cd "$(dirname "$skript")" && pwd)}"
 PORT="${PORT:-8080}"
 
 cd "$PROJEKT" || { echo "Projektordner nicht gefunden: $PROJEKT"; exit 1; }
