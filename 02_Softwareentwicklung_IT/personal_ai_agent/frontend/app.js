@@ -377,10 +377,27 @@ function setMicStatus(status) {
 // =========================================
 // API Calls
 // =========================================
+// Merkt sich, ob der Server gerade offline war. Sobald er nach einem
+// Neustart wieder da ist, laedt sich der Tab einmal selbst neu, damit
+// keine tote/fehlerhafte Seite stehen bleibt und kein neuer Tab noetig ist.
+let serverWarOffline = false;
+let neuladenInArbeit = false;
+
 async function checkHealth() {
     try {
         const res = await fetch(`${API_BASE}/api/health`);
         if (res.ok) {
+            if (serverWarOffline) {
+                serverWarOffline = false;
+                // Server war weg und ist jetzt wieder da -> Seite einmal neu
+                // laden, damit die alte/tote Ansicht verschwindet.
+                if (!neuladenInArbeit) {
+                    neuladenInArbeit = true;
+                    console.log('Server wieder erreichbar – Seite wird neu geladen.');
+                    window.location.reload();
+                    return null;
+                }
+            }
             const data = await res.json();
             setOnline(true);
             if (data.memory_count !== undefined) {
@@ -391,6 +408,7 @@ async function checkHealth() {
     } catch (err) {
         console.warn('Health check failed:', err);
     }
+    serverWarOffline = true;
     setOnline(false);
     return null;
 }
