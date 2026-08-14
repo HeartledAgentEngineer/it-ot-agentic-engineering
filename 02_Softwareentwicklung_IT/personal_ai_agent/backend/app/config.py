@@ -129,6 +129,18 @@ class Settings(BaseSettings):
     # oeffentliche Datei beschreibt nur, wie der Agent arbeitet.
     system_prompt_local_file: str = str(BACKEND_DIR / "system_prompt.local.md")
 
+    # Auftragsbuch fuer den Coding-Agenten (Hermes). Liegt neben chroma_data
+    # und ist wie dieses per .gitignore ausgenommen: Es enthaelt, was der
+    # Nutzer diktiert hat, und das Repo ist oeffentlich.
+    auftraege_datei: str = str(BASE_DIR / "auftraege.json")
+
+    # Nach wie vielen Minuten ein abgeholter Auftrag wieder als offen gilt.
+    # Hermes arbeitet in kurzlebigen Sitzungen; bricht eine ab, wuerde der
+    # Auftrag ohne diese Frist fuer immer haengen bleiben. Der Wert sollte
+    # ueber dem Cron-Takt liegen, sonst holt sich der naechste Lauf einen
+    # Auftrag, an dem noch gearbeitet wird.
+    auftrag_timeout_minuten: int = 30
+
     # Logging
     log_level: str = "INFO"
 

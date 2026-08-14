@@ -78,6 +78,43 @@ class MemoryListResponse(BaseModel):
     total: int
 
 
+class AuftragCreate(BaseModel):
+    """Ein neuer Auftrag an den Coding-Agenten."""
+    auftrag: str = Field(..., min_length=1, max_length=10000)
+    # Freier Zusatz, etwa welche Datei gemeint ist. Getrennt vom Auftrag,
+    # damit der Auftragstext das bleibt, was diktiert wurde.
+    hinweis: Optional[str] = Field(default=None, max_length=5000)
+
+
+class AuftragItem(BaseModel):
+    """Ein Auftrag samt Stand.
+
+    `status` ist bewusst ein freies Feld und kein Literal: Ein unbekannter
+    Wert soll die Liste anzeigbar lassen, statt sie ganz unlesbar zu machen.
+    Dieselbe Falle hat das Gedaechtnis schon einmal gestellt.
+    """
+    id: str
+    auftrag: str
+    hinweis: Optional[str] = None
+    status: str
+    erstellt: str
+    abgeholt: Optional[str] = None
+    beendet: Optional[str] = None
+    ergebnis: Optional[str] = None
+
+
+class AuftragListResponse(BaseModel):
+    """Liste von Auftraegen."""
+    auftraege: List[AuftragItem]
+    total: int
+
+
+class ErgebnisCreate(BaseModel):
+    """Rueckmeldung des Coding-Agenten zu einem Auftrag."""
+    ergebnis: str = Field(..., min_length=1, max_length=50000)
+    erfolg: bool = True
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = "ok"
