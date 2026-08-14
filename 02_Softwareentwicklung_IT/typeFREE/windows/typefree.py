@@ -642,7 +642,7 @@ def _polished_is_plausible(raw_text, polished):
 def polish_text(raw_text):
     try:
         response = openrouter_client.chat.completions.create(
-            model="google/gemini-2.0-flash-001",
+            model="google/gemini-2.5-flash",
             messages=[
                 {"role": "system", "content": POLISH_ANWEISUNG},
                 {"role": "user",
