@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
+from app.services.auftrag_service import auftrag_service
+from app.services.auftrags_erkennung import ist_auftrag
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -134,6 +136,30 @@ def _archiv_treffer(frage: str, aktiv: bool) -> List[Dict[str, Any]]:
 async def chat(request: ChatRequest):
     """Process a chat message and return the LLM response."""
     try:
+        # Weiche: Coding-/Werkzeug-Auftraege ans Auftragsbuch statt an den
+        # lokalen LLM. Damit landet "erstelle das und das" bei Hermes, der
+        # sich den Auftrag im eigenen Takt abholt.
+        ist_auftrag_val, begruendung = ist_auftrag(request.message)
+        if ist_auftrag_val:
+            eintrag = auftrag_service.anlegen(
+                request.message, hinweis=f"Automatische Erkennung: {begruendung}"
+            )
+            reply_text = (
+                "🧩 Das klingt nach einem Coding-Auftrag – ich habe das an "
+                f"den Coding-Agenten weitergegeben (Auftrags-ID {eintrag['id'][:8]}). "
+                "Sobald er ihn abarbeitet, landet das Ergebnis wieder hier."
+            )
+            conversation_id = _get_or_create_conversation(request.conversation_id)
+            _finish_exchange(conversation_id, request.message, reply_text)
+            return ChatResponse(
+                reply=reply_text,
+                conversation_id=conversation_id,
+                memories_used=0,
+                memories_created=0,
+                sources=[],
+                archiv_used=0,
+            )
+
         conversation_id = _get_or_create_conversation(request.conversation_id)
         history = conversations[conversation_id]
 
@@ -177,6 +203,44 @@ async def chat(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
+    # Gleiche Weiche wie in /chat: Coding-Auftraege ans Auftragsbuch statt
+    # an den lokalen LLM. Als ein einzelnes SSE-Event ausgeliefert.
+    ist_auftrag_val, begruendung = ist_auftrag(request.message)
+    if ist_auftrag_val:
+        eintrag = auftrag_service.anlegen(
+            request.message, hinweis=f"Automatische Erkennung: {begruendung}"
+        )
+        reply_text = (
+            "🧩 Das klingt nach einem Coding-Auftrag – ich habe das an "
+            f"den Coding-Agenten weitergegeben (Auftrags-ID {eintrag['id'][:8]}). "
+            "Sobald er ihn abarbeitet, landet das Ergebnis wieder hier."
+        )
+        conversation_id = _get_or_create_conversation(request.conversation_id)
+        _finish_exchange(conversation_id, request.message, reply_text)
+
+        def auftrag_ereignisse():
+            # In zwei Teile zerlegt: erst Text, dann fertig - die UI haengt
+            # ihr "fertig"-Handle an das done-Event.
+            yield _sse({"delta": reply_text})
+            yield _sse({
+                "done": True,
+                "conversation_id": conversation_id,
+                "memories_used": 0,
+                "memories_created": 0,
+                "memory_count": memory_service.get_memory_count(),
+                "archiv_used": 0,
+                "sources": [],
+            })
+
+        return StreamingResponse(
+            auftrag_ereignisse(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     conversation_id = _get_or_create_conversation(request.conversation_id)
     history = conversations[conversation_id]
     memories = memory_service.retrieve_relevant_memories(request.message, top_k=5)
