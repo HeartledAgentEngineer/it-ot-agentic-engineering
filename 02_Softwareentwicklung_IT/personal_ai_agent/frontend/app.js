@@ -421,24 +421,87 @@ async function checkHealth() {
     // kein neuer Timer, damit sich nicht mehrere überlagern.
     if (!autoCloseTimer) {
         autoCloseTimer = setTimeout(() => {
+            autoCloseTimer = null;
             // Vor dem Schließen noch einmal prüfen – Server könnte
-        // inzwischen wieder da sein.
+            // inzwischen wieder da sein.
             fetch(`${API_BASE}/api/health`)
                 .then(res => {
                     if (res.ok) {
                         // Server doch erreichbar – Tab offen lassen
-                        autoCloseTimer = null;
+                        setOnline(true);
+                        serverWarOffline = false;
                     } else {
-                        window.close();
+                        _tryCloseTab();
                     }
                 })
                 .catch(() => {
-                    window.close(); // Server immer noch weg
+                    _tryCloseTab(); // Server immer noch weg
                 });
-            autoCloseTimer = null;
         }, 5000);
     }
     return null;
+}
+
+/**
+ * Versucht den Tab zu schließen. window.close() funktioniert nur bei
+ * JS-geöffneten Tabs. Bei normalen Tabs zeigt es stattdessen eine
+ * Vollbild-Warnung mit self-destruct nach 30s.
+ */
+function _tryCloseTab() {
+    try {
+        window.close();
+        // Wenn window.close() erfolgreich war, landen wir nie hier
+    } catch (_) {}
+    // window.close() hat nicht funktioniert → Vollbild-Warnung anzeigen
+    _showCloseOverlay();
+}
+
+function _showCloseOverlay() {
+    // Prüfen, ob bereits ein Overlay existiert
+    if (document.getElementById('hermes-close-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'hermes-close-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: #1a1a2e; color: #fff; z-index: 99999;
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; font-family: sans-serif;
+        animation: fadeIn 0.3s ease;
+    `;
+    overlay.innerHTML = `
+        <div style="font-size:64px;margin-bottom:20px">🛑</div>
+        <h1 style="margin:0 0 10px 0;font-size:24px">Server nicht erreichbar</h1>
+        <p style="color:#aaa;margin:0 0 20px 0;text-align:center;max-width:400px">
+            Der Personal AI Agent wurde beendet oder ist nicht erreichbar.<br>
+            Bitte schließe diesen Tab manuell.
+        </p>
+        <div id="close-countdown" style="font-size:48px;font-weight:bold;color:#ff6b6b">30</div>
+        <p style="color:#888;font-size:12px;margin-top:10px">
+            Automatische Schließung in <span id="close-countdown-label">30</span>s
+        </p>
+        <button onclick="window.close();document.getElementById('hermes-close-overlay').remove()"
+                style="margin-top:20px;padding:10px 30px;background:#ff6b6b;color:#fff;
+                       border:none;border-radius:8px;cursor:pointer;font-size:16px">
+            Tab jetzt schließen
+        </button>
+    `;
+    document.body.innerHTML = '';
+    document.body.appendChild(overlay);
+
+    // Countdown von 30s
+    let count = 30;
+    const counter = document.getElementById('close-countdown');
+    const label = document.getElementById('close-countdown-label');
+    const timer = setInterval(() => {
+        count--;
+        if (counter) counter.textContent = String(count);
+        if (label) label.textContent = String(count);
+        if (count <= 0) {
+            clearInterval(timer);
+            try { window.close(); } catch (_) {}
+        }
+    }, 1000);
 }
 
 function updateFooterNote(memoryCount) {
