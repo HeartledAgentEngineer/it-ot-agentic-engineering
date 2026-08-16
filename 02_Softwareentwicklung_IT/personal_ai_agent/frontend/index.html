@@ -66,8 +66,19 @@
 
         <!-- Input Area -->
         <footer id="input-area">
+            <!-- Vorschau hochgeladener Dateien. Erst sichtbar, wenn welche
+                 ausgewählt wurden. Pro Datei: Miniatur + Name + Entfernen-Knopf. -->
+            <div id="file-preview" class="file-preview hidden">
+                <div id="file-preview-list" class="file-preview-list"></div>
+            </div>
             <div class="input-wrapper">
                 <textarea id="message-input" rows="1" placeholder="Nachricht eingeben..." maxlength="10000"></textarea>
+                <button id="upload-btn" class="icon-btn" title="Datei hochladen (Bild/PDF)">
+                    <svg viewBox="0 0 24 24" width="22" height="22">
+                        <path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 015 0v10.5a1 1 0 01-2 0V6H10v9.5a2.5 2.5 0 005 0V5c0-2.76-2.24-5-5-5S5 2.24 5 5v12.5c0 3.59 2.91 6.5 6.5 6.5s6.5-2.91 6.5-6.5V6h-1.5z"/>
+                    </svg>
+                </button>
+                <input type="file" id="file-input" accept="image/*,.pdf" multiple hidden>
                 <button id="mic-btn" class="icon-btn" title="Spracheingabe">
                     <svg viewBox="0 0 24 24" width="24" height="24">
                         <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>

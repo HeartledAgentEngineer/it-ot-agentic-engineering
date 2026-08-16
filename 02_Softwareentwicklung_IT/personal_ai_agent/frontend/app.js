@@ -97,6 +97,9 @@ const state = {
     // Nachrichten, die waehrend einer laufenden Antwort abgeschickt wurden.
     // Eintraege: { text, element } – element ist die graue Wartet-Blase.
     warteschlange: [],
+    // Vom Nutzer ausgewählte, aber noch nicht abgeschickte Dateien
+    // Eintraege: { id, filename, type, url, mime, data_url, text, file }
+    pendingFiles: [],
 };
 
 // =========================================
@@ -127,6 +130,11 @@ const dom = {
     modelFilters: document.getElementById('model-filters'),
     privacyBtn: document.getElementById('privacy-btn'),
     privacyLabel: document.getElementById('privacy-label'),
+    // Datei-Upload
+    uploadBtn: document.getElementById('upload-btn'),
+    fileInput: document.getElementById('file-input'),
+    filePreview: document.getElementById('file-preview'),
+    filePreviewList: document.getElementById('file-preview-list'),
 };
 
 // =========================================
@@ -393,6 +401,208 @@ function setMicStatus(status) {
         'polishing': 'Glätte Text ...',
     };
     dom.micBtn.title = titles[status] || 'Spracheingabe';
+}
+
+// =========================================
+// Datei-Upload
+// =========================================
+
+/** Maximale Anzahl gleichzeitig ausgewählter Dateien */
+const MAX_DATEIEN = 5;
+
+/**
+ * Büroklammer-Klick: Dateiauswahl öffnen.
+ * Ist bereits die Maximalzahl erreicht, wird stattdessen der Nutzer
+ * darauf hingewiesen – sonst stapeln sich die Dateien unsichtbar.
+ */
+dom.uploadBtn.addEventListener('click', () => {
+    if (state.pendingFiles.length >= MAX_DATEIEN) {
+        // Kurze Rückmeldung ohne Browser-Dialog. Der Hinweis verschwindet
+        // nach dem nächsten Klick von selbst.
+        const rest = dom.uploadBtn.querySelector('span');
+        if (!rest) {
+            const badge = document.createElement('span');
+            badge.textContent = `Max ${MAX_DATEIEN}`;
+            badge.style.cssText = 'position:absolute;top:-6px;right:-6px;font-size:0.6rem;background:var(--error);color:#fff;border-radius:8px;padding:0 5px;line-height:1.4';
+            dom.uploadBtn.style.position = 'relative';
+            dom.uploadBtn.appendChild(badge);
+            setTimeout(() => badge.remove(), 2000);
+        }
+        return;
+    }
+    dom.fileInput.click();
+});
+
+/**
+ * Datei(en) ausgewählt → hochladen zum Backend.
+ */
+dom.fileInput.addEventListener('change', async () => {
+    const files = dom.fileInput.files;
+    if (!files || files.length === 0) return;
+
+    // Prüfen, wie viele noch hinzukommen dürfen
+    const platz = MAX_DATEIEN - state.pendingFiles.length;
+    const auswahl = Array.from(files).slice(0, platz);
+
+    for (const file of auswahl) {
+        // Validierung schon clientseitig
+        const isImage = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf';
+        if (!isImage && !isPdf) {
+            console.warn('Nicht unterstützter Dateityp:', file.type);
+            continue;
+        }
+        if (file.size > 20 * 1024 * 1024) {
+            console.warn('Datei zu groß (>20 MB):', file.name);
+            continue;
+        }
+
+        // Hochladen
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch(`${API_BASE}/api/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                console.warn('Upload fehlgeschlagen:', err.detail || res.status);
+                continue;
+            }
+
+            const data = await res.json();
+
+            // Für PDFs haben wir den extrahierten Text bereits
+            state.pendingFiles.push({
+                id: data.id,
+                filename: data.filename,
+                type: data.type,
+                url: data.url,
+                mime: data.mime,
+                data_url: data.data_url,  // base64 image für Vision-API
+                text: data.konvertiert,   // extrahierter PDF-Text
+                file: file,               // Referenz für lokale Vorschau
+            });
+
+            _fuegeVorschauHinzu(data, file);
+        } catch (err) {
+            console.warn('Netzwerkfehler beim Upload:', err);
+        }
+    }
+
+    // Input zurücksetzen, damit dieselbe Datei erneut gewählt werden kann
+    dom.fileInput.value = '';
+    _aktualisiereUploadKnopf();
+});
+
+/**
+ * Vorschau-Element für eine hochgeladene Datei hinzufügen.
+ */
+function _fuegeVorschauHinzu(data, file) {
+    dom.filePreview.classList.remove('hidden');
+
+    const item = document.createElement('div');
+    item.className = 'file-preview-item';
+    item.dataset.fileId = data.id;
+
+    if (data.type === 'image') {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        img.alt = data.filename;
+        img.loading = 'lazy';
+        item.appendChild(img);
+    } else {
+        const icon = document.createElement('span');
+        icon.className = 'pdf-icon';
+        icon.textContent = '📄';
+        item.appendChild(icon);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.textContent = data.filename;
+    name.title = data.filename;
+    item.appendChild(name);
+
+    const remove = document.createElement('button');
+    remove.className = 'file-remove';
+    remove.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+    remove.title = 'Entfernen';
+    remove.addEventListener('click', () => _entferneDatei(data.id));
+    item.appendChild(remove);
+
+    dom.filePreviewList.appendChild(item);
+}
+
+/**
+ * Eine Datei aus der Vorschau und der pending-Liste entfernen.
+ */
+function _entferneDatei(fileId) {
+    state.pendingFiles = state.pendingFiles.filter(f => f.id !== fileId);
+    const item = dom.filePreviewList.querySelector(`[data-file-id="${fileId}"]`);
+    if (item) item.remove();
+    if (state.pendingFiles.length === 0) {
+        dom.filePreview.classList.add('hidden');
+    }
+    _aktualisiereUploadKnopf();
+
+    // Datei auf dem Server löschen (fehlertolerant)
+    fetch(`${API_BASE}/api/uploads/${fileId}`, { method: 'DELETE' })
+        .catch(() => {});
+}
+
+/**
+ * Upload-Knopf-Styling aktualisieren.
+ */
+function _aktualisiereUploadKnopf() {
+    dom.uploadBtn.classList.toggle('has-files', state.pendingFiles.length > 0);
+}
+
+/**
+ * Zeigt die angehängten Dateien in einer Chat-Nachricht an.
+ * Ruft man nach addMessage() auf, um das contentDiv zu befüllen.
+ */
+function _zeigeDateienInNachricht(contentDiv, files) {
+    if (!files || files.length === 0) return;
+
+    files.forEach(f => {
+        if (f.type === 'image' && f.data_url) {
+            // Bild direkt anzeigen (Base64 data URL)
+            const img = document.createElement('img');
+            img.src = f.data_url;
+            img.alt = f.filename;
+            img.loading = 'lazy';
+            img.title = f.filename;
+            contentDiv.appendChild(img);
+        } else if (f.type === 'image' && f.url) {
+            // Bild vom Server laden
+            const img = document.createElement('img');
+            img.src = `${API_BASE}${f.url}`;
+            img.alt = f.filename;
+            img.loading = 'lazy';
+            img.title = f.filename;
+            contentDiv.appendChild(img);
+        } else {
+            // PDF-Icon anzeigen
+            const fileDiv = document.createElement('div');
+            fileDiv.className = 'message-file';
+            fileDiv.innerHTML = `<span class="file-icon">📄</span><span class="file-meta">${escapeHtml(f.filename)}</span>`;
+            contentDiv.appendChild(fileDiv);
+        }
+    });
+}
+
+/**
+ * Vorschau nach erfolgreichem Senden leeren.
+ */
+function _raeumeDateiVorschau() {
+    state.pendingFiles = [];
+    dom.filePreviewList.innerHTML = '';
+    dom.filePreview.classList.add('hidden');
+    _aktualisiereUploadKnopf();
 }
 
 // =========================================
@@ -1165,7 +1375,11 @@ async function sendMessage(text) {
     const controller = new AbortController();
     state.abbruch = controller;
     setLoading(true);
-    addMessage(text, 'user');
+    const userContentDiv = addMessage(text, 'user');
+    // Dateivorschau in der Nachricht anzeigen, falls vorhanden
+    if (state.pendingFiles.length > 0) {
+        _zeigeDateienInNachricht(userContentDiv, state.pendingFiles);
+    }
 
     // Leere Blase anlegen, die sich während des Streams füllt.
     const contentDiv = addMessage('', 'assistant');
@@ -1197,6 +1411,17 @@ async function sendMessage(text) {
                 conversation_id: state.conversationId,
                 web_search: state.webSearch,
                 model: state.model,
+                files: state.pendingFiles.length > 0
+                    ? state.pendingFiles.map(f => ({
+                        id: f.id,
+                        filename: f.filename,
+                        type: f.type,
+                        url: f.url,
+                        mime: f.mime,
+                        data_url: f.data_url,
+                        text: f.text,
+                    }))
+                    : undefined,
             }),
             signal: controller.signal,
         });
@@ -1254,6 +1479,11 @@ async function sendMessage(text) {
 
         if (!antwort) throw new Error('Leere Antwort vom Server');
         zustand.fertig = true;
+
+        // Hochgeladene Dateien aus der Vorschau entfernen – sie wurden
+        // mit der Nachricht versendet und sind nun Teil des Verlaufs.
+        _raeumeDateiVorschau();
+
         // Zwischendurch eingetroffene Quellen mit denen aus dem Abschluss
         // zusammenführen – doppelte Adressen fallen dabei weg.
         abschluss = Object.assign({}, abschluss, {

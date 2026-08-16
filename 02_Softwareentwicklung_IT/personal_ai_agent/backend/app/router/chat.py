@@ -157,9 +157,7 @@ async def chat(request: ChatRequest):
                 f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
                 "Der Auftrag wurde an den Coding-Agenten (Hermes) "
                 "weitergegeben. Sobald er bearbeitet ist, wird das "
-                "Ergebnis hier angezeigt.\n"
-                "Du kannst jederzeit nach dem Stand fragen:\n"
-                f"`Wie ist der Stand von Auftrag {eintrag['id'][:8]}?`"
+                "Ergebnis hier live angezeigt.\n"
             )
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
@@ -193,6 +191,7 @@ async def chat(request: ChatRequest):
             model=request.model,
             no_retention=request.no_retention,
             archiv=archiv,
+            files=[f.model_dump() for f in request.files] if request.files else None,
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -235,9 +234,7 @@ async def chat_stream(request: ChatRequest):
             f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
             "Der Auftrag wurde an den Coding-Agenten (Hermes) "
             "weitergegeben. Sobald er bearbeitet ist, wird das "
-            "Ergebnis hier angezeigt.\n"
-            "Du kannst jederzeit nach dem Stand fragen:\n"
-            f"`Wie ist der Stand von Auftrag {eintrag['id'][:8]}?`"
+            "Ergebnis hier live angezeigt.\n"
         )
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
@@ -283,6 +280,7 @@ async def chat_stream(request: ChatRequest):
                     model=request.model,
                     no_retention=request.no_retention,
                     archiv=archiv,
+                    files=[f.model_dump() for f in request.files] if request.files else None,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])

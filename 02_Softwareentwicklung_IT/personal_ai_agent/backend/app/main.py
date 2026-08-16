@@ -21,6 +21,7 @@ from app.router import (
     llm_models,
     archiv,
     auftraege,
+    upload,
 )
 
 # Configure logging
@@ -106,6 +107,7 @@ app.include_router(speak.router)
 app.include_router(llm_models.router)
 app.include_router(archiv.router)
 app.include_router(auftraege.router)
+app.include_router(upload.router)
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

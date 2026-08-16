@@ -302,11 +302,15 @@ class LLMService:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         memories: Optional[List[Dict[str, Any]]] = None,
         archiv: Optional[List[Dict[str, Any]]] = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, str]]:
         """Nachrichtenliste für einen LLM-Aufruf zusammenbauen.
 
         Wird von chat() und chat_stream() gemeinsam genutzt, damit beide
         Wege garantiert denselben Kontext sehen.
+
+        Wenn Dateien (Bilder/PDFs) angehängt sind, wird der User-Content
+        als Array gemischt (Text + image_urls / PDF-Text).
         """
         system_prompt = self.load_system_prompt()
 
@@ -330,7 +334,37 @@ class LLMService:
             for msg in conversation_history[-10:]:
                 messages.append(msg)
 
-        messages.append({"role": "user", "content": user_message})
+        # User-Nachricht mit optionalen Dateianhängen
+        if files and len(files) > 0:
+            content_parts: List[Dict[str, Any]] = [
+                {"type": "text", "text": user_message}
+            ]
+            pdf_context_parts: List[str] = []
+
+            for f in files:
+                if f.get("type") == "image" and f.get("data_url"):
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f["data_url"],
+                            "detail": "auto",
+                        },
+                    })
+                elif f.get("type") == "pdf" and f.get("text"):
+                    pdf_context_parts.append(
+                        f"[PDF: {f.get('filename', 'Unbenannt')}]\n{f['text']}"
+                    )
+
+            if pdf_context_parts:
+                content_parts.append({
+                    "type": "text",
+                    "text": "\n\n---\nInhalt hochgeladener PDFs:\n" + "\n\n".join(pdf_context_parts),
+                })
+
+            messages.append({"role": "user", "content": content_parts})
+        else:
+            messages.append({"role": "user", "content": user_message})
+
         return messages
 
     def chat_stream(
@@ -342,6 +376,7 @@ class LLMService:
         model: Optional[str] = None,
         no_retention: bool = False,
         archiv: Optional[List[Dict[str, Any]]] = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -356,7 +391,7 @@ class LLMService:
             yield {"delta": NICHT_KONFIGURIERT}
             return
 
-        messages = self._build_messages(user_message, conversation_history, memories, archiv)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv, files)
 
         stream = self.client.chat.completions.create(
             model=model or self.model,
@@ -402,6 +437,7 @@ class LLMService:
         model: Optional[str] = None,
         no_retention: bool = False,
         archiv: Optional[List[Dict[str, Any]]] = None,
+        files: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -418,7 +454,7 @@ class LLMService:
         if not self.is_configured:
             return NICHT_KONFIGURIERT, []
 
-        messages = self._build_messages(user_message, conversation_history, memories, archiv)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv, files)
 
         try:
             response = self.client.chat.completions.create(

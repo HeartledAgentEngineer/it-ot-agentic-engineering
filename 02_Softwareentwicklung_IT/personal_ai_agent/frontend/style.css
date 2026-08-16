@@ -462,6 +462,137 @@ body {
 /* ── Werkzeugleiste unter der Eingabe ───────────────────────────────────── */
 /* Bewusst hier und nicht in der Kopfzeile: Bei geöffneter Tastatur ist
    der obere Bildschirmrand auf dem Handy nicht mehr erreichbar. */
+
+/* ── Datei-Vorschau oberhalb der Eingabe ────────────────────────────────── */
+.file-preview {
+    padding: 8px 0;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.file-preview.hidden {
+    display: none;
+}
+
+.file-preview-list {
+    display: flex;
+    gap: 8px;
+}
+
+.file-preview-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    max-width: 180px;
+}
+
+.file-preview-item img {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.file-preview-item .pdf-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(244, 67, 54, 0.15);
+    border-radius: 4px;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.file-preview-item .file-name {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.file-preview-item .file-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.file-preview-item .file-remove:hover {
+    color: var(--error);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+/* ── Datei-Elemente in Chat-Nachrichten ─────────────────────────────────── */
+.message-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+.message-file img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: var(--radius-sm);
+    object-fit: contain;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.message-file img:hover {
+    transform: scale(1.02);
+}
+
+.message-file .file-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.message-file .file-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Upload-Button in der Eingabezeile ──────────────────────────────────── */
+#upload-btn {
+    color: var(--text-secondary);
+    order: -1; /* links vom Mikrofon */
+}
+
+#upload-btn:hover {
+    color: var(--accent);
+}
+
+#upload-btn.has-files {
+    color: var(--accent);
+}
+
+/* ── Tool-Leiste ────────────────────────────────────────────────────────── */
 .input-tools {
     display: flex;
     align-items: center;

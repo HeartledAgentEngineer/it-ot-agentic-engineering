@@ -5,6 +5,25 @@ from typing import Optional, List, Literal
 from datetime import datetime
 
 
+class FileAttachment(BaseModel):
+    """Eine dem Chat beigefügte Datei.
+
+    Wird vom Frontend nach dem Upload ans Backend geschickt.
+    Das Backend hat die Datei dann bereits auf der Platte und
+    kann sie für den LLM-Aufruf konvertieren (Bild → Base64,
+    PDF → Text).
+    """
+    id: str
+    filename: str
+    type: Literal["image", "pdf"]
+    url: str
+    mime: str
+    # Base64-codiertes Bild (nur bei image)
+    data_url: Optional[str] = None
+    # Extrahierter Text (nur bei pdf)
+    text: Optional[str] = None
+
+
 class Source(BaseModel):
     """Eine Fundstelle aus der Websuche."""
     url: str
@@ -32,6 +51,8 @@ class ChatRequest(BaseModel):
     # kann der Agent nichts über die eigene Vergangenheit sagen. Abschaltbar,
     # falls eine Frage nichts damit zu tun hat.
     archiv: bool = True
+    # Beigefügte Dateien (Bilder, PDFs) – optional
+    files: Optional[List[FileAttachment]] = None
 
 
 class ChatResponse(BaseModel):
