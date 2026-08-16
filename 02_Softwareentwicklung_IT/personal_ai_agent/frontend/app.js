@@ -387,6 +387,11 @@ async function checkHealth() {
     try {
         const res = await fetch(`${API_BASE}/api/health`);
         if (res.ok) {
+            // Server erreichbar – Auto-Close-Timer ggf. abbrechen
+            if (autoCloseTimer) {
+                clearTimeout(autoCloseTimer);
+                autoCloseTimer = null;
+            }
             if (serverWarOffline) {
                 serverWarOffline = false;
                 // Server war weg und ist jetzt wieder da -> Seite einmal neu
@@ -410,6 +415,29 @@ async function checkHealth() {
     }
     serverWarOffline = true;
     setOnline(false);
+
+    // Auto-Close: Nach 5 Sekunden ohne Server-Verbindung Tab schließen.
+    // Läuft der Timer bereits (vorheriger Fehlversuch), tickt er weiter –
+    // kein neuer Timer, damit sich nicht mehrere überlagern.
+    if (!autoCloseTimer) {
+        autoCloseTimer = setTimeout(() => {
+            // Vor dem Schließen noch einmal prüfen – Server könnte
+        // inzwischen wieder da sein.
+            fetch(`${API_BASE}/api/health`)
+                .then(res => {
+                    if (res.ok) {
+                        // Server doch erreichbar – Tab offen lassen
+                        autoCloseTimer = null;
+                    } else {
+                        window.close();
+                    }
+                })
+                .catch(() => {
+                    window.close(); // Server immer noch weg
+                });
+            autoCloseTimer = null;
+        }, 5000);
+    }
     return null;
 }
 
