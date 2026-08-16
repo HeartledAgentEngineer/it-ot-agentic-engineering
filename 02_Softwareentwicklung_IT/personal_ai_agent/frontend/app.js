@@ -1517,8 +1517,36 @@ async function handleSubmit() {
 // Periodic Health Check
 // =========================================
 let healthCheckInterval = null;
+let autoCloseTimer = null;
+
+/** Schließt den Tab automatisch, wenn der Server nach dem Laden nicht
+ *  erreichbar ist. Verhindert, dass sich beim erneuten Öffnen eines
+ *  Localhost-Tabs immer neue leere Fenster ansammeln. */
+async function checkAndAutoClose() {
+    try {
+        const res = await fetch(`${API_BASE}/api/health`);
+        if (res.ok) {
+            // Server erreichbar – Tab soll offen bleiben.
+            if (autoCloseTimer) {
+                clearTimeout(autoCloseTimer);
+                autoCloseTimer = null;
+            }
+            return;
+        }
+    } catch (_) {
+        // Server nicht erreichbar – Timeout starten/austicken lassen
+    }
+    if (!autoCloseTimer) {
+        autoCloseTimer = setTimeout(() => {
+            // Nur schließen, wenn der Server immer noch weg ist
+            fetch(`${API_BASE}/api/health`).catch(() => window.close());
+            autoCloseTimer = null;
+        }, 5000);
+    }
+}
 
 function startHealthChecks() {
+    checkAndAutoClose();
     checkHealth();
     healthCheckInterval = setInterval(checkHealth, 30000);
 }
