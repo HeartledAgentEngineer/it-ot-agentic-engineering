@@ -123,9 +123,9 @@ def auftrag_chat_ausgabe(auftrag_id: str):
         zeilen.append(f"**Hinweis:** {auftrag['hinweis']}")
     zeilen.append(f"**Status:** {_status_emoji(auftrag['status'])} {auftrag['status']}")
     if meldungen:
-        zeilen.append("")
-        for m in meldungen[-5:]:
-            zeilen.append(m["roh"])
+        zeilen.append("\n**Zwischenmeldungen:**")
+        for m in meldungen[-10:]:
+            zeilen.append(f"- {m['roh']}")
     if ergebnis:
         zeilen.append(f"\n**Ergebnis:** {ergebnis[:300]}")
 

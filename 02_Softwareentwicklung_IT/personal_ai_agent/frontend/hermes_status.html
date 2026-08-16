@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Hermes Live-Status</title>
+<style>
+body{font-family:sans-serif;background:#111;color:#eee;max-width:600px;margin:20px auto;padding:0 10px}
+h1{font-size:18px;margin-bottom:5px;color:#888}
+#status{padding:10px;border-radius:8px;margin:10px 0;font-size:14px}
+.offen{background:#2a1a00;border-left:3px solid #f90}
+.laeuft{background:#002a1a;border-left:3px solid #0f0}
+.fertig{background:#001a2a;border-left:3px solid #09f}
+.fehler{background:#2a0000;border-left:3px solid #f00}
+.meldung{padding:8px;margin:4px 0;background:#222;border-radius:4px;font-size:13px;white-space:pre-wrap;word-break:break-word}
+.meldung .zeit{color:#666;font-size:11px}
+#hermes{display:none;background:#0a2a0a;padding:15px;border-radius:8px;margin:10px 0;border:1px #0a0 solid}
+#hermes.aktiv{display:block}
+.hermes-thought{color:#8f8;margin:4px 0;padding:4px 8px;background:#111;border-radius:4px;border-left:2px #0f0 solid;font-size:13px;white-space:pre-wrap}
+.aid{color:#0ff;font-family:monospace;font-size:13px}
+</style>
+</head>
+<body>
+<h1>🤖 Hermes Live-Status</h1>
+<p style="color:#666;font-size:12px">Aktualisiert alle 3s · <span id="info">warte...</span></p>
+<div id="status">Verbinde zum Server...</div>
+<div id="hermes"><b style="color:#0f0">🧠 Hermes arbeitet gerade:</b><div id="hermes-thoughts"></div></div>
+<div id="ergebnis" style="display:none;background:#002;padding:10px;border-radius:8px;margin:10px 0"></div>
+
+<script>
+const API = 'http://127.0.0.1:8080';
+let letzteId = '';   // Aktuelle Auftrags-ID
+let letzteAnzahl = 0; // Gesehene Meldungen
+let statusDiv = document.getElementById('status');
+let hermesDiv = document.getElementById('hermes');
+let thoughtsDiv = document.getElementById('hermes-thoughts');
+let ergebnisDiv = document.getElementById('ergebnis');
+let infoSpan = document.getElementById('info');
+
+async function poll() {
+    try {
+        // 1. Alle Aufträge holen → offene/laufende finden
+        const res = await fetch(API + '/api/auftraege');
+        if (!res.ok) { infoSpan.textContent = 'Server nicht erreichbar'; return; }
+        const data = await res.json();
+        const jobs = data.auftraege || [];
+        
+        // Letzten relevanten Job finden (offen oder laeuft oder neuester fertig)
+        const relevant = jobs.filter(j => j.status === 'offen' || j.status === 'laeuft');
+        const letzterJob = relevant.length > 0 ? relevant[relevant.length - 1] : jobs[jobs.length - 1];
+        
+        if (!letzterJob) { statusDiv.textContent = 'Keine Aufträge'; return; }
+        
+        const id = letzterJob.id;
+        const status = letzterJob.status;
+        const aufgabe = letzterJob.auftrag.substring(0, 100);
+        const meldungen = letzterJob.status_meldungen || [];
+        const ergebnis = letzterJob.ergebnis || '';
+        
+        // Status anzeigen
+        const idKurz = id.substring(0, 8);
+        statusDiv.className = status;
+        statusDiv.innerHTML = `<b>Status:</b> ${status} · <span class="aid">${idKurz}</span><br><b>Aufgabe:</b> ${aufgabe}…`;
+        
+        // Neue Meldungen?
+        if (meldungen.length > letzteAnzahl || id !== letzteId) {
+            if (id !== letzteId) {
+                // Neue ID → zurücksetzen
+                letzteAnzahl = 0;
+                thoughtsDiv.innerHTML = '';
+                hermesDiv.classList.remove('aktiv');
+                ergebnisDiv.style.display = 'none';
+            }
+            
+            const neue = meldungen.slice(letzteAnzahl);
+            for (const m of neue) {
+                const div = document.createElement('div');
+                div.className = 'hermes-thought';
+                div.textContent = m;
+                thoughtsDiv.appendChild(div);
+                hermesDiv.classList.add('aktiv');
+            }
+            letzteAnzahl = meldungen.length;
+            letzteId = id;
+        }
+        
+        // Ergebnis?
+        if (ergebnis && (status === 'fertig' || status === 'fehler')) {
+            ergebnisDiv.style.display = 'block';
+            ergebnisDiv.innerHTML = '<b>' + (status === 'fertig' ? '✅ Fertig!' : '❌ Fehler') + '</b><br><pre>' + ergebnis.substring(0, 500) + '</pre>';
+        }
+        
+        infoSpan.textContent = `Aktualisiert ${new Date().toLocaleTimeString()}`;
+        
+    } catch(e) {
+        infoSpan.textContent = 'Fehler: ' + e.message;
+    }
+}
+
+// Alle 3s polln
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>
