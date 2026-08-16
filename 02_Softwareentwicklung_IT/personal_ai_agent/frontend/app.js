@@ -263,6 +263,27 @@ function setLoading(loading) {
     updateSendButton();
 }
 
+// =========================================
+// Health-Check: Drei-Phasen-Logik
+// =========================================
+// Phase 1 (checkAndAutoClose) laeuft EINMAL beim Seitenstart:
+//   Wenn der Server nach 5s nicht erreichbar ist, wird der Tab geschlossen.
+//   Das verhindert leere Fenster, wenn der Server noch nicht da ist.
+//
+// Phase 2 (checkHealth) laeuft alle 30s per Intervall:
+//   Zeigt Online/Offline an und laedt die Seite NICHT automatisch neu.
+//   Frueher wurde bei Server-Rueckkehr window.location.reload() gerufen,
+//   was bei schnellen Neustarts (--reload) eine Reload-Schleife ausloeste.
+//
+// Phase 3: Nach 5s ohne Server-Kontakt wird der Tab geschlossen.
+//   Der Timer wird abgebrochen, sobald der Server wieder antwortet.
+
+// Merkt sich, ob der Server gerade offline war. Sobald er nach einem
+// Neustart wieder da ist, wird die UI aktualisiert, statt die Seite
+// neu zu laden – das verhindert Reload-Schleifen und neue Tabs.
+let serverWarOffline = false;
+let neuladenInArbeit = false;
+
 const SYMBOL_SENDEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
     + '<path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
 
@@ -377,11 +398,6 @@ function setMicStatus(status) {
 // =========================================
 // API Calls
 // =========================================
-// Merkt sich, ob der Server gerade offline war. Sobald er nach einem
-// Neustart wieder da ist, laedt sich der Tab einmal selbst neu, damit
-// keine tote/fehlerhafte Seite stehen bleibt und kein neuer Tab noetig ist.
-let serverWarOffline = false;
-let neuladenInArbeit = false;
 
 async function checkHealth() {
     try {
@@ -394,14 +410,9 @@ async function checkHealth() {
             }
             if (serverWarOffline) {
                 serverWarOffline = false;
-                // Server war weg und ist jetzt wieder da -> Seite einmal neu
-                // laden, damit die alte/tote Ansicht verschwindet.
-                if (!neuladenInArbeit) {
-                    neuladenInArbeit = true;
-                    console.log('Server wieder erreichbar – Seite wird neu geladen.');
-                    window.location.reload();
-                    return null;
-                }
+                // Server war weg und ist jetzt wieder da → Status aktualisieren,
+                // aber NICHT die Seite neu laden. Das verhindert Reload-Schleifen
+                // bei schnellen Server-Neustarts (--reload) und öffnet keine neuen Tabs.
             }
             const data = await res.json();
             setOnline(true);
@@ -1656,6 +1667,7 @@ async function handleSubmit() {
 // =========================================
 let healthCheckInterval = null;
 let autoCloseTimer = null;
+let startupCloseTimer = null;    // eigener Timer fuer checkAndAutoClose
 
 /** Schließt den Tab automatisch, wenn der Server nach dem Laden nicht
  *  erreichbar ist. Verhindert, dass sich beim erneuten Öffnen eines
@@ -1665,20 +1677,20 @@ async function checkAndAutoClose() {
         const res = await fetch(`${API_BASE}/api/health`);
         if (res.ok) {
             // Server erreichbar – Tab soll offen bleiben.
-            if (autoCloseTimer) {
-                clearTimeout(autoCloseTimer);
-                autoCloseTimer = null;
+            if (startupCloseTimer) {
+                clearTimeout(startupCloseTimer);
+                startupCloseTimer = null;
             }
             return;
         }
     } catch (_) {
         // Server nicht erreichbar – Timeout starten/austicken lassen
     }
-    if (!autoCloseTimer) {
-        autoCloseTimer = setTimeout(() => {
+    if (!startupCloseTimer) {
+        startupCloseTimer = setTimeout(() => {
             // Nur schließen, wenn der Server immer noch weg ist
             fetch(`${API_BASE}/api/health`).catch(() => window.close());
-            autoCloseTimer = null;
+            startupCloseTimer = null;
         }, 5000);
     }
 }
