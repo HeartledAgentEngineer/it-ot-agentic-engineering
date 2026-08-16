@@ -2114,3 +2114,61 @@ document.addEventListener('DOMContentLoaded', () => {
     // Knopf, und das Blatt geht beim ersten Antippen ohne Wartezeit auf.
     ladeKatalog();
 });
+// ── Hermes Live-Status (unabhängiger Poller, zeigt Hermes-Gedanken live) ──
+(function() {
+    const container = document.getElementById('hermes-live-status');
+    const msgDiv = document.getElementById('hermes-live-msg');
+    const meldungenDiv = document.getElementById('hermes-live-meldungen');
+    const indicator = document.getElementById('hermes-live-indicator');
+    if (!container) return;
+
+    let letzteId = '';
+    let letzteAnzahl = 0;
+
+    async function pollHermes() {
+        try {
+            const res = await fetch('/api/auftraege');
+            if (!res.ok) { container.style.display = 'none'; return; }
+            const data = await res.json();
+            const jobs = data.auftraege || [];
+            // Neuesten offenen/laufenden Job finden
+            const relevant = jobs.filter(j => j.status === 'offen' || j.status === 'laeuft');
+            if (relevant.length === 0) { container.style.display = 'none'; return; }
+            const job = relevant[relevant.length - 1]; // neuester
+            const id = job.id.substring(0, 8);
+            const meldungen = job.status_meldungen || [];
+            const status = job.status;
+
+            container.style.display = 'block';
+            indicator.textContent = status === 'laeuft' ? '⚡ arbeitet' : '⏳ wartet';
+
+            if (id !== letzteId || meldungen.length > letzteAnzahl) {
+                if (id !== letzteId) {
+                    letzteAnzahl = 0;
+                    meldungenDiv.innerHTML = '';
+                }
+                // Neue Meldungen seit letztem Check
+                for (let i = letzteAnzahl; i < meldungen.length; i++) {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'padding:4px 6px;margin:2px 0;background:#222;border-radius:4px;font-size:12px;white-space:pre-wrap;border-left:2px solid #0f0';
+                    div.textContent = meldungen[i];
+                    meldungenDiv.appendChild(div);
+                }
+                letzteAnzahl = meldungen.length;
+                letzteId = id;
+
+                // Scroll to bottom
+                if (typeof scrollToBottom === 'function') scrollToBottom(true);
+            }
+
+            if (status === 'fertig' || status === 'fehler') {
+                indicator.textContent = status === 'fertig' ? '✅ fertig' : '❌ fehler';
+                setTimeout(() => { container.style.display = 'none'; }, 30000);
+            }
+        } catch(_) { /* Server kurz weg */ }
+    }
+
+    // Alle 3s polln
+    pollHermes();
+    setInterval(pollHermes, 3000);
+})();
