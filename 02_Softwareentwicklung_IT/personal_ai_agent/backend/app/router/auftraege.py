@@ -85,42 +85,58 @@ def auftrag_ansehen(auftrag_id: str):
 
 @router.get("/{auftrag_id}/chat")
 def auftrag_chat_ausgabe(auftrag_id: str):
-    """Liefert den Auftrag als Chat-Text aufbereitet."""
+    """Liefert den Auftrag als strukturierte Chat-Daten."""
     auftrag = auftrag_service.einzeln(auftrag_id)
     if auftrag is None:
         raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
 
-    zeilen = [f"📋 **Auftrag {auftrag['id'][:8]}**"]
-    zeilen.append(f"**Aufgabe:** {auftrag['auftrag']}")
+    # Einzelne Status-Meldungen aufbereiten
+    alle_meldungen = auftrag.get("status_meldungen", [])
+    meldungen = []
+    for m in alle_meldungen:
+        if "|" in m:
+            emoji, rest = m.split("|", 1)
+        else:
+            emoji, rest = "", m
+        meldungen.append({
+            "roh": m,
+            "emoji": emoji.strip(),
+            "text": rest.strip(),
+        })
 
+    # Ergebnis parsen für Details
+    ergebnis = auftrag.get("ergebnis", "")
+    ergebnis_details = {}
+    if ergebnis:
+        if "Commit:" in ergebnis:
+            commit_match = __import__("re").search(r"Commit:\s*`([^`]+)`", ergebnis)
+            if commit_match:
+                ergebnis_details["commit"] = commit_match.group(1)
+        if "gepusht" in ergebnis.lower() or "Push" in ergebnis:
+            ergebnis_details["gepusht"] = "Push fehlgeschlagen" not in ergebnis
+        ergebnis_details["text_kurz"] = ergebnis[:300]
+
+    # Gesamttext (für Rückwärtskompatibilität)
+    zeilen = [f"📋 **Auftrag {auftrag['id'][:8]}**"]
+    zeilen.append(f"**Aufgabe:** {auftrag['auftrag'][:100]}…")
     if auftrag.get("hinweis"):
         zeilen.append(f"**Hinweis:** {auftrag['hinweis']}")
-
     zeilen.append(f"**Status:** {_status_emoji(auftrag['status'])} {auftrag['status']}")
-    zeilen.append(f"**Kategorie:** {auftrag.get('kategorie', '?')}")
-    zeilen.append(f"**Komplexität:** {auftrag.get('komplexitaet', '?')}")
+    if meldungen:
+        zeilen.append("")
+        for m in meldungen[-5:]:
+            zeilen.append(m["roh"])
+    if ergebnis:
+        zeilen.append(f"\n**Ergebnis:** {ergebnis[:300]}")
 
-    if auftrag.get("status_meldungen"):
-        zeilen.append("\n**Zwischenmeldungen:**")
-        for m in auftrag["status_meldungen"][-5:]:
-            zeilen.append(f"- {m}")
-
-    # Offene Rückfragen
-    offene = auftrag_service.offene_rueckfragen(auftrag_id)
-    if offene:
-        zeilen.append("\n**Rückfragen (unbeantwortet):**")
-        for i, r in enumerate(offene):
-            zeilen.append(f"\n❓ {r['frage']}")
-            if r.get("kontext"):
-                zeilen.append(f"  *Kontext: {r['kontext']}*")
-
-    if auftrag.get("ergebnis"):
-        zeilen.append(f"\n**Ergebnis:** {auftrag['ergebnis'][:200]}")
-
-    if auftrag.get("beendet"):
-        zeilen.append(f"\n✅ Abgeschlossen: {auftrag['beendet'][:19]}")
-
-    return {"text": "\n".join(zeilen)}
+    return {
+        "text": "\n".join(zeilen),
+        "status": auftrag["status"],
+        "meldungen": [m["roh"] for m in meldungen],
+        "meldungen_count": len(meldungen),
+        "offene_rueckfragen": auftrag.get("rueckfragen", []),
+        "ergebnis_details": ergebnis_details or None,
+    }
 
 
 @router.post("/{auftrag_id}/ergebnis", response_model=AuftragItem)

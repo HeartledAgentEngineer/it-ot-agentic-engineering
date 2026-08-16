@@ -1070,35 +1070,63 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
 
 /**
  * Pollt alle 3 Sekunden den Status eines Coding-Auftrags und zeigt
- * Live-Updates im Chat an – ohne dass der User nachfragen muss.
+ * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
  */
 let _auftragTimer = null;
 
 function startAuftragTracking(aidKurz, contentDiv) {
     if (_auftragTimer) clearInterval(_auftragTimer);
-    let letzteMeldungen = 0;
+    let letzteAnzahl = 0;       // Wie viele Meldungen wir schon gesehen haben
+    let ersteBlase = contentDiv; // Die ursprüngliche "Auftrag erkannt"-Blase
 
     _auftragTimer = setInterval(async () => {
         try {
             const res = await fetch(`${API_BASE}/api/auftraege/${aidKurz}/chat`);
             if (!res.ok) return;
             const data = await res.json();
-            const text = data.text || '';
+            const meldungen = data.meldungen || [];
+            const anzahl = data.meldungen_count || 0;
 
-            // Prüfen ob neue Zwischenmeldungen da sind
-            const meldungenMatch = text.match(/\*\*Zwischenmeldungen:\*\*([\s\S]*?)(?:\n\n|\*\*Rückfragen|\*\*Ergebnis|$)/);
-            const meldungen = meldungenMatch ? meldungenMatch[1].trim() : '';
-            const anzahlMeldungen = meldungen ? meldungen.split('\n').filter(l => l.trim().startsWith('-')).length : 0;
-
-            if (anzahlMeldungen > letzteMeldungen) {
-                letzteMeldungen = anzahlMeldungen;
-                contentDiv.innerHTML = parseMarkdown(text);
+            // Neue Meldungen seit letztem Poll?
+            if (anzahl > letzteAnzahl) {
+                const neue = meldungen.slice(letzteAnzahl);
+                for (const meldung of neue) {
+                    // Jede neue Meldung als eigene Chat-Blase
+                    addMessage(meldung, 'assistant');
+                }
+                letzteAnzahl = anzahl;
                 scrollToBottom(true);
             }
 
-            // Wenn fertig oder Fehler → finalen Status anzeigen und aufhören
-            if (text.includes('✅ Abgeschlossen') || text.includes('❌')) {
-                contentDiv.innerHTML = parseMarkdown(text);
+            // Auftrag fertig/fehler → Zusammenfassung zeigen + stoppen
+            if (data.status === 'fertig' || data.status === 'fehler') {
+                let summary = '';
+                if (data.status === 'fertig') {
+                    summary = '✅ **Auftrag abgeschlossen!**';
+                } else {
+                    summary = '❌ **Auftrag fehlgeschlagen**';
+                }
+
+                if (data.ergebnis_details) {
+                    const d = data.ergebnis_details;
+                    if (d.commit) summary += `\n📤 **Commit:** \`${d.commit}\``;
+                    if (d.gepusht !== undefined) {
+                        summary += d.gepusht
+                            ? '\n✅ **Push:** Erfolgreich zu GitHub'
+                            : '\n⚠️ **Push:** Fehlgeschlagen – in Termux manuell pushen';
+                    }
+                    if (d.text_kurz) {
+                        const lines = d.text_kurz.split('\n').filter(l => l.includes('Nächste') || l.includes('git pull') || l.includes('neustart'));
+                        if (lines.length) summary += '\n\n' + lines.join('\n');
+                    }
+                }
+
+                // Standard-Hinweis falls nichts geparst wurde
+                if (!summary.includes('git')) {
+                    summary += '\n\n📋 **Nächste Schritte in Termux:**\n`cd ~/it-ot-agentic-engineering && git pull origin main`\nDanach Server neustarten.';
+                }
+
+                addMessage(summary, 'assistant');
                 scrollToBottom(true);
                 clearInterval(_auftragTimer);
                 _auftragTimer = null;
