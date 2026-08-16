@@ -147,6 +147,12 @@ async def chat(request: ChatRequest):
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
             )
+            # Sofort eine "Warte auf Hermes"-Meldung einfügen,
+            # damit das Frontend-Tracking sofort eine Meldung sieht
+            auftrag_service.statusmeldung_hinzufuegen(
+                eintrag["id"],
+                "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
+            )
             dauer = schaetze_dauer(komplexitaet or "mittel")
             reply_text = (
                 "🧩 **Coding-Auftrag erkannt!**\n\n"
