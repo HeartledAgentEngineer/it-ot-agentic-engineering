@@ -259,6 +259,21 @@ class LLMService:
                     "nicht nutzbar.**\n\nOpenRouter findet keinen Anbieter, der "
                     "zu deiner Provider-Whitelist passt. Wähle ein anderes Modell."
                 )
+            # Bild-Anhänge an ein reines Text-Modell: OpenRouter lehnt die
+            # Anfrage ab, bevor das Modell sie sieht. Der Nutzer weiß dann
+            # weder, dass es am Modell liegt, noch, was zu tun ist.
+            if any(h in klein for h in (
+                "does not support images", "image input", "vision",
+                "unsupported content", "image_url", "input modality",
+            )):
+                return (
+                    "⚠️ **Dieses Modell kann keine Bilder verarbeiten.**\n\n"
+                    "Du hast ein Bild angehängt, aber das gewählte Modell "
+                    "unterstützt keine Bild-Eingabe. Wechsle in der "
+                    "Modellauswahl zu einem Vision-Modell (Filter "
+                    "„Bilder/Dateien“), z. B. `openai/gpt-5-nano` oder "
+                    "`anthropic/claude-sonnet-5`."
+                )
             if "regional routing" in klein:
                 return (
                     "⚠️ **EU-Routing ist für dieses Konto nicht freigeschaltet.**\n\n"
