@@ -48,26 +48,40 @@ def aeltester_offener(auftraege):
     return offene[0]
 
 
+def hat_neuen_auftrag(auftraege, letzte_id):
+    """Prüft ob es einen offenen Auftrag gibt, der NICHT die letzte ID ist."""
+    offene = [a for a in auftraege if a.get("status") == "offen"]
+    if not offene:
+        return False
+    # Gibt es einen offenen Job mit anderer ID?
+    for a in offene:
+        if a["id"] != letzte_id:
+            return True
+    return False
+
+
 def main():
     letzte = letzte_id()
 
     for i in range(POLLS):
         result = api("/api/auftraege")
         if result and isinstance(result, dict) and "auftraege" in result:
-            gefunden = aeltester_offener(result["auftraege"])
-            if gefunden:
+            # Alle offenen Jobs, die NICHT die letzte ID haben
+            neue = [a for a in result["auftraege"]
+                    if a.get("status") == "offen" and a["id"] != letzte]
+            if neue:
+                # Den ältesten neuen Job nehmen
+                neue.sort(key=lambda a: a.get("erstellt", ""))
+                gefunden = neue[0]
                 aid = gefunden["id"]
-                if aid != letzte:
-                    # Neuer Auftrag! Trigger setzen und sofort beenden
-                    info = (
-                        f"{aid[:8]}|{gefunden.get('kategorie','?')}|"
-                        f"{gefunden.get('komplexitaet','?')}|"
-                        f"{gefunden.get('auftrag','')[:200]}"
-                    )
-                    print(f"NEUER_AUFTRAG:{info}")
-                    speichere_id(aid)
-                    return  # → LLM feuert!
-                # Selbe ID → kein neuer Auftrag, weiter polln
+                info = (
+                    f"{aid[:8]}|{gefunden.get('kategorie','?')}|"
+                    f"{gefunden.get('komplexitaet','?')}|"
+                    f"{gefunden.get('auftrag','')[:200]}"
+                )
+                print(f"NEUER_AUFTRAG:{info}")
+                speichere_id(aid)
+                return  # → LLM feuert!
 
         time.sleep(2)
 
