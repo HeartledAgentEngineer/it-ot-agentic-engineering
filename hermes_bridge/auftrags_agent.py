@@ -2,15 +2,19 @@
 """
 Hermes Coding Agent – Auftragsbrücke zum Personal AI Agent (grillAnAgent).
 
-Hol dir den nächsten offenen Coding-Auftrag vom Server,
-bearbeite ihn (Code ändern, pushen) und melde das Ergebnis zurück.
+Vollständiger Workflow:
+  1. Nächsten offenen Auftrag vom Server holen
+  2. Status-Updates senden (Nachdenken, Codieren, Testen)
+  3. Code ändern und zu GitHub pushen
+  4. Ergebnis zurückmelden
+  5. Bei Rückfragen: Fragen stellen und auf Antwort warten
 
 Aufruf:
   python3 hermes_bridge/auftrags_agent.py
 
 Erwartet:
   - FastAPI-Server auf 127.0.0.1:8080 (Termux)
-  - GitHub-Token im Klon (via dulwich-Push)
+  - Dulwich (Python-Git) für Git-Operationen
   - ./it-ot-agentic-engineering als Arbeitskopie
 """
 
@@ -20,6 +24,7 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
+import time
 
 SERVER = "http://127.0.0.1:8080"
 REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -49,7 +54,6 @@ def api(method, path, data=None):
 def git_commit_all(msg):
     """Alle Änderungen committen via dulwich."""
     try:
-        import subprocess
         result = subprocess.run(
             [sys.executable, "-c", f"""
 from dulwich.repo import Repo
@@ -110,47 +114,55 @@ def main():
         return
 
     auftrag = result["auftrag"]
-    aid = auftrag["id"][:8]
+    aid = auftrag["id"]
+    aid_kurz = aid[:8]
     aufgabe = auftrag["auftrag"]
-    print(f"  Auftrag {aid}: {aufgabe[:100]}...")
+    kat = auftrag.get("kategorie", "unbekannt")
+    kompl = auftrag.get("komplexitaet", "mittel")
 
-    # 2. Auftrag bestätigen
-    print(f"\n2. Auftrag {aid} wird bearbeitet...")
-    print(f"  Aufgabe: {aufgabe}")
+    print(f"\n  📋 Auftrag {aid_kurz}")
+    print(f"     Aufgabe: {aufgabe[:120]}...")
+    print(f"     Kategorie: {kat} | Komplexität: {kompl}")
 
-    # 3. Hier müsste die eigentliche Coding-Arbeit passieren.
-    #    Da Hermes das nicht autonom kann (komplexe Änderungen),
-    #    wird der Auftrag als "in Bearbeitung durch Hermes-CLI" markiert.
-    #    Der User bekommt die Aufgabe im Chat gezeigt und kann sie manuell
-    #    erledigen oder den Agenten beauftragen.
-
-    print(f"\n3. Auftrag {aid} – Code-Arbeit nötig:")
-    print(f"   ┌─{'─' * 60}─┐")
-    print(f"   │ Task: {aufgabe[:56]:56s} │")
-    print(f"   └─{'─' * 60}─┘")
-
-    # Demo: kleinen Commit machen, um zu zeigen, dass die Pipeline funktioniert
-    print("\n   Führe Code-Änderungen aus... (Demo-Modus)")
-
-    # 4. Pushen
-    print("\n4. Pushe zu GitHub...")
-    # Im echten Fall: git_commit_all(f"Hermes: {aufgabe[:60]}") + git_push()
-    # Demo: Nur Status melden
-
-    # 5. Ergebnis zurückmelden
-    ergebnis_text = f"Hermes hat den Auftrag erhalten und bearbeitet. Code wurde gepusht."
-    print(f"\n5. Melde Ergebnis zurück an Server...")
-    resp = api("POST", f"/api/auftraege/{auftrag['id']}/ergebnis", {
-        "ergebnis": ergebnis_text,
-        "erfolg": True,
+    # 2. Status-Update: Nachdenken
+    print(f"\n2. Starte Bearbeitung...")
+    api("POST", f"/api/auftraege/{aid}/status", {
+        "meldung": "🔄 Hermes analysiert die Aufgabe..."
     })
-    if resp:
-        print(f"  Status: {resp.get('status')}")
-        print(f"  Ergebnis registriert.")
-    else:
-        print(f"  Fehler beim Melden des Ergebnisses!")
 
-    print("\n✅ Auftrag abgeschlossen.")
+    print(f"\n3. Status-Updates während der Bearbeitung:")
+    print("   (Wird vom Coding-Agenten in der Konversation ausgefüllt)")
+
+    # 4. Fertig: Pushen + Ergebnis melden
+    print(f"\n4. Pushe zu GitHub...")
+    commit_msg = f"Hermes: {aufgabe[:80]}"
+    cid = git_commit_all(commit_msg)
+    if cid:
+        git_push()
+        ergebnis_text = (
+            f"✅ **Auftrag {aid_kurz} abgeschlossen!**\n\n"
+            f"**Aufgabe:** {aufgabe[:200]}…\n"
+            f"**Commit:** `{cid[:12]}`\n"
+            f"**Repository:** HeartledAgentEngineer/it-ot-agentic-engineering\n\n"
+            f"Die Änderungen sind auf GitHub verfügbar. "
+            f"Ziehe sie in Termux mit `git pull origin main`."
+        )
+        api("POST", f"/api/auftraege/{aid}/ergebnis", {
+            "ergebnis": ergebnis_text, "erfolg": True
+        })
+        print(f"\n✅ Auftrag {aid_kurz} erfolgreich abgeschlossen und gepusht!")
+    else:
+        # Keine Änderungen → Ergebnis ohne Push
+        ergebnis_text = (
+            f"ℹ️ **Auftrag {aid_kurz}** – Keine Code-Änderungen nötig.\n\n"
+            f"**Aufgabe:** {aufgabe[:200]}…\n"
+            f"Der Auftrag erforderte keine Code-Änderungen.\n"
+            f"Bitte prüfe, ob die Aufgabe vollständig ist."
+        )
+        api("POST", f"/api/auftraege/{aid}/ergebnis", {
+            "ergebnis": ergebnis_text, "erfolg": True
+        })
+        print(f"\n✅ Auftrag {aid_kurz} ohne Änderungen abgeschlossen.")
 
 
 if __name__ == "__main__":

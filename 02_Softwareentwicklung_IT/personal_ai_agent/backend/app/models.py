@@ -58,14 +58,7 @@ class MemoryItem(BaseModel):
 
 
 class MemoryCreate(BaseModel):
-    """Request to create a memory.
-
-    Die Grenzen sind dieselben wie in MemoryItem, und das ist keine
-    Doppelung aus Ordnungsliebe: Ohne sie liesz sich ein Eintrag anlegen,
-    der beim Auslesen die Validierung nicht mehr passierte. Ein einziger
-    solcher Eintrag - etwa mit category "beruf" - machte die gesamte
-    Liste unlesbar, nicht nur ihn selbst.
-    """
+    """Request to create a memory."""
     content: str = Field(..., min_length=1, max_length=5000)
     category: str = Field(default="fact", pattern="^(fact|preference|context|project)$")
     importance: int = Field(default=3, ge=1, le=5)
@@ -81,26 +74,25 @@ class MemoryListResponse(BaseModel):
 class AuftragCreate(BaseModel):
     """Ein neuer Auftrag an den Coding-Agenten."""
     auftrag: str = Field(..., min_length=1, max_length=10000)
-    # Freier Zusatz, etwa welche Datei gemeint ist. Getrennt vom Auftrag,
-    # damit der Auftragstext das bleibt, was diktiert wurde.
     hinweis: Optional[str] = Field(default=None, max_length=5000)
+    kategorie: Optional[str] = Field(default=None, max_length=50)
+    komplexitaet: Optional[str] = Field(default=None, max_length=20)
 
 
 class AuftragItem(BaseModel):
-    """Ein Auftrag samt Stand.
-
-    `status` ist bewusst ein freies Feld und kein Literal: Ein unbekannter
-    Wert soll die Liste anzeigbar lassen, statt sie ganz unlesbar zu machen.
-    Dieselbe Falle hat das Gedaechtnis schon einmal gestellt.
-    """
+    """Ein Auftrag samt Stand."""
     id: str
     auftrag: str
     hinweis: Optional[str] = None
+    kategorie: Optional[str] = None
+    komplexitaet: Optional[str] = None
     status: str
     erstellt: str
     abgeholt: Optional[str] = None
     beendet: Optional[str] = None
     ergebnis: Optional[str] = None
+    status_meldungen: list[str] = []
+    rueckfragen: list[dict] = []
 
 
 class AuftragListResponse(BaseModel):
@@ -113,6 +105,22 @@ class ErgebnisCreate(BaseModel):
     """Rueckmeldung des Coding-Agenten zu einem Auftrag."""
     ergebnis: str = Field(..., min_length=1, max_length=50000)
     erfolg: bool = True
+
+
+class StatusMeldungCreate(BaseModel):
+    """Zwischenstand des Coding-Agenten."""
+    meldung: str = Field(..., min_length=1, max_length=10000)
+
+
+class RueckfrageCreate(BaseModel):
+    """Rückfrage des Coding-Agenten an den Nutzer."""
+    frage: str = Field(..., min_length=1, max_length=5000)
+    kontext: Optional[str] = Field(default=None, max_length=5000)
+
+
+class AntwortCreate(BaseModel):
+    """Antwort des Nutzers auf eine Rückfrage."""
+    antwort: str = Field(..., min_length=1, max_length=5000)
 
 
 class HealthResponse(BaseModel):

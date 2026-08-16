@@ -5,14 +5,10 @@ eingehenden HTTP-Zugang. Nur Hermes kann von sich aus fragen. Deshalb
 liegt hier ein Buch, in das die Oberflaeche Auftraege eintraegt und aus
 dem Hermes sich im eigenen Takt bedient.
 
-Warum eine JSON-Datei und nicht ChromaDB: Auftraege sind kein Wissen,
-das nach Bedeutung gesucht wird, sondern eine kurze Liste mit Zustand.
-Eine Datei laesst sich im Zweifel mit blossem Auge lesen und von Hand
-reparieren - bei einem System, das sich selbst veraendern soll, ist das
-kein Rueckschritt, sondern die Bremse.
-
-Sicherheit: Auftraege enthalten, was der Nutzer diktiert hat. Die Datei
-gehoert deshalb in die .gitignore - das Repo ist oeffentlich.
+Erweiterungen:
+  - Kategorie und Komplexitaet pro Auftrag
+  - Status-Meldungen (Hermes meldet Zwischenstaende)
+  - Rueckfragen (Hermes kann den Nutzer etwas fragen)
 """
 
 import json
@@ -27,9 +23,6 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Zustaende eines Auftrags. Mehr braucht es nicht: Wer "laeuft" nicht von
-# "offen" unterscheidet, gibt denselben Auftrag zweimal aus, wenn sich zwei
-# Cron-Laeufe ueberholen.
 OFFEN = "offen"
 LAEUFT = "laeuft"
 FERTIG = "fertig"
@@ -37,22 +30,11 @@ FEHLER = "fehler"
 
 
 def _jetzt() -> str:
-    """Zeitstempel in UTC, ISO-Format.
-
-    Bewusst UTC: Das Handy wechselt Zeitzonen, die Datei soll deshalb
-    unabhaengig davon vergleichbar bleiben.
-    """
     return datetime.now(timezone.utc).isoformat()
 
 
 class AuftragService:
-    """Liest und schreibt das Auftragsbuch.
-
-    Die Sperre ist nicht uebervorsichtig: Die Oberflaeche legt Auftraege an,
-    waehrend Hermes sich welche abholt. Ohne sie koennten sich zwei
-    Schreibvorgaenge ueberlagern und die Datei zerstoeren - und mit ihr die
-    gesamte Liste, nicht nur den einen Eintrag.
-    """
+    """Liest und schreibt das Auftragsbuch."""
 
     def __init__(self) -> None:
         self._pfad = Path(settings.auftraege_datei)
@@ -63,12 +45,6 @@ class AuftragService:
     # ------------------------------------------------------------------
 
     def _lesen(self) -> list[dict]:
-        """Alle Auftraege aus der Datei.
-
-        Fehlt die Datei oder ist sie beschaedigt, kommt eine leere Liste
-        zurueck statt einer Ausnahme. Grund: Ein kaputtes Auftragsbuch darf
-        nicht den ganzen Agenten lahmlegen - der Chat muss weiterlaufen.
-        """
         if not self._pfad.exists():
             return []
         try:
@@ -80,12 +56,6 @@ class AuftragService:
             return []
 
     def _schreiben(self, auftraege: list[dict]) -> None:
-        """Schreibt die Liste zurueck - erst daneben, dann umbenennen.
-
-        Das Umbenennen ist auf einem Dateisystem unteilbar. Ohne diesen
-        Umweg wuerde ein Absturz mitten im Schreiben eine halbe Datei
-        hinterlassen, und die waere unlesbar.
-        """
         self._pfad.parent.mkdir(parents=True, exist_ok=True)
         entwurf = self._pfad.with_suffix(".json.tmp")
         with entwurf.open("w", encoding="utf-8") as datei:
@@ -96,33 +66,41 @@ class AuftragService:
     # Oeffentliche Schnittstelle
     # ------------------------------------------------------------------
 
-    def anlegen(self, auftrag: str, hinweis: Optional[str] = None) -> dict:
-        """Traegt einen neuen Auftrag ein und gibt ihn zurueck."""
+    def anlegen(
+        self,
+        auftrag: str,
+        hinweis: Optional[str] = None,
+        kategorie: Optional[str] = None,
+        komplexitaet: Optional[str] = None,
+    ) -> dict:
+        """Traegt einen neuen Auftrag ein."""
         eintrag = {
             "id": str(uuid.uuid4()),
             "auftrag": auftrag,
             "hinweis": hinweis,
+            "kategorie": kategorie or "unbekannt",
+            "komplexitaet": komplexitaet or "mittel",
             "status": OFFEN,
             "erstellt": _jetzt(),
             "abgeholt": None,
             "beendet": None,
             "ergebnis": None,
+            "status_meldungen": [],
+            "rueckfragen": [],
         }
         with self._sperre:
             auftraege = self._lesen()
             auftraege.append(eintrag)
             self._schreiben(auftraege)
-        logger.info("Auftrag angelegt: %s", eintrag["id"])
+        logger.info("Auftrag angelegt: %s (Kategorie: %s)", eintrag["id"][:8], kategorie)
         return eintrag
 
     def alle(self, limit: int = 50) -> list[dict]:
-        """Die neuesten Auftraege, neueste zuerst."""
         with self._sperre:
             auftraege = self._lesen()
         return sorted(auftraege, key=lambda a: a.get("erstellt", ""), reverse=True)[:limit]
 
     def einzeln(self, auftrag_id: str) -> Optional[dict]:
-        """Ein Auftrag samt Stand, oder None."""
         with self._sperre:
             for eintrag in self._lesen():
                 if eintrag.get("id") == auftrag_id:
@@ -130,15 +108,6 @@ class AuftragService:
         return None
 
     def naechster_offener(self) -> Optional[dict]:
-        """Gibt den aeltesten offenen Auftrag aus und markiert ihn als laufend.
-
-        Ausgabe und Markierung in einem Schritt, unter derselben Sperre: Nur
-        so bekommt ein zweiter Abruf nicht denselben Auftrag noch einmal.
-
-        Ein Auftrag, der zu lange laeuft, gilt wieder als offen - Hermes
-        arbeitet in kurzlebigen Sitzungen, und eine abgebrochene Sitzung
-        wuerde einen Auftrag sonst fuer immer blockieren.
-        """
         with self._sperre:
             auftraege = self._lesen()
             self._verwaiste_freigeben(auftraege)
@@ -153,13 +122,12 @@ class AuftragService:
             naechster["abgeholt"] = _jetzt()
             self._schreiben(auftraege)
 
-        logger.info("Auftrag ausgegeben: %s", naechster["id"])
+        logger.info("Auftrag ausgegeben: %s", naechster["id"][:8])
         return naechster
 
     def ergebnis_eintragen(
         self, auftrag_id: str, ergebnis: str, erfolg: bool = True
     ) -> Optional[dict]:
-        """Nimmt die Rueckmeldung entgegen."""
         with self._sperre:
             auftraege = self._lesen()
             for eintrag in auftraege:
@@ -169,22 +137,77 @@ class AuftragService:
                 eintrag["ergebnis"] = ergebnis
                 eintrag["beendet"] = _jetzt()
                 self._schreiben(auftraege)
-                logger.info(
-                    "Auftrag %s: %s", auftrag_id, "fertig" if erfolg else "fehlgeschlagen"
-                )
+                logger.info("Auftrag %s: %s", auftrag_id[:8], "fertig" if erfolg else "fehlgeschlagen")
                 return eintrag
         return None
+
+    def statusmeldung_hinzufuegen(self, auftrag_id: str, meldung: str) -> Optional[dict]:
+        """Fuegt eine Zwischenmeldung des Coding-Agenten hinzu."""
+        with self._sperre:
+            auftraege = self._lesen()
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                if "status_meldungen" not in eintrag:
+                    eintrag["status_meldungen"] = []
+                eintrag["status_meldungen"].append(f"[{_jetzt()}] {meldung}")
+                # Maximal 20 Meldungen behalten
+                if len(eintrag["status_meldungen"]) > 20:
+                    eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
+                self._schreiben(auftraege)
+                logger.info("Statusmeldung fuer %s: %s", auftrag_id[:8], meldung[:60])
+                return eintrag
+        return None
+
+    def rueckfrage_stellen(self, auftrag_id: str, frage: str, kontext: Optional[str] = None) -> Optional[dict]:
+        """Hermes stellt eine Rueckfrage zum Auftrag."""
+        with self._sperre:
+            auftraege = self._lesen()
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                if "rueckfragen" not in eintrag:
+                    eintrag["rueckfragen"] = []
+                eintrag["rueckfragen"].append({
+                    "frage": frage,
+                    "kontext": kontext,
+                    "gestellt_um": _jetzt(),
+                    "antwort": None,
+                })
+                self._schreiben(auftraege)
+                logger.info("Rueckfrage fuer %s: %s", auftrag_id[:8], frage[:60])
+                return eintrag
+        return None
+
+    def rueckfrage_beantworten(self, auftrag_id: str, antwort_idx: int, antwort: str) -> Optional[dict]:
+        """Nutzer beantwortet eine Rueckfrage."""
+        with self._sperre:
+            auftraege = self._lesen()
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                rueckfragen = eintrag.get("rueckfragen", [])
+                if antwort_idx < 0 or antwort_idx >= len(rueckfragen):
+                    return None
+                rueckfragen[antwort_idx]["antwort"] = antwort
+                rueckfragen[antwort_idx]["beantwortet_um"] = _jetzt()
+                self._schreiben(auftraege)
+                logger.info("Rueckfrage %d fuer %s beantwortet", antwort_idx, auftrag_id[:8])
+                return eintrag
+        return None
+
+    def offene_rueckfragen(self, auftrag_id: str) -> list[dict]:
+        """Alle noch unbeantworteten Rueckfragen."""
+        eintrag = self.einzeln(auftrag_id)
+        if not eintrag:
+            return []
+        return [r for r in eintrag.get("rueckfragen", []) if r.get("antwort") is None]
 
     # ------------------------------------------------------------------
     # Interna
     # ------------------------------------------------------------------
 
     def _verwaiste_freigeben(self, auftraege: list[dict]) -> None:
-        """Setzt zu lange laufende Auftraege zurueck auf offen.
-
-        Aendert die uebergebene Liste an Ort und Stelle; der Aufrufer haelt
-        bereits die Sperre und schreibt danach.
-        """
         grenze = settings.auftrag_timeout_minuten * 60
         jetzt = datetime.now(timezone.utc)
 
@@ -198,7 +221,7 @@ class AuftragService:
             if (jetzt - abgeholt).total_seconds() > grenze:
                 logger.warning(
                     "Auftrag %s lief laenger als %d Minuten - wieder offen",
-                    eintrag.get("id"),
+                    eintrag.get("id")[:8],
                     settings.auftrag_timeout_minuten,
                 )
                 eintrag["status"] = OFFEN

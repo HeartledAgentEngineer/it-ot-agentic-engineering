@@ -12,7 +12,7 @@ from app.config import settings
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
-from app.services.auftrags_erkennung import ist_auftrag
+from app.services.auftrags_erkennung import ist_auftrag, schaetze_dauer
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -139,15 +139,27 @@ async def chat(request: ChatRequest):
         # Weiche: Coding-/Werkzeug-Auftraege ans Auftragsbuch statt an den
         # lokalen LLM. Damit landet "erstelle das und das" bei Hermes, der
         # sich den Auftrag im eigenen Takt abholt.
-        ist_auftrag_val, begruendung = ist_auftrag(request.message)
+        ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
         if ist_auftrag_val:
             eintrag = auftrag_service.anlegen(
-                request.message, hinweis=f"Automatische Erkennung: {begruendung}"
+                request.message,
+                hinweis=f"Automatische Erkennung: {begruendung}",
+                kategorie=kategorie,
+                komplexitaet=komplexitaet,
             )
+            dauer = schaetze_dauer(komplexitaet or "mittel")
             reply_text = (
-                "🧩 Das klingt nach einem Coding-Auftrag – ich habe das an "
-                f"den Coding-Agenten weitergegeben (Auftrags-ID {eintrag['id'][:8]}). "
-                "Sobald er ihn abarbeitet, landet das Ergebnis wieder hier."
+                "🧩 **Coding-Auftrag erkannt!**\n\n"
+                f"📋 **Aufgabe:** {request.message[:150]}…\n"
+                f"🏷️ **Kategorie:** {kategorie or '?'}  "
+                f"⚡ **Komplexität:** {komplexitaet or '?'}  "
+                f"⏱️ **Dauer:** {dauer}\n\n"
+                f"🆔 Auftrag-ID: `{eintrag['id'][:8]}`\n\n"
+                "Der Auftrag wurde an den Coding-Agenten (Hermes) "
+                "weitergegeben. Sobald er bearbeitet ist, wird das "
+                "Ergebnis hier angezeigt.\n"
+                "Du kannst jederzeit nach dem Stand fragen:\n"
+                f"`Wie ist der Stand von Auftrag {eintrag['id'][:8]}?`"
             )
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
@@ -205,15 +217,27 @@ async def chat_stream(request: ChatRequest):
     """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
     # Gleiche Weiche wie in /chat: Coding-Auftraege ans Auftragsbuch statt
     # an den lokalen LLM. Als ein einzelnes SSE-Event ausgeliefert.
-    ist_auftrag_val, begruendung = ist_auftrag(request.message)
+    ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
     if ist_auftrag_val:
         eintrag = auftrag_service.anlegen(
-            request.message, hinweis=f"Automatische Erkennung: {begruendung}"
+            request.message,
+            hinweis=f"Automatische Erkennung: {begruendung}",
+            kategorie=kategorie,
+            komplexitaet=komplexitaet,
         )
+        dauer = schaetze_dauer(komplexitaet or "mittel")
         reply_text = (
-            "🧩 Das klingt nach einem Coding-Auftrag – ich habe das an "
-            f"den Coding-Agenten weitergegeben (Auftrags-ID {eintrag['id'][:8]}). "
-            "Sobald er ihn abarbeitet, landet das Ergebnis wieder hier."
+            "🧩 **Coding-Auftrag erkannt!**\n\n"
+            f"📋 **Aufgabe:** {request.message[:150]}…\n"
+            f"🏷️ **Kategorie:** {kategorie or '?'}  "
+            f"⚡ **Komplexität:** {komplexitaet or '?'}  "
+            f"⏱️ **Dauer:** {dauer}\n\n"
+            f"🆔 Auftrag-ID: `{eintrag['id'][:8]}`\n\n"
+            "Der Auftrag wurde an den Coding-Agenten (Hermes) "
+            "weitergegeben. Sobald er bearbeitet ist, wird das "
+            "Ergebnis hier angezeigt.\n"
+            "Du kannst jederzeit nach dem Stand fragen:\n"
+            f"`Wie ist der Stand von Auftrag {eintrag['id'][:8]}?`"
         )
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
