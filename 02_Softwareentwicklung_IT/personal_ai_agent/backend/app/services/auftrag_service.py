@@ -103,7 +103,7 @@ class AuftragService:
     def einzeln(self, auftrag_id: str) -> Optional[dict]:
         with self._sperre:
             for eintrag in self._lesen():
-                if eintrag.get("id") == auftrag_id:
+                if eintrag.get("id", "").startswith(auftrag_id):
                     return eintrag
         return None
 
