@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Cron-Monitor: Pollt 55s lang alle 1s den Server nach neuen Aufträgen.
+"""Cron-Monitor: Pollt 60s lang alle 2s den Server nach neuen Aufträgen.
 
 Läuft als cron monitor_script (alle 1 Min).
 - Bei NEUEM Auftrag → Output → Hash ändert sich → LLM feuert sofort
 - Kein NEUER Auftrag → kein Output → kein LLM-Call (0 Token)
-
-Reaktionszeit typisch 1-2s, maximal ~5s (Lücke zwischen zwei Ticks).
+- Nur cheap HTTP-Polls localhost (null Tokens)
 """
 import json
 import os
@@ -15,7 +14,7 @@ import urllib.error
 
 SERVER = "http://127.0.0.1:8080"
 STATE_FILE = os.path.expanduser("~/.hermes/cron/auftrag_letzter.txt")
-POLLS = 55  # 55 Sekunden polling, 5s Lücke zum nächsten Tick
+POLLS = 30  # 30 × 2s = 60s = volle Cron-Laufzeit
 
 
 def api(path):
@@ -70,9 +69,9 @@ def main():
                     return  # → LLM feuert!
                 # Selbe ID → kein neuer Auftrag, weiter polln
 
-        time.sleep(1)
+        time.sleep(2)
 
-    # Kein neuer Auftrag nach 55s → kein Output → kein LLM (0 Token)
+    # Kein neuer Auftrag nach 60s → kein Output → kein LLM (0 Token)
 
 
 if __name__ == "__main__":
