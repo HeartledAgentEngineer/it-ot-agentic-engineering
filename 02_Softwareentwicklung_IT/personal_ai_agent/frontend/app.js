@@ -488,6 +488,8 @@ dom.fileInput.addEventListener('change', async () => {
             });
 
             _fuegeVorschauHinzu(data, file);
+            // Bild angehängt, aber das Modell kann keine Vision?
+            _warneFallsModellKeinBild();
         } catch (err) {
             console.warn('Netzwerkfehler beim Upload:', err);
         }
@@ -559,6 +561,44 @@ function _entferneDatei(fileId) {
  */
 function _aktualisiereUploadKnopf() {
     dom.uploadBtn.classList.toggle('has-files', state.pendingFiles.length > 0);
+}
+
+// =========================================
+// Vision-Prüfung: Kann das Modell Bilder?
+// =========================================
+// Der häufigste Grund, warum „Bilder nicht gelesen werden“, ist kein
+// Upload-Fehler, sondern das Modell: DeepSeek V4 Flash (Standard) hat
+// keine Vision-Modalität. Der Katalog kennt das Feld `bilder` – die
+// Oberfläche muss es nur vor dem Senden abfragen.
+
+/** Kann das aktuell gewählte Modell Bilder verarbeiten?
+ *  true/false aus dem Katalog; null, wenn unbekannt (Katalog nicht geladen). */
+function modellKannBilder() {
+    if (!state.katalog || !state.model) return null;
+    const m = state.katalog.find(x => x.id === state.model);
+    if (!m) return null;
+    return Boolean(m.bilder || m.dateien);
+}
+
+// Verhindert, dass dieselbe Warnung bei jedem Senden erneut erscheint.
+// Wird zurückgesetzt, sobald keine Dateien mehr anhängen.
+let visionHinweisGezeigt = false;
+
+/** Warnt im Chat, wenn Bilder angehängt sind, das Modell aber keine
+ *  verarbeiten kann. Tut nichts, wenn das Modell Vision kann oder die
+ *  Fähigkeit unbekannt ist (dann entscheidet der Server-Fehlertext). */
+function _warneFallsModellKeinBild() {
+    const kann = modellKannBilder();
+    if (kann === null || kann || visionHinweisGezeigt) return;
+    visionHinweisGezeigt = true;
+    addMessage(
+        `⚠️ **${kurzName(state.model)} kann keine Bilder verarbeiten**\n\n`
+        + `Du hast ein Bild angehängt, aber das gewählte Modell unterstützt `
+        + `keine Bild-Eingabe – es wird das Bild nicht sehen. Wechsle in der `
+        + `Modellauswahl zu einem Vision-Modell (Filter „Bilder/Dateien“), `
+        + `z. B. \`openai/gpt-5-nano\` oder \`anthropic/claude-sonnet-5\`.`,
+        'assistant'
+    );
 }
 
 /**
@@ -993,6 +1033,8 @@ async function waehleModell(m) {
     state.modelVorher = state.model;
     state.model = m.id;
     localStorage.setItem('model', m.id);
+    // Nach einem Wechsel darf die Vision-Warnung neu bewertet werden.
+    visionHinweisGezeigt = false;
     setModelLabel();
     schliesseBlatt();
     await zeigeDetails(m.id);
@@ -1358,6 +1400,19 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
             web_search: state.webSearch,
             model: state.model,
             no_retention: state.noRetention,
+            // Auch im Fallback müssen Dateien mit – sonst fehlt das Bild
+            // beim zweiten Versuch, wenn der Streaming-Weg scheiterte.
+            files: state.pendingFiles.length > 0
+                ? state.pendingFiles.map(f => ({
+                    id: f.id,
+                    filename: f.filename,
+                    type: f.type,
+                    url: f.url,
+                    mime: f.mime,
+                    data_url: f.data_url,
+                    text: f.text,
+                }))
+                : undefined,
         }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -1379,6 +1434,9 @@ async function sendMessage(text) {
     // Dateivorschau in der Nachricht anzeigen, falls vorhanden
     if (state.pendingFiles.length > 0) {
         _zeigeDateienInNachricht(userContentDiv, state.pendingFiles);
+        // Sicherheitsnetz: War der Katalog beim Upload noch nicht geladen,
+        // kam die Warnung dort nicht – jetzt beim Senden nachholen.
+        _warneFallsModellKeinBild();
     }
 
     // Leere Blase anlegen, die sich während des Streams füllt.
