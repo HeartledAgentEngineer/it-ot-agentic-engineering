@@ -7,3 +7,9 @@ python-dotenv>=1.0.0
 httpx>=0.27.0
 numpy>=1.24.0
 python-multipart>=0.0.9
+
+# File-Upload: Bilder + PDFs
+# Pillow: Bild-Resizing (optional – ohne werden Roh-Bytes verwendet)
+# pdfminer.six: PDF-Text-Extraktion (optional – ohne wird nur gespeichert)
+Pillow>=10.0.0
+pdfminer.six>=20221105

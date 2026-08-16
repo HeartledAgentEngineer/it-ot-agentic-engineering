@@ -9,7 +9,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
@@ -29,6 +29,21 @@ ERLAUBTE_TYPEN = ERLAUBTE_BILDER | ERLAUBTE_PDFS
 UPLOAD_DIR = BASE_DIR / "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# ── Abhängigkeiten testen (Android hat oft nur Stubs ohne native .so) ──────
+_HAT_PIL: bool = False
+try:
+    from PIL import Image as _PIL_Image  # noqa: F401
+    _HAT_PIL = True
+except Exception:
+    logger.info("PIL/Pillow nicht verfügbar – Bilder ohne Resize verarbeitet")
+
+_HAT_PDFMINER: bool = False
+try:
+    from pdfminer.high_level import extract_text  # noqa: F401
+    _HAT_PDFMINER = True
+except Exception:
+    logger.info("pdfminer nicht verfügbar – PDF-Text-Extraktion deaktiviert")
+
 
 def _ist_erlaubt(content_type: str) -> bool:
     """Prüft, ob der Dateityp hochgeladen werden darf."""
@@ -44,36 +59,45 @@ def _datei_typ(content_type: str) -> str:
     return "unknown"
 
 
-async def _bild_als_base64(pfad: Path) -> str:
-    """Liest eine Bilddatei und gibt sie als Base64-String zurück."""
-    from PIL import Image
-    # Optional: Bild auf Maximalgröße skalieren, um Token-Kosten zu sparen
-    img = Image.open(pfad)
-    max_dim = 2048
-    if img.width > max_dim or img.height > max_dim:
-        faktor = max_dim / max(img.width, img.height)
-        img = img.resize(
-            (int(img.width * faktor), int(img.height * faktor)),
-            Image.LANCZOS,
-        )
-        img.save(pfad, quality=85)
+async def _bild_als_base64(pfad: Path) -> Optional[str]:
+    """Liest eine Bilddatei und gibt sie als Base64-String zurück.
+
+    Nutzt PIL für optionales Resizing, falls verfügbar.
+    Ohne PIL werden die Roh-Bytes direkt codiert (kein Resize).
+    """
+    if _HAT_PIL:
+        try:
+            from PIL import Image
+            img = Image.open(pfad)
+            max_dim = 2048
+            if img.width > max_dim or img.height > max_dim:
+                faktor = max_dim / max(img.width, img.height)
+                img = img.resize(
+                    (int(img.width * faktor), int(img.height * faktor)),
+                    Image.LANCZOS,
+                )
+                img.save(pfad, quality=85)
+        except Exception as e:
+            logger.warning("Image-Resizing fehlgeschlagen, verwende Rohdaten: %s", e)
+    # Mit oder ohne PIL: Rohdaten lesen und codieren
     with open(pfad, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-async def _pdf_als_text(pfad: Path) -> str:
-    """Extrahiert Text aus einer PDF-Datei.
+async def _pdf_als_text(pfad: Path) -> Optional[str]:
+    """Extrahiert Text aus einer PDF-Datei (nur mit pdfminer).
 
     Funktioniert nur bei PDFs mit Textlayer (Scans ohne OCR
     liefern leeren Text). Für gescannte PDFs bräuchte es OCR.
     """
+    if not _HAT_PDFMINER:
+        logger.info("PDF-Text-Extraktion nicht verfügbar (pdfminer fehlt)")
+        return "[PDF-Text-Extraktion auf diesem Gerät nicht verfügbar]"
     try:
         from pdfminer.high_level import extract_text
         text = extract_text(str(pfad))
-        # Leerraum normalisieren
         zeilen = [z.strip() for z in text.split("\n") if z.strip()]
         text = "\n".join(zeilen)
-        # Auf 10000 Zeichen begrenzen (Token-Budget)
         if len(text) > 10000:
             text = text[:10000] + "\n[…] (gekürzt)"
         return text

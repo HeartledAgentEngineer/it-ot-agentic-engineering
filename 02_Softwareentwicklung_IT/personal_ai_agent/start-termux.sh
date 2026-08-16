@@ -60,4 +60,4 @@ cd backend || { echo "backend/ fehlt"; exit 1; }
 
 # exec: Der Server ersetzt die Shell, damit Strg+C ihn direkt erreicht
 # und nicht nur das Skript beendet.
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload
