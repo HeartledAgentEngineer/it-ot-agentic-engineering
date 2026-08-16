@@ -1049,6 +1049,53 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
     if (vorleser) vorleser.neuerText();
     if (untenGewesen) scrollToBottom(true);
+
+    // Automatischer Auftrag-Tracker: Enthält die Antwort eine Auftrag-ID?
+    const match = antwort.match(/Auftrags-ID:\s*`?([a-f0-9]{8})/i);
+    if (match) {
+        startAuftragTracking(match[1], contentDiv);
+    }
+}
+
+/**
+ * Pollt alle 3 Sekunden den Status eines Coding-Auftrags und zeigt
+ * Live-Updates im Chat an – ohne dass der User nachfragen muss.
+ */
+let _auftragTimer = null;
+
+function startAuftragTracking(aidKurz, contentDiv) {
+    if (_auftragTimer) clearInterval(_auftragTimer);
+    let letzteMeldungen = 0;
+
+    _auftragTimer = setInterval(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/auftraege/${aidKurz}/chat`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const text = data.text || '';
+
+            // Prüfen ob neue Zwischenmeldungen da sind
+            const meldungenMatch = text.match(/\*\*Zwischenmeldungen:\*\*([\s\S]*?)(?:\n\n|\*\*Rückfragen|\*\*Ergebnis|$)/);
+            const meldungen = meldungenMatch ? meldungenMatch[1].trim() : '';
+            const anzahlMeldungen = meldungen ? meldungen.split('\n').filter(l => l.trim().startsWith('-')).length : 0;
+
+            if (anzahlMeldungen > letzteMeldungen) {
+                letzteMeldungen = anzahlMeldungen;
+                contentDiv.innerHTML = parseMarkdown(text);
+                scrollToBottom(true);
+            }
+
+            // Wenn fertig oder Fehler → finalen Status anzeigen und aufhören
+            if (text.includes('✅ Abgeschlossen') || text.includes('❌')) {
+                contentDiv.innerHTML = parseMarkdown(text);
+                scrollToBottom(true);
+                clearInterval(_auftragTimer);
+                _auftragTimer = null;
+            }
+        } catch (_) {
+            // Server kurz weg → ignorieren
+        }
+    }, 3000);
 }
 
 /** Rückfallweg auf den nicht-streamenden Endpunkt. */
