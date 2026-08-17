@@ -1419,6 +1419,8 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     const data = await res.json();
     zustand.text = data.reply;
     zustand.fertig = true;
+    // Dateivorschau leeren – die Dateien wurden nun versendet
+    if (state.pendingFiles.length > 0) _raeumeDateiVorschau();
     finishReply(contentDiv, entry, data.reply, data, vorleser);
     return data;
 }
