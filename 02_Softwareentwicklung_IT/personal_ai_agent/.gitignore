@@ -22,6 +22,14 @@ chroma_data/
 auftraege.json
 auftraege.json.tmp
 
+# Laufzeitdateien des Hermes-Watchers. Das Log enthaelt Auftragstexte,
+# also diktierten Inhalt - aus demselben Grund draussen wie das Auftragsbuch.
+.hermes-watcher.pid
+.hermes-watcher.log
+.hermes-watcher.log.alt
+.hermes-watcher.alive
+.hermes-watcher.seen
+
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.
 # Das Repo ist oeffentlich - das hier geht niemanden etwas an, der sich
 # den Code ansieht. Vorlage: backend/system_prompt.local.example.md
