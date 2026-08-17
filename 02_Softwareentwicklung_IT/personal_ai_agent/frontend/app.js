@@ -263,9 +263,12 @@ function addMessage(content, role) {
 
 /** Schaltet nur die "Denke nach..."-Anzeige. Ob wirklich etwas laeuft,
  *  steht in state.abbruch – die Anzeige verschwindet schon beim ersten
- *  Textstueck, die Antwort laeuft danach aber weiter. */
+ *  Textstueck, die Antwort laeuft danach aber weiter.
+ *
+ *  Seit v20260817 sitzen die drei animierten Punkte DIREKT in der
+ *  Assistant-Blase (siehe sendMessage) – nicht mehr in einem separaten
+ *  #loading-Bereich unterhalb. Hier bleibt nur noch die Button-Logik. */
 function setLoading(loading) {
-    dom.loading.classList.toggle('hidden', !loading);
     // Die Eingabe bleibt absichtlich offen: Waehrend der Agent schreibt, soll
     // man schon die naechste Nachricht tippen und anhaengen koennen.
     updateSendButton();
@@ -1442,7 +1445,10 @@ async function sendMessage(text) {
     }
 
     // Leere Blase anlegen, die sich während des Streams füllt.
+    // Seit v20260817: Typing-Indicator (drei Punkte) direkt in der Blase,
+    // nicht mehr im separaten #loading-Bereich.
     const contentDiv = addMessage('', 'assistant');
+    contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
     const entry = state.messages[state.messages.length - 1];
 
     let antwort = '';

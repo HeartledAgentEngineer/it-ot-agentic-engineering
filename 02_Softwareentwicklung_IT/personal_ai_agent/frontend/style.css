@@ -303,7 +303,31 @@ body {
 }
 
 /* =========================================
-   Loading Indicator
+   Typing-Indicator in der Blase (seit v20260817)
+   ========================================= */
+
+.message.assistant .message-content:has(.typing-indicator) {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 44px;
+    padding: 12px 16px;
+}
+
+.message.assistant .message-content:has(.typing-indicator) .typing-indicator {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.message.assistant .message-content:has(.typing-indicator) .typing-indicator span {
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+}
+
+/* =========================================
+   Loading Indicator (unused, kept for safety)
    ========================================= */
 
 #loading {
