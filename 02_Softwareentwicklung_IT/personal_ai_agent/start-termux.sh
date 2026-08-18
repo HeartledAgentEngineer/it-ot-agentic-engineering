@@ -2,8 +2,6 @@
 #
 # Startskript fuer Termux — holt Updates und startet den Server.
 #
-# Der Auftrags-Watcher bleibt aus; WATCHER=1 schaltet ihn an (Begruendung unten).
-#
 # Einrichtung einmalig:
 #   pkg install termux-api          # fuer den Weckruf-Sperrmechanismus
 #   mkdir -p ~/.shortcuts
@@ -50,50 +48,15 @@ fi
 # Ohne das bricht ein laufender Stream ab, sobald das Display ausgeht.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
-# ── Watcher (standardmaessig AUS) ──────────────────────────────────────────
-# Der Watcher holt Auftraege ueber GET /naechster ab und weckt Hermes. Er
-# funktioniert: am 18.08. lief er stundenlang zuverlaessig und holte drei
-# liegengebliebene Auftraege binnen neun Sekunden ab.
-#
-# Trotzdem steht er auf AUS, aus einem harten Grund:
-#
-#   /naechster liefert nur OFFENE Auftraege und setzt sie sofort auf
-#   "laeuft". Wer zuerst fragt, bekommt den Auftrag. Laeuft der Watcher, ist
-#   binnen drei Sekunden nichts mehr offen - und Hermes, der ueber denselben
-#   Endpunkt abholt, findet nichts mehr vor. Er meldet dann "nichts zu tun",
-#   obwohl im Buch etwas liegt.
-#
-# Solange Hermes der Bearbeiter ist, darf der Watcher also nicht laufen. Das
-# ist keine Schwaeche des Watchers, sondern eine Frage der Zustaendigkeit:
-# zwei Abholer an einer Warteschlange, von denen nur einer arbeitet.
-#
-# Einschalten, sobald der Watcher selbst der Bearbeiter ist - etwa wenn ein
-# eigenes Harness die Auftraege uebernimmt:
-#
-#   WATCHER=1 ./start-termux.sh
-#
-# Er startet dann VOR uvicorn, weil `exec uvicorn` diese Shell ersetzt.
-# Dass das Backend in den ersten Sekunden noch nicht antwortet, ist
-# eingeplant: der Watcher schreibt einmal "Server nicht erreichbar - warte"
-# ins Log und meldet sich wieder, sobald er durchkommt. Ein zweiter Aufruf
-# startet keinen zweiten Watcher - die PID-Datei faengt das ab.
-if [ "${WATCHER:-0}" = "1" ]; then
-    echo
-    echo "── Watcher ────────────────────────────────────"
-    if [ -x "$PROJEKT/termux-hermes-watcher.sh" ]; then
-        # HERMES_API aus PORT ableiten. Sonst pollt der Watcher stur auf
-        # 8080, waehrend der Server auf einem anderen Port lauscht — und
-        # meldet dann stundenlang "Server nicht erreichbar".
-        HERMES_API="http://127.0.0.1:$PORT" "$PROJEKT/termux-hermes-watcher.sh"
-    else
-        echo "⚠️  termux-hermes-watcher.sh fehlt oder ist nicht ausfuehrbar."
-        echo "    Nachholen mit: chmod +x $PROJEKT/termux-hermes-watcher.sh"
-    fi
-    # Der Watcher haengt nicht an dieser Sitzung (setsid) und laeuft weiter,
-    # wenn der Server mit Strg+C endet. Beim naechsten Start faellt das nicht
-    # auf, weil er sich dann einfach wieder verbindet.
-    echo "Stoppen:  ./termux-hermes-watcher.sh stop"
-    echo "Nachsehen: ./termux-hermes-watcher.sh status"
+# Alten Agenten-Server beenden, bevor der neue startet — so kann es nie
+# zwei uvicorn-Instanzen auf demselben Port geben.
+echo "── Alter Server wird beendet ──────────────────"
+if pkill -f "uvicorn app.main:app"; then
+    echo "Alter Server gestoppt."
+    # Kurz warten, bis der Port wirklich frei ist.
+    sleep 1
+else
+    echo "Kein alter Server lief (oder konnte nicht gestoppt werden)."
 fi
 
 echo
