@@ -25,6 +25,7 @@ from app.models import (
     AntwortCreate,
 )
 from app.services.auftrag_service import auftrag_service
+from app.services.auftrags_erkennung import schaetze_dauer
 
 logger = logging.getLogger(__name__)
 

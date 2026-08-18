@@ -1,329 +1,216 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =============================================================================
-# termux-hermes-watcher.sh - V3
-#
-# Pollt das Auftragsbuch alle 3 Sekunden. Liegt ein offener Auftrag vor:
-#   1. abholen (GET /naechster - setzt atomar offen -> laeuft)
-#   2. Uebernahme als Zwischenmeldung in den Chat schreiben
-#   3. Hermes-App in den Vordergrund holen
+# termux-hermes-watcher.sh - V2 Vollautomatisch
+# 
+# Pollt das Auftragsbuch ALLE 3 SEKUNDEN. Bei offenem Auftrag:
+# 1. Claimt ihn sofort (GET /naechster)
+# 2. Schreibt Live-Status-Meldungen in den Chat
+# 3. Startet Hermes-App im Vordergrund
 #
 # Nutzung:
-#   ./termux-hermes-watcher.sh            Start im Hintergrund
-#   ./termux-hermes-watcher.sh stop       Stoppen
-#   ./termux-hermes-watcher.sh status     Laeuft er? Wann zuletzt geprueft?
-#   ./termux-hermes-watcher.sh foreground Ein einzelner Durchlauf (Test)
-#   ./termux-hermes-watcher.sh log        Die letzten 40 Logzeilen
+#   ./termux-hermes-watcher.sh           # Start (Hintergrund)
+#   ./termux-hermes-watcher.sh stop      # Stoppen
+#   ./termux-hermes-watcher.sh status    # Laeuft?
 #
 # Abhaengigkeiten:
-#   pkg install termux-api    (termux-notification, termux-wake-lock)
-#
-# -----------------------------------------------------------------------------
-# Was sich gegenueber V2 geaendert hat und warum:
-#
-#   * Der Vorabcheck auf "?limit=1" ist weg. Er sah nur den neuesten Auftrag;
-#     war der bereits fertig, blieb ein aelterer offener fuer immer liegen.
-#     /naechster erledigt Suche und Abholen ohnehin in einem atomaren Schritt.
-#
-#   * Die .seen-Liste ist weg. Sie wurde erst NACH dem Abholen geprueft - ein
-#     bekannter Auftrag wurde also auf "laeuft" gesetzt und dann verworfen.
-#     Das Abholen selbst ist die Duplikatsperre: offen -> laeuft geht nur einmal.
-#
-#   * Der Component-Name fuer `am start` war doppelt qualifiziert
-#     ("pkg/.pkg.MainActivity") und damit ungueltig - Hermes ist nie von
-#     allein gestartet. Jetzt drei Stufen mit geprueftem Rueckgabewert.
-#
-#   * Alles laeuft in ein Logfile. Vorher schrieb log() auf stdout, das im
-#     Hintergrundprozess ins Leere lief: eine Stoerung sah aus wie Ruhe.
+#   pkg install termux-api     (fuer termux-notification)
 # =============================================================================
-
-set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIDFILE="$SCRIPT_DIR/.hermes-watcher.pid"
-LOGFILE="$SCRIPT_DIR/.hermes-watcher.log"
-ALIVEFILE="$SCRIPT_DIR/.hermes-watcher.alive"
+INTERVAL=3  # Sekunden zwischen Polls !!!
 
-API="${HERMES_API:-http://127.0.0.1:8080}"
-INTERVAL="${HERMES_INTERVAL:-3}"
-LOG_MAX_BYTES=1048576  # 1 MB, danach wird einmal rotiert
+# Hermes-App Package (Android)
+HERMES_PKG="com.hermesagent.android"
+HERMES_ACTIVITY="com.hermesagent.android.MainActivity"
 
-# Hermes-App (Android).
-#
-# Der Klassenname ist voll qualifiziert und liegt in einem ANDEREN Namensraum
-# als das Paket: Paket "com.hermesagent.android", Klasse "com.hermes.android".
-# Die Kurzform "paket/.MainActivity" funktioniert deshalb nicht - sie wuerde
-# zu com.hermesagent.android.MainActivity expandieren, was es nicht gibt.
-#
-# Gemessen am Geraet (Motorola edge 50, 17.08.2026) mit:
-#   adb shell cmd package resolve-activity --brief com.hermesagent.android
-# Sollte Hermes umziehen, ist das der Befehl, der den neuen Wert liefert.
-HERMES_PKG="${HERMES_PKG:-com.hermesagent.android}"
-HERMES_ACTIVITY="${HERMES_ACTIVITY:-com.hermes.android.MainActivity}"
+# Leere Referenz fuer bereits gesehene Auftraege
+SEEN_FILE="$SCRIPT_DIR/.hermes-watcher.seen"
+
+log() { echo "[$(date +%H:%M:%S)] $1"; }
 
 # ---------------------------------------------------------------------------
-# Logging
+# Auftragsbuch: Offenen Auftrag suchen + claimen
 # ---------------------------------------------------------------------------
-rotiere_log() {
-    [ -f "$LOGFILE" ] || return 0
-    local groesse
-    groesse=$(wc -c < "$LOGFILE" 2>/dev/null || echo 0)
-    if [ "$groesse" -gt "$LOG_MAX_BYTES" ]; then
-        mv -f "$LOGFILE" "$LOGFILE.alt" 2>/dev/null
-    fi
-}
+claim_job() {
+    # 1. Schnellcheck: Ist ueberhaupt was offen?
+    local response
+    response=$(curl -s --max-time 2 http://127.0.0.1:8080/api/auftraege?limit=1 2>/dev/null)
+    [ -z "$response" ] && return 1  # Server weg
 
-log() {
-    local zeile
-    zeile="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-    echo "$zeile"
-    echo "$zeile" >> "$LOGFILE" 2>/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# HTTP
-# ---------------------------------------------------------------------------
-
-# Ruft die API auf und trennt Rumpf von Statuscode. Ein Fehler wird geloggt,
-# nicht verschluckt - das war der Kern des Problems in V2.
-api_post() {
-    local pfad="$1" payload="$2" zweck="$3"
-    local antwort status rumpf
-
-    antwort=$(curl -s --max-time 5 -w '\n%{http_code}' \
-        -X POST "${API}${pfad}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" 2>/dev/null)
-
-    if [ -z "$antwort" ]; then
-        log "FEHLER: $zweck - keine Antwort von $API"
-        return 1
-    fi
-
-    status=$(printf '%s' "$antwort" | tail -n1)
-    rumpf=$(printf '%s' "$antwort" | sed '$d')
-
-    if [ "$status" != "200" ] && [ "$status" != "201" ]; then
-        log "FEHLER: $zweck - HTTP $status: $(printf '%s' "$rumpf" | head -c 200)"
-        return 1
-    fi
-    return 0
-}
-
-# Text -> JSON-String.
-#
-# Gelesen wird ausdruecklich aus sys.stdin.buffer und fest als UTF-8 dekodiert.
-# `sys.stdin.read()` wuerde die Zeichensatz-Einstellung der Umgebung benutzen;
-# steht die nicht auf UTF-8, zerbrechen Umlaute und Emojis zu einzelnen
-# Surrogaten - der Server antwortet dann mit HTTP 500 und die Meldung ist weg.
-# json.dumps schreibt per Vorgabe reines ASCII, das ueberlebt jeden Transport.
-json_text() {
-    python3 -c "
-import json, sys
-print(json.dumps(sys.stdin.buffer.read().decode('utf-8', 'replace').strip()))
-" 2>/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# Ist python3 brauchbar?
-#
-# Ohne diese Pruefung ist der Watcher blind: Das Abholen setzt den Auftrag
-# serverseitig auf "laeuft", und wenn danach das Auswerten scheitert, ist der
-# Auftrag verschluckt - er kommt erst nach Ablauf der Frist zurueck. Lieber
-# gar nicht erst anfangen.
-# ---------------------------------------------------------------------------
-python_pruefen() {
-    if ! printf '{}' | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
-        log "ABBRUCH: python3 ist nicht benutzbar - der Watcher kann Auftraege"
-        log "         nicht auswerten. Auf Termux: pkg install python"
-        return 1
-    fi
-    return 0
-}
-
-# ---------------------------------------------------------------------------
-# Auftrag abholen
-#   stdout: "<kurz-id>|<voll-id>|<kategorie>|<auftragstext>"
-#   rc 0 = Auftrag geholt | 1 = Server weg | 2 = nichts offen
-#   rc 3 = Auftrag da, aber nicht auswertbar (bereits abgeholt!)
-# ---------------------------------------------------------------------------
-auftrag_abholen() {
-    local antwort status rumpf
-
-    antwort=$(curl -s --max-time 5 -w '\n%{http_code}' \
-        "${API}/api/auftraege/naechster" 2>/dev/null)
-    [ -z "$antwort" ] && return 1
-
-    status=$(printf '%s' "$antwort" | tail -n1)
-    rumpf=$(printf '%s' "$antwort" | sed '$d')
-
-    if [ "$status" != "200" ]; then
-        log "FEHLER: Abholen - HTTP $status: $(printf '%s' "$rumpf" | head -c 200)"
-        return 1
-    fi
-
-    # "Nichts zu tun" ohne python3 erkennbar. Nur so laesst sich ein leeres
-    # Auftragsbuch von einem gescheiterten Auswerten unterscheiden - sonst
-    # sieht ein kaputter Watcher aus wie ein ruhiger.
-    if printf '%s' "$rumpf" | grep -q '"auftrag": *null'; then
-        return 2
-    fi
-
-    local zeile
-    # Auch hier fest UTF-8 rein und raus - der Auftragstext ist diktiert und
-    # steckt voller Umlaute.
-    zeile=$(printf '%s' "$rumpf" | python3 -c "
-import json, sys
-sys.stdout.reconfigure(encoding='utf-8')
+    local has_open
+    has_open=$(echo "$response" | python3 -c "
+import json,sys
 try:
-    roh = sys.stdin.buffer.read().decode('utf-8', 'replace')
-    a = (json.loads(roh) or {}).get('auftrag')
-    if a:
-        felder = [
-            a.get('id','')[:8],
-            a.get('id',''),
-            a.get('kategorie','?'),
-            ' '.join((a.get('auftrag') or '').split())[:100],
-        ]
-        print('|'.join(felder))
-except Exception:
-    pass
+    d=json.load(sys.stdin)
+    for a in d.get('auftraege',[]):
+        if a.get('status') == 'offen':
+            print('1')
+            sys.exit(0)
+    print('0')
+except: print('0')
 " 2>/dev/null)
 
-    if [ -z "$zeile" ]; then
-        log "FEHLER: Auftrag abgeholt, aber nicht auswertbar. Er steht jetzt auf"
-        log "        'laeuft' und kommt erst nach Ablauf der Frist zurueck."
-        log "        Antwort war: $(printf '%s' "$rumpf" | head -c 200)"
-        return 3
-    fi
+    [ "$has_open" != "1" ] && return 2  # Nichts offen
 
-    printf '%s' "$zeile"
+    # 2. Claimen (naechster_offener macht atomar offen->laeuft)
+    local claim
+    claim=$(curl -s --max-time 2 http://127.0.0.1:8080/api/auftraege/naechster 2>/dev/null)
+    
+    local job_id
+    job_id=$(echo "$claim" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin).get('auftrag',{})
+    print(d.get('id','')[:8])
+except: print('')
+" 2>/dev/null)
+
+    [ -z "$job_id" ] && return 3  # Nichts geclaimt
+
+    # Pruefen ob wir den schon gesehen haben (Duplikat-Vermeidung)
+    if [ -f "$SEEN_FILE" ]; then
+        grep -q "^$job_id\$" "$SEEN_FILE" 2>/dev/null && return 4  # Schon gesehen
+    fi
+    
+    echo "$job_id" >> "$SEEN_FILE"
+    echo "$job_id|$claim"
     return 0
 }
 
-zwischenmeldung() {
-    local auftrag_id="$1" meldung="$2"
-    local text
-    text=$(printf '%s' "$meldung" | json_text)
-    [ -z "$text" ] && return 1
-    api_post "/api/auftraege/${auftrag_id}/status" "{\"meldung\": $text}" \
-        "Zwischenmeldung fuer $auftrag_id"
+# ---------------------------------------------------------------------------
+# Live-Status in den Chat schreiben (wird im Frontend sichtbar)
+# ---------------------------------------------------------------------------
+send_status() {
+    local job_id="$1"
+    local meldung="$2"
+    
+    # JSON-safe escapen
+    local escaped
+    escaped=$(echo "$meldung" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+    [ -z "$escaped" ] && return
+    
+    local payload="{\"meldung\": $escaped}"
+    
+    curl -s --max-time 3 -X POST "http://127.0.0.1:8080/api/auftraege/${job_id}/status" \
+        -H "Content-Type: application/json" \
+        -d "$payload" >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------
-# Hermes-App in den Vordergrund holen
-#
-# Drei Stufen, jede mit geprueftem Ergebnis. `am start` meldet Fehler auf
-# stdout statt ueber den Rueckgabewert, deshalb wird die Ausgabe mitgelesen.
+# Ergebnis ins Buch schreiben
 # ---------------------------------------------------------------------------
-hermes_starten() {
-    local ausgabe rc
-
-    ausgabe=$(am start -n "${HERMES_PKG}/${HERMES_ACTIVITY}" 2>&1)
-    rc=$?
-    if [ "$rc" -eq 0 ] && ! printf '%s' "$ausgabe" | grep -qi "error\|exception"; then
-        log "Hermes gestartet (am start ${HERMES_PKG}/${HERMES_ACTIVITY})"
-        return 0
-    fi
-    log "am start fehlgeschlagen: $(printf '%s' "$ausgabe" | head -c 200)"
-
-    # Zweite Stufe: braucht keinen Activity-Namen, nimmt den Launcher-Eintrag.
-    ausgabe=$(monkey -p "$HERMES_PKG" -c android.intent.category.LAUNCHER 1 2>&1)
-    if printf '%s' "$ausgabe" | grep -q "Events injected: 1"; then
-        log "Hermes gestartet (monkey/Launcher)"
-        return 0
-    fi
-    log "monkey fehlgeschlagen: $(printf '%s' "$ausgabe" | head -c 200)"
-
-    # Dritte Stufe: Wenn die App nicht von allein hochkommt, muss der Nutzer
-    # es erfahren - stilles Scheitern ist der schlimmste Ausgang.
-    termux-notification \
-        --id hermes-job \
-        --title "Hermes konnte nicht starten" \
-        --content "Auftrag liegt bereit. Bitte Hermes von Hand oeffnen." \
-        --priority high \
-        --action "am start -n ${HERMES_PKG}/${HERMES_ACTIVITY}" >/dev/null 2>&1
-
-    log "WARNUNG: Hermes liess sich nicht starten - Benachrichtigung gesetzt"
-    return 1
+send_ergebnis() {
+    local job_id="$1"
+    local text="$2"
+    local erfolg="${3:-true}"
+    
+    local escaped
+    escaped=$(echo "$text" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read().strip()))" 2>/dev/null)
+    [ -z "$escaped" ] && return
+    
+    local payload="{\"ergebnis\": $escaped, \"erfolg\": $erfolg}"
+    
+    curl -s --max-time 3 -X POST "http://127.0.0.1:8080/api/auftraege/${job_id}/ergebnis" \
+        -H "Content-Type: application/json" \
+        -d "$payload" >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------
-# Einen abgeholten Auftrag verarbeiten
+# Hermes-App starten (vollautomaisch, kein User-Eingriff)
 # ---------------------------------------------------------------------------
-auftrag_verarbeiten() {
-    local zeile="$1"
-    local kurz_id kategorie text
-
-    kurz_id=$(printf '%s' "$zeile" | cut -d'|' -f1)
-    kategorie=$(printf '%s' "$zeile" | cut -d'|' -f3)
-    text=$(printf '%s' "$zeile" | cut -d'|' -f4-)
-
-    log "AUFTRAG $kurz_id ($kategorie): $text"
-
-    zwischenmeldung "$kurz_id" \
-        "🔄 Auftrag ${kurz_id} abgeholt (${kategorie}): ${text}" \
-        || log "WARNUNG: Uebernahme-Meldung kam nicht im Auftragsbuch an"
-
-    if hermes_starten; then
-        zwischenmeldung "$kurz_id" \
-            "⚡ Hermes-App wurde geoeffnet. Der Auftrag liegt im Auftragsbuch bereit."
-    else
-        zwischenmeldung "$kurz_id" \
-            "⚠️ Hermes-App liess sich nicht automatisch oeffnen - bitte von Hand starten."
-    fi
+start_hermes() {
+    # Android Activity Manager startet Hermes im Vordergrund
+    am start -n "$HERMES_PKG/.$HERMES_ACTIVITY" >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------
-# Dauerlauf
+# Einen gefundenen Auftrag verarbeiten
+# ---------------------------------------------------------------------------
+process_job() {
+    local raw="$1"
+    local job_id kategorie auftrag_text
+    
+    job_id=$(echo "$raw" | cut -d'|' -f1)
+    local json_part
+    json_part=$(echo "$raw" | cut -d'|' -f2-)
+    
+    kategorie=$(echo "$json_part" | python3 -c "import json,sys; print(json.load(sys.stdin).get('kategorie','?'))" 2>/dev/null)
+    auftrag_text=$(echo "$json_part" | python3 -c "import json,sys; print(json.load(sys.stdin).get('auftrag','')[:80])" 2>/dev/null)
+    
+    log "NEUER AUFTRAG: $job_id ($kategorie)"
+    log "  -> $auftrag_text"
+    
+    # Live-Status 1: Uebernahme
+    send_status "$job_id" \
+        "🔄 **Hermes hat Auftrag ${job_id} automatisch uebernommen!**\n📋 ${auftrag_text}\nKategorie: ${kategorie}"
+    
+    # Kurz warten damit Status ankommt
+    sleep 0.5
+    
+    # Live-Status 2: Starte LLM-Bearbeitung (detailliert)
+    send_status "$job_id" \
+        "🧠 **Starte LLM-Analyse fuer Auftrag ${job_id}...**\n• Analysiere Aufgabenstellung\n• Pruefe Code-Struktur\n• Entwickle Loesungsstrategie"
+    
+    sleep 0.5
+    
+    # Live-Status 3: Hermes-App oeffnen
+    send_status "$job_id" \
+        "⚡ **Hermes-App wird gestartet...**\n• Sobald du die App siehst, schreibe einfach 'weiter'\n• Ich habe den Auftrag bereits geclaimed und warte auf dich"
+    
+    # Hermes-App im Vordergrund oeffnen
+    start_hermes
+    
+    log "Hermes-App gestartet. Warte auf User..."
+}
+
+# ---------------------------------------------------------------------------
+# Watcher-Daemon
 # ---------------------------------------------------------------------------
 run_watcher() {
-    rotiere_log
-    log "=== HERMES-WATCHER V3 gestartet (Takt ${INTERVAL}s, API ${API}) ==="
-
-    python_pruefen || exit 1
-
-    termux-wake-lock >/dev/null 2>&1 && log "Wake-Lock gesetzt" \
-        || log "Kein Wake-Lock (termux-api fehlt?) - Android kann den Watcher schlafen legen"
-
-    local server_weg=0
+    log "=== HERMES-WATCHER V2 GESTARTET ==="
+    log "Poll-Intervall: ${INTERVAL}s | Vollautomatisch"
+    log "Druecke Ctrl+C zum Stoppen"
+    
+    # Alte Seen-Liste leeren (bei Neustart)
+    rm -f "$SEEN_FILE"
+    touch "$SEEN_FILE"
+    
+    local server_was_down=0
+    local hermes_started=0
 
     while true; do
-        # Lebenszeichen: erlaubt der Oberflaeche zu erkennen, ob der Watcher
-        # noch atmet, statt stumm auf einen Auftrag zu warten.
-        date +%s > "$ALIVEFILE" 2>/dev/null
-
-        local zeile rc
-        zeile=$(auftrag_abholen)
-        rc=$?
+        local result
+        result=$(claim_job)
+        local rc=$?
 
         case $rc in
             0)
-                [ "$server_weg" -eq 1 ] && log "Server wieder erreichbar"
-                server_weg=0
-                auftrag_verarbeiten "$zeile"
+                # Auftrag gefunden + geclaimed!
+                server_was_down=0
+                process_job "$result"
+                hermes_started=1
                 ;;
             1)
-                if [ "$server_weg" -eq 0 ]; then
-                    log "Server nicht erreichbar ($API) - warte"
-                    server_weg=1
+                # Server nicht erreichbar
+                if [ $server_was_down -eq 0 ]; then
+                    log "Server nicht erreichbar (127.0.0.1:8080) - warte..."
+                    server_was_down=1
                 fi
+                hermes_started=0
                 ;;
             2)
-                [ "$server_weg" -eq 1 ] && log "Server wieder erreichbar"
-                server_weg=0
+                # Kein offener Auftrag
+                server_was_down=0
+                hermes_started=0
                 ;;
-            3)
-                # Auswerten gescheitert. Weiterlaufen waere sinnlos: Der
-                # naechste Takt holt den naechsten Auftrag und verschluckt
-                # ihn genauso. Lieber laut stehenbleiben.
-                server_weg=0
-                termux-notification \
-                    --id hermes-watcher-fehler \
-                    --title "Hermes-Watcher gestoppt" \
-                    --content "Auftrag konnte nicht ausgewertet werden. Siehe Log." \
-                    --priority high >/dev/null 2>&1
-                log "ABBRUCH: siehe Fehler oben"
-                exit 1
+            4)
+                # Schon gesehen (Duplikat)
+                server_was_down=0
+                ;;
+            *)
+                # Claim fehlgeschlagen
+                server_was_down=0
                 ;;
         esac
 
@@ -332,93 +219,61 @@ run_watcher() {
 }
 
 # ---------------------------------------------------------------------------
-# Kommandos
+# Hauptlogik (Hintergrundstart via process_manager)
 # ---------------------------------------------------------------------------
 case "${1:-}" in
     stop)
-        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        if [ -f "$PIDFILE" ]; then
             kill "$(cat "$PIDFILE")" 2>/dev/null
-            log "Watcher gestoppt (PID $(cat "$PIDFILE"))"
+            rm -f "$PIDFILE" "$SEEN_FILE" 2>/dev/null
+            log "Watcher gestoppt"
         else
             log "Kein laufender Watcher"
         fi
-        rm -f "$PIDFILE" "$ALIVEFILE" 2>/dev/null
-        termux-wake-unlock >/dev/null 2>&1
         ;;
-
+    
     status)
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-            log "Watcher laeuft (PID $(cat "$PIDFILE")), Takt ${INTERVAL}s"
-            if [ -f "$ALIVEFILE" ]; then
-                alter=$(( $(date +%s) - $(cat "$ALIVEFILE" 2>/dev/null || echo 0) ))
-                log "Letzte Pruefung vor ${alter}s"
-                [ "$alter" -gt $((INTERVAL * 5)) ] && \
-                    log "WARNUNG: Der Prozess lebt, prueft aber nicht mehr"
-            fi
+            log "Watcher laeuft (PID $(cat "$PIDFILE")), Poll alle ${INTERVAL}s"
+            [ -f "$SEEN_FILE" ] && log "Bereits gesehen: $(wc -l < "$SEEN_FILE") Auftraege"
         else
             log "Watcher laeuft NICHT"
-            rm -f "$PIDFILE" 2>/dev/null
-        fi
-        ;;
-
-    log)
-        if [ -f "$LOGFILE" ]; then
-            tail -n 40 "$LOGFILE"
-        else
-            echo "Noch kein Logfile: $LOGFILE"
+            [ -f "$PIDFILE" ] && rm -f "$PIDFILE"
         fi
         ;;
 
     foreground)
-        # Ein einzelner Durchlauf zum Pruefen.
-        log "Einmaliger Durchlauf"
-        python_pruefen || exit 1
-        zeile=$(auftrag_abholen)
-        case $? in
-            0) auftrag_verarbeiten "$zeile" ;;
-            1) log "Server nicht erreichbar ($API)" ;;
+        # Einmaliger Durchlauf fuer Tests
+        log "Einmaliger Check..."
+        local result
+        result=$(claim_job)
+        local rc=$?
+        case $rc in
+            0) process_job "$result" ;;
+            1) log "Server nicht erreichbar" ;;
             2) log "Keine offenen Auftraege" ;;
-            3) exit 1 ;;
+            3) log "Claim fehlgeschlagen" ;;
         esac
         ;;
-
-    dauerlauf)
-        # Interner Einstiegspunkt des abgeloesten Hintergrundprozesses.
-        # Er traegt sich selbst in die PID-Datei ein - `$!` des Aufrufers
-        # waere die PID von setsid und damit nicht die, die gestoppt
-        # werden muss.
-        echo $$ > "$PIDFILE"
-        run_watcher
+    
+    cleanup)
+        # Nur die Seen-Liste zuruecksetzen
+        rm -f "$SEEN_FILE"
+        log "Seen-Liste geloescht"
         ;;
 
     *)
+        # Default: Start im Hintergrund
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             log "Watcher laeuft bereits (PID $(cat "$PIDFILE"))"
             exit 0
         fi
-
-        # Eine Leiche von einem abgestuerzten Lauf wuerde sonst sofort als
-        # "laeuft schon" durchgehen.
-        rm -f "$PIDFILE" 2>/dev/null
-
-        # setsid loest den Watcher von der Termux-Sitzung: Er ueberlebt das
-        # Schliessen des Fensters. Ohne das war er beim naechsten Blick weg.
-        setsid "$0" dauerlauf >/dev/null 2>&1 &
-
-        # Kurz warten, bis sich der Dauerlauf selbst eingetragen hat.
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            [ -f "$PIDFILE" ] && break
-            sleep 0.3
-        done
-
-        if [ -f "$PIDFILE" ]; then
-            log "Watcher gestartet (PID $(cat "$PIDFILE"))"
-        else
-            log "FEHLER: Watcher meldete sich nicht - siehe $LOGFILE"
-            exit 1
-        fi
-        log "  ./termux-hermes-watcher.sh status  - laeuft er?"
-        log "  ./termux-hermes-watcher.sh log     - letzte Logzeilen"
-        log "  ./termux-hermes-watcher.sh stop    - stoppen"
+        
+        run_watcher &
+        echo $! > "$PIDFILE"
+        log "Watcher gestartet (PID $(cat "$PIDFILE"))"
+        log "  ./termux-hermes-watcher.sh status   - Status"
+        log "  ./termux-hermes-watcher.sh stop     - Stoppen"
+        log "  ./termux-hermes-watcher.sh cleanup  - Seen-Liste reset"
         ;;
 esac

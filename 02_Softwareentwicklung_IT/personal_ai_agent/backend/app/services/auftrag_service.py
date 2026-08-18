@@ -30,7 +30,7 @@ FEHLER = "fehler"
 
 
 def _jetzt() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now().astimezone().isoformat()
 
 
 class AuftragService:
@@ -61,41 +61,6 @@ class AuftragService:
         with entwurf.open("w", encoding="utf-8") as datei:
             json.dump(auftraege, datei, ensure_ascii=False, indent=2)
         entwurf.replace(self._pfad)
-
-    # ------------------------------------------------------------------
-    # Auftragssuche
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _finden(auftraege: list[dict], auftrag_id: str) -> Optional[dict]:
-        """Sucht einen Auftrag ueber die volle ID oder ein eindeutiges Praefix.
-
-        Sichtbar ist ueberall nur die achtstellige Kurzform - im Chat, in der
-        Oberflaeche, in den Logzeilen. Hermes und der Termux-Watcher melden
-        genau damit zurueck. Ein exakter Vergleich laesst deshalb jede
-        Rueckmeldung ins Leere laufen: der Auftrag bleibt fuer immer auf
-        "laeuft" stehen, ohne dass irgendwo ein Fehler sichtbar wird.
-
-        Bei mehreren Treffern kommt None zurueck, nicht der erste. Eine
-        Meldung am falschen Auftrag ist schlimmer als gar keine.
-        """
-        if not auftrag_id:
-            return None
-
-        treffer = [
-            eintrag
-            for eintrag in auftraege
-            if eintrag.get("id", "").startswith(auftrag_id)
-        ]
-        if len(treffer) == 1:
-            return treffer[0]
-        if len(treffer) > 1:
-            logger.warning(
-                "Auftrags-ID %s ist mehrdeutig (%d Treffer) - keine Zuordnung",
-                auftrag_id,
-                len(treffer),
-            )
-        return None
 
     # ------------------------------------------------------------------
     # Oeffentliche Schnittstelle
@@ -137,7 +102,10 @@ class AuftragService:
 
     def einzeln(self, auftrag_id: str) -> Optional[dict]:
         with self._sperre:
-            return self._finden(self._lesen(), auftrag_id)
+            for eintrag in self._lesen():
+                if eintrag.get("id", "").startswith(auftrag_id):
+                    return eintrag
+        return None
 
     def naechster_offener(self) -> Optional[dict]:
         with self._sperre:
@@ -162,77 +130,71 @@ class AuftragService:
     ) -> Optional[dict]:
         with self._sperre:
             auftraege = self._lesen()
-            eintrag = self._finden(auftraege, auftrag_id)
-            if eintrag is None:
-                return None
-            eintrag["status"] = FERTIG if erfolg else FEHLER
-            eintrag["ergebnis"] = ergebnis
-            eintrag["beendet"] = _jetzt()
-            self._schreiben(auftraege)
-
-        logger.info(
-            "Auftrag %s: %s",
-            eintrag["id"][:8],
-            "fertig" if erfolg else "fehlgeschlagen",
-        )
-        return eintrag
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                eintrag["status"] = FERTIG if erfolg else FEHLER
+                eintrag["ergebnis"] = ergebnis
+                eintrag["beendet"] = _jetzt()
+                self._schreiben(auftraege)
+                logger.info("Auftrag %s: %s", auftrag_id[:8], "fertig" if erfolg else "fehlgeschlagen")
+                return eintrag
+        return None
 
     def statusmeldung_hinzufuegen(self, auftrag_id: str, meldung: str) -> Optional[dict]:
         """Fuegt eine Zwischenmeldung des Coding-Agenten hinzu."""
         with self._sperre:
             auftraege = self._lesen()
-            eintrag = self._finden(auftraege, auftrag_id)
-            if eintrag is None:
-                return None
-            if "status_meldungen" not in eintrag:
-                eintrag["status_meldungen"] = []
-            eintrag["status_meldungen"].append(f"[{_jetzt()}] {meldung}")
-            # Maximal 20 Meldungen behalten
-            if len(eintrag["status_meldungen"]) > 20:
-                eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
-            self._schreiben(auftraege)
-
-        logger.info("Statusmeldung fuer %s: %s", eintrag["id"][:8], meldung[:60])
-        return eintrag
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                if "status_meldungen" not in eintrag:
+                    eintrag["status_meldungen"] = []
+                eintrag["status_meldungen"].append(f"[{_jetzt()}] {meldung}")
+                # Maximal 20 Meldungen behalten
+                if len(eintrag["status_meldungen"]) > 20:
+                    eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
+                self._schreiben(auftraege)
+                logger.info("Statusmeldung fuer %s: %s", auftrag_id[:8], meldung[:60])
+                return eintrag
+        return None
 
     def rueckfrage_stellen(self, auftrag_id: str, frage: str, kontext: Optional[str] = None) -> Optional[dict]:
         """Hermes stellt eine Rueckfrage zum Auftrag."""
         with self._sperre:
             auftraege = self._lesen()
-            eintrag = self._finden(auftraege, auftrag_id)
-            if eintrag is None:
-                return None
-            if "rueckfragen" not in eintrag:
-                eintrag["rueckfragen"] = []
-            eintrag["rueckfragen"].append({
-                "frage": frage,
-                "kontext": kontext,
-                "gestellt_um": _jetzt(),
-                "antwort": None,
-            })
-            self._schreiben(auftraege)
-
-        logger.info("Rueckfrage fuer %s: %s", eintrag["id"][:8], frage[:60])
-        return eintrag
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                if "rueckfragen" not in eintrag:
+                    eintrag["rueckfragen"] = []
+                eintrag["rueckfragen"].append({
+                    "frage": frage,
+                    "kontext": kontext,
+                    "gestellt_um": _jetzt(),
+                    "antwort": None,
+                })
+                self._schreiben(auftraege)
+                logger.info("Rueckfrage fuer %s: %s", auftrag_id[:8], frage[:60])
+                return eintrag
+        return None
 
     def rueckfrage_beantworten(self, auftrag_id: str, antwort_idx: int, antwort: str) -> Optional[dict]:
         """Nutzer beantwortet eine Rueckfrage."""
         with self._sperre:
             auftraege = self._lesen()
-            eintrag = self._finden(auftraege, auftrag_id)
-            if eintrag is None:
-                return None
-            rueckfragen = eintrag.get("rueckfragen", [])
-            if antwort_idx < 0 or antwort_idx >= len(rueckfragen):
-                return None
-            rueckfragen[antwort_idx]["antwort"] = antwort
-            rueckfragen[antwort_idx]["beantwortet_um"] = _jetzt()
-            self._schreiben(auftraege)
-
-        logger.info(
-            "Rueckfrage %d fuer %s beantwortet", antwort_idx, eintrag["id"][:8]
-        )
-        return eintrag
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                rueckfragen = eintrag.get("rueckfragen", [])
+                if antwort_idx < 0 or antwort_idx >= len(rueckfragen):
+                    return None
+                rueckfragen[antwort_idx]["antwort"] = antwort
+                rueckfragen[antwort_idx]["beantwortet_um"] = _jetzt()
+                self._schreiben(auftraege)
+                logger.info("Rueckfrage %d fuer %s beantwortet", antwort_idx, auftrag_id[:8])
+                return eintrag
+        return None
 
     def offene_rueckfragen(self, auftrag_id: str) -> list[dict]:
         """Alle noch unbeantworteten Rueckfragen."""
@@ -256,16 +218,10 @@ class AuftragService:
                 abgeholt = datetime.fromisoformat(eintrag["abgeholt"])
             except (ValueError, TypeError):
                 continue
-            # Aeltere Eintraege koennen einen Zeitstempel ohne Zone tragen.
-            # Ohne diese Zeile wirft der Vergleich einen TypeError - und weil
-            # der Watcher alle 3 Sekunden hier durchlaeuft, wuerde ein
-            # einziger solcher Eintrag die gesamte Auftragskette lahmlegen.
-            if abgeholt.tzinfo is None:
-                abgeholt = abgeholt.replace(tzinfo=timezone.utc)
             if (jetzt - abgeholt).total_seconds() > grenze:
                 logger.warning(
                     "Auftrag %s lief laenger als %d Minuten - wieder offen",
-                    eintrag.get("id", "")[:8],
+                    eintrag.get("id")[:8],
                     settings.auftrag_timeout_minuten,
                 )
                 eintrag["status"] = OFFEN

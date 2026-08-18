@@ -12,7 +12,7 @@ from app.config import settings
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
-from app.services.auftrags_erkennung import ist_auftrag
+from app.services.auftrags_erkennung import ist_auftrag, schaetze_dauer
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -153,10 +153,13 @@ async def chat(request: ChatRequest):
                 eintrag["id"],
                 "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
             )
+            dauer = schaetze_dauer(komplexitaet or "mittel")
             reply_text = (
                 "🧩 **Coding-Auftrag erkannt!**\n\n"
                 f"📋 **Aufgabe:** {request.message[:150]}…\n"
-                f"🏷️ **Kategorie:** {kategorie or '?'}\n\n"
+                f"🏷️ **Kategorie:** {kategorie or '?'}  "
+                f"⚡ **Komplexität:** {komplexitaet or '?'}  "
+                f"⏱️ **Dauer:** {dauer}\n\n"
                 f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
                 "Der Auftrag wurde an den Coding-Agenten (Hermes) "
                 "weitergegeben. Sobald er bearbeitet ist, wird das "
@@ -227,10 +230,13 @@ async def chat_stream(request: ChatRequest):
             kategorie=kategorie,
             komplexitaet=komplexitaet,
         )
+        dauer = schaetze_dauer(komplexitaet or "mittel")
         reply_text = (
             "🧩 **Coding-Auftrag erkannt!**\n\n"
             f"📋 **Aufgabe:** {request.message[:150]}…\n"
-            f"🏷️ **Kategorie:** {kategorie or '?'}\n\n"
+            f"🏷️ **Kategorie:** {kategorie or '?'}  "
+            f"⚡ **Komplexität:** {komplexitaet or '?'}  "
+            f"⏱️ **Dauer:** {dauer}\n\n"
             f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
             "Der Auftrag wurde an den Coding-Agenten (Hermes) "
             "weitergegeben. Sobald er bearbeitet ist, wird das "

@@ -1,4 +1,0 @@
-# Nur fuer Tests noetig - auf dem Handy nicht installieren.
-#   pip install -r requirements-dev.txt
--r requirements.txt
-pytest>=8.0.0
