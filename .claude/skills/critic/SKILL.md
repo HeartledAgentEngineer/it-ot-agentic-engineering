@@ -16,7 +16,7 @@ Generator-Critic-Muster über zwei Modellfamilien. Ich baue (Generator), ein fre
 ## Der Aufruf
 
 ```bash
-node .claude/skills/critic/pruefe.mjs --diff          # uncommittete Änderungen, Gemini-API
+node .claude/skills/critic/pruefe.mjs --diff          # uncommittete Änderungen, Standard-Modell via OpenRouter
 node .claude/skills/critic/pruefe.mjs datei.py        # einzelne Dateien
 node .claude/skills/critic/pruefe.mjs --diff --agy    # dasselbe über Antigravity
 ```
@@ -27,6 +27,9 @@ node .claude/skills/critic/pruefe.mjs --diff --agy    # dasselbe über Antigravi
 > - `agy exec …` — dieses Unterkommando existiert nicht. Antigravity nutzt `-p` für Einzelaufträge. Stand am 30.07.2026 fälschlich in dieser Datei.
 >
 > **Immer `pruefe.mjs` aufrufen, nie ein CLI-Werkzeug direkt.**
+
+> **Standard-Critic-Modell (seit 20.08.2026):** `google/gemini-3.7-flash` via OpenRouter.
+> Bewusst eine andere Familie als der Generator (DeepSeek/Claude) — anderes "blinder Fleck"-Profil — bei sehr günstigem Preis.
 
 ### Die zwei Motoren
 

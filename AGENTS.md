@@ -53,6 +53,20 @@ Autonom: lesen, lokal ändern, lokal committen, Tests ausführen.
 Rückfrage: alles, was den Rechner verlässt oder ein fremdes System erreicht
 (Push, Deploy, SPS, Versand, Veröffentlichung).
 
+## Dokumentation folgt dem Code
+
+Jede Änderung an Code/Tools/Konfiguration wird auch in der zugehörigen
+Dokumentation (README, docs, CHANGELOG/Änderungsprotokoll) nachgezogen und
+gemeinsam committet — sonst hinkt die Doku dem Stand hinterher. Die Dokumentation
+ist Teil der Bewerbungsmappe und muss CODEGENAU sein: sie darf nichts behaupten,
+was der Code nicht tut.
+
+- Bei jeder signifikanten Änderung: prüfen, welches README/docs/Protokoll
+  betroffen ist → aktualisieren → mit einem gemeinsamen Commit („code + docs")
+  committen.
+- Doku nie einfach mitziehen "weil später": sie muss den NEUEN Stand beschreiben.
+- Committen (autonom erlaubt); Push bleibt wie oben bei Sebastian.
+
 ## Fertig ist, was verifiziert ist
 
 Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts Exit-Code 0

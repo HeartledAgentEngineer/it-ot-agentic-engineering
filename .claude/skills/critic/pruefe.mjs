@@ -11,7 +11,7 @@
 import { execSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const OPENROUTER_STANDARD_MODELL = "anthropic/claude-haiku-4.5"; // Unser gewähltes Standardmodell für Critic (etwas teurer, leicht besser)
+const OPENROUTER_STANDARD_MODELL = "google/gemini-3.7-flash"; // Criticism-Modell (gewählt 20.08.2026): andere Familie als Generator (DeepSeek/Claude), stark beim Reasoning/Coding, sehr günstig
 const AGY_PFAD = "C:\\Users\\sebas\\AppData\\Local\\agy\\bin\\agy.exe";
 
 const ANWEISUNG = `Du bist ein strenger Senior Code Reviewer. Pruefe den folgenden Code.
