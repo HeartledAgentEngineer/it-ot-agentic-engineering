@@ -25,8 +25,9 @@ erklären.
 ## Sicherheit: Git
 
 - Autonom erlaubt: lesen, lokal ändern, lokal committen.
-- `git push` bleibt bei Sebastian. Der Agent schlägt einen Push vor und wartet
-  auf die Ausführung durch Sebastian.
+- `git push` **nie autonom**: Der Agent stellt bei jedem anstehenden Push einen
+  Bestätigungsschritt (Klick/Enter-Frage) an Sebastian — erst nach dessen OK wird
+  gepusht. Immer vorschlagen, nie eigenmächtig pushen.
 
 ## Sicherheit: Persönliche Datenarchive
 
