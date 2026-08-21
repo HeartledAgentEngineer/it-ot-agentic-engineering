@@ -157,6 +157,20 @@ async def hello_world():
         }
 
 
+@app.get("/health", tags=["system"])
+async def health():
+    """Liveness-Endpoint auf Wurzelebene (ohne /api-Prefix).
+
+    Reine Lebendigkeitsprüfung für Load-Balancer, Container-Healthchecks
+    (z. B. Docker HEALTHCHECK) oder Monitoring-Sonden: antwortet immer
+    sofort mit HTTP 200, solange der Prozess läuft – bewusst OHNE
+    Datenbank- oder LLM-Abhängigkeit, damit der Check nicht durch einen
+    ausgefallenen Teil-Dienst falsch negativ wird (anders als /api/health,
+    das Status, LLM und Memory prüft).
+    """
+    return {"status": "ok", "service": "Personal AI Agent"}
+
+
 # Serve frontend static files at / – MUSS als Letztes registriert werden.
 # Starlette matcht Routen in Registrierungsreihenfolge; dieser Mount fängt
 # alles unter / ab und würde jede danach definierte API-Route verdecken.

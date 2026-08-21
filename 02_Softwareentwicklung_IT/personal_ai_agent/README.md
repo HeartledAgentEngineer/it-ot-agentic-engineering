@@ -118,6 +118,7 @@ personal_ai_agent/
 | Methode | Pfad | Beschreibung |
 |---------|------|-------------|
 | `GET` | `/api/health` | Health-Check (Status, LLM, Memory) |
+| `GET` | `/health` | Liveness-Check auf Wurzelebene (ohne DB/LLM, z. B. für Docker-Healthcheck) |
 | `GET` | `/api/hello` | Hello-World–Smoke-Test (ohne DB-/LLM-Abhängigkeit) |
 | `POST` | `/api/chat` | Chat-Nachricht senden |
 | `GET` | `/api/memory` | Alle Erinnerungen abrufen |
