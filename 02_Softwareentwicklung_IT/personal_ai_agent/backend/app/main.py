@@ -171,6 +171,19 @@ async def health():
     return {"status": "ok", "service": "Personal AI Agent"}
 
 
+@app.get("/ping", tags=["system"])
+async def ping():
+    """Minimaler Ping-Endpoint („Liveness“-Smoke-Test).
+
+    Reine Lebendigkeitsprüfung ohne jede Abhängigkeit (keine Datenbank,
+    kein LLM, keine externen Calls): antwortet immer sofort mit HTTP 200,
+    solange der Prozess läuft. Bewusst minimal gehalten – nur ein
+    statisches Pong, damit Monitoring- bzw. Aufruf-Seiten einen schnellen
+    Check auf „läuft der Server überhaupt?“ haben.
+    """
+    return {"ping": "pong"}
+
+
 @app.get("/status", tags=["system"])
 async def status():
     """Minimaler Status-Endpoint.
