@@ -39,6 +39,15 @@ fi
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
+# Alten uvicorn-Server zuverlaessig beenden, bevor der neue startet.
+# Ohne das blieb der alte Prozess auf dem Port -> "Address already in
+# use" / "already processed" und der neue Server (mit frischer Config) kam
+# nie hoch. Drei Muster, damit jede uvicorn-Schreibweise getroffen wird.
+pkill -9 -f "uvicorn app.main:app" 2>/dev/null
+pkill -9 -f "python -m uvicorn" 2>/dev/null
+pkill -9 -f "uvicorn" 2>/dev/null
+sleep 2
+
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
 echo
