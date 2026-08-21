@@ -17,7 +17,19 @@ skript="$0"
 HIER="$(cd "$(dirname "$skript")" && pwd)"
 . "$HIER/gemeinsam.sh"
 
-# Laeuft er schon? Dann nur nach vorn holen.
+# Alten uvicorn-Server ZUERST zuverlaessig beenden — BEVOR die "laeuft
+# bereits"-Pruefung kommt. Sonst antwortet der alte (falsche, ohne
+# HERMES_PC-Config) Server auf /api/health, das Skript springt zu
+# "Agent laeuft bereits" -> nur localhost:8080 -> und der Port-Kill unten
+# wird nie erreicht. So wird der alte Server immer ersetzt und der neue
+# (mit frischer Config) startet wirklich.
+pkill -9 -f "uvicorn app.main:app" 2>/dev/null
+pkill -9 -f "python -m uvicorn" 2>/dev/null
+pkill -9 -f "uvicorn" 2>/dev/null
+sleep 2
+
+# Laeuft er schon? Dann nur nach vorn holen. (Nach dem Kill oben ist hier
+# nichts mehr offen, wenn der Server wirklich ersetzt werden soll.)
 if agent_antwortet; then
     oberflaeche_oeffnen
     melde "Agent laeuft bereits"
@@ -38,15 +50,6 @@ fi
 
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
-
-# Alten uvicorn-Server zuverlaessig beenden, bevor der neue startet.
-# Ohne das blieb der alte Prozess auf dem Port -> "Address already in
-# use" / "already processed" und der neue Server (mit frischer Config) kam
-# nie hoch. Drei Muster, damit jede uvicorn-Schreibweise getroffen wird.
-pkill -9 -f "uvicorn app.main:app" 2>/dev/null
-pkill -9 -f "python -m uvicorn" 2>/dev/null
-pkill -9 -f "uvicorn" 2>/dev/null
-sleep 2
 
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
