@@ -143,6 +143,20 @@ async def health_check():
     }
 
 
+@app.get("/api/hello", tags=["system"])
+async def hello_world():
+    """Hello-World-Endpoint: minimaler Health-/Smoke-Test.
+
+    Beweist, dass der Server läuft und das Routing/Serialisieren
+    funktioniert – ganz ohne Datenbank- oder LLM-Abhängigkeit.
+    """
+    return {
+            "message": "Hello, World!",
+            "status": "ok",
+            "service": "Personal AI Agent",
+        }
+
+
 # Serve frontend static files at / – MUSS als Letztes registriert werden.
 # Starlette matcht Routen in Registrierungsreihenfolge; dieser Mount fängt
 # alles unter / ab und würde jede danach definierte API-Route verdecken.

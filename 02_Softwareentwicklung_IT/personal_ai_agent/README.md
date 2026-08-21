@@ -41,6 +41,9 @@ npx serve frontend
 ### 3. Testen
 
 ```bash
+# Hello-World (minimaler Health-/Smoke-Test)
+curl http://localhost:8080/api/hello
+
 # Health-Check
 curl http://localhost:8080/api/health
 
@@ -114,7 +117,8 @@ personal_ai_agent/
 
 | Methode | Pfad | Beschreibung |
 |---------|------|-------------|
-| `GET` | `/api/health` | Health-Check |
+| `GET` | `/api/health` | Health-Check (Status, LLM, Memory) |
+| `GET` | `/api/hello` | Hello-World–Smoke-Test (ohne DB-/LLM-Abhängigkeit) |
 | `POST` | `/api/chat` | Chat-Nachricht senden |
 | `GET` | `/api/memory` | Alle Erinnerungen abrufen |
 | `POST` | `/api/memory` | Manuelle Erinnerung erstellen |
