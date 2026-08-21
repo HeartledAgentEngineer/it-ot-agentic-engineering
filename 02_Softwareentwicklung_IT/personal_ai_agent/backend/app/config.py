@@ -141,6 +141,18 @@ class Settings(BaseSettings):
     # Auftrag, an dem noch gearbeitet wird.
     auftrag_timeout_minuten: int = 30
 
+    # PC-Hermes (Track A): Der lokale Hermes-API-Server auf dem PC, den das
+    # Handy-Backend bei erkannter Programmieraufgabe direkt anspricht, wenn
+    # der PC im selben WLAN erreichbar ist. Ist er das nicht, faellt die
+    # Weiche aufs Auftragsbuch zurueck (Track B, unveraendert).
+    #
+    # Die IP ist die lokale Adresse des PCs (nicht localhost, denn das
+    # Backend laeuft auf dem Handy). Sie kommt in die .env dieses Projekts
+    # (nicht in den Code).
+    hermes_pc_base_url: str = ""
+    hermes_pc_api_key: str = ""
+    hermes_pc_timeout: int = 30
+
     # Logging
     log_level: str = "INFO"
 
