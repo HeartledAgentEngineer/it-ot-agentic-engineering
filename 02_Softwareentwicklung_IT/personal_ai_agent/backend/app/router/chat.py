@@ -12,7 +12,8 @@ from app.config import settings
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
-from app.services.auftrags_erkennung import ist_auftrag, schaetze_dauer
+from app.services.auftrags_erkennung import ist_auftrag
+from app.services.hermes_gateway import hermes_gateway
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -139,8 +140,25 @@ async def chat(request: ChatRequest):
         # Weiche: Coding-/Werkzeug-Auftraege ans Auftragsbuch statt an den
         # lokalen LLM. Damit landet "erstelle das und das" bei Hermes, der
         # sich den Auftrag im eigenen Takt abholt.
+        #
+        # Track A: Ist der PC-Hermes (im selben WLAN) erreichbar, wird die
+        # Anfrage direkt dorthin geschickt und die Antwort zurueckgegeben.
+        # Fallback: Wenn kein PC-Hermes (nicht konfiguriert/erreichbar),
+        # geht der Auftrag wie bisher ins Auftragsbuch (Track B).
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
         if ist_auftrag_val:
+            hermes_antwort = hermes_gateway.sende_auftrag(request.message)
+            if hermes_antwort is not None:
+                conversation_id = _get_or_create_conversation(request.conversation_id)
+                _finish_exchange(conversation_id, request.message, hermes_antwort)
+                return ChatResponse(
+                    reply=hermes_antwort,
+                    conversation_id=conversation_id,
+                    memories_used=0,
+                    memories_created=0,
+                    sources=[],
+                    archiv_used=0,
+                )
             eintrag = auftrag_service.anlegen(
                 request.message,
                 hinweis=f"Automatische Erkennung: {begruendung}",
@@ -153,13 +171,11 @@ async def chat(request: ChatRequest):
                 eintrag["id"],
                 "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
             )
-            dauer = schaetze_dauer(komplexitaet or "mittel")
             reply_text = (
                 "🧩 **Coding-Auftrag erkannt!**\n\n"
                 f"📋 **Aufgabe:** {request.message[:150]}…\n"
                 f"🏷️ **Kategorie:** {kategorie or '?'}  "
-                f"⚡ **Komplexität:** {komplexitaet or '?'}  "
-                f"⏱️ **Dauer:** {dauer}\n\n"
+                f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
                 f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
                 "Der Auftrag wurde an den Coding-Agenten (Hermes) "
                 "weitergegeben. Sobald er bearbeitet ist, wird das "
@@ -230,13 +246,11 @@ async def chat_stream(request: ChatRequest):
             kategorie=kategorie,
             komplexitaet=komplexitaet,
         )
-        dauer = schaetze_dauer(komplexitaet or "mittel")
         reply_text = (
             "🧩 **Coding-Auftrag erkannt!**\n\n"
             f"📋 **Aufgabe:** {request.message[:150]}…\n"
             f"🏷️ **Kategorie:** {kategorie or '?'}  "
-            f"⚡ **Komplexität:** {komplexitaet or '?'}  "
-            f"⏱️ **Dauer:** {dauer}\n\n"
+            f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
             f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
             "Der Auftrag wurde an den Coding-Agenten (Hermes) "
             "weitergegeben. Sobald er bearbeitet ist, wird das "

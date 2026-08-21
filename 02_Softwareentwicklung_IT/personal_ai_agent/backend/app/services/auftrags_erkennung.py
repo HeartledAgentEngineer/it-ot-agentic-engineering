@@ -122,16 +122,6 @@ def schaetze_komplexitaet(nachricht: str) -> str:
     return "mittel"
 
 
-def schaetze_dauer(komplexitaet: str) -> str:
-    """Gibt eine geschaetzte Bearbeitungszeit zurueck."""
-    zeiten = {
-        "einfach": "ca. 2-5 Minuten",
-        "mittel": "ca. 5-15 Minuten",
-        "komplex": "ca. 15-60 Minuten",
-    }
-    return zeiten.get(komplexitaet, "unbekannt")
-
-
 def ist_auftrag(nachricht: str) -> Tuple[bool, str, Optional[str], Optional[str]]:
     """Pruft, ob die Nachricht ein Coding-Auftrag ist.
 
