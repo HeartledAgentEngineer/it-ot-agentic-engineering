@@ -14,6 +14,7 @@ from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
 from app.services.hermes_gateway import hermes_gateway
+from app.services.hermes_local import sende_auftrag as hermes_local_sende_auftrag
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -143,11 +144,17 @@ async def chat(request: ChatRequest):
         #
         # Track A: Ist der PC-Hermes (im selben WLAN) erreichbar, wird die
         # Anfrage direkt dorthin geschickt und die Antwort zurueckgegeben.
-        # Fallback: Wenn kein PC-Hermes (nicht konfiguriert/erreichbar),
-        # geht der Auftrag wie bisher ins Auftragsbuch (Track B).
+        # Track C: Ist kein PC-Hermes erreichbar, probiert der LOKALE Hermes
+        # (Termux-CLI auf diesem Geraet) den Auftrag direkt zu bearbeiten.
+        # Fallback: Erst wenn weder PC noch lokaler Hermes liefern, geht der
+        # Auftrag ins Auftragsbuch (Track B).
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
         if ist_auftrag_val:
+            # 1) PC-Hermes (Track A) — wenn erreichbar
             hermes_antwort = hermes_gateway.sende_auftrag(request.message)
+            if hermes_antwort is None:
+                # 2) Lokaler Hermes auf diesem Geraet (Track C) — unterwegs ohne PC
+                hermes_antwort = hermes_local_sende_auftrag(request.message)
             if hermes_antwort is not None:
                 conversation_id = _get_or_create_conversation(request.conversation_id)
                 _finish_exchange(conversation_id, request.message, hermes_antwort)
@@ -240,6 +247,26 @@ async def chat_stream(request: ChatRequest):
     # an den lokalen LLM. Als ein einzelnes SSE-Event ausgeliefert.
     ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
     if ist_auftrag_val:
+        # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
+        # (Track C) probieren. Nur wenn beide erfolglos sind, geht der
+        # Auftrag ins Buch (Track B).
+        hermes_antwort = hermes_gateway.sende_auftrag(request.message)
+        if hermes_antwort is None:
+            hermes_antwort = hermes_local_sende_auftrag(request.message)
+        if hermes_antwort is not None:
+            conversation_id = _get_or_create_conversation(request.conversation_id)
+            _finish_exchange(conversation_id, request.message, hermes_antwort)
+            def pc_baer_ereignisse():
+                yield _sse({"delta": hermes_antwort})
+                yield _sse({"done": True, "conversation_id": conversation_id,
+                            "memories_used": 0, "memories_created": 0,
+                            "memory_count": memory_service.get_memory_count(),
+                            "archiv_used": 0, "sources": []})
+            return StreamingResponse(
+                pc_baer_ereignisse(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         eintrag = auftrag_service.anlegen(
             request.message,
             hinweis=f"Automatische Erkennung: {begruendung}",
