@@ -167,6 +167,11 @@ class Settings(BaseSettings):
         # .env liegt. Der hintere Eintrag gewinnt, falls es beide gibt.
         env_file = (BASE_DIR / ".env", BACKEND_DIR / ".env")
         env_file_encoding = "utf-8"
+        # Unbekannte Variablen in der .env (z. B. altes db_path oder fremde
+        # Zeilen) IGNORIEREN statt crashen. Vorher brach der Server beim Start
+        # mit pydantic extra_forbidden ab, sobald eine fremde Variable drin
+        # stand. Nur deklarierte Settings sind relevant; der Rest ist egal.
+        extra = "ignore"
 
 
 settings = Settings()
