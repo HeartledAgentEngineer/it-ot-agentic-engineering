@@ -171,6 +171,17 @@ async def health():
     return {"status": "ok", "service": "Personal AI Agent"}
 
 
+@app.get("/status", tags=["system"])
+async def status():
+    """Minimaler Status-Endpoint.
+
+    Bewusst schlank gehalten: reine Lebendigkeits-/Bereitschaftsprüfung
+    ohne Datenbank- oder LLM-Abhängigkeit. Antwortet immer sofort mit
+    HTTP 200, solange der Prozess läuft.
+    """
+    return {"status": "ok", "service": "Personal AI Agent", "endpoint": "/status"}
+
+
 # Serve frontend static files at / – MUSS als Letztes registriert werden.
 # Starlette matcht Routen in Registrierungsreihenfolge; dieser Mount fängt
 # alles unter / ab und würde jede danach definierte API-Route verdecken.
