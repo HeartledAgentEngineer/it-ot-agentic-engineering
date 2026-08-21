@@ -50,14 +50,26 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 # Alten Agenten-Server beenden, bevor der neue startet — so kann es nie
 # zwei uvicorn-Instanzen auf demselben Port geben.
+#
+# Frueher stand hier nur `pkill -f "uvicorn app.main:app"`. Das matchte den
+# echten Prozess (python -m uvicorn ... --reload) oft nicht, der alte Server
+# blieb auf dem Port — deshalb "Address already in use" / "already processed"
+# + der neue Server (mit frischer Config) kam nie wirklich hoch. Jetzt killen
+# wir alle uvicorn-Varianten und warten, bis der Port frei ist.
 echo "── Alter Server wird beendet ──────────────────"
-if pkill -f "uvicorn app.main:app"; then
-    echo "Alter Server gestoppt."
-    # Kurz warten, bis der Port wirklich frei ist.
+pkill -9 -f "uvicorn app.main:app" 2>/dev/null
+pkill -9 -f "python -m uvicorn" 2>/dev/null
+pkill -9 -f "uvicorn" 2>/dev/null
+# Kurz warten, bis der Port wirklich frei ist (statt nur sleep 1).
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if command -v ss >/dev/null 2>&1; then
+        if ! ss -tln 2>/dev/null | grep -q ":$PORT "; then
+            break
+        fi
+    fi
     sleep 1
-else
-    echo "Kein alter Server lief (oder konnte nicht gestoppt werden)."
-fi
+done
+echo "Alter Server gestoppt / Port frei."
 
 echo
 echo "── Server startet ─────────────────────────────"
