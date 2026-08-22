@@ -78,7 +78,8 @@ drei Wege, in dieser Reihenfolge:
 2. **Track C – lokaler Hermes (Termux)**: Ohne PC startet das Backend die Aufgabe
    **automatisch auf dem Handy** (Hermes-CLI in tmux). Der Agent arbeitet als
    Coding-Agent im Projekt, und seine **Gedanken + Werkzeug-Schritte erscheinen
-   live** als Chat-Blasen; am Ende das Ergebnis.
+   live** als Chat-Blasen in einem durchgehenden `/api/chat/stream` (ohne erst
+   umzuswitchen auf 3s-Polling); am Ende das Ergebnis.
 3. **Track B – Auftragsbuch**: Nur wenn weder PC noch lokaler Hermes verfügbar ist,
    liegt der Auftrag dort zur späteren Abholung bereit.
 

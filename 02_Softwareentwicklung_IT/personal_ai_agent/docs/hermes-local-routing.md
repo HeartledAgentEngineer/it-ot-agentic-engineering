@@ -45,7 +45,23 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - Die Sperre `_verlauf_sperre` verhindert, dass das gleichzeitige Schreiben
   des Chat- und des Auftrags-Hintergrund-Threads die JSON-Datei zerhackt.
 
-## Live-Eingabe waerrend der Bearbeitung
+## Live-Ausgabe: durchgehender Stream statt 3s-Polling
+- Der Stream-Endpoint `/api/chat/stream` endet bei Track C nicht mehr bei einer
+  sofortigen Bestätigung. Der Generator `_strom_auftrag_live()` (`chat.py`)
+  haelt die Verbindung **offen**: Er liest das Auftragsbuch periodisch und
+  reicht jede neue Hermes-Status-Meldung (Gedanke, Werkzeug-Schritt) als
+  weiteres Antwort-Häppchen durch; `fertig`/`fehler` schliesst den Stream mit
+  einem `done` (Flag `auftrag_strecke: true`) samt Endergebnis.
+- Damit ist die Kette **Frontend → Backend → lokaler Hermes** eine einzige
+  durchgehende Verbindung statt „Request schliessen, dann 3s-Polling".
+- Der 3s-Poller (`startAuftragTracking`) bleibt als **Rueckversicherung**: Er
+  startet nur, wenn der Stream die Strecke nicht selbst bis zum Abschluss
+  gefuehrt hat (z. B. Verbindungsabriss) — sonst wuerden die Gedanken doppelt
+  angezeigt.
+- Gegen Browser-/Proxy-Timeouts sendet der Stream alle ~15 s einen
+  SSE-Kommentar (`: keepalive`), den der Client ignoriert.
+
+## Live-Eingabe waerend der Bearbeitung
 - Der lokale Hermes bleibt im **interaktiven Modus** offen; eine **Job-Registry**
   (`HermesRegistry` in `hermes_local.py`) haelt die offene tmux-Session pro
   Auftrag.
