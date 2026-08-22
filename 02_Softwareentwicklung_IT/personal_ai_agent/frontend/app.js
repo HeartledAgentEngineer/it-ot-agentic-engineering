@@ -932,16 +932,27 @@ function zeileFuer(m, nutzbar = true) {
     }
     row.appendChild(top);
 
-    // Wofuer das Modell gedacht ist. Gekuerzt mit liegendem Titel zum
-    // Nachlesen – der volle Text steht im tooltip.
+    // Wofuer das Modell gedacht ist. VOLLER Text – nichts kuerzen, damit die
+    // Beschreibung wirklich lesbar ist (kein '…', kein versteckter Tooltip).
     if (m.beschreibung) {
         const desc = document.createElement('p');
         desc.className = 'model-desc';
-        desc.textContent = m.beschreibung.length > 130
-            ? m.beschreibung.slice(0, 130) + '…'
-            : m.beschreibung;
-        desc.title = m.beschreibung;
+        desc.textContent = m.beschreibung;
         row.appendChild(desc);
+    }
+    // Stärke-Profil als gut sichtbarer Marker (für die Gruppierung).
+    if (m.staerke && STAERKE_LABEL[m.staerke]) {
+        const prof = document.createElement('span');
+        prof.className = 'badge st' + m.staerke;
+        prof.textContent = STAERKE_LABEL[m.staerke];
+        top.appendChild(prof);
+    }
+    // Benchmark-Referenz (falls gepflegt) als nüchterne Zusatzinfo.
+    if (m.benchmark_ref) {
+        const bm = document.createElement('p');
+        bm.className = 'model-benchmark';
+        bm.textContent = '📊 ' + m.benchmark_ref;
+        row.appendChild(bm);
     }
 
     // Eigene Einsatzempfehlung (deutsch) – die Antwort auf "wofür nehme ich das?"
@@ -998,6 +1009,12 @@ function passtZuFiltern(m) {
     if (state.noRetention && !m.speicherfrei) return false;
 
     for (const f of state.filters) {
+        // Stärke-Profil-Filter: "staerke:bilder" → m.staerke === 'bilder'
+        if (f.startsWith('staerke:')) {
+            const profil = f.slice('staerke:'.length);
+            if (!m.staerke || m.staerke !== profil) return false;
+            continue;
+        }
         if (f === 'bilder') {
             if (!m.bilder && !m.dateien) return false;
         } else if (!m[f]) {
@@ -1006,6 +1023,38 @@ function passtZuFiltern(m) {
     }
     return true;
 }
+
+/** Ranking: Reihung nach Stärke-Profil und Preis-Leistung.
+ * Ziel: Die "beste für den Job"-Modelle stehen oben, teure/unpassende unten.
+ * Primaer: Stärke-Profil (preis_leistung/bilder/coding/reasoning/alltag),
+ * Sekundaer: Preis-Leistungs-Stufe (sehr günstig > günstig > mittel > teuer),
+ * Tertiaer: Eingabepreis aufsteigend.
+ */
+const STAERKE_RANG = { preis_leistung: 0, bilder: 1, coding: 2, reasoning: 3, alltag: 4 };
+const PREIS_RANG = { 'sehr günstig': 0, 'günstig': 1, 'mittel': 2, 'teuer': 3 };
+
+function staerkeWert(m) {
+    return STAERKE_RANG[m.staerke] ?? STAERKE_RANG.alltag;
+}
+function preisWert(m) {
+    return PREIS_RANG[m.preis_leistung] ?? 3;
+}
+function sortiereNachRanking(a, b) {
+    const s = staerkeWert(a) - staerkeWert(b);
+    if (s !== 0) return s;
+    const p = preisWert(a) - preisWert(b);
+    if (p !== 0) return p;
+    return (a.eingabe_pro_mio ?? Infinity) - (b.eingabe_pro_mio ?? Infinity);
+}
+
+/** Gruppen-Label für das Stärke-Profil eines Modells (deutsch). */
+const STAERKE_LABEL = {
+    preis_leistung: 'Preis-Leistung-Sieger',
+    bilder: 'Bilder / multimodal',
+    coding: 'Programmieren / Coding',
+    reasoning: 'Denken / Analyse (Reasoning)',
+    alltag: 'Alltag / Allzweck',
+};
 
 function zeichneListe() {
     const suche = (dom.modelSearch.value || '').trim().toLowerCase();
@@ -1046,7 +1095,23 @@ function zeichneListe() {
         ));
     }
 
-    treffer.slice(0, 120).forEach(m => dom.modelList.appendChild(zeileFuer(m)));
+    // Ranking: Treffer nach Stärke-Profil + Preis-Leistung sortieren.
+    treffer.sort(sortiereNachRanking);
+
+    if (aktiv || suche) {
+        // Gruppierte Anzeige nach Stärke-Profil (nur wenn sortiert wird).
+        let letzteGruppe = null;
+        treffer.slice(0, 120).forEach(m => {
+            const grp = STAERKE_LABEL[m.staerke] || STAERKE_LABEL.alltag;
+            if (grp !== letzteGruppe) {
+                dom.modelList.appendChild(gruppenTitel(grp));
+                letzteGruppe = grp;
+            }
+            dom.modelList.appendChild(zeileFuer(m));
+        });
+    } else {
+        treffer.slice(0, 120).forEach(m => dom.modelList.appendChild(zeileFuer(m)));
+    }
 }
 
 function setPrivacy(an) {

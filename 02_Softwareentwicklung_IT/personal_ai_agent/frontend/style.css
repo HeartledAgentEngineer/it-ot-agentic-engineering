@@ -973,12 +973,9 @@ body {
 .model-desc {
     margin: 0;
     font-size: 0.72rem;
-    line-height: 1.35;
+    line-height: 1.4;
     color: var(--text-secondary);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    white-space: normal;   /* Volltext – kein Abschneiden, kein line-clamp */
 }
 
 .model-usecase {
@@ -991,6 +988,22 @@ body {
 .model-usecase b {
     color: var(--accent);
     font-weight: 600;
+}
+
+/* Stärke-Profil-Badges (Farbkodierung für die Gruppierung/Ranking) */
+.badge.stpreis_leistung { background: #0a3a0a; color: #8f8; }
+.badge.stbilder         { background: #2a1a55; color: #a9f; }
+.badge.stcoding         { background: #1a2a4a; color: #8cf; }
+.badge.streasoning      { background: #3a2a1a; color: #fb0; }
+.badge.stalltag         { background: #333;     color: #ccc; }
+
+/* Benchmark-Referenz (falls gepflegt) – nüchterne Zusatzinfo */
+.model-benchmark {
+    margin: 3px 0 0;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 .model-meta {
