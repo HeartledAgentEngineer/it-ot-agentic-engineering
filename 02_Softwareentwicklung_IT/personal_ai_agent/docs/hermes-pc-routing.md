@@ -9,8 +9,9 @@ bisher ins **Auftragsbuch** (Track B, unverändert).
 - Ausgelöst durch die bestehende Auftragserkennung (`ist_auftrag`) im Chat.
 - Der PC-Hermes lernt den Auftrag über den lokalen Hermes-API-Server
   (`/v1/chat/completions`, OpenAI-Format, Modell `hermes-agent`).
-- **Kein PC-Hermes erreichbar** → `sende_auftrag()` liefert `None` → der
-  Auftrag fällt aufs Buch zurück (kein Abbruch, der Chat bleibt bedienbar).
+- **Kein PC-Hermes erreichbar** → `sende_auftrag()` liefert `None` → die
+  Weiche geht zum naechsten Weg weiter: lokalem Hermes (Track C, unterwegs)
+  und erst dann ins Buch (Track B). Kein Abbruch, der Chat bleibt bedienbar.
 
 ## Konfiguration (in `backend/.env`, nicht im Code)
 ```
