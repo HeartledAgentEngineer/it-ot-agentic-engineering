@@ -34,6 +34,24 @@ let thoughtsDiv = document.getElementById('hermes-thoughts');
 let ergebnisDiv = document.getElementById('ergebnis');
 let infoSpan = document.getElementById('info');
 
+// Formatiert einen ISO-Zeitstempel (z. B. "2026-08-22T11:21:51.123456+02:00")
+// zu lokaler Uhrzeit "HH:MM". Unbrauchbares bleibt stehen.
+function formatZeit(iso) {
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return iso;
+    }
+}
+// Aus einer rohen Status-Meldung ("[ISO] text") den Text ohne Zeitstempel liefern.
+function meldungOhneZeit(m) {
+    const m2 = (m || '').trim();
+    const m3 = m2.replace(/^\[([^\]]+)\]\s*/, '');
+    return m3;
+}
+
 async function poll() {
     try {
         // 1. Alle Aufträge holen → offene/laufende finden
@@ -73,7 +91,15 @@ async function poll() {
             for (const m of neue) {
                 const div = document.createElement('div');
                 div.className = 'hermes-thought';
-                div.textContent = m;
+                div.textContent = meldungOhneZeit(m);
+                // Zeitzeile mit lokal formatierter Uhrzeit (falls ein ISO-Timestamp drin war)
+                const isoMatch = (m || '').match(/^\[([^\]]+)\]\s*/);
+                if (isoMatch) {
+                    const zeitZeile = document.createElement('span');
+                    zeitZeile.className = 'zeit';
+                    zeitZeile.textContent = ' · ' + formatZeit(isoMatch[1]);
+                    div.appendChild(zeitZeile);
+                }
                 thoughtsDiv.appendChild(div);
                 hermesDiv.classList.add('aktiv');
             }
