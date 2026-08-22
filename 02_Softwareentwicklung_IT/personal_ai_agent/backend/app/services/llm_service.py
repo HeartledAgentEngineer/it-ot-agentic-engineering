@@ -12,6 +12,7 @@ import httpx
 from openai import OpenAI, APIStatusError
 
 from app.config import settings
+from app.modelle_de import MODEL_BESCHREIBUNGEN_DE
 
 logger = logging.getLogger(__name__)
 
@@ -968,8 +969,14 @@ class LLMService:
                 "cache_pro_mio": self._preis_pro_mio(preise.get("input_cache_read")),
                 "context_length": m.get("context_length"),
                 # Wofuer das Modell gedacht ist – der wichtigste Hinweis bei
-                # der Auswahl. Oft vorhanden, oft aussagekraeftig.
-                "beschreibung": m.get("description") or None,
+                # der Auswahl. OpenRouter liefert nur englische Texte; für
+                # gepflegte Modelle steht hier eine deutsche Fassung (siehe
+                # modelle_de.py), sonst die englische OpenRouter-Beschreibung.
+                "beschreibung": (
+                    MODEL_BESCHREIBUNGEN_DE.get(mid)
+                    or m.get("description")
+                    or None
+                ),
                 # Wissensstand / Datenstand des Modells (knowledge_cutoff).
                 "wissensstand": m.get("knowledge_cutoff") or None,
                 # Laengste Antwort, die ein Modell in einem Zug ausgeben kann.
