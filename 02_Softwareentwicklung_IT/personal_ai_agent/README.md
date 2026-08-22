@@ -138,6 +138,8 @@ personal_ai_agent/
 | `GET` | `/status` | Minimaler Status-Endpoint auf Wurzelebene (ohne DB/LLM) |
 | `GET` | `/ping` | Minimaler Ping-Endpoint („Liveness“-Smoke-Test, ohne DB/LLM) |
 | `POST` | `/api/chat` | Chat-Nachricht senden |
+| `GET` | `/api/models` | Modellauswahl: nutzbare Modelle (Preis, Kontext, Cache-Preis, Beschreibung, Wissensstand, max. Ausgabe, EU, Datenschutz) |
+| `GET` | `/api/models/{id}/details` | Anbieter eines Modells samt Datenschutz-Profil |
 | `GET` | `/api/memory` | Alle Erinnerungen abrufen |
 | `POST` | `/api/memory` | Manuelle Erinnerung erstellen |
 | `GET` | `/api/memory/count` | Anzahl Erinnerungen |
