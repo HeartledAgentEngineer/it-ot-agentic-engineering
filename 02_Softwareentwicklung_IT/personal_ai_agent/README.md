@@ -68,6 +68,22 @@ Handy (Termux)
 
 **API-Key:** Sicher in `.env` auf dem Gerät (nicht exposed im Web).
 
+## 🤖 Programmieraufträge — automatische Bearbeitung durch Hermes
+
+Erkennt die Auftragserkennung eine Coding-/Programmieraufgabe, durchläuft sie
+drei Wege, in dieser Reihenfolge:
+
+1. **Track A – PC-Hermes** (im selben WLAN erreichbar): Der Auftrag geht direkt an
+   den PC-Hermes-API-Server.
+2. **Track C – lokaler Hermes (Termux)**: Ohne PC startet das Backend die Aufgabe
+   **automatisch auf dem Handy** (Hermes-CLI in tmux). Der Agent arbeitet als
+   Coding-Agent im Projekt, und seine **Gedanken + Werkzeug-Schritte erscheinen
+   live** als Chat-Blasen; am Ende das Ergebnis.
+3. **Track B – Auftragsbuch**: Nur wenn weder PC noch lokaler Hermes verfügbar ist,
+   liegt der Auftrag dort zur späteren Abholung bereit.
+
+Doku: `docs/hermes-pc-routing.md` (Track A), `docs/hermes-local-routing.md` (Track C).
+
 ## 📦 Projektstruktur
 
 ```

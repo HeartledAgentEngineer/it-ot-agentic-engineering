@@ -95,6 +95,38 @@ class AuftragService:
         logger.info("Auftrag angelegt: %s (Kategorie: %s)", eintrag["id"][:8], kategorie)
         return eintrag
 
+    def anlegen_als_arbeitender(
+        self,
+        auftrag: str,
+        hinweis: Optional[str] = None,
+        kategorie: Optional[str] = None,
+        komplexitaet: Optional[str] = None,
+    ) -> dict:
+        """Traegt einen neuen Auftrag ein und markiert ihn sofort als laeuft.
+
+        Fuer den Fall, dass der lokale Hermes (Track C) eine erkannte Aufgabe
+        direkt uebernimmt: Der Job startet sofort, deshalb darf der Auftrag
+        nicht als ``offen`` im Buch liegen — sonst wuerde ihn der Watcher
+        parallel claimen und noch einmal aufmachen. Er wird nie ``offen``,
+        sondern direkt ``laeuft``/``abgeholt`` angelegt.
+        """
+        eintrag = self.anlegen(auftrag, hinweis, kategorie, komplexitaet)
+        eintrag["status"] = LAEUFT
+        eintrag["abgeholt"] = _jetzt()
+        with self._sperre:
+            auftraege = self._lesen()
+            for a in auftraege:
+                if a.get("id") == eintrag["id"]:
+                    a["status"] = LAEUFT
+                    a["abgeholt"] = eintrag["abgeholt"]
+                    self._schreiben(auftraege)
+                    break
+        logger.info(
+            "Auftrag direkt in Bearbeitung: %s (Kategorie: %s)",
+            eintrag["id"][:8], kategorie,
+        )
+        return eintrag
+
     def alle(self, limit: int = 50) -> list[dict]:
         with self._sperre:
             auftraege = self._lesen()

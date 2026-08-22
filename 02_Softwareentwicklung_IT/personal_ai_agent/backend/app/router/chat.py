@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException
@@ -14,7 +15,10 @@ from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
 from app.services.hermes_gateway import hermes_gateway
-from app.services.hermes_local import sende_auftrag as hermes_local_sende_auftrag
+from app.services.hermes_local import (
+    ist_verfuegbar as hermes_local_ist_verfuegbar,
+    stream_auftrag as hermes_local_stream_auftrag,
+)
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
 
@@ -134,6 +138,56 @@ def _archiv_treffer(frage: str, aktiv: bool) -> List[Dict[str, Any]]:
         return []
 
 
+def _starte_lokale_hermes(
+    auftrag: str,
+    hinweis: str,
+    kategorie: Optional[str],
+    komplexitaet: Optional[str],
+):
+    """Track C im Hintergrund: Lokaler Termux-Hermes bearbeitet den Auftrag und
+    strahlt seine Gedanken live ins Auftragsbuch.
+
+    Legt den Auftrag als direkt ``laeuft`` an (damit der Watcher ihn nicht
+    doppelt claimt), startet den Hermes-Stream in einem Daemon-Thread und
+    schreibt jeden Zwischengedanken als Status-Meldung sowie das Endergebnis
+    via ``ergebnis_eintragen``. Das Frontend zeigt die Meldungen live als
+    Chat-Blasen — inhaltlich 1:1, wie der Agent sie tippt.
+
+    Returns:
+        Dict mit der angelegten Auftrags-Äquivalenz (id, status).
+    """
+    eintrag = auftrag_service.anlegen_als_arbeitender(
+        auftrag,
+        hinweis=hinweis,
+        kategorie=kategorie,
+        komplexitaet=komplexitaet,
+    )
+    auftrag_id = eintrag["id"]
+
+    def _worker():
+        try:
+            for ereignis in hermes_local_stream_auftrag(auftrag):
+                art = ereignis.get("art")
+                text = ereignis.get("text", "")
+                if art == "gedanke" and text:
+                    auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
+                elif art == "ergebnis":
+                    auftrag_service.ergebnis_eintragen(auftrag_id, text, erfolg=bool(text))
+                elif art == "fehler":
+                    auftrag_service.ergebnis_eintragen(
+                        auftrag_id, text, erfolg=False
+                    )
+                    return
+        except Exception as e:
+            logger.error("Lokaler Hermes-Job abgebrochen (%s): %s", auftrag_id[:8], e)
+            auftrag_service.ergebnis_eintragen(
+                auftrag_id, f"Fehler im lokalen Hermes-Job: {e}", erfolg=False
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return eintrag
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Process a chat message and return the LLM response."""
@@ -150,11 +204,8 @@ async def chat(request: ChatRequest):
         # Auftrag ins Auftragsbuch (Track B).
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
         if ist_auftrag_val:
-            # 1) PC-Hermes (Track A) — wenn erreichbar
+            # 1) PC-Hermes (Track A) — wenn erreichbar, bleibt er zuerst.
             hermes_antwort = hermes_gateway.sende_auftrag(request.message)
-            if hermes_antwort is None:
-                # 2) Lokaler Hermes auf diesem Geraet (Track C) — unterwegs ohne PC
-                hermes_antwort = hermes_local_sende_auftrag(request.message)
             if hermes_antwort is not None:
                 conversation_id = _get_or_create_conversation(request.conversation_id)
                 _finish_exchange(conversation_id, request.message, hermes_antwort)
@@ -166,6 +217,40 @@ async def chat(request: ChatRequest):
                     sources=[],
                     archiv_used=0,
                 )
+
+            # 2) Lokaler Hermes auf diesem Geraet (Track C) — va. unterwegs.
+            # Ist der CLI installiert, startet er die Aufgabe im Hintergrund
+            # und gibt seine Gedanken + das Ergebnis live ins Auftragsbuch.
+            if hermes_local_ist_verfuegbar():
+                eintrag = _starte_lokale_hermes(
+                    request.message,
+                    hinweis=f"Automatische Erkennung: {begruendung}",
+                    kategorie=kategorie,
+                    komplexitaet=komplexitaet,
+                )
+                reply_text = (
+                    "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
+                    f"📋 **Aufgabe:** {request.message[:150]}…\n"
+                    f"🏷️ **Kategorie:** {kategorie or '?'}  "
+                    f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
+                    f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
+                    "Der lokale Hermes (Termux) hat den Auftrag übernommen. "
+                    "Seine Gedanken und Zwischenschritte erscheinen hier live; "
+                    "das Ergebnis am Ende.\n"
+                )
+                conversation_id = _get_or_create_conversation(request.conversation_id)
+                _finish_exchange(conversation_id, request.message, reply_text)
+                return ChatResponse(
+                    reply=reply_text,
+                    conversation_id=conversation_id,
+                    memories_used=0,
+                    memories_created=0,
+                    sources=[],
+                    archiv_used=0,
+                )
+
+            # 3) Auftragsbuch (Track B) — nur wenn kein Hermes (PC noch lokal)
+            # erreichbar ist, liegt der Auftrag dort zur Abholung bereit.
             eintrag = auftrag_service.anlegen(
                 request.message,
                 hinweis=f"Automatische Erkennung: {begruendung}",
@@ -248,11 +333,9 @@ async def chat_stream(request: ChatRequest):
     ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
     if ist_auftrag_val:
         # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
-        # (Track C) probieren. Nur wenn beide erfolglos sind, geht der
+        # (Track C). Nur wenn beides nicht verfuegbar ist, geht der
         # Auftrag ins Buch (Track B).
         hermes_antwort = hermes_gateway.sende_auftrag(request.message)
-        if hermes_antwort is None:
-            hermes_antwort = hermes_local_sende_auftrag(request.message)
         if hermes_antwort is not None:
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, hermes_antwort)
@@ -267,6 +350,41 @@ async def chat_stream(request: ChatRequest):
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
+
+        # Track C: Lokaler Hermes startet die Aufgabe im Hintergrund und
+        # strahlt Gedanken + Ergebnis live ins Auftragsbuch.
+        if hermes_local_ist_verfuegbar():
+            eintrag = _starte_lokale_hermes(
+                request.message,
+                hinweis=f"Automatische Erkennung: {begruendung}",
+                kategorie=kategorie,
+                komplexitaet=komplexitaet,
+            )
+            reply_text = (
+                "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
+                f"📋 **Aufgabe:** {request.message[:150]}…\n"
+                f"🏷️ **Kategorie:** {kategorie or '?'}  "
+                f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
+                f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
+                "Der lokale Hermes (Termux) hat den Auftrag übernommen. "
+                "Seine Gedanken und Zwischenschritte erscheinen hier live; "
+                "das Ergebnis am Ende.\n"
+            )
+            conversation_id = _get_or_create_conversation(request.conversation_id)
+            _finish_exchange(conversation_id, request.message, reply_text)
+
+            def lokaler_hermes_ereignisse():
+                yield _sse({"delta": reply_text})
+                yield _sse({"done": True, "conversation_id": conversation_id,
+                            "memories_used": 0, "memories_created": 0,
+                            "memory_count": memory_service.get_memory_count(),
+                            "archiv_used": 0, "sources": []})
+            return StreamingResponse(
+                lokaler_hermes_ereignisse(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
         eintrag = auftrag_service.anlegen(
             request.message,
             hinweis=f"Automatische Erkennung: {begruendung}",
