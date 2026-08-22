@@ -166,7 +166,7 @@ def _starte_lokale_hermes(
 
     def _worker():
         try:
-            for ereignis in hermes_local_stream_auftrag(auftrag):
+            for ereignis in hermes_local_stream_auftrag(auftrag_id, auftrag):
                 art = ereignis.get("art")
                 text = ereignis.get("text", "")
                 if art == "gedanke" and text:

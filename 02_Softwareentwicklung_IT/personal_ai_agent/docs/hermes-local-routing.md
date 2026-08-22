@@ -19,14 +19,31 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - `_starte_lokale_hermes()` legt den Auftrag direkt als `laeuft` an
   (`anlegen_als_arbeitender`) — wichtig, damit der Watcher ihn **nicht** parallel
   claimt — und startet den Stream in einem **Daemon-Thread**.
-- `hermes_local.stream_auftrag()` startet `hermes chat --query-file …` in einer
-  **tmux-Pane** (TTY). Der CLI rendert seine Zwischengedanken (Hermes-Boxen)
-  und Werkzeug-Schritte (`💻 $ ls …`) **live** in die Pane.
+- `hermes_local.stream_auftrag()` startet `hermes chat` **interaktiv** (ohne
+  Einzel-Query) in einer **tmux-Pane** (TTY). Der CLI rendert seine
+  Zwischengedanken (Hermes-Boxen) und Werkzeug-Schritte (`💻 $ ls …`) **live**
+  in die Pane.
 - Das Backend pollt die Pane, dedupliziert die Inhalte und schreibt jeden Schritt
   als **Status-Meldung** ins Auftragsbuch — der Kanal, den das Frontend ohnehin
   alle 3 s pollt und als Chat-Blase anzeigt.
 - Am Ende wird die letzte Hermes-Box (die Antwort) gelesen und per
   `ergebnis_eintragen(…, erfolg=True)` als `fertig` geschlossen.
+
+## Live-Eingabe waerrend der Bearbeitung
+- Der lokale Hermes bleibt im **interaktiven Modus** offen; eine **Job-Registry**
+  (`HermesRegistry` in `hermes_local.py`) haelt die offene tmux-Session pro
+  Auftrag.
+- Neuer Endpoint `POST /api/auftraege/{id}/eingabe`: Der Nutzer sendet damit
+  **waerrend des Laufs** einen Kommentar direkt an den laufenden Agenten
+  (`tmux send-keys`).
+- Der Kommentar wird als Status-Meldung (`📨 Kommentar an Agent: …`) in den
+  Chat-Tracker geschrieben. Ist der Auftrag schon fertig / kein Job mehr da,
+  antwortet der Endpoint mit **409** statt zu haengen.
+- **Gedaechtnis-Lernen:** Nur Kommentare mit persoenlichem Mehrwert
+  (`hat_mehrwert()`, z. B. keine reinen "weiter/ok") werden parallel durch das
+  persoenliche ChromaDB-Gedaechtnis gelernt — damit der eigene Assistent
+  mitlernt. Der Hermes bekommt jeden Kommentar, das Filter entscheidet nur
+  ueber das Lernen.
 
 ## Warum tmux + Pane-Lesen statt blockierendem Aufruf
 - Ein blockierender `subprocess.run("hermes chat -q …")` liefert erst nach
@@ -34,14 +51,18 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - Im tmux rendert der CLI seine Gedanken in Echtzeit in die Pane; das Backend
   liest sie mit `capture-pane`, dedupliziert nach Inhalt (Box-Volltext) und
   meldet sie live weiter.
-- `--query-file` statt `-q "…"` schuetzt die Eingabe vor Shell-Interpretation
-  (Anfuehrungszeichen, `$()`, Backticks, Umlaute bleiben exakt erhalten).
+- Der erste Auftrag wird nach dem Start `send-keys` an die Offen-Session
+  geschickt (statt `--query-file`), damit die Session interaktiv bleibt und
+  Folge-Eingaben moeglich sind.
 
 ## Dateien
-- `backend/app/services/hermes_local.py` — tmux-Live-Job + `stream_auftrag()`
-  (umbaut: alt = blockierend; neu = Hintergrund-Prozess mit Live-Gedanken).
+- `backend/app/services/hermes_local.py` — interaktiver Live-Job, `stream_auftrag()`
+  + `HermesRegistry` (offene tmux-Session pro Auftrag) + `hat_mehrwert()` (neu).
+- `backend/app/router/auftraege.py` — neuer Endpoint `POST /{id}/eingabe`
+  (L er laufenden Hermes + Gedaechtnis-Lernen).
 - `backend/app/router/chat.py` — Weiche: erst PC (Track A), dann lokaler Live
   (Track C), sonst Buch (Track B); helper `_starte_lokale_hermes`.
+- `backend/app/models.py` — Modell `EingabeCreate` (neu).
 - `backend/app/services/auftrag_service.py` — `anlegen_als_arbeitender()` (neu).
 
 ## Voraussetzung
