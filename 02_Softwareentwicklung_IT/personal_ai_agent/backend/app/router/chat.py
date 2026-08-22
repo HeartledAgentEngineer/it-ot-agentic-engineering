@@ -4,7 +4,8 @@ import json
 import logging
 import os
 import threading
-from typing import Optional, List, Dict, Any
+import time
+from typing import Optional, List, Dict, Any, Iterator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -180,6 +181,7 @@ def _starte_lokale_hermes(
     hinweis: str,
     kategorie: Optional[str],
     komplexitaet: Optional[str],
+    chat_verknuepfung: Optional[str] = None,
 ):
     """Track C im Hintergrund: Lokaler Termux-Hermes bearbeitet den Auftrag und
     strahlt seine Gedanken live ins Auftragsbuch.
@@ -200,6 +202,15 @@ def _starte_lokale_hermes(
         komplexitaet=komplexitaet,
     )
     auftrag_id = eintrag["id"]
+
+    # Verknuepfung Auftrag <-> Gespraech VOR dem Thread-Start setzen.
+    # Wuerde sie erst nach dem Start geschehen, koennte der Worker die
+    # allerersten Hermes-Zwischenmeldungen liefern, bevor seine
+    # conversation_id in der Datei steht -> verlauf_nachricht_anhaengen
+    # wuerde sie verwerfen. So sind alle Hermes-Meldungen ab der ersten
+    # an das Gespraech gebunden und landen im persistenten Verlauf.
+    if chat_verknuepfung:
+        auftrag_service.setze_chat_verknuepfung(auftrag_id, chat_verknuepfung)
 
     def _worker():
         try:
@@ -223,6 +234,67 @@ def _starte_lokale_hermes(
 
     threading.Thread(target=_worker, daemon=True).start()
     return eintrag
+
+
+def _strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]:
+    """Offene Live-Strecke fuer Track C im Chat-Stream.
+
+    Der lokale Hermes laeuft im Daemon-Thread und schreibt seine Gedanken
+    waehrend der ganzen Bearbeitung als ``status_meldungen`` ins Auftragsbuch.
+    Dieser Generator bleibt deshalb NICHT bei der Bestaetigung stehen, sondern
+    offen: Er liest das Buch periodisch und reicht jede neue Zwischenmeldung
+    als weiteres Antwort-Haeppchen durch. Erst wenn der Auftrag ``fertig``
+    (oder ``fehlgeschlagen``) ist, kommt das ``done``-Ereignis — zusammen mit
+    dem Endergebnis. So bleibt die Kette Frontend -> Server -> Hermes eine
+    einzige durchgehende Verbindung statt "Request schliessen, dann 3s-Polling".
+
+    Der 3-Sekunden-Tracker im Frontend bleibt als Fallback/Rueckversicherung
+    bestehen (z.B. wenn die Verbindung unterwegs abreisst); er wird nur nicht
+    mehr als primaeres Transportmittel gebraucht.
+    """
+    # Haeppchen 1: sofort die "Auftrag erkannt"-Bestaetigung.
+    yield _sse({"delta": reply_text})
+    gesehen = 0  # wie viele status_meldungen bereits durchgereicht wurden
+    letzte_aktivitaet = time.time()
+    while True:
+        try:
+            aktuell = auftrag_service.einzeln(auftrag_id)
+        except Exception:
+            aktuell = None
+        status = (aktuell or {}).get("status")
+        meldungen = (aktuell or {}).get("status_meldungen", []) or []
+
+        for meldung in meldungen[gesehen:]:
+            gesehen += 1
+            if meldung:
+                yield _sse({"delta": "\n\n" + meldung})
+                letzte_aktivitaet = time.time()
+
+        if status in ("fertig", "fehler"):
+            ergebnis = ((aktuell or {}).get("ergebnis") or "").strip()
+            kopf = "✅ **Ergebnis:**" if status == "fertig" else "❌ **Fehler:**"
+            if ergebnis:
+                yield _sse({"delta": f"\n\n{kopf}\n" + ergebnis})
+            # Dieses done-Ereignis kam aus der durchgehenden Strecke; das
+            # Frontend traegt darunter keine zusaetzlichen Auftrags-Details
+            # mehr als 3s-Poller nach (sondern nur, wenn der Stream versagt).
+            yield _sse({
+                "done": True,
+                "auftrag_strecke": True,
+                "conversation_id": conversation_id,
+                "memories_used": 0, "memories_created": 0,
+                "memory_count": memory_service.get_memory_count(),
+                "archiv_used": 0, "sources": [],
+            })
+            return
+
+        # Keepalive gegen Browser-/Proxy-Timeouts, wenn länger kein Meldung
+        # kommt (Hermes denkt gerade, ohne Statusbox). Wird vom Client ignoriert.
+        if time.time() - letzte_aktivitaet >= 15:
+            yield ": keepalive\n\n"
+            letzte_aktivitaet = time.time()
+
+        time.sleep(1)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -259,11 +331,17 @@ async def chat(request: ChatRequest):
             # Ist der CLI installiert, startet er die Aufgabe im Hintergrund
             # und gibt seine Gedanken + das Ergebnis live ins Auftragsbuch.
             if hermes_local_ist_verfuegbar():
+                # Gespraech ERST anlegen/ermitteln, damit die Verknuepfung
+                # vor dem Thread-Start an den Worker geht und das Gespraech
+                # im conversations-Dict bereits existiert, wenn die ersten
+                # Hermes-Zwischenmeldungen eintreffen.
+                conversation_id = _get_or_create_conversation(request.conversation_id)
                 eintrag = _starte_lokale_hermes(
                     request.message,
                     hinweis=f"Automatische Erkennung: {begruendung}",
                     kategorie=kategorie,
                     komplexitaet=komplexitaet,
+                    chat_verknuepfung=conversation_id,
                 )
                 reply_text = (
                     "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
@@ -275,11 +353,7 @@ async def chat(request: ChatRequest):
                     "Seine Gedanken und Zwischenschritte erscheinen hier live; "
                     "das Ergebnis am Ende.\n"
                 )
-                conversation_id = _get_or_create_conversation(request.conversation_id)
                 _finish_exchange(conversation_id, request.message, reply_text)
-                # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
-                # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
-                auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
                 return ChatResponse(
                     reply=reply_text,
                     conversation_id=conversation_id,
@@ -397,11 +471,17 @@ async def chat_stream(request: ChatRequest):
         # Track C: Lokaler Hermes startet die Aufgabe im Hintergrund und
         # strahlt Gedanken + Ergebnis live ins Auftragsbuch.
         if hermes_local_ist_verfuegbar():
+            # Gespraech ERST anlegen/ermitteln, damit die Verknuepfung
+            # vor dem Thread-Start an den Worker geht und das Gespraech
+            # im conversations-Dict bereits existiert, wenn die ersten
+            # Hermes-Zwischenmeldungen eintreffen.
+            conversation_id = _get_or_create_conversation(request.conversation_id)
             eintrag = _starte_lokale_hermes(
                 request.message,
                 hinweis=f"Automatische Erkennung: {begruendung}",
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
+                chat_verknuepfung=conversation_id,
             )
             reply_text = (
                 "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
@@ -411,22 +491,14 @@ async def chat_stream(request: ChatRequest):
                 f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
                 "Der lokale Hermes (Termux) hat den Auftrag übernommen. "
                 "Seine Gedanken und Zwischenschritte erscheinen hier live; "
-                "das Ergebnis am Ende.\n"
+                "das Ergebnis am Ende.\\n"
             )
-            conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
-            # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
-            # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
-            auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
+            # Verknuepfung Auftrag <-> Gespraech setzt _starte_lokale_hermes
+            # bereits VOR dem Thread-Start; kein zweites setzen noetig.
 
-            def lokaler_hermes_ereignisse():
-                yield _sse({"delta": reply_text})
-                yield _sse({"done": True, "conversation_id": conversation_id,
-                            "memories_used": 0, "memories_created": 0,
-                            "memory_count": memory_service.get_memory_count(),
-                            "archiv_used": 0, "sources": []})
             return StreamingResponse(
-                lokaler_hermes_ereignisse(),
+                _strom_auftrag_live(eintrag["id"], conversation_id, reply_text),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )

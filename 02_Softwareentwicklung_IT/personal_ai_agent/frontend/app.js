@@ -867,17 +867,6 @@ async function ladeKatalog(erzwingen = false) {
                 'Der Modellkatalog war nicht erreichbar – dies ist eine Notliste. '
                 + state.modellHinweis;
         }
-        // Sagen, dass gefiltert wird. Eine Liste, die stillschweigend die
-        // Hälfte weglässt, lässt einen sonst nach Modellen suchen, die da
-        // sein müssten.
-        if (state.noRetention) {
-            const ausgeblendet = state.katalog.filter(m => !m.speicherfrei).length;
-            if (ausgeblendet) {
-                state.modellHinweis =
-                    `${ausgeblendet} Modelle sind ausgeblendet – ihre Anbieter dürfen Prompts speichern. `
-                    + state.modellHinweis;
-            }
-        }
         setModelLabel();
         return state.katalog;
     } catch (err) {
@@ -1355,10 +1344,14 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     if (untenGewesen) scrollToBottom(true);
 
     // Automatischer Auftrag-Tracker: Enthält die Antwort eine Auftrag-ID?
+    // Er startet nur, wenn der /chat/stream NICHT schon selbst die Strecke
+    // bis zum Abschluss durchgereicht hat (sonst würden seine Zwischenschritte
+    // zusätzlich echoen, obwohl sie längst als Stream-Häppchen da waren).
     const match = antwort.match(/Auftrags-ID:\s*`?([a-f0-9]{8})/i);
-    if (match) {
+    if (match && !_auftragStreckeDirekt) {
         startAuftragTracking(match[1], contentDiv);
     }
+    _auftragStreckeDirekt = false; // Flag für die nächste Nachricht zurücksetzen
 }
 
 /**
@@ -1366,6 +1359,10 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
  * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
  */
 let _auftragTimer = null;
+// True, wenn der /chat/stream die Live-Strecke selbst bis zum Abschluss
+// geführt hat (done mit auftrag_strecke). Dann braucht der 3s-Poller nicht
+// zusätzlich zu laufen – er bleibt nur Rückfall, wenn der Stream wegbrichst.
+let _auftragStreckeDirekt = false;
 
 function startAuftragTracking(aidKurz, contentDiv) {
     if (_auftragTimer) clearInterval(_auftragTimer);
@@ -1488,6 +1485,7 @@ async function sendMessage(text) {
     const contentDiv = addMessage('', 'assistant');
     contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
     const entry = state.messages[state.messages.length - 1];
+    _auftragStreckeDirekt = false;   // pro Nachricht neu entscheiden
 
     let antwort = '';
     let abschluss = null;
@@ -1577,6 +1575,9 @@ async function sendMessage(text) {
                     throw new Error(daten.error);
                 } else if (daten.done) {
                     abschluss = daten;
+                    // Der Stream hat die Strecke selbst bis zum Ende geführt
+                    // (Track C live) – der 3s-Poller ist dafür nicht nötig.
+                    if (daten.auftrag_strecke) _auftragStreckeDirekt = true;
                 }
             }
         }
