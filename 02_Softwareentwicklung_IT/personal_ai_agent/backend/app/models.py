@@ -139,6 +139,11 @@ class RueckfrageCreate(BaseModel):
     kontext: Optional[str] = Field(default=None, max_length=5000)
 
 
+class EingabeCreate(BaseModel):
+    """Nutzer-Kommentar an einen laufenden Coding-Agenten (Live-Eingabe)."""
+    text: str = Field(..., min_length=1, max_length=5000)
+
+
 class AntwortCreate(BaseModel):
     """Antwort des Nutzers auf eine Rückfrage."""
     antwort: str = Field(..., min_length=1, max_length=5000)

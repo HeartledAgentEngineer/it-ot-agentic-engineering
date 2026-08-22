@@ -1,24 +1,17 @@
 """Lokale Hermes-CLI-Anbindung (Track C) — bearbeitet erkannte Programmierauftraege
 direkt auf dem Geraet (dem Handy) und strahlt die Gedanken des Agenten live aus.
 
-Warum dieser Dienst:
-  - Ohne PC (unterwegs, Zug/Wochenende) ist der PC-Hermes nicht erreichbar.
-  - Dieses Modul startet den lokalen `hermes`-CLI (Termux) in einer tmux-Pane
-    und gibt seine Zwischengedanken (Hermes-Boxen) sowie seine Werkzeug-Schritte
-    (Tool-Zeilen, z. B. "💻 $ ls -la ...") live an den Chat weiter — inhaltlich
-    1:1, wie der Agent sie tippt. Erst am Ende kommt das Endergebnis.
-  - Ist `hermes` oder `tmux` nicht installiert oder der Start schlaegt fehl,
-    liefert der Stream eine Fehlermeldung, und die Weiche faellt aufs
-    Auftragsbuch zurueck (Track B).
+Live-Eingabe (seit Erweiterungsrunde):
+  - Der lokale Hermes laeuft im interaktiven Modus, damit der Nutzer waehrend
+    der Bearbeitung Kommentare direkt an den Agenten schicken kann.
+  - Eine Job-Registry haelt eine offene tmux-Session pro Auftrag und bietet
+    `sende()` an. Kommentare gehen per `tmux send-keys` an die laufende
+    Session; parallel werden sie durch das persoenliche Gedaechtnis gefuehrt
+    (siehe chat.py), damit der eigene Assistent mitlernt — aber nur Kommentare
+    mit persoenlichem Mehrwert, keine trivialen Interjektionen.
 
-Warum tmux + Pane-Lesen statt blockierendem `subprocess.run`:
-  - Ein blockierender Aufruf (`hermes chat -q ...`) liefert erst nach Minuten
-    das Endergebnis als einen Textbrocken — ohne jeden Zwischenstand.
-  - Im tmux ist die Pane ein TTY. Der CLI rendert seine Gedanken und
-    Werkzeug-Schritte dort live. Das Backend liest sie mit `capture-pane`,
-    dedupliziert nach Inhalt und schreibt sie als Status-Meldung ins
-    Auftragsbuch (der Kanal, den das Frontend ohnehin alle 3 s pollt und
-    als Chat-Blase zeigt).
+Faellt `hermes`/`tmux` aus oder schlaegt der Start fehl, liefert der Stream
+eine Fehlermeldung, und die Weiche faellt aufs Auftragsbuch zurueck (Track B).
 """
 
 import logging
@@ -28,13 +21,13 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Wie lange der lokale Hermes-CLI hoechstens fuer einen Auftrag arbeitet.
-# Coding-Auftraege koennen lange dauern (Dateien anlegen, testen, commiten).
 DEFAULT_TIMEOUT = 900
 
 # tmux-Pane-Groesse. Der Hermes-TUI braucht etwas Breite, sonst bricht er
@@ -42,18 +35,19 @@ DEFAULT_TIMEOUT = 900
 _TMUX_WIDTH = 240
 _TMUX_HEIGHT = 80
 
-# Wie lange die Session nach dem Ende des CLI noch am Leben bleibt, damit
-# das Backend die endgueltige Antwort-Box noch aus der Pane lesen kann.
-_NACHLESE_VERWEIL = 8
-
-# Eine Hermes-Gedanken-Box im TUI-Layout beginnt mit "╭― ⚕ Hermes ..." und
-# endet mit "╰". Dazwischen stehen die Gedanken (mit fuehrendem Rand "│").
+# Box-Layout der Hermes-TUI.
 _BOX_START = re.compile(r"╭.*Hermes")
 _BOX_END = re.compile(r"╰")
-# Werkzeug-Schritt-Zeile ausserhalb einer Box, z. B. "💻 $ ls -la ...".
 _TOOL_ZEILE = re.compile(r"💻.*?\$\s*(.*)")
-# Inhalt einer Box-Zeile: fuehrenden Rand '│' abstreifen.
 _BOX_INHALT = re.compile(r"^│\s*")
+
+# Kommentare ohne persoenlichen Mehrwert (Interjektionen / reine
+# Aufforderungen) landen nicht im persoenlichen Gedaechtnis.
+_TRIVIAL_KOMMENTARE = re.compile(
+    r"^(weiter|ok(ay)?|ja|nein?|genau|aha|danke|ok|mach(ey) mal weiter|"
+    r"alles klar|verstanden|gut|super|lol|nop?e?)\b",
+    re.IGNORECASE,
+)
 
 
 def ist_verfuegbar() -> bool:
@@ -61,64 +55,71 @@ def ist_verfuegbar() -> bool:
     return shutil.which("hermes") is not None and shutil.which("tmux") is not None
 
 
-class LocalHermesJob:
-    """Ein laufender lokaler Hermes-Auftrag in einer tmux-Pane.
+def hat_mehrwert(kommentar: str) -> bool:
+    """Soll der Kommentar ins persoenliche Gedaechtnis gelernt werden?
 
-    Laesst den CLI im tmux-Pane (TTY) arbeiten, damit er seine Gedanken live
-    rendert, und liest sie per ``neue_gedanken()`` aus der Pane. Das
-    Endergebnis wird am Schluss aus der letzten Hermes-Box der Pane gelesen.
+    Nur Kommentare mit Projekt-/persoenlichem Mehrwert (>= 4 Zeichen, keine
+    reine Bestuftigung) gelten als merkenswert. Der Hermes bekommt jeden
+    Kommentar — dieses Filter entscheidet nur, ob er mitgelernt wird.
+    """
+    text = (kommentar or "").strip()
+    if len(text) < 4:
+        return False
+    if _TRIVIAL_KOMMENTARE.match(text):
+        return False
+    return True
+
+
+class LocalHermesJob:
+    """Ein laufender lokaler Hermes-Auftrag in einer tmux-Pane (interaktiv).
+
+    Startet `hermes chat` ohne Einzel-Query, laesst die Session offen und
+    bietet `sende_zeile()` an — so kann der Nutzer waehrend der Bearbeitung
+    Kommentare direkt an den Agenten schicken. Gedanken und Antworten werden
+    per `capture-pane` gelesen und nach Inhalt dedupliziert.
     """
 
-    _zähler = 0
+    _zaehler = 0
 
-    def __init__(self, auftrag: str, timeout: int = DEFAULT_TIMEOUT):
-        self.auftrag = auftrag
+    def __init__(self, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT):
+        self.auftrag_text = auftrag_text
         self.timeout = timeout
         self._startzeit = time.time()
 
-        # Eindeutige tmux-Session + Arbeitsverzeichnis in einem schreibbaren
-        # Ort (Termux: /tmp ist nicht beschreibbar -> HOME).
         werk = tempfile.mkdtemp(prefix="hermes-job-", dir=os.path.expanduser("~"))
-        LocalHermesJob._zähler += 1
-        self.session = f"hermes_agent_{int(time.time()*1000)}_{LocalHermesJob._zähler}"
-        self.query_file = os.path.join(werk, "query.txt")
+        LocalHermesJob._zaehler += 1
+        self.session = f"hermes_agent_{int(time.time()*1000)}_{LocalHermesJob._zaehler}"
         self._werk = werk
 
-        # Auftrag in eine Datei schreiben und per --query-file uebergeben:
-        # Anfuehrungszeichen, $(), Backticks und Umlaute bleiben exakt erhalten,
-        # nichts wird von der Shell interpretiert.
-        with open(self.query_file, "w", encoding="utf-8") as f:
-            f.write(auftrag)
-
-        # Bereits gemeldete Gedanken (Inhalts-Dedupe).
         self.gesehene_gedanken: set = set()
 
     # ------------------------------------------------------------------
-    # Start / Zustand / Stopp
+    # Start / Stopp
     # ------------------------------------------------------------------
 
     def starten(self) -> bool:
-        """Startet den CLI in einer eigenen tmux-Pane. True bei Erfolg."""
+        """Startet Hermes interaktiv in einer eigenen tmux-Pane und sendet den
+        ersten Auftrag. True bei Erfolg.
+        """
         try:
-            # Wichtig: KEINE stdout-Umleitung. Die Pane ist das TTY, in dem der
-            # CLI seine Gedanken live rendert. Das nachgestellte `sleep` haelt
-            # die Session kurz nach dem Ende des CLI am Leben, damit das
-            # Ergebnis noch aus der Pane gelesen werden kann.
-            inner = (
-                f"hermes chat --query-file {shlex.quote(self.query_file)}; "
-                f"sleep {_NACHLESE_VERWEIL}"
-            )
+            inner = "hermes chat"
             subprocess.run(
                 ["tmux", "new-session", "-d", "-s", self.session,
                  "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), inner],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=True,
+                capture_output=True, text=True, timeout=15, check=True,
             )
-            logger.info("Lokaler Hermes gestartet (Session %s)", self.session)
+            # Warten bis der CLI bereit ist, dann den Auftrag hinten.
+            time.sleep(6)
+            if not self.sende_zeile(self.auftrag_text):
+                logger.warning(
+                    "Lokaler Hermes nahm Auftrag nicht an (Session %s)", self.session
+                )
+                return False
+            logger.info(
+                "Lokaler Hermes gestartet + Auftrag gesendet (Session %s)", self.session
+            )
             return True
-        except Exception as e:  # pragma: no cover - Startfehler
+        except Exception as e:  # pragma: no cover
             logger.warning("Lokaler Hermes-Start fehlgeschlagen (%s)", e)
             return False
 
@@ -127,7 +128,7 @@ class LocalHermesJob:
         try:
             subprocess.run(["tmux", "kill-session", "-t", self.session],
                            capture_output=True, timeout=10)
-        except Exception:  # pragma: no cover - Session evtl. schon weg
+        except Exception:  # pragma: no cover
             pass
         try:
             shutil.rmtree(self._werk, ignore_errors=True)
@@ -135,8 +136,36 @@ class LocalHermesJob:
             pass
         logger.debug("Lokaler Hermes-Auftrag aufgeraeumt (%s)", self.session)
 
+    # ------------------------------------------------------------------
+    # Eingabe an den laufenden Agenten
+    # ------------------------------------------------------------------
+
+    def sende_zeile(self, text: str) -> bool:
+        """Sendet eine Zeile (Auftrag oder Kommentar) in die tmux-Pane.
+
+        `tmux send-keys` kann gegen eine sehr grosse Pane kurz haengen. Ein
+        subprocess-Timeout verhindert, dass der API-Call endlos blockiert —
+        stattdessen wird False geliefert und der Aufrufer kann sauber
+        reagieren (z. B. 409 statt dauerhafter Haenger).
+        """
+        try:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", self.session, text, "Enter"],
+                capture_output=True, text=True, timeout=5, check=True,
+            )
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning("send-keys ueberschritt 5s (Pane voll?) - Session %s", self.session)
+            return False
+        except Exception as e:  # pragma: no cover
+            logger.warning("send-keys fehlgeschlagen (%s)", e)
+            return False
+
+    # ------------------------------------------------------------------
+    # Lesen / Zustand
+    # ------------------------------------------------------------------
+
     def _pane_text(self) -> str:
-        """Ganzen Scrollback der tmux-Pane holen (fuer Gedanken + Ergebnis)."""
         try:
             r = subprocess.run(
                 ["tmux", "capture-pane", "-t", self.session, "-p", "-S", "-"],
@@ -146,31 +175,20 @@ class LocalHermesJob:
         except Exception:  # pragma: no cover
             return ""
 
-    def abgeschlossen(self) -> bool:
-        """True, sobald der CLI seine Abschluss-Zeile (Session-Fusszeile)
-        gerendert hat bzw. die Session endete. Am Ende erscheint im -q-Modus
-        eine Fusszeile mit "Resume this session" und einer "Session:"-Zeile.
-        """
-        pane = self._pane_text()
-        if "Resume this session" in pane or re.search(r"\bSession:\s+\d{8}_", pane):
-            return True
-        # Session weg = CLI (und das nachgestellte sleep) lange genug vorbei.
+    def lebt_noch(self) -> bool:
+        """True, solange die tmux-Session (und damit Hermes) noch da ist."""
         r = subprocess.run(["tmux", "has-session", "-t", self.session],
                            capture_output=True)
-        return r.returncode != 0
+        return r.returncode == 0
 
     def neue_gedanken(self) -> List[str]:
-        """Neue, noch nicht gemeldete Gedanken-/Werkzeug-Schritte seit letztem
-        Poll: Hermes-Boxen und "💻 $ ..."-Tool-Zeilen, nach Inhalt dedupliziert.
-        """
+        """Neue Hermes-Gedanken-/Tool-Schritte seit letztem Poll, dedupliziert."""
         pane = self._pane_text()
         if not pane:
             return []
-
         gedanken: List[str] = []
         in_box = False
         box_zeilen: List[str] = []
-
         for zeile in pane.splitlines():
             if not in_box and _BOX_START.search(zeile):
                 in_box = True
@@ -179,9 +197,9 @@ class LocalHermesJob:
             if in_box:
                 if _BOX_END.search(zeile):
                     in_box = False
-                    text = " ".join(box_zeilen).strip()
-                    if text:
-                        gedanken.append(text)
+                    t = " ".join(box_zeilen).strip()
+                    if t:
+                        gedanken.append(t)
                     continue
                 innen = _BOX_INHALT.sub("", zeile).rstrip()
                 if innen.strip():
@@ -190,7 +208,6 @@ class LocalHermesJob:
             m = _TOOL_ZEILE.search(zeile)
             if m:
                 gedanken.append("🔧 " + m.group(1).strip())
-
         neu = []
         for g in gedanken:
             if g and g not in self.gesehene_gedanken:
@@ -198,14 +215,12 @@ class LocalHermesJob:
                 neu.append(g)
         return neu
 
-    def ergebnis(self) -> Optional[str]:
-        """Endergebnis = letzte Hermes-Box aus der Pane (die Antwort-Box)."""
-        boxen = _extrahiere_boxen(self._pane_text())
-        return boxen[-1] if boxen else None
+    def alle_antwort_boxen(self) -> List[str]:
+        """Alle Hermes-Antwort-Boxen aus der Pane (fuer das Endergebnis)."""
+        return _extrahiere_boxen(self._pane_text())
 
 
 def _extrahiere_boxen(text: str) -> List[str]:
-    """Extrahiert alle Hermes-Box-Texte aus einem Text (Pane/Log)."""
     boxen: List[str] = []
     in_box = False
     zeilen: List[str] = []
@@ -227,40 +242,119 @@ def _extrahiere_boxen(text: str) -> List[str]:
     return boxen
 
 
+# ----------------------------------------------------------------------
+# Job-Registry: haelt laufende Sessions pro Auftrag am Leben, damit man
+# waehrend der Bearbeitung Kommentare an den gleichen Agenten schicken kann.
+# ----------------------------------------------------------------------
+
+class HermesRegistry:
+    """Verzeichnis der laufenden lokalen Hermes-Auftraege (Auftrag-ID -> Job)."""
+
+    def __init__(self) -> None:
+        self._jobs: Dict[str, LocalHermesJob] = {}
+        self._sperre = threading.Lock()
+
+    def starte(self, auftrag_id: str, auftrag_text: str) -> Optional[LocalHermesJob]:
+        """Startet einen Job fuer die Auftrags-ID, falls noch keiner laeuft."""
+        with self._sperre:
+            if auftrag_id in self._jobs:
+                return self._jobs[auftrag_id]
+            job = LocalHermesJob(auftrag_text)
+            if not job.starten():
+                job.beende()
+                return None
+            self._jobs[auftrag_id] = job
+            return job
+
+    def holen(self, auftrag_id: str) -> Optional[LocalHermesJob]:
+        with self._sperre:
+            return self._jobs.get(auftrag_id)
+
+    def sende_an(self, auftrag_id: str, text: str) -> bool:
+        """Sendet einen Kommentar an den laufenden Job einer Auftrag. False,
+        wenn es keinen laufenden Job (mehr) gibt.
+        """
+        job = self.holen(auftrag_id)
+        if job is None or not job.lebt_noch():
+            return False
+        return job.sende_zeile(text)
+
+    def entferne(self, auftrag_id: str) -> None:
+        with self._sperre:
+            job = self._jobs.pop(auftrag_id, None)
+        if job is not None:
+            job.beende()
+
+
+hermes_registry = HermesRegistry()
+
+
 def stream_auftrag(
-    auftrag: str, timeout: int = DEFAULT_TIMEOUT
+    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT
 ) -> Iterator[dict]:
-    """Startet den lokalen Hermes und liefert seine Ereignisse als Generator.
+    """Startet den lokalen Hermes (interaktiv) und liefert seine Ereignisse.
+
+    Wird in einem Daemon-Thread betrieben (siehe _starte_lokale_hermes). Die
+    Session bleibt ueber die Registry am Leben, damit waehrend des Laufs
+    Kommentare an denselben Agenten gehen koennen.
 
     Yields:
-        {"art": "gedanke", "text": "..."}  — Zwischengedanke / Werkzeug-Schritt
-        {"art": "ergebnis", "text": "..."} — finales Endergebnis (am Schluss)
-        {"art": "fehler", "text": "..."}   — Start/Timeout-Fehler
+        {"art": "gedanke", "text": ...}
+        {"art": "ergebnis", "text": ...}
+        {"art": "fehler", "text": ...}
     """
     if not ist_verfuegbar():
         yield {"art": "fehler", "text": "Lokaler Hermes/tmux nicht verfuegbar"}
         return
 
-    job = LocalHermesJob(auftrag, timeout=timeout)
-    if not job.starten():
+    job = hermes_registry.starte(auftrag_id, auftrag_text)
+    if job is None:
         yield {"art": "fehler", "text": "Lokaler Hermes nicht startbar"}
-        job.beende()
         return
 
     try:
         start = time.time()
+        # Im interaktiven Modus beendet sich Hermes nicht von selbst:
+        # Nach einer Antwort zeigt er wieder den Eingabe-Prompt. Ein Auftrag
+        # gilt als abgeschlossen, wenn eine Antwort-Box vorliegt und der
+        # Prompt wieder da ist (nicht mehr "Initializing agent...").
         while time.time() - start < timeout:
-            for gedanke in job.neue_gedanken():
-                yield {"art": "gedanke", "text": gedanke}
-            if job.abgeschlossen():
-                # Kurze Nachlese fuer die endgueltige Antwort-Box.
-                time.sleep(1)
-                ergebnis = job.ergebnis()
-                yield {"art": "ergebnis", "text": ergebnis or ""}
+            for gd in job.neue_gedanken():
+                yield {"art": "gedanke", "text": gd}
+
+            pane = job._pane_text()
+            # Grob: Hermes zeigt wieder den Prompt ("❯") => die laufende
+            # Antwort ist fertig; nehmen wir die letzte Antwort-Box als Ergebnis.
+            if "❯" in pane and not _arbeitet_noch(pane):
+                boxen = job.alle_antwort_boxen()
+                if boxen:
+                    yield {"art": "ergebnis", "text": boxen[-1]}
+                    return
+
+            if not job.lebt_noch():
+                boxen = job.alle_antwort_boxen()
+                yield {"art": "ergebnis", "text": boxen[-1] if boxen else "—"}
                 return
+
             time.sleep(1)
 
         logger.warning("Lokaler Hermes-Auftrag ueberschritt %ds", timeout)
         yield {"art": "fehler", "text": f"Lokaler Hermes brauchte laenger als {timeout}s"}
     finally:
-        job.beende()
+        # Der Job bleibt in der Registry (fuer spaetere Kommentare). Aufgeraumt
+        # wird erst, wenn der Auftrag schliesslich abgeschlossen wird.
+        pass
+
+
+def _arbeitet_noch(pane: str) -> bool:
+    """True, wenn der Prompt noch in einer bearbeitenden Zeile statt am Ende
+    steht (grob: solange '❯' fehlt ODER eine Tool-/Initialisierungszeile da
+    ist). Genutzt zur Abschluss-Erkennung im interaktiven Modus:
+    """
+    # Solange die Pane offensichtlich mitten in einer Antwort steckt
+    # (Tool-Schritt / "Initializing"/kein Prompt), gilt sie als am Arbeiten.
+    if "Initializing agent" in pane:
+        return True
+    # Prompt sichtbar + Antworten vorhanden => fertig (sobald der Bearbeiter
+    # nicht mitten in einem Tool steht).
+    return "💻" in pane and "❯" not in pane

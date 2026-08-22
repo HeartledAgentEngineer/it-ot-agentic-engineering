@@ -23,8 +23,12 @@ from app.models import (
     StatusMeldungCreate,
     RueckfrageCreate,
     AntwortCreate,
+    EingabeCreate,
 )
 from app.services.auftrag_service import auftrag_service
+from app.services.hermes_local import hat_mehrwert as hermes_hat_mehrwert
+from app.services.hermes_local import hermes_registry
+from app.services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +140,54 @@ def auftrag_chat_ausgabe(auftrag_id: str):
         "offene_rueckfragen": auftrag.get("rueckfragen", []),
         "ergebnis_details": ergebnis_details or None,
     }
+
+
+@router.post("/{auftrag_id}/eingabe", response_model=AuftragItem)
+def kommentar_senden(auftrag_id: str, eingabe: EingabeCreate):
+    """Nutzer-Kommentar waehrend eines laufenden Coding-Auftrags.
+
+    Sendet den Kommentar per `tmux send-keys` an den laufenden lokalen Hermes
+    (Track C, interaktive Session). Parallel wird der Kommentar — nur falls er
+    persoenlichen Mehrwert hat (keine reine Bestaetigung) — durch das
+    persoenliche Gedaechtnis gefuehrt, damit der eigene Assistent mitlernt.
+    """
+    auftrag = auftrag_service.einzeln(auftrag_id)
+    if auftrag is None:
+        raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
+
+    text = eingabe.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Leerer Kommentar")
+
+    # Die Registry fuehrt Jobs unter der VOLLEN UUID. Der Endpoint akzeptiert
+    # aber auch die Kurzform (8 Zeichen) aus der URL — deshalb hier die volle
+    # UUID aus dem (bereits aufgeloesten) Auftrag verwenden.
+    volle_id = auftrag["id"]
+    gesendet = hermes_registry.sende_an(volle_id, text)
+    if not gesendet:
+        # Kein laufender Job (mehr) fuer diese Auftrag-ID.
+        raise HTTPException(
+            status_code=409,
+            detail="Kein laufender Hermes-Job fuer diesen Auftrag (evtl. schon abgeschlossen)",
+        )
+
+    # Gedaechtnis mitlernen — nur bei persoenlichem Mehrwert.
+    try:
+        if hermes_hat_mehrwert(text):
+            memory_service.store_memory(
+                content=text,
+                category="fact",
+                importance=3,
+                conversation_id=f"auftrag:{auftrag_id[:8]}",
+            )
+            logger.info("Kommentar gelernt (Mehrwert): %s", text[:60])
+    except Exception as e:  # pragma: no cover
+        logger.warning("Gedaechtnis-Lernen des Kommentars fehlgeschlagen: %s", e)
+
+    # Hinweis im Auftrag fuer den Chat-Tracker (volle ID, denn der Service
+    # matcht exakt — die Kurzform wuerde ins Leere laufen).
+    auftrag_service.statusmeldung_hinzufuegen(volle_id, f"📨 Kommentar an Agent: {text}")
+    return auftrag
 
 
 @router.post("/{auftrag_id}/ergebnis", response_model=AuftragItem)
