@@ -13,7 +13,11 @@ from openai import OpenAI, APIStatusError
 
 from app.config import settings
 from app.modelle_de import MODEL_BESCHREIBUNGEN_DE
-from app.modelle_use import MODELL_USECASES_DE
+from app.modelle_use import (
+    MODELL_USECASES_DE,
+    MODELL_STAERKEN_DE,
+    MODELL_BENCHMARK_REF,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,36 @@ NICHT_KONFIGURIERT = (
     "Bitte setze den `OPENROUTER_API_KEY` in der `.env`-Datei.\n"
     "Du bekommst einen Key unter: https://openrouter.ai/keys"
 )
+
+
+def _staerke_ableiten(
+    gepflegt: Optional[str],
+    hat_bilder: bool,
+    hat_reasoning: bool,
+    rohpreis_prompt: Any,
+) -> str:
+    """Leitet ein Stärke-Profil für ein Modell ab.
+
+    Reihenfolge:
+      1. Gepflegter Eintrag (MODELL_STAERKEN_DE) gewinnt immer.
+      2. Bildfähig  → "bilder"
+      3. Reasoning  → "reasoning"
+      4. Sehr günstig (Eingabepreis <= 0,15 $/Mio) → "preis_leistung"
+      5. sonst      → "alltag"
+
+    So bekommt JEDES Modell eine einsortierte Stärke, auch wenn es nicht
+    manuell gepflegt ist.
+    """
+    if gepflegt:
+        return gepflegt
+    if hat_bilder:
+        return "bilder"
+    if hat_reasoning:
+        return "reasoning"
+    preis = LLMService._preis_pro_mio(rohpreis_prompt)
+    if preis is not None and preis <= 0.15:
+        return "preis_leistung"
+    return "alltag"
 
 
 class LLMService:
@@ -1007,6 +1041,17 @@ class LLMService:
                 "preis_leistung": self._preis_leistung_stufe(
                     self._preis_pro_mio(preise.get("prompt"))
                 ),
+                # Stärke-Profil für die AuswahlgGroupierung. Eigener Eintrag
+                # (MODELL_STAERKEN_DE) gewinnt; sonst automatische Ableitung
+                # aus Bild-/Reasoning-/Preis-Eigenschaften (deckt ALLE Modelle).
+                "staerke": _staerke_ableiten(
+                    MODELL_STAERKEN_DE.get(mid),
+                    "image" in eingaben,
+                    "reasoning" in parameter,
+                    preise.get("prompt"),
+                ),
+                # Benchmark-Referenz für Top-Modelle (gepflegt), sonst leer.
+                "benchmark_ref": MODELL_BENCHMARK_REF.get(mid),
                 # Wissensstand / Datenstand des Modells (knowledge_cutoff).
                 "wissensstand": m.get("knowledge_cutoff") or None,
                 # Laengste Antwort, die ein Modell in einem Zug ausgeben kann.

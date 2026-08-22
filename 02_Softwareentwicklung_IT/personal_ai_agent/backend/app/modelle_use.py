@@ -99,3 +99,67 @@ MODELL_USECASES_DE: dict[str, str] = {
         "Textaufgaben."
     ),
 }
+
+
+# modell_id → Stärke-Profil (Kurz-Kennzeichnung für die Auswahlgruppierung).
+# Erlaubte Werte: preis_leistung, bilder, coding, reasoning, alltag.
+# Wo kein Eintrag, greift im Backend eine Ableitung aus den echten Merkmalen.
+MODELL_STAERKEN_DE: dict[str, str] = {
+    # ── OpenAI ──────────────────────────────────────────────────────────
+    "openai/gpt-5-nano": "alltag",
+    "openai/gpt-5-mini": "alltag",
+    "openai/gpt-5.1-codex-mini": "coding",
+    "openai/gpt-5": "reasoning",
+    "openai/gpt-5.1": "reasoning",
+    "openai/gpt-4o": "bilder",
+    "openai/gpt-4.1-mini": "alltag",
+    # ── Anthropic ───────────────────────────────────────────────────────
+    "anthropic/claude-sonnet-5": "coding",
+    "anthropic/claude-haiku-4.5": "alltag",
+    # ── Google Gemini ───────────────────────────────────────────────────
+    "google/gemini-2.5-flash-lite": "alltag",
+    "google/gemini-2.5-flash": "reasoning",
+    "google/gemini-2.5-pro": "reasoning",
+    "google/gemini-3.7-flash": "bilder",
+    "google/gemini-3.7-flash-lite": "bilder",
+    "google/gemini-3.1-flash": "bilder",
+    "google/gemini-3.1-flash-lite": "bilder",
+    "google/gemini-2.5-flash-image": "bilder",
+    # ── DeepSeek ────────────────────────────────────────────────────────
+    "deepseek/deepseek-v4-flash": "preis_leistung",
+    "deepseek/deepseek-v4-flash-0731": "preis_leistung",
+    "deepseek/deepseek-v4-pro": "reasoning",
+    "deepseek/deepseek-r1": "reasoning",
+    "deepseek/deepseek-r1-0528": "reasoning",
+    "deepseek/deepseek-chat": "alltag",
+    # ── Qwen ────────────────────────────────────────────────────────────
+    "qwen/qwen3-30b-a3b": "preis_leistung",
+    "qwen/qwen3-32b": "reasoning",
+    "qwen/qwen3-coder": "coding",
+    "qwen/qwen3-vl-8b-instruct": "bilder",
+    # ── xAI / Grok ──────────────────────────────────────────────────────
+    "x-ai/grok-4.6": "coding",
+    "x-ai/grok-4.5": "reasoning",
+    # ── Mistral ─────────────────────────────────────────────────────────
+    "mistralai/mistral-small-3.2-24b-instruct": "alltag",
+}
+
+
+# modell_id → Benchmark-Referenz (Anhaltspunkt für die Auswahl, keine amtliche
+# Messung im Katalog). Nur gepflegte, verlässliche Angaben; wo fehlt, bleibt
+# im Backend `benchmark` leer (keine erfundenen Werte).
+MODELL_BENCHMARK_REF: dict[str, str] = {
+    # Bewertung als Kurz-Text; wo kein gesicherter Wert, fehlt gar nichts.
+    "deepseek/deepseek-v4-flash": "Ausgezeichnetes Preis-Leistungs-Verhältnis; auf Augenhöhe mit teureren Modellen in Alltags-/Coding-Aufgaben.",
+    "deepseek/deepseek-v4-pro": "Stärker in langen Analysen/Reasoning – die Leistungsauflösung für v4 als Pro.",
+    "deepseek/deepseek-r1": "Fachlich stark im schrittweisen Denken (MINT/Logik), aber langsamer und teurer als Flash.",
+    "openai/gpt-5-nano": "Kleines Modell mit erstaunlich guter Alltag-/Code-Leistung zum kleinen Preis.",
+    "openai/gpt-5.1": "Flaggschiff-Qualität: Top in Reasoning und Instruktor-Befolgung; teuer.",
+    "openai/gpt-5.1-codex": "Exzellent für Programmierung; Agenten-/Coding-Benchmarks (SWE-Bench) führend.",
+    "anthropic/claude-sonnet-5": "Stark in Coding/Wissensarbeit; häufig Spitzenplätze in Agenten-Benchmarks.",
+    "google/gemini-2.5-flash": "Solider Allrounder mit gutem Denk-/Code-Verhalten zu moderaten Kosten.",
+    "google/gemini-3.7-flash": "Stark bei bildmodal/visuellen Aufgaben; gute Performance für Multimedia-Anfragen.",
+    "google/gemini-3.1-flash": "Multimodale Stärke (Bilder), gute Text-/Bildinterpretation.",
+    "qwen/qwen3-30b-a3b": "Effizientes MoE mit erstaunlich guter Leistung zum kleinen Preis.",
+    "x-ai/grok-4.6": "Führend stark bei Programmierung/Wissensarbeit/MINT (Frontline).",
+}
