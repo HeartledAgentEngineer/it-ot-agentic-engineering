@@ -854,12 +854,6 @@ async function ladeKatalog(erzwingen = false) {
         state.favoriten = daten.favoriten || [];
         state.whitelistAktiv = Boolean(daten.whitelist_aktiv);
         state.modellHinweis = daten.hinweis || '';
-        if (!state.whitelistAktiv) {
-            state.modellHinweis =
-                'Anbieterzahlen gelten weltweit – trage PROVIDER_WHITELIST in die .env ein, '
-                + 'damit nur deine erreichbaren Anbieter gezählt werden. '
-                + state.modellHinweis;
-        }
         // Ohne eigene Wahl gilt das Modell aus der Server-Konfiguration.
         if (!state.model && daten.aktuell) state.model = daten.aktuell;
         if (daten.notliste) {
