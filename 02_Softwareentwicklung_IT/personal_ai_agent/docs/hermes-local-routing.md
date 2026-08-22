@@ -29,6 +29,22 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - Am Ende wird die letzte Hermes-Box (die Antwort) gelesen und per
   `ergebnis_eintragen(…, erfolg=True)` als `fertig` geschlossen.
 
+## Live-Blase bleibt im Verlauf (nicht nur fluechtig)
+- Die Live-Meldungen waren bisher **nur** im Client-Speicher (`state.messages`)
+  und im Auftragsbuch — nach einem Neuladen fehlten die von Hermes gekommenen
+  Nachrichten im Gespraechsverlauf.
+- Jetzt wird jeder Coding-Auftrag, der aus einem Gespraech entsteht, an dessen
+  `conversation_id` gebunden (`setze_chat_verknuepfung()`). Jede Hermes-Meldung
+  (Status-Meldung + Ergebnis) wird danach **zusätzlich** in den persistenten
+  Verlauf (`conversations.json`) geschrieben (`_in_verlauf_anhaengen()` →
+  `verlauf_nachricht_anhaengen()` in `chat.py`).
+- Ergebnispunkte: (1) Der Verlauf ist ein Merkmal des Servers und ueberlebt
+  Neuladen/Neustart. (2) Die Uebernahme ist eingeschlossen gegen Fehler und
+  greift nur, wenn der Auftrag mit einem Gespraech verknuepft ist — Auftraege,
+  die direkt aus dem Auftragsbuch stammen, beruehren den Verlauf nicht.
+- Die Sperre `_verlauf_sperre` verhindert, dass das gleichzeitige Schreiben
+  des Chat- und des Auftrags-Hintergrund-Threads die JSON-Datei zerhackt.
+
 ## Live-Eingabe waerrend der Bearbeitung
 - Der lokale Hermes bleibt im **interaktiven Modus** offen; eine **Job-Registry**
   (`HermesRegistry` in `hermes_local.py`) haelt die offene tmux-Session pro
@@ -63,7 +79,8 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - `backend/app/router/chat.py` — Weiche: erst PC (Track A), dann lokaler Live
   (Track C), sonst Buch (Track B); helper `_starte_lokale_hermes`.
 - `backend/app/models.py` — Modell `EingabeCreate` (neu).
-- `backend/app/services/auftrag_service.py` — `anlegen_als_arbeitender()` (neu).
+- `backend/app/services/auftrag_service.py` — `anlegen_als_arbeitender()` (neu),
+  `setze_chat_verknuepfung()` + `_in_verlauf_anhaengen()` (Verlauf-Uebernahme).
 
 ## Voraussetzung
 Der **Hermes-CLI muss auf dem Handy (Termux) installiert** und im `PATH` sein
