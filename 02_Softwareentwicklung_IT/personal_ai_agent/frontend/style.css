@@ -981,6 +981,18 @@ body {
     overflow: hidden;
 }
 
+.model-usecase {
+    margin: 4px 0 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--text-secondary);
+}
+
+.model-usecase b {
+    color: var(--accent);
+    font-weight: 600;
+}
+
 .model-meta {
     font-size: 0.72rem;
     color: var(--text-muted);

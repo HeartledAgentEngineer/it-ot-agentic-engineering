@@ -950,6 +950,25 @@ function zeileFuer(m, nutzbar = true) {
         row.appendChild(desc);
     }
 
+    // Eigene Einsatzempfehlung (deutsch) – die Antwort auf "wofür nehme ich das?"
+    if (m.verwendung) {
+        const use = document.createElement('p');
+        use.className = 'model-usecase';
+        use.innerHTML = '<b>Beste für:</b> ';
+        use.appendChild(document.createTextNode(m.verwendung));
+        row.appendChild(use);
+    }
+
+    // Preis-Leistungs-Abzeichen aus den echten Preisen.
+    if (m.preis_leistung) {
+        const pl = document.createElement('span');
+        const positiv = m.preis_leistung === 'sehr günstig' || m.preis_leistung === 'günstig';
+        pl.className = 'badge ' + (positiv ? 'eu' : 'warn');
+        pl.textContent = 'Preis-Leistung: ' + m.preis_leistung;
+        pl.title = 'Grobe Einstufung anhand des Eingabepreises pro Mio Token';
+        top.appendChild(pl);
+    }
+
     const meta = document.createElement('span');
     meta.className = 'model-meta';
     if (!nutzbar) {

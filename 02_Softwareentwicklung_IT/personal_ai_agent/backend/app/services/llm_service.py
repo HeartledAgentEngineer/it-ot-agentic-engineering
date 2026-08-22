@@ -13,6 +13,7 @@ from openai import OpenAI, APIStatusError
 
 from app.config import settings
 from app.modelle_de import MODEL_BESCHREIBUNGEN_DE
+from app.modelle_use import MODELL_USECASES_DE
 
 logger = logging.getLogger(__name__)
 
@@ -740,6 +741,28 @@ class LLMService:
         return round(wert, 3) if wert >= 0 else None
 
     @staticmethod
+    def _preis_leistung_stufe(eingabe_pro_mio: Optional[float]) -> Optional[str]:
+        """Grobe Preis-Leistungs-Einstufung anhand des Eingabepreises ($/Mio).
+
+        Nur eine grobe, ehrliche Schablone, keine harte Bewertung der
+        tatsaechlichen Qualitaet. Schwellen 2026/08 (Eingabepreis):
+          - bis  0,15 $  → „sehr günstig"
+          - bis  0,60 $  → „günstig"
+          - bis  1,50 $  → „mittel"
+          - darüber     → „teuer"
+        Ohne bekannten Preis → None („unbekannt").
+        """
+        if eingabe_pro_mio is None:
+            return None
+        if eingabe_pro_mio <= 0.15:
+            return "sehr günstig"
+        if eingabe_pro_mio <= 0.60:
+            return "günstig"
+        if eingabe_pro_mio <= 1.50:
+            return "mittel"
+        return "teuer"
+
+    @staticmethod
     def _whitelist() -> set:
         """Anbieter-Slugs des Kontos. Leere Menge heißt "unbekannt"."""
         return {
@@ -976,6 +999,13 @@ class LLMService:
                     MODEL_BESCHREIBUNGEN_DE.get(mid)
                     or m.get("description")
                     or None
+                ),
+                # Eigene Einsatzempfehlung (deutsch), falls gepflegt.
+                "verwendung": MODELL_USECASES_DE.get(mid),
+                # Grobe Preis-Leistungs-Einstufung aus dem echten Eingabepreis
+                # ($/Mio Token). Grobe, ehrliche Schwellen; "unbekannt" wenn kein Preis.
+                "preis_leistung": self._preis_leistung_stufe(
+                    self._preis_pro_mio(preise.get("prompt"))
                 ),
                 # Wissensstand / Datenstand des Modells (knowledge_cutoff).
                 "wissensstand": m.get("knowledge_cutoff") or None,
