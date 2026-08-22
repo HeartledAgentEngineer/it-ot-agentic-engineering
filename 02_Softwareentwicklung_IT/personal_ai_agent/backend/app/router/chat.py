@@ -219,8 +219,14 @@ def _starte_lokale_hermes(
                 text = ereignis.get("text", "")
                 if art == "gedanke" and text:
                     auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
+                    # Auch in den persistenten Chat-Verlauf, falls verknuepft.
+                    _reite_an_verlauf(auftrag_id, "assistant", text)
                 elif art == "ergebnis":
-                    auftrag_service.ergebnis_eintragen(auftrag_id, text, erfolg=bool(text))
+                    auftrag_service.ergebnis_eintragen(
+                        auftrag_id, text, erfolg=bool(text)
+                    )
+                    if text:
+                        _reite_an_verlauf(auftrag_id, "assistant", text)
                 elif art == "fehler":
                     auftrag_service.ergebnis_eintragen(
                         auftrag_id, text, erfolg=False
@@ -234,6 +240,22 @@ def _starte_lokale_hermes(
 
     threading.Thread(target=_worker, daemon=True).start()
     return eintrag
+
+
+def _reite_an_verlauf(auftrag_id: str, role: str, content: str) -> None:
+    """Reicht eine Hermes-Nachricht in den persistenten Chat-Verlauf weiter.
+
+    Der Coding-Auftrag fuehrt eine verknuepfte conversation_id; landet die
+    Nachricht nur im Auftragsbuch, ist der Chat-Verlauf nach einem Neuladen
+    leer. Hier wird die Verknuepfung gelesen und angehaengt, wenn vorhanden.
+    """
+    try:
+        eingang = auftrag_service.einzeln(auftrag_id)
+        conv_id = eingang.get("conversation_id") if eingang else None
+        if conv_id:
+            auftrag_service._in_verlauf_anhaengen(conv_id, role, content)
+    except Exception as e:
+        logger.warning("Verlauf-Übergabe fehlgeschlagen (%s): %s", auftrag_id[:8], e)
 
 
 def _strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]:
