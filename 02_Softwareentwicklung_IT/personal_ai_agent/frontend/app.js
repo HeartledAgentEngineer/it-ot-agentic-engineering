@@ -1049,11 +1049,11 @@ function sortiereNachRanking(a, b) {
 
 /** Gruppen-Label für das Stärke-Profil eines Modells (deutsch). */
 const STAERKE_LABEL = {
-    preis_leistung: 'Preis-Leistung-Sieger',
+    preis_leistung: 'Preis-Leistung-Fokus',
     bilder: 'Bilder / multimodal',
     coding: 'Programmieren / Coding',
     reasoning: 'Denken / Analyse (Reasoning)',
-    alltag: 'Alltag / Allzweck',
+    alltag: 'Allrounder',
 };
 
 function zeichneListe() {
