@@ -29,6 +29,16 @@ erklären.
   Bestätigungsschritt (Klick/Enter-Frage) an Sebastian — erst nach dessen OK wird
   gepusht. Immer vorschlagen, nie eigenmächtig pushen.
 
+## Synchronisation: Pull vor Agentenarbeit
+
+Bevor ein Agent an einem Repo arbeitet, holt er zu Beginn den aktuellen
+gemeinsamen Stand: `git pull` (ggf. `--ff-only`). So startet jede Sitzung vom
+selben Stand, egal ob zuvor per App wie `start-termux.sh` gepullt wurde, ein
+anderer Agent/Computer gepusht hat oder das Repo nur lokal liegt. Der Pull wird
+ausgeführt, bevor Dateien gelesen/geladen oder Commits gemacht werden. Der Agent
+prüft dabei, ob der Pull sauber durchgeht; schlägt er fehl (z. B. lokale
+Änderungen, Konflikt), wird er nicht übergangen, sondern Sebastian gefragt.
+
 ## Sicherheit: Persönliche Datenarchive
 
 `Chats von GPT, GEMINI, Claude/` enthält vollständige Chat-Archive und
