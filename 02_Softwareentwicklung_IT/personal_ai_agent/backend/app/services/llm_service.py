@@ -912,7 +912,11 @@ class LLMService:
                 "name": mid,
                 "eingabe_pro_mio": None,
                 "ausgabe_pro_mio": None,
+                "cache_pro_mio": None,
                 "context_length": None,
+                "beschreibung": None,
+                "wissensstand": None,
+                "max_ausgabe": None,
                 "tools": False,
                 "eu": False,
                 "notliste": True,
@@ -958,7 +962,19 @@ class LLMService:
                 "name": m.get("name") or mid,
                 "eingabe_pro_mio": self._preis_pro_mio(preise.get("prompt")),
                 "ausgabe_pro_mio": self._preis_pro_mio(preise.get("completion")),
+                # Cache-Preis: Wiederaufrufe eines schon gesehenen Kontexts
+                # (z. B. langer System-Prompt) sind spuerbar billiger. Fehlt
+                # er, ist variabel/kein Cache vorgesehen.
+                "cache_pro_mio": self._preis_pro_mio(preise.get("input_cache_read")),
                 "context_length": m.get("context_length"),
+                # Wofuer das Modell gedacht ist – der wichtigste Hinweis bei
+                # der Auswahl. Oft vorhanden, oft aussagekraeftig.
+                "beschreibung": m.get("description") or None,
+                # Wissensstand / Datenstand des Modells (knowledge_cutoff).
+                "wissensstand": m.get("knowledge_cutoff") or None,
+                # Laengste Antwort, die ein Modell in einem Zug ausgeben kann.
+                # Fehlt die Angabe, ist sie nicht begrenzt bzw. unbekannt.
+                "max_ausgabe": (m.get("top_provider") or {}).get("max_completion_tokens"),
                 # Wird in Slice D2 gebraucht: Gedächtnis-Werkzeuge laufen
                 # nicht auf jedem Modell.
                 "tools": "tools" in parameter,

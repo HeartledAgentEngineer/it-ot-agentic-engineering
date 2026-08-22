@@ -821,6 +821,29 @@ function kontextText(m) {
          : `${k} Kontext`;
 }
 
+/** Wissensstand lesbar: "2024-05-31" → "Stand 05/2024". */
+function wissensstandText(kc) {
+    if (!kc) return '';
+    const t = String(kc).slice(0, 7);               // JJJJ-MM
+    return /^\d{4}-\d{2}$/.test(t)
+        ? `Stand ${t.slice(3, 5)}/${t.slice(0, 4)}`
+        : `Stand ${String(kc).slice(0, 10)}`;
+}
+
+/** Laengste Antwort in einem Zug, lesbar. */
+function maxAusgabeText(n) {
+    if (!n) return '';
+    return n >= 1000000 ? `bis ${(n / 1000000).toFixed(1)} Mio Ausgabe`
+         : n >= 1000    ? `bis ${Math.round(n / 1000)}k Ausgabe`
+         : `bis ${n} Ausgabe`;
+}
+
+/** Cache-Preis fuer schon gesehenen Kontext, lesbar. */
+function cacheText(p) {
+    if (p === null || p === undefined) return '';
+    return `Cache $${p}/Mio`;
+}
+
 async function ladeKatalog(erzwingen = false) {
     if (state.katalog && !erzwingen) return state.katalog;
     try {
@@ -926,12 +949,27 @@ function zeileFuer(m, nutzbar = true) {
     }
     row.appendChild(top);
 
+    // Wofuer das Modell gedacht ist. Gekuerzt mit liegendem Titel zum
+    // Nachlesen – der volle Text steht im tooltip.
+    if (m.beschreibung) {
+        const desc = document.createElement('p');
+        desc.className = 'model-desc';
+        desc.textContent = m.beschreibung.length > 130
+            ? m.beschreibung.slice(0, 130) + '…'
+            : m.beschreibung;
+        desc.title = m.beschreibung;
+        row.appendChild(desc);
+    }
+
     const meta = document.createElement('span');
     meta.className = 'model-meta';
     if (!nutzbar) {
         meta.textContent = 'nicht mehr mit deinen Einstellungen nutzbar';
     } else {
-        const teile = [preisText(m), kontextText(m)].filter(Boolean);
+        const teile = [preisText(m), kontextText(m),
+                       wissensstandText(m.wissensstand),
+                       maxAusgabeText(m.max_ausgabe),
+                       cacheText(m.cache_pro_mio)].filter(Boolean);
         meta.textContent = teile.join(' · ');
     }
     row.appendChild(meta);
