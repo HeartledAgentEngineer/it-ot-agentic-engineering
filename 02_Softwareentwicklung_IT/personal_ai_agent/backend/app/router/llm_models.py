@@ -29,16 +29,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["models"])
 
-# Steht so auch in der Oberflaeche. Ein Werkzeug, das mehr verspricht als es
-# haelt, ist schaedlicher als keines: Die Angaben helfen bei der Auswahl,
-# sie ersetzen weder einen Auftragsverarbeitungsvertrag noch eine
-# Rechtsgrundlage, Betroffenenrechte oder ein Verarbeitungsverzeichnis.
-HAFTUNGSHINWEIS = (
-    "Auswahlhilfe, kein Konformitätsnachweis. Die Angaben stammen von "
-    "OpenRouter und ersetzen keinen Auftragsverarbeitungsvertrag."
-)
-
-
 # Bewusst `def` statt `async def`: Der Katalogaufbau macht rund 110 parallele
 # HTTP-Abrufe und braucht etwa eine Sekunde. In einer async-Funktion würde das
 # den Event-Loop blockieren und den laufenden Chat-Stream ausbremsen; als
@@ -76,7 +66,6 @@ def models():
         # statt eine leere Auswahl zu zeigen.
         "notliste": notliste,
         "konfiguriert": llm_service.is_configured,
-        "hinweis": HAFTUNGSHINWEIS,
     }
 
 
@@ -88,5 +77,4 @@ def model_details(model_id: str):
     deshalb `:path` – sonst matcht die Route nur den Teil bis zum Slash.
     """
     details = llm_service.model_details(model_id)
-    details["hinweis"] = HAFTUNGSHINWEIS
     return details
