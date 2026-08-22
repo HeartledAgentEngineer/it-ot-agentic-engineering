@@ -169,6 +169,12 @@ class AuftragService:
                 eintrag["ergebnis"] = ergebnis
                 eintrag["beendet"] = _jetzt()
                 self._schreiben(auftraege)
+                # Das Ergebnis ist die eigentliche Antwort von Hermes — sie
+                # gehoert auch in den persistenten Chat-Verlauf, falls dieser
+                # Auftrag aus einem Gespraech entstand.
+                self._in_verlauf_anhaengen(
+                    eintrag.get("conversation_id"), "assistant", ergebnis
+                )
                 logger.info("Auftrag %s: %s", auftrag_id[:8], "fertig" if erfolg else "fehlgeschlagen")
                 return eintrag
         return None
@@ -182,11 +188,17 @@ class AuftragService:
                     continue
                 if "status_meldungen" not in eintrag:
                     eintrag["status_meldungen"] = []
-                eintrag["status_meldungen"].append(f"[{_jetzt()}] {meldung}")
+                zeichen = f"[{_jetzt()}] {meldung}"
+                eintrag["status_meldungen"].append(zeichen)
                 # Maximal 20 Meldungen behalten
                 if len(eintrag["status_meldungen"]) > 20:
                     eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
                 self._schreiben(auftraege)
+                # Zwischenmeldung auch in den persistenten Chat-Verlauf
+                # uebernehmen, damit sie ein Neuladen ueberlebt.
+                self._in_verlauf_anhaengen(
+                    eintrag.get("conversation_id"), "assistant", zeichen
+                )
                 logger.info("Statusmeldung fuer %s: %s", auftrag_id[:8], meldung[:60])
                 return eintrag
         return None
@@ -235,9 +247,54 @@ class AuftragService:
             return []
         return [r for r in eintrag.get("rueckfragen", []) if r.get("antwort") is None]
 
+    def setze_chat_verknuepfung(
+        self, auftrag_id: str, conversation_id: Optional[str]
+    ) -> Optional[dict]:
+        """Verknuepft einen Coding-Auftrag mit dem Chat-Gespraech, das ihn
+        ausgeloest hat.
+
+        Nur dann kann das Auftragsbuch Hermes-Live-Nachrichten
+        (Zwischenmeldungen, Ergebnis) in den persistenten Chat-Verlauf
+        uebernehmen. Ohne Verknuepfung (z. B. Auftrag direkt aus dem
+        Auftragsbuch) bleibt der Verlauf unveraendert.
+        """
+        with self._sperre:
+            auftraege = self._lesen()
+            for eintrag in auftraege:
+                if eintrag.get("id") != auftrag_id:
+                    continue
+                eintrag["conversation_id"] = conversation_id
+                self._schreiben(auftraege)
+                return eintrag
+        return None
+
     # ------------------------------------------------------------------
     # Interna
     # ------------------------------------------------------------------
+
+    def _in_verlauf_anhaengen(
+        self, conversation_id: Optional[str], role: str, content: str
+    ) -> None:
+        """Reicht eine Agenten-Nachricht an den Chat-Verlauf weiter.
+
+        Geschieht nur, wenn der Auftrag mit einem Gespraech verknuepft ist.
+        Fehler gehen nicht ins Ohr: Eine Stoerung beim Verlauf darf das
+        Auftragsbuch selbst nicht brechen.
+        """
+        if not conversation_id:
+            return
+        try:
+            # Bewusst lazy importiert: ``chat`` importiert diesen Service,
+            # ein Modul-Level-Import hierher wuerde einen Kreislauf bilden.
+            from app.router.chat import verlauf_nachricht_anhaengen
+
+            verlauf_nachricht_anhaengen(conversation_id, role, content)
+        except Exception as fehler:
+            logger.warning(
+                "Live-Nachricht nicht an den Verlauf uebergeben (%s): %s",
+                conversation_id[:12],
+                fehler,
+            )
 
     def _verwaiste_freigeben(self, auftraege: list[dict]) -> None:
         grenze = settings.auftrag_timeout_minuten * 60

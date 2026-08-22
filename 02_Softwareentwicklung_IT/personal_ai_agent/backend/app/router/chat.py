@@ -69,6 +69,42 @@ def _speichere_verlauf() -> None:
         logger.warning("Verlauf konnte nicht gespeichert werden: %s", e)
 
 
+# Schuetzt den Verlauf gegen gleichzeitige Aenderungen: Waehrend ein
+# Coding-Auftrag im Hintergrund-Thread laeuft (Track C), schreibt das
+# Auftragsbuch Live-Nachrichten von Hermes hierher, waehrend im selben
+# Moment der Chat-Thread (Verlauf speichern) oder ein Streaming-Thread
+# schreibt. Ohne Sperre kann das die JSON-Datei zerhacken.
+_verlauf_sperre = threading.Lock()
+
+
+def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
+    """Haengt eine Agenten-Nachricht an ein Gespraech und schreibt den Verlauf weg.
+
+    Wird vom Auftragsbuch aufgerufen, wenn der Coding-Agent (Hermes) waehrend
+    eines Coding-Auftrags eine Zwischenmeldung oder ein Ergebnis liefert. So
+    landen diese Nachrichten auch im persistenten Verlauf und ueberleben ein
+    Neuladen der Oberflaeche — statt nur als kurzlebige Chat-Blasen im
+    Client-Speicher zu stehen.
+
+    Ein unbekanntes oder fehlendes Gespraech stoert den Auftrag nicht; auch
+    ein Schreibfehler darf das Auftragsbuch nicht abbrechen.
+    """
+    try:
+        with _verlauf_sperre:
+            if not conversation_id or conversation_id not in conversations:
+                return
+            if not content:
+                return
+            conversations[conversation_id].append(
+                {"role": role, "content": content}
+            )
+            _speichere_verlauf()
+    except Exception as e:
+        logger.warning(
+            "Live-Nachricht konnte nicht in den Verlauf uebernommen werden: %s", e
+        )
+
+
 _lade_verlauf()
 
 
@@ -98,12 +134,13 @@ def _finish_exchange(conversation_id: str, user_message: str, reply: str) -> int
         return 0
 
     history = conversations[conversation_id]
-    history.append({"role": "user", "content": user_message})
-    history.append({"role": "assistant", "content": reply})
-    # Sofort wegschreiben, nicht erst beim Beenden: Ein Serverabsturz oder
-    # ein hartes Beenden der App darf hoechstens den laufenden Austausch
-    # kosten, nicht das ganze Gespraech.
-    _speichere_verlauf()
+    with _verlauf_sperre:
+        history.append({"role": "user", "content": user_message})
+        history.append({"role": "assistant", "content": reply})
+        # Sofort wegschreiben, nicht erst beim Beenden: Ein Serverabsturz oder
+        # ein hartes Beenden der App darf hoechstens den laufenden Austausch
+        # kosten, nicht das ganze Gespraech.
+        _speichere_verlauf()
 
     try:
         return len(
@@ -240,6 +277,9 @@ async def chat(request: ChatRequest):
                 )
                 conversation_id = _get_or_create_conversation(request.conversation_id)
                 _finish_exchange(conversation_id, request.message, reply_text)
+                # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
+                # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
+                auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
                 return ChatResponse(
                     reply=reply_text,
                     conversation_id=conversation_id,
@@ -275,6 +315,9 @@ async def chat(request: ChatRequest):
             )
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
+            # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
+            # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
+            auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
             return ChatResponse(
                 reply=reply_text,
                 conversation_id=conversation_id,
@@ -372,6 +415,9 @@ async def chat_stream(request: ChatRequest):
             )
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
+            # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
+            # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
+            auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
 
             def lokaler_hermes_ereignisse():
                 yield _sse({"delta": reply_text})
@@ -403,6 +449,9 @@ async def chat_stream(request: ChatRequest):
         )
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
+        # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
+        # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
+        auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
 
         def auftrag_ereignisse():
             # In zwei Teile zerlegt: erst Text, dann fertig - die UI haengt
