@@ -94,27 +94,26 @@ personal_ai_agent/
 │   │   ├── config.py         # Konfiguration (.env)
 │   │   ├── models.py         # Pydantic-Modelle
 │   │   ├── router/           # API-Endpunkte
-│   │   │   ├── chat.py       # Chat-API
-│   │   │   ├── memory.py     # Memory-API
-│   │   │   └── auth.py       # Auth (vorbereitet)
+│   │   │   ├── chat.py       #   Chat-API + Hermes-Weiche (Track A/C/B)
+│   │   │   ├── auftraege.py  #   Auftragsbuch (Programmieraufträge)
+│   │   │   ├── memory.py     #   Memory-API
+│   │   │   ├── upload.py / transcribe.py / speak.py / llm_models.py ...
 │   │   ├── services/         # Geschäftslogik
-│   │   │   ├── llm_service.py   # OpenRouter
-│   │   │   └── memory_service.py# Vektor-DB + Embeddings
+│   │   │   ├── llm_service.py       #   OpenRouter/DeepSeek
+│   │   │   ├── memory_service.py    #   Vektor-DB + Embeddings
+│   │   │   ├── archiv_service.py    #   Suche in alten Chat-Archiven
+│   │   │   ├── auftrag_service.py   #   Auftragsbuch-Verwaltung
+│   │   │   ├── auftrags_erkennung.py#   Heuristik: ist das ein Auftrag?
+│   │   │   ├── hermes_gateway.py    #   PC-Hermes (Track A)
+│   │   │   └── hermes_local.py      #   Termux-Hermes live (Track C)
 │   │   └── db/
-│   │       └── chroma_client.py # ChromaDB-Client
+│   │       └── chroma_client.py
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── system_prompt.md      # Persönlichkeit des Agenten
 ├── frontend/          # PWA (Chat-UI)
-│   ├── index.html     # Chat-Oberfläche
-│   ├── app.js         # App-Logik + TTS
-│   ├── style.css      # Dark-Theme
-│   ├── manifest.json  # PWA-Manifest
-│   └── sw.js          # Service Worker
-├── docs/              # Dokumentation
-│   ├── brainstorm.md
-│   └── specification.md
-├── .gitignore
+├── docs/              # Doku (u. a. hermes-pc-routing.md, hermes-local-routing.md)
+├── start-termux.sh    # Android-Widget-Start (pull + Server)
 └── README.md
 ```
 

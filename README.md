@@ -7,7 +7,7 @@ Das Regelwerk dahinter ([AGENTS.md](AGENTS.md)) habe ich aus etablierten Praktik
 zusammengestellt und über mehrere Projekte an meine Arbeit angepasst; entstanden ist es neben
 der Arbeit in der Automatisierungstechnik, heute wende ich es vor allem auf Anwendungssoftware an. Das Repository bündelt zwei getrennte Domänen:
 
-* **[02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md):** Eigenständige Software-Projekte: Web-Anwendung (Flask), systemweites Diktier-Tool (Windows), semantische Wissensdatenbank (RAG) und deklarative Dokumentengenerierung.
+* **[02_Softwareentwicklung_IT](02_Softwareentwicklung_IT/README.md):** Eigenständige Software-Projekte: Web-Anwendung (Flask), systemweites Diktier-Tool (Windows), semantische Wissensdatenbank (RAG), deklarative Dokumentengenerierung und ein persönlicher KI-Assistent (Android/Termux) mit automatischer Bearbeitung von Programmieraufträgen.
 * **[01_IT-OT_Integration](01_IT-OT_Integration/README.md):** Kopplung einer industriellen SPS-Steuerung (TwinCAT 3, Structured Text) mit einer browserbasierten 3D-Visualisierung über eine Node.js-ADS-Brücke — als Hardware-in-the-Loop-Simulation ohne physische Anlage.
 
 Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
@@ -24,6 +24,7 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |
+| **Personal AI Agent** | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, PWA-Frontend, Hermes-CLI-Agent | Produktiv im Eigeneinsatz (Android/Termux) | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
 
 **Bewusst nicht versioniert:** Zwei mobile Prototypen (Concertify Android, typeFREE Android) wurden nach technischer Evaluierung eingestellt und sind nicht Teil des Repositories — u. a. weil API-Schlüssel in einer verteilten APK per Dekompilierung auslesbar wären. Die Pivot-Begründungen stehen im [Bereichs-README](02_Softwareentwicklung_IT/README.md).
 
@@ -41,6 +42,7 @@ graph LR
         R["RAG-System (FastAPI)"]
         D["Document Automation (Node.js)"]
         S["Eichhörnchen-Spiel (Canvas)"]
+        P["Personal AI Agent (FastAPI + PWA)"]
     end
 
     subgraph APIs["Angebundene KI- & Cloud-APIs"]
@@ -49,6 +51,7 @@ graph LR
         MB["Mistral Embed"]
         G2["Google Gemini (direkt)"]
         SP["Spotify · Ticketmaster · setlist.fm"]
+        DS["DeepSeek V4 (via OpenRouter)"]
     end
 
     subgraph AE["Agentic Engineering Plattform"]
@@ -64,6 +67,7 @@ graph LR
     T --> G2F
     R["RAG-System (FastAPI)"] --> G2
     R --> MB
+    P["Personal AI Agent (FastAPI + PWA)"] --> DS
 ```
 
 Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projekt-READMEs.  
@@ -99,6 +103,7 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 │   ├── RAG-Systeme/                    # ingest.py · query_db.py · main.py (FastAPI) · static/
 │   ├── document_automation/            # build_cv.js · build_pdf.js · merge_pdfs.js
 │   └── eichhoernchen_spiel/            # index.html (Canvas-Demo)
+│   └── personal_ai_agent/              # FastAPI-Assistent + PWA (backend/, frontend/, docs/)
 ├── AGENTS.md                           # Die eine Quelle der Kernregeln (werkzeugübergreifend)
 ├── CLAUDE.md                           # Nur das Claude-Code-Spezifische + Import von AGENTS.md
 ├── sync-rules.ps1                      # Erzeugt die Bereichs-CLAUDE.md aus CLAUDE_EXTENDS.md
@@ -209,7 +214,8 @@ Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts **Exit-Code 0** l
 |---|---|---|
 | typeFREE | `set PYTHONPATH=. && python -m pytest windows/tests -q` | 84 Prüfungen, Exit 0 |
 | concertify | `python -m pytest tests -q` | 180 Prüfungen, Exit 0 |
-| RAG-Systeme, document_automation, personal_ai_agent | **noch keiner** | — |
+| RAG-Systeme, document_automation | **noch keiner** | — |
+| personal_ai_agent | kein pytest; Prüfbeleg = Server läuft + `curl http://localhost:8080/ping` → `{"ping":"pong"}` (Exit 0), Syntax via `python -m py_compile` | Server antwortet |
 
 Daran hängt, wie viel Leine ein Projekt bekommt: Wo ein Gate existiert, läuft der Ausführungsblock durch. Wo keins existiert, wird jede Änderung einzeln vorgelegt — und der fehlende Prüfbefehl wird benannt, statt durch „sieht gut aus" ersetzt zu werden. Einen Befehl zu erfinden, der nichts prüft, wäre schlechter als keiner.
 
@@ -386,3 +392,13 @@ python query_db.py     # CLI-Abfrage — alternativ: python main.py (FastAPI-Web
 
 ### Eichhörnchen-Spiel
 `02_Softwareentwicklung_IT/eichhoernchen_spiel/index.html` direkt im Browser öffnen — keine Abhängigkeiten.
+
+### Personal AI Agent (persönlicher KI-Assistent, läuft auf diesem Handy/Termux)
+```bash
+cd 02_Softwareentwicklung_IT/personal_ai_agent/backend
+pip install -r requirements.txt
+cp .env.example .env      # → OPENROUTER_API_KEY eintragen
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+# Frontend: frontend/index.html im Browser öffnen; API-Docs: http://localhost:8080/docs
+```
+Start über das Android-Widget: `start-termux.sh` (holt updates + startet Server).

@@ -13,6 +13,7 @@ Dieser Bereich bündelt die reinen IT-Software-Projekte des Portfolios: eine Fla
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche aus Vektor- und BM25-Suche (RRF) | Funktionaler Prototyp (CLI + Web-UI) — Einzelnutzer, kein Rechte-/Mandantenkonzept | [README](RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil als lokales Einzelplatz-Tool; Daten anonymisiert, Ausgaben nicht versioniert | [README](document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen — Rapid-Prototyping-Demo, keine Weiterentwicklung geplant | [README](eichhoernchen_spiel/README.md) |
+| **Personal AI Agent** | Python, FastAPI, ChromaDB, OpenRouter/DeepSeek, PWA-Frontend, Hermes-CLI-Agent (Automatisierung von Programmieraufträgen) | Produktiv im Eigeneinsatz auf dem Handy (Android/Termux); kein Deployment | [README](personal_ai_agent/README.md) |
 
 Schnellstart-Befehle für alle Projekte stehen gesammelt im [Root-README](../README.md#schnellstart).
 
@@ -32,6 +33,7 @@ flowchart LR
     Concertify[Concertify<br/>Flask · SQLite · SSE]
     TypeFree[typeFREE<br/>Windows-Client · Hotkey Alt+Ä]
     RAG[RAG-System<br/>FastAPI · ingest.py · query_db.py]
+    PAA[Personal AI Agent<br/>FastAPI · ChromaDB · PWA]
 
     subgraph Konzertdaten [Konzert- & Setlist-Quellen]
         TM[(Ticketmaster)]
@@ -47,6 +49,7 @@ flowchart LR
     Whisper[(OpenAI Whisper)]
     Mistral[(Mistral AI)]
     PG[(PostgreSQL/pgvector<br/>lokal oder Supabase)]
+    DeepSeek[(DeepSeek V4 via OpenRouter)]
 
     Concertify -->|OAuth via spotipy · Playlists erstellen| Spotify
     Concertify --> TM
@@ -61,6 +64,8 @@ flowchart LR
 
     RAG -->|Embeddings & Chat| Mistral
     RAG -->|Fallback-QA| Gemini
+
+    PAA -->|Chat & Modell (OpenRouter)| DeepSeek
     RAG -->|Vektor- & BM25-Suche| PG
 ```
 
