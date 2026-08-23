@@ -63,7 +63,7 @@ Handy (Termux)
 ├── FastAPI Backend (Python) → Port 8080
 ├── ChromaDB (Vektor-DB, lokal)
 ├── OpenRouter → DeepSeek V4 Flash
-└── PWA Frontend (Browser)
+└── Frontend (im Browser-Tab)
 ```
 
 **API-Key:** Sicher in `.env` auf dem Gerät (nicht exposed im Web).
@@ -112,7 +112,7 @@ personal_ai_agent/
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── system_prompt.md      # Persönlichkeit des Agenten
-├── frontend/          # PWA (Chat-UI)
+├── frontend/          # Chat-UI (im Browser-Tab)
 ├── docs/              # Doku (u. a. hermes-pc-routing.md, hermes-local-routing.md)
 ├── start-termux.sh    # Android-Widget-Start (pull + Server)
 └── README.md
@@ -123,7 +123,7 @@ personal_ai_agent/
 - ✅ **Text-Chat** mit DeepSeek V4 Flash (via OpenRouter)
 - ✅ **Persönliches Gedächtnis** – Agent merkt sich Fakten (ChromaDB)
 - ✅ **TTS** – Antworten werden vorgelesen (Browser SpeechSynthesis)
-- ✅ **PWA** – Installierbar auf dem Handy
+- ✅ **Chat im Browser-Tab** – erreichbar über die lokale URL (keine App/keine Installation nötig)
 - ✅ **IT-Security & Netzwerktechnik** als Spezialgebiet
 - ✅ **API-Key sicher lokal** – kein Datenabfluss
 - ✅ **Dark Theme** – Augenschonend

@@ -24,7 +24,7 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |
-| **Personal AI Agent** | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, PWA-Frontend, Hermes-CLI-Agent | Produktiv im Eigeneinsatz (Android/Termux) | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
+| **Personal AI Agent** | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, Frontend (Browser-Tab), Hermes-CLI-Agent | Produktiv im Eigeneinsatz (Android/Termux) | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
 
 **Bewusst nicht versioniert:** Zwei mobile Prototypen (Concertify Android, typeFREE Android) wurden nach technischer Evaluierung eingestellt und sind nicht Teil des Repositories — u. a. weil API-Schlüssel in einer verteilten APK per Dekompilierung auslesbar wären. Die Pivot-Begründungen stehen im [Bereichs-README](02_Softwareentwicklung_IT/README.md).
 
@@ -42,7 +42,7 @@ graph LR
         R["RAG-System (FastAPI)"]
         D["Document Automation (Node.js)"]
         S["Eichhörnchen-Spiel (Canvas)"]
-        P["Personal AI Agent (FastAPI + PWA)"]
+        P["Personal AI Agent (FastAPI + Frontend)"]
     end
 
     subgraph APIs["Angebundene KI- & Cloud-APIs"]
@@ -67,7 +67,7 @@ graph LR
     T --> G2F
     R["RAG-System (FastAPI)"] --> G2
     R --> MB
-    P["Personal AI Agent (FastAPI + PWA)"] --> DS
+    P["Personal AI Agent (FastAPI + Frontend)"] --> DS
 ```
 
 Detail-Diagramme (Datenflüsse, APIs, Schichten) liegen in den jeweiligen Projekt-READMEs.  
@@ -103,7 +103,7 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 │   ├── RAG-Systeme/                    # ingest.py · query_db.py · main.py (FastAPI) · static/
 │   ├── document_automation/            # build_cv.js · build_pdf.js · merge_pdfs.js
 │   └── eichhoernchen_spiel/            # index.html (Canvas-Demo)
-│   └── personal_ai_agent/              # FastAPI-Assistent + PWA (backend/, frontend/, docs/)
+│   └── personal_ai_agent/              # FastAPI-Assistent + Frontend (backend/, frontend/, docs/)
 ├── AGENTS.md                           # Die eine Quelle der Kernregeln (werkzeugübergreifend)
 ├── CLAUDE.md                           # Nur das Claude-Code-Spezifische + Import von AGENTS.md
 ├── sync-rules.ps1                      # Erzeugt die Bereichs-CLAUDE.md aus CLAUDE_EXTENDS.md
