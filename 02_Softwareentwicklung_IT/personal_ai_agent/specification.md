@@ -59,7 +59,7 @@
 |---------|------|-------------|
 | POST | `/api/chat` | Chat-Nachricht senden (Text) |
 | POST | `/api/chat/stream` | Chat mit Streaming-Antwort |
-| GET | `/api/conversations` | Konversationsverlauf abrufen |
+| GET | `/api/conversations` | Konversationsverlauf abrufen (Nachrichten inkl. Zeitstempel `zeit`) |
 | POST | `/api/memory` | Fakt im Gedächtnis speichern |
 | GET | `/api/memory` | Gespeicherte Fakten abrufen |
 | POST | `/api/auth/login` | Authentifizierung (API-Key) |

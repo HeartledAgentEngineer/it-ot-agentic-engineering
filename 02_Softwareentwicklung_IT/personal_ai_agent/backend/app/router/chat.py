@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime
 from typing import Optional, List, Dict, Any, Iterator
 
 from fastapi import APIRouter, HTTPException
@@ -97,7 +98,11 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
             if not content:
                 return
             conversations[conversation_id].append(
-                {"role": role, "content": content}
+                {
+                    "role": role,
+                    "content": content,
+                    "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
+                }
             )
             _speichere_verlauf()
     except Exception as e:
@@ -136,8 +141,9 @@ def _finish_exchange(conversation_id: str, user_message: str, reply: str) -> int
 
     history = conversations[conversation_id]
     with _verlauf_sperre:
-        history.append({"role": "user", "content": user_message})
-        history.append({"role": "assistant", "content": reply})
+        jetzt = datetime.now().astimezone().isoformat(timespec="seconds")
+        history.append({"role": "user", "content": user_message, "zeit": jetzt})
+        history.append({"role": "assistant", "content": reply, "zeit": jetzt})
         # Sofort wegschreiben, nicht erst beim Beenden: Ein Serverabsturz oder
         # ein hartes Beenden der App darf hoechstens den laufenden Austausch
         # kosten, nicht das ganze Gespraech.

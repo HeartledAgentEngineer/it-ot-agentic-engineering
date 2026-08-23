@@ -145,6 +145,7 @@ personal_ai_agent/
 | `POST` | `/api/memory` | Manuelle Erinnerung erstellen |
 | `GET` | `/api/memory/count` | Anzahl Erinnerungen |
 | `GET` | `/api/conversations` | Aktive Konversationen |
+| `GET` | `/api/conversations/{id}` | Nachrichten eines Gesprächs – jede Nachricht trägt ein `zeit`-Feld (ISO der Sende-/Empfangszeit), das das Frontend als Zeitstempel unter der jeweiligen Chat-Blase anzeigt (Format „23:04“). |
 
 ## 🔮 Ausblick (Phase 2)
 
