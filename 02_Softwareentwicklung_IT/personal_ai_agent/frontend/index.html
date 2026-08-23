@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260828">
+    <link rel="stylesheet" href="style.css?v=20260829">
 </head>
 <body>
     <div id="app">
@@ -157,11 +157,13 @@
                 <button class="filter-chip" data-filter="staerke:preis_leistung"
                         title="Modelle mit Fokus auf gutem Preis-Leistungs-Verhältnis (sehr günstig + stark)">Preis-Leistung</button>
                 <button class="filter-chip" data-filter="staerke:bilder"
-                        title="Modelle, deren Stärke bei Bildern/Multimodal liegt">Stärke Bilder</button>
+                        title="Versteht Bild-Eingaben (liest/erkennt Bilder) – erzeugt keine Bilder">Stärke Bildverstehen</button>
                 <button class="filter-chip" data-filter="staerke:coding"
                         title="Modelle, deren Stärke im Programmieren liegt">Stärke Coding</button>
                 <button class="filter-chip" data-filter="staerke:reasoning"
                         title="Modelle, deren Stärke im tiefen Denken/Analysieren liegt">Stärke Reasoning</button>
+                <button class="filter-chip" data-filter="staerke:alltag"
+                        title="Modelle mit ausgewogener Stärke für den Alltag – gut bei vielem, ohne einseitiges Extrem-Profil">Stärke Allrounder</button>
             </div>
             <div id="model-list" class="sheet-list"></div>
             <p id="model-hint" class="sheet-note"></p>
@@ -178,6 +180,6 @@
         <div id="hermes-live-meldungen" style="margin-top:4px"></div>
     </div>
 
-    <script src="app.js?v=20260828"></script>
+    <script src="app.js?v=20260829"></script>
 </body>
 </html>
