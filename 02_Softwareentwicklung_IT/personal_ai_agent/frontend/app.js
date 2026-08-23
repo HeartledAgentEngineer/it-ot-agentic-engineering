@@ -244,9 +244,14 @@ function scrollToBottom(force = false) {
 
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
-function addMessage(content, role) {
+function addMessage(content, role, zeit) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
+    // Innere Spalte: Blaseninhalt über dem Zeitstempel-Label. Ohne sie lägen
+    // Content und Uhrzeit im flex-row nebeneinander statt untereinander.
+    // Klein, deshalb inline statt style.css (die Konvention bei Mini-Stilen).
+    const inner = document.createElement('div');
+    inner.style.cssText = 'display:flex;flex-direction:column';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     if (role === 'assistant') {
@@ -254,7 +259,20 @@ function addMessage(content, role) {
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
     }
-    div.appendChild(contentDiv);
+    inner.appendChild(contentDiv);
+    // Zeitstempel unter dem Text, dezent. „undefined" (live versendet) → jetzt;
+    // ein explizit leeres (null/'') lässt die Blase ohne Label – für alte
+    // Verlaufs-Nachrichten, deren ursprüngliche Uhrzeit unbekannt ist.
+    const label = zeit === undefined
+        ? formatZeit(new Date().toISOString())
+        : (zeit ? formatZeit(zeit) : null);
+    if (label) {
+        const zeitDiv = document.createElement('div');
+        zeitDiv.style.cssText = 'font-size:0.7rem;color:#9a9a9a;text-align:right;margin-top:4px;padding:0 4px';
+        zeitDiv.textContent = label;
+        inner.appendChild(zeitDiv);
+    }
+    div.appendChild(inner);
     dom.messages.appendChild(div);
     scrollToBottom(true);   // eigene Aktion – hier wird immer nachgezogen
     state.messages.push({ role, content });
@@ -1456,6 +1474,18 @@ function formatiereHermesMeldung(m) {
     return (zeit ? `${zeit} · ` : '') + m23;
 }
 
+/** Zerlegt eine rohe Hermes-Meldung ("[ISO] text") in reinen Text und die
+ *  Zeitangabe getrennt – fürs Zeitstempel-Label unter der Chat-Blase. Die
+ *  alte Funktion (Zeit in den Text) bleibt für die Auftrags-Detail-Ansicht. */
+function zerlegeHermesMeldung(m) {
+    const roh = (m || '').trim();
+    const isoMatch = roh.match(/^\[([^\]]+)\]\s*/);
+    return {
+        text: roh.replace(/^\[[^\]]+\]\s*/, ''),
+        zeitIso: (isoMatch && isoMatch[1]) || null,
+    };
+}
+
 /**
  * Pollt alle 3 Sekunden den Status eines Coding-Auftrags und zeigt
  * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
@@ -1483,9 +1513,10 @@ function startAuftragTracking(aidKurz, contentDiv) {
             if (anzahl > letzteAnzahl) {
                 const neue = meldungen.slice(letzteAnzahl);
                 for (const meldung of neue) {
-                    // Jede neue Meldung als eigene Chat-Blase, Zeitstempel
-                    // in kurzes deutsches Format (23:04 · text).
-                    addMessage(formatiereHermesMeldung(meldung), 'assistant');
+                    // Jede neue Meldung als eigene Chat-Blase; die in der
+                    // Meldung steckende [ISO]-Zeit wandert ins Label.
+                    const { text: htext, zeitIso } = zerlegeHermesMeldung(meldung);
+                    addMessage(htext, 'assistant', zeitIso || null);
                 }
                 letzteAnzahl = anzahl;
                 scrollToBottom(true);
@@ -1602,7 +1633,7 @@ async function sendMessage(text) {
     // Bedienung steht sofort bereit: Man kann das Vorlesen starten, während
     // die Antwort noch geschrieben wird.
     const vorleser = addSpeakControls(
-        contentDiv.parentElement,
+        contentDiv.parentElement.parentElement,
         () => zustand.text,
         () => zustand.fertig,
     );
@@ -2240,7 +2271,7 @@ async function zeigeGespraech(id) {
         state.messages = [];
 
         for (const m of nachrichten) {
-            addMessage(m.content, m.role === 'user' ? 'user' : 'assistant');
+            addMessage(m.content, m.role === 'user' ? 'user' : 'assistant', m.zeit || null);
         }
         state.conversationId = id;
         localStorage.setItem('conversation_id', id);
