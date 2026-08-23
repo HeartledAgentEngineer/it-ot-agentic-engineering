@@ -884,13 +884,16 @@ function zeileFuer(m, nutzbar = true) {
         + (m.id === state.model ? ' selected' : '')
         + (nutzbar ? '' : ' unavailable');
 
-    const top = document.createElement('div');
-    top.className = 'model-row-top';
-
-    const name = document.createElement('span');
+    // Zeile 1: Modellname – eigene Zeile, vollständig, nichts abschneiden.
+    const name = document.createElement('div');
     name.className = 'model-name';
     name.textContent = m.name || m.id;
-    top.appendChild(name);
+    row.appendChild(name);
+
+    // Zeile 2: Info-Labels (Badges) in eigener Reihe unter dem Namen. So hat
+    // der Name die volle Breite und die Plaketten wickeln sich bei Bedarf um.
+    const badges = document.createElement('div');
+    badges.className = 'model-badges';
 
     // Bei aktivem Riegel stehen ohnehin nur speicherfreie Modelle in der
     // Liste – dann ist die Plakette an jedem Eintrag reines Rauschen. Sie
@@ -900,7 +903,7 @@ function zeileFuer(m, nutzbar = true) {
         b.className = 'badge eu';
         b.textContent = 'kein Speichern';
         b.title = 'Keiner der möglichen Anbieter speichert Prompts';
-        top.appendChild(b);
+        badges.appendChild(b);
     } else if (m.anbieter_speichernd) {
         const b = document.createElement('span');
         b.className = 'badge warn';
@@ -912,7 +915,7 @@ function zeileFuer(m, nutzbar = true) {
         b.title = state.whitelistAktiv
             ? 'Ohne Datenschutz-Riegel kann die Anfrage bei einem dieser Anbieter landen'
             : 'Gezählt über alle Anbieter weltweit – deine Whitelist ist dem Backend nicht bekannt';
-        top.appendChild(b);
+        badges.appendChild(b);
     }
     if (m.eu) {
         const b = document.createElement('span');
@@ -921,31 +924,40 @@ function zeileFuer(m, nutzbar = true) {
         // Konto gesperrt (403) und braucht einen Enterprise-Vertrag.
         b.textContent = 'EU-fähig';
         b.title = 'Würde über den EU-Endpunkt bedient – erfordert einen Enterprise-Vertrag';
-        top.appendChild(b);
+        badges.appendChild(b);
     }
     if (m.tools === false) {
         const b = document.createElement('span');
         b.className = 'badge warn';
         b.textContent = 'ohne Werkzeuge';
         b.title = 'Beherrscht keine Werkzeugaufrufe';
-        top.appendChild(b);
-    }
-    row.appendChild(top);
-
-    // Wofuer das Modell gedacht ist. VOLLER Text – nichts kuerzen, damit die
-    // Beschreibung wirklich lesbar ist (kein '…', kein versteckter Tooltip).
-    if (m.beschreibung) {
-        const desc = document.createElement('p');
-        desc.className = 'model-desc';
-        desc.textContent = m.beschreibung;
-        row.appendChild(desc);
+        badges.appendChild(b);
     }
     // Stärke-Profil als gut sichtbarer Marker (für die Gruppierung).
     if (m.staerke && STAERKE_LABEL[m.staerke]) {
         const prof = document.createElement('span');
         prof.className = 'badge st' + m.staerke;
         prof.textContent = STAERKE_LABEL[m.staerke];
-        top.appendChild(prof);
+        badges.appendChild(prof);
+    }
+    // Preis-Leistungs-Abzeichen aus den echten Preisen.
+    if (m.preis_leistung) {
+        const pl = document.createElement('span');
+        const positiv = m.preis_leistung === 'sehr günstig' || m.preis_leistung === 'günstig';
+        pl.className = 'badge ' + (positiv ? 'eu' : 'warn');
+        pl.textContent = 'Preis-Leistung: ' + m.preis_leistung;
+        pl.title = 'Grobe Einstufung anhand des Eingabepreises pro Mio Token';
+        badges.appendChild(pl);
+    }
+    row.appendChild(badges);
+
+    // Wofuer das Modell gedacht ist. VOLLER Text, nichts kürzen, damit die
+    // Frage "wofür" wirklich mit vollständigen Sätzen beantwortet wird.
+    if (m.beschreibung) {
+        const desc = document.createElement('p');
+        desc.className = 'model-desc';
+        desc.textContent = m.beschreibung;
+        row.appendChild(desc);
     }
     // Benchmark-Referenz (falls gepflegt) als nüchterne Zusatzinfo.
     if (m.benchmark_ref) {
@@ -962,16 +974,6 @@ function zeileFuer(m, nutzbar = true) {
         use.innerHTML = '<b>Beste für:</b> ';
         use.appendChild(document.createTextNode(m.verwendung));
         row.appendChild(use);
-    }
-
-    // Preis-Leistungs-Abzeichen aus den echten Preisen.
-    if (m.preis_leistung) {
-        const pl = document.createElement('span');
-        const positiv = m.preis_leistung === 'sehr günstig' || m.preis_leistung === 'günstig';
-        pl.className = 'badge ' + (positiv ? 'eu' : 'warn');
-        pl.textContent = 'Preis-Leistung: ' + m.preis_leistung;
-        pl.title = 'Grobe Einstufung anhand des Eingabepreises pro Mio Token';
-        top.appendChild(pl);
     }
 
     const meta = document.createElement('span');
@@ -1432,6 +1434,28 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     _auftragStreckeDirekt = false; // Flag für die nächste Nachricht zurücksetzen
 }
 
+/** Formatiert einen ISO-Zeitstempel ("2026-08-22T23:04:47+02:00") zu kurzer
+ * deutscher Uhrzeit ("23:04"). Unbrauchbares bleibt stehen. */
+function formatZeit(iso) {
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return iso;
+    }
+}
+
+/** Aus einer rohen Status-Meldung ("[ISO] text") das deutsche Kurzformat machen:
+ * "23:04 · text" (Zeitstempel vorangestellt, rohe ISO-Form gekürzt). */
+function formatiereHermesMeldung(m) {
+    const roh = (m || '').trim();
+    const m23 = roh.replace(/^\[[^\]]+\]\s*/, '');
+    const isoMatch = roh.match(/^\[([^\]]+)\]\s*/);
+    const zeit = isoMatch && isoMatch[1] ? formatZeit(isoMatch[1]) : null;
+    return (zeit ? `${zeit} · ` : '') + m23;
+}
+
 /**
  * Pollt alle 3 Sekunden den Status eines Coding-Auftrags und zeigt
  * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
@@ -1459,8 +1483,9 @@ function startAuftragTracking(aidKurz, contentDiv) {
             if (anzahl > letzteAnzahl) {
                 const neue = meldungen.slice(letzteAnzahl);
                 for (const meldung of neue) {
-                    // Jede neue Meldung als eigene Chat-Blase
-                    addMessage(meldung, 'assistant');
+                    // Jede neue Meldung als eigene Chat-Blase, Zeitstempel
+                    // in kurzes deutsches Format (23:04 · text).
+                    addMessage(formatiereHermesMeldung(meldung), 'assistant');
                 }
                 letzteAnzahl = anzahl;
                 scrollToBottom(true);
@@ -2334,7 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 for (let i = letzteAnzahl; i < meldungen.length; i++) {
                     const div = document.createElement('div');
                     div.style.cssText = 'padding:4px 6px;margin:2px 0;background:#222;border-radius:4px;font-size:12px;white-space:pre-wrap;border-left:2px solid #0f0';
-                    div.textContent = meldungen[i];
+                    div.textContent = formatiereHermesMeldung(meldungen[i]);
                     meldungenDiv.appendChild(div);
                 }
                 letzteAnzahl = meldungen.length;
