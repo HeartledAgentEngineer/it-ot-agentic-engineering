@@ -1070,7 +1070,7 @@ function sortiereNachRanking(a, b) {
 /** Gruppen-Label für das Stärke-Profil eines Modells (deutsch). */
 const STAERKE_LABEL = {
     preis_leistung: 'Preis-Leistung-Fokus',
-    bilder: 'Bilder / multimodal',
+    bilder: 'Bilder verstehen / multimodal',
     coding: 'Programmieren / Coding',
     reasoning: 'Denken / Analyse (Reasoning)',
     alltag: 'Allrounder',
@@ -1109,10 +1109,18 @@ function zeichneListe() {
                || (m.name || '').toLowerCase().includes(suche));
 
     if (aktiv || suche) {
-        dom.modelList.appendChild(gruppenTitel(
-            treffer.length ? `${treffer.length} von ${alle.length} Modellen`
-                           : 'Keine Treffer – Filter lockern'
-        ));
+        let trefferTitel;
+        if (treffer.length) {
+            trefferTitel = `${treffer.length} von ${alle.length} Modellen`;
+        } else {
+            // Mehrere „Stärke“-Chips sind unerfüllbar, weil jedes Modell genau
+            // EINE primäre Stärke hat – der Hinweis erklärt das statt zu raten.
+            const staerkeChips = [...state.filters].filter(f => f.startsWith('staerke:')).length;
+            trefferTitel = staerkeChips > 1
+                ? 'Keine Treffer – ein Modell hat genau EINE Stärke; nur ein „Stärke“-Profil wählen'
+                : 'Keine Treffer – Filter lockern';
+        }
+        dom.modelList.appendChild(gruppenTitel(trefferTitel));
     }
 
     // Ranking: Treffer nach Stärke-Profil + Preis-Leistung sortieren.
