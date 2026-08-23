@@ -1500,6 +1500,8 @@ function startAuftragTracking(aidKurz, contentDiv) {
     if (_auftragTimer) clearInterval(_auftragTimer);
     let letzteAnzahl = 0;       // Wie viele Meldungen wir schon gesehen haben
     let ersteBlase = contentDiv; // Die ursprüngliche "Auftrag erkannt"-Blase
+    // Status-Wechsel merken: nur einmal pro Übergang anzeigen (kein Spam).
+    let letzterStatus = null;
 
     _auftragTimer = setInterval(async () => {
         try {
@@ -1508,6 +1510,17 @@ function startAuftragTracking(aidKurz, contentDiv) {
             const data = await res.json();
             const meldungen = data.meldungen || [];
             const anzahl = data.meldungen_count || 0;
+
+            // Status-Wechsel sichtbar machen: "laeuft/fertig/fehler" → einmalige Blase
+            const status = data.status || '';
+            if (status !== letzterStatus) {
+                letzterStatus = status;
+                if (status === 'laeuft') {
+                    addMessage('⚙️ **Hermes arbeitet an dem Auftrag…**', 'assistant');
+                } else if (status === 'fehler') {
+                    addMessage('❌ **Hermes konnte den Auftrag nicht abschließen**', 'assistant');
+                }
+            }
 
             // Neue Meldungen seit letztem Poll?
             if (anzahl > letzteAnzahl) {
