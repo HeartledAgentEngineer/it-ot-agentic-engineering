@@ -57,9 +57,29 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 # + der neue Server (mit frischer Config) kam nie wirklich hoch. Jetzt killen
 # wir alle uvicorn-Varianten und warten, bis der Port frei ist.
 echo "── Alter Server wird beendet ──────────────────"
-pkill -9 -f "uvicorn app.main:app" 2>/dev/null
-pkill -9 -f "python -m uvicorn" 2>/dev/null
-pkill -9 -f "uvicorn" 2>/dev/null
+# Sanft beenden (SIGTERM), damit uvicorn sauber herunterfaehrt und die
+# alte Termux-Session nicht als 'durchgestrichen/Code 137' stehenbleibt.
+# Nur wenn der Server nach kurzer Zeit noch lebt, wird hart gekillt (-9).
+pkill -TERM -f "uvicorn app.main:app" 2>/dev/null
+pkill -TERM -f "python -m uvicorn" 2>/dev/null
+pkill -TERM -f "uvicorn" 2>/dev/null
+
+# Warten, bis er wirklich weg ist (sanft), sonst als Fallback hart beenden.
+i=0
+while [ $i -lt 10 ]; do
+    if ! (command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ":$PORT ") \
+       && ! pgrep -f "uvicorn" >/dev/null 2>&1; then
+        break
+    fi
+    i=$((i+1))
+    sleep 1
+done
+# Haengt er immer noch, bleibt nur der harte Abbruch (letzter Ausweg).
+if pgrep -f "uvicorn" >/dev/null 2>&1; then
+    echo "  sanftes Beenden fehlgeschlagen – letzter Versuch (kill -9)"
+    pkill -9 -f "uvicorn" 2>/dev/null
+fi
+
 # Kurz warten, bis der Port wirklich frei ist (statt nur sleep 1).
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     if command -v ss >/dev/null 2>&1; then
