@@ -58,6 +58,22 @@ liefert Code-Blaupausen.
   **Was** (1–2 Sätze) · **Warum** · **Was bleibt unverändert** ·
   **Risiko** (Keins / Gering / Mittel / Hoch)
 
+## Tüfteln erlaubt, aber strukturiert
+
+Pragmatisches Ausprobieren/Tüfteln ist ausdrücklich erlaubt — schnelle
+Experimente, die Dinge zum Laufen bringen. **Aber:** ohne gelegentliche
+Reflexion driftet es ins Chaos um. Deshalb:
+
+- Nach jedem größeren Ad-hoc-Arbeitsblock (viel experimentiert/gefickt)
+  kurz **innehalten**: Was wurde gebaut? Wo ist Code-Wildwuchs? Konsolidieren
+  (Squash/Refactor)? Arbeitsweise reflektieren? Das dokumentiert sich in der
+  Übergabe/Changelog.
+- Kein dauerhaftes "Feuerwehr von Einsatz zu Einsatz": Wird ein Bereich
+  unsauber (Code-Duplikat, fehlende Tests, inkonsistente Muster), wird er
+  standardisiert statt weiter darauf zu schustern.
+- Verifikation ("Fertig ist, was verifiziert ist") und "Doku folgt dem Code"
+  gelten **immer** — auch bei schnellen Tüfteleien.
+
 ## Autonomiegrenze
 
 Autonom: lesen, lokal ändern, lokal committen, Tests ausführen.
