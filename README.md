@@ -2,7 +2,10 @@
 
 > **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a disciplined, phase-based agentic-engineering workflow, documented at the end of this page.
 
-Alle Projekte hier sind mit KI-Coding-Agenten entstanden — nach festem Regelwerk, nicht ad hoc.
+Alle Projekte hier sind mit KI-Coding-Agenten entstanden — nach einem Regelwerk, das
+pragmatisches Ausprobieren ebenso zulässt wie anschließende Strukturierung. Der Arbeitsstil ist
+agil: schnelles Tüfteln und Experimentieren, regelmäßig gebrochen durch Reflexion,
+Standardisierung und Refactoring — nie reines Feuerwehr-Gefrickel.
 Das Regelwerk dahinter ([AGENTS.md](AGENTS.md)) habe ich aus etablierten Praktiken
 zusammengestellt und über mehrere Projekte an meine Arbeit angepasst; entstanden ist es neben
 der Arbeit in der Automatisierungstechnik, heute wende ich es vor allem auf Anwendungssoftware an. Das Repository bündelt zwei getrennte Domänen:
@@ -128,8 +131,10 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 
 ## Agentic Engineering als Methode
 
-Alle Projekte sind mit KI-Coding-Agenten entstanden — nicht ad hoc, sondern
-entlang eines festen Regelwerks, das selbst Teil des Repositories ist. Der Kern:
+Alle Projekte sind mit KI-Coding-Agenten entstanden — agil statt starr: schnelles
+Tüfteln und Ausprobieren ist ausdrücklich erlaubt, wird aber durch feste Reflexions-
+und Standardisierungsschritte abgefedert, damit es nicht ins Chaos abdriftet. Das
+Regelwerk ist selbst Teil des Repositories. Der Kern:
 
 - **Acht Phasen pro Feature:** Brainstorm → Alignment → Planung → Implementierung
   → Testing → Recap → Refactor → Commit — aufgerufen über den `/phase`-Skill.
