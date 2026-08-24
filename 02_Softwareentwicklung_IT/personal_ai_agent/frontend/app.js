@@ -242,6 +242,55 @@ function scrollToBottom(force = false) {
     el.scrollTop = el.scrollHeight;
 }
 
+/** Erkennt ein Options-/Auswahl-Menü in einer rohen Hermes-Ausgabe und liefert
+ *  { frage, optionen:[{nummer,text}...] } oder null. Wandelt Layout-Pipes in
+ *  Zeilen, extrahiert nummerierte Optionen ("1. …", "1) …", "❯ 1. …"). */
+function parseOptionsMenue(roh) {
+    if (!roh || typeof roh !== 'string') return null;
+    const text = roh.replace(/\|/g, '\n');
+    const zeilen = text.split('\n').map(z => z.trim()).filter(Boolean);
+    const ersteOptIdx = zeilen.findIndex(z => /^[❯>\s]*\d+[.)]/.test(z));
+    const frage = ersteOptIdx > 0
+        ? zeilen.slice(0, ersteOptIdx).join(' ').replace(/[❯>]+/g, '').trim()
+        : '';
+    const optionen = [];
+    for (const zeile of zeilen) {
+        const m = zeile.match(/^[❯>\s]*(\d+)[.)]\s*(.+)$/);
+        if (m) optionen.push({ nummer: parseInt(m[1], 10), text: m[2].trim() });
+    }
+    if (optionen.length < 2) return null;
+    return { frage, optionen };
+}
+
+/** Baut klickbare Options-Buttons für ein erkanntes Auswahl-Menü. Klick sendet
+ *  die gewählte Option als Nachricht an den Agenten (nicht den rohen String). */
+function bauOptionsUi(menu) {
+    const box = document.createElement('div');
+    box.className = 'options-menu';
+    box.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:4px';
+    if (menu.frage) {
+        const f = document.createElement('div');
+        f.style.cssText = 'font-weight:600;margin-bottom:4px';
+        f.textContent = menu.frage;
+        box.appendChild(f);
+    }
+    menu.optionen.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'option-button';
+        btn.textContent = `${opt.nummer}. ${opt.text}`;
+        btn.style.cssText =
+            'text-align:left;padding:8px 10px;border:1px solid #3a3a3a;border-radius:8px;' +
+            'background:#1e1e1e;color:inherit;cursor:pointer;font-size:0.85rem';
+        btn.addEventListener('click', () => {
+            // Option als Antwort senden (geht an den laufenden Hermes-Auftrag
+            // bzw. als normale Nachricht an den Agenten).
+            sendMessage(opt.text);
+        });
+        box.appendChild(btn);
+    });
+    return box;
+}
+
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role, zeit) {
@@ -255,7 +304,14 @@ function addMessage(content, role, zeit) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     if (role === 'assistant') {
-        contentDiv.innerHTML = parseMarkdown(content);
+        // Ist die Antwort ein erkanntes Auswahl-Menü, render klickbare Buttons
+        // statt des rohen Textes (Smart-Output). Sonst normale Markdown-Blase.
+        const options = parseOptionsMenue(content);
+        if (options) {
+            contentDiv.appendChild(bauOptionsUi(options));
+        } else {
+            contentDiv.innerHTML = parseMarkdown(content);
+        }
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
     }
@@ -295,7 +351,6 @@ function addMessage(content, role, zeit) {
 /** Schaltet nur die "Denke nach..."-Anzeige. Ob wirklich etwas laeuft,
  *  steht in state.abbruch – die Anzeige verschwindet schon beim ersten
  *  Textstueck, die Antwort laeuft danach aber weiter.
- *
  *  Seit v20260817 sitzen die drei animierten Punkte DIREKT in der
  *  Assistant-Blase (siehe sendMessage) – nicht mehr in einem separaten
  *  #loading-Bereich unterhalb. Hier bleibt nur noch die Button-Logik. */
