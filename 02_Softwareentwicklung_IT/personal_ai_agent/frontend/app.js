@@ -1562,6 +1562,10 @@ function zerlegeHermesMeldung(m) {
  * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
  */
 let _auftragTimer = null;
+// Kurz-ID des aktuell laufenden Hermes-Auftrags (für den Kommunikationskanal:
+// solange gesetzt, wird eine neue Chat-Nachricht als Kommentar an die Session
+// geschickt statt einen neuen Auftrag zu starten).
+let _laufenderAuftragKurz = null;
 // True, wenn der /chat/stream die Live-Strecke selbst bis zum Abschluss
 // geführt hat (done mit auftrag_strecke). Dann braucht der 3s-Poller nicht
 // zusätzlich zu laufen – er bleibt nur Rückfall, wenn der Stream wegbrichst.
@@ -1571,6 +1575,9 @@ function startAuftragTracking(aidKurz, contentDiv) {
     if (_auftragTimer) clearInterval(_auftragTimer);
     let letzteAnzahl = 0;       // Wie viele Meldungen wir schon gesehen haben
     let ersteBlase = contentDiv; // Die ursprüngliche "Auftrag erkannt"-Blase
+    // Kommunikationskanal: solange dieser Auftrag läuft, gehen neue
+    // Chat-Nachrichten als Kommentar an die Session (nicht als neuer Auftrag).
+    _laufenderAuftragKurz = aidKurz;
     // Status-Wechsel merken: nur einmal pro Übergang anzeigen (kein Spam).
     let letzterStatus = null;
 
@@ -1638,6 +1645,8 @@ function startAuftragTracking(aidKurz, contentDiv) {
                 scrollToBottom(true);
                 clearInterval(_auftragTimer);
                 _auftragTimer = null;
+                // Auftrag beendet → Kommunikationskanal wieder frei.
+                _laufenderAuftragKurz = null;
             }
         } catch (_) {
             // Server kurz weg → ignorieren
@@ -1695,6 +1704,33 @@ async function sendMessage(text) {
         // Sicherheitsnetz: War der Katalog beim Upload noch nicht geladen,
         // kam die Warnung dort nicht – jetzt beim Senden nachholen.
         _warneFallsModellKeinBild();
+    }
+
+    // Kommunikationskanal zur laufenden Hermes-Session: Solange ein
+    // Programmierauftrag von Hermes bearbeitet wird, geht die neue
+    // Nachricht als Kommentar direkt an die offene Session (POST /eingabe),
+    // statt einen neuen Auftrag zu starten. So kann man Hermes während
+    // der Arbeit steuern/zurufen.
+    if (_laufenderAuftragKurz) {
+        const eingabeText = text.trim();
+        let gesendet = false;
+        try {
+            const resE = await fetch(`${API_BASE}/api/auftraege/${_laufenderAuftragKurz}/eingabe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: eingabeText }),
+            });
+            gesendet = resE.ok;
+        } catch (_) { gesendet = false; }
+        addMessage(
+            gesendet
+                ? '📨 **An den laufenden Hermes gesendet** (Kommentar zur Session)'
+                : '⚠️ Kommentar konnte nicht an die Session gesendet werden',
+            'assistant'
+        );
+        setLoading(false);
+        state.abbruch = null;
+        return;
     }
 
     // Leere Blase anlegen, die sich während des Streams füllt.
