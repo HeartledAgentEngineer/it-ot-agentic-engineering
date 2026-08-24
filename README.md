@@ -21,13 +21,12 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 
 | Projekt | Stack | Status | Doku |
 |---|---|---|---|
-| **Aufzug Digital Twin** | TwinCAT 3 (Structured Text), Node.js, `ads-client`, WebSockets, Three.js | Funktionaler Prototyp (HIL-Simulation) | [README](01_IT-OT_Integration/TwinCAT%20Projekts/README.md) |
-| **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
+| **✨ Personal AI Agent** (Kern-Projekt) | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, Frontend (Browser-Tab), Hermes-CLI-Agent als Toolcall | **Produktiv im Eigeneinsatz (Android/Termux)** — verbindet das meiste Know-how dieses Portfolios | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
 | **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`, direkt + OpenRouter-Fallback), OpenRouter/Gemini 2.5 Flash (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 84 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
+| **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
 | **Eichhörnchen-Spiel** | HTML5 Canvas, Vanilla JS (eine Datei) | Abgeschlossen (Rapid-Prototyping-Demo) | [README](02_Softwareentwicklung_IT/eichhoernchen_spiel/README.md) |
-| **Personal AI Agent** | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, Frontend (Browser-Tab), Hermes-CLI-Agent | Produktiv im Eigeneinsatz (Android/Termux) | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
 
 **Bewusst nicht versioniert:** Zwei mobile Prototypen (Concertify Android, typeFREE Android) wurden nach technischer Evaluierung eingestellt und sind nicht Teil des Repositories — u. a. weil API-Schlüssel in einer verteilten APK per Dekompilierung auslesbar wären. Die Pivot-Begründungen stehen im [Bereichs-README](02_Softwareentwicklung_IT/README.md).
 
