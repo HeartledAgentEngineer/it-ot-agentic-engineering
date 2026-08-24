@@ -42,7 +42,7 @@ _OBJEKTE = (
     "dependency", "modell", "config", "konfiguration", "model",
     "seite", "seiten", "button", "oberflaeche", "design",
     # Agent / System
-    "agent", "agenten", "hermes", "server", "dienst", "service", "tool",
+    "server", "dienst", "service", "tool",
     "werkzeug", "plugin", "skill", "wissensdatenbank", "datenbank",
     # Aenderungen an vorhandenem
     "bug", "fehler", "syntaxfehler", "behebe",
@@ -140,6 +140,21 @@ def ist_auftrag(nachricht: str) -> Tuple[bool, str, Optional[str], Optional[str]
             kat = kategorisiere(nachricht)
             kompl = schaetze_komplexitaet(nachricht)
             return True, f"Signalpraefix '{praefix}'", kat, kompl
+
+    # 1b. Meta-/Gesprächs-Heuristik: Sätze, die über den Agenten/die Kommunikation
+    # selber reden (Lob, Zustand, "zwischen X und Y"), sind KEINE Coding-Aufträge.
+    # Ohne das würde z. B. "Super, du hast was geschafft ... Kommunikation zwischen
+    # Hermes und Agenten" fälschlich als Auftrag erkannt und Hermes gerufen.
+    _META_SIGNALE = (
+        "kommunikation", "zwischen", "du hast", "darüber reden", "gespräch",
+        "vorhin", "gerade", "super", "gut gemacht", "danke", "verstehe",
+        "wie ist", "wie sieht", "stand", "status", "erzähl", "was ist",
+    )
+    if any(sig in text for sig in _META_SIGNALE):
+        # Nur sperren, wenn KEIN klares Arbeitsverb am Satzanfang steht
+        # (z. B. "Baue jetzt die Kommunikation zwischen X und Y" wäre echt).
+        if not any(text.startswith(w + " ") for w in _AUFTRAGS_VERBEN):
+            return False, "", None, None
 
     woerter = text.split()
 
