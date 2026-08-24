@@ -16,7 +16,7 @@ from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
-from app.services.faehigkeiten import stösst_an_grenze
+from app.services.faehigkeiten import stoesst_an_grenze
 from app.services.hermes_gateway import hermes_gateway
 from app.services.hermes_local import (
     ist_verfuegbar as hermes_local_ist_verfuegbar,
@@ -173,7 +173,7 @@ async def chat(request: ChatRequest):
         ist_auftrag_val = False
         if not request.files:
             ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
-            if not ist_auftrag_val and stösst_an_grenze(request.message):
+            if not ist_auftrag_val and stoesst_an_grenze(request.message):
                 ist_auftrag_val = True
                 begruendung = "Fähigkeits-Grenze (Terminal/Datei/System) – Hermes als Toolcall"
                 kategorie = "feature"
@@ -255,7 +255,7 @@ async def chat_stream(request: ChatRequest):
     ist_auftrag_val = False
     if not request.files:
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
-        if not ist_auftrag_val and stösst_an_grenze(request.message):
+        if not ist_auftrag_val and stoesst_an_grenze(request.message):
             ist_auftrag_val = True
             begruendung = "Fähigkeits-Grenze (Terminal/Datei/System) – Hermes als Toolcall"
             kategorie = "feature"

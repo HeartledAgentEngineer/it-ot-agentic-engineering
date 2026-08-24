@@ -11,6 +11,7 @@ Dieses Manifest ist die datengetriebene Grundlage:
 Bewusst deterministisch (kein LLM): kostenlos, testbar, nachvollziehbar.
 """
 
+import re
 from typing import List
 
 # Was der Agent kann (eigene Fähigkeiten)
@@ -51,16 +52,23 @@ GRENZE_MARKER: List[str] = [
 ]
 
 
-def stösst_an_grenze(text: str) -> bool:
+def stoesst_an_grenze(text: str) -> bool:
     """True, wenn die Anfrage an eine Fähigkeits-Grenze stößt (→ Hermes).
 
-    Deterministische Heuristik über GRENZE_MARKER. Wird von der Weiche als
-    Ergänzung zur ist_auftrag()-Heuristik genutzt.
+    Deterministische Heuristik über GRENZE_MARKER mit Wortgrenzen (Regex),
+    damit kurze Marker wie "git" oder "run" nicht in "digital"/"darunter"
+    fälschlich treffen (Critic-Befund HOCH). Wird von der Weiche als Ergänzung
+    zur ist_auftrag()-Heuristik genutzt.
     """
     if not text:
         return False
     t = text.lower()
-    return any(marker in t for marker in GRENZE_MARKER)
+    for marker in GRENZE_MARKER:
+        # Phrasen (mit Leerzeichen) an beiden Enden als Ganzes matchen;
+        # Einzelwörter mit Wortgrenzen (\b), um Substring-False-Positives zu vermeiden.
+        if re.search(r"\b" + re.escape(marker) + r"\b", t):
+            return True
+    return False
 
 
 def faehigkeits_block() -> str:
@@ -101,4 +109,4 @@ def soll_hermes_delegieren(nachricht: str, mit_dateien: bool = False) -> bool:
     from app.services.auftrags_erkennung import ist_auftrag
     if ist_auftrag(nachricht)[0]:
         return True
-    return stösst_an_grenze(nachricht)
+    return stoesst_an_grenze(nachricht)

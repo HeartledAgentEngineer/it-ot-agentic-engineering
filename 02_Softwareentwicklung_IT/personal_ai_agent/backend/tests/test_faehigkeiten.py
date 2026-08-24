@@ -12,7 +12,7 @@ sys.path.insert(0, BACKEND)
 from app.services.faehigkeiten import (  # noqa: E402
     FAEHIGKEITEN,
     GRENZE_MARKER,
-    stösst_an_grenze,
+    stoesst_an_grenze,
 )
 
 
@@ -28,17 +28,24 @@ def test_grenz_marker_nicht_leer():
     assert len(GRENZE_MARKER) > 5
 
 
-def test_stösst_an_grenze_terminal():
+def test_stoesst_an_grenze_terminal():
     """Anfrage mit Terminal-/System-Bezug stößt an die Grenze."""
-    assert stösst_an_grenze("Installiere mir ein Tool auf dem Server") is True
-    assert stösst_an_grenze("Führe diesen Befehl im Terminal aus") is True
+    assert stoesst_an_grenze("Installiere mir ein Tool auf dem Server") is True
+    assert stoesst_an_grenze("Führe diesen Befehl im Terminal aus") is True
 
 
-def test_stösst_an_grenze_bei_datei():
-    assert stösst_an_grenze("Lege eine Datei an im Projekt") is True
+def test_stoesst_an_grenze_bei_datei():
+    assert stoesst_an_grenze("Lege eine Datei an im Projekt") is True
 
 
 def test_keine_grenze_bei_chat():
     """Normale Chat-Fragen stoßen NICHT an die Grenze."""
-    assert stösst_an_grenze("Wie hübsch ist Hamburg?") is False
-    assert stösst_an_grenze("Was ist in dem Dokument wichtig?") is False
+    assert stoesst_an_grenze("Wie hübsch ist Hamburg?") is False
+    assert stoesst_an_grenze("Was ist in dem Dokument wichtig?") is False
+
+
+def test_keine_falschen_treffer_durch_substrings():
+    """Kurze Marker ('git','run','datei') dürfen nicht in normalen Wörtern
+    treffen (Critic-Befund HOCH): 'digital' enthält 'git', 'darunter' 'run'."""
+    assert stoesst_an_grenze("Das digitale Zeitalter ist spannend") is False
+    assert stoesst_an_grenze("Das liegt darunter in der Schublade") is False
