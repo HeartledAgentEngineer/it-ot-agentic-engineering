@@ -181,6 +181,14 @@ class LLMService:
                 settings.system_prompt_local_file,
             )
 
+        # Fähigkeiten-Selbstbild anhängen: Der Agent weiß, was er kann und
+        # was an Hermes delegiert wird (Terminal/Datei/System/Tool-Install).
+        try:
+            from app.services.faehigkeiten import faehigkeits_block
+            prompt = prompt + faehigkeits_block()
+        except Exception as e:  # pragma: no cover - darf den Prompt nie brechen
+            logger.warning("Fähigkeiten-Block nicht angehängt: %s", e)
+
         return prompt
 
     def _build_memory_context(self, memories: List[Dict[str, Any]]) -> str:
