@@ -1822,6 +1822,11 @@ async function sendMessage(text) {
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
                         if (untenGewesen) scrollToBottom(true);
                     }
+                } else if (daten.art === 'gedanke' && daten.text) {
+                    // Live-Zwischenmeldung von Hermes (Track C): IMMER als
+                    // eigene Bubble mit Sekunden-Zeitstempel – nie in die
+                    // laufende Antwort-Blase haengen (Bug: 5:50 in 5:49).
+                    addMessage(daten.text, 'assistant', new Date().toISOString());
                 } else if (daten.sources) {
                     // Können an jedem Häppchen hängen, deshalb laufend sammeln.
                     quellen = mergeQuellen(quellen, daten.sources);

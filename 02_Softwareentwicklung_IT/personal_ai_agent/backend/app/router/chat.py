@@ -295,7 +295,11 @@ def _strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str
         for meldung in meldungen[gesehen:]:
             gesehen += 1
             if meldung:
-                yield _sse({"delta": "\n\n" + meldung})
+                # Eigene gedaanke-Ereignis (nicht delta): Das Frontend zeigt
+                # jede Hermes-Zwischenmeldung als EIGENE Bubble statt sie in
+                # die laufende Antwort-Blase zu haengen (Bug: 5:50 landete in
+                # der 5:49-Blase). Live-Gedanken Gehören als getrennte Blase.
+                yield _sse({"art": "gedanke", "text": meldung})
                 letzte_aktivitaet = time.time()
 
         if status in ("fertig", "fehler"):
@@ -372,14 +376,10 @@ async def chat(request: ChatRequest):
                     chat_verknuepfung=conversation_id,
                 )
                 reply_text = (
-                    "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
-                    f"📋 **Aufgabe:** {request.message[:150]}…\n"
-                    f"🏷️ **Kategorie:** {kategorie or '?'}  "
-                    f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
-                    f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
-                    "Der lokale Hermes (Termux) hat den Auftrag übernommen. "
-                    "Seine Gedanken und Zwischenschritte erscheinen hier live; "
-                    "das Ergebnis am Ende.\n"
+                    "🧩 **Coding-Auftrag erkannt – lokaler Hermes übernimmt.**\n\n"
+                    f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+                    "Gedanken & Zwischenschritte erscheinen hier live, das "
+                    "Endergebnis danach.\n"
                 )
                 _finish_exchange(conversation_id, request.message, reply_text)
                 return ChatResponse(
@@ -406,14 +406,10 @@ async def chat(request: ChatRequest):
                 "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
             )
             reply_text = (
-                "🧩 **Coding-Auftrag erkannt!**\n\n"
-                f"📋 **Aufgabe:** {request.message[:150]}…\n"
-                f"🏷️ **Kategorie:** {kategorie or '?'}  "
-                f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
-                f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
-                "Der Auftrag wurde an den Coding-Agenten (Hermes) "
-                "weitergegeben. Sobald er bearbeitet ist, wird das "
-                "Ergebnis hier live angezeigt.\n"
+                "🧩 **Coding-Auftrag erkannt – wird bearbeitet.**\n\n"
+                f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+                "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
+                "erscheint es live hier.\n"
             )
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, reply_text)
@@ -512,14 +508,10 @@ async def chat_stream(request: ChatRequest):
                 chat_verknuepfung=conversation_id,
             )
             reply_text = (
-                "🧩 **Coding-Auftrag erkannt – wird auf diesem Geraet bearbeitet!**\n\n"
-                f"📋 **Aufgabe:** {request.message[:150]}…\n"
-                f"🏷️ **Kategorie:** {kategorie or '?'}  "
-                f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
-                f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
-                "Der lokale Hermes (Termux) hat den Auftrag übernommen. "
-                "Seine Gedanken und Zwischenschritte erscheinen hier live; "
-                "das Ergebnis am Ende.\\n"
+                "🧩 **Coding-Auftrag erkannt – lokaler Hermes übernimmt.**\n\n"
+                f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+                "Gedanken & Zwischenschritte erscheinen hier live, das "
+                "Endergebnis danach.\n"
             )
             _finish_exchange(conversation_id, request.message, reply_text)
             # Verknuepfung Auftrag <-> Gespraech setzt _starte_lokale_hermes
@@ -538,14 +530,10 @@ async def chat_stream(request: ChatRequest):
             komplexitaet=komplexitaet,
         )
         reply_text = (
-            "🧩 **Coding-Auftrag erkannt!**\n\n"
-            f"📋 **Aufgabe:** {request.message[:150]}…\n"
-            f"🏷️ **Kategorie:** {kategorie or '?'}  "
-            f"⚡ **Komplexität:** {komplexitaet or '?'}\n\n"
-            f"🆔 Auftrags-ID: `{eintrag['id'][:8]}`\n\n"
-            "Der Auftrag wurde an den Coding-Agenten (Hermes) "
-            "weitergegeben. Sobald er bearbeitet ist, wird das "
-            "Ergebnis hier live angezeigt.\n"
+            "🧩 **Coding-Auftrag erkannt – wird bearbeitet.**\n\n"
+            f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+            "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
+            "erscheint es live hier.\n"
         )
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
