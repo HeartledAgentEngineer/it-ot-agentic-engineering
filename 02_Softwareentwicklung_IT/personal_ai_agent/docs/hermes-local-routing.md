@@ -71,6 +71,13 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - Der Kommentar wird als Status-Meldung (`📨 Kommentar an Agent: …`) in den
   Chat-Tracker geschrieben. Ist der Auftrag schon fertig / kein Job mehr da,
   antwortet der Endpoint mit **409** statt zu haengen.
+- **Lebenszyklus / Cleanup:** Sobald der Auftrag final ist (`ergebnis`/`fehler`
+  eingetragen oder der Job abgebrochen), nimmt der Worker die Session aus der
+  Registry (`hermes_registry.entferne()` → `job.beende()` → `tmux
+  kill-session`). So wird der interaktive Hermes-CLI nach jeder Aufgabe wirklich
+  beendet und es wachsen keine verwaisten tmux-Sessions ueber die Tage an.
+  Waehrend der Bearbeitung bleibt der Job registriert (Live-Kommentare moeglich);
+  komplett entfernt wird er erst beim Abschluss.
 - **Gedaechtnis-Lernen:** Nur Kommentare mit persoenlichem Mehrwert
   (`hat_mehrwert()`, z. B. keine reinen "weiter/ok") werden parallel durch das
   persoenliche ChromaDB-Gedaechtnis gelernt — damit der eigene Assistent
