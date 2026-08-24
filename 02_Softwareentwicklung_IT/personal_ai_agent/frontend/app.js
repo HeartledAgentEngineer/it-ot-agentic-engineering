@@ -1858,9 +1858,11 @@ async function sendMessage(text) {
         if (!antwort) throw new Error('Leere Antwort vom Server');
         zustand.fertig = true;
 
-        // Hochgeladene Dateien aus der Vorschau entfernen – sie wurden
-        // mit der Nachricht versendet und sind nun Teil des Verlaufs.
-        _raeumeDateiVorschau();
+        // Hochgeladene Dateien aus der Vorschau entfernen – ABER nur, wenn
+        // der Abschluss wirklich sauber durchlief (ein done-Ereignis kam).
+        // Blieb der Stream stehen / wurde abgebrochen (kein done), behalten
+        // wir die Dateien in der Vorschau, damit der Nutzer sie nicht verliert.
+        if (abschluss) _raeumeDateiVorschau();
 
         // Zwischendurch eingetroffene Quellen mit denen aus dem Abschluss
         // zusammenführen – doppelte Adressen fallen dabei weg.
