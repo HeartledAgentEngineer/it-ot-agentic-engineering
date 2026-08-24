@@ -173,80 +173,22 @@ async def chat(request: ChatRequest):
         else:
             begruendung, kategorie, komplexitaet = "", None, None
         if ist_auftrag_val:
-            # 1) PC-Hermes (Track A) — wenn erreichbar, bleibt er zuerst.
-            hermes_antwort = hermes_gateway.sende_auftrag(request.message)
-            if hermes_antwort is not None:
-                conversation_id = _get_or_create_conversation(request.conversation_id)
-                _finish_exchange(conversation_id, request.message, hermes_antwort)
-                return ChatResponse(
-                    reply=hermes_antwort,
-                    conversation_id=conversation_id,
-                    memories_used=0,
-                    memories_created=0,
-                    sources=[],
-                    archiv_used=0,
-                )
-
-            # 2) Lokaler Hermes auf diesem Geraet (Track C) — va. unterwegs.
-            # Ist der CLI installiert, startet er die Aufgabe im Hintergrund
-            # und gibt seine Gedanken + das Ergebnis live ins Auftragsbuch.
-            if hermes_local_ist_verfuegbar():
-                # Gespraech ERST anlegen/ermitteln, damit die Verknuepfung
-                # vor dem Thread-Start an den Worker geht und das Gespraech
-                # im conversations-Dict bereits existiert, wenn die ersten
-                # Hermes-Zwischenmeldungen eintreffen.
-                conversation_id = _get_or_create_conversation(request.conversation_id)
-                eintrag = _starte_lokale_hermes(
-                    request.message,
-                    hinweis=f"Automatische Erkennung: {begruendung}",
-                    kategorie=kategorie,
-                    komplexitaet=komplexitaet,
-                    chat_verknuepfung=conversation_id,
-                )
-                reply_text = (
-                    "🧩 **Coding-Auftrag erkannt – lokaler Hermes übernimmt.**\n\n"
-                    f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
-                    "Gedanken & Zwischenschritte erscheinen hier live, das "
-                    "Endergebnis danach.\n"
-                )
-                _finish_exchange(conversation_id, request.message, reply_text)
-                return ChatResponse(
-                    reply=reply_text,
-                    conversation_id=conversation_id,
-                    memories_used=0,
-                    memories_created=0,
-                    sources=[],
-                    archiv_used=0,
-                )
-
-            # 3) Auftragsbuch (Track B) — nur wenn kein Hermes (PC noch lokal)
-            # erreichbar ist, liegt der Auftrag dort zur Abholung bereit.
-            eintrag = auftrag_service.anlegen(
+            # Die Track-A/C/B-Weiche (PC → lokal → Buch) liegt jetzt im
+            # Routing-Service. Er liefert art/reply/conversation_id; hier wird
+            # nur noch die ChatResponse daraus gebaut.
+            from app.services.chat_routing import route_auftrag
+            res = route_auftrag(
                 request.message,
-                hinweis=f"Automatische Erkennung: {begruendung}",
-                kategorie=kategorie,
-                komplexitaet=komplexitaet,
+                begruendung,
+                kategorie,
+                komplexitaet,
+                finish_exchange=_finish_exchange,
+                get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
+                starte_lokale_hermes=_starte_lokale_hermes,
             )
-            # Sofort eine "Warte auf Hermes"-Meldung einfügen,
-            # damit das Frontend-Tracking sofort eine Meldung sieht
-            auftrag_service.statusmeldung_hinzufuegen(
-                eintrag["id"],
-                "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
-            )
-            reply_text = (
-                "🧩 **Coding-Auftrag erkannt – wird bearbeitet.**\n\n"
-                f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
-                "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
-                "erscheint es live hier.\n"
-            )
-            conversation_id = _get_or_create_conversation(request.conversation_id)
-            _finish_exchange(conversation_id, request.message, reply_text)
-            # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen
-            # (Zwischenschritte, Ergebnis) den persistenten Verlauf füllen.
-            auftrag_service.setze_chat_verknuepfung(eintrag["id"], conversation_id)
             return ChatResponse(
-                reply=reply_text,
-                conversation_id=conversation_id,
+                reply=res["reply"],
+                conversation_id=res["conversation_id"],
                 memories_used=0,
                 memories_created=0,
                 sources=[],
