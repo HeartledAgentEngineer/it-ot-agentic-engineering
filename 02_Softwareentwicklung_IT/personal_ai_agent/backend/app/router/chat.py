@@ -161,17 +161,17 @@ def _reite_an_verlauf(auftrag_id: str, role: str, content: str) -> None:
 async def chat(request: ChatRequest):
     """Process a chat message and return the LLM response."""
     try:
-        # Weiche: Coding-/Werkzeug-Auftraege ans Auftragsbuch statt an den
-        # lokalen LLM. Damit landet "erstelle das und das" bei Hermes, der
-        # sich den Auftrag im eigenen Takt abholt.
-        #
-        # Track A: Ist der PC-Hermes (im selben WLAN) erreichbar, wird die
-        # Anfrage direkt dorthin geschickt und die Antwort zurueckgegeben.
-        # Track C: Ist kein PC-Hermes erreichbar, probiert der LOKALE Hermes
-        # (Termux-CLI auf diesem Geraet) den Auftrag direkt zu bearbeiten.
-        # Fallback: Erst wenn weder PC noch lokaler Hermes liefern, geht der
-        # Auftrag ins Auftragsbuch (Track B).
-        ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+        # Weiche: Coding-/Werkzeug-Auftraege weiterleiten. Bei hochgeladenen
+        # Dateien (request.files) NICHT als Coding-Auftrag einordnen — ein
+        # Dokument-/Bild-Upload ist immer eine Verständnis-/Analyse-Frage an
+        # den LLM, kein Programmier-Kommando an Hermes. Sonst würde z. B.
+        # "Erstelle eine Zusammenfassung" (mit PDF) fälschlich ins Buch
+        # rutschen. Nur ohne Files greift die Auftrags-Erkennung.
+        ist_auftrag_val = False
+        if not request.files:
+            ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+        else:
+            begruendung, kategorie, komplexitaet = "", None, None
         if ist_auftrag_val:
             # 1) PC-Hermes (Track A) — wenn erreichbar, bleibt er zuerst.
             hermes_antwort = hermes_gateway.sende_auftrag(request.message)
@@ -297,9 +297,16 @@ async def chat(request: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
-    # Gleiche Weiche wie in /chat: Coding-Auftraege ans Auftragsbuch statt
-    # an den lokalen LLM. Als ein einzelnes SSE-Event ausgeliefert.
-    ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+    # Gleiche Weiche wie in /chat: Coding-Auftraege weiterleiten. Bei
+    # hochgeladenen Dateien (request.files) NICHT als Coding-Auftrag einordnen
+    # — ein Dokument-/Bild-Upload ist eine Verständnis-/Analyse-Frage an den
+    # LLM, kein Programmier-Kommando (sonst rutscht z. B. "Erstelle eine
+    # Zusammenfassung" mit PDF fälschlich ins Buch).
+    ist_auftrag_val = False
+    if not request.files:
+        ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+    else:
+        begruendung, kategorie, komplexitaet = "", None, None
     if ist_auftrag_val:
         # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
         # (Track C). Nur wenn beides nicht verfuegbar ist, geht der
