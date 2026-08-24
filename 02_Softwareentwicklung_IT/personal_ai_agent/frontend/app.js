@@ -1460,31 +1460,25 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     _auftragStreckeDirekt = false; // Flag für die nächste Nachricht zurücksetzen
 }
 
-/** Formatiert einen ISO-Zeitstempel ("2026-08-22T23:04:47+02:00") zu kurzer
- * deutscher Uhrzeit ("23:04"). Unbrauchbares bleibt stehen. */
+/** Formatiert einen ISO-Zeitstempel ("2026-08-22T23:04:47+02:00")
+ * WhatsApp-artig: Datum + Uhrzeit mit Sekunden, z. B. "23.08.2026 · 23:04:47".
+ * Unbrauchbares (kein Datum) bleibt stehen. */
 function formatZeit(iso) {
     try {
         const d = new Date(iso);
         if (isNaN(d.getTime())) return iso;
-        return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        const datum = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const zeit = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        return `${datum} · ${zeit}`;
     } catch (e) {
         return iso;
     }
 }
 
-/** Aus einer rohen Status-Meldung ("[ISO] text") das deutsche Kurzformat machen:
- * "23:04 · text" (Zeitstempel vorangestellt, rohe ISO-Form gekürzt). */
-function formatiereHermesMeldung(m) {
-    const roh = (m || '').trim();
-    const m23 = roh.replace(/^\[[^\]]+\]\s*/, '');
-    const isoMatch = roh.match(/^\[([^\]]+)\]\s*/);
-    const zeit = isoMatch && isoMatch[1] ? formatZeit(isoMatch[1]) : null;
-    return (zeit ? `${zeit} · ` : '') + m23;
-}
-
 /** Zerlegt eine rohe Hermes-Meldung ("[ISO] text") in reinen Text und die
- *  Zeitangabe getrennt – fürs Zeitstempel-Label unter der Chat-Blase. Die
- *  alte Funktion (Zeit in den Text) bleibt für die Auftrags-Detail-Ansicht. */
+ *  Zeitangabe getrennt – fürs Zeitstempel-Label unter der Chat-Blase. So
+ *  bleibt jede Hermes-Meldung optisch getrennt (kein hässlicher ISO-String
+ *  vor dem Text). */
 function zerlegeHermesMeldung(m) {
     const roh = (m || '').trim();
     const isoMatch = roh.match(/^\[([^\]]+)\]\s*/);
@@ -2411,7 +2405,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 for (let i = letzteAnzahl; i < meldungen.length; i++) {
                     const div = document.createElement('div');
                     div.style.cssText = 'padding:4px 6px;margin:2px 0;background:#222;border-radius:4px;font-size:12px;white-space:pre-wrap;border-left:2px solid #0f0';
-                    div.textContent = formatiereHermesMeldung(meldungen[i]);
+                    const { text: htext, zeitIso } = zerlegeHermesMeldung(meldungen[i]);
+                    div.textContent = htext;
+                    if (zeitIso) {
+                        const z = document.createElement('span');
+                        z.style.cssText = 'display:block;font-size:0.65rem;color:#9a9a9a;margin-top:2px';
+                        z.textContent = formatZeit(zeitIso);
+                        div.appendChild(z);
+                    }
                     meldungenDiv.appendChild(div);
                 }
                 letzteAnzahl = meldungen.length;
