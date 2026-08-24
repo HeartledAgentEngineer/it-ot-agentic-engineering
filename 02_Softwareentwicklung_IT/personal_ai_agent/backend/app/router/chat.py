@@ -23,143 +23,36 @@ from app.services.hermes_local import (
 )
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
+from app.services import chat_verlauf
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
-# Gespraeche. Frueher lagen sie ausschliesslich hier im Arbeitsspeicher -
-# jeder Serverneustart, jeder Absturz und jedes Update loeschten damit den
-# gesamten Verlauf. Fuer einen Agenten, der sich Dinge merken soll, ist das
-# ein Widerspruch: Das Gedaechtnis ueberlebte, das Gespraech nicht.
-conversations: Dict[str, List[Dict[str, str]]] = {}
-next_conversation_id: int = 1
-
-# Liegt neben dem Gedaechtnis, damit alles Dauerhafte an einem Ort steht.
+# Verlauf liegt jetzt im Service (app.services.chat_verlauf) — Refactoring.
+# Re-Export, damit der Rest dieser Datei (und alte Nutzer) identisch weiter
+# funktionieren. Memory-Extraktion wird hier injected, damit der Service keine
+# harten Imports braucht.
+conversations = chat_verlauf.conversations
 VERLAUF_DATEI = os.path.join(settings.chroma_persist_dir, "conversations.json")
 
+# Service initialisieren (lädt Verlauf von der Platte).
+chat_verlauf.init(VERLAUF_DATEI, settings.chroma_persist_dir)
 
-def _lade_verlauf() -> None:
-    """Holt die Gespraeche von der Platte. Fehlt die Datei, faengt es leer an."""
-    global next_conversation_id
-    try:
-        with open(VERLAUF_DATEI, "r", encoding="utf-8") as f:
-            daten = json.load(f)
-        conversations.update(daten.get("conversations", {}))
-        next_conversation_id = int(daten.get("next_id", 1))
-        logger.info(
-            "Gespraechsverlauf geladen: %d Gespraeche", len(conversations)
-        )
-    except FileNotFoundError:
-        logger.info("Kein gespeicherter Verlauf – erster Start")
-    except Exception as e:
-        # Eine kaputte Datei darf den Server nicht am Starten hindern.
-        logger.warning("Verlauf nicht lesbar, beginne leer: %s", e)
+# Memory-Extraktion an den Service anbinden (gleiche wie bisher).
+chat_verlauf.setze_memory_extractor(
+    memory_service.extract_and_store_memories
+)
+
+# Alias für Abwärtskompat im restlichen Code:
+_lade_verlauf = chat_verlauf._lade_verlauf
+_speichere_verlauf = chat_verlauf._speichere_verlauf
+verlauf_nachricht_anhaengen = chat_verlauf.verlauf_nachricht_anhaengen
+_get_or_create_conversation = chat_verlauf._get_or_create_conversation
+_finish_exchange = chat_verlauf.finish_exchange
+_verlauf_sperre = chat_verlauf._verlauf_sperre
 
 
-def _speichere_verlauf() -> None:
-    """Schreibt den Verlauf weg. Fehler hier duerfen den Chat nicht abbrechen."""
-    try:
-        os.makedirs(settings.chroma_persist_dir, exist_ok=True)
-        with open(VERLAUF_DATEI, "w", encoding="utf-8") as f:
-            json.dump(
-                {"next_id": next_conversation_id, "conversations": conversations},
-                f,
-                ensure_ascii=False,
-            )
-    except Exception as e:
-        logger.warning("Verlauf konnte nicht gespeichert werden: %s", e)
-
-
-# Schuetzt den Verlauf gegen gleichzeitige Aenderungen: Waehrend ein
-# Coding-Auftrag im Hintergrund-Thread laeuft (Track C), schreibt das
-# Auftragsbuch Live-Nachrichten von Hermes hierher, waehrend im selben
-# Moment der Chat-Thread (Verlauf speichern) oder ein Streaming-Thread
-# schreibt. Ohne Sperre kann das die JSON-Datei zerhacken.
-_verlauf_sperre = threading.Lock()
-
-
-def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
-    """Haengt eine Agenten-Nachricht an ein Gespraech und schreibt den Verlauf weg.
-
-    Wird vom Auftragsbuch aufgerufen, wenn der Coding-Agent (Hermes) waehrend
-    eines Coding-Auftrags eine Zwischenmeldung oder ein Ergebnis liefert. So
-    landen diese Nachrichten auch im persistenten Verlauf und ueberleben ein
-    Neuladen der Oberflaeche — statt nur als kurzlebige Chat-Blasen im
-    Client-Speicher zu stehen.
-
-    Ein unbekanntes oder fehlendes Gespraech stoert den Auftrag nicht; auch
-    ein Schreibfehler darf das Auftragsbuch nicht abbrechen.
-    """
-    try:
-        with _verlauf_sperre:
-            if not conversation_id or conversation_id not in conversations:
-                return
-            if not content:
-                return
-            conversations[conversation_id].append(
-                {
-                    "role": role,
-                    "content": content,
-                    "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
-                }
-            )
-            _speichere_verlauf()
-    except Exception as e:
-        logger.warning(
-            "Live-Nachricht konnte nicht in den Verlauf uebernommen werden: %s", e
-        )
-
-
-_lade_verlauf()
-
-
-def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
-    """Get existing conversation or create a new one."""
-    global next_conversation_id
-
-    if conversation_id and conversation_id in conversations:
-        return conversation_id
-
-    new_id = f"conv_{next_conversation_id}"
-    next_conversation_id += 1
-    conversations[new_id] = []
-    return new_id
-
-
-def _finish_exchange(conversation_id: str, user_message: str, reply: str) -> int:
-    """Austausch in den Verlauf schreiben und daraus Erinnerungen ableiten.
-
-    Wird von beiden Chat-Wegen genutzt. Beim Streaming läuft das auch dann,
-    wenn der Client mitten im Stream abbricht – sonst wäre das Gespräch weg.
-
-    Returns:
-        Anzahl neu gespeicherter Erinnerungen.
-    """
-    if not reply:
-        return 0
-
-    history = conversations[conversation_id]
-    with _verlauf_sperre:
-        jetzt = datetime.now().astimezone().isoformat(timespec="seconds")
-        history.append({"role": "user", "content": user_message, "zeit": jetzt})
-        history.append({"role": "assistant", "content": reply, "zeit": jetzt})
-        # Sofort wegschreiben, nicht erst beim Beenden: Ein Serverabsturz oder
-        # ein hartes Beenden der App darf hoechstens den laufenden Austausch
-        # kosten, nicht das ganze Gespraech.
-        _speichere_verlauf()
-
-    try:
-        return len(
-            memory_service.extract_and_store_memories(
-                user_message=user_message,
-                llm_reply=reply,
-                conversation_id=conversation_id,
-            )
-        )
-    except Exception as e:
-        logger.warning("Gedächtnis-Extraktion fehlgeschlagen: %s", e)
-        return 0
 
 
 def _sse(payload: Dict[str, Any]) -> str:
