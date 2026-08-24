@@ -1506,13 +1506,24 @@ function datumSchluessel(iso) {
 /** WhatsApp-artige Datumspille: „Heute", „Gestern" oder „23.08.2026". */
 function formatDatumBanner(iso) {
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
     const heute = new Date();
     const startHeute = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate()).getTime();
     const startTag = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const tage = Math.round((startHeute - startTag) / 86400000);
     if (tage === 0) return 'Heute';
     if (tage === 1) return 'Gestern';
-    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // Wochentag + Datum; Jahr nur, wenn die Nachricht nicht aus dem aktuellen
+    // Jahr stammt (WhatsApp-Stil: bei älteren Tagen/anderen Jahren wird das
+    // Jahr ergänzt, beim laufenden Jahr weggelassen).
+    const wochentag = d.toLocaleDateString('de-DE', { weekday: 'long' });
+    // Wochentag großschreiben (de-DE liefert klein: "samstag")
+    const wt = wochentag.charAt(0).toUpperCase() + wochentag.slice(1);
+    const tag = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+    if (d.getFullYear() !== heute.getFullYear()) {
+        return `${wt}, ${tag} ${d.getFullYear()}`;
+    }
+    return `${wt}, ${tag}`;
 }
 
 /** Baut die zentrierte Datums-Pille als <div class="date-divider">. */
