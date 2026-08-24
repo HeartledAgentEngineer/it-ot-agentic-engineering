@@ -21,6 +21,7 @@ from app.services.hermes_gateway import hermes_gateway
 from app.services.hermes_local import (
     ist_verfuegbar as hermes_local_ist_verfuegbar,
     stream_auftrag as hermes_local_stream_auftrag,
+    hermes_registry,
 )
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
@@ -114,29 +115,41 @@ def _starte_lokale_hermes(
 
     def _worker():
         try:
-            for ereignis in hermes_local_stream_auftrag(auftrag_id, auftrag):
-                art = ereignis.get("art")
-                text = ereignis.get("text", "")
-                if art == "gedanke" and text:
-                    auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
-                    # Auch in den persistenten Chat-Verlauf, falls verknuepft.
-                    _reite_an_verlauf(auftrag_id, "assistant", text)
-                elif art == "ergebnis":
-                    auftrag_service.ergebnis_eintragen(
-                        auftrag_id, text, erfolg=bool(text)
-                    )
-                    if text:
+            try:
+                for ereignis in hermes_local_stream_auftrag(auftrag_id, auftrag):
+                    art = ereignis.get("art")
+                    text = ereignis.get("text", "")
+                    if art == "gedanke" and text:
+                        auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
+                        # Auch in den persistenten Chat-Verlauf, falls verknuepft.
                         _reite_an_verlauf(auftrag_id, "assistant", text)
-                elif art == "fehler":
-                    auftrag_service.ergebnis_eintragen(
-                        auftrag_id, text, erfolg=False
-                    )
-                    return
+                    elif art == "ergebnis":
+                        auftrag_service.ergebnis_eintragen(
+                            auftrag_id, text, erfolg=bool(text)
+                        )
+                        if text:
+                            _reite_an_verlauf(auftrag_id, "assistant", text)
+                    elif art == "fehler":
+                        auftrag_service.ergebnis_eintragen(
+                            auftrag_id, text, erfolg=False
+                        )
+                        return
+            except Exception as e:
+                logger.error("Lokaler Hermes-Job abgebrochen (%s): %s", auftrag_id[:8], e)
+                auftrag_service.ergebnis_eintragen(
+                    auftrag_id, f"Fehler im lokalen Hermes-Job: {e}", erfolg=False
+                )
+            finally:
+                # Auftrag ist final (ergebnis/fehler eingetragen oder Abbruch):
+                # den laufenden Hermes-CLI aus der Registry nehmen. Dadurch
+                # loest entferne() -> job.beende() -> tmux kill-session aus und
+                # der interaktive Agent wird wirklich beendet. Stattdessen
+                # verwaisten vorher jede abgeschlossene Programmierung eine
+                # offene tmux-Session (Ressourcenschwund ueber die Tage).
+                hermes_registry.entferne(auftrag_id)
         except Exception as e:
-            logger.error("Lokaler Hermes-Job abgebrochen (%s): %s", auftrag_id[:8], e)
-            auftrag_service.ergebnis_eintragen(
-                auftrag_id, f"Fehler im lokalen Hermes-Job: {e}", erfolg=False
-            )
+            logger.error("Lokaler Hermes-Job-Traeger selbst fehlgeschlagen (%s): %s",
+                         auftrag_id[:8], e)
 
     threading.Thread(target=_worker, daemon=True).start()
     return eintrag
