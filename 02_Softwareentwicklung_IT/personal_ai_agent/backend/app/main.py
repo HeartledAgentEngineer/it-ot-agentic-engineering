@@ -9,6 +9,8 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
+from starlette.types import Scope
 
 from app.config import settings
 from app.db.chroma_client import chroma_client
@@ -195,11 +197,34 @@ async def status():
     return {"status": "ok", "service": "Personal AI Agent", "endpoint": "/status"}
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """Statische Dateien OHNE Caching ausliefern.
+
+    FastAPI/Starlette standardmäßig statische Dateien mit erlaubtem Browser-Cache
+    (304 Not Modified). Dann behält der Browser nach einem Update die ALTE
+    app.js/style.css und zeigt weiterhin die alte Oberfläche — obwohl die Datei
+    längst geändert wurde (das Kernproblem 'ich sehe Korrekturen nicht').
+    Diese Unterklasse setzt auf jede Antwort Cache-Control: no-store, sodass der
+    Browser immer die aktuelle Datei holt und nie etwas Altes behält.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> FileResponse:
+        antwort = await super().get_response(path, scope)
+        # Nur Antworten auf echte Dateien anfassen (nicht 404-HTML).
+        try:
+            antwort.headers["Cache-Control"] = "no-store, max-age=0"
+            antwort.headers["Pragma"] = "no-cache"
+            antwort.headers["Expires"] = "0"
+        except Exception:
+            pass
+        return antwort
+
+
 # Serve frontend static files at / – MUSS als Letztes registriert werden.
 # Starlette matcht Routen in Registrierungsreihenfolge; dieser Mount fängt
 # alles unter / ab und würde jede danach definierte API-Route verdecken.
 if os.path.isdir(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
-    logger.info("Frontend served from: %s", FRONTEND_DIR)
+    app.mount("/", NoCacheStaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+    logger.info("Frontend served from: %s (Cache-Control: no-cache)", FRONTEND_DIR)
 else:
     logger.warning("Frontend directory not found: %s", FRONTEND_DIR)
