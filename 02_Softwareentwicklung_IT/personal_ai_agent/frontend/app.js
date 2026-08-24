@@ -260,12 +260,25 @@ function addMessage(content, role, zeit) {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
     }
     inner.appendChild(contentDiv);
-    // Zeitstempel unter dem Text, dezent. „undefined" (live versendet) → jetzt;
-    // ein explizit leeres (null/'') lässt die Blase ohne Label – für alte
-    // Verlaufs-Nachrichten, deren ursprüngliche Uhrzeit unbekannt ist.
-    const label = zeit === undefined
-        ? formatZeit(new Date().toISOString())
-        : (zeit ? formatZeit(zeit) : null);
+    // WhatsApp-artige Datumstrennung: Immer wenn sich der Kalendertag ändert,
+    // kommt vor der Blase eine dezente zentrierte Pille (Heute/Gestern/Datum).
+    // Live versendete Blasen (zeit === undefined) hängen am aktuellen Tag.
+    const bannerIso = (zeit === undefined) ? new Date().toISOString() : (zeit || null);
+    if (bannerIso) {
+        const tagKey = datumSchluessel(bannerIso);
+        if (tagKey !== _letzteBannerDatum) {
+            dom.messages.appendChild(baueDatumBanner(bannerIso));
+            _letzteBannerDatum = tagKey;
+        }
+    }
+    // Zeitstempel unter dem Text, dezent, NUR die Uhrzeit mit Sekunden – das
+    // Datum steht in der Pille darüber. Sekunden sind wichtig, wenn Hermes
+    // viele Nachrichten kurz hintereinander schickt. „undefined" (live
+    // versendet) → jetzt; ein explizit leeres (null/'') lässt die Blase ohne
+    // Label – für alte Verlaufs-Nachrichten ohne bekannte Uhrzeit.
+    const label = (zeit === undefined)
+        ? formatUhrzeit(new Date().toISOString())
+        : (zeit ? formatUhrzeit(zeit) : null);
     if (label) {
         const zeitDiv = document.createElement('div');
         zeitDiv.style.cssText = 'font-size:0.7rem;color:#9a9a9a;text-align:right;margin-top:4px;padding:0 4px';
@@ -1475,6 +1488,62 @@ function formatZeit(iso) {
     }
 }
 
+/** Kalendartag der übergebenen Zeit, als lokaler Tages-Schlüssel (YYYY-MM-DD).
+ *  Wird genutzt, um zu erkennen, wann eine neue Datums-Pille nötig ist. */
+function datumSchluessel(iso) {
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const t = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${t}`;
+    } catch (e) {
+        return null;
+    }
+}
+
+/** WhatsApp-artige Datumspille: „Heute", „Gestern" oder „23.08.2026". */
+function formatDatumBanner(iso) {
+    const d = new Date(iso);
+    const heute = new Date();
+    const startHeute = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate()).getTime();
+    const startTag = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const tage = Math.round((startHeute - startTag) / 86400000);
+    if (tage === 0) return 'Heute';
+    if (tage === 1) return 'Gestern';
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Baut die zentrierte Datums-Pille als <div class="date-divider">. */
+function baueDatumBanner(iso) {
+    const pill = document.createElement('div');
+    pill.className = 'date-divider';
+    pill.textContent = formatDatumBanner(iso);
+    return pill;
+}
+
+/** Setzt den Merker für die Datums-Pillen zurück – immer dann, wenn die
+ *  Anzeige neu aufgebaut wird (neues Gespräch / geladener Verlauf). */
+function zuruecksetzenDatumBanner() {
+    _letzteBannerDatum = null;
+}
+
+/** Kalendertag, auf dem die zuletzt gezeichnete Datums-Pille steht. */
+let _letzteBannerDatum = null;
+
+/** Nur die Uhrzeit mit Sekunden („23:04:47") – fürs Label unter der Blase.
+ *  Das Datum steht in der Datums-Pille darüber. Unbrauchbares bleibt stehen. */
+function formatUhrzeit(iso) {
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+        return iso;
+    }
+}
+
 /** Zerlegt eine rohe Hermes-Meldung ("[ISO] text") in reinen Text und die
  *  Zeitangabe getrennt – fürs Zeitstempel-Label unter der Chat-Blase. So
  *  bleibt jede Hermes-Meldung optisch getrennt (kein hässlicher ISO-String
@@ -2246,6 +2315,7 @@ function neuesGespraech() {
     localStorage.removeItem('conversation_id');
     state.messages = [];
     state.warteschlange = [];
+    zuruecksetzenDatumBanner();
 
     // Alles außer der Begrüßung entfernen.
     const willkommen = document.getElementById('welcome');
@@ -2284,6 +2354,7 @@ async function zeigeGespraech(id) {
         dom.messages.innerHTML = '';
         if (willkommen) dom.messages.appendChild(willkommen);
         state.messages = [];
+        zuruecksetzenDatumBanner();
 
         for (const m of nachrichten) {
             addMessage(m.content, m.role === 'user' ? 'user' : 'assistant', m.zeit || null);
