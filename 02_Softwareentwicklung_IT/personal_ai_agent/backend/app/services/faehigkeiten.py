@@ -61,3 +61,25 @@ def stösst_an_grenze(text: str) -> bool:
         return False
     t = text.lower()
     return any(marker in t for marker in GRENZE_MARKER)
+
+
+def faehigkeits_block() -> str:
+    """Baut den Fähigkeiten-/Grenzen-Text für den System-Prompt.
+
+    Wird an den System-Prompt angehängt, damit der Agent begründet weiß,
+    was er kann und was an Hermes delegiert wird.
+    """
+    kann = ", ".join(FAEHIGKEITEN["kann"])
+    kann_nicht = ", ".join(FAEHIGKEITEN["kann_nicht"])
+    return (
+        "\n\n## DEINE FÄHIGKEITEN & GRENZEN (Selbstbild)\n"
+        "Du bist der persönliche Assistent. Du kannst:\n"
+        f"- {kann}.\n\n"
+        "Du kannst NICHT (dafür fehlen dir Tools/Terminal/System-Zugriff):\n"
+        f"- {kann_nicht}.\n\n"
+        "Wenn eine Anfrage an eine dieser Grenzen stößt (z. B. Terminal-Befehl, "
+        "Datei anlegen/ändern, Tool installieren, Git, System-Änderung), sage "
+        "deutlich: **'Das übernimmt Hermes.'** und begründe in einem kurzen Satz, "
+        "warum es deine Fähigkeiten übersteigt. Versuche es nicht selbst, wenn "
+        "du es nicht kannst — Hermes hat Terminal-/Tool-Zugriff."
+    )
