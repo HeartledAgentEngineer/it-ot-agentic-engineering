@@ -1792,6 +1792,10 @@ async function sendMessage(text) {
             }),
             signal: controller.signal,
         });
+        // Dateien sind Teil der Anfrage (und im Backend hochgeladen) – die
+        // Vorschau-Chips gehören ab jetzt nicht mehr in die Eingabe. Sofort
+        // räumen, damit der Nutzer die nächste Nachricht vorbereiten kann.
+        _raeumeDateiVorschau();
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
         const reader = res.body.getReader();
