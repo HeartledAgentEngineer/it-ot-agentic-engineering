@@ -16,6 +16,7 @@ from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
+from app.services.faehigkeiten import stösst_an_grenze
 from app.services.hermes_gateway import hermes_gateway
 from app.services.hermes_local import (
     ist_verfuegbar as hermes_local_ist_verfuegbar,
@@ -164,12 +165,19 @@ async def chat(request: ChatRequest):
         # Weiche: Coding-/Werkzeug-Auftraege weiterleiten. Bei hochgeladenen
         # Dateien (request.files) NICHT als Coding-Auftrag einordnen — ein
         # Dokument-/Bild-Upload ist immer eine Verständnis-/Analyse-Frage an
-        # den LLM, kein Programmier-Kommando an Hermes. Sonst würde z. B.
-        # "Erstelle eine Zusammenfassung" (mit PDF) fälschlich ins Buch
-        # rutschen. Nur ohne Files greift die Auftrags-Erkennung.
+        # den LLM, kein Programmier-Kommando an Hermes.
+        # Zusätzlich zur ist_auftrag()-Heuristik wird die Fähigkeits-Grenze
+        # geprüft (Terminal/Datei/System/Tool-Install) — selbst wenn die
+        # Heuristik es nicht als Coding einstuft, delegiert der Agent an
+        # Hermes (Toolcall).
         ist_auftrag_val = False
         if not request.files:
             ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+            if not ist_auftrag_val and stösst_an_grenze(request.message):
+                ist_auftrag_val = True
+                begruendung = "Fähigkeits-Grenze (Terminal/Datei/System) – Hermes als Toolcall"
+                kategorie = "feature"
+                komplexitaet = "mittel"
         else:
             begruendung, kategorie, komplexitaet = "", None, None
         if ist_auftrag_val:
@@ -242,11 +250,16 @@ async def chat_stream(request: ChatRequest):
     # Gleiche Weiche wie in /chat: Coding-Auftraege weiterleiten. Bei
     # hochgeladenen Dateien (request.files) NICHT als Coding-Auftrag einordnen
     # — ein Dokument-/Bild-Upload ist eine Verständnis-/Analyse-Frage an den
-    # LLM, kein Programmier-Kommando (sonst rutscht z. B. "Erstelle eine
-    # Zusammenfassung" mit PDF fälschlich ins Buch).
+    # LLM. Zusätzlich stößt ein Fähigkeits-Grenzthema (Terminal/Datei/System)
+    # an Hermes als Toolcall, auch wenn ist_auftrag es nicht als Coding sieht.
     ist_auftrag_val = False
     if not request.files:
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
+        if not ist_auftrag_val and stösst_an_grenze(request.message):
+            ist_auftrag_val = True
+            begruendung = "Fähigkeits-Grenze (Terminal/Datei/System) – Hermes als Toolcall"
+            kategorie = "feature"
+            komplexitaet = "mittel"
     else:
         begruendung, kategorie, komplexitaet = "", None, None
     if ist_auftrag_val:
