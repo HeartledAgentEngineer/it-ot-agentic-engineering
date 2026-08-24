@@ -83,3 +83,22 @@ def faehigkeits_block() -> str:
         "warum es deine Fähigkeiten übersteigt. Versuche es nicht selbst, wenn "
         "du es nicht kannst — Hermes hat Terminal-/Tool-Zugriff."
     )
+
+
+def soll_hermes_delegieren(nachricht: str, mit_dateien: bool = False) -> bool:
+    """Entscheidet, ob die Anfrage an Hermes delegiert werden soll.
+
+    Kombiniert zwei Signale (deterministisch, ohne LLM):
+      - ist_auftrag(): ein erkanntes Coding-/Werkzeug-Kommando,
+      - stösst_an_grenze(): ein Fähigkeits-Grenzthema (Terminal/Datei/System),
+        selbst wenn ist_auftrag es NICHT als Coding einstuft.
+
+    Bei hochgeladenen Dateien (mit_dateien=True) wird NICHT delegiert — ein
+    Dokument-/Bild-Upload ist eine Verständnis-/Analyse-Frage, kein Hermes-Job.
+    """
+    if mit_dateien:
+        return False
+    from app.services.auftrags_erkennung import ist_auftrag
+    if ist_auftrag(nachricht)[0]:
+        return True
+    return stösst_an_grenze(nachricht)
