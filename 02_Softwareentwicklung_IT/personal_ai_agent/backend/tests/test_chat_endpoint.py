@@ -38,6 +38,20 @@ def test_coding_ohne_hermes_geht_ins_buch(_kein_hermes):
     assert "wird bearbeitet" in resp.reply
 
 
+def test_grenze_delegiert_statt_normalem_chat(_kein_hermes):
+    """Fähigkeits-Grenzthema (z. B. 'Installiere ein Paket') wird NICHT als
+    normale Frage beantwortet — es delegiert in die Weiche (Buch-Fallback),
+    obwohl ist_auftrag es nicht als Coding einstuft."""
+    from app.services import llm_service
+    with mock.patch.object(llm_service.llm_service, "chat",
+                           side_effect=AssertionError("LLM darf bei Grenzthema nicht gerufen werden")):
+        req = ChatRequest(message="Installiere mir bitte das Wetterpaket auf dem Server",
+                          model="deepseek/deepseek-v4-flash", web_search="off")
+        resp = asyncio.run(chat_endpoint(req))
+    assert "Coding-Auftrag erkannt" in resp.reply  # → in der Weiche/Buch-Fallback
+    assert "wird bearbeitet" in resp.reply
+
+
 def test_normaler_chat_bleibt_beim_agenten():
     """Normale Frage → LLM-Weg, Hermes wird NICHT gerufen."""
     from app.services import llm_service
