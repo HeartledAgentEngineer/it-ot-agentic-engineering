@@ -291,6 +291,31 @@ function bauOptionsUi(menu) {
     return box;
 }
 
+/** Baut einen Korrektur-Button für fälschlich erkannte Hermes-Aufgaben.
+ *  Klick leitet die ursprüngliche Nutzer-Nachricht an den normalen LLM weiter
+ *  (die alte Hermes-Meldung bleibt sichtbar, um den Fehler zu belegen). */
+function baueKorrekturButton() {
+    const btn = document.createElement('button');
+    btn.className = 'korrektur-button';
+    btn.textContent = '⚠️ Keine Hermes-Aufgabe – an LLM weitergeben';
+    btn.style.cssText =
+        'margin-top:8px;padding:8px 10px;border:1px solid #555;border-radius:8px;' +
+        'background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.8rem';
+    btn.addEventListener('click', () => {
+        // Ursprüngliche Nutzer-Nachricht = letzte 'user'-Nachricht im Verlauf.
+        let frag = '';
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+            if (state.messages[i].role === 'user') { frag = state.messages[i].content; break; }
+        }
+        if (!frag) return;
+        // An den normalen LLM weiterleiten (kein Hermes).
+        sendMessage(frag);
+        btn.disabled = true;
+        btn.textContent = '… wird vom Agenten beantwortet';
+    });
+    return btn;
+}
+
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role, zeit) {
@@ -311,6 +336,13 @@ function addMessage(content, role, zeit) {
             contentDiv.appendChild(bauOptionsUi(options));
         } else {
             contentDiv.innerHTML = parseMarkdown(content);
+        }
+        // Falsch erkannte Hermes-Aufgabe korrigierbar machen: Zeigt die
+        // Meldung "Hermes-Aufgabe erkannt"/"Coding-Auftrag erkannt", gibt es
+        // einen Button, der die Aufgabe stattdessen an den normalen LLM
+        // weiterleitet (kein Umbau der alten Meldung — sie bleibt als Beleg).
+        if (/Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)) {
+            contentDiv.appendChild(baueKorrekturButton());
         }
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
