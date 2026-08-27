@@ -32,6 +32,12 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# uvicorn's eigener Logger schreibt WARN-Meldungen wie 'Invalid HTTP request
+# received', wenn ein fremdes Netzgerät den offenen LAN-Port (8080) abklopft.
+# Das ist harmlos (der Server lehnt die kaputten Anfragen ab), aber es flutet
+# das Terminal. Echte Fehler (ERROR) bleiben sichtbar — nur der WARN-Spam
+# wird stillgelegt.
+logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 # Path to frontend directory (relative to this backend/app/main.py)
