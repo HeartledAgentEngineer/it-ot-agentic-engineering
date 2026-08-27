@@ -207,6 +207,38 @@ def ergebnis_melden(auftrag_id: str, ergebnis: ErgebnisCreate):
         raise HTTPException(status_code=500, detail=str(fehler))
 
 
+@router.post("/{auftrag_id}/abbrechen", response_model=AuftragItem)
+def auftrag_abbrechen(auftrag_id: str):
+    """Bricht einen laufenden Hermes-Auftrag ab (z. B. wenn der Nutzer eine
+    fälschlich erkannte Aufgabe doch an den normalen LLM weiterleiten will).
+
+    Beendet die lokale tmux-Session (Registry-Cleanup) und markiert den Auftrag
+    im Buch als 'fehler' (erfolg=False), damit kein Worker weiterläuft.
+    """
+    try:
+        auftrag = auftrag_service.einzeln(auftrag_id)
+        if auftrag is None:
+            raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
+        volle_id = auftrag["id"]
+        # Lokale tmux-Session des Hermes sofort beenden (killt den Prozess).
+        try:
+            hermes_registry.entferne(volle_id)
+        except Exception as e:  # pragma: no cover - Cleanup darf nicht crashen
+            logger.warning("Registry-Cleanup beim Abbruch fehlgeschlagen: %s", e)
+        # Auftrag im Buch als abgebrochen (fehler) markieren.
+        auftrag = auftrag_service.ergebnis_eintragen(
+            volle_id, "Abgebrochen – Aufgabe wird vom LLM beantwortet.", False
+        )
+        if auftrag is None:
+            raise HTTPException(status_code=404, detail="Auftrag abgebrochen, nicht gefunden")
+        return auftrag
+    except HTTPException:
+        raise
+    except Exception as fehler:
+        logger.error("Auftrag abbrechen fehlgeschlagen: %s", fehler)
+        raise HTTPException(status_code=500, detail=str(fehler))
+
+
 @router.post("/{auftrag_id}/status", response_model=AuftragItem)
 def statusmeldung_hinzufuegen(auftrag_id: str, meldung: StatusMeldungCreate):
     """Zwischenstand des Coding-Agenten eintragen."""

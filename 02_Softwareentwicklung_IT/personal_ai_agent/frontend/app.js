@@ -301,16 +301,25 @@ function baueKorrekturButton() {
     btn.style.cssText =
         'margin-top:8px;padding:8px 10px;border:1px solid #555;border-radius:8px;' +
         'background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.8rem';
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
         // Ursprüngliche Nutzer-Nachricht = letzte 'user'-Nachricht im Verlauf.
         let frag = '';
         for (let i = state.messages.length - 1; i >= 0; i--) {
             if (state.messages[i].role === 'user') { frag = state.messages[i].content; break; }
         }
         if (!frag) return;
-        // An den normalen LLM weiterleiten (kein Hermes).
-        sendMessage(frag);
         btn.disabled = true;
+        btn.textContent = '… Hermes wird beendet, Agent antwortet';
+        // 1) Laufenden Hermes-Auftrag abbrechen (tmux-Session + Buch-Status),
+        //    damit nicht im Hintergrund weitergearbeitet wird.
+        if (_laufenderAuftragKurz) {
+            try {
+                await fetch(`${API_BASE}/api/auftraege/${_laufenderAuftragKurz}/abbrechen`, { method: 'POST' });
+            } catch (_) { /* Abbruch-Fehlschlag ist nicht kritisch */ }
+            _laufenderAuftragKurz = null;
+        }
+        // 2) Aufgabe an den normalen LLM weiterleiten.
+        sendMessage(frag);
         btn.textContent = '… wird vom Agenten beantwortet';
     });
     return btn;

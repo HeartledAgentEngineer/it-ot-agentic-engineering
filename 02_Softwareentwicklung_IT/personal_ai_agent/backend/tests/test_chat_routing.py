@@ -53,7 +53,7 @@ def test_track_c_lokal_verfuegbar():
     """PC leer → lokal verfügbar → art='lokal'."""
     r = _route(pc_antwort=None, lokal_verfuegbar=True)
     assert r["art"] == "lokal"
-    assert "lokaler Hermes übernimmt" in r["reply"]
+    assert "Hermes-Aufgabe erkannt" in r["reply"]
 
 
 def test_track_b_buch_fallback():
