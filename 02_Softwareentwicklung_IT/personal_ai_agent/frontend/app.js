@@ -1757,7 +1757,13 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 }
 
 async function sendMessage(text) {
-    if (state.abbruch || !text.trim()) return;
+    // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
+    // direkt verworfen, wenn kein laufender Hermes-Auftrag existiert. Läuft ein
+    // Hermes-Auftrag (Track C), geht die Nachricht als Kommentar an die offene
+    // Session (POST /eingabe) weiter — so kann man Hermes während der Arbeit
+    // steuern/Zwischenfragen stellen statt die Eingabe zu verlieren.
+    if (state.abbruch && !_laufenderAuftragKurz) return;
+    if (!text.trim()) return;
     // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
     // Griff, an dem der Stopp-Knopf zieht.
     const controller = new AbortController();
