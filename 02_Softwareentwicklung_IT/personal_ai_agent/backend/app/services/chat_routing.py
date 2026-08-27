@@ -81,7 +81,7 @@ def route_auftrag(
             chat_verknuepfung=conv_id,
         )
         reply_text = (
-            "🧩 **Coding-Auftrag erkannt – lokaler Hermes übernimmt.**\n\n"
+            "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
             f"📋 **Aufgabe:** {message[:150]}…\n\n"
             "Gedanken & Zwischenschritte erscheinen hier live, das "
             "Endergebnis danach.\n"
@@ -93,7 +93,7 @@ def route_auftrag(
     eintrag = anlegen_im_buch(message, begruendung, kategorie, komplexitaet)
     statusmeldung_wartet(eintrag["id"])
     reply_text = (
-        "🧩 **Coding-Auftrag erkannt – wird bearbeitet.**\n\n"
+        "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
         f"📋 **Aufgabe:** {message[:150]}…\n\n"
         "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
         "erscheint es live hier.\n"

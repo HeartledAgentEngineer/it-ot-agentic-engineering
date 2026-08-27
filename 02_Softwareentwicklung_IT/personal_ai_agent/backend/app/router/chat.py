@@ -311,7 +311,7 @@ async def chat_stream(request: ChatRequest):
                 chat_verknuepfung=conversation_id,
             )
             reply_text = (
-                "🧩 **Coding-Auftrag erkannt – lokaler Hermes übernimmt.**\n\n"
+                "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
                 f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
                 "Gedanken & Zwischenschritte erscheinen hier live, das "
                 "Endergebnis danach.\n"
@@ -333,7 +333,7 @@ async def chat_stream(request: ChatRequest):
             komplexitaet=komplexitaet,
         )
         reply_text = (
-            "🧩 **Coding-Auftrag erkannt – wird bearbeitet.**\n\n"
+            "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
             f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
             "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
             "erscheint es live hier.\n"
