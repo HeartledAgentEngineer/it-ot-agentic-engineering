@@ -38,6 +38,11 @@
                               stroke-width="2" stroke-linecap="round"/>
                     </svg>
                 </button>
+                <button id="kanban-btn" class="icon-btn" title="Aufgaben (Kanban)" aria-label="Aufgaben">
+                    <svg viewBox="0 0 24 24" width="22" height="22">
+                        <path fill="currentColor" d="M3 5h18v2H3zm0 4h18v2H3zm0 4h18v2H3zm0 4h10v2H3z"/>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -183,6 +188,35 @@
         </div>
         <div id="hermes-live-msg" style="white-space:pre-wrap;color:#cfc"></div>
         <div id="hermes-live-meldungen" style="margin-top:4px"></div>
+    </div>
+
+    <!-- Kanban-Board: offene/laufende/fertige Aufgaben (aus dem Auftragsbuch) -->
+    <div id="kanban-sheet" hidden>
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Aufgaben">
+            <div class="sheet-head">
+                <h2>📋 Aufgaben</h2>
+                <button id="kanban-close" class="icon-btn" title="Schließen" aria-label="Schließen">✕</button>
+            </div>
+            <div id="kanban-board" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0">
+                <div class="kanban-col" data-status="offen" style="flex:1;min-width:150px">
+                    <div class="kanban-head" style="font-weight:600;color:#fca;margin-bottom:6px">📥 Offen</div>
+                    <div class="kanban-items" id="kanban-offen"></div>
+                </div>
+                <div class="kanban-col" data-status="laeuft" style="flex:1;min-width:150px">
+                    <div class="kanban-head" style="font-weight:600;color:#fc6;margin-bottom:6px">⚙️ Läuft</div>
+                    <div class="kanban-items" id="kanban-laeuft"></div>
+                </div>
+                <div class="kanban-col" data-status="fertig" style="flex:1;min-width:150px">
+                    <div class="kanban-head" style="font-weight:600;color:#6f6;margin-bottom:6px">✅ Fertig</div>
+                    <div class="kanban-items" id="kanban-fertig"></div>
+                </div>
+                <div class="kanban-col" data-status="fehler" style="flex:1;min-width:150px">
+                    <div class="kanban-head" style="font-weight:600;color:#f66;margin-bottom:6px">❌ Fehler</div>
+                    <div class="kanban-items" id="kanban-fehler"></div>
+                </div>
+            </div>
+            <p id="kanban-hint" class="sheet-note" style="font-size:12px;color:#888"></p>
+        </div>
     </div>
 
     <script src="app.js?v=20260832"></script>
