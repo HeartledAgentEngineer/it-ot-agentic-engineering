@@ -140,9 +140,26 @@ const dom = {
 // =========================================
 // Utility: Simple Markdown Parser
 // =========================================
-/** Zeichenweise Auszeichnung – auch innerhalb von Tabellenzellen gebraucht. */
+/** Zeichenweise Auszeichnung – auch innerhalb von Tabellenzellen gebraucht.
+ *  Links (Markdown-Links + rohe URLs) werden klickbar gemacht: http/https/www →
+ *  <a target="_blank" rel="noopener noreferrer">. */
 function inlineMarkdown(text) {
-    return text
+    let t = text;
+    // 1) Markdown-Links [text](url) → parken (Platzhalter), damit der Roh-URL-
+    //    Schritt sie nicht doppelt auseinanderreißt.
+    const geparkt = [];
+    t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, text_, url) => {
+        geparkt.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text_}</a>`);
+        return `\u0000L${geparkt.length - 1}\u0000`;
+    });
+    // 2) Roh-URLs (https://…, http://…, www.…) → klickbar (außer die geparkten).
+    t = t.replace(/(^|[^"\u0000])(https?:\/\/[^\s<"'\u0000]+|www\.[^\s<"'\u0000]+)/g, (_m, davor, url) => {
+        const href = url.startsWith('www.') ? 'https://' + url : url;
+        return `${davor}<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+    });
+    // 3) Geparkte Markdown-Links wieder einsetzen.
+    t = t.replace(/\u0000L(\d+)\u0000/g, (_, i) => geparkt[parseInt(i, 10)] || '');
+    return t
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/\*([^*]+)\*/g, '<em>$1</em>');
