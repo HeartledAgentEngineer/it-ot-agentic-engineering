@@ -206,6 +206,7 @@ async def chat(request: ChatRequest):
                 finish_exchange=_finish_exchange,
                 get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
                 starte_lokale_hermes=_starte_lokale_hermes,
+                kontext=_baue_kontext(request.message),
             )
             return ChatResponse(
                 reply=res["reply"],
@@ -257,6 +258,41 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _baue_kontext(frage: str) -> str:
+    """Baut das kompakte Kontext-Paket für die Hermes-Delegation (Variante C).
+
+    Nimmt die letzten max. 6 Chat-Nachrichten der aktuellen Conversation +
+    die 3 relevantesten Erinnerungen (semantisch zur Frage) und kürzt sie auf
+    eine handliche Textmenge. So weiß Hermes, worum es im Gespräch geht,
+    ohne dass der Prompt explodiert (günstig + reichhaltig).
+    """
+    konv_id = _get_or_create_conversation(None)
+    hist = conversations.get(konv_id, [])
+    teile: List[str] = []
+    # Letzte bis zu 6 Nachrichten (ohne die aktuelle Frage-Duplikate).
+    for m in hist[-6:]:
+        rolle = m.get("role", "?")
+        inhalt = (m.get("content") or "").strip()
+        if not inhalt:
+            continue
+        # Langen Inhalt kürzen (Kontext kompakt halten).
+        if len(inhalt) > 500:
+            inhalt = inhalt[:500] + "…"
+        teile.append(f"{rolle}: {inhalt}")
+    # Relevante Erinnerungen (semantisch zur Frage).
+    try:
+        mems = memory_service.retrieve_relevant_memories(frage, top_k=3)
+        for m in mems:
+            inhalt = (m.get("content") or m.get("text") or "").strip()
+            if inhalt and len(inhalt) < 400:
+                teile.append(f"Erinnerung: {inhalt}")
+    except Exception:
+        pass  # Kontext ist Bonus — nie die Delegation deswegen brechen.
+    if not teile:
+        return ""
+    return "\n".join(teile)
+
+
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
@@ -276,10 +312,20 @@ async def chat_stream(request: ChatRequest):
     else:
         begruendung, kategorie, komplexitaet = "", None, None
     if ist_auftrag_val:
+        # Kontext-Erweiterung: Frage + Gesprächskontext, damit Hermes nicht
+        # blind (nur mit der Frage) arbeitet. (Gleiche Logik wie im Router.)
+        kontext_paket = _baue_kontext(request.message)
+        herm_aufgabe = request.message
+        if kontext_paket and kontext_paket.strip():
+            herm_aufgabe = (
+                f"{request.message}\n\n"
+                "[Kontext aus dem Gespräch (vorherige Nachrichten/Erinnerungen):]\n"
+                f"{kontext_paket.strip()}"
+            )
         # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
         # (Track C). Nur wenn beides nicht verfuegbar ist, geht der
         # Auftrag ins Buch (Track B).
-        hermes_antwort = hermes_gateway.sende_auftrag(request.message)
+        hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
         if hermes_antwort is not None:
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, hermes_antwort)
@@ -304,7 +350,7 @@ async def chat_stream(request: ChatRequest):
             # Hermes-Zwischenmeldungen eintreffen.
             conversation_id = _get_or_create_conversation(request.conversation_id)
             eintrag = _starte_lokale_hermes(
-                request.message,
+                herm_aufgabe,
                 hinweis=f"Automatische Erkennung: {begruendung}",
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
@@ -327,7 +373,7 @@ async def chat_stream(request: ChatRequest):
             )
 
         eintrag = auftrag_service.anlegen(
-            request.message,
+            herm_aufgabe,
             hinweis=f"Automatische Erkennung: {begruendung}",
             kategorie=kategorie,
             komplexitaet=komplexitaet,
