@@ -59,7 +59,7 @@ graph LR
     subgraph AE["Agentic Engineering Plattform"]
         CLI["Hermes (Termux/Handy + PC) · Claude Code"]
         MOD["DeepSeek V4 · Gemini 2.5 Flash · Haiku (OpenRouter)"]
-        WF["8-Phasen-Workflow · Fremdprüfung · DSGVO-Zone"]
+        WF["Hybrid-Workflow (Codex+Hermes) · Fremdprüfung · DSGVO-Zone"]
         GR["AGENTS.md · Permission-Riegel · Subagenten"]
     end
 
@@ -83,7 +83,7 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 ├── .claude/
 │   ├── settings.json                    # Durchgesetzte Permission-Regeln (deny/ask/allow)
 │   ├── skills/                          # Ausführbare Agenten-Verfahren
-│   │   ├── phase/                       #   8-Phasen-Workflow, nur auf Abruf (/phase)
+│   │   ├── phase/                       #   (veraltet) 8-Phasen-Workflow, nicht mehr aktiv
 │   │   ├── grill-me/                    #   Alignment-Interview (Phase 2)
 │   │   ├── grillAnAgent/                #   Brainstorm-Grill (Phase 1)
 │   │   ├── fehlersuche/                 #   Ursache vor Reparatur, greift von selbst
@@ -135,8 +135,14 @@ Tüfteln und Ausprobieren ist ausdrücklich erlaubt, wird aber durch feste Refle
 und Standardisierungsschritte abgefedert, damit es nicht ins Chaos abdriftet. Das
 Regelwerk ist selbst Teil des Repositories. Der Kern:
 
-- **Acht Phasen pro Feature:** Brainstorm → Alignment → Planung → Implementierung
-  → Testing → Recap → Refactor → Commit — aufgerufen über den `/phase`-Skill.
+- **Kontinuierlicher Hybrid-Workflow (statt starrer Phasen):** Der frühere
+  „8-Phasen-Workflow“ (Brainstorm → Alignment → Planung → … → Commit, `/phase`)
+  ist abgelöst — er war zu starr und zu langsam für den aktuellen Stand.
+  Gearbeitet wird **ohne Phasen-Lauf**: schnelle Iteration, bei der ein
+  **Codex-Hybrid** (GPT-5.6 Terra via Codex-CLI, kostenlos über ChatGPT-OAuth)
+  große Coding-Blöcke übernimmt und **Hermes** die Qualitätssicherung,
+  Orchestrierung und Doku übernimmt. Die Kerninstrumente bleiben erhalten
+  (siehe unten) — nur der feste Phasen-Ablauf ist weg.
 - **Eine Regelquelle:** `AGENTS.md` ist die werkzeugneutrale Quelle; das Werkzeug
   heute ist **Hermes** (Termux/Handy + PC) und bei Bedarf Claude Code.
 - **Fertig heißt verifiziert:** Ein Schritt ist erst fertig, wenn der Prüfbefehl
