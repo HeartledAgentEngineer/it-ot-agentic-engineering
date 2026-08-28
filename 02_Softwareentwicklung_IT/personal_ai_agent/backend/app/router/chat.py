@@ -236,9 +236,17 @@ async def chat(request: ChatRequest):
         kontext_summary, _ = _hole_kontext_summary(conversation_id, history, request.message)
         begrenzte_history = history[-15:]
 
+        # 1d. Handy-Dateisuche als Tool über Sprache: Wenn die Anfrage einen
+        # Datei-Such-Wunsch enthält, wird die Tool-Ausgabe an die user_message
+        # gehängt, damit der LLM die Treffer nennt (Stufe A).
+        werkzeug_notiz = _datei_tool(request.message)
+        user_message_fuer_llm = request.message
+        if werkzeug_notiz:
+            user_message_fuer_llm = request.message + werkzeug_notiz
+
         # 2. Get LLM response with memory context
         reply, quellen = llm_service.chat(
-            user_message=request.message,
+            user_message=user_message_fuer_llm,
             conversation_history=begrenzte_history,
             memories=memories,
             web_search=request.web_search,
@@ -299,6 +307,58 @@ def _baue_kontext(frage: str) -> str:
     if not teile:
         return ""
     return "\n".join(teile)
+
+
+def _datei_tool(frage: str) -> str:
+    """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
+
+    Erkennt Datei-Suchs-Signale in der Anfrage ("suche/datei/dokument/bild/
+    finde/zeig mir … bewerbung etc.") → ruft suche_dateien(stichwort) auf →
+    liefert die Treffer als Text, den der LLM in seine Antwort einbaut.
+    Liefert "" wenn kein Such-Wunsch vorliegt (kein Tool-Trigger).
+
+    Stufe A: listet Treffer (Name/Pfad/Art). Stufe B (Inhalt lesen) folgt.
+    """
+    # Such-Signale (deutsch). Bewusst gezielt, um Fehlauslöser zu vermeiden.
+    signale = [
+        "suche", "finde", "zeig mir", "zeig mir dateien", "zeige mir",
+        "datei", "dokument", "bild", "foto", "unterlagen", "download",
+        "wo liegt", "hast du eine datei", "was liegt",
+    ]
+    f = frage.lower().strip()
+    if not f:
+        return ""
+    gefunden_trigger = any(s in f for s in signale)
+    if not gefunden_trigger:
+        return ""
+
+    # Stichwort = Text nach dem ersten Signal-Wort (grob). Nimmt den ganzen
+    # Rest als Suchbegriff; Stoppwörter raus.
+    stichwort = ""
+    for s in signale:
+        idx = f.find(s)
+        if idx != -1:
+            stichwort = f[idx + len(s):].strip()
+            break
+    stichwort = stichwort.strip(" ?!,.:")
+    if not stichwort:
+        return ""  # kein konkretes Suchwort → nichts tun
+
+    try:
+        from app.services.datei_suche import suche_dateien
+        treffer = suche_dateien(stichwort)
+    except Exception:
+        return ""
+    if not treffer:
+        return f"\n\n[Aus der Handy-Dateisuche zu '{stichwort}': keine Treffer gefunden.]"
+    zeilen = [f"- {t['name']}  ({t['erweiterung']})" for t in treffer[:10]]
+    return (
+        "\n\n[Aus der Handy-Dateisuche zu '"
+        + stichwort
+        + "':]\n"
+        + "\n".join(zeilen)
+        + "\nNenne dem Nutzer die gefundenen Dateien und frag, welche er verwenden will.]"
+    )
 
 
 def _hole_kontext_summary(conversation_id: str, historie: list, frage: str) -> tuple:
@@ -456,15 +516,26 @@ async def chat_stream(request: ChatRequest):
         teile: List[str] = []
         quellen: List[Dict[str, str]] = []
         try:
+            # Rolling-Summary + Datei-Tool auch hier (Stream = gleicher Kontext)
+            try:
+                s_conv_id = _get_or_create_conversation(request.conversation_id)
+                s_history = conversations.get(s_conv_id, [])
+                s_summary, _ = _hole_kontext_summary(s_conv_id, s_history, request.message)
+                s_hist_begrenzt = s_history[-15:]
+                s_werkzeug = _datei_tool(request.message)
+                s_user = request.message + (s_werkzeug or "")
+            except Exception:
+                s_summary, s_hist_begrenzt, s_user = "", history, request.message
             try:
                 for ereignis in llm_service.chat_stream(
-                    user_message=request.message,
-                    conversation_history=history,
+                    user_message=s_user,
+                    conversation_history=s_hist_begrenzt,
                     memories=memories,
                     web_search=request.web_search,
                     model=request.model,
                     no_retention=request.no_retention,
                     archiv=archiv,
+                    summary=s_summary,
                     files=[f.model_dump() for f in request.files] if request.files else None,
                 ):
                     if ereignis.get("sources"):
