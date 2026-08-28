@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Iterator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
@@ -632,3 +632,32 @@ async def get_conversation(conversation_id: str):
         "id": conversation_id,
         "messages": conversations[conversation_id],
     }
+
+
+@router.get("/suche")
+async def chat_suche(q: str = Query("", max_length=300)):
+    """Volltextsuche im Gesprächsverlauf (Ein-Chat).
+
+    Durchsucht alle Nachrichten aller Conversations (in der Regel die eine
+    fortlaufende) nach dem Stichwort und liefert Treffer mit Kontext + Uhrzeit.
+    Damit kann man „was haben wir zu X gesagt?" beantworten — ohne Handy-Archiv.
+
+    Liefert max. 20 Treffer, sortiert nach dem neuesten zuerst.
+    """
+    query = q.lower().strip()
+    if not query or len(query) < 2:
+        return {"treffer": [], "anzahl": 0, "hinweis": "Suchbegriff (>=2 Zeichen) angeben"}
+
+    treffer = []
+    for cid, nachrichten in conversations.items():
+        for n in nachrichten:
+            inhalt = (n.get("content") or "")
+            if query in inhalt.lower():
+                treffer.append({
+                    "conversation": cid,
+                    "rolle": n.get("role", "?"),
+                    "text": inhalt[:300],
+                    "zeit": n.get("zeit") or "",
+                })
+    treffer.sort(key=lambda t: t.get("zeit") or "", reverse=True)
+    return {"treffer": treffer[:20], "anzahl": len(treffer), "hinweis": ""}
