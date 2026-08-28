@@ -1797,13 +1797,21 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     return data;
 }
 
-async function sendMessage(text) {
+async function sendMessage(text, ausWarteschlange = false) {
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
-    // direkt verworfen, wenn kein laufender Hermes-Auftrag existiert. Läuft ein
-    // Hermes-Auftrag (Track C), geht die Nachricht als Kommentar an die offene
-    // Session (POST /eingabe) weiter — so kann man Hermes während der Arbeit
-    // steuern/Zwischenfragen stellen statt die Eingabe zu verlieren.
-    if (state.abbruch && !_laufenderAuftragKurz) return;
+    // eingereiht, wenn wir NICHT selbst eine Warteschlangen-Nachricht senden
+    // (ausWarteschlange=true) und kein laufender Hermes-Auftrag existiert.
+    // - Hermes-Auftrag (Track C) läuft → sendMessage geht weiter an POST /eingabe
+    //   (Zwischenfrage an die Session).
+    // - Normale Antwort läuft → Nachricht in die Warteschlange (sichtbar), wird
+    //   von sendeUndArbeiteAb nach Stream-Ende gesendet.
+    // - ausWarteschlange=true → durchreichen (per sendeUndArbeiteAb aufgerufen).
+    if (state.abbruch && !ausWarteschlange && !_laufenderAuftragKurz) {
+        if (!text.trim()) return;
+        const element = zeigeWartendeNachricht(text);
+        state.warteschlange.push({ text, element });
+        return;
+    }
     if (!text.trim()) return;
     // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
     // Griff, an dem der Stopp-Knopf zieht.
@@ -1926,6 +1934,13 @@ async function sendMessage(text) {
 
                 if (daten.delta) {
                     if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
+                    // Track C (Hermes live): Beim ersten Event kommt die
+                    // auftrag_id mit → den Kommunikationskanal setzen, damit
+                    // Nachrichten während des Laufens als /eingabe-Kommentar
+                    // an Hermes gehen statt in eine Warteschlange zu rutschen.
+                    if (daten.auftrag_id && !_laufenderAuftragKurz) {
+                        _laufenderAuftragKurz = daten.auftrag_id;
+                    }
                     antwort += daten.delta;
                     zustand.text = antwort;
                     vorleser.neuerText();
@@ -1956,7 +1971,13 @@ async function sendMessage(text) {
                     abschluss = daten;
                     // Der Stream hat die Strecke selbst bis zum Ende geführt
                     // (Track C live) – der 3s-Poller ist dafür nicht nötig.
-                    if (daten.auftrag_strecke) _auftragStreckeDirekt = true;
+                    if (daten.auftrag_strecke) {
+                        _auftragStreckeDirekt = true;
+                        // Auftrag beendet → Kommunikationskanal wieder frei,
+                        // damit spätere Nachrichten einen neuen Auftrag starten
+                        // statt an die geschlossene Session zu gehen.
+                        _laufenderAuftragKurz = null;
+                    }
                 }
             }
         }
@@ -2373,7 +2394,9 @@ async function sendeUndArbeiteAb(text) {
     while (state.warteschlange.length) {
         const naechste = state.warteschlange.shift();
         naechste.element.remove();
-        await sendMessage(naechste.text);
+        // ausWarteschlange=true → nicht erneut einreihen, sondern wirklich senden
+        // (auch wenn währenddessen wieder ein Stream läuft).
+        await sendMessage(naechste.text, true);
     }
 }
 
