@@ -110,15 +110,16 @@ ausgeführt. Ein früherer Lauf, die Erfolgsmeldung eines Subagenten und
 
 ## Automatischer Durchlauf
 
-Feature-Arbeit läuft über den Workflow in `.claude/skills/phase/SKILL.md`,
-aufgerufen mit `/phase`. Ein Durchlauf ohne Zwischenfreigaben ist nur erlaubt,
-wenn alle drei Punkte zutreffen:
+Der frühere feste Phasen-Workflow (`/phase`, 8 Schritte) ist **abgelöst**:
+gearbeitet wird kontinuierlich und hybrid (Codex für Coding-Blöcke, Hermes für
+Qualität/Orchestrierung), ohne Phase-zu-Phase-Lauf. Die Kerninstrumente gelten
+**weiterhin unverändert**:
 
-1. Das Projekt hat einen Prüfbefehl mit Exit-Code.
-2. Die Regeln stehen in `.claude/settings.json`, nicht nur in dieser Datei.
-3. Es ist kein OT-/SPS-Code.
+1. Das Projekt hat einen Prüfbefehl mit Exit-Code („Fertig heißt verifiziert“).
+2. „code + docs“: jede Änderung wird dokumentiert und gemeinsam committet.
+3. Es ist kein OT-/SPS-Code (dort bleibt alles manuell bei Sebastian).
 
-Trifft eines nicht zu, wird jede Änderung einzeln vorgelegt.
+Hat ein Projekt **keinen** Prüfbefehl, wird jede Änderung einzeln vorgelegt.
 
 ## Kontext-Hygiene
 
