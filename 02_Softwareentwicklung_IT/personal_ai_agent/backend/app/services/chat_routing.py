@@ -56,15 +56,30 @@ def route_auftrag(
     finish_exchange,
     get_or_create_conversation,
     starte_lokale_hermes,
+    kontext: str = "",
 ) -> Dict[str, Any]:
     """Führt die Track-A/C/B-Weiche für einen erkannten Coding-Auftrag aus.
+
+    `kontext` (optional): der relevante Gesprächs-/Erinnerungs-Kontext, der an
+    Hermes mitgegeben wird (sonst arbeitet Hermes nur mit der nackten Frage).
+    Er wird dem Auftrag als "Kontext aus dem Gespräch" beigemischt, damit die
+    Delegation nicht blind erfolgt.
 
     Returns ein Dict mit den Feldern der Chat-Antwort:
         { "art": "pc"|"lokal"|"buch", "reply": str, "conversation_id": str }
     Aufrufer baut daraus die ChatResponse/SSE.
     """
+    # Kontext-Erweiterung: baut die eigentliche Hermes-Aufgabe (Frage + Kontext).
+    herm_aufgabe = message
+    if kontext and kontext.strip():
+        herm_aufgabe = (
+            f"{message}\n\n"
+            "[Kontext aus dem Gespräch (vorherige Nachrichten/Erinnerungen):]\n"
+            f"{kontext.strip()}"
+        )
+
     # 1) PC-Hermes (Track A)
-    hermes_antwort = hermes_gateway.sende_auftrag(message)
+    hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
     if hermes_antwort is not None:
         conv_id = get_or_create_conversation(None)
         finish_exchange(conv_id, message, hermes_antwort)
@@ -74,7 +89,7 @@ def route_auftrag(
     if hermes_local_ist_verfuegbar():
         conv_id = get_or_create_conversation(None)
         eintrag = starte_lokale_hermes(
-            message,
+            herm_aufgabe,
             hinweis=f"Automatische Erkennung: {begruendung}",
             kategorie=kategorie,
             komplexitaet=komplexitaet,
@@ -90,7 +105,7 @@ def route_auftrag(
         return {"art": "lokal", "reply": reply_text, "conversation_id": conv_id}
 
     # 3) Auftragsbuch (Track B)
-    eintrag = anlegen_im_buch(message, begruendung, kategorie, komplexitaet)
+    eintrag = anlegen_im_buch(herm_aufgabe, begruendung, kategorie, komplexitaet)
     statusmeldung_wartet(eintrag["id"])
     reply_text = (
         "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
