@@ -317,6 +317,7 @@ function baueKorrekturButton() {
                 await fetch(`${API_BASE}/api/auftraege/${_laufenderAuftragKurz}/abbrechen`, { method: 'POST' });
             } catch (_) { /* Abbruch-Fehlschlag ist nicht kritisch */ }
             _laufenderAuftragKurz = null;
+            aktualisiereStatusAnzeige();
         }
         // 2) Aufgabe an den normalen LLM weiterleiten.
         sendMessage(frag);
@@ -389,6 +390,32 @@ function addMessage(content, role, zeit) {
     return contentDiv;
 }
 
+/** Wem schreibt der Nutzer gerade? — sichtbares Badge im Header.
+ *  - Hermes läuft (_laufenderAuftragKurz) → 🔴 Hermes (direkt)
+ *  - normale Antwort/Stream läuft → 🟡 Agent (antwortet)
+ *  - sonst → 🟢 Agent (LLM + Gedächtnis)
+ *  Wird bei jedem relevanten Zustandswechsel aufgerufen. */
+function aktualisiereStatusAnzeige() {
+    const badge = document.getElementById('chat-modus-badge');
+    if (!badge) return;
+    if (_laufenderAuftragKurz) {
+        badge.textContent = '🔴 Hermes arbeitet';
+        badge.style.color = '#f88';
+        badge.style.borderColor = '#f55';
+        badge.style.background = '#2a1515';
+    } else if (state.abbruch) {
+        badge.textContent = '🟡 Agent antwortet';
+        badge.style.color = '#fc6';
+        badge.style.borderColor = '#c90';
+        badge.style.background = '#2a2215';
+    } else {
+        badge.textContent = '🟢 Agent';
+        badge.style.color = '#9f9';
+        badge.style.borderColor = '#3a3a3a';
+        badge.style.background = '#152a15';
+    }
+}
+
 /** Schaltet nur die "Denke nach..."-Anzeige. Ob wirklich etwas laeuft,
  *  steht in state.abbruch – die Anzeige verschwindet schon beim ersten
  *  Textstueck, die Antwort laeuft danach aber weiter.
@@ -399,6 +426,7 @@ function setLoading(loading) {
     // Die Eingabe bleibt absichtlich offen: Waehrend der Agent schreibt, soll
     // man schon die naechste Nachricht tippen und anhaengen koennen.
     updateSendButton();
+    aktualisiereStatusAnzeige();
 }
 
 // =========================================
@@ -1685,6 +1713,7 @@ function startAuftragTracking(aidKurz, contentDiv) {
     // Kommunikationskanal: solange dieser Auftrag läuft, gehen neue
     // Chat-Nachrichten als Kommentar an die Session (nicht als neuer Auftrag).
     _laufenderAuftragKurz = aidKurz;
+    aktualisiereStatusAnzeige();
     // Status-Wechsel merken: nur einmal pro Übergang anzeigen (kein Spam).
     let letzterStatus = null;
 
@@ -1754,6 +1783,7 @@ function startAuftragTracking(aidKurz, contentDiv) {
                 _auftragTimer = null;
                 // Auftrag beendet → Kommunikationskanal wieder frei.
                 _laufenderAuftragKurz = null;
+                aktualisiereStatusAnzeige();
             }
         } catch (_) {
             // Server kurz weg → ignorieren
@@ -1940,6 +1970,7 @@ async function sendMessage(text, ausWarteschlange = false) {
                     // an Hermes gehen statt in eine Warteschlange zu rutschen.
                     if (daten.auftrag_id && !_laufenderAuftragKurz) {
                         _laufenderAuftragKurz = daten.auftrag_id;
+                        aktualisiereStatusAnzeige();
                     }
                     antwort += daten.delta;
                     zustand.text = antwort;
@@ -1977,6 +2008,7 @@ async function sendMessage(text, ausWarteschlange = false) {
                         // damit spätere Nachrichten einen neuen Auftrag starten
                         // statt an die geschlossene Session zu gehen.
                         _laufenderAuftragKurz = null;
+                        aktualisiereStatusAnzeige();
                     }
                 }
             }
@@ -2420,8 +2452,16 @@ async function handleSubmit() {
 
     // Schreibt der Agent noch, wird angehängt statt dazwischenzufunken.
     if (state.abbruch) {
-        state.warteschlange.push({ text, element: zeigeWartendeNachricht(text) });
-        updateSendButton();
+        // Läuft ein Hermes-Auftrag (Track C), geht die Nachricht sofort als
+        // Kommentar an die Session (sendMessage → POST /eingabe) — so kann man
+        // Hermes während der Arbeit direkt steuern/Zwischenfragen stellen.
+        // Sonst in die sichtbare Warteschlange legen (nach Stream-Ende senden).
+        if (_laufenderAuftragKurz) {
+            await sendMessage(text);
+        } else {
+            state.warteschlange.push({ text, element: zeigeWartendeNachricht(text) });
+            updateSendButton();
+        }
         return;
     }
 
