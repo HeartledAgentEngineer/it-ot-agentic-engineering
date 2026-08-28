@@ -387,7 +387,7 @@ def _datei_tool(frage: str) -> str:
     )
 
 
-def _verlauf_tool(frage: str) -> str:
+def _verlauf_tool(frage: str, verlauf: Optional[Dict[str, list]] = None) -> str:
     """Chat-Verlauf-Suche als 'Tool' über Sprache (ohne UI).
 
     Erkennt Erinnerungs-/Rückblick-Signale ("was haben wir zu X gesagt",
@@ -395,8 +395,12 @@ def _verlauf_tool(frage: str) -> str:
     Gesprächsverlauf (Volltext in `conversations`) → hängt die Treffer an die
     user_message, damit der LLM die Vergangenheit zitiert.
 
+    `verlauf` ist injizierbar (Tests); Default ist das globale conversations-Dict.
+
     Liefert "" wenn kein Rückblick-Wunsch vorliegt.
     """
+    if verlauf is None:
+        verlauf = conversations
     signale = [
         "was haben wir", "was hatten wir", "erinnere mich an", "erinnerst du dich",
         "was war", "worum ging es", "was haben wir gesagt", "was haben wir besprochen",
@@ -423,7 +427,7 @@ def _verlauf_tool(frage: str) -> str:
 
     # Volltext-Suche im Verlauf (die eine Conversation).
     treffer = []
-    for cid, nachrichten in conversations.items():
+    for cid, nachrichten in verlauf.items():
         for n in nachrichten:
             inhalt = (n.get("content") or "")
             if stichwort in inhalt.lower():
