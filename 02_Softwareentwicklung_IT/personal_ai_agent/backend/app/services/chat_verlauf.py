@@ -13,7 +13,7 @@ import logging
 import os
 import threading
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ def _lade_verlauf() -> None:
         with open(_verlauf_datei, "r", encoding="utf-8") as f:
             daten = json.load(f)
         conversations.update(daten.get("conversations", {}))
+        summarys.update(daten.get("summarys", {}))
         next_conversation_id = int(daten.get("next_id", 1))
         logger.info("Gespraechsverlauf geladen: %d Gespraeche", len(conversations))
     except FileNotFoundError:
@@ -58,12 +59,45 @@ def _speichere_verlauf() -> None:
         os.makedirs(_persist_dir, exist_ok=True)
         with open(_verlauf_datei, "w", encoding="utf-8") as f:
             json.dump(
-                {"next_id": next_conversation_id, "conversations": conversations},
+                {"next_id": next_conversation_id, "conversations": conversations,
+                 "summarys": summarys},
                 f,
                 ensure_ascii=False,
             )
     except Exception as e:
         logger.warning("Verlauf konnte nicht gespeichert werden: %s", e)
+
+
+# --------------------------------------------------------------------------
+# Rolling-Summary (Ein-Chat): pro Conversation ein kompaktes Summary der
+# älteren Unterhaltung + Zähler, wie viele Nachrichten seit dem letzten Roll
+# dazukamen (fürs Rate-Limit).
+# --------------------------------------------------------------------------
+summarys: Dict[str, Dict[str, Any]] = {}
+
+
+def summary_holen(conversation_id: str) -> Dict[str, Any]:
+    """Liefert { "text": str, "anzahl_seit_roll": int } der Conversation."""
+    eintrag = summarys.get(conversation_id)
+    if eintrag is None:
+        return {"text": "", "anzahl_seit_roll": 0}
+    return {
+        "text": eintrag.get("text", ""),
+        "anzahl_seit_roll": int(eintrag.get("anzahl_seit_roll", 0)),
+    }
+
+
+def summary_setzen(conversation_id: str, text: str) -> None:
+    """Speichert ein neues Summary + setzt den Roll-Zähler zurück."""
+    summarys[conversation_id] = {"text": text, "anzahl_seit_roll": 0}
+    _speichere_verlauf()
+
+
+def summary_erhoehe_zaehler(conversation_id: str) -> None:
+    """Zählt eine weitere Nachricht seit dem letzten Roll."""
+    eintrag = summarys.setdefault(conversation_id, {"text": "", "anzahl_seit_roll": 0})
+    eintrag["anzahl_seit_roll"] = int(eintrag.get("anzahl_seit_roll", 0)) + 1
+    summarys[conversation_id] = eintrag
 
 
 def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
