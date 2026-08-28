@@ -408,7 +408,16 @@ def _verlauf_tool(frage: str) -> str:
     trigger = next((s for s in signale if s in f), None)
     if not trigger:
         return ""
+    # Stichwort = Text nach dem Signal, bereinigt um Stoppwörter ("zu / über /
+    # wir / haben / gesagt / besprochen / ...") → nur der Kern bleibt.
     stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
+    stopwoerter = {
+        "zu", "über", "ueber", "wir", "haben", "hatten", "gesagt", "besprochen",
+        "auch", "noch", "der", "die", "das", "den", "dem", "des", "ein", "eine",
+        "einen", "einer", "und", "oder", "dazu", "mal",
+    }
+    teile = [w for w in stichwort.split() if w not in stopwoerter]
+    stichwort = " ".join(teile).strip()
     if not stichwort or len(stichwort) < 2:
         return ""
 
