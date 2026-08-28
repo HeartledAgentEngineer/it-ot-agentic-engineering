@@ -30,7 +30,10 @@ FEHLER = "fehler"
 
 
 def _jetzt() -> str:
-    return datetime.now().astimezone().isoformat()
+    # Nur Sekunden-Genauigkeit — kein .µs-Zeug, das die Meldung unlesbar macht
+    # und unnötig lang/tokenreich ist. (Vorher isoformat() ohne timespec → volle
+    # Mikrosekunden + Zeitzone, z. B. [2026-08-24T13:47:54.383882+02:00].)
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 class AuftragService:

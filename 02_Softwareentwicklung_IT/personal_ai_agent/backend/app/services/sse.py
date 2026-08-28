@@ -28,7 +28,7 @@ def strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]
     beendet mit `done` + Endergebnis, sobald der Auftrag fertig/fehlgeschlagen
     ist. Mit Keepalive gegen Browser-/Proxy-Timeouts.
     """
-    yield _sse({"delta": reply_text})
+    yield _sse({"delta": reply_text, "auftrag_id": auftrag_id})
     gesehen = 0
     letzte_aktivitaet = time.time()
     while True:
