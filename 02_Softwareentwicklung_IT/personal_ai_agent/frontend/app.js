@@ -1949,10 +1949,13 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             }),
             signal: controller.signal,
         });
-        // Dateien sind Teil der Anfrage (und im Backend hochgeladen) – die
-        // Vorschau-Chips gehören ab jetzt nicht mehr in die Eingabe. Sofort
-        // räumen, damit der Nutzer die nächste Nachricht vorbereiten kann.
-        _raeumeDateiVorschau();
+        // NICHT sofort die Vorschau leeren — die Files müssen im Request
+        // bleiben, bis das done-Ereignis wirklich kam (siehe letzter Block).
+        // Nur die Chips entfernen, damit die nächste Nachricht vorbereitet
+        // werden kann; die Daten bleiben in pendingFiles bis zum Abschluss.
+        dom.filePreviewList.innerHTML = '';
+        dom.filePreview.classList.add('hidden');
+        _aktualisiereUploadKnopf();
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
         const reader = res.body.getReader();
