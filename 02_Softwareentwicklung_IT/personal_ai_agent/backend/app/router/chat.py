@@ -240,9 +240,13 @@ async def chat(request: ChatRequest):
         # Datei-Such-Wunsch enthält, wird die Tool-Ausgabe an die user_message
         # gehängt, damit der LLM die Treffer nennt (Stufe A).
         werkzeug_notiz = _datei_tool(request.message)
+        # 1e. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
+        if not werkzeug_notiz:
+            werkzeug_notiz = _verlauf_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
+
 
         # 2. Get LLM response with memory context
         reply, quellen = llm_service.chat(
@@ -380,6 +384,57 @@ def _datei_tool(frage: str) -> str:
         + "':]\n"
         + "\n".join(zeilen)
         + "\nNenne dem Nutzer die gefundenen Dateien und frag, welche er verwenden will.]"
+    )
+
+
+def _verlauf_tool(frage: str) -> str:
+    """Chat-Verlauf-Suche als 'Tool' über Sprache (ohne UI).
+
+    Erkennt Erinnerungs-/Rückblick-Signale ("was haben wir zu X gesagt",
+    "erinnere mich an", "was war", "worum ging es bei") → sucht im
+    Gesprächsverlauf (Volltext in `conversations`) → hängt die Treffer an die
+    user_message, damit der LLM die Vergangenheit zitiert.
+
+    Liefert "" wenn kein Rückblick-Wunsch vorliegt.
+    """
+    signale = [
+        "was haben wir", "was hatten wir", "erinnere mich an", "erinnerst du dich",
+        "was war", "worum ging es", "was haben wir gesagt", "was haben wir besprochen",
+        "was haben wir besprochen", "zurückblickend",
+    ]
+    f = frage.lower().strip()
+    if not f:
+        return ""
+    trigger = next((s for s in signale if s in f), None)
+    if not trigger:
+        return ""
+    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
+    if not stichwort or len(stichwort) < 2:
+        return ""
+
+    # Volltext-Suche im Verlauf (die eine Conversation).
+    treffer = []
+    for cid, nachrichten in conversations.items():
+        for n in nachrichten:
+            inhalt = (n.get("content") or "")
+            if stichwort in inhalt.lower():
+                treffer.append({
+                    "rolle": n.get("role", "?"),
+                    "text": inhalt[:200],
+                    "zeit": n.get("zeit") or "",
+                })
+    treffer.sort(key=lambda t: t.get("zeit") or "", reverse=True)
+    if not treffer:
+        return f"\n\n[Im Gesprächsverlauf zu '{stichwort}': nichts gefunden.]"
+    zeilen = []
+    for t in treffer[:5]:
+        zeilen.append(f"({t['rolle']}) {t['text']}")
+    return (
+        "\n\n[Aus dem Gesprächsverlauf zu '"
+        + stichwort
+        + "':]\n"
+        + "\n".join(zeilen)
+        + "\nZitiere dem Nutzer die relevanten Stellen aus der Vergangenheit.]"
     )
 
 
