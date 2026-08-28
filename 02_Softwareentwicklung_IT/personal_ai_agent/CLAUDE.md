@@ -54,6 +54,7 @@ Jede signifikante Änderung muss hier dokumentiert werden:
 | Datum | Änderung | Begründung | Geprüft von |
 |-------|----------|-----------|-------------|
 | 02.08.2026 | Architektur-Change: VPS → Phone-First (Termux) | API-Key-Sicherheit, Kosten, schnellere Iteration | Cline |
+| 28.08.2026 | Test-Suite erweitert: `test_faehigkeiten_grenzfaelle.py` (Wortgrenzen, leere Eingabe, Groß/Klein, Phrasen) — erstellt per Codex-Hybrid (gpt-5.6-terra), reviewed von Hermes | Absicherung der Heuristik gegen Fehltreffer; 48 Tests grün | Hermes (Review) |
 
 ---
 
