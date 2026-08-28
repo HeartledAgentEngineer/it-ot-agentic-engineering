@@ -229,15 +229,23 @@ async def chat(request: ChatRequest):
         # über die eigene Vergangenheit sprechen lässt.
         archiv = _archiv_treffer(request.message, request.archiv)
 
+        # 1c. Rolling-Summary der älteren Unterhaltung (Ein-Chat). Begrenzt die
+        # History auf die letzten 15 + gibt den kompakten Summary als Zusatz-
+        # Kontext weiter, damit die Vergangenheit nicht verloren geht / der
+        # Prompt nicht explodiert.
+        kontext_summary, _ = _hole_kontext_summary(conversation_id, history, request.message)
+        begrenzte_history = history[-15:]
+
         # 2. Get LLM response with memory context
         reply, quellen = llm_service.chat(
             user_message=request.message,
-            conversation_history=history,
+            conversation_history=begrenzte_history,
             memories=memories,
             web_search=request.web_search,
             model=request.model,
             no_retention=request.no_retention,
             archiv=archiv,
+            summary=kontext_summary,
             files=[f.model_dump() for f in request.files] if request.files else None,
         )
 
@@ -291,6 +299,32 @@ def _baue_kontext(frage: str) -> str:
     if not teile:
         return ""
     return "\n".join(teile)
+
+
+def _hole_kontext_summary(conversation_id: str, historie: list, frage: str) -> tuple:
+    """Holt das Rolling-Summary der Conversation (+ rollt bei Bedarf neu).
+
+    Liefert (summary_text, gerollt). Rollt nur, wenn die Historie über der
+    Schwelle liegt UND genug neue Nachrichten seit dem letzten Roll kamen
+    (Rate-Limit → günstig). Erhöht den Zähler bei jedem Aufruf.
+    """
+    from app.services import chat_verlauf, kontext_service
+    summary_eintrag = chat_verlauf.summary_holen(conversation_id)
+    summary = str(summary_eintrag.get("text") or "")
+    anzahl_seit = int(summary_eintrag.get("anzahl_seit_roll") or 0)
+
+    # Kontext-Paket bauen (Rolling-Summary-Logik).
+    ergebnis = kontext_service.baue_kontext(
+        historie, frage,
+        memory_extractor=None,           # Erinnerungen kommen separat in llm_service
+        gespeichertes_summary=summary,
+        anzahl_seit_roll=anzahl_seit,
+    )
+    if ergebnis["gerollt"]:
+        chat_verlauf.summary_setzen(conversation_id, ergebnis["summary"])
+    # Zähler fürs künftige Roll-Limit erhöhen.
+    chat_verlauf.summary_erhoehe_zaehler(conversation_id)
+    return ergebnis["summary"], ergebnis["gerollt"]
 
 
 @router.post("/chat/stream")

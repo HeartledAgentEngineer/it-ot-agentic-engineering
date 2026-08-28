@@ -362,6 +362,7 @@ class LLMService:
         memories: Optional[List[Dict[str, Any]]] = None,
         archiv: Optional[List[Dict[str, Any]]] = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        summary: str = "",
     ) -> List[Dict[str, str]]:
         """Nachrichtenliste für einen LLM-Aufruf zusammenbauen.
 
@@ -372,6 +373,15 @@ class LLMService:
         als Array gemischt (Text + image_urls / PDF-Text).
         """
         system_prompt = self.load_system_prompt()
+
+        # Rolling-Summary der älteren Unterhaltung (Ein-Chat) — wird in den
+        # System-Kontext eingebettet, damit die Vergangenheit nicht verloren
+        # geht, auch wenn die Historie auf die letzten Nachrichten begrenzt ist.
+        if summary and summary.strip():
+            system_prompt += (
+                "\n\n[Zusammenfassung deiner früheren Unterhaltung mit dem Nutzer — "
+                "behalte die wichtigsten Fakten im Hinterkopf:]\n" + summary.strip()
+            )
 
         # Add memory context to system prompt if memories exist
         memory_context = self._build_memory_context(memories or [])
@@ -497,6 +507,7 @@ class LLMService:
         no_retention: bool = False,
         archiv: Optional[List[Dict[str, Any]]] = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        summary: str = "",
     ) -> Tuple[str, List[Dict[str, str]]]:
         """Send a chat message to the LLM and get a response.
 
@@ -513,7 +524,7 @@ class LLMService:
         if not self.is_configured:
             return NICHT_KONFIGURIERT, []
 
-        messages = self._build_messages(user_message, conversation_history, memories, archiv, files)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv, files, summary)
 
         try:
             response = self.client.chat.completions.create(

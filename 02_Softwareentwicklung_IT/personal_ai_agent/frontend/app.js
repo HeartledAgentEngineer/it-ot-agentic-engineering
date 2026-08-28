@@ -2569,22 +2569,11 @@ if ('serviceWorker' in navigator) {
  * nächsten Absenden von allein.
  */
 function neuesGespraech() {
-    if (state.abbruch) brichAb();
-
-    state.conversationId = null;
-    localStorage.removeItem('conversation_id');
-    state.messages = [];
-    state.warteschlange = [];
-    zuruecksetzenDatumBanner();
-
-    // Alles außer der Begrüßung entfernen.
-    const willkommen = document.getElementById('welcome');
-    dom.messages.innerHTML = '';
-    if (willkommen) dom.messages.appendChild(willkommen);
-
-    dom.input.value = '';
-    updateSendButton();
-    dom.input.focus();
+    // Ein-Chat-Modus (seit 2026-08): Es gibt genau EINE fortlaufende
+    // Conversation. Der '+'-Button ist ausgeblendet; sollte diese Funktion
+    // trotzdem erreicht werden (z. B. alte UI), tut sie NICHTS zerstörerisches —
+    // der laufende Thread bleibt erhalten (kein conversationId-Reset).
+    addMessage('ℹ️ Ein-Chat-Modus: Es gibt nur dieses eine Gespräch – es wird fortgeführt.', 'assistant');
 }
 
 /** Holt die Kennung des zuletzt geführten Gesprächs vom Server. */
