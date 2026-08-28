@@ -312,43 +312,65 @@ def _baue_kontext(frage: str) -> str:
 def _datei_tool(frage: str) -> str:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
-    Erkennt Datei-Suchs-Signale in der Anfrage ("suche/datei/dokument/bild/
-    finde/zeig mir … bewerbung etc.") → ruft suche_dateien(stichwort) auf →
-    liefert die Treffer als Text, den der LLM in seine Antwort einbaut.
-    Liefert "" wenn kein Such-Wunsch vorliegt (kein Tool-Trigger).
+    Stufe A: erkennt Datei-Suchs-Signale → sucht Treffer → LLM nennt sie.
+    Stufe B: erkennt Lese-Signale ("lies <datei>", "was steht in <datei>",
+    "zeig mir den inhalt von <datei>", "gib mir die <datei>") → liest den
+    INHALT der gefundenen/benannten Datei + hängt ihn als Text (oder Bild-
+    data_url) an die user_message, damit der LLM zusammenfasst/informiert.
 
-    Stufe A: listet Treffer (Name/Pfad/Art). Stufe B (Inhalt lesen) folgt.
+    Liefert "" wenn kein Datei-Bezug vorliegt (kein Tool-Trigger).
     """
-    # Such-Signale (deutsch). Bewusst gezielt, um Fehlauslöser zu vermeiden.
+    # Signale (deutsch). "lies" zuerst für Stufe B.
     signale = [
-        "suche", "finde", "zeig mir", "zeig mir dateien", "zeige mir",
-        "datei", "dokument", "bild", "foto", "unterlagen", "download",
-        "wo liegt", "hast du eine datei", "was liegt",
+        "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
+        "zeig mir den text", "fasse zusammen aus", "gib mir die datei",
+        "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
+        "bild", "foto", "unterlagen", "download", "wo liegt",
+        "hast du eine datei", "was liegt",
     ]
     f = frage.lower().strip()
     if not f:
         return ""
-    gefunden_trigger = any(s in f for s in signale)
-    if not gefunden_trigger:
+    trigger = next((s for s in signale if s in f), None)
+    if not trigger:
         return ""
 
-    # Stichwort = Text nach dem ersten Signal-Wort (grob). Nimmt den ganzen
-    # Rest als Suchbegriff; Stoppwörter raus.
-    stichwort = ""
-    for s in signale:
-        idx = f.find(s)
-        if idx != -1:
-            stichwort = f[idx + len(s):].strip()
-            break
-    stichwort = stichwort.strip(" ?!,.:")
+    # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
+    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
     if not stichwort:
-        return ""  # kein konkretes Suchwort → nichts tun
+        return ""
 
+    from app.services.datei_suche import lese_datei_info, suche_dateien
+
+    # Stufe B: expliziter Lese-Wunsch → Inhalt lesen.
+    lese_wunsch = trigger in ("lies", "lese", "was steht in", "inhalt von",
+                              "zeig mir den inhalt", "zeig mir den text",
+                              "gib mir die datei", "fasse zusammen aus")
     try:
-        from app.services.datei_suche import suche_dateien
         treffer = suche_dateien(stichwort)
     except Exception:
         return ""
+
+    if lese_wunsch and treffer:
+        # lese den ersten/passendsten Treffer (Inhalt).
+        datei = treffer[0]
+        info = lese_datei_info(datei["pfad"])
+        if info.get("ist_bild"):
+            if info.get("data_url"):
+                return (
+                    "\n\n[Datei-Bild zum Ansehen: " + datei["name"]
+                    + "]\n" + info["data_url"]
+                )
+            return f"\n\n[Datei-Bild: {datei['name']} (für Vision verfügbar)]"
+        if info.get("text"):
+            return (
+                "\n\n[Inhalt der Datei '" + datei["name"]
+                + "':]\n" + info["text"][:8000]
+                + "\nFasse dem Nutzer den Inhalt verständlich zusammen.]"
+            )
+        return f"\n\n[Datei '{datei['name']}' konnte nicht gelesen werden: {info.get('fehler')}]"
+
+    # Stufe A: nur Treffer-Liste (Name/Art).
     if not treffer:
         return f"\n\n[Aus der Handy-Dateisuche zu '{stichwort}': keine Treffer gefunden.]"
     zeilen = [f"- {t['name']}  ({t['erweiterung']})" for t in treffer[:10]]

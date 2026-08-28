@@ -88,3 +88,64 @@ def basis_ordner_verfuegbar() -> List[str]:
     if os.path.isdir(_STORAGE_WURZEL):
         return [_STORAGE_WURZEL]
     return [b for b in _STORAGE_BASIS if os.path.isdir(b)]
+
+
+def lese_datei_info(pfad: str, max_zeichen: int = 8000) -> dict:
+    """Liest den Inhalt einer Datei (für die Information/Stufe B).
+
+    Liefert { "name", "erweiterung", "text", "ist_bild", "fehler" }.
+    - PDF: Text via pdfminer (falls installiert).
+    - TXT/MD/CSV/DOCX-ähnlich: roh als Text (gekürzt).
+    - Bilder: markiert als ist_bild=True (kein Text; der Vision-LLM würde sie
+      über lesbare Base64 verarbeiten — hier nur der Dateiname).
+    Sicher: nur lesend, nur erlaubte Erweiterungen, nie GitHub.
+    """
+    import base64
+
+    try:
+        ext = os.path.splitext(pfad)[1].lower()
+        name = os.path.basename(pfad)
+
+        # Bilder: nicht als Text lesbar, aber für Vision verfügbar.
+        if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+            try:
+                with open(pfad, "rb") as f:
+                    b64 = base64.b64encode(f.read(2_000_000)).decode()  # max 2MB
+                return {
+                    "name": name, "erweiterung": ext,
+                    "text": "", "ist_bild": True,
+                    "data_url": f"data:image/{ext[1:]};base64,{b64}",
+                    "fehler": None,
+                }
+            except Exception as e:
+                return {"name": name, "erweiterung": ext, "text": "", "ist_bild": True,
+                        "data_url": "", "fehler": str(e)}
+
+        # Text-Dokumente
+        text = ""
+        try:
+            if ext == ".pdf":
+                text = _pdf_text(pfad)
+            else:
+                with open(pfad, "r", encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+        except Exception as e:
+            return {"name": name, "erweiterung": ext, "text": "", "ist_bild": False,
+                    "data_url": "", "fehler": str(e)}
+        if len(text) > max_zeichen:
+            text = text[:max_zeichen] + "…"
+        return {"name": name, "erweiterung": ext, "text": text, "ist_bild": False,
+                "data_url": "", "fehler": None}
+    except Exception as e:
+        return {"name": os.path.basename(pfad), "erweiterung": "", "text": "",
+                "ist_bild": False, "data_url": "", "fehler": str(e)}
+
+
+def _pdf_text(pfad: str) -> str:
+    """Extrahiert Text aus einer PDF-Datei (via pdfminer, fallback leer)."""
+    try:
+        from pdfminer.high_level import extract_text
+        return extract_text(pfad) or ""
+    except Exception:
+        # pdfminer fehlt oder PDF kaputt → leere Ausgabe (kein Crash).
+        return ""
