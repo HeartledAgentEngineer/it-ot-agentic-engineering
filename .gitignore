@@ -110,5 +110,10 @@ dist/
 02_Softwareentwicklung_IT/concertify/search_log.py
 .aider*
 
+# Hermes / Agenten-Lokales
+.hermes/
+.worktrees/
+*.hermes-watcher.log
+
 # Chats von GPT, GEMINI, Claude
 Chats von GPT, GEMINI, Claude/
