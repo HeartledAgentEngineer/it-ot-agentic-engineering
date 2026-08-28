@@ -1827,16 +1827,16 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     return data;
 }
 
-async function sendMessage(text, ausWarteschlange = false) {
+async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false) {
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
     // eingereiht, wenn wir NICHT selbst eine Warteschlangen-Nachricht senden
-    // (ausWarteschlange=true) und kein laufender Hermes-Auftrag existiert.
+    // (ausWarteschlange=true), kein laufender Hermes-Auftrag existiert UND es
+    // kein Diktat ist, dessen Blase schon gezeigt wurde.
     // - Hermes-Auftrag (Track C) läuft → sendMessage geht weiter an POST /eingabe
-    //   (Zwischenfrage an die Session).
-    // - Normale Antwort läuft → Nachricht in die Warteschlange (sichtbar), wird
-    //   von sendeUndArbeiteAb nach Stream-Ende gesendet.
-    // - ausWarteschlange=true → durchreichen (per sendeUndArbeiteAb aufgerufen).
-    if (state.abbruch && !ausWarteschlange && !_laufenderAuftragKurz) {
+    // - Normale Antwort läuft → in die Warteschlange (sichtbar)
+    // - ausWarteschlange=true → durchreichen (sendeUndArbeiteAb)
+    // - blaseSchonGezeigt=true (Diktat) → durchreichen, Blase ist schon da
+    if (state.abbruch && !ausWarteschlange && !blaseSchonGezeigt && !_laufenderAuftragKurz) {
         if (!text.trim()) return;
         const element = zeigeWartendeNachricht(text);
         state.warteschlange.push({ text, element });
@@ -1848,7 +1848,7 @@ async function sendMessage(text, ausWarteschlange = false) {
     const controller = new AbortController();
     state.abbruch = controller;
     setLoading(true);
-    const userContentDiv = addMessage(text, 'user');
+    const userContentDiv = blaseSchonGezeigt ? null : addMessage(text, 'user');
     // Dateivorschau in der Nachricht anzeigen, falls vorhanden
     if (state.pendingFiles.length > 0) {
         _zeigeDateienInNachricht(userContentDiv, state.pendingFiles);
@@ -2106,10 +2106,14 @@ async function sendAudioForTranscription(audioBlob) {
         // /critic #7: data.text muss ein String sein
         if (typeof data.text === 'string' && data.text.trim()) {
             setMicStatus('polishing');
-            dom.input.value = data.text;
+            // Diktat SOFORT als echte User-Blase zeigen (wie beim Tippen) —
+            // egal ob es an den Agenten, in die Warteschlange oder an Hermes
+            // als Kommentar geht. Sonst wirkt es wie "verschluckt".
+            const diktat = data.text.trim();
+            addMessage(diktat, 'user');
+            dom.input.value = '';
             dom.input.style.height = 'auto';
-            dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
-            await handleSubmit();
+            await sendMessage(diktat, false, true); // drittes Flag: Diktat (Blase schon gezeigt)
         } else if (data.error) {
             addMessage(`⚠️ **Spracherkennung fehlgeschlagen**\n\n${data.error}`, 'assistant');
         }
