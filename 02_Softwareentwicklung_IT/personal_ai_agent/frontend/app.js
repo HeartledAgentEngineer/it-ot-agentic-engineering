@@ -1866,8 +1866,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     state.abbruch = controller;
     setLoading(true);
     const userContentDiv = blaseSchonGezeigt ? null : addMessage(text, 'user');
-    // Dateivorschau in der Nachricht anzeigen, falls vorhanden
-    if (state.pendingFiles.length > 0) {
+    // Dateivorschau in der Nachricht anzeigen, falls vorhanden.
+    // WICHTIG: Bei Diktat (blaseSchonGezeigt=true) ist userContentDiv null —
+    // die Blase wurde schon vorab erzeugt. Bei Dateien (z. B. Screenshot +
+    // Spracheingabe gleichzeitig) darf appendChild NICHT auf null laufen.
+    if (state.pendingFiles.length > 0 && userContentDiv) {
         _zeigeDateienInNachricht(userContentDiv, state.pendingFiles);
         // Sicherheitsnetz: War der Katalog beim Upload noch nicht geladen,
         // kam die Warnung dort nicht – jetzt beim Senden nachholen.
