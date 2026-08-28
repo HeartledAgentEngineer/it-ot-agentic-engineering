@@ -2753,3 +2753,70 @@ document.addEventListener('DOMContentLoaded', () => {
     pollHermes();
     setInterval(pollHermes, 3000);
 })();
+
+// =========================================
+// Kanban-Board — Aufgaben (Auftragsbuch) als Spalten
+// =========================================
+(function () {
+    const sheet = document.getElementById('kanban-sheet');
+    const btn = document.getElementById('kanban-btn');
+    const close = document.getElementById('kanban-close');
+    const hint = document.getElementById('kanban-hint');
+    if (!sheet || !btn || !close) return;
+
+    const spalten = {
+        offen: document.getElementById('kanban-offen'),
+        laeuft: document.getElementById('kanban-laeuft'),
+        fertig: document.getElementById('kanban-fertig'),
+        fehler: document.getElementById('kanban-fehler'),
+    };
+
+    function zeichne(auftraege) {
+        // Spalten leeren
+        Object.values(spalten).forEach(el => { if (el) el.innerHTML = ''; });
+        let zaehler = 0;
+        (auftraege || []).forEach(a => {
+            // Status normalisieren: BACKEND liefert OFFEN/LAEUFT/FERTIG/FEHLER
+            const roh = (a.status || 'offen').toLowerCase();
+            const status = ({ fertig: 'fertig', fehler: 'fehler', laeuft: 'laeuft' }[roh]) || 'offen';
+            const ziel = spalten[status] || spalten.offen;
+            if (!ziel) return;
+            zaehler++;
+            const karte = document.createElement('div');
+            karte.style.cssText =
+                'padding:8px;margin-bottom:6px;background:#1e1e1e;border:1px solid #3a3a3a;' +
+                'border-radius:8px;font-size:12px;white-space:pre-wrap';
+            const aufgabe = (a.auftrag || '').slice(0, 140);
+            karte.textContent = aufgabe || '(ohne Text)';
+            karte.title = a.auftrag || '';
+            ziel.appendChild(karte);
+        });
+        if (hint) hint.textContent = zaehler === 0
+            ? 'Keine Aufgaben – alles erledigt.'
+            : `${zaehler} Aufgabe(n) im Buch.`;
+    }
+
+    async function lade() {
+        try {
+            const res = await fetch(`${API_BASE}/api/auftraege`);
+            if (!res.ok) return;
+            const daten = await res.json();
+            zeichne(daten.auftraege || []);
+        } catch (_) { /* Server kurz weg */ }
+    }
+
+    function oeffne() {
+        sheet.hidden = false;
+        lade();
+    }
+    function schliesse() {
+        sheet.hidden = true;
+    }
+
+    btn.addEventListener('click', oeffne);
+    close.addEventListener('click', schliesse);
+    // Tippen auf Hintergrund schließt
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) schliesse(); });
+    // Live-Aktualisierung alle 3s, solange offen
+    setInterval(() => { if (!sheet.hidden) lade(); }, 3000);
+})();
