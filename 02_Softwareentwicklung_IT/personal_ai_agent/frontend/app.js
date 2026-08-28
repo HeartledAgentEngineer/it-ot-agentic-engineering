@@ -2407,10 +2407,23 @@ function zeigeWartendeNachricht(text) {
     return div;
 }
 
-/** Bricht die laufende Antwort ab und legt Wartendes zurück in die Eingabe. */
+/** Bricht die laufende Antwort ab und legt Wartendes zurück in die Eingabe.
+ *  Läuft dabei ein Hermes-Auftrag (Track C), wird er auch backend-seitig
+ *  beendet (POST /abbrechen: tmux-Session killen + Buch auf 'fehler') — sonst
+ *  arbeitet Hermes im Hintergrund weiter, auch wenn man ihn stoppen will. */
 function brichAb() {
     if (!state.abbruch) return;
     state.abbruch.abort();
+
+    // Laufenden Hermes-Auftrag sauber beenden (auch bei offener Rückfrage).
+    if (_laufenderAuftragKurz) {
+        const id = _laufenderAuftragKurz;
+        _laufenderAuftragKurz = null;
+        aktualisiereStatusAnzeige();
+        fetch(`${API_BASE}/api/auftraege/${id}/abbrechen`, { method: 'POST' })
+            .then(() => addMessage('🛑 **Hermes-Aufgabe abgebrochen.**', 'assistant'))
+            .catch(() => addMessage('⚠️ Abbruch-Fehlschlag – Hermes arbeitet evtl. weiter.', 'assistant'));
+    }
 
     // Was noch wartete, darf nicht stillschweigend verschwinden – es landet
     // zurück im Eingabefeld, damit nichts Getipptes verloren geht.
