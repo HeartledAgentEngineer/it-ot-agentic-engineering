@@ -15,9 +15,10 @@
         <header id="header">
             <div class="header-content">
                 <h1 class="app-title">🤖 Agent</h1>
-                <span id="status-indicator" class="status offline" title="Verbindungsstatus">
+                <span id="status-indicator" class="status offline" title="Verbindungsstatus"
+                      style="display:inline-flex;align-items:center;gap:4px">
                     <span class="status-dot"></span>
-                    <span class="status-text">Offline</span>
+                    <span class="status-text" style="display:none">Offline</span>
                 </span>
                 <span id="chat-modus-badge" class="chat-modus" title="Wem du gerade schreibst"
                       style="font-size:11px;padding:3px 8px;border-radius:10px;border:1px solid #555;
@@ -158,18 +159,14 @@
             <div id="model-filters" class="sheet-filters" role="group" aria-label="Filter">
                 <button class="filter-chip" data-filter="speicherfrei"
                         title="Nur Modelle, bei denen kein möglicher Anbieter Prompts speichert">Kein Speichern</button>
-                <button class="filter-chip" data-filter="eu"
-                        title="Würde über den EU-Endpunkt bedient (erfordert Enterprise)">EU-fähig</button>
-                <button class="filter-chip" data-filter="reasoning"
-                        title="Beherrscht schrittweises Denken">Denkt mit</button>
                 <button class="filter-chip" data-filter="bilder"
                         title="Versteht Bilder und Dateien">Bilder/Dateien</button>
-                <button class="filter-chip" data-filter="staerke:preis_leistung"
-                        title="Modelle mit Fokus auf gutem Preis-Leistungs-Verhältnis (sehr günstig + stark)">Preis-Leistung</button>
                 <button class="filter-chip" data-filter="staerke:bilder"
                         title="Versteht Bild-Eingaben (liest/erkennt Bilder) – erzeugt keine Bilder">Stärke Bildverstehen</button>
                 <button class="filter-chip" data-filter="staerke:coding"
                         title="Modelle, deren Stärke im Programmieren liegt">Stärke Coding</button>
+                <button class="filter-chip" data-filter="staerke:tool_use"
+                        title="Modelle, die besonders gut Werkzeuge/Agenten nutzen (Tool-Calls, Dateien, mehrere Schritte)">Stärke Tool-Use</button>
                 <button class="filter-chip" data-filter="staerke:reasoning"
                         title="Modelle, deren Stärke im tiefen Denken/Analysieren liegt">Stärke Reasoning</button>
                 <button class="filter-chip" data-filter="staerke:alltag"

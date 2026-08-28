@@ -102,19 +102,25 @@ MODELL_USECASES_DE: dict[str, str] = {
 
 
 # modell_id → Stärke-Profil (Kurz-Kennzeichnung für die Auswahlgruppierung).
-# Erlaubte Werte: preis_leistung, bilder, coding, reasoning, alltag.
+# Erlaubte Werte: bilder, coding, reasoning, tool_use, alltag.
+# - `tool_use`: besonders stark, wenn das Modell Werkzeuge/Agenten nutzt
+#   (Tool-Calls, Dateien, mehrere Schritte) — wichtig für den Assistenten.
+# - `preis_leistung` ist KEIN Stärke-Profil, sondern ein Sortier-Kriterium
+#   (siehe Backend-Ableitung) — deshalb hier nicht als Stärke geführt.
 # Wo kein Eintrag, greift im Backend eine Ableitung aus den echten Merkmalen.
 MODELL_STAERKEN_DE: dict[str, str] = {
     # ── OpenAI ──────────────────────────────────────────────────────────
     "openai/gpt-5-nano": "alltag",
     "openai/gpt-5-mini": "alltag",
-    "openai/gpt-5.1-codex-mini": "coding",
+    "openai/gpt-5.1-codex-mini": "tool_use",
+    "openai/gpt-5.1-codex": "tool_use",
     "openai/gpt-5": "reasoning",
     "openai/gpt-5.1": "reasoning",
     "openai/gpt-4o": "bilder",
     "openai/gpt-4.1-mini": "alltag",
     # ── Anthropic ───────────────────────────────────────────────────────
-    "anthropic/claude-sonnet-5": "coding",
+    "anthropic/claude-sonnet-5": "tool_use",
+    "anthropic/claude-sonnet-4.5": "tool_use",
     "anthropic/claude-haiku-4.5": "alltag",
     # ── Google Gemini ───────────────────────────────────────────────────
     "google/gemini-2.5-flash-lite": "alltag",
@@ -126,19 +132,19 @@ MODELL_STAERKEN_DE: dict[str, str] = {
     "google/gemini-3.1-flash-lite": "bilder",
     "google/gemini-2.5-flash-image": "bilder",
     # ── DeepSeek ────────────────────────────────────────────────────────
-    "deepseek/deepseek-v4-flash": "preis_leistung",
-    "deepseek/deepseek-v4-flash-0731": "preis_leistung",
+    "deepseek/deepseek-v4-flash": "alltag",
+    "deepseek/deepseek-v4-flash-0731": "alltag",
     "deepseek/deepseek-v4-pro": "reasoning",
     "deepseek/deepseek-r1": "reasoning",
     "deepseek/deepseek-r1-0528": "reasoning",
     "deepseek/deepseek-chat": "alltag",
     # ── Qwen ────────────────────────────────────────────────────────────
-    "qwen/qwen3-30b-a3b": "preis_leistung",
+    "qwen/qwen3-30b-a3b": "alltag",
     "qwen/qwen3-32b": "reasoning",
     "qwen/qwen3-coder": "coding",
     "qwen/qwen3-vl-8b-instruct": "bilder",
     # ── xAI / Grok ──────────────────────────────────────────────────────
-    "x-ai/grok-4.6": "coding",
+    "x-ai/grok-4.6": "tool_use",
     "x-ai/grok-4.5": "reasoning",
     # ── Mistral ─────────────────────────────────────────────────────────
     "mistralai/mistral-small-3.2-24b-instruct": "alltag",

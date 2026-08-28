@@ -98,8 +98,11 @@ def _staerke_ableiten(
       1. Gepflegter Eintrag (MODELL_STAERKEN_DE) gewinnt immer.
       2. Bildfähig  → "bilder"
       3. Reasoning  → "reasoning"
-      4. Sehr günstig (Eingabepreis <= 0,15 $/Mio) → "preis_leistung"
-      5. sonst      → "alltag"
+      4. sonst      → "alltag"
+
+    Hinweis: `preis_leistung` ist bewusst KEIN Stärke-Profil (es ist ein
+    Sortier-Kriterium, kein Fähigkeits-Profil). Sehr günstige Modelle fallen
+    deshalb unter "alltag" statt unter eine (irreführende) Stärke.
 
     So bekommt JEDES Modell eine einsortierte Stärke, auch wenn es nicht
     manuell gepflegt ist.
@@ -110,9 +113,7 @@ def _staerke_ableiten(
         return "bilder"
     if hat_reasoning:
         return "reasoning"
-    preis = LLMService._preis_pro_mio(rohpreis_prompt)
-    if preis is not None and preis <= 0.15:
-        return "preis_leistung"
+    # preis_leistung ist KEIN Stärke-Profil (Sortier-Kriterium) → alltag.
     return "alltag"
 
 
