@@ -446,6 +446,7 @@ class LLMService:
         no_retention: bool = False,
         archiv: Optional[List[Dict[str, Any]]] = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        summary: str = "",
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -460,7 +461,7 @@ class LLMService:
             yield {"delta": NICHT_KONFIGURIERT}
             return
 
-        messages = self._build_messages(user_message, conversation_history, memories, archiv, files)
+        messages = self._build_messages(user_message, conversation_history, memories, archiv, files, summary)
 
         stream = self.client.chat.completions.create(
             model=model or self.model,
