@@ -30,9 +30,31 @@ Kontextfenster (siehe *Portabilität* weiter unten).
 
 > **Die Kern-Erkenntnis:** Nicht das Tool entscheidet über Qualität, sondern das **System aus orchestrierten Modellen**, das je nach Aufgabe, Kosten und Compliance das passende Modell wählt.
 
-## Phasenbasierter Entwicklungszyklus
+## Entwicklungszyklus (aktuell: kontinuierlicher Hybrid)
 
-Jedes Feature durchläuft acht Phasen: **Brainstorm → Alignment → Planung → Implementierung → Testing → Recap → Refactor → Commit**. Gearbeitet wird in kleinen vertikalen Slices mit atomaren Commits; am Phasenende wird der Agenten-Kontext geleert, weil Modelle bei wenig und präzisem Kontext am zuverlässigsten arbeiten. Drei Regeln stechen heraus:
+Der frühere **phasenbasierte Zyklus** (acht Phasen: Brainstorm → Alignment →
+Planung → Implementierung → Testing → Recap → Refactor → Commit, aufgerufen
+über `/phase`) ist **abgelöst** — er war zu starr und zu langsam. Gearbeitet
+wird **ohne Phasen-Lauf**, als kontinuierlicher **Codex/Hermes-Hybrid**:
+
+* **Codex (GPT-5.6 Terra, gratis via ChatGPT-OAuth)** übernimmt die großen,
+  klar umrissenen Coding-Blöcke in einem eigenem Kontext (Worktree).
+* **Hermes** übernimmt Qualitätssicherung, Orchestrierung und Doku: Nach dem
+  Codex-Lauf prüft ein **fremdes System** (Hermes/DeepSeek, frischer Kontext)
+  den Diff (Security-Scan, Tests, unabhängiger Review-Subagent).
+* **Datenschutz hat immer Vorrang:** Persönliche Daten, Secrets, Bewerbungen →
+  nur DeepSeek/Hermes lokal; Codex bekommt ausschließlich reinen Code
+  (Skills `ai-datenschutz-regeln`, `codex-hybrid-workflow`).
+* Die Kern-Gates des phasenbasierten Ansatzes gelten **weiterhin**:
+  Prüfbefehl mit Exit-Code (“Fertig heißt verifiziert”), “code + docs” in
+  einem Commit, Fremdprüfung durch zweites Modell, kein Kontext-Müll im
+  Arbeitsschritt (siehe unten).
+
+Das folgende Kapitel dokumentiert den früheren Phasen-Aufbau (**als Geschichte** und für Kontext); aktuell gilt oben stehender Hybrid-Ablauf.
+
+---
+
+### Historisch: der phasenbasierte Zyklus (bis 08/2026, abgelöst)
 
 * Im *Alignment* werden alle architektonischen Verzweigungen per Interview geklärt, bevor Code entsteht — der Agent trifft keine Gestaltungsentscheidung selbst.
 * *Testing*, *Recap* und *Refactor* dürfen nie übersprungen werden.
@@ -47,7 +69,7 @@ Jedes Feature durchläuft acht Phasen: **Brainstorm → Alignment → Planung �
 
 Der Pflichtstopp nach Phase 4 fällt bewusst nicht weg: Ob sich eine Oberfläche richtig bedienen lässt, kann kein Test beantworten. Das ist der einzige Punkt im Ausführungsblock, an dem ein Mensch wirklich gebraucht wird — und deshalb der einzige, an dem angehalten wird.
 
-**Warum das ein bewusster Umbau war.** Vorher lag an jeder der sieben Phasengrenzen eine menschliche Freigabe, aber kein einziges maschinelles Prüf-Gate. Kontrolle wurde also mit meiner Zeit bezahlt statt mit Automatik — und genau daran ging das Kontingent kaputt, nicht an der Dateigröße der Regeln. Heute sitzt die Kontrolle an drei Stellen, die ohne mich funktionieren: dem freigegebenen `plan.md`, dem Prüfbefehl des Projekts mit Exit-Code, und den durchgesetzten Permission-Regeln. Ein Durchlauf ohne Zwischenfreigaben ist nur erlaubt, wenn alle drei vorhanden sind und es kein OT-/SPS-Code ist.
+**Warum das ein bewusster Umbau war.** Vorher lag an jeder der sieben Phasengrenzen eine menschliche Freigabe, aber kein einziges maschinelles Prüf-Gate. Kontrolle wurde also mit meiner Zeit bezahlt statt mit Automatik — und genau daran ging das Kontingent kaputt, nicht an der Dateigröße der Regeln. Heute sitzt die Kontrolle an drei Stellen, die ohne mich funktionieren: dem Prüfbefehl des Projekts mit Exit-Code, der Fremdprüfung (Review) und den durchgesetzten Permission-Regeln. Im aktuellen Hybrid-Modus gilt: **Autonom nur mit Prüfbefehl + code+docs; ohne Prüfbefehl wird jede Änderung einzeln vorgelegt; OT-/SPS-Code bleibt manuell bei Sebastian.**
 
 ## Ein Regelwerk, vier Ebenen
 
