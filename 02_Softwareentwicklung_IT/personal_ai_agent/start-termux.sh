@@ -33,20 +33,24 @@ PORT="${PORT:-8080}"
 cd "$PROJEKT" || { echo "Projektordner nicht gefunden: $PROJEKT"; exit 1; }
 
 echo "── Aktualisieren ──────────────────────────────"
-# Selbstheilender Sync: Der Remote (origin/main, der Entwicklungsstand vom
-# PC) ist die Wahrheit. Bei Divergenz (lokale Aenderungen/Commits auf dem
-# Handy blockieren den Pull) wird der Handy-Stand hart auf den Remote
-# zurueckgesetzt — das Handy ist eine Ausfuehrungs-/Anzeige-Instanz, keine
-# Entwicklungs-Umgebung. Verlorene lokale Daten sind auf dem Handy ok
-# (sie gehoeren nicht ins Repo; laufende Server-Dateien wie conversations.json
-# sind in .gitignore und bleiben unberuehrt).
-if git fetch origin --quiet; then
-    if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
-        echo "⚠️  Stand divergiert – Hard-Reset auf den Remote-Stand"
-        git reset --hard origin/main
-        git clean -fd
-    else
+# Synchronisation MIT Vergleich (kein blinder Reset): Es kann sein, dass
+# vom HANDY aus entwickelt wurde (z. B. im Urlaub) — dann ist der Handy-Stand
+# neuer und darf NICHT überschrieben werden.
+#   - Handy liegt VOR origin (Handy neuere Commits)  → push (Entwicklung hoch)
+#   - Handy liegt HINTER origin (PC neuere Commits)  → pull --ff-only
+#   - echte Divergenz (beide eigene Commits)         → NICHT blind resetten,
+#     sondern anhalten + Hinweis (Nutzer entscheidet).
+if git fetch origin --quiet 2>/dev/null; then
+    if git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+        echo "📤 Handy-Stand ist neuer – push (Urlaub-Entwicklung wird hochgeladen)"
+        git push origin HEAD:main && echo "Stand: $(git log --oneline -1)"
+    elif git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
         git pull --ff-only --quiet && echo "Stand: $(git log --oneline -1)"
+    else
+        echo
+        echo "⚠️  Echte Divergenz: Handy UND Remote haben eigene Commits."
+        echo "    Nicht blind überschreiben. Nachsehen mit: git log --oneline --graph -5"
+        echo
     fi
 else
     echo
