@@ -778,8 +778,20 @@ async def chat_stream(request: ChatRequest):
         if hermes_antwort is not None:
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, hermes_antwort)
+            # Auftrag im Buch anlegen (für die Umlenk-Buttons: /wechseln-handy
+            # braucht eine auftrag_id; ohne Buch-Eintrag gibt es keine).
+            auftrag_id = ""
+            try:
+                eintrag = auftrag_service.anlegen(
+                    herm_aufgabe, begruendung, kategorie, komplexitaet
+                )
+                auftrag_id = eintrag["id"]
+                auftrag_service.setze_chat_verknuepfung(auftrag_id, conversation_id)
+            except Exception:
+                pass
             def pc_baer_ereignisse():
-                yield _sse({"message": hermes_antwort, "ziel": "pc"})
+                yield _sse({"message": hermes_antwort, "ziel": "pc",
+                            "auftrag_id": auftrag_id})
                 yield _sse({"done": True, "conversation_id": conversation_id,
                             "memories_used": 0, "memories_created": 0,
                             "memory_count": memory_service.get_memory_count(),
