@@ -480,8 +480,12 @@ const SYMBOL_ABBRECHEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
 
 function setOnline(online) {
     state.isOnline = online;
-    dom.statusIndicator.className = `status ${online ? 'online' : 'offline'}`;
-    dom.statusText.textContent = online ? 'Online' : 'Offline';
+    // Status-Punkt/-Text sind entfernt (Agent-Gesicht zeigt den Status).
+    // Guards, damit der Health-Check nicht an null crasht.
+    if (dom.statusIndicator) {
+        dom.statusIndicator.className = `status ${online ? 'online' : 'offline'}`;
+        dom.statusText.textContent = online ? 'Online' : 'Offline';
+    }
     // Agent-Gesicht: lächelt/grün bei online, schläft/grau bei offline.
     const face = document.getElementById('agent-face');
     if (face) {
