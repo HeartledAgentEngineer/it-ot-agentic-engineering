@@ -74,12 +74,19 @@ class HermesGateway:
         Returns:
             Die Antwort des PC-Hermes als Text, oder None, wenn der PC nicht
             erreichbar/konfiguriert ist (dann faellt die Weiche aufs Buch).
+        Setzt bei Fehlern `self.letzter_fehler` (kurzer Grund), damit der
+        Router dem Nutzer/Kanal erklären kann, warum es nicht am PC lief —
+        OHNE dass parallel ein zweiter Track gestartet wird (exklusiv).
         """
+        self.letzter_fehler = ""
         if not self.ist_konfiguriert:
-            logger.info("PC-Hermes nicht konfiguriert (base_url/api_key fehlt) - Buch-Fallback")
+            self.letzter_fehler = "PC-Hermes nicht konfiguriert (base_url/api_key fehlt)"
+            logger.info("PC-Hermes nicht konfiguriert - Fallback")
             return None
         if not self.is_online():
-            logger.info("PC-Hermes nicht erreichbar - Buch-Fallback")
+            # is_online scheitert bei Timeout/401/Auth: Grund unterscheiden.
+            self.letzter_fehler = self._online_hinweis()
+            logger.info("PC-Hermes nicht erreichbar/Auth (%s) - Fallback", self.letzter_fehler)
             return None
 
         payload = {
@@ -107,11 +114,31 @@ class HermesGateway:
             )
             if antwort:
                 return antwort
+            self.letzter_fehler = "PC-Hermes lieferte leere Antwort"
             logger.warning("PC-Hermes lieferte leere Antwort")
             return None
         except Exception as e:
-            logger.warning("PC-Hermes-Anfrage fehlgeschlagen (%s) - Buch-Fallback", e)
+            self.letzter_fehler = f"PC-Hermes-Anfrage fehlgeschlagen: {e}"
+            logger.warning("PC-Hermes-Anfrage fehlgeschlagen (%s) - Fallback", e)
             return None
+
+    def _online_hinweis(self) -> str:
+        """Kurzer Grund, warum der Erreichbarkeits-Check scheiterte (Auth/Netz)."""
+        if not self.ist_konfiguriert:
+            return "nicht konfiguriert"
+        try:
+            r = httpx.get(
+                f"{self.base_url}/v1/models",
+                headers=self._headers(),
+                timeout=min(self.timeout, 5),
+            )
+            if r.status_code in (401, 403):
+                return "Auth-Fehler (API-Key falsch/fehlt)"
+            if r.status_code == 200:
+                return "ok"
+            return f"Status {r.status_code}"
+        except Exception as e:  # pragma: no cover - Netz/Timeout
+            return f"nicht erreichbar ({e.__class__.__name__})"
 
 
 hermes_gateway = HermesGateway()

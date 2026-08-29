@@ -98,15 +98,19 @@ def route_auftrag(
             f"{kontext.strip()}"
         )
 
-    # 1) PC-Hermes (Track A)
+    # 1) PC-Hermes (Track A) — exklusiv: läuft er, ist Schluss (nie beides).
     hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
     if hermes_antwort is not None:
         conv_id = get_or_create_conversation(None)
         finish_exchange(conv_id, message, hermes_antwort)
         return {"art": "pc", "ziel": "pc", "reply": hermes_antwort,
                 "conversation_id": conv_id}
+    # Track A fehlgeschlagen: Grund merken (für Transparenz im Track C/B),
+    # damit klar ist, warum es NICHT am PC lief — ohne dass beide laufen.
+    pc_grund = getattr(hermes_gateway, "letzter_fehler", "") or "PC nicht erreichbar"
+    logger.info("PC-Hermes uebersprungen (%s) - weiter zu Handy/Buch", pc_grund)
 
-    # 2) Lokaler Hermes (Track C)
+    # 2) Lokaler Hermes (Track C) — NUR weil Track A fehlschlug.
     if hermes_local_ist_verfuegbar():
         conv_id = get_or_create_conversation(None)
         eintrag = starte_lokale_hermes(
