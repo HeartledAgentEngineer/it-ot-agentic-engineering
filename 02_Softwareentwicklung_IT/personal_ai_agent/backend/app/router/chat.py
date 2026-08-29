@@ -344,19 +344,42 @@ def _datei_tool(frage: str) -> str:
     if not stichwort:
         return ""
 
+    # "letzte/neueste" → nach Zeit sortieren (neueste zuerst) — z. B.
+    # "das letzte aufgenommene Bild". Stoppwörter aus dem Suchbegriff.
+    neueste_zuerst = any(w in stichwort for w in ("letzte", "letzten", "neueste", "neuesten"))
+    stopwoerter = {
+        "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
+        "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
+        "aufgenommen", "bild", "foto", "erkläre", "erkläre", "mir", "ist",
+        "und", "was", "da", "drauf", "darauf", "zeig", "zeige", "suche",
+    }
+    teile = []
+    for w in stichwort.split():
+        # Satzzeichen aus jedem Wort entfernen ("mir," → "mir"), sonst
+        # bleibt "mir," als Suchbegriff übrig und findet nichts.
+        kern = w.strip(" ?!,.:;-_")
+        if kern and kern not in stopwoerter:
+            teile.append(kern)
+    reines_stichwort = " ".join(teile).strip()
+
     from app.services.datei_suche import lese_datei_info, suche_dateien
 
     # Stufe B: expliziter Lese-Wunsch → Inhalt lesen.
     lese_wunsch = trigger in ("lies", "lese", "was steht in", "inhalt von",
                               "zeig mir den inhalt", "zeig mir den text",
                               "gib mir die datei", "fasse zusammen aus")
+    # Für "erkläre mir, was drauf ist" (auch ohne explizites Lese-Signal)
+    # bei einem Bild → das neueste/gefundene Bild LESEN + erklären.
+    will_erklaeren = ("erklär" in f or "erkläre" in f or "drauf ist" in f or "was ist darauf" in f)
+
     try:
-        treffer = suche_dateien(stichwort)
+        treffer = suche_dateien(reines_stichwort, neueste_zuerst=neueste_zuerst)
     except Exception:
         return ""
 
-    if lese_wunsch and treffer:
-        # lese den ersten/passendsten Treffer (Inhalt).
+    if (lese_wunsch or will_erklaeren) and treffer:
+        # lese den ersten/passendsten Treffer (Inhalt) — bei "letzter/neueste"
+        # nach Zeit sortiert, also das neueste Bild.
         datei = treffer[0]
         info = lese_datei_info(datei["pfad"])
         if info.get("ist_bild"):

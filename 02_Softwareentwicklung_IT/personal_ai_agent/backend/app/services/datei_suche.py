@@ -40,16 +40,18 @@ MAX_ERGEBNISSE = 30
 MAX_TIEFE = 3  # nicht zu tief in Ordnerhierarchien tauchen
 
 
-def suche_dateien(stichwort: str) -> List[dict]:
+def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
     """Sucht Dateien in den freigegebenen Ordnern nach einem Stichwort.
 
-    Returns: Liste von { pfad, name, groesse_byte, erweiterung }.
-    Gibt stichwort=="" alle (relevante) Dateien zurück (begrenzt).
+    Returns: Liste von { pfad, name, groesse_byte, erweiterung, mtime }.
+    - `stichwort` wird im Dateinamen (und Erweiterung) gesucht.
+    - Leeres Stichwort + `neueste_zuerst=True` liefert ALLE Dateien sortiert
+      (für "das letzte Bild" — kein Namens-Match nötig).
+    - `neueste_zuerst=True` sortiert nach Änderungsdatum (neueste zuerst).
     Sucht die Wurzel `~/storage/shared` (enthält alle freigegebenen Bereiche).
     """
-    if not stichwort:
-        return []
-    stichwort = stichwort.lower().strip()
+    stichwort = (stichwort or "").lower().strip()
+    alle = neueste_zuerst and not stichwort  # "letztes Bild" → alles sortiert
     treffer: List[dict] = []
 
     # Nur die Wurzel durchsuchen (enthält Download/Documents/Pictures/etc.).
@@ -67,19 +69,23 @@ def suche_dateien(stichwort: str) -> List[dict]:
                 if ext not in _ERLAUBTE_EXT:
                     continue
                 voll = os.path.join(root, name)
-                if stichwort in name.lower() or stichwort in ext:
+                if alle or stichwort in name.lower() or stichwort in ext:
                     try:
+                        mtime = os.path.getmtime(voll)
                         groesse = os.path.getsize(voll)
                     except OSError:
-                        groesse = 0
+                        mtime, groesse = 0.0, 0
                     treffer.append({
                         "pfad": voll,
                         "name": name,
                         "groesse_byte": groesse,
                         "erweiterung": ext,
+                        "mtime": mtime,
                     })
                 if len(treffer) >= MAX_ERGEBNISSE:
-                    return treffer
+                    break
+    if neueste_zuerst:
+        treffer.sort(key=lambda t: t.get("mtime") or 0, reverse=True)
     return treffer
 
 
