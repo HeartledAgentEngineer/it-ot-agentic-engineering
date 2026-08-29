@@ -172,6 +172,10 @@ body {
 .message-content {
     max-width: 85%;
     padding: 12px 16px;
+    /* Lange Wörter/URLs/Code/Base64 umbrechen statt über den Rand zu laufen */
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
     border-radius: var(--radius);
     font-size: 0.95rem;
     line-height: 1.6;
