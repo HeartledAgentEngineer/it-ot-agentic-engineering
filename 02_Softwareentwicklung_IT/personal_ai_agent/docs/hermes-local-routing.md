@@ -28,6 +28,15 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   alle 3 s pollt und als Chat-Blase anzeigt.
 - Am Ende wird die letzte Hermes-Box (die Antwort) gelesen und per
   `ergebnis_eintragen(…, erfolg=True)` als `fertig` geschlossen.
+- **Robuster Abschluss (seit Stand 2026-08-30):** Der `❯`-Prompt steht in der
+  Hermes-TUI auch **während** der Arbeit permanent am unteren Rand, er taugt
+  also nicht als „fertig“-Signal. `stream_auftrag()` beendet einen Auftrag
+  erst, wenn die Pane über ein kurzes Idle-Fenster (10 s,
+  `_ABSCHLUSS_IDLE_S`) **inhaltlich stabil** bleibt (kein neuer Gedanke, kein
+  Fortschritts-Timer `⏱ <n>s`, keine Pane-Änderung) und eine Antwort-Box
+  vorliegt. Ohne dieses Fenster wurde der noch arbeitende Agent früher
+  vorzeitig als fertig gewertet und über die Registry entfernt (verlorenes
+  Ergebnis / „Hermes hängt“).
 
 ## Live-Blase bleibt im Verlauf (nicht nur fluechtig)
 - Die Live-Meldungen waren bisher **nur** im Client-Speicher (`state.messages`)

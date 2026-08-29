@@ -41,6 +41,17 @@ _BOX_END = re.compile(r"╰")
 _TOOL_ZEILE = re.compile(r"💻.*?\$\s*(.*)")
 _BOX_INHALT = re.compile(r"^│\s*")
 
+# Aktiver Denk-/Tool-Timer in der Fortschritts-Statuszeile der TUI ("... ⏱ <n>s ...").
+# Nur eine laufende Zeit (n>0) zaehlt als Arbeit; ein stillgelegtes '⏱ 0s'
+# oder fehlender Timer nach der Antwort ist es nicht.
+_LIVE_TIMER_ZEILE = re.compile(r"⏱\s*[1-9]\d*\s*s", re.IGNORECASE)
+
+# Wie lange die Pane stabil (unveraendert, kein Timer, kein Tool-Schritt)
+# bleiben muss, bevor der Auftrag als abgeschlossen gilt. Faengt kurze
+# Pausen zwischen zwei Denk-/Tool-Schritten ab, die sonst als "fertig"
+# missdeutet wuerden.
+_ABSCHLUSS_IDLE_S = 10
+
 
 def _box_innen(zeile: str) -> str:
     """Entfernt die Box-Raender der TUI aus einer Inhaltszeile.
@@ -333,20 +344,35 @@ def stream_auftrag(
         start = time.time()
         # Im interaktiven Modus beendet sich Hermes nicht von selbst:
         # Nach einer Antwort zeigt er wieder den Eingabe-Prompt. Ein Auftrag
-        # gilt als abgeschlossen, wenn eine Antwort-Box vorliegt und der
-        # Prompt wieder da ist (nicht mehr "Initializing agent...").
+        # gilt als abgeschlossen, wenn eine Antwort-Box vorliegt, der Agent
+        # laut Pane nicht mehr arbeitet UND die Pane ueber ein kurzes
+        # Idle-Fenster stabil bleibt (kein neuer Timer / keine neue Zeile).
+        # Grund: Der '❯' steht auch waehrend der Arbeit permanent unten, und
+        # zwischen zwei Denk-/Tool-Schritten gibt es kurze Vorschauboxen. Ein
+        # einzelner Sichtbarkeits-Check wuerde den Auftrag dadurch viel zu
+        # frueh beenden (Regression: der noch arbeitende Agent wurde abgebaut,
+        # siehe "_arbeitet_noch").
+        letzte_pane = ""
+        stabil_seit: Optional[float] = None
         while time.time() - start < timeout:
-            for gd in job.neue_gedanken():
+            neu = job.neue_gedanken()
+            for gd in neu:
                 yield {"art": "gedanke", "text": gd}
 
             pane = job._pane_text()
-            # Grob: Hermes zeigt wieder den Prompt ("❯") => die laufende
-            # Antwort ist fertig; nehmen wir die letzte Antwort-Box als Ergebnis.
-            if "❯" in pane and not _arbeitet_noch(pane):
-                boxen = job.alle_antwort_boxen()
-                if boxen:
-                    yield {"art": "ergebnis", "text": boxen[-1]}
-                    return
+            # Pane bewegt sich (neue Gedanken, hochzaehlender Timer, neue Box)
+            # oder der Agent arbeitet erkennbar weiter => Stabilitaet numm ab.
+            if neu or pane != letzte_pane or _arbeitet_noch(pane):
+                stabil_seit = None
+            elif "❯" in pane:
+                if stabil_seit is None:
+                    stabil_seit = time.time()
+                elif time.time() - stabil_seit >= _ABSCHLUSS_IDLE_S:
+                    boxen = job.alle_antwort_boxen()
+                    if boxen:
+                        yield {"art": "ergebnis", "text": boxen[-1]}
+                        return
+            letzte_pane = pane
 
             if not job.lebt_noch():
                 boxen = job.alle_antwort_boxen()
@@ -364,14 +390,18 @@ def stream_auftrag(
 
 
 def _arbeitet_noch(pane: str) -> bool:
-    """True, wenn der Prompt noch in einer bearbeitenden Zeile statt am Ende
-    steht (grob: solange '❯' fehlt ODER eine Tool-/Initialisierungszeile da
-    ist). Genutzt zur Abschluss-Erkennung im interaktiven Modus:
+    """True, solange der Agent offensichtlich noch arbeitet.
+
+    Der '❯'-Prompt steht in der Hermes-TUI AUCH während der Arbeit permanent
+    unten (die Nachrichten scrollen darüber) — er ist also KEIN verlaessliches
+    "fertig"-Signal allein. Als Arbeit gilt stattdessen: Initialisierungs-
+    zeile, ein laufender Fortschritts-Timer ('⏱ <n>s' mit n>0) oder eine
+    sichtbare Werkzeug-Zeile ohne Prompt am Ende.
     """
-    # Solange die Pane offensichtlich mitten in einer Antwort steckt
-    # (Tool-Schritt / "Initializing"/kein Prompt), gilt sie als am Arbeiten.
     if "Initializing agent" in pane:
         return True
-    # Prompt sichtbar + Antworten vorhanden => fertig (sobald der Bearbeiter
-    # nicht mitten in einem Tool steht).
+    # Aktiver Denk-/Tool-Timer (Fortschrittszeile unten) => Agent arbeitet.
+    if _LIVE_TIMER_ZEILE.search(pane):
+        return True
+    # Werkzeug-Zeile sichtbar, aber noch kein Prompt am Ende.
     return "💻" in pane and "❯" not in pane
