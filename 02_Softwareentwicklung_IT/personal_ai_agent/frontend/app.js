@@ -477,6 +477,13 @@ function setOnline(online) {
     state.isOnline = online;
     dom.statusIndicator.className = `status ${online ? 'online' : 'offline'}`;
     dom.statusText.textContent = online ? 'Online' : 'Offline';
+    // Agent-Gesicht: lächelt/grün bei online, schläft/grau bei offline.
+    const face = document.getElementById('agent-face');
+    if (face) {
+        face.textContent = online ? '🤖' : '😴';
+        face.style.filter = online ? '' : 'grayscale(0.9)';
+        face.title = online ? 'Agent ist online' : 'Agent ist offline';
+    }
 }
 
 /**
@@ -2395,9 +2402,11 @@ dom.input.addEventListener('keydown', (e) => {
 });
 
 dom.sendBtn.addEventListener('click', handleSubmit);
-dom.newChatBtn.addEventListener('click', neuesGespraech);
-dom.chatsBtn.addEventListener('click', oeffneChatBlatt);
-dom.chatsClose.addEventListener('click', schliesseChatBlatt);
+    // Ein-Chat: newChatBtn/chatsBtn existieren nicht mehr (Buttons entfernt).
+    // Guard, damit die Initialisierung nicht an null-Referenzen crasht.
+    if (dom.newChatBtn) dom.newChatBtn.addEventListener('click', neuesGespraech);
+    if (dom.chatsBtn) dom.chatsBtn.addEventListener('click', oeffneChatBlatt);
+    if (dom.chatsClose) dom.chatsClose.addEventListener('click', schliesseChatBlatt);
 // Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
 // natürlichste Geste, um ein Blatt wieder loszuwerden.
 dom.chatSheet.addEventListener('click', (e) => {
