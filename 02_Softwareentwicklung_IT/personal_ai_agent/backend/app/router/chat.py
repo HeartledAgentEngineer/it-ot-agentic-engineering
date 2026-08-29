@@ -890,6 +890,17 @@ async def chat_stream(request: ChatRequest):
                     if not s_werkzeug_text:
                         s_werkzeug_text = _verlauf_tool(request.message)
                 s_user = request.message + (s_werkzeug_text or "")
+                # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was
+                # gerade passiert, statt nur "Denke nach...".
+                if s_werkzeug_bilder:
+                    yield _sse({"status": "🔍 Suche in deinen Dateien/Bildern…"})
+                elif s_werkzeug_text and ("Archiv" in s_werkzeug_text
+                                          or "Gesprächsverlauf" in s_werkzeug_text):
+                    yield _sse({"status": "🔎 Sage ich dir aus dem Archiv/Verlauf…"})
+                elif s_werkzeug_text:
+                    yield _sse({"status": "🔍 Suche in deinen Dateien…"})
+                else:
+                    yield _sse({"status": "🤔 Agent überlegt…"})
             except Exception:
                 s_werkzeug_bilder = []
                 s_summary, s_hist_begrenzt, s_user = "", history, request.message
