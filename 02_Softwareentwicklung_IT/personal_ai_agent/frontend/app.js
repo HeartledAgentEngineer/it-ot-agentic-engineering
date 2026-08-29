@@ -2171,6 +2171,27 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                         htext || daten.text,
                         zeitIso || new Date().toISOString()
                     );
+                } else if (daten.done) {
+                    // WICHTIG: VOR `daten.sources` pruefen! Das done-Ereignis
+                    // traegt selbst sources UND bild_vorschau (Backend chat.py:
+                    // Quellen werden im done-Ereignis nochmals mitgeschickt).
+                    // Stand die Quellen-Abfrage vorher, schluckte sie das
+                    // done-Ereignis, `abschluss` blieb null und die
+                    // Bild-Vorschau (zeigeBildVorschau in finishReply) kam nie an.
+                    abschluss = daten;
+                    if (daten.sources) quellen = mergeQuellen(quellen, daten.sources);
+                    // Bild-Vorschau rendert finishReply (nach dem innerHTML).
+                    // Hier KEIN redundanter Aufruf — das würde doppelt/uberschrieben.
+                    // Der Stream hat die Strecke selbst bis zum Ende geführt
+                    // (Track C live) – der 3s-Poller ist dafür nicht nötig.
+                    if (daten.auftrag_strecke) {
+                        _auftragStreckeDirekt = true;
+                        // Auftrag beendet → Kommunikationskanal wieder frei,
+                        // damit spätere Nachrichten einen neuen Auftrag starten
+                        // statt an die geschlossene Session zu gehen.
+                        _laufenderAuftragKurz = null;
+                        aktualisiereStatusAnzeige();
+                    }
                 } else if (daten.sources) {
                     // Können an jedem Häppchen hängen, deshalb laufend sammeln.
                     quellen = mergeQuellen(quellen, daten.sources);
