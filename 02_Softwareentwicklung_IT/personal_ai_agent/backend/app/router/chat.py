@@ -422,8 +422,21 @@ def _datei_tool(frage: str) -> tuple:
         or ("bild" in f or "foto" in f)
     )
 
+    # Ordner-Hinweis: "foto/bild" → Kamera(echte Fotos) bevorzugt;
+    # "screenshot" → Screenshots-Ordner bevorzugt (was ist auf dem Screen).
+    if "screenshot" in f:
+        ordner_hinweis = "screenshot"
+    elif "bild" in f or "foto" in f or "aufnahme" in f:
+        ordner_hinweis = "kamera"
+    else:
+        ordner_hinweis = ""
+
     try:
-        treffer = suche_dateien(reines_stichwort, neueste_zuerst=neueste_zuerst)
+        treffer = suche_dateien(
+            reines_stichwort,
+            neueste_zuerst=neueste_zuerst,
+            ordner_hinweis=ordner_hinweis,
+        )
     except Exception:
         return "", []
 
