@@ -239,6 +239,49 @@ def auftrag_abbrechen(auftrag_id: str):
         raise HTTPException(status_code=500, detail=str(fehler))
 
 
+@router.post("/{auftrag_id}/wechseln-handy", response_model=AuftragItem)
+def auftrag_wechseln_handy(auftrag_id: str):
+    """Wechselt einen laufenden Auftrag auf den LOKALEN Handy-Hermes (Track C).
+
+    Der Nutzer-Controller will z. B. vom PC-Hermes (der nicht zielfuehrend
+    arbeitet) auf den Handy-Hermes wechseln: den laufenden Auftrag abbrechen
+    (tmux/Buch-Cleanup wie /abbrechen) und DENSELBEN Auftrag lokal neu starten.
+    Liefert den Auftrag im Zustand 'offen' (laeuft lokal weiter).
+    """
+    try:
+        auftrag = auftrag_service.einzeln(auftrag_id)
+        if auftrag is None:
+            raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
+        volle_id = auftrag["id"]
+        # 1) Laufenden (PC-)Hermes-/tmux-Kontext sauber beenden.
+        try:
+            from app.services.hermes_local import lokale_jobs_beenden_fuer
+            lokale_jobs_beenden_fuer(volle_id)
+        except Exception:
+            pass  # kein lokaler Job — egal
+        # 2) Auftrag lokal neu starten (Track C).
+        from app.router.chat import _starte_lokale_hermes
+        starte_lokale_hermes(
+            auftrag.get("auftrag", ""),
+            hinweis="Vom Nutzer auf Handy-Hermes gewechselt",
+            kategorie=auftrag.get("kategorie"),
+            komplexitaet=auftrag.get("komplexitaet"),
+            chat_verknuepfung=auftrag.get("conversation_id") or "",
+        )
+        # 3) Auftrag im Buch als offen/laeuft markieren.
+        try:
+            auftrag = auftrag_service.status_aendern(volle_id, "offen")
+        except Exception:
+            pass
+        logger.info("Auftrag %s auf Handy-Hermes gewechselt", volle_id[:8])
+        return auftrag
+    except HTTPException:
+        raise
+    except Exception as fehler:
+        logger.error("Wechsel auf Handy fehlgeschlagen: %s", fehler)
+        raise HTTPException(status_code=500, detail=str(fehler))
+
+
 @router.post("/{auftrag_id}/status", response_model=AuftragItem)
 def statusmeldung_hinzufuegen(auftrag_id: str, meldung: StatusMeldungCreate):
     """Zwischenstand des Coding-Agenten eintragen."""
