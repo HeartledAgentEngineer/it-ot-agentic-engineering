@@ -68,6 +68,48 @@ class HermesGateway:
             logger.debug("PC-Hermes is_online: nicht erreichbar (%s)", e)
             return False
 
+    def _chat_completion_stream(self, auftrag: str) -> str:
+        """Führt den Streaming-POST an den PC-Hermes aus + sammelt die Antwort."""
+        import json as _json
+        payload = {
+            "model": "hermes-agent",
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": auftrag},
+            ],
+            "stream": True,
+        }
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                headers=self._headers(),
+                timeout=self.timeout,
+            ) as r:
+                r.raise_for_status()
+                antwort = ""
+                for zeile in r.iter_lines():
+                    if not zeile or not zeile.startswith("data: "):
+                        continue
+                    datenstr = zeile[6:].strip()
+                    if datenstr == "[DONE]":
+                        break
+                    try:
+                        haeppchen = _json.loads(datenstr)
+                        antwort += (
+                            haeppchen.get("choices", [{}])[0]
+                            .get("delta", {})
+                            .get("content", "")
+                            or ""
+                        )
+                    except Exception:
+                        continue
+                return antwort.strip()
+        except Exception as e:
+            logger.debug("PC-Hermes-Stream-Aufruf fehlgeschlagen (%s)", e)
+            return ""
+
     def sende_auftrag(self, auftrag: str) -> Optional[str]:
         """Sendet einen Programmierauftrag an den PC-Hermes und liefert die Antwort.
 
@@ -89,36 +131,25 @@ class HermesGateway:
             logger.info("PC-Hermes nicht erreichbar/Auth (%s) - Fallback", self.letzter_fehler)
             return None
 
-        payload = {
-            "model": "hermes-agent",
-            "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": auftrag},
-            ],
-            "stream": False,
-        }
         try:
-            r = httpx.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                headers=self._headers(),
-                timeout=self.timeout,
-            )
-            r.raise_for_status()
-            daten = r.json()
-            antwort = (
-                daten.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
-            if antwort:
-                return antwort
-            # 2xx + leere Antwort: der PC-Hermes HAT den Auftrag angenommen,
-            # liefert aber (noch) keinen Text. Kein Fallback auf Handy —
-            # sonst laufen beide. Bestätigung liefern.
-            self.letzter_fehler = "PC-Hermes hat angenommen (leere Antwort)"
-            logger.warning("PC-Hermes 2xx mit leerer Antwort - kein Fallback")
+            # Streaming-Response + RETRY: Der PC-Hermes arbeitet sichtbar,
+            # aber die Antwort kommt oft nicht im ersten Response (er braucht
+            # Zeit). Deshalb bis zu 3 Versuche mit Pause — beim 2./3. Versuch
+            # liefert der PC die fertige Antwort aus seiner Session.
+            antwort = ""
+            for versuch in range(1, 4):
+                antwort = self._chat_completion_stream(auftrag)
+                if antwort:
+                    return antwort
+                if versuch < 3:
+                    logger.info("PC-Hermes antwortet noch (Versuch %s/3) – warte 5s", versuch)
+                    import time as _t
+                    _t.sleep(5)
+            # 3 Versuche ohne Antwort: PC hat übernommen (arbeitet), liefert
+            # aber (noch) keinen Text. Kein Fallback auf Handy — sonst laufen
+            # beide. Bestätigung liefern.
+            self.letzter_fehler = "PC-Hermes hat angenommen (leere Antwort nach 3 Versuchen)"
+            logger.warning("PC-Hermes 2xx mit leerer Antwort (3 Versuche) - kein Fallback")
             return (
                 "🧩 **Hermes-Aufgabe wurde an den PC-Hermes übergeben.**\n\n"
                 "Der PC-Hermes arbeitet an der Aufgabe. Das Ergebnis erscheint, "
