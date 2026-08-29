@@ -293,6 +293,12 @@ async def chat(request: ChatRequest):
             memories_created=memories_created,
             sources=quellen,
             archiv_used=len(archiv),
+            bild_vorschau=(
+                datei_tool_bilder[0]["data_url"] if datei_tool_bilder else None
+            ),
+            bild_pfad=(
+                datei_tool_bilder[0].get("pfad") if datei_tool_bilder else None
+            ),
         )
 
     except Exception as e:
@@ -427,10 +433,12 @@ def _datei_tool(frage: str) -> tuple:
         info = lese_datei_info(datei["pfad"])
         if info.get("ist_bild"):
             if info.get("data_url"):
-                # Bild als Datei für den Vision-LLM (nicht in den Text).
+                # Bild als Datei für den Vision-LLM (nicht in den Text)…
+                # + Pfad mitgeben, damit das Frontend das Bild nachladen kann.
                 return (
                     "\n\n[Datei-Bild zum Ansehen: " + datei["name"] + "]",
-                    [{"type": "image", "data_url": info["data_url"]}],
+                    [{"type": "image", "data_url": info["data_url"],
+                      "pfad": datei["pfad"]}],
                 )
             return f"\n\n[Datei-Bild: {datei['name']} (für Vision verfügbar)]", []
         if info.get("text"):
@@ -740,6 +748,13 @@ async def chat_stream(request: ChatRequest):
             "archiv_used": len(archiv),
             # Nochmals gesammelt – falls ein Zwischenereignis verloren ging.
             "sources": quellen,
+            # Bild-Vorschau (flüchtig): data_url + Pfad für die Chat-Miniatur.
+            "bild_vorschau": (
+                s_werkzeug_bilder[0]["data_url"] if s_werkzeug_bilder else None
+            ),
+            "bild_pfad": (
+                s_werkzeug_bilder[0].get("pfad") if s_werkzeug_bilder else None
+            ),
         })
 
     return StreamingResponse(
