@@ -496,7 +496,10 @@ function updateSendButton() {
         return;
     }
     const hatText = !!dom.input.value.trim();
-    const stoppModus = !!state.abbruch && !hatText;
+        // Stopp-Modus auch, wenn nur ein Hermes-Auftrag läuft (_laufenderAuftragKurz),
+        // auch ohne aktiven Stream (state.abbruch) — sonst verschwindet der
+        // Abbrechen-Knopf, während Hermes noch arbeitet.
+        const stoppModus = (!!state.abbruch || !!_laufenderAuftragKurz) && !hatText;
 
     dom.sendBtn.innerHTML = stoppModus ? SYMBOL_ABBRECHEN : SYMBOL_SENDEN;
     dom.sendBtn.classList.toggle('stopping', stoppModus);
@@ -2435,8 +2438,10 @@ function zeigeWartendeNachricht(text) {
  *  beendet (POST /abbrechen: tmux-Session killen + Buch auf 'fehler') — sonst
  *  arbeitet Hermes im Hintergrund weiter, auch wenn man ihn stoppen will. */
 function brichAb() {
-    if (!state.abbruch) return;
-    state.abbruch.abort();
+    // Stream abbrechen (falls einer läuft) — aber NICHT früh returnen,
+    // wenn nur ein Hermes-Auftrag ohne aktiven Stream läuft: der Auftrag
+    // muss trotzdem beendet werden (Stopp-Button bleibt verfügbar).
+    if (state.abbruch) state.abbruch.abort();
 
     // Laufenden Hermes-Auftrag sauber beenden (auch bei offener Rückfrage).
     if (_laufenderAuftragKurz) {
@@ -2481,11 +2486,11 @@ async function handleSubmit() {
     }
     const text = dom.input.value.trim();
 
-    // Leere Eingabe bei laufender Antwort heißt: abbrechen.
-    if (!text) {
-        if (state.abbruch) brichAb();
-        return;
-    }
+    // Leere Eingabe bei laufender Antwort/Auftrag heißt: abbrechen.
+        if (!text) {
+            if (state.abbruch || _laufenderAuftragKurz) brichAb();
+            return;
+        }
 
     dom.input.value = '';
     dom.input.style.height = 'auto';
@@ -2670,13 +2675,17 @@ async function stelleVerlaufWiederHer() {
     // Zuerst das gemerkte Gespräch. Klappt das nicht – unbekannte Kennung,
     // neues Gerät, geleerter Browserspeicher –, wird das jüngste geholt.
     //
-    // Dieser Rückfall fehlte zunächst: Bei einer Kennung, die der Server
-    // nicht mehr kannte, brach der Vorgang ab und man stand vor einem
-    // leeren Fenster, obwohl vier Gespräche bereitlagen.
-    if (state.conversationId && await zeigeGespraech(state.conversationId)) return;
-
-    localStorage.removeItem('conversation_id');
-    state.conversationId = null;
+    // WICHTIG (Fix 2026-08): Bei einem Fehlschlag (Netzwerk kurz weg, Server
+    // noch am Starten) wird die gemerkte Kennung NICHT mehr gelöscht. Vorher
+    // führte das dazu, dass nach einem Reload eine NEUE leere Conversation
+    // entstand und der bisherige Verlauf (conv_8) aus der Anzeige verschwand,
+    // obwohl er im Backend noch existierte.
+    if (state.conversationId) {
+        if (await zeigeGespraech(state.conversationId)) return;
+        // Laden fehlgeschlagen (404 ODER Netzwerk): Kennung BEHALTEN.
+        // Der Rückfall unten lädt die jüngste; das localStorage bleibt intakt,
+        // damit die nächste Nachricht weiter an die bekannte Conversation geht.
+    }
 
     const juengste = await letzteGespraechsId();
     if (juengste) await zeigeGespraech(juengste);

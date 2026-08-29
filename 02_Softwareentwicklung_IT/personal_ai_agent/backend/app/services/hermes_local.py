@@ -197,10 +197,13 @@ class LocalHermesJob:
             if in_box:
                 if _BOX_END.search(zeile):
                     in_box = False
-                    t = " ".join(box_zeilen).strip()
+                    # Zeilen MIT Umbruch verketten statt mit Leerzeichen —
+                    # vorher wurden mehrzeilige Inhalte (Diff/Stat/Text) zu
+                    # einem langen Fließtext mit komischen Brüchen gequetscht.
                     if t:
                         gedanken.append(t)
-                    continue
+                        continue
+
                 innen = _BOX_INHALT.sub("", zeile).rstrip()
                 if innen.strip():
                     box_zeilen.append(innen)
