@@ -342,6 +342,37 @@ function baueKorrekturButton(fehlerFall) {
         sendMessage(frag);
         btn.textContent = '… wird vom Agenten beantwortet';
     });
+    // Controller: Zusätzlicher Umlenk-Button zu Hermes-Lokal (Handy), wenn
+    // ein Auftrag läuft — der PC-Hermes liefert die Antwort evtl. nicht
+    // zurück, dann wechselt man auf den Handy-Hermes.
+    if (_laufenderAuftragKurz) {
+        const btnHandy = document.createElement('button');
+        btnHandy.className = 'korrektur-button';
+        btnHandy.textContent = '↪️ Zu Hermes-Lokal (Handy) wechseln';
+        btnHandy.style.cssText =
+            'margin-top:6px;margin-left:6px;padding:8px 10px;border:1px solid #4a7;' +
+            'border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem';
+        btnHandy.addEventListener('click', async () => {
+            const id = _laufenderAuftragKurz;
+            if (!id) return;
+            btnHandy.disabled = true;
+            btnHandy.textContent = '… wechselt auf Handy-Hermes';
+            try {
+                await fetch(`${API_BASE}/api/auftraege/${id}/wechseln-handy`, { method: 'POST' });
+                addMessage('↪️ **Auf den Handy-Hermes gewechselt** – die Aufgabe läuft jetzt lokal auf deinem Smartphone.', 'assistant');
+            } catch (_) {
+                btnHandy.textContent = '⚠️ Wechsel fehlgeschlagen';
+            }
+        });
+        // Umlenk-Buttons nebeneinander (Flex-Container).
+        const zeile = document.createElement('div');
+        zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+        // Bestehenden btn in die Zeile verschieben + Handy-Button dazu.
+        btn.parentNode && btn.parentNode.removeChild(btn);
+        zeile.appendChild(btn);
+        zeile.appendChild(btnHandy);
+        return zeile;
+    }
     return btn;
 }
 
