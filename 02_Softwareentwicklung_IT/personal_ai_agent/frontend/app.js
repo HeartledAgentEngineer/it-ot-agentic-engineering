@@ -507,10 +507,14 @@ function aktualisiereStatusAnzeige() {
         badge.style.borderColor = '#c90';
         badge.style.background = '#2a2215';
     } else {
-        badge.textContent = '🟢 Agent';
-        badge.style.color = '#9f9';
-        badge.style.borderColor = '#3a3a3a';
-        badge.style.background = '#152a15';
+        // Ruhezustand: kein dauerhaftes "🟢 Agent"-Badge nötig — der
+        // Status ist nur bei Aktivität interessant (Hermes/Agent arbeitet).
+        badge.textContent = '';
+        badge.style.color = '';
+        badge.style.borderColor = '';
+        badge.style.background = '';
+        badge.style.fontSize = '0';
+        badge.style.padding = '0';
     }
 }
 
