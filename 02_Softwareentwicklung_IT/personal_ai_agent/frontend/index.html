@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260828O">
+    <link rel="stylesheet" href="style.css?v=20260828P">
 </head>
 <body>
     <div id="app">
@@ -59,6 +59,10 @@
                 <div id="file-preview-list" class="file-preview-list"></div>
             </div>
             <div class="input-wrapper">
+                <button id="ziel-btn" class="icon-btn ziel-btn" title="Wohin soll die Aufgabe? (Agent / Hermes Handy / Hermes PC)"
+                        style="font-size:0.7rem;padding:4px 8px;white-space:nowrap;border:1px solid #555;border-radius:8px;background:#1e1e1e;color:#bbb;cursor:pointer">
+                    🎯 Agent
+                </button>
                 <textarea id="message-input" rows="1" placeholder="Nachricht eingeben..." maxlength="10000"></textarea>
                 <button id="upload-btn" class="icon-btn" title="Datei hochladen (Bild/PDF)">
                     <svg viewBox="0 0 24 24" width="22" height="22">
@@ -192,6 +196,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=20260828O"></script>
+    <script src="app.js?v=20260828P"></script>
 </body>
 </html>

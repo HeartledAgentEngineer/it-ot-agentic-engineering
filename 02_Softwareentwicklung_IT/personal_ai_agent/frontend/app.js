@@ -342,16 +342,24 @@ function baueKorrekturButton(fehlerFall) {
         sendMessage(frag);
         btn.textContent = '… wird vom Agenten beantwortet';
     });
-    // Controller: Zusätzlicher Umlenk-Button zu Hermes-Lokal (Handy), wenn
-    // ein Auftrag läuft — der PC-Hermes liefert die Antwort evtl. nicht
-    // zurück, dann wechselt man auf den Handy-Hermes.
+    // Umlenk-Buttons IMMER nebeneinander (Flex-Reihe) — auch wenn kein
+    // Auftrag mehr "läuft" (der Agent-Button sendet die Frage einfach
+    // neu an den normalen LLM; der Handy-Button nur bei laufendem Job).
+    const zeile = document.createElement('div');
+    zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+    // Klare Labels (Nutzervorgabe): nebeneinander, Handy-Format ist breit.
+    btn.textContent = '↩️ An Agent zurückgeben';
+    btn.style.cssText =
+        'flex:1;min-width:130px;padding:8px 10px;border:1px solid #555;' +
+        'border-radius:8px;background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.8rem;text-align:center';
+    zeile.appendChild(btn);
     if (_laufenderAuftragKurz) {
         const btnHandy = document.createElement('button');
         btnHandy.className = 'korrektur-button';
-        btnHandy.textContent = '↪️ Zu Hermes-Lokal (Handy) wechseln';
+        btnHandy.textContent = '↪️ An lokalen Hermes übergeben';
         btnHandy.style.cssText =
-            'margin-top:6px;margin-left:6px;padding:8px 10px;border:1px solid #4a7;' +
-            'border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem';
+            'flex:1;min-width:130px;padding:8px 10px;border:1px solid #4a7;' +
+            'border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem;text-align:center';
         btnHandy.addEventListener('click', async () => {
             const id = _laufenderAuftragKurz;
             if (!id) return;
@@ -364,16 +372,9 @@ function baueKorrekturButton(fehlerFall) {
                 btnHandy.textContent = '⚠️ Wechsel fehlgeschlagen';
             }
         });
-        // Umlenk-Buttons nebeneinander (Flex-Container).
-        const zeile = document.createElement('div');
-        zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
-        // Bestehenden btn in die Zeile verschieben + Handy-Button dazu.
-        btn.parentNode && btn.parentNode.removeChild(btn);
-        zeile.appendChild(btn);
         zeile.appendChild(btnHandy);
-        return zeile;
     }
-    return btn;
+    return zeile;
 }
 
 /** Ziel-Etiketten für die „Wohin wurde delegiert?"-Pille (Passend zu den
