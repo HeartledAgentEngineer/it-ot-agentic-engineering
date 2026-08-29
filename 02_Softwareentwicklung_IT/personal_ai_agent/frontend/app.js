@@ -355,27 +355,35 @@ function baueKorrekturButton(fehlerFall) {
         'flex:1;min-width:130px;padding:8px 10px;border:1px solid #555;' +
         'border-radius:8px;background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.8rem;text-align:center';
     zeile.appendChild(btn);
-    if (_laufenderAuftragKurz) {
-        const btnHandy = document.createElement('button');
-        btnHandy.className = 'korrektur-button';
-        btnHandy.textContent = '↪️ An lokalen Hermes übergeben';
-        btnHandy.style.cssText =
-            'flex:1;min-width:130px;padding:8px 10px;border:1px solid #4a7;' +
-            'border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem;text-align:center';
-        btnHandy.addEventListener('click', async () => {
-            const id = _laufenderAuftragKurz;
-            if (!id) return;
-            btnHandy.disabled = true;
-            btnHandy.textContent = '… wechselt auf Handy-Hermes';
+    // "↪️ An lokalen Hermes übergeben" — IMMER sichtbar (nicht nur bei
+    // laufendem Auftrag): sendet die Frage explizit an den Handy-Hermes
+    // (ziel=handy → Backend startet Track C direkt, kein PC-Versuch).
+    const btnHandy = document.createElement('button');
+    btnHandy.className = 'korrektur-button';
+    btnHandy.textContent = '↪️ An lokalen Hermes übergeben';
+    btnHandy.style.cssText =
+        'flex:1;min-width:130px;padding:8px 10px;border:1px solid #4a7;' +
+        'border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem;text-align:center';
+    btnHandy.addEventListener('click', async () => {
+        // Ursprüngliche Nutzer-Nachricht = letzte 'user'-Nachricht.
+        let frag = '';
+        for (let i = state.messages.length - 1; i >= 0; i--) {
+            if (state.messages[i].role === 'user') { frag = state.messages[i].content; break; }
+        }
+        if (!frag) return;
+        btnHandy.disabled = true;
+        btnHandy.textContent = '… wird an lokalen Hermes übergeben';
+        // Laufenden Auftrag abbrechen (falls vorhanden), dann lokal senden.
+        if (_laufenderAuftragKurz) {
             try {
-                await fetch(`${API_BASE}/api/auftraege/${id}/wechseln-handy`, { method: 'POST' });
-                addMessage('↪️ **Auf den Handy-Hermes gewechselt** – die Aufgabe läuft jetzt lokal auf deinem Smartphone.', 'assistant');
-            } catch (_) {
-                btnHandy.textContent = '⚠️ Wechsel fehlgeschlagen';
-            }
-        });
-        zeile.appendChild(btnHandy);
-    }
+                await fetch(`${API_BASE}/api/auftraege/${_laufenderAuftragKurz}/abbrechen`, { method: 'POST' });
+            } catch (_) {}
+            _laufenderAuftragKurz = null;
+            aktualisiereStatusAnzeige();
+        }
+        sendMessage(frag, false, false, false, 'handy');
+    });
+    zeile.appendChild(btnHandy);
     return zeile;
 }
 
@@ -2053,7 +2061,7 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     return data;
 }
 
-async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false) {
+async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false, ziel = '') {
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
     // eingereiht, wenn wir NICHT selbst eine Warteschlangen-Nachricht senden
     // (ausWarteschlange=true), kein laufender Hermes-Auftrag existiert UND es
@@ -2148,6 +2156,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 web_search: state.webSearch,
                 model: state.model,
                 force_agent: forceAgent === true,
+                ziel: ziel || undefined,
                 files: state.pendingFiles.length > 0
                     ? state.pendingFiles.map(f => ({
                         id: f.id,

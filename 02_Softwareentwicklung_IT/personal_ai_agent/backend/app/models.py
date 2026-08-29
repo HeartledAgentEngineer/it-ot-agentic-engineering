@@ -38,6 +38,9 @@ class ChatRequest(BaseModel):
     # Hermes-Aufgabe geroutet (der Nutzer hat sie explizit an den lokalen
     # Agenten zurückgegeben — sonst ginge sie erneut an Hermes/PC (Loop)).
     force_agent: bool = False
+    # Explizites Ziel (Umlenk-Buttons): "pc" → Track A direkt, "handy" →
+    # Track C direkt, "agent" → lokaler LLM. Leer = normale Erkennung.
+    ziel: Optional[str] = None
     # Websuche kostet je Anfrage extra, deshalb standardmäßig aus.
     #   off    – gar keine Suche
     #   manual – sucht bei jeder Nachricht (Plugin, eine Suche pro Anfrage)

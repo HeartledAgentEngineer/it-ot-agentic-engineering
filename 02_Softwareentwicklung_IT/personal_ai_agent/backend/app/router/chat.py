@@ -751,7 +751,19 @@ async def chat_stream(request: ChatRequest):
     # LLM. Zusätzlich stößt ein Fähigkeits-Grenzthema (Terminal/Datei/System)
     # an Hermes als Toolcall, auch wenn ist_auftrag es nicht als Coding sieht.
     ist_auftrag_val = False
-    if not request.files:
+    begruendung, kategorie, komplexitaet = "", None, None
+    # Umlenk-Ziel erzwingt den Track direkt (Umlenk-Buttons):
+    #   ziel="pc"    → Track A (PC-Hermes), egal was die Erkennung sagt
+    #   ziel="handy" → Track C (lokaler Hermes) direkt
+    #   ziel="agent" → lokaler LLM (nie Hermes)
+    if request.ziel == "pc" or request.ziel == "handy":
+        ist_auftrag_val = True
+        begruendung = f"Umlenk-Button (ziel={request.ziel})"
+        kategorie = "feature"
+        komplexitaet = "mittel"
+    elif request.ziel == "agent" or request.force_agent:
+        ist_auftrag_val = False
+    elif not request.files:
         ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
         if not ist_auftrag_val and stoesst_an_grenze(request.message):
             ist_auftrag_val = True
