@@ -144,11 +144,11 @@ def suche_dateien(
                         "mtime": mtime,
                         "_gewicht": gewicht,
                     })
-                if len(treffer) >= MAX_ERGEBNISSE:
+                if not neueste_zuerst and len(treffer) >= MAX_ERGEBNISSE:
                     break
-            if len(treffer) >= MAX_ERGEBNISSE:
+            if not neueste_zuerst and len(treffer) >= MAX_ERGEBNISSE:
                 break
-        if len(treffer) >= MAX_ERGEBNISSE:
+        if not neueste_zuerst and len(treffer) >= MAX_ERGEBNISSE:
             break
     if neueste_zuerst:
         # Vorzug-Ordner zuerst (Gewicht 0), innerhalb gleicher Gewicht
@@ -157,6 +157,10 @@ def suche_dateien(
         treffer.sort(
             key=lambda t: (t.get("_gewicht", 1), -(t.get("mtime") or 0))
         )
+        # Erst JETZT kappen: das Limit darf den Walk nicht vorher stoppen,
+        # sonst fehlt das neueste Bild, wenn es alphabetisch/später liegt
+        # (z. B. IMG_2026... hinter IMG2024...).
+        treffer = treffer[:MAX_ERGEBNISSE]
     # _gewicht ist intern — nicht an den Aufrufer geben.
     for t in treffer:
         t.pop("_gewicht", None)
