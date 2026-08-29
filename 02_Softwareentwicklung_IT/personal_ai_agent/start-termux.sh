@@ -44,8 +44,17 @@ else
     echo
 fi
 
+# Speicherzugriff einmalig/einrichten (idempotent): legt ~/storage an (Symlinks
+# zu Download/DCIM/Documents...) für die Handy-Dateisuche. Muss nur beim ersten
+# Mal + nach Termux-Neuinstallation laufen; hier im Start ist es selbstheilend.
+# Fehlt die Android-Berechtigung, erscheint der System-Dialog — das Skript
+# bricht NICHT ab, der Server startet trotzdem (Dateisuche dann eben ohne).
+command -v termux-setup-storage >/dev/null 2>&1 && termux-setup-storage
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 # Ohne das bricht ein laufender Stream ab, sobald das Display ausgeht.
+command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
+
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 # Alten Agenten-Server beenden, bevor der neue startet — so kann es nie
