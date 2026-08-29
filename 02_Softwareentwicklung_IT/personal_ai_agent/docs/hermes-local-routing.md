@@ -93,6 +93,24 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   mitlernt. Der Hermes bekommt jeden Kommentar, das Filter entscheidet nur
   ueber das Lernen.
 
+## Laufende Antwort abbrechen („⏹ Abbrechen“-Button)
+- Während eine Antwort produziert wird (normaler Stream **oder** laufender
+  Hermes-Auftrag Track C) sitzt **unten an der Antwort-Blase** ein roter
+  Button „⏹ Abbrechen“ (`frontend/app.js`: `haengeAbbruchButtonAnBlase`).
+  Er wird beim Anlegen der Antwort-Blase hinzugehängt und im `finally`-Block
+  der Stream-Schleife wieder entfernt (`entferneAbbruchButtonVonBlase`) — so
+  verschwindet er zuverlässig, sobald die Antwort fertig ist, abgebrochen wurde
+  oder in einen Fehler lief.
+- Der Klick ruft `brichAb()` auf (derselbe Handler wie der Sende-Button im
+  Stopp-Modus):
+  1. Einen laufenden `AbortController`-Stream wird per `.abort()` beendet.
+  2. Läuft zusätzlich ein Hermes-Auftrag (Track C) mit `_laufenderAuftragKurz`,
+     wird er backend-seitig über `POST /api/auftraege/{id}/abbrechen` beendet
+     (tmux-Session killen + Buch auf `fehler`). Das ist wichtig, sonst würde
+     der lokale Agent im Hintergrund weiterarbeiten, obwohl man gestoppt hat.
+  3. Noch wartende Eingaben (Warteschlange) werden ins Eingabefeld
+     zurückgelegt, damit nichts Getipptes verloren geht.
+
 ## Warum tmux + Pane-Lesen statt blockierendem Aufruf
 - Ein blockierender `subprocess.run("hermes chat -q …")` liefert erst nach
   Minuten das Endergebnis als einen Textbrocken — ohne jeden Zwischenstand.
