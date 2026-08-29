@@ -2125,6 +2125,10 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Seit v20260817: Typing-Indicator (drei Punkte) direkt in der Blase,
     // nicht mehr im separaten #loading-Bereich.
     const contentDiv = addMessage('', 'assistant');
+    // Während die Antwort läuft (Stream oder laufender Hermes-Auftrag) sitzt
+    // unten an der Blase ein '⏹ Abbrechen'-Button, mit dem man den Stream
+    // bzw. den Hermes-Auftrag stoppen kann. finishReply/finally entfernt ihn.
+    haengeAbbruchButtonAnBlase(contentDiv);
     contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
     const entry = state.messages[state.messages.length - 1];
     _auftragStreckeDirekt = false;   // pro Nachricht neu entscheiden
@@ -2381,6 +2385,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // gestartet hat – sonst wuerde dessen Stopp-Knopf ins Leere greifen.
         if (state.abbruch === controller) state.abbruch = null;
         setLoading(false);
+        // Antwort ist vorbei (fertig/abgebrochen/Fehler) → den Abbrechen-Button
+        // von der Blase nehmen; danach hindert die Bedienung nicht mehr.
+        entferneAbbruchButtonVonBlase(contentDiv);
     }
 }
 
@@ -2833,6 +2840,33 @@ function zeigeWartendeNachricht(text) {
     dom.messages.appendChild(div);
     scrollToBottom(true);
     return div;
+}
+
+/** Haengt einen 'Abbrechen'-Button an eine laufende Antwort-Blase (unten).
+ *  Der Button sitzt an der Blase und scrollt mit ihr nach oben; er wird
+ *  entfernt, sobald die Antwort fertig/abgebrochen/fehlgeschlagen ist.
+ *  Es wird NUR am naechsten Layer gehaengt, damit das Streaming-rewrite
+ *  (contentDiv.innerHTML) ihn nicht jedes Haeppchen wegwischt. */
+function haengeAbbruchButtonAnBlase(contentDiv) {
+    // Blase = das aeusere .message-Element (contentDiv ist dessen Kind).
+    const blase = contentDiv.parentElement;
+    if (!blase || blase.querySelector('.antwort-abbrechen')) return;
+    const btn = document.createElement('button');
+    btn.className = 'antwort-abbrechen';
+    btn.textContent = '⏹ Abbrechen';
+    btn.style.cssText =
+        'margin-top:8px;padding:6px 12px;border:1px solid #b44;border-radius:8px;' +
+        'background:#3a1f1f;color:#f99;cursor:pointer;font-size:0.8rem;align-self:flex-start';
+    btn.addEventListener('click', brichAb);
+    blase.appendChild(btn);
+    scrollToBottom(true);
+}
+
+/** Entfernt den Abbrechen-Button von einer Antwort-Blase (wenn fertig). */
+function entferneAbbruchButtonVonBlase(contentDiv) {
+    const blase = contentDiv && contentDiv.parentElement;
+    const btn = blase && blase.querySelector('.antwort-abbrechen');
+    if (btn) btn.remove();
 }
 
 /** Bricht die laufende Antwort ab und legt Wartendes zurück in die Eingabe.
