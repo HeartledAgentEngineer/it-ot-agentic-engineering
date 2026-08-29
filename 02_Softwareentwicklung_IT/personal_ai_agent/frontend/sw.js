@@ -14,7 +14,7 @@
 // Frontend-Änderung diese Zahl von Hand zu erhöhen. Wird es vergessen –
 // und es wird vergessen –, liefert das Handy nach einem `git pull`
 // weiterhin die alte Oberfläche aus, ohne jeden Hinweis darauf.
-const CACHE_NAME = 'personal-ai-agent-v13';
+const CACHE_NAME = 'personal-ai-agent-v14';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
