@@ -437,12 +437,17 @@ function addMessage(content, role, zeit) {
         // History (zeit gesetzt) erscheint der Button nicht — sonst sähe es
         // nach F5 so aus, als liefe gerade ein Auftrag (Button auf alten
         // Blasen), obwohl nichts mehr läuft.
-        if (zeit === undefined
+        if ((zeit === undefined
             && (/Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)
                 || /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag|⚠️ Fehler/.test(content)
                 || /wurde an den PC-Hermes übergeben/.test(content)
                 || /arbeitet länger als das Timeout/.test(content)
-                || /arbeitet gerade an der Aufgabe/.test(content))) {
+                || /arbeitet gerade an der Aufgabe/.test(content)))
+            // "Übergeben"-Blasen im VERLAUF: Button auch nach Reload zeigen,
+            // wenn wirklich noch ein Auftrag läuft (der PC könnte arbeiten;
+            // man will umlenken können).
+            || (/wurde an den PC-Hermes übergeben/.test(content)
+                && _laufenderAuftragKurz)) {
             contentDiv.appendChild(baueKorrekturButton(
                 /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag/.test(content)
             ));
