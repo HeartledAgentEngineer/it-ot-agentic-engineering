@@ -1637,6 +1637,42 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     return steuerung;
 }
 
+/** Zeigt eine Hermes-Zwischenmeldung (gedanke) mit optionalem Abbruch-Button.
+ *  Läuft gerade ein Hermes-Auftrag (_laufenderAuftragKurz), bekommt JEDE
+ *  Zwischenmeldung einen kleinen "⏹ Abbrechen"-Knopf — so ist der Hermes-
+ *  Flow an jeder sichtbaren Stelle stopperbar, nicht nur über den globalen
+ *  Stop im Eingabefeld. */
+function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
+    const div = document.createElement('div');
+    div.className = 'message agent-zwischenmeldung';
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.innerHTML = parseMarkdown(text || '');
+    div.appendChild(contentDiv);
+
+    // Abbruch-Button, wenn ein Hermes-Auftrag läuft.
+    if (_laufenderAuftragKurz) {
+        const btn = document.createElement('button');
+        btn.className = 'gedanke-abbrechen';
+        btn.textContent = '⏹ Hermes abbrechen';
+        btn.style.cssText =
+            'margin-top:6px;padding:4px 10px;border:1px solid #b44;border-radius:8px;' +
+            'background:#3a1f1f;color:#f99;cursor:pointer;font-size:0.75rem';
+        btn.addEventListener('click', () => brichAb());
+        contentDiv.appendChild(btn);
+    }
+
+    // Zeit-Label (WhatsApp-artig) wie bei normalen Blasen.
+    const zeitSpan = document.createElement('div');
+    zeitSpan.className = 'message-time';
+    zeitSpan.textContent = formatZeit(zeitIso);
+    zeitSpan.style.cssText = 'font-size:0.65rem;color:#888;margin-top:2px';
+    div.appendChild(zeitSpan);
+
+    dom.messages.appendChild(div);
+    scrollToBottom(true);
+}
+
 /** Zeigt eine fluechtige Bild-Miniatur in der Antwortblase (WhatsApp-Stil).
  *  Nach BILD_ANZEIGE_MS verschwindet sie automatisch; es bleibt ein
  *  Platzhalter "Bild wieder anzeigen", der das Bild FRISCH vom Speicher
@@ -2131,7 +2167,10 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     // Meldung entfernen (Zeit steht schon im Label darunter),
                     // sonst steht der lange String doppelt in der Blase.
                     const { text: htext, zeitIso } = zerlegeHermesMeldung(daten.text);
-                    addMessage(htext || daten.text, 'assistant', zeitIso || new Date().toISOString());
+                    fuegeGedankeMitAbbruchHinzu(
+                        htext || daten.text,
+                        zeitIso || new Date().toISOString()
+                    );
                 } else if (daten.sources) {
                     // Können an jedem Häppchen hängen, deshalb laufend sammeln.
                     quellen = mergeQuellen(quellen, daten.sources);
