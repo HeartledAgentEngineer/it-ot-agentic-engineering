@@ -68,6 +68,10 @@ class ChatResponse(BaseModel):
     bild_vorschau: Optional[str] = None
     bild_pfad: Optional[str] = None
     archiv_used: int = 0
+    # Wohin ein erkannter Hermes-Auftrag delegiert wurde (für die Anzeige):
+    # "pc" (PC-Hermes via HTTP), "handy" (lokaler Hermes-CLI) oder
+    # "buch" (Auftragsbuch). None bei normalen LLM-Antworten.
+    ziel: Optional[str] = None
 
 
 class MemoryItem(BaseModel):

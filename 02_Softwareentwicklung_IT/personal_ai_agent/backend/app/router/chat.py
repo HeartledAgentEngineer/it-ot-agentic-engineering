@@ -215,6 +215,7 @@ async def chat(request: ChatRequest):
                 memories_created=0,
                 sources=[],
                 archiv_used=0,
+                ziel=res.get("ziel"),
             )
 
         conversation_id = _get_or_create_conversation(request.conversation_id)
@@ -597,7 +598,7 @@ async def chat_stream(request: ChatRequest):
                 yield _sse({"done": True, "conversation_id": conversation_id,
                             "memories_used": 0, "memories_created": 0,
                             "memory_count": memory_service.get_memory_count(),
-                            "archiv_used": 0, "sources": []})
+                            "archiv_used": 0, "sources": [], "ziel": "pc"})
             return StreamingResponse(
                 pc_baer_ereignisse(),
                 media_type="text/event-stream",
@@ -621,6 +622,7 @@ async def chat_stream(request: ChatRequest):
             )
             reply_text = (
                 "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
+                "➡️ **Weitergeleitet an:** Hermes (Handy)\n\n"
                 f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
                 "Gedanken & Zwischenschritte erscheinen hier live, das "
                 "Endergebnis danach.\n"
@@ -643,6 +645,7 @@ async def chat_stream(request: ChatRequest):
         )
         reply_text = (
             "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
+            "➡️ **Weitergeleitet an:** Auftragsbuch\n\n"
             f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
             "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
             "erscheint es live hier.\n"
@@ -665,6 +668,7 @@ async def chat_stream(request: ChatRequest):
                 "memory_count": memory_service.get_memory_count(),
                 "archiv_used": 0,
                 "sources": [],
+                "ziel": "buch",
             })
 
         return StreamingResponse(

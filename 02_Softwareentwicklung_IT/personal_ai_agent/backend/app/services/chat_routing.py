@@ -29,6 +29,24 @@ def statusmeldung_wartet(eintrag_id: str) -> None:
     )
 
 
+def ziel_etikett(ziel: str) -> str:
+    """Lesbares Ziel-Etikett für „Wohin wurde delegiert?"-Anzeigen.
+
+    ziel-Werte: "pc" (PC-Hermes via HTTP), "handy" (lokaler Hermes-CLI),
+    "buch" (Auftragsbuch). Unbekannte Werte fallen auf "Hermes" zurück.
+    """
+    return {
+        "pc": "Hermes (PC)",
+        "handy": "Hermes (Handy)",
+        "buch": "Auftragsbuch",
+    }.get(ziel, "Hermes")
+
+
+def ziel_zeile(ziel: str) -> str:
+    """Einzeiliger Hinweis, wohin die Aufgabe delegiert wurde (für den Reply)."""
+    return f"➡️ **Weitergeleitet an:** {ziel_etikett(ziel)}\n\n"
+
+
 def anlegen_im_buch(auftrag: str, begruendung: str,
                     kategorie: Optional[str], komplexitaet: Optional[str]) -> Any:
     from app.services.auftrag_service import auftrag_service
@@ -66,7 +84,9 @@ def route_auftrag(
     Delegation nicht blind erfolgt.
 
     Returns ein Dict mit den Feldern der Chat-Antwort:
-        { "art": "pc"|"lokal"|"buch", "reply": str, "conversation_id": str }
+        { "art": "pc"|"lokal"|"buch", "ziel": "pc"|"handy"|"buch",
+          "reply": str, "conversation_id": str }
+    `ziel` sagt dem Frontend, WOHIN delegiert wurde (PC / Handy / Buch);
     Aufrufer baut daraus die ChatResponse/SSE.
     """
     # Kontext-Erweiterung: baut die eigentliche Hermes-Aufgabe (Frage + Kontext).
@@ -83,7 +103,8 @@ def route_auftrag(
     if hermes_antwort is not None:
         conv_id = get_or_create_conversation(None)
         finish_exchange(conv_id, message, hermes_antwort)
-        return {"art": "pc", "reply": hermes_antwort, "conversation_id": conv_id}
+        return {"art": "pc", "ziel": "pc", "reply": hermes_antwort,
+                "conversation_id": conv_id}
 
     # 2) Lokaler Hermes (Track C)
     if hermes_local_ist_verfuegbar():
@@ -97,18 +118,21 @@ def route_auftrag(
         )
         reply_text = (
             "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
+            f"{ziel_zeile('handy')}"
             f"📋 **Aufgabe:** {message[:150]}…\n\n"
             "Gedanken & Zwischenschritte erscheinen hier live, das "
             "Endergebnis danach.\n"
         )
         finish_exchange(conv_id, message, reply_text)
-        return {"art": "lokal", "reply": reply_text, "conversation_id": conv_id}
+        return {"art": "lokal", "ziel": "handy", "reply": reply_text,
+                "conversation_id": conv_id}
 
     # 3) Auftragsbuch (Track B)
     eintrag = anlegen_im_buch(herm_aufgabe, begruendung, kategorie, komplexitaet)
     statusmeldung_wartet(eintrag["id"])
     reply_text = (
         "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
+        f"{ziel_zeile('buch')}"
         f"📋 **Aufgabe:** {message[:150]}…\n\n"
         "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
         "erscheint es live hier.\n"
@@ -116,4 +140,5 @@ def route_auftrag(
     conv_id = get_or_create_conversation(None)
     finish_exchange(conv_id, message, reply_text)
     verknuepfe_chat(eintrag["id"], conv_id)
-    return {"art": "buch", "reply": reply_text, "conversation_id": conv_id}
+    return {"art": "buch", "ziel": "buch", "reply": reply_text,
+            "conversation_id": conv_id}
