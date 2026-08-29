@@ -24,6 +24,45 @@ logger = logging.getLogger(__name__)
 # das Ganze, nicht nur einzelne Ordner.
 _STORAGE_WURZEL = os.path.expanduser("~/storage/shared")
 
+def _fuzzy_match(wort: str, name_lower: str) -> bool:
+    """Toleriert kleine Abweichungen (Sprach-/Tippfehler).
+
+    - Subsequenz: alle Buchstaben des Suchworts kommen in gleicher
+      Reihenfolge im Dateinamen vor ("wenk" → "wenck"): ok.
+    - Edit-Distanz <= 1 für Wortlaengen >= 4 ("lebenslaf" → "lebenslauf").
+    Konservativ + schnell: nur fuer die Dateisuche.
+    """
+    # Subsequenz-Check (einfach + robust): "wenk" in "wenck" = ok.
+    it = iter(name_lower)
+    if all(c in it for c in wort):
+        return True
+    # Edit-Distanz <= 1 (nur bei laengeren Woertern, sonst zu viele Treffer).
+    if len(wort) >= 4 and len(name_lower) >= len(wort) - 1:
+        # Levenshtein bis 1: pruefe auf Einfuegung/Loeschung/Ersetzung grob.
+        def _lev(a: str, b: str, max_d: int = 1) -> bool:
+            if abs(len(a) - len(b)) > max_d:
+                return False
+            dp = list(range(len(b) + 1))
+            for i, ca in enumerate(a, 1):
+                vorher = dp[0]
+                dp[0] = i
+                for j, cb in enumerate(b, 1):
+                    alt = dp[j]
+                    dp[j] = min(
+                        dp[j] + 1,        # loeschen
+                        dp[j - 1] + 1,    # einfuegen
+                        vorher + (ca != cb),  # ersetzen
+                    )
+                    vorher = alt
+            return dp[-1] <= max_d
+        # Nur gegen den Dateinamen (ohne Endung), um keine Endungs-Pseudo-
+        # Treffer zu erzeugen.
+        kern = name_lower.rsplit(".", 1)[0]
+        if len(kern) >= len(wort) - 1 and _lev(wort, kern):
+            return True
+    return False
+
+
 # Fallback-Wurzeln: Falls die Termux-Symlinks fehlen (Android-Berechtigung /
 # termux-setup-storage nie gelaufen), greifen direkte Android-Pfade. Die
 # Kamera-/Bild-Ordner liegen dann unter /sdcard/DCIM etc.
@@ -125,11 +164,20 @@ def suche_dateien(
                 # Match: Jedes Kern-Wort einzeln (OR) — "meinen lebenslauf"
                 # findet die Datei "lebenslauf_sebastian.pdf" (lebenslauf
                 # allein reicht). Nur als Phrase würde nichts matchen.
+                # Zusätzlich FUZZY: bis zu 1 Buchstabe Abweichung wird
+                # toleriert ("wenk" → "Wenck", Sprach-Tippfehler) — wie die
+                # Explorer-/Google-App-Suche.
                 name_lower = name.lower()
                 matcht = alle
                 if not matcht:
                     for wort in stichwort.split():
+                        if len(wort) < 3:
+                            continue
                         if wort in name_lower or wort in ext:
+                            matcht = True
+                            break
+                        # Fuzzy: 1 Zeichen entfernt (Subsequenz/Insertion)
+                        if _fuzzy_match(wort, name_lower):
                             matcht = True
                             break
                 if matcht:
