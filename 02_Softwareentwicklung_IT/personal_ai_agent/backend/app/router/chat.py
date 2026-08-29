@@ -448,9 +448,11 @@ def _datei_tool(frage: str) -> tuple:
         if info.get("ist_bild"):
             if info.get("data_url"):
                 # Bild als Datei für den Vision-LLM (nicht in den Text)…
-                # + Pfad mitgeben, damit das Frontend das Bild nachladen kann.
+                # + Pfad mitgeben: in der Notiz SICHTBAR, damit der Nutzer
+                # sieht, WELCHES Bild gefunden wurde (und es nachladen kann).
                 return (
-                    "\n\n[Datei-Bild zum Ansehen: " + datei["name"] + "]",
+                    "\n\n[Datei-Bild zum Ansehen: " + datei["name"]
+                    + " | Pfad: " + datei["pfad"] + "]",
                     [{"type": "image", "data_url": info["data_url"],
                       "pfad": datei["pfad"]}],
                 )
