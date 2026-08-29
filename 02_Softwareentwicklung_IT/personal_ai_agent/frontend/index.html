@@ -14,7 +14,7 @@
         <!-- Header -->
         <header id="header">
             <div class="header-content">
-                <h1 class="app-title">🤖 Agent</h1>
+                <h1 class="app-title"><span id="agent-face" title="Verbindungsstatus">🤖</span> Agent</h1>
                 <span id="status-indicator" class="status offline" title="Verbindungsstatus"
                       style="display:inline-flex;align-items:center;gap:4px">
                     <span class="status-dot"></span>
@@ -23,23 +23,9 @@
                 <span id="chat-modus-badge" class="chat-modus" title="Wem du gerade schreibst"
                       style="font-size:11px;padding:3px 8px;border-radius:10px;border:1px solid #555;
                              background:#1e1e1e;color:#9f9;cursor:default">🟢 Agent</span>
-                <!-- Ohne diesen Knopf lief alles in einem endlosen Gespräch.
-                     Ein Themenwechsel schleppte die letzten zehn Nachrichten
-                     mit, seit der Verlauf Neustarts übersteht dauerhaft.
-                     [Ein-Chat seit 2026-08: Es gibt genau EINE Conversation; der
-                     '+'-Button und der Chat-Switcher sind entfernt.] -->
-                <button id="chats-btn" class="icon-btn" title="Frühere Gespräche" style="display:none">
-                    <svg viewBox="0 0 24 24" width="22" height="22">
-                        <path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/>
-                    </svg>
-                </button>
-                <button id="new-chat-btn" class="icon-btn" title="Neues Gespräch beginnen" style="display:none">
-                    <svg viewBox="0 0 24 24" width="22" height="22">
-                        <path fill="currentColor" d="M12 5v14M5 12h14" stroke="currentColor"
-                              stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                <button id="kanban-btn" class="icon-btn" title="Aufgaben (Kanban)" aria-label="Aufgaben">
+                <!-- Ein-Chat seit 2026-08: Es gibt genau EINE fortlaufende
+                                     Conversation — kein Chat-Switcher, kein '+'-Button. -->
+                                <button id="kanban-btn" class="icon-btn" title="Aufgaben (Kanban)" aria-label="Aufgaben">
                     <svg viewBox="0 0 24 24" width="22" height="22">
                         <path fill="currentColor" d="M3 5h18v2H3zm0 4h18v2H3zm0 4h18v2H3zm0 4h10v2H3z"/>
                     </svg>
