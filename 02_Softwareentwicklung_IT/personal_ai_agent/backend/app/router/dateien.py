@@ -36,14 +36,16 @@ def datei_daten(pfad: str = Query("", max_length=1000)):
 
 
 @router.get("")
-def dateien_suchen(suche: str = Query("", max_length=200)):
+def dateien_suchen(suche: str = Query("", max_length=200),
+                   neueste: bool = Query(True)):
     """Sucht in den freigegebenen Ordnern nach einem Stichwort.
 
     Sicher: nur lesend, nur freigegebene Ordner, nur Dateinamen/Erweiterungen
-    (kein Inhalt). Das Ergebnis kann der Nutzer dann als Anhang wählen.
+    (kein Inhalt). Leeres `suche` + `neueste=true` liefert die neuesten
+    Bilder/Dateien (für Tests: was würde der Agent finden?).
     """
     try:
-        treffer = suche_dateien(suche)
+        treffer = suche_dateien(suche, neueste_zuerst=neueste)
         return {
             "treffer": treffer,
             "anzahl": len(treffer),
