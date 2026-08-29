@@ -88,7 +88,17 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
                     ident = voll
                 if ident in gesehen:
                     continue
-                if alle or stichwort in name.lower() or stichwort in ext:
+                # Match: Jedes Kern-Wort einzeln (OR) — "meinen lebenslauf"
+                # findet die Datei "lebenslauf_sebastian.pdf" (lebenslauf
+                # allein reicht). Nur als Phrase würde nichts matchen.
+                name_lower = name.lower()
+                matcht = alle
+                if not matcht:
+                    for wort in stichwort.split():
+                        if wort in name_lower or wort in ext:
+                            matcht = True
+                            break
+                if matcht:
                     gesehen.add(ident)
                     try:
                         mtime = os.path.getmtime(voll)

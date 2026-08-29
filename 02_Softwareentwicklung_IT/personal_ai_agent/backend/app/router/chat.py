@@ -385,7 +385,10 @@ def _datei_tool(frage: str) -> tuple:
         kern = w.strip(" ?!,.:;-_")
         if kern and kern not in stopwoerter:
             teile.append(kern)
-    reines_stichwort = " ".join(teile).strip()
+    # NUR die ersten 2 Kern-Wörter als Suchbegriff — ein ganzer Satz als
+    # Stichwort findet nie etwas + verleitet den LLM zu halluzinierten
+    # Dateinamen ("meinen lebenslauf liste auf dort...").
+    reines_stichwort = " ".join(teile[:2]).strip()
 
     # Spezial-Regel: Wenn ein Bild/Foto-Wunsch + "neueste/letzte" auftaucht
     # (egal wie formuliert: "was ist das neueste bild auf deinem speicher"),
@@ -432,11 +435,13 @@ def _datei_tool(frage: str) -> tuple:
 
     # Stufe A: nur Treffer-Liste (Name/Art).
     if not treffer:
-        return f"\n\n[Aus der Handy-Dateisuche zu '{stichwort}': keine Treffer gefunden.]", []
+        return (f"\n\n[Aus der Handy-Dateisuche zu '{reines_stichwort or stichwort}': "
+                "KEINE Treffer. Sag dem Nutzer ehrlich, dass nichts gefunden wurde "
+                "und erfinde KEINE Dateinamen. Frage nach einem anderen Begriff.]", [])
     zeilen = [f"- {t['name']}  ({t['erweiterung']})" for t in treffer[:10]]
     return (
         "\n\n[Aus der Handy-Dateisuche zu '"
-        + stichwort
+        + (reines_stichwort or stichwort)
         + "':]\n"
         + "\n".join(zeilen)
         + "\nNenne dem Nutzer die gefundenen Dateien und frag, welche er verwenden will.]",
