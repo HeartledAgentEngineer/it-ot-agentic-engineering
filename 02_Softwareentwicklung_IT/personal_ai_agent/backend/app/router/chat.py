@@ -239,13 +239,18 @@ async def chat(request: ChatRequest):
         # 1d. Handy-Dateisuche als Tool über Sprache: Wenn die Anfrage einen
         # Datei-Such-Wunsch enthält, wird die Tool-Ausgabe an die user_message
         # gehängt, damit der LLM die Treffer nennt (Stufe A).
-        werkzeug_notiz = _datei_tool(request.message)
+        werkzeug_notiz = ""
+        datei_tool_bilder = []
+        werkzeug_notiz, datei_tool_bilder = _datei_tool(request.message)
         # 1e. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
         if not werkzeug_notiz:
             werkzeug_notiz = _verlauf_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
+        # Bilder aus der Dateisuche an die files-Liste anhängen (Vision-LLM).
+        if datei_tool_bilder:
+            datei_bilder = datei_tool_bilder
 
 
         # 2. Get LLM response with memory context
@@ -258,7 +263,9 @@ async def chat(request: ChatRequest):
             no_retention=request.no_retention,
             archiv=archiv,
             summary=kontext_summary,
-            files=[f.model_dump() for f in request.files] if request.files else None,
+            files=(
+                [f.model_dump() for f in request.files] if request.files else []
+            ) + (datei_tool_bilder if datei_tool_bilder else []),
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -313,7 +320,7 @@ def _baue_kontext(frage: str) -> str:
     return "\n".join(teile)
 
 
-def _datei_tool(frage: str) -> str:
+def _datei_tool(frage: str) -> tuple:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
     Stufe A: erkennt Datei-Suchs-Signale → sucht Treffer → LLM nennt sie.
@@ -322,7 +329,9 @@ def _datei_tool(frage: str) -> str:
     INHALT der gefundenen/benannten Datei + hängt ihn als Text (oder Bild-
     data_url) an die user_message, damit der LLM zusammenfasst/informiert.
 
-    Liefert "" wenn kein Datei-Bezug vorliegt (kein Tool-Trigger).
+    Returns: (text, bild_files) — text hängt an die user_message, bild_files
+    ist eine Liste von {"type":"image","data_url":...} für den Vision-LLM.
+    Liefert ("", []) wenn kein Datei-Bezug vorliegt (kein Tool-Trigger).
     """
     # Signale (deutsch). "lies" zuerst für Stufe B.
     signale = [
@@ -334,15 +343,15 @@ def _datei_tool(frage: str) -> str:
     ]
     f = frage.lower().strip()
     if not f:
-        return ""
+        return "", []
     trigger = next((s for s in signale if s in f), None)
     if not trigger:
-        return ""
+        return "", []
 
     # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
     stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
     if not stichwort:
-        return ""
+        return "", []
 
     # "letzte/neueste" → nach Zeit sortieren (neueste zuerst) — z. B.
     # "das letzte aufgenommene Bild". Berechnet aus der GANZEN Frage (das
@@ -382,7 +391,7 @@ def _datei_tool(frage: str) -> str:
     try:
         treffer = suche_dateien(reines_stichwort, neueste_zuerst=neueste_zuerst)
     except Exception:
-        return ""
+        return "", []
 
     if (lese_wunsch or will_erklaeren) and treffer:
         # lese den ersten/passendsten Treffer (Inhalt) — bei "letzter/neueste"
@@ -391,29 +400,32 @@ def _datei_tool(frage: str) -> str:
         info = lese_datei_info(datei["pfad"])
         if info.get("ist_bild"):
             if info.get("data_url"):
+                # Bild als Datei für den Vision-LLM (nicht in den Text).
                 return (
-                    "\n\n[Datei-Bild zum Ansehen: " + datei["name"]
-                    + "]\n" + info["data_url"]
+                    "\n\n[Datei-Bild zum Ansehen: " + datei["name"] + "]",
+                    [{"type": "image", "data_url": info["data_url"]}],
                 )
-            return f"\n\n[Datei-Bild: {datei['name']} (für Vision verfügbar)]"
+            return f"\n\n[Datei-Bild: {datei['name']} (für Vision verfügbar)]", []
         if info.get("text"):
             return (
                 "\n\n[Inhalt der Datei '" + datei["name"]
                 + "':]\n" + info["text"][:8000]
-                + "\nFasse dem Nutzer den Inhalt verständlich zusammen.]"
+                + "\nFasse dem Nutzer den Inhalt verständlich zusammen.]",
+                [],
             )
-        return f"\n\n[Datei '{datei['name']}' konnte nicht gelesen werden: {info.get('fehler')}]"
+        return f"\n\n[Datei '{datei['name']}' konnte nicht gelesen werden: {info.get('fehler')}]", []
 
     # Stufe A: nur Treffer-Liste (Name/Art).
     if not treffer:
-        return f"\n\n[Aus der Handy-Dateisuche zu '{stichwort}': keine Treffer gefunden.]"
+        return f"\n\n[Aus der Handy-Dateisuche zu '{stichwort}': keine Treffer gefunden.]", []
     zeilen = [f"- {t['name']}  ({t['erweiterung']})" for t in treffer[:10]]
     return (
         "\n\n[Aus der Handy-Dateisuche zu '"
         + stichwort
         + "':]\n"
         + "\n".join(zeilen)
-        + "\nNenne dem Nutzer die gefundenen Dateien und frag, welche er verwenden will.]"
+        + "\nNenne dem Nutzer die gefundenen Dateien und frag, welche er verwenden will.]",
+        [],
     )
 
 
