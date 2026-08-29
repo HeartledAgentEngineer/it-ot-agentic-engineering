@@ -33,14 +33,24 @@ PORT="${PORT:-8080}"
 cd "$PROJEKT" || { echo "Projektordner nicht gefunden: $PROJEKT"; exit 1; }
 
 echo "── Aktualisieren ──────────────────────────────"
-# --ff-only: Bei lokalen Aenderungen lieber abbrechen als einen
-# Merge-Konflikt mitten im Start zu erzeugen.
-if git pull --ff-only; then
-    echo "Stand: $(git log --oneline -1)"
+# Selbstheilender Sync: Der Remote (origin/main, der Entwicklungsstand vom
+# PC) ist die Wahrheit. Bei Divergenz (lokale Aenderungen/Commits auf dem
+# Handy blockieren den Pull) wird der Handy-Stand hart auf den Remote
+# zurueckgesetzt — das Handy ist eine Ausfuehrungs-/Anzeige-Instanz, keine
+# Entwicklungs-Umgebung. Verlorene lokale Daten sind auf dem Handy ok
+# (sie gehoeren nicht ins Repo; laufende Server-Dateien wie conversations.json
+# sind in .gitignore und bleiben unberuehrt).
+if git fetch origin --quiet; then
+    if ! git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        echo "⚠️  Stand divergiert – Hard-Reset auf den Remote-Stand"
+        git reset --hard origin/main
+        git clean -fd
+    else
+        git pull --ff-only --quiet && echo "Stand: $(git log --oneline -1)"
+    fi
 else
     echo
-    echo "⚠️  git pull fehlgeschlagen – der Server startet mit dem alten Stand."
-    echo "    Meist liegen lokale Aenderungen vor. Nachsehen mit: git status"
+    echo "⚠️  git fetch fehlgeschlagen (Netz?) – Server startet mit dem alten Stand."
     echo
 fi
 
