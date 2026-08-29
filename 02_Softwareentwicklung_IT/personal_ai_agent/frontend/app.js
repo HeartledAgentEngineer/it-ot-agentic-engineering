@@ -1742,12 +1742,21 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
  *  laedt (GET /api/dateien/daten?pfad=) — nichts wird persistiert. */
 const BILD_ANZEIGE_MS = 10000;
 
-function zeigeBildVorschau(container, dataUrl, pfad) {
+function zeigeBildVorschau(container, dataUrl, pfad, rahmen) {
     if (!container) return;
-    const rahmen = document.createElement('div');
-    rahmen.className = 'bild-vorschau';
-    rahmen.style.cssText =
-        'margin-top:8px;max-width:100%;display:flex;flex-direction:column;gap:6px';
+    // Beim Nachladen (Rekursion aus dem '… lädt'-Knopf) den BESTEHENDEN
+    // Rahmen wiederverwenden und leeren. Vorher wurde ein zweiter Rahmen
+    // an container angehängt, wodurch der '… lädt'-Knopf des alten Rahmens
+    // dauerhaft sichtbar blieb, statt nach dem Laden zu verschwinden.
+    if (rahmen) {
+        rahmen.innerHTML = '';
+    } else {
+        rahmen = document.createElement('div');
+        rahmen.className = 'bild-vorschau';
+        rahmen.style.cssText =
+            'margin-top:8px;max-width:100%;display:flex;flex-direction:column;gap:6px';
+        container.appendChild(rahmen);
+    }
 
     const img = document.createElement('img');
     img.src = dataUrl;
@@ -1780,7 +1789,7 @@ function zeigeBildVorschau(container, dataUrl, pfad) {
                 const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
                 const daten = await res.json();
                 if (daten.data_url) {
-                    zeigeBildVorschau(container, daten.data_url, pfad); // erneut (loop)
+                    zeigeBildVorschau(container, daten.data_url, pfad, rahmen); // gleicher Rahmen (loop)
                 } else {
                     btn.textContent = '⚠️ Bild nicht verfügbar';
                 }

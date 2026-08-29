@@ -50,6 +50,28 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
 - Quelle: `app/modelle_use.py` (`MODELL_STAERKEN_DE`) + Backend-Ableitung
   in `llm_service._staerke_ableiten`.
 
+## 5. Bild-/Datei-Anhang über die Büroklammer (Upload)
+
+- **Upload**: `POST /api/upload` (`backend/app/router/upload.py`) nimmt
+  Bilder (JPEG/PNG/GIF/WebP) und PDFs entgegen. Bilder werden als
+  Vision-`data_url` (Base64), PDFs als extrahierter Text an das Modell
+  übergeben.
+- **Kein unnötiges Neu-Encoden**: Bilder werden nur dann mit Pillow
+  verarbeitet, wenn sie breiter/hoher als 2048 px sind (Resize auf max.
+  2048 px). Kleinere Bilder bleiben unangetastet.
+- **EXIF-Orientierung eingebacken**: Vor dem Verkleinern wird die im Foto
+  gespeicherte Dreh-Info (`ImageOps.exif_transpose`, z. B. Orientation=6 für
+  hochkant gehaltene Handyfotos) in die Pixel übernommen. Beim erneuten
+  Speichern geht kein EXIF-Tag mit, darum steht die korrekte Ausrichtung in
+  den Pixeln selbst – das Bild erscheint im Chat damit nie mehr gedreht und
+  auch die Vision-API sieht die richtige Seite.
+- **Tags**: „Datei-Vorschau oberhalb der Eingabe" + „Bild wieder anzeigen":
+  Nach dem Versenden zeigt die Antwort kurz eine flüchtige Bild-Miniatur
+  (`BILD_ANZEIGE_MS`, 10 s); danach bleibt ein „🖼️ Bild wieder anzeigen"-
+  Knopf, der das Bild frisch lädt (`GET /api/dateien/daten?pfad=`). Beim
+  Nachladen wird derselbe Vorschau-Rahmen aktualisiert (kein hängen
+  gebliebener „… lädt"-Knopf mehr).
+
 ## Verifikation
 
 Prüfbefehl: `cd backend && .venv/Scripts/python -m pytest -q` → 57 Tests grün.
