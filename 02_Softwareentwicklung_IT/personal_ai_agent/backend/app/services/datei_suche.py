@@ -76,6 +76,17 @@ def suche_dateien(
     # Mehrere Wurzeln durchsuchen: primär ~/storage/shared, Fallback /sdcard
     # (falls die Termux-Symlinks fehlen). Dedupe über den echten Pfad.
     wurzeln = [_STORAGE_WURZEL] + [w for w in _FALLBACK_WURZELN if w != _STORAGE_WURZEL]
+    # DCIM (Kamera) als eigene, PRIORISIERTE Wurzel: Termux ~/storage/shared
+    # enthält DCIM oft NICHT (Android-Scoped-Storage) — die echten Kamera-
+    # Fotos liegen unter /sdcard/DCIM/Camera. Flacher Walk = schnell.
+    dcim_kandidaten = [
+        os.path.expanduser("~/storage/shared/DCIM"),
+        "/sdcard/DCIM",
+    ]
+    if vorzug_kamera:
+        # Bei Kamera-Fragen: NICHT den ganzen /sdcard-Baum durchsuchen
+        # (Riesen-Walk = Timeout), sondern gezielt DCIM + shared.
+        wurzeln = dcim_kandidaten + [_STORAGE_WURZEL]
     for basis in wurzeln:
         if not os.path.isdir(basis):
             continue
