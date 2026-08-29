@@ -41,6 +41,15 @@ _BOX_END = re.compile(r"╰")
 _TOOL_ZEILE = re.compile(r"💻.*?\$\s*(.*)")
 _BOX_INHALT = re.compile(r"^│\s*")
 
+
+def _box_innen(zeile: str) -> str:
+    """Entfernt die Box-Raender der TUI aus einer Inhaltszeile.
+
+    Die Pane zeigt jede Zeile mit Fuehrungs- UND Abschluss-'│' (rechter Rand).
+    Beide muessen weg, sonst kleben Kante + Auffuell-Leerzeichen am Text.
+    """
+    return _BOX_INHALT.sub("", zeile).rstrip().rstrip("│").rstrip()
+
 # Kommentare ohne persoenlichen Mehrwert (Interjektionen / reine
 # Aufforderungen) landen nicht im persoenlichen Gedaechtnis.
 _TRIVIAL_KOMMENTARE = re.compile(
@@ -200,11 +209,16 @@ class LocalHermesJob:
                     # Zeilen MIT Umbruch verketten statt mit Leerzeichen —
                     # vorher wurden mehrzeilige Inhalte (Diff/Stat/Text) zu
                     # einem langen Fließtext mit komischen Brüchen gequetscht.
+                    # Regression (LIVE-Fehler "Name T is not defined"): hier
+                    # stand ein nie definiertes `t` — sobald die erste
+                    # Antwort-Box fertig war, flog ein NameError und der
+                    # Auftrag brach mit "Fehler im lokalen Hermes-Job" ab.
+                    t = "\n".join(box_zeilen).strip()
                     if t:
                         gedanken.append(t)
-                        continue
+                    continue
 
-                innen = _BOX_INHALT.sub("", zeile).rstrip()
+                innen = _box_innen(zeile)
                 if innen.strip():
                     box_zeilen.append(innen)
                 continue
@@ -239,7 +253,7 @@ def _extrahiere_boxen(text: str) -> List[str]:
                 if t:
                     boxen.append(t)
                 continue
-            innen = _BOX_INHALT.sub("", zeile).rstrip()
+            innen = _box_innen(zeile)
             if innen.strip():
                 zeilen.append(innen)
     return boxen

@@ -345,11 +345,39 @@ function baueKorrekturButton(fehlerFall) {
     return btn;
 }
 
+/** Ziel-Etiketten für die „Wohin wurde delegiert?"-Pille (Passend zu den
+ *  ziel-Werten des Backends: pc / handy / buch). */
+const ZIEL_LABELS = {
+    pc: '→ Hermes (PC)',
+    handy: '→ Hermes (Handy)',
+    buch: '→ Auftragsbuch',
+};
+
+/** Kleine Ziel-Pille unter einer Delegations-Antwort: zeigt auf einen Blick,
+ *  wohin die Hermes-Aufgabe weitergeleitet wurde. `ziel` kommt aus dem
+ *  SSE-done-Event bzw. aus der ChatResponse (Fallback-Weg). */
+function addZielChip(contentDiv, ziel) {
+    if (!ziel || !ZIEL_LABELS[ziel]) return;
+    const chip = document.createElement('div');
+    chip.className = 'ziel-chip';
+    chip.textContent = ZIEL_LABELS[ziel];
+    chip.style.cssText =
+        'display:inline-block;margin-top:8px;padding:3px 10px;' +
+        'border:1px solid #444;border-radius:999px;font-size:0.75rem;' +
+        'color:#bbb;background:#222';
+    contentDiv.appendChild(chip);
+}
+
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role, zeit) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
+    // Roh-Text der Blase fürs Kontextmenü (Kopieren/Bearbeiten): bei
+    // User-Nachrichten exakt wie getippt, bei Assistant der Markdown-Rohtext.
+    // Gestreamte Blasen haben hier zunächst '' — dort greift der Fallback
+    // auf den sichtbaren Text (siehe kontextTextAusBlase).
+    div.dataset.klarText = content;
     // Innere Spalte: Blaseninhalt über dem Zeitstempel-Label. Ohne sie lägen
     // Content und Uhrzeit im flex-row nebeneinander statt untereinander.
     // Klein, deshalb inline statt style.css (die Konvention bei Mini-Stilen).
@@ -526,7 +554,7 @@ function updateSendButton() {
     dom.sendBtn.classList.toggle('stopping', stoppModus);
     dom.sendBtn.title = stoppModus
         ? 'Antwort abbrechen'
-        : (state.abbruch ? 'Nachricht anhängen – wird danach gesendet' : 'Nachricht senden');
+        : (state.abbruch ? 'Nachricht anhängen – wird danach gesendet' : 'Nachricht senden (Strg+Enter)');
     dom.sendBtn.disabled = !hatText && !stoppModus;
 }
 
@@ -1672,6 +1700,10 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     entry.content = antwort;
     // Muss nach dem Setzen von innerHTML kommen, sonst wird es überschrieben.
     if (abschluss) addSources(contentDiv, abschluss.sources);
+    // Ziel-Pille: zeigt unter Delegations-Antworten, wohin der Auftrag ging
+    // (PC-Hermes / Handy-Hermes / Auftragsbuch) — `ziel` tragen die
+    // SSE-done-Events bzw. die ChatResponse (Fallback-Weg).
+    if (abschluss && abschluss.ziel) addZielChip(contentDiv, abschluss.ziel);
     if (abschluss) {
         if (abschluss.conversation_id) {
             state.conversationId = abschluss.conversation_id;
@@ -2229,10 +2261,17 @@ async function sendAudioForTranscription(audioBlob) {
             // egal ob es an den Agenten, in die Warteschlange oder an Hermes
             // als Kommentar geht. Sonst wirkt es wie "verschluckt".
             const diktat = data.text.trim();
-            addMessage(diktat, 'user');
+            // Diktat AN vorhandenen Text ANHÄNGEN statt ihn zu ersetzen:
+            // Wer vor der Aufnahme schon getippt (oder Dateien angehängt)
+            // hat, schickt beim Loslassen die GESAMTE Nachricht (Text +
+            // Diktat + Anhang) — die Dateien reisen in state.pendingFiles
+            // ohnehin mit dem Request mit.
+            const vorhanden = dom.input.value.trim();
+            const gesamt = (vorhanden ? vorhanden + ' ' : '') + diktat;
+            addMessage(gesamt, 'user');
             dom.input.value = '';
             dom.input.style.height = 'auto';
-            await sendMessage(diktat, false, true); // drittes Flag: Diktat (Blase schon gezeigt)
+            await sendMessage(gesamt, false, true); // drittes Flag: Diktat (Blase schon gezeigt)
         } else if (data.error) {
             addMessage(`⚠️ **Spracherkennung fehlgeschlagen**\n\n${data.error}`, 'assistant');
         }
@@ -2481,13 +2520,135 @@ dom.input.addEventListener('input', () => {
 });
 
 dom.input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter erzeugt eine neue Zeile (Standard des <textarea>), wie bei
+    // WhatsApp/Telegram. Gesendet wird nur über den Senden-Button — oder
+    // bequem per Strg+Enter (Cmd+Enter am Mac).
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleSubmit();
     }
 });
 
 dom.sendBtn.addEventListener('click', handleSubmit);
+
+// =========================================
+// Kontextmenü für Chat-Blasen: Kopieren & Bearbeiten
+// =========================================
+// Rechtsklick (am Handy: langes Drücken) auf eine Nachricht öffnet ein
+// kleines Menü. „Nachricht kopieren" gibt es für jede Blase, „Nachricht
+// bearbeiten" nur für User-Nachrichten (legt den Text zurück in die
+// Eingabe). Das Menü ist ein Mini-Element und bekommt nach Repo-Konvention
+// Inline-Stile statt style.css-Einträge.
+const kontextMenue = document.createElement('div');
+kontextMenue.style.cssText =
+    'position:fixed;z-index:1000;min-width:210px;background:#1e1e2e;'
+    + 'border:1px solid #444;border-radius:10px;'
+    + 'box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px;display:none;'
+    + 'font-size:13px;user-select:none';
+kontextMenue.innerHTML =
+    `<button type="button" data-aktion="kopieren" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:none;border:none;border-radius:7px;color:#ddd;font:inherit;text-align:left;cursor:pointer">`
+        + `📋 Nachricht kopieren</button>`
+    + `<button type="button" data-aktion="bearbeiten" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:none;border:none;border-radius:7px;color:#ddd;font:inherit;text-align:left;cursor:pointer">`
+        + `✏️ Nachricht bearbeiten</button>`;
+document.body.appendChild(kontextMenue);
+
+let kontextZielText = '';
+let kontextKopierTimer = null;
+
+/** Liefert den kopierbaren Text einer Blase: User exakt wie getippt,
+ *  Assistant roh (Markdown) bzw. sichtbarer Text bei gestreamten Blasen. */
+function kontextTextAusBlase(blase) {
+    const roh = blase.dataset.klarText || '';
+    if (roh) return roh;
+    const inhalt = blase.querySelector('.message-content');
+    return inhalt && inhalt.innerText ? inhalt.innerText.trim() : '';
+}
+
+function kontextMenueZeigen(x, y) {
+    kontextMenue.style.display = 'block';
+    // Nicht über den Bildschirmrand hinausragen lassen.
+    const rect = kontextMenue.getBoundingClientRect();
+    kontextMenue.style.left = Math.max(4, Math.min(x, window.innerWidth - rect.width - 8)) + 'px';
+    kontextMenue.style.top = Math.max(4, Math.min(y, window.innerHeight - rect.height - 8)) + 'px';
+}
+
+function kontextMenueSchliessen() {
+    kontextMenue.style.display = 'none';
+    // „Kopiert"-Rückmeldung zurücksetzen, falls noch sichtbar.
+    const kopiert = kontextMenue.querySelector('[data-aktion="kopieren"]');
+    if (kopiert.textContent !== '📋 Nachricht kopieren') {
+        clearTimeout(kontextKopierTimer);
+        kopiert.textContent = '📋 Nachricht kopieren';
+    }
+}
+
+kontextMenue.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || !kontextZielText) return;
+    if (btn.dataset.aktion === 'kopieren') {
+        const kopieren = () => {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(kontextZielText);
+            }
+            // Rückfall für ältere Browser/WebViews ohne Clipboard-API.
+            const helfer = document.createElement('textarea');
+            helfer.value = kontextZielText;
+            helfer.style.cssText = 'position:fixed;opacity:0';
+            document.body.appendChild(helfer);
+            helfer.select();
+            try { document.execCommand('copy'); } catch (_) {}
+            helfer.remove();
+            return Promise.resolve();
+        };
+        kopieren()
+            .then(() => {
+                btn.textContent = '✓ Kopiert';
+                clearTimeout(kontextKopierTimer);
+                kontextKopierTimer = setTimeout(() => {
+                    btn.textContent = '📋 Nachricht kopieren';
+                }, 1500);
+            })
+            .catch(() => { btn.textContent = '⚠️ Kopieren fehlgeschlagen'; });
+        kontextMenueSchliessen();
+    } else if (btn.dataset.aktion === 'bearbeiten') {
+        // User-Nachricht zurück in die Eingabe legen (Cursor ans Ende).
+        dom.input.value = kontextZielText;
+        dom.input.style.height = 'auto';
+        dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+        const ende = dom.input.value.length;
+        dom.input.setSelectionRange(ende, ende);
+        dom.input.focus();
+        updateSendButton();
+        kontextMenueSchliessen();
+    }
+});
+
+// Rechtsklick (langes Drücken) auf eine Blase öffnet das Menü.
+dom.messages.addEventListener('contextmenu', (e) => {
+    const blase = e.target.closest('.message');
+    if (!blase || !dom.messages.contains(blase)) return;
+    const text = kontextTextAusBlase(blase);
+    if (!text) return;   // z. B. noch leere Streaming-Blase
+    e.preventDefault();
+    kontextZielText = text;
+    // Bearbeiten gibt es nur für User-Nachrichten.
+    const istUser = blase.classList.contains('user');
+    kontextMenue.querySelector('[data-aktion="bearbeiten"]').style.display = istUser ? '' : 'none';
+    // Label zurücksetzen (falls vorher „✓ Kopiert" angezeigt wurde).
+    const kopiert = kontextMenue.querySelector('[data-aktion="kopieren"]');
+    if (kopiert.textContent !== '📋 Nachricht kopieren') {
+        clearTimeout(kontextKopierTimer);
+        kopiert.textContent = '📋 Nachricht kopieren';
+    }
+    kontextMenueZeigen(e.clientX, e.clientY);
+});
+
+// Klick woanders, Escape oder Scrollen schließt das Menü wieder.
+document.addEventListener('click', () => kontextMenueSchliessen());
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') kontextMenueSchliessen();
+});
+window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
     // Ein-Chat: newChatBtn/chatsBtn existieren nicht mehr (Buttons entfernt).
     // Guard, damit die Initialisierung nicht an null-Referenzen crasht.
     if (dom.newChatBtn) dom.newChatBtn.addEventListener('click', neuesGespraech);

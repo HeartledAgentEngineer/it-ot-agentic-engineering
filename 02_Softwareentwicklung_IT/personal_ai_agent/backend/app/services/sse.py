@@ -19,7 +19,8 @@ def _sse(payload: Dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]:
+def strom_auftrag_live(auftrag_id, conversation_id, reply_text,
+                       ziel: str = "handy") -> Iterator[str]:
     """Offene Live-Strecke für Track C im Chat-Stream.
 
     Identische Logik wie die frühere _strom_auftrag_live in chat.py. Der
@@ -27,6 +28,9 @@ def strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]
     dieser Generator reicht sie als eigene `gedanke`-Ereignisse durch und
     beendet mit `done` + Endergebnis, sobald der Auftrag fertig/fehlgeschlagen
     ist. Mit Keepalive gegen Browser-/Proxy-Timeouts.
+
+    `ziel` (Default "handy") landet im done-Event, damit das Frontend
+    anzeigen kann, wohin delegiert wurde.
     """
     yield _sse({"delta": reply_text, "auftrag_id": auftrag_id})
     gesehen = 0
@@ -57,6 +61,7 @@ def strom_auftrag_live(auftrag_id, conversation_id, reply_text) -> Iterator[str]
                 "memories_used": 0, "memories_created": 0,
                 "memory_count": memory_service.get_memory_count(),
                 "archiv_used": 0, "sources": [],
+                "ziel": ziel,
             })
             return
 

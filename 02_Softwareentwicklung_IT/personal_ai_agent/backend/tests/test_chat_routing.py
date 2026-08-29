@@ -42,22 +42,37 @@ def _route(pc_antwort=None, lokal_verfuegbar=False):
 
 
 def test_track_a_pc_erreichbar():
-    """PC-Hermes antwortet → art='pc'."""
+    """PC-Hermes antwortet → art='pc', ziel='pc'."""
     r = _route(pc_antwort="PC-Antwort")
     assert r["art"] == "pc"
     assert r["reply"] == "PC-Antwort"
     assert r["conversation_id"] == "conv_fake"
+    assert r["ziel"] == "pc"
 
 
 def test_track_c_lokal_verfuegbar():
-    """PC leer → lokal verfügbar → art='lokal'."""
+    """PC leer → lokal verfügbar → art='lokal', ziel='handy'."""
     r = _route(pc_antwort=None, lokal_verfuegbar=True)
     assert r["art"] == "lokal"
     assert "Hermes-Aufgabe erkannt" in r["reply"]
+    assert r["ziel"] == "handy"
 
 
 def test_track_b_buch_fallback():
-    """PC + lokal nicht da → art='buch'."""
+    """PC + lokal nicht da → art='buch', ziel='buch'."""
     r = _route(pc_antwort=None, lokal_verfuegbar=False)
     assert r["art"] == "buch"
     assert "wird bearbeitet" in r["reply"]
+    assert r["ziel"] == "buch"
+
+
+def test_track_c_antwort_nennt_ziel_handy():
+    """Track C: Die Antwort nennt das Ziel sichtbar („Weitergeleitet an")."""
+    r = _route(pc_antwort=None, lokal_verfuegbar=True)
+    assert "Hermes (Handy)" in r["reply"]
+
+
+def test_track_b_antwort_nennt_ziel_buch():
+    """Track B: Die Antwort nennt das Ziel sichtbar (Auftragsbuch)."""
+    r = _route(pc_antwort=None, lokal_verfuegbar=False)
+    assert "Auftragsbuch" in r["reply"]

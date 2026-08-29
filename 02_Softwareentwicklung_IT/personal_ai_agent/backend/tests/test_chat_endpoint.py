@@ -30,12 +30,26 @@ def _kein_hermes():
 
 
 def test_coding_ohne_hermes_geht_ins_buch(_kein_hermes):
-    """Coding-Anfrage → Buch-Fallback ('wird bearbeitet'), keine LLM-Antwort."""
+    """Coding-Anfrage → Buch-Fallback ('wird bearbeitet'), ziel='buch',
+    keine LLM-Antwort."""
     req = ChatRequest(message="Baue einen /health-Endpoint in der FastAPI-App",
                       model="deepseek/deepseek-v4-flash", web_search="off")
     resp = asyncio.run(chat_endpoint(req))
     assert "Hermes-Aufgabe erkannt" in resp.reply
     assert "wird bearbeitet" in resp.reply
+    assert resp.ziel == "buch"
+    assert "Auftragsbuch" in resp.reply
+
+
+def test_track_a_pc_antwort_mit_ziel():
+    """PC-Hermes erreichbar → Antwort direkt + ziel='pc' in der ChatResponse."""
+    with mock.patch.object(hg_instanz, "sende_auftrag", return_value="PC-Antwort"), \
+         mock.patch.object(mem_instanz, "extract_and_store_memories", return_value=[]):
+        req = ChatRequest(message="Baue einen /health-Endpoint in der FastAPI-App",
+                          model="deepseek/deepseek-v4-flash", web_search="off")
+        resp = asyncio.run(chat_endpoint(req))
+    assert resp.reply == "PC-Antwort"
+    assert resp.ziel == "pc"
 
 
 def test_grenze_delegiert_statt_normalem_chat(_kein_hermes):
