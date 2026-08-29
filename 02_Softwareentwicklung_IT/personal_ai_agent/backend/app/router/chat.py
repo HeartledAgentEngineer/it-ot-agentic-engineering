@@ -254,12 +254,27 @@ async def chat(request: ChatRequest):
 
 
         # 2. Get LLM response with memory context
+        # Vision-Routing: Wird ein Bild aus der Dateisuche mitgeschickt
+        # (datei_tool_bilder), braucht es ein VISION-fähiges Modell — ein
+        # reines Text-Modell (z. B. DeepSeek Flash) kann das Bild nicht sehen
+        # und antwortet "kein Zugriff". Dann nehmen wir automatisch Gemini
+        # Flash (günstig + bildfähig), falls der Nutzer kein anderes wählte.
+        vision_modell = "google/gemini-2.5-flash"
+        modell_fuer_call = request.model or ""
+        if datei_tool_bilder and not (modell_fuer_call
+                                      and ("gemini" in modell_fuer_call
+                                           or "gpt-4o" in modell_fuer_call
+                                           or "gpt-5" in modell_fuer_call
+                                           or "sonnet" in modell_fuer_call
+                                           or "claude" in modell_fuer_call)):
+            modell_fuer_call = vision_modell
+
         reply, quellen = llm_service.chat(
             user_message=user_message_fuer_llm,
             conversation_history=begrenzte_history,
             memories=memories,
             web_search=request.web_search,
-            model=request.model,
+            model=modell_fuer_call,
             no_retention=request.no_retention,
             archiv=archiv,
             summary=kontext_summary,
@@ -654,21 +669,31 @@ async def chat_stream(request: ChatRequest):
                 s_history = conversations.get(s_conv_id, [])
                 s_summary, _ = _hole_kontext_summary(s_conv_id, s_history, request.message)
                 s_hist_begrenzt = s_history[-15:]
-                s_werkzeug = _datei_tool(request.message)
-                s_user = request.message + (s_werkzeug or "")
+                s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
+                s_user = request.message + (s_werkzeug_text or "")
             except Exception:
+                s_werkzeug_bilder = []
                 s_summary, s_hist_begrenzt, s_user = "", history, request.message
+            # Vision-Routing (wie /chat): Bild → vision-fähiges Modell.
+            s_modell = request.model or ""
+            if s_werkzeug_bilder and not (s_modell and (
+                    "gemini" in s_modell or "gpt-4o" in s_modell
+                    or "gpt-5" in s_modell or "sonnet" in s_modell
+                    or "claude" in s_modell)):
+                s_modell = "google/gemini-2.5-flash"
             try:
                 for ereignis in llm_service.chat_stream(
                     user_message=s_user,
                     conversation_history=s_hist_begrenzt,
                     memories=memories,
                     web_search=request.web_search,
-                    model=request.model,
+                    model=s_modell,
                     no_retention=request.no_retention,
                     archiv=archiv,
                     summary=s_summary,
-                    files=[f.model_dump() for f in request.files] if request.files else None,
+                    files=(
+                        [f.model_dump() for f in request.files] if request.files else []
+                    ) + (s_werkzeug_bilder if s_werkzeug_bilder else []),
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])
