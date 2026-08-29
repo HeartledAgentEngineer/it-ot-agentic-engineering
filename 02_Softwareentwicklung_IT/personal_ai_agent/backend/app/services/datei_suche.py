@@ -14,7 +14,7 @@ Sicherheit:
 
 import logging
 import os
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -154,9 +154,15 @@ def suche_dateien(
         # Vorzug-Ordner zuerst (Gewicht 0), innerhalb gleicher Gewicht
         # nach Zeit (neueste zuerst). ACHTUNG: `or 1` wäre falsch — 0 ist
         # falsy, Gewicht 0 würde zu 1 (kein Vorzug). Default nur per .get.
-        treffer.sort(
-            key=lambda t: (t.get("_gewicht", 1), -(t.get("mtime") or 0))
-        )
+        # EXIF-Aufnahmedatum für Bilder nutzen (genauer als mtime) — der
+        # Explorer sortiert genauso. Fallback: mtime.
+        def _sort_schluessel(t: dict):
+            aufnahme = None
+            if t.get("erweiterung") in (".jpg", ".jpeg", ".png", ".webp"):
+                aufnahme = _exif_aufnahmedatum(t["pfad"])
+            zeit = aufnahme if aufnahme is not None else (t.get("mtime") or 0)
+            return (t.get("_gewicht", 1), -zeit)
+        treffer.sort(key=_sort_schluessel)
         # Erst JETZT kappen: das Limit darf den Walk nicht vorher stoppen,
         # sonst fehlt das neueste Bild, wenn es alphabetisch/später liegt
         # (z. B. IMG_2026... hinter IMG2024...).
@@ -166,6 +172,28 @@ def suche_dateien(
         t.pop("_gewicht", None)
     return treffer
 
+
+def _exif_aufnahmedatum(pfad: str) -> Optional[float]:
+    """EXIF-Aufnahmedatum (DateTimeOriginal) eines Bildes als Unix-Zeit.
+
+    Nutzt Pillow-EXIF — genauer als Datei-mtime (die z. B. beim Kopieren/
+    Backup verloren geht). Fehlt EXIF, liefert None (Aufrufer faellt auf
+    mtime zurueck). Fuer Nicht-Bilder eh None.
+    """
+    try:
+        from PIL import Image
+        import datetime as _dt
+        with Image.open(pfad) as img:
+            exif = img.getexif()
+            if not exif:
+                return None
+            wert = exif.get(36867) or exif.get(36868) or exif.get(306)
+            if not wert:
+                return None
+            ts = _dt.datetime.strptime(str(wert).strip(), "%Y:%m:%d %H:%M:%S")
+            return ts.timestamp()
+    except Exception:
+        return None
 
 def basis_ordner_verfuegbar() -> List[str]:
     """Welche der freigegebenen Basis-Ordner existieren (für Hinweise)."""
