@@ -250,10 +250,17 @@ async def chat(request: ChatRequest):
         werkzeug_notiz = ""
         datei_tool_bilder = []
         datei_bilder = []
-        werkzeug_notiz, datei_tool_bilder = _datei_tool(request.message)
-        # 1e. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
+        # 1e. Archiv-Tool über Sprache: 'was weißt du über X aus dem Archiv'.
+        # Hat VORRANG vor der Dateisuche — wer nach alten Gesprächen fragt,
+        # meint keine lokalen PDFs. Eine Archiv-Frage darf die Handy-
+        # Dateisuche NICHT auslösen.
+        archiv_notiz = _archiv_tool(request.message)
+        werkzeug_notiz = archiv_notiz
         if not werkzeug_notiz:
-            werkzeug_notiz = _verlauf_tool(request.message)
+            werkzeug_notiz, datei_tool_bilder = _datei_tool(request.message)
+            # 1f. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
+            if not werkzeug_notiz:
+                werkzeug_notiz = _verlauf_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
@@ -268,7 +275,7 @@ async def chat(request: ChatRequest):
                 "bilder": datei_tool_bilder,
                 "zeit": time.time(),
             }
-        elif conversation_id in _bild_cache:
+        elif (conversation_id in _bild_cache) and not archiv_notiz:
             # Kein neues Bild angefordert: nutze das gecachte (wenn frisch).
             eintrag = _bild_cache[conversation_id]
             if time.time() - eintrag["zeit"] < _BILD_CACHE_DAUER_S:
@@ -370,6 +377,128 @@ def _baue_kontext(frage: str) -> str:
     return "\n".join(teile)
 
 
+# ── Archiv-Tool über Sprache ────────────────────────────────────────────
+# Harte Signale: Wer DAS sagt, meint den Wissensspeicher (alte Chats von
+# ChatGPT/Gemini/Claude) — unabhängig davon, ob das Wort „Archiv" fällt.
+_ARCHIV_SIGNALE = (
+    "aus dem archiv", "aus meinem archiv", "im archiv", "dem archiv", "archiv",
+    "alte chats", "alten chats", "alte gespräche", "alten gespräche",
+    "alte gespraeche", "alten gespraeche", "alte unterhaltungen",
+    "alten unterhaltungen",
+)
+# Weiche Signale: Erinnerungs-/Wissens-Fragen, die genauso gut den
+# lokalen Gesprächsverlauf meinen könnten — Archiv wenn verfügbar,
+# sonst stiller Rückfall auf Verlauf/allgemeines Wissen.
+_ARCHIV_SIGNALE_WEICH = (
+    "was weißt du über", "was weisst du über",
+    "erinnerst du dich", "erinnerst du dich noch", "erinnere dich an",
+    "weißt du noch", "weisst du noch", "historisch", "chronik",
+    "vergangenheit",
+)
+# Gegenstück: Bild-/Foto-Fragen gehören zur Handy-DATEISUCHE, nie ins
+# Archiv — selbst wenn sie „über …" formuliert sind („was weißt du über
+# das Foto von gestern?"). Kein False-Positive.
+_ARCHIV_AUSSCHLUSS = ("bild", "foto", "screenshot", "aufnahme")
+_ARCHIV_STOPWOERTER = {
+    "zu", "über", "ueber", "aus", "dem", "den", "der", "die", "das", "des",
+    "im", "in", "an", "auf", "von", "vom", "mit", "und", "oder", "noch",
+    "auch", "ein", "eine", "einen", "einer", "einem", "eines", "wir",
+    "ich", "du", "haben", "hat", "hatte", "hatten", "gesagt", "besprochen",
+    "erinnere", "erinnerst", "dich", "dass", "was", "weiß", "weiss",
+    "wissen", "archiv", "alte", "alten", "chats", "gespräche", "gespraeche",
+    "unterhaltungen", "historisch", "chronik", "vergangenheit", "bitte",
+    "mal", "mir", "mich", "nochmal",
+}
+
+
+def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
+    """Archiv-Suche als 'Tool' über Sprache (ohne UI).
+
+    Erkennt Archiv-/Erinnerungs-Signale („aus dem Archiv", „alte Chats",
+    „was weißt du über X", „erinnerst du dich an X", „historisch") →
+    durchsucht den Wissensspeicher (Chunk-DB der alten ChatGPT/Gemini/
+    Claude-Gespräche) → hängt die Treffer mit Quelle + Datum an die
+    user_message, damit der LLM daraus zitiert.
+
+    Hat VORRANG vor der Dateisuche: Eine Archiv-Frage darf die Handy-
+    Dateisuche NICHT auslösen (der Nutzer meint alte Gespräche, keine
+    lokalen PDFs). Deshalb liefert das Tool auch bei leerem oder nicht
+    erreichbarem Archiv einen Hinweis statt eines leeren Strings — nur
+    weiche Erinnerungs-Signale fallen bei fehlendem Archiv still auf den
+    lokalen Gesprächsverlauf (_verlauf_tool) zurück.
+
+    `service` ist injizierbar (Tests); Default ist der Archiv-Service.
+
+    Liefert "" wenn kein Archiv-Wunsch vorliegt (dann läuft die
+    Dateisuche/Verlaufssuche ganz normal).
+    """
+    if service is None:
+        service = archiv_service
+    f = frage.lower().strip()
+    if not f:
+        return ""
+    # Foto-/Bild-Fragen: Dateisuche, nicht Archiv (False-Positive-Schutz).
+    if any(w in f for w in _ARCHIV_AUSSCHLUSS):
+        return ""
+    trigger = next((s for s in _ARCHIV_SIGNALE if s in f), None)
+    weich = False
+    if trigger is None:
+        trigger = next((s for s in _ARCHIV_SIGNALE_WEICH if s in f), None)
+        weich = trigger is not None
+    if not trigger:
+        return ""
+    # Stichwort = Text nach dem Signal, bereinigt um Stoppwörter → der
+    # Kern bleibt („EasyBank“ aus „was weißt du über EasyBank aus dem
+    # Archiv“).
+    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
+    teile = [w for w in stichwort.split() if w not in _ARCHIV_STOPWOERTER]
+    stichwort = " ".join(teile).strip()
+    if not stichwort or len(stichwort) < 3:
+        # Nichts herauslösbar (Signal am Satzende) → ganze Frage als
+        # Suchanfrage; die FTS-Aufbereitung filtert selbst die Füllwörter.
+        stichwort = f
+    # Wissensspeicher nicht erreichbar (z. B. PC ohne angebundenes Handy):
+    # bei hartem Archiv-Bezug ehrlich sagen (und KEINE Dateisuche starten),
+    # bei weichem Erinnerungs-Signal den lokalen Verlauf übernehmen lassen.
+    if not service.is_available:
+        if weich:
+            return ""
+        return (
+            "\n\n[Der Wissensspeicher/Archiv mit den alten Chats ist gerade "
+            "nicht erreichbar. Sag dem Nutzer ehrlich, dass Du dazu gerade "
+            "nichts sagen kannst, und schlage vor, es später erneut zu "
+            "versuchen — erfinde KEINE Archiv-Fundstellen.]"
+        )
+    try:
+        treffer = service.hybrid(stichwort)
+    except Exception as e:
+        logger.warning("Archiv-Tool-Suche uebersprungen: %s", e)
+        return (
+            "\n\n[Die Archiv-Suche ist gerade fehlgeschlagen. Sag dem Nutzer "
+            "ehrlich, dass Du dazu gerade nichts sagen kannst — erfinde "
+            "KEINE Archiv-Fundstellen.]"
+        )
+    if not treffer:
+        return (
+            "\n\n[Im Archiv zu '" + stichwort + "': nichts gefunden. "
+            "Beantworte die Frage trotzdem aus deinem allgemeinen Wissen — "
+            "erfinde aber KEINE Archiv-Fundstellen.]"
+        )
+    zeilen = []
+    for t in treffer[:5]:
+        quelle = t.get("source") or "unbekannt"
+        datum = (t.get("beginn") or "")[:10]
+        kopf = f"[{quelle}, {datum}]" if datum else f"[{quelle}]"
+        text = (t.get("text") or "").strip().replace("\n", " ")[:300]
+        zeilen.append(f"{kopf} {text}")
+    return (
+        "\n\n[Aus dem Archiv zu '" + stichwort + "':]\n"
+        + "\n".join(zeilen)
+        + "\nZitiere dem Nutzer die relevanten Stellen aus der Vergangenheit "
+          "und nenne dabei die Quelle (ChatGPT/Gemini/Claude) und das Datum.]"
+    )
+
+
 def _datei_tool(frage: str) -> tuple:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
@@ -431,6 +560,18 @@ def _datei_tool(frage: str) -> tuple:
     if ("bild" in f or "foto" in f) and neueste_zuerst:
         reines_stichwort = ""
 
+    # Dateityp-Filter (Kern-Fix): Die Frage bestimmt, WELCHE Dateitypen
+    # gesucht werden — "Foto/Bild" liefert NUR Bilder (nie PDFs), "PDF/
+    # Dokument" liefert NUR Docs (nie random PNGs). Verhindert den
+    # EasyBank-PDF-bei-Foto-Frage- und den file-PNG-bei-PDF-Frage-Bug.
+    nur_erweiterungen = None
+    if "bild" in f or "foto" in f or "screenshot" in f or "aufnahme" in f:
+        nur_erweiterungen = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    elif ("pdf" in f or "dokument" in f or "datei" in f
+          or "unterlagen" in f or "lebenslauf" in f or "vertrag" in f
+          or "rechnung" in f or "bewerbung" in f):
+        nur_erweiterungen = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls"}
+
     from app.services.datei_suche import lese_datei_info, suche_dateien
 
     # Stufe B: expliziter Lese-Wunsch → Inhalt lesen.
@@ -464,6 +605,7 @@ def _datei_tool(frage: str) -> tuple:
             reines_stichwort,
             neueste_zuerst=neueste_zuerst,
             ordner_hinweis=ordner_hinweis,
+            nur_erweiterungen=nur_erweiterungen,
         )
     except Exception:
         return "", []
@@ -738,7 +880,15 @@ async def chat_stream(request: ChatRequest):
                 s_history = conversations.get(s_conv_id, [])
                 s_summary, _ = _hole_kontext_summary(s_conv_id, s_history, request.message)
                 s_hist_begrenzt = s_history[-15:]
-                s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
+                # Archiv-Frage hat VORRANG: keine Dateisuche bei Archiv-Ziel
+                # (gleiche Kette wie in /chat, damit beide Wege identisch
+                # antworten).
+                s_werkzeug_text = _archiv_tool(request.message)
+                s_werkzeug_bilder = []
+                if not s_werkzeug_text:
+                    s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
+                    if not s_werkzeug_text:
+                        s_werkzeug_text = _verlauf_tool(request.message)
                 s_user = request.message + (s_werkzeug_text or "")
             except Exception:
                 s_werkzeug_bilder = []

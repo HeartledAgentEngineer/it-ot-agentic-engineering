@@ -14,7 +14,7 @@ Sicherheit:
 
 import logging
 import os
-from typing import List, Optional
+from typing import List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def suche_dateien(
     stichwort: str,
     neueste_zuerst: bool = False,
     ordner_hinweis: str = "",
+    nur_erweiterungen: Optional[Set[str]] = None,
 ) -> List[dict]:
     """Sucht Dateien in den freigegebenen Ordnern nach einem Stichwort.
 
@@ -64,9 +65,16 @@ def suche_dateien(
       bevorzugt Pictures/Screenshots. Treffer im bevorzugten Ordner kommen
       IMMER zuerst (auch vor neueren aus anderen Ordnern — so findet
       "letztes Foto" das echte Kamera-Bild statt alter Screenshots).
+    - `nur_erweiterungen`: Optionales Set von Erweiterungen (z. B.
+      {".jpg", ".png"}). Ist es gesetzt, werden NUR Dateien mit diesen
+      Erweiterungen gesammelt — die `_ERLAUBTE_EXT`-Prüfung bleibt, aber
+      der Filter verengt zusätzlich (Foto-Frage → nie PDFs, Dokument-Frage
+      → nie Bilder). Groß-/Kleinschreibung wird normalisiert.
     Sucht die Wurzel `~/storage/shared` (enthält alle freigegebenen Bereiche).
     """
     stichwort = (stichwort or "").lower().strip()
+    # Erweiterungen normalisieren (Aufrufer könnte ".JPG" übergeben).
+    ext_filter = {e.lower() for e in (nur_erweiterungen or set())} if nur_erweiterungen else None
     alle = neueste_zuerst and not stichwort  # "letztes Bild" → alles sortiert
     vorzug_kamera = "kamera" in ordner_hinweis
     vorzug_screenshot = "screenshot" in ordner_hinweis
@@ -101,6 +109,11 @@ def suche_dateien(
             for name in files:
                 ext = os.path.splitext(name)[1].lower()
                 if ext not in _ERLAUBTE_EXT:
+                    continue
+                # Dateityp-Filter: nur_erweiterungen (z. B. nur Bilder bei
+                # Foto-Fragen) verengt die Suche — alles andere wird
+                # übersprungen, BEVOR irgendein Match geprüft wird.
+                if ext_filter is not None and ext not in ext_filter:
                     continue
                 voll = os.path.join(root, name)
                 try:
