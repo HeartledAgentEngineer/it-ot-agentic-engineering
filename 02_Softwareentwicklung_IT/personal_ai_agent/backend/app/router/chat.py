@@ -37,6 +37,13 @@ router = APIRouter(prefix="/api", tags=["chat"])
 # funktionieren. Memory-Extraktion wird hier injected, damit der Service keine
 # harten Imports braucht.
 conversations = chat_verlauf.conversations
+
+# Flüchtiger Bild-Cache pro Conversation (Option B): das zuletzt gefundene
+# Bild (data_url + pfad) bleibt kurz im RAM, damit Folgefragen ("was war noch
+# drauf?") OHNE erneutes Suchen anhand des Bildes beantwortet werden können.
+# Nichts wird auf Platte gespeichert; nach _BILD_CACHE_DAUER_S verworfen.
+_bild_cache: Dict[str, dict] = {}
+_BILD_CACHE_DAUER_S = 600  # 10 Minuten
 VERLAUF_DATEI = os.path.join(settings.chroma_persist_dir, "conversations.json")
 
 # Service initialisieren (lädt Verlauf von der Platte).
@@ -242,6 +249,7 @@ async def chat(request: ChatRequest):
         # gehängt, damit der LLM die Treffer nennt (Stufe A).
         werkzeug_notiz = ""
         datei_tool_bilder = []
+        datei_bilder = []
         werkzeug_notiz, datei_tool_bilder = _datei_tool(request.message)
         # 1e. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
         if not werkzeug_notiz:
@@ -252,6 +260,26 @@ async def chat(request: ChatRequest):
         # Bilder aus der Dateisuche an die files-Liste anhängen (Vision-LLM).
         if datei_tool_bilder:
             datei_bilder = datei_tool_bilder
+            # Flüchtiger Bild-Cache für die laufende Conversation (Option B):
+            # das zuletzt gefundene Bild bleibt für Folgefragen kurz im RAM
+            # (10 Min), damit "was war noch drauf?" OHNE erneutes Suchen
+            # beantwortet werden kann — nichts wird auf Platte gespeichert.
+            _bild_cache[conversation_id] = {
+                "bilder": datei_tool_bilder,
+                "zeit": time.time(),
+            }
+        elif conversation_id in _bild_cache:
+            # Kein neues Bild angefordert: nutze das gecachte (wenn frisch).
+            eintrag = _bild_cache[conversation_id]
+            if time.time() - eintrag["zeit"] < _BILD_CACHE_DAUER_S:
+                if not datei_bilder:
+                    datei_bilder = eintrag["bilder"]
+                    user_message_fuer_llm += (
+                        "\n\n[Fortsetzung: Das zuvor gefundene Bild wird "
+                        "mitgeschickt — beantworte die Frage anhand des Bildes.]"
+                    )
+            else:
+                _bild_cache.pop(conversation_id, None)
 
 
         # 2. Get LLM response with memory context
