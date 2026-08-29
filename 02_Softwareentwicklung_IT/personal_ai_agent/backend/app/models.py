@@ -62,6 +62,11 @@ class ChatResponse(BaseModel):
     memories_used: int = 0
     memories_created: int = 0
     sources: List[Source] = []
+    # Bild-Vorschau (flüchtig): data_url + Pfad des Bildes, das der Agent
+    # aus der Dateisuche analysiert hat. Das Frontend zeigt es kurz an und
+    # verwirft es — es wird NICHTS gespeichert (nur in-memory/transient).
+    bild_vorschau: Optional[str] = None
+    bild_pfad: Optional[str] = None
     archiv_used: int = 0
 
 
