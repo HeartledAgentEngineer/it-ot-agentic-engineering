@@ -110,6 +110,34 @@ class HermesGateway:
             logger.debug("PC-Hermes-Stream-Aufruf fehlgeschlagen (%s)", e)
             return ""
 
+    def _start_antwort_poller(self, auftrag: str) -> None:
+        """Holt die PC-Hermes-Antwort im Hintergrund (bis 8 Versuche, 10s Pause).
+
+        Der Nutzer bekommt sofort die "übergeben"-Bestätigung; dieser Thread
+        ruft die Antwort nach und spielt sie über finish_exchange in die
+        Conversation ein (erscheint dann als Antwort im Chat).
+        """
+        def _pollen():
+            import time as _t
+            for versuch in range(1, 9):
+                _t.sleep(10)
+                try:
+                    antwort = self._chat_completion_stream(auftrag)
+                except Exception:
+                    antwort = ""
+                if antwort:
+                    try:
+                        from app.services.chat_verlauf import finish_exchange, _get_or_create_conversation
+                        conv_id = _get_or_create_conversation(None)
+                        finish_exchange(conv_id, auftrag, antwort)
+                        logger.info("PC-Hermes-Antwort nach Versuch %s eingespeist", versuch)
+                    except Exception as e:
+                        logger.warning("PC-Antwort einspeisen fehlgeschlagen: %s", e)
+                    return
+            logger.warning("PC-Hermes-Antwort nach 8 Versuchen nicht erhalten")
+        import threading
+        threading.Thread(target=_pollen, daemon=True).start()
+
     def sende_auftrag(self, auftrag: str) -> Optional[str]:
         """Sendet einen Programmierauftrag an den PC-Hermes und liefert die Antwort.
 
@@ -132,24 +160,18 @@ class HermesGateway:
             return None
 
         try:
-            # Streaming-Response + RETRY: Der PC-Hermes arbeitet sichtbar,
-            # aber die Antwort kommt oft nicht im ersten Response (er braucht
-            # Zeit). Deshalb bis zu 3 Versuche mit Pause — beim 2./3. Versuch
-            # liefert der PC die fertige Antwort aus seiner Session.
-            antwort = ""
-            for versuch in range(1, 4):
-                antwort = self._chat_completion_stream(auftrag)
-                if antwort:
-                    return antwort
-                if versuch < 3:
-                    logger.info("PC-Hermes antwortet noch (Versuch %s/3) – warte 5s", versuch)
-                    import time as _t
-                    _t.sleep(5)
-            # 3 Versuche ohne Antwort: PC hat übernommen (arbeitet), liefert
-            # aber (noch) keinen Text. Kein Fallback auf Handy — sonst laufen
-            # beide. Bestätigung liefern.
-            self.letzter_fehler = "PC-Hermes hat angenommen (leere Antwort nach 3 Versuchen)"
-            logger.warning("PC-Hermes 2xx mit leerer Antwort (3 Versuche) - kein Fallback")
+            # 1) KURZER synchroner Versuch (5s): oft kommt die PC-Antwort
+            # direkt. So bekommt der Nutzer schnell das Endergebnis, wenn der
+            # PC flott antwortet.
+            antwort = self._chat_completion_stream(auftrag)
+            if antwort:
+                return antwort
+            # 2) Keine Sofort-Antwort: SOFORT bestätigen (der Nutzer sieht
+            # das Feedback + die Umlenk-Buttons), nicht 15s blockieren.
+            # Die echte Antwort holt ein HINTERGRUND-Thread nach.
+            self.letzter_fehler = "PC-Hermes hat angenommen (arbeitet)"
+            logger.info("PC-Hermes hat übernommen – Antwort wird im Hintergrund abgerufen")
+            self._start_antwort_poller(auftrag)
             return (
                 "🧩 **Hermes-Aufgabe wurde an den PC-Hermes übergeben.**\n\n"
                 "Der PC-Hermes arbeitet an der Aufgabe. Das Ergebnis erscheint, "
