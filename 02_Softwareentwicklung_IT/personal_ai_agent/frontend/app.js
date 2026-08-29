@@ -435,7 +435,10 @@ function addMessage(content, role, zeit) {
         // Blasen), obwohl nichts mehr läuft.
         if (zeit === undefined
             && (/Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)
-                || /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag|⚠️ Fehler/.test(content))) {
+                || /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag|⚠️ Fehler/.test(content)
+                || /wurde an den PC-Hermes übergeben/.test(content)
+                || /arbeitet länger als das Timeout/.test(content)
+                || /arbeitet gerade an der Aufgabe/.test(content))) {
             contentDiv.appendChild(baueKorrekturButton(
                 /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag/.test(content)
             ));
