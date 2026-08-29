@@ -404,7 +404,16 @@ def _datei_tool(frage: str) -> tuple:
                               "gib mir die datei", "fasse zusammen aus")
     # Für "erkläre mir, was drauf ist" (auch ohne explizites Lese-Signal)
     # bei einem Bild → das neueste/gefundene Bild LESEN + erklären.
-    will_erklaeren = ("erklär" in f or "erkläre" in f or "drauf ist" in f or "was ist darauf" in f)
+    # Jede Bild/Foto-Frage aktiviert den Vision-Pfad — "rate, welches
+    # Kartenspiel", "was ist das für ein Bild", "welches Foto ist das":
+    # Wer nach einem Bild fragt, will es analysiert haben, nicht nur
+    # Dateinamen sehen.
+    will_erklaeren = (
+        "erklär" in f or "erkläre" in f or "drauf ist" in f
+        or "was ist darauf" in f or "rate" in f or "welches" in f
+        or "was ist das" in f or "was sieht" in f
+        or ("bild" in f or "foto" in f)
+    )
 
     try:
         treffer = suche_dateien(reines_stichwort, neueste_zuerst=neueste_zuerst)
