@@ -2184,6 +2184,8 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     throw new Error(daten.error);
                 } else if (daten.done) {
                     abschluss = daten;
+                    // Bild-Vorschau rendert finishReply (nach dem innerHTML).
+                    // Hier KEIN redundanter Aufruf — das würde doppelt/uberschrieben.
                     // Der Stream hat die Strecke selbst bis zum Ende geführt
                     // (Track C live) – der 3s-Poller ist dafür nicht nötig.
                     if (daten.auftrag_strecke) {
