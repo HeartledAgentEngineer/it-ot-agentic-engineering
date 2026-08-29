@@ -68,8 +68,12 @@ class HermesGateway:
             logger.debug("PC-Hermes is_online: nicht erreichbar (%s)", e)
             return False
 
-    def _chat_completion_stream(self, auftrag: str) -> str:
-        """Führt den Streaming-POST an den PC-Hermes aus + sammelt die Antwort."""
+    async def _chat_completion_stream(self, auftrag: str) -> str:
+        """Führt den Streaming-POST an den PC-Hermes aus + sammelt die Antwort.
+
+        ASYNC: blockiert den asyncio-Event-Loop NICHT (der Server hängt
+        sonst bei jedem PC-Abruf — das war die Blockade-Ursache).
+        """
         import json as _json
         payload = {
             "model": "hermes-agent",
@@ -80,32 +84,32 @@ class HermesGateway:
             "stream": True,
         }
         try:
-            with httpx.stream(
-                "POST",
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                headers=self._headers(),
-                timeout=self.timeout,
-            ) as r:
-                r.raise_for_status()
-                antwort = ""
-                for zeile in r.iter_lines():
-                    if not zeile or not zeile.startswith("data: "):
-                        continue
-                    datenstr = zeile[6:].strip()
-                    if datenstr == "[DONE]":
-                        break
-                    try:
-                        haeppchen = _json.loads(datenstr)
-                        antwort += (
-                            haeppchen.get("choices", [{}])[0]
-                            .get("delta", {})
-                            .get("content", "")
-                            or ""
-                        )
-                    except Exception:
-                        continue
-                return antwort.strip()
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/v1/chat/completions",
+                    json=payload,
+                    headers=self._headers(),
+                ) as r:
+                    r.raise_for_status()
+                    antwort = ""
+                    async for zeile in r.aiter_lines():
+                        if not zeile or not zeile.startswith("data: "):
+                            continue
+                        datenstr = zeile[6:].strip()
+                        if datenstr == "[DONE]":
+                            break
+                        try:
+                            haeppchen = _json.loads(datenstr)
+                            antwort += (
+                                haeppchen.get("choices", [{}])[0]
+                                .get("delta", {})
+                                .get("content", "")
+                                or ""
+                            )
+                        except Exception:
+                            continue
+                    return antwort.strip()
         except Exception as e:
             logger.debug("PC-Hermes-Stream-Aufruf fehlgeschlagen (%s)", e)
             return ""
@@ -119,10 +123,11 @@ class HermesGateway:
         """
         def _pollen():
             import time as _t
+            import asyncio as _aio
             for versuch in range(1, 9):
                 _t.sleep(10)
                 try:
-                    antwort = self._chat_completion_stream(auftrag)
+                    antwort = _aio.run(self._chat_completion_stream(auftrag))
                 except Exception:
                     antwort = ""
                 if antwort:
@@ -160,15 +165,11 @@ class HermesGateway:
             return None
 
         try:
-            # 1) KURZER synchroner Versuch (5s): oft kommt die PC-Antwort
-            # direkt. So bekommt der Nutzer schnell das Endergebnis, wenn der
-            # PC flott antwortet.
-            antwort = self._chat_completion_stream(auftrag)
-            if antwort:
-                return antwort
-            # 2) Keine Sofort-Antwort: SOFORT bestätigen (der Nutzer sieht
-            # das Feedback + die Umlenk-Buttons), nicht 15s blockieren.
-            # Die echte Antwort holt ein HINTERGRUND-Thread nach.
+            # NUR der Hintergrund-Poller sendet den Auftrag (1×): der
+            # synchrone Erstversuch wurde entfernt, weil er + der Poller den
+            # Auftrag DOPPELT an den PC schickten (der PC arbeitete 2×).
+            # Der Nutzer bekommt SOFORT die Bestätigung; der Poller holt
+            # die Antwort (mit demselben Auftrag) nach.
             self.letzter_fehler = "PC-Hermes hat angenommen (arbeitet)"
             logger.info("PC-Hermes hat übernommen – Antwort wird im Hintergrund abgerufen")
             self._start_antwort_poller(auftrag)
