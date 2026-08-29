@@ -45,7 +45,11 @@ def dateien_suchen(suche: str = Query("", max_length=200),
     Bilder/Dateien (für Tests: was würde der Agent finden?).
     """
     try:
-        treffer = suche_dateien(suche, neueste_zuerst=neueste)
+        # Bei leerem Suchbegriff (Test: "was würde der Agent finden?") die
+        # Kamera bevorzugen: DCIM enthält die echten Fotos + kommt zuerst,
+        # bevor alte root-/Pictures-Dateien das Limit füllen.
+        ordner = "kamera" if not suche.strip() else ""
+        treffer = suche_dateien(suche, neueste_zuerst=neueste, ordner_hinweis=ordner)
         return {
             "treffer": treffer,
             "anzahl": len(treffer),
