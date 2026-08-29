@@ -34,6 +34,10 @@ class ChatRequest(BaseModel):
     """Incoming chat message from the user."""
     message: str = Field(..., min_length=1, max_length=10000)
     conversation_id: Optional[str] = None
+    # Umlenk-Flag: Mit force_agent=true wird die Nachricht NIE als
+    # Hermes-Aufgabe geroutet (der Nutzer hat sie explizit an den lokalen
+    # Agenten zurückgegeben — sonst ginge sie erneut an Hermes/PC (Loop)).
+    force_agent: bool = False
     # Websuche kostet je Anfrage extra, deshalb standardmäßig aus.
     #   off    – gar keine Suche
     #   manual – sucht bei jeder Nachricht (Plugin, eine Suche pro Anfrage)

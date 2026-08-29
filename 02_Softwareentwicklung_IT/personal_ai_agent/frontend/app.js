@@ -338,8 +338,10 @@ function baueKorrekturButton(fehlerFall) {
             _laufenderAuftragKurz = null;
             aktualisiereStatusAnzeige();
         }
-        // 2) Aufgabe an den normalen LLM weiterleiten.
-        sendMessage(frag);
+        // 2) Aufgabe an den normalen LLM weiterleiten (force_agent=true:
+        //    NICHT durch den Hermes-Router — sonst erkennt er die Aufgabe
+        //    wieder als Hermes-Aufgabe und es geht erneut an den PC (Loop).
+        sendMessage(frag, false, false, true);
         btn.textContent = '… wird vom Agenten beantwortet';
     });
     // Umlenk-Buttons IMMER nebeneinander (Flex-Reihe) — auch wenn kein
@@ -2051,7 +2053,7 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     return data;
 }
 
-async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false) {
+async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false) {
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
     // eingereiht, wenn wir NICHT selbst eine Warteschlangen-Nachricht senden
     // (ausWarteschlange=true), kein laufender Hermes-Auftrag existiert UND es
@@ -2145,6 +2147,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 conversation_id: state.conversationId,
                 web_search: state.webSearch,
                 model: state.model,
+                force_agent: forceAgent === true,
                 files: state.pendingFiles.length > 0
                     ? state.pendingFiles.map(f => ({
                         id: f.id,
@@ -2195,13 +2198,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 if (daten.message) {
                     // Eigenständige Meldung (z. B. "Hermes-Aufgabe übergeben"):
                     // EIGENE Blase mit frischem Zeitstempel + Umlenk-Buttons,
-                    // nicht in die Antwort-Blase gemischt.
+                    // nicht in die Antwort-Blase gemischt. KEIN Ziel-Chip —
+                    // die Überschrift ("an den PC-Hermes übergeben") sagt das
+                    // Ziel schon; der Chip wäre redundant.
                     if (!antwort) setLoading(false);
                     const div = addMessage(daten.message, 'assistant');
-                    if (daten.ziel) {
-                        _zielAktuell = daten.ziel;
-                        addZielChip(div, daten.ziel);
-                    }
                     // Kommunikationskanal merken, damit die Umlenk-Buttons
                     // (lokal/Hermes) erscheinen + Eingaben als Kommentar gehen.
                     if (daten.auftrag_id) {
