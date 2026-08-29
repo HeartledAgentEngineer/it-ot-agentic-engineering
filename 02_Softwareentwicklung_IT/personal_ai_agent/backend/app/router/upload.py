@@ -67,8 +67,16 @@ async def _bild_als_base64(pfad: Path) -> Optional[str]:
     """
     if _HAT_PIL:
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             img = Image.open(pfad)
+            # EXIF-Orientierung (z. B. 6 = Hochformat bei Handy-Fotos) in die
+            # Pixel einbacken, BEVOR ggf. verkleinert wird. Ohne diesen Schritt
+            # verliert das erneute Speichern die Dreh-Info und das Bild
+            # erscheint im Chat um 90°/180° verdreht (das Backend speichert
+            # bewusst ohne exif-Tag → der Browser kann nicht nachkorrigieren).
+            gedreht = ImageOps.exif_transpose(img)
+            geaendert = gedreht is not img
+            img = gedreht
             max_dim = 2048
             if img.width > max_dim or img.height > max_dim:
                 faktor = max_dim / max(img.width, img.height)
@@ -76,6 +84,12 @@ async def _bild_als_base64(pfad: Path) -> Optional[str]:
                     (int(img.width * faktor), int(img.height * faktor)),
                     Image.LANCZOS,
                 )
+                geaendert = True
+            # Nur bei echter Aenderung neu speichern (vermeidet unnötiges
+            # Neu-Encoden, z. B. von animierten GIFs). Da das Schreiben keinen
+            # EXIF-Tag mitgibt, steht die korrekte Ausrichtung bereits in den
+            # Pixeln – sowohl für den Chat als auch für die Vision-API.
+            if geaendert:
                 img.save(pfad, quality=85)
         except Exception as e:
             logger.warning("Image-Resizing fehlgeschlagen, verwende Rohdaten: %s", e)
