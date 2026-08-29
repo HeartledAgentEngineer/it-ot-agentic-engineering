@@ -48,7 +48,11 @@ MAX_ERGEBNISSE = 30
 MAX_TIEFE = 3  # nicht zu tief in Ordnerhierarchien tauchen
 
 
-def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
+def suche_dateien(
+    stichwort: str,
+    neueste_zuerst: bool = False,
+    ordner_hinweis: str = "",
+) -> List[dict]:
     """Sucht Dateien in den freigegebenen Ordnern nach einem Stichwort.
 
     Returns: Liste von { pfad, name, groesse_byte, erweiterung, mtime }.
@@ -56,10 +60,16 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
     - Leeres Stichwort + `neueste_zuerst=True` liefert ALLE Dateien sortiert
       (für "das letzte Bild" — kein Namens-Match nötig).
     - `neueste_zuerst=True` sortiert nach Änderungsdatum (neueste zuerst).
+    - `ordner_hinweis`: "kamera" bevorzugt DCIM (echte Fotos), "screenshot"
+      bevorzugt Pictures/Screenshots. Treffer im bevorzugten Ordner kommen
+      IMMER zuerst (auch vor neueren aus anderen Ordnern — so findet
+      "letztes Foto" das echte Kamera-Bild statt alter Screenshots).
     Sucht die Wurzel `~/storage/shared` (enthält alle freigegebenen Bereiche).
     """
     stichwort = (stichwort or "").lower().strip()
     alle = neueste_zuerst and not stichwort  # "letztes Bild" → alles sortiert
+    vorzug_kamera = "kamera" in ordner_hinweis
+    vorzug_screenshot = "screenshot" in ordner_hinweis
     treffer: List[dict] = []
     gesehen: set = set()
 
@@ -105,12 +115,23 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
                         groesse = os.path.getsize(voll)
                     except OSError:
                         mtime, groesse = 0.0, 0
+                    # Vorzug-Ordner (Kamera/Screenshots): Treffer dort bekommen Gewicht 0 →
+                    # sie landen IMMER vor anderen (auch neueren). Plattform-
+                    # unabhängig: /dcim/ (Linux/Android) ODER \dcim\ (Windows).
+                    pfad_lower = voll.lower()
+                    if vorzug_kamera and ("/dcim/" in pfad_lower or "\\dcim\\" in pfad_lower):
+                        gewicht = 0
+                    elif vorzug_screenshot and ("/screenshots" in pfad_lower or "\\screenshots" in pfad_lower):
+                        gewicht = 0
+                    else:
+                        gewicht = 1
                     treffer.append({
                         "pfad": voll,
                         "name": name,
                         "groesse_byte": groesse,
                         "erweiterung": ext,
                         "mtime": mtime,
+                        "_gewicht": gewicht,
                     })
                 if len(treffer) >= MAX_ERGEBNISSE:
                     break
@@ -119,7 +140,15 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
         if len(treffer) >= MAX_ERGEBNISSE:
             break
     if neueste_zuerst:
-        treffer.sort(key=lambda t: t.get("mtime") or 0, reverse=True)
+        # Vorzug-Ordner zuerst (Gewicht 0), innerhalb gleicher Gewicht
+        # nach Zeit (neueste zuerst). ACHTUNG: `or 1` wäre falsch — 0 ist
+        # falsy, Gewicht 0 würde zu 1 (kein Vorzug). Default nur per .get.
+        treffer.sort(
+            key=lambda t: (t.get("_gewicht", 1), -(t.get("mtime") or 0))
+        )
+    # _gewicht ist intern — nicht an den Aufrufer geben.
+    for t in treffer:
+        t.pop("_gewicht", None)
     return treffer
 
 
