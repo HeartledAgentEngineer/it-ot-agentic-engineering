@@ -114,9 +114,29 @@ class HermesGateway:
             )
             if antwort:
                 return antwort
-            self.letzter_fehler = "PC-Hermes lieferte leere Antwort"
-            logger.warning("PC-Hermes lieferte leere Antwort")
-            return None
+            # 2xx + leere Antwort: der PC-Hermes HAT den Auftrag angenommen,
+            # liefert aber (noch) keinen Text. Kein Fallback auf Handy —
+            # sonst laufen beide. Bestätigung liefern.
+            self.letzter_fehler = "PC-Hermes hat angenommen (leere Antwort)"
+            logger.warning("PC-Hermes 2xx mit leerer Antwort - kein Fallback")
+            return (
+                "🧩 **Hermes-Aufgabe wurde an den PC-Hermes übergeben.**\n\n"
+                "Der PC-Hermes arbeitet an der Aufgabe. Das Ergebnis erscheint, "
+                "sobald es vorliegt."
+            )
+        except httpx.TimeoutException:
+            # Der PC-Hermes HAT den Auftrag angenommen (der POST kam durch),
+            # aber die Antwort dauert länger als das Timeout. NIEMALS auf den
+            # Handy-Hermes zurückfallen — der würde parallel arbeiten und
+            # hängen. Stattdessen Bestätigung liefern (Router bleibt bei PC).
+            self.letzter_fehler = "PC-Hermes arbeitet (Antwort > Timeout)"
+            logger.warning("PC-Hermes arbeitet laenger als %ss - kein Fallback", self.timeout)
+            return (
+                "🧩 **Hermes-Aufgabe wurde an den PC-Hermes übergeben.**\n\n"
+                "Der PC-Hermes arbeitet gerade an der Aufgabe. Sobald sein "
+                "Ergebnis vorliegt, erscheint es hier. (Antwort hat länger "
+                "als das Timeout gedauert — der Auftrag läuft trotzdem.)"
+            )
         except Exception as e:
             self.letzter_fehler = f"PC-Hermes-Anfrage fehlgeschlagen: {e}"
             logger.warning("PC-Hermes-Anfrage fehlgeschlagen (%s) - Fallback", e)
