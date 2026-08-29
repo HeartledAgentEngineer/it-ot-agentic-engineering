@@ -140,7 +140,23 @@ def lese_datei_info(pfad: str, max_zeichen: int = 8000) -> dict:
         if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
             try:
                 with open(pfad, "rb") as f:
-                    b64 = base64.b64encode(f.read(2_000_000)).decode()  # max 2MB
+                    roh = f.read()
+                # Sehr große Bilder werden verkleinert (max. 1280px), statt
+                # abgeschnitten — ein abgeschnittenes PNG lehnt der Vision-LLM
+                # mit "Provided image is not valid" ab. Pillow ist Standard.
+                if len(roh) > 3_000_000:  # > ~3 MB → verkleinern
+                    try:
+                        from PIL import Image
+                        import io
+                        img = Image.open(io.BytesIO(roh))
+                        img.thumbnail((1280, 1280))
+                        buf = io.BytesIO()
+                        img.convert("RGB").save(buf, format="JPEG", quality=82)
+                        roh = buf.getvalue()
+                        ext = ".jpg"
+                    except Exception:
+                        pass  # kein Pillow → Original senden (ggf. zu groß)
+                b64 = base64.b64encode(roh).decode()
                 return {
                     "name": name, "erweiterung": ext,
                     "text": "", "ist_bild": True,

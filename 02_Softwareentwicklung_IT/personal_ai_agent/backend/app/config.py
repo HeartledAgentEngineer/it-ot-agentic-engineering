@@ -49,23 +49,25 @@ class Settings(BaseSettings):
     # (OpenRouter respektiert dabei die Privacy-/Provider-Einstellungen des
     # Accounts). Kommt die API nicht an, greift diese Fallback-Liste.
     # Kommagetrennte Modell-IDs.
-    allowed_models_fallback: str = "deepseek/deepseek-v4-flash"
+    allowed_models_fallback: str = "deepseek/deepseek-v4-flash-0731,deepseek/deepseek-v4-flash"
 
-    # Schnellauswahl in der Oberfläche, nach Preis gestaffelt. Alle vier am
-    # 11.08.2026 gegen /models/user geprüft. Wer hier nicht mehr nutzbar ist,
-    # wird ausgegraut statt still entfernt – sonst merkt man Änderungen nicht.
-    #   gpt-5-nano          sparsam
-    #   deepseek-v4-flash   Alltag, 1 Mio Kontext
-    #   deepseek-v4-pro     mehr Substanz
-    #   claude-sonnet-5     stark
-    # Preise stehen bewusst nicht hier: /models/user liefert die des jeweils
-    # routbaren Anbieters, die von den Katalogpreisen abweichen (V4 Flash
-    # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
+# Schnellauswahl in der Oberfläche, nach Preis gestaffelt. Alle vier am
+        # 11.08.2026 gegen /models/user geprüft. Wer hier nicht mehr nutzbar ist,
+        # wird ausgegraut statt still entfernt – sonst merkt man Änderungen nicht.
+        #   gpt-5-nano          sparsam
+        #   deepseek-0731-v4    Alltag (günstigster V4 Flash, Favorit Sebastian)
+        #   deepseek-v4-flash   Alltag, 1 Mio Kontext
+        #   deepseek-v4-pro     mehr Substanz
+        #   claude-sonnet-5     stark
+        # Preise stehen bewusst nicht hier: /models/user liefert die des jeweils
+        # routbaren Anbieters, die von den Katalogpreisen abweichen (V4 Flash
+        # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
     favorite_models: List[str] = [
-        "openai/gpt-5-nano",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "anthropic/claude-sonnet-5",
+    "openai/gpt-5-nano",
+    "deepseek/deepseek-v4-flash-0731",
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-pro",
+    "anthropic/claude-sonnet-5",
     ]
 
     # Wie lange die Modell-Liste im Speicher gecacht bleibt (Sekunden).
