@@ -191,7 +191,7 @@ async def chat(request: ChatRequest):
         # Heuristik es nicht als Coding einstuft, delegiert der Agent an
         # Hermes (Toolcall).
         ist_auftrag_val = False
-        if not request.files:
+        if not request.files and not request.force_agent:
             ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
             if not ist_auftrag_val and stoesst_an_grenze(request.message):
                 ist_auftrag_val = True
