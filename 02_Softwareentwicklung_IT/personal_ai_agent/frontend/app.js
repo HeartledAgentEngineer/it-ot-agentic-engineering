@@ -368,9 +368,14 @@ function addMessage(content, role, zeit) {
         // Meldung "Hermes-Aufgabe erkannt"/"Coding-Auftrag erkannt", gibt es
         // einen Button, der die Aufgabe stattdessen an den normalen LLM
         // weiterleitet (kein Umbau der alten Meldung — sie bleibt als Beleg).
-        if (/Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)) {
+        // NUR bei LIVE-Nachrichten (zeit === undefined): beim Laden der
+        // History (zeit gesetzt) erscheint der Button nicht — sonst sähe es
+        // nach F5 so aus, als liefe gerade ein Auftrag (Button auf alten
+        // Blasen), obwohl nichts mehr läuft.
+        if (zeit === undefined
+            && /Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)) {
             contentDiv.appendChild(baueKorrekturButton());
-        }
+                }
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
     }
