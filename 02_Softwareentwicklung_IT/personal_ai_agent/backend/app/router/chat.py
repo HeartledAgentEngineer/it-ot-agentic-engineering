@@ -345,8 +345,9 @@ def _datei_tool(frage: str) -> str:
         return ""
 
     # "letzte/neueste" → nach Zeit sortieren (neueste zuerst) — z. B.
-    # "das letzte aufgenommene Bild". Stoppwörter aus dem Suchbegriff.
-    neueste_zuerst = any(w in stichwort for w in ("letzte", "letzten", "neueste", "neuesten"))
+    # "das letzte aufgenommene Bild". Berechnet aus der GANZEN Frage (das
+    # Wort kann vor dem Signal stehen: "Was ist das neueste Bild...").
+    neueste_zuerst = any(w in f for w in ("letzte", "letzten", "neueste", "neuesten"))
     stopwoerter = {
         "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
         "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
@@ -361,6 +362,12 @@ def _datei_tool(frage: str) -> str:
         if kern and kern not in stopwoerter:
             teile.append(kern)
     reines_stichwort = " ".join(teile).strip()
+
+    # Spezial-Regel: Wenn ein Bild/Foto-Wunsch + "neueste/letzte" auftaucht
+    # (egal wie formuliert: "was ist das neueste bild auf deinem speicher"),
+    # suchen wir ALLE Bilder nach Zeit sortiert — kein Namens-Match nötig.
+    if ("bild" in f or "foto" in f) and neueste_zuerst:
+        reines_stichwort = ""
 
     from app.services.datei_suche import lese_datei_info, suche_dateien
 
