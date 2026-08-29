@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 # das Ganze, nicht nur einzelne Ordner.
 _STORAGE_WURZEL = os.path.expanduser("~/storage/shared")
 
+# Fallback-Wurzeln: Falls die Termux-Symlinks fehlen (Android-Berechtigung /
+# termux-setup-storage nie gelaufen), greifen direkte Android-Pfade. Die
+# Kamera-/Bild-Ordner liegen dann unter /sdcard/DCIM etc.
+_FALLBACK_WURZELN = [
+    "/sdcard",              # Android-Storage (direkt, falls Termux-Symlink fehlt)
+    os.path.join(os.path.expanduser("~"), "storage", "shared"),
+]
+
 # Fällt die Wurzel weg (Termux ohne Storage-Zugriff), leere Fallbacks:
 _STORAGE_BASIS = [
     _STORAGE_WURZEL,
@@ -53,12 +61,17 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
     stichwort = (stichwort or "").lower().strip()
     alle = neueste_zuerst and not stichwort  # "letztes Bild" → alles sortiert
     treffer: List[dict] = []
+    gesehen: set = set()
 
-    # Nur die Wurzel durchsuchen (enthält Download/Documents/Pictures/etc.).
-    if os.path.isdir(_STORAGE_WURZEL):
-        for root, dirs, files in os.walk(_STORAGE_WURZEL):
+    # Mehrere Wurzeln durchsuchen: primär ~/storage/shared, Fallback /sdcard
+    # (falls die Termux-Symlinks fehlen). Dedupe über den echten Pfad.
+    wurzeln = [_STORAGE_WURZEL] + [w for w in _FALLBACK_WURZELN if w != _STORAGE_WURZEL]
+    for basis in wurzeln:
+        if not os.path.isdir(basis):
+            continue
+        for root, dirs, files in os.walk(basis):
             # Tiefe begrenzen + versteckte/System-Ordner überspringen.
-            rel = os.path.relpath(root, _STORAGE_WURZEL)
+            rel = os.path.relpath(root, basis)
             tiefe = 0 if rel == "." else rel.count(os.sep) + 1
             if tiefe > MAX_TIEFE:
                 dirs[:] = []
@@ -69,7 +82,14 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
                 if ext not in _ERLAUBTE_EXT:
                     continue
                 voll = os.path.join(root, name)
+                try:
+                    ident = os.path.realpath(voll)
+                except OSError:
+                    ident = voll
+                if ident in gesehen:
+                    continue
                 if alle or stichwort in name.lower() or stichwort in ext:
+                    gesehen.add(ident)
                     try:
                         mtime = os.path.getmtime(voll)
                         groesse = os.path.getsize(voll)
@@ -84,6 +104,10 @@ def suche_dateien(stichwort: str, neueste_zuerst: bool = False) -> List[dict]:
                     })
                 if len(treffer) >= MAX_ERGEBNISSE:
                     break
+            if len(treffer) >= MAX_ERGEBNISSE:
+                break
+        if len(treffer) >= MAX_ERGEBNISSE:
+            break
     if neueste_zuerst:
         treffer.sort(key=lambda t: t.get("mtime") or 0, reverse=True)
     return treffer
