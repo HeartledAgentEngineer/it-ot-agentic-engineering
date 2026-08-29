@@ -2192,6 +2192,25 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     continue;
                 }
 
+                if (daten.message) {
+                    // Eigenständige Meldung (z. B. "Hermes-Aufgabe übergeben"):
+                    // EIGENE Blase mit frischem Zeitstempel + Umlenk-Buttons,
+                    // nicht in die Antwort-Blase gemischt.
+                    if (!antwort) setLoading(false);
+                    const div = addMessage(daten.message, 'assistant');
+                    if (daten.ziel) {
+                        _zielAktuell = daten.ziel;
+                        addZielChip(div, daten.ziel);
+                    }
+                    // Kommunikationskanal merken, damit die Umlenk-Buttons
+                    // (lokal/Hermes) erscheinen + Eingaben als Kommentar gehen.
+                    if (daten.auftrag_id) {
+                        _laufenderAuftragKurz = daten.auftrag_id;
+                        aktualisiereStatusAnzeige();
+                    }
+                    continue;
+                }
+
                 if (daten.delta) {
                     if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
                     // Track C (Hermes live): Beim ersten Event kommt die
