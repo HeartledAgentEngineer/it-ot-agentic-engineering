@@ -61,3 +61,21 @@ Pfade sind relativ zum Projektverzeichnis.
 
 Prüfläufe gehören an den Subagenten `tester`, damit die Logs nicht im
 Hauptkontext landen.
+
+---
+
+## 5. CACHE-BUSTING (PFLICHT bei Frontend-Änderungen)
+
+**Gilt für `personal_ai_agent` (und jedes Web-Frontend im Workspace):**
+
+Bei JEDER Änderung an Frontend-Dateien (`index.html`, `app.js`, `style.css`)
+MUSS die `?v=`-Versionsnummer in `index.html` erhöht werden — sonst lädt der
+Browser (Comet/Chrome) die alte gecachte Datei und die Änderung ist unsichtbar.
+
+**Schema:** `JJJJMMTT` + laufender Buchstabe für mehrere Änderungen am selben Tag.
+- Erste Änderung am 2026-08-24 → `?v=20260824A`
+- Zweite am selben Tag → `?v=20260824B` (usw.)
+
+**Regel:** Cache-Bump IMMER im selben Commit wie die Frontend-Änderung.
+Niemals annehmen, der Browser lade "schon neu" — hartes Caching ist der
+Normalfall (war bereits mehrfach die Fehlerursache).
