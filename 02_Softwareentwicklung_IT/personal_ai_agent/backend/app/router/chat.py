@@ -779,7 +779,7 @@ async def chat_stream(request: ChatRequest):
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, hermes_antwort)
             def pc_baer_ereignisse():
-                yield _sse({"delta": hermes_antwort})
+                yield _sse({"message": hermes_antwort, "ziel": "pc"})
                 yield _sse({"done": True, "conversation_id": conversation_id,
                             "memories_used": 0, "memories_created": 0,
                             "memory_count": memory_service.get_memory_count(),
@@ -844,7 +844,7 @@ async def chat_stream(request: ChatRequest):
         def auftrag_ereignisse():
             # In zwei Teile zerlegt: erst Text, dann fertig - die UI haengt
             # ihr "fertig"-Handle an das done-Event.
-            yield _sse({"delta": reply_text})
+            yield _sse({"message": reply_text, "ziel": "buch"})
             yield _sse({
                 "done": True,
                 "conversation_id": conversation_id,
