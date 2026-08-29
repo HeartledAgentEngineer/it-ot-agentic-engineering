@@ -311,10 +311,12 @@ function bauOptionsUi(menu) {
 /** Baut einen Korrektur-Button für fälschlich erkannte Hermes-Aufgaben.
  *  Klick leitet die ursprüngliche Nutzer-Nachricht an den normalen LLM weiter
  *  (die alte Hermes-Meldung bleibt sichtbar, um den Fehler zu belegen). */
-function baueKorrekturButton() {
+function baueKorrekturButton(fehlerFall) {
     const btn = document.createElement('button');
     btn.className = 'korrektur-button';
-    btn.textContent = '⚠️ Keine Hermes-Aufgabe – an LLM weitergeben';
+    btn.textContent = fehlerFall
+        ? '↩️ An lokalen Agenten senden'
+        : '⚠️ Keine Hermes-Aufgabe – an LLM weitergeben';
     btn.style.cssText =
         'margin-top:8px;padding:8px 10px;border:1px solid #555;border-radius:8px;' +
         'background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.8rem';
@@ -373,8 +375,11 @@ function addMessage(content, role, zeit) {
         // nach F5 so aus, als liefe gerade ein Auftrag (Button auf alten
         // Blasen), obwohl nichts mehr läuft.
         if (zeit === undefined
-            && /Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)) {
-            contentDiv.appendChild(baueKorrekturButton());
+            && (/Hermes-Aufgabe erkannt|Coding-Auftrag erkannt/.test(content)
+                || /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag|⚠️ Fehler/.test(content))) {
+            contentDiv.appendChild(baueKorrekturButton(
+                /Fehler im lokalen Hermes-Job|Abbruch-Fehlschlag/.test(content)
+            ));
                 }
     } else {
         contentDiv.innerHTML = `<p>${escapeHtml(content)}</p>`;
@@ -2039,6 +2044,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     // Können an jedem Häppchen hängen, deshalb laufend sammeln.
                     quellen = mergeQuellen(quellen, daten.sources);
                 } else if (daten.error) {
+                    // Fehler (z. B. "Fehler im lokalen Hermes-Job"): Kanal
+                    // wieder freigeben + Stop-Button weg — sonst bleibt der
+                    // rote Stopp-Zustand hängen, obwohl nichts mehr läuft.
+                    _laufenderAuftragKurz = null;
+                    aktualisiereStatusAnzeige();
+                    updateSendButton();
                     throw new Error(daten.error);
                 } else if (daten.done) {
                     abschluss = daten;
@@ -2085,6 +2096,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             );
             return null;
         }
+
+        // Fehler (kein Abbruch): Kanal freigeben + Stop-Button zurücksetzen,
+        // damit nach einem Fehler (z. B. Hermes-Job) kein roter Zustand hängt.
+        _laufenderAuftragKurz = null;
+        aktualisiereStatusAnzeige();
+        updateSendButton();
 
         // Kam schon Text an, ist der Stream mittendrin gerissen – dann steht
         // das Bruchstück da und ein zweiter Anlauf würde doppelt abrechnen.
