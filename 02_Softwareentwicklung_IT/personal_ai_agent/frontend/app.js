@@ -1609,6 +1609,62 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     return steuerung;
 }
 
+/** Zeigt eine fluechtige Bild-Miniatur in der Antwortblase (WhatsApp-Stil).
+ *  Nach BILD_ANZEIGE_MS verschwindet sie automatisch; es bleibt ein
+ *  Platzhalter "Bild wieder anzeigen", der das Bild FRISCH vom Speicher
+ *  laedt (GET /api/dateien/daten?pfad=) — nichts wird persistiert. */
+const BILD_ANZEIGE_MS = 10000;
+
+function zeigeBildVorschau(container, dataUrl, pfad) {
+    if (!container) return;
+    const rahmen = document.createElement('div');
+    rahmen.className = 'bild-vorschau';
+    rahmen.style.cssText =
+        'margin-top:8px;max-width:100%;display:flex;flex-direction:column;gap:6px';
+
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = 'Bildvorschau';
+    img.style.cssText =
+        'max-width:100%;max-height:220px;border-radius:10px;border:1px solid #444;object-fit:cover';
+    rahmen.appendChild(img);
+
+    const hinweis = document.createElement('span');
+    hinweis.textContent = '🖼️ Bild wird kurz angezeigt (flüchtig)';
+    hinweis.style.cssText = 'font-size:0.7rem;color:#888';
+    rahmen.appendChild(hinweis);
+
+    container.appendChild(rahmen);
+
+    // Nach BILD_ANZEIGE_MS: Bild weg, Platzhalter zum Nachladen da.
+    let timer = setTimeout(() => {
+        rahmen.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'bild-nachladen';
+        btn.textContent = '🖼️ Bild wieder anzeigen';
+        btn.style.cssText =
+            'padding:6px 10px;border:1px solid #555;border-radius:8px;background:#2a2a2a;' +
+            'color:inherit;cursor:pointer;font-size:0.8rem';
+        btn.addEventListener('click', async () => {
+            if (!pfad) return;
+            btn.disabled = true;
+            btn.textContent = '… lädt';
+            try {
+                const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
+                const daten = await res.json();
+                if (daten.data_url) {
+                    zeigeBildVorschau(container, daten.data_url, pfad); // erneut (loop)
+                } else {
+                    btn.textContent = '⚠️ Bild nicht verfügbar';
+                }
+            } catch (_) {
+                btn.textContent = '⚠️ Laden fehlgeschlagen';
+            }
+        });
+        rahmen.appendChild(btn);
+    }, BILD_ANZEIGE_MS);
+}
+
 /** Beendet eine Antwortblase: Markdown rendern, Verlauf und Fußzeile setzen. */
 function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
@@ -1622,6 +1678,10 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
             localStorage.setItem('conversation_id', abschluss.conversation_id);
         }
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
+        // Bild-Vorschau (flüchtig): Miniatur kurz anzeigen, dann verschwinden.
+        if (abschluss.bild_vorschau) {
+            zeigeBildVorschau(contentDiv, abschluss.bild_vorschau, abschluss.bild_pfad);
+        }
     }
     // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
     if (vorleser) vorleser.neuerText();
