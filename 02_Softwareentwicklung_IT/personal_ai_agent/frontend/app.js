@@ -389,6 +389,8 @@ const ZIEL_LABELS = {
  *  SSE-done-Event bzw. aus der ChatResponse (Fallback-Weg). */
 function addZielChip(contentDiv, ziel) {
     if (!ziel || !ZIEL_LABELS[ziel]) return;
+    // Ziel merken (pc/handy/buch) → Status-Badge zeigt "Hermes (PC/Handy)".
+    _zielAktuell = ziel;
     const chip = document.createElement('div');
     chip.className = 'ziel-chip';
     chip.textContent = ZIEL_LABELS[ziel];
@@ -397,6 +399,7 @@ function addZielChip(contentDiv, ziel) {
         'border:1px solid #444;border-radius:999px;font-size:0.75rem;' +
         'color:#bbb;background:#222';
     contentDiv.appendChild(chip);
+    aktualisiereStatusAnzeige();
 }
 
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
@@ -488,7 +491,13 @@ function aktualisiereStatusAnzeige() {
     const badge = document.getElementById('chat-modus-badge');
     if (!badge) return;
     if (_laufenderAuftragKurz) {
-        badge.textContent = '🔴 Hermes arbeitet';
+        // Konkret zeigen, WER arbeitet (PC-Hermes vs. Handy-Hermes).
+        const ziel = _zielAktuell || '';
+        badge.textContent = ziel === 'pc'
+            ? '🔴 Hermes (PC) arbeitet'
+            : ziel === 'handy'
+                ? '🔴 Hermes (Handy) arbeitet'
+                : '🔴 Hermes arbeitet';
         badge.style.color = '#f88';
         badge.style.borderColor = '#f55';
         badge.style.background = '#2a1515';
@@ -1904,6 +1913,8 @@ let _auftragTimer = null;
 // solange gesetzt, wird eine neue Chat-Nachricht als Kommentar an die Session
 // geschickt statt einen neuen Auftrag zu starten).
 let _laufenderAuftragKurz = null;
+// Ziel des laufenden Hermes-Auftrags (pc/handy/buch) — fürs Status-Badge.
+let _zielAktuell = '';
 // True, wenn der /chat/stream die Live-Strecke selbst bis zum Abschluss
 // geführt hat (done mit auftrag_strecke). Dann braucht der 3s-Poller nicht
 // zusätzlich zu laufen – er bleibt nur Rückfall, wenn der Stream wegbrichst.
