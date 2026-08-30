@@ -3,6 +3,30 @@
 Alle sichtbaren Änderungen am personal_ai_agent, dokumentiert nach dem
 Prinzip „Doku folgt dem Code“. Neuere Einträge oben.
 
+## 2026-08-30 — Gesichter merken funktioniert jetzt auch im normalen Chat (Stream)
+
+**Problem:** „das bin ich" / „das ist Pedi" beim Betrachten eines Bildes wurde
+entweder nie gespeichert oder der Agent antwortete „Es ist mir nicht
+gestattet, reale Personen zu identifizieren" — obwohl die Merk-Logik
+(`_gesichter_merke`, LLM-gestützte Personenextraktion) existierte.
+
+**Root Cause:** Das Frontend spricht **standardmäßig `/api/chat/stream`**.
+Die Merk-Logik war aber **nur** im Non-Stream-Endpunkt `/api/chat` eingebaut
+(der reine Notfall-Fallback). Alle Aufrufe über den normalen Stream-Chat
+liefen an der Merk-Logik vorbei — das Bild wurde dem LLM zwar gezeigt, aber
+„wer darauf ist" nie in den Gesichter-Katalog geschrieben.
+
+**Fix (`backend/app/router/chat.py`):** Die reaktive Merk-Logik läuft jetzt
+identisch auch im Stream-Pfad (`s_bild_aktiv` aus Dateisuche ODER
+Upload-Bild, `_gesichter_merke` mit Referenz-Miniatur). Damit griff dein
+letzter Versuch (Photo von dir hochladen + „das bin ich") jetzt wirklich.
+
+**Verifikation (real gegen laufenden Server):** Stream-Chat mit hochgeladenem
+Bild + „das ist meine Testperson Omega" → `GET /api/gesichter` enthielt Omega
+mit `referenz_bild_miniatur`. Danach aufgeräumt (Omega gelöscht, Upload
+gelöscht, Verlaufsrunde entfernt). `extrahiere_gesichts_anlernen("das bin
+ich", "Sebastian")` liefert korrekt `{"name":"Sebastian","ist_nutzer":true}`.
+
 ## 2026-08-30 — Bild-Vorschau (Dateisuche) überlebt Reload
 
 **Problem:** Bilder, die der Agent über die Dateisuche im Chat angezeigt hat
