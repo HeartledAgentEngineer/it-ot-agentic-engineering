@@ -42,10 +42,16 @@ def test_anhaengen_ignoriert_leer(verlauf):
 
 
 def test_get_or_create(verlauf):
+    """ES GIBT NUR EINE durchlaufende Conversation (seit 2026-08-30).
+    _get_or_create liefert IMMER conv_main — nie eine neue ID, egal ob eine
+    (unbekannte) conversation_id mitgegeben wird oder nicht."""
     c = verlauf._get_or_create_conversation(None)
-    assert c.startswith("conv_")
-    c2 = verlauf._get_or_create_conversation(c)
-    assert c2 == c  # existierende wiederverwendet
+    assert c == "conv_main"
+    c2 = verlauf._get_or_create_conversation(None)
+    assert c2 == "conv_main"          # nie neue ID bei fehlender
+    c3 = verlauf._get_or_create_conversation("conv_schrott_x")
+    assert c3 == "conv_main"          # unbekannte id wird gemappt, kein neuer Chat
+    assert list(verlauf.conversations.keys()) == ["conv_main"]
 
 
 def test_finish_exchange_ohne_memory_fuegt_eintraege(verlauf):
