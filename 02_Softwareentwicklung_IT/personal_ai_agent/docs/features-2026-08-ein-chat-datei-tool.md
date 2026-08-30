@@ -25,10 +25,19 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
 - **Über Sprache**: `_datei_tool(frage)` erkennt Datei-Suchs-/Lese-Signale
   ("suche/finde/lies/was steht in/zeig mir den inhalt von …") und hängt die
   Treffer bzw. den Inhalt an die user_message — der LLM nennt/fasst zusammen.
+- **Screenshot-Erkennung**: "screenshot" ist ein eigenes Such-Signal (in
+  `signale`), aktiviert die Bild-Anzeige (`will_erklaeren`) und priorisiert
+  den Screenshots-Ordner (`ordner_hinweis="screenshot"`). So liefert
+  "Was ist auf dem letzten Screenshot?" das neueste Bild aus
+  `Pictures/Screenshots` als Vision-`data_url` (nicht nur den Dateinamen).
+  `GET /api/dateien?ordner=screenshot` reicht die Ordner-Priorisierung ebenso
+  durch (Default bleibt "kamera" bei leerem Suchbegriff).
   Keine Lupen-UI nötig; alles läuft über den Sprach-/Chat-Weg.
 - Voraussetzung auf dem Handy: `termux-setup-storage` (einmalig), damit
   `~/storage/shared` existiert.
-- Tests: `tests/test_datei_suche.py` (7 Tests).
+- Tests: `tests/test_datei_suche.py` (12 Tests, 2 gerätebedingte Fehlschläge
+  auf Geräten mit echtem `/sdcard`, da die Sandbox-Mocks die `_FALLBACK_WURZELN`
+  nicht mitmocken).
 
 ## 3. Chat-Volltextsuche im Ein-Chat
 
