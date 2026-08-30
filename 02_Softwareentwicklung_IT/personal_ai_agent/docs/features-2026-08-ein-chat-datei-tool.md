@@ -99,6 +99,22 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   Nachladen wird derselbe Vorschau-Rahmen aktualisiert (kein hängen
   gebliebener „… lädt"-Knopf mehr).
 
+## 6. Nachricht bearbeiten + Abbrechen (Frontend, 2026-08-30)
+
+- **Bearbeiten** (Kontextmenü → „✏️ Nachricht bearbeiten", nur User-Blasen):
+  Stoppt einen laufenden Antwort-Stream, entfernt die bearbeitete User-Blase
+  samt ihrer Antwort aus DOM + `state.messages`, löscht die Runde serverseitig
+  (`DELETE /api/chat/letzte-runde`) und legt den Text zurück in die Eingabe.
+  Nach dem erneuten Absenden startet der neue Stream frisch; nach Reload steht
+  keine alte Fassung mehr da.
+- **Abbrechen-Button**: Der generische „⏹ Abbrechen"-Button an normalen
+  LLM-Antwort-Blasen ist entfernt — der Stream-Abbruch läuft über den
+  Bearbeiten-Flow bzw. die leere-Eingabe-Abbruchlogik. Ein laufender
+  Hermes-Auftrag behält seinen eigenen Abbruch-Knopf (`.gedanke-abbrechen`)
+  und den Auftrags-Abbruch (`brichAb` → `POST /api/auftraege/{id}/abbrechen`).
+- Backend: `chat_verlauf.verlauf_runde_entfernen()` entfernt die letzte
+  User-Nachricht samt Antwort aus dem persistenten Verlauf (conv_main).
+
 ## Verifikation
 
 Prüfbefehl: `cd backend && .venv/Scripts/python -m pytest -q` → 57 Tests grün.

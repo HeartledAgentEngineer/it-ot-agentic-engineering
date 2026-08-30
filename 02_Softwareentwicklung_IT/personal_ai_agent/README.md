@@ -146,6 +146,7 @@ personal_ai_agent/
 | `GET` | `/api/memory/count` | Anzahl Erinnerungen |
 | `GET` | `/api/conversations` | Aktive Konversationen |
 | `GET` | `/api/conversations/{id}` | Nachrichten eines Gesprächs – jede Nachricht trägt ein `zeit`-Feld (ISO der Sende-/Empfangszeit). Das Frontend zeigt darunter den Zeitstempel (Uhrzeit mit Sekunden, „23:04:47“) und trennt Tage durch eine WhatsApp-artige Datums-Pille („Heute“, „Gestern“ oder „23.08.2026“). |
+| `DELETE` | `/api/chat/letzte-runde` | Entfernt die letzte Nutzer-Nachricht samt Antwort aus dem Verlauf (Bearbeiten-Flow: alte Runde wird vor dem Neu-Formulieren dauerhaft gelöscht, damit nach Reload nichts Falsches steht). Ohne `conversation_id` gilt die eine durchlaufende Conversation (`conv_main`). |
 
 ## 🔮 Ausblick (Phase 2)
 

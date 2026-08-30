@@ -2134,10 +2134,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Seit v20260817: Typing-Indicator (drei Punkte) direkt in der Blase,
     // nicht mehr im separaten #loading-Bereich.
     const contentDiv = addMessage('', 'assistant');
-    // Während die Antwort läuft (Stream oder laufender Hermes-Auftrag) sitzt
-    // unten an der Blase ein '⏹ Abbrechen'-Button, mit dem man den Stream
-    // bzw. den Hermes-Auftrag stoppen kann. finishReply/finally entfernt ihn.
-    haengeAbbruchButtonAnBlase(contentDiv);
+    // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
+    // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
+    // Stream-Abbruch läuft über den Bearbeiten-Flow bzw. die leere-Eingabe-
+    // Abbruchlogik. Ein laufender Hermes-Auftrag hat weiterhin seinen eigenen
+    // Abbruch-Knopf ('.gedanke-abbrechen') + den Auftrags-Abbruch (brichAb).
     contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
     const entry = state.messages[state.messages.length - 1];
     _auftragStreckeDirekt = false;   // pro Nachricht neu entscheiden
@@ -2391,12 +2392,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         entry.content = antwort;
     } finally {
         // Nur zuruecksetzen, wenn niemand zwischenzeitlich einen neuen Lauf
-        // gestartet hat – sonst wuerde dessen Stopp-Knopf ins Leere greifen.
+        // gestartet hat (kein Stopp-Knopf mehr für normale Antworten).
         if (state.abbruch === controller) state.abbruch = null;
         setLoading(false);
-        // Antwort ist vorbei (fertig/abgebrochen/Fehler) → den Abbrechen-Button
-        // von der Blase nehmen; danach hindert die Bedienung nicht mehr.
-        entferneAbbruchButtonVonBlase(contentDiv);
     }
 }
 
@@ -2715,6 +2713,7 @@ kontextMenue.innerHTML =
 document.body.appendChild(kontextMenue);
 
 let kontextZielText = '';
+let kontextZielBlase = null;   // die .message-Blasen, aus der das Menü geöffnet wurde
 let kontextKopierTimer = null;
 
 /** Liefert den kopierbaren Text einer Blase: User exakt wie getippt,
@@ -2773,6 +2772,32 @@ kontextMenue.addEventListener('click', (e) => {
             .catch(() => { btn.textContent = '⚠️ Kopieren fehlgeschlagen'; });
         kontextMenueSchliessen();
     } else if (btn.dataset.aktion === 'bearbeiten') {
+        // Bearbeiten-Flow: User-Nachricht zum Neu-Formulieren zurück in die
+        // Eingabe legen. Dabei wird (a) ein noch laufender Antwort-Stream
+        // gestoppt, (b) die bearbeitete User-Blase samt ihrer Antwort aus
+        // dem Verlauf/DOM entfernt und (c) die Runde serverseitig gelöscht —
+        // damit nach dem erneuten Absenden der neue Stream frisch startet und
+        // nach einem Reload keine alte Fassung wieder auftaucht.
+        // NUR den LLM-Stream stoppen; ein laufender Hermes-Auftrag bleibt
+        // davon unberührt (das Abbruch-Recht liegt beim Abbrechen-Button).
+        if (state.abbruch && state.abbruch.abort) {
+            state.abbruch.abort();
+            state.abbruch = null;
+        }
+        // Die bearbeitete Runde immer aus DOM + state.messages entfernen —
+        // egal ob ein Stream lief (dann wird auch die „Denke nach…"-Antwort-
+        // Blase entfernt) oder die Antwort schon fertig war.
+        entferneLetzteRundeAusDom();
+        // Die alte Runde (User + Antwort) dauerhaft aus dem Server-Verlauf
+        // löschen, damit nach Reload nichts Falsches steht.
+        try {
+            fetch(`${API_BASE}/api/chat/letzte-runde`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversation_id: state.conversationId || undefined }),
+            }).catch(() => {});
+        } catch (_) {}
+
         // User-Nachricht zurück in die Eingabe legen (Cursor ans Ende).
         dom.input.value = kontextZielText;
         dom.input.style.height = 'auto';
@@ -2782,8 +2807,47 @@ kontextMenue.addEventListener('click', (e) => {
         dom.input.focus();
         updateSendButton();
         kontextMenueSchliessen();
+        kontextZielBlase = null;
     }
 });
+
+/** Entfernt die letzte Runde (letzte User-Blase + die direkt folgende
+ *  Assistant-Blase) aus dem DOM und aus `state.messages`. Dazu gehören auch
+ *  zwischenliegende Blasen einer laufenden Antwort (z. B. die leere
+ *  Antwort-Blase im „Denke nach…"-Zustand). Liefert true, wenn etwas entfernt
+ *  wurde. */
+function entferneLetzteRundeAusDom() {
+    // Letzte User-Blase im DOM finden.
+    const alle = Array.from(dom.messages.querySelectorAll('.message'));
+    let letzterUser = null;
+    let letzterUserIdx = -1;
+    for (let i = alle.length - 1; i >= 0; i--) {
+        if (alle[i].classList.contains('user')) { letzterUser = alle[i]; letzterUserIdx = i; break; }
+    }
+    if (!letzterUser) return false;
+
+    // User-Blase + alle folgenden Blasen bis zur nächsten User-Blase entfernen
+    // (das ist die Antwort-Runde; meist genau eine Assistant-Blase, bei
+    // gestreamten/mehrteiligen Antworten auch mehrere).
+    let entfernt = false;
+    for (let i = alle.length - 1; i >= letzterUserIdx; i--) {
+        alle[i].remove();
+        entfernt = true;
+    }
+    // state.messages entsprechend bereinigen: Einträge von hinten, deren Rolle
+    // zur entfernten Runde gehört (die letzte User-Nachricht + alles danach).
+    // Wir entfernen vom Ende bis einschließlich der letzten user-Nachricht.
+    if (state.messages.length) {
+        let start = state.messages.length - 1;
+        while (start >= 0 && state.messages[start].role !== 'user') start--;
+        if (start >= 0) {
+            // Sonderfall: Läuft gerade eine Antwort (letzer Eintrag ist eine
+            // nicht-user-Zeile), sind alle Einträge ab `start` die Runde.
+            state.messages.splice(start);
+        }
+    }
+    return entfernt;
+}
 
 // Rechtsklick (langes Drücken) auf eine Blase öffnet das Menü.
 dom.messages.addEventListener('contextmenu', (e) => {
@@ -2793,6 +2857,7 @@ dom.messages.addEventListener('contextmenu', (e) => {
     if (!text) return;   // z. B. noch leere Streaming-Blase
     e.preventDefault();
     kontextZielText = text;
+    kontextZielBlase = blase;
     // Bearbeiten gibt es nur für User-Nachrichten.
     const istUser = blase.classList.contains('user');
     kontextMenue.querySelector('[data-aktion="bearbeiten"]').style.display = istUser ? '' : 'none';
@@ -2849,33 +2914,6 @@ function zeigeWartendeNachricht(text) {
     dom.messages.appendChild(div);
     scrollToBottom(true);
     return div;
-}
-
-/** Haengt einen 'Abbrechen'-Button an eine laufende Antwort-Blase (unten).
- *  Der Button sitzt an der Blase und scrollt mit ihr nach oben; er wird
- *  entfernt, sobald die Antwort fertig/abgebrochen/fehlgeschlagen ist.
- *  Es wird NUR am naechsten Layer gehaengt, damit das Streaming-rewrite
- *  (contentDiv.innerHTML) ihn nicht jedes Haeppchen wegwischt. */
-function haengeAbbruchButtonAnBlase(contentDiv) {
-    // Blase = das aeusere .message-Element (contentDiv ist dessen Kind).
-    const blase = contentDiv.parentElement;
-    if (!blase || blase.querySelector('.antwort-abbrechen')) return;
-    const btn = document.createElement('button');
-    btn.className = 'antwort-abbrechen';
-    btn.textContent = '⏹ Abbrechen';
-    btn.style.cssText =
-        'margin-top:8px;padding:6px 12px;border:1px solid #b44;border-radius:8px;' +
-        'background:#3a1f1f;color:#f99;cursor:pointer;font-size:0.8rem;align-self:flex-start';
-    btn.addEventListener('click', brichAb);
-    blase.appendChild(btn);
-    scrollToBottom(true);
-}
-
-/** Entfernt den Abbrechen-Button von einer Antwort-Blase (wenn fertig). */
-function entferneAbbruchButtonVonBlase(contentDiv) {
-    const blase = contentDiv && contentDiv.parentElement;
-    const btn = blase && blase.querySelector('.antwort-abbrechen');
-    if (btn) btn.remove();
 }
 
 /** Bricht die laufende Antwort ab und legt Wartendes zurück in die Eingabe.

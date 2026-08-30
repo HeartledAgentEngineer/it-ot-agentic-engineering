@@ -1078,6 +1078,21 @@ async def chat_stream(request: ChatRequest):
     )
 
 
+@router.delete("/chat/letzte-runde")
+async def letzte_runde_entfernen(conversation_id: str = ""):
+    """Entfernt die letzte Nutzer-Nachricht samt Antwort aus dem Verlauf.
+
+    Wird vom „Bearbeiten"-Flow im Frontend genutzt: Legt der Nutzer eine
+    User-Nachricht zurück in die Eingabe zum Neu-Formulieren, soll die alte
+    Runde dauerhaft aus dem persistenten Verlauf (conv_main) verschwinden —
+    sonst tauchte sie nach einem Reload wieder auf. Ohne conversation_id wird
+    die eine durchlaufende Conversation (conv_main) verwendet.
+    """
+    cid = conversation_id or chat_verlauf._AKTIVE_CONVERSATION_ID
+    entfernt = chat_verlauf.verlauf_runde_entfernen(cid)
+    return {"entfernt": entfernt, "conversation_id": cid}
+
+
 @router.get("/conversations")
 async def list_conversations():
     """List all active conversations."""
