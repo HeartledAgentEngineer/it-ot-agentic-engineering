@@ -13,8 +13,14 @@ Der Agent weiß begründet, was er kann und was nicht:
   Tool-Install) **mit Wortgrenzen (Regex)**, damit kurze Marker wie "git" oder
   "run" nicht in "digital"/"darunter" fälschlich treffen.
 - **`faehigkeits_block()`** — wird in den System-Prompt eingebettet (siehe
-  `llm_service.load_system_prompt()`), sodass der Agent auf Anfragen an seiner
-  Grenze antwortet: **"Das übernimmt Hermes."** + kurze Begründung.
+  `llm_service.load_system_prompt()`). Das Selbstbild ist **proaktiv**: Es nennt
+  Hermes als benutzbares Werkzeug, listet die **Auslöser-Stichworte**, an denen
+  die Weiche automatisch delegiert (Terminal/Datei schreiben/Git/Docker/
+  Tool-Install/SPS-OT + Arbeitsverb mit System-Bezug), und weist den Agenten an,
+  bei solchen Anfragen **NICHT zurückzufragen**, sondern direkt **"Das übernimmt
+  Hermes."** zu sagen. Zusätzlich nennt es die **Handy-Dateisuche** als eigene
+  Fähigkeit: Bilder/Screenshots/Fotos per Suchbegriff anzeigen und PDF-/Text-
+  Dokumente vom Gerät lesen (ohne Upload), statt nach einem Upload zu fragen.
 
 ## 2. Hermes-Delegation (`soll_hermes_delegieren`)
 
