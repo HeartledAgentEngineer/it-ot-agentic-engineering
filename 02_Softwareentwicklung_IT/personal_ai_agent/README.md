@@ -147,6 +147,10 @@ personal_ai_agent/
 | `GET` | `/api/conversations` | Aktive Konversationen |
 | `GET` | `/api/conversations/{id}` | Nachrichten eines Gesprächs – jede Nachricht trägt ein `zeit`-Feld (ISO der Sende-/Empfangszeit). Das Frontend zeigt darunter den Zeitstempel (Uhrzeit mit Sekunden, „23:04:47“) und trennt Tage durch eine WhatsApp-artige Datums-Pille („Heute“, „Gestern“ oder „23.08.2026“). |
 | `DELETE` | `/api/chat/letzte-runde` | Entfernt die letzte Nutzer-Nachricht samt Antwort aus dem Verlauf (Bearbeiten-Flow: alte Runde wird vor dem Neu-Formulieren dauerhaft gelöscht, damit nach Reload nichts Falsches steht). Ohne `conversation_id` gilt die eine durchlaufende Conversation (`conv_main`). |
+| `GET` | `/api/gesichter` | Alle gelernten Personen des Gesichter-Katalogs (Name, Rolle, Beschreibung, Referenzbild-Pfad) |
+| `POST` | `/api/gesichter` | Person anlegen oder (nach Name) aktualisieren — fürs „Gesichter merken“ (reaktiv im Chat: „das ist Pedi“) oder gepflegt. `referenz_bild_pfad` speichert NUR den Pfad, nie die Bilddatei; zusätzlich wird automatisch eine kleine eingebettete Miniatur aus dem Pfad erzeugt (pCloud-sicher: überlebt das Verschieben des Originals) und beim Foto-Abgleich dem Vision-LLM als Referenzgesicht mitgegeben |
+| `DELETE` | `/api/gesichter/{name}` | Gelernte Person nach Name aus dem Katalog entfernen |
+| `GET` | `/api/gesichter/kontext` | Der Kontext-Block für den Prompt (Tests/Debug): wird beim Betrachten eines Bildes in die Chat-Nachricht eingefügt, damit der Vision-LLM bekannte Personen benennt |
 
 ## 🔮 Ausblick (Phase 2)
 
