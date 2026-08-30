@@ -92,6 +92,7 @@ def suche_dateien(
     neueste_zuerst: bool = False,
     ordner_hinweis: str = "",
     nur_erweiterungen: Optional[Set[str]] = None,
+    jahr: Optional[int] = None,
 ) -> List[dict]:
     """Sucht Dateien in den freigegebenen Ordnern nach einem Stichwort.
 
@@ -100,6 +101,9 @@ def suche_dateien(
     - Leeres Stichwort + `neueste_zuerst=True` liefert ALLE Dateien sortiert
       (für "das letzte Bild" — kein Namens-Match nötig).
     - `neueste_zuerst=True` sortiert nach Änderungsdatum (neueste zuerst).
+    - `jahr`: Optionales Aufnahmejahr (z. B. 2025). Ist es gesetzt, werden nur
+      Dateien behalten, deren Aufnahmejahr (EXIF, Fallback mtime) diesem Jahr
+      entspricht — "das letzte Foto aus 2025" filtert 2025er exakt heraus.
     - `ordner_hinweis`: "kamera" bevorzugt DCIM (echte Fotos), "screenshot"
       bevorzugt Pictures/Screenshots. Treffer im bevorzugten Ordner kommen
       IMMER zuerst (auch vor neueren aus anderen Ordnern — so findet
@@ -181,6 +185,9 @@ def suche_dateien(
                             matcht = True
                             break
                 if matcht:
+                    # Jahresfilter: nur Dateien dieses Aufnahmejahres behalten.
+                    if jahr is not None and _datei_jahr(voll) != jahr:
+                        continue
                     gesehen.add(ident)
                     try:
                         mtime = os.path.getmtime(voll)
@@ -232,6 +239,29 @@ def suche_dateien(
     for t in treffer:
         t.pop("_gewicht", None)
     return treffer
+
+
+def _datei_jahr(pfad: str) -> Optional[int]:
+    """Aufnahmejahr einer Datei (int) — EXIF, Fallback mtime-Jahr.
+
+    Nutzt `_exif_aufnahmedatum` (genauer als mtime). Liegt kein EXIF vor
+    (z. B. bei Screenshots), fällt es auf das Jahr der Datei-mtime zurück.
+    Nicht ermittelbar → None (der Jahresfilter überspringt dann die Datei).
+    """
+    aufnahme = _exif_aufnahmedatum(pfad)
+    ts = aufnahme if aufnahme is not None else _mtime_fallbacks(pfad)
+    if ts is None:
+        return None
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).year
+
+
+def _mtime_fallbacks(pfad: str) -> Optional[float]:
+    """mtime einer Datei als Unix-Zeit (oder None bei Fehler)."""
+    try:
+        return os.path.getmtime(pfad)
+    except OSError:
+        return None
 
 
 def _exif_aufnahmedatum(pfad: str) -> Optional[float]:

@@ -519,125 +519,154 @@ def _datei_tool(frage: str) -> tuple:
     ist eine Liste von {"type":"image","data_url":...} für den Vision-LLM.
     Liefert ("", []) wenn kein Datei-Bezug vorliegt (kein Tool-Trigger).
     """
-    # Signale (deutsch). "lies" zuerst für Stufe B.
-    signale = [
-        "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
-        "zeig mir den text", "fasse zusammen aus", "gib mir die datei",
-        "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
-        "bild", "foto", "screenshot", "unterlagen", "download", "wo liegt",
-        "hast du eine datei", "was liegt",
-    ]
+    # Agentischer LLM-Intent (primär). Ein günstiges Gate entscheidet zuerst,
+    # ob hier überhaupt ein Datei-Verdacht vorliegt — so wird nicht jede
+    # normale Frage an den LLM geschickt (spart Token). Jahre zählen mit:
+    # "letztes Foto aus 2025" hat "foto" (Signal) + "2025".
     f = frage.lower().strip()
     if not f:
         return "", []
-    trigger = next((s for s in signale if s in f), None)
-    if not trigger:
+    import re as _re
+    _jahr_vorhanden = bool(_re.search(r"\b(20)\d{2}\b", f)) or "jahr" in f
+
+    # Schnelles, günstiges Vor-Gate: Nur bei Datei-Verdacht weiter (sonst
+    # würde JEDE Nachricht einen LLM-Call auslösen = teuer + langsam). Ein
+    # Datei-Signal (Wort) oder eine Jahreszahl öffnet das Tor; danach darf
+    # der LLM den Intent agentisch aus dem Satz verstehen.
+    _vor_signal = [
+        "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
+        "zeig mir den text", "fasse zusammen aus", "gib mir die datei",
+        "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
+        "bild", "foto", "screenshot", "screen", "unterlagen", "download",
+        "wo liegt", "hast du eine datei", "was liegt", "aufnahme",
+    ]
+    if not any(sig in f for sig in _vor_signal) and not _jahr_vorhanden:
         return "", []
 
-    # "letzte/neueste" → nach Zeit sortieren (neueste zuerst) — z. B.
-    # "das letzte aufgenommene Bild". Berechnet aus der GANZEN Frage (das
-    # Wort kann vor dem Signal stehen: "Was ist das neueste Bild...").
-    # WICHTIG: Vor dem Leer-Stichwort-Abbruch — bei "…letzten Screenshot"
-    # ist das trigger-Wort das LETZTE Wort (nichts folgt), stichwort wird leer,
-    # aber eine "neueste"-Bildsuche darf trotzdem weiterlaufen.
-    neueste_zuerst = any(w in f for w in ("letzte", "letzten", "neueste", "neuesten"))
+    # Agentisch: LLM-Intent versuchen (versteht Jahr/Synonyme/Satzbau).
+    _agent_pfad = None
+    try:
+        _intent = llm_service.extrahiere_datei_such_intent(frage)
+        _agent_pfad = (
+            _intent["suchbegriff"] != "" or _intent["neueste"]
+            or _intent["jahr"] is not None or _intent["ordner"] != ""
+            or _intent["nur_bilder"] or _intent["nur_dokumente"]
+            or _intent["erklaeren"]
+        )
+    except Exception:
+        _intent, _agent_pfad = None, False
 
-    # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
-    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
-    # Ein leeres Stichwort ist nur ok, wenn eine "letzte Bild/Screenshot"-
-    # Suche läuft (die sortiert später alle entsprechenden Dateien nach Zeit).
-    bild_zeit_wunsch = neueste_zuerst and any(w in f for w in ("bild", "foto", "screenshot"))
-    if not stichwort and not bild_zeit_wunsch:
-        return "", []
-    stopwoerter = {
-        "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
-        "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
-        "aufgenommen", "bild", "foto", "erkläre", "erkläre", "mir", "ist",
-        "und", "was", "da", "drauf", "darauf", "zeig", "zeige", "suche",
-        # Füll-/Steuerwörter, die den eigentlichen Suchbegriff verschlucken:
-        # "Lies den INHALT MEINER Lebenslauf-Datei" → Suchwort = lebenslauf.
-        "inhalt", "inhalte", "meiner", "meine", "meinen", "mein",
-        "wichtigsten", "wichtigen", "stationen", "zusammen", "fass",
-        "fasse", "den", "die", "der", "und",
-    }
-    teile = []
-    for w in stichwort.split():
-        # Satzzeichen aus jedem Wort entfernen ("mir," → "mir"), sonst
-        # bleibt "mir," als Suchbegriff übrig und findet nichts.
-        kern = w.strip(" ?!,.:;-_")
-        if kern and kern not in stopwoerter:
-            teile.append(kern)
-
-    # Dokument-Themenwörter priorisieren: Wenn die Frage einen konkreten
-    # Dokument-Typ nennt (lebenslauf, rechnung, vertrag, zeugnis, angebot,
-    # bewerbung, mietvertrag …), wird DAS als Suchbegriff genommen — auch
-    # wenn es mitten im Satz steht ("den Inhalt meiner Lebenslauf-Datei").
-    # Sonst würde "inhalt meiner" (erste zwei Nicht-Stopwörter) fälschlich den
-    # Suchbegriff bilden und z. B. eine Stellenanzeige statt des Lebenslaufs
-    # matchen (Live-Befund: Agent las 'stellenanzeige-…au.docx' statt des CV).
-    dokument_thema = next(
-        (tema for tema in (
-            "lebenslauf", "lebensläufe", "rechnung", "rechnungen", "vertrag",
-            "verträge", "zeugnis", "zeugnisse", "angebot", "angebote",
-            "bewerbung", "bewerbungen", "mietvertrag", "arbeitsvertrag",
-            "lohnabrechnung", "gehaltsabrechnung", "letter",
-        ) if tema in f),
-        None,
-    )
-    if dokument_thema:
-        reines_stichwort = dokument_thema
+    if _agent_pfad and _intent:
+        reines_stichwort = _intent["suchbegriff"]
+        neueste_zuerst = _intent.get("neueste", False)
+        jahr = _intent.get("jahr")
+        ordner_hinweis = _intent.get("ordner", "") or ""
+        if _intent.get("nur_bilder"):
+            nur_erweiterungen = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        elif _intent.get("nur_dokumente"):
+            nur_erweiterungen = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls"}
+        else:
+            nur_erweiterungen = None
+        lese_wunsch = bool(_intent.get("erklaeren"))
+        will_erklaeren = bool(_intent.get("erklaeren"))
+        stichwort = reines_stichwort or f
     else:
-        # NUR die ersten 2 Kern-Wörter als Suchbegriff — ein ganzer Satz als
-        # Stichwort findet nie etwas + verleitet den LLM zu halluzinierten
-        # Dateinamen ("meinen lebenslauf liste auf dort...").
-        reines_stichwort = " ".join(teile[:2]).strip()
+        # ── Heuristik (Fallback, falls kein LLM / kein plausibler Intent) ──
+        # Signale (deutsch). "lies" zuerst für Stufe B.
+        signale = [
+            "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
+            "zeig mir den text", "fasse zusammen aus", "gib mir die datei",
+            "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
+            "bild", "foto", "screenshot", "unterlagen", "download", "wo liegt",
+            "hast du eine datei", "was liegt",
+        ]
+        trigger = next((s for s in signale if s in f), None)
+        if not trigger and not _jahr_vorhanden:
+            return "", []
 
-    # Spezial-Regel: Wenn ein Bild/Foto/Screenshot-Wunsch + "neueste/letzte"
-    # auftaucht (egal wie formuliert: "was ist das neueste bild auf deinem
-    # speicher", "der letzte Screenshot"), suchen wir ALLE entsprechenden
-    # Dateien nach Zeit sortiert — kein Namens-Match nötig.
-    if ("bild" in f or "foto" in f or "screenshot" in f) and neueste_zuerst:
-        reines_stichwort = ""
+        # "letzte/neueste" → nach Zeit sortieren (neueste zuerst).
+        neueste_zuerst = any(w in f for w in ("letzte", "letzten", "neueste", "neuesten"))
 
-    # Dateityp-Filter (Kern-Fix): Die Frage bestimmt, WELCHE Dateitypen
-    # gesucht werden — "Foto/Bild" liefert NUR Bilder (nie PDFs), "PDF/
-    # Dokument" liefert NUR Docs (nie random PNGs). Verhindert den
-    # EasyBank-PDF-bei-Foto-Frage- und den file-PNG-bei-PDF-Frage-Bug.
-    nur_erweiterungen = None
-    if "bild" in f or "foto" in f or "screenshot" in f or "aufnahme" in f:
-        nur_erweiterungen = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-    elif ("pdf" in f or "dokument" in f or "datei" in f
-          or "unterlagen" in f or "lebenslauf" in f or "vertrag" in f
-          or "rechnung" in f or "bewerbung" in f):
-        nur_erweiterungen = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls"}
+        # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
+        stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:") if trigger else ""
+        # Ein leeres Stichwort ist nur ok, wenn eine "letzte Bild/Screenshot"-
+        # Suche läuft. Jahr allein ("Foto von 2025") öffnet den Weg ebenfalls,
+        # dann wird ohne Namens-Match nach Zeit + Jahr gefiltert.
+        bild_zeit_wunsch = neueste_zuerst and any(w in f for w in ("bild", "foto", "screenshot", "aufnahme"))
+        if not stichwort and not bild_zeit_wunsch and not _jahr_vorhanden:
+            return "", []
+        jahr = None
+        m = _re.search(r"\b(20\d{2})\b", f)
+        if m:
+            jahr = int(m.group(1))
+
+        stopwoerter = {
+            "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
+            "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
+            "aufgenommen", "bild", "foto", "erkläre", "erkläre", "mir", "ist",
+            "und", "was", "da", "drauf", "darauf", "zeig", "zeige", "suche",
+            # Füll-/Steuerwörter, die den eigentlichen Suchbegriff verschlucken:
+            # "Lies den INHALT MEINER Lebenslauf-Datei" → Suchwort = lebenslauf.
+            "inhalt", "inhalte", "meiner", "meine", "meinen", "mein",
+            "wichtigsten", "wichtigen", "stationen", "zusammen", "fass",
+            "fasse", "den", "die", "der", "und",
+        }
+        teile = []
+        for w in stichwort.split():
+            kern = w.strip(" ?!,.:;-_")
+            if kern and kern not in stopwoerter:
+                teile.append(kern)
+
+        # Dokument-Themenwörter priorisieren.
+        dokument_thema = next(
+            (tema for tema in (
+                "lebenslauf", "lebensläufe", "rechnung", "rechnungen", "vertrag",
+                "verträge", "zeugnis", "zeugnisse", "angebot", "angebote",
+                "bewerbung", "bewerbungen", "mietvertrag", "arbeitsvertrag",
+                "lohnabrechnung", "gehaltsabrechnung", "letter",
+            ) if tema in f),
+            None,
+        )
+        if dokument_thema:
+            reines_stichwort = dokument_thema
+        else:
+            reines_stichwort = " ".join(teile[:2]).strip()
+
+        # Bei "letzte/neueste Bild/Foto/Screenshot" → alle nach Zeit sortiert,
+        # kein Namens-Match nötig.
+        if ("bild" in f or "foto" in f or "screenshot" in f or "aufnahme" in f) and neueste_zuerst:
+            reines_stichwort = ""
+
+        # Dateityp-Filter.
+        nur_erweiterungen = None
+        if "bild" in f or "foto" in f or "screenshot" in f or "aufnahme" in f:
+            nur_erweiterungen = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        elif ("pdf" in f or "dokument" in f or "datei" in f
+              or "unterlagen" in f or "lebenslauf" in f or "vertrag" in f
+              or "rechnung" in f or "bewerbung" in f):
+            nur_erweiterungen = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls"}
+
+        # Stufe B: expliziter Lese-Wunsch → Inhalt lesen.
+        lese_wunsch = bool(trigger) and trigger in (
+            "lies", "lese", "was steht in", "inhalt von",
+            "zeig mir den inhalt", "zeig mir den text",
+            "gib mir die datei", "fasse zusammen aus")
+        will_erklaeren = (
+            "erklär" in f or "erkläre" in f or "drauf ist" in f
+            or "was ist darauf" in f or "rate" in f or "welches" in f
+            or "was ist das" in f or "was sieht" in f
+            or ("bild" in f or "foto" in f or "screenshot" in f)
+        )
+
+        # Ordner-Hinweis.
+        if "screenshot" in f:
+            ordner_hinweis = "screenshot"
+        elif "bild" in f or "foto" in f or "aufnahme" in f:
+            ordner_hinweis = "kamera"
+        else:
+            ordner_hinweis = ""
 
     from app.services.datei_suche import lese_datei_info, suche_dateien
-
-    # Stufe B: expliziter Lese-Wunsch → Inhalt lesen.
-    lese_wunsch = trigger in ("lies", "lese", "was steht in", "inhalt von",
-                              "zeig mir den inhalt", "zeig mir den text",
-                              "gib mir die datei", "fasse zusammen aus")
-    # Für "erkläre mir, was drauf ist" (auch ohne explizites Lese-Signal)
-    # bei einem Bild → das neueste/gefundene Bild LESEN + erklären.
-    # Jede Bild/Foto-Frage aktiviert den Vision-Pfad — "rate, welches
-    # Kartenspiel", "was ist das für ein Bild", "welches Foto ist das":
-    # Wer nach einem Bild fragt, will es analysiert haben, nicht nur
-    # Dateinamen sehen.
-    will_erklaeren = (
-        "erklär" in f or "erkläre" in f or "drauf ist" in f
-        or "was ist darauf" in f or "rate" in f or "welches" in f
-        or "was ist das" in f or "was sieht" in f
-        or ("bild" in f or "foto" in f or "screenshot" in f)
-    )
-
-    # Ordner-Hinweis: "foto/bild" → Kamera(echte Fotos) bevorzugt;
-    # "screenshot" → Screenshots-Ordner bevorzugt (was ist auf dem Screen).
-    if "screenshot" in f:
-        ordner_hinweis = "screenshot"
-    elif "bild" in f or "foto" in f or "aufnahme" in f:
-        ordner_hinweis = "kamera"
-    else:
-        ordner_hinweis = ""
 
     try:
         treffer = suche_dateien(
@@ -645,6 +674,7 @@ def _datei_tool(frage: str) -> tuple:
             neueste_zuerst=neueste_zuerst,
             ordner_hinweis=ordner_hinweis,
             nur_erweiterungen=nur_erweiterungen,
+            jahr=jahr,
         )
     except Exception:
         return "", []
@@ -659,9 +689,19 @@ def _datei_tool(frage: str) -> tuple:
                 # Bild als Datei für den Vision-LLM (nicht in den Text)…
                 # + Pfad mitgeben: in der Notiz SICHTBAR, damit der Nutzer
                 # sieht, WELCHES Bild gefunden wurde (und es nachladen kann).
+                # WICHTIG: Dateinamen der Kamera kodieren das Aufnahmedatum
+                # (IMG_20260829_143240300 = 29.08.2026) — dem LLM explizit
+                # sagen, dass es dieses Datum als Aufnahmedatum nennen soll.
+                # Sonst parst ein diffuses Modell den Namen falsch („Jahr 5")
+                # oder halluziniert ein anderes Datum.
                 return (
                     "\n\n[Datei-Bild zum Ansehen: " + datei["name"]
-                    + " | Pfad: " + datei["pfad"] + "]",
+                    + " | Pfad: " + datei["pfad"]
+                    + ". Dieses Bild hat das Aufnahmedatum, das im Dateinamen "
+                      "kodiert ist (Muster IMG_JJJJMMTT_HHMMSS oder "
+                      "Screenshot_JJJJMMTT-HHMMSS): benenne diesen Zeitpunkt "
+                      "als Aufnahmedatum bitte korrekt (JJJJ.JJ.TT …) und "
+                      "erfinde KEIN anderes Datum.]",
                     [{"type": "image", "data_url": info["data_url"],
                       "pfad": datei["pfad"]}],
                 )

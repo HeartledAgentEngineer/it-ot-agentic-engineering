@@ -32,6 +32,18 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   `Pictures/Screenshots` als Vision-`data_url` (nicht nur den Dateinamen).
   `GET /api/dateien?ordner=screenshot` reicht die Ordner-Priorisierung ebenso
   durch (Default bleibt "kamera" bei leerem Suchbegriff).
+- **Agentische Intent-Erkennung (LLM statt Heuristik)**: `_datei_tool` ruft
+  jetzt zuerst `llm_service.extrahiere_datei_such_intent(frage)` auf — ein
+  günstiger LLM-Aufruf extrahiert strukturiert {suchbegriff, jahr, neueste,
+  ordner, nur_bilder, nur_dokumente, erklaeren}. So versteht der Agent freie
+  Formulierungen wie "das letzte Foto aus 2025" (Jahresfilter), Synonyme und
+  Satzbau — ohne dass jede Variante als Wortliste gepflegt werden muss. Ein
+  schnelles Vor-Gate (Datei-Signalwort oder Jahreszahl) verhindert, dass jede
+  normale Frage einen LLM-Call auslöst. Die deterministische Heuristik bleibt
+  als Fallback, falls der LLM-Aufruf fehlschlägt.
+- **Jahresfilter in der Suche**: `suche_dateien(..., jahr=N)` behält nur
+  Dateien dieses Aufnahmejahres (EXIF, Fallback mtime). "Letztes Foto aus
+  2025" liefert so exakt ein 2025er-Bild.
   Keine Lupen-UI nötig; alles läuft über den Sprach-/Chat-Weg.
 - Voraussetzung auf dem Handy: `termux-setup-storage` (einmalig), damit
   `~/storage/shared` existiert.
