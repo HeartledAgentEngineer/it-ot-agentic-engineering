@@ -634,6 +634,123 @@ class LLMService:
             logger.warning("Failed to extract memories: %s", e)
             return []
 
+    def extrahiere_datei_such_intent(self, frage: str) -> dict:
+        """Erkennt aus einer Datei-Suchfrage den Such-Intent (agentisch, via LLM).
+
+        Der Nutzer drückt sich variabel aus (\"letztes Foto aus 2025\",
+        \"der letzte Screenshot\", \"was steht in meiner Rechnung\"). Eine feste
+        Wortliste (deterministische Heuristik) scheitert an Jahreszahlen,
+        Synonymen und freien Formulierungen. Stattdessen lässt ein günstiger
+        LLM-Aufruf aus dem Satz strukturiert extrahieren:
+          suchbegriff  : Name/Kernwort, z. B. \"flügelschlag\"/\"bewerbung\" (\"\" bei \"letztes\")
+          jahr         : optionales Jahresfilter (int) oder None
+          neueste      : true wenn \"letztes/neuestes\" (nach Zeit sortieren)
+          ordner       : \"kamera\" | \"screenshot\" | \"\" (Priorisierung)
+          nur_bilder   : true → nur Bild-Dateien (.png/.jpg/…)
+          nur_dokumente: true → nur PDF/Doku-Dateien
+          erklaeren    : true → Inhalt lesen/zusammenfassen (Bild beschreiben)
+
+        Returns: dict mit diesen Schlüsseln (Defaults bei Fehler).
+        """
+        default = {
+            "suchbegriff": "", "jahr": None, "neueste": False,
+            "ordner": "", "nur_bilder": False, "nur_dokumente": False,
+            "erklaeren": False,
+        }
+        if not self.is_configured or not frage or not frage.strip():
+            return default
+
+        prompt = (
+            "Du erkennst den Such-Intent hinter einer deutschen Frage an den "
+            "persönlichen Assistenten, der Dateien (Bilder, Screenshots, Fotos, "
+            "PDFs/Dokumente) auf dem Handy durchsucht.\n\n"
+            "Beispiele:\n"
+            "- \"das letzte Foto aus 2025\" → {suchbegriff:\"\", jahr:2025, neueste:true, ordner:\"kamera\", nur_bilder:true, nur_dokumente:false, erklaeren:true}\n"
+            "- \"Zeig den letzten Screenshot\" → {suchbegriff:\"\", jahr:null, neueste:true, ordner:\"screenshot\", nur_bilder:true, nur_dokumente:false, erklaeren:true}\n"
+            "- \"was steht in meiner Rechnung vom Mai\" → {suchbegriff:\"rechnung\", jahr:null, neueste:false, ordner:\"\", nur_bilder:false, nur_dokumente:true, erklaeren:true}\n"
+            "- \"Zeig mir den Diablo-Artikel als Bild\" → {suchbegriff:\"diablo\", jahr:null, neueste:false, ordner:\"\", nur_bilder:true, nur_dokumente:false, erklaeren:true}\n"
+            "- \"Suche die Bewerbungsunterlagen\" → {suchbegriff:\"bewerbung\", jahr:null, neueste:false, ordner:\"\", nur_bilder:false, nur_dokumente:true, erklaeren:false}\n\n"
+            "Regeln:\n"
+            "- suchbegriff: wichtigstes Kernwort ODER \"\" wenn es um das neueste/letzte "
+              "geht oder um einen generischen Bild-/Dokument-Typ.\n"
+            "- jahr: Jahreszahl (reine Zahl) wenn ein Jahr genannt wird (\"aus 2025\", "
+              "\"vom Jahr 2025\"), sonst null.\n"
+            "- neueste: true bei \"letzte(s/n)\"/\"neueste(s/n)\".\n"
+            "- ordner: \"screenshot\" bei Screenshot, \"kamera\" bei Foto/Foto von der "
+              "Kamera, sonst \"\".\n"
+            "- nur_bilder true bei Bild/Foto/Screenshot; nur_dokumente true bei "
+            "PDF/Rechnung/Dokument/Lebenslauf/Vertrag.\n"
+            "- erklaeren: true wenn der Nutzer den INHALT sehen/lesen/zusammenfassen/"
+            "erklaert bekommen will (bei \"zeig mir\", \"liest\", \"was steht in\"); "
+            "false bei bloßer Namensnennung (\"suche\", \"finde\").\n\n"
+            "Antworte NUR mit einem JSON-Objekt, kein Text drumherum.\n"
+            f"Frage: {frage}"
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],  # type: ignore
+                temperature=0.0,
+                max_tokens=300,
+                extra_body={"provider": {"allow_fallbacks": True}},
+            )
+            raw = (response.choices[0].message.content or "{}").strip()
+            # JSON-Codeblock/unnötigen Text aufräumen: alles vor der ersten
+            # "{" entfernen (Modelle reden manchmal etwas drumherum).
+            if "{" in raw:
+                raw = raw[raw.index("{"):]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.rstrip().rstrip(",")
+            # Haupt-Fall: sauberes JSON → direkt parsen.
+            parsed = None
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                # Tolerant: günstige Modelle liefern oft kaputtes JSON
+                # (unterminierte Strings, Keys ohne Anführungszeichen,
+                # einfache statt doppelte Anführungszeichen). Statt den
+                # Roh-String zu erzwingen, extrahieren wir die Felder einzeln
+                # per Regex — robust gegen alle diese Varianten.
+                import re as _r
+                _fe = {}
+                # jahr: int-Wert (einzelne Zahl)
+                m = _r.search(r'jahr["\s:]+(\d{3,4})', raw, _r.I)
+                if m:
+                    _fe["jahr"] = int(m.group(1))
+                # neueste / nur_bilder / nur_dokumente / erklaeren: true/false
+                for _key in ("neueste", "nur_bilder", "nur_dokumente", "erklaeren"):
+                    m = _r.search(_key + r'["\s:]+(true|false)', raw, _r.I)
+                    if m:
+                        _fe[_key] = m.group(1).lower() == "true"
+                # ordner: String ohne Anführungszeichen
+                m = _r.search(r'ordner["\s:]+"?([a-zA-Z_"]*)"?[\s,}\]]', raw)
+                if m:
+                    _fe["ordner"] = m.group(1).strip().strip('"')
+                # suchbegriff: String ohne zusätzliche Leerzeichen/nur Kernwort
+                m = _r.search(r'suchbegriff["\s:]+"?([a-zA-ZäöüÄÖÜß0-9_\- ]*?)"?[\s,}\]]', raw, _r.I)
+                if m:
+                    _fe["suchbegriff"] = m.group(1).strip()
+                parsed = _fe if _fe else None
+            if parsed is None:
+                return default
+            if not isinstance(parsed, dict):
+                return default
+            result = dict(default)
+            result["suchbegriff"] = str(parsed.get("suchbegriff", "") or "").strip()
+            jahr = parsed.get("jahr")
+            result["jahr"] = int(jahr) if isinstance(jahr, (int, str)) and str(jahr).strip().isdigit() else None
+            result["neueste"] = bool(parsed.get("neueste", False))
+            result["ordner"] = str(parsed.get("ordner", "") or "").strip()
+            result["nur_bilder"] = bool(parsed.get("nur_bilder", False))
+            result["nur_dokumente"] = bool(parsed.get("nur_dokumente", False))
+            result["erklaeren"] = bool(parsed.get("erklaeren", False))
+            return result
+        except Exception as e:  # pragma: no cover
+            logger.warning("Intent-Erkennung fehlgeschlagen, nutze Default: %s", e)
+            return default
+
     # ── Transkription (Whisper via OpenRouter, wie TypeFREE) ─────────────────
     def transcribe(self, audio_bytes: bytes) -> Optional[str]:
         """Sendet Audio an OpenRouter Whisper und gibt transkribierten Text zurück.
