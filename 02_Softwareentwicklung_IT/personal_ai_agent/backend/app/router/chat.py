@@ -334,7 +334,23 @@ async def chat(request: ChatRequest):
         # Helga'), wird das deterministisch in den Katalog übernommen — der
         # Vision-LLM erkennt die Person künftig auf Fotos. Konservativ: nur
         # bei aktiver Bild-Ansicht + Nenn-Phrase, sonst kein Effekt.
-        merkhinweis = _gesichter_merke(request.message, bild_aktiv)
+        # Ist gerade ein Bild (Dateisuche ODER Upload) da, wird es als
+        # Referenz-Miniatur an die Person gekoppelt (für den späteren
+        # Bild-zu-Bild-Abgleich) — wichtig z. B. um Zwillingsbrüder per
+        # echtem Vergleichsbild statt nur Namens-Kontext zu unterscheiden.
+        aktuelles_bild_data = ""
+        if datei_bilder and datei_bilder[0].get("data_url"):
+            aktuelles_bild_data = datei_bilder[0]["data_url"]
+        elif request.files:
+            upload_img = next(
+                (f for f in request.files if f.type == "image" and f.data_url),
+                None,
+            )
+            if upload_img:
+                aktuelles_bild_data = upload_img.data_url
+        merkhinweis = _gesichter_merke(
+            request.message, bild_aktiv, str(aktuelles_bild_data or "")
+        )
         if merkhinweis:
             user_message_fuer_llm += merkhinweis
 
@@ -415,14 +431,19 @@ _KEINE_PERSON_ROLLE = {
 }
 
 
-def _gesichter_merke(frage: str, bild_aktiv: bool) -> str:
+def _gesichter_merke(
+    frage: str, bild_aktiv: bool, referenz_bild: str = ""
+) -> str:
     """Reaktiv 'Gesichter merken' über Sprache (ohne UI, deterministisch).
 
     Erkennt beim Betrachten eines Bildes die Angabe, WER darauf abgebildet
     ist — z. B. 'das ist Pedi' oder 'das ist meine Oma Helga' — und
     übernimmt die Person (Name + ggf. Rolle) in den Gesichter-Katalog
-    (`gesichter_service.person_speichern`). Der Vision-LLM benennt die
-    Person damit künftig auf Fotos.
+    (`gesichter_service.person_speichern`). Zusätzlich wird das gerade
+    betrachtete Bild (`referenz_bild` als data_url) als Referenz-Miniatur
+    an die Person gekoppelt — damit der spätere Abgleich per echtem
+    Bild-zu-Bild-Vergleich läuft und nicht nur über den Namens-Kontext
+    (entscheidend z. B. um einen Zwillingsbruder zu unterscheiden).
 
     Konservativ: läuft nur, wenn gerade wirklich ein Bild betrachtet wird
     (`bild_aktiv`), also z. B. aus der Dateisuche angehängt oder hochgeladen
@@ -482,14 +503,25 @@ def _gesichter_merke(frage: str, bild_aktiv: bool) -> str:
             beziehung="",
             beschreibung="",
             referenz_bild_pfad="",
+            # Das gerade betrachtete Bild als Referenz-Miniatur einbetten
+            # (falls verfügbar). Nur data_url; Original bleibt unangetastet.
+            referenz_bild_miniatur=(referenz_bild or "").strip(),
         )
     except Exception:
         # Merken ist Bonus — darf den Chat nie brechen.
         return ""
+    hat_bild = bool((referenz_bild or "").strip())
     hinweis = (f"Erkannte Person '{name}'" + (f" (Rolle: {rolle})" if rolle else "")
-               + "wurde dem Gesichter-Katalog hinzugefügt. "
-               "Sag dem Nutzer kurz, dass du die Person gespeichert hast und "
-               "sie künftig auf Fotos erkennst. Erfinde KEINE weiteren Details.")
+               + "wurde dem Gesichter-Katalog hinzugefügt"
+               + (f" und mit diesem Bild als Referenz versehen" if hat_bild else "")
+               + ". Sag dem Nutzer kurz, dass du die Person gespeichert hast und "
+               "sie künftig auf Fotos erkennst (per Bild-Vergleich wenn ein "
+               "Referenzbild vorhanden ist). "
+               "Achtung bei einander stark ähnlichen Personen (z. B. "
+               "Zwillingsbrüder): Wenn zwei Personen verwechselbar aussehen, "
+               "sage ehrlich, wenn du unsicher bist, statt zu raten — \"das "
+               "kann ich nicht zuverlässig unterscheiden\" ist erlaubt und "
+               "besser als eine erfundene Zuordnung. Erfinde KEINE Details.")
     return f"\n\n[Hinweis für den Assistenten: {hinweis}]"
 
 

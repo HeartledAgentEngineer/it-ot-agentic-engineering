@@ -41,6 +41,23 @@ def test_merke_mit_rolle():
     assert p["rolle"] == "Oma"
 
 
+def test_merke_mit_referenzbild():
+    """Beim reaktiven Merken wird das betrachtete Bild als Referenz-Miniatur
+    an die Person gekoppelt (Bild-zu-Bild-Abgleich statt nur Namens-Kontext).
+    Das beantwortet das Zwillings-Szenario: eine Person braucht ein echt
+    vergleichbares Referenzbild."""
+    _katalog_leeren()
+    test_data_url = "data:image/jpeg;base64,AAAA"
+    hinweis = _gesichter_merke(
+        "das ist mein Zwillingsbruder Otto", bild_aktiv=True,
+        referenz_bild=test_data_url,
+    )
+    assert "Otto" in hinweis
+    p = gesichter_service.person_finden("Otto")
+    assert p is not None
+    assert p.get("referenz_bild_miniatur") == test_data_url, "Referenzbild fehlt"
+
+
 def test_kein_merken_ohne_bild():
     _katalog_leeren()
     hinweis = _gesichter_merke("das ist Pedi", bild_aktiv=False)
