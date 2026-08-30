@@ -524,7 +524,7 @@ def _datei_tool(frage: str) -> tuple:
         "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
         "zeig mir den text", "fasse zusammen aus", "gib mir die datei",
         "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
-        "bild", "foto", "unterlagen", "download", "wo liegt",
+        "bild", "foto", "screenshot", "unterlagen", "download", "wo liegt",
         "hast du eine datei", "was liegt",
     ]
     f = frage.lower().strip()
@@ -534,15 +534,21 @@ def _datei_tool(frage: str) -> tuple:
     if not trigger:
         return "", []
 
-    # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
-    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
-    if not stichwort:
-        return "", []
-
     # "letzte/neueste" → nach Zeit sortieren (neueste zuerst) — z. B.
     # "das letzte aufgenommene Bild". Berechnet aus der GANZEN Frage (das
     # Wort kann vor dem Signal stehen: "Was ist das neueste Bild...").
+    # WICHTIG: Vor dem Leer-Stichwort-Abbruch — bei "…letzten Screenshot"
+    # ist das trigger-Wort das LETZTE Wort (nichts folgt), stichwort wird leer,
+    # aber eine "neueste"-Bildsuche darf trotzdem weiterlaufen.
     neueste_zuerst = any(w in f for w in ("letzte", "letzten", "neueste", "neuesten"))
+
+    # Such-/Stichwort = Text nach dem Signal (grob bereinigt).
+    stichwort = f[f.find(trigger) + len(trigger):].strip(" ?!,.:")
+    # Ein leeres Stichwort ist nur ok, wenn eine "letzte Bild/Screenshot"-
+    # Suche läuft (die sortiert später alle entsprechenden Dateien nach Zeit).
+    bild_zeit_wunsch = neueste_zuerst and any(w in f for w in ("bild", "foto", "screenshot"))
+    if not stichwort and not bild_zeit_wunsch:
+        return "", []
     stopwoerter = {
         "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
         "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
@@ -586,10 +592,11 @@ def _datei_tool(frage: str) -> tuple:
         # Dateinamen ("meinen lebenslauf liste auf dort...").
         reines_stichwort = " ".join(teile[:2]).strip()
 
-    # Spezial-Regel: Wenn ein Bild/Foto-Wunsch + "neueste/letzte" auftaucht
-    # (egal wie formuliert: "was ist das neueste bild auf deinem speicher"),
-    # suchen wir ALLE Bilder nach Zeit sortiert — kein Namens-Match nötig.
-    if ("bild" in f or "foto" in f) and neueste_zuerst:
+    # Spezial-Regel: Wenn ein Bild/Foto/Screenshot-Wunsch + "neueste/letzte"
+    # auftaucht (egal wie formuliert: "was ist das neueste bild auf deinem
+    # speicher", "der letzte Screenshot"), suchen wir ALLE entsprechenden
+    # Dateien nach Zeit sortiert — kein Namens-Match nötig.
+    if ("bild" in f or "foto" in f or "screenshot" in f) and neueste_zuerst:
         reines_stichwort = ""
 
     # Dateityp-Filter (Kern-Fix): Die Frage bestimmt, WELCHE Dateitypen
@@ -620,7 +627,7 @@ def _datei_tool(frage: str) -> tuple:
         "erklär" in f or "erkläre" in f or "drauf ist" in f
         or "was ist darauf" in f or "rate" in f or "welches" in f
         or "was ist das" in f or "was sieht" in f
-        or ("bild" in f or "foto" in f)
+        or ("bild" in f or "foto" in f or "screenshot" in f)
     )
 
     # Ordner-Hinweis: "foto/bild" → Kamera(echte Fotos) bevorzugt;

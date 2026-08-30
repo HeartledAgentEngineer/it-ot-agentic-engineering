@@ -37,19 +37,22 @@ def datei_daten(pfad: str = Query("", max_length=1000)):
 
 @router.get("")
 def dateien_suchen(suche: str = Query("", max_length=200),
-                   neueste: bool = Query(True)):
+                   neueste: bool = Query(True),
+                   ordner: str = Query("")):
     """Sucht in den freigegebenen Ordnern nach einem Stichwort.
 
     Sicher: nur lesend, nur freigegebene Ordner, nur Dateinamen/Erweiterungen
     (kein Inhalt). Leeres `suche` + `neueste=true` liefert die neuesten
-    Bilder/Dateien (für Tests: was würde der Agent finden?).
+    Bilder/Dateien (für Tests: was würde der Agent finden?). `ordner` steuert
+    die Priorisierung: "kamera"/"screenshot"/"" (beliebig).
     """
     try:
         # Bei leerem Suchbegriff (Test: "was würde der Agent finden?") die
         # Kamera bevorzugen: DCIM enthält die echten Fotos + kommt zuerst,
-        # bevor alte root-/Pictures-Dateien das Limit füllen.
-        ordner = "kamera" if not suche.strip() else ""
-        treffer = suche_dateien(suche, neueste_zuerst=neueste, ordner_hinweis=ordner)
+        # bevor alte root-/Pictures-Dateien das Limit füllen. `ordner` kann
+        # diese Voreinstellung überschreiben (z. B. "screenshot").
+        ordner_hinweis = ordner if ordner else ("kamera" if not suche.strip() else "")
+        treffer = suche_dateien(suche, neueste_zuerst=neueste, ordner_hinweis=ordner_hinweis)
         return {
             "treffer": treffer,
             "anzahl": len(treffer),
