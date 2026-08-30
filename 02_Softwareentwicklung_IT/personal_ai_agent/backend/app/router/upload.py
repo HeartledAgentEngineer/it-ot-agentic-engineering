@@ -64,16 +64,22 @@ async def _bild_als_base64(pfad: Path) -> Optional[str]:
 
     Nutzt PIL für optionales Resizing, falls verfügbar.
     Ohne PIL werden die Roh-Bytes direkt codiert (kein Resize).
+
+    WICHTIG: Die Originaldatei wird NIE überschrieben. Die EXIF-Drehung
+    (z. B. 6 = Hochformat bei Handy-Fotos) wird nur in-memory in die Pixel
+    eingebacken und als Base64 zurückgegeben. So bleibt das Original auf der
+    Platte unangetastet — der 'Bild wieder anzeigen'-Button lädt es später
+    frisch über den Pfad.
     """
     if _HAT_PIL:
         try:
             from PIL import Image, ImageOps
+            import io
             img = Image.open(pfad)
-            # EXIF-Orientierung (z. B. 6 = Hochformat bei Handy-Fotos) in die
-            # Pixel einbacken, BEVOR ggf. verkleinert wird. Ohne diesen Schritt
-            # verliert das erneute Speichern die Dreh-Info und das Bild
-            # erscheint im Chat um 90°/180° verdreht (das Backend speichert
-            # bewusst ohne exif-Tag → der Browser kann nicht nachkorrigieren).
+            # EXIF-Orientierung in die Pixel einbacken, BEVOR ggf. verkleinert
+            # wird. Ohne diesen Schritt erscheint das Bild im Chat um 90°/180°
+            # verdreht (der Browser kann nicht nachkorrigieren, weil das
+            # Backend bewusst ohne exif-Tag speichert).
             gedreht = ImageOps.exif_transpose(img)
             geaendert = gedreht is not img
             img = gedreht
@@ -85,12 +91,13 @@ async def _bild_als_base64(pfad: Path) -> Optional[str]:
                     Image.LANCZOS,
                 )
                 geaendert = True
-            # Nur bei echter Aenderung neu speichern (vermeidet unnötiges
-            # Neu-Encoden, z. B. von animierten GIFs). Da das Schreiben keinen
-            # EXIF-Tag mitgibt, steht die korrekte Ausrichtung bereits in den
-            # Pixeln – sowohl für den Chat als auch für die Vision-API.
+            # Nur bei echter Aenderung in-memory neu encodieren (vermeidet
+            # unnötiges Neu-Encoden, z. B. von animierten GIFs). Die Datei
+            # auf der Platte bleibt unverändert.
             if geaendert:
-                img.save(pfad, quality=85)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                return base64.b64encode(buf.getvalue()).decode("utf-8")
         except Exception as e:
             logger.warning("Image-Resizing fehlgeschlagen, verwende Rohdaten: %s", e)
     # Mit oder ohne PIL: Rohdaten lesen und codieren

@@ -66,14 +66,20 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   Vision-`data_url` (Base64), PDFs als extrahierter Text an das Modell
   übergeben.
 - **Kein unnötiges Neu-Encoden**: Bilder werden nur dann mit Pillow
-  verarbeitet, wenn sie breiter/hoher als 2048 px sind (Resize auf max.
-  2048 px). Kleinere Bilder bleiben unangetastet.
-- **EXIF-Orientierung eingebacken**: Vor dem Verkleinern wird die im Foto
-  gespeicherte Dreh-Info (`ImageOps.exif_transpose`, z. B. Orientation=6 für
-  hochkant gehaltene Handyfotos) in die Pixel übernommen. Beim erneuten
-  Speichern geht kein EXIF-Tag mit, darum steht die korrekte Ausrichtung in
-  den Pixeln selbst – das Bild erscheint im Chat damit nie mehr gedreht und
-  auch die Vision-API sieht die richtige Seite.
+  verarbeitet, wenn sie gedreht werden müssen oder breiter/hoher als 2048 px
+  sind (Resize auf max. 2048 px). Normale Bilder bleiben unangetastet.
+- **EXIF-Orientierung eingebacken**: Die im Foto gespeicherte Dreh-Info
+  (`ImageOps.exif_transpose`, z. B. Orientation=6 für hochkant gehaltene
+  Handyfotos) wird in die Pixel übernommen und als `data_url` zurückgegeben –
+  das Bild erscheint im Chat damit korrekt und auch die Vision-API sieht die
+  richtige Seite.
+- **Originaldatei bleibt unangetastet**: Die Drehung/Verkleinerung passiert
+  **nur in-memory**. Der Upload **überschreibt nie** das Original auf der
+  Platte. Genauso backt `lese_datei_info` (`datei_suche.py`) beim Anzeigen
+  über `GET /api/dateien/daten?pfad=` die EXIF-Orientierung nur in-memory
+  in die Pixel ein – der „🖼️ Bild wieder anzeigen"-Knopf lädt das Bild also
+  immer frisch vom Speicher und zeigt es korrekt gedreht, ohne das Original
+  zu verändern.
 - **Tags**: „Datei-Vorschau oberhalb der Eingabe" + „Bild wieder anzeigen":
   Nach dem Versenden zeigt die Antwort kurz eine flüchtige Bild-Miniatur
   (`BILD_ANZEIGE_MS`, 10 s); danach bleibt ein „🖼️ Bild wieder anzeigen"-

@@ -284,6 +284,25 @@ def lese_datei_info(pfad: str, max_zeichen: int = 8000) -> dict:
             try:
                 with open(pfad, "rb") as f:
                     roh = f.read()
+                # EXIF-Orientierung (z. B. 6 = Hochformat bei Handy-Fotos) in
+                # die Pixel einbacken, damit das Bild beim Anzeigen ('Bild
+                # wieder anzeigen'-Button) richtig gedreht erscheint. Nur
+                # in-memory — die Originaldatei bleibt unangetastet. GIFs
+                # werden ausgelassen (animiert, selten EXIF-orientiert).
+                if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                    try:
+                        from PIL import Image, ImageOps
+                        import io
+                        img = Image.open(io.BytesIO(roh))
+                        gedreht = ImageOps.exif_transpose(img)
+                        if gedreht is not img:
+                            buf = io.BytesIO()
+                            gedreht.convert("RGB").save(
+                                buf, format="JPEG", quality=82)
+                            roh = buf.getvalue()
+                            ext = ".jpg"
+                    except Exception:
+                        pass  # kein Pillow / ungültiges Bild → Original senden
                 # Sehr große Bilder werden verkleinert (max. 1280px), statt
                 # abgeschnitten — ein abgeschnittenes PNG lehnt der Vision-LLM
                 # mit "Provided image is not valid" ab. Pillow ist Standard.
