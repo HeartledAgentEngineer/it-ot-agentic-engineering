@@ -62,6 +62,29 @@ def test_verlauf_nachricht_ohne_content_ignoriert(chat_mod):
     assert mod.conversations[conv_id] == []
 
 
+def test_finish_exchange_persistiert_bild_pfad(chat_mod):
+    """Ein über die Dateisuche gezeigtes Bild überlebt im Verlauf: Der Pfad
+    wird am Assistant-Eintrag mitgespeichert (nicht die Datei selbst), damit
+    das Frontend das Bild nach einem Reload wieder anzeigen kann."""
+    mod = chat_mod
+    conv_id = "conv_img"
+    mod.conversations[conv_id] = []
+    mod._finish_exchange(
+        conv_id, "Zeig den letzten Screenshot", "Hier ist er:",
+        bild_pfad="/storage/shared/Pictures/Screenshots/Screenshot_1.png",
+    )
+    eintraege = mod.conversations[conv_id]
+    # user ohne, assistant mit Bildpfad
+    assert eintraege[0].get("bild_pfad") is None
+    assert eintraege[1].get("bild_pfad") == \
+        "/storage/shared/Pictures/Screenshots/Screenshot_1.png"
+
+    # Ohne Angabe bleibt es beim alten Verhalten (kein bild_pfad-Schlüssel).
+    mod.conversations[conv_id] = []
+    mod._finish_exchange(conv_id, "Frage?", "Antwort")
+    assert "bild_pfad" not in mod.conversations[conv_id][1]
+
+
 def test_finish_exchange_fuegt_user_und_assistant_hinzu(chat_mod):
     """_finish_exchange hängt user- und assistant-Nachricht an (mit Zeiten)."""
     mod = chat_mod

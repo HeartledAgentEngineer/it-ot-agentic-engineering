@@ -385,8 +385,13 @@ async def chat(request: ChatRequest):
             ) + (datei_tool_bilder if datei_tool_bilder else []) + (katalog_bilder if katalog_bilder else []),
         )
 
-        # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
-        memories_created = _finish_exchange(conversation_id, request.message, reply)
+        # 3./4. Verlauf fortschreiben und Erinnerungen ableiten.
+        # Bildpfad des Dateisuche-Bildes mitgeben, damit die flüchtige
+        # Vorschau einen Reload überlebt (Frontend lädt ihn nach).
+        memories_created = _finish_exchange(
+            conversation_id, request.message, reply,
+            bild_pfad=(datei_bilder[0].get("pfad") if datei_bilder else None),
+        )
 
         return ChatResponse(
             reply=reply,
@@ -1224,6 +1229,11 @@ async def chat_stream(request: ChatRequest):
     def ereignisse():
         teile: List[str] = []
         quellen: List[Dict[str, str]] = []
+        # Vor dem try initialisieren: Der finally-Zweig (auch bei GeneratorExit /
+        # Client-Abbruch mitten in der Verarbeitung) greift auf s_werkzeug_bilder
+        # zu, um den Bildpfad in den Verlauf zu schreiben. Ohne Vorab-Init wäre
+        # er dort eine ungebundene Variable.
+        s_werkzeug_bilder: List[dict] = []
         try:
             # Rolling-Summary + Datei-Tool auch hier (Stream = gleicher Kontext)
             try:
@@ -1294,7 +1304,11 @@ async def chat_stream(request: ChatRequest):
             # Verbindungsverlust). Hier wird bewusst nichts gesendet – ein
             # yield waehrend GeneratorExit wuerde einen Fehler ausloesen.
             anzahl_neu = _finish_exchange(
-                conversation_id, request.message, "".join(teile)
+                conversation_id, request.message, "".join(teile),
+                bild_pfad=(
+                    s_werkzeug_bilder[0].get("pfad")
+                    if s_werkzeug_bilder else None
+                ),
             )
 
         # Wird uebersprungen, wenn der Client abgebrochen hat.
