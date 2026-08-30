@@ -431,98 +431,170 @@ _KEINE_PERSON_ROLLE = {
 }
 
 
+def _nutzer_name() -> str:
+    """Vor-/Kosename des Nutzers aus dem lokalen System-Prompt, sonst \"\"."""
+    try:
+        with open(settings.system_prompt_local_file, "r", encoding="utf-8") as f:
+            text = f.read()
+        import re as _re
+        m = _re.search(r"Name:\s*([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß \-]*)", text)
+        if m:
+            return m.group(1).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _gesichter_merke(
     frage: str, bild_aktiv: bool, referenz_bild: str = ""
 ) -> str:
-    """Reaktiv 'Gesichter merken' über Sprache (ohne UI, deterministisch).
+    """Reaktiv 'Gesichter merken' über Sprache (ohne UI).
 
     Erkennt beim Betrachten eines Bildes die Angabe, WER darauf abgebildet
-    ist — z. B. 'das ist Pedi' oder 'das ist meine Oma Helga' — und
-    übernimmt die Person (Name + ggf. Rolle) in den Gesichter-Katalog
-    (`gesichter_service.person_speichern`). Zusätzlich wird das gerade
-    betrachtete Bild (`referenz_bild` als data_url) als Referenz-Miniatur
-    an die Person gekoppelt — damit der spätere Abgleich per echtem
-    Bild-zu-Bild-Vergleich läuft und nicht nur über den Namens-Kontext
-    (entscheidend z. B. um einen Zwillingsbruder zu unterscheiden).
+    ist — z. B. 'das ist Pedi', 'das bin ich', 'das ist mein Zwillingsbruder
+    Julian' oder mehrere Personen auf EINEM Bild ('das bin ich und das ist
+    Julian') — und speichert jede erkannte Person (Name + ggf. Rolle) in den
+    Gesichter-Katalog (`gesichter_service.person_speichern`). Zusätzlich wird
+    das gerade betrachtete Bild (`referenz_bild` als data_url) als
+    Referenz-Miniatur an jede Person gekoppelt — damit der spätere Abgleich
+    per echtem Bild-zu-Bild-Vergleich läuft (entscheidend z. B. um einen
+    Zwillingsbruder zu unterscheiden).
 
-    Konservativ: läuft nur, wenn gerade wirklich ein Bild betrachtet wird
-    (`bild_aktiv`), also z. B. aus der Dateisuche angehängt oder hochgeladen
-    wurde. Ohne Bild wird NICHTS gemerkt (kein versehentliches Speichern,
-    z. B. wenn jemand über ein gedachtes 'das ist die beste Idee' redet).
-    Zudem wird nur bei einer Personen-Nenn-Phrase ausgelöst. Die eigentliche
-    Bestätigung (Name + Rolle sauber trennen) macht der LLM im Prompt — hier
-    wird nur etwas an die user_message gehängt.
+    Extraktion: Zuerst agentischer LLM-Aufruf (`extrahiere_gesichts_anlernen`)
+    — robust gegen freie Formulierung und Gruppenbilder. Scheitert der (oder
+    ist das Modell nicht erreichbar), fällt er auf eine konservative
+    deterministische Heuristik für den Einzel-Fall zurück.
+
+    Konservativ: läuft nur bei aktivem Bild (`bild_aktiv`) + Anlern-Signal.
+    Ohne Bild wird NICHTS gemerkt (kein versehentliches Speichern, z. B.
+    bei 'das ist die beste Idee'). Merken darf den Chat nie brechen.
 
     Returns: Anweisungs-Text für den LLM (an die user_message anzuhängen),
-    oder "" wenn nichts zu merken ist.
+    oder \"\" wenn nichts zu merken ist.
     """
     if not bild_aktiv or not frage or len(frage.strip()) < 3:
         return ""
     f = frage.lower().strip()
-    if not any(m in f for m in _PERSON_NENN_MUSTER):
+    # Günstiges Gate: nur weiter, wenn ein Personen-Nenn-Signal vorliegt —
+    # sonst würde für jede Bild-Frage ein LLM-Call abgehen (teuer + langsam).
+    _anlern_signal = False
+    if " ich" in f or "bin ich" in f or "ich bin" in f or "auf dem bild" in f:
+        _anlern_signal = True
+    elif any(m in f for m in _PERSON_NENN_MUSTER):
+        _anlern_signal = True
+    else:
+        # Eigennamen-Signal: ein großgeschriebenes Wort nach einer Nenn-Phrase
+        # (ohne das Signal selbst wäre eine normale Rückfrage).
+        import re as _re
+        if _re.search(r"(das ist|das ist die|das ist der|das ist mein|das ist meine|das ist unser|das ist unsere)\s+[A-ZÄÖÜ]", frage):
+            _anlern_signal = True
+    if not _anlern_signal:
         return ""
-    # Nur Personennamen (mit Groß-/Unter-Häufung) nach einem Nenn-Muster.
+
+    nutzer_name = _nutzer_name()
+    personen = []
+
+    # 1) Agentisch: LLM extrahiert die Person(en) robust.
+    try:
+        res = llm_service.extrahiere_gesichts_anlernen(frage, nutzer_name)
+        if res.get("ist_anlern_wunsch") and res.get("personen"):
+            personen = res["personen"]
+    except Exception:
+        personen = []
+
+    # 2) Fallback: deterministische Heuristik (Einzelperson, kein LLM).
+    if not personen:
+        p = _gesichter_merke_deterministisch(frage)
+        if p:
+            personen = [p]
+
+    if not personen:
+        return ""
+
+    # Alle Personen speichern (je dieselbe Referenz-Miniatur).
+    gespeichert = []
+    try:
+        for p in personen:
+            name = (p.get("name") or "").strip()
+            if not name:
+                continue
+            rolle = (p.get("rolle") or "").strip()
+            gesichter_service.person_speichern(
+                name=name, rolle=rolle,
+                beziehung="",
+                beschreibung="",
+                referenz_bild_pfad="",
+                # Das aktuelle Bild als Referenz einbetten (falls da).
+                referenz_bild_miniatur=(referenz_bild or "").strip(),
+            )
+            gespeichert.append((name, rolle))
+    except Exception:
+        # Merken ist Bonus — darf den Chat nie brechen.
+        if not gespeichert:
+            return ""
+
+    if not gespeichert:
+        return ""
+    hat_bild = bool((referenz_bild or "").strip())
+    namen_text = ", ".join(
+        (n + (f" ({r})" if r else "")) for n, r in gespeichert
+    )
+    hinweis = (
+        f"Folgende Person(en) wurde(n) dem Gesichter-Katalog hinzugefügt: "
+        f"{namen_text}"
+        + (f", jeweils mit diesem Bild als Referenz versehen" if hat_bild else "")
+        + ". Sag dem Nutzer kurz, dass du sie gespeichert hast und sie künftig "
+        "auf Fotos erkennst (per Bild-Vergleich wenn ein Referenzbild "
+        "vorhanden ist). "
+        "Achtung bei einander stark ähnlichen Personen (z. B. Zwillingsbrüder): "
+        "Wenn zwei Personen verwechselbar aussehen, sage ehrlich, wenn du "
+        "unsicher bist, statt zu raten — \"das kann ich nicht zuverlässig "
+        "unterscheiden\" ist erlaubt und besser als eine erfundene Zuordnung. "
+        "Erfinde KEINE Details."
+    )
+    return f"\n\n[Hinweis für den Assistenten: {hinweis}]"
+
+
+def _gesichter_merke_deterministisch(frage: str) -> Optional[dict]:
+    """Deterministischer Fallback: erkennt EINE genannte Person (Name+Rolle).
+
+    Konservativ, nur für den Einzel-Fall inkl. 'das bin ich'. Returns dict
+    {name, rolle, ist_nutzer} oder None.
+    """
     import re as _re
-    # Große Anfangsbuchstaben = Eigenname. Aus der Nenn-Phrase den eigentlichen
-    # Namen (= letztes großgeschriebenes Wort) und ggf. die Rolle davor
-    # nehmen: 'das ist Oma Helga' → Rolle: Oma, Name: Helga. 'das ist Pedi'
-    # → nur Name Pedi.
+    # 'das bin ich' ohne weiteren Namen → Nutzer.
+    if not _re.search(r"das ist|das ist die|das ist der|das ist mein|das ist meine",
+                      frage, _re.I) and ("bin ich" in frage.lower() or "ich bin" in frage.lower()):
+        return {"name": "", "rolle": "", "ist_nutzer": True}  # Name wird unten befüllt
+
     m = _re.search(r"(?:das ist|das hier ist|das dort ist|das ist doch|das ist auf)"
                    r"(?: die| der| meine| mein| unsere| unser)?\s+(.+?)\s*[.!?]?\s*$",
                    frage)
     if not m:
-        return ""
+        return None
     rest = m.group(1).strip()
     woerter = _re.findall(r"[A-ZÄÖÜ][a-zäöüß]+", rest)
     if not woerter:
-        return ""
-    # Der Name ist das letzte großgeschriebene Wort, das KEIN Familien-/
-    # Eigenschaftswort aus der Ausschlussliste ist. 'das ist die beste Idee' →
-    # woerter = ["Idee"] (Ausschluss) → Name leer → nichts speichern.
+        return None
     name = next((w for w in reversed(woerter) if w.lower() not in _KEINE_PERSON_ROLLE), "")
     if not name:
-        return ""
-    # Rolle = vorletztes Wort, falls es eine bekannte Familienrolle ist
-    # ('das ist Oma Helga' → Name Helga, Rolle Oma). Nicht-Familien-Wörter
-    # davor werden NICHT als Rolle übernommen.
+        return None
     rolle = ""
     for w in reversed(woerter):
         if w == name:
             continue
-        if w.lower() in _KEINE_PERSON_ROLLE and w.lower() not in (
-                "beste", "schönste", "größte", "groesste", "blau", "rot", "grün",
-                "gruen", "gelb", "schwarz", "weiß", "weiss",
-                "idee", "haus", "auto", "sache", "ding", "bild", "foto",
-                "screenshot", "tasse", "buch", "vase", "tisch", "hund", "katze",
-                "straße", "plastikmull"):
+        if w.lower() in _KEINE_PERSON_ROLLE and w.lower() not in _KEINE_NICHT_ROLLE_WORTE:
             rolle = w
             break
-    try:
-        gesichter_service.person_speichern(
-            name=name, rolle=rolle,
-            beziehung="",
-            beschreibung="",
-            referenz_bild_pfad="",
-            # Das gerade betrachtete Bild als Referenz-Miniatur einbetten
-            # (falls verfügbar). Nur data_url; Original bleibt unangetastet.
-            referenz_bild_miniatur=(referenz_bild or "").strip(),
-        )
-    except Exception:
-        # Merken ist Bonus — darf den Chat nie brechen.
-        return ""
-    hat_bild = bool((referenz_bild or "").strip())
-    hinweis = (f"Erkannte Person '{name}'" + (f" (Rolle: {rolle})" if rolle else "")
-               + "wurde dem Gesichter-Katalog hinzugefügt"
-               + (f" und mit diesem Bild als Referenz versehen" if hat_bild else "")
-               + ". Sag dem Nutzer kurz, dass du die Person gespeichert hast und "
-               "sie künftig auf Fotos erkennst (per Bild-Vergleich wenn ein "
-               "Referenzbild vorhanden ist). "
-               "Achtung bei einander stark ähnlichen Personen (z. B. "
-               "Zwillingsbrüder): Wenn zwei Personen verwechselbar aussehen, "
-               "sage ehrlich, wenn du unsicher bist, statt zu raten — \"das "
-               "kann ich nicht zuverlässig unterscheiden\" ist erlaubt und "
-               "besser als eine erfundene Zuordnung. Erfinde KEINE Details.")
-    return f"\n\n[Hinweis für den Assistenten: {hinweis}]"
+    return {"name": name, "rolle": rolle, "ist_nutzer": False}
+
+
+_KEINE_NICHT_ROLLE_WORTE = {
+    "beste", "schönste", "größte", "groesste", "blau", "rot", "grün", "gruen",
+    "gelb", "schwarz", "weiß", "weiss", "idee", "haus", "auto", "sache", "ding",
+    "bild", "foto", "screenshot", "tasse", "buch", "vase", "tisch", "hund",
+    "katze", "straße", "plastikmull",
+}
 
 
 def _baue_kontext(frage: str) -> str:

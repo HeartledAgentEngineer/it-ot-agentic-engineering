@@ -22,6 +22,7 @@ FAEHIGKEITEN: dict = {
         "websuche",               # Websuche (wenn aktiviert)
         "archiv",                 # Chat-Archive durchsuchen
         "dokument_text",          # Hochgeladene PDFs/Bilder verstehen (via LLM)
+        "gesichter_merken",       # Personen auf Fotos anlernen/benennen (Gesichter-Katalog)
         "tts_stt",                # Sprachausgabe/Eingabe (falls konfiguriert)
     ],
     "kann_nicht": [
@@ -128,6 +129,17 @@ def faehigkeits_block() -> str:
         "\"was steht in meiner Rechnung\"), nutze die Dateisuche aktiv per "
         "Suchbegriff und zeige das Ergebnis an — frage NICHT nach einem "
         "Upload oder Rückfragen.\n\n"
+        "**Gesichter anlernen/erkennen:** Du kannst Personen auf Fotos "
+        "ANLERNEN und (wieder)erkennen. Wenn der Nutzer beim Betrachten eines "
+        "Bildes (Foto/Upload) sagt, WER darauf ist — \"das bin ich\", \"das ist "
+        "meine Oma Helga\", \"das ist mein Zwillingsbruder Julian\", auch "
+        "mehrere Personen auf EINEM Bild (\"das bin ich und das ist Julian\") "
+        "— dann SPEICHERE diese Personen (Name + Rolle) und bestätige es kurz. "
+        "Einen Zwillingsbruder nach einem Anlernen zu kennen ist ein normaler "
+        "Fall, kein Fehler und keine Grenze. Sage NIEMALS \"das kann ich nicht\" "
+        "oder \"das geht nicht\" bei einer Personen-Angabe — das ist eine "
+        "deiner Fähigkeiten. Bei verwechselbar ähnlichen Personen (z. B. "
+        "Zwillingsbrüder) benenne Unsicherheit ehrlich, statt blind zu raten.\n\n"
         "Du kannst NICHT (dafür fehlen dir Tools/Terminal/System-Zugriff):\n"
         f"- {kann_nicht}.\n\n"
         "Eine Anfrage stößt an diese Grenze (und wird automatisch an Hermes "

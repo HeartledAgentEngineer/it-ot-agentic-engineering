@@ -634,6 +634,116 @@ class LLMService:
             logger.warning("Failed to extract memories: %s", e)
             return []
 
+    # ── Gesichter-Anlernen (LLM-gestützt) ─────────────────────────────────
+    def extrahiere_gesichts_anlernen(self, frage: str, nutzer_name: str = "") -> dict:
+        """Extrahiert aus einem Anlern-Satz, WER auf dem Bild ist (agentisch).
+
+        Der Nutzer drückt Anlern-Wünsche variabel aus: "das bin ich", "das ist
+        Julian, mein Zwillingsbruder", "Pedi links, Helga rechts", "auf dem Bild
+        bin ich mit meinem Bruder Julian". Feste Wortlisten scheitern an
+        Wortreihenfolge, Synonymen und Mehrfach-Nennungen (Gruppenbilder). Ein
+        günstiger LLM-Aufruf extrahiert strukturiert die Personen auf dem Bild.
+
+        Returns: dict
+          {
+            "personen": [ {"name": "...", "rolle": "", "ist_nutzer": bool}, ... ],
+            "ist_anlern_wunsch": bool
+          }
+        Leer, wenn der Satz KEIN Personen-Anlernen ist (normale Frage).
+        """
+        default = {"personen": [], "ist_anlern_wunsch": False}
+        if not self.is_configured or not frage or not frage.strip():
+            return default
+
+        nutzer_kontext = ""
+        if nutzer_name:
+            nutzer_kontext = (
+                "Der Nutzer heißt '" + nutzer_name + "'. Wenn er 'das bin ich' "
+                "oder 'ich' sagt, ist '" + nutzer_name + "' gemeint. Im JSON ist "
+                "dann name='" + nutzer_name + "'."
+            )
+        prompt = (
+            "Erkenne, ob eine deutsche Nachricht an den persönlichen Assistenten "
+            "eine PERSON auf einem gerade betrachteten Bild BENENNT/ANLERNEN will.\n\n"
+            "Beispiele:\n"
+            "- 'das bin ich' -> {\"personen\": [{\"name\": \"Sebastian\", \"rolle\": \"\", \"ist_nutzer\": true}], \"ist_anlern_wunsch\": true}\n"
+            "- 'das ist Julian, mein Zwillingsbruder' -> {\"personen\": [{\"name\": \"Julian\", \"rolle\": \"Zwillingsbruder\", \"ist_nutzer\": false}], \"ist_anlern_wunsch\": true}\n"
+            "- 'das ist meine Oma Helga' -> {\"personen\": [{\"name\": \"Helga\", \"rolle\": \"Oma\", \"ist_nutzer\": false}], \"ist_anlern_wunsch\": true}\n"
+            "- 'Pedi links und Helga rechts' -> {\"personen\": [{\"name\": \"Pedi\", \"rolle\": \"\", \"ist_nutzer\": false}, {\"name\": \"Helga\", \"rolle\": \"\", \"ist_nutzer\": false}], \"ist_anlern_wunsch\": true}\n"
+            "- 'das bin ich und das ist Julian' -> {\"personen\": [{\"name\": \"Sebastian\", \"rolle\": \"\", \"ist_nutzer\": true}, {\"name\": \"Julian\", \"rolle\": \"\", \"ist_nutzer\": false}], \"ist_anlern_wunsch\": true}\n"
+            "- 'was siehst du auf dem bild' -> {\"personen\": [], \"ist_anlern_wunsch\": false}\n\n"
+            "Regeln:\n"
+            "- name: Vorname/Kosename, wie genannt. Bei 'ich'/'bin ich' den "
+            "Nutzernamen verwenden.\n"
+            "- rolle: Verwandtschaft/Beziehung (Oma, Zwillingsbruder), sonst leer.\n"
+            "- ist_nutzer: true nur wenn der Nutzer über sich selbst spricht.\n"
+            "- ist_anlern_wunsch: true, wenn Personen benannt/identifiziert werden "
+            "sollen (Bild+Name verknüpfen).\n"
+            "- ALLE genannten Personen erfassen (Gruppenbild), nicht nur die erste.\n"
+            "- Antworte NUR mit einem JSON-Objekt, kein Text drumherum.\n"
+            + nutzer_kontext
+            + "\n\nNachricht: " + frage
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],  # type: ignore
+                temperature=0.0,
+                max_tokens=400,
+                extra_body={"provider": {"allow_fallbacks": True}},
+            )
+            raw = (response.choices[0].message.content or "{}").strip()
+            if "{" in raw:
+                raw = raw[raw.index("{"):]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.rstrip().rstrip(",")
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                import re as _r
+                parsed = None
+                m = _r.search(r'personen[\s:]*\[(.*?)\]', raw, _r.S | _r.I)
+                if m:
+                    personen = []
+                    for pm in _r.finditer(
+                        r'name["\s:]+"?([a-zA-ZäöüÄÖÜß0-9_\- ]+?)"?[\s,}\]'
+                        r'.*?rolle["\s:]+"?([a-zA-ZäöüÄÖÜß ]*?)"?[\s,}\]'
+                        r'.*?ist_nutzer["\s:]+(true|false)', m.group(1),
+                        _r.S | _r.I,
+                    ):
+                        personen.append({
+                            "name": pm.group(1).strip(),
+                            "rolle": pm.group(2).strip(),
+                            "ist_nutzer": pm.group(3) == "true",
+                        })
+                    parsed = {"personen": personen, "ist_anlern_wunsch": bool(personen)}
+            if not isinstance(parsed, dict):
+                return default
+            personen = []
+            for p in (parsed.get("personen") or []):
+                if not isinstance(p, dict):
+                    continue
+                name = str(p.get("name") or "").strip()
+                if not name:
+                    continue
+                if name.lower() in ("ich", "mir", "mich") and nutzer_name:
+                    name = nutzer_name
+                personen.append({
+                    "name": name,
+                    "rolle": str(p.get("rolle") or "").strip(),
+                    "ist_nutzer": bool(p.get("ist_nutzer", False)),
+                })
+            return {
+                "personen": personen,
+                "ist_anlern_wunsch": bool(parsed.get("ist_anlern_wunsch", False))
+                and bool(personen),
+            }
+        except Exception as e:  # pragma: no cover
+            logger.warning("Gesichts-Anlern-Erkennung fehlgeschlagen: %s", e)
+            return default
+
     def extrahiere_datei_such_intent(self, frage: str) -> dict:
         """Erkennt aus einer Datei-Suchfrage den Such-Intent (agentisch, via LLM).
 
