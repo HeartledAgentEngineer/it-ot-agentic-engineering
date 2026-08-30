@@ -22,6 +22,11 @@ chroma_data/
 auftraege.json
 auftraege.json.tmp
 
+# Gesichter-Katalog (Personen-Merkliste): private Personendaten.
+# Aus demselben Grund draussen wie chroma_data / auftraege.json.
+gesichter_katalog.json
+gesichter_katalog.json.tmp
+
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.
 # Das Repo ist oeffentlich - das hier geht niemanden etwas an, der sich
 # den Code ansieht. Vorlage: backend/system_prompt.local.example.md

@@ -25,6 +25,7 @@ from app.services.hermes_local import (
 )
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
+from app.services import gesichter_service
 from app.services import chat_verlauf
 from app.services import sse as sse_service
 
@@ -296,6 +297,48 @@ async def chat(request: ChatRequest):
                 _bild_cache.pop(conversation_id, None)
 
 
+        # 1g. Gesichter: Wird ein Bild betrachtet (Dateisuche ODER Upload),
+        # den Gesichter-Katalog an den Prompt hängen, damit der Vision-LLM
+        # bekannte Personen benennt statt zu raten. Deterministisch, kein
+        # Extra-LLM-Call: der Katalog-Text ist klein.
+        katalog_bilder = []
+        bild_aktiv = bool(datei_bilder) or bool(
+            request.files and any(f.type == "image" for f in request.files)
+        )
+        if bild_aktiv:
+            katalog = gesichter_service.katalog_kontext()
+            if katalog:
+                user_message_fuer_llm += katalog
+            # Referenz-Miniaturen als Vergleichsbilder mitgeben (falls da):
+            # der Vision-LLM kann das aktuelle Foto gegen die eingebetteten
+            # Referenzgesichter abgleichen statt nur über die Text-Liste zu
+            # raten. pCloud-sicher: das sind die eingebetteten Kopien, nicht
+            # die (möglicherweise verschobenen) Originaldateien.
+            katalog_bilder = gesichter_service.referenz_bilder()
+            if katalog_bilder:
+                ref_namen = ", ".join(
+                    b.get("person") or "?"
+                    for b in katalog_bilder if b.get("person")
+                )
+                user_message_fuer_llm += (
+                    "\n\n[Dem aktuellen Foto sind zusätzlich die bekannten "
+                    "Referenzgesichter angehängt (in dieser Reihenfolge): "
+                    + (ref_namen or "mehrere Personen")
+                    + ". Vergleiche das aktuelle Foto damit und benenne "
+                      "bekannte Personen — aber nur, wenn die Übereinstimmung "
+                      "überzeugend ist. Erfinde KEINE Zuordnung.]"
+                )
+
+        # 1h. Gesichter reaktiv 'merken': Sagt der Nutzer beim Betrachten
+        # eines Bildes, WER darauf ist ('das ist Pedi', 'das ist meine Oma
+        # Helga'), wird das deterministisch in den Katalog übernommen — der
+        # Vision-LLM erkennt die Person künftig auf Fotos. Konservativ: nur
+        # bei aktiver Bild-Ansicht + Nenn-Phrase, sonst kein Effekt.
+        merkhinweis = _gesichter_merke(request.message, bild_aktiv)
+        if merkhinweis:
+            user_message_fuer_llm += merkhinweis
+
+
         # 2. Get LLM response with memory context
         # Vision-Routing: Wird ein Bild aus der Dateisuche mitgeschickt
         # (datei_tool_bilder), braucht es ein VISION-fähiges Modell — ein
@@ -323,7 +366,7 @@ async def chat(request: ChatRequest):
             summary=kontext_summary,
             files=(
                 [f.model_dump() for f in request.files] if request.files else []
-            ) + (datei_tool_bilder if datei_tool_bilder else []),
+            ) + (datei_tool_bilder if datei_tool_bilder else []) + (katalog_bilder if katalog_bilder else []),
         )
 
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten
@@ -347,6 +390,107 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error("Chat error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+_PERSON_NENN_MUSTER = (
+    "das ist", "das ist doch", "das hier ist", "das dort ist", "das ist auf",
+    "der ist", "die ist", "das ist die", "das ist der", "das ist meine",
+    "das ist mein", "das ist unsere", "das ist unser",
+)
+
+# Deutsche Substantive werden ALLE großgeschrieben — die Capitalize-Heuristik
+# würde sonst z. B. "das ist die beste Idee" als Person "Idee" speichern. Diese
+# konservative Ausschlussliste verhindert das (allgemeine Nicht-Personen-Wörter).
+_KEINE_PERSON_ROLLE = {
+    # Familienrollen, die NIE der Eigenname sind (Rollen werden separat erkannt).
+    "mutter", "oma", "opa", "vater", "tante", "onkel", "mama", "papa",
+    "bruder", "schwester", "frau", "mann", "kind", "tochter", "sohn",
+    # Allgemeine Nicht-Personen-Substantive (Großschreibung ist in Deutsch ja
+    # der Normalfall — nur konkrete Alltagsfälle, die bei Fotos auftauchen).
+    "idee", "haus", "auto", "baumschule", "sache", "ding", "bild", "foto",
+    "screenshot", "tasse", "buch", "vase", "tisch", "hund", "katze", "straße",
+    "plastikmull", "beste", "schönste", "größte", "groesste",
+    # Farb-/Eigenschaftswörter (häufig unmittelbar nach "das ist …").
+    "blau", "rot", "grün", "gruen", "gelb", "schwarz", "weiß", "weiss",
+}
+
+
+def _gesichter_merke(frage: str, bild_aktiv: bool) -> str:
+    """Reaktiv 'Gesichter merken' über Sprache (ohne UI, deterministisch).
+
+    Erkennt beim Betrachten eines Bildes die Angabe, WER darauf abgebildet
+    ist — z. B. 'das ist Pedi' oder 'das ist meine Oma Helga' — und
+    übernimmt die Person (Name + ggf. Rolle) in den Gesichter-Katalog
+    (`gesichter_service.person_speichern`). Der Vision-LLM benennt die
+    Person damit künftig auf Fotos.
+
+    Konservativ: läuft nur, wenn gerade wirklich ein Bild betrachtet wird
+    (`bild_aktiv`), also z. B. aus der Dateisuche angehängt oder hochgeladen
+    wurde. Ohne Bild wird NICHTS gemerkt (kein versehentliches Speichern,
+    z. B. wenn jemand über ein gedachtes 'das ist die beste Idee' redet).
+    Zudem wird nur bei einer Personen-Nenn-Phrase ausgelöst. Die eigentliche
+    Bestätigung (Name + Rolle sauber trennen) macht der LLM im Prompt — hier
+    wird nur etwas an die user_message gehängt.
+
+    Returns: Anweisungs-Text für den LLM (an die user_message anzuhängen),
+    oder "" wenn nichts zu merken ist.
+    """
+    if not bild_aktiv or not frage or len(frage.strip()) < 3:
+        return ""
+    f = frage.lower().strip()
+    if not any(m in f for m in _PERSON_NENN_MUSTER):
+        return ""
+    # Nur Personennamen (mit Groß-/Unter-Häufung) nach einem Nenn-Muster.
+    import re as _re
+    # Große Anfangsbuchstaben = Eigenname. Aus der Nenn-Phrase den eigentlichen
+    # Namen (= letztes großgeschriebenes Wort) und ggf. die Rolle davor
+    # nehmen: 'das ist Oma Helga' → Rolle: Oma, Name: Helga. 'das ist Pedi'
+    # → nur Name Pedi.
+    m = _re.search(r"(?:das ist|das hier ist|das dort ist|das ist doch|das ist auf)"
+                   r"(?: die| der| meine| mein| unsere| unser)?\s+(.+?)\s*[.!?]?\s*$",
+                   frage)
+    if not m:
+        return ""
+    rest = m.group(1).strip()
+    woerter = _re.findall(r"[A-ZÄÖÜ][a-zäöüß]+", rest)
+    if not woerter:
+        return ""
+    # Der Name ist das letzte großgeschriebene Wort, das KEIN Familien-/
+    # Eigenschaftswort aus der Ausschlussliste ist. 'das ist die beste Idee' →
+    # woerter = ["Idee"] (Ausschluss) → Name leer → nichts speichern.
+    name = next((w for w in reversed(woerter) if w.lower() not in _KEINE_PERSON_ROLLE), "")
+    if not name:
+        return ""
+    # Rolle = vorletztes Wort, falls es eine bekannte Familienrolle ist
+    # ('das ist Oma Helga' → Name Helga, Rolle Oma). Nicht-Familien-Wörter
+    # davor werden NICHT als Rolle übernommen.
+    rolle = ""
+    for w in reversed(woerter):
+        if w == name:
+            continue
+        if w.lower() in _KEINE_PERSON_ROLLE and w.lower() not in (
+                "beste", "schönste", "größte", "groesste", "blau", "rot", "grün",
+                "gruen", "gelb", "schwarz", "weiß", "weiss",
+                "idee", "haus", "auto", "sache", "ding", "bild", "foto",
+                "screenshot", "tasse", "buch", "vase", "tisch", "hund", "katze",
+                "straße", "plastikmull"):
+            rolle = w
+            break
+    try:
+        gesichter_service.person_speichern(
+            name=name, rolle=rolle,
+            beziehung="",
+            beschreibung="",
+            referenz_bild_pfad="",
+        )
+    except Exception:
+        # Merken ist Bonus — darf den Chat nie brechen.
+        return ""
+    hinweis = (f"Erkannte Person '{name}'" + (f" (Rolle: {rolle})" if rolle else "")
+               + "wurde dem Gesichter-Katalog hinzugefügt. "
+               "Sag dem Nutzer kurz, dass du die Person gespeichert hast und "
+               "sie künftig auf Fotos erkennst. Erfinde KEINE weiteren Details.")
+    return f"\n\n[Hinweis für den Assistenten: {hinweis}]"
 
 
 def _baue_kontext(frage: str) -> str:
