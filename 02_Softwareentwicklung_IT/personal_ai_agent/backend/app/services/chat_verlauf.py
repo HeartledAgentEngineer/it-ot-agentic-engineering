@@ -243,9 +243,17 @@ def setze_memory_extractor(fn: Optional[Callable]) -> None:
     _memory_extractor = fn
 
 
-def finish_exchange(conversation_id: str, user_message: str, reply: str) -> int:
+def finish_exchange(conversation_id: str, user_message: str, reply: str,
+                    bild_pfad: Optional[str] = None) -> int:
     """Austausch in den Verlauf schreiben + Erinnerungen ableiten.
 
+    `bild_pfad`: optionaler Pfad eines über die Dateisuche gezeigten Bildes.
+    Wird (nur wenn gesetzt) am Assistant-Eintrag mitgespeichert, damit die
+    flüchtige Bild-Vorschau ('letzter Screenshot' usw.) einen Reload/eine
+    neue Sitzung überlebt: Das Frontend lädt das Bild beim Verlauf-Anzeigen
+    über diesen Pfad frisch nach (GET /api/dateien/daten?pfad=). Es wird
+    bewusst NUR der Pfad gespeichert, nie die Bild-Datei (Sebastian-Regel).
+    Abwärtskompatibel: Ohne Angabe werden Einträge wie zuvor geschrieben.
     Returns: Anzahl neuer Erinnerungen (0, wenn kein Extractor injiziert oder
     die Extraktion fehlschlägt).
     """
@@ -255,7 +263,10 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str) -> int:
     with _verlauf_sperre:
         jetzt = datetime.now().astimezone().isoformat(timespec="seconds")
         history.append({"role": "user", "content": user_message, "zeit": jetzt})
-        history.append({"role": "assistant", "content": reply, "zeit": jetzt})
+        assistant_eintrag = {"role": "assistant", "content": reply, "zeit": jetzt}
+        if bild_pfad:
+            assistant_eintrag["bild_pfad"] = bild_pfad
+        history.append(assistant_eintrag)
         _speichere_verlauf()
     if _memory_extractor is None:
         return 0

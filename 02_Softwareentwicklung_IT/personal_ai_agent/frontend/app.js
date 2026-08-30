@@ -3100,7 +3100,20 @@ async function zeigeGespraech(id) {
         zuruecksetzenDatumBanner();
 
         for (const m of nachrichten) {
-            addMessage(m.content, m.role === 'user' ? 'user' : 'assistant', m.zeit || null);
+            const role = m.role === 'user' ? 'user' : 'assistant';
+            const contentDiv = addMessage(m.content || '', role, m.zeit || null);
+            // Gespeicherte Bild-Vorschau (Dateisuche) wieder anzeigen: Der
+            // bloße Pfad ist im Verlauf persistiert, das Bild wird frisch
+            // über /api/dateien/daten nachgeladen (Original bleibt unantastbar).
+            if (m.bild_pfad && role === 'assistant') {
+                (async () => {
+                    try {
+                        const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(m.bild_pfad)}`);
+                        const daten = await res.json();
+                        if (daten.data_url) zeigeBildVorschau(contentDiv, daten.data_url, m.bild_pfad);
+                    } catch (_) { /* Bild nicht ladbar: Text bleibt stehen */ }
+                })();
+            }
         }
         state.conversationId = id;
         localStorage.setItem('conversation_id', id);
