@@ -38,7 +38,6 @@ GRENZE_MARKER: List[str] = [
     # Terminal / Shell
     "terminal", "shell", "befehl ausführen", "führe aus", "run", "bash",
     # Dateien / Repo
-    "datei anlegen", "datei erstellen", "datei schreiben", "datei ändern",
     "datei", "repo", "repository", "code schreiben", "code ändern",
     "projekt ändern",
     # Tools / Pakete
@@ -51,6 +50,17 @@ GRENZE_MARKER: List[str] = [
     "steuerung programmieren", "automatisierung", "roboter", "hardware",
 ]
 
+# Reine LESE-Signale: "DATEI LESEN" ist eine Fähigkeit des Agents (Dateisuche/
+# Archiv/dokument_text) und KEINE Grenze. Trifft ein solches Signal, wird das
+# allgemeine "datei"-Signal unterdrückt — sonst würde z. B. "Lies meine
+# Lebenslauf-Datei" fälschlich als Grenze an Hermes delegiert und der Agent
+# sagt "musst du hochladen". Git/Terminal/System-Marker bleiben davon unberührt.
+_DATEI_LESE_SIGNALE = (
+    "lies", "lese", "was steht in", "inhalt von", "zeig mir den inhalt",
+    "zeig mir den text", "gib mir die datei", "fasse zusammen aus",
+    "durchsuche", "suche nach", "was liegt", "zeig mir",
+)
+
 
 def stoesst_an_grenze(text: str) -> bool:
     """True, wenn die Anfrage an eine Fähigkeits-Grenze stößt (→ Hermes).
@@ -59,11 +69,19 @@ def stoesst_an_grenze(text: str) -> bool:
     damit kurze Marker wie "git" oder "run" nicht in "digital"/"darunter"
     fälschlich treffen (Critic-Befund HOCH). Wird von der Weiche als Ergänzung
     zur ist_auftrag()-Heuristik genutzt.
+
+    Reines Datei-LESEN (Dateisuche/Archiv) stößt bewusst NICHT an die Grenze —
+    das kann der Agent. Nur Datei-/System-SCHREIBEN, Git, Terminal u. a. sind
+    Grenzthemen.
     """
     if not text:
         return False
     t = text.lower()
+    ist_lese = any(sig in t for sig in _DATEI_LESE_SIGNALE)
     for marker in GRENZE_MARKER:
+        # Datei-Lesen: das allgemeine "datei"-Wort unterdrücken.
+        if ist_lese and marker == "datei":
+            continue
         # Phrasen (mit Leerzeichen) an beiden Enden als Ganzes matchen;
         # Einzelwörter mit Wortgrenzen (\b), um Substring-False-Positives zu vermeiden.
         if re.search(r"\b" + re.escape(marker) + r"\b", t):

@@ -344,3 +344,27 @@ def test_stream_auftrag_rueckfrage_laesst_session_offen(monkeypatch):
     assert "ergebnis" in arten, f"finale Antwort fehlt: {ereignisse}"
     ergebnis = [e for e in ereignisse if e["art"] == "ergebnis"][0]
     assert ergebnis["text"] == "Fertig, alles ok."
+
+
+def test_stream_auftrag_timeout_liefert_gepuffertes_endoutput(monkeypatch):
+    """Timeout mit bereits gepuffertem End-Output: das Ergebnis wird als
+    'ergebnis' geliefert (nicht als 'fehler'). Reproduziert den Live-Befund:
+    der Agent lieferte eine Zusammenfassung, aber die Pane blieb nicht long
+    genug leer/stabil -> früher lief der Auftrag in einen 'fehler'-Timeout und
+    das Ergebnis ging verloren."""
+    job = LocalHermesJob("Test")
+    job.letzte_antwort = "Hier die Zusammenfassung der Lebenslauf-Version."
+    # Pane bleibt kurz-stabil aber niemals leer genug -> Abschluss-Pfad greift
+    # nie, wir erreichen den Timeout mit gepuffertem End-Output.
+    with mock.patch.object(job, "_pane_text", return_value="❯ "), \
+         mock.patch.object(job, "lebt_noch", return_value=True):
+        monkeypatch.setattr(hl, "ist_verfuegbar", lambda: True)
+        monkeypatch.setattr(hl, "_ABSCHLUSS_IDLE_S", 9999)  # Idle nie erreicht
+        monkeypatch.setattr(hl.hermes_registry, "starte",
+                            lambda *a, **k: job)
+        ereignisse = list(hl.stream_auftrag("id-t", "Test", timeout=2))
+        job.beende()
+    ergebnis = [e for e in ereignisse if e["art"] == "ergebnis"]
+    assert ergebnis, f"kein ergebnis trotz gepuffertem End-Output: {ereignisse}"
+    assert ergebnis[0]["text"] == "Hier die Zusammenfassung der Lebenslauf-Version."
+    assert not any(e["art"] == "fehler" for e in ereignisse)
