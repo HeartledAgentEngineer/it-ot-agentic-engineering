@@ -158,3 +158,16 @@ def test_datei_tool_pdf_frage_filtert_auf_dokumente():
         _datei_tool("finde mir die pdf zeitplan")
     assert suche.called
     assert suche.call_args.kwargs["nur_erweiterungen"] == _DOKUMENTE
+
+
+def test_datei_tool_lebenslauf_thema_als_stichwort():
+    """'den Inhalt meiner Lebenslauf-Datei' nutzt 'lebenslauf' als Suchbegriff,
+    NICHT 'inhalt meiner'. Regression: Vorher lief die Stichwort-Extraktion auf
+    die ersten zwei Nicht-Stopwörter ('inhalt meiner'), was eine x-beliebige
+    Datei (z. B. Stellenanzeige .docx) statt des Lebenslaufs matchen konnte."""
+    from app.router.chat import _datei_tool  # noqa: E402
+
+    with mock.patch.object(datei_suche, "suche_dateien", return_value=[]) as suche:
+        _datei_tool("Lies den Inhalt meiner Lebenslauf-Datei und fasse zusammen.")
+    assert suche.called
+    assert suche.call_args.args[0] == "lebenslauf"

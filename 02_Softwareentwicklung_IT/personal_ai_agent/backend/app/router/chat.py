@@ -548,6 +548,11 @@ def _datei_tool(frage: str) -> tuple:
         "letzte", "letzten", "neueste", "neuesten", "aufgenommene",
         "aufgenommen", "bild", "foto", "erkläre", "erkläre", "mir", "ist",
         "und", "was", "da", "drauf", "darauf", "zeig", "zeige", "suche",
+        # Füll-/Steuerwörter, die den eigentlichen Suchbegriff verschlucken:
+        # "Lies den INHALT MEINER Lebenslauf-Datei" → Suchwort = lebenslauf.
+        "inhalt", "inhalte", "meiner", "meine", "meinen", "mein",
+        "wichtigsten", "wichtigen", "stationen", "zusammen", "fass",
+        "fasse", "den", "die", "der", "und",
     }
     teile = []
     for w in stichwort.split():
@@ -556,10 +561,30 @@ def _datei_tool(frage: str) -> tuple:
         kern = w.strip(" ?!,.:;-_")
         if kern and kern not in stopwoerter:
             teile.append(kern)
-    # NUR die ersten 2 Kern-Wörter als Suchbegriff — ein ganzer Satz als
-    # Stichwort findet nie etwas + verleitet den LLM zu halluzinierten
-    # Dateinamen ("meinen lebenslauf liste auf dort...").
-    reines_stichwort = " ".join(teile[:2]).strip()
+
+    # Dokument-Themenwörter priorisieren: Wenn die Frage einen konkreten
+    # Dokument-Typ nennt (lebenslauf, rechnung, vertrag, zeugnis, angebot,
+    # bewerbung, mietvertrag …), wird DAS als Suchbegriff genommen — auch
+    # wenn es mitten im Satz steht ("den Inhalt meiner Lebenslauf-Datei").
+    # Sonst würde "inhalt meiner" (erste zwei Nicht-Stopwörter) fälschlich den
+    # Suchbegriff bilden und z. B. eine Stellenanzeige statt des Lebenslaufs
+    # matchen (Live-Befund: Agent las 'stellenanzeige-…au.docx' statt des CV).
+    dokument_thema = next(
+        (tema for tema in (
+            "lebenslauf", "lebensläufe", "rechnung", "rechnungen", "vertrag",
+            "verträge", "zeugnis", "zeugnisse", "angebot", "angebote",
+            "bewerbung", "bewerbungen", "mietvertrag", "arbeitsvertrag",
+            "lohnabrechnung", "gehaltsabrechnung", "letter",
+        ) if tema in f),
+        None,
+    )
+    if dokument_thema:
+        reines_stichwort = dokument_thema
+    else:
+        # NUR die ersten 2 Kern-Wörter als Suchbegriff — ein ganzer Satz als
+        # Stichwort findet nie etwas + verleitet den LLM zu halluzinierten
+        # Dateinamen ("meinen lebenslauf liste auf dort...").
+        reines_stichwort = " ".join(teile[:2]).strip()
 
     # Spezial-Regel: Wenn ein Bild/Foto-Wunsch + "neueste/letzte" auftaucht
     # (egal wie formuliert: "was ist das neueste bild auf deinem speicher"),
