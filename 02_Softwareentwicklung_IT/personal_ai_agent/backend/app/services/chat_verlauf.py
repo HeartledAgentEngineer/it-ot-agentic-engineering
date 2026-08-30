@@ -171,6 +171,46 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
         logger.warning("Live-Nachricht nicht in Verlauf: %s", e)
 
 
+def verlauf_runde_entfernen(conversation_id: str) -> bool:
+    """Entfernt die letzte Nutzer-Nachricht samt ihrer Antwort (ein Paar).
+
+    Wird vom Bearbeiten-Flow genutzt: Legt der Nutzer eine User-Nachricht
+    zurück in die Eingabe zum Neu-Formulieren, soll die alte Runde (User +
+    zugehörige Assistant-Antwort) aus dem persistenten Verlauf verschwinden,
+    damit nach einem Reload nicht die alte Fassung wieder auftaucht.
+
+    Sucht von hinten die letzte User-Nachricht und entfernt sie samt der
+    direkt darauf folgenden Antwort(en). Der Aufrufer will immer die zuletzt
+    abgeschickte Runde ersetzen — daher wird ohne Inhalts-Vergleich die letzte
+    User-Nachricht nebst ihrer Antwort gelöscht (Owner des Bearbeiten-Flows).
+
+    Returns: True, wenn eine Runde entfernt wurde; sonst False.
+    """
+    try:
+        with _verlauf_sperre:
+            if conversation_id not in conversations:
+                return False
+            hist = conversations[conversation_id]
+            if not hist:
+                return False
+            # Letzte Position einer User-Nachricht von hinten suchen.
+            letzter_user_idx = None
+            for i in range(len(hist) - 1, -1, -1):
+                if hist[i].get("role") == "user":
+                    letzter_user_idx = i
+                    break
+            if letzter_user_idx is None:
+                return False
+            # User + die direkt folgende(n) Antwort(en) entfernen — die alte
+            # Runde ist ab hier obsolet und darf nach Reload nicht wieder da sein.
+            del hist[letzter_user_idx:]
+            _speichere_verlauf()
+            return True
+    except Exception as e:
+        logger.warning("Verlauf-Runde konnte nicht entfernt werden: %s", e)
+        return False
+
+
 # Die EINZIGE, immer fortgefuehrte Conversation. Das System erzeugt seit
 # Stand 2026-08-30 KEINE neuen Conversations-ID mehr: Es gibt genau einen
 # durchlaufenden Chat (Wunsch Sebastian), der nie neu beginnt und ueber den
