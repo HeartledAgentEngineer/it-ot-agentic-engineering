@@ -130,6 +130,13 @@ def _starte_lokale_hermes(
                         auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
                         # Auch in den persistenten Chat-Verlauf, falls verknuepft.
                         _reite_an_verlauf(auftrag_id, "assistant", text)
+                    elif art == "frage" and text:
+                        # Rueckfrage des Agenten: sichtbar machen, aber NICHT
+                        # als fertig eintragen. Der Stream bleibt am Leben,
+                        # die Session offen, bis der Nutzer per /eingabe
+                        # geantwortet hat und eine finale Antwort folgt.
+                        auftrag_service.statusmeldung_hinzufuegen(auftrag_id, text)
+                        _reite_an_verlauf(auftrag_id, "assistant", text)
                     elif art == "ergebnis":
                         auftrag_service.ergebnis_eintragen(
                             auftrag_id, text, erfolg=bool(text)

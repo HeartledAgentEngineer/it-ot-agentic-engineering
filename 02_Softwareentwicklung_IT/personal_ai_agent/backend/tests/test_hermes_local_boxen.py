@@ -188,3 +188,159 @@ def test_stream_auftrag_verhindert_sofort_abschluss(monkeypatch):
     arten = {e["art"] for e in ereignisse}
     assert "ergebnis" not in arten
     assert "fehler" in arten
+
+
+# ----------------------------------------------------------------------
+# Regression: End-Output bei LEERER Pane muss zurückgegeben werden.
+# Der Agent antwortet, leert danach aber die TUI/Pane statt den '❯' stehen
+# zu lassen -> vorher blieb der Auftrag ewig auf "laeuft" (Ergebnis kam nie an).
+
+def test_abschluss_bereit_leere_pane_mit_endoutput():
+    """Leere Pane + bereits gepuffertes End-Output => abschluss-bereit."""
+    job = LocalHermesJob("Test")
+    job.letzte_antwort = "Das ist das Ergebnis."
+    assert hl._abschluss_bereit(job, "") is True
+    assert hl._abschluss_bereit(job, "\n\n   \n") is True
+    job.beende()
+
+
+def test_abschluss_bereit_leere_pane_OHNE_endoutput():
+    """Leere Pane ohne gepuffertes End-Output ist KEIN Abschluss-Signal."""
+    job = LocalHermesJob("Test")
+    assert hl._abschluss_bereit(job, "") is False
+    job.beende()
+
+
+def test_abschluss_bereit_prompt_da():
+    """Klassischer '❯'-Prompt zählt weiterhin als Abschluss-Signal."""
+    job = LocalHermesJob("Test")
+    assert hl._abschluss_bereit(job, "irgendwas\n❯ ") is True
+    job.beende()
+
+
+def test_sicheres_ergebnis_nutzt_endoutput_puffer():
+    """_sicheres_ergebnis liefert das gepufferte End-Output vor der Pane."""
+    job = LocalHermesJob("Test")
+    job.letzte_antwort = "Gepuffertes Ergebnis"
+    with mock.patch.object(job, "alle_antwort_boxen",
+                           return_value=["Aus Pane (sollte nicht gewaehlt)"]):
+        assert hl._sicheres_ergebnis(job) == "Gepuffertes Ergebnis"
+    job.beende()
+
+
+def test_sicheres_ergebnis_faellt_zurueck_auf_pane():
+    """Ohne Puffer: letzte Antwort-Box aus der Pane."""
+    job = LocalHermesJob("Test")
+    with mock.patch.object(job, "alle_antwort_boxen",
+                           return_value=["Erste", "Letzte"]):
+        assert hl._sicheres_ergebnis(job) == "Letzte"
+    job.beende()
+
+
+def test_sicheres_ergebnis_platzhalter_wenn_nichts_da():
+    """Weder Puffer noch Pane-Box => Platzhalter, nie leer."""
+    job = LocalHermesJob("Test")
+    with mock.patch.object(job, "alle_antwort_boxen", return_value=[]):
+        assert hl._sicheres_ergebnis(job) == "—"
+    job.beende()
+
+
+def test_stream_auftrag_endoutput_bei_leerer_pane(monkeypatch):
+    """Reproduziert den Live-Bug: Hermes antwortet, dann wird die Pane leer.
+    Die Antwort-Box wurde gepuffert; als die Pane leer bleibt, wird das
+    End-Output als "ergebnis" geliefert, NICHT als "fehler"/Timeout."""
+    job = LocalHermesJob("Test")
+    # Zuerst eine Box puffern, DANN liefert die Pane nichts mehr.
+    pane_mit_box = (
+        "╭─ Hermes ───────────────╮\n"
+        "│  ok                    │\n"
+        "╰────────────────────────╯\n"
+    )
+    states = [
+        pane_mit_box,   # Box wird geparst + gepuffert
+        "",             # Pane leer geworden => soll abschliessen
+        "",
+        "",
+        "",
+    ]
+    with mock.patch.object(job, "_pane_text",
+                           side_effect=lambda: states.pop(0) if states else ""), \
+         mock.patch.object(job, "lebt_noch", return_value=True):
+        monkeypatch.setattr(hl, "ist_verfuegbar", lambda: True)
+        monkeypatch.setattr(hl, "_ABSCHLUSS_IDLE_S", 1)
+        monkeypatch.setattr(hl.hermes_registry, "starte",
+                            lambda *a, **k: job)
+        ereignisse = list(hl.stream_auftrag("id-z", "Test", timeout=10))
+        job.beende()
+    ergebnis = [e for e in ereignisse if e["art"] == "ergebnis"]
+    assert ergebnis, f"kein ergebnis unter Ereignissen: {ereignisse}"
+    assert ergebnis[0]["text"] == "ok"
+
+
+# ----------------------------------------------------------------------
+# Regression: Rueckfrage des Agenten (kein Abschluss) vs finale Antwort.
+# Der Nutzer will auf eine Frage per /eingabe antworten koennen - daher darf
+# eine offene Frage den Auftrag NICHT als "fertig" abschliessen.
+
+def test_ist_offene_frage_true():
+    """Frage am Ende (letzte Zeile mit '?') => True."""
+    assert hl._ist_offene_frage("Musst du die Datei hochladen?") is True
+    assert hl._ist_offene_frage("Soll ich das committen?\nBitte antworte.") is False  # endet nicht mit '?'
+    assert hl._ist_offene_frage("Zuerst ein Schritt.\nSoll ich pushen?") is True
+
+
+def test_ist_offene_frage_false_fuer_finale_antwort():
+    """Sachliche Antwort ohne abschliessende Frage => False."""
+    assert hl._ist_offene_frage("Der Fix ist fertig, alles gruen.") is False
+    assert hl._ist_offene_frage("") is False
+
+
+def test_ist_offene_frage_code_quote_keine_frage():
+    """Ueberwiegend Code erklaert die Frage weg (sachliches Endergebnis)."""
+    code_text = (
+        "def f():\n"
+        "    return 1\n"
+        "Mehr Code\n"
+        "Soll ich pushen?\n"
+    )
+    assert hl._ist_offene_frage(code_text) is False
+
+
+def test_stream_auftrag_rueckfrage_laesst_session_offen(monkeypatch):
+    """Rueckfrage ('?') => 'frage'-Event, KEIN 'ergebnis', Loops weiter.
+    Erst wenn spaeter eine finale (nicht-fragende) Antwort erscheint, kommt
+    'ergebnis' und der Auftrag wird abgeschlossen."""
+    job = LocalHermesJob("Test")
+    # Deterministischer Verlauf, 1 Pane-Text pro Loop-Iteration:
+    # Phase A: leere Pane + gepufferte Frage -> frage-Ereignis.
+    # Phase B: weiter leere Pane, Frage bleibt (Dedup, kein Abschluss).
+    # Phase C: leere Pane + gepuffertes END-OUTPUT -> ergebnis.
+    job.letzte_antwort = "Soll ich hochladen?"
+    zaehler = {"i": 0}
+    pane_verlauf = ["", "", "", ""]       # beidesmal leer/stabil
+
+    def pane_text():
+        return pane_verlauf[0]
+
+    def neue_gedanken():
+        # Nur einmal ein neues (nicht-fragendes) kuenstliches Signal abgeben,
+        # das den Stabilitaetszaehler ruecksetzt — danach Stille.
+        zaehler["i"] += 1
+        if zaehler["i"] == 6:
+            job.letzte_antwort = "Fertig, alles ok."
+        return []
+
+    with mock.patch.object(job, "_pane_text", pane_text), \
+         mock.patch.object(job, "neue_gedanken", neue_gedanken), \
+         mock.patch.object(job, "lebt_noch", return_value=True):
+        monkeypatch.setattr(hl, "ist_verfuegbar", lambda: True)
+        monkeypatch.setattr(hl, "_ABSCHLUSS_IDLE_S", 1)
+        monkeypatch.setattr(hl.hermes_registry, "starte",
+                            lambda *a, **k: job)
+        ereignisse = list(hl.stream_auftrag("id-f", "Test", timeout=15))
+        job.beende()
+    arten = [e["art"] for e in ereignisse]
+    assert "frage" in arten, f"Rueckfrage nicht gemeldet: {ereignisse}"
+    assert "ergebnis" in arten, f"finale Antwort fehlt: {ereignisse}"
+    ergebnis = [e for e in ereignisse if e["art"] == "ergebnis"][0]
+    assert ergebnis["text"] == "Fertig, alles ok."
