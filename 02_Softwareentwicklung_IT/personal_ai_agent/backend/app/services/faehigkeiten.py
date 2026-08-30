@@ -93,21 +93,53 @@ def faehigkeits_block() -> str:
     """Baut den Fähigkeiten-/Grenzen-Text für den System-Prompt.
 
     Wird an den System-Prompt angehängt, damit der Agent begründet weiß,
-    was er kann und was an Hermes delegiert wird.
+    was er kann und was an Hermes delegiert wird. Proaktiv: Der Agent kennt
+    Hermes als benutzbares Werkzeug UND die Trigger-Stichworte, an denen die
+    Weiche ihn automatisch delegiert — so stellt er bei solchen Anfragen keine
+    Rückfrage, sondern formuliert zum Hermes-Auftrag hin.
     """
     kann = ", ".join(FAEHIGKEITEN["kann"])
     kann_nicht = ", ".join(FAEHIGKEITEN["kann_nicht"])
+    # Konkrete Stichworte, an denen die Weiche automatisch an Hermes delegiert
+    # (gewollt deckungsgleich mit ist_auftrag()/stoesst_an_grenze()). Wenn sie
+    # auftauchen, weiß der Agent: Das ist ein Hermes-Job, keine Rückfrage.
+    ausloeser = (
+        "Terminal/Shell-Befehle ('führe aus', 'run'), "
+        "Code/Dateien schreiben oder ändern, Projekt/Repo ändern, "
+        "Tool/Paket installieren (pip/npm), Git-Aktionen (commit/push/pull), "
+        "Docker/Container/Dienste starten, SPS/Steuerung/OT programmieren, "
+        "und allgemein ein Arbeitsverb (erstelle/schreibe/baue/fixe/ändere/"
+        "implementiere/programmiere) zusammen mit einem System-Bezug "
+        "(Code, Datei, Server, API, Modell, Test, …)."
+    )
     return (
-        "\n\n## DEINE FÄHIGKEITEN & GRENZEN (Selbstbild)\n"
+        "\n\n## DEINE FÄHIGKEITEN & GRENZEN & HERMES (Selbstbild)\n"
         "Du bist der persönliche Assistent. Du kannst:\n"
         f"- {kann}.\n\n"
+        "Du hast auch ein benutzbares Werkzeug: **Hermes** (ein Coding-Agent "
+        "mit Terminal-/Dateisystem-/System-Zugriff). Er erledigt alles, was "
+        "deine Fähigkeiten übersteigt — du musst es nicht selbst versuchen.\n\n"
+        "Zusätzlich hast du die **Handy-Dateisuche** (über Suchbegriff, ohne "
+        "dass der Nutzer etwas hochladen muss): Du kannst Bilddateien finden "
+        "und als Vorschau anzeigen (z. B. den letzten Screenshot oder ein Foto) "
+        "und PDF-/Text-Dokumente vom Gerät lesen und zusammenfassen. Wenn der "
+        "Nutzer nach einem Bild, Screenshot, Foto oder einem Dokument auf dem "
+        "Gerät fragt (\"zeig/liest den letzten Screenshot\", \"das letzte Foto\", "
+        "\"was steht in meiner Rechnung\"), nutze die Dateisuche aktiv per "
+        "Suchbegriff und zeige das Ergebnis an — frage NICHT nach einem "
+        "Upload oder Rückfragen.\n\n"
         "Du kannst NICHT (dafür fehlen dir Tools/Terminal/System-Zugriff):\n"
         f"- {kann_nicht}.\n\n"
-        "Wenn eine Anfrage an eine dieser Grenzen stößt (z. B. Terminal-Befehl, "
-        "Datei anlegen/ändern, Tool installieren, Git, System-Änderung), sage "
-        "deutlich: **'Das übernimmt Hermes.'** und begründe in einem kurzen Satz, "
-        "warum es deine Fähigkeiten übersteigt. Versuche es nicht selbst, wenn "
-        "du es nicht kannst — Hermes hat Terminal-/Tool-Zugriff."
+        "Eine Anfrage stößt an diese Grenze (und wird automatisch an Hermes "
+        f"delegiert), wenn eines davon vorkommt: {ausloeser}\n\n"
+        "Wenn so eine Anfrage kommt, **frage NICHT zurück** und erfinde keine "
+        "Umwege — sage deutlich und direkt:\n"
+        "**'Das übernimmt Hermes.'** und begründe in einem kurzen Satz, warum "
+        "es deine Fähigkeiten übersteigt (Terminal/Datei/System/Tool-Install). "
+        "Die Weiche schickt den Auftrag dann automatisch an Hermes weiter; "
+        "du brauchst ihn nicht selbst auszuführen, nur sauber zu übergeben. "
+        "Bei einer reinen Wissens-/Analysefrage (ohne Arbeitsverb und ohne "
+        "System-Bezug) beantwortest du sie normal selbst."
     )
 
 
