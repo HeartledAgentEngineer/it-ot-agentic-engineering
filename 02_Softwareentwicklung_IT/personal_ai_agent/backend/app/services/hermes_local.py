@@ -112,6 +112,11 @@ class LocalHermesJob:
         self._werk = werk
 
         self.gesehene_gedanken: set = set()
+        # Das End-Output des Agenten: die zuletzt VOLLSTÄNDIG geparste
+        # Antwort-Box. Wird laufend aktualisiert, damit auch bei einer
+        # leeren / wieder verschwundenen Pane das Endergebnis erhalten
+        # bleibt und als "ergebnis" zurückgegeben werden kann.
+        self.letzte_antwort: str = ""
 
     # ------------------------------------------------------------------
     # Start / Stopp
@@ -227,6 +232,11 @@ class LocalHermesJob:
                     t = "\n".join(box_zeilen).strip()
                     if t:
                         gedanken.append(t)
+                        # Letzte VOLLSTÄNDIG geparste Antwort-Box puffern:
+                        # das ist der End-Output des Agenten. Bleibt sie auch
+                        # bei einer leeren/wieder verschwundenen Pane erhalten
+                        # und kann als "ergebnis" zurückgegeben werden.
+                        self.letzte_antwort = t
                     continue
 
                 innen = _box_innen(zeile)
@@ -354,6 +364,7 @@ def stream_auftrag(
         # siehe "_arbeitet_noch").
         letzte_pane = ""
         stabil_seit: Optional[float] = None
+        gemeldete_fragen: set = set()
         while time.time() - start < timeout:
             neu = job.neue_gedanken()
             for gd in neu:
@@ -364,19 +375,28 @@ def stream_auftrag(
             # oder der Agent arbeitet erkennbar weiter => Stabilitaet numm ab.
             if neu or pane != letzte_pane or _arbeitet_noch(pane):
                 stabil_seit = None
-            elif "❯" in pane:
+            elif _abschluss_bereit(job, pane):
                 if stabil_seit is None:
                     stabil_seit = time.time()
                 elif time.time() - stabil_seit >= _ABSCHLUSS_IDLE_S:
-                    boxen = job.alle_antwort_boxen()
-                    if boxen:
-                        yield {"art": "ergebnis", "text": boxen[-1]}
+                    endtext = _sicheres_ergebnis(job)
+                    if _ist_offene_frage(endtext):
+                        # Rueckfrage: KEIN Abschluss. Session bleibt offen,
+                        # der Nutzer antwortet per /eingabe. Erst die folgende
+                        # finale Antwort schliesst den Auftrag. Die Frage nur
+                        # einmal melden.
+                        if endtext not in gemeldete_fragen:
+                            gemeldete_fragen.add(endtext)
+                            yield {"art": "frage", "text": endtext}
+                    else:
+                        yield {"art": "ergebnis", "text": endtext}
                         return
             letzte_pane = pane
 
             if not job.lebt_noch():
-                boxen = job.alle_antwort_boxen()
-                yield {"art": "ergebnis", "text": boxen[-1] if boxen else "—"}
+                # Session ist tot -> kein /eingabe-Reply moeglich. Immer das
+                # Ergebnis liefern (auch eine Frage), sonst endloser Loop.
+                yield {"art": "ergebnis", "text": _sicheres_ergebnis(job)}
                 return
 
             time.sleep(1)
@@ -387,6 +407,70 @@ def stream_auftrag(
         # Der Job bleibt in der Registry (fuer spaetere Kommentare). Aufgeraumt
         # wird erst, wenn der Auftrag schliesslich abgeschlossen wird.
         pass
+
+
+def _abschluss_bereit(job: LocalHermesJob, pane: str) -> bool:
+    """True, wenn der Auftrag laut Pane abgeschlossen sein KANN.
+
+    Neben dem klassischen Eingabe-Prompt (``❯``) zaehlt auch eine LEERE /
+    wieder leer gewordene Pane als Abschlusssignal, sofern bereits ein
+    End-Output gepuffert wurde: Vorher verschluckte der Abschluss-Pfad das
+    Endergebnis, wenn Hermes nach der Antwort die TUI / Pane leert, statt den
+    ``❯``-Prompt stehen zu lassen — dann wurde nie ein "ergebnis" geliefert
+    und der Auftrag blieb ewig auf "laeuft".
+    """
+    if "❯" in pane:
+        return True
+    # Pane leer geworden (nur Leerzeichen/Zeilenumbrueche) UND wir haben
+    # bereits eine fertige Antwort-Box gesehen => End-Output existiert.
+    if job.letzte_antwort and not pane.strip():
+        return True
+    return False
+
+
+def _sicheres_ergebnis(job: LocalHermesJob) -> str:
+    """Liefert das End-Output des Agenten — nie leer.
+
+    Zuerst der gepufferte End-Output (letzte vollstaendige Antwort-Box), sonst
+    die letzte Antwort-Box aus der Pane, sonst ein Platzhalter. Damit geht bei
+    einer leeren Pane nichts mehr verloren und der Auftrag bekommt immer ein
+    Ergebnis.
+    """
+    if job.letzte_antwort:
+        return job.letzte_antwort
+    boxen = job.alle_antwort_boxen()
+    if boxen:
+        return boxen[-1]
+    return "—"
+
+
+def _ist_offene_frage(text: str) -> bool:
+    """Erkennt eine RUECKFRAGE des Agenten, die eine Antwort erwartet.
+
+    Solch eine offene Frage ist KEIN Auftrags-Abschluss: Der Nutzer antwortet
+    per Kommentar (``POST /api/auftraege/{id}/eingabe``), erst die folgende
+    finale Antwort schliesst den Auftrag. Als Frage gilt ein Text, dessen
+    letzte Zeile mit ``?`` endet UND der nicht ueberwiegend aus Code besteht
+    (fertiger Code-Anhang mit Rueckfrage darunter wuerde sonst faelschlich
+    blockieren).
+    """
+    t = text.strip()
+    if not t:
+        return False
+    zeilen = [z for z in t.splitlines()]
+    if not zeilen:
+        return False
+    code_quote = sum(
+        1 for z in zeilen
+        if z.startswith(("    ", "\t"))            # eingerueckt -> Code
+        or z.strip().startswith(("def ", "class ", "import ", "from ",
+                                 "```", "{", "}"))
+    ) / len(zeilen)
+    if code_quote >= 0.4:
+        # Ueberwiegend Code/Blocks -> sachliche finale Antwort, keine Frage.
+        return False
+    letzte = zeilen[-1].strip()
+    return bool(letzte.endswith("?"))
 
 
 def _arbeitet_noch(pane: str) -> bool:

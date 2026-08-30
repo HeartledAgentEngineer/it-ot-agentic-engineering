@@ -37,6 +37,15 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   vorliegt. Ohne dieses Fenster wurde der noch arbeitende Agent früher
   vorzeitig als fertig gewertet und über die Registry entfernt (verlorenes
   Ergebnis / „Hermes hängt“).
+- **End-Output sicherstellen (Fix „Ergebnis kam nie an“):** Wenn Hermes nach
+  der Antwort die TUI/Pane leert (statt den `❯` stehen zu lassen), blieb der
+  Abschluss-Pfad früher stumm — der Auftrag blieb ewig auf `laeuft`, das
+  Ergebnis ging verloren. Jetzt puffert `LocalHermesJob.letzte_antwort` jede
+  vollständig geparste Antwort-Box, `_abschluss_bereit()` erkennt auch eine
+  **leere/stabile Pane** (mit vorhandenem End-Output) als Abschluss-Signal und
+  `_sicheres_ergebnis()` liefert das End-Output (nie leer). Damit wird das
+  Endergebnis auch dann zuverlässig als `ergebnis` zurückgemeldet, wenn die
+  Pane leer wird.
 
 ## Live-Blase bleibt im Verlauf (nicht nur fluechtig)
 - Die Live-Meldungen waren bisher **nur** im Client-Speicher (`state.messages`)
@@ -92,6 +101,29 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   persoenliche ChromaDB-Gedaechtnis gelernt — damit der eigene Assistent
   mitlernt. Der Hermes bekommt jeden Kommentar, das Filter entscheidet nur
   ueber das Lernen.
+- **Rueckfrage = Session bleibt offen (Fix „Ergebnis trotz Rückfrage“):**
+  Endet die Hermes-Antwort mit einer offenen Frage (letzte Zeile `?`, nicht
+  ueberwiegend Code), ist das KEIN Auftrags-Abschluss. `stream_auftrag()`
+  liefert dann ein `frage`-Event (`_ist_offene_frage()`), der Auftrag bleibt
+  auf `laeuft` und die tmux-Session offen — der Nutzer antwortet per
+  `POST /api/auftraege/{id}/eingabe`, erst die danach folgende **finale**
+  Antwort schliesst den Auftrag als `ergebnis` ab. So kann der Agent
+  rueckfragen („Soll ich pushen?“, „Musst du die Datei hochladen?“), ohne dass
+  das Endergebnis vorschnell festgeschrieben wird.
+
+## Wann wird ueberhaupt delegiert (Auftrags-Erkennung)
+- Die Weiche beruht auf `ist_auftrag()` (`app/services/auftrags_erkennung.py`):
+  Eine Nachricht wird NUR als Coding-Auftrag an Hermes delegiert, wenn sie ein
+  Auftrags-Verb UND ein Coding-Objekt enthaelt.
+- **Bugfix 2026-08-30 („falsch delegiert → musst du hochladen“):** Die
+  Verb-Prüfung iterierte fälschlich ueber die Verb-LISTE statt ueber die
+  Woerter des Satzes — dadurch war `hat_verb` IMMER wahr und jede Nachricht
+  mit einem Objekt-Wort (z. B. **„datei“**) wurde an Hermes delegiert. So
+  landete z. B. „Lies den Inhalt meiner Lebenslauf-Datei“ fälschlich als
+  Programmier-Auftrag beim Agenten, der die Datei in seiner Umgebung nicht
+  fand und „musst du hochladen“ sagte. Jetzt wird geprueft, ob EIN WORT des
+  Satzes ein Auftrags-Verb ist (oder der Satz damit beginnt). Reine
+  Lese-Fragen bleiben beim LLM (das liest die Datei ueber die Dateisuche).
 
 ## Laufende Antwort abbrechen („⏹ Abbrechen“-Button)
 - Während eine Antwort produziert wird (normaler Stream **oder** laufender

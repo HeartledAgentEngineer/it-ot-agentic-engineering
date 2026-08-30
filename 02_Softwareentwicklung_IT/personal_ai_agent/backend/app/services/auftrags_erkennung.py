@@ -159,8 +159,16 @@ def ist_auftrag(nachricht: str) -> Tuple[bool, str, Optional[str], Optional[str]
     woerter = text.split()
 
     # 2. Muss ein Auftrags-Verb enthalten.
-    hat_verb = any(w.rstrip("?!.") in _AUFTRAGS_VERBEN or
-                   text.startswith(w + " ") for w in _AUFTRAGS_VERBEN)
+    # Früher-Bug: über `_AUFTRAGS_VERBEN` iteriert (nicht über die Wörter des
+    # Satzes) — `w.rstrip("?!.") in _AUFTRAGS_VERBEN` war dann IMMER wahr
+    # (w ist ja bereits ein Verb) => `hat_verb` immer True => jede Nachricht
+    # mit einem Objekt-Wort ("datei", "test", …) wurde fälschlich als
+    # Coding-Auftrag an Hermes delegiert. Korrekt ist: Ein WORT des Textes
+    # ist ein Auftrags-Verb, ODER der Satz beginnt mit einem (Satzanfang).
+    hat_verb = (
+        any(wort.rstrip("?!.") in _AUFTRAGS_VERBEN for wort in woerter)
+        or any(text.startswith(verb + " ") for verb in _AUFTRAGS_VERBEN)
+    )
     if not hat_verb:
         return False, "", None, None
 
