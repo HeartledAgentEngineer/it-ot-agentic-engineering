@@ -45,7 +45,23 @@ def test_keine_grenze_bei_chat():
 
 
 def test_keine_falschen_treffer_durch_substrings():
-    """Kurze Marker ('git','run','datei') dürfen nicht in normalen Wörtern
+    """Kurze Marker ('git','run') dürfen nicht in normalen Wörtern
     treffen (Critic-Befund HOCH): 'digital' enthält 'git', 'darunter' 'run'."""
     assert stoesst_an_grenze("Das digitale Zeitalter ist spannend") is False
     assert stoesst_an_grenze("Das liegt darunter in der Schublade") is False
+
+
+def test_keine_grenze_bei_datei_lesen():
+    """DATEI LESEN ist KEINE Grenze (Agent kann über Dateisuche/Archiv lesen).
+    Regression: das nackte Marker-Wort 'datei' wurde entfernt, sonst landete
+    'Lies meine Lebenslauf-Datei' fälschlich an Hermes ('musst du hochladen')."""
+    assert stoesst_an_grenze(
+        "Lies den Inhalt meiner Lebenslauf-Datei und fasse zusammen."
+    ) is False
+    assert stoesst_an_grenze("Was steht in meinem Lebenslauf?") is False
+    assert stoesst_an_grenze("Zeig mir das letzte Bild") is False
+
+
+def test_grenze_bei_datei_schreiben_bleibt():
+    """DATEI SCHREIBEN bleibt eine Grenze (Agent kann nicht schreiben)."""
+    assert stoesst_an_grenze("Schreibe Code in die Datei test.py") is True

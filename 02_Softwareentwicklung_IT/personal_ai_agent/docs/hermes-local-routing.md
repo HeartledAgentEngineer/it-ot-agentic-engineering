@@ -124,6 +124,12 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   fand und „musst du hochladen“ sagte. Jetzt wird geprueft, ob EIN WORT des
   Satzes ein Auftrags-Verb ist (oder der Satz damit beginnt). Reine
   Lese-Fragen bleiben beim LLM (das liest die Datei ueber die Dateisuche).
+- **Zusätzlich (``faehigkeiten.py``):** Reines Datei-**LESEN**/Durchsuchen/
+  Anzeigen stößt ebenfalls nicht mehr an die Fähigkeits-Grenze — der Agent
+  kann Dateien ueber suchen/Archiv/dokument_text lesen. Nur Datei-/System-
+  **SCHREIBEN**, Git und Terminal bleiben Grenzthemen (→ Hermes). Ein reines
+  „Lies meine Lebenslauf-Datei“ delegiert damit nicht mehr, „Ändere die
+  Datei app.js“ weiterhin schon.
 
 ## Laufende Antwort abbrechen („⏹ Abbrechen“-Button)
 - Während eine Antwort produziert wird (normaler Stream **oder** laufender

@@ -402,7 +402,14 @@ def stream_auftrag(
             time.sleep(1)
 
         logger.warning("Lokaler Hermes-Auftrag ueberschritt %ds", timeout)
-        yield {"art": "fehler", "text": f"Lokaler Hermes brauchte laenger als {timeout}s"}
+        # Timeout: Wenn bereits ein End-Output gepuffert wurde (der Agent hat
+        # eine finale Antwort oder Rueckfrage geliefert, aber die Pane blieb
+        # nicht leer/stabil genug fuer den Abschluss-Pfad), dies NICHT als
+        # 'fehler' verbraten — das gepufferte Ergebnis geht sonst verloren
+        # (Live-Befund: "Zusammenfassung da", Auftrag lief in Timeout).
+        endtext = _sicheres_ergebnis(job)
+        yield {"art": "ergebnis" if job.letzte_antwort else "fehler",
+               "text": endtext}
     finally:
         # Der Job bleibt in der Registry (fuer spaetere Kommentare). Aufgeraumt
         # wird erst, wenn der Auftrag schliesslich abgeschlossen wird.
