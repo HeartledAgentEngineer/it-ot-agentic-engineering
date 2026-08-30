@@ -53,17 +53,65 @@ def _lade_verlauf() -> None:
         logger.warning("Verlauf nicht lesbar, beginne leer: %s", e)
 
 
+# Wie viele Rotations-Backups des Verlaufs neben der Hauptdatei gehalten werden.
+# Jeder Save sichert VOR dem Ueberschreiben den aktuellen Stand in eine
+# Zeitstempel-Backup-Datei. Tritt Datenverlust auf (z. B. ein Server mit leerem
+# Verlauf ueberschreibt die Datei), kann der letzte intakte Stand daraus
+# zurueckgeholt werden.
+_BACKUP_ROTATION = 5
+
+
+def _rotierte_backups() -> list:
+    """Bestehende Zeitstempel-Backups der Verlaufsdatei (neueste zuerst)."""
+    import glob
+    try:
+        return sorted(
+            (p for p in glob.glob(_verlauf_datei + ".bak-*") if os.path.getsize(p) > 0),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+    except Exception:
+        return []
+
+
 def _speichere_verlauf() -> None:
-    """Schreibt den Verlauf weg. Fehler hier duerfen den Chat nicht abbrechen."""
+    """Schreibt den Verlauf weg. Fehler hier duerfen den Chat nicht abbrechen.
+
+    Datenverlust-Schutz (Stand 2026-08-30, conv_8-Vorfall): Vor jedem
+    Ueberschreiben wird der aktuelle Plattenstand in eine Zeitstempel-Backup-
+    Datei kopiert (Rotation, max. _BACKUP_ROTATION). Das Schreiben selbst ist
+    atomar (Temp-Datei + os.replace), damit ein Crash nie eine halb geschriebene
+    Datei hinterlaesst. Damit ist selbst dann, wenn ein Server mit leerem/kaum
+    gefuelltem Verlauf die Datei ueberschreibt, der alte Zustand aus dem
+    Backup wiederherstellbar.
+    """
     try:
         os.makedirs(_persist_dir, exist_ok=True)
-        with open(_verlauf_datei, "w", encoding="utf-8") as f:
+        # 1) Aktuellen Plattenstand sichern, bevor wir ihn ersetzen.
+        if os.path.exists(_verlauf_datei):
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            bkp = f"{_verlauf_datei}.bak-{ts}"
+            try:
+                import shutil
+                shutil.copy2(_verlauf_datei, bkp)
+            except Exception:
+                pass  # Backup-Fehler darf das Speichern nicht blockieren
+            # Rotation: aeltere Backups begrenzen.
+            for alt in _rotierte_backups()[_BACKUP_ROTATION:]:
+                try:
+                    os.remove(alt)
+                except Exception:
+                    pass
+        # 2) Atomar schreiben (Temp-Datei + replace) — nie halb geschrieben.
+        tmp = _verlauf_datei + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(
                 {"next_id": next_conversation_id, "conversations": conversations,
                  "summarys": summarys},
                 f,
                 ensure_ascii=False,
             )
+        os.replace(tmp, _verlauf_datei)
     except Exception as e:
         logger.warning("Verlauf konnte nicht gespeichert werden: %s", e)
 
@@ -123,15 +171,27 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
         logger.warning("Live-Nachricht nicht in Verlauf: %s", e)
 
 
+# Die EINZIGE, immer fortgefuehrte Conversation. Das System erzeugt seit
+# Stand 2026-08-30 KEINE neuen Conversations-ID mehr: Es gibt genau einen
+# durchlaufenden Chat (Wunsch Sebastian), der nie neu beginnt und ueber den
+# Verlauf durchsuchbar bleibt. Alle Nachrichten – egal ob mit oder ohne
+# conversation_id angefordert – landen in dieser einen Conversation.
+# Bewusst KEINE numerische `conv_N`-Vergabe mehr (die vorher bei jedem
+# Neustart/ohne ID neue Nummern wie conv_133, conv_134 und damit unsichtbare
+# Chat-Unterhaltungen erzeugte).
+_AKTIVE_CONVERSATION_ID = "conv_main"
+
+
 def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
-    """Get existing conversation or create a new one."""
-    global next_conversation_id
-    if conversation_id and conversation_id in conversations:
-        return conversation_id
-    new_id = f"conv_{next_conversation_id}"
-    next_conversation_id += 1
-    conversations[new_id] = []
-    return new_id
+    """Liefert IMMER die eine durchlaufende Conversation (conv_main).
+
+    Absicht (Wunsch Sebastian, 2026-08-30): Es gibt genau EINEN Chat, der nie
+    neu beginnt. Eine uebergebene, unbekannte conversation_id wird auf die
+    aktive Conversation gemappt statt eine neue anzulegen; ohne id ebenso. Ein
+    einzelner durchlaufender Verlauf, durchsuchbar ueber die Gesprächssuche.
+    """
+    conversations.setdefault(_AKTIVE_CONVERSATION_ID, [])
+    return _AKTIVE_CONVERSATION_ID
 
 
 # Injizierbarer Memory-Extractor (setzt chat.py beim Start).

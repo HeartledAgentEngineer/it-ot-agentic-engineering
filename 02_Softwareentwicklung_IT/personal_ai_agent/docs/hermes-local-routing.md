@@ -47,6 +47,32 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   Endergebnis auch dann zuverlässig als `ergebnis` zurückgemeldet, wenn die
   Pane leer wird.
 
+## Ein-Chat-Modus: eine einzige, durchlaufende Conversation
+- **Seit Stand 2026-08-30 gibt es genau EINEN fortlaufenden Chat** (`conv_main`,
+  feste ID in `chat_verlauf._AKTIVE_CONVERSATION_ID`). Es werden KEINE neuen
+  `conv_N`-IDs mehr vergeben.
+- `_get_or_create_conversation()` gibt IMMER `conv_main` zurück — egal ob eine
+  `conversation_id` mitgeschickt wird (auch eine alte wie `conv_8`) oder nicht.
+  Damit endet der frühere Fehler, dass ohne ID jeder Server-/App-Start eine neue
+  unsichtbare Conversation erzeugte (conv_133, conv_134 …) und der Verlauf
+  „verschwand“.
+- `GET /api/conversations/{id}` leitet eine unbekannte/alte ID transparent auf
+  `conv_main` um (kein 404), damit ein im Browser gemerkter alter Verweis weiter
+  den durchlaufenden Chat zeigt.
+- Das Frontend ist bereits im Ein-Chat-Modus (`neuesGespraech()` legt nichts
+  Zerstörerisches an; der „+“-Button ist ausgeblendet).
+
+## Verlust-Schutz: Backups + atomares Schreiben
+- **Hintergrund:** Beim Speichern wurde die gesamte `conversations.json` neu
+  geschrieben. Ein zweiter/wiedergestarteter uvicorn mit leerem Verlauf konnte
+  so die Datei mit fast-leerem Inhalt überschreiben — dabei ging der alte
+  Verlauf (conv_8) verloren.
+- **Fix:** Jeder Save sichert VOR dem Überschreiben den aktuellen Plattenstand
+  als Rotations-Backup (`conversations.json.bak-<zeitstempel>`, max. 5 gehalten)
+  und schreibt atomar (Temp-Datei + `os.replace`), sodass kein Crash eine halbe
+  Datei hinterlässt. Ein versehentlich geleerter Stand ist daraus wieder
+  herstellbar.
+
 ## Live-Blase bleibt im Verlauf (nicht nur fluechtig)
 - Die Live-Meldungen waren bisher **nur** im Client-Speicher (`state.messages`)
   und im Auftragsbuch — nach einem Neuladen fehlten die von Hermes gekommenen

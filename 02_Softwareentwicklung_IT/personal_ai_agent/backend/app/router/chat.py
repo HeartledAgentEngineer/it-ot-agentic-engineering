@@ -1051,9 +1051,16 @@ async def list_conversations():
 async def get_conversation(conversation_id: str):
     """Liefert die Nachrichten eines Gespraechs.
 
-    Damit kann die Oberflaeche nach einem Neustart dort weitermachen, wo
-    sie war. Ohne das waere der Verlauf zwar gespeichert, aber unsichtbar.
+    Seit Stand 2026-08-30 gibt es NUR EINE durchlaufende Conversation
+    (conv_main). Ein alter Einzel-Chat (alte ID im localStorage, z. B. conv_8)
+    wird deshalb transparent auf die aktive Conversation umgeleitet statt 404 —
+    so sieht der Nutzer nach einem Update weiterhin seinen fortlaufenden Chat,
+    statt dass ein leerer/verwaister Chat entsteht.
     """
+    # Unbekannte/alte ID → aktive Conversation (conv_main) statt 404.
+    if conversation_id not in conversations:
+        conversation_id = chat_verlauf._AKTIVE_CONVERSATION_ID
+    # Nach dem Mapping fehlt die ID nur noch, wenn selbst conv_main leer fehlt.
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Gespräch nicht gefunden")
     return {
