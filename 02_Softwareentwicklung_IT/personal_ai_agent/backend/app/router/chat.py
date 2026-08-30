@@ -1265,6 +1265,30 @@ async def chat_stream(request: ChatRequest):
             except Exception:
                 s_werkzeug_bilder = []
                 s_summary, s_hist_begrenzt, s_user = "", history, request.message
+            # Gesichter reaktiv 'merken' (wie in /chat). Das Frontend nutzt
+            # standardmäßig /api/chat/stream — fehlte diese Logik hier, würde
+            # 'das ist Pedi' / 'das bin ich' beim normalen Chat NIE gespeichert.
+            # Läuft nur bei aktiver Bild-Ansicht (Dateisuche ODER Upload) +
+            # Personennenn-Signal; das betrachtete Bild wird als Referenz-
+            # Miniatur an die Person gekoppelt.
+            s_bild_aktiv = bool(s_werkzeug_bilder) or bool(
+                request.files and any(f.type == "image" for f in request.files)
+            )
+            s_aktuelles_bild = ""
+            if s_werkzeug_bilder and s_werkzeug_bilder[0].get("data_url"):
+                s_aktuelles_bild = s_werkzeug_bilder[0]["data_url"]
+            elif request.files:
+                s_upload_img = next(
+                    (f for f in request.files if f.type == "image" and f.data_url),
+                    None,
+                )
+                if s_upload_img:
+                    s_aktuelles_bild = s_upload_img.data_url
+            s_merkhinweis = _gesichter_merke(
+                request.message, s_bild_aktiv, str(s_aktuelles_bild or "")
+            )
+            if s_merkhinweis:
+                s_user += s_merkhinweis
             # Vision-Routing (wie /chat): Bild → vision-fähiges Modell.
             s_modell = request.model or ""
             if s_werkzeug_bilder and not (s_modell and (
