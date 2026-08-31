@@ -130,17 +130,21 @@ class BeendenRequest(BaseModel):
 
 @router.post("/beenden")
 def hermes_beenden(req: BeendenRequest):
-    """Beendet den Loop manuell: stoppt die lokale Hermes-Session.
+    """Beendet den Loop manuell — beendet aber NICHT die Nutzer-Session.
 
-    Im tmux-Kanal wird die (persistente) Session gekillt; im query-Kanal gibt
-    es keine dauerhafte Session (je Auftrag ein Subprozess), dann ist nichts
-    zu beenden. Liefert, was beendet wurde.
+    Konzept (Wunsch Sebastian): Der lokale Hermes laeuft in einer PERSISTENTEN
+    Termux/tmux-Session (`hermes_termux`), die DU weiter nutzt und die
+    Backend-/Frontend-Abstuerze ueberlebt. "Loop aus" stoppt nur die aktive
+    Verknuepfung/Arbeit, die Session bleibt fuer dich am Leben (du schreibst
+    ueber Termux weiter). Nur wenn explizit `session` uebergeben wird, wird
+    diese tatsaechlich beendet.
     """
-    sess = (req.session or "").strip() or settings.hermes_local_session or ""
-    if settings.hermes_local_kanal == "query" and not sess:
-        return {"beendet": False, "hinweis": "query-Kanal: keine persistente Session zu beenden"}
-    if not sess:
-        # Standard-Loop-Session probieren.
-        sess = "hermes_agent_loop"
-    ok = hermes_local.beende_lokale_session(sess)
-    return {"beendet": ok, "session": sess}
+    sess = (req.session or "").strip()
+    if sess:
+        # Explizite Session wirklich beenden (bewusster Wunsch).
+        ok = hermes_local.beende_lokale_session(sess)
+        return {"beendet": ok, "session": sess}
+    # Kein expliziter Name: Loop-Stopp, aber Nutzer-Session bleibt bestehen.
+    gelebt = settings.hermes_local_session or "hermes_termux"
+    return {"beendet": False, "session": gelebt,
+            "hinweis": "Loop gestoppt; die Nutzer-Session bleibt am Leben (im Termux weiterschreiben)."}
