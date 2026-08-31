@@ -1368,11 +1368,11 @@ async def chat_stream(request: ChatRequest):
 async def letzte_runde_entfernen(conversation_id: str = ""):
     """Entfernt die letzte Nutzer-Nachricht samt Antwort aus dem Verlauf.
 
-    Wird vom „Bearbeiten"-Flow im Frontend genutzt: Legt der Nutzer eine
-    User-Nachricht zurück in die Eingabe zum Neu-Formulieren, soll die alte
-    Runde dauerhaft aus dem persistenten Verlauf (conv_main) verschwinden —
-    sonst tauchte sie nach einem Reload wieder auf. Ohne conversation_id wird
-    die eine durchlaufende Conversation (conv_main) verwendet.
+    **Seit 2026-08-31 gesperrt** (Verlauf ist STRENG append-only,
+    Sebastian-Regel): Liefert immer entfernt=false und entfernt nichts.
+    Der frühere Bearbeiten-Flow entfernte die letzte Runde; jetzt bleibt die
+    alte Runde stehen und neue Formulierung/Antwort werden ANGEHÄNGT.
+    Ohne conversation_id gilt die eine durchlaufende Conversation (conv_main).
     """
     cid = conversation_id or chat_verlauf._AKTIVE_CONVERSATION_ID
     entfernt = chat_verlauf.verlauf_runde_entfernen(cid)
