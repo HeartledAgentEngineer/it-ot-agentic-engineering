@@ -221,41 +221,25 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content) -> None:
 def verlauf_runde_entfernen(conversation_id: str) -> bool:
     """Entfernt die letzte Nutzer-Nachricht samt ihrer Antwort (ein Paar).
 
-    Wird vom Bearbeiten-Flow genutzt: Legt der Nutzer eine User-Nachricht
-    zurück in die Eingabe zum Neu-Formulieren, soll die alte Runde (User +
-    zugehörige Assistant-Antwort) aus dem persistenten Verlauf verschwinden,
-    damit nach einem Reload nicht die alte Fassung wieder auftaucht.
+    **SEIT 2026-08-31 GESPERRT** — Verbindliche Sebastian-Regel: Der Verlauf
+    ist STRENG append-only. Chats werden NIE überschrieben, verändert oder
+    entfernt; es werden nur Nachrichten ANGEHÄNGT. Eine Runde aus dem
+    persistenten Verlauf zu löschen (auch die letzte) verstößt gegen diese
+    Regel, selbst wenn sie als „Bearbeiten-Flow" gedacht war — deshalb tut
+    dieser Aufrufer nichts mehr und meldet False.
 
-    Sucht von hinten die letzte User-Nachricht und entfernt sie samt der
-    direkt darauf folgenden Antwort(en). Der Aufrufer will immer die zuletzt
-    abgeschickte Runde ersetzen — daher wird ohne Inhalts-Vergleich die letzte
-    User-Nachricht nebst ihrer Antwort gelöscht (Owner des Bearbeiten-Flows).
+    Wird der Bearbeiten-Flow genutzt („Nachricht neu formulieren"), bleibt die
+    alte Runde im Verlauf stehen; die neue Formulierung + neue Antwort wird
+    einfach ANGEHÄNGT. Kein Datenverlust, keine stillschweigende Korrektur.
 
-    Returns: True, wenn eine Runde entfernt wurde; sonst False.
+    Der Endpoint /api/chat/letzte-runde bleibt für Abwärtskompat existieren,
+    liefert aber immer entfernt=false.
     """
-    try:
-        with _verlauf_sperre:
-            if conversation_id not in conversations:
-                return False
-            hist = conversations[conversation_id]
-            if not hist:
-                return False
-            # Letzte Position einer User-Nachricht von hinten suchen.
-            letzter_user_idx = None
-            for i in range(len(hist) - 1, -1, -1):
-                if hist[i].get("role") == "user":
-                    letzter_user_idx = i
-                    break
-            if letzter_user_idx is None:
-                return False
-            # User + die direkt folgende(n) Antwort(en) entfernen — die alte
-            # Runde ist ab hier obsolet und darf nach Reload nicht wieder da sein.
-            del hist[letzter_user_idx:]
-            _speichere_verlauf()
-            return True
-    except Exception as e:
-        logger.warning("Verlauf-Runde konnte nicht entfernt werden: %s", e)
-        return False
+    logger.info(
+        "verlauf_runde_entfernen ist durch die append-only-Regel gesperrt "
+        "(conversation_id=%s) — nichts wird entfernt.", conversation_id
+    )
+    return False
 
 
 # Die EINZIGE, immer fortgefuehrte Conversation. Das System erzeugt seit

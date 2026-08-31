@@ -115,3 +115,29 @@ def test_finish_exchange_mit_memory_extractor(verlauf):
     verlauf.setze_memory_extractor(lambda **kw: [1, 2])  # 2 Erinnerungen
     n = verlauf.finish_exchange("c", "q", "a")
     assert n == 2
+
+
+def test_verlauf_ist_streng_append_only(verlauf):
+    """Verbindliche Sebastian-Regel (2026-08-31): Der Verlauf wird NIE
+    überschrieben/verändert/entfernt, nur angehängt. Auch der frühere
+    Bearbeiten-Flow (letzte Runde entfernen) ist jetzt wirkungslos."""
+    verlauf.conversations["conv_main"] = [
+        {"role": "user", "content": "alte frage", "zeit": "t1"},
+        {"role": "assistant", "content": "alte antwort", "zeit": "t2"},
+    ]
+    vorher = [dict(m) for m in verlauf.conversations["conv_main"]]
+
+    # Anhängen = erlaubt, Bestand bleibt unverändert.
+    verlauf.finish_exchange("conv_main", "neue frage", "neue antwort")
+    assert verlauf.conversations["conv_main"][:2] == vorher
+    assert len(verlauf.conversations["conv_main"]) == 4
+
+    # Entfernen = gesperrt (liefert False, tut nichts).
+    n_before = len(verlauf.conversations["conv_main"])
+    entfernt = verlauf.verlauf_runde_entfernen("conv_main")
+    assert entfernt is False
+    assert len(verlauf.conversations["conv_main"]) == n_before
+    assert verlauf.conversations["conv_main"] == vorher + [
+        {"role": "user", "content": "neue frage", "zeit": verlauf.conversations["conv_main"][2]["zeit"]},
+        {"role": "assistant", "content": "neue antwort", "zeit": verlauf.conversations["conv_main"][3]["zeit"]},
+    ]

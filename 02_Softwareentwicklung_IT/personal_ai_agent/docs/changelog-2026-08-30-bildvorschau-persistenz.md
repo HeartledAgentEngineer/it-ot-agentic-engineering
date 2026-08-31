@@ -3,6 +3,23 @@
 Alle sichtbaren Änderungen am personal_ai_agent, dokumentiert nach dem
 Prinzip „Doku folgt dem Code“. Neuere Einträge oben.
 
+## 2026-08-31 — Verlauf ist STRENG append-only (verbindliche Regel)
+
+**Wunsch Sebastian:** Chats dürfen nie überschrieben werden — es werden nur
+**Nachrichten angehängt** (`verlauf_nachricht_anhaengen`, `finish_exchange`).
+Umlenk-Buttons und interaktive Chips bei Hermes-Nachrichten sind reine UI
+(separate SSE-Messages, landen NICHT im persistierten Verlauf) — sie dürfen
+verschwinden/sich ändern.
+
+**Umgesetzt:**
+- `chat_verlauf.verlauf_runde_entfernen` ist **gesperrt**: liefert immer
+  `False`, entfernt nichts. Der frühere „Bearbeiten-Flow" (letzte Runde
+  löschen) entfernt nun nichts mehr — alte Runde bleibt, neue
+  Formulierung/Antwort wird angehängt.
+- `DELETE /api/chat/letzte-runde` liefert weiterhin gültig
+  `{"entfernt": false, ...}` (kein Frontend-Bruch).
+- Test `test_verlauf_ist_streng_append_only` (neu), 11 Tests grün.
+
 ## 2026-08-30 — Verlauf vor Überschreiben durch leeren Server geschützt
 
 **Problem (erneuter Vorfall):** Der Chatverlauf verschwand erneut komplett aus
