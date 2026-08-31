@@ -250,7 +250,10 @@ class NoCacheStaticFiles(StaticFiles):
         # API-Key serverseitig in die index.html einschmuggeln (nur beim
         # Ausliefern, nie auf Platte). Der Platzhalter "__API_KEY__" wird
         # ersetzt. FileResponse hat KEIN .body — deshalb über body_iterator.
-        if path in ("", "index.html") and settings.api_key:
+        # Prüf-Bedingung ist der Inhalt (Platzhalter), nicht der Pfad: "/"
+        # kann je nach Starlette als "" ODER "index.html" ankommen, und auch
+        # nicht-API-Statik darf den Platzhalter nie unersetzt ausliefern.
+        if settings.api_key:
             try:
                 chunks = []
                 async for c in antwort.body_iterator:
