@@ -49,6 +49,16 @@ def hermes_aktivieren(req: AktivierenRequest):
     if not aufgabe:
         raise HTTPException(status_code=400, detail="aufgabe darf nicht leer sein")
 
+    # Session bestimmen. Im tmux-Kanal: Wenn keine bestehende Session
+    # konfiguriert ist, wird beim Aktivieren eine PERSISTENTE tmux-Session
+    # erzeugt und der Loop dockt daran an (bleibt auch nach dem Auftrag
+    # bestehen). Im query-Kanal wird ohnehin ein Subprozess je Auftrag
+    # gestartet (keine persistente Session noetig).
+    sess = settings.hermes_local_session or ""
+    if settings.hermes_local_kanal != "query" and not sess:
+        sess = hermes_local.sichere_persistente_tmux_session()
+        logger.info("Loop-Aktivierung: persistente tmux-Session '%s'", sess)
+
     eintrag = auftrag_service.anlegen_als_arbeitender(
         aufgabe,
         hinweis="Manuell via POST /api/hermes/aktivieren aktiviert",
@@ -61,7 +71,7 @@ def hermes_aktivieren(req: AktivierenRequest):
         try:
             for ereignis in hermes_local.stream_auftrag(
                 auftrag_id, aufgabe,
-                bestehende_session=settings.hermes_local_session or None,
+                bestehende_session=sess or None,
                 nutze_query_modus=settings.hermes_local_kanal == "query",
                 kontext=req.kontext,
             ):
@@ -110,3 +120,27 @@ def hermes_status(auftrag_id: str):
     if auftrag is None:
         raise HTTPException(status_code=404, detail="Auftrag nicht gefunden")
     return auftrag
+
+
+class BeendenRequest(BaseModel):
+    # Optional: die zu beendende Session. Fehlt sie, wird die konfigurierte
+    # (hermes_local_session) bzw. die Loop-Session beendet.
+    session: str = ""
+
+
+@router.post("/beenden")
+def hermes_beenden(req: BeendenRequest):
+    """Beendet den Loop manuell: stoppt die lokale Hermes-Session.
+
+    Im tmux-Kanal wird die (persistente) Session gekillt; im query-Kanal gibt
+    es keine dauerhafte Session (je Auftrag ein Subprozess), dann ist nichts
+    zu beenden. Liefert, was beendet wurde.
+    """
+    sess = (req.session or "").strip() or settings.hermes_local_session or ""
+    if settings.hermes_local_kanal == "query" and not sess:
+        return {"beendet": False, "hinweis": "query-Kanal: keine persistente Session zu beenden"}
+    if not sess:
+        # Standard-Loop-Session probieren.
+        sess = "hermes_agent_loop"
+    ok = hermes_local.beende_lokale_session(sess)
+    return {"beendet": ok, "session": sess}
