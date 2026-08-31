@@ -109,16 +109,58 @@ _BACKUP_ROTATION = 5
 
 
 def _rotierte_backups() -> list:
-    """Bestehende Zeitstempel-Backups der Verlaufsdatei (neueste zuerst)."""
+    """Bestehende Zeitstempel-Backups der Verlaufsdatei (neueste zuerst).
+
+    Gestaffelt (Stand 2026-08-31): Es werden NICHT mehr nur die juengsten N
+    behalten und alle aelteren geloescht — sonst rotieren schnelle, leere
+    Server-Zustaende die guten Stände genauso schnell weg (genau das ist
+    passiert: die 6 echten Nachrichten waren in keinem Backup mehr). Statt-
+    dessen:
+      - juengste Stunde: alle behalten (bis _BACKUP_ROTATION)
+      - aelter als 1h: eine Backup-Datei pro Stunde
+      - aelter als 24h: eine Backup-Datei pro Tag
+    Heuristik ueber den Zeitstempel im Dateinamen (YYYYMMDD_HHMMSS).
+    """
     import glob
+    import time as _t
     try:
-        return sorted(
+        alle = sorted(
             (p for p in glob.glob(_verlauf_datei + ".bak-*") if os.path.getsize(p) > 0),
             key=os.path.getmtime,
             reverse=True,
         )
     except Exception:
         return []
+    jetzt = _t.time()
+    behalten = []
+    stunden_gesehen = set()
+    tage_gesehen = set()
+    for i, p in enumerate(alle):
+        if i < _BACKUP_ROTATION:
+            behalten.append(p)  # juengste N immer (ggf. leerer Stand moeglich)
+            continue
+        mtime = os.path.getmtime(p)
+        alter_h = (jetzt - mtime) / 3600.0
+        # Schluessel der "Gruppe" (Stunde bzw. Tag), in der das Backup liegt.
+        schluessel = (
+            _t.strftime("%Y%m%d", _t.localtime(mtime)) if alter_h >= 24
+            else _t.strftime("%Y%m%d%H", _t.localtime(mtime))
+        )
+        if schluessel in (tage_gesehen if alter_h >= 24 else stunden_gesehen):
+            continue  # fuer diese Stunde/Tag ist schon ein neueres Backup drin
+        if alter_h >= 24:
+            tage_gesehen.add(schluessel)
+        else:
+            stunden_gesehen.add(schluessel)
+        behalten.append(p)
+    # Loeschen: alles NICHT in ``behalten``
+    loeschen = [p for p in alle if p not in behalten]
+    for p in loeschen:
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+    return [p for p in alle if p in behalten]
 
 
 def _speichere_verlauf() -> None:

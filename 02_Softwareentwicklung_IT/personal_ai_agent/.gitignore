@@ -36,6 +36,7 @@ system_prompt.local.md
 # Hochgeladene Nutzer-Dateien (private Bilder/PDFs) und Backup-Ablagen.
 uploads/
 .verlauf_backup_*/
+backups/
 
 # IDE
 .vscode/
