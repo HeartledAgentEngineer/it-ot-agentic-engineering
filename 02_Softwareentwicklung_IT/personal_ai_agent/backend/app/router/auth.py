@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 
 from app.config import settings
 
@@ -40,8 +40,43 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> bool:
     """Verify API key from header (MVP simple auth)."""
     if settings.api_key:
         if x_api_key != settings.api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+            raise HTTPException(
+                status_code=401,
+                detail="Ungültiger API-Key. Prüfe den Header 'X-API-Key'.",
+            )
     return True
+
+
+# Routen-Präfixe, die auch ohne API-Key erreichbar sein müssen:
+# - "/api/health": Liveness-/Health-Check, darf nicht durch Auth blockieren
+# - "/api/auth":   Login-Endpunkt (tauscht Key gegen JWT aus) muss offen sein
+OPEN_API_PFIXE = ("/api/health", "/api/auth")
+
+
+async def require_api_key(request: "Request") -> None:
+    """Globale FastAPI-Abhängigkeit: schützt ALLE /api/*-Routen.
+
+    Ist `settings.api_key` gesetzt (aus der .env), wird er von jedem
+    Client über den Header `X-API-Key` verlangt. Ausgenommen sind nur
+    `/api/health` (Liveness) und `/api/auth` (Login). Frontend, Hermes-
+    Gateway und Tests müssen den Key dann mitschicken.
+
+    Ist kein `settings.api_key` gesetzt, bleibt alles ungeschützt/offen
+    (Abwärtskompatibilität, lokale Entwicklung).
+    """
+    if not settings.api_key:
+        return
+    # Statische Frontend-Dateien unter "/" sind kein /api/-Endpunkt und
+    # bleiben ohne Key erreichbar (nur HTML/JS/CSS, keine Daten).
+    pfad = request.url.path
+    if pfad.startswith(OPEN_API_PFIXE):
+        return
+    key = request.headers.get("x-api-key")
+    if key != settings.api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Zugriff verweigert: gültiger X-API-Key erforderlich.",
+        )
 
 
 @router.post("/token")
