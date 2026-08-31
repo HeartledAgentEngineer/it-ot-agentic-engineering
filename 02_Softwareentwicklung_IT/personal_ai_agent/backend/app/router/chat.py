@@ -91,6 +91,7 @@ def _starte_lokale_hermes(
     kategorie: Optional[str],
     komplexitaet: Optional[str],
     chat_verknuepfung: Optional[str] = None,
+    kontext: str = "",
 ):
     """Track C im Hintergrund: Lokaler Termux-Hermes bearbeitet den Auftrag und
     strahlt seine Gedanken live ins Auftragsbuch.
@@ -133,6 +134,14 @@ def _starte_lokale_hermes(
                         bestehende_session=(
                             settings.hermes_local_session or None
                         ),
+                        # Zweitweg (Wunsch Sebastian): HERMES_LOCAL_KANAL=query
+                        # nutzt den Einmal-Subprozess statt tmux.
+                        nutze_query_modus=(
+                            settings.hermes_local_kanal == "query"
+                        ),
+                        # Kontext dieser Hermes-Session mitgeben, damit der
+                        # Ziel-Hermes "weiss, dass er diese Session ist".
+                        kontext=kontext,
                     ):
                     art = ereignis.get("art")
                     text = ereignis.get("text", "")
@@ -1225,6 +1234,7 @@ async def chat_stream(request: ChatRequest):
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
                 chat_verknuepfung=conversation_id,
+                kontext=_baue_kontext(request.message),
             )
             reply_text = (
                 "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"

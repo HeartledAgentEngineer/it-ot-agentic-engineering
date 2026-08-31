@@ -119,6 +119,7 @@ def route_auftrag(
             kategorie=kategorie,
             komplexitaet=komplexitaet,
             chat_verknuepfung=conv_id,
+            kontext=kontext,
         )
         reply_text = (
             "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
