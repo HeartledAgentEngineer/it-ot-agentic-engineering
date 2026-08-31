@@ -150,3 +150,38 @@ def hermes_beenden(req: BeendenRequest):
     gelebt = settings.hermes_local_session or "hermes_termux"
     return {"beendet": False, "session": gelebt,
             "hinweis": "Loop gestoppt; die Nutzer-Session bleibt am Leben (im Termux weiterschreiben)."}
+
+
+class ChatRequest(BaseModel):
+    nachricht: str
+    kontext: str = ""
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+@router.post("/chat", response_model=ChatResponse)
+def hermes_chat(req: ChatRequest):
+    """Beantwortet eine NORMALE Chat-Nachricht ueber den aktiv-Kanal/Daemon.
+
+    Statt des eingebauten DeepSeek-LLM des /api/chat laeuft die Nachricht
+    ueber den Inbox-Daemon (diese eine Hermes-Identitaet). Liefert die
+    Antwort als einzelnen, nicht-streamenden `reply` (der aktiv-Kanal ist
+    laufzeitbedingt langsamer als der normale Chat).
+    """
+    text = (req.nachricht or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="nachricht darf nicht leer sein")
+    try:
+        ereignisse = list(hermes_local.stream_auftrag_aktiv(
+            "chat-" + threading.current_thread().name[:6],
+            text, timeout=180, kontext=req.kontext,
+        ))
+        letztes = ereignisse[-1] if ereignisse else {}
+        if letztes.get("art") == "ergebnis":
+            return ChatResponse(reply=letztes.get("text", ""))
+        return ChatResponse(reply=(letztes.get("text") or "Kein Ergebnis"))
+    except Exception as e:
+        logger.error("hermes_chat fehler: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
