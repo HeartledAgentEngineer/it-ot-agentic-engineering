@@ -155,6 +155,13 @@ class Settings(BaseSettings):
     hermes_pc_api_key: str = ""
     hermes_pc_timeout: int = 30
 
+    # Track-C-Andocken (zwei-Stellen-Steuerung, ab 2026-08-31): Ist gesetzt,
+    # docken lokale Hermes-Auftraege an diese BEREITS laufende tmux-Session an,
+    # statt eine NEUE 'hermes chat'-Session zu starten. So sprechen Nutzer
+    # (Frontend-Chat) + Backend mit derselben Hermes-Instanz. Leer = Standard
+    # (neue Session je Auftrag). Kommt aus der .env, nie in den Code.
+    hermes_local_session: str = ""
+
     # Logging
     log_level: str = "INFO"
 
