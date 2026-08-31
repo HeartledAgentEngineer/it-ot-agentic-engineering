@@ -349,7 +349,9 @@ async def chat(request: ChatRequest):
             if upload_img:
                 aktuelles_bild_data = upload_img.data_url
         merkhinweis = _gesichter_merke(
-            request.message, bild_aktiv, str(aktuelles_bild_data or "")
+            request.message, bild_aktiv, str(aktuelles_bild_data or ""),
+            embedding=_embedding_aus_data_url(str(aktuelles_bild_data or ""))
+            if bild_aktiv and aktuelles_bild_data else None,
         )
         if merkhinweis:
             user_message_fuer_llm += merkhinweis
@@ -450,8 +452,46 @@ def _nutzer_name() -> str:
     return ""
 
 
+def _embedding_aus_data_url(data_url: str):
+    """Extrahiert aus einer data_url (base64) das erste Gesichts-Embedding.
+
+    Dekodiert das Bild und laesst es in der Debian-Face-Engine (YuNet+SFace)
+    detektieren/embedden. Returns: erstes Embedding (list[float]) oder None.
+    Robust: Fehler/Schwaechen schlagen den Chat nie fehl.
+    """
+    try:
+        if not data_url or "base64," not in data_url:
+            return None
+        from app.services import face_service
+        if not face_service.verfuegbar():
+            return None
+        b64 = data_url.split("base64,", 1)[1]
+        import base64 as _b, tempfile, os as _os
+        roh = _b.b64decode(b64)
+        fd, tmp = tempfile.mkstemp(suffix=".png")
+        _os.close(fd)
+        try:
+            with open(tmp, "wb") as f:
+                f.write(roh)
+            gesichter = face_service.embeddings_fuer_pfad(tmp)
+        finally:
+            try:
+                _os.remove(tmp)
+            except OSError:
+                pass
+        for g in gesichter:
+            emb = g.get("embedding")
+            if emb:
+                return emb
+        return None
+    except Exception as e:
+        logger.warning("Embedding-Extraktion fehlgeschlagen (ignoriert): %s", e)
+        return None
+
+
 def _gesichter_merke(
-    frage: str, bild_aktiv: bool, referenz_bild: str = ""
+    frage: str, bild_aktiv: bool, referenz_bild: str = "",
+    embedding: Optional[list] = None,
 ) -> str:
     """Reaktiv 'Gesichter merken' über Sprache (ohne UI).
 
@@ -531,6 +571,9 @@ def _gesichter_merke(
                 referenz_bild_pfad="",
                 # Das aktuelle Bild als Referenz einbetten (falls da).
                 referenz_bild_miniatur=(referenz_bild or "").strip(),
+                # Echtes Gesichts-Embedding (128-dim) für Zwillings-robustes
+                # Wiedererkennen; None -> kein Embedding gespeichert.
+                embedding=embedding,
             )
             gespeichert.append((name, rolle))
     except Exception:
@@ -947,9 +990,22 @@ def _datei_tool(frage: str) -> tuple:
                 # sagen, dass es dieses Datum als Aufnahmedatum nennen soll.
                 # Sonst parst ein diffuses Modell den Namen falsch („Jahr 5")
                 # oder halluziniert ein anderes Datum.
+                erkannt_notiz = ""
+                try:
+                    from app.services import face_service as _face
+                    if _face.verfuegbar():
+                        personen = (_face.erkenne_bild_pfad(datei["pfad"]).get("personen") or [])
+                        namen = []
+                        for _p in personen:
+                            for _t in _p.get("treffer", []):
+                                namen.append(_t["name"] + (" (sicher)" if _t.get("sicher") else " (unsicher)"))
+                        if namen:
+                            erkannt_notiz = " Erkennung per Gesichts-Embedding: " + "; ".join(sorted(set(namen))) + "."
+                except Exception:
+                    erkannt_notiz = ""
                 return (
                     "\n\n[Datei-Bild zum Ansehen: " + datei["name"]
-                    + " | Pfad: " + datei["pfad"]
+                    + " | Pfad: " + datei["pfad"] + erkannt_notiz
                     + ". Dieses Bild hat das Aufnahmedatum, das im Dateinamen "
                       "kodiert ist (Muster IMG_JJJJMMTT_HHMMSS oder "
                       "Screenshot_JJJJMMTT-HHMMSS): benenne diesen Zeitpunkt "
@@ -1285,7 +1341,9 @@ async def chat_stream(request: ChatRequest):
                 if s_upload_img:
                     s_aktuelles_bild = s_upload_img.data_url
             s_merkhinweis = _gesichter_merke(
-                request.message, s_bild_aktiv, str(s_aktuelles_bild or "")
+                request.message, s_bild_aktiv, str(s_aktuelles_bild or ""),
+                embedding=_embedding_aus_data_url(str(s_aktuelles_bild or ""))
+                if s_bild_aktiv and s_aktuelles_bild else None,
             )
             if s_merkhinweis:
                 s_user += s_merkhinweis
