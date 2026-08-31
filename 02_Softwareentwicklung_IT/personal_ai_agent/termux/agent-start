@@ -54,6 +54,28 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
+# Inbox-Daemon starten (falls nicht schon einer laeuft). Er ist ein EIGENER
+# Prozess, unabhaengig vom uvicorn-Server: ein Backend-Crash nimmt ihn nicht
+# mit; er bleibt verfuegbar (Termux-Session, kein tmux noetig) fuer den
+# 'aktiv'-Kanal. Startet bei jedem agent-start automatisch mit.
+#
+# Nur starten, wenn noch KEIN Daemon-Prozess laeuft (sonst stapeln sich
+# mehrere und es wuerden mehrere Hermes-Instanzen antworten - Verboten).
+_daemon_skript="hermes_inbox_daemon.py"
+if [ -f "$_daemon_skript" ]; then
+    if ! pgrep -f "$_daemon_skript" >/dev/null 2>&1; then
+        # disown: laeuft weiter, auch wenn dieses Widget-Skript (und damit
+        # der Server-Prozess) endet. Ausgabe weg, damit keine Meldungen sich
+        # hier hineinschleichen.
+        nohup python "$_daemon_skript" >/dev/null 2>&1 &
+        disown
+        echo "── Inbox-Daemon gestartet ────────────────────"
+    else
+        echo "Inbox-Daemon laeuft bereits (ueberlebt Backend-Crash)."
+    fi
+fi
+
+
 echo
 echo "── Server startet ─────────────────────────────"
 echo "Beenden: Strg+C  (Lautstaerke-hoch + C)"
