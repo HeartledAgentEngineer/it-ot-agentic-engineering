@@ -33,14 +33,16 @@ _COMMAND = ["proot-distro", "login", "debian", "--", "bash", "-lc",
             f"{_DEBIAN_PY} {_DEBIAN_SCRIPT}"]
 _INFER_TIMEOUT_S = 30
 
-# Cosinus-Distanz-Schwellen (SFace/OpenCV, empirisch ueblich):
-#   < 0.0  -> sehr sicher (gleiche Person)
-#   ~0.1-0.2 -> aehnlich (kann Zwilling/Familie sein)
-#   > 0.3  -> andere Person
-# Fuer Zwillings-Unterscheidung konservativ: nur unter _SCHWELLE_JA als Treffer,
-# sonst "unsicher" statt raten.
-_SCHWELLE_JA = 0.12
-_SCHWELLE_UNSICHER = 0.25
+# Cosinus-Distanz-Schwellen (SFace/OpenCV). Anpassung an REALE Messdaten
+# dieses Katalogs (2026-08-31): Dieselbe Person über zwei verschiedene Fotos
+# hatte hier Distanzen von ~0.36-0.40, VERSCHIEDENE Personen (Sebastian vs
+# Julian, Zwillingsbrüder) ~0.57-0.97. Die früheren, aus der Literatur
+# übernommenen Schwellen (0.12/0.25) waren VIEL zu strikt und hätten jede
+# echte Erkennung abgelehnt.
+#   _SCHWELLE_JA:    Distanz darunter = sichere Erkennung (gleiche Person)
+#   _SCHWELLE_UNSICHER: bis hierher "ähnlich (unsicher, nicht raten)"; darüber = andere
+_SCHWELLE_JA = 0.45
+_SCHWELLE_UNSICHER = 0.58
 
 # Einmal gecacht: pruefen, ob die Face-Engine ueberhaupt verfuegbar ist.
 _verfuegbar_cache: Optional[bool] = None
@@ -147,17 +149,27 @@ def erkenne_personen(embedding: List[float]) -> List[dict]:
         return []
     kandidaten = []
     for p in gesichter_service.liste_personen():
-        ref = p.get("embedding")
-        if not ref:
+        refs = p.get("embedding")
+        if not refs:
             continue
-        d = _cosinus_distanz(embedding, ref)
-        if d is None:
+        # refs kann EINE 128-dim Liste sein ODER eine Liste davon (mehrere
+        # Referenzbilder je Person). Normalisieren zu einer Liste von Vektoren.
+        if refs and isinstance(refs[0], (int, float)):
+            refs = [refs]
+        beste_d = None
+        for ref in refs:
+            d = _cosinus_distanz(embedding, ref)
+            if d is None:
+                continue
+            if beste_d is None or d < beste_d:
+                beste_d = d
+        if beste_d is None:
             continue
         kandidaten.append({
             "name": p.get("name", "?"),
             "rolle": p.get("rolle", ""),
-            "distanz": round(d, 4),
-            "sicher": d <= _SCHWELLE_JA,
+            "distanz": round(beste_d, 4),
+            "sicher": beste_d <= _SCHWELLE_JA,
         })
     kandidaten.sort(key=lambda k: k["distanz"])
     # Nur nahe genug lieferbare Kandidaten zurückgeben.
