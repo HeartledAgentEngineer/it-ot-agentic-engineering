@@ -38,7 +38,16 @@ _verlauf_sperre = threading.Lock()
 
 
 def _lade_verlauf() -> None:
-    """Holt die Gespraeche von der Platte. Fehlt die Datei, faengt es leer an."""
+    """Holt die Gespraeche von der Platte. Fehlt die Datei, faengt es leer an.
+
+    Datenverlust-Schutz (Stand 2026-08-30, erneuter Vorfall): Wurde die
+    Verlaufsdatei von einem Server mit leerem/kaum gefuelltem Stand
+    ueberschrieben (z. B. ein zweiter uvicorn startet waehrend ein anderer
+    schreibt), soll der Start NICHT mit dem leeren Stand weiterlaufen und ihn
+    bei der naechsten Speicherung erneut festschreiben. Deshalb: Ist der
+    geladene Stand ohne jegliche Nachrichten, wird stattdessen der juengste
+    nicht-leere Rotations-Backup uebernommen (falls vorhanden).
+    """
     global next_conversation_id
     try:
         with open(_verlauf_datei, "r", encoding="utf-8") as f:
@@ -47,10 +56,48 @@ def _lade_verlauf() -> None:
         summarys.update(daten.get("summarys", {}))
         next_conversation_id = int(daten.get("next_id", 1))
         logger.info("Gespraechsverlauf geladen: %d Gespraeche", len(conversations))
+
+        # Leerer Stand? Dann aus dem juengsten nicht-leeren Backup restauen,
+        # statt leer weiterzumachen (sonst wuerde der leere Stand die Datei
+        # beim naechsten Save erneut ueberschreiben).
+        if not conversations or not any(
+            msgs for msgs in conversations.values() if msgs
+        ):
+            from_backup = _lade_juengstes_nicht_leeres_backup()
+            if from_backup is not None:
+                conversations.clear()
+                conversations.update(from_backup[0])
+                summarys.clear()
+                summarys.update(from_backup[1])
+                next_conversation_id = int(from_backup[2])
+                logger.warning(
+                    "Verlauf war leer, juengstes nicht-leeres Backup geladen: "
+                    "%d Gespraeche", len(conversations)
+                )
     except FileNotFoundError:
         logger.info("Kein gespeicherter Verlauf – erster Start")
     except Exception as e:
         logger.warning("Verlauf nicht lesbar, beginne leer: %s", e)
+
+
+def _lade_juengstes_nicht_leeres_backup():
+    """Liefert (conversations, summarys, next_id) des juengsten Backups mit
+    Inhalt, oder None, wenn keins passt."""
+    for bkp in _rotierte_backups():
+        try:
+            with open(bkp, "r", encoding="utf-8") as f:
+                daten = json.load(f)
+        except Exception:
+            continue
+        convs = daten.get("conversations", {})
+        if not convs or not any(msgs for msgs in convs.values() if msgs):
+            continue
+        return (
+            convs,
+            daten.get("summarys", {}),
+            daten.get("next_id", 1),
+        )
+    return None
 
 
 # Wie viele Rotations-Backups des Verlaufs neben der Hauptdatei gehalten werden.
