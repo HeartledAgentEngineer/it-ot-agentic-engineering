@@ -447,10 +447,70 @@ def stream_auftrag_query(
         yield {"art": "fehler", "text": str(e)}
 
 
+def stream_auftrag_aktiv(
+    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    kontext: str = "",
+) -> Iterator[dict]:
+    """Track-C-Kanal 'aktiv': Server -> LAUFENDE Termux-Hermes-Session (ohne tmux).
+
+    Statt tmux-Send-keys oder eines frischen Subprozesses wird der Auftrag in
+    eine Datei-Inbox gelegt (`~/hermes_inbox/auftraege.jsonl`), die die aktive
+    Hermes-Session liest; deren Antwort kommt ueber `~/hermes_inbox/antworten.jsonl`
+    zurueck und wird hier als Ergebnis geliefert.
+
+    So 'redet der Server mit MIR (der aktiven Termux-Session)' — Wunsch Sebastian
+    (2026-09-01): der Weg ueber die normale Termux-Session statt tmux.
+
+    Auf der Sessions-Seite muss der aktive Hermes die Inbox bedienen (eine
+    kleine Polling-Schleife oder ein Befehl 'antworten'). Der Kanal liefert
+    die Antwort erst, wenn sie dort eintrifft (oder Timeout).
+    """
+    if not ist_verfuegbar():
+        yield {"art": "fehler", "text": "hermes nicht verfuegbar"}
+        return
+    import json as _json
+    inbox = os.path.expanduser("~/hermes_inbox")
+    try:
+        os.makedirs(inbox, exist_ok=True)
+        auft_Pfad = os.path.join(inbox, "auftraege.jsonl")
+        ant_Pfad = os.path.join(inbox, "antworten.jsonl")
+        eintrag = {
+            "auftrag_id": auftrag_id,
+            "text": auftrag_text,
+            "kontext": kontext,
+            "zeit": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        with open(auft_Pfad, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(eintrag, ensure_ascii=False) + "\n")
+
+        start = time.time()
+        while time.time() - start < timeout:
+            # Nach passender Antwort suchen (auftrag_id zuerst).
+            if os.path.exists(ant_Pfad):
+                with open(ant_Pfad, encoding="utf-8") as f:
+                    for zeile in f:
+                        z = zeile.strip()
+                        if not z:
+                            continue
+                        try:
+                            dat = _json.loads(z)
+                        except Exception:
+                            continue
+                        if dat.get("auftrag_id") == auftrag_id:
+                            text = (dat.get("text") or "").strip()
+                            yield {"art": "ergebnis", "text": text or "—"}
+                            return
+            time.sleep(1.0)
+        yield {"art": "fehler", "text": f"Timeout nach {timeout}s: keine Antwort der aktiven Session"}
+    except Exception as e:
+        yield {"art": "fehler", "text": str(e)}
+
+
 def stream_auftrag(
     auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
     bestehende_session: Optional[str] = None,
     nutze_query_modus: bool = False,
+    nutze_aktiv_modus: bool = False,
     kontext: str = "",
 ) -> Iterator[dict]:
     """Startet den lokalen Hermes (interaktiv) und liefert seine Ereignisse.
@@ -473,6 +533,14 @@ def stream_auftrag(
         {"art": "ergebnis", "text": ...}
         {"art": "fehler", "text": ...}
     """
+    if nutze_aktiv_modus:
+        # AKTIV-Kanal (Wunsch Sebastian): Server redet ueber Datei-Inbox mit
+        # der laufenden Termux-Hermes-Session (kein tmux, kein Subprozess).
+        yield from stream_auftrag_aktiv(
+            auftrag_id, auftrag_text, timeout, kontext=kontext
+        )
+        return
+
     if nutze_query_modus:
         # ZWEITER Weg (Wunsch Sebastian): Einmal-Subprozess statt tmux.
         # Kontext dieser Hermes-Session wird dem Ziel-Hermes mitgegeben.

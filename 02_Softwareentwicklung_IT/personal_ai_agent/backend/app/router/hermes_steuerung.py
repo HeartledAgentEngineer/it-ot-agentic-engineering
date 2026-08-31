@@ -73,6 +73,8 @@ def hermes_aktivieren(req: AktivierenRequest):
                 auftrag_id, aufgabe,
                 bestehende_session=sess or None,
                 nutze_query_modus=settings.hermes_local_kanal == "query",
+                # AKTIV-Kanal: Server -> laufende Termux-Session (Inbox).
+                nutze_aktiv_modus=settings.hermes_local_kanal == "aktiv",
                 kontext=req.kontext,
             ):
                 art = ereignis.get("art")

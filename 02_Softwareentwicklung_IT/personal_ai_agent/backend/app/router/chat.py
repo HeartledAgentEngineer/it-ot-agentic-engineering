@@ -139,6 +139,11 @@ def _starte_lokale_hermes(
                         nutze_query_modus=(
                             settings.hermes_local_kanal == "query"
                         ),
+                        # AKTIV-Kanal (Wunsch): Server -> laufende Termux-
+                        # Session ueber Datei-Inbox (kein tmux).
+                        nutze_aktiv_modus=(
+                            settings.hermes_local_kanal == "aktiv"
+                        ),
                         # Kontext dieser Hermes-Session mitgeben, damit der
                         # Ziel-Hermes "weiss, dass er diese Session ist".
                         kontext=kontext,
