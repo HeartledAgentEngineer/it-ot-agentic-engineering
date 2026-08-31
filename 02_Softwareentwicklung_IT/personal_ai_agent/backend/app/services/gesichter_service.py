@@ -134,6 +134,7 @@ def person_speichern(
     beschreibung: str = "",
     referenz_bild_pfad: str = "",
     referenz_bild_miniatur: str = "",
+    embedding: Optional[list] = None,
 ) -> dict:
     """Legt eine Person an oder aktualisiert sie (Upsert nach Name).
 
@@ -179,6 +180,8 @@ def person_speichern(
                 vorhanden["referenz_bild_pfad"] = referenz_bild_pfad.strip()
             if miniature:
                 vorhanden["referenz_bild_miniatur"] = miniature
+            if embedding is not None:
+                vorhanden["embedding"] = embedding
             vorhanden.setdefault("gelernt_am", _utc_iso())
             _speichern(personen)
             logger.info("Person aktualisiert: %s", name)
@@ -191,6 +194,7 @@ def person_speichern(
             "beschreibung": beschreibung.strip(),
             "referenz_bild_pfad": referenz_bild_pfad.strip(),
             "referenz_bild_miniatur": miniature,
+            "embedding": embedding,
             "gelernt_am": _utc_iso(),
         }
         personen.append(neu)
