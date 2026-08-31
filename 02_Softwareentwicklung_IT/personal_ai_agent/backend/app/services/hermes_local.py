@@ -361,9 +361,57 @@ class HermesRegistry:
 hermes_registry = HermesRegistry()
 
 
+def stream_auftrag_query(
+    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    kontext: str = "",
+) -> Iterator[dict]:
+    """Track-C-Zweitweg: fuehrt den Auftrag als EINMALIGEN `hermes chat -q`-Subprozess
+    aus (statt tmux-Session). Kein Session-Resume, kein Kontext-Verlust: der frische
+    Hermes liefert die Antwort direkt zurueck. Kontext (Memory) wird automatisch
+    geladen; zusaetzlicher Kontext kann im auftrag_text mitgegeben werden.
+
+    `kontext` (optional): relevanter Kontext dieser Hermes-Session (Vorgaenger,
+    Erinnerungen), der dem Ziel-Hermes explizit mitgegeben wird, damit er "weiss,
+    dass er diese Session ist" (Wunsch Sebastian: auf meine Hermes-Session
+    delegieren, deren Kontext mitgeben).
+
+    Ist der deterministische, robuste Weg fuer "Hintergrundshell an Termux-Session"
+    (Wunsch Sebastian): einfach, ohne tmux/Registry, antwortet immer.
+    """
+    if not ist_verfuegbar():
+        yield {"art": "fehler", "text": "hermes/tmux nicht verfuegbar"}
+        return
+    payload = auftrag_text
+    if kontext and kontext.strip():
+        payload = (
+            f"{auftrag_text}\n\n"
+            "[Kontext dieser Hermes-Session (vorherige Ueberlegungen/Erinnerungen):]\n"
+            f"{kontext.strip()}"
+        )
+    try:
+        r = subprocess.run(
+            ["hermes", "chat", "-q", payload, "-Q"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        out = (r.stdout or "").strip()
+        # Die letzte Antwort-Zeile(n) nach evtl. Session-Output.
+        zeilen = [z for z in out.splitlines() if z.strip()]
+        ergebnis = "".join(zeilen) if zeilen else ""
+        if r.returncode != 0 and not ergebnis:
+            yield {"art": "fehler", "text": (r.stderr or r.stdout or "fehler")[:1000]}
+            return
+        yield {"art": "ergebnis", "text": ergebnis or "—"}
+    except subprocess.TimeoutExpired:
+        yield {"art": "fehler", "text": f"Timeout nach {timeout}s"}
+    except Exception as e:
+        yield {"art": "fehler", "text": str(e)}
+
+
 def stream_auftrag(
     auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
     bestehende_session: Optional[str] = None,
+    nutze_query_modus: bool = False,
+    kontext: str = "",
 ) -> Iterator[dict]:
     """Startet den lokalen Hermes (interaktiv) und liefert seine Ereignisse.
 
@@ -376,11 +424,23 @@ def stream_auftrag(
     zu starten. Zwei-Stellen-Steuerung: Nutzer + Backend sprechen mit
     derselben Hermes-Instanz. Die Session wird bei Abschluss nicht gekillt.
 
+    `nutze_query_modus`: wenn True, wird der ZWEITE Weg genutzt
+    (stream_auftrag_query: Einmal-Subprozess `hermes chat -q` statt tmux).
+    Das ist der einfache, deterministische Kanal an die Termux-Session.
+
     Yields:
         {"art": "gedanke", "text": ...}
         {"art": "ergebnis", "text": ...}
         {"art": "fehler", "text": ...}
     """
+    if nutze_query_modus:
+        # ZWEITER Weg (Wunsch Sebastian): Einmal-Subprozess statt tmux.
+        # Kontext dieser Hermes-Session wird dem Ziel-Hermes mitgegeben.
+        yield from stream_auftrag_query(
+            auftrag_id, auftrag_text, timeout, kontext=kontext
+        )
+        return
+
     if not ist_verfuegbar():
         yield {"art": "fehler", "text": "Lokaler Hermes/tmux nicht verfuegbar"}
         return
