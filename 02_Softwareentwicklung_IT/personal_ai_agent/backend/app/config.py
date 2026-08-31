@@ -162,10 +162,13 @@ class Settings(BaseSettings):
     # (neue Session je Auftrag). Kommt aus der .env, nie in den Code.
     hermes_local_session: str = ""
 
-    # Track-C-Kanal (Zweitweg, 2026-09-01): "query" nutzt den EINFACHEN,
-    # deterministischen Weg (Einmal-Subprozess `hermes chat -q ... -Q` an die
-    # Termux-Session statt tmux -- Kontext kommt automatisch mit, kein
-    # Session-Resume-Problem). "" oder "tmux" = klassischer tmux-Weg.
+    # Track-C-Kanal (Zweitweg, 2026-09-01): 
+    #   "query"  = Einmal-Subprozess `hermes chat -q ... -Q` an die Termux-
+    #              Session statt tmux (deterministisch, Kontext automatisch).
+    #   "aktiv"  = Inbox-Kanal an die LAUFENDE Termux-Hermes-Session (ohne
+    #              tmux): Server schreibt Auftraege in ~/hermes_inbox/, die
+    #              aktive Session antwortet. Fuer "Server redet mit mir".
+    #   "" / "tmux" = klassischer tmux-Weg.
     hermes_local_kanal: str = ""
 
     # Logging
