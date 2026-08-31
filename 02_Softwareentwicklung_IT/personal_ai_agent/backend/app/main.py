@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import json
 import logging
 import os
 import socket
@@ -210,18 +211,6 @@ async def status():
     return {"status": "ok", "service": "Personal AI Agent", "endpoint": "/status"}
 
 
-async def _make_html_response(text: str, original: "Response") -> "Response":
-    """Baut aus ersetztem HTML-Text eine Response mit denselben Headern
-    (Cache-Control no-store) zurück — Ersatz für die FileResponse, deren
-    body_iterator wir verbraucht haben."""
-    resp = Response(
-        content=text.encode("utf-8"),
-        media_type="text/html; charset=utf-8",
-    )
-    for k, v in original.headers.items():
-        resp.headers[k] = v
-    return resp
-
 
 class NoCacheStaticFiles(StaticFiles):
     """Statische Dateien OHNE Caching ausliefern.
@@ -232,10 +221,6 @@ class NoCacheStaticFiles(StaticFiles):
     längst geändert wurde (das Kernproblem 'ich sehe Korrekturen nicht').
     Diese Unterklasse setzt auf jede Antwort Cache-Control: no-store, sodass der
     Browser immer die aktuelle Datei holt und nie etwas Altes behält.
-
-    Zusätzlich injiziert sie bei der index.html serverseitig den API-Key
-    (falls `settings.api_key` gesetzt). Der Key liegt damit NUR auf dem Handy
-    in der lokal ausgelieferten Seite, nie im versionierten Frontend-Code.
     """
 
     async def get_response(self, path: str, scope: Scope) -> Response:
@@ -246,25 +231,27 @@ class NoCacheStaticFiles(StaticFiles):
             antwort.headers["Expires"] = "0"
         except Exception:
             pass
-
-        # API-Key serverseitig in die index.html einschmuggeln (nur beim
-        # Ausliefern, nie auf Platte). Der Platzhalter "__API_KEY__" wird
-        # ersetzt. FileResponse hat KEIN .body — deshalb über body_iterator.
-        # Prüf-Bedingung ist der Inhalt (Platzhalter), nicht der Pfad: "/"
-        # kann je nach Starlette als "" ODER "index.html" ankommen, und auch
-        # nicht-API-Statik darf den Platzhalter nie unersetzt ausliefern.
-        if settings.api_key:
-            try:
-                chunks = []
-                async for c in antwort.body_iterator:
-                    chunks.append(c)
-                text = b"".join(chunks).decode("utf-8")
-                if "__API_KEY__" in text:
-                    text = text.replace("__API_KEY__", settings.api_key)
-                    antwort = await _make_html_response(text, antwort)
-            except Exception:
-                pass
         return antwort
+
+
+@app.get("/api/konfig", include_in_schema=False)
+def api_konfig():
+    """Liefert dem Frontend den API-Key als JS, damit es ihn automatisch an
+    alle /api/*-Requests haengen kann.
+
+    Achtung (Sebastian, 2026-08-31): Dieser Endpunkt ist bewusst OFFEN (kein
+    API-Key erforderlich), sonst koennte das Frontend den Key nie abholen. Der
+    eigentliche Schutz vor fremden WLAN-Gaesten ist NICHT der Key, sondern
+    `HOST_BIND=127.0.0.1` in der .env (nur lokal erreichbar). Der Key hier
+    schuetzt nur zusaetzlich vor versehentlichem Zugriff, wenn der Server
+    doch auf 0.0.0.0 lauscht.
+    """
+    key = settings.api_key or ""
+    return Response(
+        content=f"window.__API_KEY__ = {json.dumps(key)};\n".encode("utf-8"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
 
 
 # Serve frontend static files at / – MUSS als Letztes registriert werden.
