@@ -2700,7 +2700,10 @@ async function toggleLoop() {
                 body: JSON.stringify({}),
             });
             const d = await res.json().catch(() => ({}));
-            addMessage(`⬛ **Loop beendet**${d.session ? ` (Session ${d.session})` : ''}.`, 'assistant');
+            addMessage(
+                `⬛ **Loop gestoppt**.\n${d.hinweis || `(Session ${d.session || 'hermes_termux'} bleibt bestehen — du kannst weiter in Termux schreiben.)`}`,
+                'assistant'
+            );
         }
     } catch (err) {
         // Bei Fehler Zustand zuruecksetzen.

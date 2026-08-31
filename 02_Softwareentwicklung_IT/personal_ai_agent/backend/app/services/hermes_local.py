@@ -361,7 +361,7 @@ class HermesRegistry:
 hermes_registry = HermesRegistry()
 
 
-def sichere_persistente_tmux_session(name: str = "hermes_agent_loop") -> str:
+def sichere_persistente_tmux_session(name: str = "hermes_termux") -> str:
     """Sichert eine PERSISTENTE tmux-Session, an die Track C andocken kann.
 
     Ist die Session mit `name` nicht vorhanden, wird sie erzeugt (mit einem
