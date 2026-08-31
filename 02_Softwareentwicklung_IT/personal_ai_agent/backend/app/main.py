@@ -27,6 +27,7 @@ from app.router import (
     upload,
     dateien,
     gesichter,
+    hermes_steuerung,
 )
 
 # Configure logging
@@ -124,6 +125,7 @@ app.include_router(auftraege.router, dependencies=[Depends(auth.require_api_key)
 app.include_router(upload.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(dateien.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(gesichter.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(hermes_steuerung.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
