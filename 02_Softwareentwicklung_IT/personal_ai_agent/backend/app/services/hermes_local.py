@@ -100,16 +100,30 @@ class LocalHermesJob:
     """
 
     _zaehler = 0
+    # Typ-Deklarationen: session/_werk/eigene_session sind im Konstruktor
+    # IMMER gesetzt (str bzw. bool) — Pyright braucht das explizit, weil
+    # `bestehende_session` optional ist und self.session dann optional getypt
+    # wuerde.
+    session: str
+    _werk: str
+    eigene_session: bool
 
-    def __init__(self, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT):
+    def __init__(self, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+                 bestehende_session: Optional[str] = None):
         self.auftrag_text = auftrag_text
         self.timeout = timeout
         self._startzeit = time.time()
-
-        werk = tempfile.mkdtemp(prefix="hermes-job-", dir=os.path.expanduser("~"))
-        LocalHermesJob._zaehler += 1
-        self.session = f"hermes_agent_{int(time.time()*1000)}_{LocalHermesJob._zaehler}"
-        self._werk = werk
+        # Mit einer BESTEHENDEN tmux-Session arbeiten (statt eine neue
+        # 'hermes chat'-Session zu starten). Dann ist der Job laufend
+        # erreichbar (z. B. die eigene Hermes-Session des Nutzers) und
+        # beende() darf diese fremde Session NICHT killen.
+        self.eigene_session = bestehende_session is None
+        self._werk = tempfile.mkdtemp(prefix="hermes-job-", dir=os.path.expanduser("~"))
+        if bestehende_session:
+            self.session = bestehende_session
+        else:
+            LocalHermesJob._zaehler += 1
+            self.session = f"hermes_agent_{int(time.time()*1000)}_{LocalHermesJob._zaehler}"
 
         self.gesehene_gedanken: set = set()
         # Das End-Output des Agenten: die zuletzt VOLLSTÄNDIG geparste
@@ -125,16 +139,22 @@ class LocalHermesJob:
     def starten(self) -> bool:
         """Startet Hermes interaktiv in einer eigenen tmux-Pane und sendet den
         ersten Auftrag. True bei Erfolg.
+
+        Bei `bestehende_session` (fremde, bereits laufende Session) wird KEINE
+        neue tmux-Session erzeugt — es wird nur der Auftrag an die bestehende
+        Pane gesendet (z. B. die eigene Hermes-Session des Nutzers).
         """
         try:
-            inner = "hermes chat"
-            subprocess.run(
-                ["tmux", "new-session", "-d", "-s", self.session,
-                 "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), inner],
-                capture_output=True, text=True, timeout=15, check=True,
-            )
-            # Warten bis der CLI bereit ist, dann den Auftrag hinten.
-            time.sleep(6)
+            if self.eigene_session:
+                inner = "hermes chat"
+                subprocess.run(
+                    ["tmux", "new-session", "-d", "-s", self.session,
+                     "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), inner],
+                    capture_output=True, text=True, timeout=15, check=True,
+                )
+                # Warten bis der CLI bereit ist, dann den Auftrag hinten.
+                time.sleep(6)
+            # Auftrag an die (neu startete oder bestehende) Pane senden.
             if not self.sende_zeile(self.auftrag_text):
                 logger.warning(
                     "Lokaler Hermes nahm Auftrag nicht an (Session %s)", self.session
@@ -149,12 +169,18 @@ class LocalHermesJob:
             return False
 
     def beende(self) -> None:
-        """Raeumt die tmux-Session und die Arbeitsdateien wieder auf."""
-        try:
-            subprocess.run(["tmux", "kill-session", "-t", self.session],
-                           capture_output=True, timeout=10)
-        except Exception:  # pragma: no cover
-            pass
+        """Raeumt die tmux-Session und die Arbeitsdateien wieder auf.
+
+        Bei einer UEBERNOMMENEN (bestehenden, fremden) Session wird die
+        Session NICHT gekillt — sie gehört dem Nutzer/anderen Prozess und
+        muss weiterleben. Nur eigene (neu gestartete) Sessions werden beendet.
+        """
+        if self.eigene_session:
+            try:
+                subprocess.run(["tmux", "kill-session", "-t", self.session],
+                               capture_output=True, timeout=10)
+            except Exception:  # pragma: no cover
+                pass
         try:
             shutil.rmtree(self._werk, ignore_errors=True)
         except Exception:  # pragma: no cover
@@ -292,12 +318,20 @@ class HermesRegistry:
         self._jobs: Dict[str, LocalHermesJob] = {}
         self._sperre = threading.Lock()
 
-    def starte(self, auftrag_id: str, auftrag_text: str) -> Optional[LocalHermesJob]:
-        """Startet einen Job fuer die Auftrags-ID, falls noch keiner laeuft."""
+    def starte(self, auftrag_id: str, auftrag_text: str,
+               bestehende_session: Optional[str] = None) -> Optional[LocalHermesJob]:
+        """Startet einen Job fuer die Auftrags-ID, falls noch keiner laeuft.
+
+        `bestehende_session`: optionaler Name einer (Nutzer-)tmux-Session, an
+        die der Auftrag angedockt wird statt eine NEUE 'hermes chat'-Session
+        zu starten. Dann arbeiten Nutzer + Backend mit DERSELBEN laufenden
+        Hermes-Session (zwei-Stellen-Steuerung). beende() killt diese fremde
+        Session nicht.
+        """
         with self._sperre:
             if auftrag_id in self._jobs:
                 return self._jobs[auftrag_id]
-            job = LocalHermesJob(auftrag_text)
+            job = LocalHermesJob(auftrag_text, bestehende_session=bestehende_session)
             if not job.starten():
                 job.beende()
                 return None
@@ -328,13 +362,19 @@ hermes_registry = HermesRegistry()
 
 
 def stream_auftrag(
-    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT
+    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    bestehende_session: Optional[str] = None,
 ) -> Iterator[dict]:
     """Startet den lokalen Hermes (interaktiv) und liefert seine Ereignisse.
 
     Wird in einem Daemon-Thread betrieben (siehe _starte_lokale_hermes). Die
     Session bleibt ueber die Registry am Leben, damit waehrend des Laufs
     Kommentare an denselben Agenten gehen koennen.
+
+    `bestehende_session`: optional — dockt den Auftrag an eine BEREITS
+    laufende (Nutzer-)tmux-Session an, statt eine neue 'hermes chat'-Session
+    zu starten. Zwei-Stellen-Steuerung: Nutzer + Backend sprechen mit
+    derselben Hermes-Instanz. Die Session wird bei Abschluss nicht gekillt.
 
     Yields:
         {"art": "gedanke", "text": ...}
@@ -345,7 +385,9 @@ def stream_auftrag(
         yield {"art": "fehler", "text": "Lokaler Hermes/tmux nicht verfuegbar"}
         return
 
-    job = hermes_registry.starte(auftrag_id, auftrag_text)
+    job = hermes_registry.starte(
+        auftrag_id, auftrag_text, bestehende_session=bestehende_session
+    )
     if job is None:
         yield {"art": "fehler", "text": "Lokaler Hermes nicht startbar"}
         return

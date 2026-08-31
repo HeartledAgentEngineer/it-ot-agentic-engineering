@@ -124,7 +124,16 @@ def _starte_lokale_hermes(
     def _worker():
         try:
             try:
-                for ereignis in hermes_local_stream_auftrag(auftrag_id, auftrag):
+                for ereignis in hermes_local_stream_auftrag(
+                        auftrag_id, auftrag,
+                        # Zwei-Stellen-Steuerung: Ist HERMES_LOCAL_SESSION in
+                        # der .env gesetzt, dockt der Auftrag an diese laufende
+                        # tmux-Session an statt eine neue zu starten (Sonst:
+                        # bestehende_session=None → neue Session je Auftrag).
+                        bestehende_session=(
+                            settings.hermes_local_session or None
+                        ),
+                    ):
                     art = ereignis.get("art")
                     text = ereignis.get("text", "")
                     if art == "gedanke" and text:
