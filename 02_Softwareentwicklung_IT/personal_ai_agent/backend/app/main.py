@@ -6,10 +6,10 @@ import socket
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, Response
 from starlette.types import Scope
 
 from app.config import settings
@@ -109,17 +109,20 @@ app.add_middleware(
 )
 
 # Register API routers (they define their own /api prefix)
-app.include_router(chat.router)
-app.include_router(memory.router)
-app.include_router(auth.router)
-app.include_router(transcribe.router)
-app.include_router(speak.router)
-app.include_router(llm_models.router)
-app.include_router(archiv.router)
-app.include_router(auftraege.router)
-app.include_router(upload.router)
-app.include_router(dateien.router)
-app.include_router(gesichter.router)
+# API-Key-Schutz (Hotel-WLAN): Ist `settings.api_key` gesetzt (aus .env),
+# verlangen ALLE AP-Routen (außer /api/health und /api/auth) den Header
+# X-API-Key. Ohne Key: 401. Ohne gesetzten Key bleibt alles offen (dev).
+app.include_router(chat.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(memory.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(auth.router)  # auth selbst bleibt offen (Login)
+app.include_router(transcribe.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(speak.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(llm_models.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(archiv.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(auftraege.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(upload.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(dateien.router, dependencies=[Depends(auth.require_api_key)])
+app.include_router(gesichter.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
@@ -207,6 +210,19 @@ async def status():
     return {"status": "ok", "service": "Personal AI Agent", "endpoint": "/status"}
 
 
+async def _make_html_response(text: str, original: "Response") -> "Response":
+    """Baut aus ersetztem HTML-Text eine Response mit denselben Headern
+    (Cache-Control no-store) zurück — Ersatz für die FileResponse, deren
+    body_iterator wir verbraucht haben."""
+    resp = Response(
+        content=text.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+    )
+    for k, v in original.headers.items():
+        resp.headers[k] = v
+    return resp
+
+
 class NoCacheStaticFiles(StaticFiles):
     """Statische Dateien OHNE Caching ausliefern.
 
@@ -216,17 +232,35 @@ class NoCacheStaticFiles(StaticFiles):
     längst geändert wurde (das Kernproblem 'ich sehe Korrekturen nicht').
     Diese Unterklasse setzt auf jede Antwort Cache-Control: no-store, sodass der
     Browser immer die aktuelle Datei holt und nie etwas Altes behält.
+
+    Zusätzlich injiziert sie bei der index.html serverseitig den API-Key
+    (falls `settings.api_key` gesetzt). Der Key liegt damit NUR auf dem Handy
+    in der lokal ausgelieferten Seite, nie im versionierten Frontend-Code.
     """
 
-    async def get_response(self, path: str, scope: Scope) -> FileResponse:
+    async def get_response(self, path: str, scope: Scope) -> Response:
         antwort = await super().get_response(path, scope)
-        # Nur Antworten auf echte Dateien anfassen (nicht 404-HTML).
         try:
             antwort.headers["Cache-Control"] = "no-store, max-age=0"
             antwort.headers["Pragma"] = "no-cache"
             antwort.headers["Expires"] = "0"
         except Exception:
             pass
+
+        # API-Key serverseitig in die index.html einschmuggeln (nur beim
+        # Ausliefern, nie auf Platte). Der Platzhalter "__API_KEY__" wird
+        # ersetzt. FileResponse hat KEIN .body — deshalb über body_iterator.
+        if path in ("", "index.html") and settings.api_key:
+            try:
+                chunks = []
+                async for c in antwort.body_iterator:
+                    chunks.append(c)
+                text = b"".join(chunks).decode("utf-8")
+                if "__API_KEY__" in text:
+                    text = text.replace("__API_KEY__", settings.api_key)
+                    antwort = await _make_html_response(text, antwort)
+            except Exception:
+                pass
         return antwort
 
 

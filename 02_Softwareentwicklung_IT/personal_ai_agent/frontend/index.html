@@ -192,6 +192,12 @@
         </div>
     </div>
 
+    <!-- API-Key wird vom Backend serverseitig injiziert (nur beim Ausliefern,
+         nie in dieser Datei auf Platte). Ohne gesetzten Key bleibt __API_KEY__
+         leer = kein Schutz aktiv (lokale Entwicklung). -->
+    <script>
+        window.__API_KEY__ = "__API_KEY__";
+    </script>
     <script src="app.js?v=20260830A"></script>
 </body>
 </html>

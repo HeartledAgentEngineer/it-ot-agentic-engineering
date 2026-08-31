@@ -29,6 +29,35 @@
 const API_BASE = localStorage.getItem('api_base')
     || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
 
+/** API-Key, den das Backend serverseitig in die index.html injiziert hat.
+ *  Ohne gesetzten Key (__API_KEY__ leer) bleibt der Schutz deaktiviert. */
+const API_KEY = (typeof window !== 'undefined' && window.__API_KEY__)
+    ? window.__API_KEY__
+    : '';
+
+/**
+ * Zentrale fetch-Kapselung: hängt den X-API-Key an alle Anfragen an unser
+ * eigenes Backend (/api/*) an, damit der Server den Key verlangen darf.
+ * Andere URLs (z.B. externe) bleiben unangetastet.
+ *
+ * Statt alle ~25 fetch-Aufrufe umzuschreiben, wird der GLOBAL window.fetch
+ * einmal gepatcht — so sind auch künftige Aufrufe automatisch abgedeckt.
+ */
+(function () {
+    if (!API_KEY) return;              // kein Key konfiguriert -> nichts patchen
+    const originalFetch = window.fetch;
+    window.fetch = (url, options = {}) => {
+        const u = String(url);
+        const istApi = u.startsWith(`${API_BASE}/api/`) || u.startsWith('/api/');
+        if (istApi) {
+            const headers = new Headers(options.headers || {});
+            if (!headers.has('X-API-Key')) headers.set('X-API-Key', API_KEY);
+            options = { ...options, headers };
+        }
+        return originalFetch(url, options);
+    };
+})();
+
 // =========================================
 // Websuche – drei Zustände
 // =========================================
