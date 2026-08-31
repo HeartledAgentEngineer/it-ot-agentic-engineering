@@ -359,7 +359,7 @@ function baueKorrekturButton(fehlerFall) {
         }
         if (!frag) return;
         btn.disabled = true;
-        btn.textContent = '… Hermes wird beendet, Agent antwortet';
+        btn.textContent = '… Hermes wird beendet, Hermes antwortet';
         // 1) Laufenden Hermes-Auftrag abbrechen (tmux-Session + Buch-Status),
         //    damit nicht im Hintergrund weitergearbeitet wird.
         if (_laufenderAuftragKurz) {
@@ -549,7 +549,12 @@ function aktualisiereStatusAnzeige() {
         badge.style.borderColor = '#f55';
         badge.style.background = '#2a1515';
     } else if (state.abbruch) {
-        badge.textContent = '🟡 Agent antwortet';
+        // Loop-Modus oder laufender Hermes-Auftrag -> "Hermes antwortet";
+        // sonst normaler Chat -> "Agent antwortet". (Wunsch Sebastian:
+        // bei loop aus wieder Agent, ausser automatisch an Hermes delegiert.)
+        badge.textContent = (typeof loopAktiv !== 'undefined' && loopAktiv)
+            ? '🟡 Hermes antwortet'
+            : '🟡 Agent antwortet';
         badge.style.color = '#fc6';
         badge.style.borderColor = '#c90';
         badge.style.background = '#2a2215';
@@ -2192,6 +2197,29 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     );
 
     try {
+        // Loop-Modus (Hermes) aktiv: Nachricht ueber den aktiv-Kanal/Daemon
+        // (diese Hermes-Session) beantworten statt DeepSeek-Chat. Nicht
+        // streamend - Antwort kommt als fertiger reply.
+        if (typeof loopAktiv !== 'undefined' && loopAktiv) {
+            const hermesRes = await fetch(`${API_BASE}/api/hermes/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    nachricht: text,
+                    kontext: `[Chat-Hermes-Modus] Modell=${state.model || ''}, conversation=${state.conversationId || ''}`,
+                }),
+                signal: controller.signal,
+            });
+            const hermesData = await hermesRes.json().catch(() => ({}));
+            dom.filePreviewList.innerHTML = '';
+            dom.filePreview.classList.add('hidden');
+            _aktualisiereUploadKnopf();
+            const reply = (hermesData && hermesData.reply) || '⚠️ Keine Antwort (Hermes-Modus).';
+            zustand.text = reply;
+            zustand.fertig = true;
+            finishReply(contentDiv, entry, reply, hermesData, vorleser);
+            return hermesData;
+        }
         const res = await fetch(`${API_BASE}/api/chat/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
