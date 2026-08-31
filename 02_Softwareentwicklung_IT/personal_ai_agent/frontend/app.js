@@ -2709,7 +2709,7 @@ async function toggleLoop() {
     loopAktiv = !loopAktiv;
     dom.loopBtn.classList.toggle('active', loopAktiv);
     dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
-    dom.loopLabel.textContent = loopAktiv ? 'Loop: an' : 'Loop';
+    dom.loopLabel.textContent = loopAktiv ? 'Hermes: an' : 'Hermes';
     try {
         if (loopAktiv) {
             const res = await fetch(`${API_BASE}/api/hermes/aktivieren`, {
@@ -2738,7 +2738,7 @@ async function toggleLoop() {
         loopAktiv = !loopAktiv;
         dom.loopBtn.classList.toggle('active', loopAktiv);
         dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
-        dom.loopLabel.textContent = loopAktiv ? 'Loop: an' : 'Loop';
+        dom.loopLabel.textContent = loopAktiv ? 'Hermes: an' : 'Hermes';
         addMessage(`⚠️ Loop-Umschaltung fehlgeschlagen: ${err.message || err}`, 'assistant');
     }
 }
