@@ -3,6 +3,23 @@
 Alle sichtbaren Änderungen am personal_ai_agent, dokumentiert nach dem
 Prinzip „Doku folgt dem Code“. Neuere Einträge oben.
 
+## 2026-08-30 — Verlauf vor Überschreiben durch leeren Server geschützt
+
+**Problem (erneuter Vorfall):** Der Chatverlauf verschwand erneut komplett aus
+`conversations.json` (nur noch die leere `conv_ex`). Ursache: Ein Server mit
+leerem/teilweisem Stand hat beim Start die intakte Verlaufsdatei überschrieben
+(z. B. weil ein zweiter uvicorn startete, während ein anderer schrieb).
+
+**Fix (`chat_verlauf.py`):** `_lade_verlauf` restauriert jetzt beim Start den
+**jüngsten nicht-leeren Rotations-Backup**, wenn die geladene Datei ohne jede
+Nachricht ist (`conversations` leer). Damit kann ein leeres In-Memory-Dict die
+intakte Datei nicht mehr beim nächsten Save dauerhaft kassieren. Bestehende
+Rotation-Backups (`conversations.json.bak-*`) bleiben der Rettungsanker.
+
+**Verifikation:** `test_leerer_verlauf_restauriert_aus_backup` (neu) + alle
+Verlauf-Tests grün (10 passed). Der echte, vorhin verlorene Verlauf wurde aus
+dem Backup `bak-20260830_143314` manuell wiederhergestellt (6 Nachrichten).
+
 ## 2026-08-30 — Gesichter merken funktioniert jetzt auch im normalen Chat (Stream)
 
 **Problem:** „das bin ich" / „das ist Pedi" beim Betrachten eines Bildes wurde
