@@ -17,19 +17,20 @@ skript="$0"
 HIER="$(cd "$(dirname "$skript")" && pwd)"
 . "$HIER/gemeinsam.sh"
 
-# Alten uvicorn-Server ZUERST zuverlaessig beenden — BEVOR die "laeuft
-# bereits"-Pruefung kommt. Sonst antwortet der alte (falsche, ohne
-# HERMES_PC-Config) Server auf /api/health, das Skript springt zu
-# "Agent laeuft bereits" -> nur localhost:8080 -> und der Port-Kill unten
-# wird nie erreicht. So wird der alte Server immer ersetzt und der neue
-# (mit frischer Config) startet wirklich.
-pkill -9 -f "uvicorn app.main:app" 2>/dev/null
-pkill -9 -f "python -m uvicorn" 2>/dev/null
-pkill -9 -f "uvicorn" 2>/dev/null
-sleep 2
+# Alten Server ersetzt der Widget-Druck NUR, wenn er mit altem Code laeuft.
+# Sonst bleibt eine heilige laufende Instanz stehen und der Verlauf wird nicht
+# durch einen frisch gestarteten (mit leerem In-Memory-Stand) ueberschrieben.
+# Merkmal des AKTUELLEN Codes: Endpunkt /api/konfig (existiert seit dem
+# Security-Umbau 2026-08-31). Antwortet der laufende Server darauf, ist er
+# aktuell -> nicht killen.
+if ! agent_antwortet; then
+    pkill -9 -f "uvicorn app.main:app" 2>/dev/null
+    pkill -9 -f "python -m uvicorn" 2>/dev/null
+    pkill -9 -f "uvicorn" 2>/dev/null
+    sleep 2
+fi
 
-# Laeuft er schon? Dann nur nach vorn holen. (Nach dem Kill oben ist hier
-# nichts mehr offen, wenn der Server wirklich ersetzt werden soll.)
+# Laeuft er schon? Dann nur nach vorn holen.
 if agent_antwortet; then
     oberflaeche_oeffnen
     melde "Agent laeuft bereits"
