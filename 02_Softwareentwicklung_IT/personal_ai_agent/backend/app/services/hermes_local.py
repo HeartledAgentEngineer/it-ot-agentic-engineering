@@ -361,6 +361,46 @@ class HermesRegistry:
 hermes_registry = HermesRegistry()
 
 
+def sichere_persistente_tmux_session(name: str = "hermes_agent_loop") -> str:
+    """Sichert eine PERSISTENTE tmux-Session, an die Track C andocken kann.
+
+    Ist die Session mit `name` nicht vorhanden, wird sie erzeugt (mit einem
+    `hermes chat` darin) und bleibt BESTEHEN (nicht automatisch beendet). Das
+    Backend kann dann `bestehende_session=name` verwenden.
+
+    Returns: den Session-Namen. None-artig runtime, wenn tmux fehlt/Start fehl.
+    """
+    if not ist_verfuegbar():
+        return ""
+    try:
+        r = subprocess.run(["tmux", "has-session", "-t", name],
+                           capture_output=True)
+        if r.returncode == 0:
+            return name  # existiert bereits -> andocken
+        # Neue persistente Session erzeugen (hermes chat, bleibt offen).
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", name,
+             "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), "hermes chat"],
+            capture_output=True, text=True, timeout=15, check=True,
+        )
+        return name
+    except Exception as e:  # pragma: no cover
+        logger.warning("Persistente tmux-Session nicht sicherbar: %s", e)
+        return ""
+
+
+def beende_lokale_session(name: str) -> bool:
+    """Beendet eine lokale Hermes-Session (fuer manuelles Loop-Aus)."""
+    if not name:
+        return False
+    try:
+        subprocess.run(["tmux", "kill-session", "-t", name],
+                       capture_output=True, timeout=10)
+        return True
+    except Exception:  # pragma: no cover
+        return False
+
+
 def stream_auftrag_query(
     auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
     kontext: str = "",

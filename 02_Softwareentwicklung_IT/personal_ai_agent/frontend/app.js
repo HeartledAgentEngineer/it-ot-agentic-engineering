@@ -159,6 +159,8 @@ const dom = {
     modelFilters: document.getElementById('model-filters'),
     privacyBtn: document.getElementById('privacy-btn'),
     privacyLabel: document.getElementById('privacy-label'),
+    loopBtn: document.getElementById('loop-btn'),
+    loopLabel: document.getElementById('loop-label'),
     // Datei-Upload
     uploadBtn: document.getElementById('upload-btn'),
     fileInput: document.getElementById('file-input'),
@@ -2669,6 +2671,47 @@ dom.modelBtn.addEventListener('click', oeffneBlatt);
 dom.modelClose.addEventListener('click', schliesseBlatt);
 dom.modelSearch.addEventListener('input', zeichneListe);
 dom.privacyBtn.addEventListener('click', () => setPrivacy(!state.noRetention));
+
+// Loop-Button: startet/beendet manuell den lokalen Hermes-Loop (end-to-end).
+// An:   kein Auftrag noetig, nur aktivieren (Session wird bei Bedarf
+//       persistent in tmux erzeugt; im query-Kanal Subprozess je Auftrag).
+// Aus:  POST /api/hermes/beenden killt die (persistente) Session.
+let loopAktiv = false;
+async function toggleLoop() {
+    loopAktiv = !loopAktiv;
+    dom.loopBtn.classList.toggle('active', loopAktiv);
+    dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
+    dom.loopLabel.textContent = loopAktiv ? 'Loop: an' : 'Loop';
+    try {
+        if (loopAktiv) {
+            const res = await fetch(`${API_BASE}/api/hermes/aktivieren`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    aufgabe: 'Bereit: verarbeite die naechsten Nachrichten als Aufgabe. Antworte nach jeder Eingabe kurz, was du tust.',
+                }),
+            });
+            const d = await res.json().catch(() => ({}));
+            addMessage(`🔁 **Loop aktiviert** (Auftrag ${(d.auftrag_id || '').slice(0, 8)})\nDer lokale Hermes ist end-to-end verbunden.`, 'assistant');
+        } else {
+            const res = await fetch(`${API_BASE}/api/hermes/beenden`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            const d = await res.json().catch(() => ({}));
+            addMessage(`⬛ **Loop beendet**${d.session ? ` (Session ${d.session})` : ''}.`, 'assistant');
+        }
+    } catch (err) {
+        // Bei Fehler Zustand zuruecksetzen.
+        loopAktiv = !loopAktiv;
+        dom.loopBtn.classList.toggle('active', loopAktiv);
+        dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
+        dom.loopLabel.textContent = loopAktiv ? 'Loop: an' : 'Loop';
+        addMessage(`⚠️ Loop-Umschaltung fehlgeschlagen: ${err.message || err}`, 'assistant');
+    }
+}
+dom.loopBtn.addEventListener('click', toggleLoop);
 
 dom.modelFilters.addEventListener('click', (e) => {
     const chip = e.target.closest('.filter-chip');
