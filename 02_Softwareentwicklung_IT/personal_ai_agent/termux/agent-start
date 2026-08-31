@@ -60,7 +60,16 @@ echo
 
 # Im Hintergrund, damit dieses Skript weiterlaufen und danach die
 # Oberflaeche oeffnen kann. Die Ausgabe bleibt im Terminal sichtbar.
-python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" &
+# Bind-Adresse aus der .env: HOST_BIND (Standard 0.0.0.0 fuer Heim-WLAN/PC).
+#   HOST_BIND=0.0.0.0  (Standard) -> im Heim-WLAN erreichbar (PC-Zugriff, wie gehabt)
+#   HOST_BIND=127.0.0.1 -> NUR lokal (Hotel-Gast-WLAN: Backend + Key nicht im Netz)
+# Zu Hause braucht nichts umgestellt zu werden (Default ist 0.0.0.0).
+# Der Wert wird gezielt aus der Backend-.env gelesen (nur dieser Schlüssel,
+# keine anderen .env-Interna werden ausgegeben oder exportiert).
+HOST_BIND="0.0.0.0"
+_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
+[ -n "$_env_host" ] && HOST_BIND="$_env_host"
+python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" &
 server=$!
 
 # Warten, bis er wirklich antwortet. Das Laden der Vektordatei dauert
