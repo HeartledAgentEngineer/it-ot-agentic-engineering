@@ -317,6 +317,11 @@ def hermes_stream(req: StreamNachrichtRequest):
                 verlauf_nachricht_anhaengen(req.conversation_id, "assistant", text)
             except Exception as ver:
                 logger.warning("Verlauf-Anhang im Stream fehlgeschlagen: %s", ver)
+            # Fuer den Frontend-Poll die letzte Nachricht dieser Session ablegen.
+            try:
+                setze_letzte_nachricht(text)
+            except Exception as e:
+                logger.warning("letzte Nachricht im Stream fehlgeschlagen: %s", e)
             yield "data: {\"done\": true}\n\n"
         except Exception as e:
             logger.error("Hermes-Stream abgebrochen: %s", e)
@@ -332,3 +337,44 @@ def json_dumps(s: str) -> str:
     """Kleiner JSON-Encoder fuer saeberes delta-Streaming (Umlaute etc.)."""
     import json as _j
     return _j.dumps(s, ensure_ascii=False)
+
+
+def _letzte_nachricht_pfad() -> str:
+    import os as _os
+    return _os.path.join(_os.path.expanduser("~"), "hermes_inbox", "letzte_nachricht.json")
+
+
+def setze_letzte_nachricht(text: str) -> None:
+    """Legt die von DIESER Session geschriebene letzte Nachricht fuer den
+    Frontend-Poll ab. Wird z. B. am Ende eines Streams aufgerufen."""
+    import os as _os
+    import time as _time
+    import json as _j
+    try:
+        _os.makedirs(_os.path.dirname(_letzte_nachricht_pfad()), exist_ok=True)
+        with open(_letzte_nachricht_pfad(), "w", encoding="utf-8") as f:
+            f.write(_j.dumps({
+                "id": str(uuid.uuid4()),
+                "text": text,
+                "zeit": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }, ensure_ascii=False))
+    except Exception as e:
+        logger.warning("letzte Nachricht setzen fehlgeschlagen: %s", e)
+
+
+@router.get("/letzte")
+def hermes_letzte():
+    """Poll-Endpunkt: liefert die neueste von dieser Termux-Session geschriebene
+    Nachricht (id+text). Das Frontend pollt und zeigt eine NEUE id via
+    streamHermesText mit 'Hermes denkt (Stream bereit)'-Badge."""
+    import os as _os
+    pfad = _letzte_nachricht_pfad()
+    if not _os.path.exists(pfad):
+        return {"id": None, "text": ""}
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            import json as _j
+            dat = _j.loads(f.read())
+        return {"id": dat.get("id"), "text": dat.get("text", "")}
+    except Exception:
+        return {"id": None, "text": ""}

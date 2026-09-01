@@ -3287,6 +3287,36 @@ async function streamHermesText(text, conversationId) {
     }
 }
 
+/**
+ * Pollt alle paar Sekunden GET /api/hermes/letzte (die neueste Nachricht
+ * von DIESER Termux-Session). Ist eine NEUE id da, wird sie via
+ * streamHermesText mit Denk-Badge im Frontend angezeigt. Wunsch Sebastian:
+ * "server kann von dir pollen" - einfacher/robuster als Skript pro Antwort.
+ */
+let _letzteHermesId = null;
+let _hermesPollAktiv = false;
+async function pollHermesLetzte() {
+    try {
+        const res = await fetch(`${API_BASE}/api/hermes/letzte`);
+        if (!res.ok) return;
+        const d = await res.json();
+        const id = d && d.id;
+        const text = d && d.text;
+        if (id && text && id !== _letzteHermesId) {
+            _letzteHermesId = id;
+            const conv = (typeof state !== 'undefined' && state.conversationId) || 'conv_main';
+            await streamHermesText(text, conv);
+        }
+    } catch (_) { /* Netzwerk/Poll-Fehler ignorieren */ }
+}
+function starteHermesPoll() {
+    if (_hermesPollAktiv) return;
+    _hermesPollAktiv = true;
+    // Initial einmal pruefen, dann alle 4s.
+    pollHermesLetzte();
+    setInterval(pollHermesLetzte, 4000);
+}
+
 /** Zeigt die Nachrichten eines Gesprächs an. True, wenn es sie gab. */
 async function zeigeGespraech(id) {
     try {
@@ -3395,6 +3425,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setPrivacy(state.noRetention);   // Riegel-Zustand wiederherstellen
     startHealthChecks();
     stelleVerlaufWiederHer();
+    if (typeof starteHermesPoll === 'function') starteHermesPoll();
     dom.input.focus();
     updateSendButton();
     // Katalog im Hintergrund holen: Danach steht der richtige Anzeigename am
