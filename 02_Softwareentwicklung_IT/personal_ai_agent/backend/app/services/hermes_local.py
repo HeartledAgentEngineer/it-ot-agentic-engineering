@@ -743,23 +743,45 @@ def stelle_frage_an_tmux(session: str, frage: str,
         return {"art": "fehler", "text": "tmux nicht verfuegbar", "gedanken": []}
     job = LocalHermesJob(frage, timeout=timeout, bestehende_session=session)
     try:
-        sum_before = len(job.alle_antwort_boxen())
         if not job.sende_zeile(frage):
             return {"art": "fehler", "text": "konnte Frage nicht senden", "gedanken": []}
         start = time.time()
         gedanken = []
         gesehen: set = set()
+        # Eindeutige Bestandserkennung: Fingerprint aller Box-Inhalte VOR der Frage.
+        try:
+            before_fp = tuple(job.alle_antwort_boxen())
+        except Exception:
+            before_fp = ()
+        stab_seit = None
+        letzte_len = -1
+        letzter_text = ""
         while time.time() - start < timeout:
             for gd in job.neue_gedanken():
                 if gd not in gesehen:
                     gesehen.add(gd)
                     gedanken.append(gd)
             boxen = job.alle_antwort_boxen()
-            if len(boxen) > sum_before:
-                # Neue Antwort-Box(en) erschienen -> letzte neue nehmen.
-                neue = boxen[sum_before:]
-                return {"art": "ergebnis", "text": neue[-1], "gedanken": gedanken}
+            # Neue Box erkannt: Vergleich mit Fingerprint VOR der Frage.
+            neu = [b for b in boxen if b not in before_fp]
+            if neu:
+                aktuell = neu[-1]  # unterste/frischeste neue Box
+                if len(aktuell) != letzte_len or aktuell != letzter_text:
+                    # Box waechst noch -> Stabilitaet zuruecksetzen.
+                    stab_seit = None
+                elif stab_seit is None:
+                    stab_seit = time.time()
+                elif time.time() - stab_seit >= 2.0:
+                    # Box seit 2s stabil -> vollstaendig, liefern.
+                    return {"art": "ergebnis", "text": aktuell, "gedanken": gedanken}
+                letzte_len = len(aktuell)
+                letzter_text = aktuell
             time.sleep(1.0)
+        # Fallback: falls nie "stabil" erkannt, die unterste neue nehmen.
+        boxen = job.alle_antwort_boxen()
+        neu = [b for b in boxen if b not in before_fp]
+        if neu:
+            return {"art": "ergebnis", "text": neu[-1], "gedanken": gedanken}
         return {"art": "fehler", "text": f"Timeout nach {timeout}s (keine neue Antwort-Box)", "gedanken": gedanken}
     except Exception as e:
         return {"art": "fehler", "text": str(e), "gedanken": []}
