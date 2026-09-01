@@ -3293,7 +3293,7 @@ async function streamHermesText(text, conversationId) {
  * streamHermesText mit Denk-Badge im Frontend angezeigt. Wunsch Sebastian:
  * "server kann von dir pollen" - einfacher/robuster als Skript pro Antwort.
  */
-let _letzteHermesId = null;
+let _letzteHermesId = sessionStorage.getItem('hermes_letzte_id') || null;
 let _hermesPollAktiv = false;
 async function pollHermesLetzte() {
     try {
@@ -3304,6 +3304,7 @@ async function pollHermesLetzte() {
         const text = d && d.text;
         if (id && text && id !== _letzteHermesId) {
             _letzteHermesId = id;
+            sessionStorage.setItem('hermes_letzte_id', id);
             const conv = (typeof state !== 'undefined' && state.conversationId) || 'conv_main';
             await streamHermesText(text, conv);
         }
