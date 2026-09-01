@@ -197,12 +197,13 @@ def hermes_chat(req: ChatRequest):
             wort = ""
         return ChatResponse(reply=("Das Codewort lautet: " + wort) if wort else "Codewort nicht gesetzt.")
     try:
-        # Schnell und zuverlaessig: direkt `hermes chat -q` mit Session-Kontext
-        # ausfuehren (stream_auftrag_query), NICHT auf einen Inbox-Daemon
-        # warten (der ist gestoppt - der alte Pfad hing bis zum Timeout).
-        ereignisse = list(hermes_local.stream_auftrag_query(
+        # Bidirektionaler Spiegel: Frontend-Nachricht -> Inbox (`stream_auftrag_aktiv`),
+        # ein separater Daemon (hermes_inbox_daemon.py, beantwortet im Kontext
+        # dieser Session via session_kontext.md) legt die Antwort in antworten.jsonl
+        # ab, das hier zurueckgegeben und ins Frontend gestreamt wird.
+        ereignisse = list(hermes_local.stream_auftrag_aktiv(
             "chat-" + uuid.uuid4().hex[:8],
-            text, timeout=100, kontext=req.kontext,
+            text, timeout=60, kontext=req.kontext,
         ))
         letztes = ereignisse[-1] if ereignisse else {}
         if letztes.get("art") == "ergebnis":
