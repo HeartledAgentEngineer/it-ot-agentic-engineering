@@ -161,6 +161,8 @@ const dom = {
     privacyLabel: document.getElementById('privacy-label'),
     loopBtn: document.getElementById('loop-btn'),
     loopLabel: document.getElementById('loop-label'),
+    streamSettingsBtn: document.getElementById('stream-settings-btn'),
+    streamMenu: document.getElementById('stream-menu'),
     // Datei-Upload
     uploadBtn: document.getElementById('upload-btn'),
     fileInput: document.getElementById('file-input'),
@@ -2306,7 +2308,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     // der Blase würde auf dem Handy ruckeln. Der endgültige
                     // Aufbau passiert ohnehin in finishReply().
                     const jetzt = performance.now();
-                    if (jetzt - letztesRendern > 80) {
+                    // Streaming-Geschwindigkeit einstellbar (Zahnrad): Die
+                    // Render-Frequenz des sichtbaren Texts folgt state.streamMs
+                    // (gross = langsamer, zum Mitlesen). Standard 120 ms.
+                    const renderIntervall = (typeof state.streamMs === 'number' && state.streamMs > 0)
+                        ? state.streamMs : 120;
+                    if (jetzt - letztesRendern > renderIntervall) {
                         letztesRendern = jetzt;
                         const untenGewesen = isAtBottom();
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
@@ -2694,6 +2701,24 @@ dom.modelBtn.addEventListener('click', oeffneBlatt);
 dom.modelClose.addEventListener('click', schliesseBlatt);
 dom.modelSearch.addEventListener('input', zeichneListe);
 dom.privacyBtn.addEventListener('click', () => setPrivacy(!state.noRetention));
+
+// ── Streaming-Geschwindigkeit (Zahnrad oben rechts, Wunsch Sebastian) ──
+// Die Verzoegerung zwischen SSE-delta-Haeppchen ist einstellbar (moeglichst
+// langsam, damit man mitlesen kann). Gespeichert in localStorage.
+state.streamMs = parseInt(localStorage.getItem('stream_ms') || '120', 10);
+dom.streamSettingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dom.streamMenu.hidden = !dom.streamMenu.hidden;
+});
+document.addEventListener('click', () => { if (dom.streamMenu && !dom.streamMenu.hidden) dom.streamMenu.hidden = true; });
+document.querySelectorAll('.stream-opt').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.streamMs = parseInt(btn.dataset.ms || '120', 10);
+        localStorage.setItem('stream_ms', String(state.streamMs));
+        dom.streamMenu.hidden = true;
+    });
+});
 
 // Loop-Button: startet/beendet manuell den lokalen Hermes-Loop (end-to-end).
 // An:   kein Auftrag noetig, nur aktivieren (Session wird bei Bedarf

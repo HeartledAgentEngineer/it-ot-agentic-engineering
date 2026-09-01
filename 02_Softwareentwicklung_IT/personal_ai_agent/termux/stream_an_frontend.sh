@@ -12,15 +12,8 @@
 
 set -u
 
-BASE="${1:-}"
-TEXT=""
-
-if [ $# -ge 2 ]; then
-    # Basis gegeben, Text als restliche Argumente
-    BASE=""
-elif [ $# -eq 1 ]; then
-    TEXT="$1"
-fi
+TEXT="${1:-}"
+DELAY="${2:-120}"
 
 # Falls kein Argument: von stdin lesen (sauber bei mehrzeiligen/UMlaut-Texten).
 if [ -z "$TEXT" ] && [ ! -t 0 ]; then
@@ -40,10 +33,11 @@ KEY="$(curl -s --max-time 5 http://127.0.0.1:${PORT}/api/konfig 2>/dev/null \
         | sed -E 's/.*"([^"]+)".*/\1/')"
 
 # JSON-sicher einpacken (Umlaute, Zeilenumbrueche).
-JSON_BODY="$(python3 - "$TEXT" <<'PYEOF'
+JSON_BODY="$(python3 - "$TEXT" "$DELAY" <<'PYEOF'
 import json, sys
 text = sys.argv[1]
-print(json.dumps({"text": text, "conversation_id": "conv_main"}, ensure_ascii=False))
+delay = int(sys.argv[2]) if len(sys.argv) > 2 else 120
+print(json.dumps({"text": text, "conversation_id": "conv_main", "delay_ms": delay}, ensure_ascii=False))
 PYEOF
 )"
 

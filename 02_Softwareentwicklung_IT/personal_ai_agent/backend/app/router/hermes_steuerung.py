@@ -258,6 +258,7 @@ def hermes_codewort(req: CodewortRequest):
 class StreamNachrichtRequest(BaseModel):
     text: str
     conversation_id: str = "conv_main"
+    delay_ms: int = 120
 
 
 @router.post("/stream")
@@ -276,6 +277,8 @@ def hermes_stream(req: StreamNachrichtRequest):
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text darf nicht leer sein")
+    delay = max(10, req.delay_ms if req.delay_ms > 0 else 120)  # ms pro Haeppchen
+    delay /= 1000.0  # in Sekunden
 
     def generator():
         # In kleinen Haeppchen streamen (Frontend-`delta`-Muster).
@@ -286,7 +289,7 @@ def hermes_stream(req: StreamNachrichtRequest):
                 stueck = text[i:i + chunk]
                 i += chunk
                 yield "data: " + '{"delta": ' + json_dumps(stueck) + "}\n\n"
-                time.sleep(0.02)  # sichtbares Zeichen-Streaming
+                time.sleep(delay)  # sichtbares Zeichen-Streaming, einstellbar
             # Erst jetzt in den Verlauf uebernehmen (vollstaendiger Text =
             # eine Assistant-Nachricht im gemeinsamen Dialog).
             try:
