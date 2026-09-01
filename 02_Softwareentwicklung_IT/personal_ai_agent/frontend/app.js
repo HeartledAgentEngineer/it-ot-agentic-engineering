@@ -2243,7 +2243,29 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 _aktualisiereUploadKnopf();
                 zustand.text = reply;
                 zustand.fertig = true;
-                finishReply(contentDiv, entry, reply, hd, vorleser);
+                // Schoene Formatierung: Markdown sauber rendern und die
+                // Antwort zeichenweise im eingestellten Stream-Tempo
+                // (state.streamMs, Zahnrad) aufbauen - damit man die
+                // Geschwindigkeit sieht statt einen ploetzlichen Textblock.
+                (async () => {
+                    const ms = (typeof state.streamMs === 'number' && state.streamMs > 0)
+                        ? state.streamMs : 120;
+                    let sichtbar = '';
+                    // Haeppchenweise je ein paar Zeichen einfuegen.
+                    const anzeige = () => {
+                        contentDiv.innerHTML = (typeof parseMarkdownPartial === 'function')
+                            ? parseMarkdownPartial(sichtbar)
+                            : sichtbar;
+                        if (isAtBottom()) scrollToBottom(true);
+                    };
+                    const chunk = Math.max(2, Math.round(3 * ms / 120));
+                    while (sichtbar.length < reply.length) {
+                        sichtbar = reply.slice(0, Math.min(reply.length, sichtbar.length + chunk));
+                        anzeige();
+                        await new Promise(r => setTimeout(r, ms));
+                    }
+                    anzeige();
+                })();
             } finally {
                 hermesStreamBereit = false;
                 aktualisiereStatusAnzeige();

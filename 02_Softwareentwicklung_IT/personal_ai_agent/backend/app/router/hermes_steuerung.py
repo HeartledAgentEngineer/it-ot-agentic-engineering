@@ -392,3 +392,77 @@ def hermes_letzte():
         return ergebnis
     except Exception:
         return {"id": None, "text": ""}
+
+
+class ChatStreamRequest(BaseModel):
+    nachricht: str
+    kontext: str = ""
+    conversation_id: str = "conv_main"
+    delay_ms: int = 120
+
+
+@router.post("/chatstream")
+def hermes_chatstream(req: ChatStreamRequest):
+    """Beantwortet eine Frage wie /chat, streamt die Antwort aber zeichenweise
+    (echter SSE). Der Hermes-Modus im Frontend nutzt DIESEN Endpoint, damit der
+    Output als sichtbarer, langsamer, formatierter Stream ankommt statt Block.
+
+    Codewort-Fragen deterministisch; sonst hermes chat -q (mit session_kontext).
+    """
+    text = (req.nachricht or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="nachricht darf nicht leer sein")
+    t = text.lower()
+    if ("codewort" in t) or ("passwort" in t) or ("code wort" in t):
+        # Deterministisch (wie /chat)
+        import re as _re
+        wort = ""
+        pfad = _session_kontext_pfad()
+        try:
+            import os as _os
+            if _os.path.exists(pfad):
+                with open(pfad, encoding="utf-8") as f:
+                    for zeile in f:
+                        m = _re.search(r"Codewort lautet:\s*([^\n\r]+)", zeile)
+                        if m:
+                            wort = m.group(1).strip()
+                            break
+        except Exception:
+            wort = ""
+        antwort = ("Das Codewort lautet: " + wort) if wort else "Codewort nicht gesetzt."
+    else:
+        try:
+            ereignisse = list(hermes_local.stream_auftrag_query(
+                "chat-" + uuid.uuid4().hex[:8], text, timeout=100, kontext=req.kontext,
+            ))
+            letztes = ereignisse[-1] if ereignisse else {}
+            antwort = letztes.get("text", "") if letztes.get("art") == "ergebnis" else (letztes.get("text") or "Kein Ergebnis")
+        except Exception as e:
+            logger.error("hermes_chatstream fehler: %s", e)
+            antwort = "Fehler: " + str(e)
+
+    delay = max(10, req.delay_ms if req.delay_ms > 0 else 120) / 1000.0
+
+    def generator():
+        chunk = 3
+        i = 0
+        try:
+            while i < len(antwort):
+                stueck = antwort[i:i + chunk]
+                i += chunk
+                yield "data: " + '{"delta": ' + json_dumps(stueck) + "}\n\n"
+                time.sleep(delay)
+            try:
+                from app.router.chat import verlauf_nachricht_anhaengen
+                verlauf_nachricht_anhaengen(req.conversation_id, "assistant", antwort)
+            except Exception:
+                pass
+            yield "data: {\"done\": true}\n\n"
+        except Exception as e:
+            logger.error("hermes_chatstream stream abgebrochen: %s", e)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
