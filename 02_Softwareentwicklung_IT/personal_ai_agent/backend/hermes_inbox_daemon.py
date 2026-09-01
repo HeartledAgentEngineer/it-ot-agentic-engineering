@@ -59,8 +59,23 @@ def _beantworte(auftrag):
     if not aid or not text:
         return
     payload = text
+    # Session-Kontext aus session_kontext.md (verabredete Infos/Codewort) dem
+    # Hermes-Lauf mitgeben, damit eine frische Instanz den Kontext kennt.
+    _kontext_file = os.path.join(INBOX, "session_kontext.md")
+    try:
+        if os.path.exists(_kontext_file):
+            with open(_kontext_file, encoding="utf-8") as _kf:
+                sess_kontext = _kf.read().strip()
+        else:
+            sess_kontext = ""
+    except Exception:
+        sess_kontext = ""
+    teile = [text]
     if kontext:
-        payload = f"{text}\n\n[Kontext dieser Hermes-Session:]\n{kontext}"
+        teile.append(f"[Kontext dieser Hermes-Session (Frontend):]\n{kontext}")
+    if sess_kontext:
+        teile.append(f"[Persistenter Session-Kontext (verabredet):]\n{sess_kontext}")
+    payload = "\n\n".join(teile)
     # Sofortige Statusmeldung (schnelle Rueckmeldung "was der Hermes tut").
     _schreibe_status(aid, "🔧 Hermes bearbeitet die Nachricht (Inbox-Daemon aktiv)…")
     try:
