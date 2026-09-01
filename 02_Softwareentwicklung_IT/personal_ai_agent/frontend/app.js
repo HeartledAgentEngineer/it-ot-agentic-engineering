@@ -2208,24 +2208,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // (diese Hermes-Session) beantworten statt DeepSeek-Chat. Nicht
         // streamend - Antwort kommt als fertiger reply.
         if (typeof loopAktiv !== 'undefined' && loopAktiv) {
-            const hermesRes = await fetch(`${API_BASE}/api/hermes/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nachricht: text,
-                    kontext: `[Chat-Hermes-Modus] Modell=${state.model || ''}, conversation=${state.conversationId || ''}`,
-                }),
-                signal: controller.signal,
-            });
-            const hermesData = await hermesRes.json().catch(() => ({}));
-            dom.filePreviewList.innerHTML = '';
-            dom.filePreview.classList.add('hidden');
-            _aktualisiereUploadKnopf();
-            const reply = (hermesData && hermesData.reply) || '⚠️ Keine Antwort (Hermes-Modus).';
-            zustand.text = reply;
-            zustand.fertig = true;
-            finishReply(contentDiv, entry, reply, hermesData, vorleser);
-            return hermesData;
+            // Hermes-Modus: kein separater Daemon-Chat meher. Der Hermes-Bot
+            // (Server, /api/chat) fuehrt denselben conv_main-Dialog wie das
+            // Terminal - EIN gemeinsamer Verlauf (Wunsch Sebastian). Wenn
+            // Hermes gebraucht wird, ruft ihn die Weiche/delegation, nicht
+            // diese Umleitung. Nachricht geht weiter normal an /api/chat.
+            // Nur ein kurzer Hinweis im Hinblick-Chat, dass Hermes bereit ist.
         }
         const res = await fetch(`${API_BASE}/api/chat/stream`, {
             method: 'POST',
