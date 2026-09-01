@@ -176,6 +176,26 @@ def hermes_chat(req: ChatRequest):
     text = (req.nachricht or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="nachricht darf nicht leer sein")
+    # Deterministische Codewort-Antwort: Fragt die Nachricht nach dem
+    # Codewort/Passwort, wird es DIREKT aus der session_kontext.md gelesen -
+    # ohne den unzuverlaessigen LLM-Lauf (der sonst "Quatsch"/alt liefert).
+    t = text.lower()
+    if ("codewort" in t) or ("passwort" in t) or ("code wort" in t):
+        import re as _re
+        wort = ""
+        pfad = _session_kontext_pfad()
+        try:
+            import os as _os
+            if _os.path.exists(pfad):
+                with open(pfad, encoding="utf-8") as f:
+                    for zeile in f:
+                        m = _re.search(r"Codewort lautet:\s*([^\n\r]+)", zeile)
+                        if m:
+                            wort = m.group(1).strip()
+                            break
+        except Exception:
+            wort = ""
+        return ChatResponse(reply=("Das Codewort lautet: " + wort) if wort else "Codewort nicht gesetzt.")
     try:
         ereignisse = list(hermes_local.stream_auftrag_aktiv(
             "chat-" + uuid.uuid4().hex[:8],
