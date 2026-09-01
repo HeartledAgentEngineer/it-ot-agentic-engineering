@@ -54,26 +54,12 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
-# Inbox-Daemon starten (falls nicht schon einer laeuft). Er ist ein EIGENER
-# Prozess, unabhaengig vom uvicorn-Server: ein Backend-Crash nimmt ihn nicht
-# mit; er bleibt verfuegbar (Termux-Session, kein tmux noetig) fuer den
-# 'aktiv'-Kanal. Startet bei jedem agent-start automatisch mit.
-#
-# Nur starten, wenn noch KEIN Daemon-Prozess laeuft (sonst stapeln sich
-# mehrere und es wuerden mehrere Hermes-Instanzen antworten - Verboten).
-_daemon_skript="hermes_inbox_daemon.py"
-if [ -f "$_daemon_skript" ]; then
-    if ! pgrep -f "$_daemon_skript" >/dev/null 2>&1; then
-        # disown: laeuft weiter, auch wenn dieses Widget-Skript (und damit
-        # der Server-Prozess) endet. Ausgabe weg, damit keine Meldungen sich
-        # hier hineinschleichen.
-        nohup python "$_daemon_skript" >/dev/null 2>&1 &
-        disown
-        echo "── Inbox-Daemon gestartet ────────────────────"
-    else
-        echo "Inbox-Daemon laeuft bereits (ueberlebt Backend-Crash)."
-    fi
-fi
+# Hinweis: Der fruehere Inbox-Daemon (hermes_inbox_daemon.py) wird hier nicht
+# mehr automatisch gestartet. Im "EIN gemeinsamer Dialog"-Modell (2026-09-01)
+# fuehrt der Server-Bot /api/chat den conv_main-Dialog; Hermes wird bei Bedarf
+# als Tool ueber die Weiche/Delegation gerufen. Ein separater Daemon, der
+# Frontend-Fragen mit frischen `hermes chat -q`-Antworten beantwortet, war der
+# Irrweg und verursachte kontextlose/widerspruechliche Antworten (Codewort).
 
 
 echo
