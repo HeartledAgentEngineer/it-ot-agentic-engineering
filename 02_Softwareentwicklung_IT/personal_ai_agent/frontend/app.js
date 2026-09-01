@@ -433,6 +433,16 @@ function addZielChip(contentDiv, ziel) {
     if (!ziel || !ZIEL_LABELS[ziel]) return;
     // Ziel merken (pc/handy/buch) → Status-Badge zeigt "Hermes (PC/Handy)".
     _zielAktuell = ziel;
+    // Automatische Delegation an Hermes (pc/handy) → Hermes-Button aktivieren
+    // und den Zustand feuern (ohne die /aktivieren-API erneut zu starten):
+    // Der nochmalige Klick auf "Hermes" schaltet danach wieder AUS.
+    // Wunsch Sebastian: im Übergabefall steht der Button auf an.
+    if ((ziel === 'pc' || ziel === 'handy') && typeof loopAktiv !== 'undefined' && !loopAktiv) {
+        loopAktiv = true;
+        if (dom.loopBtn) dom.loopBtn.classList.add('active');
+        if (dom.loopBtn) dom.loopBtn.setAttribute('aria-pressed', 'true');
+        if (dom.loopLabel) dom.loopLabel.textContent = 'Hermes: an';
+    }
     const chip = document.createElement('div');
     chip.className = 'ziel-chip';
     chip.textContent = ZIEL_LABELS[ziel];
