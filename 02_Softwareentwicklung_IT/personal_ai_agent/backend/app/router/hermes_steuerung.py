@@ -197,9 +197,12 @@ def hermes_chat(req: ChatRequest):
             wort = ""
         return ChatResponse(reply=("Das Codewort lautet: " + wort) if wort else "Codewort nicht gesetzt.")
     try:
-        ereignisse = list(hermes_local.stream_auftrag_aktiv(
+        # Schnell und zuverlaessig: direkt `hermes chat -q` mit Session-Kontext
+        # ausfuehren (stream_auftrag_query), NICHT auf einen Inbox-Daemon
+        # warten (der ist gestoppt - der alte Pfad hing bis zum Timeout).
+        ereignisse = list(hermes_local.stream_auftrag_query(
             "chat-" + uuid.uuid4().hex[:8],
-            text, timeout=180, kontext=req.kontext,
+            text, timeout=100, kontext=req.kontext,
         ))
         letztes = ereignisse[-1] if ereignisse else {}
         if letztes.get("art") == "ergebnis":
