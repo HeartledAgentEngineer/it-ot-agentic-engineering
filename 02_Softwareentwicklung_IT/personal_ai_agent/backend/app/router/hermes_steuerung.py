@@ -12,11 +12,13 @@ Endpoints:
 """
 import logging
 import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -207,3 +209,103 @@ def hermes_lernfaelle(req: LernfallRequest):
     from app.services.llm_service import llm_service
     ok = llm_service.lerne_klassifikation(req.text, req.braucht_hermes)
     return {"gespeichert": ok}
+
+
+class CodewortRequest(BaseModel):
+    wort: str
+
+
+def _session_kontext_pfad() -> str:
+    import os as _os
+    return _os.path.join(_os.path.expanduser("~"), "hermes_inbox", "session_kontext.md")
+
+
+@router.post("/codewort")
+def hermes_codewort(req: CodewortRequest):
+    """Setzt das verabredete Codewort LIVE (Wunsch Sebastian).
+
+    Schreibt in ~/hermes_inbox/session_kontext.md; der Inbox-Daemon liest sie
+    bei jeder Anfrage aktuell und antwortet damit. So kann der Nutzer jederzeit
+    ein neues Codewort ausmachen, ohne Code zu aendern.
+    """
+    wort = (req.wort or "").strip()
+    if not wort:
+        raise HTTPException(status_code=400, detail="wort darf nicht leer sein")
+    import os as _os
+    pfad = _session_kontext_pfad()
+    try:
+        _os.makedirs(_os.path.dirname(pfad), exist_ok=True)
+        existing = ""
+        if _os.path.exists(pfad):
+            with open(pfad, encoding="utf-8") as f:
+                existing = f.read()
+        # Codewort-Zeile ersetzen/ergaenzen (reine Info darf bleiben).
+        new_line = "- Das vereinbarte Codewort lautet: " + wort
+        import re as _re
+        if _re.search(r"(?m)^- Das vereinbarte Codewort", existing):
+            existing = _re.sub(
+                r"(?m)^- Das vereinbarte Codewort.*$", new_line, existing)
+        else:
+            existing = existing.rstrip() + "\n\n" + new_line + "\n"
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write(existing)
+        logger.info("Codewort gesetzt auf '%s'", wort)
+        return {"gesetzt": wort}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class StreamNachrichtRequest(BaseModel):
+    text: str
+    conversation_id: str = "conv_main"
+
+
+@router.post("/stream")
+def hermes_stream(req: StreamNachrichtRequest):
+    """Streamt einen von DIESER Session erzeugten Text zeichenweise ins Frontend.
+
+    Wunsch Sebastian (2026-09-01): Die Antworten/Gedankenschwalle von dieser
+    Termux-Hermes-Session sollen nachrichtenweise, zeichengestreamt (SSE,
+    NUR im Frontend-Design) in den Frontend-Chat erscheinen - wie die
+    Gedankenschwalle des normalen Chat-Streams.
+
+    Liefert ein text/event-stream mit `data: {"delta": "<n Zeichen>"}`
+    Events, sodass der Client haeppchenweise aufbaut. Am Ende wird der volle
+    Text in den `conv_main`-Verlauf geschrieben (gemeinsamer Dialog).
+    """
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text darf nicht leer sein")
+
+    def generator():
+        # In kleinen Haeppchen streamen (Frontend-`delta`-Muster).
+        chunk = 3  # Zeichen pro Event
+        i = 0
+        try:
+            while i < len(text):
+                stueck = text[i:i + chunk]
+                i += chunk
+                yield "data: " + '{"delta": ' + json_dumps(stueck) + "}\n\n"
+                time.sleep(0.02)  # sichtbares Zeichen-Streaming
+            # Erst jetzt in den Verlauf uebernehmen (vollstaendiger Text =
+            # eine Assistant-Nachricht im gemeinsamen Dialog).
+            try:
+                from app.router.chat import verlauf_nachricht_anhaengen
+                verlauf_nachricht_anhaengen(req.conversation_id, "assistant", text)
+            except Exception as ver:
+                logger.warning("Verlauf-Anhang im Stream fehlgeschlagen: %s", ver)
+            yield "data: {\"done\": true}\n\n"
+        except Exception as e:
+            logger.error("Hermes-Stream abgebrochen: %s", e)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def json_dumps(s: str) -> str:
+    """Kleiner JSON-Encoder fuer saeberes delta-Streaming (Umlaute etc.)."""
+    import json as _j
+    return _j.dumps(s, ensure_ascii=False)
