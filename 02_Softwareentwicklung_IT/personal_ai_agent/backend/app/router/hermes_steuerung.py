@@ -365,8 +365,13 @@ def setze_letzte_nachricht(text: str) -> None:
 @router.get("/letzte")
 def hermes_letzte():
     """Poll-Endpunkt: liefert die neueste von dieser Termux-Session geschriebene
-    Nachricht (id+text). Das Frontend pollt und zeigt eine NEUE id via
-    streamHermesText mit 'Hermes denkt (Stream bereit)'-Badge."""
+    Nachricht (id+text) GENAU EINMAL. Nach dem Ausliefern wird die Quelle
+    geleert - so erscheint dieselbe Nachricht nicht bei jedem Poll erneut
+    (Bug: Nachricht wurde alle 5s wiederholt angezeigt, weil die Datei blieb).
+
+    Das Frontend pollt und zeigt eine NEUE id via streamHermesText mit
+    'Hermes denkt (Stream bereit)'-Badge.
+    """
     import os as _os
     pfad = _letzte_nachricht_pfad()
     if not _os.path.exists(pfad):
@@ -375,6 +380,12 @@ def hermes_letzte():
         with open(pfad, encoding="utf-8") as f:
             import json as _j
             dat = _j.loads(f.read())
-        return {"id": dat.get("id"), "text": dat.get("text", "")}
+        ergebnis = {"id": dat.get("id"), "text": dat.get("text", "")}
+        # Konsumieren: Datei leeren, damit der naechste Poll nichts sieht.
+        try:
+            _os.remove(pfad)
+        except Exception:
+            pass
+        return ergebnis
     except Exception:
         return {"id": None, "text": ""}
