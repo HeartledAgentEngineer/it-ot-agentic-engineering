@@ -22,6 +22,18 @@ import time
 INBOX = os.path.expanduser("~/hermes_inbox")
 AUFTR = os.path.join(INBOX, "auftraege.jsonl")
 ANTW  = os.path.join(INBOX, "antworten.jsonl")
+STATUS = os.path.join(INBOX, "status.jsonl")
+
+
+def _schreibe_status(aid: str, text: str) -> None:
+    """Schreibt eine Live-Statusmeldung (was der Daemon gerade tut)."""
+    try:
+        with open(STATUS, "a", encoding="utf-8") as f:
+            f.write(json.dumps(
+                {"auftrag_id": aid, "text": text,
+                 "zeit": time.strftime("%H:%M:%S")}, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[daemon] status schreiben fehlgeschlagen: {e}", flush=True)
 
 
 def _gelesene_ids():
@@ -49,6 +61,8 @@ def _beantworte(auftrag):
     payload = text
     if kontext:
         payload = f"{text}\n\n[Kontext dieser Hermes-Session:]\n{kontext}"
+    # Sofortige Statusmeldung (schnelle Rueckmeldung "was der Hermes tut").
+    _schreibe_status(aid, "🔧 Hermes bearbeitet die Nachricht (Inbox-Daemon aktiv)…")
     try:
         r = subprocess.run(
             ["hermes", "chat", "-q", payload, "-Q"],
@@ -60,6 +74,7 @@ def _beantworte(auftrag):
         ant = {"auftrag_id": aid, "text": ergebnis or "—"}
         with open(ANTW, "a", encoding="utf-8") as f:
             f.write(json.dumps(ant, ensure_ascii=False) + "\n")
+        _schreibe_status(aid, "✅ Hermes hat geantwortet.")
         print(f"[daemon] beantwortet {aid[:8]}: {ergebnis[:60]}", flush=True)
     except subprocess.TimeoutExpired:
         ant = {"auftrag_id": aid, "text": "[Timeout]"}
