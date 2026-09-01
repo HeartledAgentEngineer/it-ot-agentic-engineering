@@ -667,6 +667,40 @@ body {
     background: var(--accent-glow);
 }
 
+/* Streaming-Geschwindigkeit-Menue (Zahnrad oben rechts) */
+.stream-menu {
+    position: absolute;
+    top: 52px;
+    right: 12px;
+    z-index: 120;
+    min-width: 210px;
+    background: #1d1d1f;
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.stream-menu-label {
+    font-size: 12px;
+    color: #aaa;
+    padding: 2px 6px 8px;
+}
+.stream-opt {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.stream-opt:hover { background: #2a2a2c; color: var(--accent); }
+#stream-settings-btn { color: var(--text-secondary); }
+#stream-settings-btn:hover { color: var(--text-primary); }
+
 /* "auto" sichtbar von "bei jeder Nachricht" unterscheiden: gestrichelter
    Rand steht für "nur wenn nötig". */
 .tool-toggle.auto {
