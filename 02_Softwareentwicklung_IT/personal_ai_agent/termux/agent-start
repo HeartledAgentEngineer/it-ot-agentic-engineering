@@ -54,12 +54,20 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
-# Hinweis: Der fruehere Inbox-Daemon (hermes_inbox_daemon.py) wird hier nicht
-# mehr automatisch gestartet. Im "EIN gemeinsamer Dialog"-Modell (2026-09-01)
-# fuehrt der Server-Bot /api/chat den conv_main-Dialog; Hermes wird bei Bedarf
-# als Tool ueber die Weiche/Delegation gerufen. Ein separater Daemon, der
-# Frontend-Fragen mit frischen `hermes chat -q`-Antworten beantwortet, war der
-# Irrweg und verursachte kontextlose/widerspruechliche Antworten (Codewort).
+# Inbox-Daemon starten (falls nicht schon einer laeuft) fuer den
+# bidirektionalen Spiegel: Frontend-Nachrichten -> Inbox -> dieser Daemon
+# beantwortet (mit session_kontext.md) -> Antwort zurueck ins Frontend.
+# Guarded, damit NUR EIN Daemon laeuft (mehrere waeren mehrere Antwort-Instanzen).
+_daemon_skript="hermes_inbox_daemon.py"
+if [ -f "$_daemon_skript" ]; then
+    if ! pgrep -f "$_daemon_skript" >/dev/null 2>&1; then
+        nohup python "$_daemon_skript" >/dev/null 2>&1 &
+        disown
+        echo "── Inbox-Daemon gestartet (bidirektionaler Spiegel) ──"
+    else
+        echo "Inbox-Daemon laeuft bereits."
+    fi
+fi
 
 
 echo
