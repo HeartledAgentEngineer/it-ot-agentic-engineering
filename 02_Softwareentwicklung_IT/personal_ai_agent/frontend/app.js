@@ -438,10 +438,7 @@ function addZielChip(contentDiv, ziel) {
     // Der nochmalige Klick auf "Hermes" schaltet danach wieder AUS.
     // Wunsch Sebastian: im Übergabefall steht der Button auf an.
     if ((ziel === 'pc' || ziel === 'handy') && typeof loopAktiv !== 'undefined' && !loopAktiv) {
-        loopAktiv = true;
-        if (dom.loopBtn) dom.loopBtn.classList.add('active');
-        if (dom.loopBtn) dom.loopBtn.setAttribute('aria-pressed', 'true');
-        if (dom.loopLabel) dom.loopLabel.textContent = 'Hermes: an';
+        _setzeLoopZustand(true);
     }
     const chip = document.createElement('div');
     chip.className = 'ziel-chip';
@@ -2714,14 +2711,21 @@ dom.privacyBtn.addEventListener('click', () => setPrivacy(!state.noRetention));
 // An:   kein Auftrag noetig, nur aktivieren (Session wird bei Bedarf
 //       persistent in tmux erzeugt; im query-Kanal Subprozess je Auftrag).
 // Aus:  POST /api/hermes/beenden killt die (persistente) Session.
-let loopAktiv = false;
+// Loop-Zustand ueber Reload hinweg persistent halten (Wunsch Sebastian:
+// ein Reload soll die Hermes-Aktivierung NICHT zuruecksetzen).
+let loopAktiv = localStorage.getItem('hermes_loop_aktiv') === 'true';
+function _setzeLoopZustand(aktiv) {
+    loopAktiv = aktiv;
+    localStorage.setItem('hermes_loop_aktiv', String(aktiv));
+    if (dom.loopBtn) dom.loopBtn.classList.toggle('active', aktiv);
+    if (dom.loopBtn) dom.loopBtn.setAttribute('aria-pressed', String(aktiv));
+    if (dom.loopLabel) dom.loopLabel.textContent = aktiv ? 'Hermes: an' : 'Hermes';
+}
 async function toggleLoop() {
-    loopAktiv = !loopAktiv;
-    dom.loopBtn.classList.toggle('active', loopAktiv);
-    dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
-    dom.loopLabel.textContent = loopAktiv ? 'Hermes: an' : 'Hermes';
+    const aktiv = !loopAktiv;
+    _setzeLoopZustand(aktiv);
     try {
-        if (loopAktiv) {
+        if (aktiv) {
             const res = await fetch(`${API_BASE}/api/hermes/aktivieren`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2745,14 +2749,15 @@ async function toggleLoop() {
         }
     } catch (err) {
         // Bei Fehler Zustand zuruecksetzen.
-        loopAktiv = !loopAktiv;
-        dom.loopBtn.classList.toggle('active', loopAktiv);
-        dom.loopBtn.setAttribute('aria-pressed', String(loopAktiv));
-        dom.loopLabel.textContent = loopAktiv ? 'Hermes: an' : 'Hermes';
+        _setzeLoopZustand(!loopAktiv);
         addMessage(`⚠️ Loop-Umschaltung fehlgeschlagen: ${err.message || err}`, 'assistant');
     }
 }
 dom.loopBtn.addEventListener('click', toggleLoop);
+
+// Beim Laden den persistenten Hermes-Zustand sichtbar machen (Wunsch:
+// Reload setzt die Aktivierung nicht zurueck). Funktion, falls vorhanden.
+if (typeof _setzeLoopZustand === 'function') _setzeLoopZustand(loopAktiv);
 
 dom.modelFilters.addEventListener('click', (e) => {
     const chip = e.target.closest('.filter-chip');

@@ -12,6 +12,7 @@ Endpoints:
 """
 import logging
 import threading
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -175,7 +176,7 @@ def hermes_chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="nachricht darf nicht leer sein")
     try:
         ereignisse = list(hermes_local.stream_auftrag_aktiv(
-            "chat-" + threading.current_thread().name[:6],
+            "chat-" + uuid.uuid4().hex[:8],
             text, timeout=180, kontext=req.kontext,
         ))
         letztes = ereignisse[-1] if ereignisse else {}
@@ -185,3 +186,24 @@ def hermes_chat(req: ChatRequest):
     except Exception as e:
         logger.error("hermes_chat fehler: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class LernfallRequest(BaseModel):
+    text: str
+    braucht_hermes: bool
+
+
+@router.post("/lernfaelle")
+def hermes_lernfaelle(req: LernfallRequest):
+    """Speichert einen Korrektur-Fall (Skill-Maker / Few-Shot).
+
+    Wenn eine Klassifikation danebenlag, speichert der Nutzer/Frontend hier
+    das richtige Ergebnis. Beim naechsten braucht_hermes()-Aufruf wird der
+    Fall dem Decider-Prompt als gelerntes Beispiel beigemischt -> das System
+    verbessert sich im laufenden Betrieb (kein Code-Neustart).
+    """
+    if not (req.text or "").strip():
+        raise HTTPException(status_code=400, detail="text darf nicht leer sein")
+    from app.services.llm_service import llm_service
+    ok = llm_service.lerne_klassifikation(req.text, req.braucht_hermes)
+    return {"gespeichert": ok}

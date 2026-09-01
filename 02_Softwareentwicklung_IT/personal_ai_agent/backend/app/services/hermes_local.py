@@ -474,6 +474,7 @@ def stream_auftrag_aktiv(
         os.makedirs(inbox, exist_ok=True)
         auft_Pfad = os.path.join(inbox, "auftraege.jsonl")
         ant_Pfad = os.path.join(inbox, "antworten.jsonl")
+        status_Pfad = os.path.join(inbox, "status.jsonl")
         eintrag = {
             "auftrag_id": auftrag_id,
             "text": auftrag_text,
@@ -482,6 +483,24 @@ def stream_auftrag_aktiv(
         }
         with open(auft_Pfad, "a", encoding="utf-8") as f:
             f.write(_json.dumps(eintrag, ensure_ascii=False) + "\n")
+
+        # Sofortige Zwischenmeldung (schnelle Rueckmeldung "was der Daemon tut"):
+        # Der Daemon erhaelt den Auftrag im naechsten Poll und schreibt in
+        # status.jsonl. Hier einmal pro Auftrag einen "uebernommen"-Hinweis
+        # ausgeben, damit der Aufrufer sofort weiss, dass es laeuft.
+        yield {"art": "gedanke", "text": "🔁 Hermes uebernimmt die Nachricht (Inbox/Kanal aktiv) – bearbeitet…"}
+        # Letzter Daemon-Status (falls vorhanden) als Zwischenmeldung.
+        if os.path.exists(status_Pfad):
+            try:
+                with open(status_Pfad, encoding="utf-8") as f:
+                    st = [_json.loads(l.strip()) for l in f if l.strip()]
+                if st:
+                    s = st[-1]
+                    t = str(s.get("text") or "").strip()
+                    if t and s.get("auftrag_id") == auftrag_id:
+                        yield {"art": "gedanke", "text": t}
+            except Exception:
+                pass
 
         start = time.time()
         while time.time() - start < timeout:
