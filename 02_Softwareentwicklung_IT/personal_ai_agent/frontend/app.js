@@ -557,6 +557,14 @@ function aktualisiereStatusAnzeige() {
         badge.style.color = '#f88';
         badge.style.borderColor = '#f55';
         badge.style.background = '#2a1515';
+    } else if (typeof hermesStreamBereit !== 'undefined' && hermesStreamBereit) {
+        // Stream von DIESER Hermes-Session ist bereit/laueft (Wunsch:
+        // "Hermes denkt (Stream bereit)") - sichtbar, bevor/waerend Text
+        // gestreamt wird.
+        badge.textContent = '🔴 Hermes denkt (Stream bereit)';
+        badge.style.color = '#fff';
+        badge.style.borderColor = '#4a7';
+        badge.style.background = '#1f3a2a';
     } else if (state.abbruch) {
         // Loop-Modus oder laufender Hermes-Auftrag -> "Hermes antwortet";
         // sonst normaler Chat -> "Agent antwortet". (Wunsch Sebastian:
@@ -1989,6 +1997,9 @@ let _auftragTimer = null;
 let _laufenderAuftragKurz = null;
 // Ziel des laufenden Hermes-Auftrags (pc/handy/buch) — fürs Status-Badge.
 let _zielAktuell = '';
+// True, wenn die DIESE-Session-Antwort gerade als Stream ins Frontend geht
+// (Badge "Hermes denkt (Stream bereit)"). Wird beim Streambeginn gesetzt.
+let hermesStreamBereit = false;
 // True, wenn der /chat/stream die Live-Strecke selbst bis zum Abschluss
 // geführt hat (done mit auftrag_strecke). Dann braucht der 3s-Poller nicht
 // zusätzlich zu laufen – er bleibt nur Rückfall, wenn der Stream wegbrichst.
@@ -3213,6 +3224,66 @@ async function letzteGespraechsId() {
         return letztes ? letztes.id : null;
     } catch {
         return null;
+    }
+}
+
+/**
+ * Streamt einen von DIESER Session erzeugten Text zeichenweise ins Frontend
+ * und zeigt vorher das "Hermes denkt (Stream bereit)"-Badge. Wunsch Sebastian:
+ * Hermes-Antworten live im Frontend, mit Denk-Status.
+ */
+async function streamHermesText(text, conversationId) {
+    if (!text) return;
+    hermesStreamBereit = true;
+    aktualisiereStatusAnzeige();
+    const contentDiv = addMessage('', 'assistant');
+    const entry = state.messages[state.messages.length - 1];
+    let antwort = '';
+    try {
+        const res = await fetch(`${API_BASE}/api/hermes/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: text,
+                conversation_id: conversationId || 'conv_main',
+                delay_ms: (typeof state.streamMs === 'number') ? state.streamMs : 120,
+            }),
+        });
+        if (!res.ok || !res.body) throw new Error('Hermes-Stream nicht verfügbar');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let puffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            puffer += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = puffer.indexOf('\n\n')) !== -1) {
+                const block = puffer.slice(0, idx);
+                puffer = puffer.slice(idx + 2);
+                const zeile = block.split('\n').find(z => z.startsWith('data: '));
+                if (!zeile) continue;
+                let daten;
+                try { daten = JSON.parse(zeile.slice(6)); } catch { continue; }
+                if (daten.delta) {
+                    antwort += daten.delta;
+                    contentDiv.textContent = antwort;
+                    if (isAtBottom()) scrollToBottom(true);
+                } else if (daten.done) {
+                    break;
+                }
+            }
+            if (antwort && puffer.includes('"done"')) break;
+        }
+        // finalisieren
+        contentDiv.innerHTML = parseMarkdownPartial ? parseMarkdownPartial(antwort) : antwort;
+        state.messages[state.messages.length - 1] = entry;
+        if (isAtBottom()) scrollToBottom(true);
+    } catch (err) {
+        contentDiv.textContent = antwort || '⚠️ Hermes-Stream fehlgeschlagen: ' + (err && err.message);
+    } finally {
+        hermesStreamBereit = false;
+        aktualisiereStatusAnzeige();
     }
 }
 
