@@ -725,3 +725,41 @@ def _arbeitet_noch(pane: str) -> bool:
         return True
     # Werkzeug-Zeile sichtbar, aber noch kein Prompt am Ende.
     return "💻" in pane and "❯" not in pane
+
+
+def stelle_frage_an_tmux(session: str, frage: str,
+                         timeout: int = 90) -> dict:
+    """Robust: sendet eine Frage an eine BESTEHENDE tmux-Session und wartet,
+    bis eine NEUE Antwort-Box erscheint (Boxen-Zahl steigt) - dann wird deren
+    Text geliefert.
+
+    Vermeidet die fragile 'Stabilitaets'-Abschlusslogik von stream_auftrag,
+    die bei einer dauerhaft-laufenden Session mit fortlaufendem Status-Timer
+    haengen blieb (Timeout).
+
+    Returns: {"art": "ergebnis"|"fehler", "text": str, "gedanken": [str]}
+    """
+    if not ist_verfuegbar():
+        return {"art": "fehler", "text": "tmux nicht verfuegbar", "gedanken": []}
+    job = LocalHermesJob(frage, timeout=timeout, bestehende_session=session)
+    try:
+        sum_before = len(job.alle_antwort_boxen())
+        if not job.sende_zeile(frage):
+            return {"art": "fehler", "text": "konnte Frage nicht senden", "gedanken": []}
+        start = time.time()
+        gedanken = []
+        gesehen: set = set()
+        while time.time() - start < timeout:
+            for gd in job.neue_gedanken():
+                if gd not in gesehen:
+                    gesehen.add(gd)
+                    gedanken.append(gd)
+            boxen = job.alle_antwort_boxen()
+            if len(boxen) > sum_before:
+                # Neue Antwort-Box(en) erschienen -> letzte neue nehmen.
+                neue = boxen[sum_before:]
+                return {"art": "ergebnis", "text": neue[-1], "gedanken": gedanken}
+            time.sleep(1.0)
+        return {"art": "fehler", "text": f"Timeout nach {timeout}s (keine neue Antwort-Box)", "gedanken": gedanken}
+    except Exception as e:
+        return {"art": "fehler", "text": str(e), "gedanken": []}
