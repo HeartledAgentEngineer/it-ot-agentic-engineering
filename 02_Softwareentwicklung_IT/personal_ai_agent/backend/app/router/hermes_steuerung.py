@@ -197,10 +197,19 @@ def hermes_chat(req: ChatRequest):
             wort = ""
         return ChatResponse(reply=("Das Codewort lautet: " + wort) if wort else "Codewort nicht gesetzt.")
     try:
-        # ROBUST: direkter `hermes chat -q` mit Session-Kontext (antwortet
-        # schnell, haengt nicht). Das Andocken an eine dauerhafte tmux-Session
-        # per send-keys/capture-pane hat gehaengt (Abschluss-Erkennung bei
-        # interaktiver Session unzuverlaessig) - deshalb als Default vermeiden.
+        # Dauerhafte tmux-Session (hermes_agent_loop): send-keys + neue
+        # Antwort-Box erkennen (robust, liefert auch Gedanken). Fallback auf
+        #  Fallback auf -q wenn die Session fehlt (robust, haengt nicht).
+        sess = settings.hermes_local_session or ""
+        if sess:
+            try:
+                r = hermes_local.stelle_frage_an_tmux(
+                    sess, text, timeout=100)
+                if r.get("art") == "ergebnis":
+                    return ChatResponse(reply=r.get("text", "") or "Kein Ergebnis")
+                # Fehler/Timeout: auf -q Fallback fallen (robust).
+            except Exception as e:
+                logger.warning("tmux-frage fehlgeschlagen, Fallback -q: %s", e)
         ereignisse = list(hermes_local.stream_auftrag_query(
             "chat-" + uuid.uuid4().hex[:8],
             text, timeout=100, kontext=req.kontext,
