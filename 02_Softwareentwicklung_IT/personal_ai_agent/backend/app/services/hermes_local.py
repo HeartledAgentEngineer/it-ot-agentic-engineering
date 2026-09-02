@@ -431,6 +431,18 @@ class HermesRegistry:
 hermes_registry = HermesRegistry()
 
 
+def _tmux_session_existiert(name: str) -> bool:
+    """True, wenn eine tmux-Session mit `name` vorhanden ist (robust check)."""
+    if not name or not ist_verfuegbar():
+        return False
+    try:
+        r = subprocess.run(["tmux", "has-session", "-t", name],
+                           capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:  # pragma: no cover
+        return False
+
+
 def sichere_persistente_tmux_session(name: str = "hermes_termux") -> str:
     """Sichert eine PERSISTENTE tmux-Session, an die Track C andocken kann.
 
@@ -648,6 +660,15 @@ def stream_auftrag(
     if not ist_verfuegbar():
         yield {"art": "fehler", "text": "Lokaler Hermes/tmux nicht verfuegbar"}
         return
+
+    # Selbstheilung der persistenten tmux-Session: Ist eine angegebene
+    # `bestehende_session` nicht (mehr) vorhanden (z. B. Host-Reboot oder
+    # manuell beendet), wird sie neu erzeugt. Sonst wuerde der Job still
+    # scheitern bzw. ewig haengen — die Live-Ursache von 'Hermes denkt doch'.
+    if bestehende_session and not _tmux_session_existiert(bestehende_session):
+        logger.warning("Persistente Session '%s' fehlt — erzeuge neu", bestehende_session)
+        neues = sichere_persistente_tmux_session(bestehende_session)
+        bestehende_session = neues or bestehende_session
 
     job = hermes_registry.starte(
         auftrag_id, auftrag_text, bestehende_session=bestehende_session
