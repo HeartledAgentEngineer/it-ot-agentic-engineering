@@ -86,6 +86,19 @@ async def lifespan(app: FastAPI):
 
     logger.info("Server starting on %s:%s", settings.host, settings.port)
 
+    # Selbstheilung des 'aktiv'-Kanals: Inbox-Daemon sicherstellen, damit
+    # Hermes-Auftraege ueber den Server vom Server-Start an bedient werden
+    # (ein toter Daemon war die Live-Ursache fuer 'Hermes reagiert nicht').
+    try:
+        from app.services.hermes_local import sicherstelle_inbox_daemon
+        if settings.hermes_local_kanal == "aktiv":
+            if sicherstelle_inbox_daemon():
+                logger.info("Inbox-Daemon aktiv (Server-Startup).")
+            else:
+                logger.warning("Inbox-Daemon beim Startup nicht gestartet.")
+    except Exception as e:
+        logger.warning("Inbox-Daemon-Startup-Check fehlgeschlagen: %s", e)
+
     yield
 
     # Shutdown

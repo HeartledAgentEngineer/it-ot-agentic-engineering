@@ -53,6 +53,76 @@ _LIVE_TIMER_ZEILE = re.compile(r"⏱\s*[1-9]\d*\s*s", re.IGNORECASE)
 _ABSCHLUSS_IDLE_S = 10
 
 
+def _hermes_inbox_daemon_pfad() -> Optional[str]:
+    """Absoluter Pfad zum Inbox-Daemon-Skript (backend/hermes_inbox_daemon.py).
+
+    hermes_local.py liegt unter backend/app/services/. Aus __file__ sind es
+    zwei Ebenen hoch zum backend/-Root.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    kandidat = os.path.normpath(os.path.join(here, "..", "..", "hermes_inbox_daemon.py"))
+    return kandidat if os.path.isfile(kandidat) else None
+
+
+def inbox_daemon_laeuft() -> bool:
+    """True, wenn ein Inbox-Daemon (hermes_inbox_daemon.py) aktiv ist.
+
+    So bleibt gewaehrleistet, dass NUR EINE Antwort-Instanz antwortet
+    (Wunsch Sebastian: genau eine). pgrep auf dem Skriptnamen ist robust
+    gegen unterschiedliche Pfade/Argumente.
+    """
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "hermes_inbox_daemon.py"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
+def sicherstelle_inbox_daemon() -> bool:
+    """Stellt sicher, dass der Inbox-Daemon laeuft (startet ihn falls nicht).
+
+    Der 'aktiv'-Kanal haengt sonst ewig auf einer Auftrag, die nie eine
+    Antwort bekommt (Ursache 'Hermes reagiert nicht mehr': daemon war tot,
+    Server wartete). Diese Funktion macht den Daemon SELBSTHEILEND: solange
+    der Server laeuft und diese Funktion aufgerufen wird, wird ein toter
+    Daemon neu gestartet.
+
+    Returns:
+        True, wenn der Daemon laeuft (egal ob schon oder frisch gestartet).
+    """
+    if inbox_daemon_laeuft():
+        return True
+    pfad = _hermes_inbox_daemon_pfad()
+    if not pfad:
+        logger.warning("Inbox-Daemon-Skript nicht gefunden: %s", pfad)
+        return False
+    cwd = os.path.dirname(pfad)
+    log_pfad = os.path.join(cwd, "hermes_inbox_daemon.log")
+    try:
+        with open(log_pfad, "a", encoding="utf-8") as logf:
+            subprocess.Popen(
+                ["python", pfad],
+                cwd=cwd, stdout=logf, stderr=logf,
+                # Eigenen Prozess-gruppen-Leader: ueberlebt den Aufrufer
+                # (Server-Neustart killt den mit eigenem sid nicht).
+                start_new_session=True,
+            )
+        # Kurz warten, damit der Daemon durchstartet und gleich zu testen ist.
+        for _ in range(10):
+            time.sleep(0.3)
+            if inbox_daemon_laeuft():
+                logger.info("Inbox-Daemon wurde neu gestartet (Selbstheilung).")
+                return True
+        logger.warning("Inbox-Daemon startete, laeuft aber nicht (Log: %s)", log_pfad)
+        return False
+    except Exception as e:
+        logger.warning("Inbox-Daemon-Start fehlgeschlagen: %s", e)
+        return False
+
+
 def _box_innen(zeile: str) -> str:
     """Entfernt die Box-Raender der TUI aus einer Inhaltszeile.
 
@@ -467,6 +537,13 @@ def stream_auftrag_aktiv(
     """
     if not ist_verfuegbar():
         yield {"art": "fehler", "text": "hermes nicht verfuegbar"}
+        return
+    # Selbstheilung: Sicherstellen, dass der Inbox-Daemon laeuft, bevor ein
+    # Auftrag abgelegt wird. Ein toter Daemon (z. B. Server-Neustart ohne
+    # Widget) liesse den Auftrag sonst ewig unbeantwortet -> 'reagiert nicht'.
+    if not sicherstelle_inbox_daemon():
+        yield {"art": "fehler",
+               "text": "Inbox-Daemon nicht startbar — Hermes antwortet nicht via aktiv-Kanal."}
         return
     import json as _json
     inbox = os.path.expanduser("~/hermes_inbox")
