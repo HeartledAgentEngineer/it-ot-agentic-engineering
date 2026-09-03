@@ -93,6 +93,7 @@ def suche_dateien(
     ordner_hinweis: str = "",
     nur_erweiterungen: Optional[Set[str]] = None,
     jahr: Optional[int] = None,
+    aufnahme_am: Optional[str] = None,
 ) -> List[dict]:
     """Sucht Dateien in den freigegebenen Ordnern nach einem Stichwort.
 
@@ -104,6 +105,12 @@ def suche_dateien(
     - `jahr`: Optionales Aufnahmejahr (z. B. 2025). Ist es gesetzt, werden nur
       Dateien behalten, deren Aufnahmejahr (EXIF, Fallback mtime) diesem Jahr
       entspricht — "das letzte Foto aus 2025" filtert 2025er exakt heraus.
+    - `aufnahme_am`: Optionaler Aufnahmetag ("heute", "gestern", "morgen" oder
+      "YYYY-MM-DD"). Ist er gesetzt, werden nur Dateien behalten, deren
+      Aufnahmedatum (EXIF, Fallback mtime) an genau diesem Tag liegt —
+      "Bilder von heute" findet die heutigen Kamera-Fotos statt alter
+      uralter Screenshots. Kann mit `jahr` kombiniert werden (Priorität: der
+      Tag prüft exakter als das Jahr).
     - `ordner_hinweis`: "kamera" bevorzugt DCIM (echte Fotos), "screenshot"
       bevorzugt Pictures/Screenshots. Treffer im bevorzugten Ordner kommen
       IMMER zuerst (auch vor neueren aus anderen Ordnern — so findet
@@ -118,6 +125,8 @@ def suche_dateien(
     stichwort = (stichwort or "").lower().strip()
     # Erweiterungen normalisieren (Aufrufer könnte ".JPG" übergeben).
     ext_filter = {e.lower() for e in (nur_erweiterungen or set())} if nur_erweiterungen else None
+    # "Bilder von heute/gestern": Ziel-Datum (YYYY-MM-DD) einmal vorab bestimmen.
+    ziel_datum = _ziel_datum(aufnahme_am)
     alle = neueste_zuerst and not stichwort  # "letztes Bild" → alles sortiert
     vorzug_kamera = "kamera" in ordner_hinweis
     vorzug_screenshot = "screenshot" in ordner_hinweis
@@ -188,6 +197,10 @@ def suche_dateien(
                     # Jahresfilter: nur Dateien dieses Aufnahmejahres behalten.
                     if jahr is not None and _datei_jahr(voll) != jahr:
                         continue
+                    # Tagesfilter: nur Dateien, die an genau diesem Tag
+                    # aufgenommen wurden (EXIF, Fallback mtime).
+                    if ziel_datum is not None and _aufnahme_datum_tag(voll) != ziel_datum:
+                        continue
                     gesehen.add(ident)
                     try:
                         mtime = os.path.getmtime(voll)
@@ -239,6 +252,47 @@ def suche_dateien(
     for t in treffer:
         t.pop("_gewicht", None)
     return treffer
+
+
+def _ziel_datum(aufnahme_am: Optional[str]) -> Optional[str]:
+    """Löst den Tages-Hinweis in ein YYYY-MM-DD-Ziel auf.
+
+    Akzeptiert "heute", "gestern", "morgen" oder ein direktes Datum
+    ("2026-09-02", "2026/09/02"). Bei unbekannter Eingabe None (kein Filter).
+    """
+    if not aufnahme_am:
+        return None
+    import datetime as _dt
+    t = aufnahme_am.strip().lower()
+    heute = _dt.date.today()
+    if t in ("heute", "heutigen", "heutige"):
+        return heute.isoformat()
+    if t in ("gestern", "gestrigen", "gestrige"):
+        return (heute - _dt.timedelta(days=1)).isoformat()
+    if t in ("vorgestern",):
+        return (heute - _dt.timedelta(days=2)).isoformat()
+    if t in ("morgen", "morgigen", "morgige"):
+        return (heute + _dt.timedelta(days=1)).isoformat()
+    # Explizites Datum (Trenner - oder /), Jahr 4-stellig.
+    for sep in ("-", "/", "."):
+        if sep in t:
+            teile = t.split(sep)
+            if len(teile) == 3 and len(teile[0]) == 4:
+                try:
+                    return _dt.date(int(teile[0]), int(teile[1]), int(teile[2])).isoformat()
+                except ValueError:
+                    return None
+    return None
+
+
+def _aufnahme_datum_tag(pfad: str) -> Optional[str]:
+    """Aufnahmedatum einer Datei als YYYY-MM-DD (EXIF, Fallback mtime)."""
+    aufnahme = _exif_aufnahmedatum(pfad)
+    ts = aufnahme if aufnahme is not None else _mtime_fallbacks(pfad)
+    if ts is None:
+        return None
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).date().isoformat()
 
 
 def _datei_jahr(pfad: str) -> Optional[int]:

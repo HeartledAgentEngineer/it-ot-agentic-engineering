@@ -11,9 +11,24 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   frühestens alle 50 neuen Nachrichten neu).
 - **Kontext pro Anfrage**: [Summary der Vergangenheit] + [letzte 15 Nachrichten]
   + [5 relevante Erinnerungen aus ChromaDB], grobes Token-Budget ~2000.
+- **Antwort-Relevanz (Kontext-Management)**: Als **primäre Kontextquelle** pro
+  Anfrage bekommt der LLM nur die letzte sichtbare Nutzerfrage + deren Antwort
+  (`app/services/llm_service.py::_kontext_aufteilen`). Jüngere/frühere Fragen
+  (frühere, themenfremde Fragen verdrängten die aktuelle) werden dabei nicht
+  gelöscht — der Verlauf bleibt streng append-only —, sondern als **gedimmter
+  Hintergrund-Kontext** mitgegeben (gekürzt, mit Hinweis „nur als Hintergrund“).
+  Ein deutscher System-Prompt-Block (`KONTEXT_FOKUS_ANWEISUNG`) weist den
+  Agenten an, sich auf die letzte Frage zu konzentrieren und ältere Kontext-
+  Fragen zu ignorieren, wenn die neue Frage in einem neuen Themenbereich liegt.
 - Persistenz: Summaries liegen in `chat_verlauf.summarys`, gespeichert in
   `conversations.json` (Feld `summarys`).
-- Test: `tests/test_kontext_service.py`, `tests/test_chat_verlauf_service.py`.
+- **Hermes-Spiegel-Chat persistiert** (`/api/hermes/chat`): Jede Runde
+  (Nutzer-Frage + Hermes-Antwort) wird append-only in `conv_main` geschrieben
+  (`hermes_steuerung.py::_persistiere_hermes_runde`). Damit landet auch der
+  Dialog über den bidirektionalen Spiegel (Terminal <-> Frontend) im
+  persistenten Verlauf und ist nach Reload/Neustart wieder ansehbar.
+- Test: `tests/test_kontext_service.py`, `tests/test_chat_verlauf_service.py`,
+  `tests/test_hermes_spiegel_persistenz.py`.
 
 ## 2. Handy-Dateisuche + Datei-Inhalt (über Sprache, ohne UI)
 

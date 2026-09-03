@@ -132,15 +132,16 @@ def route_auftrag(
         return {"art": "lokal", "ziel": "handy", "reply": reply_text,
                 "conversation_id": conv_id}
 
-    # 3) Auftragsbuch (Track B)
+    # 3) Auftragsbuch (Track B) — interne Warteschlange; in der Nutzer-Ansicht
+    #    wird es nur noch als "Hermes" gezeigt, nie als Auftragsbuch/Nummer.
     eintrag = anlegen_im_buch(herm_aufgabe, begruendung, kategorie, komplexitaet)
     statusmeldung_wartet(eintrag["id"])
     reply_text = (
-        "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
-        f"{ziel_zeile('buch')}"
+        "🧩 **Hermes-Aufgabe erkannt – wird übernommen.**\n\n"
+        "➡️ **Weitergeleitet an:** Hermes\n\n"
         f"📋 **Aufgabe:** {message[:150]}…\n\n"
         "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
-        "erscheint es live hier.\n"
+        "erscheint es hier.\n"
     )
     conv_id = get_or_create_conversation(None)
     finish_exchange(conv_id, message, reply_text)

@@ -30,15 +30,15 @@ def _kein_hermes():
 
 
 def test_coding_ohne_hermes_geht_ins_buch(_kein_hermes):
-    """Coding-Anfrage → Buch-Fallback ('wird bearbeitet'), ziel='buch',
-    keine LLM-Antwort."""
+    """Coding-Anfrage → interner Buch-Fallback ('wird übernommen'), ziel='buch'.
+    In der Nutzer-Antwort ist kein sichtbares Auftragsbuch mehr – nur 'Hermes'."""
     req = ChatRequest(message="Baue einen /health-Endpoint in der FastAPI-App",
                       model="deepseek/deepseek-v4-flash", web_search="off")
     resp = asyncio.run(chat_endpoint(req))
     assert "Hermes-Aufgabe erkannt" in resp.reply
-    assert "wird bearbeitet" in resp.reply
+    assert "wird übernommen" in resp.reply
     assert resp.ziel == "buch"
-    assert "Auftragsbuch" in resp.reply
+    assert "Auftragsbuch" not in resp.reply
 
 
 def test_track_a_pc_antwort_mit_ziel():
@@ -63,7 +63,7 @@ def test_grenze_delegiert_statt_normalem_chat(_kein_hermes):
                           model="deepseek/deepseek-v4-flash", web_search="off")
         resp = asyncio.run(chat_endpoint(req))
     assert "Hermes-Aufgabe erkannt" in resp.reply  # → in der Weiche/Buch-Fallback
-    assert "wird bearbeitet" in resp.reply
+    assert "wird übernommen" in resp.reply
 
 
 def test_normaler_chat_bleibt_beim_agenten():
