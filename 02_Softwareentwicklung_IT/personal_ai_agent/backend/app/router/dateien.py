@@ -23,7 +23,7 @@ def datei_daten(pfad: str = Query("", max_length=1000)):
     """
     try:
         # Nur Pfade unter ~/storage/shared (oder /sdcard) zulassen.
-        erlaubt_unter = ("storage/shared", "/sdcard")
+        erlaubt_unter = ("storage/shared", "/sdcard", "uploads/")
         if not any(ank in pfad for ank in erlaubt_unter):
             return {"fehler": "Pfad nicht erlaubt"}
         info = lese_datei_info(pfad)

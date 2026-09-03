@@ -425,7 +425,7 @@ function baueKorrekturButton(fehlerFall) {
 const ZIEL_LABELS = {
     pc: '→ Hermes (PC)',
     handy: '→ Hermes (Handy)',
-    buch: '→ Auftragsbuch',
+    buch: '→ Hermes',
 };
 
 /** Kleine Ziel-Pille unter einer Delegations-Antwort: zeigt auf einen Blick,
@@ -532,6 +532,13 @@ function addMessage(content, role, zeit) {
         inner.appendChild(zeitDiv);
     }
     div.appendChild(inner);
+    // Vorlese-Knopf auch fuer fertige/geladene Assistant-Nachrichten (History-
+    // Replay, Hermes-Replies etc.): Nur bei vorhandenem Text. Der Live-Stream
+    // steigt UEBER eine leere Blase ein (content===''), deren Vorleser separat
+    // in der Stream-Logik an den Text gekoppelt wird (kein Doppel-Button).
+    if (role === 'assistant' && content) {
+        addSpeakControls(div, () => content, () => true);
+    }
     dom.messages.appendChild(div);
     scrollToBottom(true);   // eigene Aktion – hier wird immer nachgezogen
     state.messages.push({ role, content });
@@ -554,6 +561,13 @@ function aktualisiereStatusAnzeige() {
             : ziel === 'handy'
                 ? '🔴 Hermes (Handy) arbeitet'
                 : '🔴 Hermes arbeitet';
+        badge.style.color = '#f88';
+        badge.style.borderColor = '#f55';
+        badge.style.background = '#2a1515';
+    } else if (_hermesArbeitetAussen) {
+        // Hermes-Auftrag laeuft, aber nicht ueber dieses Frontend gestartet
+        // (z. B. aus Termux/der Session selbst). Header-Badge trotzdem rot.
+        badge.textContent = '🔴 Hermes arbeitet';
         badge.style.color = '#f88';
         badge.style.borderColor = '#f55';
         badge.style.background = '#2a1515';
@@ -1573,6 +1587,48 @@ const SYMBOL_PAUSE = '<svg viewBox="0 0 24 24" width="16" height="16">'
 // Nur ein Vorleser gleichzeitig – sonst reden zwei Antworten durcheinander.
 let aktiverVorleser = null;
 
+// ── Schwebendes Mini-Audio-Control ─────────────────────────────────────────
+// Solange ein Vorleser AKTIV ist (spielt oder pausiert), bleibt unten rechts
+// ein kompakter Knopf sichtbar, der beim Scrollen durch den ganzen Chat
+// weiterläuft (position:fixed). So verliert man den laufenden Vorleser nie.
+let _schwebeVorleser = null;      // steuerung des aktiven Vorlesers
+let _schwebeSpielt = false;       // true = gerade abspielend
+let schwebendesControl = null;
+
+function baueSchwebendesControl() {
+    const c = document.createElement('button');
+    c.id = 'schwebendes-audio';
+    c.type = 'button';
+    c.title = 'Vorlesen steuern';
+    c.setAttribute('aria-label', 'Vorlesen steuern');
+    c.innerHTML = SYMBOL_LAUTSPRECHER;
+    c.style.cssText =
+        'position:fixed;right:22px;bottom:158px;z-index:900;display:none;'
+        + 'align-items:center;justify-content:center;width:60px;height:60px;'
+        + 'border-radius:50%;background:var(--accent);color:#fff;border:none;'
+        + 'box-shadow:0 4px 16px rgba(0,0,0,.45);cursor:pointer;'
+        + 'font-size:26px;line-height:1';
+    c.addEventListener('click', () => {
+        if (_schwebeVorleser) _schwebeVorleser.toggle();
+        _aktualisiereSchwebendesControl();
+    });
+    document.body.appendChild(c);
+    return c;
+}
+
+/** Synchronisiert das schwebende Control mit dem Zustand des aktiven Vorlesers.
+ *  Wird bei jedem Zustandswechsel des Vorlesers aufgerufen (zeigeZustand). */
+function _aktualisiereSchwebendesControl() {
+    if (!schwebendesControl) schwebendesControl = baueSchwebendesControl();
+    const sichtbar = Boolean(aktiverVorleser);
+    _schwebeVorleser = aktiverVorleser;
+    _schwebeSpielt = Boolean(aktiverVorleser && !(aktiverVorleser._pausiert));
+    schwebendesControl.style.display = sichtbar ? 'flex' : 'none';
+    schwebendesControl.title = _schwebeSpielt ? 'Pause' : 'Vorlesen';
+    schwebendesControl.setAttribute('aria-label', _schwebeSpielt ? 'Audio pausieren' : 'Audio vorlesen');
+    schwebendesControl.innerHTML = _schwebeSpielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
+}
+
 // Ab dieser Länge wird ein Stück abgeschickt. Kürzere Sätze werden gesammelt,
 // sonst entsteht für jedes "Ja." eine eigene Anfrage.
 const MIN_STUECK_LAENGE = 60;
@@ -1610,6 +1666,9 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     abspielBtn.className = 'speak-btn';
     abspielBtn.title = 'Vorlesen';
     abspielBtn.innerHTML = SYMBOL_LAUTSPRECHER;
+    // Baumuster ohne sichtbaren Text: das aria-label ist die einzige
+    // Beschriftung für Screenreader und muss IMMER gesetzt sein.
+    abspielBtn.setAttribute('aria-label', 'Audio vorlesen');
 
     leiste.appendChild(abspielBtn);
     messageDiv.appendChild(leiste);
@@ -1625,7 +1684,19 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
         const spielt = aktiv && !pausiert;
         abspielBtn.innerHTML = spielt ? SYMBOL_PAUSE : SYMBOL_LAUTSPRECHER;
         abspielBtn.title = spielt ? 'Pause' : 'Vorlesen';
+        // aria-label parallel zum title halten – der Knopf trägt nur ein SVG.
+        abspielBtn.setAttribute('aria-label', spielt ? 'Audio pausieren' : 'Audio vorlesen');
+        // Farbe über .playing, Vergrößerung über .active (nur an 'spielt'
+        // gekoppelt – halte(true) setzt pausiert/aktiv zurück, wodurch .active
+        // via zeigeZustand automatisch wieder entfernt wird).
         abspielBtn.classList.toggle('playing', spielt);
+        abspielBtn.classList.toggle('active', spielt);
+        // Zustand für das globale schwebende Control spiegeln + aktualisieren.
+        if (aktiverVorleser) {
+            aktiverVorleser._aktiv = aktiv;
+            aktiverVorleser._pausiert = pausiert;
+        }
+        _aktualisiereSchwebendesControl();
     };
 
     /** Nächstes abgeschlossenes Stück, oder null wenn noch nichts fertig ist. */
@@ -1749,6 +1820,30 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
         /** Wird gerufen, wenn neuer Text eingetroffen ist. */
         neuerText: () => { if (aktiv && !pausiert) nachfuellen(); },
         stopp: () => halte(true),
+        /** Toggle Play/Pause für ein externes (schwebendes) Steuer-Control. */
+        toggle: () => {
+            if (aktiv && !pausiert) {
+                pausiert = true;
+                if (aktuellesAudio) aktuellesAudio.pause();
+                zeigeZustand();
+                return;
+            }
+            if (aktiv && pausiert) {
+                pausiert = false;
+                if (aktuellesAudio) aktuellesAudio.play();
+                else spieleWeiter();
+                zeigeZustand();
+                return;
+            }
+            // Neu starten – ein anderer laufender Vorleser wird abgelöst.
+            if (aktiverVorleser && aktiverVorleser !== steuerung) aktiverVorleser.stopp();
+            aktiverVorleser = steuerung;
+            aktiv = true;
+            pausiert = false;
+            abspielBtn.classList.add('busy');
+            zeigeZustand();
+            nachfuellen();
+        },
     };
     return steuerung;
 }
@@ -2000,6 +2095,19 @@ let _zielAktuell = '';
 // True, wenn die DIESE-Session-Antwort gerade als Stream ins Frontend geht
 // (Badge "Hermes denkt (Stream bereit)"). Wird beim Streambeginn gesetzt.
 let hermesStreamBereit = false;
+// True, wenn ausserhalb dieser Session gerade ein Hermes-Auftrag offen/laeuft
+// (vom /api/auftraege-Poller gesetzt). Lässt den Header-Badge rot „Hermes
+// arbeitet" zeigen, auch wenn die Aufgabe NICHT über dieses Frontend gestartet
+// wurde. Wunsch Sebastian: oben soll sichtbar sein, wann Hermes tut.
+let _hermesArbeitetAussen = false;
+/** Header-Badge mit dem externen Hermes-Status synchronisieren. Wird vom
+ *  /api/auftraege-Poller gerufen, sobald ein offener/laufender Auftrag
+ *  erkannt bzw. keiner mehr da ist. */
+function _setzeHermesAussen(aktiv) {
+    if (_hermesArbeitetAussen === aktiv) return;
+    _hermesArbeitetAussen = aktiv;
+    if (typeof aktualisiereStatusAnzeige === 'function') aktualisiereStatusAnzeige();
+}
 // True, wenn der /chat/stream die Live-Strecke selbst bis zum Abschluss
 // geführt hat (done mit auftrag_strecke). Dann braucht der 3s-Poller nicht
 // zusätzlich zu laufen – er bleibt nur Rückfall, wenn der Stream wegbrichst.
@@ -2103,8 +2211,14 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
             no_retention: state.noRetention,
             // Auch im Fallback müssen Dateien mit – sonst fehlt das Bild
             // beim zweiten Versuch, wenn der Streaming-Weg scheiterte.
+            // Nur image/pdf senden: kann ein ungueltiger Typ
+            // (z. B. video/audio) ans ChatRequest-Modell 422 werfen
+            // (Literal["image","pdf"].). Alle Dateien bleiben in pendingFiles, aber
+            // nicht unterstuetzte Typen reisen nicht mehr mit den Request.
             files: state.pendingFiles.length > 0
-                ? state.pendingFiles.map(f => ({
+                ? state.pendingFiles
+                    .filter(f => f.type === 'image' || f.type === 'pdf')
+                    .map(f => ({
                     id: f.id,
                     filename: f.filename,
                     type: f.type,
@@ -2282,8 +2396,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 model: state.model,
                 force_agent: forceAgent === true,
                 ziel: ziel || undefined,
+                // Nur image/pdf senden (sonst 422 am ChatRequest-Literal["image","pdf"].
                 files: state.pendingFiles.length > 0
-                    ? state.pendingFiles.map(f => ({
+                    ? state.pendingFiles
+                        .filter(f => f.type === 'image' || f.type === 'pdf')
+                        .map(f => ({
                         id: f.id,
                         filename: f.filename,
                         type: f.type,
@@ -2802,7 +2919,7 @@ async function toggleLoop() {
                 }),
             });
             const d = await res.json().catch(() => ({}));
-            addMessage(`🔁 **Loop aktiviert** (Auftrag ${(d.auftrag_id || '').slice(0, 8)})\nDer lokale Hermes ist end-to-end verbunden.`, 'assistant');
+            addMessage(`🔁 **Hermes aktiviert**. Der lokale Hermes ist end-to-end verbunden.`, 'assistant');
         } else {
             const res = await fetch(`${API_BASE}/api/hermes/beenden`, {
                 method: 'POST',
@@ -2811,14 +2928,14 @@ async function toggleLoop() {
             });
             const d = await res.json().catch(() => ({}));
             addMessage(
-                `⬛ **Loop gestoppt**.\n${d.hinweis || `(Session ${d.session || 'hermes_termux'} bleibt bestehen — du kannst weiter in Termux schreiben.)`}`,
+                `⬛ **Hermes gestoppt**.\n${d.hinweis || `(Session ${d.session || 'hermes_termux'} bleibt bestehen — du kannst weiter in Termux schreiben.)`}`,
                 'assistant'
             );
         }
     } catch (err) {
         // Bei Fehler Zustand zuruecksetzen.
         _setzeLoopZustand(!loopAktiv);
-        addMessage(`⚠️ Loop-Umschaltung fehlgeschlagen: ${err.message || err}`, 'assistant');
+        addMessage(`⚠️ Hermes-Umschaltung fehlgeschlagen: ${err.message || err}`, 'assistant');
     }
 }
 dom.loopBtn.addEventListener('click', toggleLoop);
@@ -2894,6 +3011,8 @@ kontextMenue.style.cssText =
 kontextMenue.innerHTML =
     `<button type="button" data-aktion="kopieren" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:none;border:none;border-radius:7px;color:#ddd;font:inherit;text-align:left;cursor:pointer">`
         + `📋 Nachricht kopieren</button>`
+    + `<button type="button" data-aktion="teil_kopieren" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:none;border:none;border-radius:7px;color:#ddd;font:inherit;text-align:left;cursor:pointer">`
+        + `✂️ Teil auswählen & kopieren</button>`
     + `<button type="button" data-aktion="bearbeiten" style="display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;background:none;border:none;border-radius:7px;color:#ddd;font:inherit;text-align:left;cursor:pointer">`
         + `✏️ Nachricht bearbeiten</button>`;
 document.body.appendChild(kontextMenue);
@@ -2909,6 +3028,103 @@ function kontextTextAusBlase(blase) {
     if (roh) return roh;
     const inhalt = blase.querySelector('.message-content');
     return inhalt && inhalt.innerText ? inhalt.innerText.trim() : '';
+}
+
+// ── Teil-Kopie: markierbare Blase + Kopier-Leiste ─────────────────────────
+// Quelle: eine bestehende .message-Blase (lang gedrückt) ODER ein roher Text.
+// Leerer/roher-Text-Fall: die Leiste kopiert dann die Textauswahl, falls der
+// Nutzer Text anderswo markiert hat.
+let teilKopieLeiste = null;
+let teilKopieBlase = null;
+
+function leisteTeilKopieAktivieren(quelle) {
+    if (teilKopieLeiste) teilKopieLeiste.remove();
+    teilKopieLeiste = document.createElement('div');
+    teilKopieLeiste.style.cssText =
+        'position:fixed;left:0;right:0;bottom:0;z-index:1100;'
+        + 'display:flex;justify-content:center;gap:10px;padding:12px 16px;'
+        + 'background:#1e1e2e;border-top:1px solid #444;'
+        + 'box-shadow:0 -4px 16px rgba(0,0,0,.4);font-size:14px';
+    const btnKopieren = document.createElement('button');
+    btnKopieren.type = 'button';
+    btnKopieren.textContent = '✂️ Auswahl kopieren';
+    btnKopieren.style.cssText = kopierLeisteBtnStyle(true);
+    const btnAbbrechen = document.createElement('button');
+    btnAbbrechen.type = 'button';
+    btnAbbrechen.textContent = 'Abbrechen';
+    btnAbbrechen.style.cssText = kopierLeisteBtnStyle(false);
+    teilKopieLeiste.appendChild(btnKopieren);
+    teilKopieLeiste.appendChild(btnAbbrechen);
+    document.body.appendChild(teilKopieLeiste);
+
+    // Blase markierbar machen (falls vorhanden), damit man den Teil wählen kann.
+    teilKopieBlase = (quelle && quelle.nodeType === 1) ? quelle : null;
+    const inhalt = teilKopieBlase ? teilKopieBlase.querySelector('.message-content') : null;
+    if (inhalt) {
+        inhalt.style.userSelect = 'text';
+        inhalt.style.webkitUserSelect = 'text';
+        inhalt.style.cursor = 'text';
+        teilKopieBlase.setAttribute('data-teilkopie', '1');
+    }
+
+    const schliessen = () => {
+        if (teilKopieBlase) {
+            const i = teilKopieBlase.querySelector('.message-content');
+            if (i) { i.style.userSelect = ''; i.style.webkitUserSelect = ''; i.style.cursor = ''; }
+            teilKopieBlase.removeAttribute('data-teilkopie');
+        }
+        teilKopieLeiste.remove();
+        teilKopieLeiste = null;
+        teilKopieBlase = null;
+    };
+
+    btnAbbrechen.addEventListener('click', schliessen);
+    btnKopieren.addEventListener('click', () => {
+        const sel = (window.getSelection && window.getSelection().toString()) || '';
+        const text = sel.trim() || teilKopieBlaseText(teilKopieBlase);
+        kopiereText(text).then(() => {
+            btnKopieren.textContent = '✓ Kopiert';
+            setTimeout(schliessen, 800);
+        }).catch(() => { btnKopieren.textContent = '⚠️ Fehler'; });
+    });
+
+    // Klick außerhalb schließt die Teil-Kopie-Leiste.
+    setTimeout(() => {
+        document.addEventListener('click', function teilkopieAussen(e) {
+            if (teilKopieLeiste && !teilKopieLeiste.contains(e.target)) {
+                schliessen();
+                document.removeEventListener('click', teilkopieAussen);
+            }
+        });
+    }, 0);
+    kontextMenueSchliessen();
+}
+
+function kopierLeisteBtnStyle(primär) {
+    return primär
+        ? 'padding:10px 18px;border:none;border-radius:9px;background:#4c6ef5;'
+          + 'color:#fff;font:inherit;font-weight:600;cursor:pointer'
+        : 'padding:10px 18px;border:none;border-radius:9px;background:#333;'
+          + 'color:#ccc;font:inherit;cursor:pointer';
+}
+
+function teilKopieBlaseText(blase) {
+    if (!blase) return '';
+    return kontextTextAusBlase(blase);
+}
+
+function kopiereText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    const helfer = document.createElement('textarea');
+    helfer.value = text;
+    helfer.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(helfer);
+    helfer.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    helfer.remove();
+    return Promise.resolve();
 }
 
 function kontextMenueZeigen(x, y) {
@@ -2957,6 +3173,12 @@ kontextMenue.addEventListener('click', (e) => {
             })
             .catch(() => { btn.textContent = '⚠️ Kopieren fehlgeschlagen'; });
         kontextMenueSchliessen();
+    } else if (btn.dataset.aktion === 'teil_kopieren') {
+        // Teil-Kopie: Die Blase wird markierbar (Textauswahl), unten erscheint
+        // eine Leiste „✂️ Auswahl kopieren“ / „Abbrechen“. Kopiert wird genau
+        // der markierte Teil (window.getSelection) statt des ganzen Textes.
+        kontextMenueSchliessen();
+        leisteTeilKopieAktivieren(kontextZielBlase || kontextZielText);
     } else if (btn.dataset.aktion === 'bearbeiten') {
         // Bearbeiten-Flow: User-Nachricht zum Neu-Formulieren zurück in die
         // Eingabe legen. Dabei wird (a) ein noch laufender Antwort-Stream
@@ -3471,6 +3693,11 @@ document.addEventListener('DOMContentLoaded', () => {
     startHealthChecks();
     stelleVerlaufWiederHer();
     if (typeof starteHermesPoll === 'function') starteHermesPoll();
+    aktualisiereStatusAnzeige();
+    // Status-Badge beim Start zuruecksetzen: das hartkodierte „🟢 Agent“ im
+    // HTML (falls ueberhaupt geladen) wird durch den echten Zustand ersetzt
+    // bzw. im Ruhezustand ausgeblendet. (Fix: vorher blieb ein gruener
+    // „Agent“ stehen, obwohl Hermes arbeitete.)
     dom.input.focus();
     updateSendButton();
     // Katalog im Hintergrund holen: Danach steht der richtige Anzeigename am
@@ -3491,12 +3718,17 @@ document.addEventListener('DOMContentLoaded', () => {
     async function pollHermes() {
         try {
             const res = await fetch('/api/auftraege');
-            if (!res.ok) { container.style.display = 'none'; return; }
+            if (!res.ok) { container.style.display = 'none'; _setzeHermesAussen(false); return; }
             const data = await res.json();
             const jobs = data.auftraege || [];
             // Neuesten offenen/laufenden Job finden
             const relevant = jobs.filter(j => j.status === 'offen' || j.status === 'laeuft');
-            if (relevant.length === 0) { container.style.display = 'none'; return; }
+            if (relevant.length === 0) {
+                container.style.display = 'none';
+                _setzeHermesAussen(false);
+                return;
+            }
+            _setzeHermesAussen(true);
             const job = relevant[relevant.length - 1]; // neuester
             const id = job.id.substring(0, 8);
             const meldungen = job.status_meldungen || [];
@@ -3535,7 +3767,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 indicator.textContent = status === 'fertig' ? '✅ fertig' : '❌ fehler';
                 setTimeout(() => { container.style.display = 'none'; }, 30000);
             }
-        } catch(_) { /* Server kurz weg */ }
+        } catch(_) { /* Server kurz weg */ _setzeHermesAussen(false); }
     }
 
     // Alle 3s polln
@@ -3544,68 +3776,5 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 
 // =========================================
-// Kanban-Board — Aufgaben (Auftragsbuch) als Spalten
-// =========================================
-(function () {
-    const sheet = document.getElementById('kanban-sheet');
-    const btn = document.getElementById('kanban-btn');
-    const close = document.getElementById('kanban-close');
-    const hint = document.getElementById('kanban-hint');
-    if (!sheet || !btn || !close) return;
-
-    const spalten = {
-        offen: document.getElementById('kanban-offen'),
-        laeuft: document.getElementById('kanban-laeuft'),
-        fertig: document.getElementById('kanban-fertig'),
-        fehler: document.getElementById('kanban-fehler'),
-    };
-
-    function zeichne(auftraege) {
-        // Spalten leeren
-        Object.values(spalten).forEach(el => { if (el) el.innerHTML = ''; });
-        let zaehler = 0;
-        (auftraege || []).forEach(a => {
-            // Status normalisieren: BACKEND liefert OFFEN/LAEUFT/FERTIG/FEHLER
-            const roh = (a.status || 'offen').toLowerCase();
-            const status = ({ fertig: 'fertig', fehler: 'fehler', laeuft: 'laeuft' }[roh]) || 'offen';
-            const ziel = spalten[status] || spalten.offen;
-            if (!ziel) return;
-            zaehler++;
-            const karte = document.createElement('div');
-            karte.style.cssText =
-                'padding:8px;margin-bottom:6px;background:#1e1e1e;border:1px solid #3a3a3a;' +
-                'border-radius:8px;font-size:12px;white-space:pre-wrap';
-            const aufgabe = (a.auftrag || '').slice(0, 140);
-            karte.textContent = aufgabe || '(ohne Text)';
-            karte.title = a.auftrag || '';
-            ziel.appendChild(karte);
-        });
-        if (hint) hint.textContent = zaehler === 0
-            ? 'Keine Aufgaben – alles erledigt.'
-            : `${zaehler} Aufgabe(n) im Buch.`;
-    }
-
-    async function lade() {
-        try {
-            const res = await fetch(`${API_BASE}/api/auftraege`);
-            if (!res.ok) return;
-            const daten = await res.json();
-            zeichne(daten.auftraege || []);
-        } catch (_) { /* Server kurz weg */ }
-    }
-
-    function oeffne() {
-        sheet.hidden = false;
-        lade();
-    }
-    function schliesse() {
-        sheet.hidden = true;
-    }
-
-    btn.addEventListener('click', oeffne);
-    close.addEventListener('click', schliesse);
-    // Tippen auf Hintergrund schließt
-    sheet.addEventListener('click', (e) => { if (e.target === sheet) schliesse(); });
-    // Live-Aktualisierung alle 3s, solange offen
-    setInterval(() => { if (!sheet.hidden) lade(); }, 3000);
-})();
+// (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
+//  Assistenten direkt über Hermes, kein sichtbares Auftragskonzept mehr.)

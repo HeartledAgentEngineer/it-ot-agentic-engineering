@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any, Iterator
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.config import settings
+from app.config import settings, BASE_DIR
 from app.models import ChatRequest, ChatResponse
 from app.services.archiv_service import archiv_service
 from app.services.auftrag_service import auftrag_service
@@ -83,6 +83,28 @@ def _archiv_treffer(frage: str, aktiv: bool) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning("Archivsuche uebersprungen: %s", e)
         return []
+
+
+def _wirkt_wie_aufgabe(nachricht: str) -> bool:
+    """Kostenkontrolle fuer den LLM-Tool-Use-Decider (braucht_hermes).
+
+    Nur Nachrichten mit System-/Arbeits-Charakter sollen den zusaetzlichen
+    LLM-Call ausloesen - reine Plauderei/Wissensfragen nicht (Latenz/Kosten).
+    Deterministischer Schnellfilter ueber Kernbegriffe.
+    """
+    if not nachricht:
+        return False
+    t = nachricht.lower()
+    _ARBEITS_HINWEISE = (
+        "schreibe", "baue", "erstelle", "fixe", "ändere", "aendere", "change",
+        "code", "datei", "repo", "repository", "server", "api", "endpoint",
+        "modul", "funktion", "skript", "script", "installiere", "pip", "npm",
+        "git", "commit", "push", "pull", "branch", "merge", "docker", "container",
+        "test", "bug", "fehler", "fehlerbehebung", "konfigurier", "starte",
+        "dienst", "service", "sps", "terminal", "shell", "befehl", "bereinige",
+        "refactor", "schema", "datenbank", "log", "debuggen",
+    )
+    return any(h in t for h in _ARBEITS_HINWEISE)
 
 
 def _starte_lokale_hermes(
@@ -229,6 +251,22 @@ async def chat(request: ChatRequest):
                 begruendung = "Fähigkeits-Grenze (Terminal/Datei/System) – Hermes als Toolcall"
                 kategorie = "feature"
                 komplexitaet = "mittel"
+            elif not ist_auftrag_val:
+                # Sauberer Tool-Use als letzte Stufe: Ein günstiger LLM-Call
+                # entscheidet, ob Hermes nötig ist (Wunsch Sebastian 2026-09-01).
+                # Nur bei Nachrichten mit System-/Arbeits-Charakter, NICHT bei
+                # reiner Plauderei, um Latenz/Kosten zu begrenzen.
+                if _wirkt_wie_aufgabe(request.message):
+                    bedarf = llm_service.braucht_hermes(request.message)
+                    if bedarf.get("braucht_hermes"):
+                        ist_auftrag_val = True
+                        begruendung = (
+                            "LLM-Tool-Use: Hermes nötig ("
+                            + (bedarf.get("begruendung") or "System-/Repo-Arbeit")
+                            + ")"
+                        )
+                        kategorie = "feature"
+                        komplexitaet = "mittel"
         else:
             begruendung, kategorie, komplexitaet = "", None, None
         if ist_auftrag_val:
@@ -415,7 +453,9 @@ async def chat(request: ChatRequest):
         # Vorschau einen Reload überlebt (Frontend lädt ihn nach).
         memories_created = _finish_exchange(
             conversation_id, request.message, reply,
-            bild_pfad=(datei_bilder[0].get("pfad") if datei_bilder else None),
+            bild_pfad=(
+                datei_bilder[0].get("pfad") if datei_bilder else None
+            ) or _upload_bild_pfad(request),
         )
 
         return ChatResponse(
@@ -473,6 +513,32 @@ def _nutzer_name() -> str:
     except Exception:
         pass
     return ""
+
+
+def _upload_bild_pfad(request: Any) -> Optional[str]:
+    """Mappt ein ueber den Upload-Button angehaengtes Bild auf seinen realen
+    Platten-Pfad (uploads/<id>.<ext>.
+
+    Damit ein hochgeladenes Bild im persistierten Verlauf einen `bild_pfad`
+    bekommt (wie Dateisuche-Bilder schon) und so einen Reload/Neustart
+    ueberlebt: Das Frontend laedt es per GET /api/dateien/daten?pfad=
+    frisch nach. Es wird NUR der Pfad persistiert, nie die Bild-Datei.
+    """
+    try:
+        if not request.files:
+            return None
+        for f in request.files:
+            if not f.type == "image" or not getattr(f, "id", ""):
+                continue
+            ext = (f.mime.split("/", 1)[-1] if f.mime else "jpg").split(";")[0]
+            if ext not in ("jpeg", "jpg", "png", "webp", "gif", "bmp"):
+                ext = "jpg"
+            pfad = str(BASE_DIR / "uploads" / f"{f.id}.{ext}")
+            if os.path.exists(pfad):
+                return pfad
+    except Exception as e:
+        logger.warning("Upload-Bildpfad-Ableitung fehlgeschlagen: %s", e)
+    return None
 
 
 def _embedding_aus_data_url(data_url: str):
@@ -858,6 +924,7 @@ def _datei_tool(frage: str) -> tuple:
         "suche", "finde", "zeig mir", "zeige mir", "datei", "dokument",
         "bild", "foto", "screenshot", "screen", "unterlagen", "download",
         "wo liegt", "hast du eine datei", "was liegt", "aufnahme",
+        "heute", "gestern", "vorgestern",
     ]
     if not any(sig in f for sig in _vor_signal) and not _jahr_vorhanden:
         return "", []
@@ -870,7 +937,7 @@ def _datei_tool(frage: str) -> tuple:
             _intent["suchbegriff"] != "" or _intent["neueste"]
             or _intent["jahr"] is not None or _intent["ordner"] != ""
             or _intent["nur_bilder"] or _intent["nur_dokumente"]
-            or _intent["erklaeren"]
+            or _intent["erklaeren"] or _intent.get("aufnahme_am") is not None
         )
     except Exception:
         _intent, _agent_pfad = None, False
@@ -879,6 +946,7 @@ def _datei_tool(frage: str) -> tuple:
         reines_stichwort = _intent["suchbegriff"]
         neueste_zuerst = _intent.get("neueste", False)
         jahr = _intent.get("jahr")
+        aufnahme_am = _intent.get("aufnahme_am") or None
         ordner_hinweis = _intent.get("ordner", "") or ""
         if _intent.get("nur_bilder"):
             nur_erweiterungen = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -918,6 +986,14 @@ def _datei_tool(frage: str) -> tuple:
         m = _re.search(r"\b(20\d{2})\b", f)
         if m:
             jahr = int(m.group(1))
+        # relativer Tag (heute/gestern) → Tagesfilter; "vom Mai" bleibt ohne.
+        aufnahme_am = None
+        if "gestern" in f:
+            aufnahme_am = "gestern"
+        elif "heute" in f:
+            aufnahme_am = "heute"
+        elif "vorgestern" in f:
+            aufnahme_am = "vorgestern"
 
         stopwoerter = {
             "das", "die", "der", "den", "dem", "des", "ein", "eine", "einen",
@@ -994,6 +1070,7 @@ def _datei_tool(frage: str) -> tuple:
             ordner_hinweis=ordner_hinweis,
             nur_erweiterungen=nur_erweiterungen,
             jahr=jahr,
+            aufnahme_am=aufnahme_am,
         )
     except Exception:
         return "", []
@@ -1265,11 +1342,11 @@ async def chat_stream(request: ChatRequest):
             komplexitaet=komplexitaet,
         )
         reply_text = (
-            "🧩 **Hermes-Aufgabe erkannt – wird bearbeitet.**\n\n"
-            "➡️ **Weitergeleitet an:** Auftragsbuch\n\n"
+            "🧩 **Hermes-Aufgabe erkannt – wird übernommen.**\n\n"
+            "➡️ **Weitergeleitet an:** Hermes\n\n"
             f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
             "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
-            "erscheint es live hier.\n"
+            "erscheint es hier.\n"
         )
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
@@ -1410,12 +1487,12 @@ async def chat_stream(request: ChatRequest):
             # Verbindungsverlust). Hier wird bewusst nichts gesendet – ein
             # yield waehrend GeneratorExit wuerde einen Fehler ausloesen.
             anzahl_neu = _finish_exchange(
-                conversation_id, request.message, "".join(teile),
-                bild_pfad=(
-                    s_werkzeug_bilder[0].get("pfad")
-                    if s_werkzeug_bilder else None
-                ),
-            )
+                            conversation_id, request.message, "".join(teile),
+                            bild_pfad=(
+                                s_werkzeug_bilder[0].get("pfad")
+                                if s_werkzeug_bilder else None
+                            ) or _upload_bild_pfad(request),
+                        )
 
         # Wird uebersprungen, wenn der Client abgebrochen hat.
         yield _sse({

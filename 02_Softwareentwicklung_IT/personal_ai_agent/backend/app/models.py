@@ -15,7 +15,12 @@ class FileAttachment(BaseModel):
     """
     id: str
     filename: str
-    type: Literal["image", "pdf"]
+    # Tolerant: Ein alter Tab / anderer Agent sendet evtl. einen Typ, den
+    # wir nicht kennen (z. B. "video", "audio", "text"). Das darf den
+    # Chat nie mit 422 brechen — Fallback auf "pdf" (wird als Text
+    # behandelt bzw. ignoriert, je nach Verarbeitung. Nur image/pdf haben
+    # Sonderbehandlung.
+    type: Literal["image", "pdf", "unbekannt", "video", "audio", "text"] = "pdf"
     url: str
     mime: str
     # Base64-codiertes Bild (nur bei image)
