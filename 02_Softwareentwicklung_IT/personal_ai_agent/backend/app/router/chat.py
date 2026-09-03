@@ -420,6 +420,10 @@ async def chat(request: ChatRequest):
         # Erkennung): der Agent beantwortet primär das konkret Zitierte.
 
         user_message_fuer_llm += _zitat_anhang(request)
+        # SFace-Gesichts-Abgleich (deterministisch, auch fuer hochgeladenes Bild)
+        _gesichts_notiz = _gesichtsabgleich_notiz(request, datei_bilder)
+        if _gesichts_notiz:
+            user_message_fuer_llm += _gesichts_notiz
 
 
         # 2. Get LLM response with memory context
@@ -535,6 +539,31 @@ def _zitat_anhang(request: Any) -> str:
         return ""
 
 
+def _gesichtsabgleich_notiz(request: Any, datei_bilder: Optional[list] = None) -> str:
+    """SFace-Gesichts-Tool-abgleich fuer Bilder (auch hochgeladen)."""
+    try:
+        from app.services import face_service as _face
+        if not _face.verfuegbar():
+            return ""
+        pfad = None
+        if datei_bilder and datei_bilder[0].get("pfad"):
+            pfad = datei_bilder[0]["pfad"]
+        if not pfad:
+            pfad = _upload_bild_pfad(request)
+        if not pfad or not os.path.exists(pfad):
+            return ""
+        personen = _face.erkenne_bild_pfad(pfad).get("personen") or []
+        namen = []
+        for _p in personen:
+            for _t in _p.get("treffer", []):
+                namen.append(_t.get("name") + (" (sicher)" if _t.get("sicher") else " (unsicher)"))
+        if not namen:
+            return ""
+        return " Erkennung per Gesichts-Embedding: " + "; ".join(sorted(set(namen))) + "."
+    except Exception:
+        return ""
+
+
 def _upload_bild_pfad(request: Any) -> Optional[str]:
     """Mappt ein ueber den Upload-Button angehaengtes Bild auf seinen realen
     Platten-Pfad (uploads/<id>.<ext>.
@@ -547,15 +576,17 @@ def _upload_bild_pfad(request: Any) -> Optional[str]:
     try:
         if not request.files:
             return None
+        import glob
         for f in request.files:
             if not f.type == "image" or not getattr(f, "id", ""):
                 continue
-            ext = (f.mime.split("/", 1)[-1] if f.mime else "jpg").split(";")[0]
-            if ext not in ("jpeg", "jpg", "png", "webp", "gif", "bmp"):
-                ext = "jpg"
-            pfad = str(BASE_DIR / "uploads" / f"{f.id}.{ext}")
-            if os.path.exists(pfad):
-                return pfad
+            # Robust: echte Datei per wildcard suchen (Upload-ID), weil die
+            # tatsaechliche Erweiterung vom Uploader stammt (id.jpg, id.jpeg,
+            # id.png ...) und nicht aus dem MIME erraten werden darf.
+            base = str(BASE_DIR / "uploads" / f.id)
+            treffer = sorted(glob.glob(base + ".*"))
+            if treffer and os.path.exists(treffer[0]):
+                return treffer[0]
     except Exception as e:
         logger.warning("Upload-Bildpfad-Ableitung fehlgeschlagen: %s", e)
     return None
@@ -949,18 +980,37 @@ def _datei_tool(frage: str) -> tuple:
     if not any(sig in f for sig in _vor_signal) and not _jahr_vorhanden:
         return "", []
 
-    # Agentisch: LLM-Intent versuchen (versteht Jahr/Synonyme/Satzbau).
-    _agent_pfad = None
+    # Agentisch: LLM-Intent (Skill-Gate). Er versteht Jahr/Synonyme/Satzbau
+    # UND entscheidet kontextbewusst, ob hier ueberhaupt ein Datei-/Bild-/
+    # Inhaltszugriff gewollt ist (aktiv). Das eliminiert Fehltriigger aus
+    # losen Woertern wie "zeig mir"/"heute"/"foto", wenn kein Datei-Wunsch.
     try:
         _intent = llm_service.extrahiere_datei_such_intent(frage)
-        _agent_pfad = (
-            _intent["suchbegriff"] != "" or _intent["neueste"]
-            or _intent["jahr"] is not None or _intent["ordner"] != ""
-            or _intent["nur_bilder"] or _intent["nur_dokumente"]
-            or _intent["erklaeren"] or _intent.get("aufnahme_am") is not None
-        )
     except Exception:
-        _intent, _agent_pfad = None, False
+        _intent = None
+
+    # SKILL-GATE (robust): Das Modell liefert aktiv (kontextuell). Entscheidend
+    # ist aber die Kombination aus aktiv UND konkreten Datei-/Lese-Signalen im
+    # Intent. Ein False bei aktiv darf ECHTE Dateizugriffe nicht toeten (sonst
+    # Fehl-Tiigger der Gegenrichtung); bloße Plauderei (aktiv:false + KEIN
+    # Datei-/Lese-Signal) wird abgewehrt.
+    _hat_signal = bool(
+        _intent is not None
+        and (
+            _intent.get("suchbegriff")
+            or _intent.get("neueste")
+            or _intent.get("jahr") is not None
+            or _intent.get("ordner")
+            or _intent.get("nur_bilder")
+            or _intent.get("nur_dokumente")
+            or _intent.get("erklaeren")
+            or _intent.get("aufnahme_am") is not None
+        )
+    )
+    _aktiv = bool(_intent is not None and _intent.get("aktiv", False))
+    if _intent is not None and not _aktiv and not _hat_signal:
+        return "", []
+    _agent_pfad = bool(_intent is not None) and (_aktiv or _hat_signal)
 
     if _agent_pfad and _intent:
         reines_stichwort = _intent["suchbegriff"]
@@ -1427,7 +1477,8 @@ async def chat_stream(request: ChatRequest):
                     s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
                     if not s_werkzeug_text:
                         s_werkzeug_text = _verlauf_tool(request.message)
-                s_user = request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
+                s_user = (request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
+        + _gesichtsabgleich_notiz(request, s_werkzeug_bilder))
                 # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was
                 # gerade passiert, statt nur "Denke nach...".
                 if s_werkzeug_bilder:
