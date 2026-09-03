@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260828U">
+    <link rel="stylesheet" href="style.css?v=20260903A">
 </head>
 <body>
     <div id="app">
@@ -16,8 +16,7 @@
             <div class="header-content">
                 <h1 class="app-title"><span id="agent-face" title="Verbindungsstatus">🤖</span> Agent</h1>
                 <span id="chat-modus-badge" class="chat-modus" title="Wem du gerade schreibst"
-                      style="font-size:11px;padding:3px 8px;border-radius:10px;border:1px solid #555;
-                             background:#1e1e1e;color:#9f9;cursor:default">🟢 Agent</span>
+                      style="font-size:0;padding:0;border:none;background:transparent;color:#fff"> </span>
                 <!-- Streaming-Geschwindigkeit (Zahnrad oben rechts, ehemaliger
                      Chat-Auswahl-Ort; Wunsch Sebastian 2026-09-01). Darf moeglichst
                      langsam sein - Manche lesen nicht so schnell mit dem Stream mit. -->
@@ -76,6 +75,9 @@
             <div id="file-preview" class="file-preview hidden">
                 <div id="file-preview-list" class="file-preview-list"></div>
             </div>
+            <!-- WhatsApp-artige Antwort-Vorschau: gequotet, wenn der Nutzer über
+                 '↩ Antworten' auf eine Nachricht antwortet. Überm Eingabefeld. -->
+            <div id="antwort-vorschau" class="antwort-vorschau hidden"></div>
             <div class="input-wrapper">
                 <textarea id="message-input" rows="1" placeholder="Nachricht eingeben..." maxlength="10000"></textarea>
                 <button id="upload-btn" class="icon-btn" title="Datei hochladen (Bild/PDF)">
@@ -187,38 +189,12 @@
         <div id="hermes-live-meldungen" style="margin-top:4px"></div>
     </div>
 
-    <!-- Kanban-Board: offene/laufende/fertige Aufgaben (aus dem Auftragsbuch) -->
-    <div id="kanban-sheet" hidden>
-        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Aufgaben">
-            <div class="sheet-head">
-                <h2>📋 Aufgaben</h2>
-                <button id="kanban-close" class="icon-btn" title="Schließen" aria-label="Schließen">✕</button>
-            </div>
-            <div id="kanban-board" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0">
-                <div class="kanban-col" data-status="offen" style="flex:1;min-width:150px">
-                    <div class="kanban-head" style="font-weight:600;color:#fca;margin-bottom:6px">📥 Offen</div>
-                    <div class="kanban-items" id="kanban-offen"></div>
-                </div>
-                <div class="kanban-col" data-status="laeuft" style="flex:1;min-width:150px">
-                    <div class="kanban-head" style="font-weight:600;color:#fc6;margin-bottom:6px">⚙️ Läuft</div>
-                    <div class="kanban-items" id="kanban-laeuft"></div>
-                </div>
-                <div class="kanban-col" data-status="fertig" style="flex:1;min-width:150px">
-                    <div class="kanban-head" style="font-weight:600;color:#6f6;margin-bottom:6px">✅ Fertig</div>
-                    <div class="kanban-items" id="kanban-fertig"></div>
-                </div>
-                <div class="kanban-col" data-status="fehler" style="flex:1;min-width:150px">
-                    <div class="kanban-head" style="font-weight:600;color:#f66;margin-bottom:6px">❌ Fehler</div>
-                    <div class="kanban-items" id="kanban-fehler"></div>
-                </div>
-            </div>
-            <p id="kanban-hint" class="sheet-note" style="font-size:12px;color:#888"></p>
-        </div>
-    </div>
+    <!-- Kanban-Board entfernt (2026-09-02): kein sichtbares Auftragsbuch
+         mehr – Sebastian nutzt den Assistenten direkt über Hermes. -->
 
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20260830A"></script>
+    <script src="app.js?v=20260903A"></script>
 </body>
 </html>

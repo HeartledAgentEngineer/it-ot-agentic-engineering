@@ -416,6 +416,10 @@ async def chat(request: ChatRequest):
         )
         if merkhinweis:
             user_message_fuer_llm += merkhinweis
+        # WhatsApp-artiges Antwort-Zitat an den LLM-Kontext (nicht an die
+        # Erkennung): der Agent beantwortet primär das konkret Zitierte.
+
+        user_message_fuer_llm += _zitat_anhang(request)
 
 
         # 2. Get LLM response with memory context
@@ -452,7 +456,7 @@ async def chat(request: ChatRequest):
         # Bildpfad des Dateisuche-Bildes mitgeben, damit die flüchtige
         # Vorschau einen Reload überlebt (Frontend lädt ihn nach).
         memories_created = _finish_exchange(
-            conversation_id, request.message, reply,
+            conversation_id, request.message + _zitat_anhang(request), reply,
             bild_pfad=(
                 datei_bilder[0].get("pfad") if datei_bilder else None
             ) or _upload_bild_pfad(request),
@@ -513,6 +517,22 @@ def _nutzer_name() -> str:
     except Exception:
         pass
     return ""
+
+
+def _zitat_anhang(request: Any) -> str:
+    """WhatsApp-artiger Antwort-Kontext: Legt als Text das konkret beantwortete
+    Zitat bei, das an die LLM-Nachricht und den persistierten Verlauf geheftet wird.
+    """
+    try:
+        z = (getattr(request, "antwort_auf", "") or "").strip()
+        if not z:
+            return ""
+        if len(z) > 400:
+            z = z[:397] + "..."
+        kopf = "[Antwort des Nutzers auf diese frühere Nachricht — beziehe dich primär auf DIESES Zitat:]"
+        return "\n\n" + kopf + "\n" + z
+    except Exception:
+        return ""
 
 
 def _upload_bild_pfad(request: Any) -> Optional[str]:
@@ -1407,7 +1427,7 @@ async def chat_stream(request: ChatRequest):
                     s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
                     if not s_werkzeug_text:
                         s_werkzeug_text = _verlauf_tool(request.message)
-                s_user = request.message + (s_werkzeug_text or "")
+                s_user = request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
                 # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was
                 # gerade passiert, statt nur "Denke nach...".
                 if s_werkzeug_bilder:
@@ -1487,7 +1507,7 @@ async def chat_stream(request: ChatRequest):
             # Verbindungsverlust). Hier wird bewusst nichts gesendet – ein
             # yield waehrend GeneratorExit wuerde einen Fehler ausloesen.
             anzahl_neu = _finish_exchange(
-                            conversation_id, request.message, "".join(teile),
+                            conversation_id, request.message + _zitat_anhang(request), "".join(teile),
                             bild_pfad=(
                                 s_werkzeug_bilder[0].get("pfad")
                                 if s_werkzeug_bilder else None

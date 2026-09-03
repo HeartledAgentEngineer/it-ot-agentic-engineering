@@ -115,7 +115,11 @@ body {
 
 #chat-container {
     flex: 1;
+    /* Nur vertikal scrollen – eine horizontale Scrollleiste im Chat wäre
+       verwirrend und ist nie gewollt. Langes Zeug bricht um oder bekommt
+       einen eigenen Querlauf (Code/Tabellen), statt die Seite zu verbreitern. */
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 16px 20px;
     scroll-behavior: smooth;
 }
@@ -167,6 +171,13 @@ body {
     gap: 0;
     flex-shrink: 0;
     padding-top: 6px;
+    /* Sticky: Der Knopf bleibt während des Blätterns durch die Antwort oben
+       in Sicht, statt mit der Blase nach oben wegzuscrollen. Der Sticky-Bereich
+       ist die eigene message.assistant-Hülle (ihre Höhe = Antwortlänge). */
+    position: sticky;
+    top: 8px;
+    z-index: 50;
+    align-self: flex-start;
 }
 
 .message-content {
@@ -262,6 +273,9 @@ body {
     background: rgba(0, 0, 0, 0.3);
     padding: 12px;
     border-radius: var(--radius-sm);
+    /* Querlauf nur als Rückfallebene: Einzelne sehr lange Code-Zeilen dürfen
+       den Rahmen nicht sprengen; wenn Umbruch nicht greift, scrollt der Block
+       lokal (kein Seitenscrollen). */
     overflow-x: auto;
     margin: 8px 0;
 }
@@ -269,6 +283,13 @@ body {
 .message-content pre code {
     background: none;
     padding: 0;
+    /* Proaktives Umbrechen: Lange ununterbrechbare Strings (Base64, URLs,
+       Pfade) brechen um, statt die Sprechblase zu verbreitern. white-space:
+       pre-wrap behält den Zeilenumbruch des Codes bei, erlaubt aber das
+       Weiterbrechen überlanger Zeichenketten. */
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 /* ── Tabellen ───────────────────────────────────────────────────────────── */
@@ -750,7 +771,15 @@ body {
     opacity: 0.55;
     display: inline-flex;
     align-items: center;
-    transition: opacity 0.2s, color 0.2s;
+    /* transform braucht einen nicht-fließenden Kontext, damit scale wirkt;
+       inline-flex ist dafür da (steht schon hier fürs SVG). */
+    transition: opacity 0.2s, color 0.2s, transform 0.2s;
+}
+
+/* Beim Abspielen vergrößert sich das Symbol (ca. 1.2x). Farbe steuert weiter
+   die bestehende .playing-Klasse; .active ist NUR für die Skalierung. */
+.speak-btn.active {
+    transform: scale(1.2);
 }
 
 .speak-btn:hover:not(:disabled) {
@@ -1139,3 +1168,12 @@ body {
         border-right: 1px solid var(--border);
     }
 }
+/* WhatsApp-artige Antwort-Vorschau (Zitat) ueberm Eingabefeld */
+.antwort-vorschau { display:flex; align-items:flex-start; gap:8px; padding:8px 12px;
+    margin:6px 12px 0; background:var(--bg2,#1a2a24); border-left:3px solid var(--accent,#4a7);
+    border-radius:8px; font-size:0.82rem; }
+.antwort-vorschau .av-inhalt { flex:1; min-width:0; }
+.antwort-vorschau .av-rolle { font-weight:600; color:var(--accent,#8cf); margin-bottom:2px; }
+.antwort-vorschau .av-text { color:#cfd6cf; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.antwort-vorschau .av-bild { max-width:44px; max-height:44px; border-radius:6px; object-fit:cover; }
+.antwort-vorschau .av-x { background:none;border:none;color:#9aa;font-size:1.1rem;cursor:pointer;line-height:1;padding:2px 4px; }
