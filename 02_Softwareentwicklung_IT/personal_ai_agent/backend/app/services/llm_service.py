@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any, Iterator, Optional, Tuple
@@ -84,6 +85,87 @@ NICHT_KONFIGURIERT = (
     "Bitte setze den `OPENROUTER_API_KEY` in der `.env`-Datei.\n"
     "Du bekommst einen Key unter: https://openrouter.ai/keys"
 )
+
+# ── Antwort-Relevanz (Kontext-Management) ─────────────────────────────────────
+# Primäre Kontextquelle pro Anfrage: nur die letzte sichtbare Nutzerfrage +
+# deren Antwort. Ältere Runden (frühere, themenfremde Fragen) verdrängen so
+# nicht mehr die aktuelle Frage — sie bleiben im persistenten Verlauf
+# (append-only) erhalten und werden nur als gedimmter Hintergrund-Kontext
+# mitgegeben.
+#
+# Wie viele ältere Nachrichten höchstens als Hintergrund-Kontext mitgeschickt
+# werden (danach wird gekürzt → der Prompt explodiert nicht).
+_HINTERGRUND_MAX = 12
+# Zeichenlänge, auf die eine Hintergrund-Nachricht gekürzt wird.
+_HINTERGRUND_LAENGE = 400
+
+# Deutsche System-Prompt-Anweisung zur Antwort-Relevanz (Wunsch):
+# Der Agent prüft bei jeder neuen Frage sofort den aktuellen Intent und lässt
+# sich von älteren, themenfremden Kontext-Fragen nicht mehr abbringen.
+KONTEXT_FOKUS_ANWEISUNG = (
+    "\n\n[Antwort-Relevanz: Beantworte IMMER die zuletzt gestellte Nutzerfrage. "
+    "Frühere Fragen aus dem Verlauf sind nur als Hintergrund gedacht und NUR "
+    "dann zu beachten, wenn sie offensichtlich zur aktuellen Frage gehören "
+    "(z. B. Nachfragen zur gleichen Sache, wie 'und was war noch?'). Liegt die "
+    "neue Frage in einem neuen Themenbereich, ignoriere die älteren Fragen und "
+    "geh allein auf die aktuelle Frage ein. Halte die Antwort kurz und präzise.]"
+)
+
+
+def _kontext_aufteilen(
+    nachrichten: List[Dict[str, str]],
+) -> Tuple[List[Dict[str, str]], str]:
+    """Teilt die Chat-History in primäre + gedimmte Hintergrund-Nachrichten.
+
+    Zweck (Antwort-Relevanz): Der LLM soll sich auf die letzte sichtbare
+    Nutzerfrage konzentrieren, statt auf frühere (themenfremde) Fragen zu
+    antworten. Frühere Runden werden NICHT gelöscht (der Verlauf ist streng
+    append-only), sondern nur aus der primären Prompt-Quelle ausgeklammert.
+
+    Rückgabe: `(primaer, aelterer)`.
+      - `primaer`: nur die zuletzt sichtbare Benutzerfrage (letzte Nachricht
+        mit role=user) + die unmittelbar darauf folgende Antwort
+        (assistant/system/tool). Diese werden als reguläre Turns übernommen.
+      - `aelterer`: kompakter, gedimmter Hintergrund-Text aus allem davor
+        (gekürzt, maximal `_HINTERGRUND_MAX` Nachrichten).
+
+    Enthält die History keine Nutzernachricht, wird sie unverändert als
+    primär zurückgegeben (kein Dimmen), damit der Verlauf nie verloren geht.
+    """
+    if not nachrichten:
+        return [], ""
+
+    # Zuletzt sichtbare Benutzerfrage finden.
+    letzte_user_idx: Optional[int] = None
+    for i in range(len(nachrichten) - 1, -1, -1):
+        if nachrichten[i].get("role") == "user":
+            letzte_user_idx = i
+            break
+
+    if letzte_user_idx is None:
+        return list(nachrichten), ""
+
+    # Primär: NUR letzte User-Frage + die unmittelbar folgende Antwort.
+    primaer: List[Dict[str, str]] = [dict(nachrichten[letzte_user_idx])]
+    if letzte_user_idx + 1 < len(nachrichten):
+        folge = nachrichten[letzte_user_idx + 1]
+        if folge.get("role") in ("assistant", "system", "tool"):
+            primaer.append(dict(folge))
+
+    # Hintergrund: alles VOR der letzten User-Frage, kompakt + gedimmt.
+    vorher = nachrichten[:letzte_user_idx]
+    zeilen: List[str] = []
+    for m in vorher[-_HINTERGRUND_MAX:]:
+        rolle = m.get("role", "?")
+        inhalt = (m.get("content") or "").strip()
+        if not inhalt:
+            continue
+        if len(inhalt) > _HINTERGRUND_LAENGE:
+            inhalt = inhalt[:_HINTERGRUND_LAENGE] + "…"
+        zeilen.append(f"{rolle}: {inhalt}")
+    aelterer = "\n".join(zeilen)
+
+    return primaer, aelterer
 
 
 def _staerke_ableiten(
@@ -375,6 +457,9 @@ class LLMService:
         """
         system_prompt = self.load_system_prompt()
 
+        # Antwort-Relevanz: Fokus auf die aktuelle Nutzerfrage (kurz, klar).
+        system_prompt += KONTEXT_FOKUS_ANWEISUNG
+
         # Rolling-Summary der älteren Unterhaltung (Ein-Chat) — wird in den
         # System-Kontext eingebettet, damit die Vergangenheit nicht verloren
         # geht, auch wenn die Historie auf die letzten Nachrichten begrenzt ist.
@@ -399,10 +484,25 @@ class LLMService:
             {"role": "system", "content": system_prompt},
         ]
 
-        # Add conversation history (last 10 messages for context)
+        # Kontextquelle pro Anfrage (Antwort-Relevanz): Statt die History roh
+        # als letzte N Turns mitzugeben (wodurch frühere, themenfremde Fragen
+        # die aktuelle verdrängen), bekommt der LLM als PRIMÄRE Kontextquelle
+        # nur die letzte sichtbare Nutzerfrage + deren Antwort. Alles Ältere
+        # wird als gedimmter Hintergrund-Kontext angehängt; frühere Fragen
+        # bleiben im persistenten Verlauf (append-only) unverändert erhalten.
         if conversation_history:
-            for msg in conversation_history[-10:]:
+            primaer, aelterer = _kontext_aufteilen(conversation_history)
+            for msg in primaer:
                 messages.append(msg)
+            if aelterer:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "[Vorheriger Kontext (älter – nur als Hintergrund für "
+                        "die Beantwortung, NUR relevant, wenn er zur aktuellen "
+                        "Frage passt):]\n" + aelterer
+                    ),
+                })
 
         # User-Nachricht mit optionalen Dateianhängen
         if files and len(files) > 0:
@@ -744,6 +844,130 @@ class LLMService:
             logger.warning("Gesichts-Anlern-Erkennung fehlgeschlagen: %s", e)
             return default
 
+    _KLASSIF_LERN_DATEI = os.path.join(
+    os.path.expanduser("~"), "hermes_inbox", "klassifikation_lernfaelle.json"
+)
+
+    def _lade_lernfaelle(self, limit: int = 12) -> list:
+        """Laedt gelernte Korrektur-Faelle (Few-Shot) fuer braucht_hermes."""
+        try:
+            if os.path.exists(self._KLASSIF_LERN_DATEI):
+                with open(self._KLASSIF_LERN_DATEI, encoding="utf-8") as f:
+                    data = json.loads(f.read())
+                if isinstance(data, list):
+                    return [d for d in data if isinstance(d, dict)][-limit:]
+        except Exception as e:
+            logger.warning("Lernfaelle laden fehlgeschlagen: %s", e)
+        return []
+
+    def lerne_klassifikation(self, text: str, braucht_hermes: bool) -> bool:
+        """Speichert einen Korrektur-Fall (Few-Shot) fuer braucht_hermes.
+
+        Wird aufgerufen, wenn der Nutzer/Weiche eine Klassifikation korrigiert
+        (Skill-Maker-Prinzip: das System verbessert sich im laufenden Betrieb).
+        Dedupliziert; begrenzt die Datei auf die letzten N Eintraege.
+        """
+        text = (text or "").strip()
+        if not text:
+            return False
+        try:
+            os.makedirs(os.path.dirname(self._KLASSIF_LERN_DATEI), exist_ok=True)
+            faelle = self._lade_lernfaelle(limit=200)
+            # Dedup nach text.
+            faelle = [d for d in faelle if str(d.get("text", "")).strip() != text]
+            faelle.append({"text": text, "braucht_hermes": bool(braucht_hermes)})
+            # Nur letzte 200 behalten.
+            faelle = faelle[-200:]
+            with open(self._KLASSIF_LERN_DATEI, "w", encoding="utf-8") as f:
+                f.write(json.dumps(faelle, ensure_ascii=False))
+            return True
+        except Exception as e:
+            logger.warning("Lernfall speichern fehlgeschlagen: %s", e)
+            return False
+
+    def braucht_hermes(self, nachricht: str) -> dict:
+        """Entscheidet agentisch (via LLM), ob Hermes noetig ist.
+
+        Sauberer Tool-Use statt Wort-Heuristik (Wunsch Sebastian 2026-09-01):
+        Wie bei Gesichter-Erkennung/Dateisuche wird ein guenstiger LLM-Call
+        gemacht. Hermes = Coding-Agent mit Terminal-/Datei-/System-Zugriff.
+
+        Returns: dict {"braucht_hermes": bool, "begruendung": str}
+        """
+        default = {"braucht_hermes": False, "begruendung": ""}
+        if not self.is_configured or not nachricht or not nachricht.strip():
+            return default
+        # Gelernte Korrektur-Faelle (Few-Shot, Skill-Maker): als Beispiele in
+        # den Prompt mischen, damit der Decider sich laufend verbessert.
+        lern_faelle = self._lade_lernfaelle(limit=8)
+        lern_block = ""
+        if lern_faelle:
+            zeilen = []
+            for f in lern_faelle:
+                z = str(f.get("text", "")).strip()
+                w = bool(f.get("braucht_hermes"))
+                if z:
+                    zeilen.append(f"- '{z}' -> {str(w).lower()}")
+            if zeilen:
+                lern_block = (
+                    "\nZUSAETZLICHE GELERNTE FAELLE (hoch gewichten, wenn die "
+                    "Nachricht ahnlich ist):\n" + "\n".join(zeilen) + "\n"
+                )
+        prompt = (
+            "Du bist eine automatische Weiche. Entscheide, ob eine deutsche "
+            "Nutzer-Nachricht an den persoenlichen Assistenten eine CODING-/"
+            "SYSTEM-Aufgabe ist, die den Coding-Agenten 'Hermes' (mit Terminal-, "
+            "Dateisystem- und System-Zugriff) braucht - ODER ob der eingebaute "
+            "Assistent sie selbst (Wissen/Dialog/Gedaetachtnis/Datei-LESEN) "
+            "beantworten kann.\n\n"
+            "BEISPIELE - braucht_hermes TRUE (Hermes noetig):\n"
+            "- 'Erstelle eine neue Datei und schreibe Code hinein'\n"
+            "- 'Aendere das Python-Skript, fixe den Bug im Repo'\n"
+            "- 'Fuehre git commit und push aus'\n"
+            "- 'Installiere pip-Paket X im Projekt'\n"
+            "- 'Starte den Docker-Container / den Service neu'\n\n"
+            "BEISPIELE - braucht_hermes FALSE (Assistent selbst):\n"
+            "- 'Was ist eine For-Schleife?'\n"
+            "- 'Erkläre mir Kohlenstoffdioxid'\n"
+            "- 'Erstelle mir einen Reiseplan'\n"
+            "- 'Lies meine Rechnung-Datei und fasse sie zusammen'\n"
+            "- 'Das bin ich, merke dir mein Gesicht'\n"
+            "- 'Was hat er letztes Mal gesagt?'\n\n"
+            "REGELN:\n"
+            "- Ein Arbeitsverb (erstelle/schreibe/baue/fixe/aendere/implementiere/"
+            "programmiere) NUR zusammen mit einem Datei-/Code-/Repo-/Server-/"
+            "System-/Tool-Objekt ergibt TRUE.\n"
+            "- Reine Wissens-, Erklae-, Planungs- oder Dialoganfragen ohne "
+            "Datei-/System-Objekt sind FALSE.\n"
+            "- Datei-LESEN/Zusammenfassen, Gesichter-Anlernen, Websuche, "
+            "Rechen-/Textfragen: FALSE.\n"
+            "Antworte NUR mit einem JSON-Objekt, kein Text drumherum:\n"
+            "{\"braucht_hermes\": true|false, \"begruendung\": \"max. 1 Satz, deutsch\"}\n"
+            + lern_block
+            + "\nNachricht: " + nachricht
+        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],  # type: ignore
+                temperature=0.0,
+                max_tokens=80,
+                extra_body={"provider": {"allow_fallbacks": True}},
+            )
+            raw = (response.choices[0].message.content or "{}").strip()
+            if "{" in raw:
+                raw = raw[raw.index("{"):]
+            raw = raw.rstrip().rstrip(",")
+            parsed = json.loads(raw)
+            if not isinstance(parsed, dict):
+                return default
+            braucht = bool(parsed.get("braucht_hermes", False))
+            begruendung = str(parsed.get("begruendung") or "").strip()
+            return {"braucht_hermes": braucht, "begruendung": begruendung}
+        except Exception as e:  # pragma: no cover
+            logger.warning("Hermes-Bedarf-Erkennung fehlgeschlagen: %s", e)
+            return default
+
     def extrahiere_datei_such_intent(self, frage: str) -> dict:
         """Erkennt aus einer Datei-Suchfrage den Such-Intent (agentisch, via LLM).
 
@@ -752,20 +976,21 @@ class LLMService:
         Wortliste (deterministische Heuristik) scheitert an Jahreszahlen,
         Synonymen und freien Formulierungen. Stattdessen lässt ein günstiger
         LLM-Aufruf aus dem Satz strukturiert extrahieren:
-          suchbegriff  : Name/Kernwort, z. B. \"flügelschlag\"/\"bewerbung\" (\"\" bei \"letztes\")
+          suchbegriff  : Name/Kernwort, z. B. "flügelschlag"/"bewerbung" ("" bei "letztes")
           jahr         : optionales Jahresfilter (int) oder None
-          neueste      : true wenn \"letztes/neuestes\" (nach Zeit sortieren)
-          ordner       : \"kamera\" | \"screenshot\" | \"\" (Priorisierung)
+          neueste      : true wenn "letztes/neuestes" (nach Zeit sortieren)
+          ordner       : "kamera" | "screenshot" | "" (Priorisierung)
           nur_bilder   : true → nur Bild-Dateien (.png/.jpg/…)
           nur_dokumente: true → nur PDF/Doku-Dateien
           erklaeren    : true → Inhalt lesen/zusammenfassen (Bild beschreiben)
+          aufnahme_am  : "heute" | "gestern" | "morgen" | "YYYY-MM-DD" | null
 
         Returns: dict mit diesen Schlüsseln (Defaults bei Fehler).
         """
         default = {
             "suchbegriff": "", "jahr": None, "neueste": False,
             "ordner": "", "nur_bilder": False, "nur_dokumente": False,
-            "erklaeren": False,
+            "erklaeren": False, "aufnahme_am": None,
         }
         if not self.is_configured or not frage or not frage.strip():
             return default
@@ -779,12 +1004,17 @@ class LLMService:
             "- \"Zeig den letzten Screenshot\" → {suchbegriff:\"\", jahr:null, neueste:true, ordner:\"screenshot\", nur_bilder:true, nur_dokumente:false, erklaeren:true}\n"
             "- \"was steht in meiner Rechnung vom Mai\" → {suchbegriff:\"rechnung\", jahr:null, neueste:false, ordner:\"\", nur_bilder:false, nur_dokumente:true, erklaeren:true}\n"
             "- \"Zeig mir den Diablo-Artikel als Bild\" → {suchbegriff:\"diablo\", jahr:null, neueste:false, ordner:\"\", nur_bilder:true, nur_dokumente:false, erklaeren:true}\n"
-            "- \"Suche die Bewerbungsunterlagen\" → {suchbegriff:\"bewerbung\", jahr:null, neueste:false, ordner:\"\", nur_bilder:false, nur_dokumente:true, erklaeren:false}\n\n"
+            "- \"Suche die Bewerbungsunterlagen\" → {suchbegriff:\"bewerbung\", jahr:null, neueste:false, ordner:\"\", nur_bilder:false, nur_dokumente:true, erklaeren:false, aufnahme_am:null}\n"
+            "- \"Zeig mir die Bilder von heute\" → {suchbegriff:\"\", jahr:null, neueste:false, ordner:\"kamera\", nur_bilder:true, nur_dokumente:false, erklaeren:true, aufnahme_am:\"heute\"}\n"
+            "- \"Das Foto von gestern\" → {suchbegriff:\"\", jahr:null, neueste:false, ordner:\"kamera\", nur_bilder:true, nur_dokumente:false, erklaeren:true, aufnahme_am:\"gestern\"}\n\n"
             "Regeln:\n"
             "- suchbegriff: wichtigstes Kernwort ODER \"\" wenn es um das neueste/letzte "
               "geht oder um einen generischen Bild-/Dokument-Typ.\n"
             "- jahr: Jahreszahl (reine Zahl) wenn ein Jahr genannt wird (\"aus 2025\", "
               "\"vom Jahr 2025\"), sonst null.\n"
+            "- aufnahme_am: \"heute\"/\"gestern\"/\"morgen\" bzw. ein genaues Datum "
+              "(\"YYYY-MM-DD\") wenn ein relativer Tag oder ein bestimmter Tag "
+              "genannt wird, sonst null.\n"
             "- neueste: true bei \"letzte(s/n)\"/\"neueste(s/n)\".\n"
             "- ordner: \"screenshot\" bei Screenshot, \"kamera\" bei Foto/Foto von der "
               "Kamera, sonst \"\".\n"
@@ -842,6 +1072,10 @@ class LLMService:
                 m = _r.search(r'suchbegriff["\s:]+"?([a-zA-ZäöüÄÖÜß0-9_\- ]*?)"?[\s,}\]]', raw, _r.I)
                 if m:
                     _fe["suchbegriff"] = m.group(1).strip()
+                # aufnahme_am: "heute"/"gestern"/"morgen" bzw. ein Datum
+                m = _r.search(r'aufnahme_am["\s:]+\"?([a-zA-Z0-9/\-.]+)\"?[\s,}\]]', raw, _r.I)
+                if m:
+                    _fe["aufnahme_am"] = m.group(1).strip().strip(chr(34))
                 parsed = _fe if _fe else None
             if parsed is None:
                 return default
@@ -853,6 +1087,8 @@ class LLMService:
             result["jahr"] = int(jahr) if isinstance(jahr, (int, str)) and str(jahr).strip().isdigit() else None
             result["neueste"] = bool(parsed.get("neueste", False))
             result["ordner"] = str(parsed.get("ordner", "") or "").strip()
+            am = parsed.get("aufnahme_am")
+            result["aufnahme_am"] = str(am).strip().lower() if am and str(am).strip() else None
             result["nur_bilder"] = bool(parsed.get("nur_bilder", False))
             result["nur_dokumente"] = bool(parsed.get("nur_dokumente", False))
             result["erklaeren"] = bool(parsed.get("erklaeren", False))

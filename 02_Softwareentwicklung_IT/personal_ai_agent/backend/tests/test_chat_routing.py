@@ -62,7 +62,7 @@ def test_track_b_buch_fallback():
     """PC + lokal nicht da → art='buch', ziel='buch'."""
     r = _route(pc_antwort=None, lokal_verfuegbar=False)
     assert r["art"] == "buch"
-    assert "wird bearbeitet" in r["reply"]
+    assert "wird übernommen" in r["reply"]
     assert r["ziel"] == "buch"
 
 
@@ -72,7 +72,11 @@ def test_track_c_antwort_nennt_ziel_handy():
     assert "Hermes (Handy)" in r["reply"]
 
 
-def test_track_b_antwort_nennt_ziel_buch():
-    """Track B: Die Antwort nennt das Ziel sichtbar (Auftragsbuch)."""
+def test_track_b_antwort_ohne_auftragsbuch():
+    """Track B: In der Nutzer-Antwort taucht weder 'Auftragsbuch' noch
+    'wird bearbeitet' auf – das sichtbare Auftragskonzept ist entfernt
+    (nur noch 'Hermes' als Ziel)."""
     r = _route(pc_antwort=None, lokal_verfuegbar=False)
-    assert "Auftragsbuch" in r["reply"]
+    assert "Weitergeleitet an:" in r["reply"] and "Hermes" in r["reply"]
+    assert "Auftragsbuch" not in r["reply"]
+    assert "wird bearbeitet" not in r["reply"]

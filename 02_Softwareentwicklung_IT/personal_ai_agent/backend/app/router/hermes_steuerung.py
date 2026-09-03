@@ -160,6 +160,20 @@ class ChatRequest(BaseModel):
     kontext: str = ""
 
 
+def _persistiere_hermes_runde(nachricht: str, antwort: str, *, cid: str = chat_verlauf._AKTIVE_CONVERSATION_ID) -> None:
+    """Schreibt eine Hermes-Spiegel-Runde (Nutzer-Frage + Antwortun) append-only in
+    den persistenten Verlauf. Genau da, wo es nach Wunsch Sebastian (2026-09-01) lagoon soll:
+    'jede Nachricht behalten + später wieder ansehen'. Fehler duerfen die Antwort nicht
+    abbrechen — deshalb ist der Anhang bewusst nebenlaufig abgesichert."""
+    if not nachricht or not antwort:
+        return
+    try:
+        chat_verlauf.verlauf_nachricht_anhaengen(cid, "user", nachricht)
+        chat_verlauf.verlauf_nachricht_anhaengen(cid, "assistant", antwort)
+    except Exception as e:
+        logger.warning("Hermes-Runde nicht in Verlauf: %s", e)
+
+
 class ChatResponse(BaseModel):
     reply: str
 
@@ -204,20 +218,26 @@ def hermes_chat(req: ChatRequest):
         if sess:
             try:
                 r = hermes_local.stelle_frage_an_tmux(
-                    sess, text, timeout=100)
+                    sess, text, timeout=hermes_local.DEFAULT_TIMEOUT)
                 if r.get("art") == "ergebnis":
-                    return ChatResponse(reply=r.get("text", "") or "Kein Ergebnis")
+                    antw = r.get("text", "") or "Kein Ergebnis"
+                    _persistiere_hermes_runde(text, antw)
+                    return ChatResponse(reply=antw)
                 # Fehler/Timeout: auf -q Fallback fallen (robust).
             except Exception as e:
                 logger.warning("tmux-frage fehlgeschlagen, Fallback -q: %s", e)
         ereignisse = list(hermes_local.stream_auftrag_query(
             "chat-" + uuid.uuid4().hex[:8],
-            text, timeout=100, kontext=req.kontext,
+            text, timeout=hermes_local.DEFAULT_TIMEOUT, kontext=req.kontext,
         ))
         letztes = ereignisse[-1] if ereignisse else {}
         if letztes.get("art") == "ergebnis":
-            return ChatResponse(reply=letztes.get("text", ""))
-        return ChatResponse(reply=(letztes.get("text") or "Kein Ergebnis"))
+            antw = letztes.get("text", "") or "Kein Ergebnis"
+            _persistiere_hermes_runde(text, antw)
+            return ChatResponse(reply=antw)
+        antw = (letztes.get("text") or "Kein Ergebnis")
+        _persistiere_hermes_runde(text, antw)
+        return ChatResponse(reply=antw)
     except Exception as e:
         logger.error("hermes_chat fehler: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -443,7 +463,7 @@ def hermes_chatstream(req: ChatStreamRequest):
     else:
         try:
             ereignisse = list(hermes_local.stream_auftrag_query(
-                "chat-" + uuid.uuid4().hex[:8], text, timeout=100, kontext=req.kontext,
+                "chat-" + uuid.uuid4().hex[:8], text, timeout=hermes_local.DEFAULT_TIMEOUT, kontext=req.kontext,
             ))
             letztes = ereignisse[-1] if ereignisse else {}
             antwort = letztes.get("text", "") if letztes.get("art") == "ergebnis" else (letztes.get("text") or "Kein Ergebnis")
