@@ -65,6 +65,10 @@ class ChatRequest(BaseModel):
     archiv: bool = True
     # Beigefügte Dateien (Bilder, PDFs) – optional
     files: Optional[List[FileAttachment]] = None
+    # WhatsApp-artige Antwort-Referenz: Optionaler Zitat-Text einer
+    # vorherigen Nachricht, auf die diese Antwort konkret Bezug nimmt.
+
+    antwort_auf: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

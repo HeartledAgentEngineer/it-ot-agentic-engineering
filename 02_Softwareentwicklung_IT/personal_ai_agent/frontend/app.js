@@ -455,7 +455,7 @@ function addZielChip(contentDiv, ziel) {
 
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
-function addMessage(content, role, zeit) {
+function addMessage(content, role, zeit, bildPfad) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
     // Roh-Text der Blase fürs Kontextmenü (Kopieren/Bearbeiten): bei
@@ -530,6 +530,25 @@ function addMessage(content, role, zeit) {
         zeitDiv.style.cssText = 'font-size:0.7rem;color:#9a9a9a;text-align:right;margin-top:4px;padding:0 4px';
         zeitDiv.textContent = label;
         inner.appendChild(zeitDiv);
+    }
+    // WhatsApp-artiger '↩ Antworten'-Knopf: erlaubt, auf genau diese
+    // Nachricht (Text ODER Bild) konkret zu antworten. Nur bei realem Inhalt.
+    const zitatText = (content || '').trim();
+    if (zitatText) {
+        const antBtn = document.createElement('button');
+        antBtn.type = 'button';
+        antBtn.textContent = '↩ Antworten';
+        antBtn.title = 'Auf diese Nachricht antworten (Zitat-Kontext)';
+        antBtn.style.cssText =
+            'background:none;border:none;color:#7aaa;font-size:0.7rem;cursor:pointer;' +
+            'padding:2px 4px;text-align:right;align-self:flex-end;border-radius:6px;opacity:0.75';
+        antBtn.addEventListener('mouseenter', () => { antBtn.style.color = '#8cf'; antBtn.style.opacity = '1'; });
+        antBtn.addEventListener('mouseleave', () => { antBtn.style.color = '#7aaa'; antBtn.style.opacity = '0.75'; });
+        antBtn.addEventListener('click', () => {
+            const zeitRef = (zeit === undefined) ? new Date().toISOString() : (zeit || '');
+            setzeAntwortAuf(role, zitatText, zeitRef, bildPfad);
+        });
+        inner.appendChild(antBtn);
     }
     div.appendChild(inner);
     // Vorlese-Knopf auch fuer fertige/geladene Assistant-Nachrichten (History-
@@ -2085,6 +2104,41 @@ function zerlegeHermesMeldung(m) {
  * Pollt alle 3 Sekunden den Status eines Coding-Auftrags und zeigt
  * Live-Updates im Chat an – jede neue Meldung als eigene Chat-Blase.
  */
+// ==== WhatsApp-artige Antwort-Zitat (↩ Antworten) ====
+let _antwortAuf = null; // { rolle, text, zeit, bildPfad }
+
+function setzeAntwortAuf(rolle, text, zeit, bildPfad) {
+    const t = (text || '').trim();
+    if (!t) return;
+    _antwortAuf = { rolle, text: t, zeit: zeit || '', bildPfad: bildPfad || '' };
+    const v = document.getElementById('antwort-vorschau');
+    if (!v) return;
+    v.innerHTML = '';
+    const inhalt = document.createElement('div'); inhalt.className = 'av-inhalt';
+    const rolleD = document.createElement('div'); rolleD.className = 'av-rolle';
+    rolleD.textContent = rolle === 'user' ? 'Du' : 'Agent';
+    const textD = document.createElement('div'); textD.className = 'av-text'; textD.textContent = t;
+    inhalt.appendChild(rolleD); inhalt.appendChild(textD);
+    if (bildPfad) {
+        const img = document.createElement('img'); img.className = 'av-bild'; img.alt = '';
+        fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(bildPfad)}`)
+            .then(r => r.json()).then(d => { if (d && d.data_url) img.src = d.data_url; })
+            .catch(() => {});
+        v.appendChild(img);
+    }
+    const x = document.createElement('button'); x.className = 'av-x'; x.textContent = '✕';
+    x.title = 'Antwort entfernen'; x.type = 'button';
+    x.onclick = clearAntwortAuf;
+    v.appendChild(inhalt); v.appendChild(x);
+    v.classList.remove('hidden');
+    const inp = document.getElementById('message-input'); if (inp) inp.focus();
+}
+function clearAntwortAuf() {
+    _antwortAuf = null;
+    const v = document.getElementById('antwort-vorschau');
+    if (v) { v.classList.add('hidden'); v.innerHTML = ''; }
+}
+
 let _auftragTimer = null;
 // Kurz-ID des aktuell laufenden Hermes-Auftrags (für den Kommunikationskanal:
 // solange gesetzt, wird eine neue Chat-Nachricht als Kommentar an die Session
@@ -2209,12 +2263,10 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
             web_search: state.webSearch,
             model: state.model,
             no_retention: state.noRetention,
+            // WhatsApp-artiges Antwort-Zitat (falls gesetzt)
+            antwort_auf: _antwortAuf ? _antwortAuf.text : undefined,
             // Auch im Fallback müssen Dateien mit – sonst fehlt das Bild
             // beim zweiten Versuch, wenn der Streaming-Weg scheiterte.
-            // Nur image/pdf senden: kann ein ungueltiger Typ
-            // (z. B. video/audio) ans ChatRequest-Modell 422 werfen
-            // (Literal["image","pdf"].). Alle Dateien bleiben in pendingFiles, aber
-            // nicht unterstuetzte Typen reisen nicht mehr mit den Request.
             files: state.pendingFiles.length > 0
                 ? state.pendingFiles
                     .filter(f => f.type === 'image' || f.type === 'pdf')
@@ -2297,6 +2349,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         );
         setLoading(false);
         state.abbruch = null;
+        clearAntwortAuf(); // Zitat an einen laufenden Hermes-Kommentar ist wirkungslos
         return;
     }
 
@@ -2396,6 +2449,8 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 model: state.model,
                 force_agent: forceAgent === true,
                 ziel: ziel || undefined,
+                // WhatsApp-artiges Antwort-Zitat (falls gesetzt)
+                antwort_auf: _antwortAuf ? _antwortAuf.text : undefined,
                 // Nur image/pdf senden (sonst 422 am ChatRequest-Literal["image","pdf"].
                 files: state.pendingFiles.length > 0
                     ? state.pendingFiles
@@ -2628,6 +2683,8 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // gestartet hat (kein Stopp-Knopf mehr für normale Antworten).
         if (state.abbruch === controller) state.abbruch = null;
         setLoading(false);
+        // WhatsApp-Zitat nach dem Absenden weg (wie WhatsApp).
+        clearAntwortAuf();
     }
 }
 
@@ -3600,7 +3657,7 @@ async function zeigeGespraech(id) {
 
         for (const m of nachrichten) {
             const role = m.role === 'user' ? 'user' : 'assistant';
-            const contentDiv = addMessage(m.content || '', role, m.zeit || null);
+            const contentDiv = addMessage(m.content || '', role, m.zeit || null, m.bild_pfad || undefined);
             // Gespeicherte Bild-Vorschau (Dateisuche) wieder anzeigen: Der
             // bloße Pfad ist im Verlauf persistiert, das Bild wird frisch
             // über /api/dateien/daten nachgeladen (Original bleibt unantastbar).
