@@ -991,6 +991,8 @@ class LLMService:
             "suchbegriff": "", "jahr": None, "neueste": False,
             "ordner": "", "nur_bilder": False, "nur_dokumente": False,
             "erklaeren": False, "aufnahme_am": None,
+            # Skill-Gate: true nur bei echtem Datei-/Bild-/Inhaltszugriff.
+            "aktiv": False,
         }
         if not self.is_configured or not frage or not frage.strip():
             return default
@@ -1022,7 +1024,16 @@ class LLMService:
             "PDF/Rechnung/Dokument/Lebenslauf/Vertrag.\n"
             "- erklaeren: true wenn der Nutzer den INHALT sehen/lesen/zusammenfassen/"
             "erklaert bekommen will (bei \"zeig mir\", \"liest\", \"was steht in\"); "
-            "false bei bloßer Namensnennung (\"suche\", \"finde\").\n\n"
+            "false bei bloßer Namensnennung (\"suche\", \"finde\").\n"
+            "- aktiv: true ist die Regel, sobald ein Datei-/Bild-/Foto-/Screenshot-/"
+            "PDF-/Inhalts- oder Kontext-Konzept samt Handlungs-/Zugriffsziel "
+            "erkennbar ist (z. B. \"zeig mir die Bilder von gestern\", \"lies meine "
+            "Rechnung\", \"das Foto von 2025\", \"welcher Screenshot heute\"). \n"
+            "- aktiv: false NUR, wenn wirklich nur geredet/gefragt/erzaehlt wird und "
+            "KEIN konkretes Datei-/Bild-/Lese-/Zugriffsobjekt samt Ziel vorliegt "
+            "(z. B. \"heute war gut\", \"meine Bilder sind schoen\", \"find ich auch\", "
+            "\"das ist Oma Helga, lern sie\"). Dann keine Suche.\n"
+            "Im Zweifel bei Datei-/Bild-/Foto-Bezug auf aktiv:true.\n\n"
             "Antworte NUR mit einem JSON-Objekt, kein Text drumherum.\n"
             f"Frage: {frage}"
         )
