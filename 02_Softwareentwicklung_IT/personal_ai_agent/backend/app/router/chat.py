@@ -330,6 +330,9 @@ async def chat(request: ChatRequest):
             # 1f. Verlaufs-Tool über Sprache (Rückblick): 'was haben wir zu X gesagt'.
             if not werkzeug_notiz:
                 werkzeug_notiz = _verlauf_tool(request.message)
+            # 1f2. Gesichts-Suche ueber Bilder (dynamisch, kontextbasiert).
+            if not werkzeug_notiz:
+                werkzeug_notiz = _gesicht_suche_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
@@ -942,6 +945,69 @@ def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
     )
 
 
+def _gesicht_suche_tool(frage: str) -> str:
+    """Chat-Befehl: Gesichter-Suche auf lokalen Bildern (dynamisch, kontextbasiert).
+
+    Erkennt Wünsche wie 'zeig mir alle Fotos mit Helga/Oma', 'Bilder der letzten
+    7 Tage mit Oma', 'welche Fotos sind von Oma'. Nutzt die deterministische
+    SFace-Suche (gesicht_fotos) gegen den Gesichter-Katalog — kein hartkodierter
+    Name, die Person wird zur Laufzeit aufgeloest. Liefert eine Notiz mit den
+    Treffern (Anzahl + Dateinamen) an die user_message, damit der Agent sie
+    fluessig anzeigt und dem Nutzer nennt.
+    """
+    try:
+        f = (frage or "").strip()
+        if not f:
+            return ""
+        import re as _re
+        import datetime as _dt
+        # Zeitraum-Hinweis (Tage) — "letzte(n) 7 Tage/Woche", "diese Woche"...
+        tage = None
+        m = _re.search(r"\b(\d{1,3})\s+(tag|tage|tagen|tag\b)", f.lower())
+        if m:
+            tage = int(m.group(1))
+        elif "woche" in f.lower() or "wochen" in f.lower():
+            mw = _re.search(r"\b(\d{1,3})\s+(woche|wochen)", f.lower())
+            tage = 7 * int(mw.group(1)) if mw else 7
+        elif "heute" in f.lower():
+            tage = 1
+        elif "gestern" in f.lower():
+            tage = 1
+        # Muss einen Bild-/Foto-Kontext UND einen Personen-Bezug haben
+        # (kontextbasiert, nicht bloß ein Name beliebig). Katalog als Referenz.
+        from app.services import gesichter_service
+        katalog = gesichter_service.liste_personen()
+        if not katalog:
+            return ""
+        namen = [((p.get("name") or "").strip().lower()) for p in katalog if p.get("name")]
+        rollen = [((p.get("rolle") or "").strip().lower()) for p in katalog if p.get("rolle") if p.get("rolle")]
+        fl = f.lower()
+        bild_bezug = any(w in fl for w in ("foto", "fotos", "bild", "bilder", "screenshot", "aufnahme", "foto's"))
+        person_hit = next((n for n in namen if n and n in fl), None)
+        if not person_hit:
+            person_hit = next((r for r in rollen if r and r in fl), None)
+        if not bild_bezug or not person_hit:
+            return ""
+        # Person aufloesen (bevorzugt Name, fallback Rolle).
+        ziel = person_hit
+        from app.services import gesicht_fotos
+        ergebnis = gesicht_fotos.suche_bilder_mit_person(ziel, tage=tage)
+        gefunden = ergebnis.get("gefunden", [])
+        if not gefunden:
+            return ("\n\n[Aus der Gesichts-Suche zu '%s': KEINE Fotos gefunden%s. "
+                    "Sag das ehrlich und erfinde keine Treffer.]"
+                    % (ziel, (f" in den letzten {tage} Tagen" if tage else "")))
+        namen_txt = "; ".join(dict.fromkeys(g.get("name") or "?" for g in gefunden[:12]))
+        dateien = "; ".join((g.get("pfad") or "").split("/")[-1] for g in gefunden[:12])
+        zeit_hinweis = f" der letzten {tage} Tage" if tage else ""
+        return ("\n\n[Gesichts-Suche zu '%s': %d Foto(s)%s gefunden (Erkennung per "
+                "SFace): %s | Dateien: %s. Zeige dem Nutzer die Bilder als fluessige "
+                "Vorschau und nenne Anzahl/Dateien.]"
+                % (ziel, len(gefunden), zeit_hinweis, namen_txt, dateien))
+    except Exception as e:
+        return ""
+
+
 def _datei_tool(frage: str) -> tuple:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
@@ -1477,6 +1543,8 @@ async def chat_stream(request: ChatRequest):
                     s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
                     if not s_werkzeug_text:
                         s_werkzeug_text = _verlauf_tool(request.message)
+                    if not s_werkzeug_text:
+                        s_werkzeug_text = _gesicht_suche_tool(request.message)
                 s_user = (request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
         + _gesichtsabgleich_notiz(request, s_werkzeug_bilder))
                 # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was
