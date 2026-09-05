@@ -2292,7 +2292,100 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
     return data;
 }
 
+
+// ============================== GESICHTER-QUIZ (Anlernspiel) ==================
+// Startet das spielerische Anlernen ueber die Lieblingsbilder: zeigt ein Bild,
+// der Nutzer benennt die Person, die Antwort festigt das Gesicht als Referenz.
+let _quizAktiv = false;
+let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
+
+function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
+    // eine Quiz-Karte als Chat-blase (assistant) mit Bild + Auswahl
+    const karte = addMessage('', 'assistant', undefined, pfad);
+    karte.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.style.cssText = 'max-width:100%;border-radius:10px;max-height:300px;object-fit:cover';
+    karte.appendChild(img);
+    const frage = document.createElement('div');
+    frage.style.cssText = 'margin-top:8px;font-weight:600';
+    frage.textContent = '🧠 Wen siehst du auf diesem Bild?';
+    karte.appendChild(frage);
+    const box = document.createElement('div');
+    box.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+    (optionen || []).forEach(o => {
+        const b = document.createElement('button');
+        b.textContent = o;
+        b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
+        b.onclick = () => quizBeantworten(pfad, o, false);
+        box.appendChild(b);
+    });
+    const neu = document.createElement('button');
+    neu.textContent = '➕ Neue Person';
+    neu.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
+    neu.onclick = () => {
+        const n = prompt('Name der Person auf dem Bild:');
+        if (n && n.trim()) quizBeantworten(pfad, n.trim(), true);
+    };
+    box.appendChild(neu);
+    karte.appendChild(box);
+}
+
+async function quizStart() {
+    _quizAktiv = true;
+    try {
+        const r = await fetch(`${API_BASE}/api/gesichter/quiz/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ausgeschlossen: _quizGesehen }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (d && d.keine) { addMessage('⚠️ Kein Lieblingsbilder-Ordner gefunden.', 'assistant'); _quizAktiv = false; return; }
+        const pfad = d.bild_pfad;
+        _quizGesehen.push(pfad);
+        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || []);
+    } catch (e) {
+        addMessage('⚠️ Quiz konnte nicht starten: ' + (e && e.message), 'assistant');
+        _quizAktiv = false;
+    }
+}
+
+async function quizBeantworten(pfad, person, istNeu) {
+    try {
+        const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu }),
+        });
+        const d = await r.json();
+        const meldung = (d && d.ok)
+            ? `✅ **${person}** gespeichert${d.ist_neu ? ' (neu)' : ''} — ${d.referenzen} Referenz(en).`
+            : (`⚠️ ${(d && d.fehler) || 'Unbekannter Fehler'}`);
+        addMessage(meldung, 'assistant');
+        // naechste Frage (Moeglichkeit, durchzuspielen) — kleiner Quick-Link:
+        const weiter = document.createElement('button');
+        weiter.textContent = 'Nächstes Bild ➡️';
+        weiter.style.cssText = 'align:left;padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem';
+        weiter.onclick = quizStart;
+        const c = addMessage('', 'assistant');
+        c.appendChild(weiter);
+    } catch (e) {
+        addMessage('⚠️ Antwort fehlgeschlagen: ' + (e && e.message), 'assistant');
+    }
+}
+
 async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false, ziel = '') {
+    // QUIZ-KOMMANDO: "quiz starten", "anlernspiel", "lernspiel", "gesichtsspiel"
+    if (text && typeof text === 'string') {
+        const t = text.trim().toLowerCase();
+        if (t.indexOf('quiz starten') !== -1 || t.indexOf('anlernspiel') !== -1
+            || t.indexOf('quiz start') !== -1 || t === 'quiz') {
+            quizStart();
+            return;
+        }
+    }
+
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
     // eingereiht, wenn wir NICHT selbst eine Warteschlangen-Nachricht senden
     // (ausWarteschlange=true), kein laufender Hermes-Auftrag existiert UND es
