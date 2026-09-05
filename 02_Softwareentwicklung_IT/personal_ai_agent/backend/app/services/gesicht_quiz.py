@@ -162,6 +162,23 @@ def _fortschritt_speichern(gesehen):
         logger.warning("Quiz-Fortschritt speichern fehlgeschlagen: %s", e)
 
 
+def markiere_uebersprungen(bild_pfad: str) -> dict:
+    """Markiert ein Quiz-Bild als 'gesehen/uebersprungen' OHNE eine Person zu
+    speichern. Wird genutzt, wenn auf dem Bild keine (relevante) Person ist.
+    Haengt den Pfad an den persistenten Fortschritt, damit es nicht endlos
+    erneut erscheint.
+    """
+    from app.services.datei_suche import lese_datei_info
+    if not bild_pfad or not os.path.exists(bild_pfad):
+        return {"ok": False, "fehler": "Bild nicht gefunden"}
+    gesehen = _fortschritt_laden()
+    if bild_pfad not in gesehen:
+        gesehen = gesehen + [bild_pfad]
+        _fortschritt_speichern(gesehen)
+    info = lese_datei_info(bild_pfad)
+    return {"ok": True, "uebersprungen": True, "name": info.get("name")}
+
+
 def start_runde(ausgeschlossen=None):
     from app.services.datei_suche import lese_datei_info
     bilder = _alle_bilder()

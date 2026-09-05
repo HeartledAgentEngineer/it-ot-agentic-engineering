@@ -71,9 +71,10 @@ def gesichter_kontext():
 
 class QuizAntwortBody(BaseModel):
     bild_pfad: str = Field(..., max_length=2000)
-    person: str = Field(..., min_length=1, max_length=100)
+    person: str = Field(default="", max_length=100)
     ist_neu: bool = False
     rolle: str = Field(default="", max_length=100)
+    ueberspringen: bool = False
 
 
 class QuizStartBody(BaseModel):
@@ -99,7 +100,13 @@ def quiz_start(body: QuizStartBody):
 
 @router.post("/quiz/antwort")
 def quiz_antwort(body: QuizAntwortBody):
-    """Speichert die Antwort des Nutzers: dominantes Gesicht als Referenz von `person`."""
+    """Speichert die Antwort des Nutzers: dominantes Gesicht als Referenz von `person`.
+
+    Bei `ueberspringen:true` wird das Bild nur als 'gesehen' markiert (keine
+    Person gespeichert) — fuer Bilder ohne (relevante) Person.
+    """
+    if body.ueberspringen:
+        return gesicht_quiz.markiere_uebersprungen(body.bild_pfad)
     return gesicht_quiz.beantworte_runde(
         bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu, rolle=body.rolle
     )

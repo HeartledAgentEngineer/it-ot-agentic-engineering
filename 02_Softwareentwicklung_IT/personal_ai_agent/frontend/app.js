@@ -2363,6 +2363,28 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung) {
     };
     auswahlBox.appendChild(neu);
     karte.appendChild(auswahlBox);
+    // Button fuer 'keine Person drauf / Algorithmus hat sich geirrt':
+    // markiert das Bild alsuebersprungen (ohne Person zu speichern).
+    const skip = document.createElement('button');
+    skip.textContent = '🚫 Keine Person drauf';
+    skip.style.cssText = 'margin-top:8px;padding:6px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.82rem;width:100%;text-align:center';
+    skip.onclick = () => quizUeberspringen(pfad);
+    karte.appendChild(skip);
+}
+
+async function quizUeberspringen(pfad) {
+    try {
+        const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
+        });
+        const d = await r.json();
+        addMessage((d && d.ok) ? '👌 Übersprungen (kein Gesicht/keine Person).' : `⚠️ ${(d && d.fehler) || 'Fehler'}`, 'assistant');
+        quizStart();  // weiter zur naechsten Frage
+    } catch (e) {
+        addMessage('⚠️ Überspringen fehlgeschlagen: ' + (e && e.message), 'assistant');
+    }
 }
 
 async function quizStart() {
