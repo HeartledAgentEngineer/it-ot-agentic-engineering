@@ -226,6 +226,22 @@ def start_runde(ausgeschlossen=None):
         "ist_bild": bool(info.get("ist_bild")),
     }
     runde["vermutung"] = _hypothese(kandidat)
+    # Die offene Quiz-Frage dauerhaft in den Chat-Verlauf (conv_main) schreiben
+    # (mit bild_pfad + Vermutung). So ist der Quiz-Zustand nach einem
+    # Server-Neustart/Reload ZU 100% aus dem Chat rekonstruierbar: der Chat zeigt
+    # die letzte gestellte Frage mit Bild, und der Fortschritt (quiz_fortschritt)
+    # sagt, wo weiterzumachen ist. Append-only, mutiert nichts Bestehendes.
+    try:
+        from app.services.chat_verlauf import verlauf_nachricht_anhaengen
+        v = runde.get("vermutung") or {}
+        v_txt = ""
+        if v.get("person"):
+            v_txt = f" (Vermutung: {v.get('person')}, Sicherheit {v.get('sicherheit')})"
+        frage_text = f"🗒 QUIZ-ANTWORTEN [QUIZ-OFFEN] — Wen siehst du auf diesem Bild?{v_txt}"
+        verlauf_nachricht_anhaengen("conv_main", "assistant", frage_text,
+                                    bild_pfad=runde.get("bild_pfad"))
+    except Exception:
+        pass
     return runde
 
 

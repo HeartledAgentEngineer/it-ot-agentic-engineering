@@ -3826,6 +3826,38 @@ function starteHermesPoll() {
 }
 
 /** Zeigt die Nachrichten eines Gesprächs an. True, wenn es sie gab. */
+// Rekonstruiert nach Reload eine persistierte, noch offene Quiz-Frage:
+// rendert die Antwort-Auswahl (Personen + Neue Person + Keine Person) in die
+// bereits angezeigte Blase (mit bild_pfad), damit man auch nach Neustart
+// weiter antworten kann. Optionen frisch von /api/gesichter.
+async function wiederherstellenQuizAntworten(contentDiv, pfad) {
+    if (!contentDiv || !pfad) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/gesichter`);
+        const d = await res.json();
+        const optionen = (d && d.personen || []).map(p => p.name).filter(Boolean);
+        const leiste = document.createElement('div');
+        leiste.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
+        const frage = document.createElement('div');
+        frage.textContent = '🖊 Antwort wählen (oder unten eingeben):';
+        frage.style.cssText = 'font-size:0.82rem;color:#8f8;margin-bottom:4px';
+        leiste.appendChild(frage);
+        (optionen || []).forEach(o => {
+            const b = document.createElement('button');
+            b.textContent = o;
+            b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
+            b.onclick = () => quizBeantworten(pfad, o, false, '');
+            leiste.appendChild(b);
+        });
+        const skip = document.createElement('button');
+        skip.textContent = '🚫 Keine Person drauf';
+        skip.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.82rem';
+        skip.onclick = () => quizUeberspringen(pfad);
+        leiste.appendChild(skip);
+        contentDiv.appendChild(leiste);
+    } catch (_) { /* Rekonstruktion nicht moeglich: Text bleibt */ }
+}
+
 async function zeigeGespraech(id) {
     try {
         const res = await fetch(`${API_BASE}/api/conversations/${id}`);
@@ -3866,6 +3898,12 @@ async function zeigeGespraech(id) {
                         contentDiv.appendChild(fehlt);
                     }
                 })();
+            }
+            // Offene Quiz-Frage (nach Reload) -> interaktive Antworten wiederherstellen.
+            if ((m.content || '').indexOf('[QUIZ-OFFEN]') !== -1 && m.bild_pfad) {
+                const cz = document.createElement('div');
+                contentDiv.appendChild(cz);
+                wiederherstellenQuizAntworten(cz, m.bild_pfad);
             }
         }
         state.conversationId = id;
