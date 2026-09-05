@@ -2311,13 +2311,18 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
     frage.style.cssText = 'margin-top:8px;font-weight:600';
     frage.textContent = '🧠 Wen siehst du auf diesem Bild?';
     karte.appendChild(frage);
+    // Rollen-Eingabefeld (Bedeutung: Oma/Mutter/Bruder/...) — optional.
+    const rolleInp = document.createElement('input');
+    rolleInp.placeholder = 'Bedeutung/Rolle (z. B. Oma, Mutter) – optional';
+    rolleInp.style.cssText = 'width:100%;padding:6px;margin-top:6px;border:1px solid #555;border-radius:8px;background:#1e1e1e;color:inherit;font-size:0.82rem';
+    karte.appendChild(rolleInp);
     const box = document.createElement('div');
     box.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
     (optionen || []).forEach(o => {
         const b = document.createElement('button');
         b.textContent = o;
         b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
-        b.onclick = () => quizBeantworten(pfad, o, false);
+        b.onclick = () => quizBeantworten(pfad, o, false, rolleInp.value);
         box.appendChild(b);
     });
     const neu = document.createElement('button');
@@ -2325,7 +2330,10 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
     neu.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
     neu.onclick = () => {
         const n = prompt('Name der Person auf dem Bild:');
-        if (n && n.trim()) quizBeantworten(pfad, n.trim(), true);
+        if (n && n.trim()) {
+            const r = prompt('Bedeutung/Rolle (z. B. Oma, Mutter) – optional:');
+            quizBeantworten(pfad, n.trim(), true, (r || '').trim());
+        }
     };
     box.appendChild(neu);
     karte.appendChild(box);
@@ -2351,12 +2359,12 @@ async function quizStart() {
     }
 }
 
-async function quizBeantworten(pfad, person, istNeu) {
+async function quizBeantworten(pfad, person, istNeu, rolle) {
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu }),
+            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || '') }),
         });
         const d = await r.json();
         const meldung = (d && d.ok)

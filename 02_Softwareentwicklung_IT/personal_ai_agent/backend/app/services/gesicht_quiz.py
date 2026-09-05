@@ -70,9 +70,10 @@ def start_runde(ausgeschlossen=None):
     }
 
 
-def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool):
+def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""):
     from app.services import face_service, gesichter_service
     name = (person or "").strip()
+    rolle = (rolle or "").strip()
     if not name:
         return {"ok": False, "fehler": "keine Person angegeben"}
     if not bild_pfad or not os.path.exists(bild_pfad):
@@ -94,13 +95,13 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool):
 
     if vorhanden is None:
         neue_emb = dom["embedding"]
-        gesichter_service.person_speichern(name=name, embedding=neue_emb)
+        gesichter_service.person_speichern(name=name, rolle=rolle, embedding=neue_emb)
         neu = True
         referenzen = 1
     else:
         basis = {
             "name": name,
-            "rolle": vorhanden.get("rolle", ""),
+            "rolle": rolle or vorhanden.get("rolle", ""),
             "beziehung": vorhanden.get("beziehung", ""),
             "beschreibung": vorhanden.get("beschreibung", ""),
             "referenz_bild_pfad": vorhanden.get("referenz_bild_pfad", ""),
