@@ -130,11 +130,23 @@ def start_runde(ausgeschlossen=None):
     for g in (aus + gesehen_persist):
         if g and g not in kombiniert:
             kombiniert.append(g)
+    # Nur Bilder mit >=1 erkanntem Gesicht sind zum Anlernen tauglich.
+    # Gesichtslose Bilder werden uebersprungen (und als gesehen gemerkt, damit
+    # sie nicht bei jedem start erneut per SFace geprueft werden).
     kandidat = None
     for b in bilder:
-        if b not in kombiniert:
+        if b in kombiniert:
+            continue
+        try:
+            from app.services import face_service
+            gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(b))
+        except Exception:
+            gesichter = []
+        if gesichter:
             kandidat = b
             break
+        else:
+            kombiniert.append(b)  # gesichtslos -> nicht anlernbar, merken
     if not kandidat:
         return {
             "fertig": True,
