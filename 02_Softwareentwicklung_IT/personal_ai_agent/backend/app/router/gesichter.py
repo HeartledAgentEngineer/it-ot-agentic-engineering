@@ -73,15 +73,20 @@ class QuizAntwortBody(BaseModel):
     bild_pfad: str = Field(..., max_length=2000)
     person: str = Field(..., min_length=1, max_length=100)
     ist_neu: bool = False
+    rolle: str = Field(default="", max_length=100)
+
+
+class QuizStartBody(BaseModel):
+    ausgeschlossen: list = []
 
 
 @router.post("/quiz/start")
-def quiz_start(ausgeschlossen: list = []):
+def quiz_start(body: QuizStartBody):
     """Waehlt ein Lieblingsbild fuer die naechste Quiz-Frage.
 
     Liefert bild_pfad + data_url + alle angelernten Personen als Optionen.
     """
-    ausgeschlossen = list(ausgeschlossen or [])
+    ausgeschlossen = list(body.ausgeschlossen or [])
     runde = gesicht_quiz.start_runde(ausgeschlossen)
     if runde.get("keine"):
         return runde
@@ -96,5 +101,5 @@ def quiz_start(ausgeschlossen: list = []):
 def quiz_antwort(body: QuizAntwortBody):
     """Speichert die Antwort des Nutzers: dominantes Gesicht als Referenz von `person`."""
     return gesicht_quiz.beantworte_runde(
-        bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu
+        bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu, rolle=body.rolle
     )
