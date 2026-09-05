@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import gesichter_service
+from app.services import gesicht_quiz, gesichter_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gesichter", tags=["gesichter"])
@@ -67,3 +67,34 @@ def gesichter_loeschen(name: str):
 def gesichter_kontext():
     """Der Kontext-Block für den Prompt (Tests/Frontend-Debug)."""
     return {"kontext": gesichter_service.katalog_kontext()}
+
+
+class QuizAntwortBody(BaseModel):
+    bild_pfad: str = Field(..., max_length=2000)
+    person: str = Field(..., min_length=1, max_length=100)
+    ist_neu: bool = False
+
+
+@router.post("/quiz/start")
+def quiz_start(ausgeschlossen: list = []):
+    """Waehlt ein Lieblingsbild fuer die naechste Quiz-Frage.
+
+    Liefert bild_pfad + data_url + alle angelernten Personen als Optionen.
+    """
+    ausgeschlossen = list(ausgeschlossen or [])
+    runde = gesicht_quiz.start_runde(ausgeschlossen)
+    if runde.get("keine"):
+        return runde
+    # Optionen = alle gelernten Namen (fuer die Auswahl im Frontend).
+    optionen = [p.get("name") for p in gesichter_service.liste_personen() if p.get("name")]
+    runde["optionen"] = optionen
+    runde["anzahl_gesichter"] = None  # wird beim Beantworten geprueft
+    return runde
+
+
+@router.post("/quiz/antwort")
+def quiz_antwort(body: QuizAntwortBody):
+    """Speichert die Antwort des Nutzers: dominantes Gesicht als Referenz von `person`."""
+    return gesicht_quiz.beantworte_runde(
+        bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu
+    )
