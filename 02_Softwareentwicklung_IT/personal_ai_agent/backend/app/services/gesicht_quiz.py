@@ -87,24 +87,64 @@ def _hypothese(bild_pfad):
         return {"person": None}
 
 
+def _fortschritt_pfad():
+    from app.config import BASE_DIR
+    return str(BASE_DIR / "quiz_fortschritt.json")
+
+
+def _fortschritt_laden():
+    try:
+        import json as _j
+        p = _fortschritt_pfad()
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                d = _j.load(f)
+            g = d.get("gesehen", []) if isinstance(d, dict) else []
+            return [x for x in g if isinstance(x, str)]
+    except Exception as e:
+        logger.warning("Quiz-Fortschritt laden fehlgeschlagen: %s", e)
+    return []
+
+
+def _fortschritt_speichern(gesehen):
+    try:
+        import json as _j, time as _t
+        p = _fortschritt_pfad()
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _j.dump({"gesehen": gesehen[-2000:], "aktualisiert": _t.strftime("%Y-%m-%dT%H:%M:%S")}, f, ensure_ascii=False)
+        os.replace(tmp, p)
+    except Exception as e:
+        logger.warning("Quiz-Fortschritt speichern fehlgeschlagen: %s", e)
+
+
 def start_runde(ausgeschlossen=None):
     from app.services.datei_suche import lese_datei_info
     bilder = _alle_bilder()
     if not bilder:
         return {"keine": True, "hinweis": "Kein Lieblingsbilder-Ordner gefunden."}
+    # Persistierter Fortschritt: bereits durchgespielte Bilder (ueber Neustart hinweg).
+    gesehen_persist = _fortschritt_laden()
+    aus = list(ausgeschlossen or [])
+    kombiniert = []
+    for g in (aus + gesehen_persist):
+        if g and g not in kombiniert:
+            kombiniert.append(g)
     kandidat = None
     for b in bilder:
-        if b not in (ausgeschlossen or []):
+        if b not in kombiniert:
             kandidat = b
             break
     if not kandidat:
-        # Alle Bilder bereits gesehen -> sauberes Quiz-Ende statt von vorn.
         return {
             "fertig": True,
             "gesamt": len(bilder),
-            "verarbeitet": len(ausgeschlossen or []),
+            "verarbeitet": len(kombiniert),
             "hinweis": "Du hast alle Lieblingsbilder durchgespielt.",
         }
+    # gewaehltes Bild als durchgespielt merken (persistent).
+    kombiniert.append(kandidat)
+    _fortschritt_speichern(kombiniert)
     info = lese_datei_info(kandidat)
     runde = {
         "bild_pfad": kandidat,
