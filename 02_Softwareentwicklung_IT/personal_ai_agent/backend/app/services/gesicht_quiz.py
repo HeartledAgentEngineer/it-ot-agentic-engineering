@@ -131,6 +131,44 @@ def _hypothese(bild_pfad):
         return {"person": None}
 
 
+def _erkannte_personen_bildes(bild_pfad):
+    """Erkennt ALLE Personen auf einem Bild (Gruppenbild-faehig).
+
+    Liefert dict {anzahl_gesichter: int, erkannte: [names], unsicher: [names]}.
+    Fuer jedes erkannte Gesicht wird erkenne_personen aufgerufen; sichere und
+    unsichere Treffer werden getrennt gesammelt (Ehrlichkeit: keine erfundene
+    Zuordnung bei unsicheren/kleinen Gesichtern).
+    """
+    try:
+        from app.services import face_service, gesichter_service
+        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        anzahl = len(gesichter)
+        sicher, unsicher = [], []
+        # bbox je Gesicht (relativ zur Bildgroesse) fuer das Markieren im Quiz.
+        gesicht_boxen = []
+        for i, g in enumerate(gesichter):
+            emb = g.get("embedding")
+            bbox = g.get("bbox") or []
+            gesicht_boxen.append({"index": i, "bbox": bbox})
+            if not emb:
+                continue
+            treffer = face_service.erkenne_personen(emb)
+            for t in treffer:
+                name = t.get("name")
+                if not name:
+                    continue
+                if t.get("sicher") and name not in sicher:
+                    sicher.append(name)
+                elif not t.get("sicher") and name not in unsicher:
+                    unsicher.append(name)
+        return {"anzahl_gesichter": anzahl,
+                "erkannte": sicher,
+                "unsicher": unsicher,
+                "gesichter": gesicht_boxen}
+    except Exception:
+        return {"anzahl_gesichter": 0, "erkannte": [], "unsicher": []}
+
+
 def _fortschritt_pfad():
     from app.config import BASE_DIR
     return str(BASE_DIR / "quiz_fortschritt.json")
@@ -226,6 +264,13 @@ def start_runde(ausgeschlossen=None):
         "ist_bild": bool(info.get("ist_bild")),
     }
     runde["vermutung"] = _hypothese(kandidat)
+    # Gruppenbild-Erkennung: Anzahl Gesichter + welche Personen (von den
+    # Bekannten) sicher/unsicher auf dem Bild sind -> Frontend fragt gezielt.
+    _erk = _erkannte_personen_bildes(kandidat)
+    runde["anzahl_gesichter"] = _erk.get("anzahl_gesichter", 0)
+    runde["erkannte_personen"] = _erk.get("erkannte", [])
+    runde["unsichere_personen"] = _erk.get("unsicher", [])
+    runde["gesichter"] = _erk.get("gesichter", [])
     # Die offene Quiz-Frage dauerhaft in den Chat-Verlauf (conv_main) schreiben
     # (mit bild_pfad + Vermutung). So ist der Quiz-Zustand nach einem
     # Server-Neustart/Reload ZU 100% aus dem Chat rekonstruierbar: der Chat zeigt

@@ -94,7 +94,7 @@ def quiz_start(body: QuizStartBody):
     # Optionen = alle gelernten Namen (fuer die Auswahl im Frontend).
     optionen = [p.get("name") for p in gesichter_service.liste_personen() if p.get("name")]
     runde["optionen"] = optionen
-    runde["anzahl_gesichter"] = None  # wird beim Beantworten geprueft
+    # anzahl_gesichter/erkannte_personen kommen aus start_runde (nicht überschreiben)
     return runde
 
 

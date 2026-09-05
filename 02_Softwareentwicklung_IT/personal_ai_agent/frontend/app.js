@@ -2299,7 +2299,85 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 let _quizAktiv = false;
 let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
 
-function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung) {
+function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesichter, erkannte) {
+    // Geht alle Gesichter nacheinander durch; markiert das aktuelle Gesicht im
+    // Bild (bbox-Rahmen), damit klar ist, um WEN es gerade geht.
+    const gs = gesichter || [];
+    let idx = 0;
+    const umbruch = document.createElement('div');
+    umbruch.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #7a4;border-radius:8px;background:#10251a;color:#8f8;font-size:0.85rem';
+    karte.appendChild(umbruch);
+
+    function maleRahmen() {
+        const alt = karte.querySelector('.quiz-marke');
+        if (alt) alt.remove();
+        const b = (gs[idx] && gs[idx].bbox) || [];
+        if (b.length < 4) return;
+        const iw = img.naturalWidth || img.width || 0;
+        const ih = img.naturalHeight || img.height || 0;
+        if (!iw || !ih) return;
+        // relativen Kontext fuer den absoluten Rahmen sicherstellen
+        const pa = img.parentNode;
+        if (pa && pa.style) pa.style.position = 'relative';
+        const r = document.createElement('div');
+        r.className = 'quiz-marke';
+        r.style.cssText = 'position:absolute;border:3px solid #ff6;box-shadow:0 0 0 2px #fa0;pointer-events:none;z-index:5;box-sizing:border-box';
+        r.style.left = (b[0]/iw*100) + '%';
+        r.style.top = (b[1]/ih*100) + '%';
+        r.style.width = (b[2]/iw*100) + '%';
+        r.style.height = (b[3]/ih*100) + '%';
+        pa.appendChild(r);
+    }
+
+    function antworten(person, istNeu, skip) {
+        if (skip) { idx++; render(); return; }
+        quizBeantwortenSilent(pfad, person, istNeu, '').then(() => { idx++; render(); });
+    }
+
+    function naechsteBildLink() {
+        const n = document.createElement('button');
+        n.textContent = 'Nächstes Bild ➡️';
+        n.style.cssText = 'align:left;padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.8rem;margin-top:8px';
+        n.onclick = () => { addMessage('✅ Alle Personen dieses Bildes verarbeitet.', 'assistant'); quizStart(); };
+        return n;
+    }
+
+    function render() {
+        frageEl.textContent = `🧠 Person ${idx+1} von ${gs.length}: Wer ist das?`;
+        umbruch.innerHTML = '';
+        const meld = document.createElement('div');
+        meld.textContent = `Gesicht ${idx+1}/${gs.length} – markiert im Bild.`;
+        umbruch.appendChild(meld);
+        // Antwort-Optionen (bekannte Personen)
+        const box = document.createElement('div');
+        box.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+        (optionen || []).forEach(o => {
+            const b = document.createElement('button');
+            b.textContent = o;
+            b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
+            b.onclick = () => antworten((o||'').trim(), false, false);
+            box.appendChild(b);
+        });
+        const neu = document.createElement('button');
+        neu.textContent = '➕ Neue Person';
+        neu.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
+        neu.onclick = () => { const n = prompt('Name der Person auf diesem Gesicht:'); if (n && n.trim()) antworten(n.trim(), true, false); };
+        box.appendChild(neu);
+        const skip = document.createElement('button');
+        skip.textContent = '🚫 Kein erkanntes Gesicht';
+        skip.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.82rem';
+        skip.onclick = () => antworten('', true, true);
+        box.appendChild(skip);
+        umbruch.appendChild(box);
+        maleRahmen();
+        if (idx >= gs.length - 1) {
+            umbruch.appendChild(naechsteBildLink());
+        }
+    }
+    render();
+}
+
+function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkannte, gesichter) {
     // ML-Quiz-Karte: KI stellt eine Vermutung vor, der Nutzer bestaetigt/korrigiert.
     const karte = addMessage('', 'assistant', undefined, pfad);
     karte.innerHTML = '';
@@ -2333,6 +2411,12 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung) {
         vbox.appendChild(ja);
         vbox.appendChild(nein);
         karte.appendChild(vbox);
+    }
+
+    // --- GRUPPENBILD (>=2 Personen): nacheinander + Markieren im Bild ---
+    const gruppe = (anzahl && anzahl >= 2) ? anzahl : 0;
+    if (gruppe >= 2) {
+        starteGruppenQuiz(frage, karte, img, dataUrl, pfad, optionen, gesichter || [], erkannte || []);
     }
 
     // --- Rollen-Eingabefeld (Bedeutung) ---
@@ -2424,10 +2508,23 @@ async function quizStart() {
         }
         const pfad = d.bild_pfad;
         _quizGesehen.push(pfad);
-        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || [], d.vermutung);
+        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || [], d.vermutung, d.anzahl_gesichter || 0, (d.erkannte_personen || []), (d.gesichter || []));
     } catch (e) {
         addMessage('⚠️ Quiz konnte nicht starten: ' + (e && e.message), 'assistant');
         _quizAktiv = false;
+    }
+}
+
+async function quizBeantwortenSilent(pfad, person, istNeu, rolle) {
+    try {
+        const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bild_pfad: pfad, person: (person||'').trim(), ist_neu: !!istNeu, rolle: (rolle||'').trim() }),
+        });
+        return await r.json();
+    } catch (e) {
+        return { ok: false, fehler: e && e.message };
     }
 }
 
