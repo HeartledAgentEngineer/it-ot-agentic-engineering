@@ -27,6 +27,8 @@ auftraege.json.tmp
 # Aus demselben Grund draussen wie chroma_data / auftraege.json.
 gesichter_katalog.json
 gesichter_katalog.json.tmp
+gesichter_katalog.json.bak-*
+gesichter_katalog.json.abofix-*
 
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.
 # Das Repo ist oeffentlich - das hier geht niemanden etwas an, der sich
