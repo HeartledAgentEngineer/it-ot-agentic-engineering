@@ -49,6 +49,44 @@ def _refs_als_liste(embedding):
     return embedding
 
 
+def _hypothese(bild_pfad):
+    """Stellt eine ML-Vermutung auf: welcher Katalog-Person das dominanteste
+    Gesicht des Bildes am naechsten liegt (SFace-Cosinus) und wie sicher.
+
+    Returns dict {person, sicherheit(hoch/mittel/niedrig|None), distanz} oder
+    {person: None} wenn kein Gesicht/kein Katalog/kein plausibler Treffer.
+    """
+    try:
+        from app.services import face_service, gesichter_service
+        if not face_service.verfuegbar():
+            return {"person": None}
+        katalog = gesichter_service.liste_personen()
+        if not katalog:
+            return {"person": None}
+        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        if not gesichter:
+            return {"person": None}
+        dom = _dominantes_gesicht(gesichter)
+        if not dom or not dom.get("embedding"):
+            return {"person": None}
+        treffer = face_service.erkenne_personen(dom["embedding"])
+        if not treffer:
+            return {"person": None}
+        best = treffer[0]  # erkenne_personen ist nach Distanz sortiert
+        d = best.get("distanz")
+        if d is None:
+            return {"person": None}
+        if d <= 0.45:
+            sh = "hoch"
+        elif d <= 0.58:
+            sh = "mittel"
+        else:
+            sh = "niedrig"
+        return {"person": best.get("name"), "sicherheit": sh, "distanz": round(d, 3)}
+    except Exception:
+        return {"person": None}
+
+
 def start_runde(ausgeschlossen=None):
     from app.services.datei_suche import lese_datei_info
     bilder = _alle_bilder()
@@ -60,14 +98,22 @@ def start_runde(ausgeschlossen=None):
             kandidat = b
             break
     if not kandidat:
-        kandidat = bilder[0]
+        # Alle Bilder bereits gesehen -> sauberes Quiz-Ende statt von vorn.
+        return {
+            "fertig": True,
+            "gesamt": len(bilder),
+            "verarbeitet": len(ausgeschlossen or []),
+            "hinweis": "Du hast alle Lieblingsbilder durchgespielt.",
+        }
     info = lese_datei_info(kandidat)
-    return {
+    runde = {
         "bild_pfad": kandidat,
         "name": info.get("name"),
         "data_url": info.get("data_url", ""),
         "ist_bild": bool(info.get("ist_bild")),
     }
+    runde["vermutung"] = _hypothese(kandidat)
+    return runde
 
 
 def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""):

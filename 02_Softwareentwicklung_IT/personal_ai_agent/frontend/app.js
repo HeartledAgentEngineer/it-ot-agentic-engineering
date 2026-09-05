@@ -2299,8 +2299,8 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 let _quizAktiv = false;
 let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
 
-function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
-    // eine Quiz-Karte als Chat-blase (assistant) mit Bild + Auswahl
+function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung) {
+    // ML-Quiz-Karte: KI stellt eine Vermutung vor, der Nutzer bestaetigt/korrigiert.
     const karte = addMessage('', 'assistant', undefined, pfad);
     karte.innerHTML = '';
     const img = document.createElement('img');
@@ -2311,19 +2311,45 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
     frage.style.cssText = 'margin-top:8px;font-weight:600';
     frage.textContent = '🧠 Wen siehst du auf diesem Bild?';
     karte.appendChild(frage);
-    // Rollen-Eingabefeld (Bedeutung: Oma/Mutter/Bruder/...) — optional.
+
+    // --- Vermutungs-Box (falls KI eine Hypothese hat) ---
+    const v = vermutung ? (vermutung.person ? vermutung : null) : null;
+    if (v) {
+        const vbox = document.createElement('div');
+        vbox.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #4a7;border-radius:8px;background:#12251a;color:#8f8;font-size:0.85rem';
+        const sh = (v.sicherheit || '');
+        vbox.innerHTML = '<b>🤖 Vermutung:</b> ' + escapeHtml(v.person)
+            + (sh ? ' <span style="opacity:0.7">(Sicherheit: ' + sh + ')</span>' : '')
+            + '<br><span style="opacity:0.7">Ist das richtig?</span>';
+        const ja = document.createElement('button');
+        ja.textContent = '✅ Ja, richtig';
+        ja.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem;margin-right:6px';
+        ja.onclick = () => quizBeantworten(pfad, v.person, false, '');
+        const nein = document.createElement('button');
+        nein.textContent = '❌ Nein, falsch';
+        nein.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
+        nein.onclick = () => { vbox.style.display = 'none'; auswahlBox.style.display = 'flex'; frage.textContent = '🧠 Wer ist es dann? Bitte wählen oder neue Person:'; };
+        vbox.appendChild(document.createElement('br'));
+        vbox.appendChild(ja);
+        vbox.appendChild(nein);
+        karte.appendChild(vbox);
+    }
+
+    // --- Rollen-Eingabefeld (Bedeutung) ---
     const rolleInp = document.createElement('input');
     rolleInp.placeholder = 'Bedeutung/Rolle (z. B. Oma, Mutter) – optional';
     rolleInp.style.cssText = 'width:100%;padding:6px;margin-top:6px;border:1px solid #555;border-radius:8px;background:#1e1e1e;color:inherit;font-size:0.82rem';
     karte.appendChild(rolleInp);
-    const box = document.createElement('div');
-    box.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+
+    // --- Auswahl (anfangs sichtbar nur wenn keine Vermutung) ---
+    const auswahlBox = document.createElement('div');
+    auswahlBox.style.cssText = 'display:' + (v ? 'none' : 'flex') + ';flex-wrap:wrap;gap:6px;margin-top:6px';
     (optionen || []).forEach(o => {
         const b = document.createElement('button');
         b.textContent = o;
         b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
         b.onclick = () => quizBeantworten(pfad, o, false, rolleInp.value);
-        box.appendChild(b);
+        auswahlBox.appendChild(b);
     });
     const neu = document.createElement('button');
     neu.textContent = '➕ Neue Person';
@@ -2335,8 +2361,8 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen) {
             quizBeantworten(pfad, n.trim(), true, (r || '').trim());
         }
     };
-    box.appendChild(neu);
-    karte.appendChild(box);
+    auswahlBox.appendChild(neu);
+    karte.appendChild(auswahlBox);
 }
 
 async function quizStart() {
@@ -2350,9 +2376,15 @@ async function quizStart() {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
         if (d && d.keine) { addMessage('⚠️ Kein Lieblingsbilder-Ordner gefunden.', 'assistant'); _quizAktiv = false; return; }
+        // Sauberes Quiz-Ende: alle Bilder durchgespielt.
+        if (d && d.fertig) {
+            addMessage(`🎉 **Quiz beendet!** Du hast ${d.verarbeitet||0} von ${d.gesamt||0} Lieblingsbildern durchgespielt. Die Gesichter sind jetzt robuster gelernt. Danke fürs Trainieren!`, 'assistant');
+            _quizAktiv = false;
+            return;
+        }
         const pfad = d.bild_pfad;
         _quizGesehen.push(pfad);
-        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || []);
+        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || [], d.vermutung);
     } catch (e) {
         addMessage('⚠️ Quiz konnte nicht starten: ' + (e && e.message), 'assistant');
         _quizAktiv = false;
@@ -2390,6 +2422,17 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         if (t.indexOf('quiz starten') !== -1 || t.indexOf('anlernspiel') !== -1
             || t.indexOf('quiz start') !== -1 || t === 'quiz') {
             quizStart();
+            return;
+        }
+        if (t.indexOf('quiz beenden') !== -1 || t.indexOf('quiz beenden') !== -1
+            || t.indexOf('quiz stoppen') !== -1 || t.indexOf('quiz aus') !== -1
+            || t.indexOf('quiz aufhören') !== -1 || t === 'stopp') {
+            if (_quizAktiv) {
+                addMessage('🛑 **Quiz beendet** — danke fürs Trainieren!', 'assistant');
+                _quizAktiv = false;
+            } else {
+                addMessage('Es läuft gerade keine Quiz-Sitzung. Sag "quiz starten", um zu beginnen.', 'assistant');
+            }
             return;
         }
     }
