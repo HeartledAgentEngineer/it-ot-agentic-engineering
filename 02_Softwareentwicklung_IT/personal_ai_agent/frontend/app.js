@@ -2354,15 +2354,33 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung) {
     const neu = document.createElement('button');
     neu.textContent = '➕ Neue Person';
     neu.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
-    neu.onclick = () => {
-        const n = prompt('Name der Person auf dem Bild:');
-        if (n && n.trim()) {
-            const r = prompt('Bedeutung/Rolle (z. B. Oma, Mutter) – optional:');
-            quizBeantworten(pfad, n.trim(), true, (r || '').trim());
-        }
+    // Neue Person: eingebettetes Formular statt native prompt() (PWA-sicher).
+    const neuForm = document.createElement('div');
+    neuForm.style.display = 'none';
+    neuForm.style.cssText = 'display:none;margin-top:6px;padding:8px;border:1px solid #f88;border-radius:8px;background:#221010;color:#eee;font-size:0.82rem';
+    const neuName = document.createElement('input');
+    neuName.placeholder = 'Name der Person (z. B. Julian)';
+    neuName.style.cssText = 'width:100%;padding:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit';
+    const neuRolle = document.createElement('input');
+    neuRolle.placeholder = 'Bedeutung/Rolle (z. B. Bruder, Mutter) – optional';
+    neuRolle.style.cssText = 'width:100%;padding:6px;margin-top:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit';
+    const neuSpeichern = document.createElement('button');
+    neuSpeichern.textContent = '✅ Person speichern';
+    neuSpeichern.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem;margin-top:6px;width:100%';
+    neuSpeichern.onclick = () => {
+        const n = (neuName.value || '').trim();
+        if (!n) { neuName.style.borderColor = '#f55'; return; }
+        quizBeantworten(pfad, n, true, (neuRolle.value || '').trim());
     };
+    neuForm.appendChild(neuName);
+    neuForm.appendChild(neuRolle);
+    neuForm.appendChild(neuSpeichern);
+    neu.onclick = () => { neuForm.style.display = neuForm.style.display === 'none' ? 'block' : 'none'; };
     auswahlBox.appendChild(neu);
+    // Formular direkt nach der Auswahl-Box anhaengen (box-eltern fuer den Insert)
+    // (tilde: karte.appendChild(neuForm) nach karte.appendChild(auswahlBox))
     karte.appendChild(auswahlBox);
+    karte.appendChild(neuForm);
     // Button fuer 'keine Person drauf / Algorithmus hat sich geirrt':
     // markiert das Bild alsuebersprungen (ohne Person zu speichern).
     const skip = document.createElement('button');
@@ -3832,8 +3850,21 @@ async function zeigeGespraech(id) {
                     try {
                         const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(m.bild_pfad)}`);
                         const daten = await res.json();
-                        if (daten.data_url) zeigeBildVorschau(contentDiv, daten.data_url, m.bild_pfad);
-                    } catch (_) { /* Bild nicht ladbar: Text bleibt stehen */ }
+                        if (daten.data_url) {
+                            zeigeBildVorschau(contentDiv, daten.data_url, m.bild_pfad);
+                        } else {
+                            // Original fehlt (geloescht/verschoben) -> graceful Meldung statt kaputtem Bild.
+                            const fehlt = document.createElement('div');
+                            fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                            fehlt.textContent = '🖼 Bild nicht (mehr) vorhanden – gelöscht oder verschoben.';
+                            contentDiv.appendChild(fehlt);
+                        }
+                    } catch (_) {
+                        const fehlt = document.createElement('div');
+                        fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                        fehlt.textContent = '🖼 Bild nicht ladbar – gelöscht oder verschoben.';
+                        contentDiv.appendChild(fehlt);
+                    }
                 })();
             }
         }

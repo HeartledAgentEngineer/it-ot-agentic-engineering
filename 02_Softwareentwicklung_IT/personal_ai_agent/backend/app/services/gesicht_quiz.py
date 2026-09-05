@@ -288,4 +288,17 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
             gesichter_service.person_speichern(**basis, referenzen=bestehende)
         referenzen = len(bestehende)
 
+    # Persistente Quiz-Notiz in den Chat-Verlauf (conv_main), mit Bild-Pfad,
+    # damit das Quiz dauerhaft im Chat steht und spaeter wieder angesehen werden
+    # kann (Append-only; fehlendes Original wird beim Anzeigen graceful gemeldet).
+    try:
+        from app.services.chat_verlauf import verlauf_nachricht_anhaengen
+        rolle_txt = f" ({rolle})" if rolle else ""
+        text = (f"[Gesichter-Quiz] '{name}'{rolle_txt} gelernt — "
+                f"{referenzen} Referenz(en), Aufnahmejahr {jahr or '?'}. "
+                f"[Bild gespeichert zum erneuten Ansehen]")
+        verlauf_nachricht_anhaengen("conv_main", "assistant", text, bild_pfad=bild_pfad)
+    except Exception:
+        pass
+
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen, "jahr": jahr}
