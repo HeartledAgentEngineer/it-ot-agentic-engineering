@@ -69,20 +69,64 @@ def _hypothese(bild_pfad):
         dom = _dominantes_gesicht(gesichter)
         if not dom or not dom.get("embedding"):
             return {"person": None}
-        treffer = face_service.erkenne_personen(dom["embedding"])
-        if not treffer:
+        # Aufnahmejahr des Bildes (EXIF, Fallback mtime) fuer die Altersphasen-
+        # Vermutung. Bei bekantem Jahr werden Personen mit Referenz in passender
+        # Dekade leicht bevorzugt (weiche Priorisierung, kein Ausschluss).
+        try:
+            from app.services.datei_suche import _datei_jahr
+            bild_jahr = _datei_jahr(bild_pfad)
+        except Exception:
+            bild_jahr = None
+        emb = dom["embedding"]
+        kandidaten = []
+        for p in katalog:
+            refs = []
+            e = p.get("embedding")
+            if e:
+                if isinstance(e[0], (int, float)):
+                    refs.append({"embedding": e, "jahr": None})
+                else:
+                    refs.extend({"embedding": x, "jahr": None} for x in e if x)
+            for r in (p.get("referenzen") or []):
+                if isinstance(r, dict) and r.get("embedding"):
+                    refs.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+            if not refs:
+                continue
+            beste_d = None
+            naechstes_jahr_dist = None
+            for r in refs:
+                d = face_service._cosinus_distanz(emb, r["embedding"])
+                if d is None:
+                    continue
+                if beste_d is None or d < beste_d:
+                    beste_d = d
+                if bild_jahr and r.get("jahr"):
+                    abd = abs(r["jahr"] - bild_jahr)
+                    if naechstes_jahr_dist is None or abd < naechstes_jahr_dist:
+                        naechstes_jahr_dist = abd
+            if beste_d is None:
+                continue
+            bonus = 0.0
+            if bild_jahr and naechstes_jahr_dist is not None:
+                if naechstes_jahr_dist <= 10:
+                    bonus = -0.02
+                elif naechstes_jahr_dist <= 25:
+                    bonus = 0.0
+                else:
+                    bonus = 0.03
+            kandidaten.append({"person": p.get("name"), "distanz": beste_d + bonus})
+        if not kandidaten:
             return {"person": None}
-        best = treffer[0]  # erkenne_personen ist nach Distanz sortiert
-        d = best.get("distanz")
-        if d is None:
-            return {"person": None}
+        kandidaten.sort(key=lambda k: k["distanz"])
+        best = kandidaten[0]
+        d = best["distanz"]
         if d <= 0.45:
             sh = "hoch"
         elif d <= 0.58:
             sh = "mittel"
         else:
             sh = "niedrig"
-        return {"person": best.get("name"), "sicherheit": sh, "distanz": round(d, 3)}
+        return {"person": best["person"], "sicherheit": sh, "distanz": round(d, 3)}
     except Exception:
         return {"person": None}
 
@@ -191,9 +235,16 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
             vorhanden = p
             break
 
+    # Aufnahmejahr des Bildes fuer die Zeitstufen-Referenz (EXIF, Fallback mtime).
+    try:
+        from app.services.datei_suche import _datei_jahr
+        jahr = _datei_jahr(bild_pfad)
+    except Exception:
+        jahr = None
+
+    neue_ref = {"embedding": dom["embedding"], "jahr": jahr}
     if vorhanden is None:
-        neue_emb = dom["embedding"]
-        gesichter_service.person_speichern(name=name, rolle=rolle, embedding=neue_emb)
+        gesichter_service.person_speichern(name=name, rolle=rolle, referenzen=[neue_ref])
         neu = True
         referenzen = 1
     else:
@@ -205,14 +256,19 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
             "referenz_bild_pfad": vorhanden.get("referenz_bild_pfad", ""),
             "referenz_bild_miniatur": vorhanden.get("referenz_bild_miniatur", ""),
         }
-        refs = _refs_als_liste(vorhanden.get("embedding"))
-        # Dedup/Eindeutigkeit: neue Ref nur anhaengen, wenn sie zu allen >0.05
-        # distanziert ist (wirklich eigener Winkel), sonst ueberspringen.
-        zu_alt = min((face_service._cosinus_distanz(dom["embedding"], r) for r in refs if r),
+        # Bestehende zeitgestempelte Referenzen (neues Schema) ODER legacy
+        # embedding-Feld zu {embedding, jahr}-Dicts normalisieren.
+        bestehende = vorhanden.get("referenzen")
+        if not bestehende:
+            bestehende = [{"embedding": r, "jahr": None}
+                          for r in _refs_als_liste(vorhanden.get("embedding"))]
+        bestehende = [r for r in bestehende if isinstance(r, dict) and r.get("embedding")]
+        refs_emb = [r["embedding"] for r in bestehende]
+        zu_alt = min((face_service._cosinus_distanz(dom["embedding"], r) for r in refs_emb if r),
                      default=None)
         if zu_alt is None or zu_alt > 0.05:
-            refs = refs + [dom["embedding"]]
-            gesichter_service.person_speichern(**basis, embedding=refs)
-        referenzen = len(refs)
+            bestehende = bestehende + [neue_ref]
+            gesichter_service.person_speichern(**basis, referenzen=bestehende)
+        referenzen = len(bestehende)
 
-    return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen}
+    return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen, "jahr": jahr}

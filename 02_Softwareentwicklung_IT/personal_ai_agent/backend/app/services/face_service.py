@@ -149,13 +149,22 @@ def erkenne_personen(embedding: List[float]) -> List[dict]:
         return []
     kandidaten = []
     for p in gesichter_service.liste_personen():
-        refs = p.get("embedding")
+        # Mehre Quellen: klassisches 'embedding' UND neue zeitgestempelte
+        # 'referenzen' ([{embedding, jahr}]). Zu einer Liste von Vektoren machen.
+        refs = []
+        e = p.get("embedding")
+        if e:
+            if isinstance(e[0], (int, float)):
+                refs.append(e)
+            else:
+                refs.extend(x for x in e if x)
+        for r in (p.get("referenzen") or []):
+            if isinstance(r, dict) and r.get("embedding"):
+                refs.append(r["embedding"])
+            elif r:
+                refs.append(r)
         if not refs:
             continue
-        # refs kann EINE 128-dim Liste sein ODER eine Liste davon (mehrere
-        # Referenzbilder je Person). Normalisieren zu einer Liste von Vektoren.
-        if refs and isinstance(refs[0], (int, float)):
-            refs = [refs]
         beste_d = None
         for ref in refs:
             d = _cosinus_distanz(embedding, ref)

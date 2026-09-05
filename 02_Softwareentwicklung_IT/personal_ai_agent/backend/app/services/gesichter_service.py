@@ -127,6 +127,19 @@ def referenz_miniatur_von_pfad(
         return None
 
 
+def _refs_bereinigen(referenzen: Optional[list]) -> Optional[list]:
+    """Reduziert eine Referenzliste auf {embedding, jahr}-Dicts (bereinigt)."""
+    if not referenzen:
+        return None
+    out = []
+    for r in referenzen:
+        if isinstance(r, dict) and r.get("embedding"):
+            out.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+        elif r:  # roher Vektor -> kein jahr
+            out.append({"embedding": r, "jahr": None})
+    return out or None
+
+
 def person_speichern(
     name: str,
     rolle: str = "",
@@ -135,6 +148,7 @@ def person_speichern(
     referenz_bild_pfad: str = "",
     referenz_bild_miniatur: str = "",
     embedding: Optional[list] = None,
+    referenzen: Optional[list] = None,
 ) -> dict:
     """Legt eine Person an oder aktualisiert sie (Upsert nach Name).
 
@@ -180,7 +194,10 @@ def person_speichern(
                 vorhanden["referenz_bild_pfad"] = referenz_bild_pfad.strip()
             if miniature:
                 vorhanden["referenz_bild_miniatur"] = miniature
-            if embedding is not None:
+            if referenzen is not None:
+                vorhanden["referenzen"] = _refs_bereinigen(referenzen)
+                vorhanden["embedding"] = [r.get("embedding") for r in vorhanden["referenzen"]]
+            elif embedding is not None:
                 vorhanden["embedding"] = embedding
             vorhanden.setdefault("gelernt_am", _utc_iso())
             _speichern(personen)
@@ -196,6 +213,7 @@ def person_speichern(
             "referenz_bild_miniatur": miniature,
             "embedding": embedding,
             "gelernt_am": _utc_iso(),
+            "referenzen": _refs_bereinigen(referenzen) if referenzen else None,
         }
         personen.append(neu)
         _speichern(personen)
