@@ -238,8 +238,19 @@ def start_runde(ausgeschlossen=None):
         if v.get("person"):
             v_txt = f" (Vermutung: {v.get('person')}, Sicherheit {v.get('sicherheit')})"
         frage_text = f"🗒 QUIZ-ANTWORTEN [QUIZ-OFFEN] — Wen siehst du auf diesem Bild?{v_txt}"
+        # UI-Block serialisieren: ermoeglicht die verlustfreie Rekonstruktion
+        # der interaktiven Quiz-Karte (Bild + Antwort-Optionen) nach Reload/
+        # Server-Neustart. Generalisiertes Muster fuer interaktive Chat-Elemente.
+        ui_block = {
+            "typ": "quiz",
+            "bild_pfad": runde.get("bild_pfad"),
+            "name": runde.get("name"),
+            "optionen": None,  # optionen setzt der Router (bekannte Personen)
+            "vermutung": v if v.get("person") else None,
+            "offen": True,
+        }
         verlauf_nachricht_anhaengen("conv_main", "assistant", frage_text,
-                                    bild_pfad=runde.get("bild_pfad"))
+                                    bild_pfad=runde.get("bild_pfad"), ui=ui_block)
     except Exception:
         pass
     return runde

@@ -3830,16 +3830,20 @@ function starteHermesPoll() {
 // rendert die Antwort-Auswahl (Personen + Neue Person + Keine Person) in die
 // bereits angezeigte Blase (mit bild_pfad), damit man auch nach Neustart
 // weiter antworten kann. Optionen frisch von /api/gesichter.
-async function wiederherstellenQuizAntworten(contentDiv, pfad) {
+async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
     if (!contentDiv || !pfad) return;
     try {
         const res = await fetch(`${API_BASE}/api/gesichter`);
         const d = await res.json();
         const optionen = (d && d.personen || []).map(p => p.name).filter(Boolean);
+        const uiV = (ui && ui.typ === 'quiz') ? ui : null;
         const leiste = document.createElement('div');
         leiste.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
         const frage = document.createElement('div');
-        frage.textContent = '🖊 Antwort wählen (oder unten eingeben):';
+        if (uiV && uiV.vermutung && uiV.vermutung.person) {
+            frage.textContent = `🤖 Vermutung: ${uiV.vermutung.person} (Sicherheit ${uiV.vermutung.sicherheit}) — richtig? /`;
+        }
+        frage.textContent += '🖊 Antwort wählen (oder unten eingeben):';
         frage.style.cssText = 'font-size:0.82rem;color:#8f8;margin-bottom:4px';
         leiste.appendChild(frage);
         (optionen || []).forEach(o => {
@@ -3903,7 +3907,7 @@ async function zeigeGespraech(id) {
             if ((m.content || '').indexOf('[QUIZ-OFFEN]') !== -1 && m.bild_pfad) {
                 const cz = document.createElement('div');
                 contentDiv.appendChild(cz);
-                wiederherstellenQuizAntworten(cz, m.bild_pfad);
+                wiederherstellenQuizAntworten(cz, m.bild_pfad, m.ui);
             }
         }
         state.conversationId = id;

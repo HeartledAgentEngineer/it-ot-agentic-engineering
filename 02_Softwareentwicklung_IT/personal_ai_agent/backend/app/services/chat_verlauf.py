@@ -237,7 +237,7 @@ def summary_erhoehe_zaehler(conversation_id: str) -> None:
     summarys[conversation_id] = eintrag
 
 
-def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optional[str] = None) -> None:
+def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optional[str] = None, ui: Optional[dict] = None) -> None:
     """Haengt eine Agenten-Nachricht an ein Gespraech + schreibt weg.
 
     Verhalten identisch zur früheren chat.py-Funktion (ohne die Memory-Kopplung).
@@ -258,6 +258,11 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optio
             # optionaler Bild-Pfad fuer persistente Bild-Referenzen (Quiz)
             if bild_pfad and conversations[conversation_id]:
                 conversations[conversation_id][-1]["bild_pfad"] = bild_pfad
+            # optionaler UI-Block (serialisierbar) fuer interaktive Elemente:
+            # damit Buttons/Menues/Quiz-Fragen nach Reload/Neustart rekonstruierbar
+            # sind. NUR der Serializable-JSON-Teil wird gespeichert.
+            if ui is not None and conversations[conversation_id]:
+                conversations[conversation_id][-1]["ui"] = ui
             _speichere_verlauf()
     except Exception as e:
         logger.warning("Live-Nachricht nicht in Verlauf: %s", e)
