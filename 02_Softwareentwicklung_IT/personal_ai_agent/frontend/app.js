@@ -2556,6 +2556,9 @@ async function quizStart() {
         return;
     }
     _quizAktiv = true;
+    // Sichtbare Lade-Anzeige waehrend des SFace-Scans (Quiz-Ladezeit wie
+    // 'Agent denkt'): wird nach dem Ergebnis wieder entfernt.
+    const warteblase = addMessage('🧠 **Quiz lädt** – prüfe Gesichter auf den Lieblingsbildern …', 'assistant');
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/start`, {
             method: 'POST',
@@ -2564,6 +2567,7 @@ async function quizStart() {
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
+        if (warteblase) { const b = warteblase.closest ? warteblase.closest('.message') : null; if (b) b.remove(); }
         if (d && d.keine) { addMessage('⚠️ Kein Lieblingsbilder-Ordner gefunden.', 'assistant'); _quizAktiv = false; return; }
         // Sauberes Quiz-Ende: alle Bilder durchgespielt.
         if (d && d.fertig) {
@@ -2575,6 +2579,7 @@ async function quizStart() {
         _quizGesehen.push(pfad);
         zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || [], d.vermutung, d.anzahl_gesichter || 0, (d.erkannte_personen || []), (d.gesichter || []));
     } catch (e) {
+        if (warteblase) { const b = warteblase.closest ? warteblase.closest('.message') : null; if (b) b.remove(); }
         addMessage('⚠️ Quiz konnte nicht starten: ' + (e && e.message), 'assistant');
         _quizAktiv = false;
     }
