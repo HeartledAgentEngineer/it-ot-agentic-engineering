@@ -4142,10 +4142,15 @@ function setzeChatButtonStatus() {
     btn.setAttribute('aria-pressed', imCode ? 'true' : 'false');
     btn.title = imCode
         ? 'Im Programmier-/Hermes-Chat (conv_code) – klick: zum Haupt-Chat'
-        : 'Zum Programmier-/Hermes-Chat (conv_code) wechseln';
+        : 'Im Haupt-Chat – klick: zum Programmier-/Hermes-Chat (</>) wechseln';
     btn.style.background = imCode ? '#1f3a2a' : '';
     btn.style.color = imCode ? '#8f8' : '';
     btn.style.borderColor = imCode ? '#4a7' : '';
+    // Symbol je nach aktuellem Chat: Coding-Chat -> Sprechblase, Haupt-Chat -> </>
+    const spr = document.getElementById('sym-sprech');
+    const cod = document.getElementById('sym-code');
+    if (spr) spr.style.display = imCode ? 'inline' : 'none';
+    if (cod) cod.style.display = imCode ? 'none' : 'inline';
 }
 
 // Wechselt zwischen Haupt-Chat (conv_main) und Coding-/Hermes-Chat (conv_code).
