@@ -1955,6 +1955,14 @@ function zeigeBildVorschau(container, dataUrl, pfad, rahmen) {
     container.appendChild(rahmen);
 
     // Nach BILD_ANZEIGE_MS: Bild weg, Platzhalter zum Nachladen da.
+    // ABER: HOCHGELADENE Bilder (upload-Pfad) bleiben dauerhaft angezeigt
+    // (Screenshots/Fehlerbilder im Coding-Chat etc.), kein 10s-Platzhalter.
+    // Nur fluechtige Dateisuche-Vorschauen werden nach 10s durch den
+    // 'Bild wieder anzeigen'-Knopf ersetzt.
+    const istUpload = (pfad || '').indexOf('/uploads/') !== -1 || (pfad || '').indexOf('uploads/') === 0;
+    if (istUpload) {
+        return; // dauerhaft, kein 10s-Timer/Platzhalter
+    }
     let timer = setTimeout(() => {
         rahmen.innerHTML = '';
         const btn = document.createElement('button');

@@ -292,7 +292,11 @@ async def chat(request: ChatRequest):
                 begruendung,
                 kategorie,
                 komplexitaet,
-                finish_exchange=_finish_exchange,
+                finish_exchange=(lambda _cid, _msg, _rep, **kw: _finish_exchange(
+                    _cid, _msg, _rep,
+                    bild_pfad=kw.get("bild_pfad") or _upload_bild_pfad(request),
+                    user_bild_pfad=kw.get("user_bild_pfad") or _upload_bild_pfad(request),
+                )),
                 get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
                 starte_lokale_hermes=_starte_lokale_hermes,
                 kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message, request.conversation_id), request),
