@@ -4072,6 +4072,20 @@ async function streamHermesText(text, conversationId) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let puffer = '';
+        let _einzuBlenden = '';   // noch nicht angezeigte (gepufferte) deltas
+        const _fps = typeof state.streamMs === 'number' && state.streamMs > 0 ? state.streamMs : 120;
+        // Zwischenpuffer-Renderer: zeigt den gepufferten Text in LESBAREN
+        // Bloecken (mehrere Zeichen je Frame) statt Zeichen-fuer-Zeichen -
+        // 'von alt zu neu in menschlicher Geschwindigkeit' (Wunsch Sebastian).
+        const _zeigeEingeblendet = () => {
+            if (!_einzuBlenden) return;
+            const block = _einzuBlenden.slice(0, 8); // lesbarer Block je Frame
+            _einzuBlenden = _einzuBlenden.slice(8);
+            antwort += block;
+            contentDiv.textContent = antwort;
+            if (isAtBottom()) scrollToBottom(true);
+        };
+        const _renderTimer = setInterval(() => { _zeigeEingeblendet(); }, Math.max(_fps, 40));
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -4085,15 +4099,16 @@ async function streamHermesText(text, conversationId) {
                 let daten;
                 try { daten = JSON.parse(zeile.slice(6)); } catch { continue; }
                 if (daten.delta) {
-                    antwort += daten.delta;
-                    contentDiv.textContent = antwort;
-                    if (isAtBottom()) scrollToBottom(true);
+                    _einzuBlenden += daten.delta;   // in den Puffer, nicht sofort anzeigen
                 } else if (daten.done) {
                     break;
                 }
             }
-            if (antwort && puffer.includes('"done"')) break;
+            if (puffer.includes('"done"')) break;
         }
+        // Rest aus dem Puffer sofort (Stream-Ende) + Timer stoppen
+        while (_einzuBlenden) _zeigeEingeblendet();
+        clearInterval(_renderTimer);
         // finalisieren
         contentDiv.innerHTML = parseMarkdownPartial ? parseMarkdownPartial(antwort) : antwort;
         state.messages[state.messages.length - 1] = entry;
