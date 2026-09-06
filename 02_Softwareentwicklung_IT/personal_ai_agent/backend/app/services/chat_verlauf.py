@@ -248,6 +248,13 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optio
                 return
             if not content:
                 return
+            # DEDUP (2026-09-06): Derselbe role+content als LETZTE Nachricht wird
+            # nicht erneut angehaengt. Verhindert Hermes-Status-Wildwuchs, wenn
+            # zwei Empfangspfade dieselben Events liefern (conv_code wird sonst
+            # mit 4*fachen Duplikaten geflutete -> 'Blödsinn'/649 statt 102).
+            schon = conversations[conversation_id]
+            if schon and schon[-1].get("role") == role and (schon[-1].get("content") or "").strip() == (content or "").strip():
+                return
             conversations[conversation_id].append(
                 {
                     "role": role,
@@ -333,7 +340,8 @@ def setze_memory_extractor(fn: Optional[Callable]) -> None:
 
 
 def finish_exchange(conversation_id: str, user_message: str, reply: str,
-                    bild_pfad: Optional[str] = None) -> int:
+                    bild_pfad: Optional[str] = None,
+                    user_bild_pfad: Optional[str] = None) -> int:
     """Austausch in den Verlauf schreiben + Erinnerungen ableiten.
 
     `bild_pfad`: optionaler Pfad eines über die Dateisuche gezeigten Bildes.
@@ -343,6 +351,12 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str,
     über diesen Pfad frisch nach (GET /api/dateien/daten?pfad=). Es wird
     bewusst NUR der Pfad gespeichert, nie die Bild-Datei (Sebastian-Regel).
     Abwärtskompatibel: Ohne Angabe werden Einträge wie zuvor geschrieben.
+
+    `user_bild_pfad`: optionaler Platten-Pfad eines ueber den Upload-Button
+    angehaengten Bildes. Wird (nur wenn gesetzt) am USER-Eintrag mitgespeichert,
+    damit ein selbst hochgeladenes Bild beim Reload/Wiederoeffnen des Chats
+    wieder angezeigt werden kann (Frontend lädt es per Pfad frisch nach).
+    Wieder nur der Pfad, nie die Datei.
     Returns: Anzahl neuer Erinnerungen (0, wenn kein Extractor injiziert oder
     die Extraktion fehlschlägt).
     """
@@ -351,7 +365,10 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str,
     history = conversations[conversation_id]
     with _verlauf_sperre:
         jetzt = datetime.now().astimezone().isoformat(timespec="seconds")
-        history.append({"role": "user", "content": user_message, "zeit": jetzt})
+        user_eintrag = {"role": "user", "content": user_message, "zeit": jetzt}
+        if user_bild_pfad:
+            user_eintrag["bild_pfad"] = user_bild_pfad
+        history.append(user_eintrag)
         assistant_eintrag = {"role": "assistant", "content": reply, "zeit": jetzt}
         if bild_pfad:
             assistant_eintrag["bild_pfad"] = bild_pfad
