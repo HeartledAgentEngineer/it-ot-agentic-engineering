@@ -295,7 +295,7 @@ async def chat(request: ChatRequest):
                 finish_exchange=_finish_exchange,
                 get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
                 starte_lokale_hermes=_starte_lokale_hermes,
-                kontext=_baue_kontext(request.message),
+                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message), request),
             )
             return ChatResponse(
                 reply=res["reply"],
@@ -582,6 +582,20 @@ def _gesichtsabgleich_notiz(request: Any, datei_bilder: Optional[list] = None) -
         return " Erkennung per Gesichts-Embedding: " + "; ".join(sorted(set(namen))) + "."
     except Exception:
         return ""
+
+
+def _hermes_kontext_mit_bild(kontext: str, request: Any) -> str:
+    """Haengt den Pfad einer hochgeladenen Bild-Datei an den Hermes-Kontext,
+    damit die lokale Hermes-CLI die Datei einlesen kann (z. B. Fehlerscreenshots).
+    Nur der Pfad - die Datei bleibt unantastbar. Hermes speist dann den Pfad ein.
+    """
+    try:
+        pfad = _upload_bild_pfad(request)
+        if pfad:
+            return f"{kontext}\n\n[Angehaengte Bild-Datei zur Analyse: {pfad}]"
+    except Exception:
+        pass
+    return kontext
 
 
 def _upload_bild_pfad(request: Any) -> Optional[str]:
@@ -1492,7 +1506,7 @@ async def chat_stream(request: ChatRequest):
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
                 chat_verknuepfung=conversation_id,
-                kontext=_baue_kontext(request.message),
+                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message), request),
             )
             reply_text = (
                 "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
