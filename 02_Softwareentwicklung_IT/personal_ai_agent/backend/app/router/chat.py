@@ -1739,9 +1739,15 @@ async def get_conversation(conversation_id: str):
     so sieht der Nutzer nach einem Update weiterhin seinen fortlaufenden Chat,
     statt dass ein leerer/verwaister Chat entsteht.
     """
-    # Unbekannte/alte ID → aktive Conversation (conv_main) statt 404.
+    # Gültige Whitelist-Chats (conv_main/conv_code) liegen immer in conversations;
+    # für sie NIE auf conv_main mappen (conv_code ist ein eigener, ggf. leerer
+    # Programmier-Chat - nicht den Haupt-Chat zeigen).
     if conversation_id not in conversations:
-        conversation_id = chat_verlauf._AKTIVE_CONVERSATION_ID
+        if conversation_id in chat_verlauf._ERLAUBTE_CHATS:
+            chat_verlauf._get_or_create_conversation(conversation_id)
+        else:
+            # Unbekannte/alte ID → aktive Conversation (conv_main) statt 404.
+            conversation_id = chat_verlauf._AKTIVE_CONVERSATION_ID
     # Nach dem Mapping fehlt die ID nur noch, wenn selbst conv_main leer fehlt.
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Gespräch nicht gefunden")

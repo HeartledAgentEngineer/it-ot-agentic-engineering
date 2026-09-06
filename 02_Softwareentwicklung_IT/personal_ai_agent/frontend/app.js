@@ -4151,6 +4151,17 @@ function setzeChatButtonStatus() {
     const cod = document.getElementById('sym-code');
     if (spr) spr.style.display = imCode ? 'inline' : 'none';
     if (cod) cod.style.display = imCode ? 'none' : 'inline';
+    // Hermes-/Loop-Button unten im Coding-Chat ausblenden (conv_code ist
+    // ohnehin immer an Hermes; der Toggle wäre dort irreführend).
+    const lb = document.getElementById('loop-btn');
+    if (lb) lb.style.display = imCode ? 'none' : '';
+    // Web- und Modell-Tools im Coding-Chat ausblenden: conv_code beantwortet
+    // alles ueber die lokale Hermes-CLI (eigenes, festes LLM), Web-Suche und
+    // Chat-Modellwahl sind dort wirkungslos/irrefuehrend.
+    const wb = document.getElementById('web-btn');
+    if (wb) wb.style.display = imCode ? 'none' : '';
+    const mb = document.getElementById('model-btn');
+    if (mb) mb.style.display = imCode ? 'none' : '';
 }
 
 // Wechselt zwischen Haupt-Chat (conv_main) und Coding-/Hermes-Chat (conv_code).
@@ -4167,7 +4178,18 @@ async function zeigeGespraech(id) {
         const res = await fetch(`${API_BASE}/api/conversations/${id}`);
         if (!res.ok) return false;
         const nachrichten = (await res.json()).messages || [];
-        if (!nachrichten.length) return false;
+        if (!nachrichten.length) {
+            // Gültiger, (noch) leerer bekannter Chat (conv_main/conv_code): leeren
+            // Kanal anzeigen statt auf false/alten Inhalt zurückzufallen.
+            dom.messages.innerHTML = '';
+            const willkommen2 = document.getElementById('welcome');
+            if (willkommen2) dom.messages.appendChild(willkommen2);
+            state.messages = [];
+            state.conversationId = id;
+            localStorage.setItem('conversation_id', id);
+            setzeChatButtonStatus();
+            return true;
+        }
 
         const willkommen = document.getElementById('welcome');
         dom.messages.innerHTML = '';
