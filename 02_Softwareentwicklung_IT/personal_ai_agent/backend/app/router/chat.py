@@ -244,7 +244,12 @@ async def chat(request: ChatRequest):
         # Heuristik es nicht als Coding einstuft, delegiert der Agent an
         # Hermes (Toolcall).
         ist_auftrag_val = False
-        if not request.files and not request.force_agent:
+        if (getattr(request, "conversation_id", None) or "").strip() == "conv_code" and not request.force_agent:
+            ist_auftrag_val = True
+            begruendung = "conv_code: immer Hermes"
+            kategorie = "code"
+            komplexitaet = "mittel"
+        elif not request.files and not request.force_agent:
             ist_auftrag_val, begruendung, kategorie, komplexitaet = ist_auftrag(request.message)
             if not ist_auftrag_val and stoesst_an_grenze(request.message):
                 ist_auftrag_val = True
@@ -1401,7 +1406,13 @@ async def chat_stream(request: ChatRequest):
     #   ziel="pc"    → Track A (PC-Hermes), egal was die Erkennung sagt
     #   ziel="handy" → Track C (lokaler Hermes) direkt
     #   ziel="agent" → lokaler LLM (nie Hermes)
-    if request.ziel == "pc" or request.ziel == "handy":
+    if (getattr(request, "conversation_id", None) or "").strip() == "conv_code" and not request.force_agent and request.ziel != "agent":
+        # conv_code: IMMER an lokale Hermes-CLI (live Gedanken wie in der CLI)
+        ist_auftrag_val = True
+        begruendung = "conv_code: immer Hermes"
+        kategorie = "code"
+        komplexitaet = "mittel"
+    elif request.ziel == "pc" or request.ziel == "handy":
         ist_auftrag_val = True
         begruendung = f"Umlenk-Button (ziel={request.ziel})"
         kategorie = "feature"
