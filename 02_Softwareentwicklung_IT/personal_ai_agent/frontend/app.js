@@ -2503,6 +2503,52 @@ function beendeQuizAktiv() {
     }
 }
 
+async function quizFortsetzen() {
+    // Zeigt den LETZTEN Stand wieder: die letzte offene Quiz-Frage aus dem
+    // Verlauf (conv_main) mit Bild + Antwort-Optionen + Vermutung.
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations/conv_main`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const nachrichten = (await res.json()).messages || [];
+        // letzte [QUIZ-OFFEN]-Nachricht finden
+        let offen = -1;
+        for (let i = 0; i < nachrichten.length; i++) {
+            if ((nachrichten[i].content || '').indexOf('[QUIZ-OFFEN]') !== -1) offen = i;
+        }
+        if (offen === -1) {
+            addMessage('ℹ️ Keine offene Quiz-Frage im Verlauf. Sag "quiz starten" für ein neues.', 'assistant');
+            return;
+        }
+        const m = nachrichten[offen];
+        const pfad = m.bild_pfad;
+        if (!pfad) { addMessage('ℹ️ Offene Frage hat kein Bild.', 'assistant'); return; }
+        addMessage(`🔄 **Quiz fortgesetzt** – letzte offene Frage wieder angezeigt.`, 'assistant');
+        // Vorbereiten: bekannte Personen als Optionen holen
+        const gr = await fetch(`${API_BASE}/api/gesichter`);
+        const gd = await gr.json();
+        const optionen = (gd && gd.personen || []).map(p => p.name).filter(Boolean);
+        const ui = m.ui || null;
+        const vermutung = ui && ui.vermutung && ui.vermutung.person ? ui.vermutung : (null);
+        // data_url laden
+        const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
+        const dd = await dr.json();
+        const dataUrl = (dd && dd.data_url) || '';
+        if (!dataUrl) {
+            addMessage('🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).', 'assistant');
+        }
+        zeigeQuizKarte(pfad, m.name || '', dataUrl, optionen, vermutung, 0, [], []);
+        // interaktive Antworten rekonstruieren (nur die letzte -> hier genau diese)
+        const letzte = document.querySelectorAll('.message.assistant');
+        // Nach der neuen Karte die Antwort-Buttons ergaenzen (ui-basiert)
+        // -> wiederherstellenQuizAntworten auf die zuletzt hinzugefuegte Karte
+        const alle = Array.from(document.querySelectorAll('.message.assistant .message-content'));
+        const cz = alle[alle.length - 1] || null;
+        if (cz) wiederherstellenQuizAntworten(cz, pfad, ui);
+    } catch (e) {
+        addMessage('⚠️ Quiz konnte nicht fortgesetzt werden: ' + (e && e.message), 'assistant');
+    }
+}
+
 async function quizStart() {
     // NUR EINE Quiz-Instanz erlauben: kein zweites starten, solange eines laeuft.
     if (_quizAktiv) {
@@ -2636,6 +2682,16 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // QUIZ-KOMMANDO: "quiz starten", "anlernspiel", "lernspiel", "gesichtsspiel"
     if (text && typeof text === 'string') {
         const t = text.trim().toLowerCase();
+        // QUIZ FORTSETZEN: haengenden _quizAktiv-Zustand zuruecksetzen und an
+        // der letzten ungesehenen Frage weitermachen (quiz/start nutzt den
+        // persistenten Fortschritt).
+        if (t.indexOf('quiz fortsetzen') !== -1 || t.indexOf('quiz weiter') !== -1
+            || t.indexOf('quiz fortführen') !== -1 || t.indexOf('quiz wieder') !== -1
+            || t.indexOf('quiz weiter machen') !== -1 || t.indexOf('quiz wieder aufnehmen') !== -1) {
+            _quizAktiv = false;
+            quizFortsetzen();
+            return;
+        }
         if (t.indexOf('quiz starten') !== -1 || t.indexOf('anlernspiel') !== -1
             || t.indexOf('quiz start') !== -1 || t === 'quiz') {
             quizStart();
