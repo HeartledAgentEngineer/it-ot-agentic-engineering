@@ -2328,9 +2328,16 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         if (alt) alt.remove();
         const b = (gs[idx] && gs[idx].bbox) || [];
         if (b.length < 4) return;
-        const iw = img.naturalWidth || img.width || 0;
-        const ih = img.naturalHeight || img.height || 0;
-        if (!iw || !ih) return;
+        // Geraenderte Bildgroesse nutzen (naturalWidth kann direkt nach dem
+        // Einfuegen noch 0 sein -> sonst wird der Rahmen nicht gezeichnet).
+        let iw = 0, ih = 0;
+        try {
+            const rc = img.getBoundingClientRect();
+            if (rc && rc.width > 0 && rc.height > 0) { iw = rc.width; ih = rc.height; }
+        } catch (_) {}
+        if (!iw) iw = img.naturalWidth || img.width || 0;
+        if (!ih) ih = img.naturalHeight || img.height || 0;
+        if (!iw || !ih) { /* Bild noch nicht gerendert - wird via onload erneut gezeichnet */ return; }
         // relativen Kontext fuer den absoluten Rahmen sicherstellen
         const pa = img.parentNode;
         if (pa && pa.style) pa.style.position = 'relative';
@@ -2343,6 +2350,9 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         r.style.height = (b[3]/ih*100) + '%';
         pa.appendChild(r);
     }
+    // Sobald das Bild geladen ist, die Markierung (sofern eine Frage offen ist)
+    // erneut zeichnen - der erste maleRahmen kann zu frueh kommen (Bildgröße 0).
+    try { img.addEventListener('load', () => maleRahmen()); } catch (_) {}
 
     function antworten(person, istNeu, skip) {
         if (skip) { idx++; render(); return; }
