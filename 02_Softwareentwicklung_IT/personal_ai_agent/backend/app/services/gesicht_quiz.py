@@ -253,9 +253,13 @@ def start_runde(ausgeschlossen=None):
             "verarbeitet": len(kombiniert),
             "hinweis": "Du hast alle Lieblingsbilder durchgespielt.",
         }
-    # gewaehltes Bild als durchgespielt merken (persistent).
-    kombiniert.append(kandidat)
-    _fortschritt_speichern(kombiniert)
+    # Bild NICHT beim Anzeigen als verbraucht markieren: Es wird erst nach
+    # erfolgreicher Beantwortung persistent als 'gesehen' gespeichert
+    # (in beantworte_runde). So bleibt eine pausierte/unbeantwortete Frage offen
+    # und kommt beim 'fortsetzen' wieder - keine doppelten Bilder, aber auch
+    # kein Verlust der aktuellen Frage.
+    kombiniert.append(kandidat)  # nur fuer diesen Durchlauf (Auswahl), nicht persistiert
+    # _fortschritt_speichern(kombiniert)  -> verschoben nach Beantwortung
     info = lese_datei_info(kandidat)
     runde = {
         "bild_pfad": kandidat,
@@ -370,6 +374,15 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
                 f"{referenzen} Referenz(en), Aufnahmejahr {jahr or '?'}. "
                 f"[Bild gespeichert zum erneuten Ansehen]")
         verlauf_nachricht_anhaengen("conv_main", "assistant", text, bild_pfad=bild_pfad)
+    except Exception:
+        pass
+
+    # Nach erfolgreicher Beantwortung das Bild als persistent 'gesehen' markieren
+    # (erst jetzt verbraucht, nicht schon beim Anzeigen -> echtes Pausieren).
+    try:
+        gesehen = _fortschritt_laden()
+        if bild_pfad not in gesehen:
+            _fortschritt_speichern(gesehen + [bild_pfad])
     except Exception:
         pass
 
