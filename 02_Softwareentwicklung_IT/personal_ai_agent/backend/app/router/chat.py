@@ -295,7 +295,7 @@ async def chat(request: ChatRequest):
                 finish_exchange=_finish_exchange,
                 get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
                 starte_lokale_hermes=_starte_lokale_hermes,
-                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message), request),
+                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message, request.conversation_id), request),
             )
             return ChatResponse(
                 reply=res["reply"],
@@ -840,15 +840,15 @@ _KEINE_NICHT_ROLLE_WORTE = {
 }
 
 
-def _baue_kontext(frage: str) -> str:
+def _baue_kontext(frage: str, conversation_id: Optional[str] = None) -> str:
     """Baut das kompakte Kontext-Paket für die Hermes-Delegation (Variante C).
 
-    Nimmt die letzten max. 6 Chat-Nachrichten der aktuellen Conversation +
-    die 3 relevantesten Erinnerungen (semantisch zur Frage) und kürzt sie auf
-    eine handliche Textmenge. So weiß Hermes, worum es im Gespräch geht,
-    ohne dass der Prompt explodiert (günstig + reichhaltig).
+    Nimmt die letzten max. 6 Chat-Nachrichten der AKTUELLEN Conversation (die,
+    aus der geschrieben wird - conv_main ODER conv_code) + die 3 relevantesten
+    Erinnerungen und kuerzt sie auf eine handliche Textmenge. So weiss Hermes,
+    worum es im Gespraech geht, ohne dass der Prompt explodiert.
     """
-    konv_id = _get_or_create_conversation(None)
+    konv_id = _get_or_create_conversation(conversation_id)
     hist = conversations.get(konv_id, [])
     teile: List[str] = []
     # Letzte bis zu 6 Nachrichten (ohne die aktuelle Frage-Duplikate).
@@ -1457,7 +1457,7 @@ async def chat_stream(request: ChatRequest):
     if ist_auftrag_val:
         # Kontext-Erweiterung: Frage + Gesprächskontext, damit Hermes nicht
         # blind (nur mit der Frage) arbeitet. (Gleiche Logik wie im Router.)
-        kontext_paket = _baue_kontext(request.message)
+        kontext_paket = _baue_kontext(request.message, request.conversation_id)
         herm_aufgabe = request.message
         if kontext_paket and kontext_paket.strip():
             herm_aufgabe = (
@@ -1510,7 +1510,7 @@ async def chat_stream(request: ChatRequest):
                 kategorie=kategorie,
                 komplexitaet=komplexitaet,
                 chat_verknuepfung=conversation_id,
-                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message), request),
+                kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message, request.conversation_id), request),
             )
             reply_text = (
                 "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
