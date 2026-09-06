@@ -2490,6 +2490,11 @@ async function quizUeberspringen(pfad) {
 }
 
 async function quizStart() {
+    // NUR EINE Quiz-Instanz erlauben: kein zweites starten, solange eines laeuft.
+    if (_quizAktiv) {
+        addMessage('⚠️ Es läuft bereits eine Quiz-Sitzung. Beende sie erst mit "quiz beenden", bevor du neu startest.', 'assistant');
+        return;
+    }
     _quizAktiv = true;
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/start`, {
@@ -2552,6 +2557,67 @@ async function quizBeantworten(pfad, person, istNeu, rolle) {
     }
 }
 
+// Referenz-Check: interaktive Liste aller gelernten Referenzen je Person,
+// mit Bild-Vorschau und Loesch-Button fuer falsche Referenzen.
+function zeigeReferenzen() {
+    addMessage('🔎 **Referenz-Check** – lade gelernte Referenzen …', 'assistant');
+    (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/gesichter/referenzen`);
+            const d = await res.json();
+            const personen = (d && d.personen) || [];
+            if (!personen.length) { addMessage('ℹ️ Noch keine Personen mit Referenzen gelernt.', 'assistant'); return; }
+            // pro Person eine Karte
+            for (const p of personen) {
+                const karte = addMessage('', 'assistant');
+                const head = document.createElement('div');
+                head.style.cssText = 'font-weight:700;margin-bottom:4px';
+                head.textContent = `👤 ${p.name}` + (p.rolle ? ` (${p.rolle})` : '') + ` – ${p.anzahl} Referenz(en)`;
+                karte.appendChild(head);
+                if (p.miniatur) {
+                    const img = document.createElement('img');
+                    img.src = p.miniatur;
+                    img.style.cssText = 'max-width:80px;max-height:80px;border-radius:8px;border:1px solid #555;margin-right:6px;vertical-align:top';
+                    karte.appendChild(img);
+                }
+                const liste = document.createElement('div');
+                liste.style.cssText = 'margin-top:4px;font-size:0.8rem;color:#bbb';
+                if (!p.referenzen.length) {
+                    liste.textContent = '– keine Einzel-Referenzen (nur alte Embeddings) –';
+                } else {
+                    p.referenzen.forEach(r => {
+                        const zeile = document.createElement('div');
+                        zeile.style.cssText = 'display:flex;align-items:center;gap:6px;margin:2px 0';
+                        const txt = document.createElement('span');
+                        txt.textContent = `#{${r.index}} Aufnahmejahr: ${r.jahr || 'unbekannt'} `;
+                        zeile.appendChild(txt);
+                        const del = document.createElement('button');
+                        del.textContent = '✕ löschen';
+                        del.style.cssText = 'padding:2px 8px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.75rem';
+                        del.onclick = () => referenzLoeschen(p.name, r.ref_id, del);
+                        zeile.appendChild(del);
+                        liste.appendChild(zeile);
+                    });
+                }
+                karte.appendChild(liste);
+            }
+            addMessage('💡 **Passe auf:** Nicht geloeschte Referenzen bleiben als Erkennungs-Basis. Gelöschte Einzel-Referenzen vernichte ich nur fuer diese Person.', 'assistant');
+        } catch (e) {
+            addMessage('⚠️ Referenzen konnten nicht geladen werden: ' + (e && e.message), 'assistant');
+        }
+    })();
+}
+
+async function referenzLoeschen(name, refId, btn) {
+    if (!window.confirm && typeof confirm === 'function' && !confirm(`Diese Referenz von ${name} wirklich löschen?`)) return;
+    try {
+        const r = await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(refId)}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (d && d.ok) { btn.textContent = '✓ gelöscht'; btn.disabled = true; btn.style.opacity = 0.5; }
+        else { alert('Fehler: ' + ((d && d.fehler) || 'unbekannt')); }
+    } catch (e) { alert('Löschen fehlgeschlagen: ' + (e && e.message)); }
+}
+
 async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false, ziel = '') {
     // QUIZ-KOMMANDO: "quiz starten", "anlernspiel", "lernspiel", "gesichtsspiel"
     if (text && typeof text === 'string') {
@@ -2570,6 +2636,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             } else {
                 addMessage('Es läuft gerade keine Quiz-Sitzung. Sag "quiz starten", um zu beginnen.', 'assistant');
             }
+            return;
+        }
+        // Referenz-Management: "zeige referenzen" -> interaktive Liste zum Loeschen.
+        if (t.indexOf('zeige referenzen') !== -1 || t.indexOf('referenzen anzeigen') !== -1
+            || t === 'referenzen' || t.indexOf('referenz check') !== -1) {
+            zeigeReferenzen();
             return;
         }
     }
@@ -3972,7 +4044,16 @@ async function zeigeGespraech(id) {
         state.messages = [];
         zuruecksetzenDatumBanner();
 
-        for (const m of nachrichten) {
+        // Indizes aller persistenten, noch offenen Quiz-Fragen: NUR die letzte
+        // soll nach Reload bedienbar sein; aeltere nur als Historie (Bild+Text).
+        const offeneQuiz = [];
+        for (let i = 0; i < nachrichten.length; i++) {
+            if ((nachrichten[i].content || '').indexOf('[QUIZ-OFFEN]') !== -1) offeneQuiz.push(i);
+        }
+        const letzteOffene = offeneQuiz.length ? offeneQuiz[offeneQuiz.length - 1] : -1;
+
+        for (let mi = 0; mi < nachrichten.length; mi++) {
+            const m = nachrichten[mi];
             const role = m.role === 'user' ? 'user' : 'assistant';
             const contentDiv = addMessage(m.content || '', role, m.zeit || null, m.bild_pfad || undefined);
             // Gespeicherte Bild-Vorschau (Dateisuche) wieder anzeigen: Der
@@ -4000,11 +4081,14 @@ async function zeigeGespraech(id) {
                     }
                 })();
             }
-            // Offene Quiz-Frage (nach Reload) -> interaktive Antworten wiederherstellen.
+            // Offene Quiz-Frage (nach Reload) -> interaktive Antworten NUR bei der
+            // LETZTEN offenen Frage wiederherstellen; aeltere nur Historie.
             if ((m.content || '').indexOf('[QUIZ-OFFEN]') !== -1 && m.bild_pfad) {
-                const cz = document.createElement('div');
-                contentDiv.appendChild(cz);
-                wiederherstellenQuizAntworten(cz, m.bild_pfad, m.ui);
+                if (mi === letzteOffene) {
+                    const cz = document.createElement('div');
+                    contentDiv.appendChild(cz);
+                    wiederherstellenQuizAntworten(cz, m.bild_pfad, m.ui);
+                }
             }
         }
         state.conversationId = id;

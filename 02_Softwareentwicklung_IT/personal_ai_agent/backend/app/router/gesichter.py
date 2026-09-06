@@ -110,3 +110,20 @@ def quiz_antwort(body: QuizAntwortBody):
     return gesicht_quiz.beantworte_runde(
         bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu, rolle=body.rolle
     )
+
+
+@router.get("/referenzen")
+def referenzen_liste():
+    """Alle Referenzen je Person (ref_id, jahr, miniatur) fuer das 'zeige
+    referenzen'-Referenz-Management im Chat."""
+    return gesichter_service.referenzen_auflisten()
+
+
+@router.delete("/referenzen/{name}/{ref_id}")
+def referenz_loeschen(name: str, ref_id: str):
+    """Loescht genau eine Referenz einer Person (Referenz-Check)."""
+    res = gesichter_service.referenz_entfernen(name, ref_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=404, detail=res.get("fehler", "nicht gefunden"))
+    return res
+

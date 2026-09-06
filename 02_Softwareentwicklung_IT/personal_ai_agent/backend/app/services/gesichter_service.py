@@ -221,6 +221,77 @@ def person_speichern(
         return dict(neu)
 
 
+def _ref_id(embedding) -> str:
+    """Stabile ID einer Referenz aus ihrem Embedding (ggf. + bbox-Hash)."""
+    try:
+        import hashlib
+        roh = json.dumps((embedding or [])[:32], ensure_ascii=False).encode("utf-8", "ignore")
+        return hashlib.sha1(roh).hexdigest()[:12]
+    except Exception:
+        return "ref"
+
+
+def _refs_of(p: dict) -> list:
+    """Normale Referenz-Liste ({embedding, jahr}) einer Person."""
+    refs = []
+    e = p.get("embedding")
+    if e:
+        if isinstance(e[0], (int, float)):
+            refs.append({"embedding": e, "jahr": None})
+        else:
+            refs.extend({"embedding": x, "jahr": None} for x in e if x)
+    for r in (p.get("referenzen") or []):
+        if isinstance(r, dict) and r.get("embedding"):
+            refs.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+    return refs
+
+
+def referenzen_auflisten() -> dict:
+    """Je Person die Referenzen mit ref_id + Jahr + Miniatur-DataURL."""
+    personen = liste_personen()
+    erg = []
+    for p in personen:
+        refs = _refs_of(p)
+        eintraege = []
+        for idx, r in enumerate(refs):
+            eintraege.append({
+                "ref_id": _ref_id(r.get("embedding")),
+                "index": idx,
+                "jahr": r.get("jahr"),
+            })
+        erg.append({
+            "name": p.get("name"),
+            "rolle": p.get("rolle", ""),
+            "anzahl": len(refs),
+            "miniatur": p.get("referenz_bild_miniatur", ""),
+            "referenzen": eintraege,
+        })
+    return {"personen": erg}
+
+
+def referenz_entfernen(name: str, ref_id: str) -> dict:
+    """Loescht genau eine Referenz (ref_id) der Person. Beh aelt die Person."""
+    ziel = ((name or "").strip().lower(), (ref_id or "").strip())
+    if not all(ziel):
+        return {"ok": False, "fehler": "person/ref_id leer"}
+    name_lower, rid = ziel
+    with _sperre:
+        personen = _laden()
+        p = next((x for x in personen if (x.get("name") or "").strip().lower() == name_lower), None)
+        if p is None:
+            return {"ok": False, "fehler": "person nicht gefunden"}
+        refs = _refs_of(p)
+        rest = [r for r in refs if _ref_id(r.get("embedding")) != rid]
+        if len(rest) == len(refs):
+            return {"ok": False, "fehler": "referenz nicht gefunden"}
+        # aktualisieren: referenzen + embedding konsistent.
+        p["referenzen"] = _refs_bereinigen(rest)
+        emb = _refs_bereinigen(rest)
+        p["embedding"] = [r["embedding"] for r in emb] if emb else None
+        _speichern(personen)
+        return {"ok": True, "name": p.get("name"), "verbleibend": len(rest)}
+
+
 def person_entfernen(name: str) -> bool:
     """Löscht eine Person nach Name. True, wenn sie existierte."""
     ziel = (name or "").strip().lower()
