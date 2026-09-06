@@ -855,15 +855,30 @@ def _baue_kontext(frage: str, conversation_id: Optional[str] = None) -> str:
     konv_id = _get_or_create_conversation(conversation_id)
     hist = conversations.get(konv_id, [])
     teile: List[str] = []
-    # Letzte bis zu 6 Nachrichten (ohne die aktuelle Frage-Duplikate).
-    for m in hist[-6:]:
+    # Nur ECHTE, relevante Nachrichten als Kontext - kein alter Feed-Wildwuchs
+    # (viele Hermes-Status-/Duplikat-Eintraege machen den Kontext sonst zu einem
+    # 'ausgespuckten alten Stand'). Statuszeilen mit Zeitstempel-Präfix und
+    # direkte Duplikate werden ausgefiltert; es bleiben die letzten ~3 konkrete
+    # Runden (aktuelle Aufgabe + Antwort), damit Hermes NUR die neuen Gedanken
+    # in kleiner/menschlicher Geschwindigkeit sieht.
+    relevante = []
+    for m in reversed(hist):
         rolle = m.get("role", "?")
         inhalt = (m.get("content") or "").strip()
         if not inhalt:
             continue
-        # Langen Inhalt kürzen (Kontext kompakt halten).
-        if len(inhalt) > 500:
-            inhalt = inhalt[:500] + "…"
+        # Hermes-Status-/Zwischenzeilen mit Zeitstempel-Praefix ueberspringen.
+        if inhalt.startswith("[") and "]" in inhalt[:16]:
+            continue
+        # Direkte Duplikate (gleiche role+content) nur einmal.
+        if relevante and relevante[-1][0] == rolle and relevante[-1][1] == inhalt:
+            continue
+        relevante.append((rolle, inhalt))
+        if len(relevante) >= 3:
+            break
+    for rolle, inhalt in reversed(relevante):
+        if len(inhalt) > 400:
+            inhalt = inhalt[:400] + "…"
         teile.append(f"{rolle}: {inhalt}")
     # Relevante Erinnerungen (semantisch zur Frage).
     try:
