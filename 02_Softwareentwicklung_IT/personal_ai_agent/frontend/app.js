@@ -2385,6 +2385,12 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     img.src = dataUrl;
     img.style.cssText = 'max-width:100%;border-radius:10px;max-height:300px;object-fit:cover';
     karte.appendChild(img);
+    // Aktiver Stopp-Button: jederzeit das Quiz beenden (ohne Textbefehl).
+    const stoppBtn = document.createElement('button');
+    stoppBtn.textContent = '🛑 Quiz beenden';
+    stoppBtn.style.cssText = 'margin-top:4px;padding:4px 10px;border:1px solid #f88;border-radius:8px;background:#3d1616;color:#f88;cursor:pointer;font-size:0.78rem;width:100%';
+    stoppBtn.onclick = beendeQuizAktiv;
+    karte.appendChild(stoppBtn);
     const frage = document.createElement('div');
     frage.style.cssText = 'margin-top:8px;font-weight:600';
     frage.textContent = '🧠 Wen siehst du auf diesem Bild?';
@@ -2486,6 +2492,13 @@ async function quizUeberspringen(pfad) {
         quizStart();  // weiter zur naechsten Frage
     } catch (e) {
         addMessage('⚠️ Überspringen fehlgeschlagen: ' + (e && e.message), 'assistant');
+    }
+}
+
+function beendeQuizAktiv() {
+    if (_quizAktiv) {
+        _quizAktiv = false;
+        addMessage('🛑 **Quiz beendet** — du kannst jederzeit neu starten.', 'assistant');
     }
 }
 
