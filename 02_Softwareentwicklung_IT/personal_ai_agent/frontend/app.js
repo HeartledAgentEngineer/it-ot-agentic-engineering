@@ -163,12 +163,20 @@ const dom = {
     loopLabel: document.getElementById('loop-label'),
     streamSettingsBtn: document.getElementById('stream-settings-btn'),
     streamMenu: document.getElementById('stream-menu'),
+    codechatBtn: document.getElementById('codechat-btn'),
     // Datei-Upload
     uploadBtn: document.getElementById('upload-btn'),
     fileInput: document.getElementById('file-input'),
     filePreview: document.getElementById('file-preview'),
     filePreviewList: document.getElementById('file-preview-list'),
 };
+// Coding-/Hermes-Chat-Umschalter (conv_code <-> conv_main).
+if (dom.codechatBtn) {
+    dom.codechatBtn.addEventListener('click', () => {
+        const ziel = (state.conversationId === 'conv_code') ? 'conv_main' : 'conv_code';
+        chatWechseln(ziel);
+    });
+}
 
 // =========================================
 // Utility: Simple Markdown Parser
@@ -4126,6 +4134,29 @@ async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
     } catch (_) { /* Rekonstruktion nicht moeglich: Text bleibt */ }
 }
 
+// Setzt die Optik/Zustand des CodeChat-Buttons je nach aktuellem Chat.
+function setzeChatButtonStatus() {
+    const btn = document.getElementById('codechat-btn');
+    if (!btn) return;
+    const imCode = (state.conversationId === 'conv_code');
+    btn.setAttribute('aria-pressed', imCode ? 'true' : 'false');
+    btn.title = imCode
+        ? 'Im Programmier-/Hermes-Chat (conv_code) – klick: zum Haupt-Chat'
+        : 'Zum Programmier-/Hermes-Chat (conv_code) wechseln';
+    btn.style.background = imCode ? '#1f3a2a' : '';
+    btn.style.color = imCode ? '#8f8' : '';
+    btn.style.borderColor = imCode ? '#4a7' : '';
+}
+
+// Wechselt zwischen Haupt-Chat (conv_main) und Coding-/Hermes-Chat (conv_code).
+function chatWechseln(target) {
+    const g = (target === 'conv_code') ? 'conv_code' : 'conv_main';
+    state.conversationId = g;
+    localStorage.setItem('conversation_id', g);
+    setzeChatButtonStatus();
+    zeigeGespraech(g);
+}
+
 async function zeigeGespraech(id) {
     try {
         const res = await fetch(`${API_BASE}/api/conversations/${id}`);
@@ -4187,6 +4218,7 @@ async function zeigeGespraech(id) {
             }
         }
         state.conversationId = id;
+        setzeChatButtonStatus();
         localStorage.setItem('conversation_id', id);
         scrollToBottom(true);
         return true;
@@ -4248,7 +4280,7 @@ async function stelleVerlaufWiederHer() {
     // entstand und der bisherige Verlauf (conv_8) aus der Anzeige verschwand,
     // obwohl er im Backend noch existierte.
     if (state.conversationId) {
-        if (await zeigeGespraech(state.conversationId)) return;
+        if (await zeigeGespraech(state.conversationId)) { setzeChatButtonStatus(); return; }
         // Laden fehlgeschlagen (404 ODER Netzwerk): Kennung BEHALTEN.
         // Der Rückfall unten lädt die jüngste; das localStorage bleibt intakt,
         // damit die nächste Nachricht weiter an die bekannte Conversation geht.

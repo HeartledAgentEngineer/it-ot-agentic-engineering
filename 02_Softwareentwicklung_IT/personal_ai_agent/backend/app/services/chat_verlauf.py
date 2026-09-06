@@ -303,14 +303,22 @@ def verlauf_runde_entfernen(conversation_id: str) -> bool:
 _AKTIVE_CONVERSATION_ID = "conv_main"
 
 
-def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
-    """Liefert IMMER die eine durchlaufende Conversation (conv_main).
+# Erlaubte dauerhafte Chats (2026-09-06, Wunsch Sebastian: ZWEI Chats -
+# Haupt-Chat conv_main + separater Codier-/Hermes-Chat conv_code). Unbekannte/
+# fehlende ids mappen auf den Haupt-Chat, damit keine wilden Konversationen
+# entstehen und der bestehende Haupt-Chat unveraendert bleibt.
+_ERLAUBTE_CHATS = ("conv_main", "conv_code")
 
-    Absicht (Wunsch Sebastian, 2026-08-30): Es gibt genau EINEN Chat, der nie
-    neu beginnt. Eine uebergebene, unbekannte conversation_id wird auf die
-    aktive Conversation gemappt statt eine neue anzulegen; ohne id ebenso. Ein
-    einzelner durchlaufender Verlauf, durchsuchbar ueber die Gesprächssuche.
+
+def _get_or_create_conversation(conversation_id: Optional[str]) -> str:
+    """Liefert die durchlaufende Conversation: conv_code (falls gespeichert/
+    uebergeben) oder conv_main (Default). Rufwaerts-kompatibel: unbekannte/
+    fehlende id -> conv_main. Whitespace-/Leer-ids normalisieren.
     """
+    wid = (conversation_id or "").strip()
+    if wid in _ERLAUBTE_CHATS:
+        conversations.setdefault(wid, [])
+        return wid
     conversations.setdefault(_AKTIVE_CONVERSATION_ID, [])
     return _AKTIVE_CONVERSATION_ID
 
