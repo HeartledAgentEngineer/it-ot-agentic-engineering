@@ -569,6 +569,13 @@ function addMessage(content, role, zeit, bildPfad) {
  *  - normale Antwort/Stream läuft → 🟡 Agent (antwortet)
  *  - sonst → 🟢 Agent (LLM + Gedächtnis)
  *  Wird bei jedem relevanten Zustandswechsel aufgerufen. */
+function setzeTutZeile(text) {
+    const el = document.getElementById('agent-tut-zeile');
+    if (!el) return;
+    if (text) { el.style.display = 'inline'; el.textContent = text; }
+    else { el.style.display = 'none'; el.textContent = ''; }
+}
+
 function aktualisiereStatusAnzeige() {
     const badge = document.getElementById('chat-modus-badge');
     if (!badge) return;
@@ -2736,6 +2743,17 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         return;
     }
     if (!text.trim()) return;
+    // Sichtbar machen, WAS der Agent/Hermes gerade tut (Wunsch: nach jedem
+    // Absenden Blase/Status zeigt den Arbeitsschritt).
+    try {
+        const hermesModus = (typeof loopAktiv !== 'undefined' && loopAktiv) || _laufenderAuftragKurz;
+        const zielk = _zielAktuell || '';
+        setzeTutZeile(hermesModus
+            ? (zielk === 'pc' ? '⚙️ Hermes (PC) bearbeitet deine Aufgabe…'
+               : zielk === 'handy' ? '⚙️ Hermes (Handy) bearbeitet deine Aufgabe…'
+               : '⚙️ Hermes bearbeitet deine Aufgabe…')
+            : '🔍 Agent liest deine Nachricht…');
+    } catch (_) {}
     // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
     // Griff, an dem der Stopp-Knopf zieht.
     const controller = new AbortController();
@@ -3107,6 +3125,8 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         }
         entry.content = antwort;
     } finally {
+        // Tut-Zeile zuruecksetzen, sobald die Antwort abgeschlossen ist.
+        try { setzeTutZeile(''); } catch (_) {}
         // Nur zuruecksetzen, wenn niemand zwischenzeitlich einen neuen Lauf
         // gestartet hat (kein Stopp-Knopf mehr für normale Antworten).
         if (state.abbruch === controller) state.abbruch = null;
