@@ -4264,6 +4264,51 @@ function chatWechseln(target) {
     zeigeGespraech(g);
 }
 
+// Laedt das Bild einer Nachricht erst, wenn sie (naeherungsweise) sichtbar
+// ist - reduziert die Initiallast beim Chat-Wechsel (Ruckler, wenn alle Bilder
+// auf einmal per fetch nachgeladen werden). Fallback: nach kurzem Verzug laden.
+let _lazyBildObs = null;
+function ladeBildLazy(contentDiv, pfad) {
+    let geladen = false;
+    const wirdSichtbar = () => {
+        if (geladen) return;
+        geladen = true;
+        (async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
+                const daten = await res.json();
+                if (daten.data_url) {
+                    zeigeBildVorschau(contentDiv, daten.data_url, pfad);
+                } else {
+                    const fehlt = document.createElement('div');
+                    fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                    fehlt.textContent = '🖼 Bild nicht (mehr) vorhanden – gelöscht oder verschoben.';
+                    contentDiv.appendChild(fehlt);
+                }
+            } catch (_) {
+                const fehlt = document.createElement('div');
+                fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                fehlt.textContent = '🖼 Bild nicht ladbar – gelöscht oder verschoben.';
+                contentDiv.appendChild(fehlt);
+            }
+        })();
+    };
+    try {
+        if (!_lazyBildObs) {
+            if ('IntersectionObserver' in window) {
+                _lazyBildObs = new IntersectionObserver((entries) => {
+                    entries.forEach(e => { if (e.isIntersecting) wirdSichtbar(); });
+                }, { root: dom.messages, rootMargin: '600px' });
+            }
+        }
+        if (_lazyBildObs) {
+            _lazyBildObs.observe(contentDiv);
+            return;
+        }
+    } catch (_) {}
+    setTimeout(wirdSichtbar, 300); // Fallback ohne Observer
+}
+
 async function zeigeGespraech(id) {
     try {
         const res = await fetch(`${API_BASE}/api/conversations/${id}`);
@@ -4307,26 +4352,9 @@ async function zeigeGespraech(id) {
             // hochgeladenen Bilder (role === 'user'): vorher war der bild_pfad
             // nur am Assistant-Eintrag gesetzt, dein Upload war nach Reload weg.
             if (m.bild_pfad && (role === 'assistant' || role === 'user')) {
-                (async () => {
-                    try {
-                        const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(m.bild_pfad)}`);
-                        const daten = await res.json();
-                        if (daten.data_url) {
-                            zeigeBildVorschau(contentDiv, daten.data_url, m.bild_pfad);
-                        } else {
-                            // Original fehlt (geloescht/verschoben) -> graceful Meldung statt kaputtem Bild.
-                            const fehlt = document.createElement('div');
-                            fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
-                            fehlt.textContent = '🖼 Bild nicht (mehr) vorhanden – gelöscht oder verschoben.';
-                            contentDiv.appendChild(fehlt);
-                        }
-                    } catch (_) {
-                        const fehlt = document.createElement('div');
-                        fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
-                        fehlt.textContent = '🖼 Bild nicht ladbar – gelöscht oder verschoben.';
-                        contentDiv.appendChild(fehlt);
-                    }
-                })();
+                // Lazy: Bild erst laden, wenn die Nachricht (naeherungsweise)
+                // sichtbar wird - kein Ruckler durch alle-fetch-auf-einmal.
+                ladeBildLazy(contentDiv, m.bild_pfad);
             }
             // Offene Quiz-Frage (nach Reload) -> interaktive Antworten NUR bei der
             // LETZTEN offenen Frage wiederherstellen; aeltere nur Historie.
