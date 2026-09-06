@@ -154,7 +154,15 @@ def _starte_lokale_hermes(
                         # tmux-Session an statt eine neue zu starten (Sonst:
                         # bestehende_session=None → neue Session je Auftrag).
                         bestehende_session=(
-                            settings.hermes_local_session or None
+                            # conv_code (Coding-Chat) bekommt eine EIGENE
+                            # persistente Hermes-Session 'hermes_code', getrennt
+                            # vom Haupt-Chat, mit eigenem fortlaufendem Kontext
+                            # (Wunsch Sebastian 2026-09-06). Sonst aktive Session.
+                            # Der Kontext (Konversations-Info) ist im _worker-Scope
+                            # verfuegbar; pruefen, ob conv_code aktiv ist.
+                            ("hermes_code"
+                             if ("conv_code" in (kontext or ""))
+                             else settings.hermes_local_session) or None
                         ),
                         # Zweitweg (Wunsch Sebastian): HERMES_LOCAL_KANAL=query
                         # nutzt den Einmal-Subprozess statt tmux.
