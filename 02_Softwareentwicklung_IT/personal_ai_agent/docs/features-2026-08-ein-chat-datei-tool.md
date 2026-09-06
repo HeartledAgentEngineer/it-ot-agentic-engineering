@@ -142,6 +142,12 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   verfrueht ausgeblendet (Stand 2026-09-06).
   Die statische „Denke nach…"-Blase mitten im conv_code-Verlauf bleibt
   entfernt – den Ladezustand zeigt jetzt unten die animierte Bubble.
+- **Arbeitsschritt-Text in der Bubble** (2026-09-07, Auftrag Sebastian): Der
+  dynamische Status ("🔍 Agent liest deine Nachricht…" / "⚙️ Hermes bearbeitet
+  deine Aufgabe…"), der vorher unscheinbar oben im Header stand
+  (`#agent-tut-zeile`), wandert in die untere animierte Bubble
+  (`#loading .loading-text`). Die Header-Zeile wird ausgeblendet, damit nichts
+  doppelt steht – die Bubble zeigt so den konkreten Lade-/Arbeitsschritt.
 
 ## Verifikation
 

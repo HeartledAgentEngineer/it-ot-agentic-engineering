@@ -578,10 +578,15 @@ function addMessage(content, role, zeit, bildPfad) {
  *  - sonst → 🟢 Agent (LLM + Gedächtnis)
  *  Wird bei jedem relevanten Zustandswechsel aufgerufen. */
 function setzeTutZeile(text) {
+    // Seit 2026-09-06 (Auftrag Sebastian): Der Arbeitsschritt-Text (z. B.
+    // "🔍 Agent liest deine Nachricht…" / "⚙️ Hermes bearbeitet deine Aufgabe…")
+    // wandert in die untere animierte "Denke nach…"-Bubble (#loading) statt
+    // unscheinbar oben im Header zu stehen. Die alte Header-Zeile
+    // (#agent-tut-zeile) wird ausgeblendet, damit nichts doppelt erscheint.
     const el = document.getElementById('agent-tut-zeile');
-    if (!el) return;
-    if (text) { el.style.display = 'inline'; el.textContent = text; }
-    else { el.style.display = 'none'; el.textContent = ''; }
+    if (el) { el.style.display = 'none'; el.textContent = ''; }
+    const bubbleText = document.querySelector('#loading .loading-text');
+    if (bubbleText) bubbleText.textContent = text ? text : 'Denke nach...';
 }
 
 function aktualisiereStatusAnzeige() {
@@ -2907,6 +2912,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             } finally {
                 hermesStreamBereit = false;
                 aktualisiereStatusAnzeige();
+                // Untere animierte "Denke nach..."-Bubble nach der
+                // Hermes-Antwort sicher ausblenden (dieser Zweig macht
+                // sonst `return`, ohne setLoading(false) zu rufen). Stand
+                // 2026-09-06: Bubble hing sonst im Hermes-/Loop-Modus fest.
+                setLoading(false);
             }
             return;
         }
