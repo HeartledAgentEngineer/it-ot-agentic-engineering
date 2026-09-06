@@ -2466,11 +2466,12 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     neuForm.appendChild(neuRolle);
     neuForm.appendChild(neuSpeichern);
     neu.onclick = () => { neuForm.style.display = neuForm.style.display === 'none' ? 'block' : 'none'; };
-    auswahlBox.appendChild(neu);
-    // Formular direkt nach der Auswahl-Box anhaengen (box-eltern fuer den Insert)
-    // (tilde: karte.appendChild(neuForm) nach karte.appendChild(auswahlBox))
-    karte.appendChild(auswahlBox);
+    // 'Neue Person' IMMER sichtbar anhaengen (nicht in der bei Vermutung
+    // ausgeblendeten auswahlBox), damit er nie verschwindet.
+    karte.appendChild(neu);
     karte.appendChild(neuForm);
+    karte.appendChild(auswahlBox);
+    // (Formular an die Karte, nicht in die auswahlBox)
     // Button fuer 'keine Person drauf / Algorithmus hat sich geirrt':
     // markiert das Bild alsuebersprungen (ohne Person zu speichern).
     const skip = document.createElement('button');
