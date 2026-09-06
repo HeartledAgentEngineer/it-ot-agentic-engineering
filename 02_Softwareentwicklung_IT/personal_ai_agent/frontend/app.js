@@ -4142,6 +4142,34 @@ function starteHermesPoll() {
 // rendert die Antwort-Auswahl (Personen + Neue Person + Keine Person) in die
 // bereits angezeigte Blase (mit bild_pfad), damit man auch nach Neustart
 // weiter antworten kann. Optionen frisch von /api/gesichter.
+// Zeichnet den gelben bbox-Rahmen um die Person im Bild einer wiederhergestellten
+// Quiz-Nachricht (nutzt die im ui-Block persistierte 'gesichter'-bbox). Findet
+// das Bild im Container und legt den absolut positionierten Rahmen darueber.
+function quizRahmenFuerBild(root, ui) {
+    try {
+        const img = root && root.querySelector('img');
+        if (!img) return;
+        const gs = (ui && ui.gesichter) || [];
+        const b = gs[0] && gs[0].bbox;
+        if (!b || b.length < 4) return;
+        let iw = 0, ih = 0;
+        try { const rc = img.getBoundingClientRect(); if (rc && rc.width > 0 && rc.height > 0) { iw = rc.width; ih = rc.height; } } catch (_) {}
+        if (!iw) iw = img.naturalWidth || img.width || 0;
+        if (!ih) ih = img.naturalHeight || img.height || 0;
+        if (!iw || !ih) return;
+        const pa = img.parentNode;
+        if (pa && pa.style) pa.style.position = 'relative';
+        const r = document.createElement('div');
+        r.className = 'quiz-marke';
+        r.style.cssText = 'position:absolute;border:3px solid #ff6;box-shadow:0 0 0 2px #fa0;pointer-events:none;z-index:5;box-sizing:border-box';
+        r.style.left = (b[0]/iw*100) + '%';
+        r.style.top = (b[1]/ih*100) + '%';
+        r.style.width = (b[2]/iw*100) + '%';
+        r.style.height = (b[3]/ih*100) + '%';
+        pa.appendChild(r);
+    } catch (_) {}
+}
+
 async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
     if (!contentDiv || !pfad) return;
     try {
@@ -4165,6 +4193,29 @@ async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
             b.onclick = () => quizBeantworten(pfad, o, false, '');
             leiste.appendChild(b);
         });
+        // "Andere Person" (fehlt in der Rekonstruktion des Screenshots) + eingebettetes Formular.
+        const andere = document.createElement('button');
+        andere.textContent = '➕ Andere Person';
+        andere.style.cssText = 'padding:6px 10px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem';
+        const form = document.createElement('div');
+        form.style.display = 'none';
+        form.style.cssText = 'display:none;margin-top:6px;padding:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d';
+        const inp = document.createElement('input');
+        inp.placeholder = 'Name der Person auf diesem Bild';
+        inp.style.cssText = 'width:100%;padding:5px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit;font-size:0.8rem';
+        const speichern = document.createElement('button');
+        speichern.textContent = '✅ Person speichern';
+        speichern.style.cssText = 'padding:5px 9px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.8rem;margin-top:5px;width:100%';
+        speichern.onclick = () => {
+            const n = (inp.value || '').trim();
+            if (!n) { inp.style.borderColor = '#f55'; return; }
+            quizBeantworten(pfad, n, true, '');
+        };
+        form.appendChild(inp);
+        form.appendChild(speichern);
+        andere.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
+        leiste.appendChild(andere);
+        leiste.appendChild(form);
         const skip = document.createElement('button');
         skip.textContent = '🚫 Keine Person drauf';
         skip.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.82rem';
@@ -4284,6 +4335,9 @@ async function zeigeGespraech(id) {
                     const cz = document.createElement('div');
                     contentDiv.appendChild(cz);
                     wiederherstellenQuizAntworten(cz, m.bild_pfad, m.ui);
+                    // Rahmen um die Person zeichnen (falls bbox im ui-Block),
+                    // damit er auch in der wiederhergestellten Ansicht sichtbar ist.
+                    quizRahmenFuerBild(contentDiv, m.ui);
                 }
             }
         }

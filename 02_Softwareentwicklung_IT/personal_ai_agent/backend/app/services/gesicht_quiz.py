@@ -296,6 +296,7 @@ def start_runde(ausgeschlossen=None):
             "name": runde.get("name"),
             "optionen": None,  # optionen setzt der Router (bekannte Personen)
             "vermutung": v if v.get("person") else None,
+            "gesichter": runde.get("gesichter") or [],  # bbox je Gesicht fuer den Rahmen
             "offen": True,
         }
         verlauf_nachricht_anhaengen("conv_main", "assistant", frage_text,
