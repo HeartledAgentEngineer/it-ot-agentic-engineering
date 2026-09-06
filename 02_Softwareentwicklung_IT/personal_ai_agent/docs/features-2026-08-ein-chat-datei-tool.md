@@ -112,7 +112,7 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   (`BILD_ANZEIGE_MS`, 10 s); danach bleibt ein „🖼️ Bild wieder anzeigen"-
   Knopf, der das Bild frisch lädt (`GET /api/dateien/daten?pfad=`). Beim
   Nachladen wird derselbe Vorschau-Rahmen aktualisiert (kein hängen
-  gebliebener „… lädt"-Knopf mehr).
+  gebliebener „… lädt“-Knopf mehr).
 
 ## 6. Nachricht bearbeiten + Abbrechen (Frontend, 2026-08-30)
 
@@ -124,11 +124,24 @@ Dokumentation der jüngsten Agent-Fähigkeiten — codegenau zum Stand.
   keine alte Fassung mehr da.
 - **Abbrechen-Button**: Der generische „⏹ Abbrechen"-Button an normalen
   LLM-Antwort-Blasen ist entfernt — der Stream-Abbruch läuft über den
-  Bearbeiten-Flow bzw. die leere-Eingabe-Abbruchlogik. Ein laufender
-  Hermes-Auftrag behält seinen eigenen Abbruch-Knopf (`.gedanke-abbrechen`)
-  und den Auftrags-Abbruch (`brichAb` → `POST /api/auftraege/{id}/abbrechen`).
+  Bearbeiten-Flow bzw. die leere-Eingabe-Abbruchlogik. Auch die
+  Hermes-Zwischenmeldungen in der Coding-Ansicht tragen seit 2026-09-06
+  keinen eigenen Abbruch-Knopf (`.gedanke-abbrechen`) mehr — der Abbruch
+  eines laufenden Hermes-Auftrags läuft über `brichAb`
+  (`POST /api/auftraege/{id}/abbrechen`).
 - Backend: `chat_verlauf.verlauf_runde_entfernen()` entfernt die letzte
   User-Nachricht samt Antwort aus dem persistenten Verlauf (conv_main).
+- **Untere animierte „Denke nach…"-Bubble** (2026-09-06, Auftrag Sebastian):
+  Das vormals ungenutzte `#loading`-Element (drei animierte Punkte) wird über
+  `setLoading` wieder geschaltet und erscheint während der Verarbeitung am
+  unteren Rand des Chats (WhatsApp-„Tippt gerade"-Stil), in Haupt- wie
+  Coding-/Hermes-Chat (conv_code). Sobald das erste Textstück/Ergebnis da ist
+  bzw. die Antwort fertig ist, verschwindet die Bubble (`setLoading(false)`).
+  Die animierte Bubble bleibt dabei bis zum finalen Abschluss (finally) stehen –
+  sie wird NICHT schon beim ersten Text-Delta oder bei einer Umlenk-Meldung
+  verfrueht ausgeblendet (Stand 2026-09-06).
+  Die statische „Denke nach…"-Blase mitten im conv_code-Verlauf bleibt
+  entfernt – den Ladezustand zeigt jetzt unten die animierte Bubble.
 
 ## Verifikation
 

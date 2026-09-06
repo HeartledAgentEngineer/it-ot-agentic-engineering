@@ -60,6 +60,24 @@ def test_finish_exchange_ohne_memory_fuegt_eintraege(verlauf):
     assert n == 0  # kein Extractor injiziert -> 0 Erinnerungen
 
 
+def test_finish_exchange_user_bild_pfad_wird_am_user_eintrag_gespeichert(verlauf):
+    """2026-09-06: Ein über den Upload-Button angehängtes Bild soll die
+    Reload-Persistenz überleben. `user_bild_pfad` landet am USER-Eintrag
+    (nicht am Assistant), damit das Frontend dein eigenes Hochladebild beim
+    Wiederöffnen des Chats nachladen kann. Es wird NUR der Pfad gespeichert."""
+    verlauf.conversations["c"] = []
+    verlauf.finish_exchange(
+        "c", "Schau dir mein Foto an", "Alles klar!",
+        bild_pfad="/pfad/zum/dateisuche.jpg",
+        user_bild_pfad="/pfad/zum/upload.jpg",
+    )
+    eintraege = verlauf.conversations["c"]
+    assert eintraege[0]["role"] == "user"
+    assert eintraege[0]["bild_pfad"] == "/pfad/zum/upload.jpg"
+    assert eintraege[1]["role"] == "assistant"
+    assert eintraege[1]["bild_pfad"] == "/pfad/zum/dateisuche.jpg"
+
+
 def test_leerer_verlauf_restauriert_aus_backup():
     """Datenverlust-Schutz (2026-08-30): Wurde die Hauptdatei von einem Server
     mit leerem Stand ueberschrieben, startet _lade_verlauf NICHT leer weiter,

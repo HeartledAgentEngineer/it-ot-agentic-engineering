@@ -360,8 +360,11 @@ async def chat(request: ChatRequest):
                 "bilder": datei_tool_bilder,
                 "zeit": time.time(),
             }
-        elif (conversation_id in _bild_cache) and not archiv_notiz:
+        elif (conversation_id in _bild_cache) and not archiv_notiz and conversation_id != "conv_code":
             # Kein neues Bild angefordert: nutze das gecachte (wenn frisch).
+            # Bei conv_code (Coding-/Hermes-Chat) NICHT: dort sind Folgefragen
+            # Programmier-/Textfragen; ein zuvor gefundenes Dateisuche-Bild
+            # darf nicht als 'hängengeblieben' in die Hermes-Frage fliessen.
             eintrag = _bild_cache[conversation_id]
             if time.time() - eintrag["zeit"] < _BILD_CACHE_DAUER_S:
                 if not datei_bilder:
@@ -484,6 +487,7 @@ async def chat(request: ChatRequest):
             bild_pfad=(
                 datei_bilder[0].get("pfad") if datei_bilder else None
             ) or _upload_bild_pfad(request),
+            user_bild_pfad=_upload_bild_pfad(request),
         )
 
         return ChatResponse(
@@ -1689,6 +1693,7 @@ async def chat_stream(request: ChatRequest):
                                 s_werkzeug_bilder[0].get("pfad")
                                 if s_werkzeug_bilder else None
                             ) or _upload_bild_pfad(request),
+                            user_bild_pfad=_upload_bild_pfad(request),
                         )
 
         # Wird uebersprungen, wenn der Client abgebrochen hat.

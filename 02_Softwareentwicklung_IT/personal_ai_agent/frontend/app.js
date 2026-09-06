@@ -635,13 +635,19 @@ function aktualisiereStatusAnzeige() {
     }
 }
 
-/** Schaltet nur die "Denke nach..."-Anzeige. Ob wirklich etwas laeuft,
- *  steht in state.abbruch – die Anzeige verschwindet schon beim ersten
- *  Textstueck, die Antwort laeuft danach aber weiter.
- *  Seit v20260817 sitzen die drei animierten Punkte DIREKT in der
- *  Assistant-Blase (siehe sendMessage) – nicht mehr in einem separaten
- *  #loading-Bereich unterhalb. Hier bleibt nur noch die Button-Logik. */
+/** Schaltet die animierte "Denke nach..."-Bubble unten im Chat (#loading).
+ *  WhatsApp-"Tippt gerade"-Stil (Stand 2026-09-06, Auftrag Sebastian): Waehrend
+ *  eine Antwort verarbeitet wird, erscheint am unteren Rand des Chats eine
+ *  animierte Bubble (drei Punkte + Text), sobald das erste Textstueck da ist
+ *  bzw. die Antwort fertig ist, verschwindet sie wieder. Gilt fuer Haupt- und
+ *  Coding-/Hermes-Chat (conv_code) gleichermassen. */
 function setLoading(loading) {
+    // #loading ist das am Ende von chat-container liegende Element: sichtbar
+    // machen beim Start, verstecken sobald etwas angekommen/fertig ist.
+    if (dom.loading) {
+        dom.loading.classList.toggle('hidden', !loading);
+        if (loading) scrollToBottom(true);
+    }
     // Die Eingabe bleibt absichtlich offen: Waehrend der Agent schreibt, soll
     // man schon die naechste Nachricht tippen und anhaengen koennen.
     updateSendButton();
@@ -1882,11 +1888,12 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     return steuerung;
 }
 
-/** Zeigt eine Hermes-Zwischenmeldung (gedanke) mit optionalem Abbruch-Button.
- *  Läuft gerade ein Hermes-Auftrag (_laufenderAuftragKurz), bekommt JEDE
- *  Zwischenmeldung einen kleinen "⏹ Abbrechen"-Knopf — so ist der Hermes-
- *  Flow an jeder sichtbaren Stelle stopperbar, nicht nur über den globalen
- *  Stop im Eingabefeld. */
+/** Zeigt eine Hermes-Zwischenmeldung (gedanke).
+ *  Hinweis: Frueher trug jede Zwischenmeldung einen eigenen "⏹ Hermes abbrechen"-
+ *  Knopf (fuegeGedankeMitAbbruchHinzu). Stand 2026-09-06 (Auftrag Sebastian):
+ *  der Knopf in der Coding-Ansicht ist ueberfluessig — der Abbruch laeuft ueber
+ *  brichAb (globale Stop-Geste, z. B. leere Eingabe). Die Funktion rendert die
+ *  Zwischenmeldung jetzt ohne eigenen Abbruch-Button. */
 function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     const div = document.createElement('div');
     div.className = 'message agent-zwischenmeldung';
@@ -1894,18 +1901,6 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     contentDiv.className = 'message-content';
     contentDiv.innerHTML = parseMarkdown(text || '');
     div.appendChild(contentDiv);
-
-    // Abbruch-Button, wenn ein Hermes-Auftrag läuft.
-    if (_laufenderAuftragKurz) {
-        const btn = document.createElement('button');
-        btn.className = 'gedanke-abbrechen';
-        btn.textContent = '⏹ Hermes abbrechen';
-        btn.style.cssText =
-            'margin-top:6px;padding:4px 10px;border:1px solid #b44;border-radius:8px;' +
-            'background:#3a1f1f;color:#f99;cursor:pointer;font-size:0.75rem';
-        btn.addEventListener('click', () => brichAb());
-        contentDiv.appendChild(btn);
-    }
 
     // Zeit-Label (WhatsApp-artig) wie bei normalen Blasen.
     const zeitSpan = document.createElement('div');
@@ -2794,7 +2789,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Nachricht als Kommentar direkt an die offene Session (POST /eingabe),
     // statt einen neuen Auftrag zu starten. So kann man Hermes während
     // der Arbeit steuern/zurufen.
-    if (_laufenderAuftragKurz) {
+    // Ausnahme: In der Coding-/Hermes-Ansicht (conv_code) ist DIESE Session
+    // selbst der Kanal — der Kommentar/POST-/eingabe-Umweg ist dort
+    // ueberfluessig (Stand 2026-09-06, Auftrag Sebastian). Nachrichten nehmen
+    // dort den normalen Sende-/Streamweg.
+    if (_laufenderAuftragKurz && state.conversationId !== 'conv_code') {
         const eingabeText = text.trim();
         let gesendet = false;
         try {
@@ -2824,9 +2823,17 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
     // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
     // Stream-Abbruch läuft über den Bearbeiten-Flow bzw. die leere-Eingabe-
-    // Abbruchlogik. Ein laufender Hermes-Auftrag hat weiterhin seinen eigenen
-    // Abbruch-Knopf ('.gedanke-abbrechen') + den Auftrags-Abbruch (brichAb).
+    // Abbruchlogik. Auch die Hermes-Zwischenmeldungen tragen seit 2026-09-06
+    // keinen eigenen Abbruch-Knopf mehr (schon vorhanden, brichAb deckt den
+    // laufenden Hermes-Auftrag ab).
     contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
+    // In der Coding-/Hermes-Ansicht (conv_code) die statische "Denke nach..."-
+    // Blase NICHT zeigen: dort liefert Hermes ohnehin Live-Zwischenmeldungen
+    // (Track C) als eigene Blasen, die den laufenden Zustand bereits abbilden.
+    // Stand 2026-09-06 (Auftrag Sebastian) – "immer und überall" unnötig.
+    if (state.conversationId === 'conv_code') {
+        contentDiv.innerHTML = '';
+    }
     const entry = state.messages[state.messages.length - 1];
     _auftragStreckeDirekt = false;   // pro Nachricht neu entscheiden
 
@@ -2971,7 +2978,10 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     // nicht in die Antwort-Blase gemischt. KEIN Ziel-Chip —
                     // die Überschrift ("an den PC-Hermes übergeben") sagt das
                     // Ziel schon; der Chip wäre redundant.
-                    if (!antwort) setLoading(false);
+                    // Umlenk-Meldung: EIGENE Blase mit frischem Zeitstempel.
+                    // Die untere animierte "Denke nach..."-Bubble (#loading)
+                    // bleibt bewusst stehen, bis der finale Abschluss (finally)
+                    // sie leert (Stand 2026-09-06: nicht verfrueht ausblenden).
                     const div = addMessage(daten.message, 'assistant');
                     // Kommunikationskanal merken, damit die Umlenk-Buttons
                     // (lokal/Hermes) erscheinen + Eingaben als Kommentar gehen.
@@ -2983,7 +2993,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 }
 
                 if (daten.delta) {
-                    if (!antwort) setLoading(false);   // Tipp-Anzeige ausblenden
+                    // Die untere animierte "Denke nach..."-Bubble bleibt bis zum
+                    // finalen Abschluss sichtbar (finally-Block), statt
+                    // schon beim ersten Textstueck zu verschwinden.
                     // Track C (Hermes live): Beim ersten Event kommt die
                     // auftrag_id mit → den Kommunikationskanal setzen, damit
                     // Nachrichten während des Laufens als /eingabe-Kommentar
@@ -4219,10 +4231,13 @@ async function zeigeGespraech(id) {
             const m = nachrichten[mi];
             const role = m.role === 'user' ? 'user' : 'assistant';
             const contentDiv = addMessage(m.content || '', role, m.zeit || null, m.bild_pfad || undefined);
-            // Gespeicherte Bild-Vorschau (Dateisuche) wieder anzeigen: Der
-            // bloße Pfad ist im Verlauf persistiert, das Bild wird frisch
+            // Gespeicherte Bild-Vorschau (Dateisuche/Upload) wieder anzeigen:
+            // Der bloße Pfad ist im Verlauf persistiert, das Bild wird frisch
             // über /api/dateien/daten nachgeladen (Original bleibt unantastbar).
-            if (m.bild_pfad && role === 'assistant') {
+            // Seit 2026-09-06 (Auftrag Sebastian) gilt das auch für deine eigenen
+            // hochgeladenen Bilder (role === 'user'): vorher war der bild_pfad
+            // nur am Assistant-Eintrag gesetzt, dein Upload war nach Reload weg.
+            if (m.bild_pfad && (role === 'assistant' || role === 'user')) {
                 (async () => {
                     try {
                         const res = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(m.bild_pfad)}`);
