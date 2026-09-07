@@ -131,17 +131,24 @@ def _hypothese(bild_pfad):
         return {"person": None}
 
 
-def _erkannte_personen_bildes(bild_pfad):
+def _erkannte_personen_bildes(bild_pfad, gesichter=None):
     """Erkennt ALLE Personen auf einem Bild (Gruppenbild-faehig).
 
     Liefert dict {anzahl_gesichter: int, erkannte: [names], unsicher: [names]}.
     Fuer jedes erkannte Gesicht wird erkenne_personen aufgerufen; sichere und
     unsichere Treffer werden getrennt gesammelt (Ehrlichkeit: keine erfundene
     Zuordnung bei unsicheren/kleinen Gesichtern).
+
+    `gesichter` kann VON AUSSEN übergeben werden (die bei der Bild-Auswahl in
+    start_runde bereits berechnete Gesichtsliste). Dann wird KEIN zweiter,
+    unabhängiger Detektionslauf gemacht — auf Termux/proot ist die Detektion
+    bewusst wechselhaft und ein zweiter Lauf kann 0 Gesichter liefern, obwohl
+    das Bild (Lauf A) garantiert eins hat. Ohne Übergabe wird intern erkannt.
     """
     try:
         from app.services import face_service, gesichter_service
-        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        if gesichter is None:
+            gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
         anzahl = len(gesichter)
         sicher, unsicher = [], []
         # bbox je Gesicht (relativ zur Bildgroesse) fuer das Markieren im Quiz.
@@ -233,6 +240,7 @@ def start_runde(ausgeschlossen=None):
     # Gesichtslose Bilder werden uebersprungen (und als gesehen gemerkt, damit
     # sie nicht bei jedem start erneut per SFace geprueft werden).
     kandidat = None
+    kandidat_gesichter = None
     for b in bilder:
         if b in kombiniert:
             continue
@@ -243,6 +251,7 @@ def start_runde(ausgeschlossen=None):
             gesichter = []
         if gesichter:
             kandidat = b
+            kandidat_gesichter = gesichter  # Lauf A: bboxen fuer den Rahmen
             break
         else:
             kombiniert.append(b)  # gesichtslos -> nicht anlernbar, merken
@@ -270,7 +279,7 @@ def start_runde(ausgeschlossen=None):
     runde["vermutung"] = _hypothese(kandidat)
     # Gruppenbild-Erkennung: Anzahl Gesichter + welche Personen (von den
     # Bekannten) sicher/unsicher auf dem Bild sind -> Frontend fragt gezielt.
-    _erk = _erkannte_personen_bildes(kandidat)
+    _erk = _erkannte_personen_bildes(kandidat, kandidat_gesichter)
     runde["anzahl_gesichter"] = _erk.get("anzahl_gesichter", 0)
     runde["erkannte_personen"] = _erk.get("erkannte", [])
     runde["unsichere_personen"] = _erk.get("unsicher", [])

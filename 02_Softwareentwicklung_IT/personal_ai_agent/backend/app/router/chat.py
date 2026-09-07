@@ -1484,6 +1484,38 @@ async def chat_stream(request: ChatRequest):
                 "[Kontext aus dem Gespräch (vorherige Nachrichten/Erinnerungen):]\n"
                 f"{kontext_paket.strip()}"
             )
+        # A/B-Wahl im normalen Chat (conv_main u. a.) statt stiller Auto-
+        # Delegation. Wunsch Sebastian (2026-09-07): Bei erkannten Hermes-
+        # Aufgaben soll der Nutzer zuerst wählen, ob sie an den Coding-Chat
+        # (A) oder als eigener paralleler Hermes-Thread hier (B) geht.
+        # Plauderfragen (ist_auftrag_val=False) laufen weiter direkt; der
+        # Coding-Chat (conv_code) und explizite Umlenk-Ziele (pc/handy/agent)
+        # delegieren weiterhin sofort, ohne Wahl.
+        conv_id_req = (getattr(request, "conversation_id", None) or "").strip()
+        explizites_ziel = getattr(request, "ziel", None) in ("pc", "handy", "agent")
+        if conv_id_req and conv_id_req != "conv_code" and not explizites_ziel and not request.force_agent:
+            # User-Runde persistieren, damit sie einen Reload überlebt (der
+            # Verlauf ist append-only; die Wahl-Buttons selbst sind reine
+            # UI-Transporte und landen nicht im Verlauf).
+            lokale_conv = _get_or_create_conversation(conv_id_req)
+            _finish_exchange(lokale_conv, request.message, "⏳ **Wohin mit dieser Aufgabe?**")
+            aufgabe = herm_aufgabe or request.message
+
+            def _wahl_ereignisse():
+                yield _sse({"art": "wahl", "aufgabe": aufgabe})
+                yield _sse({
+                    "done": True,
+                    "conversation_id": lokale_conv,
+                    "memories_used": 0, "memories_created": 0,
+                    "memory_count": memory_service.get_memory_count(),
+                    "archiv_used": 0, "sources": [], "ziel": "wahl",
+                })
+
+            return StreamingResponse(
+                _wahl_ereignisse(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
         # (Track C). Nur wenn beides nicht verfuegbar ist, geht der
         # Auftrag ins Buch (Track B).
@@ -1531,13 +1563,22 @@ async def chat_stream(request: ChatRequest):
                 chat_verknuepfung=conversation_id,
                 kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message, request.conversation_id), request),
             )
-            reply_text = (
-                "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
-                "➡️ **Weitergeleitet an:** Hermes (Handy)\n\n"
-                f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
-                "Gedanken & Zwischenschritte erscheinen hier live, das "
-                "Endergebnis danach.\n"
-            )
+            ist_conv_code = (getattr(request, "conversation_id", None) or "") == "conv_code"
+            if ist_conv_code:
+                # Coding-Chat (conv_code): Hermes IST hier der Agent — keine
+                # redundante "Übergabe an Hermes"-Vor-Meldung. Hermes antwortet
+                # direkt; Gedanken & Ergebnis erscheinen live (Track C). Die
+                # User-Runde wird trotzdem persistiert, damit der Verlauf voll
+                # bleibt. (Wunsch Sebastian 2026-09-07)
+                reply_text = "▶️ Hermes bearbeitet…\n"
+            else:
+                reply_text = (
+                    "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
+                    "➡️ **Weitergeleitet an:** Hermes (Handy)\n\n"
+                    f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+                    "Gedanken & Zwischenschritte erscheinen hier live, das "
+                    "Endergebnis danach.\n"
+                )
             _finish_exchange(conversation_id, request.message, reply_text)
             # Verknuepfung Auftrag <-> Gespraech setzt _starte_lokale_hermes
             # bereits VOR dem Thread-Start; kein zweites setzen noetig.
