@@ -17,25 +17,30 @@ skript="$0"
 HIER="$(cd "$(dirname "$skript")" && pwd)"
 . "$HIER/gemeinsam.sh"
 
-# Alten Server ersetzt der Widget-Druck NUR, wenn er mit altem Code laeuft.
-# Sonst bleibt eine heilige laufende Instanz stehen und der Verlauf wird nicht
-# durch einen frisch gestarteten (mit leerem In-Memory-Stand) ueberschrieben.
-# Merkmal des AKTUELLEN Codes: Endpunkt /api/konfig (existiert seit dem
-# Security-Umbau 2026-08-31). Antwortet der laufende Server darauf, ist er
-# aktuell -> nicht killen.
-if ! agent_antwortet; then
+# Der Widget-Druck IST die Start-Quelle: Er killt IMMER jeden laufenden
+# Server (egal wo er herkommt — Widget-Session, Hintergrund-Job, andere
+# Session) und startet danach genau EINEN frischen. Frueher wurde ein
+# lebender, antwortender Server als "heilig" stehengelassen; nur ein toter
+# wurde gekillt. Damit konnte ein parallel gestarteter Server (z. B. von
+# einem Agenten/Hintergrund-Job) das Widget blocken: "Agent laeuft bereits"
+# und kein Neustart. Der Verlauf ist trotzdem sicher, weil der Server beim
+# Start von der Platte laedt (chat_verlauf._lade_verlauf) und bei leerer
+# Datei den letzten nicht-leeren Backup restauriert — ein Neustart ist
+# verlustfrei. Deshalb: immer killen, dann genau einen starten.
+# Achtung: pkill matcht auch diesen Wrapper; deshalb wird der eigene
+# Shell-Prozess ausgeschlossen (grep -v).
+_pkill_server() {
+    # Alle uvicorn-Prozesse (Python) sicher stoppen, nicht den eigenen
+    # bash-Wrapper.
     pkill -9 -f "uvicorn app.main:app" 2>/dev/null
     pkill -9 -f "python -m uvicorn" 2>/dev/null
-    pkill -9 -f "uvicorn" 2>/dev/null
+    pgrep -f "uvicorn" | while read -r _pid; do
+        [ "$_pid" != "$$" ] && kill -9 "$_pid" 2>/dev/null
+    done
+    # Kurz warten, damit der Port wirklich frei wird, bevor neu gestartet wird.
     sleep 2
-fi
-
-# Laeuft er schon? Dann nur nach vorn holen.
-if agent_antwortet; then
-    oberflaeche_oeffnen
-    melde "Agent laeuft bereits"
-    exit 0
-fi
+}
+_pkill_server
 
 cd "$PROJEKT" || { melde "Projektordner nicht gefunden"; exit 1; }
 
