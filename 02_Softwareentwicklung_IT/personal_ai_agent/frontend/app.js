@@ -2775,7 +2775,11 @@ async function quizFortsetzen() {
 // solange die Sitzung laeuft; nur der echte Neustart (quizStart) guardet.
 // Liefert true, wenn eine Runde angezeigt wurde; false, wenn Quiz zu Ende/Fehler.
 async function naechsteQuizRunde() {
-    const warteblase = addMessage('🧠 **Quiz lädt** – prüfe Gesichter auf den Lieblingsbildern …', 'assistant');
+    const warteblase = addMessage('', 'assistant');
+    // Gleiche animierte Dreipunkt-Blase wie beim Agenten-Denken (siehe Typing-Indicator
+    // weiter unten): zeigt "Quiz lädt" als pulsierende Bubble statt nacktem Text und wird
+    // direkt nach der Server-Antwort wieder entfernt.
+    warteblase.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">🧠 Quiz lädt – prüfe Gesichter …</span>';
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/start`, {
             method: 'POST',
