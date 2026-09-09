@@ -252,9 +252,17 @@ async def chat(request: ChatRequest):
         # Heuristik es nicht als Coding einstuft, delegiert der Agent an
         # Hermes (Toolcall).
         ist_auftrag_val = False
-        if (getattr(request, "conversation_id", None) or "").strip() == "conv_code" and not request.force_agent:
+        # conv_code delegiert IMMER an Hermes — auch bei hochgeladenen
+        # Bildern/Dateien (request.files). Ein Screenshot im Coding-Chat
+        # (z. B. eine Fehlermeldung) soll von Hermes analysiert und
+        # weiterverarbeitet werden: Der Bild-Pfad wird ueber
+        # `_hermes_kontext_mit_bild` an den Hermes-Auftrag geheftet, und
+        # Hermes liest das Bild ueber sein Vision-Werkzeug (gemini-Vision-
+        # Modell) ein (siehe Skill 'coding-chat-bild-vision').
+        if ((getattr(request, "conversation_id", None) or "").strip() == "conv_code"
+                and not request.force_agent):
             ist_auftrag_val = True
-            begruendung = "conv_code: immer Hermes"
+            begruendung = "conv_code: immer Hermes (+ Bild/Kontext)"
             kategorie = "code"
             komplexitaet = "mittel"
         elif not request.files and not request.force_agent:
@@ -461,7 +469,13 @@ async def chat(request: ChatRequest):
         # Flash (günstig + bildfähig), falls der Nutzer kein anderes wählte.
         vision_modell = "google/gemini-2.5-flash"
         modell_fuer_call = request.model or ""
-        if datei_tool_bilder and not (modell_fuer_call
+        # Vision-Routing: Ein mitgeschicktes Bild (UPLOAD oder Dateisuche;
+        # `bild_aktiv`) braucht ein VISION-faehiges Modell — ein reines
+        # Text-Modell (z. B. DeepSeek Flash) kann das Bild nicht sehen und
+        # antwortet "kein Zugriff". Dann nehmen wir automatisch Gemini
+        # Flash (guenstig + bildfaehig), falls der Nutzer kein anderes
+        # vision-faehiges waehlte.
+        if bild_aktiv and not (modell_fuer_call
                                       and ("gemini" in modell_fuer_call
                                            or "gpt-4o" in modell_fuer_call
                                            or "gpt-5" in modell_fuer_call
@@ -592,15 +606,43 @@ def _gesichtsabgleich_notiz(request: Any, datei_bilder: Optional[list] = None) -
         return ""
 
 
-def _hermes_kontext_mit_bild(kontext: str, request: Any) -> str:
-    """Haengt den Pfad einer hochgeladenen Bild-Datei an den Hermes-Kontext,
-    damit die lokale Hermes-CLI die Datei einlesen kann (z. B. Fehlerscreenshots).
-    Nur der Pfad - die Datei bleibt unantastbar. Hermes speist dann den Pfad ein.
+def _hermes_bild_hinweis(request: Any) -> str:
+    """Baut die Bild-Anweisung fuer den Hermes-Auftrag (gemini-Vision).
+
+    Haengt den realen Platten-Pfad der hochgeladenen Bild-Datei an und weist
+    Hermes explizit an, das Bild mit seinem Vision-Werkzeug (`vision_analyze`,
+    routet ueber ein gemini-Vision-/OpenRouter-Modell) einzulesen. NUR der
+    Pfad wird uebergeben - die Datei bleibt unantastbar. Ist kein Bild
+    angehaengt (oder lasst sich kein Pfad ableiten), wird "" geliefert.
     """
     try:
         pfad = _upload_bild_pfad(request)
-        if pfad:
-            return f"{kontext}\n\n[Angehaengte Bild-Datei zur Analyse: {pfad}]"
+        if not pfad:
+            return ""
+        return (
+            "\n\n[Angehaengte Bild-Datei zur Analyse: "
+            f"{pfad}\n"
+            "Lies DIESES Bild mit deinem Vision-Werkzeug (vision_analyze; "
+            "routet ueber ein Gemini-Vision-Modell) ein und analysiere es. "
+            "Verwende exakt diesen Pfad - erzeuge keinen anderen und rate "
+            "nicht ueber den Inhalt. Beschreibe/beantworte die Frage anhand "
+            "des tatsaechlichen Bildinhalts (auf Deutsch), code-Vorschlaege "
+            "gerne direkt.]"
+        )
+    except Exception:
+        return ""
+
+
+def _hermes_kontext_mit_bild(kontext: str, request: Any) -> str:
+    """Haengt den Pfad + die Vision-Anweisung einer hochgeladenen Bild-Datei
+    an den Hermes-Kontext, damit die lokale Hermes-CLI das Bild mit einem
+    gemini-Vision-Modell einlesen kann (z. B. Fehlerscreenshots im Coding-Chat).
+    Nur der Pfad - die Datei bleibt unantastbar.
+    """
+    try:
+        hinweis = _hermes_bild_hinweis(request)
+        if hinweis.strip():
+            return f"{kontext}{hinweis}"
     except Exception:
         pass
     return kontext
@@ -1451,10 +1493,18 @@ async def chat_stream(request: ChatRequest):
     #   ziel="pc"    → Track A (PC-Hermes), egal was die Erkennung sagt
     #   ziel="handy" → Track C (lokaler Hermes) direkt
     #   ziel="agent" → lokaler LLM (nie Hermes)
-    if (getattr(request, "conversation_id", None) or "").strip() == "conv_code" and not request.force_agent and request.ziel != "agent":
+    # conv_code delegiert IMMER an Hermes — auch bei hochgeladenen
+    # Bildern/Dateien: Der Bild-Pfad wird ueber die Hermes-Aufgabe
+    # (`_hermes_bild_hinweis`) mitgegeben, Hermes analysiert ihn per
+    # Vision-Werkzeug (siehe Skill 'coding-chat-bild-vision').
+    if ((getattr(request, "conversation_id", None) or "").strip() == "conv_code"
+            and not request.force_agent
+            and request.ziel != "agent"):
         # conv_code: IMMER an lokale Hermes-CLI (live Gedanken wie in der CLI)
+        # — auch mit Bild/Datei: der angehaengte Pfad wird an Hermes
+        # uebergeben, der es mit einem Vision-Modell (gemini) analysiert.
         ist_auftrag_val = True
-        begruendung = "conv_code: immer Hermes"
+        begruendung = "conv_code: immer Hermes (+ Bild/Kontext)"
         kategorie = "code"
         komplexitaet = "mittel"
     elif request.ziel == "pc" or request.ziel == "handy":
@@ -1484,6 +1534,11 @@ async def chat_stream(request: ChatRequest):
                 "[Kontext aus dem Gespräch (vorherige Nachrichten/Erinnerungen):]\n"
                 f"{kontext_paket.strip()}"
             )
+        # Bild-Pfad + Vision-Anweisung DIREKT in die Hermes-Aufgabe einbetten
+        # (nicht nur in `kontext`): der tmux-Kanal (`bestehende_session`)
+        # uebergibt NUR `auftrag_text` an die laufende Session — der Kontext
+        # wuerde dort verworfen. So erreicht das Bild Hermes in JEDEM Kanal.
+        herm_aufgabe += _hermes_bild_hinweis(request)
         # A/B-Wahl im normalen Chat (conv_main u. a.) statt stiller Auto-
         # Delegation. Wunsch Sebastian (2026-09-07): Bei erkannten Hermes-
         # Aufgaben soll der Nutzer zuerst wählen, ob sie an den Coding-Chat
@@ -1709,9 +1764,11 @@ async def chat_stream(request: ChatRequest):
             # Datenschutz-Refusal verweigern.
             if s_merkhinweis or s_werkzeug_bilder:
                 s_user += _refusal_stopper()
-            # Vision-Routing (wie /chat): Bild → vision-fähiges Modell.
+            # Vision-Routing (wie /chat): Bild (UPLOAD oder Dateisuche;
+            # `s_bild_aktiv`) → vision-faehiges Modell (gemini), damit ein
+            # hochgeladenes Bild nicht an ein reines Text-Modell geht.
             s_modell = request.model or ""
-            if s_werkzeug_bilder and not (s_modell and (
+            if s_bild_aktiv and not (s_modell and (
                     "gemini" in s_modell or "gpt-4o" in s_modell
                     or "gpt-5" in s_modell or "sonnet" in s_modell
                     or "claude" in s_modell)):

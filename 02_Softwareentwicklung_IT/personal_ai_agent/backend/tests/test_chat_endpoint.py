@@ -80,3 +80,48 @@ def test_normaler_chat_bleibt_beim_agenten():
         resp = asyncio.run(chat_endpoint(req))
     assert "schön" in resp.reply
     m_chat.assert_called_once()
+
+
+def test_conv_code_mit_bild_delegiert_an_hermes_statt_vision():
+    """Bild-Upload im Coding-Chat (conv_code) → an Hermes (mit Bild), NICHT
+    an den OpenRouter-Vision-LLM.
+
+    Der conv_code-Zweig delegiert nun IMMER an Hermes — auch bei hochgeladenen
+    Bildern (Screenshot/Fehlermeldung). Der Bild-Pfad wird in die Hermes-
+    Aufgabe (bzw. den Kontext) geheftet, damit Hermes es mit einem gemini-
+    Vision-Modell analysiert (Skill 'coding-chat-bild-vision'). Ohne
+    verfügbaren PC/lokalen Hermes fällt es ins Auftragsbuch (Buch) —
+    entscheidend: der Vision-LLM (llm_service.chat) wird NICHT gerufen.
+    """
+    from app.models import FileAttachment
+    from app.services import llm_service
+
+    bild = FileAttachment(id="xyz123", filename="s.png", type="image",
+                          url="", mime="image/png", data_url="data:image/png;base64,AAAA")
+    with mock.patch.object(hg_instanz, "sende_auftrag", return_value=None), \
+         mock.patch("app.services.chat_routing.hermes_local_ist_verfuegbar", return_value=False), \
+         mock.patch.object(mem_instanz, "extract_and_store_memories", return_value=[]), \
+         mock.patch.object(llm_service.llm_service, "chat",
+                           side_effect=AssertionError("Bild muss an Hermes gehen, nicht an den Vision-LLM")) as m_chat:
+        req = ChatRequest(message="Was ist auf diesem Foto?",
+                          conversation_id="conv_code",
+                          model="deepseek/deepseek-v4-flash", web_search="off",
+                          files=[bild])
+        resp = asyncio.run(chat_endpoint(req))
+    assert resp.ziel == "buch"                # an Hermes delegiert (Buch-Fallback)
+    assert "Hermes-Aufgabe erkannt" in resp.reply
+    m_chat.assert_not_called()                # Vision-LLM wurde NICHT gerufen
+
+
+def test_conv_code_ohne_bild_delegiert_weiterhin_an_hermes():
+    """Reine Text-/Code-Frage im Coding-Chat (keine dateien) delegiert weiter
+    an Hermes (Buch-Fallback ohne verfügbaren PC/lokal)."""
+    with mock.patch.object(hg_instanz, "sende_auftrag", return_value=None), \
+         mock.patch("app.services.chat_routing.hermes_local_ist_verfuegbar", return_value=False), \
+         mock.patch.object(mem_instanz, "extract_and_store_memories", return_value=[]):
+        req = ChatRequest(message="Baue einen /health-Endpoint in der FastAPI-App",
+                          conversation_id="conv_code",
+                          model="deepseek/deepseek-v4-flash", web_search="off")
+        resp = asyncio.run(chat_endpoint(req))
+    assert resp.ziel == "buch"                # weiter delegiert (kein Bild)
+    assert "Hermes-Aufgabe erkannt" in resp.reply
