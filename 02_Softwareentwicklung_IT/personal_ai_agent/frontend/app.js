@@ -2592,14 +2592,20 @@ function zeigeBildVollbild(imgEl, gesichter) {
     x.style.cssText = 'position:fixed;top:12px;right:16px;z-index:99999;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer';
     x.textContent = '✕';
     x.addEventListener('click', schliesseBildVollbild);
-    // Wrapper fuer das Bild: native pinch-zoom erlauben, kein Overlay darueber
+    // Wrapper fuer das Bild: native pinch-zoom erlauben; das Bild liegt in einer
+    // position:relative-`bildBox`, damit die Overlay-Rahmen exakt am Bild
+    // haften (auch bei Hoch-/Querformatwechsel — Wunsch Sebastian: Kästen
+    // müssen immer zu den Personen passen).
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;width:100%;height:100%;touch-action:manipulation';
+    const bildBox = document.createElement('div');
+    bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:manipulation';
     const big = document.createElement('img');
     big.src = src;
     big.alt = 'Vollbild';
     big.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;touch-action:manipulation;user-select:none';
-    wrap.appendChild(big);
+    bildBox.appendChild(big);
+    wrap.appendChild(bildBox);
     ov.appendChild(x);
     ov.appendChild(wrap);
     // Korrigierbare Gesicht-Rahmen ins Vollbild (Wunsch Sebastian 2026-09-09):
@@ -2617,27 +2623,45 @@ function zeigeBildVollbild(imgEl, gesichter) {
                 for (var i = 0; i < gesichter.length; i++) {
                     var re = document.createElement('div');
                     re.setAttribute('data-frei', String(i));
-                    re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none';
+                    re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:manipulation';
                     var marke = document.createElement('div');
                     marke.style.cssText = 'position:absolute;top:-18px;right:-14px;width:20px;height:20px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
                     marke.textContent = '✕';
                     marke.addEventListener('click', function(ev, idx){ ev.stopPropagation(); _quizEditor.bbox_live[idx] = null; resync(); }); 
                     re.appendChild(marke);
-                    wrap.appendChild(re);
+                    bildBox.appendChild(re);
                     rahmenEls.push(re);
                 }
-                // Positionen einmal setzen
+                // Positionen setzen: bildBox wird exakt auf die GERICHTETE Bildgroesse des
+                // `big`-Bilds gelegt (getBoundingClientRect), die Rahmen damit in
+                // px bezogen auf bildBox. So bleiben die Kästen auch bei Hoch-/
+                // Querformatwechsel korrekt an den Personen (Wunsch Sebastian).
+                var letzteBigW = 0, letzteBigH = 0;
                 function resync() {
                     var bboxes = _quizEditor.bbox_live || [];
+                    // aktuelle gerenderete Bildbox ermitteln
+                    try {
+                        var rb = big.getBoundingClientRect();
+                        if (rb && rb.width > 0 && rb.height > 0) {
+                            letzteBigW = rb.width; letzteBigH = rb.height;
+                        }
+                    } catch (_e) {}
+                    if (letzteBigW <= 0 || letzteBigH <= 0) return;
+                    // bildBox auf die Bildgroesse festnageln (left/top gesetzt)
+                    bildBox.style.width = letzteBigW + 'px';
+                    bildBox.style.height = letzteBigH + 'px';
                     for (var i = 0; i < rahmenEls.length; i++) {
                         var b = bboxes[i] || [];
                         var el = rahmenEls[i];
                         if (!b || b.length < 4) { el.style.display = 'none'; continue; }
                         el.style.display = 'block';
-                        el.style.left = (b[0] / iw * 100) + '%';
-                        el.style.top = (b[1] / ih * 100) + '%';
-                        el.style.width = (b[2] / iw * 100) + '%';
-                        el.style.height = (b[3] / ih * 100) + '%';
+                        // bbox ist in NATIVEN Pixeln; Skala = gerendert/nativ
+                        var skw = letzteBigW / (iw || 1);
+                        var skh = letzteBigH / (ih || 1);
+                        el.style.left = (b[0] * skw) + 'px';
+                        el.style.top = (b[1] * skh) + 'px';
+                        el.style.width = (b[2] * skw) + 'px';
+                        el.style.height = (b[3] * skh) + 'px';
                         el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
                     }
                 }
@@ -2647,32 +2671,52 @@ function zeigeBildVollbild(imgEl, gesichter) {
                         return function(ev){
                             sel = idx; resync();
                             var reEl = rahmenEls[idx];
-                            reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId);
+                            // Zwei-Finger-Pinch = Browser-Zoom, nicht als Drag
+                            // auf den Rahmen umdeuten. Verschieben nur bei
+                            // Ein-Finger-Drag (Wunsch Sebastian: Bild muss
+                            // zwei-Finger-zoombar bleiben).
                             var startX = ev.clientX, startY = ev.clientY;
                             var b = (_quizEditor.bbox_live[idx] || []).slice();
                             var bewegen = function(mev){
+                                // Zwei-Finger-Pinch = Browser-Zoom durchlassen;
+                                // verschieben nur bei Ein-Finger-Drag (mev.buttons
+                                // == 1 bzw. 2 für Touch links). Bei mehreren
+                                // aktiven Fingern nicht verschieben.
+                                if (mev.buttons && mev.buttons > 2) return;
                                 var dx = mev.clientX - startX, dy = mev.clientY - startY;
-                                // px -> nativer Bild(-original) Raum ueber getBoundingClientRect des Rahmens
                                 var rb = reEl.getBoundingClientRect();
-                                var px_per_w = (b[2]) / rb.width;   // original-px / screen-px
-                                var px_per_h = (b[3]) / rb.height;
+                                var px_per_w = (b[2]) / (rb.width || 1);   // original-px / screen-px
+                                var px_per_h = (b[3]) / (rb.height || 1);
                                 _quizEditor.bbox_live[idx] = [
                                     Math.max(0, b[0] + dx*px_per_w),
                                     Math.max(0, b[1] + dy*px_per_h),
                                     b[2], b[3]
                                 ];
+                                resync();
                             };
-                            var loslassen = function(){ 
+                            reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId);
+                            var loslassen = function(){
                                 try { reEl.releasePointerCapture && reEl.releasePointerCapture(ev.pointerId); } catch(_e){}
                                 wrap.removeEventListener('pointermove', bewegen);
                                 wrap.removeEventListener('pointerup', loslassen);
+                                wrap.removeEventListener('pointercancel', loslassen);
+                                wrap.removeEventListener('lostpointercapture', loslassen);
                             };
                             wrap.addEventListener('pointermove', bewegen);
                             wrap.addEventListener('pointerup', loslassen);
+                            wrap.addEventListener('pointercancel', loslassen);
+                            wrap.addEventListener('lostpointercapture', loslassen);
                         };
                     })(i));
                 }
                 resync();
+                // Bei Formatwechsel (Hoch/Quer) die Kästen neu an das gerenderte
+                // Bild koppeln (Wunsch Sebastian: Kästen müssen stimmen).
+                const _neuLayouten = () => { try { resync(); } catch (_e) {} };
+                window.addEventListener('resize', _neuLayouten);
+                window.addEventListener('orientationchange', _neuLayouten);
+                // einmal kurz nach dem vollständigen Layout sicherstellen
+                setTimeout(_neuLayouten, 250);
             });
         }
     } catch (_) {}

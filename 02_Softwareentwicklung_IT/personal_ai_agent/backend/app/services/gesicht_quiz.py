@@ -79,6 +79,77 @@ def _refs_als_liste(embedding):
     return embedding
 
 
+def _optionen_sortiert(bild_pfad):
+    """Liefert alle Katalog-Namen sortiert nach Wahrscheinlichkeit (distanz:
+    beste SFace-Cosinus-Distanz des dominanten Gesichts, + Alters-Bonus), der
+    wahrscheinlichste zuerst. Wird genutzt, damit die Namens-Chips im Quiz nach
+    der Vermutung sortiert erscheinen (Wunsch Sebastian: nach 'Nein' die
+    wahrscheinlichste Reihenfolge).
+
+    Returns Liste[str]. Fallback: Katalog-Reihenfolge, wenn kein Gesicht/keine
+    Distanz berechenbar (dann ist jede Reihenfolge gleich).
+    """
+    try:
+        from app.services import face_service, gesichter_service
+        katalog = gesichter_service.liste_personen()
+        if not katalog:
+            return []
+        if not face_service.verfuegbar():
+            return [p.get("name") for p in katalog if p.get("name")]
+        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        if not gesichter:
+            return [p.get("name") for p in katalog if p.get("name")]
+        dom = _dominantes_gesicht(gesichter)
+        if not dom or not dom.get("embedding"):
+            return [p.get("name") for p in katalog if p.get("name")]
+        try:
+            from app.services.datei_suche import _datei_jahr
+            bild_jahr = _datei_jahr(bild_pfad)
+        except Exception:
+            bild_jahr = None
+        emb = dom["embedding"]
+        kandidaten = []
+        for p in katalog:
+            refs = []
+            e = p.get("embedding")
+            if e:
+                if isinstance(e[0], (int, float)):
+                    refs.append({"embedding": e, "jahr": None})
+                else:
+                    refs.extend({"embedding": x, "jahr": None} for x in e if x)
+            for r in (p.get("referenzen") or []):
+                if isinstance(r, dict) and r.get("embedding"):
+                    refs.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+            if not refs:
+                continue
+            beste_d = None
+            naechstes_jahr_dist = None
+            for r in refs:
+                d = face_service._cosinus_distanz(emb, r["embedding"])
+                if d is None:
+                    continue
+                if beste_d is None or d < beste_d:
+                    beste_d = d
+                if bild_jahr and r.get("jahr"):
+                    abd = abs(r["jahr"] - bild_jahr)
+                    if naechstes_jahr_dist is None or abd < naechstes_jahr_dist:
+                        naechstes_jahr_dist = abd
+            if beste_d is None:
+                continue
+            bonus = 0.0
+            if bild_jahr and naechstes_jahr_dist is not None:
+                bonus = -0.02 if naechstes_jahr_dist <= 10 else (0.0 if naechstes_jahr_dist <= 25 else 0.03)
+            kandidaten.append({"person": p.get("name"), "distanz": beste_d + bonus})
+        kandidaten.sort(key=lambda k: k["distanz"])
+        return [k["person"] for k in kandidaten if k.get("person")]
+    except Exception:
+        try:
+            from app.services import gesichter_service
+            return [p.get("name") for p in gesichter_service.liste_personen() if p.get("name")]
+        except Exception:
+            return []
+
+
 def _hypothese(bild_pfad):
     """Stellt eine ML-Vermutung auf: welcher Katalog-Person das dominanteste
     Gesicht des Bildes am naechsten liegt (SFace-Cosinus) und wie sicher.

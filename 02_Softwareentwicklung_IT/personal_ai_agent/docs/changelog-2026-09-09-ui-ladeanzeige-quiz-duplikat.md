@@ -106,6 +106,27 @@
   Bild-Referenzen nachträglich aus der Erkennung nehmen.
 - Cache-Bust: `app.js?v=20260909eU`.
 
+## Quiz-Feinschliff (Stand 2026-09-10, drei Folgewünsche)
+
+1. **Namens-Chips nach 'Nein' nach Wahrscheinlichkeit sortiert:** Neues
+   Backend `_optionen_sortiert(bild_pfad)` in `gesicht_quiz` berechnet für das
+   dominante Gesicht des aktuellen Bilds die beste SFace-Cosinus-Distanz (+
+   Aufnahmejahr-Bonus) zu jeder Katalog-Person und liefert die Namen
+   wahrscheinlichste zuerst. Der Router nutzt es für `optionen` im
+   `quiz_start` — damit erscheinen die Namens-Chips nach 'Nein' plausibel
+   geordnet statt in Katalog-Reihenfolge.
+2. **Vollbild zwei-Finger-zoombar:** Der Rahmen-Drag stört den nativen
+   Browser-Pinch nicht mehr — `touch-action:manipulation` auf den Rahmen (statt
+   `none`), und der Drag-Ingress respektiert Eingaben mit mehreren Fingern
+   (`mev.buttons`-Check). Zwei-Finger-Zoom bleibt möglich.
+3. **Kästen stimmen trotz Hoch-/Querformatwechsel:** Die Gesichts-Rahmen
+   hängen jetzt an einer `position:relative`-`bildBox`, die exakt an die
+   GERICHTETE Bildgröße gekoppelt wird (`getBoundingClientRect`), und `resync()`
+   skaliert die nativen bbox-Werte auf die aktuelle Anzeige. Ein
+   `resize`/`orientationchange`-Listener + 250ms-Nachlauf positionieren die
+   Kästen nach jedem Formatwechsel neu.
+- Cache-Bust: `app.js?v=20260910aV`.
+
 ## Verifikation
 
 - `node --check frontend/app.js` → OK (Exit 0).

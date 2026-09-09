@@ -94,8 +94,11 @@ def quiz_start(body: QuizStartBody):
     runde = gesicht_quiz.start_runde(ausgeschlossen)
     if runde.get("keine"):
         return runde
-    # Optionen = alle gelernten Namen (fuer die Auswahl im Frontend).
-    optionen = [p.get("name") for p in gesichter_service.liste_personen() if p.get("name")]
+    # Optionen = alle gelernten Namen, SORTIERT nach Wahrscheinlichkeit zum
+    # aktuellen Bild (wahrscheinlichste zuerst). So erscheinen die Namens-Chips
+    # im Quiz nach 'Nein' in plausibelster Reihenfolge (Wunsch Sebastian).
+    b = runde.get("bild_pfad") or ""
+    optionen = gesicht_quiz._optionen_sortiert(b) if b else [p.get("name") for p in gesichter_service.liste_personen() if p.get("name")]
     runde["optionen"] = optionen
     # anzahl_gesichter/erkannte_personen kommen aus start_runde (nicht überschreiben)
     return runde
