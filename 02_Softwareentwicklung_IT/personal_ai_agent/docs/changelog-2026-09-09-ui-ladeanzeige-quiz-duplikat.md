@@ -8,7 +8,10 @@
    - UND eine zweite „Denke nach..."-Bubble direkt IN der Assistenten-Blase,
      ein Überbleibsels aus dem alten Design vor der Migration zur unteren Bubble.
 2. **Quiz-Gruppenbild**: Bei einem Gruppenbild hintereinander mehrere
-   „Ist das X?"-Vermutungsfragen gestellt, auch dieselbe Person mehrfach.
+   „Ist das X?"-Vermutungsfragen gestellt, auch dieselbe Person mehrfach;
+   außerdem wurde beim Wechsel zum nächsten Gesicht die Antwort-Chip-Liste
+   (David, Eileen, …) automatisch wiederholt — das wirkte wie „die gleiche
+   Frage wird mehrfach gestellt".
 
 ## Ursache
 
@@ -31,6 +34,12 @@
   Vermutungen; dieselbe Person wird pro Bild nur EINMAL gefragt, danach geht
   es direkt zur Antwortauswahl. Vermutungs-Ja/Nein-Box in die eigene Funktion
   `baueVermutungsBox` extrahiert.
+- **Keine automatische Chip-Wiederholung pro Gesicht:** Bei einem Gesicht
+  OHNE Vermutung wird die Namens-Chip-Liste nicht mehr automatisch angezeigt,
+  sondern nur ein dezenter „✏️ Dieses Gesicht benennen"-Knopf (klappt die
+  Chips auf Wunsch auf). So bleibt beim Durchgehen mehrerer Gesichter der
+  Fortschritt + gelbe Rahmen der Fokus, ohne dass „die gleiche Frage"
+  mehrfach wirkt. (Wunsch Sebastian, Gruppenbild-Durchlauf.)
 
 ## Verifikation
 
