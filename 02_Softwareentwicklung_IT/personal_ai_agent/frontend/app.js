@@ -2722,9 +2722,11 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             zeigeAntwortZeile();
         }));
         box.appendChild(zeile);
-        // "Keine bekannte Person" soll IMMER direkt unter Ja/Nein stehen
-        // (Wunsch Sebastian 2026-09-09) - springt zum nächsten Gesicht.
-        const skipDirekt = macheQuizButton('🚫 Keine bekannte Person vorhanden', 'skip', () => antworten('', true, true));
+        // "Keine Person vorhanden" soll IMMER direkt unter Ja/Nein stehen
+        // (Wunsch Sebastian 2026-09-09) - springt SOFORT zum nächsten BILD
+        // (persistiert erledigt + naechsteQuizRunde), nicht zum nächsten
+        // Gesicht.
+        const skipDirekt = macheQuizButton('🚫 Keine Person vorhanden', 'skip', () => markiereBildErledigt());
         skipDirekt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
         box.appendChild(skipDirekt);
         umbruch.appendChild(box);
@@ -2740,8 +2742,10 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             const b = macheQuizButton(o, 'person', () => antworten((o||'').trim(), false, false));
             zeile.appendChild(b);
         });
-        // 'Neue Person' als volle, aufklappbare Eingabebox (Rolle + Zusatzkontext
-        // + Beschreibung + Diktat) — gleiches Menue wie im Einzelbild-Quiz.
+        // 'Neue Person' als volle, aufklappbare Eingabebox (Name + Rolle + EIN
+        // Textfeld für alle Infos) — gleiches Menue wie im Einzelbild-Quiz.
+        // Beschreibung/Lebensinfos war doppelt gemoppelt, alles geht in das
+        // Infos-Feld (Wunsch Sebastian 2026-09-09).
         const neuBtn = macheQuizButton('➕ Neue Person', 'neu', null);
         const form = document.createElement('div');
         form.style.display = 'none';
@@ -2755,31 +2759,26 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         const bezWrap = document.createElement('div');
         bezWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:6px';
         const inpBez = document.createElement('textarea');
-        inpBez.placeholder = 'Zusatzkontext — alles, was du über sie/ihn weißt (Diktat möglich)';
+        inpBez.placeholder = 'Infos über die Person — Beziehung + alles, was du weißt (Diktat möglich)';
         inpBez.rows = 2;
         inpBez.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical;flex:1';
         bezWrap.appendChild(inpBez);
-        fuegeFeldMikrofonHinzu(inpBez, bezWrap, 'Zusatzkontext diktieren');
-        const inpBesch = document.createElement('textarea');
-        inpBesch.placeholder = 'Beschreibung / Lebensinfos …';
-        inpBesch.rows = 2;
-        inpBesch.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical';
+        fuegeFeldMikrofonHinzu(inpBez, bezWrap, 'Infos über die Person diktieren');
         const speichern = macheQuizButton('✅ Person speichern', 'neu', () => {
             const n = (inp.value || '').trim();
             if (!n) { inp.style.borderColor = '#f55'; return; }
-            // rolle/beziehung/beschreibung an das Backend durchreichen
-            antworten(n, true, false, (inpRolle.value || '').trim(), (inpBez.value || '').trim(), (inpBesch.value || '').trim());
+            // rolle/beziehung an das Backend durchreichen (beschreibung leer)
+            antworten(n, true, false, (inpRolle.value || '').trim(), (inpBez.value || '').trim(), '');
         });
         speichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
         form.appendChild(inp);
         form.appendChild(inpRolle);
         form.appendChild(bezWrap);
-        form.appendChild(inpBesch);
         form.appendChild(speichern);
         neuBtn.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
         zeile.appendChild(neuBtn);
         umbruch.appendChild(form);
-        const skip = macheQuizButton('🚫 Kein erkanntes Gesicht vorhanden', 'skip', () => antworten('', true, true));
+        const skip = macheQuizButton('🚫 Keine Person vorhanden', 'skip', () => antworten('', true, true));
         skip.style.cssText += ';margin-top:6px;width:100%;text-align:center';
         umbruch.appendChild(zeile);
         umbruch.appendChild(skip);
@@ -2914,9 +2913,10 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
             zeigeAntwortEingabe();   // erst jetzt: Wer ist es denn?
         }));
         vbox.appendChild(zeile);
-        // "Keine bekannte Person" soll IMMER direkt unter Ja/Nein stehen
-        // (Wunsch Sebastian 2026-09-09) - nicht erst nach "Nein".
-        const skipDirekt = macheQuizButton('🚫 Keine bekannte Person vorhanden', 'skip', () => quizUeberspringen(pfad));
+        // "Keine Person vorhanden" soll IMMER direkt unter Ja/Nein stehen
+        // (Wunsch Sebastian 2026-09-09) - nicht erst nach "Nein". Wechselt
+        // zum nächsten BILD (überspringt dieses).
+        const skipDirekt = macheQuizButton('🚫 Keine Person vorhanden', 'skip', () => quizUeberspringen(pfad));
         skipDirekt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
         vbox.appendChild(skipDirekt);
         karte.appendChild(vbox);
@@ -2942,8 +2942,9 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     karte.appendChild(auswahlBox);
 
     // 'Neue Person' als eingebettetes, GROESSERES Formular (kein prompt(), PWA-
-    // sicher): Name + Rolle + Zusatzkontext + Beschreibung + Speicherknopf —
-    // damit man die Person direkt mit passendem Wissenskontext anlegt.
+    // sicher): Name + Rolle + EIN Textfeld für alle Infos über die Person +
+    // Speicherknopf. Beschreibung/Lebensinfos war doppelt gemoppelt — alles
+    // geht jetzt in das Zusatzkontext-Feld (Wunsch Sebastian 2026-09-09).
     const neu = macheQuizButton('➕ Neue Person', 'neu', null);
     const neuForm = document.createElement('div');
     neuForm.style.display = 'none';
@@ -2957,31 +2958,26 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     const neuBezWrap = document.createElement('div');
     neuBezWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:6px';
     const neuBez = document.createElement('textarea');
-    neuBez.placeholder = 'Zusatzkontext — alles, was du über sie/ihn weißt (Diktat möglich)';
+    neuBez.placeholder = 'Infos über die Person — Beziehung + alles, was du weißt (Diktat möglich)';
     neuBez.rows = 3;
     neuBez.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical;flex:1';
     neuBezWrap.appendChild(neuBez);
-    fuegeFeldMikrofonHinzu(neuBez, neuBezWrap, 'Zusatzkontext diktieren');
-    const neuBesch = document.createElement('textarea');
-    neuBesch.placeholder = 'Beschreibung / Lebensinfos …';
-    neuBesch.rows = 2;
-    neuBesch.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical';
+    fuegeFeldMikrofonHinzu(neuBez, neuBezWrap, 'Infos über die Person diktieren');
     const neuSpeichern = macheQuizButton('✅ Person speichern', 'neu', () => {
         const n = (neuName.value || '').trim();
         if (!n) { neuName.style.borderColor = '#f55'; return; }
-        quizBeantworten(pfad, n, true, (neuRolle.value || '').trim(), (neuBez.value || '').trim(), (neuBesch.value || '').trim());
+        quizBeantworten(pfad, n, true, (neuRolle.value || '').trim(), (neuBez.value || '').trim(), '');
     });
     neuSpeichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
     neuForm.appendChild(neuName);
     neuForm.appendChild(neuRolle);
     neuForm.appendChild(neuBezWrap);
-    neuForm.appendChild(neuBesch);
     neuForm.appendChild(neuSpeichern);
     neu.onclick = () => { neuForm.style.display = neuForm.style.display === 'none' ? 'block' : 'none'; };
     karte.appendChild(neu);
     karte.appendChild(neuForm);
 
-    const skip = macheQuizButton('🚫 Kein erkanntes Gesicht vorhanden', 'skip', () => quizUeberspringen(pfad));
+    const skip = macheQuizButton('🚫 Keine Person vorhanden', 'skip', () => quizUeberspringen(pfad));
     skip.style.cssText += ';margin-top:6px;width:100%;text-align:center';
     karte.appendChild(skip);
 
@@ -3341,13 +3337,12 @@ function zeigePersonenVerwaltung() {
                     return i;
                 };
                 const inpRolle = mk('Rolle / Beziehung (z. B. Bruder, Mutter)', p.rolle || '');
-                const inpBez = mk('Zusatzkontext (z. B. Cousin, Nachbar)', p.beziehung || '');
-                const inpBesch = mk('Beschreibung / Lebensinfos', p.beschreibung || '');
+                const inpBez = mk('Infos über die Person (Beziehung + alles, was du weißt)', p.beziehung || (p.beschreibung || ''));
                 const speichern = macheQuizButton('✅ Speichern', 'akt', async () => {
                     try {
                         const r = await fetch(`${API_BASE}/api/gesichter`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name, rolle: inpRolle.value.trim(), beziehung: inpBez.value.trim(), beschreibung: inpBesch.value.trim(), referenz_bild_pfad: p.referenz_bild_pfad || '' }),
+                            body: JSON.stringify({ name, rolle: inpRolle.value.trim(), beziehung: inpBez.value.trim(), beschreibung: (p.beschreibung || ''), referenz_bild_pfad: p.referenz_bild_pfad || '' }),
                         });
                         const dd = await r.json();
                         addMessage(dd && dd.person ? `✅ **${name}** aktualisiert.` : `⚠️ ${(dd && dd.fehler) || 'Fehler'}`, 'assistant');
@@ -3356,7 +3351,6 @@ function zeigePersonenVerwaltung() {
                 });
                 form.appendChild(inpRolle);
                 form.appendChild(inpBez);
-                form.appendChild(inpBesch);
                 form.appendChild(speichern);
                 btn.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
                 karte.appendChild(btn);
