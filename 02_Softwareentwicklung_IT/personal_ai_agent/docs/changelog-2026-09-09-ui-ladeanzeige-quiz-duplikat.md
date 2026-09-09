@@ -60,6 +60,18 @@
   (→ Backend `markiere_uebersprungen` persistiert es dauerhaft). So
   erscheint kein durchlaufenes Bild erneut.
 - Cache-Bust: `app.js?v=20260909aQ`.
+- **Neues Verhalten (Folge-Wunsch):** „Keine Person vorhanden" springt im
+  Gruppenbild SOFORT zum nächsten BILD (statt zum nächsten Gesicht) und
+  persistiert das Bild als erledigt. Die „Kein erkanntes Gesicht
+  vorhanden"-Beschriftung ist überall zu „🚫 Keine Person vorhanden"
+  vereinheitlicht.
+- **„Neue Person"-Formular entdoppelt:** Das „Beschreibung / Lebensinfos"-
+  Feld war doppelt gemoppelt zum „Zusatzkontext". Jetzt gibt es überall
+  (Einzelbild-Quiz, Gruppenbild-Quiz, Personen-Verwaltung) NUR EIN Textfeld
+  „Infos über die Person — Beziehung + alles, was du weißt" (Name + Rolle
+  bleiben eigene Felder). In der Verwaltung wird der bisherige
+  `beschreibung`-Wert beim Speichern erhalten (kein Datenverlust).
+- Cache-Bust: `app.js?v=20260909bR`.
 
 ## Verifikation
 
