@@ -2680,11 +2680,23 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     function zeigeVermutungsFrage() {
         const g = gs[idx] || {};
         const vm = g.vermutung || null;
-        // Keine Vermutung ODER diese Person wurde bei einem früheren Gesicht
-        // dieses Bildes schon gefragt -> direkt zur Antwortauswahl, statt die
-        // Frage doppelt/wiederholt zu stellen (Stand 2026-09-09, Auftrag
-        // Sebastian: "Ist das Eileen?" erschien mehrfach + falsch).
-        if (!vm || !vm.person || geseheneVermutungen.has(vm.person)) {
+        // Keine Vermutung für dieses Gesicht: Beim Wechsel NICHT automatisch
+        // die volle Chip-Liste zeigen (das wirkte wie 'immer dieselbe Frage
+        // mehrfach'). Stattdessen nur Fortschritt + gelber Rahmen + ein
+        // dezenter Aufklapp-Knopf; die Namens-Chips erscheinen erst auf
+        // Wunsch (Stand 2026-09-09, Auftrag Sebastian).
+        if (!vm || !vm.person) {
+            const aufklapp = macheQuizButton('✏️ Dieses Gesicht benennen', 'person', () => {
+                aufklapp.remove();
+                zeigeAntwortZeile();
+            });
+            umbruch.appendChild(aufklapp);
+            return;
+        }
+        // Vermutung da: dieselbe Person nur EINMAL als Ja/Nein-Frage stellen;
+        // wurde sie bei einem früheren Gesicht schon gefragt, direkt zur
+        // Antwortauswahl (keine doppelte/wiederholte "Ist das X?"-Frage).
+        if (geseheneVermutungen.has(vm.person)) {
             zeigeAntwortZeile();
             return;
         }
