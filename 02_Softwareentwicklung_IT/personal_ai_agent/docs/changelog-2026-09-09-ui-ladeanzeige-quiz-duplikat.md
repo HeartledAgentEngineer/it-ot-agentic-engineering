@@ -127,6 +127,29 @@
    Kästen nach jedem Formatwechsel neu.
 - Cache-Bust: `app.js?v=20260910aV`.
 
+## Autonomer Nachtjob (termux/hermes-nacht-job.sh, Stand 2026-09-10)
+
+- **Ziel (Wunsch Sebastian):** Nach einer festgelegten Zeit (Cron) soll der
+  Coding-Agent ohne User-Eingriff einen echten offenen Programmier-Auftrag
+  abarbeiten — inklusive **Gemini-Vision-Bildlesen** (auch wenn sein Gehirn
+  DeepSeek ist) — und lokal committen.
+- **Ablauf des Skripts:** `git pull --ff-only` → Server-Health (ggf.
+  `agent-start`) → offene/`laeuft`/`fehler`-Programmier-Aufträge filtern
+  (kein Test/Cron/erledigt, Coding-Stichworte) → EINEN wählen → Auftrag in
+  `~/hermes_inbox/auftraege.jsonl` schreiben (Kanal `aktiv`) → Inbox-Daemon
+  (einmal) anstoßen → auf Antwort in `antworten.jsonl` warten → lokal
+  committen → Auftrag per API `/ergebnis erfolg:true` schließen.
+- **Vision-Hinweis im Kontext:** Der Inbox-Payload aktiviert den Skill
+  `coding-chat-bild-vision` (Bilder via Gemini-Vision lesen), damit der
+  Nacht-Coding-Agent auch Screenshots/Bilder versteht.
+- **Ehrenkodex:** Commit NUR lokal (kein push — bleibt bei Sebastian); ist der
+  Auftrag bereits umgesetzt, meldet der Agent das ehrlich, und das Skript
+  schließt den Buch-Eintrag entsprechend.
+- **Erwartung zum Buch-Status:** Viele `offen`/`laeuft`/`fehler`-Aufträge sind
+  längst im Code, nur nicht als `fertig` markiert (`_verwaiste_freigeben`).
+  Das Skript beschränkt sich deshalb auf plausible Coding-Aufträge und nutzt
+  die Git-Prüfung des Agenten statt blind zu „lösen".
+
 ## Verifikation
 
 - `node --check frontend/app.js` → OK (Exit 0).
