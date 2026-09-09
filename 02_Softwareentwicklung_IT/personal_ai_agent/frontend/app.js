@@ -2033,13 +2033,36 @@ function zeigeBildVorschau(container, dataUrl, pfad, rahmen) {
 
     container.appendChild(rahmen);
 
+    // Nach-Reload-Quiz: Ist diese Blase eine wiederhergestellte, offene Quiz-
+    // Karte (dataset.quizRekon gesetzt), wird der gelbe bbox-Rahmen + der
+    // Gesicht-Ausschnitt JETZT nachgezeichnet — hier existiert das <img>.
+    try {
+        const qr = container.dataset && container.dataset.quizRekon;
+        if (qr) {
+            const qd = JSON.parse(qr);
+            if (qd && qd.ui && qd.pfad) {
+                const gs = (qd.ui.gesichter) || [];
+                if (gs.length) {
+                    markiereGesichtImBild(img, gs, 0);
+                    try { img.addEventListener('load', () => markiereGesichtImBild(img, gs, 0)); } catch (_) {}
+                    // Gesicht-Ausschnitt (flüchtig) auch in der wiederhergestellten Karte
+                    const bb = gs[0] && gs[0].bbox;
+                    if (bb && bb.length >= 4) zeigeGesichtCropIn(container, dataUrl, bb, 240);
+                }
+            }
+        }
+    } catch (_) {}
+
     // Nach BILD_ANZEIGE_MS: Bild weg, Platzhalter zum Nachladen da.
     // ABER: HOCHGELADENE Bilder (upload-Pfad) bleiben dauerhaft angezeigt
     // (Screenshots/Fehlerbilder im Coding-Chat etc.), kein 10s-Platzhalter.
+    // Ebenfalls dauerhaft: WIEHERGESTELLTE offene Quiz-Karten (quizRekon) —
+    // deren Bild ist die aktive Quiz-Frage und darf nicht nach 10s verschwinden.
     // Nur fluechtige Dateisuche-Vorschauen werden nach 10s durch den
     // 'Bild wieder anzeigen'-Knopf ersetzt.
+    const istQuizRekon = !!(container.dataset && container.dataset.quizRekon);
     const istUpload = (pfad || '').indexOf('/uploads/') !== -1 || (pfad || '').indexOf('uploads/') === 0;
-    if (istUpload) {
+    if (istUpload || istQuizRekon) {
         return; // dauerhaft, kein 10s-Timer/Platzhalter
     }
     let timer = setTimeout(() => {
@@ -2400,6 +2423,7 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 // der Nutzer benennt die Person, die Antwort festigt das Gesicht als Referenz.
 let _quizAktiv = false;
 let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
+let _letzteQuizKarte = null;  // zuletzt erzeugte Quiz-Karte (fuer Ergebnis-Umschreiben)
 
 // Zeichnet den gelben bbox-Rahmen um das Gesicht (Index `idx`) im Bild `img`
 // und gibt die Markierung zurueck (oder null).
@@ -2426,15 +2450,50 @@ function markiereGesichtImBild(img, gesichter, idx) {
         } catch (_) {}
     }
     if (!iw || !ih) return null;   // Bild noch nicht gerendert
-    if (pa.style) pa.style.position = 'relative';
+    if (pa.style) {
+        pa.style.position = 'relative';
+        // Der Container darf die Markierung NICHT abschneiden (Scroll erlaubt
+        // grosse Bilder scrollbar zu halten, ohne den Kasten zu beschneiden).
+        // overflow wird nur gesetzt, wenn der Wrapper ihn nicht selbst hat.
+    }
+    // bbox erweitern, damit der Rahmen den GANZEN Kopf umschliesst (die
+    // Face-Engine markiert oft nur das Gesichtsfeld: Kinn bis Haaransatz).
+    // Oben mehr Platz (Haare/Kopf), unten etwas (Kinn); seitlich leicht. Werte
+    // werden an den Bildrand geklemmt, damit der Rahmen nie aus dem Bild ragt.
+    const bx = b[0], by = b[1], bw = b[2], bh = b[3];
+    const erx = bw * 0.06;   // seitlich je 6%
+    const ery = bh * 0.10;   // unten 10% (Kinn)
+    const ert = bh * 0.28;   // oben 28% (Kopf/Haare)
+    const nx = Math.max(0, bx - erx);
+    const ny = Math.max(0, by - ert);
+    const nw = Math.min(iw - nx, bw + erx * 2);
+    const nh = Math.min(ih - ny, bh + erx * 2 + ert + ery);
     const r = document.createElement('div');
     r.className = 'quiz-marke';
-    r.style.cssText = 'position:absolute;border:3px solid #ff6;box-shadow:0 0 0 2px #fa0;pointer-events:none;z-index:5;box-sizing:border-box';
-    r.style.left = (b[0] / iw * 100) + '%';
-    r.style.top = (b[1] / ih * 100) + '%';
-    r.style.width = (b[2] / iw * 100) + '%';
-    r.style.height = (b[3] / ih * 100) + '%';
+    r.style.cssText = 'position:absolute;border:2px solid #ff6;box-shadow:0 0 0 1px #d80;pointer-events:none;z-index:5;box-sizing:border-box';
+    r.style.left = (nx / iw * 100) + '%';
+    r.style.top = (ny / ih * 100) + '%';
+    r.style.width = (nw / iw * 100) + '%';
+    r.style.height = (nh / ih * 100) + '%';
     pa.appendChild(r);
+    // Kasten ins Sichtfeld holen, damit er beim Sprung zum naechsten Gesicht
+    // sichtbar wird (nicht nur im verdeckten Randbereich eines grossen Bilds).
+    try {
+        // Naechsten scrollbaren Vorfahr (Element mit overflow:auto/scroll) suchen
+        // und so ausrichten, dass die Marke mittig sichtbar wird.
+        let node = pa;
+        while (node && node !== document.body && node !== document.documentElement) {
+            const st = getComputedStyle(node).overflowY;
+            if (st === 'auto' || st === 'scroll') break;
+            node = node.parentNode;
+        }
+        if (node && node !== pa && node.scrollLeft !== undefined) {
+            const rect = r.getBoundingClientRect();
+            const wrap = node.getBoundingClientRect();
+            node.scrollLeft += (rect.left - wrap.left) - (wrap.width / 2);
+            node.scrollTop  += (rect.top  - wrap.top ) - (wrap.height / 2);
+        }
+    } catch (_) {}
     return r;
 }
 
@@ -2484,12 +2543,83 @@ function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx) {
     lbl.textContent = '🔍 Gesicht-Ausschnitt, den du beschriftest:';
     const cimg = document.createElement('img');
     cimg.alt = 'Gesicht';
-    cimg.style.cssText = 'max-width:100%;max-height:240px;border:2px solid #ff6;border-radius:10px;background:#000';
+    cimg.style.cssText = 'max-width:100%;max-height:240px;border:1px solid #555;border-radius:10px;background:#000';
     box.appendChild(lbl);
     box.appendChild(cimg);
     if (container) container.appendChild(box);
+    macheBildAntippbar(cimg);  // Tipp auf Ausschnitt -> Vollbild
     erzeugeGesichtCrop(dataUrl, bbox, maxPx || 240).then(u => { if (u) cimg.src = u; });
     return box;
+}
+
+// Bild-Vollbild (WhatsApp-nahe): Ein Tipp auf ein Quiz-/Chat-Bild oeffnet ein
+// dunkles Fullscreen-Overlay mit dem grossen Bild. Das Bild ist NATIV per
+// Zwei-Finger-Pinch zoombar (touch-action/gestures frei) — Tippen auf das
+// Bild selbst zoomt NICHT sofort zu (kein Button-Overlay). Geschlossen wird
+// ueber das X oben rechts oder Tipp auf den dunklen Rand.
+let _quizVollbild = null;
+function zeigeBildVollbild(imgEl, gesichter) {
+    if (!imgEl) return;
+    const src = imgEl.src || (imgEl.getAttribute && imgEl.getAttribute('src')) || '';
+    if (!src) return;
+    if (_quizVollbild) { schliesseBildVollbild(); return; }
+    const ov = document.createElement('div');
+    _quizVollbild = ov;
+    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.93);z-index:99998;display:flex;align-items:center;justify-content:center;flex-direction:column;animation:fadeIn 0.2s ease';
+    // X-Button zum Schliessen (Tipp aufs Bild zoomt per Pinch, nicht schliessen)
+    const x = document.createElement('div');
+    x.style.cssText = 'position:fixed;top:12px;right:16px;z-index:99999;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+    x.textContent = '✕';
+    x.addEventListener('click', schliesseBildVollbild);
+    // Wrapper fuer das Bild: native pinch-zoom erlauben, kein Overlay darueber
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;width:100%;height:100%;touch-action:manipulation';
+    const big = document.createElement('img');
+    big.src = src;
+    big.alt = 'Vollbild';
+    big.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;touch-action:manipulation;user-select:none';
+    wrap.appendChild(big);
+    ov.appendChild(x);
+    ov.appendChild(wrap);
+    // gelbe Gesicht-Rahmen ins Vollbild uebertragen (falls Gesichter uebergeben)
+    try {
+        if (gesichter && gesichter.length) {
+            big.addEventListener('load', () => {
+                for (const g of gesichter) {
+                    if (!g.bbox || g.bbox.length < 4) continue;
+                    const r = document.createElement('div');
+                    r.style.cssText = 'position:absolute;border:2px solid #ff6;pointer-events:none;z-index:6;box-sizing:border-box';
+                    const iw = big.naturalWidth || 0, ih = big.naturalHeight || 0;
+                    if (!iw || !ih) return;
+                    r.style.left = (g.bbox[0] / iw * 100) + '%';
+                    r.style.top = (g.bbox[1] / ih * 100) + '%';
+                    r.style.width = (g.bbox[2] / iw * 100) + '%';
+                    r.style.height = (g.bbox[3] / ih * 100) + '%';
+                    wrap.appendChild(r);
+                }
+            });
+        }
+    } catch (_) {}
+    document.body.appendChild(ov);
+}
+function schliesseBildVollbild() {
+    if (_quizVollbild) {
+        try { _quizVollbild.remove(); } catch (e) {}
+        _quizVollbild = null;
+    }
+}
+
+// Macht ein <img> antippbar (Vollbild) - nutzt den nativen dataURL-String,
+// den das Quiz-Bild bereits im DOM haelt.
+function macheBildAntippbar(imgEl, gesichter) {
+    if (!imgEl) return;
+    try {
+        imgEl.style.cursor = 'zoom-in';
+        imgEl.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            zeigeBildVollbild(imgEl, gesichter);
+        });
+    } catch (_) {}
 }
 
 // Einheitliche Quiz-Button-Stile (Sebastian: aufgeraeumt, keine wilden Styles):
@@ -2540,6 +2670,30 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         umbruch.appendChild(fortschritt);
     }
 
+    // Vermutungs-Frage für das aktuelle Gesicht (falls eine vorliegt).
+    // Wenn ja -> direkte Antwort; wenn nein -> Antwort-Zeile einblenden.
+    function zeigeVermutungsFrage() {
+        const g = gs[idx] || {};
+        const vm = g.vermutung || null;
+        if (!vm || !vm.person) { zeigeAntwortZeile(); return; }
+        const box = document.createElement('div');
+        box.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
+        const sh = vm.sicherheit || '';
+        const txt = document.createElement('div');
+        txt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
+        txt.textContent = `🔎 Ist das ${vm.person}?` + (sh ? ` (Sicherheit: ${sh})` : '');
+        box.appendChild(txt);
+        const zeile = document.createElement('div');
+        zeile.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
+        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => antworten(vm.person, false, false)));
+        zeile.appendChild(macheQuizButton('❌ Nein', 'neu', () => {
+            box.remove();
+            zeigeAntwortZeile();
+        }));
+        box.appendChild(zeile);
+        umbruch.appendChild(box);
+    }
+
     // Antwort-Zeile (Person wählen / neu / überspringen)
     function zeigeAntwortZeile() {
         const label = macheQuizLabel('Dieses Gesicht gehört zu:');
@@ -2550,25 +2704,46 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             const b = macheQuizButton(o, 'person', () => antworten((o||'').trim(), false, false));
             zeile.appendChild(b);
         });
-        // 'Neue Person' als eingebettetes Formular (kein prompt(), PWA-sicher)
+        // 'Neue Person' als volle, aufklappbare Eingabebox (Rolle + Zusatzkontext
+        // + Beschreibung + Diktat) — gleiches Menue wie im Einzelbild-Quiz.
         const neuBtn = macheQuizButton('➕ Neue Person', 'neu', null);
         const form = document.createElement('div');
         form.style.display = 'none';
-        form.style.cssText = 'display:none;margin:8px 0;padding:8px;border:1px solid #f88;border-radius:8px;background:#221010';
+        form.style.cssText = 'display:none;margin:8px 0;padding:10px;border:2px solid #f88;border-radius:10px;background:#221010';
         const inp = document.createElement('input');
-        inp.placeholder = 'Name der Person (z. B. Julian)';
-        inp.style.cssText = 'width:100%;padding:6px;margin-bottom:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit';
+        inp.placeholder = 'Name* (z. B. Julian)';
+        inp.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.88rem';
+        const inpRolle = document.createElement('input');
+        inpRolle.placeholder = 'Rolle / Bedeutung (z. B. Bruder, Mutter)';
+        inpRolle.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.88rem';
+        const bezWrap = document.createElement('div');
+        bezWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:6px';
+        const inpBez = document.createElement('textarea');
+        inpBez.placeholder = 'Zusatzkontext — alles, was du über sie/ihn weißt (Diktat möglich)';
+        inpBez.rows = 2;
+        inpBez.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical;flex:1';
+        bezWrap.appendChild(inpBez);
+        fuegeFeldMikrofonHinzu(inpBez, bezWrap, 'Zusatzkontext diktieren');
+        const inpBesch = document.createElement('textarea');
+        inpBesch.placeholder = 'Beschreibung / Lebensinfos …';
+        inpBesch.rows = 2;
+        inpBesch.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical';
         const speichern = macheQuizButton('✅ Person speichern', 'neu', () => {
             const n = (inp.value || '').trim();
             if (!n) { inp.style.borderColor = '#f55'; return; }
-            antworten(n, true, false);
+            // rolle/beziehung/beschreibung an das Backend durchreichen
+            antworten(n, true, false, (inpRolle.value || '').trim(), (inpBez.value || '').trim(), (inpBesch.value || '').trim());
         });
+        speichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
         form.appendChild(inp);
+        form.appendChild(inpRolle);
+        form.appendChild(bezWrap);
+        form.appendChild(inpBesch);
         form.appendChild(speichern);
         neuBtn.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
         zeile.appendChild(neuBtn);
         umbruch.appendChild(form);
-        const skip = macheQuizButton('🚫 Kein erkanntes Gesicht', 'skip', () => antworten('', true, true));
+        const skip = macheQuizButton('🚫 Kein erkanntes Gesicht vorhanden', 'skip', () => antworten('', true, true));
         skip.style.cssText += ';margin-top:6px;width:100%;text-align:center';
         umbruch.appendChild(zeile);
         umbruch.appendChild(skip);
@@ -2582,46 +2757,71 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             return;
         }
         idx++;
-        maleRahmen();
+        maleRahmen();        // Kasten springt zum naechsten Gesicht im Hauptbild
         zeigeFortschritt();
-        zeigeAntwortZeile();
-        zeigeGesichtCropIn(umbruch, dataUrl, gs[idx] && gs[idx].bbox, 240);
+        zeigeVermutungsFrage(); // erst Ja/Nein, bei Nein dann Chips
     }
 
-    function antworten(person, istNeu, skip) {
+    function antworten(person, istNeu, skip, rolle, beziehung, beschreibung) {
         if (skip) { weiter(); return; }
-        quizBeantwortenSilent(pfad, person, istNeu, '').then(() => weiter());
+        quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '').then(() => weiter());
     }
 
     zeigeFortschritt();
-    zeigeGesichtCropIn(umbruch, dataUrl, gs[0] && gs[0].bbox, 240);
-    zeigeAntwortZeile();
+    zeigeVermutungsFrage();
     maleRahmen();
 }
 
-function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkannte, gesichter) {
+function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkannte, gesichter, zielContainer) {
     // ML-Quiz-Karte: KI stellt eine Vermutung vor, der Nutzer bestaetigt/korrigiert.
     // Aufgeraeumtes Layout (Sebastian): Bild -> Gesicht-Crop -> Vermutung ->
     // Antwort-Choices -> Neue Person -> Ueberspringen, einheitliche Buttons.
-    const karte = addMessage('', 'assistant', undefined, pfad);
+    // `zielContainer` (optional): vorhandene Antwortblase wiederverwenden statt
+    // eine NEUE zu erzeugen — genutzt fuer die wiederhergestellte, offene Frage.
+    const karte = zielContainer
+        ? zielContainer
+        : addMessage('', 'assistant', undefined, pfad);
     karte.innerHTML = '';
+    // global merken (fuer quizBeantworten, um die Karte nach der Antwort auf
+    // das Ergebnis umzuschreiben und die Buttons zu entfernen)
+    // eslint-disable-next-line no-global-assign
+    _letzteQuizKarte = karte;
+    // Blase als Quiz-Karte markieren: ermoeglicht das gezielte Aufraeumen der
+    // fluechtigen Bildkopie (base64-DatenURL) nach Antwort/Weiter/Beenden,
+    // damit keine angehaeuften Mega-URLs im Chat-Speicher bleiben.
+    try { karte.dataset.quizKarte = '1'; } catch (_) {}
 
-    // Kopfzeile mit dezentem Stopp (kein dicker Balken mehr).
+    // Kopfzeile: Menue-Symbol (Personen verwalten) links, Titel, Stopp rechts.
     const kopf = document.createElement('div');
     kopf.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+    // Menue-Knopf oben links: oeffnet das Personen-Bearbeitsmenue direkt aus
+    // der Quiz-Bubble (Sebastian: Menue-Symbol oben links).
+    const menue = macheQuizButton('👥', 'person', zeigePersonenVerwaltung);
+    menue.title = 'Personen verwalten (Rollen/Referenzen)';
+    menue.style.cssText += ';padding:2px 9px;font-size:0.85rem;background:transparent;border:1px solid #2e8b57;color:#8f8';
     const titel = document.createElement('div');
-    titel.style.cssText = 'font-weight:700;font-size:0.86rem;color:#9f9';
+    titel.style.cssText = 'flex:1;text-align:center;font-weight:700;font-size:0.86rem;color:#9f9';
     titel.textContent = '🧠 Gesichter-Quiz';
     const stopp = macheQuizButton('⏹ Beenden', 'skip', beendeQuizAktiv);
     stopp.style.cssText += ';padding:1px 8px;font-size:0.68rem;background:transparent;border:1px solid #555;color:#888';
+    kopf.appendChild(menue);
     kopf.appendChild(titel);
     kopf.appendChild(stopp);
     karte.appendChild(kopf);
 
+    // Bild in einem eigenen, scrollbaren Wrapper mit position:relative: So ist
+    // das Foto proportional skaliert (kein object-fit:cover, das den gelben
+    // bbox-Rahmen verrutschen liess) und grosse Bilder sind per Scroll bar.
+    // Der gelbe Kasten (markiereGesichtImBild) liegt als Overlay darüber.
+    const imgWrap = document.createElement('div');
+    imgWrap.style.cssText = 'position:relative;display:block;width:100%;max-height:320px;overflow:auto;background:#000;border-radius:10px;margin-top:6px;border:1px solid #444';
     const img = document.createElement('img');
     img.src = dataUrl;
-    img.style.cssText = 'max-width:100%;border-radius:10px;max-height:300px;object-fit:cover;margin-top:6px';
-    karte.appendChild(img);
+    img.alt = 'Quiz-Bild';
+    img.style.cssText = 'display:block;width:100%;height:auto;border-radius:10px';
+    macheBildAntippbar(img, gesichter || []);   // Tipp -> Vollbild (Person wirklich erkennen)
+    imgWrap.appendChild(img);
+    karte.appendChild(imgWrap);
 
     const frage = document.createElement('div');
     frage.style.cssText = 'margin-top:6px;font-weight:600;color:#eef';
@@ -2640,26 +2840,36 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         zeigeGesichtCropIn(karte, dataUrl, gesichter[0].bbox, 240);
     }
 
-    // --- Vermutung (falls KI eine Hypothese hat) ---
+    // --- Vermutung: erst reine Ja/Nein-Frage stellen (kein aufdringliches
+    //     "eigenes Raten"). Name/Auswahl/Neue Person/Kein Gesicht erscheinen
+    //     erst NACH "Nein" (Sebastian: erst Ja/Nein, wenn Nein dann 'wer ist das'). ---
     const v = vermutung ? (vermutung.person ? vermutung : null) : null;
     if (v) {
         const vbox = document.createElement('div');
         vbox.style.cssText = 'margin-top:8px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
         const sh = (v.sicherheit || '');
         const txt = document.createElement('div');
-        txt.style.cssText = 'color:#8f8;font-size:0.85rem';
-        txt.textContent = `🤖 Meine Vermutung: ${v.person}` + (sh ? ` (Sicherheit: ${sh})` : '');
+        txt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
+        txt.textContent = `🔎 Ist das ${v.person}?` + (sh ? ` (Sicherheit: ${sh})` : '');
         vbox.appendChild(txt);
         const zeile = document.createElement('div');
         zeile.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        zeile.appendChild(macheQuizButton('✅ Ja, richtig', 'akt', () => quizBeantworten(pfad, v.person, false, '')));
-        zeile.appendChild(macheQuizButton('❌ Nein, anders', 'neu', () => {
+        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => quizBeantworten(pfad, v.person, false, '')));
+        zeile.appendChild(macheQuizButton('❌ Nein', 'neu', () => {
             vbox.style.display = 'none';
-            auswahlBox.style.display = 'flex';
-            frage.textContent = 'Wer ist es dann?';
+            zeigeAntwortEingabe();   // erst jetzt: Wer ist es denn?
         }));
         vbox.appendChild(zeile);
         karte.appendChild(vbox);
+    }
+
+    // Baut den Antwort-Block (Namen + Neue Person + Kein Gesicht). Wird bei
+    // einer Vermutung erst nach "Nein" eingeblendet, sonst direkt gezeigt.
+    function zeigeAntwortEingabe() {
+        auswahlBox.style.display = 'flex';
+        neu.style.display = '';
+        skip.style.display = '';
+        frage.textContent = 'Wer ist auf diesem Bild?';
     }
 
     // --- Antwort-Sektion: Personen-Choices + Neue Person + Ueberspringen ---
@@ -2672,33 +2882,80 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     });
     karte.appendChild(auswahlBox);
 
-    // 'Neue Person' als eingebettetes Formular (PWA-sicher, kein prompt()).
+    // 'Neue Person' als eingebettetes, GROESSERES Formular (kein prompt(), PWA-
+    // sicher): Name + Rolle + Zusatzkontext + Beschreibung + Speicherknopf —
+    // damit man die Person direkt mit passendem Wissenskontext anlegt.
     const neu = macheQuizButton('➕ Neue Person', 'neu', null);
     const neuForm = document.createElement('div');
     neuForm.style.display = 'none';
-    neuForm.style.cssText = 'display:none;margin-top:6px;padding:8px;border:1px solid #f88;border-radius:9px;background:#221010';
+    neuForm.style.cssText = 'display:none;margin-top:6px;padding:10px;border:2px solid #f88;border-radius:10px;background:#221010';
     const neuName = document.createElement('input');
-    neuName.placeholder = 'Name der Person (z. B. Julian)';
-    neuName.style.cssText = 'width:100%;padding:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit';
+    neuName.placeholder = 'Name* (z. B. Julian)';
+    neuName.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.88rem';
     const neuRolle = document.createElement('input');
-    neuRolle.placeholder = 'Bedeutung/Rolle (z. B. Bruder, Mutter) – optional';
-    neuRolle.style.cssText = 'width:100%;padding:6px;margin-top:6px;border:1px solid #f88;border-radius:6px;background:#1a0d0d;color:inherit';
+    neuRolle.placeholder = 'Rolle / Bedeutung (z. B. Bruder, Mutter)';
+    neuRolle.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.88rem';
+    const neuBezWrap = document.createElement('div');
+    neuBezWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:6px';
+    const neuBez = document.createElement('textarea');
+    neuBez.placeholder = 'Zusatzkontext — alles, was du über sie/ihn weißt (Diktat möglich)';
+    neuBez.rows = 3;
+    neuBez.style.cssText = 'width:100%;padding:7px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical;flex:1';
+    neuBezWrap.appendChild(neuBez);
+    fuegeFeldMikrofonHinzu(neuBez, neuBezWrap, 'Zusatzkontext diktieren');
+    const neuBesch = document.createElement('textarea');
+    neuBesch.placeholder = 'Beschreibung / Lebensinfos …';
+    neuBesch.rows = 2;
+    neuBesch.style.cssText = 'width:100%;padding:7px;margin-top:6px;border:1px solid #f88;border-radius:7px;background:#1a0d0d;color:inherit;font-size:0.85rem;resize:vertical';
     const neuSpeichern = macheQuizButton('✅ Person speichern', 'neu', () => {
         const n = (neuName.value || '').trim();
         if (!n) { neuName.style.borderColor = '#f55'; return; }
-        quizBeantworten(pfad, n, true, (neuRolle.value || '').trim());
+        quizBeantworten(pfad, n, true, (neuRolle.value || '').trim(), (neuBez.value || '').trim(), (neuBesch.value || '').trim());
     });
-    neuSpeichern.style.cssText += ';margin-top:6px;width:100%';
+    neuSpeichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
     neuForm.appendChild(neuName);
     neuForm.appendChild(neuRolle);
+    neuForm.appendChild(neuBezWrap);
+    neuForm.appendChild(neuBesch);
     neuForm.appendChild(neuSpeichern);
     neu.onclick = () => { neuForm.style.display = neuForm.style.display === 'none' ? 'block' : 'none'; };
     karte.appendChild(neu);
     karte.appendChild(neuForm);
 
-    const skip = macheQuizButton('🚫 Keine Person drauf', 'skip', () => quizUeberspringen(pfad));
+    const skip = macheQuizButton('🚫 Kein erkanntes Gesicht vorhanden', 'skip', () => quizUeberspringen(pfad));
     skip.style.cssText += ';margin-top:6px;width:100%;text-align:center';
     karte.appendChild(skip);
+
+    // Vermutung vorhanden? Dann Antwort-Block anfangs verstecken (nur Ja/Nein
+    // sichtbar); erst "Nein" blendet den Antwort-Block ein.
+    if (v) {
+        auswahlBox.style.display = 'none';
+        neu.style.display = 'none';
+        skip.style.display = 'none';
+    } else {
+        zeigeAntwortEingabe();
+    }
+}
+
+// Ergebnis der Quiz-Runde in der Karte anzeigen: Ersetzt den Antwortbereich
+// (Buttons verschwinden) durch eine kompakte Bestaetigung. Verhindert so das
+// versehentliche MEHRFACH-Speichern durch wiederholte Klicks auf dieselbe
+// Antwort (Buttons sind danach weg).
+function macheQuizFertig(karte, text, ok) {
+    if (!karte) return;
+    try {
+        // gesamten Karten-Inhalt durch das Ergebnis ersetzen (Bild + Antwort
+        // + Vermutung verschwinden; nur ein klares Ergebnis bleibt)
+        karte.innerHTML = '';
+        const zeile = document.createElement('div');
+        zeile.style.cssText = 'padding:10px;border:1px solid ' + (ok ? '#2e8b57' : '#f88')
+            + ';border-radius:10px;background:' + (ok ? '#0f1f14' : '#221010')
+            + ';font-weight:600;color:' + (ok ? '#8f8' : '#f88');
+        zeile.textContent = ok ? ('✅ ' + text) : ('⚠️ ' + text);
+        karte.appendChild(zeile);
+        // nach kurzer Zeit automatisch zur naechsten Runde
+        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 900);
+    } catch (_) {}
 }
 
 async function quizUeberspringen(pfad) {
@@ -2719,6 +2976,7 @@ async function quizUeberspringen(pfad) {
 function beendeQuizAktiv() {
     if (_quizAktiv) {
         _quizAktiv = false;
+        raeumeQuizKopienAuf();  // Bildkopie der stehengebliebenen Frage freigeben
         addMessage('🛑 **Quiz beendet** — du kannst jederzeit neu starten.', 'assistant');
     }
 }
@@ -2749,6 +3007,10 @@ async function quizFortsetzen() {
         const optionen = (gd && gd.personen || []).map(p => p.name).filter(Boolean);
         const ui = m.ui || null;
         const vermutung = ui && ui.vermutung && ui.vermutung.person ? ui.vermutung : (null);
+        // Gesicht-Bboxen aus dem persistierten ui-Block holen (sonst keiner):
+        // so zeichnet zeigeQuizKarte den gelben bbox-Rahmen ueber dem Bild.
+        const gesichterUi = (ui && ui.gesichter) || [];
+        const anzahlGes = gesichterUi.length;
         // data_url laden
         const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
         const dd = await dr.json();
@@ -2756,7 +3018,7 @@ async function quizFortsetzen() {
         if (!dataUrl) {
             addMessage('🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).', 'assistant');
         }
-        zeigeQuizKarte(pfad, m.name || '', dataUrl, optionen, vermutung, 0, [], []);
+        zeigeQuizKarte(pfad, m.name || '', dataUrl, optionen, vermutung, anzahlGes, [], gesichterUi);
         // interaktive Antworten rekonstruieren (nur die letzte -> hier genau diese)
         const letzte = document.querySelectorAll('.message.assistant');
         // Nach der neuen Karte die Antwort-Buttons ergaenzen (ui-basiert)
@@ -2769,12 +3031,37 @@ async function quizFortsetzen() {
     }
 }
 
+// Raeumt die fluechtigen base64-Bildkopien ABGESCHLOSSENER Quiz-Karten auf.
+// Nur Blasen mit dataset.quizKarte (= per zeigeQuizKarte erzeugt) und deren
+// <img src="data:..."> werden geleert + der gelbe Rahmen entfernt. So bleibt
+// jede beantwortete/uebersprungene Frage nicht als Mega-DatenURL im DOM/
+// Arbeitsspeicher haengen (Sebastian: Bilder fluechtig, nie anhaeufen).
+function raeumeQuizKopienAuf() {
+    try {
+        const blasen = Array.from(document.querySelectorAll('.message.assistant'));
+        for (const blas of blasen) {
+            if (!(blas.dataset && blas.dataset.quizKarte)) continue;
+            const imgs = blas.querySelectorAll('img');
+            for (const im of imgs) {
+                const src = im.src || '';
+                if (src.indexOf('data:') === 0) {  // nur base64-DatenURLs, nicht http
+                    try { im.removeAttribute('src'); } catch (e) {}
+                    im.src = '';
+                }
+            }
+            const marke = blas.querySelector('.quiz-marke');
+            if (marke) { try { marke.remove(); } catch (e) {} }
+        }
+    } catch (_) {}
+}
+
 // Holt die naechste Quiz-Runde vom Server und zeigt sie. KEIN _quizAktiv-Guard:
 // diese Funktion ist die FORTSETZUNG innerhalb einer bereits laufenden Sitzung
 // (nach "weiter"/"Naechstes Bild"/"Keine Person drauf"). _quizAktiv bleibt true,
 // solange die Sitzung laeuft; nur der echte Neustart (quizStart) guardet.
 // Liefert true, wenn eine Runde angezeigt wurde; false, wenn Quiz zu Ende/Fehler.
 async function naechsteQuizRunde() {
+    raeumeQuizKopienAuf();  // verbrauchte Quiz-Karte(n): Bildkopie freigeben
     const warteblase = addMessage('', 'assistant');
     // Gleiche animierte Dreipunkt-Blase wie beim Agenten-Denken (siehe Typing-Indicator
     // weiter unten): zeigt "Quiz lädt" als pulsierende Bubble statt nacktem Text und wird
@@ -2817,12 +3104,12 @@ async function quizStart() {
     naechsteQuizRunde();
 }
 
-async function quizBeantwortenSilent(pfad, person, istNeu, rolle) {
+async function quizBeantwortenSilent(pfad, person, istNeu, rolle, beziehung, beschreibung) {
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bild_pfad: pfad, person: (person||'').trim(), ist_neu: !!istNeu, rolle: (rolle||'').trim() }),
+            body: JSON.stringify({ bild_pfad: pfad, person: (person||'').trim(), ist_neu: !!istNeu, rolle: (rolle||'').trim(), beziehung: (beziehung||'').trim(), beschreibung: (beschreibung||'').trim() }),
         });
         return await r.json();
     } catch (e) {
@@ -2830,12 +3117,12 @@ async function quizBeantwortenSilent(pfad, person, istNeu, rolle) {
     }
 }
 
-async function quizBeantworten(pfad, person, istNeu, rolle) {
+async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreibung) {
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || '') }),
+            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || ''), beziehung: (beziehung||''), beschreibung: (beschreibung||'') }),
         });
         const d = await r.json();
         const meldung = (d && d.ok)
@@ -2915,6 +3202,155 @@ async function referenzLoeschen(name, refId, btn) {
     } catch (e) { alert('Löschen fehlgeschlagen: ' + (e && e.message)); }
 }
 
+// PERSONEN-ANPASSUNGSMODUL: Katalog deiner Wissensdatenbank durchsuchbar
+// anzeigen, Rolle/Beziehung/Zusatzinfos je Person zuweisen/ändern/löschen,
+// und mit "mehr laden" auch grosse Listen handhabbar halten. Bildet die
+// Grundlage fuer die spaetere Foto-Sortierung (pCloud): Jede Person traegt
+// ihren Kontext (Rolle, Beziehung, Beschreibung, Referenzbilder/Jahre).
+// Speichert ueber POST /api/gesichter (legt an oder aktualisiert nach Name)
+// bzw. DELETE /api/gesichter/{name}.
+let _personenKatalog = [];   // letzter geladener Katalog (fuer Suche/Paging)
+
+function zeigePersonenVerwaltung() {
+    addMessage('🔎 **Personen-Katalog** – lade …', 'assistant');
+    _personenKatalog = [];
+    const panel = addMessage('', 'assistant');
+    (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/gesichter`);
+            const d = await res.json();
+            const personen = (d && d.personen) || [];
+            _personenKatalog = personen.slice();
+            panel.innerHTML = '';
+            if (!personen.length) {
+                panel.textContent = 'ℹ️ Noch keine Personen gespeichert. Sag „neue Person" im Quiz oder „neue person [Name]" im Chat.';
+                return;
+            }
+            // Suchfeld (filtert online ueber alle)
+            const suche = document.createElement('input');
+            suche.placeholder = '🔍 Person suchen …';
+            suche.style.cssText = 'width:100%;padding:8px;margin-bottom:6px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.9rem';
+            panel.appendChild(suche);
+            const counter = document.createElement('div');
+            counter.style.cssText = 'font-size:0.75rem;color:#9f9;margin:2px 0 6px';
+            counter.textContent = `👥 ${personen.length} Personen im Katalog (Basis fürs Foto-Sortieren in der Cloud).`;
+            panel.appendChild(counter);
+
+            const liste = document.createElement('div');
+            liste.style.cssText = 'margin-top:4px';
+            panel.appendChild(liste);
+
+            const LIMIT = 5;   // zuerst nur die 5 wahrscheinlichsten/ersten
+            let angezeigt = 0;
+            let _maxAngezeigt = LIMIT;   // inkrementelles Paging (5, 10, 15, …)
+
+            function zeichenlöschen(name, karte) {
+                if (typeof confirm === 'function' && !confirm(`Person '${name}' wirklich löschen?`)) return;
+                fetch(`${API_BASE}/api/gesichter/${encodeURIComponent(name)}`, { method: 'DELETE' })
+                    .then(r => r.json())
+                    .then(dd => {
+                        addMessage(dd && dd.status === 'deleted' ? `🗑 **${name}** entfernt.` : `⚠️ ${(dd && dd.detail) || 'Fehler'}`, 'assistant');
+                        karte.style.opacity = '0.35';
+                    })
+                    .catch(e => addMessage('⚠️ Löschen fehlgeschlagen: ' + (e && e.message), 'assistant'));
+            }
+
+            // Baut eine Personen-Karte mit Bearbeiten-Formular
+            function bauePersonKarte(p) {
+                const karte = document.createElement('div');
+                karte.style.cssText = 'margin:4px 0;padding:6px;border:1px solid #2e8b57;border-radius:8px;background:#0f1f14';
+                const name = (p.name || '').trim();
+                const head = document.createElement('div');
+                head.style.cssText = 'font-weight:700;font-size:0.9rem;color:#8f8';
+                head.textContent = `👤 ${name}` + (p.rolle ? ` · ${p.rolle}` : '') + (p.beziehung ? ` · ${p.beziehung}` : '');
+                karte.appendChild(head);
+                const meta = document.createElement('div');
+                meta.style.cssText = 'font-size:0.72rem;color:#888;margin-top:2px';
+                const jahre = (p.referenzen || []).filter(r => r && r.jahr).map(r => r.jahr).filter((v, i, a) => a.indexOf(v) === i).sort();
+                meta.textContent = (jahre.length ? `📅 ${jahre.join(', ')} · ` : '') + `${(p.referenzen || p.embedding || []).length} Referenz(en)`;
+                karte.appendChild(meta);
+
+                // Bearbeiten-Formular (Rolle/Beziehung/Beschreibung/Zusatzkontext)
+                const btn = macheQuizButton('✏️ Anpassen', 'akt', null);
+                const form = document.createElement('div');
+                form.style.display = 'none';
+                form.style.cssText = 'display:none;margin:6px 0;padding:8px;border:1px solid #2e8b57;border-radius:8px;background:#12251a';
+                const mk = (ph, val) => {
+                    const i = document.createElement('input');
+                    i.placeholder = ph; i.value = val || '';
+                    i.style.cssText = 'width:100%;padding:5px;margin-bottom:4px;border:1px solid #2e8b57;border-radius:6px;background:#0e1a14;color:inherit;font-size:0.8rem';
+                    return i;
+                };
+                const inpRolle = mk('Rolle / Beziehung (z. B. Bruder, Mutter)', p.rolle || '');
+                const inpBez = mk('Zusatzkontext (z. B. Cousin, Nachbar)', p.beziehung || '');
+                const inpBesch = mk('Beschreibung / Lebensinfos', p.beschreibung || '');
+                const speichern = macheQuizButton('✅ Speichern', 'akt', async () => {
+                    try {
+                        const r = await fetch(`${API_BASE}/api/gesichter`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, rolle: inpRolle.value.trim(), beziehung: inpBez.value.trim(), beschreibung: inpBesch.value.trim(), referenz_bild_pfad: p.referenz_bild_pfad || '' }),
+                        });
+                        const dd = await r.json();
+                        addMessage(dd && dd.person ? `✅ **${name}** aktualisiert.` : `⚠️ ${(dd && dd.fehler) || 'Fehler'}`, 'assistant');
+                        form.style.display = 'none';
+                    } catch (e) { addMessage('⚠️ Speichern fehlgeschlagen: ' + (e && e.message), 'assistant'); }
+                });
+                form.appendChild(inpRolle);
+                form.appendChild(inpBez);
+                form.appendChild(inpBesch);
+                form.appendChild(speichern);
+                btn.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
+                karte.appendChild(btn);
+                karte.appendChild(form);
+                // Loeschen
+                karte.appendChild(macheQuizButton('🗑', 'neu', () => zeichenlöschen(name, karte)));
+                // Miniatur (falls vorhanden)
+                const mini = p.referenz_bild_miniatur || p.miniatur || '';
+                if (mini) {
+                    const m = document.createElement('img');
+                    m.src = mini;
+                    m.style.cssText = 'max-width:64px;max-height:64px;border-radius:50%;border:2px solid #2e8b57;vertical-align:middle;margin-left:6px';
+                    karte.appendChild(m);
+                }
+                return karte;
+            }
+
+            function rendereListe() {
+                liste.innerHTML = '';
+                const q = (suche.value || '').trim().toLowerCase();
+                const gefilert = _personenKatalog.filter(p => {
+                    if (!q) return true;
+                    const hay = `${p.name || ''} ${p.rolle || ''} ${p.beziehung || ''} ${p.beschreibung || ''}`.toLowerCase();
+                    return hay.indexOf(q) !== -1;
+                });
+                angezeigt = 0;
+                const show = gefilert.slice(0, _maxAngezeigt);
+                show.forEach(p => { liste.appendChild(bauePersonKarte(p)); angezeigt++; });
+                // "mehr laden"-Knopf: naechste 5, bis alle da sind
+                if (gefilert.length > angezeigt) {
+                    const mehr = document.createElement('button');
+                    mehr.textContent = `↓ weitere laden (${_maxAngezeigt}/${gefilert.length})`;
+                    mehr.style.cssText = 'display:block;width:100%;margin:4px 0;padding:6px;border:1px dashed #2e8b57;border-radius:8px;background:transparent;color:#8f8;cursor:pointer;font-size:0.8rem';
+                    mehr.onclick = () => { _maxAngezeigt += LIMIT; rendereListe(); };
+                    liste.appendChild(mehr);
+                }
+                if (!show.length) {
+                    const leer = document.createElement('div');
+                    leer.style.cssText = 'font-size:0.8rem;color:#888;margin-top:6px;font-style:italic';
+                    leer.textContent = '– keine Person gefunden –';
+                    liste.appendChild(leer);
+                }
+            }
+
+            suche.addEventListener('input', () => { _maxAngezeigt = LIMIT; rendereListe(); });
+            rendereListe();
+            addMessage('💡 **Wissensdatenbank:** Der Katalog speichert zu jeder Person Referenzbilder + Aufnahmejahre. Nach dem Kontroll-Durchlauf kannst du Fotos später in der Cloud gezielt zuordnen/sortieren.', 'assistant');
+        } catch (e) {
+            panel.textContent = '⚠️ Katalog konnte nicht geladen werden: ' + (e && e.message);
+        }
+    })();
+}
+
 async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = false, forceAgent = false, ziel = '') {
     // QUIZ-KOMMANDO: "quiz starten", "anlernspiel", "lernspiel", "gesichtsspiel"
     if (text && typeof text === 'string') {
@@ -2949,6 +3385,14 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         if (t.indexOf('zeige referenzen') !== -1 || t.indexOf('referenzen anzeigen') !== -1
             || t === 'referenzen' || t.indexOf('referenz check') !== -1) {
             zeigeReferenzen();
+            return;
+        }
+        // PERSONEN-VERWALTUNG: Rollen/Namen/Infos anlegen/aendern/loeschen.
+        if (t === 'personen' || t === 'personenliste'
+            || t.indexOf('personen verwalten') !== -1 || t.indexOf('personen bearbeiten') !== -1
+            || t.indexOf('personen anzeigen') !== -1 || t.indexOf('personen manager') !== -1
+            || t.indexOf('person ändern') !== -1 || t.indexOf('person aendern') !== -1) {
+            zeigePersonenVerwaltung();
             return;
         }
     }
@@ -3638,6 +4082,98 @@ function stopRecording() {
         return;
     }
     sendAudioForTranscription(encodeWav(chunks, sampleRate));
+}
+
+// ── Spracheingabe fuer Formular-FELDER (Neue-Person-Zusatzkontext u. a.) ────
+// Wie die Chat-Zeile, aber unabhaengig: nimmt Audio auf und schreibt das
+// Transkript in das angegebene Text-Element (input/textarea). Nur EIN Feld kann
+// gleichzeitig aufnehmen; erneuter Tipp auf denselben Knopf stoppt.
+let _feldDiktatZiel = null;    // aktuell besprochenes Feld-Element
+let _feldDiktatBtn = null;     // dessen Mikrofon-Knopf
+async function starteFeldDiktat(zielElem, btn) {
+    if (_feldDiktatZiel) { stopFeldDiktat(); return; }   // laeuft schon -> stoppen
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        addMessage('⚠️ **Spracheingabe hier nicht möglich.** Mikrofon nur über `localhost` oder HTTPS. → App direkt auf `http://localhost:8080` öffnen.', 'assistant');
+        return;
+    }
+    try {
+        _feldDiktatZiel = zielElem;
+        _feldDiktatBtn = btn;
+        _feldDiktatPcm = [];
+        _feldDiktatAudioStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+        _feldDiktatCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (_feldDiktatCtx.state === 'suspended') await _feldDiktatCtx.resume();
+        await _feldDiktatCtx.audioWorklet.addModule('pcm-recorder.js');
+        const srcN = _feldDiktatCtx.createMediaStreamSource(_feldDiktatAudioStream);
+        const wk = new AudioWorkletNode(_feldDiktatCtx, 'pcm-recorder');
+        wk.port.onmessage = (event) => _feldDiktatPcm.push(event.data);
+        srcN.connect(wk);
+        wk.connect(_feldDiktatCtx.destination);
+        _feldDiktatTrackNode = wk;
+        if (btn) {
+            btn.style.background = '#c33'; btn.style.color = '#fff';
+            btn.textContent = '⬤ Aufnahme läuft…';
+        }
+    } catch (err) {
+        _feldDiktatRelease();
+        _feldDiktatZiel = null;
+        if (btn) { btn.textContent = '🎙'; btn.style.background = ''; }
+        addMessage('⚠️ **Mikrofon nicht verfügbar.** ' + (err && err.message ? err.message : ''), 'assistant');
+    }
+}
+let _feldDiktatPcm = [];
+let _feldDiktatAudioStream = null;
+let _feldDiktatCtx = null;
+let _feldDiktatTrackNode = null;
+function _feldDiktatRelease() {
+    try { if (_feldDiktatTrackNode) _feldDiktatTrackNode.disconnect(); } catch (e) {}
+    _feldDiktatTrackNode = null;
+    try { if (_feldDiktatAudioStream) _feldDiktatAudioStream.stop(); } catch (e) {}
+    _feldDiktatAudioStream = null;
+    try { if (_feldDiktatCtx) _feldDiktatCtx.close && _feldDiktatCtx.close(); } catch (e) {}
+    _feldDiktatCtx = null;
+}
+function stopFeldDiktat() {
+    const ziel = _feldDiktatZiel;
+    const btn = _feldDiktatBtn;
+    const sampleRate = _feldDiktatCtx ? _feldDiktatCtx.sampleRate : 48000;
+    const chunks = _feldDiktatPcm;
+    _feldDiktatPcm = [];
+    _feldDiktatRelease();
+    _feldDiktatZiel = null;
+    _feldDiktatBtn = null;
+    if (btn) { btn.textContent = '🎙'; btn.style.background = ''; }
+    if (!chunks.length || !ziel) return;
+    // Auf Transkription warten und ins ZIEL-Feld schreiben
+    transkribiereFeld(chunks, sampleRate, ziel);
+}
+async function transkribiereFeld(chunks, sampleRate, ziel) {
+    try {
+        const formData = new FormData();
+        formData.append('file', encodeWav(chunks, sampleRate), 'audio.wav');
+        const res = await fetch(`${API_BASE}/api/transcribe`, { method: 'POST', body: formData });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const txt = (typeof data.text === 'string' ? data.text.trim() : '');
+        if (txt && ziel) {
+            const alt = (ziel.value || '').trim();
+            ziel.value = alt ? alt + ' ' + txt : txt;   // ANHAENGEN an Bestehendes
+        }
+    } catch (e) {
+        addMessage('⚠️ **Feld-Spracherkennung fehlgeschlagen:** ' + (e && e.message), 'assistant');
+    }
+}
+// Kleiner Mikrofon-Knopf, der ein Textfeld zum Diktieren oeffnet (WhatsApp-artig).
+// Fuegt rechts neben dem Feld einen 🎙-Button hinzu.
+function fuegeFeldMikrofonHinzu(zielElem, container, mt) {
+    if (!zielElem || typeof navigator.mediaDevices === 'undefined') return;
+    const b = document.createElement('button');
+    b.textContent = '🎙';
+    b.title = mt || 'Diktieren';
+    b.type = 'button';
+    b.style.cssText = 'margin-left:4px;padding:2px 8px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.8rem;vertical-align:middle';
+    b.addEventListener('click', () => starteFeldDiktat(zielElem, b));
+    (container || (zielElem.parentNode || null)).appendChild(b);
 }
 
 dom.webBtn.addEventListener('click', () => setWebSearch(naechsterWebModus()));
@@ -4398,22 +4934,69 @@ async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
         const d = await res.json();
         const optionen = (d && d.personen || []).map(p => p.name).filter(Boolean);
         const uiV = (ui && ui.typ === 'quiz') ? ui : null;
+        // Eine Auswahl, in Reihenfolge der Vermutung: die vermutete Person zuerst,
+        // Rest danach. Keine doppelte Vermutungs-Box + volle Liste mehr (sonst
+        // redurndant). Die vermutete Person wird als erster Button hervorgehoben.
+        const vermutPerson = (uiV && uiV.vermutung && uiV.vermutung.person) || null;
+        let optionenGeordnet = (d && d.personen || []).map(p => p.name).filter(Boolean);
+        if (vermutPerson) {
+            // vermutete Person nach vorn ziehen (falls im Katalog vorhanden)
+            const index = optionenGeordnet.indexOf(vermutPerson);
+            if (index > 0) {
+                const [v] = optionenGeordnet.splice(index, 1);
+                optionenGeordnet.unshift(v);
+            }
+        }
         const leiste = document.createElement('div');
         leiste.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
-        const frage = document.createElement('div');
-        if (uiV && uiV.vermutung && uiV.vermutung.person) {
-            frage.textContent = `🤖 Vermutung: ${uiV.vermutung.person} (Sicherheit ${uiV.vermutung.sicherheit}) — richtig? /`;
+        // Erst NUR die Vermutung als Ja/Nein-Frage; die restliche Auswahl
+        // erscheint erst nach "Nein" (Sebastian: vermutete zuerst, Rest versteckt).
+        const auswahl = document.createElement('div');
+        auswahl.style.cssText = 'display:none;flex-wrap:wrap;gap:6px;margin-top:6px';
+        if (vermutPerson) {
+            const box = document.createElement('div');
+            box.style.cssText = 'padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a;flex-wrap:wrap;display:flex;gap:6px';
+            const txt = document.createElement('div');
+            txt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
+            txt.textContent = `🔎 Ist das ${vermutPerson}?`;
+            box.appendChild(txt);
+            // Ja -> direkt vermuten; Nein -> Auswahl zeigen
+            const ja = document.createElement('button');
+            ja.textContent = '✅ Ja';
+            ja.style.cssText = 'padding:6px 12px;border:1px solid #2e8b57;border-radius:8px;background:#2a5338;color:#9f9;cursor:pointer;font-size:0.82rem;font-weight:600';
+            ja.onclick = () => quizBeantworten(pfad, vermutPerson, false, '');
+            const nein = document.createElement('button');
+            nein.textContent = '❌ Nein';
+            nein.style.cssText = 'padding:6px 12px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.82rem;font-weight:600';
+            nein.onclick = () => {
+                box.style.display = 'none';
+                auswahl.style.display = 'flex';
+            };
+            box.appendChild(ja);
+            box.appendChild(nein);
+            // "Keine Person drauf" auch direkt in der ersten Ja/Nein-Ansicht,
+            // damit man ohne Umweg ueberspringen kann.
+            const keinPers = document.createElement('button');
+            keinPers.textContent = '🚫 Keine Person drauf';
+            keinPers.style.cssText = 'padding:5px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.8rem';
+            keinPers.onclick = () => quizUeberspringen(pfad);
+            box.appendChild(keinPers);
+            leiste.appendChild(box);
         }
-        frage.textContent += '🖊 Antwort wählen (oder unten eingeben):';
+        // Die geordnete Auswahl (ohne die vermutete Person, die war ja die Frage) —
+        // anfangs versteckt, erscheint erst nach "Nein".
+        const frage = document.createElement('div');
+        frage.textContent = 'Person wählen:';
         frage.style.cssText = 'font-size:0.82rem;color:#8f8;margin-bottom:4px';
-        leiste.appendChild(frage);
-        (optionen || []).forEach(o => {
+        auswahl.appendChild(frage);
+        (vermutPerson ? optionenGeordnet.filter(o => o !== vermutPerson) : optionenGeordnet).forEach(o => {
             const b = document.createElement('button');
             b.textContent = o;
             b.style.cssText = 'padding:6px 10px;border:1px solid #4a7;border-radius:8px;background:#1f3a2a;color:#8f8;cursor:pointer;font-size:0.82rem';
             b.onclick = () => quizBeantworten(pfad, o, false, '');
-            leiste.appendChild(b);
+            auswahl.appendChild(b);
         });
+        leiste.appendChild(auswahl);
         // "Andere Person" (fehlt in der Rekonstruktion des Screenshots) + eingebettetes Formular.
         const andere = document.createElement('button');
         andere.textContent = '➕ Andere Person';
@@ -4435,13 +5018,13 @@ async function wiederherstellenQuizAntworten(contentDiv, pfad, ui) {
         form.appendChild(inp);
         form.appendChild(speichern);
         andere.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
-        leiste.appendChild(andere);
-        leiste.appendChild(form);
+        auswahl.appendChild(andere);
+        auswahl.appendChild(form);
         const skip = document.createElement('button');
         skip.textContent = '🚫 Keine Person drauf';
         skip.style.cssText = 'padding:6px 10px;border:1px solid #888;border-radius:8px;background:#333;color:#ccc;cursor:pointer;font-size:0.82rem';
         skip.onclick = () => quizUeberspringen(pfad);
-        leiste.appendChild(skip);
+        auswahl.appendChild(skip);
         contentDiv.appendChild(leiste);
     } catch (_) { /* Rekonstruktion nicht moeglich: Text bleibt */ }
 }
@@ -4576,18 +5159,64 @@ async function zeigeGespraech(id) {
             const role = m.role === 'user' ? 'user' : 'assistant';
             // silent: während des Bündelns NICHT scrollen/pushen (s. addMessage)
             const contentDiv = addMessage(m.content || '', role, m.zeit || null, m.bild_pfad || undefined, { silent: true });
-            if (m.bild_pfad && (role === 'assistant' || role === 'user')) {
+            const istOffeneQuizFrage = (m.content || '').indexOf('[QUIZ-OFFEN]') !== -1 && m.bild_pfad;
+
+            // Die LETZTE offene Quiz-Frage wird NACH dem Aufbau mit der echten,
+            // sauberen Quiz-Karte versehen (proportionales Bild + gelber Rahmen in
+            // imgWrap). Das ist robuster als der ladeBildLazy-Wege, der das Bild
+            // in einen flachen rahmen-Div ohne relative Position steckt und dort
+            // den gelben bbox-Rahmen verrutschen liess / teils kein Bild zeigt.
+            const alsOffeneQuizKarte = istOffeneQuizFrage && istLetzteOffene;
+
+            if (m.bild_pfad && (role === 'assistant' || role === 'user') && !alsOffeneQuizKarte) {
                 ladeBildLazy(contentDiv, m.bild_pfad);
             }
-            if ((m.content || '').indexOf('[QUIZ-OFFEN]') !== -1 && m.bild_pfad) {
-                if (istLetzteOffene) {
-                    const cz = document.createElement('div');
-                    contentDiv.appendChild(cz);
-                    wiederherstellenQuizAntworten(cz, m.bild_pfad, m.ui);
-                    quizRahmenFuerBild(contentDiv, m.ui);
+
+            if (istOffeneQuizFrage) {
+                if (alsOffeneQuizKarte) {
+                    // Daten-URL holen und die interaktive Quiz-Karte (Bild + Rahmen
+                    // + Antworten) noninteraktiv-nachladen. Async nachladen, damit
+                    // der Chronik-Aufbau nicht blockiert.
+                    _baueOffeneQuizKarte(contentDiv, m);
                 }
             }
             return contentDiv;
+        }
+
+        // Laedt die offene Quiz-Karte (letzte offene Frage) mit dem sauberen
+        // zeigeQuizKarte-Pfad. Wird NACH dem Blasen-Aufbau aufgerufen, damit das
+        // Bild via data_url (proportional im imgWrap) + gelbem Rahmen erscheint.
+        async function _baueOffeneQuizKarte(contentDiv, m) {
+            try {
+                const pfad = m.bild_pfad;
+                if (!pfad) return;
+                // bekannte Personen für die Antwort-Chips holen
+                const gr = await fetch(`${API_BASE}/api/gesichter`);
+                const gd = await gr.json();
+                const optionen = (gd && gd.personen || []).map(p => p.name).filter(Boolean);
+                const ui = m.ui || null;
+                const vermutung = ui && ui.vermutung && ui.vermutung.person ? ui.vermutung : null;
+                const gesichterUi = (ui && ui.gesichter) || [];
+                // Daten-URL frisch laden (nicht persistiert, in-memory)
+                const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
+                const dd = await dr.json();
+                const dataUrl = (dd && dd.data_url) || '';
+                if (!dataUrl) {
+                    const fehlt = document.createElement('div');
+                    fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                    fehlt.textContent = '🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).';
+                    contentDiv.appendChild(fehlt);
+                    return;
+                }
+                // In die BESTEHENDE Blase bauen (zielContainer), keine neue Karte.
+                zeigeQuizKarte(pfad, ui && ui.name || '', dataUrl, optionen, vermutung, gesichterUi.length, [], gesichterUi, contentDiv);
+            } catch (e) {
+                // Fehlschlag sanft melden (Bild bleibt Textblase)
+                const fehlt = document.createElement('div');
+                fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                fehlt.textContent = '🖼 Quiz-Bild nicht ladbar (gelöscht/verschoben).';
+                contentDiv.appendChild(fehlt);
+            }
         }
 
         /** Hängt den „Ältere Nachrichten laden“-Knopf ganz oben ein (falls

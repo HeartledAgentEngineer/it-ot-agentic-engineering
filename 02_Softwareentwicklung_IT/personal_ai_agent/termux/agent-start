@@ -30,15 +30,38 @@ HIER="$(cd "$(dirname "$skript")" && pwd)"
 # Achtung: pkill matcht auch diesen Wrapper; deshalb wird der eigene
 # Shell-Prozess ausgeschlossen (grep -v).
 _pkill_server() {
-    # Alle uvicorn-Prozesse (Python) sicher stoppen, nicht den eigenen
-    # bash-Wrapper.
+    # Exklusive Lock-Datei (NUR fuer die Kill-/Start-Phase): verhindert, dass
+    # ZWEI agent-start PARALLEL killen/starten. Ohne Lock wuerde ein zweiter
+    # Aufruf den gerade gestarteten Server des ersten (pkill -f uvicorn) toeten
+    # -> "Killed / [Process completed (code 137)]" direkt nach dem Start.
+    # Die Lock wird nach erfolgreichem Start wieder entfernt (siehe unten),
+    # damit der naechste BEWUSSTE Neustart via Widget wieder moeglich ist.
+    _LOCK="$PROJEKT/termux/.agent-start.lock"
+    if ! mkdir "$_LOCK" 2>/dev/null; then
+        melde "⚠️  Ein agent-start laeuft noch (Neustart laeuft). Einen Moment warten."
+        exit 0
+    fi
+
+    # 1) Alle alten uvicorn-/Server-Prozesse hart stoppen.
     pkill -9 -f "uvicorn app.main:app" 2>/dev/null
     pkill -9 -f "python -m uvicorn" 2>/dev/null
     pgrep -f "uvicorn" | while read -r _pid; do
         [ "$_pid" != "$$" ] && kill -9 "$_pid" 2>/dev/null
     done
-    # Kurz warten, damit der Port wirklich frei wird, bevor neu gestartet wird.
-    sleep 2
+
+    # 2) Auch den Inbox-Daemon beenden, damit er frisch (mit aktuellem Code)
+    #    startet und keine veraltete Instanz/Sperre auf die Verlaufsdatei haelt.
+    pkill -9 -f "hermes_inbox_daemon.py" 2>/dev/null
+
+    # 3) Warten, bis der Port WIRKLICH frei ist (nicht nur pausieren), damit
+    #    kein "address already in use" beim frischen Start hochkommt.
+    for _ in $(seq 1 15); do
+        if ! pgrep -f "uvicorn" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.5
+    done
+    sleep 1
 }
 _pkill_server
 
@@ -109,6 +132,12 @@ if [ "$bereit" = "1" ]; then
 else
     melde "Server kam nicht hoch – Meldung steht im Terminal"
 fi
+
+# Lock nach der Start-/Kill-Phase wieder freigeben: Der Neustart ist fertig,
+# ein weiterer bewusster Neustart via Widget muss wieder moeglich sein. Die
+# Race (zweites parallel laufendes agent-start) ist damit nur waehrend des
+# Kill/Starts geschuetzt, nicht waehrend des normalen Server-Betriebs.
+rm -rf "$_LOCK" 2>/dev/null
 
 # Haelt das Skript am Leben, solange der Server laeuft. Ohne das wuerde
 # die Widget-Session enden und den Server mitnehmen.

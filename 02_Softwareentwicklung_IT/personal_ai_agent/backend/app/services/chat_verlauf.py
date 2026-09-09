@@ -360,8 +360,14 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str,
     Returns: Anzahl neuer Erinnerungen (0, wenn kein Extractor injiziert oder
     die Extraktion fehlschlägt).
     """
+    # WICHTIG (2026-09-09, Sebastians Datenverlust): Auch bei LEERER Antwort
+    # wird die User-Eingabe Dauerhaft gespeichert. Vorher (if not reply: return)
+    # ging eine an Hermes geschickte Nachricht ohne Antwort verloren -> beim
+    # Serverneustart waren die letzten Coding-/Quiz-Eingaben weg. Bei leerer
+    # reply wird als Assistant-Eintrag ein Platzhalter gesetzt, damit der
+    # Austausch persistiert bleibt und spaeter erganzt werden kann.
     if not reply:
-        return 0
+        reply = "⏳ (noch keine Antwort; Auftrag laeuft/beendet ohne Ergebnis)"
     history = conversations[conversation_id]
     with _verlauf_sperre:
         jetzt = datetime.now().astimezone().isoformat(timespec="seconds")

@@ -59,3 +59,4 @@ npm-debug.log*
 docker-compose.yml
 # Lokale Face-ONNX-Modelle (aus OpenCV Zoo, gross; werden lokal gehalten)
 ml_models/
+*.log

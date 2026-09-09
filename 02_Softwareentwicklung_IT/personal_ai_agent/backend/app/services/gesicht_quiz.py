@@ -156,7 +156,29 @@ def _erkannte_personen_bildes(bild_pfad, gesichter=None):
         for i, g in enumerate(gesichter):
             emb = g.get("embedding")
             bbox = g.get("bbox") or []
-            gesicht_boxen.append({"index": i, "bbox": bbox})
+            # Pro Gesicht eine Vermutung ableiten: erst ein sicherer Treffer,
+            # sonst der beste unsichere (Name + Sicherheitsstufe). So kann das
+            # Frontend bei JEDEM Gesicht eine "Ist das X?"-Ja/Nein-Frage stellen,
+            # statt nur die Namens-Chips zu zeigen.
+            vermut = None
+            if emb:
+                try:
+                    treffer = face_service.erkenne_personen(emb)
+                except Exception:
+                    treffer = []
+                bester_unsicher = None
+                for t in treffer:
+                    name = t.get("name")
+                    if not name:
+                        continue
+                    if t.get("sicher"):
+                        vermut = {"person": name, "sicherheit": "hoch"}
+                        break
+                    if bester_unsicher is None:
+                        bester_unsicher = {"person": name, "sicherheit": "mittel"}
+                if vermut is None and bester_unsicher:
+                    vermut = bester_unsicher
+            gesicht_boxen.append({"index": i, "bbox": bbox, "vermutung": vermut})
             if not emb:
                 continue
             treffer = face_service.erkenne_personen(emb)
@@ -315,10 +337,13 @@ def start_runde(ausgeschlossen=None):
     return runde
 
 
-def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""):
+def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = "",
+                     beziehung: str = "", beschreibung: str = ""):
     from app.services import face_service, gesichter_service
     name = (person or "").strip()
     rolle = (rolle or "").strip()
+    beziehung = (beziehung or "").strip()
+    beschreibung = (beschreibung or "").strip()
     if not name:
         return {"ok": False, "fehler": "keine Person angegeben"}
     if not bild_pfad or not os.path.exists(bild_pfad):
@@ -347,7 +372,9 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
 
     neue_ref = {"embedding": dom["embedding"], "jahr": jahr}
     if vorhanden is None:
-        gesichter_service.person_speichern(name=name, rolle=rolle, referenzen=[neue_ref])
+        gesichter_service.person_speichern(name=name, rolle=rolle,
+                                           beziehung=beziehung, beschreibung=beschreibung,
+                                           referenzen=[neue_ref])
         neu = True
         referenzen = 1
     else:

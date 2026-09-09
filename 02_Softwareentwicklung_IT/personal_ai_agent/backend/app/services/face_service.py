@@ -113,7 +113,7 @@ def embeddings_fuer_pfad(pfad: str) -> List[dict]:
         return []
     if not b64:
         return []
-    res = _infer({"op": "embed", "bild_base64": b64, "max_faces": 4})
+    res = _infer({"op": "embed", "bild_base64": b64, "max_faces": 8})
     if not res.get("ok"):
         logger.warning("Gesichts-Erkennung fehlgeschlagen: %s", res.get("fehler"))
         return []
