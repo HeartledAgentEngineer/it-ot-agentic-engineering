@@ -25,9 +25,49 @@ LOGFILE="$PROJEKT/termux/nacht-job.log"
 PIDFILE="$PROJEKT/termux/.nacht-job.lock"
 
 VERBOSE=0
-[ "${1:-}" = "--verbose" ] && VERBOSE=1
+DRYRUN=0
+for a in "$@"; do
+  [ "$a" = "--verbose" ] && VERBOSE=1
+  [ "$a" = "--dryrun" ] && DRYRUN=1
+done
+if [ "$DRYRUN" = "1" ]; then
+    log "=== DRYN-RUN: Nur Schritt 1+3 (Kein Inbox-Schreiben, kein Commit) ==="
+fi
 
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOGFILE"; }
+
+# ---------------------------------------------------------------------------
+# API-Key (X-API-Key) wie das Frontend holen: serverseitig aus /api/konfig
+# (öffentlich, derselbe Weg wie <script src="api/konfig">). Der Key bleibt nur
+# in einer Shell-Variable, wird nie geloggt/gedruckt.
+# ---------------------------------------------------------------------------
+APIKEY=""
+_api_key() {
+    if [ -z "$APIKEY" ]; then
+        APIKEY=$(curl -s --max-time 3 http://127.0.0.1:8080/api/konfig 2>/dev/null \
+            | python3 -c "import re,sys; m=re.search(r'__API_KEY__\s*=\s*[\"\x27]([^\"\x27]*)[\"\x27]', sys.stdin.read()); print(m.group(1) if m else '')" 2>/dev/null)
+    fi
+}
+# GET /api/... -> stdout (JSON)
+api_get() {
+    _api_key
+    if [ -n "$APIKEY" ]; then
+        curl -s --max-time 6 -H "X-API-Key: $APIKEY" "http://127.0.0.1:8080$1"
+    else
+        curl -s --max-time 6 "http://127.0.0.1:8080$1"
+    fi
+}
+# POST /api/...  body -> stdout
+api_post() { # $1=pfad  $2=json-body
+    _api_key
+    if [ -n "$APIKEY" ]; then
+        curl -s --max-time 6 -X POST -H "X-API-Key: $APIKEY" -H "Content-Type: application/json" \
+            -d "$2" "http://127.0.0.1:8080$1"
+    else
+        curl -s --max-time 6 -X POST -H "Content-Type: application/json" \
+            -d "$2" "http://127.0.0.1:8080$1"
+    fi
+}
 
 # ---------------------------------------------------------------------------
 # 0) Exklusiv-Lock: nie zwei Nachtläufe parallel
@@ -61,33 +101,19 @@ if ! curl -s --max-time 3 http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3) Auftrag wählen: Ersten offenen Programmier-Auftrag, der noch NICHT
-#    umgesetzt ist (Filter: kein Test/erledigt, git-check auf einschlägigen Commit).
-#    Nutzt intern die Auftrags-API; löscht nichts.
+# 3) Auftrag wählen: Ersten plausiblen Programmier-Auftrag (status in
+#    offen/laeuft/fehler), kein Test/Cron. Der Agent prüft selbst, ob er schon
+#    umgesetzt ist. löscht nichts; holt Liste via API (mit Key aus api/konfig).
 # ---------------------------------------------------------------------------
-WAHL=$(python3 - <<'PY' 2>/dev/null
-import json, subprocess, sys
-try:
-    import urllib.request
-    req = urllib.request.Request("http://127.0.0.1:8080/api/auftraege")
-    d = json.load(urllib.request.urlopen(req, timeout=5))
-except Exception as e:
-    sys.exit("API_FAIL")
-jobs = d.get("auftraege", []) if isinstance(d, dict) else d
-AUSSCHLUSS = ("test","cron","messung","messtest","beispiel")
-def ist_coding(txt):
-    t = (txt or "").lower()
-    if any(w in t for w in AUSSCHLUSS): return False
-    return any(k in t for k in ("api","endpoint","ui","frontend","backend","seite",".py","fehler","fix","feat","programm","datenbank","chat","upload","quiz","modell","datei","gesicht"))
-for j in jobs:
-    if j.get("status") not in ("offen", "laeuft", "fehler"): continue
-    txt = j.get("auftrag","")
-    if not ist_coding(txt): continue
-    print(json.dumps({"id": j.get("id"), "auftrag": txt[:300], "status": j.get("status")}))
-    sys.exit(0)
-sys.exit("NONE")
-PY
-)
+AUFTRAGE_JSON="$(api_get '/api/auftraege?limit=200')"
+if [ -z "$AUFTRAGE_JSON" ]; then
+    log "API lieferte keine Auftrags-Liste (Server evtl. ohne Key/kein Content). Fertig."
+    exit 0
+fi
+TMPLIST="$PROJEKT/termux/.nacht-list.json"
+printf '%s' "$AUFTRAGE_JSON" > "$TMPLIST"
+WAHL=$(python3 "$PROJEKT/termux/_nacht_waehlen.py" "$TMPLIST" 2>/dev/null)
+rm -f "$TMPLIST"
 if [ "$WAHL" = "NONE" ] || [ "$WAHL" = "API_FAIL" ] || [ -z "$WAHL" ]; then
     log "Kein passender offener Programmier-Auftrag (oder API-Fehler). Fertig."
     exit 0
@@ -95,6 +121,16 @@ fi
 JOB_ID=$(echo "$WAHL" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 JOB_TEXT=$(echo "$WAHL" | python3 -c "import json,sys; print(json.load(sys.stdin)['auftrag'])")
 log "Gewählter Auftrag: ${JOB_ID:0:8} | ${JOB_TEXT:0:60}"
+
+# ---------------------------------------------------------------
+# DRY-RUN: Wahl wurde getroffen -> verkürzt, ohne Nebenwirkungen.
+# So kann der Ablauf (Health-Check, Auswahl) sicher getestet werden,
+# OHNE in die Inbox zu schreiben, den Agenten zu starten oder zu committen.
+# ---------------------------------------------------------------
+if [ "$DRYRUN" = "1" ]; then
+    log "DRY-RUN: Abbruch nach Auftragswahl (kein Inbox/Commit). Naechster echter Lauf wuerde ${JOB_ID:0:8} an den Agenten geben."
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # 4) Inbox-Payload bauen: Coding-Agent + Gemini-Vision-Bildlesen aktivieren.
@@ -161,11 +197,9 @@ if ! git diff --quiet; then
         || log "Hinweis: nichts zu committen oder Commit fehlgeschlagen."
 fi
 
-# Ergebnis ins Buch schreiben (erfolg=true)
+# Ergebnis ins Buch schreiben (erfolg=true) — via api_post (setzt X-API-Key)
 ERGEBNIS_ESC=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "Autonom bearbeitet: ${ERGEBNIS}")
-curl -s --max-time 5 -X POST "http://127.0.0.1:8080/api/auftraege/${JOB_ID}/ergebnis" \
-    -H "Content-Type: application/json" \
-    -d "{\"ergebnis\": $ERGEBNIS_ESC, \"erfolg\": true}" >/dev/null 2>&1 \
+api_post "/api/auftraege/${JOB_ID}/ergebnis" "{\"ergebnis\": $ERGEBNIS_ESC, \"erfolg\": true}" >/dev/null 2>&1 \
     && log "Auftrag ${JOB_ID:0:8} als fertig markiert." \
     || log "WARNUNG: Ergebnis-Eintrag fehlgeschlagen."
 
