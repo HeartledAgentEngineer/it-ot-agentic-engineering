@@ -258,6 +258,7 @@ def referenzen_auflisten() -> dict:
                 "ref_id": _ref_id(r.get("embedding")),
                 "index": idx,
                 "jahr": r.get("jahr"),
+                "bild_pfad": r.get("bild_pfad", ""),   # Ursprungsbild (falls vorhanden)
             })
         erg.append({
             "name": p.get("name"),

@@ -3556,6 +3556,61 @@ function zeigePersonenVerwaltung() {
                     m.style.cssText = 'max-width:64px;max-height:64px;border-radius:50%;border:2px solid #2e8b57;vertical-align:middle;margin-left:6px';
                     karte.appendChild(m);
                 }
+                // --- Referenz-Bilder ansehen / einzelne ausschließen (Wunsch
+                //     Sebastian 2026-09-09): Bild-Referenzen sichtbar machen und
+                //     aus dem Embedding nachträglich ausschließen ---
+                const refBtn = macheQuizButton('🖼 Referenzen ansehen/löschen', 'skip', null);
+                refBtn.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+                karte.appendChild(refBtn);
+                const refBox = document.createElement('div');
+                refBox.style.display = 'none';
+                refBox.style.cssText = 'display:none;margin:6px 0;padding:8px;border:1px solid #2e8b57;border-radius:8px;background:#0f1f14';
+                refBtn.onclick = async () => {
+                    const offen = refBox.style.display !== 'none';
+                    refBox.style.display = offen ? 'none' : 'block';
+                    if (offen) return;
+                    refBox.innerHTML = '';
+                    refBox.textContent = '… lade Referenzen …';
+                    try {
+                        const rr = await fetch(`${API_BASE}/api/gesichter/referenzen`);
+                        const rd = await rr.json();
+                        const personRefs = (rd && rd.personen || []).find(pd => (pd.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+                        refBox.innerHTML = '';
+                        if (!personRefs || !personRefs.referenzen || !personRefs.referenzen.length) {
+                            refBox.textContent = '– keine Einzel-Referenzen –';
+                            return;
+                        }
+                        for (const r of personRefs.referenzen) {
+                            const z = document.createElement('div');
+                            z.style.cssText = 'display:flex;align-items:center;gap:6px;margin:3px 0';
+                            const jahrTxt = document.createElement('span');
+                            jahrTxt.textContent = `#{${r.index}} · ${r.jahr || 'Jahr unbekannt'}`;
+                            z.appendChild(jahrTxt);
+                            // Bildvorschau via /api/dateien/daten (falls bild_pfad da)
+                            if (r.bild_pfad) {
+                                try {
+                                    const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(r.bild_pfad)}`);
+                                    const dd = await dr.json();
+                                    if (dd && dd.data_url) {
+                                        const im = document.createElement('img');
+                                        im.src = dd.data_url;
+                                        im.style.cssText = 'max-width:54px;max-height:54px;border-radius:6px;border:1px solid #4a7;vertical-align:middle;margin-left:4px';
+                                        z.insertBefore(im, z.children[1]);
+                                    }
+                                } catch (_e) {}
+                            }
+                            const del = document.createElement('button');
+                            del.textContent = '✕ ausschließen';
+                            del.style.cssText = 'padding:2px 8px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.72rem';
+                            del.onclick = () => referenzLoeschen(name, r.ref_id, del);
+                            z.appendChild(del);
+                            refBox.appendChild(z);
+                        }
+                    } catch (e2) {
+                        refBox.textContent = '⚠️ Referenzen laden fehlgeschlagen: ' + (e2 && e2.message);
+                    }
+                };
+                karte.appendChild(refBox);
                 return karte;
             }
 

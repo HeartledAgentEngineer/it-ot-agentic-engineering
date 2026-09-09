@@ -93,6 +93,19 @@
   Chatblase darunter (`naechsteQuizRunde`).
 - Cache-Bust: `app.js?v=20260909dT`.
 
+## Personen-Verzeichnis: Bild-Referenzen ansehen & ausschließen (Stand 2026-09-09)
+
+- **Backend:** Jede Referenz speichert jetzt auch `bild_pfad` (das
+  Ursprungsbild, `beantworte_runde.neue_ref`). `referenzen_auflisten` gibt
+  pro Referenz `bild_pfad` aus, damit das Frontend das Bild laden kann.
+- **Frontend:** In `zeigePersonenVerwaltung` hat jede Person-Karte jetzt
+  „🖼 Referenzen ansehen/löschen" — klappt die Einzel-Referenzen auf
+  (Index + Aufnahmejahr + Bildvorschau via `/api/dateien/daten`) mit je
+  einem „✕ ausschließen"-Button, der die Referenz aus dem Embedding der
+  Person entfernt (`referenzLoeschen`). So kann man falsch gelernte
+  Bild-Referenzen nachträglich aus der Erkennung nehmen.
+- Cache-Bust: `app.js?v=20260909eU`.
+
 ## Verifikation
 
 - `node --check frontend/app.js` → OK (Exit 0).

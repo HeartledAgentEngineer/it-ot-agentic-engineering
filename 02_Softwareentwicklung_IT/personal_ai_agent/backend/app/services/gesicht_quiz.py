@@ -400,7 +400,7 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     except Exception:
         jahr = None
 
-    neue_ref = {"embedding": dom["embedding"], "jahr": jahr}
+    neue_ref = {"embedding": dom["embedding"], "jahr": jahr, "bild_pfad": bild_pfad}
     if vorhanden is None:
         gesichter_service.person_speichern(name=name, rolle=rolle,
                                            beziehung=beziehung, beschreibung=beschreibung,
