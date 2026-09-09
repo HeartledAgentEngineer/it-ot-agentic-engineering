@@ -2652,6 +2652,11 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     // Gruppenbild (>=2 Gesichter): jedes Gesicht einzeln markieren + beschriften.
     const gs = gesichter || [];
     let idx = 0;
+    // Bereits gestellte Vermutungen dieses BILDES: dieselbe Person nur EINMAL
+    // fragen (Stand 2026-09-09, Auftrag Sebastian). Sonst erscheint bei
+    // zwei Gesichts-Boxen derselben Person die Frage doppelt — und eine
+    // falsche Vermutung (lockere Erkennungsschwelle) verwirrt doppelt.
+    const geseheneVermutungen = new Set();
     const umbruch = document.createElement('div');
     umbruch.style.cssText = 'margin-top:8px;padding:10px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14';
     karte.appendChild(umbruch);
@@ -2675,17 +2680,31 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     function zeigeVermutungsFrage() {
         const g = gs[idx] || {};
         const vm = g.vermutung || null;
-        if (!vm || !vm.person) { zeigeAntwortZeile(); return; }
+        // Keine Vermutung ODER diese Person wurde bei einem früheren Gesicht
+        // dieses Bildes schon gefragt -> direkt zur Antwortauswahl, statt die
+        // Frage doppelt/wiederholt zu stellen (Stand 2026-09-09, Auftrag
+        // Sebastian: "Ist das Eileen?" erschien mehrfach + falsch).
+        if (!vm || !vm.person || geseheneVermutungen.has(vm.person)) {
+            zeigeAntwortZeile();
+            return;
+        }
+        geseheneVermutungen.add(vm.person);
+        baueVermutungsBox(vm);
+    }
+        // Baut die "Ist das X?"-Ja/Nein-Box für eine Vermutung und zeigt sie.
+    // Pro Bild wird jede vermutete Person nur EINMAL gefragt (Set oben);
+    // nach "Nein" klappt die Antwortauswahl auf (zeigeAntwortZeile).
+    function baueVermutungsBox(v) {
         const box = document.createElement('div');
         box.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
-        const sh = vm.sicherheit || '';
+        const sh = (v.sicherheit || '');
         const txt = document.createElement('div');
         txt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
-        txt.textContent = `🔎 Ist das ${vm.person}?` + (sh ? ` (Sicherheit: ${sh})` : '');
+        txt.textContent = `🔎 Ist das ${v.person}?` + (sh ? ` (Sicherheit: ${sh})` : '');
         box.appendChild(txt);
         const zeile = document.createElement('div');
         zeile.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => antworten(vm.person, false, false)));
+        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => antworten(v.person, false, false)));
         zeile.appendChild(macheQuizButton('❌ Nein', 'neu', () => {
             box.remove();
             zeigeAntwortZeile();
@@ -3472,9 +3491,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         return;
     }
 
-    // Leere Blase anlegen, die sich während des Streams füllt.
-    // Seit v20260817: Typing-Indicator (drei Punkte) direkt in der Blase,
-    // nicht mehr im separaten #loading-Bereich.
+    // Leere Blase anlegen, die sich während des Streams füllt. KEINE eigene
+    // "Denke nach..."-Animation hier drin: der Lade-/Arbeitsschritt läuft in
+    // der unteren #loading-Bubble (setzeTutZeile → "Agent liest…" +
+    // setLoading). So gibt es statt zwei konkurrierender Ladeanzeigen nur
+    // EINE (Stand 2026-09-09, Auftrag Sebastian).
     const contentDiv = addMessage('', 'assistant');
     // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
     // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
@@ -3482,14 +3503,6 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Abbruchlogik. Auch die Hermes-Zwischenmeldungen tragen seit 2026-09-06
     // keinen eigenen Abbruch-Knopf mehr (schon vorhanden, brichAb deckt den
     // laufenden Hermes-Auftrag ab).
-    contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">Denke nach...</span>';
-    // In der Coding-/Hermes-Ansicht (conv_code) die statische "Denke nach..."-
-    // Blase NICHT zeigen: dort liefert Hermes ohnehin Live-Zwischenmeldungen
-    // (Track C) als eigene Blasen, die den laufenden Zustand bereits abbilden.
-    // Stand 2026-09-06 (Auftrag Sebastian) – "immer und überall" unnötig.
-    if (state.conversationId === 'conv_code') {
-        contentDiv.innerHTML = '';
-    }
     const entry = state.messages[state.messages.length - 1];
     _auftragStreckeDirekt = false;   // pro Nachricht neu entscheiden
 

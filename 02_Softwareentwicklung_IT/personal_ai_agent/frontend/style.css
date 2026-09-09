@@ -352,7 +352,11 @@ body {
 }
 
 /* =========================================
-   Loading Indicator (unused, kept for safety)
+   Loading Indicator — UNTERE animierte Ladebubble
+   (aktiv genutzt: setzeTutZeile/setLoading in app.js schreiben den
+   Arbeitsschritt-Text hier rein und blenden sie ein/aus. Einzige
+   Ladeanzeige seit 2026-09-09 — kein zweiter Indikator in der
+   Assistenten-Blase mehr.)
    ========================================= */
 
 #loading {
