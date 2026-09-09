@@ -73,6 +73,26 @@
   `beschreibung`-Wert beim Speichern erhalten (kein Datenverlust).
 - Cache-Bust: `app.js?v=20260909bR`.
 
+## Vollbild-Gesichts-Editor + Bildunterschrift (Stand 2026-09-09, Folgewünsche)
+
+- **Vollbild-Rahmen bearbeitbar (Bezug Backend bbox):** Die gelben
+  Gesicht-Rahmen im Vollbild sind antippbar, mit dem Finger verschiebbar und
+  per „✕"-Markierung löschbar. Änderungen sammeln sich flüchtig in
+  `_quizEditor.bbox_live` (Original-Pixel) und werden beim Antworten
+  (`quizBeantworten`/`quizBeantwortenSilent`, mit bbox) an
+  `POST /api/gesichter/quiz/antwort` gesendet.
+- **Backend bbox-Unterstuetzung:** `beantworte_runde(..., bbox=None)` wählt
+  das Gesicht, dessen Rahmen am stärksten mit der (korrigierten) bbox
+  überlappt (IoU, `_gesicht_zu_bbox`) statt blind das dominante. So landet
+  die Referenz am richtig nachjustierten Gesicht und die Erkennung wird
+  sauberer. Router `QuizAntwortBody.bbox: list = []` durchgestellt.
+- **Bildunterschrift statt nacktem Text:** Nach Beantwortung wird die Karte
+  zum Bild + „… das ist [Person]" (Einzelbild) bzw. „… das ist Person1,
+  Person2" (Gruppenbild, gesammelte Personen). Die Buttons (Menü/Beenden)
+  verschwinden — überflüssig. Die nächste Quizrunde kommt als NEUE
+  Chatblase darunter (`naechsteQuizRunde`).
+- Cache-Bust: `app.js?v=20260909dT`.
+
 ## Verifikation
 
 - `node --check frontend/app.js` → OK (Exit 0).

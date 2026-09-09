@@ -2558,11 +2558,32 @@ function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx) {
 // Bild selbst zoomt NICHT sofort zu (kein Button-Overlay). Geschlossen wird
 // ueber das X oben rechts oder Tipp auf den dunklen Rand.
 let _quizVollbild = null;
+// RAM-Editor-Zustand: vom Nutzer im Vollbild korrigierte Gesichts-Boxen
+// (Wunsch Sebastian 2026-09-09: Rahmen antippen/verschieben/löschen). Die
+// bbox-Werte (in Original-Pixeln) liest die Antwort-Logik (quizBeantworten /
+// antworten) beim Senden aus, damit das korrigierte Gesicht ans Backend
+// geht und die Erkennung sauberer wird. NUR im Arbeitsspeicher flüchtig.
+let _quizEditor = null;   // { muenzen_bools: [], bbox_live: [[x,y,w,h], ...] }
 function zeigeBildVollbild(imgEl, gesichter) {
     if (!imgEl) return;
     const src = imgEl.src || (imgEl.getAttribute && imgEl.getAttribute('src')) || '';
     if (!src) return;
     if (_quizVollbild) { schliesseBildVollbild(); return; }
+    // Editor-Initialisierung an den aktuellen Gesichten (nur falls nicht
+    // schon ein laufender Editor existiert — beim erneuten Oeffnen fundiert).
+    if (!_quizEditor) {
+        _quizEditor = { bbox_live: [] };
+    }
+    if (gesichter && gesichter.length) {
+        const vor = _quizEditor.bbox_live || [];
+        const neu = [];
+        for (let i = 0; i < gesichter.length; i++) {
+            if (i < vor.length && vor[i] === null) { neu.push(null); continue; }  // geloescht bleibt geloescht
+            if (i < vor.length && Array.isArray(vor[i]) && vor[i].length >= 4) { neu.push(vor[i]); continue; }  // live-Aenderung
+            neu.push(gesichter[i].bbox || []);
+        }
+        _quizEditor.bbox_live = neu;
+    }
     const ov = document.createElement('div');
     _quizVollbild = ov;
     ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.93);z-index:99998;display:flex;align-items:center;justify-content:center;flex-direction:column;animation:fadeIn 0.2s ease';
@@ -2581,22 +2602,77 @@ function zeigeBildVollbild(imgEl, gesichter) {
     wrap.appendChild(big);
     ov.appendChild(x);
     ov.appendChild(wrap);
-    // gelbe Gesicht-Rahmen ins Vollbild uebertragen (falls Gesichter uebergeben)
+    // Korrigierbare Gesicht-Rahmen ins Vollbild (Wunsch Sebastian 2026-09-09):
+    // jeder Rahmen antippbar -> Auswahl + Loeschen; mit Finger verschiebbar
+    // (Drag). Die Positionen speichern live in `_quizEditor.bbox_live`
+    // (Original-Pixel), damit die Antwort-Logik das korrigierte Gesicht an
+    // das Backend melden kann (fuehrt zu saubererer Erkennung).
     try {
         if (gesichter && gesichter.length) {
             big.addEventListener('load', () => {
-                for (const g of gesichter) {
-                    if (!g.bbox || g.bbox.length < 4) continue;
-                    const r = document.createElement('div');
-                    r.style.cssText = 'position:absolute;border:2px solid #ff6;pointer-events:none;z-index:6;box-sizing:border-box';
-                    const iw = big.naturalWidth || 0, ih = big.naturalHeight || 0;
-                    if (!iw || !ih) return;
-                    r.style.left = (g.bbox[0] / iw * 100) + '%';
-                    r.style.top = (g.bbox[1] / ih * 100) + '%';
-                    r.style.width = (g.bbox[2] / iw * 100) + '%';
-                    r.style.height = (g.bbox[3] / ih * 100) + '%';
-                    wrap.appendChild(r);
+                var iw = big.naturalWidth || 0, ih = big.naturalHeight || 0;
+                if (!iw || !ih) return;
+                var sel = -1;
+                var rahmenEls = [];
+                for (var i = 0; i < gesichter.length; i++) {
+                    var re = document.createElement('div');
+                    re.setAttribute('data-frei', String(i));
+                    re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none';
+                    var marke = document.createElement('div');
+                    marke.style.cssText = 'position:absolute;top:-18px;right:-14px;width:20px;height:20px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+                    marke.textContent = '✕';
+                    marke.addEventListener('click', function(ev, idx){ ev.stopPropagation(); _quizEditor.bbox_live[idx] = null; resync(); }); 
+                    re.appendChild(marke);
+                    wrap.appendChild(re);
+                    rahmenEls.push(re);
                 }
+                // Positionen einmal setzen
+                function resync() {
+                    var bboxes = _quizEditor.bbox_live || [];
+                    for (var i = 0; i < rahmenEls.length; i++) {
+                        var b = bboxes[i] || [];
+                        var el = rahmenEls[i];
+                        if (!b || b.length < 4) { el.style.display = 'none'; continue; }
+                        el.style.display = 'block';
+                        el.style.left = (b[0] / iw * 100) + '%';
+                        el.style.top = (b[1] / ih * 100) + '%';
+                        el.style.width = (b[2] / iw * 100) + '%';
+                        el.style.height = (b[3] / ih * 100) + '%';
+                        el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
+                    }
+                }
+                // Auswahl + Drag-Target legen (zeige Auswahl-Layer via Rahmen)
+                for (var i = 0; i < rahmenEls.length; i++) {
+                    rahmenEls[i].addEventListener('pointerdown', (function(idx){
+                        return function(ev){
+                            sel = idx; resync();
+                            var reEl = rahmenEls[idx];
+                            reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId);
+                            var startX = ev.clientX, startY = ev.clientY;
+                            var b = (_quizEditor.bbox_live[idx] || []).slice();
+                            var bewegen = function(mev){
+                                var dx = mev.clientX - startX, dy = mev.clientY - startY;
+                                // px -> nativer Bild(-original) Raum ueber getBoundingClientRect des Rahmens
+                                var rb = reEl.getBoundingClientRect();
+                                var px_per_w = (b[2]) / rb.width;   // original-px / screen-px
+                                var px_per_h = (b[3]) / rb.height;
+                                _quizEditor.bbox_live[idx] = [
+                                    Math.max(0, b[0] + dx*px_per_w),
+                                    Math.max(0, b[1] + dy*px_per_h),
+                                    b[2], b[3]
+                                ];
+                            };
+                            var loslassen = function(){ 
+                                try { reEl.releasePointerCapture && reEl.releasePointerCapture(ev.pointerId); } catch(_e){}
+                                wrap.removeEventListener('pointermove', bewegen);
+                                wrap.removeEventListener('pointerup', loslassen);
+                            };
+                            wrap.addEventListener('pointermove', bewegen);
+                            wrap.addEventListener('pointerup', loslassen);
+                        };
+                    })(i));
+                }
+                resync();
             });
         }
     } catch (_) {}
@@ -2657,6 +2733,9 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     // zwei Gesichts-Boxen derselben Person die Frage doppelt — und eine
     // falsche Vermutung (lockere Erkennungsschwelle) verwirrt doppelt.
     const geseheneVermutungen = new Set();
+    // Beim Durchlauf gesammelte Personen für die Abschluss-Bildunterschrift
+    // ("… das ist Person1, Person2") — Wunsch Sebastian 2026-09-09.
+    const verarbeitetePersonen = [];
     const umbruch = document.createElement('div');
     umbruch.style.cssText = 'margin-top:8px;padding:10px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14';
     karte.appendChild(umbruch);
@@ -2791,7 +2870,6 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         // Server-Neustart erneut erscheinen -> keine staendigen
         // Bildwiederholungen (Wunsch Sebastian 2026-09-09).
         if (idx >= gs.length - 1) {
-            addMessage('✅ Alle Personen dieses Bildes verarbeitet.', 'assistant');
             markiereBildErledigt();
             return;
         }
@@ -2804,7 +2882,32 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     // Markiert das Gruppenbild beim Durchlaufen als persistent 'gesehen'
     // (uebersprungen), wenn nicht jede Person einzeln benannt wurde. Verhindert
     // Wiederholungen derselben Bilder im Quiz. NUR der Bild-Pfad geht raus.
+    // Zeigt danach die Karte als BILD + Bildunterschrift "… das ist Person1,
+    // Person2" an (Wunsch Sebastian 2026-09-09): Menü- und Beenden-Buttons
+    // verschwinden (überflüssig), die nächste Quizrunde kommt als NEUE
+    // Chatblase darunter (naechsteQuizRunde).
     function markiereBildErledigt() {
+        // ganze Karte leeren (inkl. Kopf mit Menü/Beenden) -> Bildunterschrift
+        karte.innerHTML = '';
+        // Bildtitel (Menü) weg, dafür direkt das Bild + Bildunterschrift
+        const zeile = document.createElement('div');
+        zeile.style.cssText = 'padding:8px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14;font-weight:600;color:#8f8';
+        zeile.textContent = '✅ Alle Personen dieses Bildes verarbeitet.';
+        karte.appendChild(zeile);
+        const cap = document.createElement('div');
+        cap.style.cssText = 'margin-top:6px;padding:6px;border:1px solid #4a7;border-radius:8px;background:#0f1f14';
+        const capImg = document.createElement('img');
+        capImg.src = dataUrl || '';
+        capImg.alt = 'Quiz-Bild';
+        capImg.style.cssText = 'display:block;max-width:100%;max-height:220px;border-radius:8px;border:1px solid #4a7';
+        cap.appendChild(capImg);
+        const capTxt = document.createElement('div');
+        capTxt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600;margin-top:4px';
+        capTxt.textContent = (verarbeitetePersonen && verarbeitetePersonen.length)
+            ? '… das ist ' + verarbeitetePersonen.join(', ')
+            : '… keine Person zugeordnet';
+        cap.appendChild(capTxt);
+        karte.appendChild(cap);
         try {
             fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
                 method: 'POST',
@@ -2812,12 +2915,30 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
                 body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
             }).catch(() => {});
         } catch (_) {}
-        naechsteQuizRunde();
+        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1600);
     }
 
     function antworten(person, istNeu, skip, rolle, beziehung, beschreibung) {
         if (skip) { weiter(); return; }
-        quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '').then(() => weiter());
+        // Person für die Abschluss-Bildunterschrift sammeln (einmalig je Name)
+        if (person && verarbeitetePersonen.indexOf(person) === -1) verarbeitetePersonen.push(person);
+        // SOFORT sichtbares Feedback (Wunsch Sebastian 2026-09-09): Den
+        // Umbruch-Bereich auf eine grüne Bestätigung umschalten, damit der
+        // Klick sofort sichtbar ist, bevor die Server-Antwort/der Folge-Start
+        // das Bild wechseln.
+        umbruch.innerHTML = '';
+        const best = document.createElement('div');
+        best.style.cssText = 'font-size:0.85rem;color:#9f9;font-weight:600;margin-top:2px';
+        best.textContent = '✓ Gespeichert (' + (person || 'Person') + ') – weiter…';
+        umbruch.appendChild(best);
+        // Live-korrigierte bbox des aktuellen Gesichts (idx) mitsenden, falls
+        // der Nutzer den Rahmen im Vollbild verändert hat
+        let liveBbox = null;
+        try {
+            if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[idx])
+                && _quizEditor.bbox_live[idx].length >= 4) liveBbox = _quizEditor.bbox_live[idx];
+        } catch (_e) {}
+        quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '', liveBbox).then(() => weiter());
     }
 
     zeigeFortschritt();
@@ -2907,7 +3028,23 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         vbox.appendChild(txt);
         const zeile = document.createElement('div');
         zeile.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => quizBeantworten(pfad, v.person, false, '')));
+        zeile.appendChild(macheQuizButton('✅ Ja', 'akt', () => {
+            // SOFORT sichtbares Feedback (Wunsch Sebastian 2026-09-09): die
+            // Ja/Nein-Box auf eine grüne Bestätigung umschalten, damit der
+            // Klick nicht "taub" wirkt, bevor der Server antwortet.
+            vbox.innerHTML = '';
+            const best = document.createElement('div');
+            best.style.cssText = 'font-size:0.85rem;color:#9f9;font-weight:600';
+            best.textContent = `✓ ${v.person} gespeichert – weiter…`;
+            vbox.appendChild(best);
+            // Live-korrigierte bbox des Einzelgesichts (Index 0) mitsenden
+            let liveBbox = null;
+            try {
+                if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[0])
+                    && _quizEditor.bbox_live[0].length >= 4) liveBbox = _quizEditor.bbox_live[0];
+            } catch (_e) {}
+            quizBeantworten(pfad, v.person, false, '', '', '', liveBbox);
+        }));
         zeile.appendChild(macheQuizButton('❌ Nein', 'neu', () => {
             vbox.style.display = 'none';
             zeigeAntwortEingabe();   // erst jetzt: Wer ist es denn?
@@ -2993,14 +3130,15 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
 }
 
 // Ergebnis der Quiz-Runde in der Karte anzeigen: Ersetzt den Antwortbereich
-// (Buttons verschwinden) durch eine kompakte Bestaetigung. Verhindert so das
-// versehentliche MEHRFACH-Speichern durch wiederholte Klicks auf dieselbe
-// Antwort (Buttons sind danach weg).
-function macheQuizFertig(karte, text, ok) {
+// (Buttons verschwinden) durch eine Bildunterschrift "… das ist [Person]".
+// Verhindert so das versehentliche MEHRFACH-Speichern durch wiederholte
+// Klicks auf dieselbe Antwort (Buttons sind danach weg).
+// Wunsch Sebastian 2026-09-09: auch beim Einzelbild das BILD + "das ist …"
+// als Bildunterschrift zeigen statt nur nacktem Text.
+function macheQuizFertig(karte, text, ok, bildSrc) {
     if (!karte) return;
     try {
-        // gesamten Karten-Inhalt durch das Ergebnis ersetzen (Bild + Antwort
-        // + Vermutung verschwinden; nur ein klares Ergebnis bleibt)
+        // gesamten Karten-Inhalt durch das Ergebnis ersetzen
         karte.innerHTML = '';
         const zeile = document.createElement('div');
         zeile.style.cssText = 'padding:10px;border:1px solid ' + (ok ? '#2e8b57' : '#f88')
@@ -3008,8 +3146,26 @@ function macheQuizFertig(karte, text, ok) {
             + ';font-weight:600;color:' + (ok ? '#8f8' : '#f88');
         zeile.textContent = ok ? ('✅ ' + text) : ('⚠️ ' + text);
         karte.appendChild(zeile);
+        // Bildunterschrift: kleines Bild oben + darunter "… das ist X" (falls
+        // ein Bild-Src vorhanden ist). Bei Erfolg wird das aktuelle Bild
+        // kompakt als Bestaetigung gezeigt, mit der zugeordneten Person als
+        // Bildunterschrift darunter.
+        if (ok && bildSrc) {
+            const cap = document.createElement('div');
+            cap.style.cssText = 'margin-top:6px;padding:6px;border:1px solid #4a7;border-radius:8px;background:#0f1f14';
+            const capImg = document.createElement('img');
+            capImg.src = bildSrc;
+            capImg.alt = 'Bestätigt';
+            capImg.style.cssText = 'max-width:90px;max-height:90px;border-radius:8px;border:1px solid #4a7;vertical-align:middle';
+            const capTxt = document.createElement('span');
+            capTxt.style.cssText = 'color:#8f8;font-size:0.82rem;font-weight:600;margin-left:8px';
+            capTxt.textContent = '… das ist ' + (text || '');
+            cap.appendChild(capImg);
+            cap.appendChild(capTxt);
+            karte.appendChild(cap);
+        }
         // nach kurzer Zeit automatisch zur naechsten Runde
-        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 900);
+        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1500);
     } catch (_) {}
 }
 
@@ -3159,12 +3315,16 @@ async function quizStart() {
     naechsteQuizRunde();
 }
 
-async function quizBeantwortenSilent(pfad, person, istNeu, rolle, beziehung, beschreibung) {
+async function quizBeantwortenSilent(pfad, person, istNeu, rolle, beziehung, beschreibung, bbox) {
     try {
+        const payload = { bild_pfad: pfad, person: (person||'').trim(), ist_neu: !!istNeu, rolle: (rolle||'').trim(), beziehung: (beziehung||'').trim(), beschreibung: (beschreibung||'').trim() };
+        // Korrigierte/geänderte Gesichts-box aus dem Vollbild-Editor mitsenden
+        // (Wunsch Sebastian 2026-09-09: Ausschnitt im Originalbild nachjustieren)
+        if (Array.isArray(bbox) && bbox.length >= 4) payload.bbox = bbox;
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bild_pfad: pfad, person: (person||'').trim(), ist_neu: !!istNeu, rolle: (rolle||'').trim(), beziehung: (beziehung||'').trim(), beschreibung: (beschreibung||'').trim() }),
+            body: JSON.stringify(payload),
         });
         return await r.json();
     } catch (e) {
@@ -3172,17 +3332,48 @@ async function quizBeantwortenSilent(pfad, person, istNeu, rolle, beziehung, bes
     }
 }
 
-async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreibung) {
+async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreibung, bbox) {
     try {
+        const payload = { bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || ''), beziehung: (beziehung||''), beschreibung: (beschreibung||'') };
+        if (Array.isArray(bbox) && bbox.length >= 4) payload.bbox = bbox;
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || ''), beziehung: (beziehung||''), beschreibung: (beschreibung||'') }),
+            body: JSON.stringify(payload),
         });
         const d = await r.json();
         const meldung = (d && d.ok)
-            ? `✅ **${person}** gespeichert${d.ist_neu ? ' (neu)' : ''} — ${d.referenzen} Referenz(en).`
+            ? `✓ **${person}** gespeichert${d.ist_neu ? ' (neu)' : ''} — ${d.referenzen} Referenz(en).`
             : (`⚠️ ${(d && d.fehler) || 'Unbekannter Fehler'}`);
+        if (d && d.ok && _letzteQuizKarte) {
+            // Bildunterschrift in der BESTEHENDEN Karte: Bild + "… das ist X"
+            // (Wunsch Sebastian 2026-09-09). Buttons weg, Bild bleibt als
+            // kompakte Bestaetigung mit der zugeordneten Person darunter.
+            _letzteQuizKarte.innerHTML = '';
+            const zeile = document.createElement('div');
+            zeile.style.cssText = 'padding:8px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14;font-weight:600;color:#8f8';
+            zeile.textContent = meldung;
+            _letzteQuizKarte.appendChild(zeile);
+            const cap = document.createElement('div');
+            cap.style.cssText = 'margin-top:6px;padding:6px;border:1px solid #4a7;border-radius:8px;background:#0f1f14';
+            // aktuelle Quiz-Bild-DatenURL aus der Karte entnehmen
+            let src = '';
+            const imgAlt = _letzteQuizKarte.querySelector('img');
+            if (imgAlt && imgAlt.src && ('' + imgAlt.src).indexOf('data:') === 0) src = imgAlt.src;
+            if (src) {
+                const capImg = document.createElement('img');
+                capImg.src = src;
+                capImg.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;border:1px solid #4a7;vertical-align:middle';
+                cap.appendChild(capImg);
+            }
+            const capTxt = document.createElement('span');
+            capTxt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600;margin-left:8px';
+            capTxt.textContent = '… das ist ' + (person || '');
+            cap.appendChild(capTxt);
+            _letzteQuizKarte.appendChild(cap);
+            setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1500);
+            return;
+        }
         addMessage(meldung, 'assistant');
         // naechste Frage (Moeglichkeit, durchzuspielen) — kleiner Quick-Link:
         const weiter = document.createElement('button');

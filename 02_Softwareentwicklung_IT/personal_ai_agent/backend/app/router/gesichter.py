@@ -77,6 +77,7 @@ class QuizAntwortBody(BaseModel):
     beziehung: str = Field(default="", max_length=500)
     beschreibung: str = Field(default="", max_length=1000)
     ueberspringen: bool = False
+    bbox: list = []
 
 
 class QuizStartBody(BaseModel):
@@ -111,7 +112,8 @@ def quiz_antwort(body: QuizAntwortBody):
         return gesicht_quiz.markiere_uebersprungen(body.bild_pfad)
     return gesicht_quiz.beantworte_runde(
         bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu,
-        rolle=body.rolle, beziehung=body.beziehung, beschreibung=body.beschreibung
+        rolle=body.rolle, beziehung=body.beziehung, beschreibung=body.beschreibung,
+        bbox=body.bbox
     )
 
 

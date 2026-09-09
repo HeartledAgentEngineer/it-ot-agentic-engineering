@@ -40,6 +40,36 @@ def _dominantes_gesicht(gesichter):
     return beste
 
 
+def _ueberlappung(a, b):
+    """Intersection-over-Union zweier [x,y,w,h]-Boxen (float)."""
+    try:
+        ax, ay, aw, ah = float(a[0]), float(a[1]), float(a[2]), float(a[3])
+        bx, by, bw, bh = float(b[0]), float(b[1]), float(b[2]), float(b[3])
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+    ix = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+    iy = max(0, min(ay + ah, by + bh) - max(ay, by))
+    inter = ix * iy
+    if inter <= 0:
+        return 0.0
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _gesicht_zu_bbox(gesichter, bbox):
+    """Waehlt das Gesicht, dessen bbox am staerksten mit der korrigierten
+    ueberlappt (IoU). Fallback: dominantes Gesicht. Robust gegen instabile
+    Gesichts-Reihenfolge zwischen zwei Erkennungslaeufen."""
+    if not bbox or len(bbox) < 4:
+        return _dominantes_gesicht(gesichter)
+    best, best_iou = None, 0.0
+    for g in gesichter:
+        iou = _ueberlappung(g.get("bbox") or [], bbox)
+        if iou > best_iou:
+            best_iou, best = iou, g
+    return best if best else _dominantes_gesicht(gesichter)
+
+
 def _refs_als_liste(embedding):
     """Normalisiert das Embedding-Feld einer Person zu einer Liste von Vektoren."""
     if not embedding:
@@ -338,7 +368,7 @@ def start_runde(ausgeschlossen=None):
 
 
 def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = "",
-                     beziehung: str = "", beschreibung: str = ""):
+                     beziehung: str = "", beschreibung: str = "", bbox=None):
     from app.services import face_service, gesichter_service
     name = (person or "").strip()
     rolle = (rolle or "").strip()
@@ -352,7 +382,7 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
     if not gesichter:
         return {"ok": False, "fehler": "kein Gesicht im Bild erkannt"}
-    dom = _dominantes_gesicht(gesichter)
+    dom = _gesicht_zu_bbox(gesichter, bbox)
     if not dom or not dom.get("embedding"):
         return {"ok": False, "fehler": "kein brauchbares Gesicht"}
 
