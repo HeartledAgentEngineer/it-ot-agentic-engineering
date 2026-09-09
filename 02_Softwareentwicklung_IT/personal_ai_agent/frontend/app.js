@@ -2722,6 +2722,11 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             zeigeAntwortZeile();
         }));
         box.appendChild(zeile);
+        // "Keine bekannte Person" soll IMMER direkt unter Ja/Nein stehen
+        // (Wunsch Sebastian 2026-09-09) - springt zum nächsten Gesicht.
+        const skipDirekt = macheQuizButton('🚫 Keine bekannte Person vorhanden', 'skip', () => antworten('', true, true));
+        skipDirekt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+        box.appendChild(skipDirekt);
         umbruch.appendChild(box);
     }
 
@@ -2781,16 +2786,34 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     }
 
     function weiter() {
-        // letztes Gesicht des Bildes fertig -> automatisch naechstes Bild
+        // letztes Gesicht des Bildes fertig -> automatisch naechstes Bild.
+        // Davor das Bild EINMAL als 'gesehen/uebersprungen' persistieren
+        // (POST ans Backend), damit NICHT nur-gruppenskippte Bilder bei einem
+        // Server-Neustart erneut erscheinen -> keine staendigen
+        // Bildwiederholungen (Wunsch Sebastian 2026-09-09).
         if (idx >= gs.length - 1) {
             addMessage('✅ Alle Personen dieses Bildes verarbeitet.', 'assistant');
-            naechsteQuizRunde();
+            markiereBildErledigt();
             return;
         }
         idx++;
         maleRahmen();        // Kasten springt zum naechsten Gesicht im Hauptbild
         zeigeFortschritt();
         zeigeVermutungsFrage(); // erst Ja/Nein, bei Nein dann Chips
+    }
+
+    // Markiert das Gruppenbild beim Durchlaufen als persistent 'gesehen'
+    // (uebersprungen), wenn nicht jede Person einzeln benannt wurde. Verhindert
+    // Wiederholungen derselben Bilder im Quiz. NUR der Bild-Pfad geht raus.
+    function markiereBildErledigt() {
+        try {
+            fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
+            }).catch(() => {});
+        } catch (_) {}
+        naechsteQuizRunde();
     }
 
     function antworten(person, istNeu, skip, rolle, beziehung, beschreibung) {
@@ -2891,6 +2914,11 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
             zeigeAntwortEingabe();   // erst jetzt: Wer ist es denn?
         }));
         vbox.appendChild(zeile);
+        // "Keine bekannte Person" soll IMMER direkt unter Ja/Nein stehen
+        // (Wunsch Sebastian 2026-09-09) - nicht erst nach "Nein".
+        const skipDirekt = macheQuizButton('🚫 Keine bekannte Person vorhanden', 'skip', () => quizUeberspringen(pfad));
+        skipDirekt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+        vbox.appendChild(skipDirekt);
         karte.appendChild(vbox);
     }
 

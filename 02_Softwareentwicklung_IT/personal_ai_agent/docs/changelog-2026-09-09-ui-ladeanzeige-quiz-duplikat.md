@@ -12,6 +12,12 @@
    außerdem wurde beim Wechsel zum nächsten Gesicht die Antwort-Chip-Liste
    (David, Eileen, …) automatisch wiederholt — das wirkte wie „die gleiche
    Frage wird mehrfach gestellt".
+3. **Ständige Bildwiederholungen im Quiz:** Dieselben Bilder kamen immer
+   wieder — vor allem stark erkannte/typische Familienfotos („ganze Zeit
+   Bildwiederholungen", Wunsch Sebastian 2026-09-09).
+4. **„Keine bekannte Person" immer unter Ja/Nein:** Der Skip-Button war nur
+   nach „Nein" (bzw. beim Aufklappen) erreichbar, nicht direkt unter der
+   Ja/Nein-Vermutungsfrage.
 
 ## Ursache
 
@@ -40,6 +46,20 @@
   Chips auf Wunsch auf). So bleibt beim Durchgehen mehrerer Gesichter der
   Fortschritt + gelbe Rahmen der Fokus, ohne dass „die gleiche Frage"
   mehrfach wirkt. (Wunsch Sebastian, Gruppenbild-Durchlauf.)
+- **„Keine bekannte Person vorhanden" direkt unter Ja/Nein:** In BEIDEN
+  Flows (Einzelbild-Vermutung `zeigeQuizKarte` + Gruppenbild
+  `baueVermutungsBox`) steht der Skip-Button „🚫 Keine bekannte Person
+  vorhanden" jetzt IMMER direkt unter den Ja/Nein-Buttons — nicht erst nach
+  „Nein". Einzelbild: überspringt das Bild (`quizUeberspringen`); Gruppenbild:
+  springt zum nächsten Gesicht.
+- **Keine Bildwiederholungen mehr:** Beim Durchlaufen eines Gruppenbildes
+  wurde das Bild am Ende NICHT persistent als „gesehen" markiert, wenn
+  nicht jede Person einzeln benannt wurde → es kam nach Neustart wieder.
+  Neuer `markiereBildErledigt()` in `starteGruppenQuiz` sendet am letzten
+  Gesicht `ueberspringen:true` an `POST /api/gesichter/quiz/antwort`
+  (→ Backend `markiere_uebersprungen` persistiert es dauerhaft). So
+  erscheint kein durchlaufenes Bild erneut.
+- Cache-Bust: `app.js?v=20260909aQ`.
 
 ## Verifikation
 
