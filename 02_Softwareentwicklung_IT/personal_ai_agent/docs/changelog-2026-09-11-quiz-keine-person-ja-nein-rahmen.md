@@ -15,6 +15,15 @@ Verhalten des Gesichter-Quiz bei **0 automatisch erkannten Gesichtern**:
 Damit ist die 0-Gesichter-Logik identisch zur Einzelgesicht-Variante
 "Keine Person gefunden?" (Zeile ~3693), die schon richtig war.
 
+**Nachjustierung (2026-09-11, später):** Im `else`-Zweig ohne Vermutung wurden
+die Namens-Chips (`auswahlBox`), "Neue Person" und "Überspringen" voreingestellt
+NICHT versteckt (anders als beim `if (v)`-Zweig). Dadurch erschienen neben dem
+Gate "Keine Person gefunden?" gleichzeitig die Chips mit "Wer ist auf diesem
+Bild?" — genau die Redundanz/Dopplung, die im Screenshot sichtbar war. Die drei
+Elemente werden nun auch im `else`-Zweig anfangs ausgeblendet und erst über
+"Person direkt benennen" (`zeigeAntwortEingabe()`) eingeblendet. Cache-Bust auf
+`app.js?v=20260911bH`.
+
 ## Technisch
 
 - `frontend/app.js` – `zeigeQuizKarte`: 0-Gesichter-Zweig (`else` bei

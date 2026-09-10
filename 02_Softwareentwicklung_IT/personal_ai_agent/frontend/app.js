@@ -3698,6 +3698,13 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         // gefunden?" (Wunsch Sebastian 2026-09-11). Ja -> naechstes Bild;
         // Nein -> Rahmen zeichnen & Person ergaenzen. Die direkte Benennung
         // bleibt als Zweitweg erreichbar.
+        // WICHTIG: Auch hier die Namens-Chips/Neue Person/Überspringen anfangs
+        // VERSTECKEN (nicht nur bei Vermutung). Sonst erscheinen neben dem
+        // Gate die Chips mit "Wer ist auf diesem Bild?" -> Redundanz/Dopplung,
+        // die Sebastian stört. Erst "Person direkt benennen" blendet sie ein.
+        auswahlBox.style.display = 'none';
+        neu.style.display = 'none';
+        skip.style.display = 'none';
         const gate = document.createElement('div');
         gate.style.cssText = 'margin-top:8px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
         const gt = document.createElement('div');
