@@ -2009,6 +2009,9 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
  *  brichAb (globale Stop-Geste, z. B. leere Eingabe). Die Funktion rendert die
  *  Zwischenmeldung jetzt ohne eigenen Abbruch-Button. */
 function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
+    // Erst bereinigen: KEINEN Inhalt -> keine (leere) Blase erzeugen.
+    const rein = String(text || '').replace(/^\[[^\]]+\]\s*/, '').replace(/^\s*$/, '');
+    if (!rein) return;
     // Eine fortlaufende Gedanken-Blase je laufendem Auftrag (statt bei jedem
     // Gedanken eine NEUE kleine Blase — das wirkte als "komische Nachrichten").
     // Wunsch Sebastian 2026-09-11: ein sauberer, fortlaufender Gedanken-Strom
@@ -2033,7 +2036,7 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     }
     // Zeile mit Zeitstempel anhängen
     const zk = zeitIso && zeitIso.length >= 19 ? zeitIso.slice(11, 19) : '';
-    const zeile = (zk ? '[' + zk + '] ' : '') + String(text || '').replace(/^\[[^\]]+\]\s*/,'');
+    const zeile = (zk ? '[' + zk + '] ' : '') + rein;
     blase.inhalt.textContent = (blase.inhalt.textContent ? blase.inhalt.textContent + '\n' : '') + zeile;
     scrollToBottom(true);
 }
@@ -4926,6 +4929,16 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // gestartet hat (kein Stopp-Knopf mehr für normale Antworten).
         if (state.abbruch === controller) state.abbruch = null;
         setLoading(false);
+        // Leere Assistenten-Blase (ohne sichtbaren Inhalt) nach dem Stream
+        // entfernen — sonst bleibt die "leere Bubble mit Zeitstempel" stehen
+        // (Wunsch Sebastian 2026-09-11).
+        try {
+            for (const m of Array.from(document.querySelectorAll('#messages .message.assistant'))) {
+                const cb = m.querySelector('.message-content');
+                const inhalt = (cb ? (cb.textContent || '') : (m.textContent || '')).trim();
+                if (!inhalt) { try { m.remove(); } catch (_e) {} }
+            }
+        } catch (_e) {}
         // WhatsApp-Zitat nach dem Absenden weg (wie WhatsApp).
         clearAntwortAuf();
     }
