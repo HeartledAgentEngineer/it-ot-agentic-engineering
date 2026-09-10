@@ -2010,38 +2010,50 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
  *  Zwischenmeldung jetzt ohne eigenen Abbruch-Button. */
 function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // Erst bereinigen: KEINEN Inhalt -> keine (leere) Blase erzeugen.
-    const rein = String(text || '').replace(/^\[[^\]]+\]\s*/, '').replace(/^\s*$/, '');
+    const rein = String(text || '').replace(/^\[[^\]]+\]\s*/, '').trim();
     if (!rein) return;
-    // Eine fortlaufende Gedanken-Blase je laufendem Auftrag (statt bei jedem
-    // Gedanken eine NEUE kleine Blase — das wirkte als "komische Nachrichten").
-    // Wunsch Sebastian 2026-09-11: ein sauberer, fortlaufender Gedanken-Strom
-    // mit Zeitstempeln, wie ein Hermes-Terminal im Chat.
-    const aid = _laufenderAuftragKurz || 'stream';
-    if (!_gedankenBlasen) _gedankenBlasen = {};
-    let blase = _gedankenBlasen[aid];
-    if (!blase || !blase.isConnected) {
-        const div = document.createElement('div');
-        div.className = 'message agent-zwischenmeldung gedanken-strom';
-        const kopf = document.createElement('div');
-        kopf.style.cssText = 'font-size:0.7rem;color:#4a7;margin-bottom:2px';
-        kopf.textContent = '🧠 Hermes (Gedanken)';
-        div.appendChild(kopf);
-        const inhalt = document.createElement('div');
-        inhalt.style.cssText = 'font-size:0.78rem;color:#cde;white-space:pre-wrap;line-height:1.35';
-        div.appendChild(inhalt);
-        dom.messages.appendChild(div);
-        blase = { el: div, inhalt, isConnected: true };
-        _gedankenBlasen[aid] = blase;
-        scrollToBottom(true);
+    // Stueckweise in NEUE Blasen mit Zeitstempel, die nach und nach TYPEWRITER
+    // eintippen (Wunsch Sebastian 2026-09-11): bessere Lesbarkeit als eine
+    // riesige fortlaufende Blase; jede GEdanken-Zeile erscheint frisch.
+    const div = document.createElement('div');
+    div.className = 'message agent-zwischenmeldung gedanken-strom';
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-size:0.7rem;color:#4a7;margin-bottom:2px';
+    kopf.textContent = '🧠 Hermes';
+    div.appendChild(kopf);
+    const inhalt = document.createElement('div');
+    inhalt.style.cssText = 'font-size:0.78rem;color:#cde;white-space:pre-wrap;line-height:1.35';
+    div.appendChild(inhalt);
+    // Zeitstempel-Label (WhatsApp-artig) unter der Blase
+    const zeitSpan = document.createElement('div');
+    zeitSpan.className = 'message-time';
+    try { zeitSpan.textContent = formatZeit(zeitIso); } catch (_e) {
+        zeitSpan.textContent = '';
     }
-    // Zeile mit Zeitstempel anhängen
-    const zk = zeitIso && zeitIso.length >= 19 ? zeitIso.slice(11, 19) : '';
-    const zeile = (zk ? '[' + zk + '] ' : '') + rein;
-    blase.inhalt.textContent = (blase.inhalt.textContent ? blase.inhalt.textContent + '\n' : '') + zeile;
+    zeitSpan.style.cssText = 'font-size:0.65rem;color:#888;margin-top:2px';
+    div.appendChild(zeitSpan);
+    dom.messages.appendChild(div);
     scrollToBottom(true);
+
+    // Typewriter: Zeichen für Zeichen eintippen (lesbare Geschwindigkeit).
+    // Je Satzzeichen ein kuerzerer Halt, damit es nicht zu schnell fliegt.
+    const interval = 18;   // ms je Zeichen (nach Lust/Lesbarkeit)
+    let i = 0;
+    const tippe = () => {
+        if (i >= rein.length) return;   // fertig
+        const ch = rein[i];
+        inhalt.textContent = rein.slice(0, i + 1);
+        i++;
+        let delay = interval;
+        if ('.!?;:'.indexOf(ch) !== -1) delay = interval * 6;   // Satzende: kurze Pause
+        if (','.indexOf(ch) !== -1) delay = interval * 3;
+        setTimeout(tippe, delay);
+        if (i % 40 === 0) scrollToBottom(true);   // beim Fortschritt mitrollen
+    };
+    tippe();
 }
 
-// Gruppierte Gedanken-Blase je Auftrag (für zeitliche Fortlauf in einer Blase).
+// (nicht mehr verwendet: Gruppierung je Auftrag – ersetzt durch per-Gedanken-Blase)
 let _gedankenBlasen = {};
 
 /** Zeigt eine fluechtige Bild-Miniatur in der Antwortblase (WhatsApp-Stil).
