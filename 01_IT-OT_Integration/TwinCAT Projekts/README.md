@@ -35,6 +35,18 @@ graph LR
 
 ---
 
+## Sicherheit (Dependabot) — ws-WebSocket-Bibliothek
+
+Die ADS Bridge nutzt das npm-Paket `ws` für die WebSockets zur 3D-Visualisierung.
+Dependabot meldete 2 Schwachstellen (CVE-2026-48779 high: Memory-Exhaustion-DoS,
+CVE-2026-45736 medium: Uninitialized-Memory-Disclosure) in `ws < 8.20.1`.
+**Behoben am 2026-09-10:** Bump auf `ws ^8.21.3` (`npm install ws@^8.20.1`),
+`npm audit` → 0 vulnerabilities. Das Laufzeit-/SPS-System ist davon unberührt;
+bei Bedarf einmal `npm install` im `ads_bridge` ausführen, um die neue Version
+zu ziehen.
+
+---
+
 ## Logische Konzepte & Entwurfsentscheidungen
 
 ### 1. Enum-basierte Schrittkette (`eStep`)
