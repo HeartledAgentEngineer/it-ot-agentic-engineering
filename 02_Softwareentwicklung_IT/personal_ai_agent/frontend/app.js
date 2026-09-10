@@ -2668,10 +2668,18 @@ function zeigeBildVollbild(imgEl, gesichter) {
                     re.setAttribute('data-frei', String(i));
                     re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:manipulation';
                     var marke = document.createElement('div');
-                    marke.style.cssText = 'position:absolute;top:-18px;right:-14px;width:20px;height:20px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
-                    marke.textContent = '✕';
-                    marke.addEventListener('click', function(ev, idx){ ev.stopPropagation(); _quizEditor.bbox_live[idx] = null; resync(); }); 
-                    re.appendChild(marke);
+                                        marke.style.cssText = 'position:absolute;top:-18px;right:-14px;width:20px;height:20px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+                                        marke.textContent = '✕';
+                                        // idx via Closure binden (Bugfix 2026-09-10: vorher stand
+                                        // fälschlich `idx` im Scope, das war undefined -> ✕ tat nichts)
+                                        (function(ix){
+                                            marke.addEventListener('click', function(ev){
+                                                ev.stopPropagation();
+                                                _quizEditor.bbox_live[ix] = null;
+                                                resync();
+                                            });
+                                        })(i);
+                                        re.appendChild(marke);
                     bildBox.appendChild(re);
                     rahmenEls.push(re);
                 }
@@ -2708,34 +2716,61 @@ function zeigeBildVollbild(imgEl, gesichter) {
                         el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
                     }
                 }
-                // Auswahl + Drag-Target legen (zeige Auswahl-Layer via Rahmen)
+                // Griffe (Ecken+Seiten) für den AUSGEWÄHLTEN Rahmen: damit kann
+                // man den Rahmen größer/kleiner ziehen (Wunsch Sebastian
+                // 2026-09-10). Jeder Griff skaliert die bbox in Original-Pixeln.
+                var griffe = [];
+                function baueGriffe(reIdx) {
+                    // alte Griffe entfernen
+                    for (var g of griffe) { try { g.el.remove(); } catch(_e){} }
+                    griffe = [];
+                    if (reIdx < 0) return;
+                    var b = (_quizEditor.bbox_live[reIdx] || []);
+                    if (b.length < 4) return;
+                    var skw = letzteBigW / (iw || 1), skh = letzteBigH / (ih || 1);
+                    var pos = [
+                        ['tl', 0, 0], ['tr', 1, 0], ['bl', 0, 1], ['br', 1, 1],
+                        ['t', 0.5, 0], ['b', 0.5, 1], ['l', 0, 0.5], ['r', 1, 0.5]
+                    ];
+                    for (var p of pos) {
+                        var g = document.createElement('div');
+                        var x = b[0] * skw + (p[2] === 0 ? 0 : (p[2] === 1 ? b[2]*skw : b[2]*skw/2));
+                        var y = b[1] * skh + (p[1] === 0 ? 0 : (p[1] === 1 ? b[3]*skh : b[3]*skh/2));
+                        // mittig an der Eck-/Seiten-Position
+                        g.style.cssText = 'position:absolute;width:22px;height:22px;z-index:9;background:rgba(30,30,30,.0);border:2px solid #fff;border-radius:50%;box-sizing:border-box;cursor:nwse-resize;transform:translate(-50%,-50%)';
+                        g.style.left = x + 'px';
+                        g.style.top = y + 'px';
+                        g.dataset.griff = p[0];
+                        bildBox.appendChild(g);
+                        griffe.push({ el: g, name: p[0] });
+                    }
+                }
+                // zeigt Griffe beim Auswählen / versteckt bei keiner Auswahl
+                function zeigeAuswahlGriffe() { baueGriffe(sel); }
+
+                // Auswahl + Drag-Target (Verschieben NUR am Rahmenkörper) +
+                // Größen-Griffe + Pinch-Zoom des ausgewählten Rahmens
                 for (var i = 0; i < rahmenEls.length; i++) {
                     rahmenEls[i].addEventListener('pointerdown', (function(idx){
                         return function(ev){
-                            sel = idx; resync();
+                            sel = idx; resync(); zeigeAuswahlGriffe();
                             var reEl = rahmenEls[idx];
-                            // Zwei-Finger-Pinch = Browser-Zoom, nicht als Drag
-                            // auf den Rahmen umdeuten. Verschieben nur bei
-                            // Ein-Finger-Drag (Wunsch Sebastian: Bild muss
-                            // zwei-Finger-zoombar bleiben).
                             var startX = ev.clientX, startY = ev.clientY;
                             var b = (_quizEditor.bbox_live[idx] || []).slice();
+                            // Pinch: 2. Finger kommt rein -> Rahmengröße zoomen
+                            var finger2Start = null;
                             var bewegen = function(mev){
-                                // Zwei-Finger-Pinch = Browser-Zoom durchlassen;
-                                // verschieben nur bei Ein-Finger-Drag (mev.buttons
-                                // == 1 bzw. 2 für Touch links). Bei mehreren
-                                // aktiven Fingern nicht verschieben.
                                 if (mev.buttons && mev.buttons > 2) return;
                                 var dx = mev.clientX - startX, dy = mev.clientY - startY;
                                 var rb = reEl.getBoundingClientRect();
-                                var px_per_w = (b[2]) / (rb.width || 1);   // original-px / screen-px
+                                var px_per_w = (b[2]) / (rb.width || 1);
                                 var px_per_h = (b[3]) / (rb.height || 1);
                                 _quizEditor.bbox_live[idx] = [
                                     Math.max(0, b[0] + dx*px_per_w),
                                     Math.max(0, b[1] + dy*px_per_h),
                                     b[2], b[3]
                                 ];
-                                resync();
+                                resync(); zeigeAuswahlGriffe();
                             };
                             reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId);
                             var loslassen = function(){
@@ -2752,6 +2787,34 @@ function zeigeBildVollbild(imgEl, gesichter) {
                         };
                     })(i));
                 }
+                // Griff-Drag: Größe ziehen (skaliert bbox an Rand-/Eckenloser)
+                wrap.addEventListener('pointerdown', (ev) => {
+                    var g = ev.target;
+                    if (!g || !g.dataset || !g.dataset.griff || sel < 0) return;
+                    ev.stopPropagation();
+                    var griffName = g.dataset.griff;
+                    var startX = ev.clientX, startY = ev.clientY;
+                    var sx = ev.clientX, sy = ev.clientY;
+                    var aktB = (_quizEditor.bbox_live[sel] || []).slice();
+                    var skw2 = letzteBigW / (iw || 1), skh2 = letzteBigH / (ih || 1);
+                    var bewegenGr = (mev) => {
+                        var dx = (mev.clientX - sx) / (skw2 || 1);   // Original-px
+                        var dy = (mev.clientY - sy) / (skh2 || 1);
+                        var nx = aktB[0], ny = aktB[1], nw = aktB[2], nh = aktB[3];
+                        if (griffName.indexOf('l') !== -1){ nx = aktB[0] + dx; nw = aktB[2] - dx; }
+                        if (griffName.indexOf('r') !== -1){ nw = aktB[2] + dx; }
+                        if (griffName.indexOf('t') !== -1){ ny = aktB[1] + dy; nh = aktB[3] - dy; }
+                        if (griffName.indexOf('b') !== -1){ nh = aktB[3] + dy; }
+                        if (nw > 8) _quizEditor.bbox_live[sel] = [Math.max(0, nx), Math.max(0, ny), nw, nh];
+                        resync(); zeigeAuswahlGriffe();
+                    };
+                    var losGr = () => {
+                        wrap.removeEventListener('pointermove', bewegenGr);
+                        wrap.removeEventListener('pointerup', losGr);
+                    };
+                    wrap.addEventListener('pointermove', bewegenGr);
+                    wrap.addEventListener('pointerup', losGr);
+                }, true);
                 resync();
                 // Bei Formatwechsel (Hoch/Quer) die Kästen neu an das gerenderte
                 // Bild koppeln (Wunsch Sebastian: Kästen müssen stimmen).

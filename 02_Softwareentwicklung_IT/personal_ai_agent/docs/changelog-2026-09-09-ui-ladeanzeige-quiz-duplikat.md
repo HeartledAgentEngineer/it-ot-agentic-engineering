@@ -121,6 +121,15 @@
 - `.gitignore`: `quiz_fortschritt.bak-*` ergänzt (private Daten nie committen).
 - Cache-Bust: `app.js?v=20260910fA`.
 
+## Vollbild-Rahmen: entfernen + Größe ziehen (Stand 2026-09-10)
+- **✕-Löschen behoben:** Der Marken-Handler verwies auf ein undefiniertes `idx`
+  → das ✕ löschte nichts. Jetzt per Closure auf den Schleifen-Index `i`
+  gebunden; der Klick setzt `bbox_live[i]=null` und blendet den Rahmen aus.
+- **Größen-Griffe:** Bei Auswahl eines Rahmens erscheinen 8 weiße Griffe
+  (4 Ecken + 4 Seitenmitten). Ziehen skaliert die bbox (Original-Pixel) größer/
+  kleiner. Verschieben weiterhin am Rahmenkörper per Drag.
+- Rahmen-Positionen bleiben formatwechselstabil (resize/orientationchange).
+
 ## Quiz-Feinschliff (Stand 2026-09-10, ältere drei Folgewünsche — bereits umgesetzt)
 1. **Namens-Chips nach 'Nein' nach Wahrscheinlichkeit sortiert:** Neues
    Backend `_optionen_sortiert(bild_pfad)` in `gesicht_quiz` berechnet für das
