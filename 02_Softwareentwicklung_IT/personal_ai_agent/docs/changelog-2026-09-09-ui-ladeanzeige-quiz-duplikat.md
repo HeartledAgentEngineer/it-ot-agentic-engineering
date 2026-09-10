@@ -140,6 +140,13 @@ behalten jetzt `bild_pfad` + `bbox`.
   korrigierte bbox). Verifiziert: Wegwerf-Referenz mit bbox [10,20,80,60]
   wird korrekt wiedergelesen.
 
+## Personensuche als Dropdown (Suchmaschinen-Stil, Stand 2026-09-10)
+`baueSuchMitVorschlaegen` (Quiz-Antwort-Auswahl) ist jetzt ein echtes
+Autocomplete-Dropdown: Beim Tippen erscheinen die gefilterten Namen als
+auswählbare Optionen unter dem Feld (max 8, scrollbar); Klick/Enter wählt die
+Person. ESC schließt, Blur schließt. Keine Dopplung mit den 5 Kacheln mehr
+(Dropdown startet leer, füllt sich beim Tippen).
+
 ## Quiz-Feinschliff (Stand 2026-09-10, ältere drei Folgewünsche — bereits umgesetzt)
 1. **Namens-Chips nach 'Nein' nach Wahrscheinlichkeit sortiert:** Neues
    Backend `_optionen_sortiert(bild_pfad)` in `gesicht_quiz` berechnet für das

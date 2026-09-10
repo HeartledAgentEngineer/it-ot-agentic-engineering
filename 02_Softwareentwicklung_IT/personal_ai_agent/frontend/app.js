@@ -2934,36 +2934,60 @@ function macheQuizLabel(text) {
  *  den gewählten Namen über `onwaehl`. */
 function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:6px';
-    // Eingabefeld mit Platzhalter + Label
+    wrap.style.cssText = 'position:relative;margin-top:6px';
+    // Eingabefeld mit Dropdown (Suchmaschinen-/Autocomplete-Stil):
+    // Beim Tippen erscheinen die Treffer als auswählbare Optionen darunter.
     const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.autocomplete = 'off';
     inp.placeholder = '🔍 Andere Person suchen…';
-    inp.style.cssText = 'width:100%;padding:7px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.85rem';
+    inp.style.cssText = 'width:100%;padding:7px 10px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.85rem';
     wrap.appendChild(inp);
-    const vorschlaege = document.createElement('div');
-    vorschlaege.style.cssText = 'display:flex;flex-direction:column;gap:4px';
-    wrap.appendChild(vorschlaege);
-    const filtern = () => {
+    const dd = document.createElement('div');
+    dd.style.cssText = 'position:absolute;top:100%;left:0;right:0;z-index:50;max-height:240px;overflow-y:auto;background:#0b1a12;border:1px solid #2e8b57;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.55)';
+    dd.style.display = 'none';
+    wrap.appendChild(dd);
+    const zeigen = (sichtbar) => { dd.style.display = sichtbar ? 'block' : 'none'; };
+    const aktualisieren = () => {
         const q = (inp.value || '').trim().toLowerCase();
-        vorschlaege.innerHTML = '';
-        (alleNamen || []).slice(0, 30).filter(n => !q || (n || '').toLowerCase().indexOf(q) !== -1).slice(0, 5).forEach(n => {
-            const b = macheQuizButton(n, 'person', () => onwaehl(n.trim()));
-            vorschlaege.appendChild(b);
+        dd.innerHTML = '';
+        const treffer = (alleNamen || []).filter(n => {
+            const t = (n || '').toLowerCase();
+            return !q || t.indexOf(q) !== -1;
         });
+        if (!q || !treffer.length) { zeigen(false); return; }
+        treffer.slice(0, 8).forEach(n => {
+            const opt = document.createElement('div');
+            opt.textContent = '👤  ' + n;
+            opt.style.cssText = 'padding:7px 10px;cursor:pointer;display:flex;align-items:center;border-bottom:1px solid #1f3a2a;font-size:0.85rem;color:#eee';
+            opt.addEventListener('pointerup', (ev) => {
+                ev.stopPropagation();
+                onwaehl(n.trim());
+                inp.value = '';
+                dd.innerHTML = '';
+                zeigen(false);
+            });
+            dd.appendChild(opt);
+        });
+        zeigen(true);
     };
-    // beim Tippen live filtern
-    inp.addEventListener('input', filtern);
+    inp.addEventListener('input', aktualisieren);
+    inp.addEventListener('focus', (e) => { if ((inp.value||'').trim()) aktualisieren(); });
     inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { zeigen(false); }
         if (e.key === 'Enter') {
             const n = (inp.value || '').trim();
-            if (n) onwaehl(n);
+            if (n) { onwaehl(n); inp.value=''; dd.innerHTML=''; zeigen(false); }
+        }
+        // Pfeil-Highlight (basisch): erster Treffer bei Enter->Pfeilunten
+        if (e.key === 'ArrowDown' && dd.children && dd.children.length) {
+            e.preventDefault();
+            const erster = dd.children[0];
+            erster.style.background = '#1f3a2a';
         }
     });
-    // Initial leer lassen: die Top-5-Namen stehen bereits als eigene Kacheln
-    // ueber dem Suchfeld (siehe zeigeQuizKarte/zeigeAntwortZeile). Die
-    // Vorschlaege erscheinen erst beim Tippen, sonst waere die Liste doppelt
-    // (Wunsch Sebastian 2026-09-10).
-    vorschlaege.innerHTML = '';
+    // beim Wegklicken schliessen
+    inp.addEventListener('blur', () => setTimeout(() => zeigen(false), 150));
     return wrap;
 }
 
