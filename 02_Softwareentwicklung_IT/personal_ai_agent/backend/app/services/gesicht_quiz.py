@@ -359,25 +359,15 @@ def start_runde(ausgeschlossen=None):
     for g in (aus + gesehen_persist):
         if g and g not in kombiniert:
             kombiniert.append(g)
-    # Nur Bilder mit >=1 erkanntem Gesicht sind zum Anlernen tauglich.
-    # Gesichtslose Bilder werden uebersprungen (und als gesehen gemerkt, damit
-    # sie nicht bei jedem start erneut per SFace geprueft werden).
+    # NUR schnell: erstes nicht-durchgespieltes Bild waehlen (OHNE SFace-Sync),
+    # damit es SOFORT angezeigt wird (Wunsch Sebastian). Die Gesichts-Analyse
+    # erfolgt danach asynchron ueber /quiz/analysiere (oder beim Antworten).
     kandidat = None
-    kandidat_gesichter = None
     for b in bilder:
         if b in kombiniert:
             continue
-        try:
-            from app.services import face_service
-            gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(b))
-        except Exception:
-            gesichter = []
-        if gesichter:
-            kandidat = b
-            kandidat_gesichter = gesichter  # Lauf A: bboxen fuer den Rahmen
-            break
-        else:
-            kombiniert.append(b)  # gesichtslos -> nicht anlernbar, merken
+        kandidat = b
+        break
     if not kandidat:
         return {
             "fertig": True,
@@ -391,22 +381,19 @@ def start_runde(ausgeschlossen=None):
     # und kommt beim 'fortsetzen' wieder - keine doppelten Bilder, aber auch
     # kein Verlust der aktuellen Frage.
     kombiniert.append(kandidat)  # nur fuer diesen Durchlauf (Auswahl), nicht persistiert
-    # _fortschritt_speichern(kombiniert)  -> verschoben nach Beantwortung
     info = lese_datei_info(kandidat)
     runde = {
         "bild_pfad": kandidat,
         "name": info.get("name"),
         "data_url": info.get("data_url", ""),
         "ist_bild": bool(info.get("ist_bild")),
+        # Analyse (Gesichter/Vermutung) folgt asynchron -> Frontend zeigt erst
+        # nur Bild + Lade-Animation, dann Ja/Nein.
+        "analyse_ausstehend": True,
+        "anzahl_gesichter": 0,
+        "gesichter": [],
+        "vermutung": None,
     }
-    runde["vermutung"] = _hypothese(kandidat)
-    # Gruppenbild-Erkennung: Anzahl Gesichter + welche Personen (von den
-    # Bekannten) sicher/unsicher auf dem Bild sind -> Frontend fragt gezielt.
-    _erk = _erkannte_personen_bildes(kandidat, kandidat_gesichter)
-    runde["anzahl_gesichter"] = _erk.get("anzahl_gesichter", 0)
-    runde["erkannte_personen"] = _erk.get("erkannte", [])
-    runde["unsichere_personen"] = _erk.get("unsicher", [])
-    runde["gesichter"] = _erk.get("gesichter", [])
     # Die offene Quiz-Frage dauerhaft in den Chat-Verlauf (conv_main) schreiben
     # (mit bild_pfad + Vermutung). So ist der Quiz-Zustand nach einem
     # Server-Neustart/Reload ZU 100% aus dem Chat rekonstruierbar: der Chat zeigt
@@ -525,3 +512,37 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
         pass
 
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen, "jahr": jahr}
+
+
+def analysiere_bild(bild_pfad: str) -> dict:
+    """Fuehrt die (langsame) Gesichts-Analyse fuer ein bereits angezeigtes Bild
+    nach: erkennt Gesichter, stellt ggf. eine Vermutung. Wird vom Frontend NACH
+    der Sofort-Anzeige des Bildes aufgerufen (Wunsch Sebastian: Bild sofort,
+    Lade-Animation darunter, dann Ja/Nein ersetzt die Animation).
+
+    Returns dict {anzahl_gesichter, gesichter, vermutung, erkannte_personen,
+    unsichere_personen}.
+    """
+    try:
+        if not bild_pfad or not os.path.exists(bild_pfad):
+            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
+                    "erkannte_personen": [], "unsichere_personen": []}
+        from app.services import face_service
+        if not face_service.verfuegbar():
+            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
+                    "erkannte_personen": [], "unsichere_personen": []}
+        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        if not gesichter:
+            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
+                    "erkannte_personen": [], "unsichere_personen": []}
+        _erk = _erkannte_personen_bildes(bild_pfad, gesichter)
+        return {
+            "anzahl_gesichter": _erk.get("anzahl_gesichter", 0),
+            "gesichter": _erk.get("gesichter", []),
+            "vermutung": _hypothese(bild_pfad),
+            "erkannte_personen": _erk.get("erkannte", []),
+            "unsichere_personen": _erk.get("unsicher", []),
+        }
+    except Exception:
+        return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
+                "erkannte_personen": [], "unsichere_personen": []}

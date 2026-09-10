@@ -127,6 +127,24 @@
    Kästen nach jedem Formatwechsel neu.
 - Cache-Bust: `app.js?v=20260910aV`.
 
+## Quiz: Bild sofort + alle Chat-Fotos maximierbar (Stand 2026-09-10)
+
+1. **Bild SOFORT anzeigen (kein Warten auf Gesichtserkennung):**
+   - Backend `start_runde` liefert das nächste Quiz-Bild jetzt sofort
+     (wahl ohne SFace-Sync), Feld `analyse_ausstehend: true`.
+   - Neuer Endpunkt `POST /api/gesichter/quiz/analysiere` (body `{bild_pfad}`)
+     führt die Gesichts-Analyse nach und liefert `gesichter`/`anzahl_gesichter`/
+     `vermutung`.
+   - Frontend `naechsteQuizRunde`: zeigt das Bild sofort, direkt darunter die
+     „🧠 Quiz lädt – prüfe Gesichter…"-Animation und ersetzt die Animation
+     durch die **Ja/Nein-Frage**, sobald die Analyse fertig ist.
+2. **JEDES im Chat sichtbare Foto per Klick maximierbar:** Globaler
+   `<img>`-Klick-Handler auf `#messages` (capture-Phase) öffnet jedes
+   Hochladen-/Dateisuche-/Verlauf-Bild im Vollbild (`zeigeBildVollbild`).
+   Quiz-Bilder (dataset.quizKarte) werden durchgelassen, damit ihr eigener
+   Antipper mit den Gesicht-Kästen wirkt.
+- Cache-Bust: `app.js?v=20260910bW`.
+
 ## Autonomer Nachtjob (termux/hermes-nacht-job.sh, Stand 2026-09-10)
 
 - **Ziel (Wunsch Sebastian):** Nach einer festgelegten Zeit (Cron) soll der

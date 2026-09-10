@@ -170,6 +170,36 @@ const dom = {
     filePreview: document.getElementById('file-preview'),
     filePreviewList: document.getElementById('file-preview-list'),
 };
+// JEDES im Chat sichtbare Foto per Klick maximierbar (Vollbild) machen — auch
+// hochgeladene/gezeigte Bilder in Nachrichten, nicht nur Quiz (Wunsch Sebastian
+// 2026-09-10). Global über den #messages-Container: jeder Klick auf ein <img>
+// (ohne Button/Öffn-Child) öffnet das Vollbild. Quiz-Bilder liefern dabei ihre
+// Gesicht-Kästen (dataset.quizKarte), alle anderen nur das Bild.
+if (dom.messages) {
+    dom.messages.addEventListener('click', (ev) => {
+        // nur direkte Klicks auf ein Bild (nicht auf Buttons darin)
+        const t = ev.target;
+        if (!t || t.tagName !== 'IMG') return;
+        if (ev.button !== undefined && ev.button !== 0) return; // nur linke Taste
+        // Quiz-Bilder haben ihren eigenen Antipper (macheBildAntippbar) mit
+        // Gesicht-Kästen — den NICHT unterdrücken: nur öffnen, wenn kein
+        // .quiz-marke-Umbruch/eigener Handler das Bild bereits behandelt.
+        // Erkennung: Bild liegt in einer Quiz-Karte (dataset.quizKarte) -> lassen.
+        let inQuizKarte = false;
+        try {
+            let node = t.parentElement;
+            while (node && node !== document.body) {
+                if (node.dataset && node.dataset.quizKarte === '1') { inQuizKarte = true; break; }
+                node = node.parentElement;
+            }
+        } catch (_e) {}
+        if (inQuizKarte) return;   // Quiz-Handler (mit Kästen) übernimmt
+        ev.preventDefault();
+        ev.stopPropagation();
+        // Alle anderen Chat-Bilder: nur Vollbild (kein Gesicht-Editor).
+        zeigeBildVollbild(t, []);
+    }, true); // capture, damit es vor inneren Handlern greift
+}
 // Coding-/Hermes-Chat-Umschalter (conv_code <-> conv_main).
 if (dom.codechatBtn) {
     dom.codechatBtn.addEventListener('click', () => {
@@ -3339,7 +3369,49 @@ async function naechsteQuizRunde() {
         }
         const pfad = d.bild_pfad;
         _quizGesehen.push(pfad);
-        zeigeQuizKarte(pfad, d.name || '', d.data_url || '', d.optionen || [], d.vermutung, d.anzahl_gesichter || 0, (d.erkannte_personen || []), (d.gesichter || []));
+        const name = d.name || '';
+        const dataUrl = d.data_url || '';
+        const optionen = d.optionen || [];
+        // Wunsch Sebastian: Bild SOFORT anzeigen (start_runde blockiert nicht
+        // mehr auf die Gesichtserkennung); darunter die "Quiz lädt"-Animation;
+        // sobald die Analyse fertig ist, ersetzt die Ja/Nein-Frage die Animation.
+        if (d.analyse_ausstehend) {
+            // 1) Karte sofort mit Bild erstellen (dataUrl ist lokal -> sofort)
+            const sofortKarte = addMessage('', 'assistant', undefined, pfad);
+            try { sofortKarte.dataset.quizKarte = '1'; } catch (_e) {}
+            const imgWrap = document.createElement('div');
+            imgWrap.style.cssText = 'position:relative;display:block;width:100%;max-height:320px;overflow:auto;background:#000;border-radius:10px;border:1px solid #444';
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.alt = 'Quiz-Bild';
+            img.style.cssText = 'display:block;width:100%;height:auto;border-radius:10px';
+            imgWrap.appendChild(img);
+            sofortKarte.appendChild(imgWrap);
+            // 2) Lade-Animation direkt UNTER dem Bild
+            const ladewrap = document.createElement('div');
+            ladewrap.style.cssText = 'margin-top:6px;padding:8px;background:#0f1f14;border-radius:10px;text-align:center';
+            ladewrap.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">🧠 Quiz lädt – prüfe Gesichter …</span>';
+            sofortKarte.appendChild(ladewrap);
+            scrollToBottom(true);
+            // 3) Analyse nachholen, danach die Karte fertig rendern (Ja/Nein
+            //    ersetzt die Animation).
+            try {
+                const ar = await fetch(`${API_BASE}/api/gesichter/quiz/analysiere`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bild_pfad: pfad }),
+                });
+                const a = await ar.json();
+                zeigeQuizKarte(pfad, name, dataUrl, optionen,
+                    a.vermutung, a.anzahl_gesichter || 0, a.erkannte_personen || [], a.gesichter || [],
+                    sofortKarte);
+            } catch (e2) {
+                // Analyse fehlgeschlagen: zumindest die Antwort-Chips anbieten
+                zeigeQuizKarte(pfad, name, dataUrl, optionen, null, 0, [], [], sofortKarte);
+            }
+            return true;
+        }
+        zeigeQuizKarte(pfad, name, dataUrl, optionen, d.vermutung, d.anzahl_gesichter || 0, (d.erkannte_personen || []), (d.gesichter || []));
         return true;
     } catch (e) {
         if (warteblase) { const b = warteblase.closest ? warteblase.closest('.message') : null; if (b) b.remove(); }

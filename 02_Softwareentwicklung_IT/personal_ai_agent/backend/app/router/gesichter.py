@@ -84,6 +84,10 @@ class QuizStartBody(BaseModel):
     ausgeschlossen: list = []
 
 
+class QuizAnalyseBody(BaseModel):
+    bild_pfad: str = Field(..., max_length=2000)
+
+
 @router.post("/quiz/start")
 def quiz_start(body: QuizStartBody):
     """Waehlt ein Lieblingsbild fuer die naechste Quiz-Frage.
@@ -102,6 +106,14 @@ def quiz_start(body: QuizStartBody):
     runde["optionen"] = optionen
     # anzahl_gesichter/erkannte_personen kommen aus start_runde (nicht überschreiben)
     return runde
+
+
+@router.post("/quiz/analysiere")
+def quiz_analysiere(body: QuizAnalyseBody):
+    """Fuehrt die Gesichts-Analyse fuer ein bereits sofort angezeigtes Bild nach
+    (Wunsch Sebastian: Bild sofort, Lade-Animation darunter, dann Ja/Nein
+    ersetzt die Animation, sobald die Analyse fertig ist)."""
+    return gesicht_quiz.analysiere_bild(body.bild_pfad)
 
 
 @router.post("/quiz/antwort")
