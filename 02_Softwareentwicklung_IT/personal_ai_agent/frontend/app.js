@@ -2602,8 +2602,9 @@ function zeigeBildVollbild(imgEl, gesichter) {
     // Editor-Initialisierung an den aktuellen Gesichten (nur falls nicht
     // schon ein laufender Editor existiert — beim erneuten Oeffnen fundiert).
     if (!_quizEditor) {
-        _quizEditor = { bbox_live: [] };
+        _quizEditor = { bbox_live: [], undo: [], undo_aktueller: '' };
     }
+    if (!_quizEditor.undo) _quizEditor.undo = [];
     if (gesichter && gesichter.length) {
         const vor = _quizEditor.bbox_live || [];
         const neu = [];
@@ -2675,8 +2676,10 @@ function zeigeBildVollbild(imgEl, gesichter) {
                                         (function(ix){
                                             marke.addEventListener('click', function(ev){
                                                 ev.stopPropagation();
+                                                snapshotVorAenderung();   // Undo vor dem Löschen
                                                 _quizEditor.bbox_live[ix] = null;
                                                 resync();
+                                                if (sel === ix) { sel = -1; zeigeAuswahlGriffe(); }  // Auswahl freigeben
                                             });
                                         })(i);
                                         re.appendChild(marke);
@@ -2746,7 +2749,57 @@ function zeigeBildVollbild(imgEl, gesichter) {
                     }
                 }
                 // zeigt Griffe beim Auswählen / versteckt bei keiner Auswahl
-                function zeigeAuswahlGriffe() { baueGriffe(sel); }
+                function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); }
+                // Wechselnde Ausschnitt-Vorschau (Wunsch Sebastian 2026-09-10):
+                // zeigt beim Auswählen eines Rahmens dessen Gesichts-Ausschnitt
+                // (wie beim Einzelbild-Quiz), aktualisiert bei jedem Wechsel.
+                var ausschnittBox = null;
+                function ausschnittAnzeigen() {
+                    try {
+                        if (!ausschnittBox) {
+                            ausschnittBox = document.createElement('div');
+                            ausschnittBox.style.cssText = 'position:fixed;top:14px;left:16px;z-index:99999;width:120px;height:120px;border-radius:10px;border:2px solid #2e8b57;overflow:hidden;background:#000;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+                            ausSz = document.createElement('img');
+                            ausSz.style.cssText = 'position:absolute;image-rendering:auto;will-change:transform';
+                            ausschnittBox.appendChild(ausSz);
+                            ov.appendChild(ausschnittBox);
+                        }
+                        var ausSz = ausschnittBox.querySelector('img');
+                        if (sel < 0) { ausschnittBox.style.display = 'none'; return; }
+                        var b = (_quizEditor.bbox_live[sel] || []);
+                        if (b.length < 4 || b[2] <= 0 || b[3] <= 0) { ausschnittBox.style.display = 'none'; return; }
+                        // Croptechnisch: zeige denselben Bildausschnitt über
+                        // background-position (Originalgrösse, ohne Canvas).
+                        ausschnittBox.style.display = 'block';
+                        ausSz.src = big.src;
+                        var iw = big.naturalWidth || 1, ih = big.naturalHeight || 1;
+                        // Skalierung: Vorschau 120px zeigt die bbox (Original-px)
+                        var schw = 120 / (b[2] || 1), schh = 120 / (b[3] || 1);
+                        var ska = Math.max(schw, schh);
+                        ausSz.style.width = (iw * ska) + 'px';
+                        ausSz.style.height = (ih * ska) + 'px';
+                        ausSz.style.left = (-(b[0] * ska)) + 'px';
+                        ausSz.style.top = (-(b[1] * ska)) + 'px';
+                    } catch (_e) {}
+                }
+
+                // --- Undo + Speichern (Wunsch Sebastian 2026-09-10) ---
+                // Snapshot des aktuellen bbox-Zustands fürs Rückgängigmachen.
+                function snapshotVorAenderung() {
+                    try {
+                        _quizEditor.undo.push(JSON.stringify(_quizEditor.bbox_live));
+                        if (_quizEditor.undo.length > 30) _quizEditor.undo.shift();
+                    } catch (_e) {}
+                }
+                // Letzte Aktion rückgängig machen (zurück zur vorherigen bbox).
+                function undoLetzte() {
+                    if (!_quizEditor || !_quizEditor.undo || !_quizEditor.undo.length) return;
+                    const vorher = JSON.parse(_quizEditor.undo.pop());
+                    _quizEditor.bbox_live = vorher;
+                    // gelöschte Rahmen (null) wieder einblenden, fallsonst
+                    resync();
+                    zeigeAuswahlGriffe();
+                }
 
                 // Auswahl + Drag-Target (Verschieben NUR am Rahmenkörper) +
                 // Größen-Griffe + Pinch-Zoom des ausgewählten Rahmens
@@ -2754,6 +2807,7 @@ function zeigeBildVollbild(imgEl, gesichter) {
                     rahmenEls[i].addEventListener('pointerdown', (function(idx){
                         return function(ev){
                             sel = idx; resync(); zeigeAuswahlGriffe();
+                            snapshotVorAenderung();   // Undo-Snapshot vor Verschieb-/Zoom-Geste
                             var reEl = rahmenEls[idx];
                             var startX = ev.clientX, startY = ev.clientY;
                             var b = (_quizEditor.bbox_live[idx] || []).slice();
@@ -2792,6 +2846,7 @@ function zeigeBildVollbild(imgEl, gesichter) {
                     var g = ev.target;
                     if (!g || !g.dataset || !g.dataset.griff || sel < 0) return;
                     ev.stopPropagation();
+                    snapshotVorAenderung();   // Undo-Snapshot vor Größen-Ziehen
                     var griffName = g.dataset.griff;
                     var startX = ev.clientX, startY = ev.clientY;
                     var sx = ev.clientX, sy = ev.clientY;
@@ -2823,6 +2878,47 @@ function zeigeBildVollbild(imgEl, gesichter) {
                 window.addEventListener('orientationchange', _neuLayouten);
                 // einmal kurz nach dem vollständigen Layout sicherstellen
                 setTimeout(_neuLayouten, 250);
+
+                // --- Werkzeugleiste: ↩ Zurück + 💾 Speichern (Wunsch Sebastian
+                //     2026-09-10). Speichern persistiert die aktuellen
+                //     Rahmen-Positionen in _quizEditor.bbox_live FEST (als
+                //     "genutzt"), damit sie später beim Beantworten/Zuordnen
+                //     ans Backend gehen; danach werden auch die Rahmen in der
+                //     Quiz-Chat-Karte neu gezeichnet.
+                const leiste = document.createElement('div');
+                leiste.style.cssText = 'position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+                const zurueckBtn = document.createElement('div');
+                zurueckBtn.textContent = '↩';
+                zurueckBtn.title = 'Letzte Aktion rückgängig machen';
+                zurueckBtn.style.cssText = 'width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#2a2a2a;color:#eee;font-size:1rem;cursor:pointer;border:1px solid #555';
+                zurueckBtn.addEventListener('click', (ev) => { ev.stopPropagation(); undoLetzte(); });
+                leiste.appendChild(zurueckBtn);
+                const speichernBtn = document.createElement('div');
+                speichernBtn.textContent = '💾 Speichern';
+                speichernBtn.title = 'Rahmen-Positionen übernehmen';
+                speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
+                speichernBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    // 1) Festschreiben: aktuelle bbox_live ist die verbindliche
+                    //    (kein Resync-Verlust beim nächsten Öffnen).
+                    //    _quizEditor.bbox_live bleibt bereits synchron; wir
+                    //    leeren nur den Undo-Stapel als "abgeschlossene Aktion".
+                    _quizEditor.undo = [];
+                    // 2) Rahmen in der Quiz-Chat-Karte neu zeichnen.
+                    try {
+                        if (_letzteQuizKarte) {
+                            const gi = _letzteQuizKarte.querySelector('img');
+                            if (gi) {
+                                const gs = (_quizEditor.bbox_live || []).map(b => ({ bbox: b }));
+                                markiereGesichtImBild(gi, gs, 0);
+                            }
+                        }
+                    } catch (_e) {}
+                    // 3) Rückmeldung anzeigen
+                    try { _letzteQuizKarte.scrollIntoView && _letzteQuizKarte.scrollIntoView({ block: 'nearest' }); } catch (_e) {}
+                });
+                leiste.appendChild(speichernBtn);
+                ov.appendChild(leiste);
             });
         }
     } catch (_) {}
