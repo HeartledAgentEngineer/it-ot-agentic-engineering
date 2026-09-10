@@ -79,14 +79,43 @@ def _beantworte(auftrag):
     # Sofortige Statusmeldung (schnelle Rueckmeldung "was der Hermes tut").
     _schreibe_status(aid, "🔧 Hermes bearbeitet die Nachricht (Inbox-Daemon aktiv)…")
     try:
-        r = subprocess.run(
+        # Zeile-für-Zeile statt gepuffert (Wunsch Sebastian 2026-09-10): jede
+        # Reasoning-/Tool-/Antwort-Zeile wird mit Zeitstempel als Gedanke in
+        # status.jsonl geschrieben, damit das Frontend den "portionsweiser
+        # Gedankenstrom" live sieht statt nur dem Endergebnis.
+        proc = subprocess.Popen(
             ["hermes", "chat", "-q", payload, "-Q"],
-            capture_output=True, text=True, timeout=900,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, encoding="utf-8", errors="replace",
         )
-        out = (r.stdout or "").strip()
-        zeilen = [z for z in out.splitlines() if z.strip()]
-        ergebnis = "".join(zeilen) if zeilen else (r.stderr or "").strip()
-        ant = {"auftrag_id": aid, "text": ergebnis or "—"}
+        in_reasoning = False
+        ergebnis_zeilen = []
+        assert proc.stdout is not None
+        for zeile in proc.stdout:
+            z = zeile.rstrip("\n").rstrip("\r")
+            s = z.strip()
+            if not s:
+                continue
+            # Reasoning-Block: jede Zeile als Gedanke streamen (mit Zeitstempel).
+            if "Reasoning" in s or in_reasoning or "─" in s or s.startswith("┌") or s.startswith("└"):
+                if "Reasoning" in s or "─" in s or s.startswith("┌") or s.startswith("└"):
+                    _schreibe_status(aid, "🧠 " + s)
+                continue
+            # Ergebnis-Box (Antwort): als Ergebnis sammeln, aber auch als Gedanke
+            # streamen, damit die Live-Wirkung sofort da ist.
+            if s.startswith("╭"):
+                continue
+            if s.startswith("╰"):
+                continue
+            # Resume-Hinweis / Query-Zeile / Initialisierung überspringen.
+            if s.startswith("Resume this session") or s.startswith("Query:") \
+               or s.startswith("Initializing") or s.startswith("  hermes"):
+                continue
+            ergebnis_zeilen.append(s)
+            _schreibe_status(aid, "💬 " + s)
+        proc.wait(timeout=900)
+        ergebnis = "\n".join(ergebnis_zeilen).strip() or "—"
+        ant = {"auftrag_id": aid, "text": ergebnis}
         with open(ANTW, "a", encoding="utf-8") as f:
             f.write(json.dumps(ant, ensure_ascii=False) + "\n")
         _schreibe_status(aid, "✅ Hermes hat geantwortet.")

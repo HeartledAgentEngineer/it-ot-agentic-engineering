@@ -121,6 +121,17 @@
 - `.gitignore`: `quiz_fortschritt.bak-*` ergänzt (private Daten nie committen).
 - Cache-Bust: `app.js?v=20260910fA`.
 
+## Coding-Chat: portsionweiser Gedankenstrom mit Zeitstempeln (Stand 2026-09-10)
+Der aktiv-Kanal puffert vorher alles (`subprocess.run(capture_output=True)`) → es
+kamen nur "Hermes bearbeitet…" + Endergebnis, keine Zwischengedanken. Fix:
+- `backend/hermes_inbox_daemon.py`: `_beantworte` nutzt jetzt `Popen` + liest die
+  `hermes chat -q`-Ausgabe ZEILENWEIS; jede Reasoning- (🧠) bzw. Antwort-Zeile
+  (💬) wird mit Zeitstempel in `status.jsonl` geschrieben.
+- `backend/app/services/hermes_local.py` `stream_auftrag_aktiv`: der Poll liest
+  die neu eintreffenden `status.jsonl`-Einträge dieses Auftrags (dedupliziert) und
+  yieldet sie als `gedanke` → das Frontend zeigt die Gedanken Live.
+Beide Teile nötig: Daemon (liefert Zeilen) + Backend-Stream (liefert sie ans UI).
+
 ## ✕-Beenden: speichert Zuordnungen + entfernt Buttons (Stand 2026-09-10)
 Der ✕-Beenden-Knopf im Quiz-Kopf tut jetzt wirklich etwas: (1) offene, bereits
 bestätigte Gruppen-Zuordnungen (person je Gesicht) werden ans Backend

@@ -592,8 +592,38 @@ def stream_auftrag_aktiv(
                 pass
 
         start = time.time()
+        # Merke bereits gesehene Status-Zeilen, damit NEUE Gedanken (die der
+        # Inbox-Daemon zeilenweise in status.jsonl schreibt) als Live-Gedanken
+        # gestreamt werden — Wunsch Sebastian: "portionsweiser Gedankenstrom".
+        gesehene_status = set()
+        antwort_gefunden = False
         while time.time() - start < timeout:
-            # Nach passender Antwort suchen (auftrag_id zuerst).
+            # Neue Gedanken aus status.jsonl (vom Daemon zeilenweise geschrieben).
+            if os.path.exists(status_Pfad):
+                try:
+                    with open(status_Pfad, encoding="utf-8") as f:
+                        for _l in f:
+                            _z = _l.strip()
+                            if not _z:
+                                continue
+                            try:
+                                _s = _json.loads(_z)
+                            except Exception:
+                                continue
+                            if _s.get("auftrag_id") != auftrag_id:
+                                continue
+                            _t = str(_s.get("text") or "").strip()
+                            if not _t:
+                                continue
+                            # Dedup über text+zeit
+                            _key = _t + _s.get("zeit", "")
+                            if _key in gesehene_status:
+                                continue
+                            gesehene_status.add(_key)
+                            yield {"art": "gedanke", "text": _t}
+                except Exception:
+                    pass
+            # Nach passender Antwort suchen.
             if os.path.exists(ant_Pfad):
                 with open(ant_Pfad, encoding="utf-8") as f:
                     for zeile in f:
@@ -606,8 +636,11 @@ def stream_auftrag_aktiv(
                             continue
                         if dat.get("auftrag_id") == auftrag_id:
                             text = (dat.get("text") or "").strip()
+                            antwort_gefunden = True
                             yield {"art": "ergebnis", "text": text or "—"}
-                            return
+                            break
+            if antwort_gefunden:
+                return
             time.sleep(1.0)
         yield {"art": "fehler", "text": f"Timeout nach {timeout}s: keine Antwort der aktiven Session"}
     except Exception as e:
