@@ -145,6 +145,18 @@
    Antipper mit den Gesicht-Kästen wirkt.
 - Cache-Bust: `app.js?v=20260910bW`.
 
+## Cleanup: Alle Gesichter-Referenzen gelöscht (Stand 2026-09-10)
+- Sebastian entschied: komplette Erkennung zurücksetzen (alle 105 Referenzen
+  löschen, sie waren alle OHNE bild_pfad → keine sichtbaren Ausschnitte).
+- Backup: `gesichter_katalog.bak-cleanup-202609100921.json` (1.1 MB).
+- Entfernt über die Service-API (`referenz_entfernen` je Person/ref_id);
+  die **Personen-Einträge selbst (Name/Rolle/Beziehung) bleiben** (24 Stück):
+  Helga/Oma, Pedi/Mutter, David/Bruder …
+- Verifiziert: `referenzen_auflisten` → 0 Referenzen gesamt; Katalog zeigt
+  24 Personen, alle ohne referenzen/embedding.
+- Danach lernt das Quiz wieder frisch — und neue Referenzen tragen `bild_pfad`
+  (sichtbare Ausschnitte im Referenz-Vollbild).
+
 ## Autonomer Nachtjob (termux/hermes-nacht-job.sh, Stand 2026-09-10)
 
 - **Ziel (Wunsch Sebastian):** Nach einer festgelegten Zeit (Cron) soll der
