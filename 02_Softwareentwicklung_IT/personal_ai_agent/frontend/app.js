@@ -4431,12 +4431,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // der unteren #loading-Bubble (setzeTutZeile → "Agent liest…" +
     // setLoading). So gibt es statt zwei konkurrierender Ladeanzeigen nur
     // EINE (Stand 2026-09-09, Auftrag Sebastian).
-    // Coding-Chat (conv_code): KEINE leere Assistenten-Blase anlegen — dort
-    // liefert der Hermes-Stream seine eigene Antwort-Blase; eine leere hier
-    // würde über der "Hermes bearbeitet…"-Animation stehen bleiben
-    // (Wunsch Sebastian 2026-09-10).
-    const imCodingChat = (state.conversationId === 'conv_code');
-    const contentDiv = imCodingChat ? null : addMessage('', 'assistant');
+    const contentDiv = addMessage('', 'assistant');
     // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
     // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
     // Stream-Abbruch läuft über den Bearbeiten-Flow bzw. die leere-Eingabe-
