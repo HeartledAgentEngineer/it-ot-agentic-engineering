@@ -4024,21 +4024,31 @@ function zeigeReferenzenVollbild(name) {
                         const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(r.bild_pfad)}`);
                         const dd = await dr.json();
                         if (dd && dd.data_url) {
+                            // Ausschnitt (bbox) je Referenz anzeigen — sonst ganzer Pfad.
                             const im = document.createElement('img');
                             im.src = dd.data_url;
-                            im.style.cssText = 'max-width:72px;max-height:72px;border-radius:6px;border:1px solid #4a7;vertical-align:middle';
+                            im.style.cssText = 'max-width:72px;max-height:72px;border-radius:6px;border:1px solid #4a7;vertical-align:middle;object-fit:cover';
+                            // Tipp auf Ausschnitt -> Original im Vollbild-Editor öffnen,
+                            // damit man den Ausschnitt anpassen kann (Wunsch 2026-09-10)
+                            if (r.bbox && r.bbox.length >= 4) {
+                                try {
+                                    const cu = await erzeugeGesichtCrop(dd.data_url, r.bbox, 150);
+                                    if (cu) im.src = cu;
+                                } catch (_e) {}
+                            }
+                            macheBildAntippbar(im, [ { bbox: (r.bbox && r.bbox.length >= 4) ? r.bbox : [] } ]);
                             z.appendChild(im);
                         } else {
-                            const ph = document.createElement('span');
-                            ph.style.cssText = 'color:#777;font-size:0.75rem';
-                            ph.textContent = '(Bild fehlt)';
-                            z.appendChild(ph);
+                            const ph2 = document.createElement('span');
+                            ph2.style.cssText = 'color:#777;font-size:0.75rem';
+                            ph2.textContent = '(Bild fehlt)';
+                            z.appendChild(ph2);
                         }
                     } catch (_e) {
-                        const ph = document.createElement('span');
-                        ph.style.cssText = 'color:#777;font-size:0.75rem';
-                        ph.textContent = '(Bild fehlt)';
-                        z.appendChild(ph);
+                        const ph2 = document.createElement('span');
+                        ph2.style.cssText = 'color:#777;font-size:0.75rem';
+                        ph2.textContent = '(Bild fehlt)';
+                        z.appendChild(ph2);
                     }
                 } else {
                     const ph = document.createElement('span');
