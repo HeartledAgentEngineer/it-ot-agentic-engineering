@@ -347,6 +347,13 @@ def markiere_uebersprungen(bild_pfad: str) -> dict:
     return {"ok": True, "uebersprungen": True, "name": info.get("name")}
 
 
+# Flüchtige Merkliste "Bild gerade angezeigt, aber noch nicht beantwortet" (in-memory).
+# Verhindert, dass mehrere schnelle naechsteQuizRunde-/analysiere-Aufrufe DASSELBE
+# Bild doppelt nacheinander waehlen, bevor es beantwortet/uebersprungen wurde
+# (Wunsch Sebastian 2026-09-10: keine doppelten Bilder).
+_geleert_nach = []  # [{pfad, zeit}] kappt nach kurzer Zeit / wenn alles verbraucht
+
+
 def start_runde(ausgeschlossen=None):
     from app.services.datei_suche import lese_datei_info
     bilder = _alle_bilder()
@@ -363,11 +370,24 @@ def start_runde(ausgeschlossen=None):
     # damit es SOFORT angezeigt wird (Wunsch Sebastian). Die Gesichts-Analyse
     # erfolgt danach asynchron ueber /quiz/analysiere (oder beim Antworten).
     kandidat = None
+    # "gerade angezeigt, noch nicht beantwortet" – beim schnellen Mehrfach-Ruf
+    # ueberspringen, damit nicht dasselbe Bild doppelt nacheinander kommt.
+    gerade = [p for p, t in _geleert_nach]
     for b in bilder:
         if b in kombiniert:
             continue
+        if b in gerade:
+            continue
         kandidat = b
         break
+    # Falls alle Kandidaten "gerade angezeigt" sind (z. B. 1 Bild), dieses nehmen,
+    # damit es nicht hängt – die Doppel-Dedup gilt nur, solange Alternativen da sind.
+    if not kandidat:
+        for b in bilder:
+            if b in kombiniert:
+                continue
+            kandidat = b
+            break
     if not kandidat:
         return {
             "fertig": True,
@@ -381,6 +401,17 @@ def start_runde(ausgeschlossen=None):
     # und kommt beim 'fortsetzen' wieder - keine doppelten Bilder, aber auch
     # kein Verlust der aktuellen Frage.
     kombiniert.append(kandidat)  # nur fuer diesen Durchlauf (Auswahl), nicht persistiert
+    # Als "gerade angezeigt" merken (in-memory), Altlasten aehnlich kurz halten.
+    try:
+        import time as _tmp
+        _geleert_nach.append([kandidat, _tmp.time()])
+        if len(_geleert_nach) > 400:
+            _geleert_nach[:] = _geleert_nach[-400:]
+        # Eintraege aelter als 2 Minuten verwerfen (Bild wurde inzwischen
+        # beantwortet ODER darf wieder verfuegbar sein).
+        _geleert_nach[:] = [x for x in _geleert_nach if _tmp.time() - x[1] < 120]
+    except Exception:
+        pass
     info = lese_datei_info(kandidat)
     runde = {
         "bild_pfad": kandidat,
