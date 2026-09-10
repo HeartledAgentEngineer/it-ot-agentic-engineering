@@ -5959,6 +5959,12 @@ async function streamHermesText(text, conversationId) {
                 try { daten = JSON.parse(zeile.slice(6)); } catch { continue; }
                 if (daten.delta) {
                     _einzuBlenden += daten.delta;   // in den Puffer, nicht sofort anzeigen
+                } else if (daten.art === 'gedanke' && daten.text) {
+                    // Live-Zwischengedanken (Hermes/Track C) sofort in die eigene
+                    // fortlaufende Gedanken-Blase rendern — Wunsch Sebastian:
+                    // "Nachrichten ohne Tab-Aktualisierung sichtbar".
+                    const { text: htext, zeitIso } = zerlegeHermesMeldung(daten.text);
+                    fuegeGedankeMitAbbruchHinzu(htext || daten.text, zeitIso || new Date().toISOString());
                 } else if (daten.done) {
                     break;
                 }
