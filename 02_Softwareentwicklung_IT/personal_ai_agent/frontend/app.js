@@ -2798,6 +2798,43 @@ function macheQuizLabel(text) {
     return s;
 }
 
+/** Baut die "Suche andere Person"-Eingabe mit LIVE-Vorschlägen, wie sie in
+ *  Einzelbild- UND Gruppenbild-Quiz einheitlich erscheint (Wunsch Sebastian:
+ *  Optionen nach Wahrscheinlichkeit, 5 Kacheln + Suche). Liefert einen <div>
+ *  mit Eingabefeld + darunter filtern de Vorschlags-Kacheln; Enter/Klick sendet
+ *  den gewählten Namen über `onwaehl`. */
+function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:6px';
+    // Eingabefeld mit Platzhalter + Label
+    const inp = document.createElement('input');
+    inp.placeholder = '🔍 Andere Person suchen…';
+    inp.style.cssText = 'width:100%;padding:7px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.85rem';
+    wrap.appendChild(inp);
+    const vorschlaege = document.createElement('div');
+    vorschlaege.style.cssText = 'display:flex;flex-direction:column;gap:4px';
+    wrap.appendChild(vorschlaege);
+    const filtern = () => {
+        const q = (inp.value || '').trim().toLowerCase();
+        vorschlaege.innerHTML = '';
+        (alleNamen || []).slice(0, 30).filter(n => !q || (n || '').toLowerCase().indexOf(q) !== -1).slice(0, 5).forEach(n => {
+            const b = macheQuizButton(n, 'person', () => onwaehl(n.trim()));
+            vorschlaege.appendChild(b);
+        });
+    };
+    // beim Tippen live filtern
+    inp.addEventListener('input', filtern);
+    inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const n = (inp.value || '').trim();
+            if (n) onwaehl(n);
+        }
+    });
+    // initial die Top-5 anzeigen (ohne Text)
+    filtern();
+    return wrap;
+}
+
 function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesichter, erkannte) {
     // Gruppenbild (>=2 Gesichter): jedes Gesicht einzeln markieren + beschriften.
     const gs = gesichter || [];
@@ -2890,11 +2927,24 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         const label = macheQuizLabel('Dieses Gesicht gehört zu:');
         umbruch.appendChild(label);
         const zeile = document.createElement('div');
-        zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
-        (optionen || []).forEach(o => {
+        zeile.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+        // Optionen sortiert (Backend nach Wahrscheinlichkeit) — nur die ersten
+        // 5 als Kacheln, konsistent zum Einzelbild (Wunsch Sebastian).
+        const kacheln = document.createElement('div');
+        kacheln.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+        (optionen || []).slice(0, 5).forEach(o => {
             const b = macheQuizButton(o, 'person', () => antworten((o||'').trim(), false, false));
-            zeile.appendChild(b);
+            kacheln.appendChild(b);
         });
+        if ((optionen || []).length > 5) {
+            const mehr = document.createElement('div');
+            mehr.style.cssText = 'font-size:0.72rem;color:#9f9;opacity:.8;margin-top:2px';
+            mehr.textContent = `… und ${(optionen || []).length - 5} weitere (siehe Suche).`;
+            kacheln.appendChild(mehr);
+        }
+        zeile.appendChild(kacheln);
+        // "Suche andere Person": freie Eingabe mit Live-Vorschlägen (wie Einzelbild)
+        zeile.appendChild(baueSuchMitVorschlaegen(optionen, (n) => antworten(n, false, false)));
         // 'Neue Person' als volle, aufklappbare Eingabebox (Name + Rolle + EIN
         // Textfeld für alle Infos) — gleiches Menue wie im Einzelbild-Quiz.
         // Beschreibung/Lebensinfos war doppelt gemoppelt, alles geht in das
@@ -3142,14 +3192,26 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         frage.textContent = 'Wer ist auf diesem Bild?';
     }
 
-    // --- Antwort-Sektion: Personen-Choices + Neue Person + Ueberspringen ---
+    // --- Antwort-Sektion: die 5 wahrscheinlichsten Namen (Kacheln) + Suche ---
     const auswahlBox = document.createElement('div');
-    auswahlBox.style.cssText = 'display:' + (v ? 'none' : 'flex') + ';flex-wrap:wrap;gap:6px;margin-top:8px';
-    (optionen || []).forEach(o => {
-        // Bekannte Person: deren gemerkte Rolle bleibt erhalten (Rolle ist nur
-        // bei "Neue Person" essenziell) -> leeren String senden.
-        auswahlBox.appendChild(macheQuizButton(o, 'person', () => quizBeantworten(pfad, o, false, '')));
+    auswahlBox.style.cssText = 'display:' + (v ? 'none' : 'flex') + ';flex-direction:column;gap:6px;margin-top:8px';
+    // Optionen sind im Backend nach Wahrscheinlichkeit sortiert — nur die
+    // ersten 5 zeigen (Wunsch Sebastian: 5 Namen untereinander reicht).
+    const kacheln = document.createElement('div');
+    kacheln.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+    (optionen || []).slice(0, 5).forEach(o => {
+        // Bekannte Person: deren gemerkte Rolle bleibt erhalten -> leerer String.
+        kacheln.appendChild(macheQuizButton(o, 'person', () => quizBeantworten(pfad, o, false, '')));
     });
+    if ((optionen || []).length > 5) {
+        const mehr = document.createElement('div');
+        mehr.style.cssText = 'font-size:0.72rem;color:#9f9;opacity:.8;margin-top:2px';
+        mehr.textContent = `… und ${(optionen || []).length - 5} weitere (siehe Suche).`;
+        kacheln.appendChild(mehr);
+    }
+    auswahlBox.appendChild(kacheln);
+    // "Suche andere Person": freie Eingabe mit LIVE-Vorschlägen (wie Gruppenbild)
+    auswahlBox.appendChild(baueSuchMitVorschlaegen(optionen, (n) => quizBeantworten(pfad, n, false, '')));
     karte.appendChild(auswahlBox);
 
     // 'Neue Person' als eingebettetes, GROESSERES Formular (kein prompt(), PWA-
@@ -5581,6 +5643,14 @@ async function zeigeGespraech(id) {
                 ladeBildLazy(contentDiv, m.bild_pfad);
             }
 
+            // Ergebnis einer bereits abgeschlossenen Quiz-Runde: nicht nur den
+            // nackten Text zeigen, sondern die SCHÖNE Bildunterschrift-Karte
+            // (Bild + "… das ist Person") rekonstruieren (Wunsch Sebastian:
+            // nach Reload den Quiz-Verlauf mit Bildern sehen).
+            if (m.ui && m.ui.typ === 'quiz_ergebnis' && m.bild_pfad) {
+                _baueQuizErgebnisKarte(contentDiv, m);
+            }
+
             if (istOffeneQuizFrage) {
                 if (alsOffeneQuizKarte) {
                     // Daten-URL holen und die interaktive Quiz-Karte (Bild + Rahmen
@@ -5624,6 +5694,52 @@ async function zeigeGespraech(id) {
                 const fehlt = document.createElement('div');
                 fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
                 fehlt.textContent = '🖼 Quiz-Bild nicht ladbar (gelöscht/verschoben).';
+                contentDiv.appendChild(fehlt);
+            }
+        }
+
+        /** Rekonstruiert eine abgeschlossene Quiz-Runde als schöne Bildunterschrift-
+         *  Karte: Bild + grüner Rahmen "… das ist Person" (statt nacktem Text).
+         *  Ruft sich auf Basis des persistierten ui-Felds (typ:"quiz_ergebnis"). */
+        async function _baueQuizErgebnisKarte(contentDiv, m) {
+            try {
+                const ui = m.ui || {};
+                const person = ui.person || '';
+                const pfad = m.bild_pfad;
+                if (!pfad) return;
+                const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
+                const dd = await dr.json();
+                const dataUrl = (dd && dd.data_url) || '';
+                if (!dataUrl) {
+                    const fehlt = document.createElement('div');
+                    fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                    fehlt.textContent = '🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).';
+                    contentDiv.appendChild(fehlt);
+                    return;
+                }
+                // Text-Blase durch die Bildunterschrift-Karte ersetzen
+                contentDiv.innerHTML = '';
+                const zeile = document.createElement('div');
+                zeile.style.cssText = 'padding:8px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14;font-weight:600;color:#8f8';
+                zeile.textContent = `✅ **${person}** gelernt` + (ui.jahr ? ` · ${ui.jahr}` : '');
+                contentDiv.appendChild(zeile);
+                const cap = document.createElement('div');
+                cap.style.cssText = 'margin-top:6px;padding:6px;border:1px solid #4a7;border-radius:8px;background:#0f1f14';
+                const capImg = document.createElement('img');
+                capImg.src = dataUrl;
+                capImg.alt = 'Quiz-Bild';
+                capImg.style.cssText = 'display:block;max-width:100%;max-height:200px;border-radius:8px;border:1px solid #4a7';
+                cap.appendChild(capImg);
+                const capTxt = document.createElement('div');
+                capTxt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600;margin-top:4px';
+                capTxt.textContent = '… das ist ' + (person || '?');
+                cap.appendChild(capTxt);
+                contentDiv.appendChild(cap);
+                macheBildAntippbar(capImg, []);
+            } catch (e) {
+                const fehlt = document.createElement('div');
+                fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
+                fehlt.textContent = '🖼 Quiz-Ergebnis-Bild nicht ladbar.';
                 contentDiv.appendChild(fehlt);
             }
         }

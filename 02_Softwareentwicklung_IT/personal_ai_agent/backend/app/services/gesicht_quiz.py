@@ -498,7 +498,17 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
         text = (f"[Gesichter-Quiz] '{name}'{rolle_txt} gelernt — "
                 f"{referenzen} Referenz(en), Aufnahmejahr {jahr or '?'}. "
                 f"[Bild gespeichert zum erneuten Ansehen]")
-        verlauf_nachricht_anhaengen("conv_main", "assistant", text, bild_pfad=bild_pfad)
+        # ui-Feld: erlaubt dem Frontend nach Reload die SCHÖNE Bildunterschrift-
+        # Karte zu rekonstruieren (Bild + "… das ist X") statt nur den Text
+        # (Wunsch Sebastian 2026-09-10: nach F5 den Quiz-Verlauf mit Bild sehen).
+        ui_block = {
+            "typ": "quiz_ergebnis",
+            "person": name,
+            "referenzen": referenzen,
+            "jahr": jahr,
+            "bild_pfad": bild_pfad,
+        } if name else None
+        verlauf_nachricht_anhaengen("conv_main", "assistant", text, bild_pfad=bild_pfad, ui=ui_block)
     except Exception:
         pass
 
