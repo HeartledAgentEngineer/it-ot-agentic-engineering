@@ -2456,6 +2456,9 @@ let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
 let _letzteQuizKarte = null;  // zuletzt erzeugte Quiz-Karte (fuer Ergebnis-Umschreiben)
 let _aktuelleQuizPerson = '';  // zugeordnete Person der aktuellen Runde (fuer Speichern)
 let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
+// Offene, noch nicht persistierte Gruppen-Zuordnungen (person je Gesicht). Beim
+// ✕-Beenden werden sie ins Backend geschrieben (Wunsch Sebastian 2026-09-10).
+let _quizOffeneZuordnungen = [];  // [{bild_pfad, person, ist_neu, rolle, bbox}]
 
 // Zeichnet den gelben bbox-Rahmen um das Gesicht (Index `idx`) im Bild `img`
 // und gibt die Markierung zurueck (oder null).
@@ -2742,7 +2745,7 @@ function zeigeBildVollbild(imgEl, gesichter) {
                         var x = b[0] * skw + (p[2] === 0 ? 0 : (p[2] === 1 ? b[2]*skw : b[2]*skw/2));
                         var y = b[1] * skh + (p[1] === 0 ? 0 : (p[1] === 1 ? b[3]*skh : b[3]*skh/2));
                         // mittig an der Eck-/Seiten-Position
-                        g.style.cssText = 'position:absolute;width:22px;height:22px;z-index:9;background:rgba(30,30,30,.0);border:2px solid #fff;border-radius:50%;box-sizing:border-box;cursor:nwse-resize;transform:translate(-50%,-50%)';
+                        g.style.cssText = 'position:absolute;width:12px;height:12px;z-index:9;background:rgba(255,255,255,.85);border:1.5px solid #fff;border-radius:50%;box-sizing:border-box;cursor:nwse-resize;transform:translate(-50%,-50%)';
                         g.style.left = x + 'px';
                         g.style.top = y + 'px';
                         g.dataset.griff = p[0];
@@ -3117,7 +3120,7 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     const geseheneVermutungen = new Set();
     // Beim Durchlauf gesammelte Personen für die Abschluss-Bildunterschrift
     // ("… das ist Person1, Person2") — Wunsch Sebastian 2026-09-09.
-    const verarbeitetePersonen = [];
+    const verarbeitetePersonen = [];   // {name,x,y} gesammelt je zugeordnetem Gesicht (räumlich sortierbar)
     const umbruch = document.createElement('div');
     umbruch.style.cssText = 'margin-top:8px;padding:10px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14';
     karte.appendChild(umbruch);
@@ -3299,7 +3302,10 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         const capTxt = document.createElement('div');
         capTxt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600;margin-top:4px';
         capTxt.textContent = (verarbeitetePersonen && verarbeitetePersonen.length)
-            ? '… das ist ' + verarbeitetePersonen.join(', ')
+            ? '… das ist ' + verarbeitetePersonen
+                .map(z => ({ n: z.name || z, y: z.y || 9999, x: z.x || 0 }))
+                .sort((a, b) => (a.y !== b.y) ? (a.y - b.y) : (a.x - b.x))
+                .map(o => o.n).join(', ')
             : '… keine Person zugeordnet';
         cap.appendChild(capTxt);
         karte.appendChild(cap);
@@ -3316,7 +3322,14 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     function antworten(person, istNeu, skip, rolle, beziehung, beschreibung) {
         if (skip) { weiter(); return; }
         // Person für die Abschluss-Bildunterschrift sammeln (einmalig je Name)
-        if (person && verarbeitetePersonen.indexOf(person) === -1) verarbeitetePersonen.push(person);
+        if (person && !verarbeitetePersonen.some(z => z.name === person)) {
+            let px = 0, py = 0;
+            try {
+                const bb = (gs[idx] && gs[idx].bbox) || [];
+                px = bb[0] || 0; py = bb[1] || 0;
+            } catch (_e) {}
+            verarbeitetePersonen.push({ name: person, x: px, y: py });
+        }
         // SOFORT sichtbares Feedback (Wunsch Sebastian 2026-09-09): Den
         // Umbruch-Bereich auf eine grüne Bestätigung umschalten, damit der
         // Klick sofort sichtbar ist, bevor die Server-Antwort/der Folge-Start
