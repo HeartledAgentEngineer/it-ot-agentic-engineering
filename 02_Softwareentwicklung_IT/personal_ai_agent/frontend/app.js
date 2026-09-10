@@ -2009,23 +2009,37 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
  *  brichAb (globale Stop-Geste, z. B. leere Eingabe). Die Funktion rendert die
  *  Zwischenmeldung jetzt ohne eigenen Abbruch-Button. */
 function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
-    const div = document.createElement('div');
-    div.className = 'message agent-zwischenmeldung';
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content';
-    contentDiv.innerHTML = parseMarkdown(text || '');
-    div.appendChild(contentDiv);
-
-    // Zeit-Label (WhatsApp-artig) wie bei normalen Blasen.
-    const zeitSpan = document.createElement('div');
-    zeitSpan.className = 'message-time';
-    zeitSpan.textContent = formatZeit(zeitIso);
-    zeitSpan.style.cssText = 'font-size:0.65rem;color:#888;margin-top:2px';
-    div.appendChild(zeitSpan);
-
-    dom.messages.appendChild(div);
+    // Eine fortlaufende Gedanken-Blase je laufendem Auftrag (statt bei jedem
+    // Gedanken eine NEUE kleine Blase — das wirkte als "komische Nachrichten").
+    // Wunsch Sebastian 2026-09-11: ein sauberer, fortlaufender Gedanken-Strom
+    // mit Zeitstempeln, wie ein Hermes-Terminal im Chat.
+    const aid = _laufenderAuftragKurz || 'stream';
+    if (!_gedankenBlasen) _gedankenBlasen = {};
+    let blase = _gedankenBlasen[aid];
+    if (!blase || !blase.isConnected) {
+        const div = document.createElement('div');
+        div.className = 'message agent-zwischenmeldung gedanken-strom';
+        const kopf = document.createElement('div');
+        kopf.style.cssText = 'font-size:0.7rem;color:#4a7;margin-bottom:2px';
+        kopf.textContent = '🧠 Hermes (Gedanken)';
+        div.appendChild(kopf);
+        const inhalt = document.createElement('div');
+        inhalt.style.cssText = 'font-size:0.78rem;color:#cde;white-space:pre-wrap;line-height:1.35';
+        div.appendChild(inhalt);
+        dom.messages.appendChild(div);
+        blase = { el: div, inhalt, isConnected: true };
+        _gedankenBlasen[aid] = blase;
+        scrollToBottom(true);
+    }
+    // Zeile mit Zeitstempel anhängen
+    const zk = zeitIso && zeitIso.length >= 19 ? zeitIso.slice(11, 19) : '';
+    const zeile = (zk ? '[' + zk + '] ' : '') + String(text || '').replace(/^\[[^\]]+\]\s*/,'');
+    blase.inhalt.textContent = (blase.inhalt.textContent ? blase.inhalt.textContent + '\n' : '') + zeile;
     scrollToBottom(true);
 }
+
+// Gruppierte Gedanken-Blase je Auftrag (für zeitliche Fortlauf in einer Blase).
+let _gedankenBlasen = {};
 
 /** Zeigt eine fluechtige Bild-Miniatur in der Antwortblase (WhatsApp-Stil).
  *  Nach BILD_ANZEIGE_MS verschwindet sie automatisch; es bleibt ein
@@ -3439,7 +3453,9 @@ function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
         auswahl.appendChild(hinweis);
         auswahl.appendChild(baueSuchMitVorschlaegen(optionen || [], (n) => {
             _quizEditor.personen[neuIdx] = n;
-            quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx]);
+            // manuell=true: das gezeichnete Rechteck wird direkt eingebettet
+            // (op:embed_crop) — auch wenn YuNet das Gesicht nicht erkannt hat.
+            quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx], true);
             container.innerHTML = '';
             const ok = document.createElement('div');
             ok.style.cssText = 'color:#8f8;font-weight:600';
@@ -3690,7 +3706,7 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         gz.appendChild(macheQuizButton('✅ Ja → nächstes Bild', 'skip', () => quizUeberspringen(pfad)));
         gz.appendChild(macheQuizButton('✏️ Nein → Person per Rahmen ergänzen', 'akt', () => {
             gate.remove();
-            starteRahmenZeichnen(imgWrap, img, pfad, dataUrl, optionen, karte, frage);
+            zeigeEinzeichnen(karte, img, dataUrl, pfad, optionen);
         }));
         gate.appendChild(gz);
         const direkt = macheQuizButton('👤 Person direkt benennen', 'person', () => {
