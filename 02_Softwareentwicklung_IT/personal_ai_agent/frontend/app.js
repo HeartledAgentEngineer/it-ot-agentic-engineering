@@ -2607,9 +2607,10 @@ function zeigeBildVollbild(imgEl, gesichter) {
     // Editor-Initialisierung an den aktuellen Gesichten (nur falls nicht
     // schon ein laufender Editor existiert — beim erneuten Oeffnen fundiert).
     if (!_quizEditor) {
-        _quizEditor = { bbox_live: [], undo: [], undo_aktueller: '' };
+        _quizEditor = { bbox_live: [], undo: [], undo_aktueller: '', personen: [] };
     }
     if (!_quizEditor.undo) _quizEditor.undo = [];
+    if (!_quizEditor.personen) _quizEditor.personen = [];
     if (gesichter && gesichter.length) {
         const vor = _quizEditor.bbox_live || [];
         const neu = [];
@@ -3346,7 +3347,12 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[idx])
                 && _quizEditor.bbox_live[idx].length >= 4) liveBbox = _quizEditor.bbox_live[idx];
         } catch (_e) {}
-        quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '', liveBbox).then(() => weiter());
+        quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '', liveBbox).then((d) => {
+            // Nur bei BESTÄTIGTER Zuordnung (ok) merken (Wunsch 2026-09-10:
+            // nur wenn Person gequizt UND richtig zugeordnet wurde).
+            if (d && d.ok) { try { _quizEditor.personen[idx] = person; } catch (_e) {} }
+            weiter();
+        });
     }
 
     zeigeFortschritt();
