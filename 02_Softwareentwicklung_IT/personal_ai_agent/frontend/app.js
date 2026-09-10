@@ -3626,6 +3626,134 @@ async function referenzLoeschen(name, refId, btn) {
     } catch (e) { alert('Löschen fehlgeschlagen: ' + (e && e.message)); }
 }
 
+/** Öffnet die Referenzen EINER Person als scrollbares VOLLBILD-Overlay mit den
+ *  gespeicherten Gesichts-Ausschnitten (je Referenz Bild/Hinweis + ✕ löschen +
+ *  "Alle löschen"), statt als Chat-Blase (Wunsch Sebastian 2026-09-10). */
+function zeigeReferenzenVollbild(name) {
+    let ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:99998;display:flex;flex-direction:column;animation:fadeIn 0.2s ease';
+    // Kopf
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px;color:#8f8;font-weight:700;font-size:1rem';
+    kopf.textContent = `👤 ${name} — Referenzen`;
+    ov.appendChild(kopf);
+    const schliess = document.createElement('div');
+    schliess.textContent = '✕';
+    schliess.style.cssText = 'position:fixed;top:12px;right:16px;z-index:99999;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+    schliess.addEventListener('click', () => { try { ov.remove(); } catch(_e){} });
+    ov.appendChild(schliess);
+    // scrollbare Liste
+    const liste = document.createElement('div');
+    liste.style.cssText = 'flex:1;overflow-y:auto;padding:12px';
+    liste.textContent = '… lade Referenzen …';
+    ov.appendChild(liste);
+    // "Alle löschen" (unten, warnend)
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display:flex;gap:8px;padding:10px';
+    const alleBtn = document.createElement('button');
+    alleBtn.textContent = '🗑 Alle Referenzen löschen';
+    alleBtn.style.cssText = 'padding:8px 12px;border:1px solid #f88;border-radius:8px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.9rem';
+    alleBtn.addEventListener('click', async () => {
+        if (typeof confirm === 'function' && !confirm(`Wirklich ALLE Referenzen von ${name} löschen? (Erkennung dieser Person geht verloren)`)) return;
+        const res = await fetch(`${API_BASE}/api/gesichter/referenzen`);
+        const d = await res.json();
+        const p = (d && d.personen || []).find(x => (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+        for (const r of (p && p.referenzen || [])) {
+            try { await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(r.ref_id)}`, { method: 'DELETE' }); } catch(_e){}
+        }
+        liste.innerHTML = '';
+        const fertig = document.createElement('div');
+        fertig.style.cssText = 'color:#9f9;font-size:0.9rem;padding:12px';
+        fertig.textContent = '✅ Alle Referenzen von ' + name + ' gelöscht.';
+        liste.appendChild(fertig);
+    });
+    footer.appendChild(alleBtn);
+    ov.appendChild(footer);
+    document.body.appendChild(ov);
+
+    // Laden + Rendern (erfolgt asynchron über die bestehende API)
+    (async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/gesichter/referenzen`);
+            const d = await res.json();
+            const p = (d && d.personen || []).find(x => (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+            liste.innerHTML = '';
+            if (!p || !p.referenzen || !p.referenzen.length) {
+                const leer = document.createElement('div');
+                leer.style.cssText = 'color:#999;font-style:italic;padding:12px';
+                leer.textContent = '– keine Referenzen –';
+                liste.appendChild(leer);
+                return;
+            }
+            // Miniatur der Person als Header-Hinweis, falls vorhanden
+            if (p.miniatur) {
+                const m = document.createElement('img');
+                m.src = p.miniatur;
+                m.style.cssText = 'max-width:64px;max-height:64px;border-radius:50%;border:2px solid #2e8b57;vertical-align:middle;display:block;margin:4px auto';
+                liste.appendChild(m);
+            }
+            // keine Bilder in Referenzen -> Hinweis (Hauptproblem von Sebastian)
+            const hinweis = document.createElement('div');
+            hinweis.style.cssText = 'font-size:0.78rem;color:#9a9;padding:6px;font-style:italic';
+            hinweis.textContent = `${p.referenzen.length} Referenz(en). Ohne hinterlegtes Bild (alt gelernt) → kein Ausschnitt zu sehen.`;
+            liste.appendChild(hinweis);
+            for (const r of p.referenzen) {
+                const z = document.createElement('div');
+                z.style.cssText = 'display:flex;align-items:center;gap:8px;margin:6px 0;padding:8px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14';
+                const jahrTxt = document.createElement('span');
+                jahrTxt.style.cssText = 'color:#eee;font-size:0.85rem';
+                jahrTxt.textContent = `#{${r.index}} · ${r.jahr || 'Jahr unbekannt'}`;
+                z.appendChild(jahrTxt);
+                // Bild, falls vorhanden (s. api/dateien/daten); sonst Platzhalter
+                if (r.bild_pfad) {
+                    try {
+                        const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(r.bild_pfad)}`);
+                        const dd = await dr.json();
+                        if (dd && dd.data_url) {
+                            const im = document.createElement('img');
+                            im.src = dd.data_url;
+                            im.style.cssText = 'max-width:72px;max-height:72px;border-radius:6px;border:1px solid #4a7;vertical-align:middle';
+                            z.appendChild(im);
+                        } else {
+                            const ph = document.createElement('span');
+                            ph.style.cssText = 'color:#777;font-size:0.75rem';
+                            ph.textContent = '(Bild fehlt)';
+                            z.appendChild(ph);
+                        }
+                    } catch (_e) {
+                        const ph = document.createElement('span');
+                        ph.style.cssText = 'color:#777;font-size:0.75rem';
+                        ph.textContent = '(Bild fehlt)';
+                        z.appendChild(ph);
+                    }
+                } else {
+                    const ph = document.createElement('span');
+                    ph.style.cssText = 'color:#777;font-size:0.75rem';
+                    ph.textContent = '(kein Bild gespeichert)';
+                    z.appendChild(ph);
+                }
+                const del = document.createElement('button');
+                del.textContent = '✕ löschen';
+                del.style.cssText = 'padding:3px 9px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.78rem;margin-left:auto';
+                del.addEventListener('click', async () => {
+                    await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(r.ref_id)}`, { method: 'DELETE' });
+                    z.style.opacity = 0.35;
+                    del.textContent = '✓ gelöscht';
+                    del.disabled = true;
+                });
+                z.appendChild(del);
+                liste.appendChild(z);
+            }
+        } catch (e) {
+            liste.innerHTML = '';
+            const fehlt = document.createElement('div');
+            fehlt.style.cssText = 'color:#f88;padding:12px';
+            fehlt.textContent = '⚠️ Referenzen laden fehlgeschlagen: ' + (e && e.message);
+            liste.appendChild(fehlt);
+        }
+    })();
+}
+
 // PERSONEN-ANPASSUNGSMODUL: Katalog deiner Wissensdatenbank durchsuchbar
 // anzeigen, Rolle/Beziehung/Zusatzinfos je Person zuweisen/ändern/löschen,
 // und mit "mehr laden" auch grosse Listen handhabbar halten. Bildet die
@@ -3734,61 +3862,12 @@ function zeigePersonenVerwaltung() {
                     m.style.cssText = 'max-width:64px;max-height:64px;border-radius:50%;border:2px solid #2e8b57;vertical-align:middle;margin-left:6px';
                     karte.appendChild(m);
                 }
-                // --- Referenz-Bilder ansehen / einzelne ausschließen (Wunsch
-                //     Sebastian 2026-09-09): Bild-Referenzen sichtbar machen und
-                //     aus dem Embedding nachträglich ausschließen ---
-                const refBtn = macheQuizButton('🖼 Referenzen ansehen/löschen', 'skip', null);
+                // --- Referenz-Bilder ansehen / bearbeiten als VOLLBILD-Overlay (Wunsch
+                //     Sebastian 2026-09-10): nicht mehr als Chat-Blase, sondern
+                //     scrollbares Vollbild mit Gesichter-Ausschnitten) ---
+                const refBtn = macheQuizButton('🖼 Referenzen ansehen/löschen', 'skip', () => zeigeReferenzenVollbild(name));
                 refBtn.style.cssText += ';margin-top:6px;width:100%;text-align:center';
                 karte.appendChild(refBtn);
-                const refBox = document.createElement('div');
-                refBox.style.display = 'none';
-                refBox.style.cssText = 'display:none;margin:6px 0;padding:8px;border:1px solid #2e8b57;border-radius:8px;background:#0f1f14';
-                refBtn.onclick = async () => {
-                    const offen = refBox.style.display !== 'none';
-                    refBox.style.display = offen ? 'none' : 'block';
-                    if (offen) return;
-                    refBox.innerHTML = '';
-                    refBox.textContent = '… lade Referenzen …';
-                    try {
-                        const rr = await fetch(`${API_BASE}/api/gesichter/referenzen`);
-                        const rd = await rr.json();
-                        const personRefs = (rd && rd.personen || []).find(pd => (pd.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
-                        refBox.innerHTML = '';
-                        if (!personRefs || !personRefs.referenzen || !personRefs.referenzen.length) {
-                            refBox.textContent = '– keine Einzel-Referenzen –';
-                            return;
-                        }
-                        for (const r of personRefs.referenzen) {
-                            const z = document.createElement('div');
-                            z.style.cssText = 'display:flex;align-items:center;gap:6px;margin:3px 0';
-                            const jahrTxt = document.createElement('span');
-                            jahrTxt.textContent = `#{${r.index}} · ${r.jahr || 'Jahr unbekannt'}`;
-                            z.appendChild(jahrTxt);
-                            // Bildvorschau via /api/dateien/daten (falls bild_pfad da)
-                            if (r.bild_pfad) {
-                                try {
-                                    const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(r.bild_pfad)}`);
-                                    const dd = await dr.json();
-                                    if (dd && dd.data_url) {
-                                        const im = document.createElement('img');
-                                        im.src = dd.data_url;
-                                        im.style.cssText = 'max-width:54px;max-height:54px;border-radius:6px;border:1px solid #4a7;vertical-align:middle;margin-left:4px';
-                                        z.insertBefore(im, z.children[1]);
-                                    }
-                                } catch (_e) {}
-                            }
-                            const del = document.createElement('button');
-                            del.textContent = '✕ ausschließen';
-                            del.style.cssText = 'padding:2px 8px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.72rem';
-                            del.onclick = () => referenzLoeschen(name, r.ref_id, del);
-                            z.appendChild(del);
-                            refBox.appendChild(z);
-                        }
-                    } catch (e2) {
-                        refBox.textContent = '⚠️ Referenzen laden fehlgeschlagen: ' + (e2 && e2.message);
-                    }
-                };
-                karte.appendChild(refBox);
                 return karte;
             }
 
