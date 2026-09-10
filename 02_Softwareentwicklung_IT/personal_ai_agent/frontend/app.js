@@ -3061,7 +3061,7 @@ function macheQuizLabel(text) {
  *  den gewählten Namen über `onwaehl`. */
 function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'position:relative;margin-top:6px';
+    wrap.style.cssText = 'margin-top:6px';
     // Eingabefeld mit Dropdown (Suchmaschinen-/Autocomplete-Stil):
     // Beim Tippen erscheinen die Treffer als auswählbare Optionen darunter.
     const inp = document.createElement('input');
@@ -3071,7 +3071,7 @@ function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
     inp.style.cssText = 'width:100%;padding:7px 10px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.85rem';
     wrap.appendChild(inp);
     const dd = document.createElement('div');
-    dd.style.cssText = 'position:absolute;top:100%;left:0;right:0;z-index:50;max-height:240px;overflow-y:auto;background:#0b1a12;border:1px solid #2e8b57;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.55)';
+    dd.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin-top:4px;max-height:240px;overflow-y:auto;background:#0b1a12;border:1px solid #2e8b57;border-radius:8px';
     dd.style.display = 'none';
     wrap.appendChild(dd);
     const zeigen = (sichtbar) => { dd.style.display = sichtbar ? 'block' : 'none'; };
