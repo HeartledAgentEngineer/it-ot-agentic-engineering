@@ -130,6 +130,16 @@
   kleiner. Verschieben weiterhin am Rahmenkörper per Drag.
 - Rahmen-Positionen bleiben formatwechselstabil (resize/orientationchange).
 
+## Referenzen: Gesichts-Ausschnitt (bbox) wird gespeichert (Stand 2026-09-10)
+Die Referenzen wurden NUR als Embedding+Jahr gespeichert — `bild_pfad` und vor
+allem die **bbox** (Ausschnitt-Größe) gingen über zwei Normalisierungsstellen
+verloren (`_refs_bereinigen` beim Schreiben, `_refs_of` beim Lesen). Beide
+behalten jetzt `bild_pfad` + `bbox`.
+- Damit: Referenz-Vollbild zeigt künftig echte Gesichts-Ausschnitte, und die
+  Rahmengröße ist nachträglich anpassbar (Vollbild-Editor liefert die
+  korrigierte bbox). Verifiziert: Wegwerf-Referenz mit bbox [10,20,80,60]
+  wird korrekt wiedergelesen.
+
 ## Quiz-Feinschliff (Stand 2026-09-10, ältere drei Folgewünsche — bereits umgesetzt)
 1. **Namens-Chips nach 'Nein' nach Wahrscheinlichkeit sortiert:** Neues
    Backend `_optionen_sortiert(bild_pfad)` in `gesicht_quiz` berechnet für das

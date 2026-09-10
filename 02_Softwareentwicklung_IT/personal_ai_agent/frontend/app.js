@@ -3232,8 +3232,9 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     const titel = document.createElement('div');
     titel.style.cssText = 'flex:1;text-align:center;font-weight:700;font-size:0.86rem;color:#9f9';
     titel.textContent = '🧠 Gesichter-Quiz';
-    const stopp = macheQuizButton('⏹ Beenden', 'skip', beendeQuizAktiv);
-    stopp.style.cssText += ';padding:1px 8px;font-size:0.68rem;background:transparent;border:1px solid #555;color:#888';
+    const stopp = macheQuizButton('✕', 'skip', beendeQuizAktiv);
+    stopp.title = 'Quiz beenden';
+    stopp.style.cssText += ';padding:1px 8px;font-size:0.95rem;background:transparent;border:1px solid #555;color:#bbb';
     kopf.appendChild(menue);
     kopf.appendChild(titel);
     kopf.appendChild(stopp);

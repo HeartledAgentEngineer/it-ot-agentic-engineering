@@ -128,13 +128,20 @@ def referenz_miniatur_von_pfad(
 
 
 def _refs_bereinigen(referenzen: Optional[list]) -> Optional[list]:
-    """Reduziert eine Referenzliste auf {embedding, jahr}-Dicts (bereinigt)."""
+    """Reduziert eine Referenzliste auf {embedding, jahr[, bild_pfad][, bbox]}
+    (bereinigt). Behält _bild_pfad_ und _bbox_ bei, damit der Gesichts-Ausschnitt
+    nachträglich anpassbar bleibt (Wunsch Sebastian 2026-09-10)."""
     if not referenzen:
         return None
     out = []
     for r in referenzen:
         if isinstance(r, dict) and r.get("embedding"):
-            out.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+            eintrag = {"embedding": r["embedding"], "jahr": r.get("jahr")}
+            if r.get("bild_pfad"):
+                eintrag["bild_pfad"] = r["bild_pfad"]
+            if r.get("bbox"):
+                eintrag["bbox"] = r["bbox"]
+            out.append(eintrag)
         elif r:  # roher Vektor -> kein jahr
             out.append({"embedding": r, "jahr": None})
     return out or None
@@ -242,7 +249,10 @@ def _refs_of(p: dict) -> list:
             refs.extend({"embedding": x, "jahr": None} for x in e if x)
     for r in (p.get("referenzen") or []):
         if isinstance(r, dict) and r.get("embedding"):
-            refs.append({"embedding": r["embedding"], "jahr": r.get("jahr")})
+            eintrag = {"embedding": r["embedding"], "jahr": r.get("jahr")}
+            if r.get("bild_pfad"): eintrag["bild_pfad"] = r["bild_pfad"]
+            if r.get("bbox"): eintrag["bbox"] = r["bbox"]
+            refs.append(eintrag)
     return refs
 
 
@@ -259,6 +269,7 @@ def referenzen_auflisten() -> dict:
                 "index": idx,
                 "jahr": r.get("jahr"),
                 "bild_pfad": r.get("bild_pfad", ""),   # Ursprungsbild (falls vorhanden)
+                "bbox": r.get("bbox") or [],           # Gesichts-Ausschnitt (nachträglich anpassbar)
             })
         erg.append({
             "name": p.get("name"),
