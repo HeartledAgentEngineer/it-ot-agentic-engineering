@@ -2908,11 +2908,19 @@ function zeigeBildVollbild(imgEl, gesichter) {
                     // Persistieren: für die zugeordnete Person (Ein-Gesicht-Fall)
                     // die korrigierte bbox ans Backend übermitteln (Fall A, Wunsch
                     // Sebastian 2026-09-10: Speichern aktualisiert die Referenz).
-                    const person = (_aktuelleQuizPerson || '').trim();
+                    const person0 = (_aktuelleQuizPerson || '').trim();
+                    // Person des aktuell ausgewählten Rahmens (bestätigte Zuordnung)
+                    // als Fallback: so klappt 💾 auch für bereits zugeordnete Gesichter,
+                    // ohne erneut "Person auswählen" zu verlangen.
+                    let pIdx = 0;
+                    try { if (sel >= 0 && _quizEditor && _quizEditor.personen && _quizEditor.personen[sel]) pIdx = sel; } catch (_e) {}
+                    const person = person0 || (pIdx >= 0 && _quizEditor && _quizEditor.personen && _quizEditor.personen[pIdx]) || '';
                     const pPfad = (_aktuellerQuizPfad || '').trim();
                     let bbox = null;
                     try {
-                        if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[0])
+                        if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[pIdx])
+                            && _quizEditor.bbox_live[pIdx].length >= 4) bbox = _quizEditor.bbox_live[pIdx];
+                        else if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[0])
                             && _quizEditor.bbox_live[0].length >= 4) bbox = _quizEditor.bbox_live[0];
                     } catch (_e) {}
                     if (person && pPfad) {
