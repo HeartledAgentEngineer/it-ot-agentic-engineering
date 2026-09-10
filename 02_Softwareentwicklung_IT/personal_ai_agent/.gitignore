@@ -29,6 +29,7 @@ gesichter_katalog.json
 gesichter_katalog.json.tmp
 gesichter_katalog.json.bak-*
 gesichter_katalog.json.abofix-*
+gesichter_katalog.bak-*
 quiz_fortschritt.json
 
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.

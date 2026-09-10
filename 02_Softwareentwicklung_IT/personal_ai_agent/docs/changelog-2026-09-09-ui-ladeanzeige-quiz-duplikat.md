@@ -157,6 +157,19 @@
 - Danach lernt das Quiz wieder frisch — und neue Referenzen tragen `bild_pfad`
   (sichtbare Ausschnitte im Referenz-Vollbild).
 
+## Vollbild-Durchklick nach Quiz-Abschluss (Stand 2026-09-10)
+- Der Vollbildmodus des Quiz hat jetzt unten schwebend „Nächstes Bild ➡️"
+  (nur während aktiver Quiz-Sitzung `_quizAktiv`).
+- Funktion `naechstesBildAusVollbild()`: persistiert eine evtl. offene Frage
+  als übersprungen (`POST /quiz/antwort ueberspringen:true`), schließt das
+  Vollbild, lädt die nächste Runde (`naechsteQuizRunde(nachRunde)` mit neuem
+  optionalen Callback) und öffnet das neue Bild automatisch wieder als
+  Vollbild (mit gelben Rahmen nach der Analyse). Einzel- und Gruppenbild
+  gleichermaßen; bei Quiz-Ende keine leere Vollbild-Öffnung.
+- Helfer `findeHauptQuizBild(karte)`: liefert das Hauptfoto (größte
+  NATIV-Fläche), damit nicht der kleine Gesicht-Ausschnitt-Crop aufgegriffen
+  wird.
+
 ## Autonomer Nachtjob (termux/hermes-nacht-job.sh, Stand 2026-09-10)
 
 - **Ziel (Wunsch Sebastian):** Nach einer festgelegten Zeit (Cron) soll der

@@ -2638,6 +2638,19 @@ function zeigeBildVollbild(imgEl, gesichter) {
     wrap.appendChild(bildBox);
     ov.appendChild(x);
     ov.appendChild(wrap);
+    // "Nächstes Bild ➡️"-Steuerung im Vollbild (Vollbild-Durchlauf, 2026-09-10):
+    // erspart das Schliessen, um zur naechsten Quizrunde zu gelangen. Erscheint
+    // NUR waehrend einer aktiven Quiz-Sitzung (_quizAktiv). Beim Klick wird eine
+    // evtl. noch offene Frage des aktuellen Bildes als 'uebersprungen' persistiert
+    // und die naechste Runde geladen; das neue Bild oeffnet sich danach direkt
+    // wieder als Vollbild (idealer Durchlauf).
+    if (_quizAktiv && _quizGesehen && _quizGesehen.length) {
+        const weiterBtn = document.createElement('div');
+        weiterBtn.style.cssText = 'position:fixed;left:auto;right:auto;width:auto;bottom:18px;z-index:99999;text-align:center;padding:12px 26px;border-radius:30px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.6);left:50%;transform:translateX(-50%)';
+        weiterBtn.textContent = 'Nächstes Bild ➡️';
+        weiterBtn.addEventListener('click', (ev) => { ev.stopPropagation(); naechstesBildAusVollbild(); });
+        ov.appendChild(weiterBtn);
+    }
     // Korrigierbare Gesicht-Rahmen ins Vollbild (Wunsch Sebastian 2026-09-09):
     // jeder Rahmen antippbar -> Auswahl + Loeschen; mit Finger verschiebbar
     // (Drag). Die Positionen speichern live in `_quizEditor.bbox_live`
@@ -2757,6 +2770,59 @@ function schliesseBildVollbild() {
         try { _quizVollbild.remove(); } catch (e) {}
         _quizVollbild = null;
     }
+}
+
+// Findet in einer Quiz-Karte das HAUPT-Quizbild (Vollbild-Quelle). Die Karte
+// enthaelt bei einem Einzelgesicht auch den kleinen 'Gesicht-Ausschnitt'
+// (erzeugeGesichtCrop), daher waehlen wir das groesste Bild nach NATIV-Flaechen-
+// grosse — der Crop hat kleinere natuerliche Masse, das Hauptbild ist groesser.
+function findeHauptQuizBild(karte) {
+    if (!karte) return null;
+    try {
+        const imgs = Array.from(karte.querySelectorAll('img'));
+        if (!imgs.length) return null;
+        let best = imgs[0], bestFl = -1;
+        for (const im of imgs) {
+            const w = im.naturalWidth || im.width || 0;
+            const h = im.naturalHeight || im.height || 0;
+            const fl = (w && h) ? (w * h) : 0;
+            if (fl > bestFl) { bestFl = fl; best = im; }
+        }
+        return best;
+    } catch (_e) { return null; }
+}
+
+// Vom Vollbild aus zur naechsten Quizrunde (Vollbild-Durchlauf, 2026-09-10):
+// beendet die aktuelle Runde und laedt die naechste, ohne das Vollbild zu
+// verlassen. Eine noch offene Ja/Nein-Frage des aktuellen Bildes wird beim
+// Durchklicken als 'uebersprungen' persistiert (POST /api/gesichter/quiz/antwort
+// mit ueberspringen:true), damit sie nicht blind verloren geht. Danach wird das
+// neue Bild direkt wieder als Vollbild geoeffnet (idealer Durchlauf). Funktioniert
+// fuer Einzelbild (anzahl_gesichter 0/1) und Gruppenbild (>=2, starteGruppenQuiz)
+// gleichermassen, da die Analyse je Runde einheitlich ueber naechsteQuizRunde laeuft.
+async function naechstesBildAusVollbild() {
+    // (a) evtl. offene Frage des aktuellen Bildes als 'uebersprungen' sichern.
+    //     Der aktuelle Bildpfad ist der zuletzt von naechsteQuizRunde erfasste.
+    const aktuellerPfad = (_quizGesehen && _quizGesehen.length)
+        ? _quizGesehen[_quizGesehen.length - 1] : null;
+    if (aktuellerPfad) {
+        try {
+            fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bild_pfad: aktuellerPfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
+            }).catch(() => {});
+        } catch (_e) {}
+    }
+    // Vollbild schliessen; die naechste Runde wird gleich wieder geoeffnet.
+    schliesseBildVollbild();
+    // (b) naechste Runde laden; sobald das neue Bild gerendert ist, es wieder
+    //     als Vollbild anzeigen (Callback von naechsteQuizRunde).
+    naechsteQuizRunde((imgNeu, gesichterNeu) => {
+        if (imgNeu && imgNeu.src) {
+            try { zeigeBildVollbild(imgNeu, gesichterNeu || []); } catch (_e) {}
+        }
+    });
 }
 
 // Macht ein <img> antippbar (Vollbild) - nutzt den nativen dataURL-String,
@@ -3407,7 +3473,11 @@ function raeumeQuizKopienAuf() {
 // (nach "weiter"/"Naechstes Bild"/"Keine Person drauf"). _quizAktiv bleibt true,
 // solange die Sitzung laeuft; nur der echte Neustart (quizStart) guardet.
 // Liefert true, wenn eine Runde angezeigt wurde; false, wenn Quiz zu Ende/Fehler.
-async function naechsteQuizRunde() {
+async function naechsteQuizRunde(nachRunde) {
+    // `nachRunde` (optional): wird nach dem Anzeigen einer Runde aufgerufen mit
+    // (hauptQuizImg, gesichter). Nutzt der Vollbild-Durchlauf ("Nächstes Bild ➡️"),
+    // um das neue Bild direkt wieder als Vollbild zu oeffnen. Ohne Callback
+    // verhaelt sich die Funktion exakt wie zuvor.
     raeumeQuizKopienAuf();  // verbrauchte Quiz-Karte(n): Bildkopie freigeben
     const warteblase = addMessage('', 'assistant');
     // Gleiche animierte Dreipunkt-Blase wie beim Agenten-Denken (siehe Typing-Indicator
@@ -3467,13 +3537,25 @@ async function naechsteQuizRunde() {
                 zeigeQuizKarte(pfad, name, dataUrl, optionen,
                     a.vermutung, a.anzahl_gesichter || 0, a.erkannte_personen || [], a.gesichter || [],
                     sofortKarte);
+                // Vollbild-Durchlauf: neues Bild nach der Analyse direkt wieder als
+                // Vollbild anzeigen (mit den analysierten Gesichtern fuer die Rahmen).
+                if (typeof nachRunde === 'function') {
+                    try { nachRunde(findeHauptQuizBild(sofortKarte), a.gesichter || []); } catch (_c) {}
+                }
             } catch (e2) {
                 // Analyse fehlgeschlagen: zumindest die Antwort-Chips anbieten
                 zeigeQuizKarte(pfad, name, dataUrl, optionen, null, 0, [], [], sofortKarte);
+                if (typeof nachRunde === 'function') {
+                    try { nachRunde(findeHauptQuizBild(sofortKarte), []); } catch (_c) {}
+                }
             }
             return true;
         }
         zeigeQuizKarte(pfad, name, dataUrl, optionen, d.vermutung, d.anzahl_gesichter || 0, (d.erkannte_personen || []), (d.gesichter || []));
+        // Vollbild-Durchlauf: neues Bild direkt wieder als Vollbild anzeigen.
+        if (typeof nachRunde === 'function') {
+            try { nachRunde(findeHauptQuizBild(_letzteQuizKarte), d.gesichter || []); } catch (_c) {}
+        }
         return true;
     } catch (e) {
         if (warteblase) { const b = warteblase.closest ? warteblase.closest('.message') : null; if (b) b.remove(); }
