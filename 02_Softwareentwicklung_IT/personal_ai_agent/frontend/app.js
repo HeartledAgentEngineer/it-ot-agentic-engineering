@@ -3435,6 +3435,29 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         markiereGesichtImBild(img, gesichter, 0);
         try { img.addEventListener('load', () => markiereGesichtImBild(img, gesichter, 0)); } catch (_) {}
         zeigeGesichtCropIn(karte, dataUrl, gesichter[0].bbox, 240);
+    } else {
+        // Kein Gesicht erkannt -> NICHTS ist im Bild markiert. Dann nicht
+        // fragen "Wer ist auf diesem Bild?" (das waere ohne markierten Bezug
+        // verwirrend + ein Name wuerde eh serverseitig mit 'kein Gesicht im
+        // Bild erkannt' abgelehnt). Stattdessen sauber zum Ueberspringen
+        // fuehren, damit das Bild direkt als 'gesehen' abgehakt wird.
+        const keinGesicht = document.createElement('div');
+        keinGesicht.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #666;border-radius:9px;background:#1e1e1e';
+        const kt = document.createElement('div');
+        kt.style.cssText = 'font-size:0.82rem;color:#ccc';
+        kt.textContent = '👤 Kein Gesicht erkannt – auf diesem Bild ist nichts markiert. Du kannst es überspringen (es erscheint dann nicht erneut).';
+        keinGesicht.appendChild(kt);
+        const kskip = document.createElement('div');
+        kskip.style.cssText = 'margin-top:6px';
+        kskip.appendChild(macheQuizButton('⏭️ Bild überspringen (kein Gesicht)', 'skip', () => quizUeberspringen(pfad)));
+        keinGesicht.appendChild(kskip);
+        karte.appendChild(keinGesicht);
+        // Keine irrefuehrende 'Wer ist auf diesem Bild?'-Frage stehenlassen.
+        frage.textContent = '👤 Kein Gesicht erkannt';
+        frage.style.color = '#ccc';
+        // Kopfzeile, Bild-Sektion usw. sind schon da; keine weiteren
+        // Antwort-/Namens-/Neue-Person-Bloecke einfuegen.
+        return;
     }
 
     // --- Vermutung: erst reine Ja/Nein-Frage stellen (kein aufdringliches
@@ -4408,7 +4431,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // der unteren #loading-Bubble (setzeTutZeile → "Agent liest…" +
     // setLoading). So gibt es statt zwei konkurrierender Ladeanzeigen nur
     // EINE (Stand 2026-09-09, Auftrag Sebastian).
-    const contentDiv = addMessage('', 'assistant');
+    // Coding-Chat (conv_code): KEINE leere Assistenten-Blase anlegen — dort
+    // liefert der Hermes-Stream seine eigene Antwort-Blase; eine leere hier
+    // würde über der "Hermes bearbeitet…"-Animation stehen bleiben
+    // (Wunsch Sebastian 2026-09-10).
+    const imCodingChat = (state.conversationId === 'conv_code');
+    const contentDiv = imCodingChat ? null : addMessage('', 'assistant');
     // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
     // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
     // Stream-Abbruch läuft über den Bearbeiten-Flow bzw. die leere-Eingabe-
