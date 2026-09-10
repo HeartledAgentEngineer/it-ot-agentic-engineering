@@ -120,6 +120,25 @@ def embeddings_fuer_pfad(pfad: str) -> List[dict]:
     return res.get("gesichter", [])
 
 
+def embedding_fuer_bbox(pfad: str, bbox) -> Optional[List[float]]:
+    """Erzeugt ein Embedding fuer einen SELBST gezeichneten Ausschnitt (bbox in
+    ABSOLUTEN Pixeln relativ zum vollen Bild). Wird genutzt, um eine Person
+    anzulernen, die YuNet nicht (richtig) erkannt hat. Liefert None bei Fehler."""
+    try:
+        with open(pfad, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+    except Exception as e:
+        logger.warning("Bild nicht lesbar fuer Crop-Embedding: %s", e)
+        return None
+    if not b64:
+        return None
+    res = _infer({"op": "embed_crop", "bild_base64": b64, "bbox": list(bbox)})
+    if not res.get("ok"):
+        logger.warning("Crop-Embedding fehlgeschlagen: %s", res.get("fehler"))
+        return None
+    return res.get("embedding")
+
+
 def _cosinus_distanz(a: List[float], b: List[float]) -> Optional[float]:
     """1 - cos; None bei ungueltigen Vektoren."""
     try:

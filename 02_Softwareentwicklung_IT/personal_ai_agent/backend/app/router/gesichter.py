@@ -78,6 +78,10 @@ class QuizAntwortBody(BaseModel):
     beschreibung: str = Field(default="", max_length=1000)
     ueberspringen: bool = False
     bbox: list = []
+    # True = der Nutzer hat einen Rahmen SELBST gezeichnet (bbox in absoluten
+    # Pixeln) und will genau DIESEN Ausschnitt als Person anlernen — auch wenn
+    # YuNet das Gesicht nicht (richtig) erkannt hat (Wunsch Sebastian 2026-09-11).
+    manuell_bbox: bool = False
 
 
 class QuizStartBody(BaseModel):
@@ -125,6 +129,13 @@ def quiz_antwort(body: QuizAntwortBody):
     """
     if body.ueberspringen:
         return gesicht_quiz.markiere_uebersprungen(body.bild_pfad)
+    if body.manuell_bbox:
+        # Selbst gezeichneter Rahmen: genau DIESEN Ausschnitt als Person
+        # anlernen (auch wenn YuNet das Gesicht nicht erkannt hat).
+        return gesicht_quiz.ergaenze_person_mit_bbox(
+            bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu,
+            rolle=body.rolle, beziehung=body.beziehung, beschreibung=body.beschreibung,
+            bbox=body.bbox)
     return gesicht_quiz.beantworte_runde(
         bild_pfad=body.bild_pfad, person=body.person, ist_neu=body.ist_neu,
         rolle=body.rolle, beziehung=body.beziehung, beschreibung=body.beschreibung,

@@ -3548,21 +3548,21 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         keinGesicht.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #666;border-radius:9px;background:#1e1e1e';
         const kt = document.createElement('div');
         kt.style.cssText = 'font-size:0.82rem;color:#ccc';
-        kt.textContent = '👤 Kein Gesicht automatisch erkannt. Ist hier trotzdem eine Person, die wir ergänzen sollen?';
+        kt.textContent = '👤 Keine Person erkannt – ist auf dem Bild doch jemand, den wir ergänzen sollen?';
         keinGesicht.appendChild(kt);
         const kz = document.createElement('div');
         kz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        // JA: Rahmen um eine nicht-erkannte Person zeichnen (Touch-Drag aufs Bild)
-        const jaBtn = macheQuizButton('✅ Ja – Person einzeichnen', 'akt', () => {
+        // JA: wirklich keine Person da -> überspringen (nächstes Bild)
+        const jaBtn = macheQuizButton('✅ Ja → nächstes Bild', 'skip', () => quizUeberspringen(pfad));
+        // NEIN: doch eine Person -> Rahmen um sie zeichnen (Touch-Drag aufs Bild)
+        const neinBtn = macheQuizButton('✏️ Nein → Person per Rahmen ergänzen', 'akt', () => {
             zeigeEinzeichnen(keinGesicht, img, dataUrl, pfad, optionen);
         });
-        // NEIN: kein Gesicht da -> überspringen (nächstes Bild)
-        const neinBtn = macheQuizButton('❌ Nein – überspringen', 'skip', () => quizUeberspringen(pfad));
         kz.appendChild(jaBtn);
         kz.appendChild(neinBtn);
         keinGesicht.appendChild(kz);
         karte.appendChild(keinGesicht);
-        frage.textContent = '👤 Kein Gesicht erkannt';
+        frage.textContent = '👤 Keine Person gefunden';
         frage.style.color = '#ccc';
         return;
     }

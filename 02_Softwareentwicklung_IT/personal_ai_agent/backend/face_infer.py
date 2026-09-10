@@ -7,9 +7,13 @@ Liest eine JSON-Anweisung von stdin, fuehrt Detektion (YuNet) + Embedding
 (SFace/OpenCV FaceRecognizerSF) aus und schreibt das Ergebnis als JSON auf
 stdout.
 
-Zwei Operationen:
+Drei Operationen:
   {"op":"embed","bild_base64":"...","max_faces":N}
       -> liefert fuer das/die erkannte/n Gesicht/er je {bbox, landm, embedding:[...]}
+  {"op":"embed_crop","bild_base64":"...","bbox":[x,y,w,h]}
+      -> liefert EIN Embedding fuer ein selbst gezeichnetes Rechteck (bbox in
+         ABSOLUTEN Pixeln). Ermoeglicht das Anlernen einer Person, die YuNet
+         nicht (richtig) erkannt hat.
   {"op":"ping"}
       -> {"ok":true,"version":...} (Verfuegbarkeits-/Health-Check)
 
@@ -49,12 +53,55 @@ def _lazy_load():
 def _align_face(img_bgr, bbox, landm) -> np.ndarray:
     """Schneidet das Gesicht anhand der 5 Landmarken raus und aligniert es auf
     112x112 (SFace-Vorverarbeitung entspricht dem OpenCV AlignCrop)."""
-    # OpenCV liefert Landmarken relativ zum Bild; wir nutzen den eingebauten
-    # Aligner, der konsistent zum Modell-Training ist.
     det, rec = _lazy_load()
-    # Landmarken Shape: (5,2). FaceRecognizerSF muellt alignCrop ueber den
-    # Rec-Objekts-Modus, der selbst die Landmarken hat.
     return rec.alignCrop(img_bgr, landm.astype(np.float32))
+
+
+def _embed_crop_pixels(img, bbox):
+    """Erzeugt ein SFace-Embedding fuer einen selbst gezeichneten Ausschnitt.
+
+    bbox: [x, y, w, h] in ABSOLUTEN Pixeln relativ zum vollen Bild. Es wird
+    zuerst versucht, im Ausschnitt das Gesicht + Landmarken zu finden (genaue
+    alignCrop-Embedding); schlaegt das fehl, wird der Quadrat-Crop auf 112x112
+    skaliert und direkt eingebettet (Fallback). Liefert None, wenn nichts
+    brauchbares entsteht.
+    """
+    h, w = img.shape[:2]
+    try:
+        x = max(0, min(int(round(float(bbox[0]))), w - 1))
+        y = max(0, min(int(round(float(bbox[1]))), h - 1))
+        bw = max(4, min(int(round(float(bbox[2]))), w - x))
+        bh = max(4, min(int(round(float(bbox[3]))), h - y))
+    except (TypeError, ValueError, IndexError):
+        return None
+    crop = img[y:y + bh, x:x + bw]
+    det, rec = _lazy_load()
+    emb = None
+    # 1) Gesicht + Landmarken im Ausschnitt suchen -> genaue alignCrop-Embedding.
+    try:
+        det.setInputSize((crop.shape[1], crop.shape[0]))
+        ok, faces = det.detect(crop)
+        if faces is not None and len(faces) > 0:
+            f = faces[0]
+            landm = f[4:14].reshape(-1, 2).astype(np.float32)
+            aligned = rec.alignCrop(crop, landm)
+            emb = rec.feature(aligned)
+    except Exception:
+        emb = None
+    # 2) Fallback: Quadrat-Crop auf 112x112 skalieren und direkt einbetten.
+    if emb is None:
+        try:
+            sq = crop
+            s = min(sq.shape[0], sq.shape[1])
+            if s > 0:
+                sq = sq[0:s, 0:s]
+            sq = cv2.resize(sq, (REC_SIZE, REC_SIZE), interpolation=cv2.INTER_AREA)
+            emb = rec.feature(sq)
+        except Exception:
+            emb = None
+    if emb is None:
+        return None
+    return emb[0]
 
 
 def op_embed(payload: dict) -> dict:
@@ -97,6 +144,36 @@ def op_embed(payload: dict) -> dict:
     return {"ok": True, "gesichter": ergebnis}
 
 
+def op_embed_crop(payload: dict) -> dict:
+    """Embedding fuer EIN selbst gezeichnetes Rechteck (bbox) — nicht fuer die
+    YuNet-Autodetektion. Damit kann das Quiz eine Person auch dann anlernen,
+    wenn YuNet das Gesicht nicht (richtig) erkannt hat (Wunsch Sebastian:
+    'Rahmen um nicht automatisch erkannte Personen ergaenzen').
+
+    bbox ist in ABSOLUTEN Pixeln relativ zum vollen Bild: [x, y, w, h].
+    """
+    b64 = payload.get("bild_base64", "")
+    bbox = payload.get("bbox") or []
+    if len(bbox) < 4:
+        return {"ok": False, "fehler": "bbox fehlt"}
+    try:
+        roh = base64.b64decode(b64)
+        arr = np.frombuffer(roh, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    except Exception as e:
+        return {"ok": False, "fehler": f"decode: {e}"}
+    if img is None:
+        return {"ok": False, "fehler": "bild nicht decodierbar"}
+    try:
+        emb = _embed_crop_pixels(img, bbox)
+    except Exception as e:
+        return {"ok": False, "fehler": str(e)}
+    if emb is None:
+        return {"ok": False, "fehler": "kein Gesicht im Ausschnitt"}
+    return {"ok": True, "embedding": [float(v) for v in emb],
+            "bbox": [float(v) for v in bbox]}
+
+
 def main():
     try:
         raw = sys.stdin.read()
@@ -111,6 +188,8 @@ def main():
                           "detektor": "yunet", "rec": "sface"}))
     elif op == "embed":
         print(json.dumps(op_embed(payload)))
+    elif op == "embed_crop":
+        print(json.dumps(op_embed_crop(payload)))
     else:
         print(json.dumps({"ok": False, "fehler": f"unbekannte op: {op}"}))
 

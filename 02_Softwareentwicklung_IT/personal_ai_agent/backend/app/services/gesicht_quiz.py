@@ -556,6 +556,108 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen, "jahr": jahr}
 
 
+def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
+                             rolle: str = "", beziehung: str = "",
+                             beschreibung: str = "", bbox=None) -> dict:
+    """Ergänzt eine Person über einen SELBST gezeichneten Rahmen (bbox in
+    ABSOLUTEN Pixeln). Anders als beantworte_runde (das nur unter den von YuNet
+    gefundenen Gesichtern wählt) wird hier der vom Nutzer markierte Ausschnitt
+    direkt eingebettet — so lässt sich auch eine Person anlernen, die YuNet
+    gar nicht (richtig) erkannt hat (Wunsch Sebastian 2026-09-11).
+
+    `bbox` MUSS gesetzt sein. Liefert {ok, person, ist_neu, referenzen, jahr}.
+    """
+    from app.services import face_service, gesichter_service
+    name = (person or "").strip()
+    rolle = (rolle or "").strip()
+    beziehung = (beziehung or "").strip()
+    beschreibung = (beschreibung or "").strip()
+    if not name:
+        return {"ok": False, "fehler": "keine Person angegeben"}
+    if not bild_pfad or not os.path.exists(bild_pfad):
+        return {"ok": False, "fehler": "Bild nicht gefunden"}
+    if not bbox or len(bbox) < 4:
+        return {"ok": False, "fehler": "kein Rahmen (bbox) angegeben"}
+    if not face_service.verfuegbar():
+        return {"ok": False, "fehler": "Face-Engine nicht verfügbar"}
+
+    emb = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
+    if not emb:
+        return {"ok": False,
+                "fehler": "im markierten Ausschnitt wurde kein Gesicht erkannt"}
+
+    neu = False
+    vorhanden = None
+    for p in gesichter_service.liste_personen():
+        if (p.get("name") or "").strip().lower() == name.lower():
+            vorhanden = p
+            break
+
+    try:
+        from app.services.datei_suche import _datei_jahr
+        jahr = _datei_jahr(bild_pfad)
+    except Exception:
+        jahr = None
+
+    neue_ref = {"embedding": emb, "jahr": jahr, "bild_pfad": bild_pfad,
+                "bbox": [float(v) for v in bbox]}
+    if vorhanden is None:
+        gesichter_service.person_speichern(name=name, rolle=rolle,
+                                           beziehung=beziehung, beschreibung=beschreibung,
+                                           referenzen=[neue_ref])
+        neu = True
+        referenzen = 1
+    else:
+        basis = {
+            "name": name,
+            "rolle": rolle or vorhanden.get("rolle", ""),
+            "beziehung": vorhanden.get("beziehung", ""),
+            "beschreibung": vorhanden.get("beschreibung", ""),
+            "referenz_bild_pfad": vorhanden.get("referenz_bild_pfad", ""),
+            "referenz_bild_miniatur": vorhanden.get("referenz_bild_miniatur", ""),
+        }
+        bestehende = vorhanden.get("referenzen")
+        if not bestehende:
+            bestehende = [{"embedding": r, "jahr": None}
+                          for r in _refs_als_liste(vorhanden.get("embedding"))]
+        bestehende = [r for r in bestehende if isinstance(r, dict) and r.get("embedding")]
+        refs_emb = [r["embedding"] for r in bestehende]
+        zu_alt = min((face_service._cosinus_distanz(emb, r) for r in refs_emb if r),
+                     default=None)
+        if zu_alt is None or zu_alt > 0.05:
+            bestehende = bestehende + [neue_ref]
+            gesichter_service.person_speichern(**basis, referenzen=bestehende)
+        referenzen = len(bestehende)
+
+    try:
+        from app.services.chat_verlauf import verlauf_nachricht_anhaengen
+        rolle_txt = f" ({rolle})" if rolle else ""
+        text = (f"[Gesichter-Quiz] '{name}'{rolle_txt} per Rahmen ergänzt — "
+                f"{referenzen} Referenz(en), Aufnahmejahr {jahr or '?'}. "
+                f"[Bild gespeichert zum erneuten Ansehen]")
+        ui_block = {
+            "typ": "quiz_ergebnis",
+            "person": name,
+            "referenzen": referenzen,
+            "jahr": jahr,
+            "bild_pfad": bild_pfad,
+        } if name else None
+        verlauf_nachricht_anhaengen("conv_main", "assistant", text,
+                                    bild_pfad=bild_pfad, ui=ui_block)
+    except Exception:
+        pass
+
+    try:
+        gesehen = _fortschritt_laden()
+        if bild_pfad not in gesehen:
+            _fortschritt_speichern(gesehen + [bild_pfad])
+    except Exception:
+        pass
+
+    return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen,
+            "jahr": jahr}
+
+
 def analysiere_bild(bild_pfad: str) -> dict:
     """Fuehrt die (langsame) Gesichts-Analyse fuer ein bereits angezeigtes Bild
     nach: erkennt Gesichter, stellt ggf. eine Vermutung. Wird vom Frontend NACH
