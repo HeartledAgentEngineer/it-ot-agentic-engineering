@@ -121,6 +121,12 @@
 - `.gitignore`: `quiz_fortschritt.bak-*` ergänzt (private Daten nie committen).
 - Cache-Bust: `app.js?v=20260910fA`.
 
+## ✕-Beenden: speichert Zuordnungen + entfernt Buttons (Stand 2026-09-10)
+Der ✕-Beenden-Knopf im Quiz-Kopf tut jetzt wirklich etwas: (1) offene, bereits
+bestätigte Gruppen-Zuordnungen (person je Gesicht) werden ans Backend
+persistiert (`/quiz/antwort`), (2) alle Quiz-Karten (data-quizkarte) werden
+geleert — Kopf/Menü/Beenden/Antwort-Buttons verschwinden, (3) `_quizAktiv=false`.
+
 ## Vollbild-Rahmen: entfernen + Größe ziehen (Stand 2026-09-10)
 - **✕-Löschen behoben:** Der Marken-Handler verwies auf ein undefiniertes `idx`
   → das ✕ löschte nichts. Jetzt per Closure auf den Schleifen-Index `i`

@@ -3615,7 +3615,27 @@ async function quizUeberspringen(pfad) {
 function beendeQuizAktiv() {
     if (_quizAktiv) {
         _quizAktiv = false;
-        raeumeQuizKopienAuf();  // Bildkopie der stehengebliebenen Frage freigeben
+        // 1) Noch offene (bestätigte) Gruppen-Zuordnungen ans Backend persistieren,
+        //    die beim ✕ noch nicht durch "weiter" gespeichert wurden.
+        try {
+            const offen = (_quizOffeneZuordnungen || []).filter(z => z && z.person && z.bild_pfad);
+            for (const z of offen) {
+                try {
+                    quizBeantwortenSilent(z.bild_pfad, z.person, z.ist_neu || false, z.rolle || '', '', '', z.bbox);
+                } catch (_e) {}
+            }
+        } catch (_e) {}
+        _quizOffeneZuordnungen = [];
+        // 2) Alle Quiz-Buttons/Bedienung entfernen: Jede als Quiz-Karte markierte
+        //    Blase leeren und auf "beendet"-Hinweis umschalten. Der Kopf (Menü/
+        //    Beenden), Antwort-Choices und Vermutungs-Buttons verschwinden.
+        try {
+            const karten = Array.from(document.querySelectorAll('[data-quizkarte="1"], [data-quiz-karte="1"]'));
+            for (const k of karten) { k.innerHTML = ''; }
+            // Fallback: markierte dataset.quizKarte-Elemente (dataset-API)
+            for (const n of document.querySelectorAll('.message .quizKarte, .message[data-quizkarte]')) {}
+        } catch (_e) {}
+        raeumeQuizKopienAuf();
         addMessage('🛑 **Quiz beendet** — du kannst jederzeit neu starten.', 'assistant');
     }
 }
