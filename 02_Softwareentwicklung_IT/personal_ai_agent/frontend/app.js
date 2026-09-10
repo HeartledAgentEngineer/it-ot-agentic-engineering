@@ -3368,6 +3368,93 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     maleRahmen();
 }
 
+// Manuelles Einzeichnen eines Gesichts-Rahmens bei 0 automatisch erkannten
+// Gesichtern (Wunsch Sebastian 2026-09-11): Ja/Nein → Ja = Rahmen per Touch-Drag
+// auf dem Bild zeichnen, dann Person benennen. Wird global definiert, weil beide
+// Quiz-Flows (Einzel/Gruppe) darauf zugreifen koennen.
+function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
+    if (!img || !container) return;
+    // ZeichenOverlay auf dem Bild: absolut ueber der Imagebox
+    let anchor = img.parentElement;   // imgWrap (position:relative)
+    if (!anchor) anchor = img;
+    if (!anchor.style.cssText.includes('position')) {
+        // sicherstellen, dass das Overlay relativ zum Bild haelt
+        anchor.style.position = 'relative';
+    }
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;inset:0;z-index:6;background:rgba(46,139,87,0.06);cursor:crosshair;touch-action:none';
+    const rechteck = document.createElement('div');
+    rechteck.style.cssText = 'position:absolute;border:2px solid #ff6;background:rgba(255,255,0,0.08);pointer-events:none;box-sizing:border-box';
+    overlay.appendChild(rechteck);
+    anchor.appendChild(overlay);
+
+    let zeichnet = false, sx = 0, sy = 0;
+    const zuOriginal = (rect) => {
+        // Bildschirm- zu Original-Bildkoordinaten umrechnen (via naturalWidth/Height)
+        try {
+            const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+            const rb = img.getBoundingClientRect();
+            const skw = iw / (rb.width || 1), skh = ih / (rb.height || 1);
+            return {
+                x: Math.max(0, (rect.x - (rb.left - anchor.getBoundingClientRect().left)) * skw),
+                y: Math.max(0, (rect.y - (rb.top - anchor.getBoundingClientRect().top)) * skh),
+                w: rect.w * skw, h: rect.h * skh,
+            };
+        } catch (_) { return rect; }
+    };
+    overlay.addEventListener('pointerdown', (e) => {
+        zeichnet = true; sx = e.clientX; sy = e.clientY;
+        rechteck.style.left = sx + 'px'; rechteck.style.top = sy + 'px';
+        rechteck.style.width = '0px'; rechteck.style.height = '0px';
+        e.preventDefault(); e.stopPropagation();
+    });
+    overlay.addEventListener('pointermove', (e) => {
+        if (!zeichnet) return;
+        const x = Math.min(sx, e.clientX), y = Math.min(sy, e.clientY);
+        const w = Math.abs(e.clientX - sx), h = Math.abs(e.clientY - sy);
+        rechteck.style.left = x + 'px'; rechteck.style.top = y + 'px';
+        rechteck.style.width = w + 'px'; rechteck.style.height = h + 'px';
+    });
+    overlay.addEventListener('pointerup', () => {
+        if (!zeichnet) return;
+        zeichnet = false;
+        const l = parseFloat(rechteck.style.left) || 0, t = parseFloat(rechteck.style.top) || 0;
+        const w = parseFloat(rechteck.style.width) || 0, h = parseFloat(rechteck.style.height) || 0;
+        if (w < 8 || h < 8) { overlay.remove(); return; }   // zu klein = Abbruch
+        const orig = zuOriginal({ x: l, y: t, w: w, h: h });
+        // Neue bbox in den Editor uebernehmen (fuer die Zuordnung)
+        if (!_quizEditor) _quizEditor = { bbox_live: [], undo: [], personen: [] };
+        if (!_quizEditor.personen) _quizEditor.personen = [];
+        _quizEditor.bbox_live.push([orig.x, orig.y, orig.w, orig.h]);
+        const neuIdx = _quizEditor.bbox_live.length - 1;
+        overlay.remove();
+        // Rahmen im Bild sichtbar machen
+        try { markiereGesichtImBild(img, [{ bbox: [orig.x, orig.y, orig.w, orig.h] }], 0); } catch (_e) {}
+        // Namensauswahl (Optionen-Dropdown) fuer die eingezeichnete Person
+        const auswahl = document.createElement('div');
+        auswahl.style.cssText = 'margin-top:6px';
+        const hinweis = document.createElement('div');
+        hinweis.style.cssText = 'font-size:0.82rem;color:#8f8;margin-bottom:4px';
+        hinweis.textContent = '✅ Rahmen gesetzt – jetzt die Person benennen (oder "Neue Person" über die Suche):';
+        auswahl.appendChild(hinweis);
+        auswahl.appendChild(baueSuchMitVorschlaegen(optionen || [], (n) => {
+            _quizEditor.personen[neuIdx] = n;
+            quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx]);
+            container.innerHTML = '';
+            const ok = document.createElement('div');
+            ok.style.cssText = 'color:#8f8;font-weight:600';
+            ok.textContent = `✓ ${n} gespeichert (ergänzt).`;
+            container.appendChild(ok);
+        }));
+        container.appendChild(auswahl);
+    });
+    // Hinweis im Container
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:0.82rem;color:#ccc;margin-top:4px';
+    h.textContent = '👆 Zeichne mit dem Finger ein Rechteck um die Person.';
+    container.appendChild(h);
+}
+
 function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkannte, gesichter, zielContainer) {
     // ML-Quiz-Karte: KI stellt eine Vermutung vor, der Nutzer bestaetigt/korrigiert.
     // Aufgeraeumtes Layout (Sebastian): Bild -> Gesicht-Crop -> Vermutung ->
@@ -3445,18 +3532,22 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         keinGesicht.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #666;border-radius:9px;background:#1e1e1e';
         const kt = document.createElement('div');
         kt.style.cssText = 'font-size:0.82rem;color:#ccc';
-        kt.textContent = '👤 Kein Gesicht erkannt – auf diesem Bild ist nichts markiert. Du kannst es überspringen (es erscheint dann nicht erneut).';
+        kt.textContent = '👤 Kein Gesicht automatisch erkannt. Ist hier trotzdem eine Person, die wir ergänzen sollen?';
         keinGesicht.appendChild(kt);
-        const kskip = document.createElement('div');
-        kskip.style.cssText = 'margin-top:6px';
-        kskip.appendChild(macheQuizButton('⏭️ Bild überspringen (kein Gesicht)', 'skip', () => quizUeberspringen(pfad)));
-        keinGesicht.appendChild(kskip);
+        const kz = document.createElement('div');
+        kz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
+        // JA: Rahmen um eine nicht-erkannte Person zeichnen (Touch-Drag aufs Bild)
+        const jaBtn = macheQuizButton('✅ Ja – Person einzeichnen', 'akt', () => {
+            zeigeEinzeichnen(keinGesicht, img, dataUrl, pfad, optionen);
+        });
+        // NEIN: kein Gesicht da -> überspringen (nächstes Bild)
+        const neinBtn = macheQuizButton('❌ Nein – überspringen', 'skip', () => quizUeberspringen(pfad));
+        kz.appendChild(jaBtn);
+        kz.appendChild(neinBtn);
+        keinGesicht.appendChild(kz);
         karte.appendChild(keinGesicht);
-        // Keine irrefuehrende 'Wer ist auf diesem Bild?'-Frage stehenlassen.
         frage.textContent = '👤 Kein Gesicht erkannt';
         frage.style.color = '#ccc';
-        // Kopfzeile, Bild-Sektion usw. sind schon da; keine weiteren
-        // Antwort-/Namens-/Neue-Person-Bloecke einfuegen.
         return;
     }
 
@@ -3584,7 +3675,32 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         neu.style.display = 'none';
         skip.style.display = 'none';
     } else {
-        zeigeAntwortEingabe();
+        // Keine ML-Vermutung: zuerst eine klare Ja/Nein-Frage "Keine Person
+        // gefunden?" (Wunsch Sebastian 2026-09-11). Ja -> naechstes Bild;
+        // Nein -> Rahmen zeichnen & Person ergaenzen. Die direkte Benennung
+        // bleibt als Zweitweg erreichbar.
+        const gate = document.createElement('div');
+        gate.style.cssText = 'margin-top:8px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
+        const gt = document.createElement('div');
+        gt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
+        gt.textContent = '👤 Keine Person gefunden?';
+        gate.appendChild(gt);
+        const gz = document.createElement('div');
+        gz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
+        gz.appendChild(macheQuizButton('✅ Ja → nächstes Bild', 'skip', () => quizUeberspringen(pfad)));
+        gz.appendChild(macheQuizButton('✏️ Nein → Person per Rahmen ergänzen', 'akt', () => {
+            gate.remove();
+            starteRahmenZeichnen(imgWrap, img, pfad, dataUrl, optionen, karte, frage);
+        }));
+        gate.appendChild(gz);
+        const direkt = macheQuizButton('👤 Person direkt benennen', 'person', () => {
+            gate.remove();
+            zeigeAntwortEingabe();
+        });
+        direkt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+        gate.appendChild(direkt);
+        karte.appendChild(gate);
+        frage.textContent = '👤 Keine Person gefunden?';
     }
 }
 
@@ -3875,10 +3991,13 @@ async function quizBeantwortenSilent(pfad, person, istNeu, rolle, beziehung, bes
     }
 }
 
-async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreibung, bbox) {
+async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreibung, bbox, manuell) {
     try {
         const payload = { bild_pfad: pfad, person, ist_neu: istNeu, rolle: (rolle || ''), beziehung: (beziehung||''), beschreibung: (beschreibung||'') };
         if (Array.isArray(bbox) && bbox.length >= 4) payload.bbox = bbox;
+        // Selbst gezeichneter Rahmen (Person per Ausschnitt ergänzen): Backend
+        // soll GENAU DIESEN bbox-Ausschnitt einbetten (nicht das YuNet-Gesicht).
+        if (manuell) payload.manuell_bbox = true;
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
