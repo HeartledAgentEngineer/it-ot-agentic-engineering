@@ -2454,6 +2454,8 @@ async function sendMessageFallback(text, contentDiv, entry, zustand, vorleser) {
 let _quizAktiv = false;
 let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
 let _letzteQuizKarte = null;  // zuletzt erzeugte Quiz-Karte (fuer Ergebnis-Umschreiben)
+let _aktuelleQuizPerson = '';  // zugeordnete Person der aktuellen Runde (fuer Speichern)
+let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
 
 // Zeichnet den gelben bbox-Rahmen um das Gesicht (Index `idx`) im Bild `img`
 // und gibt die Markierung zurueck (oder null).
@@ -2899,12 +2901,30 @@ function zeigeBildVollbild(imgEl, gesichter) {
                 speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
                 speichernBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    // 1) Festschreiben: aktuelle bbox_live ist die verbindliche
-                    //    (kein Resync-Verlust beim nächsten Öffnen).
-                    //    _quizEditor.bbox_live bleibt bereits synchron; wir
-                    //    leeren nur den Undo-Stapel als "abgeschlossene Aktion".
+                    // Persistieren: für die zugeordnete Person (Ein-Gesicht-Fall)
+                    // die korrigierte bbox ans Backend übermitteln (Fall A, Wunsch
+                    // Sebastian 2026-09-10: Speichern aktualisiert die Referenz).
+                    const person = (_aktuelleQuizPerson || '').trim();
+                    const pPfad = (_aktuellerQuizPfad || '').trim();
+                    let bbox = null;
+                    try {
+                        if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[0])
+                            && _quizEditor.bbox_live[0].length >= 4) bbox = _quizEditor.bbox_live[0];
+                    } catch (_e) {}
+                    if (person && pPfad) {
+                        // Feuer-und-fertig: Backend speichert/aktualisiert Referenz mit bbox
+                        quizBeantwortenSilent(pPfad, person, false, '', '', '', bbox);
+                        speichernBtn.textContent = '✓ gespeichert';
+                        setTimeout(() => { speichernBtn.textContent = '💾 Speichern'; }, 1800);
+                    } else {
+                        // Ohne zugeordnete Person können wir keine Referenz ablegen (ehrlich).
+                        speichernBtn.textContent = '⚠️ erst Ja/Person wählen';
+                        setTimeout(() => { speichernBtn.textContent = '💾 Speichern'; }, 2200);
+                        ev.stopPropagation();
+                        return;
+                    }
+                    // Festschreiben + Rahmen in der Quiz-Chat-Karte neu zeichnen.
                     _quizEditor.undo = [];
-                    // 2) Rahmen in der Quiz-Chat-Karte neu zeichnen.
                     try {
                         if (_letzteQuizKarte) {
                             const gi = _letzteQuizKarte.querySelector('img');
@@ -2914,7 +2934,6 @@ function zeigeBildVollbild(imgEl, gesichter) {
                             }
                         }
                     } catch (_e) {}
-                    // 3) Rückmeldung anzeigen
                     try { _letzteQuizKarte.scrollIntoView && _letzteQuizKarte.scrollIntoView({ block: 'nearest' }); } catch (_e) {}
                 });
                 leiste.appendChild(speichernBtn);
@@ -3421,6 +3440,7 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
                     && _quizEditor.bbox_live[0].length >= 4) liveBbox = _quizEditor.bbox_live[0];
             } catch (_e) {}
             quizBeantworten(pfad, v.person, false, '', '', '', liveBbox);
+            _aktuelleQuizPerson = v.person; _aktuellerQuizPfad = pfad;  // fuer 💾-Speichern
         }));
         zeile.appendChild(macheQuizButton('❌ Nein', 'neu', () => {
             vbox.style.display = 'none';
