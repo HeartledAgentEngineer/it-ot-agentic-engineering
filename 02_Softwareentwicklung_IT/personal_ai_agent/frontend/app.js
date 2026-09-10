@@ -2896,8 +2896,11 @@ function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
             if (n) onwaehl(n);
         }
     });
-    // initial die Top-5 anzeigen (ohne Text)
-    filtern();
+    // Initial leer lassen: die Top-5-Namen stehen bereits als eigene Kacheln
+    // ueber dem Suchfeld (siehe zeigeQuizKarte/zeigeAntwortZeile). Die
+    // Vorschlaege erscheinen erst beim Tippen, sonst waere die Liste doppelt
+    // (Wunsch Sebastian 2026-09-10).
+    vorschlaege.innerHTML = '';
     return wrap;
 }
 
@@ -3524,6 +3527,12 @@ async function naechsteQuizRunde(nachRunde) {
             ladewrap.style.cssText = 'margin-top:6px;padding:8px;background:#0f1f14;border-radius:10px;text-align:center';
             ladewrap.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div><span class="loading-text">🧠 Quiz lädt – prüfe Gesichter …</span>';
             sofortKarte.appendChild(ladewrap);
+            // "Keine Person vorhanden" schon jetzt anbieten (auch waehrend die
+            // Analyse laeuft) — Wunsch Sebastian 2026-09-10: kann sofort zum
+            // naechsten Bild durchdruecken.
+            const skipSofort = macheQuizButton('🚫 Keine Person vorhanden', 'skip', () => quizUeberspringen(pfad));
+            skipSofort.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+            sofortKarte.appendChild(skipSofort);
             scrollToBottom(true);
             // 3) Analyse nachholen, danach die Karte fertig rendern (Ja/Nein
             //    ersetzt die Animation).

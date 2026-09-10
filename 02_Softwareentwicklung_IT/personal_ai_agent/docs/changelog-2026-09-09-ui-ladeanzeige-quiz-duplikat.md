@@ -106,8 +106,22 @@
   Bild-Referenzen nachträglich aus der Erkennung nehmen.
 - Cache-Bust: `app.js?v=20260909eU`.
 
-## Quiz-Feinschliff (Stand 2026-09-10, drei Folgewünsche)
+## Quiz-Feinschliff (Stand 2026-09-10): Duplikat, Skip-Button, Fortschritt-Reset
+1. **Namens-Liste nicht mehr doppelt:** Das Suchfeld (`baueSuchMitVorschlaegen`)
+   zeigte zusätzlich zu den 5 Kacheln nochmal die Top-5 als Vorschläge →
+   doppelte Liste. Jetzt startet das Suchfeld leer; Vorschläge erscheinen
+   erst beim Tippen.
+2. **„Keine Person vorhanden"-Button beim Sofort-Laden:** Der Skip-Button steht
+   jetzt sofort unter dem Bild bzw. der Lade-Animation im
+   `analyse_ausstehend`-Zweig, bevor die Analyse fertig ist — man kann sofort
+   zum nächsten Bild durchdrücken.
+3. **Bilder zurückgesetzt:** `quiz_fortschritt.json` von 87 „gesehen" auf 0
+   zurückgesetzt (Backup gesichert) — alle Lieblingsbilder wieder verfügbar,
+   Quiz startet mit den frisch geleerten Referenzen neu.
+- `.gitignore`: `quiz_fortschritt.bak-*` ergänzt (private Daten nie committen).
+- Cache-Bust: `app.js?v=20260910fA`.
 
+## Quiz-Feinschliff (Stand 2026-09-10, ältere drei Folgewünsche — bereits umgesetzt)
 1. **Namens-Chips nach 'Nein' nach Wahrscheinlichkeit sortiert:** Neues
    Backend `_optionen_sortiert(bild_pfad)` in `gesicht_quiz` berechnet für das
    dominante Gesicht des aktuellen Bilds die beste SFace-Cosinus-Distanz (+

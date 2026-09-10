@@ -31,6 +31,7 @@ gesichter_katalog.json.bak-*
 gesichter_katalog.json.abofix-*
 gesichter_katalog.bak-*
 quiz_fortschritt.json
+quiz_fortschritt.bak-*
 
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.
 # Das Repo ist oeffentlich - das hier geht niemanden etwas an, der sich
