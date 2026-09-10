@@ -151,6 +151,10 @@ personal_ai_agent/
 | `POST` | `/api/gesichter` | Person anlegen oder (nach Name) aktualisieren — fürs „Gesichter merken“ (reaktiv im Chat: „das bin ich“, „das ist Julian, mein Zwillingsbruder“, auch mehrere Personen auf einem Bild) oder gepflegt. `referenz_bild_pfad` speichert NUR den Pfad, nie die Bilddatei; zusätzlich wird eine eingebettete Miniatur erzeugt (pCloud-sicher). Extrahieren von Personennamen/Rollen ist LLM-gestützt (agentisch), mit deterministischem Fallback |
 | `DELETE` | `/api/gesichter/{name}` | Gelernte Person nach Name aus dem Katalog entfernen |
 | `GET` | `/api/gesichter/kontext` | Der Kontext-Block für den Prompt (Tests/Debug): wird beim Betrachten eines Bildes in die Chat-Nachricht eingefügt, damit der Vision-LLM bekannte Personen benennt |
+| `POST` | `/api/gesichter/quiz/start` | Nächste Quiz-Frage: wählt ein noch nicht durchgespieltes Lieblingsbild, liefert `bild_pfad` + `data_url` + alle gelernten Personen als `optionen` (nach Wahrscheinlichkeit sortiert) |
+| `POST` | `/api/gesichter/quiz/analysiere` | Führt die (langsame) Gesichts-Analyse für ein schon angezeigtes Bild nach: erkennt Gesichter (inkl. Vermutung) |
+| `POST` | `/api/gesichter/quiz/antwort` | Speichert die Quiz-Antwort. `ueberspringen:true` markiert das Bild nur als gesehen. `manuell_bbox:true` (seit 2026-09-11) bettet den SELBST gezeichneten `bbox`-Ausschnitt direkt als Personen-Referenz ein (`op:embed_crop`) — so lässt sich auch eine Person anlernen, die YuNet nicht (richtig) erkannt hat. Ohne `manuell_bbox` wird unter den YuNet-erkannten Gesichtern gewählt |
+| `GET` | `/api/gesichter/referenzen` | Alle gelernten Referenzen je Person (ref_id, Jahr, Miniatur) für das Referenz-Management |
 
 ## 🔮 Ausblick (Phase 2)
 
