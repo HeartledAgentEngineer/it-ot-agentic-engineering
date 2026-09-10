@@ -4059,9 +4059,32 @@ function zeigeReferenzenVollbild(name) {
 let _personenKatalog = [];   // letzter geladener Katalog (fuer Suche/Paging)
 
 function zeigePersonenVerwaltung() {
-    addMessage('🔎 **Personen-Katalog** – lade …', 'assistant');
     _personenKatalog = [];
-    const panel = addMessage('', 'assistant');
+    // VOLLBILD-Overlay statt Chat-Bubble (Wunsch Sebastian 2026-09-10):
+    // über allem im Chat, schließbar per ✕.
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:99998;display:flex;flex-direction:column;overflow:hidden';
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #2e8b57;background:#0b1a12';
+    kopf.innerHTML = '<span style="color:#9f9;font-weight:700;font-size:1rem">🔎 Personen-Katalog</span>';
+    const x = document.createElement('div');
+    x.textContent = '✕';
+    x.title = 'Schließen';
+    x.style.cssText = 'width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid #555';
+    x.addEventListener('click', () => { try { ov.remove(); } catch (_e) {} });
+    kopf.appendChild(x);
+    ov.appendChild(kopf);
+    // Statuszeile für Rückmeldungen (statt addMessage-Blase im Chat)
+    const status = document.createElement('div');
+    status.style.cssText = 'padding:4px 16px;font-size:0.8rem;color:#8f8;min-height:18px';
+    ov.appendChild(status);
+    const scroll = document.createElement('div');
+    scroll.style.cssText = 'flex:1;overflow-y:auto;padding:12px 16px';
+    ov.appendChild(scroll);
+    const panel = scroll;
+    // alte Status-Blase nachladen auf "lade …"
+    status.textContent = 'lade …';
+    document.body.appendChild(ov);
     (async () => {
         try {
             const res = await fetch(`${API_BASE}/api/gesichter`);
@@ -4096,10 +4119,10 @@ function zeigePersonenVerwaltung() {
                 fetch(`${API_BASE}/api/gesichter/${encodeURIComponent(name)}`, { method: 'DELETE' })
                     .then(r => r.json())
                     .then(dd => {
-                        addMessage(dd && dd.status === 'deleted' ? `🗑 **${name}** entfernt.` : `⚠️ ${(dd && dd.detail) || 'Fehler'}`, 'assistant');
+                        status.textContent = dd && dd.status === 'deleted' ? `🗑 ${name} entfernt.` : `⚠️ ${(dd && dd.detail) || 'Fehler'}`;
                         karte.style.opacity = '0.35';
                     })
-                    .catch(e => addMessage('⚠️ Löschen fehlgeschlagen: ' + (e && e.message), 'assistant'));
+                    .catch(e => status.textContent = '⚠️ Löschen fehlgeschlagen: ' + (e && e.message));
             }
 
             // Baut eine Personen-Karte mit Bearbeiten-Formular
@@ -4137,9 +4160,9 @@ function zeigePersonenVerwaltung() {
                             body: JSON.stringify({ name, rolle: inpRolle.value.trim(), beziehung: inpBez.value.trim(), beschreibung: (p.beschreibung || ''), referenz_bild_pfad: p.referenz_bild_pfad || '' }),
                         });
                         const dd = await r.json();
-                        addMessage(dd && dd.person ? `✅ **${name}** aktualisiert.` : `⚠️ ${(dd && dd.fehler) || 'Fehler'}`, 'assistant');
+                        status.textContent = dd && dd.person ? `✅ ${name} aktualisiert.` : `⚠️ ${(dd && dd.fehler) || "Fehler"}`;;
                         form.style.display = 'none';
-                    } catch (e) { addMessage('⚠️ Speichern fehlgeschlagen: ' + (e && e.message), 'assistant'); }
+                    } catch (e) { status.textContent = '⚠️ Speichern fehlgeschlagen: ' + (e && e.message); }
                 });
                 form.appendChild(inpRolle);
                 form.appendChild(inpBez);
@@ -4195,7 +4218,7 @@ function zeigePersonenVerwaltung() {
 
             suche.addEventListener('input', () => { _maxAngezeigt = LIMIT; rendereListe(); });
             rendereListe();
-            addMessage('💡 **Wissensdatenbank:** Der Katalog speichert zu jeder Person Referenzbilder + Aufnahmejahre. Nach dem Kontroll-Durchlauf kannst du Fotos später in der Cloud gezielt zuordnen/sortieren.', 'assistant');
+            status.textContent = '💡 Der Katalog speichert Referenzbilder + Aufnahmejahre. Nach dem Kontroll-Durchlauf kannst du Fotos in der Cloud sortieren.';
         } catch (e) {
             panel.textContent = '⚠️ Katalog konnte nicht geladen werden: ' + (e && e.message);
         }
