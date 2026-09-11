@@ -3604,12 +3604,13 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         keinGesicht.appendChild(kt);
         const kz = document.createElement('div');
         kz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        // JA: wirklich keine Person da -> überspringen (nächstes Bild)
-        const jaBtn = macheQuizButton('✅ Ja → nächstes Bild', 'skip', () => quizUeberspringen(pfad));
-        // NEIN: doch eine Person -> Rahmen um sie zeichnen (Touch-Drag aufs Bild)
-        const neinBtn = macheQuizButton('✏️ Nein → Person per Rahmen ergänzen', 'akt', () => {
+        // JA/NEIN-INHALT (korrigiert 2026-09-11): Bei personenlosen Bildern ist
+        // "Nein" = wirklich keine Person -> nächstes Bild; "Ja" = doch eine
+        // Person -> per Rahmen ergänzen. (Wunsch Sebastian: Nein muss nächstes Bild sein)
+        const jaBtn = macheQuizButton('✅ Ja → Person einzeichnen', 'akt', () => {
             zeigeEinzeichnen(keinGesicht, img, dataUrl, pfad, optionen);
         });
+        const neinBtn = macheQuizButton('❌ Nein → nächstes Bild', 'skip', () => quizUeberspringen(pfad));
         kz.appendChild(jaBtn);
         kz.appendChild(neinBtn);
         keinGesicht.appendChild(kz);
@@ -3762,11 +3763,11 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         gate.appendChild(gt);
         const gz = document.createElement('div');
         gz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        gz.appendChild(macheQuizButton('✅ Ja → nächstes Bild', 'skip', () => quizUeberspringen(pfad)));
-        gz.appendChild(macheQuizButton('✏️ Nein → Person per Rahmen ergänzen', 'akt', () => {
+        gz.appendChild(macheQuizButton('✅ Ja → Person einzeichnen', 'akt', () => {
             gate.remove();
             zeigeEinzeichnen(karte, img, dataUrl, pfad, optionen);
         }));
+        gz.appendChild(macheQuizButton('❌ Nein → nächstes Bild', 'skip', () => quizUeberspringen(pfad)));
         gate.appendChild(gz);
         const direkt = macheQuizButton('👤 Person direkt benennen', 'person', () => {
             gate.remove();
