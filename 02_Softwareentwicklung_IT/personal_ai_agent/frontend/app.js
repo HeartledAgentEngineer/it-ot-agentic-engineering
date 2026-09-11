@@ -3827,8 +3827,19 @@ async function quizUeberspringen(pfad) {
             body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
         });
         const d = await r.json();
+        // Alte Quiz-Karte NICHT mit Bedien-/Buttons stehen lassen (sonst zwei
+        // Quiz-Sessions nach dem Skip). In eine kurze Bestätigung umschreiben.
+        try {
+            if (_letzteQuizKarte) {
+                _letzteQuizKarte.innerHTML = '';
+                const z = document.createElement('div');
+                z.style.cssText = 'padding:8px;border:1px solid #666;border-radius:9px;background:#1e1e1e;font-size:0.82rem;color:#ccc';
+                z.textContent = '⏭️ Übersprungen (keine Person).';
+                _letzteQuizKarte.appendChild(z);
+            }
+        } catch (_e) {}
         addMessage((d && d.ok) ? '👌 Übersprungen (kein Gesicht/keine Person).' : `⚠️ ${(d && d.fehler) || 'Fehler'}`, 'assistant');
-        naechsteQuizRunde();  // weiter zur naechsten Frage (ohne Guard-Resettierung)
+        naechsteQuizRunde();  // weiter zur naechsten Frage
     } catch (e) {
         addMessage('⚠️ Überspringen fehlgeschlagen: ' + (e && e.message), 'assistant');
     }
