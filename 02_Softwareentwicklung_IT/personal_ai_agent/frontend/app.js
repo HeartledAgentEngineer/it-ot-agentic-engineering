@@ -6013,6 +6013,15 @@ async function streamHermesText(text, conversationId) {
     } finally {
         hermesStreamBereit = false;
         aktualisiereStatusAnzeige();
+        // Leere Assistenten-/Zwischenmeldungs-Blase ohne Inhalt entfernen
+        // (nach dem Coding-Chat-Stream) — Wunsch Sebastian: KEINE leere Bubble.
+        try {
+            for (const m of Array.from(document.querySelectorAll('#messages .message.assistant, #messages .agent-zwischenmeldung'))) {
+                const cb = m.querySelector('.message-content');
+                const inhalt = (cb ? (cb.textContent || '') : (m.textContent || '')).trim();
+                if (!inhalt) { try { m.remove(); } catch (_e) {} }
+            }
+        } catch (_e) {}
     }
 }
 
