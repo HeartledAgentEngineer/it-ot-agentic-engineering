@@ -197,11 +197,12 @@ class AuftragService:
                 if len(eintrag["status_meldungen"]) > 20:
                     eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
                 self._schreiben(auftraege)
-                # Zwischenmeldung auch in den persistenten Chat-Verlauf
-                # uebernehmen, damit sie ein Neuladen ueberlebt.
-                self._in_verlauf_anhaengen(
-                    eintrag.get("conversation_id"), "assistant", zeichen
-                )
+                # Zwischenmeldungen (Gedanken/Toolschritte) bewusst NICHT in den
+                # persistenten Chat-Verlauf - sonst blaeht er sich mit jedem
+                # Gedanken auf (Wunsch Sebastian 2026-09-11: sauberer Verlauf,
+                # nur das Endergebnis/echte Antworten bleiben). Live laufen sie
+                # weiterhin ueber den Stream, aber nach Reload ist der Verlauf
+                # nicht ueberblaeht.
                 logger.info("Statusmeldung fuer %s: %s", auftrag_id[:8], meldung[:60])
                 return eintrag
         return None

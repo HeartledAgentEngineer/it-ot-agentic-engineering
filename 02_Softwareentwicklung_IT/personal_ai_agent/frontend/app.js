@@ -5954,6 +5954,14 @@ async function streamHermesText(text, conversationId) {
     aktualisiereStatusAnzeige();
     const contentDiv = addMessage('', 'assistant');
     const entry = state.messages[state.messages.length - 1];
+    // Keine LEERE Blase wirken lassen: dezenten Platzhalter zeigen, bis der
+    // erste echte Inhalt/Gedanke eintrifft (Wunsch Sebastian 2026-09-11).
+    try {
+        const ph = document.createElement('div');
+        ph.style.cssText = 'color:#55a;opacity:.7;font-size:0.78rem';
+        ph.textContent = '…';
+        contentDiv.appendChild(ph);
+    } catch (_e) {}
     let antwort = '';
     try {
         const res = await fetch(`${API_BASE}/api/hermes/stream`, {
@@ -6041,6 +6049,8 @@ async function streamHermesText(text, conversationId) {
  */
 let _letzteHermesId = sessionStorage.getItem('hermes_letzte_id') || null;
 let _hermesPollAktiv = false;
+// Merk-Position der zuletzt angezeigten status_meldungen je Auftrag (für Live-Gedanken)
+let _statusMeldCnt = {};
 async function pollHermesLetzte() {
     try {
         const res = await fetch(`${API_BASE}/api/hermes/letzte`);
@@ -6055,6 +6065,32 @@ async function pollHermesLetzte() {
             await streamHermesText(text, conv);
         }
     } catch (_) { /* Netzwerk/Poll-Fehler ignorieren */ }
+
+    // Live-Gedanken des laufenden Auftrags: neue status_meldungen seit letztem
+    // Poll als Gedanken anzeigen (Wunsch Sebastian: ECHTES Feedback, ohne Reload).
+    // Das Backend persistiert die Gedanken weiterhin in status_meldungen; der
+    // Chat-Verlauf wird NICHT mehr damit befuellt (nur Endergebnis bleibt).
+    if (_laufenderAuftragKurz && state.conversationId === 'conv_code') {
+        try {
+            const st = await fetch(`${API_BASE}/api/hermes/status/${_laufenderAuftragKurz}`);
+            if (st.ok) {
+                const sd = await st.json();
+                const meld = (sd && sd.status_meldungen) || [];
+                const seen = _statusMeldCnt[_laufenderAuftragKurz] || 0;
+                const neu = meld.slice(seen);
+                if (neu.length) {
+                    _statusMeldCnt[_laufenderAuftragKurz] = meld.length;
+                    for (const z of neu) {
+                        // status_meldungen sind "[zeit] text" – in Gedanken-Blase zeigen
+                        const ohneZeit = String(z || '').replace(/^\[[^\]]*\]\s*/, '');
+                        if (ohneZeit && ohneZeit.trim()) {
+                            fuegeGedankeMitAbbruchHinzu(ohneZeit, '');
+                        }
+                    }
+                }
+            }
+        } catch (_) {}
+    }
 }
 function starteHermesPoll() {
     if (_hermesPollAktiv) return;
