@@ -708,6 +708,7 @@ function setzeTutZeile(text) {
 
 // Letzter echter Hermes-Gedanke (für die #loading-Bubble als "was macht Hermes").
 let _letzterHermesGedanke = '';
+let _gedankenGesetzt = null;   // Dedup-Set (auftrag|text), siehe fuegeGedanke
 
 function aktualisiereStatusAnzeige() {
     const badge = document.getElementById('chat-modus-badge');
@@ -2023,6 +2024,13 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // Erst bereinigen: KEINEN Inhalt -> keine (leere) Blase erzeugen.
     const rein = String(text || '').replace(/^\[[^\]]+\]\s*/, '').trim();
     if (!rein) return;
+    // Dedup: dieselbe Meldung (z. B. "Hermes uebernimmt...") kommt teils doppelt
+    // (Backend-Stream + /api/hermes/letzte-Poll) und ergibt sonst eine doppelte
+    // leere/identische Blase — nur beim ERSTEN Auftritt anzeigen.
+    if (!_gedankenGesetzt) _gedankenGesetzt = new Set();
+    const dk = (_laufenderAuftragKurz || 'stream') + '|' + rein;
+    if (_gedankenGesetzt.has(dk)) return;
+    _gedankenGesetzt.add(dk);
     // Letzter echter Gedanke global merken: die untere #loading-Bubble zeigt dann
     // WAS Hermes WIRKLICH tut statt der generischen "Hermes bearbeitet deine Aufgabe"
     // (Wunsch Sebastian 2026-09-11).
