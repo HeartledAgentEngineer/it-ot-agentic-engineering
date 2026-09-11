@@ -3827,23 +3827,36 @@ async function quizUeberspringen(pfad) {
             body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
         });
         const d = await r.json();
+        // Ziel-Karte: die zuletzt hinzugefügte Quiz-Karte (auch die Sofort-Karte
+        // beim Laden, die NICHT _letzteQuizKarte ist). Fallback ins DOM.
+        let zielKarte = _letzteQuizKarte;
+        if (!zielKarte) {
+            try {
+                const alle = Array.from(document.querySelectorAll('#messages .message.assistant'));
+                for (let i = alle.length - 1; i >= 0; i--) {
+                    if (alle[i].dataset && alle[i].dataset.quizKarte === '1') { zielKarte = alle[i]; break; }
+                }
+            } catch (_e3) {}
+        }
         // Nach "Keine Person vorhanden": das BILD beibehalten, aber alle
         // Quiz-Bedienelemente (Buttons/Formulare) entfernen und nur die
         // Bildunterschrift "Keine Person vorhanden" als finale Ansicht zeigen.
         // So entsteht NIE eine zweite Quiz-Session (Wunsch Sebastian 2026-09-11).
         try {
-            if (_letzteQuizKarte) {
+            if (zielKarte) {
                 // Alle Kinder der Karte sammeln; das Kind, das das <img> enthält
                 // (Bild-Wrapper), bleibt, der Rest wird entfernt.
-                for (const kind of Array.from(_letzteQuizKarte.children)) {
+                for (const kind of Array.from(zielKarte.children)) {
                     const hatBild = kind.querySelector && kind.querySelector('img');
-                    if (!hatBild) { try { kind.remove(); } catch (_e2) {} }
+                    if (hatBild) continue;
+                    // Bildunterschrift HTML nicht beibehalten; alle anderen Kinder raus
+                    try { kind.remove(); } catch (_e2) {}
                 }
                 // Bildunterschrift unter das erhaltene Bild setzen
                 const unt = document.createElement('div');
                 unt.style.cssText = 'margin-top:4px;padding:4px;border:1px solid #666;border-radius:8px;background:#1e1e1e;font-size:0.8rem;color:#ccc';
                 unt.textContent = '🚫 Keine Person vorhanden';
-                _letzteQuizKarte.appendChild(unt);
+                zielKarte.appendChild(unt);
             }
         } catch (_e) {}
         addMessage((d && d.ok) ? '✅ Bild gespeichert (keine Person).' : `⚠️ ${(d && d.fehler) || 'Fehler'}`, 'assistant');
