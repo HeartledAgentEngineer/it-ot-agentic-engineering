@@ -692,11 +692,22 @@ function setzeTutZeile(text) {
     // wandert in die untere animierte "Denke nach…"-Bubble (#loading) statt
     // unscheinbar oben im Header zu stehen. Die alte Header-Zeile
     // (#agent-tut-zeile) wird ausgeblendet, damit nichts doppelt erscheint.
+    // Seit 2026-09-11: Statt der generischen "Hermes bearbeitet deine Aufgabe…"
+    // zeigt die Bubble den LETZTEN ECHTEN Hermes-Gedanken (was er wirklich tut),
+    // sobald einer eingetroffen ist (Wunsch Sebastian).
     const el = document.getElementById('agent-tut-zeile');
     if (el) { el.style.display = 'none'; el.textContent = ''; }
+    let anzeige = text;
+    if (text && (text.indexOf('Hermes bearbeitet') !== -1 || text.indexOf('Hermes (') !== -1)
+        && _letzterHermesGedanke) {
+        anzeige = '🐚 Hermes: ' + _letzterHermesGedanke;
+    }
     const bubbleText = document.querySelector('#loading .loading-text');
-    if (bubbleText) bubbleText.textContent = text ? text : 'Denke nach...';
+    if (bubbleText) bubbleText.textContent = anzeige ? anzeige : 'Denke nach...';
 }
+
+// Letzter echter Hermes-Gedanke (für die #loading-Bubble als "was macht Hermes").
+let _letzterHermesGedanke = '';
 
 function aktualisiereStatusAnzeige() {
     const badge = document.getElementById('chat-modus-badge');
@@ -2012,6 +2023,10 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // Erst bereinigen: KEINEN Inhalt -> keine (leere) Blase erzeugen.
     const rein = String(text || '').replace(/^\[[^\]]+\]\s*/, '').trim();
     if (!rein) return;
+    // Letzter echter Gedanke global merken: die untere #loading-Bubble zeigt dann
+    // WAS Hermes WIRKLICH tut statt der generischen "Hermes bearbeitet deine Aufgabe"
+    // (Wunsch Sebastian 2026-09-11).
+    _letzterHermesGedanke = rein;
     // Stueckweise in NEUE Blasen mit Zeitstempel, die nach und nach TYPEWRITER
     // eintippen (Wunsch Sebastian 2026-09-11): bessere Lesbarkeit als eine
     // riesige fortlaufende Blase; jede GEdanken-Zeile erscheint frisch.
@@ -4952,10 +4967,12 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // entfernen — sonst bleibt die "leere Bubble mit Zeitstempel" stehen
         // (Wunsch Sebastian 2026-09-11).
         try {
-            for (const m of Array.from(document.querySelectorAll('#messages .message.assistant'))) {
-                const cb = m.querySelector('.message-content');
+            for (const m of Array.from(document.querySelectorAll('#messages .message.assistant, #messages .agent-zwischenmeldung'))) {
+                const cb = m.querySelector('.message-content, .gedanken-strom .message-content');
                 const inhalt = (cb ? (cb.textContent || '') : (m.textContent || '')).trim();
-                if (!inhalt) { try { m.remove(); } catch (_e) {} }
+                // Blase ohne Inhalt UND ohne echten Gedanken entfernen (eine
+                // "leere Bubble mit nur Zeitstempel" verschwindet damit).
+                if (!inhalt && !m.classList.contains('gedanken-strom')) { try { m.remove(); } catch (_e) {} }
             }
         } catch (_e) {}
         // WhatsApp-Zitat nach dem Absenden weg (wie WhatsApp).
