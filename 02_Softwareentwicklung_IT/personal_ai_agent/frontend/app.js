@@ -4543,10 +4543,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     try {
         const hermesModus = (typeof loopAktiv !== 'undefined' && loopAktiv) || _laufenderAuftragKurz;
         const zielk = _zielAktuell || '';
+        // Coding-Interface: KEINE generische "Hermes bearbeitet deine Aufgabe…"
+        // Phrase. Stattdessen zeigt die untere Bubble den ECHTEN aktuellen
+        // Gedanken (wenn schon da) oder schweigt neutral (…).
         setzeTutZeile(hermesModus
-            ? (zielk === 'pc' ? '⚙️ Hermes (PC) bearbeitet deine Aufgabe…'
-               : zielk === 'handy' ? '⚙️ Hermes (Handy) bearbeitet deine Aufgabe…'
-               : '⚙️ Hermes bearbeitet deine Aufgabe…')
+            ? (_letzterHermesGedanke ? '🐚 Hermes: ' + _letzterHermesGedanke : '…')
             : '🔍 Agent liest deine Nachricht…');
     } catch (_) {}
     // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
