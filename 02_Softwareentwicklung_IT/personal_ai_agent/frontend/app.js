@@ -3441,29 +3441,43 @@ function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
     anchor.appendChild(overlay);
 
     let zeichnet = false, sx = 0, sy = 0;
+    // Koordinaten relativ zum Overlay (nicht Viewport), damit das Rechteck
+    // korrekt ueber dem Bild haelt — auch wenn gescrollt/anders positioniert
+    // (Wunsch Sebastian: Zeichnen + Grösse/Position sollen funktionieren).
+    const rel = (clientX, clientY) => {
+        try {
+            const r = overlay.getBoundingClientRect();
+            return { x: clientX - r.left, y: clientY - r.top };
+        } catch (_) { return { x: clientX, y: clientY }; }
+    };
     const zuOriginal = (rect) => {
-        // Bildschirm- zu Original-Bildkoordinaten umrechnen (via naturalWidth/Height)
+        // relative px -> Original-Bildkoordinaten
         try {
             const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
-            const rb = img.getBoundingClientRect();
-            const skw = iw / (rb.width || 1), skh = ih / (rb.height || 1);
+            const im = img.getBoundingClientRect();
+            // Overlay entspricht der imgBox; relativ zu im-Startpunkt rechnen
+            const ov = overlay.getBoundingClientRect();
+            const offsetX = ov.left - im.left, offsetY = ov.top - im.top;
+            const skw = iw / (im.width || 1), skh = ih / (im.height || 1);
             return {
-                x: Math.max(0, (rect.x - (rb.left - anchor.getBoundingClientRect().left)) * skw),
-                y: Math.max(0, (rect.y - (rb.top - anchor.getBoundingClientRect().top)) * skh),
+                x: Math.max(0, (rect.x - offsetX) * skw),
+                y: Math.max(0, (rect.y - offsetY) * skh),
                 w: rect.w * skw, h: rect.h * skh,
             };
         } catch (_) { return rect; }
     };
     overlay.addEventListener('pointerdown', (e) => {
-        zeichnet = true; sx = e.clientX; sy = e.clientY;
+        const p = rel(e.clientX, e.clientY);
+        zeichnet = true; sx = p.x; sy = p.y;
         rechteck.style.left = sx + 'px'; rechteck.style.top = sy + 'px';
         rechteck.style.width = '0px'; rechteck.style.height = '0px';
         e.preventDefault(); e.stopPropagation();
     });
     overlay.addEventListener('pointermove', (e) => {
         if (!zeichnet) return;
-        const x = Math.min(sx, e.clientX), y = Math.min(sy, e.clientY);
-        const w = Math.abs(e.clientX - sx), h = Math.abs(e.clientY - sy);
+        const p = rel(e.clientX, e.clientY);
+        const x = Math.min(sx, p.x), y = Math.min(sy, p.y);
+        const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy);
         rechteck.style.left = x + 'px'; rechteck.style.top = y + 'px';
         rechteck.style.width = w + 'px'; rechteck.style.height = h + 'px';
     });
