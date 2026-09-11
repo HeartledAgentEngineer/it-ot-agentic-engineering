@@ -2507,6 +2507,9 @@ let _quizAktiv = false;
 let _quizGesehen = [];   // bereits bearbeitete Bildpfade (um durchzuschreiten)
 let _letzteQuizKarte = null;  // zuletzt erzeugte Quiz-Karte (fuer Ergebnis-Umschreiben)
 let _aktuelleQuizPerson = '';  // zugeordnete Person der aktuellen Runde (fuer Speichern)
+// Abort-Steuerung fuer die laufende Gesichts-Analyse der Sofort-Ladevorschau:
+// "🚫 Keine Person vorhanden" bricht das Uebertragen sofort ab + stoppt die Animation.
+let _analyseAbort = null;
 let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
 // Offene, noch nicht persistierte Gruppen-Zuordnungen (person je Gesicht). Beim
 // ✕-Beenden werden sie ins Backend geschrieben (Wunsch Sebastian 2026-09-10).
@@ -3828,6 +3831,9 @@ async function quizUeberspringen(pfad) {
             body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
         });
         const d = await r.json();
+        // Laufende Gesichts-Analyse der Sofort-Ladevorschau SOFORT abbrechen +
+        // die Punkte-Animation stoppen (Wunsch Sebastian 2026-09-11).
+        try { if (_analyseAbort && !_analyseAbort.aborted) _analyseAbort.abort(); } catch (_ab) {}
         // Ziel-Karte: die zuletzt hinzugefügte Quiz-Karte (auch die Sofort-Karte
         // beim Laden, die NICHT _letzteQuizKarte ist). Fallback ins DOM.
         let zielKarte = _letzteQuizKarte;
@@ -4033,14 +4039,23 @@ async function naechsteQuizRunde(nachRunde) {
             sofortKarte.appendChild(skipSofort);
             scrollToBottom(true);
             // 3) Analyse nachholen, danach die Karte fertig rendern (Ja/Nein
-            //    ersetzt die Animation).
+            //    ersetzt die Animation). Ein Skip kann die FETCH via AbortController
+            //    sofort abbrechen (Übertragung stoppen).
+            let abortCtrl = new AbortController();
+            _analyseAbort = abortCtrl;
             try {
                 const ar = await fetch(`${API_BASE}/api/gesichter/quiz/analysiere`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ bild_pfad: pfad }),
+                    signal: abortCtrl.signal,
                 });
                 const a = await ar.json();
+                if (_analyseAbort && _analyseAbort.aborted) {
+                    // Skip inzwischen gedrueckt -> Analyse-Antwort VERWERFEN
+                    // (die Karte wurde bereits von quizUeberspringen umgebaut).
+                    return true;
+                }
                 zeigeQuizKarte(pfad, name, dataUrl, optionen,
                     a.vermutung, a.anzahl_gesichter || 0, a.erkannte_personen || [], a.gesichter || [],
                     sofortKarte);
@@ -4050,6 +4065,10 @@ async function naechsteQuizRunde(nachRunde) {
                     try { nachRunde(findeHauptQuizBild(sofortKarte), a.gesichter || []); } catch (_c) {}
                 }
             } catch (e2) {
+                if (_analyseAbort && _analyseAbort.aborted) {
+                    // Skip abgebrochen -> nicht neu rendern
+                    return true;
+                }
                 // Analyse fehlgeschlagen: zumindest die Antwort-Chips anbieten
                 zeigeQuizKarte(pfad, name, dataUrl, optionen, null, 0, [], [], sofortKarte);
                 if (typeof nachRunde === 'function') {
