@@ -29,7 +29,18 @@ extra ein Ja/Nein-Button erscheinen — lieber nur das Bild mit Unterschrift."
      `naechsteQuizRunde()` die globale auf einen NEUEN Controller fürs nächste
      Bild um; eine hängende Analyse des vorigen Bildes hätte sonst den neuen
      (nicht abgebrochenen) Controller geprüft und das Quiz doppelt gerendert.
-- Cache-Bust `app.js?v=20260914bV`.
+- `frontend/app.js` — **Lauf-Token „nie zwei Quizze parallel" (Wunsch Sebastian,
+  Cache-Bust `bW`):** `naechsteQuizRunde` hat KEINEN Guard gegen parallele Läufe
+  und wird von vielen Skip-Wegen (skipSofort, `quizUeberspringen`,
+  `markiereBildErledigt`/`weiter`/`Naechstes Bild`, und mehrere `setTimeout`)
+  aufgerufen. Jeder dieser Wege kann eine neue Runde starten, während die alte
+  noch in ihrem `await` hängt → zwei Quiz-Karten/-Sessions nebeneinander. Fix:
+  eine globale `_rundeToken`-Zählung. Jede `naechsteQuizRunde` nimmt sich
+  `token = ++_rundeToken` und prüft nach jedem `await` (`abgeloest()`), ob eine
+  neuere Runde gestartet wurde; wenn ja, verwirft sie sich selbst (kein Rendern,
+  keine zweite Karte). Da alle Ablöse-Wege am Ende selbst `naechsteQuizRunde()`
+  aufrufen, inkrementieren sie den Token und lösen die alte Runde zwingend ab.
+- Cache-Bust `app.js?v=20260914bW`.
 
 ## Verifikation
 - `node --check frontend/app.js` → Exit 0.

@@ -2510,6 +2510,15 @@ let _aktuelleQuizPerson = '';  // zugeordnete Person der aktuellen Runde (fuer S
 // Abort-Steuerung fuer die laufende Gesichts-Analyse der Sofort-Ladevorschau:
 // "🚫 Keine Person vorhanden" bricht das Uebertragen sofort ab + stoppt die Animation.
 let _analyseAbort = null;
+// Lauf-Token fuer die Quiz-Runden: jede naechsteQuizRunde() / Analyse-Runde
+// inkrementiert ihn. Nach JEDEM await wird geprueft, ob eine NEUERE Runde
+// gestartet wurde; wenn ja, verwirft sich die aeltere Runde selbst. Das
+// verhindert hart, dass zwei Quiz-Runden/-Sessions parallel laufen (Wunsch
+// Sebastian 2026-09-14: "es soll verhindert werden, dass zwei Quizze aktiv
+// sind"). Abloeser sind alle Skip-Wege (skipSofort, quizUeberspringen,
+// markiereBildErledigt/setTimeout, "weiter"/"Naechstes Bild"), die am Ende
+// naechsteQuizRunde() aufrufen.
+let _rundeToken = 0;
 let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
 // Offene, noch nicht persistierte Gruppen-Zuordnungen (person je Gesicht). Beim
 // ✕-Beenden werden sie ins Backend geschrieben (Wunsch Sebastian 2026-09-10).
@@ -3963,6 +3972,12 @@ function raeumeQuizKopienAuf() {
 // solange die Sitzung laeuft; nur der echte Neustart (quizStart) guardet.
 // Liefert true, wenn eine Runde angezeigt wurde; false, wenn Quiz zu Ende/Fehler.
 async function naechsteQuizRunde(nachRunde) {
+    // Lauf-Token: diese Runde kennzeichnet sich mit einem frischen Token. Wenn
+    // waehrend eines await eine NEUERE Runde startet (skipSofort, quizUeberspringen,
+    // "weiter", setTimeouts), erhoeht sich _rundeToken und __diese__ alte Runde
+    // verwirft sich beim naechsten token-Check - nie zwei parallele Quizze.
+    const token = ++_rundeToken;
+    const abgeloest = () => (token !== _rundeToken);
     // `nachRunde` (optional): wird nach dem Anzeigen einer Runde aufgerufen mit
     // (hauptQuizImg, gesichter). Nutzt der Vollbild-Durchlauf ("Nächstes Bild ➡️"),
     // um das neue Bild direkt wieder als Vollbild zu oeffnen. Ohne Callback
@@ -3981,6 +3996,7 @@ async function naechsteQuizRunde(nachRunde) {
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
+        if (abgeloest()) { try { if (warteblase && warteblase.remove) warteblase.remove(); } catch (_e) {} return false; }
         if (warteblase) { const b = warteblase.closest ? warteblase.closest('.message') : null; if (b) b.remove(); }
         if (d && d.keine) { addMessage('⚠️ Kein Lieblingsbilder-Ordner gefunden.', 'assistant'); _quizAktiv = false; return false; }
         if (d && d.fertig) {
@@ -4039,9 +4055,10 @@ async function naechsteQuizRunde(nachRunde) {
                     signal: abortCtrl.signal,
                 });
                 const a = await ar.json();
-                if (abortCtrl.aborted) {
-                    // Skip inzwischen gedrueckt -> Analyse-Antwort VERWERFEN
-                    // (die Karte wurde bereits von quizUeberspringen umgebaut).
+                if (abortCtrl.aborted || abgeloest()) {
+                    // Skip inzwischen gedrueckt / neuere Runde gestartet ->
+                    // Analyse-Antwort VERWERFEN (die Karte wurde bereits von
+                    // quizUeberspringen / der neuen Runde umgebaut).
                     return true;
                 }
                 zeigeQuizKarte(pfad, name, dataUrl, optionen,
@@ -4053,8 +4070,8 @@ async function naechsteQuizRunde(nachRunde) {
                     try { nachRunde(findeHauptQuizBild(sofortKarte), a.gesichter || []); } catch (_c) {}
                 }
             } catch (e2) {
-                if (abortCtrl.aborted) {
-                    // Skip abgebrochen -> nicht neu rendern
+                if (abortCtrl.aborted || abgeloest()) {
+                    // Skip abgebrochen / neuere Runde -> nicht neu rendern
                     return true;
                 }
                 // Analyse fehlgeschlagen: zumindest die Antwort-Chips anbieten
