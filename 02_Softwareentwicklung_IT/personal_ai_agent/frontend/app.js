@@ -3594,32 +3594,12 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         try { img.addEventListener('load', () => markiereGesichtImBild(img, gesichter, 0)); } catch (_) {}
         zeigeGesichtCropIn(karte, dataUrl, gesichter[0].bbox, 240);
     } else {
-        // Kein Gesicht erkannt -> NICHTS ist im Bild markiert. Dann nicht
-        // fragen "Wer ist auf diesem Bild?" (das waere ohne markierten Bezug
-        // verwirrend + ein Name wuerde eh serverseitig mit 'kein Gesicht im
-        // Bild erkannt' abgelehnt). Stattdessen sauber zum Ueberspringen
-        // fuehren, damit das Bild direkt als 'gesehen' abgehakt wird.
-        const keinGesicht = document.createElement('div');
-        keinGesicht.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #666;border-radius:9px;background:#1e1e1e';
-        const kt = document.createElement('div');
-        kt.style.cssText = 'font-size:0.82rem;color:#ccc';
-        kt.textContent = '👤 Keine Person erkannt – ist auf dem Bild doch jemand, den wir ergänzen sollen?';
-        keinGesicht.appendChild(kt);
-        const kz = document.createElement('div');
-        kz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
-        // JA/NEIN-INHALT (korrigiert 2026-09-11): Bei personenlosen Bildern ist
-        // "Nein" = wirklich keine Person -> nächstes Bild; "Ja" = doch eine
-        // Person -> per Rahmen ergänzen. (Wunsch Sebastian: Nein muss nächstes Bild sein)
-        const jaBtn = macheQuizButton('✅ Ja → Person einzeichnen', 'akt', () => {
-            zeigeEinzeichnen(keinGesicht, img, dataUrl, pfad, optionen);
-        });
-        const neinBtn = macheQuizButton('❌ Nein → nächstes Bild', 'skip', () => quizUeberspringen(pfad));
-        kz.appendChild(jaBtn);
-        kz.appendChild(neinBtn);
-        keinGesicht.appendChild(kz);
-        karte.appendChild(keinGesicht);
-        frage.textContent = '👤 Keine Person gefunden';
-        frage.style.color = '#ccc';
+        // 0 erkannte Gesichter: KEIN Ja/Nein mehr (Wunsch Sebastian 2026-09-14).
+        // Nur das Bild zeigen + Bildunterschrift "keine bekannte Person erkannt",
+        // dann automatisch zum naechsten Bild. quizUeberspringen baut diese Karte
+        // bereits auf Bild + Untertitel um und ruft naechsteQuizRunde() -> es
+        // entsteht keine Ja/Nein-Frage und keine zweite Quiz-Session.
+        quizUeberspringen(pfad);
         return;
     }
 
@@ -3862,7 +3842,7 @@ async function quizUeberspringen(pfad) {
                 // Bildunterschrift unter das erhaltene Bild setzen
                 const unt = document.createElement('div');
                 unt.style.cssText = 'margin-top:4px;padding:4px;border:1px solid #666;border-radius:8px;background:#1e1e1e;font-size:0.8rem;color:#ccc';
-                unt.textContent = '🚫 Keine Person vorhanden';
+                unt.textContent = '🚫 Keine bekannte Person erkannt';
                 zielKarte.appendChild(unt);
             }
         } catch (_e) {}
