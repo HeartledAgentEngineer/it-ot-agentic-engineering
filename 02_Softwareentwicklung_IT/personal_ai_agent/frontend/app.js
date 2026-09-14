@@ -3804,6 +3804,11 @@ function macheQuizFertig(karte, text, ok, bildSrc) {
 }
 
 async function quizUeberspringen(pfad) {
+    // Sofort-laufende Gesichts-Analyse der Sofort-Ladevorschau UNBEDINGT ganz
+    // am Anfang abbrechen (VOR dem ersten await) — sonst kann die Analyse noch
+    // fertig werden und die Karte als Quiz (Rahmen/Ja-Nein) rendern, bevor der
+    // Abort greift -> zweites Quiz (Wunsch Sebastian 2026-09-14).
+    try { if (_analyseAbort && !_analyseAbort.aborted) _analyseAbort.abort(); } catch (_ab) {}
     try {
         const r = await fetch(`${API_BASE}/api/gesichter/quiz/antwort`, {
             method: 'POST',
@@ -3811,9 +3816,6 @@ async function quizUeberspringen(pfad) {
             body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
         });
         const d = await r.json();
-        // Laufende Gesichts-Analyse der Sofort-Ladevorschau SOFORT abbrechen +
-        // die Punkte-Animation stoppen (Wunsch Sebastian 2026-09-11).
-        try { if (_analyseAbort && !_analyseAbort.aborted) _analyseAbort.abort(); } catch (_ab) {}
         // Ziel-Karte: die zuletzt hinzugefügte Quiz-Karte (auch die Sofort-Karte
         // beim Laden, die NICHT _letzteQuizKarte ist). Fallback ins DOM.
         let zielKarte = _letzteQuizKarte;
@@ -4023,6 +4025,12 @@ async function naechsteQuizRunde(nachRunde) {
             //    sofort abbrechen (Übertragung stoppen).
             let abortCtrl = new AbortController();
             _analyseAbort = abortCtrl;
+            // PITFALL: Die Abpruefung NACH dem await muss gegen den LOKALEN
+            // abortCtrl laufen, NICHT gegen die globale _analyseAbort. Beim Skip
+            // ruft quizUeberspringen -> naechsteQuizRunde() die globale _analyseAbort
+            // auf einen NEUEN Controller fuer das naechste Bild um; eine haengende
+            // Analyse des VORIGEN Bildes wuerde sonst den neuen (nicht abgebrochenen)
+            // Controller pruefen und das Quiz doppelt rendern (Wunsch Sebastian 2026-09-14).
             try {
                 const ar = await fetch(`${API_BASE}/api/gesichter/quiz/analysiere`, {
                     method: 'POST',
@@ -4031,7 +4039,7 @@ async function naechsteQuizRunde(nachRunde) {
                     signal: abortCtrl.signal,
                 });
                 const a = await ar.json();
-                if (_analyseAbort && _analyseAbort.aborted) {
+                if (abortCtrl.aborted) {
                     // Skip inzwischen gedrueckt -> Analyse-Antwort VERWERFEN
                     // (die Karte wurde bereits von quizUeberspringen umgebaut).
                     return true;
@@ -4045,7 +4053,7 @@ async function naechsteQuizRunde(nachRunde) {
                     try { nachRunde(findeHauptQuizBild(sofortKarte), a.gesichter || []); } catch (_c) {}
                 }
             } catch (e2) {
-                if (_analyseAbort && _analyseAbort.aborted) {
+                if (abortCtrl.aborted) {
                     // Skip abgebrochen -> nicht neu rendern
                     return true;
                 }

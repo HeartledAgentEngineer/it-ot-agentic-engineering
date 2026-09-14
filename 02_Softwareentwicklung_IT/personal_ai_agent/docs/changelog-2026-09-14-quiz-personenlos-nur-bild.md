@@ -19,7 +19,17 @@ extra ein Ja/Nein-Button erscheinen — lieber nur das Bild mit Unterschrift."
   `naechsteQuizRunde()` — ein Schritt, fließend weiter.
 - `frontend/app.js` — Bildunterschrift-Text in `quizUeberspringen` auf
   „🚫 Keine bekannte Person erkannt" umbenannt.
-- Cache-Bust `app.js?v=20260914bU`.
+- `frontend/app.js` — **Race-Fix (Skip während des Ladens, „zwei Quiz"):**
+  1. `quizUeberspringen` bricht die laufende Gesichts-Analyse jetzt **ganz am
+     Anfang** ab (VOR dem ersten `await`), nicht erst nach dem
+     `/antwort`-Fetch. Sonst konnte die Analyse in der Zwischenzeit fertig
+     werden und die Karte noch als Quiz (Rahmen/Ja-Nein) rendern.
+  2. In der Sofort-Analyse prüft der Abort **danach gegen den lokalen**
+     `abortCtrl` statt gegen die globale `_analyseAbort`. Beim Skip ruft
+     `naechsteQuizRunde()` die globale auf einen NEUEN Controller fürs nächste
+     Bild um; eine hängende Analyse des vorigen Bildes hätte sonst den neuen
+     (nicht abgebrochenen) Controller geprüft und das Quiz doppelt gerendert.
+- Cache-Bust `app.js?v=20260914bV`.
 
 ## Verifikation
 - `node --check frontend/app.js` → Exit 0.
