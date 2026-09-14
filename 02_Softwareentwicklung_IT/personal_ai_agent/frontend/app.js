@@ -3186,11 +3186,10 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     // Gruppenbild (>=2 Gesichter): jedes Gesicht einzeln markieren + beschriften.
     const gs = gesichter || [];
     let idx = 0;
-    // Bereits gestellte Vermutungen dieses BILDES: dieselbe Person nur EINMAL
-    // fragen (Stand 2026-09-09, Auftrag Sebastian). Sonst erscheint bei
-    // zwei Gesichts-Boxen derselben Person die Frage doppelt — und eine
-    // falsche Vermutung (lockere Erkennungsschwelle) verwirrt doppelt.
-    const geseheneVermutungen = new Set();
+    // Wunsch Sebastian 2026-09-14: IMMER bei JEDEM Gesicht auf jedem Bild
+    // zuerst die Ja/Nein-Frage stellen, erst nach "Nein" die Namensauswahl.
+    // Die fruehere Regel ("dieselbe Person nur EINMAL pro Bild fragen") ist
+    // damit abgeloest - auch ein zweites Gesicht derselben Person wird gefragt.
     // Beim Durchlauf gesammelte Personen für die Abschluss-Bildunterschrift
     // ("… das ist Person1, Person2") — Wunsch Sebastian 2026-09-09.
     const verarbeitetePersonen = [];   // {name,x,y} gesammelt je zugeordnetem Gesicht (räumlich sortierbar)
@@ -3217,32 +3216,50 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     function zeigeVermutungsFrage() {
         const g = gs[idx] || {};
         const vm = g.vermutung || null;
-        // Keine Vermutung für dieses Gesicht: Beim Wechsel NICHT automatisch
-        // die volle Chip-Liste zeigen (das wirkte wie 'immer dieselbe Frage
-        // mehrfach'). Stattdessen nur Fortschritt + gelber Rahmen + ein
-        // dezenter Aufklapp-Knopf; die Namens-Chips erscheinen erst auf
-        // Wunsch (Stand 2026-09-09, Auftrag Sebastian).
+        // Keine Vermutung für dieses Gesicht (z. B. kein Embedding): trotzdem
+        // zuerst eine Ja/Nein-Frage ("Keine Person gefunden?"). Erst die
+        // Antwort darauf fuehrt zur Namensauswahl - nie direkt die Chips
+        // (Wunsch Sebastian 2026-09-14: immer erst fragen, dann Auswahl).
         if (!vm || !vm.person) {
-            const aufklapp = macheQuizButton('✏️ Dieses Gesicht benennen', 'person', () => {
-                aufklapp.remove();
-                zeigeAntwortZeile();
-            });
-            umbruch.appendChild(aufklapp);
+            baueKeinePersonGate();
             return;
         }
-        // Vermutung da: dieselbe Person nur EINMAL als Ja/Nein-Frage stellen;
-        // wurde sie bei einem früheren Gesicht schon gefragt, direkt zur
-        // Antwortauswahl (keine doppelte/wiederholte "Ist das X?"-Frage).
-        if (geseheneVermutungen.has(vm.person)) {
-            zeigeAntwortZeile();
-            return;
-        }
-        geseheneVermutungen.add(vm.person);
+        // Vermutung da: IMMER die "Ist das X?"-Ja/Nein-Frage stellen - auch
+        // wenn dieselbe Person bei einem frueheren Gesicht schon gefragt wurde.
         baueVermutungsBox(vm);
     }
+
+    // Gate fuer ein Gesicht OHNE Vermutung: erst Ja/Nein, dann Namensauswahl.
+    // Gleiches Muster wie im Einzelbild-Flow (zeigeQuizKarte), nur pro Gesicht.
+    function baueKeinePersonGate() {
+        const gate = document.createElement('div');
+        gate.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
+        const gt = document.createElement('div');
+        gt.style.cssText = 'color:#8f8;font-size:0.85rem;font-weight:600';
+        gt.textContent = '👤 Keine Person gefunden?';
+        gate.appendChild(gt);
+        const gz = document.createElement('div');
+        gz.style.cssText = 'display:flex;gap:6px;margin-top:6px;flex-wrap:wrap';
+        gz.appendChild(macheQuizButton('✅ Ja → Person einzeichnen', 'akt', () => {
+            gate.remove();
+            zeigeEinzeichnen(karte, img, dataUrl, pfad, optionen);
+        }));
+        gz.appendChild(macheQuizButton('❌ Nein → nächstes Gesicht', 'skip', () => {
+            gate.remove();
+            weiter();
+        }));
+        gate.appendChild(gz);
+        const direkt = macheQuizButton('👤 Person direkt benennen', 'person', () => {
+            gate.remove();
+            zeigeAntwortZeile();
+        });
+        direkt.style.cssText += ';margin-top:6px;width:100%;text-align:center';
+        gate.appendChild(direkt);
+        umbruch.appendChild(gate);
+    }
         // Baut die "Ist das X?"-Ja/Nein-Box für eine Vermutung und zeigt sie.
-    // Pro Bild wird jede vermutete Person nur EINMAL gefragt (Set oben);
-    // nach "Nein" klappt die Antwortauswahl auf (zeigeAntwortZeile).
+    // JEDES Gesicht bekommt seine eigene Ja/Nein-Frage; nach "Nein" klappt die
+    // Antwortauswahl auf (zeigeAntwortZeile). Stand 2026-09-14 ohne Ausnahme.
     function baueVermutungsBox(v) {
         const box = document.createElement('div');
         box.style.cssText = 'margin-top:6px;padding:8px;border:1px solid #2e8b57;border-radius:9px;background:#12251a';
