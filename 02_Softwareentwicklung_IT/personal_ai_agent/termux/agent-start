@@ -29,16 +29,54 @@ HIER="$(cd "$(dirname "$skript")" && pwd)"
 # verlustfrei. Deshalb: immer killen, dann genau einen starten.
 # Achtung: pkill matcht auch diesen Wrapper; deshalb wird der eigene
 # Shell-Prozess ausgeschlossen (grep -v).
+# Exklusiver Lock (NUR fuer die Kill-/Start-Phase): verhindert, dass ZWEI
+# agent-start PARALLEL killen/starten. Ohne Lock wuerde ein zweiter Aufruf den
+# gerade gestarteten Server des ersten (pkill -f uvicorn) toeten -> "Killed".
+# Der Lock wird nach der Start-Phase wieder geloest, damit der naechste
+# BEWUSSTE Neustart via Widget wieder moeglich ist.
+#
+# SELBSTHEILUNG (wichtig): Wird die Widget-Session waehrend der Kill-/Start-
+# Phase abgebrochen (Android killt die Session, Handy-Neustart, Strg+C), blieb
+# der Lock bisher FUER IMMER liegen. Danach meldete jeder Widget-Druck nur noch
+# "Ein agent-start laeuft gerade" und tat nichts -> "Agent startet nicht mehr
+# neu". Deshalb schreibt der Lock jetzt die PID des Halters + Zeitstempel; ein
+# Lock ohne lebenden Halter (oder aelter als 5 Minuten) gilt als verwaist und
+# wird uebernommen. Zusaetzlich raeumt ein trap ihn bei Abbruch weg.
+_LOCK="$PROJEKT/termux/.agent-start.lock"
+_HAELT_LOCK=0
+_lock_loesen() {
+    [ "$_HAELT_LOCK" = "1" ] && rm -rf "$_LOCK" 2>/dev/null
+    _HAELT_LOCK=0
+}
+trap '_lock_loesen' EXIT INT TERM
+_lock_nehmen() {
+    mkdir "$_LOCK" 2>/dev/null && {
+        echo "$$" > "$_LOCK/pid" 2>/dev/null
+        date +%s > "$_LOCK/zeit" 2>/dev/null
+        _HAELT_LOCK=1
+        return 0
+    }
+    # Lock belegt -> Halter pruefen.
+    _pid="$(cat "$_LOCK/pid" 2>/dev/null || true)"
+    _zeit="$(cat "$_LOCK/zeit" 2>/dev/null || true)"
+    _alt=0
+    [ -n "$_zeit" ] && _alt=$(( $(date +%s) - _zeit ))
+    if [ -z "$_pid" ] || ! kill -0 "$_pid" 2>/dev/null || [ "$_alt" -gt 300 ]; then
+        rm -rf "$_LOCK" 2>/dev/null
+        if mkdir "$_LOCK" 2>/dev/null; then
+            echo "$$" > "$_LOCK/pid" 2>/dev/null
+            date +%s > "$_LOCK/zeit" 2>/dev/null
+            _HAELT_LOCK=1
+            echo "⚠️  Verwaisten Start-Lock entfernt (abgebrochener Neustart)."
+            return 0
+        fi
+    fi
+    return 1
+}
+
 _pkill_server() {
-    # Exklusive Lock-Datei (NUR fuer die Kill-/Start-Phase): verhindert, dass
-    # ZWEI agent-start PARALLEL killen/starten. Ohne Lock wuerde ein zweiter
-    # Aufruf den gerade gestarteten Server des ersten (pkill -f uvicorn) toeten
-    # -> "Killed / [Process completed (code 137)]" direkt nach dem Start.
-    # Die Lock wird nach erfolgreichem Start wieder entfernt (siehe unten),
-    # damit der naechste BEWUSSTE Neustart via Widget wieder moeglich ist.
-    _LOCK="$PROJEKT/termux/.agent-start.lock"
-    if ! mkdir "$_LOCK" 2>/dev/null; then
-        melde "⚠️  Ein agent-start laeuft noch (Neustart laeuft). Einen Moment warten."
+    if ! _lock_nehmen; then
+        melde "⚠️  Ein agent-start laeuft gerade (Neustart laeuft). Einen Moment warten."
         exit 0
     fi
 
@@ -137,7 +175,7 @@ fi
 # ein weiterer bewusster Neustart via Widget muss wieder moeglich sein. Die
 # Race (zweites parallel laufendes agent-start) ist damit nur waehrend des
 # Kill/Starts geschuetzt, nicht waehrend des normalen Server-Betriebs.
-rm -rf "$_LOCK" 2>/dev/null
+_lock_loesen
 
 # Haelt das Skript am Leben, solange der Server laeuft. Ohne das wuerde
 # die Widget-Session enden und den Server mitnehmen.
