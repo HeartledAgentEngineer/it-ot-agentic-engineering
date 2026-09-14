@@ -2523,6 +2523,28 @@ let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
 // Offene, noch nicht persistierte Gruppen-Zuordnungen (person je Gesicht). Beim
 // ✕-Beenden werden sie ins Backend geschrieben (Wunsch Sebastian 2026-09-10).
 let _quizOffeneZuordnungen = [];  // [{bild_pfad, person, ist_neu, rolle, bbox}]
+// Automatischer "Weiter"-Timer der Quiz-Sitzung (setTimeout vor jeder naechsten
+// Runde). Er MUSS abbrechbar sein: sonst feuert er nach dem Beenden weiter und
+// schiebt 1,5 s spaeter doch wieder eine neue Quiz-Karte nach -> "das Quiz
+// laesst sich nicht beenden". Genau eine Instanz, immer die neueste.
+let _quizWeiterTimer = null;
+function _quizWeiterAbbrechen() {
+    if (_quizWeiterTimer) {
+        try { clearTimeout(_quizWeiterTimer); } catch (_) {}
+        _quizWeiterTimer = null;
+    }
+}
+function _quizWeiterPlanen(ms) {
+    _quizWeiterAbbrechen();
+    _quizWeiterTimer = setTimeout(() => {
+        _quizWeiterTimer = null;
+        // Nur innerhalb einer LAUFENDEN Sitzung weiterblaettern. Ist das Quiz
+        // inzwischen beendet (_quizAktiv false), darf hier nichts mehr
+        // aufklappen.
+        if (!_quizAktiv) return;
+        try { naechsteQuizRunde(); } catch (_) {}
+    }, ms);
+}
 
 // Zeichnet den gelben bbox-Rahmen um das Gesicht (Index `idx`) im Bild `img`
 // und gibt die Markierung zurueck (oder null).
@@ -3406,7 +3428,7 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
                 body: JSON.stringify({ bild_pfad: pfad, person: '', ist_neu: false, rolle: '', ueberspringen: true }),
             }).catch(() => {});
         } catch (_) {}
-        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1600);
+        _quizWeiterPlanen(1600);
     }
 
     function antworten(person, istNeu, skip, rolle, beziehung, beschreibung) {
@@ -3825,7 +3847,7 @@ function macheQuizFertig(karte, text, ok, bildSrc) {
             karte.appendChild(cap);
         }
         // nach kurzer Zeit automatisch zur naechsten Runde
-        setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1500);
+        _quizWeiterPlanen(1500);
     } catch (_) {}
 }
 
@@ -3882,31 +3904,40 @@ async function quizUeberspringen(pfad) {
 }
 
 function beendeQuizAktiv() {
-    if (_quizAktiv) {
-        _quizAktiv = false;
-        // 1) Noch offene (bestätigte) Gruppen-Zuordnungen ans Backend persistieren,
-        //    die beim ✕ noch nicht durch "weiter" gespeichert wurden.
-        try {
-            const offen = (_quizOffeneZuordnungen || []).filter(z => z && z.person && z.bild_pfad);
-            for (const z of offen) {
-                try {
-                    quizBeantwortenSilent(z.bild_pfad, z.person, z.ist_neu || false, z.rolle || '', '', '', z.bbox);
-                } catch (_e) {}
-            }
-        } catch (_e) {}
-        _quizOffeneZuordnungen = [];
-        // 2) Alle Quiz-Buttons/Bedienung entfernen: Jede als Quiz-Karte markierte
-        //    Blase leeren und auf "beendet"-Hinweis umschalten. Der Kopf (Menü/
-        //    Beenden), Antwort-Choices und Vermutungs-Buttons verschwinden.
-        try {
-            const karten = Array.from(document.querySelectorAll('[data-quizkarte="1"], [data-quiz-karte="1"]'));
-            for (const k of karten) { k.innerHTML = ''; }
-            // Fallback: markierte dataset.quizKarte-Elemente (dataset-API)
-            for (const n of document.querySelectorAll('.message .quizKarte, .message[data-quizkarte]')) {}
-        } catch (_e) {}
-        raeumeQuizKopienAuf();
-        addMessage('🛑 **Quiz beendet** — du kannst jederzeit neu starten.', 'assistant');
-    }
+    // BEWUSST kein Guard mehr auf `_quizAktiv`: Eine wiederhergestellte
+    // (Reload) oder fortgesetzte Quiz-Karte kann sichtbar und bedienbar sein,
+    // waehrend `_quizAktiv` (noch) false ist. Vorher war der ✕-Knopf in genau
+    // diesem Zustand ein No-Op ("Quiz-Antworten bleiben stehen, Quiz laesst
+    // sich nicht beenden"). An dieser Funktion haengt nur der ✕-Knopf der
+    // Quiz-Karte — sie wird nie "ins Leere" gerufen.
+    _quizAktiv = false;
+    // Laufende Verkettung stoppen: geplanten Auto-Weiter-Timer abraeumen,
+    // bereits angestossene Runden entwerten (Lauf-Token) und eine evtl.
+    // laufende Gesichts-Analyse abbrechen. Sonst schiebt einer dieser Wege
+    // kurz nach dem Beenden doch wieder eine neue Quiz-Karte nach.
+    _quizWeiterAbbrechen();
+    _rundeToken++;
+    try { if (_analyseAbort && !_analyseAbort.aborted) _analyseAbort.abort(); } catch (_) {}
+    // 1) Noch offene (bestaetigte) Gruppen-Zuordnungen ans Backend persistieren,
+    //    die beim ✕ noch nicht durch "weiter" gespeichert wurden.
+    try {
+        const offen = (_quizOffeneZuordnungen || []).filter(z => z && z.person && z.bild_pfad);
+        for (const z of offen) {
+            try {
+                quizBeantwortenSilent(z.bild_pfad, z.person, z.ist_neu || false, z.rolle || '', '', '', z.bbox);
+            } catch (_e) {}
+        }
+    } catch (_e) {}
+    _quizOffeneZuordnungen = [];
+    // 2) Alle Quiz-Buttons/Bedienung entfernen: Jede als Quiz-Karte markierte
+    //    Blase leeren und auf "beendet"-Hinweis umschalten. Der Kopf (Menue/
+    //    Beenden), Antwort-Choices und Vermutungs-Buttons verschwinden.
+    try {
+        const karten = Array.from(document.querySelectorAll('[data-quizkarte="1"], [data-quiz-karte="1"]'));
+        for (const k of karten) { k.innerHTML = ''; }
+    } catch (_e) {}
+    raeumeQuizKopienAuf();
+    addMessage('🛑 **Quiz beendet** — du kannst jederzeit neu starten.', 'assistant');
 }
 
 async function quizFortsetzen() {
@@ -3946,6 +3977,8 @@ async function quizFortsetzen() {
         if (!dataUrl) {
             addMessage('🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).', 'assistant');
         }
+        _quizAktiv = true;       // fortgesetzte Sitzung gilt als aktiv
+        _quizWeiterAbbrechen();  // keinen Alt-Timer der vorigen Sitzung uebernehmen
         zeigeQuizKarte(pfad, m.name || '', dataUrl, optionen, vermutung, anzahlGes, [], gesichterUi);
         // interaktive Antworten rekonstruieren (nur die letzte -> hier genau diese)
         const letzte = document.querySelectorAll('.message.assistant');
@@ -3989,6 +4022,11 @@ function raeumeQuizKopienAuf() {
 // solange die Sitzung laeuft; nur der echte Neustart (quizStart) guardet.
 // Liefert true, wenn eine Runde angezeigt wurde; false, wenn Quiz zu Ende/Fehler.
 async function naechsteQuizRunde(nachRunde) {
+    // Sitzung beendet? Dann KEINE neue Runde mehr aufbauen. Dieser Fall tritt
+    // ein, wenn ein Auto-Weiter-Timer, ein "weiter"-Klick oder eine noch
+    // laufende Analyse NACH dem Beenden feuert — ohne diese Sperre oeffnet sich
+    // das Quiz von selbst wieder ("laesst sich nicht beenden").
+    if (!_quizAktiv) return false;
     // Lauf-Token: diese Runde kennzeichnet sich mit einem frischen Token. Wenn
     // waehrend eines await eine NEUERE Runde startet (skipSofort, quizUeberspringen,
     // "weiter", setTimeouts), erhoeht sich _rundeToken und __diese__ alte Runde
@@ -4182,7 +4220,7 @@ async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreib
             capTxt.textContent = '… das ist ' + (person || '');
             cap.appendChild(capTxt);
             _letzteQuizKarte.appendChild(cap);
-            setTimeout(() => { try { naechsteQuizRunde(); } catch (_) {} }, 1500);
+            _quizWeiterPlanen(1500);
             return;
         }
         addMessage(meldung, 'assistant');
@@ -4595,9 +4633,14 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         if (t.indexOf('quiz beenden') !== -1 || t.indexOf('quiz beenden') !== -1
             || t.indexOf('quiz stoppen') !== -1 || t.indexOf('quiz aus') !== -1
             || t.indexOf('quiz aufhören') !== -1 || t === 'stopp') {
-            if (_quizAktiv) {
-                addMessage('🛑 **Quiz beendet** — danke fürs Trainieren!', 'assistant');
-                _quizAktiv = false;
+            // Sichtbare Quiz-Karte zaehlt als laufende Sitzung — auch wenn
+            // _quizAktiv durch einen Reload auf false stand. Dann beendet
+            // beendeQuizAktiv() die Sitzung RICHTIG (Karten + Bedienung weg),
+            // statt nur ein Flag zu setzen. Vorher blieb die Karte stehen und
+            // das Quiz liess sich so nicht beenden.
+            const quizSichtbar = document.querySelector('[data-quizkarte="1"], [data-quiz-karte="1"]');
+            if (_quizAktiv || quizSichtbar) {
+                beendeQuizAktiv();
             } else {
                 addMessage('Es läuft gerade keine Quiz-Sitzung. Sag "quiz starten", um zu beginnen.', 'assistant');
             }
@@ -6497,6 +6540,11 @@ async function zeigeGespraech(id) {
                     return;
                 }
                 // In die BESTEHENDE Blase bauen (zielContainer), keine neue Karte.
+                // Eine wiederhergestellte offene Frage IST eine laufende Sitzung:
+                // _quizAktiv setzen, sonst wirkt der ✕-Knopf nicht (Bug: "Quiz
+                // laesst sich nach Reload nicht beenden").
+                _quizAktiv = true;
+                _quizWeiterAbbrechen();
                 zeigeQuizKarte(pfad, ui && ui.name || '', dataUrl, optionen, vermutung, gesichterUi.length, [], gesichterUi, contentDiv);
             } catch (e) {
                 // Fehlschlag sanft melden (Bild bleibt Textblase)

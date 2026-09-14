@@ -23,7 +23,10 @@ class Settings(BaseSettings):
     # Einstellungen dieses Kontos NICHT routbar und kostet bei der Ausgabe
     # das 3,7-Fache (1,029 statt 0,280 $/Mio). Die Oberfläche behauptete
     # ohnehin schon "V4 Flash" – hier stand nur nie das passende Modell.
-    llm_model: str = "deepseek/deepseek-v4-flash"
+    # Aktuellstes DeepSeek-Flash (V4.1) als Standard-Modell der App.
+    # Hinweis: OpenRouter-ID ist `deepseek/deepseek-v4.1-flash` (mit Punkt).
+    # Hermes selbst (CLI, ~/.hermes/config.yaml) läuft ebenfalls auf diesem Modell.
+    llm_model: str = "deepseek/deepseek-v4.1-flash"
 
     # Nur für den Modellkatalog, NIE für Chat-Aufrufe: Über diese Adresse
     # lässt sich abfragen, welche Modelle EU-in-Region bedient würden.
@@ -49,7 +52,7 @@ class Settings(BaseSettings):
     # (OpenRouter respektiert dabei die Privacy-/Provider-Einstellungen des
     # Accounts). Kommt die API nicht an, greift diese Fallback-Liste.
     # Kommagetrennte Modell-IDs.
-    allowed_models_fallback: str = "deepseek/deepseek-v4-flash-0731,deepseek/deepseek-v4-flash"
+    allowed_models_fallback: str = "deepseek/deepseek-v4.1-flash,deepseek/deepseek-v4-flash-0731,deepseek/deepseek-v4-flash"
 
 # Schnellauswahl in der Oberfläche, nach Preis gestaffelt. Alle vier am
         # 11.08.2026 gegen /models/user geprüft. Wer hier nicht mehr nutzbar ist,
@@ -64,6 +67,7 @@ class Settings(BaseSettings):
         # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
     favorite_models: List[str] = [
     "openai/gpt-5-nano",
+    "deepseek/deepseek-v4.1-flash",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-v4-pro",

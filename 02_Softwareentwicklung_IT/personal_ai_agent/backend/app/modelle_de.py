@@ -166,6 +166,11 @@ MODEL_BESCHREIBUNGEN_DE: dict[str, str] = {
         "Googles fortgeschrittenstes Bildgenerierungs-Modell („Nano Banana Pro“)."
     ),
     # ── DeepSeek ────────────────────────────────────────────────────────
+    "deepseek/deepseek-v4.1-flash": (
+        "Neuestes DeepSeek V4.1 Flash: effizienz-optimiertes Experten-Gemisch "
+        "(MoE) mit 1M-Token-Kontext und schnellster Inferenz der V4-Reihe. "
+        "Standardmodell dieser App."
+    ),
     "deepseek/deepseek-v4-flash": (
         "Effizienz-optimiertes Experten-Gemisch (MoE) von DeepSeek mit 284B "
         "Gesamt- und 13B aktiven Parametern sowie 1M-Token-Kontext. Entwickelt "
