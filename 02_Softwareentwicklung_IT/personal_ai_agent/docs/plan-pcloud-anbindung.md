@@ -39,7 +39,7 @@ automatische Gesichtserkennung als Massensuchfunktion.
 | Dateisuche heute | `backend/app/services/datei_suche.py` durchsucht **nur** `~/storage/shared` bzw. `/sdcard` (max. Tiefe 3, nur lesen, nur Namen) — keine Netzquelle |
 | pCloud-Ordner auf dem Gerät | **kein** `/sdcard/*loud*` o. ä. Der Android-pCloud-Client legt keinen kontinuierlich gespiegelten Ordner an |
 | Python | 3.13.13; `httpx` und `Pillow` stehen bereits in `backend/requirements.txt` — ein API-Client braucht **keine neue Abhängigkeit** |
-| rclone / jq | im Termux-Repo verfügbar (`rclone/stable 1.74.3 aarch64`, `jq/stable 1.8.2`), aber **nicht installiert** |
+| rclone / jq | **installiert am 15.09.2026**: `rclone v1.74.3-termux` + `jq 1.8.2` (`pkg install -y rclone jq`), Backend `pcloud` vorhanden. Noch **kein** Remote konfiguriert (`rclone listremotes` ist leer, `/data/data/com.termux/files/home/.config/rclone/rclone.conf` fehlt) |
 | ffmpeg | vorhanden (für Miniaturen/Video-Sonderfälle nutzbar) |
 | Sicherheitsnetze, die bleiben | `X-API-Key` auf allen `/api/*`-Routen, `HOST_BIND` in `.env`, `.gitignore` führt `uploads/`, `chroma_data/`, `gesichter_katalog.json`, `.env` |
 
