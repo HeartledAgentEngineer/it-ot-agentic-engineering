@@ -28,7 +28,57 @@ from typing import Dict, Iterator, List, Optional
 logger = logging.getLogger(__name__)
 
 # Wie lange der lokale Hermes-CLI hoechstens fuer einen Auftrag arbeitet.
+# Fallback, wenn die Settings (hermes_auftrag_timeout) nicht lesbar sind.
 DEFAULT_TIMEOUT = 900
+
+
+def _lokales_modell() -> str:
+    """Modell fuer die lokalen `hermes chat`-Laeufe (Coding-Agent).
+
+    Wunsch Sebastian (2026-09-15): DeepSeek V4.1 Flash — dieselbe Kennung wie
+    im Chat, damit der Coding-Agent intern nicht auf einem anderen Modell
+    laeuft. Leer/ungueltig -> kein `-m` (Hermes-Standard).
+    """
+    try:
+        from app.config import settings
+        return str(getattr(settings, "hermes_local_model", "") or "").strip()
+    except Exception:  # pragma: no cover
+        return ""
+
+
+def _hermes_chat_befehl(*, query: Optional[str] = None) -> List[str]:
+    """Baut den `hermes chat`-Aufruf MIT konfiguriertem Modell.
+
+    Ohne Modell bleibt es beim Hermes-Standard (kein `-m`-Flag), damit ein
+    leeres Setting nichts kaputt macht.
+    """
+    cmd = ["hermes", "chat"]
+    modell = _lokales_modell()
+    if modell:
+        cmd += ["-m", modell]
+    if query is not None:
+        cmd += ["-q", query, "-Q"]
+    return cmd
+
+
+def _auftrag_timeout() -> int:
+    """Gesamt-Zeitbudget eines lokalen Hermes-Auftrags (Sekunden)."""
+    try:
+        from app.config import settings
+        wert = int(getattr(settings, "hermes_auftrag_timeout", 0) or 0)
+    except Exception:  # pragma: no cover
+        wert = 0
+    return wert if wert > 0 else DEFAULT_TIMEOUT
+
+
+def _auftrag_idle() -> int:
+    """Ruhe-Budget ohne neue Zwischenmeldung (Sekunden)."""
+    try:
+        from app.config import settings
+        wert = int(getattr(settings, "hermes_auftrag_idle", 0) or 0)
+    except Exception:  # pragma: no cover
+        wert = 0
+    return wert if wert > 0 else 420
 
 # tmux-Pane-Groesse. Der Hermes-TUI braucht etwas Breite, sonst bricht er
 # Zeilen um und die Gedanken-Boxen werden unleserlich zerteilt.
@@ -102,10 +152,19 @@ def sicherstelle_inbox_daemon() -> bool:
     cwd = os.path.dirname(pfad)
     log_pfad = os.path.join(cwd, "hermes_inbox_daemon.log")
     try:
+        # Modell + Zeitbudget an den Daemon durchreichen (single source of
+        # truth = Settings). Der Daemon startet damit `hermes chat -m <modell>`
+        # (Coding-Agent = DeepSeek V4.1 Flash, Wunsch Sebastian 2026-09-15).
+        daemon_env = dict(os.environ)
+        modell = _lokales_modell()
+        if modell:
+            daemon_env["HERMES_LOCAL_MODEL"] = modell
+        daemon_env["HERMES_AUFTRAG_TIMEOUT"] = str(_auftrag_timeout())
+        daemon_env["HERMES_AUFTRAG_IDLE"] = str(_auftrag_idle())
         with open(log_pfad, "a", encoding="utf-8") as logf:
             subprocess.Popen(
                 ["python", pfad],
-                cwd=cwd, stdout=logf, stderr=logf,
+                cwd=cwd, stdout=logf, stderr=logf, env=daemon_env,
                 # Eigenen Prozess-gruppen-Leader: ueberlebt den Aufrufer
                 # (Server-Neustart killt den mit eigenem sid nicht).
                 start_new_session=True,
@@ -216,7 +275,10 @@ class LocalHermesJob:
         """
         try:
             if self.eigene_session:
-                inner = "hermes chat"
+                # Modell explizit setzen (Coding-Agent = DeepSeek V4.1 Flash),
+                # damit die interne Hermes-Session nicht auf dem Standardmodell
+                # laeuft (Wunsch Sebastian 2026-09-15).
+                inner = " ".join(_hermes_chat_befehl())
                 subprocess.run(
                     ["tmux", "new-session", "-d", "-s", self.session,
                      "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), inner],
@@ -459,10 +521,12 @@ def sichere_persistente_tmux_session(name: str = "hermes_termux") -> str:
                            capture_output=True)
         if r.returncode == 0:
             return name  # existiert bereits -> andocken
-        # Neue persistente Session erzeugen (hermes chat, bleibt offen).
+        # Neue persistente Session erzeugen (hermes chat, bleibt offen) —
+        # mit dem konfigurierten Coding-Modell (DeepSeek V4.1 Flash).
         subprocess.run(
             ["tmux", "new-session", "-d", "-s", name,
-             "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT), "hermes chat"],
+             "-x", str(_TMUX_WIDTH), "-y", str(_TMUX_HEIGHT),
+             " ".join(_hermes_chat_befehl())],
             capture_output=True, text=True, timeout=15, check=True,
         )
         return name
@@ -484,7 +548,7 @@ def beende_lokale_session(name: str) -> bool:
 
 
 def stream_auftrag_query(
-    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    auftrag_id: str, auftrag_text: str, timeout: Optional[int] = None,
     kontext: str = "",
 ) -> Iterator[dict]:
     """Track-C-Zweitweg: fuehrt den Auftrag als EINMALIGEN `hermes chat -q`-Subprozess
@@ -503,6 +567,7 @@ def stream_auftrag_query(
     if not ist_verfuegbar():
         yield {"art": "fehler", "text": "hermes/tmux nicht verfuegbar"}
         return
+    timeout = timeout or _auftrag_timeout()
     payload = auftrag_text
     if kontext and kontext.strip():
         payload = (
@@ -512,7 +577,7 @@ def stream_auftrag_query(
         )
     try:
         r = subprocess.run(
-            ["hermes", "chat", "-q", payload, "-Q"],
+            _hermes_chat_befehl(query=payload),
             capture_output=True, text=True, timeout=timeout,
         )
         out = (r.stdout or "").strip()
@@ -530,7 +595,7 @@ def stream_auftrag_query(
 
 
 def stream_auftrag_aktiv(
-    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    auftrag_id: str, auftrag_text: str, timeout: Optional[int] = None,
     kontext: str = "",
 ) -> Iterator[dict]:
     """Track-C-Kanal 'aktiv': Server -> LAUFENDE Termux-Hermes-Session (ohne tmux).
@@ -591,12 +656,24 @@ def stream_auftrag_aktiv(
             except Exception:
                 pass
 
+        # Zeitbudgets (Wunsch Sebastian 2026-09-15): Der frueher FESTE 900s-
+        # Abbruch brach lange Coding-Laeufe ab ("Timeout nach 900s: keine
+        # Antwort der aktiven Session"). Jetzt:
+        #   * Gesamtbudget (hermes_auftrag_timeout, Standard 3600s) = harte Grenze
+        #   * Ruhebudget (hermes_auftrag_idle, Standard 420s) = nur ein HINWEIS,
+        #     wenn lange keine Zwischenmeldung kam. Der Auftrag laeuft weiter
+        #     (der Daemon arbeitet ggf. an einem vorherigen Auftrag weiter), es
+        #     wird NICHT abgebrochen.
+        timeout = timeout or _auftrag_timeout()
+        idle_grenze = _auftrag_idle()
         start = time.time()
         # Merke bereits gesehene Status-Zeilen, damit NEUE Gedanken (die der
         # Inbox-Daemon zeilenweise in status.jsonl schreibt) als Live-Gedanken
         # gestreamt werden — Wunsch Sebastian: "portionsweiser Gedankenstrom".
         gesehene_status = set()
         antwort_gefunden = False
+        letzte_aktivitaet = time.time()
+        idle_gemeldet = False
         while time.time() - start < timeout:
             # Neue Gedanken aus status.jsonl (vom Daemon zeilenweise geschrieben).
             if os.path.exists(status_Pfad):
@@ -620,6 +697,9 @@ def stream_auftrag_aktiv(
                             if _key in gesehene_status:
                                 continue
                             gesehene_status.add(_key)
+                            # Jede neue Meldung = Lebenszeichen: Ruhe-Uhr zurueck.
+                            letzte_aktivitaet = time.time()
+                            idle_gemeldet = False
                             yield {"art": "gedanke", "text": _t}
                 except Exception:
                     pass
@@ -641,6 +721,16 @@ def stream_auftrag_aktiv(
                             break
             if antwort_gefunden:
                 return
+            # Ruhebudget überschritten: EINMAL ehrlich melden, weiter warten.
+            if not idle_gemeldet and time.time() - letzte_aktivitaet >= idle_grenze:
+                idle_gemeldet = True
+                wartezeit = int(time.time() - letzte_aktivitaet)
+                yield {
+                    "art": "gedanke",
+                    "text": (f"⏳ Seit {wartezeit}s keine neue Zwischenmeldung — "
+                             "der Auftrag läuft weiter (kein Abbruch). "
+                             "Hermes arbeitet im Hintergrund."),
+                }
             time.sleep(1.0)
         yield {"art": "fehler", "text": f"Timeout nach {timeout}s: keine Antwort der aktiven Session"}
     except Exception as e:
@@ -648,7 +738,7 @@ def stream_auftrag_aktiv(
 
 
 def stream_auftrag(
-    auftrag_id: str, auftrag_text: str, timeout: int = DEFAULT_TIMEOUT,
+    auftrag_id: str, auftrag_text: str, timeout: Optional[int] = None,
     bestehende_session: Optional[str] = None,
     nutze_query_modus: bool = False,
     nutze_aktiv_modus: bool = False,
@@ -674,6 +764,7 @@ def stream_auftrag(
         {"art": "ergebnis", "text": ...}
         {"art": "fehler", "text": ...}
     """
+    timeout = timeout or _auftrag_timeout()
     if nutze_aktiv_modus:
         # AKTIV-Kanal (Wunsch Sebastian): Server redet ueber Datei-Inbox mit
         # der laufenden Termux-Hermes-Session (kein tmux, kein Subprozess).

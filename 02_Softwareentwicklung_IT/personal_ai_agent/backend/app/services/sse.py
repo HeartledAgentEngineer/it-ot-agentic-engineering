@@ -8,7 +8,7 @@
 
 import json
 import time
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, List
 
 from app.services.auftrag_service import auftrag_service
 from app.services.memory_service import memory_service
@@ -33,7 +33,17 @@ def strom_auftrag_live(auftrag_id, conversation_id, reply_text,
     anzeigen kann, wohin delegiert wurde.
     """
     yield _sse({"delta": reply_text, "auftrag_id": auftrag_id})
-    gesehen = 0
+    # Zwischenmeldungen aus dem Auftragsbuch durchreichen.
+    #
+    # ACHTUNG (Root-Cause-Fix 2026-09-15): Das Auftragsbuch kappt
+    # status_meldungen auf die letzten N Eintraege (auftrag_service). Ein
+    # ABSOLUTER Zaehler wie frueher ("gesehen = n", dann meldungen[n:]) laeuft
+    # deshalb nach N Meldungen DAUERHAFT leer: der Stream verstummt mitten im
+    # Lauf, waehrend der Agent weiterarbeitet. Die Gedanken landen dann nur
+    # noch im Verlauf -> der Nutzer sieht erst nach einem Reload wieder etwas
+    # ("es hat irgendwann aufgehoert"). Darum den Anschluss ueber den
+    # UEBERLAPP der zuletzt gesendeten Eintraege finden, statt zu zaehlen.
+    gesendet_puffer: List[str] = []
     letzte_aktivitaet = time.time()
     while True:
         try:
@@ -43,11 +53,23 @@ def strom_auftrag_live(auftrag_id, conversation_id, reply_text,
         status = (aktuell or {}).get("status")
         meldungen = (aktuell or {}).get("status_meldungen", []) or []
 
-        for meldung in meldungen[gesehen:]:
-            gesehen += 1
+        # Anschluss suchen: so viele Eintraege am ENDE des Puffers wie am
+        # ANFANG der aktuellen Liste ueberspringen (vertraegt Kappung UND
+        # Laengenaenderungen; findet keinen Ueberlapp, wird neu gesendet
+        # statt stumm zu bleiben).
+        overlap = 0
+        for k in range(min(len(gesendet_puffer), len(meldungen)), 0, -1):
+            if gesendet_puffer[-k:] == meldungen[:k]:
+                overlap = k
+                break
+
+        for meldung in meldungen[overlap:]:
             if meldung:
                 yield _sse({"art": "gedanke", "text": meldung})
                 letzte_aktivitaet = time.time()
+            gesendet_puffer.append(meldung)
+        if len(gesendet_puffer) > 40:
+            del gesendet_puffer[:-40]
 
         if status in ("fertig", "fehler"):
             ergebnis = ((aktuell or {}).get("ergebnis") or "").strip()

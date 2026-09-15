@@ -193,9 +193,12 @@ class AuftragService:
                     eintrag["status_meldungen"] = []
                 zeichen = f"[{_jetzt()}] {meldung}"
                 eintrag["status_meldungen"].append(zeichen)
-                # Maximal 20 Meldungen behalten
-                if len(eintrag["status_meldungen"]) > 20:
-                    eintrag["status_meldungen"] = eintrag["status_meldungen"][-20:]
+                # Lange Coding-Laeufe erzeugen Hunderte Gedanken. 20 waren zu
+                # wenig (der Live-Stream konnte nach dem alten absoluten
+                # Zaehler auch nicht mehr anknuepfen) - 200 behalten einen
+                # brauchbaren Verlauf, ohne die Datei aufzublaehen.
+                if len(eintrag["status_meldungen"]) > 200:
+                    eintrag["status_meldungen"] = eintrag["status_meldungen"][-200:]
                 self._schreiben(auftraege)
                 # Zwischenmeldungen (Gedanken/Toolschritte) bewusst NICHT in den
                 # persistenten Chat-Verlauf - sonst blaeht er sich mit jedem

@@ -2060,21 +2060,42 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
 
     // Typewriter: Zeichen für Zeichen eintippen (lesbare Geschwindigkeit).
     // Je Satzzeichen ein kuerzerer Halt, damit es nicht zu schnell fliegt.
-    const interval = 18;   // ms je Zeichen (nach Lust/Lesbarkeit)
-    let i = 0;
-    const tippe = () => {
-        if (i >= rein.length) return;   // fertig
-        const ch = rein[i];
-        inhalt.textContent = rein.slice(0, i + 1);
-        i++;
-        let delay = interval;
-        if ('.!?;:'.indexOf(ch) !== -1) delay = interval * 6;   // Satzende: kurze Pause
-        if (','.indexOf(ch) !== -1) delay = interval * 3;
-        setTimeout(tippe, delay);
-        if (i % 40 === 0) scrollToBottom(true);   // beim Fortschritt mitrollen
-    };
-    tippe();
+    // WICHTIG (2026-09-15): Die Blasen tippen SERIELL nacheinander (Kette),
+    // nicht parallel. Vorher tippte jede neue Blase sofort los — bei einem
+    // Schwall von Gedanken sah das aus, als würden mehrere Nachrichten
+    // gleichzeitig/flimmernd geschrieben.
+    const sofort = _gedankenTippWartend > 2;   // Rueckstand: ohne Tippen zeigen
+    _gedankenTippWartend++;
+    const tippen = () => new Promise((fertig) => {
+        if (sofort) {
+            inhalt.textContent = rein;
+            fertig();
+            return;
+        }
+        const interval = 18;   // ms je Zeichen (nach Lust/Lesbarkeit)
+        let i = 0;
+        const tippe = () => {
+            if (i >= rein.length) { fertig(); return; }   // fertig
+            const ch = rein[i];
+            inhalt.textContent = rein.slice(0, i + 1);
+            i++;
+            let delay = interval;
+            if ('.!?;:'.indexOf(ch) !== -1) delay = interval * 6;   // Satzende: kurze Pause
+            if (','.indexOf(ch) !== -1) delay = interval * 3;
+            setTimeout(tippe, delay);
+            if (i % 40 === 0) scrollToBottom(true);   // beim Fortschritt mitrollen
+        };
+        tippe();
+    });
+    _gedankenTippKette = _gedankenTippKette
+        .then(tippen)
+        .catch(() => {})
+        .then(() => { _gedankenTippWartend = Math.max(0, _gedankenTippWartend - 1); });
 }
+
+// Serielle Tipp-Kette fuer die Gedanken-Blasen (siehe fuegeGedankeMitAbbruchHinzu).
+let _gedankenTippKette = Promise.resolve();
+let _gedankenTippWartend = 0;
 
 // (nicht mehr verwendet: Gruppierung je Auftrag – ersetzt durch per-Gedanken-Blase)
 let _gedankenBlasen = {};
@@ -5055,6 +5076,21 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             return null;
         }
 
+        // WICHTIG (2026-09-15, Wunsch Sebastian): Läuft noch ein Hermes-
+        // Auftrag, wird der Stream NICHT als Fehler behandelt und NICHT neu
+        // gesendet (das startete einen zweiten Auftrag). Stattdessen läuft die
+        // Live-Verfolgung per Status-Poll weiter: neue Zwischengedanken und das
+        // Endergebnis kommen nach — ohne F5/Neuladen. Der Auftrag selbst arbeitet
+        // im Hintergrund weiter (Inbox-Daemon/Server-Thread), nur die
+        // Browser-Verbindung war gerissen.
+        if (_laufenderAuftragKurz) {
+            console.warn('Stream gerissen — verfolge laufenden Auftrag per Status-Poll:', err);
+            zustand.fertig = true;
+            entry.content = antwort;
+            starteAuftragResumePoll(_laufenderAuftragKurz, contentDiv, entry, vorleser);
+            return null;
+        }
+
         // Fehler (kein Abbruch): Kanal freigeben + Stop-Button zurücksetzen,
         // damit nach einem Fehler (z. B. Hermes-Job) kein roter Zustand hängt.
         _laufenderAuftragKurz = null;
@@ -6201,7 +6237,10 @@ async function pollHermesLetzte() {
     // Poll als Gedanken anzeigen (Wunsch Sebastian: ECHTES Feedback, ohne Reload).
     // Das Backend persistiert die Gedanken weiterhin in status_meldungen; der
     // Chat-Verlauf wird NICHT mehr damit befuellt (nur Endergebnis bleibt).
-    if (_laufenderAuftragKurz && state.conversationId === 'conv_code') {
+    // Seit 2026-09-15 für JEDEN Chat (nicht nur conv_code): der Auftrag haengt
+    // an der auftrag_id, nicht am Gespraech — so bleibt das Live-Feedback auch
+    // im normalen Chat bestehen, wenn der Stream abreisst.
+    if (_laufenderAuftragKurz) {
         try {
             const st = await fetch(`${API_BASE}/api/hermes/status/${_laufenderAuftragKurz}`);
             if (st.ok) {
@@ -6222,6 +6261,69 @@ async function pollHermesLetzte() {
             }
         } catch (_) {}
     }
+}
+
+/** Verfolgt einen bereits LAUFENDEN Hermes-Auftrag per Status-Poll weiter.
+ *
+ *  Wunsch Sebastian (2026-09-15): Reißt die Browser-Verbindung zum SSE-Stream
+ *  ab ("es hat irgendwann aufgehört, ich musste neu laden"), läuft der Auftrag
+ *  im Hintergrund trotzdem weiter. Diese Funktion pollt den Auftragsstand,
+ *  zeigt neue Zwischengedanken als Blasen und schreibt das Endergebnis in den
+ *  Chat — ganz ohne Reload. Sie endet, sobald der Auftrag fertig/fehlerhaft
+ *  ist, und gibt danach den Kanal wieder frei.
+ */
+let _resumeTimer = null;
+function starteAuftragResumePoll(aidKurz, contentDiv, entry, vorleser) {
+    if (!aidKurz) return;
+    if (_resumeTimer) { clearInterval(_resumeTimer); _resumeTimer = null; }
+    let ergebnisGezeigt = false;
+    const tick = async () => {
+        if (!aidKurz) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/hermes/status/${aidKurz}`);
+            if (!res.ok) return;
+            const sd = await res.json();
+            const meld = (sd && sd.status_meldungen) || [];
+            const seen = _statusMeldCnt[aidKurz] || 0;
+            const neu = meld.slice(seen);
+            if (neu.length) {
+                _statusMeldCnt[aidKurz] = meld.length;
+                for (const z of neu) {
+                    const ohneZeit = String(z || '').replace(/^\[[^\]]*\]\s*/, '');
+                    if (ohneZeit && ohneZeit.trim()) {
+                        fuegeGedankeMitAbbruchHinzu(ohneZeit, '');
+                    }
+                }
+            }
+            const status = sd && sd.status;
+            if (status === 'fertig' || status === 'fehler') {
+                if (_resumeTimer) { clearInterval(_resumeTimer); _resumeTimer = null; }
+                _laufenderAuftragKurz = null;
+                aktualisiereStatusAnzeige();
+                updateSendButton();
+                setLoading(false);
+                const ergebnis = (sd && sd.ergebnis) || '';
+                if (ergebnis && !ergebnisGezeigt) {
+                    ergebnisGezeigt = true;
+                    const kopf = (status === 'fertig') ? '✅ **Ergebnis:**\n' : '❌ **Fehler:**\n';
+                    const text = kopf + ergebnis;
+                    // Neue Blase: die urspruengliche kann im finally-Aufraeumen
+                    // (leere Blasen entfernen) bereits aus dem DOM genommen sein.
+                    const zielDiv = addMessage('', 'assistant');
+                    try {
+                        finishReply(zielDiv, { content: '' }, text, {
+                            done: true, conversation_id: state.conversationId,
+                            sources: [], ziel: 'handy',
+                        }, vorleser);
+                    } catch (_e) {
+                        zielDiv.innerHTML = parseMarkdown(text);
+                    }
+                }
+            }
+        } catch (_e) { /* Netzwerkfehler: naechster Tick */ }
+    };
+    tick();
+    _resumeTimer = setInterval(tick, 4000);
 }
 function starteHermesPoll() {
     if (_hermesPollAktiv) return;

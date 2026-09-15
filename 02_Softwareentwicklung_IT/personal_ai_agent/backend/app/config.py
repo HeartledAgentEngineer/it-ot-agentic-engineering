@@ -175,6 +175,23 @@ class Settings(BaseSettings):
     #   "" / "tmux" = klassischer tmux-Weg.
     hermes_local_kanal: str = ""
 
+    # Modell fuer die LOKALEN Hermes-Laeufe (Coding-Agent). Der Inbox-Daemon,
+    # die tmux-Session und der query-Zweitweg starten `hermes chat` mit diesem
+    # Modell. Wunsch Sebastian (2026-09-15): DeepSeek V4.1 Flash, damit der
+    # Coding-Agent intern dasselbe Modell faehrt wie der Chat.
+    hermes_local_model: str = "deepseek/deepseek-v4.1-flash"
+
+    # Gesamt-Zeitbudget eines lokalen Hermes-Auftrags in Sekunden. Coding-
+    # Auftraege brauchen regelmaessig laenger als 15 Minuten — der frueher
+    # feste 900s-Abbruch ("Timeout nach 900s: keine Antwort der aktiven
+    # Session") war die Ursache fuer abgebrochene Coding-Laeufe.
+    hermes_auftrag_timeout: int = 3600
+
+    # Ruhe-Budget in Sekunden: So lange OHNE neue Zwischenmeldung darf ein
+    # Auftrag still sein, bevor der Stream einen Hinweis ausgibt (der Auftrag
+    # laeuft weiter, es wird NICHT abgebrochen).
+    hermes_auftrag_idle: int = 420
+
     # Logging
     log_level: str = "INFO"
 

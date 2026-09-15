@@ -137,6 +137,43 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
   rueckfragen („Soll ich pushen?“, „Musst du die Datei hochladen?“), ohne dass
   das Endergebnis vorschnell festgeschrieben wird.
 
+## Aktiv-Kanal: Zeitbudgets, Modell und weiterlaufender Live-Strom (2026-09-15)
+- **Gesamtbudget statt festem 900 s:** `hermes_auftrag_timeout`
+  (`.env`: `HERMES_AUFTRAG_TIMEOUT`, Standard **3600 s**) ist die harte Grenze
+  eines lokalen Auftrags. Der früher fest verdrahtete 900-s-Abbruch beendete
+  lange Coding-Läufe mit der Meldung „Timeout nach 900s: keine Antwort der
+  aktiven Session".
+- **Ruhebudget:** `hermes_auftrag_idle` (`.env`: `HERMES_AUFTRAG_IDLE`,
+  Standard **420 s**). Kommt so lange keine neue Zwischenmeldung, sendet
+  `stream_auftrag_aktiv` einen **Hinweis** („⏳ … der Auftrag läuft weiter") und
+  wartet weiter — **kein** Abbruch. Neue Meldungen setzen die Ruhe-Uhr zurück.
+- **Inbox-Daemon mit Wachhund:** `hermes_inbox_daemon.py` liest die
+  `hermes chat`-Ausgabe in einem **eigenen Thread** (Queue) und beendet den
+  Lauf nach dem Gesamtbudget wirklich (`kill` + Antwort `[Timeout nach Ns]`).
+  Vorher blockierte die Leseschleife unbegrenzt (`proc.wait` griff erst nach
+  Dateiende) → ein hängender Lauf legte den ganzen Daemon (single-threaded)
+  lahm, auch alle Folge-Aufträge.
+- **Zeilen werden gebündelt:** Der Daemon schreibt mehrere Ausgabezeilen als
+  EINE Statusmeldung (~1,2 s-Takt / ab 6 Zeilen). Vorher erzeugte jede Zeile
+  eine eigene Blase — im Frontend tippten sie parallel.
+- **Coding-Modell:** `hermes_local_model` (`.env`: `HERMES_LOCAL_MODEL`,
+  Standard `deepseek/deepseek-v4.1-flash`) geht an Inbox-Daemon, tmux-Session
+  und `query`-Zweitweg (`hermes chat -m …`).
+- **Anschluss bei Kappung (Root-Cause-Fix):** `status_meldungen` wird im
+  Auftragsbuch gekappt (jetzt 200). `sse.strom_auftrag_live` findet den
+  Anschluss deshalb über den **Überlapp** der zuletzt gesendeten Einträge
+  (vorher absoluter Zähler → der Stream verstummte nach der Kappung und
+  Gedanken waren erst nach einem Reload sichtbar).
+- **Stream-Abriss ≠ verlorene Antwort:** Bricht die Browser-Verbindung ab,
+  während ein Auftrag läuft, verfolgt das Frontend ihn per
+  `starteAuftragResumePoll()` über `GET /api/hermes/status/{id}` weiter
+  (Gedanken als Blasen, Ergebnis beim Status `fertig`/`fehler`) — ohne
+  Neuladen und ohne einen zweiten Auftrag zu starten.
+- **Neustart nach dem Lauf:** `termux/neu-start-nach-lauf.sh` startet Server +
+  Inbox-Daemon erst, wenn kein `hermes chat -q` mehr läuft (beide laden Code
+  ohne `--reload`; ein Neustart mitten im Auftrag würde die laufende Antwort
+  verwerfen).
+
 ## Wann wird ueberhaupt delegiert (Auftrags-Erkennung)
 - Die Weiche beruht auf `ist_auftrag()` (`app/services/auftrags_erkennung.py`):
   Eine Nachricht wird NUR als Coding-Auftrag an Hermes delegiert, wenn sie ein
