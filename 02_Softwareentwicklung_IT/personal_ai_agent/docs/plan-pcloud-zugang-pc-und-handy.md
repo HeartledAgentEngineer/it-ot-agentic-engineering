@@ -192,6 +192,53 @@ geraten):
 
 ---
 
+### 4c. Was „REST-Client" konkret heißt (und warum er dein Android-Problem löst)
+
+Ein **REST-Client** ist hier nichts Großes: ein kleines Python-Modul in unserem
+Backend (`pcloud_service.py`), das per `httpx` **normale HTTP-Anfragen** an
+pCloud schickt — so wie der Browser eine Adresse aufruft. Nur kommt keine
+Webseite zurück, sondern **JSON**: ein Datenpaket mit Ordnern, Dateien und ihren
+IDs. **Kein Laufwerk, kein Mount, kein Dateisystem-Treiber** — nichts, was
+Android einschränken könnte. Es ist Internet + Token.
+
+Genau deshalb passt er zu deinem Fall:
+
+* **Android braucht kein Laufwerk.** Der Client läuft in Termux/Python — dort,
+wo das Backend ohnehin läuft. Was Android verbietet (Mounts, Laufwerke über
+Apps hinweg), wird gar nicht erst gebraucht.
+* **Dein „Share"/Auto-Upload bleibt unberührt.** Der automatische Foto-Upload
+(`P:\Automatic Upload`) arbeitet weiter wie bisher — der Agent liest nur
+zusätzlich.
+* **Ein Client, beide Geräte:** derselbe Code läuft im Handy-Backend (Termux)
+und im PC-Hermes.
+
+### 4d. pCloud als flexibler Speicher — was der Agent tun kann (alles belegt)
+
+| Was du willst | Methode | Bedeutung |
+|---|---|---|
+| Dateien/Ordner **lesen** | `listfolder(folderid)` | Liste + Metadaten, durchklickbar |
+| **Bilder ansehen** | `getthumbs(fileids, size)`, `getfilelink(fileid)` | Vorschau-Gitter bzw. Original-Link |
+| **Hochladen** | `uploadfile(folderid, datei)` | Datei in einen Cloud-Ordner legen |
+| **Schreiben/Ordnen** | `createfolder`, `renamefile`, `renamefolder`, `movefile`, `movefolder` | anlegen, umbenennen, verschieben |
+| **Aufräumen** | `deletefile` / `deletefolder` → **Papierkorb** (rclone-Doku) | nichts ist sofort weg |
+| Wer bin ich / Platz | `userinfo` | Konto, Region, Kontingent |
+
+**Die ehrliche Sicherheitskante:** Der belegte OAuth-Ablauf kennt **keinen
+Scope** — er übergibt nur `client_id`, `redirect_uri`, `response_type`. Der
+Token darf also **alles**; „nur Lesen" ist bei pCloud eine **Regel in unserem
+Code**, keine technische Sperre. Deshalb gilt für den Client:
+
+1. **Standard = Lesen.** Schreiben nur, wenn der Auftrag es ausdrücklich sagt.
+2. **Schreiben zuerst nur in einen eigenen Ordner** (Vorschlag: `Agent/` in der
+pCloud) — nie direkt in `Familie`, `Bewerbungen`, `Dokumente`.
+3. **Umbenennen/Verschieben/Löschen ändert deine Daten → Rückfrage**
+(Autonomiegrenze: fremdes System). Löschen landet im Papierkorb, ist also
+umkehrbar — trotzdem Bestätigung.
+4. **Nichts überschreiben:** `nopartial=1` im Aufruf (im SDK belegt) und vorher
+auf Namensgleichheit prüfen.
+
+---
+
 ## 5. Empfehlung (gestaffelt, kleinster Schritt zuerst)
 
 **Stufe 1 — PC-Ansehen über `P:\` (heute machbar, 0 Code).**
@@ -211,6 +258,12 @@ sollen: `pcloud_service` (listfolder/getthumbs/getfilelink) ersetzt/ergänzt die
 Streaming-Traversierung, weil Metadaten-Suche über die API in Sekunden geht.
 Voraussetzung ist der Token aus Stufe 2. Einzeln vorlegen, Prüfbefehl 208 grün
 halten.
+
+**Stufe 3b — Schreiben/Sortieren** (erst nach Stufe 3, weil es dieselben
+Endpunkte nutzt): `uploadfile`, `createfolder`, `renamefile`/`movefile` — streng
+nach den vier Regeln aus §4d. Reihenfolge: erst **hochladen in `Agent/`**
+(harmlos + umkehrbar), dann **sortieren**, Löschen zuletzt und nur mit OK.
+Prüfbefehl wie in Stufe 3 (`208 passed`).
 
 **Stufe 4 (optional) — Nachtlauf:** `rclone copy` + Hinweis im Auftragsbuch
 („12 neue Fotos gespiegelt") — deckt „automatisiert Bilder/Urlaube".
@@ -248,7 +301,9 @@ Regel „Bilder nur flüchtig anzeigen, nie speichern" bleibt einhaltbar.
    `Barclays`, `WhatsApp Chats`): Der Agent darf dort lesen, aber Pfade/Inhalte
    daraus **nie** an einen Fremd-LLM (Codex/Claude) weitergeben — nur Code
    fließt raus (Skill `ai-datenschutz-regeln`).
-6. **Kein Push von Daten:** Lesen ja, ändern/löschen/hochladen nein.
+6. **Schreiben nur nach Regel (§4d):** Lesen ist der Standard; Hochladen in den
+   eigenen `Agent/`-Ordner ist erlaubt; **Umbenennen/Verschieben/Löschen** nur
+   nach deiner Bestätigung (fremdes System = Rückfrage).
 
 ---
 
@@ -314,6 +369,9 @@ vorlegen, gleicher Prüfbefehl zwingend, plus DeepSeek-Testcall der Suche.
 5. **Dokumente mitnehmen?** `P:\Dokumente` (PDF/DOCX) ist am PC sofort
    ansehbar; auf dem Handy hängt PDF-zu-Text an ARM-Fragen
    (`docs/stand-2026-08-14.md`) — jetzt oder später?
+6. **Schreib-Regeln (§4d) bestätigen:** Eigener `Agent/`-Ordner als erlaubter
+   Schreibbereich — und soll der Agent dort **autonom** hochladen/sortieren
+   dürfen, während Umbenennen/Verschieben/Löschen immer Rückfrage bleibt?
 
 *Dieser Plan ist Doku, kein Code — der Code folgt nach der Weg-Entscheidung,
 jeder Schritt einzeln vorgelegt und verifiziert.*
