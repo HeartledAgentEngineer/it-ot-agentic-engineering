@@ -2363,6 +2363,17 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
     entry.content = antwort;
+    // Sichtbarkeits-Garantie (Wunsch Sebastian 2026-09-15): In der Stream-
+    // Ansicht startet die Antwort-Blase VERBORGEN, damit nach dem Senden kein
+    // leerer Kasten mit „…" steht. Hier — beim finalen Rendern — wird sie
+    // anhand des TATSÄCHLICH gerenderten Inhalts gezeigt. So kann keine
+    // Antwort unsichtbar bleiben, egal über welchen Weg sie kam (Stream,
+    // Fallback, Track C, Verlaufs-Nachladen). Bleibt sie leer, bleibt sie
+    // verborgen — der Fortschritt steht in der unteren #loading-Bubble.
+    const _blaseAussen = contentDiv.closest('.message') || contentDiv.parentElement;
+    if (_blaseAussen && (contentDiv.textContent || '').trim().length > 0) {
+        _blaseAussen.style.display = '';
+    }
     // Muss nach dem Setzen von innerHTML kommen, sonst wird es überschrieben.
     if (abschluss) addSources(contentDiv, abschluss.sources);
     // Ziel-Pille: zeigt unter Delegations-Antworten, wohin der Auftrag ging
@@ -4927,6 +4938,19 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // setLoading). So gibt es statt zwei konkurrierender Ladeanzeigen nur
     // EINE (Stand 2026-09-09, Auftrag Sebastian).
     const contentDiv = addMessage('', 'assistant');
+    // Die Blase BLEIBT UNSICHTBAR, bis wirklich Inhalt eintrifft (Wunsch
+    // Sebastian 2026-09-15): Vorher stand direkt nach dem Senden ein leerer
+    // Kasten mit „…" im Chat, der erst beim ersten Text verschwand. Der
+    // Fortschritt gehört in die untere #loading-Bubble, nicht in die Antwort.
+    const _antwortBlase = contentDiv.closest('.message') || contentDiv.parentElement;
+    let _antwortBlaseSichtbar = false;
+    const zeigeAntwortBlase = () => {
+        if (!_antwortBlaseSichtbar && _antwortBlase) {
+            _antwortBlase.style.display = '';
+            _antwortBlaseSichtbar = true;
+        }
+    };
+    if (_antwortBlase) _antwortBlase.style.display = 'none';
     // Abbrechen-Button: Für normale LLM-Antworten bewusst KEIN eigener
     // '⏹ Abbrechen'-Button mehr (Stand 2026-08-30, Auftrag Sebastian) — der
     // Stream-Abbruch läuft über den Bearbeiten-Flow bzw. die leere-Eingabe-
@@ -5137,6 +5161,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     antwort += daten.delta;
                     zustand.text = antwort;
                     vorleser.neuerText();
+                    // Erster echter Inhalt → die bis dahin unsichtbare Antwort-
+                    // Blase einblenden (kein leerer Kasten direkt nach dem Senden).
+                    zeigeAntwortBlase();
                     // Nicht bei jedem Häppchen neu zeichnen – das Neuaufbauen
                     // der Blase würde auf dem Handy ruckeln. Der endgültige
                     // Aufbau passiert ohnehin in finishReply().
@@ -5227,6 +5254,10 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         abschluss = Object.assign({}, abschluss, {
             sources: mergeQuellen(quellen, abschluss && abschluss.sources),
         });
+        // Der Stream selbst lieferte keine Textstücke (z. B. Track C, das die
+        // fertige Antwort als Ganzes schickt) → Blase erst jetzt zeigen, und
+        // nur wenn wirklich Inhalt da ist. Sonst bliebe ein leerer Kasten.
+        if ((antwort || '').trim()) zeigeAntwortBlase();
         finishReply(contentDiv, entry, antwort, abschluss, vorleser);
         // A/B-Wahl: Nach dem Markdown-Rebuild von finishReply die Wahl-
         // Buttons wieder in die Blase einhängen (finishReply überschreibt
