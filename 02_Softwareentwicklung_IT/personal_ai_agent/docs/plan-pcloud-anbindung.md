@@ -1,6 +1,11 @@
 # Implementierungsplan: pCloud als Datenanbindung
 
 > **Stand:** 15.09.2026 · **Status:** Blauplan (noch kein Code) · **Anlass:**
+> **Ergänzung (gleicher Tag):** `plan-pcloud-zugang-pc-und-handy.md` — beantwortet
+> „braucht es überhaupt die API?", dokumentiert den **PC-Zugriff über das
+> pCloud-Laufwerk `P:\`** (0 Code), den **Schlüssel-Weg (OAuth 2.0)** und das
+> **Explorer-Mapping** (Ordner durchklicken in der eigenen App). Dieser Blauplan
+> hier bleibt gültig und liefert den Foto-/Quiz-Teil.
 > Sebastian möchte die pCloud als Datenquelle an den persönlichen KI-Assistenten
 > anbinden, damit Fotos (Urlaube, Leben) automatisiert und das Gesichter-Quiz
 > unterstützend mit Cloud-Bildern arbeiten können.
