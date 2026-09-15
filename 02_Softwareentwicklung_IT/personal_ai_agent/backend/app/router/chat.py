@@ -1503,6 +1503,21 @@ def _hole_kontext_summary(conversation_id: str, historie: list, frage: str) -> t
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """Wie /chat, liefert die Antwort aber Stück für Stück (Server-Sent Events)."""
+    # ── Verlauf-Sicherung SOFORT (Wunsch Sebastian, 15.09.2026) ─────────────
+    # Vorher schrieb erst `finish_exchange` am ENDE User+Antwort in den Verlauf.
+    # Brach der Stream ab (Browser-Neustart, Hänger, Timeout), war die eigene
+    # Nachricht spurlos verloren. Jetzt wird sie sofort gesichert;
+    # `finish_exchange` hängt sie dank Idempotenz-Prüfung nicht doppelt an.
+    try:
+        verlauf_nachricht_anhaengen(
+            _get_or_create_conversation(request.conversation_id),
+            "user", request.message,
+        )
+    except Exception as e:
+        # Die Sicherung darf den Chat nie blockieren — aber sie muss sichtbar
+        # scheitern (Log), damit ein Persistenz-Problem nicht stumm bleibt.
+        logger.warning("Sofort-Sicherung der User-Nachricht fehlgeschlagen: %s", e)
+
     # Gleiche Weiche wie in /chat: Coding-Auftraege weiterleiten. Bei
     # hochgeladenen Dateien (request.files) NICHT als Coding-Auftrag einordnen
     # — ein Dokument-/Bild-Upload ist eine Verständnis-/Analyse-Frage an den

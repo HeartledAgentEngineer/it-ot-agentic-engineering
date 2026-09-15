@@ -374,7 +374,18 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str,
         user_eintrag = {"role": "user", "content": user_message, "zeit": jetzt}
         if user_bild_pfad:
             user_eintrag["bild_pfad"] = user_bild_pfad
-        history.append(user_eintrag)
+        # IDEMPOTENZ (2026-09-15, Wunsch Sebastian „Chat muss nachvollziehbar
+        # sein"): Die User-Nachricht wird inzwischen schon beim Stream-Start
+        # gesichert (chat.py -> verlauf_nachricht_anhaengen), damit sie einen
+        # Reload/Abbruch ueberlebt. Hier also NICHT erneut anhaengen, aber
+        # einen inzwischen bekannten Bild-Pfad nachtragen.
+        _letzter = history[-1] if history else None
+        if (_letzter and _letzter.get("role") == "user"
+                and (_letzter.get("content") or "") == user_message):
+            if user_bild_pfad and not _letzter.get("bild_pfad"):
+                _letzter["bild_pfad"] = user_bild_pfad
+        else:
+            history.append(user_eintrag)
         assistant_eintrag = {"role": "assistant", "content": reply, "zeit": jetzt}
         if bild_pfad:
             assistant_eintrag["bild_pfad"] = bild_pfad
