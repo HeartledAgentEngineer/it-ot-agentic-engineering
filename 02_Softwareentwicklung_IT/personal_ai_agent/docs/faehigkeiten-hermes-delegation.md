@@ -52,6 +52,20 @@ Rohe Auswahl-Menüs aus Hermes (z. B. `| frage | | 1. … | 2. … |`) werden al
 - Test: `frontend/tests/test_options_assistent.js` (echte Funktionen aus
   `app.js` in Node, mit DOM-Stub; Kontrolllauf gegen den ALT-Stand rot).
 
+### Codeblöcke und Patches (`+`/`-`)
+
+`parseMarkdown(text)` setzt ```-Blöcke über `codeBlockZuHtml(lang, code)` um:
+
+- Sprache `diff`/`patch`: Jede Zeile wird eigenes `<span class="d-plus|d-minus|
+  d-hunk|d-kopf|d-kontext">` in einem `<pre class="diff">` — Hinzufügungen grün,
+  Löschungen rot, Hunk-Kopf blau, Dateizeilen abgesetzt (Farben in
+  `style.css`). Vorher lief jeder Codeblock durch dieselbe `<pre><code>`-Ausgabe
+  und ein Diff war ein grauer Block ohne erkennbares Plus/Minus.
+- Alle anderen Sprachen bleiben unverändert `<pre><code>`.
+- Jede Zeile wird escaped (`escapeHtml`) — Code ist kein HTML-Injektionsweg.
+- Test: `frontend/tests/test_diff_darstellung.js` (inkl. Escaping-Prüfung;
+  Kontrolllauf gegen den ALT-Stand rot).
+
 ## Tests
 
 - `tests/test_faehigkeiten.py` — Manifest + Grenz-Erkennung (inkl. False-Positiv-

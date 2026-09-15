@@ -212,10 +212,33 @@ class AuftragService:
                     "automatisch bereinigt am " + jetzt + "."
                 )
             self._schreiben(auftraege)
+            # Fuer die ehrliche Meldung im Chat brauchen wir die Verknuepfung
+            # UND die Aufgabe — hier schon herausziehen, weil nach dem Lock
+            # nicht mehr gelesen wird.
+            zu_melden = [
+                (e.get("conversation_id"), (e.get("aufgabe") or "").strip())
+                for e in verwaist if e.get("conversation_id")
+            ]
             logger.info(
                 "%d verwaiste 'laeuft'-Auftraege beim Start geschlossen.", len(verwaist)
             )
-            return len(verwaist)
+        # Ehrliche Meldung in das jeweilige Gespraech (Wunsch Sebastian
+        # 2026-09-15: "immer Feedback, nie still"). Bisher wurde nur das Buch
+        # bereinigt — im Chat endete der Verlauf wortlos nach der letzten
+        # Gedankenblase, der Nutzer wartete auf ein Ergebnis, das nie kommt.
+        # Betrifft nur verknuepfte Auftraege, also genau das Gespraech, das den
+        # Lauf gestartet hat — kein Fluten fremder Verlaeufe. BEWUSST ausserhalb
+        # der Sperre: _in_verlauf_anhaengen nimmt die Verlaufs-Sperre.
+        for cid, aufgabe in zu_melden:
+            kurz = aufgabe[:120] + ("…" if len(aufgabe) > 120 else "")
+            self._in_verlauf_anhaengen(
+                cid, "assistant",
+                "⚠️ **Unterbrochen durch Server-Neustart.**\n"
+                + (f"Der Auftrag „{kurz}“ wurde " if kurz else "Der Auftrag wurde ")
+                + "nicht zu Ende geführt — es gibt kein Ergebnis.\n"
+                "Der Verlauf davor bleibt erhalten; bitte die Aufgabe erneut senden.",
+            )
+        return len(verwaist)
 
     def statusmeldung_hinzufuegen(self, auftrag_id: str, meldung: str) -> Optional[dict]:
         """Fuegt eine Zwischenmeldung des Coding-Agenten hinzu."""

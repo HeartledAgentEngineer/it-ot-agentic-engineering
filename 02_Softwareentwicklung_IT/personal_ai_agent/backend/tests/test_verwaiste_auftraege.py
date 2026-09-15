@@ -60,3 +60,39 @@ def test_leeres_buch_ist_harmlos(tmp_path, monkeypatch):
     p = tmp_path / "gibtsnicht.json"
     monkeypatch.setattr(auftrag_service, "_pfad", p)
     assert auftrag_service.verwaiste_auftraege_schliessen() == 0
+
+
+def test_verwaister_auftrag_meldet_sich_ehrlich_im_chat(tmp_path, monkeypatch):
+    """Wunsch Sebastian 2026-09-15: nie still abbrechen.
+
+    Bisher wurde beim Serverstart nur das Buch bereinigt — im Coding-Chat
+    endete der Verlauf nach der letzten Gedankenblase wortlos, und der Nutzer
+    wartete auf ein Ergebnis, das nie mehr kommt. Jetzt schreibt die
+    Aufraeumung in GENAU das verknuepfte Gespraech eine ehrliche Meldung.
+    """
+    p = _buch(tmp_path, [
+        {"id": "aaa", "status": "laeuft", "aufgabe": "Baue Knopf X ein",
+         "conversation_id": "conv_code", "ergebnis": ""},
+        {"id": "bbb", "status": "laeuft", "aufgabe": "Ohne Chat-Verknuepfung",
+         "ergebnis": ""},
+    ])
+    monkeypatch.setattr(auftrag_service, "_pfad", p)
+
+    gemeldet = []
+    monkeypatch.setattr(
+        auftrag_service, "_in_verlauf_anhaengen",
+        lambda cid, role, content: gemeldet.append((cid, role, content)),
+    )
+
+    assert auftrag_service.verwaiste_auftraege_schliessen() == 2
+
+    # Nur der VERKNUEPFTE Auftrag meldet sich — kein Fluten fremder Verlaeufe.
+    assert len(gemeldet) == 1, gemeldet
+    cid, role, content = gemeldet[0]
+    assert cid == "conv_code"
+    assert role == "assistant"
+    assert "Server-Neustart" in content
+    assert "Unterbrochen" in content
+    assert "Baue Knopf X ein" in content          # Aufgabe ist erkennbar
+    assert "erneut senden" in content             # klarer naechster Schritt
+    assert "Kein Ergebnis" not in content

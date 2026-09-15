@@ -328,6 +328,33 @@ body {
     overflow-wrap: anywhere;
 }
 
+/* ── Diff (Code-Schnipsel mit +/-) ──────────────────────────────────────── */
+/* Ein Patch als ```diff-Block: Hinzufügungen grün, Löschungen rot, Hunk-Kopf
+   und Dateizeilen abgesetzt. Jede Zeile ist ein eigenes <span> (app.js:
+   codeBlockZuHtml), damit die Farbe auch bei umbrochenen Zeilen erhalten
+   bleibt. Wunsch Sebastian 2026-09-15. */
+.message-content pre.diff code span {
+    display: block;
+}
+.message-content pre.diff .d-plus {
+    background: rgba(46, 160, 67, 0.22);
+    color: #7ee787;
+}
+.message-content pre.diff .d-minus {
+    background: rgba(248, 81, 73, 0.20);
+    color: #ffa198;
+}
+.message-content pre.diff .d-hunk {
+    color: #79c0ff;
+}
+.message-content pre.diff .d-kopf {
+    color: var(--text-dim, #8b949e);
+    font-weight: 600;
+}
+.message-content pre.diff .d-kontext {
+    color: var(--text-dim, #c9c9c9);
+}
+
 /* ── Tabellen ───────────────────────────────────────────────────────────── */
 /* Eigener Rahmen mit Querlauf: Auf dem Handy passt eine Tabelle sonst nicht
    in die Sprechblase und schiebt die ganze Seite in die Breite. */

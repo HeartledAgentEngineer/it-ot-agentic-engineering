@@ -263,7 +263,7 @@ function parseMarkdown(text) {
     const parke = (html) => `\u0000${geparkt.push(html) - 1}\u0000`;
 
     text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-        parke(`<pre><code>${escapeHtml(code.trim())}</code></pre>`));
+        parke(codeBlockZuHtml(lang, code)));
 
     // Tabelle: Kopfzeile, Trennzeile aus Strichen, dann beliebig viele Zeilen.
     text = text.replace(
@@ -289,6 +289,32 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * Codeblock als HTML — bei einem Patch (`diff`/`patch`) Zeile für Zeile mit
+ * eigener Klasse.
+ *
+ * Wunsch Sebastian 2026-09-15: „Code-Schnipsel anzeigen, plus minus". Vorher
+ * lief JEDER Codeblock durch dieselbe `<pre><code>`-Ausgabe; ein Diff stand
+ * damit als grauer Block da, in dem Hinzufügungen und Löschungen nicht zu
+ * unterscheiden waren. Jetzt bekommen `+`/`-`/`@@`/Datei-Kopfzeilen eigene
+ * Klassen (Farben in style.css, .diff …) — lesbar wie ein normales Patch-Fenster.
+ * Alle Zeilen werden escaped, das Diff-HTML ist also kein Injektionsweg.
+ */
+function codeBlockZuHtml(lang, code) {
+    const roh = escapeHtml(code.trim());
+    const l = String(lang || '').toLowerCase();
+    if (l !== 'diff' && l !== 'patch') return `<pre><code>${roh}</code></pre>`;
+    const zeilen = roh.split('\n').map(z => {
+        let k = 'd-kontext';
+        if (/^\+\+\+/.test(z) || /^---/.test(z)) k = 'd-kopf';
+        else if (/^\+/.test(z)) k = 'd-plus';
+        else if (/^-/.test(z)) k = 'd-minus';
+        else if (/^@@/.test(z)) k = 'd-hunk';
+        return `<span class="${k}">${z}</span>`;
+    }).join('\n');
+    return `<pre class="diff"><code>${zeilen}</code></pre>`;
 }
 
 /**
@@ -343,7 +369,17 @@ function scrollToBottom(force = false) {
  *  werden vorher zu Zeilenumbrüchen. */
 function parseOptionsMenue(roh) {
     if (!roh || typeof roh !== 'string') return null;
-    const zeilen = roh.replace(/\|/g, '\n').split('\n').map(z => z.trim()).filter(Boolean);
+    // Stream-Zeilen tragen Emojis und oft einen [ISO-Zeitstempel] vorne
+    // ("💬 2. …" / "[2026-09-15T10:14:02+02:00] 💬 …"). Ohne Abstreifen würde
+    // eine Optionszeile als FRAGETEXT missdeutet und die Frage ginge verloren.
+    const zeilen = roh.replace(/\|/g, '\n').split('\n').map(z => z
+        .replace(/^\s*\[[^\]]{4,40}\]\s*/, '')
+        .replace(/^[❯>\s]*(?:🧠|💬|🔧|⏹|❓|✅)\s*/, '')
+        .trim()).filter(Boolean);
+    // GEGENPROBE-SCHUTZ (Wunsch Sebastian 2026-09-15): Ein Gedanken-/
+    // Reasoning-Absatz mit Aufzählung ("1. … 2. …") ist KEINE Abfrage — sonst
+    // standen dort 12 klickbare "Antworten", deren Frage ein Denkfetzen war.
+    if (/Reasoning\b|^\s*(Let me|Let's|The user|I |I'll|Okay|So the|This is|First,|Now I)\b/im.test(roh)) return null;
     const bloecke = [];
     let block = null;
     const neuerBlock = () => {
@@ -365,11 +401,19 @@ function parseOptionsMenue(roh) {
         if (!block) neuerBlock();
         block.frage.push(text);
     }
+    // Frage-PFLICHT: Optionen ohne Fragentext sind eine Aufzählung, kein Menü.
     const fragen = bloecke
         .map(b => ({ frage: b.frage.join(' ').trim(), optionen: b.optionen }))
-        .filter(b => b.optionen.length > 0);
+        .filter(b => b.optionen.length > 0 && b.frage
+            && !/^(Let me|Let's|The user|I |I'll|Okay|So the|This is|Now I)\b/i.test(b.frage)
+            && b.frage.length <= 300);
     const flach = fragen.reduce((alle, b) => alle.concat(b.optionen), []);
     if (flach.length < 2) return null;
+    // Prosa-Schutz: sehr lange Options-Beschriftungen sind Aufzählungen aus
+    // einem Fließtext — es sei denn, es ist eine echte CLI-Auswahl (❯ /
+    // "(Recommended)" / "Other (type your answer)"), die darf lang sein.
+    const marker = /❯|\(Recommended\)|Other \(type your answer\)/im.test(roh);
+    if (!marker && flach.some(o => o.text.length > 90)) return null;
     return { fragen, optionen: flach, frage: fragen[0].frage };
 }
 
@@ -2134,6 +2178,23 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // WAS Hermes WIRKLICH tut statt der generischen "Hermes bearbeitet deine Aufgabe"
     // (Wunsch Sebastian 2026-09-11).
     _letzterHermesGedanke = rein;
+    // Abfrage des Agenten (Frage + nummerierte Antworten, ggf. mehrere Fragen):
+    // als klickbares Menue zeigen statt als Text-Blase — und bei mehreren
+    // Fragen nacheinander (Durchklick-Assistent). Sonst standen die Antworten
+    // untereinander, ohne dass die Frage sichtbar war (Wunsch Sebastian
+    // 2026-09-15). Kein Typewriter fuer Menues.
+    const menue = parseOptionsMenue(rein);
+    if (menue) {
+        const mdiv = document.createElement('div');
+        mdiv.className = 'message agent-zwischenmeldung';
+        const minner = document.createElement('div');
+        minner.className = 'message-content';
+        minner.appendChild(bauOptionsUi(menue));
+        mdiv.appendChild(minner);
+        dom.messages.appendChild(mdiv);
+        scrollToBottom(true);
+        return;
+    }
     // Stueckweise in NEUE Blasen mit Zeitstempel, die nach und nach TYPEWRITER
     // eintippen (Wunsch Sebastian 2026-09-11): bessere Lesbarkeit als eine
     // riesige fortlaufende Blase; jede Gedanken-Zeile erscheint frisch.
@@ -4896,7 +4957,19 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // Loop-Modus (Hermes) aktiv: Nachricht ueber den aktiv-Kanal/Daemon
         // (diese Hermes-Session) beantworten statt DeepSeek-Chat. Nicht
         // streamend - Antwort kommt als fertiger reply.
-        if (typeof loopAktiv !== 'undefined' && loopAktiv) {
+        // WICHTIG (2026-09-15, Wunsch Sebastian): Der Coding-Chat (conv_code)
+        // darf NICHT in den blockierenden /api/hermes/chat-Zweig laufen. Der
+        // wartet erst den KOMPLETTEN Hermes-Lauf ab (list(...) ueber
+        // `hermes chat -q`) und tippt die fertige Antwort danach kuenstlich
+        // Zeichen fuer Zeichen nach — waehrend der Arbeit kommt KEIN
+        // Lebenszeichen, die Antwort erscheint "auf einmal".
+        // conv_code geht stattdessen IMMER ueber POST /api/chat/stream
+        // (Track C live): jeder Zwischengedanke kommt als eigene Blase
+        // (Daemon flusht alle 1,2s / 6 Zeilen, Backend pollt 1s), das
+        // Ergebnis am Ende — und alles wird in conversations['conv_code']
+        // persistiert, ist also nach Reload/Neustart wieder da.
+        if (typeof loopAktiv !== 'undefined' && loopAktiv
+                && state.conversationId !== 'conv_code') {
             // Hermes-Modus aktiv (Wunsch Sebastian): Die Nachricht geht an
             // DIESE Termux-Session (/api/hermes/chat), deren Antwort als
             // Blase erscheint + mit Hermes-Badge (denkt/antwortet).

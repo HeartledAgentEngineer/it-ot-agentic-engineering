@@ -28,6 +28,7 @@ Bedienung:
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -51,6 +52,101 @@ TIMEOUT = int(os.environ.get("HERMES_AUFTRAG_TIMEOUT") or 3600)
 # Blasen statt vieler paralleler Einzelzeilen).
 FLUSH_S = 1.2
 FLUSH_MAX_ZEILEN = 6
+# Formular-Zeilen (Abfrage des Agenten: "1. …", "❯ 2. …") duerfen NICHT
+# zeilenweise ausgesendet werden: sonst zerfaellt eine Rueckfrage in lauter
+# einzelne "Antwort"-Blasen, und die Frage selbst steht in einer anderen Blase
+# (Sebastian 2026-09-15: "12 Antworten untereinander, die Frage nicht mal
+# dort"). Solange ein Formular laeuft, wird der Puffer zusammengehalten.
+FORMULAR_MAX_ZEILEN = 40        # Not-Aus gegen ein endloses "Formular"
+FORMULAR_IDLE_S = 2.0           # so lange ohne neue Zeile -> Formular senden
+
+
+def _ist_formularzeile(zeile: str) -> bool:
+    """Nummerierte Auswahlzeile einer Abfrage ('1. …', '❯ 2) …')."""
+    return bool(re.match(r"^\s*[❯>»]?\s*\d+[.)]\s+\S", zeile or ""))
+
+
+def _formular_haelt_puffer(puffer) -> bool:
+    """True, wenn der Puffer mitten in einem Frage-/Options-Formular endet.
+
+    Dann NICHT bündeln/aussetzen: Frage + Optionen sollen als EINE Meldung
+    ankommen, damit das Frontend daraus ein Menü bauen kann. Ende des
+    Formulars ist eine Zeile, die keine Auswahlzeile (und kein Umbruch einer
+    solchen) mehr ist.
+    """
+    if not puffer:
+        return False
+    letzte = (puffer[-1][1] or "").strip()
+    if _ist_formularzeile(letzte):
+        return True
+    # Umbrochene Auswahlzeile (CLI bricht bei ~80 Zeichen um): nur dann halten,
+    # wenn die Zeile DAVOR eine Auswahlzeile war — sonst würde auch ein normaler
+    # langer Absatz den Flush verzögern.
+    if len(puffer) >= 2:
+        vor = (puffer[-2][1] or "").strip()
+        if (_ist_formularzeile(vor) and len(letzte) >= 40
+                and not letzte.endswith((".", "?", "!", ":"))):
+            return True
+    return False
+
+
+class _CliAusgabe:
+    """Trennt die Rohausgabe von `hermes chat` in ANTWORT und internes Denken.
+
+    Die Hermes-CLI rahmt jeden Abschnitt in einen Kasten (cli.py:
+    `_emit_reasoning`/`_emit_stream_text`):
+
+        Gedanken-Kasten:  ┌─ Reasoning ─────────────┐ … └────────────────┘
+        Antwort-Kasten:   ╭─⚕ Hermes …─────────────╮ … ╰────────────────╯
+
+    Grund (Sebastian 2026-09-15: „warum sehe ich das jetzt wieder so
+    kryptisch?", „alles wieder in einer Blase"): Der Daemon behandelte JEDE
+    Ausgabezeile als Antwort. Dadurch landete das rohe englische
+    Modell-Reasoning (mitten im Wort umgebrochen, teils doppelt durch die
+    TUI-Neuzeichnung) als 💬-Blase im Chat UND am Ende ALLES zusammen in einer
+    einzigen, riesigen Antwort-Blase.
+
+    Jetzt gilt:
+      * Nur Zeilen aus dem ANTWORT-Kasten sind Antwort.
+      * Der GEDANKEN-Kasten wird zu EINER kurzen Statuszeile verdichtet —
+        kein Rohtext (das Reasoning ist englisch und unlesbar).
+      * Rahmen-, Werkzeug- (`┊`) und Abschlusszeilen der CLI fallen weg.
+      * Taucht gar kein Kasten auf (andere CLI-Fassung), wird wie bisher
+        jede Zeile als Antwort genommen — es geht nichts verloren.
+    """
+
+    def __init__(self):
+        self.kasten = ""             # "" | "gedanken" | "antwort"
+        self.kasten_gesehen = False  # Rahmungs-Protokoll erkannt
+        self.gedanke_gemeldet = False
+
+    def zeile(self, s: str):
+        """Ordnet eine Ausgabezeile ein: (art, text) mit art aus
+        "antwort" | "gedanke" | "keine"."""
+        if s.startswith("┌") or s.startswith("╭"):
+            self.kasten_gesehen = True
+            if "Reasoning" in s:
+                self.kasten = "gedanken"
+                if not self.gedanke_gemeldet:
+                    self.gedanke_gemeldet = True
+                    return ("gedanke", "🧠 Hermes denkt nach (internes Reasoning) …")
+                return ("keine", "")
+            self.kasten = "antwort"
+            # Neuer Antwort-Kasten = neuer Durchgang: Denk-Meldung wieder frei.
+            self.gedanke_gemeldet = False
+            return ("keine", "")
+        if s.startswith("└") or s.startswith("╰"):
+            self.kasten = ""
+            return ("keine", "")
+        if (s.lstrip().startswith("┊") or s.startswith("Resume this session")
+                or s.startswith("Query:") or s.startswith("Initializing")
+                or s.startswith("  hermes") or s.startswith("session_id:")):
+            return ("keine", "")   # Werkzeug-/Abschlusshinweis der CLI
+        if self.kasten == "gedanken":
+            return ("keine", "")   # Reasoning-Rohtext nicht ausliefern
+        if self.kasten == "antwort":
+            return ("antwort", s)
+        return ("keine", "") if self.kasten_gesehen else ("antwort", s)
 
 
 def _schreibe_status(aid: str, text: str) -> None:
@@ -152,6 +248,7 @@ def _beantworte(auftrag):
     letzter_flush = time.time()
     deadline = time.time() + TIMEOUT
     abgebrochen = False
+    ausgabe = _CliAusgabe()
 
     def _flush():
         """Gebündelte Zeilen als EINE Zwischenmeldung schreiben."""
@@ -173,25 +270,26 @@ def _beantworte(auftrag):
             z = zeile.rstrip("\n").rstrip("\r")
             s = z.strip()
             if s:
-                # Reasoning-/Rahmen-Zeilen -> 🧠, Antwort-/Ergebnis-Zeilen -> 💬.
-                if ("Reasoning" in s or "─" in s
-                        or s.startswith("┌") or s.startswith("└")):
-                    puffer.append(("🧠", s))
-                elif s.startswith("╭") or s.startswith("╰"):
-                    pass
-                elif (s.startswith("Resume this session") or s.startswith("Query:")
-                      or s.startswith("Initializing") or s.startswith("  hermes")
-                      or s.startswith("session_id:")):
-                    # Technischer Abschluss-Hinweis der CLI (`-Q`) — keine
-                    # Antwort fuer den Nutzer, weder als Gedanke noch im Ergebnis.
-                    pass
-                else:
-                    ergebnis_zeilen.append(s)
-                    puffer.append(("💬", s))
+                # ANTWORT oder internes Denken? Die CLI rahmt beides in Kästen
+                # (siehe _CliAusgabe). Nur Antwort-Zeilen werden Blasen; das
+                # englische Reasoning wird zu EINEM kurzen 🧠-Hinweis.
+                art, text = ausgabe.zeile(s)
+                if art == "antwort":
+                    ergebnis_zeilen.append(text)
+                    puffer.append(("💬", text))
+                elif art == "gedanke":
+                    puffer.append(("🧠", text.replace("🧠 ", "", 1)))
         # Buendeln: nach FLUSH_S oder bei genug Zeilen rausschreiben.
         if puffer and (time.time() - letzter_flush >= FLUSH_S
                        or len(puffer) >= FLUSH_MAX_ZEILEN):
-            _flush()
+            # Offene Rückfrage (Frage + "❯ 1. …"-Optionen) NICHT mittendrin
+            # ausliefern — sonst zerfällt sie in Einzelblasen und das Frontend
+            # kann keine klickbare Abfrage bauen. Not-Aus: FORMULAR_MAX_ZEILEN
+            # bzw. FORMULAR_IDLE_S, damit der Puffer nie ewig hängt.
+            if not (_formular_haelt_puffer(puffer)
+                    and len(puffer) < FORMULAR_MAX_ZEILEN
+                    and (time.time() - letzter_flush) < FORMULAR_IDLE_S):
+                _flush()
         # Harte Zeitgrenze: Lauf beenden statt ewig warten.
         if time.time() > deadline:
             abgebrochen = True

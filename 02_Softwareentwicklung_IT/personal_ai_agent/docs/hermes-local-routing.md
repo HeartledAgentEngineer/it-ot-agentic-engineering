@@ -156,6 +156,23 @@ der lokale Hermes fehlt/scheitert, faellt der Auftrag ins Buch (Track B).
 - **Zeilen werden gebündelt:** Der Daemon schreibt mehrere Ausgabezeilen als
   EINE Statusmeldung (~1,2 s-Takt / ab 6 Zeilen). Vorher erzeugte jede Zeile
   eine eigene Blase — im Frontend tippten sie parallel.
+- **ANTWORT ≠ internes Denken (`_CliAusgabe`, Fix 2026-09-15):** Die CLI rahmt
+  jeden Abschnitt in einen Kasten — Gedanken als `┌─ Reasoning ─…┐` … `└─…┘`,
+  die Antwort als `╭─⚕ Hermes …╮` … `╰─…╯`. Der Daemon behandelte vorher JEDE
+  Zeile als Antwort; dadurch standen die englischen Reasoning-Fragmente (mitten
+  im Wort umgebrochen, teils doppelt durch die TUI-Neuzeichnung) als 💬-Blasen
+  im Chat, und am Ende landete ALLES zusammen in einer einzigen Antwort-Blase.
+  Jetzt gilt: nur Zeilen aus dem **Antwort-Kasten** werden Antwort und landen im
+  `ergebnis`; der **Gedanken-Kasten** wird zu EINEM kurzen Status („🧠 Hermes
+  denkt nach …") verdichtet; Werkzeug- (`┊`) und Abschlusszeilen der CLI fallen
+  weg. Erscheint gar kein Kasten (andere CLI-Fassung), gilt wieder jede Zeile
+  als Antwort — es geht nichts verloren. Regressionstest:
+  `backend/tests/test_cli_ausgabe_boxen.py`.
+- **Rückfragen bleiben zusammen:** Endet der Puffer mitten in einem
+  Frage-Formular („1. …", „❯ 2. …"), wartet der Flush (max.
+  `FORMULAR_IDLE_S` 2 s bzw. `FORMULAR_MAX_ZEILEN` 40), damit Frage und
+  Optionen als EINE Meldung ankommen und das Frontend daraus die klickbare
+  Abfrage bauen kann.
 - **Coding-Modell:** `hermes_local_model` (`.env`: `HERMES_LOCAL_MODEL`,
   Standard `deepseek/deepseek-v4.1-flash`) geht an Inbox-Daemon, tmux-Session
   und `query`-Zweitweg (`hermes chat -m …`).
