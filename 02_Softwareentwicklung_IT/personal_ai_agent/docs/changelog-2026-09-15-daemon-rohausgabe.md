@@ -64,6 +64,38 @@ Antwort.
 - **Läufe komplett ohne Ausgabe:** die Meldung mit dem Log-Pfad — man weiß
   sofort, dass es ein CLI-/Umgebungsproblem ist und wo man nachsieht.
 
+## Nachtrag (gleicher Tag) — Reihenfolge + mitlesbare Häppchen
+
+**Beobachtung Sebastian:** Das Ergebnis erschien **vor** den Gedanken, und unten
+wurden die Statuszeilen noch nachgeschoben; außerdem kam „alles auf einmal" als
+großer Block (Hochscrollen nötig).
+
+**Ursachen und Fixes (alles in `hermes_inbox_daemon.py`):**
+
+1. **Reihenfolge:** Der Status-Puffer wurde erst **nach** dem Ergebnis geleert.
+   Jetzt steht `_flush()` **direkt vor** dem Schreiben des Ergebnisses — erst
+   alle Zwischenmeldungen, dann das Ergebnis. Kein Nachschieben mehr.
+2. **Häppchen statt Block:** `FLUSH_MAX_ZEILEN` 6 → **2**, `FLUSH_S` 1,2 s →
+   **0,8 s**. Es kommen also höchstens zwei Zeilen pro Blase, im ~0,8-s-Takt —
+   mitlesbar statt „BAM".
+3. **Rohausgabe: NICHT kürzen, sondern blockweise streamen** (Sebastian wollte
+   ausdrücklich die **ganze** Ausgabe, nur eben langsam mitlesbar). Die
+   Rohausgabe wird jetzt in Blöcken von **4 Zeilen** über
+   `_schreibe_status` gestreamt — jede Blockmeldung trägt den **Zeitstempel**
+   des Daemons — mit **0,4 s Pause** zwischen den Blöcken. Am Ende steht eine
+   Schlusszeile („Rohausgabe vollständig: N Zeilen, oben in M Blöcken
+   gestreamt"). Ohne `block_writer` (Tests, andere Aufrufer) kommt weiterhin
+   alles als **ein** Text zurück — nichts geht verloren.
+
+**Tests (3 neu/angepasst, insgesamt 8 in `tests/test_daemon_ausgabe.py`):**
+komplette Rohausgabe ungekürzt (erste **und** letzte Zeile dabei) ·
+Block-Streaming (8 Blöcke à 4 Zeilen, Reihenfolge korrekt, Schlusszeile) ·
+Häppchen-Größe klein (`FLUSH_MAX_ZEILEN <= 3`, `FLUSH_S <= 1.0`,
+`ROH_BLOCK_ZEILEN <= 6`).
+
+**Prüfbefehl:** `cd backend && .venv/Scripts/python -m pytest tests/ -q` →
+**224 passed**, Exit 0.
+
 ## Noch offen
 
 - Live prüfen (Handy): Läuft der Daemon mit diesem Stand, kommt im Coding-Chat

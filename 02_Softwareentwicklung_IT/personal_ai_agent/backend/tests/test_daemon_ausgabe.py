@@ -61,3 +61,37 @@ def test_gedanken_kasten_wird_nicht_zur_antwort():
     art, _ = a.zeile("Let me think about this carefully")
     assert art in ("keine", "gedanke")
     assert art != "antwort"
+
+
+def test_fallback_ohne_writer_liefert_alles_ungekuerzt():
+    """Ohne block_writer kommt die KOMPLETTE Rohausgabe zurück (nicht gekürzt)."""
+    zeilen = [f"Zeile {i}" for i in range(30)]
+
+    text = daemon._roh_fallback(zeilen)
+
+    assert "Zeile 0" in text and "Zeile 29" in text, "nichts darf verloren gehen"
+    assert "gekürzt" not in text and "gekuerzt" not in text
+
+
+def test_fallback_streamt_in_zeitbloecken(monkeypatch):
+    """Mit block_writer kommt die Ausgabe in Blöcken (mitlesbar, Reihenfolge stimmt)."""
+    monkeypatch.setattr(daemon, "ROH_BLOCK_PAUSE_S", 0)   # Test soll schnell sein
+    zeilen = [f"Zeile {i}" for i in range(30)]
+    bloecke = []
+
+    schluss = daemon._roh_fallback(zeilen, block_writer=bloecke.append)
+
+    # 30 Zeilen / 4 pro Block = 1 Kopfblock + 8 Inhaltsblöcke
+    inhalt = [b for b in bloecke if b.startswith("Zeile")]
+    assert len(inhalt) == 8, f"erwartet 8 Blöcke, war {len(inhalt)}"
+    assert inhalt[0].splitlines()[0] == "Zeile 0", "Reihenfolge muss stimmen"
+    assert inhalt[-1].splitlines()[-1] == "Zeile 29", "letzte Zeile muss dabei sein"
+    assert all(len(b.splitlines()) <= daemon.ROH_BLOCK_ZEILEN for b in inhalt)
+    assert "vollstaendig" in schluss and "Zeilen" in schluss
+
+
+def test_haeppchen_groesse_ist_klein():
+    """Zwischenmeldungen kommen in kleinen Häppchen (mitlesbar, kein Block)."""
+    assert daemon.FLUSH_MAX_ZEILEN <= 3
+    assert daemon.FLUSH_S <= 1.0
+    assert daemon.ROH_BLOCK_ZEILEN <= 6, "Rohausgabe-Blöcke müssen klein bleiben"

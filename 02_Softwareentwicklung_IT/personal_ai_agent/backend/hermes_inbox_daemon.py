@@ -50,8 +50,14 @@ TIMEOUT = int(os.environ.get("HERMES_AUFTRAG_TIMEOUT") or 3600)
 # Buendelung: So lange sammeln wir Ausgabezeilen, bevor sie als EINE
 # Zwischenmeldung geschrieben werden (weniger, dafuer zusammenhaengende
 # Blasen statt vieler paralleler Einzelzeilen).
-FLUSH_S = 1.2
-FLUSH_MAX_ZEILEN = 6
+FLUSH_S = 0.8
+FLUSH_MAX_ZEILEN = 2
+
+# Rohausgabe (kein Antwort-Kasten erkannt): NICHT kuerzen, sondern in
+# Zeitbloecken streamen, damit sie nach und nach mitlesbar ist
+# (Wunsch Sebastian 2026-09-15).
+ROH_BLOCK_ZEILEN = 4
+ROH_BLOCK_PAUSE_S = 0.4
 # Formular-Zeilen (Abfrage des Agenten: "1. …", "❯ 2. …") duerfen NICHT
 # zeilenweise ausgesendet werden: sonst zerfaellt eine Rueckfrage in lauter
 # einzelne "Antwort"-Blasen, und die Frage selbst steht in einer anderen Blase
@@ -199,15 +205,17 @@ def _ist_rahmenszeile(s: str) -> bool:
     return all(z in _RAHMEN_ZEICHEN for z in s)
 
 
-def _roh_fallback(zeilen) -> str:
-    """Letzte echte CLI-Zeilen, wenn kein Antwort-Kasten erkannt wurde.
+def _roh_fallback(zeilen, block_writer=None) -> str:
+    """Rohausgabe des lokalen Hermes, wenn kein Antwort-Kasten erkannt wurde.
 
-    Warum (Sebastian 2026-09-15): Bei manchen CLI-Fassungen/Umgebungen kommt der
-    Antwort-Kasten (`╭─⚕ Hermes …`) nicht (oder mit abweichenden Rahmenzeichen)
-    an. Dann blieb das Ergebnis leer und im Chat stand nur „—" — nicht
-    unterscheidbar von „es wurde gar nichts gearbeitet". Hier wird stattdessen
-    die tatsächliche Ausgabe geliefert (klar als Rohausgabe gekennzeichnet);
-    ist auch die leer, kommt ein Klartext-Grund mit Log-Verweis.
+    Warum (Sebastian 2026-09-15): Bei manchen CLI-Fassungen/Umgebungen kommt
+    der Antwort-Kasten (Hermes-Kasten) nicht an. Dann blieb das Ergebnis leer
+    und im Chat stand nur ein Strich - nicht unterscheidbar von "nichts
+    gearbeitet".
+
+    Wichtig: Die Rohausgabe wird NICHT gekuerzt, sondern in Zeitbloecken
+    gestreamt (block_writer) - so kann Sebastian nach und nach mitlesen.
+    Ohne block_writer (Tests/andere Aufrufer) kommt alles als EIN Text zurueck.
     """
     _noise = ("Resume this session", "Query:", "Initializing", "session_id:",
               "  hermes")
@@ -217,9 +225,20 @@ def _roh_fallback(zeilen) -> str:
         return ("⚠️ Hermes hat den Auftrag bearbeitet, aber KEINE Ausgabe "
                 "geliefert (kein Antwort-Text in der CLI-Ausgabe erkannt).\n"
                 "Prüfen: tail -40 ~/hermes_inbox/daemon.log")
-    rest = "\n".join(nutzbar[-40:]).strip()
-    return ("📄 Ausgabe des lokalen Hermes (Roh — Antwort-Kasten wurde nicht "
-            f"erkannt):\n\n{rest}")
+
+    _anzahl = len(nutzbar)
+    kopf = "📄 Rohausgabe des lokalen Hermes (Antwort-Kasten nicht erkannt)"
+    if block_writer is None:
+        return f"{kopf}:" + "\n" + "\n".join(nutzbar)
+
+    bloecke = [nutzbar[i:i + ROH_BLOCK_ZEILEN]
+               for i in range(0, _anzahl, ROH_BLOCK_ZEILEN)]
+    block_writer(f"{kopf} — {_anzahl} Zeilen in {len(bloecke)} Bloecken:")
+    for blk in bloecke:
+        block_writer("\n".join(blk))
+        time.sleep(ROH_BLOCK_PAUSE_S)
+    return (f"📄 Rohausgabe vollstaendig: {_anzahl} Zeilen, oben in "
+            f"{len(bloecke)} Bloecken gestreamt.")
 
 
 def _beantworte(auftrag):
@@ -356,13 +375,21 @@ def _beantworte(auftrag):
             proc.kill()
         except Exception:
             pass
+    # Reihenfolge (Sebastian 2026-09-15): erst die gepufferten
+    # Zwischenmeldungen ('Gedanke ...') rausschreiben, DANN das Ergebnis.
+    # Vorher erschien das Ergebnis oben und die Statuszeilen wurden
+    # darunter nachgeschoben - wirkte wie 'alles auf einmal'.
+    _flush()
     ergebnis = "\n".join(ergebnis_zeilen).strip()
     if not ergebnis:
         # KEIN erkannter Antwort-Kasten: statt des früheren „—" (Sebastian sah
         # damit „Hermes hat geantwortet" OHNE jede inhaltliche Ausgabe und
         # konnte nicht beurteilen, ob überhaupt gearbeitet wurde) wird jetzt
         # die echte Rohausgabe geliefert — oder ein Klartext-Grund.
-        ergebnis = _roh_fallback(roh_zeilen)
+        ergebnis = _roh_fallback(
+                    roh_zeilen,
+                    block_writer=lambda t: _schreibe_status(aid, t),
+                )
     _schreibe_antwort(aid, ergebnis)
     _schreibe_status(aid, "✅ Hermes hat geantwortet.")
     print(f"[daemon] beantwortet {aid[:8]}: {ergebnis[:60]}", flush=True)
