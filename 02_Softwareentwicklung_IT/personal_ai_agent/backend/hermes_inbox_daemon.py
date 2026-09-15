@@ -183,6 +183,45 @@ def _schreibe_antwort(aid: str, text: str) -> None:
         f.write(json.dumps(ant, ensure_ascii=False) + "\n")
 
 
+_RAHMEN_ZEICHEN = set("╭╮╰╯┌┐└┘─│┊├┤┬┴┼•·⎯ ")
+# Eck-Zeichen: eine Zeile, die damit beginnt, ist IMMER ein Kastenrand —
+# auch wenn er eine Beschriftung trägt ("╭─⚕ Hermes ────────────╮").
+# Inhalt in einem Kasten beginnt dagegen mit "│" / "┊" und bleibt damit erhalten.
+_RAHMEN_ANFANG = ("╭", "╮", "╰", "╯", "┌", "┐", "└", "┘")
+
+
+def _ist_rahmenszeile(s: str) -> bool:
+    """True, wenn die Zeile ein Kastenrand ist (nur Rahmenzeichen ODER Eck-Anfang)."""
+    if not s:
+        return False
+    if s.startswith(_RAHMEN_ANFANG):
+        return True
+    return all(z in _RAHMEN_ZEICHEN for z in s)
+
+
+def _roh_fallback(zeilen) -> str:
+    """Letzte echte CLI-Zeilen, wenn kein Antwort-Kasten erkannt wurde.
+
+    Warum (Sebastian 2026-09-15): Bei manchen CLI-Fassungen/Umgebungen kommt der
+    Antwort-Kasten (`╭─⚕ Hermes …`) nicht (oder mit abweichenden Rahmenzeichen)
+    an. Dann blieb das Ergebnis leer und im Chat stand nur „—" — nicht
+    unterscheidbar von „es wurde gar nichts gearbeitet". Hier wird stattdessen
+    die tatsächliche Ausgabe geliefert (klar als Rohausgabe gekennzeichnet);
+    ist auch die leer, kommt ein Klartext-Grund mit Log-Verweis.
+    """
+    _noise = ("Resume this session", "Query:", "Initializing", "session_id:",
+              "  hermes")
+    nutzbar = [z for z in zeilen
+               if not _ist_rahmenszeile(z) and not z.startswith(_noise)]
+    if not nutzbar:
+        return ("⚠️ Hermes hat den Auftrag bearbeitet, aber KEINE Ausgabe "
+                "geliefert (kein Antwort-Text in der CLI-Ausgabe erkannt).\n"
+                "Prüfen: tail -40 ~/hermes_inbox/daemon.log")
+    rest = "\n".join(nutzbar[-40:]).strip()
+    return ("📄 Ausgabe des lokalen Hermes (Roh — Antwort-Kasten wurde nicht "
+            f"erkannt):\n\n{rest}")
+
+
 def _beantworte(auftrag):
     aid = auftrag.get("auftrag_id")
     text = (auftrag.get("text") or "").strip()
@@ -245,6 +284,7 @@ def _beantworte(auftrag):
 
     puffer = []            # [(emoji, zeile), ...]
     ergebnis_zeilen = []
+    roh_zeilen = []        # alle echten Ausgabezeilen (für den Not-Fallback)
     letzter_flush = time.time()
     deadline = time.time() + TIMEOUT
     abgebrochen = False
@@ -270,6 +310,7 @@ def _beantworte(auftrag):
             z = zeile.rstrip("\n").rstrip("\r")
             s = z.strip()
             if s:
+                roh_zeilen.append(s)
                 # ANTWORT oder internes Denken? Die CLI rahmt beides in Kästen
                 # (siehe _CliAusgabe). Nur Antwort-Zeilen werden Blasen; das
                 # englische Reasoning wird zu EINEM kurzen 🧠-Hinweis.
@@ -315,7 +356,13 @@ def _beantworte(auftrag):
             proc.kill()
         except Exception:
             pass
-    ergebnis = "\n".join(ergebnis_zeilen).strip() or "—"
+    ergebnis = "\n".join(ergebnis_zeilen).strip()
+    if not ergebnis:
+        # KEIN erkannter Antwort-Kasten: statt des früheren „—" (Sebastian sah
+        # damit „Hermes hat geantwortet" OHNE jede inhaltliche Ausgabe und
+        # konnte nicht beurteilen, ob überhaupt gearbeitet wurde) wird jetzt
+        # die echte Rohausgabe geliefert — oder ein Klartext-Grund.
+        ergebnis = _roh_fallback(roh_zeilen)
     _schreibe_antwort(aid, ergebnis)
     _schreibe_status(aid, "✅ Hermes hat geantwortet.")
     print(f"[daemon] beantwortet {aid[:8]}: {ergebnis[:60]}", flush=True)
