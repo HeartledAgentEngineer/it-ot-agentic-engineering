@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# pre-commit — VERIFIER-GATE  (Quelle: AGENTS.md / CLAUDE_EXTENDS.md)
+# ==============================================================================
+# Zweck: Kein Commit ohne grünen Prüfbefehl.
+# Läuft automatisch für JEDEN Agenten (Claude Code, Cline, Hermes) und für
+# Menschen — weil es ein Git-Hook ist, kein Agenten-Feature.
+#
+# Aktivierung (einmalig, pro Klon):
+#     git config core.hooksPath .githooks
+#
+# Notfall-Bypass (bewusst, dokumentiert im Commit):
+#     git commit --no-verify
+#
+# Regeln:
+#   * Getestet wird nur, wenn im Projekt CODE-Dateien geändert wurden
+#     (.py/.js/.ts/.tsx) — reine Doku-Commits laufen ohne Test.
+#   * Fehlt ein Projekt-venv, wird gewarnt und durchgelassen (sonst wäre
+#     das Repo nicht mehr committbar).
+#   * Rote Tests -> Commit wird abgebrochen.
+# ==============================================================================
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 1
+
+# --- Geänderte (staged) Dateien -----------------------------------------------
+CHANGED="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+[[ -z "$CHANGED" ]] && exit 0
+
+hat_code() {  # $1 = Projekt-Pfad-Prefix
+    grep -qE "^$1.*\.(py|js|ts|tsx)$" <<<"$CHANGED"
+}
+
+FAILED=0
+
+# --- Prüfläufe je Projekt (Quelle: 02_Softwareentwicklung_IT/CLAUDE_EXTENDS.md) -
+run_gate() {  # $1 = Anzeigename, $2 = Verzeichnis, $3 = Befehl
+    local name="$1" dir="$2" cmd="$3"
+    echo "  ▶ $name: $cmd"
+    if (cd "$dir" && eval "$cmd"); then
+        echo "  ✔ $name: Prüfbefehl grün"
+    else
+        echo "  ✘ $name: PRÜFBEFEHL ROT — Commit abgebrochen"
+        FAILED=1
+    fi
+}
+
+P_AGENT="02_Softwareentwicklung_IT/personal_ai_agent"
+P_CONCERTIFY="02_Softwareentwicklung_IT/concertify"
+
+if hat_code "$P_AGENT"; then
+    PY="$P_AGENT/backend/.venv/Scripts/python.exe"
+    if [[ -x "$PY" ]]; then
+        run_gate "personal_ai_agent" "$P_AGENT/backend" \
+            "./.venv/Scripts/python.exe -m pytest tests/ -q"
+    else
+        echo "  ⚠ personal_ai_agent: venv fehlt ($PY) — kein Gate möglich"
+    fi
+fi
+
+if hat_code "$P_CONCERTIFY"; then
+    PY="$P_CONCERTIFY/.venv/Scripts/python.exe"
+    if [[ -x "$PY" ]]; then
+        run_gate "concertify" "$P_CONCERTIFY" \
+            "./.venv/Scripts/python.exe -m pytest tests -q"
+    else
+        echo "  ⚠ concertify: venv fehlt ($PY) — kein Gate möglich"
+    fi
+fi
+
+if [[ "$FAILED" -ne 0 ]]; then
+    echo ""
+    echo "  ⛔ VERIFIER-GATE: Commit abgebrochen. Erst Tests grün machen,"
+    echo "     dann erneut committen (Notfall: 'git commit --no-verify')."
+    exit 1
+fi
+
+exit 0
