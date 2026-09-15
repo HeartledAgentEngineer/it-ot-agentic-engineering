@@ -308,6 +308,7 @@ async def chat(request: ChatRequest):
                 get_or_create_conversation=lambda _: _get_or_create_conversation(request.conversation_id),
                 starte_lokale_hermes=_starte_lokale_hermes,
                 kontext=_hermes_kontext_mit_bild(_baue_kontext(request.message, request.conversation_id), request),
+                ziel=(getattr(request, "ziel", "") or ""),
             )
             return ChatResponse(
                 reply=res["reply"],
@@ -1594,7 +1595,25 @@ async def chat_stream(request: ChatRequest):
         # Wie /chat: erst PC-Hermes (Track A), dann lokalen Hermes
         # (Track C). Nur wenn beides nicht verfuegbar ist, geht der
         # Auftrag ins Buch (Track B).
-        hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
+        #
+        # AUSNAHME (Umlenk-Wunsch / Coding-Chat): Bei explizitem ziel="handy"
+        # wird Track A übersprungen — sonst lief der Umlenk-Button ins Leere,
+        # weil der PC den Auftrag annahm und nichts ans Handy zurückgab.
+        # Der Coding-Chat (conv_code) läuft ebenfalls IMMER lokal: dort IST
+        # Hermes der Agent (siehe Kommentar oben), und die lokale CLI liefert
+        # die Gedanken live ins Frontend — der PC-Weg tut das nicht.
+        _conv_id_req = (getattr(request, "conversation_id", None) or "").strip()
+        _nur_lokal = (
+            getattr(request, "ziel", None) == "handy" or _conv_id_req == "conv_code"
+        )
+        hermes_antwort = None
+        if _nur_lokal:
+            logger.info(
+                "Track A uebersprungen (%s) - direkt lokaler Hermes",
+                "Umlenk-Ziel handy" if getattr(request, "ziel", None) == "handy" else "conv_code",
+            )
+        else:
+            hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
         if hermes_antwort is not None:
             conversation_id = _get_or_create_conversation(request.conversation_id)
             _finish_exchange(conversation_id, request.message, hermes_antwort)

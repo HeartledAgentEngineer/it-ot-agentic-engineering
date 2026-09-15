@@ -75,6 +75,7 @@ def route_auftrag(
     get_or_create_conversation,
     starte_lokale_hermes,
     kontext: str = "",
+    ziel: str = "",
 ) -> Dict[str, Any]:
     """Führt die Track-A/C/B-Weiche für einen erkannten Coding-Auftrag aus.
 
@@ -82,6 +83,11 @@ def route_auftrag(
     Hermes mitgegeben wird (sonst arbeitet Hermes nur mit der nackten Frage).
     Er wird dem Auftrag als "Kontext aus dem Gespräch" beigemischt, damit die
     Delegation nicht blind erfolgt.
+
+    `ziel` (optional): Umlenk-Wunsch des Nutzers ("pc" | "handy" | "agent").
+    Bei "handy" wird Track A (PC-Hermes) ÜBERSPRUNGEN und direkt der lokale
+    Hermes gestartet — sonst lief der Umlenk-Button ins Leere, weil Track A
+    immer zuerst versucht wurde (der PC nahm an, lieferte aber nichts zurück).
 
     Returns ein Dict mit den Feldern der Chat-Antwort:
         { "art": "pc"|"lokal"|"buch", "ziel": "pc"|"handy"|"buch",
@@ -99,16 +105,20 @@ def route_auftrag(
         )
 
     # 1) PC-Hermes (Track A) — exklusiv: läuft er, ist Schluss (nie beides).
-    hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
-    if hermes_antwort is not None:
-        conv_id = get_or_create_conversation(None)
-        finish_exchange(conv_id, message, hermes_antwort)
-        return {"art": "pc", "ziel": "pc", "reply": hermes_antwort,
-                "conversation_id": conv_id}
-    # Track A fehlgeschlagen: Grund merken (für Transparenz im Track C/B),
-    # damit klar ist, warum es NICHT am PC lief — ohne dass beide laufen.
-    pc_grund = getattr(hermes_gateway, "letzter_fehler", "") or "PC nicht erreichbar"
-    logger.info("PC-Hermes uebersprungen (%s) - weiter zu Handy/Buch", pc_grund)
+    # Bei explizitem Umlenk-Ziel "handy" wird Track A übersprungen.
+    if ziel == "handy":
+        logger.info("Umlenk-Ziel 'handy': Track A (PC) uebersprungen, direkt lokal")
+    else:
+        hermes_antwort = hermes_gateway.sende_auftrag(herm_aufgabe)
+        if hermes_antwort is not None:
+            conv_id = get_or_create_conversation(None)
+            finish_exchange(conv_id, message, hermes_antwort)
+            return {"art": "pc", "ziel": "pc", "reply": hermes_antwort,
+                    "conversation_id": conv_id}
+        # Track A fehlgeschlagen: Grund merken (für Transparenz im Track C/B),
+        # damit klar ist, warum es NICHT am PC lief — ohne dass beide laufen.
+        pc_grund = getattr(hermes_gateway, "letzter_fehler", "") or "PC nicht erreichbar"
+        logger.info("PC-Hermes uebersprungen (%s) - weiter zu Handy/Buch", pc_grund)
 
     # 2) Lokaler Hermes (Track C) — NUR weil Track A fehlschlug.
     if hermes_local_ist_verfuegbar():

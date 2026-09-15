@@ -12,6 +12,27 @@ from app.services import datei_suche  # noqa: E402
 from app.services.datei_suche import lese_datei_info, suche_dateien  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _ohne_llm_intent():
+    """Hält die Tests offline: das LLM-Vorgate wird neutralisiert.
+
+    `_datei_tool` fragt zuerst per LLM (`extrahiere_datei_such_intent`), ob
+    überhaupt ein Datei-Wunsch vorliegt. Ohne diesen Mock macht JEDER Test
+    einen echten Netz-Call (langsam, kostenpflichtig, flaky). None bedeutet
+    "kein Intent" → der deterministische Heuristik-Pfad läuft, und genau den
+    prüfen diese Tests.
+
+    Gepatcht wird die Instanz aus den Globals von `_datei_tool` (nicht per
+    Modulpfad): so trifft der Patch garantiert das Objekt, das der Code nutzt.
+    """
+    from app.router.chat import _datei_tool
+
+    instanz = _datei_tool.__globals__["llm_service"]
+    with mock.patch.object(instanz, "extrahiere_datei_such_intent",
+                           return_value=None):
+        yield
+
+
 def test_suche_leer_ohne_stichwort():
     """Leerer Suchbegriff → leere Trefferliste (kein Absturz)."""
     assert suche_dateien("") == []

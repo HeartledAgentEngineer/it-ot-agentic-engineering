@@ -10,13 +10,21 @@ sys.path.insert(0, BACKEND)
 
 from app.router.chat import _baue_kontext  # noqa: E402
 
+# Alle Patches dieses Moduls laufen über die Globals der importierten Funktion
+# (siehe `_kontext_fuer`). Warum: `test_chat_verlauf.py` wirft
+# `app.router.chat` aus `sys.modules` und importiert das Modul neu — ein Patch
+# per Modulname träfe dann ein anderes Objekt als die hier importierte Funktion.
+
 
 def test_baue_kontext_leer_ohne_verlauf():
     """Ohne Verlauf/Erinnerungen ist der Kontext leer (kein Bruch)."""
-    from app.router import chat as chat_modul
-    with mock.patch.object(chat_modul, "conversations", {}), \
-         mock.patch.object(chat_modul, "_get_or_create_conversation", return_value="keine"), \
-         mock.patch("app.router.chat.memory_service.retrieve_relevant_memories", return_value=[]):
+    with mock.patch.dict(_baue_kontext.__globals__, {
+            "conversations": {},
+            "_get_or_create_conversation": lambda _: "keine",
+            "memory_service": mock.Mock(
+                retrieve_relevant_memories=lambda *a, **k: []
+            ),
+    }):
         assert _baue_kontext("Testfrage") == ""
 
 
@@ -66,11 +74,25 @@ def _verlauf(n: int, laenge: int = 20):
 
 
 def _kontext_fuer(cid: str, nachrichten, frage="Was war der letzte Schritt?"):
-    from app.router import chat as chat_modul
-    with mock.patch.object(chat_modul, "conversations", {cid: nachrichten}), \
-         mock.patch.object(chat_modul, "_get_or_create_conversation", return_value=cid), \
-         mock.patch("app.router.chat.memory_service.retrieve_relevant_memories",
-                    return_value=[]):
+    """Baut den Kontext mit isoliertem Verlauf.
+
+    WICHTIG: Gepatcht wird der Globals-Dict der Funktion `_baue_kontext` SELBST
+    — nicht `app.router.chat`. Grund: `test_chat_verlauf.py` löscht
+    `app.router.chat` aus `sys.modules` und importiert das Modul neu. Danach
+    läuft ein Patch auf dem frischen Modul ins Leere, während die hier
+    importierte Funktion weiter den ALTEN, geteilten Topf liest (im
+    Sammellauf: fremde Inhalte oder leer).
+    """
+    def _conv(_):
+        return cid
+
+    with mock.patch.dict(_baue_kontext.__globals__, {
+            "conversations": {cid: nachrichten},
+            "_get_or_create_conversation": _conv,
+            "memory_service": mock.Mock(
+                retrieve_relevant_memories=lambda *a, **k: []
+            ),
+    }):
         return _baue_kontext(frage, cid)
 
 
