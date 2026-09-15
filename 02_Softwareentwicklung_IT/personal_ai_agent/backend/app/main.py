@@ -99,6 +99,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Inbox-Daemon-Startup-Check fehlgeschlagen: %s", e)
 
+    # Datenhygiene: zurueckgebliebene 'laeuft'-Auftraege aus einem frueheren
+    # Serverleben schliessen. Ihre Worker-Threads sind mit dem alten Prozess
+    # gestorben, koennen ihren Status also nie mehr finalisieren — ohne diese
+    # Aufraeumung bleiben sie fuer immer auf 'laeuft' stehen.
+    try:
+        from app.services.auftrag_service import auftrag_service
+
+        geschlossen = auftrag_service.verwaiste_auftraege_schliessen()
+        if geschlossen:
+            logger.info("Datenhygiene: %d verwaiste Auftraege geschlossen.", geschlossen)
+    except Exception as e:
+        logger.warning("Aufraeumen verwaister Auftraege fehlgeschlagen: %s", e)
+
     yield
 
     # Shutdown

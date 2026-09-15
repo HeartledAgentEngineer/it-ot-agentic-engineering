@@ -182,6 +182,41 @@ class AuftragService:
                 return eintrag
         return None
 
+    def verwaiste_auftraege_schliessen(self) -> int:
+        """Schliesst beim Serverstart zurueckgebliebene 'laeuft'-Auftraege.
+
+        Ein Auftrag wird in einem Thread IM Serverprozess bearbeitet. Startet
+        der Server neu (Widget, Neustart-Skript) oder stirbt er, kann dieser
+        Thread seinen Status nie mehr finalisieren — der Eintrag bleibt fuer
+        immer auf 'laeuft' stehen und gaukelt dem Nutzer vor, es arbeite noch
+        etwas (gefunden am 2026-09-15: 45 solche Leichen im Buch).
+
+        Beim Serverstart kann kein Worker laufen (die Threads des alten
+        Prozesses sind mit ihm gestorben), solche Eintraege sind also eindeutig
+        verwaist. Gibt die Zahl der geschlossenen Eintraege zurueck.
+
+        Bewusst OHNE `ergebnis_eintragen`: dessen Verlauf-Uebergabe wuerde den
+        Chat mit Aufraeum-Notizen fluten. Hier wird nur das Buch bereinigt.
+        """
+        with self._sperre:
+            auftraege = self._lesen()
+            verwaist = [e for e in auftraege if e.get("status") == LAEUFT]
+            if not verwaist:
+                return 0
+            jetzt = _jetzt()
+            for eintrag in verwaist:
+                eintrag["status"] = FEHLER
+                eintrag["beendet"] = jetzt
+                eintrag["ergebnis"] = (
+                    "Abgebrochen/verwaist: Server-Neustart waehrend des Laufs — "
+                    "automatisch bereinigt am " + jetzt + "."
+                )
+            self._schreiben(auftraege)
+            logger.info(
+                "%d verwaiste 'laeuft'-Auftraege beim Start geschlossen.", len(verwaist)
+            )
+            return len(verwaist)
+
     def statusmeldung_hinzufuegen(self, auftrag_id: str, meldung: str) -> Optional[dict]:
         """Fuegt eine Zwischenmeldung des Coding-Agenten hinzu."""
         with self._sperre:
