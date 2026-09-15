@@ -25,9 +25,21 @@ erklären.
 ## Sicherheit: Git
 
 - Autonom erlaubt: lesen, lokal ändern, lokal committen.
-- `git push` **nie autonom**: Der Agent stellt bei jedem anstehenden Push einen
-  Bestätigungsschritt (Klick/Enter-Frage) an Sebastian — erst nach dessen OK wird
-  gepusht. Immer vorschlagen, nie eigenmächtig pushen.
+- **Push: stehende Freigabe (Stand 15.09.2026, auf Sebastians ausdrücklichen
+  Wunsch).** Ein Push nach **grünem Prüfbefehl** ist autonom erlaubt — Sebastian
+  testet damit direkt am Handy, und ein Push ist jederzeit rücknehmbar
+  (`git revert` / Zurücksetzen im Remote), er zerstört also nichts.
+  Der Agent pusht **sofort nach** einer verifizierten Änderung, ohne jedes Mal
+  nachzufragen.
+- **Rückfrage bleibt Pflicht** (hier geht es um Datenverlust, nicht um
+  Bequemlichkeit) bei:
+  - **rotem/fehlendem Prüfbefehl** — es wird nicht gepusht, sondern erst repariert,
+  - **Merge-/Rebase-Konflikten** oder divergierenden Historien,
+  - **force-push / Überschreiben fremder Commits**,
+  - Änderungen an **OT-/SPS-Code** oder an **persönlichen Datenarchiven**
+    (dort gilt weiterhin alles manuell).
+- Frühere Regel („nie autonom pushen") ist damit **abgelöst**; sie steht nur
+  noch als Historie in diesem Absatz.
 
 ## Synchronisation: Pull vor Agentenarbeit
 
