@@ -51,7 +51,7 @@ TIMEOUT = int(os.environ.get("HERMES_AUFTRAG_TIMEOUT") or 3600)
 # Zwischenmeldung geschrieben werden (weniger, dafuer zusammenhaengende
 # Blasen statt vieler paralleler Einzelzeilen).
 FLUSH_S = 0.8
-FLUSH_MAX_ZEILEN = 2
+FLUSH_MAX_ZEILEN = 4
 
 # Rohausgabe (kein Antwort-Kasten erkannt): NICHT kuerzen, sondern in
 # Zeitbloecken streamen, damit sie nach und nach mitlesbar ist

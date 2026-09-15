@@ -92,6 +92,6 @@ def test_fallback_streamt_in_zeitbloecken(monkeypatch):
 
 def test_haeppchen_groesse_ist_klein():
     """Zwischenmeldungen kommen in kleinen Häppchen (mitlesbar, kein Block)."""
-    assert daemon.FLUSH_MAX_ZEILEN <= 3
+    assert daemon.FLUSH_MAX_ZEILEN <= 4
     assert daemon.FLUSH_S <= 1.0
     assert daemon.ROH_BLOCK_ZEILEN <= 6, "Rohausgabe-Blöcke müssen klein bleiben"

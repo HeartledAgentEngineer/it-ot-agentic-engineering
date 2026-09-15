@@ -2232,7 +2232,11 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // hineingeworfen ("alles auf einmal"). Jetzt wird stattdessen nur schneller
     // getippt — jede Blase bleibt ein kleiner, lesbarer Abschnitt.
     const rueckstand = _gedankenTippWartend;
-    const interval = rueckstand > 4 ? 4 : (rueckstand > 2 ? 9 : 18);
+    // Tempo aus dem Zahnrad (state.streamMs): groesser = langsamer.
+    // Basis 18 ms je Zeichen beim Standardwert 120 - so wirkt der Regler
+    // im Chat auch auf das Tippen der Zwischenmeldungen (Wunsch 2026-09-15).
+    const _tempoFaktor = Math.max(0.25, Math.min(3, (state.streamMs || 120) / 120));
+    const interval = (rueckstand > 4 ? 4 : (rueckstand > 2 ? 9 : 18)) * _tempoFaktor;
     _gedankenTippWartend++;
     const tippen = () => new Promise((fertig) => {
         let i = 0;
@@ -6356,6 +6360,10 @@ async function streamHermesText(text, conversationId) {
         // 'von alt zu neu in menschlicher Geschwindigkeit' (Wunsch Sebastian).
         const _zeigeEingeblendet = () => {
             if (!_einzuBlenden) return;
+            // SERIELL (Wunsch Sebastian 2026-09-15): Solange eine Gedanken-Blase
+            // noch tippt, NICHT parallel weiterblenden - sonst tippen zwei Blasen
+            // gleichzeitig ("zwei tippende Blasen"). Der Puffer wartet.
+            if (_gedankenTippWartend > 0) return;
             const block = _einzuBlenden.slice(0, 8); // lesbarer Block je Frame
             _einzuBlenden = _einzuBlenden.slice(8);
             antwort += block;

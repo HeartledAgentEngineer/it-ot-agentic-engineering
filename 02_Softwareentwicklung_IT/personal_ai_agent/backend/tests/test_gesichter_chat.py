@@ -16,6 +16,8 @@ Tests deterministisch und ohne echte API-Calls laufen.
 
 import json
 import os
+import pytest
+from pathlib import Path
 import sys
 from unittest import mock
 
@@ -24,6 +26,20 @@ sys.path.insert(0, BACKEND)
 
 from app.router.chat import _gesichter_merke  # noqa: E402
 from app.services import gesichter_service  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _eigener_katalog(tmp_path, monkeypatch):
+    """Tests berühren NIE den echten Katalog (Sebastians Personendaten).
+
+    Eigener Pfad je Test: kein Quer-Einfluss zwischen Testdateien und keine
+    Schreibsperre auf der echten Datei (Windows PermissionError).
+    """
+    monkeypatch.setattr(
+        gesichter_service, "KATALOG_DATEI",
+        Path(tmp_path) / "gesichter_katalog.json",
+    )
+    yield
 
 
 def _katalog_leeren():
