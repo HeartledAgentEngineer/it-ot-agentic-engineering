@@ -87,3 +87,53 @@ Browser (Comet/Chrome) die alte gecachte Datei und die Änderung ist unsichtbar.
 **Regel:** Cache-Bump IMMER im selben Commit wie die Frontend-Änderung.
 Niemals annehmen, der Browser lade "schon neu" — hartes Caching ist der
 Normalfall (war bereits mehrfach die Fehlerursache).
+
+---
+
+## 6. ARBEITSWEISE — GATES, FOKUS, KONTEXT (verbindlich)
+
+Diese Regeln sind der Kompromiss aus dem Hybrid-Workflow: **Hermes lenkt,
+statt dass Sebastian jede Regel einzeln einfordert.**
+
+### 6.1 Verifier-Gate (maschinell erzwungen)
+
+Kein Commit ohne grünen Prüfbefehl. Das ist als **Git-Hook** umgesetzt und gilt
+damit für **alle Werkzeuge** (Claude Code, Cline, Hermes) und für Menschen:
+
+```bash
+git config core.hooksPath .githooks   # einmalig pro Klon!
+```
+
+- Hook: `.githooks/pre-commit` — testet nur das Projekt, dessen **Code** staged
+  ist; rote Tests brechen den Commit ab.
+- Notfall-Bypass: `git commit --no-verify` (nur bewusst, im Commit begründen).
+- Details + Pitfalls: Skill `verifier-gate`.
+
+### 6.2 Grill VOR dem Bauen (nicht danach)
+
+Bei jedem Feature > ~100 Zeilen oder jeder Architektur-Entscheidung **zuerst**
+`grillAnAgent` (Brainstorm → Grill → Einigkeit), **dann** implementieren.
+Nachträgliches Nachbessern (`fix(fix(...))`-Ketten) ist teurer als 10 Minuten
+Grill vorab. Messgröße: Anteil `fix(`-Commits soll **nicht** steigen.
+
+### 6.3 Kontext-Disziplin
+
+- **Ein Fokus pro Session.** Parallel-Ideen nicht im laufenden Chat verfolgen,
+  sondern als Kanban-Task parken.
+- **Session-Reset bei ~50 %** Kontextfüllung (Auto-Kompression greift dort,
+  Ziel-Ratio 0,2) — vorher Zwischenstand in eine Handoff-Datei schreiben.
+- Große Archive/Logs gehören in Werkzeuge/`grep`, nicht in den Chat-Kontext
+  (4,38 Mrd. Tokens bei ~200k/Request zeigen: Kontext-Ballast ist real).
+
+### 6.4 Parallelarbeit über Kanban
+
+Aufgaben, die parallel laufen sollen, als Kanban-Task mit `--assignee` anlegen
+→ der Dispatcher arbeitet sie in **eigenem Kontext/Workspace** ab. Nicht alles
+im Chat serialisieren.
+
+### 6.5 Regeln pflegen (eine Quelle)
+
+`AGENTS.md` (Kern) und `CLAUDE_EXTENDS.md` (Bereich) sind die Quellen. Nach
+jeder Änderung hier: `sync-rules.ps1` laufen lassen (erzeugt die
+Bereichs-`CLAUDE.md`). **Nie** die generierten `CLAUDE.md` direkt editieren —
+sie werden überschrieben.
