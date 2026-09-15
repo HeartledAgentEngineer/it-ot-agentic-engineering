@@ -248,6 +248,42 @@ body {
     color: #cc4444;
 }
 
+/* ── Gedanken-Blasen (Zwischenmeldungen aus dem Hermes-Lauf) ─────────────── */
+/* Auf den ersten Blick unterscheidbar von einer echten Antwort: keine
+   Sprechblase, sondern ein gedaempfter, kursiver Block mit Randlinie links.
+   Vorher sahen Gedanken wie normale Nachrichten aus (gleiche Blase, gleicher
+   Zeitstempel) und waren nicht als Zwischenstand erkennbar.
+   Wunsch Sebastian 2026-09-15. */
+.message.gedanken-strom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    margin-left: 8px;
+    padding-left: 10px;
+    border-left: 2px solid var(--border);
+}
+
+.gedanken-kopf {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+
+.gedanken-inhalt {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    white-space: pre-wrap;
+    line-height: 1.35;
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.gedanken-zeit {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+
 .message-content p {
     margin-bottom: 8px;
 }

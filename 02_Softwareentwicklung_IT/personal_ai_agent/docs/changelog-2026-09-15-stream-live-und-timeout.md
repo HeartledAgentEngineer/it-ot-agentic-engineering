@@ -49,8 +49,9 @@ Blase parallel).
 - Daemon **bündelt** Zeilen (Takt ~1,2 s bzw. ab 6 Zeilen) → eine
   zusammenhängende Blase statt vieler Einzelblasen.
 - Frontend tippt die Blasen **seriell** über eine Promise-Kette
-  (`_gedankenTippKette`); bei Rückstand (>2 wartende Blasen) wird ohne
-  Tipp-Animation direkt gesetzt.
+  (`_gedankenTippKette`). Bei Rückstand wird nur die Tipp-Geschwindigkeit
+  erhöht, nie der Rest schlagartig gesetzt (Stand 2026-09-15: der frühere
+  Sofort-Sprung bei >2 wartenden Blasen wirkte wie "alles auf einmal").
 
 ### 4. Stream-Abriss erforderte ein Neuladen
 Riss die Browser-Verbindung (Android/Doze, Netz), setzte die Fehlerbehandlung

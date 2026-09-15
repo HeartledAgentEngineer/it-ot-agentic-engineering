@@ -700,7 +700,7 @@ function setzeTutZeile(text) {
     let anzeige = text;
     if (text && (text.indexOf('Hermes bearbeitet') !== -1 || text.indexOf('Hermes (') !== -1)
         && _letzterHermesGedanke) {
-        anzeige = '🐚 Hermes: ' + _letzterHermesGedanke;
+        anzeige = '🧠 ' + _letzterHermesGedanke;
     }
     const bubbleText = document.querySelector('#loading .loading-text');
     if (bubbleText) bubbleText.textContent = anzeige ? anzeige : 'Denke nach...';
@@ -835,8 +835,15 @@ function setOnline(online) {
  */
 function updateSendButton() {
     // Während der Aufnahme bleibt der Knopf bedienbar: Ein Druck darauf
-    // beendet die Aufnahme und schickt das Diktat gleich ab.
+    // beendet die Aufnahme und schickt das Diktat gleich ab. Deshalb zeigt er
+    // IMMER das Senden-Symbol — nie den Stopp-Würfel. Sonst war nicht
+    // erkennbar, dass ein Druck hier nur die Aufnahme beendet und KEINE
+    // laufende Hermes-Aufgabe abbricht (Wunsch/Grund 2026-09-15: Zwischen-
+    // nachricht per Sprache war während der Arbeit so nicht absendbar).
     if (state.isRecording) {
+        dom.sendBtn.innerHTML = SYMBOL_SENDEN;
+        dom.sendBtn.classList.remove('stopping');
+        dom.sendBtn.title = 'Aufnahme beenden & senden';
         dom.sendBtn.disabled = false;
         return;
     }
@@ -2037,23 +2044,27 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     _letzterHermesGedanke = rein;
     // Stueckweise in NEUE Blasen mit Zeitstempel, die nach und nach TYPEWRITER
     // eintippen (Wunsch Sebastian 2026-09-11): bessere Lesbarkeit als eine
-    // riesige fortlaufende Blase; jede GEdanken-Zeile erscheint frisch.
+    // riesige fortlaufende Blase; jede Gedanken-Zeile erscheint frisch.
+    // Wunsch Sebastian 2026-09-15: Der Kopf heisst nur noch "🧠 Gedanke" (das
+    // Wort "Hermes" ist dort ueberfluessig – der Chatpartner IST Hermes) und
+    // die Blase ist optisch klar von einer echten Antwort abgesetzt (gedaempft,
+    // kursiv, Randlinie links). Vorher sah ein Gedanke wie eine normale
+    // Nachricht aus und war nicht als Zwischenstand erkennbar.
     const div = document.createElement('div');
     div.className = 'message agent-zwischenmeldung gedanken-strom';
     const kopf = document.createElement('div');
-    kopf.style.cssText = 'font-size:0.7rem;color:#4a7;margin-bottom:2px';
-    kopf.textContent = '🧠 Hermes';
+    kopf.className = 'gedanken-kopf';
+    kopf.textContent = '🧠 Gedanke';
     div.appendChild(kopf);
     const inhalt = document.createElement('div');
-    inhalt.style.cssText = 'font-size:0.78rem;color:#cde;white-space:pre-wrap;line-height:1.35';
+    inhalt.className = 'gedanken-inhalt';
     div.appendChild(inhalt);
     // Zeitstempel-Label (WhatsApp-artig) unter der Blase
     const zeitSpan = document.createElement('div');
-    zeitSpan.className = 'message-time';
+    zeitSpan.className = 'message-time gedanken-zeit';
     try { zeitSpan.textContent = formatZeit(zeitIso); } catch (_e) {
         zeitSpan.textContent = '';
     }
-    zeitSpan.style.cssText = 'font-size:0.65rem;color:#888;margin-top:2px';
     div.appendChild(zeitSpan);
     dom.messages.appendChild(div);
     scrollToBottom(true);
@@ -2064,15 +2075,13 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     // nicht parallel. Vorher tippte jede neue Blase sofort los — bei einem
     // Schwall von Gedanken sah das aus, als würden mehrere Nachrichten
     // gleichzeitig/flimmernd geschrieben.
-    const sofort = _gedankenTippWartend > 2;   // Rueckstand: ohne Tippen zeigen
+    // Wunsch Sebastian 2026-09-15: Bei Rueckstand wurde der Rest bisher SOFORT
+    // hineingeworfen ("alles auf einmal"). Jetzt wird stattdessen nur schneller
+    // getippt — jede Blase bleibt ein kleiner, lesbarer Abschnitt.
+    const rueckstand = _gedankenTippWartend;
+    const interval = rueckstand > 4 ? 4 : (rueckstand > 2 ? 9 : 18);
     _gedankenTippWartend++;
     const tippen = () => new Promise((fertig) => {
-        if (sofort) {
-            inhalt.textContent = rein;
-            fertig();
-            return;
-        }
-        const interval = 18;   // ms je Zeichen (nach Lust/Lesbarkeit)
         let i = 0;
         const tippe = () => {
             if (i >= rein.length) { fertig(); return; }   // fertig
@@ -4707,7 +4716,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // Phrase. Stattdessen zeigt die untere Bubble den ECHTEN aktuellen
         // Gedanken (wenn schon da) oder schweigt neutral (…).
         setzeTutZeile(hermesModus
-            ? (_letzterHermesGedanke ? '🐚 Hermes: ' + _letzterHermesGedanke : '…')
+            ? (_letzterHermesGedanke ? '🧠 ' + _letzterHermesGedanke : '…')
             : '🔍 Agent liest deine Nachricht…');
     } catch (_) {}
     // Der Controller ist zugleich das Kennzeichen "hier laeuft etwas" und der
