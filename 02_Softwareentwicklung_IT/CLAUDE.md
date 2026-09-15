@@ -51,25 +51,51 @@ Ein Schritt gilt als fertig, wenn der Prüfbefehl des Projekts Exit-Code 0 liefe
 Die folgenden Befehle sind verifiziert — sie wurden ausgeführt, nicht abgeschrieben.
 Pfade sind relativ zum Projektverzeichnis.
 
-| Projekt | Prüfbefehl | Stand |
+| Projekt | Prüfbefehl (aus dem Projektverzeichnis) | Stand |
 |---|---|---|
-| `typeFREE` | `set PYTHONPATH=. && python -m pytest windows/tests -q` | 84 Prüfungen, Exit 0 (11.08.2026) |
-| `concertify` | `python -m pytest tests -q` | 180 Prüfungen, Exit 0 (11.08.2026) |
+| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **208 grün**, Exit 0 (15.09.2026) |
+| `concertify` | `.venv/Scripts/python.exe -m pytest tests -q` | **180 grün**, Exit 0 (15.09.2026) |
+| `typeFREE` | ⚠️ **blockiert** — kein `.venv` im Repo, globales Python hat `keyboard` nicht → 12 Collection-Errors. Reaktivierung: venv anlegen + `requirements` installieren | offen (15.09.2026) |
 | `RAG-Systeme` | **fehlt.** Nur `test_embeddings.py` als Einzelskript, keine Testsuite | — |
 | `document_automation` | **fehlt.** Keine Tests vorhanden | — |
-| `personal_ai_agent` | **fehlt.** Nur manueller Health-Check auf `/api/health` | — |
 | `eichhoernchen_spiel` | **entfällt.** Einzelne HTML-Datei, Rapid-Prototyping-Demo | — |
+
+**Wichtig:** Prüfbefehle müssen **das Projekt-venv** nutzen (`…/.venv/Scripts/python.exe`).
+Mit dem globalen `python` schlagen sie an fehlenden Dependencies fehl — das ist
+kein Projektfehler, sondern ein Aufruf-Fehler.
 
 **Was daraus folgt:**
 
-* Projekte **mit** Prüfbefehl (`typeFREE`, `concertify`) dürfen an der langen Leine
-  arbeiten: Phase 4–8 laufen als ein Durchlauf, mit dem Pflichtstopp nach Phase 4.
-* Projekte **ohne** Prüfbefehl bleiben an der kurzen Leine: jede Änderung wird
+* Projekte **mit** grünem Prüfbefehl (`personal_ai_agent`, `concertify`) dürfen
+  im Hybrid-Workflow autonom weiterarbeiten: Änderung → Prüfbefehl (Exit 0) →
+  „code + docs" in einem Commit.
+* Projekte **ohne** funktionierenden Prüfbefehl (`typeFREE`, `RAG-Systeme`,
+  `document_automation`) bleiben an der kurzen Leine: jede Änderung wird
   einzeln vorgelegt. Kein Durchlauf ohne maschinelles Gate.
 * Fehlt einem Projekt der Prüfbefehl, wird das benannt — nicht ersetzt durch
   „sieht gut aus". Einen Prüfbefehl zu erfinden, der nichts prüft, ist schlimmer
   als keiner.
+* Der Prüfbefehl muss **reproduzierbar** sein: mit dem Projekt-venv, aus dem
+  Projektverzeichnis, ohne manuelle Vorbereitung.
 
 Prüfläufe gehören an den Subagenten `tester`, damit die Logs nicht im
 Hauptkontext landen.
+
+---
+
+## 5. CACHE-BUSTING (PFLICHT bei Frontend-Änderungen)
+
+**Gilt für `personal_ai_agent` (und jedes Web-Frontend im Workspace):**
+
+Bei JEDER Änderung an Frontend-Dateien (`index.html`, `app.js`, `style.css`)
+MUSS die `?v=`-Versionsnummer in `index.html` erhöht werden — sonst lädt der
+Browser (Comet/Chrome) die alte gecachte Datei und die Änderung ist unsichtbar.
+
+**Schema:** `JJJJMMTT` + laufender Buchstabe für mehrere Änderungen am selben Tag.
+- Erste Änderung am 2026-08-24 → `?v=20260824A`
+- Zweite am selben Tag → `?v=20260824B` (usw.)
+
+**Regel:** Cache-Bump IMMER im selben Commit wie die Frontend-Änderung.
+Niemals annehmen, der Browser lade "schon neu" — hartes Caching ist der
+Normalfall (war bereits mehrfach die Fehlerursache).
 
