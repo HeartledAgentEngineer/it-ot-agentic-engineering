@@ -30,6 +30,11 @@ gesichter_katalog.json.tmp
 gesichter_katalog.json.bak-*
 gesichter_katalog.json.abofix-*
 gesichter_katalog.bak-*
+# Schreib-Tempdatei des Katalogs: der Service speichert atomar ueber
+# KATALOG_DATEI.with_suffix(".tmp") -> "gesichter_katalog.tmp". Sie enthaelt
+# dieselben Personendaten und darf nie ins Repo (Luecke geschlossen 15.09.2026).
+gesichter_katalog.tmp
+gesichter_katalog.abofix-*
 quiz_fortschritt.json
 quiz_fortschritt.bak-*
 
