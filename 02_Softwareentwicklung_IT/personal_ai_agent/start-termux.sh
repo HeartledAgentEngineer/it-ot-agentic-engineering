@@ -124,6 +124,30 @@ echo
 
 cd backend || { echo "backend/ fehlt"; exit 1; }
 
+# ── Inbox-Daemon (Track C) ────────────────────────────────────────────────────
+# Track C (lokaler Hermes) antwortet NICHT direkt, sondern über die Datei-Inbox
+# ~/hermes_inbox: der Daemon liest auftraege.jsonl und schreibt antworten.jsonl.
+# Ohne laufenden Daemon wird ein Auftrag abgelegt und NIE beantwortet — Symptom:
+# „Hermes denkt nach …", dann kommt keine Antwort ("ins Leere").
+# Deshalb wird er hier idempotent mitgestartet (Wunsch Sebastian 2026-09-15).
+# Läuft er schon, wird nichts doppelt gestartet (kein zweiter Daemon auf der
+# gleichen Inbox -> sonst verarbeiten zwei Prozesse dieselben Auftraege).
+DAEMON="hermes_inbox_daemon.py"
+if pgrep -f "$DAEMON" >/dev/null 2>&1; then
+    echo "Inbox-Daemon läuft bereits — Track C bereit."
+else
+    echo "── Inbox-Daemon startet (Track C) ─────────────"
+    mkdir -p "$HOME/hermes_inbox"
+    nohup python "$DAEMON" >> "$HOME/hermes_inbox/daemon.log" 2>&1 &
+    sleep 1
+    if pgrep -f "$DAEMON" >/dev/null 2>&1; then
+        echo "  ✔ Daemon läuft (Log: ~/hermes_inbox/daemon.log)"
+    else
+        echo "  ⚠ Daemon konnte nicht starten — lokale Übergabe bliebe ohne Antwort."
+        echo "    Prüfen: python backend/hermes_inbox_daemon.py --einmal"
+    fi
+fi
+
 # exec: Der Server ersetzt die Shell, damit Strg+C ihn direkt erreicht
 # und nicht nur das Skript beendet.
 exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload
