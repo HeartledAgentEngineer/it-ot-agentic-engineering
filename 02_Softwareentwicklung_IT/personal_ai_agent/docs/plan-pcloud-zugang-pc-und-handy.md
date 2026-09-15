@@ -239,6 +239,37 @@ auf Namensgleichheit prüfen.
 
 ---
 
+### 4e. Verwandtschaft mit MCP (und wann daraus ein MCP-Server wird)
+
+Bausteine von MCP (Spec-Fassung 2025-06-18, verifiziert): **JSON-RPC 2.0** in
+UTF-8, Transport entweder **stdio** (stdin/stdout) oder **Streamable HTTP**
+(POST, optional Server-Sent-Events-Stream). Rollen: **Host** (die LLM-App) →
+**Client** (Connector im Host) → **Server** (der Tool-Anbieter). Ein Server
+bietet **Tools / Resources / Prompts** an, abfragbar zur Laufzeit
+(`tools/list`), aufgerufen über `tools/call`. Auth kennt das Protokoll nicht —
+sie hängt am Transport: **OAuth 2.1 / `Authorization: Bearer …`**.
+
+| | pCloud-REST (unser Client) | MCP-Server |
+|---|---|---|
+| **Richtung** | **wir rufen** — das Backend ist der Client, pCloud der Server | **man ruft uns** — Harness/LLM ist der Host, wir sind der Server |
+| **Format** | pCloud-eigenes JSON (`result`-Code + Nutzdaten) | JSON-RPC 2.0 (`method`/`params`/`result`) |
+| **Werkzeugliste** | fest und dokumentiert | zur Laufzeit über `tools/list` |
+| **Auth** | pCloud-OAuth-Token (läuft nicht ab, **kein Scope**) | am Transport: Bearer/OAuth 2.1 |
+| **Wer entscheidet zu rufen** | unser Code | **das Modell** (Tool-Beschreibungen liegen im Kontext) |
+
+Gemeinsam ist beiden: **HTTP + JSON + Token**. Der Unterschied ist die
+**Richtung** — und wer die Entscheidung trifft.
+
+**Konsequenz (Upgrade-Pfad):** Derselbe pCloud-Zugriff lässt sich als **eigener
+MCP-Server** verpacken (`pcloud_mcp`, JSON-RPC 2.0 über **stdio** — das passt
+zu Phone-First: kein offener Port, genau wie die n8n-Bridge in Hermes). Dann
+stehen die Cloud-Werkzeuge **jedem MCP-fähigen Host** zur Verfügung (Hermes
+kann MCP-Server einbinden), und das Modell entscheidet selbst, wann es
+Cloud-Daten zieht — das ist der „Tool-Enabled statt Button"-Gedanke aus dem
+Agent-Skill, nur standardisiert.
+
+---
+
 ## 5. Empfehlung (gestaffelt, kleinster Schritt zuerst)
 
 **Stufe 1 — PC-Ansehen über `P:\` (heute machbar, 0 Code).**
@@ -264,6 +295,12 @@ Endpunkte nutzt): `uploadfile`, `createfolder`, `renamefile`/`movefile` — stre
 nach den vier Regeln aus §4d. Reihenfolge: erst **hochladen in `Agent/`**
 (harmlos + umkehrbar), dann **sortieren**, Löschen zuletzt und nur mit OK.
 Prüfbefehl wie in Stufe 3 (`208 passed`).
+
+**Stufe 3c — pCloud-Tools als MCP-Server** (optional, danach): `tools/list`
+liefert `cloud_liste`, `cloud_thumb`, `cloud_datei`, `cloud_suche`,
+`cloud_upload`; Transport **stdio**. Sinnvoll erst nach Stufe 3 — der
+MCP-Server soll denselben `pcloud_service` nutzen, keine zweite
+Implementierung.
 
 **Stufe 4 (optional) — Nachtlauf:** `rclone copy` + Hinweis im Auftragsbuch
 („12 neue Fotos gespiegelt") — deckt „automatisiert Bilder/Urlaube".
@@ -372,6 +409,9 @@ vorlegen, gleicher Prüfbefehl zwingend, plus DeepSeek-Testcall der Suche.
 6. **Schreib-Regeln (§4d) bestätigen:** Eigener `Agent/`-Ordner als erlaubter
    Schreibbereich — und soll der Agent dort **autonom** hochladen/sortieren
    dürfen, während Umbenennen/Verschieben/Löschen immer Rückfrage bleibt?
+7. **MCP-Variante (§4e):** erst den internen REST-Weg (Stufe 3) gehen und
+   MCP später draufsetzen — oder gleich als MCP-Server bauen, damit auch
+   Hermes und andere Harnesses die Cloud-Werkzeuge selbst aufrufen können?
 
 *Dieser Plan ist Doku, kein Code — der Code folgt nach der Weg-Entscheidung,
 jeder Schritt einzeln vorgelegt und verifiziert.*
