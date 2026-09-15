@@ -124,6 +124,25 @@ echo
 
 cd backend || { echo "backend/ fehlt"; exit 1; }
 
+# ── Aufräumen: liegengebliebene Job-Sessions ─────────────────────────────────
+# Eigene Job-Sessions heissen 'hermes_agent_<ms>_<n>'. Stirbt der Server vorher
+# (Neustart/Absturz/Akku), bleiben sie in Termux als tote, rot durchgestrichene
+# Eintraege stehen und mussten einzeln manuell geschlossen werden
+# (Wunsch Sebastian 2026-09-15: automatisch aufraeumen).
+# Die persistente Andock-Session (hermes / hermes_code / hermes_termux) bleibt
+# UNBERUEHRT — nur das Job-Muster wird beendet.
+if command -v tmux >/dev/null 2>&1; then
+    ALTE_SESSIONS="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^hermes_agent_' || true)"
+    if [ -n "$ALTE_SESSIONS" ]; then
+        echo "── Aufräumen: alte Job-Sessions ───────────────"
+        for s in $ALTE_SESSIONS; do
+            if tmux kill-session -t "$s" 2>/dev/null; then
+                echo "  ✔ beendet: $s"
+            fi
+        done
+    fi
+fi
+
 # ── Inbox-Daemon (Track C) ────────────────────────────────────────────────────
 # Track C (lokaler Hermes) antwortet NICHT direkt, sondern über die Datei-Inbox
 # ~/hermes_inbox: der Daemon liest auftraege.jsonl und schreibt antworten.jsonl.

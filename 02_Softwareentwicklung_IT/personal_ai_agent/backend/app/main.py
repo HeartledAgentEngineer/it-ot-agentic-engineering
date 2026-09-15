@@ -86,18 +86,37 @@ async def lifespan(app: FastAPI):
 
     logger.info("Server starting on %s:%s", settings.host, settings.port)
 
-    # Selbstheilung des 'aktiv'-Kanals: Inbox-Daemon sicherstellen, damit
-    # Hermes-Auftraege ueber den Server vom Server-Start an bedient werden
-    # (ein toter Daemon war die Live-Ursache fuer 'Hermes reagiert nicht').
+    # Selbstheilung Track C (lokaler Hermes):
+    # (1) Inbox-Daemon sicherstellen — ein toter Daemon war die Live-Ursache
+    #     fuer 'Hermes reagiert nicht'. Der Guard war vorher NUR
+    #     `hermes_local_kanal == "aktiv"`; ist der Kanal leer (Standard), lief
+    #     die Selbstheilung nie und Track C antwortete ins Leere. Jetzt greift
+    #     sie auch bei leerem Kanal, sobald der lokale Hermes nutzbar ist.
+    # (2) Liegengebliebene tmux-Jobsessions aufraeumen — sie bleiben nach
+    #     Server-Neustart/Absturz als tote, in Termux rot durchgestrichene
+    #     Eintraege stehen und mussten manuell geschlossen werden
+    #     (Wunsch Sebastian 2026-09-15).
     try:
-        from app.services.hermes_local import sicherstelle_inbox_daemon
-        if settings.hermes_local_kanal == "aktiv":
+        from app.services.hermes_local import (
+            ist_verfuegbar as hermes_local_ist_verfuegbar,
+            raeume_alte_job_sessions_auf,
+            sicherstelle_inbox_daemon,
+        )
+
+        kanal = str(getattr(settings, "hermes_local_kanal", "") or "").strip().lower()
+        if hermes_local_ist_verfuegbar() and kanal in ("", "aktiv"):
             if sicherstelle_inbox_daemon():
                 logger.info("Inbox-Daemon aktiv (Server-Startup).")
             else:
                 logger.warning("Inbox-Daemon beim Startup nicht gestartet.")
+
+        aufgeraeumt = raeume_alte_job_sessions_auf()
+        if aufgeraeumt:
+            logger.info(
+                "tmux-Aufraeumen: %d liegengebliebene Session(s) beendet.", aufgeraeumt
+            )
     except Exception as e:
-        logger.warning("Inbox-Daemon-Startup-Check fehlgeschlagen: %s", e)
+        logger.warning("Track-C-Startup-Check fehlgeschlagen: %s", e)
 
     # Datenhygiene: zurueckgebliebene 'laeuft'-Auftraege aus einem frueheren
     # Serverleben schliessen. Ihre Worker-Threads sind mit dem alten Prozess

@@ -612,6 +612,71 @@ def beende_lokale_session(name: str) -> bool:
         return False
 
 
+# ── Aufräumen liegengebliebener tmux-Sessions ────────────────────────────────
+# Eigene Job-Sessions heissen 'hermes_agent_<ms>_<n>' und werden normal beendet,
+# sobald der Auftrag fertig ist (beende() im finally). Stirbt der Server vorher
+# (Neustart, Absturz, Akku leer) oder bricht der Nutzer hart ab, bleiben sie als
+# tote, in Termux rot/durchgestrichene Einträge stehen — Sebastian musste sie
+# einzeln manuell schliessen (Wunsch 2026-09-15: automatisch aufräumen).
+_JOB_SESSION_PREFIX = "hermes_agent_"
+
+
+def _soll_beendet_werden(name: str, geschuetzt: Optional[set] = None) -> bool:
+    """True, wenn `name` eine liegengebliebene Job-Session ist.
+
+    Geschützt bleiben: die konfigurierte persistente Session
+    (HERMES_LOCAL_SESSION), 'hermes_termux'/'hermes_code' (Andock-Ziele) und
+    alles, was nicht unserem Job-Muster entspricht (fremde Sessions gehören
+    dem Nutzer und werden NIE angefasst).
+    """
+    if not name:
+        return False
+    if not name.startswith(_JOB_SESSION_PREFIX):
+        return False
+    return name not in (geschuetzt or set())
+
+
+def raeume_alte_job_sessions_auf() -> int:
+    """Beendet liegengebliebene Job-Sessions aus früheren Serverleben.
+
+    Returns: Anzahl der beendeten Sessions (0, wenn tmux fehlt/nichts liegt).
+    """
+    if not ist_verfuegbar():
+        return 0
+    try:
+        from app.config import settings
+    except Exception:  # pragma: no cover
+        settings = None  # type: ignore[assignment]
+
+    geschuetzt = {"hermes_termux", "hermes_code"}
+    if settings is not None:
+        konfiguriert = str(getattr(settings, "hermes_local_session", "") or "").strip()
+        if konfiguriert:
+            geschuetzt.add(konfiguriert)
+
+    try:
+        r = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"],
+                           capture_output=True, text=True, timeout=8)
+        if r.returncode != 0:
+            return 0  # kein tmux-Server / keine Sessions
+        namen = [z.strip() for z in (r.stdout or "").splitlines() if z.strip()]
+    except Exception:  # pragma: no cover
+        return 0
+
+    beendet = 0
+    for name in namen:
+        if not _soll_beendet_werden(name, geschuetzt):
+            continue
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", name],
+                           capture_output=True, timeout=8)
+            beendet += 1
+            logger.info("Liegengebliebene tmux-Session beendet: %s", name)
+        except Exception:  # pragma: no cover
+            pass
+    return beendet
+
+
 def stream_auftrag_query(
     auftrag_id: str, auftrag_text: str, timeout: Optional[int] = None,
     kontext: str = "",
