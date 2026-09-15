@@ -889,20 +889,35 @@ _KEINE_NICHT_ROLLE_WORTE = {
 def _baue_kontext(frage: str, conversation_id: Optional[str] = None) -> str:
     """Baut das kompakte Kontext-Paket für die Hermes-Delegation (Variante C).
 
-    Nimmt die letzten max. 6 Chat-Nachrichten der AKTUELLEN Conversation (die,
-    aus der geschrieben wird - conv_main ODER conv_code) + die 3 relevantesten
-    Erinnerungen und kuerzt sie auf eine handliche Textmenge. So weiss Hermes,
-    worum es im Gespraech geht, ohne dass der Prompt explodiert.
+    Nimmt die letzten Chat-Nachrichten der AKTUELLEN Conversation (die, aus der
+    geschrieben wird - conv_main ODER conv_code) + die 3 relevantesten
+    Erinnerungen und kuerzt sie auf eine handliche Textmenge.
+
+    ZWEI GROESSEN, je Kanal (Stand 2026-09-15, Wunsch Sebastian: „die
+    Gespräche müssen weitergeführt werden"):
+      * Coding-Chat (conv_code): bis zu 12 Runden, je bis 1200 Zeichen,
+        Gesamtdeckel 7000 Zeichen.
+      * Haupt-Chat (conv_main): unveraendert knapp (3 Runden x 400).
+
+    WARUM das fuer den Coding-Chat so wichtig ist: Jeder Auftrag dort ist ein
+    FRISCHER ``hermes chat -q``-Prozess (Inbox-Daemon) — Hermes hat ueber
+    Auftraege hinweg KEIN eigenes Sitzungsgedaechtnis. Die Kontinuitaet eines
+    Arbeitsfadens entsteht ausschliesslich hier im Kontextpaket. Mit 3 x 400
+    riss der Faden bei Coding-Aufgaben regelmaessig (welche Datei? welche
+    Entscheidung? welcher naechste Schritt?).
     """
     konv_id = _get_or_create_conversation(conversation_id)
     hist = conversations.get(konv_id, [])
     teile: List[str] = []
+    # Groesse je Kanal: der Coding-Chat braucht den laengeren Faden.
+    _ist_coding = (conversation_id or "").strip() == "conv_code"
+    max_runden = 12 if _ist_coding else 3
+    max_zeichen = 1200 if _ist_coding else 400
+    deckel = 7000 if _ist_coding else 1600
     # Nur ECHTE, relevante Nachrichten als Kontext - kein alter Feed-Wildwuchs
     # (viele Hermes-Status-/Duplikat-Eintraege machen den Kontext sonst zu einem
     # 'ausgespuckten alten Stand'). Statuszeilen mit Zeitstempel-Präfix und
-    # direkte Duplikate werden ausgefiltert; es bleiben die letzten ~3 konkrete
-    # Runden (aktuelle Aufgabe + Antwort), damit Hermes NUR die neuen Gedanken
-    # in kleiner/menschlicher Geschwindigkeit sieht.
+    # direkte Duplikate werden ausgefiltert.
     relevante = []
     for m in reversed(hist):
         rolle = m.get("role", "?")
@@ -916,11 +931,11 @@ def _baue_kontext(frage: str, conversation_id: Optional[str] = None) -> str:
         if relevante and relevante[-1][0] == rolle and relevante[-1][1] == inhalt:
             continue
         relevante.append((rolle, inhalt))
-        if len(relevante) >= 3:
+        if len(relevante) >= max_runden:
             break
     for rolle, inhalt in reversed(relevante):
-        if len(inhalt) > 400:
-            inhalt = inhalt[:400] + "…"
+        if len(inhalt) > max_zeichen:
+            inhalt = inhalt[:max_zeichen] + "…"
         teile.append(f"{rolle}: {inhalt}")
     # Relevante Erinnerungen (semantisch zur Frage).
     try:
@@ -933,7 +948,12 @@ def _baue_kontext(frage: str, conversation_id: Optional[str] = None) -> str:
         pass  # Kontext ist Bonus — nie die Delegation deswegen brechen.
     if not teile:
         return ""
-    return "\n".join(teile)
+    text = "\n".join(teile)
+    if len(text) > deckel:
+        # Vorne kuerzen, hinten vollstaendig: fuer den Faden zaehlt das NEUESTE
+        # (die Erinnerungen stehen hinten und bleiben so erhalten).
+        text = "…\n" + text[-deckel:]
+    return text
 
 
 # ── Archiv-Tool über Sprache ────────────────────────────────────────────

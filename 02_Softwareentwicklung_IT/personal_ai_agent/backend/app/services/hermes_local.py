@@ -80,6 +80,71 @@ def _auftrag_idle() -> int:
         wert = 0
     return wert if wert > 0 else 420
 
+
+def _warteschlange_davor(auft_Pfad: str, ant_Pfad: str, auftrag_id: str) -> int:
+    """Zahl der noch unbeantworteten Auftraege VOR diesem in der Inbox-Schlange.
+
+    Der Inbox-Daemon arbeitet die Auftraege streng NACHEINANDER ab
+    (`for auftrag in neue: _beantworte(auftrag)`) — ein zweiter Auftrag wartet
+    also, bis der erste fertig ist. Bisher war das unsichtbar: das Frontend
+    zeigte nur „🔁 uebernommen … bearbeitet", der Nutzer wartete ohne zu
+    wissen, worauf (Sebastian 2026-09-15: „reagiert nicht / haengt").
+
+    Gezaehlt werden Auftraege, die in `auftraege.jsonl` VOR dem eigenen stehen
+    und noch keine Antwort in `antworten.jsonl` haben. 0 = wir sind dran.
+    Fehler/fehlende Dateien ergeben 0 (nie die Auslieferung brechen).
+    """
+    import json as _json
+    if not auft_Pfad or not os.path.exists(auft_Pfad):
+        return 0
+    beantwortet = set()
+    try:
+        if os.path.exists(ant_Pfad):
+            with open(ant_Pfad, encoding="utf-8") as f:
+                for zeile in f:
+                    z = zeile.strip()
+                    if not z:
+                        continue
+                    try:
+                        beantwortet.add(_json.loads(z).get("auftrag_id"))
+                    except Exception:
+                        continue
+    except Exception:
+        return 0
+    anzahl = 0
+    gefunden = False
+    try:
+        with open(auft_Pfad, encoding="utf-8") as f:
+            for zeile in f:
+                z = zeile.strip()
+                if not z:
+                    continue
+                try:
+                    aid = _json.loads(z).get("auftrag_id")
+                except Exception:
+                    continue
+                if aid == auftrag_id:
+                    gefunden = True
+                    break
+                if aid and aid not in beantwortet:
+                    anzahl += 1
+    except Exception:
+        return 0
+    return anzahl if gefunden else 0
+
+
+def _warteschlange_text(davor: int) -> str:
+    """Ehrliche Warteschlangen-Meldung fuer den Chat (nie still warten)."""
+    if davor <= 0:
+        return ("🔧 Jetzt dran — Hermes bearbeitet deine Nachricht…")
+    if davor == 1:
+        return ("🕒 Warteschlange: noch 1 Auftrag davor. Hermes arbeitet die "
+                "Auftraege nacheinander ab — deine Nachricht kommt gleich "
+                "danach (kein Haenger).")
+    return (f"🕒 Warteschlange: noch {davor} Auftraege davor. Hermes arbeitet "
+            "sie nacheinander ab — deine Nachricht kommt danach (kein Haenger).")
+
+
 # tmux-Pane-Groesse. Der Hermes-TUI braucht etwas Breite, sonst bricht er
 # Zeilen um und die Gedanken-Boxen werden unleserlich zerteilt.
 _TMUX_WIDTH = 240
@@ -640,9 +705,15 @@ def stream_auftrag_aktiv(
 
         # Sofortige Zwischenmeldung (schnelle Rueckmeldung "was der Daemon tut"):
         # Der Daemon erhaelt den Auftrag im naechsten Poll und schreibt in
-        # status.jsonl. Hier einmal pro Auftrag einen "uebernommen"-Hinweis
-        # ausgeben, damit der Aufrufer sofort weiss, dass es laeuft.
-        yield {"art": "gedanke", "text": "🔁 Hermes uebernimmt die Nachricht (Inbox/Kanal aktiv) – bearbeitet…"}
+        # status.jsonl. Hier einmal pro Auftrag einen Hinweis ausgeben, damit
+        # der Aufrufer sofort weiss, dass es laeuft — und WIE LANGE noch:
+        # Der Daemon arbeitet die Auftraege streng nacheinander ab, ein
+        # zweiter Auftrag wartet also. Ohne diese Zahl war das ein blankes
+        # "reagiert nicht" (Wunsch Sebastian 2026-09-15).
+        _davor = _warteschlange_davor(auft_Pfad, ant_Pfad, auftrag_id)
+        yield {"art": "gedanke",
+               "text": _warteschlange_text(_davor) if _davor > 0
+               else "🔁 Hermes uebernimmt die Nachricht (Inbox/Kanal aktiv) – bearbeitet…"}
         # Letzter Daemon-Status (falls vorhanden) als Zwischenmeldung.
         if os.path.exists(status_Pfad):
             try:
@@ -674,7 +745,23 @@ def stream_auftrag_aktiv(
         antwort_gefunden = False
         letzte_aktivitaet = time.time()
         idle_gemeldet = False
+        # Warteschlangen-Position ehrlich nachfuehren: ruckt sie vor, bekommt
+        # der Nutzer im Chat eine neue Meldung ("noch 1 davor" → "Jetzt dran").
+        # Hoechstens alle 3 s pruefen und NUR bei Aenderung melden (kein
+        # Rauschen im Verlauf).
+        _letzte_position = _davor
+        _naechste_positionspruefung = time.time() + 3
         while time.time() - start < timeout:
+            if time.time() >= _naechste_positionspruefung:
+                _naechste_positionspruefung = time.time() + 3
+                _jetzt_davor = _warteschlange_davor(auft_Pfad, ant_Pfad, auftrag_id)
+                if _jetzt_davor != _letzte_position:
+                    _letzte_position = _jetzt_davor
+                    # Lebenszeichen: Ruhe-Uhr zurueck, damit die Idle-Meldung
+                    # nicht direkt danach faelschlich kommt.
+                    letzte_aktivitaet = time.time()
+                    idle_gemeldet = False
+                    yield {"art": "gedanke", "text": _warteschlange_text(_jetzt_davor)}
             # Neue Gedanken aus status.jsonl (vom Daemon zeilenweise geschrieben).
             if os.path.exists(status_Pfad):
                 try:
