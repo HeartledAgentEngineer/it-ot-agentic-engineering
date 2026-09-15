@@ -331,38 +331,130 @@ function scrollToBottom(force = false) {
 }
 
 /** Erkennt ein Options-/Auswahl-Menü in einer rohen Hermes-Ausgabe und liefert
- *  { frage, optionen:[{nummer,text}...] } oder null. Wandelt Layout-Pipes in
- *  Zeilen, extrahiert nummerierte Optionen ("1. …", "1) …", "❯ 1. …"). */
+ *  { fragen:[{frage, optionen:[{nummer,text}]}], optionen:[…flach], frage }
+ *  oder null (wenn weniger als 2 Optionen gefunden werden).
+ *
+ *  Wichtig (Wunsch Sebastian 2026-09-15): Eine Ausgabe mit MEHREREN Fragen
+ *  wird in einzelne Frage-Blöcke zerlegt — früher landeten alle Antworten
+ *  flach untereinander und die Fragen waren gar nicht mehr zu sehen (nur der
+ *  Text VOR der ersten Option galt als „Frage"). Regel jetzt: eine Textzeile
+ *  NACH bereits gesehenen Optionen eröffnet die nächste Frage.
+ *  Versteht "1. …", "1) …" und die CLI-Markierung "❯ 1. …"; Layout-Pipes ("|")
+ *  werden vorher zu Zeilenumbrüchen. */
 function parseOptionsMenue(roh) {
     if (!roh || typeof roh !== 'string') return null;
-    const text = roh.replace(/\|/g, '\n');
-    const zeilen = text.split('\n').map(z => z.trim()).filter(Boolean);
-    const ersteOptIdx = zeilen.findIndex(z => /^[❯>\s]*\d+[.)]/.test(z));
-    const frage = ersteOptIdx > 0
-        ? zeilen.slice(0, ersteOptIdx).join(' ').replace(/[❯>]+/g, '').trim()
-        : '';
-    const optionen = [];
+    const zeilen = roh.replace(/\|/g, '\n').split('\n').map(z => z.trim()).filter(Boolean);
+    const bloecke = [];
+    let block = null;
+    const neuerBlock = () => {
+        block = { frage: [], optionen: [] };
+        bloecke.push(block);
+        return block;
+    };
     for (const zeile of zeilen) {
-        const m = zeile.match(/^[❯>\s]*(\d+)[.)]\s*(.+)$/);
-        if (m) optionen.push({ nummer: parseInt(m[1], 10), text: m[2].trim() });
+        const m = zeile.match(/^[❯>»\s]*(\d+)[.)]\s*(.+)$/);
+        if (m) {
+            if (!block) neuerBlock();
+            block.optionen.push({ nummer: parseInt(m[1], 10), text: m[2].trim() });
+            continue;
+        }
+        const text = zeile.replace(/[❯>»]+/g, '').trim();
+        if (!text) continue;
+        // Textzeile nach Optionen = Beginn der nächsten Frage.
+        if (block && block.optionen.length) neuerBlock();
+        if (!block) neuerBlock();
+        block.frage.push(text);
     }
-    if (optionen.length < 2) return null;
-    return { frage, optionen };
+    const fragen = bloecke
+        .map(b => ({ frage: b.frage.join(' ').trim(), optionen: b.optionen }))
+        .filter(b => b.optionen.length > 0);
+    const flach = fragen.reduce((alle, b) => alle.concat(b.optionen), []);
+    if (flach.length < 2) return null;
+    return { fragen, optionen: flach, frage: fragen[0].frage };
+}
+
+/** Klickbarer Durchklick-Assistent für MEHRERE Fragen: erst Frage 1 mit ihren
+ *  Optionen, nach der Wahl Frage 2 usw. — nie alle Antworten untereinander.
+ *  Am Ende geht EINE Nachricht mit allen Antworten (Frage → Wahl) an den
+ *  Agenten, damit er die Zuordnung eindeutig hat. */
+function _bauOptionsAssistent(box, fragen) {
+    const antworten = [];
+    let index = 0;
+    const schritt = document.createElement('div');
+    schritt.style.cssText = 'font-size:0.72rem;color:#9a9a9a';
+    const frageEl = document.createElement('div');
+    frageEl.style.cssText = 'font-weight:600;margin-bottom:2px';
+    const liste = document.createElement('div');
+    liste.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+    const stand = document.createElement('div');
+    stand.style.cssText = 'font-size:0.75rem;color:#7aaa;white-space:pre-line';
+    box.appendChild(schritt);
+    box.appendChild(frageEl);
+    box.appendChild(liste);
+    box.appendChild(stand);
+
+    function zeichne() {
+        const f = fragen[index];
+        schritt.textContent = `Frage ${index + 1} von ${fragen.length}`;
+        // Die Frage steht IMMER sichtbar über ihren Antworten.
+        frageEl.textContent = f.frage || '(ohne Fragentext)';
+        liste.innerHTML = '';
+        f.optionen.forEach((opt, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'option-button';
+            btn.textContent = `${i + 1}. ${opt.text}`;
+            btn.style.cssText =
+                'text-align:left;padding:8px 10px;border:1px solid #3a3a3a;border-radius:8px;' +
+                'background:#1e1e1e;color:inherit;cursor:pointer;font-size:0.85rem';
+            btn.addEventListener('click', () => waehlen(opt));
+            liste.appendChild(btn);
+        });
+        stand.textContent = antworten.map((a, i) => `✓ ${i + 1}. ${a.text}`).join('\n');
+    }
+    function waehlen(opt) {
+        antworten.push({ frage: fragen[index].frage, text: opt.text });
+        if (index + 1 < fragen.length) {
+            index++;
+            zeichne();
+            return;
+        }
+        sende();
+    }
+    function sende() {
+        liste.innerHTML = '';
+        schritt.textContent = 'Beantwortet';
+        frageEl.textContent = 'Alle Fragen beantwortet — Antworten werden gesendet …';
+        stand.textContent = antworten.map((a, i) => `✓ ${i + 1}. ${a.text}`).join('\n');
+        const text = 'Meine Antworten:\n' + antworten
+            .map((a, i) => `${i + 1}) ${a.frage ? a.frage + ' → ' : ''}${a.text}`)
+            .join('\n');
+        // Nur EINE Nachricht am Ende: der Agent sieht Antwort UND zugehörige Frage.
+        if (typeof sendMessage === 'function') sendMessage(text);
+    }
+    zeichne();
+    return box;
 }
 
 /** Baut klickbare Options-Buttons für ein erkanntes Auswahl-Menü. Klick sendet
- *  die gewählte Option als Nachricht an den Agenten (nicht den rohen String). */
+ *  die gewählte Option als Nachricht an den Agenten (nicht den rohen String).
+ *  Bei nur EINER Frage: Frage + Optionen direkt. Bei mehreren Fragen greift der
+ *  Durchklick-Assistent (Fragen nacheinander, nie alle Antworten untereinander). */
 function bauOptionsUi(menu) {
     const box = document.createElement('div');
     box.className = 'options-menu';
     box.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:4px';
-    if (menu.frage) {
+    const fragen = (menu && menu.fragen && menu.fragen.length)
+        ? menu.fragen
+        : [{ frage: (menu && menu.frage) || '', optionen: (menu && menu.optionen) || [] }];
+    if (fragen.length > 1) return _bauOptionsAssistent(box, fragen);
+    const menuEinfach = { frage: fragen[0].frage, optionen: fragen[0].optionen };
+    if (menuEinfach.frage) {
         const f = document.createElement('div');
         f.style.cssText = 'font-weight:600;margin-bottom:4px';
-        f.textContent = menu.frage;
+        f.textContent = menuEinfach.frage;
         box.appendChild(f);
     }
-    menu.optionen.forEach(opt => {
+    menuEinfach.optionen.forEach(opt => {
         const btn = document.createElement('button');
         btn.className = 'option-button';
         btn.textContent = `${opt.nummer}. ${opt.text}`;

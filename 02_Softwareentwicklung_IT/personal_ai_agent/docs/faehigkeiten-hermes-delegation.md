@@ -38,10 +38,19 @@ Bei hochgeladenen Dateien wird NICHT delegiert (Upload = Verständnis/Analyse).
 Rohe Auswahl-Menüs aus Hermes (z. B. `| frage | | 1. … | 2. … |`) werden als
 **klickbare Option-Buttons** gerendert statt als Rohtext:
 
-- `parseOptionsMenue(text)` — erkennt nummerierte Optionen und extrahiert
-  Frage + Optionen (Wortgrenzen, Pipes → Zeilen).
-- `bauOptionsUi(menu)` — baut die klickbaren Buttons; Klick sendet die gewählte
-  Option an den Agenten.
+- `parseOptionsMenue(text)` — zerlegt die Ausgabe in **Frage-Blöcke**
+  (`{fragen:[{frage, optionen}], optionen, frage}`); „1. …“, „1) …“ und
+  „❯ 1. …“ werden erkannt, Pipes → Zeilen. Eine Textzeile NACH bereits
+  gesehenen Optionen eröffnet die NÄCHSTE Frage — so bleibt jede Antwort bei
+  ihrer Frage (früher wurde alles zu einer flachen Liste und die Fragen waren
+  unsichtbar).
+- `bauOptionsUi(menu)` — eine Frage: Frage + Buttons, Klick sendet die Option.
+  Mehrere Fragen: **Durchklick-Assistent** `_bauOptionsAssistent(box, fragen)`
+  — es wird immer NUR „Frage i von N“ mit ihren Optionen gezeigt; nach der Wahl
+  kommt die nächste Frage. Erst am Ende geht EINE Nachricht mit allen Antworten
+  („Frage → Wahl“) an den Agenten.
+- Test: `frontend/tests/test_options_assistent.js` (echte Funktionen aus
+  `app.js` in Node, mit DOM-Stub; Kontrolllauf gegen den ALT-Stand rot).
 
 ## Tests
 
