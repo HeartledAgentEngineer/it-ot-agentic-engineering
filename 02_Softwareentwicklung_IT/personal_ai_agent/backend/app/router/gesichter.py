@@ -150,6 +150,53 @@ def referenzen_liste():
     return gesichter_service.referenzen_auflisten()
 
 
+class ReferenzBboxBody(BaseModel):
+    """Neuer Gesichts-Rahmen EINER Referenz (Round-Trip aus dem Katalog)."""
+    bbox: list = []
+    bbox_norm: list = []
+    # Optional wird der Rahmen auch als neues Embedding eingebettet (empfohlen:
+    # dann passt die Erkennung zum sichtbaren Ausschnitt).
+    embedding_erneuern: bool = True
+
+
+@router.post("/referenzen/{name}/{ref_id}/bbox")
+def referenz_bbox_aendern(name: str, ref_id: str, body: ReferenzBboxBody):
+    """Passt den Rahmen einer Referenz an (Katalog -> Bild -> Rahmen -> speichern).
+
+    Deterministisch + wiederholbar: die Referenz behaelt ihre STABILE ref_id,
+    alle anderen Referenzen der Person bleiben erhalten (keine Dublette).
+    """
+    if not body.bbox or len(body.bbox) < 4:
+        raise HTTPException(status_code=400, detail="kein Rahmen (bbox) angegeben")
+
+    # Referenz + Ursprungsbild holen (fuer neues Embedding aus dem Ausschnitt).
+    name_l, rid = (name or "").strip().lower(), (ref_id or "").strip()
+    p = gesichter_service.person_finden(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Person '{name}' nicht gefunden")
+    eintrag = next((e for e in gesichter_service.referenzen_auflisten().get("personen", [])
+                    if (e.get("name") or "").strip().lower() == name_l), None)
+    if eintrag is None:
+        raise HTTPException(status_code=404, detail=f"Person '{name}' nicht gefunden")
+    ziel = next((e for e in eintrag.get("referenzen", []) if e.get("ref_id") == rid), None)
+    if ziel is None:
+        raise HTTPException(status_code=404, detail="Referenz nicht gefunden")
+
+    embedding = None
+    if body.embedding_erneuern:
+        from app.services import face_service
+        bild_pfad = ziel.get("bild_pfad") or ""
+        if bild_pfad and face_service.verfuegbar():
+            embedding = face_service.embedding_fuer_bbox(bild_pfad, body.bbox)
+
+    res = gesichter_service.referenz_bbox_aktualisieren(
+        name, ref_id, body.bbox, embedding=embedding,
+        bbox_norm=body.bbox_norm or None)
+    if not res.get("ok"):
+        raise HTTPException(status_code=404, detail=res.get("fehler", "nicht gefunden"))
+    return res
+
+
 @router.delete("/referenzen/{name}/{ref_id}")
 def referenz_loeschen(name: str, ref_id: str):
     """Loescht genau eine Referenz einer Person (Referenz-Check)."""

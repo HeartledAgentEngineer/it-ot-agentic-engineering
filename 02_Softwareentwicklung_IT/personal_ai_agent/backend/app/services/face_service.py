@@ -45,14 +45,27 @@ _SCHWELLE_JA = 0.45
 _SCHWELLE_UNSICHER = 0.58
 
 # Einmal gecacht: pruefen, ob die Face-Engine ueberhaupt verfuegbar ist.
+# WICHTIG (Fix 2026-09-15): Ein NEGATIVES Ergebnis darf NICHT fuer die gesamte
+# Prozess-Laufzeit kleben. Sonst blieb das Quiz nach einem Backend-Start, bei dem
+# die Debian/proot-Engine noch nicht bereit war, dauerhaft "blind" (jede Analyse
+# 0 Gesichter -> Bilder wurden still uebersprungen) — genau das "mal so, mal so".
+# Positive Ergebnisse werden weiter dauerhaft gecacht, negative nur fuer
+# _VERFUEGBAR_TTL_S und danach neu geprueft.
 _verfuegbar_cache: Optional[bool] = None
+_verfuegbar_ts: float = 0.0
+_VERFUEGBAR_TTL_S = 60.0
 
 
 def verfuegbar() -> bool:
     """True, wenn die Debian-Face-Engine antwortet (embeddings moeglich)."""
-    global _verfuegbar_cache
+    global _verfuegbar_cache, _verfuegbar_ts
+    jetzt = time.time()
     if _verfuegbar_cache is not None:
-        return _verfuegbar_cache
+        if _verfuegbar_cache:
+            return True
+        # Negativ-Ergebnis nur kurz cachen -> Engine kann ohne Neustart zurueckkommen.
+        if (jetzt - _verfuegbar_ts) < _VERFUEGBAR_TTL_S:
+            return False
     try:
         r = subprocess.run(
             _COMMAND + ["-c", ""],
@@ -66,6 +79,7 @@ def verfuegbar() -> bool:
     except Exception as e:
         logger.warning("Face-Engine (Debian) nicht verfuegbar: %s", e)
         _verfuegbar_cache = False
+    _verfuegbar_ts = jetzt
     if not _verfuegbar_cache:
         logger.info("Gesichts-Embedding-Erkennung deaktiviert (kein Debian/proot).")
     return _verfuegbar_cache

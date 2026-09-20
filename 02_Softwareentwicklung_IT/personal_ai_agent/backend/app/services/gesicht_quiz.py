@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 LIEBLINGS_ORDNER = "/sdcard/DCIM/Lieblingsbilder"
 
 
+def _gesichter_robust(bild_pfad: str) -> list:
+    """Gesichts-Erkennung mit einem Wiederholungsversuch (Fix 2026-09-15).
+
+    Die YuNet-Detektion ist auf Termux/proot bewusst wechselhaft: Ein Lauf kann
+    0 Gesichter liefern, obwohl das Bild garantiert eins hat. Genau das machte
+    das Quiz "mal so, mal so": eine Antwort ("Ja, das ist X") schlug sporadisch
+    mit 'kein Gesicht im Bild erkannt' fehl, das Bild wurde NICHT als gesehen
+    markiert und die Zuordnung startete beim naechsten Durchlauf von vorne.
+    Deshalb: bei leerem Ergebnis EINEN zweiten Lauf versuchen.
+    """
+    from app.services import face_service
+    gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+    if not gesichter:
+        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+    return gesichter
+
+
 def _alle_bilder():
     if not os.path.isdir(LIEBLINGS_ORDNER):
         return []
@@ -150,12 +167,17 @@ def _optionen_sortiert(bild_pfad):
             return []
 
 
-def _hypothese(bild_pfad):
+def _hypothese(bild_pfad, gesichter=None):
     """Stellt eine ML-Vermutung auf: welcher Katalog-Person das dominanteste
     Gesicht des Bildes am naechsten liegt (SFace-Cosinus) und wie sicher.
 
     Returns dict {person, sicherheit(hoch/mittel/niedrig|None), distanz} oder
     {person: None} wenn kein Gesicht/kein Katalog/kein plausibler Treffer.
+
+    `gesichter` kann VON AUSSEN uebergeben werden (die bereits berechnete
+    Detektion). Dann entfaellt der zweite, unabhaengige Detektionslauf — der auf
+    Termux sporadisch 0 Gesichter liefert und damit dieselbe Frage "mal mit
+    Vermutung, mal ohne" beantwortete (Fix 2026-09-15).
     """
     try:
         from app.services import face_service, gesichter_service
@@ -164,7 +186,8 @@ def _hypothese(bild_pfad):
         katalog = gesichter_service.liste_personen()
         if not katalog:
             return {"person": None}
-        gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
+        if gesichter is None:
+            gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
         if not gesichter:
             return {"person": None}
         dom = _dominantes_gesicht(gesichter)
@@ -300,34 +323,219 @@ def _erkannte_personen_bildes(bild_pfad, gesichter=None):
 
 
 def _fortschritt_pfad():
+    """Pfad der Fortschritts-Datei.
+
+    `_FORTSCHRITT_OVERRIDE` erlaubt Tests, auf ein tmp_path umzubiegen — der
+    ECHTE Stand (quiz_fortschritt.json, enthaelt Sebastians Quiz-Reihenfolge)
+    wird von Tests nie angefasst.
+    """
+    if _FORTSCHRITT_OVERRIDE:
+        return str(_FORTSCHRITT_OVERRIDE)
     from app.config import BASE_DIR
     return str(BASE_DIR / "quiz_fortschritt.json")
 
 
+# Nie in Produktion gesetzt; nur Tests biegen den Fortschritt damit um.
+_FORTSCHRITT_OVERRIDE = None
+
+
+def _region_schluessel(bbox_norm) -> str:
+    """Stabile Kennung einer GESICHTS-REGION aus der normalisierten bbox.
+
+    Auf 1 % gerundet, damit minimale Zitter-Beträge derselben Region nicht als
+    zwei verschiedene Regionen gelten. Grundlage der Regel "dieselbe Region
+    fuer dieselbe Person ist bereits bestaetigt -> nicht erneut fragen"
+    (Fix 2026-09-15).
+    """
+    try:
+        if not bbox_norm or len(bbox_norm) < 4:
+            return ""
+        return ",".join(f"{round(float(v), 2):.2f}" for v in bbox_norm[:4])
+    except (TypeError, ValueError):
+        return ""
+
+
+def _bestaetigte_eintraege(bild_pfad: str) -> list:
+    """Roh-Eintraege {person, region} der Bestaetigungs-Markierung eines Bildes.
+
+    Kompatibel zu beiden Schemata der Datei: aeltere Eintraege sind reine
+    Namens-Strings, neuere {person, region}-Dicts.
+    """
+    if not bild_pfad:
+        return []
+    roh = (_fortschritt_daten().get("bestaetigt") or {}).get(bild_pfad) or []
+    out = []
+    for e in roh:
+        if isinstance(e, str) and e:
+            out.append({"person": e, "region": ""})
+        elif isinstance(e, dict) and e.get("person"):
+            out.append({"person": str(e.get("person")),
+                        "region": str(e.get("region") or "")})
+    return out
+
+
 def _fortschritt_laden():
+    """Liste der bereits durchgespielten Bildpfade (persistent)."""
+    g = _fortschritt_daten().get("gesehen", [])
+    return [x for x in g if isinstance(x, str)] if isinstance(g, list) else []
+
+
+def _fortschritt_roh_speichern(daten: dict) -> None:
+    """Schreibt den Fortschritt atomar (gesehen + bestaetigt)."""
+    try:
+        import json as _j, time as _t
+        p = _fortschritt_pfad()
+        tmp = p + ".tmp"
+        gesehen = [x for x in (daten.get("gesehen") or []) if isinstance(x, str)]
+        best = daten.get("bestaetigt") if isinstance(daten.get("bestaetigt"), dict) else {}
+        # Nur die letzten 500 Bilder behalten, damit die Datei kompakt bleibt.
+        kurz = {k: v for k, v in list(best.items())[-500:]}
+        with open(tmp, "w", encoding="utf-8") as f:
+            _j.dump({"gesehen": gesehen[-2000:], "bestaetigt": kurz,
+                     "aktualisiert": _t.strftime("%Y-%m-%dT%H:%M:%S")}, f, ensure_ascii=False)
+        os.replace(tmp, p)
+    except Exception as e:
+        logger.warning("Quiz-Fortschritt speichern fehlgeschlagen: %s", e)
+
+
+def _fortschritt_speichern(gesehen):
+    d = _fortschritt_daten()
+    d["gesehen"] = [x for x in (gesehen or []) if isinstance(x, str)]
+    _fortschritt_roh_speichern(d)
+
+
+def _bbox_zu_norm(bbox, bild_pfad):
+    """bbox [x,y,w,h] in nativen Pixeln -> normalisiert [0..1] relativ zum Bild.
+
+    Wird je Referenz mitgespeichert, damit der Rahmen im Frontend unabhaengig von
+    Anzeigegroesse/Zoom/Drehung exakt am Gesicht sitzt (Befund Sebastian
+    2026-09-15). None, wenn die Bildgroesse nicht ermittelbar ist.
+    """
+    try:
+        if not bbox or len(bbox) < 4:
+            return None
+        from PIL import Image, ImageOps
+        with Image.open(bild_pfad) as img:
+            gedreht = ImageOps.exif_transpose(img)   # wie das angezeigte Bild
+            iw, ih = gedreht.size
+        if not iw or not ih:
+            return None
+        return [round(float(bbox[0]) / iw, 6), round(float(bbox[1]) / ih, 6),
+                round(float(bbox[2]) / iw, 6), round(float(bbox[3]) / ih, 6)]
+    except Exception:
+        return None
+
+
+def _fortschritt_daten() -> dict:
+    """Vollstaendiger Fortschritt {gesehen: [...], bestaetigt: {pfad: [namen]}}."""
     try:
         import json as _j
         p = _fortschritt_pfad()
         if os.path.exists(p):
             with open(p, encoding="utf-8") as f:
                 d = _j.load(f)
-            g = d.get("gesehen", []) if isinstance(d, dict) else []
-            return [x for x in g if isinstance(x, str)]
+            if isinstance(d, dict):
+                d.setdefault("gesehen", [])
+                d.setdefault("bestaetigt", {})
+                return d
     except Exception as e:
         logger.warning("Quiz-Fortschritt laden fehlgeschlagen: %s", e)
-    return []
+    return {"gesehen": [], "bestaetigt": {}}
 
 
-def _fortschritt_speichern(gesehen):
+def _bestaetigte_gesichter(bild_pfad: str) -> list:
+    """Namen, die fuer DIESES Bild bereits bestaetigt wurden (dedupliziert).
+
+    Deterministische Fortschritts-Regel (Fix 2026-09-15, Repro Sebastian):
+    Beim Speichern/Abschluss darf NICHT von vorne durch alle Gesichter gelaufen
+    werden. Was hier steht, wird nicht erneut abgefragt.
+    """
+    out = []
+    for e in _bestaetigte_eintraege(bild_pfad):
+        n = e.get("person")
+        if isinstance(n, str) and n and n not in out:
+            out.append(n)
+    return out
+
+
+def _bestaetigte_regionen(bild_pfad: str) -> list:
+    """Bereits bestaetigte GESICHTS-REGIONEN eines Bildes.
+
+    Zwei Quellen, deterministisch zusammengefuehrt:
+      1) die ausdrueckliche Markierung in `quiz_fortschritt.json`
+         (`bestaetigt`: {bild_pfad: [{person, region}]}), gesetzt durch
+         _bestaetigung_merken bei jeder bestaetigten Zuordnung.
+      2) der KATALOG: jede Referenz, die aus DIESEM Ursprungsbild stammt,
+         traegt Person + Bild + Region (bbox_norm) — also eine real
+         gespeicherte Bestaetigung. Damit ueberlebt die Regel auch einen
+         geloeschten Fortschritt (Bild bleibt trotzdem nicht offen).
+
+    Liefert [{person, region, bbox, bbox_norm, ref_id}].
+    """
+    if not bild_pfad:
+        return []
+    out, gesehen = [], set()
+    for e in _bestaetigte_eintraege(bild_pfad):
+        schluessel = ((e.get("person") or "").strip().lower(), e.get("region") or "")
+        if schluessel in gesehen:
+            continue
+        gesehen.add(schluessel)
+        out.append({"person": e.get("person"), "region": e.get("region") or "",
+                    "bbox": [], "bbox_norm": [], "ref_id": ""})
     try:
-        import json as _j, time as _t
-        p = _fortschritt_pfad()
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            _j.dump({"gesehen": gesehen[-2000:], "aktualisiert": _t.strftime("%Y-%m-%dT%H:%M:%S")}, f, ensure_ascii=False)
-        os.replace(tmp, p)
+        from app.services import gesichter_service
+        for r in gesichter_service.referenzen_zu_bild(bild_pfad):
+            norm = r.get("bbox_norm") or []
+            region = _region_schluessel(norm)
+            schluessel = ((r.get("person") or "").strip().lower(), region)
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+            out.append({"person": r.get("person"), "region": region,
+                        "bbox": r.get("bbox") or [], "bbox_norm": norm,
+                        "ref_id": r.get("ref_id") or ""})
+    except Exception:
+        pass
+    return out
+
+
+def _ist_bestaetigt(bild_pfad: str, person: str, region: str = "") -> bool:
+    """True, wenn (Person[, Region]) fuer dieses Bild schon bestaetigt ist.
+
+    Ohne Region zaehlt die Person insgesamt (aeltere Markierungen ohne Region).
+    """
+    ziel = (person or "").strip().lower()
+    if not bild_pfad or not ziel:
+        return False
+    for e in _bestaetigte_regionen(bild_pfad):
+        if (e.get("person") or "").strip().lower() != ziel:
+            continue
+        if not region or e.get("region") == region:
+            return True
+    return False
+
+
+def _bestaetigung_merken(bild_pfad: str, person: str, region: str = "") -> None:
+    """Merkt (bild_pfad, person[, region]) dauerhaft als bestaetigt."""
+    name = (person or "").strip()
+    if not bild_pfad or not name:
+        return
+    try:
+        d = _fortschritt_daten()
+        best = d.get("bestaetigt")
+        if not isinstance(best, dict):
+            best = {}
+        liste = best.get(bild_pfad)
+        if not isinstance(liste, list):
+            liste = []
+        neu = {"person": name, "region": region or ""} if region else name
+        if neu not in liste:
+            liste.append(neu)
+        best[bild_pfad] = liste
+        d["bestaetigt"] = best
+        _fortschritt_roh_speichern(d)
     except Exception as e:
-        logger.warning("Quiz-Fortschritt speichern fehlgeschlagen: %s", e)
+        logger.warning("Quiz-Bestaetigung merken fehlgeschlagen: %s", e)
 
 
 def markiere_uebersprungen(bild_pfad: str) -> dict:
@@ -468,14 +676,48 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     if not bild_pfad or not os.path.exists(bild_pfad):
         return {"ok": False, "fehler": "Bild nicht gefunden"}
 
-    gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
-    if not gesichter:
-        return {"ok": False, "fehler": "kein Gesicht im Bild erkannt"}
-    dom = _gesicht_zu_bbox(gesichter, bbox)
-    if not dom or not dom.get("embedding"):
-        return {"ok": False, "fehler": "kein brauchbares Gesicht"}
+    # DETERMINISTISCHE BESTAETIGUNGS-REGEL (Fix 2026-09-15, Repro Sebastian
+    # "beim Speichern geht er die Personen nochmal von vorne durch, auch die
+    # schon zugeordneten"): Ist dieselbe Gesichts-Region fuer dieselbe Person
+    # bereits bestaetigt, wird NICHTS erneut eingelernt und die Runde gilt als
+    # abgeschlossen. Das VOR der (teuren) Detektion pruefen.
+    bbox_norm_neu = _bbox_zu_norm(bbox, bild_pfad) if bbox else None
+    region_neu = _region_schluessel(bbox_norm_neu)
+    if region_neu and _ist_bestaetigt(bild_pfad, name, region_neu):
+        vorhanden_jetzt = None
+        for p in gesichter_service.liste_personen():
+            if (p.get("name") or "").strip().lower() == name.lower():
+                vorhanden_jetzt = p
+                break
+        return {"ok": True, "person": name, "ist_neu": False,
+                "bereits_bestaetigt": True, "uebersprungen": True,
+                "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
+                "hinzugefuegt": False, "jahr": None,
+                "bereits_bestaetigt_namen": list(_bestaetigte_gesichter(bild_pfad))}
+
+    # Erkennung robust (ein Wiederholungsversuch) — die Detektion ist auf
+    # Termux wechselhaft; ein leerer Lauf liess die Antwort sonst sporadisch
+    # fehlschlagen und das Bild NICHT als gesehen markieren (Quiz begann von vorn).
+    gesichter = _gesichter_robust(bild_pfad)
+    dom = _gesicht_zu_bbox(gesichter, bbox) if gesichter else None
+    if dom and dom.get("embedding"):
+        neue_emb = dom["embedding"]
+        neue_bbox = dom.get("bbox") or []
+    else:
+        # Fallback: GENAU den (ggf. korrigierten) Rahmen einbetten, den der
+        # Nutzer bestaetigt hat — statt die Antwort zu verwerfen.
+        if not (bbox and len(bbox) >= 4):
+            return {"ok": False, "fehler": "kein Gesicht im Bild erkannt"}
+        if not face_service.verfuegbar():
+            return {"ok": False, "fehler": "Face-Engine nicht verfuegbar"}
+        emb_fallback = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
+        if not emb_fallback:
+            return {"ok": False, "fehler": "kein brauchbares Gesicht"}
+        neue_emb = emb_fallback
+        neue_bbox = [float(v) for v in bbox]
 
     neu = False
+    hinzugefuegt = True
     vorhanden = None
     for p in gesichter_service.liste_personen():
         if (p.get("name") or "").strip().lower() == name.lower():
@@ -489,8 +731,12 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     except Exception:
         jahr = None
 
-    neue_ref = {"embedding": dom["embedding"], "jahr": jahr, "bild_pfad": bild_pfad,
-                "bbox": (dom.get("bbox") or [])}  # Gesichts-Ausschnitt speichern (nachträgliche Rahmengröße)
+    # Gesichts-Ausschnitt als NORMALISIERTE Koordinaten (0..1) mitspeichern,
+    # damit der Rahmen im Frontend unabhaengig von Anzeigegroesse/Zoom/Drehung
+    # exakt am Gesicht sitzt (Befund Sebastian 2026-09-15).
+    neue_ref = {"embedding": neue_emb, "jahr": jahr, "bild_pfad": bild_pfad,
+                "bbox": neue_bbox,
+                "bbox_norm": _bbox_zu_norm(neue_bbox, bild_pfad)}
     if vorhanden is None:
         gesichter_service.person_speichern(name=name, rolle=rolle,
                                            beziehung=beziehung, beschreibung=beschreibung,
@@ -514,9 +760,10 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
                           for r in _refs_als_liste(vorhanden.get("embedding"))]
         bestehende = [r for r in bestehende if isinstance(r, dict) and r.get("embedding")]
         refs_emb = [r["embedding"] for r in bestehende]
-        zu_alt = min((face_service._cosinus_distanz(dom["embedding"], r) for r in refs_emb if r),
+        zu_alt = min((face_service._cosinus_distanz(neue_emb, r) for r in refs_emb if r),
                      default=None)
-        if zu_alt is None or zu_alt > 0.05:
+        hinzugefuegt = zu_alt is None or zu_alt > 0.05
+        if hinzugefuegt:
             bestehende = bestehende + [neue_ref]
             gesichter_service.person_speichern(**basis, referenzen=bestehende)
         referenzen = len(bestehende)
@@ -547,13 +794,19 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     # Nach erfolgreicher Beantwortung das Bild als persistent 'gesehen' markieren
     # (erst jetzt verbraucht, nicht schon beim Anzeigen -> echtes Pausieren).
     try:
+        # Mit REGION: damit ist dieselbe Gesichts-Region fuer dieselbe Person
+        # als bestaetigt markiert und wird nicht erneut abgefragt.
+        region_final = _region_schluessel(_bbox_zu_norm(neue_bbox, bild_pfad))
+        _bestaetigung_merken(bild_pfad, name, region_final)   # deterministische Fortschritts-Regel
         gesehen = _fortschritt_laden()
         if bild_pfad not in gesehen:
             _fortschritt_speichern(gesehen + [bild_pfad])
     except Exception:
         pass
 
-    return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen, "jahr": jahr}
+    return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen,
+            "jahr": jahr, "hinzugefuegt": hinzugefuegt,
+            "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad))}
 
 
 def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
@@ -581,6 +834,20 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
     if not face_service.verfuegbar():
         return {"ok": False, "fehler": "Face-Engine nicht verfügbar"}
 
+    # Dieselbe Region fuer dieselbe Person schon bestaetigt -> nicht erneut
+    # einlernen (idempotent, Fix 2026-09-15).
+    region_neu = _region_schluessel(_bbox_zu_norm(bbox, bild_pfad))
+    if region_neu and _ist_bestaetigt(bild_pfad, name, region_neu):
+        vorhanden_jetzt = None
+        for p in gesichter_service.liste_personen():
+            if (p.get("name") or "").strip().lower() == name.lower():
+                vorhanden_jetzt = p
+                break
+        return {"ok": True, "person": name, "ist_neu": False,
+                "bereits_bestaetigt": True, "uebersprungen": True,
+                "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
+                "jahr": None}
+
     emb = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
     if not emb:
         return {"ok": False,
@@ -600,7 +867,8 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         jahr = None
 
     neue_ref = {"embedding": emb, "jahr": jahr, "bild_pfad": bild_pfad,
-                "bbox": [float(v) for v in bbox]}
+                "bbox": [float(v) for v in bbox],
+                "bbox_norm": _bbox_zu_norm(bbox, bild_pfad)}
     if vorhanden is None:
         gesichter_service.person_speichern(name=name, rolle=rolle,
                                            beziehung=beziehung, beschreibung=beschreibung,
@@ -648,6 +916,8 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         pass
 
     try:
+        region_final = _region_schluessel(_bbox_zu_norm(bbox, bild_pfad))
+        _bestaetigung_merken(bild_pfad, name, region_final)   # deterministische Fortschritts-Regel
         gesehen = _fortschritt_laden()
         if bild_pfad not in gesehen:
             _fortschritt_speichern(gesehen + [bild_pfad])
@@ -655,7 +925,8 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         pass
 
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen,
-            "jahr": jahr}
+            "jahr": jahr, "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad)),
+            "bereits_bestaetigt_regionen": _bestaetigte_regionen(bild_pfad)}
 
 
 def analysiere_bild(bild_pfad: str) -> dict:
@@ -665,28 +936,58 @@ def analysiere_bild(bild_pfad: str) -> dict:
     Lade-Animation darunter, dann Ja/Nein ersetzt die Animation).
 
     Returns dict {anzahl_gesichter, gesichter, vermutung, erkannte_personen,
-    unsichere_personen}.
+    unsichere_personen, engine_verfuegbar}.
+
+    `engine_verfuegbar` (Fix 2026-09-15): Das Frontend darf ein Bild NUR dann
+    automatisch als "gesehen" abhaken, wenn die Engine wirklich gelaufen ist.
+    Ist sie nicht verfuegbar, waeren 0 Gesichter ein Messfehler — und das Bild
+    wuerde dauerhaft (quiz_fortschritt) verbraucht. Deshalb wird der Zustand
+    ehrlich mitgeliefert.
     """
+    leer = {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
+            "erkannte_personen": [], "unsichere_personen": []}
     try:
-        if not bild_pfad or not os.path.exists(bild_pfad):
-            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
-                    "erkannte_personen": [], "unsichere_personen": []}
         from app.services import face_service
+        if not bild_pfad or not os.path.exists(bild_pfad):
+            # Bild fehlt/verschoben -> keine Aussage moeglich; als "Engine nicht
+            # gelaufen" melden, damit das Frontend es nicht verbraucht.
+            return dict(leer, engine_verfuegbar=False)
         if not face_service.verfuegbar():
-            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
-                    "erkannte_personen": [], "unsichere_personen": []}
+            return dict(leer, engine_verfuegbar=False)
         gesichter = face_service.embeddings_fuer_pfad(os.path.abspath(bild_pfad))
         if not gesichter:
-            return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
-                    "erkannte_personen": [], "unsichere_personen": []}
+            return dict(leer, engine_verfuegbar=True)
         _erk = _erkannte_personen_bildes(bild_pfad, gesichter)
+        # Bereits bestaetigte Regionen + Bestaetigungs-Flag JE GESICHT (Fix
+        # 2026-09-15): Das Frontend ueberspringt damit Gesichter, deren Region
+        # schon zugeordnet ist, statt nach "Speichern" alles neu aufzurollen.
+        regionen = _bestaetigte_regionen(bild_pfad)
+        boxen = []
+        for g in _erk.get("gesichter", []):
+            eintrag = dict(g)
+            try:
+                norm = _bbox_zu_norm(g.get("bbox") or [], bild_pfad)
+                reg = _region_schluessel(norm)
+                eintrag["bbox_norm"] = norm or []
+                eintrag["region"] = reg
+                eintrag["bestaetigt"] = sorted({
+                    e.get("person") for e in regionen
+                    if e.get("person") and (not reg or e.get("region") == reg)
+                })
+            except Exception:
+                eintrag["bestaetigt"] = []
+            boxen.append(eintrag)
         return {
             "anzahl_gesichter": _erk.get("anzahl_gesichter", 0),
-            "gesichter": _erk.get("gesichter", []),
-            "vermutung": _hypothese(bild_pfad),
+            "gesichter": boxen,
+            # Dieselbe Detektion wiederverwenden -> kein zweiter, unabhaengiger
+            # Lauf, der die Vermutung sporadisch wegfallen liess.
+            "vermutung": _hypothese(bild_pfad, gesichter),
             "erkannte_personen": _erk.get("erkannte", []),
             "unsichere_personen": _erk.get("unsicher", []),
+            "engine_verfuegbar": True,
+            "bestaetigte_personen": list(_bestaetigte_gesichter(bild_pfad)),
+            "bestaetigte_regionen": regionen,
         }
     except Exception:
-        return {"anzahl_gesichter": 0, "gesichter": [], "vermutung": None,
-                "erkannte_personen": [], "unsichere_personen": []}
+        return dict(leer, engine_verfuegbar=False)

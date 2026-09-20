@@ -141,9 +141,17 @@ def _refs_bereinigen(referenzen: Optional[list]) -> Optional[list]:
                 eintrag["bild_pfad"] = r["bild_pfad"]
             if r.get("bbox"):
                 eintrag["bbox"] = r["bbox"]
+            if r.get("bbox_norm"):
+                eintrag["bbox_norm"] = r["bbox_norm"]
+            # STABILE Referenz-ID wird beim ERSTEN Schreiben vergeben und dann
+            # mitgeschrieben (Fix 2026-09-15). Vorher wurde die ID nur aus dem
+            # Embedding abgeleitet: Beim Anpassen des Rahmens aenderte sich das
+            # Embedding -> neue ID -> dieselbe Referenz erschien als zweite
+            # (Dublette), und ein zweites Speichern lief ins Leere.
+            eintrag["ref_id"] = r.get("ref_id") or _ref_id(r["embedding"])
             out.append(eintrag)
         elif r:  # roher Vektor -> kein jahr
-            out.append({"embedding": r, "jahr": None})
+            out.append({"embedding": r, "jahr": None, "ref_id": _ref_id(r)})
     return out or None
 
 
@@ -218,7 +226,12 @@ def person_speichern(
             "beschreibung": beschreibung.strip(),
             "referenz_bild_pfad": referenz_bild_pfad.strip(),
             "referenz_bild_miniatur": miniature,
-            "embedding": embedding,
+            # Spiegelung wie im Update-Zweig: das Legacy-Feld `embedding` haelt
+            # die Vektoren der Referenzen. Ohne diese Spiegelung hatte eine
+            # frisch angelegte Person KEIN `embedding` — und ein spaeteres
+            # Loeschen einer Referenz haette den Vektor nur halb entfernt.
+            "embedding": ([r["embedding"] for r in (_refs_bereinigen(referenzen) or [])]
+                          if referenzen else embedding),
             "gelernt_am": _utc_iso(),
             "referenzen": _refs_bereinigen(referenzen) if referenzen else None,
         }
@@ -238,21 +251,66 @@ def _ref_id(embedding) -> str:
         return "ref"
 
 
+def _ref_id_von(r: dict) -> str:
+    """ID einer Referenz: bevorzugt das GESPEICHERTE, stabile `ref_id`.
+
+    Ohne das aenderte sich die ID beim Anpassen des Rahmens (neues Embedding),
+    und dieselbe Referenz erschien als zweite (Dublette).
+    """
+    if isinstance(r, dict) and isinstance(r.get("ref_id"), str) and r["ref_id"]:
+        return r["ref_id"]
+    if isinstance(r, dict):
+        return _ref_id(r.get("embedding"))
+    return _ref_id(r)
+
+
 def _refs_of(p: dict) -> list:
-    """Normale Referenz-Liste ({embedding, jahr}) einer Person."""
+    """Normale Referenz-Liste ({embedding, jahr[, bild_pfad][, bbox]}) einer Person.
+
+    WICHTIG (Fix 2026-09-15): `person_speichern` spiegelt jede Referenz doppelt —
+    in `referenzen` UND als Vektorliste in `embedding` (Kompatibilitaet). Ohne
+    Dedup lieferte diese Funktion jeden Vektor ZWEIMAL: die Referenz-Zahl im
+    Katalog verdoppelte sich nach der zweiten Antwort, und `referenz_entfernen`
+    zaehlte/loeschte die Geister-Duplikate mit. Deshalb wird hier ueber die
+    stabile `_ref_id` dedupliziert (Referenzen haben Vorrang, weil sie Jahr/
+    Bild/bbox tragen).
+    """
     refs = []
+    gesehen = set()          # stabile ref_ids
+    gesehen_emb = set()      # Embedding-Hashes (faengt den Spiegel-Datensatz)
+
+    def _nimm(eintrag: dict):
+        rid = _ref_id_von(eintrag)
+        emb_hash = _ref_id(eintrag.get("embedding"))
+        if rid in gesehen or emb_hash in gesehen_emb:
+            return
+        gesehen.add(rid)
+        gesehen_emb.add(emb_hash)
+        refs.append(eintrag)
+
+    # Spiegel-Vektoren aus dem Legacy-Feld `embedding` (Einzel- oder Liste).
+    legacy = []
     e = p.get("embedding")
     if e:
         if isinstance(e[0], (int, float)):
-            refs.append({"embedding": e, "jahr": None})
+            legacy = [e]
         else:
-            refs.extend({"embedding": x, "jahr": None} for x in e if x)
+            legacy = [x for x in e if x]
+    # 1) Echte Referenzen zuerst (tragen jahr/bild_pfad/bbox).
     for r in (p.get("referenzen") or []):
         if isinstance(r, dict) and r.get("embedding"):
             eintrag = {"embedding": r["embedding"], "jahr": r.get("jahr")}
             if r.get("bild_pfad"): eintrag["bild_pfad"] = r["bild_pfad"]
             if r.get("bbox"): eintrag["bbox"] = r["bbox"]
-            refs.append(eintrag)
+            if r.get("bbox_norm"): eintrag["bbox_norm"] = r["bbox_norm"]
+            # Die EFFEKTIVE (stabile) ID wird IMMER mitgefuehrt — auch bei
+            # alten Eintraegen ohne gespeicherte ref_id. Nur so behaelt eine
+            # Referenz beim Anpassen des Rahmens (neues Embedding) ihre ID.
+            eintrag["ref_id"] = _ref_id_von(r)
+            _nimm(eintrag)
+    # 2) Legacy-Vektoren nur ergaenzen, was nicht schon als Referenz vorliegt.
+    for v in legacy:
+        _nimm({"embedding": v, "jahr": None, "ref_id": _ref_id(v)})
     return refs
 
 
@@ -265,11 +323,12 @@ def referenzen_auflisten() -> dict:
         eintraege = []
         for idx, r in enumerate(refs):
             eintraege.append({
-                "ref_id": _ref_id(r.get("embedding")),
+                "ref_id": _ref_id_von(r),
                 "index": idx,
                 "jahr": r.get("jahr"),
                 "bild_pfad": r.get("bild_pfad", ""),   # Ursprungsbild (falls vorhanden)
                 "bbox": r.get("bbox") or [],           # Gesichts-Ausschnitt (nachträglich anpassbar)
+                "bbox_norm": r.get("bbox_norm") or [], # normalisiert (0..1) — Anzeige-Anker
             })
         erg.append({
             "name": p.get("name"),
@@ -279,6 +338,33 @@ def referenzen_auflisten() -> dict:
             "referenzen": eintraege,
         })
     return {"personen": erg}
+
+
+def referenzen_zu_bild(bild_pfad: str) -> list:
+    """Alle Referenzen (personenuebergreifend), die aus DIESEM Ursprungsbild stammen.
+
+    Deterministische Grundlage der Regel "dieselbe Gesichts-Region fuer dieselbe
+    Person ist bereits bestaetigt" (Fix 2026-09-15): Eine gespeicherte Referenz
+    traegt Person + Bild + Region (bbox/bbox_norm) — sie IST der Beleg, dass
+    dieser Ausschnitt schon zugeordnet wurde.
+    Liefert [{person, ref_id, bbox, bbox_norm, jahr}].
+    """
+    ziel = (bild_pfad or "").strip()
+    if not ziel:
+        return []
+    out = []
+    for p in liste_personen():
+        for r in _refs_of(p):
+            if (r.get("bild_pfad") or "").strip() != ziel:
+                continue
+            out.append({
+                "person": p.get("name"),
+                "ref_id": _ref_id_von(r),
+                "bbox": r.get("bbox") or [],
+                "bbox_norm": r.get("bbox_norm") or [],
+                "jahr": r.get("jahr"),
+            })
+    return out
 
 
 def referenz_entfernen(name: str, ref_id: str) -> dict:
@@ -293,15 +379,57 @@ def referenz_entfernen(name: str, ref_id: str) -> dict:
         if p is None:
             return {"ok": False, "fehler": "person nicht gefunden"}
         refs = _refs_of(p)
-        rest = [r for r in refs if _ref_id(r.get("embedding")) != rid]
+        rest = [r for r in refs if _ref_id_von(r) != rid]
         if len(rest) == len(refs):
             return {"ok": False, "fehler": "referenz nicht gefunden"}
-        # aktualisieren: referenzen + embedding konsistent.
-        p["referenzen"] = _refs_bereinigen(rest)
-        emb = _refs_bereinigen(rest)
-        p["embedding"] = [r["embedding"] for r in emb] if emb else None
+        # aktualisieren: referenzen + embedding konsistent (KEINE Rest-Vektoren:
+        # die geloeschte Referenz verschwindet vollstaendig aus dem Katalog).
+        bereinigt = _refs_bereinigen(rest)
+        p["referenzen"] = bereinigt
+        p["embedding"] = [r["embedding"] for r in bereinigt] if bereinigt else None
         _speichern(personen)
         return {"ok": True, "name": p.get("name"), "verbleibend": len(rest)}
+
+
+def referenz_bbox_aktualisieren(name: str, ref_id: str, bbox,
+                                embedding: Optional[list] = None,
+                                bbox_norm: Optional[list] = None) -> dict:
+    """Passt den Gesichts-Rahmen EINER Referenz an (Round-Trip Katalog, Fix 2026-09-15).
+
+    Erwartet: die Referenz wird ueber ihre STABILE `ref_id` gefunden, ihr
+    Embedding (aus dem neuen Ausschnitt) und ihre bbox ersetzt. Alle ANDEREN
+    Referenzen derselben Person bleiben unangetastet, die Person bleibt dieselbe
+    (keine Dublette). Liefert {ok, name, ref_id, verbleibend}.
+    """
+    ziel = ((name or "").strip().lower(), (ref_id or "").strip())
+    if not all(ziel):
+        return {"ok": False, "fehler": "person/ref_id leer"}
+    if not bbox or len(bbox) < 4:
+        return {"ok": False, "fehler": "kein Rahmen (bbox) angegeben"}
+    name_lower, rid = ziel
+    with _sperre:
+        personen = _laden()
+        p = next((x for x in personen if (x.get("name") or "").strip().lower() == name_lower), None)
+        if p is None:
+            return {"ok": False, "fehler": "person nicht gefunden"}
+        refs = _refs_of(p)
+        idx = next((i for i, r in enumerate(refs) if _ref_id_von(r) == rid), None)
+        if idx is None:
+            return {"ok": False, "fehler": "referenz nicht gefunden"}
+        neu = dict(refs[idx])
+        if embedding:
+            neu["embedding"] = embedding
+        neu["bbox"] = [float(v) for v in bbox]
+        if bbox_norm:
+            neu["bbox_norm"] = [float(v) for v in bbox_norm]
+        refs[idx] = neu
+        bereinigt = _refs_bereinigen(refs)
+        p["referenzen"] = bereinigt
+        p["embedding"] = [r["embedding"] for r in bereinigt] if bereinigt else None
+        _speichern(personen)
+        return {"ok": True, "name": p.get("name"), "ref_id": rid,
+                "verbleibend": len(refs), "bbox": neu["bbox"],
+                "bbox_norm": neu.get("bbox_norm") or []}
 
 
 def person_entfernen(name: str) -> bool:

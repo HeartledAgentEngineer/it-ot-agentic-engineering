@@ -2721,6 +2721,30 @@ let _aktuellerQuizPfad = '';   // Bildpfad der aktuellen Runde (fuer Speichern)
 // Offene, noch nicht persistierte Gruppen-Zuordnungen (person je Gesicht). Beim
 // ✕-Beenden werden sie ins Backend geschrieben (Wunsch Sebastian 2026-09-10).
 let _quizOffeneZuordnungen = [];  // [{bild_pfad, person, ist_neu, rolle, bbox}]
+// LOKALE Bestaetigungs-Markierung dieser Sitzung: "bildpfad|region" -> Person.
+// Sie ergaenzt die vom Backend gelieferten `bestaetigt`-Flags (Region je
+// Gesicht) und sorgt dafuer, dass bereits zugeordnete Gesichter NICHT erneut
+// gefragt werden (Fix 2026-09-15: "beim Speichern geht er die Personen nochmal
+// von vorne durch").
+let _quizBestaetigt = {};
+
+/** Schluessel einer Gesichts-Region aus der normalisierten bbox (1 %-Raster). */
+function bboxRegionSchluessel(norm) {
+    if (!norm || norm.length < 4) return '';
+    try {
+        return norm.slice(0, 4).map(v => (Math.round(Number(v) * 100) / 100).toFixed(2)).join(',');
+    } catch (_e) { return ''; }
+}
+
+function merkeBestaetigt(bildPfad, region, person) {
+    if (!bildPfad || !region || !person) return;
+    _quizBestaetigt[bildPfad + '|' + region] = person;
+}
+
+function istBestaetigtLokal(bildPfad, region) {
+    if (!bildPfad || !region) return '';
+    return _quizBestaetigt[bildPfad + '|' + region] || '';
+}
 // Automatischer "Weiter"-Timer der Quiz-Sitzung (setTimeout vor jeder naechsten
 // Runde). Er MUSS abbrechbar sein: sonst feuert er nach dem Beenden weiter und
 // schiebt 1,5 s spaeter doch wieder eine neue Quiz-Karte nach -> "das Quiz
@@ -2753,53 +2777,42 @@ function _quizWeiterPlanen(ms) {
 function markiereGesichtImBild(img, gesichter, idx) {
     if (!img) return null;
     const gs = gesichter || [];
-    const b = (gs[idx] && gs[idx].bbox) || [];
-    if (b.length < 4) return null;
+    const g = gs[idx] || {};
+    const b = g.bbox || [];
+    const iw = img.naturalWidth || img.width || 0;
+    const ih = img.naturalHeight || img.height || 0;
+    // NORMALISIERTE Ankerung (0..1) hat Vorrang: sie ist unabhaengig von
+    // Anzeigegroesse, Zoom und Drehung und verrutscht deshalb nie. Nur wenn
+    // keine hinterlegt ist, wird sie aus den nativen Pixeln gerechnet.
+    let norm = (g.bbox_norm && g.bbox_norm.length >= 4) ? g.bbox_norm.slice() : null;
+    if (!norm) {
+        if (b.length < 4 || !iw || !ih) return null;   // Bild noch nicht gerendert
+        norm = bboxNormVonPixeln(b, iw, ih);
+    }
+    if (!norm) return null;
     const pa = img.parentNode;
     if (!pa) return null;
     // alte Markierung im selben Bildbereich entfernen (Gruppen-Durchlauf)
     const alt = pa.querySelector('.quiz-marke');
     if (alt) alt.remove();
-    let iw = img.naturalWidth || img.width || 0;
-    let ih = img.naturalHeight || img.height || 0;
-    if (!iw || !ih) {
-        try {
-            const rc = img.getBoundingClientRect();
-            if (rc && rc.width > 0 && rc.height > 0) { iw = rc.width; ih = rc.height; }
-        } catch (_) {}
-    }
-    if (!iw || !ih) return null;   // Bild noch nicht gerendert
-    if (pa.style) {
-        pa.style.position = 'relative';
-        // Der Container darf die Markierung NICHT abschneiden (Scroll erlaubt
-        // grosse Bilder scrollbar zu halten, ohne den Kasten zu beschneiden).
-        // overflow wird nur gesetzt, wenn der Wrapper ihn nicht selbst hat.
-    }
-    // bbox erweitern, damit der Rahmen den GANZEN Kopf umschliesst (die
-    // Face-Engine markiert oft nur das Gesichtsfeld: Kinn bis Haaransatz).
-    // Oben mehr Platz (Haare/Kopf), unten etwas (Kinn); seitlich leicht. Werte
-    // werden an den Bildrand geklemmt, damit der Rahmen nie aus dem Bild ragt.
-    const bx = b[0], by = b[1], bw = b[2], bh = b[3];
-    const erx = bw * 0.06;   // seitlich je 6%
-    const ery = bh * 0.10;   // unten 10% (Kinn)
-    const ert = bh * 0.28;   // oben 28% (Kopf/Haare)
-    const nx = Math.max(0, bx - erx);
-    const ny = Math.max(0, by - ert);
-    const nw = Math.min(iw - nx, bw + erx * 2);
-    const nh = Math.min(ih - ny, bh + erx * 2 + ert + ery);
+    if (pa.style) pa.style.position = 'relative';
+    // Kopf-mit-einschliessen, aber DEZENT (Befund Sebastian 2026-09-15:
+    // "die Kästen sind immer viel zu groß"): oben 12 %, unten 6 %, seitlich 5 %
+    // — vorher waren es 28 % oben, was den Kasten riesig machte. Ankerung und
+    // Begrenzung laufen vollstaendig normalisiert (bboxAnzeigeRahmen).
+    const box = bboxAnzeigeRahmen(norm);
+    if (!box) return null;
     const r = document.createElement('div');
     r.className = 'quiz-marke';
     r.style.cssText = 'position:absolute;border:2px solid #ff6;box-shadow:0 0 0 1px #d80;pointer-events:none;z-index:5;box-sizing:border-box';
-    r.style.left = (nx / iw * 100) + '%';
-    r.style.top = (ny / ih * 100) + '%';
-    r.style.width = (nw / iw * 100) + '%';
-    r.style.height = (nh / ih * 100) + '%';
+    r.style.left = (box[0] * 100) + '%';
+    r.style.top = (box[1] * 100) + '%';
+    r.style.width = (box[2] * 100) + '%';
+    r.style.height = (box[3] * 100) + '%';
     pa.appendChild(r);
     // Kasten ins Sichtfeld holen, damit er beim Sprung zum naechsten Gesicht
     // sichtbar wird (nicht nur im verdeckten Randbereich eines grossen Bilds).
     try {
-        // Naechsten scrollbaren Vorfahr (Element mit overflow:auto/scroll) suchen
-        // und so ausrichten, dass die Marke mittig sichtbar wird.
         let node = pa;
         while (node && node !== document.body && node !== document.documentElement) {
             const st = getComputedStyle(node).overflowY;
@@ -2883,107 +2896,304 @@ let _quizVollbild = null;
 // antworten) beim Senden aus, damit das korrigierte Gesicht ans Backend
 // geht und die Erkennung sauberer wird. NUR im Arbeitsspeicher flüchtig.
 let _quizEditor = null;   // { muenzen_bools: [], bbox_live: [[x,y,w,h], ...] }
-function zeigeBildVollbild(imgEl, gesichter) {
+
+// ---------------------------------------------------------------------------
+// RAHMEN-GEOMETRIE (Fix 2026-09-15, Befund Sebastian: "Kästen zu groß" /
+// "verschieben sich beim Öffnen und Drehen"). Reine Funktionen — damit testbar.
+// Die Engine liefert [x,y,w,h] in NATIVEN Bildpixeln; fuer Anzeige/Zoom/Drehung
+// rechnen wir NORMALISIERT (0..1 relativ zur Bildbreite/-hoehe). Dadurch sitzt
+// der Rahmen immer am BILD, nicht am Bildschirm.
+// ---------------------------------------------------------------------------
+function bboxNormVonPixeln(bbox, iw, ih) {
+    if (!bbox || bbox.length < 4 || !iw || !ih) return null;
+    return [bbox[0] / iw, bbox[1] / ih, bbox[2] / iw, bbox[3] / ih];
+}
+function bboxPixelVonNorm(norm, iw, ih) {
+    if (!norm || norm.length < 4 || !iw || !ih) return null;
+    return [norm[0] * iw, norm[1] * ih, norm[2] * iw, norm[3] * ih];
+}
+/** Rahmen im Einheitsquadrat halten (0..1, Mindestgroesse 0,5 %). */
+function bboxNormClampen(norm) {
+    if (!norm || norm.length < 4) return null;
+    const x = Math.max(0, Math.min(norm[0], 1));
+    const y = Math.max(0, Math.min(norm[1], 1));
+    const w = Math.max(0.005, Math.min(norm[2], 1 - x));
+    const h = Math.max(0.005, Math.min(norm[3], 1 - y));
+    return [x, y, w, h];
+}
+/**
+ * Rahmen auf den Bildbereich begrenzen (nie über den Bildrand hinaus).
+ * Die GROESSE bleibt erhalten, nur die Position wird begrenzt — so wird aus
+ * einem weit ueber den Rand gezogenen Rahmen ein randbuendiger Rahmen statt
+ * eines 1-px-Streifens (Fix 2026-09-15: "Ziehen clampen").
+ * Ein Rahmen, der groesser als das Bild ist, wird auf das Bild geschrumpft.
+ */
+function bboxClampen(bbox, iw, ih) {
+    if (!bbox || bbox.length < 4 || !iw || !ih) return null;
+    const w = Math.max(1, Math.min(bbox[2], iw));
+    const h = Math.max(1, Math.min(bbox[3], ih));
+    const x = Math.max(0, Math.min(bbox[0], iw - w));
+    const y = Math.max(0, Math.min(bbox[1], ih - h));
+    return [x, y, w, h];
+}
+/** Dreht einen Rahmen um 90°-Schritte mit dem Bild (Koordinaten wandern mit). */
+function bboxRotieren(bbox, iw, ih, schritte) {
+    if (!bbox || bbox.length < 4) return null;
+    const n = ((schritte % 4) + 4) % 4;      // 0..3, im Uhrzeigersinn
+    let b = bbox.slice(), w = iw, h = ih;
+    for (let i = 0; i < n; i++) {
+        // (x,y) -> (H-(y+h), x), Breite/Hoehe tauschen
+        b = [h - (b[1] + b[3]), b[0], b[3], b[2]];
+        const t = w; w = h; h = t;
+    }
+    return b;
+}
+/** Normalisierter Rahmen, um 90°-Schritte gedreht (Seitenverhaeltnis wandert mit). */
+function bboxNormRotieren(norm, iw, ih, schritte) {
+    if (!norm || norm.length < 4 || !iw || !ih) return null;
+    const px = bboxPixelVonNorm(norm, iw, ih);
+    const n = ((schritte % 4) + 4) % 4;
+    const gedreht = bboxRotieren(px, iw, ih, n);
+    // bei ungeraden Schritten sind Breite/Hoehe vertauscht
+    const zw = (n % 2 === 1) ? ih : iw;
+    const zh = (n % 2 === 1) ? iw : ih;
+    return bboxNormClampen(bboxNormVonPixeln(gedreht, zw, zh));
+}
+/** Anzeigemasse des Bildes nach `dreh` Vierteldrehungen (B/H ggf. getauscht). */
+function anzeigeMasse(iw, ih, dreh) {
+    const n = ((dreh % 4) + 4) % 4;
+    return (n % 2 === 1) ? [ih, iw] : [iw, ih];
+}
+/** Verschiebt einen Rahmen (Pixelraum) und haelt ihn per bboxClampen im Bild. */
+function bboxVerschieben(bbox, dx, dy, iw, ih) {
+    if (!bbox || bbox.length < 4) return null;
+    return bboxClampen([bbox[0] + dx, bbox[1] + dy, bbox[2], bbox[3]], iw, ih);
+}
+/**
+ * Groessen-Ziehen an einem Griff ('tl','tr','bl','br','t','b','l','r') im
+ * Pixelraum; das Ergebnis wird geklemmt (Mindestgroesse 8 px, nie aus dem Bild).
+ */
+function bboxSkalieren(bbox, griff, dx, dy, iw, ih) {
+    if (!bbox || bbox.length < 4) return null;
+    const g = String(griff || '');
+    let x = bbox[0], y = bbox[1], w = bbox[2], h = bbox[3];
+    if (g.indexOf('l') !== -1) { x = bbox[0] + dx; w = bbox[2] - dx; }
+    if (g.indexOf('r') !== -1) { w = bbox[2] + dx; }
+    if (g.indexOf('t') !== -1) { y = bbox[1] + dy; h = bbox[3] - dy; }
+    if (g.indexOf('b') !== -1) { h = bbox[3] + dy; }
+    // Ueber den linken/oberen Rand gezogen: Groesse halten, Position begrenzen.
+    if (w < 8) { x = bbox[0] + bbox[2] - 8; w = 8; }
+    if (h < 8) { y = bbox[1] + bbox[3] - 8; h = 8; }
+    return bboxClampen([x, y, w, h], iw, ih);
+}
+/** Anzeige-Rahmen (etwas groesser als das Gesichtsfeld) aus der normierten bbox. */
+function bboxAnzeigeRahmen(norm, opt) {
+    if (!norm || norm.length < 4) return null;
+    const o = opt || {};
+    const seit = (o.seitlich != null) ? o.seitlich : 0.05;   // je Seite 5 %
+    const oben = (o.oben != null) ? o.oben : 0.12;           // 12 % (Haare/Kopf)
+    const unten = (o.unten != null) ? o.unten : 0.06;        // 6 % (Kinn)
+    return bboxNormClampen([
+        norm[0] - norm[2] * seit,
+        norm[1] - norm[3] * oben,
+        norm[2] * (1 + 2 * seit),
+        norm[3] * (1 + oben + unten),
+    ]);
+}
+/** Zieh-Delta aus dem gedrehten Anzeigeraum in den Originalraum umrechnen. */
+function bboxDeltaDrehen(dx, dy, dreh) {
+    const n = ((dreh % 4) + 4) % 4;
+    if (n === 1) return [dy, -dx];
+    if (n === 2) return [-dx, -dy];
+    if (n === 3) return [-dy, dx];
+    return [dx, dy];
+}
+/** Anteil der Rahmen-Fläche am Bild — Plausibilitäts-/Testhilfe. */
+function bboxFlaecheAnteil(bbox, iw, ih) {
+    if (!bbox || bbox.length < 4 || !iw || !ih) return 0;
+    return (bbox[2] * bbox[3]) / (iw * ih);
+}
+
+// Kurzbeschreibung der zulaessigen EXIF-Orientierungen (1..8) als
+// Vierteldrehungen im Uhrzeigersinn — die Anzeige-Drehung des Bildes.
+function bboxExifDrehSchritte(orientierung) {
+    const o = parseInt(orientierung, 10);
+    if (!o || o < 1 || o > 8) return 0;
+    if (o === 6) return 1;   // 90° im Uhrzeigersinn
+    if (o === 3) return 2;   // 180°
+    if (o === 8) return 3;   // 90° gegen den Uhrzeigersinn
+    return 0;                // 1/2/4/5/7: keine reine Vierteldrehung
+}
+function zeigeBildVollbild(imgEl, gesichter, opts) {
     if (!imgEl) return;
+    const optionen = opts || {};
     const src = imgEl.src || (imgEl.getAttribute && imgEl.getAttribute('src')) || '';
     if (!src) return;
     if (_quizVollbild) { schliesseBildVollbild(); return; }
-    // Editor-Initialisierung an den aktuellen Gesichten (nur falls nicht
-    // schon ein laufender Editor existiert — beim erneuten Oeffnen fundiert).
+    // ------------------------------------------------------------------
+    // Editor-Zustand (Fix 2026-09-15): die NORMALISIERTE bbox (0..1 relativ
+    // zum Bild) ist die EINZIGE Wahrheit. Pixel entstehen nur beim Zeichnen
+    // (aus der gerenderten Groesse) und beim Speichern (aus der NATIV-Groesse).
+    // `dreh` = Anzeige-Drehung in Vierteldrehungen (ueber bboxRotieren),
+    // `refKontext` = Nachbearbeitung EINER Katalog-Referenz.
+    // ------------------------------------------------------------------
     if (!_quizEditor) {
-        _quizEditor = { bbox_live: [], undo: [], undo_aktueller: '', personen: [] };
+        _quizEditor = { bbox_norm_live: [], bbox_live: [], undo: [], personen: [],
+                        dreh: 0, refKontext: null, px_rest: [] };
     }
     if (!_quizEditor.undo) _quizEditor.undo = [];
     if (!_quizEditor.personen) _quizEditor.personen = [];
-    if (gesichter && gesichter.length) {
-        const vor = _quizEditor.bbox_live || [];
-        const neu = [];
-        for (let i = 0; i < gesichter.length; i++) {
-            if (i < vor.length && vor[i] === null) { neu.push(null); continue; }  // geloescht bleibt geloescht
-            if (i < vor.length && Array.isArray(vor[i]) && vor[i].length >= 4) { neu.push(vor[i]); continue; }  // live-Aenderung
-            neu.push(gesichter[i].bbox || []);
-        }
-        _quizEditor.bbox_live = neu;
+    if (!_quizEditor.bbox_norm_live) _quizEditor.bbox_norm_live = [];
+    if (typeof _quizEditor.dreh !== 'number') _quizEditor.dreh = 0;
+    if (!_quizEditor.px_rest) _quizEditor.px_rest = [];
+    if (optionen.refKontext) {
+        // Frischer Editor fuer die Referenz-Nachbearbeitung: genau DIESE
+        // Referenz, sonst nichts (keine Alt-Rahmen der Quizrunde).
+        _quizEditor = { bbox_norm_live: [], bbox_live: [], undo: [], personen: [],
+                        dreh: optionen.dreh || 0, refKontext: optionen.refKontext,
+                        px_rest: [], iw: 0, ih: 0 };
     }
+    if (gesichter && gesichter.length) {
+        // Anderes Bild als beim letzten Öffnen? Dann NICHT die alten Rahmen
+        // weiterverwenden (sonst sitzen sie auf dem neuen Bild falsch) —
+        // Grundregel: Rahmen gehören zum Bild (Fix 2026-09-15).
+        const gleichesBild = (_quizEditor.src === src);
+        const vorNorm = gleichesBild ? (_quizEditor.bbox_norm_live || []) : [];
+        const neu = [], rest = [];
+        for (let i = 0; i < gesichter.length; i++) {
+            if (i < vorNorm.length && vorNorm[i] === null) { neu.push(null); rest.push(null); continue; }  // geloescht bleibt geloescht
+            if (i < vorNorm.length && Array.isArray(vorNorm[i]) && vorNorm[i].length >= 4) { neu.push(vorNorm[i]); rest.push(null); continue; }  // live-Aenderung
+            const g = gesichter[i] || {};
+            const n = (g.bbox_norm && g.bbox_norm.length >= 4) ? bboxNormClampen(g.bbox_norm) : null;
+            neu.push(n);
+            // Nur Pixel-bbox vorhanden? Dann erst nach dem Laden umrechnen
+            // (dann ist die NATIV-Groesse des angezeigten Bildes bekannt).
+            rest.push((!n && g.bbox && g.bbox.length >= 4) ? g.bbox.slice() : null);
+        }
+        _quizEditor.bbox_norm_live = neu;
+        _quizEditor.px_rest = rest;
+    }
+    _quizEditor.src = src;
     const ov = document.createElement('div');
     _quizVollbild = ov;
-    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.93);z-index:99998;display:flex;align-items:center;justify-content:center;flex-direction:column;animation:fadeIn 0.2s ease';
-    // X-Button zum Schliessen (Tipp aufs Bild zoomt per Pinch, nicht schliessen)
+    // PULL-TO-REFRESH-SPERRE (Befund Sebastian 2026-09-15: "beim Runterziehen
+    // laedt der Browser neu"): touch-action:none am Editor, overscroll-behavior
+    // contain/none am Container/Overlay UND preventDefault() in touchmove/
+    // pointermove. Damit kann keine Geste mehr den Browser ausloesen.
+    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.93);z-index:99998;display:flex;align-items:center;justify-content:center;flex-direction:column;animation:fadeIn 0.2s ease;overscroll-behavior:none;touch-action:none';
+    // X-Button zum Schliessen (Tipp aufs Bild zoomt nicht, sondern verschiebt)
     const x = document.createElement('div');
     x.style.cssText = 'position:fixed;top:12px;right:16px;z-index:99999;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer';
     x.textContent = '✕';
     x.addEventListener('click', schliesseBildVollbild);
-    // Wrapper fuer das Bild: native pinch-zoom erlauben; das Bild liegt in einer
-    // position:relative-`bildBox`, damit die Overlay-Rahmen exakt am Bild
-    // haften (auch bei Hoch-/Querformatwechsel — Wunsch Sebastian: Kästen
-    // müssen immer zu den Personen passen).
+    // Wrapper fuer das Bild: das Bild liegt in einer position:relative-`bildBox`,
+    // damit die Overlay-Rahmen exakt am Bild haften (auch bei Hoch-/Querformat
+    // und Drehung — Wunsch Sebastian: Kästen müssen immer zu den Personen passen).
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;width:100%;height:100%;touch-action:manipulation';
+    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;width:100%;height:100%;touch-action:none;overscroll-behavior:contain';
     const bildBox = document.createElement('div');
-    bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:manipulation';
+    bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:none';
     const big = document.createElement('img');
     big.src = src;
     big.alt = 'Vollbild';
-    big.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;touch-action:manipulation;user-select:none';
+    big.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;touch-action:none;user-select:none;-webkit-user-drag:none';
     bildBox.appendChild(big);
     wrap.appendChild(bildBox);
     ov.appendChild(x);
     ov.appendChild(wrap);
+    // Kein Browser-Verhalten mehr innerhalb des Editors: jede Bewegung wird
+    // selbst verarbeitet (Rahmen ziehen/zoomen/drehen). Passive:false ist
+    // Pflicht, sonst ist preventDefault() wirkungslos.
+    const _keineBrowserGeste = (ev) => { try { ev.preventDefault(); } catch (_e) {} };
+    try {
+        ov.addEventListener('touchmove', _keineBrowserGeste, { passive: false });
+        ov.addEventListener('pointermove', _keineBrowserGeste, { passive: false });
+        ov.addEventListener('gesturestart', _keineBrowserGeste, { passive: false });
+        ov.addEventListener('contextmenu', _keineBrowserGeste);
+    } catch (_e) {}
+    // Statuszeile des Editors (ehrliche Rueckmeldung statt stiller Fehlschlag).
+    const status = document.createElement('div');
+    status.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:99999;max-width:92%;text-align:center;padding:6px 12px;border-radius:14px;background:rgba(15,25,20,.94);border:1px solid #2e8b57;color:#9f9;font-size:0.8rem;display:none;white-space:pre-line';
+    function meldeEditor(text, ok) {
+        try {
+            status.textContent = text;
+            status.style.borderColor = ok === false ? '#f88' : '#2e8b57';
+            status.style.color = ok === false ? '#f88' : '#9f9';
+            status.style.display = text ? 'block' : 'none';
+        } catch (_e) {}
+    }
+    _quizEditor.melde = meldeEditor;
+    ov.appendChild(status);
+    // Referenz-Nachbearbeitung: VOR dem Öffnen klar benennen, wem der Rahmen
+    // gehört (Person bleibt dieselbe, es entsteht keine Dublette).
+    if (_quizEditor.refKontext && _quizEditor.refKontext.name) {
+        meldeEditor('🖼 Referenz von ' + _quizEditor.refKontext.name +
+                    ' — Rahmen verschieben/ziehen, dann 💾 Speichern.', true);
+    }
     // "Nächstes Bild ➡️"-Steuerung im Vollbild (Vollbild-Durchlauf, 2026-09-10):
     // erspart das Schliessen, um zur naechsten Quizrunde zu gelangen. Erscheint
-    // NUR waehrend einer aktiven Quiz-Sitzung (_quizAktiv). Beim Klick wird eine
-    // evtl. noch offene Frage des aktuellen Bildes als 'uebersprungen' persistiert
-    // und die naechste Runde geladen; das neue Bild oeffnet sich danach direkt
-    // wieder als Vollbild (idealer Durchlauf).
-    if (_quizAktiv && _quizGesehen && _quizGesehen.length) {
+    // NUR waehrend einer aktiven Quiz-Sitzung (_quizAktiv) und NICHT bei der
+    // Referenz-Nachbearbeitung. Beim Klick wird eine evtl. noch offene Frage des
+    // aktuellen Bildes als 'uebersprungen' persistiert und die naechste Runde
+    // geladen; das neue Bild oeffnet sich danach direkt wieder als Vollbild.
+    if (_quizAktiv && _quizGesehen && _quizGesehen.length && !_quizEditor.refKontext) {
         const weiterBtn = document.createElement('div');
         weiterBtn.style.cssText = 'position:fixed;left:auto;right:auto;width:auto;bottom:18px;z-index:99999;text-align:center;padding:12px 26px;border-radius:30px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.6);left:50%;transform:translateX(-50%)';
         weiterBtn.textContent = 'Nächstes Bild ➡️';
         weiterBtn.addEventListener('click', (ev) => { ev.stopPropagation(); naechstesBildAusVollbild(); });
         ov.appendChild(weiterBtn);
     }
-    // Korrigierbare Gesicht-Rahmen ins Vollbild (Wunsch Sebastian 2026-09-09):
-    // jeder Rahmen antippbar -> Auswahl + Loeschen; mit Finger verschiebbar
-    // (Drag). Die Positionen speichern live in `_quizEditor.bbox_live`
-    // (Original-Pixel), damit die Antwort-Logik das korrigierte Gesicht an
-    // das Backend melden kann (fuehrt zu saubererer Erkennung).
+    // Werkzeugleiste (unter dem Nächstes-Bild-Knopf): ↩ Undo, ⟳ Drehen,
+    // 💾 Speichern. Jede Aktion arbeitet auf der NORMALISIERTEN bbox.
+    const leiste = document.createElement('div');
+    leiste.style.cssText = 'position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+    ov.appendChild(leiste);
     try {
         if (gesichter && gesichter.length) {
             big.addEventListener('load', () => {
                 var iw = big.naturalWidth || 0, ih = big.naturalHeight || 0;
                 if (!iw || !ih) return;
+                _quizEditor.iw = iw;
+                _quizEditor.ih = ih;
+                // Pixel-Reste (Referenzen ohne bbox_norm) jetzt umrechnen — erst
+                // hier ist die NATIV-Groesse des ANGEZEIGTEN Bildes bekannt.
+                for (var k = 0; k < (_quizEditor.px_rest || []).length; k++) {
+                    var pr = _quizEditor.px_rest[k];
+                    if (pr && (!_quizEditor.bbox_norm_live[k])) {
+                        _quizEditor.bbox_norm_live[k] = bboxNormClampen(bboxNormVonPixeln(pr, iw, ih));
+                    }
+                }
+                _quizEditor.px_rest = [];
                 var sel = -1;
                 var rahmenEls = [];
                 for (var i = 0; i < gesichter.length; i++) {
                     var re = document.createElement('div');
                     re.setAttribute('data-frei', String(i));
-                    re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:manipulation';
+                    re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none';
                     var marke = document.createElement('div');
-                                        marke.style.cssText = 'position:absolute;top:-18px;right:-14px;width:20px;height:20px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
-                                        marke.textContent = '✕';
-                                        // idx via Closure binden (Bugfix 2026-09-10: vorher stand
-                                        // fälschlich `idx` im Scope, das war undefined -> ✕ tat nichts)
-                                        (function(ix){
-                                            marke.addEventListener('click', function(ev){
-                                                ev.stopPropagation();
-                                                snapshotVorAenderung();   // Undo vor dem Löschen
-                                                _quizEditor.bbox_live[ix] = null;
-                                                resync();
-                                                if (sel === ix) { sel = -1; zeigeAuswahlGriffe(); }  // Auswahl freigeben
-                                            });
-                                        })(i);
-                                        re.appendChild(marke);
+                    marke.style.cssText = 'position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+                    marke.textContent = '✕';
+                    (function(ix){
+                        marke.addEventListener('click', function(ev){
+                            ev.stopPropagation();
+                            snapshotVorAenderung();   // Undo vor dem Löschen
+                            _quizEditor.bbox_norm_live[ix] = null;
+                            resync();
+                            if (sel === ix) { sel = -1; zeigeAuswahlGriffe(); }  // Auswahl freigeben
+                        });
+                    })(i);
+                    re.appendChild(marke);
                     bildBox.appendChild(re);
                     rahmenEls.push(re);
                 }
-                // Positionen setzen: bildBox wird exakt auf die GERICHTETE Bildgroesse des
-                // `big`-Bilds gelegt (getBoundingClientRect), die Rahmen damit in
-                // px bezogen auf bildBox. So bleiben die Kästen auch bei Hoch-/
-                // Querformatwechsel korrekt an den Personen (Wunsch Sebastian).
+                // bildBox wird exakt auf die GERICHTETE Bildgroesse des `big`-Bilds
+                // gelegt (getBoundingClientRect); die Rahmen werden aus der
+                // NORMALISIERTEN bbox in genau diesen Pixelraum gerechnet. So
+                // bleiben sie bei Skalierung, Ausrichtung und Drehung am Gesicht.
                 var letzteBigW = 0, letzteBigH = 0;
+                var griffe = [];
+                var ausschnittBox = null;
                 function resync() {
-                    var bboxes = _quizEditor.bbox_live || [];
-                    // aktuelle gerenderete Bildbox ermitteln
                     try {
                         var rb = big.getBoundingClientRect();
                         if (rb && rb.width > 0 && rb.height > 0) {
@@ -2991,48 +3201,60 @@ function zeigeBildVollbild(imgEl, gesichter) {
                         }
                     } catch (_e) {}
                     if (letzteBigW <= 0 || letzteBigH <= 0) return;
-                    // bildBox auf die Bildgroesse festnageln (left/top gesetzt)
                     bildBox.style.width = letzteBigW + 'px';
                     bildBox.style.height = letzteBigH + 'px';
+                    // Anzeigemasse (bei Drehung um 90°/270° vertauscht) + Skala
+                    var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                    var masse = anzeigeMasse(iw, ih, dreh);
+                    var skw = letzteBigW / (masse[0] || 1);
+                    var skh = letzteBigH / (masse[1] || 1);
                     for (var i = 0; i < rahmenEls.length; i++) {
-                        var b = bboxes[i] || [];
                         var el = rahmenEls[i];
-                        if (!b || b.length < 4) { el.style.display = 'none'; continue; }
+                        var norm = _quizEditor.bbox_norm_live[i];
+                        if (!norm || norm.length < 4) { el.style.display = 'none'; continue; }
+                        // Die Rahmen drehen MIT dem Bild (bboxNormRotieren).
+                        var pxAnz = bboxPixelVonNorm(bboxNormRotieren(norm, iw, ih, dreh), masse[0], masse[1]);
                         el.style.display = 'block';
-                        // bbox ist in NATIVEN Pixeln; Skala = gerendert/nativ
-                        var skw = letzteBigW / (iw || 1);
-                        var skh = letzteBigH / (ih || 1);
-                        el.style.left = (b[0] * skw) + 'px';
-                        el.style.top = (b[1] * skh) + 'px';
-                        el.style.width = (b[2] * skw) + 'px';
-                        el.style.height = (b[3] * skh) + 'px';
+                        el.style.left = (pxAnz[0] * skw) + 'px';
+                        el.style.top = (pxAnz[1] * skh) + 'px';
+                        el.style.width = (pxAnz[2] * skw) + 'px';
+                        el.style.height = (pxAnz[3] * skh) + 'px';
                         el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
                     }
+                    editorSyncLegacy();
                 }
-                // Griffe (Ecken+Seiten) für den AUSGEWÄHLTEN Rahmen: damit kann
-                // man den Rahmen größer/kleiner ziehen (Wunsch Sebastian
-                // 2026-09-10). Jeder Griff skaliert die bbox in Original-Pixeln.
-                var griffe = [];
+                // Kompatibilitaet: die Antwort-Logik liest weiterhin
+                // `_quizEditor.bbox_live` (absolute Pixel im Anzeigeraum).
+                function editorSyncLegacy() {
+                    try {
+                        _quizEditor.bbox_live = (_quizEditor.bbox_norm_live || []).map(function (n) {
+                            return (n && n.length >= 4) ? bboxPixelVonNorm(n, iw, ih) : null;
+                        });
+                    } catch (_e) {}
+                }
+                // Griffe (Ecken + Seiten) fuer den AUSGEWÄHLTEN Rahmen:
+                // 16 px — gross genug fuer den Finger, nicht "viel zu gross".
                 function baueGriffe(reIdx) {
-                    // alte Griffe entfernen
                     for (var g of griffe) { try { g.el.remove(); } catch(_e){} }
                     griffe = [];
                     if (reIdx < 0) return;
-                    var b = (_quizEditor.bbox_live[reIdx] || []);
-                    if (b.length < 4) return;
-                    var skw = letzteBigW / (iw || 1), skh = letzteBigH / (ih || 1);
+                    var norm = _quizEditor.bbox_norm_live[reIdx];
+                    if (!norm || norm.length < 4) return;
+                    var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                    var masse = anzeigeMasse(iw, ih, dreh);
+                    var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
+                    var pxAnz = bboxPixelVonNorm(bboxNormRotieren(norm, iw, ih, dreh), masse[0], masse[1]);
                     var pos = [
                         ['tl', 0, 0], ['tr', 1, 0], ['bl', 0, 1], ['br', 1, 1],
                         ['t', 0.5, 0], ['b', 0.5, 1], ['l', 0, 0.5], ['r', 1, 0.5]
                     ];
                     for (var p of pos) {
                         var g = document.createElement('div');
-                        var x = b[0] * skw + (p[2] === 0 ? 0 : (p[2] === 1 ? b[2]*skw : b[2]*skw/2));
-                        var y = b[1] * skh + (p[1] === 0 ? 0 : (p[1] === 1 ? b[3]*skh : b[3]*skh/2));
-                        // mittig an der Eck-/Seiten-Position
-                        g.style.cssText = 'position:absolute;width:12px;height:12px;z-index:9;background:rgba(255,255,255,.85);border:1.5px solid #fff;border-radius:50%;box-sizing:border-box;cursor:nwse-resize;transform:translate(-50%,-50%)';
-                        g.style.left = x + 'px';
-                        g.style.top = y + 'px';
+                        var gx = pxAnz[0] * skw + (p[2] === 0 ? 0 : (p[2] === 1 ? pxAnz[2]*skw : pxAnz[2]*skw/2));
+                        var gy = pxAnz[1] * skh + (p[1] === 0 ? 0 : (p[1] === 1 ? pxAnz[3]*skh : pxAnz[3]*skh/2));
+                        g.style.cssText = 'position:absolute;width:16px;height:16px;z-index:9;background:rgba(255,255,255,.85);border:1.5px solid #fff;border-radius:50%;box-sizing:border-box;cursor:nwse-resize;transform:translate(-50%,-50%);touch-action:none';
+                        g.style.left = gx + 'px';
+                        g.style.top = gy + 'px';
                         g.dataset.griff = p[0];
                         bildBox.appendChild(g);
                         griffe.push({ el: g, name: p[0] });
@@ -3040,83 +3262,87 @@ function zeigeBildVollbild(imgEl, gesichter) {
                 }
                 // zeigt Griffe beim Auswählen / versteckt bei keiner Auswahl
                 function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); }
-                // Wechselnde Ausschnitt-Vorschau (Wunsch Sebastian 2026-09-10):
-                // zeigt beim Auswählen eines Rahmens dessen Gesichts-Ausschnitt
-                // (wie beim Einzelbild-Quiz), aktualisiert bei jedem Wechsel.
-                var ausschnittBox = null;
+                // Ausschnitt-Vorschau des ausgewählten Rahmens (aus der
+                // NORMALISIERTEN bbox gerechnet — zoom-/drehungsunabhaengig).
                 function ausschnittAnzeigen() {
                     try {
                         if (!ausschnittBox) {
                             ausschnittBox = document.createElement('div');
                             ausschnittBox.style.cssText = 'position:fixed;top:14px;left:16px;z-index:99999;width:120px;height:120px;border-radius:10px;border:2px solid #2e8b57;overflow:hidden;background:#000;box-shadow:0 3px 12px rgba(0,0,0,.6)';
-                            ausSz = document.createElement('img');
-                            ausSz.style.cssText = 'position:absolute;image-rendering:auto;will-change:transform';
-                            ausschnittBox.appendChild(ausSz);
+                            var ausSzNe = document.createElement('img');
+                            ausSzNe.style.cssText = 'position:absolute;image-rendering:auto;will-change:transform';
+                            ausschnittBox.appendChild(ausSzNe);
                             ov.appendChild(ausschnittBox);
                         }
                         var ausSz = ausschnittBox.querySelector('img');
                         if (sel < 0) { ausschnittBox.style.display = 'none'; return; }
-                        var b = (_quizEditor.bbox_live[sel] || []);
-                        if (b.length < 4 || b[2] <= 0 || b[3] <= 0) { ausschnittBox.style.display = 'none'; return; }
-                        // Croptechnisch: zeige denselben Bildausschnitt über
-                        // background-position (Originalgrösse, ohne Canvas).
+                        var norm = _quizEditor.bbox_norm_live[sel];
+                        if (!norm || norm.length < 4 || norm[2] <= 0 || norm[3] <= 0) { ausschnittBox.style.display = 'none'; return; }
+                        var pxs = bboxPixelVonNorm(norm, iw, ih);
                         ausschnittBox.style.display = 'block';
                         ausSz.src = big.src;
-                        var iw = big.naturalWidth || 1, ih = big.naturalHeight || 1;
-                        // Skalierung: Vorschau 120px zeigt die bbox (Original-px)
-                        var schw = 120 / (b[2] || 1), schh = 120 / (b[3] || 1);
-                        var ska = Math.max(schw, schh);
+                        var ska = Math.max(120 / (pxs[2] || 1), 120 / (pxs[3] || 1));
                         ausSz.style.width = (iw * ska) + 'px';
                         ausSz.style.height = (ih * ska) + 'px';
-                        ausSz.style.left = (-(b[0] * ska)) + 'px';
-                        ausSz.style.top = (-(b[1] * ska)) + 'px';
+                        ausSz.style.left = (-(pxs[0] * ska)) + 'px';
+                        ausSz.style.top = (-(pxs[1] * ska)) + 'px';
                     } catch (_e) {}
                 }
 
-                // --- Undo + Speichern (Wunsch Sebastian 2026-09-10) ---
-                // Snapshot des aktuellen bbox-Zustands fürs Rückgängigmachen.
+                // --- Undo (Wunsch Sebastian 2026-09-10) ---
+                // Snapshot des aktuellen (normalisierten) bbox-Zustands.
                 function snapshotVorAenderung() {
                     try {
-                        _quizEditor.undo.push(JSON.stringify(_quizEditor.bbox_live));
+                        _quizEditor.undo.push(JSON.stringify(_quizEditor.bbox_norm_live));
                         if (_quizEditor.undo.length > 30) _quizEditor.undo.shift();
                     } catch (_e) {}
                 }
-                // Letzte Aktion rückgängig machen (zurück zur vorherigen bbox).
                 function undoLetzte() {
                     if (!_quizEditor || !_quizEditor.undo || !_quizEditor.undo.length) return;
-                    const vorher = JSON.parse(_quizEditor.undo.pop());
-                    _quizEditor.bbox_live = vorher;
-                    // gelöschte Rahmen (null) wieder einblenden, fallsonst
+                    var vorher = JSON.parse(_quizEditor.undo.pop());
+                    _quizEditor.bbox_norm_live = vorher;
                     resync();
                     zeigeAuswahlGriffe();
                 }
-
-                // Auswahl + Drag-Target (Verschieben NUR am Rahmenkörper) +
-                // Größen-Griffe + Pinch-Zoom des ausgewählten Rahmens
-                for (var i = 0; i < rahmenEls.length; i++) {
-                    rahmenEls[i].addEventListener('pointerdown', (function(idx){
+                function griffUmrechnen(name, dreh) {
+                    // Griff-Namen drehen mit dem Bild (sonst zieht 'l' nach dem
+                    // Drehen in die falsche Richtung).
+                    var n = ((dreh % 4) + 4) % 4;
+                    if (n === 0) return name;
+                    var karte = {
+                        1: { tl: 'tr', tr: 'br', br: 'bl', bl: 'tl', t: 'r', r: 'b', b: 'l', l: 't' },
+                        2: { tl: 'br', tr: 'bl', br: 'tl', bl: 'tr', t: 'b', r: 'l', b: 't', l: 'r' },
+                        3: { tl: 'bl', tr: 'tl', br: 'tr', bl: 'br', t: 'l', r: 't', b: 'r', l: 'b' },
+                    };
+                    return (karte[n] && karte[n][name]) || name;
+                }
+                // Auswahl + Verschieben (am Rahmenkoerper) + Groesse (an Griffen)
+                for (var i2 = 0; i2 < rahmenEls.length; i2++) {
+                    rahmenEls[i2].addEventListener('pointerdown', (function(idx){
                         return function(ev){
                             sel = idx; resync(); zeigeAuswahlGriffe();
-                            snapshotVorAenderung();   // Undo-Snapshot vor Verschieb-/Zoom-Geste
+                            snapshotVorAenderung();   // Undo-Snapshot vor Verschieben
                             var reEl = rahmenEls[idx];
                             var startX = ev.clientX, startY = ev.clientY;
-                            var b = (_quizEditor.bbox_live[idx] || []).slice();
-                            // Pinch: 2. Finger kommt rein -> Rahmengröße zoomen
-                            var finger2Start = null;
+                            var startNorm = (_quizEditor.bbox_norm_live[idx] || []).slice();
+                            if (startNorm.length < 4) return;
+                            try { reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId); } catch (_e) {}
+                            var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                            var masse = anzeigeMasse(iw, ih, dreh);
+                            var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
                             var bewegen = function(mev){
-                                if (mev.buttons && mev.buttons > 2) return;
-                                var dx = mev.clientX - startX, dy = mev.clientY - startY;
-                                var rb = reEl.getBoundingClientRect();
-                                var px_per_w = (b[2]) / (rb.width || 1);
-                                var px_per_h = (b[3]) / (rb.height || 1);
-                                _quizEditor.bbox_live[idx] = [
-                                    Math.max(0, b[0] + dx*px_per_w),
-                                    Math.max(0, b[1] + dy*px_per_h),
-                                    b[2], b[3]
-                                ];
+                                try { mev.preventDefault(); } catch (_e) {}
+                                var dxAnz = (mev.clientX - startX) / (skw || 1);
+                                var dyAnz = (mev.clientY - startY) / (skh || 1);
+                                // Zieh-Delta aus dem gedrehten Anzeigeraum zurueck
+                                var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
+                                var px = bboxPixelVonNorm(startNorm, iw, ih);
+                                // bboxVerschieben klemmt per bboxClampen -> der
+                                // Rahmen bleibt immer vollstaendig im Bild.
+                                var neu = bboxVerschieben(px, dOrg[0], dOrg[1], iw, ih);
+                                _quizEditor.bbox_norm_live[idx] = bboxNormClampen(bboxNormVonPixeln(neu, iw, ih));
                                 resync(); zeigeAuswahlGriffe();
                             };
-                            reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId);
                             var loslassen = function(){
                                 try { reEl.releasePointerCapture && reEl.releasePointerCapture(ev.pointerId); } catch(_e){}
                                 wrap.removeEventListener('pointermove', bewegen);
@@ -3129,116 +3355,179 @@ function zeigeBildVollbild(imgEl, gesichter) {
                             wrap.addEventListener('pointercancel', loslassen);
                             wrap.addEventListener('lostpointercapture', loslassen);
                         };
-                    })(i));
+                    })(i2));
                 }
-                // Griff-Drag: Größe ziehen (skaliert bbox an Rand-/Eckenloser)
-                wrap.addEventListener('pointerdown', (ev) => {
+                // Griff-Drag: Groesse ziehen (bboxSkalieren klemmt am Bildrand)
+                bildBox.addEventListener('pointerdown', (ev) => {
                     var g = ev.target;
                     if (!g || !g.dataset || !g.dataset.griff || sel < 0) return;
                     ev.stopPropagation();
                     snapshotVorAenderung();   // Undo-Snapshot vor Größen-Ziehen
                     var griffName = g.dataset.griff;
-                    var startX = ev.clientX, startY = ev.clientY;
                     var sx = ev.clientX, sy = ev.clientY;
-                    var aktB = (_quizEditor.bbox_live[sel] || []).slice();
-                    var skw2 = letzteBigW / (iw || 1), skh2 = letzteBigH / (ih || 1);
+                    var startNorm = (_quizEditor.bbox_norm_live[sel] || []).slice();
+                    if (startNorm.length < 4) return;
+                    var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                    var masse = anzeigeMasse(iw, ih, dreh);
+                    var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
                     var bewegenGr = (mev) => {
-                        var dx = (mev.clientX - sx) / (skw2 || 1);   // Original-px
-                        var dy = (mev.clientY - sy) / (skh2 || 1);
-                        var nx = aktB[0], ny = aktB[1], nw = aktB[2], nh = aktB[3];
-                        if (griffName.indexOf('l') !== -1){ nx = aktB[0] + dx; nw = aktB[2] - dx; }
-                        if (griffName.indexOf('r') !== -1){ nw = aktB[2] + dx; }
-                        if (griffName.indexOf('t') !== -1){ ny = aktB[1] + dy; nh = aktB[3] - dy; }
-                        if (griffName.indexOf('b') !== -1){ nh = aktB[3] + dy; }
-                        if (nw > 8) _quizEditor.bbox_live[sel] = [Math.max(0, nx), Math.max(0, ny), nw, nh];
+                        try { mev.preventDefault(); } catch (_e) {}
+                        var dxAnz = (mev.clientX - sx) / (skw || 1);
+                        var dyAnz = (mev.clientY - sy) / (skh || 1);
+                        var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
+                        var px = bboxPixelVonNorm(startNorm, iw, ih);
+                        var neu = bboxSkalieren(px, griffUmrechnen(griffName, dreh),
+                                                dOrg[0], dOrg[1], iw, ih);
+                        _quizEditor.bbox_norm_live[sel] = bboxNormClampen(bboxNormVonPixeln(neu, iw, ih));
                         resync(); zeigeAuswahlGriffe();
                     };
                     var losGr = () => {
                         wrap.removeEventListener('pointermove', bewegenGr);
                         wrap.removeEventListener('pointerup', losGr);
+                        wrap.removeEventListener('pointercancel', losGr);
                     };
                     wrap.addEventListener('pointermove', bewegenGr);
                     wrap.addEventListener('pointerup', losGr);
+                    wrap.addEventListener('pointercancel', losGr);
                 }, true);
                 resync();
-                // Bei Formatwechsel (Hoch/Quer) die Kästen neu an das gerenderte
-                // Bild koppeln (Wunsch Sebastian: Kästen müssen stimmen).
-                const _neuLayouten = () => { try { resync(); } catch (_e) {} };
+                // Bei Formatwechsel (Hoch/Quer/Drehung) die Kästen neu an das
+                // gerenderte Bild koppeln (Wunsch Sebastian: Kästen müssen stimmen).
+                const _neuLayouten = () => { try { resync(); zeigeAuswahlGriffe(); } catch (_e) {} };
                 window.addEventListener('resize', _neuLayouten);
                 window.addEventListener('orientationchange', _neuLayouten);
-                // einmal kurz nach dem vollständigen Layout sicherstellen
                 setTimeout(_neuLayouten, 250);
 
-                // --- Werkzeugleiste: ↩ Zurück + 💾 Speichern (Wunsch Sebastian
-                //     2026-09-10). Speichern persistiert die aktuellen
-                //     Rahmen-Positionen in _quizEditor.bbox_live FEST (als
-                //     "genutzt"), damit sie später beim Beantworten/Zuordnen
-                //     ans Backend gehen; danach werden auch die Rahmen in der
-                //     Quiz-Chat-Karte neu gezeichnet.
-                const leiste = document.createElement('div');
-                leiste.style.cssText = 'position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+                // --- Werkzeugleiste: ↩ Zurück + ⟳ Drehen + 💾 Speichern ---
                 const zurueckBtn = document.createElement('div');
                 zurueckBtn.textContent = '↩';
                 zurueckBtn.title = 'Letzte Aktion rückgängig machen';
                 zurueckBtn.style.cssText = 'width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#2a2a2a;color:#eee;font-size:1rem;cursor:pointer;border:1px solid #555';
                 zurueckBtn.addEventListener('click', (ev) => { ev.stopPropagation(); undoLetzte(); });
                 leiste.appendChild(zurueckBtn);
+                // Drehen: die ANZEIGE des Bildes um 90° (die Rahmen wandern ueber
+                // bboxRotieren mit). Beim Speichern wird die Drehung mit der
+                // RUECKrichtung wieder herausgerechnet.
+                const drehBtn = document.createElement('div');
+                drehBtn.textContent = '⟳';
+                drehBtn.title = 'Bild um 90° drehen (Rahmen drehen mit)';
+                drehBtn.style.cssText = 'width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#2a2a2a;color:#eee;font-size:1.1rem;cursor:pointer;border:1px solid #555';
+                drehBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    snapshotVorAenderung();
+                    _quizEditor.dreh = (((_quizEditor.dreh || 0) + 1) % 4);
+                    try { big.style.transform = _quizEditor.dreh ? ('rotate(' + (_quizEditor.dreh * 90) + 'deg)') : ''; } catch (_e) {}
+                    resync(); zeigeAuswahlGriffe();
+                    meldeEditor('⟳ Anzeige gedreht (' + (_quizEditor.dreh * 90) + '°) — Rahmen sitzen weiter auf den Gesichtern.', true);
+                });
+                leiste.appendChild(drehBtn);
+                if (_quizEditor.dreh) { try { big.style.transform = 'rotate(' + (_quizEditor.dreh * 90) + 'deg)'; } catch (_e) {} }
                 const speichernBtn = document.createElement('div');
                 speichernBtn.textContent = '💾 Speichern';
-                speichernBtn.title = 'Rahmen-Positionen übernehmen';
+                speichernBtn.title = 'Rahmen übernehmen';
                 speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
                 speichernBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    // Persistieren: für die zugeordnete Person (Ein-Gesicht-Fall)
-                    // die korrigierte bbox ans Backend übermitteln (Fall A, Wunsch
-                    // Sebastian 2026-09-10: Speichern aktualisiert die Referenz).
-                    const person0 = (_aktuelleQuizPerson || '').trim();
-                    // Person des aktuell ausgewählten Rahmens (bestätigte Zuordnung)
-                    // als Fallback: so klappt 💾 auch für bereits zugeordnete Gesichter,
-                    // ohne erneut "Person auswählen" zu verlangen.
-                    let pIdx = 0;
-                    try { if (sel >= 0 && _quizEditor && _quizEditor.personen && _quizEditor.personen[sel]) pIdx = sel; } catch (_e) {}
-                    const person = person0 || (pIdx >= 0 && _quizEditor && _quizEditor.personen && _quizEditor.personen[pIdx]) || '';
-                    const pPfad = (_aktuellerQuizPfad || '').trim();
-                    let bbox = null;
-                    try {
-                        if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[pIdx])
-                            && _quizEditor.bbox_live[pIdx].length >= 4) bbox = _quizEditor.bbox_live[pIdx];
-                        else if (_quizEditor && _quizEditor.bbox_live && Array.isArray(_quizEditor.bbox_live[0])
-                            && _quizEditor.bbox_live[0].length >= 4) bbox = _quizEditor.bbox_live[0];
-                    } catch (_e) {}
-                    if (person && pPfad) {
-                        // Feuer-und-fertig: Backend speichert/aktualisiert Referenz mit bbox
-                        quizBeantwortenSilent(pPfad, person, false, '', '', '', bbox);
-                        speichernBtn.textContent = '✓ gespeichert';
-                        setTimeout(() => { speichernBtn.textContent = '💾 Speichern'; }, 1800);
-                    } else {
-                        // Ohne zugeordnete Person können wir keine Referenz ablegen (ehrlich).
-                        speichernBtn.textContent = '⚠️ erst Ja/Person wählen';
-                        setTimeout(() => { speichernBtn.textContent = '💾 Speichern'; }, 2200);
-                        ev.stopPropagation();
-                        return;
-                    }
-                    // Festschreiben + Rahmen in der Quiz-Chat-Karte neu zeichnen.
-                    _quizEditor.undo = [];
-                    try {
-                        if (_letzteQuizKarte) {
-                            const gi = _letzteQuizKarte.querySelector('img');
-                            if (gi) {
-                                const gs = (_quizEditor.bbox_live || []).map(b => ({ bbox: b }));
-                                markiereGesichtImBild(gi, gs, 0);
-                            }
-                        }
-                    } catch (_e) {}
-                    try { _letzteQuizKarte.scrollIntoView && _letzteQuizKarte.scrollIntoView({ block: 'nearest' }); } catch (_e) {}
+                    speichereEditorRahmen(sel, iw, ih, speichernBtn);
                 });
                 leiste.appendChild(speichernBtn);
-                ov.appendChild(leiste);
             });
         }
     } catch (_) {}
     document.body.appendChild(ov);
 }
+
+// Übernimmt die Rahmen aus dem Vollbild-Editor — DREI Faelle, deterministisch
+// (Fix 2026-09-15):
+//  (a) REFERENZ-NACHBEARBEITUNG (Katalog -> Referenz -> Bild -> "in der
+//      Referenz anpassen"): POST /api/gesichter/referenzen/{name}/{ref_id}/bbox.
+//      Die Person bleibt dieselbe (stabile ref_id), ALLE anderen Referenzen
+//      bleiben erhalten (keine Dublette); danach wird die Referenz-Ansicht neu
+//      geladen -> Rahmen + Miniatur sind aktualisiert.
+//  (b) QUIZ-RUNDE: die korrigierte bbox geht als Antwort ans Backend, die
+//      Region wird als "bestaetigt" markiert. Damit fuehrt Speichern NICHT
+//      erneut durch alle Gesichter (Befund Sebastian).
+//  (c) Ohne Person/Kontext: ehrlicher Hinweis — der Rahmen bleibt erhalten
+//      (nichts geht verloren, es wird nur nichts gespeichert).
+function speichereEditorRahmen(sel, iw, ih, btn) {
+    const e = _quizEditor || {};
+    const melde = (typeof e.melde === 'function') ? e.melde : function () {};
+    const zurueck = (text) => { try { if (btn) btn.textContent = text; } catch (_x) {} };
+    const idx = (typeof sel === 'number' && sel >= 0) ? sel : 0;
+    const normRoh = (e.bbox_norm_live || [])[idx];
+    const norm = (normRoh && normRoh.length >= 4) ? bboxNormClampen(normRoh) : null;
+    if (!norm || !iw || !ih) {
+        melde('⚠️ Kein Rahmen ausgewählt — erst einen Kasten antippen.', false);
+        return;
+    }
+    // ABSOLUTE Pixel im ANGEZEIGTEN Bildraum (was das Backend fuer den
+    // Gesichts-Ausschnitt braucht) + normalisierte Ankerung (Anzeige/Drehung).
+    const px = bboxPixelVonNorm(norm, iw, ih);
+    const ctx = e.refKontext || null;
+    const refKontext = (ctx && ctx.name && ctx.ref_id) ? ctx : null;
+    const person = (refKontext ? refKontext.name : (_aktuelleQuizPerson || '')).trim();
+    const pPfad = (_aktuellerQuizPfad || '').trim();
+
+    if (refKontext) {
+        zurueck('… speichere');
+        fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(refKontext.name)}/${encodeURIComponent(refKontext.ref_id)}/bbox`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bbox: px, bbox_norm: norm, embedding_erneuern: true }),
+        }).then(r => r.json()).then(d => {
+            if (d && d.ok) {
+                zurueck('✓ gespeichert');
+                melde('✓ Rahmen in der Referenz von ' + refKontext.name +
+                      ' aktualisiert (Person unverändert, andere Referenzen bleiben).', true);
+                setTimeout(() => zurueck('💾 Speichern'), 1800);
+                try { if (typeof refKontext.onGespeichert === 'function') refKontext.onGespeichert(); } catch (_x) {}
+            } else {
+                zurueck('⚠️ Fehler');
+                melde('⚠️ ' + ((d && d.fehler) || 'Referenz konnte nicht gespeichert werden'), false);
+                setTimeout(() => zurueck('💾 Speichern'), 2200);
+            }
+        }).catch(err => {
+            zurueck('⚠️ Fehler');
+            melde('⚠️ Referenz speichern fehlgeschlagen: ' + (err && err.message), false);
+            setTimeout(() => zurueck('💾 Speichern'), 2200);
+        });
+        return;
+    }
+
+    if (person && pPfad) {
+        // REGION + PERSON deterministisch merken: dieselbe Kombination wird
+        // nicht erneut eingelernt oder erneut gefragt.
+        const region = bboxRegionSchluessel(norm);
+        merkeBestaetigt(pPfad, region, person);
+        try { if (!e.personen) e.personen = []; e.personen[idx] = person; } catch (_x) {}
+        zurueck('… speichere');
+        quizBeantwortenSilent(pPfad, person, false, '', '', '', px).then(d => {
+            if (d && d.ok) {
+                zurueck('✓ gespeichert');
+                const extra = d.uebersprungen ? ' (war bereits bestätigt)' : '';
+                melde('✓ ' + person + ' übernommen' + extra + ' — Rahmen + Referenz gespeichert.', true);
+                setTimeout(() => zurueck('💾 Speichern'), 1800);
+                // Einzelgesicht: die Runde ist damit abgeschlossen (kein erneutes
+                // Aufrollen der bereits bestätigten Zuordnung).
+                if ((e.bbox_norm_live || []).filter(b => b && b.length >= 4).length === 1 && _letzteQuizKarte) {
+                    try { macheQuizFertig(_letzteQuizKarte, person, true, (_quizVollbild && _quizVollbild.querySelector('img')) ? _quizVollbild.querySelector('img').src : ''); } catch (_x) {}
+                }
+            } else {
+                zurueck('⚠️ Fehler');
+                melde('⚠️ ' + ((d && d.fehler) || 'Speichern fehlgeschlagen'), false);
+                setTimeout(() => zurueck('💾 Speichern'), 2200);
+            }
+        });
+        return;
+    }
+
+    // Ohne zugeordnete Person kann keine Referenz entstehen (ehrlich).
+    zurueck('⚠️ erst Ja/Person wählen');
+    melde('⚠️ Erst „Ja, das ist …" oder eine Person wählen — dann speichert 💾 ' +
+          'den Rahmen als Referenz dieser Person.', false);
+    setTimeout(() => zurueck('💾 Speichern'), 2400);
+}
+
 function schliesseBildVollbild() {
     if (_quizVollbild) {
         try { _quizVollbild.remove(); } catch (e) {}
@@ -3300,16 +3589,43 @@ async function naechstesBildAusVollbild() {
 }
 
 // Macht ein <img> antippbar (Vollbild) - nutzt den nativen dataURL-String,
-// den das Quiz-Bild bereits im DOM haelt.
-function macheBildAntippbar(imgEl, gesichter) {
+// den das Quiz-Bild bereits im DOM haelt. `opts` wird an zeigeBildVollbild
+// durchgereicht (z. B. refKontext fuer die Referenz-Nachbearbeitung).
+function macheBildAntippbar(imgEl, gesichter, opts) {
     if (!imgEl) return;
     try {
         imgEl.style.cursor = 'zoom-in';
         imgEl.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            zeigeBildVollbild(imgEl, gesichter);
+            zeigeBildVollbild(imgEl, gesichter, opts);
         });
     } catch (_) {}
+}
+
+// Oeffnet das ORIGINALBILD einer Katalog-Referenz im Vollbild-Editor — MIT
+// vorhandenem Rahmen — und speichert Aenderungen ueber die STABILE ref_id
+// zurueck an genau diese Referenz (Fix 2026-09-15: "Katalog -> Referenz
+// anklicken -> Bild anklicken -> in der Referenz anpassen").
+function zeigeReferenzBearbeiten(name, ref, dataUrl, onGespeichert) {
+    if (!dataUrl || !ref || !ref.ref_id) return;
+    const norm = (ref.bbox_norm && ref.bbox_norm.length >= 4) ? ref.bbox_norm.slice() : null;
+    const gesicht = (norm
+        ? { bbox_norm: norm, bbox: ref.bbox || [] }
+        : { bbox: (ref.bbox && ref.bbox.length >= 4) ? ref.bbox.slice() : [] });
+    if (!gesicht.bbox_norm && (!gesicht.bbox || gesicht.bbox.length < 4)) {
+        // Ohne gespeicherten Rahmen gibt es nichts nachzubearbeiten (ehrlich).
+        try { alert && alert('Für diese Referenz ist kein Rahmen gespeichert.'); } catch (_e) {}
+        return;
+    }
+    const bild = new Image();
+    bild.alt = 'Referenz';
+    bild.src = dataUrl;
+    // Der Label-Text bleibt sichtbar (kein 0x0-Bild): nur der Editor zaehlt.
+    _aktuelleQuizPerson = name;
+    _aktuellerQuizPfad = ref.bild_pfad || '';
+    zeigeBildVollbild(bild, [gesicht], {
+        refKontext: { name: name, ref_id: ref.ref_id, onGespeichert: onGespeichert },
+    });
 }
 
 // Einheitliche Quiz-Button-Stile (Sebastian: aufgeraeumt, keine wilden Styles):
@@ -3416,6 +3732,21 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     const umbruch = document.createElement('div');
     umbruch.style.cssText = 'margin-top:8px;padding:10px;border:1px solid #2e8b57;border-radius:10px;background:#0f1f14';
     karte.appendChild(umbruch);
+
+    // BESTAETIGTE REGIONEN DIESES BILDES (Fix 2026-09-15): jede Region, die
+    // schon einer Person zugeordnet ist, wird NICHT erneut gefragt. Quelle:
+    // (a) die vom Backend gelieferten `bestaetigt`-Namen je Gesicht (aus dem
+    // Katalog/Fortschritt), (b) lokal in dieser Sitzung Bestaetigtes (z. B.
+    // nach "💾 Speichern" im Vollbild). Damit rollt Speichern den Vorgang
+    // nicht mehr von vorne auf.
+    const bestaetigtRegion = {};
+    (gs || []).forEach(function (g) {
+        const reg = (g && g.region) ? g.region : bboxRegionSchluessel(g && g.bbox_norm);
+        if (!reg) return;
+        if (g && g.bestaetigt && g.bestaetigt.length) bestaetigtRegion[reg] = g.bestaetigt.join(', ');
+        const lokal = istBestaetigtLokal(pfad, reg);
+        if (lokal) bestaetigtRegion[reg] = lokal;
+    });
 
     function maleRahmen() {
         markiereGesichtImBild(img, gs, idx);
@@ -3558,10 +3889,18 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             antworten(n, true, false, (inpRolle.value || '').trim(), (inpBez.value || '').trim(), '');
         });
         speichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
+        // Abbrechen (Spec-Schritt 9): klappt das Formular zu, ohne eine Person
+        // anzulegen — nichts wird gespeichert, die Runde laeuft weiter.
+        const abbrechen = macheQuizButton('✖ Abbrechen', 'skip', () => {
+            form.style.display = 'none';
+            inp.value = ''; inpRolle.value = ''; inpBez.value = '';
+        });
+        abbrechen.style.cssText += ';margin-top:6px;width:100%;text-align:center';
         form.appendChild(inp);
         form.appendChild(inpRolle);
         form.appendChild(bezWrap);
         form.appendChild(speichern);
+        form.appendChild(abbrechen);
         neuBtn.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
         zeile.appendChild(neuBtn);
         umbruch.appendChild(form);
@@ -3582,9 +3921,32 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             return;
         }
         idx++;
+        // Bereits bestaetigte Gesichter ueberspringen (nicht erneut fragen).
+        if (ueberspringeBestaetigte()) return;
         maleRahmen();        // Kasten springt zum naechsten Gesicht im Hauptbild
         zeigeFortschritt();
         zeigeVermutungsFrage(); // erst Ja/Nein, bei Nein dann Chips
+    }
+
+    // Laesst Gesichter aus, deren Region schon einer Person zugeordnet ist.
+    // Sind ALLE restlichen Gesichter bestaetigt, ist das Bild fertig (der
+    // Vorgang ist abgeschlossen, statt von vorne zu beginnen).
+    function ueberspringeBestaetigte() {
+        while (idx < gs.length) {
+            const g = gs[idx] || {};
+            const reg = g.region || bboxRegionSchluessel(g.bbox_norm);
+            const wer = reg ? bestaetigtRegion[reg] : '';
+            if (!wer) return false;
+            (String(wer).split(',') || []).forEach(function (n) {
+                const name2 = (n || '').trim();
+                if (name2 && !verarbeitetePersonen.some(z => z.name === name2)) {
+                    verarbeitetePersonen.push({ name: name2, x: 0, y: 0 });
+                }
+            });
+            idx++;
+        }
+        markiereBildErledigt();
+        return true;
     }
 
     // Markiert das Gruppenbild beim Durchlaufen als persistent 'gesehen'
@@ -3658,8 +4020,17 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         } catch (_e) {}
         quizBeantwortenSilent(pfad, person, istNeu, rolle || '', beziehung || '', beschreibung || '', liveBbox).then((d) => {
             // Nur bei BESTÄTIGTER Zuordnung (ok) merken (Wunsch 2026-09-10:
-            // nur wenn Person gequizt UND richtig zugeordnet wurde).
-            if (d && d.ok) { try { _quizEditor.personen[idx] = person; } catch (_e) {} }
+            // nur wenn Person gequizt UND richtig zugeordnet wurde). Die REGION
+            // wird mitgemerkt -> ohne erneute Frage, auch wenn das Bild spaeter
+            // noch einmal aufgebaut wird (Fix 2026-09-15).
+            if (d && d.ok) {
+                try { _quizEditor.personen[idx] = person; } catch (_e) {}
+                try {
+                    const g = gs[idx] || {};
+                    const reg = g.region || bboxRegionSchluessel(g.bbox_norm);
+                    if (reg) { bestaetigtRegion[reg] = person; merkeBestaetigt(pfad, reg, person); }
+                } catch (_e) {}
+            }
             weiter();
         });
     }
@@ -3667,6 +4038,10 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
     zeigeFortschritt();
     zeigeVermutungsFrage();
     maleRahmen();
+    // Sind ALLE Gesichter dieses Bildes bereits bestaetigt (z. B. nach einem
+    // "💾 Speichern" im Vollbild), wird nichts erneut gefragt: das Bild gilt
+    // als abgeschlossen (Wunsch/Befund Sebastian 2026-09-15).
+    try { if (ueberspringeBestaetigte()) return; } catch (_e) {}
 }
 
 // Manuelles Einzeichnen eines Gesichts-Rahmens bei 0 automatisch erkannten
@@ -3737,14 +4112,22 @@ function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
         const w = parseFloat(rechteck.style.width) || 0, h = parseFloat(rechteck.style.height) || 0;
         if (w < 8 || h < 8) { overlay.remove(); return; }   // zu klein = Abbruch
         const orig = zuOriginal({ x: l, y: t, w: w, h: h });
-        // Neue bbox in den Editor uebernehmen (fuer die Zuordnung)
-        if (!_quizEditor) _quizEditor = { bbox_live: [], undo: [], personen: [] };
+        // Neuen Rahmen NORMALISIERT in den Editor uebernehmen (0..1 relativ zum
+        // Anzeigebild) — dieselbe Ankerung wie beim Oeffnen/Ziehen/Speichern.
+        if (!_quizEditor) {
+            _quizEditor = { bbox_norm_live: [], bbox_live: [], undo: [], personen: [],
+                            dreh: 0, refKontext: null, px_rest: [] };
+        }
         if (!_quizEditor.personen) _quizEditor.personen = [];
+        if (!_quizEditor.bbox_norm_live) _quizEditor.bbox_norm_live = [];
+        const iwN = img.naturalWidth || 1, ihN = img.naturalHeight || 1;
+        const normNeu = bboxNormClampen(bboxNormVonPixeln([orig.x, orig.y, orig.w, orig.h], iwN, ihN));
+        _quizEditor.bbox_norm_live.push(normNeu);
         _quizEditor.bbox_live.push([orig.x, orig.y, orig.w, orig.h]);
-        const neuIdx = _quizEditor.bbox_live.length - 1;
+        const neuIdx = _quizEditor.bbox_norm_live.length - 1;
         overlay.remove();
-        // Rahmen im Bild sichtbar machen
-        try { markiereGesichtImBild(img, [{ bbox: [orig.x, orig.y, orig.w, orig.h] }], 0); } catch (_e) {}
+        // Rahmen im Bild sichtbar machen (normalisierte Ankerung)
+        try { markiereGesichtImBild(img, [{ bbox_norm: normNeu }], 0); } catch (_e) {}
         // Namensauswahl (Optionen-Dropdown) fuer die eingezeichnete Person
         const auswahl = document.createElement('div');
         auswahl.style.cssText = 'margin-top:6px';
@@ -3754,6 +4137,8 @@ function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
         auswahl.appendChild(hinweis);
         auswahl.appendChild(baueSuchMitVorschlaegen(optionen || [], (n) => {
             _quizEditor.personen[neuIdx] = n;
+            // Region als bestaetigt merken (nicht erneut fragen).
+            try { merkeBestaetigt(pfad, bboxRegionSchluessel(normNeu), n); } catch (_e) {}
             // manuell=true: das gezeichnete Rechteck wird direkt eingebettet
             // (op:embed_crop) — auch wenn YuNet das Gesicht nicht erkannt hat.
             quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx], true);
@@ -3954,10 +4339,17 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
         quizBeantworten(pfad, n, true, (neuRolle.value || '').trim(), (neuBez.value || '').trim(), '');
     });
     neuSpeichern.style.cssText += ';margin-top:8px;width:100%;padding:8px';
+    // Abbrechen (Spec-Schritt 9): Formular zuklappen, nichts anlegen.
+    const neuAbbrechen = macheQuizButton('✖ Abbrechen', 'skip', () => {
+        neuForm.style.display = 'none';
+        neuName.value = ''; neuRolle.value = ''; neuBez.value = '';
+    });
+    neuAbbrechen.style.cssText += ';margin-top:6px;width:100%;text-align:center';
     neuForm.appendChild(neuName);
     neuForm.appendChild(neuRolle);
     neuForm.appendChild(neuBezWrap);
     neuForm.appendChild(neuSpeichern);
+    neuForm.appendChild(neuAbbrechen);
     neu.onclick = () => { neuForm.style.display = neuForm.style.display === 'none' ? 'block' : 'none'; };
     karte.appendChild(neu);
     karte.appendChild(neuForm);
@@ -4389,6 +4781,15 @@ async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreib
             body: JSON.stringify(payload),
         });
         const d = await r.json();
+        if (d && d.ok) {
+            // REGION als bestaetigt merken (Fix 2026-09-15): dieselbe Region
+            // wird fuer dieselbe Person nicht erneut gefragt/eingelernt — auch
+            // dann nicht, wenn die Runde spaeter neu aufgebaut wird.
+            try {
+                const normE = (_quizEditor && _quizEditor.bbox_norm_live && _quizEditor.bbox_norm_live[0]) || null;
+                if (normE && normE.length >= 4) merkeBestaetigt(pfad, bboxRegionSchluessel(normE), person);
+            } catch (_e) {}
+        }
         const meldung = (d && d.ok)
             ? `✓ **${person}** gespeichert${d.ist_neu ? ' (neu)' : ''} — ${d.referenzen} Referenz(en).`
             : (`⚠️ ${(d && d.fehler) || 'Unbekannter Fehler'}`);
@@ -4540,8 +4941,10 @@ function zeigeReferenzenVollbild(name) {
     ov.appendChild(footer);
     document.body.appendChild(ov);
 
-    // Laden + Rendern (erfolgt asynchron über die bestehende API)
-    (async () => {
+    // Laden + Rendern (erfolgt asynchron über die bestehende API).
+    // Als Funktion, damit die Liste nach dem Nachbearbeiten eines Rahmens
+    // (💾 Speichern im Vollbild-Editor) neu geladen werden kann.
+    async function ladeReferenzen() {
         try {
             const res = await fetch(`${API_BASE}/api/gesichter/referenzen`);
             const d = await res.json();
@@ -4564,7 +4967,7 @@ function zeigeReferenzenVollbild(name) {
             // keine Bilder in Referenzen -> Hinweis (Hauptproblem von Sebastian)
             const hinweis = document.createElement('div');
             hinweis.style.cssText = 'font-size:0.78rem;color:#9a9;padding:6px;font-style:italic';
-            hinweis.textContent = `${p.referenzen.length} Referenz(en). Ohne hinterlegtes Bild (alt gelernt) → kein Ausschnitt zu sehen.`;
+            hinweis.textContent = `${p.referenzen.length} Referenz(en). Ausschnitt antippen → Originalbild mit Rahmen öffnen, verschieben/ziehen, 💾 Speichern. Ohne hinterlegtes Bild (alt gelernt) gibt es keinen Ausschnitt.`;
             liste.appendChild(hinweis);
             for (const r of p.referenzen) {
                 const z = document.createElement('div');
@@ -4591,7 +4994,12 @@ function zeigeReferenzenVollbild(name) {
                                     if (cu) im.src = cu;
                                 } catch (_e) {}
                             }
-                            macheBildAntippbar(im, [ { bbox: (r.bbox && r.bbox.length >= 4) ? r.bbox : [] } ]);
+                            // Tipp auf den Ausschnitt -> Originalbild im Vollbild-Editor
+                            // oeffnen MIT vorhandenem Rahmen; Speichern laeuft ueber die
+                            // STABILE ref_id zurueck an GENAU diese Referenz (Fix 2026-09-15).
+                            zeigeReferenzBearbeiten(name, r, dd.data_url, () => {
+                                try { liste.innerHTML = ''; ladeReferenzen(); } catch (_e) {}
+                            });
                             z.appendChild(im);
                         } else {
                             const ph2 = document.createElement('span');
@@ -4630,7 +5038,8 @@ function zeigeReferenzenVollbild(name) {
             fehlt.textContent = '⚠️ Referenzen laden fehlgeschlagen: ' + (e && e.message);
             liste.appendChild(fehlt);
         }
-    })();
+    }
+    ladeReferenzen();
 }
 
 // PERSONEN-ANPASSUNGSMODUL: Katalog deiner Wissensdatenbank durchsuchbar
@@ -4767,9 +5176,16 @@ function zeigePersonenVerwaltung() {
                 // --- Referenz-Bilder ansehen / bearbeiten als VOLLBILD-Overlay (Wunsch
                 //     Sebastian 2026-09-10): nicht mehr als Chat-Blase, sondern
                 //     scrollbares Vollbild mit Gesichter-Ausschnitten) ---
-                const refBtn = macheQuizButton('🖼 Referenzen ansehen/löschen', 'skip', () => zeigeReferenzenVollbild(name));
+                const refBtn = macheQuizButton('🖼 Referenzen ansehen / Rahmen anpassen', 'skip', () => zeigeReferenzenVollbild(name));
                 refBtn.style.cssText += ';margin-top:6px;width:100%;text-align:center';
                 karte.appendChild(refBtn);
+                // Klarer Wegweiser fuer die Referenz-Nachbearbeitung (Wunsch
+                // Sebastian 2026-09-15): Katalog -> Referenz -> Bild -> Rahmen
+                // anpassen -> speichern.
+                const refHinweis = document.createElement('div');
+                refHinweis.style.cssText = 'font-size:0.72rem;color:#9a9;margin-top:2px;font-style:italic';
+                refHinweis.textContent = 'Tipp auf einen Gesichts-Ausschnitt → Originalbild öffnet mit Rahmen → verschieben/ziehen → 💾 Speichern.';
+                karte.appendChild(refHinweis);
                 return karte;
             }
 

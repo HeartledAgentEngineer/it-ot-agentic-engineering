@@ -25,8 +25,11 @@ import json
 import base64
 import time
 
-import cv2
 import numpy as np
+
+# cv2 wird BEWUSST erst in den Funktionen importiert (lazy): So bleibt dieses
+# Modul auch ohne installiertes OpenCV importierbar — die reine EXIF-/Bild-
+# Logik (exif_orientierung/orientiere_bild) ist damit testbar (Fix 2026-09-15).
 
 MODEL_BASE = "/data/data/com.termux/files/home/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent/ml_models"
 DET_MODEL = MODEL_BASE + "/face_detection_yunet_2023mar.onnx"
@@ -41,7 +44,106 @@ _det = None
 _rec = None
 
 
+# ---------------------------------------------------------------------------
+# EXIF-Orientierung (Fix 2026-09-15)
+# ---------------------------------------------------------------------------
+# Befund Sebastian: "die Kästen sind zu groß / verschieben sich beim Öffnen und
+# Drehen". Ursache: Das Backend backt die EXIF-Drehung in die anzeigbare
+# data_url ein (datei_suche.lese_datei_info -> ImageOps.exif_transpose), YuNet
+# bekam das Bild aber UNGEDREHT (cv2.imdecode ignoriert EXIF). Damit lag die
+# bbox in einem anderen Koordinatenraum als das angezeigte Bild (90°-Faelle
+# sogar mit vertauschten Seiten -> "viel zu groß"). Hier wird das Bild VOR der
+# Detektion identisch zur Anzeige orientiert.
+
+def exif_orientierung(roh: bytes) -> int:
+    """Liest den EXIF-Orientierungs-Tag (274) aus JPEG-Bytes. 1 = normal.
+
+    Reine Bytes-Arbeit (kein PIL/cv2) -> ohne Bildabhaengigkeiten testbar.
+    """
+    try:
+        if len(roh) < 4 or roh[0:2] != b"\xff\xd8":   # kein JPEG
+            return 1
+        i, n = 2, len(roh)
+        while i + 4 <= n:
+            if roh[i] != 0xFF:
+                i += 1
+                continue
+            marker = roh[i + 1]
+            if marker == 0xFF:
+                i += 1
+                continue
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            seg_len = int.from_bytes(roh[i + 2:i + 4], "big")
+            if seg_len < 2:
+                return 1
+            if marker == 0xE1 and roh[i + 4:i + 10] == b"Exif\x00\x00":
+                tiff = i + 10
+                if roh[tiff:tiff + 2] == b"II":
+                    endian = "little"
+                elif roh[tiff:tiff + 2] == b"MM":
+                    endian = "big"
+                else:
+                    return 1
+                off = int.from_bytes(roh[tiff + 4:tiff + 8], endian)
+                ifd = tiff + off
+                if ifd + 2 > n:
+                    return 1
+                anzahl = int.from_bytes(roh[ifd:ifd + 2], endian)
+                for k in range(anzahl):
+                    e = ifd + 2 + k * 12
+                    if e + 10 > n:
+                        return 1
+                    tag = int.from_bytes(roh[e:e + 2], endian)
+                    if tag == 274:
+                        wert = int.from_bytes(roh[e + 8:e + 10], endian)
+                        return wert if 1 <= wert <= 8 else 1
+                return 1
+            i += 2 + seg_len
+    except Exception:
+        return 1
+    return 1
+
+
+def orientiere_bild(img, roh: bytes):
+    """Wendet die EXIF-Orientierung auf das (BGR-)Bildarray an — identisch zur
+    Anzeige-Drehung des Frontends. numpy-only (kein cv2) -> testbar."""
+    o = exif_orientierung(roh)
+    if o == 1:
+        return img
+    try:
+        if o == 2:
+            return img[:, ::-1]
+        if o == 3:
+            return img[::-1, ::-1]
+        if o == 4:
+            return img[::-1, :]
+        if o == 5:                       # transpose
+            return np.rot90(img[:, ::-1], k=-1)
+        if o == 6:                       # 90° im Uhrzeigersinn
+            return np.rot90(img, k=-1)
+        if o == 7:                       # transverse
+            return np.rot90(img[:, ::-1], k=1)
+        if o == 8:                       # 90° gegen den Uhrzeigersinn
+            return np.rot90(img, k=1)
+    except Exception:
+        return img
+    return img
+
+
+def dekodiere_bild(roh: bytes):
+    """JPEG/PNG-Bytes -> BGR-Array, EXIF-orientiert wie im Frontend."""
+    import cv2
+    arr = np.frombuffer(roh, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    return orientiere_bild(img, roh)
+
+
 def _lazy_load():
+    import cv2
     global _det, _rec
     if _det is None:
         _det = cv2.FaceDetectorYN.create(DET_MODEL, "", (320, 320), SCORE_THR, NMS_THR, TOPK)
@@ -75,6 +177,7 @@ def _embed_crop_pixels(img, bbox):
     except (TypeError, ValueError, IndexError):
         return None
     crop = img[y:y + bh, x:x + bw]
+    import cv2
     det, rec = _lazy_load()
     emb = None
     # 1) Gesicht + Landmarken im Ausschnitt suchen -> genaue alignCrop-Embedding.
@@ -109,8 +212,9 @@ def op_embed(payload: dict) -> dict:
     b64 = payload.get("bild_base64", "")
     try:
         roh = base64.b64decode(b64)
-        arr = np.frombuffer(roh, np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        # EXIF-orientiert dekodieren: die bbox liegt damit im SELBEN Raum wie das
+        # im Frontend angezeigte (ebenfalls EXIF-gedrehte) Bild.
+        img = dekodiere_bild(roh)
     except Exception as e:
         return {"ok": False, "fehler": f"decode: {e}"}
     if img is None:
@@ -158,8 +262,7 @@ def op_embed_crop(payload: dict) -> dict:
         return {"ok": False, "fehler": "bbox fehlt"}
     try:
         roh = base64.b64decode(b64)
-        arr = np.frombuffer(roh, np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        img = dekodiere_bild(roh)
     except Exception as e:
         return {"ok": False, "fehler": f"decode: {e}"}
     if img is None:
@@ -184,6 +287,7 @@ def main():
 
     op = payload.get("op")
     if op == "ping":
+        import cv2
         print(json.dumps({"ok": True, "version": cv2.__version__,
                           "detektor": "yunet", "rec": "sface"}))
     elif op == "embed":
