@@ -149,3 +149,104 @@ jeder Änderung hier: `sync-rules.ps1` laufen lassen (erzeugt die
 Bereichs-`CLAUDE.md`). **Nie** die generierten `CLAUDE.md` direkt editieren —
 sie werden überschrieben.
 
+### 6.6 Rollen: Planer → Ausführer → Prüfer (getrennte Kontexte)
+
+Jede größere Aufgabe läuft in **drei Rollen mit getrenntem Kontext** — nie
+plant, führt aus und prüft derselbe Kontext:
+
+| Rolle | Wer | Aufgabe | Modell |
+|---|---|---|---|
+| **Planer** | Hermes (Hauptchat) | Zerlegt die Aufgabe, schreibt den Plan als **Datei**, legt Reihenfolge + Prüfkriterien fest | V4.1 Flash / Terra |
+| **Ausführer** | Codex-CLI oder Subagent | Führt **genau einen** Planschritt aus, schreibt Code + Tests | Terra (gratis) / Subagent |
+| **Prüfer** | frischer Subagent | Prüft **gegen den Plan**, führt den Prüfbefehl aus, meldet Abweichungen | frischer Kontext |
+
+**Warum getrennt:** Der Ausführende trägt nur seinen Schritt im Kontext (billig,
+fokussiert). Der Prüfer hat frischen Kontext und findet, was der Ausführende
+übersieht — ein Kontext, der seine eigene Arbeit prüft, findet seine eigenen
+Fehler nicht (Kernprinzip aus Skill `requesting-code-review`).
+
+**Verbindlich:** Der Plan liegt als **Datei** vor (`.hermes/plans/<thema>.md`) —
+nicht nur im Chat. Sonst kann der Ausführer ihn nicht lesen und der Prüfer
+nicht dagegen prüfen. Fertig ist der Schritt erst, wenn der Prüfer ihn
+abgenommen hat (Verifier-Gate §6.1).
+
+### 6.7 Shell-Befehle: ankündigen, einfach halten, auf Deutsch erklären
+
+Sebastian sieht bei Freigabe-Dialogen den **rohen Befehl** (Pipes, `&&`,
+`python -c "…"`) und kann ihn nicht lesen. Daraus folgt:
+
+1. **Vor jedem Shell-Befehl ein Klartext-Satz** (deutsch), was er tut und wozu —
+   *bevor* der Befehl läuft. Kein Befehl ohne Ankündigung.
+2. **Einfache Befehle statt langer Ketten.** Kein `curl … | python -c "…"`,
+   kein `cmd1 && cmd2 && cmd3` — solche Konstrukte werden vom Sicherheitssystem
+   als unklar geflaggt und erzeugen unnötige Rückfragen. Stattdessen: Skript
+   schreiben (`write_file`) und mit einem kurzen Aufruf starten.
+3. **Nach dem Lauf in Klartext berichten**, was herauskam — nicht die Rohausgabe
+   stehen lassen.
+4. **Häufige harmlose Befehle** (`git add/commit`, `sync-rules.ps1`,
+   Projekt-Tests) gehören in die Allowlist, damit sie nicht jedes Mal fragen:
+   `hermes config set command_allowlist '[…]'` — nur mit Sebastians OK.
+
+**Hintergrund:** Freigabe-Dialoge betreffen **ausschließlich Shell-Befehle** —
+Datei-Schreibvorgänge (`write_file`, `patch`) lösen nie einen Dialog aus.
+Modus: `approvals.mode: smart` (Standard) = harmlos → automatisch, riskant →
+abgelehnt, unklar → Rückfrage.
+
+### 6.8 Praxis-Kanon (Everlast-KI-News, Engineering-Team) — belegt
+
+Quelle: Marcel (Engineering-Lead) in den Praxis-Blöcken der KI-News-Videos,
+ausgewertet aus 32 Videos (`cache/scratch/everlast/marcel-TEIL-1..4.md`,
+Konsolidat: 69 Praktiken). Diese Regeln sind übernommen, weil sie Agenten-Arbeit
+nachweislich stabiler machen — nicht als Meinung, sondern als erprobte Praxis.
+
+**Rollen & Modelle**
+1. Plan-Ersteller, Plan-Prüfer und Ausführer sind **drei getrennte Sessions mit
+   unterschiedlichen Modellen**. Das Prüf-Modell darf nie das Plan-Modell sein —
+   sonst prüft es sich selbst.
+2. Der **starke Planer** braucht nur wenige Nachrichten (Plan + Abnahme), der
+   **Ausführer** viele. Also: teure Modelle für Planung/Prüfung, günstige für die
+   Masse. Nicht alles auf das teuerste Modell legen.
+3. **Subagenten laufen mit dem günstigen Modell**; das Denken bleibt beim
+   Orchestrator.
+
+**Isolation**
+4. **Ein Issue = ein Worktree = ein Branch.** Agenten arbeiten nie direkt auf dem
+   Haupt-Worktree. Jede Kopie ist wegwerfbar.
+5. Unbekannte Modelle/Werkzeuge erst in einer **Sandbox** auf das echte Projekt
+   loslassen.
+
+**Auftragsqualität**
+6. **Rückfragen vor dem Bau** (vgl. §6.2) sind der Bauvertrag — 200 Rückfragen
+   sind billiger als ein falsch gebautes Feature.
+7. **Scope-Treue:** Wer „Hero Section" beauftragt, will nicht die ganze Seite.
+   Nur der beauftragte Umfang, Extras sind Bonus.
+8. **Was nicht im Auftrag steht, wird nicht gebaut.**
+9. **Ausgabeformat explizit vorgeben** (Text/Zahl/Datum/Boolean/Liste) — ohne
+   Vorgabe kommt Fließtext.
+10. Tests **vor** der Implementierung schreiben (müssen rot sein); grün = fertig.
+11. **Verifikation gehört in den Auftrag**: der Ausführer testet selbst
+    Ende-zu-Ende (jedes Formular, jeder Button, alle Breakpoints).
+
+**Belegpflicht**
+12. **Baseline messen, bevor optimiert wird**, Ergebnis gegen die Baseline
+    abnehmen. Ohne Vorher/Nachher ist „besser" eine Behauptung (§ „Fertig ist,
+    was verifiziert ist").
+13. Bei Modell-/Werkzeugvergleichen: **identischer Prompt, leeres Verzeichnis je
+    Kandidat**, mehrere Metriken (Dauer, Tokens, Kosten, Qualität) — nie nur eine.
+
+**Hygiene**
+14. `AGENTS.md`/`CLAUDE.md` **von Hand und kurz** halten. Belegt: KI-generierte
+    Anleitungsdateien → ~3 % schlechtere Ergebnisse, ~20 % höhere Kosten;
+    menschlich geschriebene → ~4 % besser. (Deckt sich mit §6.3.)
+15. Dokumente agentengerecht als **Markdown** bereitstellen, nicht als PDF/Word.
+16. Für jede wiederkehrende Fremd-API **einen Skill** bauen statt Doku im Kontext
+    mitzuschleppen.
+17. **Nicht pollen** — benachrichtigen lassen und die Wartezeit produktiv nutzen.
+18. Leitplanken auf **Repo-Ebene** (Issues, Pull Requests, Branch Protection)
+    statt Direkt-Commits auf `main`.
+19. Für längere Vorhaben: **Epic + Sub-Issues**, im Auftrag die Issue-Nummer
+    referenzieren (adressierbare Spur).
+
+**Vollständiger Kanon:** `MARCEL-KANON.md` (Projekt-Wurzel) mit allen 69
+Praktiken und den Video-/Zeitstempel-Quellen.
+
