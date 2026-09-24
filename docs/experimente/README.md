@@ -1,0 +1,71 @@
+# Experiment-Register — Agentic Engineering
+
+**Zweck:** Jede Behauptung über Agenten-Arbeit durch eine echte Messung ersetzen.
+Kein YouTube-Tipp, keine Benchmarks fremder Anbieter — sondern der eigene Verbrauch.
+
+## Warum
+
+Best Practices für Agentic Engineering sind nicht etabliert — das Feld ist zu jung,
+jeder macht es anders. Belastbar ist nur, was **am eigenen Setup gemessen** wurde.
+Dieses Register hält die Messungen fest (nach dem Prinzip aus den Everlast-Praxisblöcken):
+**Baseline messen → eine Sache ändern → vergleichen.**
+
+## Benutzung
+
+```bash
+cd docs/experimente
+
+# 1. Baseline festhalten (Snapshot der Session-DB)
+python experiment.py start "Bringt reasoning_effort: high spürbar bessere Ergebnisse?"
+
+# 2. EINE Sache ändern (z. B. hermes config set agent.reasoning_effort high)
+#    ... normal weiterarbeiten ...
+
+# 3. Abschließen — die Differenz landet automatisch im Register
+python experiment.py ende "Ja, bessere Struktur bei gleicher Dauer" --notiz "3 Läufe"
+
+# Übersicht
+python experiment.py liste
+```
+
+## Was automatisch gemessen wird
+
+Alle Werte kommen aus der Hermes-Session-DB (`%LOCALAPPDATA%/hermes/state.db`)
+und werden als **Differenz** zwischen `start` und `ende` gebildet — es zählt also
+nur die Arbeit am Experiment, nicht die Gesamtsitzung.
+
+| Spalte | Quelle |
+|---|---|
+| Dauer | Zeitstempel |
+| Turns/Tools | `message_count` / `tool_call_count` |
+| Input / Output / Cache | `input_tokens` / `output_tokens` / `cache_read_tokens` |
+| Kosten | `estimated_cost_usd` + `actual_cost_usd` |
+
+> Hinweis: Die Spalte „Turns/Tools" dient auch als **Wiederholungs-Anzeige** —
+> viele Tool-Calls bei wenigen Nachrichten bedeuten Trial-and-Error-Schleifen.
+
+## Regeln für saubere Messungen
+
+1. **Nur eine Variable pro Experiment.** Zwei Änderungen gleichzeitig = keine Aussage.
+2. **Gleiche Aufgabe, gleiche Länge.** Ein 200-Zeilen-Task und ein 2000-Zeilen-Task
+   sind nicht vergleichbar.
+3. **Leerer Start.** Vor dem Experiment keine Sitzung mit Altkontext weiterführen
+   (verfälscht Cache-Trefferquote und Kosten).
+4. **Mehrere Metriken.** Nie nur „hat es funktioniert" — Dauer, Kosten, Turns/Tools
+   und Ergebnisqualität zusammen bewerten.
+5. **Ergebnisqualität** kurz und konkret notieren (z. B. „3 von 4 Anforderungen erfüllt,
+   Nacharbeit nötig").
+
+## Kandidaten für die ersten Messungen
+
+| Frage | Was ändern | Erwartung |
+|---|---|---|
+| Bringt `reasoning_effort: high` mehr? | medium → high | Mehr Qualität für ~$1,27/Monat |
+| Wie stark hilft Session-Disziplin beim Cache? | eine Sitzung, keine Neustarts | Cache-Trefferquote steigt über 86,8 % |
+| Lohnt ein Planer-Modellwechsel? | Plan mit starkem Modell, Ausführung mit Flash | Kosten pro Feature sinken |
+| Wie gut sind die 19 Kanon-Regeln? | mit/ohne Regelwerk an gleicher Aufgabe | weniger Rückfragen, weniger Nacharbeit |
+
+## Der Kanon, gegen den gemessen wird
+
+`docs/recherche/MARCEL-KANON.md` (69 Praktiken) und
+`02_Softwareentwicklung_IT/CLAUDE_EXTENDS.md` §6.8 (19 verbindliche Regeln).
