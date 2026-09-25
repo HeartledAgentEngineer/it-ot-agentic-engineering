@@ -145,9 +145,13 @@ CHANNELS    = 1
 #   OpenRouter    voxtral-small (Chat-Weg)      3/3 vollständig, 1,8–2,8 s,
 #                 ausgeführt bei Mistral (Frankreich)
 #
-# Sebastians Vorgabe (25.09.2026): Die Stimme geht nicht an OpenAI und nicht an
-# Groq. Regelfall ist deshalb der EU-Weg über Mistral; Groq nur, wenn in der
-# config.json ausdrücklich "schnell" gewählt wurde.
+# Sebastians Vorgabe (25.09.2026, zweimal nachgeschärft): Es geht nicht um
+# Geopolitik, sondern darum, die Stimme nicht überall zu verteilen — und
+# trotzdem das beste verfügbare Modell zu nehmen; wenige Cent im Monat sind in
+# Ordnung. Deshalb ist der EU-Weg (Mistral, über OpenRouter) der Regelfall, der
+# Weg "beste" (ElevenLabs Scribe) steht für beste Qualität bereit, und Groq
+# läuft nur, wenn in der config.json ausdrücklich "schnell" gewählt wurde —
+# oder wenn der gewählte Weg ausfällt (Rückfall, siehe RUECKFALL).
 KETTEN = {
     'eu': (
         ('voxtral', 'mistralai/voxtral-small-24b-2507',
@@ -819,10 +823,20 @@ POLISH_ANWEISUNG = (
     "es unverändert stehen.\n"
     "3. VERHASPLER GLÄTTEN: doppelt gesprochene Wörter und abgebrochene "
     "Satzanfänge entfernen.\n"
-    "4. Satzzeichen und Groß-/Kleinschreibung korrigieren.\n\n"
+    "4. Satzzeichen und Groß-/Kleinschreibung korrigieren.\n"
+    "5. ANREDE UND BLICKWINKEL BLEIBEN: 'ich' bleibt 'ich', 'du' bleibt 'du', "
+    "'Sie' bleibt 'Sie'. Wechsle die Anrede nie.\n"
+    "6. SPRECHAKT BLEIBT: Eine Aussage bleibt eine Aussage, eine Bitte bleibt "
+    "eine Bitte, eine Frage bleibt eine Frage. Mache aus einer Aussage keine "
+    "Frage und aus einer Frage keine Aussage — auch das Satzzeichen am Ende "
+    "richtet sich danach, was gesagt wurde.\n"
+    "7. KEIN ERZÄHL- ODER FRAGESTIL: Der Text bleibt so knapp und direkt, wie "
+    "gesprochen. Du erzählst nicht nach, leitest nichts ein und formulierst "
+    "nicht aus.\n\n"
     "VERBOTEN:\n"
     "- Umgangssprache, Slang oder Dialekt ersetzen. 'gucken' bleibt 'gucken' "
     "und wird NICHT zu 'wissen' oder 'schauen'. Der Ton bleibt, wie er ist.\n"
+    "- Die Anredeform oder den Sprechakt ändern.\n"
     "- Sätze umformulieren, kürzen oder eleganter machen.\n"
     "- Wörter hinzufügen, die nicht gesagt wurden.\n"
     "- Erklärungen, Kommentare oder Anführungszeichen um das Ergebnis.\n\n"

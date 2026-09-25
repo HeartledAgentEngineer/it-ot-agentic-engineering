@@ -19,6 +19,25 @@ ROHTEXT = (
 )
 
 
+def test_anweisung_haelt_anrede_und_sprechakt_fest():
+    """Vorgabe vom 25.09.2026: kein Erzähl- und kein Fragestellermodus.
+
+    Sebastian diktiert Anweisungen und Textbausteine in seiner eigenen Anrede
+    („du"); die Glättung darf daraus weder Erzählprosa noch Fragen machen.
+    """
+    text = typefree.POLISH_ANWEISUNG
+    assert 'ANREDE UND BLICKWINKEL BLEIBEN' in text
+    assert "'du' bleibt 'du'" in text
+    assert 'SPRECHAKT BLEIBT' in text
+    assert 'KEIN ERZÄHL- ODER FRAGESTIL' in text
+    assert 'Die Anredeform oder den Sprechakt ändern' in text
+
+
+def test_anweisung_verbietet_das_ausformulieren_weiterhin():
+    assert 'Der Ton bleibt, wie er ist' in typefree.POLISH_ANWEISUNG
+    assert 'Sätze umformulieren, kürzen oder eleganter machen' in typefree.POLISH_ANWEISUNG
+
+
 def groq_attrappe(antwort=None, fehler=None):
     """Nachbau des Groq-Clients, so weit polish_text ihn benutzt."""
     aufrufe = []
