@@ -202,6 +202,11 @@ if (dom.messages) {
         const t = ev.target;
         if (!t || t.tagName !== 'IMG') return;
         if (ev.button !== undefined && ev.button !== 0) return; // nur linke Taste
+        // Läuft gerade eine Textauswahl (langer Druck, Wunsch 2026-09-25), ist
+        // dieser Klick Teil der Auswahl-Geste – dann kein Vollbild aufziehen,
+        // sonst waere die gerade gestartete Auswahl wieder weg.
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (sel && !sel.isCollapsed && String(sel).trim()) return;
         // Quiz-Bilder haben ihren eigenen Antipper (macheBildAntippbar) mit
         // Gesicht-Kästen — den NICHT unterdrücken: nur öffnen, wenn kein
         // .quiz-marke-Umbruch/eigener Handler das Bild bereits behandelt.
@@ -2408,7 +2413,12 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     div.dataset.gedankeZeit = zeitSpan.textContent || '';
     // Antippen: eingeklappt → aufklappen (bleibt dann offen); aufgeklappt →
     // einklappen. Die Blase ist der Schalter, kein zusätzlicher Knopf.
+    // Ausnahme (Wunsch Sebastian 2026-09-25): Läuft gerade eine Textauswahl
+    // (langer Druck), ist dieser Klick Teil der Auswahl-Geste und darf die
+    // Blase NICHT umschalten – sonst waere die Auswahl sofort wieder weg.
     div.addEventListener('click', () => {
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (sel && !sel.isCollapsed && String(sel).trim()) return;
         if (div.classList.contains('gedanken-eingeklappt')) {
             div.dataset.gedankeManuell = '1';   // offen bleiben, nicht wieder einklappen
             klappeGedankeAus(div);
@@ -6854,6 +6864,58 @@ dom.input.addEventListener('keydown', (e) => {
 dom.sendBtn.addEventListener('click', handleSubmit);
 
 // =========================================
+// Kopfzeile bleibt sichtbar, wenn die Tastatur aufgeht
+// =========================================
+// Befund (am Handy, Wunsch Sebastian 2026-09-25): Mit der Tastatur schrumpft
+// nur der SICHTBARE Ausschnitt (visualViewport) – das Layout bleibt 100vh
+// gross. Android schiebt dann die ganze Seite hoch, damit das Eingabefeld
+// sichtbar wird; die Kopfzeile wandert mit aus dem Bild.
+// Gegenmittel: Die App-Huelle (#app) bekommt Hoehe und Oberkante des sichtbaren
+// Ausschnitts als CSS-Variablen (--vv-hoehe/--vv-oben, siehe style.css). Der
+// Verlauf (#chat-container) ist der Scrollcontainer, die Kopfzeile steht
+// sticky/fest oben mit z-index – sie kann also nicht weggescrollt werden.
+// Ohne visualViewport (aeltere Browser) bleibt der dvh-Rueckfall im Stylesheet.
+function huelleAnSichtbareHoehe() {
+    const wurzel = document.documentElement;
+    const vv = window.visualViewport;
+    if (!vv) {                                  // Rueckfall: CSS nutzt 100dvh
+        wurzel.style.removeProperty('--vv-hoehe');
+        wurzel.style.removeProperty('--vv-oben');
+        return;
+    }
+    // Stand der Nutzer unten? Dann unten bleiben: Ohne das rutschte die letzte
+    // Nachricht unter das Eingabefeld, wenn die Tastatur die Flaeche verkleinert.
+    const warUnten = isAtBottom();
+    wurzel.style.setProperty('--vv-hoehe', Math.round(vv.height) + 'px');
+    wurzel.style.setProperty('--vv-oben', Math.round(vv.offsetTop || 0) + 'px');
+    if (warUnten) scrollToBottom(true);
+}
+
+// Sammelt alle Ausloeser (Tastatur auf/zu, Drehen, Adressleiste) in EINEM
+// Frame – sonst wuerde die Anpassung mehrfach je Sekunde laufen.
+let _huelleFrame = 0;
+function huelleNachziehen() {
+    if (_huelleFrame) return;
+    _huelleFrame = requestAnimationFrame(() => {
+        _huelleFrame = 0;
+        huelleAnSichtbareHoehe();
+    });
+}
+
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', huelleNachziehen);
+    window.visualViewport.addEventListener('scroll', huelleNachziehen);
+}
+window.addEventListener('resize', huelleNachziehen);
+window.addEventListener('orientationchange', huelleNachziehen);
+// focusin/focusout: Das ist das verlaesslichste Signal fuer „Tastatur auf/zu" –
+// beim Öffnen sofort, beim Schliessen mit kurzem Nachlauf (Android meldet die
+// neue Hoehe erst danach).
+document.addEventListener('focusin', huelleNachziehen);
+document.addEventListener('focusout', () => setTimeout(huelleNachziehen, 150));
+huelleAnSichtbareHoehe();
+
+// =========================================
 // Kontextmenü für Chat-Blasen: Kopieren & Bearbeiten
 // =========================================
 // Rechtsklick (am Handy: langes Drücken) auf eine Nachricht öffnet ein
@@ -7116,10 +7178,21 @@ function entferneLetzteRundeAusDom() {
     return entfernt;
 }
 
-// Rechtsklick (langes Drücken) auf eine Blase öffnet das Menü.
+// Rechtsklick (Desktop) bzw. langes Drücken (Handy) auf eine Nachricht.
+// WICHTIG (Wunsch Sebastian 2026-09-25): Auf dem TEXT einer Blase wird NICHT
+// mehr preventDefault() gerufen — genau dieser Aufruf hat am Handy die native
+// Textauswahl (Griffe, Lupe, Kopieren-Menue) verhindert. Dort übernimmt jetzt
+// der Browser (Auswahl auch über mehrere Nachrichten hinweg, siehe style.css).
+// Das eigene Menue bleibt für die nicht auswählbaren Teile der Zeile:
+// Zeitstempel, Vorlese-Knopf und die leere Flaeche neben schmalen Blasen.
 dom.messages.addEventListener('contextmenu', (e) => {
     const blase = e.target.closest('.message');
     if (!blase || !dom.messages.contains(blase)) return;
+    // Blasentext/ Zwischenmeldung: Auswahl laufen lassen, eigenes Menue weg.
+    if (e.target.closest('.message-content, .gedanken-inhalt, .gedanken-kurz')) {
+        kontextMenueSchliessen();
+        return;   // bewusst KEIN e.preventDefault()
+    }
     const text = kontextTextAusBlase(blase);
     if (!text) return;   // z. B. noch leere Streaming-Blase
     e.preventDefault();

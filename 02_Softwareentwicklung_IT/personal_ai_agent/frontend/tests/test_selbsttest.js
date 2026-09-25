@@ -149,8 +149,8 @@ console.log('\n5) Datenschutz & Cache-Bump');
 pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));
 pruefe('kein API-Schlüssel im Frontend', !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
-pruefe('index.html lädt app.js mit ?v=20260925F', /app\.js\?v=20260925F/.test(html), 'Cache-Bump fehlt');
-pruefe('index.html lädt style.css mit ?v=20260925E', /style\.css\?v=20260925E/.test(html), 'Cache-Bump fehlt');
+pruefe('index.html lädt app.js mit ?v=20260925G', /app\.js\?v=20260925G/.test(html), 'Cache-Bump fehlt');
+pruefe('index.html lädt style.css mit ?v=20260925F', /style\.css\?v=20260925F/.test(html), 'Cache-Bump fehlt');
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));
 process.exit(fehler ? 1 : 0);

@@ -2,12 +2,16 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- interactive-widget=resizes-content: Das Handy verkleinert beim
+         Tastatur-Oeffnen schon das Layout (statt die Seite hochzuschieben).
+         Wo das nicht unterstuetzt wird, richtet app.js die Huelle ueber
+         visualViewport aus; ohne beides greift 100dvh (style.css). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <meta name="theme-color" content="#0f0f1a">
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260925E">
+    <link rel="stylesheet" href="style.css?v=20260925F">
 </head>
 <body>
     <div id="app">
@@ -265,6 +269,6 @@
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20260925F"></script>
+    <script src="app.js?v=20260925G"></script>
 </body>
 </html>

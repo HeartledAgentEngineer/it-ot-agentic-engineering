@@ -41,10 +41,24 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* Die App-Huelle richtet sich an der SICHTBAREN Flaeche aus, nicht an 100vh
+   (Wunsch Sebastian 2026-09-25). Befund am Handy: Mit der Tastatur schrumpft
+   nur der sichtbare Ausschnitt (visualViewport); das Layout bleibt 100vh
+   gross, Android schiebt die ganze Seite hoch, damit das Eingabefeld sichtbar
+   wird — und die Kopfzeile wandert mit aus dem Bild.
+   Loesung: position: fixed oben am sichtbaren Ausschnitt (--vv-oben), Hoehe
+   exakt der sichtbaren Flaeche (--vv-hoehe), gesetzt von app.js aus
+   visualViewport. Ohne JavaScript-Brücke (aeltere Browser) greift der
+   dvh-Rueckfall. `height: 100vh` gibt es hier bewusst NICHT mehr: Genau das
+   war die Ursache. */
 #app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    position: fixed;
+    top: var(--vv-oben, 0px);
+    left: 0;
+    right: 0;
+    height: var(--vv-hoehe, 100dvh);
     max-width: 800px;
     margin: 0 auto;
 }
@@ -53,7 +67,15 @@ body {
    Header
    ========================================= */
 
+/* Kopfzeile: bleibt oben stehen, auch wenn im Verlauf gescrollt wird, und
+   liegt ueber dem Inhalt (z-index). Sie ist der Anker, der beim Tastatur-
+   Oeffnen sichtbar bleiben MUSS — deshalb steht hier nichts, was sie
+   ausblenden oder mitscrollen laesst (keine Hoehen-Bedingung, kein
+   display:none, kein position:absolute im Huelle-Fluss). */
 #header {
+    position: sticky;
+    top: 0;
+    z-index: 200;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
@@ -115,11 +137,17 @@ body {
 
 #chat-container {
     flex: 1;
+    /* min-height: 0 ist Pflicht: Ein Flex-Kind mit overflow kann ohne das
+       nicht unter seine Inhaltshöhe schrumpfen — die Liste haette dann die
+       Tastatur-Höhe gesprengt und der Eingabebereich waere nach unten aus dem
+       Bild geschoben worden. Der Verlauf ist der einzige Scrollcontainer. */
+    min-height: 0;
     /* Nur vertikal scrollen – eine horizontale Scrollleiste im Chat wäre
        verwirrend und ist nie gewollt. Langes Zeug bricht um oder bekommt
        einen eigenen Querlauf (Code/Tabellen), statt die Seite zu verbreitern. */
     overflow-y: auto;
     overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
     padding: 16px 20px;
     scroll-behavior: smooth;
 }
@@ -203,6 +231,28 @@ body {
     background: var(--assistant-msg-bg);
     border: 1px solid var(--border);
     border-bottom-left-radius: 4px;
+}
+
+/* ── Textauswahl in Nachrichten (Wunsch Sebastian 2026-09-25) ───────────── */
+/* Langer Druck auf eine Nachricht muss die NATIVE Auswahl starten — mit
+   Griffen, Lupe und Kopieren-Menue. Bis hierher gab es keine einzige
+   user-select-Regel: Die Auswahl war allein per JavaScript unterbunden
+   (contextmenu → preventDefault), deshalb kam am Handy nie eine Auswahl.
+   -webkit-touch-callout: default ist der Standardwert (also „Menue erlaubt")
+   und steht hier ausdruecklich, damit ihn niemand versehentlich abschaltet.
+   user-select: text gilt fuer den GANZEN Verlauf (#chat-container/#messages)
+   und nicht nur je Blase: Nur so laeuft die Auswahl ueber mehrere Nachrichten
+   hinweg und bricht nicht an einer Nachbargrenze ab. */
+#chat-container,
+#messages,
+.message,
+.message-content,
+.gedanken-inhalt,
+.gedanken-kurz,
+.message-time {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
 }
 
 /* ── Bilder in Chat-Nachrichten ──────────────────────────────────────────── */
@@ -983,13 +1033,16 @@ button.footer-note:hover {
 
 /* Beide Blätter teilen sich Aussehen und Verhalten – Modellwahl und
    Gesprächsliste unterscheiden sich nur im Inhalt. */
+/* z-index 900: Die Blätter müssen ÜBER der Kopfzeile liegen (die jetzt
+   z-index 200 hat, damit sie beim Tastatur-Öffnen sichtbar bleibt) und
+   unter dem eigenen Kontextmenü (1000) und der Teil-Kopier-Leiste (1100). */
 #model-sheet,
 #chat-sheet,
 #memory-sheet,
 #selbsttest-sheet {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 900;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;

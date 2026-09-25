@@ -145,10 +145,10 @@ pruefe('kein API-Schlüssel im Frontend',
   !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
 
 // 8) Cache-Bump (Pflicht bei Frontend-Änderungen)
-pruefe('index.html lädt app.js mit ?v=20260925F',
-  /app\.js\?v=20260925F/.test(html), 'Cache-Bump fehlt');
-pruefe('index.html lädt style.css mit ?v=20260925E',
-  /style\.css\?v=20260925E/.test(html), 'Cache-Bump für style.css fehlt');
+pruefe('index.html lädt app.js mit ?v=20260925G',
+  /app\.js\?v=20260925G/.test(html), 'Cache-Bump fehlt');
+pruefe('index.html lädt style.css mit ?v=20260925F',
+  /style\.css\?v=20260925F/.test(html), 'Cache-Bump für style.css fehlt');
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));
 process.exit(fehler ? 1 : 0);
