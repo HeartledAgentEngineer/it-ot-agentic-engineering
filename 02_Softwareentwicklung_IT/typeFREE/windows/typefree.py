@@ -27,7 +27,6 @@ import pyperclip
 import pyautogui
 import pystray
 from PIL import Image, ImageDraw
-from groq import Groq
 from openai import OpenAI
 
 # Basis-Pfad für .env, Logdatei und Kostenzählung.
@@ -112,9 +111,9 @@ def _log_uncaught_in_thread(args):
 
 
 # ── Zustand (wird erst in main() bzw. bei der Aufnahme gefüllt) ───────────────
-groq_client           = None    # Groq (wird durch OpenRouter für Glättung ersetzt)
-openai_whisper_client = None    # OpenAI / Whisper (für direkte OpenAI-Aufrufe)
-openrouter_client     = None    # OpenRouter für Glättung und Whisper-Fallback
+groq_client           = None    # Groq — schnellster Weg für die Transkription
+openai_whisper_client = None    # OpenAI / Whisper (Ausweichweg, nur mit Guthaben)
+openrouter_client     = None    # OpenRouter für die Glättung und als Ausweichweg
 active_hotkey = None
 is_recording  = False
 audio_frames  = []
@@ -127,13 +126,41 @@ _stream       = None    # sounddevice.InputStream — nur während der Aufnahme
 SAMPLE_RATE = 16000
 CHANNELS    = 1
 
-# ── Kostenzählung für Whisper ─────────────────────────────────────────────────
-# Whisper wird nach Audiolänge abgerechnet, sekundengenau. Die Länge ist im
-# Programm exakt bekannt — der Preis lässt sich also ohne Zusatzabfrage und
-# ohne zweiten Zugangsschlüssel mitrechnen (Entscheidung 18).
-# Groq bleibt außen vor: dort gilt das kostenlose Tier.
-WHISPER_PREIS_JE_MINUTE = 0.006          # US-Dollar, Stand 07/2026
+# ── Anbieterkette für die Transkription ───────────────────────────────────────
+# Reihenfolge = Reihenfolge der Versuche. Gemessen am 25.09.2026 an 24,5 s
+# deutschem Audio (16 kHz mono — genau das Format, das typeFREE sendet):
+#   Groq        median 0,7 s
+#   OpenRouter  median 1,8 s, mit Ausreißern bis 6,8 s
+#   OpenAI      antwortet nicht mehr (Konto ohne aktives Guthaben)
+# Groq steht deshalb vorn; die anderen bleiben als Ausweichweg erhalten, damit
+# ein ausgefallener Anbieter kein Diktat kostet.
+TRANSCRIPTION_KETTE = (
+    ('groq',       'whisper-large-v3',        'https://api.groq.com/openai/v1'),
+    ('openrouter', 'openai/whisper-large-v3', 'https://openrouter.ai/api/v1'),
+    ('openai',     'whisper-1',               'https://api.openai.com/v1'),
+)
+SCHLUESSEL_JE_ANBIETER = {
+    'groq':       'GROQ_API_KEY',
+    'openrouter': 'OPENROUTER_API_KEY',
+    'openai':     'OPENAI_API_KEY',
+}
+
+# ── Kostenzählung für die Transkription ───────────────────────────────────────
+# Abgerechnet wird nach Audiolänge, sekundengenau. Die Länge ist im Programm
+# exakt bekannt — der Preis lässt sich also ohne Zusatzabfrage und ohne zweiten
+# Zugangsschlüssel mitrechnen (Entscheidung 18). Preise je Minute Audio,
+# Stand 25.09.2026:
+#   Groq whisper-large-v3        0,111 $/Stunde
+#   OpenRouter whisper-large-v3  gleicher Modellpreis (dort vom Anbieter Groq)
+#   OpenAI whisper-1             0,006 $/Minute
+PREISE_JE_MINUTE = {'groq': 0.00185, 'openrouter': 0.00185, 'openai': 0.006}
+WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']   # Regelfall: Groq
 VERBRAUCH_PATH = os.path.join(_base, 'verbrauch.json')
+
+
+def kosten_fuer(sekunden, anbieter, preise=PREISE_JE_MINUTE):
+    """Kosten eines Diktats beim Anbieter, der es tatsächlich transkribiert hat."""
+    return whisper_kosten(sekunden, preise.get(anbieter, WHISPER_PREIS_JE_MINUTE))
 
 
 def whisper_kosten(sekunden, preis_je_minute=WHISPER_PREIS_JE_MINUTE):
@@ -159,20 +186,25 @@ def verbrauch_buchen(verbrauch, sekunden, monat):
     return neu
 
 
-def _minuten_und_betrag(sekunden):
-    """„12,4 min · 0,07 $" — deutsche Schreibweise mit Komma."""
+def _minuten_und_betrag(sekunden, anbieter='groq'):
+    """„12,4 min · 0,02 $ (Groq)" — deutsche Schreibweise mit Komma."""
     minuten = f'{sekunden / 60.0:.1f}'.replace('.', ',')
-    betrag = f'{whisper_kosten(sekunden):.2f}'.replace('.', ',')
-    return f'{minuten} min · {betrag} $'
+    betrag = f'{kosten_fuer(sekunden, anbieter):.2f}'.replace('.', ',')
+    return f'{minuten} min · {betrag} $ ({anbieter.capitalize()})'
 
 
-def verbrauch_text(verbrauch):
-    """Zwei Zeilen für das Tray-Menü: dieser Monat und insgesamt."""
+def verbrauch_text(verbrauch, anbieter='groq'):
+    """Zwei Zeilen für das Tray-Menü: dieser Monat und insgesamt.
+
+    Der Betrag ist eine Schätzung zum Preis des Anbieters, der die Diktate im
+    Regelfall transkribiert (Groq). Den exakten Preis jedes einzelnen Diktats
+    schreibt typeFREE in die Logdatei.
+    """
     monat = verbrauch.get('monat_sekunden', 0.0)
     gesamt = verbrauch.get('gesamt_sekunden', 0.0)
     diktate = verbrauch.get('gesamt_diktate', 0)
-    return (f'Diesen Monat: {_minuten_und_betrag(monat)}\n'
-            f'Insgesamt: {_minuten_und_betrag(gesamt)} ({diktate} Diktate)')
+    return (f'Diesen Monat: {_minuten_und_betrag(monat, anbieter)}\n'
+            f'Insgesamt: {_minuten_und_betrag(gesamt, anbieter)} ({diktate} Diktate)')
 
 
 def load_verbrauch():
@@ -584,10 +616,25 @@ def start_recording():
     log.info('Aufnahme läuft')
 
 
-# ── Text-Glättung via Groq ────────────────────────────────────────────────────
+# ── Text-Glättung via OpenRouter ──────────────────────────────────────────────
 # Zehn Minuten Sprache sind grob 1500 Wörter. Mit der alten Grenze von 1000
 # Tokens wäre ein langes Diktat mitten im Satz abgeschnitten worden.
 POLISH_MAX_TOKENS = 4000
+
+# Modellkette, in Reihenfolge der Versuche. Ein abgekündigtes Modell hat den
+# Filter schon einmal stillgelegt: OpenRouter nahm google/gemini-2.0-flash-001
+# aus dem Programm, jede Glättung endete im 404 — und weil das nur im Log
+# stand, blieb es wochenlang unbemerkt. Deshalb jetzt mehrere Modelle und ein
+# Hinweis, wenn alle ausfallen.
+POLISH_MODELLE = (
+    'google/gemini-2.5-flash',       # 0,8 s und gründlich (gemessen 25.09.2026)
+    'google/gemini-3.5-flash-lite',  # Ausweichweg, ähnlich schnell
+    'google/gemini-2.5-flash-lite',  # letzter Ausweichweg, günstigstes Modell
+)
+
+# So viele Glättungs-Ausfälle in Folge lösen einen Hinweis aus.
+GLATTUNG_AUSFALL_GRENZE = 3
+_glattung_ausfaelle = 0   # aufeinanderfolgende Ausfälle, siehe ausfall_zaehlen
 
 # Unter dieser Länge darf ein Text stark schrumpfen („ähm ja genau" → „ja").
 PLAUSIBILITAETS_MINDESTLAENGE = 80
@@ -639,34 +686,83 @@ def _polished_is_plausible(raw_text, polished):
     return len(polished) >= len(raw_text) * PLAUSIBILITAETS_ANTEIL
 
 
-def polish_text(raw_text):
+def ausfall_zaehlen(stand, erfolg):
+    """Aufeinanderfolgende Ausfälle zählen; ein Erfolg setzt zurück (rein)."""
+    return 0 if erfolg else stand + 1
+
+
+def ausfall_melden(stand, grenze=GLATTUNG_AUSFALL_GRENZE):
+    """Genau einmal melden — weitere Ausfälle lösen keinen Hinweis mehr aus."""
+    return stand == grenze
+
+
+def zeiten_text(stufen):
+    """„Transkription (groq) 0,7 s · Glättung 0,9 s · gesamt 1,9 s" (reine Funktion)."""
+    return ' · '.join(f'{name} {wert:.1f} s'.replace('.', ',')
+                      for name, wert in stufen)
+
+
+def polish_text(raw_text, client=None):
+    """Glättet über die Modellkette. Gibt None zurück, wenn keine Glättung ging.
+
+    Scheitert ein Modell (abgekündigt, überlastet, unplausible Antwort), wird
+    das nächste versucht. Erst wenn alle scheitern, bekommt der Aufrufer None
+    und fügt den Rohtext ein. `client` überschreibt den OpenRouter-Client —
+    gedacht für Tests und für die Ende-zu-Ende-Probe.
+    """
+    client = client or openrouter_client
+    letzter_grund = 'kein Modell versucht'
+    for modell in POLISH_MODELLE:
+        try:
+            response = client.chat.completions.create(
+                model=modell,
+                messages=[
+                    {"role": "system", "content": POLISH_ANWEISUNG},
+                    {"role": "user",
+                     "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
+                ],
+                max_tokens=POLISH_MAX_TOKENS,
+                temperature=0.2,
+            )
+            polished = (response.choices[0].message.content or '').strip()
+        except Exception as e:
+            letzter_grund = f'{modell}: {e}'
+            log.warning('Glättung über %s fehlgeschlagen: %s', modell, e)
+            continue
+
+        if not _polished_is_plausible(raw_text, polished):
+            letzter_grund = (f'{modell}: unplausibel '
+                             f'({len(raw_text)} → {len(polished)} Zeichen)')
+            log.warning('Glättung über %s unplausibel (%d → %d Zeichen)',
+                        modell, len(raw_text), len(polished))
+            continue
+
+        if modell != POLISH_MODELLE[0]:
+            log.info('Glättung über Ausweichmodell %s gelungen', modell)
+        return polished
+
+    log.error('Keine Glättung möglich — Rohtext wird verwendet (%s)', letzter_grund)
+    return None
+
+
+def _melde_glattung_ausfall():
+    """Hinweis, kein Fehler: Das Diktat kommt an, nur eben ungeglättet."""
+    log.error('Glättung fällt wiederholt aus — es wird der Rohtext eingefügt '
+              '(Modellkette: %s)', ', '.join(POLISH_MODELLE))
+    if not tray_icon:
+        return
     try:
-        response = openrouter_client.chat.completions.create(
-            model="google/gemini-2.5-flash",
-            messages=[
-                {"role": "system", "content": POLISH_ANWEISUNG},
-                {"role": "user",
-                 "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
-            ],
-            max_tokens=POLISH_MAX_TOKENS,
-            temperature=0.2,
-        )
-        polished = (response.choices[0].message.content or '').strip()
+        tray_icon.notify('Textglättung fällt aus — es wird der Rohtext '
+                         'eingefügt. Ursache steht in typefree.log.',
+                         'typeFREE — Hinweis')
     except Exception:
-        log.exception('Glättung fehlgeschlagen — Rohtext wird verwendet')
-        return None
-
-    if not _polished_is_plausible(raw_text, polished):
-        log.warning('Glättung unplausibel (%d → %d Zeichen) — Rohtext wird '
-                    'verwendet', len(raw_text), len(polished))
-        return None
-    return polished
+        log.exception('Hinweis zur Glättung konnte nicht angezeigt werden')
 
 
-# ── Aufnahme stoppen und Whisper aufrufen ─────────────────────────────────────
+# ── Aufnahme stoppen und transkribieren ───────────────────────────────────────
 # Whisper nimmt einen Vokabel-Hinweis an und bevorzugt danach diese Schreibungen.
-# Das senkt Verhörer an der QUELLE, statt sie hinterher von Groq flicken zu
-# lassen. Belegte Verhörer vom 2026-07-29: „Zweigetest" statt „zweiter Test",
+# Das senkt Verhörer an der QUELLE, statt sie hinterher glätten zu lassen.
+# Belegte Verhörer vom 2026-07-29: „Zweigetest" statt „zweiter Test",
 # „Ants" statt „Ähms". Liste bei Bedarf um eigene Fachwörter erweitern.
 WHISPER_VOKABULAR = (
     'typeFREE, Hotkey, Tray, Slice, Commit, Repository, Branch, Refactor, '
@@ -675,8 +771,62 @@ WHISPER_VOKABULAR = (
 )
 
 
+def baue_client(basis_url, schluessel):
+    """OpenAI-kompatibler Client — oder None, wenn der Schlüssel fehlt.
+
+    Groq spricht dieselbe Schnittstelle wie OpenAI. Ein SDK für alle Anbieter
+    heißt: ein Codepfad statt drei, und die Tests können ihn abdecken.
+    """
+    if not schluessel:
+        return None
+    return OpenAI(base_url=basis_url, api_key=schluessel)
+
+
+def verfuegbare_anbieter(umgebung, kette=TRANSCRIPTION_KETTE,
+                         schluessel=SCHLUESSEL_JE_ANBIETER):
+    """Anbieter der Kette, deren Schlüssel gesetzt ist — in Kettenreihenfolge."""
+    return tuple(name for name, _, _ in kette if umgebung.get(schluessel[name]))
+
+
+def transkriptions_clients():
+    """Die gebauten Clients als Zuordnung für `transcribe_audio`."""
+    return {'groq': groq_client, 'openrouter': openrouter_client,
+            'openai': openai_whisper_client}
+
+
+def transcribe_audio(puffer, clients, kette=TRANSCRIPTION_KETTE,
+                     vokabular=WHISPER_VOKABULAR):
+    """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
+
+    Wirft erst, wenn KEIN Anbieter liefern konnte — ein Diktat soll nicht an
+    einem einzelnen Anbieter scheitern. `puffer` wird vor jedem Versuch
+    zurückgesetzt: nach einem fehlgeschlagenen Upload steht der Dateizeiger am
+    Ende, der zweite Versuch schickte sonst eine leere Datei.
+    """
+    fehler = []
+    for name, modell, _ in kette:
+        client = clients.get(name)
+        if client is None:
+            continue
+        begonnen = time.monotonic()
+        try:
+            puffer.seek(0)
+            antwort = client.audio.transcriptions.create(
+                model=modell, file=puffer, language='de', prompt=vokabular)
+            text = (antwort.text or '').strip()
+            if not text:
+                raise ValueError('leere Antwort')
+            log.info('Transkription über %s in %.1f s',
+                     name, time.monotonic() - begonnen)
+            return text, name
+        except Exception as e:
+            log.warning('Transkription über %s fehlgeschlagen: %s', name, e)
+            fehler.append(f'{name}: {e}')
+    raise RuntimeError('Kein Anbieter konnte transkribieren — ' + ' | '.join(fehler))
+
+
 def stop_and_transcribe():
-    global is_recording, verbrauch
+    global is_recording, verbrauch, _glattung_ausfaelle
 
     with lock:
         if not is_recording:
@@ -688,7 +838,7 @@ def stop_and_transcribe():
     _close_stream()          # Mikrofon SOFORT freigeben, vor dem Netzaufruf
     _status_transcribing()
     dauer = recorded_seconds(frames)
-    log.info('Sende %.1f s Audio an Whisper', dauer)
+    log.info('Sende %.1f s Audio an die Transkription', dauer)
 
     if not frames:
         _status_idle()
@@ -702,32 +852,23 @@ def stop_and_transcribe():
     buffer.seek(0)
     buffer.name = 'audio.wav'
 
+    begonnen = time.monotonic()
     try:
-        # Try with direct OpenAI Whisper first
-        try:
-            transcript = openai_whisper_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=buffer,
-                language="de",
-                prompt=WHISPER_VOKABULAR,
-            )
-        except Exception as e:
-            log.warning('Direct OpenAI Whisper failed: %s. Falling back to OpenRouter Whisper.', e)
-            # Fallback to OpenRouter Whisper
-            transcript = openrouter_client.audio.transcriptions.create(
-                model="openai/whisper-large-v3", # Use the specific OpenRouter Whisper model
-                file=buffer,
-                language="de",
-                prompt=WHISPER_VOKABULAR,
-            )
-        raw_text = transcript.text.strip()
-        log.info('Erkannt: %s', raw_text)
+        stufe = time.monotonic()
+        raw_text, anbieter = transcribe_audio(buffer, transkriptions_clients())
+        dauer_transkription = time.monotonic() - stufe
+        log.info('Erkannt (%s): %s', anbieter, raw_text)
 
         _status_polishing()
-        log.info('Glätte Text mit OpenRouter')
+        stufe = time.monotonic()
         polished = polish_text(raw_text)
+        dauer_glattung = time.monotonic() - stufe
         final_text = polished if polished else raw_text
         log.info('Geglättet: %s', final_text)
+
+        _glattung_ausfaelle = ausfall_zaehlen(_glattung_ausfaelle, bool(polished))
+        if ausfall_melden(_glattung_ausfaelle):
+            _melde_glattung_ausfall()
 
         pyperclip.copy(final_text)
         time.sleep(0.3)
@@ -737,9 +878,13 @@ def stop_and_transcribe():
         # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
         verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'))
         save_verbrauch(verbrauch)
-        log.info('Kosten dieses Diktats: %.4f $ · Monat bisher: %.2f $',
-                 whisper_kosten(dauer),
-                 whisper_kosten(verbrauch['monat_sekunden']))
+        log.info('Zeiten: %s', zeiten_text([
+            (f'Transkription ({anbieter})', dauer_transkription),
+            ('Glättung', dauer_glattung),
+            ('gesamt', time.monotonic() - begonnen)]))
+        log.info('Kosten dieses Diktats: %.5f $ (%s) · Monat bisher: %.2f $',
+                 kosten_fuer(dauer, anbieter), anbieter,
+                 kosten_fuer(verbrauch['monat_sekunden'], anbieter))
 
     except Exception as e:
         log.exception('Transkription fehlgeschlagen')
@@ -872,17 +1017,19 @@ def main():
 
     active_hotkey = load_hotkey_config()
     verbrauch = load_verbrauch()
-    # OpenRouter client for polishing and Whisper fallback
-    openrouter_client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.environ.get('OPENROUTER_API_KEY'),
-    )
 
-    # OpenAI client for direct Whisper (primary)
-    openai_whisper_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+    # Alle Anbieter der Kette bauen, deren Schlüssel in der .env steht. Fehlt
+    # ein Schlüssel, bleibt der Client None und wird übersprungen.
+    groq_client = baue_client('https://api.groq.com/openai/v1',
+                              os.environ.get('GROQ_API_KEY'))
+    openrouter_client = baue_client('https://openrouter.ai/api/v1',
+                                    os.environ.get('OPENROUTER_API_KEY'))
+    openai_whisper_client = baue_client('https://api.openai.com/v1',
+                                        os.environ.get('OPENAI_API_KEY'))
 
-
-    log.info('typeFREE gestartet — Hotkey: %s', active_hotkey['label'])
+    log.info('typeFREE gestartet — Hotkey: %s · Transkription über: %s',
+             active_hotkey['label'],
+             ', '.join(verfuegbare_anbieter(os.environ)) or 'kein Anbieter!')
     keyboard.hook(on_key_event)
 
     # Das Tray-Icon läuft im Hauptthread und blockiert bis „Beenden".
@@ -894,10 +1041,18 @@ def main():
 def _report_missing_keys(icon):
     """Wird aufgerufen, sobald das Tray-Icon sichtbar ist."""
     icon.visible = True
-    fehlend = [n for n in ('OPENAI_API_KEY', 'OPENROUTER_API_KEY') if not os.environ.get(n)]
-    if fehlend:
-        report_error(f"Kein API-Schlüssel gefunden: {', '.join(fehlend)}. "
-                     f"Bitte .env neben der EXE prüfen.")
+    anbieter = verfuegbare_anbieter(os.environ)
+    if not anbieter:
+        report_error('Kein API-Schlüssel gefunden (GROQ_API_KEY, '
+                     'OPENROUTER_API_KEY oder OPENAI_API_KEY). '
+                     'Bitte .env neben der EXE prüfen.')
+        return
+    if 'groq' not in anbieter:
+        # Kein Fehler — aber die Transkription läuft dann über den Umweg
+        # OpenRouter und braucht deutlich länger (gemessen: 1,8 s statt 0,7 s).
+        log.warning('Kein GROQ_API_KEY in der .env — die Transkription läuft '
+                    'über den langsameren Ausweichweg (%s).',
+                    ', '.join(anbieter))
 
 
 if __name__ == '__main__':

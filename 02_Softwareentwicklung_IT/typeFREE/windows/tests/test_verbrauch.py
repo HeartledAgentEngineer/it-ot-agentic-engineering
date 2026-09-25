@@ -1,10 +1,10 @@
-"""Kostenzählung für Whisper.
+"""Kostenzählung für die Transkription.
 
-Sebastian bezahlt die Transkription nach Audiolänge — $0,006 je Minute,
-sekundengenau abgerechnet. Die Audiolänge kennt das Programm exakt, also
-lässt sich der Preis ohne Zusatzabfrage mitrechnen (Entscheidung 18).
-
-Groq bleibt bewusst außen vor: dort gilt das kostenlose Tier.
+Sebastian bezahlt die Transkription nach Audiolänge — beim Regelfall Groq
+$0,111 je Stunde, sekundengenau abgerechnet. Die Audiolänge kennt das Programm
+exakt, also lässt sich der Preis ohne Zusatzabfrage mitrechnen
+(Entscheidung 18). Seit dem Anbieterwechsel am 25.09.2026 hängt der Preis am
+Anbieter, der das Diktat tatsächlich transkribiert hat.
 """
 import typefree
 
@@ -15,7 +15,8 @@ def test_eine_minute_kostet_den_minutenpreis():
 
 def test_abrechnung_ist_sekundengenau_nicht_aufgerundet():
     """Zehn Sekunden kosten ein Sechstel Minutenpreis, nicht einen ganzen."""
-    assert abs(typefree.whisper_kosten(10) - 0.001) < 1e-9
+    sechstel = typefree.WHISPER_PREIS_JE_MINUTE / 6
+    assert abs(typefree.whisper_kosten(10) - sechstel) < 1e-9
 
 
 def test_leere_aufnahme_kostet_nichts():
@@ -54,11 +55,12 @@ def test_buchen_verändert_die_uebergabe_nicht():
     assert alt['monat_sekunden'] == 30
 
 
-def test_anzeige_nennt_minuten_und_betrag():
+def test_anzeige_nennt_minuten_betrag_und_anbieter():
     v = typefree.verbrauch_buchen({}, sekunden=744, monat='2026-07')
     text = typefree.verbrauch_text(v)
     assert '12,4 min' in text        # 744 s = 12,4 Minuten
-    assert '0,07' in text            # 744/60 * 0,006 = 0,0744 $
+    assert '0,02' in text            # 744/60 * 0,00185 (Groq) = 0,0229 $
+    assert '(Groq)' in text          # der Preis hängt am Anbieter
     assert '$' in text
 
 

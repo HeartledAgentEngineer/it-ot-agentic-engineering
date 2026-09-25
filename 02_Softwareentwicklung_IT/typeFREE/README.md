@@ -2,7 +2,26 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 84 automatisierte Prüfungen · Prompt-Verschärfung gegen Füllwörter (08/2026) · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 109 automatisierte Prüfungen · Transkription über Groq `whisper-large-v3` mit Anbieterkette (09/2026, median 0,7 s statt 4 s) · Glättung über eine Modellkette mit Ausfallmeldung · Prompt-Verschärfung gegen Füllwörter · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
+
+---
+
+## 0. Update 09/2026 — warum es nötig war
+
+Zwei Befunde aus dem Betrieb (aus `typefree.log` und Messungen vom 25.09.2026):
+
+1. **Der Filter lief gar nicht.** Die installierte EXE war der Build vom 02.08., die Quelle seit dem 14.08. auf ein neueres Glättungsmodell umgestellt — nur neu gebaut wurde nie. OpenRouter hatte das alte Modell inzwischen abgekündigt, jede Glättung endete im `404`. Ergebnis: 226 von 226 Diktaten wurden ungeglättet eingefügt, und weil der Fehler nur in der Logdatei stand, blieb es wochenlang unbemerkt.
+2. **Die Transkription lief über einen toten Umweg.** Der OpenAI-Schlüssel gehört zu einem Konto ohne aktives Guthaben (`billing_not_active`), jeder direkte Aufruf scheiterte, und jedes Diktat ging anschließend über OpenRouter — gemessen ein Vielfaches der Zeit.
+
+Behoben durch eine **Anbieterkette** für die Transkription und eine **Modellkette** für die Glättung, beide mit Ausweichstufen und Zeitmessung je Stufe.
+
+| Weg | 24,5 s deutsches Audio (16 kHz mono) |
+|---|---|
+| Groq `whisper-large-v3` (neu, Regelfall) | **median 0,72 s** (0,71–1,97 s) |
+| OpenRouter `openai/whisper-large-v3` (Ausweichweg) | median 1,83 s, Ausreißer bis 6,79 s |
+| OpenAI `whisper-1` (letzter Ausweichweg) | antwortet nicht — Konto ohne Guthaben |
+
+Vorher lag der Median im echten Betrieb bei 4 s (p90 10 s, Maximum 27 s) — inklusive des jedes Mal fehlschlagenden OpenAI-Versuchs.
 
 ---
 
@@ -12,9 +31,9 @@ Der gesamte Client lebt bewusst in einer einzigen Datei ([windows/typefree.py](w
 
 * **Globale Key-Hooks:** Die Python-Bibliothek `keyboard` registriert den Hotkey auf Betriebssystemebene (Standard: `Alt + Ä` halten, auch per `AltGr + Ä` auslösbar). 13 vordefinierte Hotkey-Kombinationen sind über das Tray-Untermenü „Hotkey wählen" auswählbar; die Auswahl wird in `config.json` persistiert. **Modifier werden über den Scancode erkannt, nicht über den Namen** — die `keyboard`-Bibliothek meldet sie in der Anzeigesprache von Windows (`STRG`, `UMSCHALT`), Scancodes sind dagegen sprachunabhängig.
 * **Audio-Aufnahme im RAM, Mikrofon nur bei Bedarf:** `sounddevice` öffnet das Mikrofon (16 kHz, mono) erst beim Drücken des Hotkeys und gibt es beim Loslassen sofort wieder frei — noch vor dem API-Aufruf. Das Windows-Mikrofonsymbol erscheint dadurch nur während einer Aufnahme, und andere Programme können das Gerät zwischenzeitlich nutzen. Der Puffer wird über `soundfile` als WAV in einen In-Memory-Buffer (`io.BytesIO`) geschrieben — ohne jeglichen Festplatten-I/O.
-* **Zweistufige Sprachverarbeitung:** Die Transkription übernimmt die OpenAI-Whisper-API (`whisper-1`, `language="de"`) — mit einem **Vokabel-Hinweis**, der häufige Fachwörter vorgibt und Verhörer damit an der Quelle senkt. Fallback auf OpenRouter `openai/whisper-large-v3`. Anschließend glättet OpenRouter `google/gemini-2.0-flash-001` den Rohtext: Füllwörter raus (auch großgeschriebene wie „ÄHM"), Verhaspler geglättet, **offensichtliche Verhörer aus dem Zusammenhang korrigiert** — Umgangssprache und Slang bleiben dabei ausdrücklich unangetastet. Ist das Ergebnis auffällig kürzer als der Rohtext (abgeschnitten oder das Modell hat geantwortet statt bereinigt), wird der Whisper-Rohtext eingefügt.
+* **Zweistufige Sprachverarbeitung mit Ausweichstufen:** Die Transkription läuft über eine **Anbieterkette** — Groq `whisper-large-v3` (Regelfall, median 0,72 s), dann OpenRouter `openai/whisper-large-v3`, zuletzt OpenAI `whisper-1`. Jeder Anbieter wird nur versucht, wenn sein Schlüssel in der `.env` steht; kann keiner liefern, meldet typeFREE einen Fehler, statt still zu schweigen. Jeder Aufruf geht mit `language="de"` und einem **Vokabel-Hinweis**, der häufige Fachwörter vorgibt und Verhörer damit an der Quelle senkt. Anschließend glättet OpenRouter den Rohtext über eine **Modellkette** (`google/gemini-2.5-flash`, Ausweichwege `google/gemini-3.5-flash-lite` und `google/gemini-2.5-flash-lite`): Füllwörter raus (auch großgeschriebene wie „ÄHM"), Verhaspler geglättet, **offensichtliche Verhörer aus dem Zusammenhang korrigiert** — Umgangssprache und Slang bleiben dabei ausdrücklich unangetastet. Ist das Ergebnis auffällig kürzer als der Rohtext (abgeschnitten oder das Modell hat geantwortet statt bereinigt), wird der Whisper-Rohtext eingefügt. Fällt die Glättung dreimal in Folge aus, erscheint einmalig ein Windows-Hinweis — damit ein abgekündigtes Modell den Filter nicht wieder wochenlang stilllegt.
 * **Zustandsbasiertes Tray-Icon:** Ein per `PIL` gezeichnetes Mikrofon-Symbol (`pystray`) signalisiert den Pipeline-Zustand farblich: Grau = bereit, Grün = Aufnahme, Orange = Transkription, Blau = Textglättung, Rot = Fehler. Fehler werden zusätzlich als Windows-Sprechblase gemeldet und in `typefree.log` neben der EXE protokolliert — ein Diktat soll nie stillschweigend verloren gehen.
-* **Mitlaufende Kostenrechnung:** Das Tray-Menü zeigt Minuten und Betrag für den laufenden Monat und insgesamt. Whisper wird mit $0,006/Minute sekundengenau abgerechnet, und die Audiolänge ist im Programm exakt bekannt — die Kosten lassen sich also ohne Zusatzabfrage und ohne zweiten Zugangsschlüssel mitrechnen. Gebucht wird erst nach erfolgreichem Einfügen: für fehlgeschlagene Anfragen erscheint kein Betrag.
+* **Mitlaufende Kostenrechnung:** Das Tray-Menü zeigt Minuten und Betrag für den laufenden Monat und insgesamt, dazu den Anbieter, auf dessen Preis sich der Betrag bezieht (Regelfall Groq). Abgerechnet wird nach Audiolänge, sekundengenau: Groq `whisper-large-v3` kostet $0,111 je Stunde, der OpenRouter-Ausweichweg denselben Modellpreis, OpenAI `whisper-1` $0,006 je Minute. Die Audiolänge ist im Programm exakt bekannt — die Kosten lassen sich also ohne Zusatzabfrage und ohne zweiten Zugangsschlüssel mitrechnen. Gebucht wird erst nach erfolgreichem Einfügen: für fehlgeschlagene Anfragen erscheint kein Betrag. Den exakten Preis jedes einzelnen Diktats schreibt typeFREE in die Logdatei.
 
 Der finale Text wird über `pyperclip` in die Zwischenablage geschrieben und nach einer kurzen Stabilisierungspause (0,3 s) per emuliertem `Strg+V` (`pyautogui`) in das aktive Fenster eingefügt.
 
@@ -32,8 +51,8 @@ graph TD
     A[Benutzer hält Hotkey, Standard Alt+Ä] -->|Mikrofon wird geöffnet| B(Audio-Capture im RAM)
     B -->|sounddevice-Callback in numpy-Puffer| C{Aufnahme-Loop}
     C -->|Benutzer lässt Hotkey los| D(WAV-Export in BytesIO)
-    D -->|OpenAI Whisper API, whisper-1| E[Rohtext-Transkript]
-    E -->|OpenRouter google/gemini-2.0-flash-001| F(LLM-Textglättung)
+    D -->|Anbieterkette: Groq whisper-large-v3, sonst OpenRouter, sonst OpenAI| E[Rohtext-Transkript]
+    E -->|OpenRouter, Modellkette gemini-2.5-flash, 3.5-flash-lite, 2.5-flash-lite| F(LLM-Textglättung)
     F -->|Fallback: Rohtext bei API-Fehler| G[Bereinigter Text]
     G -->|pyperclip| H(Windows-Zwischenablage)
     H -->|pyautogui Strg+V| I[Textinjektion ins aktive Fenster]
@@ -47,10 +66,10 @@ graph TD
 ## 3. Design-Entscheidungen (das „Warum")
 
 ### Warum Cloud-APIs statt lokaler Modelle?
-Lokale Whisper-Modelle benötigen erhebliche GPU-Ressourcen und verzögern das Diktat um mehrere Sekunden — für einen Assistenten, der nebenbei laufen soll, ungeeignet. Die Kosten sind verschwindend gering (~1,20 $ in mehreren Monaten Eigeneinsatz).
+Lokale Whisper-Modelle benötigen erhebliche GPU-Ressourcen und verzögern das Diktat um mehrere Sekunden — für einen Assistenten, der nebenbei laufen soll, ungeeignet. Die Kosten sind verschwindend gering (~1,20 $ in mehreren Monaten Eigeneinsatz zu OpenAI-Preisen; über Groq kostet dieselbe Stunde Audio $0,111 statt $0,36).
 
-### Warum OpenRouter statt direkter API?
-OpenRouter bündelt Whisper (primär über OpenAI, Fallback auf eigenes Hosting) und die Glättung (über Gemini) hinter einem einzigen API-Key. Das vereinfacht die Konfiguration und erlaubt einen nahtlosen Fallback, wenn ein Anbieter ausfällt.
+### Warum Groq für die Transkription — und OpenRouter trotzdem?
+Die Transkription ist der langsamste Teil der Kette, und hier trennt sich die Spreu: Dasselbe 24,5-Sekunden-Audio brauchte über OpenRouter median 1,83 s (Ausreißer bis 6,79 s), direkt bei Groq 0,72 s. OpenRouter reicht die Whisper-Anfrage ohnehin an Groq weiter (der Anbieter ist dort als einer von drei eingetragen) — der Umweg kostet also nur Zeit, nicht Datenschutz. Deshalb geht die Transkription direkt zu Groq. OpenRouter bleibt im Spiel, weil dort der Glättungs-LLM (Gemini) läuft und weil ein einzelner Anbieter nie die einzige Option sein soll: Fällt Groq aus, springt OpenRouter ein, ohne dass ein Diktat verloren geht.
 
 ### Warum Clipboard-Injektion statt Tastaturemulation?
 Zeichenweise Tastaturemulation scheitert regelmäßig an Umlauten, Sonderzeichen und Tastaturlayouts. Der Weg über die Zwischenablage (`pyperclip.copy` → `Strg+V`) stellt den Text in jedem Windows-Programm codierungsfehlerfrei dar — die 0,3-Sekunden-Pause vor dem Einfügen stellt sicher, dass die Zwischenablage den Text sicher übernommen hat.
@@ -112,14 +131,14 @@ typeFREE/
     ├── requirements-dev.txt   # pytest — nur für die Tests
     ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
     ├── einrichten.cmd         # Setup für Python-Skript-Modus (pythonw)
-    ├── einrichten_exe.cmd     # Setup für EXE-Modus (Admin, Aufgabenplanung)
-    └── tests/                 # 84 automatisierte Prüfungen in 12 Dateien (pytest)
+    ├── einrichten_exe.cmd      # Setup für EXE-Modus (Admin, Aufgabenplanung)
+    └── tests/                 # 109 automatisierte Prüfungen in 13 Dateien (pytest)
 ```
 
-Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze, Textglättung, Installations-Logik —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen:
+Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze, Anbieter- und Modellketten, Textglättung, Installations-Logik —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen. Sie brauchen **Python 3.12** (dort liegen die Abhängigkeiten); das Projekt-venv gibt es nicht, der Aufruf ist reproduzierbar aus dem Projektverzeichnis:
 
 ```powershell
-set PYTHONPATH=. && python -m pytest windows/tests -v
+$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q      # Stand 25.09.2026: 109 passed
 ```
 
 ---
@@ -137,8 +156,10 @@ installer\setup.cmd            # Rechtsklick → "Als Administrator ausführen"
 **Schritt für Schritt:**
 1. `installer\setup.cmd` mit Rechtsklick → **„Als Administrator ausführen"**
 2. **OpenRouter API-Key** eintragen (kostenlos, $1 Startguthaben — für die Textglättung)
-3. Optional: **OpenAI API-Key** (nur bei eigenem Guthaben — für Whisper-Transkription)
+3. Optional: **OpenAI API-Key** (nur bei eigenem Guthaben — letzter Ausweichweg)
 4. Fertig — typeFREE läuft sofort im Tray
+
+> **Noch offen (nächster Schritt):** Der Assistent fragt den **Groq-Schlüssel** noch nicht ab. Ohne ihn läuft die Transkription über den Ausweichweg OpenRouter — funktioniert, braucht aber rund das Doppelte an Zeit. Bis dahin den Schlüssel von Hand in die `.env` neben der EXE eintragen (`GROQ_API_KEY=...`); typeFREE weist beim Start im Log darauf hin. Auch die **vorbereitete EXE in `installer/`** stammt noch vom 02.08.2026 — vor der nächsten Weitergabe `build/build_installer.cmd` laufen lassen, sonst bekommt der Empfänger den alten Build.
 
 Der Assistent erledigt automatisch:
 * Installation nach `%ProgramFiles%\typeFREE`
@@ -170,8 +191,9 @@ python typefree.py
 Benötigte API-Keys in einer `.env` neben der EXE (bzw. im Projektordner):
 
 ```
-OPENAI_API_KEY=...        # Whisper-Transkription (primär)
-OPENROUTER_API_KEY=...    # Glättung + Whisper-Fallback
+GROQ_API_KEY=...          # Transkription, Regelfall (schnellster Weg)
+OPENROUTER_API_KEY=...    # Textglättung + Ausweichweg für die Transkription
+OPENAI_API_KEY=...        # optional, letzter Ausweichweg (nur mit Guthaben)
 ```
 
 Echte Umgebungsvariablen haben Vorrang, sodass sich beim Entwickeln ein anderer Schlüssel vorgeben lässt. Die `.env` ist von der Versionierung ausgeschlossen.

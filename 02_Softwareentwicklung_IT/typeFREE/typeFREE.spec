@@ -19,7 +19,6 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageDraw',
         'openai',
-        'groq',
     ],
     hookspath=[],
     hooksconfig={},

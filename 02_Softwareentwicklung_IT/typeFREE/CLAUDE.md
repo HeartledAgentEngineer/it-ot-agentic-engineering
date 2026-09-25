@@ -13,18 +13,18 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | OpenAI Whisper API `whisper-1`, `language="de"`, plus `prompt=WHISPER_VOKABULAR` (Fachwörter vorgeben → weniger Verhörer an der Quelle). Fallback auf OpenRouter `openai/whisper-large-v3` |
-| Text-Glättung | OpenRouter `google/gemini-2.0-flash-001`: Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler **oder unplausibel kurzem Ergebnis** Rückfall auf den Rohtext |
+| Transkription | **Anbieterkette** (`TRANSCRIPTION_KETTE`): Groq `whisper-large-v3` (Regelfall, median 0,72 s), dann OpenRouter `openai/whisper-large-v3`, zuletzt OpenAI `whisper-1`. Alle mit `language="de"` und `prompt=WHISPER_VOKABULAR` (Fachwörter vorgeben → weniger Verhörer an der Quelle). Anbieter ohne Schlüssel werden übersprungen; erst wenn keiner liefert, gibt es einen Fehler |
+| Text-Glättung | OpenRouter über eine **Modellkette** (`POLISH_MODELLE`): `google/gemini-2.5-flash` (0,8 s), `google/gemini-3.5-flash-lite`, `google/gemini-2.5-flash-lite`. Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler, unplausibel kurzem Ergebnis oder abgekündigtem Modell rückt das nächste Modell nach; erst dann kommt der Rohtext. Drei Ausfälle in Folge → einmaliger Windows-Hinweis |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT` |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
 | Text einfügen | `pyperclip` + `pyautogui` (Strg+V — unterstützt Umlaute) |
 | Status | `pystray`-Tray-Icon, fünf Farben: grau/grün/orange/blau/**rot = Fehler**; kein Overlay, kein tkinter |
 | Fehlermeldung | Windows-Sprechblase über `tray_icon.notify` + rotes Icon, das rot bleibt bis zur nächsten erfolgreichen Aufnahme |
-| Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook` |
-| API-Keys | `OPENAI_API_KEY` + `OPENROUTER_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
+| Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook`. Jedes Diktat protokolliert Anbieter, Modell und **Zeiten je Stufe** (`zeiten_text`) |
+| API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
-| Kostenrechnung | `whisper_kosten` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü. Nur Whisper ($0,006/Min sekundengenau) — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — 84 Prüfungen mit pytest in 12 Dateien, alle gegen reine Funktionen |
+| Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006) + `kosten_fuer` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
+| Tests | `windows/tests/` — 109 Prüfungen mit pytest in 13 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
 
 ## Versionierte Struktur
@@ -50,7 +50,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 84 Prüfungen in 12 Dateien
+    └── tests/                 ← 109 Prüfungen in 13 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer erzeugt) sowie der Android-PoC
@@ -69,8 +69,11 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer e
 - **Totes Mikrofon erkennt man an exakter digitaler Null**, nicht an leiser Lautstärke — ein echtes Gerät liefert immer Grundrauschen
 - **Dateien nie ohne `encoding=` öffnen** — sonst Encoding-Fehler auf nicht-englischen Systemen
 - **Strukturierte Logging-Parameter statt f-Strings** — `log.warning('msg %s', var)` statt `log.warning(f'msg {var}')`
+- **Quellcode ändern reicht nicht — es muss gebaut UND installiert werden.** Die Quelle wurde am 14.08. auf ein neueres Glättungsmodell umgestellt, die installierte EXE blieb der Build vom 02.08. Das Modell wurde später abgekündigt, jede Glättung endete im 404 — und weil nur die Logdatei davon wusste, lief die App wochenlang ohne Filter. Nach jeder Änderung an `windows/typefree.py`: `py -3.12 -m PyInstaller typeFREE.spec`, dann `build/update_lokal.cmd`.
+- **Ein abgekündigtes Modell ist ein stiller Ausfall.** Fremde Modelle verschwinden ohne Ankündigung an uns. Deshalb: Anbieter- und Modellketten statt Einzelnamen, und ein Ausfall, der länger als einen Versuch anhält, wird gemeldet (Glättung: Windows-Hinweis nach drei Ausfällen in Folge) — nicht nur geloggt.
+- **Fehlgeschlagener Upload lässt den Dateizeiger am Ende.** Der Ausweichversuch schickte sonst eine leere Datei; `transcribe_audio` setzt den Puffer vor jedem Anbieter mit `seek(0)` zurück.
 
-## Erledigt (Stand 01.08.2026)
+## Erledigt (Stand 25.09.2026)
 
 ### Durchgang 1 — „Stabilität und Mikrofon" ✅
 - `main()`-Umbau: Import sicher, Tray im Hauptthread, Seiteneffekte in `main()`
@@ -94,6 +97,22 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer e
 - **Installer-Tests** ✅ 11 neue Prüfungen in `test_installer.py` (84 insgesamt)
 - **`installer/installer_lib.py`** ✅ Installations-Logik als testbare Python-Funktionen
 
+### Durchgang 3 — „Betriebsreparatur und Tempo" ✅ (25.09.2026)
+
+Anlass: Sebastian meldet, die Transkription brauche lange und der Filter „funktioniere komplett schlecht". Zwei Befunde aus `typefree.log` und Messungen:
+
+- **Der Filter lief gar nicht** — 226 von 226 Diktaten im aktuellen Log mit „Glättung fehlgeschlagen — Rohtext wird verwendet", Fehler `404 No endpoints found for google/gemini-2.0-flash-001`. Ursache war nicht der Code, sondern ein veralteter Build: Quelle am 14.08. auf `gemini-2.5-flash` umgestellt, installierte EXE vom 02.08., OpenRouter hatte das alte Modell abgekündigt.
+- **Die Transkription lief über einen toten Umweg** — der OpenAI-Schlüssel gehört zu einem Konto ohne aktives Guthaben (`billing_not_active`), jeder Aufruf scheiterte, jedes Diktat ging über OpenRouter. Median im Log: 4 s, p90 10 s, Maximum 27 s.
+
+Umgesetzt:
+- **Anbieterkette** `TRANSCRIPTION_KETTE` (Groq → OpenRouter → OpenAI) mit `transcribe_audio`, Puffer-Reset je Versuch, Zeitmessung je Stufe
+- **Modellkette** `POLISH_MODELLE` für die Glättung mit automatischem Nachrücken
+- **Ausfallmeldung** statt stillem Log-Eintrag: drei Glättungs-Ausfälle in Folge → einmaliger Windows-Hinweis (`ausfall_zaehlen`, `ausfall_melden`)
+- **Preise je Anbieter** (`PREISE_JE_MINUTE`, `kosten_fuer`), Tray zeigt Minuten, Betrag und Anbieter
+- **`groq`-Paket entfernt** — Groq läuft über das OpenAI-SDK (OpenAI-kompatibler Endpunkt), eine Abhängigkeit weniger
+- **25 neue Prüfungen** (`test_transkription.py`), 109 insgesamt grün
+- **Gemessen** (24,5 s deutsches Audio, 16 kHz mono): Groq median 0,72 s · OpenRouter median 1,83 s (Ausreißer 6,79 s) · OpenAI antwortet nicht
+
 ## Offene Arbeit
 
 ### ⚠️ Critic-Gegenprobe für Slice A (Prompt-Änderungen)
@@ -114,10 +133,15 @@ node .claude/skills/critic/pruefe.mjs "02_Softwareentwicklung_IT\typeFREE\window
 
 ### Textqualität — offene Punkte
 
-Die Glättung läuft jetzt über OpenRouter `google/gemini-2.0-flash-001`:
-- Füllwörter werden hoffentlich besser erkannt (Prompt-Verschärfung vom 01.08.)
+Die Glättung läuft über die Modellkette (`google/gemini-2.5-flash` und zwei Ausweichmodelle, gemessen 25.09.2026: 0,8 s):
+- Füllwörter werden zuverlässig entfernt (auch als „A H M" verschriftete) — im Testdurchlauf blieben keine stehen
 - „glaube → denke" und „gucken → wissen" müssen nochmal gemessen werden
 - Englische Fachbegriffe in deutschen Sätzen werden nicht geschont
+- Verhörer werden unterschiedlich gut repariert: „Zweittest" → „zweite Test" gelang, „Swayt-Test" → „Suite-Test" daneben
+
+### Installer — offener Punkt
+
+Der Installer fragt den **Groq-Schlüssel** noch nicht ab (nur OpenRouter und optional OpenAI). Für die Weitergabe an Dritte sollte er ihn aufnehmen — sonst läuft die App dort über den doppelt so langsamen Ausweichweg.
 
 ### Weitere Ideen
 
