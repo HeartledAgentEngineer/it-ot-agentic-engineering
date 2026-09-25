@@ -13,7 +13,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | **Anbieterkette** (`TRANSCRIPTION_KETTE`): Groq `whisper-large-v3` (Regelfall, median 0,72 s), dann OpenRouter `openai/whisper-large-v3`, zuletzt OpenAI `whisper-1`. Alle mit `language="de"` und `prompt=WHISPER_VOKABULAR` (Fachwörter vorgeben → weniger Verhörer an der Quelle). Anbieter ohne Schlüssel werden übersprungen; erst wenn keiner liefert, gibt es einen Fehler |
+| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`: `eu` = Voxtral Small (Mistral/Frankreich) über den Audio-Chat von OpenRouter, `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel des gewählten Wegs, rückt der nächste ein. Fällt ein Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb: Der EU-Weg drosselt bei langem Audio (geteilter Mistral-Pool, 429), deshalb steht die Auswahl seit dem 25.09.2026 auf `schnell` |
 | Text-Glättung | OpenRouter über eine **Modellkette** (`POLISH_MODELLE`): `google/gemini-2.5-flash` (0,8 s), `google/gemini-3.5-flash-lite`, `google/gemini-2.5-flash-lite`. Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler, unplausibel kurzem Ergebnis oder abgekündigtem Modell rückt das nächste Modell nach; erst dann kommt der Rohtext. Drei Ausfälle in Folge → einmaliger Windows-Hinweis |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT` |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
@@ -207,16 +207,43 @@ solche Antworten.
 
 ## Offene Arbeit
 
-### Transkriptionsweg festlegen (wartet auf eine echte Stimmprobe)
+### Transkriptionsweg — Stand 25.09.2026
 
-Der Transkriptions-Endpunkt von OpenRouter ist unbrauchbar (siehe Messstand) und
-kommt nicht in den Regelpfad. Zur Wahl stehen:
-- **Groq direkt** — schnellster und billigster Weg, vollständig, aber US-Anbieter.
-- **Voxtral Small über OpenRouter (Audio-Chat-Weg)** — EU (Mistral, Frankreich),
-  ZDR-konform, vollständig, aber rund 3× teurer und 1–1,5 s langsamer.
+Entschieden sind **drei wählbare Wege** (Tabelle oben), umschaltbar im Tray und in
+der `config.json`. Offen sind zwei Punkte:
 
-Entschieden wird an einer echten Aufnahme mit `windows/stimmvergleich.py`:
-wer Sebastians schnelles, genuscheltes Deutsch am besten versteht.
+- **Der EU-Weg ist im Betrieb nicht belastbar**, solange er über den geteilten
+  Mistral-Pool von OpenRouter läuft: ab etwa 60 s Audio kommt bei jedem Versuch
+  ein 429 (Messung unten). Belastbar wird er mit einem **eigenen
+  Mistral-Schlüssel** bei OpenRouter (BYOK, „Integrations") — dann gelten eigene
+  Limits statt des geteilten Pools. Aus diesem Grund steht die Auswahl seit dem
+  25.09.2026 auf `schnell`.
+- **`beste` ist noch nicht einsatzbereit**, weil kein `ELEVENLABS_API_KEY` gesetzt
+  ist — das Tray-Menü zeigt „(kein Schlüssel)" und die Kette überspringt den Weg.
+
+Entschieden wird an einer **echten** Aufnahme — nicht durch Vermutung:
+`windows/stimmvergleich.py` (alle Kandidaten auf demselben Audio) und
+`windows/sprachmessung.py` (Wortfehlerquote gegen bekannten Text).
+
+### Schnelles Sprechen ist nicht die Fehlerquelle (Messung 25.09.2026)
+
+Sebastian testete bewusst schnelles Diktieren. Messung mit `sprachmessung.py`
+gegen bekannten deutschen Text (Referenzaudio im Repo):
+
+| Aufnahme | Wortfehler |
+|---|---|
+| 69,7 s am Stück | 4,0 % |
+| dieselbe Aufnahme in 25-s-Happen | 3,4 % |
+| derselbe Satz wie ein echtes Diktat, normale Sprechweise | 0,0 % |
+| +30 % schneller | 1,2 % |
+| +30 % schneller und −35 % leiser | 0,0 % |
+
+Auch seine eigenen Diktate bestätigen das: das schnellste im Log (3,07 Wörter/s)
+war fehlerfrei, die Stellen mit sinnlosen Wörtern („Brother 1", „Context-Hensers")
+lagen bei 1,70–2,48 Wörtern/s. **Länge und Sprechtempo sind damit widerlegt**; ein
+Umbau auf Happen wurde gemessen und **verworfen** (0,6 Prozentpunkte, im Rauschen).
+Die Ursache liegt in der Aufnahme an der jeweiligen Stelle selbst — deshalb steht
+der Pegel jetzt im Log (`Aussteuerung: Spitze … · RMS …`).
 
 ### Bugreport an OpenRouter (offen)
 
