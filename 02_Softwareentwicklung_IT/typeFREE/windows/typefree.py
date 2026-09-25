@@ -782,10 +782,10 @@ def live_schnitt(daten, rate, ab_wo, ziel=LIVE_ZIEL_SEKUNDEN,
     pegel = float(np.sqrt(np.mean(np.square(block)))) or 1e-9
     schwelle = pegel * anteil
     breite = max(schritt, int(pause * rate))
-    # Von hinten nach vorn die erste Sprechpause suchen
-    for i in range(len(block) - breite, int(mindest * rate), -schritt):
-        if i <= 0:
-            break
+    # Von vorn die erste echte Sprechpause suchen — je früher der Schnitt, desto
+    # früher erscheint der Text im Dokument. (Von hinten gesucht würde der erste
+    # Happen bei einem langen Diktat 20+ Sekunden groß und der Wortfluss bliebe aus.)
+    for i in range(int(mindest * rate), len(block) - breite + 1, schritt):
         if float(np.sqrt(np.mean(np.square(block[i:i + breite])))) < schwelle:
             return von + i
     if rest >= ziel:
@@ -797,6 +797,107 @@ def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
                             limit=MAX_RECORDING_SECONDS):
     """Wahr, sobald die Obergrenze erreicht ist. Der Text wird trotzdem gesendet."""
     return recorded_seconds(frames, sample_rate) >= limit
+
+
+# ── Live-Modus: Happen schon während der Aufnahme schneiden (Schritt 2) ───────
+# Der Aufnahme-Callback darf nichts rechnen (er läuft im Audio-Thread), also
+# sammelt ein eigener Worker die Blöcke ein und legt fertige Happen in
+# `live_happen` ab. Transkribiert und eingefügt werden sie in Schritt 3.
+
+LIVE_TAKT_SEKUNDEN = 0.5      # so oft schaut der Worker nach, ob ein Happen fertig ist
+live_modus = False            # Schritt 5: aus config.json bzw. Tray setzen
+live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspeicher
+
+
+class LivePuffer:
+    """Sammelt die Audioblöcke und schneidet fertige Happen heraus.
+
+    Reine Buchhaltung — kein Mikrofon, kein Netz. `geschnitten` zählt die Samples,
+    die schon als Happen abgelegt wurden; damit kann kein Happen doppelt oder
+    lückenhaft entstehen, egal wie oft `naechster_happen()` aufgerufen wird.
+    """
+
+    def __init__(self, rate=SAMPLE_RATE):
+        self.rate = rate
+        self.bloecke = []
+        self.geschnitten = 0
+
+    def ergaenzen(self, bloecke):
+        """Neue Audioblöcke anhängen."""
+        self.bloecke.extend(bloecke)
+        return self
+
+    def daten(self):
+        """Alle Blöcke als ein Feld (None, wenn noch nichts da ist)."""
+        if not self.bloecke:
+            return None
+        if len(self.bloecke) == 1:
+            return self.bloecke[0]
+        return np.concatenate(self.bloecke, axis=0)
+
+    def rest_sekunden(self):
+        """Wie viel Audio noch nicht zu einem Happen geworden ist."""
+        daten = self.daten()
+        if daten is None:
+            return 0.0
+        return (len(daten) - self.geschnitten) / self.rate
+
+    def naechster_happen(self, ziel=LIVE_ZIEL_SEKUNDEN,
+                         mindest=LIVE_MINDEST_SEKUNDEN,
+                         pause=LIVE_PAUSE_SEKUNDEN, anteil=LIVE_PAUSE_ANTEIL):
+        """Nächsten fertigen Happen schneiden — `None`, solange keiner fertig ist."""
+        daten = self.daten()
+        if daten is None or self.geschnitten >= len(daten):
+            return None
+        schnitt = live_schnitt(daten, self.rate, self.geschnitten / self.rate,
+                               ziel, mindest, pause, anteil)
+        if schnitt is None or schnitt <= self.geschnitten:
+            return None
+        happen = daten[self.geschnitten:schnitt]
+        self.geschnitten = schnitt
+        return happen
+
+
+def _live_takt(puffer, gesehen, bloecke):
+    """Ein Durchlauf des Live-Workers — reine Funktion, damit sie prüfbar bleibt.
+
+    Gibt `(neue_gesehen, happen)` zurück: `happen` ist None, solange nichts fertig
+    ist. `gesehen` zählt die schon eingesammelten Blöcke, damit nichts doppelt in
+    den Puffer wandert.
+    """
+    if len(bloecke) > gesehen:
+        puffer.ergaenzen(bloecke[gesehen:])
+        gesehen = len(bloecke)
+    return gesehen, puffer.naechster_happen()
+
+
+def live_abholen():
+    """Fertige Happen nehmen und die Liste leeren — thread-sicher."""
+    with lock:
+        fertig, live_happen[:] = list(live_happen), []
+    return fertig
+
+
+def _live_worker(session):
+    """Schneidet während der Aufnahme Happen und legt sie bereit.
+
+    `session` wie beim Aufnahme-Wächter: ein Worker aus einer früheren Aufnahme
+    beendet sich, statt in die neue hineinzuschneiden.
+    """
+    puffer = LivePuffer()
+    gesehen = 0
+    while True:
+        time.sleep(LIVE_TAKT_SEKUNDEN)
+        with lock:
+            if not is_recording or session != _session:
+                return
+            bloecke = list(audio_frames)
+        gesehen, happen = _live_takt(puffer, gesehen, bloecke)
+        if happen is not None and happen.size:
+            with lock:
+                live_happen.append(happen)
+            log.info('Live: Happen geschnitten — %.1f s, %.1f s Rest',
+                     happen.shape[0] / SAMPLE_RATE, puffer.rest_sekunden())
 
 
 def _reconnect_microphone():
@@ -884,6 +985,7 @@ def start_recording():
     # Sitzungsnummer gehören zusammen und dürfen nicht halb sichtbar werden.
     with lock:
         audio_frames = []
+        live_happen.clear()          # keine Happen aus der vorigen Aufnahme behalten
         _last_data_at   = jetzt
         _last_signal_at = jetzt
         _session += 1
@@ -900,6 +1002,9 @@ def start_recording():
     _status_recording()
     threading.Thread(target=_watch_recording, args=(session,),
                      name='watchdog', daemon=True).start()
+    if live_modus:
+        threading.Thread(target=_live_worker, args=(session,),
+                         name='live', daemon=True).start()
     log.info('Aufnahme läuft')
 
 

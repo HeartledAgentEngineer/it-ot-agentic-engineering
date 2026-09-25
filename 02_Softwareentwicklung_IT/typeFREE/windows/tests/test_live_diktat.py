@@ -63,7 +63,9 @@ def test_zweiter_happen_zaehlt_ab_der_schnittstelle():
     zweiter = typefree.live_schnitt(daten, RATE, erster / RATE)
     assert zweiter is not None
     assert zweiter > erster
-    assert zweiter / RATE >= 17.0, 'Schnitt muss in der neuen Pause liegen'
+    # Die nächste Pause nach der Mindestlänge — nicht die letzte im Puffer:
+    # sonst wächst der Happen immer weiter und der Text bliebe aus.
+    assert 11.5 <= zweiter / RATE <= 13.5, 'Schnitt muss in der nächsten Pause liegen'
 
 
 def test_in_happen_zerlegt_vollstaendig():
@@ -88,3 +90,78 @@ def test_zu_kurzer_block_bleibt_bei_null(sekunden):
     """Kein Absturz bei leeren oder fast leeren Puffern."""
     leer = sprache(sekunden)
     assert typefree.live_schnitt(leer, RATE, 0.0) is None
+
+
+# ── Schritt 2: Aufnahme-Worker (Puffer, Takt, Abholen) ────────────────────────
+
+def test_puffer_wartet_bis_genug_audio_da_ist():
+    """Kurz nach dem Start gibt es noch keinen Happen — sonst zahlt man für Silben."""
+    puffer = typefree.LivePuffer(RATE).ergaenzen([sprache(2.0)])
+    assert puffer.naechster_happen() is None
+    assert puffer.rest_sekunden() == pytest.approx(2.0, abs=0.05)
+
+
+def test_puffer_schneidet_an_der_sprechpause():
+    """Nach einer Pause ist ein Happen fertig — und er endet dort, nicht im Wort."""
+    puffer = typefree.LivePuffer(RATE).ergaenzen([sprache(6.0), stille(1.0), sprache(1.0)])
+    happen = puffer.naechster_happen()
+    assert happen is not None
+    # Der Schnitt liegt am Anfang der Pause (dort ist es schon leise) — nicht im Wort.
+    assert 6.0 * RATE <= len(happen) <= 7.0 * RATE, 'Schnitt muss in der Pause liegen'
+    assert puffer.rest_sekunden() == pytest.approx(2.0, abs=0.3)
+
+
+def test_happen_lueckenlos_und_ohne_doppelung():
+    """Die wichtigste Eigenschaft: Happen + Rest ergeben wieder genau das ganze Audio.
+
+    Wäre hier ein Sample doppelt oder fehlte eines, würde der Text im Dokument
+    doppelt auftauchen oder mitten im Wort abreißen.
+    """
+    bloecke = []
+    for _ in range(6):
+        bloecke.append(sprache(4.0))
+        bloecke.append(stille(0.8))
+    bloecke.append(sprache(2.0))
+    puffer = typefree.LivePuffer(RATE).ergaenzen(bloecke)
+    gesamt = puffer.daten()
+
+    happen_liste = []
+    while True:
+        happen = puffer.naechster_happen()
+        if happen is None:
+            break
+        happen_liste.append(happen)
+        assert len(happen_liste) <= 20, 'der Puffer darf nicht endlos Happen liefern'
+
+    assert len(happen_liste) >= 3, 'bei ~29 s Audio müssen mehrere Happen entstehen'
+    zusammen = np.concatenate(happen_liste + [gesamt[puffer.geschnitten:]])
+    assert len(zusammen) == len(gesamt)
+    assert np.array_equal(zusammen, gesamt)
+
+
+def test_takt_holt_neue_bloecke_nur_einmal():
+    """Der Worker sieht dieselbe Blockliste mehrfach — doppelt darf nichts werden."""
+    puffer = typefree.LivePuffer(RATE)
+    bloecke = [sprache(1.0), stille(0.5)]
+    gesehen, _ = typefree._live_takt(puffer, 0, bloecke)
+    assert gesehen == 2 and len(puffer.bloecke) == 2
+    gesehen, _ = typefree._live_takt(puffer, gesehen, bloecke)
+    assert len(puffer.bloecke) == 2, 'derselbe Block darf nicht zweimal in den Puffer'
+    gesehen, _ = typefree._live_takt(puffer, gesehen, bloecke + [sprache(1.0)])
+    assert len(puffer.bloecke) == 3
+
+
+def test_takt_ohne_audio_liefert_nichts():
+    puffer = typefree.LivePuffer(RATE)
+    gesehen, happen = typefree._live_takt(puffer, 0, [])
+    assert gesehen == 0 and happen is None
+
+
+def test_abholen_gibt_happen_und_leert_die_liste():
+    """Der Verbraucher (Schritt 3) bekommt jeden Happen genau einmal."""
+    with typefree.lock:
+        typefree.live_happen.clear()
+        typefree.live_happen.append(sprache(1.0))
+    fertig = typefree.live_abholen()
+    assert len(fertig) == 1
+    assert typefree.live_abholen() == []
