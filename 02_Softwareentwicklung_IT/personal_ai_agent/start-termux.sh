@@ -65,6 +65,28 @@ fi
 # bricht NICHT ab, der Server startet trotzdem (Dateisuche dann eben ohne).
 command -v termux-setup-storage >/dev/null 2>&1 && termux-setup-storage
 
+# ── Archiv-Index übernehmen (selbstheilend) ───────────────────────────────────
+# Der übertragbare Wissensspeicher-Index ist zu groß, um ihn über Git zu
+# transportieren, und ADB kann nicht in den Termux-Heimordner schreiben
+# (App-Sandbox). Deshalb wird er per Kabel nach /sdcard/Download/ geschoben —
+# und hier beim Start nach ~/ geholt. Der Server sucht ihn dort.
+# Ein schon vorhandener Index wird NICHT gelöscht, sondern als
+# ~/archiv_index_alt.db beiseitegelegt (Rückweg bleibt offen).
+QUELLE_INDEX="$HOME/storage/downloads/archiv_index.db"
+[ -f "$QUELLE_INDEX" ] || QUELLE_INDEX="/sdcard/Download/archiv_index.db"
+if [ -f "$QUELLE_INDEX" ]; then
+    echo "── Archiv-Index übernehmen ────────────────────"
+    if [ -f "$HOME/archiv_index.db" ]; then
+        mv -f "$HOME/archiv_index.db" "$HOME/archiv_index_alt.db" \
+            && echo "  · vorheriger Index liegt jetzt als ~/archiv_index_alt.db"
+    fi
+    if mv "$QUELLE_INDEX" "$HOME/archiv_index.db" 2>/dev/null; then
+        echo "  ✔ übernommen: ~/archiv_index.db ($(du -h "$HOME/archiv_index.db" 2>/dev/null | cut -f1))"
+    else
+        echo "  ⚠ Übernahme fehlgeschlagen ($QUELLE_INDEX) – Server startet trotzdem."
+    fi
+fi
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 # Ohne das bricht ein laufender Stream ab, sobald das Display ausgeht.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
