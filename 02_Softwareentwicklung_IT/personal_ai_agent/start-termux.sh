@@ -189,6 +189,27 @@ else
     fi
 fi
 
+# ── Diagnose-Ablage für die Fehlersuche über das Kabel ────────────────────────
+# Warum: Der Termux-Heimatordner ist über das Kabel NICHT lesbar (adb shell läuft
+# als anderer Benutzer). Deshalb legt das Skript bei jedem Start die letzten
+# Zeilen des Inbox-Protokolls und der letzten Antworten in den freigegebenen
+# Download-Ordner — von dort kann man sie vom PC aus lesen.
+# Es wird nichts hochgeladen und nichts ins Repo geschrieben; die Dateien werden
+# bei jedem Start überschrieben (reine Nachschau-Hilfe).
+INBOX_DIR="${HERMES_INBOX_DIR:-$HOME/hermes_inbox}"
+DIAG_BASIS="$HOME/storage/downloads"
+[ -d "$DIAG_BASIS" ] || DIAG_BASIS="/sdcard/Download"
+DIAG="$DIAG_BASIS/hermes_diag"
+if [ -d "$INBOX_DIR" ] && mkdir -p "$DIAG" 2>/dev/null; then
+    tail -40 "$INBOX_DIR/daemon.log"      > "$DIAG/daemon_letzte.txt"      2>/dev/null
+    tail -3  "$INBOX_DIR/antworten.jsonl" > "$DIAG/antworten_letzte.jsonl" 2>/dev/null
+    tail -3  "$INBOX_DIR/status.jsonl"    > "$DIAG/status_letzte.jsonl"    2>/dev/null
+    tail -2  "$INBOX_DIR/auftraege.jsonl" > "$DIAG/auftraege_letzte.jsonl" 2>/dev/null
+    echo "  ℹ Diagnose abgelegt: $DIAG (Protokoll + letzte Antworten)"
+else
+    echo "  ℹ Keine Diagnose-Ablage (Postfach oder Download-Ordner nicht gefunden)"
+fi
+
 # ── App statt Browser öffnen ──────────────────────────────────────────────────
 # Eine Web-App (display=standalone) kann den Server NICHT starten: sie ist
 # reiner Browser-Inhalt, hat keinen nativen Code und keine Shell. Deshalb macht
