@@ -1,0 +1,1 @@
+Notiz für den Test: Das Repository liegt auf GitHub, der letzte Commit war am Freitag. Danach prüfe ich den Branch, löse den Rebase-Konflikt und schreibe ein Ticket ins Board. Für den Azure-Kurs wiederhole ich Entra ID, Key Vault und Conditional Access. Am Ende teste ich noch die Wortfehlerquote mit einer Vertragsverlängerung.

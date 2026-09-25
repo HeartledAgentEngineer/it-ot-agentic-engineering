@@ -18,6 +18,23 @@ uv pip install --python tf_tts/Scripts/python.exe edge-tts
 ffmpeg -y -i de_referenz.mp3 -ac 1 -ar 16000 -c:a pcm_s16le de_referenz.wav
 ```
 
+## Sprechprobe (Vorlesetext)
+
+`de_kurz.txt` ist kein Referenzaudio, sondern ein **Vorlesetext** für eine
+Messung an Sebastians echter Stimme: zweimal laut vorlesen (einmal normal,
+einmal so schnell wie möglich) und beide Diktate ins typeFREE-Log schreiben.
+Danach die Wortfehlerquote aus dem Log gegen diesen Wortlaut rechnen — die
+Rohläufe stehen als `Erkannt (…)` in `typefree.log`:
+
+```python
+import sprachmessung
+sprachmessung.wortfehlerquote(erkannt_aus_dem_log, open('de_kurz.txt').read())
+```
+
+Der Text enthält absichtlich Fachwörter (Repository, Commit, Branch, Rebase,
+Ticket, Board) und am Ende ein langes Kompositum („Vertragsverlängerung") —
+die Stelle, an der Whisper im Betrieb zu raten anfängt.
+
 ## Messstand 25.09.2026 (Groq `whisper-large-v3`, Kern-Vokabular)
 
 | Aufnahme | Wortfehler |
