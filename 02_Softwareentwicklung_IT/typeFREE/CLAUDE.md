@@ -24,7 +24,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
 | Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — 139 Prüfungen mit pytest in 13 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Tests | `windows/tests/` — 148 Prüfungen mit pytest in 13 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
 
 ## Versionierte Struktur
@@ -50,7 +50,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 109 Prüfungen in 13 Dateien
+    └── tests/                 ← 148 Prüfungen in 13 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer erzeugt) sowie der Android-PoC

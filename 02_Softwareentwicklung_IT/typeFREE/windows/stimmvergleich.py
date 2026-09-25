@@ -103,7 +103,7 @@ def ueber_scribe(schluessel: str, pfad: Path) -> tuple[float, str]:
     puffer.name = "audio.wav"
     t0 = time.monotonic()
     text = typefree._transkribiere_scribe(
-        schluessel, "scribe_v2", puffer, typefree.WHISPER_VOKABULAR,
+        schluessel, "scribe_v2", puffer, typefree.FACH_VOKABULAR,
         "https://api.elevenlabs.io/v1")
     return time.monotonic() - t0, text
 

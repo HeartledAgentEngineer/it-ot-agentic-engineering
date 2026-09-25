@@ -33,6 +33,14 @@ def test_anweisung_haelt_anrede_und_sprechakt_fest():
     assert 'Die Anredeform oder den Sprechakt ändern' in text
 
 
+def test_anweisung_haelt_fachbegriffe_und_denglisch_fest():
+    """Denglisch bleibt Denglisch, Commit und Comet werden nicht verwechselt."""
+    text = typefree.POLISH_ANWEISUNG
+    assert 'FACHBEGRIFFE UND DENGLISCH BLEIBEN' in text
+    assert "'deployen' bleibt 'deployen'" in text
+    assert "'Comet' ist der Browser, 'Commit' die Git-Aktion" in text
+
+
 def test_anweisung_verbietet_das_ausformulieren_weiterhin():
     assert 'Der Ton bleibt, wie er ist' in typefree.POLISH_ANWEISUNG
     assert 'Sätze umformulieren, kürzen oder eleganter machen' in typefree.POLISH_ANWEISUNG

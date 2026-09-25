@@ -577,3 +577,60 @@ def test_kosten_je_anbieter_unterscheiden_sich():
     voxtral = typefree.kosten_fuer(600, 'voxtral')
     assert groq < voxtral
     assert abs(groq - 0.0185) < 1e-9          # 10 Minuten bei 0,111 $/Stunde
+
+
+# ── Vokabular ─────────────────────────────────────────────────────────────────
+# Vorgabe vom 25.09.2026: „Wir brauchen auch ganz viel Denglisch und
+# Fachbegriffe … viel ausführlicher als mit den drei Worten" — und „Commit und
+# Comet bekommt er immer durcheinander". Die Wege haben aber verschiedene
+# Grenzen, deshalb zwei Listen (siehe Kommentar an FACH_VOKABULAR).
+
+def test_whisper_kern_bleibt_in_der_token_grenze():
+    """Whisper kürzt den `prompt` ab 224 Tokens STILL — der Kern muss darunter bleiben."""
+    kern = typefree.WHISPER_VOKABULAR
+    assert len(kern) <= 520, 'Whisper-Hinweis zu lang — der Rest fällt still weg'
+    tiktoken = pytest.importorskip('tiktoken')
+    tokens = len(tiktoken.get_encoding('cl100k_base').encode(kern))
+    assert tokens <= 175, f'{tokens} Tokens — zu nah an der 224-Token-Grenze'
+
+
+def test_fachliste_ist_ausfuehrlicher_als_der_whisper_kern():
+    """Die Wege ohne Token-Grenze (Scribe, Voxtral) bekommen die volle Liste."""
+    fach = [b.strip() for b in typefree.FACH_VOKABULAR.split(',') if b.strip()]
+    kern = [b.strip() for b in typefree.WHISPER_VOKABULAR.split(',') if b.strip()]
+    assert len(fach) > len(kern)
+    for begriff in ('Synapse', 'Purview', 'Zero Trust', 'Conditional Access',
+                    'Logic App', 'Power Automate', 'GitHub', 'deployen'):
+        assert begriff in fach, f'{begriff} fehlt in der Fachliste'
+
+
+def test_commit_und_comet_stehen_in_beiden_listen():
+    """Belegter Verhörer: „Commit" (Git) und „Comet" (Browser) gehen durcheinander."""
+    for liste in (typefree.WHISPER_VOKABULAR, typefree.FACH_VOKABULAR):
+        assert 'Commit' in liste and 'Comet' in liste
+
+
+def test_fachliste_bleibt_in_der_scribe_grenze():
+    """Scribe nimmt höchstens 100 Keyterms — was darüber steht, fällt still weg."""
+    begriffe = [b.strip() for b in typefree.FACH_VOKABULAR.split(',') if b.strip()]
+    assert len(begriffe) <= 100, 'zu viele Begriffe für Scribe'
+    assert len(typefree._keyterms(typefree.FACH_VOKABULAR)) == len(begriffe)
+
+
+def test_der_chat_weg_bekommt_die_volle_fachliste():
+    """Voxtral hat keine 224-Token-Grenze — dort steht die lange Liste im Auftrag."""
+    attrappe = ChatAttrappe(text='Transkript')
+    typefree._kette_durchlaufen(puffer(), {'voxtral': attrappe},
+                                typefree.KETTEN['eu'])
+    auftrag = attrappe.aufrufe[0]['messages'][0]['content'][0]['text']
+    assert auftrag.startswith(typefree.CHAT_AUFTRAG)
+    assert 'Synapse' in auftrag and 'Zero Trust' in auftrag
+
+
+def test_der_schnelle_weg_bekommt_den_kurzen_kern():
+    """Whisper hat die 224-Token-Grenze — dort steht nur der Kern."""
+    attrappe = TranskriptionsAttrappe(text='Transkript')
+    typefree._kette_durchlaufen(puffer(), {'groq': attrappe},
+                                typefree.KETTEN['schnell'])
+    assert attrappe.aufrufe[0]['prompt'] == typefree.WHISPER_VOKABULAR
+    assert 'Synapse' not in attrappe.aufrufe[0]['prompt']

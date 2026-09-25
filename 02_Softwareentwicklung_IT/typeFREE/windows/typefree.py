@@ -832,7 +832,11 @@ POLISH_ANWEISUNG = (
     "richtet sich danach, was gesagt wurde.\n"
     "7. KEIN ERZÄHL- ODER FRAGESTIL: Der Text bleibt so knapp und direkt, wie "
     "gesprochen. Du erzählst nicht nach, leitest nichts ein und formulierst "
-    "nicht aus.\n\n"
+    "nicht aus.\n"
+    "8. FACHBEGRIFFE UND DENGLISCH BLEIBEN: IT-Fachsprache wird nicht "
+    "eingedeutscht ('deployen' bleibt 'deployen', 'der Commit' bleibt 'der "
+    "Commit'). Ähnlich klingende Fachwörter nach dem Zusammenhang "
+    "auseinanderhalten — 'Comet' ist der Browser, 'Commit' die Git-Aktion.\n\n"
     "VERBOTEN:\n"
     "- Umgangssprache, Slang oder Dialekt ersetzen. 'gucken' bleibt 'gucken' "
     "und wird NICHT zu 'wissen' oder 'schauen'. Der Ton bleibt, wie er ist.\n"
@@ -933,14 +937,56 @@ def _melde_glattung_ausfall():
 
 
 # ── Aufnahme stoppen und transkribieren ───────────────────────────────────────
-# Whisper nimmt einen Vokabel-Hinweis an und bevorzugt danach diese Schreibungen.
-# Das senkt Verhörer an der QUELLE, statt sie hinterher glätten zu lassen.
-# Belegte Verhörer vom 2026-07-29: „Zweigetest" statt „zweiter Test",
-# „Ants" statt „Ähms". Liste bei Bedarf um eigene Fachwörter erweitern.
+# Whisper und Scribe nehmen einen Vokabel-Hinweis an und bevorzugen danach diese
+# Schreibungen. Das senkt Verhörer an der QUELLE, statt sie hinterher glätten zu
+# lassen. Belegte Verhörer vom 2026-07-29: „Zweigetest" statt „zweiter Test",
+# „Ants" statt „Ähms"; vom 2026-09-25: „Commit" und „Comet" werden verwechselt.
+#
+# ZWEI Listen, weil die Wege verschiedene Grenzen haben:
+#   * FACH_VOKABULAR — die volle Fach- und Denglisch-Liste (IT, Azure-Kurs,
+#     Werkzeuge). Sie geht an Scribe (`keyterms`, dort sind 100 Begriffe
+#     erlaubt) und in den Auftragstext des Chat-Wegs (Voxtral).
+#   * WHISPER_VOKABULAR — der kurze Kern für den `prompt`-Parameter von Whisper.
+#     Dort gilt eine HARTE Grenze von 224 Tokens; ein längerer Hinweis wird von
+#     der API still gekürzt (Groq-Doku „max 224 tokens", OpenAI-Cookbook: „only
+#     the final 224 tokens … all prior tokens will be silently ignored").
+#     Deshalb steht hier nur, was im Betrieb wirklich verhört wurde oder ähnlich
+#     klingt — die lange Liste würde dort nichts bewirken.
+FACH_VOKABULAR = (
+    'typeFREE, Hotkey, Tray, Slice, Scancode, Logdatei, Verhörer, '
+    'zweiter Test, Ähm, Whisper, Voxtral, Scribe, Groq, OpenRouter, '
+    'ElevenLabs, Commit, Comet, Repository, Branch, Merge, Rebase, Diff, '
+    'Pull Request, Code Review, Ticket, Issue, Backlog, Sprint, Kanban, '
+    'Board, Deploy, Rollback, Pipeline, Build, Container, Cache, Debug, Log, '
+    'Namespace, Cluster, Secret, Prompt, Token, Embedding, RAG, '
+    'Vector Store, Azure, Entra ID, Key Vault, Resource Group, Subscription, '
+    'Tenant, RBAC, Managed Identity, Blob Storage, Function App, '
+    'App Service, Logic App, Cosmos DB, Synapse, Data Factory, Purview, '
+    'Sentinel, Defender, Microsoft Fabric, Power BI, Copilot, Zero Trust, '
+    'MFA, Conditional Access, AZ-900, AI-901, AI-103, AI-200, AI-300, '
+    'Teams, Outlook, SharePoint, OneDrive, Excel, Power Automate, Termux, '
+    'Obsidian, Bitwarden, FFmpeg, PyInstaller, pytest, Git, GitHub, Python, '
+    'TwinCAT, SPS, Aufgabenplanung, deployen, committen, mergen, reviewen, '
+    'refactoren'
+)
+
+# Kurzfassung für den Whisper-`prompt` (224-Token-Grenze, siehe oben).
+# Auswahl: Schreibweisen, die Whisper im Betrieb verhört hat oder die sich
+# ähnlich anhören (Commit/Comet), die eigenen Programm- und Anbieter-Namen,
+# die Werkzeuge und die Kurskennungen. Häufige englische Alltagswörter (Excel,
+# Teams, Outlook, Git, Python) stehen bewusst NICHT hier — sie erkennt Whisper
+# ohnehin, und jedes Wort kostet Platz in der 224-Token-Grenze; für Scribe und
+# Voxtral stehen sie in FACH_VOKABULAR.
+# Gemessen am 25.09.2026: 490 Zeichen, 147 Tokens (cl100k_base, tiktoken 0.12);
+# mit Sicherheitszuschlag für den mehrsprachigen Whisper-Tokenizer ~198 Tokens.
 WHISPER_VOKABULAR = (
-    'typeFREE, Hotkey, Tray, Slice, Commit, Repository, Branch, Refactor, '
-    'Alignment, Phase, Prüfung, Logdatei, Scancode, Whisper, Groq, '
-    'Claude Code, Python, TwinCAT, SPS, Aufgabenplanung, zweiter Test, Ähm'
+    'typeFREE, Hotkey, Tray, Slice, Logdatei, Scancode, Vokabular, Whisper, '
+    'Voxtral, Scribe, Groq, OpenRouter, ElevenLabs, Azure, Entra ID, Key Vault, '
+    'Resource Group, Subscription, Tenant, Managed Identity, Blob Storage, '
+    'Cosmos DB, Copilot, Deployment, Embedding, Repository, Branch, Commit, '
+    'Comet, Merge, Rebase, Diff, Pull Request, Backlog, Sprint, Kanban, Board, '
+    'Deploy, Rollback, Termux, Obsidian, PyInstaller, pytest, TwinCAT, SPS, '
+    'Aufgabenplanung, AZ-900, AI-103, AI-200, zweiter Test, Ähm'
 )
 
 
@@ -1102,12 +1148,16 @@ def _ist_auftragstext(text):
     return 'transkribiere diese' in text.strip()[:120].lower()
 
 
-def _kette_durchlaufen(puffer, clients, kette, vokabular):
+def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
+                       fach_vokabular=FACH_VOKABULAR):
     """Eine Anbieterkette der Reihe nach versuchen; gibt `(text, anbieter)` zurück.
 
     Wirft erst, wenn KEIN Glied der Kette liefern konnte. `puffer` wird vor jedem
     Versuch zurückgesetzt: nach einem fehlgeschlagenen Upload steht der Dateizeiger
     am Ende, der zweite Versuch schickte sonst eine leere Datei.
+
+    `vokabular` ist der kurze Hinweis für den Whisper-`prompt` (224-Token-Grenze),
+    `fach_vokabular` die volle Fachliste für die Wege ohne diese Grenze.
     """
     fehler = []
     for name, modell, basis_url, weg in kette:
@@ -1123,10 +1173,11 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular):
         begonnen = time.monotonic()
         try:
             if weg == 'chat':
-                text = _transkribiere_chat(client, modell, puffer, vokabular)
+                text = _transkribiere_chat(client, modell, puffer,
+                                           fach_vokabular)
             elif weg == 'elevenlabs':
                 text = _transkribiere_scribe(schluessel, modell, puffer,
-                                             vokabular, basis_url)
+                                             fach_vokabular, basis_url)
             else:
                 puffer.seek(0)
                 antwort = client.audio.transcriptions.create(
