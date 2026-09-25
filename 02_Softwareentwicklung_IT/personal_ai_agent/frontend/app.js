@@ -3683,12 +3683,167 @@ function macheQuizLabel(text) {
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// QUIZ-SUCHE: ALLE Personen des Katalogs anbieten
+// Befund Sebastian 2026-09-25 (sinngemäß): "Wenn ich eine Person suche, soll er
+// ja durch so eine Antwortauswahl kommen mit den Accounts. Den finde ich nicht.
+// Das passiert nicht. Nur bei einigen Personen. Personen sollen auftauchen —
+// nicht David ausblenden."
+// Ursache: die drei Suchfelder (Gruppenbild / selbst gezogener Rahmen /
+// Einzelbild) wurden NUR mit den Kandidaten der laufenden Runde gefüttert — die
+// Namen des Personenkatalogs kamen dort nie an.
+// Fix: Katalog (GET /api/gesichter) laden, Kandidaten nur noch als SORTIERUNG
+// innen, Kennzeichnen statt Ausblenden, "als neue Person anlegen" im Dropdown.
+// ---------------------------------------------------------------------------
+let _quizKatalogNamen = null;   // letzter geladener Katalog (kurzer Cache)
+let _quizKatalogZeit = 0;       // Zeitpunkt des Ladens
+let _quizKatalogFehler = '';    // letzte Fehlermeldung (ehrlicher Zustand)
+const QUIZ_KATALOG_TTL_MS = 60 * 1000;   // Katalog hoechstens 60 s cachen
+
+/** Verwirft den Katalog-Cache. Wird nach JEDER Zuordnung gerufen: dann kann
+ *  eine neue Person dazugekommen sein, die Liste darf nicht alt stehen bleiben. */
+function quizKatalogVerwerfen() {
+    _quizKatalogNamen = null;
+    _quizKatalogZeit = 0;
+}
+
+/** Aktueller Katalog-Stand (ALLE Namen) als Start-Liste fuers Suchfeld; das
+ *  Feld laedt danach selbst frisch nach (ladeQuizKatalogNamen). */
+function quizKatalogNamen() {
+    return (_quizKatalogNamen || []).slice();
+}
+
+function quizKatalogFehlerText() { return _quizKatalogFehler || ''; }
+
+/** Holt ALLE Personennamen aus dem Katalog (GET /api/gesichter). Ehrlich:
+ *  Ladefehler werden gemerkt und im Suchfeld angezeigt — nie still leer. */
+async function ladeQuizKatalogNamen(erzwingen) {
+    const jetzt = Date.now();
+    if (!erzwingen && _quizKatalogNamen && (jetzt - _quizKatalogZeit) < QUIZ_KATALOG_TTL_MS) {
+        return _quizKatalogNamen.slice();
+    }
+    try {
+        const res = await fetch(`${API_BASE}/api/gesichter`);
+        const d = await res.json();
+        const personen = (d && d.personen) || [];
+        const namen = [];
+        personen.forEach(p => {
+            const n = String((p && p.name) || '').trim();
+            if (n && namen.indexOf(n) === -1) namen.push(n);
+        });
+        _quizKatalogNamen = namen;
+        _quizKatalogZeit = jetzt;
+        _quizKatalogFehler = '';
+        return namen.slice();
+    } catch (e) {
+        _quizKatalogFehler = 'Personenkatalog nicht ladbar';
+        return (_quizKatalogNamen || []).slice();
+    }
+}
+
+/** Namen, die auf diesem Bild schon zugeordnet sind — nur KENNZEICHNEN, nie
+ *  ausblenden (Sebastians ausdruecklicher Wunsch: "Personen sollen auftauchen").
+ *  Quelle: bestaetigte Gesichter des Backends + lokal in dieser Sitzung
+ *  Zu-geordnetes (_quizEditor.personen). */
+function quizNamenAufBild(gesichter) {
+    const namen = [];
+    const dazu = (n) => { const s = String(n == null ? '' : n).trim(); if (s && namen.indexOf(s) === -1) namen.push(s); };
+    (gesichter || []).forEach(g => (((g && g.bestaetigt) ? g.bestaetigt : [])).forEach(dazu));
+    try { (((_quizEditor && _quizEditor.personen) ? _quizEditor.personen : [])).forEach(dazu); } catch (_e) {}
+    return namen;
+}
+
+/** Namen, die fuer DIESE Gesichts-Region (gesichter[idx]) schon bestaetigt
+ *  sind — ebenfalls nur Kennzeichnung, kein Ausblenden. */
+function quizNamenFuerRegion(gesichter, idx, bildPfad) {
+    const namen = [];
+    const dazu = (n) => { const s = String(n == null ? '' : n).trim(); if (s && namen.indexOf(s) === -1) namen.push(s); };
+    const g = (gesichter || [])[idx || 0] || {};
+    (((g && g.bestaetigt) ? g.bestaetigt : [])).forEach(dazu);
+    const reg = (g && g.region) ? g.region : bboxRegionSchluessel(g && g.bbox_norm);
+    if (reg && bildPfad) String(istBestaetigtLokal(bildPfad, reg) || '').split(',').forEach(dazu);
+    return namen;
+}
+
+/** Reine Listen-Logik der Quiz-Suche (ohne DOM, damit testbar):
+ *  - Reihenfolge: Kandidaten zuerst (Backend-Wahrscheinlichkeit), danach die
+ *    uebrigen Katalog-Namen ALPHABETISCH.
+ *  - Kein Ausblenden: wer auf diesem Bild schon zugeordnet (`aufBild`) oder fuer
+ *    diese Region schon bestaetigt ist (`bestaetigt`), bleibt drin und wird
+ *    markiert.
+ *  - Leere Eingabe -> leere Liste (das Suchfeld zeigt dann nichts an).
+ *  - Kennt der Katalog die Eingabe nicht, kommt sie als ERSTE Option
+ *    "➕ ... als neue Person anlegen" dazu (neu: true).
+ *  Rueckgabe: [{ name, kandidat, aufBild, bestaetigt, neu }] (max. 8). */
+function quizSuchVorschlaege(kandidaten, katalogNamen, eingabe, kontext) {
+    const q = String(eingabe == null ? '' : eingabe).trim().toLowerCase();
+    if (!q) return [];
+    const ktx = kontext || {};
+    const klein = (arr) => (arr || [])
+        .map(n => String(n == null ? '' : n).trim().toLowerCase()).filter(Boolean);
+    const aufBild = klein(ktx.aufBild);
+    const bestaetigt = klein(ktx.bestaetigt);
+    const eintrag = (name, istKandidat) => ({
+        name: name,
+        kandidat: !!istKandidat,
+        aufBild: aufBild.indexOf(name.toLowerCase()) !== -1,
+        bestaetigt: bestaetigt.indexOf(name.toLowerCase()) !== -1,
+        neu: false,
+    });
+    const gesehen = {};
+    const treffer = [];
+    // 1) Kandidaten in Backend-Reihenfolge (Wahrscheinlichkeit) — bleiben INNEN.
+    (kandidaten || []).forEach(n => {
+        const name = String(n == null ? '' : n).trim();
+        if (!name) return;
+        const low = name.toLowerCase();
+        if (gesehen[low] || low.indexOf(q) === -1) return;
+        gesehen[low] = true;                 // Kennzeichnen, NICHT ausblenden
+        treffer.push(eintrag(name, true));
+    });
+    // 2) restliche Katalog-Namen alphabetisch
+    const uebrige = [];
+    (katalogNamen || []).forEach(n => {
+        const name = String(n == null ? '' : n).trim();
+        if (!name) return;
+        const low = name.toLowerCase();
+        if (gesehen[low] || low.indexOf(q) === -1) return;
+        gesehen[low] = true;
+        uebrige.push(name);
+    });
+    uebrige.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase(), 'de'));
+    uebrige.forEach(n => treffer.push(eintrag(n, false)));
+    // 3) Eingabe im Katalog (und unter den Kandidaten) unbekannt -> der
+    //    BESTEHENDE "Neue Person"-Weg als ERSTE Option (Klick oeffnet das
+    //    vorhandene Formular, Name vorbelegt — kein neues Formular).
+    const kennt = (katalogNamen || []).concat(kandidaten || [])
+        .some(n => String(n == null ? '' : n).trim().toLowerCase() === q);
+    if (!kennt) {
+        treffer.unshift({ name: String(eingabe).trim(), kandidat: false, aufBild: false, bestaetigt: false, neu: true });
+    }
+    // Obergrenze 8 Eintraege (wie bisher) — ABER markierte Personen ("schon auf
+    // diesem Bild" / "schon bestaetigt") und die neue-Person-Option werden nie
+    // abgeschnitten (Sebastian: "Personen sollen auftauchen", nichts ausblenden).
+    const sichtbar = treffer.slice(0, 8);
+    treffer.slice(8).forEach(v => { if (v.neu || v.aufBild || v.bestaetigt) sichtbar.push(v); });
+    return sichtbar;
+}
+
 /** Baut die "Suche andere Person"-Eingabe mit LIVE-Vorschlägen, wie sie in
  *  Einzelbild- UND Gruppenbild-Quiz einheitlich erscheint (Wunsch Sebastian:
- *  Optionen nach Wahrscheinlichkeit, 5 Kacheln + Suche). Liefert einen <div>
- *  mit Eingabefeld + darunter filtern de Vorschlags-Kacheln; Enter/Klick sendet
- *  den gewählten Namen über `onwaehl`. */
-function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
+ *  Optionen nach Wahrscheinlichkeit, 5 Kacheln + Suche).
+ *
+ *  `kandidaten`   Kandidaten der laufenden Runde (nur noch SORTIERUNG innen)
+ *  `katalogNamen` ALLE Namen des Personenkatalogs (GET /api/gesichter) — damit
+ *                 auch Personen auftauchen, die das Modell hier NICHT
+ *                 vorschlaegt (Befund Sebastian 2026-09-25)
+ *  `onwaehl`      bestehender Antwortweg (Person gewaehlt)
+ *  `kontext`      optional { aufBild:[], bestaetigt:[], onNeu: fn } — aufBild/
+ *                 bestaetigt werden nur MARKIERT (nie ausgeblendet), onNeu ist
+ *                 der BESTEHENDE "Neue Person"-Weg der jeweiligen Quiz-Karte.
+ *  Die Liste wird bei jedem Oeffnen/Tippen NEU gebaut (kein Einfrieren). */
+function baueSuchMitVorschlaegen(kandidaten, katalogNamen, onwaehl, kontext) {
+    const ktx = kontext || {};
     const wrap = document.createElement('div');
     wrap.style.cssText = 'margin-top:6px';
     // Eingabefeld mit Dropdown (Suchmaschinen-/Autocomplete-Stil):
@@ -3696,29 +3851,69 @@ function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
     const inp = document.createElement('input');
     inp.type = 'text';
     inp.autocomplete = 'off';
-    inp.placeholder = '🔍 Andere Person suchen…';
+    inp.placeholder = '🔍 Andere Person suchen… (alle Personen im Katalog)';
     inp.style.cssText = 'width:100%;padding:7px 10px;border:1px solid #2e8b57;border-radius:8px;background:#0e1a14;color:inherit;font-size:0.85rem';
     wrap.appendChild(inp);
+    // Ehrlicher Zustand: Lade-/Fehlerhinweis direkt unter dem Suchfeld — nie
+    // still leer (Forderung/Befund 2026-09-25).
+    const status = document.createElement('div');
+    status.style.cssText = 'font-size:0.72rem;color:#ccc;margin-top:3px;display:none';
+    wrap.appendChild(status);
     const dd = document.createElement('div');
     dd.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin-top:4px;max-height:240px;overflow-y:auto;background:#0b1a12;border:1px solid #2e8b57;border-radius:8px';
     dd.style.display = 'none';
     wrap.appendChild(dd);
     const zeigen = (sichtbar) => { dd.style.display = sichtbar ? 'block' : 'none'; };
+    // ALLE Namen des Katalogs: Start-Liste aus dem uebergebenen Stand, danach
+    // immer der frische Stand (kurzer Cache, Verwerfen nach jeder Zuordnung).
+    let katalog = Array.isArray(katalogNamen) ? katalogNamen.slice() : quizKatalogNamen();
+    let laedt = false;
+    const zeigeStatus = () => {
+        if (laedt) {
+            status.textContent = '⏳ Personenkatalog lädt …';
+            status.style.color = '#ccc';
+            status.style.display = '';
+            return;
+        }
+        const fehler = quizKatalogFehlerText();
+        if (fehler) {
+            status.textContent = '⚠️ ' + fehler + ' — nur Vorschläge';
+            status.style.color = '#f88';
+            status.style.display = '';
+            return;
+        }
+        status.style.display = 'none';
+    };
     const aktualisieren = () => {
-        const q = (inp.value || '').trim().toLowerCase();
+        const q = (inp.value || '').trim();
         dd.innerHTML = '';
-        const treffer = (alleNamen || []).filter(n => {
-            const t = (n || '').toLowerCase();
-            return !q || t.indexOf(q) !== -1;
-        });
-        if (!q || !treffer.length) { zeigen(false); return; }
-        treffer.slice(0, 8).forEach(n => {
+        // Kandidaten + Katalog werden bei JEDEM Aufbau frisch gelesen — die alte
+        // Auswahl bleibt nicht stehen (Befund 2026-09-25).
+        const vorschlaege = quizSuchVorschlaege(kandidaten, katalog, q, ktx);
+        if (!q) { zeigen(false); return; }
+        vorschlaege.forEach(v => {
             const opt = document.createElement('div');
-            opt.textContent = '👤  ' + n;
-            opt.style.cssText = 'padding:7px 10px;cursor:pointer;display:flex;align-items:center;border-bottom:1px solid #1f3a2a;font-size:0.85rem;color:#eee';
+            opt.style.cssText = 'padding:7px 10px;cursor:pointer;display:flex;align-items:center;gap:6px;border-bottom:1px solid #1f3a2a;font-size:0.85rem;color:#eee';
+            const nm = document.createElement('span');
+            nm.textContent = v.neu ? ('➕ ' + v.name + ' als neue Person anlegen') : ('👤  ' + v.name);
+            if (v.neu) nm.style.color = '#f88';
+            opt.appendChild(nm);
+            // Kennzeichnen statt Ausblenden: "✓ schon auf diesem Bild" /
+            // "✓ schon bestätigt" (Sebastian: "Personen sollen auftauchen").
+            const marken = [];
+            if (v.aufBild) marken.push('✓ schon auf diesem Bild');
+            if (v.bestaetigt) marken.push('✓ schon bestätigt');
+            if (v.kandidat) marken.push('★ Vorschlag');
+            if (marken.length) {
+                const m = document.createElement('span');
+                m.style.cssText = 'font-size:0.7rem;color:#9f9;opacity:.85;white-space:nowrap';
+                m.textContent = marken.join(' · ');
+                opt.appendChild(m);
+            }
             opt.addEventListener('pointerup', (ev) => {
                 ev.stopPropagation();
-                onwaehl(n.trim());
+                if (v.neu) neuePersonWaehlen(v.name);   // BESTEHENDER Weg, kein neues Formular
+                else onwaehl(v.name);
                 inp.value = '';
                 dd.innerHTML = '';
                 zeigen(false);
@@ -3727,13 +3922,42 @@ function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
         });
         zeigen(true);
     };
+    // BESTEHENDER "Neue Person"-Weg dieses Kontexts (KEIN neues Formular): die
+    // Quiz-Karte reicht ihr vorhandenes Formular als onNeu herein und bekommt
+    // nur den Namen vorbelegt. Ohne onNeu ist der bestehende Weg dieses
+    // Kontexts die Namenswahl selbst (das Backend legt die unbekannte Person
+    // dabei an — genau wie beim freien Eintippen vorher).
+    const neuePersonWaehlen = (name) => {
+        if (typeof ktx.onNeu === 'function') { ktx.onNeu(name); return; }
+        onwaehl(String(name || '').trim());
+    };
+    const katalogFrisch = () => {
+        if (laedt) return;
+        laedt = true;
+        zeigeStatus();
+        ladeQuizKatalogNamen(false).then(namen => {
+            katalog = namen || [];
+            laedt = false;
+            zeigeStatus();
+            aktualisieren();     // Liste mit dem frischen Katalog neu aufbauen
+        });
+    };
     inp.addEventListener('input', aktualisieren);
-    inp.addEventListener('focus', (e) => { if ((inp.value||'').trim()) aktualisieren(); });
+    inp.addEventListener('focus', (e) => {
+        // Beim Oeffnen frisch: Katalog nachladen + Vorschlaege neu berechnen.
+        katalogFrisch();
+        if ((inp.value||'').trim()) aktualisieren();
+    });
     inp.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { zeigen(false); }
         if (e.key === 'Enter') {
             const n = (inp.value || '').trim();
-            if (n) { onwaehl(n); inp.value=''; dd.innerHTML=''; zeigen(false); }
+            if (n) {
+                const bekannt = quizSuchVorschlaege(kandidaten, katalog, n, ktx)
+                    .some(v => !v.neu && v.name.toLowerCase() === n.toLowerCase());
+                if (bekannt) onwaehl(n); else neuePersonWaehlen(n);
+                inp.value=''; dd.innerHTML=''; zeigen(false);
+            }
         }
         // Pfeil-Highlight (basisch): erster Treffer bei Enter->Pfeilunten
         if (e.key === 'ArrowDown' && dd.children && dd.children.length) {
@@ -3744,6 +3968,10 @@ function baueSuchMitVorschlaegen(alleNamen, onwaehl) {
     });
     // beim Wegklicken schliessen
     inp.addEventListener('blur', () => setTimeout(() => zeigen(false), 150));
+    // Katalog sofort holen, wenn noch keiner da ist (sonst waere die Liste bis
+    // zum ersten Tippen leer) — der Ladehinweis ist dabei sichtbar.
+    if (!katalog.length) katalogFrisch();
+    zeigeStatus();
     return wrap;
 }
 
@@ -3866,6 +4094,28 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
         umbruch.appendChild(box);
     }
 
+    // Kennzeichnung statt Ausblenden (Befund Sebastian 2026-09-25: "Personen
+    // sollen auftauchen"): welche Namen sind auf DIESEM Bild schon zugeordnet
+    // bzw. fuer DIESE Gesichts-Region schon bestaetigt? Beides wird im Suchfeld
+    // nur MARKIERT — die Personen bleiben waehlbar.
+    function namenAufDiesemBild() {
+        const namen = quizNamenAufBild(gs);
+        const dazu = (n) => { const s = String(n == null ? '' : n).trim(); if (s && namen.indexOf(s) === -1) namen.push(s); };
+        Object.keys(bestaetigtRegion).forEach(r => String(bestaetigtRegion[r] || '').split(',').forEach(dazu));
+        (verarbeitetePersonen || []).forEach(p => dazu(p && p.name));
+        return namen;
+    }
+
+    function namenFuerRegion(i) {
+        const g = gs[i] || {};
+        const reg = g.region || bboxRegionSchluessel(g.bbox_norm);
+        const wer = reg ? (bestaetigtRegion[reg] || istBestaetigtLokal(pfad, reg)) : '';
+        const namen = [];
+        const dazu = (n) => { const s = String(n == null ? '' : n).trim(); if (s && namen.indexOf(s) === -1) namen.push(s); };
+        String(wer || '').split(',').forEach(dazu);
+        return namen;
+    }
+
     // Antwort-Zeile (Person wählen / neu / überspringen)
     function zeigeAntwortZeile() {
         const label = macheQuizLabel('Dieses Gesicht gehört zu:');
@@ -3887,8 +4137,21 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
             kacheln.appendChild(mehr);
         }
         zeile.appendChild(kacheln);
-        // "Suche andere Person": freie Eingabe mit Live-Vorschlägen (wie Einzelbild)
-        zeile.appendChild(baueSuchMitVorschlaegen(optionen, (n) => antworten(n, false, false)));
+        zeile.appendChild(baueSuchMitVorschlaegen(
+            (optionen || []),          // Kandidaten: nur noch Sortierung INNEN
+            quizKatalogNamen(),        // ALLE Namen aus GET /api/gesichter (Befund 2026-09-25)
+            (n) => antworten(n, false, false),
+            {
+                aufBild: namenAufDiesemBild(),
+                bestaetigt: namenFuerRegion(idx),
+                // BESTEHENDE "Neue Person"-Box dieser Karte — nur vorbelegt
+                // (kein neues Formular, KEIN prompt()).
+                onNeu: (n) => {
+                    inp.value = n;
+                    form.style.display = 'block';
+                    try { if (inp.focus) inp.focus(); } catch (_e) {}
+                },
+            }));
         // 'Neue Person' als volle, aufklappbare Eingabebox (Name + Rolle + EIN
         // Textfeld für alle Infos) — gleiches Menue wie im Einzelbild-Quiz.
         // Beschreibung/Lebensinfos war doppelt gemoppelt, alles geht in das
@@ -4059,6 +4322,10 @@ function starteGruppenQuiz(frageEl, karte, img, dataUrl, pfad, optionen, gesicht
                     const reg = g.region || bboxRegionSchluessel(g.bbox_norm);
                     if (reg) { bestaetigtRegion[reg] = person; merkeBestaetigt(pfad, reg, person); }
                 } catch (_e) {}
+                // Katalog-Cache verwerfen: gerade kann eine neue Person
+                // dazugekommen sein -> Suchfeld listet sie beim naechsten
+                // Oeffnen/Tippen (Befund 2026-09-25, kein Einfrieren).
+                try { quizKatalogVerwerfen(); } catch (_e) {}
             }
             weiter();
         });
@@ -4164,19 +4431,30 @@ function zeigeEinzeichnen(container, img, dataUrl, pfad, optionen) {
         hinweis.style.cssText = 'font-size:0.82rem;color:#8f8;margin-bottom:4px';
         hinweis.textContent = '✅ Rahmen gesetzt – jetzt die Person benennen (oder "Neue Person" über die Suche):';
         auswahl.appendChild(hinweis);
-        auswahl.appendChild(baueSuchMitVorschlaegen(optionen || [], (n) => {
-            _quizEditor.personen[neuIdx] = n;
-            // Region als bestaetigt merken (nicht erneut fragen).
-            try { merkeBestaetigt(pfad, bboxRegionSchluessel(normNeu), n); } catch (_e) {}
-            // manuell=true: das gezeichnete Rechteck wird direkt eingebettet
-            // (op:embed_crop) — auch wenn YuNet das Gesicht nicht erkannt hat.
-            quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx], true);
-            container.innerHTML = '';
-            const ok = document.createElement('div');
-            ok.style.cssText = 'color:#8f8;font-weight:600';
-            ok.textContent = `✓ ${n} gespeichert (ergänzt).`;
-            container.appendChild(ok);
-        }));
+        auswahl.appendChild(baueSuchMitVorschlaegen(
+            (optionen || []),          // Kandidaten: nur noch Sortierung INNEN
+            quizKatalogNamen(),        // ALLE Namen aus GET /api/gesichter (Befund 2026-09-25)
+            (n) => {
+                _quizEditor.personen[neuIdx] = n;
+                // Region als bestaetigt merken (nicht erneut fragen).
+                try { merkeBestaetigt(pfad, bboxRegionSchluessel(normNeu), n); } catch (_e) {}
+                // manuell=true: das gezeichnete Rechteck wird direkt eingebettet
+                // (op:embed_crop) — auch wenn YuNet das Gesicht nicht erkannt hat.
+                quizBeantworten(pfad, n, false, '', '', '', _quizEditor.bbox_live[neuIdx], true);
+                container.innerHTML = '';
+                const ok = document.createElement('div');
+                ok.style.cssText = 'color:#8f8;font-weight:600';
+                ok.textContent = `✓ ${n} gespeichert (ergänzt).`;
+                container.appendChild(ok);
+            },
+            {
+                // Kennzeichnen statt Ausblenden: was in dieser Sitzung schon auf
+                // dem Bild zugeordnet wurde, bleibt waehlbar und wird markiert.
+                aufBild: quizNamenAufBild([]),
+                bestaetigt: [],   // die gerade gezeichnete Region ist neu
+                // Ohne eigenes Formular in dieser Ansicht ist der bestehende Weg
+                // die Namenswahl selbst (Backend legt die Person dabei an).
+            }));
         container.appendChild(auswahl);
     });
     // Hinweis im Container
@@ -4337,7 +4615,23 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     }
     auswahlBox.appendChild(kacheln);
     // "Suche andere Person": freie Eingabe mit LIVE-Vorschlägen (wie Gruppenbild)
-    auswahlBox.appendChild(baueSuchMitVorschlaegen(optionen, (n) => quizBeantworten(pfad, n, false, '')));
+    auswahlBox.appendChild(baueSuchMitVorschlaegen(
+        (optionen || []),          // Kandidaten: nur noch Sortierung INNEN
+        quizKatalogNamen(),        // ALLE Namen aus GET /api/gesichter (Befund 2026-09-25)
+        (n) => quizBeantworten(pfad, n, false, ''),
+        {
+            // Kennzeichnen statt Ausblenden: schon auf diesem Bild zugeordnete
+            // bzw. fuer dieses Gesicht bestaetigte Personen bleiben waehlbar.
+            aufBild: quizNamenAufBild(gesichter || []),
+            bestaetigt: quizNamenFuerRegion(gesichter || [], 0, pfad),
+            // BESTEHENDE "Neue Person"-Box dieser Karte — nur vorbelegt
+            // (kein neues Formular, KEIN prompt()).
+            onNeu: (n) => {
+                neuName.value = n;
+                neuForm.style.display = 'block';
+                try { if (neuName.focus) neuName.focus(); } catch (_e) {}
+            },
+        }));
     karte.appendChild(auswahlBox);
 
     // 'Neue Person' als eingebettetes, GROESSERES Formular (kein prompt(), PWA-
@@ -4818,6 +5112,10 @@ async function quizBeantworten(pfad, person, istNeu, rolle, beziehung, beschreib
                 const normE = (_quizEditor && _quizEditor.bbox_norm_live && _quizEditor.bbox_norm_live[0]) || null;
                 if (normE && normE.length >= 4) merkeBestaetigt(pfad, bboxRegionSchluessel(normE), person);
             } catch (_e) {}
+            // Katalog-Cache verwerfen: gerade kann eine neue Person dazugekommen
+            // sein -> das Suchfeld listet sie beim naechsten Oeffnen/Tippen
+            // (Befund 2026-09-25: Liste darf nicht alt stehen bleiben).
+            try { quizKatalogVerwerfen(); } catch (_e) {}
         }
         const meldung = (d && d.ok)
             ? `✓ **${person}** gespeichert${d.ist_neu ? ' (neu)' : ''} — ${d.referenzen} Referenz(en).`
