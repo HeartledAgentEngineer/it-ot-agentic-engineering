@@ -108,3 +108,23 @@ Start, nicht die Lebenszeit des Chats. Die Datenbank kennt die volle Historie.
 **Falle im Code:** `last_seen` in `session_model_usage` ist ein UNIX-Zeitstempel
 (REAL), kein Datumsstring. `date(last_seen) = date('now')` liefert immer 0 Zeilen.
 Richtig ist `last_seen >= strftime('%s','now',...)`.
+
+## dashboard/ - Kosten-Dashboard fuer alle Chats
+
+`dashboard/build_dashboard.py` liest `state.db` (nur lesend) und erzeugt
+`dashboard/dashboard.html` - eine eigenstaendige Datei (0 externe Aufrufe).
+
+Inhalt: alle Chats mit Rang/Titel/Kosten/EUR+USD, getrennte Input-/Output-/
+Cache-Tokens, Cache-Trefferquote, Aufschluesselung nach Modell und Tag,
+Cash-Betrag inkl. Servicegebuehr und Steuer. Zeitraeume: heute / Woche /
+7 Tage / Monat / alles.
+
+Selbstpruefung: das Skript vergleicht seine HTML-Summen gegen direkte
+SQL-Abfragen und bricht bei Abweichung ab.
+
+    python dashboard/build_dashboard.py
+    # -> dashboard/dashboard.html  (im Browser oeffnen)
+
+Warum eigenes Dashboard: OpenRouter zeigt nur USD *vor* Aufschlag
+(Servicegebuehr + USt fehlen) und nur den eigenen Schluessel. Das Dashboard
+rechnet in EUR, rechnet den Aufschlag ein und kennt alle lokalen Chats.
