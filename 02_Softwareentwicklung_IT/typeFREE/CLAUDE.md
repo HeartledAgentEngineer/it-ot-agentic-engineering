@@ -21,10 +21,10 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | Status | `pystray`-Tray-Icon, fünf Farben: grau/grün/orange/blau/**rot = Fehler**; kein Overlay, kein tkinter |
 | Fehlermeldung | Windows-Sprechblase über `tray_icon.notify` + rotes Icon, das rot bleibt bis zur nächsten erfolgreichen Aufnahme |
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook`. Jedes Diktat protokolliert Anbieter, Modell und **Zeiten je Stufe** (`zeiten_text`) |
-| API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
+| API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
-| Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006) + `kosten_fuer` + `verbrauch_buchen` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — 109 Prüfungen mit pytest in 13 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
+| Tests | `windows/tests/` — 139 Prüfungen mit pytest in 13 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
 
 ## Versionierte Struktur
@@ -149,6 +149,14 @@ für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach ge
 | `eu` (Standard) | Voxtral Small über OpenRouter, Audio-Chat | Mistral, Frankreich | 1,8–2,8 s | 0,36 $ | `OPENROUTER_API_KEY` |
 | `beste` | ElevenLabs Scribe v2 + Keyterms | ElevenLabs (US) | noch nicht gemessen | 0,264 $ | `ELEVENLABS_API_KEY` |
 | `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
+
+**Kostenzählung seit 25.09.2026 anbietergenau:** Der Betrag wird beim Diktat mit dem
+Preis des Anbieters gebucht, der geliefert hat (`verbrauch_buchen(..., anbieter)`), und
+in `verbrauch.json` als `monat_betrag`/`gesamt_betrag` festgehalten. Vorher rechnete die
+Anzeige die Monatssumme mit dem Preis des gerade gewählten Wegs um — aus 0,33 $ wurden
+so 1,04 $, ohne Ausgabe. Laufen im Monat mehrere Wege, nennt die Anzeige den ersten mit
+„+" („(Groq +)"). Alte Stände ohne Beträge werden einmalig mit dem Groq-Preis geschätzt
+(Groq war bis dahin der Regelfall).
 
 Fehlt der Schlüssel für den gewählten Weg, nimmt typeFREE automatisch den anderen und
 schreibt es ins Log. Umgestellt wird im Tray-Menü unter **„Transkription wählen"** (wirkt

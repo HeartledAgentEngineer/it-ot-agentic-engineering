@@ -230,8 +230,14 @@ def whisper_kosten(sekunden, preis_je_minute=WHISPER_PREIS_JE_MINUTE):
     return sekunden / 60.0 * preis_je_minute
 
 
-def verbrauch_buchen(verbrauch, sekunden, monat):
+def verbrauch_buchen(verbrauch, sekunden, monat, anbieter=None):
     """Bucht ein Diktat. Reine Funktion — gibt einen neuen Stand zurück.
+
+    Der Betrag wird mit dem Preis des Anbieters gebucht, der **tatsächlich**
+    transkribiert hat. Vorher rechnete die Anzeige die gesamte Monatssumme mit
+    dem Preis des gerade gewählten Wegs um — im Betrieb am 25.09.2026 wurden aus
+    0,33 $ schlagartig 1,04 $, allein durch den Wechsel auf den EU-Weg, ohne dass
+    ein Cent mehr ausgegeben war.
 
     Wechselt der Monat, beginnt der Monatszähler neu; die Gesamtsumme läuft
     weiter.
@@ -241,41 +247,67 @@ def verbrauch_buchen(verbrauch, sekunden, monat):
         neu['monat'] = monat
         neu['monat_sekunden'] = 0.0
         neu['monat_diktate'] = 0
+        neu['monat_betrag'] = 0.0
+        neu['monat_anbieter'] = []
+    betrag = kosten_fuer(sekunden, anbieter) if anbieter else 0.0
     neu['monat_sekunden'] = neu.get('monat_sekunden', 0.0) + sekunden
     neu['monat_diktate'] = neu.get('monat_diktate', 0) + 1
+    neu['monat_betrag'] = neu.get('monat_betrag', 0.0) + betrag
     neu['gesamt_sekunden'] = neu.get('gesamt_sekunden', 0.0) + sekunden
     neu['gesamt_diktate'] = neu.get('gesamt_diktate', 0) + 1
+    neu['gesamt_betrag'] = neu.get('gesamt_betrag', 0.0) + betrag
+    namen = list(neu.get('monat_anbieter') or [])
+    if anbieter and anbieter not in namen:
+        namen.append(anbieter)
+    neu['monat_anbieter'] = namen
     return neu
 
 
-def _minuten_und_betrag(sekunden, anbieter='groq'):
+def _beschriftung(anbieter):
+    """„Groq" — oder „Groq +", wenn im Monat mehrere Wege gelaufen sind."""
+    if not anbieter:
+        return 'Groq'
+    erste = anbieter[0].capitalize()
+    return erste + (' +' if len(anbieter) > 1 else '')
+
+
+def _minuten_und_betrag(sekunden, betrag, beschriftung):
     """„12,4 min · 0,02 $ (Groq)" — deutsche Schreibweise mit Komma."""
     minuten = f'{sekunden / 60.0:.1f}'.replace('.', ',')
-    betrag = f'{kosten_fuer(sekunden, anbieter):.2f}'.replace('.', ',')
-    return f'{minuten} min · {betrag} $ ({anbieter.capitalize()})'
+    geld = f'{betrag:.2f}'.replace('.', ',')
+    return f'{minuten} min · {geld} $ ({beschriftung})'
 
 
-def verbrauch_text(verbrauch, anbieter='groq'):
+def verbrauch_text(verbrauch):
     """Zwei Zeilen für das Tray-Menü: dieser Monat und insgesamt.
 
-    Der Betrag ist eine Schätzung zum Preis des Anbieters, der die Diktate im
-    Regelfall transkribiert (Groq). Den exakten Preis jedes einzelnen Diktats
-    schreibt typeFREE in die Logdatei.
+    Die Beträge sind die **Summe der tatsächlich gebuchten Diktate**, jeweils mit
+    dem Preis des Anbieters, der transkribiert hat. Den Preis jedes einzelnen
+    Diktats schreibt typeFREE zusätzlich in die Logdatei.
     """
-    monat = verbrauch.get('monat_sekunden', 0.0)
-    gesamt = verbrauch.get('gesamt_sekunden', 0.0)
-    diktate = verbrauch.get('gesamt_diktate', 0)
-    return (f'Diesen Monat: {_minuten_und_betrag(monat, anbieter)}\n'
-            f'Insgesamt: {_minuten_und_betrag(gesamt, anbieter)} ({diktate} Diktate)')
+    return (f'Diesen Monat: {_minuten_und_betrag(verbrauch.get("monat_sekunden", 0.0), verbrauch.get("monat_betrag", 0.0), _beschriftung(verbrauch.get("monat_anbieter")))}'
+            f'\nInsgesamt: {_minuten_und_betrag(verbrauch.get("gesamt_sekunden", 0.0), verbrauch.get("gesamt_betrag", 0.0), _beschriftung(verbrauch.get("monat_anbieter")))}'
+            f' ({verbrauch.get("gesamt_diktate", 0)} Diktate)')
 
 
 def load_verbrauch():
-    """Liest den Stand. Fehlt oder ist die Datei kaputt, wird bei null begonnen."""
+    """Liest den Stand. Fehlt oder ist die Datei kaputt, wird bei null begonnen.
+
+    Ältere Stände kennen nur Sekunden und keine Beträge (die Umstellung auf
+    anbietergenaue Buchung kam am 25.09.2026). Für sie wird der Betrag mit dem
+    Groq-Preis nachgerechnet — Groq war bis dahin der Regelfall.
+    """
     try:
         with open(VERBRAUCH_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            stand = json.load(f)
     except Exception:
         return {}
+    if stand.get('gesamt_sekunden') and 'gesamt_betrag' not in stand:
+        stand['gesamt_betrag'] = whisper_kosten(stand['gesamt_sekunden'])
+        stand['monat_betrag'] = whisper_kosten(stand.get('monat_sekunden', 0.0))
+        stand['monat_anbieter'] = ['groq']
+        log.info('Verbrauchsstand ohne Beträge übernommen — mit Groq-Preis geschätzt')
+    return stand
 
 
 def save_verbrauch(verbrauch):
@@ -1182,15 +1214,17 @@ def stop_and_transcribe():
         _status_idle()        # nur im Erfolgsfall zurück auf grau
 
         # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
-        verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'))
+        verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
+                                     anbieter)
         save_verbrauch(verbrauch)
         log.info('Zeiten: %s', zeiten_text([
             (f'Transkription ({anbieter})', dauer_transkription),
             ('Glättung', dauer_glattung),
             ('gesamt', time.monotonic() - begonnen)]))
-        log.info('Kosten dieses Diktats: %.5f $ (%s) · Monat bisher: %.2f $',
+        log.info('Kosten dieses Diktats: %.5f $ (%s) · Monat bisher: %.2f $ (%s)',
                  kosten_fuer(dauer, anbieter), anbieter,
-                 kosten_fuer(verbrauch['monat_sekunden'], anbieter))
+                 verbrauch.get('monat_betrag', 0.0),
+                 ', '.join(verbrauch.get('monat_anbieter') or []))
 
     except Exception as e:
         log.exception('Transkription fehlgeschlagen')
