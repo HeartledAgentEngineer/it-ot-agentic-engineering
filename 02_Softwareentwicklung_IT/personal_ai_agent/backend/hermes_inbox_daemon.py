@@ -47,6 +47,13 @@ MODELL = (os.environ.get("HERMES_LOCAL_MODEL") or "deepseek/deepseek-v4.1-flash"
 # Coding-Auftraege und Ursache der Abbruchmeldung.
 TIMEOUT = int(os.environ.get("HERMES_AUFTRAG_TIMEOUT") or 3600)
 
+# Merker: kann die Hermes-CLI dieses Geräts ``--format stream-json``?
+# None = noch nicht geprüft, True/False = Ergebnis der einmaligen Prüfung.
+# Warum (Sebastian 25.09.2026): Auf dem Handy lief eine ältere Fassung; das Flag
+# führte zu „unrecognized arguments" und die App zeigte die Gebrauchsanweisung
+# als Antwort. Deshalb wird vorher gefragt statt gehofft.
+_STREAM_JSON_OK = None
+
 # Buendelung: So lange sammeln wir Ausgabezeilen, bevor sie als EINE
 # Zwischenmeldung geschrieben werden (weniger, dafuer zusammenhaengende
 # Blasen statt vieler paralleler Einzelzeilen).
@@ -251,6 +258,44 @@ def _roh_fallback(zeilen, block_writer=None) -> str:
     return volltext
 
 
+def _cli_kann_stream_json() -> bool:
+    """Prueft EINMAL, ob die Hermes-CLI ``--format stream-json`` kennt.
+
+    Warum (Sebastian 25.09.2026, Live-Befund vom Handy):
+    ``hermes: error: unrecognized arguments: --format stream-json`` — auf dem
+    Handy laeuft eine aeltere Hermes-Fassung. Der Daemon schickte das Flag
+    trotzdem, die CLI brach ab, und die App zeigte die GEBRAUCHSANWEISUNG als
+    Antwort. Deshalb wird die Faehigkeit vorher gefragt (und das Ergebnis
+    gemerkt) — kann die CLI es nicht, bleibt alles wie vorher.
+    """
+    global _STREAM_JSON_OK
+    if _STREAM_JSON_OK is not None:
+        return _STREAM_JSON_OK
+    _STREAM_JSON_OK = False
+    try:
+        aus = subprocess.run(["hermes", "chat", "--help"], capture_output=True,
+                             text=True, timeout=20, encoding="utf-8",
+                             errors="replace")
+        text = f"{aus.stdout or ''}{aus.stderr or ''}"
+        _STREAM_JSON_OK = ("--format" in text and "stream-json" in text)
+    except Exception as e:
+        print(f"[daemon] CLI-Faehigkeiten nicht pruefbar: {e}", flush=True)
+        _STREAM_JSON_OK = False
+    print(f"[daemon] strukturierte Ausgabe: "
+          f"{'ja' if _STREAM_JSON_OK else 'nein (alte CLI)'}", flush=True)
+    return _STREAM_JSON_OK
+
+
+def _cli_kennt_flag_nicht(roh_zeilen) -> bool:
+    """True, wenn die CLI ueber das unbekannte Flag gestolpert ist.
+
+    Dann ist jede weitere Auswertung sinnlos (es steht die Gebrauchsanweisung
+    da), und der Merker wird zurueckgesetzt, damit der naechste Auftrag es
+    gar nicht erst versucht.
+    """
+    return any("unrecognized arguments" in z for z in roh_zeilen)
+
+
 def _stream_json_zeile(s: str):
     """Zerlegt eine Zeile der strukturierten CLI-Ausgabe (``--format stream-json``).
 
@@ -336,11 +381,13 @@ def _beantworte(auftrag):
     if MODELL:
         cmd += ["-m", MODELL]
     # --format stream-json (Sebastian 2026-09-25): Die CLI gibt damit je Zeile
-    # ein JSON-Objekt aus. Der eigentliche Gewinn: die ECHTE Antwort steht als
-    # type=text / type=result SAUBER GETRENNT vom internen Reasoning. Vorher
-    # wurde die Rohausgabe genommen, wenn der Antwort-Kasten nicht erkannt
-    # wurde — dann landete das englische Denken des Modells in der Antwort.
-    cmd += ["-q", payload, "-Q", "--format", "stream-json"]
+    # ein JSON-Objekt aus; die ECHTE Antwort steht dort sauber getrennt vom
+    # internen Reasoning. NUR wenn die CLI des Geräts das kann — auf dem Handy
+    # lief eine ältere Fassung, die über das Flag stolperte und die
+    # Gebrauchsanweisung als Antwort ausgab.
+    cmd += ["-q", payload, "-Q"]
+    if _cli_kann_stream_json():
+        cmd += ["--format", "stream-json"]
 
     try:
         proc = subprocess.Popen(
@@ -460,6 +507,23 @@ def _beantworte(auftrag):
     # Vorher erschien das Ergebnis oben und die Statuszeilen wurden
     # darunter nachgeschoben - wirkte wie 'alles auf einmal'.
     _flush()
+    # Notbremse (Sebastian 25.09.2026, Live-Befund): Stolperte die CLI über ein
+    # unbekanntes Flag, steht in der Ausgabe nur die Gebrauchsanweisung. Dann
+    # wird NICHT ausgewertet und nichts erfunden, sondern ein Klartext-Hinweis
+    # geschrieben — und der Merker fällt, damit der nächste Auftrag das Flag
+    # gar nicht erst schickt.
+    if _cli_kennt_flag_nicht(roh_zeilen):
+        global _STREAM_JSON_OK
+        _STREAM_JSON_OK = False
+        _schreibe_antwort(
+            aid,
+            "⚠️ Die Hermes-CLI auf diesem Gerät kennt die strukturierte Ausgabe "
+            "nicht (--format stream-json). Bitte Hermes dort aktualisieren — "
+            "bis dahin läuft die Antwort über den Notpfad, also ohne Trennung "
+            "von Denken und Antwort.")
+        _schreibe_status(aid, "⚠️ CLI ohne --format stream-json — bitte aktualisieren")
+        print(f"[daemon] {aid[:8]}: CLI kennt --format nicht", flush=True)
+        return
     ergebnis = "\n".join(ergebnis_zeilen).strip()
     if not ergebnis:
         # KEIN erkannter Antwort-Kasten: statt des früheren „—" (Sebastian sah

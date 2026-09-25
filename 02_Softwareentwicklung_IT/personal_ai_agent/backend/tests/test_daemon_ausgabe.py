@@ -175,3 +175,40 @@ def test_art_und_text_faellt_auf_die_alte_erkennung_zurueck():
     art, text = daemon._art_und_text("╭─⚕ Hermes ────────────╮", ausgabe)
     assert art in ("antwort", "gedanke", "rahmen", "keine")
     assert isinstance(text, str)
+
+
+def test_alte_cli_ohne_format_wird_erkannt(monkeypatch):
+    """Live-Befund 25.09.2026: Auf dem Handy lief eine ältere Hermes-Fassung.
+
+    Sie stolperte über ``--format stream-json`` und gab die Gebrauchsanweisung
+    als Antwort aus. Der Daemon fragt die Fähigkeit deshalb VORHER ab und merkt
+    sich das Ergebnis (kein zweites Fragen).
+    """
+    class _Aus:
+        stdout = "usage: hermes chat [-h] [-q QUERY] [-Q]\n"
+        stderr = ""
+
+    monkeypatch.setattr(daemon, "_STREAM_JSON_OK", None)
+    monkeypatch.setattr(daemon.subprocess, "run", lambda *a, **k: _Aus())
+    assert daemon._cli_kann_stream_json() is False
+    assert daemon._STREAM_JSON_OK is False, "Ergebnis muss gemerkt werden"
+
+
+def test_neue_cli_mit_format_wird_erkannt(monkeypatch):
+    """Kann die CLI es, wird das Flag benutzt (saubere Antwort)."""
+    class _Aus:
+        stdout = "usage: hermes chat ... [--format {text,stream-json}] ...\n"
+        stderr = ""
+
+    monkeypatch.setattr(daemon, "_STREAM_JSON_OK", None)
+    monkeypatch.setattr(daemon.subprocess, "run", lambda *a, **k: _Aus())
+    assert daemon._cli_kann_stream_json() is True
+
+
+def test_unbekanntes_flag_wird_erkannt():
+    """Stolpert die CLI über das Flag, darf nichts ausgewertet werden."""
+    assert daemon._cli_kennt_flag_nicht(
+        ["usage: hermes [-h] …",
+         "hermes: error: unrecognized arguments: --format stream-json"]) is True
+    assert daemon._cli_kennt_flag_nicht(["Test angekommen — alles gut."]) is False
+    assert daemon._cli_kennt_flag_nicht([]) is False

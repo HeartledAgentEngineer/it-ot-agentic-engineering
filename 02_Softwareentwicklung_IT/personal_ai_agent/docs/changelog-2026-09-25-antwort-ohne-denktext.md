@@ -55,6 +55,30 @@ Neu: `test_stream_json_erkennt_antwort_und_abschluss`, `test_stream_json_trennt_
 Zwei Erwartungen des ersten Entwurfs waren falsch und wurden an die Messung angepasst (ich hatte
 `type=text` als Gedanke angenommen — gemessen ist es die Antwort in Bruchstücken).
 
+## Nachtrag — Live-Befund vom Handy (25.09.2026, ~01:20)
+
+Auf dem Handy kam als **Antwort die Gebrauchsanweisung der CLI**:
+
+> hermes: error: unrecognized arguments: --format stream-json
+
+Ursache: Die Hermes-Fassung **auf dem Handy ist älter** und kennt `--format` noch nicht; sie
+brach den Lauf sofort ab. Der Daemon hatte das Flag ungefragt geschickt — das war mein Fehler.
+
+**Behoben (dieselbe Datei):**
+
+1. `_cli_kann_stream_json()` — fragt **einmalig** `hermes chat --help` ab und merkt das
+   Ergebnis im Merker `_STREAM_JSON_OK`. Das Flag wird **nur** geschickt, wenn die CLI es kennt.
+2. `_cli_kennt_flag_nicht(roh_zeilen)` — Notbremse: Steht „unrecognized arguments" in der
+   Ausgabe, wird **nichts** ausgewertet und **nichts erfunden**, sondern ein Klartext-Hinweis
+   geschrieben („Bitte Hermes auf diesem Gerät aktualisieren"); der Merker fällt, damit der
+   nächste Auftrag es gar nicht erst versucht.
+
+**Ergebnis:** Die Antwort auf dem Handy ist wieder korrekt (über den Notpfad). Die Trennung
+von Denken und Antwort greift dort erst, wenn Hermes auf dem Handy aktualisiert ist.
+
+Prüfung: `.venv/Scripts/python -m pytest tests/test_daemon_ausgabe.py -q` → **15 passed, Exit 0**
+(neu: Erkennung der alten CLI, Erkennung der neuen CLI, Notbremse bei „unrecognized arguments").
+
 ## Noch offen
 
 - Der Kasten-Weg bleibt als Rückfall erhalten; erst ein Lauf auf dem Handy zeigt, ob die

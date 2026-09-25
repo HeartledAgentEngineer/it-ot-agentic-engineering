@@ -112,7 +112,12 @@ def test_teilwort_findet_den_eintrag(speicher):
     assert antwort["anzahl"] == 1
     assert antwort["treffer"][0]["art"] == "termin"
     assert antwort["treffer"][0]["zeitbezug"]["lage"] == "kommend"
-    assert antwort["treffer"][0]["zeitbezug"]["tage_bis"] == 38
+    # Die Tage bis zum Termin werden gegen das ECHTE Heute gerechnet — ein fest
+    # eingetragener Wert (hier war es 38) läuft deshalb mit dem Kalender ab und
+    # wurde am 26.09.2026 rot (37). Erwartung deshalb berechnen, nicht raten.
+    from datetime import date
+    erwartete_tage = (date(2026, 11, 2) - date.today()).days
+    assert antwort["treffer"][0]["zeitbezug"]["tage_bis"] == erwartete_tage
 
 
 def test_ohne_treffer_keine_erfindung(speicher):
