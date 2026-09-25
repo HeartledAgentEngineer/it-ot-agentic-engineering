@@ -106,6 +106,10 @@ def eigene_clients():
     return {
         'voxtral': typefree.baue_client('https://openrouter.ai/api/v1',
                                         os.environ.get('OPENROUTER_API_KEY')),
+        'voxtral-chat': typefree.baue_client('https://openrouter.ai/api/v1',
+                                             os.environ.get('OPENROUTER_API_KEY')),
+        'mai': typefree.baue_client('https://openrouter.ai/api/v1',
+                                    os.environ.get('OPENROUTER_API_KEY')),
         'groq': typefree.baue_client('https://api.groq.com/openai/v1',
                                      os.environ.get('GROQ_API_KEY')),
         'openai': typefree.baue_client('https://api.openai.com/v1',

@@ -13,7 +13,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`: `eu` = Voxtral Small (Mistral/Frankreich) über den Audio-Chat von OpenRouter, `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel des gewählten Wegs, rückt der nächste ein. Fällt ein Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb: Der EU-Weg drosselt bei langem Audio (geteilter Mistral-Pool, 429), deshalb steht die Auswahl seit dem 25.09.2026 auf `schnell` |
+| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`. **`eu` (Standard) ist die reine OpenRouter-Kette** mit dem besten ZDR-konformen Modell zuerst: `microsoft/mai-transcribe-1.5` (Transkriptions-Endpunkt, gemessen 1,1 % Wortfehler bei 69,7 s), `mistralai/voxtral-small-24b-2507-stt` (Mistral/Frankreich), `mistralai/voxtral-small-24b-2507` (Audio-Chat — der einzige Weg, der die Fachbegriffe mitgeben kann). Ebenfalls wählbar: `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel eines Glieds, rückt das nächste ein. Fällt der gewählte Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb 25.09.2026: Auswahl `eu`, Groq- und OpenAI-Schlüssel stillgelegt (Sicherungen `.env.bak-groq`/`.env.bak-openai`) — es geht **nur noch OpenRouter** |
 | Text-Glättung | OpenRouter über eine **Modellkette** (`POLISH_MODELLE`): `google/gemini-2.5-flash` (0,8 s), `google/gemini-3.5-flash-lite`, `google/gemini-2.5-flash-lite`. Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler, unplausibel kurzem Ergebnis oder abgekündigtem Modell rückt das nächste Modell nach; erst dann kommt der Rohtext. Drei Ausfälle in Folge → einmaliger Windows-Hinweis |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT` |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
@@ -151,7 +151,7 @@ für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach ge
 
 | Wahl | Weg | Anbieter | Tempo | Kosten/h | Schlüssel |
 |------|-----|----------|-------|----------|-----------|
-| `eu` (Standard) | Voxtral Small über OpenRouter, Audio-Chat | Mistral, Frankreich | 1,8–2,8 s | 0,36 $ | `OPENROUTER_API_KEY` |
+| `eu` (Standard) | **Reine OpenRouter-Kette**: `mai-transcribe-1.5` → `voxtral-small-24b-2507-stt` → `voxtral-small-24b-2507` (Chat) | Microsoft und Mistral, beide über OpenRouter; ZDR des Kontos greift für alle drei | 4,8 s bei 69,7 s Audio (mai) | 0,36 $ | `OPENROUTER_API_KEY` |
 | `beste` | ElevenLabs Scribe v2 + Keyterms | ElevenLabs (US) | noch nicht gemessen | 0,264 $ | `ELEVENLABS_API_KEY` |
 | `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
 
@@ -175,6 +175,46 @@ nur gezielter (bis zu 100 Begriffe). Preis 0,22 $/Stunde, Keyterms kosten 20 % A
 Laut ElevenLabs-Agreements darf kein Drittanbieter mit Kundendaten trainieren; echtes
 Zero-Retention ist allerdings Enterprise-Kunden vorbehalten.
 
+### Modellwahl nach Benchmark und Messung — 25.09.2026 abends
+
+Sebastians Vorgabe: „nur über OpenRouter und das beste Modell, das meinem
+ZDR-Datenschutz entspricht." Entschieden wurde nicht nach Gefühl, sondern nach
+veröffentlichten Benchmarks **und** eigener Messung am Referenzaudio.
+
+**Veröffentlichte Werte** (Artificial Analysis „Speech-to-Text", Wortfehlerquote;
+Fleurs multilingual über 43 Sprachen — jeweils der veröffentlichte Stand):
+
+| Modell | AA-WER | Fleurs (43 Spr.) | über OpenRouter? |
+|---|---|---|---|
+| ElevenLabs Scribe v2 | 2,2 % | 5,53 % | nein |
+| **Microsoft MAI-Transcribe-1.5** | 2,4 % | **4,86 %** (Bestwert) | **ja** |
+| Google Gemini 3.5 Transcribe | 2,6 % | – | nein |
+| AssemblyAI Universal-3.5 Pro | 3,0 % | – | nein |
+| OpenAI Whisper large-v3 (gehostet) | 4,1 % | – | ja |
+| Mistral Voxtral Small (offenes Modell) | – | 5,65 % | ja |
+| Google Gemini 2.5 Flash / Lite | 5,1 / 5,2 % | 5,63 % (Lite) | ja |
+
+Quellen: Artificial Analysis (Speech-to-Text), Open-ASR-Leaderboard, Modellkarten
+von Microsoft und Mistral. Zu Gemini passt der Befund mehrerer Tests, dass es
+keinen reinen Transkriptionsmodus hat (Antworten und Kommentare statt Text) —
+hier deckt sich das mit dem Auftragstext-Vorfall.
+
+**Eigene Messung am selben Audio** (69,7 s Deutsch, Wortlaut bekannt):
+
+| Weg über OpenRouter | Wortfehler | Ende | Zeit |
+|---|---|---|---|
+| `microsoft/mai-transcribe-1.5` | **1,1 %** | vollständig | 4,8 s |
+| `openai/whisper-large-v3` | 3,4 % | vollständig | 3,4 s |
+
+**Entscheidung:** `microsoft/mai-transcribe-1.5` steht an erster Stelle der
+`eu`-Kette — über OpenRouter erreichbar, ZDR-konform (das Konto lehnt nicht
+konforme Endpunkte mit 404 ab; dieser liefert), und nach Benchmark wie eigener
+Messung das beste erreichbare Modell für Deutsch. Scribe v2 wäre laut Benchmark
+gleichauf, erfüllt die ZDR-Vorgabe aber nicht: laut ElevenLabs-Agreements ist
+echtes Zero-Retention Enterprise-Kunden vorbehalten, und über OpenRouter ist es
+gar nicht erreichbar. Es bleibt deshalb nur als ausdrücklich wählbarer Weg
+bestehen, nicht als Standard.
+
 ### Grenzen des EU-Wegs — Messung 25.09.2026
 
 Der EU-Weg läuft im **geteilten Anbieter-Pool** von OpenRouter. Mistral drosselt ihn
@@ -195,6 +235,15 @@ Deshalb zwei Sicherungen im Code:
    im Log und in der Kostenzeile („(groq)"). Auf `False` setzen, wenn strikt nur der
    gewählte Weg laufen darf. Bei eigener `kette` (Stimmvergleich, Tests) gibt es
    **keinen** Rückfall.
+
+**Entschärft am 25.09.2026 abends:** In der `eu`-Kette stehen die beiden
+Transkriptions-Endpunkt-Wege jetzt **vorn** (`mai-transcribe-1.5`, dann
+`voxtral-small-24b-2507-stt`). Sie kennen die Drosselung des Chat-Wegs nicht:
+69,7 s liefen in 4,8 s durch, 139 s im Test ebenfalls. Der gedrosselte Chat-Weg
+ist nur noch das dritte Glied — er ist der einzige, der die Fachbegriffe
+mitgeben kann, soll aber nicht mehr den Ausschlag geben. Lange Diktate enden
+dadurch nicht mehr im roten Symbol (Sebastians Beobachtung: „bei längeren
+Aufgaben vor allem rot").
 
 **Belastbarer EU-Betrieb** braucht einen eigenen Mistral-Schlüssel bei OpenRouter
 (BYOK, „Integrations" in den OpenRouter-Einstellungen) — dann gelten eigene Limits
@@ -281,6 +330,18 @@ Der Installer fragt den **Groq-Schlüssel** noch nicht ab (nur OpenRouter und op
 
 ### Weitere Ideen
 
+- **Live-Diktat, satzweise am Cursor** (Sebastians Wunsch 25.09.2026): Text soll
+  schon während des Sprechens erscheinen, „satzweise, mit ein bisschen
+  Verzögerung", statt alles erst beim Loslassen. Machbar: während der Aufnahme
+  alle ~10 s an der letzten stillen Stelle schneiden (`stillste_stelle` gibt es
+  aus der Happen-Messung), den Happen sofort transkribieren und den fertigen Satz
+  einfügen. Gemessen kostet der Schnitt keine Qualität (25-s-Happen 3,4 % gegen
+  4,0 % am Stück). Als **Schalter im Tray**: „Alles auf einmal" / „Live satzweise".
+  Grenze: echtes Wort-für-Wort-Streaming geht über OpenRouter nicht — der
+  Transkriptions-Endpunkt nimmt fertige Dateien, und Realtime-STT (Mistral
+  Realtime, Nemotron-Streaming) ist dort nicht buchbar. Also satzweise mit 1–2 s
+  Verzögerung. Risiko: Zwischenstücke werden ohne Fortsetzung geglättet und
+  können nicht mehr korrigiert werden, weil sie schon im Dokument stehen.
 - **Umschalt-Modus** („einmal drücken zum Starten/Beenden") mit Auswahl im Tray-Menü
 - **Lokale Transkription** mit `faster-whisper`
 - **EU-Anbieter** prüfen (deutsches Whisper-Hosting, Azure OpenAI Westeuropa)

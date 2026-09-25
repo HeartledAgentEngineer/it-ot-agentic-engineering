@@ -134,15 +134,26 @@ def test_regelweg_ist_der_eu_weg():
     """Vorgabe vom 25.09.2026: nicht OpenAI, nicht Groq ohne ausdrückliche Wahl."""
     assert typefree.STANDARD_WEG == 'eu'
     assert typefree.TRANSCRIPTION_KETTE == typefree.KETTEN['eu']
-    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'voxtral'
+    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'mai'
 
 
-def test_eu_weg_laeuft_ueber_den_audio_chat():
-    """Voxtral hat keinen Transkriptions-Endpunkt — das Audio geht in den Chat."""
-    name, modell, adresse, weg = typefree.KETTEN['eu'][0]
-    assert modell.startswith('mistralai/')
-    assert adresse == 'https://openrouter.ai/api/v1'
-    assert weg == 'chat'
+def test_eu_weg_bleibt_bei_openrouter():
+    """Sebastians Vorgabe 25.09.2026: „nur über OpenRouter" — kein fremder Anbieter
+    im Regelweg, und das beste Modell zuerst (Messung: mai-transcribe-1.5 mit 1,1 %
+    Wortfehlern am Referenzaudio)."""
+    kette = typefree.KETTEN['eu']
+    assert all(adresse == 'https://openrouter.ai/api/v1' for _, _, adresse, _ in kette)
+    name, modell, _, weg = kette[0]
+    assert (name, modell, weg) == ('mai', 'microsoft/mai-transcribe-1.5', 'stt')
+
+
+def test_eu_weg_hat_mehrere_wege_und_einen_mit_vokabular():
+    """Ein Weg allein reicht nicht: der Chat-Weg drosselt bei langem Audio (429),
+    dann muss der nächste Weg liefern, statt ein rotes Symbol zu zeigen. Und einer
+    der Wege muss die Fachbegriffe mitgeben (nur der Chat-Weg kann das)."""
+    kette = typefree.KETTEN['eu']
+    assert len(kette) >= 3
+    assert any(weg == 'chat' for _, _, _, weg in kette)
 
 
 def test_schneller_weg_nutzt_den_transkriptions_endpunkt():
@@ -213,7 +224,8 @@ def test_der_schnelle_weg_ist_billiger_als_der_eu_weg():
 
 def test_verfuegbare_anbieter_haelt_die_kettenreihenfolge():
     umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
-    assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == ('voxtral',)
+    assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == (
+        'mai', 'voxtral', 'voxtral-chat')
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['schnell']) == ('groq',)
 
 
@@ -341,10 +353,17 @@ def test_modellname_kommt_aus_der_kette():
 
 # ── Der Audio-Chat-Weg (EU) ───────────────────────────────────────────────────
 
+# Die Tests unten prüfen den Chat-Mechanismus selbst — dafür eine eigene Einweg-Kette.
+# Die Produktivkette 'eu' beginnt inzwischen mit einem Transkriptions-Endpunkt-Weg
+# (mai-transcribe), der Chat-Weg steht dort an dritter Stelle.
+CHAT_KETTE = (('voxtral', 'mistralai/voxtral-small-24b-2507',
+               'https://openrouter.ai/api/v1', 'chat'),)
+
+
 def test_chat_weg_schickt_das_audio_als_base64():
     attrappe = ChatAttrappe(text='  Text aus dem Chat  ')
     text, anbieter = typefree.transcribe_audio(
-        puffer(), {'voxtral': attrappe}, kette=typefree.KETTEN['eu'])
+        puffer(), {'voxtral': attrappe}, kette=CHAT_KETTE)
     assert (text, anbieter) == ('Text aus dem Chat', 'voxtral')
 
     aufruf = attrappe.aufrufe[0]
@@ -361,7 +380,7 @@ def test_chat_weg_verlangt_zero_data_retention():
     """Das Audio darf beim Anbieter nicht gespeichert werden."""
     attrappe = ChatAttrappe(text='ok')
     typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                              kette=typefree.KETTEN['eu'])
+                              kette=CHAT_KETTE)
     assert attrappe.aufrufe[0]['extra_body']['provider']['zdr'] is True
 
 
@@ -369,7 +388,7 @@ def test_chat_weg_scheitert_sauber_und_meldet_den_fehler():
     attrappe = ChatAttrappe(fehler=RuntimeError('404 Modell abgekündigt'))
     with pytest.raises(RuntimeError) as fehler:
         typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                                  kette=typefree.KETTEN['eu'])
+                                  kette=CHAT_KETTE)
     assert 'voxtral' in str(fehler.value)
 
 
@@ -401,7 +420,7 @@ def test_gedrosselter_chat_wird_wiederholt(monkeypatch):
     monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)   # im Test nicht 1 s warten
     attrappe = GedrosselterChat()
     text, anbieter = typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                                               kette=typefree.KETTEN['eu'])
+                                               kette=CHAT_KETTE)
     assert (text, anbieter) == ('Text nach der Drosselung', 'voxtral')
     assert len(attrappe.aufrufe) == 2
 
@@ -411,7 +430,7 @@ def test_dauerhafte_drosselung_gibt_irgendwann_auf(monkeypatch):
     attrappe = GedrosselterChat(drosselungen=99)
     with pytest.raises(RuntimeError) as fehler:
         typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                                  kette=typefree.KETTEN['eu'])
+                                  kette=CHAT_KETTE)
     assert len(attrappe.aufrufe) == typefree.CHAT_WIEDERHOLUNGEN
     assert 'voxtral' in str(fehler.value)
 
@@ -422,7 +441,7 @@ def test_gewoehnlicher_fehler_wird_nicht_wiederholt(monkeypatch):
     attrappe = ChatAttrappe(fehler=ValueError('irgendwas am Aufruf'))
     with pytest.raises(RuntimeError):
         typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                                  kette=typefree.KETTEN['eu'])
+                                  kette=CHAT_KETTE)
     assert len(attrappe.aufrufe) == 1
 
 
@@ -431,7 +450,7 @@ def test_zurueckgegebener_auftragstext_gilt_als_fehler():
     attrappe = ChatAttrappe(text=typefree.CHAT_AUFTRAG + 'typeFREE, Hotkey, Tray')
     with pytest.raises(RuntimeError) as fehler:
         typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
-                                  kette=typefree.KETTEN['eu'])
+                                  kette=CHAT_KETTE)
     assert 'Auftragstext' in str(fehler.value)
 
 
@@ -474,7 +493,7 @@ def test_mit_eigener_kette_gibt_es_keinen_rueckfall(monkeypatch):
     klienten = {'voxtral': ChatAttrappe(fehler=Drosselung('429')),
                 'groq': TranskriptionsAttrappe(text='nicht benutzen')}
     with pytest.raises(RuntimeError):
-        typefree.transcribe_audio(puffer(), klienten, kette=typefree.KETTEN['eu'])
+        typefree.transcribe_audio(puffer(), klienten, kette=CHAT_KETTE)
 
 
 # ── Glättung über die Modellkette ─────────────────────────────────────────────
@@ -621,7 +640,7 @@ def test_der_chat_weg_bekommt_die_volle_fachliste():
     """Voxtral hat keine 224-Token-Grenze — dort steht die lange Liste im Auftrag."""
     attrappe = ChatAttrappe(text='Transkript')
     typefree._kette_durchlaufen(puffer(), {'voxtral': attrappe},
-                                typefree.KETTEN['eu'])
+                                CHAT_KETTE)
     auftrag = attrappe.aufrufe[0]['messages'][0]['content'][0]['text']
     assert auftrag.startswith(typefree.CHAT_AUFTRAG)
     assert 'Synapse' in auftrag and 'Zero Trust' in auftrag

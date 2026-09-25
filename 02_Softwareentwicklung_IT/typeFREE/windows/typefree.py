@@ -154,7 +154,19 @@ CHANNELS    = 1
 # oder wenn der gewählte Weg ausfällt (Rückfall, siehe RUECKFALL).
 KETTEN = {
     'eu': (
-        ('voxtral', 'mistralai/voxtral-small-24b-2507',
+        # Reine OpenRouter-Kette, bestes Modell zuerst (Sebastians Vorgabe
+        # 25.09.2026: „nur über OpenRouter und das beste Modell, das meinem
+        # ZDR-Datenschutz entspricht"). Das Konto erzwingt ZDR für alle drei.
+        # Reihenfolge nach eigener Messung am Referenzaudio:
+        #   1. mai-transcribe-1.5 — 1,1 % Wortfehler, 69,7 s vollständig
+        #   2. voxtral-small-24b-2507-stt — Mistral (EU), über den
+        #      Transkriptions-Endpunkt (kennt die Drosselung des Chat-Wegs nicht)
+        #   3. voxtral-small-24b-2507 (Chat) — der einzige Weg mit Vokabular
+        ('mai', 'microsoft/mai-transcribe-1.5',
+         'https://openrouter.ai/api/v1', 'stt'),
+        ('voxtral', 'mistralai/voxtral-small-24b-2507-stt',
+         'https://openrouter.ai/api/v1', 'stt'),
+        ('voxtral-chat', 'mistralai/voxtral-small-24b-2507',
          'https://openrouter.ai/api/v1', 'chat'),
     ),
     'beste': (
@@ -193,12 +205,14 @@ RUECKFALL = True
 WEG_REIHENFOLGE = ('eu', 'beste', 'schnell')
 
 WEG_BESCHRIFTUNG = {
-    'eu':      'EU — Voxtral (Mistral) über OpenRouter',
+    'eu':      'OpenRouter — bestes ZDR-Modell (mai-transcribe → Voxtral)',
     'beste':   'Beste Qualität — ElevenLabs Scribe v2',
     'schnell': 'Schnell — Groq whisper-large-v3',
 }
 SCHLUESSEL_JE_ANBIETER = {
-    'voxtral':    'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
+    'voxtral':      'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
+    'voxtral-chat': 'OPENROUTER_API_KEY',   # dito, Audio-Chat statt Endpunkt
+    'mai':          'OPENROUTER_API_KEY',   # Microsoft mai-transcribe über OpenRouter
     'groq':       'GROQ_API_KEY',
     'openrouter': 'OPENROUTER_API_KEY',
     'scribe':     'ELEVENLABS_API_KEY',   # ElevenLabs Scribe
@@ -218,6 +232,8 @@ PREISE_JE_MINUTE = {
     'openrouter': 0.00185,   # gleicher Modellpreis (dort ausgeführt von Groq)
     'openai':     0.006,     # whisper-1
     'voxtral':    0.0059,    # gemessen: 0,0024 $ für 24,5 s (Mistral über OpenRouter)
+    'voxtral-chat': 0.0059,  # dito, Audio-Chat — gleicher Modellpreis
+    'mai':        0.006,     # mai-transcribe-1.5, 0,36 $/Stunde (OpenRouter-Preisliste)
     'scribe':     0.0044,    # 0,22 $/Stunde + 20 % Keyterms = 0,264 $/Stunde
 }
 WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']
@@ -1043,8 +1059,15 @@ def aktive_kette(umgebung=None, wahl=None):
 
 
 def transkriptions_clients():
-    """Die gebauten Clients als Zuordnung für `transcribe_audio`."""
+    """Die gebauten Clients als Zuordnung für `transcribe_audio`.
+
+    Jeder Anbietername der Ketten braucht hier einen Eintrag — sonst wird das
+    Glied in `_kette_durchlaufen` stillschweigend übersprungen (`clients.get(name)`
+    ist `None`). `mai` und `voxtral-chat` laufen beide über OpenRouter.
+    """
     return {'voxtral': openrouter_client,     # Mistral, ausgeführt über OpenRouter
+            'voxtral-chat': openrouter_client,
+            'mai': openrouter_client,         # Microsoft mai-transcribe
             'groq': groq_client,
             'openrouter': openrouter_client,  # Whisper über OpenRouter (STT-Weg)
             'openai': openai_whisper_client}
