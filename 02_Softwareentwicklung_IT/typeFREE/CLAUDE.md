@@ -113,7 +113,53 @@ Umgesetzt:
 - **25 neue Prüfungen** (`test_transkription.py`), 109 insgesamt grün
 - **Gemessen** (24,5 s deutsches Audio, 16 kHz mono): Groq median 0,72 s · OpenRouter median 1,83 s (Ausreißer 6,79 s) · OpenAI antwortet nicht
 
+## Transkriptionswege — Messstand 25.09.2026
+
+Alle Zahlen an 24,5 s deutschem Audio (16 kHz mono), mehrfach gemessen.
+
+| Weg | Zeit | Vollständig | Kosten/h | Daten gehen an |
+|-----|------|-------------|----------|----------------|
+| **Groq direkt** `whisper-large-v3` | 0,72–1,9 s | 16 von 16 ✅ | 0,111 $ | Groq (US) |
+| **OpenRouter** `whisper-large-v3` (Transkriptions-Endpunkt) | 1,0–3,7 s | **5 von 16** ❌ | 0,09–0,11 $ | DeepInfra/Together/Groq (US) |
+| **OpenRouter** `whisper-large-v3-turbo` | 3,7 s | ja, sichtbar schlechtere Qualität | 0,012 $ | DeepInfra (US) |
+| **OpenRouter** `voxtral-mini-transcribe` | – | Fehler: Konto-ZDR schließt Endpunkt aus | 0,18 $ | Mistral (EU) |
+| **OpenRouter** `nova-3` | 1,3 s | leeres Ergebnis | 0,258 $ | Deepgram (US) |
+| **OpenRouter** `voxtral-small-24b-2507` (Audio-Chat-Weg) | 1,8–2,8 s | 3 von 3 ✅ | 0,36 $ | **Mistral (EU)** |
+
+**Befund: der Transkriptions-Endpunkt von OpenRouter ist für Diktate unbrauchbar.**
+Er liefert in rund der Hälfte der Läufe nur das letzte Drittel des Audios — reproduziert
+über 16 Läufe, mit und ohne `provider.zdr`, mit wav/flac/mp3, mit festgenageltem
+Anbieter und im Wechsel zwischen DeepInfra, Together und Groq. Der **Chat-Weg mit
+Audio** (`input_audio`) ist davon nicht betroffen.
+
+**Datenschutz-Einstellungen von OpenRouter** (Stand 25.09.2026, dieses Konto):
+- Das Konto erzwingt ZDR bereits — nicht konforme Endpunkte fallen mit 404 raus (`ZDR violation (account settings)`).
+- Zusätzlich pro Anfrage: `provider.zdr = true` (nur Endpunkte ohne Speicherung).
+- `allowed_data_regions: ['global']` — EU-In-Region-Routing ist Enterprise-only.
+- Guthaben: 178 $ aufgeladen, 161,08 $ verbraucht → rund 17 $ übrig.
+
+**Werkzeug:** `windows/stimmvergleich.py` schickt eine Aufnahme durch alle Kandidaten
+und stellt die Transkripte nebeneinander (`-s 30` für 30 s Mikrofon, `-d datei.wav`
+für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach gelöscht.
+
 ## Offene Arbeit
+
+### Transkriptionsweg festlegen (wartet auf eine echte Stimmprobe)
+
+Der Transkriptions-Endpunkt von OpenRouter ist unbrauchbar (siehe Messstand) und
+kommt nicht in den Regelpfad. Zur Wahl stehen:
+- **Groq direkt** — schnellster und billigster Weg, vollständig, aber US-Anbieter.
+- **Voxtral Small über OpenRouter (Audio-Chat-Weg)** — EU (Mistral, Frankreich),
+  ZDR-konform, vollständig, aber rund 3× teurer und 1–1,5 s langsamer.
+
+Entschieden wird an einer echten Aufnahme mit `windows/stimmvergleich.py`:
+wer Sebastians schnelles, genuscheltes Deutsch am besten versteht.
+
+### Bugreport an OpenRouter (offen)
+
+Über `POST /api/v1/audio/transcriptions` kommen in rund der Hälfte der Läufe nur
+die letzten Sekunden des Audios zurück (16 Läufe, mehrere Formate, mehrere
+Anbieter, mit und ohne ZDR). Der Chat-Weg mit `input_audio` ist nicht betroffen.
 
 ### ⚠️ Critic-Gegenprobe für Slice A (Prompt-Änderungen)
 Nach Phase 7 einen `/critic`-Lauf auf die geänderten Stellen:
