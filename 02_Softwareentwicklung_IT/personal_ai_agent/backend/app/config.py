@@ -1,9 +1,13 @@
 """Configuration management using pydantic-settings."""
 
+import logging
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Pfade werden am Projektordner verankert, nicht am Arbeitsverzeichnis.
 # Sonst entscheidet der Ordner, aus dem uvicorn gestartet wurde, darüber,
@@ -11,6 +15,56 @@ from typing import List, Optional
 # Fehlstart legt still ein leeres Gedächtnis an, ohne Fehlermeldung.
 BASE_DIR = Path(__file__).resolve().parents[2]   # .../personal_ai_agent
 BACKEND_DIR = BASE_DIR / "backend"
+
+# ── Workspace-Wurzel und ihr Schlüssel-Fallback (25.09.2026) ────────────────
+#
+# Die projektüblichen .env-Dateien sind `personal_ai_agent/.env` und
+# `personal_ai_agent/backend/.env` (siehe `class Config` unten). Auf dem PC
+# existierte keine von beiden; der OpenRouter-Schlüssel lag in der `.env` der
+# **Workspace-Wurzel** zwei Ebenen darüber. Folge: `openrouter_api_key` blieb
+# leer, `archiv_suche` konnte die Suchfrage nicht einbetten, und der Agent
+# wich für Fragen nach der eigenen Vergangenheit ins Web aus.
+#
+# Deshalb dieser Fallback: Ist OPENROUTER_API_KEY in den projektüblichen
+# Quellen leer, wird er zusätzlich aus der Workspace-Wurzel-`.env` gelesen.
+#
+# BEWUSST GENAU EIN VARIABLENNAME: Die Datei gehört nicht diesem Projekt und
+# kann Variablen anderer Projekte enthalten (HOST, PORT, …). Wäre sie als
+# ganze Konfigurationsdatei eingebunden, könnte ein Nachbarprojekt diese App
+# still umkonfigurieren. Werte aus ihr werden nie geloggt, nie ausgegeben und
+# nie in die Doku geschrieben — nur weitergereicht.
+WORKSPACE_DIR = BASE_DIR.parent.parent           # .../workspace agentic engineering
+WORKSPACE_ENV_FILE = WORKSPACE_DIR / ".env"
+SCHLUESSEL_FALLBACK_VARIABLE = "OPENROUTER_API_KEY"
+
+
+def variable_aus_env_datei(pfad: Path, name: str) -> str:
+    """Eine einzelne Variable aus einer .env-Datei lesen — sonst nichts.
+
+    Absichtlich ein eigener, kleiner Leser statt pydantic-settings: Nur so ist
+    garantiert, dass aus einer fremden Datei genau EIN Variablenname gelesen
+    wird. Der Wert wird zurückgegeben, aber nie geloggt und nie dokumentiert.
+
+    Fehlende Datei, fehlender Name oder Lesefehler: leerer String.
+    """
+    try:
+        datei = Path(pfad)
+        if not datei.is_file():
+            return ""
+        for zeile in datei.read_text(encoding="utf-8", errors="replace").splitlines():
+            zeile = zeile.strip()
+            if not zeile or zeile.startswith("#") or "=" not in zeile:
+                continue
+            kennung, _, wert = zeile.partition("=")
+            kennung = kennung.strip()
+            if kennung.startswith("export "):
+                kennung = kennung[len("export "):].strip()
+            if kennung != name:
+                continue
+            return wert.strip().strip('"').strip("'")
+    except OSError:
+        return ""
+    return ""
 
 
 class Settings(BaseSettings):
@@ -114,6 +168,30 @@ class Settings(BaseSettings):
     # Bedeutung. Fuer "erzaehl mir von damals" braucht es die Vektoren.
     archiv_vektor_path: str = ""
 
+    # Index des Wissensspeichers (eine SQLite-Datei mit Nachrichten, Chunks,
+    # FTS5-Volltextindex und Vektoren). Gebaut wird er von
+    # `backend/scripts/archiv_index_bauen.py` im Schwesterprojekt; hier wird
+    # nur gelesen (`mode=ro`).
+    #
+    # Standard ist der vorhandene Archivpfad — bewusst NICHT im Projektordner,
+    # weil der Ordner per .gitignore aus dem Repo ausgenommen ist und eine
+    # 240-MB-Datei mit den vollstaendigen Gespraechen sonst mitcommittet werden
+    # koennte.
+    #
+    # Suchreihenfolge von `archiv_suche` (erster vorhandener Kandidat gewinnt):
+    #   1. dieses Setting (per .env: ARCHIV_INDEX_PATH ueberschreibbar)
+    #   2. Umgebungsvariable ARCHIV_INDEX_PATH
+    #   3. personal_ai_agent/archiv_index.db
+    #   4. personal_ai_agent/backend/archiv_index.db
+    #   5. <Workspace-Wurzel>/Chats von GPT, GEMINI, Claude/db/archiv_index.db
+    #   6. /sdcard/Download/archiv_index.db                     (Handy)
+    #   7. /data/data/com.termux/files/home/archiv_index.db     (Handy, Termux)
+    # Ein Pfad, der nicht existiert, faellt ehrlich durch auf den naechsten;
+    # ist keiner da, meldet die Suche "kein_index" statt zu crashen.
+    archiv_index_path: str = str(
+        WORKSPACE_DIR / "Chats von GPT, GEMINI, Claude" / "db" / "archiv_index.db"
+    )
+
     # Schluessel fuer die Frage-Einbettung. Die Chunks sind bereits gerechnet;
     # was fehlt, ist ein Vektor fuer die jeweilige Frage – ein Aufruf je
     # Suche, wenige Zehntausendstel Cent. Ohne Schluessel bleibt es beim
@@ -209,6 +287,39 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24h
+
+    @model_validator(mode="after")
+    def _schluessel_aus_workspace_wurzel(self):
+        """OPENROUTER_API_KEY aus der Workspace-Wurzel-`.env` nachtragen.
+
+        Greift nur, wenn der Schluessel in den projektueblichen Quellen
+        (Umgebungsvariable, `personal_ai_agent/.env`, `backend/.env`) leer
+        ist — und liest aus der fremden Datei ausschliesslich
+        :data:`SCHLUESSEL_FALLBACK_VARIABLE`.
+
+        Ehrlich statt still: Ob der Schluessel da ist oder fehlt, steht als
+        Hinweis im Log (ohne Wert). Der Dienst degradiert bei fehlendem
+        Schluessel sichtbar auf Volltextsuche (siehe ``archiv_suche``).
+        """
+        if (self.openrouter_api_key or "").strip():
+            return self
+        wert = variable_aus_env_datei(WORKSPACE_ENV_FILE, SCHLUESSEL_FALLBACK_VARIABLE)
+        if wert:
+            self.openrouter_api_key = wert
+            logger.info(
+                "%s aus der Workspace-Wurzel-.env uebernommen (nur dieser eine "
+                "Variablenname; Wert wird nicht protokolliert).",
+                SCHLUESSEL_FALLBACK_VARIABLE,
+            )
+        else:
+            logger.warning(
+                "%s fehlt in Umgebung, %s und %s. Bedeutungssuche (Vektoren) "
+                "bleibt aus, es wird nur nach Wortlaut gesucht.",
+                SCHLUESSEL_FALLBACK_VARIABLE,
+                BASE_DIR / ".env",
+                BACKEND_DIR / ".env",
+            )
+        return self
 
     class Config:
         # Beide üblichen Ablageorte akzeptieren, damit es egal ist, wo die

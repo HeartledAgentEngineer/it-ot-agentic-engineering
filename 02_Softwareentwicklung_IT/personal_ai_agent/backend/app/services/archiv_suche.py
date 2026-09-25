@@ -291,10 +291,15 @@ class ArchivSuche:
     def _pfad_kandidaten() -> List[str]:
         """Wo der Index liegen darf — in dieser Reihenfolge.
 
-        Bewusst ohne Eingriff in ``app/config.py``: Wer den Pfad
-        festverdrahten will, setzt ``archiv_index_path`` in den Settings.
-        Solange das nicht passiert ist, greift die Umgebungsvariable
-        ``ARCHIV_INDEX_PATH`` und danach die ueblichen Ablageorte.
+        ``settings.archiv_index_path`` (Standard in ``app/config.py``: der
+        vorhandene Archivpfad ``Chats von GPT, GEMINI, Claude/db/archiv_index.db``;
+        per ``.env`` überschreibbar) → Umgebungsvariable ``ARCHIV_INDEX_PATH``
+        → übliche Ablageorte im Projekt → Handy-Pfade (Termux).
+
+        Die Reihenfolge ist eine *Kandidatenliste*, keine Festlegung: Der erste
+        Kandidat, der wirklich als Datei da ist, gewinnt. Ein gesetzter, aber
+        nicht vorhandener Pfad fällt also ehrlich durch auf den nächsten —
+        ``is_available`` wird dann ggf. False statt zu crashen.
         """
         kandidaten: List[str] = []
         try:
@@ -1125,6 +1130,67 @@ class ArchivSuche:
         }
 
     # ── Bewusstsein: „was mein Agent weiss" ──────────────────────────────
+    def ueberblick_kurz(self) -> str:
+        """Der **kompakte** Bewusstseins-Baustein fuer jeden System-Prompt.
+
+        Steht bei *jedem* Chat im Prompt — auch wenn die Suche nichts liefert.
+        Nur so weiss der Agent, dass er ein Archiv hat (Sebastian, 25.09.2026:
+        „Er weiss, er hat eine Wissensdatenbank — er muesste es wissen.").
+
+        Eigenschaften, die der Test absichert:
+
+          - **kurz**: Ziel <= 600 Zeichen (ein Prompt-Baustein, keine Prosa),
+          - **nur Metadaten**: Zahlen, Quellen, Zeitraum und die Nutzungsregel —
+            keine Gespraechsinhalte, keine Titel, keine Zitate,
+          - **ehrlich**: ohne Einbettungs-Schluessel steht ausdruecklich dabei,
+            dass nur nach Wortlaut gesucht wird.
+
+        Fasst die Vektormatrix **nicht** an (auf dem Handy 95 MB) — geprueft
+        wird nur, ob ein Schluessel da ist.
+        """
+        if not self.is_available:
+            return (
+                "WISSENSSPEICHER (persönliches Chat-Archiv): gerade NICHT "
+                "angebunden. Zu Fragen nach früheren Gesprächen nichts behaupten "
+                "— lieber nachfragen."
+            )
+
+        st = self.statistik()
+        if not st.get("verfuegbar"):
+            return (
+                "WISSENSSPEICHER (persönliches Chat-Archiv): derzeit nicht lesbar. "
+                "Zu Fragen nach früheren Gesprächen nichts behaupten — lieber "
+                "nachfragen."
+            )
+
+        gesamt = st.get("gesamt", {})
+        zeitraum = st.get("zeitraum", {})
+        quellen_liste = [q for q in st.get("quellen", []) if q.get("gespraeche")]
+        quellen = ", ".join(f"{q['source']} ({q['gespraeche']})" for q in quellen_liste[:8])
+        if len(quellen_liste) > 8:
+            quellen += f", +{len(quellen_liste) - 8} weitere"
+
+        teile = [
+            "WISSENSSPEICHER (persönliches Chat-Archiv): "
+            f"{gesamt.get('gespraeche', 0)} Gespräche, "
+            f"{gesamt.get('nachrichten', 0)} Nachrichten, "
+            f"Zeitraum {_datum_kurz(zeitraum.get('von'))} bis "
+            f"{_datum_kurz(zeitraum.get('bis'))}. "
+            f"Quellen: {quellen or 'keine'}.",
+            "NUTZUNG: Fragen zu meiner Vergangenheit/meinen Chats ZUERST hier "
+            "suchen (Hybridsuche: Stichwort + Bedeutung) und den Treffer über "
+            "seinen Zeiger als Original nachlesen — NICHT im Web, das weiß nichts "
+            "davon. Bei unsicher (sicher=false) Rückfrage an Sebastian statt "
+            "Behauptung.",
+        ]
+        # Ehrlicher Hinweis statt stillem Ausfall: Ohne Schluessel kann die
+        # Frage nicht eingebettet werden, also findet nur der Wortlaut.
+        if self._frage_einbetter is None and not self._schluessel():
+            teile.append(
+                "Bedeutungssuche aus: kein Schlüssel — nur Wortlaut."
+            )
+        return " ".join(teile)
+
     def ueberblick(self) -> Dict[str, Any]:
         """Kompakter Ueberblick ueber den Wissensspeicher — zum Einhaengen
         in den System-Prompt (siehe ``docs/konzept-wissensspeicher.md``).
@@ -1235,10 +1301,17 @@ def treffer_schluessel(treffer: Dict[str, Any]) -> Tuple[str, int]:
 archiv_suche = ArchivSuche()
 
 
-def prompt_baustein() -> str:
-    """Fertiger Text fuer den System-Prompt (Einbauort: Doku).
+def prompt_baustein(kurz: bool = False) -> str:
+    """Fertiger Text fuer den System-Prompt.
+
+    ``kurz=True`` liefert die **kompakte** Fassung (<= 600 Zeichen, nur
+    Metadaten, siehe :meth:`ArchivSuche.ueberblick_kurz`) — die steht bei
+    jedem Chat im Prompt (Einbauort: ``llm_service._build_messages``).
+    Ohne Argument kommt die ausfuehrliche Fassung.
 
     Bewusst eine Funktion und kein Modul-Level-String: Der Ueberblick wird zur
     Laufzeit gebildet, damit er den aktuellen Index beschreibt.
     """
+    if kurz:
+        return archiv_suche.ueberblick_kurz()
     return archiv_suche.ueberblick()["text"]

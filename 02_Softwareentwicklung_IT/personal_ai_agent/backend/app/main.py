@@ -23,6 +23,7 @@ from app.router import (
     speak,
     llm_models,
     archiv,
+    archiv_wissen,
     auftraege,
     upload,
     dateien,
@@ -166,6 +167,12 @@ app.include_router(transcribe.router, dependencies=[Depends(auth.require_api_key
 app.include_router(speak.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(llm_models.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(archiv.router, dependencies=[Depends(auth.require_api_key)])
+# Zweiter Archiv-Router (eigene Datei, 25.09.2026): Zeitachse, Original
+# nachlesen, Bewusstseins-Baustein. Prefix `/api/archiv/wissen` — er liegt
+# UNTER dem Prefix von `archiv.router` (`/api/archiv`), teilt sich aber keine
+# einzige Route mit ihm: dort `/status` und `/suche`, hier `/wissen/...`.
+# Deshalb kollidiert hier nichts, obwohl beide Pfade mit /api/archiv beginnen.
+app.include_router(archiv_wissen.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(auftraege.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(upload.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(dateien.router, dependencies=[Depends(auth.require_api_key)])

@@ -111,6 +111,15 @@ KONTEXT_FOKUS_ANWEISUNG = (
     "geh allein auf die aktuelle Frage ein. Halte die Antwort kurz und präzise.]"
 )
 
+# Not-Baustein, falls der Wissensspeicher-Baustein nicht gebaut werden kann.
+# Bewusst KEIN stilles Weglassen: Ohne diesen Hinweis beantwortet der Agent
+# „was habe ich damals besprochen" aus dem Web, weil er nicht weiss, dass es
+# das Archiv gibt. Nur der Satz, der dann noch stimmt — keine erfundenen Zahlen.
+WISSENSSPEICHER_AUSFALL = (
+    "WISSENSSPEICHER (persönliches Chat-Archiv): Zustand gerade nicht lesbar. "
+    "Zu Fragen nach früheren Gesprächen nichts behaupten — lieber nachfragen."
+)
+
 
 def _kontext_aufteilen(
     nachrichten: List[Dict[str, str]],
@@ -524,6 +533,37 @@ class LLMService:
             teile.append(f"{kopf}\n{text}")
         return "\n\n".join(teile)
 
+    @staticmethod
+    def _build_wissensspeicher_baustein() -> str:
+        """Der Wissensspeicher-Baustein, der **immer** im Prompt steht.
+
+        Ergaenzt (nicht wiederholt) ``_build_archiv_context``:
+
+          - hier: Bewusstsein ohne Treffer — Kennzahlen, Quellen, Zeitraum,
+            Nutzungsregel („zuerst hier suchen, nicht im Web; bei Unsicherheit
+            Rückfrage statt Behauptung"),
+          - dort: die konkreten Fundstellen zur aktuellen Frage.
+
+        Reihenfolge im Prompt also: Fokus-Anweisung → Wissensspeicher-Baustein
+        → Gedächtnis → Fundstellen. Enthaelt nur Metadaten (<= 600 Zeichen) —
+        der Baustein darf bedenkenlos in jedem Prompt stehen.
+
+        Faellt das Zusammenstellen aus, wird das ehrlich vermerkt (ein
+        Log-Hinweis plus kurzer Not-Baustein) statt den Baustein still
+        wegzulassen: Ein Agent, der nicht weiss, dass er ein Archiv hat,
+        antwortet „was war damals" aus dem Web.
+        """
+        try:
+            from app.services.archiv_suche import prompt_baustein
+
+            text = (prompt_baustein(kurz=True) or "").strip()
+        except Exception as e:
+            logger.warning("Wissensspeicher-Baustein nicht baubar: %s", e)
+            text = ""
+        if not text:
+            text = WISSENSSPEICHER_AUSFALL
+        return "\n\n" + text
+
     def _build_messages(
         self,
         user_message: str,
@@ -545,6 +585,15 @@ class LLMService:
 
         # Antwort-Relevanz: Fokus auf die aktuelle Nutzerfrage (kurz, klar).
         system_prompt += KONTEXT_FOKUS_ANWEISUNG
+
+        # Wissensspeicher-Baustein: steht IMMER im Prompt, auch wenn es zu
+        # dieser Frage keinen Treffer gibt. Die Treffer (unten) entstehen erst
+        # nach einer Suche; damit der Agent ueberhaupt weiss, DASS er ein
+        # Archiv hat, kommt hier der Metadaten-Baustein hin (Zahlen, Quellen,
+        # Zeitraum, Nutzungsregel). Sebastian, 25.09.2026: „Er weiss, er hat
+        # eine Wissensdatenbank — er muesste es wissen." Sonst beantwortet er
+        # „was habe ich damals besprochen" mit der Web-Suche.
+        system_prompt += self._build_wissensspeicher_baustein()
 
         # Rolling-Summary der älteren Unterhaltung (Ein-Chat) — wird in den
         # System-Kontext eingebettet, damit die Vergangenheit nicht verloren

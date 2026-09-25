@@ -247,27 +247,41 @@ kompakten deutschen Text mit **Kennzahlen statt Inhalten**:
 Dazu maschinenlesbar `regeln` (`zuerst_archiv`, `dann_original`, `nie_erfinden`,
 `nichts_nach_aussen`) und `schwellwerte` (dieselben Zahlen wie §5).
 
-**Einbauort (verbindlich, Stand 25.09.2026):** `backend/app/services/llm_service.py`, Methode
-`LlmService._build_messages`, ab Zeile 527. Dort steht in Zeile 544–547:
+**Einbauort (verbindlich; EINGEBAUT am 25.09.2026):** `backend/app/services/llm_service.py`,
+Methode `LlmService._build_messages`. Der Baustein steht **immer** im Prompt, direkt nach
+der Fokus-Anweisung:
 
 ```python
 system_prompt = self.load_system_prompt()
 system_prompt += KONTEXT_FOKUS_ANWEISUNG
+system_prompt += self._build_wissensspeicher_baustein()   # <- hier (llm_service.py:596)
 ```
 
-**Direkt danach** gehört der Baustein hin:
+`_build_wissensspeicher_baustein` (llm_service.py:537) holt den Text über
+`archiv_suche.prompt_baustein(kurz=True)`; schlägt das fehl, steht statt eines stillen
+Weglassens der Not-Baustein `WISSENSSPEICHER_AUSFALL` (llm_service.py:118) im Prompt.
 
-```python
-from app.services.archiv_suche import prompt_baustein   # oben in der Datei
+**Kompakte Fassung (das steht im Prompt):** `ArchivSuche.ueberblick_kurz()`
+(archiv_suche.py:1133) über `prompt_baustein(kurz=True)` (archiv_suche.py:1304). Ziel und
+Grenze: **≤ 600 Zeichen**, ausschließlich Metadaten — Zahlen, Quellen, Zeitraum,
+Nutzungsregel; **keine** Inhalte, keine Titel, keine Kennungen. Gemessen am echten Index:
+**506 Zeichen** mit Schlüssel, **558 Zeichen** ohne (dann steht zusätzlich „Bedeutungssuche
+aus: kein Schlüssel — nur Wortlaut." darin). Die Vektormatrix wird dafür **nicht** geladen
+(auf dem Handy 95 MB) — nur die Schlüssel-Frage wird geprüft.
 
-system_prompt += KONTEXT_FOKUS_ANWEISUNG
-system_prompt += "\n\n" + prompt_baustein()             # <- hier
-```
+Die **ausführliche** Fassung (`ueberblick()`, 911 Zeichen, mit Themen-Häufigkeit) bleibt
+unverändert und wird weiterhin vom Endpunkt `/api/archiv/wissen/ueberblick` geliefert.
 
 **Warum genau dort** und nicht bei den Treffern: Der vorhandene `_build_archiv_context`
-(Zeile 499) hängt nur die **Treffer** an — die entstehen erst, wenn schon gesucht wurde. Der
+(Z. 529) hängt nur die **Treffer** an — die entstehen erst, wenn schon gesucht wurde. Der
 Agent muss aber **auch ohne Suche** wissen, dass er ein Archiv hat. Sonst beantwortet er
 „was habe ich damals besprochen" mit der Web-Suche, und genau das war Sebastians Befund.
+
+**Reihenfolge im System-Prompt (gegen Doppelung abgesichert):** Fokus-Anweisung →
+**Wissensspeicher-Baustein** (Bewusstsein, ohne Treffer) → Zusammenfassung → Gedächtnis →
+**Archiv-Fundstellen** (zur aktuellen Frage). Der Baustein trägt nur Metadaten, die
+Treffer-Injektion nur Fundstellen; Tests zählen `WISSENSSPEICHER` genau einmal im Prompt
+(`tests/test_archiv_verdrahtung.py`).
 
 ---
 
