@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260915bF">
+    <link rel="stylesheet" href="style.css?v=20260925B">
 </head>
 <body>
     <div id="app">
@@ -48,6 +48,12 @@
 
         <!-- Chat Messages -->
         <main id="chat-container">
+            <!-- Sichtbare Chat-Kennzeichnung (Fix 2026-09-25): Sebastian soll
+                 sich darauf verlassen koennen, WELCHER Chat offen ist - nach
+                 Neuladen, Chat-Wechsel und Aktualisieren identisch. Ohne diese
+                 Zeile war nicht erkennbar, welcher Verlauf gerade zu sehen ist. -->
+            <div id="chat-aktuell" title="Welcher Chat ist gerade offen"
+                 style="font-size:0.72rem;color:#9aa;padding:3px 10px 1px;word-break:break-word">💬 Chat wird geladen …</div>
             <div id="messages">
                 <!-- Welcome message. Die ID wird gebraucht, damit sie beim
                      Leeren der Anzeige stehen bleibt. -->
@@ -133,7 +139,15 @@
                     </svg>
                     <span id="loop-label">Hermes</span>
                 </button>
-                <span class="footer-note">Gedächtnis aktiv</span>
+                <!-- Öffnet das Erinnerungs-Blatt. Hier stand vorher nur der
+                     Text „Gedächtnis aktiv"; app.js ersetzte ihn durch
+                     „N Erinnerungen" - eine ZAHL ohne Inhalt. Befund
+                     2026-09-25 (Sebastian): „Ich habe einfach nur nix für
+                     Erinnerungen." Jetzt ist der Text ein Knopf, der zeigt,
+                     was tatsächlich im Gedächtnis steht. -->
+                <button id="gedaechtnis-btn" class="footer-note" type="button"
+                        title="Gespeicherte Erinnerungen ansehen"
+                        aria-label="Erinnerungen ansehen">Gedächtnis aktiv</button>
             </div>
         </footer>
     </div>
@@ -151,6 +165,22 @@
             </div>
             <div id="chat-list" class="sheet-list"></div>
             <p id="chat-hint" class="sheet-note"></p>
+        </div>
+    </div>
+
+    <!-- Erinnerungen: das, was der Agent über Sebastian gelernt hat.
+         Bisher gab es dafür KEINE Anzeige (Befund 2026-09-25) - nur die Zahl
+         im Fuß. Das Backend hielt Liste und Einzel-Löschen längst bereit
+         (GET /api/memory, DELETE /api/memory/{id}), die Oberfläche rief
+         diese Wege nie auf. Aufbau bewusst wie das Modell-/Gesprächs-Blatt. -->
+    <div id="memory-sheet" hidden>
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Erinnerungen">
+            <div class="sheet-head">
+                <h2>Erinnerungen</h2>
+                <button id="memory-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div id="memory-list" class="sheet-list"></div>
+            <p id="memory-hint" class="sheet-note"></p>
         </div>
     </div>
 
@@ -201,6 +231,6 @@
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20260920B"></script>
+    <script src="app.js?v=20260925B"></script>
 </body>
 </html>

@@ -237,10 +237,16 @@ def summary_erhoehe_zaehler(conversation_id: str) -> None:
     summarys[conversation_id] = eintrag
 
 
-def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optional[str] = None, ui: Optional[dict] = None) -> None:
+def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optional[str] = None, ui: Optional[dict] = None, offen: bool = False) -> None:
     """Haengt eine Agenten-Nachricht an ein Gespraech + schreibt weg.
 
     Verhalten identisch zur früheren chat.py-Funktion (ohne die Memory-Kopplung).
+
+    `offen=True` markiert eine beim Stream-START sofort gesicherte
+    User-Nachricht, deren Antwort noch aussteht. finish_exchange findet sie
+    über diese Markierung wieder und hängt sie nicht ein zweites Mal an
+    (Fix 2026-09-25: vorher entstanden Dubletten, sobald zwischen
+    Sofort-Sicherung und Abschluss eine Hermes-Zwischenmeldung landete).
     """
     try:
         with _verlauf_sperre:
@@ -255,13 +261,14 @@ def verlauf_nachricht_anhaengen(conversation_id, role, content, bild_pfad: Optio
             schon = conversations[conversation_id]
             if schon and schon[-1].get("role") == role and (schon[-1].get("content") or "").strip() == (content or "").strip():
                 return
-            conversations[conversation_id].append(
-                {
-                    "role": role,
-                    "content": content,
-                    "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
-                }
-            )
+            eintrag = {
+                "role": role,
+                "content": content,
+                "zeit": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
+            if offen:
+                eintrag["offen"] = True
+            conversations[conversation_id].append(eintrag)
             # optionaler Bild-Pfad fuer persistente Bild-Referenzen (Quiz)
             if bild_pfad and conversations[conversation_id]:
                 conversations[conversation_id][-1]["bild_pfad"] = bild_pfad
@@ -379,11 +386,38 @@ def finish_exchange(conversation_id: str, user_message: str, reply: str,
         # gesichert (chat.py -> verlauf_nachricht_anhaengen), damit sie einen
         # Reload/Abbruch ueberlebt. Hier also NICHT erneut anhaengen, aber
         # einen inzwischen bekannten Bild-Pfad nachtragen.
-        _letzter = history[-1] if history else None
-        if (_letzter and _letzter.get("role") == "user"
-                and (_letzter.get("content") or "") == user_message):
-            if user_bild_pfad and not _letzter.get("bild_pfad"):
-                _letzter["bild_pfad"] = user_bild_pfad
+        #
+        # GEHAERTET 2026-09-25 (Konsistenz-Befund: nach Reload doppelte
+        # Nachrichten): Frueher wurde nur die ALLERLETZTE Zeile verglichen.
+        # Zwischen Sofort-Speicherung und Abschluss koennen aber
+        # Hermes-/Statusmeldungen angehaengt worden sein
+        # (auftrag_service -> _reite_an_verlauf); dann war die User-Nachricht
+        # nicht mehr die letzte Zeile und wurde ein ZWEITES Mal gespeichert.
+        # Jetzt entscheidet die Markierung `offen` (gesetzt beim Stream-Start):
+        # Dieselbe noch unbeantwortete Frage wird wiedergefunden statt erneut
+        # angehaengt. Der alte „letzte Zeile"-Test bleibt als Rückfall für
+        # Nachrichten, die ohne Markierung gesichert wurden.
+        _schon_gesichert = None
+        for _eintrag in reversed(history[-8:]):
+            if _eintrag.get("role") != "user":
+                continue
+            _gespeichert = _eintrag.get("content") or ""
+            # Direkt passend — oder (bei Zitat-Anhang) der gespeicherte Text
+            # ist der Anfang der neuen Nachricht.
+            _passt = (_gespeichert == user_message)
+            if not _passt and _eintrag.get("offen") and _gespeichert:
+                _passt = user_message.startswith(_gespeichert + "\n")
+            if not _passt:
+                continue
+            if _eintrag.get("offen") or (history and _eintrag is history[-1]):
+                _schon_gesichert = _eintrag
+                break
+        if _schon_gesichert is not None:
+            # Die Antwort kommt jetzt — Markierung abräumen (die Runde ist
+            # abgeschlossen) und einen inzwischen bekannten Bild-Pfad nachtragen.
+            _schon_gesichert.pop("offen", None)
+            if user_bild_pfad and not _schon_gesichert.get("bild_pfad"):
+                _schon_gesichert["bild_pfad"] = user_bild_pfad
         else:
             history.append(user_eintrag)
         assistant_eintrag = {"role": "assistant", "content": reply, "zeit": jetzt}

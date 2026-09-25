@@ -45,6 +45,24 @@ conversations = chat_verlauf.conversations
 # Nichts wird auf Platte gespeichert; nach _BILD_CACHE_DAUER_S verworfen.
 _bild_cache: Dict[str, dict] = {}
 _BILD_CACHE_DAUER_S = 600  # 10 Minuten
+
+
+def _bild_cache_verwerfen(conversation_id: Optional[str] = None) -> int:
+    """Wirft den flüchtigen Bild-Cache weg (ganz oder für EINE Conversation).
+
+    Fix 2026-09-25 (Konsistenz): Der Cache ist bewusst NUR ein
+    Fortsetzungs-Gedächtnis INNERHALB derselben Conversation. Beim Verlassen
+    eines Chats bzw. beim Start der Oberfläche wird er verworfen, damit kein
+    Bild aus einem anderen/älteren Zusammenhang in eine neue Frage rutscht.
+    Returns: Anzahl der verworfenen Cache-Einträge.
+    """
+    if conversation_id:
+        return 1 if _bild_cache.pop(conversation_id, None) is not None else 0
+    anzahl = len(_bild_cache)
+    _bild_cache.clear()
+    return anzahl
+
+
 VERLAUF_DATEI = os.path.join(settings.chroma_persist_dir, "conversations.json")
 
 # Service initialisieren (lädt Verlauf von der Platte).
@@ -372,6 +390,12 @@ async def chat(request: ChatRequest):
             _bild_cache[conversation_id] = {
                 "bilder": datei_tool_bilder,
                 "zeit": time.time(),
+                # Zu welcher Nachricht das Bild gehoert (Fix 2026-09-25): Index
+                # der Nachricht, die das Bild angefordert hat. Damit ist
+                # belegbar, dass der Cache nur INNERHALB dieser Conversation
+                # wirkt und nicht als „letztes Bild" an eine neue Nachricht
+                # wandert.
+                "nachricht_index": len(conversations.get(conversation_id, [])),
             }
         elif (conversation_id in _bild_cache) and not archiv_notiz and conversation_id != "conv_code":
             # Kein neues Bild angefordert: nutze das gecachte (wenn frisch).
@@ -501,10 +525,20 @@ async def chat(request: ChatRequest):
         # 3./4. Verlauf fortschreiben und Erinnerungen ableiten.
         # Bildpfad des Dateisuche-Bildes mitgeben, damit die flüchtige
         # Vorschau einen Reload überlebt (Frontend lädt ihn nach).
+        #
+        # WICHTIG (Fix 2026-09-25, Konsistenz): Hier wird NUR `datei_tool_bilder`
+        # verwendet — das Bild, das in DIESER Runde wirklich gefunden wurde.
+        # Vorher stand hier `datei_bilder`; das enthielt auch ein Bild aus dem
+        # 10-Minuten-RAM-Cache (Fortsetzungsfragen wie „was war noch drauf?").
+        # Folge: Ein ALTES Bild wurde an eine NEUE Nachricht geschrieben und
+        # erschien nach jedem Reload an der falschen Stelle („jetzt kommen
+        # schon wieder Bilder, die ich irgendwann schon mal hatte"). Der Cache
+        # bleibt weiterhin als KONTEXT für den LLM erhalten (Option B) — er
+        # bestimmt aber nicht mehr, was ANGEZEIGT und GESPEICHERT wird.
         memories_created = _finish_exchange(
             conversation_id, request.message + _zitat_anhang(request), reply,
             bild_pfad=(
-                datei_bilder[0].get("pfad") if datei_bilder else None
+                datei_tool_bilder[0].get("pfad") if datei_tool_bilder else None
             ) or _upload_bild_pfad(request),
             user_bild_pfad=_upload_bild_pfad(request),
         )
@@ -1512,6 +1546,11 @@ async def chat_stream(request: ChatRequest):
         verlauf_nachricht_anhaengen(
             _get_or_create_conversation(request.conversation_id),
             "user", request.message,
+            # Markierung: Diese Frage ist gesichert, ihre Antwort steht noch
+            # aus. finish_exchange erkennt sie daran wieder und hängt sie
+            # nicht erneut an (Fix 2026-09-25: keine Dubletten nach Reload,
+            # auch wenn zwischendurch Hermes-Zwischenmeldungen kamen).
+            offen=True,
         )
     except Exception as e:
         # Die Sicherung darf den Chat nie blockieren — aber sie muss sichtbar
@@ -1911,6 +1950,19 @@ async def letzte_runde_entfernen(conversation_id: str = ""):
     return {"entfernt": entfernt, "conversation_id": cid}
 
 
+@router.post("/chat/bild-cache/verwerfen")
+async def bild_cache_verwerfen(conversation_id: str = ""):
+    """Verwirft den flüchtigen Bild-Cache (RAM, 10 Min).
+
+    Ohne conversation_id wird der GESAMTE Cache geleert (Start der
+    Oberfläche/Verlassen des Chats), mit conversation_id nur der Eintrag
+    dieses einen Chats (Chat-Wechsel). Nichts davon berührt den Verlauf:
+    gespeichert bleiben nur die Bild-PFADE an ihren Nachrichten.
+    """
+    cid = (conversation_id or "").strip()
+    return {"verworfen": _bild_cache_verwerfen(cid or None)}
+
+
 @router.get("/conversations")
 async def list_conversations():
     """List all active conversations."""
@@ -1931,11 +1983,17 @@ async def list_conversations():
 async def get_conversation(conversation_id: str):
     """Liefert die Nachrichten eines Gespraechs.
 
-    Seit Stand 2026-08-30 gibt es NUR EINE durchlaufende Conversation
-    (conv_main). Ein alter Einzel-Chat (alte ID im localStorage, z. B. conv_8)
-    wird deshalb transparent auf die aktive Conversation umgeleitet statt 404 —
-    so sieht der Nutzer nach einem Update weiterhin seinen fortlaufenden Chat,
-    statt dass ein leerer/verwaister Chat entsteht.
+    Seit Stand 2026-09-30 gibt es genau ZWEI dauerhafte Chats (conv_main +
+    conv_code). Eine UNBEKANNTE Kennung (z. B. eine alte conv_8 im
+    localStorage) wird NICHT mehr still auf conv_main umgebogen: Das führte
+    dazu, dass die Oberfläche einen fremden Verlauf als den eigenen anzeigte
+    (Sebastian-Befund 2026-09-25: „dann kam wieder was ganz anderes").
+    Stattdessen: klare 404-Antwort mit dem Hinweis, welcher Chat nicht
+    existiert — plus Liste der tatsächlich vorhandenen Chats, damit die
+    Oberfläche den richtigen anbieten kann. Der WRITE-Weg bleibt unverändert
+    (unbekannte ids landen weiterhin in conv_main, siehe
+    chat_verlauf._get_or_create_conversation) — es geht hier nur um die
+    ANZEIGE.
     """
     # Gültige Whitelist-Chats (conv_main/conv_code) liegen immer in conversations;
     # für sie NIE auf conv_main mappen (conv_code ist ein eigener, ggf. leerer
@@ -1944,9 +2002,30 @@ async def get_conversation(conversation_id: str):
         if conversation_id in chat_verlauf._ERLAUBTE_CHATS:
             chat_verlauf._get_or_create_conversation(conversation_id)
         else:
-            # Unbekannte/alte ID → aktive Conversation (conv_main) statt 404.
-            conversation_id = chat_verlauf._AKTIVE_CONVERSATION_ID
-    # Nach dem Mapping fehlt die ID nur noch, wenn selbst conv_main leer fehlt.
+            # Unbekannte/alte ID: KEIN stiller Fallback auf einen anderen
+            # Verlauf, sondern ein Fehler, den die Oberfläche anzeigen kann.
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "fehler": (
+                        f"Chat '{conversation_id}' existiert nicht "
+                        "(leer oder nicht gefunden)."
+                    ),
+                    "conversation_id": conversation_id,
+                    # Nur Kennung + Anzahl der ANDEREN Chats. Bewusst OHNE
+                    # Textvorschau: In der Fehlerantwort darf kein fremder
+                    # Inhalt stehen (die Liste im Gesprächs-Blatt zeigt die
+                    # Vorschauen, wenn Sebastian sie sehen will).
+                    "bekannte_chats": [
+                        {
+                            "id": cid,
+                            "message_count": len(msgs),
+                        }
+                        for cid, msgs in conversations.items()
+                    ],
+                },
+            )
+    # Nach dem Chat-Anlegen fehlt die ID nur noch, wenn selbst conv_main fehlt.
     if conversation_id not in conversations:
         raise HTTPException(status_code=404, detail="Gespräch nicht gefunden")
     return {

@@ -129,6 +129,10 @@ const state = {
     // Vom Nutzer ausgewählte, aber noch nicht abgeschickte Dateien
     // Eintraege: { id, filename, type, url, mime, data_url, text, file }
     pendingFiles: [],
+    // Stand des offenen Chats für die sichtbare Kennzeichnung (Anzeige über
+    // dem Verlauf): Anzahl Nachrichten + Zeit der letzten. Fix 2026-09-25.
+    chatAnzahl: undefined,
+    chatZeit: '',
 };
 
 // =========================================
@@ -146,6 +150,12 @@ const dom = {
     chatsClose: document.getElementById('chats-close'),
     chatList: document.getElementById('chat-list'),
     chatHint: document.getElementById('chat-hint'),
+    // Erinnerungen (Gedächtnis): Blatt mit Liste + Einzel-Löschen.
+    gedaechtnisBtn: document.getElementById('gedaechtnis-btn'),
+    memorySheet: document.getElementById('memory-sheet'),
+    memoryClose: document.getElementById('memory-close'),
+    memoryList: document.getElementById('memory-list'),
+    memoryHint: document.getElementById('memory-hint'),
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
@@ -2274,6 +2284,11 @@ const BILD_ANZEIGE_MS = 10000;
 
 function zeigeBildVorschau(container, dataUrl, pfad, rahmen) {
     if (!container) return;
+    // Bindungs-Nachweis: Die Vorschau hängt an GENAU dieser Nachricht
+    // (container = Blase der Nachricht). Es gibt bewusst KEINEN globalen
+    // „letztes Bild"-Zustand — nach Reload flüchtig, aber nie an eine
+    // fremde Nachricht geheftet.
+    try { container.dataset.bildPfad = pfad || ''; } catch (_) {}
     // Beim Nachladen (Rekursion aus dem '… lädt'-Knopf) den BESTEHENDEN
     // Rahmen wiederverwenden und leeren. Vorher wurde ein zweiter Rahmen
     // an container angehängt, wodurch der '… lädt'-Knopf des alten Rahmens
@@ -2385,15 +2400,29 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // SSE-done-Events bzw. die ChatResponse (Fallback-Weg).
     if (abschluss && abschluss.ziel) addZielChip(contentDiv, abschluss.ziel);
     if (abschluss) {
-        if (abschluss.conversation_id) {
-            state.conversationId = abschluss.conversation_id;
-            localStorage.setItem('conversation_id', abschluss.conversation_id);
+        const cid = abschluss.conversation_id || '';
+        // Chat-Kennung NUR übernehmen, wenn diese Antwort wirklich zu dem
+        // Chat gehört, aus dem gesendet wurde. Vorher adoptierte ein spät
+        // eintreffender Stream (z. B. aus conv_code) seine Kennung blind —
+        // damit schaltete die Oberfläche den offenen Chat STILL um, nachdem
+        // man längst gewechselt hatte („auf einmal was ganz anderes").
+        const passtZumOffenenChat = (!state.conversationId
+            || state.conversationId === cid
+            || state.conversationId === _sendChatId);
+        if (cid && passtZumOffenenChat) {
+            state.conversationId = cid;
+            localStorage.setItem('conversation_id', cid);
+            setzeChatAnzeige(cid);
         }
         if (abschluss.memory_count !== undefined) updateFooterNote(abschluss.memory_count);
         // Bild-Vorschau (flüchtig): Miniatur kurz anzeigen, dann verschwinden.
-        if (abschluss.bild_vorschau) {
+        // NUR in die Blase des Chats, aus dem die Antwort kam — ein Bild
+        // gehört zu GENAU dieser Nachricht, nie zu einer anderen.
+        if (abschluss.bild_vorschau && (!cid || state.conversationId === cid)) {
             zeigeBildVorschau(contentDiv, abschluss.bild_vorschau, abschluss.bild_pfad);
         }
+        // Anzeige (Nachrichten-Zahl/letzte Aktivität) am Server nachziehen.
+        aktualisiereChatAnzeigeVomServer();
     }
     // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
     if (vorleser) vorleser.neuerText();
@@ -5360,6 +5389,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     // Griff, an dem der Stopp-Knopf zieht.
     const controller = new AbortController();
     state.abbruch = controller;
+    // Merken, aus WELCHEM Chat diese Anfrage geht: Nur so kann ein später
+    // eintreffender Abschluss erkennen, ob er noch zum offenen Chat gehört.
+    _sendChatId = state.conversationId || null;
     setLoading(true);
     const userContentDiv = blaseSchonGezeigt ? null : addMessage(text, 'user');
     // Dateivorschau in der Nachricht anzeigen, falls vorhanden.
@@ -6258,6 +6290,7 @@ dom.modelSheet.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !dom.modelSheet.hidden) schliesseBlatt();
     if (e.key === 'Escape' && !dom.chatSheet.hidden) schliesseChatBlatt();
+    if (e.key === 'Escape' && dom.memorySheet && !dom.memorySheet.hidden) schliesseGedaechtnisBlatt();
 });
 
 dom.micBtn.addEventListener('click', () => {
@@ -6584,6 +6617,15 @@ window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
     if (dom.newChatBtn) dom.newChatBtn.addEventListener('click', neuesGespraech);
     if (dom.chatsBtn) dom.chatsBtn.addEventListener('click', oeffneChatBlatt);
     if (dom.chatsClose) dom.chatsClose.addEventListener('click', schliesseChatBlatt);
+    // Erinnerungs-Blatt: öffnen über den Text im Fuß („Gedächtnis aktiv" wird
+    // per updateFooterNote zur Zahl), schließen über ×, Hintergrund oder Esc.
+    if (dom.gedaechtnisBtn) dom.gedaechtnisBtn.addEventListener('click', oeffneGedaechtnisBlatt);
+    if (dom.memoryClose) dom.memoryClose.addEventListener('click', schliesseGedaechtnisBlatt);
+    if (dom.memorySheet) {
+        dom.memorySheet.addEventListener('click', (e) => {
+            if (e.target === dom.memorySheet) schliesseGedaechtnisBlatt();
+        });
+    }
 // Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
 // natürlichste Geste, um ein Blatt wieder loszuwerden.
 dom.chatSheet.addEventListener('click', (e) => {
@@ -6773,7 +6815,12 @@ function neuesGespraech() {
     addMessage('ℹ️ Ein-Chat-Modus: Es gibt nur dieses eine Gespräch – es wird fortgeführt.', 'assistant');
 }
 
-/** Holt die Kennung des zuletzt geführten Gesprächs vom Server. */
+/** Holt die Kennung des zuletzt geführten Gesprächs vom Server.
+ *
+ *  ACHTUNG (seit Fix 2026-09-25): Wird beim Start NICHT mehr als Rückfall
+ *  benutzt. Genau dieser Rückfall ließ nach einem Reload „auf einmal was ganz
+ *  anderes" erscheinen (je nach Lage der Programmier-Chat conv_code).
+ *  Für eine Auswahl steht holeGespraechsListe() + waehleStartChat() bereit. */
 async function letzteGespraechsId() {
     try {
         const res = await fetch(`${API_BASE}/api/conversations`);
@@ -7169,9 +7216,18 @@ function setzeChatButtonStatus() {
 // Wechselt zwischen Haupt-Chat (conv_main) und Coding-/Hermes-Chat (conv_code).
 function chatWechseln(target) {
     const g = (target === 'conv_code') ? 'conv_code' : 'conv_main';
+    // Der flüchtige Bild-Cache (10 Min, RAM im Backend) gilt nur INNERHALB
+    // einer Conversation. Beim Verlassen wird er verworfen — sonst könnte ein
+    // Bild aus dem verlassenen Chat in eine neue Frage rutschen.
+    verwerfeBildCache(state.conversationId || undefined);
     state.conversationId = g;
     localStorage.setItem('conversation_id', g);
+    // Zahlen/Zeit des verlassenen Chats NICHT stehen lassen (sie gehörten zu
+    // einem anderen Verlauf) — zeigeGespraech setzt die echten Werte gleich.
+    state.chatAnzahl = undefined;
+    state.chatZeit = '';
     setzeChatButtonStatus();
+    setzeChatAnzeige(g);
     zeigeGespraech(g);
 }
 
@@ -7220,11 +7276,212 @@ function ladeBildLazy(contentDiv, pfad) {
     setTimeout(wirdSichtbar, 300); // Fallback ohne Observer
 }
 
-async function zeigeGespraech(id) {
+// ── Sichtbare Chat-Kennzeichnung + ehrlicher Umgang mit unbekannten Chats ──
+// Fix 2026-09-25 (Sebastian: „…dann kam wieder was ganz anderes").
+// Grundsätze:
+//   1. Es wird NUR der Chat gezeigt, dessen Kennung angefragt wurde.
+//   2. Gibt es ihn nicht, erscheint eine klare Meldung + Angebot — niemals
+//      stillschweigend ein fremder Verlauf.
+//   3. Welcher Chat offen ist, steht sichtbar über dem Verlauf.
+
+// Reentranz-Marke für das Laden eines Verlaufs (siehe zeigeGespraech).
+let _gespraechToken = 0;
+
+// Chat, aus dem die gerade laufende Anfrage gesendet wurde. Damit erkennt
+// finishReply, ob ein Abschluss noch zum offenen Chat gehört (siehe dort).
+let _sendChatId = null;
+
+/** Zeichnet die Chat-Anzeige anhand des echten Server-Stands neu
+ *  (Nachrichten-Zahl + letzte Aktivität). Ein kleiner Abruf je Antwort. */
+async function aktualisiereChatAnzeigeVomServer() {
+    const cid = state.conversationId;
+    if (!cid) return;
     try {
-        const res = await fetch(`${API_BASE}/api/conversations/${id}`);
+        const res = await fetch(`${API_BASE}/api/conversations`);
+        if (!res.ok) return;
+        const liste = (await res.json()).conversations || [];
+        const eintrag = liste.find(c => c.id === cid);
+        if (!eintrag) return;
+        // Nur anzeigen, wenn derselbe Chat noch offen ist (keine Umschaltung).
+        if (state.conversationId !== cid) return;
+        await holeGespraechsZeit(cid, eintrag.message_count);
+    } catch (_) { /* Anzeige darf nie stören */ }
+}
+
+/** Holt die letzte Aktivität eines Chats und schreibt die Anzeige. */
+async function holeGespraechsZeit(cid, anzahl) {
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(cid)}`);
+        if (!res.ok) return;
+        const msgs = (await res.json()).messages || [];
+        if (state.conversationId !== cid) return;
+        setzeChatAnzeige(cid, typeof anzahl === 'number' ? anzahl : msgs.length,
+            msgs.length ? (msgs[msgs.length - 1].zeit || '') : '');
+    } catch (_) { /* Anzeige darf nie stören */ }
+}
+
+/** Zeigt an, WELCHER Chat gerade offen ist (Name/Kennung + Stand). */
+function setzeChatAnzeige(id, anzahl, letzteZeit, hinweis) {
+    if (typeof anzahl === 'number') state.chatAnzahl = anzahl;
+    if (letzteZeit) state.chatZeit = letzteZeit;
+    const el = document.getElementById('chat-aktuell');
+    if (!el) return;
+    if (!id) {
+        el.textContent = '💬 Kein Chat geöffnet – ein Chat lässt sich hier öffnen.';
+        return;
+    }
+    const name = (id === 'conv_code')
+        ? 'Programmier-/Hermes-Chat (conv_code)'
+        : (id === 'conv_main' ? 'Haupt-Chat (conv_main)' : id);
+    let txt = `💬 ${name}`;
+    if (typeof state.chatAnzahl === 'number') txt += ` · ${state.chatAnzahl} Nachrichten`;
+    if (state.chatZeit) txt += ` · zuletzt ${formatUhrzeit(state.chatZeit)}`;
+    if (hinweis) txt += ` · ${hinweis}`;
+    el.textContent = txt;
+}
+
+/** Holt die Chat-Liste (Kennung, Anzahl, letzte Nachricht). */
+async function holeGespraechsListe() {
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations`);
+        if (!res.ok) return [];
+        const liste = (await res.json()).conversations || [];
+        return liste.filter(c => c.message_count > 0);
+    } catch (_) {
+        return [];
+    }
+}
+
+/** Wählt beim Start OHNE gemerkte Kennung den nächstliegenden Chat.
+ *  conv_main zuerst (das ist der Haupt-Chat), sonst der mit den meisten
+ *  Nachrichten. Bewusst nicht „irgendein" Chat — und die Oberfläche sagt
+ *  anschließend sichtbar, dass sie diesen Chat geöffnet hat. */
+function waehleStartChat(liste) {
+    if (!liste || !liste.length) return null;
+    const haupt = liste.find(c => c.id === 'conv_main');
+    if (haupt) return haupt;
+    return liste.slice().sort((a, b) => b.message_count - a.message_count)[0];
+}
+
+/** Verwirft den flüchtigen Bild-Cache (10-Minuten-RAM im Backend).
+ *  Er gilt nur INNERHALB einer Conversation — beim Wechsel/Start weg. */
+function verwerfeBildCache(conversationId) {
+    try {
+        fetch(`${API_BASE}/api/chat/bild-cache/verwerfen`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(
+                conversationId ? { conversation_id: conversationId } : {}
+            ),
+        }).catch(() => {});
+    } catch (_) { /* Cache-Verwerfen darf nie stören */ }
+}
+
+/** Klare Meldung statt fremdem Verlauf: Die angefragte Kennung gibt es nicht. */
+async function zeigeChatNichtGefunden(id, res) {
+    let bekannte = [];
+    try {
+        const daten = await res.json();
+        const detail = (daten && daten.detail) || {};
+        bekannte = detail.bekannte_chats || daten.bekannte_chats || [];
+    } catch (_) { /* Antwort ohne JSON-Körper: Meldung bleibt trotzdem klar */ }
+
+    dom.messages.innerHTML = '';
+    zuruecksetzenDatumBanner();
+    state.messages = [];
+    state.conversationId = null;
+    state.chatAnzahl = undefined;
+    state.chatZeit = '';
+    // Die tote Kennung NICHT weiter mitschleppen: sonst ginge die nächste
+    // Nachricht an einen Chat, der laut Anzeige gar nicht offen ist.
+    try { localStorage.removeItem('conversation_id'); } catch (_) {}
+    setzeChatButtonStatus();
+    setzeChatAnzeige(null);
+
+    const box = document.createElement('div');
+    box.className = 'message assistant';
+    const inhalt = document.createElement('div');
+    inhalt.className = 'message-content';
+    inhalt.innerHTML =
+        '<p>⚠️ <strong>Dieser Chat ist leer bzw. nicht gefunden.</strong></p>'
+        + `<p>Die gemerkte Chat-Kennung <code>${escapeHtml(String(id))}</code> `
+        + 'gibt es auf dem Server nicht. Es wird bewusst <em>kein anderer</em> '
+        + 'Verlauf angezeigt.</p>';
+    box.appendChild(inhalt);
+
+    if (bekannte.length) {
+        const p = document.createElement('p');
+        p.textContent = 'Diese Chats gibt es:';
+        inhalt.appendChild(p);
+        for (const c of bekannte) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'chat-row';
+            b.textContent = `${c.id} · ${c.message_count} Nachrichten`;
+            b.style.cssText =
+                'display:block;margin:4px 0;padding:6px 10px;border:1px solid #555;'
+                + 'border-radius:8px;background:#2a2a2a;color:inherit;cursor:pointer;'
+                + 'font-size:0.82rem;text-align:left';
+            b.addEventListener('click', async () => { await zeigeGespraech(c.id); });
+            inhalt.appendChild(b);
+        }
+    }
+    dom.messages.appendChild(box);
+    return true;
+}
+
+/** Verlauf konnte nicht geladen werden (Server weg) — gemerkte Kennung
+ *  BEHALTEN und ehrlich melden, statt einen anderen Chat zu zeigen. */
+function zeigeVerlaufLadefehler(id) {
+    dom.messages.innerHTML = '';
+    zuruecksetzenDatumBanner();
+    state.messages = [];
+    // Keine Zahlen/Zeiten aus einem anderen Ladevorgang stehen lassen.
+    state.chatAnzahl = undefined;
+    state.chatZeit = '';
+    setzeChatAnzeige(id, undefined, undefined, 'nicht geladen (Server nicht erreichbar)');
+    const box = document.createElement('div');
+    box.className = 'message assistant';
+    const inhalt = document.createElement('div');
+    inhalt.className = 'message-content';
+    inhalt.innerHTML =
+        '<p>⚠️ <strong>Verlauf gerade nicht ladbar.</strong></p>'
+        + `<p>Der Chat <code>${escapeHtml(String(id))}</code> bleibt gemerkt — `
+        + 'sobald der Server antwortet, erscheint genau dieser Verlauf wieder.</p>';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '🔄 Erneut versuchen';
+    b.style.cssText =
+        'margin-top:6px;padding:6px 10px;border:1px solid #555;border-radius:8px;'
+        + 'background:#2a2a2a;color:inherit;cursor:pointer;font-size:0.82rem';
+    b.addEventListener('click', () => { zeigeGespraech(id); });
+    inhalt.appendChild(b);
+    box.appendChild(inhalt);
+    dom.messages.appendChild(box);
+}
+
+async function zeigeGespraech(id) {
+    // Reentranz-Schutz: Nur der JÜNGSTE Ladevorgang darf die Anzeige bauen.
+    // Sonst konnten sich zwei Aufrufe (Schnellwechsel + Reload) beim
+    // Leeren/Aufbauen von #messages überholen und den Verlauf doppelt zeigen.
+    const token = ++_gespraechToken;
+    try {
+        const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(id)}`);
+        if (token !== _gespraechToken) return 'ueberholt';  // neuerer Ladevorgang gewinnt
+        if (res.status === 404) {
+            // Unbekannte Kennung: klare Meldung, KEIN fremder Verlauf.
+            await zeigeChatNichtGefunden(id, res);
+            return 'nicht_gefunden';
+        }
         if (!res.ok) return false;
-        const nachrichten = (await res.json()).messages || [];
+        const daten = await res.json();
+        if (token !== _gespraechToken) return 'ueberholt';
+        // Die Kennung, die der SERVER aufgelöst hat, ist die Wahrheit — nicht
+        // die angefragte. Vorher wurde die angefragte gemerkt, während der
+        // Server (per stillem Fallback) einen anderen Chat lieferte; Anzeige,
+        // gemerkte Kennung und nächste Nachricht konnten so auseinanderlaufen.
+        const idServer = daten.id || id;
+        const nachrichten = daten.messages || [];
         if (!nachrichten.length) {
             // Gültiger, (noch) leerer bekannter Chat (conv_main/conv_code): leeren
             // Kanal anzeigen statt auf false/alten Inhalt zurückzufallen.
@@ -7232,9 +7489,10 @@ async function zeigeGespraech(id) {
             const willkommen2 = document.getElementById('welcome');
             if (willkommen2) dom.messages.appendChild(willkommen2);
             state.messages = [];
-            state.conversationId = id;
-            localStorage.setItem('conversation_id', id);
+            state.conversationId = idServer;
+            localStorage.setItem('conversation_id', idServer);
             setzeChatButtonStatus();
+            setzeChatAnzeige(idServer, 0);
             return true;
         }
 
@@ -7423,9 +7681,11 @@ async function zeigeGespraech(id) {
             }
             dom.messages.appendChild(frag);
         }
-        state.conversationId = id;
+        state.conversationId = idServer;
         setzeChatButtonStatus();
-        localStorage.setItem('conversation_id', id);
+        localStorage.setItem('conversation_id', idServer);
+        // Sichtbar machen, welcher Chat offen ist (+ Anzahl + letzte Aktivität).
+        setzeChatAnzeige(idServer, anzahl, nachrichten[nachrichten.length - 1].zeit || '');
         scrollToBottom(true);
         return true;
     } catch (err) {
@@ -7476,24 +7736,160 @@ function schliesseChatBlatt() {
     dom.chatSheet.hidden = true;
 }
 
+// =========================================
+// Erinnerungen (Gedächtnis)
+// =========================================
+// Befund 2026-09-25 (Sebastian): „Ich habe einfach nur nix für Erinnerungen."
+// Der Agent lernte zwar mit (auf dem Handy standen 175 Einträge), aber die
+// Oberfläche zeigte davon nur eine Zahl im Fuß – kein einziger Eintrag war
+// sichtbar, keiner löschbar. Genau das holt dieses Blatt nach: Liste aus
+// GET /api/memory, Einzel-Löschen über DELETE /api/memory/{id}.
+//
+// Bewusst KEIN „Alle löschen" hier: ein Fehlgriff wäre nicht rücknehmbar.
+// Ein Eintrag, der falsch ist (erfundene Vorliebe), läßt sich jetzt gezielt
+// wegnehmen, ohne dass die richtigen mitgehen.
+
+/** Echte Gesamtzahl aus /api/memory/count.
+ *
+ *  Notwendig, weil die Liste gedeckelt abgeholt wird (?limit=200) und `total`
+ *  in der Antwort die Zahl der GELIEFERTEN Einträge ist, nicht die des
+ *  Bestands. Ohne diesen zweiten Aufruf behauptete die Anzeige bei mehr als
+ *  200 Einträgen eine zu kleine Zahl. null = nicht ermittelbar (Server weg). */
+async function erinnerungenZahl() {
+    try {
+        const res = await fetch(`${API_BASE}/api/memory/count`);
+        if (!res.ok) return null;
+        const daten = await res.json();
+        return typeof daten.count === 'number' ? daten.count : null;
+    } catch (err) {
+        console.warn('Erinnerungszahl nicht abrufbar:', err);
+        return null;
+    }
+}
+
+/** Zeichnet die Liste der gespeicherten Erinnerungen, jüngste zuerst. */
+async function zeichneErinnerungen() {
+    dom.memoryList.innerHTML = '';
+    dom.memoryHint.textContent = 'Lade Erinnerungen …';
+    try {
+        const res = await fetch(`${API_BASE}/api/memory?limit=200`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const daten = await res.json();
+        const liste = daten.memories || [];
+        const gesamt = await erinnerungenZahl();
+        // Der Zähler im Fuß wird gleich mitgezogen – sonst hinkte er nach
+        // einem Löschen bis zum nächsten Health-Check hinterher.
+        updateFooterNote(gesamt !== null ? gesamt : liste.length);
+
+        if (!liste.length) {
+            dom.memoryHint.textContent =
+                'Noch keine Erinnerungen gespeichert. Der Agent legt sie an, '
+                + 'wenn du im Chat etwas über dich erzählst.';
+            return;
+        }
+
+        dom.memoryHint.textContent =
+            (gesamt !== null && gesamt > liste.length)
+                ? `${gesamt} Erinnerungen · hier die ${liste.length} jüngsten`
+                : `${liste.length} Erinnerungen`;
+
+        // Der Server liefert den Bestand in Speicherreihenfolge (älteste
+        // zuerst). Für den Blick von oben nach unten ist das Neueste oben
+        // richtig – was zuletzt gelernt wurde, interessiert zuerst.
+        for (const m of liste.slice().reverse()) {
+            const zeile = document.createElement('div');
+            zeile.className = 'memory-row';
+
+            const text = document.createElement('div');
+            text.className = 'memory-text';
+            text.innerHTML = escapeHtml(m.content || '');
+            zeile.appendChild(text);
+
+            const kopf = document.createElement('div');
+            kopf.className = 'memory-meta';
+            const teile = [];
+            const art = { fact: 'Fakt', preference: 'Vorliebe', context: 'Zusammenhang', project: 'Vorhaben' };
+            if (m.category) teile.push(art[m.category] || m.category);
+            if (m.timestamp) teile.push(String(m.timestamp).slice(0, 10));
+            const wichtig = Number(m.importance || 0);
+            if (wichtig >= 4) teile.push('wichtig');
+            kopf.innerHTML = escapeHtml(teile.join(' · '));
+            zeile.appendChild(kopf);
+
+            const weg = document.createElement('button');
+            weg.type = 'button';
+            weg.className = 'memory-del';
+            weg.textContent = 'Entfernen';
+            weg.title = 'Diesen Eintrag aus dem Gedächtnis löschen';
+            weg.addEventListener('click', () => loescheErinnerung(m.id, weg));
+            zeile.appendChild(weg);
+
+            dom.memoryList.appendChild(zeile);
+        }
+    } catch (err) {
+        // Ein Fehlschlag muss sichtbar sein – sonst hielte man ein leeres
+        // Blatt für ein leeres Gedächtnis.
+        dom.memoryHint.textContent = 'Erinnerungen nicht abrufbar – läuft der Server?';
+        console.warn('Erinnerungen laden:', err);
+    }
+}
+
+/** Löscht einen Eintrag. Meldet einen Fehlschlag sichtbar (nie stiller Erfolg). */
+async function loescheErinnerung(id, knopf) {
+    if (!id) return;                       // nie eine leere Kennung senden
+    if (!window.confirm('Diesen Eintrag wirklich aus dem Gedächtnis entfernen?')) return;
+    knopf.disabled = true;
+    try {
+        const res = await fetch(`${API_BASE}/api/memory/${encodeURIComponent(id)}`,
+                                { method: 'DELETE' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await zeichneErinnerungen();
+    } catch (err) {
+        knopf.disabled = false;
+        dom.memoryHint.textContent =
+            `Entfernen fehlgeschlagen (${err.message}) – der Eintrag ist noch da.`;
+        console.warn('Erinnerung löschen:', err);
+    }
+}
+
+function oeffneGedaechtnisBlatt() {
+    dom.memorySheet.hidden = false;
+    zeichneErinnerungen();
+}
+
+function schliesseGedaechtnisBlatt() {
+    dom.memorySheet.hidden = true;
+}
+
 async function stelleVerlaufWiederHer() {
-    // Zuerst das gemerkte Gespräch. Klappt das nicht – unbekannte Kennung,
-    // neues Gerät, geleerter Browserspeicher –, wird das jüngste geholt.
+    // 1) ZUERST der gemerkte Chat (localStorage). Er bestimmt, was zu sehen
+    //    ist — nach jedem Neuladen derselbe Inhalt, dieselbe Reihenfolge.
     //
-    // WICHTIG (Fix 2026-08): Bei einem Fehlschlag (Netzwerk kurz weg, Server
-    // noch am Starten) wird die gemerkte Kennung NICHT mehr gelöscht. Vorher
-    // führte das dazu, dass nach einem Reload eine NEUE leere Conversation
-    // entstand und der bisherige Verlauf (conv_8) aus der Anzeige verschwand,
-    // obwohl er im Backend noch existierte.
+    // WICHTIG (Fix 2026-08): Bei einem Netzwerk-Fehlschlag wird die gemerkte
+    // Kennung NICHT gelöscht (sonst entstand eine neue leere Conversation).
+    //
+    // WICHTIG (Fix 2026-09-25): KEIN stiller Rückfall auf „irgendeinen"
+    // Verlauf mehr. Vorher wurde bei jedem Fehlschlag das JÜNGSTE Gespräch
+    // geladen — und das war je nach Lage conv_code (der Programmier-Chat).
+    // Genau so kam „auf einmal was ganz anderes".
     if (state.conversationId) {
-        if (await zeigeGespraech(state.conversationId)) { setzeChatButtonStatus(); return; }
-        // Laden fehlgeschlagen (404 ODER Netzwerk): Kennung BEHALTEN.
-        // Der Rückfall unten lädt die jüngste; das localStorage bleibt intakt,
-        // damit die nächste Nachricht weiter an die bekannte Conversation geht.
+        const ergebnis = await zeigeGespraech(state.conversationId);
+        if (ergebnis === true) { setzeChatButtonStatus(); return; }
+        if (ergebnis === 'nicht_gefunden' || ergebnis === 'ueberholt') return;
+        // Server nicht erreichbar o. Ä.: ehrlich melden, Kennung behalten.
+        zeigeVerlaufLadefehler(state.conversationId);
+        return;
     }
 
-    const juengste = await letzteGespraechsId();
-    if (juengste) await zeigeGespraech(juengste);
+    // 2) Kein Chat gemerkt (neues Gerät / geleerter Browserspeicher): den
+    //    nächstliegenden Chat öffnen — und SICHTBAR sagen, dass das passiert.
+    const liste = await holeGespraechsListe();
+    const start = waehleStartChat(liste);
+    if (!start) { setzeChatAnzeige(null, 0); return; }
+    if (await zeigeGespraech(start.id) === true) {
+        setzeChatAnzeige(start.id, undefined, undefined,
+            'automatisch geöffnet (kein Chat gemerkt)');
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -7501,6 +7897,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setModelLabel();                 // zeigt vorerst die gespeicherte Wahl
     setPrivacy(state.noRetention);   // Riegel-Zustand wiederherstellen
     startHealthChecks();
+    // Frischer Start = frischer Chat-Zustand: Der flüchtige Bild-Cache
+    // (10-Minuten-RAM im Backend) wird verworfen, damit kein Bild aus einer
+    // früheren Sitzung in die erste Frage rutscht (Fix 2026-09-25).
+    verwerfeBildCache();
     stelleVerlaufWiederHer();
     if (typeof starteHermesPoll === 'function') starteHermesPoll();
     aktualisiereStatusAnzeige();

@@ -61,7 +61,7 @@ curl http://localhost:8080/api/memory
 ```
 Handy (Termux)
 ├── FastAPI Backend (Python) → Port 8080
-├── ChromaDB (Vektor-DB, lokal)
+├── Erinnerungsspeicher (JSON-Datei auf dem Gerät: chroma_data/memory_store.json)
 ├── OpenRouter → DeepSeek V4 Flash
 └── Frontend (im Browser-Tab)
 ```
@@ -89,7 +89,7 @@ Doku: `docs/hermes-pc-routing.md` (Track A), `docs/hermes-local-routing.md` (Tra
 
 ```
 personal_ai_agent/
-├── backend/           # FastAPI + ChromaDB + OpenRouter
+├── backend/           # FastAPI + lokaler Erinnerungsspeicher + OpenRouter
 │   ├── app/
 │   │   ├── main.py           # Einstiegspunkt
 │   │   ├── config.py         # Konfiguration (.env)
@@ -101,7 +101,7 @@ personal_ai_agent/
 │   │   │   ├── upload.py / transcribe.py / speak.py / llm_models.py ...
 │   │   ├── services/         # Geschäftslogik
 │   │   │   ├── llm_service.py       #   OpenRouter/DeepSeek
-│   │   │   ├── memory_service.py    #   Vektor-DB + Embeddings
+│   │   │   ├── memory_service.py    #   Erinnerungen: Auswahl, Wiederholungs-Prüfung, Einbetten
 │   │   │   ├── archiv_service.py    #   Suche in alten Chat-Archiven
 │   │   │   ├── auftrag_service.py   #   Auftragsbuch-Verwaltung
 │   │   │   ├── auftrags_erkennung.py#   Heuristik: ist das ein Auftrag?
@@ -121,7 +121,9 @@ personal_ai_agent/
 ## 🌟 Features
 
 - ✅ **Text-Chat** mit DeepSeek V4 Flash (via OpenRouter)
-- ✅ **Persönliches Gedächtnis** – Agent merkt sich Fakten (ChromaDB)
+- ✅ **Persönliches Gedächtnis** – Agent merkt sich Fakten (lokaler JSON-Speicher auf dem
+  Gerät, sichtbar und einzeln löschbar im Chat über den Text „N Erinnerungen" unten rechts;
+  Konzept und offene Punkte: `docs/konzept-gedaechtnis.md`)
 - ✅ **TTS** – Antworten werden vorgelesen (Browser SpeechSynthesis)
 - ✅ **Chat im Browser-Tab** – erreichbar über die lokale URL (keine App/keine Installation nötig)
 - ✅ **IT-Security & Netzwerktechnik** als Spezialgebiet
@@ -141,9 +143,13 @@ personal_ai_agent/
 | `POST` | `/api/chat` | Chat-Nachricht senden |
 | `GET` | `/api/models` | Modellauswahl: nutzbare Modelle (Preis, Kontext, Cache-Preis, Beschreibung – für gängige Modelle deutsch, sonst englisch, Wissensstand, max. Ausgabe, EU, Datenschutz) |
 | `GET` | `/api/models/{id}/details` | Anbieter eines Modells samt Datenschutz-Profil |
-| `GET` | `/api/memory` | Alle Erinnerungen abrufen |
+| `GET` | `/api/memory` | Alle Erinnerungen abrufen (die Oberfläche zeigt sie im Gedächtnis-Blatt) |
 | `POST` | `/api/memory` | Manuelle Erinnerung erstellen |
 | `GET` | `/api/memory/count` | Anzahl Erinnerungen |
+| `DELETE` | `/api/memory/{id}` | **Einzelne** Erinnerung löschen (im Chat über „Entfernen" am Eintrag). `404`, wenn es sie nicht gab |
+| `POST` | `/api/memory/wiederholungen?ausfuehren=false` | Mehrfach gespeicherte Fakten aufräumen — standardmäßig Trockenlauf (zeigt nur, was wegfiele) |
+| `POST` | `/api/memory/vektoren` | Einträge ohne Vektor nachträglich einbetten (braucht `MISTRAL_API_KEY`) |
+| `DELETE` | `/api/memory/clear` | **Alle** Erinnerungen löschen (nur für Tests; die Oberfläche bietet das bewusst nicht an) |
 | `GET` | `/api/conversations` | Aktive Konversationen |
 | `GET` | `/api/conversations/{id}` | Nachrichten eines Gesprächs – jede Nachricht trägt ein `zeit`-Feld (ISO der Sende-/Empfangszeit). Assistant-Nachrichten, bei denen über die Dateisuche ein Bild gezeigt wurde, tragen zusätzlich `bild_pfad`: nur der Pfad (nie die Datei selbst), damit das Frontend das Bild nach einem Reload frisch nachladen kann (sonst wäre die Bild-Vorschau flüchtig verschwunden). |
 | `DELETE` | `/api/chat/letzte-runde` | **Seit 2026-08-31 gesperrt** (Verlauf ist STRENG append-only, Sebastian-Regel): liefert immer `entfernt: false` und entfernt nichts. Der frühere Bearbeiten-Flow entfernte die letzte Runde; jetzt bleibt die alte Runde stehen und neue Formulierung/Antwort werden angehängt. Ohne `conversation_id` gilt `conv_main`. |

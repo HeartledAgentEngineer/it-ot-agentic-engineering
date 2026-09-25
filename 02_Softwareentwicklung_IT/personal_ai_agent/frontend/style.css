@@ -892,6 +892,22 @@ body {
     text-align: right;
 }
 
+/* Der Text im Fuß ist seit 2026-09-25 ein Knopf (öffnet die Erinnerungen).
+   Als Knopf geerbt er sonst Rahmen/Hintergrund/Farbe der Browsereinstellung –
+   deshalb hier auf das Aussehen eines Textes zurückgesetzt. */
+button.footer-note {
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: underline dotted;
+}
+
+button.footer-note:hover {
+    color: var(--accent);
+}
+
 /* =========================================
    Modellauswahl – Blatt von unten
    =========================================
@@ -901,7 +917,8 @@ body {
 /* Beide Blätter teilen sich Aussehen und Verhalten – Modellwahl und
    Gesprächsliste unterscheiden sich nur im Inhalt. */
 #model-sheet,
-#chat-sheet {
+#chat-sheet,
+#memory-sheet {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -913,7 +930,8 @@ body {
 }
 
 #model-sheet[hidden],
-#chat-sheet[hidden] {
+#chat-sheet[hidden],
+#memory-sheet[hidden] {
     display: none;
 }
 
@@ -949,6 +967,51 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Eine Erinnerung im Gedächtnis-Blatt: Text, darunter Art/Datum,
+   rechts der Entfernen-Knopf. */
+.memory-row {
+    position: relative;
+    padding: 12px 84px 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.memory-text {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.memory-meta {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    margin-top: 4px;
+}
+
+.memory-del {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.7rem;
+    padding: 3px 9px;
+    cursor: pointer;
+}
+
+.memory-del:hover:not(:disabled) {
+    color: #ff7b72;
+    border-color: #ff7b72;
+}
+
+.memory-del:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .sheet-panel {
