@@ -128,3 +128,23 @@ SQL-Abfragen und bricht bei Abweichung ab.
 Warum eigenes Dashboard: OpenRouter zeigt nur USD *vor* Aufschlag
 (Servicegebuehr + USt fehlen) und nur den eigenen Schluessel. Das Dashboard
 rechnet in EUR, rechnet den Aufschlag ein und kennt alle lokalen Chats.
+
+## live_zahlen.py - Kosten ohne App-Neustart
+
+Die Statusleiste in der App braucht ein Python-Backend, das nur beim App-Start
+geladen wird (kein Reload). Dieses Skript liefert dieselben Zahlen OHNE Neustart:
+
+    python live_zahlen.py            # erzeugt live_zahlen.json + live_zahlen.html
+
+Die Aufteilung Input/Output/Cache ist EXAKT, nicht genaehert: sie kommt aus dem
+Plugin-Backend (plugins/context-tank/dashboard/plugin_api.py), das als Modul
+geladen wird - keine zweite, abweichende Rechnung. Ist es nicht ladbar, wird
+genaehert und das im Feld "aufteilung_quelle" gesagt.
+
+Inhalt: sieben Zeitraeume (heute, woche, letzte_woche, letzte_7_tage, monat,
+letzter_monat, alles), Subagenten dem Eltern-Chat zugerechnet und getrennt
+ausgewiesen, Cash mit Servicegebuehr und Umsatzsteuer, Live-Kurs von der EZB.
+
+Automatik: Cronjob c7291de81743 ruft alle 15 Minuten
+hermes/scripts/kosten_livewerte.py auf (Wrapper, kein LLM) und haelt die
+beiden Dateien aktuell.
