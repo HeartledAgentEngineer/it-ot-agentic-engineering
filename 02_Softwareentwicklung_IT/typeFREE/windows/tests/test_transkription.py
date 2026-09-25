@@ -1,12 +1,21 @@
-"""Die Transkription läuft über eine Anbieterkette, die Glättung über eine Modellkette.
+"""Die Transkription läuft über eine wählbare Anbieterkette, die Glättung über eine Modellkette.
 
-Anlass (25.09.2026): Der OpenAI-Schlüssel ist ohne Guthaben, jeder Aufruf
-scheiterte — das Diktat lief über OpenRouter und brauchte ein Vielfaches der
-Zeit. Und die Glättung stand wochenlang auf einem abgekündigten Modell, jede
-Anfrage endete im 404, der Filter war damit faktisch aus. Beides darf nicht
-wieder unbemerkt passieren: Die Kette fängt einen toten Anbieter auf, und ein
-Ausfall der Glättung wird gemeldet.
+Anlass (25.09.2026): Zwei Betriebsfehler und eine Vorgabe.
+
+1. Der OpenAI-Schlüssel ist ohne Guthaben, jeder Aufruf scheiterte — das Diktat
+   lief über OpenRouter und brauchte ein Vielfaches der Zeit.
+2. Die Glättung stand wochenlang auf einem abgekündigten Modell, jede Anfrage
+   endete im 404, der Filter war damit faktisch aus. Und weil das nur im Log
+   stand, blieb es unbemerkt.
+3. Der Transkriptions-Endpunkt von OpenRouter liefert in rund der Hälfte der
+   Läufe nur die letzten Sekunden des Audios (16 Messläufe). Er kommt deshalb
+   nicht mehr in den Regelpfad.
+
+Sebastians Vorgabe: Die Stimme soll nicht im Netz verschleudert werden — sie
+geht nicht mehr an OpenAI und nicht ohne ausdrückliche Wahl an Groq. Regelfall
+ist der EU-Weg über Mistral (Frankreich), umschaltbar in der config.json.
 """
+import base64
 import io
 import types
 
@@ -22,6 +31,13 @@ BEREINIGT = (
     'Ich wollte gucken, ob die zweite Prüfung jetzt durchläuft, und wenn ja, '
     'dann können wir den nächsten Slice angehen, den mit dem Autostart und '
     'der Aufgabenplanung.'
+)
+
+# Eine Kette mit zwei Stufen, um das Nachrücken zu prüfen — die echten Ketten
+# haben je Weg nur eine Stufe.
+ZWEI_STUFEN = (
+    ('groq',       'whisper-large-v3',        'https://api.groq.com/openai/v1', 'stt'),
+    ('openrouter', 'openai/whisper-large-v3', 'https://openrouter.ai/api/v1',   'stt'),
 )
 
 
@@ -44,6 +60,25 @@ class TranskriptionsAttrappe:
 
         self.audio = types.SimpleNamespace(
             transcriptions=types.SimpleNamespace(create=create))
+
+
+class ChatAttrappe:
+    """Nachbau des OpenRouter-Clients für den Audio-Chat-Weg (Voxtral)."""
+
+    def __init__(self, text=None, fehler=None):
+        self.aufrufe = []
+        self._text = text
+        self._fehler = fehler
+
+        def create(**kwargs):
+            self.aufrufe.append(kwargs)
+            if self._fehler:
+                raise self._fehler
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content=self._text))])
+
+        self.chat = types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=create))
 
 
 class GlattungsAttrappe:
@@ -73,36 +108,110 @@ def puffer():
     return p
 
 
-# ── Anbieterkette ─────────────────────────────────────────────────────────────
-
-def test_kette_beginnt_bei_groq():
-    """Groq war im Messlauf der schnellste Anbieter (0,7 s gegen 1,8 s)."""
-    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'groq'
-
-
-def test_jeder_anbieter_hat_modell_und_adresse():
-    for name, modell, adresse in typefree.TRANSCRIPTION_KETTE:
-        assert modell and adresse.startswith('https://')
+@pytest.fixture
+def leere_config(tmp_path, monkeypatch):
+    """Eine config.json im Testordner — die echte im Projekt bleibt unberührt."""
+    pfad = tmp_path / 'config.json'
+    monkeypatch.setattr(typefree, 'CONFIG_PATH', str(pfad))
+    return pfad
 
 
-def test_preise_decken_die_ganze_kette():
-    for name, _, _ in typefree.TRANSCRIPTION_KETTE:
-        assert name in typefree.PREISE_JE_MINUTE
+# ── Anbieterketten ────────────────────────────────────────────────────────────
+
+def test_drei_wege_stehen_zur_wahl():
+    assert set(typefree.KETTEN) == {'eu', 'beste', 'schnell'}
 
 
-def test_groq_ist_billiger_als_openai():
-    """0,111 $/Stunde gegen 0,006 $/Minute — der Regelfall ist der günstige."""
-    assert typefree.PREISE_JE_MINUTE['groq'] < typefree.PREISE_JE_MINUTE['openai']
+def test_regelweg_ist_der_eu_weg():
+    """Vorgabe vom 25.09.2026: nicht OpenAI, nicht Groq ohne ausdrückliche Wahl."""
+    assert typefree.STANDARD_WEG == 'eu'
+    assert typefree.TRANSCRIPTION_KETTE == typefree.KETTEN['eu']
+    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'voxtral'
+
+
+def test_eu_weg_laeuft_ueber_den_audio_chat():
+    """Voxtral hat keinen Transkriptions-Endpunkt — das Audio geht in den Chat."""
+    name, modell, adresse, weg = typefree.KETTEN['eu'][0]
+    assert modell.startswith('mistralai/')
+    assert adresse == 'https://openrouter.ai/api/v1'
+    assert weg == 'chat'
+
+
+def test_schneller_weg_nutzt_den_transkriptions_endpunkt():
+    name, modell, adresse, weg = typefree.KETTEN['schnell'][0]
+    assert (name, weg) == ('groq', 'stt')
+
+
+def test_kein_anbieter_der_ketten_ist_openai():
+    """OpenAI ist aus dem Regelpfad raus — das Konto hat kein Guthaben, und die
+    Stimme soll dort nicht landen."""
+    for kette in typefree.KETTEN.values():
+        assert all(name != 'openai' for name, _, _, _ in kette)
+
+
+def test_jeder_eintrag_hat_modell_adresse_und_weg():
+    for kette in typefree.KETTEN.values():
+        for name, modell, adresse, weg in kette:
+            assert modell and adresse.startswith('https://')
+            assert weg in ('stt', 'chat', 'elevenlabs')
+
+
+def test_jeder_weg_hat_einen_schluessel_eintrag():
+    for kette in typefree.KETTEN.values():
+        for name, _, _, _ in kette:
+            assert typefree.SCHLUESSEL_JE_ANBIETER[name].endswith('_API_KEY')
+
+
+# ── Beste Qualität: ElevenLabs Scribe ─────────────────────────────────────────
+
+def test_scribe_ist_der_weg_fuer_beste_qualitaet():
+    name, modell, adresse, weg = typefree.KETTEN['beste'][0]
+    assert (name, modell, weg) == ('scribe', 'scribe_v2', 'elevenlabs')
+    assert adresse == 'https://api.elevenlabs.io/v1'
+    assert typefree.SCHLUESSEL_JE_ANBIETER['scribe'] == 'ELEVENLABS_API_KEY'
+
+
+def test_keyterms_werden_aus_dem_vokabelhinweis_geschnitten():
+    """Scribe erwartet eine Begriffsliste — der Hinweis ist eine Zeile."""
+    assert typefree._keyterms('TwinCAT, SPS , Scancode') == ['TwinCAT', 'SPS', 'Scancode']
+    assert typefree._keyterms('') == []
+    assert len(typefree._keyterms(','.join(f'Begriff{i}' for i in range(300)))) == 100
+
+
+def test_multipart_ist_wohlgeformt():
+    """Der Upload muss die Grenze, den Dateinamen und die Audiodaten enthalten."""
+    koerper, inhaltstyp = typefree._multipart(
+        [('model_id', 'scribe_v2'), ('language_code', 'deu')], 'audio.wav', b'RIFF-audio')
+    grenze = inhaltstyp.split('boundary=')[1]
+    crlf = (chr(13) + chr(10)).encode()
+    assert koerper.startswith(f'--{grenze}'.encode() + crlf)
+    assert koerper.endswith(f'--{grenze}--'.encode() + crlf)
+    assert b'name="model_id"' in koerper and b'scribe_v2' in koerper
+    assert b'filename="audio.wav"' in koerper
+    assert b'RIFF-audio' in koerper
+
+
+def test_preise_decken_alle_ketten():
+    for kette in typefree.KETTEN.values():
+        for name, _, _, _ in kette:
+            assert name in typefree.PREISE_JE_MINUTE
+
+
+def test_der_schnelle_weg_ist_billiger_als_der_eu_weg():
+    """0,111 $/Stunde gegen rund 0,36 $/Stunde."""
+    assert (typefree.PREISE_JE_MINUTE['groq']
+            < typefree.PREISE_JE_MINUTE['voxtral'])
 
 
 def test_verfuegbare_anbieter_haelt_die_kettenreihenfolge():
     umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
-    assert typefree.verfuegbare_anbieter(umgebung) == ('groq', 'openrouter')
+    assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == ('voxtral',)
+    assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['schnell']) == ('groq',)
 
 
 def test_verfuegbare_anbieter_ignoriert_leere_schluessel():
     umgebung = {'GROQ_API_KEY': '', 'OPENROUTER_API_KEY': 'y'}
-    assert typefree.verfuegbare_anbieter(umgebung) == ('openrouter',)
+    assert typefree.verfuegbare_anbieter(umgebung, ZWEI_STUFEN) == ('openrouter',)
 
 
 def test_ohne_jeden_schluessel_gibt_es_keine_anbieter():
@@ -115,13 +224,53 @@ def test_baue_client_ohne_schluessel_gibt_none():
     assert typefree.baue_client('https://api.groq.com/openai/v1', None) is None
 
 
+# ── Wahl des Weges über die config.json ──────────────────────────────────────
+
+def test_ohne_konfiguration_gilt_der_eu_weg(leere_config):
+    assert typefree.transkription_wahl() == 'eu'
+
+
+def test_gewaehlter_weg_wird_gelesen(leere_config):
+    typefree.setze_transkription('schnell')
+    assert typefree.transkription_wahl() == 'schnell'
+    assert 'schnell' in leere_config.read_text(encoding='utf-8')
+
+
+def test_unbekannter_weg_wird_abgewiesen(leere_config):
+    with pytest.raises(ValueError):
+        typefree.setze_transkription('irgendwas')
+    assert typefree.transkription_wahl() == 'eu'
+
+
+def test_hotkey_speichern_loescht_die_wegwahl_nicht(leere_config):
+    """Der Hotkey-Dialog schrieb die config.json vorher komplett neu."""
+    typefree.setze_transkription('schnell')
+    typefree.save_hotkey_config(3)
+    assert typefree.transkription_wahl() == 'schnell'
+    assert typefree.load_hotkey_config() == typefree.HOTKEY_OPTIONS[3]
+
+
+def test_aktive_kette_folgt_der_wahl(leere_config):
+    umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
+    assert typefree.aktive_kette(umgebung) == typefree.KETTEN['eu']
+    typefree.setze_transkription('schnell')
+    assert typefree.aktive_kette(umgebung) == typefree.KETTEN['schnell']
+
+
+def test_fehlender_schluessel_kippt_auf_den_anderen_weg(leere_config):
+    """Ohne OpenRouter-Schlüssel darf das Diktieren nicht unmöglich sein."""
+    assert typefree.aktive_kette({'GROQ_API_KEY': 'y'}) == typefree.KETTEN['schnell']
+    typefree.setze_transkription('schnell')
+    assert typefree.aktive_kette({'OPENROUTER_API_KEY': 'x'}) == typefree.KETTEN['eu']
+
+
 # ── Transkription über die Kette ──────────────────────────────────────────────
 
 def test_erster_anbieter_wird_genommen_wenn_er_liefert():
     groq = TranskriptionsAttrappe(text='  Hallo Welt  ')
     openrouter = TranskriptionsAttrappe(text='sollte nicht benutzt werden')
     text, anbieter = typefree.transcribe_audio(
-        puffer(), {'groq': groq, 'openrouter': openrouter})
+        puffer(), {'groq': groq, 'openrouter': openrouter}, kette=ZWEI_STUFEN)
     assert (text, anbieter) == ('Hallo Welt', 'groq')
     assert len(openrouter.aufrufe) == 0
 
@@ -130,7 +279,7 @@ def test_toter_anbieter_faellt_aus_ohne_das_diktat_zu_kosten():
     groq = TranskriptionsAttrappe(fehler=RuntimeError('401 Konto ohne Guthaben'))
     openrouter = TranskriptionsAttrappe(text='Text vom Ausweichweg')
     text, anbieter = typefree.transcribe_audio(
-        puffer(), {'groq': groq, 'openrouter': openrouter})
+        puffer(), {'groq': groq, 'openrouter': openrouter}, kette=ZWEI_STUFEN)
     assert (text, anbieter) == ('Text vom Ausweichweg', 'openrouter')
 
 
@@ -138,7 +287,8 @@ def test_puffer_steht_vor_jedem_versuch_wieder_am_anfang():
     """Nach einem Fehlversuch steht der Dateizeiger am Ende — sonst leere Datei."""
     groq = TranskriptionsAttrappe(fehler=RuntimeError('500'))
     openrouter = TranskriptionsAttrappe(text='ok')
-    typefree.transcribe_audio(puffer(), {'groq': groq, 'openrouter': openrouter})
+    typefree.transcribe_audio(puffer(), {'groq': groq, 'openrouter': openrouter},
+                              kette=ZWEI_STUFEN)
     assert groq.puffer_positionen == [0]
     assert openrouter.puffer_positionen == [0]
 
@@ -146,7 +296,7 @@ def test_puffer_steht_vor_jedem_versuch_wieder_am_anfang():
 def test_anbieter_ohne_client_wird_uebersprungen():
     openrouter = TranskriptionsAttrappe(text='nur OpenRouter da')
     text, anbieter = typefree.transcribe_audio(
-        puffer(), {'groq': None, 'openrouter': openrouter})
+        puffer(), {'groq': None, 'openrouter': openrouter}, kette=ZWEI_STUFEN)
     assert (text, anbieter) == ('nur OpenRouter da', 'openrouter')
 
 
@@ -154,30 +304,65 @@ def test_leere_antwort_gilt_als_fehlschlag():
     groq = TranskriptionsAttrappe(text='   ')
     openrouter = TranskriptionsAttrappe(text='richtiger Text')
     text, anbieter = typefree.transcribe_audio(
-        puffer(), {'groq': groq, 'openrouter': openrouter})
+        puffer(), {'groq': groq, 'openrouter': openrouter}, kette=ZWEI_STUFEN)
     assert (text, anbieter) == ('richtiger Text', 'openrouter')
 
 
 def test_erst_wenn_alle_scheitern_gibt_es_einen_fehler():
     clients = {name: TranskriptionsAttrappe(fehler=RuntimeError('kaputt'))
-               for name in ('groq', 'openrouter', 'openai')}
+               for name in ('groq', 'openrouter')}
     with pytest.raises(RuntimeError) as fehler:
-        typefree.transcribe_audio(puffer(), clients)
-    for name in ('groq', 'openrouter', 'openai'):
+        typefree.transcribe_audio(puffer(), clients, kette=ZWEI_STUFEN)
+    for name in ('groq', 'openrouter'):
         assert name in str(fehler.value)
 
 
 def test_sprache_und_vokabular_gehen_mit():
+    """Der STT-Weg übergibt Sprache und Vokabular als Parameter."""
     groq = TranskriptionsAttrappe(text='ok')
-    typefree.transcribe_audio(puffer(), {'groq': groq})
+    typefree.transcribe_audio(puffer(), {'groq': groq}, kette=typefree.KETTEN['schnell'])
     assert groq.aufrufe[0]['language'] == 'de'
     assert 'Scancode' in groq.aufrufe[0]['prompt']
 
 
 def test_modellname_kommt_aus_der_kette():
     groq = TranskriptionsAttrappe(text='ok')
-    typefree.transcribe_audio(puffer(), {'groq': groq})
+    typefree.transcribe_audio(puffer(), {'groq': groq}, kette=typefree.KETTEN['schnell'])
     assert groq.aufrufe[0]['model'] == 'whisper-large-v3'
+
+
+# ── Der Audio-Chat-Weg (EU) ───────────────────────────────────────────────────
+
+def test_chat_weg_schickt_das_audio_als_base64():
+    attrappe = ChatAttrappe(text='  Text aus dem Chat  ')
+    text, anbieter = typefree.transcribe_audio(
+        puffer(), {'voxtral': attrappe}, kette=typefree.KETTEN['eu'])
+    assert (text, anbieter) == ('Text aus dem Chat', 'voxtral')
+
+    aufruf = attrappe.aufrufe[0]
+    assert aufruf['model'] == 'mistralai/voxtral-small-24b-2507'
+    auftrag, audio = aufruf['messages'][0]['content']
+    assert auftrag['type'] == 'text'
+    assert 'Scancode' in auftrag['text']            # Vokabular steht im Auftrag
+    assert audio['type'] == 'input_audio'
+    assert audio['input_audio']['format'] == 'wav'
+    assert base64.b64decode(audio['input_audio']['data']) == b'RIFF....WAV-Daten'
+
+
+def test_chat_weg_verlangt_zero_data_retention():
+    """Das Audio darf beim Anbieter nicht gespeichert werden."""
+    attrappe = ChatAttrappe(text='ok')
+    typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                              kette=typefree.KETTEN['eu'])
+    assert attrappe.aufrufe[0]['extra_body']['provider']['zdr'] is True
+
+
+def test_chat_weg_scheitert_sauber_und_meldet_den_fehler():
+    attrappe = ChatAttrappe(fehler=RuntimeError('404 Modell abgekündigt'))
+    with pytest.raises(RuntimeError) as fehler:
+        typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                                  kette=typefree.KETTEN['eu'])
+    assert 'voxtral' in str(fehler.value)
 
 
 # ── Glättung über die Modellkette ─────────────────────────────────────────────
@@ -271,12 +456,12 @@ def test_hinweis_kommt_ohne_rotes_icon(monkeypatch):
 # ── Zeitprotokoll ─────────────────────────────────────────────────────────────
 
 def test_zeiten_werden_deutsch_mit_komma_geschrieben():
-    text = typefree.zeiten_text([('Transkription (groq)', 0.72), ('gesamt', 1.94)])
-    assert text == 'Transkription (groq) 0,7 s · gesamt 1,9 s'
+    text = typefree.zeiten_text([('Transkription (voxtral)', 0.72), ('gesamt', 1.94)])
+    assert text == 'Transkription (voxtral) 0,7 s · gesamt 1,9 s'
 
 
 def test_kosten_je_anbieter_unterscheiden_sich():
     groq = typefree.kosten_fuer(600, 'groq')
-    openai = typefree.kosten_fuer(600, 'openai')
-    assert groq < openai
+    voxtral = typefree.kosten_fuer(600, 'voxtral')
+    assert groq < voxtral
     assert abs(groq - 0.0185) < 1e-9          # 10 Minuten bei 0,111 $/Stunde

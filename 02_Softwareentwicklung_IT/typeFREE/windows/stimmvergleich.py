@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import os
 import sys
@@ -42,6 +43,8 @@ import urllib.request
 from pathlib import Path
 
 from openai import OpenAI
+
+import typefree
 
 PROJEKT = Path(__file__).resolve().parent.parent
 ABTASTRATE = 16000
@@ -91,6 +94,18 @@ def ueber_groq(klient: OpenAI, pfad: Path) -> tuple[float, str]:
     with open(pfad, "rb") as fh:
         ergebnis = klient.audio.transcriptions.create(model="whisper-large-v3", file=fh, language="de")
     return time.monotonic() - t0, ergebnis.text.strip()
+
+
+def ueber_scribe(schluessel: str, pfad: Path) -> tuple[float, str]:
+    """ElevenLabs Scribe v2 — nutzt genau den Code der App, Keyterms inklusive."""
+    with open(pfad, "rb") as fh:
+        puffer = io.BytesIO(fh.read())
+    puffer.name = "audio.wav"
+    t0 = time.monotonic()
+    text = typefree._transkribiere_scribe(
+        schluessel, "scribe_v2", puffer, typefree.WHISPER_VOKABULAR,
+        "https://api.elevenlabs.io/v1")
+    return time.monotonic() - t0, text
 
 
 def ueber_openrouter_chat(schluessel: str, modell: str, pfad: Path) -> tuple[float, str]:
@@ -159,6 +174,9 @@ def main() -> int:
     print("=" * 100)
 
     kandidaten: list[tuple[str, str, object]] = []
+    if schluessel.get("ELEVENLABS_API_KEY"):
+        kandidaten.append(("ElevenLabs", "scribe_v2 mit Keyterms",
+                           lambda: ueber_scribe(schluessel["ELEVENLABS_API_KEY"], probe)))
     if groq_klient is not None:
         kandidaten.append(("Groq direkt", "whisper-large-v3 (US)", lambda: ueber_groq(groq_klient, probe)))
     kandidaten += [

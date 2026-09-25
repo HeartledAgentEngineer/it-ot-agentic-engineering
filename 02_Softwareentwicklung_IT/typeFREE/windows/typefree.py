@@ -8,11 +8,14 @@ Nutzung:
 Beenden: Rechtsklick auf Systemtray-Icon → Beenden
 """
 
-import os
+import base64
 import io
-import sys
 import json
+import os
+import sys
 import time
+import urllib.error
+import urllib.request
 import ctypes
 import logging
 import re
@@ -126,22 +129,57 @@ _stream       = None    # sounddevice.InputStream — nur während der Aufnahme
 SAMPLE_RATE = 16000
 CHANNELS    = 1
 
-# ── Anbieterkette für die Transkription ───────────────────────────────────────
-# Reihenfolge = Reihenfolge der Versuche. Gemessen am 25.09.2026 an 24,5 s
-# deutschem Audio (16 kHz mono — genau das Format, das typeFREE sendet):
-#   Groq        median 0,7 s
-#   OpenRouter  median 1,8 s, mit Ausreißern bis 6,8 s
-#   OpenAI      antwortet nicht mehr (Konto ohne aktives Guthaben)
-# Groq steht deshalb vorn; die anderen bleiben als Ausweichweg erhalten, damit
-# ein ausgefallener Anbieter kein Diktat kostet.
-TRANSCRIPTION_KETTE = (
-    ('groq',       'whisper-large-v3',        'https://api.groq.com/openai/v1'),
-    ('openrouter', 'openai/whisper-large-v3', 'https://openrouter.ai/api/v1'),
-    ('openai',     'whisper-1',               'https://api.openai.com/v1'),
+# ── Anbieterketten für die Transkription ─────────────────────────────────────
+# Reihenfolge = Reihenfolge der Versuche. Ein Eintrag ist:
+#   (Name für Anzeige und Kosten, Modell, Basis-URL, Weg)
+# `Weg` = 'stt'  nutzt den Transkriptions-Endpunkt (/audio/transcriptions)
+#         'chat' schickt das Audio als Base64 in den Chat (/chat/completions)
+#
+# Gemessen am 25.09.2026 an 24,5 s deutschem Audio (16 kHz mono — genau das
+# Format, das typeFREE sendet), je Weg mehrfach:
+#   Groq direkt   whisper-large-v3            16/16 vollständig, 0,7–1,9 s
+#   OpenRouter    whisper-large-v3 (STT-Weg)   5/16 vollständig — liefert in
+#                 rund der Hälfte der Läufe nur die letzten Sekunden des Audios
+#                 (reproduziert mit wav/flac/mp3, mit und ohne ZDR, bei
+#                 DeepInfra, Together und Groq). Für Diktate unbrauchbar.
+#   OpenRouter    voxtral-small (Chat-Weg)      3/3 vollständig, 1,8–2,8 s,
+#                 ausgeführt bei Mistral (Frankreich)
+#
+# Sebastians Vorgabe (25.09.2026): Die Stimme geht nicht an OpenAI und nicht an
+# Groq. Regelfall ist deshalb der EU-Weg über Mistral; Groq nur, wenn in der
+# config.json ausdrücklich "schnell" gewählt wurde.
+KETTEN = {
+    'eu': (
+        ('voxtral', 'mistralai/voxtral-small-24b-2507',
+         'https://openrouter.ai/api/v1', 'chat'),
+    ),
+    'beste': (
+        ('scribe', 'scribe_v2', 'https://api.elevenlabs.io/v1', 'elevenlabs'),
+    ),
+    'schnell': (
+        ('groq', 'whisper-large-v3',
+         'https://api.groq.com/openai/v1', 'stt'),
+    ),
+}
+STANDARD_WEG = 'eu'
+TRANSCRIPTION_KETTE = KETTEN[STANDARD_WEG]
+
+# Der Chat-Weg kennt keinen Whisper-`prompt`; dort steht der Auftrag im Text.
+CHAT_AUFTRAG = (
+    'Transkribiere diese deutsche Sprachaufnahme wörtlich und vollständig. '
+    'Gib ausschließlich den transkribierten Text zurück — ohne Kommentar, '
+    'ohne Anführungszeichen, ohne Zeitstempel. Schreibe Fachwörter und '
+    'Eigennamen so, wie sie heißen. Vokabular: '
 )
+
+# Zero Data Retention: nur Endpunkte, die das Audio nicht speichern.
+OPENROUTER_ZDR = {'provider': {'zdr': True}}
+
 SCHLUESSEL_JE_ANBIETER = {
+    'voxtral':    'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
     'groq':       'GROQ_API_KEY',
     'openrouter': 'OPENROUTER_API_KEY',
+    'scribe':     'ELEVENLABS_API_KEY',   # ElevenLabs Scribe
     'openai':     'OPENAI_API_KEY',
 }
 
@@ -153,8 +191,14 @@ SCHLUESSEL_JE_ANBIETER = {
 #   Groq whisper-large-v3        0,111 $/Stunde
 #   OpenRouter whisper-large-v3  gleicher Modellpreis (dort vom Anbieter Groq)
 #   OpenAI whisper-1             0,006 $/Minute
-PREISE_JE_MINUTE = {'groq': 0.00185, 'openrouter': 0.00185, 'openai': 0.006}
-WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']   # Regelfall: Groq
+PREISE_JE_MINUTE = {
+    'groq':       0.00185,   # whisper-large-v3, 0,111 $/Stunde
+    'openrouter': 0.00185,   # gleicher Modellpreis (dort ausgeführt von Groq)
+    'openai':     0.006,     # whisper-1
+    'voxtral':    0.0059,    # gemessen: 0,0024 $ für 24,5 s (Mistral über OpenRouter)
+    'scribe':     0.0044,    # 0,22 $/Stunde + 20 % Keyterms = 0,264 $/Stunde
+}
+WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']
 VERBRAUCH_PATH = os.path.join(_base, 'verbrauch.json')
 
 
@@ -259,22 +303,54 @@ DEFAULT_HOTKEY_INDEX = 10   # Alt + Ä — Sebastians Alltags-Hotkey. AltGr + Ä
                             # Funktionstasten-Belegung des Rechners.
 
 
-def load_hotkey_config():
-    """Lädt die gespeicherte Hotkey-Wahl, Standard: Strg + Shift + Ä."""
+def _config_lesen():
+    """Die gespeicherte Konfiguration als Wörterbuch — leer, wenn es keine gibt."""
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            idx = json.load(f).get('hotkey_index', DEFAULT_HOTKEY_INDEX)
-            return HOTKEY_OPTIONS[idx]
+            return json.load(f)
     except Exception:
-        return HOTKEY_OPTIONS[DEFAULT_HOTKEY_INDEX]
+        return {}
 
-def save_hotkey_config(index):
-    """Speichert gewählten Hotkey-Index."""
+
+def _config_schreiben(conf):
+    """Schreibt die Konfiguration. Andere Einstellungen bleiben erhalten."""
     try:
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump({'hotkey_index': index}, f)
+            json.dump(conf, f, ensure_ascii=False, indent=2)
     except Exception:
-        log.exception('Hotkey speichern fehlgeschlagen')
+        log.exception('Konfiguration speichern fehlgeschlagen')
+
+
+def load_hotkey_config():
+    """Lädt die gespeicherte Hotkey-Wahl, Standard: Alt + Ä."""
+    return HOTKEY_OPTIONS[_config_lesen().get('hotkey_index', DEFAULT_HOTKEY_INDEX)]
+
+
+def save_hotkey_config(index):
+    """Speichert die Hotkey-Wahl, ohne andere Einstellungen zu überschreiben."""
+    conf = _config_lesen()
+    conf['hotkey_index'] = index
+    _config_schreiben(conf)
+
+
+def transkription_wahl():
+    """Gewählter Transkriptionsweg: 'eu' (Standard) oder 'schnell'."""
+    wahl = _config_lesen().get('transkription', STANDARD_WEG)
+    return wahl if wahl in KETTEN else STANDARD_WEG
+
+
+def setze_transkription(wahl):
+    """Setzt den Transkriptionsweg in der config.json. Gibt die neue Wahl zurück.
+
+    'eu'      Stimme geht an Mistral (Frankreich) über OpenRouter — Datenschutz.
+    'schnell' Stimme geht an Groq (USA) — schnellster und günstigster Weg.
+    """
+    if wahl not in KETTEN:
+        raise ValueError(f'unbekannter Transkriptionsweg: {wahl}')
+    conf = _config_lesen()
+    conf['transkription'] = wahl
+    _config_schreiben(conf)
+    return wahl
 
 
 # ── Systemtray-Icon ───────────────────────────────────────────────────────────
@@ -782,38 +858,152 @@ def baue_client(basis_url, schluessel):
     return OpenAI(base_url=basis_url, api_key=schluessel)
 
 
-def verfuegbare_anbieter(umgebung, kette=TRANSCRIPTION_KETTE,
+def verfuegbare_anbieter(umgebung, kette=None,
                          schluessel=SCHLUESSEL_JE_ANBIETER):
     """Anbieter der Kette, deren Schlüssel gesetzt ist — in Kettenreihenfolge."""
-    return tuple(name for name, _, _ in kette if umgebung.get(schluessel[name]))
+    kette = TRANSCRIPTION_KETTE if kette is None else kette
+    return tuple(name for name, _, _, _ in kette if umgebung.get(schluessel[name]))
+
+
+def aktive_kette(umgebung=None, wahl=None):
+    """Die tatsächlich benutzte Kette.
+
+    Gewählt wird über die config.json ('eu' oder 'schnell'). Fehlt für den
+    gewählten Weg der Schlüssel, wird der andere Weg genommen und im Log
+    vermerkt — ein fehlender Schlüssel soll das Diktieren nicht verhindern.
+    """
+    umgebung = os.environ if umgebung is None else umgebung
+    wahl = wahl or transkription_wahl()
+    if verfuegbare_anbieter(umgebung, KETTEN[wahl]):
+        return KETTEN[wahl]
+    andere = 'schnell' if wahl == 'eu' else 'eu'
+    if verfuegbare_anbieter(umgebung, KETTEN[andere]):
+        log.warning('Kein Schlüssel für Weg "%s" — nutze "%s"', wahl, andere)
+        return KETTEN[andere]
+    return KETTEN[wahl]
 
 
 def transkriptions_clients():
     """Die gebauten Clients als Zuordnung für `transcribe_audio`."""
-    return {'groq': groq_client, 'openrouter': openrouter_client,
+    return {'voxtral': openrouter_client,     # Mistral, ausgeführt über OpenRouter
+            'groq': groq_client,
+            'openrouter': openrouter_client,  # Whisper über OpenRouter (STT-Weg)
             'openai': openai_whisper_client}
 
 
-def transcribe_audio(puffer, clients, kette=TRANSCRIPTION_KETTE,
-                     vokabular=WHISPER_VOKABULAR):
+def _transkribiere_chat(client, modell, puffer, vokabular):
+    """Audio über den Chat-Weg — für Modelle ohne Transkriptions-Endpunkt.
+
+    Das Audio geht als Base64 in die Nachricht (`input_audio`); der
+    Vokabel-Hinweis steht hier im Auftragstext statt im `prompt`-Parameter.
+    """
+    puffer.seek(0)
+    daten = base64.b64encode(puffer.read()).decode('ascii')
+    antwort = client.chat.completions.create(
+        model=modell,
+        messages=[{'role': 'user', 'content': [
+            {'type': 'text', 'text': CHAT_AUFTRAG + vokabular},
+            {'type': 'input_audio',
+             'input_audio': {'data': daten, 'format': 'wav'}},
+        ]}],
+        temperature=0,
+        extra_body=OPENROUTER_ZDR,
+    )
+    return (antwort.choices[0].message.content or '').strip()
+
+
+def _keyterms(vokabular):
+    """Den Vokabel-Hinweis in eine Begriffsliste für Scribe verwandeln."""
+    return [begriff.strip() for begriff in vokabular.split(',') if begriff.strip()][:100]
+
+
+def _multipart(felder, dateiname, datei):
+    """Multipart-Body für einen Upload — ohne zusätzliche Abhängigkeit."""
+    crlf = chr(13) + chr(10)
+    grenze = '----typefree' + os.urandom(8).hex()
+    teile = []
+    for name, wert in felder:
+        teile.append(f'--{grenze}{crlf}'
+                     f'Content-Disposition: form-data; name="{name}"{crlf}{crlf}'
+                     f'{wert}{crlf}'.encode('utf-8'))
+    teile.append((f'--{grenze}{crlf}Content-Disposition: form-data; name="file"; '
+                  f'filename="{dateiname}"{crlf}'
+                  f'Content-Type: audio/wav{crlf}{crlf}').encode('utf-8'))
+    teile.append(datei + crlf.encode('utf-8'))
+    teile.append(f'--{grenze}--{crlf}'.encode('utf-8'))
+    return b''.join(teile), f'multipart/form-data; boundary={grenze}'
+
+
+def _post_json(url, kopfzeilen, koerper, inhaltstyp):
+    """POST mit urllib, Antwort als Wörterbuch."""
+    anfrage = urllib.request.Request(
+        url, data=koerper,
+        headers={**kopfzeilen, 'Content-Type': inhaltstyp})
+    with urllib.request.urlopen(anfrage, timeout=180) as antwort:
+        return json.loads(antwort.read().decode('utf-8', 'replace'))
+
+
+def _transkribiere_scribe(schluessel, modell, puffer, vokabular, basis_url):
+    """ElevenLabs Scribe — eigener Endpunkt, nicht OpenAI-kompatibel.
+
+    `keyterms` entspricht dem Vokabel-Hinweis bei Whisper (dort `prompt`): das
+    Modell bevorzugt danach diese Schreibungen. Antwortet der Dienst auf die
+    Keyterms mit 422, läuft derselbe Auftrag ohne sie weiter, statt das Diktat
+    zu verlieren.
+    """
+    puffer.seek(0)
+    audio = puffer.read()
+    basis = [('model_id', modell), ('language_code', 'deu'),
+             ('tag_audio_events', 'false')]
+    for mit_keyterms in (True, False):
+        felder = basis + ([('keyterms', begriff) for begriff in _keyterms(vokabular)]
+                          if mit_keyterms else [])
+        koerper, inhaltstyp = _multipart(felder, 'audio.wav', audio)
+        try:
+            ergebnis = _post_json(f'{basis_url}/speech-to-text',
+                                  {'xi-api-key': schluessel}, koerper, inhaltstyp)
+            return (ergebnis.get('text') or '').strip()
+        except urllib.error.HTTPError as fehler:
+            if mit_keyterms and fehler.code == 422:
+                log.warning('Scribe lehnt Keyterms ab (422) — Versuch ohne')
+                continue
+            raise
+    raise RuntimeError('Scribe: kein Versuch erfolgreich')
+
+
+def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
     """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
 
+    Ohne `kette` läuft die in der config.json gewählte (Standard: EU-Weg).
     Wirft erst, wenn KEIN Anbieter liefern konnte — ein Diktat soll nicht an
     einem einzelnen Anbieter scheitern. `puffer` wird vor jedem Versuch
     zurückgesetzt: nach einem fehlgeschlagenen Upload steht der Dateizeiger am
     Ende, der zweite Versuch schickte sonst eine leere Datei.
     """
+    kette = aktive_kette() if kette is None else kette
     fehler = []
-    for name, modell, _ in kette:
+    for name, modell, basis_url, weg in kette:
         client = clients.get(name)
-        if client is None:
+        schluessel = None
+        if weg == 'elevenlabs':
+            # Kein Client-Objekt: Scribe wird direkt per HTTP angesprochen.
+            schluessel = os.environ.get(SCHLUESSEL_JE_ANBIETER[name])
+            if not schluessel:
+                continue
+        elif client is None:
             continue
         begonnen = time.monotonic()
         try:
-            puffer.seek(0)
-            antwort = client.audio.transcriptions.create(
-                model=modell, file=puffer, language='de', prompt=vokabular)
-            text = (antwort.text or '').strip()
+            if weg == 'chat':
+                text = _transkribiere_chat(client, modell, puffer, vokabular)
+            elif weg == 'elevenlabs':
+                text = _transkribiere_scribe(schluessel, modell, puffer,
+                                             vokabular, basis_url)
+            else:
+                puffer.seek(0)
+                antwort = client.audio.transcriptions.create(
+                    model=modell, file=puffer, language='de', prompt=vokabular)
+                text = (antwort.text or '').strip()
             if not text:
                 raise ValueError('leere Antwort')
             log.info('Transkription über %s in %.1f s',
@@ -1029,7 +1219,9 @@ def main():
 
     log.info('typeFREE gestartet — Hotkey: %s · Transkription über: %s',
              active_hotkey['label'],
-             ', '.join(verfuegbare_anbieter(os.environ)) or 'kein Anbieter!')
+             ', '.join(verfuegbare_anbieter(os.environ,
+                                            aktive_kette(os.environ)))
+             or 'kein Anbieter!')
     keyboard.hook(on_key_event)
 
     # Das Tray-Icon läuft im Hauptthread und blockiert bis „Beenden".
@@ -1041,18 +1233,20 @@ def main():
 def _report_missing_keys(icon):
     """Wird aufgerufen, sobald das Tray-Icon sichtbar ist."""
     icon.visible = True
-    anbieter = verfuegbare_anbieter(os.environ)
+    wahl = transkription_wahl()
+    anbieter = verfuegbare_anbieter(os.environ, KETTEN[wahl])
     if not anbieter:
-        report_error('Kein API-Schlüssel gefunden (GROQ_API_KEY, '
-                     'OPENROUTER_API_KEY oder OPENAI_API_KEY). '
-                     'Bitte .env neben der EXE prüfen.')
+        # Der gewählte Weg hat keinen Schlüssel. Gibt es den anderen Weg,
+        # läuft es dort weiter (aktive_kette hat das schon protokolliert).
+        andere = 'schnell' if wahl == 'eu' else 'eu'
+        if verfuegbare_anbieter(os.environ, KETTEN[andere]):
+            return
+        report_error('Kein API-Schlüssel gefunden — für den EU-Weg wird '
+                     'OPENROUTER_API_KEY gebraucht, für den schnellen Weg '
+                     'GROQ_API_KEY. Bitte die .env neben der EXE prüfen.')
         return
-    if 'groq' not in anbieter:
-        # Kein Fehler — aber die Transkription läuft dann über den Umweg
-        # OpenRouter und braucht deutlich länger (gemessen: 1,8 s statt 0,7 s).
-        log.warning('Kein GROQ_API_KEY in der .env — die Transkription läuft '
-                    'über den langsameren Ausweichweg (%s).',
-                    ', '.join(anbieter))
+    log.info('Transkriptionsweg "%s": %s. Umschalten in der config.json '
+             '("transkription": "eu" | "schnell").', wahl, ', '.join(anbieter))
 
 
 if __name__ == '__main__':

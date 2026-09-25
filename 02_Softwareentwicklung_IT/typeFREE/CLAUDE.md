@@ -142,6 +142,24 @@ Audio** (`input_audio`) ist davon nicht betroffen.
 und stellt die Transkripte nebeneinander (`-s 30` für 30 s Mikrofon, `-d datei.wav`
 für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach gelöscht.
 
+### Die drei Transkriptionswege (config.json → „transkription")
+
+| Wahl | Weg | Anbieter | Tempo | Kosten/h | Schlüssel |
+|------|-----|----------|-------|----------|-----------|
+| `eu` (Standard) | Voxtral Small über OpenRouter, Audio-Chat | Mistral, Frankreich | 1,8–2,8 s | 0,36 $ | `OPENROUTER_API_KEY` |
+| `beste` | ElevenLabs Scribe v2 + Keyterms | ElevenLabs (US) | noch nicht gemessen | 0,264 $ | `ELEVENLABS_API_KEY` |
+| `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
+
+Fehlt der Schlüssel für den gewählten Weg, nimmt typeFREE automatisch den anderen und
+schreibt es ins Log. Umstellen: `"transkription": "beste"` in der `config.json` neben
+der EXE (oder in `windows/config.json` beim Quellcode-Start).
+
+**Warum Scribe als „beste":** Laut Anbieter 3,1 % Wortfehlerquote für Deutsch gegen
+4,5 % bei Whisper large v3; `keyterms` ist dieselbe Idee wie der Whisper-Vokabelhinweis,
+nur gezielter (bis zu 100 Begriffe). Preis 0,22 $/Stunde, Keyterms kosten 20 % Aufschlag.
+Laut ElevenLabs-Agreements darf kein Drittanbieter mit Kundendaten trainieren; echtes
+Zero-Retention ist allerdings Enterprise-Kunden vorbehalten.
+
 ## Offene Arbeit
 
 ### Transkriptionsweg festlegen (wartet auf eine echte Stimmprobe)

@@ -73,7 +73,7 @@ REM Neue Anbieter brauchen neue Schluessel. Vorhandene Zeilen bleiben unberuehrt
 REM es wird nur ergaenzt, was fehlt.
 echo [3/4] API-Schluessel pruefen ...
 if not exist "%ZIEL%\.env" type nul > "%ZIEL%\.env"
-for %%K in (GROQ_API_KEY OPENROUTER_API_KEY OPENAI_API_KEY) do (
+for %%K in (OPENROUTER_API_KEY ELEVENLABS_API_KEY GROQ_API_KEY OPENAI_API_KEY) do (
     findstr /B /C:"%%K=" "%ZIEL%\.env" >nul 2>&1
     if errorlevel 1 (
         findstr /B /C:"%%K=" "%~dp0..\.env" >nul 2>&1
