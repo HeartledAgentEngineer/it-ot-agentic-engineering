@@ -71,9 +71,12 @@ echo   OK
 REM --- 5. Fehlende Schluessel aus der Projekt-.env uebernehmen ----------------
 REM Neue Anbieter brauchen neue Schluessel. Vorhandene Zeilen bleiben unberuehrt,
 REM es wird nur ergaenzt, was fehlt.
+REM Stand 25.09.2026: Regelweg ist die reine OpenRouter-Kette. Groq und OpenAI
+REM werden NICHT mehr ergaenzt - beide sind auf Sebastians Wunsch stillgelegt,
+REM und ein Nachfragen der Projekt-.env wuerde sie wieder einsetzen.
 echo [3/4] API-Schluessel pruefen ...
 if not exist "%ZIEL%\.env" type nul > "%ZIEL%\.env"
-for %%K in (OPENROUTER_API_KEY ELEVENLABS_API_KEY GROQ_API_KEY OPENAI_API_KEY) do (
+for %%K in (OPENROUTER_API_KEY) do (
     findstr /B /C:"%%K=" "%ZIEL%\.env" >nul 2>&1
     if errorlevel 1 (
         findstr /B /C:"%%K=" "%~dp0..\.env" >nul 2>&1
@@ -89,7 +92,25 @@ echo   Pruefung fertig
 
 REM --- 6. Neue Fassung starten -------------------------------------------------
 echo [4/4] typeFREE neu starten ...
-start "" "%ZIEL%\typeFREE.exe"
+REM Der Einzelinstanz-Mutex wird erst mit dem Prozessende frei. Ein einzelner
+REM start-Versuch kam deshalb nicht durch und die Anlage blieb still liegen -
+REM seit 25.09.2026 mit kurzen Pausen mehrfach versuchen und Ergebnis pruefen.
+set "GESTARTET="
+for /L %%V in (1,1,5) do (
+    if not defined GESTARTET (
+        start "" "%ZIEL%\typeFREE.exe"
+        timeout /t 4 /nobreak >nul
+        tasklist /FI "IMAGENAME eq typeFREE.exe" 2>nul | findstr /I "typeFREE.exe" >nul 2>&1
+        if not errorlevel 1 set "GESTARTET=1"
+    )
+)
+if defined GESTARTET (
+    echo   OK - laeuft
+) else (
+    echo   ACHTUNG: Start nicht bestaetigt.
+    echo   Bitte typeFREE.exe per Doppelklick starten oder:
+    echo     schtasks /run /tn typeFREE
+)
 
 echo.
 echo ============================================
@@ -100,6 +121,6 @@ echo Kontrolle (Log neben der EXE):
 echo   findstr /C:"typeFREE gestartet" "%ZIEL%\typefree.log"
 echo   findstr /C:"Zeiten:"             "%ZIEL%\typefree.log"
 echo.
-echo Erwartete Zeile beim Start: "Transkription ueber: groq, openrouter, openai"
+echo Erwartete Zeile beim Start: "Transkription ueber: mai, voxtral, voxtral-chat"
 echo.
 pause
