@@ -373,6 +373,110 @@ def test_chat_weg_scheitert_sauber_und_meldet_den_fehler():
     assert 'voxtral' in str(fehler.value)
 
 
+class Drosselung(Exception):
+    """Sieht aus wie die 429-Antwort der OpenAI-Bibliothek (trägt `status_code`)."""
+    status_code = 429
+
+
+class GedrosselterChat(ChatAttrappe):
+    """Mistrals geteilter Pool: die ersten Aufrufe laufen in eine Drosselung (429)."""
+
+    def __init__(self, text='Text nach der Drosselung', drosselungen=1):
+        super().__init__(text=text)
+        self._drosselungen = drosselungen
+
+        def create(**kwargs):
+            self.aufrufe.append(kwargs)
+            if len(self.aufrufe) <= self._drosselungen:
+                raise Drosselung('429 Provider returned error')
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(
+                message=types.SimpleNamespace(content=f'  {self._text}  '))])
+
+        self.chat = types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=create))
+
+
+def test_gedrosselter_chat_wird_wiederholt(monkeypatch):
+    """429 vom geteilten Mistral-Pool darf das Diktat nicht kosten."""
+    monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)   # im Test nicht 1 s warten
+    attrappe = GedrosselterChat()
+    text, anbieter = typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                                               kette=typefree.KETTEN['eu'])
+    assert (text, anbieter) == ('Text nach der Drosselung', 'voxtral')
+    assert len(attrappe.aufrufe) == 2
+
+
+def test_dauerhafte_drosselung_gibt_irgendwann_auf(monkeypatch):
+    monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)
+    attrappe = GedrosselterChat(drosselungen=99)
+    with pytest.raises(RuntimeError) as fehler:
+        typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                                  kette=typefree.KETTEN['eu'])
+    assert len(attrappe.aufrufe) == typefree.CHAT_WIEDERHOLUNGEN
+    assert 'voxtral' in str(fehler.value)
+
+
+def test_gewoehnlicher_fehler_wird_nicht_wiederholt(monkeypatch):
+    """Ohne Status (Aufruf-/Programmierfehler) wäre Wiederholen nur Zeitverlust."""
+    monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)
+    attrappe = ChatAttrappe(fehler=ValueError('irgendwas am Aufruf'))
+    with pytest.raises(RuntimeError):
+        typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                                  kette=typefree.KETTEN['eu'])
+    assert len(attrappe.aufrufe) == 1
+
+
+def test_zurueckgegebener_auftragstext_gilt_als_fehler():
+    """Voxtral gab im Betrieb den Prompt selbst zurück — der darf nicht ins Dokument."""
+    attrappe = ChatAttrappe(text=typefree.CHAT_AUFTRAG + 'typeFREE, Hotkey, Tray')
+    with pytest.raises(RuntimeError) as fehler:
+        typefree.transcribe_audio(puffer(), {'voxtral': attrappe},
+                                  kette=typefree.KETTEN['eu'])
+    assert 'Auftragstext' in str(fehler.value)
+
+
+def test_echter_diktattext_wird_nicht_fuer_den_auftrag_gehalten():
+    assert not typefree._ist_auftragstext('Transkribiere bitte das Protokoll.')
+    assert not typefree._ist_auftragstext('Und dann hätte ich gerne einen Dropdown.')
+    assert typefree._ist_auftragstext(
+        'Transkribiere diese deutsche Sprachaufnahme wörtlich und vollständig.')
+
+
+# ── Rückfall auf den anderen Weg ──────────────────────────────────────────────
+
+def test_ausgefallener_weg_faellt_auf_den_anderen_zurueck(monkeypatch):
+    """Mistrals 429 darf ein Diktat nicht kosten — der andere Weg springt ein."""
+    monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'x')
+    monkeypatch.setenv('GROQ_API_KEY', 'y')
+    monkeypatch.delenv('ELEVENLABS_API_KEY', raising=False)
+    klienten = {'voxtral': ChatAttrappe(fehler=Drosselung('429')),
+                'groq': TranskriptionsAttrappe(text='  Text aus dem Rückfall  ')}
+    text, anbieter = typefree.transcribe_audio(puffer(), klienten)
+    assert (text, anbieter) == ('Text aus dem Rückfall', 'groq')
+
+
+def test_rueckfall_laesst_sich_abschalten(monkeypatch):
+    """Auf Wunsch strikt: nur der gewählte Weg, sonst Fehler."""
+    monkeypatch.setattr(typefree, 'RUECKFALL', False)
+    monkeypatch.setattr(typefree, 'CHAT_WARTEZEIT', 0.01)
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'x')
+    monkeypatch.setenv('GROQ_API_KEY', 'y')
+    klienten = {'voxtral': ChatAttrappe(fehler=Drosselung('429')),
+                'groq': TranskriptionsAttrappe(text='darf nicht benutzt werden')}
+    with pytest.raises(RuntimeError):
+        typefree.transcribe_audio(puffer(), klienten)
+
+
+def test_mit_eigener_kette_gibt_es_keinen_rueckfall(monkeypatch):
+    """Werkzeuge (Stimmvergleich) wollen genau ihre Kette messen — nichts anderes."""
+    monkeypatch.setenv('GROQ_API_KEY', 'y')
+    klienten = {'voxtral': ChatAttrappe(fehler=Drosselung('429')),
+                'groq': TranskriptionsAttrappe(text='nicht benutzen')}
+    with pytest.raises(RuntimeError):
+        typefree.transcribe_audio(puffer(), klienten, kette=typefree.KETTEN['eu'])
+
+
 # ── Glättung über die Modellkette ─────────────────────────────────────────────
 
 def test_abgekuendigtes_modell_legt_den_filter_nicht_still(monkeypatch):

@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 126 automatisierte Prüfungen · **drei wählbare Transkriptionswege** (`eu` = Mistral/Voxtral über OpenRouter als Standard, `beste` = ElevenLabs Scribe v2 mit Keyterms, `schnell` = Groq whisper-large-v3) · Glättung über eine Modellkette mit Ausfallmeldung · Prompt-Verschärfung gegen Füllwörter · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 135 automatisierte Prüfungen · **drei wählbare Transkriptionswege** (`eu` = Mistral/Voxtral über OpenRouter als Standard, `beste` = ElevenLabs Scribe v2 mit Keyterms, `schnell` = Groq whisper-large-v3) · Wiederholung bei Drosselung + Rückfall auf den nächsten verfügbaren Weg · Glättung über eine Modellkette mit Ausfallmeldung · Prompt-Verschärfung gegen Füllwörter · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
 
 ---
 
@@ -24,6 +24,10 @@ Behoben durch **wählbare Anbieterketten** für die Transkription und eine **Mod
 | *(entfernt)* | OpenRouter `whisper-large-v3`, Transkriptions-Endpunkt | 0,8–3,7 s | **5 von 16** ❌ | 0,09–0,11 $ |
 
 Fehlt der Schlüssel für den gewählten Weg, nimmt typeFREE automatisch den anderen und schreibt es ins Log — ein fehlender Schlüssel soll das Diktieren nicht verhindern. Umgestellt wird im Tray-Menü unter **„Transkription wählen"** (wirkt sofort, ohne Neustart) oder in der `config.json` neben der EXE: `"transkription": "eu" | "beste" | "schnell"`.
+
+**Zwei Sicherungen, damit ein Diktat nicht verloren geht:** Bei Drosselung (429) wird der Aufruf bis zu dreimal wiederholt (1 s / 2 s Pause, nur bei 429 und 5xx). Fällt der gewählte Weg trotzdem aus, läuft der nächste verfügbare Weg als **Rückfall** — welcher Anbieter es war, steht im Log und in der Kostenzeile („(groq)"). Auf strikt umstellen: `RUECKFALL = False` in `windows/typefree.py`.
+
+**Grenze des EU-Wegs (gemessen 25.09.2026):** Mistral läuft bei OpenRouter im *geteilten* Anbieter-Pool. Kurze Diktate (3 s, 24,5 s) gehen sauber durch (0,7–2,9 s), bei 60 s Audio kommt durchgehend `429 rate-limited upstream`. Für belastbaren EU-Betrieb lohnt ein eigener Mistral-Schlüssel bei OpenRouter („Integrations") — dann gelten eigene Limits. Zweiter Befund aus dem Betrieb: Voxtral gab einmal den Auftragstext selbst zurück; solche Antworten verwirft der Code inzwischen (`_ist_auftragstext`).
 
 Vorher lag der Median im echten Betrieb bei 4 s (p90 10 s, Maximum 27 s) — inklusive des jedes Mal fehlschlagenden OpenAI-Versuchs.
 

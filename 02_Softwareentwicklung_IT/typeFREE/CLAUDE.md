@@ -162,6 +162,36 @@ nur gezielter (bis zu 100 Begriffe). Preis 0,22 $/Stunde, Keyterms kosten 20 % A
 Laut ElevenLabs-Agreements darf kein Drittanbieter mit Kundendaten trainieren; echtes
 Zero-Retention ist allerdings Enterprise-Kunden vorbehalten.
 
+### Grenzen des EU-Wegs — Messung 25.09.2026
+
+Der EU-Weg läuft im **geteilten Anbieter-Pool** von OpenRouter. Mistral drosselt ihn
+je nach Audiolänge:
+
+| Audio | Ergebnis über den EU-Weg |
+|-------|--------------------------|
+| 3 s (94 KB) | 0,69–2,86 s, vollständig (ein 429 wurde per Wiederholung abgefangen) |
+| 24,5 s (764 KB) | 1,41–1,45 s, vollständig |
+| 60 s (2,3 MB) | **429 bei jedem Versuch** (3 Wiederholungen reichen nicht) |
+
+Deshalb zwei Sicherungen im Code:
+
+1. **Wiederholung** (`CHAT_WIEDERHOLUNGEN = 3`, 1 s / 2 s Wartezeit) — fängt kurze
+   Drosselungen ab. Nur bei 429 und 5xx; ein Aufruffehler wird nicht wiederholt.
+2. **Rückfall** (`RUECKFALL = True`) — fällt der gewählte Weg komplett aus, läuft der
+   nächste verfügbare Weg, damit kein Diktat verloren geht. Der Anbieter steht danach
+   im Log und in der Kostenzeile („(groq)"). Auf `False` setzen, wenn strikt nur der
+   gewählte Weg laufen darf. Bei eigener `kette` (Stimmvergleich, Tests) gibt es
+   **keinen** Rückfall.
+
+**Belastbarer EU-Betrieb** braucht einen eigenen Mistral-Schlüssel bei OpenRouter
+(BYOK, „Integrations" in den OpenRouter-Einstellungen) — dann gelten eigene Limits
+statt des geteilten Pools. Die Fehlermeldung nennt genau diesen Ausweg.
+
+**Zweiter Befund:** Voxtral gab im Betrieb einmal den **Auftragstext selbst** zurück
+(„Transkribiere diese deutsche Sprachaufnahme …") statt zu transkribieren; der Text
+landete danach im Dokument. Seitdem verwerfen `_ist_auftragstext()` und die Kette
+solche Antworten.
+
 ## Offene Arbeit
 
 ### Transkriptionsweg festlegen (wartet auf eine echte Stimmprobe)

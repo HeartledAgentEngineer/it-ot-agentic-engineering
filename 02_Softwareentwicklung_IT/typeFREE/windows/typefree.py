@@ -175,6 +175,17 @@ CHAT_AUFTRAG = (
 # Zero Data Retention: nur Endpunkte, die das Audio nicht speichern.
 OPENROUTER_ZDR = {'provider': {'zdr': True}}
 
+# Mistral über OpenRouter teilt sich einen Anbieter-Pool und antwortet zeitweise
+# mit 429. Drei Versuche mit 1 s / 2 s Wartezeit — ein Diktat soll daran nicht
+# scheitern, ohne dass es stillschweigend woanders landet.
+CHAT_WIEDERHOLUNGEN = 3
+CHAT_WARTEZEIT = 1.0
+
+# Fällt der gewählte Weg komplett aus, läuft der andere als Rückfall (ein Diktat
+# soll nicht verloren gehen). Der Anbieter steht danach im Log und in der
+# Kostenzeile. Auf False setzen, wenn strikt nur der gewählte Weg laufen darf.
+RUECKFALL = True
+
 WEG_REIHENFOLGE = ('eu', 'beste', 'schnell')
 
 WEG_BESCHRIFTUNG = {
@@ -936,20 +947,43 @@ def _transkribiere_chat(client, modell, puffer, vokabular):
 
     Das Audio geht als Base64 in die Nachricht (`input_audio`); der
     Vokabel-Hinweis steht hier im Auftragstext statt im `prompt`-Parameter.
+
+    Mistral über OpenRouter läuft im **geteilten Anbieter-Pool** und antwortet
+    zeitweise mit 429 („temporarily rate-limited upstream"). Ein Diktat soll
+    daran nicht scheitern: 429 und 5xx werden mit kurzer Wartezeit wiederholt.
     """
-    puffer.seek(0)
-    daten = base64.b64encode(puffer.read()).decode('ascii')
-    antwort = client.chat.completions.create(
-        model=modell,
-        messages=[{'role': 'user', 'content': [
-            {'type': 'text', 'text': CHAT_AUFTRAG + vokabular},
-            {'type': 'input_audio',
-             'input_audio': {'data': daten, 'format': 'wav'}},
-        ]}],
-        temperature=0,
-        extra_body=OPENROUTER_ZDR,
-    )
-    return (antwort.choices[0].message.content or '').strip()
+    daten = None
+    for versuch in range(CHAT_WIEDERHOLUNGEN):
+        if daten is None:
+            puffer.seek(0)
+            daten = base64.b64encode(puffer.read()).decode('ascii')
+        try:
+            antwort = client.chat.completions.create(
+                model=modell,
+                messages=[{'role': 'user', 'content': [
+                    {'type': 'text', 'text': CHAT_AUFTRAG + vokabular},
+                    {'type': 'input_audio',
+                     'input_audio': {'data': daten, 'format': 'wav'}},
+                ]}],
+                temperature=0,
+                extra_body=OPENROUTER_ZDR,
+            )
+            return (antwort.choices[0].message.content or '').strip()
+        except Exception as e:
+            if (versuch == CHAT_WIEDERHOLUNGEN - 1
+                    or not _transiente_stoerung(e)):
+                raise
+            warte = CHAT_WARTEZEIT * (2 ** versuch)
+            log.warning('Chat-Transkription gestört (%s) — neuer Versuch in %.1f s',
+                        getattr(e, 'status_code', type(e).__name__), warte)
+            time.sleep(warte)
+    raise RuntimeError('Chat-Transkription: kein Versuch erfolgreich')
+
+
+def _transiente_stoerung(fehler):
+    """Lohnt ein zweiter Versuch? Ja bei Drosselung (429) und Serverfehlern (5xx)."""
+    code = getattr(fehler, 'status_code', None)
+    return code == 429 or (isinstance(code, int) and 500 <= code < 600)
 
 
 def _keyterms(vokabular):
@@ -957,20 +991,20 @@ def _keyterms(vokabular):
     return [begriff.strip() for begriff in vokabular.split(',') if begriff.strip()][:100]
 
 
-def _multipart(felder, dateiname, datei):
-    """Multipart-Body für einen Upload — ohne zusätzliche Abhängigkeit."""
-    crlf = chr(13) + chr(10)
-    grenze = '----typefree' + os.urandom(8).hex()
-    teile = []
-    for name, wert in felder:
-        teile.append(f'--{grenze}{crlf}'
-                     f'Content-Disposition: form-data; name="{name}"{crlf}{crlf}'
-                     f'{wert}{crlf}'.encode('utf-8'))
-    teile.append((f'--{grenze}{crlf}Content-Disposition: form-data; name="file"; '
-                  f'filename="{dateiname}"{crlf}'
-                  f'Content-Type: audio/wav{crlf}{crlf}').encode('utf-8'))
-    teile.append(datei + crlf.encode('utf-8'))
-    teile.append(f'--{grenze}--{crlf}'.encode('utf-8'))
+def _multipart(felder, dateiname, datei):
+    """Multipart-Body für einen Upload — ohne zusätzliche Abhängigkeit."""
+    crlf = chr(13) + chr(10)
+    grenze = '----typefree' + os.urandom(8).hex()
+    teile = []
+    for name, wert in felder:
+        teile.append(f'--{grenze}{crlf}'
+                     f'Content-Disposition: form-data; name="{name}"{crlf}{crlf}'
+                     f'{wert}{crlf}'.encode('utf-8'))
+    teile.append((f'--{grenze}{crlf}Content-Disposition: form-data; name="file"; '
+                  f'filename="{dateiname}"{crlf}'
+                  f'Content-Type: audio/wav{crlf}{crlf}').encode('utf-8'))
+    teile.append(datei + crlf.encode('utf-8'))
+    teile.append(f'--{grenze}--{crlf}'.encode('utf-8'))
     return b''.join(teile), f'multipart/form-data; boundary={grenze}'
 
 
@@ -1011,16 +1045,24 @@ def _transkribiere_scribe(schluessel, modell, puffer, vokabular, basis_url):
     raise RuntimeError('Scribe: kein Versuch erfolgreich')
 
 
-def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
-    """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
+def _ist_auftragstext(text):
+    """Hat das Modell den Auftrag zurückgegeben statt zu transkribieren?
 
-    Ohne `kette` läuft die in der config.json gewählte (Standard: EU-Weg).
-    Wirft erst, wenn KEIN Anbieter liefern konnte — ein Diktat soll nicht an
-    einem einzelnen Anbieter scheitern. `puffer` wird vor jedem Versuch
-    zurückgesetzt: nach einem fehlgeschlagenen Upload steht der Dateizeiger am
-    Ende, der zweite Versuch schickte sonst eine leere Datei.
+    Voxtral über OpenRouter liefert gelegentlich den Prompt selbst („Transkribiere
+    diese deutsche Sprachaufnahme …") — im Betrieb am 25.09.2026 passiert, der Text
+    landete danach im Dokument. Der Vokabelhinweis hängt im selben Auftrag, deshalb
+    genügt die Prüfung auf die ersten Worte.
     """
-    kette = aktive_kette() if kette is None else kette
+    return 'transkribiere diese' in text.strip()[:120].lower()
+
+
+def _kette_durchlaufen(puffer, clients, kette, vokabular):
+    """Eine Anbieterkette der Reihe nach versuchen; gibt `(text, anbieter)` zurück.
+
+    Wirft erst, wenn KEIN Glied der Kette liefern konnte. `puffer` wird vor jedem
+    Versuch zurückgesetzt: nach einem fehlgeschlagenen Upload steht der Dateizeiger
+    am Ende, der zweite Versuch schickte sonst eine leere Datei.
+    """
     fehler = []
     for name, modell, basis_url, weg in kette:
         client = clients.get(name)
@@ -1044,6 +1086,8 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
                 antwort = client.audio.transcriptions.create(
                     model=modell, file=puffer, language='de', prompt=vokabular)
                 text = (antwort.text or '').strip()
+            if _ist_auftragstext(text):
+                raise ValueError('Antwort war der Auftragstext selbst')
             if not text:
                 raise ValueError('leere Antwort')
             log.info('Transkription über %s in %.1f s',
@@ -1053,6 +1097,38 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
             log.warning('Transkription über %s fehlgeschlagen: %s', name, e)
             fehler.append(f'{name}: {e}')
     raise RuntimeError('Kein Anbieter konnte transkribieren — ' + ' | '.join(fehler))
+
+
+def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
+    """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
+
+    Ohne `kette` läuft die in der config.json gewählte (Standard: EU-Weg). Fällt
+    der gewählte Weg komplett aus — im Betrieb liefert Mistrals geteilter Pool bei
+    längeren Diktaten 429 — läuft der andere Weg als **Rückfall**, damit ein Diktat
+    nicht verloren geht. Welcher Anbieter es war, steht danach im Log und in der
+    Kostenzeile („(groq)"). Abschaltbar über `RUECKFALL`.
+    """
+    ausdruecklich = kette is not None      # eigene Kette übergeben (Test/Werkzeug)
+    kette = aktive_kette() if kette is None else kette
+    wahl = transkription_wahl()
+    try:
+        return _kette_durchlaufen(puffer, clients, kette, vokabular)
+    except RuntimeError as erster_fehler:
+        if ausdruecklich or not RUECKFALL:
+            raise
+        for andere_wahl in WEG_REIHENFOLGE:
+            if KETTEN[andere_wahl] == kette:
+                continue
+            if not verfuegbare_anbieter(os.environ, KETTEN[andere_wahl]):
+                continue
+            log.warning('Weg "%s" ausgefallen — Rückfall auf "%s"',
+                        wahl, andere_wahl)
+            try:
+                return _kette_durchlaufen(puffer, clients,
+                                          KETTEN[andere_wahl], vokabular)
+            except RuntimeError as zweiter_fehler:
+                raise RuntimeError(f'{erster_fehler} || {zweiter_fehler}') from None
+        raise
 
 
 def stop_and_transcribe():
@@ -1285,8 +1361,10 @@ def _report_missing_keys(icon):
                      'OPENROUTER_API_KEY gebraucht, für den schnellen Weg '
                      'GROQ_API_KEY. Bitte die .env neben der EXE prüfen.')
         return
-    log.info('Transkriptionsweg "%s": %s. Umschalten in der config.json '
-             '("transkription": "eu" | "schnell").', wahl, ', '.join(anbieter))
+    log.info('Transkriptionsweg "%s": %s. Umschalten im Tray unter '
+             '"Transkription wählen" oder in der config.json '
+             '("transkription": %s).', wahl, ', '.join(anbieter),
+             ' | '.join(f'"{w}"' for w in WEG_REIHENFOLGE))
 
 
 if __name__ == '__main__':
