@@ -108,6 +108,20 @@ LifeBrain Agent"* — ein wandelndes, sich fortentwickelndes Abbild des eigenen 
   wir bauen **dieselbe** Erfahrung, nur mit unserem Agenten und unseren Daten
   (Korrektur von Sebastian, 25.09.2026 — es ist kein Unterschied, sondern Nachbau).
 
+**Stand 25.09.2026 — gebaut (dieser Teil von D3 läuft):**
+
+- Zustand sichtbar: `#mic-status` über der Eingabe zeigt **„Mikrofon offen" → „hört zu" →
+  „denkt nach" → „spricht"** (`frontend/app.js: setMicStatus`, `frontend/index.html`).
+  Vorher stand der Zustand nur im Tooltip — am Handy unsichtbar.
+- Weg: **`POST /api/sprache/transkript`** (multipart/form-data) → bestehende Kette
+  `transcribe()` → `polish_text()`. Der ältere Pfad `/api/transcribe` bleibt bedient;
+  es ist dieselbe Funktion, keine zweite Logik. Kein neuer Anbieter.
+- Der erkannte Text landet im Eingabefeld und geht von dort raus; die Antwort liest der
+  Vorlese-Knopf an der Antwort vor (primär `/api/speak`, Rückfall **Browser-Stimme**).
+- Audio lebt **nur im Speicher** und geht ausschließlich an OpenRouter.
+- **Noch nicht gebaut aus D3:** Wake-Word „OK Agent", das Öffnen per Assistenten-Geste und
+  das automatische Vorlesen beim Start — das sind D1/D4.
+
 **D4 — Overlay und Stimmen („eigenes Gemini" als Erlebnis)**
 
 - **Overlay:** ein schwebendes Fenster über anderen Apps (Android-Recht „Über anderen Apps

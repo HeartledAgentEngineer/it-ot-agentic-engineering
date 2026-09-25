@@ -1,17 +1,25 @@
 """
-Router: POST /api/transcribe – Spracheingabe via OpenRouter Whisper + Glättung
+Router: Spracheingabe – POST /api/sprache/transkript (kanonisch) und
+POST /api/transcribe (älterer Pfad, bleibt gültig)
 
 Verhalten (exakt wie TypeFREE):
   1. Nimmt WAV/WebM-Audio entgegen
-  2. Sendet an OpenRouter Whisper (openai/whisper-large-v3)
-  3. Glättet Text (Füllwörter entfernen) via Gemini Flash
+  2. Sendet an OpenRouter (Modellkette: mai-transcribe-1.5 → whisper-large-v3)
+  3. Glättet Text (Füllwörter entfernen) über POLISH_MODELS
   4. Gibt bereinigten Text zurück
+
+Zwei Pfade, EINE Umsetzung: Der kanonische Weg ist der aus der Roadmap
+zugesagte `/api/sprache/transkript` (D3). `/api/transcribe` war der erste
+Name und wird weiter bedient, damit ältere Aufrufer nicht brechen. Beide
+landen in `transcribe_audio()` — es gibt keine zweite Kopie der Logik.
 
 Sicherheit:
   - Maximale Dateigröße: 25 MB (DoS-Schutz)
   - Timeout: 30 Sekunden pro API-Call
   - Fehlerbehandlung: try-except mit HTTP 502
   - Kein API-Key im Request
+  - Audio lebt NUR im Speicher (kein tempfile, kein Schreiben auf Platte)
+    und wird nach der Transkription verworfen
 """
 
 import logging
@@ -30,7 +38,7 @@ MAX_FILE_SIZE = 25 * 1024 * 1024
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """
-    Nimmt eine Audio-Datei entgegen, transkribiert sie via OpenRouter Whisper
+    Nimmt eine Audio-Datei entgegen, transkribiert sie über die OpenRouter-Kette
     und glättet den Text (Füllwörter entfernen).
 
     Rückgabe: {"text": "bereinigter Text"} oder {"text": null, "error": "..."}
@@ -92,3 +100,18 @@ async def transcribe_audio(file: UploadFile = File(...)):
     logger.info("Geglättet (%d Zeichen): %s", len(final_text), final_text[:100])
 
     return {"text": final_text}
+
+
+@router.post("/sprache/transkript")
+async def sprache_transkript(file: UploadFile = File(...)):
+    """Kanonischer Sprachweg: POST /api/sprache/transkript (Roadmap D3).
+
+    Gleiche Strecke wie `/api/transcribe` — dieselbe Funktion, kein zweiter
+    Codepfad. Der Name ist der, den die Roadmap dem Frontend zusagt
+    („Audio → Backend (`POST /api/sprache/transkript`) → Kette → Glättung").
+
+    Datenschutz: Das Audio wird hier nur im Speicher gehalten und nach der
+    Transkription verworfen; es geht ausschließlich an OpenRouter — denselben
+    Empfänger, den auch der Text-Chat nutzt. Kein weiterer Anbieter.
+    """
+    return await transcribe_audio(file)

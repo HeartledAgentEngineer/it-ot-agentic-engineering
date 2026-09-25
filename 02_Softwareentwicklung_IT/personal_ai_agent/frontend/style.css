@@ -277,11 +277,49 @@ body {
     line-height: 1.35;
     overflow-wrap: break-word;
     word-break: break-word;
+    /* Sanft schrumpfen beim Einklappen (Wunsch 2026-09-25): keine harte
+       Höhenänderung, sondern ein kurzer Übergang. */
+    max-height: 1200px;
+    opacity: 1;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
 }
 
 .gedanken-zeit {
     font-size: 0.62rem;
     color: var(--text-muted);
+}
+
+/* ── Eingeklappte Gedanken-Blase (Wunsch 2026-09-25) ─────────────────────── */
+/* Nach dem Tippen bleibt nur eine schmale Zeile stehen: Zeit · 🧠 Kurzfassung.
+   Antippen klappt die Blase wieder auf (app.js: klappeGedankeAus). */
+.gedanken-kurz {
+    display: none;
+    max-width: 100%;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.gedanken-eingeklappt {
+    cursor: pointer;
+}
+
+.gedanken-eingeklappt .gedanken-kopf,
+.gedanken-eingeklappt .gedanken-zeit {
+    display: none;
+}
+
+.gedanken-eingeklappt .gedanken-inhalt {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.gedanken-eingeklappt .gedanken-kurz {
+    display: block;
 }
 
 .message-content p {
@@ -550,6 +588,35 @@ body {
 
 #mic-btn.polishing {
     color: #0077cc;
+}
+
+/* Browser-Stimme liest gerade (Roadmap D3) */
+#mic-btn.spricht {
+    color: #aa66ff;
+}
+
+/* Sichtbare Zustandszeile der Spracheingabe über dem Eingabefeld:
+   „Mikrofon offen" / „hört zu" / „denkt nach" / „spricht". */
+.mic-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 4px 6px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.mic-status[hidden] {
+    display: none;
+}
+
+.mic-status::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: micPulse 1s infinite ease-in-out;
 }
 
 @keyframes micPulse {

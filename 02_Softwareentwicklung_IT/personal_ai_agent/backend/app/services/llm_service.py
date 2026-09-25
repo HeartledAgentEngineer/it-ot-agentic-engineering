@@ -97,12 +97,15 @@ POLISH_MAX_TOKENS = 4000
 PLAUSIBILITAETS_MINDESTLAENGE = 80
 PLAUSIBILITAETS_ANTEIL = 0.3   # 0.3 statt 0.6: legitime Kürzungen möglich
 
-# ── Erkennung: Rückfallweg mit Sprachvorgabe und Vokabular ───────────────────
-# `mai-transcribe-1.5` erkennt am besten (1,1 % Wortfehler auf dem Referenzaudio,
-# gemessen 25.09.2026) und liefert das Audio vollständig zurück — es kennt aber
-# weder `language` noch `prompt`. Fällt es aus (Drosselung, 5xx), springt
-# `whisper-large-v3` ein (3,4 %): der kann beides.
+# ── Erkennung: Kette mit Rückfallwegen ───────────────────────────────────────
+# Gemessen am 25.09.2026 an 140 s natürlichem Deutsch (325 Wörter, TTS,
+# `typeFREE/windows/sprachmessung.py`-Werkzeug): `mai-transcribe-2` erkennt mit
+# **0,3 % Wortfehlern in 3,8 s** (0,10 $/h) — `mai-transcribe-1.5` genauso gut,
+# aber 11,8 s und 0,36 $/h; `whisper-large-v3` 1,2 % in 4,5 s. Die beiden
+# mai-Modelle kennen weder `language` noch `prompt`; Whisper kann beides und
+# steht deshalb als letzter Weg mit Vokabular bereit.
 TRANSCRIBE_MODELS = (
+    ("microsoft/mai-transcribe-2", False),
     ("microsoft/mai-transcribe-1.5", False),
     ("openai/whisper-large-v3", True),
 )
@@ -1332,11 +1335,12 @@ class LLMService:
     def transcribe(self, audio_bytes: bytes) -> Optional[str]:
         """Erkennt Sprache über die Modellkette und gibt den Text zurück.
 
-        Erster Weg ist `mai-transcribe-1.5` — beste Erkennung und vollständiges
-        Audio, kennt aber weder `language` noch `prompt`. Liefert der nicht
-        (Drosselung, 5xx), übernimmt `whisper-large-v3` mit `language="de"` und
-        Vokabular. Ein Diktat soll nicht daran scheitern, dass ein Anbieter
-        gerade nicht kann — vorher gab es genau einen Versuch.
+        Erster Weg ist `mai-transcribe-2` — beste Erkennung (0,3 % an 140 s
+        Deutsch) und schnellster Endpunkt-Weg, kennt aber weder `language` noch
+        `prompt`. Danach `mai-transcribe-1.5` (gleiche Qualität, langsamer), dann
+        `whisper-large-v3` mit `language="de"` und Vokabular. Ein Diktat soll
+        nicht daran scheitern, dass ein Anbieter gerade nicht kann — vorher gab
+        es genau einen Versuch.
 
         Args:
             audio_bytes: Rohdaten der Audio-Datei (WAV oder WebM)

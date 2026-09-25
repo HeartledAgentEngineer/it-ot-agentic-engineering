@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260925B">
+    <link rel="stylesheet" href="style.css?v=20260925D">
 </head>
 <body>
     <div id="app">
@@ -110,6 +110,11 @@
                     </svg>
                 </button>
             </div>
+            <!-- Sichtbarer Zustand der Spracheingabe (Roadmap D3):
+                 „Mikrofon offen" / „hört zu" / „denkt nach" / „spricht".
+                 Ohne diese Zeile stand der Zustand nur im Tooltip des
+                 Mikrofon-Knopfs — auf dem Handy unsichtbar. Leer = versteckt. -->
+            <div id="mic-status" class="mic-status" role="status" aria-live="polite" hidden></div>
             <!-- Werkzeugleiste direkt an der Eingabe: Bei geöffneter Tastatur
                  ist die Kopfzeile auf dem Handy nicht mehr erreichbar. -->
             <div class="input-tools">
@@ -231,6 +236,6 @@
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20260925C"></script>
+    <script src="app.js?v=20260925E"></script>
 </body>
 </html>

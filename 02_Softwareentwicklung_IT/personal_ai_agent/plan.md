@@ -110,6 +110,16 @@ Parallel: Offline-Indikator reparieren (Port-Abgleich + Health-Check)
 - **`frontend/style.css`** — Aufnahme-Status (`.recording` rot/pulsierend, `.transcribing` orange, `.polishing` blau).
 - **`frontend/index.html`** — `disabled` vom Mikrofon-Button entfernt, aria-labels.
 
+> **Nachtrag 25.09.2026 (dieser Plan ist Historie, zwei Angaben sind überholt):**
+> Der Weg heißt jetzt **`POST /api/sprache/transkript`** (kanonisch, wie in
+> `docs/roadmap-personal-agent.md` D3 zugesagt); `/api/transcribe` bleibt bedient —
+> dieselbe Funktion, kein zweiter Codepfad. Und aufgenommen wird **nicht** mit
+> MediaRecorder: Der liefert nur WebM/Opus, was der Anbieter mit HTTP 400 ablehnt;
+> die Aufnahme läuft über einen AudioWorklet und baut die WAV-Datei selbst
+> (Befund 7 unten war in der Praxis nicht tragfähig). Neu ist außerdem die
+> sichtbare Zustandszeile (`#mic-status`: „Mikrofon offen / hört zu / denkt nach /
+> spricht") — Details in `docs/changelog-2026-09-25-sprachaufnahme-frontend.md`.
+
 **Teststrategie:**
 
 | Schritt | Test |

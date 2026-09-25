@@ -98,6 +98,9 @@ const state = {
     messages: [],
     isRecording: false,
     isTranscribing: false,
+    // Sichtbarer Zustand der Spracheingabe ('' / recording / hoert_zu /
+    // transcribing / polishing / spricht). Siehe setMicStatus().
+    micStatus: '',
     // Websuche kostet je Anfrage extra – Wunsch bleibt zwischen Sitzungen erhalten.
     webSearch: ladeWebModus(),
     // Gewähltes Modell. null = das aus der Server-Konfiguration.
@@ -144,6 +147,7 @@ const dom = {
     input: document.getElementById('message-input'),
     sendBtn: document.getElementById('send-btn'),
     micBtn: document.getElementById('mic-btn'),
+    micStatus: document.getElementById('mic-status'),
     newChatBtn: document.getElementById('new-chat-btn'),
     chatsBtn: document.getElementById('chats-btn'),
     chatSheet: document.getElementById('chat-sheet'),
@@ -710,11 +714,49 @@ function addZielChip(contentDiv, ziel) {
     aktualisiereStatusAnzeige();
 }
 
+/** Zeigt eine bis dahin verborgene Blase samt Zeitstempel und Datumspille.
+ *
+ *  Live angelegte Blasen (Streaming) starten OHNE sichtbaren Inhalt: Sie
+ *  bleiben selbst verborgen, ihr Zeitstempel bleibt verborgen und die
+ *  Datumspille wird aufgeschoben — bis das erste echte Textzeichen da ist
+ *  (Wunsch Sebastian 2026-09-25: „keine leeren Blasen, Zeitstempel und Symbol
+ *  erst mit dem ersten Textzeichen rendern"). Diese Funktion holt alles nach;
+ *  sie ist der EINZIGE Weg, eine solche Blase sichtbar zu machen.
+ */
+function zeigeBlaseMitText(div, contentDiv, text) {
+    if (!div) return;
+    // Aufgeschobene Datumspille jetzt einhängen — aber nur, wenn der
+    // Kalendertag seit dem Anlegen wirklich gewechselt hat.
+    const bannerIso = div.dataset.bannerIso;
+    if (bannerIso) {
+        delete div.dataset.bannerIso;
+        const tagKey = datumSchluessel(bannerIso);
+        if (tagKey !== _letzteBannerDatum) {
+            dom.messages.insertBefore(baueDatumBanner(bannerIso), div);
+            _letzteBannerDatum = tagKey;
+        }
+    }
+    div.hidden = false;
+    div.style.display = '';
+    const zeit = div.querySelector('[data-lazy-zeit="1"]');
+    if (zeit) {
+        zeit.hidden = false;
+        delete zeit.dataset.lazyZeit;
+    }
+    if (contentDiv && typeof text === 'string') contentDiv.textContent = text;
+}
+
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role, zeit, bildPfad, opts) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
+    // Live-Blase ohne Inhalt (Streaming startet mit ''): Sie bleibt unsichtbar,
+    // ihr Zeitstempel ebenfalls, und die Datumspille wird aufgeschoben. Erst
+    // das erste echte Textzeichen macht sie sichtbar (zeigeBlaseMitText) —
+    // sonst standen Zeitstempel und Symbol VOR dem Text im Verlauf.
+    const _ohneInhalt = (content === '' || content === undefined || content === null);
+    const _liveLeer = _ohneInhalt && zeit === undefined && role === 'assistant';
     // Roh-Text der Blase fürs Kontextmenü (Kopieren/Bearbeiten): bei
     // User-Nachrichten exakt wie getippt, bei Assistant der Markdown-Rohtext.
     // Gestreamte Blasen haben hier zunächst '' — dort greift der Fallback
@@ -770,8 +812,14 @@ function addMessage(content, role, zeit, bildPfad, opts) {
     if (bannerIso) {
         const tagKey = datumSchluessel(bannerIso);
         if (tagKey !== _letzteBannerDatum) {
-            dom.messages.appendChild(baueDatumBanner(bannerIso));
-            _letzteBannerDatum = tagKey;
+            if (_liveLeer) {
+                // Aufschieben: Eine Datumspille allein über einer noch leeren
+                // Blase wäre selbst ein sichtbarer leerer Eintrag.
+                div.dataset.bannerIso = bannerIso;
+            } else {
+                dom.messages.appendChild(baueDatumBanner(bannerIso));
+                _letzteBannerDatum = tagKey;
+            }
         }
     }
     // Zeitstempel unter dem Text, dezent, NUR die Uhrzeit mit Sekunden – das
@@ -786,6 +834,11 @@ function addMessage(content, role, zeit, bildPfad, opts) {
         const zeitDiv = document.createElement('div');
         zeitDiv.style.cssText = 'font-size:0.7rem;color:#9a9a9a;text-align:right;margin-top:4px;padding:0 4px';
         zeitDiv.textContent = label;
+        if (_liveLeer) {
+            // Zeitstempel erst mit dem ersten Textzeichen zeigen.
+            zeitDiv.hidden = true;
+            zeitDiv.dataset.lazyZeit = '1';
+        }
         inner.appendChild(zeitDiv);
     }
     // WhatsApp-artiger '↩ Antworten'-Knopf: erlaubt, auf genau diese
@@ -815,6 +868,7 @@ function addMessage(content, role, zeit, bildPfad, opts) {
     if (role === 'assistant' && content) {
         addSpeakControls(div, () => content, () => true);
     }
+    if (_liveLeer) div.hidden = true;   // sichtbar erst mit echtem Text
     dom.messages.appendChild(div);
     // Stiller Modus (opts.silent): kein Auto-Scroll, kein state.messages-Push
     // — für den schnellen Chat-Wechsel, bei dem der Verlauf in einem Rutsch
@@ -1065,18 +1119,42 @@ function mergeQuellen(...listen) {
     return ergebnis;
 }
 
+// ── Sichtbarer Zustand der Spracheingabe (Roadmap D3) ───────────────────────
+// „Mikrofon offen / hört zu / denkt nach / spricht" — man muss sehen, wann man
+// sprechen kann. Vorher stand der Zustand NUR im Tooltip des Mikrofon-Knopfs;
+// auf dem Handy gibt es keinen Tooltip, er war also unsichtbar.
+const MIC_STATUS = {
+    '':             { klasse: '',             text: '' },
+    'recording':    { klasse: 'recording',    text: 'Mikrofon offen' },
+    'hoert_zu':     { klasse: 'recording',    text: 'hört zu' },
+    'transcribing': { klasse: 'transcribing', text: 'denkt nach' },
+    'polishing':    { klasse: 'polishing',    text: 'denkt nach' },
+    'spricht':      { klasse: 'spricht',      text: 'spricht' },
+};
+
 function setMicStatus(status) {
-    dom.micBtn.classList.remove('recording', 'transcribing', 'polishing');
-    if (status) {
-        dom.micBtn.classList.add(status);
+    const eintrag = MIC_STATUS[status] || MIC_STATUS[''];
+    state.micStatus = MIC_STATUS[status] ? status : '';
+    dom.micBtn.classList.remove('recording', 'transcribing', 'polishing', 'spricht');
+    if (eintrag.klasse) {
+        dom.micBtn.classList.add(eintrag.klasse);
     }
     const titles = {
         '': 'Spracheingabe',
-        'recording': 'Aufnahme läuft ... (Klicken zum Stoppen)',
-        'transcribing': 'Transkribiere ...',
-        'polishing': 'Glätte Text ...',
+        'recording': 'Mikrofon offen – klicken zum Stoppen',
+        'hoert_zu': 'hört zu – klicken zum Stoppen',
+        'transcribing': 'denkt nach …',
+        'polishing': 'denkt nach …',
+        'spricht': 'spricht (Browser-Stimme)',
     };
-    dom.micBtn.title = titles[status] || 'Spracheingabe';
+    dom.micBtn.title = titles[state.micStatus] || 'Spracheingabe';
+    // Dieselbe Beschriftung für Screenreader – der Knopf trägt nur ein Symbol.
+    dom.micBtn.setAttribute('aria-label', dom.micBtn.title);
+    // Sichtbare Zustandszeile über der Eingabe. Leerer Zustand = unsichtbar.
+    if (dom.micStatus) {
+        dom.micStatus.textContent = eintrag.text;
+        dom.micStatus.hidden = !eintrag.text;
+    }
 }
 
 // =========================================
@@ -2167,6 +2245,87 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     return steuerung;
 }
 
+// ── Gedanken-Blasen: nach dem Tippen einklappen (Wunsch 2026-09-25) ─────────
+// Eine Gedanken-Blase tippt ihren Text und klappt danach von selbst ein: Es
+// bleibt eine schmale Zeile stehen (Zeit · 🧠 Kurzfassung). Antippen klappt
+// sie wieder auf — dann bleibt sie offen. Ziel: Man liest einmal mit, danach
+// nimmt der Verlauf kaum noch Platz ein.
+const GEDANKE_EINKLAPPEN_MS = 2500;   // kurze Lesezeit nach dem letzten Zeichen
+const GEDANKE_KURZ_MAX = 90;          // Zeichen der Kurzfassung
+
+/** Kurzfassung einer Gedanken-Blase: erste inhaltliche Zeile, gekürzt. */
+function gedankeKurzfassung(text) {
+    const erste = String(text || '').split('\n').map(z => z.trim()).find(Boolean) || '';
+    return erste.length > GEDANKE_KURZ_MAX
+        ? erste.slice(0, GEDANKE_KURZ_MAX - 1).trimEnd() + '…'
+        : erste;
+}
+
+/** Ändert das Layout, ohne dass die Blickposition springt.
+ *
+ *  Beim Einklappen wird der Verlauf kürzer. Wer gerade unten steht, bleibt
+ *  unten; wer weiter oben liest, behält genau seine Zeile. Die Höhe wird VOR
+ *  der Änderung gemessen (danach ist sie weg).
+ *
+ *  Zwei Fallen, beide hier abgefangen:
+ *   - Die Höhe ändert sich über die Schrumpf-Animation GLEITEND. Deshalb wird
+ *     der Bezugswert nach jedem Ausgleich nachgeführt — sonst zieht jeder
+ *     weitere Aufruf dieselbe Differenz noch einmal ab (das ließ den Verlauf
+ *     um die doppelte Höhe springen).
+ *   - Wird der Inhalt kürzer, klemmt der Browser den Scrollwert am unteren
+ *     Rand selbst. Was er schon getan hat, wird nicht noch einmal abgezogen.
+ *  Rückgabe: eine Funktion, die den Ausgleich erneut anwendet (für das Ende
+ *  der Schrumpf-Animation).
+ */
+function mitGehaltenerScrollposition(aendern) {
+    const el = dom.messages.parentElement;
+    const warUnten = isAtBottom();
+    let letzteHoehe = el.scrollHeight;
+    let letzterScroll = el.scrollTop;
+    const ausgleich = () => {
+        if (warUnten) { scrollToBottom(true); return; }
+        const hoehe = el.scrollHeight;
+        const scroll = el.scrollTop;
+        const weggefallen = letzteHoehe - hoehe;
+        const selbstGeklemmt = Math.max(0, letzterScroll - scroll);
+        letzteHoehe = hoehe;
+        if (weggefallen <= 0) { letzterScroll = scroll; return; }
+        const rest = Math.max(0, weggefallen - selbstGeklemmt);
+        const ziel = Math.max(0, scroll - rest);
+        el.scrollTop = ziel;
+        letzterScroll = ziel;
+    };
+    aendern();
+    ausgleich();
+    return ausgleich;
+}
+
+/** Klappt eine Gedanken-Blase ein — schmale Zeile bleibt sichtbar. */
+function klappeGedankeEin(div) {
+    if (!div || div.classList.contains('gedanken-eingeklappt')) return;
+    const inhalt = div.querySelector('.gedanken-inhalt');
+    const kurz = div.querySelector('.gedanken-kurz');
+    if (kurz) {
+        // In der schmalen Zeile nur die Uhrzeit (nicht das volle Datum) —
+        // am Handy zählt jedes Zeichen.
+        const volleZeit = div.dataset.gedankeZeit || '';
+        const treffer = volleZeit.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*$/);
+        const zeit = treffer ? treffer[1] : volleZeit;
+        kurz.textContent = (zeit ? zeit + ' · ' : '') + '🧠 ' + gedankeKurzfassung(inhalt ? inhalt.textContent : '');
+    }
+    const ausgleich = mitGehaltenerScrollposition(() => div.classList.add('gedanken-eingeklappt'));
+    // Die Höhe schrumpft animiert — danach noch einmal nachziehen, sonst
+    // rutscht die Ansicht um die Resthöhe.
+    if (inhalt) inhalt.addEventListener('transitionend', ausgleich, { once: true });
+    setTimeout(ausgleich, 420);
+}
+
+/** Klappt eine Gedanken-Blase wieder auf. */
+function klappeGedankeAus(div) {
+    if (!div) return;
+    mitGehaltenerScrollposition(() => div.classList.remove('gedanken-eingeklappt'));
+}
+
 /** Zeigt eine Hermes-Zwischenmeldung (gedanke).
  *  Hinweis: Frueher trug jede Zwischenmeldung einen eigenen "⏹ Hermes abbrechen"-
  *  Knopf (fuegeGedankeMitAbbruchHinzu). Stand 2026-09-06 (Auftrag Sebastian):
@@ -2218,6 +2377,9 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     const kopf = document.createElement('div');
     kopf.className = 'gedanken-kopf';
     kopf.textContent = '🧠 Gedanke';
+    // Kopf und Zeitstempel erst mit dem ERSTEN Textzeichen zeigen: Vorher war
+    // die Blase leer, trug aber schon 🧠 und Uhrzeit („zwei leere Blasen").
+    kopf.hidden = true;
     div.appendChild(kopf);
     const inhalt = document.createElement('div');
     inhalt.className = 'gedanken-inhalt';
@@ -2228,7 +2390,25 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     try { zeitSpan.textContent = formatZeit(zeitIso); } catch (_e) {
         zeitSpan.textContent = '';
     }
+    zeitSpan.hidden = true;
     div.appendChild(zeitSpan);
+    // Schmale Zeile für den eingeklappten Zustand (Zeit · 🧠 Kurzfassung).
+    const kurzZeile = document.createElement('div');
+    kurzZeile.className = 'gedanken-kurz';
+    div.appendChild(kurzZeile);
+    // Zeit für die Kurzfassung merken (der Zeitstempel selbst ist im
+    // eingeklappten Zustand ausgeblendet).
+    div.dataset.gedankeZeit = zeitSpan.textContent || '';
+    // Antippen: eingeklappt → aufklappen (bleibt dann offen); aufgeklappt →
+    // einklappen. Die Blase ist der Schalter, kein zusätzlicher Knopf.
+    div.addEventListener('click', () => {
+        if (div.classList.contains('gedanken-eingeklappt')) {
+            div.dataset.gedankeManuell = '1';   // offen bleiben, nicht wieder einklappen
+            klappeGedankeAus(div);
+        } else {
+            klappeGedankeEin(div);
+        }
+    });
     dom.messages.appendChild(div);
     scrollToBottom(true);
 
@@ -2254,6 +2434,12 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
             if (i >= rein.length) { fertig(); return; }   // fertig
             const ch = rein[i];
             inhalt.textContent = rein.slice(0, i + 1);
+            if (i === 0) {
+                // Erstes echtes Textzeichen: JETZT Kopf und Zeitstempel zeigen.
+                // Vorher war die Blase leer, trug aber schon 🧠 und Uhrzeit.
+                kopf.hidden = false;
+                zeitSpan.hidden = false;
+            }
             i++;
             let delay = interval;
             if ('.!?;:'.indexOf(ch) !== -1) delay = interval * 6;   // Satzende: kurze Pause
@@ -2266,7 +2452,16 @@ function fuegeGedankeMitAbbruchHinzu(text, zeitIso) {
     _gedankenTippKette = _gedankenTippKette
         .then(tippen)
         .catch(() => {})
-        .then(() => { _gedankenTippWartend = Math.max(0, _gedankenTippWartend - 1); });
+        .then(() => { _gedankenTippWartend = Math.max(0, _gedankenTippWartend - 1); })
+        .then(() => {
+            // Text vollständig getippt → nach kurzer Lesezeit einklappen.
+            // Wer die Blase selbst aufgeklappt hat (data-gedanke-manuell),
+            // behält sie offen.
+            if (div.dataset.gedankeManuell === '1') return;
+            setTimeout(() => {
+                if (div.dataset.gedankeManuell !== '1') klappeGedankeEin(div);
+            }, GEDANKE_EINKLAPPEN_MS);
+        });
 }
 
 // Serielle Tipp-Kette fuer die Gedanken-Blasen (siehe fuegeGedankeMitAbbruchHinzu).
@@ -2391,7 +2586,9 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // verborgen — der Fortschritt steht in der unteren #loading-Bubble.
     const _blaseAussen = contentDiv.closest('.message') || contentDiv.parentElement;
     if (_blaseAussen && (contentDiv.textContent || '').trim().length > 0) {
-        _blaseAussen.style.display = '';
+        // Blase, Zeitstempel und aufgeschobene Datumspille gemeinsam zeigen —
+        // eine Live-Blase startet verborgen (siehe zeigeBlaseMitText).
+        zeigeBlaseMitText(_blaseAussen, null, null);
     }
     // Muss nach dem Setzen von innerHTML kommen, sonst wird es überschrieben.
     if (abschluss) addSources(contentDiv, abschluss.sources);
@@ -5749,7 +5946,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     let _antwortBlaseSichtbar = false;
     const zeigeAntwortBlase = () => {
         if (!_antwortBlaseSichtbar && _antwortBlase) {
-            _antwortBlase.style.display = '';
+            // Blase + Zeitstempel + aufgeschobene Datumspille (siehe
+            // zeigeBlaseMitText) — nichts davon war vor dem ersten Text da.
+            zeigeBlaseMitText(_antwortBlase, null, null);
             _antwortBlaseSichtbar = true;
         }
     };
@@ -6164,6 +6363,14 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
     }
 }
 
+/** Text in das Eingabefeld setzen — wie getippt: Höhe und Senden-Knopf folgen. */
+function setzeEingabe(text) {
+    dom.input.value = text;
+    dom.input.style.height = 'auto';
+    dom.input.style.height = Math.min(dom.input.scrollHeight, 120) + 'px';
+    updateSendButton();
+}
+
 async function sendAudioForTranscription(audioBlob) {
     if (state.isTranscribing) return;
     state.isTranscribing = true;
@@ -6171,7 +6378,7 @@ async function sendAudioForTranscription(audioBlob) {
     try {
         const formData = new FormData();
         formData.append('file', audioBlob, 'audio.wav');
-        const res = await fetch(`${API_BASE}/api/transcribe`, {
+        const res = await fetch(`${API_BASE}/api/sprache/transkript`, {
             method: 'POST',
             body: formData,
         });
@@ -6194,6 +6401,13 @@ async function sendAudioForTranscription(audioBlob) {
             // ohnehin mit dem Request mit.
             const vorhanden = dom.input.value.trim();
             const gesamt = (vorhanden ? vorhanden + ' ' : '') + diktat;
+            // Der erkannte Text landet SICHTBAR im Eingabefeld — an derselben
+            // Stelle wie getippter Text, mit derselben Höhe und demselben
+            // Senden-Knopf. Von dort geht er wie eine getippte Nachricht raus
+            // (das Diktat wird sofort gesendet: eine Zwischennachricht per
+            // Sprache muss auch während laufender Arbeit absendbar sein,
+            // Wunsch 2026-09-15).
+            setzeEingabe(gesamt);
             addMessage(gesamt, 'user');
             dom.input.value = '';
             dom.input.style.height = 'auto';
@@ -6244,6 +6458,11 @@ function speakResponse(text) {
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
+    // Zustand sichtbar machen (Roadmap D3): Während die Browser-Stimme liest,
+    // steht „spricht" in der Statuszeile — danach wieder aus.
+    utterance.onstart = () => setMicStatus('spricht');
+    utterance.onend = () => setMicStatus('');
+    utterance.onerror = () => setMicStatus('');
     const voices = window.speechSynthesis.getVoices();
     const germanVoice = voices.find(v => v.lang.startsWith('de'));
     if (germanVoice) utterance.voice = germanVoice;
@@ -6356,7 +6575,13 @@ async function startRecording() {
         pcmChunks = [];
         sourceNode = audioContext.createMediaStreamSource(audioStream);
         workletNode = new AudioWorkletNode(audioContext, 'pcm-recorder');
-        workletNode.port.onmessage = (event) => pcmChunks.push(event.data);
+        workletNode.port.onmessage = (event) => {
+            pcmChunks.push(event.data);
+            // Erster Block da: Das Mikrofon liefert wirklich Daten. Erst jetzt
+            // ist „hört zu" wahr — vorher („Mikrofon offen") steht nur der
+            // Zugriff, es könnte noch still sein.
+            if (state.micStatus === 'recording') setMicStatus('hoert_zu');
+        };
         sourceNode.connect(workletNode);
         // Ohne Verbindung zur destination zieht die Audio-Engine keine Daten.
         // Der Worklet schreibt nichts in seine Ausgänge – bleibt also stumm.
@@ -6467,7 +6692,7 @@ async function transkribiereFeld(chunks, sampleRate, ziel) {
     try {
         const formData = new FormData();
         formData.append('file', encodeWav(chunks, sampleRate), 'audio.wav');
-        const res = await fetch(`${API_BASE}/api/transcribe`, { method: 'POST', body: formData });
+        const res = await fetch(`${API_BASE}/api/sprache/transkript`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         const txt = (typeof data.text === 'string' ? data.text.trim() : '');
@@ -7144,14 +7369,10 @@ async function streamHermesText(text, conversationId) {
     aktualisiereStatusAnzeige();
     const contentDiv = addMessage('', 'assistant');
     const entry = state.messages[state.messages.length - 1];
-    // Keine LEERE Blase wirken lassen: dezenten Platzhalter zeigen, bis der
-    // erste echte Inhalt/Gedanke eintrifft (Wunsch Sebastian 2026-09-11).
-    try {
-        const ph = document.createElement('div');
-        ph.style.cssText = 'color:#55a;opacity:.7;font-size:0.78rem';
-        ph.textContent = '…';
-        contentDiv.appendChild(ph);
-    } catch (_e) {}
+    // KEINE leere Blase (Wunsch Sebastian 2026-09-25): Die Blase bleibt
+    // verborgen, bis wirklich Text da ist — früher stand hier ein leerer
+    // Kasten mit „…" und Zeitstempel, bevor der erste Buchstabe kam.
+    const _hermesBlase = contentDiv.closest('.message') || contentDiv.parentElement;
     let antwort = '';
     try {
         const res = await fetch(`${API_BASE}/api/hermes/stream`, {
@@ -7181,7 +7402,9 @@ async function streamHermesText(text, conversationId) {
             const block = _einzuBlenden.slice(0, 8); // lesbarer Block je Frame
             _einzuBlenden = _einzuBlenden.slice(8);
             antwort += block;
-            contentDiv.textContent = antwort;
+            // Erster Block → Blase (mit Zeitstempel) sichtbar machen. Vorher
+            // gibt es nichts zu sehen: keine leere Blase, kein leerer Kasten.
+            zeigeBlaseMitText(_hermesBlase, contentDiv, antwort);
             if (isAtBottom()) scrollToBottom(true);
         };
         const _renderTimer = setInterval(() => { _zeigeEingeblendet(); }, Math.max(_fps, 40));

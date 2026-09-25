@@ -107,9 +107,17 @@ def test_glattungsmodelle_enthalten_kein_abgekuendigtes_modell():
 
 
 def test_erkennungswege_haben_einen_rueckfall():
-    assert len(TRANSCRIBE_MODELS) >= 2
-    assert TRANSCRIBE_MODELS[0][0] == "microsoft/mai-transcribe-1.5"
-    assert TRANSCRIBE_MODELS[1][0] == "openai/whisper-large-v3"
+    """Drei Wege: das beste Modell zuerst, dann zwei Ausweichwege.
+
+    Gemessen an 140 s natürlichem Deutsch: mai-transcribe-2 mit 0,3 % in 3,8 s,
+    mai-transcribe-1.5 mit 0,3 % in 11,8 s, whisper-large-v3 mit 1,2 % — und nur
+    Whisper kann Sprache und Vokabular mitgeben.
+    """
+    assert len(TRANSCRIBE_MODELS) >= 3
+    assert TRANSCRIBE_MODELS[0][0] == "microsoft/mai-transcribe-2"
+    assert TRANSCRIBE_MODELS[1][0] == "microsoft/mai-transcribe-1.5"
+    assert TRANSCRIBE_MODELS[-1][0] == "openai/whisper-large-v3"
+    assert TRANSCRIBE_MODELS[-1][1] is True, "nur Whisper kann language/prompt"
 
 
 # ── Erkennung ────────────────────────────────────────────────────────────────
@@ -129,17 +137,20 @@ def test_erkennung_faellt_auf_ausweichmodell_zurueck():
 def test_ausweichweg_bekommt_sprache_und_vokabular():
     erkennung = Erkennung({
         TRANSCRIBE_MODELS[0][0]: Exception("HTTP 500"),
-        TRANSCRIBE_MODELS[1][0]: "Alles gut.",
+        TRANSCRIBE_MODELS[1][0]: Exception("HTTP 500"),
+        TRANSCRIBE_MODELS[2][0]: "Alles gut.",
     })
     dienst_mit(erkennung=erkennung).transcribe(WAV)
 
-    erster, zweiter = erkennung.aufrufe
-    # mai-transcribe kennt weder language noch prompt — nichts erzwingen.
+    erster, zweiter, dritter = erkennung.aufrufe
+    # Die mai-Modelle kennen weder language noch prompt — nichts erzwingen.
     assert "language" not in erster["felder"]
     assert "prompt" not in erster["felder"]
-    # Der Rückfallweg schon: deutsche Sprache und die Fachwörter.
-    assert zweiter["felder"]["language"] == "de"
-    assert zweiter["felder"]["prompt"] == WHISPER_VOKABULAR
+    assert "language" not in zweiter["felder"]
+    assert "prompt" not in zweiter["felder"]
+    # Der letzte Weg schon: deutsche Sprache und die Fachwörter.
+    assert dritter["felder"]["language"] == "de"
+    assert dritter["felder"]["prompt"] == WHISPER_VOKABULAR
 
 
 def test_erkennung_schickt_frischen_puffer_je_versuch():
@@ -163,11 +174,11 @@ def test_erkennung_erkennt_webm():
 
 def test_erkennung_liefert_none_wenn_alle_wege_scheitern():
     erkennung = Erkennung({
-        TRANSCRIBE_MODELS[0][0]: Exception("HTTP 429"),
-        TRANSCRIBE_MODELS[1][0]: Exception("HTTP 503"),
+        modell: Exception(f"HTTP {code}")
+        for modell, code in zip([m[0] for m in TRANSCRIBE_MODELS], (429, 503, 500))
     })
     assert dienst_mit(erkennung=erkennung).transcribe(WAV) is None
-    assert len(erkennung.aufrufe) == 2
+    assert len(erkennung.aufrufe) == len(TRANSCRIBE_MODELS)
 
 
 def test_erkennung_verwirft_leeren_text_und_nimmt_den_rueckfall():
