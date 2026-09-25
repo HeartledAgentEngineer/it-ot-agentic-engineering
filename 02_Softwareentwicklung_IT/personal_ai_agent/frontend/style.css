@@ -985,7 +985,8 @@ button.footer-note:hover {
    Gesprächsliste unterscheiden sich nur im Inhalt. */
 #model-sheet,
 #chat-sheet,
-#memory-sheet {
+#memory-sheet,
+#selbsttest-sheet {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -998,7 +999,8 @@ button.footer-note:hover {
 
 #model-sheet[hidden],
 #chat-sheet[hidden],
-#memory-sheet[hidden] {
+#memory-sheet[hidden],
+#selbsttest-sheet[hidden] {
     display: none;
 }
 
@@ -1124,6 +1126,38 @@ button.footer-note:hover {
 }
 
 .sheet-close:hover { color: var(--text-primary); }
+
+/* Aktualisieren-Knopf im Selbsttest-Blatt (klein, unaufdringlich). */
+.sheet-refresh {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.73rem;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.sheet-refresh:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-glow);
+}
+
+/* Der Selbsttest als Klartext (✓/⚠/✗). Monospace + Umbruch, damit auch ein
+   längerer Log-Auszug lesbar bleibt und das Bildschirmfoto nicht überläuft. */
+.selbsttest-text {
+    margin: 0;
+    padding: 6px 6px 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
 
 #model-search {
     width: 100%;

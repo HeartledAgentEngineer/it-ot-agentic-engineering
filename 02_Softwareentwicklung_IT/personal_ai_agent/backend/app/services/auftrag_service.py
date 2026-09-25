@@ -333,6 +333,63 @@ class AuftragService:
                 return eintrag
         return None
 
+    def verlauf_antwort_anhaengen(
+        self, auftrag_id: str, antwort: str
+    ) -> str:
+        """Haengt die fertige Daemon-Antwort GENAU EINMAL in den Chat-Verlauf.
+
+        Warum (Befund 2026-09-25): Der lokale Hermes (Track C) antwortet ueber
+        die Datei-Inbox (~/hermes_inbox/antworten.jsonl). Diese Antwort wurde
+        live angezeigt, aber nie in den gespeicherten Verlauf geschrieben —
+        nach dem Neuoeffnen der App war die Runde verschwunden.
+
+        Der Aufrufer ist der Poll-Endpunkt GET /api/auftraege/{id}/chat, den
+        das Frontend mehrfach abfragt. Deshalb ist die EINMALIGKEIT Pflicht:
+        Ein Merker im Auftragseintrag (``antwort_verlauf_merker``) wird VOR dem
+        Anhaengen gesetzt, sodass auch zwei gleichzeitige Polls kein Duplikat
+        erzeugen.
+
+        Rueckgabe (deutscher Klartext-Grund, nie eine Ausnahme):
+            "geschrieben"       Antwort neu angehaengt
+            "schon_geschrieben" Merker gesetzt -> kein Duplikat
+            "ohne_gespraech"    Auftrag hat keine conversation_id
+            "leer"              Antwortext leer -> nichts angehaengt
+            "kein_auftrag"      Auftrags-ID unbekannt
+        """
+        if not auftrag_id:
+            return "kein_auftrag"
+        cid = None
+        with self._sperre:
+            auftraege = self._lesen()
+            gefunden = None
+            for eintrag in auftraege:
+                if str(eintrag.get("id", "")).startswith(auftrag_id):
+                    gefunden = eintrag
+                    break
+            if gefunden is None:
+                return "kein_auftrag"
+            cid = gefunden.get("conversation_id")
+            if not cid:
+                # Kein Gespraech verknuepft (z. B. Auftrag direkt aus dem Buch):
+                # dann gibt es keinen Verlauf, den die Antwort erreichen kann.
+                return "ohne_gespraech"
+            if gefunden.get("antwort_verlauf_merker"):
+                return "schon_geschrieben"
+            if not (antwort or "").strip():
+                return "leer"
+            # Merker VOR dem Anhaengen setzen -> genau einmal, auch bei
+            # parallelen Poll-Aufrufen.
+            gefunden["antwort_verlauf_merker"] = {
+                "geschrieben": True, "zeit": _jetzt(),
+            }
+            self._schreiben(auftraege)
+        # Anhaengen AUSSERHALB der Buch-Sperre: _in_verlauf_anhaengen nimmt
+        # selbst die Verlauf-Sperre (keine verschachtelten Sperren).
+        self._in_verlauf_anhaengen(cid, "assistant", antwort)
+        logger.info("Daemon-Antwort fuer %s in Verlauf %s geschrieben",
+                    auftrag_id[:8], cid)
+        return "geschrieben"
+
     # ------------------------------------------------------------------
     # Interna
     # ------------------------------------------------------------------

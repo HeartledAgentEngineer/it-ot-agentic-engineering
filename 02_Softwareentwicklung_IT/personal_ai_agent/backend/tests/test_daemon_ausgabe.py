@@ -9,6 +9,8 @@ blieb das Ergebnis leer und wurde als „—" geschrieben.
 import os
 import sys
 
+import json
+
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND)
 
@@ -126,3 +128,50 @@ def test_haeppchen_groesse_ist_klein():
     assert daemon.FLUSH_MAX_ZEILEN <= 4
     assert daemon.FLUSH_S <= 1.0
     assert daemon.ROH_BLOCK_ZEILEN <= 6, "Rohausgabe-Blöcke müssen klein bleiben"
+
+
+def test_stream_json_erkennt_antwort_und_abschluss():
+    """Strukturierte Ausgabe (--format stream-json) wird richtig eingeordnet."""
+    assert daemon._stream_json_zeile('{"type":"text","text":"HALLO"}') \
+        == ("antwort", "HALLO")
+    assert daemon._stream_json_zeile(
+        '{"type":"result","text":"HALLO","tokens":{"input":1}}') == ("fertig", "HALLO")
+    # Unbekannte Ereignisse (Werkzeug, Start) werden zur Zwischenmeldung.
+    assert daemon._stream_json_zeile('{"type":"system","subtype":"init"}') \
+        == ("gedanke", "")
+    # Keine JSON-Zeile → die alte Erkennung übernimmt (None).
+    assert daemon._stream_json_zeile("session_id: 20260925_222516") is None
+    assert daemon._stream_json_zeile("{kaputt") is None
+    assert daemon._stream_json_zeile("") is None
+
+
+def test_stream_json_trennt_denktext_von_der_antwort():
+    """Der Anlass (25.09.2026): Reasoning darf NICHT in der Antwort landen.
+
+    Live sah Sebastian im Antwortfeld die Rohausgabe samt englischem Denken
+    ("The user just sent ... I should respond briefly ...").
+    Gemessen (25.09.2026): ``type=text`` sind ANTWORT-Bruchstuecke, ``type=result``
+    ist die vollstaendige Antwort. Ein Denk-Ereignis eines anderen Typs wird zur
+    Zwischenmeldung.
+    """
+    denk = json.dumps({"type": "thinking",
+                       "text": "The user just sent a test. I should respond briefly."})
+    antwort = json.dumps({"type": "result",
+                          "text": "Test angekommen — Hermes läuft."})
+    ausgabe = daemon._CliAusgabe()
+
+    art_denk, _text_denk = daemon._art_und_text(denk, ausgabe)
+    assert art_denk == "gedanke", "Denken muss Zwischenmeldung bleiben"
+
+    art_ende, text_ende = daemon._art_und_text(antwort, ausgabe)
+    assert art_ende == "ende"
+    assert text_ende == "Test angekommen — Hermes läuft."
+    assert "I should respond briefly" not in text_ende
+
+
+def test_art_und_text_faellt_auf_die_alte_erkennung_zurueck():
+    """Ohne JSON bleibt die Kasten-/Rohausgabe-Erkennung wirksam."""
+    ausgabe = daemon._CliAusgabe()
+    art, text = daemon._art_und_text("╭─⚕ Hermes ────────────╮", ausgabe)
+    assert art in ("antwort", "gedanke", "rahmen", "keine")
+    assert isinstance(text, str)

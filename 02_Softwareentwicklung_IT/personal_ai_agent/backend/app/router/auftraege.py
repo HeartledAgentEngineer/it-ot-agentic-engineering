@@ -28,6 +28,7 @@ from app.models import (
 from app.services.auftrag_service import auftrag_service
 from app.services.hermes_local import hat_mehrwert as hermes_hat_mehrwert
 from app.services.hermes_local import hermes_registry
+from app.services.hermes_local import lese_daemon_antwort
 from app.services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,55 @@ def auftrag_ansehen(auftrag_id: str):
     return auftrag
 
 
+def _daemon_antwort_in_verlauf(auftrag: dict) -> str:
+    """Holt die fertige Daemon-Antwort (``~/hermes_inbox/antworten.jsonl``) und
+    haengt sie EINMALIG an den verknuepften Chat-Verlauf an.
+
+    Warum (Befund 2026-09-25): Der lokale Hermes (Track C) antwortet ueber die
+    Datei-Inbox. Diese Antwort war live sichtbar, wurde aber nie in den
+    GESPEICHERTEN Verlauf geschrieben — nach dem Neuoeffnen der App war die
+    Runde (Gedanken + Antwort) verschwunden. Der Verlauf zeigte nur den
+    Platzhalter „Weitergeleitet an: Hermes (Handy)".
+
+    Der Aufruf geschieht im POLL-Endpunkt GET /api/auftraege/{id}/chat, den das
+    Frontend alle paar Sekunden abfragt. Deshalb ist die Einmaligkeit Pflicht
+    (Merker ``antwort_verlauf_merker`` im Auftragseintrag, siehe
+    auftrag_service.verlauf_antwort_anhaengen).
+
+    Liefert IMMER einen deutschen Klartext-Grund (nie eine leere Nachricht,
+    nie eine Ausnahme); er wandert als ``verlauf_persistenz`` in die Antwort.
+    """
+    auftrag_id = auftrag.get("id") or ""
+    try:
+        antwort = lese_daemon_antwort(auftrag_id)
+    except Exception as fehler:  # pragma: no cover - Sicherheitsnetz
+        logger.warning("Daemon-Antwort nicht lesbar (%s): %s", auftrag_id[:8], fehler)
+        return f"Antwortdatei nicht lesbar: {fehler}"
+
+    if antwort is None:
+        # (Noch) keine Daemon-Antwort -> NICHTS erfinden: der Platzhalter im
+        # Verlauf bleibt unveraendert stehen.
+        if auftrag.get("status") == "fehler":
+            return ("Auftrag abgebrochen/fehlgeschlagen – keine Daemon-Antwort "
+                    "vorhanden; der Verlauf bleibt unveraendert.")
+        return ("Noch keine Daemon-Antwort vorhanden (Daemon laeuft noch oder "
+                "keine Antwortdatei) – Verlauf unveraendert.")
+
+    if not antwort.strip():
+        # Leerer Eintrag: klare deutsche Meldung statt einer leeren Nachricht.
+        antwort = ("⚠️ Hermes hat den Auftrag bearbeitet, aber ohne Text "
+                   "geantwortet (leere Antwort in der Inbox).")
+
+    grund = auftrag_service.verlauf_antwort_anhaengen(auftrag_id, antwort)
+    return {
+        "geschrieben": "Antwort in den Verlauf uebernommen.",
+        "schon_geschrieben": "Antwort war bereits im Verlauf – kein Duplikat.",
+        "ohne_gespraech": "Kein Gespraech verknuepft – Antwort nur im Auftragsbuch.",
+        "leer": "Antwort war leer – Verlauf unveraendert.",
+        "kein_auftrag": "Auftrag nicht gefunden – Verlauf unveraendert.",
+    }.get(grund, grund)
+
+
 @router.get("/{auftrag_id}/chat")
 def auftrag_chat_ausgabe(auftrag_id: str):
     """Liefert den Auftrag als strukturierte Chat-Daten."""
@@ -139,6 +189,10 @@ def auftrag_chat_ausgabe(auftrag_id: str):
         "meldungen_count": len(meldungen),
         "offene_rueckfragen": auftrag.get("rueckfragen", []),
         "ergebnis_details": ergebnis_details or None,
+        # Persistenz der Daemon-Antwort: Der Endpunkt wird vom Frontend mehrfach
+        # gepollt; hier wird die echte Antwort aus ~/hermes_inbox/antworten.jsonl
+        # GENAU EINMAL in den gespeicherten Verlauf uebernommen (Reload-fest).
+        "verlauf_persistenz": _daemon_antwort_in_verlauf(auftrag),
     }
 
 

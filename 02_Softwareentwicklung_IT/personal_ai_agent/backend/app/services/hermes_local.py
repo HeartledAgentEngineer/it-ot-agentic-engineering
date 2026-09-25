@@ -179,6 +179,62 @@ def _hermes_inbox_daemon_pfad() -> Optional[str]:
     return kandidat if os.path.isfile(kandidat) else None
 
 
+def daemon_inbox_dir() -> str:
+    """Verzeichnis der Datei-Inbox (~/hermes_inbox).
+
+    Ueber die Umgebungsvariable HERMES_INBOX_DIR umlenkbar — genau wie im
+    Daemon (backend/hermes_inbox_daemon.py). So koennen Tests die Inbox auf
+    ein tmp-Verzeichnis legen, ohne das echte HOME anzufassen.
+    """
+    return os.path.expanduser(
+        os.environ.get("HERMES_INBOX_DIR") or "~/hermes_inbox"
+    )
+
+
+def lese_daemon_antwort(
+    auftrag_id: str, inbox_dir: Optional[str] = None
+) -> Optional[str]:
+    """Letzte Daemon-Antwort eines Auftrags aus ``antworten.jsonl``.
+
+    Der Inbox-Daemon schreibt pro Auftrag eine Zeile
+    ``{"auftrag_id": …, "text": …}``. Diese Funktion liefert den Text der
+    LETZTEN passenden Zeile.
+
+    Rueckgabe:
+        None  -> es gibt (noch) KEINEN Eintrag fuer diesen Auftrag
+                 (Datei fehlt oder der Daemon hat noch nicht geantwortet).
+                 Der Aufrufer darf dann NICHTS in den Verlauf schreiben.
+        ""    -> ein Eintrag existiert, sein Text ist aber leer.
+        sonst -> der Antworttext.
+
+    Wirft nie: fehlende/kaputte Dateien und unlesbare Zeilen werden
+    uebersprungen — ein Poll-Endpunkt darf daran nicht scheitern.
+    """
+    import json as _json
+    if not auftrag_id:
+        return None
+    pfad = os.path.join(inbox_dir or daemon_inbox_dir(), "antworten.jsonl")
+    if not os.path.exists(pfad):
+        return None
+    letzte: Optional[str] = None
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            for zeile in f:
+                z = zeile.strip()
+                if not z:
+                    continue
+                try:
+                    dat = _json.loads(z)
+                except Exception:
+                    continue  # kaputte Zeile ueberspringen, nie abbrechen
+                if dat.get("auftrag_id") == auftrag_id:
+                    letzte = dat.get("text") or ""
+        return letzte
+    except OSError as fehler:
+        logger.warning("Antwortdatei nicht lesbar (%s): %s", pfad, fehler)
+        return None
+
+
 def inbox_daemon_laeuft() -> bool:
     """True, wenn ein Inbox-Daemon (hermes_inbox_daemon.py) aktiv ist.
 

@@ -29,6 +29,7 @@ from app.router import (
     dateien,
     gesichter,
     hermes_steuerung,
+    selbsttest,
 )
 
 # Configure logging
@@ -178,6 +179,12 @@ app.include_router(upload.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(dateien.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(gesichter.router, dependencies=[Depends(auth.require_api_key)])
 app.include_router(hermes_steuerung.router, dependencies=[Depends(auth.require_api_key)])
+# Selbsttest (2026-09-25): Zustand des Systems OHNE Kabel ablesbar — der
+# Nutzer läuft auf dem Handy und hat unterwegs kein ADB. Liefert Commit,
+# Archiv-Index, Inbox-Daemon, letzte Protokollzeilen, Erinnerungen,
+# Sprachmodelle und Serverzeit als JSON; die Oberfläche zeigt es als
+# Klartext-Blatt. Nie ein 500er — fehlende Quellen stehen als error-Text drin.
+app.include_router(selbsttest.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

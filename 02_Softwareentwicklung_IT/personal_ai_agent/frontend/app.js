@@ -160,6 +160,13 @@ const dom = {
     memoryClose: document.getElementById('memory-close'),
     memoryList: document.getElementById('memory-list'),
     memoryHint: document.getElementById('memory-hint'),
+    // Selbsttest: Blatt mit Systemzustand (Commit, Index, Daemon, Logs …).
+    selbsttestBtn: document.getElementById('selbsttest-btn'),
+    selbsttestSheet: document.getElementById('selbsttest-sheet'),
+    selbsttestClose: document.getElementById('selbsttest-close'),
+    selbsttestText: document.getElementById('selbsttest-text'),
+    selbsttestHint: document.getElementById('selbsttest-hint'),
+    selbsttestReload: document.getElementById('selbsttest-reload'),
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
@@ -6814,6 +6821,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !dom.modelSheet.hidden) schliesseBlatt();
     if (e.key === 'Escape' && !dom.chatSheet.hidden) schliesseChatBlatt();
     if (e.key === 'Escape' && dom.memorySheet && !dom.memorySheet.hidden) schliesseGedaechtnisBlatt();
+    if (e.key === 'Escape' && dom.selbsttestSheet && !dom.selbsttestSheet.hidden) schliesseSelbsttestBlatt();
 });
 
 dom.micBtn.addEventListener('click', () => {
@@ -7147,6 +7155,16 @@ window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
     if (dom.memorySheet) {
         dom.memorySheet.addEventListener('click', (e) => {
             if (e.target === dom.memorySheet) schliesseGedaechtnisBlatt();
+        });
+    }
+    // Selbsttest-Blatt: öffnen über den Knopf in der Kopfzeile, schließen über
+    // ×, Hintergrund oder Esc, aktualisieren über den Knopf im Blatt.
+    if (dom.selbsttestBtn) dom.selbsttestBtn.addEventListener('click', oeffneSelbsttestBlatt);
+    if (dom.selbsttestClose) dom.selbsttestClose.addEventListener('click', schliesseSelbsttestBlatt);
+    if (dom.selbsttestReload) dom.selbsttestReload.addEventListener('click', ladeSelbsttest);
+    if (dom.selbsttestSheet) {
+        dom.selbsttestSheet.addEventListener('click', (e) => {
+            if (e.target === dom.selbsttestSheet) schliesseSelbsttestBlatt();
         });
     }
 // Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
@@ -8435,6 +8453,138 @@ document.addEventListener('DOMContentLoaded', () => {
     // Knopf, und das Blatt geht beim ersten Antippen ohne Wartezeit auf.
     ladeKatalog();
 });
+// =========================================
+// Selbsttest – Zustand des Systems ohne Kabel ablesbar
+// =========================================
+// Der Nutzer läuft auf dem Handy in Termux und hat unterwegs kein ADB. Er
+// sieht nur, was die App selbst zeigt. Dieses Blatt holt GET /api/selbsttest
+// und zeigt das JSON als deutsche Klartext-Zeilen mit ✓/⚠/✗ — so lässt sich
+// der Zustand als Bildschirmfoto per Telegram teilen.
+//
+// Bewusst KEIN Auto-Polling: Der Selbsttest lädt beim Öffnen und danach nur
+// auf Knopfdruck (Aktualisieren). Er prüft ausschließlich lokal — kein
+// Netz-Aufruf, kein Anbieter.
+
+/** Reine Umwandlung Selbsttest-JSON -> Klartext (ohne DOM, damit testbar).
+ *
+ *  Jede Zeile beginnt mit ✓ (in Ordnung), ⚠ (auffällig / nicht feststellbar)
+ *  oder ✗ (Fehler / fehlt). Fehlende Felder lösen KEINEN Absturz aus: Was
+ *  nicht da ist, wird als ✗- oder ⚠-Zeile ausgewiesen. Rückgabe ist ein
+ *  String mit Zeilenumbrüchen (für ein <pre>).
+ */
+function selbsttestText(daten) {
+    const d = (daten && typeof daten === 'object') ? daten : {};
+    const zeilen = [];
+    // t(): null/undefined/'' -> '', sonst Text. zahl(): fehlende Zahl -> '?'.
+    const t = (v) => (v === null || v === undefined || v === '') ? '' : String(v);
+    const zahl = (v) => (v === null || v === undefined) ? '?' : String(v);
+
+    // Kopfzeile: Serverzeit (für die Prüfung der Zeitstempel).
+    const uhr = d.uhrzeit || {};
+    zeilen.push('Selbsttest · Serverzeit: ' + (t(uhr.lokal) || 'unbekannt')
+        + (t(uhr.zeitzone) ? ' (' + t(uhr.zeitzone) + ')' : ''));
+
+    // Letzter Commit im Repo.
+    const c = d.commit || {};
+    if (c.ok && t(c.zeile)) zeilen.push('✓ Commit: ' + t(c.zeile));
+    else zeilen.push('✗ Commit: ' + (t(c.error) || 'nicht ermittelbar'));
+
+    // Archiv-Index: Größe und Zähler; Zählfehler nur ein Warnzeichen.
+    const i = d.index || {};
+    if (i.existiert) {
+        const text = 'Archiv-Index: ' + zahl(i.groesse_mb) + ' MB · '
+            + zahl(i.nachrichten) + ' Nachrichten · ' + zahl(i.chunks) + ' Abschnitte';
+        zeilen.push((i.error ? '⚠ ' : '✓ ') + text + (i.error ? ' · ' + t(i.error) : ''));
+    } else {
+        zeilen.push('✗ Archiv-Index: ' + (t(i.error) || 'fehlt'));
+    }
+
+    // Inbox-Daemon: läuft / läuft NICHT / nicht feststellbar, plus Log-Kennzahlen.
+    const dm = d.daemon || {};
+    const dmText = 'Inbox-Daemon: ' + (dm.laeuft === true ? 'läuft'
+        : (dm.laeuft === false ? 'läuft NICHT' : 'nicht feststellbar'));
+    const dmZusatz = [];
+    if (dm.log_groesse_bytes !== null && dm.log_groesse_bytes !== undefined) {
+        dmZusatz.push('Log ' + Math.round(Number(dm.log_groesse_bytes) / 1024) + ' KB');
+    }
+    if (dm.log_alter_s !== null && dm.log_alter_s !== undefined) {
+        dmZusatz.push('zuletzt vor ' + Math.round(Number(dm.log_alter_s)) + ' s');
+    }
+    const dmZeilen = Array.isArray(dm.log_letzte_zeilen) ? dm.log_letzte_zeilen : [];
+    if (dmZeilen.length) {
+        dmZusatz.push('letzte Zeile: ' + t(dmZeilen[dmZeilen.length - 1]));
+    }
+    zeilen.push((dm.laeuft === true ? '✓ ' : '⚠ ') + dmText
+        + (dmZusatz.length ? ' · ' + dmZusatz.join(' · ') : '')
+        + (dm.error ? ' · ' + t(dm.error) : ''));
+
+    // Letzte Antwort/Status: Länge + bewusst gekürzter Auszug.
+    const la = d.letzte_antwort || {};
+    for (const eintrag of [['antworten', 'antworten.jsonl'], ['status', 'status.jsonl']]) {
+        const b = la[eintrag[0]] || {};
+        if (b.existiert) {
+            zeilen.push((b.error ? '⚠' : '✓') + ' Letzte ' + eintrag[1] + ': '
+                + zahl(b.zeilen) + ' Zeilen · ' + zahl(b.laenge) + ' Zeichen'
+                + (b.error ? ' · ' + t(b.error) : '')
+                + (t(b.auszug) ? '\n   „' + t(b.auszug) + '“' : ''));
+        } else {
+            zeilen.push('✗ Letzte ' + eintrag[1] + ': ' + (t(b.error) || 'fehlt'));
+        }
+    }
+
+    // Erinnerungen (Gedächtnis) – derselbe Zählwert wie /api/memory/count.
+    const g = d.gedaechtnis || {};
+    zeilen.push((g.error ? '✗ ' : '✓ ') + 'Erinnerungen: ' + zahl(g.anzahl)
+        + (g.error ? ' · ' + t(g.error) : ''));
+
+    // Sprache: Kette der Erkennungsmodelle und ob die Wege registriert sind.
+    const sp = d.sprache || {};
+    const modelle = Array.isArray(sp.modelle) ? sp.modelle : [];
+    const kette = modelle.length ? modelle.join(' → ') : 'keine Modelle gemeldet';
+    const wege = (sp.transcribe_registriert ? 'Erkennung ✓' : 'Erkennung ✗')
+        + ', ' + (sp.speak_registriert ? 'Sprachausgabe ✓' : 'Sprachausgabe ✗');
+    zeilen.push((sp.error ? '⚠ ' : '✓ ') + 'Sprache: ' + kette + ' · ' + wege
+        + (sp.error ? ' · ' + t(sp.error) : ''));
+
+    return zeilen.join('\n');
+}
+
+/** Schreibt den fertigen Text in das Blatt (reine Anzeige, kein HTML). */
+function zeigeSelbsttest(klartext) {
+    if (dom.selbsttestText) dom.selbsttestText.textContent = klartext;
+}
+
+/** Holt GET /api/selbsttest und zeigt ihn als Klartext. Nur auf Knopfdruck/beim Öffnen. */
+async function ladeSelbsttest() {
+    if (!dom.selbsttestText) return;
+    dom.selbsttestText.textContent = 'Prüfe …';
+    if (dom.selbsttestHint) {
+        dom.selbsttestHint.textContent =
+            'Prüft nur lokal (git, Dateien, Prozesse) – kein Netz-Aufruf.';
+    }
+    try {
+        const res = await fetch(`${API_BASE}/api/selbsttest`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const daten = await res.json();
+        zeigeSelbsttest(selbsttestText(daten));
+    } catch (err) {
+        // Ehrlich melden statt leer lassen – sonst hielte man ein leeres Blatt
+        // für einen gesunden Zustand.
+        zeigeSelbsttest('✗ Selbsttest nicht abrufbar – läuft der Server?\n   ' + err.message);
+        console.warn('Selbsttest:', err);
+    }
+}
+
+function oeffneSelbsttestBlatt() {
+    if (!dom.selbsttestSheet) return;
+    dom.selbsttestSheet.hidden = false;
+    ladeSelbsttest();
+}
+
+function schliesseSelbsttestBlatt() {
+    if (dom.selbsttestSheet) dom.selbsttestSheet.hidden = true;
+}
+
 // ── Hermes Live-Status (unabhängiger Poller, zeigt Hermes-Gedanken live) ──
 (function() {
     const container = document.getElementById('hermes-live-status');

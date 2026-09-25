@@ -7,7 +7,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260925D">
+    <link rel="stylesheet" href="style.css?v=20260925E">
 </head>
 <body>
     <div id="app">
@@ -34,6 +34,17 @@
                 </button>
                 <!-- ZWEI Chats seit 2026-09: Haupt-Chat (conv_main) + separater
                      Coding-/Hermes-Chat (conv_code), oben umschaltbar. -->
+                <!-- Selbsttest (2026-09-25): Zustand des Systems OHNE Kabel
+                     ablesbar — Commit, Archiv-Index, Inbox-Daemon, Logs,
+                     Erinnerungen, Sprachmodelle, Serverzeit. Nötig, weil
+                     Sebastian unterwegs kein ADB hat und nur sieht, was die
+                     App selbst zeigt. -->
+                <button id="selbsttest-btn" class="icon-btn" title="Selbsttest – Zustand des Systems"
+                        aria-label="Selbsttest anzeigen">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-5-5 1.41-1.41L10 15.17l7.59-7.59L19 9l-9 9z"/>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -189,6 +200,24 @@
         </div>
     </div>
 
+    <!-- Selbsttest: der Zustand des Systems als Klartext-Zeilen (✓/⚠/✗), damit
+         er sich ohne Kabel ablesen und als Bildschirmfoto teilen lässt. Reine
+         Anzeige — lädt beim Öffnen und nur auf Knopfdruck, KEIN Auto-Polling. -->
+    <div id="selbsttest-sheet" hidden>
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Selbsttest">
+            <div class="sheet-head">
+                <h2>Selbsttest</h2>
+                <button id="selbsttest-reload" class="sheet-refresh" type="button"
+                        title="Erneut prüfen" aria-label="Erneut prüfen">Aktualisieren</button>
+                <button id="selbsttest-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div class="sheet-list">
+                <pre id="selbsttest-text" class="selbsttest-text">Prüfe …</pre>
+            </div>
+            <p id="selbsttest-hint" class="sheet-note"></p>
+        </div>
+    </div>
+
     <div id="model-sheet" hidden>
         <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Modell wählen">
             <div class="sheet-head">
@@ -236,6 +265,6 @@
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20260925E"></script>
+    <script src="app.js?v=20260925F"></script>
 </body>
 </html>

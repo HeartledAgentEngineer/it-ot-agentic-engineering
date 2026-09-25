@@ -251,6 +251,60 @@ def _roh_fallback(zeilen, block_writer=None) -> str:
     return volltext
 
 
+def _stream_json_zeile(s: str):
+    """Zerlegt eine Zeile der strukturierten CLI-Ausgabe (``--format stream-json``).
+
+    Warum (Sebastian 2026-09-25): Ohne diese Auswertung landete die Rohtext-
+    Ausgabe in der Antwort — samt dem internen englischen Reasoning des Modells
+    ("The user just sent ... I should respond briefly ..."). Der Nutzer sah
+    Denken dort, wo die Antwort stehen soll.
+
+    Rueckgabe ``(art, text)`` mit ``art``:
+      - ``"antwort"``  = Assistenten-Text (gehoert in die Antwort)
+      - ``"fertig"``   = Abschlusszeile; ihr Text ist die vollstaendige Antwort
+      - ``"gedanke"``  = anderes Ereignis (Werkzeug, Hinweis) → Zwischenmeldung
+      - ``None``       = keine JSON-Zeile → die alte Erkennung uebernimmt
+    """
+    s = (s or "").strip()
+    if not s.startswith("{"):
+        return None
+    try:
+        daten = json.loads(s)
+    except Exception:
+        return None
+    if not isinstance(daten, dict) or "type" not in daten:
+        return None
+    typ = str(daten.get("type") or "")
+    if typ == "text":
+        return ("antwort", str(daten.get("text") or ""))
+    if typ == "result":
+        return ("fertig", str(daten.get("text") or ""))
+    inhalt = daten.get("text") or daten.get("message") or daten.get("content") or ""
+    if isinstance(inhalt, dict):
+        inhalt = inhalt.get("text") or ""
+    if isinstance(inhalt, list):
+        teile = [str(t.get("text") or "") if isinstance(t, dict) else str(t)
+                 for t in inhalt]
+        inhalt = " ".join(t for t in teile if t)
+    return ("gedanke", str(inhalt))
+
+
+def _art_und_text(s: str, ausgabe):
+    """Eine Ausgabezeile einordnen: erst strukturiert, sonst wie bisher.
+
+    Die strukturierte Ausgabe hat Vorrang. Sagt sie ``fertig``, wird das als
+    ``("ende", text)`` gemeldet — der Aufrufer ersetzt damit die bisher
+    gesammelte Antwort durch die verbindliche Fassung.
+    """
+    strukturiert = _stream_json_zeile(s)
+    if strukturiert is None:
+        return ausgabe.zeile(s)
+    art, text = strukturiert
+    if art == "fertig":
+        return ("ende", text)
+    return (art, text)
+
+
 def _beantworte(auftrag):
     aid = auftrag.get("auftrag_id")
     text = (auftrag.get("text") or "").strip()
@@ -281,7 +335,12 @@ def _beantworte(auftrag):
     cmd = ["hermes", "chat"]
     if MODELL:
         cmd += ["-m", MODELL]
-    cmd += ["-q", payload, "-Q"]
+    # --format stream-json (Sebastian 2026-09-25): Die CLI gibt damit je Zeile
+    # ein JSON-Objekt aus. Der eigentliche Gewinn: die ECHTE Antwort steht als
+    # type=text / type=result SAUBER GETRENNT vom internen Reasoning. Vorher
+    # wurde die Rohausgabe genommen, wenn der Antwort-Kasten nicht erkannt
+    # wurde — dann landete das englische Denken des Modells in der Antwort.
+    cmd += ["-q", payload, "-Q", "--format", "stream-json"]
 
     try:
         proc = subprocess.Popen(
@@ -340,15 +399,26 @@ def _beantworte(auftrag):
             s = z.strip()
             if s:
                 roh_zeilen.append(s)
-                # ANTWORT oder internes Denken? Die CLI rahmt beides in Kästen
-                # (siehe _CliAusgabe). Nur Antwort-Zeilen werden Blasen; das
-                # englische Reasoning wird zu EINEM kurzen 🧠-Hinweis.
-                art, text = ausgabe.zeile(s)
+                # ANTWORT oder internes Denken? Zuerst die strukturierte Ausgabe
+                # auswerten (--format stream-json) — dort ist die Antwort sauber
+                # vom Reasoning getrennt. Nur wenn die Zeile KEIN JSON ist,
+                # greift die alte Kasten-Erkennung (_CliAusgabe).
+                art, text = _art_und_text(s, ausgabe)
                 if art == "antwort":
                     ergebnis_zeilen.append(text)
                     puffer.append(("💬", text))
+                elif art == "ende":
+                    # Die Abschlusszeile ist die verbindliche Fassung. Sie
+                    # ERsetzt die bisher gesammelten Bruchstuecke, damit im
+                    # Antwortfeld nur die Antwort steht (kein Denk-Text).
+                    if text.strip():
+                        hatte_blase = bool(ergebnis_zeilen)
+                        ergebnis_zeilen[:] = [text.strip()]
+                        if not hatte_blase:
+                            puffer.append(("💬", text.strip()))
                 elif art == "gedanke":
-                    puffer.append(("🧠", text.replace("🧠 ", "", 1)))
+                    if text.strip():
+                        puffer.append(("🧠", text.replace("🧠 ", "", 1)))
         # Buendeln: nach FLUSH_S oder bei genug Zeilen rausschreiben.
         if puffer and (time.time() - letzter_flush >= FLUSH_S
                        or len(puffer) >= FLUSH_MAX_ZEILEN):
