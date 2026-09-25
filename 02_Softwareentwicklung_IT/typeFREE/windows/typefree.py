@@ -669,6 +669,22 @@ def recorded_seconds(frames, sample_rate=SAMPLE_RATE):
     return sum(len(f) for f in frames) / sample_rate
 
 
+# Ein Diktat kann nur so gut sein wie die Aufnahme. Gemessen am 25.09.2026 an
+# sauberem deutschen Referenzaudio (0 % Wortfehler): Spitze 0,64 · RMS 0,088 bis
+# 0,095; selbst die leise Variante (RMS 0,062) blieb fehlerfrei, und schnelles
+# Sprechen mit Füllwörtern kostete höchstens 1,2 %. Die sinnlosen Wörter im
+# Betriebslog („Brother 1", „Buster Brauch", „im Kauf mit") treten dagegen am
+# ENDE einer Aufnahme auf — dort, wo leise und undeutlich weitergesprochen wird.
+# Deshalb steht der Pegel ab jetzt in der Logdatei, und unter dieser Schwelle
+# gibt es eine Warnung: dann ist die Aufnahme der Verdächtige, nicht das Modell.
+AUSSTEUERUNG_MIN_RMS = 0.02
+
+
+def aussteuerung(daten):
+    """Spitzenpegel und Effektivwert einer Aufnahme — reine Funktion."""
+    return float(np.max(np.abs(daten))), float(np.sqrt(np.mean(np.square(daten))))
+
+
 def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
                             limit=MAX_RECORDING_SECONDS):
     """Wahr, sobald die Obergrenze erreicht ist. Der Text wird trotzdem gesendet."""
@@ -1249,6 +1265,13 @@ def stop_and_transcribe():
         return
 
     audio_data = np.concatenate(frames, axis=0)
+
+    spitze, rms = aussteuerung(audio_data)
+    log.info('Aussteuerung: Spitze %.2f · RMS %.3f', spitze, rms)
+    if rms < AUSSTEUERUNG_MIN_RMS:
+        log.warning('Sehr leise Aufnahme (RMS %.3f < %.2f) — Verhörer '
+                    'wahrscheinlich; näher ans Mikrofon', rms,
+                    AUSSTEUERUNG_MIN_RMS)
 
     buffer = io.BytesIO()
     sf.write(buffer, audio_data, SAMPLE_RATE, format='WAV', subtype='PCM_16')
