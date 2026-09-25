@@ -175,6 +175,13 @@ CHAT_AUFTRAG = (
 # Zero Data Retention: nur Endpunkte, die das Audio nicht speichern.
 OPENROUTER_ZDR = {'provider': {'zdr': True}}
 
+WEG_REIHENFOLGE = ('eu', 'beste', 'schnell')
+
+WEG_BESCHRIFTUNG = {
+    'eu':      'EU — Voxtral (Mistral) über OpenRouter',
+    'beste':   'Beste Qualität — ElevenLabs Scribe v2',
+    'schnell': 'Schnell — Groq whisper-large-v3',
+}
 SCHLUESSEL_JE_ANBIETER = {
     'voxtral':    'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
     'groq':       'GROQ_API_KEY',
@@ -443,6 +450,36 @@ def _select_hotkey(index):
     return _apply
 
 
+def _select_weg(wahl):
+    """Schaltet den Transkriptionsweg um — ohne Neustart, das Diktat liest ihn neu."""
+    def _apply(icon, item):
+        setze_transkription(wahl)
+        log.info('Transkriptionsweg geändert auf: %s', wahl)
+        icon.update_menu()
+    return _apply
+
+
+def _weg_beschriftung(wahl):
+    """Menütext mit Warnung, wenn für diesen Weg der Schlüssel fehlt."""
+    text = WEG_BESCHRIFTUNG[wahl]
+    if not verfuegbare_anbieter(os.environ, KETTEN[wahl]):
+        text += ' (kein Schlüssel)'
+    return text
+
+
+def _weg_submenu():
+    """Die drei Wege mit Punkt-Markierung beim aktiven."""
+    return pystray.Menu(*(
+        pystray.MenuItem(
+            lambda item, wahl=wahl: _weg_beschriftung(wahl),
+            _select_weg(wahl),
+            checked=lambda item, wahl=wahl: transkription_wahl() == wahl,
+            radio=True,
+        )
+        for wahl in WEG_REIHENFOLGE
+    ))
+
+
 def _hotkey_submenu():
     """13 Einträge mit Punkt-Markierung beim aktiven Hotkey."""
     return pystray.Menu(*(
@@ -471,6 +508,9 @@ def _start_tray(on_ready=None):
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Hotkey wählen', _hotkey_submenu()),
+        pystray.MenuItem('Transkription wählen', _weg_submenu()),
+        pystray.MenuItem(lambda item: f"  Weg: {WEG_BESCHRIFTUNG[transkription_wahl()]}",
+                         None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Beenden', _on_quit),
     )

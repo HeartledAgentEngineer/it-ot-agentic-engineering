@@ -122,6 +122,14 @@ def test_drei_wege_stehen_zur_wahl():
     assert set(typefree.KETTEN) == {'eu', 'beste', 'schnell'}
 
 
+def test_jeder_weg_hat_eine_beschriftung():
+    """Ohne Beschriftung hätte das Tray-Untermenü einen leeren Eintrag."""
+    assert typefree.WEG_REIHENFOLGE == ('eu', 'beste', 'schnell')
+    for wahl in typefree.WEG_REIHENFOLGE:
+        assert typefree.WEG_BESCHRIFTUNG[wahl].strip()
+    assert set(typefree.WEG_BESCHRIFTUNG) == set(typefree.KETTEN)
+
+
 def test_regelweg_ist_der_eu_weg():
     """Vorgabe vom 25.09.2026: nicht OpenAI, nicht Groq ohne ausdrückliche Wahl."""
     assert typefree.STANDARD_WEG == 'eu'

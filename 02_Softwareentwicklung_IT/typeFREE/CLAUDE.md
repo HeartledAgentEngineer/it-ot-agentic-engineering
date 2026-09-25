@@ -151,8 +151,10 @@ für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach ge
 | `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
 
 Fehlt der Schlüssel für den gewählten Weg, nimmt typeFREE automatisch den anderen und
-schreibt es ins Log. Umstellen: `"transkription": "beste"` in der `config.json` neben
-der EXE (oder in `windows/config.json` beim Quellcode-Start).
+schreibt es ins Log. Umgestellt wird im Tray-Menü unter **„Transkription wählen"** (wirkt
+sofort, ohne Neustart; fehlt für einen Weg der Schlüssel, steht „(kein Schlüssel)" dabei)
+oder in der `config.json` neben der EXE (bzw. in `windows/config.json` beim Quellcode-Start):
+`"transkription": "eu" | "beste" | "schnell"`.
 
 **Warum Scribe als „beste":** Laut Anbieter 3,1 % Wortfehlerquote für Deutsch gegen
 4,5 % bei Whisper large v3; `keyterms` ist dieselbe Idee wie der Whisper-Vokabelhinweis,

@@ -33,6 +33,10 @@ def create_env_file(
         f"OPENROUTER_API_KEY={openrouter_key}",
         f"OPENAI_API_KEY={openai_key}",
         "",
+        "# Optional — je nach gewaehltem Transkriptionsweg (Tray: 'Transkription waehlen'):",
+        "# GROQ_API_KEY=...          schneller Weg (Groq whisper-large-v3)",
+        "# ELEVENLABS_API_KEY=...    beste Qualitaet (ElevenLabs Scribe v2)",
+        "",
     ]
     with open(pfad, 'w', encoding='utf-8') as f:
         f.write('\n'.join(zeilen))

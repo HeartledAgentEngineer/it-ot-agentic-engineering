@@ -195,6 +195,10 @@ REM .env erstellen
 if defined OPENAI_KEY (
     echo OPENAI_API_KEY=%OPENAI_KEY% >> "%INSTALL_DIR%\.env"
 )
+REM Optional fuer weitere Transkriptionswege (Tray: "Transkription waehlen")
+echo # Optional - je nach gewaehltem Transkriptionsweg: >> "%INSTALL_DIR%\.env"
+echo # GROQ_API_KEY=...          schneller Weg (Groq whisper-large-v3) >> "%INSTALL_DIR%\.env"
+echo # ELEVENLABS_API_KEY=...    beste Qualitaet (ElevenLabs Scribe v2) >> "%INSTALL_DIR%\.env"
 
 if not defined SILENT (
     echo   ✅ typeFREE.exe kopiert
