@@ -98,6 +98,33 @@ def kauf_rechnen(guthaben_usd: float) -> dict:
     }
 
 
+BREAK_EVEN = SERVICE_MIN / SERVICE_SATZ      # $14,55 - darunter greift das Minimum
+
+
+def staffel_tabelle() -> None:
+    """Zeigt, ab welcher Aufladung der Prozentsatz greift."""
+    print("=" * 72)
+    print("  Gebuehren-Staffel: ab wann greift der Prozentsatz?")
+    print("=" * 72)
+    print("  Servicegebuehr ist IMMER 5,5% - aber mit einem MINIMUM von $0,80.")
+    print(f"  Erst ab ${BREAK_EVEN:.2f} Aufladung greift der Prozentsatz voll.")
+    print()
+    print(f"  {'Guthaben':>10} {'Service':>9} {'effektiv':>10} {'USt 19%':>9} {'Cash':>9} {'Aufschlag':>10}")
+    print("  " + "-" * 68)
+    for g in (5, 10, 14.55, 17, 25, 50, 100, 150, 200, 500):
+        s = max(g * SERVICE_SATZ, SERVICE_MIN)
+        u = (g + s) * UST_SATZ
+        tot = g + s + u
+        marke = "  <-- Minimum!" if g < BREAK_EVEN else ""
+        print(f"  ${g:>9.2f} ${s:>8.2f} {s / g * 100:>9.2f}% ${u:>8.2f} ${tot:>8.2f} "
+              f"{tot / g * 100 - 100:>9.1f}%{marke}")
+    print()
+    print(f"  FAZIT: Unter ${BREAK_EVEN:.2f} wird es unnoetig teuer. Darueber ist der")
+    print("  Aufschlag KONSTANT (5,5% Service + 19% USt = +25,5%) - es gibt KEINE")
+    print("  Mengenrabatte. Die Summe richtet sich nach Laufzeit, nicht nach Rabatt.")
+    print("  Alternative: Crypto-Zahlung kostet 5% statt 5,5%.")
+
+
 def guthaben_fuer_cash(cash_usd: float) -> float:
     """Umkehrung: wie viel Guthaben bekommt man fuer X Cash (inkl. Gebuehren)?"""
     return cash_usd / (1 + SERVICE_SATZ) / (1 + UST_SATZ)
@@ -106,6 +133,11 @@ def guthaben_fuer_cash(cash_usd: float) -> float:
 def main() -> int:
     argv = sys.argv[1:]
     kurs, kurs_art = wechselkurs()
+
+    # ---- Tabelle ohne API: --staffel ----
+    if "--staffel" in argv:
+        staffel_tabelle()
+        return 0
 
     # ---- Rechenmodus ohne API: --kaufen <EUR> ----
     if "--kaufen" in argv:

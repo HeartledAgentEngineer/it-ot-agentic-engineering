@@ -69,3 +69,24 @@ nur die Arbeit am Experiment, nicht die Gesamtsitzung.
 
 `docs/recherche/MARCEL-KANON.md` (69 Praktiken) und
 `02_Softwareentwicklung_IT/CLAUDE_EXTENDS.md` §6.8 (19 verbindliche Regeln).
+
+## guthaben.py — was der Verbrauch wirklich kostet
+
+```bash
+python guthaben.py              # Guthaben, Verbrauch, Hochrechnung (USD)
+python guthaben.py --euro       # dieselben Zahlen in EUR (Live-Wechselkurs)
+python guthaben.py --kaufen 25  # was 25 EUR Cash an Guthaben ergeben
+python guthaben.py --staffel    # Gebuehren-Staffel: ab wann greift der Prozentsatz?
+```
+
+OpenRouter ist **kein Abo, sondern ein Tank**: pro Token abgerechnet, kein Grundpreis.
+Der Aufschlag kommt nur beim **Aufladen**:
+
+| Posten | Satz | Bemerkung |
+|---|---|---|
+| Service fee | 5,5 % | **Minimum $0,80** — unter $14,55 Aufladung wird es teurer |
+| Sales Tax / VAT | 19 % | deutsche USt, auf Guthaben + Service fee |
+| **Gesamt** | **+25,5 %** | keine Mengenrabatte, keine Staffel |
+
+Verifiziert gegen einen echten Kaufdialog: $17,00 Guthaben = $0,94 Service
++ $3,41 USt = $21,35 Cash.
