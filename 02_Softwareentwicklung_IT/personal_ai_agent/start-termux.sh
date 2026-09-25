@@ -201,7 +201,7 @@ DIAG_BASIS="$HOME/storage/downloads"
 [ -d "$DIAG_BASIS" ] || DIAG_BASIS="/sdcard/Download"
 DIAG="$DIAG_BASIS/hermes_diag"
 if [ -d "$INBOX_DIR" ] && mkdir -p "$DIAG" 2>/dev/null; then
-    tail -40 "$INBOX_DIR/daemon.log"      > "$DIAG/daemon_letzte.txt"      2>/dev/null
+    tail -200 "$INBOX_DIR/daemon.log"     > "$DIAG/daemon_letzte.txt"      2>/dev/null
     tail -3  "$INBOX_DIR/antworten.jsonl" > "$DIAG/antworten_letzte.jsonl" 2>/dev/null
     tail -3  "$INBOX_DIR/status.jsonl"    > "$DIAG/status_letzte.jsonl"    2>/dev/null
     tail -2  "$INBOX_DIR/auftraege.jsonl" > "$DIAG/auftraege_letzte.jsonl" 2>/dev/null
