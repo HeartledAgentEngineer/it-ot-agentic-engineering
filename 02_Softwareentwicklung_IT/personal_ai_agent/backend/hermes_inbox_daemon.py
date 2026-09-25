@@ -216,6 +216,14 @@ def _roh_fallback(zeilen, block_writer=None) -> str:
     Wichtig: Die Rohausgabe wird NICHT gekuerzt, sondern in Zeitbloecken
     gestreamt (block_writer) - so kann Sebastian nach und nach mitlesen.
     Ohne block_writer (Tests/andere Aufrufer) kommt alles als EIN Text zurueck.
+
+    Nachtrag (Sebastian 2026-09-25, Live-Test): Vorher war der RUECKGABEWERT
+    nur der Hinweis "Rohausgabe vollstaendig: N Zeilen, oben in K Bloecken
+    gestreamt." — der echte Text stand ausschliesslich in den Zwischenmeldungen
+    (im Chat die "🧠 Gedanke"-Blasen). Ergebnis: Der Chat zeigte "✅ Hermes hat
+    geantwortet." OHNE inhaltliche Antwort. Jetzt traegt die Antwort den
+    vollstaendigen Text; die Bloecke bleiben als mitlesbare Zwischenmeldungen
+    bestehen.
     """
     _noise = ("Resume this session", "Query:", "Initializing", "session_id:",
               "  hermes")
@@ -228,8 +236,9 @@ def _roh_fallback(zeilen, block_writer=None) -> str:
 
     _anzahl = len(nutzbar)
     kopf = "📄 Rohausgabe des lokalen Hermes (Antwort-Kasten nicht erkannt)"
+    volltext = f"{kopf}:" + "\n" + "\n".join(nutzbar)
     if block_writer is None:
-        return f"{kopf}:" + "\n" + "\n".join(nutzbar)
+        return volltext
 
     bloecke = [nutzbar[i:i + ROH_BLOCK_ZEILEN]
                for i in range(0, _anzahl, ROH_BLOCK_ZEILEN)]
@@ -237,8 +246,9 @@ def _roh_fallback(zeilen, block_writer=None) -> str:
     for blk in bloecke:
         block_writer("\n".join(blk))
         time.sleep(ROH_BLOCK_PAUSE_S)
-    return (f"📄 Rohausgabe vollstaendig: {_anzahl} Zeilen, oben in "
-            f"{len(bloecke)} Bloecken gestreamt.")
+    # Die Antwort ist der vollstaendige Text (nicht nur ein Hinweis darauf) -
+    # sonst sieht der Nutzer Zwischenmeldungen, aber keine Antwort.
+    return volltext
 
 
 def _beantworte(auftrag):

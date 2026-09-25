@@ -44,6 +44,32 @@ def test_fallback_liefert_echte_zeilen_und_ist_gekennzeichnet():
     assert "╭" not in text and "Query:" not in text
 
 
+def test_fallback_mit_bloecken_liefert_den_vollen_text_als_antwort():
+    """Live-Test 25.09.2026: Der Chat zeigte nur „✅ Hermes hat geantwortet."
+
+    Der echte Text stand ausschließlich in den Zwischenmeldungen (im Chat die
+    „🧠 Gedanke"-Blasen); die ANTWORT war bloß der Hinweis „… oben in N Blöcken
+    gestreamt." Die Antwort muss den vollständigen Text tragen — die Blöcke
+    bleiben als mitlesbare Zwischenmeldungen bestehen.
+    """
+    zeilen = [
+        "╭─⚕ Hermes ────────────╮",
+        "Der Index enthält 82774 Nachrichten.",
+        "Die Suche fand 735 Treffer zu Fabia.",
+        "╰──────────────────────╯",
+    ]
+    bloecke = []
+    text = daemon._roh_fallback(zeilen, block_writer=bloecke.append)
+    # Die Antwort trägt den Inhalt selbst …
+    assert "82774 Nachrichten" in text
+    assert "735 Treffer" in text
+    # … und ist nicht bloß ein Hinweis auf die Blöcke.
+    assert "gestreamt" not in text
+    # Die Zwischenmeldungen gibt es weiterhin.
+    assert bloecke, "Zwischenmeldungen müssen erhalten bleiben"
+    assert any("82774 Nachrichten" in b for b in bloecke)
+
+
 def test_antwort_kasten_wird_weiterhin_erkannt():
     """Regression: der normale Weg (Antwort-Kasten) funktioniert unverändert."""
     a = daemon._CliAusgabe()
@@ -87,7 +113,12 @@ def test_fallback_streamt_in_zeitbloecken(monkeypatch):
     assert inhalt[0].splitlines()[0] == "Zeile 0", "Reihenfolge muss stimmen"
     assert inhalt[-1].splitlines()[-1] == "Zeile 29", "letzte Zeile muss dabei sein"
     assert all(len(b.splitlines()) <= daemon.ROH_BLOCK_ZEILEN for b in inhalt)
-    assert "vollstaendig" in schluss and "Zeilen" in schluss
+    # Die ANTWORT trägt den vollständigen Text selbst (25.09.2026) — vorher war
+    # sie nur der Hinweis „… oben in N Blöcken gestreamt" und der Chat zeigte
+    # „Hermes hat geantwortet" ohne inhaltliche Antwort.
+    assert "Zeile 0" in schluss, "Antwort muss den Inhalt selbst tragen"
+    assert "Zeile 29" in schluss, "Antwort muss vollständig sein"
+    assert "gestreamt" not in schluss, "kein bloßer Hinweis auf die Blöcke"
 
 
 def test_haeppchen_groesse_ist_klein():
