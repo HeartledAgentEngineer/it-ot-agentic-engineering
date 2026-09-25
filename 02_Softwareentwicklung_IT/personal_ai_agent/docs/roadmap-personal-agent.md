@@ -64,7 +64,48 @@ darauf.
 - **Grundlage sind echte Metadaten** (Aufnahmedatum/EXIF) — **nicht** der Dateiname
   (Lehre vom 22.09.2026).
 
+### Stufe D — Eigener Sprachtrigger („OK Agent") und YouTube-Wissen
+
+**Leitbild (Sebastian, 25.09.2026):** *„Wir bauen quasi unser eigenes Gemini nach, was auch
+überall in Apps, auf dem Sperrbildschirm, überall kann. Wenn ich ‚OK Agent' sage, nimmt er mein
+Mikrofon auf … und macht dann das, was er gerade soll."* Und: *„mein eigener Memorial
+LifeBrain Agent"* — ein wandelndes, sich fortentwickelndes Abbild des eigenen Lebens.
+
+**D1 — Trigger und Wake-Word**
+
+- Der Trigger ist eine **Android-Rolle**, keine Gemini-Funktion: heute hält die Google-App die
+  Assistenten-Rolle (`com.google.android.googlequicksearchbox/…GsaVoiceInteractionService`,
+  gemessen 25.09.2026). Diese Rolle kann **unsere App** übernehmen → dieselbe Geste
+  (Power-Taste lang / Wischen aus der Ecke) startet **unseren** Agenten.
+- **Wake-Word „OK Agent"** zusätzlich über **Keyword-Spotting auf dem Gerät** (Foreground-Service
+  mit Mikrofon-Berechtigung; Battery-Kosten ehrlich messen). Ob der System-Hotword-Weg der
+  Assistenten-Rolle auf dem Edge 50 trägt, ist **zu testen**, nicht anzunehmen.
+- **Grenze, die bleibt:** Googles tiefe Systemrechte und Bildschirm-Kontext erben wir **nicht**.
+  Wir können handeln (App/Link/YouTube öffnen, Text teilen), aber nicht alles, was Gemini kann.
+- **Im Auto bleibt Gemini** (Android Auto/Usability) — bewusste Entscheidung, kein Rückstand.
+
+**D2 — YouTube als Wissensquelle**
+
+- Sebastians Wissen entsteht stark über YouTube → Verlauf, Abos, „Gefällt mir" gehören ins Archiv.
+- ⚠️ **Technische Wahrheit:** Die YouTube-API gibt den **Verlauf nicht** heraus (von Google
+  entfernt), Takeout enthält ihn ebenfalls nicht mehr. Realistischer Weg: **über die eigene,
+  angemeldete Browsersitzung** auslesen (Verlauf, Abos, Playlists) und als Quelle einlesen.
+- **Hintergrund-Synchronisation beim Agenten-Start:** läuft sie noch, sagt der Agent es
+  ausdrücklich („warte kurz, ich synchronisiere gerade") statt eine veraltete Antwort zu geben.
+  Dafür braucht es einen **Sync-Status**, den der Agent vor Verlaufs-Fragen prüft.
+- Nur **Metadaten** (Titel, Kanal, Zeit, Dauer) ins Archiv — keine Videos, keine Audiodaten.
+
+**D3 — Sprachbetrieb in der App**
+
+- Zustand sichtbar machen: **„Mikrofon offen / hört zu / denkt nach / spricht"** — man muss sehen,
+  wann man sprechen kann.
+- Audio → Backend (`POST /api/sprache/transkript`) → Kette (Vokabular, Kostenbuchung) → Glättung →
+  Antwort, optional als Sprache zurück.
+- **Datenschutz-Regel bleibt:** Audio geht an **OpenRouter** (kein neuer Empfänger), keine
+  Speicherung von Audio/Bildern im Agent-Backend.
+
 ### Stufe C — Der Agent wird ein Handy-Begleiter
+
 
 - **Eigene App statt Browser-Tabs:** eine WebView-(Web-App-)Hülle, die die Oberfläche
   innerhalb einer selbst erzeugten App aufruft — Tab-Wildwuchs weg, Konstanz über die Zeit.
