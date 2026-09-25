@@ -215,6 +215,9 @@ def person_speichern(
             elif embedding is not None:
                 vorhanden["embedding"] = embedding
             vorhanden.setdefault("gelernt_am", _utc_iso())
+            # Migration (auch beim Speichern): fehlende ref_id des Altbestands
+            # festschreiben — nur dieses Feld, sonst bleibt alles unveraendert.
+            _ref_ids_ergaenzen(personen)
             _speichern(personen)
             logger.info("Person aktualisiert: %s", name)
             return dict(vorhanden)
@@ -262,6 +265,68 @@ def _ref_id_von(r: dict) -> str:
     if isinstance(r, dict):
         return _ref_id(r.get("embedding"))
     return _ref_id(r)
+
+
+def _ref_passt(eintrag, rid: str) -> bool:
+    """True, wenn `rid` GENAU diese Referenz adressiert (robust gegen Altdaten).
+
+    Akzeptiert beides:
+    * die EFFEKTIVE (stabile) ID (`_ref_id_von`), und
+    * den reinen Embedding-Hash (`_ref_id`).
+
+    Der zweite Weg ist noetig, weil Altdaten (vor 2026-09-15) keine
+    gespeicherte `ref_id` trugen: dort liefert die Liste die aus dem Embedding
+    berechnete ID. Wurde eine Referenz zwischenzeitlich mit einer ANDEREN
+    gespeicherten `ref_id` versehen (z. B. nach einer Rahmen-Anpassung), darf
+    das Loeschen ueber die alte, vom Client gesendete ID nicht ins Leere
+    laufen.
+    """
+    if not rid:
+        return False
+    if _ref_id_von(eintrag) == rid:
+        return True
+    emb = eintrag.get("embedding") if isinstance(eintrag, dict) else eintrag
+    return bool(emb) and _ref_id(emb) == rid
+
+
+def _ref_ids_ergaenzen(personen: List[dict]) -> bool:
+    """Migration: traegt fehlende `ref_id` in die Referenzen nach (nur dieses Feld).
+
+    Altdaten (vor 2026-09-15) tragen in `referenzen` keine stabile `ref_id`;
+    die ID wurde bisher bei JEDEM Lesezugriff neu aus dem Embedding berechnet.
+    Solange das Embedding gleich bleibt, ist das Ergebnis stabil — diese
+    Migration schreibt es EINMAL fest, damit der Altbestand dauerhaft
+    adressierbar ist.
+
+    BEWUSST nur `ref_id`: Embedding, bbox, bbox_norm, jahr, bild_pfad und die
+    Miniaturen bleiben unveraendert (keine Daten anfassen). Die Funktion ist
+    idempotent. Returns: True, wenn mindestens ein Feld ergaenzt wurde.
+    """
+    geaendert = False
+    for p in personen:
+        if not isinstance(p, dict):
+            continue
+        for r in (p.get("referenzen") or []):
+            if isinstance(r, dict) and r.get("embedding") and not r.get("ref_id"):
+                r["ref_id"] = _ref_id_von(r)
+                geaendert = True
+    return geaendert
+
+
+def ref_ids_migrieren() -> bool:
+    """Schreibt fehlende `ref_id` in den Katalog zurueck (idempotent).
+
+    Wird beim ersten Lesezugriff (`referenzen_auflisten`) aufgerufen, damit
+    Alt-Referenzen dauerhaft ueber dieselbe ID ansprechbar sind. Returns:
+    True, wenn der Katalog geaendert (und gespeichert) wurde.
+    """
+    with _sperre:
+        personen = _laden()
+        if not _ref_ids_ergaenzen(personen):
+            return False
+        _speichern(personen)
+        logger.info("Gesichter-Katalog: fehlende ref_id nachgetragen (Migration)")
+        return True
 
 
 def _refs_of(p: dict) -> list:
@@ -315,7 +380,19 @@ def _refs_of(p: dict) -> list:
 
 
 def referenzen_auflisten() -> dict:
-    """Je Person die Referenzen mit ref_id + Jahr + Miniatur-DataURL."""
+    """Je Person die Referenzen mit ref_id + Jahr + Miniatur-DataURL.
+
+    Fuer JEDE Referenz wird eine NICHT-LEERE, stabile `ref_id` geliefert —
+    auch fuer Altdaten ohne gespeicherte ID (dann aus dem Embedding berechnet
+    und per Migration in den Katalog zurueckgeschrieben).
+    """
+    # Migration beim ersten Zugriff: fehlende ref_id festschreiben, damit der
+    # Altbestand dauerhaft ueber dieselbe ID ansprechbar bleibt (nur ref_id
+    # wird ergaenzt; Embeddings/bbox/Bilder bleiben unveraendert).
+    try:
+        ref_ids_migrieren()
+    except Exception as e:  # Migration darf das Lesen nie blockieren
+        logger.warning("ref_id-Migration uebersprungen: %s", e)
     personen = liste_personen()
     erg = []
     for p in personen:
@@ -379,7 +456,10 @@ def referenz_entfernen(name: str, ref_id: str) -> dict:
         if p is None:
             return {"ok": False, "fehler": "person nicht gefunden"}
         refs = _refs_of(p)
-        rest = [r for r in refs if _ref_id_von(r) != rid]
+        # Robust gegen Altdaten: trifft die effektive UND die Embedding-Hash-ID
+        # (sonst liefe ein Loeschen ueber eine alte, vom Client gesendete ID
+        # still ins Leere -> "einzelnes Loeschen ging nicht").
+        rest = [r for r in refs if not _ref_passt(r, rid)]
         if len(rest) == len(refs):
             return {"ok": False, "fehler": "referenz nicht gefunden"}
         # aktualisieren: referenzen + embedding konsistent (KEINE Rest-Vektoren:
@@ -413,9 +493,13 @@ def referenz_bbox_aktualisieren(name: str, ref_id: str, bbox,
         if p is None:
             return {"ok": False, "fehler": "person nicht gefunden"}
         refs = _refs_of(p)
-        idx = next((i for i, r in enumerate(refs) if _ref_id_von(r) == rid), None)
+        idx = next((i for i, r in enumerate(refs) if _ref_passt(r, rid)), None)
         if idx is None:
             return {"ok": False, "fehler": "referenz nicht gefunden"}
+        # Die STABILE ID der gefundenen Referenz gewinnt (nicht die gesendete):
+        # so bleibt die Referenz auch dann adressierbar, wenn der Client eine
+        # alte/abgeleitete ID geschickt hat.
+        rid = _ref_id_von(refs[idx])
         neu = dict(refs[idx])
         if embedding:
             neu["embedding"] = embedding

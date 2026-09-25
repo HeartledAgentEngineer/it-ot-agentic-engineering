@@ -4887,13 +4887,18 @@ function zeigeReferenzen() {
 }
 
 async function referenzLoeschen(name, refId, btn) {
-    if (!window.confirm && typeof confirm === 'function' && !confirm(`Diese Referenz von ${name} wirklich löschen?`)) return;
+    // Sichtbare Rueckmeldung: die Serverantwort wird ausgewertet, ein Fehlschlag
+    // erscheint als Fehler (nie als "✓ gelöscht"). Fix 2026-09-20.
+    if (typeof confirm === 'function' && !confirm(`Diese Referenz von ${name} wirklich löschen?`)) return;
+    const rid = (refId != null) ? String(refId).trim() : '';
+    if (!rid) { alert('⚠️ NICHT gelöscht: Referenz hat keine ID — Seite neu laden.'); return; }
     try {
-        const r = await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(refId)}`, { method: 'DELETE' });
-        const d = await r.json();
-        if (d && d.ok) { btn.textContent = '✓ gelöscht'; btn.disabled = true; btn.style.opacity = 0.5; }
-        else { alert('Fehler: ' + ((d && d.fehler) || 'unbekannt')); }
-    } catch (e) { alert('Löschen fehlgeschlagen: ' + (e && e.message)); }
+        const r = await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(rid)}`, { method: 'DELETE' });
+        let d = null;
+        try { d = await r.json(); } catch (_e) { d = null; }
+        if (r.ok && d && d.ok) { btn.textContent = '✓ gelöscht'; btn.disabled = true; btn.style.opacity = 0.5; }
+        else { alert('⚠️ NICHT gelöscht: ' + ((d && (d.detail || d.fehler)) || ('HTTP ' + r.status))); }
+    } catch (e) { alert('⚠️ NICHT gelöscht: ' + ((e && e.message) || 'Netzwerkfehler')); }
 }
 
 /** Öffnet die Referenzen EINER Person als scrollbares VOLLBILD-Overlay mit den
@@ -4928,13 +4933,23 @@ function zeigeReferenzenVollbild(name) {
         const res = await fetch(`${API_BASE}/api/gesichter/referenzen`);
         const d = await res.json();
         const p = (d && d.personen || []).find(x => (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+        // Jede Referenz einzeln loeschen und die Antwort AUSWERTEN — sonst
+        // meldet die UI "alle geloescht", obwohl einzelne Aufrufe scheiterten.
+        let okCount = 0, fehlerCount = 0;
         for (const r of (p && p.referenzen || [])) {
-            try { await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(r.ref_id)}`, { method: 'DELETE' }); } catch(_e){}
+            const rid = (r && r.ref_id != null) ? String(r.ref_id).trim() : '';
+            if (!rid) { fehlerCount++; continue; }   // nie "undefined" senden
+            try {
+                const resp = await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(rid)}`, { method: 'DELETE' });
+                if (resp.ok) okCount++; else fehlerCount++;
+            } catch (_e) { fehlerCount++; }
         }
         liste.innerHTML = '';
         const fertig = document.createElement('div');
-        fertig.style.cssText = 'color:#9f9;font-size:0.9rem;padding:12px';
-        fertig.textContent = '✅ Alle Referenzen von ' + name + ' gelöscht.';
+        fertig.style.cssText = (fehlerCount ? 'color:#f88;' : 'color:#9f9;') + 'font-size:0.9rem;padding:12px';
+        fertig.textContent = fehlerCount
+            ? `⚠️ ${okCount} Referenz(en) gelöscht, ${fehlerCount} NICHT gelöscht.`
+            : '✅ Alle Referenzen von ' + name + ' gelöscht.';
         liste.appendChild(fertig);
     });
     footer.appendChild(alleBtn);
@@ -5019,16 +5034,54 @@ function zeigeReferenzenVollbild(name) {
                     ph.textContent = '(kein Bild gespeichert)';
                     z.appendChild(ph);
                 }
+                // Kennzeichnen, WELCHE Referenz keinen Ausschnitt hat (alt
+                // gelernt / Originalbild weg): die Zeile bleibt sichtbar und
+                // ist einzeln loeschbar — nur der Hinweis steht dran.
+                if (!z.querySelector('img')) {
+                    const ohneBild = document.createElement('span');
+                    ohneBild.style.cssText = 'color:#c96;font-size:0.72rem;border:1px solid #c96;border-radius:6px;padding:1px 5px';
+                    ohneBild.textContent = '⚠️ ohne Bild';
+                    z.appendChild(ohneBild);
+                }
                 const del = document.createElement('button');
                 del.textContent = '✕ löschen';
                 del.style.cssText = 'padding:3px 9px;border:1px solid #f88;border-radius:6px;background:#2a1515;color:#f88;cursor:pointer;font-size:0.78rem;margin-left:auto';
+                // Sichtbare Rueckmeldung je Zeile. Ein Fehlschlag darf NIE als
+                // "✓ gelöscht" erscheinen (Befund Sebastian 2026-09-20: "eins
+                // loeschen ging nicht, musste alles loeschen" — die Serverantwort
+                // wurde verworfen und der Erfolg nur vorgetaeuscht).
+                const delStatus = document.createElement('span');
+                delStatus.style.cssText = 'color:#f88;font-size:0.72rem;margin-left:4px;flex-basis:100%';
                 del.addEventListener('click', async () => {
-                    await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(r.ref_id)}`, { method: 'DELETE' });
-                    z.style.opacity = 0.35;
-                    del.textContent = '✓ gelöscht';
+                    // NIE eine leere/undefined ID senden: sonst laeuft der
+                    // Aufruf als ".../undefined" ins Leere und wird verschluckt.
+                    const rid = (r && r.ref_id != null) ? String(r.ref_id).trim() : '';
+                    if (!rid) {
+                        delStatus.textContent = '⚠️ NICHT gelöscht: Referenz hat keine ID — Seite neu laden.';
+                        return;
+                    }
+                    if (typeof confirm === 'function' && !confirm(`Diese Referenz von ${name} wirklich löschen?`)) return;
                     del.disabled = true;
+                    delStatus.textContent = '… lösche';
+                    try {
+                        const res = await fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(name)}/${encodeURIComponent(rid)}`, { method: 'DELETE' });
+                        let d = null;
+                        try { d = await res.json(); } catch (_e) { d = null; }
+                        if (res.ok && d && d.ok) {
+                            z.style.opacity = 0.35;
+                            del.textContent = '✓ gelöscht';
+                            delStatus.textContent = '';
+                        } else {
+                            del.disabled = false;   // ehrlich: NICHTS wurde geloescht
+                            delStatus.textContent = '⚠️ NICHT gelöscht: ' + ((d && (d.detail || d.fehler)) || ('HTTP ' + res.status));
+                        }
+                    } catch (e) {
+                        del.disabled = false;
+                        delStatus.textContent = '⚠️ NICHT gelöscht: ' + ((e && e.message) || 'Netzwerkfehler');
+                    }
                 });
                 z.appendChild(del);
+                z.appendChild(delStatus);
                 liste.appendChild(z);
             }
         } catch (e) {

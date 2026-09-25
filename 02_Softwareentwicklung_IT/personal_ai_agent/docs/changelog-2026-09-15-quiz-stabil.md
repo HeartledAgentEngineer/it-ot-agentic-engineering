@@ -140,3 +140,20 @@ E) Referenz-Nachbearbeitung (Katalog -> Referenz -> Bild -> speichern)
 
 * **Keine echten Personendaten** berührt oder gelöscht: Tests biegen `gesichter_service.KATALOG_DATEI` und `gesicht_quiz._FORTSCHRITT_OVERRIDE` auf `tmp_path` um; der Chat-Verlauf wird in Tests stummgeschaltet.
 * Keine Git-Operationen (der Hauptagent committet zentral).
+
+---
+
+## 8. Nachtrag 20.09.: Altdaten ohne `ref_id`
+
+**Befund (Sebastian):** „Bei den abgespeicherten Ausschnittbildern waren wieder welche ohne Bild. Und: ich wollte EINS löschen, musste aber ALLE löschen."
+
+**Ursache (belegt, Datei:Zeile):** Zwei getrennte Dinge.
+
+1. **Einzel-Löschen wirkte nur so, als ginge es nicht.** Die API liefert für Altdaten sehr wohl eine `ref_id` (aus dem Embedding abgeleitet: `gesichter_service.py:374` in `_refs_of`, ausgegeben `:403`), und `referenz_entfernen` löschte auch korrekt. Der Fehler saß in der **Anzeige**: der ✕-Knopf im Referenz-Vollbild (`frontend/app.js`) führte die Anfrage aus, **verwarf aber die Antwort** und schrieb immer „✓ gelöscht". Ein 404/500/Netzabbruch blieb unsichtbar → es sah aus, als müsse man „🗑 Alle Referenzen löschen" nehmen. Dasselbe Muster beim Sammel-Löschen (pauschales „✅ alle gelöscht" ohne Prüfung) und ein toter Confirm (`if (!window.confirm && …)`, immer falsch).
+2. **Referenzen ohne Ausschnittbild** entstehen im Quiz-Pfad `gesicht_quiz.py:757–761`: hat eine Person noch keinen `referenzen`-Block, werden rohe Alt-Vektoren zu `{"embedding": r, "jahr": None}` **ohne `bild_pfad`** normalisiert und gespeichert (`:768`, ebenso `:897`) — plus Referenzen, deren Originaldatei (pCloud) verschoben ist.
+
+**Fix:** stabile `ref_id` wird für Altbestand **migriert** (nur dieses Feld! `gesichter_service.py:292`/`:316`, Aufruf beim ersten Lesen `:393` und beim Speichern `:220`); Löschen/Rahmen-Anpassen treffen eine Referenz über die effektive **oder** die abgeleitete ID (`_ref_passt`, `:270`, genutzt `:462`/`:496`); im Frontend wird die Serverantwort ausgewertet und ein Fehlschlag sichtbar als **„⚠️ NICHT gelöscht: …"** gemeldet, leere IDs werden nicht gesendet, Zeilen ohne Bild tragen das Abzeichen **„⚠️ ohne Bild"** und bleiben einzeln löschbar (`app.js:5040`–`:5084`). Detail-Dokument: `docs/changelog-2026-09-15-ref-loeschen.md`.
+
+**Neue Tests:** `backend/tests/test_gesichter_ref_loeschen.py` (12) und `frontend/tests/test_ref_loeschen_ui.js` (33 Quelltext-Prüfungen in vier Gruppen).
+
+**Verifikation (frisch):** `pytest tests/ -q` → `253 passed` (Baseline 241 + 12, nicht gesunken); `node --check app.js` Exit 0; alle acht `frontend/tests/*.js` Exit 0. Cache-Bump `index.html` → `app.js?v=20260920B`.
