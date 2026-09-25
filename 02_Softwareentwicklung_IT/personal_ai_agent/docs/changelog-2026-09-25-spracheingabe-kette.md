@@ -69,7 +69,20 @@ das Gegenteil und ist korrigiert.
   WebM/WAV-Erkennung, leere Antwort, unplausible Antwort, Totalausfall,
   Anweisungs-Regeln 5–8, Vokabular-Inhalt und -Länge.
 
+## Folge-Regel (für jedes Modell im Projekt)
+
+Ein abgekündigtes Modell darf eine Funktion **nie still** abschalten. Deshalb:
+Modell-Listen statt Einzelnamen, und jeder Ausfall wird **sichtbar** geloggt —
+sonst fällt es wochenlang niemandem auf.
+
 ## Offen
 - Die Erkennung selbst (1,1 %) ist besser als der Glättungs-Zugewinn; ob der
   Agent später denselben Wegwahl-Schalter bekommt wie typeFREE (EU/Groq),
   entscheidet Sebastian — im Agent gilt weiter „nur OpenRouter".
+
+## Hinweis zur Dokumentenlage
+
+Eine Parallel-Session hatte dieselbe Ursache unabhängig beschrieben
+(`changelog-2026-09-25-glaettung-modellkette.md`, Prüflauf mit 358 Tests). Zwei
+Changelogs für eine Änderung sind Doku-Drift — der Inhalt (Folge-Regel oben,
+Messwerte unten 376 statt 358) ist hier aufgegangen, die Doppeldatei entfernt.
