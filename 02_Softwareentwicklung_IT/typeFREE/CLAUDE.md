@@ -13,13 +13,14 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`. **`eu` (Standard) ist die reine OpenRouter-Kette** mit dem besten ZDR-konformen Modell zuerst: `microsoft/mai-transcribe-1.5` (Transkriptions-Endpunkt, gemessen 1,1 % Wortfehler bei 69,7 s), `mistralai/voxtral-small-24b-2507-stt` (Mistral/Frankreich), `mistralai/voxtral-small-24b-2507` (Audio-Chat — der einzige Weg, der die Fachbegriffe mitgeben kann). Ebenfalls wählbar: `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel eines Glieds, rückt das nächste ein. Fällt der gewählte Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb 25.09.2026: Auswahl `eu`, Groq- und OpenAI-Schlüssel stillgelegt (Sicherungen `.env.bak-groq`/`.env.bak-openai`) — es geht **nur noch OpenRouter** |
+| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`. **`eu` (Standard) ist die reine OpenRouter-Kette** mit dem besten ZDR-konformen Modell zuerst: `microsoft/mai-transcribe-2` (0,3 % Wortfehler an 140 s Deutsch in 3,8 s, 0,10 $/h), `microsoft/mai-transcribe-1.5` (dito, 0,36 $/h), `mistralai/voxtral-small-24b-2507-stt` (Mistral/Frankreich), `mistralai/voxtral-small-24b-2507` (Audio-Chat — der einzige Weg, der die Fachbegriffe mitgeben kann, läuft bei langem Audio aber in eine 429). Ebenfalls wählbar: `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel eines Glieds, rückt das nächste ein. Fällt der gewählte Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb 25.09.2026: Auswahl `eu`, Groq- und OpenAI-Schlüssel stillgelegt (Sicherungen `.env.bak-groq`/`.env.bak-openai`) — es geht **nur noch OpenRouter** |
 | Text-Glättung | OpenRouter über eine **Modellkette** (`POLISH_MODELLE`): `google/gemini-2.5-flash` (0,8 s), `google/gemini-3.5-flash-lite`, `google/gemini-2.5-flash-lite`. Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler, unplausibel kurzem Ergebnis oder abgekündigtem Modell rückt das nächste Modell nach; erst dann kommt der Rohtext. Drei Ausfälle in Folge → einmaliger Windows-Hinweis |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT` |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
 | Text einfügen | `pyperclip` + `pyautogui` (Strg+V — unterstützt Umlaute) |
 | Status | `pystray`-Tray-Icon, fünf Farben: grau/grün/orange/blau/**rot = Fehler**; kein Overlay, kein tkinter |
 | Fehlermeldung | Windows-Sprechblase über `tray_icon.notify` + rotes Icon, das rot bleibt bis zur nächsten erfolgreichen Aufnahme |
+| Erneuter Versuch | Bei einem Fehlschlag bleibt die Aufnahme im **Arbeitsspeicher** (`aufnahme_merken` → `letzte_aufnahme`) — bewusst nicht auf der Platte. Das Tray-Menü bietet „Letztes Diktat erneut versuchen (N s)" an (`_on_retry`, eigener Thread, ruft `_verarbeite_audio(…, erneut=True)`); ein Erfolg verwirft sie (`retry_verwerfen`). Grund (Sebastian, 25.09.2026): „Ich möchte nicht mehrere Minuten labern und dann ist alles weg" |
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook`. Jedes Diktat protokolliert Anbieter, Modell und **Zeiten je Stufe** (`zeiten_text`) |
 | API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv); echte Umgebungsvariablen haben Vorrang |
 | Konfiguration | `windows/config.json` (gewählter Hotkey) |
@@ -208,6 +209,25 @@ hier deckt sich das mit dem Auftragstext-Vorfall.
 |---|---|---|---|
 | `microsoft/mai-transcribe-1.5` | **1,1 %** | vollständig | 4,8 s |
 | `openai/whisper-large-v3` | 3,4 % | vollständig | 3,4 s |
+
+**Eigene Messung an 140 s natürlichem Deutsch** (fortlaufender Text, 325 Wörter,
+per TTS gesprochen — nicht wiederholt, sonst lassen Modelle Wiederholungen weg
+und die Zahlen werden ungültig):
+
+| Weg über OpenRouter | Wortfehler | Wörter | Zeit | Deutsch? |
+|---|---|---|---|---|
+| **`microsoft/mai-transcribe-2`** | **0,3 %** | 325 / 325 | **3,8 s** | ja |
+| `microsoft/mai-transcribe-1.5` | 0,3 % | 325 / 325 | 11,8 s | ja |
+| `mistralai/voxtral-small-24b-2507-stt` | 0,3 % | 325 / 325 | 18,9 s | ja (nur mit `language="de"` — ohne übersetzt er ins Englische) |
+| `openai/whisper-large-v3` | 1,2 % | 324 / 325 | 4,5 s | ja |
+| `google/gemini-3.5-flash` (Chat) | 0,3 % | 325 / 325 | 12,6 s | ja |
+| `mistralai/voxtral-small-24b-2507` (Chat) | – | – | 27,5 s | **429** |
+
+Daraus die Reihenfolge der `eu`-Kette: `mai-transcribe-2` (schnell, genau, billig)
+→ `mai-transcribe-1.5` → `voxtral-…-stt` → `voxtral-…` (Chat, letzter Weg).
+`google/gemini-3.5-transcribe` fällt aus: „0 endpoints out of 1 requested" —
+für dieses Modell bietet OpenRouter **keinen ZDR-Endpunkt** an, das Konto lehnt es
+damit ab (derselbe Mechanismus, der die ZDR-Vorgabe durchsetzt).
 
 **Entscheidung:** `microsoft/mai-transcribe-1.5` steht an erster Stelle der
 `eu`-Kette — über OpenRouter erreichbar, ZDR-konform (das Konto lehnt nicht

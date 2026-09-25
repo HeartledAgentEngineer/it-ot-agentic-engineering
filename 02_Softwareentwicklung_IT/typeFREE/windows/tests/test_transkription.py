@@ -139,12 +139,13 @@ def test_regelweg_ist_der_eu_weg():
 
 def test_eu_weg_bleibt_bei_openrouter():
     """Sebastians Vorgabe 25.09.2026: „nur über OpenRouter" — kein fremder Anbieter
-    im Regelweg, und das beste Modell zuerst (Messung: mai-transcribe-1.5 mit 1,1 %
-    Wortfehlern am Referenzaudio)."""
+    im Regelweg, und das beste Modell zuerst. Gemessen an 140 s natürlichem Deutsch:
+    mai-transcribe-2 mit 0,3 % Wortfehlern in 3,8 s (mai-transcribe-1.5: 0,3 % in
+    11,8 s, whisper-large-v3: 1,2 %)."""
     kette = typefree.KETTEN['eu']
     assert all(adresse == 'https://openrouter.ai/api/v1' for _, _, adresse, _ in kette)
     name, modell, _, weg = kette[0]
-    assert (name, modell, weg) == ('mai', 'microsoft/mai-transcribe-1.5', 'stt')
+    assert (name, modell, weg) == ('mai', 'microsoft/mai-transcribe-2', 'stt')
 
 
 def test_eu_weg_hat_mehrere_wege_und_einen_mit_vokabular():
@@ -225,7 +226,7 @@ def test_der_schnelle_weg_ist_billiger_als_der_eu_weg():
 def test_verfuegbare_anbieter_haelt_die_kettenreihenfolge():
     umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == (
-        'mai', 'voxtral', 'voxtral-chat')
+        'mai', 'mai-1.5', 'voxtral', 'voxtral-chat')
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['schnell']) == ('groq',)
 
 

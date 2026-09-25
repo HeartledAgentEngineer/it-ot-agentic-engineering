@@ -156,13 +156,15 @@ KETTEN = {
     'eu': (
         # Reine OpenRouter-Kette, bestes Modell zuerst (Sebastians Vorgabe
         # 25.09.2026: „nur über OpenRouter und das beste Modell, das meinem
-        # ZDR-Datenschutz entspricht"). Das Konto erzwingt ZDR für alle drei.
-        # Reihenfolge nach eigener Messung am Referenzaudio:
-        #   1. mai-transcribe-1.5 — 1,1 % Wortfehler, 69,7 s vollständig
-        #   2. voxtral-small-24b-2507-stt — Mistral (EU), über den
-        #      Transkriptions-Endpunkt (kennt die Drosselung des Chat-Wegs nicht)
-        #   3. voxtral-small-24b-2507 (Chat) — der einzige Weg mit Vokabular
-        ('mai', 'microsoft/mai-transcribe-1.5',
+        # ZDR-Datenschutz entspricht"). Das Konto erzwingt ZDR für alle Glieder.
+        # Reihenfolge nach eigener Messung an 140 s natürlichem Deutsch
+        # (325 Wörter, TTS): mai-transcribe-2 0,3 % in 3,8 s und 0,10 $/h;
+        # mai-transcribe-1.5 0,3 % in 11,8 s und 0,36 $/h; voxtral-stt 0,3 %
+        # in 18,9 s; whisper-large-v3 1,2 % in 4,5 s; der Chat-Weg läuft bei
+        # langem Audio in eine 429 und ist deshalb letztes Glied.
+        ('mai', 'microsoft/mai-transcribe-2',
+         'https://openrouter.ai/api/v1', 'stt'),
+        ('mai-1.5', 'microsoft/mai-transcribe-1.5',
          'https://openrouter.ai/api/v1', 'stt'),
         ('voxtral', 'mistralai/voxtral-small-24b-2507-stt',
          'https://openrouter.ai/api/v1', 'stt'),
@@ -212,7 +214,8 @@ WEG_BESCHRIFTUNG = {
 SCHLUESSEL_JE_ANBIETER = {
     'voxtral':      'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
     'voxtral-chat': 'OPENROUTER_API_KEY',   # dito, Audio-Chat statt Endpunkt
-    'mai':          'OPENROUTER_API_KEY',   # Microsoft mai-transcribe über OpenRouter
+    'mai':          'OPENROUTER_API_KEY',   # Microsoft mai-transcribe-2
+    'mai-1.5':      'OPENROUTER_API_KEY',   # Microsoft mai-transcribe-1.5
     'groq':       'GROQ_API_KEY',
     'openrouter': 'OPENROUTER_API_KEY',
     'scribe':     'ELEVENLABS_API_KEY',   # ElevenLabs Scribe
@@ -233,7 +236,8 @@ PREISE_JE_MINUTE = {
     'openai':     0.006,     # whisper-1
     'voxtral':    0.0059,    # gemessen: 0,0024 $ für 24,5 s (Mistral über OpenRouter)
     'voxtral-chat': 0.0059,  # dito, Audio-Chat — gleicher Modellpreis
-    'mai':        0.006,     # mai-transcribe-1.5, 0,36 $/Stunde (OpenRouter-Preisliste)
+    'mai':        0.00167,   # mai-transcribe-2, 0,10 $/Stunde (OpenRouter-Preisliste)
+    'mai-1.5':    0.006,     # mai-transcribe-1.5, 0,36 $/Stunde
     'scribe':     0.0044,    # 0,22 $/Stunde + 20 % Keyterms = 0,264 $/Stunde
 }
 WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']
@@ -501,6 +505,20 @@ def _on_quit(icon, item):
     _close_stream()
     icon.stop()
 
+
+def _on_retry(icon, item):
+    """Fehlgeschlagenes Diktat erneut transkribieren — die Aufnahme liegt bereit.
+
+    Läuft im eigenen Thread: Der Tray darf während des Netzaufrufs nicht hängen.
+    """
+    if not retry_bereit():
+        return
+    daten = letzte_aufnahme['daten']
+    log.info('Erneuter Versuch über das Tray-Menü angefordert')
+    _status_transcribing()
+    threading.Thread(target=_verarbeite_audio, args=(daten, True),
+                     daemon=True).start()
+
 def _select_hotkey(index):
     """Baut den Menü-Handler für einen Eintrag der Auswahlliste."""
     def _apply(icon, item):
@@ -575,6 +593,8 @@ def _start_tray(on_ready=None):
         pystray.MenuItem(lambda item: f"  Weg: {WEG_BESCHRIFTUNG[transkription_wahl()]}",
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem(lambda item: retry_text(), _on_retry,
+                         enabled=lambda item: retry_bereit()),
         pystray.MenuItem('Beenden', _on_quit),
     )
     tray_icon = pystray.Icon(
@@ -1139,7 +1159,8 @@ def transkriptions_clients():
     """
     return {'voxtral': openrouter_client,     # Mistral, ausgeführt über OpenRouter
             'voxtral-chat': openrouter_client,
-            'mai': openrouter_client,         # Microsoft mai-transcribe
+            'mai': openrouter_client,         # Microsoft mai-transcribe-2
+            'mai-1.5': openrouter_client,     # Microsoft mai-transcribe-1.5
             'groq': groq_client,
             'openrouter': openrouter_client,  # Whisper über OpenRouter (STT-Weg)
             'openai': openai_whisper_client}
@@ -1339,6 +1360,41 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
         raise
 
 
+# ── Erneuter Versuch: Aufnahme eines Fehlschlags behalten ─────────────────────
+# Sebastian (25.09.2026): „Ich möchte nicht mehrere Minuten labern und dann ist
+# alles weg." Deshalb bleibt die letzte fehlgeschlagene Aufnahme im
+# Arbeitsspeicher — nicht auf der Platte, dieselbe Datensparsamkeit wie bisher —
+# und das Tray-Menü bietet sie erneut an. Ein Erfolg verwirft sie.
+letzte_aufnahme = None
+
+
+def aufnahme_merken(daten, fehler=''):
+    """Aufnahme für einen erneuten Versuch behalten — nur im Arbeitsspeicher."""
+    global letzte_aufnahme
+    letzte_aufnahme = {'daten': daten, 'sekunden': len(daten) / SAMPLE_RATE,
+                       'zeit': time.time(), 'fehler': fehler}
+    log.info('Aufnahme für erneuten Versuch bereitgehalten (%.1f s, %.1f MB)',
+             letzte_aufnahme['sekunden'], daten.nbytes / 1024 / 1024)
+
+
+def retry_bereit():
+    """Liegt eine fehlgeschlagene Aufnahme bereit?"""
+    return letzte_aufnahme is not None
+
+
+def retry_verwerfen():
+    """Nach einem Erfolg gibt es nichts zu wiederholen."""
+    global letzte_aufnahme
+    letzte_aufnahme = None
+
+
+def retry_text():
+    """Beschriftung des Tray-Eintrags — mit Länge, damit man weiß, was kommt."""
+    if letzte_aufnahme is None:
+        return 'Letztes Diktat erneut versuchen'
+    return 'Letztes Diktat erneut versuchen (%.0f s)' % letzte_aufnahme['sekunden']
+
+
 def stop_and_transcribe():
     global is_recording, verbrauch, _glattung_ausfaelle
 
@@ -1368,6 +1424,22 @@ def stop_and_transcribe():
                     'wahrscheinlich; näher ans Mikrofon', rms,
                     AUSSTEUERUNG_MIN_RMS)
 
+    _verarbeite_audio(audio_data)
+
+
+def _verarbeite_audio(audio_data, erneut=False):
+    """Transkribieren, glätten, einfügen — auch für einen erneuten Versuch.
+
+    Bei einem Fehlschlag bleibt die Aufnahme über `aufnahme_merken` im
+    Arbeitsspeicher, damit das Tray-Menü sie wiederholen kann: Wer zwei Minuten
+    diktiert hat, soll sie nicht noch einmal sprechen müssen.
+    """
+    global verbrauch, _glattung_ausfaelle
+
+    dauer = len(audio_data) / SAMPLE_RATE
+    if erneut:
+        log.info('Erneuter Versuch mit der behaltenen Aufnahme (%.1f s)', dauer)
+
     buffer = io.BytesIO()
     sf.write(buffer, audio_data, SAMPLE_RATE, format='WAV', subtype='PCM_16')
     buffer.seek(0)
@@ -1395,6 +1467,7 @@ def stop_and_transcribe():
         time.sleep(0.3)
         pyautogui.hotkey('ctrl', 'v')
         _status_idle()        # nur im Erfolgsfall zurück auf grau
+        retry_verwerfen()     # angekommen — nichts mehr zu wiederholen
 
         # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
         verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
@@ -1411,7 +1484,10 @@ def stop_and_transcribe():
 
     except Exception as e:
         log.exception('Transkription fehlgeschlagen')
-        report_error('Text konnte nicht erzeugt werden: %s' % e)
+        aufnahme_merken(audio_data, str(e))
+        report_error('Text konnte nicht erzeugt werden: %s\n\nDie Aufnahme '
+                     '(%.0f s) liegt bereit — Tray-Menü: „Letztes Diktat '
+                     'erneut versuchen".' % (e, dauer))
 
 
 # ── Tastenerkennung ───────────────────────────────────────────────────────────
