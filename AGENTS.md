@@ -54,7 +54,7 @@ prüft dabei, ob der Pull sauber durchgeht; schlägt er fehl (z. B. lokale
 ## Sicherheit: Persönliche Datenarchive
 
 `Chats von GPT, GEMINI, Claude/` enthält vollständige Chat-Archive und
-Google-Takeout-Daten. Die Sperre in `.gitignore` (Zeile 112) bleibt unverändert
+Google-Takeout-Daten. Die Sperre in `.gitignore` für `Chats von GPT, GEMINI, Claude/` bleibt unverändert
 bestehen. Soll etwas daraus versioniert werden, wird die Datei außerhalb dieses
 Ordners neu angelegt.
 
