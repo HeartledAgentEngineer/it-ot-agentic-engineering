@@ -103,6 +103,29 @@ LifeBrain Agent"* — ein wandelndes, sich fortentwickelndes Abbild des eigenen 
   Antwort, optional als Sprache zurück.
 - **Datenschutz-Regel bleibt:** Audio geht an **OpenRouter** (kein neuer Empfänger), keine
   Speicherung von Audio/Bildern im Agent-Backend.
+- **Sofort sprechen:** Nach dem Trigger („OK Agent" / Assistenten-Geste) öffnet sich die App und
+  die Antwort wird **direkt vorgelesen** — Text erscheint dazu. Das ist der Unterschied zu Gemini,
+  den Sebastian ausdrücklich will.
+
+**D4 — Overlay und Stimmen („eigenes Gemini" als Erlebnis)**
+
+- **Overlay:** ein schwebendes Fenster über anderen Apps (Android-Recht „Über anderen Apps
+  einblenden" + Foreground-Service). Als Assistenten-App auch über dem **Sperrbildschirm**.
+  Einschätzung: machbar, aber der **empfindlichste** Teil (Hersteller-Einschränkungen möglich) →
+  **erst nach** dem APK-Gerüst, als eigener kleiner Schritt, mit Test auf dem Edge 50.
+  Wenn es zickt: nicht verbiegen — dann läuft es eben im eigenen Fenster (App statt Overlay).
+- **Stimmen — kostenlos und ohne neues Konto (geprüft 25.09.2026):**
+  1. **Stimme des Handys** (`com.google.android.tts` ist installiert): kostenlos, **offline**,
+     kein Konto, sofort da — die sichere Voreinstellung.
+  2. **edge-tts** (Microsoft-Stimmen, **kostenlos, kein Schlüssel, kein Konto**; auf dem PC bereits
+     installiert, Version 7.2.7): natürlichere deutsche Stimmen. Läuft im Backend; braucht Netz.
+     Ehrlicher Hinweis: inoffizieller Zugang zu Microsofts Dienst — funktioniert, ohne Zusage.
+  3. **Piper** (voll lokal, offline, kostenlos): Modell (~60 MB) nötig, rechnet auf der CPU —
+     der Weg, wenn es **ohne Netz** gehen soll.
+- **Ausdrücklich nicht:** ElevenLabs oder ein weiterer Anbieter mit Lizenz und Guthaben.
+- **Bauweise wie bei der Erkennung:** Stimmen als **Daten** (eine Liste, ein Eintrag je Stimme,
+  umschaltbar in der Oberfläche) — kein neuer Codepfad je Anbieter.
+
 
 ### Stufe C — Der Agent wird ein Handy-Begleiter
 
