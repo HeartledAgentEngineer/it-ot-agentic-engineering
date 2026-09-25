@@ -42,7 +42,7 @@ Pfade sind relativ zum Projektverzeichnis.
 
 | Projekt | Prüfbefehl (aus dem Projektverzeichnis) | Stand |
 |---|---|---|
-| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **208 grün**, Exit 0 (15.09.2026) |
+| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **304 grün**, Exit 0 (25.09.2026) |
 | `concertify` | `.venv/Scripts/python.exe -m pytest tests -q` | **180 grün**, Exit 0 (15.09.2026) |
 | `typeFREE` | ⚠️ **blockiert** — kein `.venv` im Repo, globales Python hat `keyboard` nicht → 12 Collection-Errors. Reaktivierung: venv anlegen + `requirements` installieren | offen (15.09.2026) |
 | `RAG-Systeme` | **fehlt.** Nur `test_embeddings.py` als Einzelskript, keine Testsuite | — |
