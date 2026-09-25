@@ -90,3 +90,21 @@ Der Aufschlag kommt nur beim **Aufladen**:
 
 Verifiziert gegen einen echten Kaufdialog: $17,00 Guthaben = $0,94 Service
 + $3,41 USt = $21,35 Cash.
+
+## chat_kosten.py — was jeder Chat gekostet hat
+
+```bash
+python chat_kosten.py                      # heute, Top 10
+python chat_kosten.py --zeitraum alles     # seit immer
+python chat_kosten.py --zeitraum woche     # diese Woche ab Montag
+python chat_kosten.py --chat "agentic"     # Zeitleiste eines Chats
+python chat_kosten.py --csv                # fuer Tabellenkalkulation
+```
+
+**Warum es das braucht:** Die Statusleiste liest den LIVE-Zaehler der Session, der
+beim App-Start bei Null beginnt. Sie zeigt deshalb nur die Aktivitaet seit dem
+Start, nicht die Lebenszeit des Chats. Die Datenbank kennt die volle Historie.
+
+**Falle im Code:** `last_seen` in `session_model_usage` ist ein UNIX-Zeitstempel
+(REAL), kein Datumsstring. `date(last_seen) = date('now')` liefert immer 0 Zeilen.
+Richtig ist `last_seen >= strftime('%s','now',...)`.
