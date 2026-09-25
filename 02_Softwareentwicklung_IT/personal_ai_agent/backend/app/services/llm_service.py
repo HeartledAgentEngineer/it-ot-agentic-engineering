@@ -274,16 +274,102 @@ class LLMService:
 
         return prompt
 
-    def _build_memory_context(self, memories: List[Dict[str, Any]]) -> str:
-        """Build a memory context string from retrieved memories."""
+    # Harte Obergrenze des Erinnerungs-Blocks im Prompt (Zeichen).
+    #
+    # Vorher galt in `memory_service` ALLES_MITGEBEN_BIS = 300: Bis 300
+    # Eintraege wanderte der KOMPLETTE Bestand in jede Frage - bei den 175
+    # Eintraegen des Handys rund 11.000 Zeichen (~2.500 Token), unabhaengig
+    # vom Thema der Frage. Seit dem 25.09.2026 waehlt `memory_service` aus
+    # (top_k). Diese Grenze ist der zweite Riegel: Sie greift auch dann, wenn
+    # ein Aufrufer mehr Eintraege mitgibt. 1.200 Zeichen sind grob 300 Token.
+    #
+    # Genaue Zusage: Die EINTRAEGE passen hinein; nur die eine Schlusszeile
+    # „N weitere ausgelassen" darf den Block um bis zu ~90 Zeichen
+    # ueberschreiten - sonst waere das Weglassen unsichtbar.
+    MEMORY_BLOCK_MAX_ZEICHEN = 1200
+
+    # Anzeigenamen der Arten. Auch die alten Kategoriewerte stehen hier, damit
+    # ein noch nicht migrierter Alteintrag ("fact") genauso lesbar bleibt.
+    _ART_TEXTE = {
+        "fakt": "Fakt", "fact": "Fakt",
+        "termin": "Termin", "ereignis": "Termin",
+        "zustand": "Zustand", "detail": "Zustand", "preference": "Zustand",
+        "context": "Zustand", "project": "Zustand",
+    }
+
+    def _erinnerung_zeile(self, mem: Dict[str, Any]) -> str:
+        """Eine Zeile des Erinnerungs-Blocks - mit Art und Zeitbezug.
+
+        Der Zeitbezug muss am Eintrag stehen: Ohne ihn behandelt das Modell
+        einen vergangenen Termin wie einen kommenden. Ein vergangener Termin
+        ist hier ausdruecklich als VERGANGEN beschriftet - er kommt nur mit,
+        wenn die Frage auf die Vergangenheit zielt.
+        """
+        inhalt = str(mem.get("content", "")).strip()
+        art_roh = str(mem.get("art") or mem.get("category") or "fakt").strip().lower()
+        beschriftung = self._ART_TEXTE.get(art_roh, art_roh)
+        datum = mem.get("ereignis_datum")
+        zeitbezug = mem.get("zeitbezug")
+        lage = zeitbezug.get("lage") if isinstance(zeitbezug, dict) else None
+
+        if art_roh in ("termin", "ereignis"):
+            if mem.get("wiederkehrend"):
+                return f"- {inhalt} ({beschriftung}, wiederkehrend)"
+            if datum and lage == "vergangen":
+                return f"- {inhalt} ({beschriftung} war am {datum} – VERGANGEN, nur Historie)"
+            if datum:
+                return f"- {inhalt} ({beschriftung} am {datum})"
+            return f"- {inhalt} ({beschriftung})"
+        if art_roh in ("zustand", "detail", "preference", "context", "project"):
+            return f"- {inhalt} ({beschriftung}, veränderlich)"
+        return f"- {inhalt} ({beschriftung})"
+
+    def _build_memory_context(
+        self, memories: List[Dict[str, Any]], max_zeichen: Optional[int] = None
+    ) -> str:
+        """Erinnerungs-Block fuer den System-Prompt - begrenzt und ehrlich.
+
+        Zwei Dinge sind hier Absicht:
+
+        1. **Zeichengrenze** (``MEMORY_BLOCK_MAX_ZEICHEN``): Es wandern nur so
+           viele Eintraege hinein, wie hineinpassen. Was fehlt, wird gezaehlt
+           und benannt - nicht still verschwiegen.
+        2. **Zustand der Suche:** Hat `memory_service` ohne Vektoren
+           ausgewaehlt, steht das als Hinweis im Block. Sonst hielte das
+           Modell eine Notloesung fuer eine Bedeutungssuche.
+        """
         if not memories:
             return ""
 
-        context_parts = ["\n## GEMERKTE INFORMATIONEN AUS FRÜHEREN GESPRÄCHEN:"]
-        for mem in memories:
-            context_parts.append(f"- {mem['content']} (Kategorie: {mem['category']})")
+        grenze = self.MEMORY_BLOCK_MAX_ZEICHEN if max_zeichen is None else max_zeichen
+        kopf = "\n## GEMERKTE INFORMATIONEN AUS FRÜHEREN GESPRÄCHEN:"
 
-        return "\n".join(context_parts)
+        hinweis = next(
+            (str(m.get("such_hinweis")) for m in memories if m.get("such_hinweis")), ""
+        )
+
+        zeilen: List[str] = []
+        laenge = len(kopf)
+        if hinweis:
+            zeile = f"- (Suche: {hinweis})"
+            zeilen.append(zeile)
+            laenge += len(zeile) + 1
+
+        ausgelassen = 0
+        for mem in memories:
+            zeile = self._erinnerung_zeile(mem)
+            if laenge + len(zeile) + 1 > grenze:
+                ausgelassen += 1
+                continue
+            zeilen.append(zeile)
+            laenge += len(zeile) + 1
+
+        if ausgelassen:
+            zeilen.append(
+                f"- ({ausgelassen} weitere Erinnerung(en) ausgelassen – Platzgrenze des Blocks)"
+            )
+
+        return "\n".join([kopf] + zeilen)
 
     def _extra_body(
         self,

@@ -9,17 +9,85 @@ für Erinnerungen — das müssen wir deutlich verbessern."*
 Reihenfolge. Ein offensichtlicher Fehler (Erinnerungen waren in der Oberfläche nicht
 sichtbar, obwohl sie existieren) ist unten unter „§6 Minimal gefixt" belegt behoben.
 
-**Prüfbefehle (Stand dieses Dokuments, beide grün):**
-- Backend: `cd backend && .venv/Scripts/python -m pytest tests/ -q` → **263 passed** (vorher 253)
+**Prüfbefehle (Stand dieses Dokuments):**
+- Backend: `cd backend && .venv/Scripts/python -m pytest tests/ -q` → **304 passed**
+  (25.09.2026 abends, nach dem Gedächtnis-Ausbau; vorher 263, davor 253)
 - Frontend: `node --check app.js` + `for t in tests/test_*.js; do node $t app.js; done` → **9/9 grün**
-  (vorher 8, neu: `tests/test_gedaechtnis_ui.js`)
+  (Stand 25.09.2026 vormittags). Hier **nicht** nachgemessen: `frontend/app.js` gehört einem
+  parallelen Strang und wurde von dieser Arbeit nicht angefasst.
 
 **Keine echten Erinnerungsinhalte in diesem Dokument.** Es stehen nur Zahlen, Feldnamen
 und Strukturen darin. Alle Tests laufen in `tmp_path`, nie gegen den echten Bestand.
 
 ---
 
+## Entschieden 25.09.2026 (verbindlich)
+
+Sebastian hat am 25.09.2026 vier Punkte entschieden und den Zeitbezug ergänzt. Diese
+Entscheidungen sind **bindend**; sie lösen die Fragen 1, 5 und 6 aus §7 ab. Umgesetzt ist
+alles im Backend — Details, Ursachen mit Datei:Zeile und Testausgaben in
+`docs/changelog-2026-09-25-gedaechtnis-qualitaet.md`.
+
+### E1 — Einbettungen über OpenRouter
+
+`POST https://openrouter.ai/api/v1/embeddings` (OpenAI-kompatibel), Modell-Liste über
+`/api/v1/embeddings/models`, Standard `openai/text-embedding-3-small` (rund 0,02 $/1 Mio
+Token); der Schlüssel ist vorhanden. **Mistral entfällt**, das lokale Modell
+(sentence-transformers) ebenfalls — es ist auf keinem der beiden Geräte installiert.
+
+*Datenschutz-Folge, ausgesprochen:* Die **Frage** verlässt das Gerät (sie wird eingebettet);
+Erinnerungsinhalte gehen beim **Anlegen** und beim **Nachrüsten** von Vektoren hinaus. Sie
+gingen vorher ohnehin schon mit dem LLM-Prompt hinaus — die Erinnerungen sind der Teil, den
+der Agent dem Modell ohnedies zeigt.
+
+### E2 — Korrektur ersetzt, alte Fassung bleibt als Verlauf
+
+Widerspricht ein neuer Eintrag einem alten zum **selben Gegenstand** („zehn" vs. „elf" Jahre,
+„Rex" vs. „Max", Datum geändert), wird die **neue Fassung aktiv** und die **alte wandert in
+das Feld `history`** des Eintrags (alter Inhalt + Zeitpunkt der Ablösung). **Gelöscht wird
+nichts.** Reine Doppelungen (echte Wiederholung ohne Widerspruch) werden weiterhin
+zusammengefasst — nicht zweimal angelegt.
+
+### E3 — Sanftes Vergessen
+
+Alte/seltene Erinnerungen **treten zurück** (kleiner, gedeckelter Abzug in der Rangfolge je
+Alter), werden aber **nie gelöscht** und nie versteckt.
+
+### E4 — Reihenfolge
+
+Erst diese Arbeit (Korrekturen + Relevanz + Zeitbezug + Transparenz), **danach** der
+Chat-Verlauf-Import (§3, Option C1).
+
+### E5 — Zeitbezug (neuer Wunsch vom 25.09.2026)
+
+Drei Arten von Erinnerungen, jede mit eigenem Verhalten:
+
+| Art | Beispiel | Verhalten |
+|---|---|---|
+| `fakt` (unveränderlich) | „Oma Helga ist meine Oma" | immer Kandidat; wird nur durch eine Korrektur abgelöst (E2) |
+| `termin` (mit Datum) | „am 2. November Zahnarzttermin mit Zahnreinigung" | **vor** dem Termin wichtig (Zuschlag, je näher desto größer); **nach** dem Termin nicht mehr „aktuell" im Prompt — aber auffindbar über Suche/Frage („war 2026 beim Zahnarzt?" → Nachweis für Zahnkontrollheft/Bonus beim Zahnersatz) |
+| `zustand` (veränderlich) | „Lieblingsgetränk ist Kaffee" → später Tee | neue Fassung gilt, alte tritt zurück (E2) |
+
+Damit sind `category` und `importance` **keine toten Felder mehr**: die Art steuert Auswahl
+und Prompt-Darstellung, `importance` (Termine 4, sonst 3) zählt in der Rangfolge mit.
+Bestandsdaten werden über `POST /api/memory/migration` nachgezogen (Standard = Trockenlauf;
+Inhalt bleibt unverändert, Anzahl bleibt gleich, nichts wird gelöscht).
+
+### E6 — Transparenz
+
+`GET /api/memory/erklaeren?begriff=…` erklärt **lesend** (kein LLM, kein Netzaufruf), was der
+Agent über einen Begriff weiß: Treffer mit Art, Zeitbezug, aktiv/Historie. Damit ist „wie
+merkt sich der Agent etwas" nachprüfbar statt behauptet.
+
+---
+
 ## 1. Ist-Zustand (belegt am Code und am laufenden System)
+
+> **Hinweis (25.09.2026, abends):** Dieser Abschnitt beschreibt den Stand **vor** dem
+> Gedächtnis-Ausbau. Die seither behobenen Punkte sind jeweils mit
+> „→ **behoben am 25.09.2026**" markiert; der neue Stand steht unter
+> „Entschieden 25.09.2026" (oben) und in
+> `docs/changelog-2026-09-25-gedaechtnis-qualitaet.md`.
 
 ### 1.1 Wo Erinnerungen ERZEUGT werden — und ob das im Chat läuft
 
@@ -70,6 +138,9 @@ drei Kategorien und vier von fünf Stufen sind toter Code.
 - **In den Prompt:** `backend/app/services/llm_service.py:472-475` + `_build_memory_context()`
   (`llm_service.py:277-286`) → Block `## GEMERKTE INFORMATIONEN AUS FRÜHEREN GESPRÄCHEN:`
   mit je `- <Inhalt> (Kategorie: <Kategorie>)`.
+  *Neu seit 25.09.2026:* `- <Inhalt> (Fakt|Termin am <Datum>|Termin war am <Datum> – VERGANGEN,
+  nur Historie|Zustand, veränderlich)`, mit Zeichengrenze `MEMORY_BLOCK_MAX_ZEICHEN = 1200`
+  und einem sichtbaren Hinweis, wenn ohne Vektoren ausgewählt wurde.
 
 **Nachgemessen** (Lese-Probe gegen die PC-Arbeitskopie, nur Aggregate ausgegeben):
 ```
@@ -85,6 +156,9 @@ Blockkopf vorhanden: True
 Bei ≤ 300 Einträgen wird **nicht ausgewählt** — es wandert der *ganze* Bestand in jeden
 Prompt, `top_k` ist wirkungslos (im Test festgehalten). Bei 175 Einträgen sind das grob
 11.000 Zeichen ≈ 2.500 Token **je Frage** — unabhängig vom Thema der Frage.
+→ **behoben am 25.09.2026** (E2/E4): `ALLES_MITGEBEN_BIS` ist entfernt, es wird immer
+ausgewählt (`MEMORY_TOP_K = 8`, Chat-Wege weiter mit `top_k=5`/`3`), zusätzlich gilt die
+Zeichengrenze im Prompt-Block.
 
 ### 1.4 Die Oberfläche — der Kern des Befunds
 
@@ -142,11 +216,17 @@ Dinge über Sebastian, und kein einziges davon war in der App zu sehen oder zu e
    wirkungslos (Test `test_kleiner_speicher_wandert_vollstaendig_in_den_prompt`). Kein Bezug
    zur Frage, keine Gewichtung. Bei 175 Einträgen ≈ 2.500 Token pro Frage — und im Text
    stehen auch Einträge, die mit der Frage nichts zu tun haben.
+   → **behoben am 25.09.2026** (Entscheidung E1/E4, siehe „Entschieden 25.09.2026" und
+   `docs/changelog-2026-09-25-gedaechtnis-qualitaet.md`). Der Test heißt jetzt
+   `test_top_k_wirkt_auch_bei_kleinem_speicher`.
 4. **Keine Kategorien, keine Wichtigkeit, kein Alter.** Alles wird als `fact` mit
    `importance=3` gespeichert (`memory_service.py:262-269`); `importance` wird **nirgends
    gelesen** (nur geschrieben und durchgereicht: `chroma_client.py:66,107`, `models.py:98,110`);
    `timestamp` taucht nur in der API-Antwort auf (`router/memory.py:27`). Kein Verfall, keine
    Rangfolge, keine Gruppierung.
+   → **behoben am 25.09.2026** (Entscheidung E5): drei Arten (`fakt`/`termin`/`zustand`),
+   `importance` zählt in der Rangfolge mit, Alter tritt sanft zurück (nie gelöscht);
+   Alteinträge werden über `POST /api/memory/migration` nachgezogen.
 5. **Die Wiederholungs-Prüfung schluckt echte Änderungen.** `AEHNLICHKEIT_SCHWELLE = 0.90`
    auf Zeichenähnlichkeit (`memory_service.py:49,98-104`). Gemessen an konstruierten Paaren,
    die die Regel als **dieselbe** Tatsache verwirft:
@@ -168,6 +248,9 @@ Dinge über Sebastian, und kein einziges davon war in der App zu sehen oder zu e
    `test_gleicher_anfang_gilt_schon_als_wiederholung` hält den Ist-Zustand fest.
    Der Kommentar in `memory_service.py:45-48` sagt ausdrücklich *„Lieber eine Dublette zu
    viel als ein Fakt zu wenig"* — die Schwelle tut derzeit das Gegenteil.
+   → **behoben am 25.09.2026** (Entscheidung E2): Korrekturen ersetzen die alte Fassung, die
+   alte bleibt in `history` erhalten; nur echte Doppelungen werden zusammengefasst. Der Test
+   heißt jetzt `test_gleicher_anfang_ist_jetzt_eine_korrektur`.
 6. **Kein Bezug zu Personen, Orten, Daten.** Ein Eintrag ist ein freier String
    (`chroma_client.py:62-72`). Kein `person_id`, kein Ort, kein Bezugsdatum, keine Quelle
    (welches Gespräch, welcher Tag). Ohne Quelle lässt sich ein Eintrag nicht nachprüfen —
@@ -370,6 +453,7 @@ Erinnerungen wurden nirgends im Klartext ausgegeben.
 1. **Datenschutzgrenze Suche:** Sollen Erinnerungen nach *Bedeutung* durchsucht werden
    können? Dafür muss die **Frage** das Gerät verlassen (Mistral-Embeddings) — die
    gefundenen Inhalte nicht. Ohne das bleibt es beim Zeichenvergleich bzw. „die neuesten".
+   → **Entschieden (E1, 25.09.2026): ja — über OpenRouter**, Mistral entfällt.
 2. **Bestätigen vor oder nach dem Speichern?** Künftig erst fragen („soll ich mir das
    merken?") kostet Reibung im Alltag, danach fragen (wie heute, mit Blatt + Löschen)
    kostet Vertrauen. Was ist dir lieber?
@@ -381,8 +465,11 @@ Erinnerungen wurden nirgends im Klartext ausgegeben.
    oder angestoßen mit Fortschrittsanzeige?
 5. **Vergessen:** Sollen alte, unwichtige Einträge verfallen (Alter × Wichtigkeit) oder soll
    alles für immer bleiben?
+   → **Entschieden (E3, 25.09.2026): sanft zurücktreten, nie löschen.**
 6. **Korrektur-Regel (§2.5):** Soll eine geänderte Fassung („richtiges Geburtsdatum")
    den alten Eintrag künftig **ersetzen**, oder soll beides stehen bleiben (dann sichtbar
    als „alt/neu" im Blatt)?
+   → **Entschieden (E2, 25.09.2026): ersetzen** — die neue Fassung wird aktiv, die alte bleibt
+   als `history` im Eintrag erhalten und ist über `GET /api/memory/erklaeren` sichtbar.
 7. **Bilder/WhatsApp/pCloud:** Sollen Fotos (Personen/Orte) und Chat-Exporte überhaupt ins
    Lebens-Log? Das sind Daten über andere Menschen — hier entscheidest du, nicht der Code.

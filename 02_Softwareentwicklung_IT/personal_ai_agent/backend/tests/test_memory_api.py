@@ -8,9 +8,16 @@ Frontend. Vorher hatte KEIN Test sie abgedeckt: im ganzen tests/-Ordner kam
 
 Sicherheit: Der echte Speicher (chroma_data/memory_store.json mit Sebastians
 Erinnerungen) wird NIE angefasst - jede Prüfung läuft in einem tmp_path.
-Und es wird nie wirklich eingebettet: `mistral_vektor` ist ersetzt, sonst
+Und es wird nie wirklich eingebettet: `openrouter_vektor` ist ersetzt, sonst
 liefe der Test in einen echten Netz-Aufruf (dieselbe Lehre wie die roten
 Tests vom 15.09.2026).
+
+Nachgezogen am 25.09.2026 (Gedächtnis-Qualität, siehe
+`docs/changelog-2026-09-25-gedaechtnis-qualitaet.md`): Zwei Tests hielten
+zuvor den ALTEN Ist-Zustand fest (Korrektur wird verworfen; bei kleinem
+Bestand wandert alles in den Prompt). Beide sind hier auf die neuen Regeln
+umgestellt; die ausführliche Prüfung liegt in
+`tests/test_gedaechtnis_qualitaet.py`.
 """
 
 import asyncio
@@ -37,8 +44,8 @@ def speicher(tmp_path, monkeypatch):
     monkeypatch.setattr(chroma_client, "persist_dir", str(tmp_path))
     monkeypatch.setattr(chroma_client, "store_path",
                         str(tmp_path / "memory_store.json"))
-    # Kein Einbetten: kein lokales Modell, kein Mistral-Aufruf.
-    monkeypatch.setattr(memory_mod, "mistral_vektor", lambda text: None)
+    # Kein Einbetten: kein Netz-Aufruf (OpenRouter ersetzt).
+    monkeypatch.setattr(memory_mod, "openrouter_vektor", lambda text: None)
     chroma_client._memories = []
     chroma_client._loaded = True
     yield chroma_client
@@ -61,7 +68,7 @@ def test_leerer_speicher_liefert_leere_liste(speicher):
 def test_anlegen_und_lesen_ueber_die_api(speicher):
     """Der Weg, den das Erinnerungs-Blatt geht: schreiben, dann auflisten."""
     antwort = asyncio.run(memory_router.create_memory(MemoryCreate(
-        content="Testfakt: arbeitet an einem Agenten.", category="fact",
+        content="Testfakt: arbeitet an einem Agenten.",
     )))
     assert antwort["status"] == "created"
     assert antwort["id"]
@@ -71,10 +78,12 @@ def test_anlegen_und_lesen_ueber_die_api(speicher):
     eintrag = memories[0]
     assert eintrag.id == antwort["id"]
     assert eintrag.content == "Testfakt: arbeitet an einem Agenten."
-    assert eintrag.category == "fact"
+    # Die API liefert die normalisierte Art. "arbeitet an" ist veränderlich.
+    assert eintrag.category == "zustand"
     assert eintrag.importance == 3
     # Das Blatt zeigt das Datum an - ohne Zeitstempel bliebe die Zeile leer.
     assert eintrag.timestamp
+    assert eintrag.history == []
 
 
 def test_derselbe_fakt_wird_nicht_zweimal_gespeichert(speicher):
@@ -114,32 +123,32 @@ def test_zaehler_passt_zur_liste(speicher):
     assert asyncio.run(memory_router.memory_count())["count"] == 3
 
 
-def test_gleicher_anfang_gilt_schon_als_wiederholung(speicher):
-    """BELEGTER NEBENWIRKUNG der Wiederholungs-Prüfung (Befund 25.09.2026).
+def test_gleicher_anfang_ist_jetzt_eine_korrektur(speicher):
+    """Der belegte Fehler vom 25.09.2026 ist behoben (Gegenprobe).
 
-    `_ist_wiederholung` vergleicht Zeichen (difflib) mit Schwelle 0.90. Zwei
-    Sätze mit gleichem Anfang und EINER geänderten Stelle erreichen das
+    VORHER: `_ist_wiederholung` verglich Zeichen (difflib) mit Schwelle 0.90.
+    Zwei Sätze mit gleichem Anfang und EINER geänderten Stelle erreichten das
     bereits - gemessen u. a.:
         „Ich arbeite seit zehn Jahren in der Automatisierung."
-        vs. „… seit elf Jahren …"                    -> 0.95 (gilt als gleich)
-        „Ich habe einen Hund namens Rex." vs. „… Max." -> 0.93
-        „Geburtstag: 3. Mai 1984" vs. „5. Mai 1985"     -> 0.91
-    Der zweite Fakt wird dann NICHT gespeichert (store_memory gibt die ID des
-    alten Eintrags zurück). Folge: Eine KORREKTUR (richtiges Geburtsdatum,
-    richtiger Name) kann am alten, falschen Eintrag abprallen.
+        vs. „… seit elf Jahren …"                    -> 0.95 (galt als gleich)
+    Der zweite Fakt wurde dann NICHT gespeichert; eine KORREKTUR prallte am
+    alten Eintrag ab (dieser Test hieß damals
+    `test_gleicher_anfang_gilt_schon_als_wiederholung`).
 
-    Dieser Test hält den Ist-Zustand fest, damit die geplante Änderung an der
-    Regel (Konzept `docs/konzept-gedaechtnis.md`, Option B) sichtbar wird.
+    JETZT: Der neue Wortlaut wird aktiv, der alte wandert in `history`.
+    Gelöscht wird nichts. Die ausführliche Prüfung (auch für „Rex/Max" und
+    Datumskorrekturen) steht in `tests/test_gedaechtnis_qualitaet.py`.
     """
     alt = "Testfakt: arbeitet seit zehn Jahren in der Automatisierung."
     neu = "Testfakt: arbeitet seit elf Jahren in der Automatisierung."
     id_alt = memory_mod.memory_service.store_memory(content=alt)
     id_neu = memory_mod.memory_service.store_memory(content=neu)
 
-    assert speicher.count() == 1          # nur der erste bleibt stehen
-    assert id_neu == id_alt               # der zweite bekommt die alte ID
-    inhalt = speicher.get_all_memories(limit=10)[0]["content"]
-    assert inhalt == alt                  # die Korrektur ist verloren
+    assert speicher.count() == 1          # eine Erinnerung, kein zweiter Eintrag
+    assert id_neu == id_alt               # dieselbe Erinnerung, neue Fassung
+    eintrag = speicher.get_all_memories(limit=10)[0]
+    assert eintrag["content"] == neu      # die Korrektur ist aktiv
+    assert eintrag["history"][0]["inhalt"] == alt   # alte Fassung aufbewahrt
 
 
 def test_wiederholungen_aufraeumen_trockenlauf_loescht_nichts(speicher):
@@ -166,18 +175,24 @@ def test_leerer_speicher_erzeugt_keinen_promptblock(speicher):
     assert llm_service._build_memory_context(treffer) == ""
 
 
-def test_kleiner_speicher_wandert_vollstaendig_in_den_prompt(speicher):
-    """Bewusst so (ALLES_MITGEBEN_BIS=300): Bei einem kleinen Bestand wird
-    nicht ausgewählt. Ohne lokalen Embedder lieferte die Auswahl sonst die
-    neuesten statt der passenden Einträge (siehe memory_service.py)."""
+def test_top_k_wirkt_auch_bei_kleinem_speicher(speicher):
+    """Früher: `ALLES_MITGEBEN_BIS = 300` - bei kleinem Bestand wanderte ALLES
+    in den Prompt, `top_k` war wirkungslos. Jetzt gilt die Auswahl immer."""
     for text in ("Testfakt: mag Tee.", "Testfakt: fährt Rad.", "Testfakt: liest gern."):
         memory_mod.memory_service.store_memory(content=text)
     treffer = memory_mod.memory_service.retrieve_relevant_memories("Frage", top_k=1)
-    assert len(treffer) == 3      # top_k ist bei kleinem Bestand wirkungslos
+    assert len(treffer) == 1      # top_k greift
 
-    block = llm_service._build_memory_context(treffer)
+    alle = memory_mod.memory_service.retrieve_relevant_memories("Frage", top_k=3)
+    assert len(alle) == 3
+    block = llm_service._build_memory_context(alle)
     assert "GEMERKTE INFORMATIONEN" in block
-    assert block.count("\n- ") == 3
+    # Nur die Einträge zählen - der Such-Hinweis ("- (Suche: ...)") steht
+    # zusätzlich im Block, wenn ohne Vektoren ausgewählt wurde.
+    eintraege = [
+        z for z in block.split("\n") if z.startswith("- ") and not z.startswith("- (")
+    ]
+    assert len(eintraege) == 3
 
 
 def test_eintraege_ohne_vektor_werden_gefunden(speicher):

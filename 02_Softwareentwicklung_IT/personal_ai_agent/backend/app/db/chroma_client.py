@@ -51,11 +51,21 @@ class SimpleMemoryStore:
         self,
         content: str,
         embedding: Optional[List[float]] = None,
-        category: str = "fact",
+        category: str = "fakt",
         importance: int = 3,
         conversation_id: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+        ereignis_datum: Optional[str] = None,
+        wiederkehrend: bool = False,
     ) -> str:
-        """Add a memory entry."""
+        """Add a memory entry.
+
+        ``history`` traegt die abgeloesten Fassungen (Korrekturen), siehe
+        ``memory_service._loese_ab``. ``ereignis_datum`` (ISO) und
+        ``wiederkehrend`` gehoeren zum Zeitbezug eines Termins. Fehlende
+        Angaben sind ausdruecklich in Ordnung - ein Eintrag ohne Vektor oder
+        ohne Datum ist weiterhin gueltig.
+        """
         if not self._loaded:
             self.connect()
         memory_id = str(uuid.uuid4())
@@ -66,13 +76,58 @@ class SimpleMemoryStore:
             "importance": importance,
             "timestamp": datetime.utcnow().isoformat(),
             "embedding": embedding,
+            # Immer vorhanden (auch leer): Damit ist auf einen Blick klar,
+            # dass es einen Verlauf gibt und nichts geloescht wird.
+            "history": list(history or []),
         }
         if conversation_id:
             entry["conversation_id"] = conversation_id
+        if ereignis_datum:
+            entry["ereignis_datum"] = ereignis_datum
+        if wiederkehrend:
+            entry["wiederkehrend"] = True
         self._memories.append(entry)
         self._persist()
         logger.debug("Added memory: %s... (id=%s)", content[:50], memory_id)
         return memory_id
+
+    def vektor_score(self, query_embedding: List[float]) -> Dict[str, float]:
+        """Kosinus-Aehnlichkeit je Eintrag: ``{id: wert}``.
+
+        Eintraege ohne Vektor fehlen im Ergebnis (der Aufrufer entscheidet,
+        wie er sie ersatzweise bewertet). Vektoren mit anderer Laenge werden
+        uebersprungen statt still falsch gerechnet: Zwei verschiedene
+        Embedding-Modelle liefern nicht vergleichbare Vektoren, und numpy
+        wuerde bei gemischten Laengen nicht einmal einen Fehler werfen.
+        """
+        if not self._loaded:
+            self.connect()
+        q = np.asarray(query_embedding, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q))
+        if not q_norm:
+            return {}
+
+        ergebnis: Dict[str, float] = {}
+        uebersprungen = 0
+        for m in self._memories:
+            vek = m.get("embedding")
+            if not vek:
+                continue
+            if len(vek) != q.shape[0]:
+                uebersprungen += 1
+                continue
+            v = np.asarray(vek, dtype=np.float32)
+            v_norm = float(np.linalg.norm(v))
+            if not v_norm:
+                continue
+            ergebnis[m["id"]] = float(np.dot(v, q) / (v_norm * q_norm))
+        if uebersprungen:
+            logger.warning(
+                "%d Eintraege haben einen Vektor anderer Laenge (anderes "
+                "Embedding-Modell) und wurden nicht bewertet.",
+                uebersprungen,
+            )
+        return ergebnis
 
     def search_memories(
         self, query_embedding: List[float], top_k: int = 5
@@ -83,32 +138,44 @@ class SimpleMemoryStore:
         if not self._memories:
             return []
 
-        indexed = [m for m in self._memories if m.get("embedding") is not None]
-        if not indexed:
+        score = self.vektor_score(query_embedding)
+        if not score:
             return []
 
-        q = np.array(query_embedding, dtype=np.float32)
-        matrix = np.array([m["embedding"] for m in indexed], dtype=np.float32)
-
-        norms = np.linalg.norm(matrix, axis=1)
-        q_norm = np.linalg.norm(q)
-        if q_norm == 0 or (norms == 0).any():
-            return []
-        similarities = (matrix @ q) / (norms * q_norm)
-
-        top_indices = np.argsort(similarities)[-top_k:][::-1]
+        top_ids = sorted(score, key=lambda i: score[i], reverse=True)[:top_k]
+        nach_id = {m["id"]: m for m in self._memories}
         results = []
-        for idx in top_indices:
-            m = indexed[idx]
+        for memory_id in top_ids:
+            m = nach_id[memory_id]
             results.append({
                 "id": m["id"],
                 "content": m["content"],
-                "category": m.get("category", "fact"),
+                "category": m.get("category", "fakt"),
                 "importance": m.get("importance", 3),
                 "timestamp": m.get("timestamp", ""),
-                "distance": float(1.0 - similarities[idx]),
+                "distance": float(1.0 - score[memory_id]),
             })
         return results
+
+    def aktualisiere_memory(self, memory_id: str, felder: Dict[str, Any]) -> bool:
+        """Traegt Felder in einen vorhandenen Eintrag nach.
+
+        Nur die uebergebenen Felder werden gesetzt - wer ``content`` nicht
+        mitschickt, laesst ihn unberuehrt. Geloescht wird hier nie etwas;
+        ``memory_service`` legt abgeloeste Fassungen in ``history`` ab.
+        """
+        if not self._loaded:
+            self.connect()
+        for m in self._memories:
+            if m["id"] == memory_id:
+                for schluessel, wert in felder.items():
+                    if schluessel == "id":
+                        continue
+                    m[schluessel] = wert
+                self._persist()
+                return True
+        return False
+
 
     def get_all_memories(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Return stored memories (without embeddings)."""

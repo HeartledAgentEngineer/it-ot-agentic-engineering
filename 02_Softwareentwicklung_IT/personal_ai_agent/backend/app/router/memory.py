@@ -6,7 +6,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models import MemoryItem, MemoryCreate, MemoryListResponse
-from app.services.memory_service import memory_service
+from app.services.memory_service import memory_service, normalisiere_art, ART_TEXTE
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +15,29 @@ router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 @router.get("", response_model=MemoryListResponse)
 async def list_memories(limit: int = Query(default=50, ge=1, le=200)):
-    """Get all stored memories."""
+    """Get all stored memories.
+
+    Geliefert wird die *normalisierte* Art (``fakt``/``termin``/``zustand``),
+    auch fuer Eintraege, die noch den alten Wert ``fact`` tragen - die
+    Oberflaeche soll nicht zwei Schreibweisen desselben anzeigen. Zusaetzlich
+    kommen Zeitbezug (``ereignis_datum``, ``wiederkehrend``) und der Verlauf
+    abgeloester Fassungen (``history``) mit.
+    """
     try:
         memories_data = memory_service.get_all_memories(limit=limit)
         memories = [
             MemoryItem(
                 id=m.get("id"),
                 content=m.get("content", ""),
-                category=m.get("category", "fact"),
+                category=normalisiere_art(m.get("category")),
                 importance=m.get("importance", 3),
                 timestamp=m.get("timestamp"),
                 conversation_id=m.get("conversation_id"),
+                ereignis_datum=m.get("ereignis_datum"),
+                wiederkehrend=bool(m.get("wiederkehrend")),
+                art=normalisiere_art(m.get("category")),
+                art_text=ART_TEXTE.get(normalisiere_art(m.get("category")), ""),
+                history=m.get("history", []),
             )
             for m in memories_data
         ]
@@ -110,8 +122,56 @@ async def clear_memories():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Muss hinter /clear und /count stehen: Ein Pfadplatzhalter faengt sonst
-# auch diese Namen ab, und "clear" waere ploetzlich eine Erinnerungs-ID.
+@router.post("/migration")
+async def migration_ausfuehren(
+    ausfuehren: bool = Query(
+        default=False,
+        description="false zeigt nur, was ergaenzt wuerde; erst true schreibt",
+    )
+):
+    """Ergaenzt Art und Zeitbezug in Alteintraegen (Inhalt bleibt unberuehrt).
+
+    Alte Eintraege tragen ``category: "fact"`` und ``importance: 3`` - beides
+    wurde nirgends gelesen. Ohne diese Migration verhielte sich ein alter
+    Zahnarzttermin anders als ein neuer (er bliebe fuer immer „aktuell").
+
+    Wie beim Aufraeumen ist der Standard ein Trockenlauf: Erst sehen, was
+    passiert. Es wird dabei nichts geloescht und kein Inhalt geaendert.
+    """
+    try:
+        return memory_service.migriere_bestand(nur_zeigen=not ausfuehren)
+    except Exception as e:
+        logger.error("Migration fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/erklaeren")
+async def erklaeren(
+    begriff: str = Query(..., min_length=2, description="Suchbegriff, z. B. Zahnarzt"),
+    top_k: int = Query(default=10, ge=1, le=50),
+):
+    """Was weiss der Agent ueber einen Begriff? Nur Lesen, kein Modell.
+
+    Liefert je Treffer: Inhalt, Art (``fakt``/``termin``/``zustand``),
+    Zeitbezug (Lage, Datum, Tage bis dahin), Wichtigkeit und ob der Eintrag
+    aktiv ist oder eine abgeloeste Fassung (``aktiv: false``, mit
+    ``abgeloest_am``). Abgeloeste Fassungen stehen zusaetzlich in
+    ``history`` des aktiven Eintrags - geloescht wird nichts.
+
+    Gesucht wird im Wortlaut (auch in der Historie). Das laeuft ohne
+    Netzaufruf und ohne LLM; „kein Treffer" wird als solcher gemeldet und
+    nicht als Vermutung ausgegeben.
+    """
+    try:
+        return memory_service.erklaere_begriff(begriff, top_k=top_k)
+    except Exception as e:
+        logger.error("Erklaeren fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Muss hinter /clear, /count, /migration und /erklaeren stehen: Ein
+# Pfadplatzhalter faengt sonst auch diese Namen ab, und "clear" waere
+# ploetzlich eine Erinnerungs-ID.
 @router.delete("/{memory_id}")
 async def einzelne_erinnerung_loeschen(memory_id: str):
     """Loescht einen einzelnen Eintrag.

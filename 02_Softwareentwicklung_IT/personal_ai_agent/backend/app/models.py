@@ -90,24 +90,70 @@ class ChatResponse(BaseModel):
     ziel: Optional[str] = None
 
 
+class MemoryHistoryEintrag(BaseModel):
+    """Eine abgeloeste Fassung einer Erinnerung.
+
+    Entsteht, wenn eine Korrektur die alte Fassung ersetzt
+    (`memory_service._loese_ab`). Sie wird NIE geloescht - deshalb steht sie
+    hier als eigener Typ und nicht als freier Text.
+    """
+    inhalt: str
+    abgeloest_am: Optional[str] = None
+    # Wann die abgeloeste Fassung selbst geschrieben wurde (ISO). Optional,
+    # weil Eintraege aus der Zeit vor dem 25.09.2026 das Feld nicht tragen.
+    geschrieben_am: Optional[str] = None
+    art: Optional[str] = None
+
+
 class MemoryItem(BaseModel):
-    """A single memory/fact stored in the vector DB."""
+    """A single memory/fact stored in the vector DB.
+
+    ``category`` traegt weiterhin den gespeicherten Wert - die neuen Arten
+    sind ``fakt`` (unveraenderlich), ``termin`` (mit ``ereignis_datum``) und
+    ``zustand`` (veraenderlich). Die alten Werte (``fact``, ``preference``,
+    ``context``, ``project``) bleiben gueltig, damit ein noch nicht migrierter
+    Bestand lesbar ist (siehe `POST /api/memory/migration`).
+    """
     id: Optional[str] = None
     content: str = Field(..., min_length=1, max_length=5000)
-    category: str = Field(default="fact", pattern="^(fact|preference|context|project)$")
+    category: str = Field(
+        default="fakt",
+        pattern="^(fact|preference|context|project|fakt|termin|ereignis|zustand|detail)$",
+    )
     importance: int = Field(default=3, ge=1, le=5)
     timestamp: Optional[str] = None
     conversation_id: Optional[str] = None
+    # Zeitbezug: nur bei Terminen gesetzt. ``wiederkehrend`` markiert ein
+    # Datum, das jedes Jahr wiederkommt (Geburtstag) - es laeuft nicht ab.
+    ereignis_datum: Optional[str] = None
+    wiederkehrend: bool = False
+    # ``art`` ist derselbe Wert wie ``category``, nur garantiert auf
+    # ``fakt``/``termin``/``zustand`` normalisiert; ``art_text`` ist der
+    # Anzeigename („Fakt", „Termin", „Zustand") für die Oberfläche.
+    art: Optional[str] = None
+    art_text: Optional[str] = None
+    # Abgeloeste Fassungen (Korrekturen), aelteste zuerst.
+    history: List[MemoryHistoryEintrag] = []
 
     class Config:
         from_attributes = True
 
 
 class MemoryCreate(BaseModel):
-    """Request to create a memory."""
+    """Request to create a memory.
+
+    ``importance`` und ``category`` sind absichtlich optional: Ohne Angabe
+    entscheidet der Dienst aus dem Inhalt (Art per `erkenne_art`, Termine
+    bekommen importance 4, sonst 3). Vorbelegte Werte (``"fact"``, ``3``)
+    hätten beide Felder wieder zu toten Werten gemacht - genau das war der
+    Befund vom 25.09.2026.
+    """
     content: str = Field(..., min_length=1, max_length=5000)
-    category: str = Field(default="fact", pattern="^(fact|preference|context|project)$")
-    importance: int = Field(default=3, ge=1, le=5)
+    category: Optional[str] = Field(
+        default=None,
+        pattern="^(fact|preference|context|project|fakt|termin|ereignis|zustand|detail)$",
+    )
+    importance: Optional[int] = Field(default=None, ge=1, le=5)
     conversation_id: Optional[str] = None
 
 

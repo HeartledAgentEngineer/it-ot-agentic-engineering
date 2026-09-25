@@ -87,8 +87,17 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = str(BASE_DIR / "chroma_data")
     chroma_collection_name: str = "agent_memories"
 
-    # Embedding
-    embedding_model: str = "all-MiniLM-L6-v2"
+    # Einbettungen fuer die Erinnerungen laufen ueber OpenRouter (Entscheidung
+    # Sebastian, 25.09.2026; siehe docs/konzept-gedaechtnis.md
+    # §„Entschieden 25.09.2026"). OpenAI-kompatibler Endpunkt:
+    #   POST {openrouter_base_url}/embeddings  {"model": ..., "input": [text]}
+    # Moegliche Modelle des Kontos: GET {openrouter_base_url}/embeddings/models
+    # Preis des Beispielmodells ~0,02 $/1 Mio Token.
+    #
+    # Die frueheren Wege sind ENTFALLEN: ein lokales Modell
+    # (sentence-transformers, auf keinem der beiden Geraete installiert) und
+    # Mistral-Embeddings. Beide sind durch openrouter_embed_model ersetzt.
+    openrouter_embed_model: str = "openai/text-embedding-3-small"
 
     # Wissensspeicher aus den Chat-Archiven (Schwesterprojekt
     # "Chats von GPT, GEMINI, Claude"). Nur lesender Zugriff.
