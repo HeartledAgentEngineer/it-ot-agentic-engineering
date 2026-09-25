@@ -189,6 +189,51 @@ else
     fi
 fi
 
-# exec: Der Server ersetzt die Shell, damit Strg+C ihn direkt erreicht
-# und nicht nur das Skript beendet.
-exec python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload
+# ── App statt Browser öffnen ──────────────────────────────────────────────────
+# Eine Web-App (display=standalone) kann den Server NICHT starten: sie ist
+# reiner Browser-Inhalt, hat keinen nativen Code und keine Shell. Deshalb macht
+# es dieses Skript herum: Server starten → warten, bis der Port antwortet →
+# Adresse öffnen. Android gibt sie an die INSTALLIERTE App weiter (Chrome leitet
+# eine Adresse, die in die App gehört, in deren eigenes Fenster ohne Tabs).
+# Damit genügt ein Widget-Tipp: Server läuft, App ist offen.
+#
+# Der Server läuft im Hintergrund, damit das Skript ihn erst öffnen und danach
+# weiterlaufen kann. `wait` hält die Session wie vorher am Server, Strg+C beendet
+# ihn weiterhin direkt.
+cd "$PROJEKT/backend" 2>/dev/null || true
+python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload &
+SERVER_PID=$!
+
+# Kurz warten, bis der Port wirklich antwortet (max. ~20 s), dann öffnen.
+i=0
+while [ $i -lt 40 ]; do
+    if command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ":$PORT "; then
+        break
+    fi
+    i=$((i+1))
+    sleep 0.5
+done
+
+if command -v am >/dev/null 2>&1; then
+    # Zuerst die INSTALLIERTE App (eigenes Fenster, eigene Aufgabe im
+    # Task-Menü → dort schließbar). Nur wenn keine Web-App installiert ist,
+    # wird die Adresse an den Browser gegeben.
+    APP_PKG="$(pm list packages 2>/dev/null | sed 's/^package://' | grep '^org.chromium.webapk' | head -1)"
+    if [ -n "$APP_PKG" ]; then
+        if am start -n "$APP_PKG/org.chromium.webapk.shell_apk.h2o.H2OOpaqueMainActivity" >/dev/null 2>&1; then
+            echo "  ✔ App geöffnet: $APP_PKG (eigenes Fenster, im Task-Menü schließbar)"
+        else
+            echo "  ⚠ App-Start fehlgeschlagen — versuche Browser."
+            am start -a android.intent.action.VIEW -d "http://localhost:$PORT" >/dev/null 2>&1 \
+                && echo "  ✔ im Browser geöffnet: http://localhost:$PORT"
+        fi
+    else
+        am start -a android.intent.action.VIEW -d "http://localhost:$PORT" >/dev/null 2>&1 \
+            && echo "  ℹ Keine installierte App gefunden — im Browser geöffnet: http://localhost:$PORT"
+    fi
+else
+    echo "  ℹ am nicht verfügbar — bitte im Browser aufrufen: http://localhost:$PORT"
+fi
+
+# Die Shell bleibt am Server: Strg+C beendet ihn wie bisher.
+wait $SERVER_PID
