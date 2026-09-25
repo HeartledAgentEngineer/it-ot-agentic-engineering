@@ -104,8 +104,9 @@ LifeBrain Agent"* — ein wandelndes, sich fortentwickelndes Abbild des eigenen 
 - **Datenschutz-Regel bleibt:** Audio geht an **OpenRouter** (kein neuer Empfänger), keine
   Speicherung von Audio/Bildern im Agent-Backend.
 - **Sofort sprechen:** Nach dem Trigger („OK Agent" / Assistenten-Geste) öffnet sich die App und
-  die Antwort wird **direkt vorgelesen** — Text erscheint dazu. Das ist der Unterschied zu Gemini,
-  den Sebastian ausdrücklich will.
+  die Antwort wird **direkt vorgelesen** — Text erscheint dazu. Das macht Gemini heute schon so;
+  wir bauen **dieselbe** Erfahrung, nur mit unserem Agenten und unseren Daten
+  (Korrektur von Sebastian, 25.09.2026 — es ist kein Unterschied, sondern Nachbau).
 
 **D4 — Overlay und Stimmen („eigenes Gemini" als Erlebnis)**
 
