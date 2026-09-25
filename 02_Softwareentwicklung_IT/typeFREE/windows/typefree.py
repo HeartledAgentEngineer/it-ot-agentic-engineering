@@ -701,6 +701,78 @@ def aussteuerung(daten):
     return float(np.max(np.abs(daten))), float(np.sqrt(np.mean(np.square(daten))))
 
 
+# ── Live-Modus: Happen während der Aufnahme schneiden ─────────────────────────
+# Wunsch vom 25.09.2026: der Text soll „im Wortfluss" erscheinen, das Umschreiben
+# passiert danach. Echte Wort-für-Wort-Übertragung geht über OpenRouter nicht
+# (der Transkriptions-Endpunkt nimmt fertige Dateien), also wird an Sprechpausen
+# geschnitten: dort endet ein Satz, und der Schnitt kostet keine Genauigkeit
+# (gemessen: 25-s-Happen 3,4 % gegen 4,0 % am Stück).
+
+LIVE_ZIEL_SEKUNDEN = 10.0     # spätestens nach so vielen Sekunden schneiden
+LIVE_MINDEST_SEKUNDEN = 3.0   # vorher lohnt kein Happen (Mindestlänge für die API)
+LIVE_PAUSE_SEKUNDEN = 0.5     # so lang muss eine Sprechpause sein
+LIVE_PAUSE_ANTEIL = 0.3       # „leise" heißt: unter 30 % des Happen-Pegels
+
+
+def stillste_stelle(daten, rate, ziel, suchweite=1.5):
+    """Letzte leise Stelle vor `ziel` (Sekunden) — dort schneiden, nicht ins Wort."""
+    von = int(max(0.0, ziel - suchweite) * rate)
+    bis = int(min(len(daten) / rate, ziel) * rate)
+    if bis - von < rate // 10:
+        return int(ziel * rate)
+    block = daten[von:bis]
+    schritt = int(0.05 * rate)
+    bestes, beste_energie = bis - von, None
+    for i in range(0, max(1, len(block) - schritt), schritt):
+        energie = float(np.sqrt(np.mean(np.square(block[i:i + schritt]))))
+        if beste_energie is None or energie < beste_energie:
+            beste_energie, bestes = energie, i + schritt // 2
+    return von + bestes
+
+
+def in_happen(daten, rate, grenze):
+    """Schnittstellen für Happen mit höchstens `grenze` Sekunden."""
+    stellen, start = [], 0
+    while (len(daten) - start) / rate > grenze:
+        schnitt = stillste_stelle(daten, rate, start / rate + grenze)
+        stellen.append((start, schnitt))
+        start = schnitt
+    stellen.append((start, len(daten)))
+    return stellen
+
+
+def live_schnitt(daten, rate, ab_wo, ziel=LIVE_ZIEL_SEKUNDEN,
+                 mindest=LIVE_MINDEST_SEKUNDEN, pause=LIVE_PAUSE_SEKUNDEN,
+                 anteil=LIVE_PAUSE_ANTEIL):
+    """Schnittstelle für einen Live-Happen — `None`, solange keiner fertig ist.
+
+    `ab_wo` ist die Sekunde, ab der noch nicht abgeschickt wurde. Geschnitten wird
+    an einer **Sprechpause** (dort endet ein Satz); ist nach `ziel` Sekunden keine
+    gekommen, wird trotzdem geschnitten — an der leisesten Stelle, damit kein
+    Happen unbegrenzt wächst.
+    """
+    rest = len(daten) / rate - ab_wo
+    if rest < mindest:
+        return None
+    von = int(ab_wo * rate)
+    block = daten[von:]
+    if block.size < rate // 10:
+        return None
+    schritt = max(1, int(0.05 * rate))
+    pegel = float(np.sqrt(np.mean(np.square(block)))) or 1e-9
+    schwelle = pegel * anteil
+    breite = max(schritt, int(pause * rate))
+    # Von hinten nach vorn die erste Sprechpause suchen
+    for i in range(len(block) - breite, int(mindest * rate), -schritt):
+        if i <= 0:
+            break
+        if float(np.sqrt(np.mean(np.square(block[i:i + breite])))) < schwelle:
+            return von + i
+    if rest >= ziel:
+        return stillste_stelle(daten, rate, ab_wo + ziel)
+    return None
+
+
 def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
                             limit=MAX_RECORDING_SECONDS):
     """Wahr, sobald die Obergrenze erreicht ist. Der Text wird trotzdem gesendet."""

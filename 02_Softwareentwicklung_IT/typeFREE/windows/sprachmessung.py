@@ -59,31 +59,11 @@ def als_wav(daten, rate):
     return puffer
 
 
-def stillste_stelle(daten, rate, ziel, suchweite=1.5):
-    """Letzte leise Stelle vor `ziel` (Sekunden) — dort schneiden, nicht ins Wort."""
-    von = int(max(0.0, ziel - suchweite) * rate)
-    bis = int(min(len(daten) / rate, ziel) * rate)
-    if bis - von < rate // 10:
-        return int(ziel * rate)
-    block = daten[von:bis]
-    schritt = int(0.05 * rate)
-    bestes, beste_energie = bis - von, None
-    for i in range(0, max(1, len(block) - schritt), schritt):
-        energie = float(np.sqrt(np.mean(np.square(block[i:i + schritt]))))
-        if beste_energie is None or energie < beste_energie:
-            beste_energie, bestes = energie, i + schritt // 2
-    return von + bestes
-
-
-def in_happen(daten, rate, grenze):
-    """Schnittstellen für Happen mit höchstens `grenze` Sekunden."""
-    stellen, start = [], 0
-    while (len(daten) - start) / rate > grenze:
-        schnitt = stillste_stelle(daten, rate, start / rate + grenze)
-        stellen.append((start, schnitt))
-        start = schnitt
-    stellen.append((start, len(daten)))
-    return stellen
+# Die Schnitt-Funktionen liegen in `typefree.py` — eine Quelle für App und
+# Messwerkzeug. Hier bleiben sie unter denselben Namen verfügbar, damit
+# vorhandene Aufrufe und Tests unverändert laufen.
+stillste_stelle = typefree.stillste_stelle
+in_happen = typefree.in_happen
 
 
 def transkribiere(daten, rate, clients, kette, vokabular=None, kontext=''):
