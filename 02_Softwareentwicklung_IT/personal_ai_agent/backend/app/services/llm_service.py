@@ -52,14 +52,74 @@ POLISH_ANWEISUNG = (
     "es unverändert stehen.\n"
     "3. VERHASPLER GLÄTTEN: doppelt gesprochene Wörter und abgebrochene "
     "Satzanfänge entfernen.\n"
-    "4. Satzzeichen und Groß-/Kleinschreibung korrigieren.\n\n"
+    "4. Satzzeichen und Groß-/Kleinschreibung korrigieren.\n"
+    "5. ANREDE UND BLICKWINKEL BLEIBEN: 'ich' bleibt 'ich', 'du' bleibt 'du', "
+    "'Sie' bleibt 'Sie'. Wechsle die Anrede nie.\n"
+    "6. SPRECHAKT BLEIBT: Eine Aussage bleibt eine Aussage, eine Bitte bleibt "
+    "eine Bitte, eine Frage bleibt eine Frage. Mache aus einer Aussage keine "
+    "Frage und aus einer Frage keine Aussage — auch das Satzzeichen am Ende "
+    "richtet sich danach, was gesagt wurde.\n"
+    "7. KEIN ERZÄHL- ODER FRAGESTIL: Der Text bleibt so knapp und direkt, wie "
+    "gesprochen. Du erzählst nicht nach, leitest nichts ein und formulierst "
+    "nicht aus.\n"
+    "8. FACHBEGRIFFE UND DENGLISCH BLEIBEN: IT-Fachsprache wird nicht "
+    "eingedeutscht ('deployen' bleibt 'deployen', 'der Commit' bleibt 'der "
+    "Commit'). Ähnlich klingende Fachwörter nach dem Zusammenhang "
+    "auseinanderhalten — 'Comet' ist der Browser, 'Commit' die Git-Aktion.\n\n"
     "VERBOTEN:\n"
     "- Umgangssprache, Slang oder Dialekt ersetzen. 'gucken' bleibt 'gucken' "
     "und wird NICHT zu 'wissen' oder 'schauen'. Der Ton bleibt, wie er ist.\n"
+    "- Die Anredeform oder den Sprechakt ändern.\n"
     "- Sätze umformulieren, kürzen oder eleganter machen.\n"
     "- Wörter hinzufügen, die nicht gesagt wurden.\n"
     "- Erklärungen, Kommentare oder Anführungszeichen um das Ergebnis.\n\n"
     "Gib ausschließlich den bereinigten Text zurück."
+)
+
+# ── Glättung: Modellkette statt eines einzigen Modells ───────────────────────
+# Ein abgekündigtes Modell hat die Glättung hier schon einmal stillgelegt:
+# `google/gemini-2.0-flash-001` nahm OpenRouter aus dem Programm, jeder Aufruf
+# endete im 404 — und weil das nur im Log stand, lief die Spracheingabe
+# wochenlang ungeglättet durch (bemerkt am 25.09.2026, dieselbe Ursache wie in
+# typeFREE). Deshalb mehrere Modelle der Reihe nach und ein Log-Eintrag, wenn
+# alle ausfallen.
+POLISH_MODELS = (
+    "google/gemini-2.5-flash",       # 0,8 s und gründlich (Messung 25.09.2026)
+    "google/gemini-3.5-flash-lite",  # Ausweichweg, ähnlich schnell
+    "google/gemini-2.5-flash-lite",  # letzter Ausweichweg, günstigstes Modell
+)
+
+# Zehn Minuten Sprache sind grob 1500 Wörter — mit 1000 Tokens wäre ein langes
+# Diktat mitten im Satz abgeschnitten worden.
+POLISH_MAX_TOKENS = 4000
+
+# Unter dieser Länge darf ein Text stark schrumpfen („ähm ja genau" → „ja").
+PLAUSIBILITAETS_MINDESTLAENGE = 80
+PLAUSIBILITAETS_ANTEIL = 0.3   # 0.3 statt 0.6: legitime Kürzungen möglich
+
+# ── Erkennung: Rückfallweg mit Sprachvorgabe und Vokabular ───────────────────
+# `mai-transcribe-1.5` erkennt am besten (1,1 % Wortfehler auf dem Referenzaudio,
+# gemessen 25.09.2026) und liefert das Audio vollständig zurück — es kennt aber
+# weder `language` noch `prompt`. Fällt es aus (Drosselung, 5xx), springt
+# `whisper-large-v3` ein (3,4 %): der kann beides.
+TRANSCRIBE_MODELS = (
+    ("microsoft/mai-transcribe-1.5", False),
+    ("openai/whisper-large-v3", True),
+)
+
+# Vokabular für den Rückfallweg (Whisper-`prompt`): Fachwörter und Denglisch aus
+# dem Alltag — IT, Git, Azure-Kurs. Dieselbe Kernliste wie in typeFREE, dort auf
+# 147 Tokens gekürzt, weil Whisper längere Hinweise STILL abschneidet (Grenze
+# 224 Tokens). Nur der Rückfallweg kann sie nutzen.
+WHISPER_VOKABULAR = (
+    "Repository, Branch, Commit, Comet, Merge, Rebase, Diff, Pull Request, "
+    "Backlog, Sprint, Kanban, Board, Ticket, Deploy, Deployment, Rollback, "
+    "Embedding, Azure, Entra ID, Key Vault, Resource Group, Subscription, "
+    "Tenant, Managed Identity, Blob Storage, Cosmos DB, Copilot, Termux, "
+    "Obsidian, Git, GitHub, pytest, PyInstaller, Chat, Slice, Logdatei, "
+    "Vokabular, Whisper, Voxtral, Scribe, Groq, OpenRouter, ElevenLabs, "
+    "Aufgabenplanung, Funktionsgedächtnis, AZ-900, AI-103, AI-200, "
+    "zweiter Test, Ähm"
 )
 
 # API-Timeout für Audio-Transkription und Glättung (30s, /critic Befund #4/#5)
@@ -1244,67 +1304,90 @@ class LLMService:
             return default
 
     # ── Transkription (Whisper via OpenRouter, wie TypeFREE) ─────────────────
+    def _audio_puffer(self, audio_bytes: bytes) -> io.BytesIO:
+        """Audio als Puffer für die API — Format aus den Magic Bytes.
+
+        WebM/Matroska beginnt mit 0x1A 0x45 0xDF 0xA3, WAV mit "RIFF".
+        Jeder Versuch braucht einen **frischen** Puffer: der Client liest ihn
+        leer, ein zweiter Versuch mit demselben Objekt schickt 0 Bytes.
+        """
+        if len(audio_bytes) < 4:
+            logger.warning("Audio zu kurz (%d Bytes) – sende als WebM", len(audio_bytes))
+            puffer = io.BytesIO(audio_bytes)
+            puffer.name = 'audio.webm'
+            return puffer
+
+        puffer = io.BytesIO(audio_bytes)
+        if audio_bytes[:4] == b'\x1a\x45\xdf\xa3':
+            puffer.name = 'audio.webm'
+            logger.debug("Audio-Format erkannt: WebM")
+        elif audio_bytes[:4] == b'RIFF':
+            puffer.name = 'audio.wav'
+            logger.debug("Audio-Format erkannt: WAV")
+        else:
+            puffer.name = 'audio.webm'
+            logger.debug("Audio-Format unbekannt – sende als WebM")
+        return puffer
+
     def transcribe(self, audio_bytes: bytes) -> Optional[str]:
-        """Sendet Audio an OpenRouter Whisper und gibt transkribierten Text zurück.
+        """Erkennt Sprache über die Modellkette und gibt den Text zurück.
+
+        Erster Weg ist `mai-transcribe-1.5` — beste Erkennung und vollständiges
+        Audio, kennt aber weder `language` noch `prompt`. Liefert der nicht
+        (Drosselung, 5xx), übernimmt `whisper-large-v3` mit `language="de"` und
+        Vokabular. Ein Diktat soll nicht daran scheitern, dass ein Anbieter
+        gerade nicht kann — vorher gab es genau einen Versuch.
 
         Args:
             audio_bytes: Rohdaten der Audio-Datei (WAV oder WebM)
 
         Returns:
-            Transkribierter Text oder None bei Fehler
+            Erkannter Text oder None, wenn kein Weg lieferte
         """
         if not self.is_configured:
             logger.warning("LLM not configured – cannot transcribe")
             return None
 
-        try:
-            # Audiodaten in BytesIO
-            buffer = io.BytesIO(audio_bytes)
-
-            # Format anhand der Magic Bytes erkennen (nicht nur Extension)
-            # WebM/Matroska beginnt mit 0x1A 0x45 0xDF 0xA3
-            # WAV beginnt mit "RIFF" (0x52 0x49 0x46 0x46)
-            if len(audio_bytes) >= 4:
-                if audio_bytes[:4] == b'\x1a\x45\xdf\xa3':
-                    buffer.name = 'audio.webm'
-                    logger.debug("Audio-Format erkannt: WebM")
-                elif audio_bytes[:4] == b'RIFF':
-                    buffer.name = 'audio.wav'
-                    logger.debug("Audio-Format erkannt: WAV")
-                else:
-                    buffer.name = 'audio.webm'
-                    logger.debug("Audio-Format unbekannt – sende als WebM")
-            else:
-                buffer.name = 'audio.webm'
-                logger.warning("Audio zu kurz (%d Bytes) – sende als WebM", len(audio_bytes))
-
-            # MAI-Transcribe 1.5 von Microsoft (via Azure, DSGVO-konform, EU-RZ)
-            # Kein language-Parameter (wird nicht unterstützt, erkennt Sprache automatisch)
-            # Kein prompt/Vokabular (wird nicht unterstützt)
-            response = self.client.audio.transcriptions.create(
-                model="microsoft/mai-transcribe-1.5",
-                file=buffer,
-            )
-            text = (response.text or "").strip()
-            logger.info("Whisper erkannt (%d Zeichen): %s", len(text), text[:80])
-            return text if text else None
-
-        except APIStatusError as e:
-            # OpenRouter reicht Anbieter-Fehler nur als "Provider returned 400"
-            # durch. Der eigentliche Grund steht im rohen Antwort-Body.
+        letzter_grund = "kein Modell versucht"
+        for modell, mit_sprache in TRANSCRIBE_MODELS:
+            felder: Dict[str, Any] = {"model": modell}
+            if mit_sprache:
+                felder["language"] = "de"
+                felder["prompt"] = WHISPER_VOKABULAR
             try:
-                body = e.response.text[:1000]
-            except Exception:
-                body = "<Body nicht lesbar>"
-            logger.error(
-                "Transkription abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
-                e.status_code, e, body,
-            )
-            return None
+                response = self.client.audio.transcriptions.create(
+                    file=self._audio_puffer(audio_bytes), **felder)
+                text = (response.text or "").strip()
+            except APIStatusError as e:
+                # OpenRouter reicht Anbieter-Fehler nur als "Provider returned 400"
+                # durch. Der eigentliche Grund steht im rohen Antwort-Body.
+                try:
+                    body = e.response.text[:1000]
+                except Exception:
+                    body = "<Body nicht lesbar>"
+                letzter_grund = f"{modell}: HTTP {e.status_code}"
+                logger.error(
+                    "Erkennung über %s abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
+                    modell, e.status_code, e, body,
+                )
+                continue
+            except Exception as e:
+                letzter_grund = f"{modell}: {e}"
+                logger.error("Erkennung über %s fehlgeschlagen: %s", modell, e)
+                continue
 
-        except Exception as e:
-            logger.error("Whisper-Transkription fehlgeschlagen: %s", e)
-            return None
+            if not text:
+                letzter_grund = f"{modell}: leerer Text"
+                logger.warning("Erkennung über %s lieferte leeren Text", modell)
+                continue
+
+            if modell != TRANSCRIBE_MODELS[0][0]:
+                logger.warning("Erkennung über Ausweichmodell %s gelungen", modell)
+            logger.info("Erkannt über %s (%d Zeichen): %s", modell, len(text), text[:80])
+            return text
+
+        logger.error("Keine Erkennung möglich – kein Modell lieferte (%s)", letzter_grund)
+        return None
 
     # ── Sprachausgabe (natürliche Stimme statt Browser-Roboter) ─────────────
     def list_voices(self) -> List[Dict[str, Any]]:
@@ -1809,10 +1892,17 @@ class LLMService:
 
     # ── Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────────
     def polish_text(self, raw_text: str) -> Optional[str]:
-        """Glättet gesprochenen Text: entfernt Füllwörter, korrigiert Verhörer.
+        """Glättet gesprochenen Text über die Modellkette: Füllwörter raus,
+        Verhörer korrigiert — Anrede, Sprechakt und Fachbegriffe bleiben.
+
+        Scheitert ein Modell (abgekündigt, überlastet, unplausible Antwort),
+        wird das nächste versucht. Erst wenn alle scheitern, kommt None zurück
+        und der Aufrufer verwendet den Rohtext. Jeder Fehlschlag wird geloggt —
+        der frühere stille Ausfall (404 auf einem abgekündigten Modell) blieb
+        wochenlang unbemerkt.
 
         Args:
-            raw_text: Rohtext von Whisper
+            raw_text: Rohtext der Spracherkennung
 
         Returns:
             Geglätteter Text oder None bei Fehler (dann wird Rohtext verwendet)
@@ -1820,44 +1910,56 @@ class LLMService:
         if not self.is_configured or not raw_text:
             return None
 
-        try:
-            response = self.client.chat.completions.create(
-                model="google/gemini-2.0-flash-001",  # wie TypeFREE
-                messages=[
-                    {"role": "system", "content": POLISH_ANWEISUNG},
-                    {"role": "user",
-                     "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
-                ],
-                max_tokens=4000,
-                temperature=0.2,
-            )
+        letzter_grund = "kein Modell versucht"
+        for modell in POLISH_MODELS:
+            try:
+                response = self.client.chat.completions.create(
+                    model=modell,
+                    messages=[
+                        {"role": "system", "content": POLISH_ANWEISUNG},
+                        {"role": "user",
+                         "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
+                    ],
+                    max_tokens=POLISH_MAX_TOKENS,
+                    temperature=0.2,
+                )
+            except Exception as e:
+                letzter_grund = f"{modell}: {e}"
+                logger.warning("Glättung über %s fehlgeschlagen: %s", modell, e)
+                continue
 
             # /critic Befund #2: Prüfung auf leere/ungültige Response
             if not response.choices or not response.choices[0].message:
-                logger.warning("Polishing-Response ohne Choices – Rohtext wird verwendet")
-                return None
+                letzter_grund = f"{modell}: Antwort ohne Choices"
+                logger.warning("Glättung über %s ohne Choices – nächstes Modell", modell)
+                continue
 
             polished = (response.choices[0].message.content or "").strip()
             # /critic Befund #5: polished könnte nur Whitespace sein
-            if not polished or not polished.strip():
-                logger.warning("Polishing lieferte leeren Text – Rohtext wird verwendet")
-                return None
+            if not polished:
+                letzter_grund = f"{modell}: leerer Text"
+                logger.warning("Glättung über %s lieferte leeren Text", modell)
+                continue
 
             # Plausibilitätsprüfung: Text darf nicht zu stark schrumpfen
             # Schwelle 0.3 statt 0.6 (legitime Kürzungen möglich, /critic #2)
-            if len(raw_text) >= 80 and len(polished) < len(raw_text) * 0.3:
+            if (len(raw_text) >= PLAUSIBILITAETS_MINDESTLAENGE
+                    and len(polished) < len(raw_text) * PLAUSIBILITAETS_ANTEIL):
+                letzter_grund = (f"{modell}: unplausibel "
+                                 f"({len(raw_text)} → {len(polished)} Zeichen)")
                 logger.warning(
-                    "Polishing unplausibel (%d → %d Zeichen) – Rohtext wird verwendet",
-                    len(raw_text), len(polished),
+                    "Glättung über %s unplausibel (%d → %d Zeichen) – nächstes Modell",
+                    modell, len(raw_text), len(polished),
                 )
-                return None
+                continue
 
+            if modell != POLISH_MODELS[0]:
+                logger.info("Glättung über Ausweichmodell %s gelungen", modell)
             logger.debug("Geglättet (%d Zeichen): %s", len(polished), polished[:80])
             return polished
 
-        except Exception as e:
-            logger.error("Text-Glättung fehlgeschlagen: %s", e)
-            return None
+        logger.error("Keine Glättung möglich – Rohtext wird verwendet (%s)", letzter_grund)
+        return None
 
 
 # Singleton instance
