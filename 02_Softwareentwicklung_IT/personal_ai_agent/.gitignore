@@ -67,3 +67,10 @@ docker-compose.yml
 # Lokale Face-ONNX-Modelle (aus OpenCV Zoo, gross; werden lokal gehalten)
 ml_models/
 *.log
+
+# Foto-Sortierung: der Sortierschluessel und die Arbeitsordner enthalten
+# private Dateinamen und Personenzuordnungen. Sie gehoeren NIE ins Repo.
+# Das Werkzeug schreibt sie standardmaessig nach ~/foto_sortierung/.
+sortierschluessel*.csv
+foto_sortierung/
+aussortierte_gesichter/

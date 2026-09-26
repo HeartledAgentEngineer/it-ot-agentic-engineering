@@ -38,6 +38,13 @@ Ebene** mit fester Tiefenbegrenzung (3) — die ganze Inventur dauerte dadurch
   `Agent/Fotos/<Jahr>/<Thema>/<Gerät>` — Schreibziel ist der eigene `Agent/`-
   Ordner, nie `Familie`, `Dokumente` oder ein bestehender Ordner.
 * **Kopie, nie Verschieben**: Originale bleiben, wo sie sind.
+* **Zusätzliche Absicherung in `.gitignore`** (26.09.): `sortierschluessel*.csv`,
+  `foto_sortierung/` und `aussortierte_gesichter/` sind gesperrt — falls jemand
+  das Werkzeug doch einmal im Repo startet, landen die privaten Dateinamen nicht
+  in Git. (Anlass: Sebastians berechtigte Rückfrage, ob Referenzdaten in GitHub
+  gelangt sind. Prüfung: in **allen** Zweigen wurden nie Bild-, Vektor- oder
+  Datenbankdateien committet — nur die beiden App-Symbole `icon-192.png` /
+  `icon-512.png`.)
 
 ## Messung (echte Ausgabe, 26.09.2026)
 
