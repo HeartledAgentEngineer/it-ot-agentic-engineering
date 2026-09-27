@@ -137,7 +137,7 @@ ohnehin nachkontrolliert.
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_themen_vision.py` (ein Vision-Aufruf je Anlass), **628 Prüfungen grün**, 59 eigene Tests; 2 Anlässe live gemessen (36 Kacheln → „Veranstaltung Publikum Bühne", 0,004354 $; 10 Kacheln → „Konzert Band Auftritt", 0,002255 $); Prüfer `gpt-5.6-luna` sagt „bestanden" (6. Runde). **Offen als N6b:** Massenlauf über alle 2.128 Anlässe (Bögen bauen + Themen setzen) |
 | N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ✅ **bestanden (27.09.)** — `themen_katalog.py` mit **53 Einträgen** (Version 3), Prompt wählt nur daraus, `Sonstiges` als Rückfall; Prüfbefehl **657 grün**; die 161 Anlässe beider Modelle live gemessen (flash 0,209693 USD / 100 % Katalog-Treffer / 14 × Sonstiges = 8,7 %; flash-lite 0,058977 USD / 99,4 % / 18 × Sonstiges); **Sichtprobe 6 Bögen: flash 4 : 2 flash-lite** → **flash** für den Massenlauf; Prüfer `gpt-5.6-luna` (1 Beanstandung an einer Zahl, korrigiert) |
 | N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — **Bestand vollständig:** 2.128 Anlässe, **2.127 mit Katalog-Thema**, 48 Themen genutzt, 242 × `Sonstiges` (11,4 %). Restlauf 2026/2025/2022/2024/2023: 1.967 Anlässe, 1.962 gesehen, 2 Fehlschläge, 7.722 Kacheln, **5.954.092 ein / 370.113 aus Tokens = 2,711510 USD**, 94,2 min. Dabei ein **echter Codefehler** gefunden und behoben (`MAX_TOKENS = 4000` schnitt den 108-Kachel-Bogen ab → `max_tokens_fuer(anzahl)`; derselbe Anlass läuft mit **4.420** Ausgabe-Tokens durch). **Ein Anlass bleibt bewusst offen:** `2022-09-05_Anlass-02` wird vom Anbieter abgelehnt (403 `PROHIBITED_CONTENT`) — keine Modellumgehung. Prüfbefehl **671 grün, Exit 0**; Prüfer `gpt-5.6-luna` (3 Punkte, 2 berechtigt → Zahlen/Doku korrigiert). Doku: `docs/changelog-2026-09-27-themen-massenlauf.md` |
-| N6d | **Zielkatalog aus Sebastians eigenen Ordnern** (`Bilder & Videos`: 18 Kategorien, 113 Unterordner): Zielordner sind **seine** Kategorien, nicht die erfundenen 53 Motive. Werkzeug liest den Bestand nur lesend (`~/foto_sortierung/kategorien.json`) | Kategorien-Liste deckt alle Jahre ab; Motiv-Thema bleibt nur Motiv-Erkennung | ⬜ **neu (27.09.), hohe Wirkung** — Vorlage liegt vor: `docs/changelog-2026-09-27-kategorien-bestand.md` |
+| N6d | **Zielkatalog aus Sebastians eigenen Ordnern** (`Bilder & Videos`: 18 Kategorien, 113 Unterordner): Zielordner sind **seine** Kategorien, nicht die erfundenen 53 Motive. Werkzeug liest den Bestand nur lesend (`~/foto_sortierung/kategorien.json`) | Kategorien-Liste deckt alle Jahre ab; Motiv-Thema bleibt nur Motiv-Erkennung | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_kategorien.py` (855 Zeilen) + **38** neue Tests; Übersetzung Motiv-Thema (53) → **Bucket** (11, im Code) → **echter Ordner** (lokal gebunden, `~/foto_sortierung/kategorie_zuordnung.json`); Zielpfad `Agent/Fotos/<Jahr>/<Kategorie>/<Event>`; Prüfbefehl **709 grün, Exit 0**; live `--zeigen`: **18 Kategorien · 113 Unterordner · 10 mit Unterordnern · 11 Buckets (10 gebunden, 1 × null)**, nichts geschrieben. Doku: `docs/changelog-2026-09-27-zielkategorien.md` |
 | N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ⬜ nach N6d |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ **Themen sind vollständig** (N6b ✅, 2.127 von 2.128). **Auflage beim Bau:** Rückfallordner für Anlässe **ohne** Thema (z. B. `Ohne-Thema`) einbauen, statt abzubrechen. Zielt auf N6d/N6e (Ordner = Sebastians Kategorien) |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
@@ -417,3 +417,39 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N7** (Trockenlauf des Sortierens) — mit der Auflage
     aus dem Plan: Rückfallordner für Anlässe ohne Thema, und Zielordner sind
     laut **N6d** Sebastians eigene Kategorien (18 Kategorien, 113 Unterordner).
+* **27.09. ~12:10 — N6d gebaut und bestanden** (Planer: Hauptagent · Ausführer:
+  Hermes-Subagent `deepseek-v4.1-flash`, 0,026 USD · Prüfer: `openai/gpt-5.6-luna`).
+  **Codex weiterhin gesperrt** (Kontingent bis 15.10.).
+  - **Beginn dieser Runde:** `git pull --rebase` **scheiterte** an ungestagten
+    Änderungen — es sind die **fremden** Dateien des zweiten Agenten
+    (`docs/experimente/live_zahlen.*` geändert, zwei neue Recherche-HTML). Nicht
+    angefasst, nicht gestasht. Stattdessen `git fetch` + Zählung:
+    `git rev-list --left-right --count origin/main...HEAD` → **`0 0`** — lokal und
+    remote identisch, es gab nichts zu holen. Der Pull-Abbruch war also
+    folgenlos; gearbeitet wurde vom committeten Stand `13e1b80`.
+  - **Das Problem:** die 53 Motiv-Themen aus N6/N6c sind als **Ordner** untauglich
+    (Sebastian hat längst eigene Kategorien). Gebaut wurde die Übersetzung
+    Motiv-Thema → **Bucket** (11, generisch, im Code) → **echter pCloud-Ordner**
+    (lokal gebunden). Die echten Ordnernamen stehen **nicht** im Repo, sondern in
+    `~/foto_sortierung/kategorie_zuordnung.json` (Namen Dritter/Orte bleiben
+    privat — dieselbe Regel wie beim Bestand).
+  - **Zahlen (frisch gefahren):** Baseline **671** → Prüfbefehl
+    `pytest tests/ -q` → **709 passed, 3 warnings, Exit 0** (70,8 s; +38 eigene
+    Tests). Live `--zeigen` gegen den echten Bestand: **18 Kategorien · 113
+    Unterordner · 10 mit Unterordnern · 11 Buckets (10 gebunden, 1 × null =
+    `Sonstiges` → Neubau)**, Exit 0, **nichts geschrieben**; mtime der
+    Bestandsdatei unverändert (09:40:53). Bindung selbst gelegt (10 echte Ordner,
+    1 Neubau) und mit dem Werkzeug geprüft.
+  - **Bewusste Entscheidungen:** (1) `Sonstiges` legt einen **neuen** Ordner an,
+    statt einen bestehenden Sammelordner zu füllen; (2) die Bindungen der 18
+    Kategorien bleiben generisch im Code, nur die Buckets sind Ziele; (3) fehlende
+    Buckets in der Zuordnungsdatei sind ein **Fehler**, keine stille Erweiterung;
+    (4) Zielpfad-Schema `Agent/Fotos/<Jahr>/<Kategorie>/<Event>` mit
+    Namensbereinigung, Jahr auf 1900–2100 geprüft.
+  - **Schutz:** nur **lesende** pCloud-Aufrufe (`liste`, feste Tiefe 2, kein
+    `thumb`, kein Download), atomares Schreiben nur außerhalb des Repos
+    (Schreibversuch ins Repo wird verweigert), **keine Löschfunktion** (Test prüft
+    den Quelltext auf Abwesenheit).
+  - Doku: `docs/changelog-2026-09-27-zielkategorien.md`.
+  - **Nächster Schritt: N6e** (Event-Abgleich: bestehende Event-Ordner als
+    Vorschlag statt Neubau) — danach **N7** (Trockenlauf des Sortierens).
