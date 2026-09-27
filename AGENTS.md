@@ -138,6 +138,34 @@ Hat ein Projekt **keinen** Prüfbefehl, wird jede Änderung einzeln vorgelegt.
 Ab etwa 60 % Kontextnutzung oder am Phasenende: Zwischenstand in die
 Phasendatei schreiben und `/clear` vorschlagen.
 
+## Dauerlauf / Nachtarbeit (autonom)
+
+Sebastian kann einen **Dauerlauf** beauftragen („arbeite 4–5 Stunden durch, keine
+Fragen"). Dann gilt zusätzlich:
+
+1. **Keine Rückfragen.** Entscheidungen selbst treffen und im Planjournal
+   begründen — Auswahlfragen werden nicht gestellt, sondern entschieden.
+2. **Plan als Datei.** Vor dem Start `.hermes/plans/<thema>.md` anlegen:
+   nummerierte Schritte, je Schritt das Prüfkriterium. Erledigtes wird abgehakt,
+   Blockiertes landet **mit Grund** im Journal — und es geht mit dem **nächsten**
+   Schritt weiter. Nie stehenbleiben, nie auf den Nutzer warten.
+3. **Jeder Schritt wird verifiziert und einzeln committet** („code + docs").
+   Kein Commit ohne grünen Prüfbefehl; rote Schritte werden nicht umgangen.
+4. **NIE löschen — nur kopieren und verschieben.** Gilt für alle fremden Systeme
+   (pCloud, Handy, bestehende Ordner). Bei Unsicherheit: nur lesen.
+5. **Rückholbarkeit ist Pflicht.** Jede schreibende Operation auf einem fremden
+   System kommt in ein **Manifest** (Quelle → Ziel, Zeit, Kennung), damit sie
+   zurückgenommen werden kann. „Wie mache ich das rückgängig?" wird **vor** der
+   Operation beantwortet, nicht danach.
+6. **Idempotent bauen.** Jedes Werkzeug muss mehrfach laufen dürfen, ohne Schaden
+   (vorhandenes Ziel = überspringen, nie doppelt anlegen).
+7. **Kostengrenze.** Billigste Wege zuerst (Vorschaubilder statt Originale,
+   Stapel statt Einzelaufrufe). Teure Wege (Vision über alles) werden vorher an
+   einer Stichprobe gemessen, nicht ins Blaue gefahren.
+8. **Wiederaufnahme sichern.** Bei Dauerläufen wird ein Fortsetzungspunkt
+   festgehalten (Plan + Journal), damit ein Neustart — neue Sitzung, Cron-Aufruf,
+   anderer Rechner — dort weitermacht statt von vorn.
+
 ## Ablenkungen
 
 Neue Ideen während einer laufenden Phase werden als To-do notiert und nach der

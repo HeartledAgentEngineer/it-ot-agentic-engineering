@@ -90,8 +90,52 @@ Damit ist **Lesen bewiesen** (`listfolder`), nicht nur die Anmeldung.
 * Die Entwickler-Anmeldung selbst bleibt ungelöst; sie ist für diesen Weg aber
   **nicht mehr nötig**.
 
+## Selbstheilung: Token neu holen (Werkzeug)
+
+Frage Sebastian (26.09.2026): „Wir müssen diese Token-Generierung /
+Authentifizierung einrichten, wenn das nun abgelaufen ist ... oder läuft er
+nicht mehr ab?"
+
+**Antwort:** Der Token **läuft laut pCloud-Doku nicht ab** — der Client speichert
+deshalb auch `saveauth = 1` („Anmeldung dauerhaft behalten"). Er ist aber
+**widerruflich**: Abmelden im Client, Passwortänderung oder „Sitzungen/Geräte
+beenden" machen ihn ungültig (die API kennt dafür `listtokens` / `deletetoken`).
+
+**Dafür gibt es jetzt ein Werkzeug:** `tools/pcloud/pcloud_token_erneuern.py`
+
+| Aufruf | Wirkung |
+|---|---|
+| `python tools/pcloud/pcloud_token_erneuern.py --pruefen` | prüft **nur** den Token aus `backend/.env` gegen `/userinfo`; ändert nichts |
+| `python tools/pcloud/pcloud_token_erneuern.py` | liest `setting.auth` aus dem Client-Speicher, prüft ihn und schreibt ihn nach `backend/.env` |
+
+Der Wert wird **nie** ausgegeben (auch nicht gekürzt); die Datenbank wird mit
+`immutable=1` nur lesend geöffnet, der laufende Client bleibt unberührt.
+
+**Beleg (echte Ausgabe, 26.09.2026):**
+
+```
+=== 1) Prüfmodus ===
+Prüfe vorhandenen Token gegen https://eapi.pcloud.com ...
+  E-Mail: se*******************.com   userid: 4738912
+  Quota:  2199.0 GB, belegt 390.5 GB
+  Konto:  premium=True emailverified=True
+Ergebnis: gültig
+
+=== 2) Selbstheilung ===
+Gefunden: 39 Zeichen im Feld 'auth' (Konto-Nr. 4738912, location_id 2)
+Probe gegen https://eapi.pcloud.com/userinfo ...
+In ...\backend\.env eingetragen (PCLOUD_TOKEN, PCLOUD_HOST=eapi.pcloud.com).
+```
+
+Damit ist der Ausfallfall ein **Einzeiler** — kein neuer Login, keine
+App-Registrierung, kein Google-Umweg.
+
 ## Nächste Stufe
 
 `backend/app/services/pcloud_service.py` + `backend/app/router/cloud.py`
 (`/api/cloud/status`, `/liste`, `/thumb`, `/datei`, `/suche`) mit Tests — der
 Explorer in der App, danach die Foto- und Personen-Stufen darauf.
+
+**Umgesetzt (26./27.09.2026):** Service, Router und Tests stehen und sind live
+gegen die echte API geprüft (nur lesend). Belege, Befehle mit echten Zahlen und
+was offen bleibt: `docs/changelog-2026-09-26-pcloud-service.md`.
