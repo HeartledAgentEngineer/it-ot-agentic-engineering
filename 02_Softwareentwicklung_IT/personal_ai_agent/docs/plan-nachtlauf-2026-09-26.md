@@ -41,9 +41,10 @@ Vielfalt. Wird bewusst **pro Rolle** gesetzt:
 
 | Rolle | Modell | Weg | Warum |
 |---|---|---|---|
-| **Planer (Denken)** | `gpt-5.6-terra` | **nur über die Codex CLI** (ChatGPT-Konto, `codex exec --model gpt-5.6-terra --sandbox read-only`) | stärkstes verfügbares Denken, **keine Token-Rechnung** — nur Volumen. Denken ist selten, teuer darf sein |
+| **Planer (Denken)** | `gpt-5.6-terra` | **nur über die Codex CLI** (ChatGPT-Konto, `codex exec --model gpt-5.6-terra --sandbox read-only`) | stärkstes verfügbares Denken, **keine Token-Rechnung** — nur Volumen. Denken ist selten, teuer darf sein. **⚠️ 27.09. gesperrt:** Kontingent erschöpft — live „You've hit your usage limit … try again at Oct 15th, 2026 9:32 PM" (2 Sitzungen liefen 05:00 + 07:43 noch; danach zu) |
+| **Planer-Ersatz, solange gesperrt** | Hauptagent `deepseek-v4.1-flash` | direkt (Hauptkontext) | Planung macht der Hauptagent selbst; die Qualität kommt aus dem **fremdfamiliären Prüfer**, nicht aus dem Planer. Zweitweg **Claude Code geprüft und ausgefallen**: 2.1.83 antwortet `Exit 1 · 401 authentication_error: „OAuth access token has expired. Re-authenticate to continue."` → braucht Sebastians Anmeldung (`claude` interaktiv bzw. `claude setup-token`) |
 | **Ausführer (Masse)** | `deepseek-v4.1-flash` | Hermes-Subagenten | **Cache 0,001 $/Mio** → lange Sitzungen kosten fast nichts |
-| **Ausführer (schwerer Coding-Block)** | `gpt-5.6-terra` | Codex CLI, `--sandbox workspace-write` | starke Umsetzung ohne Zusatzkosten über das Konto |
+| **Ausführer (schwerer Coding-Block)** | `gpt-5.6-terra` | Codex CLI, `--sandbox workspace-write` | starke Umsetzung ohne Zusatzkosten über das Konto — **derzeit ebenfalls gesperrt** (Kontingent, s. o.); solange übernimmt der Hauptagent/Subagent mit `deepseek-v4.1-flash` |
 | **Prüfer (andere Familie!)** | `gpt-5.6-luna` (0,20/1,20) oder `z-ai/glm-5.2` (0,65/2,04) | `hermes -z "<Auftrag>" -m <Modell>` | Fehler, die eine Familie macht, findet dieselbe Familie nicht |
 
 **Gemessene Preise (OpenRouter, je 1 Mio Token, 27.09.2026, live abgefragt):**
