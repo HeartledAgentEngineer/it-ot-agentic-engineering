@@ -1223,6 +1223,12 @@ ohnehin nachkontrolliert.
     aus `n9g_messung.json` und korrigiert. (2) Diese neu ergänzte Journal-Zeile enthielt
     den **Eigner-Namen** → ersetzt durch „dein Blick". Der Code selbst war von der
     Beanstandung nicht betroffen.
+  - **Prüfer Runde 3 (`gpt-5.6-luna`, frische Sitzung, Abnahme auf `fcf4ad4`):
+    BESTANDEN, „Abweichungen: keine."** Höchstwert selbst nachgerechnet
+    (**2,1208** = 0,6362308 / 0,30 in beiden Mindestgrößen), `2,0533` nur noch der
+    Schwelle 0,45 zugeordnet, die neu ergänzten Journal-Zeilen **ohne** Eigner-Namen,
+    `fcf4ad4` = zwei Dateien, `b88b41d` = sieben Dateien, `0 0`, keine
+    `live_zahlen`-Dateien im Projektstand; Prüfbefehl **1449 / Exit 0** (eigener Lauf).
   - **Schutz:** pCloud nur **lesend**; Originale **nur im Arbeitsspeicher**, **keine**
     Bilddatei auf der Platte; **nichts gelöscht**; `manifest.jsonl` existiert nicht
     (keine Buchung); alle Ausgaben unter `~/foto_sortierung/`; keine Schlüsselwerte,

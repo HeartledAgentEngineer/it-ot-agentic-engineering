@@ -119,6 +119,14 @@ Alles andere hat der Prüfer bestätigt (Prüfbefehl 1449/Exit 0, genau sieben D
 Commit, `0 0`, alle Messzahlen außer der einen, Doku deckt den Code, keine Bilder in den
 Ausgaben).
 
+**Prüfer Runde 3 (`gpt-5.6-luna`, frische Sitzung, Abnahme auf `fcf4ad4`):
+BESTANDEN, „Abweichungen: keine."** Er hat den Höchstwert selbst nachgerechnet
+(0,6362308 / 0,30 = **2,1208** in beiden Mindestgrößen), bestätigt, dass `2,0533`
+nur noch der Schwelle 0,45 zugeordnet ist, dass die **neu ergänzten** Journal-Zeilen
+keinen Eigner-Namen mehr enthalten, `fcf4ad4` = **genau zwei** Dateien und `b88b41d`
+= **genau sieben** Dateien, `0 0`, keine `live_zahlen`-Dateien im Projektstand und
+`git diff --check` ohne Befund; Prüfbefehl **1449 passed, Exit 0** (eigener Lauf).
+
 ## Entscheidung (statt Rückfrage)
 
 **Produktion = vollständige Verknüpfung.** Begründung mit Zahlen: sie ist das
