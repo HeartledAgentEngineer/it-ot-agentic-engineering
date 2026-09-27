@@ -152,11 +152,25 @@ def _lazy_load():
     return _det, _rec
 
 
-def _align_face(img_bgr, bbox, landm) -> np.ndarray:
-    """Schneidet das Gesicht anhand der 5 Landmarken raus und aligniert es auf
-    112x112 (SFace-Vorverarbeitung entspricht dem OpenCV AlignCrop)."""
+def _align_face(img_bgr, zeile) -> np.ndarray:
+    """Schneidet das Gesicht anhand der Detektionszeile raus und aligniert es auf
+    112x112 (SFace-Vorverarbeitung entspricht dem OpenCV AlignCrop).
+
+    ``zeile`` ist die **volle** YuNet-Zeile mit 15 Werten
+    (``x, y, w, h, 5 Landmarken-Paare, score``). Genau diese Form erwartet
+    ``cv2.FaceRecognizerSF.alignCrop`` — die Landmarken **und** die Boxmasse
+    liegen in einem ``float32``-Puffer von 60 Byte.
+
+    Wird stattdessen nur das 5x2-Landmarken-Array (40 Byte) uebergeben, prueft
+    OpenCV die Form **nicht** und liest 20 Byte ueber den Puffer hinaus: die
+    Landmarken werden Muell, **jedes** Gesicht eines Bildes bekommt denselben
+    Ausschnitt und damit **denselben** Vektor. Gemessen an einem Bild mit 6
+    Gesichtern: 5x2-Argument -> 6x dieselbe Ausschnitt-Pruefsumme; volle Zeile
+    -> 6 verschiedene Pruefsummen.
+    """
     det, rec = _lazy_load()
-    return rec.alignCrop(img_bgr, landm.astype(np.float32))
+    reihe = np.asarray(zeile, dtype=np.float32).reshape(-1)[:15]
+    return rec.alignCrop(img_bgr, reihe)
 
 
 def _embed_crop_pixels(img, bbox):
@@ -177,7 +191,6 @@ def _embed_crop_pixels(img, bbox):
     except (TypeError, ValueError, IndexError):
         return None
     crop = img[y:y + bh, x:x + bw]
-    import cv2
     det, rec = _lazy_load()
     emb = None
     # 1) Gesicht + Landmarken im Ausschnitt suchen -> genaue alignCrop-Embedding.
@@ -186,14 +199,16 @@ def _embed_crop_pixels(img, bbox):
         ok, faces = det.detect(crop)
         if faces is not None and len(faces) > 0:
             f = faces[0]
-            landm = f[4:14].reshape(-1, 2).astype(np.float32)
-            aligned = rec.alignCrop(crop, landm)
+            # Volle Detektionszeile (15 Werte) an alignCrop — nicht die
+            # Landmarken allein (siehe _align_face).
+            aligned = _align_face(crop, f)
             emb = rec.feature(aligned)
     except Exception:
         emb = None
     # 2) Fallback: Quadrat-Crop auf 112x112 skalieren und direkt einbetten.
     if emb is None:
         try:
+            import cv2
             sq = crop
             s = min(sq.shape[0], sq.shape[1])
             if s > 0:
@@ -234,7 +249,9 @@ def op_embed(payload: dict) -> dict:
         score = float(f[-1])
         landm = f[4:14].reshape(-1, 2).astype(np.float32)
         try:
-            crop = rec.alignCrop(img, landm)
+            # Volle Detektionszeile (15 Werte) an alignCrop — nicht die
+            # Landmarken allein (siehe _align_face).
+            crop = _align_face(img, f)
             emb = rec.feature(crop)  # (1,128) float32
             ergebnis.append({
                 "bbox": [float(v) for v in xywh],
@@ -245,6 +262,22 @@ def op_embed(payload: dict) -> dict:
         except Exception as e:
             ergebnis.append({"bbox": [float(v) for v in xywh], "score": score,
                              "fehler": str(e)})
+
+    # Waechter: bit-identische Merkmale bei mehreren Gesichtern sind ein
+    # Fehlersignal. Ein echter Erkenner schneidet fuer jedes Gesicht einen
+    # anderen Ausschnitt (andere Landmarken) und liefert daher nie bitgleiche
+    # Merkmale — bitgleiche koennen nur entstehen, wenn alignCrop fuer alle
+    # Gesichter dieselben (falschen) Landmarken bekommt. Stiller Durchlauf hat
+    # den Fehler zwei Nachtlaeufe lang verdeckt.
+    merkmale = [eintrag["embedding"] for eintrag in ergebnis
+                if isinstance(eintrag.get("embedding"), list)]
+    if len(merkmale) >= 2 and all(merkmal == merkmale[0]
+                                  for merkmal in merkmale[1:]):
+        return {"ok": False,
+                "fehler": f"Waechter: {len(merkmale)} Gesichter erkannt, aber "
+                          "bit-identische Merkmale. alignCrop braucht die volle "
+                          "Detektionszeile mit 15 Werten, nicht die Landmarken "
+                          "allein. Ergebnis verworfen - kein stiller Durchlauf."}
     return {"ok": True, "gesichter": ergebnis}
 
 

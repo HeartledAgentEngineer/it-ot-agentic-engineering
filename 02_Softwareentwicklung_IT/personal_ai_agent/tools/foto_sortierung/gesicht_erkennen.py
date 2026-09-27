@@ -262,10 +262,26 @@ def _bild_bereitstellen(roh, detektor):
     return bild, ""
 
 
-def _merkmal(rekognizer, bild, landm):
-    """128-Wert-Merkmal eines Gesichts — ``None``, wenn es nicht entsteht."""
+def _merkmal(rekognizer, bild, zeile):
+    """128-Wert-Merkmal eines Gesichts — ``None``, wenn es nicht entsteht.
+
+    ``zeile`` ist die **volle Detektionszeile** der Detektion, also die 15
+    Werte ``[x, y, w, h, <5 Landmarken-Paare>, score]`` — **nicht** nur das
+    5x2-Landmarken-Array. Genau diese Zeile erwartet
+    ``cv2.FaceRecognizerSF.alignCrop``: die 5 Landmarken-Paare **und** die
+    Boxmasse liegen in **einem** ``float32``-Puffer von 60 Byte.
+
+    Warum das noetig ist (gemessen, nicht behauptet): ``alignCrop`` prueft die
+    Form seines Arguments **nicht**. Uebergibt man nur das 5x2-Landmarken-Array
+    (40 Byte), liest OpenCV 20 Byte **ueber den Puffer hinaus**; die Landmarken
+    werden zu Muell und **jedes** Gesicht eines Bildes bekommt denselben
+    Ausschnitt und damit **denselben** Vektor. Gemessen an einem Bild mit 6
+    Gesichtern: 5x2-Argument -> 6x dieselbe Ausschnitt-Pruefsumme; volle Zeile
+    -> 6 verschiedene Pruefsummen und 6 verschiedene Merkmale.
+    """
+    reihe = np.asarray(zeile, dtype=np.float32).reshape(-1)[:15]
     try:
-        ausschnitt = rekognizer.alignCrop(bild, landm)
+        ausschnitt = rekognizer.alignCrop(bild, reihe)
         merkmal = rekognizer.feature(ausschnitt)
     except Exception:
         return None
@@ -297,6 +313,18 @@ def gesichter_mit_detektor(roh, detektor, rekognizer, bild_id="",
     ``"fehler"`` mit deutschem Text. Ein Gesicht, zu dem kein gueltiges
     Merkmal entsteht, wird **uebersprungen** und unter ``"ohne_merkmal"``
     gezaehlt — so bleibt jede Zeile fuer N9a gueltig.
+
+    Waechter gegen genau den Fehler der Aufrufform (siehe ``_merkmal``):
+    kommen bei einem Bild mit **zwei oder mehr** Gesichtern **bit-identische**
+    Merkmale heraus, ist das ein Fehlersignal — dann wird die Gesichtsliste
+    **geleert** und das Feld ``"fehler"`` gesetzt, es gibt **keinen stillen
+    Durchlauf**. Begruendung: ein echter Erkenner schneidet fuer jedes Gesicht
+    einen **anderen** Ausschnitt (andere Landmarken) und liefert daher fuer
+    verschiedene Ausschnitte **nie** bitgleiche Merkmale. Bitgleiche Merkmale
+    koennen nur entstehen, wenn ``alignCrop`` dieselben (falschen) Landmarken
+    bekommt — genau das war der Fehler, der zwei Nachtlaeufe lang still
+    durchlief und je Bild nur **einen** Vektor fuer alle Gesichter in die
+    Vektordatei schrieb.
     """
     kennung = _text(bild_id)
     ergebnis = {"bild_id": kennung, "breite": 0, "hoehe": 0, "gesichter": []}
@@ -327,13 +355,16 @@ def gesichter_mit_detektor(roh, detektor, rekognizer, bild_id="",
     ohne_merkmal = 0
     for gesicht in rohgesichter:
         werte = np.asarray(gesicht, dtype=float).reshape(-1)
-        if werte.size < 5:
+        # Die volle Detektionszeile hat 15 Werte (bbox 4 + 5x2 Landmarken + score).
+        # Ohne sie darf alignCrop nicht aufgerufen werden (siehe _merkmal).
+        if werte.size < 15:
             ohne_merkmal += 1
             continue
         bbox = [float(v) for v in werte[0:4]]
         score = float(werte[-1])
         landm = werte[4:14].reshape(5, 2)
-        merkmal = _merkmal(rekognizer, bild, landm.astype(np.float32))
+        zeile = werte[0:15].astype(np.float32)
+        merkmal = _merkmal(rekognizer, bild, zeile)
         if merkmal is None:
             ohne_merkmal += 1
             continue
@@ -343,6 +374,23 @@ def gesichter_mit_detektor(roh, detektor, rekognizer, bild_id="",
             "landm": [[float(x), float(y)] for x, y in landm],
             "embedding": merkmal,
         })
+
+    # Waechter: bit-identische Merkmale bei mehreren Gesichtern sind ein Fehler.
+    merkmale = [gesicht["embedding"] for gesicht in ergebnis["gesichter"]]
+    if len(merkmale) >= 2 and all(merkmal == merkmale[0]
+                                  for merkmal in merkmale[1:]):
+        anzahl = len(merkmale)
+        ergebnis["gesichter"] = []
+        ergebnis["fehler"] = (
+            f"Waechter: {anzahl} Gesichter im Bild, aber bit-identische "
+            "Merkmale. Ein echter Erkenner liefert fuer verschiedene "
+            "Ausschnitte nie bitgleiche Merkmale - das ist ein Fehlersignal. "
+            "Ursache ist meist die Aufrufform von alignCrop: erwartet wird die "
+            "volle Detektionszeile mit 15 Werten (bbox + 5 Landmarken-Paare + "
+            "score), nicht nur das 5x2-Landmarken-Array. Ergebnis verworfen "
+            "(leere Gesichtsliste) - kein stiller Durchlauf.")
+        return ergebnis
+
     if ohne_merkmal:
         ergebnis["ohne_merkmal"] = ohne_merkmal
     return ergebnis

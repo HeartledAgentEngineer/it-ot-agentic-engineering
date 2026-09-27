@@ -111,6 +111,46 @@ class AttrappeRekognizer:
         return np.asarray(self._merkmal, dtype=np.float32).reshape(1, -1)
 
 
+class AttrappeRekognizerMitForm:
+    """Bildet ``alignCrop``/``feature`` nach und **prueft die Argumentform**.
+
+    Der echte ``cv2.FaceRecognizerSF.alignCrop`` erwartet die **volle**
+    Detektionszeile (15 Werte). Diese Attrappe merkt sich jede uebergebene
+    Form und liefert je unterschiedlichem Argument einen **anderen** Vektor —
+    damit ist pruefbar, dass verschiedene Gesichter verschiedene Merkmale
+    ergeben und dass die falsche 5x2-Form nicht mehr vorkommt.
+    """
+
+    def __init__(self, merkmale=None):
+        # ``merkmale``: optionale Liste von Vektoren, der Reihe nach benutzt.
+        self._merkmale = list(merkmale) if merkmale else None
+        self.aufrufe: list = []
+        self._zaehler = 0
+
+    def alignCrop(self, bild, landm):
+        reihe = np.asarray(landm)
+        self.aufrufe.append(reihe.shape)
+        return f"ausschnitt-{self._zaehler}"
+
+    def feature(self, ausschnitt):
+        if self._merkmale:
+            werte = self._merkmale[self._zaehler % len(self._merkmale)]
+        else:
+            self._zaehler += 1
+            werte = [0.1 * (self._zaehler % 7) + 0.01] * gs.MERKMAL_LAENGE
+        if self._merkmale:
+            self._zaehler += 1
+        return np.asarray(werte, dtype=np.float32).reshape(1, -1)
+
+
+def _zeile_verschieden(i: int):
+    """Eine volle YuNet-Zeile, deren Landmarken sich je ``i`` unterscheiden."""
+    landm = [[float(1 + i), float(1)], [float(2 + i), float(1)],
+            [float(1 + i), float(2)], [float(1 + i), float(3)],
+            [float(2 + i), float(3)]]
+    return _zeile(bbox=(float(i), 2.0, 3.0, 4.0), score=0.9, landm=landm)
+
+
 class AttrappeModell:
     """Bildet ``GesichtsModell.gesichter`` nach (fuer den Stapel-Lauf)."""
 
@@ -417,6 +457,85 @@ def test_gesichter_mit_detektor_nutzt_face_infer_orientierung():
     """Es wird die vorhandene Funktion wiederverwendet, nicht nachgebaut."""
     assert hasattr(gs._face_infer(), "orientiere_bild")
     assert hasattr(gs._face_infer(), "exif_orientierung")
+
+
+# ── 4b. Aufrufform von alignCrop: volle Detektionszeile + Waechter ────────
+
+def test_merkmal_bekommt_die_volle_detektionszeile():
+    """``alignCrop`` bekommt die 15-Werte-Zeile, nicht nur die Landmarken.
+
+    Genau hier lag der Fehler: mit dem 5x2-Landmarken-Array (10 Werte) liest
+    OpenCV ueber den Puffer hinaus und alle Gesichter eines Bildes bekommen
+    denselben Vektor.
+    """
+    rekognizer = AttrappeRekognizerMitForm()
+    gs._merkmal(rekognizer, np.zeros((4, 4, 3), np.uint8),
+                np.arange(15, dtype=float))
+    assert rekognizer.aufrufe == [(15,)]
+
+
+def test_gesichter_mit_detektor_reicht_die_volle_zeile_durch():
+    detektor = AttrappeDetektor([_zeile_verschieden(0)])
+    rekognizer = AttrappeRekognizerMitForm()
+    gs.gesichter_mit_detektor(b"egal", detektor, rekognizer)
+    assert rekognizer.aufrufe == [(15,)], \
+        "alignCrop muss die volle Detektionszeile mit 15 Werten bekommen"
+
+
+def test_gesichter_mit_detektor_zwei_gesichter_volle_zeile():
+    detektor = AttrappeDetektor([_zeile_verschieden(0), _zeile_verschieden(3)])
+    rekognizer = AttrappeRekognizerMitForm()
+    ergebnis = gs.gesichter_mit_detektor(b"egal", detektor, rekognizer)
+    assert rekognizer.aufrufe == [(15,), (15,)]
+    assert len(ergebnis["gesichter"]) == 2
+    assert "fehler" not in ergebnis
+
+
+def test_gesichter_mit_detektor_verschiedene_ausschnitte_verschiedene_merkmale():
+    """Verschiedene Gesichter -> verschiedene Merkmale (kein Einheitsvektor)."""
+    detektor = AttrappeDetektor([_zeile_verschieden(0), _zeile_verschieden(3)])
+    ergebnis = gs.gesichter_mit_detektor(b"egal", detektor,
+                                         AttrappeRekognizerMitForm())
+    merkmale = [gesicht["embedding"] for gesicht in ergebnis["gesichter"]]
+    assert len(merkmale) == 2
+    assert merkmale[0] != merkmale[1], \
+        "zwei Gesichter muessen zwei verschiedene Vektoren ergeben"
+
+
+def test_waechter_schlaegt_bei_bit_identischen_merkmalen_zu():
+    """Zwei Gesichter, gleiche Merkmale -> Fehlersignal, keine stille Ausgabe."""
+    detektor = AttrappeDetektor([_zeile_verschieden(0), _zeile_verschieden(3)])
+    identisch = [[0.25] * gs.MERKMAL_LAENGE, [0.25] * gs.MERKMAL_LAENGE]
+    ergebnis = gs.gesichter_mit_detektor(b"egal", detektor,
+                                         AttrappeRekognizerMitForm(identisch))
+    assert ergebnis["gesichter"] == []
+    assert "fehler" in ergebnis
+    assert "Waechter" in ergebnis["fehler"]
+    assert "identisch" in ergebnis["fehler"]
+
+
+def test_waechter_greift_nicht_bei_einem_gesicht():
+    detektor = AttrappeDetektor([_zeile_verschieden(0)])
+    ergebnis = gs.gesichter_mit_detektor(b"egal", detektor,
+                                         AttrappeRekognizerMitForm())
+    assert len(ergebnis["gesichter"]) == 1
+    assert "fehler" not in ergebnis
+
+
+def test_gesicht_mit_zu_kurzer_detektionszeile_wird_uebersprungen():
+    """Weniger als 15 Werte duerfen alignCrop nicht erreichen."""
+    detektor = AttrappeDetektor([[1.0, 2.0, 3.0, 4.0] + [1.0] * 9 + [0.9]])
+    rekognizer = AttrappeRekognizerMitForm()
+    ergebnis = gs.gesichter_mit_detektor(b"egal", detektor, rekognizer)
+    assert ergebnis["gesichter"] == []
+    assert ergebnis["ohne_merkmal"] == 1
+    assert rekognizer.aufrufe == []
+
+
+def test_quelle_uebergibt_nicht_nur_die_landmarken():
+    """Regression: im Quelltext darf ``alignCrop`` nicht mit ``landm`` laufen."""
+    assert "alignCrop(bild, landm)" not in QUELLE
+    assert "werte[0:15]" in QUELLE
 
 
 # ── 5. vektoren_fuer_stapel ───────────────────────────────────────────────
