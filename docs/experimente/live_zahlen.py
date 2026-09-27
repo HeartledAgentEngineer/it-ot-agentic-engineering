@@ -121,14 +121,20 @@ def fenster(kennung):
 
 
 def cash_faktor():
-    """Aufschlagsfaktor aus der Cash-Kette - EINE Quelle, keine zweite Formel.
+    """Proportionaler Aufschlagsfaktor: Guthaben -> Cash.
 
-    Die Posten (Input/Output/Cache) werden damit hochgerechnet, damit ihre
-    Summe exakt dem Cash-Betrag entspricht (Nutzerwunsch: 'die Summe des
-    Verbrauchs'). Wuerde hier eine eigene Formel stehen, driften Posten und
-    Cash-Summe wieder auseinander.
+    ACHTUNG, hier lag ein Fehler: cash_kette(1.0) ist NICHT brauchbar, denn
+    bei kleinen Betraegen greift das Mindestentgelt von 0,80 USD je Aufladung
+    und blaeht den Faktor auf 2,21 statt 1,33 - die Posten waren dadurch
+    anderthalb mal zu hoch.
+
+    Der proportionale Faktor ist:
+        1/(1-0,055)   Nutzung -> Aufladung (5,5 % Service)
+        x 1,055       Servicegebuehr
+        x 1,19        19 % USt auf Aufladung UND Service
+        = 1,3285
     """
-    return cash_kette(1.0)["cash"]
+    return (1.0 / (1.0 - 0.055)) * (1.0 + 0.055) * (1.0 + 0.19)
 
 
 def cash_kette(nutzung_usd):
