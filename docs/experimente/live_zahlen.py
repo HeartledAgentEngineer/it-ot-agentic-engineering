@@ -120,6 +120,17 @@ def fenster(kennung):
     return 0.0, None
 
 
+def cash_faktor():
+    """Aufschlagsfaktor aus der Cash-Kette - EINE Quelle, keine zweite Formel.
+
+    Die Posten (Input/Output/Cache) werden damit hochgerechnet, damit ihre
+    Summe exakt dem Cash-Betrag entspricht (Nutzerwunsch: 'die Summe des
+    Verbrauchs'). Wuerde hier eine eigene Formel stehen, driften Posten und
+    Cash-Summe wieder auseinander.
+    """
+    return cash_kette(1.0)["cash"]
+
+
 def cash_kette(nutzung_usd):
     """Nutzung -> Cash. Belegt an drei echten Kaufdialogen (17/20/200 USD)."""
     guthaben = nutzung_usd / 0.945
@@ -196,13 +207,37 @@ def main():
             tok = {"in": ti, "out": to, "cache": tc}
             quote = None
 
+        # Cash-Anteile: die drei Posten tragen denselben Aufschlag, damit ihre
+        # Summe genau dem Cash-Betrag entspricht (Nutzerwunsch).
+        faktor = cash_faktor()
+        # Normierung: cost_input_usd/... und estimated_cost_usd sind zwei
+        # Quellen. Die Posten werden auf die Gesamtsumme skaliert, sonst ergibt
+        # in+out+cache nicht die Summe.
+        posten_summe = (in_usd or 0) + (out_usd or 0) + (cache_usd or 0)
+        # MASSGEBLICH ist die Gesamtsumme des Chats (dieselbe Zahl, die der
+        # Block als Chat-Kosten zeigt). Die eigenen Kosten sind Gesamt minus
+        # Subagenten; die drei Posten teilen sich genau diesen Betrag, der
+        # Cache-Posten nimmt den Rest auf. So gilt immer:
+        #   in + out + cache + Subagenten = Chat gesamt
+        _gesamt_eur = round(gesamt_usd * kurs * faktor, 2)
+        _sub_eur = round(sub_usd * kurs * faktor, 2)
+        _eigen_eur = round(_gesamt_eur - _sub_eur, 2)
+        # Anteilig: jeder Posten bekommt seinen Token-Anteil an den eigenen
+        # Kosten. Damit ist die Summe exakt die eigene Summe.
+        _in_eur = round(_eigen_eur * (in_usd / posten_summe), 2) if posten_summe else 0.0
+        _out_eur = round(_eigen_eur * (out_usd / posten_summe), 2) if posten_summe else 0.0
+        _cache_eur = round(_eigen_eur - _in_eur - _out_eur, 2)
         ergebnis["perioden"][kennung] = {
             "label": label, "definition": defi,
             "chat_in_usd": in_usd, "chat_out_usd": out_usd, "chat_cache_usd": cache_usd,
-            "chat_in_eur": in_usd * kurs, "chat_out_eur": out_usd * kurs,
-            "chat_cache_eur": cache_usd * kurs,
-            "chat_eigen_eur": eigen_usd * kurs, "sub_eur": sub_usd * kurs,
-            "chat_gesamt_eur": gesamt_usd * kurs, "chat_gesamt_usd": gesamt_usd,
+            "chat_in_eur": _in_eur,
+            "chat_out_eur": _out_eur,
+            "chat_cache_eur": _cache_eur,
+            "chat_eigen_eur": _eigen_eur,
+            "sub_eur": _sub_eur,
+            "chat_gesamt_eur": _gesamt_eur,
+            "chat_gesamt_usd": gesamt_usd,
+            "aufschlag": {"faktor": round(faktor, 5)},
             "chat_in_tok": tok["in"], "chat_out_tok": tok["out"], "chat_cache_tok": tok["cache"],
             "chat_calls": calls, "chat_quote": quote,
             "alle_eur": a["usd"] * kurs, "alle_usd": a["usd"],
@@ -223,7 +258,7 @@ def main():
     for k, v in ergebnis["perioden"].items():
         print(f"  {v['label']:<14} Chat {v['chat_gesamt_eur']:>6.2f} EUR "
               f"(in {v['chat_in_eur']:.2f} + out {v['chat_out_eur']:.2f} + cache {v['chat_cache_eur']:.2f} "
-              f"+ Sub {v['sub_eur']:.2f})  alle {v['alle_eur']:>6.2f} EUR  "
+              f"+ Sub {v['sub_eur']:.2f} = {v['chat_gesamt_eur']:.2f})  alle {v['alle_eur']:>6.2f} EUR  "
               f"Cash {v['cash']['cash'] * kurs:>6.2f} EUR")
     return 0
 
