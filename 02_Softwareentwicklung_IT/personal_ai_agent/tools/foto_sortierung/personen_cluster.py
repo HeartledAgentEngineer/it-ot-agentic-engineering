@@ -112,11 +112,31 @@ KENNUNGEN_DATEI = "kennungen.json"
 # Score-Grenze der Gesichtserkennung — derselbe Wert wie in ``face_infer.py``.
 MIN_SCORE = 0.6
 
-# Weniger als 0,05 % der Bildflaeche ist Staub/Kompressionsrauschen, kein
-# Gesicht: 4032x3024 = 12,2 MP -> Anteil 0,0005 = rund 23x23 Pixel. Das ist
-# unterhalb jeder erkennbaren YuNet-Box und soll gar nicht erst mitgezaehlt
-# werden.
-ANTEIL_MIN = 0.0005
+# Flaechen-Tor gegen **entartete Boxen** — nicht gegen Rauschen.
+#
+# Dieses Tor war nie das Rausch-Tor: das ist MIN_SCORE = 0.6 (der Score der
+# Detektion). Hier wird nur noch verworfen, was keine Gesichtsflaeche sein
+# kann, weil die Box gegen null geht (Breite/Hoehe ~ 0 nach NMS-Resten).
+#
+# Herleitung (gemessen, nicht behauptet):
+#   * 0,00001 der Bildflaeche sind bei 4032x3024 = 12,2 MP rund 122 px, also
+#     etwa 11x11 px — praktisch YuNets eigene Mindest-Box (10x10 px). Kleiner
+#     wird von der Detektion ohnehin nichts geliefert.
+#   * Der alte Wert 0,0005 (= 0,05 %, rund 23x23 px) verwarf dagegen **echte**
+#     Funde: die kleinste echte Detektion der Vormessung hat einen
+#     Flaechenanteil von 0,000145 (13 kleine Gesichter auf 4032x3456), die
+#     kleinste echte Detektion des Nachtlaufs N9b einen von 0,000022
+#     (16x22 px auf 4608x3456). Beide fielen unter das Tor — deshalb erreichte
+#     die Mengen-Regel den Zweig ``menge`` nicht, sondern nur ``leer``.
+#   * Ab 0,0001 ist der Zweig ``menge`` am echten Foto erreicht und die
+#     Verteilung aendert sich bei weiterer Absenkung nicht mehr; 0,00001 liegt
+#     darunter und damit auf der sicheren Seite, ohne je ein echtes Gesicht
+#     wegzuwerfen.
+#
+# Keine andere Schwelle ist davon beruehrt (MIN_SCORE, ANTEIL_ERKENNBAR,
+# MENGE_ANZAHL, KATALOG_SCHWELLE, CLUSTER_SCHWELLE, CLUSTER_MIN_NACHBAR,
+# ALT_SCHWELLE bleiben wertgleich).
+ANTEIL_MIN = 0.00001
 
 # "Erkennbar" heisst: das Gesicht fuellt mindestens 0,5 % der Bildflaeche.
 # 4032x3024 -> rund 70x70 Pixel; erst dort traegt ein SFace-Embedding
@@ -398,7 +418,8 @@ def gesichter_bewerten(gesichter, breite, hoehe, params=None) -> list[dict]:
     (kein Dict, kein Score, keine ``bbox``) fallen weg; es wird nichts geraten.
 
     ``nutzbar`` = ``score >= min_score`` **und** ``anteil >= anteil_min``
-    (Staub ist kein Gesicht),
+    (``anteil_min`` verwirft nur **entartete** Boxen, nicht Rauschen — das
+    Rausch-Tor ist ``min_score``),
     ``erkennbar`` = ``nutzbar`` **und** ``anteil >= anteil_erkennbar``.
     """
     p = _params(params)

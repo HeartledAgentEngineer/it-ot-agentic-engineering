@@ -143,7 +143,8 @@ ohnehin nachkontrolliert.
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ **N7 ist bestanden** — der Plan steht (7.616 Züge, 2.108 neue Ordner). Vor dem Echtlauf: **Sebastians Blick auf die 39 sicheren Event-Vorschläge** und auf die **1.146 Dateien ohne Datum im Namen** (bleiben liegen, 12,2 %); der abgelehnte Anlass `2022-09-05_Anlass-02` (403) wartet weiter |
 | N9a | **Personen-Verfahren** (kein Bild nötig): Mengen-Filter, Clustering, stabile Kennungen, Referenzseiten — Werkzeug rechnet nur auf **Vektoren** (Format von `face_infer.py`), ohne cv2/sklearn | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/personen_cluster.py` (1.510 Zeilen) + **216** Tests (`backend/tests/test_personen_cluster.py`, 1.590 Zeilen, alles offline); Prüfbefehl selbst gefahren **1095 passed, Exit 0** (Baseline 879). Live **synthetische** Stichprobe: 12 eingebaute Cluster → 12 Gruppen mit identischen Größen, 100 %, 0 falsch zusammengelegt, 0 übersehen, Rauschen verworfen; 3 Massen-Bilder (141 kleine Gesichter) → `clustern: False`; Idempotenz über die CLI belegt (2. Lauf 0 neue Seiten, dieselben Kennungen). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Eigner-Name an 5 Stellen) → korrigiert, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-personen-verfahren.md`, Feinauftrag `docs/auftrag-n9-personen-verfahren.md` |
 | N9b | **Personen-Stufe echt rechnen**: Modelle (YuNet + SFace) auf den PC holen bzw. auf dem Handy rechnen lassen, `cv2`/`onnxruntime` in **eigenem** venv (Projekt-venv bleibt unberührt), Gesichter in Jahres-Stapeln erkennen, `kachel_holen` an den echten Weg anstecken (pCloud/Handy) | echte Cluster-Anzahl je Stichprobe (Jahres-Stapel), Referenzseiten mit echten Gesichtern, Massen-Regel am echten Foto belegt | ✅ **gebaut + echt gemessen (27.09.)** — Modellweg am PC: **eigenes venv** `~/foto_sortierung/venv_gesicht` (opencv-contrib 5.0.0.93, onnxruntime 1.30.0; Projekt-venv unberührt), Modelle **öffentlich aus dem OpenCV-Zoo** nach `~/foto_sortierung/ml_models/` (232.589 B + 38.696.353 B). Werkzeug `tools/foto_sortierung/gesicht_erkennen.py` (835 Zeilen) + **80** Tests (850 Zeilen) + echte pCloud-Kachelquelle; Prüfbefehl selbst gefahren **1175 passed, Exit 0** (Baseline 1095). **Echte Messung:** 24 Bilder (16 aus 2020 + 8 aus dem bilderstärksten Mengen-Anlass), **72 Gesichter auf 19 Bildern**, 0 Fehler, 88,4 s; N9a darauf: `leer 8 · gruppe 12 · menge 0 · unklar 4`, **2 Gruppen (6 und 40)**, **6 Referenzseiten mit echten Gesichtsausschnitten** (59–102 KB), 2. Lauf **0** neue Dateien. **Befund:** Mengen-Regel greift, aber über den Zweig `leer` — die winzigen Gesichter liegen **unter** `ANTEIL_MIN`, der Zweig `menge` wurde am echten Foto **nicht** erreicht (Entscheidung: Schwelle nicht angetastet → Kandidat **N9c**). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN wegen eines Katalog-Eintrags im Changelog (seit `92b04c3` im Repo = Fehlalarm), Runde 2 **BESTANDEN**. Doku: `docs/changelog-2026-09-27-gesicht-erkennen.md`, Auftrag `docs/auftrag-n9b-gesicht-erkennen.md` |
-| N9c | **Mengen-Zweig am echten Foto erreichbar machen** (`ANTEIL_MIN` mit Messung prüfen) + `kachel_quelle` um den **Gesichtsausschnitt** ergänzen (in-memory, statt ganzes Foto) | `menge`-Zweig an echten Mengen-Fotos erreicht; Kacheln zeigen Gesichter | ⬜ **offen** — aus dem N9b-Befund (27.09.): 21 von 72 echten Gesichtern liegen unter 0,05 % Flächenanteil; die Schwelle ist ein N9a-Beschluss und wird nur mit eigener Messung geändert |
+| N9c | **Mengen-Zweig am echten Foto erreichbar machen** (`ANTEIL_MIN` mit Messung prüfen) + `kachel_quelle` um den **Gesichtsausschnitt** ergänzen (in-memory, statt ganzes Foto) | `menge`-Zweig an echten Mengen-Fotos erreicht; Kacheln zeigen Gesichter | ✅ **bestanden (27.09.)** — `ANTEIL_MIN` **0,0005 → 0,00001** (gemessen: das alte Tor verwarf **echte** Funde, kleinste echte Detektion 0,000145 bzw. 0,000022); `kachel_quelle(..., ausschnitt=True)` schneidet in-memory um das Gesicht (**nur PIL**, Rand 0,45 × bbox, Rückfall aufs ganze Foto statt Abbruch, reine Funktion `ausschnitt_rechnen`), CLI `--ausschnitt`. Prüfbefehl selbst gefahren **1196 passed, Exit 0** (Baseline 1175); **30 echte Mengen-Bilder**: vorher `gruppe 12 · leer 9 · unklar 9 · menge 0` → nachher `gruppe 12 · leer 6 · unklar 11 · menge 1` (**„1 von 30"**, nicht schöngeredet); `gruppe` unverändert = keine Regression. **Offen als N9d:** `bbox` im Vektorzeilen-Lauf verdrahten (`kachel_quelle` liest `fileid`, N9a-Einträge tragen `bild_id`) + N9b-Lauf mit neuem `ANTEIL_MIN` wiederholen; `MENGE_ANZAHL = 6` bleibt unangetastet (N9a-Beschluss, braucht eigene Messung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-mengen-zweig.md`, Auftrag `docs/auftrag-n9c-mengen-zweig.md` |
+| N9d | **Gesichtsausschnitt verdrahten + N9b-Messung wiederholen**: `bbox`/`bild_id` in der Kachelquelle zusammenführen (N9a-Einträge tragen `bild_id`, `kachel_quelle` liest `fileid`), N9b-Vektorlauf mit dem neuen `ANTEIL_MIN` über eine **breitere** Mengen-Stichprobe | Ausschnitt-Kacheln messbar schärfer; `menge`-Anteil über mehr als 30 Bilder beziffert (nicht mehr „1 von 30") | ⬜ **offen** (aus dem N9c-Befund, 27.09.) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -767,3 +768,85 @@ ohnehin nachkontrolliert.
     Gesichtsausschnitt-Kachel) — **N8 (echtes Sortieren) bleibt gesperrt**, bis
     Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146
     datumslosen Dateien da ist. Commit `e41f2b1`, gepusht, `0 0`.
+* **27.09. ~18:05 — N9c gemessen, gebaut und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,025 USD · Prüfer:
+  `openai/gpt-5.6-luna`, **eine** Runde — **andere Modellfamilie**).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden**
+  Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`, zwei neue
+  Recherche-HTML); nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut geprüft und weiter gesperrt** (live „try again at Oct 15th, 2026") →
+  gebaut wurde mit einem Hermes-Subagenten.
+  - **Erst gemessen, dann entschieden (Planer, nur lesend):** eigene Vormessung
+    über **30 Bilder** aus den fünf bilderstärksten Mengen-Anlässen (Themen
+    „Konzert und Buehne", „Fest und Feier"), `~/foto_sortierung/n9c_probe.py`,
+    **87,7 s, 0 Fehler**. Ergebnis über fünf Kandidaten für `ANTEIL_MIN`:
+    **0,0005 (alt) → `gruppe 12 · leer 9 · unklar 9 · menge 0`**;
+    **ab 0,0001 → `gruppe 12 · leer 6 · unklar 11 · menge 1`** und bei 0,00005 /
+    0,00002 / 0,00001 **unverändert** (die Verteilung ist damit ausgemessen).
+    Kleinste **echte** Detektion der Stichprobe: Anteil **0,000145**
+    (13 kleine Gesichter auf 4032×3456); kleinste echte Detektion des Nachtlaufs
+    (N9b): **0,000022** (16×22 px auf 4608×3456). Damit war belegt: das alte
+    Flächen-Tor verwarf **echte** Funde, es war kein Rausch-Tor.
+  - **Teil 1 umgesetzt:** `ANTEIL_MIN` **0,0005 → 0,00001** (1 × 10⁻⁵ ≈ 11×11 px
+    bei 12,2 MP = praktisch **YuNets eigene Mindest-Box** 10×10 px). Der
+    Kommentar sagt jetzt ehrlich: das Flächen-Tor verwirft nur **entartete
+    Boxen**, das Rausch-Tor ist `MIN_SCORE = 0,6`. **Keine andere Schwelle
+    angefasst** (`MENGE_ANZAHL = 6` bleibt — N9a-Beschluss, braucht eigene
+    Messung).
+  - **Teil 2 umgesetzt:** `kachel_quelle(..., ausschnitt=True, rand=0.45)`
+    schneidet **in-memory** um das Gesicht (Rand 0,45 × bbox je Seite, an die
+    Bildgrenzen geklemmt, auf 200×200 skaliert) — **nur PIL**, kein `cv2`, kein
+    Netz, **kein** Schreiben auf Platte; reine, ohne Bild prüfbare Funktion
+    `ausschnitt_rechnen(bbox, breite, hoehe, rand)`; **Rückfall aufs ganze Foto
+    statt Abbruch** (ohne/unbrauchbar `bbox`, kaputte Bytes, fehlendes PIL);
+    CLI-Schalter `--ausschnitt`, Standard bleibt ganzes Foto.
+  - **Prüfbefehl selbst gefahren (Planer):** `pytest tests/ -q` → **1196 passed,
+    Exit 0** (79,4 s; Baseline 1175). Der Prüfer hat ihn ebenfalls selbst
+    gefahren: **1196 / Exit 0**.
+  - **Echte Messung nach der Änderung (Ausführer, Belege
+    `~/foto_sortierung/n9c_belege.txt`, 86,8 s, 0 Fehler):** dieselben 30 Bilder
+    **alt `gruppe 12 · leer 9 · unklar 9 · menge 0`** gegen **neu
+    `gruppe 12 · leer 6 · unklar 11 · menge 1`**. Vier Bilder wechseln die Art:
+    `56226031437` `leer`→`unklar` (3 nutzbare), `56226986963` `leer`→`unklar` (1),
+    `56226987597` `leer`→`unklar` (5), **`56226986656` `unklar`→`menge`**
+    (13 nutzbare, **0** erkennbare). Das **`menge`-Bild**: fileid `56226986656`,
+    4032×3024, 13 kleine Gesichter, kleinster Anteil **0,000145**, größter
+    **0,001911** (< `ANTEIL_ERKENNBAR` 0,005), `clustern: False`,
+    `grund: menge_ohne_bekannte_person`. **Ehrlich: der Zweig ist an 1 von 30
+    Bildern erreicht** — das erfüllt das Prüfkriterium, ist aber **kein** Beleg
+    für generelles Greifen; so steht es auch im Changelog.
+  - **Referenzseiten mit `--ausschnitt`** (Ausgabe außerhalb des Repos,
+    `~/foto_sortierung/personen_echt_ausschnitt/`): **7 Seiten, 552.443 Bytes**,
+    **54 Kacheln alle 200×200** (0 leer, 0 andere Größe), Pixelgegenprobe an
+    einem Eintrag (Original 4096×3072, Grenzen (1074,993,2064,2140), gleiche
+    Form); **zweiter Lauf 0 neue Dateien**. Ohne `--ausschnitt` sind die Seiten
+    kleiner und anders (7.984 Bytes) — der Schalter wirkt wirklich.
+  - **Prüfer (`gpt-5.6-luna`, frischer Kontext): BESTANDEN, „Abweichungen:
+    keine."** Er hat selbst geprüft und nachgerechnet: Prüfbefehl 1196/Exit 0;
+    nur `ANTEIL_MIN` geändert, alle übrigen Schwellen **wertgleich** zu HEAD;
+    die Geometrie mit **eigenen Aufrufen** (Rand, Klemmung, `None` bei entarteter
+    Box, Rückfall bei kaputten Bytes); Testfunktionen **216 → 219** bzw.
+    **80 → 98**; die Mengen-Zahlen vorher/nachher aus der Belegdatei; und eine
+    **synthetische Gegenprobe**: alte Schwelle → `leer`, neue → `menge`
+    (20×20-Box, Anteil 0,0000328). Er hat außerdem bestätigt, dass die offenen
+    Punkte **im Changelog stehen** (u. a. „1 von 30").
+  - **Ehrlich offen gelassen (als N9d in den Plan):** (1) im Vektorzeilen-Lauf
+    übergibt `main` nur die `fileid` — `kachel_quelle` liest zwar `fileid`, die
+    N9a-Einträge tragen die Kennung aber als `bild_id` (und die `bbox` fehlt
+    dort ganz), deshalb wirkt `--ausschnitt` in diesem Lauf **noch nicht**; die
+    Verdrahtung gehört in den nächsten Schritt. (2) Die Referenzseiten dieses
+    Laufs rechneten auf den **alten** 24 N9b-Vektorzeilen — dort entsteht kein
+    `menge`-Bild; der Vektorlauf gehört mit dem neuen `ANTEIL_MIN` wiederholt.
+  - **Schutz:** pCloud nur **lesend**; Originale nur im Arbeitsspeicher, **kein**
+    Bild auf Platte außerhalb der Ausgabeordner; `manifest.jsonl` weiterhin
+    **0 Einträge**; kein Löschen; keine Geheimnisse in Ausgaben oder Dateien;
+    die fremden `live_zahlen`-Dateien blieben unberührt.
+  - Doku: `docs/changelog-2026-09-27-mengen-zweig.md` (neu),
+    Auftrag `docs/auftrag-n9c-mengen-zweig.md` (neu).
+  - **Nächster Schritt: N9d** — `bbox`/`bild_id` in der Kachelquelle verdrahten
+    (Gesichtsausschnitt wirklich nutzbar) und den N9b-Vektorlauf mit dem neuen
+    `ANTEIL_MIN` wiederholen (breitere Mengen-Stichprobe, damit „1 von 30" zu
+    einer belastbaren Zahl wird). **N8 (echtes Sortieren) bleibt gesperrt**, bis
+    Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146
+    datumslosen Dateien da ist.

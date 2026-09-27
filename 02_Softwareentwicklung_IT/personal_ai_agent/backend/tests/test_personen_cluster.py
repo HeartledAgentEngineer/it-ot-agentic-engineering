@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -273,10 +274,48 @@ def test_bild_art_bildmasse_null_wirft_nichts():
     assert pc.bild_art(_klein(40), 0, 0) == pc.ART_LEER
 
 
-def test_bild_art_staub_zaehlt_nicht_als_gesicht():
-    staub = [_gesicht([float(nummer), 0.0, 20.0, 20.0], seed=nummer)
-             for nummer in range(40)]                 # 400 von 12,2 MP
-    assert pc.bild_art(staub, BREITE, HOEHE) == pc.ART_LEER
+def test_bild_art_entartete_boxen_zaehlen_nicht_als_gesicht():
+    """Boxen **unter** dem Flaechen-Tor zaehlen nicht — als Regel, nicht als Zahl.
+
+    Die Kantenlaenge wird aus ``ANTEIL_MIN`` und der Bildflaeche gerechnet
+    (``sqrt(ANTEIL_MIN * Flaeche) - 1``); der Test haengt damit am Verhaeltnis,
+    nicht an einem festgenagelten Zahlenwert. So bleibt er gueltig, wenn das
+    Tor aus einem neuen Messergebnis nachgezogen wird.
+    """
+    kante = max(1.0, math.sqrt(pc.ANTEIL_MIN * FLAECHE) - 1.0)
+    entartet = [_gesicht([float(nummer), 0.0, kante, kante], seed=nummer)
+                for nummer in range(40)]
+    assert pc.gesichts_anteil(entartet[0]["bbox"], BREITE, HOEHE) < pc.ANTEIL_MIN
+    assert pc.bild_art(entartet, BREITE, HOEHE) == pc.ART_LEER
+
+
+def test_bild_art_sieht_nur_noch_entartete_boxen_als_zu_klein():
+    """Was das Tor verwirft, ist eine Box ohne Flaeche — nicht ein Fund.
+
+    Der alte Wert 0,0005 verwarf 20x20-Boxen (400 px von 12,2 MP). Ueber
+    ``params`` ist er noch abrufbar (der Test nagelt also nicht den alten
+    Zahlenwert im Modul fest, sondern rechnet ihn gegen): damals ``leer``,
+    heute sind genau dieselben Boxen nutzbar -> Menschenmenge.
+    """
+    boxen = [_gesicht([float(nummer), 0.0, 20.0, 20.0], seed=nummer)
+             for nummer in range(40)]
+    assert pc.gesichts_anteil(boxen[0]["bbox"], BREITE, HOEHE) > pc.ANTEIL_MIN
+    assert pc.bild_art(boxen, BREITE, HOEHE, {"anteil_min": 0.0005}) == \
+        pc.ART_LEER
+    assert pc.bild_art(boxen, BREITE, HOEHE) == pc.ART_MENGE
+
+
+def test_anteil_min_verwirft_keinen_echten_fund_mehr():
+    """Das Tor liegt unter der **kleinsten echten** Detektion (Regel + Beleg).
+
+    Beleg-Zahlen der Vormessung: kleinste echte Detektion 0,000145 (13 kleine
+    Gesichter), kleinste echte Detektion des Nachtlaufs N9b 0,000022
+    (16x22 px). Beide muessen **ueber** dem Tor liegen, sonst verwirft es
+    echte Gesichter — und der Zweig ``menge`` wird nie erreicht.
+    """
+    assert 0.0 < pc.ANTEIL_MIN <= 0.000022
+    assert pc.ANTEIL_MIN <= 0.000145
+    assert pc.ANTEIL_MIN < 0.0005, "das Tor ist gesenkt, nicht angehoben"
 
 
 def test_bild_art_nutzt_die_benannten_konstanten():
@@ -284,6 +323,23 @@ def test_bild_art_nutzt_die_benannten_konstanten():
     assert pc.MENGEN_PARAMS["anteil_min"] == pc.ANTEIL_MIN
     assert pc.MENGEN_PARAMS["anteil_erkennbar"] == pc.ANTEIL_ERKENNBAR
     assert pc.MENGEN_PARAMS["menge_anzahl"] == pc.MENGE_ANZAHL
+
+
+def test_nur_das_flaechen_tor_wurde_gesenkt():
+    """Zusage des Schritts: **keine andere** Schwelle angefasst.
+
+    Die Zahlen stehen hier bewusst als Werte — genau das ist die Zusage
+    (``MENGE_ANZAHL`` bleibt 6; das ist ein N9a-Beschluss und braucht eine
+    eigene Messung). ``MENGEN_PARAMS`` zieht ``ANTEIL_MIN`` automatisch nach.
+    """
+    assert pc.MIN_SCORE == 0.6
+    assert pc.ANTEIL_ERKENNBAR == 0.005
+    assert pc.MENGE_ANZAHL == 6
+    assert pc.KATALOG_SCHWELLE == 0.363
+    assert pc.CLUSTER_SCHWELLE == 0.45
+    assert pc.CLUSTER_MIN_NACHBAR == 3
+    assert pc.ALT_SCHWELLE == pc.KATALOG_SCHWELLE
+    assert pc.MENGEN_PARAMS["anteil_min"] == pc.ANTEIL_MIN == 0.00001
 
 
 def test_bild_art_params_ueberschreibt_menge_anzahl():

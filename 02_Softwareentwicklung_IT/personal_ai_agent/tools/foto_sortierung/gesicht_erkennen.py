@@ -17,7 +17,9 @@ Was dieses Werkzeug bewusst NICHT tut:
   * **Kein Speichern von Bildern.** Bilder werden ausschliesslich **in-memory**
     verarbeitet. Geschrieben wird nur die **Vektorzeilen-Datei** (JSONL, Text).
     Kein Schreiben von Bilddaten auf die Platte, kein Zwischenbild, kein
-    Binaer-Schreibmodus.
+    Binaer-Schreibmodus. Auch der **Gesichtsausschnitt** der Kachelquelle
+    (``kachel_quelle(..., ausschnitt=True)``) entsteht in-memory und **nur mit
+    PIL** — kein ``cv2``, kein Zwischenbild, kein Netz.
   * **Kein Loeschen.** Im ganzen Modul gibt es keinen Loeschaufruf.
   * **Kein Schreiben ins Repo.** Die Vektorzeilen gehen nur in einen Pfad
     **ausserhalb** des Repos; ein Repo-Pfad ergibt eine deutsche
@@ -89,6 +91,15 @@ MERKMAL_LAENGE = 128
 # Obergrenze fuer einen Kachel-Download (in-memory), damit kein Speicher
 # voll laeuft; ``PCloudService.datei_bytes`` bekommt sie durchgereicht.
 KACHEL_MAX_BYTES = 8 * 1024 * 1024
+
+# Rand eines Gesichtsausschnitts: je Seite so viel wie ``rand`` x bbox-Masse
+# (Breite fuer links/rechts, Hoehe fuer oben/unten). 0.45 gibt dem Gesicht
+# etwas Kopf-/Schulter-Umfeld, ohne zum halben Bild zu werden.
+AUSSCHNITT_RAND = 0.45
+
+# Zielgroesse einer Ausschnitt-Kachel, wenn keine ``groesse`` gesetzt ist:
+# quadratisch, weil die Kontaktbogen-Kacheln von N9a quadratisch sind.
+AUSSCHNITT_GROESSE = (200, 200)
 
 # Score-/NMS-Schwellen der Detektion — derselbe Score-Wert wie in face_infer.py.
 SCORE_SCHWELLE = 0.6
@@ -558,7 +569,82 @@ def _verkleinern(rohdaten, groesse):
         return rohdaten
 
 
-def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None):
+def ausschnitt_rechnen(bbox, breite, hoehe, rand=AUSSCHNITT_RAND):
+    """Die Grenzen eines Gesichtsausschnitts rechnen — ``(x0, y0, x1, y1)|None``.
+
+    **Reine Funktion**, keine Bilddatei, kein PIL — damit die Geometrie ohne
+    Bild pruefbar ist.
+
+    ``bbox`` ist ``[x, y, w, h]`` in Pixeln (YuNet-Reihenfolge wie in N9a),
+    ``breite``/``hoehe`` sind die Bildmasse. Je Seite kommt ``rand`` x
+    bbox-Masse dazu (Breite links/rechts, Hoehe oben/unten), danach wird an die
+    Bildgrenzen **geklemmt** (``0 … breite`` bzw. ``0 … hoehe``).
+
+    ``None`` bei allem, was keinen Ausschnitt ergibt: falsche ``bbox``-Laenge,
+    Nicht-Zahlen, ``breite``/``hoehe`` ``<= 0``, Breite/Hoehe der Box ``<= 0``
+    und ein entarteter Ausschnitt (nach dem Klemmen keine Pixel mehr uebrig,
+    z. B. Box ganz ausserhalb des Bildes). Ein unbrauchbares ``rand`` (keine
+    Zahl oder negativ) faellt still auf ``AUSSCHNITT_RAND`` zurueck.
+    """
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    if any(not _ist_zahl(wert) for wert in bbox):
+        return None
+    if not _ist_positiv(breite) or not _ist_positiv(hoehe):
+        return None
+    x, y, b_breite, b_hoehe = (float(wert) for wert in bbox)
+    if b_breite <= 0 or b_hoehe <= 0:
+        return None
+    rand = float(rand) if _ist_zahl(rand) and float(rand) >= 0 \
+        else AUSSCHNITT_RAND
+    rechts_grenze = int(float(breite))
+    unten_grenze = int(float(hoehe))
+    links = int(math.floor(x - rand * b_breite))
+    oben = int(math.floor(y - rand * b_hoehe))
+    rechts = int(math.ceil(x + b_breite + rand * b_breite))
+    unten = int(math.ceil(y + b_hoehe + rand * b_hoehe))
+    links = max(0, min(links, rechts_grenze))
+    oben = max(0, min(oben, unten_grenze))
+    rechts = max(0, min(rechts, rechts_grenze))
+    unten = max(0, min(unten, unten_grenze))
+    if rechts - links < 1 or unten - oben < 1:
+        return None
+    return (links, oben, rechts, unten)
+
+
+def _ausschnitt_bytes(rohdaten, bbox, rand, ziel):
+    """Einen Gesichtsausschnitt in-memory bauen — Bytes oder ``None``.
+
+    **Nur PIL** (``cv2`` kommt hier nicht vor), kein Netz, **kein** Schreiben
+    auf die Platte. Ablauf: Bytes dekodieren -> ``ausschnitt_rechnen`` ->
+    ``crop`` -> auf ``ziel`` skalieren -> JPEG in-memory.
+
+    Jeder Fehler ergibt ``None`` (unlesbare Bytes, fehlende/unbrauchbare
+    ``bbox``, entarteter Ausschnitt, fehlendes PIL) — der Aufrufer faellt dann
+    aufs **ganze Foto** zurueck. Eine Ausnahme dringt nie nach aussen.
+    """
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        with Image.open(io.BytesIO(rohdaten)) as quelle:
+            bild = quelle.convert("RGB")
+            grenzen = ausschnitt_rechnen(bbox, bild.width, bild.height, rand)
+            if grenzen is None:
+                return None
+            bild = bild.crop(grenzen)
+            if ziel is not None:
+                bild = bild.resize((int(ziel[0]), int(ziel[1])))
+            puffer = io.BytesIO()
+            bild.save(puffer, format="JPEG", quality=85)
+        return puffer.getvalue()
+    except Exception:
+        return None
+
+
+def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None,
+                  ausschnitt=False, rand=AUSSCHNITT_RAND):
     """Eine ``kachel_holen(eintrag) -> bytes | None`` aus einem Dienst bauen.
 
     ``service`` wird **eingesteckt** (Duck-Typing): es genuegt ein Objekt mit
@@ -571,9 +657,26 @@ def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None):
     (der Platzhalter von ``referenzseiten_bauen`` greift) — **nie** ein Abbruch.
     Ist ``groesse`` ``(breite, hoehe)`` gesetzt, wird die Kachel in-memory auf
     diese Kantenlaenge verkleinert.
+
+    ``ausschnitt=True`` schneidet zusaetzlich **in-memory** um das Gesicht: aus
+    der ``bbox`` des Eintrags (``[x, y, w, h]``) wird mit dem Rand ``rand`` x
+    bbox-Masse je Seite, an die Bildgrenzen geklemmt, ein Ausschnitt gebildet
+    und auf die Ziel-Kachelgroesse skaliert — ``groesse``, sonst
+    ``AUSSCHNITT_GROESSE`` (200x200, quadratisch). Das ist reine **PIL**-Arbeit:
+    kein ``cv2``, kein Netz, **kein** Schreiben auf die Platte.
+
+    **Rueckfall statt Abbruch:** fehlender oder unbrauchbarer ``bbox``,
+    unlesbare Bytes, ein entarteter Ausschnitt oder ein fehlendes PIL ergeben
+    das **ganze Foto** wie ohne ``ausschnitt``; eine Ausnahme dringt nie nach
+    aussen. Ohne brauchbare ``bbox`` ist ``ausschnitt=True`` also wirkungslos —
+    genau das haelt den Aufruf in ``main`` (dort kommt nur ``fileid``) sicher.
     """
     holen = getattr(service, "datei_bytes", None)
     ziel = _groesse_lesen(groesse)
+    schneiden = bool(ausschnitt)
+    ziel_ausschnitt = ziel if ziel is not None else AUSSCHNITT_GROESSE
+    randwert = float(rand) if _ist_zahl(rand) and float(rand) >= 0 \
+        else AUSSCHNITT_RAND
 
     def kachel_holen(eintrag):
         if not callable(holen):
@@ -588,6 +691,13 @@ def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None):
         if not isinstance(rohdaten, (bytes, bytearray)) or not rohdaten:
             return None
         rohdaten = bytes(rohdaten)
+        if schneiden:
+            bbox = eintrag.get("bbox") if isinstance(eintrag, dict) else None
+            geschnitten = _ausschnitt_bytes(rohdaten, bbox, randwert,
+                                            ziel_ausschnitt)
+            if geschnitten is not None:
+                return geschnitten
+            # kein brauchbarer bbox / unlesbare Bytes -> ganzes Foto wie bisher
         if ziel is not None:
             rohdaten = _verkleinern(rohdaten, ziel)
         return rohdaten
@@ -769,6 +879,11 @@ def main(argv=None) -> int:
     zerleger.add_argument("--max-bytes", dest="max_bytes", type=int,
                           default=KACHEL_MAX_BYTES,
                           help="Obergrenze je Bild-Download in Bytes")
+    zerleger.add_argument("--ausschnitt", dest="ausschnitt",
+                          action="store_true",
+                          help="Kachelquelle schneidet in-memory um das Gesicht "
+                               "(nur PIL; ohne bbox bzw. bei Fehlern: ganzes "
+                               "Foto). Standard: ganzes Foto")
     zerleger.add_argument("--trocken", dest="trocken", action="store_true",
                           help="nichts schreiben (hat Vorrang vor --schreiben)")
     zerleger.add_argument("--schreiben", dest="schreiben", action="store_true",
@@ -804,7 +919,15 @@ def main(argv=None) -> int:
 
         modell = GesichtsModell(args.modelle)
         dienst = _pcloud_dienst()
-        holen = kachel_quelle(dienst, max_bytes=args.max_bytes)
+        holen = kachel_quelle(dienst, max_bytes=args.max_bytes,
+                              ausschnitt=args.ausschnitt)
+        print("Kachelquelle: " + (
+            "Gesichtsausschnitt je Gesicht — "
+            f"Ziel {AUSSCHNITT_GROESSE[0]}x{AUSSCHNITT_GROESSE[1]} px, "
+            f"Rand {AUSSCHNITT_RAND} x bbox, nur PIL, in-memory "
+            "(Rueckfall ohne bbox/bei Fehlern: ganzes Foto)"
+            if args.ausschnitt else
+            "ganzes Foto (in-memory verkleinert)"))
 
         def hole_fuer(fileid):
             return holen({"fileid": fileid})

@@ -652,6 +652,165 @@ def test_kachel_quelle_passt_zu_referenzseiten_bauen(tmp_path):
     assert (tmp_path / "Person_001_seite_01.jpg").exists()
 
 
+# ── 7b. Gesichtsausschnitt (kachel_quelle mit ausschnitt=True) ────────────
+
+def _png_zweifarbig() -> bytes:
+    """Ein 200x100-Bild: links blau, rechts ein roter Block (x >= 150)."""
+    bild = Image.new("RGB", (200, 100), (0, 0, 255))
+    for x in range(150, 200):
+        for y in range(100):
+            bild.putpixel((x, y), (255, 0, 0))
+    puffer = io.BytesIO()
+    bild.save(puffer, format="PNG")
+    return puffer.getvalue()
+
+
+def test_ausschnitt_rechnen_setzt_rand_je_seite():
+    """``rand`` x bbox-Masse je Seite: Breite links/rechts, Hoehe oben/unten."""
+    # bbox 100x50 bei (200, 300): 0,45 x 100 = 45, 0,45 x 50 = 22,5
+    assert gs.ausschnitt_rechnen([200.0, 300.0, 100.0, 50.0], 1000, 800) == \
+        (155, 277, 345, 373)
+
+
+def test_ausschnitt_rechnen_ohne_rand_ist_die_box():
+    assert gs.ausschnitt_rechnen([200.0, 300.0, 100.0, 50.0], 1000, 800,
+                                 rand=0.0) == (200, 300, 300, 350)
+
+
+def test_ausschnitt_rechnen_klemmt_an_die_bildgrenzen():
+    assert gs.ausschnitt_rechnen([-20.0, -10.0, 40.0, 20.0], 100, 100) == \
+        (0, 0, 38, 19)
+    assert gs.ausschnitt_rechnen([95.0, 95.0, 20.0, 20.0], 100, 100) == \
+        (86, 86, 100, 100)
+
+
+def test_ausschnitt_rechnen_gibt_none_bei_entarteter_box():
+    assert gs.ausschnitt_rechnen([500.0, 500.0, 10.0, 10.0], 100, 100) is None
+    assert gs.ausschnitt_rechnen([10.0, 10.0, 0.0, 10.0], 100, 100) is None
+    assert gs.ausschnitt_rechnen([10.0, 10.0, 10.0, -5.0], 100, 100) is None
+
+
+def test_ausschnitt_rechnen_gibt_none_bei_unbrauchbarer_eingabe():
+    assert gs.ausschnitt_rechnen(None, 100, 100) is None
+    assert gs.ausschnitt_rechnen([1.0, 2.0, 3.0], 100, 100) is None
+    assert gs.ausschnitt_rechnen(["a", 2.0, 3.0, 4.0], 100, 100) is None
+    assert gs.ausschnitt_rechnen([1.0, 2.0, True, 4.0], 100, 100) is None
+    assert gs.ausschnitt_rechnen([1.0, 2.0, 3.0, 4.0], 0, 100) is None
+    assert gs.ausschnitt_rechnen([1.0, 2.0, 3.0, 4.0], 100, -5) is None
+
+
+def test_ausschnitt_rechnen_unbrauchbarer_rand_faellt_auf_vorgabe():
+    box = [200.0, 300.0, 100.0, 50.0]
+    vorgabe = gs.ausschnitt_rechnen(box, 1000, 800)
+    assert gs.ausschnitt_rechnen(box, 1000, 800, rand="viel") == vorgabe
+    assert gs.ausschnitt_rechnen(box, 1000, 800, rand=-1) == vorgabe
+
+
+def test_ausschnitt_vorgaben_sind_rand_045_und_quadratisch():
+    assert gs.AUSSCHNITT_RAND == 0.45
+    assert gs.AUSSCHNITT_GROESSE[0] == gs.AUSSCHNITT_GROESSE[1] == 200
+
+
+def test_ausschnitt_rechnen_ist_rein():
+    """Die Geometrie kommt ohne Bild aus: kein PIL, kein cv2, kein I/O."""
+    baum = ast.parse(QUELLE)
+    rumpf = None
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.FunctionDef) and \
+                knoten.name == "ausschnitt_rechnen":
+            rumpf = ast.unparse(knoten)
+            break
+    assert rumpf is not None, "Vorgabefunktion fehlt: ausschnitt_rechnen"
+    for verboten in ("cv2", "Image", "open(", "read", "write"):
+        assert verboten not in rumpf, f"ausschnitt_rechnen benutzt {verboten}"
+
+
+def test_ausschnitt_weg_ohne_cv2():
+    """Der Ausschnitt entsteht **nur mit PIL** — cv2 kommt dort nicht vor.
+
+    Geprueft wird der ausfuehrbare Code (AST ohne Docstring): die Docstrings
+    nennen ``cv2`` nur, um zu sagen, dass es hier **nicht** benutzt wird.
+    """
+    baum = ast.parse(QUELLE)
+    gesehen = 0
+    for knoten in ast.walk(baum):
+        if not (isinstance(knoten, ast.FunctionDef) and knoten.name in (
+                "ausschnitt_rechnen", "_ausschnitt_bytes")):
+            continue
+        gesehen += 1
+        rumpf = [kind for kind in knoten.body if not (
+            isinstance(kind, ast.Expr) and isinstance(kind.value, ast.Constant))]
+        text = "\n".join(ast.unparse(kind) for kind in rumpf)
+        assert "cv2" not in text, f"{knoten.name} benutzt cv2"
+        if knoten.name == "_ausschnitt_bytes":
+            assert "PIL" in text, "der Ausschnitt muss ueber PIL laufen"
+    assert gesehen == 2, "beide Ausschnitt-Funktionen muessen existieren"
+
+
+def test_kachel_quelle_ausschnitt_liefert_quadratische_kachel():
+    dienst = AttrappeDienst({BILD_A: _png_bytes(groesse=(400, 300))})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True)
+    rohdaten = holen({"fileid": BILD_A, "bbox": [150.0, 100.0, 40.0, 40.0]})
+    with Image.open(io.BytesIO(rohdaten)) as bild:
+        assert bild.size == (gs.AUSSCHNITT_GROESSE[0], gs.AUSSCHNITT_GROESSE[1])
+
+
+def test_kachel_quelle_ausschnitt_nimmt_wirklich_das_gesicht():
+    """Inhaltlich: der rote Block liegt im Ausschnitt, das Blau nicht mehr."""
+    dienst = AttrappeDienst({BILD_A: _png_zweifarbig()})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True, groesse=(20, 20))
+    rohdaten = holen({"fileid": BILD_A, "bbox": [170.0, 30.0, 20.0, 20.0]})
+    with Image.open(io.BytesIO(rohdaten)) as bild:
+        links_oben = np.asarray(bild.convert("RGB"))[0, 0]
+    rot, _, blau = (int(wert) for wert in links_oben)
+    assert rot > 200 and blau < 60, f"kein Gesichtsausschnitt, sondern {links_oben}"
+
+
+def test_kachel_quelle_ausschnitt_ohne_bbox_faellt_aufs_ganze_foto():
+    rohdaten = _png_bytes(groesse=(60, 40))
+    dienst = AttrappeDienst({BILD_A: rohdaten})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True)
+    assert holen({"fileid": BILD_A}) == rohdaten
+    assert holen({"fileid": BILD_A, "bbox": None}) == rohdaten
+    assert holen({"fileid": BILD_A, "bbox": [1.0, 2.0, 3.0]}) == rohdaten
+    assert holen({"fileid": BILD_A, "bbox": "krumm"}) == rohdaten
+    assert holen(BILD_A) == rohdaten          # blanke fileid: kein bbox-Feld
+
+
+def test_kachel_quelle_ausschnitt_kaputte_bytes_werfen_nichts():
+    holen = gs.kachel_quelle(AttrappeDienst({BILD_A: b"kein bild"}),
+                             ausschnitt=True)
+    assert holen({"fileid": BILD_A, "bbox": [1.0, 2.0, 3.0, 4.0]}) == b"kein bild"
+
+
+def test_kachel_quelle_ausschnitt_ohne_dienst_gibt_none():
+    holen = gs.kachel_quelle(object(), ausschnitt=True)
+    assert holen({"fileid": BILD_A, "bbox": [1.0, 2.0, 3.0, 4.0]}) is None
+
+
+def test_kachel_quelle_ausschnitt_schreibt_nichts_ins_repo():
+    ordner = REPO / "tools" / "foto_sortierung"
+    vorher = sorted(p.name for p in ordner.iterdir())
+    dienst = AttrappeDienst({BILD_A: _png_bytes(groesse=(60, 40))})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True)
+    holen({"fileid": BILD_A, "bbox": [10.0, 10.0, 20.0, 20.0]})
+    assert sorted(p.name for p in ordner.iterdir()) == vorher
+
+
+def test_kachel_quelle_ausschnitt_passt_zu_referenzseiten_bauen(tmp_path):
+    """Der echte Ausschnitt speist ``referenzseiten_bauen`` (keine Platzhalter)."""
+    pc = gs._personen_cluster()
+    dienst = AttrappeDienst({BILD_A: _png_zweifarbig()})
+    gruppen = [{"kennung": "Person_001",
+                "eintraege": [{"bild_id": BILD_A, "anteil": 0.5, "score": 0.9,
+                               "bbox": [170.0, 30.0, 20.0, 20.0]}]}]
+    geschrieben = pc.referenzseiten_bauen(
+        gruppen, kachel_holen=gs.kachel_quelle(dienst, ausschnitt=True),
+        ausgabe_ordner=str(tmp_path))
+    assert len(geschrieben) == 1
+    assert (tmp_path / "Person_001_seite_01.jpg").exists()
+
+
 # ── 8. massen_uebersicht ──────────────────────────────────────────────────
 
 def _menge_zeile(bild_id=BILD_A, anzahl=6) -> dict:
@@ -807,6 +966,28 @@ def test_main_trocken_hat_vorrang(tmp_path):
     assert not ziel.exists()
 
 
+def test_main_ausschnitt_schalter_im_trockenlauf(tmp_path):
+    """``--ausschnitt`` ist ein Schalter; der Trockenlauf bleibt unveraendert."""
+    plan = _plan_schreiben(tmp_path / "plan.json", [{"fileid": 1, "jahr": 2020}])
+    ziel = tmp_path / "vektoren.jsonl"
+    code = gs.main(["--plan", str(plan), "--vektoren", str(ziel),
+                    "--ausschnitt"])
+    assert code == 0
+    assert not ziel.exists()
+    assert "--ausschnitt" in QUELLE
+
+
+def test_quelle_nennt_die_kachelquelle_in_klartext():
+    """Die Ausgabe sagt, ob Ausschnitt oder ganzes Foto verwendet wird.
+
+    Geprueft wird der Quelltext: der Schreibzweig braucht pCloud und Modelle
+    und ist offline nicht fahrbar — die Klartextzeile ist aber Teil des
+    Auftrags (``main`` nennt den Modus).
+    """
+    assert "Gesichtsausschnitt je Gesicht" in QUELLE
+    assert "ganzes Foto (in-memory verkleinert)" in QUELLE
+
+
 # ── 11. Harte Regeln: Abwesenheit im Quelltext ────────────────────────────
 
 def test_quelle_loescht_nichts():
@@ -846,5 +1027,6 @@ def test_quelle_oeffnet_nur_text_zum_schreiben():
 def test_oeffentliche_schnittstelle_vorhanden():
     for name in ("GesichtFehler", "modell_pfade", "verfuegbar", "GesichtsModell",
                  "gesichter_mit_detektor", "vektoren_fuer_stapel",
-                 "kachel_quelle", "massen_uebersicht", "main"):
+                 "kachel_quelle", "ausschnitt_rechnen", "AUSSCHNITT_RAND",
+                 "AUSSCHNITT_GROESSE", "massen_uebersicht", "main"):
         assert hasattr(gs, name), f"fehlt: {name}"
