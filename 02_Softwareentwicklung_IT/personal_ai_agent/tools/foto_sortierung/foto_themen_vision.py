@@ -198,6 +198,23 @@ PAUSE_SEKUNDEN = 0.8
 TIMEOUT_SEKUNDEN = 90.0
 MAX_TOKENS = 4000
 
+# Deckel fuer grosse Kontaktboegen: die Antwort enthaelt je Kachel ein Objekt,
+# deshalb waechst die Ausgabegrenze mit der Kachelzahl — aber nur bis hierher.
+MAX_TOKENS_DECKEL = 16000
+
+
+def max_tokens_fuer(anzahl: int) -> int:
+    """Ausgabegrenze passend zur Kachelzahl des Kontaktbogens.
+
+    Je Kachel ein JSON-Objekt: ``1200 + 60 * anzahl``. Kleine Boegen bleiben
+    exakt bei ``MAX_TOKENS`` (nie darunter), sehr grosse werden bei
+    ``MAX_TOKENS_DECKEL`` gekappt. Die Funktion ist rein — kein Zustand, kein
+    Netz, keine Nebenwirkung.
+    """
+    wunsch = 1200 + 60 * anzahl
+    return max(MAX_TOKENS, min(MAX_TOKENS_DECKEL, wunsch))
+
+
 # Thema als Ordnername: 2-4 deutsche Woerter, keine Schraegstriche.
 THEMA_MAX_ZEICHEN = 60
 KURZ_MAX_WOERTER = 8
@@ -523,13 +540,20 @@ def prompt_bauen(anzahl: int, katalog=None) -> str:
 
 
 def anfrage_bauen(modell: str, daten_uri: str, anzahl: int,
-                  max_tokens: int = MAX_TOKENS, katalog=None) -> dict:
+                  max_tokens: int | None = None, katalog=None) -> dict:
     """Den Anfragekoerper fuer OpenRouter bauen (content-Array mit Bild).
 
     ``katalog`` wird unveraendert an ``prompt_bauen`` durchgereicht: ohne ihn
     bleibt die Anfrage wie bisher, mit ihm enthaelt der Text die feste
     Themenliste (Wahl nur aus dem Katalog).
+
+    ``max_tokens``: ohne ausdrueckliche Angabe (``None``) wird die Grenze aus
+    der Kachelzahl abgeleitet (``max_tokens_fuer``) — grosse Kontaktboegen
+    laufen sonst in den harten Deckel. Ein ausdruecklich uebergebener Wert
+    gilt unveraendert.
     """
+    if max_tokens is None:
+        max_tokens = max_tokens_fuer(anzahl)
     return {
         "model": modell,
         "messages": [

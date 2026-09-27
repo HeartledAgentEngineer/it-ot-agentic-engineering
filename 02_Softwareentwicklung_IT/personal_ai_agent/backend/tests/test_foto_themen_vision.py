@@ -1613,3 +1613,58 @@ def test_kataloglauf_haelt_ausgaben_ausserhalb_des_repos_und_ohne_schluessel(
             assert SCHLUESSEL not in datei.read_text(encoding="utf-8")
     assert Path(um["csv"]).read_bytes()             # Original bleibt liegen
 
+
+# --- max_tokens_fuer: Ausgabegrenze waechst mit der Kachelzahl ---
+
+def test_max_tokens_fuer_kleiner_bogen_bleibt_bei_max_tokens():
+    """Ein kleiner Bogen bekommt exakt MAX_TOKENS, nie darunter."""
+    assert vision.MAX_TOKENS == 4000
+    for anzahl in (0, 1, 3, 4, 10, 46):
+        assert vision.max_tokens_fuer(anzahl) == vision.MAX_TOKENS
+
+
+def test_max_tokens_fuer_108_kacheln_ergibt_7680():
+    """108 Kacheln: 1200 + 60 * 108 = 7680 — kein Abschneiden mehr."""
+    assert vision.max_tokens_fuer(108) == 7680
+
+
+def test_max_tokens_fuer_waechst_monoton():
+    """Groessere Boegen bekommen nie eine kleinere Grenze."""
+    werte = [vision.max_tokens_fuer(n) for n in range(0, 200)]
+    assert werte == sorted(werte)
+    assert werte[0] == vision.MAX_TOKENS
+
+
+def test_max_tokens_fuer_deckel_bei_sehr_grossen_boegen():
+    """5000 Kacheln werden bei MAX_TOKENS_DECKEL gekappt (16000)."""
+    assert vision.MAX_TOKENS_DECKEL == 16000
+    assert vision.max_tokens_fuer(5000) == vision.MAX_TOKENS_DECKEL
+    assert vision.max_tokens_fuer(5000) == vision.max_tokens_fuer(9999)
+    # Der Wert vor dem Deckel bleibt echt skaliert (nicht schon gekappt).
+    assert vision.max_tokens_fuer(246) == 15960
+    assert vision.max_tokens_fuer(246) < vision.MAX_TOKENS_DECKEL
+
+
+def test_anfrage_bauen_setzt_die_skalierte_grenze():
+    """Ohne ausdrueckliches max_tokens steht der skalierte Wert in der Payload."""
+    daten_uri = "data:image/jpeg;base64,QUJD"
+    klein = vision.anfrage_bauen(MODELL, daten_uri, 4)
+    gross = vision.anfrage_bauen(MODELL, daten_uri, 108)
+    assert klein["max_tokens"] == vision.MAX_TOKENS
+    assert gross["max_tokens"] == 7680
+    # Alles andere bleibt unberuehrt.
+    assert gross["model"] == MODELL
+    assert gross["temperature"] == 0
+    assert gross["messages"][0]["content"][0]["text"] == \
+        vision.prompt_bauen(108)
+
+
+def test_anfrage_bauen_ausdrueckliches_max_tokens_gewinnt():
+    """Ein ausdruecklich uebergebener Wert gilt unveraendert — auch klein."""
+    daten_uri = "data:image/jpeg;base64,QUJD"
+    fest = vision.anfrage_bauen(MODELL, daten_uri, 108, max_tokens=4000)
+    assert fest["max_tokens"] == 4000
+    hoch = vision.anfrage_bauen(MODELL, daten_uri, 3, 12345)
+    assert hoch["max_tokens"] == 12345
+    assert hoch["messages"][0]["content"][0]["text"] == vision.prompt_bauen(3)
+

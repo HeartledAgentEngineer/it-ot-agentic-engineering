@@ -136,10 +136,10 @@ ohnehin nachkontrolliert.
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ✅ **bestanden (27.09.)** — siehe Journal: Nummern 1–36 einwandfrei lesbar, Thema je Bogen erkennbar, unbrauchbare Kacheln werden benannt |
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_themen_vision.py` (ein Vision-Aufruf je Anlass), **628 Prüfungen grün**, 59 eigene Tests; 2 Anlässe live gemessen (36 Kacheln → „Veranstaltung Publikum Bühne", 0,004354 $; 10 Kacheln → „Konzert Band Auftritt", 0,002255 $); Prüfer `gpt-5.6-luna` sagt „bestanden" (6. Runde). **Offen als N6b:** Massenlauf über alle 2.128 Anlässe (Bögen bauen + Themen setzen) |
 | N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ✅ **bestanden (27.09.)** — `themen_katalog.py` mit **53 Einträgen** (Version 3), Prompt wählt nur daraus, `Sonstiges` als Rückfall; Prüfbefehl **657 grün**; die 161 Anlässe beider Modelle live gemessen (flash 0,209693 USD / 100 % Katalog-Treffer / 14 × Sonstiges = 8,7 %; flash-lite 0,058977 USD / 99,4 % / 18 × Sonstiges); **Sichtprobe 6 Bögen: flash 4 : 2 flash-lite** → **flash** für den Massenlauf; Prüfer `gpt-5.6-luna` (1 Beanstandung an einer Zahl, korrigiert) |
-| N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | 🔄 **Stapel 1 zweimal gesetzt (27.09.)**: erst mit freiem Prompt (161 Anlässe, 510 Kacheln, 0 Fehler, 0,196610 USD) → 96 % Einzelthemen; nach **N6c** mit Katalog Version 3 **neu gesetzt** (161 Anlässe, 0,209693 USD, 37 Themen, 14 × Sonstiges). **Rest (1.967 Anlässe) ist startklar** — Modell entschieden (**flash**), Werkzeug und Fortsetzungspunkt `themen.jsonl` stehen. Doku: `docs/changelog-2026-09-27-themen-stapel1.md` |
+| N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — **Bestand vollständig:** 2.128 Anlässe, **2.127 mit Katalog-Thema**, 48 Themen genutzt, 242 × `Sonstiges` (11,4 %). Restlauf 2026/2025/2022/2024/2023: 1.967 Anlässe, 1.962 gesehen, 2 Fehlschläge, 7.722 Kacheln, **5.954.092 ein / 370.113 aus Tokens = 2,711510 USD**, 94,2 min. Dabei ein **echter Codefehler** gefunden und behoben (`MAX_TOKENS = 4000` schnitt den 108-Kachel-Bogen ab → `max_tokens_fuer(anzahl)`; derselbe Anlass läuft mit **4.420** Ausgabe-Tokens durch). **Ein Anlass bleibt bewusst offen:** `2022-09-05_Anlass-02` wird vom Anbieter abgelehnt (403 `PROHIBITED_CONTENT`) — keine Modellumgehung. Prüfbefehl **671 grün, Exit 0**; Prüfer `gpt-5.6-luna` (3 Punkte, 2 berechtigt → Zahlen/Doku korrigiert). Doku: `docs/changelog-2026-09-27-themen-massenlauf.md` |
 | N6d | **Zielkatalog aus Sebastians eigenen Ordnern** (`Bilder & Videos`: 18 Kategorien, 113 Unterordner): Zielordner sind **seine** Kategorien, nicht die erfundenen 53 Motive. Werkzeug liest den Bestand nur lesend (`~/foto_sortierung/kategorien.json`) | Kategorien-Liste deckt alle Jahre ab; Motiv-Thema bleibt nur Motiv-Erkennung | ⬜ **neu (27.09.), hohe Wirkung** — Vorlage liegt vor: `docs/changelog-2026-09-27-kategorien-bestand.md` |
 | N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ⬜ nach N6d |
-| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf **N6b/N6c/N6d/N6e** |
+| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ **Themen sind vollständig** (N6b ✅, 2.127 von 2.128). **Auflage beim Bau:** Rückfallordner für Anlässe **ohne** Thema (z. B. `Ohne-Thema`) einbauen, statt abzubrechen. Zielt auf N6d/N6e (Ordner = Sebastians Kategorien) |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten — **mit Mengen-Filter** (Regel in `docs/plan-foto-personen-und-erinnerungen.md` + Projekt-`CLAUDE.md`): Menschenmengen werden **nicht** geclustert, Schwelle über Gesichtsgröße/Gesichter-Anzahl im Code, Vordergrund-Prüfung auf bekannte Personen, sonst weglassen | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) — **Mengen-Regel ist Pflichtteil des Auftrags** |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
@@ -344,3 +344,67 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N6b Rest** — 1.967 Anlässe (2022–2025) mit **flash**
     und Katalog Version 3, kleinster Stapel zuerst, danach **N7** (Trockenlauf
     des Sortierens).
+* **27.09. ~11:00 — N6b Rest gefahren, gemessen und bestanden** (Planer:
+  Hauptagent · Ausführer: die Werkzeuge selbst plus ein Hermes-Subagent
+  `deepseek-v4.1-flash` für die Code-Korrektur, 0,003 USD · Prüfer:
+  `openai/gpt-5.6-luna`). **Codex weiterhin gesperrt** (Kontingent).
+  - **Reihenfolge (kleinster Stapel zuerst):** 2026 (301) → 2025 (380) →
+    2022 (409) → 2024 (430) → 2023 (447). Vorlage: eine Jahreszahl aus dem
+    Trockenlauf (`Anlaesse gesamt`), damit der billigste Teil zuerst fertig
+    ist — nicht geraten.
+  - **Zahlen (echte Aufrufe):** **1.967 Anlässe**, davon **1.962 gesehen**
+    (3 im Rauchtest vorab, 2 Fehlschläge), **7.722 Kacheln**,
+    **5.954.092 ein / 370.113 aus Tokens = 2,711510 USD** für den
+    Fünfjahres-Lauf, **94,2 min** (24,5 min Bögen + 69,7 min Vision).
+    Die Hochrechnung aus N6b Stapel 1 (2,56 USD) wurde um 0,15 USD (≈ 6 %)
+    überschritten — notiert, nicht beschönigt.
+  - **Endstand:** **2.128 Anlässe** im Fortsetzungspunkt, **2.127 mit
+    Katalog-Thema**, **48 Themen** tatsächlich benutzt, **242 × `Sonstiges`
+    = 11,4 %** (auf den 161 Anlässen aus N6c waren es 8,7 % — der größere
+    Bestand enthält mehr Bildschirmfotos, Memes, Textbilder). Gesamtkosten
+    über den Bestand (`kosten_usd` summiert): **2,938515 USD**.
+  - **Echter Codefehler, vom Lauf aufgedeckt und behoben:** der größte Anlass
+    `2025-01-17_Anlass-02` (**108 Kacheln**, 19:09–22:17, 1,3 GB) scheiterte
+    zweimal an „kein lesbares JSON" — auch mit `flash-lite`. Ursache gemessen:
+    der harte Deckel `MAX_TOKENS = 4000` **schneidet** die Antwort ab (ein
+    JSON-Objekt je Kachel). Korrektur: reine Funktion
+    `max_tokens_fuer(anzahl) = max(4000, min(16000, 1200 + 60 * anzahl))`,
+    `anfrage_bauen()` nutzt sie nur ohne ausdrücklichen Wert → kleine Bögen
+    **byte-gleich** wie vorher. **Beleg:** derselbe Anlass läuft mit
+    **108/108 Kacheln, 4.420 Ausgabe-Tokens** (über dem alten Deckel) durch,
+    0,012073 USD. 6 neue Tests (665 → **671**).
+  - **Ein Fall bleibt bewusst offen:** `2022-09-05_Anlass-02` wird vom
+    **Anbieter** abgelehnt — eigene Sonde direkt gegen die API belegt HTTP 200
+    mit `error.code = 403`, `Gemini blocked the request: PROHIBITED_CONTENT`
+    (Beleg: `~/foto_sortierung/n6b_probe_2022-09-05.log`). Das Werkzeug meldet
+    dafür nur „OpenRouter lieferte keine Antwort" — die Ablehnung selbst ist im
+    Werkzeug-Log **nicht** sichtbar. **Entscheidung: keine Modellumgehung** —
+    ein Anbieter, der Aufnahmen ablehnt, kann dafür einen Grund haben;
+    Sebastian sieht die Bilder vor dem Sortieren. Der Anlass bleibt als Marker
+    (`thema: null`) im Fortsetzungspunkt und wird bei jedem Lauf erneut
+    versucht (kostet nichts, Ablehnung kommt vor der Token-Abrechnung).
+  - **Wiederholungsmarker (Nebenbefund):** Fehlversuche schreiben eine Zeile
+    mit `thema: null` je Versuch — daher 2.134 Zeilen bei 2.128 eindeutigen
+    Anlässen. Gewollt: der nächste Lauf findet den Anlass wieder. Genau diese
+    Mechanik hat den 108-Kachel-Fall nach der Code-Korrektur automatisch
+    eingesammelt.
+  - **Prüfbefehl selbst gefahren:** `pytest tests/ -q` → **671 passed, Exit 0**
+    (71 s). **Prüfer (Runde 1, `gpt-5.6-luna`)** hat selbst nachgerechnet
+    (671/Exit 0, `max_tokens_fuer` für 10/108/246/5000 Kacheln, Token- und
+    Kostensummen, md5) und **3 Punkte** gemeldet: (1) „vier geänderte Dateien
+    statt zwei" — die zwei fremden (`docs/experimente/live_zahlen.*`) gehören
+    dem **zweiten Agenten**; deshalb `git commit --only` mit ausdrücklich
+    genannten Pfaden; (2) der Zählstand war zum Prüfzeitpunkt **veraltet**
+    (2.128/2 → jetzt 2.128/**1** ohne Thema, 2.127 Themen-Dateien), korrigiert;
+    (3) der 403-Nachweis stehe „nicht im Log" — richtig, er kommt aus der
+    eigenen Sonde, die jetzt als Datei abgelegt ist.
+  - **Schutz:** Original-Sortierschlüssel unverändert
+    (`md5 70642d2988b6e38ff417561ccf870ba8`), nur die Kopie
+    `sortierschluessel_themen.csv` geschrieben (9.430 Zeilen, 8.284 mit Thema);
+    Ausgaben ausschließlich außerhalb des Repos (`~/foto_sortierung/`, Bögen
+    70 MB, Themen 11 MB); **alle pCloud-Aufrufe lesend**, nichts verschoben,
+    nichts gelöscht; Sicherungskopie des Fortsetzungspunkts
+    (`themen_vor_n6b_rest_20260927_091225.jsonl`).
+  - **Nächster Schritt: N7** (Trockenlauf des Sortierens) — mit der Auflage
+    aus dem Plan: Rückfallordner für Anlässe ohne Thema, und Zielordner sind
+    laut **N6d** Sebastians eigene Kategorien (18 Kategorien, 113 Unterordner).
