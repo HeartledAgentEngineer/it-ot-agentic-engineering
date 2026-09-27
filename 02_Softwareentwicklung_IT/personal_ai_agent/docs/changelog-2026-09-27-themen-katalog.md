@@ -356,8 +356,11 @@ Dieselben **161 Anlässe** des Stapels 1 (Jahre 2014, 2016, 2017, 2019, 2020,
 
 * 161 Anlässe, **0 Fehler**, **160 von 161** Antworten liegen im Katalog
   (99,4 %) — die eine Ausnahme fiel auf `Sonstiges`.
-* Thema `Sonstiges`: **18 Anlässe (11,2 %)** = **17 selbst gewählt** + **1** aus
-  der außerhalb des Katalogs liegenden Antwort.
+* Thema `Sonstiges`: **18 Anlässe (11,2 %)**, aufgeschlüsselt nach den Rohfeldern:
+  **17 Zeilen mit `thema_roh == "Sonstiges"`** (das Modell hat den Rückfall selbst
+  gewählt) **+ 1 Zeile mit `katalog_treffer == false`** (Antwort außerhalb des
+  Katalogs, deshalb ebenfalls auf `Sonstiges` gefallen). Rohzählung beider Felder
+  als Gegenprobe: `thema_roh == "Sonstiges"` **17**, `katalog_treffer == false` **1**.
 * **34 verschiedene Themen** von 53.
 * 484.279 ein / 26.348 aus Tokens → **0,058977 USD** = **0,000366 USD je Anlass**.
 
