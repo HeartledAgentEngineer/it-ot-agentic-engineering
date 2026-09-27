@@ -142,7 +142,8 @@ ohnehin nachkontrolliert.
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_sortieren.py` (1.149 Zeilen) + **119** eigene Tests; Prüfbefehl selbst gefahren **879 passed, Exit 0** (Baseline 760). Live nur lesend, `listfolder` über 7 Quellordner: **9.430 Zeilen · 2.127 Anlässe · 7.616 Züge (alle mit Dateikennung)** · Doppelungen **1.534 in der CSV** (866 ohne Anlass-ID, **668** in geplanten Anlässen übersprungen) · **1.146 Zeilen ohne Anlass-ID** (kein Datum im Namen) · 0 ohne Thema / 0 ohne Jahr · **2.108 Ordner neu, 82 vorhanden · 2.088 Events neu, 39 wiederverwendet** (= die 39 sicheren Vorschläge aus N6e) · 11 Kategorien. Plan `~/foto_sortierung/sortierplan.json`; Manifest **0 Einträge**, Original-CSV unverändert. Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Doppelungs-Zahl irreführend: nur 668 statt 1.534 genannt; wirkungslose Assertion `or True`) → beides behoben, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-sortieren-trockenlauf.md`, Feinauftrag `docs/auftrag-n7-sortieren-trockenlauf.md` |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ **N7 ist bestanden** — der Plan steht (7.616 Züge, 2.108 neue Ordner). Vor dem Echtlauf: **Sebastians Blick auf die 39 sicheren Event-Vorschläge** und auf die **1.146 Dateien ohne Datum im Namen** (bleiben liegen, 12,2 %); der abgelehnte Anlass `2022-09-05_Anlass-02` (403) wartet weiter |
 | N9a | **Personen-Verfahren** (kein Bild nötig): Mengen-Filter, Clustering, stabile Kennungen, Referenzseiten — Werkzeug rechnet nur auf **Vektoren** (Format von `face_infer.py`), ohne cv2/sklearn | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/personen_cluster.py` (1.510 Zeilen) + **216** Tests (`backend/tests/test_personen_cluster.py`, 1.590 Zeilen, alles offline); Prüfbefehl selbst gefahren **1095 passed, Exit 0** (Baseline 879). Live **synthetische** Stichprobe: 12 eingebaute Cluster → 12 Gruppen mit identischen Größen, 100 %, 0 falsch zusammengelegt, 0 übersehen, Rauschen verworfen; 3 Massen-Bilder (141 kleine Gesichter) → `clustern: False`; Idempotenz über die CLI belegt (2. Lauf 0 neue Seiten, dieselben Kennungen). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Eigner-Name an 5 Stellen) → korrigiert, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-personen-verfahren.md`, Feinauftrag `docs/auftrag-n9-personen-verfahren.md` |
-| N9b | **Personen-Stufe echt rechnen**: Modelle (YuNet + SFace) auf den PC holen bzw. auf dem Handy rechnen lassen, `cv2`/`onnxruntime` in **eigenem** venv (Projekt-venv bleibt unberührt), Gesichter in Jahres-Stapeln erkennen, `kachel_holen` an den echten Weg anstecken (pCloud/Handy) | echte Cluster-Anzahl je Stichprobe (Jahres-Stapel), Referenzseiten mit echten Gesichtern, Massen-Regel am echten Foto belegt | ⬜ **offen** — PC-Aufklärung gemessen (27.09.): `cv2`/`onnxruntime`/`sklearn` fehlen, Modelle liegen **nur auf dem Handy** (`ml_models` fehlt im Repo); installierbar wären `onnxruntime 1.30.0` + `opencv-contrib-python 5.0.0.93` (numpy 2.4.6 bleibt). **Mengen-Regel ist Pflichtteil des Auftrags** |
+| N9b | **Personen-Stufe echt rechnen**: Modelle (YuNet + SFace) auf den PC holen bzw. auf dem Handy rechnen lassen, `cv2`/`onnxruntime` in **eigenem** venv (Projekt-venv bleibt unberührt), Gesichter in Jahres-Stapeln erkennen, `kachel_holen` an den echten Weg anstecken (pCloud/Handy) | echte Cluster-Anzahl je Stichprobe (Jahres-Stapel), Referenzseiten mit echten Gesichtern, Massen-Regel am echten Foto belegt | ✅ **gebaut + echt gemessen (27.09.)** — Modellweg am PC: **eigenes venv** `~/foto_sortierung/venv_gesicht` (opencv-contrib 5.0.0.93, onnxruntime 1.30.0; Projekt-venv unberührt), Modelle **öffentlich aus dem OpenCV-Zoo** nach `~/foto_sortierung/ml_models/` (232.589 B + 38.696.353 B). Werkzeug `tools/foto_sortierung/gesicht_erkennen.py` (835 Zeilen) + **80** Tests (850 Zeilen) + echte pCloud-Kachelquelle; Prüfbefehl selbst gefahren **1175 passed, Exit 0** (Baseline 1095). **Echte Messung:** 24 Bilder (16 aus 2020 + 8 aus dem bilderstärksten Mengen-Anlass), **72 Gesichter auf 19 Bildern**, 0 Fehler, 88,4 s; N9a darauf: `leer 8 · gruppe 12 · menge 0 · unklar 4`, **2 Gruppen (6 und 40)**, **6 Referenzseiten mit echten Gesichtsausschnitten** (59–102 KB), 2. Lauf **0** neue Dateien. **Befund:** Mengen-Regel greift, aber über den Zweig `leer` — die winzigen Gesichter liegen **unter** `ANTEIL_MIN`, der Zweig `menge` wurde am echten Foto **nicht** erreicht (Entscheidung: Schwelle nicht angetastet → Kandidat **N9c**). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN wegen eines Katalog-Eintrags im Changelog (seit `92b04c3` im Repo = Fehlalarm), Runde 2 **BESTANDEN**. Doku: `docs/changelog-2026-09-27-gesicht-erkennen.md`, Auftrag `docs/auftrag-n9b-gesicht-erkennen.md` |
+| N9c | **Mengen-Zweig am echten Foto erreichbar machen** (`ANTEIL_MIN` mit Messung prüfen) + `kachel_quelle` um den **Gesichtsausschnitt** ergänzen (in-memory, statt ganzes Foto) | `menge`-Zweig an echten Mengen-Fotos erreicht; Kacheln zeigen Gesichter | ⬜ **offen** — aus dem N9b-Befund (27.09.): 21 von 72 echten Gesichtern liegen unter 0,05 % Flächenanteil; die Schwelle ist ein N9a-Beschluss und wird nur mit eigener Messung geändert |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -668,3 +669,79 @@ ohnehin nachkontrolliert.
     `kachel_holen` an den echten Weg anstecken) — **N8 bleibt gesperrt**, bis
     Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
     Dateien da ist.
+* **27.09. ~16:20 — N9b gebaut, echt gemessen und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,019 USD · Prüfer:
+  `openai/gpt-5.6-luna`, zwei Runden — **andere Modellfamilie**).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden**
+  Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`, zwei neue
+  Recherche-HTML); nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut geprüft und weiter gesperrt** (live „try again at Oct 15th, 2026") →
+  gebaut wurde mit einem Hermes-Subagenten.
+  - **Der Modellweg am PC steht:** eigenes venv `~/foto_sortierung/venv_gesicht`
+    (Python 3.12.10) mit `opencv-contrib-python 5.0.0.93`, `onnxruntime 1.30.0`,
+    `numpy 2.5.3` — das **Projekt-venv bleibt unberührt** (es hat weiterhin kein
+    `cv2`). Die beiden Modelle (**YuNet 232.589 B, SFace 38.696.353 B**) sind
+    **öffentliche** Dateien aus dem OpenCV-Zoo, liegen außerhalb des Repos in
+    `~/foto_sortierung/ml_models/` und kommen **nicht** ins Repo. Funktionsnachweis
+    vor dem Bau: öffentliches Testbild 512×512 → 1 Gesicht, bbox
+    `[207.8, 182.5, 145.9, 206.9]`, score 0.909, Embedding `(1, 128)`, Norm 2.3436.
+  - **Werkzeug:** `tools/foto_sortierung/gesicht_erkennen.py` (**835 Zeilen**) +
+    `backend/tests/test_gesicht_erkennen.py` (**850 Zeilen, 80 Testfunktionen**,
+    alles offline mit eingestecktem Attrappen-Detektor, kein `cv2`, kein Netz) +
+    echte pCloud-Kachelquelle für `personen_cluster.referenzseiten_bauen`.
+    Die EXIF-Orientierung wird aus `backend/face_infer.py` **wiederverwendet**
+    (nicht nachgebaut), `cv2`/ONNX werden erst beim Rechnen geladen.
+  - **Prüfbefehl selbst gefahren:** Baseline **1095** → **1175 passed, 3 warnings,
+    Exit 0** (74,4 s; +80 = genau die neuen Testfunktionen). Der Commit-Hook hat
+    dasselbe Tor beim Commit noch einmal gefahren (1175, Exit 0).
+  - **Echte Messung am Bestand** (`~/foto_sortierung/n9b_messung.py`, **nur
+    lesend**, Originale ausschließlich **im Arbeitsspeicher**, nichts davon auf
+    Platte): Stichprobe A 16 Bilder aus 2020 (über das Jahr verteilt), Stichprobe
+    B 8 Bilder aus dem bilderstärksten Anlass mit Mengen-Thema → **24 Bilder,
+    0 Fehler, 88,4 s**. **72 Gesichter auf 19 der 24 Bilder** (5 ohne Gesicht);
+    kleinstes Gesicht **16×22 px**, größtes **521×603 px**; **30** Gesichter
+    ≥ 0,5 % Flächenanteil, **21** unter 0,05 %, **21** dazwischen.
+  - **Verfahren N9a auf den echten Vektoren:** `leer 8 · gruppe 12 · menge 0 ·
+    unklar 4` → **12 Bilder geclustert**, **2 Gruppen (Größen 6 und 40)**,
+    2 neue Kennungen, 0 bekannte Personen. **6 Referenzseiten** mit **echten
+    Gesichtsausschnitten** (59–102 KB) nach `~/foto_sortierung/personen_echt/`,
+    **zweiter Lauf 0 neue Dateien** (Idempotenz am echten Bestand).
+    Vektorzeilen `~/foto_sortierung/personen_vektoren.jsonl` (**221.698 Bytes,
+    24 Zeilen**) — das Eingabeformat von N9a; Kennungs-Altbestand geschrieben.
+  - **Der ehrliche Befund:** die **Mengen-Regel greift** — die beiden
+    Konzert-Bilder werden **nicht** geclustert und **nicht** angelernt —, aber über
+    den Zweig **`leer`**, nicht `menge`: die winzigen Ferngesichter liegen **unter**
+    `ANTEIL_MIN` (0,05 % der Bildfläche) und fallen damit ganz heraus. Das Ergebnis
+    ist das gewollte, der Zweig `menge` wurde am echten Foto aber **nicht** erreicht.
+    **Entscheidung: `ANTEIL_MIN` wird nicht angetastet** (das ist ein N9a-Beschluss
+    mit eigenen Tests; eine Schwellenänderung braucht eigene Messung) → als
+    **N9c** in den Plan aufgenommen, zusammen mit dem zweiten Punkt: die
+    ausgelieferte `kachel_quelle` gibt die **ganzen** Fotobytes zurück, für die
+    Personenstufe wäre der **Gesichtsausschnitt** die bessere Kachel (der Messlauf
+    hat deshalb zugeschnitten, in-memory).
+  - **Prüfer Runde 1: NICHT BESTANDEN — eine Beanstandung, Fehlalarm.** Gemeldet
+    wurde ein „echter Ereignisname" im Changelog; die geprüfte Zeichenkette ist ein
+    **Eintrag des Themen-Katalogs** aus N6c (`themen_katalog.py`, seit `92b04c3`
+    im Repo). Alles andere hat der Prüfer **selbst** bestätigt: Prüfbefehl 1175/Exit 0,
+    80 Testfunktionen, eigene Formatprüfung (`zeile_pruefen` akzeptiert die Zeile),
+    eigener CLI-Trockenlauf (Exit 0, nichts geschrieben), **alle Messzahlen aus der
+    JSONL selbst nachgerechnet** (24/72/19/21/21/30, 16×22 px, 521×603 px,
+    221.698 Bytes), 6 Referenzseiten mit ihren Größen, Commit enthält genau vier
+    Dateien, `0 0`. Die fremden `live_zahlen`-Dateien hat er ausdrücklich als
+    **nicht** im Commit bestätigt.
+  - **Korrektur + Prüfer Runde 2 (auf dem korrigierten Stand): BESTANDEN.** Die
+    missverständliche Stelle im Changelog ist jetzt als Katalog-Eintrag
+    gekennzeichnet (mit Beleg-Commit) — nicht die Aussage, sondern die
+    Bezeichnung war unklar.
+  - **Schutz:** pCloud nur **lesend**; Bilder **nie** auf Platte (geschrieben
+    wurden nur die Vektorzeilen als Text, die Referenzseiten als Produkt der
+    Personenstufe und der Kennungs-Altbestand — alles **außerhalb** des Repos);
+    kein Löschen, keine Geheimnisse in Ausgaben oder Dateien; `manifest.jsonl`
+    weiterhin **0 Einträge**.
+  - Doku: `docs/changelog-2026-09-27-gesicht-erkennen.md`,
+    Auftrag `docs/auftrag-n9b-gesicht-erkennen.md`.
+  - **Nächster Schritt: N9c** (Mengen-Zweig am echten Foto erreichbar machen +
+    Gesichtsausschnitt-Kachel) — **N8 (echtes Sortieren) bleibt gesperrt**, bis
+    Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146
+    datumslosen Dateien da ist. Commit `e41f2b1`, gepusht, `0 0`.

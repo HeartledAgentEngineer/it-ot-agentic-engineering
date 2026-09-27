@@ -122,8 +122,9 @@ im Arbeitsspeicher, nichts davon auf Platte:
 
 * **Stichprobe A:** 16 Bilder aus dem Jahr 2020 (über das Jahr verteilt),
   **Stichprobe B:** 8 Bilder aus dem bilderstärksten Anlass mit Mengen-Thema
-  (`Konzert und Buehne`, 54 Bilder) — zusammen **24 Bilder, 0 Fehler, 88,4 s**
-  (inklusive Download).
+  (Themen-Bezeichnung ist ein **Eintrag des Katalogs** aus N6c, seit `92b04c3`
+  im Repo — **kein** Ereignisname; 54 Bilder) — zusammen **24 Bilder, 0 Fehler,
+  88,4 s** (inklusive Download).
 * **Erkennung:** **72 Gesichter** auf **19 von 24** Bildern (5 ohne Gesicht);
   kleinstes Gesicht **16×22 px**, größtes **521×603 px**; **30** Gesichter
   ≥ 0,5 % Flächenanteil (erkennbar), **21** unter 0,05 %, **21** dazwischen.
