@@ -164,11 +164,13 @@ def test_kette_hat_die_abstaende_0_4_0_4_0_8():
 
 def test_kette_dichte_verschmilzt_alle_drei():
     """Das Dichte-Verfahren (N9a) verknuepft transitiv — der Befund."""
-    assert pc.vektoren_clustern(_kette(), 0.45, 1) == [[0, 1, 2]]
+    assert pc.vektoren_clustern(_kette(), 0.45, 1,
+                                verfahren="dichte") == [[0, 1, 2]]
 
 
 def test_kette_dichte_verschmilzt_auch_mit_zwei_nachbarn():
-    assert pc.vektoren_clustern(_kette(), 0.45, 2) == [[0, 1, 2]]
+    assert pc.vektoren_clustern(_kette(), 0.45, 2,
+                                verfahren="dichte") == [[0, 1, 2]]
 
 
 def test_kette_dichte_durchmesser_ueber_der_schwelle():
@@ -205,7 +207,7 @@ def test_kette_mittelpunkt_verschmilzt_bei_weiter_schwelle_alles():
 
 def test_kette_ist_der_auftragsfall_dichte_gegen_vollstaendig():
     """Die zwei Zahlen des Belegs stehen direkt nebeneinander."""
-    dichte = pc.vektoren_clustern(_kette(), 0.45, 1)
+    dichte = pc.vektoren_clustern(_kette(), 0.45, 1, verfahren="dichte")
     vollstaendig = pk.vollstaendig_clustern(_kette(), 0.45, 2)
     assert len(dichte) == 1 and dichte[0] == [0, 1, 2]
     assert vollstaendig == [[0, 1]]

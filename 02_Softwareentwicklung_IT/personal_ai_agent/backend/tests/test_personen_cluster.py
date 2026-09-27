@@ -40,6 +40,14 @@ def _laden(pfad: Path, name: str):
 
 pc = _laden(WERKZEUG, "personen_cluster")
 
+# Die beiden Nachbarmodule liegen im selben Ordner: das Messwerkzeug (N9e) und
+# die Verkettung (N9f). Sie werden fuer die Delegations-Pruefungen geladen —
+# nicht nachgebaut.
+VERKETTUNG_DATEI = REPO / "tools" / "foto_sortierung" / "personen_verkettung.py"
+SCHWELLE_DATEI = REPO / "tools" / "foto_sortierung" / "personen_schwelle.py"
+pv = _laden(VERKETTUNG_DATEI, "personen_verkettung_fuer_cluster")
+ps = _laden(SCHWELLE_DATEI, "personen_schwelle_fuer_cluster")
+
 # Ein 12-MP-Handyfoto — die Bezugsflaeche der Schwellen.
 BREITE = 4032
 HOEHE = 3024
@@ -726,6 +734,182 @@ def test_vektoren_clustern_gruppenform_ist_liste_von_listen():
     gefunden = pc.vektoren_clustern(vektoren, 0.45, 3)
     assert isinstance(gefunden, list)
     assert all(isinstance(gruppe, list) for gruppe in gefunden)
+
+
+# ── 7b. Verfahren: vollstaendige Verknuepfung als Produktionsstandard ─────
+
+# Die drei Punkte der Kette im 3-dim Unterraum: A-B 0.4, B-C 0.4, A-C 0.8.
+# Das Dichte-Verfahren verschmilzt sie transitiv (Verkettung), die
+# vollstaendige Verknuepfung nicht — der kleinste Fall des Auftrags.
+def _vektor_kurz(werte) -> list[float]:
+    """Ein 128er Vektor: nur die ersten Werte tragen, der Rest ist 0 (normiert)."""
+    a = np.zeros(pc.MERKMAL_LAENGE)
+    a[:len(werte)] = werte
+    return (a / float(np.linalg.norm(a))).tolist()
+
+
+KETTE_A = _vektor_kurz((1.0, 0.0, 0.0))
+KETTE_B = _vektor_kurz((0.6, 0.8, 0.0))
+KETTE_C = _vektor_kurz((0.2, 0.6, 0.7746))
+
+# Die Schwellen-Stufen der Invarianten-Pruefung (10 bis 45 in 5er-Schritten).
+SCHWELLEN_STUFEN = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45)
+
+
+def _kette() -> list[list[float]]:
+    """Die drei Punkte der Kette in Eingabereihenfolge."""
+    return [list(KETTE_A), list(KETTE_B), list(KETTE_C)]
+
+
+def _haufen(saat: int, je_haufen: int = 4, streuung: float = 0.03) -> list[list]:
+    """Drei **dichte** Haufen entlang der Kette — der Bestandsfall.
+
+    Je Haufen liegen die Gesichter nah (gleiche Person), zwischen den Haufen
+    gilt der Kettenabstand 0.4 / 0.4 / 0.8. Das Dichte-Verfahren verschmilzt
+    das zu einer Gruppe mit Durchmesser weit ueber der Schwelle — genau der
+    Befund, der die Umstellung auf die vollstaendige Verknuepfung begruendet.
+    """
+    rng = np.random.default_rng(saat)
+    eintraege: list[list] = []
+    for basis in (KETTE_A, KETTE_B, KETTE_C):
+        for _ in range(je_haufen):
+            a = np.asarray(basis, dtype=float) \
+                + streuung * rng.normal(size=pc.MERKMAL_LAENGE)
+            eintraege.append((a / float(np.linalg.norm(a))).tolist())
+    return eintraege
+
+
+def _durchmesser_je_gruppe(gruppen, eintraege) -> list[float]:
+    """Der Durchmesser jeder Gruppe — ueber ``cosinus_matrix`` nachgerechnet."""
+    matrix = pc.cosinus_matrix(eintraege)
+    assert matrix is not None, "Vorbedingung: die Matrix ist rechenbar"
+    abstand = 1.0 - matrix
+    return [max(float(abstand[i, j]) for i in gruppe for j in gruppe)
+            for gruppe in gruppen]
+
+
+def test_verfahrensnamen_sind_die_zwei():
+    assert pc.VERFAHREN == ("dichte", "vollstaendig")
+    assert pc.VERFAHREN_DICHTE == "dichte"
+    assert pc.VERFAHREN_VOLLSTAENDIG == "vollstaendig"
+
+
+def test_produktionsstandard_ist_die_vollstaendige_verknuepfung():
+    assert pc.CLUSTER_VERFAHREN == pc.VERFAHREN_VOLLSTAENDIG
+
+
+def test_standard_verknuepft_die_kette_nicht_mehr():
+    """Ohne ``verfahren`` gilt der Standard: A und C kommen nur zusammen, wenn
+    auch ihre eigene Distanz (0.8) unter der Schwelle liegt."""
+    assert pc.vektoren_clustern(_kette(), 0.45, 1) == [[0, 1], [2]]
+    assert pc.vektoren_clustern(_kette(), 0.45, 2) == [[0, 1]]
+
+
+def test_standard_durchmesser_der_kette_unter_der_schwelle():
+    gruppen = pc.vektoren_clustern(_kette(), 0.45, 1)
+    for wert in _durchmesser_je_gruppe(gruppen, _kette()):
+        assert wert <= 0.45 + 1e-9
+
+
+def test_standard_reisst_den_durchmesser_beim_haufen_nicht():
+    """Derselbe Haufen, den das Dichte-Verfahren zu einer Gruppe mit
+    Durchmesser ueber 0.45 verschmilzt — der Standard reisst die Schwelle nicht."""
+    eintraege = _haufen(1)
+    dichte = pc.vektoren_clustern(eintraege, 0.45, 2, verfahren="dichte")
+    assert len(dichte) == 1
+    assert max(_durchmesser_je_gruppe(dichte, eintraege)) > 0.45
+    gruppen = pc.vektoren_clustern(eintraege, 0.45, 2)
+    assert len(gruppen) > 1
+    for wert in _durchmesser_je_gruppe(gruppen, eintraege):
+        assert wert <= 0.45 + 1e-9
+
+
+def test_invariante_gilt_ueber_schwellen_und_saatgueter():
+    """Durchmesser jeder Gruppe <= Schwelle — ueber viele Stufen und Saatgueter."""
+    for saat in (1, 2, 3, 4, 5):
+        for eintraege in (_haufen(saat), _kette()):
+            for schwelle in SCHWELLEN_STUFEN:
+                gruppen = pc.vektoren_clustern(eintraege, schwelle, 1)
+                for wert in _durchmesser_je_gruppe(gruppen, eintraege):
+                    assert wert <= schwelle + 1e-9, \
+                        f"Durchmesser {wert} > Schwelle {schwelle} (Saatgut {saat})"
+
+
+def test_dichte_verfahren_ist_explizit_erhalten():
+    """Das Bestandsverfahren bleibt abrufbar — es verschmilzt die Kette."""
+    gruppen = pc.vektoren_clustern(_kette(), 0.45, 1, verfahren="dichte")
+    assert gruppen == [[0, 1, 2]]
+    assert max(_durchmesser_je_gruppe(gruppen, _kette())) > 0.45
+    assert pc.vektoren_clustern(_kette(), 0.45, 3, verfahren="dichte") == [[0, 1, 2]]
+
+
+def test_vollstaendig_verwirft_gruppen_unter_der_mindestgroesse():
+    """``min_nachbarn``/``min_groesse`` ist die Mindestgruppengroesse."""
+    assert pc.vektoren_clustern(_kette(), 0.45, 1) == [[0, 1], [2]]
+    assert pc.vektoren_clustern(_kette(), 0.45, 2) == [[0, 1]]
+    assert pc.vektoren_clustern(_kette(), 0.45, 3) == []
+    # Drei Haufen zu vier Gesichtern: mit Mindestgroesse 5 bleibt nichts uebrig.
+    assert pc.vektoren_clustern(_haufen(1), 0.45, 5) == []
+
+
+def test_unbekanntes_verfahren_ist_ein_klartextfehler():
+    with pytest.raises(ValueError) as fehler:
+        pc.vektoren_clustern(_kette(), 0.45, 1, verfahren="quatsch")
+    text = str(fehler.value)
+    assert "quatsch" in text
+    assert "dichte" in text and "vollstaendig" in text
+
+
+def test_unbekanntes_verfahren_kippt_auch_bei_leerem_eingang():
+    with pytest.raises(ValueError):
+        pc.vektoren_clustern([], 0.45, 1, verfahren="quatsch")
+
+
+def test_standard_ist_deterministisch():
+    eintraege = _haufen(3)
+    assert pc.vektoren_clustern(eintraege, 0.45, 2) == \
+        pc.vektoren_clustern(eintraege, 0.45, 2)
+
+
+def test_vollstaendig_leerer_eingang_ist_leer():
+    assert pc.vollstaendig_clustern([], 0.45, 2) == []
+    assert pc.vollstaendig_clustern(None, 0.45, 2) == []
+    assert pc.vektoren_clustern([], 0.45, 2) == []
+
+
+def test_vollstaendig_ohne_brauchbare_vektoren_ist_leer():
+    assert pc.vollstaendig_clustern([None, "Text", 7, {"ohne": "vektor"}],
+                                    0.45, 1) == []
+    assert pc.vollstaendig_clustern([list(KETTE_A)], 0.45, 2) == []
+    assert pc.vektoren_clustern([None, "Text", 7], 0.45, 1) == []
+
+
+# ── 7c. Delegation: eine Rechnung, zwei Werkzeuge ─────────────────────────
+
+def test_verkettung_delegiert_die_vollstaendige_verknuepfung():
+    """``personen_verkettung.vollstaendig_clustern`` liefert dieselben Gruppen."""
+    for schwelle in (0.20, 0.30, 0.45):
+        assert pv.vollstaendig_clustern(_haufen(2), schwelle, 2) == \
+            pc.vollstaendig_clustern(_haufen(2), schwelle, 2)
+    assert pv.vollstaendig_clustern(_kette(), 0.45, 2) == [[0, 1]]
+    assert pv.vollstaendig_clustern(_kette(), 0.45, 1) == [[0, 1], [2]]
+    assert pv.vollstaendig_clustern([], 0.45, 2) == []
+
+
+def test_verkettung_reicht_durch_und_baut_die_rechnung_nicht_noch_einmal():
+    quelle = VERKETTUNG_DATEI.read_text(encoding="utf-8")
+    assert "_personen_cluster().vollstaendig_clustern(" in quelle
+    assert "np.argmin" not in quelle, "die Verschmelzung darf dort nicht doppelt stehen"
+
+
+def test_schwelle_misst_weiter_das_dichte_verfahren():
+    """Das Messwerkzeug beschreibt den Bestand — nicht den neuen Standard."""
+    quelle = SCHWELLE_DATEI.read_text(encoding="utf-8")
+    assert 'verfahren="dichte"' in quelle
+    messung = ps.schwelle_messen(_kette(), None, 0.45, 1)
+    assert messung["gruppen"] == 1
+    assert messung["groessen"] == [3]
+    assert messung["kettenmass"]["durchmesser"]["max"] > 0.45
 
 
 # ── 8. gruppen_kennungen ──────────────────────────────────────────────────

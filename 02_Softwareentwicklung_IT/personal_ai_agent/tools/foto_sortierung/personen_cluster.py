@@ -157,10 +157,28 @@ KATALOG_SCHWELLE = 0.363
 # fremde Personen zusammenlegen wuerde.
 CLUSTER_SCHWELLE = 0.45
 
-# Ein Kernpunkt braucht mindestens so viele Nachbarn (sich selbst mitgezaehlt).
-# Mit 2 waeren schon Paare eine Gruppe (fast jedes Rauschpaar); 3 verlangt eine
-# kleine Mehrheit, bevor daraus eine Referenzseite entsteht.
+# Die Untergrenze je Gruppe: beim Dichte-Verfahren braucht ein Kernpunkt
+# mindestens so viele Nachbarn (sich selbst mitgezaehlt), beim vollstaendigen
+# Verfahren ist es die Mindestgruppengroesse. Mit 2 waeren schon Paare eine
+# Gruppe (fast jedes Rauschpaar); 3 verlangt eine kleine Mehrheit, bevor daraus
+# eine Referenzseite entsteht.
 CLUSTER_MIN_NACHBAR = 3
+
+# Die zwei Verknuepfungs-Verfahren des Clusterns.
+# ``dichte`` ist das Bestandsverfahren (DBSCAN-artig, Expansion vom Kernpunkt).
+# ``vollstaendig`` ist die agglomerative Complete-Linkage (Verschmelzen nur,
+# wenn das weiteste Punktpaar beider Gruppen <= Schwelle ist).
+VERFAHREN_DICHTE = "dichte"
+VERFAHREN_VOLLSTAENDIG = "vollstaendig"
+VERFAHREN = (VERFAHREN_DICHTE, VERFAHREN_VOLLSTAENDIG)
+
+# Produktionsstandard ist die **vollstaendige Verknuepfung**: das Dichte-
+# Verfahren verknuepft transitiv (A nah an B, B nah an C — schon liegen A und C
+# zusammen) und bildet bei Schwelle 0,45 gemessen eine Gruppe mit Durchmesser
+# 0.9032 = 2 x Schwelle; die vollstaendige Verknuepfung garantiert dagegen
+# Durchmesser <= Schwelle (gemessen 0.4417). Deshalb steht hier NICHT mehr das
+# Dichte-Verfahren — es bleibt nur als Mess- und Vergleichsweg erhalten.
+CLUSTER_VERFAHREN = VERFAHREN_VOLLSTAENDIG
 
 # Cosinus-Grenze, ab der eine neue Gruppe auf einen Altbestand passt (stabile
 # Kennung). Derselbe SFace-Standardwert wie beim Katalog-Treffer.
@@ -375,6 +393,48 @@ def cosinus_matrix(eintraege) -> np.ndarray | None:
 def _liste(wert) -> list:
     """``wert`` als Liste — alles andere wird zur leeren Liste."""
     return list(wert) if isinstance(wert, (list, tuple)) else []
+
+
+def _bezugslaenge(eintraege):
+    """Die Vektor-Laenge, die die **Mehrheit** der brauchbaren Eintraege hat.
+
+    Brauchbar heisst: ``_vektor_von`` liest eine endliche Zahlenliste. Die
+    Mehrheit ist hier die richtige Wahl (nicht der erste Eintrag): ein
+    einzelner Vektor mit falscher Laenge darf nicht alle anderen aus dem
+    Verfahren kippen. Bei Gleichstand gewinnt die in der Eingabe zuerst
+    gesehene Laenge — deterministisch. ``None``, wenn es keinen brauchbaren
+    Vektor gibt.
+    """
+    zaehler: dict = {}
+    for eintrag in _liste(eintraege):
+        vektor = _vektor_von(eintrag)
+        if vektor is None:
+            continue
+        laenge = len(vektor)
+        zaehler[laenge] = zaehler.get(laenge, 0) + 1
+    bestes = None
+    for laenge in zaehler:                     # Einfuegereihenfolge = Eingabe
+        if bestes is None or zaehler[laenge] > zaehler[bestes]:
+            bestes = laenge
+    return bestes
+
+
+def _verfahren_waehlen(verfahren) -> str:
+    """Den Verfahrensnamen aufloesen — leer/``None`` ergibt ``CLUSTER_VERFAHREN``.
+
+    Ein unbekannter Name ist ein **Fehler** (``ValueError``, deutsche Meldung
+    mit den erlaubten Verfahren): es wird nichts stillschweigend auf ein
+    anderes Verfahren umgebogen.
+    """
+    if verfahren is None:
+        return CLUSTER_VERFAHREN
+    name = _text(verfahren)
+    if not name:
+        return CLUSTER_VERFAHREN
+    if name not in VERFAHREN:
+        raise ValueError(f"Unbekanntes Verfahren: {name!r} — erlaubt sind "
+                         f"{VERFAHREN_DICHTE!r} und {VERFAHREN_VOLLSTAENDIG!r}.")
+    return name
 
 
 # ── 1. Gesichtsflaeche relativ zum Bild ───────────────────────────────────
@@ -671,30 +731,136 @@ def bild_entscheidung(bild, katalog=None, params=None) -> dict:
     }
 
 
-# ── 5. Clustern ohne sklearn (DBSCAN-artig, nur numpy) ────────────────────
+# ── 5. Clustern ohne sklearn (nur numpy) ─────────────────────────────────
 
-def vektoren_clustern(eintraege, schwelle: float = CLUSTER_SCHWELLE,
-                      min_nachbarn: int = CLUSTER_MIN_NACHBAR) -> list[list[int]]:
-    """Vektoren zu Gruppen buendeln — DBSCAN-artig, nur mit numpy.
+def vollstaendig_clustern(eintraege, schwelle: float = CLUSTER_SCHWELLE,
+                          min_groesse: int = CLUSTER_MIN_NACHBAR) -> list[list[int]]:
+    """Agglomerative **Complete-Linkage** — nur mit numpy, ohne sklearn.
 
-    Der Auftrag nennt den dritten Parameter ``min_groesse``; er ist hier
-    ``min_nachbarn``, weil genau das die Groesse ist, die er prueft: ein
-    **Kernpunkt** braucht mindestens so viele Nachbarn (sich selbst mitgezaehlt).
+    **Invariante dieses Verfahrens:** der Durchmesser **jeder** zurueck-
+    gegebenen Gruppe ist ``<= schwelle`` (Durchmesser = groesster Cosinus-
+    Abstand zweier Mitglieder).
 
-    Verfahren: Abstand ist die Cosinus-Distanz (``1 - cosinus``); ein Punkt ist
-    Kernpunkt bei ``>= min_nachbarn`` Nachbarn im Abstand ``<= schwelle``; von
-    jedem Kernpunkt wird ueber die Nachbarschaft expandiert. **Rauschpunkte
-    werden verworfen** — sie landen in keiner Gruppe, statt in eine
-    hineingedraengt zu werden. Genau das ist gewollt: aus Rauschen soll keine
-    Referenzseite entstehen.
+    Ablauf: jeder **brauchbare** Eintrag startet als eigene Gruppe; dann wird
+    solange das Paar mit dem kleinsten **Complete-Linkage-Abstand** verschmolzen,
+    wie dieser ``<= schwelle`` ist. Der Complete-Linkage-Abstand zweier Gruppen
+    ist das **Maximum** der Punktabstaende aller Paare ueber beide Gruppen — es
+    zaehlt also das weiteste Punktpaar, nicht das naechste. Genau das verbietet
+    die Verkettung des Dichte-Verfahrens: dort genuegt eine Kette naher
+    Nachbarn (A-B nah, B-C nah), hier kommen A und C nur zusammen, wenn auch
+    ``distanz(A, C) <= schwelle`` gilt.
 
-    Determinismus: die Eingabereihenfolge bestimmt die Gruppen-Reihenfolge (die
-    erste Gruppe ist die des ersten Kernpunkts in der Eingabe). Eine Gruppe
-    enthaelt die **Indizes der Eingabe**, aufsteigend sortiert.
+    **Determinismus:** die Gruppen starten in Eingabereihenfolge; gesucht wird
+    zeilenweise (Zeile zuerst, dann Spalte) nach dem ersten kleinsten Wert —
+    der erste kleinste gewinnt. Die verschmolzene Gruppe bleibt an der Stelle
+    der **ersten** beteiligten Gruppe stehen. Zweimal derselbe Aufruf ergibt
+    dieselbe Liste.
 
-    Leerer Eingang oder zu wenige Vektoren -> ``[]``.
+    ``min_groesse``: Gruppen mit weniger Mitgliedern sind **Rauschen** und
+    werden verworfen (nicht in eine fremde Gruppe gedraengt). Brauchbar heisst:
+    der Eintrag hat einen Vektor in der **Mehrheits**-Laenge
+    (``_bezugslaenge``); alles andere kommt in keiner Gruppe vor.
+
+    Rueckgabe: Liste von Index-Listen der Eingabe (jede Liste aufsteigend
+    sortiert, Gruppen in Erzeugungsreihenfolge). Leerer Eingang oder keine
+    brauchbaren Vektoren -> ``[]``.
     """
     alle = _liste(eintraege)
+    if not alle:
+        return []
+    if not _ist_zahl(schwelle):
+        schwelle = CLUSTER_SCHWELLE
+    grenze = max(0.0, float(schwelle))
+    if not _ist_zahl(min_groesse):
+        min_groesse = CLUSTER_MIN_NACHBAR
+    kleinste = max(1, int(min_groesse))
+
+    laenge = _bezugslaenge(alle)
+    if laenge is None:
+        return []
+    indizes: list[int] = []
+    vektoren: list[list[float]] = []
+    for nummer, eintrag in enumerate(alle):
+        vektor = _vektor_von(eintrag)
+        if vektor is None or len(vektor) != laenge:
+            continue
+        indizes.append(nummer)
+        vektoren.append(vektor)
+    if not vektoren:
+        return []
+    einheit = _einheit(vektoren)
+    if einheit is None:
+        return []
+    aehnlich = np.clip(einheit @ einheit.T, -1.0, 1.0)
+    abstand = np.clip(1.0 - aehnlich, 0.0, 2.0)
+
+    gruppen = [[nummer] for nummer in indizes]
+    anzahl = len(gruppen)
+    # Distanzmatrix der Gruppen: am Anfang sind das die Punktabstaende.
+    distanz = np.array(abstand, dtype=float, copy=True)
+    np.fill_diagonal(distanz, np.inf)
+
+    while anzahl > 1:
+        # Nur das obere Dreieck zaehlt — sonst waere jedes Paar doppelt da.
+        sichtbar = np.where(np.triu(np.ones((anzahl, anzahl), dtype=bool), 1),
+                            distanz, np.inf)
+        stelle = int(np.argmin(sichtbar))
+        a, b = divmod(stelle, anzahl)
+        if sichtbar[a, b] > grenze:
+            break                                # nichts mehr zu verschmelzen
+        gruppen[a] = sorted(gruppen[a] + gruppen[b])
+        # Complete-Linkage: das WEITESTE Punktpaar beider Gruppen zaehlt.
+        neu = np.maximum(distanz[a, :], distanz[b, :])
+        neu[a] = np.inf
+        neu[b] = np.inf
+        distanz[a, :] = neu
+        distanz[:, a] = neu
+        gruppen.pop(b)
+        distanz = np.delete(np.delete(distanz, b, axis=0), b, axis=1)
+        anzahl -= 1
+
+    return [gruppe for gruppe in gruppen if len(gruppe) >= kleinste]
+
+
+def vektoren_clustern(eintraege, schwelle: float = CLUSTER_SCHWELLE,
+                      min_nachbarn: int = CLUSTER_MIN_NACHBAR,
+                      verfahren: str | None = None) -> list[list[int]]:
+    """Vektoren zu Gruppen buendeln — Dichte-Verfahren oder Complete-Linkage.
+
+    ``verfahren`` waehlt das Verfahren: ``"dichte"`` ist das Bestandsverfahren
+    (DBSCAN-artig, Expansion vom Kernpunkt), ``"vollstaendig"`` ist die
+    agglomerative Complete-Linkage (:func:`vollstaendig_clustern`). Ohne Angabe
+    (``None`` oder ``""``) gilt der Produktionsstandard ``CLUSTER_VERFAHREN`` —
+    die **vollstaendige Verknuepfung**.
+
+    ``min_nachbarn`` meint in **beiden** Verfahren dieselbe **Untergrenze**,
+    wirkt aber unterschiedlich:
+
+      * ``dichte``: ein **Kernpunkt** braucht mindestens so viele Nachbarn im
+        Abstand ``<= schwelle`` (sich selbst mitgezaehlt); nur von Kernpunkten
+        wird expandiert.
+      * ``vollstaendig``: dieselbe Zahl ist die **Mindestgruppengroesse** —
+        kleinere Gruppen sind Rauschen und werden verworfen. Die Dichte-Grenze
+        steckt hier allein in ``schwelle`` (Complete-Linkage).
+
+    Ein unbekanntes Verfahren ergibt ``ValueError`` mit deutscher Meldung; es
+    faellt nichts still auf ein anderes Verfahren zurueck.
+
+    Gemeinsam fuer beide Verfahren: Abstand ist die Cosinus-Distanz
+    (``1 - cosinus``); **Rauschpunkte** landen in keiner Gruppe, statt in eine
+    hineingedraengt zu werden (aus Rauschen soll keine Referenzseite
+    entstehen). Determinismus: die Eingabereihenfolge bestimmt die
+    Gruppen-Reihenfolge, eine Gruppe enthaelt die **Indizes der Eingabe**,
+    aufsteigend sortiert. Leerer Eingang oder zu wenige Vektoren -> ``[]``.
+
+    Beim **vollstaendigen** Verfahren gilt zusaetzlich die Invariante: der
+    Durchmesser jeder Gruppe ist ``<= schwelle``. Das **dichte** Verfahren
+    verknuepft transitiv und kann die Schwelle reissen (gemessen bei Schwelle
+    0,45: Durchmesser bis 0.9032 = 2 x Schwelle) — deshalb ist es nicht mehr
+    der Produktionsstandard.
+    """
+    alle = _liste(eintraege)
+    gewaehlt = _verfahren_waehlen(verfahren)
     if not alle:
         return []
     if not _ist_zahl(schwelle):
@@ -703,6 +869,11 @@ def vektoren_clustern(eintraege, schwelle: float = CLUSTER_SCHWELLE,
     if not _ist_zahl(min_nachbarn):
         min_nachbarn = CLUSTER_MIN_NACHBAR
     min_nachbarn = max(1, int(min_nachbarn))
+
+    if gewaehlt == VERFAHREN_VOLLSTAENDIG:
+        # Complete-Linkage: ``min_nachbarn`` ist hier die Mindestgruppengroesse.
+        return [list(gruppe) for gruppe in
+                vollstaendig_clustern(alle, schwelle, min_nachbarn)]
 
     aehnlich = cosinus_matrix(alle)
     if aehnlich is None:
@@ -1377,7 +1548,8 @@ def bericht_text(bericht) -> str:
 def lauf_rechnen(bilder, katalog=None, params=None,
                  altbestand=None, schwelle: float = CLUSTER_SCHWELLE,
                  min_nachbarn: int = CLUSTER_MIN_NACHBAR,
-                 kacheln_je_seite: int = KACHELN_JE_SEITE) -> dict:
+                 kacheln_je_seite: int = KACHELN_JE_SEITE,
+                 verfahren: str | None = None) -> dict:
     """Den ganzen Durchlauf rechnen — **ohne** Schreiben, ohne Netz, ohne Bild.
 
     Ablauf: je Bild entscheiden -> die freigegebenen Gesichter einsammeln ->
@@ -1385,11 +1557,20 @@ def lauf_rechnen(bilder, katalog=None, params=None,
     Gruppe bauen. Rueckgabe ``{"entscheidungen", "eintraege", "gruppen",
     "kennungen", "gruppen_eintraege", "altbestand", "bericht"}`` — alles reine
     Daten, der Aufrufer entscheidet ueber Referenzseiten und Dateien.
+
+    ``verfahren`` wird **nur** durchgereicht, wenn es ausdruecklich gesetzt ist;
+    ohne Angabe gilt der Produktionsstandard ``CLUSTER_VERFAHREN``.
     """
     entscheidungen = [bild_entscheidung(bild, katalog, params)
                       for bild in _liste(bilder)]
     eintraege = geclusterte_eintraege(bilder, entscheidungen)
-    gruppen = vektoren_clustern(eintraege, schwelle, min_nachbarn)
+    # Produktionsaufruf: **ohne** ``verfahren`` — es gilt der Standard
+    # ``CLUSTER_VERFAHREN`` (vollstaendige Verknuepfung, Durchmesser <= Schwelle).
+    # Nur die Kommandozeile schaltet ausdruecklich um.
+    if verfahren is None:
+        gruppen = vektoren_clustern(eintraege, schwelle, min_nachbarn)
+    else:
+        gruppen = vektoren_clustern(eintraege, schwelle, min_nachbarn, verfahren)
     kennungen = gruppen_kennungen(gruppen, eintraege, altbestand, ALT_SCHWELLE)
     gruppen_eintraege = gruppen_eintraege_bauen(gruppen, eintraege, kennungen)
     bericht = bericht_bauen(entscheidungen, gruppen=gruppen,
@@ -1456,8 +1637,18 @@ def main(argv=None) -> int:
                                f"(Standard {CLUSTER_SCHWELLE})")
     zerleger.add_argument("--min-nachbarn", dest="min_nachbarn", type=int,
                           default=CLUSTER_MIN_NACHBAR,
-                          help="Nachbarn fuer einen Kernpunkt "
+                          help="Untergrenze je Gruppe: Nachbarn fuer einen "
+                               "Kernpunkt (Verfahren dichte) bzw. "
+                               "Mindestgruppengroesse (Verfahren vollstaendig) "
                                f"(Standard {CLUSTER_MIN_NACHBAR})")
+    zerleger.add_argument("--verfahren", dest="verfahren",
+                          choices=list(VERFAHREN), default=CLUSTER_VERFAHREN,
+                          help="Verknuepfung der Vektoren: "
+                               f"{VERFAHREN_DICHTE!r} (Bestandsverfahren, kann "
+                               "die Schwelle reissen) oder "
+                               f"{VERFAHREN_VOLLSTAENDIG!r} (Complete-Linkage, "
+                               "Durchmesser <= Schwelle) "
+                               f"(Standard {CLUSTER_VERFAHREN!r})")
     zerleger.add_argument("--kacheln-je-seite", dest="kacheln_je_seite",
                           type=int, default=KACHELN_JE_SEITE,
                           help=f"Kacheln je Referenzseite (Standard {KACHELN_JE_SEITE})")
@@ -1487,10 +1678,15 @@ def main(argv=None) -> int:
         print(f"Katalog: {'ja' if args.katalog else 'nein (keine Vordergrund-Pruefung)'}"
               f"   Altbestand: {len(altbestand)} Kennung(en)")
 
+        gewaehlt = _verfahren_waehlen(args.verfahren)
+        print(f"Verfahren: {gewaehlt}   Schwelle: {args.schwelle}   "
+              f"Untergrenze je Gruppe: {args.min_nachbarn}")
+
         lauf = lauf_rechnen(eingelesen["bilder"], katalog=katalog,
                             altbestand=altbestand, schwelle=args.schwelle,
                             min_nachbarn=args.min_nachbarn,
-                            kacheln_je_seite=args.kacheln_je_seite)
+                            kacheln_je_seite=args.kacheln_je_seite,
+                            verfahren=gewaehlt)
         bericht = bericht_bauen(lauf["entscheidungen"],
                                 ungueltige_zeilen=eingelesen["ungueltige_zeilen"],
                                 gruppen=lauf["gruppen"],
@@ -1522,7 +1718,7 @@ def main(argv=None) -> int:
         if not schreiben:
             print("Ohne --schreiben wurde NICHTS geschrieben.")
         return 0
-    except (PersonenFehler,) as problem:
+    except (PersonenFehler, ValueError) as problem:
         print(f"Fehler: {problem}")
         return 2
 

@@ -15,6 +15,8 @@ Wozu dieses Werkzeug:
       Gruppen verschmelzen nur, wenn das **weiteste** Punktpaar beider Gruppen
       ``<= schwelle`` ist. Damit gilt die **Invariante**: der Durchmesser jeder
       Gruppe ist ``<= schwelle`` (ein Test belegt sie ueber mehrere Saatgueter).
+      Die Rechnung steht in ``personen_cluster.vollstaendig_clustern`` (dort
+      Produktionsstandard); dieses Werkzeug **delegiert** nur.
     * ``mittelpunkt_clustern`` — **Mittelpunkt-Verfahren**: jeder Punkt geht zur
       naechsten Gruppe, wenn seine Distanz zu deren **Mittelpunkt** (normierter
       Mittelwert) ``<= schwelle`` ist, sonst neue Gruppe; danach werden die
@@ -343,11 +345,18 @@ def _rauschen_entfernen(gruppen, min_groesse: int) -> list:
 
 def vollstaendig_clustern(eintraege, schwelle: float = SCHWELLE_STANDARD,
                           min_groesse: int = MIN_GROESSE_STANDARD) -> list:
-    """Agglomerative **Complete-Linkage** — der Durchmesser ist garantiert.
+    """Agglomerative **Complete-Linkage** — Delegation an N9a, keine zweite Rechnung.
+
+    Die Rechnung selbst steht in ``personen_cluster.vollstaendig_clustern``
+    (dort ist sie inzwischen der **Produktionsstandard**). Hier wird sie **nicht
+    doppelt gebaut**, sondern durchgereicht — sonst gaebe es zwei Fassungen,
+    die auseinanderlaufen koennten:
+
+        personen_cluster.vollstaendig_clustern(eintraege, grenze, kleinste)
 
     Zwei Gruppen werden **nur** verschmolzen, wenn das **weiteste** Punktpaar
     beider Gruppen ``<= schwelle`` ist (Complete-Linkage-Abstand = Maximum der
-    Paarabstaende). Daraus folgt die **Invariante** dieses Verfahrens:
+    Paarabstaende). Daraus folgt die **Invariante**:
 
         der Durchmesser **jeder** Gruppe ist ``<= schwelle``.
 
@@ -355,53 +364,15 @@ def vollstaendig_clustern(eintraege, schwelle: float = SCHWELLE_STANDARD,
     eine Kette naher Nachbarn (A-B nah, B-C nah), hier nicht — A und C kommen
     nur zusammen, wenn auch ``distanz(A, C) <= schwelle`` gilt.
 
-    Ablauf: jeder brauchbare Eintrag startet als eigene Gruppe; dann wird
-    solange das **naechste** Paar mit dem kleinsten Complete-Linkage-Abstand
-    verschmolzen, wie dieser ``<= schwelle`` ist. Die Auswahl ist
-    **deterministisch**: der Scan laeuft in Erzeugungsreihenfolge der Gruppen
-    (Zeile zuerst, dann Spalte), der erste kleinste Wert gewinnt; die
-    verschmolzene Gruppe bleibt an der Stelle der **ersten** Gruppe stehen.
-
-    Gruppen mit weniger als ``min_groesse`` Mitgliedern sind **Rauschen** und
-    werden verworfen. Rueckgabe: Liste von Index-Listen der Eingabe (jede Liste
-    aufsteigend sortiert, Gruppen in Erzeugungsreihenfolge).
+    ``schwelle`` und ``min_groesse`` werden hier **wie bisher** gezogen
+    (unbrauchbare Werte fallen auf ``SCHWELLE_STANDARD``/``MIN_GROESSE_STANDARD``);
+    erst die geprueften Werte gehen an N9a. Gruppen mit weniger als
+    ``min_groesse`` Mitgliedern sind **Rauschen** und werden verworfen (nicht in
+    eine Gruppe gedraengt). Rueckgabe: Liste von Index-Listen der Eingabe (jede
+    Liste aufsteigend sortiert, Gruppen in Erzeugungsreihenfolge).
     """
-    alle = _liste(eintraege)
-    if not alle:
-        return []
-    grenze = _schwelle(schwelle)
-    kleinste = _min_groesse(min_groesse)
-    gebaut = _abstand_der_gueltigen(alle)
-    if gebaut is None:
-        return []
-    gueltig, abstand = gebaut
-
-    gruppen = [[index] for index in gueltig]
-    anzahl = len(gruppen)
-    # Distanzmatrix zwischen den Gruppen: Start = Punktabstaende (Complete-Linkage).
-    distanz = np.array(abstand, dtype=float, copy=True)
-    np.fill_diagonal(distanz, np.inf)
-
-    while anzahl > 1:
-        # Nur das obere Dreieck zaehlt — sonst waere jedes Paar doppelt da.
-        sichtbar = np.where(np.triu(np.ones((anzahl, anzahl), dtype=bool), 1),
-                            distanz, np.inf)
-        stelle = int(np.argmin(sichtbar))
-        a, b = divmod(stelle, anzahl)
-        if sichtbar[a, b] > grenze:
-            break                                # nichts mehr zu verschmelzen
-        gruppen[a] = sorted(gruppen[a] + gruppen[b])
-        # Complete-Linkage: das WEITESTE Punktpaar beider Gruppen zaehlt.
-        neu = np.maximum(distanz[a, :], distanz[b, :])
-        neu[a] = np.inf
-        neu[b] = np.inf
-        distanz[a, :] = neu
-        distanz[:, a] = neu
-        gruppen.pop(b)
-        distanz = np.delete(np.delete(distanz, b, axis=0), b, axis=1)
-        anzahl -= 1
-
-    return _rauschen_entfernen(gruppen, kleinste)
+    return _personen_cluster().vollstaendig_clustern(
+        eintraege, _schwelle(schwelle), _min_groesse(min_groesse))
 
 
 # ── 3. Mittelpunkt-Verfahren ──────────────────────────────────────────────
@@ -483,8 +454,9 @@ def gruppen_bilden(eintraege, verfahren: str, schwelle: float = SCHWELLE_STANDAR
                    min_groesse: int = MIN_GROESSE_STANDARD) -> list:
     """Ein Verfahren auf die Eintraege anwenden — der Verteiler der drei.
 
-    ``dichte`` reicht an ``personen_cluster.vektoren_clustern`` durch (dieselbe
-    Rechnung wie N9a; ein Kernpunkt braucht ``min_groesse`` Nachbarn), die
+    ``dichte`` reicht an ``personen_cluster.vektoren_clustern`` durch — dort
+    **festgenagelt auf das Dichte-Verfahren** (das ist die Rechnung, die N9a
+    bisher gefahren hat; ein Kernpunkt braucht ``min_groesse`` Nachbarn), die
     anderen beiden an ``vollstaendig_clustern``/``mittelpunkt_clustern``. Ein
     unbekannter Name ergibt ``VerkettungFehler`` mit Klartext — es wird nichts
     stillschweigend ersetzt.
@@ -500,8 +472,12 @@ def gruppen_bilden(eintraege, verfahren: str, schwelle: float = SCHWELLE_STANDAR
     grenze = _schwelle(schwelle)
     kleinste = _min_groesse(min_groesse)
     if name == VERFAHREN_DICHTE:
+        # Festgenagelt auf ``dichte``: dieses Werkzeug beschreibt das
+        # **Bestandsverfahren**. Der Produktionsstandard (``vollstaendig``)
+        # waere hier ein anderes Verfahren — es wird nichts stillschweigend
+        # umgebogen.
         gruppen = _personen_cluster().vektoren_clustern(
-            eintraege, grenze, max(1, kleinste))
+            eintraege, grenze, max(1, kleinste), verfahren=VERFAHREN_DICHTE)
         sauber = []
         for gruppe in _liste(gruppen):
             indizes = sorted(int(index) for index in _liste(gruppe)

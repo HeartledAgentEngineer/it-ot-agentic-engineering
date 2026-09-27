@@ -616,8 +616,9 @@ def schwelle_messen(eintraege, beschriftungen, schwelle, min_nachbarn=None,
                     paare=None) -> dict:
     """Eine Schwelle vollstaendig messen — rein (kein I/O, keine Schwellenaenderung).
 
-    Cluster mit ``personen_cluster.vektoren_clustern`` und beschreibt das
-    Ergebnis. Zwei Masse stehen nebeneinander, **deutlich getrennt**:
+    Cluster mit ``personen_cluster.vektoren_clustern`` (festgenagelt auf das
+    **Dichte**-Verfahren) und beschreibt das Ergebnis. Zwei Masse stehen
+    nebeneinander, **deutlich getrennt**:
 
       * **Bodenwahrheit (Identitaet)** — ``verschmelzungsquote`` und
         ``kettenmass`` (Abschnitt 3): zwei **erkennbare** Gesichter im
@@ -640,7 +641,13 @@ def schwelle_messen(eintraege, beschriftungen, schwelle, min_nachbarn=None,
     schwelle = float(schwelle)
     min_nachbarn = max(1, int(min_nachbarn))
 
-    gruppen = pc.vektoren_clustern(eintraege, schwelle, min_nachbarn)
+    # Festgenagelt auf das **Dichte**-Verfahren: dieses Werkzeug MESSEN den
+    # Bestandszustand (Verkettung, Durchmesser reissen kann). Der neue
+    # Produktionsstandard (vollstaendige Verknuepfung) wuerde hier die zu
+    # messende Sache veraendern — deshalb steht ``verfahren="dichte"``
+    # ausdruecklich da und nicht die Vorgabe des Moduls.
+    gruppen = pc.vektoren_clustern(eintraege, schwelle, min_nachbarn,
+                                   verfahren="dichte")
     beschrieben = cluster_beschriften(gruppen, eintraege, beschriftungen)
     falsche = falsche_cluster(beschrieben)
     groessen = [eintrag["groesse"] for eintrag in beschrieben]
