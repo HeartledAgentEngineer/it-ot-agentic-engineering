@@ -35,6 +35,8 @@ venv/
 .venv/
 .env
 **/.env
+# Sicherungen der .env (enthalten ebenfalls Schluessel!)
+**/.env.bak*
 
 # Betriebssystem-Dateien
 Thumbs.db
