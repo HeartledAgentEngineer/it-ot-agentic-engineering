@@ -138,7 +138,7 @@ ohnehin nachkontrolliert.
 | N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ✅ **bestanden (27.09.)** — `themen_katalog.py` mit **53 Einträgen** (Version 3), Prompt wählt nur daraus, `Sonstiges` als Rückfall; Prüfbefehl **657 grün**; die 161 Anlässe beider Modelle live gemessen (flash 0,209693 USD / 100 % Katalog-Treffer / 14 × Sonstiges = 8,7 %; flash-lite 0,058977 USD / 99,4 % / 18 × Sonstiges); **Sichtprobe 6 Bögen: flash 4 : 2 flash-lite** → **flash** für den Massenlauf; Prüfer `gpt-5.6-luna` (1 Beanstandung an einer Zahl, korrigiert) |
 | N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — **Bestand vollständig:** 2.128 Anlässe, **2.127 mit Katalog-Thema**, 48 Themen genutzt, 242 × `Sonstiges` (11,4 %). Restlauf 2026/2025/2022/2024/2023: 1.967 Anlässe, 1.962 gesehen, 2 Fehlschläge, 7.722 Kacheln, **5.954.092 ein / 370.113 aus Tokens = 2,711510 USD**, 94,2 min. Dabei ein **echter Codefehler** gefunden und behoben (`MAX_TOKENS = 4000` schnitt den 108-Kachel-Bogen ab → `max_tokens_fuer(anzahl)`; derselbe Anlass läuft mit **4.420** Ausgabe-Tokens durch). **Ein Anlass bleibt bewusst offen:** `2022-09-05_Anlass-02` wird vom Anbieter abgelehnt (403 `PROHIBITED_CONTENT`) — keine Modellumgehung. Prüfbefehl **671 grün, Exit 0**; Prüfer `gpt-5.6-luna` (3 Punkte, 2 berechtigt → Zahlen/Doku korrigiert). Doku: `docs/changelog-2026-09-27-themen-massenlauf.md` |
 | N6d | **Zielkatalog aus Sebastians eigenen Ordnern** (`Bilder & Videos`: 18 Kategorien, 113 Unterordner): Zielordner sind **seine** Kategorien, nicht die erfundenen 53 Motive. Werkzeug liest den Bestand nur lesend (`~/foto_sortierung/kategorien.json`) | Kategorien-Liste deckt alle Jahre ab; Motiv-Thema bleibt nur Motiv-Erkennung | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_kategorien.py` (855 Zeilen) + **38** neue Tests; Übersetzung Motiv-Thema (53) → **Bucket** (11, im Code) → **echter Ordner** (lokal gebunden, `~/foto_sortierung/kategorie_zuordnung.json`); Zielpfad `Agent/Fotos/<Jahr>/<Kategorie>/<Event>`; Prüfbefehl **709 grün, Exit 0**; live `--zeigen`: **18 Kategorien · 113 Unterordner · 10 mit Unterordnern · 11 Buckets (10 gebunden, 1 × null)**, nichts geschrieben. Doku: `docs/changelog-2026-09-27-zielkategorien.md` |
-| N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ⬜ nach N6d |
+| N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/event_abgleich.py` (1.060 Zeilen, Nachbarmodul von `foto_kategorien`) + **51** eigene Tests; Prüfbefehl **760 grün, Exit 0** (Baseline 709; selbst gefahren). Live nur lesend: **2.134 Anlässe · 39 Vorschläge = 1,8 %** (tag 10, monat 29) · **600 schwache Hinweise** (jahr 495, spanne 105) · 2.095 ohne Vorschlag (276 davon: Kategorie fehlt im Bestand) · **112 von 113** Unterordnern über gebundene Buckets erreichbar. **Verschärfte Regel nach eigener Sichtprobe:** nur `tag`/`monat` ergeben einen Vorschlag, `jahr`/`spanne` nur mit `--auch-schwach` (vorher 639 Vorschläge, davon 600 untauglich). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (echte Ordnernamen im Repo, Zahl 109 → 112; beides korrigiert, real 8 statt 4 Namen), Runde 2 nur noch 3 Resttreffer = blanke Kalenderjahre → als Fehlalarm begründet. Doku: `docs/changelog-2026-09-27-event-abgleich.md`, Feinauftrag `docs/auftrag-n6e-event-abgleich.md` |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ **Themen sind vollständig** (N6b ✅, 2.127 von 2.128). **Auflage beim Bau:** Rückfallordner für Anlässe **ohne** Thema (z. B. `Ohne-Thema`) einbauen, statt abzubrechen. Zielt auf N6d/N6e (Ordner = Sebastians Kategorien) |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten — **mit Mengen-Filter** (Regel in `docs/plan-foto-personen-und-erinnerungen.md` + Projekt-`CLAUDE.md`): Menschenmengen werden **nicht** geclustert, Schwelle über Gesichtsgröße/Gesichter-Anzahl im Code, Vordergrund-Prüfung auf bekannte Personen, sonst weglassen | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) — **Mengen-Regel ist Pflichtteil des Auftrags** |
@@ -453,3 +453,70 @@ ohnehin nachkontrolliert.
   - Doku: `docs/changelog-2026-09-27-zielkategorien.md`.
   - **Nächster Schritt: N6e** (Event-Abgleich: bestehende Event-Ordner als
     Vorschlag statt Neubau) — danach **N7** (Trockenlauf des Sortierens).
+* **27.09. ~14:05 — N6e gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: zwei Hermes-Subagenten `deepseek-v4.1-flash`, 0,036 + 0,032 USD ·
+  Prüfer: `openai/gpt-5.6-luna`, zwei Runden — **andere Modellfamilie**).
+  Beginn: `git pull --rebase` scheiterte wieder an den **fremden** Dateien des
+  zweiten Agenten (`docs/experimente/live_zahlen.*` am Workspace-Root, zwei neue
+  Recherche-HTML); nichts angefasst, nichts gestasht. `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**, es gab
+  nichts zu holen. **Codex erneut geprüft und weiter gesperrt** („try again at
+  Oct 15th, 2026") → gebaut wurde mit Hermes-Subagenten.
+  - **Werkzeug:** `tools/foto_sortierung/event_abgleich.py` (**1.060 Zeilen**,
+    Nachbarmodul von `foto_kategorien`), Tests
+    `backend/tests/test_event_abgleich.py` (**893 Zeilen, 51 Testfunktionen**,
+    selbst nachgezählt; alles ohne Netz). Es liest **nur** die lokalen Dateien —
+    **kein pCloud-Aufruf**, keine Lösch-/Verschiebefunktion (Test prüft den
+    Quelltext), Schreiben nur außerhalb des Repos und nur mit `--schreiben`.
+  - **Regel:** vorhandener Event-Ordner derselben Kategorie wird als **Vorschlag**
+    erkannt, sonst entsteht ein neuer Name. Belege aus dem Ordnernamen gelesen:
+    Tag/Monat/Jahr, Jahresspanne, offenes Jahr (`2019+`), Jahr als Suffix,
+    Punkt-Datum, Monatsliste — plus die Fehltreffer-Regel, dass eine blanke Zahl
+    1–12 **nur direkt an einem Jahr** ein Monat ist.
+  - **Prüfbefehl selbst gefahren:** `pytest tests/ -q` → **760 passed, Exit 0**
+    (70 s; Baseline 709 aus N6d, +51 eigene Tests).
+  - **Der Befund, der die Regel verschärfte (eigene Sichtprobe, 18 Vorschläge):**
+    Runde 1 lieferte **639 Vorschläge**, davon **495 allein aus „Jahr gleich"** —
+    im Klartext Unsinn wie ein Tier-Foto → `2019 <Junggesellenabschied>`. Ein
+    bloß gleiches Jahr ist ein **falscher Beleg**, kein schwacher. **Neue Regel:
+    nur `tag`/`monat` ergeben einen Vorschlag**; `jahr`/`spanne` werden als
+    **schwacher Hinweis** gezählt und sind erst mit `--auch-schwach` Vorschläge.
+  - **Zahlen nach der Verschärfung (live, nur lesend):** **2.134 Anlässe ·
+    39 Vorschläge (1,8 %)** — tag 10, monat 29 · **600 schwache Hinweise**
+    (jahr 495, spanne 105) · 2.095 ohne Vorschlag, davon 276 „Kategorie fehlt im
+    Bestand" · **112 von 113** Unterordnern über die 10 gebundenen Kategorien
+    erreichbar (selbst nachgerechnet: 17+12+15+13+42+3+6+1+0+3). Mit
+    `--auch-schwach`: 639 Vorschläge (39 sicher + 600 unsicher).
+    **Sichtprobe der 39: durchweg plausibel** — Konzerte landen auf ihren
+    Konzert-Ordnern (`2019_08 <Festival>`, `2020_03_04 <Band>`,
+    `2024_07_23 <Band>`), die Juliwoche 2021 (Reise/Strand) auf `2021_07 <Reiseziel>`.
+  - **Prüfer Runde 1: NICHT BESTANDEN, beide Punkte berechtigt.** (1) **Echte
+    Ordnernamen** standen wörtlich in Code, Tests und Doku — der Prüfer nannte 4,
+    die Nachzählung ergab **8** (darunter zwei Spiele-Ordner und ein Ordner mit
+    Jahres-Suffix, den **mein eigener Feinauftrag** als Muster genannt hatte).
+    Alle ersetzt; der Vergleich ist jetzt automatisiert (alle Zeichenketten der
+    Dateien gegen `kategorien.json`) und ergibt **0 Treffer**. (2) Die Zahl
+    „109 von 113" war falsch — nachgerechnet **112**; korrigiert mit Herleitung.
+    Zusätzlich habe ich zwei **eigene** Dokumente bereinigt
+    (`docs/auftrag-n6e-event-abgleich.md`, `docs/changelog-2026-09-27-kategorien-bestand.md`),
+    in denen echte Termin-Ordner standen.
+  - **Prüfer Runde 2 (frischer Kontext): NICHT BESTANDEN, aber nur noch wegen
+    drei Resttreffern — die sind Fehlalarm.** Es sind **blanke Kalenderjahre**
+    („2019"), und sie treffen, weil im Bestand Ordner buchstäblich nach dem Jahr
+    heißen; ein Datums-Parser-Test **muss** Jahreszahlen enthalten. Kein
+    Personen-, Orts- oder Ereignisname. Alles andere hat der Prüfer selbst
+    bestätigt: Prüfbefehl 760/Exit 0, beide Läufe nachgerechnet, die verschärfte
+    Regel eigenständig nachgewiesen, 112/113, keine Schreib-/Löschfunktion,
+    Repo-Schreibschutz, Idempotenz, mtimes unverändert.
+  - **Schutz:** Original-Sortierschlüssel unverändert
+    (`md5 70642d2988b6e38ff417561ccf870ba8`, selbst geprüft), Bestandsdateien
+    ebenfalls (nur gelesen); Ausgaben ausschließlich außerhalb des Repos.
+  - **Was N6e für N7 liefert:** je Anlass ein Vorschlag mit Stufe und `sicher` —
+    der Trockenlauf kann damit bestehende Ordner **wiederverwenden** statt
+    neu zu bauen. **39 sichere Vorschläge** sind vor einem Echtlauf mit Sebastian
+    durchzusehen; die 600 schwachen Hinweise bleiben vorerst Hinweise.
+  - Doku: `docs/changelog-2026-09-27-event-abgleich.md`,
+    Feinauftrag `docs/auftrag-n6e-event-abgleich.md`.
+  - **Nächster Schritt: N7** (Trockenlauf des Sortierens, `--trocken`, mit
+    Rückfallordner für Anlässe ohne Thema, Zielordner = Sebastians Kategorien,
+    Event-Wahl über `event_abgleich.vorschlag_fuer`).

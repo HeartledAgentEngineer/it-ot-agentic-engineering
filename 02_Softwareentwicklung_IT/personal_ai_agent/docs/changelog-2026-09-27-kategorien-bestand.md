@@ -22,7 +22,7 @@ u. a. Phasen (BFD, Duales Studium), Lieblingsbilder und einzelne Themen.
 
 | Muster | Beispiel-Form (ohne konkrete Namen) | Bedeutung für den Agenten |
 |---|---|---|
-| **Jahr + Ort/Anlass** | „2015 Ostseeküsten-Fahrradtour", „2021_07 Usedom" | **Event** = Zeitraum + Ort. Aus unseren Datums-Blöcken ableitbar |
+| **Jahr + Ort/Anlass** | „2015 <Radreise>" (Muster), „2021_07 <Reiseziel>" | **Event** = Zeitraum + Ort. Aus unseren Datums-Blöcken ableitbar |
 | **Jahr_Monat + Ereignis** | „2018_07 …", „2019_03_08 …" (Band/Termin) | Konzert-/Party-Events sind **datierbar** → Block ↔ Ordner zuordenbar |
 | **Jahr + Person** | Jahres-Ordner mit Namen, „2021 … bei Timmy" | **Personen** sind Teil des Event-Namens → Hinweise für die Personen-Stufe |
 
@@ -52,7 +52,7 @@ erfinden, sondern **nachbauen**.
 |---|---|
 | Datums-Blöcke (Tag/Anlass) | ✅ läuft (2.128 Anlässe, Motiv-Themen werden gesetzt) |
 | Sebastians Kategorien | 🔜 sofort machbar (Vorlage vorhanden) |
-| Event-Namen („Usedom 2021") | 🔜 ableitbar über Zeitraum-Abgleich; Rest über Sebastians Erzählung (Stufe 4) |
+| Event-Namen („<Reiseziel> 2021") | 🔜 ableitbar über Zeitraum-Abgleich; Rest über Sebastians Erzählung (Stufe 4) |
 | Personen/Freunde clustern | ❌ noch nicht gebaut — Originale + Gesichterkette + Bestätigung nötig |
 
 ## Wiederholbar
