@@ -132,7 +132,7 @@ ohnehin nachkontrolliert.
 | N2 | **Selbstheilung + Rollback-Werkzeug** committen (Selbstheilung schon gebaut: `pcloud_token_erneuern.py`) | Prüfmodus sagt „gültig"; Rückroll-Tool mit Tests | 🔄 Selbstheilung committet (`3cad5ae`, live belegt); **Rückroll-Werkzeug läuft als Subagent** (`deleg_609a78cd`) |
 | N3 | **Schlüssel aufs Handy** (USB) + Selbsttest-Zeile „pCloud" + `start-termux.sh` übernimmt die Datei automatisch | `curl` am Handy liefert `pcloud: verbunden`; JS-Tests grün | ⬜ **NUR Hauptagent/Sebastian** — der Schlüssel darf nie in einer autonomen Runde ausgegeben werden. Handy hängt am Kabel (27.09. 05:15 geprüft) |
 | N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ✅ **Prüfbefehl 525 grün** (500 + 25 neue, selbst gefahren); 2 Kontaktbögen live gebaut (10 Kacheln/62.566 B, 36 Kacheln/262.437 B, Pixel-Nummern belegt); Idempotenz live (2. Lauf: 0 geholt) |
-| N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ⬜ wartet auf N4 |
+| N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ✅ **bestanden (27.09.)** — siehe Journal: Nummern 1–36 einwandfrei lesbar, Thema je Bogen erkennbar, unbrauchbare Kacheln werden benannt |
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ⬜ wartet auf N5 |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf N4/N6 |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
@@ -188,6 +188,22 @@ ohnehin nachkontrolliert.
   geräteübergreifende Doppelungen (Motorola + OnePlus) — N6 kann über die
   CSV-Spalte `doppelung` deduplizieren. Details:
   `docs/changelog-2026-09-27-foto-themen.md`.
-* **Offen für die nächste Runde:** N5 (Kosten-Stichprobe Vision — ein fertiger
-  Bogen liegt bereit), dann N6–N8 (Themen je Anlass → Trockenlauf → echtes
-  Sortieren), N9 (Personen) parallel möglich.
+* **Offen für die nächste Runde:** N6–N8 (Themen je Anlass → Trockenlauf →
+  echtes Sortieren), N9 (Personen) parallel möglich.
+* **27.09. ~05:45 — N5 gemessen und bestanden (Hauptagent, echte Stichprobe).**
+  Vision-Blick auf den 36er-Bogen `2025-01-06_Anlass-01` (262.437 B):
+  - **Nummern 1–36 einwandfrei lesbar** → Kachel-Nummerierung trägt (Voraussetzung
+    dafür, dass der Vision-Blick „Kachel 12" sagen kann).
+  - Je Kachel eine Zeile Inhalt (Personen, drinnen/draußen, Motiv) — z. B. alle
+    36 Kacheln „drinnen, Publikum vor grüner Bühne".
+  - **Thema für den ganzen Bogen erkannt** (Veranstaltung in großer Halle; das
+    Banner war sogar lesbar) → ein Aufruf **je Anlass** genügt, nicht je Bild.
+  - **Nebenertrag:** unbrauchbare Bilder werden benannt (9/10/11 verwackelt,
+    25/26 Bewegungsunschärfe, 33/34 schwarz) → die „Müll/behalten"-Triage fällt
+    beim selben Aufruf mit ab.
+  - **Kostenschätzung (noch keine Messung):** ein Vision-Aufruf je Anlass, bei
+    2.128 Anlässen deutlich **unter 1 $**; die echten Zahlen werden aus dem
+    Kosten-Tracker abgelesen, sobald der Vollauf startet — nicht behauptet.
+  - **N6 ist damit startklar:** Bögen liegen bereit, Thema je Bogen kommt vom
+    Vision-Blick, Dedup über die CSV-Spalte `doppelung` (geräteübergreifende
+    Kopien waren im Bogen sichtbar).
