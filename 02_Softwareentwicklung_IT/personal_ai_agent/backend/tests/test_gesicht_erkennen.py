@@ -811,6 +811,114 @@ def test_kachel_quelle_ausschnitt_passt_zu_referenzseiten_bauen(tmp_path):
     assert (tmp_path / "Person_001_seite_01.jpg").exists()
 
 
+# ── 7c. N9a-Eintraege: bild_id/bbox in der Kachelquelle (N9d) ────────────
+
+def _png_block_weit_rechts() -> bytes:
+    """Ein 400x100-Bild: blau, mit einem roten Block nur rechts (x >= 350)."""
+    bild = Image.new("RGB", (400, 100), (0, 0, 255))
+    for x in range(350, 400):
+        for y in range(100):
+            bild.putpixel((x, y), (255, 0, 0))
+    puffer = io.BytesIO()
+    bild.save(puffer, format="PNG")
+    return puffer.getvalue()
+
+
+N9A_EINTRAG = {"bild_id": BILD_A, "bbox": [10, 10, 50, 50]}
+
+
+def test_fileid_von_liest_bild_id_als_text_und_zahl():
+    assert gs._fileid_von({"bild_id": "1234567"}) == "1234567"
+    assert gs._fileid_von({"bild_id": 1234567}) == 1234567
+
+
+def test_fileid_von_lehnt_bool_und_none_ab():
+    assert gs._fileid_von({"bild_id": True}) is None
+    assert gs._fileid_von({"bild_id": False}) is None
+    assert gs._fileid_von({"bild_id": None}) is None
+    assert gs._fileid_von({}) is None
+    assert gs._fileid_von({"fileid": None}) is None
+
+
+def test_fileid_von_fileid_hat_vorrang():
+    assert gs._fileid_von({"fileid": "111", "bild_id": "222"}) == "111"
+    assert gs._fileid_von({"fileid": 111, "bild_id": 222}) == 111
+    # fehlendes/unbrauchbares fileid: dann zaehlt bild_id
+    assert gs._fileid_von({"fileid": None, "bild_id": BILD_A}) == BILD_A
+    assert gs._fileid_von({"fileid": True, "bild_id": BILD_A}) == BILD_A
+
+
+def test_kachel_quelle_reicht_bild_id_als_kennung_durch():
+    dienst = AttrappeDienst({BILD_A: _png_bytes()})
+    holen = gs.kachel_quelle(dienst)
+    ergebnis = holen({"bild_id": BILD_A, "bbox": [10, 10, 50, 50]})
+    assert isinstance(ergebnis, bytes) and ergebnis
+    assert dienst.aufrufe[0][0] == BILD_A
+
+
+def test_kachel_quelle_ausschnitt_schneidet_n9a_eintrag_wirklich():
+    """Der N9a-Eintrag ``{bild_id, bbox}`` liefert eine quadratische Kachel.
+
+    Inhaltlich: der rote Block liegt nur rechts aussen (x >= 350); der
+    Ausschnitt um die bbox (10, 10, 50, 50) darf ihn **nicht** enthalten.
+    """
+    dienst = AttrappeDienst({BILD_A: _png_block_weit_rechts()})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True)
+    rohdaten = holen(N9A_EINTRAG)
+    assert isinstance(rohdaten, bytes) and rohdaten
+    with Image.open(io.BytesIO(rohdaten)) as bild:
+        assert bild.size == (gs.AUSSCHNITT_GROESSE[0], gs.AUSSCHNITT_GROESSE[1])
+        bild = bild.convert("RGB")
+        links_oben = np.asarray(bild)[0, 0]
+        rechts_oben = np.asarray(bild)[0, bild.width - 1]
+    assert dienst.aufrufe[0][0] == BILD_A
+    assert int(np.asarray(links_oben)[2]) > 200, "links muss das Blau stehen"
+    assert int(np.asarray(rechts_oben)[2]) > 200, \
+        "der Ausschnitt endet vor dem roten Block rechts"
+
+
+def test_kachel_quelle_bild_id_ohne_bbox_ganzes_foto():
+    rohdaten = _png_bytes(groesse=(60, 40))
+    dienst = AttrappeDienst({BILD_A: rohdaten})
+    holen = gs.kachel_quelle(dienst, ausschnitt=True)
+    assert holen({"bild_id": BILD_A}) == rohdaten
+    assert holen({"bild_id": BILD_A, "bbox": None}) == rohdaten
+    assert holen({"bild_id": BILD_A, "bbox": [1.0, 2.0, 3.0]}) == rohdaten
+
+
+def test_kachelquelle_hinweis_ausschnitt_nennt_vektorzeilen_lauf():
+    text = gs.kachelquelle_hinweis(True)
+    assert isinstance(text, str) and text
+    assert "Vektorzeilen-Lauf" in text
+    assert "--ausschnitt" in text
+    assert "NICHT" in text
+    assert "Referenzseiten-Weg" in text
+    assert "bbox" in text
+
+
+def test_kachelquelle_hinweis_ohne_ausschnitt_ganzes_foto():
+    text = gs.kachelquelle_hinweis(False)
+    assert isinstance(text, str) and text
+    assert "ganzes Foto" in text
+    assert "kein Gesichtsausschnitt" in text
+    assert "--ausschnitt" not in text
+    assert "Vektorzeilen-Lauf" not in text
+
+
+def test_kachelquelle_hinweis_ist_rein():
+    """Die Hinweis-Funktion kommt ohne I/O und Zustand aus."""
+    baum = ast.parse(QUELLE)
+    rumpf = None
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.FunctionDef) and \
+                knoten.name == "kachelquelle_hinweis":
+            rumpf = ast.unparse(knoten)
+            break
+    assert rumpf is not None, "Vorgabefunktion fehlt: kachelquelle_hinweis"
+    for verboten in ("cv2", "Image", "open(", "write", "print"):
+        assert verboten not in rumpf, f"kachelquelle_hinweis benutzt {verboten}"
+
+
 # ── 8. massen_uebersicht ──────────────────────────────────────────────────
 
 def _menge_zeile(bild_id=BILD_A, anzahl=6) -> dict:
@@ -978,14 +1086,17 @@ def test_main_ausschnitt_schalter_im_trockenlauf(tmp_path):
 
 
 def test_quelle_nennt_die_kachelquelle_in_klartext():
-    """Die Ausgabe sagt, ob Ausschnitt oder ganzes Foto verwendet wird.
+    """Die Ausgabe nennt den Modus — und behauptet nichts Falsches mehr.
 
     Geprueft wird der Quelltext: der Schreibzweig braucht pCloud und Modelle
     und ist offline nicht fahrbar — die Klartextzeile ist aber Teil des
-    Auftrags (``main`` nennt den Modus).
+    Auftrags (``main`` nennt den Modus ueber ``kachelquelle_hinweis``).
     """
-    assert "Gesichtsausschnitt je Gesicht" in QUELLE
-    assert "ganzes Foto (in-memory verkleinert)" in QUELLE
+    assert "kachelquelle_hinweis(args.ausschnitt)" in QUELLE
+    assert "ganzes Foto je Bild" in QUELLE
+    # Keine Behauptung mehr, dass im Vektorzeilen-Lauf je Gesicht geschnitten
+    # wuerde: vor dem Download ist dort keine bbox bekannt.
+    assert "Gesichtsausschnitt je Gesicht" not in QUELLE
 
 
 # ── 11. Harte Regeln: Abwesenheit im Quelltext ────────────────────────────

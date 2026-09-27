@@ -144,7 +144,8 @@ ohnehin nachkontrolliert.
 | N9a | **Personen-Verfahren** (kein Bild nötig): Mengen-Filter, Clustering, stabile Kennungen, Referenzseiten — Werkzeug rechnet nur auf **Vektoren** (Format von `face_infer.py`), ohne cv2/sklearn | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/personen_cluster.py` (1.510 Zeilen) + **216** Tests (`backend/tests/test_personen_cluster.py`, 1.590 Zeilen, alles offline); Prüfbefehl selbst gefahren **1095 passed, Exit 0** (Baseline 879). Live **synthetische** Stichprobe: 12 eingebaute Cluster → 12 Gruppen mit identischen Größen, 100 %, 0 falsch zusammengelegt, 0 übersehen, Rauschen verworfen; 3 Massen-Bilder (141 kleine Gesichter) → `clustern: False`; Idempotenz über die CLI belegt (2. Lauf 0 neue Seiten, dieselben Kennungen). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Eigner-Name an 5 Stellen) → korrigiert, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-personen-verfahren.md`, Feinauftrag `docs/auftrag-n9-personen-verfahren.md` |
 | N9b | **Personen-Stufe echt rechnen**: Modelle (YuNet + SFace) auf den PC holen bzw. auf dem Handy rechnen lassen, `cv2`/`onnxruntime` in **eigenem** venv (Projekt-venv bleibt unberührt), Gesichter in Jahres-Stapeln erkennen, `kachel_holen` an den echten Weg anstecken (pCloud/Handy) | echte Cluster-Anzahl je Stichprobe (Jahres-Stapel), Referenzseiten mit echten Gesichtern, Massen-Regel am echten Foto belegt | ✅ **gebaut + echt gemessen (27.09.)** — Modellweg am PC: **eigenes venv** `~/foto_sortierung/venv_gesicht` (opencv-contrib 5.0.0.93, onnxruntime 1.30.0; Projekt-venv unberührt), Modelle **öffentlich aus dem OpenCV-Zoo** nach `~/foto_sortierung/ml_models/` (232.589 B + 38.696.353 B). Werkzeug `tools/foto_sortierung/gesicht_erkennen.py` (835 Zeilen) + **80** Tests (850 Zeilen) + echte pCloud-Kachelquelle; Prüfbefehl selbst gefahren **1175 passed, Exit 0** (Baseline 1095). **Echte Messung:** 24 Bilder (16 aus 2020 + 8 aus dem bilderstärksten Mengen-Anlass), **72 Gesichter auf 19 Bildern**, 0 Fehler, 88,4 s; N9a darauf: `leer 8 · gruppe 12 · menge 0 · unklar 4`, **2 Gruppen (6 und 40)**, **6 Referenzseiten mit echten Gesichtsausschnitten** (59–102 KB), 2. Lauf **0** neue Dateien. **Befund:** Mengen-Regel greift, aber über den Zweig `leer` — die winzigen Gesichter liegen **unter** `ANTEIL_MIN`, der Zweig `menge` wurde am echten Foto **nicht** erreicht (Entscheidung: Schwelle nicht angetastet → Kandidat **N9c**). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN wegen eines Katalog-Eintrags im Changelog (seit `92b04c3` im Repo = Fehlalarm), Runde 2 **BESTANDEN**. Doku: `docs/changelog-2026-09-27-gesicht-erkennen.md`, Auftrag `docs/auftrag-n9b-gesicht-erkennen.md` |
 | N9c | **Mengen-Zweig am echten Foto erreichbar machen** (`ANTEIL_MIN` mit Messung prüfen) + `kachel_quelle` um den **Gesichtsausschnitt** ergänzen (in-memory, statt ganzes Foto) | `menge`-Zweig an echten Mengen-Fotos erreicht; Kacheln zeigen Gesichter | ✅ **bestanden (27.09.)** — `ANTEIL_MIN` **0,0005 → 0,00001** (gemessen: das alte Tor verwarf **echte** Funde, kleinste echte Detektion 0,000145 bzw. 0,000022); `kachel_quelle(..., ausschnitt=True)` schneidet in-memory um das Gesicht (**nur PIL**, Rand 0,45 × bbox, Rückfall aufs ganze Foto statt Abbruch, reine Funktion `ausschnitt_rechnen`), CLI `--ausschnitt`. Prüfbefehl selbst gefahren **1196 passed, Exit 0** (Baseline 1175); **30 echte Mengen-Bilder**: vorher `gruppe 12 · leer 9 · unklar 9 · menge 0` → nachher `gruppe 12 · leer 6 · unklar 11 · menge 1` (**„1 von 30"**, nicht schöngeredet); `gruppe` unverändert = keine Regression. **Offen als N9d:** `bbox` im Vektorzeilen-Lauf verdrahten (`kachel_quelle` liest `fileid`, N9a-Einträge tragen `bild_id`) + N9b-Lauf mit neuem `ANTEIL_MIN` wiederholen; `MENGE_ANZAHL = 6` bleibt unangetastet (N9a-Beschluss, braucht eigene Messung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-mengen-zweig.md`, Auftrag `docs/auftrag-n9c-mengen-zweig.md` |
-| N9d | **Gesichtsausschnitt verdrahten + N9b-Messung wiederholen**: `bbox`/`bild_id` in der Kachelquelle zusammenführen (N9a-Einträge tragen `bild_id`, `kachel_quelle` liest `fileid`), N9b-Vektorlauf mit dem neuen `ANTEIL_MIN` über eine **breitere** Mengen-Stichprobe | Ausschnitt-Kacheln messbar schärfer; `menge`-Anteil über mehr als 30 Bilder beziffert (nicht mehr „1 von 30") | ⬜ **offen** (aus dem N9c-Befund, 27.09.) |
+| N9d | **Gesichtsausschnitt verdrahten + N9b-Messung wiederholen**: `bbox`/`bild_id` in der Kachelquelle zusammenführen (N9a-Einträge tragen `bild_id`, `kachel_quelle` liest `fileid`), N9b-Vektorlauf mit dem neuen `ANTEIL_MIN` über eine **breitere** Mengen-Stichprobe | Ausschnitt-Kacheln messbar schärfer; `menge`-Anteil über mehr als 30 Bilder beziffert (nicht mehr „1 von 30") | ✅ **bestanden (27.09.)** — `_fileid_von` liest `fileid`, sonst **`bild_id`** (N9a-Einträge gehen **ohne Um-Mappen** in die echte Kachelquelle; kein Hack mehr nötig), neue reine `kachelquelle_hinweis(ausschnitt)` sagt wahrheitsgemäß, dass `--ausschnitt` im **Vektorzeilen-Lauf wirkungslos** ist (vor dem Download keine `bbox` bekannt) und wo er wirklich schneidet; Prüfbefehl selbst gefahren **1205 passed, Exit 0** (Baseline 1196, +9 neue Tests). **Breite Messung: 92 Bilder** (80 aus 8 Mengen-Anlässen, 12 Kontrollbilder), 465 Gesichter, 0 Fehler, 358,9 s: alt `0,0005` → `gruppe 32 · leer 27 · menge 4 · unklar 29` gegen neu `0,00001` → `gruppe 32 · leer 20 · **menge 10** · unklar 30`; **nur Mengen-Bilder: 4 → 10 von 80 = 12,5 %** (statt „1 von 30" = 3,3 %), Kontrollgruppe **0 × `menge`**, `gruppe` in beiden Schwellen **unverändert 32**. **Verdrahtung live belegt:** 24 Referenzseiten, **186 Kacheln, alle 200×200** aus `bild_id` + `bbox` ohne Um-Mappen, Kachel-Abstand zum selbst gerechneten Ausschnitt **1,755–3,116** (JPEG-Verlust) gegen **68,954–76,192** zum ganzen Foto → die Kachel ist wirklich der Gesichtsausschnitt; 2. Lauf 0 neue Dateien. **Ehrlicher Nebenbefund:** das DBSCAN-artige Clustering bündelt die 189 Gesichter der `gruppe`-Bilder zu **einer** Gruppe — bei dichtem Verfahren erwartbar, aber am echten Bestand ungeprüft → Kandidat **N9e** (Schwelle mit Bodenwahrheit messen). Prüfer `gpt-5.6-luna`, drei Runden: Runde 1 und 2 NICHT BESTANDEN (Belegskripte löschten Ausgabeordner per `rmtree` → jetzt verweigern sie mit Exit 2; meine Manifest-Formulierung falsch → korrigiert), Runde 3 **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9d-verdrahtung.md` |
+| N9e | **Cluster-Schwelle am echten Bestand prüfen** (Kandidat aus dem N9d-Nebenbefund): `vektoren_clustern` bündelt die 189 nutzbaren Gesichter der `gruppe`-Bilder zu **einer** Gruppe — bei einem Dichte-Verfahren (`CLUSTER_SCHWELLE = 0,45`) ist Verkettung erwartbar, aber am echten Bestand nicht mit Bodenwahrheit geprüft | Gruppen-Anzahl gegen eine bekannte Personenmenge gemessen; falsch zusammengelegte Cluster beziffert | ⬜ **offen** (Kandidat aus N9d, 27.09.) — braucht eine Stichprobe mit bekannter Zuordnung, kostet keine pCloud-Schreibzugriffe |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -850,3 +851,89 @@ ohnehin nachkontrolliert.
     einer belastbaren Zahl wird). **N8 (echtes Sortieren) bleibt gesperrt**, bis
     Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146
     datumslosen Dateien da ist.
+* **27.09. ~21:10 — N9d verdrahtet, breit gemessen und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,008 USD ·
+  Prüfer: `openai/gpt-5.6-luna`, **drei Runden**, andere Modellfamilie).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den
+  **fremden** Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`,
+  zwei Recherche-HTML); nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut gesperrt** (Kontingent bis 15.10.) → gebaut wurde mit einem
+  Hermes-Subagenten.
+  - **Teil 1 (Verdrahtung):** `_fileid_von` liest `fileid`, sonst **`bild_id`**
+    (Text/Zahl, kein `bool`/`None`; `fileid` hat Vorrang). Damit gehen die
+    **N9a-Einträge ohne Um-Mappen** in die echte pCloud-Kachelquelle — der Hack
+    aus N9c (`bild_id` → `fileid` im Belegskript) ist nicht mehr nötig.
+    Dazu die **ehrliche** Ausgabe: neue reine Funktion
+    `kachelquelle_hinweis(ausschnitt)` ersetzt in `main` die Behauptung „es wird
+    je Gesicht geschnitten"; sie sagt wahrheitsgemäß, dass im
+    **Vektorzeilen-Lauf vor dem Download keine `bbox` bekannt** ist und
+    `--ausschnitt` dort **nicht wirkt** (er wirkt im Referenzseiten-Weg von
+    `personen_cluster`, wo die Einträge `bild_id` + `bbox` tragen). Keine
+    Schwelle angefasst.
+  - **Prüfbefehl selbst gefahren:** **1205 passed, Exit 0** (80 s; Baseline
+    1196, +9 neue Tests); der Commit-Hook fährt dasselbe Tor beim Commit.
+  - **Teil 2 (breite Messung, echte Bilder, nur lesend):** **92 Bilder** — 80
+    aus den acht bilderstärksten Mengen-Anlässen (je bis zu 10) + **12
+    Kontrollbilder**; **465 Gesichter auf 72 Bildern, 0 Fehler, 358,9 s**;
+    kleinster echter Flächenanteil **6,8905172548596356e-06**, größter 0,030437.
+    **Ergebnis (vorher → nachher):** alle 92: alt `gruppe 32 · leer 27 ·
+    menge 4 · unklar 29` → neu `gruppe 32 · leer 20 · **menge 10** · unklar 30`;
+    **nur Mengen-Bilder: 4 → 10 von 80** (N9c war „1 von 30" = 3,3 %, jetzt
+    **12,5 %**); **Kontrollbilder in beiden Schwellen 0 × `menge`** (gruppe 4,
+    leer 7, unklar 1); `gruppe` **unverändert 32** = keine Regression.
+  - **Verdrahtung live belegt** (`n9d_verdrahtung.py` in einen frischen Ordner,
+    N9a-Einträge **direkt**, kein Um-Mappen): **24 Referenzseiten**, **186
+    Kacheln als 200×200-Ausschnitt**, 3 leere (Download-Fehler → Platzhalter),
+    **1.749.798 Bytes** gesamt, **2. Lauf 0 neue Dateien** (idempotent).
+    **Pixel-Gegenprobe an vier Kacheln:** Abstand zum frisch gerechneten
+    Ausschnitt **1,755 … 3,116** (das ist der JPEG-Verlust bei quality 85), zum
+    verkleinerten **ganzen Foto** dagegen **68,954 … 76,192** — die Kachel zeigt
+    also wirklich den Gesichtsausschnitt.
+  - **Ehrlicher Nebenbefund (nicht Teil des Schritts):** das DBSCAN-artige
+    `vektoren_clustern` (Dichte-Verfahren, `CLUSTER_SCHWELLE = 0,45`) bündelt
+    die **189** nutzbaren Gesichter der `gruppe`-Bilder zu **einer** Gruppe —
+    beim Dichte-Verfahren ist Verkettung erwartbar, am echten Bestand aber
+    **nicht** mit Bodenwahrheit geprüft → neuer Kandidat **N9e** (Zeile im
+    Plan). Schwellen sind N9a-Beschlüsse, hier bewusst nicht angetastet.
+  - **Prüfer Runde 1: NICHT BESTANDEN — drei Punkte, zwei davon berechtigt.**
+    (1) Das N9d-Belegskript löschte den eigenen Ausgabeordner per
+    `shutil.rmtree` — Verstoß gegen „NIE löschen": jetzt **verweigert** es einen
+    nicht leeren Zielordner (deutsche Meldung, **Exit 2**, Zielordner per
+    Argument); nachgemessen **24 Dateien vor und nach** dem Aufruf, der Lauf
+    wurde in einen **frischen** Ordner wiederholt (identische Zahlen), der alte
+    blieb unberührt. (2) Meine Angabe „`manifest.jsonl` weiterhin 0 Einträge"
+    war falsch — die Datei **existiert nicht**, weil nichts gebucht wurde.
+    (3) Der Modulkopf-Docstring war geändert, ohne dass ich das dem Prüfer als
+    Umfang genannt hatte (im Auftrag stand es).
+  - **Prüfer Runde 2: NICHT BESTANDEN — ein berechtigter Rest, zwei Fehlalarme
+    bzw. Aufruf-Fehler.** (1) Berechtigt: das **ältere** N9c-Belegskript
+    enthielt noch `shutil.rmtree` → gleich behoben (Verweigerung + Exit 2,
+    `shutil` entfernt; nachgemessen **7 → 7 Dateien**). Damit gibt es im ganzen
+    Foto-Werkzeugsatz nur noch **eine** Löschoperation: `os.remove(temp)` auf die
+    **eigene temp-Datei** beim atomaren Schreiben (`foto_kategorien.py:641`) —
+    fremde Daten werden nirgends gelöscht. (2) Der Eigner-Name im Plan ist
+    **Bestand**: 26 × in HEAD, 26 × im Arbeitsstand, **0 × in den neuen Zeilen**
+    (`git diff -U0 | grep '^+' | grep -c` = 0) — der Plan zitiert den Auftrag,
+    kein Name Dritter; nicht umgeschrieben. (3) Der Aufruf der Belegskripte mit
+    **globalem** `python` endet mit Exit 1 (`pydantic_settings` fehlt) — der in
+    `CLAUDE_EXTENDS.md` beschriebene **Aufruf-Fehler**, kein Skriptfehler; beide
+    Skripte nennen im Kopf jetzt den Aufruf mit `venv_gesicht`.
+  - **Prüfer Runde 3 (Abnahme, frischer Kontext, geschärftes Kriterium):
+    BESTANDEN, 0 Abweichungen.** Er hat selbst nachgerechnet: Prüfbefehl
+    **1205 / Exit 0**; 9 neue Tests; `_fileid_von` in sieben Fällen; beide
+    Belegskripte ohne Löschfunktion mit **Exit 2** bei gefülltem Ordner (7 → 7
+    bzw. 24 → 24 Dateien); Namenszählung 26/26/**0**; **alle Messzahlen aus der
+    JSONL** (92 / 72 / 465 / Minimum / beide Bildarten-Verteilungen / 10 von 80
+    = 12,5 % / Kontrollbilder 0 × `menge` / 24 Dateien / 1.749.798 Bytes);
+    keine Schwellenänderung, kein `or True`, keine Secrets, keine Bilddateien,
+    `git diff --check` ohne Fehler.
+  - **Schutz:** pCloud nur **lesend**; Originale nur im Arbeitsspeicher,
+    **kein** Bild auf Platte außerhalb der Ausgabeordner; **keine** Buchung
+    (`manifest.jsonl` existiert nicht); kein Löschen (alle Belegordner
+    existieren weiter); die fremden `live_zahlen`-Dateien blieben unberührt.
+  - Doku: `docs/changelog-2026-09-27-n9d-verdrahtung.md`.
+  - **Nächster Schritt:** **N9e** (Cluster-Schwelle am echten Bestand mit
+    Bodenwahrheit prüfen) — oder, wenn Sebastian den Blick auf die 39 sicheren
+    Event-Vorschläge und die 1.146 datumslosen Dateien nachholt, **N8** (echtes
+    Sortieren). **N8 bleibt bis dahin gesperrt.**

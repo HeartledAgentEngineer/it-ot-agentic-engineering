@@ -13,6 +13,15 @@ Wozu dieses Werkzeug:
   Tests laufen mit einem **eingesteckten** Attrappen-Detektor vollstaendig ohne
   ``cv2``.
 
+Die echte Kachelquelle (Bruecke zurueck zu N9a):
+  ``kachel_quelle(service, …)`` baut eine ``kachel_holen(eintrag) -> bytes``
+  fuer die Referenzseiten von ``personen_cluster``. Die **N9a-Eintraege**
+  tragen die Kennung als ``bild_id`` und die Gesichtsbox als ``bbox`` — die
+  Kachelquelle arbeitet **direkt** damit (``_fileid_von`` liest ``fileid``,
+  sonst ``bild_id``; ``ausschnitt=True`` schneidet mit ``bbox``), es ist **kein
+  Um-Mappen** der Felder mehr noetig. Ohne brauchbare ``bbox`` faellt
+  ``ausschnitt=True`` aufs ganze Foto zurueck.
+
 Was dieses Werkzeug bewusst NICHT tut:
   * **Kein Speichern von Bildern.** Bilder werden ausschliesslich **in-memory**
     verarbeitet. Geschrieben wird nur die **Vektorzeilen-Datei** (JSONL, Text).
@@ -530,9 +539,22 @@ def vektoren_schreiben(pfad: str, zeilen) -> int:
 # ── 5. Die echte pCloud-Kachelquelle (eingesteckt, kein Geheimnis hier) ────
 
 def _fileid_von(eintrag):
-    """Die ``fileid`` eines Kachel-Eintrags lesen — ``None``, wenn keine da ist."""
+    """Die Kennung eines Kachel-Eintrags lesen — ``None``, wenn keine da ist.
+
+    Vorrang hat ``fileid`` (so kommt es aus dem Plan). Fehlt es, wird
+    ``bild_id`` gelesen — **genau so tragen die N9a-Eintraege**
+    (``personen_cluster``) ihre Kennung: ``{"bild_id": …, "bbox": …}``. Damit
+    braucht der Referenzseiten-Weg kein Um-Mappen mehr.
+
+    Ein blanker Eintrag (Text/Zahl) gilt als Kennung — das ist der einfache
+    Aufruf ``kachel_holen("1234567")``. ``bool`` und ``None`` sind **keine**
+    Kennung (``True`` waere sonst die Zahl 1); alles andere ergibt ``None``.
+    Zurueckgegeben wird der Wert unveraendert (Text oder Zahl).
+    """
     if isinstance(eintrag, dict):
         wert = eintrag.get("fileid")
+        if isinstance(wert, bool) or wert is None:
+            wert = eintrag.get("bild_id")
     elif isinstance(eintrag, (str, int)) and not isinstance(eintrag, bool):
         wert = eintrag
     else:
@@ -652,14 +674,16 @@ def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None,
     kennt weder Zugangsdaten noch Konfiguration; hinein kommt nur die fertige
     Abruffunktion.
 
-    Die zurueckgegebene Funktion holt fuer einen Eintrag mit ``fileid`` die
-    Bytes **in-memory**. Fehler, leere oder fehlende Antworten ergeben ``None``
-    (der Platzhalter von ``referenzseiten_bauen`` greift) — **nie** ein Abbruch.
-    Ist ``groesse`` ``(breite, hoehe)`` gesetzt, wird die Kachel in-memory auf
-    diese Kantenlaenge verkleinert.
+    Die zurueckgegebene Funktion holt fuer einen Eintrag mit ``fileid`` **oder**
+    ``bild_id`` (siehe ``_fileid_von`` — die N9a-Eintraege tragen ``bild_id``)
+    die Bytes **in-memory**. Fehler, leere oder fehlende Antworten ergeben
+    ``None`` (der Platzhalter von ``referenzseiten_bauen`` greift) — **nie** ein
+    Abbruch. Ist ``groesse`` ``(breite, hoehe)`` gesetzt, wird die Kachel
+    in-memory auf diese Kantenlaenge verkleinert.
 
     ``ausschnitt=True`` schneidet zusaetzlich **in-memory** um das Gesicht: aus
-    der ``bbox`` des Eintrags (``[x, y, w, h]``) wird mit dem Rand ``rand`` x
+    der ``bbox`` des Eintrags (``[x, y, w, h]`` — so tragen es die
+    **N9a-Eintraege** neben ``bild_id``) wird mit dem Rand ``rand`` x
     bbox-Masse je Seite, an die Bildgrenzen geklemmt, ein Ausschnitt gebildet
     und auf die Ziel-Kachelgroesse skaliert — ``groesse``, sonst
     ``AUSSCHNITT_GROESSE`` (200x200, quadratisch). Das ist reine **PIL**-Arbeit:
@@ -669,7 +693,11 @@ def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None,
     unlesbare Bytes, ein entarteter Ausschnitt oder ein fehlendes PIL ergeben
     das **ganze Foto** wie ohne ``ausschnitt``; eine Ausnahme dringt nie nach
     aussen. Ohne brauchbare ``bbox`` ist ``ausschnitt=True`` also wirkungslos —
-    genau das haelt den Aufruf in ``main`` (dort kommt nur ``fileid``) sicher.
+    im **Vektorzeilen-Lauf** von ``main`` ist vor dem Download nur die Kennung
+    bekannt, deshalb wirkt der Schalter dort nicht (siehe
+    ``kachelquelle_hinweis``); im **Referenzseiten-Weg** von
+    ``personen_cluster`` tragen die Eintraege ``bild_id`` und ``bbox``, dort
+    schneidet die Quelle wirklich je Gesicht.
     """
     holen = getattr(service, "datei_bytes", None)
     ziel = _groesse_lesen(groesse)
@@ -849,6 +877,35 @@ def jahr_uebersicht(auswahl) -> dict:
     return zahlen
 
 
+def kachelquelle_hinweis(ausschnitt: bool) -> str:
+    """Die Klartextzeile zur Kachelquelle bauen — wahrheitsgemaess, **rein**.
+
+    Reine Funktion (kein I/O, kein Zustand): sie sagt, was in diesem Lauf
+    wirklich geschieht. Im **Vektorzeilen-Lauf** von ``main`` wird vor dem
+    Download nur die Kennung uebergeben — eine ``bbox`` ist dort erst **nach**
+    dem Download bekannt. ``--ausschnitt`` wirkt in diesem Lauf deshalb
+    **nicht**; die Kachelquelle faellt aufs ganze Foto zurueck.
+
+    Wirklich je Gesicht geschnitten wird im **Referenzseiten-Weg von
+    ``personen_cluster``** (``referenzseiten_bauen``): dort tragen die
+    Kachel-Eintraege ``bild_id`` **und** ``bbox``, und ``kachel_holen`` wird je
+    Kachel aufgerufen.
+
+    ``ausschnitt=False`` beschreibt den Download des **ganzen Fotos**. Die
+    Zeile enthaelt keine Namen, keine Pfade und keine Kennungen.
+    """
+    if ausschnitt:
+        return ("Kachelquelle: ganzer Foto-Download je Bild, in-memory. "
+                "--ausschnitt wirkt im Vektorzeilen-Lauf NICHT: hier ist vor "
+                "dem Download keine bbox bekannt (nur die Kennung geht hin). "
+                "Geschnitten wird je Gesicht nur im Referenzseiten-Weg von "
+                "personen_cluster, wo die Eintraege bild_id und bbox tragen "
+                f"(Ziel {AUSSCHNITT_GROESSE[0]}x{AUSSCHNITT_GROESSE[1]} px, "
+                f"Rand {AUSSCHNITT_RAND} x bbox, nur PIL).")
+    return ("Kachelquelle: ganzes Foto je Bild, in-memory verkleinert "
+            "(kein Gesichtsausschnitt).")
+
+
 def main(argv=None) -> int:
     """Kommandozeilen-Teil: Trockenlauf zaehlen oder Vektorzeilen schreiben.
 
@@ -883,7 +940,9 @@ def main(argv=None) -> int:
                           action="store_true",
                           help="Kachelquelle schneidet in-memory um das Gesicht "
                                "(nur PIL; ohne bbox bzw. bei Fehlern: ganzes "
-                               "Foto). Standard: ganzes Foto")
+                               "Foto). Wirkt nur im Referenzseiten-Weg; im "
+                               "Vektorzeilen-Lauf ist vor dem Download keine "
+                               "bbox bekannt. Standard: ganzes Foto")
     zerleger.add_argument("--trocken", dest="trocken", action="store_true",
                           help="nichts schreiben (hat Vorrang vor --schreiben)")
     zerleger.add_argument("--schreiben", dest="schreiben", action="store_true",
@@ -921,13 +980,7 @@ def main(argv=None) -> int:
         dienst = _pcloud_dienst()
         holen = kachel_quelle(dienst, max_bytes=args.max_bytes,
                               ausschnitt=args.ausschnitt)
-        print("Kachelquelle: " + (
-            "Gesichtsausschnitt je Gesicht — "
-            f"Ziel {AUSSCHNITT_GROESSE[0]}x{AUSSCHNITT_GROESSE[1]} px, "
-            f"Rand {AUSSCHNITT_RAND} x bbox, nur PIL, in-memory "
-            "(Rueckfall ohne bbox/bei Fehlern: ganzes Foto)"
-            if args.ausschnitt else
-            "ganzes Foto (in-memory verkleinert)"))
+        print(kachelquelle_hinweis(args.ausschnitt))
 
         def hole_fuer(fileid):
             return holen({"fileid": fileid})
