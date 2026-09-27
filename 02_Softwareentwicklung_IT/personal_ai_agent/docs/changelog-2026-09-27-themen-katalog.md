@@ -236,3 +236,165 @@ Attrappe, `httpx.post`/`httpx.get` sind in der autouse-Fixture gesperrt).
   `--wiederholen`).
 * Keine Änderung an `KATALOG_VERSION`-Konsumenten außerhalb der vier genannten
   Dateien.
+
+## Nachtrag: Katalog erweitert (Version 3)
+
+> **Datum:** 27.09.2026 · **Geänderte Dateien:** `tools/foto_sortierung/themen_katalog.py`,
+> `backend/tests/test_foto_themen_vision.py`,
+> `docs/changelog-2026-09-27-themen-katalog.md` (diese Datei) — sonst nichts.
+
+### Der Messlauf, der die Lücken zeigte
+
+Der erste Messlauf mit dem Katalog (`google/gemini-2.5-flash`, ein Vision-Aufruf
+je Kontaktbogen) über **161 Anlässe** ergab:
+
+* **161 Katalog-Treffer — 100 %** der Anlässe bekamen ein Thema aus dem Katalog
+  (kein einziges freies Thema mehr durchgelassen),
+* **0 Fehler**,
+* aber **43 von 161 Anlässen = 27 %** landeten auf `Sonstiges`.
+
+Ausgewertet wurden dafür die **Kachel-Kurzbeschreibungen** dieser 43 Anlässe.
+Sie zeigten neun **fehlende Sachgebiete** — also Motive, für die der Katalog
+schlicht kein Wort hatte:
+
+| Fehlendes Sachgebiet | Anlässe | Kachel-Beispiele |
+|---|---|---|
+| Sonnenuntergang / Abendhimmel | 6 | Sonnenuntergang über Stadt, Hafen, Dachansicht |
+| Stadt bei Nacht / Beleuchtung | 2 | Bäume bei Nacht mit bunter Beleuchtung |
+| Selfies / Porträts ohne Anlass | 7 | junge Menschen lachen in die Kamera, Zunge herausstrecken, Händeschütteln, Spiegel-Selfie |
+| Freunde / Gruppe unterwegs | 3 | Männer auf dem Bürgersteig, drei Männer am Tisch |
+| Demonstration / Politik | 3 | Personen mit Fahne und Banner auf der Straße, Bildschirm mit Wahlergebnissen |
+| Screenshots / Text / Memes | 6 | Bildschirmfoto mit Formeln, Memes mit Text, Text-Grafiken |
+| Zeitungen / Dokumente / Buchseiten | 3 | Zeitungsausschnitte, Buchseite mit Diagramm, Weihnachtskarte |
+| Dinge / Stillleben / Nahaufnahmen | 7 | Ferrero und Red Bull, Brettspiel, Schmutz auf Teppich, Schriftzug auf Fahrzeug, Briefkästenfächer |
+| Tiere auf dem Land / Hof | 3 | Huhn mit Küken, Schweine im Stall, Igel auf dem Boden |
+
+### Die neun neuen Einträge (Wortlaut wie im Code)
+
+```
+Abendhimmel und Sonnenuntergang
+Stadt bei Nacht
+Selfie und Portraet
+Freunde unterwegs
+Demonstration und Politik
+Text und Screenshot
+Zeitungen und Dokumente
+Dinge und Stillleben
+Tiere auf dem Land
+```
+
+Sie stehen **vor `Sonstiges`**; `Sonstiges` bleibt der **letzte** Eintrag. Jeder
+Eintrag hält die harten Regeln ein (2–4 Wörter, kein `/`/`\`, keine verbotenen
+Zeichen, ≤ 60 Zeichen, keine Doppelung — geprüft, nicht behauptet). Es wurde
+**kein** Eintrag weggelassen: keiner der neun stand bereits in gleicher oder
+ähnlicher Form im Katalog (nachgeprüft über `len(set(KATALOG))` und den
+normalisierten Vergleich).
+
+### Neue Gesamtzahl und Version
+
+* **44 → 53 Einträge** (**+9**). `KATALOG_VERSION`: **2 → 3**
+  (`tools/foto_sortierung/themen_katalog.py`). Die Kopfzeile der CLI zeigt damit
+  `Themen-Katalog: 53 Eintraege, Version 3 (--ohne-katalog schaltet ihn aus)`
+  (das Werkzeug liest die Zahl und die Version aus dem Modul — keine Zweitkopie).
+* Der Docstring des Moduls nennt jetzt den Messlauf mit den Zahlen
+  (161 Anlässe, 100 % Treffer, 0 Fehler, 43 = 27 % Sonstiges) und die neun
+  Gebiete, damit die Herkunft der Einträge im Code steht und nicht nur hier.
+
+### Tests: angepasst und ergänzt
+
+`backend/tests/test_foto_themen_vision.py` — von **87 auf 88** Prüfungen in
+dieser Datei (**+1**); es wurde **nichts gelöscht oder abgeschwächt**.
+
+* **Auf den neuen Stand gezogen:** `test_katalog_hat_genau_44_eintraege` →
+  `test_katalog_hat_genau_53_eintraege` (53 statt 44, für Katalog und Werkzeug),
+  `test_katalog_version_ist_2` → `test_katalog_version_ist_3` (3 statt 2, für
+  Katalog und Werkzeug) und die CLI-Prüfung
+  `test_cli_standard_schickt_die_ganze_liste` erwartet jetzt
+  `53 Eintraege, Version 3` in der Kopfzeile.
+* **Neu:** `test_katalog_enthaelt_die_neun_neuen_eintraege` (alle neun im
+  Katalog, jeder vor `Sonstiges`, jeder wird wortgleich zugeordnet).
+* **Unverändert gültig:** Zielgröße 40–60, keine Doppelungen (auch nicht
+  normalisiert), jeder Eintrag ordnertauglich (verbotene Zeichen, ≤ 60 Zeichen,
+  kein Rand-Sonderzeichen, nicht numerisch), 2–4 Wörter außer dem einwortigen
+  Rückfall, `Sonstiges` zuletzt, `katalog_text()` verbindet in Reihenfolge,
+  Prompt mit Katalog enthält **jeden** Eintrag. Alle diese Schleifen laufen über
+  den **ganzen** Katalog und decken damit auch die neun neuen Einträge ab.
+
+### Prüfbefehl und Ergebnis (selbst gefahren)
+
+```
+cd backend && .venv/Scripts/python -m pytest tests/ -q
+```
+
+* **657 passed, Exit 0** (149,9 s) — vorher 656 passed (die neue Prüfung ist
+  die +1; die beiden umbenannten zählen weiter je einmal).
+* Zusätzlich der Skriptlauf:
+  `cd backend && .venv/Scripts/python ../tools/foto_sortierung/foto_themen_vision.py --jahr 2014 --limit 1 --nur-liste`
+  → Exit 0, Kopfzeile `Themen-Katalog: 53 Eintraege, Version 3`.
+
+Kein echter Vision-Aufruf, kein OpenRouter-Zugriff, kein API-Schlüssel gelesen
+oder ausgegeben, keine git-Befehle, keine Datei außerhalb der drei genannten
+angefasst.
+
+---
+
+## Messung mit Katalog **Version 3** (echte Vision-Aufrufe, 161 Anlässe)
+
+Dieselben **161 Anlässe** des Stapels 1 (Jahre 2014, 2016, 2017, 2019, 2020,
+2021), je **ein** Aufruf pro Anlass und Modell, Katalog Version 3. Preise live
+über `/api/v1/models` geholt.
+
+**flash (`google/gemini-2.5-flash`, 0,30 / 2,50 USD je Mio)**
+
+* 161 Anlässe, **0 Fehler**, **161 von 161** Antworten liegen im Katalog (100 %).
+* Thema `Sonstiges`: **14 Anlässe (8,7 %)** — alle 14 **selbst** gewählt,
+  **0** Antworten außerhalb des Katalogs.
+* **37 verschiedene Themen** von 53 (vorher mit Version 2: 155 Einzelstücke).
+* 484.279 ein / 25.757 aus Tokens → **0,209693 USD** = **0,001302 USD je Anlass**.
+
+**flash-lite (`google/gemini-2.5-flash-lite`, 0,10 / 0,40 USD je Mio)**
+
+* 161 Anlässe, **0 Fehler**, **160 von 161** Antworten liegen im Katalog
+  (99,4 %) — die eine Ausnahme fiel auf `Sonstiges`.
+* Thema `Sonstiges`: **18 Anlässe (11,2 %)** = **17 selbst gewählt** + **1** aus
+  der außerhalb des Katalogs liegenden Antwort.
+* **34 verschiedene Themen** von 53.
+* 484.279 ein / 26.348 aus Tokens → **0,058977 USD** = **0,000366 USD je Anlass**.
+
+**Die Erweiterung hat gewirkt:** mit Version 2 (44 Einträge, flash) landeten
+**43 von 161 = 27 %** auf `Sonstiges`; mit Version 3 sind es **14 = 8,7 %**.
+
+**Modellvergleich (identische Anlässe, identischer Prompt, nur das Modell
+unterschiedlich):**
+
+* Trefferquote: flash 100 % · flash-lite 99,4 %.
+* Kosten: flash ist das **3,56-Fache** von flash-lite
+  (0,209693 zu 0,058977 USD für dieselben 161 Anlässe).
+* Hochrechnung auf die **1.967 noch wartenden** Anlässe: flash **2,56 USD**,
+  flash-lite **0,72 USD**.
+
+**Sichtprobe (6 Bögen, in genau den Fällen, in denen sich beide Modelle
+widersprechen):** flash trifft **4**, flash-lite **2**. Die Fehler von
+flash-lite sind **Fehlzuordnungen in ein falsches Sachgebiet** — „Huhn mit
+Küken" → `Hund im Freien`, sommerliche Bergtour → `Wandern im Schnee`, Reise vor
+Palmen → `Familienfeier Zuhause`. Wo flash keine passende Kategorie sieht, sagt
+es ehrlich `Sonstiges` (bei der Henne korrekt, weil der Katalog keine Hoftiere
+kannte). **Entscheidung: flash** für den Massenlauf — 1,84 USD Mehrkosten für
+1.967 Anlässe sind gegenüber einem falsch sortierten Ordnerbaum belanglos.
+
+**Restliche 14 `Sonstiges`-Anlässe** (flash) sind überwiegend **Bildschirmfotos,
+Memes und Textbilder** (Glühwein-Text, „Finde das Kamel", Wahlergebnisse,
+Zeitungsausschnitt, Rezeptseite) plus einzelne Grenzfälle (Teppichfleck, grauer
+Boden, Führung vor einer Tafel). Dafür kommt **bewusst kein** Katalogeintrag
+dazu — weitere ähnliche Einträge würden überlappende Ordner erzeugen.
+
+**Schutz unverändert:** Original-CSV `~/foto_sortierung/sortierschluessel.csv`
+unangetastet (`md5 70642d2988b6e38ff417561ccf870ba8`); alle Ausgaben liegen
+außerhalb des Repos. Fortsetzungspunkte: `~/foto_sortierung/themen.jsonl`
+(flash) und `~/foto_sortierung/katalogtest_lite/themen.jsonl` (Vergleichslauf).
+
+**Prüfer `openai/gpt-5.6-luna`** hat den Endstand selbst nachgerechnet
+(Prüfbefehl, Katalogzählung 53/Version 3, Messzahlen beider Läufe, md5). Eine
+Beanstandung: die Angabe „18 gewählte Sonstiges" für flash-lite war unpräzise —
+richtig sind **17 selbst gewählte + 1 außerhalb des Katalogs** (Thema ebenfalls
+`Sonstiges`, aber `katalog_treffer: false`). Hier korrigiert.

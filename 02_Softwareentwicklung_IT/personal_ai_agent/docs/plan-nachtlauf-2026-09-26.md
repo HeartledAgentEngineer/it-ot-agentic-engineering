@@ -134,8 +134,8 @@ ohnehin nachkontrolliert.
 | N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ✅ **Prüfbefehl 525 grün** (500 + 25 neue, selbst gefahren); 2 Kontaktbögen live gebaut (10 Kacheln/62.566 B, 36 Kacheln/262.437 B, Pixel-Nummern belegt); Idempotenz live (2. Lauf: 0 geholt) |
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ✅ **bestanden (27.09.)** — siehe Journal: Nummern 1–36 einwandfrei lesbar, Thema je Bogen erkennbar, unbrauchbare Kacheln werden benannt |
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_themen_vision.py` (ein Vision-Aufruf je Anlass), **628 Prüfungen grün**, 59 eigene Tests; 2 Anlässe live gemessen (36 Kacheln → „Veranstaltung Publikum Bühne", 0,004354 $; 10 Kacheln → „Konzert Band Auftritt", 0,002255 $); Prüfer `gpt-5.6-luna` sagt „bestanden" (6. Runde). **Offen als N6b:** Massenlauf über alle 2.128 Anlässe (Bögen bauen + Themen setzen) |
-| N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ⬜ **neu (27.09.)** — durch den Befund aus N6b Stapel 1 erzwungen: 155 Themen bei 161 Anlässen = 96 % Einzelstücke |
-| N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | 🔄 **Stapel 1 fertig (27.09.)**: 2014/2016/2017/2019/2020/2021 = **161 Anlässe, 510 Kacheln, 0 Fehler**, 0,196610 USD (0,001221 USD je Anlass); Fortsetzungspunkt `themen.jsonl`. **Rest (1.967 Anlässe) wartet auf N6c** — sonst würden 96 % Einzelthemen-Ordner entstehen. Doku: `docs/changelog-2026-09-27-themen-stapel1.md` |
+| N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ✅ **bestanden (27.09.)** — `themen_katalog.py` mit **53 Einträgen** (Version 3), Prompt wählt nur daraus, `Sonstiges` als Rückfall; Prüfbefehl **657 grün**; die 161 Anlässe beider Modelle live gemessen (flash 0,209693 USD / 100 % Katalog-Treffer / 14 × Sonstiges = 8,7 %; flash-lite 0,058977 USD / 99,4 % / 18 × Sonstiges); **Sichtprobe 6 Bögen: flash 4 : 2 flash-lite** → **flash** für den Massenlauf; Prüfer `gpt-5.6-luna` (1 Beanstandung an einer Zahl, korrigiert) |
+| N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | 🔄 **Stapel 1 zweimal gesetzt (27.09.)**: erst mit freiem Prompt (161 Anlässe, 510 Kacheln, 0 Fehler, 0,196610 USD) → 96 % Einzelthemen; nach **N6c** mit Katalog Version 3 **neu gesetzt** (161 Anlässe, 0,209693 USD, 37 Themen, 14 × Sonstiges). **Rest (1.967 Anlässe) ist startklar** — Modell entschieden (**flash**), Werkzeug und Fortsetzungspunkt `themen.jsonl` stehen. Doku: `docs/changelog-2026-09-27-themen-stapel1.md` |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf **N6b/N6c** (Themen für alle Dateien) — Werkzeuge dafür stehen |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) |
@@ -278,3 +278,66 @@ ohnehin nachkontrolliert.
     **Prüfer `openai/gpt-5.6-luna`: „bestanden", 0 Abweichungen** — er hat die
     Zahlen alle selbst nachgerechnet (155 von 161 = 96,27 %, Summen, md5,
     Exit-Zeilen, Code-Stelle `prompt_bauen()`).
+* **27.09. ~09:55 — N6c gebaut, gemessen und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash` · Prüfer: `openai/gpt-5.6-luna`,
+  zwei Runden). **Codex war nicht nutzbar:** `codex exec --model gpt-5.6-terra`
+  antwortete live „You've hit your usage limit … try again at Oct 15th, 2026
+  9:32 PM" — also lief der Bauweg über Hermes-Subagenten (0,054 USD + 0,006 USD
+  Ausführerkosten).
+  - **Runde 1 — Werkzeug (Commit `c1c24c5`, gepusht, `0 0`):**
+    `tools/foto_sortierung/themen_katalog.py` (Katalog, `thema_zuordnen`,
+    `im_katalog`, `katalog_text`), Prompt wählt nur noch Wort für Wort aus der
+    Liste, `thema_roh`/`katalog_treffer` in beiden Ausgaben, CLI `--ohne-katalog`;
+    Tests **59 → 87**, Prüfbefehl **656 passed, Exit 0** (selbst gefahren),
+    Prüfer: **BESTANDEN, 0 Abweichungen** (u. a. `prompt_bauen` ohne Katalog
+    byte-gleich zu HEAD, Schutzfunktionen AST-identisch).
+  - **Messung 1 (Katalog v2, 44 Einträge):** dieselben **161 Anlässe** beider
+    Modelle. flash: 161/161 Katalog-Treffer, 0 Fehler — aber **43 × `Sonstiges`
+    (27 %)**. flash-lite: 0,058129 USD, 21 × `Sonstiges`. Damit stand fest: der
+    Katalog hat Lücken, und ein Viertel aller Anlässe in einem Ordner wäre
+    untauglich.
+  - **Runde 2 — datenbasierte Erweiterung:** die Kachel-Kurzbeschreibungen der
+    43 `Sonstiges`-Anlässe ausgewertet (nicht geraten): Sonnenuntergang/Abendhimmel,
+    Nachtszenen, Selfies/Porträts, Gruppe unterwegs, Demonstration/Politik,
+    Screenshots/Text/Memes, Zeitungen/Buchseiten, Dinge/Stillleben, Hoftiere.
+    Genau diese neun Sachgebiete als Einträge ergänzt → **53 Einträge,
+    `KATALOG_VERSION = 3`**; Tests **657 passed, Exit 0** (selbst gefahren).
+  - **Messung 2 (Katalog v3, beide Modelle, dieselben 161 Anlässe):**
+    **flash** 0,209693 USD, **161/161** im Katalog (100 %), **14 × `Sonstiges`
+    = 8,7 %** (alle selbst gewählt, 0 Antworten außerhalb), **37 Themen**;
+    **flash-lite** 0,058977 USD, 160/161 im Katalog (99,4 %), **18 × `Sonstiges`
+    = 11,2 %** (17 selbst gewählt + 1 außerhalb), 34 Themen. Die Erweiterung
+    wirkte: 27 % → 8,7 %.
+  - **Modellvergleich:** identische Anlässe, identischer Prompt, nur das Modell
+    anders; flash ist das **3,56-Fache** im Preis (0,209693 zu 0,058977 USD).
+    Hochrechnung auf die 1.967 wartenden Anlässe: flash 2,56 USD, flash-lite
+    0,72 USD. **Sichtprobe an sechs Bögen genau dort, wo sich beide widersprechen:
+    flash trifft 4, flash-lite 2** — flash-lites Fehler sind falsche Sachgebiete
+    („Huhn mit Küken" → `Hund im Freien`, Sommerbergtour → `Wandern im Schnee`,
+    Reise vor Palmen → `Familienfeier Zuhause`), flash sagt in solchen Fällen
+    ehrlich `Sonstiges`. **Entscheidung: flash für den Massenlauf** — 1,84 USD
+    Mehrkosten für 1.967 Anlässe wiegen einen falsch sortierten Ordnerbaum nicht auf.
+  - **Die restlichen 14 `Sonstiges`-Anlässe** sind überwiegend Bildschirmfotos,
+    Memes und Textbilder (Glühwein-Text, „Finde das Kamel", Wahlergebnisse,
+    Zeitungsausschnitt, Rezeptseite) plus Grenzfälle; dafür kommt bewusst kein
+    Katalogeintrag dazu (weitere ähnliche Einträge würden Ordner überlappen lassen).
+  - **Prüfer-Runde 2 (`gpt-5.6-luna`, Endstand):** Prüfbefehl selbst 657/Exit 0,
+    Katalog nachgezählt (53, Version 3, keine normalisierten Doppelungen),
+    Messzahlen beider Läufe nachgerechnet, md5 der Original-CSV geprüft,
+    `prompt_bauen` ohne Katalog byte-identisch zu HEAD. **Eine Beanstandung:**
+    die Angabe „18 gewählte Sonstiges" für flash-lite war unpräzise — richtig
+    sind 17 selbst gewählte + 1 aus einer Antwort außerhalb des Katalogs (Thema
+    ebenfalls `Sonstiges`, `katalog_treffer: false`). **Doku korrigiert** (Changelog).
+  - **Lehre (Pitfall, kostete einen Doppel-Lauf):** ein MSYS-Pfad
+    (`/c/Users/sebas/foto_sortierung`) an ein **natives Windows-Python** gegeben
+    → Python löst ihn relativ zum Laufwerk auf, der Ordner landete unter
+    `C:\c\Users\sebas\foto_sortierung`. Die Daten wurden **per Kopie gerettet**
+    (161 Themen-JSONs, beide `themen.jsonl` entdoppelt zusammengeführt), nichts
+    gelöscht; das leere Artefakt liegt weiter unter `C:\c\Users\sebas\foto_sortierung`
+    und darf von Sebastian entfernt werden. Regel für die nächste Runde:
+    an native Werkzeuge **immer** `C:/…`-Pfade, nie `/c/…`.
+  - **Schutz:** Original-CSV unverändert (`md5 70642d2988b6e38ff417561ccf870ba8`),
+    alle Ausgaben außerhalb des Repos, kein Schlüssel in Ausgaben oder Dateien.
+  - **Nächster Schritt: N6b Rest** — 1.967 Anlässe (2022–2025) mit **flash**
+    und Katalog Version 3, kleinster Stapel zuerst, danach **N7** (Trockenlauf
+    des Sortierens).

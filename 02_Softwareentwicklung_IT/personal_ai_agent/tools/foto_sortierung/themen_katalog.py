@@ -8,10 +8,30 @@ Wozu dieser Katalog:
   faktisch einen eigenen Ordner bekaeme und dasselbe Motiv zerstreut laege.
 
   Deshalb waehlt das Modell sein Thema jetzt aus dieser **festen Liste**
-  (hoechstens 44 Eintraege je Jahr); alles, was nicht Wort fuer Wort passt,
+  (hoechstens 53 Eintraege je Jahr); alles, was nicht Wort fuer Wort passt,
   faellt auf ``Sonstiges``. Der Ordnerbaum unter ``Agent/Fotos/<Jahr>/`` bleibt
   dadurch **beschraenkt** (harte Obergrenze statt offener Wortliste) — genau
   das ist der Zweck des Katalogs.
+
+Warum die neun Eintraege dazukamen (Stand Version 3):
+  Ein Messlauf mit ``google/gemini-2.5-flash`` ueber **161 Anlaesse** (je
+  Anlass ein Vision-Aufruf auf den Kontaktbogen) ergab **161 Katalog-Treffer
+  bei 0 Fehlern** — aber **43 von 161 Anlaessen (27 %)** landeten auf
+  ``Sonstiges``. Die Kachel-Kurzbeschreibungen dieser 43 Anlaesse wurden
+  ausgewertet und ergaben neun **fehlende Sachgebiete**: Sonnenuntergang
+  (6 Anlaesse: Sonnenuntergang ueber Stadt, Hafen, Dachansicht), Stadt bei
+  Nacht (2: Baeume mit bunter Beleuchtung), Selfies/Portraets ohne Anlass
+  (7: junge Menschen lachen in die Kamera, Zunge herausstrecken,
+  Haendeschuetteln, Spiegel-Selfie), Freunde/Gruppe unterwegs (3: Maenner auf
+  dem Buergersteig, drei Maenner am Tisch), Demonstration/Politik (3: Fahne und
+  Banner auf der Strasse, Bildschirm mit Wahlergebnissen), Screenshots/Memes
+  (6: Bildschirmfoto mit Formeln, Memes mit Text, Text-Grafiken), Zeitungen/
+  Dokumente/Buchseiten (3: Zeitungsausschnitte, Buchseite mit Diagramm,
+  Weihnachtskarte), Dinge/Stillleben (7: Ferrero und Red Bull, Brettspiel,
+  Schriftzug auf Fahrzeug, Briefkaestenfaecher) und Hoftiere (3: Huhn mit
+  Kueken, Schweine im Stall, Igel auf dem Boden). Genau diese neun Luecken
+  schliessen die neuen Eintraege; die Zahl der Einzelstuecke sinkt damit
+  messbar. Deshalb: ``KATALOG_VERSION = 3``.
 
 Warum diese Regeln fuer die Eintraege gelten (sie sind Ordnernamen):
   * 2 bis 4 deutsche Woerter — kurz genug fuer Ordner, klar genug zum Sortieren.
@@ -40,7 +60,7 @@ from __future__ import annotations
 import re
 
 # Stand des Wortschatzes (siehe Docstring: bei Aenderungen hochziehen).
-KATALOG_VERSION = 2
+KATALOG_VERSION = 3
 
 # Der Rueckfall: alles, was keinem Eintrag WORT FUER WORT entspricht.
 SONSTIGES = "Sonstiges"
@@ -65,7 +85,7 @@ WOERTER_MIN = 2
 WOERTER_MAX = 4
 
 # Der Katalog: feste Themen, gruppiert nach Lebensbereichen. Reihenfolge ist
-# die Ausgabereihenfolge in ``katalog_text()`` und im Prompt. Genau 44
+# die Ausgabereihenfolge in ``katalog_text()`` und im Prompt. Genau 53
 # Eintraege, der letzte ist ``Sonstiges``.
 THEMEN_KATALOG: list[str] = [
     # Personen & Familie
@@ -123,6 +143,20 @@ THEMEN_KATALOG: list[str] = [
     "Bauen und Renovieren",
     "Handwerk und Werkzeug",
     "Baustelle und Geruest",
+    # Abend & Nacht (Messlauf Version 3: Sonnenuntergang, Nachtszenen)
+    "Abendhimmel und Sonnenuntergang",
+    "Stadt bei Nacht",
+    # Menschen ohne Anlass (Messlauf Version 3: Selfies, Gruppe unterwegs)
+    "Selfie und Portraet",
+    "Freunde unterwegs",
+    # Oeffentlichkeit & Politik (Messlauf Version 3: Demonstration)
+    "Demonstration und Politik",
+    # Text, Bildschirm & Papier (Messlauf Version 3: Screenshots, Zeitungen)
+    "Text und Screenshot",
+    "Zeitungen und Dokumente",
+    # Dinge & Hoftiere (Messlauf Version 3: Stillleben, Tiere auf dem Hof)
+    "Dinge und Stillleben",
+    "Tiere auf dem Land",
     # Rueckfall (MUSS der letzte Eintrag sein)
     SONSTIGES,
 ]

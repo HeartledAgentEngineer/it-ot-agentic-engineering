@@ -1217,6 +1217,20 @@ KATALOG_THEMA = "Wandern im Schnee"
 # Ein Thema, das NICHT im Katalog steht (so hat der Massenlauf N6b geantwortet).
 FREIES_THEMA = "Sonnenuntergang am Meer"
 
+# Die neun Eintraege aus Katalog-Version 3 — datenbasiert aus dem Messlauf
+# (43 von 161 Anlaessen auf Sonstiges), je Eintrag der gemessene Anlass.
+NEUE_EINTRAEGE_V3 = {
+    "Abendhimmel und Sonnenuntergang": "Sonnenuntergang ueber Stadt, Hafen, Dach",
+    "Stadt bei Nacht": "Baeume bei Nacht mit bunter Beleuchtung",
+    "Selfie und Portraet": "junge Menschen lachen in die Kamera",
+    "Freunde unterwegs": "drei Maenner am Tisch",
+    "Demonstration und Politik": "Fahne und Banner auf der Strasse",
+    "Text und Screenshot": "Bildschirmfoto mit Formeln",
+    "Zeitungen und Dokumente": "Zeitungsausschnitt, Weihnachtskarte",
+    "Dinge und Stillleben": "Brettspiel, Schriftzug auf Fahrzeug",
+    "Tiere auf dem Land": "Huhn mit Kueken, Schweine im Stall",
+}
+
 
 def _rohtext_zeilen(ausgabe: Path) -> list[dict]:
     """Alle Zeilen der themen.jsonl als Dicts."""
@@ -1226,14 +1240,25 @@ def _rohtext_zeilen(ausgabe: Path) -> list[dict]:
 
 # --- Katalog: Aufbau und Ordnertauglichkeit ---
 
-def test_katalog_hat_genau_44_eintraege():
-    """Der Katalog hat genau 44 Eintraege (Vorgabe des Schritts N6c)."""
-    assert len(KATALOG) == 44
-    assert len(katalog.THEMEN_KATALOG) == 44
+def test_katalog_hat_genau_53_eintraege():
+    """Der Katalog hat genau 53 Eintraege (44 aus N6c + 9 aus Version 3)."""
+    assert len(KATALOG) == 53
+    assert len(katalog.THEMEN_KATALOG) == 53
+
+
+def test_katalog_enthaelt_die_neun_neuen_eintraege():
+    """Die neun datenbasiert ermittelten Eintraege aus Version 3 stehen drin."""
+    assert len(NEUE_EINTRAEGE_V3) == 9
+    fehlend = [e for e in NEUE_EINTRAEGE_V3 if e not in KATALOG]
+    assert fehlend == [], f"neue Eintraege fehlen: {fehlend}"
+    # Jeder neue Eintrag wird wortgleich gefunden und liegt VOR Sonstiges:
+    for eintrag in NEUE_EINTRAEGE_V3:
+        assert KATALOG.index(eintrag) < KATALOG.index(katalog.SONSTIGES)
+        assert katalog.thema_zuordnen(eintrag) == eintrag
 
 
 def test_katalog_laenge_im_zielbereich_40_bis_60():
-    """Der Katalog liegt in der Zielgroesse 40-60 Eintraege."""
+    """Der Katalog liegt in der Zielgroesse 40-60 Eintraege (auch nach V3)."""
     assert 40 <= len(KATALOG) <= 60
 
 
@@ -1244,10 +1269,10 @@ def test_katalog_ohne_doppelungen():
     assert len(set(normalisiert)) == len(normalisiert)
 
 
-def test_katalog_version_ist_2():
-    """KATALOG_VERSION benennt den Stand des Wortschatzes."""
-    assert katalog.KATALOG_VERSION == 2
-    assert vision.KATALOG_VERSION == 2
+def test_katalog_version_ist_3():
+    """KATALOG_VERSION benennt den Stand des Wortschatzes (Version 3)."""
+    assert katalog.KATALOG_VERSION == 3
+    assert vision.KATALOG_VERSION == 3
 
 
 def test_katalog_eintraege_sind_ordnertauglich():
@@ -1389,7 +1414,7 @@ def test_prompt_ohne_katalog_bleibt_unveraendert():
 
 
 def test_prompt_mit_katalog_enthaelt_die_ganze_liste():
-    """MIT Katalog stehen alle 44 Eintraege im Prompt — und WORT FUER WORT."""
+    """MIT Katalog stehen alle 53 Eintraege im Prompt — und WORT FUER WORT."""
     prompt = vision.prompt_bauen(12, katalog=KATALOG)
     assert "2 bis 4 deutsche Woerter" not in prompt
     assert "WORT FUER WORT" in prompt
@@ -1483,7 +1508,7 @@ def test_cli_standard_schickt_die_ganze_liste(tmp_path, capsys):
     assert "WORT FUER WORT" in prompt
     for eintrag in KATALOG:
         assert eintrag in prompt, eintrag
-    assert f"{len(KATALOG)} Eintraege, Version 2" in ausgabe
+    assert f"{len(KATALOG)} Eintraege, Version 3" in ausgabe
 
 
 def test_cli_ohne_katalog_schalter_laesst_die_liste_weg(tmp_path, capsys):
