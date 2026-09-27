@@ -417,7 +417,7 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N7** (Trockenlauf des Sortierens) — mit der Auflage
     aus dem Plan: Rückfallordner für Anlässe ohne Thema, und Zielordner sind
     laut **N6d** Sebastians eigene Kategorien (18 Kategorien, 113 Unterordner).
-* **27.09. ~12:10 — N6d gebaut und bestanden** (Planer: Hauptagent · Ausführer:
+* **27.09. ~11:45 — N6d gebaut und bestanden** (Planer: Hauptagent · Ausführer:
   Hermes-Subagent `deepseek-v4.1-flash`, 0,026 USD · Prüfer: `openai/gpt-5.6-luna`).
   **Codex weiterhin gesperrt** (Kontingent bis 15.10.).
   - **Beginn dieser Runde:** `git pull --rebase` **scheiterte** an ungestagten
