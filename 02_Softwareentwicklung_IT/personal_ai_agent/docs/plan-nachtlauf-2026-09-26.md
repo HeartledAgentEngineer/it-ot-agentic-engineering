@@ -139,8 +139,8 @@ ohnehin nachkontrolliert.
 | N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — **Bestand vollständig:** 2.128 Anlässe, **2.127 mit Katalog-Thema**, 48 Themen genutzt, 242 × `Sonstiges` (11,4 %). Restlauf 2026/2025/2022/2024/2023: 1.967 Anlässe, 1.962 gesehen, 2 Fehlschläge, 7.722 Kacheln, **5.954.092 ein / 370.113 aus Tokens = 2,711510 USD**, 94,2 min. Dabei ein **echter Codefehler** gefunden und behoben (`MAX_TOKENS = 4000` schnitt den 108-Kachel-Bogen ab → `max_tokens_fuer(anzahl)`; derselbe Anlass läuft mit **4.420** Ausgabe-Tokens durch). **Ein Anlass bleibt bewusst offen:** `2022-09-05_Anlass-02` wird vom Anbieter abgelehnt (403 `PROHIBITED_CONTENT`) — keine Modellumgehung. Prüfbefehl **671 grün, Exit 0**; Prüfer `gpt-5.6-luna` (3 Punkte, 2 berechtigt → Zahlen/Doku korrigiert). Doku: `docs/changelog-2026-09-27-themen-massenlauf.md` |
 | N6d | **Zielkatalog aus Sebastians eigenen Ordnern** (`Bilder & Videos`: 18 Kategorien, 113 Unterordner): Zielordner sind **seine** Kategorien, nicht die erfundenen 53 Motive. Werkzeug liest den Bestand nur lesend (`~/foto_sortierung/kategorien.json`) | Kategorien-Liste deckt alle Jahre ab; Motiv-Thema bleibt nur Motiv-Erkennung | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_kategorien.py` (855 Zeilen) + **38** neue Tests; Übersetzung Motiv-Thema (53) → **Bucket** (11, im Code) → **echter Ordner** (lokal gebunden, `~/foto_sortierung/kategorie_zuordnung.json`); Zielpfad `Agent/Fotos/<Jahr>/<Kategorie>/<Event>`; Prüfbefehl **709 grün, Exit 0**; live `--zeigen`: **18 Kategorien · 113 Unterordner · 10 mit Unterordnern · 11 Buckets (10 gebunden, 1 × null)**, nichts geschrieben. Doku: `docs/changelog-2026-09-27-zielkategorien.md` |
 | N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/event_abgleich.py` (1.060 Zeilen, Nachbarmodul von `foto_kategorien`) + **51** eigene Tests; Prüfbefehl **760 grün, Exit 0** (Baseline 709; selbst gefahren). Live nur lesend: **2.134 Anlässe · 39 Vorschläge = 1,8 %** (tag 10, monat 29) · **600 schwache Hinweise** (jahr 495, spanne 105) · 2.095 ohne Vorschlag (276 davon: Kategorie fehlt im Bestand) · **112 von 113** Unterordnern über gebundene Buckets erreichbar. **Verschärfte Regel nach eigener Sichtprobe:** nur `tag`/`monat` ergeben einen Vorschlag, `jahr`/`spanne` nur mit `--auch-schwach` (vorher 639 Vorschläge, davon 600 untauglich). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (echte Ordnernamen im Repo, Zahl 109 → 112; beides korrigiert, real 8 statt 4 Namen), Runde 2 nur noch 3 Resttreffer = blanke Kalenderjahre → als Fehlalarm begründet. Doku: `docs/changelog-2026-09-27-event-abgleich.md`, Feinauftrag `docs/auftrag-n6e-event-abgleich.md` |
-| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ **Themen sind vollständig** (N6b ✅, 2.127 von 2.128). **Auflage beim Bau:** Rückfallordner für Anlässe **ohne** Thema (z. B. `Ohne-Thema`) einbauen, statt abzubrechen. Zielt auf N6d/N6e (Ordner = Sebastians Kategorien) |
-| N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
+| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_sortieren.py` (1.149 Zeilen) + **119** eigene Tests; Prüfbefehl selbst gefahren **879 passed, Exit 0** (Baseline 760). Live nur lesend, `listfolder` über 7 Quellordner: **9.430 Zeilen · 2.127 Anlässe · 7.616 Züge (alle mit Dateikennung)** · Doppelungen **1.534 in der CSV** (866 ohne Anlass-ID, **668** in geplanten Anlässen übersprungen) · **1.146 Zeilen ohne Anlass-ID** (kein Datum im Namen) · 0 ohne Thema / 0 ohne Jahr · **2.108 Ordner neu, 82 vorhanden · 2.088 Events neu, 39 wiederverwendet** (= die 39 sicheren Vorschläge aus N6e) · 11 Kategorien. Plan `~/foto_sortierung/sortierplan.json`; Manifest **0 Einträge**, Original-CSV unverändert. Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Doppelungs-Zahl irreführend: nur 668 statt 1.534 genannt; wirkungslose Assertion `or True`) → beides behoben, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-sortieren-trockenlauf.md`, Feinauftrag `docs/auftrag-n7-sortieren-trockenlauf.md` |
+| N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ **N7 ist bestanden** — der Plan steht (7.616 Züge, 2.108 neue Ordner). Vor dem Echtlauf: **Sebastians Blick auf die 39 sicheren Event-Vorschläge** und auf die **1.146 Dateien ohne Datum im Namen** (bleiben liegen, 12,2 %); der abgelehnte Anlass `2022-09-05_Anlass-02` (403) wartet weiter |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten — **mit Mengen-Filter** (Regel in `docs/plan-foto-personen-und-erinnerungen.md` + Projekt-`CLAUDE.md`): Menschenmengen werden **nicht** geclustert, Schwelle über Gesichtsgröße/Gesichter-Anzahl im Code, Vordergrund-Prüfung auf bekannte Personen, sonst weglassen | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) — **Mengen-Regel ist Pflichtteil des Auftrags** |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
@@ -528,3 +528,66 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N7** (Trockenlauf des Sortierens, `--trocken`, mit
     Rückfallordner für Anlässe ohne Thema, Zielordner = Sebastians Kategorien,
     Event-Wahl über `event_abgleich.vorschlag_fuer`).
+* **27.09. ~15:10 — N7 gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: zwei Hermes-Subagenten `deepseek-v4.1-flash`, 0,033 + 0,007 USD ·
+  Prüfer: `openai/gpt-5.6-luna`, zwei Runden — **andere Modellfamilie**).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden**
+  Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`, zwei neue
+  Recherche-HTML); nichts angefasst, nichts gestasht. `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut geprüft und weiter gesperrt** (live „try again at Oct 15th, 2026") →
+  gebaut wurde mit Hermes-Subagenten.
+  - **Werkzeug:** `tools/foto_sortierung/foto_sortieren.py` (**1.149 Zeilen**),
+    Tests `backend/tests/test_foto_sortieren.py` (**1.086 Zeilen, 119
+    Testfunktionen**, alles offline, `tmp_path`, kein Netz, keine echten Namen).
+    Es baut den **Plan** (Ordnerkette + Züge) und führt **nichts** aus: keine
+    schreibende pCloud-Operation, kein Manifest-Eintrag, kein Download; Tests
+    prüfen die Abwesenheit von Löschfunktionen und von `trocken=False`.
+  - **Prüfbefehl selbst gefahren:** `pytest tests/ -q` → **879 passed, Exit 0**
+    (Baseline vor diesem Schritt 760).
+  - **Live-Trockenlauf (nur lesend, `listfolder` über die 7 Quellordner):**
+    **9.430 Zeilen · 2.127 Anlässe · 7.616 Züge, alle mit Dateikennung** ·
+    Doppelungen **1.534 in der CSV** (866 ohne Anlass-ID, **668** in geplanten
+    Anlässen übersprungen) · **1.146 Zeilen ohne Anlass-ID** übersprungen ·
+    0 ohne Thema · 0 ohne Jahr · **2.108 Ordner neu / 82 vorhanden** ·
+    **2.088 Events neu / 39 wiederverwendet** · **11 Kategorien** belegt ·
+    je Jahr 2014:1 2016:1 2017:1 2019:27 2020:36 2021:95 2022:408 2023:447
+    2024:430 2025:380 2026:301. Plan: `~/foto_sortierung/sortierplan.json`
+    (außerhalb des Repos, 5,6 MB).
+  - **Der wichtigste Eigenbefund:** die **39 wiederverwendeten Events** treffen
+    genau die **39 sicheren Vorschläge** aus N6e — die beiden Werkzeuge greifen
+    also ohne Zusatzlogik ineinander.
+  - **Die 1.146 Zeilen ohne Anlass-ID sind eine echte Lücke, nicht ein Fehler:**
+    sie haben **kein Datum im Namen** (z. B. `ServicePW.jpg`), bestehen zu 1.011
+    aus dem Wurzelordner eines zweiten Geräts und zu 866 aus Doppelungen. Damit
+    bleiben **12,2 % der Dateien** im Trockenlauf liegen. **Entscheidung:** nicht
+    raten, nicht in einen Sammelordner werfen — als eigener Punkt für Sebastian
+    vor N8 notiert (`Ohne-Datum`-Ablage wäre eine eigene Regel).
+  - **Prüfer Runde 1: NICHT BESTANDEN, beide Punkte berechtigt.** (1) Die
+    Konsole nannte nur `668` Doppelungen, obwohl die CSV **1.534** gefüllte
+    `doppelung`-Felder hat (866 davon in Zeilen ohne Anlass-ID) — irreführend,
+    weil die Zahl wie die Gesamtzahl aussah. Behebung: Zähler aufgeschlüsselt
+    (`doppelung_gesamt` 1.534 · `doppelung_ohne_anlass` 866 ·
+    `doppelung_uebersprungen` 668) und die Konsole nennt jetzt alle drei Zahlen;
+    **die Züge (7.616) und Anlässe (2.127) blieben dabei unverändert**. (2) Eine
+    wirkungslose Assertion (`… or True`) in den Tests, ersetzt durch eine echte
+    Prüfung (Datei im Repo entsteht nicht) + **7 neue Tests** für die
+    Aufschlüsselung.
+  - **Prüfer Runde 2 (frischer Kontext): BESTANDEN — „Abweichungen: keine."**
+    Der Prüfer hat alle Zahlen unabhängig gegen die CSV nachgerechnet
+    (9.430 / 8.284 / 1.146 / 1.534 / 866 / 668 / 7.616, Invariante
+    `9.430 − 1.146 − 668 = 7.616`), den Prüfbefehl selbst gefahren (879/Exit 0),
+    die Aufschlüsselung als getestet bestätigt, die Verbotsliste und den
+    Datenschutz-Vergleich geprüft (nur die erlaubten Ausnahmen: blanke
+    Kalenderjahre und die generischen Bucket-Namen aus N6d).
+  - **Schutz:** `~/foto_sortierung/manifest.jsonl` **nicht vorhanden (0
+    Einträge)** — der Trockenlauf bucht nichts; md5 der Eingaben unverändert,
+    u. a. Original-Sortierschlüssel `70642d2988b6e38ff417561ccf870ba8`;
+    pCloud ausschließlich lesend; Ausgaben nur außerhalb des Repos.
+  - Doku: `docs/changelog-2026-09-27-sortieren-trockenlauf.md`,
+    Feinauftrag `docs/auftrag-n7-sortieren-trockenlauf.md`.
+  - **Nächster Schritt: N8** (echtes Sortieren) — **Vorbehalt:** der Plan legt
+    **2.108 neue Ordner** an und verschiebt **7.616 Dateien**; das ist die erste
+    schreibende Operation am Bestand. Sie gehört erst nach Sebastians Blick auf
+    die 39 sicheren Event-Vorschläge und die 1.146 datumslosen Dateien. Bis
+    dahin kann **N9** (Personen-Stufe vorbereiten, andere Dateien) weiterlaufen.
