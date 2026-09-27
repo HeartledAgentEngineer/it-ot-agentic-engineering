@@ -30,12 +30,11 @@ KURS_FALLBACK = 0.87696
 STANDARD_SESSION = "20260828_015944_352e08"
 ZEITRAEUME = [
     ("stunde", "Letzte Stunde", "rollierend: jetzt minus 60 Minuten"),
+    ("letzte_woche", "Letzte Woche", "rollierend: jetzt minus 7 x 24 Stunden"),
     ("heute", "Heute", "ab 00:00 heute (lokale Zeit)"),
     ("woche", "Woche", "ab Montag 00:00 dieser Woche (ISO-Kalenderwoche)"),
-    ("letzte_woche", "Letzte Woche", "Montag bis Sonntag der Vorwoche"),
-    ("letzte_7_tage", "Letzte 7 Tage", "rollierend: jetzt minus 7 x 24 Stunden"),
     ("monat", "Monat", "ab dem 1. des laufenden Monats"),
-    ("letzter_monat", "Letzter Monat", "1. bis letzter Tag des Vormonats"),
+    ("letzter_monat", "Letzter Monat", "rollierend: gleicher Tag des Vormonats bis jetzt"),
     ("alles", "Alles", "seit der ersten Aufzeichnung"),
 ]
 
@@ -115,8 +114,14 @@ def fenster(kennung):
     if kennung == "monat":
         return mitternacht.replace(day=1).timestamp(), None
     if kennung == "letzter_monat":
-        erster = mitternacht.replace(day=1)
-        return (erster - timedelta(days=1)).replace(day=1).timestamp(), erster.timestamp()
+        # Rollierend: gleicher Tag des Vormonats (27.9. -> 27.8.).
+        jahr, monat = jetzt.year, jetzt.month - 1
+        if monat < 1:
+            jahr, monat = jahr - 1, 12
+        tag = min(jetzt.day, 28)
+        start = jetzt.replace(year=jahr, month=monat, day=tag,
+                              hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp(), None
     return 0.0, None
 
 
