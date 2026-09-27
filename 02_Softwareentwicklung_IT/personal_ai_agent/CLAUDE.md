@@ -70,6 +70,22 @@ Jede signifikante Änderung muss hier dokumentiert werden:
 
 | 26.09.2026 | **pCloud-Zugang für das Backend — ohne App-Registrierung.** Der offizielle Weg (App Console + OAuth 2.0) war blockiert: die Anmeldung im Entwicklerbereich (`docs.pcloud.com`) hängt (Google-Rücksprung; in Comet sind Drittanbieter-Cookies blockiert), und das Konto läuft über Google. Gewählter Weg: Der **pCloud-Client am PC** ist bereits angemeldet — sein Anmelde-Wert liegt in `%LOCALAPPDATA%\pCloud\data.db` (Tabelle `setting`, Feld `auth`, 39 Zeichen; `location_id = 2` = Europa). Ausgelesen **nur lesend** (`file:…?immutable=1`, laufender Client bleibt unberührt), **nie ausgegeben**, direkt nach `backend/.env` geschrieben (`PCLOUD_TOKEN`, `PCLOUD_HOST=eapi.pcloud.com`; `.env` ist per `.gitignore` gesperrt). **Beleg:** `userinfo` → `result: 0` (premium, E-Mail bestätigt, 2.199 GB Quota / 390,5 GB belegt), `listfolder` Wurzel → 18 Einträge. Regeln bleiben im Code (pCloud hat keinen „nur lesen"-Scope): Standard lesen, Schreiben nur in `Agent/`, Umbenennen/Verschieben/Löschen nur nach Rückfrage, `Crypto Folder` tabu, `P:\` nie rekursiv. Doku: `docs/changelog-2026-09-26-pcloud-zugang.md` | Ohne API-Zugang bleibt der Agent am Handy blind (Android hat kein Laufwerk, `rclone mount` bräuchte FUSE + root) — Foto-Sortierung (Stufe B) und Personen-Clustering brauchen den Zugang | Hermes |
 
+## Sicherheit: Fotos, Gesichter, Menschenmengen
+
+- **Menschenmengen** (Konzerte, Veranstaltungen, weit entfernte Personen):
+  **keine Verpixelung nötig**, dürfen thematisch sortiert und als Kontaktbogen
+  gezeigt werden — aber **kein Gesichts-Anlernen, keine Personen-Cluster,
+  keine Referenzseiten** daraus.
+- **Vordergrund-Prüfung:** Bei Massenfotos prüfen, ob im Vordergrund eine
+  **bekannte** Person (Katalog) ist → dann diesem Menschen zuordnen.
+  Nur fremde Menge → **weglassen** (nicht clustern, nur thematisch einsortieren).
+- **Gruppen-/Nahaufnahmen:** unbekannte Gesichter erzeugen **unbenannte**
+  Gruppen (`Person_001` …), benannt wird **nur** nach Sebastians Bestätigung.
+- **Biometrie bleibt lokal:** Gesichts-Vektoren und Katalog (`gesichter_katalog.json`)
+  verlassen den PC **nie** (nicht ins Repo, nicht an ein Fremd-LLM).
+- **Schwelle statt Gefühl:** „Menge oder Gruppe" entscheidet der Code über
+  Gesichtsgröße und Gesichter-Anzahl, nicht der Augenschein.
+
 ---
 
 ## 🚫 Verbotene Operationen

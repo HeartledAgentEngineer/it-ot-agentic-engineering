@@ -78,6 +78,34 @@ dort) oder **PC** (hat `P:\`, mehr Rechenleistung, aber Modelle/Katalog müssten
 dorthin)? Vorschlag: **PC rechnet, Handy benennt** — Clustern über die API
 in Jahres-Stapeln, Naming im Quiz auf dem Handy.
 
+## Personen-Regeln: Massen- vs. Gruppenfotos (verbindlich, Sebastian 27.09.2026)
+
+> Wörtlich: „Da muss natürlich keine Person verpixelt werden — eine große Masse,
+> wie bei Konzerten. Aber nur, wenn es Gruppenfotos sind und die Personen nicht
+> so weit weg sind. Also Massenfotos: im Vordergrund gucken, ob da bekannte
+> Personen sind — sonst weglassen."
+
+1. **Menschenmengen** (viele Personen, weit entfernt, nicht identifizierbar —
+   Konzerte, Veranstaltungen, volle Hallen): **keine Verpixelung nötig.**
+   Sie dürfen thematisch sortiert und im Kontaktbogen gezeigt werden.
+   **Aber:** kein Gesichts-Anlernen, **kein Personen-Cluster, keine
+   Referenzseiten** aus Mengen.
+2. **Gruppen-/Nahaufnahmen** (Gesichter groß und erkennbar): wie geplant —
+   unbekannte Gesichter werden **geclustert und später benannt** (Sebastians
+   Wunsch), bekannte dem Katalog zugeordnet. Biometrische Daten (Vektoren)
+   bleiben **ausschließlich lokal** (nie ins Repo, nie an ein Fremd-LLM).
+3. **Vordergrund-Prüfung bei Mengen:** Enthält ein Massenfoto im **Vordergrund**
+   eine **bekannte** Person (Katalog) → wird diesem Menschen zugeordnet
+   (normales Foto). Enthält es **nur** fremde Menge → **weglassen**: nicht ins
+   Clustering, keine Referenz, nur thematisch einsortieren.
+4. **Schwelle statt Gefühl:** „Menge oder Gruppe" entscheidet der **Code** über
+   **Gesichtsgröße** (Anteil der Bildfläche) und **Anzahl** erkannter Gesichter —
+   nicht der Augenschein. Der Schwellwert wird an einer Stichprobe eingestellt
+   und im Changelog dokumentiert.
+5. **Reihenfolge bleibt:** Kein Gesicht wird benannt, bevor Sebastian es
+   bestätigt hat. Fremde Gesichter erzeugen **unbenannte** Gruppen
+   (`Person_001` …) — nur so, wie er es will.
+
 ## Stufe 4 — Sebastians Erinnerungen zu den Bildern ⬜ (Design)
 
 Sebastian erzählt pro **Event / Urlaub / Person / Tag / Szene**. Diese Texte
