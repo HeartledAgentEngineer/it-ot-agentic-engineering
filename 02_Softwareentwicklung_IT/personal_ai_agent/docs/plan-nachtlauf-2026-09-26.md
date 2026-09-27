@@ -148,7 +148,7 @@ ohnehin nachkontrolliert.
 | N9e | **Cluster-Schwelle am echten Bestand prüfen** (Kandidat aus dem N9d-Nebenbefund): `vektoren_clustern` bündelt die 189 nutzbaren Gesichter der `gruppe`-Bilder zu **einer** Gruppe — bei einem Dichte-Verfahren (`CLUSTER_SCHWELLE = 0,45`) ist Verkettung erwartbar, aber am echten Bestand nicht mit Bodenwahrheit geprüft | Gruppen-Anzahl gegen eine bekannte Personenmenge gemessen; falsch zusammengelegte Cluster beziffert | ✅ **bestanden (27.09.)** — **der Befund war ein Fehler, nicht das Clustering.** `cv2…alignCrop` erwartet die **volle 15-Werte-Detektionszeile** (60 Byte), bekam an **drei** Stellen nur die 5×2-Landmarken (40 Byte) → OpenCV liest über den Puffer hinaus → **jedes Gesicht eines Bildes bekam denselben Vektor**. Belegt an Bild `56226031402` (6 Gesichter): mit Landmarken **6× dieselbe** Ausschnitt-Prüfsumme **`e06d30ef365c`, Mittelwert 0,00 (schwarz)** und 6× dasselbe Merkmal, mit der vollen Zeile **6 verschiedene** echte Ausschnitte (Mittel 103–158). Kontrollierter Puffer als harter Beleg: die alte Form ist **bit-identisch** mit der nachgebauten Mischzeile → OpenCV liest **vier Werte über das Ende hinaus**; *welcher* Müll gelesen wird, hängt am Speicherinhalt (der Prüfer sah in seinem Lauf pro Gesicht verschiedene Ausschnitte) — in seiner Wirkung ist der Übergriff aber eindeutig: die alte Form schneidet **nie** das Gesicht. In den gespeicherten Dateien: `n9d` 465 Gesichter → **72** Vektorwerte (57 von 57 Mehrgesicht-Bildern nur identisch), `n9b` 72 → **8** (15 von 15); Bild-interne Paare erkennbarer Gesichter: **131 von 131 mit Distanz exakt 0,0000**. **Fix** in `tools/foto_sortierung/gesicht_erkennen.py` (`_merkmal`/`gesichter_mit_detektor`) **und** `backend/face_infer.py` (`_align_face` + Aufrufer — der Produktionsweg war mit betroffen), dazu ein **Wächter**: ≥2 bit-identische Merkmale in einem Bild ⇒ deutsche Fehlermeldung, leere Liste, **kein stiller Durchlauf**. Prüfbefehl selbst gefahren **1316 passed, Exit 0** (Baseline 1205; +75 aus dem neuen Mess-Werkzeug, +36 aus Fix/Wächter/Tests). **Nachweis danach:** dieselben 92 Bilder neu gerechnet → 465 Gesichter, **465 verschiedene Vektorwerte**, 131 Bild-Paare mit Distanz **0,531–1,067** (0 ≈ 0); 6 **frische** Bilder live 2/2, 3/3, 2/2, 3/3, 7/7, 5/5 verschiedene Vektoren (kleinste Paar-Distanz 0,49–0,91). Neue Dateien `personen_vektoren_n9e.jsonl` (92) und `personen_vektoren_n9e_burst.jsonl` (59 Dateien, 6 Familien, 36 Gesichter/36 Werte). **Schwellen-Messung (neues Werkzeug `tools/foto_sortierung/personen_schwelle.py`, 75 Tests):** Bodenwahrheit = zwei **erkennbare** Gesichter im selben Bild sind zwei Personen; Anlass-Mix nur noch **Strukturmaß** (Anlass ist keine Identitätswahrheit). Ergebnis bei **allen acht** Schwellen 0,10–0,45: **0 von 131** Bild-Paaren verschmolzen (vorher 131/131 = 100 %); Gruppen 12 → 2, größte 22 → 3, Durchmesser 0,9032 → 0,1553. Über alle 465 Gesichter bleibt eine Verkettung sichtbar (0,45: 19 Gruppen, größte 85, Durchmesser 1,0755 > Schwelle) → eigener Folgeschritt. Burst-Serien: **0 von 42** Familien-Paaren verschmolzen, Distanz-Median 0,7777 (= Szenenaufnahmen, **kein** Identitätsbeleg). **Keine Schwelle geändert.** Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (meine Aussage war zu absolut — welcher Speichermüll gelesen wird, ist nicht deterministisch) → korrigiert und mit kontrolliertem Puffer belegt, Runde 2 **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9e-aligncrop-fehler.md` |
 | N9f | **Personen-Ergebnisse mit richtigen Vektoren neu rechnen** (Folge von N9e): Gruppen-Anzahl, Referenzseiten, Kennungs-Altbestand auf `personen_vektoren_n9e.jsonl`/`_burst.jsonl` neu bestimmen; die Mengen-Arten (`gruppe`/`menge`/`leer`) am korrigierten Lauf erneut zählen; danach die **Verkettung** messen/ersetzen (Mittelpunkt- oder Vollständigkeits-Verknüpfung bzw. Größen-Grenze) — **erst danach** die Schwelle neu begründen | neue Gruppen-Anzahl und Referenzseiten belegt; Verkettung beziffert oder ersetzt; Schwelle mit Zahlen begründet (oder bewusst unverändert) | ✅ **bestanden (27.09.)** — neues Werkzeug `personen_verkettung.py` (878 Zeilen) + **117** Tests → Prüfbefehl **1433 grün, Exit 0**; **Verkettung beziffert**: Bestandsverfahren (dichte) bei Schwelle 0,45 → Durchmesser **0,9032 = 2 × Schwelle** (größte Gruppe 22), vollständige Verknüpfung **0,4417 ≤ 0,45** (größte 11), Mittelpunkt 0,9040; über **alle acht Schwellen 0,10–0,45** liegt dichte und mittelpunkt **immer** über der Schwelle, vollständig **nie**; **Bodenwahrheit: 0 von 131** Bild-Paaren erkennbarer Gesichter verschmolzen (Distanzen min 0,5312/Median 0,8280/max 1,0667, **0 unter 0,45**) bei **allen** Verfahren und Schwellen; **Neu-Rechnung** auf korrigierten Vektoren: Arten `leer 20 · gruppe 32 · menge 10 · unklar 30`, **12 Gruppen** (4,4,4,4,3,11,10,3,22,3,3,3), **12 Kennungen**, **16 Referenzseiten mit 74 echten Gesichtsausschnitten** (alle 200×200, 2. Lauf 0); **Schwelle bewusst unverändert 0,45** (kleinster Abstand zweier erkennbarer Gesichter 0,5312 → 0,0812 Sicherheitsabstand; Anheben durch keine Messung gedeckt); Burst-Datei: 14 nutzbare Gesichter, alle drei Verfahren **gleich** (2 Gruppen, Durchmesser 0,3779 — keine Verkettung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen** (9 Punkte unabhängig nachgerechnet). Doku `docs/changelog-2026-09-27-n9f-verkettung.md` |
 | N9g | **Verfahrenswechsel im Produktionsmodul + breitere Stichprobe** (Folge von N9f): Produktion auf die **vollständige Verknüpfung** umstellen, vorher auf einer **über die Jahre gestreuten** Stichprobe messen (nicht nur 8 Anlässe) | neue Messung mit Bodenwahrheit belegt den Wechsel; Durchmesser-Invariante erfüllt; Prüfbefehl grün | ✅ **bestanden (27.09.)** — **Messung breiter:** 192 Bilder ausgewählt (40 Mengen-Anlässe über die Jahre gestreut = 152 Bilder + 40 Kontrollen aus 40 Anlässen), **188 erkannt, 142 mit Gesicht, 907 Gesichter, 1.086,6 s, 9 Fehlerzeilen** (4 × pCloud-Zeitüberschreitung, 5 × nicht dekodierbar), **341 geclusterte Gesichter**, Arten `gruppe 74 · leer 41 · menge 20 · unklar 48`; **Bodenwahrheit 210 Paare**, Distanzen 0,4925/0,8708/1,1422, **0 unter 0,45**. **Der neue Befund:** das Bestandsverfahren **dichte** verschmilzt **2 von 210** erkennbaren Paaren (bei 0,45 **und** 0,40, Quote 1,0 %) und reißt den Durchmesser mit **2,00234 × Schwelle**; **vollstaendig 0 von 210** in allen 16 Kombinationen (8 Schwellen × 2 Mindestgrößen), Durchmesser **nie** über der Schwelle (knappste Stelle 0,99908); **mittelpunkt 11 von 210** bei 0,45 (Durchmesser 0,9240) → ausgeschieden. Bei 0,45: dichte 10 Gruppen/89 Gesichter/2 verschmolzen gegen **vollstaendig 13 Gruppen/66 Gesichter/0** (Preis ehrlich: 23 Gesichter mehr im Rauschen). **Code:** `CLUSTER_VERFAHREN = "vollstaendig"` als Produktionsstandard, `vollstaendig_clustern` als einzige Quelle in `personen_cluster.py` (Complete-Linkage, numpy, deterministisch), `vektoren_clustern(..., verfahren=None)` mit `"dichte"` unverändert und deutscher `ValueError` bei unbekanntem Verfahren, `personen_schwelle` auf `"dichte"` festgenagelt (Messwerkzeug bleibt Bestandsverfahren), `personen_verkettung.vollstaendig_clustern` delegiert (keine Doppelung). Prüfbefehl selbst gefahren **1449 passed, Exit 0** (+16 Tests), Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9g-verfahren.md` |
-| N11 | **Fotos-Fragen am Handy:** Endpunkt `/api/fotos/uebersicht` + kleine Datendatei (Zahlen und Event-Namen, **ohne Bilder**) | Endpunkt antwortet ohne Netz; Selbsttest zeigt die Quelle | ⬜ **offen** (27.09., Eintrag des zweiten Agenten im Journal) |
+| N11 | **Fotos-Fragen am Handy:** Endpunkt `/api/fotos/uebersicht` + kleine Datendatei (Zahlen und Event-Namen, **ohne Bilder**) | Endpunkt antwortet ohne Netz; Selbsttest zeigt die Quelle | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_uebersicht.py` (565 Zeilen, **98** Tests) schreibt die Übersichtsdatei aus `sortierplan.json` (read-only); Dienst `backend/app/services/foto_uebersicht.py` (389 Zeilen) + Router `backend/app/router/fotos.py` (103 Zeilen, `GET /api/fotos/uebersicht` mit `jahr`/`kategorie`/`suche`/`limit`, **immer HTTP 200, nie 500**) + Chat-Werkzeug `_fotos_uebersicht_tool` (in **beiden** Ketten) + Selbsttest-Block `fotos` + Frontend-Zeile (**83** weitere Tests). Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline **1503**); JS-Tests grün. **Echte Datei:** `~/foto_sortierung/fotos_uebersicht.json`, **344.615 Bytes**, 2.127 Anlässe · **2.098 Event-Ordner** · 9.430 Zeilen · 7.616 Züge · 1.146 ohne Datum · 11 Jahre/48 Themen/11 Kategorien; **Rauchtest am echten Bestand ohne Netz** (200, `ok: true`, Filter greifen, `limit` geklemmt). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (4 Doku-Abweichungen), Runde 2 NICHT BESTANDEN (3 Restpunkte), **Runde 3 auf `9a213c9`: BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n11-uebersicht-datei.md`, `…-endpunkt.md`, Auftrag `docs/auftrag-n11-foto-uebersicht.md`. **Offen:** die Datei muss noch aufs Handy (Übertragung ist nicht Teil des Schritts) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -950,7 +950,37 @@ ohnehin nachkontrolliert.
   Quelle. *(Nicht in der Schritt-Tabelle oben eingetragen, damit der gleichzeitig
   laufende Nachtlauf sie nicht überschreibt.)*
 
-* **27.09. (Sebastians große Linie) — drei neue Schritte, aufgenommen:**
+* **27.09. ~23:20 — N19 + N20 (neu, aus Sebastians Frage zu „Philine"):**
+  * **N19 — Archiv-Suche auf Erwähnungen erweitern.** Befund: „Philine" kommt
+    **48 ×** im Archiv vor — **41 × in WhatsApp** (aber nur *im Fabia-Chat als
+    Thema*), 3 × Google Kalender (u. a. „blink-182 Konzert mit Philine"), 4 ×
+    ChatGPT. Ein eigener Chat mit ihr existiert **nicht**. Die Suche fragt heute
+    nur nach dem *Gegenüber*, nicht nach **Erwähnungen** → darum findet sie
+    nichts. Prüfkriterium: Frage „was habe ich mit <Person> gemacht?" liefert
+    Fundstellen **mit Datum und Quelle**, auch wenn es keinen eigenen Chat gibt.
+  * **N20 — Weitere Chats/Gruppen ins Archiv.** Zu exportieren (Sebastian am
+    Handy: „Chat exportieren", **ohne Medien**): der Gruppenchat **„Fabulous 4"**
+    (enthält Philine und weitere Personen) sowie der 1:1-Chat mit Philine.
+    Danach: **anhängen** (nie neu sortieren), Index auf dem PC neu bauen, per
+    Kabel aufs Handy, Widget-Tipp importiert ihn. Damit werden alle Mitglieder
+    der Gruppe suchbar — das gilt für jeden weiteren Export gleichermaßen.
+    Datenschutz unverändert: Archiv bleibt **außerhalb des Repos** und ist
+    per `.gitignore` gesperrt.
+
+* **27.09. ~23:00 — N18 (neu): Lösch-Werkzeug für Duplikate.** Zwei Subagenten-
+  Anläufe (`deleg_4c85c49b`, `deleg_a597e166`) brachen nach 5 bzw. 8 Aufrufen ab
+  („waiting for model response", ~2,5 min — Anbieter-Hänger, kein Code-Problem).
+  Deshalb **als Plan-Schritt für den Nachtlauf**, damit er in seiner eigenen
+  Runde baut: `tools/pcloud/pcloud_duplikate_loeschen.py` — Trockenlauf als
+  Standard, `--wirklich` nötig, **Prüfsumme+Größe vor jedem Löschen** frisch
+  gegen den Bericht prüfen, Abbruch bei Abweichung, Manifest-Zeile je Löschung
+  (`~/foto_sortierung/manifest.jsonl`, art='loeschen'), Papierkorb-Befund
+  (`trash_list`/`trash_restore` prüfen) dokumentieren, Grenze 25 je Lauf.
+  Erster echter Einsatz: die **12 Kopier-Reste** (581,3 MB, von Sebastian
+  freigegeben). Die `upload`-Stufe (17,5 GB) bleibt **gesperrt**, bis Sebastian
+  sie ausdrücklich freigibt. Prüfkriterium: Trockenlauf zeigt genau 12 Löschungen,
+  jede zu löschende Datei ist die markierte Kopie, Manifest wächst je Datei,
+  zweiter Lauf findet nichts mehr.
   * **N12 — Wöchentliche Nachpflege (geplante Jobs).** Ein Cron-Job je Woche
     holt Neues aus den Quellen (pCloud-Uploads, WhatsApp-Export, Google
     Kalender) und pflegt **inkrementell** nach: Datum, Motiv, Kategorie,
@@ -1284,3 +1314,103 @@ ohnehin nachkontrolliert.
     kleine Datendatei ohne Bilder) — **N8 (echtes Sortieren) bleibt gesperrt**, bis
     dein Blick auf die 39 sicheren Event-Vorschläge und die 1.146 datumslosen
     Dateien da ist; **N10** (Abschlussbericht) danach.
+
+* **27.09. ~23:2x — N11 gebaut, echt gemessen und bestanden** (Planer + Messung:
+  Hauptagent · Ausführer: **zwei** Hermes-Subagenten `deepseek-v4.1-flash`, 0,021 +
+  0,035 USD, getrennte Dateimengen mit eingefrorenem JSON-Schema · Prüfer:
+  `openai/gpt-5.6-luna`, **drei Runden** — andere Modellfamilie). Beginn wie in den
+  Runden zuvor: `git pull --rebase` scheiterte an den **fremden** Dateien des zweiten
+  Agenten; nichts angefasst, nichts gestasht; `git fetch` + Zählung → **`0 0`**.
+  **Codex erneut gesperrt** (Kontingent bis 15.10.) → gebaut wurde mit Subagenten.
+  - **Der Auftrag als Datei:** `docs/auftrag-n11-foto-uebersicht.md` (224 Zeilen) mit
+    **eingefrorenem JSON-Schema** (Schlüssel, Typen, Sortierungen) — genau deshalb
+    konnten beide Ausführer parallel arbeiten, ohne sich zu sehen.
+  - **Prüfbefehl selbst gefahren:** Baseline **1503** → **1687 passed, Exit 0**
+    (die Baseline ist höher als in der Vorrunde, weil die Suite inzwischen auch
+    Dateien des zweiten Agenten enthält); JS: `node --check app.js` Exit 0,
+    `node frontend/tests/test_selbsttest.js` „alle Prüfungen grün". Neue Tests:
+    **98** (Werkzeug) + **83** (Dienst/Router/Chat/Selbsttest) = **181**.
+  - **Die Datendatei (echter Bestand, nur lesend erzeugt):**
+    `~/foto_sortierung/fotos_uebersicht.json` — **344.615 Bytes**,
+    `stand 2026-09-27T22:40:09+02:00` aus `sortierplan.json`
+    (`plan_stand 2026-09-27T13:49:46`, `trocken: true`). Zahlen: **2.127 Anlässe ·
+    2.098 Event-Ordner · 9.430 Zeilen · 7.616 Züge · 1.146 Zeilen ohne Datum ·
+    11 Jahre · 48 Themen · 11 Kategorien · 2.088 Events neu / 39 Anlässe auf
+    bestehenden Ordnern** — **ohne Bilddaten, ohne Datei-Kennungen**; Ausgabe
+    außerhalb des Repos.
+  - **Entscheidung statt Frage (Schema-Konflikt, vom Ausführer ehrlich gemeldet):**
+    die Beispielzahl `"events": 2127` im Auftrag war falsch — `events` zählt die
+    **verschiedenen `(jahr, kategorie, event)`-Kombinationen** = **2.098** Ziel-Ordner.
+    Der Planer hat den Auftrag auf **2.098** korrigiert und selbst nachgezählt:
+    **10** wiederverwendete Event-Ordner mit **39** Anlässen (7 davon mit mehr als
+    einem; 39 − 10 = 29 = 2.127 − 2.098). Die Paar-Zahlen `events_neu` /
+    `events_wiederverwendet` zählen dagegen **Anlässe** (2.088 + 39 = 2.127) — im
+    Changelog ausdrücklich klargestellt.
+  - **Endpunkt am echten Bestand, ohne Netz** (TestClient, eigener Rauchtest):
+    `?limit=3` → **200**, `ok: true`, `quelle: fotos_uebersicht.json`, Stand wie oben,
+    Zahlen 2.127 / 2.098 / 9.430 / 7.616 / 1.146, 11 Jahre, 48 Themen, 11 Kategorien;
+    `?jahr=2021&suche=usedom` → **1** Treffer (`2021_07 Usedom`);
+    `?kategorie=urlaub` → **25** (= Standard-`limit`, die Kategorie hat real **217**
+    Events); `?limit=999` → auf **200** geklemmt. **Fehlt die Datei:** 200 mit
+    deutschem `error` statt 500; Selbsttest zeigt `✗ Fotos: <error>`.
+    Der Selbsttest-Endpunkt wurde **bewusst nicht** ohne Attrappe aufgerufen (er
+    würde den echten pCloud-Prüfpfad auslösen) — der Ausführer hatte das bei einer
+    Sondierung einmal getan und offen gemeldet.
+  - **Chat-Anschluss:** `_fotos_uebersicht_tool` hängt eine deutsche Notiz an die
+    Nutzerfrage, in **beiden** Ketten (`/api/chat`, `/api/chat/stream`); die
+    Auslöseregel ist eng (Foto-Wort **und** Frage-Wort, `gab` nur als eigenes Wort).
+    Prüfer-Belege: löst aus bei „wie viele Events gab's?" und „zeig mir die Urlaube
+    2021"; **löst nicht aus** bei „Aufgabe erledigt", „wie viele Aufgaben habe ich",
+    „guten Morgen".
+  - **Cache-Bump korrigiert (Planer):** der Ausführer hielt `app.js?v=20260927A` für
+    „schon richtig" — der Wert stammt aber aus Commit `6b08e67` und war **älter als
+    die Änderung**; auf **`?v=20260927B`** gesetzt und die Token-Prüfung im JS-Test
+    mitgezogen (sie war auf `…A` festgenagelt und wurde dadurch rot). Genau der
+    Fehler, den Regel §5 verhindern soll.
+  - **Prüfer `gpt-5.6-luna`, drei Runden — alle Beanstandungen betrafen die Doku,
+    nie den Code.** **Runde 1: NICHT BESTANDEN** mit vier Abweichungen (sie hat den
+    Code ausdrücklich bestätigt: Datendatei-Nachrechnung, Endpunkt, Chat-Regel,
+    Hygiene, Fremddateien unberührt): `chat.py` „+50 statt +55 Zeilen"; die
+    Changelog-Behauptung, die Übersichtsdatei existiere nicht; erfundene und echte
+    Beispielzahlen im selben Absatz; Auftrag nannte noch `?v=20260927A`. Dazu zwei
+    Label-Ungenauigkeiten (Kommentar „7 wiederverwendete Event-Ordner" statt **10**;
+    zwei verschiedene „Dateien"-Zahlen) — alle behoben. **Runde 2: NICHT BESTANDEN**
+    mit drei Restpunkten (die als „echt" ausgegebene Chat-Gegenprobe stimmte nicht —
+    die Suche „urlaub" trifft 2021 **0** mal, erst „usedom" trifft; `?kategorie=urlaub`
+    nannte 25 als Kategorie-Größe statt als Standard-`limit`; „566 Zeilen" statt
+    **565**) — alle drei korrigiert und zusätzlich die „Dateien"-Erklärung in **beide**
+    Changelogs geholt. **Runde 3 (frische Sitzung, Abnahme auf `9a213c9`):
+    BESTANDEN, 0 Abweichungen** — Prüfbefehl selbst **1687 / Exit 0**, alle vier
+    Punkte selbst nachgerechnet (u. a. 0 / 1 Treffer für „urlaub"/„usedom" 2021,
+    217 Events in `Urlaub`, 565 Zeilen), `9a213c9` = genau drei Dateien.
+  - **Kollision, ehrlich notiert:** während der Abnahme hat der **zweite Agent** mit
+    einem breiten `git add` meine N11-Dateien in seinen Sammelcommit **`751280a`**
+    („feat(fotos): N11 Fotos-Uebersicht … + Duplikate-Regeln") mitgenommen — dort
+    liegen jetzt meine N11-Dateien **zusammen** mit seiner Arbeit (`cloud.py`,
+    `pcloud_service.py`, `test_pcloud_*`, Screenshot-Triage im Vorgängercommit
+    `9659b96`). Inhaltlich ist nichts verloren oder vermischt im Sinn von Fehlern
+    (Suite grün), die Historie wird **nicht** umgeschrieben; die Doku-Korrekturen
+    dieser Runde liegen im eigenen Commit **`9a213c9`** (`git commit --only`, drei
+    Dateien, keine fremden). Im fremden Commit wird derselbe Punkt bereits zum
+    dritten Mal sichtbar (siehe `908cf39`, `0a48e23`) — die Regel „nie `git add -A`"
+    steht in `AGENTS.md`, sie wird vom anderen Agenten weiterhin nicht befolgt.
+    Beim Mitcommitten der Plandatei sind dessen fertige Journal-Einträge (N12–N17,
+    **N18 ~23:00 „Lösch-Werkzeug für Duplikate"**) **unverändert erhalten** geblieben.
+  - **Schutz:** pCloud nur **lesend**; **keine** Bilddatei auf der Platte; **nichts
+    gelöscht**; kein Netz in Werkzeug/Dienst/Router/Chat (per AST-Test belegt, Tests
+    sperren Namensauflösung und Verbindungsaufbau); keine Geheimnisse in Ausgaben
+    oder Dateien; Ausgaben und Datendatei ausschließlich außerhalb des Repos; in
+    Tests nur erfundene Namen (`Konzert Beispiel`, `Urlaub Beispiel`).
+  - Doku: `docs/changelog-2026-09-27-n11-uebersicht-datei.md`,
+    `docs/changelog-2026-09-27-n11-uebersicht-endpunkt.md`,
+    Auftrag `docs/auftrag-n11-foto-uebersicht.md`.
+  - **Ehrlich offen:** (1) die Übersichtsdatei liegt **noch nicht auf dem Handy** —
+    die Übertragung ist nicht Teil des Schritts; ohne sie sagen Endpunkt, Chat und
+    Selbsttest das klar. (2) `?kategorie=urlaub` liefert standardmäßig nur 25 Treffer
+    (Schutzgrenze 200) — wer alle 217 will, braucht `limit=200` oder ein
+    Blätter-Verfahren. (3) `jahr` ist als Zahl typisiert: nicht-numerische Eingabe
+    ergibt HTTP 422 (nicht 500, aber auch kein deutscher Text). (4) Die Suche trifft
+    nur Event-Namen, keine Datei- oder Ortsnamen.
+  - **Nächster Schritt: N10** (Abschlussbericht/Protokoll) — **N8 (echtes Sortieren)
+    bleibt gesperrt**, bis dein Blick auf die 39 sicheren Event-Vorschläge und die
+    1.146 datumslosen Dateien da ist.
