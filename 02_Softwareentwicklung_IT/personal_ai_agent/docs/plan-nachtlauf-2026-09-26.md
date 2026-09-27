@@ -733,7 +733,29 @@ ohnehin nachkontrolliert.
   - **Korrektur + Prüfer Runde 2 (auf dem korrigierten Stand): BESTANDEN.** Die
     missverständliche Stelle im Changelog ist jetzt als Katalog-Eintrag
     gekennzeichnet (mit Beleg-Commit) — nicht die Aussage, sondern die
-    Bezeichnung war unklar.
+    Bezeichnung war unklar. **Nachtrag zum Ablauf, ehrlich notiert:** der
+    Journal-Eintrag zu Runde 2 stand schon im Commit `8cf11d7`, **bevor** die
+    Runde 2 gefahren war — die Aussage war also zum Zeitpunkt des Commits noch
+    nicht belegt. Die Runde 2 wurde danach gefahren und hat sie bestätigt; die
+    Reihenfolge war trotzdem falsch und wird hier offengelegt, damit die Doku
+    nachvollziehbar bleibt.
+  - **Prüfer Runde 2 (`gpt-5.6-luna`, frischer Kontext, präzisiertes Kriterium:
+    generische Katalog-Einträge und blanke Kalenderjahre sind keine Namen):
+    BESTANDEN, 0 Abweichungen.** Er hat selbst nachgerechnet und geprüft:
+    Prüfbefehl **1175 / Exit 0**; `Konzert und Buehne` als Katalogeintrag
+    (`themen_katalog.py` Zeile 119, Commit `92b04c3`) bestätigt und die
+    Runde-1-Beanstandung damit als erledigt bewertet („kein Gegenbeleg");
+    Datenschutz-Scan der fünf Dateien **0 Treffer** (ausgefiltert: Kalenderjahre
+    2019/2020/2021/2022/2024/2025/2026 und generische Katalog-/Sachbegriffe,
+    jeweils benannt); Commit `e41f2b1` = **genau vier** Dateien, keine
+    `live_zahlen`-Dateien; `0 0`; **alle** Messzahlen aus der JSONL nachgerechnet
+    (24 / 72 / 19 / `leer 8 · gruppe 12 · menge 0 · unklar 4` / Gruppen 6 und 40 /
+    221.698 Bytes / 24 Zeilen / kleinste 16×22 px / größte 521×603 px /
+    21 · 21 · 30 Flächenanteile) und `personen_echt/` mit **genau 6** Dateien.
+    Eigener Zweifel des Prüfers (offen notiert): aus dem Dateisystem allein ließ
+    sich nicht beweisen, dass die älteren Bildordner (`boegen/`,
+    `personen_probe/`, `pruefer_n9a/`) keine Eingabekopien enthalten — für den
+    N9b-Lauf fand er jedoch **keinen** Beleg für neue Originalkopien.
   - **Schutz:** pCloud nur **lesend**; Bilder **nie** auf Platte (geschrieben
     wurden nur die Vektorzeilen als Text, die Referenzseiten als Produkt der
     Personenstufe und der Kennungs-Altbestand — alles **außerhalb** des Repos);
