@@ -30,7 +30,7 @@ KURS_FALLBACK = 0.87696
 STANDARD_SESSION = "20260828_015944_352e08"
 ZEITRAEUME = [
     ("stunde", "Letzte Stunde", "rollierend: jetzt minus 60 Minuten"),
-    ("letzte_woche", "Letzte Woche", "rollierend: jetzt minus 7 x 24 Stunden"),
+    ("letzte_woche", "Letzte 7 Tage", "rollierend: jetzt minus 7 x 24 Stunden"),
     ("heute", "Heute", "ab 00:00 heute (lokale Zeit)"),
     ("woche", "Woche", "ab Montag 00:00 dieser Woche (ISO-Kalenderwoche)"),
     ("monat", "Monat", "ab dem 1. des laufenden Monats"),
@@ -107,8 +107,10 @@ def fenster(kennung):
     if kennung == "woche":
         return (mitternacht - timedelta(days=mitternacht.weekday())).timestamp(), None
     if kennung == "letzte_woche":
-        mo = mitternacht - timedelta(days=mitternacht.weekday() + 7)
-        return mo.timestamp(), (mo + timedelta(days=7)).timestamp()
+        # Rollierend: die letzten 7 x 24 Stunden bis jetzt (nicht Mo-So der
+        # Vorwoche). Nutzerkorrektur 27.09.2026: "das sollen ja die letzten
+        # 7 Tage sein".
+        return (jetzt - timedelta(days=7)).timestamp(), None
     if kennung == "letzte_7_tage":
         return (jetzt - timedelta(days=7)).timestamp(), None
     if kennung == "monat":
