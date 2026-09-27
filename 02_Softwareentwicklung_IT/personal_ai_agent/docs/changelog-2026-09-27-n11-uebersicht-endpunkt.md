@@ -67,9 +67,13 @@ Testdatei in `tmp_path`, `FOTO_UEBERSICHT_PFAD` darauf gesetzt.
 4. Chat-Werkzeug `frage="wie viele Events gab's?"` →
    `[Fotos-Übersicht (Quelle: fotos_uebersicht.json, Stand …): 2127 Anlässe,
    2088 Events, 9430 Dateien, 2 Jahre. Zeige 4 von 2088 Events: … ]`
-5. Chat-Werkzeug `frage="zeig mir die Urlaube 2021"` → Gegenprobe mit der echten
-   Übersichtsdatei: `… Gefiltert (Jahr 2021, Suche „urlaub"): 1 von 2098 Events: …`
-   (im Test mit der erfundenen kleinen Datei entsprechend „1 von 4").
+5. Chat-Werkzeug `frage="zeig mir die Urlaube 2021"` → die Funktion übergibt
+   `jahr=2021` und `suche="urlaub"`; mit der **echten** Übersichtsdatei liefert
+   die Suche danach **0** Treffer, weil kein Event-Name 2021 das Wort „Urlaub“
+   enthält (über alle Jahre: 107 Treffer) — die Notiz lautet dann ehrlich
+   „0 von 2098 Events. Dazu liegt in der Übersicht nichts vor“. Ein Treffer
+   entsteht bei **inhaltlich passender** Suche, gemessen mit der echten Datei:
+   `?jahr=2021&suche=usedom` → **1** Treffer (`2021_07 Usedom`, s. Rauchtest).
 
 **Zahlen in erfundenen Beispielen:** Die Beispiele 1–3 und 5 nutzen eine
 Testdatei mit eigenen Zahlen (2.127 Anlässe, 2.088 Events, 9.430 Dateien,
@@ -130,7 +134,7 @@ pCloud-Prüfpfad auslösen):
 |---|---|
 | `GET /api/fotos/uebersicht?limit=3` | **200**, `ok: true`, `quelle: fotos_uebersicht.json`, Stand `2026-09-27T22:40:09+02:00`; Zahlen 2.127 / 2.098 / 9.430 / 7.616 / 1.146; 11 Jahre, 48 Themen, 11 Kategorien; 3 Events geliefert |
 | `?jahr=2021&suche=usedom` | **200**, **1** Treffer |
-| `?kategorie=urlaub` | **200**, **25** von 2.098 Events |
+| `?kategorie=urlaub` | **200**, **25** Events — das ist das **Standard-limit 25**, nicht die Kategorie-Größe: die Kategorie `Urlaub` trägt real **217** Events (222 Anlässe); mit `limit=200` (Klemmgrenze) kommen 200, nicht 217 |
 | `?limit=999` | **200**, auf **200** geklemmt (Schutzgrenze greift) |
 
 Damit ist das Prüfkriterium „Endpunkt antwortet ohne Netz“ am echten Bestand

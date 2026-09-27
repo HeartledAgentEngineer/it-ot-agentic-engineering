@@ -19,7 +19,7 @@ Endpunkt `/api/fotos/uebersicht` und die Notiz im Chat.
 
 | Datei | Umfang |
 |---|---|
-| `tools/foto_sortierung/foto_uebersicht.py` | 566 Zeilen |
+| `tools/foto_sortierung/foto_uebersicht.py` | 565 Zeilen |
 | `backend/tests/test_foto_uebersicht_werkzeug.py` | 846 Zeilen, **98 Testfunktionen** |
 | `docs/changelog-2026-09-27-n11-uebersicht-datei.md` | diese Doku |
 
@@ -154,6 +154,13 @@ Nur die neue Datei: `98 passed in 0.88s`, Exit 0.
 * **Keine Kennungen, kein `je_jahr`/`je_kategorie`-Block:** die Übersicht bleibt
   bewusst klein; wer die Aufschlüsselung je Jahr/Kategorie braucht, liest
   `sortierplan.json` am PC.
+* **Zwei verschiedene „Dateien“-Zahlen (bewusst getrennt):** die Werkzeug-Konsole
+  nennt „Dateien: **7.616**“ = `zahlen.zuege` (Dateien, die der Plan zieht) und
+  „Zeilen: **9.430**“ = `zahlen.zeilen` (Zeilen des Sortierschlüssels, inkl. der
+  1.146 ohne Datum und der 668 übersprungenen Doppelungen). Die Selbsttest-Zeile
+  der App zeigt unter „Dateien“ die **9.430 Zeilen** (`status_block` →
+  `zahlen.zeilen`); 7.616 + 1.146 + 668 = 9.430. Ausführliche Erklärung im
+  Endpunkt-Changelog, Abschnitt „Begriffe“.
 * **Kein Zeitlimit-Alter:** die Datei trägt `stand` und `quelle.plan_stand`, aber
   keine eigene Gültigkeitsprüfung — „zu alt“ ist eine Entscheidung des Lesers
   (Teil B kann `plan_stand` gegen `stand` vergleichen).
