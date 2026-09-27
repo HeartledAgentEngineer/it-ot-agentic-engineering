@@ -23,20 +23,29 @@ Gemessen (1,44 s): **9.430 Dateien**, 8.302 mit Datum, 1.128 offen (49,1 GB,
 überwiegend Videos). Fenster **2022–2026: 7.792 Dateien ≈ 45,5 GB**.
 2023 liegt fast ganz beim OnePlus (Gerätewechsel).
 
-## Stufe 2 — Themen-Clustering: Fotos **und Videos** ⬜
+## Stufe 2 — Themen-Clustering: Fotos **und Videos** 🟡 (fast fertig: Werkzeuge stehen, Massenlauf offen)
 
 Ziel: `Agent/Fotos/<Jahr>/<Thema>/…` (Vorgabe B von Sebastian) — als **Kopie**,
 Originale bleiben unberührt.
 
 1. **Vorschaubilder statt Originale.** Über die API (`getthumbs`, 120×120) —
    das ist der Grund, warum der Zugang (Stufe 0) so wichtig war: 9.430 × ~10 KB
-   statt 45 GB Downloads. Für Videos: **Standbild** (erstes Frame) je Video —
-   dafür fehlt noch ein Werkzeug (⬜ prüfen, ob `ffmpeg` auf PC/Handy da ist).
+   statt 45 GB Downloads. **✅ live gemessen** (N4): 4–6 KB je Vorschau, Videos
+   (mp4) und HEIC bekommen ebenfalls ein JPEG; ein echter erster Frame per
+   `ffmpeg` bleibt unnötig für die Themen-Stufe (nur für später notiert).
 2. **Kontaktbögen** (Kacheln mit Nummern) je Tag/Anlass, nicht je Bild.
-3. **Vision-Blick** auf den Bogen → **eine Zeile je Kachel + Markerzeile** der
-   Treffer (Verfahren aus dem Skill `photo-archive-triage`).
+   **✅ N4:** `tools/foto_sortierung/foto_themen.py`, 25 Prüfungen, zwei Bögen
+   live gebaut (1382×362 mit 10 Kacheln, 1382×872 mit 36 Kacheln).
+3. **Vision-Blick** auf den Bogen → eine Zeile je Kachel + Markerzeile der
+   Treffer. **✅ N5/N6:** einmal gesehen (Nummern 1–36 einwandfrei lesbar, Thema
+   je Bogen erkennbar, unbrauchbare Kacheln werden benannt) und als Werkzeug
+   gebaut: `tools/foto_sortierung/foto_themen_vision.py`, 53 Prüfungen.
 4. **Thema je Anlass** statt je Bild (gleiche Minute = gleicher Anlass).
-5. **Kopie** in die Zielstruktur, `INDEX.md` + Kontaktbogen als Übersicht.
+   **✅ N6:** ein Vision-Aufruf je Anlass statt je Bild; live an zwei Anlässen
+   gemessen (0,0023–0,0044 $ je Anlass, 3,6–6,8 s). Für alle **2.128 Anlässe**
+   ist der Massenlauf offen (`themen.jsonl` ist der Fortsetzungspunkt).
+5. **Kopie** in die Zielstruktur, `INDEX.md` + Kontaktbogen als Übersicht. ⬜ offen
+   (nächste Schritte N7 Probelauf / N8 echtes Sortieren im Nachtlauf-Plan).
 
 Kosten: Vision-Calls **je Bogen**, nicht je Bild. Nichts wird ins Backend
 kopiert — Bilder leben nur im Speicher des Analyse-Calls (Sebastians Regel).

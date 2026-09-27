@@ -133,8 +133,8 @@ ohnehin nachkontrolliert.
 | N3 | **Schlüssel aufs Handy** (USB) + Selbsttest-Zeile „pCloud" + `start-termux.sh` übernimmt die Datei automatisch | `curl` am Handy liefert `pcloud: verbunden`; JS-Tests grün | ⬜ **NUR Hauptagent/Sebastian** — der Schlüssel darf nie in einer autonomen Runde ausgegeben werden. Handy hängt am Kabel (27.09. 05:15 geprüft) |
 | N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ✅ **Prüfbefehl 525 grün** (500 + 25 neue, selbst gefahren); 2 Kontaktbögen live gebaut (10 Kacheln/62.566 B, 36 Kacheln/262.437 B, Pixel-Nummern belegt); Idempotenz live (2. Lauf: 0 geholt) |
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ✅ **bestanden (27.09.)** — siehe Journal: Nummern 1–36 einwandfrei lesbar, Thema je Bogen erkennbar, unbrauchbare Kacheln werden benannt |
-| N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ⬜ wartet auf N5 |
-| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf N4/N6 |
+| N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_themen_vision.py` (ein Vision-Aufruf je Anlass), **628 Prüfungen grün**, 59 eigene Tests; 2 Anlässe live gemessen (36 Kacheln → „Veranstaltung Publikum Bühne", 0,004354 $; 10 Kacheln → „Konzert Band Auftritt", 0,002255 $); Prüfer `gpt-5.6-luna` sagt „bestanden" (6. Runde). **Offen als N6b:** Massenlauf über alle 2.128 Anlässe (Bögen bauen + Themen setzen) |
+| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf **N6b** (Themen für alle Dateien) — Werkzeuge dafür stehen |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
@@ -188,8 +188,10 @@ ohnehin nachkontrolliert.
   geräteübergreifende Doppelungen (Motorola + OnePlus) — N6 kann über die
   CSV-Spalte `doppelung` deduplizieren. Details:
   `docs/changelog-2026-09-27-foto-themen.md`.
-* **Offen für die nächste Runde:** N6–N8 (Themen je Anlass → Trockenlauf →
-  echtes Sortieren), N9 (Personen) parallel möglich.
+* **Offen für die nächste Runde:** **N6b** (Massenlauf Themen: Bögen je Jahr
+  bauen, dann Themen setzen — kleinster Stapel zuerst, `themen.jsonl` als
+  Fortsetzungspunkt), danach N7–N8 (Trockenlauf → echtes Sortieren),
+  N9 (Personen) parallel möglich.
 * **27.09. ~05:45 — N5 gemessen und bestanden (Hauptagent, echte Stichprobe).**
   Vision-Blick auf den 36er-Bogen `2025-01-06_Anlass-01` (262.437 B):
   - **Nummern 1–36 einwandfrei lesbar** → Kachel-Nummerierung trägt (Voraussetzung
@@ -207,3 +209,39 @@ ohnehin nachkontrolliert.
   - **N6 ist damit startklar:** Bögen liegen bereit, Thema je Bogen kommt vom
     Vision-Blick, Dedup über die CSV-Spalte `doppelung` (geräteübergreifende
     Kopien waren im Bogen sichtbar).
+* **27.09. ~08:30 — N6 gebaut und **bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent, DeepSeek V4.1 Flash · Prüfer: `openai/gpt-5.6-luna`).**
+  Codex war nicht nutzbar (Kontingent, „try again at Oct 15th"), also lief der
+  Bauweg über Hermes-Subagenten — drei Aufträge: Bau (0,038 $) und zwei
+  Nachbesserungen (0,017 $ + 0,021 $), zusammen rund 0,08 $ Ausführerkosten.
+  - **Werkzeug:** `tools/foto_sortierung/foto_themen_vision.py` +
+    `backend/tests/test_foto_themen_vision.py` (**59 Prüfungen**, alles ohne Netz).
+    Ein Vision-Aufruf je Anlass (Bild als data-URL in-memory an OpenRouter,
+    Standard `google/gemini-2.5-flash`), Thema in die **Kopie** des
+    Sortierschlüssels (`~/foto_sortierung/sortierschluessel_themen.csv`),
+    Fortsetzungspunkt `themen.jsonl`.
+  - **Prüfbefehl selbst gefahren:** Baseline **569** → **628 passed, Exit 0**
+    (1:12 min). Vorher/nachher gemessen, nicht behauptet.
+  - **Live gemessen** (echte Aufrufe, zwei Bögen, zusammen ~0,007 $):
+    36-Kachel-Bogen → „Veranstaltung Publikum Bühne" (2.306+1.465 Tokens,
+    0,004354 $, 6,8 s); 10-Kachel-Bogen → „Konzert Band Auftritt" (3.750+452,
+    0,002255 $, 3,6 s); zweiter Lauf: **0 Aufrufe, 0 Tokens, 0,2 s**; die
+    Original-CSV blieb unverändert (`md5 70642d2988b6e38ff417561ccf870ba8`).
+  - **Kosten für den Vollauf (Schätzung, keine Messung):** 2.128 Anlässe; die
+    beiden Messpunkte (10 und 36 Kacheln) liegen **über** dem Mittel von 3,9
+    Kacheln → Größenordnung **2–4 $** mit `gemini-2.5-flash`, mit
+    `flash-lite` etwa ein Drittel. Vor N6b an ~20 Anlässen nachmessen.
+  - **Prüfer: 6 Runden, 5 × „nicht bestanden"** — und das war der Nutzen des
+    getrennten Kontexts, kein Formfehler. 8 von 10 Beanstandungen waren
+    berechtigt (4 am Code, 4 an der Doku). Echt gefunden und behoben: fehlender
+    Schutz des Ausgabeordners (Repo), widersprüchliche Doku vs. Code bei den
+    Kachel-Zählern, **ungefilterter Rohtext** (ein Modell, das den Schlüssel
+    wiederholt, hätte ihn auf Platte geschrieben) und eine fehlende
+    Kollisionssperre für die Original-CSV. Runde 6: **„bestanden"**.
+  - **Entscheidungen statt Fragen:** (1) Kacheln mit `unbrauchbar: true` werden
+    **behalten** und gezählt, doppelte Kachelnummern **verworfen** (erster
+    Eintrag bleibt); (2) Themen gehen in eine **Kopie** des Sortierschlüssels,
+    nie in die Original-Datei; (3) der Rohtext wird gespeichert, aber maskiert.
+  - **Nächster Schritt: N6b** — Massenlauf (Bögen je Jahr bauen, dann Themen
+    setzen), kleinster Stapel zuerst, jederzeit abbrechbar (`themen.jsonl`).
+    Doku: `docs/changelog-2026-09-27-themen-vision.md`.
