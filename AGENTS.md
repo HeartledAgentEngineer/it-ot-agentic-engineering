@@ -166,6 +166,23 @@ Fragen"). Dann gilt zusätzlich:
    festgehalten (Plan + Journal), damit ein Neustart — neue Sitzung, Cron-Aufruf,
    anderer Rechner — dort weitermacht statt von vorn.
 
+### Mehrere Agenten im selben Arbeitsbaum (Kollisionsschutz)
+
+Es kann vorkommen, dass ein zweiter Agent (andere Sitzung, Cron, Handy) im
+**selben** Arbeitsbaum arbeitet. Am 27.09.2026 passiert: fremde `git add -A`-
+Arbeit hat gestagte Dateien eines anderen Agenten mitgenommen (Commit `908cf39`
+enthält fremden Code, obwohl er „fix(live_zahlen)" heißt). Dann gilt:
+
+- **Nie `git add -A`, nie `git commit -a`.** Stattdessen
+  **`git commit --only <Pfad> <Pfad>`** mit ausdrücklich genannten Dateien —
+  damit bleiben fremde, halbfertige Änderungen draußen.
+- Bei `cannot lock ref 'HEAD'` oder abgelehntem Push: **`git pull --rebase`**,
+  dann erneut committen/pushen. **Niemals** `--force` (fremde Commits bleiben).
+- Vor jedem Commit `git log --oneline -3` lesen: hat jemand anders gerade
+  gearbeitet, erst einordnen, dann den eigenen Schritt machen.
+- Nach dem Push `git rev-list --left-right --count origin/main...HEAD` prüfen
+  (`0 0` = lokal und remote gleich).
+
 ## Ablenkungen
 
 Neue Ideen während einer laufenden Phase werden als To-do notiert und nach der
