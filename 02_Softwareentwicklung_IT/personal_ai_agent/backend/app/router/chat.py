@@ -377,6 +377,11 @@ async def chat(request: ChatRequest):
             # 1f2. Gesichts-Suche ueber Bilder (dynamisch, kontextbasiert).
             if not werkzeug_notiz:
                 werkzeug_notiz = _gesicht_suche_tool(request.message)
+            # 1f3. Fotos-Uebersicht (N11, 2026-09-27): reine Zahlen und
+            # Event-Namen aus der kleinen lokalen Uebersichtsdatei — kein Bild,
+            # kein Netz. Beantwortet "wie viele Events gab's?" / "Urlaube 2021".
+            if not werkzeug_notiz:
+                werkzeug_notiz = _fotos_uebersicht_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
@@ -1176,6 +1181,52 @@ def _gesicht_suche_tool(frage: str) -> str:
         return ""
 
 
+def _fotos_uebersicht_tool(frage: str) -> str:
+    """Chat-Werkzeug: Zahlen/Event-Namen aus der lokalen Fotos-Übersicht (N11).
+
+    Erkennt Fragen wie 'wie viele Events gab's?', 'zeig mir die Urlaube 2021',
+    'welche Konzerte gibt es'. Quelle ist die kleine Datei
+    ``~/foto_sortierung/fotos_uebersicht.json`` (nur Zahlen und Namen, keine
+    Bilder) — die Sortierdaten selbst liegen weiterhin nur auf dem PC.
+
+    Enge Auslöseregel (bewusst, damit normale Fragen NICHT hier landen):
+    Es muss ein Foto-Wort UND ein Frage-/Listen-Wort vorkommen. Fehlt die
+    Datei, ist die Antwort leer — der Chat bleibt still, statt zu raten.
+    Kein LLM-Aufruf, kein Netz.
+    """
+    try:
+        f = (frage or "").strip().lower()
+        if not f:
+            return ""
+        import re as _re
+        foto_woerter = ("foto", "fotos", "bild", "bilder", "event", "events",
+                        "anlass", "anlaesse", "anlässe", "urlaub", "konzert")
+        frage_woerter = ("wie viele", "wieviele", "wie oft", "anzahl", "wieviel",
+                         "zeig", "zeige", "welche", "liste", "übersicht",
+                         "uebersicht", "gibts", "gibt es", "gab")
+        if not any(w in f for w in foto_woerter):
+            return ""
+        # 'gab' mit Wortgrenze: sonst würde 'Aufgabe'/'Ausgabe' das Tor öffnen.
+        if not (any(w in f for w in frage_woerter if w != "gab")
+                or _re.search(r"\bgab", f)):
+            return ""
+        # Jahreszahl als Filter, Urlaub/Konzert als Suchwort.
+        jahr = None
+        m = _re.search(r"\b(20\d{2})\b", f)
+        if m:
+            jahr = int(m.group(1))
+        suche = None
+        for wort in ("urlaub", "konzert"):
+            if wort in f:
+                suche = wort
+                break
+        from app.services import foto_uebersicht
+        return foto_uebersicht.text_antwort(jahr=jahr, suche=suche)
+    except Exception as e:  # noqa: BLE001 – ein Werkzeug darf nie den Chat reißen
+        logger.warning("Fotos-Uebersicht-Tool fehlgeschlagen: %s", e)
+        return ""
+
+
 def _datei_tool(frage: str) -> tuple:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
@@ -1811,6 +1862,10 @@ async def chat_stream(request: ChatRequest):
                         s_werkzeug_text = _verlauf_tool(request.message)
                     if not s_werkzeug_text:
                         s_werkzeug_text = _gesicht_suche_tool(request.message)
+                    # Fotos-Uebersicht (N11): gleiche Kette wie in /chat, damit
+                    # beide Wege identisch antworten (das Frontend nutzt /stream).
+                    if not s_werkzeug_text:
+                        s_werkzeug_text = _fotos_uebersicht_tool(request.message)
                 s_user = (request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
         + _gesichtsabgleich_notiz(request, s_werkzeug_bilder))
                 # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was

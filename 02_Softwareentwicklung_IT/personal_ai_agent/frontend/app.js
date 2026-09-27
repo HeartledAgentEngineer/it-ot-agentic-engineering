@@ -8635,6 +8635,28 @@ function selbsttestText(daten) {
             + zahl(pc.quota_gb) + ' GB, belegt ' + zahl(pc.belegt_gb) + ' GB)');
     }
 
+    // Fotos-Übersicht (N11): Zahlen und Stand aus einer kleinen lokalen Datei —
+    // der einzige Ort, an dem die Sortier-Zahlen auch am Handy ablesbar sind.
+    // Fehlt die Datei, steht der Grund als ✗ da; Teilangaben sind ⚠, nie NaN.
+    const fo = d.fotos || {};
+    if (!fo.existiert) {
+        zeilen.push('✗ Fotos: ' + (t(fo.error) || 'fehlt'));
+    } else {
+        const foTeile = [];
+        if (fo.anlaesse !== null && fo.anlaesse !== undefined) foTeile.push(zahl(fo.anlaesse) + ' Anlässe');
+        if (fo.events !== null && fo.events !== undefined) foTeile.push(zahl(fo.events) + ' Events');
+        if (fo.dateien !== null && fo.dateien !== undefined) foTeile.push(zahl(fo.dateien) + ' Dateien');
+        if (fo.jahre !== null && fo.jahre !== undefined) foTeile.push(zahl(fo.jahre) + ' Jahre');
+        const foZusatz = [];
+        if (t(fo.stand)) foZusatz.push('Stand ' + t(fo.stand));
+        if (t(fo.quelle)) foZusatz.push('Quelle ' + t(fo.quelle));
+        const foVollstaendig = foTeile.length === 4 && !t(fo.error);
+        zeilen.push((foVollstaendig ? '✓ ' : '⚠ ') + 'Fotos: '
+            + (foTeile.length ? foTeile.join(' · ') : 'keine Zahlen gemeldet')
+            + (foZusatz.length ? ' (' + foZusatz.join(', ') + ')' : '')
+            + (t(fo.error) ? ' · ' + t(fo.error) : ''));
+    }
+
     return zeilen.join('\n');
 }
 

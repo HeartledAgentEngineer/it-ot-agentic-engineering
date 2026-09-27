@@ -7,7 +7,8 @@ ist, hat er kein Kabel (kein ADB) und kann nicht in die Termux-Konsole sehen –
 er sieht nur, was die App selbst anzeigt. Bisher gab es keinen Ort, an dem der
 Zustand des Systems ablesbar war: Commit-Stand, Archiv-Index, Inbox-Daemon,
 letzte Protokollzeilen, Erinnerungen, Sprachmodelle, Serverzeit, pCloud-Zugang
-(Konto maskiert, Quota/Belegung).
+(Konto maskiert, Quota/Belegung) und die Fotos-Übersicht (Zahlen und Stand aus
+der kleinen Datei ``~/foto_sortierung/fotos_uebersicht.json``, N11).
 
 Dieser Endpunkt liefert genau das als JSON. Die Oberfläche (Blatt
 „Selbsttest") macht daraus deutsche Klartext-Zeilen mit ✓/⚠/✗ — so lässt sich
@@ -577,6 +578,30 @@ def _pcloud_info() -> Dict[str, Any]:
     return info
 
 
+# ── Block: Fotos-Übersicht ───────────────────────────────────────────────────
+
+def _fotos_info() -> Dict[str, Any]:
+    """Zustand der Fotos-Übersicht (N11) — Zahlen, Stand und Quelle.
+
+    Nutzt denselben Dienst wie der Endpunkt ``/api/fotos/uebersicht``
+    (``services/foto_uebersicht.py``). Die Datei liegt auf dem Handy nur dann,
+    wenn sie vom PC übertragen wurde; fehlt sie, steht das als deutscher
+    ``error``-Text drin. Diese Funktion wirft nie — bei einem unerwarteten
+    Fehler kommt derselbe Schlüsselsatz mit einem Fehlertext zurück.
+    """
+    try:
+        from app.services.foto_uebersicht import status_block
+
+        return status_block()
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Selbsttest: Fotos-Übersicht nicht prüfbar: %s", e)
+        return {
+            "quelle": None, "pfad": None, "existiert": False, "stand": None,
+            "anlaesse": None, "events": None, "dateien": None, "jahre": None,
+            "error": f"Fotos-Übersicht nicht prüfbar ({type(e).__name__})",
+        }
+
+
 # ── Endpunkt ─────────────────────────────────────────────────────────────────
 
 @router.get("/selbsttest")
@@ -600,6 +625,9 @@ def selbsttest() -> Dict[str, Any]:
         "uhrzeit": {"iso": None, "lokal": None, "zeitzone": None, "error": "nicht geprüft"},
         "pcloud": {"konfiguriert": False, "host": None, "konto": None,
                    "quota_gb": None, "belegt_gb": None, "error": "nicht geprüft"},
+        "fotos": {"quelle": None, "pfad": None, "existiert": False, "stand": None,
+                  "anlaesse": None, "events": None, "dateien": None, "jahre": None,
+                  "error": "nicht geprüft"},
     }
 
     # Jeder Block einzeln abgesichert: Ein Fehler in einem Bereich darf die
@@ -613,6 +641,7 @@ def selbsttest() -> Dict[str, Any]:
         ("sprache", _sprache_info),
         ("uhrzeit", _uhrzeit_info),
         ("pcloud", _pcloud_info),
+        ("fotos", _fotos_info),
     ):
         try:
             ergebnis[feld] = bauer()

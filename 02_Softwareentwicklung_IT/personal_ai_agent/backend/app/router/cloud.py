@@ -99,12 +99,14 @@ def suche(
 @router.get("/thumb")
 def thumb(
     fileid: int = Query(..., ge=0, description="fileid aus /liste"),
-    groesse: str = Query(default="120x120", pattern="^(32x32|120x120)$"),
+    groesse: str = Query(default="120x120", pattern="^(32x32|120x120|480x480|800x800)$"),
 ):
     """Vorschaubild eines Bildes — kommt als Bild zurueck (live: JPEG).
 
-    Der Medientyp wird aus den ersten Bytes bestimmt; pCloud liefert derzeit
-    JPEG (siehe services/pcloud_service.py, live geprueft).
+    Groessen: 32x32 und 120x120 (pCloud-Doku) sowie 480x480 und 800x800
+    (live geprueft 27.09.2026; fuer Screenshots noetig, weil Text bei
+    120x120 nicht lesbar ist). Der Medientyp wird aus den ersten Bytes
+    bestimmt; pCloud liefert derzeit JPEG (siehe services/pcloud_service.py).
     """
     dienst = _dienst()
     daten = _ergebnis(lambda: dienst.thumb(fileid, groesse))

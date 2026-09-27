@@ -70,6 +70,25 @@ Jede signifikante Änderung muss hier dokumentiert werden:
 
 | 26.09.2026 | **pCloud-Zugang für das Backend — ohne App-Registrierung.** Der offizielle Weg (App Console + OAuth 2.0) war blockiert: die Anmeldung im Entwicklerbereich (`docs.pcloud.com`) hängt (Google-Rücksprung; in Comet sind Drittanbieter-Cookies blockiert), und das Konto läuft über Google. Gewählter Weg: Der **pCloud-Client am PC** ist bereits angemeldet — sein Anmelde-Wert liegt in `%LOCALAPPDATA%\pCloud\data.db` (Tabelle `setting`, Feld `auth`, 39 Zeichen; `location_id = 2` = Europa). Ausgelesen **nur lesend** (`file:…?immutable=1`, laufender Client bleibt unberührt), **nie ausgegeben**, direkt nach `backend/.env` geschrieben (`PCLOUD_TOKEN`, `PCLOUD_HOST=eapi.pcloud.com`; `.env` ist per `.gitignore` gesperrt). **Beleg:** `userinfo` → `result: 0` (premium, E-Mail bestätigt, 2.199 GB Quota / 390,5 GB belegt), `listfolder` Wurzel → 18 Einträge. Regeln bleiben im Code (pCloud hat keinen „nur lesen"-Scope): Standard lesen, Schreiben nur in `Agent/`, Umbenennen/Verschieben/Löschen nur nach Rückfrage, `Crypto Folder` tabu, `P:\` nie rekursiv. Doku: `docs/changelog-2026-09-26-pcloud-zugang.md` | Ohne API-Zugang bleibt der Agent am Handy blind (Android hat kein Laufwerk, `rclone mount` bräuchte FUSE + root) — Foto-Sortierung (Stufe B) und Personen-Clustering brauchen den Zugang | Hermes |
 
+## Sicherheit: Duplikate (Sebastians Freigabe 27.09.2026)
+
+> Wörtlich: „Wenn wirklich doppelte Bilder in der ganzen Sortierung sind, in der
+> ganzen Cloud, oder auf dem Upload-Ordner im Vergleich zum Bilder- und
+> Videoordner, dann können die doppelten gelöscht werden."
+
+- **Erlaubt ist Löschen ausschließlich bei beweisbar identischen Dateien.**
+  Beweis = **gleiche Prüfsumme (`hash`) UND gleiche Größe**, von der pCloud-API
+  geliefert — kein Namensvergleich, kein Augenmaß, kein Download.
+- **Gelöscht wird immer die Kopie im Stapel** (`Automatic Upload`), **nie** das
+  Original in `Bilder & Videos`. Bestehende Ordnung bleibt die Wahrheit.
+- **Erst Liste, dann Löschen:** Vor jedem Löschlauf wird die Paarliste gezeigt
+  (Zahl, Größe, Beispiele). Löschungen kommen **einzeln ins Manifest**
+  (Zeit, Datei-Kennung, Name, Prüfsumme, Größe).
+- **Alles andere bleibt wie bisher:** ohne Prüfsummen-Beweis wird nicht gelöscht
+  — dann nur verschoben.
+
+---
+
 ## Sicherheit: Fotos, Gesichter, Menschenmengen
 
 - **Menschenmengen** (Konzerte, Veranstaltungen, weit entfernte Personen):

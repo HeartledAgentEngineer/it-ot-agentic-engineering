@@ -50,8 +50,11 @@ MAX_DATEI_BYTES = 25 * 1024 * 1024  # 25 MB
 # Mehr Treffer als diese liefert die Namenssuche nicht.
 MAX_TREFFER = 50
 
-# Erlaubte Vorschaugroessen laut pCloud-Doku (getthumbs).
-ERLAUBTE_THUMB_GROESSEN = ("32x32", "120x120")
+# Erlaubte Vorschaugroessen (getthumbs). 32x32/120x120 stehen in der
+# pCloud-Doku; 480x480 und 800x800 wurden am 27.09.2026 LIVE geprueft und
+# kommen vom selben Endpunkt in derselben Textzeile (fileid|0|masse|data:...)
+# zurueck — noetig, weil 120x120 fuer Screenshots zu klein zum Lesen ist.
+ERLAUBTE_THUMB_GROESSEN = ("32x32", "120x120", "480x480", "800x800")
 
 
 class PCloudFehler(Exception):

@@ -467,6 +467,17 @@ def test_thumb_gibt_die_groesse_weiter(dienst, monkeypatch):
     assert fake.aufrufe[0]["params"]["size"] == "32x32"
 
 
+def test_thumb_groessere_vorschauen_sind_erlaubt(dienst, monkeypatch):
+    """480x480/800x800 sind live geprueft (27.09.2026) — noetig fuer Screenshots,
+    weil Text bei 120x120 nicht lesbar ist (Messung screenshots_triage.py)."""
+    fake = mit_get(
+        monkeypatch, Antwort(None, content=THUMB_ZEILE, content_type="text/plain")
+    )
+    assert dienst.thumb(7, "800x800") == JPEG
+    assert fake.aufrufe[0]["params"]["size"] == "800x800"
+    assert modul.ERLAUBTE_THUMB_GROESSEN == ("32x32", "120x120", "480x480", "800x800")
+
+
 def test_thumb_json_fehlerantwort_wird_zur_ausnahme(dienst, monkeypatch):
     """Falls pCloud statt Bilddaten JSON liefert: Fehlertext statt Rohbytes."""
     roh = b'{"result": 2009, "error": "File not found."}'

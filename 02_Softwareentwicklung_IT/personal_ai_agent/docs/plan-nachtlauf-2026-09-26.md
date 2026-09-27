@@ -949,6 +949,48 @@ ohnehin nachkontrolliert.
   dem PC. Prüfkriterium: Endpunkt antwortet ohne Netz; Selbsttest zeigt die
   Quelle. *(Nicht in der Schritt-Tabelle oben eingetragen, damit der gleichzeitig
   laufende Nachtlauf sie nicht überschreibt.)*
+
+* **27.09. (Sebastians große Linie) — drei neue Schritte, aufgenommen:**
+  * **N12 — Wöchentliche Nachpflege (geplante Jobs).** Ein Cron-Job je Woche
+    holt Neues aus den Quellen (pCloud-Uploads, WhatsApp-Export, Google
+    Kalender) und pflegt **inkrementell** nach: Datum, Motiv, Kategorie,
+    Doppelungen, Event-Zuordnung. Idempotent (mehrfach laufen = kein Schaden),
+    jede Runde mit Zahlen im Journal. *Sonst bleibt alles einmalig.*
+  * **N13 — Bilder im Chat (Galerie + Diashow).** Der Thumbnail-Endpunkt
+    `/api/cloud/thumb` **existiert schon**; es fehlt die Anzeige: Frage →
+    Trefferliste → Kacheln → Antippen = groß → Diashow. Geld sparen durch
+    Vorschaubilder; Originale nur auf Antippen, nie gespeichert.
+    **Pflicht (Sebastian 27.09.): Bilder werden GESTREAMT, nicht gespeichert** —
+    keine Aufnahme von Bild-Adressen in den Service-Worker-Cache, Anzeige über
+    Blob im Arbeitsspeicher, nach dem Ansehen freigeben; der App-Speicher darf
+    durch 100 angesehene Bilder **nicht** wachsen. Prüfkriterium: nach 100
+    angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser).
+    **Belegt (27.09.): Frontend zeigt heute noch KEINE Cloud-Bilder**
+    (`cloud/thumb` kommt in `app.js`/`index.html` 0 × vor) — die Anzeige ist
+    komplett offen.
+  * **N16 — Echte App (APK) + Rufen der App.** Stand belegt (27.09.): `gradle`
+    FEHLT, `sdkmanager` FEHLT, Android-SDK-Ordner FEHLT, `android/`-Projekt im
+    Repo FEHLT — vorhanden sind **Java 17** und **adb**. Was heute schon geht:
+    **Widget-Tipp startet Server und öffnet die App** (Web-App `display:
+    standalone`). Was fehlt: echte APK, **Assistenten-Rolle** und
+    Sprach-Weckruf „OK Agent" im Hintergrund. Aufwand: SDK+Projekt ~1–2 h, dann
+    Schritt für Schritt. **N16 bleibt gesperrt**, bis Sebastian es freigibt.
+  * **N17 — Rechnen auf dem Handy (Termux).** Die Gesichts-Modelle sind nur
+    **38 MB** (YuNet + SFace, ONNX) — ein Umzug aufs Handy ist damit klein.
+    Messen: Erkennung je Bild auf dem Handy gegen die PC-Zeit; danach
+    entscheiden, ob „PC rechnet / Handy benennt" zu „Handy rechnet selbst"
+    wird.
+  * **N14 — Wiederkehrende Termine (Geburtstage).** Eigene Logik statt
+    „Event = einmalig": Termin mit **Tag+Monat**, jedes Jahr neu; Quelle Google
+    Kalender (405 Einträge, **14 mit „Geburtstag"**) + WhatsApp
+    (42.147 Nachrichten, Treffer u. a. Termin 89 · Geburtstag 100 · Konzert 165).
+    **Google-Kontakte fehlen** im Archiv (nur Kalender + Notizen) — brauchen den
+    Google-Zugang; bis dahin sind Kalender + Chats die Grundlage.
+  * **N15 (Idee, noch nicht beauftragt) — Bildsuche nach Aussehen.** „Rothaarige
+    Sängerin vom Hurricane" braucht mehr als Motiv-Etiketten: entweder eine
+    Beschreibung je Foto (Vision, grob 0,0005–0,001 $ je Bild → für 9.430 Bilder
+    ≈ 5–9 $) **oder** ein lokales Bild-Text-Modell (CLIP, kostenlos, dafür
+    Rechenzeit). Vorher an 30 Bildern messen, dann entscheiden.
 * **27.09. ~23:5x — N9e gemessen, Ursache gefunden, behoben und bestanden** (Planer:
   Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,041 USD +
   0,022 USD aus dem ersten Bau · Prüfer: `openai/gpt-5.6-luna`).

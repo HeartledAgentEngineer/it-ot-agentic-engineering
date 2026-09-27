@@ -30,6 +30,7 @@ from app.router import (
     gesichter,
     hermes_steuerung,
     selbsttest,
+    fotos,
     cloud,
 )
 
@@ -186,6 +187,12 @@ app.include_router(hermes_steuerung.router, dependencies=[Depends(auth.require_a
 # Sprachmodelle und Serverzeit als JSON; die Oberfläche zeigt es als
 # Klartext-Blatt. Nie ein 500er — fehlende Quellen stehen als error-Text drin.
 app.include_router(selbsttest.router, dependencies=[Depends(auth.require_api_key)])
+# Fotos-Uebersicht (2026-09-27, Nachtlauf N11): Zahlen und Event-Namen aus der
+# kleinen Datei ~/foto_sortierung/fotos_uebersicht.json (nur Zahlen, keine
+# Bilder). Beantwortet am Handy Fragen wie "wie viele Events gab's?" und
+# "zeig mir die Urlaube 2021". Rein lesend, kein Netz; fehlt die Datei,
+# antwortet die Route mit HTTP 200, ok=false und deutschem error-Text.
+app.include_router(fotos.router, dependencies=[Depends(auth.require_api_key)])
 # pCloud (2026-09-26): Kontostand, Ordnerliste, Namenssuche, Vorschaubild und
 # Datei-Download — ausschliesslich lesend (services/pcloud_service.py). Ohne
 # PCLOUD_TOKEN in der .env antworten die Routen mit HTTP 503 und Klartext;

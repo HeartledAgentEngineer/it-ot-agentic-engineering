@@ -235,6 +235,15 @@ def test_thumb_gibt_die_groesse_weiter(client, fake):
     assert fake.gesehen["groesse"] == "32x32"
 
 
+def test_thumb_groessere_vorschauen_sind_erlaubt(client, fake):
+    """480x480/800x800 sind live geprueft (27.09.2026) — fuer Screenshots."""
+    antwort = client.get(
+        "/api/cloud/thumb", params={"fileid": 42, "groesse": "800x800"}
+    )
+    assert antwort.status_code == 200
+    assert fake.gesehen["groesse"] == "800x800"
+
+
 def test_thumb_lehnt_fremde_groesse_ab(client):
     antwort = client.get(
         "/api/cloud/thumb", params={"fileid": 42, "groesse": "9999x9999"}

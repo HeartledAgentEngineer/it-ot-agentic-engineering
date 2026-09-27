@@ -19,7 +19,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const pfadApp = process.argv[2] || 'app.js';
+// Standardpfad robust auflösen: Der Aufruf funktioniert damit aus dem Ordner
+// `frontend` (node tests/test_selbsttest.js) UND aus dem Repo-Wurzelordner
+// (node frontend/tests/test_selbsttest.js). Ein ausdrücklich übergebenes
+// Argument hat weiter Vorrang.
+const pfadApp = process.argv[2] || path.join(__dirname, '..', 'app.js');
 const src = fs.readFileSync(pfadApp, 'utf8');
 const verzeichnis = path.dirname(path.resolve(pfadApp));
 let html = '';
@@ -65,6 +69,10 @@ const gesund = {
   pcloud: { konfiguriert: true, host: 'eapi.pcloud.com',
             konto: 'se*******************.com', quota_gb: 2199.0, belegt_gb: 390.5,
             error: null },
+  fotos: { quelle: 'fotos_uebersicht.json',
+           pfad: '/home/x/foto_sortierung/fotos_uebersicht.json',
+           existiert: true, stand: '2026-09-27T22:30:00+02:00',
+           anlaesse: 2127, events: 2088, dateien: 9430, jahre: 11, error: null },
 };
 const text = selbsttestText(gesund);
 pruefe('Kopfzeile trägt die Serverzeit', text.split('\n')[0].includes('25.09.2026 14:03:11'));
@@ -84,6 +92,10 @@ pruefe('Registrierte Sprachwege erscheinen', text.includes('Erkennung ✓') && t
 pruefe('pCloud-Zeile mit Maske, Quota und Belegung',
   /✓ pCloud verbunden \(Konto se\*+\.com, 2199 GB, belegt 390\.5 GB\)/.test(text));
 pruefe('pCloud nennt NIE den vollen Kontonamen', !text.includes('sebastian@example.com'));
+pruefe('Fotos-Zeile mit Anlässen, Events, Dateien, Jahren',
+  /✓ Fotos: 2127 Anlässe · 2088 Events · 9430 Dateien · 11 Jahre/.test(text));
+pruefe('Fotos-Zeile nennt Stand und Quelle',
+  text.includes('Stand 2026-09-27T22:30:00+02:00') && text.includes('Quelle fotos_uebersicht.json'));
 pruefe('kein ✗ und kein ⚠ im gesunden Zustand', !text.includes('✗') && !text.includes('⚠'), text);
 
 console.log('\n2) Fehlende Felder -> kein Absturz, ✗/⚠ statt Lücke');
@@ -154,6 +166,47 @@ pruefe('pCloud ohne Kontonamen bleibt lesbar (kein „null" im Text)',
   /✓ pCloud verbunden \(2199 GB, belegt 390\.5 GB\)/.test(
     selbsttestText(cloudOhneKonto)) && !/null/.test(selbsttestText(cloudOhneKonto)));
 
+console.log('\n3b) Fotos-Block (N11): vorhanden, fehlend, Teilangaben, Fehler');
+pruefe('Fotos fehlen -> ✗ „fehlt", kein Absturz',
+  /✗ Fotos: fehlt/.test(leerText));
+
+const fotosAus = JSON.parse(JSON.stringify(gesund));
+fotosAus.fotos = { quelle: 'fotos_uebersicht.json', pfad: '/home/x/foto_sortierung/fotos_uebersicht.json',
+                   existiert: false, stand: null, anlaesse: null, events: null,
+                   dateien: null, jahre: null,
+                   error: 'Fotos-Übersicht nicht gefunden (die Zahlen entstehen auf dem PC)' };
+const fotosAusText = selbsttestText(fotosAus);
+pruefe('fehlende Übersichtsdatei -> ✗ mit dem Server-Text',
+  /✗ Fotos: Fotos-Übersicht nicht gefunden/.test(fotosAusText));
+pruefe('fehlende Übersichtsdatei ist NICHT als ✓ gemeldet', !/✓ Fotos/.test(fotosAusText));
+pruefe('fehlende Übersichtsdatei erzeugt kein NaN/undefined',
+  !fotosAusText.includes('NaN') && !fotosAusText.includes('undefined'));
+
+const fotosTeil = JSON.parse(JSON.stringify(gesund));
+fotosTeil.fotos.anlaesse = null;
+fotosTeil.fotos.error = 'Fotos-Übersicht hat eine unerwartete Schema-Version (2, erwartet 1)';
+const fotosTeilText = selbsttestText(fotosTeil);
+pruefe('Teilangaben -> ⚠ statt ✓', /⚠ Fotos: /.test(fotosTeilText) && !/✓ Fotos/.test(fotosTeilText));
+pruefe('Teilangaben nennen die vorhandenen Zahlen und den Fehlertext',
+  fotosTeilText.includes('2088 Events') && fotosTeilText.includes('Schema-Version'));
+
+const fotosOhneZahlen = JSON.parse(JSON.stringify(gesund));
+fotosOhneZahlen.fotos = { quelle: 'fotos_uebersicht.json', existiert: true, error: null };
+const fotosOhneZahlenText = selbsttestText(fotosOhneZahlen);
+const fotosZeileOhneZahlen = fotosOhneZahlenText.split('\n').filter(z => z.indexOf('Fotos:') >= 0)[0];
+pruefe('keine Zahlen -> ⚠ „keine Zahlen gemeldet" statt Lücke',
+  fotosZeileOhneZahlen.indexOf('⚠ Fotos: keine Zahlen gemeldet') === 0);
+pruefe('die Quelle steht trotzdem dabei',
+  fotosZeileOhneZahlen.includes('Quelle fotos_uebersicht.json'));
+
+const fotosOhneQuelle = JSON.parse(JSON.stringify(gesund));
+fotosOhneQuelle.fotos.quelle = null;
+const fotosOhneQuelleText = selbsttestText(fotosOhneQuelle);
+const fotosZeileOhneQuelle = fotosOhneQuelleText.split('\n').filter(z => z.indexOf('Fotos:') > 0)[0];
+pruefe('ohne Quelle bleibt die Zeile gültig (nur Stand)',
+  fotosZeileOhneQuelle === '✓ Fotos: 2127 Anlässe · 2088 Events · 9430 Dateien · 11 Jahre (Stand 2026-09-27T22:30:00+02:00)');
+pruefe('ohne Quelle steht kein „null" im Text', !/null/.test(fotosOhneQuelleText));
+
 console.log('\n4) Blatt in der Oberfläche (Knopf, Blatt, Laden, KEIN Auto-Polling)');
 pruefe('index.html hat den Selbsttest-Knopf in der Kopfzeile',
   /id="selbsttest-btn"/.test(html) && html.indexOf('id="selbsttest-btn"') < html.indexOf('id="chat-sheet"'));
@@ -178,7 +231,7 @@ console.log('\n5) Datenschutz & Cache-Bump');
 pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));
 pruefe('kein API-Schlüssel im Frontend', !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
-pruefe('index.html lädt app.js mit ?v=20260927A', /app\.js\?v=20260927A/.test(html), 'Cache-Bump fehlt');
+pruefe('index.html lädt app.js mit ?v=20260927B', /app\.js\?v=20260927B/.test(html), 'Cache-Bump fehlt');
 pruefe('index.html lädt style.css mit ?v=20260925F', /style\.css\?v=20260925F/.test(html), 'Cache-Bump fehlt');
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));
