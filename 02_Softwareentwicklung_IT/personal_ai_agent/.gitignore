@@ -14,6 +14,10 @@ env/
 *.env.local
 *.env.production
 *.env.bak
+# Sicherung, die start-termux.sh vor dem Eintragen des pCloud-Schluessels
+# anlegt (backend/.env.vorher): enthaelt dieselben Geheimnisse wie .env und
+# darf deshalb genauso wenig ins Repo.
+*.env.vorher
 
 # ChromaDB
 chroma_data/

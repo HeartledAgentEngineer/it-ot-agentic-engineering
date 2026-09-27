@@ -25,8 +25,8 @@ Der Weg dahin ist klar (Stufe C: APK + Assistenten-Rolle), aber nicht gebaut.
 |---|---|---|
 | **Zugang vom PC aus** | ✅ | `userinfo` result 0, `listfolder` 18 Einträge, Konto 2.199 GB / 390,5 GB |
 | **Selbstheilung, wenn der Schlüssel stirbt** | ✅ | `tools/pcloud/pcloud_token_erneuern.py` (`--pruefen` / neu holen) |
-| **Dienst im Backend** (Status, Liste, Suche, Vorschaubild, Datei) | ✅ | `app/services/pcloud_service.py` + `/api/cloud/*`; **500 Tests grün** |
-| **Zugang vom Handy** | ❌ | Schlüssel noch nicht übertragen (kommt per Kabel, nicht über Git) |
+| **Dienst im Backend** (Status, Liste, Suche, Vorschaubild, Datei) | ✅ | `app/services/pcloud_service.py` + `/api/cloud/*`; **665 Tests grün (27.09.2026)** |
+| **Zugang vom Handy** | ⚠️ | Übernahme-Automatik steht in `start-termux.sh` (Übergabedatei → `backend/.env`, danach gelöscht; im Sandkasten geprüft, 24/24) — sie wirkt beim **nächsten Widget-Tipp** |
 | **Fotos sortieren / Themen** | ⬜ | Werkzeug steht (Sortierschlüssel, 9.430 Dateien), Sortierung noch nicht gelaufen |
 | **Personen clustern** | ⬜ | Kette existiert auf dem Handy (455 Lieblingsbilder), für pCloud noch nicht gestartet |
 
@@ -35,7 +35,7 @@ Der Weg dahin ist klar (Stufe C: APK + Assistenten-Rolle), aber nicht gebaut.
 | Sache | Stand |
 |---|---|
 | **Verlauf bleibt erhalten** (auch Daemon-Antworten) | ✅ |
-| **Selbsttest-Knopf** (zeigt Zustand: Stand, Index, Daemon, Gedächtnis, Sprache) | ✅ |
+| **Selbsttest-Knopf** (zeigt Zustand: Stand, Index, Daemon, Gedächtnis, Sprache, pCloud) | ✅ |
 | **Kopfzeile bleibt bei offener Tastatur sichtbar** | ✅ |
 | **Text markieren/kopieren per Langdruck** | ✅ |
 | **Bilder in den Chat geben** (Bild an Nachricht gebunden) | ✅ |
@@ -45,8 +45,8 @@ Der Weg dahin ist klar (Stufe C: APK + Assistenten-Rolle), aber nicht gebaut.
 ## Was Sebastian JETZT testen kann
 
 1. **App öffnen → Mikrofon-Knopf → sprechen** → Text erscheint → Antwort → Vorlese-Knopf.
-2. **Selbsttest-Knopf** in der Kopfzeile: zeigt, ob Server, Index, Daemon und Sprache leben.
-3. **Widget tippen**: zieht den neuen Stand, startet den Server, öffnet die App.
+2. **Selbsttest-Knopf** in der Kopfzeile: zeigt, ob Server, Index, Daemon und Sprache leben — und ob der pCloud-Schlüssel liegt („nicht eingerichtet" / „verbunden (Konto …, GB)").
+3. **Widget tippen**: zieht den neuen Stand, startet den Server, öffnet die App — und übernimmt beim nächsten Tipp den pCloud-Schlüssel aus `/sdcard/Download/pcloud_token.txt` (zweimal tippen, der laufende Durchgang nutzt noch den alten Skripttext).
 4. **Foto in den Chat geben** → Analyse (Bild wird nicht gespeichert).
 
 ## Was noch NICHT testbar ist

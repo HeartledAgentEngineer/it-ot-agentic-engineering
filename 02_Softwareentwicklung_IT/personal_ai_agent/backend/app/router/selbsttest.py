@@ -6,7 +6,8 @@ Das Backend läuft auf Sebastians Android-Handy in Termux. Wenn er unterwegs
 ist, hat er kein Kabel (kein ADB) und kann nicht in die Termux-Konsole sehen –
 er sieht nur, was die App selbst anzeigt. Bisher gab es keinen Ort, an dem der
 Zustand des Systems ablesbar war: Commit-Stand, Archiv-Index, Inbox-Daemon,
-letzte Protokollzeilen, Erinnerungen, Sprachmodelle, Serverzeit.
+letzte Protokollzeilen, Erinnerungen, Sprachmodelle, Serverzeit, pCloud-Zugang
+(Konto maskiert, Quota/Belegung).
 
 Dieser Endpunkt liefert genau das als JSON. Die Oberfläche (Blatt
 „Selbsttest") macht daraus deutsche Klartext-Zeilen mit ✓/⚠/✗ — so lässt sich
@@ -21,9 +22,12 @@ Eiserne Regeln
     ein unerwarteter Fehler wird als Text gemeldet, nicht als Absturz.
   * KEINE Geheimnisse. Es werden ausschließlich Namen (Modellketten), Pfade,
     Größen, Zähler und gekürzte Protokollzeilen ausgegeben — nie ein
-    API-Schlüssel, nie ein Token. Die Protokoll-Auszüge sind bewusst auf
-    :data:`AUSZUG_LAENGE` Zeichen gekürzt.
-  * Nur lesend. Die Archiv-Datenbank wird mit ``mode=ro`` geöffnet.
+    API-Schlüssel, nie ein Token. Der pCloud-Block zeigt vom Konto nur die
+    MASKE der Adresse (erste 2 + letzte 4 Zeichen), nie den vollen Wert. Die
+    Protokoll-Auszüge sind bewusst auf :data:`AUSZUG_LAENGE` Zeichen gekürzt.
+  * Nur lesend. Die Archiv-Datenbank wird mit ``mode=ro`` geöffnet; der
+    pCloud-Block ruft ausschließlich ``userinfo`` ab — kein Schreibaufruf,
+    kein Anlegen, kein Verschieben.
 
 Die Protokoll-/Postfach-Pfade folgen dem Muster der übrigen Router
 (``~/hermes_inbox/``, ``~/archiv_index.db``) und sind über
@@ -37,6 +41,8 @@ import shutil
 import sqlite3
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -46,6 +52,7 @@ from fastapi import APIRouter
 from app.config import BASE_DIR
 from app.db.chroma_client import chroma_client
 from app.services.llm_service import TRANSCRIBE_MODELS
+from app.services.pcloud_service import pcloud_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +73,13 @@ DB_TIMEOUT_S = 3.0
 
 # Name des Inbox-Daemon-Skripts (Wiedererkennung in der Prozessliste).
 DAEMON_SKRIPT = "hermes_inbox_daemon.py"
+
+# Eigenes, KNAPPES Zeitbudget für die pCloud-Abfrage. Der Dienst selbst darf
+# sich TIMEOUT_SEKUNDEN (20 s) nehmen — so lange darf das Selbsttest-Blatt
+# nicht hängen: Es läuft zwar im FastAPI-Threadpool, aber der Nutzer steht
+# davor und wartet. Nach 8 s gibt es ehrlich „Zeitüberschreitung" statt eines
+# Hängers; der abgehängte Aufruf läuft unsichtbar aus (er liest nur).
+PCLOUD_TIMEOUT_S = 8.0
 
 
 # ── Pfade (kapselbar für Tests) ──────────────────────────────────────────────
@@ -452,6 +466,117 @@ def _uhrzeit_info() -> Dict[str, Any]:
     }
 
 
+# ── Block: pCloud ────────────────────────────────────────────────────────────
+
+def _pcloud_fehlertext(fehler: BaseException) -> str:
+    """Fehlertext eines pCloud-Aufrufs — garantiert ohne Token.
+
+    Der Dienst entfernt den Token schon selbst aus seinen Meldungen; diese
+    zweite Schicht ersetzt ihn zusätzlich, falls doch ein fremder Fehlertext
+    (z. B. eine httpx-Meldung) bis hierher durchkäme. Sichtbar wird nur der
+    Text, niemals der Wert.
+    """
+    text = _kuerzen(str(fehler) or type(fehler).__name__)
+    try:
+        token = pcloud_service.token
+    except Exception:  # noqa: BLE001 – ein Defekt hier darf nichts weiterreißen
+        return text
+    return text.replace(token, "***") if token else text
+
+
+def _pcloud_abfrage() -> Dict[str, Any]:
+    """Ein LESENDER Aufruf an den Dienst — eigener Haken für Tests (ohne Netz).
+
+    Getrennt von :func:`_pcloud_info`, damit Tests den Netz-Weg ersetzen
+    können, ohne den Ablauf (Prüfung, Zeitbudget, Auswertung) nachzubauen.
+    """
+    return pcloud_service.status()
+
+
+def _pcloud_info() -> Dict[str, Any]:
+    """pCloud-Zustand: eingerichtet? Konto (MASKIERT), Quota, Belegung.
+
+    Warum ein eigener Thread: Der Dienst erlaubt sich bis zu
+    ``TIMEOUT_SEKUNDEN`` (20 s). Der Selbsttest läuft zwar im Threadpool von
+    FastAPI, aber der Nutzer steht vor dem Blatt — deshalb ein eigener Rahmen
+    mit :data:`PCLOUD_TIMEOUT_S`. Bei Überschreitung wird ehrlich gemeldet,
+    der Aufruf läuft unsichtbar aus (er liest nur, schreibt nichts).
+
+    Es werden nie der Token und nie die volle E-Mail ausgegeben: Die Maske
+    (erste 2 + letzte 4 Zeichen) kommt schon so aus dem Dienst.
+    """
+    info: Dict[str, Any] = {
+        "konfiguriert": False,
+        "host": None,
+        "konto": None,
+        "quota_gb": None,
+        "belegt_gb": None,
+        "error": None,
+    }
+
+    try:
+        info["konfiguriert"] = bool(pcloud_service.ist_konfiguriert())
+        info["host"] = pcloud_service.host or None
+    except Exception as e:  # noqa: BLE001 – nie 500
+        # Nur der Klassenname ins Log — ein fremder Fehlertext könnte den
+        # Schlüssel enthalten (dieselbe Vorsicht wie im Dienst).
+        logger.warning("Selbsttest: pCloud-Konfiguration nicht lesbar (%s).", type(e).__name__)
+        info["error"] = f"pCloud-Konfiguration nicht lesbar ({type(e).__name__})"
+        return info
+
+    if not info["konfiguriert"]:
+        # Kein Token hinterlegt: Das ist ein GÜLTIGER Zustand (z. B. Handy vor
+        # der Schlüssel-Übertragung), kein Fehler. Kein Netz-Aufruf.
+        return info
+
+    arbeiter = ThreadPoolExecutor(max_workers=1)
+    try:
+        zukunft = arbeiter.submit(_pcloud_abfrage)
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Selbsttest: pCloud-Abfrage nicht startbar (%s).", type(e).__name__)
+        info["error"] = f"pCloud-Abfrage nicht startbar ({type(e).__name__})"
+        arbeiter.shutdown(wait=False)
+        return info
+
+    try:
+        daten = zukunft.result(timeout=PCLOUD_TIMEOUT_S)
+    except FutureTimeoutError:
+        logger.warning(
+            "Selbsttest: pCloud antwortet nicht binnen %.1f s.", PCLOUD_TIMEOUT_S
+        )
+        info["error"] = "pCloud nicht erreichbar (Zeitueberschreitung)"
+        return info
+    except Exception as e:  # noqa: BLE001 – nie 500
+        # Auch hier nur der Klassenname ins Log; der (entschärfte) Text geht
+        # als Feld an die Oberfläche.
+        logger.warning("Selbsttest: pCloud-Abfrage fehlgeschlagen (%s).", type(e).__name__)
+        info["error"] = _pcloud_fehlertext(e)
+        return info
+    finally:
+        # wait=False: Beim Timeout darf der Worker noch bis zu seinem eigenen
+        # httpx-Timeout weiterlaufen. Hier darauf zu warten würde das knappe
+        # Budget zunichtemachen.
+        arbeiter.shutdown(wait=False)
+
+    if not isinstance(daten, dict):
+        # Liefert der Dienst etwas anderes als vereinbart, wird das gemeldet —
+        # die Felder bleiben dann ehrlich leer statt falsch gefüllt.
+        info["error"] = "pCloud lieferte eine unerwartete Antwort"
+        return info
+
+    try:
+        # host/quota/belegt stammen aus userinfo (nur gelesen).
+        info["host"] = str(daten.get("host") or info["host"] or "") or None
+        info["konto"] = str(daten.get("email") or "") or None
+        info["quota_gb"] = daten.get("quota_gb")
+        info["belegt_gb"] = daten.get("belegt_gb")
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Selbsttest: pCloud-Antwort nicht auswertbar: %s", e)
+        info["error"] = f"pCloud-Antwort nicht auswertbar ({type(e).__name__})"
+
+    return info
+
+
 # ── Endpunkt ─────────────────────────────────────────────────────────────────
 
 @router.get("/selbsttest")
@@ -473,6 +598,8 @@ def selbsttest() -> Dict[str, Any]:
         "sprache": {"modelle": [], "transcribe_registriert": False,
                     "speak_registriert": False, "error": "nicht geprüft"},
         "uhrzeit": {"iso": None, "lokal": None, "zeitzone": None, "error": "nicht geprüft"},
+        "pcloud": {"konfiguriert": False, "host": None, "konto": None,
+                   "quota_gb": None, "belegt_gb": None, "error": "nicht geprüft"},
     }
 
     # Jeder Block einzeln abgesichert: Ein Fehler in einem Bereich darf die
@@ -485,6 +612,7 @@ def selbsttest() -> Dict[str, Any]:
         ("gedaechtnis", _gedaechtnis_info),
         ("sprache", _sprache_info),
         ("uhrzeit", _uhrzeit_info),
+        ("pcloud", _pcloud_info),
     ):
         try:
             ergebnis[feld] = bauer()

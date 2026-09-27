@@ -62,6 +62,9 @@ const gesund = {
   sprache: { modelle: ['microsoft/mai-transcribe-2', 'openai/whisper-large-v3'],
              transcribe_registriert: true, speak_registriert: true, error: null },
   uhrzeit: { iso: '2026-09-25T14:03:11+02:00', lokal: '25.09.2026 14:03:11', zeitzone: 'CEST', error: null },
+  pcloud: { konfiguriert: true, host: 'eapi.pcloud.com',
+            konto: 'se*******************.com', quota_gb: 2199.0, belegt_gb: 390.5,
+            error: null },
 };
 const text = selbsttestText(gesund);
 pruefe('Kopfzeile trägt die Serverzeit', text.split('\n')[0].includes('25.09.2026 14:03:11'));
@@ -78,6 +81,9 @@ pruefe('Erinnerungszahl steht da', /✓ Erinnerungen: 42/.test(text));
 pruefe('Sprachkette wird mit Pfeil verbunden',
   text.includes('microsoft/mai-transcribe-2 → openai/whisper-large-v3'));
 pruefe('Registrierte Sprachwege erscheinen', text.includes('Erkennung ✓') && text.includes('Sprachausgabe ✓'));
+pruefe('pCloud-Zeile mit Maske, Quota und Belegung',
+  /✓ pCloud verbunden \(Konto se\*+\.com, 2199 GB, belegt 390\.5 GB\)/.test(text));
+pruefe('pCloud nennt NIE den vollen Kontonamen', !text.includes('sebastian@example.com'));
 pruefe('kein ✗ und kein ⚠ im gesunden Zustand', !text.includes('✗') && !text.includes('⚠'), text);
 
 console.log('\n2) Fehlende Felder -> kein Absturz, ✗/⚠ statt Lücke');
@@ -88,6 +94,8 @@ pruefe('leeres Objekt wirft NICHT', geworfen === false);
 pruefe('Commit fehlt -> ✗ „nicht ermittelbar"', /✗ Commit: nicht ermittelbar/.test(leerText));
 pruefe('Archiv-Index fehlt -> ✗', /✗ Archiv-Index: fehlt/.test(leerText));
 pruefe('Daemon unbekannt -> ⚠ „nicht feststellbar"', /⚠ Inbox-Daemon: nicht feststellbar/.test(leerText));
+pruefe('pCloud fehlt -> ⚠ „nicht eingerichtet" ohne Absturz',
+  /⚠ pCloud: nicht eingerichtet/.test(leerText));
 pruefe('unbekannte Zahlen werden „?" statt NaN',
   leerText.includes('Erinnerungen: ?') && !leerText.includes('NaN') && !leerText.includes('undefined'));
 pruefe('auch null und Text als Eingabe sind harmlos',
@@ -125,6 +133,27 @@ sprachWarn.sprache.transcribe_registriert = false;
 pruefe('nicht registrierter Sprachweg -> „Erkennung ✗"',
   selbsttestText(sprachWarn).includes('Erkennung ✗'));
 
+const cloudAus = JSON.parse(JSON.stringify(gesund));
+cloudAus.pcloud = { konfiguriert: false, host: 'eapi.pcloud.com', konto: null,
+                    quota_gb: null, belegt_gb: null, error: null };
+const cloudAusText = selbsttestText(cloudAus);
+pruefe('pCloud ohne Schlüssel -> ⚠ „nicht eingerichtet"',
+  /⚠ pCloud: nicht eingerichtet/.test(cloudAusText));
+pruefe('pCloud ohne Schlüssel ist NICHT als ✓ gemeldet', !/✓ pCloud/.test(cloudAusText));
+
+const cloudWarn = JSON.parse(JSON.stringify(gesund));
+cloudWarn.pcloud.error = 'pCloud nicht erreichbar (Zeitueberschreitung)';
+const cloudWarnText = selbsttestText(cloudWarn);
+pruefe('pCloud mit Fehler -> ⚠ mit dem Fehlertext',
+  /⚠ pCloud: pCloud nicht erreichbar \(Zeitueberschreitung\)/.test(cloudWarnText));
+pruefe('pCloud mit Fehler ist NICHT als ✓ gemeldet', !/✓ pCloud/.test(cloudWarnText));
+
+const cloudOhneKonto = JSON.parse(JSON.stringify(gesund));
+cloudOhneKonto.pcloud.konto = null;
+pruefe('pCloud ohne Kontonamen bleibt lesbar (kein „null" im Text)',
+  /✓ pCloud verbunden \(2199 GB, belegt 390\.5 GB\)/.test(
+    selbsttestText(cloudOhneKonto)) && !/null/.test(selbsttestText(cloudOhneKonto)));
+
 console.log('\n4) Blatt in der Oberfläche (Knopf, Blatt, Laden, KEIN Auto-Polling)');
 pruefe('index.html hat den Selbsttest-Knopf in der Kopfzeile',
   /id="selbsttest-btn"/.test(html) && html.indexOf('id="selbsttest-btn"') < html.indexOf('id="chat-sheet"'));
@@ -149,7 +178,7 @@ console.log('\n5) Datenschutz & Cache-Bump');
 pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));
 pruefe('kein API-Schlüssel im Frontend', !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
-pruefe('index.html lädt app.js mit ?v=20260925G', /app\.js\?v=20260925G/.test(html), 'Cache-Bump fehlt');
+pruefe('index.html lädt app.js mit ?v=20260927A', /app\.js\?v=20260927A/.test(html), 'Cache-Bump fehlt');
 pruefe('index.html lädt style.css mit ?v=20260925F', /style\.css\?v=20260925F/.test(html), 'Cache-Bump fehlt');
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));

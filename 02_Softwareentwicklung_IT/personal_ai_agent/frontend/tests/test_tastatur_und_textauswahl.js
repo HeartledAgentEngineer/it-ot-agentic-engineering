@@ -197,8 +197,8 @@ pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));
 pruefe('kein Framework/Modul-Import in app.js',
   !/^\s*import\s/m.test(src) && !/require\(/.test(src));
-pruefe('index.html lädt app.js mit ?v=20260925G',
-  /app\.js\?v=20260925G/.test(html), 'Cache-Bump für app.js fehlt');
+pruefe('index.html lädt app.js mit ?v=20260927A',
+  /app\.js\?v=20260927A/.test(html), 'Cache-Bump für app.js fehlt');
 pruefe('index.html lädt style.css mit ?v=20260925F',
   /style\.css\?v=20260925F/.test(html), 'Cache-Bump für style.css fehlt');
 

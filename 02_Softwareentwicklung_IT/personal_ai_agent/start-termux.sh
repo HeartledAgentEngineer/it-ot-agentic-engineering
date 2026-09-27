@@ -87,6 +87,71 @@ if [ -f "$QUELLE_INDEX" ]; then
     fi
 fi
 
+# ── pCloud-Zugang übernehmen (selbstheilend) ─────────────────────────────────
+# Warum: Der pCloud-Schlüssel ist ein Geheimnis und darf NICHT über Git wandern
+# (das Repo ist öffentlich). Er wird deshalb per Kabel als
+# /sdcard/Download/pcloud_token.txt aufs Handy geschoben und hier beim Start in
+# backend/.env übernommen — genauso wie der Archiv-Index oben, nur in die
+# andere Richtung (Datei -> Einstellung statt Datei -> Ordner).
+# Übernommen werden NUR die Zeilen PCLOUD_TOKEN und PCLOUD_HOST. Alle anderen
+# Zeilen der .env (z. B. OPENROUTER_API_KEY) bleiben unangetastet — deshalb
+# wird einzelzeilen-weise ersetzt/angehängt statt die Datei neu zu schreiben.
+# Ein vorhandener Wert wird ersetzt (das ist der Sinn: der neue Schlüssel gilt),
+# vorher liegt der alte Stand als backend/.env.vorher beiseite (Rückweg offen).
+# Nach erfolgreicher Übernahme wird die Übergabedatei GELÖSCHT: sonst bliebe das
+# Geheimnis im freigegebenen Download-Ordner liegen (dort kann jede App lesen).
+# Fehlt die Datei (der Normalfall, sobald einmal übernommen), passiert NICHTS:
+# keine Ausgabe, kein Fehler, der Start läuft unverändert weiter.
+QUELLE_TOKEN="$HOME/storage/downloads/pcloud_token.txt"
+[ -f "$QUELLE_TOKEN" ] || QUELLE_TOKEN="/sdcard/Download/pcloud_token.txt"
+if [ -f "$QUELLE_TOKEN" ]; then
+    echo "── pCloud-Zugang übernehmen ───────────────────"
+    ENV_DATEI="backend/.env"
+    if [ -f "$ENV_DATEI" ]; then
+        cp -f "$ENV_DATEI" "$ENV_DATEI.vorher" \
+            && echo "  · Sicherung angelegt: $ENV_DATEI.vorher (Rückweg offen)"
+    else
+        : > "$ENV_DATEI"
+        echo "  · $ENV_DATEI war nicht vorhanden – neu angelegt."
+    fi
+    # Werte werden NIE ausgegeben: gelesen wird still, gemeldet werden nur
+    # Schlüsselnamen und Zustände (das Protokoll landet auf /sdcard).
+    uebernommen=""
+    namen=""
+    while IFS= read -r zeile || [ -n "$zeile" ]; do
+        zeile="${zeile%$'\r'}"                 # Zeilenende vom PC (Windows) weg
+        case "$zeile" in
+            PCLOUD_TOKEN=*|PCLOUD_HOST=*)
+                schluessel="${zeile%%=*}"
+                wert="${zeile#*=}"
+                wert="${wert%\"}"; wert="${wert#\"}"   # Anführungszeichen dulden
+                # Leerer Wert darf einen vorhandenen Schlüssel nicht löschen.
+                [ -n "$wert" ] || continue
+                if grep -q "^$schluessel=" "$ENV_DATEI"; then
+                    # sed mit | als Trenner: Token/Host können / + = enthalten —
+                    # mit / als Trenner würde der Ausdruck sonst zerbrechen.
+                    # & und \ sind im Ersatzteil Sonderzeichen und werden nur
+                    # HIER maskiert (beim Anhängen unten würde das Zeichen
+                    # sonst doppelt in der .env landen).
+                    ersatz="$(printf '%s' "$wert" | sed 's/[&\\|]/\\&/g')"
+                    sed -i "s|^$schluessel=.*|$schluessel=$ersatz|" "$ENV_DATEI"
+                else
+                    printf '%s\n' "$schluessel=$wert" >> "$ENV_DATEI"
+                fi
+                uebernommen="1"
+                namen="$namen $schluessel"
+                ;;
+        esac
+    done < "$QUELLE_TOKEN"
+    if [ -n "$uebernommen" ] && grep -q '^PCLOUD_TOKEN=' "$ENV_DATEI"; then
+        rm -f "$QUELLE_TOKEN"
+        echo "  ✔ übernommen:$namen (in $ENV_DATEI) – Übergabedatei gelöscht"
+    else
+        echo "  ⚠ Übernahme fehlgeschlagen – $QUELLE_TOKEN bleibt liegen (erneut starten)."
+        echo "    Prüfen: enthält die Datei eine Zeile PCLOUD_TOKEN=…?"
+    fi
+fi
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 # Ohne das bricht ein laufender Stream ab, sobald das Display ausgeht.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock

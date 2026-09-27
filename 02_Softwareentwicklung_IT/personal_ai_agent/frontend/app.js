@@ -8535,8 +8535,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // der Zustand als Bildschirmfoto per Telegram teilen.
 //
 // Bewusst KEIN Auto-Polling: Der Selbsttest lädt beim Öffnen und danach nur
-// auf Knopfdruck (Aktualisieren). Er prüft ausschließlich lokal — kein
-// Netz-Aufruf, kein Anbieter.
+// auf Knopfdruck (Aktualisieren). Er prüft lokal (git, Dateien, Prozesse) und
+// seit dem 27.09.2026 zusätzlich LESEND den pCloud-Zugang (Konto maskiert,
+// Quota/Belegung über das Backend) — kein Sprachmodell, kein Anbieter, kein
+// Schreibzugriff auf die Cloud.
 
 /** Reine Umwandlung Selbsttest-JSON -> Klartext (ohne DOM, damit testbar).
  *
@@ -8619,6 +8621,20 @@ function selbsttestText(daten) {
     zeilen.push((sp.error ? '⚠ ' : '✓ ') + 'Sprache: ' + kette + ' · ' + wege
         + (sp.error ? ' · ' + t(sp.error) : ''));
 
+    // pCloud (nur lesend): Ist ein Schlüssel hinterlegt, und antwortet das
+    // Konto? Der Schlüssel selbst erscheint NIE im Text — vom Konto nur die
+    // Maske (erste 2 + letzte 4 Zeichen, kommt schon maskiert vom Server).
+    const pc = d.pcloud || {};
+    if (!pc.konfiguriert) {
+        zeilen.push('⚠ pCloud: nicht eingerichtet (kein PCLOUD_TOKEN hinterlegt)');
+    } else if (t(pc.error)) {
+        zeilen.push('⚠ pCloud: ' + t(pc.error));
+    } else {
+        const konto = t(pc.konto);
+        zeilen.push('✓ pCloud verbunden (' + (konto ? 'Konto ' + konto + ', ' : '')
+            + zahl(pc.quota_gb) + ' GB, belegt ' + zahl(pc.belegt_gb) + ' GB)');
+    }
+
     return zeilen.join('\n');
 }
 
@@ -8633,7 +8649,7 @@ async function ladeSelbsttest() {
     dom.selbsttestText.textContent = 'Prüfe …';
     if (dom.selbsttestHint) {
         dom.selbsttestHint.textContent =
-            'Prüft nur lokal (git, Dateien, Prozesse) – kein Netz-Aufruf.';
+            'Prüft lokal (git, Dateien, Prozesse) und das pCloud-Konto (nur lesend).';
     }
     try {
         const res = await fetch(`${API_BASE}/api/selbsttest`);
