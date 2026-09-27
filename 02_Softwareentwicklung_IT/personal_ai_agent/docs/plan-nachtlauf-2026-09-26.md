@@ -141,7 +141,8 @@ ohnehin nachkontrolliert.
 | N6e | **Event-Abgleich:** je Datums-Block gegen bestehende Event-Ordner prüfen (Jahr/Monat im Namen) → **Vorschlag** „Ordner X" statt Neubau; Muster: `Jahr + Ort` (Urlaub/Ausflüge), `Jahr_Monat + Ereignis` (Konzerte), `Jahr + Person` (Familie/Freunde) | Trefferquote an einer Stichprobe gemessen; Vorschläge nachvollziehbar | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/event_abgleich.py` (1.060 Zeilen, Nachbarmodul von `foto_kategorien`) + **51** eigene Tests; Prüfbefehl **760 grün, Exit 0** (Baseline 709; selbst gefahren). Live nur lesend: **2.134 Anlässe · 39 Vorschläge = 1,8 %** (tag 10, monat 29) · **600 schwache Hinweise** (jahr 495, spanne 105) · 2.095 ohne Vorschlag (276 davon: Kategorie fehlt im Bestand) · **112 von 113** Unterordnern über gebundene Buckets erreichbar. **Verschärfte Regel nach eigener Sichtprobe:** nur `tag`/`monat` ergeben einen Vorschlag, `jahr`/`spanne` nur mit `--auch-schwach` (vorher 639 Vorschläge, davon 600 untauglich). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (echte Ordnernamen im Repo, Zahl 109 → 112; beides korrigiert, real 8 statt 4 Namen), Runde 2 nur noch 3 Resttreffer = blanke Kalenderjahre → als Fehlalarm begründet. Doku: `docs/changelog-2026-09-27-event-abgleich.md`, Feinauftrag `docs/auftrag-n6e-event-abgleich.md` |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/foto_sortieren.py` (1.149 Zeilen) + **119** eigene Tests; Prüfbefehl selbst gefahren **879 passed, Exit 0** (Baseline 760). Live nur lesend, `listfolder` über 7 Quellordner: **9.430 Zeilen · 2.127 Anlässe · 7.616 Züge (alle mit Dateikennung)** · Doppelungen **1.534 in der CSV** (866 ohne Anlass-ID, **668** in geplanten Anlässen übersprungen) · **1.146 Zeilen ohne Anlass-ID** (kein Datum im Namen) · 0 ohne Thema / 0 ohne Jahr · **2.108 Ordner neu, 82 vorhanden · 2.088 Events neu, 39 wiederverwendet** (= die 39 sicheren Vorschläge aus N6e) · 11 Kategorien. Plan `~/foto_sortierung/sortierplan.json`; Manifest **0 Einträge**, Original-CSV unverändert. Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Doppelungs-Zahl irreführend: nur 668 statt 1.534 genannt; wirkungslose Assertion `or True`) → beides behoben, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-sortieren-trockenlauf.md`, Feinauftrag `docs/auftrag-n7-sortieren-trockenlauf.md` |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ **N7 ist bestanden** — der Plan steht (7.616 Züge, 2.108 neue Ordner). Vor dem Echtlauf: **Sebastians Blick auf die 39 sicheren Event-Vorschläge** und auf die **1.146 Dateien ohne Datum im Namen** (bleiben liegen, 12,2 %); der abgelehnte Anlass `2022-09-05_Anlass-02` (403) wartet weiter |
-| N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten — **mit Mengen-Filter** (Regel in `docs/plan-foto-personen-und-erinnerungen.md` + Projekt-`CLAUDE.md`): Menschenmengen werden **nicht** geclustert, Schwelle über Gesichtsgröße/Gesichter-Anzahl im Code, Vordergrund-Prüfung auf bekannte Personen, sonst weglassen | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) — **Mengen-Regel ist Pflichtteil des Auftrags** |
+| N9a | **Personen-Verfahren** (kein Bild nötig): Mengen-Filter, Clustering, stabile Kennungen, Referenzseiten — Werkzeug rechnet nur auf **Vektoren** (Format von `face_infer.py`), ohne cv2/sklearn | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden; **Test, dass ein Massenfoto keine Gruppe erzeugt** | ✅ **bestanden (27.09.)** — `tools/foto_sortierung/personen_cluster.py` (1.510 Zeilen) + **216** Tests (`backend/tests/test_personen_cluster.py`, 1.590 Zeilen, alles offline); Prüfbefehl selbst gefahren **1095 passed, Exit 0** (Baseline 879). Live **synthetische** Stichprobe: 12 eingebaute Cluster → 12 Gruppen mit identischen Größen, 100 %, 0 falsch zusammengelegt, 0 übersehen, Rauschen verworfen; 3 Massen-Bilder (141 kleine Gesichter) → `clustern: False`; Idempotenz über die CLI belegt (2. Lauf 0 neue Seiten, dieselben Kennungen). Prüfer `gpt-5.6-luna`, 2 Runden: Runde 1 NICHT BESTANDEN (Eigner-Name an 5 Stellen) → korrigiert, Runde 2 **BESTANDEN, „Abweichungen: keine."** Doku: `docs/changelog-2026-09-27-personen-verfahren.md`, Feinauftrag `docs/auftrag-n9-personen-verfahren.md` |
+| N9b | **Personen-Stufe echt rechnen**: Modelle (YuNet + SFace) auf den PC holen bzw. auf dem Handy rechnen lassen, `cv2`/`onnxruntime` in **eigenem** venv (Projekt-venv bleibt unberührt), Gesichter in Jahres-Stapeln erkennen, `kachel_holen` an den echten Weg anstecken (pCloud/Handy) | echte Cluster-Anzahl je Stichprobe (Jahres-Stapel), Referenzseiten mit echten Gesichtern, Massen-Regel am echten Foto belegt | ⬜ **offen** — PC-Aufklärung gemessen (27.09.): `cv2`/`onnxruntime`/`sklearn` fehlen, Modelle liegen **nur auf dem Handy** (`ml_models` fehlt im Repo); installierbar wären `onnxruntime 1.30.0` + `opencv-contrib-python 5.0.0.93` (numpy 2.4.6 bleibt). **Mengen-Regel ist Pflichtteil des Auftrags** |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -591,3 +592,79 @@ ohnehin nachkontrolliert.
     schreibende Operation am Bestand. Sie gehört erst nach Sebastians Blick auf
     die 39 sicheren Event-Vorschläge und die 1.146 datumslosen Dateien. Bis
     dahin kann **N9** (Personen-Stufe vorbereiten, andere Dateien) weiterlaufen.
+* **27.09. ~14:45 — N9a gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,038 USD · Prüfer:
+  `openai/gpt-5.6-luna`, zwei Runden — **andere Modellfamilie**).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden**
+  Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`, zwei neue
+  Recherche-HTML); nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut geprüft und weiter gesperrt** (live „try again at Oct 15th, 2026") →
+  gebaut wurde mit einem Hermes-Subagenten.
+  - **Warum nicht N8:** der Echtlauf ist gesperrt, bis Sebastian die 39 sicheren
+    Event-Vorschläge und die 1.146 datumslosen Dateien angesehen hat (Plan-Zeile
+    N8). N9 läuft laut Plan parallel — **eine schreibende Operation am Bestand
+    gibt es hier nicht**, das Werkzeug rechnet nur auf Zahlen.
+  - **Aufklärung am PC (gemessen, nicht behauptet):** `backend/.venv` hat
+    `numpy 2.4.6` und `PIL 12.3.0`, aber **kein** `cv2`/`onnxruntime`/`sklearn`/
+    `insightface`; die Modelle (`face_detection_yunet_2023mar.onnx`,
+    `face_recognition_sface_2021dec.onnx`) liegen **nicht im Repo** — der Pfad in
+    `backend/face_infer.py` zeigt auf **Termux**. In einer **Wegwerf-Umgebung**
+    (nicht im Projekt-venv!) aufgelöst: `onnxruntime 1.30.0` +
+    `opencv-contrib-python 5.0.0.93` wären am PC installierbar, `numpy 2.4.6`
+    bliebe unverändert. Daraus die Zweiteilung **N9a (Verfahren, heute) →
+    N9b (echte Erkennung)** — dieselbe Aufteilung wie damals N6 → N6b.
+  - **Werkzeug:** `tools/foto_sortierung/personen_cluster.py` (**1.510 Zeilen**)
+    mit den zehn verlangten Funktionen (Mengen-/Gruppen-Entscheidung,
+    Vordergrund-Prüfung gegen den Katalog, Clustering **ohne sklearn**, stabile
+    Kennungen `Person_001`…, Referenzseiten über eine **eingesteckte**
+    Kachelquelle) und `backend/tests/test_personen_cluster.py` (**1.590 Zeilen,
+    216 Testfunktionen**, alles offline, `tmp_path`, keine Bilddatei, kein Netz).
+    Eingabe ist das **Vektorformat, das `backend/face_infer.py` schon liefert**
+    (YuNet-bbox + 128-dim SFace) — deshalb braucht das Werkzeug kein OpenCV.
+  - **Prüfbefehl selbst gefahren:** Baseline **879** → **1095 passed, 3 warnings,
+    Exit 0** (74,5 s; +216 = genau die neuen Testfunktionen). Zweiter Lauf nach
+    den Prüfer-Korrekturen: **1095 passed, Exit 0** (72,70 s).
+  - **Live-Stichprobe (ausdrücklich SYNTHETISCH, kein Foto, kein pCloud-Aufruf):**
+    83 Bilder / 221 Gesichter aus einem Seed. Eingebaut **12** Personen-Cluster
+    (Größen 5,5,6,6,5,7,5,5,9,6,9,8) → gefunden **12** Gruppen mit **identischen**
+    Größen; **12/12 = 100 %**, **0** falsch zusammengelegt, **0** übersehen,
+    **0** von 4 Rausch-Gesichtern in einer Gruppe. **Die Pflichtprüfung des
+    Plans:** 3 Massen-Bilder mit zusammen **141 kleinen Gesichtern** → Art
+    `menge`, `clustern: False`, **keine** Gruppe, **keine** Referenzseite;
+    dasselbe Bild mit einem großen Katalog-Gesicht → `clustern: True` mit der
+    bekannten Kennung. `--schreiben`: 14 Referenzseiten + `kennungen.json`
+    (12 Kennungen); 2. Lauf **0** neue Seiten, 12 Kennungen wiederverwendet
+    (Idempotenz über die CLI, nicht nur im Test). Repo-Schutz live: Ausgabeordner
+    im Repo → deutsche Meldung + **Exit 2**, nichts angelegt.
+  - **Prüfer Runde 1: NICHT BESTANDEN — eine Beanstandung, berechtigt.** Der
+    **Eigner-Name** stand an fünf Stellen der neuen Dateien (Werkzeug 7/1021,
+    Changelog 64/154/199); mein Feinauftrag verbietet Personennamen wörtlich.
+    Zum Einordnen, **ohne** die Beanstandung zu entkräften: betroffen war nur der
+    Eigner-Name (projektweit in `AGENTS.md`/`CLAUDE.md`), **keine fotografierte
+    Person**; in den Tests kam kein Name vor. **Korrigiert** → „der Nutzer".
+  - **Prüfer Runde 2 (frischer Kontext, verschärftes Kriterium: Verbot gilt für
+    Namen Dritter/Orte/Ereignisse): BESTANDEN — „Abweichungen: keine."** Er hat
+    den Prüfbefehl selbst gefahren (1095/Exit 0), die Korrektur nachgezählt
+    (`Sebastian` 0 Treffer), die **volle Namensprüfung** gefahren (50 Vornamen,
+    Städte/Regionen, Veranstaltungsnamen, Bestandsordner-Muster → überall
+    **0 Treffer**), bestätigt, dass der Zweig `menge_mit_bekannter_person` über
+    die **öffentliche** Funktion erreichbar ist (Test Zeile 343, Assertion 352),
+    und die Zeilen nachgezählt (1.510 / 1.590 / 225).
+  - **Eigene Stichprobe des Prüfers (Runde 1, anderer Seed):** 8 Cluster à 5
+    Vektoren, 2 Rauschpunkte, Massenbild mit 40 kleinen Gesichtern → **8/8
+    Gruppen**, 0 falsch zusammengelegt, 0 übersehen, Rauschen verworfen,
+    Massenbild `clustern: False`, mit großem Katalog-Gesicht `clustern: True,
+    personen: ["Person_003"]`, 2. CLI-Lauf 0 neue Seiten und dieselben Kennungen.
+  - **Schutz:** kein pCloud-Aufruf, keine Bilddatei angefasst (Test prüft die
+    Abwesenheit von Lösch-, Netz- und pCloud-Funktionen), keine Vektorwerte in
+    Ausgaben, kein Schreiben ins Repo; alle Ausgaben liegen außerhalb
+    (`~/foto_sortierung/personen_probe/` – synthetisch, sowie
+    `~/foto_sortierung/pruefer_n9a/`). Biometrie bleibt lokal.
+  - Doku: `docs/changelog-2026-09-27-personen-verfahren.md`,
+    Feinauftrag `docs/auftrag-n9-personen-verfahren.md`.
+  - **Nächster Schritt: N9b** (echte Erkennung: Modelle auf den PC bzw. auf dem
+    Handy rechnen, `cv2`/`onnxruntime` im **eigenen** venv, Jahres-Stapel messen,
+    `kachel_holen` an den echten Weg anstecken) — **N8 bleibt gesperrt**, bis
+    Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
+    Dateien da ist.
