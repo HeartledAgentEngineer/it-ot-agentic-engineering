@@ -131,7 +131,7 @@ ohnehin nachkontrolliert.
 | N1 | Cloud-Service (Hintergrund-Bau) **selbst prüfen** + committen | `pytest tests/ -q` grün; Rauchtest-Zahlen aus dem Bericht nachgefahren | ✅ **500 Tests grün** (selbst gefahren), Rauchtest-Zahlen geprüft (18 Einträge, 4185 Bytes Vorschaubild), committet |
 | N2 | **Selbstheilung + Rollback-Werkzeug** committen (Selbstheilung schon gebaut: `pcloud_token_erneuern.py`) | Prüfmodus sagt „gültig"; Rückroll-Tool mit Tests | 🔄 Selbstheilung committet (`3cad5ae`, live belegt); **Rückroll-Werkzeug läuft als Subagent** (`deleg_609a78cd`) |
 | N3 | **Schlüssel aufs Handy** (USB) + Selbsttest-Zeile „pCloud" + `start-termux.sh` übernimmt die Datei automatisch | `curl` am Handy liefert `pcloud: verbunden`; JS-Tests grün | ⬜ **NUR Hauptagent/Sebastian** — der Schlüssel darf nie in einer autonomen Runde ausgegeben werden. Handy hängt am Kabel (27.09. 05:15 geprüft) |
-| N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | 🔄 **läuft als Subagent** (`deleg_609a78cd`) |
+| N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ✅ **Prüfbefehl 525 grün** (500 + 25 neue, selbst gefahren); 2 Kontaktbögen live gebaut (10 Kacheln/62.566 B, 36 Kacheln/262.437 B, Pixel-Nummern belegt); Idempotenz live (2. Lauf: 0 geholt) |
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ⬜ wartet auf N4 |
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ⬜ wartet auf N5 |
 | N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf N4/N6 |
@@ -158,5 +158,36 @@ ohnehin nachkontrolliert.
   Geheimnis-Prüfung im Staging: **0 Treffer**; `.env` unangetastet.
   Commit **`3cad5ae`** (Regeln/Pläne/Selbstheilung/Stand) und der
   Service-Commit folgen als eigener Schritt — gepusht.
-* **Offen für die nächste Runde:** N2 (Rückroll-Werkzeug mit Manifest),
-  N3 (Schlüssel aufs Handy), dann Themen-Stufe (N4/N5).
+* **27.09. ~05:20 — Kollision erkannt und entschärft.** Ein **zweiter Agent**
+  arbeitet im selben Arbeitsbaum (`fa5153d`, `908cf39` — live_zahlen-Themen,
+  nicht von diesem Lauf). Sein `git add -A` hat die hier **gestagten**
+  Cloud-Service-Dateien mitgenommen: Commit `908cf39` heißt „fix(live_zahlen)",
+  enthält aber `pcloud_service.py`, `router/cloud.py`, beide Testdateien und den
+  Service-Changelog. **Inhaltlich nichts verloren** (im Repo vorhanden, Tests
+  grün), nur falsch beschriftet — Historie wird **nicht** umgeschrieben
+  (fremde Commits). Konsequenz als Regel in `AGENTS.md`: nie `git add -A`,
+  immer `git commit --only <Pfade>`; bei `cannot lock ref` erst
+  `git pull --rebase`, niemals `--force`. Push danach wieder synchron (`0 0`).
+* **Läuft:** N2 (Rückroll-Werkzeug) und N4 (Themen-Werkzeug/Kontaktbögen) als
+  zwei Subagenten (`deleg_609a78cd`), kollisionsfreie Dateien.
+  N3 wartet auf den Hauptagenten (Schlüssel-Übertragung nur mit Sebastian).
+* **27.09. ~05:40 — N4 fertig (Themen-Stufe, Subagent `deleg_609a78cd`).**
+  `tools/foto_sortierung/foto_themen.py` (nur lesend: `listfolder` je Ebene +
+  `getthumbs` in Stapeln à 25, Token nie ausgegeben) und
+  `backend/tests/test_foto_themen.py` (**25** Prüfungen, alles ohne Netz).
+  Prüfbefehl **525 passed, Exit 0** (58,7 s). Anlass-Regel: gleiche Minute =
+  ein Anlass, neue Sitzung ab **30 min** Lücke (`--luecke`) → **2.128 Anlässe**
+  über alle Jahre, **380 für 2025** (Median 2 Kacheln, max 108).
+  Live-Stichprobe (2 Anlässe, nur lesend): `2025-02-21_Anlass-01` **10 Kacheln**
+  (44.294 B Vorschauen, Bogen **62.566 B**, 3,4 s) und `2025-01-06_Anlass-01`
+  **36 Kacheln** (186.514 B, Bogen **262.437 B**, 6,1 s) unter
+  `~/foto_sortierung/boegen/2025/`; zweiter Lauf überspringt (0 geholt).
+  Live-Funde: mehrere fileids je getthumbs-Aufruf möglich (Antwort-Reihenfolge
+  NICHT garantiert → Zuordnung über fileid); **Videos/HEIC haben Vorschaubilder**
+  (VIDEO-Kennzeichen trotzdem gesetzt); derselbe Anlass enthält
+  geräteübergreifende Doppelungen (Motorola + OnePlus) — N6 kann über die
+  CSV-Spalte `doppelung` deduplizieren. Details:
+  `docs/changelog-2026-09-27-foto-themen.md`.
+* **Offen für die nächste Runde:** N5 (Kosten-Stichprobe Vision — ein fertiger
+  Bogen liegt bereit), dann N6–N8 (Themen je Anlass → Trockenlauf → echtes
+  Sortieren), N9 (Personen) parallel möglich.

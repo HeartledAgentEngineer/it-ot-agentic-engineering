@@ -70,7 +70,10 @@ ml_models/
 
 # Foto-Sortierung: der Sortierschluessel und die Arbeitsordner enthalten
 # private Dateinamen und Personenzuordnungen. Sie gehoeren NIE ins Repo.
-# Das Werkzeug schreibt sie standardmaessig nach ~/foto_sortierung/.
+# Das Werkzeug schreibt sie standardmaessig nach ~/foto_sortierung/ (ausserhalb des
+# Repos). Der Werkzeug-Code unter tools/foto_sortierung/ bleibt versioniert -
+# deshalb hier KEINE pauschale Ordner-Regel, sondern nur die Ergebnis-Dateien.
 sortierschluessel*.csv
-foto_sortierung/
+boegen/
+manifest.jsonl
 aussortierte_gesichter/
