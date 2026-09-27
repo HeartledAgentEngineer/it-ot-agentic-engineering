@@ -139,6 +139,16 @@ eingesammelt.
      sie stammt aus der eigenen Sonde (siehe oben), weil das Werkzeug die
      Ablehnung nur als leere Antwort meldet; der Sonde-Beleg ist jetzt als
      Datei abgelegt.
+* **Prüfer-Runde 2** auf dem committeten Stand (`0318e56`): **„BESTANDEN",
+  0 Abweichungen.** Nachgerechnet wurden: Commit-Inhalt (genau vier Dateien,
+  die fremden `live_zahlen`-Dateien des zweiten Agenten **nicht** enthalten),
+  Push-Stand `0 0`, Zählstand (2.134 Zeilen / 2.128 eindeutige Anlässe /
+  1 ohne Thema / 2.127 Themen-Dateien / 48 Themen / 242 `Sonstiges` =
+  11,37218 %), Jahresverteilung (Summe 2.128), Sonde-Beleg
+  (`n6b_probe_2022-09-05.log`, kein Schlüsselwert darin), Token- und
+  Kostensummen, md5 des Originals, Prüfbefehl (671/Exit 0),
+  `max_tokens_fuer` für 10/108/5.000 Kacheln und der 108-Kachel-Anlass
+  (Thema `Konzert und Buehne`, 4.420 Ausgabe-Tokens).
 
 ## Was dieser Schritt NICHT getan hat
 

@@ -398,6 +398,15 @@ ohnehin nachkontrolliert.
     (2.128/2 → jetzt 2.128/**1** ohne Thema, 2.127 Themen-Dateien), korrigiert;
     (3) der 403-Nachweis stehe „nicht im Log" — richtig, er kommt aus der
     eigenen Sonde, die jetzt als Datei abgelegt ist.
+    **Prüfer-Runde 2 auf dem committeten Stand (`0318e56`): „BESTANDEN", 0
+    Abweichungen** — er hat den Commit-Inhalt (`git show`, vier Dateien, die
+    fremden `live_zahlen`-Dateien nicht enthalten), `0 0` gegen `origin/main`,
+    den Zählstand (2.134 Zeilen / 2.128 eindeutig / 1 ohne Thema / 2.127
+    Dateien / 48 Themen / 242 `Sonstiges` = 11,37218 %), die Jahresverteilung,
+    den Sonde-Beleg, die Token- und Kostensummen (5.954.092 ein / 370.113 aus
+    = 2,7115101 USD), den md5, den Prüfbefehl (671/Exit 0), `max_tokens_fuer`
+    (10/108/5000 Kacheln) und den 108-Kachel-Anlass mit 4.420 Ausgabe-Tokens
+    selbst nachgerechnet.
   - **Schutz:** Original-Sortierschlüssel unverändert
     (`md5 70642d2988b6e38ff417561ccf870ba8`), nur die Kopie
     `sortierschluessel_themen.csv` geschrieben (9.430 Zeilen, 8.284 mit Thema);
