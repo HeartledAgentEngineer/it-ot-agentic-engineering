@@ -44,7 +44,7 @@ Median 0,8708 / max 1,1422** — **0 von 210 unter 0,45**.
 |---|---|---|---|
 | **vollstaendig** | **0 von 210** (in allen 16 Kombinationen) | **0,99908** (knappste Stelle) | **nie** |
 | dichte | **2 von 210** bei 0,45 **und** bei 0,40 (Quote 1,0 %) | **2,00234** (= 2 × Schwelle) | ab 0,45 abwärts bis 0,20 immer „ja" |
-| mittelpunkt | **11 von 210** bei 0,45 (5,2 %), je 1 bei 0,40/0,35 | 2,0533 (0,9240 absolut) | fast immer „ja" |
+| mittelpunkt | **11 von 210** bei 0,45 (5,2 %), je 1 bei 0,40/0,35 | **2,1208** (0,6362 bei Schwelle 0,30); bei 0,45: 2,0533 (0,9240 absolut) | fast immer „ja" |
 
 Bei **Schwelle 0,45** (Produktionseinstellung, Mindestgröße 3):
 
@@ -108,6 +108,16 @@ Gruppen); alle Schwellen wertgleich zu HEAD; Hygiene (keine Löschfunktion, kein
 Netz-/pCloud-Aufrufe, keine neuen Abhängigkeiten, kein Ausgabeziel im Repo);
 `git diff --stat` = **genau fünf** Dateien, die fremden `live_zahlen`-Dateien und
 die zwei Recherche-HTML nicht enthalten.
+
+**Prüfer Runde 2 (`gpt-5.6-luna`, Abnahme auf Commit `b88b41d`): NICHT BESTANDEN —
+zwei berechtigte Abweichungen, beide korrigiert.**
+(1) Die Tabelle nannte für `mittelpunkt` als **maximales** Verhältnis Durchmesser/Schwelle
+`2,0533`; dieser Wert gilt nur bei Schwelle 0,45. Nachgerechnet aus der Messdatei ist der
+Höchstwert **2,1208** (0,6362 bei Schwelle 0,30) — Zeile korrigiert.
+(2) Die neu ergänzte Journal-Zeile enthielt den **Eigner-Namen**; ersetzt durch „dein Blick".
+Alles andere hat der Prüfer bestätigt (Prüfbefehl 1449/Exit 0, genau sieben Dateien im
+Commit, `0 0`, alle Messzahlen außer der einen, Doku deckt den Code, keine Bilder in den
+Ausgaben).
 
 ## Entscheidung (statt Rückfrage)
 

@@ -1178,7 +1178,8 @@ ohnehin nachkontrolliert.
     „0 von 131" gemessen — **die Stichprobe war zu klein, kein Gegenbeweis**.
     **vollstaendig 0 von 210** in **allen 16** Kombinationen (8 Schwellen × 2 Mindest-
     größen), Durchmesser **nie** über der Schwelle (knappste Stelle 0,99908).
-    **mittelpunkt 11 von 210** bei 0,45 (5,2 %), Durchmesser 0,9240 → ausgeschieden.
+    **mittelpunkt 11 von 210** bei 0,45 (5,2 %), Verhältnis Durchmesser/Schwelle bis
+    **2,1208** (0,9240 absolut bei 0,45) → ausgeschieden.
     Von 48 Verfahren-Schwellen-Kombinationen tragen die **34** verschmolzenen Paare
     je zur Hälfte dichte (4 je Mindestgröße) und mittelpunkt (13 je Mindestgröße);
     vollstaendig trägt **0** bei.
@@ -1215,6 +1216,13 @@ ohnehin nachkontrolliert.
     Hygiene (keine Löschfunktion, keine Netz-/pCloud-Aufrufe, keine neuen
     Abhängigkeiten, kein Ausgabeziel im Repo); `git diff --stat` = **genau fünf**
     Dateien, die fremden `live_zahlen`-Dateien **nicht** enthalten.
+  - **Prüfer Runde 2 (`gpt-5.6-luna`, Abnahme auf Commit `b88b41d`): NICHT BESTANDEN —
+    zwei berechtigte Abweichungen, beide korrigiert.** (1) In der Changelog-Tabelle stand
+    für `mittelpunkt` als **maximales** Verhältnis Durchmesser/Schwelle `2,0533`; das gilt
+    nur bei 0,45, der Höchstwert ist **2,1208** (0,6362 bei Schwelle 0,30) — nachgerechnet
+    aus `n9g_messung.json` und korrigiert. (2) Diese neu ergänzte Journal-Zeile enthielt
+    den **Eigner-Namen** → ersetzt durch „dein Blick". Der Code selbst war von der
+    Beanstandung nicht betroffen.
   - **Schutz:** pCloud nur **lesend**; Originale **nur im Arbeitsspeicher**, **keine**
     Bilddatei auf der Platte; **nichts gelöscht**; `manifest.jsonl` existiert nicht
     (keine Buchung); alle Ausgaben unter `~/foto_sortierung/`; keine Schlüsselwerte,
@@ -1226,5 +1234,5 @@ ohnehin nachkontrolliert.
     weiterhin nur auf einer Stichprobe des Bestands.
   - **Nächster Schritt: N11** (Fotos-Fragen am Handy: `/api/fotos/uebersicht` +
     kleine Datendatei ohne Bilder) — **N8 (echtes Sortieren) bleibt gesperrt**, bis
-    Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146 datumslosen
+    dein Blick auf die 39 sicheren Event-Vorschläge und die 1.146 datumslosen
     Dateien da ist; **N10** (Abschlussbericht) danach.
