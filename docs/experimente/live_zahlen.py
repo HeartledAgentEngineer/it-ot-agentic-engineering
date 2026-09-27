@@ -29,6 +29,7 @@ ZIEL = Path(__file__).with_name("live_zahlen.json")
 KURS_FALLBACK = 0.87696
 STANDARD_SESSION = "20260828_015944_352e08"
 ZEITRAEUME = [
+    ("stunde", "Letzte Stunde", "rollierend: jetzt minus 60 Minuten"),
     ("heute", "Heute", "ab 00:00 heute (lokale Zeit)"),
     ("woche", "Woche", "ab Montag 00:00 dieser Woche (ISO-Kalenderwoche)"),
     ("letzte_woche", "Letzte Woche", "Montag bis Sonntag der Vorwoche"),
@@ -71,6 +72,8 @@ def kurs_holen():
 def fenster(kennung):
     jetzt = datetime.now()
     mitternacht = jetzt.replace(hour=0, minute=0, second=0, microsecond=0)
+    if kennung == "stunde":
+        return jetzt.timestamp() - 3600, None
     if kennung == "heute":
         return mitternacht.timestamp(), None
     if kennung == "woche":
