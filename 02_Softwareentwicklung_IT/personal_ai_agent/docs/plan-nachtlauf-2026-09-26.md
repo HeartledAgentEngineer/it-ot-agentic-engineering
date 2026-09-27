@@ -134,7 +134,9 @@ ohnehin nachkontrolliert.
 | N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ✅ **Prüfbefehl 525 grün** (500 + 25 neue, selbst gefahren); 2 Kontaktbögen live gebaut (10 Kacheln/62.566 B, 36 Kacheln/262.437 B, Pixel-Nummern belegt); Idempotenz live (2. Lauf: 0 geholt) |
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ✅ **bestanden (27.09.)** — siehe Journal: Nummern 1–36 einwandfrei lesbar, Thema je Bogen erkennbar, unbrauchbare Kacheln werden benannt |
 | N6 | **Themen je Anlass** (Stapel) → Zuordnung im Sortierschlüssel | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_themen_vision.py` (ein Vision-Aufruf je Anlass), **628 Prüfungen grün**, 59 eigene Tests; 2 Anlässe live gemessen (36 Kacheln → „Veranstaltung Publikum Bühne", 0,004354 $; 10 Kacheln → „Konzert Band Auftritt", 0,002255 $); Prüfer `gpt-5.6-luna` sagt „bestanden" (6. Runde). **Offen als N6b:** Massenlauf über alle 2.128 Anlässe (Bögen bauen + Themen setzen) |
-| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf **N6b** (Themen für alle Dateien) — Werkzeuge dafür stehen |
+| N6c | **Themen-Katalog** (feste Liste 40–60 Einträge) + Prompt, der nur daraus wählt; die 161 gelaufenen Anlässe nachziehen (`--wiederholen`); **Modellvergleich am Katalog** (flash vs. flash-lite) | Werkzeug-Tests grün; Stichprobe zeigt ≤ Katalog-Themen; flash-lite-Qualität belegt | ⬜ **neu (27.09.)** — durch den Befund aus N6b Stapel 1 erzwungen: 155 Themen bei 161 Anlässen = 96 % Einzelstücke |
+| N6b | **Massenlauf:** Bögen je Jahr bauen, dann Themen setzen, kleinster Stapel zuerst | Anzahl Anlässe je Jahr/Thema; Stichprobe nachgesehen | 🔄 **Stapel 1 fertig (27.09.)**: 2014/2016/2017/2019/2020/2021 = **161 Anlässe, 510 Kacheln, 0 Fehler**, 0,196610 USD (0,001221 USD je Anlass); Fortsetzungspunkt `themen.jsonl`. **Rest (1.967 Anlässe) wartet auf N6c** — sonst würden 96 % Einzelthemen-Ordner entstehen. Doku: `docs/changelog-2026-09-27-themen-stapel1.md` |
+| N7 | **Probelauf `--trocken`** des Sortierens (Ordner anlegen + verschieben) | Liste der geplanten Züge, gegengeprüft | ⬜ wartet auf **N6b/N6c** (Themen für alle Dateien) — Werkzeuge dafür stehen |
 | N8 | **Sortieren echt** (Jahr für Jahr, kleinster Stapel zuerst) | Manifest vollständig; Stichprobe am Zielordner per API geprüft | ⬜ wartet auf N7 |
 | N9 | **Personen-Stufe vorbereiten**: Modelle/OpenCV am PC prüfen, Vektoren + Cluster-Verfahren, unbenannte Gruppen + Referenzseiten | Cluster-Anzahl je Stichprobe; Referenzseiten vorhanden | ⬜ **kann parallel zu N4–N8 laufen** (andere Dateien) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
@@ -245,3 +247,34 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N6b** — Massenlauf (Bögen je Jahr bauen, dann Themen
     setzen), kleinster Stapel zuerst, jederzeit abbrechbar (`themen.jsonl`).
     Doku: `docs/changelog-2026-09-27-themen-vision.md`.
+* **27.09. ~07:15 — N6b Stapel 1 gefahren und gemessen (Planer: Hauptagent).**
+  „Kleinster Stapel zuerst": **2014, 2016, 2017, 2019, 2020, 2021** komplett —
+  **161 Anlässe, 510 Kacheln, 0 Fehler**, alle Jahre Exit 0.
+  - **Kontaktbögen:** 161 neu gebaut, 2,4 / 2,2 / 2,5 / **8,0** / **19,2** /
+    **54,6 s** je Jahr (Summe 1,5 min) — deutlich schneller als die Schätzung
+    „~4,5 s je Anlass" aus N4; Vorschaubilder 510 Stück (1,52 MB für 2021).
+  - **Themen:** 161 Vision-Aufrufe, **438.072 ein / 26.082 aus Tokens**,
+    **0,196610 USD** = **0,001221 USD je Anlass** (min 0,000973, max 0,004354);
+    **1,91 s je Anlass** im Mittel, größte 8,67 s; **0 unbrauchbare Kacheln**,
+    **0 unvollständige** Bögen, **0 Fehlerzeilen**.
+  - **Original-CSV unverändert** (`md5 70642d2988b6e38ff417561ccf870ba8`),
+    geschrieben nur außerhalb des Repos (`~/foto_sortierung/`).
+  - **Kostenhochrechnung** (gemessen, nicht geschätzt): 2.128 Anlässe →
+    `gemini-2.5-flash` **2,60 USD**, `gemini-2.5-flash-lite` **0,72 USD**,
+    `gemini-3.7-flash` **5,64 USD**; Preise live über `/api/v1/models` geholt.
+  - **Der Befund, der den Plan ändert: 155 verschiedene Themen bei 161
+    Anlässen = 96 % Einzelstücke** („Haus Garten" vs. „Haus und Garten",
+    „Sonnenuntergang Stadtansicht/Meer/am See"). Ursache im Code:
+    `prompt_bauen()` fragt „2 bis 4 deutsche Woerter" **ohne Wortschatz**.
+    Als Ordner `Agent/Fotos/<Jahr>/<Thema>/` wäre das untauglich.
+  - **Entscheidung:** neuer Schritt **N6c — Themen-Katalog** (feste Liste,
+    Ziel 40–60 Einträge, Prompt wählt nur daraus, 161 Anlässe mit
+    `--wiederholen` nachziehen ≈ 0,20 USD) **vor** dem Restlauf der 1.967
+    Anlässe; dort auch der Modellvergleich flash vs. flash-lite, weil 0,72 vs.
+    2,60 USD sonst das Dreifache ohne belegten Gewinn wäre.
+  - Doku: `docs/changelog-2026-09-27-themen-stapel1.md`.
+  - **Prüfbefehl selbst gefahren:** `pytest tests/ -q` → **628 passed, Exit 0**
+    (121 s; unverändert, da nur ausgeführt und dokumentiert wurde).
+    **Prüfer `openai/gpt-5.6-luna`: „bestanden", 0 Abweichungen** — er hat die
+    Zahlen alle selbst nachgerechnet (155 von 161 = 96,27 %, Summen, md5,
+    Exit-Zeilen, Code-Stelle `prompt_bauen()`).
