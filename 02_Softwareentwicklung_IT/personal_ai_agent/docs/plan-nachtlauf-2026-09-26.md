@@ -146,7 +146,7 @@ ohnehin nachkontrolliert.
 | N9c | **Mengen-Zweig am echten Foto erreichbar machen** (`ANTEIL_MIN` mit Messung prüfen) + `kachel_quelle` um den **Gesichtsausschnitt** ergänzen (in-memory, statt ganzes Foto) | `menge`-Zweig an echten Mengen-Fotos erreicht; Kacheln zeigen Gesichter | ✅ **bestanden (27.09.)** — `ANTEIL_MIN` **0,0005 → 0,00001** (gemessen: das alte Tor verwarf **echte** Funde, kleinste echte Detektion 0,000145 bzw. 0,000022); `kachel_quelle(..., ausschnitt=True)` schneidet in-memory um das Gesicht (**nur PIL**, Rand 0,45 × bbox, Rückfall aufs ganze Foto statt Abbruch, reine Funktion `ausschnitt_rechnen`), CLI `--ausschnitt`. Prüfbefehl selbst gefahren **1196 passed, Exit 0** (Baseline 1175); **30 echte Mengen-Bilder**: vorher `gruppe 12 · leer 9 · unklar 9 · menge 0` → nachher `gruppe 12 · leer 6 · unklar 11 · menge 1` (**„1 von 30"**, nicht schöngeredet); `gruppe` unverändert = keine Regression. **Offen als N9d:** `bbox` im Vektorzeilen-Lauf verdrahten (`kachel_quelle` liest `fileid`, N9a-Einträge tragen `bild_id`) + N9b-Lauf mit neuem `ANTEIL_MIN` wiederholen; `MENGE_ANZAHL = 6` bleibt unangetastet (N9a-Beschluss, braucht eigene Messung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-mengen-zweig.md`, Auftrag `docs/auftrag-n9c-mengen-zweig.md` |
 | N9d | **Gesichtsausschnitt verdrahten + N9b-Messung wiederholen**: `bbox`/`bild_id` in der Kachelquelle zusammenführen (N9a-Einträge tragen `bild_id`, `kachel_quelle` liest `fileid`), N9b-Vektorlauf mit dem neuen `ANTEIL_MIN` über eine **breitere** Mengen-Stichprobe | Ausschnitt-Kacheln messbar schärfer; `menge`-Anteil über mehr als 30 Bilder beziffert (nicht mehr „1 von 30") | ✅ **bestanden (27.09.)** — `_fileid_von` liest `fileid`, sonst **`bild_id`** (N9a-Einträge gehen **ohne Um-Mappen** in die echte Kachelquelle; kein Hack mehr nötig), neue reine `kachelquelle_hinweis(ausschnitt)` sagt wahrheitsgemäß, dass `--ausschnitt` im **Vektorzeilen-Lauf wirkungslos** ist (vor dem Download keine `bbox` bekannt) und wo er wirklich schneidet; Prüfbefehl selbst gefahren **1205 passed, Exit 0** (Baseline 1196, +9 neue Tests). **Breite Messung: 92 Bilder** (80 aus 8 Mengen-Anlässen, 12 Kontrollbilder), 465 Gesichter, 0 Fehler, 358,9 s: alt `0,0005` → `gruppe 32 · leer 27 · menge 4 · unklar 29` gegen neu `0,00001` → `gruppe 32 · leer 20 · **menge 10** · unklar 30`; **nur Mengen-Bilder: 4 → 10 von 80 = 12,5 %** (statt „1 von 30" = 3,3 %), Kontrollgruppe **0 × `menge`**, `gruppe` in beiden Schwellen **unverändert 32**. **Verdrahtung live belegt:** 24 Referenzseiten, **186 Kacheln, alle 200×200** aus `bild_id` + `bbox` ohne Um-Mappen, Kachel-Abstand zum selbst gerechneten Ausschnitt **1,755–3,116** (JPEG-Verlust) gegen **68,954–76,192** zum ganzen Foto → die Kachel ist wirklich der Gesichtsausschnitt; 2. Lauf 0 neue Dateien. **Ehrlicher Nebenbefund:** das DBSCAN-artige Clustering bündelt die 189 Gesichter der `gruppe`-Bilder zu **einer** Gruppe — bei dichtem Verfahren erwartbar, aber am echten Bestand ungeprüft → Kandidat **N9e** (Schwelle mit Bodenwahrheit messen). Prüfer `gpt-5.6-luna`, drei Runden: Runde 1 und 2 NICHT BESTANDEN (Belegskripte löschten Ausgabeordner per `rmtree` → jetzt verweigern sie mit Exit 2; meine Manifest-Formulierung falsch → korrigiert), Runde 3 **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9d-verdrahtung.md`. ⚠️ **Korrektur 27.09. (N9e): der Nebenbefund ist ein Artefakt** — die 189 Gesichter der `gruppe`-Bilder wurden nur deshalb zu EINER Gruppe, weil alle Gesichter eines Bildes denselben Vektor trugen (Fehler in `alignCrop`, behoben). Die Verdrahtung `_fileid_von`/`kachelquelle_hinweis` bleibt gültig und geprüft; die Mengen- und Cluster-Zahlen sind mit richtigen Vektoren neu zu rechnen (**N9f**) |
 | N9e | **Cluster-Schwelle am echten Bestand prüfen** (Kandidat aus dem N9d-Nebenbefund): `vektoren_clustern` bündelt die 189 nutzbaren Gesichter der `gruppe`-Bilder zu **einer** Gruppe — bei einem Dichte-Verfahren (`CLUSTER_SCHWELLE = 0,45`) ist Verkettung erwartbar, aber am echten Bestand nicht mit Bodenwahrheit geprüft | Gruppen-Anzahl gegen eine bekannte Personenmenge gemessen; falsch zusammengelegte Cluster beziffert | ✅ **bestanden (27.09.)** — **der Befund war ein Fehler, nicht das Clustering.** `cv2…alignCrop` erwartet die **volle 15-Werte-Detektionszeile** (60 Byte), bekam an **drei** Stellen nur die 5×2-Landmarken (40 Byte) → OpenCV liest über den Puffer hinaus → **jedes Gesicht eines Bildes bekam denselben Vektor**. Belegt an Bild `56226031402` (6 Gesichter): mit Landmarken **6× dieselbe** Ausschnitt-Prüfsumme **`e06d30ef365c`, Mittelwert 0,00 (schwarz)** und 6× dasselbe Merkmal, mit der vollen Zeile **6 verschiedene** echte Ausschnitte (Mittel 103–158). Kontrollierter Puffer als harter Beleg: die alte Form ist **bit-identisch** mit der nachgebauten Mischzeile → OpenCV liest **vier Werte über das Ende hinaus**; *welcher* Müll gelesen wird, hängt am Speicherinhalt (der Prüfer sah in seinem Lauf pro Gesicht verschiedene Ausschnitte) — in seiner Wirkung ist der Übergriff aber eindeutig: die alte Form schneidet **nie** das Gesicht. In den gespeicherten Dateien: `n9d` 465 Gesichter → **72** Vektorwerte (57 von 57 Mehrgesicht-Bildern nur identisch), `n9b` 72 → **8** (15 von 15); Bild-interne Paare erkennbarer Gesichter: **131 von 131 mit Distanz exakt 0,0000**. **Fix** in `tools/foto_sortierung/gesicht_erkennen.py` (`_merkmal`/`gesichter_mit_detektor`) **und** `backend/face_infer.py` (`_align_face` + Aufrufer — der Produktionsweg war mit betroffen), dazu ein **Wächter**: ≥2 bit-identische Merkmale in einem Bild ⇒ deutsche Fehlermeldung, leere Liste, **kein stiller Durchlauf**. Prüfbefehl selbst gefahren **1316 passed, Exit 0** (Baseline 1205; +75 aus dem neuen Mess-Werkzeug, +36 aus Fix/Wächter/Tests). **Nachweis danach:** dieselben 92 Bilder neu gerechnet → 465 Gesichter, **465 verschiedene Vektorwerte**, 131 Bild-Paare mit Distanz **0,531–1,067** (0 ≈ 0); 6 **frische** Bilder live 2/2, 3/3, 2/2, 3/3, 7/7, 5/5 verschiedene Vektoren (kleinste Paar-Distanz 0,49–0,91). Neue Dateien `personen_vektoren_n9e.jsonl` (92) und `personen_vektoren_n9e_burst.jsonl` (59 Dateien, 6 Familien, 36 Gesichter/36 Werte). **Schwellen-Messung (neues Werkzeug `tools/foto_sortierung/personen_schwelle.py`, 75 Tests):** Bodenwahrheit = zwei **erkennbare** Gesichter im selben Bild sind zwei Personen; Anlass-Mix nur noch **Strukturmaß** (Anlass ist keine Identitätswahrheit). Ergebnis bei **allen acht** Schwellen 0,10–0,45: **0 von 131** Bild-Paaren verschmolzen (vorher 131/131 = 100 %); Gruppen 12 → 2, größte 22 → 3, Durchmesser 0,9032 → 0,1553. Über alle 465 Gesichter bleibt eine Verkettung sichtbar (0,45: 19 Gruppen, größte 85, Durchmesser 1,0755 > Schwelle) → eigener Folgeschritt. Burst-Serien: **0 von 42** Familien-Paaren verschmolzen, Distanz-Median 0,7777 (= Szenenaufnahmen, **kein** Identitätsbeleg). **Keine Schwelle geändert.** Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (meine Aussage war zu absolut — welcher Speichermüll gelesen wird, ist nicht deterministisch) → korrigiert und mit kontrolliertem Puffer belegt, Runde 2 **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9e-aligncrop-fehler.md` |
-| N9f | **Personen-Ergebnisse mit richtigen Vektoren neu rechnen** (Folge von N9e): Gruppen-Anzahl, Referenzseiten, Kennungs-Altbestand auf `personen_vektoren_n9e.jsonl`/`_burst.jsonl` neu bestimmen; die Mengen-Arten (`gruppe`/`menge`/`leer`) am korrigierten Lauf erneut zählen; danach die **Verkettung** messen/ersetzen (Mittelpunkt- oder Vollständigkeits-Verknüpfung bzw. Größen-Grenze) — **erst danach** die Schwelle neu begründen | neue Gruppen-Anzahl und Referenzseiten belegt; Verkettung beziffert oder ersetzt; Schwelle mit Zahlen begründet (oder bewusst unverändert) | ⬜ **offen** (27.09. aus N9e) — keine pCloud-Schreibzugriffe nötig, Originale nur im Arbeitsspeicher |
+| N9f | **Personen-Ergebnisse mit richtigen Vektoren neu rechnen** (Folge von N9e): Gruppen-Anzahl, Referenzseiten, Kennungs-Altbestand auf `personen_vektoren_n9e.jsonl`/`_burst.jsonl` neu bestimmen; die Mengen-Arten (`gruppe`/`menge`/`leer`) am korrigierten Lauf erneut zählen; danach die **Verkettung** messen/ersetzen (Mittelpunkt- oder Vollständigkeits-Verknüpfung bzw. Größen-Grenze) — **erst danach** die Schwelle neu begründen | neue Gruppen-Anzahl und Referenzseiten belegt; Verkettung beziffert oder ersetzt; Schwelle mit Zahlen begründet (oder bewusst unverändert) | ✅ **bestanden (27.09.)** — neues Werkzeug `personen_verkettung.py` (878 Zeilen) + **117** Tests → Prüfbefehl **1433 grün, Exit 0**; **Verkettung beziffert**: Bestandsverfahren (dichte) bei Schwelle 0,45 → Durchmesser **0,9032 = 2 × Schwelle** (größte Gruppe 22), vollständige Verknüpfung **0,4417 ≤ 0,45** (größte 11), Mittelpunkt 0,9040; über **alle acht Schwellen 0,10–0,45** liegt dichte und mittelpunkt **immer** über der Schwelle, vollständig **nie**; **Bodenwahrheit: 0 von 131** Bild-Paaren erkennbarer Gesichter verschmolzen (Distanzen min 0,5312/Median 0,8280/max 1,0667, **0 unter 0,45**) bei **allen** Verfahren und Schwellen; **Neu-Rechnung** auf korrigierten Vektoren: Arten `leer 20 · gruppe 32 · menge 10 · unklar 30`, **12 Gruppen** (4,4,4,4,3,11,10,3,22,3,3,3), **12 Kennungen**, **16 Referenzseiten mit 74 echten Gesichtsausschnitten** (alle 200×200, 2. Lauf 0); **Schwelle bewusst unverändert 0,45** (kleinster Abstand zweier erkennbarer Gesichter 0,5312 → 0,0812 Sicherheitsabstand; Anheben durch keine Messung gedeckt); Burst-Datei: 14 nutzbare Gesichter, alle drei Verfahren **gleich** (2 Gruppen, Durchmesser 0,3779 — keine Verkettung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen** (9 Punkte unabhängig nachgerechnet). Doku `docs/changelog-2026-09-27-n9f-verkettung.md` |
 | N11 | **Fotos-Fragen am Handy:** Endpunkt `/api/fotos/uebersicht` + kleine Datendatei (Zahlen und Event-Namen, **ohne Bilder**) | Endpunkt antwortet ohne Netz; Selbsttest zeigt die Quelle | ⬜ **offen** (27.09., Eintrag des zweiten Agenten im Journal) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
 
@@ -1062,3 +1062,91 @@ ohnehin nachkontrolliert.
     **0 Gesichter** (Mittelwerte 9,65–62,94), im Ausschnitt der korrekten Form
     **5 von 6** (Mittel 103,56–158,21). Damit ist die „Wirkung" nicht mehr nur
     behauptet, sondern gemessen: die alte Form schneidet nie ein Gesicht.
+* **27.09. ~22:4x — N9f gebaut, gemessen und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,026 USD für das Werkzeug,
+  Messläufe vom Planer · Prüfer: `openai/gpt-5.6-luna`, eine Runde — **andere
+  Modellfamilie**). Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte
+  an den **fremden** Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`,
+  zwei Recherche-HTML); nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  erneut geprüft und weiter gesperrt** (live „try again at Oct 15th, 2026
+  9:32 PM") → gebaut wurde mit einem Hermes-Subagenten.
+  - **Werkzeug:** `tools/foto_sortierung/personen_verkettung.py` (**878 Zeilen**)
+    + `backend/tests/test_personen_verkettung.py` (**939 Zeilen, 117
+    Testfunktionen**, alles offline, nur `numpy`). Drei Verfahren:
+    **dichte** (Bestandsweg N9a, transitiv verkettend), **vollstaendig**
+    (Complete-Linkage — Durchmesser **garantiert** ≤ Schwelle, per Test über
+    Saatgüter belegt), **mittelpunkt** (Mittelpunkt-Verfahren, **keine**
+    Garantie). Dazu `verfahren_messen`, `vergleich_bericht`, `bericht_text` und
+    eine CLI (`--vektoren`, `--verfahren`, `--schwellen`, `--min-groesse`,
+    `--ausgabe` nur außerhalb des Repos, `--schreiben`; Standard Trockenlauf).
+  - **Prüfbefehl selbst gefahren:** Baseline **1316** → **1433 passed, Exit 0**
+    (75,8 s; +117 = genau die neuen Testfunktionen). Der Commit-Hook fuhr
+    dasselbe Tor beim Commit noch einmal: **1433 / Exit 0**.
+  - **Verkettung ist beziffert** (Vektordatei `personen_vektoren_n9e.jsonl`,
+    92 Bildzeilen, **189 nutzbare Gesichter**, Schwelle **0,45**,
+    Mindestgröße **3** = Produktionseinstellung):
+    dichte **12 Gruppen / größte 22 / 74 Gesichter / Durchmesser max 0,9032**,
+    vollständig **11 / 11 / 63 / 0,4417**, mittelpunkt **10 / 27 / 75 / 0,9040**.
+    Bei gleicher Mindestgröße 2 über **alle acht Schwellen 0,10–0,45** liegt
+    dichte **immer** über der Schwelle (0,45: 20 Gruppen, größte 22, 0,9032),
+    vollständig **nie** (23/11/0,4491). **Der Bestandsweg bildet also bei
+    Schwelle 0,45 eine Gruppe mit Durchmesser = 2 × Schwelle.**
+  - **Bodenwahrheit (hart, ohne Personen-Labels):** **131** Bild-Paare
+    erkennbarer Gesichter (Flächenanteil ≥ 0,5 %), Distanzen **min 0,5312 /
+    Median 0,8280 / max 1,0667**, **0 von 131 unter 0,45**; über **alle drei
+    Verfahren × alle acht Schwellen (24 Kombinationen) 0 von 131 verschmolzen**.
+    Die Verkettung verschmilzt also nur **nicht prüfbare** (kleine/ferne)
+    Gesichter, keine zwei erkennbaren Personen.
+  - **Entscheidung zur Schwelle (statt Frage): unverändert 0,45.** Begründung mit
+    Zahlen: kleinster Abstand zweier erkennbarer Gesichter **0,5312** → **0,0812**
+    Abstand zur Schwelle, unter 0,45 liegen **0** Paare; ein Anheben wäre durch
+    keine Messung gedeckt. **Empfehlung für den Personenschritt** (bewusst
+    **nicht** vollzogen, weil ein Verfahrenswechsel ein eigener Schritt ist):
+    vollständige Verknüpfung — Gewinn: größte Gruppe 11 statt 22, Durchmesser
+    0,4417 statt 0,9032; Preis: 63 statt 74 Gesichtern in Gruppen (11 mehr im
+    Rauschen). `CLUSTER_MIN_NACHBAR`, `ANTEIL_MIN`, `ANTEIL_ERKENNBAR`,
+    `KATALOG_SCHWELLE`, `MENGE_ANZAHL` **nicht angetastet** (auch vom Prüfer
+    als wertgleich bestätigt).
+  - **Neu-Rechnung der Personen-Stufe (korrigierte Vektoren, Produktion):
+    92 Bilder, Arten `leer 20 · gruppe 32 · menge 10 · unklar 30`** (identisch zu
+    N9e), **32 Bilder geclustert, 12 Gruppen** (4,4,4,4,3,11,10,3,22,3,3,3 = 74
+    Gesichter), **12 Kennungen** `Person_001…Person_012` (0 wiederverwendet —
+    der Lauf startete **bewusst ohne** Altbestand, weil die alte Kennungsdatei
+    aus dem fehlerhaften N9b-Lauf stammt), **16 Referenzseiten**,
+    **74 Kacheln, alle 200×200** (0 leer, 0 andere Größe), 17 Dateien,
+    **745.758 Bytes**; **2. Lauf 0 Seiten** (idempotent).
+  - **Pixel-Gegenprobe** an drei Kacheln: Abstand zum frisch gerechneten
+    Gesichtsausschnitt **2,778 / 2,869 / 3,015** (JPEG-Verlust quality 85),
+    zum verkleinerten **ganzen Foto** **59,425 / 58,783 / 68,712** → die Kachel
+    ist wirklich der Ausschnitt.
+  - **Burst-Datei** (`personen_vektoren_n9e_burst.jsonl`): nur **14 nutzbare**
+    Gesichter; bei 0,45 liefern **alle drei** Verfahren dieselben Zahlen
+    (2 Gruppen, größte 2, 4 Gesichter, Durchmesser 0,3779 ≤ 0,45) — in den
+    Szenenaufnahmen **keine** Verkettung. Kein Identitätsbeleg (wie in N9e).
+  - **Prüfer Runde 1 (`gpt-5.6-luna`): BESTANDEN, 0 Abweichungen.** Er hat
+    selbst gefahren: Prüfbefehl **1433 / Exit 0**; Commit `d14d2f9` = **exakt
+    drei** Dateien, keine fremden; `0 0`; beide Werkzeugläufe (mit
+    `--min-groesse 3` und mit Standard 2) und **alle** Tabellenzeilen; die
+    Bodenwahrheit aus der Vektordatei selbst (131 Paare, Distanzen, 0 unter
+    0,45, 0 von 131 in 24 Kombinationen); Ausgabeordner **17 Dateien / 745.758
+    Bytes** und die 16 Seiten; die sechs Schwellen-Konstanten **wertgleich** zu
+    HEAD~1; Hygiene per AST (keine Lösch-, Netz-, cv2-, onnx- oder pCloud-Aufrufe,
+    117 Testfunktionen, Repo-Ausgabeziel → Exit 2, `manifest.jsonl` nicht
+    vorhanden); und die Changelog-Zahlen Punkt für Punkt ohne Abweichung.
+  - **Schutz:** pCloud nur **lesend**; Originale nur im Arbeitsspeicher, **keine**
+    Bilddatei auf der Platte; **nichts gelöscht** (Belegskripte verweigern einen
+    nicht leeren Zielordner mit **Exit 2**); keine Buchung (`manifest.jsonl`
+    existiert nicht); Ausgaben ausschließlich unter `~/foto_sortierung/`
+    (`personen_n9f/`, `n9f_bodenwahrheit.json`, `n9f_referenzseiten.json`, drei
+    Belegskripte); keine Schlüsselwerte, keine Namen Dritter.
+  - **Kollision wie gehabt:** die fremden `live_zahlen`-Dateien und die zwei
+    Recherche-HTML blieben unberührt; Commit mit ausdrücklich genannten Pfaden
+    (`git commit --only`), gepusht, `0 0`.
+  - Doku: `docs/changelog-2026-09-27-n9f-verkettung.md`.
+  - **Offen für den nächsten Schritt:** Verfahrenswechsel im Produktionsmodul
+    (`vollstaendig`) und **breitere Stichprobe** (die 92 Bilder sind ein
+    Ausschnitt des Bestands). **N8 (echtes Sortieren) bleibt gesperrt**, bis
+    Sebastians Blick auf die 39 sicheren Event-Vorschläge und die 1.146
+    datumslosen Dateien da ist; **N11** (Fotos-Fragen am Handy) und **N10**
+    (Abschlussbericht) sind weiter offen.
