@@ -207,6 +207,19 @@ heißen — ein Datums-Parser-Test **muss** Jahreszahlen enthalten. Bewertung de
 Planers: kein Leak, keine Personendaten, keine Orts- oder Ereignisnamen; die
 verbleibenden Zeichenketten sind Kalenderdaten. Festgehalten statt weggeredet.
 
+**Runde 3 (Abnahme, `openai/gpt-5.6-luna`, auf dem committeten Stand
+`724279d`): BESTANDEN — „Keine Abweichung festgestellt."** Mit präzisiertem
+Kriterium (blanke Kalenderjahre sind kein Treffer, weil Datums-Tests sie
+enthalten müssen) hat der Prüfer selbst nachgeprüft: der Commit enthält genau
+sechs Dateien und **keine** fremden `live_zahlen`-Dateien, Prüfbefehl
+**760 passed / Exit 0**, beide Läufe mit den erwarteten Zahlen (2.134 / 39 /
+tag 10 / monat 29 / Hinweis 600 / ohne 2.095 / fehlende Kategorie 276; mit
+`--auch-schwach` 639), Datenschutz-Scan der fünf Dateien **0 Treffer mit Orts-,
+Personen- oder Ereignisbezug** (ausgefiltert: 8 Kalenderjahre, 181 Vorkommen),
+keine Schreib-/Lösch-/Verschiebefunktion, kein pCloud-Aufruf, Repo-Schreibschutz
+und Idempotenz bestätigt, **6.562 Dateien** unter `~/foto_sortierung/` vor/nach
+dem Lauf mit unveränderten Zeiten und Größen.
+
 ## Offen für die nächste Runde
 
 * **N7** — Trockenlauf des Sortierens (`--trocken`) mit Zielstruktur

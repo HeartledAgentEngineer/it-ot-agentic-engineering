@@ -508,6 +508,14 @@ ohnehin nachkontrolliert.
     bestätigt: Prüfbefehl 760/Exit 0, beide Läufe nachgerechnet, die verschärfte
     Regel eigenständig nachgewiesen, 112/113, keine Schreib-/Löschfunktion,
     Repo-Schreibschutz, Idempotenz, mtimes unverändert.
+  - **Prüfer Runde 3 (Abnahme auf dem committeten Stand `724279d`): BESTANDEN —
+    „Keine Abweichung festgestellt."** Mit präzisiertem Kriterium (blanke
+    Kalenderjahre sind kein Treffer) bestätigte der Prüfer Commit-Inhalt (genau
+    sechs Dateien, keine fremden `live_zahlen`-Dateien), Prüfbefehl 760/Exit 0,
+    beide Läufe mit den erwarteten Zahlen, Datenschutz-Scan der fünf Dateien
+    **0 Treffer mit Orts-/Personen-/Ereignisbezug** (8 Kalenderjahre, 181
+    Vorkommen ausgefiltert), keinen pCloud-Aufruf und **6.562 unveränderte
+    Dateien** unter `~/foto_sortierung/`.
   - **Schutz:** Original-Sortierschlüssel unverändert
     (`md5 70642d2988b6e38ff417561ccf870ba8`, selbst geprüft), Bestandsdateien
     ebenfalls (nur gelesen); Ausgaben ausschließlich außerhalb des Repos.
