@@ -128,8 +128,8 @@ ohnehin nachkontrolliert.
 
 | # | Schritt | Prüfkriterium | Stand |
 |---|---|---|---|
-| N1 | Cloud-Service (Hintergrund-Bau) **selbst prüfen** + committen | `pytest tests/ -q` grün; Rauchtest-Zahlen aus dem Bericht nachgefahren | ⬜ |
-| N2 | **Selbstheilung + Rollback-Werkzeug** committen (schon gebaut: `pcloud_token_erneuern.py`) | Prüfmodus sagt „gültig"; Rückroll-Tool mit Tests | ⬜ |
+| N1 | Cloud-Service (Hintergrund-Bau) **selbst prüfen** + committen | `pytest tests/ -q` grün; Rauchtest-Zahlen aus dem Bericht nachgefahren | ✅ **500 Tests grün** (selbst gefahren), Rauchtest-Zahlen geprüft (18 Einträge, 4185 Bytes Vorschaubild), committet |
+| N2 | **Selbstheilung + Rollback-Werkzeug** committen (Selbstheilung schon gebaut: `pcloud_token_erneuern.py`) | Prüfmodus sagt „gültig"; Rückroll-Tool mit Tests | ⚠️ Selbstheilung committet (`3cad5ae`, live belegt) — **Rückroll-Werkzeug offen** |
 | N3 | **Token aufs Handy** (USB) + Selbsttest-Zeile „pCloud" + `start-termux.sh` übernimmt die Datei automatisch | `curl` am Handy liefert `pcloud: verbunden`; JS-Tests grün | ⬜ |
 | N4 | **Themen-Stufe Werkzeug**: `tools/foto_sortierung/foto_themen.py` — Ordnerbaum je Ebene, Vorschaubilder in Stapeln, Kontaktbögen bauen | Werkzeug-Tests grün; Kontaktbogen-Datei entsteht (Größe/Kacheln belegt) | ⬜ |
 | N5 | **Stichprobe Kosten** (1 Bogen → Vision) → Thema je Anlass | gemessene Kosten pro Bogen notiert, bevor der Vollauf startet | ⬜ |
@@ -146,3 +146,17 @@ ohnehin nachkontrolliert.
   Der Cloud-Service-Bau (`deleg_1a630b66`) läuft noch im Hintergrund.
   Selbstheilung (`pcloud_token_erneuern.py`) gebaut und **live belegt**
   (Prüfmodus „gültig", Neu-Holen erfolgreich).
+* **27.09. ~05:05 — N1 fertig.** Cloud-Service aus dem Hintergrund-Bau
+  (`sa-0-40a79e8d`, 1301 s, 67 API-Aufrufe) **selbst geprüft**: Prüfbefehl
+  **500 passed, Exit 0** (72,5 s; vorher 433 → +67 neue Tests).
+  Rauchtest-Zahlen gegengelesen: Konto maskiert `se…com`, userid 4738912,
+  premium, **2199,0 GB / 390,5 GB belegt**; `liste(0)` **18 Einträge** (17 Ordner,
+  1 Datei); `thumb()` **4185 Bytes** JPEG (120×120). Wichtigster Live-Fund des
+  Ausführers: `getthumbs` liefert **keine Binärdaten**, sondern eine Textzeile
+  `fileid|0|86x120|data:image/jpeg;base64,…`; `type=png` antwortet bei diesem
+  Konto mit Code **5002** → Dienst fragt `jgp` an und dekodiert base64.
+  Geheimnis-Prüfung im Staging: **0 Treffer**; `.env` unangetastet.
+  Commit **`3cad5ae`** (Regeln/Pläne/Selbstheilung/Stand) und der
+  Service-Commit folgen als eigener Schritt — gepusht.
+* **Offen für die nächste Runde:** N2 (Rückroll-Werkzeug mit Manifest),
+  N3 (Schlüssel aufs Handy), dann Themen-Stufe (N4/N5).

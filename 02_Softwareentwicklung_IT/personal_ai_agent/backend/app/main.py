@@ -30,6 +30,7 @@ from app.router import (
     gesichter,
     hermes_steuerung,
     selbsttest,
+    cloud,
 )
 
 # Configure logging
@@ -185,6 +186,11 @@ app.include_router(hermes_steuerung.router, dependencies=[Depends(auth.require_a
 # Sprachmodelle und Serverzeit als JSON; die Oberfläche zeigt es als
 # Klartext-Blatt. Nie ein 500er — fehlende Quellen stehen als error-Text drin.
 app.include_router(selbsttest.router, dependencies=[Depends(auth.require_api_key)])
+# pCloud (2026-09-26): Kontostand, Ordnerliste, Namenssuche, Vorschaubild und
+# Datei-Download — ausschliesslich lesend (services/pcloud_service.py). Ohne
+# PCLOUD_TOKEN in der .env antworten die Routen mit HTTP 503 und Klartext;
+# der Key-Schutz ist derselbe wie bei allen anderen /api-Routen.
+app.include_router(cloud.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

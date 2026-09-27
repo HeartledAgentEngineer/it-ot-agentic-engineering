@@ -41,9 +41,38 @@ ZEITRAEUME = [
 
 
 def backend_laden():
-    """Plugin-Backend als Modul laden (liefert die exakte Aufteilung)."""
+    """Plugin-Backend als Modul laden (liefert die exakte Aufteilung).
+
+    Das Backend importiert fastapi nur, um seine Routen zu deklarieren - fuer
+    die reinen Rechenfunktionen braucht es das Paket nicht. Fehlt es (globales
+    Python ohne fastapi), wird ein Platzhalter eingesetzt, damit die EXAKTE
+    Aufteilung trotzdem gerechnet werden kann. Ohne diesen Kniff fiel das
+    Skript auf eine Naeherung zurueck und wies die Subagenten-Kosten falsch aus
+    (alles als Subagenten).
+    """
     if not BACKEND.exists():
         return None
+    if "fastapi" not in sys.modules:
+        try:
+            import fastapi  # noqa: F401
+        except ImportError:
+            import types
+
+            stub = types.ModuleType("fastapi")
+
+            class _APIRouter:
+                def __init__(self, *a, **k):
+                    pass
+
+                def get(self, *a, **k):
+                    def deko(fn):
+                        return fn
+                    return deko
+
+                post = get
+
+            stub.APIRouter = _APIRouter
+            sys.modules["fastapi"] = stub
     try:
         spec = importlib.util.spec_from_file_location("ct_backend", BACKEND)
         mod = importlib.util.module_from_spec(spec)

@@ -279,6 +279,19 @@ class Settings(BaseSettings):
     # laeuft weiter, es wird NICHT abgebrochen).
     hermes_auftrag_idle: int = 420
 
+    # ── pCloud (26.09.2026) ────────────────────────────────────────────────
+    # Nur-Lesen-Zugang fuer den Agenten (services/pcloud_service.py):
+    # Kontostand, Ordnerliste, Namenssuche, Vorschaubilder, Datei-Download.
+    # Beide Werte kommen aus der .env (PCLOUD_TOKEN, PCLOUD_HOST) — nie in
+    # den Code, nie ins Repo, nie in ein Log. Der Token gehoert zum
+    # PC-pCloud-Client (Details: docs/changelog-2026-09-26-pcloud-zugang.md).
+    #
+    # Standard-Host ist das EU-Rechenzentrum (eapi.pcloud.com); das
+    # US-Pendant api.pcloud.com gilt NUR fuer dort liegende Konten — der
+    # Token wuerde dort nicht angenommen (das Konto liegt in der EU).
+    pcloud_token: str = ""
+    pcloud_host: str = "eapi.pcloud.com"
+
     # Logging
     log_level: str = "INFO"
 

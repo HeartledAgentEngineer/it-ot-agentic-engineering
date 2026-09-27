@@ -177,6 +177,17 @@ personal_ai_agent/
 | `GET` | `/api/archiv/wissen/frage?q=…&modus=hybrid\|volltext\|vektor` | Hybridsuche, zeitlich sortiert, mit `sicher`/`grund`/`rueckfrage` (bei Unsicherheit **keine** behauptete Antwort) |
 | `GET` | `/api/archiv/wissen/original?chat_kennung=…&ordinal=…&kontext=1` | Originaltext einer Fundstelle, unverändert, mit Kontextfenster |
 | `GET` | `/api/archiv/wissen/ueberblick` | Der Bewusstseins-Baustein „was mein Agent weiß" (Quellen, Zeitraum, Nutzungsregel) als JSON |
+| `GET` | `/api/cloud/status` | pCloud-Kontozusammenfassung (Quota/belegt in GB, premium, E-Mail **maskiert**) — nur lesend, ohne pCloud-Client |
+| `GET` | `/api/cloud/liste?folderid=0` | Einträge EINES pCloud-Ordners (Ordner zuerst, dann Name; je `name`, `ist_ordner`, `folderid`, `fileid`, `groesse`, `geaendert`); kein rekursiver Lauf |
+| `GET` | `/api/cloud/suche?q=…&folderid=0` | Namenssuche in EINEM pCloud-Ordner (Gross-/Kleinschreibung egal, max. 50 Treffer) |
+| `GET` | `/api/cloud/thumb?fileid=…&groesse=120x120\|32x32` | Vorschaubild eines pCloud-Bildes als Bild-Bytes (live: JPEG) |
+| `GET` | `/api/cloud/datei?fileid=…` | pCloud-Datei als Download (max. 25 MB, darüber `413` mit Klartext) |
+
+**pCloud (`/api/cloud/*`)** ist **nur lesend** (es gibt keine Schreib-, Umbenenn- oder
+Löschroute). Ohne `PCLOUD_TOKEN` in der `backend/.env` antworten die Routen mit `503`
+und Klartext statt abzustürzen; der `X-API-Key`-Schutz gilt wie bei allen anderen
+`/api`-Routen. Einrichtung, Regeln und live geprüfte Zahlen:
+`docs/changelog-2026-09-26-pcloud-service.md`.
 
 ## 📚 Wissensspeicher (Chat-Archiv)
 
