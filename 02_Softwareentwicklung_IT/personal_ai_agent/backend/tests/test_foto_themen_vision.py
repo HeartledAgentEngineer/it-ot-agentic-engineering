@@ -627,11 +627,16 @@ def _lauf_umgebung(tmp_path):
 
 
 def test_cli_schreibt_thema_json_jsonl_und_csv(tmp_path, capsys):
-    """Ein Lauf schreibt Einzeldatei, Fortsetzungspunkt und CSV-Kopie."""
+    """Ein Lauf schreibt Einzeldatei, Fortsetzungspunkt und CSV-Kopie.
+
+    ``--ohne-katalog``: dieser Prueffall faehrt den freien Prompt (alter Weg,
+    Thema kommt roh durch). Das Verhalten mit Katalog steht in den N6c-Tests.
+    """
     um = _lauf_umgebung(tmp_path)
     sender = FakeSender(text=_antwort_text("Wintermarkt am See", 3))
     code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
-                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025",
+                        "--ohne-katalog"],
                        sende=sender, env_pfade=[um["env"]])
     ausgabe = capsys.readouterr().out
     assert code == 0
@@ -740,7 +745,8 @@ def test_fehlgeschlagener_anlass_wird_festgehalten_und_lauf_geht_weiter(tmp_path
     sender = FakeSender(fehler_bis=1,
                         text=_antwort_text("Wintermarkt am See", 2))
     code = vision.main(["--boegen", str(boegen), "--csv", csv_pfad,
-                        "--ausgabe", str(tmp_path / "ausgabe"), "--jahr", "2025"],
+                        "--ausgabe", str(tmp_path / "ausgabe"), "--jahr", "2025",
+                        "--ohne-katalog"],
                        sende=sender, env_pfade=[_env_schreiben(tmp_path / "e.env", "k")])
     ausgabe = capsys.readouterr().out
     assert code == 0
@@ -1001,7 +1007,8 @@ def test_fehlende_kacheln_werden_gezaehlt_thema_bleibt(tmp_path, capsys):
         {"kachel": 3, "kurz": "Szene im Freien", "unbrauchbar": False}]},
         ensure_ascii=False)
     code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
-                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025",
+                        "--ohne-katalog"],
                        sende=FakeSender(text=text), env_pfade=[um["env"]])
     ausgabe = capsys.readouterr().out
     assert code == 0                                 # kein Fehler, kein Abbruch
@@ -1165,3 +1172,419 @@ def test_verschiedene_pfade_gehen_weiter_durch(tmp_path, capsys):
     capsys.readouterr()
     assert (um["ausgabe"] / "sortierschluessel_themen.csv").exists()
     assert Path(um["csv"]).read_bytes() == vorher
+
+
+# ── N6c: fester Themen-Katalog (alles OHNE Netz) ──────────────────────────
+#
+# Der Katalog liegt neben dem Werkzeug (tools/foto_sortierung/themen_katalog.py)
+# und wird hier genauso per Pfad geladen wie foto_themen_vision.py selbst.
+
+KATALOG_WERKZEUG = (Path(__file__).resolve().parents[2]
+                    / "tools" / "foto_sortierung" / "themen_katalog.py")
+
+# Genau die Lebensbereiche, die der Katalog abdecken soll — je Bereich zwei
+# Eintraege als Stichprobe (nicht alle, sonst waere es eine Doppelung).
+BEREICHE = {
+    "Personen und Familie": ["Familienfeier Zuhause", "Kindergeburtstag Zuhause"],
+    "Haus und Garten": ["Haus und Garten", "Gartenarbeit im Freien"],
+    "Natur und Landschaft": ["Wandern im Schnee", "Strand und Meer"],
+    "Tiere": ["Hund im Freien", "Tiere im Zoo"],
+    "Stadt und Reisen": ["Stadtbummel Altstadt", "Reise und Urlaub"],
+    "Veranstaltungen und Feste": ["Fest und Feier", "Weihnachtsmarkt Besuch"],
+    "Arbeit und Technik": ["Arbeit am Schreibtisch", "Technik und Geraete"],
+    "Essen und Trinken": ["Essen und Trinken", "Kochen in der Kueche"],
+    "Sport und Bewegung": ["Sport und Fitness", "Spiel und Bewegung"],
+    "Fahrzeuge": ["Auto und Strasse", "Zug und Bahnhof"],
+    "Innenraum und Alltag": ["Wohnung und Einrichtung", "Fenster und Licht"],
+    "Bauen und Handwerk": ["Bauen und Renovieren", "Handwerk und Werkzeug"],
+}
+
+
+def _katalog_laden():
+    spez = importlib.util.spec_from_file_location("themen_katalog", KATALOG_WERKZEUG)
+    assert spez is not None and spez.loader is not None, (
+        f"Katalog nicht gefunden: {KATALOG_WERKZEUG}")
+    modul = importlib.util.module_from_spec(spez)
+    spez.loader.exec_module(modul)
+    return modul
+
+
+katalog = _katalog_laden()
+KATALOG = katalog.THEMEN_KATALOG
+
+# Ein Katalogeintrag mit drei Woertern — Gegenprobe zum freien Thema.
+KATALOG_THEMA = "Wandern im Schnee"
+# Ein Thema, das NICHT im Katalog steht (so hat der Massenlauf N6b geantwortet).
+FREIES_THEMA = "Sonnenuntergang am Meer"
+
+
+def _rohtext_zeilen(ausgabe: Path) -> list[dict]:
+    """Alle Zeilen der themen.jsonl als Dicts."""
+    return [json.loads(z) for z in
+            (ausgabe / "themen.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+# --- Katalog: Aufbau und Ordnertauglichkeit ---
+
+def test_katalog_hat_genau_44_eintraege():
+    """Der Katalog hat genau 44 Eintraege (Vorgabe des Schritts N6c)."""
+    assert len(KATALOG) == 44
+    assert len(katalog.THEMEN_KATALOG) == 44
+
+
+def test_katalog_laenge_im_zielbereich_40_bis_60():
+    """Der Katalog liegt in der Zielgroesse 40-60 Eintraege."""
+    assert 40 <= len(KATALOG) <= 60
+
+
+def test_katalog_ohne_doppelungen():
+    """Kein Eintrag kommt zweimal vor — auch nicht in anderer Schreibweise."""
+    assert len(set(KATALOG)) == len(KATALOG)
+    normalisiert = [katalog.thema_normalisieren_katalog(e) for e in KATALOG]
+    assert len(set(normalisiert)) == len(normalisiert)
+
+
+def test_katalog_version_ist_2():
+    """KATALOG_VERSION benennt den Stand des Wortschatzes."""
+    assert katalog.KATALOG_VERSION == 2
+    assert vision.KATALOG_VERSION == 2
+
+
+def test_katalog_eintraege_sind_ordnertauglich():
+    """Jeder Eintrag taugt als Ordnername (Zeichen, Laenge, kein Randzeichen)."""
+    assert len(KATALOG) > 0
+    for eintrag in KATALOG:
+        assert isinstance(eintrag, str) and eintrag
+        assert not vision.VERBOTENE_ZEICHEN.search(eintrag), eintrag
+        assert not katalog.VERBOTENE_ZEICHEN.search(eintrag), eintrag
+        assert len(eintrag) <= vision.THEMA_MAX_ZEICHEN, eintrag
+        assert len(eintrag) <= katalog.KATALOG_MAX_ZEICHEN, eintrag
+        assert eintrag == eintrag.strip(), eintrag
+        # Kein fuehrendes/abschliessendes Sonderzeichen (Punkt, Komma, ...):
+        assert eintrag[0] not in katalog.RAND_SATZZEICHEN, eintrag
+        assert eintrag[-1] not in katalog.RAND_SATZZEICHEN, eintrag
+        assert not eintrag.isdigit(), eintrag
+        # Und der Vergleich mit sich selbst trifft immer:
+        assert katalog.thema_zuordnen(eintrag) == eintrag
+
+
+def test_katalog_eintraege_haben_2_bis_4_woerter():
+    """Jeder Eintrag hat 2-4 Woerter — AUSSER dem einwortigen Rueckfall."""
+    for eintrag in KATALOG:
+        if eintrag == katalog.SONSTIGES:
+            continue                     # der Rueckfall ist bewusst ein Wort
+        anzahl = len(eintrag.split())
+        assert 2 <= anzahl <= 4, (eintrag, anzahl)
+
+
+def test_katalog_sonstiges_ist_der_letzte_eintrag():
+    """Sonstiges faengt Unklares — und MUSS der letzte Eintrag sein."""
+    assert KATALOG[-1] == katalog.SONSTIGES == "Sonstiges"
+    assert KATALOG.count("Sonstiges") == 1
+
+
+def test_katalog_deckt_alle_lebensbereiche_ab():
+    """Die zwoelf vorgesehenen Bereiche sind mit je zwei Eintraegen belegt."""
+    assert len(BEREICHE) == 12
+    fehlend = {bereich: [e for e in eintraege if e not in KATALOG]
+               for bereich, eintraege in BEREICHE.items()}
+    fehlend = {b: e for b, e in fehlend.items() if e}
+    assert fehlend == {}, f"Bereiche ohne Katalogeintrag: {fehlend}"
+
+
+def test_katalog_text_verbindet_mit_strich():
+    """katalog_text() haengt alle Eintraege in Reihenfolge mit ' | ' aneinander."""
+    text = katalog.katalog_text()
+    assert text == " | ".join(KATALOG)
+    assert text.count(" | ") == len(KATALOG) - 1
+    assert text.startswith(KATALOG[0] + " | ")
+    assert text.endswith(" | " + KATALOG[-1])
+
+
+# --- Zuordnung auf Katalogeintraege ---
+
+def test_thema_normalisieren_katalog_vereinheitlicht():
+    """Kleinschreibung, Mehrfach-Leerraum und Rand-Satzzeichen fallen weg."""
+    assert katalog.thema_normalisieren_katalog("See und Meer") == "see und meer"
+    assert katalog.thema_normalisieren_katalog("  See   und Meer.  ") == "see und meer"
+    assert katalog.thema_normalisieren_katalog("...See und Meer-") == "see und meer"
+    assert katalog.thema_normalisieren_katalog("Wintermarkt\n") == "wintermarkt"
+    assert katalog.thema_normalisieren_katalog("") == ""
+    assert katalog.thema_normalisieren_katalog("   ") == ""
+    assert katalog.thema_normalisieren_katalog(None) == ""
+    assert katalog.thema_normalisieren_katalog(7) == ""
+    assert katalog.thema_normalisieren_katalog(["See"]) == ""
+
+
+def test_thema_zuordnen_exakter_eintrag():
+    """Ein exakter Eintrag kommt im Original-Wortlaut zurueck."""
+    for eintrag in KATALOG:
+        assert katalog.thema_zuordnen(eintrag) == eintrag
+    assert katalog.thema_zuordnen(KATALOG_THEMA) == KATALOG_THEMA
+
+
+def test_thema_zuordnen_gross_klein_punkt_und_doppel_leerraum():
+    """Schreibweise, Punkt am Ende und doppelter Leerraum aendern nichts."""
+    assert katalog.thema_zuordnen(KATALOG_THEMA.upper()) == KATALOG_THEMA
+    assert katalog.thema_zuordnen(KATALOG_THEMA.lower()) == KATALOG_THEMA
+    assert katalog.thema_zuordnen(KATALOG_THEMA + ".") == KATALOG_THEMA
+    assert katalog.thema_zuordnen("  " + KATALOG_THEMA.replace(" ", "   ")
+                                  + "  ") == KATALOG_THEMA
+    assert katalog.thema_zuordnen(" " + KATALOG_THEMA.lower() + ". ") == KATALOG_THEMA
+
+
+def test_thema_zuordnen_unbekanntes_thema_ist_sonstiges():
+    """Was nicht im Katalog steht, faellt auf Sonstiges (kein neuer Ordner)."""
+    assert katalog.thema_zuordnen(FREIES_THEMA) == katalog.SONSTIGES
+    assert katalog.thema_zuordnen("Haus Garten") == katalog.SONSTIGES
+    assert katalog.thema_zuordnen("Wintermarkt am See") == katalog.SONSTIGES
+
+
+def test_thema_zuordnen_none_leer_und_zahl_ist_sonstiges():
+    """Nicht-Text, leerer Text und Zahlen sind kein Katalogeintrag."""
+    for wert in (None, "", "   ", "...", 7, 0, 3.5, ["Wandern"], {}):
+        assert katalog.thema_zuordnen(wert) == katalog.SONSTIGES, wert
+
+
+def test_im_katalog_treffer_und_rueckfall():
+    """True nur bei echtem Eintrag: drei Treffer, zwei Rueckfaelle."""
+    # Die ersten drei Faelle sind echte Katalogeintraege:
+    assert katalog.im_katalog(KATALOG_THEMA) is True
+    assert katalog.im_katalog(KATALOG_THEMA.upper() + ".") is True
+    assert katalog.im_katalog(katalog.SONSTIGES) is True   # steht im Katalog
+    # Die beiden letzten sind kein Treffer:
+    assert katalog.im_katalog(FREIES_THEMA) is False
+    assert katalog.im_katalog(None) is False
+    assert katalog.im_katalog("") is False
+    assert katalog.im_katalog(7) is False
+
+
+def test_werkzeug_reicht_katalog_namen_durch():
+    """Das Werkzeug nutzt genau den Katalog des Katalogmoduls."""
+    # Zwei getrennte Ladevorgaenge (Werkzeug und Test laden je einmal per Pfad):
+    # deshalb inhaltlich gleich, nicht dasselbe Objekt.
+    assert vision.THEMEN_KATALOG == KATALOG
+    assert len(vision.THEMEN_KATALOG) == len(KATALOG)
+    assert vision.SONSTIGES == katalog.SONSTIGES == "Sonstiges"
+    assert vision.KATALOG_VERSION == katalog.KATALOG_VERSION
+    assert vision.katalog_text() == katalog.katalog_text()
+    assert vision.thema_zuordnen(KATALOG_THEMA) == \
+        katalog.thema_zuordnen(KATALOG_THEMA)
+    assert vision.im_katalog(FREIES_THEMA) is \
+        katalog.im_katalog(FREIES_THEMA) is False
+
+
+# --- Prompt mit und ohne Katalog ---
+
+def test_prompt_ohne_katalog_bleibt_unveraendert():
+    """OHNE Katalog ist der Prompt wie bisher (bestehende Aufrufe bleiben gleich)."""
+    prompt = vision.prompt_bauen(12)
+    assert "2 bis 4 deutsche Woerter" in prompt
+    assert prompt == vision.prompt_bauen(12, katalog=None)
+    # Kein Katalogeintrag und keine Listenanweisung im alten Prompt:
+    assert "WORT FUER WORT" not in prompt
+    assert "Themenliste" not in prompt
+    for eintrag in KATALOG:
+        assert eintrag not in prompt, eintrag
+
+
+def test_prompt_mit_katalog_enthaelt_die_ganze_liste():
+    """MIT Katalog stehen alle 44 Eintraege im Prompt — und WORT FUER WORT."""
+    prompt = vision.prompt_bauen(12, katalog=KATALOG)
+    assert "2 bis 4 deutsche Woerter" not in prompt
+    assert "WORT FUER WORT" in prompt
+    assert "Themenliste" in prompt
+    assert "Sonstiges" in prompt
+    assert vision.katalog_text() in prompt
+    for eintrag in KATALOG:
+        assert eintrag in prompt, eintrag
+    # Auch als blosse Zeichenkette funktioniert der Parameter:
+    knapp = vision.prompt_bauen(2, katalog="Alpha | Beta")
+    assert "Themenliste: Alpha | Beta" in knapp
+    assert "Sonstiges" in knapp
+
+
+def test_prompt_mit_katalog_behaelt_kacheln_und_regeln():
+    """Alle uebrigen Promptteile bleiben: Nummern, je_kachel, unbrauchbar, Regeln."""
+    prompt = vision.prompt_bauen(4, katalog=KATALOG)
+    assert "genau 4 Kacheln, nummeriert 1 bis 4" in prompt
+    assert "1, 2, 3, 4" in prompt
+    assert '"je_kachel"' in prompt and '"unbrauchbar"' in prompt
+    assert '"hinweis"' in prompt
+    assert "AUSSCHLIESSLICH" in prompt
+    assert "Das JSON-Objekt ist die gesamte Antwort." in prompt
+    assert prompt.endswith("Das JSON-Objekt ist die gesamte Antwort.")
+
+
+def test_anfrage_bauen_reicht_den_katalog_durch():
+    """anfrage_bauen schreibt bei katalog die Liste in den Text-Teil."""
+    daten_uri = "data:image/jpeg;base64,QUJD"
+    ohne = vision.anfrage_bauen(MODELL, daten_uri, 3)
+    mit = vision.anfrage_bauen(MODELL, daten_uri, 3, katalog=KATALOG)
+    assert ohne["messages"][0]["content"][0]["text"] == vision.prompt_bauen(3)
+    assert mit["messages"][0]["content"][0]["text"] == \
+        vision.prompt_bauen(3, katalog=KATALOG)
+    assert KATALOG_THEMA in mit["messages"][0]["content"][0]["text"]
+    assert KATALOG_THEMA not in ohne["messages"][0]["content"][0]["text"]
+    assert [t["type"] for t in mit["messages"][0]["content"]] == \
+        ["text", "image_url"]
+    assert mit["temperature"] == 0
+    assert mit["model"] == MODELL
+
+
+# --- thema_uebernehmen: Ordner-Thema, Rohtext, Treffer ---
+
+def test_thema_uebernehmen_ohne_katalog():
+    """Ohne Katalog gilt der alte Weg: normalisieren, kein Rohtext, kein Treffer."""
+    assert vision.thema_uebernehmen("  Wintermarkt am See  ", False) == \
+        ("Wintermarkt am See", "", False)
+    assert vision.thema_uebernehmen("Urlaub/Strand", False) == \
+        ("Urlaub Strand", "", False)
+    assert vision.thema_uebernehmen(None, False) == ("", "", False)
+    assert vision.thema_uebernehmen(7, False) == ("", "", False)
+
+
+def test_thema_uebernehmen_mit_katalog_treffer_und_rueckfall():
+    """Mit Katalog: Treffer -> Eintrag/True, sonst -> Sonstiges/False."""
+    assert vision.thema_uebernehmen(KATALOG_THEMA, True) == \
+        (KATALOG_THEMA, KATALOG_THEMA, True)
+    assert vision.thema_uebernehmen(KATALOG_THEMA.upper() + ".", True) == \
+        (KATALOG_THEMA, KATALOG_THEMA.upper() + ".", True)
+    assert vision.thema_uebernehmen(FREIES_THEMA, True) == \
+        (vision.SONSTIGES, FREIES_THEMA, False)
+    assert vision.thema_uebernehmen(None, True) == (vision.SONSTIGES, "", False)
+    assert vision.thema_uebernehmen(7, True) == (vision.SONSTIGES, "7", False)
+
+
+def test_thema_uebernehmen_maskiert_den_rohen_text():
+    """Der Schluessel darf auch im Rohtext nicht stehen bleiben."""
+    thema, roh, treffer = vision.thema_uebernehmen(
+        f"See {SCHLUESSEL}", True, SCHLUESSEL)
+    assert thema == vision.SONSTIGES
+    assert roh == "See <schluessel-entfernt>"
+    assert SCHLUESSEL not in roh
+    assert treffer is False
+
+
+# --- CLI: Katalog ist Standard an ---
+
+def test_cli_standard_schickt_die_ganze_liste(tmp_path, capsys):
+    """Ohne Schalter ist der Katalog AN: die Liste steht im Anfragekoerper."""
+    um = _lauf_umgebung(tmp_path)
+    sender = FakeSender(text=_antwort_text(KATALOG_THEMA, 3))
+    code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                       sende=sender, env_pfade=[um["env"]])
+    ausgabe = capsys.readouterr().out
+    assert code == 0
+    assert len(sender.aufrufe) == 1
+    prompt = sender.aufrufe[0]["messages"][0]["content"][0]["text"]
+    assert vision.katalog_text() in prompt
+    assert "WORT FUER WORT" in prompt
+    for eintrag in KATALOG:
+        assert eintrag in prompt, eintrag
+    assert f"{len(KATALOG)} Eintraege, Version 2" in ausgabe
+
+
+def test_cli_ohne_katalog_schalter_laesst_die_liste_weg(tmp_path, capsys):
+    """--ohne-katalog: der Anfragekoerper traegt die Liste NICHT mehr."""
+    um = _lauf_umgebung(tmp_path)
+    sender = FakeSender(text=_antwort_text(FREIES_THEMA, 3))
+    code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025",
+                        "--ohne-katalog"],
+                       sende=sender, env_pfade=[um["env"]])
+    ausgabe = capsys.readouterr().out
+    assert code == 0
+    prompt = sender.aufrufe[0]["messages"][0]["content"][0]["text"]
+    assert "2 bis 4 deutsche Woerter" in prompt
+    assert "WORT FUER WORT" not in prompt
+    assert "Themenliste" not in prompt
+    assert KATALOG_THEMA not in prompt
+    assert "AUS (--ohne-katalog)" in ausgabe
+    daten = json.loads((um["ausgabe"] / "themen" / "2025" /
+                        "2025-01-06_Anlass-01.json").read_text(encoding="utf-8"))
+    assert daten["thema"] == FREIES_THEMA        # alter Weg: Thema kommt roh durch
+    assert daten["thema_roh"] == "" and daten["katalog_treffer"] is False
+    zeile = _rohtext_zeilen(um["ausgabe"])[0]
+    assert zeile["thema_roh"] == "" and zeile["katalog_treffer"] is False
+
+
+# --- Simulierter Durchlauf: Zuordnung faellt pruefbar auf den Katalog ---
+
+def test_lauf_nicht_katalogeintrag_wird_sonstiges(tmp_path, capsys):
+    """Thema ausserhalb des Katalogs -> thema 'Sonstiges', Rohtext bleibt."""
+    um = _lauf_umgebung(tmp_path)
+    sender = FakeSender(text=_antwort_text(FREIES_THEMA, 3))
+    code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                       sende=sender, env_pfade=[um["env"]])
+    ausgabe = capsys.readouterr().out
+    assert code == 0
+    daten = json.loads((um["ausgabe"] / "themen" / "2025" /
+                        "2025-01-06_Anlass-01.json").read_text(encoding="utf-8"))
+    assert daten["thema"] == "Sonstiges"
+    assert daten["thema_roh"] == FREIES_THEMA
+    assert daten["katalog_treffer"] is False
+    assert "\"Sonstiges\"" in ausgabe              # Thema steht auf der Laufzeile
+    # Die Zeile im Fortsetzungspunkt traegt dieselben Felder:
+    zeile = _rohtext_zeilen(um["ausgabe"])[0]
+    assert zeile["thema"] == "Sonstiges"
+    assert zeile["thema_roh"] == FREIES_THEMA
+    assert zeile["katalog_treffer"] is False
+    # Und die CSV-Kopie traegt den Katalogwert, nicht den Rohtext:
+    gelesen = list(csv.DictReader(
+        (um["ausgabe"] / "sortierschluessel_themen.csv").open(encoding="utf-8")))
+    assert {z["thema"] for z in gelesen} == {"Sonstiges"}
+    assert "Katalog: 0 Treffer, 1 Sonstiges (von 1 angesehenen Anlaessen)" in ausgabe
+
+
+def test_lauf_katalogeintrag_zaehlt_als_treffer(tmp_path, capsys):
+    """Gegenprobe: echter Katalogeintrag -> thema = Eintrag, katalog_treffer true."""
+    um = _lauf_umgebung(tmp_path)
+    sender = FakeSender(text=_antwort_text(KATALOG_THEMA, 3))
+    code = vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                       sende=sender, env_pfade=[um["env"]])
+    ausgabe = capsys.readouterr().out
+    assert code == 0
+    daten = json.loads((um["ausgabe"] / "themen" / "2025" /
+                        "2025-01-06_Anlass-01.json").read_text(encoding="utf-8"))
+    assert daten["thema"] == KATALOG_THEMA
+    assert daten["thema_roh"] == KATALOG_THEMA
+    assert daten["katalog_treffer"] is True
+    zeile = _rohtext_zeilen(um["ausgabe"])[0]
+    assert zeile["thema"] == KATALOG_THEMA
+    assert zeile["katalog_treffer"] is True
+    assert "Katalog: 1 Treffer, 0 Sonstiges (von 1 angesehenen Anlaessen)" in ausgabe
+    # Die Schreibweise aus dem Modell wird auf den Katalog-Wortlaut gezogen:
+    sender2 = FakeSender(text=_antwort_text("  " + KATALOG_THEMA.upper() + ". ", 3))
+    assert vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025",
+                        "--wiederholen"], sende=sender2,
+                       env_pfade=[um["env"]]) == 0
+    capsys.readouterr()
+    daten2 = json.loads((um["ausgabe"] / "themen" / "2025" /
+                         "2025-01-06_Anlass-01.json").read_text(encoding="utf-8"))
+    assert daten2["thema"] == KATALOG_THEMA       # Original-Wortlaut
+    assert daten2["thema_roh"] == "  " + KATALOG_THEMA.upper() + ". "
+
+
+def test_kataloglauf_haelt_ausgaben_ausserhalb_des_repos_und_ohne_schluessel(
+        tmp_path, capsys):
+    """Auch der Kataloglauf legt nichts im Repo an und zeigt keinen Schluessel."""
+    werkzeug_ordner = WERKZEUG.parent
+    vorher = _dateibaum(werkzeug_ordner)
+    um = _lauf_umgebung(tmp_path)
+    sender = FakeSender(text=_antwort_text(FREIES_THEMA, 3))
+    assert vision.main(["--boegen", str(um["boegen"]), "--csv", um["csv"],
+                        "--ausgabe", str(um["ausgabe"]), "--jahr", "2025"],
+                       sende=sender, env_pfade=[um["env"]]) == 0
+    konsole = capsys.readouterr().out
+    assert SCHLUESSEL not in konsole
+    assert _dateibaum(werkzeug_ordner) == vorher
+    for datei in um["ausgabe"].rglob("*"):
+        if datei.is_file():
+            assert SCHLUESSEL not in datei.read_text(encoding="utf-8")
+    assert Path(um["csv"]).read_bytes()             # Original bleibt liegen
+

@@ -6,7 +6,22 @@ Was dieses Werkzeug tut (Nachtlauf-Schritt N6, 27.09.2026):
   Zuordnungs-JSON (Kachel-Nummer -> Datei). Dieses Werkzeug liest diesen
   fertigen Bogen und schickt ihn in **genau einem** Aufruf an OpenRouter
   (Vision-Modell), damit das Modell sagt, worum es bei dem Anlass geht.
-  Aus der Antwort entsteht ``thema`` (z. B. "Wanderung im Schnee").
+  Aus der Antwort entsteht ``thema``.
+
+Seit N6c (27.09.2026) ist der Themen-Wortschatz FEST (Themen-Katalog):
+  Der Massenlauf N6b hat es gemessen: **155 verschiedene Themen bei 161
+  Anlaessen = 96 % Einzelstuecke** — als Ordnerbaum
+  ``Agent/Fotos/<Jahr>/<Thema>/`` untauglich. Deshalb darf das Modell sein
+  Thema jetzt nur noch aus ``themen_katalog.py`` waehlen (44 Eintraege,
+  ``THEMEN_KATALOG`` / ``KATALOG_VERSION``); die Liste steht vollstaendig im
+  Prompt ("WORT FUER WORT", sonst ``Sonstiges``). Die Zuordnung faellt damit
+  **pruefbar auf Katalogeintraege**: ``thema`` ist der Katalogeintrag im
+  Original-Wortlaut oder ``Sonstiges``; der Rohtext der Antwort bleibt als
+  ``thema_roh`` nachvollziehbar, ``katalog_treffer`` sagt, was es war. Der
+  Katalog ist im CLI **Standard AN**; ``--ohne-katalog`` schaltet auf das alte,
+  freie Verhalten zurueck (Vergleichsgrundlage). Eine Antwort ohne brauchbares
+  ``thema`` bleibt in BEIDEN Modi ein Fehler — ein leerer Text ist kein Thema
+  ausserhalb des Katalogs.
 
 Warum EIN Aufruf je Anlass statt je Bild:
   Hundert Bilder kosten hundert Aufrufe; ein Bogen kostet einen. Das ist die
@@ -28,7 +43,9 @@ Ablauf je Anlass:
 Die drei Ausgaben (alle NUR unter ``~/foto_sortierung/``):
   * ``themen/<Jahr>/<Titel>.json`` — Thema, Modell, Tokens, Kosten, Dauer,
     die Kacheln aus der Modellantwort **mit Dateinamen aus dem Bogen-JSON**
-    angereichert, plus der Rohtext der Antwort.
+    angereichert, plus der Rohtext der Antwort. Zusaetzlich (N6c)
+    ``thema_roh`` (Rohtext des Themas, entschaerft) und ``katalog_treffer``
+    (true nur bei echtem Katalogeintrag).
   * ``themen.jsonl`` — eine Zeile je erledigtem Anlass, **anhangend**: der
     Fortsetzungspunkt. Steht ein Anlass hier (und die Ausgabedatei existiert),
     wird er uebersprungen (``--wiederholen`` erzwingt). Fehlgeschaefte
@@ -106,6 +123,8 @@ Aufruf (venv des Backends, enthaelt httpx) — Datei:
         --jahr 2025 --limit 3 --trocken       # zeigen, was gesendet wuerde
     .venv/Scripts/python ../tools/foto_sortierung/foto_themen_vision.py \\
         --anlass 2025-01-06_Anlass-01         # EINEN Anlass ansehen
+    .venv/Scripts/python ../tools/foto_sortierung/foto_themen_vision.py \\
+        --jahr 2025 --limit 3 --ohne-katalog  # alten, freien Prompt nutzen
 
 Als Modul (Tests, Skripte): ``main(argv=[...], sende=..., env_pfade=[...])``.
 """
@@ -116,6 +135,7 @@ import argparse
 import base64
 import csv
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -125,6 +145,36 @@ import httpx
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HIER))            # .../personal_ai_agent
+
+
+def _modul_aus_pfad(pfad: str, name: str):
+    """Ein Nachbarmodul per Pfad laden — funktioniert als Skript UND als Import.
+
+    Das Werkzeug liegt ausserhalb des Backends; ein `import themen_katalog`
+    scheitert daher je nach Arbeitsverzeichnis. Deshalb wird der Nachbar wie in
+    ``foto_themen.py`` ueber seinen Pfad geladen (Muster von dort uebernommen).
+    """
+    spez = importlib.util.spec_from_file_location(name, pfad)
+    if spez is None or spez.loader is None:
+        raise RuntimeError(f"Modul nicht gefunden: {pfad}")
+    modul = importlib.util.module_from_spec(spez)
+    spez.loader.exec_module(modul)
+    return modul
+
+
+# Themen-Katalog (Schritt N6c): der feste Wortschatz, aus dem das Modell
+# waehlen darf. Er liegt neben dieser Datei und ist rein (kein Netz, kein I/O).
+_katalog = _modul_aus_pfad(os.path.join(HIER, "themen_katalog.py"),
+                           "themen_katalog")
+
+# Namen aus dem Katalogmodul, damit Aufrufer nur mit diesem Werkzeug arbeiten.
+KATALOG_VERSION = _katalog.KATALOG_VERSION
+THEMEN_KATALOG = _katalog.THEMEN_KATALOG
+SONSTIGES = _katalog.SONSTIGES
+thema_normalisieren_katalog = _katalog.thema_normalisieren_katalog
+thema_zuordnen = _katalog.thema_zuordnen
+im_katalog = _katalog.im_katalog
+katalog_text = _katalog.katalog_text
 
 # ── Feste Werte ────────────────────────────────────────────────────────────
 
@@ -409,16 +459,42 @@ def bild_daten_uri(jpg_pfad: str) -> str:
 
 # ── Prompt und Anfrage (reine Funktionen) ──────────────────────────────────
 
-def prompt_bauen(anzahl: int) -> str:
+def prompt_bauen(anzahl: int, katalog=None) -> str:
     """Den strengen deutschen Prompt bauen — mit ALLEN Kachelnummern 1..n.
 
     Die Nummern stehen ausgeschrieben im Text: Ohne sie erfindet das Modell
     Kacheln, die es nicht gibt, und die Zuordnung zur Datei waere geraten.
     ``hinweis`` ist im Prompt ausdruecklich als optional gekennzeichnet — der
     Code behandelt einen fehlenden Hinweis als leeres Feld, nicht als Fehler.
+
+    ``katalog`` ist OPTIONAL. Ohne ihn ist der Prompt **unveraendert** (das
+    Thema darf frei benannt werden) — bestehende Aufrufe bleiben gleich. Mit
+    ``katalog`` (Liste von Themen, z. B. ``THEMEN_KATALOG``) muss das Thema
+    GENAU EIN Eintrag dieser Liste sein, WORT FUER WORT uebernommen, ohne
+    Abwandlung und ohne eigene Woerter; passt nichts, ist ``Sonstiges`` zu
+    nehmen. Die Liste steht vollstaendig ausgeschrieben im Prompt, damit das
+    Modell nur aus dem festen Wortschatz waehlen kann (beschraenkter
+    Ordnerbaum ``Agent/Fotos/<Jahr>/<Thema>/``).
     """
     anzahl = max(1, _als_int(anzahl))
     nummern = ", ".join(str(i) for i in range(1, anzahl + 1))
+
+    if katalog:
+        eintraege = ([katalog] if isinstance(katalog, str)
+                     else [str(eintrag) for eintrag in katalog])
+        thema_teil = (
+            "  \"thema\":  GENAU EIN Eintrag aus der folgenden Themenliste —\n"
+            "             WORT FUER WORT uebernommen, ohne Abwandlung, ohne\n"
+            "             eigene Woerter und ohne Zahlen. Passt kein Eintrag\n"
+            f"             genau, nimm \"{SONSTIGES}\".\n"
+            "             Themenliste: " + " | ".join(eintraege) + "\n"
+        )
+    else:
+        thema_teil = (
+            "  \"thema\":  2 bis 4 deutsche Woerter, die den Anlass benennen; als\n"
+            "             Ordnername tauglich, ohne Schraegstriche, ohne Zahlen am Ende.\n"
+        )
+
     return (
         "Du siehst einen Kontaktbogen: nummerierte Miniaturbilder EINES Anlasses.\n"
         f"Der Bogen hat genau {anzahl} Kacheln, nummeriert 1 bis {anzahl}.\n"
@@ -429,8 +505,7 @@ def prompt_bauen(anzahl: int) -> str:
         "\n"
         "Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt, ohne Vor- oder\n"
         "Nachtext, ohne Erklaerung, ohne Markdown. Genau diese Schluessel:\n"
-        "  \"thema\":  2 bis 4 deutsche Woerter, die den Anlass benennen; als\n"
-        "             Ordnername tauglich, ohne Schraegstriche, ohne Zahlen am Ende.\n"
+        + thema_teil +
         "  \"je_kachel\": Liste mit einem Eintrag je Kachel, in der Reihenfolge\n"
         f"             1..{anzahl}; jeder Eintrag:\n"
         "             {\"kachel\": <Nummer 1.." + str(anzahl) + ">, "
@@ -448,15 +523,20 @@ def prompt_bauen(anzahl: int) -> str:
 
 
 def anfrage_bauen(modell: str, daten_uri: str, anzahl: int,
-                  max_tokens: int = MAX_TOKENS) -> dict:
-    """Den Anfragekoerper fuer OpenRouter bauen (content-Array mit Bild)."""
+                  max_tokens: int = MAX_TOKENS, katalog=None) -> dict:
+    """Den Anfragekoerper fuer OpenRouter bauen (content-Array mit Bild).
+
+    ``katalog`` wird unveraendert an ``prompt_bauen`` durchgereicht: ohne ihn
+    bleibt die Anfrage wie bisher, mit ihm enthaelt der Text die feste
+    Themenliste (Wahl nur aus dem Katalog).
+    """
     return {
         "model": modell,
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt_bauen(anzahl)},
+                    {"type": "text", "text": prompt_bauen(anzahl, katalog)},
                     {"type": "image_url", "image_url": {"url": daten_uri}},
                 ],
             }
@@ -525,6 +605,35 @@ def kurz_normalisieren(kurz) -> str:
     sauber = re.sub(r"\s+", " ", kurz.replace("\n", " ")).strip()
     woerter = sauber.split(" ")
     return " ".join(woerter[:KURZ_MAX_WOERTER])
+
+
+def thema_uebernehmen(thema, katalog_aktiv, schluessel: str = "") -> tuple:
+    """Thema aus der Modellantwort in Ordner-Thema, Rohtext und Treffer trennen.
+
+    Rueckgabe ``(thema_fuer_ordner, thema_roh, katalog_treffer)``:
+
+      * **ohne Katalog** (``katalog_aktiv`` falsch): wie bisher
+        ``(thema_normalisieren(thema), "", False)`` — das Thema wird frei
+        uebernommen, ein Rohtext gibt es nicht (er waere hier sinnlos, weil er
+        dasselbe waere).
+      * **mit Katalog** (``katalog_aktiv`` wahr): Bei einem echten Katalogeintrag
+        ``(Katalogeintrag im Original-Wortlaut, thema_roh, True)``; ohne Treffer
+        ``(SONSTIGES, thema_roh, False)``. So faellt die Zuordnung pruefbar auf
+        Katalogeintraege — der Ordnerbaum bleibt beschraenkt.
+
+    ``thema_roh`` ist der **Rohtext der Modellantwort** (der Katalog-Treffer
+    wird nicht danach gesucht, sondern bleibt nachvollziehbar) und laeuft durch
+    ``geheimnis_entfernen``: der Schluessel und generische ``sk_``-Muster
+    duerfen auch auf diesem Weg nicht in die Ausgaben geraten. Ohne Katalog ist
+    ``thema_roh`` bewusst leer (kein zweites Feld mit derselben Aussage).
+    """
+    roh = geheimnis_entfernen(thema, schluessel)
+    if not katalog_aktiv:
+        return (geheimnis_entfernen(thema_normalisieren(thema), schluessel),
+                "", False)
+    if im_katalog(thema):
+        return (thema_zuordnen(thema), roh, True)
+    return (SONSTIGES, roh, False)
 
 
 def kacheln_uebernehmen(daten: dict, bogen: dict) -> list[dict]:
@@ -666,7 +775,7 @@ def sende_aufruf(payload: dict, schluessel: str, basis: str = STANDARD_BASIS,
 def anlass_verarbeiten(bogen: dict, jpg_pfad: str, schluessel: str, sende,
                        modell: str = STANDARD_MODELL,
                        basis: str = STANDARD_BASIS,
-                       preis_ein=None, preis_aus=None) -> dict:
+                       preis_ein=None, preis_aus=None, katalog=None) -> dict:
     """EINEN Anlass ansehen: eine Anfrage, eine Antwort, ein Ergebnis.
 
     ``sende`` ist die Transportfunktion (``sende_aufruf`` oder eine Attrappe
@@ -677,21 +786,35 @@ def anlass_verarbeiten(bogen: dict, jpg_pfad: str, schluessel: str, sende,
     eine solche Kachel zaehlt NICHT als fehlend) und ``unvollstaendig``
     (true/false; true, wenn gueltige Kacheln fehlen ODER unsinnige Eintraege
     verworfen wurden).
+
+    ``katalog`` ist OPTIONAL: ohne ihn bleibt alles wie bisher. Mit ihm wird
+    die Themenliste in die Anfrage gelegt UND die Antwort pruefbar zugeordnet
+    (``thema_uebernehmen``): ``thema`` ist dann entweder ein Katalogeintrag im
+    Original-Wortlaut oder ``Sonstiges``. Zusaetzlich stehen im Ergebnis
+    ``thema_roh`` (Rohtext der Modellantwort, entschaerft) und
+    ``katalog_treffer`` (true nur bei echtem Katalogeintrag).
+
+    Eine Modellantwort OHNE brauchbares ``thema`` bleibt in beiden Modi ein
+    Fehler (``FotoVisionFehler``): ein leerer Text ist kein Thema ausserhalb
+    des Katalogs, sondern eine unbrauchbare Antwort — ``Sonstiges`` dafuer
+    waere eine Beschoenung.
     """
     anfang = time.time()
     anzahl = kachelzahl(bogen)
     daten_uri = bild_daten_uri(jpg_pfad)
-    payload = anfrage_bauen(modell, daten_uri, anzahl)
+    payload = anfrage_bauen(modell, daten_uri, anzahl, katalog=katalog)
     antwort = sende(payload, schluessel, basis, versuche=VERSUCHE)
 
     daten = antwort_zerlegen(antwort["text"])
-    thema = thema_normalisieren(daten.get("thema"))
-    if not thema:
+    rohthema = daten.get("thema")
+    if not thema_normalisieren(rohthema):
         raise FotoVisionFehler("Modellantwort ohne brauchbares 'thema'.")
     # Jeder Modelltext wird VOR dem Speichern/Ausgeben entschaerft: ein Modell,
     # das den Schluessel (oder ein fremdes sk_-Muster) wiederholt, darf ihn so
-    # nicht in die Ergebnisdateien und auf die Laufzeile bringen.
-    thema = geheimnis_entfernen(thema, schluessel)
+    # nicht in die Ergebnisdateien und auf die Laufzeile bringen. Das gilt fuer
+    # das Ordner-Thema und fuer den Rohtext (thema_roh).
+    thema, thema_roh, katalog_treffer = thema_uebernehmen(
+        rohthema, bool(katalog), schluessel)
     kacheln = kacheln_uebernehmen(daten, bogen)
     for kachel in kacheln:
         if isinstance(kachel.get("kurz"), str):
@@ -712,6 +835,8 @@ def anlass_verarbeiten(bogen: dict, jpg_pfad: str, schluessel: str, sende,
         "jahr": bogen.get("jahr"),
         "datum": bogen.get("datum", ""),
         "thema": thema,
+        "thema_roh": thema_roh,
+        "katalog_treffer": bool(katalog_treffer),
         "modell": antwort.get("modell") or modell,
         "tokens_ein": tokens_ein,
         "tokens_aus": tokens_aus,
@@ -938,6 +1063,9 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
                           help="nur die gefundenen Kontaktboegen auflisten")
     zerleger.add_argument("--wiederholen", action="store_true",
                           help="auch schon erledigte Anlaesse erneut ansehen")
+    zerleger.add_argument("--ohne-katalog", dest="ohne_katalog", action="store_true",
+                          help="fester Themen-Katalog AUS (altes Verhalten: Thema "
+                               "frei benannt; Standard ist Katalog AN)")
     args = zerleger.parse_args(argv)
 
     # Zielordner ZUERST pruefen: Ausgaben gehoeren ausserhalb des Repos.
@@ -952,6 +1080,10 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
         return 2
 
     start = time.time()
+    # Katalog ist STANDARD AN: das Modell waehlt sein Thema aus der festen
+    # Liste (beschraenkter Ordnerbaum). --ohne-katalog schaltet auf das alte,
+    # freie Verhalten zurueck (Vergleichsgrundlage, Prompt-Ablation).
+    katalog = None if args.ohne_katalog else THEMEN_KATALOG
     alle = boegen_auflisten(args.boegen, args.jahr, args.anlass)
     auswahl = alle[:args.limit] if args.limit and args.limit > 0 else alle
     themen_jsonl = os.path.join(args.ausgabe, "themen.jsonl")
@@ -966,6 +1098,10 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
           + (f"   Auswahl: {args.anlass}" if args.anlass else ""))
     print(f"Sortierschluessel: {args.csv}")
     print(f"Modell: {args.modell}   Ein Aufruf je Anlass")
+    print(f"Themen-Katalog: "
+          + (f"{len(THEMEN_KATALOG)} Eintraege, Version {KATALOG_VERSION} "
+             f"(--ohne-katalog schaltet ihn aus)" if katalog
+             else "AUS (--ohne-katalog): das Thema wird frei benannt"))
     print(f"Ausgabe: {args.ausgabe} (themen/<Jahr>/, themen.jsonl, "
           f"{os.path.basename(csv_ziel)})")
     print(f"Gefunden ({len(auswahl)}"
@@ -1020,6 +1156,8 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
     neue_zuordnungen: list[dict] = []
     tokens_ein_gesamt = 0
     tokens_aus_gesamt = 0
+    katalog_treffer_gesamt = 0
+    katalog_sonstiges_gesamt = 0
 
     print()
     for bogen in offen:
@@ -1032,7 +1170,8 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
             daten = bogen_lesen(bogen["json"])
             ergebnis = anlass_verarbeiten(
                 daten, bogen["jpg"], schluessel, senden, modell=args.modell,
-                basis=args.basis, preis_ein=args.preis_ein, preis_aus=args.preis_aus)
+                basis=args.basis, preis_ein=args.preis_ein,
+                preis_aus=args.preis_aus, katalog=katalog)
         except FotoVisionFehler as problem:
             meldung = ohne_schluessel(str(problem), schluessel)
             eintrag["fehler"] = meldung
@@ -1051,6 +1190,8 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
 
         eintrag.update({"datum": ergebnis.get("datum", ""),
                         "thema": ergebnis["thema"],
+                        "thema_roh": ergebnis.get("thema_roh", ""),
+                        "katalog_treffer": ergebnis.get("katalog_treffer", False),
                         "tokens_ein": ergebnis["tokens_ein"],
                         "tokens_aus": ergebnis["tokens_aus"],
                         "kosten_usd": ergebnis["kosten_usd"]})
@@ -1060,6 +1201,11 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
         tokens_ein_gesamt += ergebnis["tokens_ein"]
         tokens_aus_gesamt += ergebnis["tokens_aus"]
         gesehen += 1
+        if katalog:
+            if ergebnis.get("katalog_treffer"):
+                katalog_treffer_gesamt += 1
+            else:
+                katalog_sonstiges_gesamt += 1
         kosten = ergebnis["kosten_usd"]
         print(f"  {bogen['titel']}: \"{ergebnis['thema']}\" "
               f"({len(ergebnis['kacheln'])}/{ergebnis['anzahl']} Kacheln, "
@@ -1078,6 +1224,10 @@ def main(argv=None, sende=None, env_pfade=None) -> int:
     print()
     print(f"Anlaesse: {len(auswahl)} gefunden   angesehen: {gesehen}   "
           f"uebersprungen: {uebersprungen}   fehlgeschlagen: {fehlgeschlagen}")
+    print(f"Katalog: {katalog_treffer_gesamt} Treffer, {katalog_sonstiges_gesamt} "
+          f"Sonstiges (von {gesehen} angesehenen Anlaessen)"
+          + ("" if katalog else f"   [--ohne-katalog: ohne Liste, {SONSTIGES} "
+                                f"nicht vergeben]"))
     print(f"Tokens: {tokens_ein_gesamt} ein, {tokens_aus_gesamt} aus   "
           f"Fortsetzungspunkt: {themen_jsonl}")
     print(f"CSV-Kopie: {csv_ziel} ({csv_bericht['zeilen']} Zeilen, "
