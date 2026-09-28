@@ -47,6 +47,36 @@ Orientierung (EXIF):
   **wiederverwendet** (numpy-only, ohne ``cv2`` importierbar) — nicht neu
   gebaut.
 
+Metadaten im selben Durchlauf (N-0929, 29.09.2026):
+  Jedes Foto wird nur **einmal** ueber pCloud geladen; aus denselben Bytes
+  entstehen die Gesichter **und** die EXIF-Metadaten. ``exif_metadaten(roh)``
+  ist eine reine Funktion (nur PIL, kein ``cv2``, kein Netz) mit immer
+  denselben Feldern::
+
+      {"aufnahme": "JJJJ-MM-TTTHH:MM:SS" | None,
+       "kamera_hersteller": str | None, "kamera_modell": str | None,
+       "gps": {"lat": float, "lon": float} | None}
+
+  ``aufnahme`` kommt aus DateTimeOriginal (0x9003), sonst DateTimeDigitized
+  (0x9004), sonst DateTime (0x0132); Nulldaten und Kaputtes ergeben ``None``.
+  GPS wird aus dem GPS-IFD (0x8825) in Dezimalgrad umgerechnet (S/W negativ,
+  6 Nachkommastellen); unplausible Werte (|lat| > 90, |lon| > 180, exakt 0/0)
+  ergeben ``None``. Nie eine Ausnahme nach aussen.
+
+  ``StapelLauf`` legt das Ergebnis unter dem Schluessel ``"metadaten"`` in
+  jede Vektorzeile (bestehende Felder unveraendert; ``personen_cluster.
+  zeile_pruefen`` baut sein Ergebnis aus den bekannten Feldern und ignoriert
+  unbekannte Schluessel). Ein Fehler bei den Metadaten verhindert die
+  Gesichtszeile nie. Zaehler: ``mit_aufnahme`` und ``mit_gps`` (Anzahl Bilder).
+
+  Pruefung Bytes-Abschnitt/Verkleinerung (Ergebnis): Im Vektorzeilen-Lauf
+  werden die **Originalbytes** bis ``max_bytes`` (Standard 8 MiB) geholt und
+  **nicht** verkleinert (``groesse`` wird dort nicht gesetzt; ``_verkleinern``
+  gilt nur fuer Kacheln). ``exif_metadaten`` liest aus genau diesen Bytes.
+  EXIF steht am JPEG-Anfang, PIL liest nur den Kopf - auch abgeschnittene
+  Bytes reichen (per Test belegt). GPS ist sensibel: Konsole und Logs zeigen
+  nie Koordinaten, nur die beiden Summen.
+
 Aufruf (Kommandozeile) — **Standard ist der Trockenlauf** (kein Download)::
 
     # Trockenlauf: nur zaehlen/auflisten, was geholt WUERDE
@@ -396,6 +426,115 @@ def gesichter_mit_detektor(roh, detektor, rekognizer, bild_id="",
     return ergebnis
 
 
+# ── 2b. EXIF-Metadaten (reine Funktion, nur PIL) ──────────────────────────
+
+_EXIF_IFD = 0x8769
+_GPS_IFD = 0x8825
+_DATUM_TAGS = (0x9003, 0x9004, 0x0132)   # Original, Digitized, DateTime
+
+
+def _exif_leer() -> dict:
+    """Die Metadaten-Felder ohne Inhalt — immer dieselbe Form."""
+    return {"aufnahme": None, "kamera_hersteller": None,
+            "kamera_modell": None, "gps": None}
+
+
+def _exif_text(wert):
+    """Einen EXIF-Textwert saeubern (Bytes/Nullbytes/Leerraum) — sonst ``None``."""
+    if isinstance(wert, (bytes, bytearray)):
+        wert = bytes(wert).decode("utf-8", errors="ignore")
+    if not isinstance(wert, str):
+        return None
+    wert = wert.replace("\x00", "").strip()
+    return wert or None
+
+
+def _exif_datum(wert):
+    """``"2014:08:03 14:22:10"`` -> ISO ``"2014-08-03T14:22:10"`` oder ``None``."""
+    text = _exif_text(wert)
+    if not text:
+        return None
+    try:
+        import datetime
+        stempel = datetime.datetime.strptime(text, "%Y:%m:%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+    return stempel.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _exif_grad(werte, bezug, positiv, negativ):
+    """Grad/Minuten/Sekunden + Himmelsrichtung -> Dezimalgrad oder ``None``."""
+    try:
+        teile = [float(v) for v in werte]
+    except (TypeError, ValueError):
+        return None
+    if len(teile) != 3 or not all(math.isfinite(v) for v in teile):
+        return None
+    richtung = _exif_text(bezug)
+    if richtung is None:
+        return None
+    richtung = richtung.upper()[:1]
+    if richtung not in (positiv, negativ):
+        return None
+    grad = teile[0] + teile[1] / 60.0 + teile[2] / 3600.0
+    return -grad if richtung == negativ else grad
+
+
+def _exif_gps(gps_ifd):
+    """GPS-IFD -> ``{"lat", "lon"}`` (Dezimalgrad, 6 Stellen) oder ``None``."""
+    if not gps_ifd:
+        return None
+    lat = _exif_grad(gps_ifd.get(2), gps_ifd.get(1), "N", "S")
+    lon = _exif_grad(gps_ifd.get(4), gps_ifd.get(3), "E", "W")
+    if lat is None or lon is None:
+        return None
+    lat, lon = round(lat, 6), round(lon, 6)
+    if abs(lat) > 90 or abs(lon) > 180 or (lat == 0 and lon == 0):
+        return None
+    return {"lat": lat, "lon": lon}
+
+
+def exif_metadaten(rohdaten: bytes) -> dict:
+    """Datum, Kamera und GPS aus dem EXIF eines Bildes lesen — nur PIL.
+
+    Reine Funktion: kein ``cv2``, kein Netz, kein Schreiben. Rueckgabe immer::
+
+        {"aufnahme": "JJJJ-MM-TTTHH:MM:SS" | None,
+         "kamera_hersteller": str | None, "kamera_modell": str | None,
+         "gps": {"lat": float, "lon": float} | None}
+
+    Jedes Feld wird einzeln und tolerant gelesen; ein Fehler (kein EXIF, PNG,
+    kaputte oder abgeschnittene Bytes) laesst die betroffenen Felder ``None``
+    und wirft **nie** eine Ausnahme. Koordinaten werden nirgends gedruckt.
+    """
+    ergebnis = _exif_leer()
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(bytes(rohdaten))) as bild:
+            exif = bild.getexif()
+            if not exif:
+                return ergebnis
+            try:
+                exif_ifd = exif.get_ifd(_EXIF_IFD)
+            except Exception:
+                exif_ifd = {}
+            for tag in _DATUM_TAGS:
+                quelle = exif if tag == 0x0132 else exif_ifd
+                iso = _exif_datum(quelle.get(tag))
+                if iso:
+                    ergebnis["aufnahme"] = iso
+                    break
+            ergebnis["kamera_hersteller"] = _exif_text(exif.get(0x010F))
+            ergebnis["kamera_modell"] = _exif_text(exif.get(0x0110))
+            try:
+                ergebnis["gps"] = _exif_gps(exif.get_ifd(_GPS_IFD))
+            except Exception:
+                ergebnis["gps"] = None
+    except Exception:
+        pass
+    return ergebnis
+
+
 # ── 3. Das Modell (laedt cv2/ONNX erst bei Bedarf) ────────────────────────
 
 class GesichtsModell:
@@ -468,7 +607,11 @@ class StapelLauf:
       * ``bilder_ohne_gesicht`` — geholte Bilder ohne erkanntes Gesicht
       * ``loecher`` — Eintraege ohne Bytes (fehlende Bytes, gezahlt)
       * ``fehler`` — Verarbeitung Fehlgeschlagenes (Holen/Erkennen)
+      * ``mit_aufnahme`` — geholte Bilder mit EXIF-Aufnahmedatum
+      * ``mit_gps`` — geholte Bilder mit plausiblen GPS-Koordinaten
       * ``sekunden`` — Laufzeit bis zum Ende
+
+    Jede Zeile traegt zusaetzlich ``"metadaten"`` (siehe ``exif_metadaten``).
     """
 
     def __init__(self, bilder, modell, max_bilder=None, abbruch=None):
@@ -486,6 +629,8 @@ class StapelLauf:
             "bilder_ohne_gesicht": 0,
             "fehler": 0,
             "loecher": 0,
+            "mit_aufnahme": 0,
+            "mit_gps": 0,
             "sekunden": 0.0,
         }
 
@@ -530,6 +675,17 @@ class StapelLauf:
             self.zaehler["bilder_geholt"] += 1
 
             try:
+                metadaten = exif_metadaten(bytes(rohdaten))
+                if not isinstance(metadaten, dict):
+                    raise TypeError("keine Metadaten")
+            except Exception:
+                metadaten = _exif_leer()
+            if metadaten.get("aufnahme"):
+                self.zaehler["mit_aufnahme"] += 1
+            if metadaten.get("gps"):
+                self.zaehler["mit_gps"] += 1
+
+            try:
                 zeile = self._modell.gesichter(bytes(rohdaten), bild_id=kennung)
                 if not isinstance(zeile, dict):
                     raise TypeError("Modell lieferte kein Ergebnis-Dict.")
@@ -546,6 +702,7 @@ class StapelLauf:
                 "breite": zeile.get("breite", 0),
                 "hoehe": zeile.get("hoehe", 0),
                 "gesichter": zeile.get("gesichter") or [],
+                "metadaten": metadaten,
             }
         self.zaehler["sekunden"] = round(time.monotonic() - self._start, 3)
         raise StopIteration
@@ -1046,6 +1203,8 @@ def main(argv=None) -> int:
               f"Loecher: {zaehler['loecher']}   "
               f"Fehler: {zaehler['fehler']}   "
               f"sekunden: {zaehler['sekunden']}")
+        print(f"Metadaten: mit Aufnahmedatum: {zaehler['mit_aufnahme']}   "
+              f"mit GPS: {zaehler['mit_gps']}")
         print(f"Vektorzeilen geschrieben: {anzahl}")
         print(f"Mengen ohne bekannte Person (nicht geclustert): "
               f"{uebersicht['mengen_ohne_bekannte_person']}")

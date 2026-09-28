@@ -556,7 +556,8 @@ def test_stapel_zaehlt_und_liefert_zeilen():
 def test_stapel_zeile_hat_genau_die_lesefelder():
     lauf = gs.vektoren_fuer_stapel([(BILD_A, b"a")], AttrappeModell([_zeile()]))
     zeile = list(lauf)[0]
-    assert set(zeile) == {"bild_id", "breite", "hoehe", "gesichter"}
+    assert set(zeile) == {"bild_id", "breite", "hoehe", "gesichter",
+                          "metadaten"}
 
 
 def test_stapel_hole_funktion_erst_beim_verarbeiten():
@@ -1260,3 +1261,164 @@ def test_oeffentliche_schnittstelle_vorhanden():
                  "kachel_quelle", "ausschnitt_rechnen", "AUSSCHNITT_RAND",
                  "AUSSCHNITT_GROESSE", "massen_uebersicht", "main"):
         assert hasattr(gs, name), f"fehlt: {name}"
+
+
+# ── 9. EXIF-Metadaten im selben Durchlauf (N-0929) ────────────────────────
+
+def _jpeg_exif(datum=None, make=None, model=None, gps=None, tag_datum=0x9003,
+               groesse=(16, 12)) -> bytes:
+    """Synthetisches JPEG mit frei gesetzten EXIF-Feldern (nur im Speicher)."""
+    exif = Image.Exif()
+    if make is not None:
+        exif[0x010F] = make
+    if model is not None:
+        exif[0x0110] = model
+    if datum is not None:
+        if tag_datum == 0x0132:
+            exif[0x0132] = datum
+        else:
+            exif.get_ifd(0x8769)[tag_datum] = datum
+    if gps is not None:
+        exif.get_ifd(0x8825).update(gps)
+    puffer = io.BytesIO()
+    Image.new("RGB", groesse, (5, 50, 90)).save(puffer, "JPEG", exif=exif)
+    return puffer.getvalue()
+
+
+GPS_SUEDWEST = {1: "S", 2: (33.0, 51.0, 54.0), 3: "W", 4: (151.0, 12.0, 36.0)}
+LEER = {"aufnahme": None, "kamera_hersteller": None, "kamera_modell": None,
+        "gps": None}
+
+
+def test_exif_vollstaendig_mit_gps_sued_west():
+    roh = _jpeg_exif("2014:08:03 14:22:10", "Canon", " EOS 5D ", GPS_SUEDWEST)
+    erg = gs.exif_metadaten(roh)
+    assert erg["aufnahme"] == "2014-08-03T14:22:10"
+    assert erg["kamera_hersteller"] == "Canon"
+    assert erg["kamera_modell"] == "EOS 5D"
+    assert erg["gps"] == {"lat": -33.865, "lon": -151.21}
+
+
+def test_exif_gps_nord_ost_positiv():
+    gps = {1: "N", 2: (52.0, 30.0, 0.0), 3: "E", 4: (13.0, 24.0, 36.0)}
+    erg = gs.exif_metadaten(_jpeg_exif(gps=gps))
+    assert erg["gps"] == {"lat": 52.5, "lon": 13.41}
+
+
+def test_exif_nur_datum():
+    erg = gs.exif_metadaten(_jpeg_exif("2020:01:02 03:04:05"))
+    assert erg == {**LEER, "aufnahme": "2020-01-02T03:04:05"}
+
+
+def test_exif_datum_rueckfall_digitized_und_datetime():
+    assert gs.exif_metadaten(
+        _jpeg_exif("2019:05:06 07:08:09", tag_datum=0x9004))["aufnahme"] \
+        == "2019-05-06T07:08:09"
+    assert gs.exif_metadaten(
+        _jpeg_exif("2018:04:05 06:07:08", tag_datum=0x0132))["aufnahme"] \
+        == "2018-04-05T06:07:08"
+
+
+def test_exif_datum_original_hat_vorrang():
+    exif = Image.Exif()
+    exif[0x0132] = "2001:01:01 01:01:01"
+    exif.get_ifd(0x8769)[0x9003] = "2002:02:02 02:02:02"
+    puffer = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(puffer, "JPEG", exif=exif)
+    assert gs.exif_metadaten(puffer.getvalue())["aufnahme"] \
+        == "2002-02-02T02:02:02"
+
+
+def test_exif_kein_exif_gibt_leere_felder():
+    puffer = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(puffer, "JPEG")
+    assert gs.exif_metadaten(puffer.getvalue()) == LEER
+
+
+def test_exif_png_gibt_leere_felder():
+    assert gs.exif_metadaten(_png_bytes()) == LEER
+
+
+@pytest.mark.parametrize("roh", [b"kein bild", b"", b"\xff\xd8\xff\xe1\x00"])
+def test_exif_kaputte_bytes_werfen_nichts(roh):
+    assert gs.exif_metadaten(roh) == LEER
+
+
+def test_exif_nicht_bytes_wirft_nichts():
+    assert gs.exif_metadaten(None) == LEER
+
+
+def test_exif_nulldatum_wird_none():
+    assert gs.exif_metadaten(
+        _jpeg_exif("0000:00:00 00:00:00"))["aufnahme"] is None
+    assert gs.exif_metadaten(_jpeg_exif("murks"))["aufnahme"] is None
+
+
+def test_exif_gps_null_null_und_unplausibel_wird_none():
+    null = {1: "N", 2: (0.0, 0.0, 0.0), 3: "E", 4: (0.0, 0.0, 0.0)}
+    hoch = {1: "N", 2: (91.0, 0.0, 0.0), 3: "E", 4: (10.0, 0.0, 0.0)}
+    breit = {1: "N", 2: (10.0, 0.0, 0.0), 3: "E", 4: (181.0, 0.0, 0.0)}
+    ohne_ref = {2: (10.0, 0.0, 0.0), 4: (10.0, 0.0, 0.0)}
+    for gps in (null, hoch, breit, ohne_ref):
+        assert gs.exif_metadaten(_jpeg_exif(gps=gps))["gps"] is None
+
+
+def test_exif_leere_kameratexte_werden_none():
+    erg = gs.exif_metadaten(_jpeg_exif(make="  ", model="\x00"))
+    assert erg["kamera_hersteller"] is None and erg["kamera_modell"] is None
+
+
+def test_exif_aus_abgeschnittenen_bytes_lesbar():
+    roh = _jpeg_exif("2014:08:03 14:22:10", "Canon", "EOS", GPS_SUEDWEST,
+                     groesse=(400, 300))
+    erg = gs.exif_metadaten(roh[:len(roh) // 2])
+    assert erg["aufnahme"] == "2014-08-03T14:22:10"
+    assert erg["gps"] is not None
+
+
+def test_stapel_liefert_metadaten_und_zaehler():
+    voll = _jpeg_exif("2014:08:03 14:22:10", "Canon", "EOS", GPS_SUEDWEST)
+    nur_datum = _jpeg_exif("2020:01:02 03:04:05")
+    bilder = [(BILD_A, voll), (BILD_B, nur_datum), ("1234569", b"kein bild"),
+              ("1234570", None)]
+    lauf = gs.vektoren_fuer_stapel(bilder, AttrappeModell([_zeile()]))
+    zeilen = list(lauf)
+    assert len(zeilen) == 3
+    assert zeilen[0]["metadaten"]["gps"] == {"lat": -33.865, "lon": -151.21}
+    assert zeilen[1]["metadaten"]["aufnahme"] == "2020-01-02T03:04:05"
+    assert zeilen[2]["metadaten"] == LEER
+    assert lauf.zaehler["mit_aufnahme"] == 2
+    assert lauf.zaehler["mit_gps"] == 1
+    assert lauf.zaehler["loecher"] == 1
+
+
+def test_stapel_metadatenfehler_verhindert_gesichtszeile(monkeypatch):
+    def kaputt(_roh):
+        raise RuntimeError("exifkaputt")
+    monkeypatch.setattr(gs, "exif_metadaten", kaputt)
+    lauf = gs.vektoren_fuer_stapel([(BILD_A, b"a")], AttrappeModell([_gesicht()]))
+    zeilen = list(lauf)
+    assert len(zeilen) == 1 and zeilen[0]["gesichter"]
+    assert zeilen[0]["metadaten"] == LEER
+    assert lauf.zaehler["mit_aufnahme"] == 0 and lauf.zaehler["fehler"] == 0
+
+
+def test_stapel_zeile_mit_metadaten_bleibt_fuer_n9a_lesbar():
+    pc = gs._personen_cluster()
+    roh = _jpeg_exif("2014:08:03 14:22:10", gps=GPS_SUEDWEST)
+    zeile = list(gs.vektoren_fuer_stapel(
+        [(BILD_A, roh)], AttrappeModell([_gesicht()])))[0]
+    assert pc.zeile_pruefen(zeile) is not None
+    json.dumps(zeile)
+
+
+def test_exif_metadaten_kommt_ohne_cv2_aus():
+    baum = ast.parse(QUELLE)
+    funk = next(n for n in ast.walk(baum)
+                if isinstance(n, ast.FunctionDef) and n.name == "exif_metadaten")
+    importiert = [n for n in ast.walk(funk)
+                  if isinstance(n, (ast.Import, ast.ImportFrom))]
+    namen = [getattr(n, "module", None) or a.name
+             for n in importiert for a in n.names] + [
+        getattr(n, "module", None) or "" for n in importiert]
+    assert not any("cv2" in str(name) for name in namen)
