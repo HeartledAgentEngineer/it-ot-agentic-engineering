@@ -184,6 +184,32 @@ mit Probe-Bestätigung **genau 1**; Namensquelle im Code wie beschrieben
 zusammen genau die sechs Dateien und **keine** Fremdarbeit; `0 0`; **keine**
 Ergebnisdatei geschrieben (Trockenlauf), `manifest.jsonl` fehlt.
 
+**Runde 4 (Endstand, nach den Korrekturen aus Runde 3): `BESTANDEN` — 0
+Abweichungen.** Verifier war hier **`google/gemini-3.7-flash`** (andere
+Modellfamilie als der Ausführer `deepseek-v4.1-flash`), weil `openai/gpt-5.6-luna`
+zu diesem Zeitpunkt von OpenRouter dreimal hintereinander rate-limitiert wurde
+(`hermes` bricht dann mit Exit 2 ab — kein Sachfehler des Repos, sondern ein
+Anbieter-Limit; die Runden 1–3 liefen unverändert mit `gpt-5.6-luna`).
+Selbst gemessen vom Prüfer: `wc -l` **1.140** / **1.258**, `grep -c "^def test_"`
+**144**, Auftrag Zeile 57/60 mit dem Endstand; die Trennung **2.558 (N27d-Baseline
+zum Bauzeitpunkt)** vs. **2.606 (Arbeitsbaum) / 2.605 passed + 1 skipped (Export)**
+in Changelog (Zeilen 43–50, 113, 159, 173–177) und Plan (Zeilen 162, 2413, 2447,
+2504–2505, 2516–2520) **eindeutig zugeordnet**; Prüfbefehl im Export mit leerem
+`.git`: **2.605 passed, 1 skipped, 3 warnings in 108,35 s, Exit 0**, die
+N27d-Suite allein **144 passed in 5,67 s**; **0** Treffer der Sternchen-Maske über
+alle fünf Prüfdateien; **0** Eigner-Nennungen in Werkzeug und Tests (im gewachsenen
+Bestand: 51 im Plan, 5 in `CLAUDE.md` — erwartet und kein Verstoß); Trockenlauf
+**0/0**, mit erfundener Probe-Bestätigung **genau 1** Name; Schreibversuch ins Repo
+**Exit 2**; keine Ziffernfolge ≥ 7 Zeichen außer Datumsangaben; `manifest.jsonl`
+fehlt; `0 0`; die vier N27d-Commits enthalten zusammen genau die sechs Dateien.
+
+**Damit ist Schritt 4 von 5 abgenommen.** Prüfhistorie in Kurzform:
+Runde 1 `gpt-5.6-luna` (5 echte Doku-/Datenschutz-Punkte + 1 Methodenartefakt),
+Runde 2 `gpt-5.6-luna` (nur die von mir zu streng formulierte Prüferwartung),
+Runde 3 `gpt-5.6-luna` (zwei Doku-Präzisierungen), Runde 4 `gemini-3.7-flash`
+(**BESTANDEN, 0 Abweichungen**) — jede Runde mit eigener Messung, keine Runde
+ohne Belegzahlen.
+
 ## Was dieser Schritt nicht liefert (bewusst offen)
 
 * **Massenlauf der Gesichter über alle 9.430 Fotos.** Basis sind hier die
