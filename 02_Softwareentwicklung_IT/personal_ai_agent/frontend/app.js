@@ -5868,6 +5868,15 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
             zeigePersonenVerwaltung();
             return;
         }
+        // BILDER-ANZEIGE (N13b): "zeig mir die fotos von 2023", "welche bilder
+        // vom urlaub" -> Galerie mit Kacheln + Diashow. Die Erkennung ist REIN
+        // (kein DOM, kein Netz); reine Zaehlfragen bleiben beim Text-Werkzeug
+        // aus N11, Upload/Loeschen sind ausgenommen.
+        const fotowunsch = fotoFrageErkennen(text);
+        if (fotowunsch) {
+            zeigeFotoGalerie(fotowunsch);
+            return;
+        }
     }
 
     // Abbruch-Guard: Während eine Antwort läuft (state.abbruch) wird NUR dann
@@ -8770,3 +8779,417 @@ function schliesseSelbsttestBlatt() {
 // =========================================
 // (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
 //  Assistenten direkt über Hermes, kein sichtbares Auftragskonzept mehr.)
+
+// =========================================================================
+// N13b — Bilder im Chat: Anzeige (Galerie + Diashow)
+// Auftrag: docs/auftrag-n13b-bilder-anzeige.md, Schritt N13b des Nachtlaufs.
+// Vorgänger N13a liefert GET /api/fotos/bilder (Kennungen je Event).
+//
+// HARTE REGEL: Die Bilder werden NUR kurzlebig gezeigt — fetch -> Blob ->
+// Objekt-URL — und die Objekt-URL wird beim Wechsel und beim Schliessen
+// wieder freigegeben. Es wird NICHTS dauerhaft abgelegt: keine Speicher-API
+// des Browsers (kein Dauer-Speicher im Geraet) und kein Cache des
+// Service Workers — der /api/-Zweig in sw.js ist netzwerk-zuerst und
+// legt nichts ab. Belegt durch frontend/tests/test_foto_galerie.js.
+// =========================================================================
+
+/** Buchfuehrung aller erzeugten Objekt-URLs (nur im Arbeitsspeicher).
+ *  Wird von fotoObjekteFreigeben() geleert. */
+const _fotoObjekte = new Set();
+
+/** REINE Funktion: Erkennt eine BILDER-Frage im Chat-Text.
+ *  Trifft nur, wenn ein Bild-Wort UND ein Zeige-Wort vorkommen; reine
+ *  Zaehlfragen (N11) sowie Upload/Hochladen/Loeschen sind ausgenommen.
+ *  Ohne DOM, ohne Netz, ohne API_BASE.
+ *  @returns {null|{jahr:(number|null), event:(string|null)}} */
+function fotoFrageErkennen(text) {
+    if (typeof text !== 'string') return null;
+    const t = text.toLowerCase();
+    if (!t.trim()) return null;
+    // Reine Zaehlfragen bleiben beim Text-Werkzeug aus N11.
+    if (t.indexOf('wie viele') !== -1 || t.indexOf('wieviel') !== -1
+        || t.indexOf('anzahl') !== -1) return null;
+    // Upload/Hochladen/Loeschen sind keine Anzeige-Fragen.
+    if (t.indexOf('upload') !== -1 || t.indexOf('hochladen') !== -1
+        || t.indexOf('löschen') !== -1) return null;
+    // Bild-Wort UND Zeige-Wort muessen vorkommen.
+    const BILD_WOERTER = ['foto', 'fotos', 'bild', 'bilder'];
+    const ZEIGE_WOERTER = ['zeig', 'zeige', 'zeig mir', 'anschauen', 'galerie', 'welche'];
+    const hatBild = BILD_WOERTER.some((w) => t.indexOf(w) !== -1);
+    const hatZeige = ZEIGE_WOERTER.some((w) => t.indexOf(w) !== -1);
+    if (!hatBild || !hatZeige) return null;
+    // Erste vierstellige Jahreszahl 20xx, sonst null.
+    const jahrTreffer = t.match(/20\d{2}/);
+    // Erstes zutreffendes Suchwort aus der FESTEN Liste (Listenreihenfolge).
+    const EVENTS = ['urlaub', 'konzert', 'geburtstag', 'hochzeit', 'festival', 'party'];
+    const eventTreffer = EVENTS.find((w) => t.indexOf(w) !== -1);
+    return {
+        jahr: jahrTreffer ? parseInt(jahrTreffer[0], 10) : null,
+        event: eventTreffer || null,
+    };
+}
+
+/** REINE Funktion: Baut aus der Antwort von GET /api/fotos/bilder die
+ *  Kachel-Liste. Nur ganzzahlige datei_id > 0 zaehlen (true ist KEINE
+ *  Kennung). Reihung: Events wie in der Antwort, Dateien wie in der Antwort;
+ *  Gesamtlaenge hoechstens maxKacheln (fehlend/0/negativ -> 40). */
+function fotoKacheln(daten, maxKacheln) {
+    const grenze = (typeof maxKacheln === 'number' && isFinite(maxKacheln) && maxKacheln > 0)
+        ? Math.floor(maxKacheln) : 40;
+    if (!daten || typeof daten !== 'object') return [];
+    if (daten.ok !== true || !Array.isArray(daten.events)) return [];
+    const kacheln = [];
+    for (let e = 0; e < daten.events.length; e++) {
+        const ev = daten.events[e];
+        if (!ev || typeof ev !== 'object' || !Array.isArray(ev.dateien)) continue;
+        for (let d = 0; d < ev.dateien.length; d++) {
+            if (kacheln.length >= grenze) return kacheln;
+            const eintrag = ev.dateien[d];
+            if (!eintrag || typeof eintrag !== 'object') continue;
+            const kennung = eintrag.datei_id;
+            if (typeof kennung !== 'number' || !Number.isInteger(kennung) || kennung <= 0) continue;
+            kacheln.push({
+                datei_id: kennung,
+                name: (typeof eintrag.name === 'string') ? eintrag.name : '',
+                thumb_klein: '/api/cloud/thumb?fileid=' + kennung + '&groesse=120x120',
+                thumb_gross: '/api/cloud/thumb?fileid=' + kennung + '&groesse=480x480',
+            });
+        }
+    }
+    return kacheln;
+}
+
+/** REINE Funktion: Kopfzeile + je Event eine Zeile, hoechstens 5 Zeilen.
+ *  n in der Kopfzeile = Zahl ALLER gueltigen datei_id-Werte aus daten.events.
+ *  Leere Antwort -> genau eine Zeile "Keine Bilder gefunden". */
+function fotoGalerieZeilen(daten) {
+    const ereignisse = (daten && typeof daten === 'object' && daten.ok === true
+        && Array.isArray(daten.events)) ? daten.events : [];
+    let bilder = 0;
+    const brauchbar = [];
+    for (let i = 0; i < ereignisse.length; i++) {
+        const ev = ereignisse[i];
+        if (!ev || typeof ev !== 'object') continue;
+        const dateien = Array.isArray(ev.dateien) ? ev.dateien : [];
+        let gueltig = 0;
+        for (let d = 0; d < dateien.length; d++) {
+            const x = dateien[d];
+            if (x && typeof x === 'object' && typeof x.datei_id === 'number'
+                && Number.isInteger(x.datei_id) && x.datei_id > 0) gueltig++;
+        }
+        bilder += gueltig;
+        brauchbar.push({ ev: ev, gueltig: gueltig });
+    }
+    if (!bilder) return ['Keine Bilder gefunden'];
+    const anzahlEvents = (typeof daten.anzahl === 'number' && isFinite(daten.anzahl))
+        ? daten.anzahl : brauchbar.length;
+    // Deutsche Einzahl auch in der Kopfzeile: „1 Event, 1 Bild".
+    const zeilen = ['Treffer: ' + anzahlEvents + (anzahlEvents === 1 ? ' Event' : ' Events')
+        + ', ' + bilder + (bilder === 1 ? ' Bild' : ' Bilder')];
+    for (let i = 0; i < brauchbar.length && i < 4; i++) {
+        const ev = brauchbar[i].ev;
+        const name = (typeof ev.event === 'string' && ev.event.trim()) ? ev.event : 'unbenannt';
+        const jahr = (typeof ev.jahr === 'number' && isFinite(ev.jahr)) ? ev.jahr : 'unbekannt';
+        const anzahl = (typeof ev.anzahl === 'number' && isFinite(ev.anzahl))
+            ? ev.anzahl : brauchbar[i].gueltig;
+        // Deutsche Einzahl: „1 Bild" statt „1 Bilder" (die Kopfzeile nennt
+        // weiterhin „n Bilder", dort ist die Mehrzahl korrekt).
+        const einheit = (anzahl === 1) ? ' Bild' : ' Bilder';
+        zeilen.push('· ' + name + ' (' + jahr + ') — ' + anzahl + einheit);
+    }
+    return zeilen;
+}
+
+/** REINE Funktion: naechster Index der Diashow, ueber die Enden umlaufend.
+ *  richtung 1 = vor, -1 = zurueck, alles andere = 1. anzahl <= 0 -> 0. */
+function fotoDiashowNaechster(index, anzahl, richtung) {
+    const n = (typeof anzahl === 'number' && isFinite(anzahl)) ? Math.floor(anzahl) : 0;
+    if (n <= 0) return 0;
+    const schritt = (richtung === -1) ? -1 : 1;
+    const i = (typeof index === 'number' && isFinite(index)) ? Math.floor(index) : 0;
+    return ((i + schritt) % n + n) % n;
+}
+
+// ---- Anzeige (Teil B) ---------------------------------------------------
+
+/** Holt ein Bild als Blob und liefert eine OBJEKT-URL zurueck (niemals den
+ *  Bildpfad direkt in ein img.src schreiben!). Die URL wird in _fotoObjekte
+ *  vermerkt, damit fotoObjekteFreigeben() sie spaeter wirklich freigibt.
+ *  Fehlschlag -> null (die uebrigen Bilder bleiben nutzbar). */
+async function fotoBildLaden(url) {
+    try {
+        const res = await fetch(url);
+        if (!res || res.ok !== true) return null;
+        const blob = await res.blob();
+        if (!blob) return null;
+        const objektUrl = URL.createObjectURL(blob);
+        _fotoObjekte.add(objektUrl);
+        return objektUrl;
+    } catch (_e) {
+        return null;
+    }
+}
+
+/** Gibt ALLE vermerkten Objekt-URLs frei, leert die Buchfuehrung und liefert
+ *  die Anzahl der freigegebenen URLs zurueck. */
+function fotoObjekteFreigeben() {
+    let anzahl = 0;
+    if (_fotoObjekte && typeof _fotoObjekte.forEach === 'function') {
+        _fotoObjekte.forEach((u) => {
+            try { URL.revokeObjectURL(u); anzahl++; } catch (_e) { /* schon weg */ }
+        });
+        _fotoObjekte.clear();
+    }
+    return anzahl;
+}
+
+/** Baut das Kachel-Raster. Die Bilder werden gestreamt nachgeladen und
+ *  EINZELN fehlertolerant behandelt: faellt eine Kachel aus, steht dort
+ *  "Vorschau nicht verfuegbar" — die uebrigen bleiben. */
+function bauFotoRaster(kacheln) {
+    const raster = document.createElement('div');
+    raster.className = 'foto-kacheln';
+    raster.setAttribute('data-foto-kacheln', '1');
+    kacheln.forEach((k, i) => {
+        const zelle = document.createElement('button');
+        zelle.type = 'button';
+        zelle.className = 'foto-kachel';
+        zelle.setAttribute('data-datei-id', String(k.datei_id));
+        const start = document.createElement('span');
+        start.className = 'foto-platzhalter';
+        start.textContent = '… lädt';
+        zelle.appendChild(start);
+        const beschriftung = document.createElement('span');
+        beschriftung.className = 'foto-kachel-name';
+        beschriftung.textContent = k.name || ('Bild ' + (i + 1));
+        zelle.appendChild(beschriftung);
+        zelle.addEventListener('click', () => oeffneFotoGross(kacheln, i));
+        raster.appendChild(zelle);
+        fotoBildLaden(k.thumb_klein).then((objektUrl) => {
+            if (!objektUrl) { start.textContent = 'Vorschau nicht verfügbar'; return; }
+            const img = document.createElement('img');
+            img.className = 'foto-kachel-bild';
+            img.alt = k.name || ('Bild ' + (i + 1));
+            // Objekt-URL aus dem Blob — NIEMALS den /api/cloud/thumb-Pfad
+            // direkt in das src schreiben.
+            img.src = objektUrl;
+            if (start.parentNode) start.parentNode.removeChild(start);
+            zelle.insertBefore(img, zelle.firstChild);
+        }).catch(() => { start.textContent = 'Vorschau nicht verfügbar'; });
+    });
+    return raster;
+}
+
+// Zustand der Grossansicht (ein Overlay zur Zeit).
+let _fotoGrossOverlay = null;
+let _fotoGrossKacheln = [];
+let _fotoGrossIndex = 0;
+let _fotoGrossUrl = '';
+let _fotoDiashowTimer = null;
+let _fotoDiashowLaeuft = false;
+
+function _fotoGrossElement(auswahl) {
+    return (_fotoGrossOverlay && _fotoGrossOverlay.querySelector)
+        ? _fotoGrossOverlay.querySelector(auswahl) : null;
+}
+
+/** Zeigt die Kachel `index` gross (480x480) und gibt dabei das VORHERIGE
+ *  Bild frei — jeder Wechsel raeumt die alte Objekt-URL weg. */
+async function _fotoGrossZeigen(index) {
+    const k = _fotoGrossKacheln[index];
+    if (!k) return;
+    _fotoGrossIndex = index;
+    if (_fotoGrossUrl) {
+        try { URL.revokeObjectURL(_fotoGrossUrl); } catch (_e) { /* schon weg */ }
+        _fotoObjekte.delete(_fotoGrossUrl);
+        _fotoGrossUrl = '';
+    }
+    const overlay = _fotoGrossOverlay;
+    const img = _fotoGrossElement('[data-foto-gross-bild="1"]');
+    const nameEl = _fotoGrossElement('[data-foto-gross-name="1"]');
+    const zaehler = _fotoGrossElement('[data-foto-gross-zaehler="1"]');
+    if (nameEl) nameEl.textContent = k.name || ('Bild ' + (index + 1));
+    if (zaehler) zaehler.textContent = (index + 1) + ' / ' + _fotoGrossKacheln.length;
+    if (img) { img.hidden = true; img.removeAttribute('src'); img.alt = k.name || ''; }
+    const objektUrl = await fotoBildLaden(k.thumb_gross);
+    if (!overlay || _fotoGrossOverlay !== overlay) {
+        // Grossansicht wurde waehrend des Ladens geschlossen.
+        if (objektUrl) {
+            try { URL.revokeObjectURL(objektUrl); } catch (_e) { /* schon weg */ }
+            _fotoObjekte.delete(objektUrl);
+        }
+        return;
+    }
+    if (!objektUrl) {
+        if (nameEl) nameEl.textContent = 'Vorschau nicht verfügbar';
+        return;
+    }
+    _fotoGrossUrl = objektUrl;
+    if (img) { img.src = objektUrl; img.hidden = false; }
+}
+
+function stoppeFotoDiashow() {
+    if (_fotoDiashowTimer) { clearInterval(_fotoDiashowTimer); _fotoDiashowTimer = null; }
+    _fotoDiashowLaeuft = false;
+    const knopf = _fotoGrossElement('[data-foto-diashow="1"]');
+    if (knopf) knopf.textContent = '▶ Diashow';
+}
+
+/** Diashow: selbsttaetiges Weiterschalten alle 3 Sekunden (umlaufend). */
+function starteFotoDiashow() {
+    stoppeFotoDiashow();
+    _fotoDiashowLaeuft = true;
+    const knopf = _fotoGrossElement('[data-foto-diashow="1"]');
+    if (knopf) knopf.textContent = '⏸ Stopp';
+    _fotoDiashowTimer = setInterval(() => {
+        const weiter = fotoDiashowNaechster(_fotoGrossIndex, _fotoGrossKacheln.length, 1);
+        _fotoGrossZeigen(weiter);
+    }, 3000);
+}
+
+function _fotoEscapeHandler(e) {
+    if (e && e.key === 'Escape') schliesseFotoGross();
+}
+
+/** Nach dem Freigeben sind die Objekt-URLs tot: betroffene Kacheln sagen das
+ *  ehrlich, statt ein kaputtes Bild zu zeigen. */
+function _fotoKachelnUngueltigMachen() {
+    const bilder = document.querySelectorAll('[data-foto-kacheln="1"] img');
+    for (let i = 0; i < bilder.length; i++) {
+        const img = bilder[i];
+        const ersatz = document.createElement('span');
+        ersatz.className = 'foto-platzhalter';
+        ersatz.textContent = 'Vorschau freigegeben – erneut fragen';
+        if (img.parentNode) img.parentNode.replaceChild(ersatz, img);
+    }
+}
+
+/** Schliesst die Grossansicht. Ruft IMMER fotoObjekteFreigeben(); danach ist
+ *  die Buchfuehrung leer. */
+function schliesseFotoGross() {
+    stoppeFotoDiashow();
+    if (document && document.removeEventListener) document.removeEventListener('keydown', _fotoEscapeHandler);
+    if (_fotoGrossOverlay && _fotoGrossOverlay.parentNode) {
+        _fotoGrossOverlay.parentNode.removeChild(_fotoGrossOverlay);
+    }
+    _fotoGrossOverlay = null;
+    _fotoGrossUrl = '';
+    _fotoGrossKacheln = [];
+    _fotoGrossIndex = 0;
+    _fotoKachelnUngueltigMachen();
+    fotoObjekteFreigeben();
+    return true;
+}
+
+/** Oeffnet die Grossansicht zu einer Kachel: Bild in 480x480, Beschriftung,
+ *  ‹ Zurueck / Weiter › / ▶ Diashow / ✕. Schliessen ueber ✕, Hintergrund
+ *  oder Escape. */
+function oeffneFotoGross(kacheln, index) {
+    if (!Array.isArray(kacheln) || !kacheln.length) return;
+    if (_fotoGrossOverlay) schliesseFotoGross();
+    _fotoGrossKacheln = kacheln.slice();
+    _fotoGrossIndex = 0;
+    const overlay = document.createElement('div');
+    overlay.className = 'foto-gross';
+    overlay.setAttribute('data-foto-gross', '1');
+    const panel = document.createElement('div');
+    panel.className = 'foto-gross-panel';
+    const img = document.createElement('img');
+    img.className = 'foto-gross-bild';
+    img.setAttribute('data-foto-gross-bild', '1');
+    img.alt = '';
+    img.hidden = true;
+    const kopf = document.createElement('div');
+    kopf.className = 'foto-gross-kopf';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'foto-gross-name';
+    nameEl.setAttribute('data-foto-gross-name', '1');
+    const zaehler = document.createElement('span');
+    zaehler.className = 'foto-gross-zaehler';
+    zaehler.setAttribute('data-foto-gross-zaehler', '1');
+    kopf.appendChild(nameEl);
+    kopf.appendChild(zaehler);
+    const knoepfe = document.createElement('div');
+    knoepfe.className = 'foto-gross-knoepfe';
+    const zurueck = document.createElement('button');
+    zurueck.type = 'button';
+    zurueck.className = 'foto-knopf';
+    zurueck.textContent = '‹ Zurück';
+    const weiter = document.createElement('button');
+    weiter.type = 'button';
+    weiter.className = 'foto-knopf';
+    weiter.textContent = 'Weiter ›';
+    const diashow = document.createElement('button');
+    diashow.type = 'button';
+    diashow.className = 'foto-knopf';
+    diashow.setAttribute('data-foto-diashow', '1');
+    diashow.textContent = '▶ Diashow';
+    const zu = document.createElement('button');
+    zu.type = 'button';
+    zu.className = 'foto-knopf foto-knopf-schliessen';
+    zu.setAttribute('data-foto-schliessen', '1');
+    zu.textContent = '✕';
+    zurueck.addEventListener('click', () => {
+        _fotoGrossZeigen(fotoDiashowNaechster(_fotoGrossIndex, _fotoGrossKacheln.length, -1));
+    });
+    weiter.addEventListener('click', () => {
+        _fotoGrossZeigen(fotoDiashowNaechster(_fotoGrossIndex, _fotoGrossKacheln.length, 1));
+    });
+    diashow.addEventListener('click', () => {
+        if (_fotoDiashowLaeuft) stoppeFotoDiashow(); else starteFotoDiashow();
+    });
+    zu.addEventListener('click', () => schliesseFotoGross());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) schliesseFotoGross(); });
+    knoepfe.appendChild(zurueck);
+    knoepfe.appendChild(weiter);
+    knoepfe.appendChild(diashow);
+    knoepfe.appendChild(zu);
+    panel.appendChild(img);
+    panel.appendChild(kopf);
+    panel.appendChild(knoepfe);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    _fotoGrossOverlay = overlay;
+    if (document && document.addEventListener) document.addEventListener('keydown', _fotoEscapeHandler);
+    _fotoGrossZeigen(index);
+}
+
+/** Baut die Galerie-Blase im Chat: Ueberschrift, die Zeilen aus
+ *  fotoGalerieZeilen(daten) und das Raster aus fotoKacheln(daten).
+ *  Fehlerfall -> EINE ehrliche Zeile, kein Absturz, keine leere Blase. */
+async function zeigeFotoGalerie(wunsch) {
+    const contentDiv = addMessage('', 'assistant');
+    const blase = (contentDiv && contentDiv.closest) ? contentDiv.closest('.message') : null;
+    if (blase && blase.setAttribute) blase.setAttribute('data-foto-galerie', '1');
+    let daten = null;
+    let ursache = '';
+    try {
+        const teile = [];
+        if (wunsch && wunsch.jahr) teile.push('jahr=' + encodeURIComponent(String(wunsch.jahr)));
+        if (wunsch && wunsch.event) teile.push('event=' + encodeURIComponent(String(wunsch.event)));
+        teile.push('limit=5');
+        teile.push('pro_event=40');
+        const res = await fetch(`${API_BASE}/api/fotos/bilder?` + teile.join('&'));
+        if (!res || res.ok !== true) { ursache = 'HTTP ' + (res ? res.status : '?'); }
+        else { daten = await res.json(); }
+    } catch (e) {
+        ursache = (e && e.message) || 'Netzwerkfehler';
+    }
+    if (!daten || daten.ok !== true) {
+        const meldung = (daten && daten.error)
+            ? daten.error : ('Bilder nicht abrufbar (' + ursache + ')');
+        zeigeBlaseMitText(blase, contentDiv, '🖼️ Bilder\n' + meldung);
+        return;
+    }
+    zeigeBlaseMitText(blase, contentDiv, '🖼️ Bilder');
+    const zeilen = fotoGalerieZeilen(daten);
+    const zeilenDiv = document.createElement('div');
+    zeilenDiv.className = 'foto-zeilen';
+    zeilenDiv.textContent = zeilen.join('\n');
+    contentDiv.appendChild(zeilenDiv);
+    const kacheln = fotoKacheln(daten);
+    if (kacheln.length) contentDiv.appendChild(bauFotoRaster(kacheln));
+}
+
+// ===== Ende Bilder-Galerie (N13b) =====
+

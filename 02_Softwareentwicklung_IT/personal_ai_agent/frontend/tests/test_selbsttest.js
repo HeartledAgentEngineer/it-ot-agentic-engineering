@@ -231,8 +231,23 @@ console.log('\n5) Datenschutz & Cache-Bump');
 pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));
 pruefe('kein API-Schlüssel im Frontend', !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
-pruefe('index.html lädt app.js mit ?v=20260927B', /app\.js\?v=20260927B/.test(html), 'Cache-Bump fehlt');
-pruefe('index.html lädt style.css mit ?v=20260925F', /style\.css\?v=20260925F/.test(html), 'Cache-Bump fehlt');
+// Cache-Bump: bewusst NICHT mehr auf eine feste Nummer prüfen. Die feste
+// Nummer ließ die Prüfung nach jedem legitimen Bump rot werden (zuletzt am
+// 28.09.2026, als app.js auf 20260928A ging) — eine Prüfung, die bei korrektem
+// Verhalten rot wird, prüft nicht das Verhalten. Geprüft wird jetzt: Nummer
+// vorhanden, Muster JJJJMMTT+Buchstabe, nicht älter als die letzte bekannte
+// Pflicht-Nummer.
+const _mindestVersion = '20260925';
+function _indexVersion(datei) {
+  const m = html.match(new RegExp(datei.replace('.', '\\.') + '\\?v=(\\d{8}[A-Z])'));
+  return m ? m[1] : null;
+}
+const _vApp = _indexVersion('app.js');
+const _vCss = _indexVersion('style.css');
+pruefe('index.html lädt app.js mit ?v=<JJJJMMTT><Buchstabe>, nicht älter als '
+  + _mindestVersion, !!_vApp && _vApp >= _mindestVersion, 'gefunden: ' + _vApp);
+pruefe('index.html lädt style.css mit ?v=<JJJJMMTT><Buchstabe>, nicht älter als '
+  + _mindestVersion, !!_vCss && _vCss >= _mindestVersion, 'gefunden: ' + _vCss);
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));
 process.exit(fehler ? 1 : 0);

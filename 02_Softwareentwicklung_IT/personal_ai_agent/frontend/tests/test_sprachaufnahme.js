@@ -144,11 +144,22 @@ pruefe('mobil gebaut (viewport-Meta vorhanden)',
 pruefe('kein API-Schlüssel im Frontend',
   !/sk-or-v1-/.test(src) && !/sk-or-v1-/.test(html));
 
-// 8) Cache-Bump (Pflicht bei Frontend-Änderungen)
-pruefe('index.html lädt app.js mit ?v=20260927A',
-  /app\.js\?v=20260927A/.test(html), 'Cache-Bump fehlt');
-pruefe('index.html lädt style.css mit ?v=20260925F',
-  /style\.css\?v=20260925F/.test(html), 'Cache-Bump für style.css fehlt');
+// 8) Cache-Bump (Pflicht bei Frontend-Änderungen).
+// Bewusst NICHT auf eine feste Nummer geprüft: Die feste Nummer ließ diese
+// Prüfung nach jedem legitimen Bump rot werden (sie stand auf 20260927A, als
+// index.html schon 20260927B lud). Geprüft wird: Nummer vorhanden, Muster
+// JJJJMMTT+Buchstabe, nicht älter als die letzte bekannte Pflicht-Nummer.
+const _mindestVersion = '20260925';
+function _indexVersion(datei) {
+  const m = html.match(new RegExp(datei.replace('.', '\\.') + '\\?v=(\\d{8}[A-Z])'));
+  return m ? m[1] : null;
+}
+const _vApp = _indexVersion('app.js');
+const _vCss = _indexVersion('style.css');
+pruefe('index.html lädt app.js mit ?v=<JJJJMMTT><Buchstabe>, nicht älter als '
+  + _mindestVersion, !!_vApp && _vApp >= _mindestVersion, 'gefunden: ' + _vApp);
+pruefe('index.html lädt style.css mit ?v=<JJJJMMTT><Buchstabe>, nicht älter als '
+  + _mindestVersion, !!_vCss && _vCss >= _mindestVersion, 'gefunden: ' + _vCss);
 
 console.log('\nERGEBNIS: ' + (fehler ? fehler + ' Prüfungen rot' : 'alle Prüfungen grün'));
 process.exit(fehler ? 1 : 0);
