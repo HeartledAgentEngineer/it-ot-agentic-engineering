@@ -144,6 +144,22 @@ nicht unabhängig in einem unveränderten Elternstand gefahren (er wollte dafür
 keinen Worktree ins Repo bauen); die Zahl stammt aus der eigenen Zählung des
 Planers vor dem Bau.
 
+**Runde 2 (frische Sitzung, dasselbe Modell): `NICHT BESTANDEN` — aber ohne
+Sachfehler.** Beanstandet wurde allein die **Prüferwartung des Auftrags**: sie
+verlangte „0 Eigner-Nennungen, kein Sternchen-Muster in allen sechs Dateien je
+Commit" und prüfte damit auch den **älteren** Commit `91baf14`, in dem genau die
+korrigierten Stellen standen; `1abe82d` hat der Prüfer ausdrücklich entlastet.
+Bestätigt hat er dagegen: `1.140` Zeilen (Datei endet mit Umbruch), alle vier
+Doku-Stellen auf `1.140`, in `1abe82d` **0** Nennungen des Eigner-Namens, der
+echte Beispielname ist weg, die Sternchen-Masken sind aus den N27d-Dateien
+entfernt, `1abe82d` enthält genau **vier** Dateien und **keine** fremde
+E8a-Zeile, Prüfbefehl **2.606 passed, Exit 0** (N27d-Baseline **2.558**),
+`0 0`. Die **Gegenprobe zum agentbus-Test hat er selbst gefahren** (Export ohne
+`.git` → 1 failed, nach `mkdir .git` → 1 passed) und die Einordnung als
+Artefakt **geteilt**; den Mengenangaben-Einwand aus Runde 1 hat er **nicht**
+geteilt. Der letzte verbliebene Sternchen-Rest im Plan (Zeile 2269, Bestand aus
+einer früheren Runde) wurde daraufhin ebenfalls bereinigt.
+
 ## Was dieser Schritt nicht liefert (bewusst offen)
 
 * **Massenlauf der Gesichter über alle 9.430 Fotos.** Basis sind hier die

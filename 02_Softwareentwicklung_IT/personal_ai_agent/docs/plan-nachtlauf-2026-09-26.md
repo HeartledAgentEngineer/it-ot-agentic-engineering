@@ -2266,7 +2266,8 @@ ohnehin nachkontrolliert.
     ist die oben begründete Gruppenregel.
   - **Schutz:** `msgstore.db` **nur lesend**, mtime vor/nach allen Läufen
     unverändert (md5 der Eingabedateien geprüft), **kein** Nachrichtentext und
-    **keine** Klartext-Nummer in der Ausgabe (nur Masken `***1234`), Ausgabe
+    **keine** Klartext-Nummer in der Ausgabe (nur Masken aus den letzten vier
+    Ziffern), Ausgabe
     außerhalb des Repos, kein Löschen (einzige Entfernung: die eigene
     temp-Datei), fremde Dateien unangetastet. Eigener Planer-Scan der neuen
     Repo-Dateien: **0** echte Personen-/Gruppen-/Ortsnamen, keine echten
@@ -2483,6 +2484,29 @@ ohnehin nachkontrolliert.
     Doku-Fehler (Zeilenzahl, Beispielname) und eine Datenschutz-Lücke (Sternchen-
     Muster) wären sonst bis zum Morgen im Repo geblieben; der „rote Test“ kostete
     dagegen nur eine Gegenprobe von 3 Sekunden.
+  - **Prüfer Runde 2 (`openai/gpt-5.6-luna`, frische Sitzung): NICHT BESTANDEN —
+    aber ausschließlich wegen einer zu streng formulierten Prüferwartung von
+    MIR, kein Sachfehler im heutigen Stand.** Der Auftrag der Runde 2 verlangte
+    „0 Eigner-Nennungen und kein Sternchen-Muster in **allen sechs Dateien je
+    Commit**“ — geprüft wurde damit auch der **ältere** Commit `91baf14`, in dem
+    genau die Stellen standen, die `1abe82d` korrigiert. Der Prüfer hat das
+    korrekt gesagt und **`1abe82d` selbst entlastet** („fügt keine solche
+    Nennung hinzu und korrigiert die betroffenen Zeilen“). Alles andere hat er
+    bestätigt: `wc -l` = **1.140** und Datei endet mit `0a`; alle vier
+    Doku-Stellen nennen **1.140**; in `1abe82d` **0** Treffer für „Sebastian“
+    bzw. „Wenck“; der echte Beispielname ist weg (nur `Beispiel-01` /
+    `Beispielname`); die Sternchen-Masken sind aus den N27d-Dateien entfernt;
+    **Gegenprobe des agentbus-Tests selbst gefahren** (Export ohne `.git`
+    → **1 failed**, nach `mkdir .git` → **1 passed**) und die Einordnung als
+    Artefakt ausdrücklich **geteilt**; Mengenangaben-Einwand **nicht** geteilt
+    (Einschätzung des Planers bestätigt); `1abe82d` = genau **vier** Dateien,
+    in `CLAUDE.md` **nur** die N27d-Zeile, **keine** E8a-Zeile; Prüfbefehl
+    **2.606 passed, Exit 0** im Arbeitsbaum (die 48 zusätzlichen Tests gehören
+    zur parallelen E8a-Arbeit, N27d-Baseline bleibt **2.558**); `0 0`.
+    **Konsequenz:** die Prüferwartung der Runde 2 wurde als Formulierungsfehler
+    eingestuft und der **letzte** verbliebene Sternchen-Rest im Plan (Zeile
+    2269, Bestand aus einer früheren Runde) ebenfalls bereinigt; Runde 3 prüft
+    den **Endstand** (nicht mehr jeden Einzel-Commit).
   - **Naechster Schritt: N27 Schritt 5 (Ableitung „wer war mit wem wo")** — nur
     aus **bestätigten** Zuordnungen, jede Aussage mit **Datum + Quelle**; davor
     entscheidet der Nutzer über die Namensvorschläge.
