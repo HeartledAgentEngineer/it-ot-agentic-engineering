@@ -54,8 +54,12 @@ eigene Entscheidung und eigene Messung). Dieser Schritt baut das
 
 ## Was gebaut wird
 
-**Werkzeug:** `tools/foto_sortierung/personen_andocken.py` (Richtwert 600–850 Zeilen)
-**Tests:** `backend/tests/test_personen_andockung.py` (Richtwert 60–90 Testfunktionen, alles offline, `tmp_path`, erfundene Daten)
+**Werkzeug:** `tools/foto_sortierung/personen_andocken.py` (**Endstand: 1.140 Zeilen**;
+Richtwert des Auftrags war 600–850 Zeilen — überschritten zugunsten der deutschen
+Dokumentation und der Beweislage, offen im Changelog benannt)
+**Tests:** `backend/tests/test_personen_andockung.py` (**Endstand: 1.258 Zeilen, 144
+Testfunktionen**; Richtwert 60–90 — ebenfalls überschritten; alles offline, `tmp_path`,
+erfundene Daten)
 
 Eingaben (überschreibbar per CLI), alle **nur lesend**, alle außerhalb des Repos:
 

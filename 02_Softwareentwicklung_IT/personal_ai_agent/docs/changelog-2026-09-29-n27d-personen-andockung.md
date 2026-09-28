@@ -41,9 +41,12 @@ cd backend && .venv/Scripts/python -m pytest tests/ -q
 ```
 
 Baseline vor dem Schritt (frisch gezählt): **2.414**, danach **2.558** — genau
-**+144** = die neuen Testfunktionen. Die Zahl wächst weiter durch fremde
-Parallelarbeit im selben Arbeitsbaum (der zweite Agent committet dort
-`tools/agentbus/`, `docs/experimente/live_zahlen.*`).
+**+144** = die neuen Testfunktionen. **Zum Endstand:** die 2.558 gelten als
+**N27d-Baseline** (Stand des Baus). Danach hat der zweite Agent im selben
+Arbeitsbaum den Commit `2d7ba68` (Auftrag E8a, +48 Tests) gepusht; deshalb misst
+ein Lauf **danach** 2.606 (Exit 0, im Arbeitsbaum; Prüfer-Messung) bzw.
+**2.605 passed + 1 skipped** im Export des Endstands (Prüfer-Messung) — die
+Differenz gehört zur Fremdarbeit, nicht zu N27d.
 
 ## Live-Läufe (echte Dateien, alles nur lesend)
 
@@ -159,6 +162,27 @@ E8a-Zeile, Prüfbefehl **2.606 passed, Exit 0** (N27d-Baseline **2.558**),
 Artefakt **geteilt**; den Mengenangaben-Einwand aus Runde 1 hat er **nicht**
 geteilt. Der letzte verbliebene Sternchen-Rest im Plan (Zeile 2269, Bestand aus
 einer früheren Runde) wurde daraufhin ebenfalls bereinigt.
+
+**Runde 3 (frische Sitzung, dasselbe Modell): `NICHT BESTANDEN` — zwei
+Doku-Präzisierungen, kein Code-Befund.** Beanstandet wurde (1) der **Auftrag**
+nenne nur den Richtwert „600–850 Zeilen" und nicht den Endstand, während der
+Changelog von „allen vier Stellen" sprach — behoben: der Auftrag trägt jetzt
+**1.140 Zeilen** (Werkzeug) und **1.258 Zeilen / 144 Testfunktionen** (Tests) als
+Endstand, jeweils mit dem Hinweis auf den überschrittenen Richtwert; gemeint sind
+mit den vier Stellen **Changelog · Plan-Zeile N27d · Plan-Journal · `CLAUDE.md`**.
+(2) die **Testzahl**: 2.558 ist die **N27d-Baseline zum Bauzeitpunkt**, nicht der
+Endstand des Baums — der Endstand enthält die **parallele Fremdarbeit**
+(`2d7ba68`, Auftrag E8a, +48 Tests) und misst deshalb 2.606 (Arbeitsbaum) bzw.
+2.605 passed + 1 skipped (Export; beides Prüfer-Messungen). Beides ist jetzt im
+Changelog so getrennt ausgewiesen.
+Bestätigt hat Runde 3: Werkzeug **1.140** Zeilen, Tests **1.258** Zeilen /
+**144** Testfunktionen, beide mit Zeilenumbruch; **0** Treffer der wörtlichen
+Sternchen-Maske in Werkzeug, Tests, Auftrag, Changelog und Plan; **keine**
+Nennung des Eigner-Vornamens in Werkzeug und Tests; Trockenlauf **0/0** Namen,
+mit Probe-Bestätigung **genau 1**; Namensquelle im Code wie beschrieben
+(`chat_name`, `beteiligte` nur als Rückfall); die drei N27d-Commits enthalten
+zusammen genau die sechs Dateien und **keine** Fremdarbeit; `0 0`; **keine**
+Ergebnisdatei geschrieben (Trockenlauf), `manifest.jsonl` fehlt.
 
 ## Was dieser Schritt nicht liefert (bewusst offen)
 

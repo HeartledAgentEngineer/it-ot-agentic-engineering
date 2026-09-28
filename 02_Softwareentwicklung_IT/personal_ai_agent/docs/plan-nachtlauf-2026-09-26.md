@@ -2507,6 +2507,25 @@ ohnehin nachkontrolliert.
     eingestuft und der **letzte** verbliebene Sternchen-Rest im Plan (Zeile
     2269, Bestand aus einer früheren Runde) ebenfalls bereinigt; Runde 3 prüft
     den **Endstand** (nicht mehr jeden Einzel-Commit).
+  - **Prüfer Runde 3 (`openai/gpt-5.6-luna`, frische Sitzung, Endstand): NICHT
+    BESTANDEN — zwei Doku-Präzisierungen, kein Code-Befund.** (1) Der **Auftrag**
+    nannte nur den Richtwert („600–850 Zeilen") und nicht den Endstand, während
+    der Changelog von „allen vier Stellen" sprach → Auftrag trägt jetzt
+    **1.140 Zeilen** und **1.258 Zeilen / 144 Testfunktionen** als Endstand;
+    die vier Stellen sind ausdrücklich benannt (Changelog · Plan-Zeile N27d ·
+    Journal · `CLAUDE.md`). (2) **Testzahl:** 2.558 ist die **N27d-Baseline zum
+    Bauzeitpunkt**, der Endstand des Baums misst wegen der parallelen E8a-Arbeit
+    (`2d7ba68`, +48 Tests) **2.606** (Arbeitsbaum) bzw. **2.605 passed + 1 skipped**
+    (Export) → im Changelog jetzt getrennt ausgewiesen.
+    Bestätigt hat er: 1.140 / 1.258 Zeilen / 144 Testfunktionen, beide Dateien
+    mit Zeilenumbruch; **0** Sternchen-Masken in Werkzeug, Tests, Auftrag,
+    Changelog und Plan; **keine** Eigner-Nennung in Werkzeug und Tests;
+    Trockenlauf **0/0** Namen, mit Probe-Bestätigung **genau 1**; Namensquelle im
+    Code wie beschrieben; die N27d-Commits enthalten zusammen genau die sechs
+    Dateien und **keine** Fremdarbeit; **0 0**; nichts geschrieben
+    (`manifest.jsonl` fehlt). **Nebenbefund des Prüfers:** HEAD stand bereits auf
+    `7512d8b` (weiterer Fremd-Commit des zweiten Agenten, Frontend-Statusleiste) —
+    die N27d-Commits sind davon unberührt.
   - **Naechster Schritt: N27 Schritt 5 (Ableitung „wer war mit wem wo")** — nur
     aus **bestätigten** Zuordnungen, jede Aussage mit **Datum + Quelle**; davor
     entscheidet der Nutzer über die Namensvorschläge.
