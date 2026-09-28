@@ -194,10 +194,14 @@ und Klartext statt abzustürzen; der `X-API-Key`-Schutz gilt wie bei allen ander
 Der Agent soll **wissen, dass er ein Archiv hat** und Fragen zu früheren Gesprächen
 zuerst dort suchen — nicht im Web. Drei Teile gehören dazu:
 
-1. **Index** — eine SQLite-Datei (`archiv_index.db`, ~240 MB) mit Nachrichten, Chunks,
+1. **Index** — eine SQLite-Datei (`archiv_index.db`, ~450 MB) mit Nachrichten, Chunks,
    FTS5-Volltextindex und Vektoren. Gebaut mit
    `cd backend && .venv/Scripts/python -m scripts.archiv_index_bauen --mit-vektoren`;
-   gelesen wird ausschließlich lesend (`mode=ro`).
+   **nachgeschoben** wird mit `scripts.archiv_index_ergaenzen` — es hängt nur neue
+   Zeilen an und rechnet nur fehlende Vektoren (harte `--budget`-Grenze, sonst
+   Trockenlauf). Die neuen Zeilen selbst kommen aus `scripts/whatsapp_db_import`
+   (Handy-Sicherung → `normalized/messages.jsonl`, ausschließlich anhängend).
+   Gelesen wird ausschließlich lesend (`mode=ro`).
 2. **Verdrahtung** — `archiv_wissen.router` ist in `app/main.py` eingehängt, und der
    Baustein aus `archiv_suche.prompt_baustein(kurz=True)` steht in **jedem** Prompt
    (`llm_service._build_messages`, auch ohne Suchtreffer).

@@ -721,11 +721,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def _schluessel_holen() -> str:
-    """Schluessel aus backend/.env, .env daneben oder der Umgebung. Nie ausgeben."""
-    for pfad in (
+    """Schluessel aus backend/.env, .env daneben, Workspace-.env oder der Umgebung.
+
+    Der Workspace-Ordner steht seit dem 28.09.2026 mit in der Liste: dort liegt
+    die ``.env`` mit ``OPENROUTER_API_KEY``, waehrend ``backend/.env`` nur die
+    lokalen Dienste kennt. Gesucht wird in dieser Reihenfolge, ausgegeben wird
+    nie etwas.
+    """
+    kandidaten = [
         os.path.join(BACKEND, ".env"),
         os.path.join(os.path.dirname(BACKEND), ".env"),
-    ):
+        os.path.join(os.path.dirname(os.path.dirname(BACKEND)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(BACKEND))), ".env"),
+    ]
+    for pfad in kandidaten:
         if not os.path.isfile(pfad):
             continue
         try:
