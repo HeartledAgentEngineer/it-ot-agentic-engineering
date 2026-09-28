@@ -1,6 +1,39 @@
 {
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/agentbus.py\" init >/dev/null 2>&1; echo '=== AGENTENBUS: Abstimmung mit Hermes ==='; python \"$CLAUDE_PROJECT_DIR/02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/agentbus.py\" status 2>&1 | head -20; echo '=== ungelesene Nachrichten fuer claude ==='; python \"$CLAUDE_PROJECT_DIR/02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/agentbus.py\" read --for claude 2>&1 | head -20; echo '=== Regel: vor der Arbeit claim, danach erledigt. Protokoll: docs/agentbus-protokoll.md ==='"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/agentbus.py\" read --for claude 2>&1 | head -12"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/agentbus.py\" read --for claude 2>&1 | head -12"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
+      "Bash(python *agentbus.py:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -19,7 +52,9 @@
     ],
     "deny": [
       "Read(./Chats von GPT, GEMINI, Claude/**)",
-      "Edit(./Chats von GPT, GEMINI, Claude/**)"
+      "Edit(./Chats von GPT, GEMINI, Claude/**)",
+      "Read(C:\\Users\\sebas\\foto_sortierung/**)",
+      "Edit(C:\\Users\\sebas\\foto_sortierung/**)"
     ]
   }
 }
