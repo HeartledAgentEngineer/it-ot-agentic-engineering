@@ -149,7 +149,7 @@ ohnehin nachkontrolliert.
 | N9f | **Personen-Ergebnisse mit richtigen Vektoren neu rechnen** (Folge von N9e): Gruppen-Anzahl, Referenzseiten, Kennungs-Altbestand auf `personen_vektoren_n9e.jsonl`/`_burst.jsonl` neu bestimmen; die Mengen-Arten (`gruppe`/`menge`/`leer`) am korrigierten Lauf erneut zählen; danach die **Verkettung** messen/ersetzen (Mittelpunkt- oder Vollständigkeits-Verknüpfung bzw. Größen-Grenze) — **erst danach** die Schwelle neu begründen | neue Gruppen-Anzahl und Referenzseiten belegt; Verkettung beziffert oder ersetzt; Schwelle mit Zahlen begründet (oder bewusst unverändert) | ✅ **bestanden (27.09.)** — neues Werkzeug `personen_verkettung.py` (878 Zeilen) + **117** Tests → Prüfbefehl **1433 grün, Exit 0**; **Verkettung beziffert**: Bestandsverfahren (dichte) bei Schwelle 0,45 → Durchmesser **0,9032 = 2 × Schwelle** (größte Gruppe 22), vollständige Verknüpfung **0,4417 ≤ 0,45** (größte 11), Mittelpunkt 0,9040; über **alle acht Schwellen 0,10–0,45** liegt dichte und mittelpunkt **immer** über der Schwelle, vollständig **nie**; **Bodenwahrheit: 0 von 131** Bild-Paaren erkennbarer Gesichter verschmolzen (Distanzen min 0,5312/Median 0,8280/max 1,0667, **0 unter 0,45**) bei **allen** Verfahren und Schwellen; **Neu-Rechnung** auf korrigierten Vektoren: Arten `leer 20 · gruppe 32 · menge 10 · unklar 30`, **12 Gruppen** (4,4,4,4,3,11,10,3,22,3,3,3), **12 Kennungen**, **16 Referenzseiten mit 74 echten Gesichtsausschnitten** (alle 200×200, 2. Lauf 0); **Schwelle bewusst unverändert 0,45** (kleinster Abstand zweier erkennbarer Gesichter 0,5312 → 0,0812 Sicherheitsabstand; Anheben durch keine Messung gedeckt); Burst-Datei: 14 nutzbare Gesichter, alle drei Verfahren **gleich** (2 Gruppen, Durchmesser 0,3779 — keine Verkettung). Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen** (9 Punkte unabhängig nachgerechnet). Doku `docs/changelog-2026-09-27-n9f-verkettung.md` |
 | N9g | **Verfahrenswechsel im Produktionsmodul + breitere Stichprobe** (Folge von N9f): Produktion auf die **vollständige Verknüpfung** umstellen, vorher auf einer **über die Jahre gestreuten** Stichprobe messen (nicht nur 8 Anlässe) | neue Messung mit Bodenwahrheit belegt den Wechsel; Durchmesser-Invariante erfüllt; Prüfbefehl grün | ✅ **bestanden (27.09.)** — **Messung breiter:** 192 Bilder ausgewählt (40 Mengen-Anlässe über die Jahre gestreut = 152 Bilder + 40 Kontrollen aus 40 Anlässen), **188 erkannt, 142 mit Gesicht, 907 Gesichter, 1.086,6 s, 9 Fehlerzeilen** (4 × pCloud-Zeitüberschreitung, 5 × nicht dekodierbar), **341 geclusterte Gesichter**, Arten `gruppe 74 · leer 41 · menge 20 · unklar 48`; **Bodenwahrheit 210 Paare**, Distanzen 0,4925/0,8708/1,1422, **0 unter 0,45**. **Der neue Befund:** das Bestandsverfahren **dichte** verschmilzt **2 von 210** erkennbaren Paaren (bei 0,45 **und** 0,40, Quote 1,0 %) und reißt den Durchmesser mit **2,00234 × Schwelle**; **vollstaendig 0 von 210** in allen 16 Kombinationen (8 Schwellen × 2 Mindestgrößen), Durchmesser **nie** über der Schwelle (knappste Stelle 0,99908); **mittelpunkt 11 von 210** bei 0,45 (Durchmesser 0,9240) → ausgeschieden. Bei 0,45: dichte 10 Gruppen/89 Gesichter/2 verschmolzen gegen **vollstaendig 13 Gruppen/66 Gesichter/0** (Preis ehrlich: 23 Gesichter mehr im Rauschen). **Code:** `CLUSTER_VERFAHREN = "vollstaendig"` als Produktionsstandard, `vollstaendig_clustern` als einzige Quelle in `personen_cluster.py` (Complete-Linkage, numpy, deterministisch), `vektoren_clustern(..., verfahren=None)` mit `"dichte"` unverändert und deutscher `ValueError` bei unbekanntem Verfahren, `personen_schwelle` auf `"dichte"` festgenagelt (Messwerkzeug bleibt Bestandsverfahren), `personen_verkettung.vollstaendig_clustern` delegiert (keine Doppelung). Prüfbefehl selbst gefahren **1449 passed, Exit 0** (+16 Tests), Prüfer `gpt-5.6-luna`: **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n9g-verfahren.md` |
 | N11 | **Fotos-Fragen am Handy:** Endpunkt `/api/fotos/uebersicht` + kleine Datendatei (Zahlen und Event-Namen, **ohne Bilder**) | Endpunkt antwortet ohne Netz; Selbsttest zeigt die Quelle | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_uebersicht.py` (565 Zeilen, **98** Tests) schreibt die Übersichtsdatei aus `sortierplan.json` (read-only); Dienst `backend/app/services/foto_uebersicht.py` (389 Zeilen) + Router `backend/app/router/fotos.py` (103 Zeilen, `GET /api/fotos/uebersicht` mit `jahr`/`kategorie`/`suche`/`limit`, **immer HTTP 200, nie 500**) + Chat-Werkzeug `_fotos_uebersicht_tool` (in **beiden** Ketten) + Selbsttest-Block `fotos` + Frontend-Zeile (**83** weitere Tests). Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline **1503**); JS-Tests grün. **Echte Datei:** `~/foto_sortierung/fotos_uebersicht.json`, **344.615 Bytes**, 2.127 Anlässe · **2.098 Event-Ordner** · 9.430 Zeilen · 7.616 Züge · 1.146 ohne Datum · 11 Jahre/48 Themen/11 Kategorien; **Rauchtest am echten Bestand ohne Netz** (200, `ok: true`, Filter greifen, `limit` geklemmt). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (4 Doku-Abweichungen), Runde 2 NICHT BESTANDEN (3 Restpunkte), **Runde 3 auf `9a213c9`: BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n11-uebersicht-datei.md`, `…-endpunkt.md`, Auftrag `docs/auftrag-n11-foto-uebersicht.md`. **Offen:** die Datei muss noch aufs Handy (Übertragung ist nicht Teil des Schritts) |
-| N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ⬜ |
+| N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ✅ **bestanden (28.09.)** — `docs/abschlussbericht-nachtlauf-2026-09-26.md` (**276 Zeilen**, 17 Schritt-Zeilen mit Zahlen + Prüfer-Befund, Kosten, der N9e-Fehler, gesperrte Punkte wörtlich aus dem Plan, Sicherheitsnetz, 5 Pitfalls) + Changelog **95 Zeilen** + Projekt-`CLAUDE.md`-Protokollzeile + `../CLAUDE_EXTENDS.md`-Prüfbefehlszeile auf **1687 grün, Exit 0 (28.09.2026)**; Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline 1503). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (6 Punkte: 4 berechtigt — Dateikennung im Bericht, gesperrte Punkte nur paraphrasiert, unmarkierte Näherung, Changelog-Aussage zu fremden Dateien; 1 Fehlalarm mit Zeitstempel-Beleg widerlegt, 1 Aufruf-Fehler des Prüfers), Runde 2 **BESTANDEN, 0 Abweichungen** |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -1414,3 +1414,67 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt: N10** (Abschlussbericht/Protokoll) — **N8 (echtes Sortieren)
     bleibt gesperrt**, bis dein Blick auf die 39 sicheren Event-Vorschläge und die
     1.146 datumslosen Dateien da ist.
+
+* **28.09. ~08:5x — N10 (Abschlussbericht + Protokoll) gebaut, geprüft und bestanden**
+  (Planer: Hauptagent · Ausführer: **zwei** Hermes-Subagenten `deepseek-v4.1-flash`,
+  0,045 USD (Bau) + 0,022 USD (Nachbesserung) · Prüfer: `openai/gpt-5.6-luna`,
+  **zwei Runden** — andere Modellfamilie).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden**
+  Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`, zwei Recherche-HTML);
+  nichts angefasst, nichts gestasht; `git fetch` + Zählung → **`0 0`**.
+  **Codex erneut gesperrt** (Kontingent bis 15.10.) → gebaut wurde mit Subagenten.
+  - **Werkzeug des Schritts ist keine Software, sondern eine Seite:** der Auftrag
+    (`docs/auftrag-n10-abschlussbericht.md`, verbindliche Gliederung + Prüfkriterien)
+    → Bericht `docs/abschlussbericht-nachtlauf-2026-09-26.md` (**276 Zeilen**) →
+    Changelog `docs/changelog-2026-09-28-n10-abschlussbericht.md` (**95 Zeilen**).
+    Dazu die zwei Doku-Zeilen, die dem Code hinterherhingen: eine
+    Protokollzeile in der Projekt-`CLAUDE.md` und die **veraltete Prüfbefehls-Zeile**
+    in `../CLAUDE_EXTENDS.md` (stand dort seit 25.09.2026 auf „304 grün") — jetzt
+    **1687 grün, Exit 0 (28.09.2026)**.
+  - **Berichtsinhalt:** 17 Schritte (N1, N4, N5, N6, N6b, N6c, N6d, N6e, N7,
+    N9a–N9g, N11) mit Zahlen **und** Prüfer-Befund je Zeile; Kosten mit Quelle je
+    Zeile (Hochrechnungen und Schätzungen ausdrücklich gekennzeichnet); der
+    **N9e-Fund** in eigenen Worten (falsche Aufrufform an `alignCrop` → jedes Gesicht
+    **eines** Bildes hatte denselben Vektor; 131 von 131 Paaren mit Distanz 0,0000;
+    Fix im Werkzeug **und** im Produktionsweg `backend/face_infer.py` + Wächter;
+    N9b/N9d-Zahlen als **ungültig** markiert); gesperrte/offene Punkte **wörtlich**
+    aus dem Plan; Sicherheitsnetz; 5 Pitfalls.
+  - **Prüfbefehl selbst gefahren (Planer):** `cd backend && .venv/Scripts/python -m pytest
+    tests/ -q` → **1687 passed, 3 warnings, Exit 0** (69,2 s; Baseline **1503**). Der
+    Prüfer hat ihn ebenfalls selbst gefahren: **1687 / Exit 0**.
+  - **Prüfer Runde 1 (`gpt-5.6-luna`, frischer Kontext): NICHT BESTANDEN, 6 Punkte —
+    4 berechtigt, 1 Fehlalarm, 1 Aufruf-Fehler des Prüfers selbst.** Berechtigt:
+    (a) eine **pCloud-Dateikennung** stand im Bericht (Datenschutz-Regel des Auftrags);
+    (b) die gesperrten Punkte waren nur **paraphrasiert** statt wörtlich übernommen;
+    (c) eine **unmarkierte Näherung** („rund 0,08 $" Ausführerkosten);
+    (d) die Changelog-Aussage zu den fremden Dateien war unscharf. Alle vier behoben.
+    Fehlalarm: „fremde Dateien angefasst" — **mit Zeitstempeln widerlegt**:
+    `live_zahlen.html/.json` **2026-09-28 08:43:00** (zweiter Agent, *während* dieses
+    Laufs geschrieben), `datenkontrolle-anbieter.html` 25.09. 12:58:55,
+    `ki-training-schutzformen.html` 25.09. 12:17:07; der Ausführer hat **keine**
+    git-Befehle ausgeführt. Der **md5-Wert** der Eingabedatei und der feste
+    pCloud-Funktionsname `Crypto Folder` bleiben bewusst (lokale Prüfsumme bzw.
+    bereits Bestand in `CLAUDE.md`/Plan) — beide sind jetzt als solche gekennzeichnet.
+  - **Prüfer Runde 2 (`gpt-5.6-luna`, frische Sitzung): BESTANDEN, 0 Abweichungen.**
+    Er hat selbst gefahren: Prüfbefehl **1687 / Exit 0**; die Zeitstempel der vier
+    Fremddateien bestätigt; **keine** 11-stelligen Dateikennungen mehr; die
+    md5-Kennzeichnung; die Schätzung 0,038 + 0,017 + 0,021 USD gegen das Journal;
+    eine Zahlenstichprobe (u. a. 1503/1687, 2.127/2.098/9.430/7.616/1.146, 344.615
+    Bytes, 5.954.092/370.113 Tokens = 2,711510 USD, 907 Gesichter, 210 Paare,
+    131 Paare Distanz 0,0000, 2,1208) **ohne Abweichung**; Plan-Datei unverändert.
+  - **Schutz:** keine Löschung, keine git-Befehle durch die Ausführer, kein Code und
+    keine Tests angefasst, kein Netz-/pCloud-Aufruf, keine Schlüsselwerte, keine
+    Namen Dritter; die fremden Dateien des zweiten Agenten blieben unberührt.
+  - Doku: `docs/abschlussbericht-nachtlauf-2026-09-26.md` (der Bericht selbst),
+    `docs/changelog-2026-09-28-n10-abschlussbericht.md`.
+  - **Offen (unverändert gesperrt):** **N8** (echtes Sortieren) bis zu deinem Blick auf
+    die 39 sicheren Event-Vorschläge und die 1.146 datumslosen Dateien; die
+    Übersichtsdatei `~/foto_sortierung/fotos_uebersicht.json` ist weiterhin **nicht auf
+    dem Handy** (heute 08:41 geprüft: **kein Gerät per Kabel angeschlossen**, `adb
+    devices` leer — die Übertragung ist bewusst nicht Teil des Schritts); der vom
+    Anbieter abgelehnte Anlass (403 `PROHIBITED_CONTENT`) wartet auf deinen Blick;
+    N16 (APK) und die N18-`upload`-Stufe (17,5 GB) bleiben gesperrt.
+  - **Damit ist der Schritt-Plan des Nachtlaufs abgearbeitet**, was ohne dich geht:
+    N1–N7, N9a–N9g, N10, N11 fertig und abgenommen; N8 und N12–N20 warten auf
+    Entscheidungen (Sortieren, Nachpflege-Jobs, Galerie, APK, Termine, Archiv-Suche
+    auf Erwähnungen, weitere Chats).
