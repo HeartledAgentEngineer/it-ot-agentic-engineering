@@ -152,7 +152,7 @@ ohnehin nachkontrolliert.
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ✅ **bestanden (28.09.)** — `docs/abschlussbericht-nachtlauf-2026-09-26.md` (**276 Zeilen**, 17 Schritt-Zeilen mit Zahlen + Prüfer-Befund, Kosten, der N9e-Fehler, gesperrte Punkte wörtlich aus dem Plan, Sicherheitsnetz, 5 Pitfalls) + Changelog **95 Zeilen** + Projekt-`CLAUDE.md`-Protokollzeile + `../CLAUDE_EXTENDS.md`-Prüfbefehlszeile auf **1687 grün, Exit 0 (28.09.2026)**; Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline 1503). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (6 Punkte: 4 berechtigt — Dateikennung im Bericht, gesperrte Punkte nur paraphrasiert, unmarkierte Näherung, Changelog-Aussage zu fremden Dateien; 1 Fehlalarm mit Zeitstempel-Beleg widerlegt, 1 Aufruf-Fehler des Prüfers), Runde 2 **BESTANDEN, 0 Abweichungen** |
 
 | N13a | **Bilder im Chat, Datenfundament** (Vorstufe zu N13): Werkzeug baut aus `sortierplan.json` eine kleine Datei mit den **Datei-Kennungen je Event** (`~/foto_sortierung/fotos_dateien.json`), Dienst + `GET /api/fotos/bilder` liefern sie aus — die N11-Übersicht bleibt **unberührt** (sie trägt bewusst keine Kennungen) | Werkzeug-Tests grün; Endpunkt immer 200; echte Kennungen live gegen den Plan geprüft | ✅ **bestanden (28.09.)** — `tools/foto_sortierung/foto_dateien.py` (434 Zeilen) + `backend/app/services/foto_bilder.py` (385) + Route in `router/fotos.py` (103 → 188) + **189** neue Testfunktionen; Prüfbefehl selbst gefahren **1876 passed, Exit 0** (Baseline 1687). **Live gemessen:** Datei **1.146.180 Bytes**, **2.098 Events · 7.616 Dateien · 0 ohne Kennung**; Endpunkt `?limit=3` → 200, `ok: true`, die ersten drei Events mit 1 / 19 / 1 Dateien; ein Filter auf einen Event-Namen → 1 Treffer (der echte Event-/Ortsname steht hier absichtlich **nicht**); **echter Vorschaubild-Abruf** für eine zurückgegebene Kennung → **200 `image/jpeg`, 4.581 Bytes, Magic `ffd8ffe0`, `Cache-Control: no-store`**. Prüfer `gpt-5.6-luna` (frische Kontexte): Runde 1 NICHT BESTANDEN (4 Abweichungen, **alle an der Doku** — Eigner-Name ×2, ein echter Ortsname in zwei Schema-Beispielen, eine veraltete Changelog-Aussage; den Code hat der Prüfer ausdrücklich bestätigt), Runde 2 **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, Paare 7.616 gegen 7.616 identisch, N11-Datei und Plan unverändert); **Runde 3 und 4** (Abnahmen auf den Commits `bea270d`/`201a9cf`) brachten je eine Doku-Rest-Abweichung — eine echte pCloud-Kennung in einem Schema-Beispiel und zwei zu knappe Rundenzahlen (dazu sechs **alte** Kennungen in früheren Journal-Einträgen, in `4c0cb36` schon vorhanden) — **alle korrigiert**, Schlussabnahme Runde 5 auf Commit `1b66fa0`: **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, `0 0`, nur noch die erfundene Beispielkennung in den drei Dokumenten). Offen: **N13b** (Anzeige: Kacheln, Großansicht, Diashow im Frontend) |
-| N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ⬜ **offen** — `cloud/thumb` kommt in `app.js`/`index.html` weiterhin **0 ×** vor (28.09. geprüft) |
+| N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ✅ **bestanden (28.09.)** — vier reine Funktionen (`fotoFrageErkennen`, `fotoKacheln`, `fotoGalerieZeilen`, `fotoDiashowNaechster`), Zweig in `sendMessage` **vor** dem Abbruch-Guard, Galerie-Blase mit Trefferliste + Kacheln, Großansicht `480x480` mit `‹ Zurück`/`Weiter ›`/`▶ Diashow`/`✕`, Diashow alle 3 s (umlaufend), Bilder **nur** per `fetch`→Blob→Objekt-URL, Freigabe bei jedem Wechsel und beim Schließen; `frontend/tests/test_foto_galerie.js` (328 Zeilen, **145 Prüfungen**) → alle grün; **16 von 16** JS-Dateien grün; Prüfbefehl **1876 passed, Exit 0** (Baseline 1687, +189 aus N13a; **1897** mit den parallel entstandenen fremden WhatsApp-Tests); `?v` auf **`20260928A`**. **Live im echten Browser** (eigener wegwerfbarer Edge headless + Backend am PC, echter Bestand): **23 von 23 Kacheln** als echte pCloud-Vorschaubilder geladen (0 Platzhalter), **100 angesehene Bilder** → 100 geladen, 0 Fehler, **Speicher vorher wie nachher 0**, Cache-Liste leer, `localStorage`/`sessionStorage` unverändert, offene Objekt-URLs nach dem Schließen **0**; derselbe Bild-Abruf zweimal → beide Male **4881 Byte** über die Leitung (`Cache-Control: no-store`). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (Eigner-Vorname im Changelog, lange Ziffernfolge im Messblock — beides korrigiert; Testzahl + fremde Dateien = Bestand), **Runde 2: „NICHT BESTANDEN" mit einer einzigen Abweichung, die fremd ist** (`CLAUDE.md` trägt eine offene Zeile des zweiten Agenten, nicht Teil dieses Commits) → als Bestand eingeordnet, Commit `3f5bd43` (genau **9** Dateien, keine fremde), `0 0`. Doku: `docs/changelog-2026-09-28-n13b-bilder-anzeige.md`, Auftrag `docs/auftrag-n13b-bilder-anzeige.md` |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -1715,3 +1715,70 @@ ohnehin nachkontrolliert.
     Diashow, Bilder gestreamt und nie gespeichert, `?v=`-Bump). **N8 bleibt
     gesperrt**, bis dein Blick auf die 39 sicheren Event-Vorschläge und die
     1.146 datumslosen Dateien da ist.
+
+* **28.09. ~10:00–11:45 — N13b gebaut, im echten Browser gemessen und
+  abgenommen** (Planer: Hauptkontext; Ausführer: **Hermes-Subagent**
+  `deepseek-v4.1-flash`, weil das **Codex-Kontingent weiter erschöpft** ist —
+  live geprüft: „You've hit your usage limit … try again at Oct 15th, 2026";
+  Prüfer: `openai/gpt-5.6-luna`, frische Kontexte; Doku
+  `docs/changelog-2026-09-28-n13b-bilder-anzeige.md`, Auftrag
+  `docs/auftrag-n13b-bilder-anzeige.md`).
+  - **Auftrag zuerst als Datei** (Regel aus §6.6): eingefrorene Regeln für vier
+    reine Funktionen, den Zweig in `sendMessage`, die Galerie, die Diashow und
+    das Testblatt — damit der Ausführer nur *einen* Schritt baut und der Prüfer
+    dagegen prüfen kann.
+  - **Gebaut:** vier reine Funktionen (`fotoFrageErkennen`, `fotoKacheln`,
+    `fotoGalerieZeilen`, `fotoDiashowNaechster`) + Zweig in `sendMessage` **vor**
+    dem Abbruch-Guard + `zeigeFotoGalerie`/`fotoBildLaden`/
+    `fotoObjekteFreigeben` + Großansicht mit `‹ Zurück`/`Weiter ›`/
+    `▶ Diashow`/`✕` + Diashow alle 3 s (umlaufend). Bilder **nur** per
+    `fetch` → Blob → Objekt-URL (objekt-URL freigegeben bei jedem Wechsel und
+    beim Schließen), **keine** Speicher-API, `sw.js` unangetastet.
+  - **Zahlen:** `app.js` 8772 → **9195** Zeilen, `style.css` 1463 → **1586**,
+    `index.html` nur `?v=` (**20260928A** für beide); neuer Test
+    `frontend/tests/test_foto_galerie.js` (328 Zeilen, **145 Prüfungen**).
+    Prüfbefehl selbst gefahren **1876 passed, Exit 0** (Baseline 1687; +189 aus
+    N13a, inzwischen **1897** durch die parallel entstandenen fremden
+    WhatsApp-Tests); **16 von 16** JS-Dateien grün (mit `app.js` als Argument).
+  - **Live-Blick im echten Browser** (eigener wegwerfbarer Edge headless,
+    `--remote-debugging-port=9222`, plus Backend am PC auf 127.0.0.1:8099 —
+    **nicht** der Browser des Nutzers, kein Schlüsselwert nötig): **23 von 23
+    Kacheln** als echte pCloud-Vorschaubilder (0 Platzhalter), dann **100
+    angesehene Bilder** → 100 geladen, 0 Fehler, in 35,1 s — dabei
+    **Speicher vorher wie nachher 0**, `caches.keys()` vorher wie nachher leer,
+    `localStorage`/`sessionStorage` unverändert, offene Objekt-URLs nach dem
+    Schließen **0** (gleichzeitig höchstens 25 statt 125). Zusatzbeleg: derselbe
+    Bild-Abruf zweimal → beide Male **4881 Byte** über die Leitung, Kopf
+    `Cache-Control: no-store`. Der Bedienweg wurde mitgeschickt (`sendMessage`
+    mit „zeig mir die Bilder vom Urlaub 2021") — die Blase entsteht, Zählfragen
+    und Upload-Fragen lösen sie **nicht** aus.
+  - **Zwei echte Doku-Abweichungen aus Prüfer-Runde 1 korrigiert:** der
+    Vorname des Eigners stand im Changelog (jetzt „das Browserprofil des
+    Nutzers") und die Speicher-Obergrenze des Browsers stand als lange
+    Ziffernfolge im Messblock (jetzt in Worten, „10 GiB"). Prüfer-Runde 2
+    bestätigte alles nachgefahrene Grüne und ließ **eine** Abweichung übrig:
+    `CLAUDE.md` trägt eine **offene Zeile des zweiten Agenten** (WhatsApp) —
+    **fremd**, nicht in diesem Commit, deshalb bewusst nicht angefasst.
+  - **Grenzen eingehalten:** `git commit --only` mit **9** ausdrücklich
+    genannten Dateien (keine fremde), `3f5bd43`, gepusht, `0 0`; der
+    Pre-Commit-Hook lief mit **1897 passed, Exit 0**. Fremde uncommittete
+    Änderungen (`docs/experimente/live_zahlen.*`, `tools/whatsapp/`,
+    `backend/tests/test_whatsapp_zuordnung.py`, zwei `docs/recherche`-Dateien)
+    blieben unberührt. pCloud **nur lesend** (Vorschaubilder), kein Bild auf der
+    Platte, nichts gelöscht, keine Kennung/kein Name in der Doku.
+  - **Ehrlich offen:** (1) die Datendateien `fotos_dateien.json` (1.146.180 B)
+    und `fotos_uebersicht.json` (344.615 B) liegen weiter **nur am PC** — die
+    Übertragung aufs Handy ist noch nicht gelaufen (28.09. kein Gerät per Kabel);
+    (2) ein leeres Ergebnis ist möglich und wird ehrlich gezeigt („Keine Bilder
+    gefunden") — gemessen: `urlaub` **und** Jahr 2021 → 0 Treffer, `urlaub` ohne
+    Jahr → Events vorhanden; ein Rückfall wurde **nicht** eigenmächtig gebaut;
+    (3) das Raster lädt höchstens 5 Events × 40 Dateien, Nachladen fehlt;
+    (4) die Kachel-Vorschauen werden beim Schließen der Großansicht mit
+    freigegeben (harte Regel) — die Kacheln sagen das dann ehrlich;
+    (5) die Protokollzeile in der Projekt-`CLAUDE.md` ist **noch offen**, weil
+    dort eine unfertige fremde Zeile steht (Kollisionsschutz hat Vorrang).
+  - **Nächster Schritt:** die beiden Datendateien ans Handy bringen (ADB, wie
+    N3/N11) und dort die Galerie am echten Gerät ansehen; danach sind
+    N12/N14–N20 bzw. die Antworten des Nutzers dran. **N8 (echtes Sortieren)
+    bleibt gesperrt**, bis sein Blick auf die 39 sicheren Event-Vorschläge und
+    die 1.146 datumslosen Dateien da ist.
