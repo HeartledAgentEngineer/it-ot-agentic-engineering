@@ -151,6 +151,38 @@ gelesene Nummern-Maske, kein gelesener Nachrichtentext, keine
 Nachrichten-Kennungen. Jede Aussagezeile trägt einen deutschen `hinweis` zur
 ehrlichen Abgrenzung (Mitgliedschaft ≠ Anwesenheit, Bildnähe ≠ Beziehung).
 
+## Prüfer-Abnahme (29.09.2026)
+
+**Prüfer: `z-ai/glm-5.2` (frische Sitzung, andere Modellfamilie als der
+Ausführer `deepseek-v4.1-flash`) — BESTANDEN, 0 Abweichungen.**
+`openai/gpt-5.6-luna` war davor **zweimal** rate-limitiert (Anbieter-Limit;
+`hermes` endet dann mit Exit 2, kein Repo-Fehler), deshalb das zweite im Plan
+vorgesehene Prüfer-Modell.
+
+Der Prüfer hat **selbst** gemessen (nicht geglaubt):
+
+| Prüfung | Ergebnis |
+|---|---|
+| Prüfbefehl `pytest tests/ -q` | **2.789 passed, 3 warnings, Exit 0** (105 s) |
+| N27e-Suite allein | **183 passed, Exit 0** (5,4 s) |
+| Zeilen / Testfunktionen | **1.097 / 1.530** Zeilen, **183** Testfunktionen |
+| Trockenlauf (Sollwerte Zeile für Zeile) | erreicht, keine Abweichung |
+| Repo-Ziel / ungültiges Datum / fehlende Eingabe | **Exit 2 / Exit 2 / Exit 2** |
+| `--nur-bestaetigt` | **0** Aussagen |
+| Zwei `--schreiben`-Läufe, fester `--stand` | **byte-gleich** (12.601.994 B / 715 B, gleiche sha256), keine `.tmp`-Reste |
+| Datenschutz (echte Namen in den Dateien?) | **0 Treffer** |
+| Namensregel ohne Bestätigung | **172** Einträge, alle `name: null` |
+| Namensregel mit Probe-Bestätigung | erfundener Name in **genau 13** Aussagen = genau denen mit `Person_001`, keine Aussage mit Namen ohne `Person_001` |
+| Git | Commit `f333051` **6** Dateien, keine Fremdarbeit, **0 0**, `manifest.jsonl` fehlt |
+
+**Grenze der unabhängigen Prüfung (kein Befund):** die Zwischenschritte
+2.101 / 45.040 / 23.122 / 20.543 sind im Werkzeug-Output nicht exponiert und
+waren nicht unabhängig nachrechenbar; die daraus abgeleitete Endzahl **14.902**
+ist verifiziert.
+
+**Damit ist Schritt 5 von 5 und die Verknüpfungsschicht N27 insgesamt
+abgenommen.**
+
 ## Bekannte Eigenheit
 
 Bei einem ersten Probelauf wurden MSYS-Pfade (`/c/Users/…`) an das native

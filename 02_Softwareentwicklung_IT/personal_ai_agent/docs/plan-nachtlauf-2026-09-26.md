@@ -161,7 +161,7 @@ ohnehin nachkontrolliert.
 
 | N27d | ✅ **Personen-Andockung** (Verknüpfungsschicht N27, Schritt 4 von 5): `tools/foto_sortierung/personen_andocken.py` führt Ereignis-Knoten + Gesichts-Cluster + Chat-Andockung zusammen und schreibt **außerhalb des Repos** `~/foto_sortierung/personen_andockung.jsonl` (je Anlass die Personen) und `~/foto_sortierung/personen_vorschlaege.json` (je Person Namensvorschläge) — **das Werkzeug schlägt vor, es benennt nicht**: ein Name erscheint nur aus `personen_bestaetigt.json`; `--trocken` ist Standard, Repo-Ziel Exit 2, `bestaetigte` nur nach Nutzer-Eintrag | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; ohne Bestätigung 0 Namen in der Ausgabe | ✅ **bestanden (29.09.)** — siehe Journal unten: Werkzeug **1.140 Zeilen**, Tests **1.258 Zeilen / 144 Testfunktionen** (alles offline); Prüfbefehl **2.558 passed, Exit 0** (Baseline 2.414, selbst gefahren); live **151 Vektorzeilen · 12 Personen (2 neu/10 wiederverwendet) · Größen 11,10,10,5,4,4,4,4,4,3,3,3 · 5 Anlässe mit Personen · 12/12 mit Kandidatennamen · 34 Namen**, zwei Schreibläufe **byte-gleich** (2.833 B / 7.454 B), Repo-Ziel **Exit 2**, ohne Bestätigung **0** Namen / mit Probe-Bestätigung **genau 1**; Prüfer `openai/gpt-5.6-luna` (andere Familie) — Runden 1–3 fanden fünf echte Doku-/Datenschutz-Punkte, ein Methodenartefakt und zwei Präzisierungen (alle behoben), **Abnahme Runde 4 auf dem Endstand `50e86c3` mit `google/gemini-3.7-flash` (Rate-Limit bei luna): BESTANDEN, 0 Abweichungen** |
 
-| N27e | ✅ **Ableitung „wer war mit wem wo"** (Verknüpfungsschicht N27, Schritt 5 von 5, letzter): `tools/foto_sortierung/beziehungen_ableiten.py` leitet aus `personen_andockung.jsonl`, `chat_andockung.jsonl` und `ereignisse.jsonl` **nur lesend** Aussagen mit **Datum + Quelle** ab — drei getrennte Unterarten: `fotos` (≥2 Personen am selben Anlass), `gemeinsam_im_chat` (≥2 benannte Kontakte im selben Chat am selben Tag), `fotos_und_chat` (Person × Kontakt am selben Anlass); unbestätigte Kennungen bleiben `Person_00x` **mit `name: null`** (Kandidatenlisten werden nie gelesen), jede Zeile trägt einen deutschen `hinweis` zur Abgrenzung (Mitgliedschaft ≠ Anwesenheit); `--trocken` ist Standard, Repo-Ziel Exit 2, `--datum` fragt einen Tag ab, `--nur-bestaetigt` schaltet auf die strenge Lesart; Ausgabe außerhalb des Repos (`beziehungen.jsonl` + `beziehungen.json`) | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2; ohne Bestätigung 0 Namen | ✅ **gebaut + gemessen (29.09.)** — Werkzeug **1.097 Zeilen**, Tests **1.530 Zeilen / 183 Testfunktionen** (alles offline); Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (Baseline 2.606, selbst gefahren); live **5 / 2.127 / 2.127 Zeilen gelesen, 0 defekt · 23 + 14.902 + 126 = 15.051 Aussagen · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte · 2016-05-04 bis 2025-08-16**; zwei `--schreiben`-Läufe mit festem `--stand` **byte-gleich** (12.601.994 B, sha256 `549eafbc59bf6e58…`; 715 B, sha256 `083503afbb462602…`); Repo-Ziel **Exit 2** (nichts geschrieben), ungültiges `--datum` **Exit 2**, `--nur-bestaetigt` **0** Aussagen, `--datum 2022-08-21` **61** (10/6/45); Prüfer folgt (Journal) |
+| N27e | ✅ **Ableitung „wer war mit wem wo"** (Verknüpfungsschicht N27, Schritt 5 von 5, letzter): `tools/foto_sortierung/beziehungen_ableiten.py` leitet aus `personen_andockung.jsonl`, `chat_andockung.jsonl` und `ereignisse.jsonl` **nur lesend** Aussagen mit **Datum + Quelle** ab — drei getrennte Unterarten: `fotos` (≥2 Personen am selben Anlass), `gemeinsam_im_chat` (≥2 benannte Kontakte im selben Chat am selben Tag), `fotos_und_chat` (Person × Kontakt am selben Anlass); unbestätigte Kennungen bleiben `Person_00x` **mit `name: null`** (Kandidatenlisten werden nie gelesen), jede Zeile trägt einen deutschen `hinweis` zur Abgrenzung (Mitgliedschaft ≠ Anwesenheit); `--trocken` ist Standard, Repo-Ziel Exit 2, `--datum` fragt einen Tag ab, `--nur-bestaetigt` schaltet auf die strenge Lesart; Ausgabe außerhalb des Repos (`beziehungen.jsonl` + `beziehungen.json`) | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2; ohne Bestätigung 0 Namen | ✅ **bestanden (29.09.)** — Werkzeug **1.097 Zeilen**, Tests **1.530 Zeilen / 183 Testfunktionen** (alles offline); Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (Baseline 2.606, selbst gefahren); live **5 / 2.127 / 2.127 Zeilen gelesen, 0 defekt · 23 + 14.902 + 126 = 15.051 Aussagen · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte · 2016-05-04 bis 2025-08-16**; zwei `--schreiben`-Läufe mit festem `--stand` **byte-gleich** (12.601.994 B, sha256 `549eafbc59bf6e58…`; 715 B, sha256 `083503afbb462602…`); Repo-Ziel **Exit 2** (nichts geschrieben), ungültiges `--datum` **Exit 2**, `--nur-bestaetigt` **0** Aussagen, `--datum 2022-08-21` **61** (10/6/45); **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** — eigener Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (105 s), N27e-Suite allein **183 passed** (5,4 s), Trockenlauf Zeile für Zeile gegen die Sollwerte, zwei Schreibläufe **byte-gleich** (12.601.994 B / 715 B, gleiche sha256), Repo-Ziel **Exit 2**, Datenschutz **0 Treffer**, Namensprobe **genau 13** Aussagen mit `Person_001`, Commit `f333051` **6 Dateien**, `0 0`, `manifest.jsonl` fehlt (`openai/gpt-5.6-luna` war davor **zweimal** rate-limitiert) |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -2554,7 +2554,8 @@ ohnehin nachkontrolliert.
     1.146 datumslose Dateien).
 * **29.09. ~03:00 — N27e gebaut, gemessen und committet** (Planer: Hauptagent ·
   Ausfuehrer: Hermes-Subagent `deepseek-v4.1-flash`, 0,151 USD · Pruefer:
-  `openai/gpt-5.6-luna`, **andere Modellfamilie**).
+  zuerst `openai/gpt-5.6-luna` (zweimal rate-limitiert), Abnahme mit
+  `z-ai/glm-5.2`, **andere Modellfamilie**).
   - **Beginn:** `git pull --rebase` **scheiterte** an den ungestagten **fremden**
     Dateien des zweiten Agenten (`tools/agentbus/wache.py`,
     `docs/experimente/live_zahlen.*`, zwei neue Recherche-HTML, neu
@@ -2625,3 +2626,39 @@ ohnehin nachkontrolliert.
   - **Doku:** Changelog `docs/changelog-2026-09-29-n27e-beziehungen.md`,
     Auftrag `docs/auftrag-n27e-beziehungen.md`, Projekt-`CLAUDE.md` mit
     Protokollzeile — „code + docs" in einem Commit.
+* **29.09. ~04:10 — N27e abgenommen. Prüfer `z-ai/glm-5.2` (andere
+  Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen.**
+  `openai/gpt-5.6-luna` war **zweimal** hintereinander rate-limitiert
+  (Anbieter-Limit; `hermes` endet dann mit Exit 2, kein Repo-Fehler) → Abnahme
+  mit dem zweiten im Plan vorgesehenen Prüfer-Modell `z-ai/glm-5.2`, ebenfalls
+  andere Familie als der Ausführer (`deepseek-v4.1-flash`).
+  - **Selbst gefahren:** Prüfbefehl **2.789 passed, 3 warnings, Exit 0**
+    (105 s), N27e-Suite allein **183 passed** (5,4 s); Werkzeug **1.097**,
+    Tests **1.530** Zeilen und **183** Testfunktionen — wie behauptet.
+  - **Trockenlauf Zeile für Zeile** gegen die Sollwerte: `fotos 23` ·
+    `gemeinsam_im_chat 14.902` · `fotos_und_chat 126` · gesamt **15.051** ·
+    gelesene Zeilen 5 / 2.127 / 2.127, 0 defekt · **12** Kennungen ·
+    **0** bestätigte Namen · **253** Kontakte · 2016-05-04 bis 2025-08-16;
+    `--datum 2022-08-21` → **61** (10/6/45).
+  - **Schutz:** Repo-Ziel **Exit 2**, ungültiges `--datum` **Exit 2**, fehlende
+    Eingabe **Exit 2**, `--nur-bestaetigt` **0** Aussagen; zwei
+    `--schreiben`-Läufe mit festem `--stand` **byte-gleich**
+    (12.601.994 B / 715 B, gleiche sha256), keine `.tmp`-Reste.
+  - **Datenschutz-Gegenprobe: 0 Treffer** — keine echten Personen-, Kontakt-
+    oder Ortsnamen in Werkzeug, Tests, Auftrag und Changelog.
+  - **Namensregel live:** ohne Bestätigung sind **alle 172** `personen`-Einträge
+    `name: null`; mit erfundener Probe-Bestätigung (`Person_001`) erscheint der
+    erfundene Name in **genau 13** Aussagen = genau denen mit `Person_001`,
+    **keine** Aussage mit Namen ohne `Person_001`.
+  - **Git:** `f333051` enthält **6** Dateien und **keine** fremde Arbeit,
+    `0 0`, `manifest.jsonl` fehlt (nichts gebucht).
+  - **Grenze der Prüfung (ehrlich, kein Befund):** die Zwischenschritte
+    2.101 / 45.040 / 23.122 / 20.543 sind im Werkzeug-Output nicht exponiert
+    und waren nicht unabhängig nachrechenbar; die daraus abgeleitete Endzahl
+    **14.902** ist verifiziert.
+  - **Damit ist N27 (Verknüpfungsschicht) mit allen fünf Teilen abgenommen.**
+    **Naechster Schritt:** die Antwort im App-Chat („was war am 27.12.2019?")
+    als **Endpunkt**-Stufe (baut auf `beziehungen.jsonl` auf), davor die
+    Namensbestätigung und die 39 Event-Vorschlaege des Nutzers; **N8** (echtes
+    Sortieren) bleibt **gesperrt**, `--datum 2019-12-27` → **0** Aussagen bleibt
+    als offener Befund notiert.
