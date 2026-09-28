@@ -155,6 +155,7 @@ ohnehin nachkontrolliert.
 | N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ✅ **bestanden (28.09.)** — vier reine Funktionen (`fotoFrageErkennen`, `fotoKacheln`, `fotoGalerieZeilen`, `fotoDiashowNaechster`), Zweig in `sendMessage` **vor** dem Abbruch-Guard, Galerie-Blase mit Trefferliste + Kacheln, Großansicht `480x480` mit `‹ Zurück`/`Weiter ›`/`▶ Diashow`/`✕`, Diashow alle 3 s (umlaufend), Bilder **nur** per `fetch`→Blob→Objekt-URL, Freigabe bei jedem Wechsel und beim Schließen; `frontend/tests/test_foto_galerie.js` (328 Zeilen, **145 Prüfungen**) → alle grün; **16 von 16** JS-Dateien grün; Prüfbefehl **1876 passed, Exit 0** (Baseline 1687, +189 aus N13a — die Zahl **wächst seither laufend** durch fremde Parallelarbeit im selben Arbeitsbaum: 1897, Prüfer-Lauf 1922, jeweils Exit 0); `?v` auf **`20260928A`**. **Live im echten Browser** (eigener wegwerfbarer Edge headless + Backend am PC, echter Bestand): **23 von 23 Kacheln** als echte pCloud-Vorschaubilder geladen (0 Platzhalter), **100 angesehene Bilder** → 100 geladen, 0 Fehler, **Speicher vorher wie nachher 0**, Cache-Liste leer, `localStorage`/`sessionStorage` unverändert, offene Objekt-URLs nach dem Schließen **0**; derselbe Bild-Abruf zweimal → beide Male **4881 Byte** über die Leitung (`Cache-Control: no-store`). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (Eigner-Vorname im Changelog, lange Ziffernfolge im Messblock — beides korrigiert; Testzahl + fremde Dateien = Bestand), **Runde 2: „NICHT BESTANDEN" mit einer einzigen Abweichung, die fremd ist** (`CLAUDE.md` trägt eine offene Zeile des zweiten Agenten, nicht Teil dieses Commits) → als Bestand eingeordnet, Commit `3f5bd43` (genau **9** Dateien, keine fremde), `0 0`. Doku: `docs/changelog-2026-09-28-n13b-bilder-anzeige.md`, Auftrag `docs/auftrag-n13b-bilder-anzeige.md` |
 | N13c | **Übergabe der Foto-Datendateien ans Handy** (`tools/handy/uebergabe_uebernehmen.py` + Block in `start-termux.sh`): der PC legt `fotos_dateien.json` und `fotos_uebersicht.json` per Kabel in den Download-Ordner, das Handy übernimmt sie beim Start nach `$HOME/foto_sortierung` — sha256 hart geprüft, alte Fassung als `*.vorher`, idempotent, Protokoll im Diagnose-Ordner | Werkzeug-Tests grün; Übergabe am Kabel **byte-genau** belegt; Startblock kann den Serverstart nicht verhindern | ✅ **bestanden (28.09.)** — siehe Journal unten: **2006 passed, Exit 0** (Baseline 1937), Push beidseitig **md5-gleich**, echter Handlauf mit den echten Dateien (`uebernommen 2`, sha256 identisch, 2. Lauf `Fehler 0`), Prüfer `gpt-5.6-luna` Runde 2 **„bestanden"**. Offen: der **erste Lauf am Handy** passiert beim nächsten Widget-Tipp |
 | N18 | **Lösch-Werkzeug für Duplikate** (`tools/pcloud/pcloud_duplikate_loeschen.py`): Trockenlauf ist der Standard, Löschen nur mit `--wirklich`, frische Gegenprobe von Größe **und** Prüfsumme vor **jeder** Löschung, Manifest-Zeile je Löschung (`art: loeschen`), Papierkorb-Rückweg im Klartext, Grenze 25 je Lauf | Trockenlauf sendet nichts (belegt); Werkzeug-Tests grün; Manifest wächst je Datei; zweiter Lauf findet nichts | ✅ **bestanden (28.09.)** — siehe Journal unten: Werkzeug **1.226 Zeilen**, Tests **1.173 Zeilen / 64 Funktionen / 206 Prüfungen**, Prüfbefehl **2070 passed, Exit 0** (Baseline 2006); Live-Trockenlauf **25 geprüft / 0 gelöscht / 3.970,66 MB / Rest 2.108**, Bericht byte-gleich, `manifest.jsonl` **existiert nicht** (nichts gebucht); Prüfer `gpt-5.6-luna`: Runde 1 **NICHT BESTANDEN** (2 berechtigt → Cache entfernt + 2 neue Tests, Zeilenzahl), Runde 2 **NICHT BESTANDEN** (2 Doku-Punkte), Runde 3 auf dem Commit `cc32997`: **BESTANDEN, 0 Abweichungen**. **Der erste echte Löschlauf bleibt gesperrt** (Nutzer-Freigabe); die `upload`-Stufe (17,5 GB) ebenfalls |
+| N27b | **Chat-Andockung** (Verknüpfungsschicht N27, Schritt 2 von 5): `tools/foto_sortierung/chat_andocken.py` liest `ereignisse.jsonl`, `msgstore.db` (**nur** `file:…?mode=ro`) und `whatsapp_zuordnung.json` **nur lesend** und schreibt `~/foto_sortierung/chat_andockung.jsonl` — je Ereignis die Chats und Kontakte im Fenster (Einzelchat ±1 Tag, **Gruppe streng derselbe Tag**), **ohne** Nachrichtentext, ohne Klartext-Nummern, ohne Netz/Bild; `--trocken` ist Standard, Repo-Ziel Exit 2 | Prüfbefehl grün; Live-Lauf liefert 2.127 Knoten und die Nachrichten-Zahlen; zweiter Lauf nur im Zeitstempel verschieden; Eingaben unverändert (mtime) | 🔄 **gebaut + live gemessen, Abnahme läuft (28.09.)** — siehe Journal: Prüfbefehl **2.232 passed, Exit 0** (Baseline 2.204); live **2.127 Ereignisse · 2.101 mit Nachrichten · 356.222 Nachrichten · 45.040 Chat-Andockungen · 24.780 Kontakte · Maximum 704**; Datei **19.259.758 B**, sha256 `cf2e0c19…`; Prüfer `gpt-5.6-luna` Runde 1 NICHT BESTANDEN (einziger echter Fund: fehlender Schreibsperren-Test → ergänzt, 2 neue Tests); **Abnahme Runde 2 auf diesem Commit läuft** |
 | N27a | **Ereignis-Knoten je Anlass** (Verknüpfungsschicht N27, Schritt 1 von 5): `tools/foto_sortierung/ereignisse_bauen.py` liest `sortierplan.json` **nur lesend** und schreibt `~/foto_sortierung/ereignisse.jsonl` — je Anlass Datum, Thema, Kategorie, Ziel-Ordner, Datei-Kennungen (**ohne** Personen, ohne Bilder, ohne Netz); `--trocken` ist der Standard, `--schreiben` nötig, Ziel im Repo wird verweigert (Exit 2) | Prüfbefehl grün; Live-Trockenlauf liefert 2.127 Knoten und 7.616 Kennungen; zweiter Lauf inhaltlich identisch; Repo-Ziel Exit 2 | ✅ **bestanden (28.09.)** — siehe Journal: Prüfbefehl **2.204 passed, Exit 0** (Baseline 2.070, selbst gefahren); live **2.127 Ereignisse · 7.616 Datei-Kennungen · ohne Anlass 0 · ohne Kennung 0 · ohne Datum 0 · ohne Thema 0 · Kollisionen 404 · Events wiederverwendet 39** (= genau die 39 sicheren Vorschläge aus N6e); echte Datei **1.286.120 B / 2.127 Zeilen**; Repo-Ziel **Exit 2**, nichts geschrieben; Prüfer `gpt-5.6-luna`: **Runde 1 + 2 NICHT BESTANDEN** (nur Doku-Punkte, behoben), **Runde 3** nur noch fehlende Zeilenumbrüche in zwei Doku-Dateien (behoben); **Abnahme Runde 4 auf dem Commit `86fd5b3` mit `z-ai/glm-5.2`: BESTANDEN, 0 Abweichungen** |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -1012,6 +1013,16 @@ ohnehin nachkontrolliert.
   * **Prüfkriterium:** Frage „zeig mir die Bilder vom Schlittschuhlaufen" liefert
     genau die Bilder der genannten Tage; zweiter Lauf fügt **0** Dubletten hinzu;
     kein Medium wird kopiert oder verschoben.
+
+* **28.09. — N15-Messung korrigiert (wichtiger Kostenbefund):** Beschreibungen
+  **je Bild** sind viel billiger als die frühere Schätzung („5–9 $ über CLIP").
+  Gemessen am bestehenden Weg (Kontaktbogen, 36 Bilder je Aufruf, N5 bestanden:
+  Nummern 1–36 sicher lesbar): **0,00128 $ je Aufruf** → 9.430 Bilder ≈ **262
+  Aufrufe ≈ 0,34 $**, dazu Einbettungen der Beschreibungstexte ≈ 0,02 $.
+  **Beschreibungstexte + Einbettung schlagen ein Bildmodell:** Bild gesucht wird
+  dann wie Text („rothaarige Sängerin, Bühne, Menge") — ohne teures CLIP und
+  ohne Bild-Vektordatenbank. Umsetzung bleibt N15; die Zahlen hier ersetzen die
+  alte Schätzung.
 
 * **28.09. — N25 (neu, Sebastians Auftrag): Automatisches Backup der Archiv-
   Datenbanken in die pCloud.** Wörtlich: „dass wir ein automatisches Backup in
@@ -2190,3 +2201,76 @@ ohnehin nachkontrolliert.
     Zeitfenster ±1 Tag zum Ereignis-Knoten, mit Chat-Name und beteiligten
     Kontakten (Personen erst in Schritt 4 und **nur nach Bestätigung**).
     **N8 bleibt gesperrt.**
+
+* **28.09. ~17:0x — N27 Schritt 2 (Chat-Andockung) gebaut, live gemessen;
+  Prüfer-Runde 1 fand genau eine Lücke, Lücke geschlossen** (Planer: Hauptagent ·
+  Ausführer: zwei Hermes-Subagenten `deepseek-v4.1-flash`, 0,062 + 0,005 USD ·
+  Prüfer: `openai/gpt-5.6-luna`, andere Modellfamilie). Beginn wie in den Runden
+  zuvor: `git pull --rebase` scheiterte an ungestagten Änderungen (überwiegend
+  fremd — der zweite Agent arbeitet am WhatsApp-Strang); nichts gestasht, nichts
+  angefasst; `git fetch` + `git rev-list --left-right --count origin/main...HEAD`
+  → **`0 0`**. **Codex weiterhin gesperrt** (Kontingent bis 15.10.).
+  - **Warum dieser Schritt:** N27 Schritt 1 (Ereignis-Knoten) steht; Schritt 2
+    dockt die **Chat-Nachrichten** im Zeitfenster an (Chat-Name + beteiligte
+    Kontakte). Nur so wird später „wer war mit wem wo" belegbar. Gebaut ohne
+    Netz, ohne pCloud, ohne Bild — **Personen kommen erst in Schritt 4 und nur
+    nach Sebastians Bestätigung**.
+  - **Auftrag zuerst als Datei** (`docs/auftrag-n27b-chat-andockung.md`):
+    eingefrorenes JSONL-Schema, Fensterregel, Namensauflösung, Verbote,
+    Prüfkriterien (§6.6).
+  - **Gebaut:** `tools/foto_sortierung/chat_andocken.py` (**959 Zeilen**), Tests
+    `backend/tests/test_chat_andockung.py` (**596 Zeilen, 28 Testfunktionen**,
+    alles offline mit in-memory-Attrappen-DB und erfundenen Namen), Changelog.
+    `--trocken` ist der Standard, `--schreiben` schreibt atomar, ein Ziel **im
+    Repo** wird verweigert (**Exit 2**); `msgstore.db` wird ausschließlich per
+    `file:…?mode=ro` geöffnet; nur Standardbibliothek.
+  - **Prüfbefehl selbst gefahren (Planer):** `pytest tests/ -q` → **2.232
+    passed, 3 warnings, Exit 0** (Baseline **2.204**, ebenfalls selbst gefahren;
+    +28 neue Testfunktionen). Der Prüfer fährt ihn zusätzlich selbst: **2.230 /
+    Exit 0** in Runde 1; **die Abnahme-Runde 2 auf dem Commit läuft** (siehe
+    Fortsetzung unten).
+  - **Live gemessen (nur lesend):** **2.127 Ereignisse · 2.101 mit Nachrichten ·
+    356.222 Nachrichten · 45.040 Chat-Andockungen · 24.780 Kontakte · Maximum
+    704** je Ereignis; echte Datei `~/foto_sortierung/chat_andockung.jsonl`
+    **2.127 Zeilen / 19.259.758 Bytes**, sha256 `cf2e0c1965cc95f5…` (Planer hat
+    den Wert gegen den Journal-Wert verglichen). Eigener Planer-Lauf mit zwei
+    Schreibläufen in den Scratch-Ordner: **beide 19.259.758 Bytes**, **ohne**
+    `stand` **identisch** (Prüfsumme `6261b2b5e8e7f9e3…`), Unterschied also nur
+    der Lauf-Zeitstempel je Zeile.
+  - **Fenster-Korrektur aus der Messung:** mein Feinauftrag nannte in Klammern
+    `[datum, datum+2 Tage)`, während Überschrift und Testvorgabe „±1 Tag"
+    verlangen. Der Ausführer hat es selbst gemessen und die **zentrierte** Regel
+    `[datum−1 Tag, datum+2 Tage)` umgesetzt (Einzelchat), **Gruppe streng
+    derselbe Tag** — das reproduziert genau die Planer-Zahlen 2.102 / Maximum
+    895; das wörtliche Klammer-Fenster hätte 2.101 / 653 geliefert. Die
+    verbleibende Differenz 2.102 → **2.101** ist **eine** Gruppe, die nur
+    außerhalb des Ereignistags schrieb: die strengere Gruppenregel greift.
+  - **Prüfer Runde 1: NICHT BESTANDEN — ein einziger echter Punkt.** Der Prüfer
+    hat den Prüfbefehl selbst gefahren (2.230/Exit 0), den Live-Lauf mit
+    **exakt** den Planer-Zahlen wiederholt, eine **eigene SQL-Gegenrechnung**
+    (2.101 / 356.222 / 704, deckungsgleich), die Schema- und Datenschutzprüfung
+    aller 2.127 Zeilen, die Quelltext-Suche (kein `INSERT`/`UPDATE`/`DELETE`,
+    keine Netz-/Bildimporte, genau ein `os.remove` auf die eigene temp-Datei),
+    Repo-Ziel **Exit 2**, zwei Schreibläufe mit festem `stand` **byte-gleich**
+    und die mtimes der Eingaben unverändert bestätigt. Gemeldet hat er: die
+    **Tests sichern die nur-lesende Eigenschaft der Datenbank nicht selbst** ab
+    (die Live-Prüfung war separat erfolgreich, aber es fehlte ein dauerhafter
+    Test). **Behoben:** zwei Testfunktionen ergänzt —
+    `test_schreibsperre_ist_belegt` (die `db_oeffnen`-Verbindung lässt kein
+    `INSERT`/`UPDATE`/`CREATE TABLE` zu → `sqlite3.OperationalError`) und
+    `test_eingaben_bleiben_byte_und_mtime_identisch` (voller Lauf; **Bytes und
+    mtime** jeder Eingabedatei hinterher exakt unverändert). Am Werkzeug selbst
+    **nichts** geändert; die zweite Abweichung des Prüfers (2.102 statt 2.101)
+    ist die oben begründete Gruppenregel.
+  - **Schutz:** `msgstore.db` **nur lesend**, mtime vor/nach allen Läufen
+    unverändert (md5 der Eingabedateien geprüft), **kein** Nachrichtentext und
+    **keine** Klartext-Nummer in der Ausgabe (nur Masken `***1234`), Ausgabe
+    außerhalb des Repos, kein Löschen (einzige Entfernung: die eigene
+    temp-Datei), fremde Dateien unangetastet. Eigener Planer-Scan der neuen
+    Repo-Dateien: **0** echte Personen-/Gruppen-/Ortsnamen, keine echten
+    Kennungen (nur erfundene 49151…-Nummern).
+  - **Ehrlich offen:** der Ausführer hat sich mit einem `$HOME`-Pfad
+    (MSYS `/c/…`) an natives Python eine Datei unter
+    `C:\c\Users\sebas\foto_sortierung\` angelegt (außerhalb des Repos, kein
+    Verstoß) — gemäß „NIE löschen" **nicht** entfernt; Lehre erneut: an native
+    Programme immer `C:/…` (dieselbe Falle wie in N6c und N27a).
