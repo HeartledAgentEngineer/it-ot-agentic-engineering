@@ -161,6 +161,8 @@ ohnehin nachkontrolliert.
 
 | N27d | ✅ **Personen-Andockung** (Verknüpfungsschicht N27, Schritt 4 von 5): `tools/foto_sortierung/personen_andocken.py` führt Ereignis-Knoten + Gesichts-Cluster + Chat-Andockung zusammen und schreibt **außerhalb des Repos** `~/foto_sortierung/personen_andockung.jsonl` (je Anlass die Personen) und `~/foto_sortierung/personen_vorschlaege.json` (je Person Namensvorschläge) — **das Werkzeug schlägt vor, es benennt nicht**: ein Name erscheint nur aus `personen_bestaetigt.json`; `--trocken` ist Standard, Repo-Ziel Exit 2, `bestaetigte` nur nach Nutzer-Eintrag | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; ohne Bestätigung 0 Namen in der Ausgabe | ✅ **bestanden (29.09.)** — siehe Journal unten: Werkzeug **1.140 Zeilen**, Tests **1.258 Zeilen / 144 Testfunktionen** (alles offline); Prüfbefehl **2.558 passed, Exit 0** (Baseline 2.414, selbst gefahren); live **151 Vektorzeilen · 12 Personen (2 neu/10 wiederverwendet) · Größen 11,10,10,5,4,4,4,4,4,3,3,3 · 5 Anlässe mit Personen · 12/12 mit Kandidatennamen · 34 Namen**, zwei Schreibläufe **byte-gleich** (2.833 B / 7.454 B), Repo-Ziel **Exit 2**, ohne Bestätigung **0** Namen / mit Probe-Bestätigung **genau 1**; Prüfer `openai/gpt-5.6-luna` (andere Familie) — Runden 1–3 fanden fünf echte Doku-/Datenschutz-Punkte, ein Methodenartefakt und zwei Präzisierungen (alle behoben), **Abnahme Runde 4 auf dem Endstand `50e86c3` mit `google/gemini-3.7-flash` (Rate-Limit bei luna): BESTANDEN, 0 Abweichungen** |
 
+| N27e | ✅ **Ableitung „wer war mit wem wo"** (Verknüpfungsschicht N27, Schritt 5 von 5, letzter): `tools/foto_sortierung/beziehungen_ableiten.py` leitet aus `personen_andockung.jsonl`, `chat_andockung.jsonl` und `ereignisse.jsonl` **nur lesend** Aussagen mit **Datum + Quelle** ab — drei getrennte Unterarten: `fotos` (≥2 Personen am selben Anlass), `gemeinsam_im_chat` (≥2 benannte Kontakte im selben Chat am selben Tag), `fotos_und_chat` (Person × Kontakt am selben Anlass); unbestätigte Kennungen bleiben `Person_00x` **mit `name: null`** (Kandidatenlisten werden nie gelesen), jede Zeile trägt einen deutschen `hinweis` zur Abgrenzung (Mitgliedschaft ≠ Anwesenheit); `--trocken` ist Standard, Repo-Ziel Exit 2, `--datum` fragt einen Tag ab, `--nur-bestaetigt` schaltet auf die strenge Lesart; Ausgabe außerhalb des Repos (`beziehungen.jsonl` + `beziehungen.json`) | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2; ohne Bestätigung 0 Namen | ✅ **gebaut + gemessen (29.09.)** — Werkzeug **1.097 Zeilen**, Tests **1.530 Zeilen / 183 Testfunktionen** (alles offline); Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (Baseline 2.606, selbst gefahren); live **5 / 2.127 / 2.127 Zeilen gelesen, 0 defekt · 23 + 14.902 + 126 = 15.051 Aussagen · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte · 2016-05-04 bis 2025-08-16**; zwei `--schreiben`-Läufe mit festem `--stand` **byte-gleich** (12.601.994 B, sha256 `549eafbc59bf6e58…`; 715 B, sha256 `083503afbb462602…`); Repo-Ziel **Exit 2** (nichts geschrieben), ungültiges `--datum` **Exit 2**, `--nur-bestaetigt` **0** Aussagen, `--datum 2022-08-21` **61** (10/6/45); Prüfer folgt (Journal) |
+
 ## Journal (wird fortlaufend ergänzt)
 
 * **26.09. ~04:40** — Regeln in `AGENTS.md` („Dauerlauf / Nachtarbeit")
@@ -2548,5 +2550,78 @@ ohnehin nachkontrolliert.
   - **Naechster Schritt: N27 Schritt 5 (Ableitung „wer war mit wem wo")** — nur
     aus **bestätigten** Zuordnungen, jede Aussage mit **Datum + Quelle**; davor
     entscheidet der Nutzer über die Namensvorschläge.
-    **N8 (echtes Sortieren) bleibt gesperrt** (39 sichere Event-Vorschläge +
+    **N8 (echtes Sortieren) bleibt gesperrt** (39 sichere Event-Vorschlaege +
     1.146 datumslose Dateien).
+* **29.09. ~03:00 — N27e gebaut, gemessen und committet** (Planer: Hauptagent ·
+  Ausfuehrer: Hermes-Subagent `deepseek-v4.1-flash`, 0,151 USD · Pruefer:
+  `openai/gpt-5.6-luna`, **andere Modellfamilie**).
+  - **Beginn:** `git pull --rebase` **scheiterte** an den ungestagten **fremden**
+    Dateien des zweiten Agenten (`tools/agentbus/wache.py`,
+    `docs/experimente/live_zahlen.*`, zwei neue Recherche-HTML, neu
+    `.claude/skills/hermes-bruecke/`); nichts angefasst, nichts gestasht.
+    `git fetch` + `git rev-list --left-right --count origin/main...HEAD`
+    → **`0 0`** — es gab nichts zu holen, gearbeitet wurde vom Stand `7c7aefd`.
+    **Codex erneut live geprueft und weiter gesperrt** („try again at
+    Oct 15th, 2026 9:32 PM") → gebaut wurde mit einem Hermes-Subagenten.
+  - **Erst gemessen, dann den Auftrag geschnitten (Planer, nur lesend):**
+    eigene Vormessung (`~/foto_sortierung/n27e_vormessung.py`) ueber die echten
+    Dateien → **5** Personen-Andockungen · **12** Kennungen · **0** bestaetigt ·
+    **23** Personen-Paare (Fotos) · **14.902** Kontakt-Paare (Chat) · **126**
+    Kreuz-Paare (Person × Kontakt am selben Anlass) · **15.051** Aussagen
+    gesamt. Diese Zahlen stehen als **Sollwerte** im Feinauftrag
+    `docs/auftrag-n27e-beziehungen.md`.
+  - **Vorbedingung hergestellt:** die Produktionsdatei
+    `~/foto_sortierung/personen_andockung.jsonl` (5 Zeilen) existierte noch
+    nicht — sie lag nur in Probeordnern. Sie wurde mit dem **abgenommenen**
+    N27d-Werkzeug (`--schreiben`, Standardpfade) erzeugt: 5 Andockungszeilen,
+    12 Personen, Vorschlaege mit **0** bestaetigten Namen. Idempotent, ausserhalb
+    des Repos, `manifest.jsonl` weiterhin nicht vorhanden.
+  - **Werkzeug:** `tools/foto_sortierung/beziehungen_ableiten.py`
+    (**1.097 Zeilen**) + Tests `backend/tests/test_beziehungen_ableiten.py`
+    (**1.530 Zeilen, 183 Testfunktionen**, alles offline, `tmp_path`, erfundene
+    Beispieldaten) + Changelog. Drei **getrennte** Unterarten mit eigener Quelle
+    (`fotos`, `gemeinsam_im_chat`, `fotos_und_chat`), jede Zeile mit **Datum**,
+    **Quelle** (Datei + Zeile/Anlass-Kennung), Belegen und einem deutschen
+    `hinweis` („Mitgliedschaft belegt keine Anwesenheit, Bildnaehe keine
+    Beziehung"). Unbestaetigte Kennungen bleiben `Person_00x` mit `name: null`;
+    die Kandidatenliste `personen_vorschlaege.json` kommt im Quelltext **nicht**
+    vor (Waechter-Test).
+  - **Pruefbefehl selbst gefahren:** **2.789 passed, 3 warnings, Exit 0**
+    (239,9 s; Baseline **2.606** im Arbeitsbaum, +183 = genau die neuen
+    Testfunktionen).
+  - **Live-Trockenlauf (echte Dateien, nur lesend):** Zeilen **5 / 2.127 /
+    2.127**, 0 defekt · `fotos` **23** · `gemeinsam_im_chat` **14.902** ·
+    `fotos_und_chat` **126** · gesamt **15.051** · Kennungen **12** ·
+    bestaetigte Namen **0** · benannte Kontakte **253** ·
+    Datum **2016-05-04 bis 2025-08-16**. **Alle Sollwerte Zeile fuer Zeile
+    erreicht, keine Abweichung** (Zwischenzahlen unabhaengig nachgerechnet:
+    2.101 Anlaesse mit Chat, 45.040 Andockungen, 23.122 mit ≥1 Kontakt, 20.543
+    mit genau einem).
+  - **Schutz vom Planer nachgefahren, nicht nur gemeldet:** zwei
+    `--schreiben`-Laeufe mit festem `--stand` in frische Ordner ausserhalb des
+    Repos (`n27e_planer_a` / `_b`) → **byte-gleich** (12.601.994 B,
+    sha256 `549eafbc59bf6e58…`; 715 B, sha256 `083503afbb462602…`), keine
+    `.tmp`-Reste; Repo-Ziel **Exit 2** ohne Datei; ungueltiges `--datum`
+    **Exit 2**; fehlende Eingabe **Exit 2**; `--nur-bestaetigt` **0** Aussagen;
+    Tagesabfrage `--datum 2022-08-21` → **61** (fotos 10 · chat 6 ·
+    kreuz 45), `--datum 2019-12-27` → **0** (ehrlich: dieser Tag traegt keine
+    Andockung — der Testfall des Plans ist damit noch **nicht** erfuellt, das
+    ist ein Befund fuer die Chat-Antwortstufe).
+  - **Datenschutz-Gegenprobe des Planers:** alle Zeichenketten der vier neuen
+    oder geaenderten Dokumente/Dateien gegen die **792** echten Kontakt- und
+    Chatnamen des Bestands geprueft → **0 Treffer** (der eine scheinbare Treffer
+    ist das Gattungswort „unbekannt", das als Filterbegriff im Code steht).
+  - **Bewusst offen gelassen:** (1) die **Namen** der 12 Gesichtspersonen
+    brauchen weiterhin Sebastians Eintrag in `personen_bestaetigt.json`
+    (Vorschlagsdatei liegt bereit); (2) der **Massenlauf der Gesichter** ueber
+    alle 9.430 Fotos (~15 h, Kandidat N27f) ist nicht Teil dieses Schritts;
+    (3) die Antwort im App-Chat („was war am 27.12.2019?") ist die
+    **Endpunkt**-Stufe und noch nicht gebaut.
+  - **Bekannte Eigenheit (offengelegt):** ein erster Probelauf des Ausfuehrers
+    bekam MSYS-Pfade (`/c/Users/…`) an natives Python → Ordner
+    `C:/c/Users/sebas/foto_sortierung/n27e_probe_a|_b` mit 3 Dateien. Wegen
+    Loeschverbot **nicht geloescht**; die gueltigen Proben liegen unter
+    `…/n27e_probe_c|_d`. Regel bleibt: an native Werkzeuge **immer** `C:/…`.
+  - **Doku:** Changelog `docs/changelog-2026-09-29-n27e-beziehungen.md`,
+    Auftrag `docs/auftrag-n27e-beziehungen.md`, Projekt-`CLAUDE.md` mit
+    Protokollzeile — „code + docs" in einem Commit.
