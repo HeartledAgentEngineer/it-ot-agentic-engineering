@@ -299,8 +299,7 @@ lokale Ausgabedatei außerhalb des Repos geschrieben.
 
 ## Prüfer-Befund (fremde Modellfamilie)
 
-Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **vier Runden** (Stand: nach
-Runde 4):
+Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **fünf Runden**:
 
 * **Runde 1: NICHT BESTANDEN, 4 Abweichungen — alle vier betrafen die Doku,
   keine den Code.** Der Prüfer hat den Code ausdrücklich bestätigt (Prüfbefehl
@@ -349,6 +348,13 @@ Runde 4):
   „Bild A/B/C/D" bzw. „Kennung des Bildes bewusst nicht genannt"; eigene
   Gegenprobe `grep -nE "[0-9]{11}"` über die drei Dokumente → **nur noch die
   erfundene Kennung `47110000001`**.
+* **Runde 5 (Schlussabnahme auf dem Commit `1b66fa0`): BESTANDEN,
+  „Abweichungen: keine".** Eigener Lauf des Prüfbefehls: **1876 passed,
+  3 warnings in 127,01 s, Exit 0**; `grep -nE "[0-9]{11}"` über die drei
+  Dokumente → **nur noch die erfundene Kennung** (sechs Treffer, alle
+  `47110000001`); `git show --stat 1b66fa0` = genau eine Datei; `0 0` gegen
+  `origin/main`; beide Pflichtabschnitte („Live-Beleg des Planers",
+  „Prüfer-Befund") in der committeten Fassung bestätigt.
 
 ## Grenzen (eingehalten)
 
