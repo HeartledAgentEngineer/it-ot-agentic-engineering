@@ -883,7 +883,7 @@ ohnehin nachkontrolliert.
   - **Teil 2 (breite Messung, echte Bilder, nur lesend):** **92 Bilder** — 80
     aus den acht bilderstärksten Mengen-Anlässen (je bis zu 10) + **12
     Kontrollbilder**; **465 Gesichter auf 72 Bildern, 0 Fehler, 358,9 s**;
-    kleinster echter Flächenanteil **6,8905172548596356e-06**, größter 0,030437.
+    kleinster echter Flächenanteil **0,00000689** (= 6,89 × 10⁻⁶), größter 0,030437.
     **Ergebnis (vorher → nachher):** alle 92: alt `gruppe 32 · leer 27 ·
     menge 4 · unklar 29` → neu `gruppe 32 · leer 20 · **menge 10** · unklar 30`;
     **nur Mengen-Bilder: 4 → 10 von 80** (N9c war „1 von 30" = 3,3 %, jetzt
