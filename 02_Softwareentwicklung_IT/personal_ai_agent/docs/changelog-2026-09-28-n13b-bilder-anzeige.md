@@ -420,6 +420,25 @@ node tests/test_foto_galerie.js  -> ERGEBNIS: alle Prüfungen grün, Exit 0
   Testzahl (1876 vs. 1897 — der zweite Agent schreibt parallel, oben belegt)
   und die fremden Dateien im Arbeitsbaum (gehören zu `whatsapp`, nicht zu
   N13b).
+* **Runde 2 (auf den korrigierten Dateien): „NICHT BESTANDEN" mit genau einer
+  Abweichung — und die ist fremd.** Bestätigt: Eigner-Name **0 Treffer**,
+  11-stellig nur die erfundene Kennung (3 Treffer), Changelog nennt **1876 und
+  1897** samt Grund und dem flakigen Einzelfall, Volltest **1897 passed, Exit
+  0**, `node --check` Exit 0, **145** OK-Zeilen, alle JS-Dateien ohne `ROT`,
+  `sw.js` gegenüber `HEAD` unverändert, Galerie-Abschnitt ohne Speicher-API.
+  Bemängelt wurde allein `CLAUDE.md` („steht nicht in der Whitelist") — dort
+  liegt eine **offene Protokollzeile des zweiten Agenten** (WhatsApp). Sie
+  gehört **nicht** zu N13b und wurde **bewusst nicht angefasst**
+  (Kollisionsschutz). Deshalb als Bestand eingeordnet, nicht als Schritt-Fehler.
+* **Runde 3 (Schlussabnahme auf den Commits `3f5bd43` und `7a7dd39`):** alle
+  Punkte des Schritts bestätigt — `git show --stat` = genau **9** Dateien bzw.
+  **1** Plandatei, **keine** fremde, `0 0`, Prüfbefehl **1922 passed, Exit 0**
+  (die Zahl wächst durch fremde Parallelarbeit), 145 OK-Zeilen, 16/16
+  JS-Dateien grün, 0 Eigner-Treffer, 11-stellig nur die erfundene Kennung,
+  Planzeile/Journal vollständig und ohne falsche Handy-Behauptung, `CLAUDE.md`
+  **nicht** in den Commits und weiterhin uncommittet. Rest-Abweisung des
+  Prüfers: unsauberer Arbeitsbaum wegen der fremden Änderungen — von ihm selbst
+  als „keine Abweichung der beiden N13b-Commits" eingeordnet.
 
 ## Offene Punkte und Grenzen
 
