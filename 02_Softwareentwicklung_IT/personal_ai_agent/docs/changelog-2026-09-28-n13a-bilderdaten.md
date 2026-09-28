@@ -299,7 +299,8 @@ lokale Ausgabedatei außerhalb des Repos geschrieben.
 
 ## Prüfer-Befund (fremde Modellfamilie)
 
-Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **zwei Runden**:
+Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **vier Runden** (Stand: nach
+Runde 4):
 
 * **Runde 1: NICHT BESTANDEN, 4 Abweichungen — alle vier betrafen die Doku,
   keine den Code.** Der Prüfer hat den Code ausdrücklich bestätigt (Prüfbefehl
@@ -337,6 +338,17 @@ Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **zwei Runden**:
   Beispiele müssen erfunden sein. **Korrigiert:** beide Vorkommen
   (`docs/auftrag-n13a-bilderdaten.md` Zeilen 77 und 143) tragen jetzt die
   erkennbar erfundene Kennung `47110000001`.
+* **Runde 4 (Abnahme-Versuch auf `201a9cf`): NICHT BESTANDEN, 8 Abweichungen —
+  6 davon „Bestand", 2 berechtigt.** Berechtigt: die Überschrift dieses
+  Abschnitts nannte zu wenige Runden, und die Planzeile N13a führte nur die
+  Runden 1 und 2. Beides korrigiert. Die übrigen **6 Treffer waren echte
+  Dateikennungen in älteren Journal-Einträgen** (N9c/N9e) — sie standen schon
+  in der Vorfassung `4c0cb36` und wurden **nicht** von diesem Schritt
+  eingeführt (die Datenschutz-Regel „keine Kennung in der Doku" entstand erst
+  mit dem N10-Auftrag). **Trotzdem bereinigt:** die Bilder heißen jetzt
+  „Bild A/B/C/D" bzw. „Kennung des Bildes bewusst nicht genannt"; eigene
+  Gegenprobe `grep -nE "[0-9]{11}"` über die drei Dokumente → **nur noch die
+  erfundene Kennung `47110000001`**.
 
 ## Grenzen (eingehalten)
 
