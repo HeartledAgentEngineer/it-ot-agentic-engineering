@@ -72,6 +72,8 @@ Jede signifikante Änderung muss hier dokumentiert werden:
 
 | 28.09.2026 | **Nachtlauf 26./27.09.2026 abgeschlossen (Schritt N10).** Abschlussbericht `docs/abschlussbericht-nachtlauf-2026-09-26.md` trägt den Stand des Dauerlaufs in belegten Zahlen zusammen (Quellen: Plan-Journal mit 1.416 Zeilen und 24 Changelog-Dateien vom 27.09.2026; keine eigene Messung, keine erfundene Zahl). Kern: ein **echter Fehler** wurde gefunden und behoben — `cv2…alignCrop` bekam an drei Stellen nur die 5×2-Landmarken statt der vollen 15-Werte-Zeile, dadurch bekam jedes Gesicht **eines** Bildes denselben Vektor (belegt an 131 von 131 Paaren mit Distanz 0,0000); Fix in `tools/foto_sortierung/gesicht_erkennen.py` **und** `backend/face_infer.py` (Produktionsweg war mit betroffen) plus Wächter; die N9b/N9d-Zahlen sind als **ungültig** markiert. Offen/gesperrt: echtes Sortieren (N8) bis zum Blick auf die 39 sicheren Event-Vorschläge und die 1.146 datumslosen Dateien, Übergabe der Übersichtsdatei ans Handy, ein vom Anbieter abgelehnter Anlass (403 `PROHIBITED_CONTENT`), N16/N18. Prüfbefehl: **1687 passed, Exit 0** (Baseline 1503); die Zeile `personal_ai_agent` in `../CLAUDE_EXTENDS.md` auf denselben Stand gezogen. Doku: `docs/changelog-2026-09-28-n10-abschlussbericht.md` | 20+ Nachtlauf-Schritte lagen über ein 1.416-Zeilen-Journal und 24 Changelogs verstreut — eine Seite mit dem Stand in Zahlen fehlte; der Fehler in der Merkmalberechnung hätte die Personen-Stufe dauerhaft unbrauchbar gemacht | Hermes |
 
+| 28.09.2026 | **WhatsApp-Zuordnung Chat <-> Telefonbuch (privat; Bericht nur Zahlen).** Neu `tools/whatsapp/zuordnung_bauen.py` (nur lesend): Bruecke ist die Nummer; Telefonbuch per ADB (985 Eintraege, 55 Geburtstage), Nummern-Normalisierung +49/0049/0/+49 (0), Gruppenmitglieder aus `group_participant_user` + `group_participants` (Textform) mit Ersatzweg ueber `message_system_chat_participant`/Absender — die Tabelle `group_participant` fehlt in diesem Schema (PRAGMA geprueft). Ergebnis-JSON AUSSERHALB des Repos: `foto_sortierung/whatsapp_zuordnung.json`, Nummern nur als letzte 4 Ziffern maskiert. Gemessen: 744 von 2.471 Chats mit Kontakt-Treffer; Gruppen 66 vollstaendig / 121 teilweise / 44 unbekannt (43 ohne Mitgliederdaten); 6.242 Mitglieder (2.006 mit Treffer). Neu `backend/tests/test_whatsapp_zuordnung.py` (21 Offline-Tests, erfundene Beispieldaten). Pruefbefehl: `cd backend && .venv/Scripts/python -m pytest tests/ -q` -> **1897 passed, Exit 0**. Doku: `docs/changelog-2026-09-28-whatsapp-zuordnung.md` | Personenzuordnung fuer die Foto-Sortierung; Kontaktdaten duerfen nicht ins Repo, Berichte nennen nur Zaehlungen | Hermes |
+
 ## Sicherheit: Duplikate (Sebastians Freigabe 27.09.2026)
 
 > Wörtlich: „Wenn wirklich doppelte Bilder in der ganzen Sortierung sind, in der
@@ -155,3 +157,24 @@ Jede signifikante Änderung muss hier dokumentiert werden:
 - **Kommentare:** Deutsch (User-facing) / Englisch (Code)
 - **Error Handling:** Immer try/except mit Logging
 - **Keine** Hardcodierten Pfade – immer Config/Env-Variablen
+
+---
+
+## 🤝 Übergabe an andere Coding-Agenten (Claude Code / Codex)
+
+**Datenschutz-Grenze (bindend): andere Agenten arbeiten NUR am Code.** Keine
+Chat-Inhalte, keine Fotos, keine Kontakt-Namen/-Nummern, keine Gesichtsdaten,
+keine Archiv-Datenbanken, kein Ordner `Chats von GPT, GEMINI, Claude/`.
+Personenbezogene Daten werden **ausschließlich** über Hermes + OpenRouter
+verarbeitet (`provider_routing.data_collection: deny`). Braucht ein
+Code-Auftrag persönliche Daten: abbrechen und an Hermes zurückgeben.
+
+**Einstiegspunkt: `HANDOVER-CLAUDE-CODE.md`** (im Projektordner, englisch).
+Dort stehen: Prüfbefehl, aktueller Stand mit Zahlen, Datenablagen außerhalb des
+Repos, Datenschutz-Regeln, Git-Regeln (`--only` statt `-A`), Kostenregeln und
+die offenen Schritte N15…N27.
+
+Wer als fremder Agent hier startet: **erst `HANDOVER-CLAUDE-CODE.md` lesen**,
+dann `docs/plan-nachtlauf-2026-09-26.md`. Diese `CLAUDE.md` **nicht** per
+`/init` überschreiben — sie ist handgepflegt und enthält Datenschutz- und
+Rechtsentscheidungen.
