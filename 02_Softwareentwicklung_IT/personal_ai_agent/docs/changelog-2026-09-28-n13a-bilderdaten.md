@@ -325,6 +325,18 @@ Prüfer `openai/gpt-5.6-luna` in frischem Kontext, **zwei Runden**:
   1…50 und 1…200, `anzahl` = Gesamtzahl) bestätigt. Er hat die fremden,
   nicht zu N13a gehörenden Arbeitsbaum-Änderungen ausdrücklich **nicht**
   angefasst.
+* **Runde 3 (Abnahme auf dem committeten Stand `bea270d`): NICHT BESTANDEN,
+  1 Abweichung.** Er hat bestätigt: `git show --stat bea270d` = **genau die
+  acht** genannten Dateien, **keine** fremde (die uncommitteten
+  `live_zahlen`-/`recherche`-Dateien und `tools/whatsapp/` ausdrücklich **nicht**
+  im Commit), `0 0` gegen `origin/main`, Prüfbefehl **1876 / Exit 0**
+  (104,05 s), `main.py` unverändert, genau eine neue Route `/bilder`,
+  Repo-Ziel-Verweigerung (Zeilen 296–300) und die einzige Löschung
+  (`os.remove(temp_pfad)`, Zeile 329). **Beanstandet:** im Schema-Beispiel des
+  Auftrags stand eine **echte 11-stellige pCloud-Dateikennung** — die
+  Beispiele müssen erfunden sein. **Korrigiert:** beide Vorkommen
+  (`docs/auftrag-n13a-bilderdaten.md` Zeilen 77 und 143) tragen jetzt die
+  erkennbar erfundene Kennung `47110000001`.
 
 ## Grenzen (eingehalten)
 

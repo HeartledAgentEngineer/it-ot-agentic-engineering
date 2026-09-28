@@ -1691,6 +1691,15 @@ ohnehin nachkontrolliert.
     Test friert dort die Feldmenge ein — gehört zu N13b); (4) die Datei ist mit
     `indent=2` **1,15 MB** groß; eine kompaktere Schreibweise wurde **nicht**
     gemessen.
+  - **Prüfer Runde 3 (Abnahme auf dem committeten Stand `bea270d`): NICHT
+    BESTANDEN, 1 Abweichung — korrigiert.** Er hat bestätigt: `git show --stat`
+    = **genau die acht** Dateien, **keine** fremde (die uncommitteten
+    `live_zahlen`-/`recherche`-Dateien und `tools/whatsapp/` ausdrücklich nicht
+    im Commit), `0 0`, Prüfbefehl **1876 / Exit 0** (104,05 s), `main.py`
+    unverändert, genau eine neue Route. **Beanstandet:** im Schema-Beispiel des
+    Auftrags stand eine **echte 11-stellige pCloud-Kennung**. Beide Vorkommen
+    ersetzt durch die erfundene Kennung `47110000001` (eigene Gegenprobe per
+    `grep -E "[0-9]{11}"` → nur noch die erfundene Zahl).
   - **Nächster Schritt: N13b** (Anzeige im Frontend: Kacheln, Großansicht,
     Diashow, Bilder gestreamt und nie gespeichert, `?v=`-Bump). **N8 bleibt
     gesperrt**, bis dein Blick auf die 39 sicheren Event-Vorschläge und die

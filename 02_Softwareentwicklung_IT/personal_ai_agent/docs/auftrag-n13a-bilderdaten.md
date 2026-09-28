@@ -74,7 +74,7 @@ maschinenlesbare Datei mit den **Datei-Kennungen je Event** bauen.
       "event": "2021_07 Beispielort",
       "anzahl": 42,
       "dateien": [
-        {"datei_id": 93174878075, "name": "IMG_20210712_101112.jpg"}
+        {"datei_id": 47110000001, "name": "IMG_20210712_101112.jpg"}
       ]
     }
   ]
@@ -140,7 +140,7 @@ Antwort (eingefroren, immer HTTP 200, immer dieselben Felder):
   "events": [
     {"jahr": 2021, "kategorie": "Urlaub", "event": "2021_07 Beispielort",
      "anzahl": 42,
-     "dateien": [{"datei_id": 93174878075, "name": "IMG_20210712_101112.jpg"}]}
+     "dateien": [{"datei_id": 47110000001, "name": "IMG_20210712_101112.jpg"}]}
   ],
   "anzahl": 1,
   "error": null
