@@ -53,8 +53,15 @@ P_CONCERTIFY="02_Softwareentwicklung_IT/concertify"
 if hat_code "$P_AGENT"; then
     PY="$P_AGENT/backend/.venv/Scripts/python.exe"
     if [[ -x "$PY" ]]; then
-        run_gate "personal_ai_agent" "$P_AGENT/backend" \
-            "./.venv/Scripts/python.exe -m pytest tests/ -q"
+        # Tor mit Sperre: mehrere Agenten teilen sich einen Arbeitsbaum, zwei
+        # gleichzeitige Testlaeufe machen das Tor faelschlich rot.
+        if [[ -f "$P_AGENT/tools/gate/tor.py" ]]; then
+            run_gate "personal_ai_agent" "$P_AGENT/backend" \
+                "./.venv/Scripts/python.exe ../tools/gate/tor.py --wartezeit 600"
+        else
+            run_gate "personal_ai_agent" "$P_AGENT/backend" \
+                "./.venv/Scripts/python.exe -m pytest tests/ -q"
+        fi
     else
         echo "  ⚠ personal_ai_agent: venv fehlt ($PY) — kein Gate möglich"
     fi
