@@ -151,6 +151,9 @@ ohnehin nachkontrolliert.
 | N11 | **Fotos-Fragen am Handy:** Endpunkt `/api/fotos/uebersicht` + kleine Datendatei (Zahlen und Event-Namen, **ohne Bilder**) | Endpunkt antwortet ohne Netz; Selbsttest zeigt die Quelle | ✅ **bestanden (27.09.)** — Werkzeug `tools/foto_sortierung/foto_uebersicht.py` (565 Zeilen, **98** Tests) schreibt die Übersichtsdatei aus `sortierplan.json` (read-only); Dienst `backend/app/services/foto_uebersicht.py` (389 Zeilen) + Router `backend/app/router/fotos.py` (103 Zeilen, `GET /api/fotos/uebersicht` mit `jahr`/`kategorie`/`suche`/`limit`, **immer HTTP 200, nie 500**) + Chat-Werkzeug `_fotos_uebersicht_tool` (in **beiden** Ketten) + Selbsttest-Block `fotos` + Frontend-Zeile (**83** weitere Tests). Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline **1503**); JS-Tests grün. **Echte Datei:** `~/foto_sortierung/fotos_uebersicht.json`, **344.615 Bytes**, 2.127 Anlässe · **2.098 Event-Ordner** · 9.430 Zeilen · 7.616 Züge · 1.146 ohne Datum · 11 Jahre/48 Themen/11 Kategorien; **Rauchtest am echten Bestand ohne Netz** (200, `ok: true`, Filter greifen, `limit` geklemmt). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (4 Doku-Abweichungen), Runde 2 NICHT BESTANDEN (3 Restpunkte), **Runde 3 auf `9a213c9`: BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-27-n11-uebersicht-datei.md`, `…-endpunkt.md`, Auftrag `docs/auftrag-n11-foto-uebersicht.md`. **Offen:** die Datei muss noch aufs Handy (Übertragung ist nicht Teil des Schritts) |
 | N10 | **Doku + Protokoll + Abschlussbericht** (Changelogs, `CLAUDE.md`, Planjournal) | alles committet, Bericht mit Zahlen | ✅ **bestanden (28.09.)** — `docs/abschlussbericht-nachtlauf-2026-09-26.md` (**276 Zeilen**, 17 Schritt-Zeilen mit Zahlen + Prüfer-Befund, Kosten, der N9e-Fehler, gesperrte Punkte wörtlich aus dem Plan, Sicherheitsnetz, 5 Pitfalls) + Changelog **95 Zeilen** + Projekt-`CLAUDE.md`-Protokollzeile + `../CLAUDE_EXTENDS.md`-Prüfbefehlszeile auf **1687 grün, Exit 0 (28.09.2026)**; Prüfbefehl selbst gefahren **1687 passed, Exit 0** (Baseline 1503). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (6 Punkte: 4 berechtigt — Dateikennung im Bericht, gesperrte Punkte nur paraphrasiert, unmarkierte Näherung, Changelog-Aussage zu fremden Dateien; 1 Fehlalarm mit Zeitstempel-Beleg widerlegt, 1 Aufruf-Fehler des Prüfers), Runde 2 **BESTANDEN, 0 Abweichungen** |
 
+| N13a | **Bilder im Chat, Datenfundament** (Vorstufe zu N13): Werkzeug baut aus `sortierplan.json` eine kleine Datei mit den **Datei-Kennungen je Event** (`~/foto_sortierung/fotos_dateien.json`), Dienst + `GET /api/fotos/bilder` liefern sie aus — die N11-Übersicht bleibt **unberührt** (sie trägt bewusst keine Kennungen) | Werkzeug-Tests grün; Endpunkt immer 200; echte Kennungen live gegen den Plan geprüft | ✅ **bestanden (28.09.)** — `tools/foto_sortierung/foto_dateien.py` (434 Zeilen) + `backend/app/services/foto_bilder.py` (385) + Route in `router/fotos.py` (103 → 188) + **189** neue Testfunktionen; Prüfbefehl selbst gefahren **1876 passed, Exit 0** (Baseline 1687). **Live gemessen:** Datei **1.146.180 Bytes**, **2.098 Events · 7.616 Dateien · 0 ohne Kennung**; Endpunkt `?limit=3` → 200, `ok: true`, die ersten drei Events mit 1 / 19 / 1 Dateien; ein Filter auf einen Event-Namen → 1 Treffer (der echte Event-/Ortsname steht hier absichtlich **nicht**); **echter Vorschaubild-Abruf** für eine zurückgegebene Kennung → **200 `image/jpeg`, 4.581 Bytes, Magic `ffd8ffe0`, `Cache-Control: no-store`**. Prüfer `gpt-5.6-luna` (frische Kontexte): Runde 1 NICHT BESTANDEN (4 Abweichungen, **alle an der Doku** — Eigner-Name ×2, ein echter Ortsname in zwei Schema-Beispielen, eine veraltete Changelog-Aussage; den Code hat der Prüfer ausdrücklich bestätigt), Runde 2 **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, Paare 7.616 gegen 7.616 identisch, N11-Datei und Plan unverändert). Offen: **N13b** (Anzeige: Kacheln, Großansicht, Diashow im Frontend) |
+| N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ⬜ **offen** — `cloud/thumb` kommt in `app.js`/`index.html` weiterhin **0 ×** vor (28.09. geprüft) |
+
 ## Journal (wird fortlaufend ergänzt)
 
 * **26.09. ~04:40** — Regeln in `AGENTS.md` („Dauerlauf / Nachtarbeit")
@@ -950,7 +953,128 @@ ohnehin nachkontrolliert.
   Quelle. *(Nicht in der Schritt-Tabelle oben eingetragen, damit der gleichzeitig
   laufende Nachtlauf sie nicht überschreibt.)*
 
-* **27.09. ~23:20 — N19 + N20 (neu, aus Sebastians Frage zu „Philine"):**
+* **28.09. früh — N24 (neu, Sebastians Auftrag): Datenschutz + IT-Security
+  durchplanen** („wir müssen vielleicht IT-Security-mäßig unsere App bisschen
+  noch mehr sichern und vielleicht auch Android mehr sichern … das werden wir
+  noch mal durchplanen … können wir auf die Liste setzen. Datenschutz.").
+  Themenliste für den Plan (jedes mit Prüfkriterium):
+  1. **App/Backend:** API-Schutz statt offenem Heimnetz (Key-Pflicht für alle
+     Schreibwege), CORS einschränken, kein öffentlicher Port, Selbsttest ohne
+     Geheimnisse (bereits so).
+  2. **Android:** Bildschirmsperre + PIN/Länge, App-Berechtigungen prüfen
+     (Mikrofon, Dateien), **Android-Backup der Agent-Daten aus**, Termux-Zugang
+     absichern, ADB nur bei Bedarf (USB-Debugging aus, wenn nicht gebraucht).
+  3. **Datenablage:** Archiv-Datenbank + Gesichts-Katalog + WhatsApp-Schlüssel/
+     Token verschlüsselt bzw. mit Dateirechten geschützt; **Handy-Verlust** als
+     Ernstfall durchspielen (was liegt lesbar, was nicht?).
+  4. **Dritte schützen (DSGVO):** Chats und Fotos enthalten Daten **anderer**
+     Personen → Verarbeitung ausschließlich lokal, keine Weitergabe an
+     Fremd-LLMs außer der Suchanfrage; **keine Namen Dritter** in Repo, Doku,
+     Portfolio, Chat-Protokoll.
+  5. **Aufräum-Löschkonzept:** Session-Exporte, Scratch-Dateien, Übergabedateien
+     (token.txt/schluessel.txt) → Rechte, Ablaufdatum, Löschroutine.
+  6. **Widerruf/Notfall:** pCloud-Token, OpenRouter-Key, Telegram-Bot und
+     Google-Zugang widerrufen können; Wiederherstellungsweg dokumentieren.
+  **Zeitpunkt:** nach N21/N22 (erst Daten, dann Absicherung) — aber Punkt 4 gilt
+  **sofort** bei jedem Schritt.
+
+* **28.09. früh — Betriebsmodell (N23-Ergänzung, Sebastians Frage „PC läuft
+  vielleicht nicht immer"):** *Immer-Handy* + *Werkstatt-PC*.
+  * **Nächtlich, PC aus:** Handy fährt selbst: WhatsApp-Abzug (Schlüssel+Zugang
+    liegen dort), Nachpflege N22, Einbettungen, Suche, App. Laufzeit unkritisch
+    (Strom), Bericht beim Widget-Tipp.
+  * **Nächtlich, PC an:** zusätzlich die schweren Werkstatt-Jobs (Gesichts-
+    Cluster, Massen-Beschreibungen, Erstsortierung) — per Hermes-Cron, Ergebnis
+    geht als Übergabedatei aufs Handy.
+  * **Kein Besitzanspruch:** Wer zuerst läuft, schreibt; der andere prüft und
+    überspringt Vorhandenes (**idempotent**). Kein Job startet, wenn derselbe
+    Lauf schon läuft (Sperrdatei mit Zeitstempel).
+  * **Bericht morgens:** immer dieselben Felder (neu, übersprungen, Fehler,
+    Kosten, Dauer, Gerät).
+
+* **28.09. früh — N23 (neu, Architektur-Regel): alles muss im ANDROID-Ökosystem
+  eigenständig laufen.** Wörtlich: „das muss alles auch so gebaut werden, dass es
+  innerhalb des Android-Ökosystems eigenständig funktioniert und dass wir Zugriff
+  auf diesen PC haben." Umsetzung:
+  * **Handy = Ausführer.** Jeder wiederkehrende Job (N22 Nachpflege, N12 Sortier-
+    Pflege, Selbsttest, Archiv-/Vektor-Suche, App) läuft **im Termux** und
+    überlebt Reboots (`termux-job-scheduler` bzw. `termux-services`/`crond`).
+    Kein Cron am PC für Dinge, die das Handy selbst kann.
+  * **PC = Werkstatt.** Nur schwere Einmal-Arbeit (Gesichts-Cluster, Massen-
+    Beschreibungen, Erstsortierung) läuft am PC; Ergebnisse gehen **per Kabel**
+    aufs Handy (bestehendes Muster: Übergabedatei im Download-Ordner, selbst-
+    heilende Übernahme beim Widget-Tipp, Datei wird danach gelöscht).
+  * **Zugangsdaten müssen auf dem Handy liegen** (pCloud-Token ✓ bereits,
+    WhatsApp-Schlüssel ✓, Google-Zugang → nach dem PC-Abzug per Kabel
+    übertragen), damit das Handy den nächsten Backup-Abzug **allein** fahren kann.
+  * **Prüfkriterium:** Ein nächtlicher Lauf auf dem Handy **ohne eingeschalteten
+    PC** liefert dieselben Ergebnisse wie am PC (Zahlenvergleich), und nach
+    einem Neustart des Handys läuft der Job von selbst wieder an.
+  * **Grenze unverändert:** nur lesen und anhängen; nichts löschen; Medien
+    bleiben in der pCloud; Biometrie bleibt lokal.
+
+* **28.09. früh — N22 (neu, Sebastians Wunsch): Nachpflege NACHTLAUF, nicht nur
+  wöchentlich.** Wörtlich: „alle Chats, Gruppen, archivierten Chats völlig aus
+  dem Lernen … benutzen der Vektordatenbank, des Archivs … dass das sich jede
+  Woche durch einen geplanten Job … selbst triggert und neue Chats … oder die
+  Weiterentwicklung von Chats dann natürlich dazukommen … vielleicht kann man
+  das auch täglich nachts machen". Umsetzung:
+  * **Quellen:** WhatsApp (**alle** Chats, **Gruppen** und **archivierte** Chats
+    — nur im Backup enthalten, nicht in Einzel-Exporten), neue Fotos/Uploads der
+    pCloud, Google Kalender.
+  * **Inkrementell + idempotent:** nur Neues/Geändertes; Kennung je Nachricht
+    (Zeitstempel + Chat + Kurz-Prüfsumme), **anhängen** statt neu bauen; zweiter
+    Lauf am selben Tag findet **0** Neues.
+  * **Anhänge:** nur **Metadaten** (Name, Typ, Datum, Größe) — **keine Medien**
+    ins Archiv (Speicher + Datenschutz), Medien bleiben in der pCloud.
+  * **Zeitplan:** täglich nachts (Standard 03:00, Cron), Bericht je Lauf mit
+    Zahlen (neu/übersprungen/Fehler), Kosten protokolliert; schlägt der Lauf
+    fehl, bleibt der letzte gute Stand unberührt.
+  * **Vektor-Datenbank** läuft mit: neue Chunks werden eingebettet und in
+    `archiv_index.db` ergänzt (Index wächst nur, wird nicht neu gebaut).
+  * **Grenze:** der nächtliche Lauf liest und indiziert — er **löscht nichts**
+    und schreibt nie in die Cloud.
+  * **Prüfkriterium:** Erstlauf holt den Rückstand mit Zahlen; zweiter Lauf 0
+    neu; eine neue Nachricht in einem **archivierten** Chat erscheint nach dem
+    Lauf in der Suche; Kosten je Lauf < 0,05 $.
+
+* **27.09. ~23:40 — N21 (neu, WICHTIGSTER SCHRITT): Vollständiger WhatsApp-Abzug
+  OHNE Comet zu schließen.** Befund: Es existieren nur **2 Chats** (42.147
+  Nachrichten: Fabia + 9). Der Voll-Abzug scheiterte laut `ARBEITSSTAND.md` an
+  Punkt „Offen: Google-`oauth_token` — Comet hält `Default/Network/Cookies`
+  gesperrt". **Lösung:** Die Sperre betrifft nur die **Datei**; der **laufende**
+  Browser ist über die Debug-Schnittstelle erreichbar (dieselbe, mit der Comet
+  gesteuert wird). Also: **kleines Skript**, das über CDP `Storage.getCookies`
+  bzw. `Network.getAllCookies` den `oauth_token` für `.google.com` holt und
+  **direkt in `whatsapp_uebertragung/token.txt` schreibt** — der Wert darf
+  **nie** in Ausgabe, Protokoll, Chat oder Repo erscheinen (nur Länge/Maske
+  ausgeben). Danach die Kette: `wabdd token/download → msgstore.db →
+  entschlüsseln (Schlüssel liegt vor) → normalisieren → **anhängen** an
+  `normalized/messages.jsonl` → Index neu bauen → Einbettungen → Index per Kabel
+  aufs Handy → Widget-Tipp`. Prüfkriterium: Zahl der Chats **deutlich > 2**,
+  Gruppen enthalten (u. a. „Fabulous 4"), jede Nachricht mit Titel + Zeitstempel;
+  Kontakte den Chats zugeordnet; Einbettungskosten protokolliert (< 0,50 $).
+  Rückfall, falls der Browser-Weg blockiert: pro Chat „Chat exportieren" (ohne
+  Medien) und anhängen — funktioniert ohne jede Google-Anmeldung.
+  **Nichts löschen, nur anhängen; Archiv bleibt außerhalb des Repos.**
+  **Zwischenstand 28.09. 09:35:** `wabdd` **0.1.7** installiert (`wabdd-venv`,
+  Python 3.11.16, `websocket-client` dazu); Abrufskript **`tools/whatsapp/
+  token_holen.py`** (liest den Cookie über die Debug-Schnittstelle, schreibt nur
+  die Datei, Ausgabe nur ja/nein + Maske; Offline-Test grün). **Edge läuft auf
+  Port 9222 mit echtem Profil** (über eine Junction, damit die Flags greifen —
+  Chromium 136+ ignoriert `--remote-debugging-port` beim Default-Profil);
+  Sebastians Google-Sitzung ist sichtbar (27 Google-Cookies, SID/HSID/SSID/
+  SAPISID), **aber `oauth_token` ist noch nicht gesetzt**: der Android-Anmelde-
+  Flow (`accounts.google.com/EmbeddedSetup`, Tab „Willkommen") verlangt eine
+  frische **Passwort-Bestätigung** — der Wert entsteht erst beim Abschluss.
+  **Offen (Sebastian, ~10 s):** im offenen Edge-Tab „Willkommen" das Google-
+  Passwort eingeben und „Weiter" — danach `token_holen.py` erneut, dann
+  Gegenprobe (`cat token.txt | wabdd token <mail> --token-file token.txt`).
+  **Zwei Warnungen für später:** (1) Edge mit echtem Profil **nicht** neu starten
+  — kopierte/umbenannte Profilpfade verlieren die Google-Cookies (App-Bound-
+  Encryption ab Chromium 151), der Weg funktioniert nur in **dieser** Instanz;
+  (2) die Junction im Scratch-Ordner **niemals rekursiv löschen** (sie folgt ins
+  echte Profil) — Warnhinweis liegt daneben. Comet blieb unangetastet.
   * **N19 — Archiv-Suche auf Erwähnungen erweitern.** Befund: „Philine" kommt
     **48 ×** im Archiv vor — **41 × in WhatsApp** (aber nur *im Fabia-Chat als
     Thema*), 3 × Google Kalender (u. a. „blink-182 Konzert mit Philine"), 4 ×
@@ -1486,3 +1610,88 @@ ohnehin nachkontrolliert.
     N1–N7, N9a–N9g, N10, N11 fertig und abgenommen; N8 und N12–N20 warten auf
     Entscheidungen (Sortieren, Nachpflege-Jobs, Galerie, APK, Termine, Archiv-Suche
     auf Erwähnungen, weitere Chats).
+
+* **28.09. ~09:30–10:05 — N13a gebaut, live belegt und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,140 USD ·
+  Prüfer: `openai/gpt-5.6-luna`, **zwei Runden** — andere Modellfamilie).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den
+  **fremden** Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`,
+  zwei Recherche-HTML, `tools/whatsapp/`), zusätzlich war die **Plandatei
+  selbst** von ihm verändert; nichts angefasst, nichts gestasht; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**. **Codex
+  live geprüft und weiter gesperrt** („try again at Oct 15th, 2026 9:32 PM") →
+  gebaut wurde mit einem Hermes-Subagenten.
+  - **Warum dieser Schritt:** N13 („Bilder im Chat") war als Ganzes zu groß für
+    eine Runde und hing an einer Datenlücke: die N11-Übersicht trägt **bewusst
+    keine Datei-Kennungen**, ohne Kennung lässt sich kein Vorschaubild laden.
+    Deshalb geteilt: **N13a = Datenfundament** (diese Runde), **N13b =
+    Anzeige** (Kacheln, Großbild, Diashow). Selbst entschieden, im Plan
+    eingetragen.
+  - **Gebaut:** `tools/foto_sortierung/foto_dateien.py` (434 Zeilen) erzeugt aus
+    dem lokalen `sortierplan.json` (nur lesend) die Datei
+    `~/foto_sortierung/fotos_dateien.json` mit den **Kennungen je Event**;
+    `backend/app/services/foto_bilder.py` (385) liest sie (nie ein Wurf, sechs
+    feste Schlüssel, fremde `art`/`version` ⇒ Fehler); **eine** neue Route
+    `GET /api/fotos/bilder` in `router/fotos.py` (103 → 188 Zeilen, **immer
+    HTTP 200**, Filter `jahr`/`kategorie`/`event`/`limit` 1…50/`pro_event`
+    1…200); Tests `test_foto_dateien.py` (**89** Funktionen) +
+    `test_foto_bilder_endpunkt.py` (**100**), alles offline; Changelog
+    `docs/changelog-2026-09-28-n13a-bilderdaten.md`; Feinauftrag
+    `docs/auftrag-n13a-bilderdaten.md` mit **eingefrorenem** Schema.
+  - **Prüfbefehl selbst gefahren:** Baseline **1687** → **1876 passed,
+  3 warnings, Exit 0** (80,98 s; +189 = genau die neuen Testfunktionen). Der
+    Hauptagent hat ihn **nach** der Verifier-Runde noch einmal gesehen
+    (Runde 2: 1876 / Exit 0 in 92,13 s).
+  - **Live-Beleg am echten Bestand (Planer, nur lesend):** Werkzeug `--trocken`
+    → Exit 0, „Events: 2.098   Dateien: 7.616   ohne Kennung: 0", nichts
+    geschrieben; `--schreiben` → **Datei mit 1.146.180 Bytes** vorhanden
+    (`stand` 2026-09-28T09:44:53, `plan_stand` 2026-09-27T13:49:46); Endpunkt
+    per TestClient gegen die **echte** Datei: `?limit=3` → **200**, `ok: true`,
+    Felder `anzahl, error, events, ok, quelle, stand, zahlen`; **Kettenschluss
+    bis zum Bild:** für eine zurückgegebene Kennung lieferte
+    `/api/cloud/thumb?groesse=120x120` **200 `image/jpeg`, 4.581 Bytes, Magic
+    `ffd8ffe0`, `Cache-Control: no-store`** (ein pCloud-Aufruf, nur lesend) —
+    damit zeigen die Kennungen **wirklich** auf Bilder.
+  - **Prüfer Runde 1: NICHT BESTANDEN, 4 Abweichungen — alle an der Doku,
+    den Code hat er ausdrücklich bestätigt** (1876/Exit 0, 89+100
+    Testfunktionen, Sortierungen, Paarabgleich, `main.py` unangetastet, N11-Datei
+    unberührt). Beanstandet: Eigner-Name in Auftrag **und** Changelog, ein
+    **echter Ortsname** in zwei Schema-Beispielen des Auftrags, und eine
+    Changelog-Aussage, die Live-Datei existiere nicht (sie war zum Prüfzeitpunkt
+    schon angelegt). **Alle vier korrigiert** („Der Nutzer", „2021_07
+    Beispielort", neuer Abschnitt „Live-Beleg des Planers").
+  - **Prüfer Runde 2 (frische Sitzung): BESTANDEN, „Abweichungen: keine".**
+    Er hat selbst gefahren: Prüfbefehl **1876 / Exit 0**; Datei **1.146.180
+    Bytes**; N11-Datei **344.615** und Sortierplan **5.590.448 Bytes**
+    unverändert; `zahlen` 2.098 / 7.616 / 0 / 11 / 11; **Paare live gegen den
+    Plan 7.616 gegen 7.616, identisch `True`**; Endpunkt 200 mit den festen
+    Feldern, `anzahl` je Event = Länge der Dateiliste (1, 19, 1); Repo-Ziel ⇒
+    Exit 2; `dateien_laden()` wirft nie; fremde `art`/`version` ⇒ Fehler;
+    Klemmung 1…50 und 1…200.
+  - **Kollision, ehrlich notiert:** der zweite Agent hat die **Plandatei
+    selbst** verändert (uncommittete Journal-Einträge N21–N24). Diese Einträge
+    stehen **unverändert** im Commit mit (wie in den Runden zuvor) — sie sind
+    Doku, kein fremder Code; seine `live_zahlen`-Dateien, die zwei
+    Recherche-HTML und `tools/whatsapp/` blieben **unberührt**. Der Commit
+    läuft mit `git commit --only` und ausdrücklich genannten Pfaden.
+  - **Zweite eigene Sichtprüfung vor dem Commit:** zwei **echte** Archiv-Namen
+    (ein Ortsname im Schema-Beispiel, ein Anlass-Name im Live-Beleg) aus den
+    neuen Zeilen entfernt — Beispiele sind jetzt erfunden bzw. benannt
+    weggelassen. Das war eine eigene Korrektur, nicht vom Prüfer gefordert.
+  - **Schutz:** pCloud nur **lesend** (ein Aufruf, Vorschaubild); **keine**
+    Bilddatei auf der Platte; **nichts gelöscht** (einzige Löschung im Code:
+    die eigene temp-Datei beim atomaren Schreiben, per Test belegt); die
+    N11-Übersicht und der Sortierplan sind **unverändert** (vom Prüfer
+    bestätigt); kein Schlüsselwert, kein Personenname, keine Kennung in der
+    Doku; Ausgaben nur außerhalb des Repos.
+  - **Ehrlich offen:** (1) die Datei liegt **nur am PC** — die Übertragung aufs
+    Handy ist nicht Teil des Schritts (28.09. kein Gerät per Kabel, `adb devices`
+    leer); (2) die Anzeige selbst fehlt noch (**N13b**); (3) `status_block()` ist
+    gebaut und getestet, aber noch **nicht** im Selbsttest-Blatt verdrahtet (ein
+    Test friert dort die Feldmenge ein — gehört zu N13b); (4) die Datei ist mit
+    `indent=2` **1,15 MB** groß; eine kompaktere Schreibweise wurde **nicht**
+    gemessen.
+  - **Nächster Schritt: N13b** (Anzeige im Frontend: Kacheln, Großansicht,
+    Diashow, Bilder gestreamt und nie gespeichert, `?v=`-Bump). **N8 bleibt
+    gesperrt**, bis dein Blick auf die 39 sicheren Event-Vorschläge und die
+    1.146 datumslosen Dateien da ist.
