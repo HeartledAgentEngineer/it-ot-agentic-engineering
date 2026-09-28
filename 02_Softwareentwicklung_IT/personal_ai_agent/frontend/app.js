@@ -8706,6 +8706,34 @@ function schliesseSelbsttestBlatt() {
 }
 
 // ── Hermes Live-Status (unabhängiger Poller, zeigt Hermes-Gedanken live) ──
+// REINE Auswahl (28.09.2026): Welcher Auftrag gehört in den Balken?
+// Vorher: jeder je "offen" gebliebene Auftrag stand für immer oben, und es
+// wurde der ÄLTESTE gezeigt (Liste kommt neueste-zuerst). Jetzt: nur offen/
+// laufend, zuletzt aktiv innerhalb von `maxAlterMs`, nicht weggeklickt, und
+// davon der NEUESTE. Letzte Aktivität = Zeit der letzten Statusmeldung, sonst
+// `erstellt`.
+function hermesLiveJobWaehlen(jobs, jetztMs, ausgeblendet, maxAlterMs) {
+    const grenze = typeof maxAlterMs === 'number' ? maxAlterMs : 30 * 60 * 1000;
+    const weg = ausgeblendet || [];
+    function aktivMs(job) {
+        const meldungen = Array.isArray(job.status_meldungen) ? job.status_meldungen : [];
+        let zeit = job.erstellt || '';
+        if (meldungen.length) {
+            const letzte = meldungen[meldungen.length - 1];
+            const m = (typeof letzte === 'string') ? letzte.match(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2}|Z)?/) : null;
+            if (m) zeit = m[0];
+        }
+        const ms = Date.parse(String(zeit).replace(' ', 'T'));
+        return isNaN(ms) ? 0 : ms;
+    }
+    const kandidaten = (Array.isArray(jobs) ? jobs : []).filter(j =>
+        j && (j.status === 'offen' || j.status === 'laeuft')
+        && weg.indexOf(j.id) === -1
+        && (jetztMs - aktivMs(j)) <= grenze);
+    if (!kandidaten.length) return null;
+    return kandidaten.reduce((a, b) => (aktivMs(b) > aktivMs(a) ? b : a));
+}
+
 (function() {
     const container = document.getElementById('hermes-live-status');
     const msgDiv = document.getElementById('hermes-live-msg');
@@ -8715,6 +8743,26 @@ function schliesseSelbsttestBlatt() {
 
     let letzteId = '';
     let letzteAnzahl = 0;
+    let aktuelleJobId = '';
+    const WEG_SCHLUESSEL = 'hermesLiveAusgeblendet';
+    function ausgeblendetLesen() {
+        try { return JSON.parse(localStorage.getItem(WEG_SCHLUESSEL) || '[]'); } catch (_) { return []; }
+    }
+    // × zum Wegklicken: merkt sich die Auftrags-Kennung (nur dieser Browser).
+    const wegBtn = document.createElement('button');
+    wegBtn.id = 'hermes-live-schliessen';
+    wegBtn.type = 'button';
+    wegBtn.title = 'Ausblenden';
+    wegBtn.setAttribute('aria-label', 'Hermes-Status ausblenden');
+    wegBtn.textContent = '×';
+    wegBtn.style.cssText = 'margin-left:8px;background:none;border:none;color:#8f8;font-size:18px;cursor:pointer;line-height:1';
+    if (indicator && indicator.parentNode) indicator.parentNode.appendChild(wegBtn);
+    wegBtn.addEventListener('click', () => {
+        const weg = ausgeblendetLesen();
+        if (aktuelleJobId && weg.indexOf(aktuelleJobId) === -1) weg.push(aktuelleJobId);
+        try { localStorage.setItem(WEG_SCHLUESSEL, JSON.stringify(weg.slice(-50))); } catch (_) { /* egal */ }
+        container.style.display = 'none';
+    });
 
     async function pollHermes() {
         try {
@@ -8722,15 +8770,14 @@ function schliesseSelbsttestBlatt() {
             if (!res.ok) { container.style.display = 'none'; _setzeHermesAussen(false); return; }
             const data = await res.json();
             const jobs = data.auftraege || [];
-            // Neuesten offenen/laufenden Job finden
-            const relevant = jobs.filter(j => j.status === 'offen' || j.status === 'laeuft');
-            if (relevant.length === 0) {
+            const job = hermesLiveJobWaehlen(jobs, Date.now(), ausgeblendetLesen());
+            if (!job) {
                 container.style.display = 'none';
                 _setzeHermesAussen(false);
                 return;
             }
             _setzeHermesAussen(true);
-            const job = relevant[relevant.length - 1]; // neuester
+            aktuelleJobId = job.id;
             const id = job.id.substring(0, 8);
             const meldungen = job.status_meldungen || [];
             const status = job.status;
