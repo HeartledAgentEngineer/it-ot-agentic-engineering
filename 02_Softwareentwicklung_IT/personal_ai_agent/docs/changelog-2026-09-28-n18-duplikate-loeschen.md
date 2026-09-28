@@ -128,6 +128,21 @@ grün, `manifest.jsonl` fehlt zu Recht. **Zwei Abweichungen, beide berechtigt:**
 2. **Falsche Zeilenzahl im Changelog** (1.229 statt 1.226) — korrigiert, samt
    Testdatei (1.173), Testfunktionen (64) und `assert`-Prüfungen (206).
 
+### Prüfer-Runde 3 (`openai/gpt-5.6-luna`, frische Sitzung, Abnahme auf dem Commit `cc32997`): BESTANDEN, 0 Abweichungen
+
+Er hat selbst gefahren: Prüfbefehl **2070 / Exit 0**; `git show --stat cc32997` =
+**genau die sechs** genannten Dateien, **keine** fremde; `0 0` gegen `origin/main`;
+den Live-Trockenlauf (Exit 0, **25 / 0 / 3.970,66 MB / Rest 2.108**, Modus
+`TROCKENLAUF`); Bericht-md5 unverändert, `manifest.jsonl` **nicht vorhanden**; die
+Zahlen nachgerechnet (1.226 / 1.173 / 64 / 206 / +64); die API-Positivliste des
+Nachbarmoduls unverändert; im neuen Werkzeug **keine** Ordner-Löschung, kein
+Verschieben/Umbenennen, kein Download, `trash_restore` nur als manueller Rückweg
+erwähnt (nie aufgerufen); keine 11-stelligen Kennungen und kein Token in den neuen
+Zeilen; die Plandatei trägt N18 mit Zahlen und behauptet **keinen** echten
+Löschlauf. Sein einziger Restpunkt: die unfertige **Parallelarbeit eines zweiten
+Agenten** im Arbeitsbaum — ausdrücklich **nicht** Teil dieses Commits (dasselbe
+Muster wie bei N6e und N13b: fremder Bestand ist kein Schritt-Fehler).
+
 ## Abweichung vom Auftrag (eine Stelle, vom Planer entschieden)
 
 Der Auftrag verlangt in §3.4 eine Manifest-Zeile mit `art: "loeschen"` **über
