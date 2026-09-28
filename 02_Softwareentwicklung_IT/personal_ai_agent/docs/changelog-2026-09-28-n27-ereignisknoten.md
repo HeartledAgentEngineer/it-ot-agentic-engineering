@@ -119,7 +119,19 @@ an der **Doku**, nie am Code:
   **Exit 2** ohne angelegte Datei, AST-Prüfung: nur Standardbibliothek, keine
   Netz-/Bildzugriffe, als einzige Entfernung `os.remove(temp_pfad)`.
 
-**Abnahme auf dem Commit** folgt als Runde 4 (wie in den Schritten zuvor).
+**Abnahme auf dem Commit `86fd5b3`: BESTANDEN, 0 Abweichungen** — geprüft mit
+`z-ai/glm-5.2` (dritte Familie, weil `openai/gpt-5.6-luna` in dieser Runde
+dreimal „rate-limited" antwortete). Der Prüfer hat selbst gefahren und bestätigt:
+`git show --stat 86fd5b3` = **genau die fünf** genannten Dateien, **keine**
+fremde; `0 0` gegen `origin/main`; Prüfbefehl **2204 passed / Exit 0**; keine
+echten Kennungen oder Anlass-Kennungen in den fünf Dateien; alle **fünf** Dateien
+enden mit Zeilenumbruch, `wc -l` und Zeilenleser stimmen überein
+(615 / 1.152 / 180 / 137 / 2.173); `event_quellen` steht im Auftrags-Schema **und**
+im Code; Trockenlauf-Zahlen deckungsgleich mit der Plan-Datei. Offen benannt hat
+er: den **Schreibweg** (`--schreiben`, Repo-Ziel Exit 2) hat er nicht selbst
+live gefahren (durch die Offline-Tests abgedeckt; der Planer hat beide live
+gemessen), und die sha256 der echten `ereignisse.jsonl` hat er nicht gegen den
+Journal-Wert verglichen.
 
 ## Offen
 
