@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260928A">
+    <link rel="stylesheet" href="style.css?v=20260928B">
 </head>
 <body>
     <div id="app">
@@ -49,6 +49,12 @@
                         <path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-5-5 1.41-1.41L10 15.17l7.59-7.59L19 9l-9 9z"/>
                     </svg>
                 </button>
+                <!-- Erzähl-Diashow (Auftrag E8a, 28.09.2026): Ereignis
+                     auswählen, sich durch die Diashow klicken und zu jedem
+                     Bild eine Geschichte tippen/sprechen. Eigene Datei
+                     erzaehlen.js — app.js bleibt unangetastet. -->
+                <button id="erzaehlen-btn" class="icon-btn" title="Erzählen – Diashow mit Geschichten"
+                        aria-label="Erzähl-Diashow öffnen">📖</button>
             </div>
         </header>
 
@@ -222,6 +228,48 @@
         </div>
     </div>
 
+    <!-- Erzähl-Diashow (Auftrag E8a): links Ereignisliste, rechts Diashow +
+         Geschichten. Am Handy (< 768 px) zwei Stufen statt nebeneinander
+         (erzaehlen.js schaltet per CSS-Klasse .erzaehl-stufe-diashow um). -->
+    <div id="erzaehlen-sheet" hidden>
+        <div class="sheet-panel erzaehl-panel" role="dialog" aria-modal="true" aria-label="Erzählen">
+            <div class="sheet-head">
+                <h2>Erzählen</h2>
+                <button id="erzaehlen-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div id="erzaehl-body" class="erzaehl-body">
+                <section id="erzaehl-liste-spalte" class="erzaehl-spalte erzaehl-liste-spalte">
+                    <div class="erzaehl-filter">
+                        <input id="erzaehl-suche" type="search" placeholder="Ereignis suchen …" autocomplete="off">
+                        <input id="erzaehl-jahr" type="number" placeholder="Jahr" inputmode="numeric">
+                    </div>
+                    <div id="erzaehl-liste" class="erzaehl-liste" role="list"></div>
+                    <p id="erzaehl-liste-hinweis" class="sheet-note"></p>
+                </section>
+                <section id="erzaehl-diashow-spalte" class="erzaehl-spalte erzaehl-diashow-spalte" hidden>
+                    <button id="erzaehl-zurueck-zur-liste" class="erzaehl-back" type="button">← Ereignisse</button>
+                    <div class="erzaehl-bild-buehne">
+                        <button id="erzaehl-vor" class="erzaehl-nav" type="button" aria-label="Vorheriges Bild">◀</button>
+                        <div id="erzaehl-bild-rahmen" class="erzaehl-bild-rahmen">
+                            <img id="erzaehl-bild" alt="" hidden>
+                            <span id="erzaehl-bild-platzhalter" class="erzaehl-bild-platzhalter">… lädt</span>
+                        </div>
+                        <button id="erzaehl-weiter" class="erzaehl-nav" type="button" aria-label="Nächstes Bild">▶</button>
+                    </div>
+                    <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
+                    <div id="erzaehl-geschichten" class="erzaehl-geschichten"></div>
+                    <div class="erzaehl-eingabe-zeile">
+                        <textarea id="erzaehl-text" rows="2" placeholder="Erzähl etwas zu diesem Bild …" maxlength="20000"></textarea>
+                        <button id="erzaehl-mic-btn" class="icon-btn" type="button" title="Erzählen per Mikrofon" aria-label="Mikrofon">🎤</button>
+                        <button id="erzaehl-speichern-btn" class="icon-btn" type="button" title="Geschichte speichern" aria-label="Speichern">💾</button>
+                    </div>
+                    <div id="erzaehl-mic-status" class="mic-status" role="status" aria-live="polite" hidden></div>
+                </section>
+            </div>
+            <p id="erzaehl-hinweis" class="sheet-note"></p>
+        </div>
+    </div>
+
     <div id="model-sheet" hidden>
         <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Modell wählen">
             <div class="sheet-head">
@@ -270,5 +318,6 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20260928A"></script>
+    <script src="erzaehlen.js?v=20260928B"></script>
 </body>
 </html>

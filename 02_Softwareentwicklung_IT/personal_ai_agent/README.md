@@ -133,6 +133,10 @@ personal_ai_agent/
   und liest Treffer über einen Zeiger im Original nach; bei Unsicherheit fragt er nach,
   statt zu behaupten. Nur lesend, Inhalte bleiben auf dem Gerät
   (`docs/konzept-wissensspeicher.md`)
+- ✅ **Erzähl-Diashow** – ein Ereignis wählen, sich durch die Diashow der Bilder klicken
+  und zu jedem Bild eine Geschichte tippen oder sprechen (Mikrofon); Geschichten hängen
+  an Bild + Ereignis, Korrekturen ersetzen nur die Anzeige, nichts wird überschrieben
+  (`GET/POST /api/erzaehlen/...`, Kopfzeilen-Knopf „📖 Erzählen")
 - ✅ **TTS** – Antworten werden vorgelesen (Browser SpeechSynthesis)
 - ✅ **Chat im Browser-Tab** – erreichbar über die lokale URL (keine App/keine Installation nötig)
 - ✅ **IT-Security & Netzwerktechnik** als Spezialgebiet
@@ -182,6 +186,10 @@ personal_ai_agent/
 | `GET` | `/api/cloud/suche?q=…&folderid=0` | Namenssuche in EINEM pCloud-Ordner (Gross-/Kleinschreibung egal, max. 50 Treffer) |
 | `GET` | `/api/cloud/thumb?fileid=…&groesse=120x120\|32x32` | Vorschaubild eines pCloud-Bildes als Bild-Bytes (live: JPEG) |
 | `GET` | `/api/cloud/datei?fileid=…` | pCloud-Datei als Download (max. 25 MB, darüber `413` mit Klartext) |
+| `GET` | `/api/erzaehlen/ereignisse?jahr=…&suche=…&min_bilder=1&limit=200&offset=0` | Gefilterte Ereignisliste aus `ereignisse.jsonl` (nur lesend, PC-only) — immer `200` mit `ok`/`error`, fehlt die Datei: deutscher Klartext statt Absturz |
+| `GET` | `/api/erzaehlen/ereignisse/{kennung}` | Ein Ereignis mit allen Datei-Kennungen und seinen Geschichten |
+| `POST` | `/api/erzaehlen/geschichten` | Eine Geschichte anhängen (Schicht „mensch", nur `ereignisse.jsonl`-Anker + Text + Quelle `tippen`/`sprache`/`import`); `400` mit deutschem Text bei ungültiger Eingabe |
+| `GET` | `/api/erzaehlen/geschichten?ereignis_kennung=…&datei_kennung=…` | Geschichten, gefiltert; Korrekturen (`ersetzt`) zeigen nur die neueste Fassung |
 
 **pCloud (`/api/cloud/*`)** ist **nur lesend** (es gibt keine Schreib-, Umbenenn- oder
 Löschroute). Ohne `PCLOUD_TOKEN` in der `backend/.env` antworten die Routen mit `503`

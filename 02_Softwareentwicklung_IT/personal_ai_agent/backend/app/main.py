@@ -32,6 +32,7 @@ from app.router import (
     selbsttest,
     fotos,
     cloud,
+    erzaehlen,
 )
 
 # Configure logging
@@ -198,6 +199,12 @@ app.include_router(fotos.router, dependencies=[Depends(auth.require_api_key)])
 # PCLOUD_TOKEN in der .env antworten die Routen mit HTTP 503 und Klartext;
 # der Key-Schutz ist derselbe wie bei allen anderen /api-Routen.
 app.include_router(cloud.router, dependencies=[Depends(auth.require_api_key)])
+# Erzähl-Diashow (Auftrag E8a, 28.09.2026): Ereignis auswählen, sich durch die
+# Diashow klicken und zu jedem Bild eine Geschichte tippen/sprechen. Liest nur
+# ~/foto_sortierung/ereignisse.jsonl (PC-only), haengt Geschichten NUR an
+# ~/foto_sortierung/geschichten.jsonl an. Ohne die Ereignisdatei antwortet die
+# Route mit HTTP 200, ok=false und deutschem error-Text (wie fotos.router).
+app.include_router(erzaehlen.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
