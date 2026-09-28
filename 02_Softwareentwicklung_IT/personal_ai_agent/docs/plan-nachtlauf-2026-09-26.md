@@ -1462,6 +1462,14 @@ ohnehin nachkontrolliert.
     eine Zahlenstichprobe (u. a. 1503/1687, 2.127/2.098/9.430/7.616/1.146, 344.615
     Bytes, 5.954.092/370.113 Tokens = 2,711510 USD, 907 Gesichter, 210 Paare,
     131 Paare Distanz 0,0000, 2,1208) **ohne Abweichung**; Plan-Datei unverändert.
+  - **Prüfer Runde 3 (Abnahme auf dem committeten Stand `f0f13ab`, frische Sitzung):
+    BESTANDEN, 0 Abweichungen** — eigener Lauf: **1687 / Exit 0**; `<Commit>` = genau
+    die sieben genannten Dateien, **keine** fremde; `0 0` gegen `origin/main`; die
+    wörtlichen Zitate der gesperrten Punkte und die Zahlenstichprobe in der
+    committeten Fassung geprüft. *Ehrlich notiert:* die Journal-Formulierung zu
+    Runde 2 stand schon **vor** der Abnahmerunde 3 im Commit `f0f13ab`; sie war zu
+    diesem Zeitpunkt bereits durch Runde 2 belegt, die dritte Runde hat sie danach
+    bestätigt (dieser Satz ist der Nachtrag dazu).
   - **Schutz:** keine Löschung, keine git-Befehle durch die Ausführer, kein Code und
     keine Tests angefasst, kein Netz-/pCloud-Aufruf, keine Schlüsselwerte, keine
     Namen Dritter; die fremden Dateien des zweiten Agenten blieben unberührt.
