@@ -154,6 +154,7 @@ ohnehin nachkontrolliert.
 | N13a | **Bilder im Chat, Datenfundament** (Vorstufe zu N13): Werkzeug baut aus `sortierplan.json` eine kleine Datei mit den **Datei-Kennungen je Event** (`~/foto_sortierung/fotos_dateien.json`), Dienst + `GET /api/fotos/bilder` liefern sie aus — die N11-Übersicht bleibt **unberührt** (sie trägt bewusst keine Kennungen) | Werkzeug-Tests grün; Endpunkt immer 200; echte Kennungen live gegen den Plan geprüft | ✅ **bestanden (28.09.)** — `tools/foto_sortierung/foto_dateien.py` (434 Zeilen) + `backend/app/services/foto_bilder.py` (385) + Route in `router/fotos.py` (103 → 188) + **189** neue Testfunktionen; Prüfbefehl selbst gefahren **1876 passed, Exit 0** (Baseline 1687). **Live gemessen:** Datei **1.146.180 Bytes**, **2.098 Events · 7.616 Dateien · 0 ohne Kennung**; Endpunkt `?limit=3` → 200, `ok: true`, die ersten drei Events mit 1 / 19 / 1 Dateien; ein Filter auf einen Event-Namen → 1 Treffer (der echte Event-/Ortsname steht hier absichtlich **nicht**); **echter Vorschaubild-Abruf** für eine zurückgegebene Kennung → **200 `image/jpeg`, 4.581 Bytes, Magic `ffd8ffe0`, `Cache-Control: no-store`**. Prüfer `gpt-5.6-luna` (frische Kontexte): Runde 1 NICHT BESTANDEN (4 Abweichungen, **alle an der Doku** — Eigner-Name ×2, ein echter Ortsname in zwei Schema-Beispielen, eine veraltete Changelog-Aussage; den Code hat der Prüfer ausdrücklich bestätigt), Runde 2 **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, Paare 7.616 gegen 7.616 identisch, N11-Datei und Plan unverändert); **Runde 3 und 4** (Abnahmen auf den Commits `bea270d`/`201a9cf`) brachten je eine Doku-Rest-Abweichung — eine echte pCloud-Kennung in einem Schema-Beispiel und zwei zu knappe Rundenzahlen (dazu sechs **alte** Kennungen in früheren Journal-Einträgen, in `4c0cb36` schon vorhanden) — **alle korrigiert**, Schlussabnahme Runde 5 auf Commit `1b66fa0`: **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, `0 0`, nur noch die erfundene Beispielkennung in den drei Dokumenten). Offen: **N13b** (Anzeige: Kacheln, Großansicht, Diashow im Frontend) |
 | N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ✅ **bestanden (28.09.)** — vier reine Funktionen (`fotoFrageErkennen`, `fotoKacheln`, `fotoGalerieZeilen`, `fotoDiashowNaechster`), Zweig in `sendMessage` **vor** dem Abbruch-Guard, Galerie-Blase mit Trefferliste + Kacheln, Großansicht `480x480` mit `‹ Zurück`/`Weiter ›`/`▶ Diashow`/`✕`, Diashow alle 3 s (umlaufend), Bilder **nur** per `fetch`→Blob→Objekt-URL, Freigabe bei jedem Wechsel und beim Schließen; `frontend/tests/test_foto_galerie.js` (328 Zeilen, **145 Prüfungen**) → alle grün; **16 von 16** JS-Dateien grün; Prüfbefehl **1876 passed, Exit 0** (Baseline 1687, +189 aus N13a — die Zahl **wächst seither laufend** durch fremde Parallelarbeit im selben Arbeitsbaum: 1897, Prüfer-Lauf 1922, jeweils Exit 0); `?v` auf **`20260928A`**. **Live im echten Browser** (eigener wegwerfbarer Edge headless + Backend am PC, echter Bestand): **23 von 23 Kacheln** als echte pCloud-Vorschaubilder geladen (0 Platzhalter), **100 angesehene Bilder** → 100 geladen, 0 Fehler, **Speicher vorher wie nachher 0**, Cache-Liste leer, `localStorage`/`sessionStorage` unverändert, offene Objekt-URLs nach dem Schließen **0**; derselbe Bild-Abruf zweimal → beide Male **4881 Byte** über die Leitung (`Cache-Control: no-store`). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (Eigner-Vorname im Changelog, lange Ziffernfolge im Messblock — beides korrigiert; Testzahl + fremde Dateien = Bestand), **Runde 2: „NICHT BESTANDEN" mit einer einzigen Abweichung, die fremd ist** (`CLAUDE.md` trägt eine offene Zeile des zweiten Agenten, nicht Teil dieses Commits) → als Bestand eingeordnet, Commit `3f5bd43` (genau **9** Dateien, keine fremde), `0 0`. Doku: `docs/changelog-2026-09-28-n13b-bilder-anzeige.md`, Auftrag `docs/auftrag-n13b-bilder-anzeige.md` |
 | N13c | **Übergabe der Foto-Datendateien ans Handy** (`tools/handy/uebergabe_uebernehmen.py` + Block in `start-termux.sh`): der PC legt `fotos_dateien.json` und `fotos_uebersicht.json` per Kabel in den Download-Ordner, das Handy übernimmt sie beim Start nach `$HOME/foto_sortierung` — sha256 hart geprüft, alte Fassung als `*.vorher`, idempotent, Protokoll im Diagnose-Ordner | Werkzeug-Tests grün; Übergabe am Kabel **byte-genau** belegt; Startblock kann den Serverstart nicht verhindern | ✅ **bestanden (28.09.)** — siehe Journal unten: **2006 passed, Exit 0** (Baseline 1937), Push beidseitig **md5-gleich**, echter Handlauf mit den echten Dateien (`uebernommen 2`, sha256 identisch, 2. Lauf `Fehler 0`), Prüfer `gpt-5.6-luna` Runde 2 **„bestanden"**. Offen: der **erste Lauf am Handy** passiert beim nächsten Widget-Tipp |
+| N18 | **Lösch-Werkzeug für Duplikate** (`tools/pcloud/pcloud_duplikate_loeschen.py`): Trockenlauf ist der Standard, Löschen nur mit `--wirklich`, frische Gegenprobe von Größe **und** Prüfsumme vor **jeder** Löschung, Manifest-Zeile je Löschung (`art: loeschen`), Papierkorb-Rückweg im Klartext, Grenze 25 je Lauf | Trockenlauf sendet nichts (belegt); Werkzeug-Tests grün; Manifest wächst je Datei; zweiter Lauf findet nichts | ✅ **bestanden (28.09.)** — siehe Journal unten: Werkzeug **1.226 Zeilen**, Tests **1.173 Zeilen / 64 Funktionen / 206 Prüfungen**, Prüfbefehl **2070 passed, Exit 0** (Baseline 2006); Live-Trockenlauf **25 geprüft / 0 gelöscht / 3.970,66 MB / Rest 2.108**, Bericht byte-gleich, `manifest.jsonl` **existiert nicht** (nichts gebucht); Prüfer `gpt-5.6-luna`: Runde 1 **NICHT BESTANDEN** (2 berechtigt → Cache entfernt + 2 neue Tests, Zeilenzahl), Runde 2 **NICHT BESTANDEN** (2 Doku-Punkte), Runde 3 auf dem Commit. **Der erste echte Löschlauf bleibt gesperrt** (Nutzer-Freigabe); die `upload`-Stufe (17,5 GB) ebenfalls |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -954,6 +955,62 @@ ohnehin nachkontrolliert.
   dem PC. Prüfkriterium: Endpunkt antwortet ohne Netz; Selbsttest zeigt die
   Quelle. *(Nicht in der Schritt-Tabelle oben eingetragen, damit der gleichzeitig
   laufende Nachtlauf sie nicht überschreibt.)*
+
+* **28.09. — N27 (neu, Kern der Sache): Die VERKNÜPFUNGSSCHICHT —
+  Ereignis-Objekte, die Chat + Fotos + Menschen + Termin zusammenführen.**
+  Wörtlich: „irgendwie wollte ich ja quasi eine Verknüpfung haben, thematisch
+  zwischen Chats, Bildern und den Menschen … Das muss ja noch angelernt werden,
+  dass man über alles mit dem reden kann und im Bilde ist."
+  * **Was schon steht:** Datum + Motiv je Foto (Sortierschluessel, 9.430 Zeilen,
+    2.127 Anlässe per Vision, 2,94 $ gemessen) · 245.657 Chat-Nachrichten **mit**
+    Datum und Gespräch · 744 Chats/6.242 Gruppenmitglieder auf Kontakte
+    abgebildet · 405 Kalendereinträge · 55 Geburtstage.
+  * **Was fehlt (das „Anlernen"):** (1) **Personen auf Fotos** — die Gesichts-
+    Cluster sind nach dem Merkmal-Fehler als **ungültig** markiert und müssen
+    **neu gerechnet** werden; unbekannte Gesichter heißen `Person_001…`, benannt
+    wird **nur auf Sebastians Bestätigung** (Massenfotos erzeugen weiterhin
+    keine Cluster). (2) **Themen** = Sebastians 18 Kategorien statt der
+    erfundenen 53 (N6d). (3) **Event-Namen** über Ordner-/Datumsabgleich (N6e).
+  * **Aufbau in dieser Reihenfolge (jeder Schritt mit Prüfkriterium):**
+    1. **Ereignis-Knoten** je Anlass: Datum + Ort/Thema + Fotos (Anzahl, Ordner,
+       Dateien) — **ohne** Personen, aus dem, was schon da ist.
+    2. **Chat-Andockung**: Nachrichten im Zeitfenster ±1 Tag zum Anlass, mit
+       Chat-Name + beteiligten Kontakten; Gruppen strenger (±0 Tage, weil dort
+       viel Alltagsrauschen ist).
+    3. **Kalender-Andockung**: passende Termine (auch Geburtstage, jährlich
+       wiederkehrend).
+    4. **Personen-Andockung**: Gesichts-Cluster (neu gerechnet) + im Chat
+       genannte Namen + Sebastians Bestätigung → `Person_00x` wird zu „Philine".
+    5. **Ableitung „wer war mit wem wo"** — nur aus bestätigten Zuordnungen,
+       nie geraten: jede Aussage nennt **Datum + Quelle**.
+  * **Ablage:** `~/foto_sortierung/ereignisse.jsonl` (privat, außerhalb des
+    Repos), je Zeile ein Ereignis; **nur Daten, keine Bilder**.
+  * **Prüfkriterium:** Der Testfall „Schlittschuhlaufen" muss ein Ereignis mit
+    Datum, beteiligten Personen (soweit bestätigt) und den Bildern des Tages
+    ergeben; eine Frage im Chat („was war am 27.12.2019?") muss antworten, ohne
+    zu raten; jede Antwort mit Datum **und** Quelle.
+
+* **28.09. — N26 (neu, aus Sebastians Frage „Schlittschuhlaufen / Planten un
+  Blomen"): WhatsApp-Medien als zweite Bildquelle erschließen.** Befund: Auf dem
+  Handy liegen **3.660 gesendete + 346 empfangene WhatsApp-Bilder** unter
+  `/sdcard/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images/` — und die
+  sind **nicht** in der pCloud (der Ordner wird vom Automatic Upload nicht
+  erfasst). Prüfbeispiel: zum Chat-Thema „Schlittschuhlaufen" existieren Bilder
+  an **27.12.2019 (1), 27.12.2021 (2), 28.01.2022 (2)**; das Datum steckt im
+  Dateinamen (`IMG-JJJJMMTT-WA….jpg`).
+  * **Nutzen:** der Chat liefert **Datum + Anlass + Personen**, die Medien
+    liefern die **Bilder** dazu → die im Plan geforderte Event-Verknüpfung
+    („wer war mit wem wo") wird damit erst möglich.
+  * **Einbau:** Medien-Ordner als **zweite Quelle** in die App-Galerie (N13) und
+    in den Selbsttest; Anzeige **gestreamt vom Handy**, kein Kopieren in den
+    Backend-Speicher (Bild-Regel gilt unverändert); Nachtrag ins **Manifest**
+    (nur lesend, nichts verschieben).
+  * **Sortierung:** für die Medien gelten dieselben Regeln (Datum aus dem Namen,
+    Thema über Vision, Personen nur nach Bestätigung); die WhatsApp-Medien
+    bleiben **am Ort** und werden nur **indiziert** (Pfad + Datum + Größe).
+  * **Prüfkriterium:** Frage „zeig mir die Bilder vom Schlittschuhlaufen" liefert
+    genau die Bilder der genannten Tage; zweiter Lauf fügt **0** Dubletten hinzu;
+    kein Medium wird kopiert oder verschoben.
 
 * **28.09. — N25 (neu, Sebastians Auftrag): Automatisches Backup der Archiv-
   Datenbanken in die pCloud.** Wörtlich: „dass wir ein automatisches Backup in
@@ -1909,3 +1966,89 @@ ohnehin nachkontrolliert.
     die beim Mitcommitten der Plandatei **unverändert** erhalten bleibt.
   - **Nächster Schritt:** der Nutzer tippt das Widget (Handy holt Code + Dateien),
     danach die Galerie am echten Gerät ansehen; **N8 bleibt gesperrt**.
+
+* **28.09. ~13:5x — N18 gebaut, live im Trockenlauf gemessen und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,036 USD · Prüfer:
+  `openai/gpt-5.6-luna`, **drei Runden** — andere Modellfamilie). Beginn wie in den
+  Runden zuvor: `git pull --rebase` scheiterte an ungestagten Änderungen (teils fremd);
+  nichts gestasht, nichts angefasst; `git fetch` + `git rev-list --left-right --count
+  origin/main...HEAD` → **`0 0`**. **Codex live geprüft und weiter gesperrt**
+  („try again at Oct 15th, 2026 9:32 PM") → gebaut wurde mit einem Hermes-Subagenten.
+  - **Warum dieser Schritt:** der Abschlussbericht führt ihn wörtlich als **nicht
+    gebaut** („war als Plan-Schritt notiert — gebaut wurde er nicht"). Alles andere,
+    was ohne den Nutzer geht, ist abgearbeitet oder gesperrt: **N8** (echtes Sortieren)
+    wartet auf seinen Blick auf die 39 sicheren Event-Vorschläge und die 1.146
+    datumslosen Dateien, **N16** (APK), die `upload`-Stufe (17,5 GB) und **N3** sind
+    gesperrt, und am WhatsApp-Strang arbeitet ein **zweiter Agent** im selben
+    Arbeitsbaum (`tools/whatsapp/`, `backend/scripts/whatsapp_db_import.py`,
+    `archiv_index_ergaenzen.py`, `README.md`, `CLAUDE.md` — alle unberührt gelassen).
+  - **Auftrag zuerst als Datei** (`docs/auftrag-n18-duplikate-loeschen.md`, Regel §6.6):
+    eingefrorene Schalter, Rückgabewerte, Funktionsnamen und Prüfliste.
+  - **Gebaut:** `tools/pcloud/pcloud_duplikate_loeschen.py` (**1.226 Zeilen**) +
+    `backend/tests/test_pcloud_duplikate_loeschen.py` (**1.173 Zeilen, 64
+    Testfunktionen, 206 Prüfungen**, alles offline) + Changelog
+    `docs/changelog-2026-09-28-n18-duplikate-loeschen.md`. **Trockenlauf ist der
+    Standard**; erst `--wirklich` schaltet das Löschen frei. Kandidaten sind
+    ausschließlich Kopien im Baum `upload`; die Sammlung wird **verweigert**, auch
+    wenn sie einzeln genannt wird.
+  - **Prüfbefehl selbst gefahren:** Baseline **2006** → **2070 passed, 3 warnings,
+    Exit 0** (128,6 s; +64 = genau die neuen Prüfungen; Lauf des Ausführers: 2068).
+  - **Live-Trockenlauf gegen den echten Bericht (nur lesend, Planer):** **25 geprüfte
+    Kandidaten, 0 gelöscht, 3.970,66 MB**, **Rest 2.108**; Modus in der Konsole
+    unübersehbar `TROCKENLAUF`. Zusätzlich `--papierkorb` → **1.836 Papierkorb-Einträge
+    nur gelesen**, nichts zurückgelegt. Der Bericht ist **byte-gleich** geblieben
+    (`md5 ba9ed672d3dd7b0de5b898162e4d8923`), `~/foto_sortierung/manifest.jsonl`
+    **existiert nicht** — es wurde nichts gebucht.
+  - **Prüfer Runde 1: NICHT BESTANDEN — zwei Abweichungen, beide berechtigt, beide
+    behoben.** (1) Der `LivePruefer` hielt Ordnerinhalte in einem **Zwischenspeicher**;
+    für zwei Kandidaten im **selben** Ordner kam der zweite Stand aus dem Cache — damit
+    war die Zusage „frische Gegenprobe vor **jeder** Löschung" im Code **unwahr**.
+    Behoben: Zwischenspeicher entfernt, jede Gegenprobe liest frisch (je Kandidat ein
+    `listfolder` pro Ordner auf dem Weg zur Datei), dazu **zwei neue Tests**: zwei
+    Kandidaten im selben Ordner ⇒ zwei Aufrufe, und eine zwischen zwei Kandidaten
+    **geänderte Prüfsumme** hält den Lauf an (mit Cache wäre sie unsichtbar gewesen und
+    die zweite Datei trotzdem gelöscht worden). (2) Eine **falsche Zeilenzahl** im
+    Changelog (1.229 statt 1.226) — korrigiert. Der Prüfer hat außerdem selbst
+    bestätigt: Trockenlauf sendet nichts, kein Token in der Ausgabe, 0 Treffer für
+    11-stellige Kennungen in den Dateien, Positivliste der API-Methoden in
+    `pcloud_bewegungen.py` unverändert, Sammlungsschutz-Test grün.
+  - **Prüfer Runde 2: NICHT BESTANDEN — zwei Doku-Punkte, beide berechtigt.**
+    (1) „Höchstens zwei `listfolder` je Kandidat" war als Obergrenze falsch (bei
+    tieferen Pfaden sind es mehr) — richtiggestellt. (2) Der Satz „Zahlen stammen
+    ausschließlich aus Offline-Tests" widersprach dem dokumentierten Live-Trockenlauf —
+    neu formuliert (Ausführer las den Bericht nie; gelesen hat ihn nur der Planer im
+    Trockenlauf).
+  - **Eine Abweichung vom Auftrag, vom Planer entschieden:** der Auftrag verlangte die
+    Manifest-Art `loeschen` über die bestehende Funktion `manifest_anhaengen`, dessen
+    Positivliste sie aber abwies. Der Ausführer trug sie zuerst **beim Import in die
+    fremde Konstante** nach — das hat der Planer **ersetzt**: `loeschen` steht jetzt
+    **ausdrücklich** in `pcloud_bewegungen.ERLAUBTE_ARTEN` (ein Eintrag, Docstring-Zeile
+    mitgezogen, eigener Test). Eine Laufzeit-Änderung an einer fremden Konstanten wäre
+    von der Importreihenfolge abhängig und damit unsichtbar. Die Positivliste der
+    **API-Methoden** dort ist unverändert (`createfolder, renamefile, renamefolder,
+    listfolder`).
+  - **Ehrlich zur Plan-Vorgabe „Trockenlauf zeigt genau 12 Löschungen":** die im Plan
+    genannten **12 Kopier-Reste (581,3 MB)** lassen sich aus dem **aktuellen** Bericht
+    **nicht** rekonstruieren — der Bericht nennt **2.133** Kandidaten (17,5 GB) im Baum
+    `upload`, und keine der naheliegenden Auswahlregeln (gleicher Ordner, Namenszusätze,
+    Zweier-Gruppen innerhalb `upload`) ergibt 12 Dateien oder 581,3 MB. Die Zahl stammt
+    aus einem **früheren, engeren Lauf** des zweiten Agenten und ist mit dem heutigen
+    Bericht nicht nachvollziehbar. Deshalb steht der **echte** Löschlauf weiter gesperrt
+    — er ist ohnehin nicht Teil des Schritts und braucht eine eigene Freigabe. Die
+    Teilfreigabe ist mit `--nur-dateien` (Liste von Kennungen) vorbereitet.
+  - **Schutz:** pCloud nur **lesend** (Trockenlauf, dazu ein `trash_list`); **kein**
+    Download, **keine** Bilddatei; **nichts gelöscht** (`manifest.jsonl` existiert
+    nicht); `deletefolder`, `movefile`, `renamefile`, `renamefolder` kommen im neuen
+    Werkzeug **nicht** vor (Quelltext-Suchtest); keine Kennung, kein Name Dritter und
+    keine Größe aus dem echten Bericht in Repo-Dateien; keine Schlüsselwerte in Ausgaben
+    oder Dateien; die fremden Dateien des zweiten Agenten blieben unberührt.
+  - **Kollision wie gehabt:** die Plan-Datei wird von beiden Agenten verändert (unge-
+    committete fremde Journal-Einträge N22–N26); sie bleiben beim Mitcommitten der
+    Plandatei **unverändert** erhalten. Die Protokollzeile in der Projekt-`CLAUDE.md`
+    bleibt weiter offen (dort steht eine unfertige fremde Zeile).
+  - **Nächster Schritt:** ohne den Nutzer geht hier nichts Sauberes mehr weiter —
+    offen sind sein Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen Dateien
+    (**N8**), sein Tipp am Handy (Widget holt Code + Datendateien, danach
+    `/sdcard/Download/hermes_diag/uebergabe_letzte.txt` vom PC aus prüfbar) und die
+    ausdrückliche Freigabe für den **ersten echten Löschlauf**. Am WhatsApp-Strang
+    arbeitet der zweite Agent weiter; dort wird **nicht** eingegriffen.

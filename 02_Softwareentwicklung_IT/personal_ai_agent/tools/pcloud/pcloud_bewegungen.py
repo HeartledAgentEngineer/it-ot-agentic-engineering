@@ -39,7 +39,7 @@ Sicherheitspruefungen vor jedem echten Verschieben (nur lesend):
 
 Manifest (Standard ``~/foto_sortierung/manifest.jsonl``, NIE im Repo):
     Eine JSON-Zeile je Aktion mit den Feldern ``zeit`` (ISO mit Zonen-
-    versatz), ``art`` (movefile|movefolder|createfolder|rueckroll),
+    versatz), ``art`` (movefile|movefolder|createfolder|rueckroll|loeschen),
     ``name``, ``fileid``/``folderid``, ``von_folderid``, ``nach_folderid``,
     ``von_pfad``, ``nach_pfad``. Nur anhaengen, Flush (und fsync) nach
     jedem Eintrag. Pfad aenderbar per Argument ``manifest_pfad=...`` oder
@@ -72,8 +72,10 @@ TIMEOUT_SEKUNDEN = 30.0
 STANDARD_MANIFEST = "~/foto_sortierung/manifest.jsonl"
 UMGEBUNG_MANIFEST = "PCLOUD_MANIFEST"
 
-# Nur diese vier Arten von Manifest-Eintraegen gibt es.
-ERLAUBTE_ARTEN = ("movefile", "movefolder", "createfolder", "rueckroll")
+# Nur diese Arten von Manifest-Eintraegen gibt es. ``loeschen`` gehoert dazu,
+# seit es das Loesch-Werkzeug ``pcloud_duplikate_loeschen.py`` gibt (es bucht
+# seine Loeschungen ueber ``manifest_anhaengen`` -> genau eine Manifest-Logik).
+ERLAUBTE_ARTEN = ("movefile", "movefolder", "createfolder", "rueckroll", "loeschen")
 
 # Positivliste der API-Methoden — nur Lesen (listfolder) und die drei
 # Schreibwege. Waere hier ein Entfernungs-Aufruf dabei, waere das
