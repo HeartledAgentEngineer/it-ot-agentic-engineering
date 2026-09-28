@@ -156,6 +156,7 @@ ohnehin nachkontrolliert.
 | N13c | **Übergabe der Foto-Datendateien ans Handy** (`tools/handy/uebergabe_uebernehmen.py` + Block in `start-termux.sh`): der PC legt `fotos_dateien.json` und `fotos_uebersicht.json` per Kabel in den Download-Ordner, das Handy übernimmt sie beim Start nach `$HOME/foto_sortierung` — sha256 hart geprüft, alte Fassung als `*.vorher`, idempotent, Protokoll im Diagnose-Ordner | Werkzeug-Tests grün; Übergabe am Kabel **byte-genau** belegt; Startblock kann den Serverstart nicht verhindern | ✅ **bestanden (28.09.)** — siehe Journal unten: **2006 passed, Exit 0** (Baseline 1937), Push beidseitig **md5-gleich**, echter Handlauf mit den echten Dateien (`uebernommen 2`, sha256 identisch, 2. Lauf `Fehler 0`), Prüfer `gpt-5.6-luna` Runde 2 **„bestanden"**. Offen: der **erste Lauf am Handy** passiert beim nächsten Widget-Tipp |
 | N18 | **Lösch-Werkzeug für Duplikate** (`tools/pcloud/pcloud_duplikate_loeschen.py`): Trockenlauf ist der Standard, Löschen nur mit `--wirklich`, frische Gegenprobe von Größe **und** Prüfsumme vor **jeder** Löschung, Manifest-Zeile je Löschung (`art: loeschen`), Papierkorb-Rückweg im Klartext, Grenze 25 je Lauf | Trockenlauf sendet nichts (belegt); Werkzeug-Tests grün; Manifest wächst je Datei; zweiter Lauf findet nichts | ✅ **bestanden (28.09.)** — siehe Journal unten: Werkzeug **1.226 Zeilen**, Tests **1.173 Zeilen / 64 Funktionen / 206 Prüfungen**, Prüfbefehl **2070 passed, Exit 0** (Baseline 2006); Live-Trockenlauf **25 geprüft / 0 gelöscht / 3.970,66 MB / Rest 2.108**, Bericht byte-gleich, `manifest.jsonl` **existiert nicht** (nichts gebucht); Prüfer `gpt-5.6-luna`: Runde 1 **NICHT BESTANDEN** (2 berechtigt → Cache entfernt + 2 neue Tests, Zeilenzahl), Runde 2 **NICHT BESTANDEN** (2 Doku-Punkte), Runde 3 auf dem Commit `cc32997`: **BESTANDEN, 0 Abweichungen**. **Der erste echte Löschlauf bleibt gesperrt** (Nutzer-Freigabe); die `upload`-Stufe (17,5 GB) ebenfalls |
 | N27b | **Chat-Andockung** (Verknüpfungsschicht N27, Schritt 2 von 5): `tools/foto_sortierung/chat_andocken.py` liest `ereignisse.jsonl`, `msgstore.db` (**nur** `file:…?mode=ro`) und `whatsapp_zuordnung.json` **nur lesend** und schreibt `~/foto_sortierung/chat_andockung.jsonl` — je Ereignis die Chats und Kontakte im Fenster (Einzelchat ±1 Tag, **Gruppe streng derselbe Tag**), **ohne** Nachrichtentext, ohne Klartext-Nummern, ohne Netz/Bild; `--trocken` ist Standard, Repo-Ziel Exit 2 | Prüfbefehl grün; Live-Lauf liefert 2.127 Knoten und die Nachrichten-Zahlen; zweiter Lauf nur im Zeitstempel verschieden; Eingaben unverändert (mtime) | ✅ **bestanden (28.09.)** — siehe Journal: Prüfbefehl **2.232 passed, Exit 0** (Baseline 2.204); live **2.127 Ereignisse · 2.101 mit Nachrichten · 356.222 Nachrichten · 45.040 Chat-Andockungen · 24.780 Kontakte · Maximum 704**; Datei **19.259.758 B**, sha256 `cf2e0c19…`; Prüfer `gpt-5.6-luna` Runde 1 NICHT BESTANDEN (einziger echter Fund: fehlender Schreibsperren-Test → ergänzt, 2 neue Tests); **Abnahme Runde 2 auf dem Commit `0c79f5b`: BESTANDEN, 0 Abweichungen** |
+| N27c | **Kalender-Andockung** (Verknüpfungsschicht N27, Schritt 3 von 5): `tools/foto_sortierung/kalender_andocken.py` liest `ereignisse.jsonl` und den Google-Kalender **nur per `zipfile`** aus dem Takeout-Zip und schreibt `~/foto_sortierung/kalender_andockung.jsonl` — je Anlass die Termine **am selben Tag** (±1 Tag nur als schwacher Hinweis `anzahl_nah`, `--auch-nah` optional) und **jährlich wiederkehrende** Termine (`RRULE FREQ=YEARLY` bzw. Titel „Geburtstag/Jahrestag“) über **Tag+Monat**; `--trocken` ist Standard, `--schreiben` atomar, Repo-Ziel Exit 2 | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2 | ✅ **bestanden (28.09.)** — siehe Journal unten: `tools/foto_sortierung/kalender_andocken.py` (784 Zeilen), `backend/tests/test_kalender_andockung.py` (**114 Testfunktionen**, alles offline), Auftrag `docs/auftrag-n27c-kalender-andockung.md`; Prüfbefehl **2.414 passed, Exit 0** (Baseline 2.300, selbst gefahren); live **2.127 Ereignisse · 812 Zeilen mit Treffern · 957 Termine am Tag · 1.162 Nah-Treffer · davon wiederkehrend 253 · Maximum 3 · ICS 405 Termine / 0 defekt**; zwei `--schreiben`-Läufe mit festem `stand` **byte-gleich** (601.653 B, 2.127 Zeilen); Prüfer `openai/gpt-5.6-luna` Runde 1: 1 Abweichung (Doku) → korrigiert, Runde 2 auf dem Commit folgt |
 | N27a | **Ereignis-Knoten je Anlass** (Verknüpfungsschicht N27, Schritt 1 von 5): `tools/foto_sortierung/ereignisse_bauen.py` liest `sortierplan.json` **nur lesend** und schreibt `~/foto_sortierung/ereignisse.jsonl` — je Anlass Datum, Thema, Kategorie, Ziel-Ordner, Datei-Kennungen (**ohne** Personen, ohne Bilder, ohne Netz); `--trocken` ist der Standard, `--schreiben` nötig, Ziel im Repo wird verweigert (Exit 2) | Prüfbefehl grün; Live-Trockenlauf liefert 2.127 Knoten und 7.616 Kennungen; zweiter Lauf inhaltlich identisch; Repo-Ziel Exit 2 | ✅ **bestanden (28.09.)** — siehe Journal: Prüfbefehl **2.204 passed, Exit 0** (Baseline 2.070, selbst gefahren); live **2.127 Ereignisse · 7.616 Datei-Kennungen · ohne Anlass 0 · ohne Kennung 0 · ohne Datum 0 · ohne Thema 0 · Kollisionen 404 · Events wiederverwendet 39** (= genau die 39 sicheren Vorschläge aus N6e); echte Datei **1.286.120 B / 2.127 Zeilen**; Repo-Ziel **Exit 2**, nichts geschrieben; Prüfer `gpt-5.6-luna`: **Runde 1 + 2 NICHT BESTANDEN** (nur Doku-Punkte, behoben), **Runde 3** nur noch fehlende Zeilenumbrüche in zwei Doku-Dateien (behoben); **Abnahme Runde 4 auf dem Commit `86fd5b3` mit `z-ai/glm-5.2`: BESTANDEN, 0 Abweichungen** |
 
 ## Journal (wird fortlaufend ergänzt)
@@ -2297,3 +2298,78 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt:** **N27 Schritt 3 (Kalender-Andockung)** — passende
     Termine je Ereignis, auch **jährlich wiederkehrende Geburtstage** (die
     55 Geburtstage liegen in `whatsapp_zuordnung.json`). **N8 bleibt gesperrt.**
+
+* **28.09. ~19:5x — N27 Schritt 3 (Kalender-Andockung) gebaut, live gemessen und
+  geprueft** (Planer: Hauptagent · Ausfuehrer: zwei Hermes-Subagenten
+  `deepseek-v4.1-flash`, 0,110 + 0,074 USD · Pruefer: `openai/gpt-5.6-luna`,
+  **andere Modellfamilie**). Beginn wie in den Runden zuvor: `git pull --rebase`
+  scheiterte an ungestagten Aenderungen (die fremden `live_zahlen.*`-Dateien und
+  neuer, unfertiger `tools/agentbus/`-Code des zweiten Agenten); nichts gestasht,
+  nichts angefasst; `git fetch` + `git rev-list --left-right --count
+  origin/main...HEAD` → **`0 0`**. **Codex weiterhin gesperrt** (Kontingent bis
+  15.10.) und ein erster Verdacht auf ein leeres OpenRouter-Guthaben
+  (zwei Vorrunden waren mit HTTP 402 gestorben) **widerlegt**: `/api/v1/credits`
+  meldet 208,00 gekauft / 198,42 verbraucht, `/api/v1/key` ohne eigenes Limit —
+  die 402 kamen aus einer **zu hoch angesetzten `max_tokens`-Anforderung**, nicht
+  aus fehlendem Geld.
+  - **Warum dieser Schritt:** Schritt 1 (Ereignis-Knoten) und Schritt 2
+    (Chat-Andockung) stehen; Schritt 3 dockt die **Kalender-Termine** an den
+    Anlass — inklusive **jaehrlich wiederkehrender Geburtstage**, die sonst nie
+    zu einem konkreten Datum passen wuerden.
+  - **Auftrag zuerst als Datei** (`docs/auftrag-n27c-kalender-andockung.md`,
+    eingefrorenes JSONL-Schema, Fensterregel, Verbote, Pruefkriterien §6.6).
+    Datenquelle ist der Google-Kalender **im Takeout-Zip**
+    (`.../raw/takeout-20260812T203313Z-3-001.zip::Takeout/Kalender/*.ics`) —
+    gefunden ueber die Repo-Changelogs, die `aviv_index`-Quelle „google-kalender“
+    mit 405 Eintraegen benennen; **nur per `zipfile`** gelesen, nie entpackt.
+  - **Gebaut:** `tools/foto_sortierung/kalender_andocken.py` (**784 Zeilen**),
+    `backend/tests/test_kalender_andockung.py` (**1.010 Zeilen, 114
+    Testfunktionen**, alles offline mit erfundenen ICS in-memory, keine echten
+    Namen). Eigener kleiner ICS-Leser (Zeilenfalten, `VEVENT`, `DTSTART`/`DTEND`/
+    `SUMMARY`/`RRULE`), **keine** neue Abhaengigkeit, nur Standardbibliothek.
+  - **Pruefbefehl selbst gefahren (Planer):** `pytest tests/ -q` → **2.414
+    passed, 3 warnings, Exit 0** (170 s; Baseline 2.300 = 2.414 − 114).
+  - **Live-Trockenlauf (nur lesend):** **2.127 Ereignisse** · ohne Datum 0 ·
+    **812 Zeilen mit Treffern** · **957 Termine am selben Tag** · **1.162
+    Nah-Treffer (±1 Tag)** · davon **wiederkehrend 253** · Maximum **3** je
+    Anlass · ICS **405 Termine / 405 Bloecke / 0 defekt / 0 ohne Titel**;
+    Gegenprobe `--auch-nah`: 2.119 Treffer (= 957 + 1.162), `anzahl_nah` bleibt
+    1.162 (keine Zahl verschwindet durch eine Option).
+  - **Idempotenz und Schutz live belegt:** zwei `--schreiben`-Laeufe in einen
+    **frischen** Ordner ausserhalb des Repos mit festem `--stand` → beide
+    **601.653 Bytes / 2.127 Zeilen**, sha256 `cef6aeda…` — **byte-gleich**, keine
+    `*.tmp`; Eingaben (Groesse, mtime, sha256) unveraendert; **Repo-Ziel mit
+    `--schreiben` → Exit 2**, keine Datei; `manifest.jsonl` existiert nicht,
+    nichts angelegt oder geloescht (einzige Entfernung im Quelltext:
+    `os.remove(temp)` auf die eigene temp-Datei).
+  - **Der Datenschutz-Griff des Planers (Nachtrag):** der erste Wurf trug den
+    **Kontonamen als Vorgabewert** im Quelltext (`Takeout/Kalender/<Konto>@gmail.com.ics`).
+    Nachgebessert: Vorgabe ist jetzt **leer** und liest **alle**
+    `Takeout/Kalender/*.ics`; die Konsole nennt nur die **Anzahl** der
+    Kalenderdateien. Kein echter Termin-, Orts-, Personen- oder Kontoname mehr in
+    Code, Tests oder Doku (der Pruefer hat das Nachbessern gegengeprueft: die
+    Zahlen blieben identisch).
+  - **Pruefer Runde 1 (`gpt-5.6-luna`): NICHT BESTANDEN — ein Punkt.** Er hat
+    selbst gefahren: Pruefbefehl **2.414 / Exit 0**; Trockenlauf-Zahlen
+    deckungsgleich; zwei Schreiblaeufe byte-gleich (601.653 B, sha256
+    `cef6aeda…`); Eingaben unveraendert (mtime/sha256); Repo-Ziel **Exit 2** ohne
+    Datei; Quelltext nur Standardbibliothek, einzige Entfernung `os.remove(temp)`.
+    Gemeldet hat er die **Doku**: im Changelog stand noch das Mailmuster des
+    alten Vorgabewerts. **Korrigiert** (Absatz 2 des Changelogs beschreibt jetzt
+    die leere Vorgabe, das Muster ist ganz entfernt).
+  - **Quervermerk, der den Pruefbefehl betrifft:** ein Lauf der Gesamtsuite zeigte
+    **1 roten Test** (`test_chat_endpoint.py::test_grenze_delegiert_statt_normalem_chat`)
+    — **flakig, nicht von diesem Schritt**: allein gefahren **6 passed / Exit 0**,
+    im naechsten Gesamtlauf **2.414 passed / Exit 0**. Bleibt als Kandidat fuer
+    die Haertung der Suite notiert.
+  - **Schutz:** Takeout-Zip und `ereignisse.jsonl` nur lesend; Ausgabe
+    ausschliesslich ausserhalb des Repos; die echte Ausgabedatei
+    `~/foto_sortierung/kalender_andockung.jsonl` wurde bewusst **noch nicht**
+    geschrieben (Trockenlauf + Probeschreiblaeufe in einen frischen Ordner); der
+    fremde `tools/agentbus/`-Stand und die fremden `live_zahlen`-Dateien blieben
+    unberuehrt; keine `git`-Befehle im Auftrag.
+  - **Naechster Schritt: N27 Schritt 4 (Personen-Andockung)** — Gesichts-Cluster
+    neu gerechnet + im Chat genannte Namen + **Sebastians Bestaetigung**, erst
+    dann heisst `Person_00x` „Philine“. **N8 bleibt gesperrt**, bis Sebastians
+    Blick auf die 39 sicheren Event-Vorschlaege und die 1.146 datumslosen
+    Dateien da ist.
