@@ -152,6 +152,53 @@ if [ -f "$QUELLE_TOKEN" ]; then
     fi
 fi
 
+# ── Foto-Datendateien übernehmen (selbstheilend) ─────────────────────────────
+# Warum: Das Handy braucht ~/foto_sortierung/fotos_dateien.json (Datei-Kennungen
+# für die Bildvorschau) und ~/foto_sortierung/fotos_uebersicht.json (die Zahlen
+# der Übersicht). Beide entstehen am PC (Werkzeug tools/foto_sortierung/) und
+# sind zu groß und zu privat für Git. Der Termux-Heimordner ist über das Kabel
+# NICHT beschreibbar (App-Sandbox) — deshalb legt der PC sie per Kabel in den
+# freigegebenen Download-Ordner, und hier werden sie beim Start übernommen.
+# Genau das Muster von Archiv-Index und pCloud-Schlüssel oben, mit einer
+# Verschärfung: der Prüfsummen-Vergleich (sha256) ist HART. Eine vorhandene alte
+# Fassung wird als *.vorher beiseitegelegt (Rückweg offen, es wird nie ohne
+# Sicherung überschrieben), danach entfernt das Werkzeug ausschließlich die
+# eigene Übergabedatei. Es wird sonst NICHTS angefasst.
+# Jeder Lauf schreibt seine Zeilen in das Protokoll im Diagnose-Ordner (derselbe
+# Ordner, den das Skript unten als $DIAG benutzt) — von dort kann der PC über
+# das Kabel nachsehen, ob und wann die Übernahme lief; der Termux-Heimordner ist
+# ja nicht lesbar.
+# Der Abschnitt darf den Serverstart NIE verhindern: alles ist abgefangen
+# (|| true). Fehlt die Übergabedatei (Normalfall ab dem zweiten Start), passiert
+# nichts — keine Ausgabe, kein Fehler.
+QUELLE_DATEN="$HOME/storage/downloads"
+# Ohne eingerichteten Speicherzugriff zeigt der erste Pfad ins Leere — dann gilt
+# der freigegebene Download-Ordner direkt (gleiches Muster wie Index und Token).
+[ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
+DATEN_GEFUNDEN=0
+for name in fotos_dateien.json fotos_uebersicht.json; do
+    [ -f "$QUELLE_DATEN/$name" ] && DATEN_GEFUNDEN=1
+done
+if [ "$DATEN_GEFUNDEN" = "1" ]; then
+    echo "── Foto-Datendateien übernehmen ───────────────"
+    PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
+    mkdir -p "$PROTO_DATEN" 2>/dev/null || true
+    if [ -d "$PROTO_DATEN" ]; then
+        # Übergebene Namen stehen absichtlich hier (nicht im Werkzeug): der PC
+        # bestimmt, was übernommen wird; das Werkzeug kennt keine Sonderfälle.
+        python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+            --quelle "$QUELLE_DATEN" \
+            --ziel "$HOME/foto_sortierung" \
+            --dateien fotos_dateien.json fotos_uebersicht.json \
+            --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
+    else
+        python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+            --quelle "$QUELLE_DATEN" \
+            --ziel "$HOME/foto_sortierung" \
+            --dateien fotos_dateien.json fotos_uebersicht.json || true
+    fi
+fi
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 # Ohne das bricht ein laufender Stream ab, sobald das Display ausgeht.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock

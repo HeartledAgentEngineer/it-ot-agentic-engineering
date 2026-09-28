@@ -153,6 +153,7 @@ ohnehin nachkontrolliert.
 
 | N13a | **Bilder im Chat, Datenfundament** (Vorstufe zu N13): Werkzeug baut aus `sortierplan.json` eine kleine Datei mit den **Datei-Kennungen je Event** (`~/foto_sortierung/fotos_dateien.json`), Dienst + `GET /api/fotos/bilder` liefern sie aus — die N11-Übersicht bleibt **unberührt** (sie trägt bewusst keine Kennungen) | Werkzeug-Tests grün; Endpunkt immer 200; echte Kennungen live gegen den Plan geprüft | ✅ **bestanden (28.09.)** — `tools/foto_sortierung/foto_dateien.py` (434 Zeilen) + `backend/app/services/foto_bilder.py` (385) + Route in `router/fotos.py` (103 → 188) + **189** neue Testfunktionen; Prüfbefehl selbst gefahren **1876 passed, Exit 0** (Baseline 1687). **Live gemessen:** Datei **1.146.180 Bytes**, **2.098 Events · 7.616 Dateien · 0 ohne Kennung**; Endpunkt `?limit=3` → 200, `ok: true`, die ersten drei Events mit 1 / 19 / 1 Dateien; ein Filter auf einen Event-Namen → 1 Treffer (der echte Event-/Ortsname steht hier absichtlich **nicht**); **echter Vorschaubild-Abruf** für eine zurückgegebene Kennung → **200 `image/jpeg`, 4.581 Bytes, Magic `ffd8ffe0`, `Cache-Control: no-store`**. Prüfer `gpt-5.6-luna` (frische Kontexte): Runde 1 NICHT BESTANDEN (4 Abweichungen, **alle an der Doku** — Eigner-Name ×2, ein echter Ortsname in zwei Schema-Beispielen, eine veraltete Changelog-Aussage; den Code hat der Prüfer ausdrücklich bestätigt), Runde 2 **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, Paare 7.616 gegen 7.616 identisch, N11-Datei und Plan unverändert); **Runde 3 und 4** (Abnahmen auf den Commits `bea270d`/`201a9cf`) brachten je eine Doku-Rest-Abweichung — eine echte pCloud-Kennung in einem Schema-Beispiel und zwei zu knappe Rundenzahlen (dazu sechs **alte** Kennungen in früheren Journal-Einträgen, in `4c0cb36` schon vorhanden) — **alle korrigiert**, Schlussabnahme Runde 5 auf Commit `1b66fa0`: **BESTANDEN, 0 Abweichungen** (eigener Lauf 1876/Exit 0, `0 0`, nur noch die erfundene Beispielkennung in den drei Dokumenten). Offen: **N13b** (Anzeige: Kacheln, Großansicht, Diashow im Frontend) |
 | N13b | **Bilder im Chat, Anzeige** (Galerie + Diashow): Frage → Trefferliste → Kacheln → Antippen = groß → Diashow; Bilder **gestreamt, nie gespeichert** (kein Service-Worker-Cache für Bildpfade, Blob im Arbeitsspeicher, nach dem Ansehen freigegeben) | JS-Tests grün; nach 100 angesehenen Bildern ist der Cache-Speicher unverändert (Messung im Browser); `?v=` erhöht | ✅ **bestanden (28.09.)** — vier reine Funktionen (`fotoFrageErkennen`, `fotoKacheln`, `fotoGalerieZeilen`, `fotoDiashowNaechster`), Zweig in `sendMessage` **vor** dem Abbruch-Guard, Galerie-Blase mit Trefferliste + Kacheln, Großansicht `480x480` mit `‹ Zurück`/`Weiter ›`/`▶ Diashow`/`✕`, Diashow alle 3 s (umlaufend), Bilder **nur** per `fetch`→Blob→Objekt-URL, Freigabe bei jedem Wechsel und beim Schließen; `frontend/tests/test_foto_galerie.js` (328 Zeilen, **145 Prüfungen**) → alle grün; **16 von 16** JS-Dateien grün; Prüfbefehl **1876 passed, Exit 0** (Baseline 1687, +189 aus N13a — die Zahl **wächst seither laufend** durch fremde Parallelarbeit im selben Arbeitsbaum: 1897, Prüfer-Lauf 1922, jeweils Exit 0); `?v` auf **`20260928A`**. **Live im echten Browser** (eigener wegwerfbarer Edge headless + Backend am PC, echter Bestand): **23 von 23 Kacheln** als echte pCloud-Vorschaubilder geladen (0 Platzhalter), **100 angesehene Bilder** → 100 geladen, 0 Fehler, **Speicher vorher wie nachher 0**, Cache-Liste leer, `localStorage`/`sessionStorage` unverändert, offene Objekt-URLs nach dem Schließen **0**; derselbe Bild-Abruf zweimal → beide Male **4881 Byte** über die Leitung (`Cache-Control: no-store`). Prüfer `gpt-5.6-luna`: Runde 1 NICHT BESTANDEN (Eigner-Vorname im Changelog, lange Ziffernfolge im Messblock — beides korrigiert; Testzahl + fremde Dateien = Bestand), **Runde 2: „NICHT BESTANDEN" mit einer einzigen Abweichung, die fremd ist** (`CLAUDE.md` trägt eine offene Zeile des zweiten Agenten, nicht Teil dieses Commits) → als Bestand eingeordnet, Commit `3f5bd43` (genau **9** Dateien, keine fremde), `0 0`. Doku: `docs/changelog-2026-09-28-n13b-bilder-anzeige.md`, Auftrag `docs/auftrag-n13b-bilder-anzeige.md` |
+| N13c | **Übergabe der Foto-Datendateien ans Handy** (`tools/handy/uebergabe_uebernehmen.py` + Block in `start-termux.sh`): der PC legt `fotos_dateien.json` und `fotos_uebersicht.json` per Kabel in den Download-Ordner, das Handy übernimmt sie beim Start nach `$HOME/foto_sortierung` — sha256 hart geprüft, alte Fassung als `*.vorher`, idempotent, Protokoll im Diagnose-Ordner | Werkzeug-Tests grün; Übergabe am Kabel **byte-genau** belegt; Startblock kann den Serverstart nicht verhindern | ✅ **bestanden (28.09.)** — siehe Journal unten: **2006 passed, Exit 0** (Baseline 1937), Push beidseitig **md5-gleich**, echter Handlauf mit den echten Dateien (`uebernommen 2`, sha256 identisch, 2. Lauf `Fehler 0`), Prüfer `gpt-5.6-luna` Runde 2 **„bestanden"**. Offen: der **erste Lauf am Handy** passiert beim nächsten Widget-Tipp |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -954,7 +955,40 @@ ohnehin nachkontrolliert.
   Quelle. *(Nicht in der Schritt-Tabelle oben eingetragen, damit der gleichzeitig
   laufende Nachtlauf sie nicht überschreibt.)*
 
-* **28.09. früh — N24 (neu, Sebastians Auftrag): Datenschutz + IT-Security
+* **28.09. — N25 (neu, Sebastians Auftrag): Automatisches Backup der Archiv-
+  Datenbanken in die pCloud.** Wörtlich: „dass wir ein automatisches Backup in
+  der Backup-Synchronisation haben, von diesen Archivdatenbanken … dass die auch
+  in pCloud gespeichert wird, damit wenn das Handy doch mal weg sein sollte …
+  dass unsere ganzen lokalen Daten, die ja nicht in GitHub drin sind, auch noch
+  gebackupt sind, weil wir haben ja jetzt auch Geld reingesteckt fürs Trainieren,
+  fürs Embedding … und sollte ja auch erhalten bleiben und nicht nur jetzt gerade
+  temporär ein Abbild auf dem Handy."
+  * **Was wird gesichert:** `archiv_index.db` (Text, FTS, Vektoren),
+    `memory.db`, `normalized/messages.jsonl` — also **alles Bezahlte und
+    Erarbeitete**, nicht nur die Rohdaten.
+  * **Wohin:** pCloud `Agent/Archiv-Backup/` (Schreibrecht besteht nur in
+    `Agent/`), Konto in **Europa** — DSGVO-freundlich; zusätzlich **verschlüsselt
+    gepackt** (Passphrase im Passwort-Manager), damit Fremdinhalte Dritter auch
+    im eigenen Cloud-Speicher nicht offen liegen.
+  * **Wann:** im **nächtlichen Lauf auf dem Handy** (N22/N23) — nach Import und
+    Index-Ergänzung, **idempotent**: nur hochladen, wenn sich die Dateien
+    geändert haben (Vergleich über Prüfsumme/Größe), Namensschema
+    `archiv_JJJJ-MM-TT.zip` + Marker `LETZTE.txt`.
+  * **Aufbewahrung:** die letzten **3** Generationen + eine **Monatskopie**;
+    ältere werden erst nach erfolgreichem Hochladen der neuen entfernt (nie
+    vorher) — jede Löschung ins Manifest.
+  * **Rückholbarkeit (Pflicht):** Wiederherstellung dokumentiert **und geprüft**
+    — neuestes Paket herunterladen, entpacken, Zahlen vergleichen (Nachrichten,
+    Chunks, Vektoren, Gespräche). Erst wenn dieser Probelauf grün ist, gilt N25
+    als fertig.
+  * **Zusätzlich sichern (verschlüsselt, klein):** WhatsApp-Schlüssel und
+    Google-Zugang — sonst ist die Sicherung nach einem Geräteverlust nicht mehr
+    öffnbar.
+  * **Prüfkriterium:** zwei Läufe hintereinander → zweiter lädt **nichts** hoch
+    (unverändert); nach einem simulierten Verlust (Ordner umbenennen) ist das
+    Archiv aus pCloud **vollständig** wiederherstellbar; Kosten/Größe je Lauf
+    protokolliert.
+
   durchplanen** („wir müssen vielleicht IT-Security-mäßig unsere App bisschen
   noch mehr sichern und vielleicht auch Android mehr sichern … das werden wir
   noch mal durchplanen … können wir auf die Liste setzen. Datenschutz.").
@@ -1795,3 +1829,83 @@ ohnehin nachkontrolliert.
     N12/N14–N20 bzw. die Antworten des Nutzers dran. **N8 (echtes Sortieren)
     bleibt gesperrt**, bis sein Blick auf die 39 sicheren Event-Vorschläge und
     die 1.146 datumslosen Dateien da ist.
+
+* **28.09. ~12:40 — N13c gebaut, live übergeben und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,041 USD · Prüfer:
+  `openai/gpt-5.6-luna`, zwei Runden — **andere Modellfamilie**).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an ungestagten
+  Änderungen (teils fremd) → nichts gestasht, nichts angefasst; `git fetch` +
+  `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**, es gab
+  nichts zu holen. **Codex nicht benutzt** (Kontingent), gebaut mit einem
+  Hermes-Subagenten.
+  - **Warum dieser Schritt (und nicht N8):** N8 (echtes Sortieren) bleibt gesperrt,
+    bis der Nutzer die 39 sicheren Event-Vorschläge und die 1.146 datumslosen
+    Dateien angesehen hat. Offen war laut N13b-Journal genau eines: die beiden
+    Datendateien ans Handy bringen, damit die Galerie dort am echten Gerät läuft.
+    Ein Handlauf zeigte: das Handy läuft noch mit älterem Stand — `GET
+    /api/fotos/bilder` antwortet dort **404**, am PC **200**. Die Dateien fehlten
+    im Termux-Heimordner (über das Kabel nicht beschreibbar, App-Sandbox).
+  - **Gebaut:** `tools/handy/uebergabe_uebernehmen.py` (**512 Zeilen**, nur
+    Standardbibliothek) + `backend/tests/test_uebergabe_uebernehmen.py`
+    (**679 Zeilen, 69 Prüfungen**, alles offline in `tmp_path`) + neuer Block
+    *Foto-Datendateien übernehmen* in `start-termux.sh` (**325 → 372 Zeilen**,
+    `bash -n` ohne Befund) + `docs/changelog-2026-09-28-n13c-uebergabe-datendateien.md`
+    (148 Zeilen). Der Block ruft das Werkzeug nur, wenn eine Übergabedatei
+    vorliegt, schreibt sein Protokoll nach `<Download>/hermes_diag/uebergabe_letzte.txt`
+    (derselbe Diagnose-Ordner wie `$DIAG`) und ist mit `|| true` abgesichert —
+    er kann den Serverstart **nicht** verhindern.
+  - **Prüfbefehl selbst gefahren:** `pytest tests/ -q` → **2006 passed, Exit 0**
+    (98 s; Baseline **1937**, +69 = genau die neuen Prüfungen).
+  - **Echte Übergabe (nicht nur Trockenlauf):** beide Dateien per `adb push`
+    nach `/sdcard/Download/` — **1.146.180** und **344.615 Bytes**, Größe **und**
+    Zeitstempel erhalten — und mit `adb shell md5sum` gegengeprüft: beide Seiten
+    **identisch** (`6a1fb2111e24d189ccc25a70b7d1e931`, `c0fe00485fcc59c49904b667ad45a6f3`).
+    Die Schreiboperation auf dem fremden System steht im **Manifest**
+    `~/foto_sortierung/manifest_handy.jsonl` (2 Zeilen: Quelle → Ziel, Größe,
+    sha256, md5, Rückweg) — rückholbar.
+  - **Handlauf mit den echten Dateien** auf dem PC (eigener Ordner, echte
+    Kommandozeile des Startblocks): erster Lauf Exit 0, **`uebernommen 2 · Fehler 0`**,
+    Ziel-`sha256` **identisch** zu den Originalen, Übergabedateien danach entfernt;
+    zweiter Lauf Exit 0, `uebernommen 0 · uebersprungen 2 · Fehler 0`;
+    Protokolldatei trägt beide Läufe mit Zeitstempel.
+  - **Prüfer Runde 1: NICHT BESTANDEN — zwei Punkte, beide beweisbar nicht aus
+    diesem Schritt.** (1) Das Werkzeug entfernt neben der eigenen Übergabedatei
+    (nach Prüfsummenprobe) auch die **eigene** temp-Datei eines abgebrochenen
+    Schreibens — das war in meinem Prüfauftrag enger formuliert als im Code und
+    als in den Nachbarwerkzeugen üblich (`foto_dateien.py:329`,
+    `foto_kategorien.py:641`, `foto_uebersicht.py:461` machen es genauso, mit
+    demselben Kommentar); im Changelog stand es von Anfang an korrekt.
+    (2) Der Eigner-Name in `start-termux.sh` stammt aus dem Bestand: **2 Treffer
+    in HEAD** (Zeilen 218/238), **0 Treffer in den neuen Zeilen**
+    (`git diff -U0 … | grep '^+' | grep -c 'Sebastian'`). Beide Punkte in der
+    Prüfauflage geschärft (erlaubt ist die eigene Übergabedatei und die eigene
+    temp-Datei; die Namensregel gilt für neue Zeilen und für Namen Dritter).
+  - **Prüfer Runde 2 (frischer Kontext): BESTANDEN, keine Abweichung.** Er hat
+    selbst nachgeprüft: Prüfbefehl **2006/Exit 0**; genau eine `os.remove`-Stelle
+    im Werkzeug; **eigener Lauf mit abweichendem Ziel** — vorher/nachher war die
+    zusätzliche `.vorher`-Datei die **einzige** Änderung, Nachbardatei und
+    Unterordner blieben bytegleich, keine fremde Datei entfernt; `Sebastian` 2×
+    in HEAD/0× in neuen Zeilen; Kommandozeile des Startblocks passt zur
+    Schnittstelle; `bash -n` Exit 0; Doku deckt sich mit dem Code.
+  - **Grenzen eingehalten:** `git commit --only` mit ausdrücklich genannten
+    Dateien (keine fremde), **nie `git add -A`**; pCloud nicht berührt; keine
+    Geheimnisse in Ausgaben, Dateien oder Protokoll (dort stehen nur Dateiname,
+    Größe, Prüfsumme, Zustände); nichts gelöscht außer den eigenen
+    Übergabedateien in einem eigenen Prüfordner; Ausgaben außerhalb des Repos.
+  - **Ehrlich offen:** (1) der **erste Lauf auf dem Handy** passiert erst beim
+    nächsten Widget-Tipp (dafür braucht das Handy ohnehin einen Start, weil sein
+    Stand älter ist); danach ist er über
+    `/sdcard/Download/hermes_diag/uebergabe_letzte.txt` **vom PC aus belegbar** —
+    bis dahin ist die Übernahme am Handy **nicht** beobachtet, genau wie bei N3;
+    (2) solange die Übergabedateien im freigegebenen Download-Ordner liegen, kann
+    dort jede App die Event-Namen lesen — nach der Übernahme verschiebt das
+    Werkzeug sie weg; (3) Versionsprobe fehlt (nur Prüfsumme, kein Schemastand);
+    (4) kein automatischer Rückweg für die `.vorher`-Dateien.
+  - **Bestand, nicht angefasst:** der Arbeitsbaum trägt unfertige Änderungen
+    eines zweiten Agenten (WhatsApp-Archiv: `tools/whatsapp/`,
+    `backend/scripts/whatsapp_db_import.py`, `backend/scripts/archiv_index_ergaenzen.py`,
+    `README.md`, `CLAUDE.md`, `docs/experimente/*`). Die Projekt-`CLAUDE.md`-Protokollzeile
+    bleibt deshalb weiter offen; der Plan trägt eine unfertige fremde N25-Einfügung,
+    die beim Mitcommitten der Plandatei **unverändert** erhalten bleibt.
+  - **Nächster Schritt:** der Nutzer tippt das Widget (Handy holt Code + Dateien),
+    danach die Galerie am echten Gerät ansehen; **N8 bleibt gesperrt**.
