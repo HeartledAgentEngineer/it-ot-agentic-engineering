@@ -14,11 +14,11 @@ Die Verknüpfungsschicht N27 hat drei Andockungen: Ereignis-Knoten (N27a),
 Chats (N27b), Kalender (N27c). Es fehlt die **Personen-Andockung**: welcher
 Anlass zeigt welche Gesichts-Cluster, und welcher **Name** passt dazu. Der Plan
 sagt wörtlich: „Gesichts-Cluster (neu gerechnet) + im Chat genannte Namen +
-**Sebastians Bestätigung** → `Person_00x` wird zu „Philine"."
+**Bestätigung des Nutzers** → die Kennung `Person_00x` bekommt einen Namen."
 
 **Kernregel dieses Schritts (nicht verhandelbar):** Das Werkzeug **schlägt vor**,
 es **benennt nicht**. Ein Name erscheint nur, wenn er in der
-Bestätigungsdatei steht, die **Sebastian** pflegt. Ein Vorschlag darf sich
+Bestätigungsdatei steht, die **der Nutzer** pflegt. Ein Vorschlag darf sich
 niemals selbst bestätigen.
 
 ## Was schon steht (nicht neu bauen)
@@ -40,7 +40,8 @@ eigene Entscheidung und eigene Messung). Dieser Schritt baut das
 
 1. **Kein Nachrichtentext.** Gelesen und ausgegeben werden nur `chat_name` und
    `beteiligte` aus `chat_andockung.jsonl` — nie `message`, nie `nachrichten_kennungen`.
-2. **Keine Rufnummern.** Ausgabe enthält keinen Nummern-Maskentext (`***1234`) und
+2. **Keine Rufnummern.** Ausgabe enthält keinen Nummern-Maskentext (Sternchen-Muster
+   in der Form, die das Telefonbuch liefert) und
    keine Ziffernfolge ≥ 7 Zeichen außer Kennungen/Zeitstempeln.
 3. **Kein Bild, kein Netz.** Kein `cv2`, kein `requests`/`urllib`, kein pCloud-Aufruf,
    kein Datei-Download. Nur Standardbibliothek + `numpy` (über `personen_cluster`).
@@ -100,7 +101,7 @@ AUSGABE_VORSCHL = ~/foto_sortierung/personen_vorschlaege.json
  "stand": "2026-09-29T02:00:00+02:00"}
 ```
 
-`personen_vorschlaege.json` — Übersicht für das Handy (Sebastian bestätigt dort):
+`personen_vorschlaege.json` — Übersicht für das Handy (die Bestätigung trägt der Nutzer dort ein):
 
 ```json
 {"art": "personen_vorschlaege", "stand": "…",
@@ -127,7 +128,7 @@ Anlass-IDs, Orte, Kennungen oder Personen aus dem Bestand in Code, Tests oder Do
 --stand ZEITSTEMPEL  (für byte-gleiche Wiederholung)
 ```
 
-### Bestätigungsdatei (Sebastian pflegt sie, z. B. am Handy/PC)
+### Bestätigungsdatei (der Nutzer pflegt sie, z. B. am Handy/PC)
 
 ```json
 {"hinweis": "Nur hier eingetragene Namen werden verwendet.",
@@ -189,14 +190,14 @@ hier nur benannt, nicht gebaut (ein Schritt pro Runde).
    `chat_andockung.jsonl`, beiden Vektordateien und `kennungen.json` vorher/nachher
    gleich; `manifest.jsonl` **existiert nicht** (nichts gebucht).
 7. **Datenschutz-Scan** der neuen/geänderten Repo-Dateien: 0 Treffer für
-   `@gmail`, den Eigner-Namen, Telefonnummern-Masken (`***`), Orte/Ordensnamen aus
+   `@gmail`, den Eigner-Namen, Telefonnummern-Masken (Sternchen-Muster), Orte/Ordensnamen aus
    `kategorien.json`; nur erfundene Beispiele.
 
 ## Doku (gehört zum selben Commit, „code + docs")
 
 - **Changelog** `docs/changelog-2026-09-29-n27d-personen-andockung.md`:
   Was gebaut wurde, die Sollwerte mit Ist-Werten, Prüfbefehl mit Zahl,
-  Bestätigungs-Weg für Sebastian, **offen:** Massenlauf der Gesichter über alle
+  Bestätigungs-Weg für den Nutzer, **offen:** Massenlauf der Gesichter über alle
   9.430 Fotos (mit der gemessenen Hochrechnung), Namensnennung im Chat-Text
   (dieser Schritt nutzt Chat-**Namen** und Beteiligte, nicht den Text).
 - **Plan** `docs/plan-nachtlauf-2026-09-26.md`: neuen Schritt **N27d** in die

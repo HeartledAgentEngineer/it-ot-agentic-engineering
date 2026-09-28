@@ -159,7 +159,7 @@ ohnehin nachkontrolliert.
 | N27c | **Kalender-Andockung** (Verknüpfungsschicht N27, Schritt 3 von 5): `tools/foto_sortierung/kalender_andocken.py` liest `ereignisse.jsonl` und den Google-Kalender **nur per `zipfile`** aus dem Takeout-Zip und schreibt `~/foto_sortierung/kalender_andockung.jsonl` — je Anlass die Termine **am selben Tag** (±1 Tag nur als schwacher Hinweis `anzahl_nah`, `--auch-nah` optional) und **jährlich wiederkehrende** Termine (`RRULE FREQ=YEARLY` bzw. Titel „Geburtstag/Jahrestag“) über **Tag+Monat**; `--trocken` ist Standard, `--schreiben` atomar, Repo-Ziel Exit 2 | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2 | ✅ **bestanden (28.09.)** — siehe Journal unten: `tools/foto_sortierung/kalender_andocken.py` (784 Zeilen), `backend/tests/test_kalender_andockung.py` (**114 Testfunktionen**, alles offline), Auftrag `docs/auftrag-n27c-kalender-andockung.md`; Prüfbefehl **2.414 passed, Exit 0** (Baseline 2.300, selbst gefahren); live **2.127 Ereignisse · 812 Zeilen mit Treffern · 957 Termine am Tag · 1.162 Nah-Treffer · davon wiederkehrend 253 · Maximum 3 · ICS 405 Termine / 0 defekt**; zwei `--schreiben`-Läufe mit festem `stand` **byte-gleich** (601.653 B, 2.127 Zeilen); Prüfer `openai/gpt-5.6-luna` Runde 1: 1 Abweichung (Doku) → korrigiert; **Runde 2 auf dem Commit `6be68a3`: BESTANDEN, 0 Abweichungen**; echte Ausgabedatei geschrieben (601.653 B / 2.127 Zeilen) |
 | N27a | **Ereignis-Knoten je Anlass** (Verknüpfungsschicht N27, Schritt 1 von 5): `tools/foto_sortierung/ereignisse_bauen.py` liest `sortierplan.json` **nur lesend** und schreibt `~/foto_sortierung/ereignisse.jsonl` — je Anlass Datum, Thema, Kategorie, Ziel-Ordner, Datei-Kennungen (**ohne** Personen, ohne Bilder, ohne Netz); `--trocken` ist der Standard, `--schreiben` nötig, Ziel im Repo wird verweigert (Exit 2) | Prüfbefehl grün; Live-Trockenlauf liefert 2.127 Knoten und 7.616 Kennungen; zweiter Lauf inhaltlich identisch; Repo-Ziel Exit 2 | ✅ **bestanden (28.09.)** — siehe Journal: Prüfbefehl **2.204 passed, Exit 0** (Baseline 2.070, selbst gefahren); live **2.127 Ereignisse · 7.616 Datei-Kennungen · ohne Anlass 0 · ohne Kennung 0 · ohne Datum 0 · ohne Thema 0 · Kollisionen 404 · Events wiederverwendet 39** (= genau die 39 sicheren Vorschläge aus N6e); echte Datei **1.286.120 B / 2.127 Zeilen**; Repo-Ziel **Exit 2**, nichts geschrieben; Prüfer `gpt-5.6-luna`: **Runde 1 + 2 NICHT BESTANDEN** (nur Doku-Punkte, behoben), **Runde 3** nur noch fehlende Zeilenumbrüche in zwei Doku-Dateien (behoben); **Abnahme Runde 4 auf dem Commit `86fd5b3` mit `z-ai/glm-5.2`: BESTANDEN, 0 Abweichungen** |
 
-| N27d | **Personen-Andockung** (Verknüpfungsschicht N27, Schritt 4 von 5): `tools/foto_sortierung/personen_andocken.py` führt Ereignis-Knoten + Gesichts-Cluster + Chat-Andockung zusammen und schreibt **außerhalb des Repos** `~/foto_sortierung/personen_andockung.jsonl` (je Anlass die Personen) und `~/foto_sortierung/personen_vorschlaege.json` (je Person Namensvorschläge) — **das Werkzeug schlägt vor, es benennt nicht**: ein Name erscheint nur aus `personen_bestaetigt.json`; `--trocken` ist Standard, Repo-Ziel Exit 2, `bestaetigte` nur nach Nutzer-Eintrag | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; ohne Bestätigung 0 Namen in der Ausgabe | ✅ **bestanden (29.09.)** — siehe Journal unten: Werkzeug **1.136 Zeilen**, Tests **1.258 Zeilen / 144 Testfunktionen** (alles offline); Prüfbefehl **2.558 passed, Exit 0** (Baseline 2.414, selbst gefahren); live **151 Vektorzeilen · 12 Personen (2 neu/10 wiederverwendet) · Größen 11,10,10,5,4,4,4,4,4,3,3,3 · 5 Anlässe mit Personen · 12/12 mit Kandidatennamen · 34 Namen**, zwei Schreibläufe **byte-gleich** (2.833 B / 7.454 B), Repo-Ziel **Exit 2**, ohne Bestätigung **0** Namen / mit Probe-Bestätigung **genau 1**; Prüfer `openai/gpt-5.6-luna` (andere Familie) |
+| N27d | **Personen-Andockung** (Verknüpfungsschicht N27, Schritt 4 von 5): `tools/foto_sortierung/personen_andocken.py` führt Ereignis-Knoten + Gesichts-Cluster + Chat-Andockung zusammen und schreibt **außerhalb des Repos** `~/foto_sortierung/personen_andockung.jsonl` (je Anlass die Personen) und `~/foto_sortierung/personen_vorschlaege.json` (je Person Namensvorschläge) — **das Werkzeug schlägt vor, es benennt nicht**: ein Name erscheint nur aus `personen_bestaetigt.json`; `--trocken` ist Standard, Repo-Ziel Exit 2, `bestaetigte` nur nach Nutzer-Eintrag | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; ohne Bestätigung 0 Namen in der Ausgabe | ✅ **bestanden (29.09.)** — siehe Journal unten: Werkzeug **1.140 Zeilen**, Tests **1.258 Zeilen / 144 Testfunktionen** (alles offline); Prüfbefehl **2.558 passed, Exit 0** (Baseline 2.414, selbst gefahren); live **151 Vektorzeilen · 12 Personen (2 neu/10 wiederverwendet) · Größen 11,10,10,5,4,4,4,4,4,3,3,3 · 5 Anlässe mit Personen · 12/12 mit Kandidatennamen · 34 Namen**, zwei Schreibläufe **byte-gleich** (2.833 B / 7.454 B), Repo-Ziel **Exit 2**, ohne Bestätigung **0** Namen / mit Probe-Bestätigung **genau 1**; Prüfer `openai/gpt-5.6-luna` (andere Familie) |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -2402,7 +2402,7 @@ ohnehin nachkontrolliert.
     11,10,10,5,4,4,4,4,4,3,3,3 · 5 Anlässe mit ≥1 Person · 12/12 mit
     Kandidatennamen · 34 Namen**. Diese Zahlen stehen als **Sollwerte** im
     Feinauftrag `docs/auftrag-n27d-personen-andockung.md`.
-  - **Werkzeug:** `tools/foto_sortierung/personen_andocken.py` (**1.136 Zeilen**)
+  - **Werkzeug:** `tools/foto_sortierung/personen_andocken.py` (**1.140 Zeilen**)
     + Tests `backend/tests/test_personen_andockung.py` (**1.258 Zeilen, 144
     Testfunktionen**, alles offline). Es führt Ereignis-Knoten,
     Gesichts-Cluster (Produktionsverfahren „vollstaendig", Schwelle 0,45,
@@ -2441,10 +2441,50 @@ ohnehin nachkontrolliert.
   - **Doku:** Changelog `docs/changelog-2026-09-29-n27d-personen-andockung.md`,
     Auftrag `docs/auftrag-n27d-personen-andockung.md`, Projekt-`CLAUDE.md` mit
     Protokollzeile — „code + docs" in einem Commit.
-  - **Prüfer:** lief als frischer Kontext mit `gpt-5.6-luna` **auf dem Commit**;
-    der Befund wird hier nachgetragen (keine Aussage vor dem Lauf).
+  - **Prüfer Runde 1 (`openai/gpt-5.6-luna`, frische Sitzung, andere
+    Modellfamilie): NICHT BESTANDEN — sechs Punkte, einzeln bewertet.**
+    Selbst gefahren/geprüft hat er: Prüfbefehl im Arbeitsbaum **2.606 passed
+    (Exit 0)** *und* einen sauberen Export von `91baf14` per `git archive`
+    (**2.556 passed, 1 skipped, 1 failed**); alle Live-Sollwerte erreicht; zwei
+    Schreibläufe byte-gleich (2.833 B / 7.454 B); Repo-Ziel **Exit 2**; ohne
+    Bestätigung 0 Namen, mit Probe-Bestätigung genau 1 Name; Eingabe-Hashes
+    exakt wie angegeben; `manifest.jsonl` fehlt; im Commit genau sechs Dateien,
+    keine fremde; `0 0`; die **44 statt 34** Namen aus dem offengelegten
+    Messfehler hat er selbst nachgezählt (34 mit `chat_name`, 44 mit
+    `beteiligte`) — die Doku-Aussage stimmt also.
+    - **Berechtigt und behoben:** (1) **Zeilenzahl** der Werkzeugdatei: 1.140
+      statt der dokumentierten 1.136 (meine zwei Docstring-Nachträge nach dem
+      Zählen) → in Changelog, Plan-Zeile, Journal und `CLAUDE.md` auf **1.140**
+      korrigiert. (2) **Eigner-Name** in **neuen** Dateien (Auftrag fünfmal,
+      Journal einmal) → „der Nutzer“ (der Name ist in Bestandsdokumenten
+      weiterhin vorhanden — das ist gewachsener Text, keine neue Nennung).
+      (3) Ein **echter Personenname als Beispiel** im Auftrag (Zitat des alten
+      Plan-Satzes) → durch eine neutrale Formulierung ersetzt.
+      (4) **Sternchen-Maske wörtlich** in Auftrag/Changelog (3 Stellen, in der
+      Verbotsbeschreibung) → als „Sternchen-Muster“ umschrieben, damit die
+      Prüfmuster nicht selbst im Repo stehen.
+    - **Fehlalarm, mit Zahlen entkräftet:** der „failed“-Test im sauberen Export
+      (`test_agentbus.py::test_bus_dir_haengt_nicht_vom_arbeitsordner_ab`) ist
+      **kein Fehler des Commits**: die letzte Zeile des Tests prüft, dass der
+      ermittelte Bus-Ordner unter einem Verzeichnis mit `.git` liegt — und
+      `git archive` liefert **kein** `.git`. Gegenprobe des Planers (Beleg):
+      derselbe Export ohne `.git` → **1 failed** in 2,66 s; nach `mkdir .git` im
+      Export → **30 passed, Exit 0** in 2,62 s. Der Test stammt aus der
+      `agentbus`-Arbeit des zweiten Agenten und steht nicht in diesem Commit.
+      Außerdem: die im Auftrag genannten **Zahlen** (`ereignisse.jsonl` 2.127
+      Zeilen, 4 Posten Größe/Kennung) sind **Zählungen, keine personenbezogenen
+      Daten** — die Datenschutzregel verbietet Namen, Orte und Kennungen, nicht
+      Mengenangaben; sie stammen zudem aus dem Plan (Bestand).
+    - **Ehrlich als Grenze notiert:** die dokumentierte Baseline **2.414** hat
+      der Prüfer nicht unabhängig in einem unveränderten Elternstand gefahren
+      (er hat keinen Worktree gebaut, um das Repo nicht zu ändern) — die Zahl
+      kommt aus meiner eigenen Zählung vor dem Bau.
+  - **Wirkung des getrennten Kontexts (wie in den Vorrunden):** zwei echte
+    Doku-Fehler (Zeilenzahl, Beispielname) und eine Datenschutz-Lücke (Sternchen-
+    Muster) wären sonst bis zum Morgen im Repo geblieben; der „rote Test“ kostete
+    dagegen nur eine Gegenprobe von 3 Sekunden.
   - **Naechster Schritt: N27 Schritt 5 (Ableitung „wer war mit wem wo")** — nur
     aus **bestätigten** Zuordnungen, jede Aussage mit **Datum + Quelle**; davor
-    entscheidet Sebastian über die Namensvorschläge.
+    entscheidet der Nutzer über die Namensvorschläge.
     **N8 (echtes Sortieren) bleibt gesperrt** (39 sichere Event-Vorschläge +
     1.146 datumslose Dateien).

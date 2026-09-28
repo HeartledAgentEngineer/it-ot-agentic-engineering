@@ -7,7 +7,7 @@ andere Modellfamilie). **Codex war gesperrt** — live geprüft:
 
 ## Was gebaut wurde
 
-Neu `tools/foto_sortierung/personen_andocken.py` (**1.136 Zeilen**) und
+Neu `tools/foto_sortierung/personen_andocken.py` (**1.140 Zeilen**) und
 `backend/tests/test_personen_andockung.py` (**1.258 Zeilen, 144 Testfunktionen**,
 alles offline mit `tmp_path` und erfundenen Daten).
 
@@ -76,7 +76,8 @@ Weitere Belege:
 * **Repo-Ziel** mit `--schreiben` → deutsche Meldung, **Exit 2**, keine Datei
   (`docs/verbot.jsonl` existiert nicht).
 * **Keine Namen ohne Bestätigung:** 0 Treffer im Feld `name`, 0 Nummern-Masken
-  (`***`), keine Ziffernfolge ≥ 7 Zeichen außer Datumsangaben. Mit einer
+  (Sternchen-Muster `*` in der Form, die das Telefonbuch liefert), keine
+  Ziffernfolge ≥ 7 Zeichen außer Datumsangaben. Mit einer
   Probe-Bestätigung (erfundener Name für `Person_001`) trägt **genau diese**
   Person einen Namen, alle anderen bleiben `null`.
 * **Eingaben unverändert** (sha256 vor/nach gleich): `ereignisse.jsonl`
@@ -102,6 +103,46 @@ Foto" ein schwacher Beleg. Die reichere Regel (**Einzelchat → `chat_name`,
 Gruppe → Teilnehmer**) ist als Folgekandidat benannt, aber **nicht** in diesem
 Schritt gebaut (ein Schritt pro Runde). Der Nachtrag steht im Auftrag und im
 Modulkopf.
+
+## Prüfer-Befund (frische Sitzung, `openai/gpt-5.6-luna` — andere Modellfamilie)
+
+**Runde 1: NICHT BESTANDEN** — sechs Punkte, einzeln bewertet. Der Prüfer hat den
+Prüfbefehl selbst gefahren (Arbeitsbaum **2.606 passed, Exit 0**) und zusätzlich
+den Commit in einen **sauberen Export** (`git archive 91baf14`) entpackt und dort
+getestet (**2.556 passed, 1 skipped, 1 failed**). Er hat außerdem die
+Namenszählung unabhängig nachgefahren (**34** mit `chat_name`, **44** mit
+`beteiligte`) und damit die offengelegte Abweichung bestätigt.
+
+**Berechtigt und behoben:**
+
+1. **Zeilenzahl** der Werkzeugdatei: **1.140** statt der dokumentierten 1.136
+   (zwei Docstring-Nachträge nach dem Zählen) → in Changelog, Plan-Zeile,
+   Journal und `CLAUDE.md` korrigiert.
+2. **Eigner-Name** in **neuen** Dateien (Auftrag fünfmal, Journal einmal) →
+   „der Nutzer". In gewachsenen Bestandsdokumenten bleibt er stehen — das ist
+   keine neue Nennung.
+3. Ein **echter Personenname als Beispiel** im Auftrag (Zitat eines älteren
+   Plan-Satzes) → neutral umformuliert.
+4. **Sternchen-Maske wörtlich** in Auftrag/Changelog (3 Stellen, jeweils in der
+   Verbotsbeschreibung) → als „Sternchen-Muster" umschrieben.
+
+**Fehlalarm, mit Zahlen entkräftet:**
+
+* Der **eine rote Test** im sauberen Export ist **kein Fehler dieses Commits**:
+  `test_agentbus.py::test_bus_dir_haengt_nicht_vom_arbeitsordner_ab` prüft in
+  seiner letzten Zeile, dass der ermittelte Bus-Ordner unter einem Verzeichnis
+  mit `.git` liegt — `git archive` liefert **kein** `.git`. Gegenprobe:
+  derselbe Export ohne `.git` → **1 failed** (2,66 s); nach `mkdir .git` im
+  Export → **30 passed, Exit 0** (2,62 s). Die Datei stammt aus der
+  `agentbus`-Arbeit des zweiten Agenten und ist **nicht** Teil dieses Commits.
+* Die im Auftrag genannten **Zahlen** (z. B. „2.127 Zeilen") sind **Zählungen**,
+  keine personenbezogenen Daten; die Datenschutzregel verbietet Namen, Orte und
+  Kennungen, nicht Mengenangaben — die Zahlen stehen zudem so schon im Plan.
+
+**Als Grenze offen notiert:** die dokumentierte Baseline **2.414** hat der Prüfer
+nicht unabhängig in einem unveränderten Elternstand gefahren (er wollte dafür
+keinen Worktree ins Repo bauen); die Zahl stammt aus der eigenen Zählung des
+Planers vor dem Bau.
 
 ## Was dieser Schritt nicht liefert (bewusst offen)
 
