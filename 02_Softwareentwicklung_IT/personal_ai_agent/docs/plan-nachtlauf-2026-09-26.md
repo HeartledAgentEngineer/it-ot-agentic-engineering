@@ -167,6 +167,8 @@ ohnehin nachkontrolliert.
 
 | N29 | ✅ **Übergabe der Ereignis-/Verknüpfungs-Datendateien ans Handy** (Anschluss an N13c/N28): `start-termux.sh` übernimmt beim Start zusätzlich `ereignisse.jsonl` (Ereignisliste der Erzähl-Diashow, E8a), `beziehungen.jsonl` und `beziehungen.json` (Antwortstufe N28) — dasselbe Muster (sha256 hart, `*.vorher`-Sicherung, idempotent, Protokoll im Diagnose-Ordner, nichts löschen außer der eigenen Übergabedatei); dazu ein **Wächter-Test**, der die Dateiliste des Startskripts gegen die von den Diensten gelesenen Konstanten hält (kein Auseinanderlaufen), und die Berichtigung von `HANDOVER-CLAUDE-CODE.md` (N27 war dort noch „open") | Wächter-Test grün; Prüfbefehl Exit 0; die Liste deckt die von den Diensten gelesenen Dateien ab | ✅ **bestanden (29.09.)** — siehe Journal unten: `start-termux.sh` an drei Stellen erweitert (Z182/195/201), Werkzeug unverändert, **5 Wächter-Testfunktionen** (Testdatei 679 → **822 Zeilen / 74 Funktionen**), Prüfbefehl **2925 passed, Exit 0** (Schritt allein; Baseline 2920) bzw. **2935** im Schlusslauf (10 fremde Funktionen des zweiten Agenten, offengelegt), `bash -n` Exit 0; **Prüfer `z-ai/glm-5.2` (andere Familie) Runde 1: BESTANDEN, 0 blockierende Abweichungen** (2 nicht blockierende Beobachtungen → beide behoben), **Runde 2 auf dem Endstand: NACHTRAG BESTANDEN** (eigener Lauf 2935/Exit 0, eigene Gegenprobe, eine Tippfehler-Abweichung im Changelog → korrigiert). **Offen:** Kabel-Push ans Handy (kein Gerät an `adb`), Manifest-Eintrag und erster Lauf am Handy |
 
+| N29b | ✅ **Kabel-Push der Datendateien ans Handy** (Vollzug des N29-Schlusspunkts): Gerät hing am Kabel (`adb devices` → `device`); Abgleich aller fünf Namen PC ↔ `/sdcard/Download` per md5 → **drei waren schon byte-identisch** (`ereignisse.jsonl` **ohne Manifest-Zeile** — als Nachtrag `art: "festgestellt"` gebucht, kein neuer Schreibvorgang), **zwei fehlten** (`beziehungen.jsonl` 12.601.994 B, `beziehungen.json` 715 B) und wurden gepusht; Übernahmeweg (`uebergabe_uebernehmen.py`) mit den **echten** Dateien auf einer Wegwerf-Kopie durchgespielt (Trockenlauf → echt → Wiederholung); Manifest `manifest_handy.jsonl` 897 → 2.525 Bytes / 5 gültige Zeilen mit Klartext-Rückweg | Push beidseitig md5 **und** sha256 gleich; Trockenlauf schreibt nichts; echter Lauf `uebernommen 5 · Fehler 0`; zweiter Lauf `uebersprungen 5 · Fehler 0`; nichts gelöscht/verschoben, PC-Originale unverändert; Prüfbefehl Exit 0 | ✅ **bestanden (29.09.)** — siehe Journal unten: Prüfbefehl **2935 passed, 3 warnings, Exit 0** (194,5 s; **kein** Code in diesem Schritt, 0 eigene Testfunktionen), Gerätemessungen md5 `6a5704c7…`/`313c11a9…` bzw. sha256 `e0d0dc40…`/`9ec70dc2…` gleich den PC-Werten, Doku `docs/changelog-2026-09-29-n29b-kabel-push.md`. **Offen:** der **erste Übernahme-Lauf am Handy** selbst (Widget-Tipp; `hermes_diag/` existierte noch nicht) — danach sind die Übergabedateien wie vorgesehen verbraucht |
+
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -2822,3 +2824,71 @@ ohnehin nachkontrolliert.
     Gesichter-Werkzeug). **N8** (echtes Sortieren) bleibt **gesperrt** bis zu
     Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
     Dateien; die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`.
+* **29.09. ~12:00 — N29b gefahren (Kabel-Push), Planer: Hauptagent.** Beginn wie
+  in den Runden zuvor: `git pull --rebase` scheiterte an den **fremden** Dateien
+  des zweiten Agenten (`tools/agentbus/wache.py`, `docs/experimente/live_zahlen.*`,
+  neue Recherche-HTML, `docs/spec-a1-android-hey-agent.md`); nichts angefasst,
+  nichts gestasht; `git fetch` + `git rev-list --left-right --count origin/main...HEAD`
+  → **`0 0`** — es gab nichts zu holen. **Diesmal hängt ein Gerät am Kabel**
+  (`adb devices` → **`device`**), damit war der in N29 offen gebliebene
+  Übertrag fahrbar.
+  - **Erst gemessen, dann geschrieben:** md5-Abgleich aller fünf Namen zwischen
+    `~/foto_sortierung/` und `/sdcard/Download/`. Befund: **drei waren schon
+    byte-identisch** (`ereignisse.jsonl`, `fotos_dateien.json`,
+    `fotos_uebersicht.json`) → **nichts angefasst** (Idempotenz); **zwei fehlten**
+    (`beziehungen.jsonl` 12.601.994 B, `beziehungen.json` 715 B) → gepusht,
+    12.602.709 Bytes, `1 file pushed, 0 skipped` je Datei, 104,2 MB/s,
+    Quell-Zeitstempel am Ziel erhalten.
+  - **Ehrlicher Nebenbefund:** `ereignisse.jsonl` lag bereits im Download-Ordner,
+    byte-identisch zur PC-Quelle, **ohne Manifest-Zeile** — ein früherer Schreib-
+    vorgang auf das Gerät war undokumentiert. Als **Nachtrag** mit
+    `art: "festgestellt"` gebucht (Nr. `N29b-3`); der Zeilentext sagt ausdrücklich,
+    dass es **kein** Schreibvorgang dieses Laufs war.
+  - **Gegenprobe am Gerät nach dem Push** (`adb shell md5sum`/`sha256sum`):
+    `beziehungen.jsonl` md5 `6a5704c7…` / sha256 `e0d0dc40…`, `beziehungen.json`
+    md5 `313c11a9…` / sha256 `9ec70dc2…` — **beide gleich den PC-Werten**.
+  - **Übernahmeweg mit den echten Dateien nachgestellt** (der Termux-Heimordner
+    ist über das Kabel nicht lesbar, App-Sandbox): alle fünf per `adb pull` in eine
+    Wegwerf-Kopie, dann `uebergabe_uebernehmen.py` — **Trockenlauf: „wuerde
+    uebernommen 5", Fehler 0, Zielordner leer, Quelle unverändert** (nichts
+    geschrieben); **echter Lauf: `uebernommen 5 · unveraendert 0 · uebersprungen 0
+    · Fehler 0`**, je Datei sha256 gleich, Übergabedatei entfernt, Protokoll
+    geschrieben; **zweiter Lauf: `uebersprungen 5 · Fehler 0`** (Idempotenz).
+  - **Manifest:** `~/foto_sortierung/manifest_handy.jsonl` **897 → 2.525 Bytes**,
+    jetzt **5 gültige JSON-Zeilen** (2 aus N13c, `N29b-1`/`N29b-2` push,
+    `N29b-3` festgestellt); jede Zeile mit Größe, sha256, md5 und **Rückweg im
+    Klartext** (Übergabedatei am Handy löschen; PC-Originale unverändert).
+  - **Prüfbefehl selbst gefahren:** `cd backend && .venv/Scripts/python.exe -m
+    pytest tests/ -q` → **2935 passed, 3 warnings, Exit 0** (194,5 s) — **kein
+    Code** in diesem Schritt, also **0 eigene Testfunktionen**; die 2.935 sind
+    derselbe Stand wie der N29-Schlusslauf (fremde Testfunktionen des zweiten
+    Agenten inbegriffen, nicht als eigene gezählt).
+  - **Schutz:** nur kopiert; nichts gelöscht, nichts verschoben, am Gerät nichts
+    überschrieben (beide gepushten Namen waren dort noch nicht vorhanden);
+    PC-Originale byte-identisch; keine Geheimnisse, keine Inhalte dokumentiert
+    (nur Dateinamen, Größen, Prüfsummen). Doku:
+    `docs/changelog-2026-09-29-n29b-kabel-push.md`.
+  - **Offen (ehrlich):** der **erste Übernahme-Lauf am Handy selbst** — er passiert
+    beim nächsten Widget-Tipp; `hermes_diag/` existierte noch **nicht** (geprüft),
+    also hat bisher kein Übernahmelauf stattgefunden. Danach sind die
+    Übergabedateien wie vorgesehen verbraucht (das Werkzeug entfernt sie nach
+    bestandener Prüfsummenprobe).
+  - **Nächster Schritt:** der Massenlauf der Gesichter (Kandidat N27f; der zweite
+    Agent arbeitet dort bereits am Werkzeug) bzw. die Beobachtung des ersten
+    Übernahmelaufs am Handy.
+  - **Prüfer (`z-ai/glm-5.2`, andere Modellfamilie, frische Sitzung): BESTANDEN,
+    0 Abweichungen.** Er hat selbst gemessen/geprüft: die fünf Dateien am Gerät
+    (Größe **und** md5 **und** sha256) gegen die PC-Dateien, das Manifest
+    (2.525 Bytes, 5 gültige Zeilen, Pflichtfelder vollständig, Prüfsummen je
+    Zeile gegen die echten Dateien nachgerechnet), genau **eine** Löschstelle im
+    Werkzeug, **kein** Code in diesem Schritt geändert, den Übernahmeweg auf
+    **eigener** Wegwerf-Kopie selbst nachgestellt (Trockenlauf → `uebernommen 5 ·
+    Fehler 0` mit sha256-Gleichheit → `uebersprungen 5 · Fehler 0`), den
+    Prüfbefehl selbst gefahren (**2935 passed, 3 warnings, Exit 0**, 138,6 s —
+    Zeit abweichend zu den 194,5 s des Planers, Zahl gleich) und jede Zahl der
+    Doku nachgerechnet (Größen, Prüfsummen, 897 → 2.525 Bytes, 12.602.709 Bytes
+    Summe). Datenschutz: **0 Treffer** für Seriennummer, Telefonnummern, echte
+    Personen-/Orts-/Ereignisnamen in Changelog und Plan. Fremdarbeit des zweiten
+    Agenten hat er korrekt ausgegrenzt. **Eine Beobachtung, keine Abweichung:**
+    die Änderung an `HANDOVER-CLAUDE-CODE.md` sei im Changelog nicht einzeln
+    aufgeführt (sie ist Doku, kein Code) — hier nachgetragen, s. Changelog.
