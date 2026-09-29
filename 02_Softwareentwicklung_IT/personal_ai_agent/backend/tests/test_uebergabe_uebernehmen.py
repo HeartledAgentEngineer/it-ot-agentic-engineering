@@ -20,12 +20,26 @@ from __future__ import annotations
 import ast
 import hashlib
 import importlib.util
+import os
+import sys
 from pathlib import Path
 
 import pytest
 
+# ``app.services`` liegt unter ``backend/`` — wie in den Nachbardateien wird
+# dieses Verzeichnis vor dem Import an den Suchpfad gehaengt.
+BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BACKEND not in sys.path:
+    sys.path.insert(0, BACKEND)
+
+from app.services import beziehungen_service as dienst_beziehungen  # noqa: E402
+from app.services import erzaehl_service as dienst_erzaehlung  # noqa: E402
+from app.services import foto_bilder as dienst_bilder  # noqa: E402
+from app.services import foto_uebersicht as dienst_foto_uebersicht  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[2]
 WERKZEUG = REPO / "tools" / "handy" / "uebergabe_uebernehmen.py"
+STARTTERMUX = REPO / "start-termux.sh"
 
 # Erfundene Beispielnamen und -inhalte.
 DATEI_A = "fotos_dateien.json"
@@ -677,3 +691,152 @@ def test_quelltext_ohne_feste_ausgabepfade():
     quelle = WERKZEUG.read_text(encoding="utf-8")
     assert "STANDARD_AUSGABE" not in quelle
     assert "expanduser" not in quelle
+
+
+# ── Waechter: Startskript uebernimmt die vom Dienst gelesenen Datendateien ───
+#
+# Der Fehler, den diese Waechter verhindern: im Startskript stand in der
+# Dateiliste nur `fotos_dateien.json fotos_uebersicht.json`. Die drei Dateien,
+# die die Dienste am Handy tatsaechlich lesen (ereignisse.jsonl fuer die
+# Erzaehl-Diashow, beziehungen.jsonl/beziehungen.json fuer "was war am
+# <Datum>?"), fehlten — die Dienste liefen ins Leere, obwohl der PC sie
+# bereitstellte. Die erwarteten Namen kommen deshalb NICHT abgeschrieben aus
+# dem Skript, sondern aus den Dienst-Konstanten (Quelle der Wahrheit).
+
+def _erwartete_dateinamen() -> set:
+    """Die von den Diensten gelesenen Dateinamen aus den Modulkonstanten.
+
+    Alle **fuenf** Dateien, die ein Dienst am Handy aus ``~/foto_sortierung``
+    liest — nicht nur die drei in diesem Schritt ergaenzten. Sonst koennte eine
+    spaetere Aenderung die zwei aelteren Namen aus dem Startskript entfernen,
+    ohne dass ein Waechter anschlaegt. ``geschichten.jsonl`` fehlt bewusst: die
+    schreibt das Handy selbst.
+    """
+    return {
+        dienst_bilder.DATEIEN_DATEINAME,               # fotos_dateien.json
+        dienst_foto_uebersicht.UEBERSICHT_DATEINAME,   # fotos_uebersicht.json
+        dienst_erzaehlung.EREIGNISSE_DATEINAME,        # ereignisse.jsonl
+        dienst_beziehungen.BEZIEHUNGEN_DATEINAME,      # beziehungen.jsonl
+        dienst_beziehungen.UEBERSICHT_DATEINAME,       # beziehungen.json
+    }
+
+
+def test_waechter_erwartete_namen_deckt_alle_gelesenen_datendateien():
+    """Der Waechter kennt genau die fuenf Dateien, die die Dienste lesen."""
+    namen = _erwartete_dateinamen()
+    assert len(namen) == 5, f"unerwartete Namensmenge: {sorted(namen)}"
+    for alt in (dienst_bilder.DATEIEN_DATEINAME,
+                dienst_foto_uebersicht.UEBERSICHT_DATEINAME):
+        assert alt in namen, f"vorbestehende Datei fehlt im Waechter: {alt}"
+
+
+def _startskript_text() -> str:
+    """Den Quelltext von start-termux.sh lesen (Pfad relativ zur Testdatei)."""
+    assert STARTTERMUX.is_file(), f"Startskript fehlt: {STARTTERMUX}"
+    return STARTTERMUX.read_text(encoding="utf-8")
+
+
+def _uebergabedateien_im_startskript(text: str) -> list:
+    """Reine Funktion: die Dateinamen aus allen ``--dateien``-Aufrufen.
+
+    Gueltig ist nur ein reiner Dateiname: nicht leer, ohne Pfadanteil
+    (kein ``/``, ``\\``, ``~``, ``..``) und kein weiteres Argument. Verstoesst
+    ein Eintrag dagegen, wird ``ValueError`` geworfen — so kann eine
+    unvollstaendige oder falsch aufgebaute Liste nie unbemerkt durchgehen.
+    """
+    namen: list = []
+    for zeile in text.splitlines():
+        if zeile.lstrip().startswith("#") or "--dateien" not in zeile:
+            continue
+        rumpf = zeile.split("--dateien", 1)[1].replace("\\", " ")
+        for wort in rumpf.split():
+            if wort in ("||", "&&", "|", ";") or wort.startswith("-"):
+                break
+            rein = wort.strip("'\"")
+            if (not rein or "/" in rein or "\\" in rein or ".." in rein
+                    or "~" in rein):
+                raise ValueError(f"kein reiner Dateiname: {wort!r}")
+            namen.append(rein)
+    return namen
+
+
+def _ziel_argumente_im_startskript(text: str) -> list:
+    """Reine Funktion: die Werte hinter ``--ziel`` (einer je Uebergabeaufruf)."""
+    werte: list = []
+    for zeile in text.splitlines():
+        if zeile.lstrip().startswith("#") or "--ziel" not in zeile:
+            continue
+        rest = zeile.split("--ziel", 1)[1].split()
+        if rest:
+            werte.append(rest[0].strip("'\"").rstrip("\\"))
+    return werte
+
+
+def _fehlende_namen(text: str) -> list:
+    """Reine Funktion: welche erwarteten Dienst-Dateinamen im Skript fehlen."""
+    vorhanden = set(_uebergabedateien_im_startskript(text))
+    return sorted(_erwartete_dateinamen() - vorhanden)
+
+
+def _pruefe_startskript(text: str) -> list:
+    """Reine Prueffunktion: die uebernommenen Namen, sofern das Skript voll ist.
+
+    Wirft ``ValueError``, wenn ein ``--ziel``-Argument fehlt oder ein von den
+    Diensten gelesener Dateiname nicht im ``--dateien``-Aufruf steht.
+    """
+    if not _ziel_argumente_im_startskript(text):
+        raise ValueError("kein --ziel im Startskript")
+    fehlend = _fehlende_namen(text)
+    if fehlend:
+        raise ValueError(f"Dateiliste unvollstaendig, es fehlen: {fehlend}")
+    return _uebergabedateien_im_startskript(text)
+
+
+def test_waechter_startskript_uebernimmt_die_gelesenen_datendateien():
+    """Das Startskript nennt die drei von den Diensten gelesenen Dateien."""
+    namen = _pruefe_startskript(_startskript_text())
+    fehlend = sorted(_erwartete_dateinamen() - set(namen))
+    assert not fehlend, f"im Startskript fehlen: {fehlend}"
+
+
+def test_waechter_startskript_nennt_die_dateien_in_beiden_aufrufen():
+    """Mit und ohne ``--protokoll`` steht dieselbe vollstaendige Liste."""
+    text = _startskript_text()
+    zeilen = [z for z in text.splitlines()
+              if "--dateien" in z and not z.lstrip().startswith("#")]
+    assert len(zeilen) >= 2, "beide Uebergabeaufrufe muessen die Liste nennen"
+    for zeile in zeilen:
+        geparst = _uebergabedateien_im_startskript(zeile)
+        for erwartet in _erwartete_dateinamen():
+            assert erwartet in geparst, f"in Zeile fehlt {erwartet}: {zeile.strip()}"
+
+
+def test_waechter_startskript_faellt_durch_bei_fehlendem_ziel_oder_luecke():
+    """Gegenprobe: fehlt ``--ziel`` oder ein Name, schlaegt die Pruefung fehl."""
+    echt = _startskript_text()
+    # (1) Zielordner-Argument entfernt -> keine --ziel-Werte mehr
+    ohne_ziel = "\n".join(z for z in echt.splitlines() if "--ziel" not in z)
+    assert _ziel_argumente_im_startskript(ohne_ziel) == []
+    with pytest.raises(ValueError):
+        _pruefe_startskript(ohne_ziel)
+    # (2) Dateiliste unvollstaendig -> der fehlende Name wird gemeldet
+    unvollstaendig = echt.replace("ereignisse.jsonl", "")
+    assert _fehlende_namen(unvollstaendig) == [dienst_erzaehlung.EREIGNISSE_DATEINAME]
+    with pytest.raises(ValueError):
+        _pruefe_startskript(unvollstaendig)
+
+
+def test_waechter_prueffunktion_weist_pfadanteil_und_leeren_eintrag_ab():
+    """Ein Name mit Pfadanteil oder ein leerer Eintrag geht nicht durch."""
+    basis = "        --dateien fotos_dateien.json fotos_uebersicht.json"
+    with pytest.raises(ValueError):
+        _uebergabedateien_im_startskript(basis + " ../beziehungen.jsonl")
+    with pytest.raises(ValueError):
+        _uebergabedateien_im_startskript(basis + " pfad/beziehungen.json")
+    with pytest.raises(ValueError):
+        _uebergabedateien_im_startskript(basis + ' ""')
+    # Gegenprobe: reine Namen gehen durch
+    sauber = _uebergabedateien_im_startskript(
+        basis + " ereignisse.jsonl beziehungen.jsonl beziehungen.json")
+    assert sauber[-3:] == ["ereignisse.jsonl", "beziehungen.jsonl",
+                           "beziehungen.json"]

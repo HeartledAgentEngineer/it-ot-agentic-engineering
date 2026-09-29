@@ -152,11 +152,14 @@ if [ -f "$QUELLE_TOKEN" ]; then
     fi
 fi
 
-# ── Foto-Datendateien übernehmen (selbstheilend) ─────────────────────────────
+# ── Foto- und Verknüpfungs-Datendateien übernehmen (selbstheilend) ───────────
 # Warum: Das Handy braucht ~/foto_sortierung/fotos_dateien.json (Datei-Kennungen
 # für die Bildvorschau) und ~/foto_sortierung/fotos_uebersicht.json (die Zahlen
-# der Übersicht). Beide entstehen am PC (Werkzeug tools/foto_sortierung/) und
-# sind zu groß und zu privat für Git. Der Termux-Heimordner ist über das Kabel
+# der Übersicht). Dazu kommen drei Verknüpfungs-Dateien, die dieselben Dienste
+# am Handy lesen: ereignisse.jsonl (Ereignisliste für die Erzähl-Diashow),
+# beziehungen.jsonl und beziehungen.json (Antworten auf "was war am <Datum>?").
+# Alle fünf entstehen am PC (Werkzeuge tools/foto_sortierung/) und sind zu groß
+# und zu privat für Git. Der Termux-Heimordner ist über das Kabel
 # NICHT beschreibbar (App-Sandbox) — deshalb legt der PC sie per Kabel in den
 # freigegebenen Download-Ordner, und hier werden sie beim Start übernommen.
 # Genau das Muster von Archiv-Index und pCloud-Schlüssel oben, mit einer
@@ -176,11 +179,11 @@ QUELLE_DATEN="$HOME/storage/downloads"
 # der freigegebene Download-Ordner direkt (gleiches Muster wie Index und Token).
 [ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
 DATEN_GEFUNDEN=0
-for name in fotos_dateien.json fotos_uebersicht.json; do
+for name in fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json; do
     [ -f "$QUELLE_DATEN/$name" ] && DATEN_GEFUNDEN=1
 done
 if [ "$DATEN_GEFUNDEN" = "1" ]; then
-    echo "── Foto-Datendateien übernehmen ───────────────"
+    echo "── Foto- und Verknüpfungs-Datendateien übernehmen ──"
     PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
     mkdir -p "$PROTO_DATEN" 2>/dev/null || true
     if [ -d "$PROTO_DATEN" ]; then
@@ -189,13 +192,13 @@ if [ "$DATEN_GEFUNDEN" = "1" ]; then
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json \
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json \
             --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
     else
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json || true
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json || true
     fi
 fi
 

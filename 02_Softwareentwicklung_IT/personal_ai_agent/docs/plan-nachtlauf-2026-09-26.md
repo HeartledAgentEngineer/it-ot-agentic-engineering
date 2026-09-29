@@ -165,6 +165,9 @@ ohnehin nachkontrolliert.
 
 | N28 | ✅ **Antwortstufe „wer war mit wem wo"** (Folge von N27e): Dienst `backend/app/services/beziehungen_service.py` (rein lesend, nie ein Wurf) + Endpunkte `GET /api/beziehungen/uebersicht` und `GET /api/beziehungen/tag?datum=…` (immer HTTP 200, Key-Schutz wie alle `/api`-Routen) + Chat-Werkzeug `_beziehungen_tool` (an **beiden** Ketten, enge Auslöseregel: nur mit erkanntem Datum **und** Zeit-/Beleg-Bezug, sonst bleibt der Chat still) — Frage „was war am 27.12.2019?" wird aus `~/foto_sortierung/beziehungen.jsonl` beantwortet, jede Antwort mit Datum, Quelle und dem **wörtlichen** Hinweis (Mitgliedschaft ≠ Anwesenheit, Bildnähe ≠ Beziehung); Selbsttest-Block `beziehungen` | Prüfbefehl grün; Live-Lauf nennt die Zahlen; Tag ohne Aussagen ist **kein** Fehler; Datendateien nur gelesen (sha256 vor/nach gleich) | ✅ **bestanden (29.09.)** — Werkzeug/Dienst **622 Zeilen**, Router **136**, Tests **761 Zeilen / 76 Testfunktionen** (alles offline); Prüfbefehl **2894 passed, 3 warnings, Exit 0** (Baseline 2.789, selbst gefahren); **Vorbedingung erfüllt:** die kanonische Datei wurde mit dem N27e-Werkzeug geschrieben (`--schreiben`, Standardpfad außerhalb des Repos) — `beziehungen.jsonl` **12.601.994 B** / `beziehungen.json` **715 B**, 15.051 Aussagen; live **15.051 Aussagen · 645 Tage · 2016-05-04 bis 2025-08-16 · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte**, `2022-08-21` → **61** (10/6/45), `2019-12-27` → **0** (`gueltig true`, kein Fehler), `2025-06-06` → **685**, `31.02.2020` → `gueltig false`; `text_antwort` 1.223 Zeichen (≤ 2.000); Datendateien **unverändert** (sha256 vor/nach gleich), kein Netz/Bild/pCloud, keine Löschfunktion; **kein Frontend-Umbau, kein Cache-Bump**; Prüfer `z-ai/glm-5.2` (andere Modellfamilie, `openai/gpt-5.6-luna` war **zum dritten Mal** rate-limitiert): **BESTANDEN, 0 Abweichungen** — eigener Prüfbefehl 2894/Exit 0, 76 Testfunktionen, alle Live-Zahlen nachgerechnet, Datenschutz 0 echte Treffer, Verdrahtung an beiden Stellen bestätigt, Datendateien unverändert. Doku: `docs/changelog-2026-09-29-n28-beziehungen-antwortstufe.md`, Auftrag `docs/auftrag-n28-beziehungen-antwortstufe.md`. **Offen:** die Datei liegt **nur am PC** (Übergabe ans Handy ist ein eigener Schritt wie N13c); die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`; der Massenlauf der Gesichter (~15 h) bleibt eigener Schritt |
 
+| N29 | ✅ **Übergabe der Ereignis-/Verknüpfungs-Datendateien ans Handy** (Anschluss an N13c/N28): `start-termux.sh` übernimmt beim Start zusätzlich `ereignisse.jsonl` (Ereignisliste der Erzähl-Diashow, E8a), `beziehungen.jsonl` und `beziehungen.json` (Antwortstufe N28) — dasselbe Muster (sha256 hart, `*.vorher`-Sicherung, idempotent, Protokoll im Diagnose-Ordner, nichts löschen außer der eigenen Übergabedatei); dazu ein **Wächter-Test**, der die Dateiliste des Startskripts gegen die von den Diensten gelesenen Konstanten hält (kein Auseinanderlaufen), und die Berichtigung von `HANDOVER-CLAUDE-CODE.md` (N27 war dort noch „open") | Wächter-Test grün; Prüfbefehl Exit 0; die Liste deckt die von den Diensten gelesenen Dateien ab | ✅ **bestanden (29.09.)** — siehe Journal unten: `start-termux.sh` an drei Stellen erweitert (Z182/195/201), Werkzeug unverändert, **5 Wächter-Testfunktionen** (Testdatei 679 → **822 Zeilen / 74 Funktionen**), Prüfbefehl **2925 passed, Exit 0** (Schritt allein; Baseline 2920) bzw. **2935** im Schlusslauf (10 fremde Funktionen des zweiten Agenten, offengelegt), `bash -n` Exit 0; **Prüfer `z-ai/glm-5.2` (andere Familie) Runde 1: BESTANDEN, 0 blockierende Abweichungen** (2 nicht blockierende Beobachtungen → beide behoben), **Runde 2 auf dem Endstand: NACHTRAG BESTANDEN** (eigener Lauf 2935/Exit 0, eigene Gegenprobe, eine Tippfehler-Abweichung im Changelog → korrigiert). **Offen:** Kabel-Push ans Handy (kein Gerät an `adb`), Manifest-Eintrag und erster Lauf am Handy |
+
+
 ## Journal (wird fortlaufend ergänzt)
 
 * **26.09. ~04:40** — Regeln in `AGENTS.md` („Dauerlauf / Nachtarbeit")
@@ -2739,5 +2742,83 @@ ohnehin nachkontrolliert.
     **Nächster Schritt:** die kanonischen Datendateien ans **Handy** übergeben
     (wie N13c) und/oder der Massenlauf der Gesichter (Kandidat N27f, ~15 h,
     eigene Entscheidung); **N8** (echtes Sortieren) bleibt **gesperrt** bis zu
+    Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
+    Dateien; die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`.
+* **29.09. ~04:20 — N29 gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,059 USD · Prüfer:
+  `z-ai/glm-5.2`, **andere Modellfamilie**, zwei Runden).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den
+  **fremden** Dateien des zweiten Agenten (`tools/agentbus/wache.py`,
+  `docs/experimente/live_zahlen.*`); nichts angefasst, nichts gestasht;
+  `git fetch` + `git rev-list --left-right --count origin/main...HEAD` → **`0 0`**.
+  **Kein ADB-Gerät angeschlossen** (`adb devices` leer) → der Kabel-Übertrag
+  selbst ist heute **nicht** fahrbar; gebaut wurde der Werkzeug-/Startskript-Weg.
+  - **Der Befund (belegt, nicht vermutet):** das Startskript übernahm beim Start
+    nur `fotos_dateien.json` und `fotos_uebersicht.json`. Die drei Dateien, die
+    die Dienste am Handy **wirklich lesen**, standen nicht in der Liste:
+    `erzaehl_service.py:45/79` liest `~/foto_sortierung/ereignisse.jsonl`,
+    `beziehungen_service.py:50/51/54` liest `beziehungen.jsonl` + `beziehungen.json`.
+    Die Erzähl-Diashow (E8a) und die Antwortstufe (N28) wären am Handy also
+    ins Leere gelaufen, obwohl der PC die Daten bereitstellte.
+  - **Gebaut:** `start-termux.sh` an **allen drei** Stellen derselben Liste
+    erweitert — Vorbedingungs-Schleife (Z182), Aufruf **mit** `--protokoll`
+    (Z195), Aufruf **ohne** (Z201) —, jeweils `fotos_dateien.json
+    fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json`;
+    Kommentarblock und Titelzeile auf „Foto- und Verknüpfungs-Datendateien
+    übernehmen" gezogen, je Datei ein Halbsatz zum Zweck. `|| true` und die
+    Schutz-Eigenschaften unverändert; am Werkzeug
+    `tools/handy/uebergabe_uebernehmen.py` **nichts** geändert (`git diff` leer).
+    Dazu **5 Wächter-Testfunktionen** in `backend/tests/test_uebergabe_uebernehmen.py`
+    (Datei 679 → 822 Zeilen, offline, nur `tmp_path`): der Wächter zieht die
+    erwarteten Namen aus den **Dienst-Konstanten** (`foto_bilder`,
+    `foto_uebersicht`, `erzaehl_service`, `beziehungen_service`) statt sie
+    abzuschreiben, prüft beide Aufrufzeilen einzeln und weist Pfadanteil/leere
+    Einträge ab. **Doku:** `docs/changelog-2026-09-29-n29-uebergabe-verknuepfung.md`.
+    **Berichtigt:** `HANDOVER-CLAUDE-CODE.md` führte N27 noch als „open" (jetzt
+    „done (N27a–e accepted)"), die Test-Baseline war 1.937 (jetzt 2.924),
+    N29 fehlte in der Offen-Tabelle, „(steps N1...N27)" → **N29**.
+  - **Zahlen (selbst gefahren):** Baseline nach dem Stand des zweiten Agenten
+    (`79ca465`) **2920 passed, Exit 0** → **2925 passed, Exit 0** mit den 5 neuen
+    Funktionen (Testdatei allein **74**, vorher 73) → Schlusslauf des Planers
+    **2935 passed, 3 warnings, Exit 0** (167 s), weil der zweite Agent parallel
+    **10 weitere** Testfunktionen in den Baum gelegt hat (seine Commits
+    `4d95030`/`a019708` zum Gesichter-Lauf). Diese Differenz steht **ehrlich im
+    Changelog**. `bash -n start-termux.sh` → Exit 0.
+  - **Prüfer Runde 1 (`z-ai/glm-5.2`, frische Sitzung): BESTANDEN, 0 blockierende
+    Abweichungen.** Er hat selbst gefahren und geprüft: Prüfbefehl **2933/Exit 0**
+    (92,9 s) bzw. **2933** im eigenen Lauf, Testdatei allein 73/Exit 0,
+    die drei Liste-Stellen mit Zeilennummern, `|| true` an beiden Aufrufen,
+    Werkzeug-Diff **0 Zeilen**, alle fünf Namen gegen die Dienst-Konstanten
+    inkl. **Gegenprobe** (auch die zwei vorbestehenden Namen werden von Diensten
+    gelesen; keine Skript-Datei ohne lesenden Dienst, keine Dienst-Datei fehlt
+    im Skript — `geschichten.jsonl` zu Recht ausgenommen), `bash -n` Exit 0,
+    Dateigrößen/Zitate gegen die Historie, Datenschutz **0 Treffer**, keine neue
+    Löschfunktion. **Zwei nicht blockierende Beobachtungen** — beide behoben:
+    (1) beim Einfügen der N29-Zeile war der Abschnittstitel
+    `## Journal (wird fortlaufend ergänzt)` verloren gegangen (wieder da);
+    (2) der Wächter deckte nur die drei **neuen** Namen ab → auf **alle fünf**
+    erweitert (`_erwartete_dateinamen()` + neue Testfunktion, die genau fünf
+    Namen fordert), damit auch das Entfernen eines **alten** Namens auffällt.
+  - **Prüfer Runde 2 (Nachtrag, `z-ai/glm-5.2`, frische Sitzung): NACHTRAG
+    BESTANDEN.** Eigener Lauf **2935 passed, Exit 0** (131,7 s), Testdatei allein
+    **74 passed/Exit 0**, 74 Testfunktionen mit Zeilennummern, alle fünf Namen
+    über Modul+Konstante belegt, **eigene Gegenprobe** (Text ohne
+    `beziehungen.json` → `ValueError: Dateiliste unvollstaendig, es fehlen:
+    ['beziehungen.json']`), `start-termux.sh` seit Runde 1 unverändert, die
+    Arithmetik 2935 − 10 = 2925, 2925 − 5 = 2920 stimmig, Plan-Diff ohne
+    gelöschte Journal-Einträge, `bash -n` Exit 0. **Eine Abweichung:** ein
+    Tippfehler im Changelog (`pruefffunktion` mit drei f, beim Nachbessern
+    entstanden) → korrigiert.
+  - **Offen (nicht Teil des Schritts, ehrlich):** der **PC→Handy-Push per Kabel
+    (adb) wurde nicht gefahren** — kein Gerät angeschlossen; der Eintrag im
+    **Manifest** (`manifest_handy.jsonl`) fehlt entsprechend, und der erste
+    Übernahme-Lauf am Handy ist beim nächsten Widget-Tipp zu beobachten
+    (Protokoll `hermes_diag/uebergabe_letzte.txt`). Die drei Dateien liegen am
+    PC: `ereignisse.jsonl` 1.286.120 B, `beziehungen.jsonl` 12.601.994 B,
+    `beziehungen.json` 715 B.
+  - **Nächster Schritt:** der **Kabel-Push** der drei Dateien (sobald ein Gerät
+    angeschlossen ist, mit Manifest-Einträgen) und/oder der Massenlauf der
+    Gesichter (Kandidat N27f; der zweite Agent arbeitet bereits am
+    Gesichter-Werkzeug). **N8** (echtes Sortieren) bleibt **gesperrt** bis zu
     Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
     Dateien; die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`.

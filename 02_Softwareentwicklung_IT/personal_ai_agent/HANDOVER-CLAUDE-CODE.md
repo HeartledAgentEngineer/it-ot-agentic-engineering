@@ -30,7 +30,7 @@ work. Data and credentials must live on the phone so jobs run without the PC.
 | `../../AGENTS.md` (workspace root) | core rules: autonomy limits, push rules, verification |
 | `../../02_Softwareentwicklung_IT/CLAUDE.md` | area rules: verifier gate, cache-busting, roles |
 | `CLAUDE.md` in this folder | project rules: secrets, privacy, photo/face rules, duplicate rules |
-| `docs/plan-nachtlauf-2026-09-26.md` | the live plan + journal (steps N1...N27) |
+| `docs/plan-nachtlauf-2026-09-26.md` | the live plan + journal (steps N1...N29) |
 
 **Do not** rewrite `CLAUDE.md` from scratch and do not run `/init` to overwrite
 it — it is hand-maintained and contains legal/privacy decisions. Extend it.
@@ -63,7 +63,7 @@ cd 02_Softwareentwicklung_IT/personal_ai_agent/backend
 ```
 
 A git pre-commit hook (`.githooks/pre-commit`) runs this automatically for the
-project whose code is staged. Current baseline: **1,937 passed, exit 0**.
+project whose code is staged. Current baseline: **2,924 passed, exit 0**.
 "Done" means: gate green **and** docs updated **and** the evidence quoted.
 
 ---
@@ -138,7 +138,8 @@ On `cannot lock ref` / rejected push: `git pull --rebase`, then retry.
 | N24 | privacy/IT-security pass (app, Android, encryption, revocation) | planned |
 | N25 | automatic backup of the archive DBs to pCloud (encrypted, restore test) | open |
 | N26 | WhatsApp media (3,660 + 346 images) as second photo source | open |
-| N27 | **link layer**: event objects = date + theme + photos + chats + people + calendar | open, core goal |
+| N27 | **link layer**: event objects = date + theme + photos + chats + people + calendar | done (N27a–e accepted) |
+| N29 | transfer of relationship/event data files to the phone | code done, cable push pending |
 | N8 | actually move the 7,616 sorted photos (2,108 folders) | blocked: needs Sebastian's explicit go |
 | N18 | deletion tool for the 12 copy remnants (581 MB) | approved, not built |
 
