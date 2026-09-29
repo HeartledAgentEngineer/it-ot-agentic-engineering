@@ -13,6 +13,7 @@ verschoben. Die Root-README enthält die kurze Zusammenfassung und verlinkt hier
 | **Juni–Juli 2026** | **Antigravity** + Google One (2× 12 €) — Test günstigerer Alternative | Kosten sparen, aber unzufrieden mit Ergebnissen |
 | **August 2026** | **Hermes** (Agent, hier auf Termux/Handy + PC) + **OpenRouter** + Multi-Modell | Claude Code-Limits verschärft; DSGVO-konforme, kosteneffiziente Alternative gefunden; Hermes hat sich als Arbeits-Werkzeug durchgesetzt (VS Code + Cline nicht) |
 | **August 2026** | Regelumbau: Kernregeln nach `AGENTS.md`, Workflow als Skill, Permission-Riegel, Subagenten | Erkenntnis: nicht die Regelgröße kostet das Kontingent, sondern die **Anzahl der Turns** — jede Phasengrenze verlangte eine Freigabe, ohne ein einziges maschinelles Prüf-Gate |
+| **Ende September 2026** | **Planner–Worker mit Agentenbus:** Claude Code (Opus) plant und prüft, günstigere Modelle bauen, Hermes verarbeitet private Daten — abgestimmt über eine dateibasierte Mailbox | Starkes Modell nur dort, wo Denken zählt; Datenschutz als harte Rollengrenze statt als Bitte (siehe [Kapitel unten](#planner-worker-mit-agentenbus-ab-ende-september-2026)) |
 
 **Das heutige Setup:** Nicht *ein* Tool, sondern ein orchestriertes System aus Plattformen und Modellen:
 
@@ -50,7 +51,53 @@ wird **ohne Phasen-Lauf**, als kontinuierlicher **Codex/Hermes-Hybrid**:
   einem Commit, Fremdprüfung durch zweites Modell, kein Kontext-Müll im
   Arbeitsschritt (siehe unten).
 
-Das folgende Kapitel dokumentiert den früheren Phasen-Aufbau (**als Geschichte** und für Kontext); aktuell gilt oben stehender Hybrid-Ablauf.
+Seit Ende September 2026 ist dieser Hybrid zu einem **Planner–Worker-System mit
+Agentenbus** weiterentwickelt (nächstes Kapitel); Codex bleibt als Ausweich-Planer,
+wenn das Kontingent des Planers erschöpft ist.
+
+## Planner–Worker mit Agentenbus (ab Ende September 2026)
+
+**Die Idee:** Ein starkes Modell denkt, günstigere Modelle arbeiten — und jede Rolle
+darf nur die Daten sehen, die zu ihr gehören.
+
+| Rolle | Wer | Aufgabe | Darf nicht |
+|---|---|---|---|
+| **Planer / Prüfer** | Claude Code, Opus | zerlegt Aufgaben, schreibt Aufträge, prüft Ergebnisse, committet | private Daten lesen (Fotos, Chats, Archive — per Deny-Regeln gesperrt) |
+| **Code-Arbeiter** | Claude-Subagenten (Sonnet) | bauen klar umrissene Werkzeuge mit Tests auf erfundenen Daten | committen, private Daten lesen |
+| **Daten-Arbeiter** | **Hermes** (DeepSeek über OpenRouter, Zero Data Retention) | führt die Werkzeuge auf den echten privaten Daten aus, misst, meldet nur Zahlen | Code des Planers umschreiben |
+| **Ausweich-Planer** | Codex | übernimmt Planung, wenn das Opus-Kontingent erschöpft ist | — |
+
+**Der Agentenbus** (`02_Softwareentwicklung_IT/personal_ai_agent/tools/agentbus/`,
+Protokoll: [agentbus-protokoll.md](../02_Softwareentwicklung_IT/personal_ai_agent/docs/agentbus-protokoll.md))
+ist eine Mailbox aus einfachen Dateien — kein Server, kein Port, übersteht Neustarts:
+
+* `messages.jsonl` wird **nur angehängt** (Aufträge, Tipps, Fragen, Erledigt-Meldungen);
+  jeder Agent führt seine eigene Lesemarke, sodass sich zwei Leser nicht in die Quere kommen.
+* **Ansprüche** (`claim`) über atomares Anlegen einer Datei verhindern, dass zwei Agenten
+  dieselben Pfade gleichzeitig bearbeiten; `verify` verlangt, dass Prüfer ≠ Arbeiter ist.
+* Ein kleiner Wächter-Dienst stellt neue Nachrichten in Echtzeit in die Hermes-Sitzung zu;
+  auf Claude-Seite zeigt ein Sitzungs-Hook ungelesene Nachrichten an. Der Mensch liest auf
+  zwei Bildschirmen mit — jede eingehende Nachricht wird im Chat sichtbar zitiert.
+
+**Was sich in der Praxis gezeigt hat (29.09.2026):**
+
+* **Kosten:** Code entsteht im Abo des Planers; der Daten-Arbeiter startet nur Läufe und
+  meldet Zahlen. Die rechenintensive Arbeit (z. B. Gesichtserkennung über ~18.000 Fotos)
+  läuft lokal und kostet keine Tokens. Nachtläufe werden vorher an einer Stichprobe
+  hochgerechnet.
+* **Fehler werden an den Rollengrenzen sichtbar:** Ein Nachtlauf lief mit dem falschen
+  Python-Interpreter und schrieb stumm Zeilen ohne Gesichter. Der Daten-Arbeiter meldete
+  nur Zahlen, der Planer fand die Ursache (Modell nicht ladbar, Fehlerfeld nicht in der
+  Ausgabe) und baute einen **Wächter** ein, der den Lauf in diesem Fall mit Exit-Code 2
+  abbricht — mit Test, bevor der nächste Lauf startete.
+* **Nachtläufe dürfen nicht an einer Sitzung hängen:** Ein Lauf endete mit der Sitzung des
+  Agenten. Seitdem laufen lange Jobs als eigener Prozess mit Fortsetzungspunkt
+  (`--fortsetzen`: bereits verarbeitete Dateien werden übersprungen, jede Zeile wird sofort
+  geschrieben).
+* **Kollisionsschutz im selben Arbeitsbaum:** Commits nur mit ausdrücklich genannten Dateien
+  (`git commit --only …`), nie `git add -A` — mehrere Agenten arbeiten parallel im selben Repo.
+
+Das folgende Kapitel dokumentiert den früheren Phasen-Aufbau (**als Geschichte** und für Kontext).
 
 ---
 

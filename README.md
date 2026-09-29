@@ -143,8 +143,13 @@ Regelwerk ist selbst Teil des Repositories. Der Kern:
   große Coding-Blöcke übernimmt und **Hermes** die Qualitätssicherung,
   Orchestrierung und Doku übernimmt. Die Kerninstrumente bleiben erhalten
   (siehe unten) — nur der feste Phasen-Ablauf ist weg.
+- **Planner–Worker mit Agentenbus (seit Ende September 2026):** Claude Code (Opus)
+  plant und prüft, Subagenten (Sonnet) bauen Werkzeuge mit Tests auf erfundenen Daten,
+  **Hermes** (DeepSeek, Zero Data Retention) führt sie auf den privaten Daten aus und
+  meldet nur Zahlen. Abgestimmt wird über eine dateibasierte Mailbox mit Aufträgen,
+  Ansprüchen und Prüfer ≠ Arbeiter ([Kapitel →](docs/agentic-engineering-methode.md#planner-worker-mit-agentenbus-ab-ende-september-2026)).
 - **Eine Regelquelle:** `AGENTS.md` ist die werkzeugneutrale Quelle; das Werkzeug
-  heute ist **Hermes** (Termux/Handy + PC) und bei Bedarf Claude Code.
+  heute sind **Claude Code** (Planer) und **Hermes** (Termux/Handy + PC, Daten-Arbeiter).
 - **Fertig heißt verifiziert:** Ein Schritt ist erst fertig, wenn der Prüfbefehl
   des Projekts Exit-Code 0 liefert ([Tabelle →](docs/agentic-engineering-methode.md#das-verifier-gate-woran-fertig-hängt)).
 - **Fremdprüfung durch zweites Modell:** In Planung/Testing/Refactor prüft ein
