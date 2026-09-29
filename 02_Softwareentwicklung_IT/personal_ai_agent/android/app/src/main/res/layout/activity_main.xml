@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <WebView
+        android:id="@+id/webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="invisible" />
+
+    <!-- Ladebildschirm waehrend das Backend startet / bei Fehler -->
+    <LinearLayout
+        android:id="@+id/lade_ansicht"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#101418"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp">
+
+        <ProgressBar
+            android:id="@+id/lade_fortschritt"
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:id="@+id/lade_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:textColor="#E6EAF0"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/knopf_termux"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/knopf_termux_oeffnen"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/knopf_erneut"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/knopf_erneut"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

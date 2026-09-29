@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hey Agent</string>
+    <string name="knopf_termux_oeffnen">Termux öffnen</string>
+    <string name="knopf_erneut">Erneut versuchen</string>
+    <string name="key_titel">API-Schlüssel</string>
+    <string name="key_hinweis">Schlüssel des Backends (API_KEY aus der .env). Er wird verschlüsselt auf diesem Handy gespeichert.</string>
+    <string name="key_speichern">Speichern</string>
+    <string name="key_spaeter">Später</string>
+</resources>
