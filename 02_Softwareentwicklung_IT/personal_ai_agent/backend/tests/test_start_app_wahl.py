@@ -45,17 +45,33 @@ def test_app_nimmt_die_eigene_adresse_an():
     )
 
 
-def test_heyagent_kommt_vor_webapk_und_browser():
+def test_widget_oeffnet_keinen_browser_mehr():
+    """Sebastians Wunsch 29.09.2026: das Widget oeffnet nur noch Hey Agent."""
     block = _oeffnen_block()
-    pos_hey = block.index(ADRESSE)
-    pos_webapk = block.index("org.chromium.webapk")
-    pos_browser = block.index('-d "http://localhost:$PORT"')
-    assert pos_hey < pos_webapk < pos_browser, (
-        "Reihenfolge muss sein: Hey Agent -> Web-App -> Browser"
+    assert 'http://localhost:$PORT"' not in block.split("wait $SERVER_PID")[0].split(ADRESSE)[1], (
+        "nach dem Hey-Agent-Start darf kein Browser-Rueckfall mehr kommen"
+    )
+    assert "org.chromium.webapk" not in block, "Web-App-Rueckfall ist entfernt"
+
+
+def test_fehler_von_android_wird_angezeigt():
+    block = _oeffnen_block()
+    assert 'AM_AUSGABE="$(am start' in block and "$AM_AUSGABE" in block, (
+        "scheitert der App-Start, muss die Meldung von Android sichtbar sein"
     )
 
 
-def test_webapk_und_browser_bleiben_als_rueckfall():
-    block = _oeffnen_block()
-    assert "H2OOpaqueMainActivity" in block, "Rueckfall Web-App fehlt"
-    assert 'http://localhost:$PORT' in block, "Rueckfall Browser fehlt"
+STARTTEXT = STARTTERMUX.read_text(encoding="utf-8")
+
+
+def test_widget_richtet_app_start_selbst_ein():
+    """Keine Eingabe in Termux: jeder Widget-Tipp legt den profile.d-Eintrag an."""
+    assert 'sh "$PROJEKT/termux/hey-agent-einrichten.sh"' in STARTTEXT
+    pos_sync = STARTTEXT.index("── Aktualisieren")
+    pos_einr = STARTTEXT.index("hey-agent-einrichten.sh\" 2>&1")
+    assert pos_sync < pos_einr, "Einrichtung erst nach dem Git-Abgleich (neueste Fassung)"
+
+
+def test_widget_zeigt_stand_und_pull_fehler():
+    assert 'echo "Stand jetzt: $(git log --oneline -1' in STARTTEXT
+    assert "Pull fehlgeschlagen" in STARTTEXT, "ein gescheiterter Pull darf nicht still bleiben"

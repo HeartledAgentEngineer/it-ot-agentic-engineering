@@ -56,3 +56,21 @@ wenn es sie ausdrücklich anfragt. `pm list packages` liefert Hey Agent dort nic
 `assembleDebug` + 12 JUnit grün. Am Handy: `am start … -d heyagent://start` → Exit 0,
 `topResumedActivity = de.sebastian.heyagent/.MainActivity`. Dieser Aufruf lief über `adb`,
 nicht aus Termux. Der Beleg aus Termux selbst ist der nächste Widget-Tipp.
+
+## Nachtrag 2: nur noch Hey Agent, Einrichtung automatisch, Stand sichtbar
+
+**Anlass:** Sebastian will nichts von Hand in Termux eingeben, und das Widget soll nie mehr den
+Browser öffnen. Außerdem war unklar, ob das Handy die neuen Stände überhaupt zieht: Ein
+gescheiterter `git pull --ff-only` blieb im Skript bisher **still**.
+
+**Änderung in `start-termux.sh`:**
+- Ein gescheiterter Pull meldet sich jetzt mit „⚠️ Pull fehlgeschlagen“ und zeigt die lokalen
+  Änderungen (`git status --short`, höchstens 8 Zeilen).
+- Nach dem Abgleich steht immer „Stand jetzt: <Commit>“ im Fenster.
+- Jeder Widget-Tipp ruft `termux/hey-agent-einrichten.sh` (wiederholbar) und legt damit den
+  Starteintrag in `$PREFIX/etc/profile.d` an. Das darf den Serverstart nie verhindern.
+- Geöffnet wird nur noch Hey Agent über `heyagent://start`. Web-App- und Browser-Rückfall sind
+  entfernt. Scheitert der Start, zeigt das Fenster die Meldung von Android.
+
+**Prüfung:** `backend/tests/test_start_app_wahl.py` jetzt 6 Tests. Die 4 neuen sind nach der
+Änderung geschrieben, nicht vorher rot. `bash -n start-termux.sh`: Exit 0.

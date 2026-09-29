@@ -45,7 +45,10 @@ if git fetch origin --quiet 2>/dev/null; then
         echo "📤 Handy-Stand ist neuer – push (Urlaub-Entwicklung wird hochgeladen)"
         git push origin HEAD:main && echo "Stand: $(git log --oneline -1)"
     elif git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
-        git pull --ff-only --quiet && echo "Stand: $(git log --oneline -1)"
+        git pull --ff-only --quiet && echo "Stand: $(git log --oneline -1)" || {
+            echo "⚠️  Pull fehlgeschlagen – Server startet mit dem alten Stand. Lokale Änderungen:"
+            git status --short 2>/dev/null | head -8
+        }
     else
         echo
         echo "⚠️  Echte Divergenz: Handy UND Remote haben eigene Commits."
@@ -56,6 +59,14 @@ else
     echo
     echo "⚠️  git fetch fehlgeschlagen (Netz?) – Server startet mit dem alten Stand."
     echo
+fi
+echo "Stand jetzt: $(git log --oneline -1 2>/dev/null | cut -c1-70)"
+
+# Hey-Agent-App: Starteintrag in $PREFIX/etc/profile.d anlegen/erneuern, damit die
+# App das Backend selbst starten kann (wiederholbar, siehe termux/hey-agent-einrichten.sh).
+# Darf den Serverstart nie verhindern.
+if [ -f "$PROJEKT/termux/hey-agent-einrichten.sh" ]; then
+    sh "$PROJEKT/termux/hey-agent-einrichten.sh" 2>&1 | head -2 | sed 's/^/  /' || true
 fi
 
 # Speicherzugriff einmalig/einrichten (idempotent): legt ~/storage an (Symlinks
@@ -415,30 +426,19 @@ while [ $i -lt 40 ]; do
 done
 
 if command -v am >/dev/null 2>&1; then
-    # Reihenfolge: 1. native Android-App "Hey Agent" (android/, seit 29.09.2026),
-    # 2. die ältere Chrome-Web-App, 3. der Browser.
-    # Hey Agent wird über ihre eigene Adresse heyagent://start geöffnet, NICHT über
-    # `pm list packages` + `am start -n`: Termux (targetSdk 37) sieht fremde Pakete
-    # nicht (Paket-Sichtbarkeit), beides findet die App dort nicht. Eine Adresse
-    # löst Android dagegen immer auf. Ist die App nicht installiert, endet `am`
-    # mit Fehler und es geht mit den Rückfällen weiter.
-    if am start -a android.intent.action.VIEW -d "heyagent://start" >/dev/null 2>&1; then
+    # Geöffnet wird NUR die native App "Hey Agent" (android/, seit 29.09.2026), kein
+    # Browser mehr (Sebastians Wunsch 29.09.2026; die alte Chrome-Web-App ist gelöscht).
+    # Weg: die eigene Adresse heyagent://start, NICHT `pm list packages` + `am start -n`:
+    # Termux (targetSdk 37) sieht fremde Pakete nicht (Paket-Sichtbarkeit). Scheitert
+    # der Start, steht die Meldung von Android hier im Fenster statt verschluckt.
+    if AM_AUSGABE="$(am start -a android.intent.action.VIEW -d "heyagent://start" 2>&1)"; then
         echo "  ✔ App geöffnet: Hey Agent (heyagent://start)"
-    elif APP_PKG="$(pm list packages 2>/dev/null | sed 's/^package://' | grep '^org.chromium.webapk' | head -1)" \
-         && [ -n "$APP_PKG" ]; then
-        if am start -n "$APP_PKG/org.chromium.webapk.shell_apk.h2o.H2OOpaqueMainActivity" >/dev/null 2>&1; then
-            echo "  ✔ App geöffnet: $APP_PKG (eigenes Fenster, im Task-Menü schließbar)"
-        else
-            echo "  ⚠ App-Start fehlgeschlagen — versuche Browser."
-            am start -a android.intent.action.VIEW -d "http://localhost:$PORT" >/dev/null 2>&1 \
-                && echo "  ✔ im Browser geöffnet: http://localhost:$PORT"
-        fi
     else
-        am start -a android.intent.action.VIEW -d "http://localhost:$PORT" >/dev/null 2>&1 \
-            && echo "  ℹ Keine installierte App gefunden — im Browser geöffnet: http://localhost:$PORT"
+        echo "  ⚠ Hey Agent ließ sich nicht öffnen – bitte die App von Hand antippen. Android sagt:"
+        printf '%s\n' "$AM_AUSGABE" | head -4 | sed 's/^/    /'
     fi
 else
-    echo "  ℹ am nicht verfügbar — bitte im Browser aufrufen: http://localhost:$PORT"
+    echo "  ℹ am nicht verfügbar – bitte Hey Agent von Hand antippen."
 fi
 
 # Die Shell bleibt am Server: Strg+C beendet ihn wie bisher.
