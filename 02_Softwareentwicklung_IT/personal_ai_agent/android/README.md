@@ -72,6 +72,20 @@ werden abgelehnt (das Mikrofon gehört später dem nativen Dienst); `allowBackup
 `mediaPlaybackRequiresUserGesture=false` (Spec 5.5), damit das Vorlesen ohne Extra-Tipp startet.
 Zurück-Taste = WebView-Verlauf, danach beendet sie die App.
 
+**Randabstände (Android 15):** Mit `targetSdk 35` zeichnet Android jede App bis unter Status-
+und Navigationsleiste (erzwungenes „edge-to-edge"). `MainActivity.randAbstaendeSetzen()` legt
+deshalb die Systemleisten, die Kamera-Aussparung und die Tastatur als Innenabstand um den
+Inhalt. Ohne das lag die Kopfzeile der Seite unter der Benachrichtigungsleiste (erster Test am
+Handy, 29.09.2026).
+
+## App-Symbol
+
+Adaptives Symbol nur aus Vektoren (`res/mipmap-anydpi-v26/ic_launcher*.xml`, Teile in
+`res/drawable/ic_launcher_*.xml`): violetter Verlauf in der Akzentfarbe des Frontends,
+weiße Sprechblase mit Sprach-Wellen, kleiner Funke. Alles liegt im sicheren Kreis (Radius 33 dp),
+damit runde und eckige Masken nichts abschneiden. Eine einfarbige Fassung (`monochrome`) dient den
+„Designfarben"-Symbolen ab Android 13. Achtung: In XML-Kommentaren ist `--` verboten.
+
 ## Voraussetzungen zum Bauen (noch nicht installiert)
 
 - JDK 17 (vorhanden: Temurin 17.0.18)

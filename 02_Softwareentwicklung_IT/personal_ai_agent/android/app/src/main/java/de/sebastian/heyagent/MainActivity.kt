@@ -23,6 +23,8 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * Vollbild-WebView auf das lokale Backend (Termux, 127.0.0.1:8080).
@@ -53,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        randAbstaendeSetzen()
 
         webView = findViewById(R.id.webview)
         ladeAnsicht = findViewById(R.id.lade_ansicht)
@@ -89,6 +92,24 @@ class MainActivity : AppCompatActivity() {
             keyAbfragen { backendStarten() }
         } else {
             backendStarten()
+        }
+    }
+
+    /**
+     * Android 15 (targetSdk 35) zeichnet jede App bis unter Status- und Navigationsleiste.
+     * Ohne Abstand lag die Kopfzeile der Seite unter der Benachrichtigungsleiste. Der Abstand
+     * nimmt auch die Tastatur (ime) mit, damit das Eingabefeld sichtbar bleibt.
+     */
+    private fun randAbstaendeSetzen() {
+        val wurzel = findViewById<View>(android.R.id.content)
+        ViewCompat.setOnApplyWindowInsetsListener(wurzel) { v, insets ->
+            val rand = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout() or
+                    WindowInsetsCompat.Type.ime(),
+            )
+            v.setPadding(rand.left, rand.top, rand.right, rand.bottom)
+            WindowInsetsCompat.CONSUMED
         }
     }
 
