@@ -15,26 +15,28 @@
 # Rueckgaengig: die Datei $PREFIX/etc/profile.d/hey-agent.sh in einen anderen Ordner
 # verschieben, z. B.  mv "$PREFIX/etc/profile.d/hey-agent.sh" ~/hey-agent.sh.aus
 #
-# Aufruf (aus dem Projektordner):  sh termux/hey-agent-einrichten.sh
+# Aufruf: das Widget (termux/agent-start) ruft es bei jedem Tipp selbst auf.
+# Von Hand (aus dem Projektordner):  sh termux/hey-agent-einrichten.sh
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 HOOK="$PREFIX/etc/profile.d/hey-agent.sh"
 
 # ---
-if [ ! -L "$HOME/.shortcuts/agent" ]; then
-    echo "FEHLER: ~/.shortcuts/agent fehlt - erst das Widget 'agent' einrichten (siehe start-termux.sh)."
+# Voller Pfad von agent-ensure.sh aus dem eigenen Ort - NICHT ueber ~/.shortcuts/agent
+# raten: die Verknuepfung zeigt auf termux/agent-start, ihr Ordner ist termux/ und nicht
+# der Projektordner (am Handy gemessen 30.09.2026).
+HIER="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+ENSURE="$HIER/agent-ensure.sh"
+if [ ! -f "$ENSURE" ]; then
+    echo "FEHLER: $ENSURE fehlt."
     exit 1
 fi
 
 mkdir -p "$PREFIX/etc/profile.d"
-cat > "$HOOK" <<'EOF'
+cat > "$HOOK" <<EOF
 # Hey Agent: beim Oeffnen einer Termux-Sitzung das Backend sicherstellen und zur App
 # zurueckkehren (angelegt von termux/hey-agent-einrichten.sh, siehe termux/agent-ensure.sh).
-_ha_ziel="$(readlink "$HOME/.shortcuts/agent" 2>/dev/null)"
-if [ -n "$_ha_ziel" ] && [ -f "$(dirname "$_ha_ziel")/termux/agent-ensure.sh" ]; then
-    sh "$(dirname "$_ha_ziel")/termux/agent-ensure.sh" --app-zurueck
-fi
-unset _ha_ziel
+[ -f "$ENSURE" ] && sh "$ENSURE" --app-zurueck
 EOF
 
 echo "OK: $HOOK angelegt."

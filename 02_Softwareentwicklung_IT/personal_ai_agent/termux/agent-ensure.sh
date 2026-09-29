@@ -71,16 +71,27 @@ if health_ok; then
     exit 0
 fi
 
-# Projektordner bestimmen: gleiche Logik wie start-termux.sh (Symlink aufloesen).
+# Projektordner bestimmen. Zuerst ueber den eigenen Ort: das Skript liegt in
+# <Projekt>/termux/ (so ruft es der Starteintrag aus profile.d). Liegt es als Kopie
+# in ~ (Aufruf per RUN_COMMAND), hilft die Widget-Verknuepfung ~/.shortcuts/agent.
+# Sie zeigt auf termux/agent-start - ihr Ordner ist also termux/, der Projektordner
+# dessen Elternordner (am Handy gemessen 30.09.2026).
+if [ -z "${PROJEKT:-}" ]; then
+    PROJEKT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)"
+    [ -d "$PROJEKT/backend" ] || PROJEKT=""
+fi
 if [ -z "${PROJEKT:-}" ]; then
     verweis="$HOME/.shortcuts/agent"
     if [ -L "$verweis" ]; then
         ziel="$(readlink "$verweis")"
         PROJEKT="$(cd "$(dirname "$ziel")" 2>/dev/null && pwd)"
+        case "$PROJEKT" in
+            */termux) PROJEKT="$(dirname "$PROJEKT")" ;;
+        esac
     fi
 fi
 if [ -z "${PROJEKT:-}" ] || [ ! -d "$PROJEKT/backend" ]; then
-    log "FEHLER: Projektordner nicht gefunden (PROJEKT='${PROJEKT:-}'). ~/.shortcuts/agent einrichten oder PROJEKT setzen."
+    sag "FEHLER: Projektordner nicht gefunden (PROJEKT='${PROJEKT:-}'). PROJEKT setzen."
     exit 1
 fi
 

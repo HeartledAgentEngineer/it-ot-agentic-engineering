@@ -21,13 +21,19 @@ agent_antwortet() {
 }
 
 # ── Oberflaeche oeffnen ─────────────────────────────────────────────────
-# Ist die PWA installiert, faengt sie den Aufruf ab und oeffnet sich selbst
-# statt des Browsers — genau das gewuenschte "App, die keine App ist".
+# Geoeffnet wird die native App "Hey Agent" (android/, seit 29.09.2026) ueber
+# ihre eigene Adresse heyagent://start - kein Browser mehr (Sebastians Wunsch
+# 29.09.2026, die alte Chrome-Web-App ist geloescht). Eine Adresse loest
+# Android immer auf, auch wenn Termux die App als Paket nicht sehen darf.
+# Scheitert der Start, steht die Meldung von Android im Terminal.
 oberflaeche_oeffnen() {
-    if command -v termux-open-url >/dev/null 2>&1; then
-        termux-open-url "$URL" >/dev/null 2>&1 && return 0
-    fi
-    am start -a android.intent.action.VIEW -d "$URL" >/dev/null 2>&1
+    _am_ausgabe="$(am start -a android.intent.action.VIEW -d "heyagent://start" 2>&1)" && {
+        echo "✔ Hey Agent geoeffnet"
+        return 0
+    }
+    melde "Hey Agent liess sich nicht oeffnen - bitte die App von Hand antippen"
+    printf '%s\n' "$_am_ausgabe" | head -4 | sed 's/^/    /'
+    return 1
 }
 
 # ── Meldungen ───────────────────────────────────────────────────────────

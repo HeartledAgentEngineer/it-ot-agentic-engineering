@@ -115,6 +115,14 @@ else
     echo "    Nachsehen mit: git status"
 fi
 
+# Hey-Agent-App: Starteintrag in $PREFIX/etc/profile.d anlegen/erneuern, damit die
+# App das Backend selbst starten kann (wiederholbar, siehe hey-agent-einrichten.sh).
+# Laeuft nach dem Pull, damit immer die neueste Fassung wirkt; darf den Start nie
+# verhindern.
+if [ -f "$HIER/hey-agent-einrichten.sh" ]; then
+    sh "$HIER/hey-agent-einrichten.sh" 2>&1 | head -2 || true
+fi
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 

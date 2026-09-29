@@ -74,3 +74,30 @@ gescheiterter `git pull --ff-only` blieb im Skript bisher **still**.
 
 **Prüfung:** `backend/tests/test_start_app_wahl.py` jetzt 6 Tests. Die 4 neuen sind nach der
 Änderung geschrieben, nicht vorher rot. `bash -n start-termux.sh`: Exit 0.
+
+## Berichtigung (30.09.2026): Das Widget ist `termux/agent-start`, nicht `start-termux.sh`
+
+**Befund am Handy** (Screenshot der Widget-Sitzung, 30.09.2026 00:20): Das Handy stand auf
+dem neuesten Commit (`Already up to date.`, `Stand: 09cce66 …`). Trotzdem fehlten alle neuen
+Ausgaben, und der Browser ging auf. Die Ausgabe `Already up to date.` und
+`Inbox-Daemon gestartet (bidirektionaler Spiegel)` stammt aus **`termux/agent-start`**. Das
+Widget „agent“ zeigt also auf dieses Skript, nicht auf `start-termux.sh`. Die Nachträge 1 und 2
+oben haben deshalb am Widget **nichts** geändert. `start-termux.sh` bleibt ein eigener Startweg
+mit dem dort beschriebenen Verhalten.
+
+Derselbe Irrtum stand im Kommentar von `termux/agent-ensure.sh` („Symlink ~/.shortcuts/agent
+zeigt auf start-termux.sh“). Der Projektordner wurde deshalb als `termux/` berechnet, und der
+Starteintrag für die App lief ins Leere.
+
+**Änderung:**
+- `termux/gemeinsam.sh`, `oberflaeche_oeffnen`: öffnet Hey Agent über `heyagent://start`. Kein
+  Browser mehr, keine Web-App. Scheitert der Start, zeigt das Terminal die Meldung von Android.
+- `termux/agent-start`: ruft nach dem Pull `hey-agent-einrichten.sh` auf (jeder Tipp, keine
+  Eingabe nötig).
+- `termux/hey-agent-einrichten.sh`: schreibt den **vollen Pfad** von `agent-ensure.sh` in den
+  Starteintrag, statt ihn über die Verknüpfung zu raten.
+- `termux/agent-ensure.sh`: findet den Projektordner zuerst über den eigenen Ort. Die Verknüpfung
+  dient nur noch als Rückfall, dann mit Elternordner, falls sie in `termux/` zeigt.
+
+**Prüfung:** neu `backend/tests/test_widget_agent_start.py`, 4 Tests, vorher alle rot.
+`bash -n` auf allen vier Skripten: Exit 0.
