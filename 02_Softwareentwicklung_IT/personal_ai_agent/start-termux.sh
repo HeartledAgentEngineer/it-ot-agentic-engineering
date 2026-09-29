@@ -87,6 +87,19 @@ if [ -f "$QUELLE_INDEX" ]; then
     fi
 fi
 
+# ── Nachpflege-Job einrichten (selbstheilend, idempotent) ─────────────────────
+# Warum hier: Das Handy soll den Archiv-Index nachts selbst nachpflegen (N22/N23),
+# auch wenn der PC aus ist. Vom PC aus lässt sich auf dem Handy KEIN Befehl
+# starten (gemessen: adb shell am startservice ... com.termux.RUN_COMMAND →
+# „Error: Not found; no service started."; adb shell run-as com.termux →
+# „package not debuggable"). Der einzige Weg aufs Handy ist dieser Widget-Tipp.
+# Deshalb richtet der Start den Job einmalig ein; ist er schon eingerichtet,
+# tut das Einricht-Skript nichts (die Idempotenz sitzt dort).
+# Der Aufruf steht bewusst NACH dem Git-Abgleich und NACH dem Index-Block,
+# damit der Job auf den frisch übernommenen Index geht.
+# Mit „|| true": die Einrichtung darf den Serverstart NIEMALS verhindern.
+bash "$PROJEKT/termux/nachpflege-einrichten.sh" || true
+
 # ── pCloud-Zugang übernehmen (selbstheilend) ─────────────────────────────────
 # Warum: Der pCloud-Schlüssel ist ein Geheimnis und darf NICHT über Git wandern
 # (das Repo ist öffentlich). Er wird deshalb per Kabel als
