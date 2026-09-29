@@ -42,3 +42,17 @@ konnte Termux deshalb nicht fernsteuern. Außerdem wertete sie die Absage nicht 
   nicht erneut.
 - Läuft das Backend dauerhaft, kommt ein neuer Stand nur beim nächsten Start oder per Widget
   an.
+
+## Nachtrag: `profile.d` statt `~/.bashrc`
+
+**Befund am Handy:** Die App öffnete Termux sofort (Log: `RUN_COMMAND nicht verfuegbar -
+oeffne Termux sichtbar`), aber in Termux lief nichts. Die Sitzung war frisch (Prozess
+21:13:31), ihr Befehl lautet `bash -l`. Eine Login-Shell liest `~/.bashrc` nicht.
+
+**Änderung:** neues Einrichtungsskript `termux/hey-agent-einrichten.sh`. Es schreibt
+`$PREFIX/etc/profile.d/hey-agent.sh` (jedes Mal ganz neu, nie angehängt), und diese Datei liest
+jede Login-Shell über `$PREFIX/etc/profile`. Es prüft auch, ob `profile` den Ordner
+`profile.d` erwähnt, und warnt sonst. Ein vorhandener `~/.bashrc`-Eintrag schadet nicht: Läuft
+er doch, findet er das Backend schon laufend und endet sofort.
+
+**Prüfung:** 2 weitere Wächter-Tests (vorher rot), `bash -n` auf beiden Skripten Exit 0.

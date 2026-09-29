@@ -122,22 +122,26 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## Einrichtung mit dem Play-Store-Termux (einmalig, am Handy)
 
 Das Play-Store-Termux hat keinen `RunCommandService`. Die App öffnet Termux deshalb sichtbar,
-und ein Eintrag in `~/.bashrc` startet beim Öffnen der Sitzung
+und `$PREFIX/etc/profile.d/hey-agent.sh` startet beim Öffnen der Sitzung
 `termux/agent-ensure.sh --app-zurueck`: neuesten Stand ziehen (nur `pull --ff-only`, nur wenn
 das Handy hinter `origin` liegt), Backend starten, auf `/health` warten (höchstens 45 s), dann
 die App über `heyagent://start` zurückholen. Läuft das Backend schon, endet das Skript sofort,
 ohne Pull und ohne Rücksprung.
 
-1. Eintrag in `~/.bashrc` (die Zeile prüft selbst, ob er schon da ist):
-   `grep -q agent-ensure ~/.bashrc 2>/dev/null || echo '[ -L ~/.shortcuts/agent ] && sh "$(dirname "$(readlink ~/.shortcuts/agent)")/termux/agent-ensure.sh" --app-zurueck' >> ~/.bashrc`
-   Er ruft das Skript direkt im Repo auf, deshalb kommen Änderungen mit jedem Pull an. Keine
-   Kopie nach `~` nötig.
+Warum `profile.d` und nicht `~/.bashrc`: Termux startet Sitzungen als Login-Shell (`bash -l`,
+am Handy gemessen). Die liest `$PREFIX/etc/profile` und damit `profile.d/*.sh`, aber nicht
+`~/.bashrc`. Ein erster Versuch mit `~/.bashrc` lief deshalb ins Leere.
+
+1. Einmal im Projektordner ausführen (darf beliebig oft laufen):
+   `sh termux/hey-agent-einrichten.sh`
+   Der Eintrag ruft das Skript direkt im Repo auf, deshalb kommen Änderungen mit jedem Pull an.
+   Rückgängig: `profile.d/hey-agent.sh` aus dem Ordner verschieben.
 2. Akku-Optimierung für Termux ausschalten (Einstellungen → Apps → Termux → Akku →
    „Nicht eingeschränkt“). Mit der Wachhalte-Sperre der Skripte läuft das Backend dann dauerhaft,
    und die App findet es beim Öffnen sofort.
 
 Grenze: Ist in Termux schon eine **offene, untätige** Sitzung, zeigt das Öffnen nur diese an,
-und `~/.bashrc` läuft nicht erneut. Dann einmal `exit` in der Sitzung oder das Widget tippen.
+und `profile.d` läuft nicht erneut. Dann einmal `exit` in der Sitzung oder das Widget tippen.
 
 ## Einrichtung mit dem F-Droid-/GitHub-Termux (einmalig, am Handy)
 
@@ -178,8 +182,8 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   Play-Store-Termux“ oben.
 - Behoben (29.09.2026, abends): `TermuxLauncher.starte()` wertet jetzt die Rückgabe von
   `startForegroundService` aus (bei fehlendem Dienst `null`) und öffnet Termux dann sofort
-  sichtbar, statt 60 s zu warten. Der Weg über `~/.bashrc` ist am Handy noch nicht Ende zu Ende
-  belegt; das zeigt der erste Start mit ausgeschaltetem Backend.
+  sichtbar, statt 60 s zu warten (am Handy belegt: Termux öffnete sofort). Der Weg über
+  `profile.d` ist am Handy noch nicht Ende zu Ende belegt.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
 - Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt

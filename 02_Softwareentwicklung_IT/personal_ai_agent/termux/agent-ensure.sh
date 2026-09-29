@@ -9,11 +9,12 @@
 # Zwei Aufrufwege aus der Android-App "Hey Agent":
 #   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar.
 #   b) Play-Store-Termux (hat kein RUN_COMMAND): die App oeffnet Termux, und
-#      der Eintrag in ~/.bashrc ruft  agent-ensure.sh --app-zurueck
+#      $PREFIX/etc/profile.d/hey-agent.sh ruft beim Sitzungsstart
+#      agent-ensure.sh --app-zurueck
 #      Dann zieht das Skript den neuesten Stand (nur Vorspulen), startet das
 #      Backend, wartet auf /health und holt die App ueber heyagent://start
-#      zurueck. Eintrag fuer ~/.bashrc (einmalig, siehe android/README.md):
-#        grep -q agent-ensure ~/.bashrc 2>/dev/null || echo '[ -L ~/.shortcuts/agent ] && sh "$(dirname "$(readlink ~/.shortcuts/agent)")/termux/agent-ensure.sh" --app-zurueck' >> ~/.bashrc
+#      zurueck. Einrichtung einmalig: sh termux/hey-agent-einrichten.sh
+#      (NICHT ~/.bashrc: Termux startet Login-Shells, die lesen es nicht.)
 # Voller Abgleich in beide Richtungen + Neustart bleibt Sache von start-termux.sh.
 #
 # Einrichtung einmalig (in Termux):

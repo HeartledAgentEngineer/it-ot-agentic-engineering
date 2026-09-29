@@ -63,3 +63,24 @@ def test_app_oeffnet_termux_als_rueckfall():
     assert "komponente != null" in launcher, (
         "startForegroundService liefert null, wenn der Termux-Dienst fehlt - das muss zaehlen"
     )
+
+
+EINRICHTEN = REPO / "termux" / "hey-agent-einrichten.sh"
+
+
+def test_einrichtung_nutzt_profile_d_statt_bashrc():
+    """Termux startet Sitzungen als Login-Shell (`bash -l`, am Handy gemessen) - die
+    liest ~/.bashrc nicht. $PREFIX/etc/profile.d/*.sh liest jede Login-Shell."""
+    text = EINRICHTEN.read_text(encoding="utf-8")
+    assert "$PREFIX/etc/profile.d/hey-agent.sh" in text, "Hook muss nach profile.d"
+    assert "--app-zurueck" in text, "Hook muss agent-ensure.sh --app-zurueck rufen"
+    assert ".bashrc" not in text.split("# ---")[-1], "kein Schreiben in ~/.bashrc"
+    for verboten in ("rm ", "reset --hard", "push", "--force"):
+        assert verboten not in text, f"verbotener Befehl in der Einrichtung: {verboten}"
+
+
+def test_einrichtung_ist_wiederholbar():
+    """Mehrfach ausfuehren darf nichts doppeln: die Hook-Datei wird ganz neu
+    geschrieben (>), nie angehaengt (>>)."""
+    text = EINRICHTEN.read_text(encoding="utf-8")
+    assert '> "$HOOK"' in text and '>> "$HOOK"' not in text
