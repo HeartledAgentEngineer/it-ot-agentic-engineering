@@ -88,6 +88,25 @@ Aufruf (Kommandozeile) — **Standard ist der Trockenlauf** (kein Download)::
         --plan ~/foto_sortierung/sortierplan.json \
         --vektoren ~/foto_sortierung/personen_vektoren.jsonl --schreiben
 
+Fortsetzen nach Abbruch (29.09.2026):
+  Ein langer Lauf (~9.400 Bilder, ~2,4 s je Bild) muss nach einem Abbruch
+  nicht von vorn beginnen. ``--fortsetzen`` liest die vorhandene
+  ``--vektoren``-Datei tolerant ein (``vorhandene_ids_lesen``: eine kaputte
+  oder abgeschnittene Zeile wird gezaehlt und ignoriert), sammelt die
+  ``bild_id``s, filtert die Plan-Auswahl auf die **noch fehlenden** Bilder
+  (``offene_eintraege`` — **vor** ``--max-bilder``, das Limit gilt also fuer
+  die offenen) und schreibt im **Anhaengemodus**. Endet die Datei nach einem
+  Abbruch mitten in einer Zeile ohne Zeilenende, wird vor dem Anhaengen ein
+  ``"\\n"`` gesetzt, damit die naechste Zeile nicht an die halbe klebt (die
+  halbe Zeile bleibt als ignorierbare Zeile stehen — es wird nichts
+  abgeschnitten oder geloescht). Nach **jeder** Zeile wird geflusht; ein
+  Abbruch kostet hoechstens das aktuelle Bild. Ohne ``--fortsetzen`` bleibt
+  alles wie bisher (die Datei wird ueberschrieben). Die Konsole nennt zusaetzlich
+  ``bereits vorhanden: N, noch offen: M`` (nur Zahlen)::
+
+      # Stapel von 500 noch fehlenden Bildern, beliebig oft wiederholbar
+      .venv/Scripts/python.exe tools/foto_sortierung/gesicht_erkennen.py           --plan ~/foto_sortierung/sortierplan.json           --vektoren ~/foto_sortierung/personen_vektoren.jsonl           --schreiben --fortsetzen --max-bilder 500
+
 Als Modul (Tests, Skripte): ``main(argv=[...])``.
 """
 
@@ -721,22 +740,87 @@ def vektoren_fuer_stapel(bilder, modell, max_bilder=None, abbruch=None):
     return StapelLauf(bilder, modell, max_bilder=max_bilder, abbruch=abbruch)
 
 
-def vektoren_schreiben(pfad: str, zeilen) -> int:
+def _endet_mit_zeilenende(pfad: str) -> bool:
+    """Sagen, ob die Datei leer ist oder mit ``"\\n"`` endet (nur Text, nur lesend)."""
+    groesse = os.path.getsize(pfad)
+    if groesse == 0:
+        return True
+    try:
+        with open(pfad, encoding="utf-8", newline="") as datei:
+            datei.seek(groesse - 1)
+            return datei.read(1) == "\n"
+    except (OSError, ValueError):
+        return False
+
+
+def vorhandene_ids_lesen(pfad: str):
+    """Die ``bild_id``s einer Vektordatei tolerant lesen -> ``(ids, kaputt)``.
+
+    Nur lesend. Fehlt die Datei, kommt ``(set(), 0)``. Leere Zeilen zaehlen
+    nicht; eine Zeile, die kein JSON-Objekt mit nichtleerer ``bild_id`` ist
+    (typisch: abgeschnittene letzte Zeile nach einem Abbruch), wird
+    **gezaehlt** (``kaputt``) und ignoriert. Kennungen sind Zeichenketten.
+    """
+    ids: set = set()
+    kaputt = 0
+    if not isinstance(pfad, str) or not os.path.isfile(pfad):
+        return ids, kaputt
+    with open(pfad, encoding="utf-8", errors="replace") as datei:
+        for zeile in datei:
+            if not zeile.strip():
+                continue
+            try:
+                daten = json.loads(zeile)
+            except ValueError:
+                kaputt += 1
+                continue
+            kennung = daten.get("bild_id") if isinstance(daten, dict) else None
+            if isinstance(kennung, (str, int)) and not isinstance(kennung, bool)                     and str(kennung).strip():
+                ids.add(str(kennung).strip())
+            else:
+                kaputt += 1
+    return ids, kaputt
+
+
+def offene_eintraege(auswahl, vorhandene_ids) -> list:
+    """Aus der Plan-Auswahl die Eintraege ohne vorhandene Vektorzeile behalten.
+
+    Reine Funktion; Reihenfolge der Auswahl bleibt. Verglichen wird die
+    ``fileid`` als Zeichenkette mit den ``bild_id``s der Vektordatei.
+    """
+    bekannt = {str(kennung) for kennung in (vorhandene_ids or ())}
+    return [eintrag for eintrag in auswahl or []
+            if isinstance(eintrag, dict)
+            and str(eintrag.get("fileid")) not in bekannt]
+
+
+def vektoren_schreiben(pfad: str, zeilen, anhaengen: bool = False) -> int:
     """Vektorzeilen als **Text** (JSONL) schreiben — nur **ausserhalb** des Repos.
 
     Schreibt ausschliesslich die Zeilen selbst (Text, UTF-8); es entstehen
     **keine** Bilddateien. Ein Pfad im Repo ergibt eine deutsche Meldung und
     ``SystemExit(2)`` (ueber ``personen_cluster.pruefe_ausserhalb_repo``).
     Rueckgabe ist die Anzahl geschriebener Zeilen.
+
+    Standard ist Ueberschreiben (``"w"``). Mit ``anhaengen=True`` (Fortsetzen
+    nach Abbruch) wird angehaengt; endet eine vorhandene Datei nicht mit
+    ``"\\n"`` (abgeschnittene letzte Zeile), wird zuerst ein Zeilenende
+    gesetzt, damit die naechste Zeile nicht an die halbe klebt. Nach jeder
+    Zeile wird geflusht — ein Abbruch verliert hoechstens das aktuelle Bild.
     """
     _personen_cluster().pruefe_ausserhalb_repo(pfad)
     ordner = os.path.dirname(os.path.abspath(pfad))
     if ordner:
         os.makedirs(ordner, exist_ok=True)
     anzahl = 0
-    with open(pfad, "w", encoding="utf-8") as datei:
+    davor_offen = bool(anhaengen) and os.path.isfile(pfad)         and not _endet_mit_zeilenende(pfad)
+    with open(pfad, "a" if anhaengen else "w", encoding="utf-8") as datei:
+        if davor_offen:
+            datei.write("\n")
+            datei.flush()
         for zeile in zeilen:
             datei.write(json.dumps(zeile, ensure_ascii=False) + "\n")
+            datei.flush()
             anzahl += 1
     return anzahl
 
@@ -1148,6 +1232,10 @@ def main(argv=None) -> int:
                                "Foto). Wirkt nur im Referenzseiten-Weg; im "
                                "Vektorzeilen-Lauf ist vor dem Download keine "
                                "bbox bekannt. Standard: ganzes Foto")
+    zerleger.add_argument("--fortsetzen", dest="fortsetzen", action="store_true",
+                          help="vorhandene --vektoren-Datei lesen, nur noch "
+                               "fehlende Bilder verarbeiten und anhaengen "
+                               "(--max-bilder gilt fuer die offenen)")
     zerleger.add_argument("--trocken", dest="trocken", action="store_true",
                           help="nichts schreiben (hat Vorrang vor --schreiben)")
     zerleger.add_argument("--schreiben", dest="schreiben", action="store_true",
@@ -1162,8 +1250,20 @@ def main(argv=None) -> int:
 
     try:
         eintraege = plan_lesen(args.plan)
-        auswahl = plan_auswaehlen(eintraege, jahr=args.jahr,
-                                  je_jahr=args.je_jahr, max_bilder=args.max_bilder)
+        vorhanden = 0
+        offen = 0
+        if args.fortsetzen:
+            # Erst auf die noch fehlenden Bilder filtern, DANN deckeln.
+            ids, kaputt = vorhandene_ids_lesen(args.vektoren)
+            alle = plan_auswaehlen(eintraege, jahr=args.jahr,
+                                   je_jahr=args.je_jahr, max_bilder=None)
+            offene = offene_eintraege(alle, ids)
+            vorhanden, offen = len(ids), len(offene)
+            auswahl = plan_auswaehlen(offene, max_bilder=args.max_bilder)
+        else:
+            auswahl = plan_auswaehlen(eintraege, jahr=args.jahr,
+                                      je_jahr=args.je_jahr,
+                                      max_bilder=args.max_bilder)
 
         print("Gesichtserkennung N9b — "
               + ("Trockenlauf (es wird NICHTS geholt und NICHTS geschrieben)"
@@ -1172,6 +1272,11 @@ def main(argv=None) -> int:
         if args.jahr is not None:
             print(f"gefiltert auf das Jahr {args.jahr}")
         print(f"Vektorzeilen-Ziel: {args.vektoren}")
+        if args.fortsetzen:
+            print(f"Fortsetzen: bereits vorhanden: {vorhanden}, "
+                  f"noch offen: {offen}")
+            if kaputt:
+                print(f"kaputte Zeilen in der Vektordatei (ignoriert): {kaputt}")
         for jahr in sorted(jahr_uebersicht(auswahl),
                            key=lambda wert: (wert is None, wert)):
             name = "ohne Jahr" if jahr is None else str(jahr)
@@ -1193,8 +1298,17 @@ def main(argv=None) -> int:
         bilder = [(eintrag["fileid"], (lambda f=eintrag["fileid"]: hole_fuer(f)))
                   for eintrag in auswahl]
         lauf = vektoren_fuer_stapel(bilder, modell, max_bilder=args.max_bilder)
-        zeilen = list(lauf)
-        anzahl = vektoren_schreiben(args.vektoren, zeilen)
+        zeilen: list = []
+
+        def gesammelt():
+            # Zeile fuer Zeile durchreichen: jede wird sofort geschrieben und
+            # geflusht, ein Abbruch verliert hoechstens das aktuelle Bild.
+            for zeile in lauf:
+                zeilen.append(zeile)
+                yield zeile
+
+        anzahl = vektoren_schreiben(args.vektoren, gesammelt(),
+                                    anhaengen=bool(args.fortsetzen))
         uebersicht = massen_uebersicht(zeilen)
         zaehler = lauf.zaehler
         print(f"Bilder gesamt: {zaehler['bilder_gesamt']}   "

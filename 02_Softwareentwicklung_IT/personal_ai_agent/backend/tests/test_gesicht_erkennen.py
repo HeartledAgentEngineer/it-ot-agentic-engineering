@@ -1219,6 +1219,142 @@ def test_quelle_nennt_die_kachelquelle_in_klartext():
     assert "Gesichtsausschnitt je Gesicht" not in QUELLE
 
 
+# ── 10b. Fortsetzen nach Abbruch (29.09.2026) ─────────────────────────────
+
+def _vektorzeile(kennung) -> str:
+    return json.dumps({"bild_id": str(kennung), "breite": 1, "hoehe": 1,
+                       "gesichter": []}) + "\n"
+
+
+def _main_mit_dienst(monkeypatch, ids):
+    """``main`` mit eingestecktem Modell und Dienst (kein cv2, kein Netz)."""
+    dienst = AttrappeDienst({str(i): _png_bytes() for i in ids})
+    monkeypatch.setattr(gs, "GesichtsModell",
+                        lambda modelle=None: AttrappeModell([_gesicht()]))
+    monkeypatch.setattr(gs, "_pcloud_dienst", lambda: dienst)
+    return dienst
+
+
+def _zeilen_lesen(pfad: Path):
+    return pfad.read_text(encoding="utf-8").split("\n")
+
+
+def test_vorhandene_ids_lesen_tolerant(tmp_path):
+    datei = tmp_path / "v.jsonl"
+    datei.write_text(_vektorzeile(1) + "\n" + _vektorzeile(2)
+                     + '{"bild_id": "3", "gesi', encoding="utf-8")
+    ids, kaputt = gs.vorhandene_ids_lesen(str(datei))
+    assert ids == {"1", "2"}
+    assert kaputt == 1
+
+
+def test_vorhandene_ids_lesen_fehlende_datei(tmp_path):
+    assert gs.vorhandene_ids_lesen(str(tmp_path / "fehlt.jsonl")) == (set(), 0)
+
+
+def test_offene_eintraege_ueberspringt_vorhandene():
+    auswahl = [{"fileid": str(i), "jahr": 2020} for i in (1, 2, 3, 4)]
+    offen = gs.offene_eintraege(auswahl, {"2", "4"})
+    assert [e["fileid"] for e in offen] == ["1", "3"]
+    assert gs.offene_eintraege(auswahl, set()) == auswahl
+
+
+def test_anhaengen_flusht_je_zeile(tmp_path):
+    ziel = tmp_path / "v.jsonl"
+    ziel.write_text(_vektorzeile(1), encoding="utf-8")
+    beobachtet = []
+
+    def erzeuger():
+        for i in (2, 3):
+            # Beim Anfordern der Zeile i steht die vorige schon auf der Platte.
+            beobachtet.append(ziel.read_text(encoding="utf-8").count("\n"))
+            yield {"bild_id": str(i), "gesichter": []}
+
+    anzahl = gs.vektoren_schreiben(str(ziel), erzeuger(), anhaengen=True)
+    assert anzahl == 2
+    assert beobachtet == [1, 2]
+    assert ziel.read_text(encoding="utf-8").count("\n") == 3
+
+
+def test_ohne_anhaengen_wird_ueberschrieben(tmp_path):
+    ziel = tmp_path / "v.jsonl"
+    ziel.write_text(_vektorzeile(1) + _vektorzeile(2), encoding="utf-8")
+    gs.vektoren_schreiben(str(ziel), [{"bild_id": "9", "gesichter": []}])
+    assert [json.loads(z)["bild_id"] for z in _zeilen_lesen(ziel) if z] == ["9"]
+
+
+def test_main_fortsetzen_ueberspringt_vorhandene(tmp_path, monkeypatch, capsys):
+    plan = _plan_schreiben(tmp_path / "plan.json",
+                           [{"fileid": i, "jahr": 2020} for i in (1, 2, 3, 4)])
+    ziel = tmp_path / "v.jsonl"
+    ziel.write_text(_vektorzeile(1) + _vektorzeile(2), encoding="utf-8")
+    dienst = _main_mit_dienst(monkeypatch, (1, 2, 3, 4))
+    code = gs.main(["--plan", str(plan), "--vektoren", str(ziel),
+                    "--schreiben", "--fortsetzen", "--max-bilder", "100"])
+    assert code == 0
+    assert [a[0] for a in dienst.aufrufe] == ["3", "4"]
+    ids = [json.loads(z)["bild_id"] for z in _zeilen_lesen(ziel) if z]
+    assert ids == ["1", "2", "3", "4"]
+    assert "bereits vorhanden: 2, noch offen: 2" in capsys.readouterr().out
+
+
+def test_main_fortsetzen_max_bilder_wirkt_auf_offene(tmp_path, monkeypatch):
+    plan = _plan_schreiben(tmp_path / "plan.json",
+                           [{"fileid": i, "jahr": 2020} for i in (1, 2, 3, 4, 5)])
+    ziel = tmp_path / "v.jsonl"
+    ziel.write_text(_vektorzeile(1) + _vektorzeile(2), encoding="utf-8")
+    dienst = _main_mit_dienst(monkeypatch, (1, 2, 3, 4, 5))
+    gs.main(["--plan", str(plan), "--vektoren", str(ziel),
+             "--schreiben", "--fortsetzen", "--max-bilder", "2"])
+    assert [a[0] for a in dienst.aufrufe] == ["3", "4"]
+    ids = [json.loads(z)["bild_id"] for z in _zeilen_lesen(ziel) if z]
+    assert ids == ["1", "2", "3", "4"]
+
+
+def test_main_fortsetzen_abgeschnittene_letzte_zeile(tmp_path, monkeypatch,
+                                                     capsys):
+    plan = _plan_schreiben(tmp_path / "plan.json",
+                           [{"fileid": i, "jahr": 2020} for i in (1, 2, 3)])
+    ziel = tmp_path / "v.jsonl"
+    # Zeile 2 ist mitten im Schreiben abgebrochen, ohne Zeilenende.
+    ziel.write_text(_vektorzeile(1) + '{"bild_id": "2", "breite": 1, "ho',
+                    encoding="utf-8")
+    dienst = _main_mit_dienst(monkeypatch, (1, 2, 3))
+    gs.main(["--plan", str(plan), "--vektoren", str(ziel),
+             "--schreiben", "--fortsetzen", "--max-bilder", "100"])
+    assert [a[0] for a in dienst.aufrufe] == ["2", "3"]   # 2 zaehlt als offen
+    zeilen = [z for z in _zeilen_lesen(ziel) if z]
+    gueltig, kaputt = [], []
+    for z in zeilen:
+        try:
+            gueltig.append(json.loads(z)["bild_id"])
+        except ValueError:
+            kaputt.append(z)
+    # Die halbe Zeile bleibt ALLEIN stehen (nichts geloescht), nichts klebt an ihr.
+    assert len(kaputt) == 1 and kaputt[0].startswith('{"bild_id": "2"')
+    assert gueltig == ["1", "2", "3"]
+    assert "bereits vorhanden: 1, noch offen: 2" in capsys.readouterr().out
+    # Ein weiterer Lauf hat nichts mehr zu tun.
+    dienst.aufrufe.clear()
+    gs.main(["--plan", str(plan), "--vektoren", str(ziel),
+             "--schreiben", "--fortsetzen"])
+    assert dienst.aufrufe == []
+
+
+def test_main_ohne_fortsetzen_ueberschreibt_wie_bisher(tmp_path, monkeypatch,
+                                                       capsys):
+    plan = _plan_schreiben(tmp_path / "plan.json",
+                           [{"fileid": i, "jahr": 2020} for i in (1, 2)])
+    ziel = tmp_path / "v.jsonl"
+    ziel.write_text(_vektorzeile(1) + _vektorzeile(99), encoding="utf-8")
+    dienst = _main_mit_dienst(monkeypatch, (1, 2))
+    gs.main(["--plan", str(plan), "--vektoren", str(ziel), "--schreiben"])
+    assert [a[0] for a in dienst.aufrufe] == ["1", "2"]
+    ids = [json.loads(z)["bild_id"] for z in _zeilen_lesen(ziel) if z]
+    assert ids == ["1", "2"]
+    assert "bereits vorhanden" not in capsys.readouterr().out
+
+
 # ── 11. Harte Regeln: Abwesenheit im Quelltext ────────────────────────────
 
 def test_quelle_loescht_nichts():
