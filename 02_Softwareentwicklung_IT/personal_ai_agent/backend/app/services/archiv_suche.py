@@ -443,6 +443,160 @@ class ArchivSuche:
         treffer.sort(key=lambda x: (-x[0], x[1]))
         return [t for _, _, t in treffer][:top_k]
 
+    # ── Erwähnungssuche: eine Person, nicht nur das Gegenüber ────────────
+    def erwaehnung_treffer(self, name: str, top_k: int = 8) -> Dict[str, Any]:
+        """Fundstellen zu einem Namen ueber **alle** Quellen.
+
+        Der Unterschied zu ``volltext_suche``: Hier wird **nicht** nach dem
+        Gegenueber eines Gespraechs gefragt, sondern nach **Erwaehnungen** des
+        Namens irgendwo im Archiv — auch in Gespraechen, die von etwas ganz
+        anderem handeln und in deren Titel der Name gar nicht vorkommt. Nur so
+        findet „was habe ich mit X gemacht?" die Fundstellen, obwohl es keinen
+        eigenen Chat mit X gibt.
+
+        Rein lesend (``mode=ro``), ohne Netz und ohne Einbettung. Faengt jeden
+        Fehler ab und liefert trotzdem das volle Feldgeruest mit ``fehler`` —
+        nie ein Wurf, nie ein stiller Rueckfall.
+
+        Args:
+            name: Der gesuchte Name (mindestens drei Zeichen).
+            top_k: Wie viele Fundstellen hoechstens mitkommen. ``anzahl`` und
+                ``je_quelle`` zaehlen immer **alle** Treffer im Index.
+        """
+        name = (name or "").strip()
+        ergebnis: Dict[str, Any] = {
+            "name": name,
+            "treffer": [],
+            "je_quelle": {},
+            "anzahl": 0,
+            "eigene_chats": 0,
+            "eigene_chat_titel": [],
+            "nur_erwaehnungen": False,
+            "hinweis": "",
+            "fehler": None,
+        }
+        if len(name) < MIN_LAENGE:
+            ergebnis["hinweis"] = (
+                "Kein Name zum Suchen uebergeben — eine Erwaehnungssuche "
+                "braucht mindestens drei Zeichen."
+            )
+            return ergebnis
+        if not self.is_available:
+            ergebnis["fehler"] = "Archiv-Index nicht erreichbar."
+            ergebnis["hinweis"] = (
+                "Der Archiv-Index ist nicht erreichbar — zur Erwaehnungssuche "
+                "kann gerade nichts gesagt werden."
+            )
+            return ergebnis
+        anfrage = self._fts_anfrage(name)
+        if not anfrage:
+            ergebnis["hinweis"] = f"'{name}' ergibt keinen Suchbegriff."
+            return ergebnis
+
+        try:
+            with self._ro() as db:
+                # Ein Durchgang je Quelle: zaehlt ALLE Fundstellen, nicht nur
+                # die angezeigten — sonst waere „113 x" eine Anzeigegrenze.
+                je_quelle_zeilen = db.execute(
+                    """
+                    SELECT c.source AS source, count(*) AS anzahl
+                    FROM chunks_fts f
+                    JOIN chunks c ON c.id = f.rowid
+                    WHERE chunks_fts MATCH ?
+                    GROUP BY c.source
+                    ORDER BY anzahl DESC, c.source
+                    """,
+                    (anfrage,),
+                ).fetchall()
+                zeilen = db.execute(
+                    """
+                    SELECT c.*, bm25(chunks_fts) AS rang
+                    FROM chunks_fts f
+                    JOIN chunks c ON c.id = f.rowid
+                    WHERE chunks_fts MATCH ?
+                    ORDER BY bm25(chunks_fts)
+                    LIMIT ?
+                    """,
+                    (anfrage, max(int(top_k or 1), 1)),
+                ).fetchall()
+                titel_zeilen = db.execute(
+                    "SELECT conversation_id, title FROM gespraeche "
+                    "WHERE title IS NOT NULL AND title <> ''"
+                ).fetchall()
+        except sqlite3.Error as e:
+            logger.warning("Erwaehnungssuche fehlgeschlagen (%s): %s", name, e)
+            ergebnis["fehler"] = str(e)
+            ergebnis["hinweis"] = (
+                "Die Erwaehnungssuche ist gerade fehlgeschlagen — dazu kann "
+                "gerade nichts gesagt werden."
+            )
+            return ergebnis
+
+        je_quelle: Dict[str, int] = {}
+        for z in je_quelle_zeilen:
+            je_quelle[z["source"] or "unbekannt"] = int(z["anzahl"] or 0)
+        anzahl = sum(je_quelle.values())
+
+        # Eigene Chats: Gespraeche, deren *Titel* den Namen traegt. Das ist
+        # die einzige belastbare Auskunft darueber, ob es einen Chat MIT der
+        # Person gibt — der Titel stammt aus dem Export, nicht aus Deutung.
+        normalisiert = _normalisiere(name)
+        eigene_ids: List[str] = []
+        eigene_titel: List[str] = []
+        for z in titel_zeilen:
+            titel = z["title"] or ""
+            if normalisiert and normalisiert in _normalisiere(titel):
+                kennung = z["conversation_id"] or ""
+                if kennung and kennung not in eigene_ids:
+                    eigene_ids.append(kennung)
+                    eigene_titel.append(titel)
+        eigene_menge = set(eigene_ids)
+
+        treffer: List[Dict[str, Any]] = []
+        for z in zeilen:
+            t = self._chunk_zu_treffer(z, weg="erwaehnung")
+            if not t:
+                continue
+            kennung = z["conversation_id"] or ""
+            treffer.append({
+                "quelle": t["source"] or "unbekannt",
+                "datum": t["datum"],
+                "titel": t["title"],
+                "text": t["text"],
+                "im_eigenen_chat": kennung in eigene_menge,
+                "conversation_id": kennung,
+                "chunk_id": z["id"],
+            })
+
+        ergebnis["treffer"] = treffer
+        ergebnis["je_quelle"] = je_quelle
+        ergebnis["anzahl"] = anzahl
+        ergebnis["eigene_chats"] = len(eigene_ids)
+        ergebnis["eigene_chat_titel"] = eigene_titel[:5]
+        nur_erwaehnungen = anzahl > 0 and not eigene_ids
+        ergebnis["nur_erwaehnungen"] = nur_erwaehnungen
+        if anzahl == 0:
+            ergebnis["hinweis"] = (
+                f"'{name}' kommt im Archiv in keiner Quelle vor — es gibt "
+                "dazu keine Fundstelle."
+            )
+        elif nur_erwaehnungen:
+            ergebnis["hinweis"] = (
+                f"'{name}' kommt nur als Erwähnung in fremden Gesprächen vor; "
+                "einen eigenen Chat gibt es nicht."
+            )
+        else:
+            ergebnis["hinweis"] = (
+                f"'{name}' kommt im Archiv vor; {len(eigene_ids)} eigene "
+                "Gespräche tragen den Namen im Titel."
+            )
+
+        logger.info(
+            "Erwaehnungssuche '%s' → %d Fundstelle(n), %d eigene(r) Chat(s)",
+            name, anzahl, len(eigene_ids),
+        )
+        return ergebnis
+
     # ── Frage einbetten (OpenRouter) ─────────────────────────────────────
     def _schluessel(self) -> str:
         try:
@@ -1283,6 +1437,68 @@ _REGELN = {
         "zur Einbettung."
     ),
 }
+
+
+def erwaehnungs_text(ergebnis: Dict[str, Any], hoechstens: int = 5) -> str:
+    """Aus einem Erwähnungsergebnis den Notiztext fuer das Chat-Werkzeug bauen.
+
+    **Reine** Funktion: kein Index, kein Netz, kein DOM — sie liest nur das
+    uebergebene Dict und ist deshalb ohne Archiv pruefbar. Sie wirft nie und
+    behauptet nie etwas, was nicht dasteht: Bei null Fundstellen kommt ein
+    ehrlicher Satz statt einer erfundenen Fundstelle.
+
+    Args:
+        ergebnis: Rueckgabe von :meth:`ArchivSuche.erwaehnung_treffer`.
+        hoechstens: Wie viele Fundstellen der Text auflistet.
+    """
+    ergebnis = ergebnis or {}
+    name = (ergebnis.get("name") or "").strip() or "diese Person"
+    fehler = ergebnis.get("fehler")
+    if fehler:
+        return (
+            f"Erwähnungssuche zu '{name}': {fehler} Dazu kann gerade nichts "
+            "gesagt werden — erfinde KEINE Archiv-Fundstellen."
+        )
+
+    anzahl = int(ergebnis.get("anzahl") or 0)
+    if anzahl <= 0:
+        return (
+            f"'{name}' kommt im Archiv nicht vor — 0 Fundstellen, und kein "
+            "Gespraech traegt den Namen im Titel. Beantworte die Frage aus "
+            "deinem allgemeinen Wissen — erfinde aber KEINE Fundstelle."
+        )
+
+    je_quelle = ergebnis.get("je_quelle") or {}
+    quellen_txt = ", ".join(
+        f"{quelle} {zahl}" for quelle, zahl in je_quelle.items() if zahl
+    )
+    eigene_chats = int(ergebnis.get("eigene_chats") or 0)
+
+    zeilen = [
+        f"{name} kommt {anzahl} × im Archiv vor"
+        + (f" ({quellen_txt})" if quellen_txt else "")
+        + f". Ein eigener Chat mit {name}: {'ja' if eigene_chats else 'nein'}."
+    ]
+    if ergebnis.get("nur_erwaehnungen"):
+        zeilen.append(
+            "Es gibt keinen eigenen Chat mit dieser Person; die Fundstellen "
+            "sind Erwähnungen in anderen Gesprächen — sie belegen, dass über "
+            "sie gesprochen wurde, nicht dass sie dabei war."
+        )
+
+    grenze = max(int(hoechstens or 0), 0)
+    for t in list(ergebnis.get("treffer") or [])[:grenze]:
+        quelle = (t.get("quelle") or "unbekannt").strip() or "unbekannt"
+        datum = (t.get("datum") or "ohne Datum").strip() or "ohne Datum"
+        titel = (t.get("titel") or "ohne Titel").strip() or "ohne Titel"
+        ausschnitt = (t.get("text") or "").strip().replace("\n", " ")
+        zeilen.append(f"[{quelle}, {datum}] {titel} — {ausschnitt}")
+
+    zeilen.append(
+        "Zitiere dem Nutzer diese Fundstellen mit Quelle und Datum — und nur "
+        "das, was dort steht."
+    )
+    return "\n".join(zeilen)
 
 
 def treffer_schluessel(treffer: Dict[str, Any]) -> Tuple[str, int]:

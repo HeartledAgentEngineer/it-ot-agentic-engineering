@@ -1034,6 +1034,110 @@ _ARCHIV_STOPWOERTER = {
     "mal", "mir", "mich", "nochmal",
 }
 
+# Harte Personen-Signale (N19, 2026-09-29): „was habe ich mit X gemacht?"
+# fragt nach einem *Menschen*, nicht nach dem Gegenüber eines Chats. Ohne
+# eigenes Signal lief so eine Frage ins Leere, obwohl der Index die
+# Erwähnungen längst kennt. Bewusst getrennt von _ARCHIV_SIGNALE — hier wird
+# der Name aus dem Satz gelöst und über ALLE Quellen gesucht.
+_ERWAEHNUNG_SIGNALE = (
+    "was habe ich mit", "was hab ich mit", "was war mit", "was war da mit",
+    "wo war ich mit", "mit wem war ich", "wen kenne ich", "was weiß ich über",
+    "was weiss ich über",
+)
+
+# Orts-/Zeitangaben sind kein Personenname („mit wem war ich in Hamburg?").
+# Steht eine solche Präposition im Rest, wird lieber nichts getan als eine
+# Stadt als Person durchsucht.
+_ERWAEHNUNG_ORTSSIGNALE = {
+    "in", "im", "an", "am", "auf", "bei", "nach", "zu", "zum", "zur", "von",
+    "vom", "aus", "über", "ueber", "unter", "vor", "neben", "zwischen",
+    "seit", "durch", "gegen", "ohne", "um", "mit",
+}
+
+# Füllwörter, die in diesen Fragen übrig bleiben, aber niemanden bezeichnen.
+_ERWAEHNUNG_FUELLWOERTER = {
+    "gemacht", "macht", "machen", "erlebt", "unternommen", "angefangen",
+    "gestartet", "getan", "passiert", "gewesen", "eigentlich", "damals",
+    "alles", "denn", "jetzt", "schon", "wieder", "zusammen", "besucht",
+}
+
+
+def _erwaehnung_name(frage: str) -> Optional[str]:
+    """Den gesuchten Personennamen aus einer Erwähnungs-Frage lösen.
+
+    Reine Funktion (kein Index, kein Netz, kein DOM) — deshalb offline
+    prüfbar. Sie nimmt den Text **nach** dem Signal, schneidet Satzzeichen ab
+    und verwirft ``_ARCHIV_STOPWOERTER`` sowie weitere Füllwörter. Nur wenn
+    **genau ein** Wort übrig bleibt (mindestens 3 Zeichen), gilt es als Name;
+    sonst ``None`` — lieber nichts tun als die ganze Frage als Namen zu
+    durchsuchen.
+    """
+    roh = (frage or "").strip()
+    if not roh:
+        return None
+    klein = roh.lower()
+    signal = next((s for s in _ERWAEHNUNG_SIGNALE if s in klein), None)
+    if not signal:
+        return None
+    rest_roh = roh[klein.find(signal) + len(signal):].strip()
+    if not rest_roh:
+        return None
+    sauber = [w.strip(" ?!,.:;\"'()[]{}") for w in rest_roh.split()]
+    sauber = [w for w in sauber if w]
+    if not sauber:
+        return None
+    # Orts-/Zeitangabe → kein Personenname.
+    if any(w.lower() in _ERWAEHNUNG_ORTSSIGNALE for w in sauber):
+        return None
+    behalten = [
+        w for w in sauber
+        if w.lower() not in _ARCHIV_STOPWOERTER
+        and w.lower() not in _ERWAEHNUNG_FUELLWOERTER
+    ]
+    if len(behalten) != 1:
+        return None
+    name = behalten[0]
+    return name if len(name) >= 3 else None
+
+
+def _erwaehnung_notiz(name: str, service: Optional[Any] = None) -> str:
+    """Die Erwähnungssuche als Notiz für das Modell (Form „\\n\\n[…]").
+
+    ``service`` ist injizierbar (Tests). Kennt der übergebene Dienst die
+    Erwähnungssuche nicht (der Standard ``archiv_service`` ist der alte
+    Volltext-Dienst), wird der Indexdienst aus
+    ``app.services.archiv_suche`` genommen. Ist nichts erreichbar oder
+    scheitert die Suche, kommt ein ehrlicher Hinweis statt eines stillen
+    Rückfalls — erfunden wird nie.
+    """
+    try:
+        from app.services.archiv_suche import erwaehnungs_text, archiv_suche as index_dienst
+    except Exception as e:  # pragma: no cover - Import ist immer möglich
+        logger.warning("Erwähnungssuche nicht verfügbar: %s", e)
+        return (
+            "\n\n[Die Erwähnungssuche im Archiv ist gerade nicht verfügbar. "
+            "Sag dem Nutzer ehrlich, dass Du dazu gerade nichts sagen kannst — "
+            "erfinde KEINE Archiv-Fundstellen.]"
+        )
+    dienst = service if (service is not None and hasattr(service, "erwaehnung_treffer")) else index_dienst
+    if dienst is None or not getattr(dienst, "is_available", False):
+        return (
+            "\n\n[Der Wissensspeicher/Archiv mit den alten Chats ist gerade "
+            "nicht erreichbar. Sag dem Nutzer ehrlich, dass Du dazu gerade "
+            "nichts sagen kannst, und schlage vor, es später erneut zu "
+            "versuchen — erfinde KEINE Archiv-Fundstellen.]"
+        )
+    try:
+        ergebnis = dienst.erwaehnung_treffer(name)
+    except Exception as e:
+        logger.warning("Erwähnungssuche fehlgeschlagen: %s", e)
+        return (
+            "\n\n[Die Archiv-Suche ist gerade fehlgeschlagen. Sag dem Nutzer "
+            "ehrlich, dass Du dazu gerade nichts sagen kannst — erfinde "
+            "KEINE Archiv-Fundstellen.]"
+        )
+    return "\n\n[" + erwaehnungs_text(ergebnis) + "]"
+
 
 def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
     """Archiv-Suche als 'Tool' über Sprache (ohne UI).
@@ -1064,6 +1168,12 @@ def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
     # Foto-/Bild-Fragen: Dateisuche, nicht Archiv (False-Positive-Schutz).
     if any(w in f for w in _ARCHIV_AUSSCHLUSS):
         return ""
+    # N19: Personenfrage („was habe ich mit X gemacht?") → Erwähnungssuche
+    # über ALLE Quellen. Steht VOR der Signalprüfung, damit auch Fragen ohne
+    # das Wort „Archiv" den Index sehen.
+    name = _erwaehnung_name(frage)
+    if name:
+        return _erwaehnung_notiz(name, service)
     trigger = next((s for s in _ARCHIV_SIGNALE if s in f), None)
     weich = False
     if trigger is None:

@@ -132,7 +132,7 @@ On `cannot lock ref` / rejected push: `git pull --rebase`, then retry.
 | Step | What | State |
 |---|---|---|
 | N15 | image description per photo (2,267 done) + image vector DB | blocked on credits |
-| N19 | archive search: match **mentions**, not only chat partners | open |
+| N19 | archive search: match **mentions**, not only chat partners | done: person questions ("was habe ich mit X gemacht?") now trigger a mention search — `_ERWAEHNUNG_SIGNALE` + `_erwaehnung_name` in `router/chat.py`, `ArchivSuche.erwaehnung_treffer` + `erwaehnungs_text` in `services/archiv_suche.py`; every hit carries source + date, and the note states honestly that there is no chat with that person (mentions in other conversations only). Measured on the real index: 113 hits, 0 own chats. Gate 2949 passed / Exit 0, verifier `z-ai/glm-5.2`: passed |
 | N22 | nightly maintenance job (new chats, photos, calendar) | open |
 | N23 | everything must run on the phone alone (Termux scheduler) | rule, partially built |
 | N24 | privacy/IT-security pass (app, Android, encryption, revocation) | planned |

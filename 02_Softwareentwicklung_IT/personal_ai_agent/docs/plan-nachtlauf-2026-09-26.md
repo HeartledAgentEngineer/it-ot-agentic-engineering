@@ -169,6 +169,8 @@ ohnehin nachkontrolliert.
 
 | N29b | ✅ **Kabel-Push der Datendateien ans Handy** (Vollzug des N29-Schlusspunkts): Gerät hing am Kabel (`adb devices` → `device`); Abgleich aller fünf Namen PC ↔ `/sdcard/Download` per md5 → **drei waren schon byte-identisch** (`ereignisse.jsonl` **ohne Manifest-Zeile** — als Nachtrag `art: "festgestellt"` gebucht, kein neuer Schreibvorgang), **zwei fehlten** (`beziehungen.jsonl` 12.601.994 B, `beziehungen.json` 715 B) und wurden gepusht; Übernahmeweg (`uebergabe_uebernehmen.py`) mit den **echten** Dateien auf einer Wegwerf-Kopie durchgespielt (Trockenlauf → echt → Wiederholung); Manifest `manifest_handy.jsonl` 897 → 2.525 Bytes / 5 gültige Zeilen mit Klartext-Rückweg | Push beidseitig md5 **und** sha256 gleich; Trockenlauf schreibt nichts; echter Lauf `uebernommen 5 · Fehler 0`; zweiter Lauf `uebersprungen 5 · Fehler 0`; nichts gelöscht/verschoben, PC-Originale unverändert; Prüfbefehl Exit 0 | ✅ **bestanden (29.09.)** — siehe Journal unten: Prüfbefehl **2935 passed, 3 warnings, Exit 0** (194,5 s; **kein** Code in diesem Schritt, 0 eigene Testfunktionen), Gerätemessungen md5 `6a5704c7…`/`313c11a9…` bzw. sha256 `e0d0dc40…`/`9ec70dc2…` gleich den PC-Werten, Doku `docs/changelog-2026-09-29-n29b-kabel-push.md`. **Offen:** der **erste Übernahme-Lauf am Handy** selbst (Widget-Tipp; `hermes_diag/` existierte noch nicht) — danach sind die Übergabedateien wie vorgesehen verbraucht |
 
+| N19 | ✅ **Archiv-Suche auf Erwähnungen erweitern** (Sebastians Frage „was habe ich mit X gemacht?"): `_archiv_tool` feuerte nur auf Archiv-/Erinnerungs-Signale — eine Personenfrage enthielt **kein** Signal, also fand die Suche nichts, obwohl der Index die Person **113 ×** trägt. Neu: Personen-Signale (`_ERWAEHNUNG_SIGNALE`), reine Namens-aus-Frage-Funktion `_erwaehnung_name` (genau **ein** Wort, Satzzeichen/Stoppwörter weg, sonst `None`), Dienstfunktionen `ArchivSuche.erwaehnung_treffer` (FTS über **alle** Quellen, **ohne** Titel-Filter, je Fundstelle Quelle + Datum + Titel + `im_eigenen_chat`) und die reine `erwaehnungs_text` mit dem ehrlichen Satz „kein eigener Chat — Erwähnungen in anderen Gesprächen"; Bild-/Foto-Tor (`_ARCHIV_AUSSCHLUSS`) behält **Vorrang** | Volltext-Fundstellen mit Datum **und** Quelle auch **ohne** eigenen Chat; Bestandswege unverändert; Index nur lesend | ✅ **bestanden (29.09.)** — `archiv_suche.py` 1.317 → **1.533 Zeilen**, `chat.py` 2.174 → **2.284** (+110), Tests `backend/tests/test_erwaehnungssuche.py` **393 Zeilen / 14 Testfunktionen** (offline, winziger Index im `tmp_path`, erfundene Namen); Prüfbefehl **2.949 passed, 3 warnings, Exit 0** (Baseline **2.935** selbst gefahren, +14 = genau die neuen Tests), neue Datei allein **14 passed**; **echter Nur-Lese-Lauf** am echten Index (Programm gewählt, Name nie ausgegeben): `anzahl 113 · je_quelle {whatsapp 88, chatgpt 22, gemini 3} · eigene_chats 0 · nur_erwaehnungen true · fehler None`, Summe = anzahl, jede Fundstelle mit Quelle + Datum, Indexdatei unverändert; Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung, eigener Lauf **2.979 passed, 1 skipped, Exit 0** — die Differenz sind fremde Testfunktionen des zweiten Agenten): **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-29-n19-erwaehnungssuche.md`, Auftrag `docs/auftrag-n19-erwaehnungssuche.md`. **Ehrlich offen:** die Quellenaufteilung des Ausführer-Laufs (88/22/3) ist **nicht** die des Planers (108/4/2) — beide Male dieselbe Trefferzahl 113 und 0 eigene Chats, aber unterschiedlich gewählter Kandidat |
+
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -2892,3 +2894,90 @@ ohnehin nachkontrolliert.
     Agenten hat er korrekt ausgegrenzt. **Eine Beobachtung, keine Abweichung:**
     die Änderung an `HANDOVER-CLAUDE-CODE.md` sei im Changelog nicht einzeln
     aufgeführt (sie ist Doku, kein Code) — hier nachgetragen, s. Changelog.
+* **29.09. ~13:00 — N19 gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,090 USD (31 Aufrufe,
+  2,64 M ein / 44 k aus) · Prüfer: `z-ai/glm-5.2` — **andere Modellfamilie**,
+  frische Sitzung). Beginn wie in den Runden zuvor: `git pull --rebase`
+  scheiterte an den **fremden** Dateien des zweiten Agenten (`tools/agentbus/wache.py`,
+  `docs/experimente/live_zahlen.*`, neue Recherche-HTML, `docs/spec-a1-android-hey-agent.md`);
+  nichts angefasst, nichts gestasht; `git fetch` + `git rev-list --left-right
+  --count origin/main...HEAD` → **`0 0`**. **Codex live erneut geprüft und weiter
+  gesperrt** („You've hit your usage limit … try again at Oct 15th, 2026") →
+  gebaut wurde mit einem Hermes-Subagenten.
+  - **Erst gemessen, dann entschieden (Planer, nur lesend):** eigene Vormessung am
+    echten Index (`Chats von GPT, GEMINI, Claude/db/archiv_index.db`, `mode=ro`,
+    `immutable=1`): **`chunks` 52.679 = `chunks_fts` 52.679**, **`nachrichten`
+    282.029**, **`gespraeche` 1.590**, Quellen: whatsapp 481, google-kalender 399,
+    gemini 384, claude-ai 162, chatgpt 109, claude-code 40, google-notizen 15.
+    Volltext-Treffer für den **vollen Namen** einer Person: **113**; Rohtext
+    (`LIKE`) je Quelle whatsapp 108 / chatgpt 4 / google-kalender 2; **Chats,
+    deren Titel die Person trägt: 0**. Damit stand fest: **der Index ist
+    vollständig — die Verdrahtung fehlt.** `_archiv_tool` (`chat.py` ~1038) feuert
+    nur auf `_ARCHIV_SIGNALE` („archiv", „alte chats") und
+    `_ARCHIV_SIGNALE_WEICH` („was weißt du über", „erinnerst du dich"); „was habe
+    ich mit X gemacht?" enthält **kein** Signal → `""` → kein Archiv-Blick. (Eine
+    erste eigene Sonde über den abgeschnittenen Namen `hiline` ergab 0 Treffer —
+    FTS5 vergleicht das **Wort** und „hiline" ≠ „philine"; der Fehler lag in
+    meiner Sonde, nicht im Index, und ist hiermit offengelegt.)
+  - **Gebaut:** `backend/app/services/archiv_suche.py` 1.317 → **1.533 Zeilen**:
+    `ArchivSuche.erwaehnung_treffer(name, top_k)` (FTS über **alle** Quellen,
+    **ohne** Titel-Filter; Rückgabe immer mit `name`, `treffer`, `je_quelle`,
+    `anzahl`, `eigene_chats`, `eigene_chat_titel`, `nur_erwaehnungen`, `hinweis`,
+    `fehler`; je Fundstelle `quelle`, `datum`, `titel`, `text`,
+    `im_eigenen_chat`, `conversation_id`, `chunk_id`) — nutzt `_fts_anfrage` /
+    `_fts_begriffe` / `_chunk_zu_treffer` **wieder**, keine zweite Suchlogik; dazu
+    die **reine** `erwaehnungs_text(...)` mit dem Klartextsatz „Es gibt keinen
+    eigenen Chat mit dieser Person; die Fundstellen sind **Erwähnungen in anderen
+    Gesprächen**" und einer ehrlichen Null-Zeile statt eines erfundenen Treffers.
+    `backend/app/router/chat.py` 2.174 → **2.284** (+110): `_ERWAEHNUNG_SIGNALE`
+    (Personenfragen), `_erwaehnung_name` (genau **ein** übrig bleibendes Wort,
+    Sonst `None` — „mit wem war ich in Hamburg?" → `None`), `_erwaehnung_notiz`,
+    Zweig in `_archiv_tool` **nach** dem Bild-/Foto-Tor (`_ARCHIV_AUSSCHLUSS`) und
+    vor der Signalprüfung; beide Ketten rufen dieselbe Funktion, sonst nichts
+    umgebaut. Grenze unverändert: nur lesen, kein Netz (Volltext braucht keine
+    Einbettung), nichts geschrieben, kein Frontend, kein Cache-Bump.
+  - **Tests:** `backend/tests/test_erwaehnungssuche.py` **393 Zeilen / 14
+    Testfunktionen**, alles offline mit einem winzigen selbstgebauten Index im
+    `tmp_path` und **erfundenen** Namen (Erwin/Marga/Norbert): Erwähnung ohne
+    eigenen Chat, eigener Chat vorhanden, null Fundstellen, Index fehlt,
+    Quelle+Datum je Fundstelle, `je_quelle`-Summe = `anzahl`, Namens-Erkennung,
+    Bild-Tor-Vorrang, kein Signal, Bestandssignale unverändert, Index unberührt
+    (`sha256`/`mtime`), Quelltext ohne Schreib-/Netzweg.
+  - **Prüfbefehl selbst gefahren (Planer + Ausführer):** Baseline **2.935 passed,
+    3 warnings, Exit 0** (145,4 s) → nach der Änderung **2.949 passed, 3 warnings,
+    Exit 0** (171,9 s; **+14 = genau die neuen Tests**); neue Datei allein
+    **14 passed** (8,9 s). Der Hook hat dasselbe Tor beim Commit noch einmal
+    gefahren.
+  - **Echter Nur-Lese-Lauf** (Name nie ausgegeben): `anzahl` **113**,
+    `je_quelle` **{whatsapp 88, chatgpt 22, gemini 3}**, `eigene_chats` **0**,
+    `nur_erwaehnungen` **true**, `fehler` **None**, Summe = `anzahl`, jede
+    Fundstelle mit Quelle + Datum, Indexdatei unverändert.
+  - **Ehrlich offen:** die Quellenaufteilung des Ausführer-Laufs (88/22/3) ist
+    **nicht** die meiner Vormessung (108/4/2) — gleiche Trefferzahl 113 und
+    0 eigene Chats, aber **anderer Kandidat** (der Ausführer suchte ~10 min nach
+    genau 108/4/2 und brach ab). Die Gesamtzahl und das „kein eigener Chat"
+    stimmen in beiden Messungen; die Aufteilung ist stichprobenabhängig.
+  - **Prüfer (`z-ai/glm-5.2`, andere Modellfamilie, frische Sitzung): BESTANDEN,
+    0 Abweichungen.** Eigenes Urteil mit eigenen Messungen: Prüfbefehl selbst
+    **2.979 passed, 1 skipped, 3 warnings, Exit 0** (166,5 s — die Differenz zu
+    2.949 sind **fremde** Testfunktionen, die der zweite Agent inzwischen ergänzt
+    hat: `test_personen_register.py`, `test_video_gesichter.py`), neue Datei
+    allein **14 passed**; Bild-Tor **vor** dem Erwähnungszweig (chat.py 1169 vs.
+    1174) samt Test nachgesehen; jede Fundstelle mit `quelle` **und** `datum`;
+    Null-Fall liefert Klartext und **keinen** Block; `self._ro()` mit `mode=ro`,
+    `erwaehnungs_text`/`_erwaehnung_name` rein; Quelltext ohne
+    `insert/update/delete/requests/httpx/urlopen`; Datenschutz **0 Treffer**
+    (nur erfundene Namen, Changelog nennt nur Zahlen); Changelog-Arithmetik
+    (88+22+3=113, 2935+14=2949) nachgerechnet; `_ARCHIV_SIGNALE` /
+    `_ARCHIV_SIGNALE_WEICH` / `_ARCHIV_AUSSCHLUSS` unverändert, kein Frontend,
+    kein Cache-Bump.
+  - **Schutz:** echter Index **nur lesend** (`mode=ro&immutable=1`), nichts
+    kopiert, nichts gelöscht, nichts verschoben; keine echten Namen, Kennungen
+    oder Inhalte in Code, Tests, Doku oder Ausgaben; `manifest.jsonl` und
+    `manifest_handy.jsonl` unberührt.
+  - **Nächster Schritt:** N22 (nächtliche Nachpflege: neue Chats/Fotos/Kalender,
+    inkrementell + idempotent, Bericht mit Zahlen) oder N25 (verschlüsseltes
+    Archiv-Backup in die pCloud mit Rückhol-Probe — braucht Sebastians
+    Passphrase-Entscheidung); **N8** (echtes Sortieren) bleibt **gesperrt**, der
+    **Massenlauf der Gesichter** läuft bereits als zweiter Strang (fremder
+    Agent, `~/foto_sortierung/n0929_gesamtlauf`).
