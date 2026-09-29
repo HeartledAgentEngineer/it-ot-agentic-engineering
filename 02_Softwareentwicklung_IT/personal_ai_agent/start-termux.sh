@@ -338,6 +338,49 @@ else
     echo "  ℹ Keine Diagnose-Ablage (Postfach oder Download-Ordner nicht gefunden)"
 fi
 
+# ── Beleg: steht der Nachtjob wirklich in der Job-Liste von Android? ──────────
+# Warum dieses Stueck: Auf das Handy kommt von aussen NICHTS — der Widget-Tipp
+# ist der einzige Weg (vom PC laesst sich kein Befehl starten, und der
+# Termux-Heimordner ist ueber das Kabel nicht lesbar). Ob der Nachpflege-Job
+# danach wirklich bei Android registriert ist, schrieb bisher niemand
+# irgendwohin — es war nur behauptet. Deshalb legt dieser Block den Beleg in
+# den freigegebenen Download-Ordner, den der PC per Kabel lesen kann
+# (PC-Werkzeug: tools/handy/diag_holen.py). Rein lesend: kein rm, kein Netz,
+# kein Geheimnis. Der Block braucht das Postfach ($INBOX_DIR) NICHT —
+# hermes_diag soll auch ohne Postfach entstehen. Die erwartete Kennung stammt
+# aus termux/nachpflege-einrichten.sh (dort steht die feste JOB_ID).
+JOB_ID_ERWARTET=1901
+if mkdir -p "$DIAG" 2>/dev/null; then
+    {
+        printf 'beleg job-liste %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')"
+        printf 'JOB_ID_ERWARTET=%s\n' "$JOB_ID_ERWARTET"
+        if command -v termux-job-scheduler >/dev/null 2>&1; then
+            JOB_BELEG_LISTE="$(termux-job-scheduler --list 2>/dev/null || true)"
+            if printf '%s' "$JOB_BELEG_LISTE" | grep -q "$JOB_ID_ERWARTET"; then
+                printf 'JOB_ID_GEFUNDEN=ja\n'
+            else
+                printf 'JOB_ID_GEFUNDEN=nein\n'
+            fi
+            printf -- '--- termux-job-scheduler --list ---\n'
+            printf '%s\n' "$JOB_BELEG_LISTE" | tail -n 40
+        else
+            printf 'JOB_ID_GEFUNDEN=unbekannt\n'
+            printf -- '--- termux-job-scheduler --list ---\n'
+            printf 'termux-job-scheduler nicht vorhanden (Beleg nicht moeglich)\n'
+        fi
+    } > "$DIAG/job_liste.txt" 2>/dev/null
+    EINRICHT_LOG="$HOME/nachpflege-einrichten.log"
+    if [ -f "$EINRICHT_LOG" ]; then
+        tail -n 20 "$EINRICHT_LOG" > "$DIAG/nachpflege_einrichtung_letzte.txt" 2>/dev/null
+    else
+        printf 'Log nicht vorhanden — seit der Einrichtung kein Lauf\n' \
+            > "$DIAG/nachpflege_einrichtung_letzte.txt" 2>/dev/null
+    fi
+    echo "  ℹ Beleg abgelegt: $DIAG/job_liste.txt (Job-Liste + Einricht-Protokoll)"
+else
+    echo "  ℹ Kein Beleg moeglich (Download-Ordner nicht beschreibbar)"
+fi
+
 # ── App statt Browser öffnen ──────────────────────────────────────────────────
 # Eine Web-App (display=standalone) kann den Server NICHT starten: sie ist
 # reiner Browser-Inhalt, hat keinen nativen Code und keine Shell. Deshalb macht

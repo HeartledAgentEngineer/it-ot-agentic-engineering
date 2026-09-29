@@ -175,7 +175,8 @@ ohnehin nachkontrolliert.
 
 
 | N24a | ✅ **Datenschutz-/IT-Sicherheits-Wächter** (Teil A des Schritts N24, der seit 26.09. „geplant" war): sechs belegte Funde (F1–F6) — u. a. banden **zwei** von drei Startskripten hart `--host 0.0.0.0` und lasen die in `main.py` als „eigentlicher Schutz" bezeichnete Einstellung `HOST_BIND` **gar nicht**; in `backend/.env` standen weder `HOST_BIND` noch `API_KEY` (nur Namen geprüft, nie Werte) → der Key-Schutz der `/api`-Routen griff nicht und der Server lauschte auf allen Schnittstellen. Gebaut: alle drei Termux-Skripte lesen `HOST_BIND` (identisches Muster, **Standard bleibt `0.0.0.0`** = keine Verhaltensänderung), neu die reinen Funktionen `ist_loopback`/`bindung_hinweis` in `backend/app/config.py` (kein Netz/IO, Text ohne Geheimnis und ohne Geräte-IP), Start-Warnung im Log, Feld `bindung_warnung` in `/api/health`; dazu die **erste Wächter-Testdatei des Projekts** (`backend/tests/test_datenschutz_waechter.py`, 630 Zeilen / **52 Testfunktionen** / 66 gesammelte Tests, offline) mit acht Regelgruppen: **lebende Ausnahmeliste** der offenen `/api`-Routen (genau fünf erlaubt — eine neue offene Route wird rot), drei Startskripte, Hinweis-Funktion, Frontend ohne fremde Adressen, `.env`-Schutz, Löschregel (Löschbegriffe nur im Duplikate-Werkzeug), `no-store` für Medien, Wächter über sich selbst | Prüfbefehl **3124 passed, 1 skipped, Exit 0** (Baseline 3058, selbst gefahren; +66 = genau die neuen Tests), `bash -n` drei Skripte Exit 0; **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** (eigener Lauf 3124/Exit 0, Testdatei allein 66 passed, `def test_` selbst gezählt 52, eigene Sonde 85 `/api`-Routen mit genau 5 offenen, Doku Zeile für Zeile geprüft, Datenschutz-Scan 0 Treffer) | Prüfkriterium: Wächter-Tests grün; Funde mit Datei:Zeile belegt | ✅ **bestanden (29.09.)** — siehe Journal unten. **Offen (N24a-Rest):** `HOST_BIND=127.0.0.1` + `API_KEY` in `backend/.env` setzen — **Sebastians Griff, zwei Zeilen**, kein Code; Log und `/api/health` sagen es jetzt sichtbar. N24 Teil B (Android-Seite: Verschlüsselung, Widerruf) bleibt offen |
-| N24b | **Vorschlag als nächster Schritt:** Registrierung/Nachtlauf des Handys **ohne** Sebastians Tipp belegbar machen — der Job-Bericht liegt schon in `/sdcard/Download/hermes_diag/`, der PC kann ihn per Kabel lesen; fehlt nur, dass `start-termux.sh` beim Widget-Tipp zusätzlich die Job-Liste (`termux-job-scheduler --list`) und den Übernahme-Bericht in denselben Ordner schreibt | Berichtsdatei am Kabel sichtbar; Job-ID 1901 darin belegt | ⬜ offen (Kandidat) |
+| N24b | ✅ **Belegweg für die Job-Registrierung am Handy** (Vollzug des N24a-Nebenbefunds): neu schreibt `start-termux.sh` beim Widget-Tipp den **Beleg** in den freigegebenen Diagnose-Ordner (`$DIAG/job_liste.txt` mit `JOB_ID_ERWARTET=1901`, `JOB_ID_GEFUNDEN=ja\|nein\|unbekannt` und der rohen Ausgabe von `termux-job-scheduler --list`, dazu `$DIAG/nachpflege_einrichtung_letzte.txt` mit den letzten 20 Zeilen des Einricht-Protokolls) — unabhängig vom Postfach, rein lesend, ohne den Serverstart je zu verhindern; dazu das PC-Werkzeug `tools/handy/diag_holen.py` (nur lesend über Kabel; Trockenlauf ist der Standard, `--holen` lädt mit Größenvorprobe und `*.vorher`-Sicherung, Inhalt **nur** der beiden technischen Berichte — private Chat-/Auftragsdateien erscheinen nur mit Name und Größe) und 18 Offline-Wächter-Tests | Berichtsdatei am Kabel sichtbar; Job-ID 1901 darin belegt | ✅ **bestanden (29.09.)** — siehe Journal unten: `start-termux.sh` 396 → **439** Zeilen (nur eingefügt), Werkzeug **438** Zeilen, Tests **363** Zeilen / **18 Testfunktionen**, Prüfbefehl **3142 passed, 1 skipped, Exit 0** (Baseline **3124 passed, 1 skipped, Exit 0** selbst gefahren, +18 = genau die neuen Tests), `bash -n` Exit 0, Prüfer `z-ai/glm-5.2` (andere Familie, frische Sitzung). **Offen:** der **erste echte Widget-Tipp** am Gerät — `hermes_diag/` fehlt weiterhin (Planer-Messung), der Beleg entsteht erst danach; dann ist N23 Teil B abschließbar. **N8 bleibt gesperrt.** |
+| N24c | **Vorschlag (aus der N24b-Messung):** die beiden Termux-Skripte legen hermes_diag an, aber der **PC** hat kein Skript, das die Belege beim Kabel-Stecken auswertet und in den Plan/Journal schreibt; denkbar: ein Nachtlauf-Schritt, der `diag_holen.py --holen` in den Rundenstart aufnimmt und `job_1901_belegt` im Journal festhält | Beleg-Zeile erscheint bei jedem Nachtlauf im Journal | ⬜ offen (Kandidat) |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -3242,3 +3243,71 @@ ohnehin nachkontrolliert.
     `/sdcard/Download/hermes_diag/`) oder **N24b** (den Belegweg dafür im
     Startskript ergänzen) bzw. **N25**, sobald die Passphrase entschieden ist.
     **N8 bleibt gesperrt.**
+* **29.09. ~20:15–21:05 — N24b gebaut, geprüft und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,181 USD ·
+  Prüfer: `z-ai/glm-5.2`, frische Sitzung — **andere Modellfamilie**). **Codex
+  live geprüft und weiter gesperrt:** `codex exec --model gpt-5.6-terra` →
+  „You've hit your usage limit … try again at Oct 15th, 2026 9:32 PM".
+  - **Warum dieser Schritt (Ausgangsbefund mit Beleg):** N23 hat den Android-
+    Nachtjob gebaut, aber „Teil B" (erster Lauf am Gerät) war **nicht** belegbar
+    — vom PC startet kein Befehl auf dem Handy. Der Planer hat zu Rundenbeginn
+    `adb devices` gefahren: `ZY22K9RGLQ device` (Gerät hing am Kabel) und
+    `ls /sdcard/Download/hermes_diag` → **Ordner existiert nicht**; seit dem Bau
+    von N23/N29b hat also **kein** Widget-Tipp stattgefunden. Die eigentliche
+    Frage — **steht `JOB_ID 1901` wirklich in der Job-Liste von Android?** —
+    schrieb bis dahin niemand irgendwohin. **N24b** schließt genau diese Lücke.
+  - **Gebaut:** (A) Block in `start-termux.sh` (`396 → **439**` Zeilen,
+    **nur eingefügt**, Zeilen 341–383, direkt unter dem Diagnose-Block, in dem
+    `$DIAG` bestimmt ist): legt `$DIAG` selbst an (**unabhängig** vom Postfach
+    `$INBOX_DIR`), schreibt `$DIAG/job_liste.txt` (Kopfzeile `beleg job-liste
+    <ISO-Zeit>`, `JOB_ID_ERWARTET=1901`, `JOB_ID_GEFUNDEN=ja|nein|unbekannt`,
+    rohe `termux-job-scheduler --list`-Ausgabe auf 40 Zeilen gekappt) und
+    `$DIAG/nachpflege_einrichtung_letzte.txt` (letzte 20 Zeilen von
+    `$HOME/nachpflege-einrichten.log`, sonst ehrliche Zeile); rein lesend — kein
+    `rm`, kein `--force`, kein `curl`/`wget`, kein `exit`, kein Netz, kein
+    Geheimnis. (B) PC-Werkzeug `tools/handy/diag_holen.py` (**438 Zeilen**, neu,
+    nur Standardbibliothek, **Trockenlauf ist Standard**, `--holen` lädt mit
+    Größenvorprobe gegen die Geräte-Anzeige, `*.vorher`-Sicherung und
+    `os.replace` statt halber Datei, Repo-Ziel → Exit 2; Bericht **nur** mit
+    Name/Größe je Datei und Inhalt **ausschließlich** der beiden technischen
+    Berichte — die privaten `antworten_letzte.jsonl`, `auftraege_letzte.jsonl`,
+    `status_letzte.jsonl`, `daemon_letzte.txt` werden nie ausgelesen).
+    (C) `backend/tests/test_belegweg_handy.py` (**363 Zeilen / 18
+    Testfunktionen**, alles offline, Attrappen-`adb` im `tmp_path`).
+    (D) `docs/changelog-2026-09-29-n24b-belegweg.md` + Auftrag
+    `docs/auftrag-n24b-belegweg.md`. **Kein Frontend → kein Cache-Bump.**
+  - **Prüfbefehl selbst gefahren (Planer, frisch):** Baseline **3124 passed,
+    1 skipped, Exit 0** (173,2 s) → nach der Änderung **3142 passed, 1 skipped,
+    Exit 0** (170,6 s; **+18 = genau die neuen Testfunktionen**); neue Datei
+    allein **18 passed**. `bash -n start-termux.sh` → **Exit 0**. Der Skip ist
+    vorbestehend (`test_video_gesichter.py`: kein `cv2`).
+  - **Eigene Messung des Planers am Kabel (nur lesend):**
+    `python tools/handy/diag_holen.py` → „Ordner auf dem Geraet nicht
+    vorhanden: /sdcard/Download/hermes_diag" + `adb.exe: no devices/emulators
+    found`, **Exit 0** (der Ordner fehlt also weiterhin; das Gerät war Minuten
+    zuvor noch da und danach nicht mehr). Das Werkzeug erfindet in diesem Fall
+    **keinen** Fehler — genau das war der Zweck.
+  - **Prüfer (`z-ai/glm-5.2`, frische Sitzung): eine Abweichung, die
+    Bestandsmuster ist.** Er hat den Prüfbefehl selbst gefahren, die
+    Testfunktionen selbst gezählt, den Block Punkt für Punkt gegen den Auftrag
+    geprüft (`mkdir -p "$DIAG"`, `termux-job-scheduler --list`,
+    `JOB_ID_ERWARTET`/`JOB_ID_GEFUNDEN`, Einricht-Log, Unabhängigkeit von
+    `$INBOX_DIR`, Reihenfolge, `bash -n`), das Werkzeug im Trockenlauf **und**
+    mit `--holen` gegen eine Attrappe laufen lassen und die Geheimnismuster
+    geprüft — **0 Treffer** in allen vier Dateien. Einziger Fund: in
+    `backend/tests/test_belegweg_handy.py:65` steht `VERBOTENE_NAMEN =
+    ("Sebastian", "sebas", "Motorola", "Termux-Nutzer")` — **wortgleich** die
+    Zeile, die in der schon abgenommenen Testdatei
+    `backend/tests/test_nachpflege_job.py:59` seit N23 steht. Er hat die
+    Schwere selbst als „gering, kein Datenleck" eingeordnet. **Entscheidung
+    (statt Rückfrage): Liste bleibt unverändert** — sie *ist* der Wächter
+    („diese Namen dürfen in den neuen Dateien nicht vorkommen"); fingierte
+    Namen würden ihn abschwächen. Die Einordnung steht im Changelog.
+  - **Ehrlich offen:** der **erste echte Widget-Tipp** am Gerät — erst danach
+    entsteht `job_liste.txt` und `diag_holen.py --holen` kann
+    `job_1901_belegt=ja` melden. Bis dahin ist der Belegweg gebaut, getestet und
+    einmal am Kabel gelaufen, aber **nicht geschlossen**. Damit bleibt **N23
+    Teil B** offen; als Kandidat **N24c** (den Belegweg in den Rundenstart
+    aufnehmen) in den Plan aufgenommen.
+  - **Nächster Schritt:** **N23 Teil B** nach Sebastians Widget-Tipp bzw.
+    **N25**, sobald die Passphrase entschieden ist. **N8 bleibt gesperrt.**
