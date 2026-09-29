@@ -7,9 +7,9 @@ Stand: 2026-09-29. Bezug: `../docs/spec-a1-android-hey-agent.md`.
 
 Eine schlanke Android-App, die das Frontend des Agenten als Vollbild-WebView zeigt
 (`http://127.0.0.1:8080/`) und dafür sorgt, dass das Backend läuft: Ist es nicht
-erreichbar, startet die App es über Termux und wartet, bis es antwortet. Mikrofon,
-Weckwort und Gesprächsschleife folgen in A1c/A1d — das Manifest hat bewusst noch
-**kein** `RECORD_AUDIO`.
+erreichbar, startet die App es über Termux und wartet, bis es antwortet. Die Seite darf das
+Mikrofon für die Sprachaufnahme nutzen (siehe „Mikrofon“). Weckwort und Gesprächsschleife
+folgen in A1c/A1d.
 
 ## Architektur (Ausschnitt A1b aus der Spec)
 
@@ -68,7 +68,7 @@ JavaScript und DOM-Storage an; `allowFileAccess=false`, `allowContentAccess=fals
 `MIXED_CONTENT_NEVER_ALLOW`; Klartext-HTTP nur für `127.0.0.1`/`localhost`
 (`res/xml/network_security_config.xml`, Basis = kein Klartext); Navigation zu fremden Adressen
 wird an den Browser übergeben statt in der WebView geladen; Mikrofon-/Kamera-Anfragen der Seite
-werden abgelehnt (das Mikrofon gehört später dem nativen Dienst); `allowBackup=false`.
+werden nach `MikrofonRegel` entschieden (siehe „Mikrofon“); `allowBackup=false`.
 `mediaPlaybackRequiresUserGesture=false` (Spec 5.5), damit das Vorlesen ohne Extra-Tipp startet.
 Zurück-Taste = WebView-Verlauf, danach beendet sie die App.
 
@@ -77,6 +77,18 @@ und Navigationsleiste (erzwungenes „edge-to-edge"). `MainActivity.randAbstaend
 deshalb die Systemleisten, die Kamera-Aussparung und die Tastatur als Innenabstand um den
 Inhalt. Ohne das lag die Kopfzeile der Seite unter der Benachrichtigungsleiste (erster Test am
 Handy, 29.09.2026).
+
+## Mikrofon
+
+Die Sprachaufnahme im Chat braucht das Mikrofon in der WebView. Seit 30.09.2026:
+- Manifest: `RECORD_AUDIO` und `MODIFY_AUDIO_SETTINGS`.
+- `MikrofonRegel.entscheide()` (reine Logik, 6 JUnit-Tests): nur das Mikrofon, nur für das eigene
+  Backend (`127.0.0.1:8080`/`localhost:8080`). Kamera und fremde Seiten werden immer abgelehnt,
+  auch wenn die Kamera zusammen mit dem Mikrofon angefragt wird.
+- Fehlt die Android-Erlaubnis, zeigt die App beim ersten Mikrofon-Tipp den Android-Dialog
+  „Audio aufnehmen?“. Nach dem Ja bekommt die wartende Anfrage der Seite sofort das Mikrofon.
+- Nach zweimaligem Ablehnen zeigt Android den Dialog nicht mehr. Dann bietet die App an, die
+  App-Einstellungen (Berechtigungen) direkt zu öffnen.
 
 ## Öffnen von außen: `heyagent://start`
 
@@ -191,5 +203,5 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   (nur `onReceivedError` der Hauptseite → Fehleransicht).
 - Schlüssel-Eingabe bei Fehleingabe: falscher Schlüssel wird nicht validiert; ändern/löschen
   vorerst nur durch App-Daten löschen.
-- Nicht Teil von A1b: Mikrofon, Weckwort, Vordergrunddienst, native Wiedergabe, Timer/Wecker,
+- Nicht Teil von A1b: Weckwort, Vordergrunddienst, native Wiedergabe, Timer/Wecker,
   Standard-Assistent.

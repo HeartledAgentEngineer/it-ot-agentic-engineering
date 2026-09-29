@@ -5,7 +5,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Termux per Intent starten (Nutzer gewaehrt sie einmal in den App-Einstellungen). -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
-    <!-- Bewusst KEIN RECORD_AUDIO: Mikrofon/Weckwort kommen erst in Schritt A1c. -->
+    <!-- Mikrofon fuer die Sprachaufnahme der Seite (nur eigenes Backend, siehe MikrofonRegel).
+         Android fragt beim ersten Mikrofon-Tipp; MODIFY_AUDIO_SETTINGS braucht die WebView fuer
+         die Aufnahme auf manchen Geraeten. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Android 11+: Paket-Sichtbarkeit, damit der Knopf "Termux oeffnen" Termux findet. -->
     <queries>

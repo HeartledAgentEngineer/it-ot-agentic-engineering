@@ -7,4 +7,8 @@
     <string name="key_hinweis">Schlüssel des Backends (API_KEY aus der .env). Er wird verschlüsselt auf diesem Handy gespeichert.</string>
     <string name="key_speichern">Speichern</string>
     <string name="key_spaeter">Später</string>
+    <string name="mikro_titel">Mikrofon gesperrt</string>
+    <string name="mikro_hinweis">Hey Agent darf das Mikrofon nicht benutzen. Öffne die App-Einstellungen und erlaube unter „Berechtigungen“ das Mikrofon.</string>
+    <string name="mikro_einstellungen">Einstellungen öffnen</string>
+    <string name="mikro_abbrechen">Abbrechen</string>
 </resources>

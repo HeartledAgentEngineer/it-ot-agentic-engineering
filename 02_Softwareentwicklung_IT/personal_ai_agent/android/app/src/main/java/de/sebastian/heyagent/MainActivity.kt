@@ -1,10 +1,13 @@
 package de.sebastian.heyagent
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.util.Log
 import android.view.View
@@ -21,8 +24,10 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
@@ -51,6 +56,28 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile
     private var laeuft = false
+
+    /** Mikrofon-Anfrage der Seite, die auf den Android-Dialog wartet. */
+    private var offeneMikrofonAnfrage: PermissionRequest? = null
+
+    /**
+     * Android-Dialog "Hey Agent darf Audio aufnehmen?". Nach zweimaligem Ablehnen zeigt Android
+     * ihn nicht mehr (shouldShowRequestPermissionRationale ist dann false) - dann bietet die App
+     * die App-Einstellungen an.
+     */
+    private val mikrofonErlaubnis =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { erlaubt ->
+            val anfrage = offeneMikrofonAnfrage
+            offeneMikrofonAnfrage = null
+            if (erlaubt) {
+                anfrage?.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            } else {
+                anfrage?.deny()
+                if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+                    einstellungenAnbieten()
+                }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -157,9 +184,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
-            // Mikrofon/Kamera gehoeren nicht der WebView (spaeter: nativer Dienst, Schritt A1c).
+            // Mikrofon fuer die Seite des eigenen Backends (Sprachaufnahme im Chat). Kamera und
+            // fremde Seiten nie. Regel: MikrofonRegel (JUnit-getestet).
             override fun onPermissionRequest(request: PermissionRequest) {
-                request.deny()
+                val erlaubt = ContextCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+                when (MikrofonRegel.entscheide(istBackend(request.origin), request.resources.toList(), erlaubt)) {
+                    Freigabe.ERLAUBEN -> request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    Freigabe.ANDROID_FRAGEN -> {
+                        offeneMikrofonAnfrage?.deny()
+                        offeneMikrofonAnfrage = request
+                        mikrofonErlaubnis.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                    Freigabe.ABLEHNEN -> request.deny()
+                }
             }
         }
     }
@@ -168,6 +207,27 @@ class MainActivity : AppCompatActivity() {
         uri.scheme == "http" &&
             (uri.host == AppKonfig.BACKEND_HOST || uri.host == "localhost") &&
             uri.port == AppKonfig.BACKEND_PORT
+
+    /** Mikrofon dauerhaft abgelehnt: direkt in die App-Einstellungen (Berechtigungen) fuehren. */
+    private fun einstellungenAnbieten() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.mikro_titel)
+            .setMessage(R.string.mikro_hinweis)
+            .setPositiveButton(R.string.mikro_einstellungen) { _, _ ->
+                try {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", packageName, null),
+                        ),
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "App-Einstellungen nicht geoeffnet: ${e.javaClass.simpleName}")
+                }
+            }
+            .setNegativeButton(R.string.mikro_abbrechen, null)
+            .show()
+    }
 
     /** Einfache Eingabemaske fuer den API-Schluessel (Passwortfeld). */
     private fun keyAbfragen(danach: () -> Unit) {
@@ -254,6 +314,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         beendet = true
+        offeneMikrofonAnfrage?.deny()
+        offeneMikrofonAnfrage = null
         webView.destroy()
         super.onDestroy()
     }
