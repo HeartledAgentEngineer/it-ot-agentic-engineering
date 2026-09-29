@@ -415,11 +415,14 @@ while [ $i -lt 40 ]; do
 done
 
 if command -v am >/dev/null 2>&1; then
-    # Zuerst die INSTALLIERTE App (eigenes Fenster, eigene Aufgabe im
-    # Task-Menü → dort schließbar). Nur wenn keine Web-App installiert ist,
-    # wird die Adresse an den Browser gegeben.
+    # Reihenfolge: 1. native Android-App "Hey Agent" (android/, seit 29.09.2026),
+    # 2. die ältere Chrome-Web-App, 3. der Browser.
+    HEYAGENT_PKG="de.sebastian.heyagent"
     APP_PKG="$(pm list packages 2>/dev/null | sed 's/^package://' | grep '^org.chromium.webapk' | head -1)"
-    if [ -n "$APP_PKG" ]; then
+    if pm list packages 2>/dev/null | grep -qx "package:$HEYAGENT_PKG" \
+       && am start -n "$HEYAGENT_PKG/.MainActivity" >/dev/null 2>&1; then
+        echo "  ✔ App geöffnet: Hey Agent ($HEYAGENT_PKG)"
+    elif [ -n "$APP_PKG" ]; then
         if am start -n "$APP_PKG/org.chromium.webapk.shell_apk.h2o.H2OOpaqueMainActivity" >/dev/null 2>&1; then
             echo "  ✔ App geöffnet: $APP_PKG (eigenes Fenster, im Task-Menü schließbar)"
         else

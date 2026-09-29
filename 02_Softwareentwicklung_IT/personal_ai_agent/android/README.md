@@ -138,14 +138,20 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
 
 ## Ungeprüft / bekannte offene Punkte
 
-- **Nichts davon wurde gebaut oder gestartet.** Kotlin- und XML-Quellcode nur von Hand
-  gegengelesen; kein `kotlinc`, kein Android-SDK auf dem PC. Die JUnit-Tests sind nie gelaufen
-  (ihre Erwartungswerte wurden von Hand durchgerechnet). Compilerfehler beim ersten Bau sind möglich.
+- **Gebaut und am Handy installiert (29.09.2026):** `assembleDebug` + 12 JUnit-Tests grün,
+  installiert per `adb install -r` auf dem motorola edge 50, Start ohne Absturz.
+- **Termux-Start aus der App geht mit dem Play-Store-Termux NICHT.** Dort ist Termux in der
+  Fassung `googleplay.2026.06.21` installiert, und diese hat keinen `RunCommandService` und
+  keine Berechtigung `com.termux.permission.RUN_COMMAND` (am Handy gemessen: `Unable to start
+  service … com.termux/.app.RunCommandService … not found`; die App wartete dann 60 s bis
+  `ZEITUEBERSCHREITUNG`). Die Schritte 1, 2 und 4 der Termux-Einrichtung oben gelten nur für
+  die F-Droid-/GitHub-Fassung. Bis zu einer Lösung: erst das Widget „agent“ tippen
+  (`start-termux.sh` öffnet danach die App), dann findet die App das laufende Backend sofort.
+- Die App merkt nicht, dass Android den Termux-Aufruf abweist: `TermuxLauncher.starte()`
+  wertet die Rückgabe von `startForegroundService` nicht aus (bei fehlendem Dienst `null`,
+  keine Ausnahme) und meldet `true`. Die App wartet dann trotzdem die vollen 60 s.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
-- Ob der `RUN_COMMAND`-Start bei ausgeschaltetem Bildschirm/aus dem Hintergrund klappt, ist
-  ungeklärt (Spec 5.1) — in A1b startet die sichtbare App.
-- Kein Launcher-Symbol gestaltet (Standardsymbol des Systems).
 - Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt
   (nur `onReceivedError` der Hauptseite → Fehleransicht).
 - Schlüssel-Eingabe bei Fehleingabe: falscher Schlüssel wird nicht validiert; ändern/löschen
