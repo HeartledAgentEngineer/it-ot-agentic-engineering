@@ -78,6 +78,13 @@ deshalb die Systemleisten, die Kamera-Aussparung und die Tastatur als Innenabsta
 Inhalt. Ohne das lag die Kopfzeile der Seite unter der Benachrichtigungsleiste (erster Test am
 Handy, 29.09.2026).
 
+## Öffnen von außen: `heyagent://start`
+
+Die App nimmt die Adresse `heyagent://start` an (`launchMode="singleTask"`: ein zweiter Aufruf
+holt die laufende App nach vorn). So öffnet das Widget (`start-termux.sh`) sie nach dem
+Serverstart. `pm list packages` und `am start -n` funktionieren aus Termux nicht, weil Termux
+(`targetSdk 37`) fremde Pakete nicht sieht. Eine Adresse löst Android dagegen immer auf.
+
 ## App-Symbol
 
 Adaptives Symbol nur aus Vektoren (`res/mipmap-anydpi-v26/ic_launcher*.xml`, Teile in
