@@ -2042,6 +2042,36 @@ function _aktualisiereSchwebendesControl() {
 // sonst entsteht für jedes "Ja." eine eigene Anfrage.
 const MIN_STUECK_LAENGE = 60;
 
+/**
+ * Eine Markdown-Tabelle als gesprochene Sätze (29.09.2026).
+ *
+ * Vorher las die Stimme Tabellen Zelle für Zelle mit Strichen vor, ohne zu
+ * sagen, welche Spalte gemeint ist. Jetzt wird jede Zeile ein Satz: die erste
+ * Zelle nennt die Zeile, die übrigen Zellen tragen ihre Spaltenüberschrift,
+ * z. B. „Xperia T, Fotos: 3200, mit Ort: 80 %."
+ */
+function tabelleFuerStimme(block) {
+    const istTrenner = (z) => /^\|?[\s:|-]+\|?$/.test(z) && z.includes('-');
+    const zellen = (z) => z.replace(/^\|/, '').replace(/\|$/, '')
+        .split('|').map((c) => textFuerStimme(c));
+    const daten = block.split('\n').map((z) => z.trim())
+        .filter((z) => z.startsWith('|') && !istTrenner(z)).map(zellen);
+    if (!daten.length) return '';
+    const [kopf, ...zeilen] = daten;
+    if (!zeilen.length) return kopf.filter(Boolean).join(', ') + '.';
+    const saetze = zeilen.map((zeile) => zeile
+        .map((wert, i) => (!wert ? null : (i > 0 && kopf[i] ? `${kopf[i]}: ${wert}` : wert)))
+        .filter(Boolean).join(', ') + '.');
+    const anzahl = zeilen.length === 1 ? '1 Zeile' : `${zeilen.length} Zeilen`;
+    return `Tabelle mit ${anzahl}. ${saetze.join(' ')}`;
+}
+
+/** Ersetzt alle Tabellen eines ganzen Textes durch gesprochene Sätze. */
+function tabellenImTextFuerStimme(text) {
+    return text.replace(/(?:^[ \t]*\|.*(?:\n|$))+/gm,
+        (block) => tabelleFuerStimme(block) + '\n');
+}
+
 /** Räumt Markdown aus einem Stück, damit die Stimme keine Sternchen liest. */
 function textFuerStimme(text) {
     return text
@@ -2112,6 +2142,16 @@ function addSpeakControls(messageDiv, holeText, istFertig) {
     const naechstesStueck = () => {
         const rest = holeText().slice(gelesenBis);
         if (!rest) return null;
+
+        // Eine Tabelle wird als GANZES Stück gelesen, damit jede Zeile ihre
+        // Spaltenüberschriften kennt. Solange sie noch einläuft, wird gewartet.
+        const tabelle = rest.match(/^\s*(?:[ \t]*\|.*(?:\n|$))+/);
+        if (tabelle) {
+            const bisEnde = tabelle[0].length === rest.length;
+            if (bisEnde && !istFertig()) return null;
+            gelesenBis += tabelle[0].length;
+            return tabelleFuerStimme(tabelle[0]) || ' ';
+        }
 
         // Ein Stück endet an einem Satzzeichen oder Absatz. Ist die Antwort
         // fertig, wird der Rest genommen, auch ohne Satzzeichen.
@@ -6463,7 +6503,7 @@ function speakResponse(text) {
         console.warn('Browser-Stimme nicht verfügbar.');
         return false;
     }
-    const plainText = text
+    const plainText = tabellenImTextFuerStimme(text)
         .replace(/```[\s\S]*?```/g, '')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/[*_#]/g, '')
