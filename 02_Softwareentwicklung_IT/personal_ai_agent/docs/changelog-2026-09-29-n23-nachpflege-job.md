@@ -164,3 +164,32 @@ cd backend && .venv/Scripts/python -m pytest tests/ -q
 * Kein Foto, kein Chat-Inhalt, kein Kontaktname, kein Ort, keine Nummer, kein
   Schlüsselwert in Code, Test oder Doku. Kein Backup, kein Upload gebaut.
 * Nichts gelöscht, nichts verschoben, keine Schreiboperation außerhalb des Repos.
+
+## 8. Prüfer-Abnahme (frische Sitzung, andere Modellfamilie: `z-ai/glm-5.2`)
+
+**BESTANDEN, 0 blockierende Abweichungen.** Der Prüfer hat selbst gemessen und
+nicht abgeschrieben:
+
+* Prüfbefehl selbst gefahren: **3058 passed, 1 skipped, Exit 0** (222,00 s); die
+  neue Testdatei allein **28 passed** (0,97 s), `grep -c "^def test_"` = **28**.
+* `bash -n` auf allen drei Shell-Dateien: Exit **0 / 0 / 0**.
+* Zeilenzahlen selbst nachgezählt: **167 / 127 / 388 / 343 / 166**; `start-termux.sh`
+  im Vorgänger-Commit **375** → **388** (13 Zeilen zugefügt, 0 gelöscht).
+* Commit `3020280` enthält **genau sechs** Dateien — keine fremde
+  (`tools/agentbus/wache.py`, `docs/experimente/live_zahlen.*`, `frontend/*`
+  bleiben draußen); `origin/main...HEAD` = **`0 0`**.
+* Verbotene Muster im Produktivcode: **0 Treffer** (Treffer nur in den
+  Test-Assertions und im Doku-Text, die diese Muster prüfen). Keine
+  Geheimnis-Muster (`sk-`, `Bearer `, `PCLOUD_TOKEN=`, Ziffernfolgen ≥ 30).
+* Datenschutz: kein echter Personen-/Orts-/Ereignisname in den neuen Dateien;
+  die zwei Vorkommen des Nutzer-Vornamens in `start-termux.sh` sind **Bestand**
+  (nicht im neuen Block) und in der Testdatei steht er ausschließlich in der
+  Guard-Liste der Namen.
+* **Eigene Gegenprobe zur Idempotenz:** `termux/nachpflege-einrichten.sh` mit
+  einer Attrappe von `termux-job-scheduler` (Scratch-Bereich, nicht im Repo) —
+  Lauf 1 registriert `JOB_ID 1901`, Lauf 2 findet ihn per `--list` und meldet
+  „schon eingerichtet": **2 Läufe → 1 Registrierung**.
+* Doku ↔ Code: kein Widerspruch; die Doku behauptet **nicht**, der Job sei am
+  Handy eingerichtet oder verifiziert.
+* Nicht blockierende Anmerkung: der Prüfer maß 222,00 s statt der im Changelog
+  genannten 229,38 s — reine Laufzeit-Streuung.

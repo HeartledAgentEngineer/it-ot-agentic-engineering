@@ -171,6 +171,7 @@ ohnehin nachkontrolliert.
 
 | N19 | ✅ **Archiv-Suche auf Erwähnungen erweitern** (Sebastians Frage „was habe ich mit X gemacht?"): `_archiv_tool` feuerte nur auf Archiv-/Erinnerungs-Signale — eine Personenfrage enthielt **kein** Signal, also fand die Suche nichts, obwohl der Index die Person **113 ×** trägt. Neu: Personen-Signale (`_ERWAEHNUNG_SIGNALE`), reine Namens-aus-Frage-Funktion `_erwaehnung_name` (genau **ein** Wort, Satzzeichen/Stoppwörter weg, sonst `None`), Dienstfunktionen `ArchivSuche.erwaehnung_treffer` (FTS über **alle** Quellen, **ohne** Titel-Filter, je Fundstelle Quelle + Datum + Titel + `im_eigenen_chat`) und die reine `erwaehnungs_text` mit dem ehrlichen Satz „kein eigener Chat — Erwähnungen in anderen Gesprächen"; Bild-/Foto-Tor (`_ARCHIV_AUSSCHLUSS`) behält **Vorrang** | Volltext-Fundstellen mit Datum **und** Quelle auch **ohne** eigenen Chat; Bestandswege unverändert; Index nur lesend | ✅ **bestanden (29.09.)** — `archiv_suche.py` 1.317 → **1.533 Zeilen**, `chat.py` 2.174 → **2.284** (+110), Tests `backend/tests/test_erwaehnungssuche.py` **393 Zeilen / 14 Testfunktionen** (offline, winziger Index im `tmp_path`, erfundene Namen); Prüfbefehl **2.949 passed, 3 warnings, Exit 0** (Baseline **2.935** selbst gefahren, +14 = genau die neuen Tests), neue Datei allein **14 passed**; **echter Nur-Lese-Lauf** am echten Index (Programm gewählt, Name nie ausgegeben): `anzahl 113 · je_quelle {whatsapp 88, chatgpt 22, gemini 3} · eigene_chats 0 · nur_erwaehnungen true · fehler None`, Summe = anzahl, jede Fundstelle mit Quelle + Datum, Indexdatei unverändert; Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung, eigener Lauf **2.979 passed, 1 skipped, Exit 0** — die Differenz sind fremde Testfunktionen des zweiten Agenten): **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-29-n19-erwaehnungssuche.md`, Auftrag `docs/auftrag-n19-erwaehnungssuche.md`. **Ehrlich offen:** die Quellenaufteilung des Ausführer-Laufs (88/22/3) ist **nicht** die des Planers (108/4/2) — beide Male dieselbe Trefferzahl 113 und 0 eigene Chats, aber unterschiedlich gewählter Kandidat |
 | N22 | ✅ **Nächtliche Nachpflege des Archiv-Index** (inkrementell + idempotent, Sebastians Wunsch „täglich nachts"): neu `backend/scripts/archiv_nachpflege.py` — pflegt einen **bestehenden** Index nach, statt ihn neu zu bauen: Erkennung „neu" über einen **Inhaltsschlüssel** (`sha1("conv\x1ftimestamp\x1frole\x1ftext")[:16]` bzw. `…\x1fteil\x1fbeginn\x1fende\x1ftext…`), die Bestands-Schlüssel werden **aus dem Index selbst** gerechnet (kein Schema-Umbau); nur **anhängen** (`id = max + 1`, neue Chunks in `chunks_fts` + `optimize`, `gespraeche` per `INSERT OR REPLACE` nur für berührte Gespräche, `meta` wird nur **ergänzt**), Vektoren **nur für neue Chunks** und nur mit `--mit-vektoren`; Trockenlauf ist Standard, Repo-Ziel Exit 2, fehlende Quelle Exit 2, defekte Zeile wird gezählt statt geworfen | Erstlauf holt den Rückstand mit Zahlen; zweiter Lauf **0** neu; neue Nachricht erscheint in der Suche; Kosten < 0,05 $ — Nachweis auf **Kopien** (der echte Index ist heute in Sync) | ✅ **bestanden (29.09.)** — Werkzeug **623 Zeilen**, Tests `backend/tests/test_archiv_nachpflege.py` **697 Zeilen / 51 Testfunktionen** (alles offline, Attrappen-Einbetter, erfundene Texte); Prüfbefehl **3030 passed, 1 skipped, 3 warnings, Exit 0** (Baseline in derselben Runde selbst gemessen **2979 passed, 1 skipped, Exit 0**; +51 = genau die neuen Testfunktionen); **Original-Trockenlauf** `neu 0/0 · uebersprungen 282029/52679 · Fehler 0 · 13,7 s` (Lauf des Planers) bei **unveränderten** `sha256` beider Originale (`2ac72bf3…` / `61c95c6b…`); **Wirkung auf Kopien** (`~/foto_sortierung/n22_probe/`, nur kopiert): 3 erfundene Nachrichten + 1 erfundener Chunk in die Quell-Kopie → Schreib-Lauf `neu_nachrichten 3 · neu_chunks 1 · vektoren_gerechnet 1 · ohne_vektor 0 · gespraeche_beruehrt 1 · fehler 0`, Index-Kopie 447.496.192 → **451.739.648 B**, FTS **1 Treffer** auf `probebegriffn22` (rowid **52680**), Vektor **3072 B** = 1536 × 2 (float16), `meta` trägt `nachpflege_*`; **zweiter Lauf 0/0/0**, `sha256` der Index-Kopie `6ef66106…` **vor == nach** (kein Schreibvorgang); **Kosten 13 Token = 2,6e-07 $** (Zahl aus der API-Antwort) — Plangrenze 0,05 $ um fünf Größenordnungen unterboten; `archiv_index_bauen.py` **unverändert**. **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 blockierende Abweichungen** — eigener Prüfbefehl 3030/Exit 0, Testdatei allein 51 passed, Quelltext-Suche nach `DELETE|DROP|os.replace|os.remove|pcloud|urlopen|requests.|shutil` **0 Treffer**, Trockenlauf und Original-`sha256` nachgerechnet, Kopien nur lesend geprüft, **Idempotenz selbst nachgefahren** (zweiter Schreib-Lauf, `sha256` gleich), Datenschutz 0 Treffer, jede Changelog-Zahl nachgerechnet; **einzige Beobachtung (nicht blockierend):** er maß den Trockenlauf mit **18,4 s** statt der dokumentierten **12,0 s** — Laufzeit-Streuung, alle Zählungen und Prüfsummen gleich. **Ehrlich offen:** der **echte Erstlauf auf dem Original** steht aus, solange das Schwesterprojekt keine neuen Chats importiert (heute `0` neu); die Kopien (≈ 1,3 GB) bleiben bewusst liegen. Doku: `docs/changelog-2026-09-29-n22-archiv-nachpflege.md`, Auftrag `docs/auftrag-n22-archiv-nachpflege.md` |
+| N23 | ✅ **Nachpflege-Job im Android-Ökosystem** (Teil A, Repo-Seite; Sebastians Architektur-Regel „das muss alles auch so gebaut werden, dass es innerhalb des Android-Ökosystems eigenständig funktioniert"): das Handy pflegt den Archiv-Index **nachts selbst** nach, auch bei ausgeschaltetem PC. Neu `termux/nachpflege-job.sh` (Sperre per `mkdir`-Lock inkl. eigener veralteter Sperre > 6 h, Log-Kürzung > 200 KB auf 500 Zeilen, `termux-wake-lock`, Quelle/Index über `ARCHIV_QUELLE`/`ARCHIV_INDEX` bzw. Kandidatenliste, fehlende Quelle/Index → ehrliche Zeile + **Exit 3, nichts angelegt**, Aufruf von `backend/scripts/archiv_nachpflege.py` mit `--schreiben --mit-vektoren` und **einmaligem Rückfall ohne Vektoren** bei Exit 3, Bericht `hermes_diag/nachpflege_letzte.txt`) + `termux/nachpflege-einrichten.sh` (feste `JOB_ID=1901`, vorher `--list` → **idempotent**, `--period-ms 86400000`, `--persisted` **nur** wenn `--help` es kennt, crond-Rückfall, sonst ehrlich Exit 4) + Block in `start-termux.sh` (`\|\| true`, nach Git-Abgleich und Index-Übernahme — der **einzige** Weg aufs Handy) + **28 Wächter-Tests** offline (`backend/tests/test_nachpflege_job.py`) | Prüfbefehl grün; zweiter Einricht-Lauf registriert nichts neu; Job meldet fehlende Quelle ehrlich statt still zu laufen | ✅ **bestanden (29.09.)** — Werkzeuge **167 / 127 Zeilen**, `start-termux.sh` 375 → **388**, Tests **343 Zeilen / 28 Funktionen**; Prüfbefehl **3058 passed, 1 skipped, Exit 0** (Baseline in derselben Runde selbst gefahren **3030 passed, 1 skipped, Exit 0**; +28 = genau die neuen Testfunktionen), `bash -n` auf allen drei Shell-Dateien **Exit 0**; Commit `3020280` (**genau 6 Dateien**, gepusht, `0 0`); **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 blockierende Abweichungen** — eigener Prüfbefehl 3058/Exit 0, Testdatei allein 28 passed, Zeilenzahlen + Commit-Inhalt selbst geprüft, Doku ↔ Code ohne Widerspruch, **Idempotenz mit Attrappe selbst nachgefahren** (2 Läufe → **1** Registrierung). **Offen:** der **erste echte Handy-Lauf** ist nicht verifiziert (das Handy wurde nicht beschrieben) — **gemessen, warum:** `adb shell am startservice … com.termux.RUN_COMMAND` → `Error: Not found; no service started.` und `adb shell run-as com.termux` → `package not debuggable`; die Einrichtung passiert beim nächsten Widget-Tipp. Doku: `docs/changelog-2026-09-29-n23-nachpflege-job.md`, Auftrag `docs/auftrag-n23-handy-scheduler.md` |
 
 
 ## Journal (wird fortlaufend ergänzt)
@@ -3083,3 +3084,71 @@ ohnehin nachkontrolliert.
     N23 (Handy-Scheduler: den Nachpflege-Lauf als Cron im Android-Ökosystem
     verankern, damit der Index ohne PC nachwächst). **N8 bleibt gesperrt**; der
     Gesichter-Massenlauf läuft weiter als zweiter Strang (fremder Agent).
+* **29.09. ~14:40–15:30 — N23 Teil A gebaut, geprüft und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,078 USD ·
+  Prüfer: `z-ai/glm-5.2`, frische Sitzung — **andere Modellfamilie**).
+  Beginn: `git pull --rebase` **scheiterte** an ungestagten Änderungen (fremde
+  Dateien: `tools/agentbus/wache.py`, `docs/experimente/live_zahlen.*`); nichts
+  angefasst, nichts gestasht. `git fetch` + `git rev-list --left-right --count
+  origin/main...HEAD` → **`0 1`** (ein **fremder** Commit der Android-App-Hülle
+  lag unpushiert vor). Gearbeitet wurde vom committeten Stand `4da8626`.
+  - **Warum N23 und nicht N25:** N25 (verschlüsseltes Archiv-Backup in die
+    pCloud) braucht **Sebastians Passphrase-Entscheidung** — im autonomen Lauf
+    nicht zu treffen, also laut Planregel „blockiert → Grund ins Journal,
+    nächster Schritt". N25 bleibt gesperrt.
+  - **Erst gemessen, dann gebaut:** vom PC aus lässt sich auf dem Handy **kein**
+    Befehl starten — `adb shell am startservice … com.termux.RUN_COMMAND` →
+    `Error: Not found; no service started.`, `adb shell run-as com.termux` →
+    `package not debuggable` (Zustand `device`, Gerät hing am Kabel). Damit stand
+    fest: der Handy-Teil muss über den **Widget-Tipp-Pfad** (`start-termux.sh`)
+    laufen, den Sebastian ohnehin benutzt — nicht über ADB.
+  - **Gebaut:** `termux/nachpflege-job.sh` (**167 Zeilen**) und
+    `termux/nachpflege-einrichten.sh` (**127 Zeilen**), plus ein Block in
+    `start-termux.sh` (375 → **388** Zeilen, `|| true`, nach Git-Abgleich und
+    Index-Übernahme). Inhalt: `mkdir`-Sperre mit Erkennung einer **eigenen**
+    veralteten Sperre (> 6 h), Log-Kürzung über 200 KB → letzte 500 Zeilen,
+    `termux-wake-lock`, Quelle/Index über `ARCHIV_QUELLE`/`ARCHIV_INDEX` bzw.
+    eine Kandidatenliste, fehlende Quelle/Index → **ehrliche Zeile + Exit 3,
+    nichts angelegt**, Aufruf von `backend/scripts/archiv_nachpflege.py` mit
+    `--schreiben --mit-vektoren` und **einmaligem Rückfall ohne Vektoren** bei
+    Exit 3 (Text soll trotzdem in den Index), Bericht
+    `hermes_diag/nachpflege_letzte.txt` (Kopfzeile `nachpflege_bericht …` + letzte
+    50 Log-Zeilen) für den PC über das Kabel; Einrichtung **idempotent** (feste
+    `JOB_ID=1901`, vorher `termux-job-scheduler --list`, `--period-ms 86400000`,
+    `--persisted` nur wenn `--help` es kennt, crond-Rückfall, sonst ehrlich
+    Exit 4). **Kein** Backup, **kein** Upload, **keine** Löschfunktion.
+  - **Prüfbefehl selbst gefahren (Planer, frisch):** Baseline **3030 passed,
+    1 skipped, Exit 0** (138,7 s) → nach der Änderung **3058 passed, 1 skipped,
+    Exit 0** (164,9 s; **+28 = genau die neuen Testfunktionen**). `bash -n` auf
+    allen drei Shell-Dateien **Exit 0**. Der Commit-Hook hat dasselbe Tor noch
+    einmal gefahren (3058, Exit 0).
+  - **Commit `3020280` — genau 6 Dateien**, mit `git add` + `git commit --only`
+    (der zweite Agent hatte parallel Dateien gestagt; die bleiben draußen),
+    gepusht, danach `0 0`. **Ehrlich notiert:** der Push hat zwei **fremde**
+    Commits (`3198f42` Android-App-Hülle, `64cb325` Frontend-Quiz) mitgenommen,
+    die vorher unpushiert im lokalen Stand lagen — nicht umgeschrieben, nicht
+    angefasst, nichts überschrieben.
+  - **Prüfer (`z-ai/glm-5.2`, frische Sitzung): BESTANDEN, 0 blockierende
+    Abweichungen.** Eigener Prüfbefehl **3058 passed, 1 skipped, Exit 0**
+    (222,0 s), neue Testdatei allein **28 passed**, `bash -n` 0/0/0, Zeilenzahlen
+    (167/127/388/343/166) und Commit-Inhalt selbst nachgezählt, Doku ↔ Code ohne
+    Widerspruch, Datenschutz-Scan **0 Treffer** (die zwei Vorkommen des
+    Nutzer-Vornamens in `start-termux.sh` sind **Bestand** außerhalb des neuen
+    Blocks; in der Testdatei steht er nur in der Guard-Liste), verbotene Muster
+    im Produktivcode **0 Treffer**. **Eigene Gegenprobe:** Einricht-Skript mit
+    einer Attrappe von `termux-job-scheduler` → Lauf 1 registriert `JOB_ID 1901`,
+    Lauf 2 meldet „schon eingerichtet": **2 Läufe → 1 Registrierung**. Einzige
+    nicht blockierende Beobachtung: er maß 222,0 s statt 229,4 s
+    (Laufzeit-Streuung).
+  - **Ehrlich offen:** der **erste echte Handy-Lauf** (Registrierung des Jobs,
+    Nachtlauf, Überleben eines Neustarts) ist **nicht** verifiziert — das Handy
+    wurde in diesem Schritt **nicht beschrieben**. Er passiert beim nächsten
+    Widget-Tipp; danach liegt das Ergebnis in `hermes_diag/nachpflege_letzte.txt`
+    und ist per Kabel lesbar. Ebenfalls offen: das Handy braucht eine **Quelle**
+    (`memory.db`) — heute liegt die Archiv-Pflege auf dem PC; der Job meldet eine
+    fehlende Quelle ehrlich (Exit 3) statt still zu laufen. Doku:
+    `docs/changelog-2026-09-29-n23-nachpflege-job.md`,
+    Auftrag `docs/auftrag-n23-handy-scheduler.md`.
+  - **Nächster Schritt:** N23 Teil B (erster Handy-Lauf beobachten und die
+    Job-Registrierung am Gerät belegen) bzw. **N25**, sobald Sebastian die
+    Passphrase entschieden hat. **N8 bleibt gesperrt.**
