@@ -182,8 +182,9 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   Play-Store-Termux“ oben.
 - Behoben (29.09.2026, abends): `TermuxLauncher.starte()` wertet jetzt die Rückgabe von
   `startForegroundService` aus (bei fehlendem Dienst `null`) und öffnet Termux dann sofort
-  sichtbar, statt 60 s zu warten (am Handy belegt: Termux öffnete sofort). Der Weg über
-  `profile.d` ist am Handy noch nicht Ende zu Ende belegt.
+  sichtbar, statt 60 s zu warten. **Ende zu Ende am Handy belegt (30.09.2026 00:29):** Termux
+  per `force-stop` beendet, Backend aus → Hey Agent gestartet → 00:29:02 Termux geöffnet →
+  00:29:11 `heyagent://start` aus Termux → `Backend-Start: bereit=true dauer=10080 ms`.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
 - Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt

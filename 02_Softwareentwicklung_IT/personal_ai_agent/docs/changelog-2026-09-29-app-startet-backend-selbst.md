@@ -56,3 +56,16 @@ jede Login-Shell über `$PREFIX/etc/profile`. Es prüft auch, ob `profile` den O
 er doch, findet er das Backend schon laufend und endet sofort.
 
 **Prüfung:** 2 weitere Wächter-Tests (vorher rot), `bash -n` auf beiden Skripten Exit 0.
+
+## Beleg am Handy (30.09.2026, nach der Berichtigung zu `termux/agent-start`)
+
+Einrichtung per Tastatur-Eingabe über `adb` in einer neuen Termux-Sitzung: `git pull --ff-only`
+→ `b5b6bd3`, `hey-agent-einrichten.sh` → „OK: …/profile.d/hey-agent.sh angelegt“ und „OK:
+…/etc/profile liest profile.d“.
+
+- **App-Richtung:** Termux mit `am force-stop` beendet (Backend aus), Hey Agent gestartet.
+  Logcat: 00:29:02 App öffnet Termux, 00:29:11 `heyagent://start` aus Termux, 00:29:12
+  `Backend-Start: bereit=true dauer=10080 ms`. Danach ist Hey Agent vorn, `/health` antwortet.
+- **Widget-Richtung:** `bash termux/agent-start` in Termux ausgeführt (derselbe Befehl wie das
+  Widget). Logcat: 00:30:04 `heyagent://start`, kein Browser. Hey Agent ist vorn, `/health`
+  antwortet.
