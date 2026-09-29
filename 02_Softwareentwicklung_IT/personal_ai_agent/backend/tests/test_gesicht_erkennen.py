@@ -1558,3 +1558,28 @@ def test_exif_metadaten_kommt_ohne_cv2_aus():
              for n in importiert for a in n.names] + [
         getattr(n, "module", None) or "" for n in importiert]
     assert not any("cv2" in str(name) for name in namen)
+
+
+# ── 10c. Waechter: Modell nicht ladbar -> Abbruch statt stummer Leerzeilen ──
+
+class _ModellNichtLadbar(AttrappeModell):
+    """Wie im Nachtlauf N-0929: falscher Interpreter ohne cv2/onnxruntime."""
+
+    def _laden(self):
+        raise ModuleNotFoundError("No module named 'cv2'")
+
+
+def test_main_bricht_ab_wenn_modell_nicht_ladbar(tmp_path, monkeypatch, capsys):
+    plan = _plan_schreiben(tmp_path / "plan.json",
+                           [{"fileid": i, "jahr": 2020} for i in (1, 2)])
+    ziel = tmp_path / "v.jsonl"
+    dienst = AttrappeDienst({str(i): _png_bytes() for i in (1, 2)})
+    monkeypatch.setattr(gs, "GesichtsModell",
+                        lambda modelle=None: _ModellNichtLadbar([_gesicht()]))
+    monkeypatch.setattr(gs, "_pcloud_dienst", lambda: dienst)
+    code = gs.main(["--plan", str(plan), "--vektoren", str(ziel), "--schreiben"])
+    assert code == 2
+    assert not ziel.exists()
+    assert dienst.aufrufe == []
+    ausgabe = capsys.readouterr().out
+    assert "Gesichtsmodell nicht ladbar" in ausgabe and "NICHTS geschrieben" in ausgabe

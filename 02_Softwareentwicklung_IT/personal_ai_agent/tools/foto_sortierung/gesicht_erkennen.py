@@ -1287,6 +1287,21 @@ def main(argv=None) -> int:
             return 0
 
         modell = GesichtsModell(args.modelle)
+        # Waechter (29.09.2026): Ist das Gesichtsmodell nicht ladbar (falscher
+        # Interpreter ohne cv2/onnxruntime, Modelldateien fehlen), wuerde jede
+        # Zeile stumm mit leerer Gesichtsliste geschrieben — so geschehen im
+        # Nachtlauf N-0929. Deshalb VOR dem ersten Bild laden und sonst abbrechen.
+        laden = getattr(modell, "_laden", None)
+        if callable(laden):
+            try:
+                laden()
+            except Exception as problem:
+                print("Abbruch: Gesichtsmodell nicht ladbar "
+                      f"({problem.__class__.__name__}): {problem}\n"
+                      "Richtigen Interpreter nehmen (Gesichter-venv mit cv2 und "
+                      "onnxruntime) und die Modelldateien pruefen. "
+                      "Es wurde NICHTS geschrieben.")
+                return 2
         dienst = _pcloud_dienst()
         holen = kachel_quelle(dienst, max_bytes=args.max_bytes,
                               ausschnitt=args.ausschnitt)

@@ -12,3 +12,8 @@ Der Nachtlauf N-0929 hing an der Hermes-Sitzung und lief nach der Stichprobe nic
 ## Prüfung
 - `pytest tests/test_gesicht_erkennen.py`: 143 passed (vorher 133).
 - Den vollen Prüfbefehl führt der Pre-commit-Hook aus.
+
+## Nachtrag: Wächter gegen stumme Leerzeilen (29.09.2026, später am Vormittag)
+- Befund: Im Nachtlauf lief `gesicht_erkennen.py` mit `backend/.venv`, das kein cv2 und kein onnxruntime hat. Jedes Bild wurde mit leerer Gesichtsliste geschrieben. Das Feld `fehler` landet nicht in der Ausgabezeile, deshalb fiel es nicht auf. 96 und 21 Zeilen enthielten nur Metadaten, **es wurden keine Gesichter berechnet**.
+- Neu: `main` lädt mit `--schreiben` das Modell **vor** dem ersten Bild. Ist es nicht ladbar, bricht es mit einer deutschen Meldung und Exit 2 ab. Es wird nichts geholt und nichts geschrieben.
+- Test: `test_main_bricht_ab_wenn_modell_nicht_ladbar`. `test_gesicht_erkennen.py` hat jetzt 144 passed.
