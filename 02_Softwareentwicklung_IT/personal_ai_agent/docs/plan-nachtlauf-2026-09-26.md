@@ -163,6 +163,8 @@ ohnehin nachkontrolliert.
 
 | N27e | ✅ **Ableitung „wer war mit wem wo"** (Verknüpfungsschicht N27, Schritt 5 von 5, letzter): `tools/foto_sortierung/beziehungen_ableiten.py` leitet aus `personen_andockung.jsonl`, `chat_andockung.jsonl` und `ereignisse.jsonl` **nur lesend** Aussagen mit **Datum + Quelle** ab — drei getrennte Unterarten: `fotos` (≥2 Personen am selben Anlass), `gemeinsam_im_chat` (≥2 benannte Kontakte im selben Chat am selben Tag), `fotos_und_chat` (Person × Kontakt am selben Anlass); unbestätigte Kennungen bleiben `Person_00x` **mit `name: null`** (Kandidatenlisten werden nie gelesen), jede Zeile trägt einen deutschen `hinweis` zur Abgrenzung (Mitgliedschaft ≠ Anwesenheit); `--trocken` ist Standard, Repo-Ziel Exit 2, `--datum` fragt einen Tag ab, `--nur-bestaetigt` schaltet auf die strenge Lesart; Ausgabe außerhalb des Repos (`beziehungen.jsonl` + `beziehungen.json`) | Prüfbefehl grün; Live-Trockenlauf nennt die Zahlen; zwei Schreibläufe byte-gleich; Repo-Ziel Exit 2; ohne Bestätigung 0 Namen | ✅ **bestanden (29.09.)** — Werkzeug **1.097 Zeilen**, Tests **1.530 Zeilen / 183 Testfunktionen** (alles offline); Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (Baseline 2.606, selbst gefahren); live **5 / 2.127 / 2.127 Zeilen gelesen, 0 defekt · 23 + 14.902 + 126 = 15.051 Aussagen · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte · 2016-05-04 bis 2025-08-16**; zwei `--schreiben`-Läufe mit festem `--stand` **byte-gleich** (12.601.994 B, sha256 `549eafbc59bf6e58…`; 715 B, sha256 `083503afbb462602…`); Repo-Ziel **Exit 2** (nichts geschrieben), ungültiges `--datum` **Exit 2**, `--nur-bestaetigt` **0** Aussagen, `--datum 2022-08-21` **61** (10/6/45); **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** — eigener Prüfbefehl **2.789 passed, 3 warnings, Exit 0** (105 s), N27e-Suite allein **183 passed** (5,4 s), Trockenlauf Zeile für Zeile gegen die Sollwerte, zwei Schreibläufe **byte-gleich** (12.601.994 B / 715 B, gleiche sha256), Repo-Ziel **Exit 2**, Datenschutz **0 Treffer**, Namensprobe **genau 13** Aussagen mit `Person_001`, Commit `f333051` **6 Dateien**, `0 0`, `manifest.jsonl` fehlt (`openai/gpt-5.6-luna` war davor **zweimal** rate-limitiert) |
 
+| N28 | ✅ **Antwortstufe „wer war mit wem wo"** (Folge von N27e): Dienst `backend/app/services/beziehungen_service.py` (rein lesend, nie ein Wurf) + Endpunkte `GET /api/beziehungen/uebersicht` und `GET /api/beziehungen/tag?datum=…` (immer HTTP 200, Key-Schutz wie alle `/api`-Routen) + Chat-Werkzeug `_beziehungen_tool` (an **beiden** Ketten, enge Auslöseregel: nur mit erkanntem Datum **und** Zeit-/Beleg-Bezug, sonst bleibt der Chat still) — Frage „was war am 27.12.2019?" wird aus `~/foto_sortierung/beziehungen.jsonl` beantwortet, jede Antwort mit Datum, Quelle und dem **wörtlichen** Hinweis (Mitgliedschaft ≠ Anwesenheit, Bildnähe ≠ Beziehung); Selbsttest-Block `beziehungen` | Prüfbefehl grün; Live-Lauf nennt die Zahlen; Tag ohne Aussagen ist **kein** Fehler; Datendateien nur gelesen (sha256 vor/nach gleich) | ✅ **bestanden (29.09.)** — Werkzeug/Dienst **622 Zeilen**, Router **136**, Tests **761 Zeilen / 76 Testfunktionen** (alles offline); Prüfbefehl **2894 passed, 3 warnings, Exit 0** (Baseline 2.789, selbst gefahren); **Vorbedingung erfüllt:** die kanonische Datei wurde mit dem N27e-Werkzeug geschrieben (`--schreiben`, Standardpfad außerhalb des Repos) — `beziehungen.jsonl` **12.601.994 B** / `beziehungen.json` **715 B**, 15.051 Aussagen; live **15.051 Aussagen · 645 Tage · 2016-05-04 bis 2025-08-16 · 12 Kennungen · 0 bestätigte Namen · 253 Kontakte**, `2022-08-21` → **61** (10/6/45), `2019-12-27` → **0** (`gueltig true`, kein Fehler), `2025-06-06` → **685**, `31.02.2020` → `gueltig false`; `text_antwort` 1.223 Zeichen (≤ 2.000); Datendateien **unverändert** (sha256 vor/nach gleich), kein Netz/Bild/pCloud, keine Löschfunktion; **kein Frontend-Umbau, kein Cache-Bump**; Prüfer `z-ai/glm-5.2` (andere Modellfamilie, `openai/gpt-5.6-luna` war **zum dritten Mal** rate-limitiert): **BESTANDEN, 0 Abweichungen** — eigener Prüfbefehl 2894/Exit 0, 76 Testfunktionen, alle Live-Zahlen nachgerechnet, Datenschutz 0 echte Treffer, Verdrahtung an beiden Stellen bestätigt, Datendateien unverändert. Doku: `docs/changelog-2026-09-29-n28-beziehungen-antwortstufe.md`, Auftrag `docs/auftrag-n28-beziehungen-antwortstufe.md`. **Offen:** die Datei liegt **nur am PC** (Übergabe ans Handy ist ein eigener Schritt wie N13c); die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`; der Massenlauf der Gesichter (~15 h) bleibt eigener Schritt |
+
 ## Journal (wird fortlaufend ergänzt)
 
 * **26.09. ~04:40** — Regeln in `AGENTS.md` („Dauerlauf / Nachtarbeit")
@@ -2662,3 +2664,80 @@ ohnehin nachkontrolliert.
     Namensbestätigung und die 39 Event-Vorschlaege des Nutzers; **N8** (echtes
     Sortieren) bleibt **gesperrt**, `--datum 2019-12-27` → **0** Aussagen bleibt
     als offener Befund notiert.
+* **29.09. ~05:30 — N28 gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,213 USD · Prüfer:
+  `z-ai/glm-5.2`, **andere Modellfamilie**; `openai/gpt-5.6-luna` war **zum
+  dritten Mal** rate-limitiert → Exit 2 ohne Repo-Fehler).
+  Beginn wie in den Runden zuvor: `git pull --rebase` scheiterte an den
+  **fremden** Dateien des zweiten Agenten (`docs/experimente/live_zahlen.*`,
+  `tools/agentbus/wache.py`, zwei Recherche-HTML); nichts angefasst, nichts
+  gestasht; `git fetch` + `git rev-list --left-right --count origin/main...HEAD`
+  → **`0 0`**. **Codex nicht benutzt** (Kontingent, Plan-Zeile 44) → gebaut
+  wurde mit einem Hermes-Subagenten.
+  - **Vorbedingung, die dieser Schritt geschlossen hat:** die kanonische Datei
+    existierte **nur in Probeordnern** — `~/foto_sortierung/beziehungen.jsonl`
+    fehlte. Sie wurde mit dem **vorhandenen** N27e-Werkzeug geschrieben
+    (`--schreiben`, Standardpfad außerhalb des Repos, idempotent, ungestellter
+    `stand`): **12.601.994 B** / **715 B**, 15.051 Aussagezeilen, 0 defekte,
+    Protokoll `~/foto_sortierung/n28_kanonisch.log`. Kein neues Werkzeug, keine
+    neue Regel — derselbe Aufruf wie in N27e.
+  - **Gebaut:** `backend/app/services/beziehungen_service.py` (**622 Zeilen**;
+    `datum_erkennen`, `aussagen_fuer_datum`, `beziehungen_laden`, `text_antwort`,
+    `status_block`; rein lesend, kein Netz/Bild, **keine Schreibfunktion**,
+    nie ein Wurf) + `backend/app/router/beziehungen.py` (**136 Zeilen**;
+    `GET /api/beziehungen/uebersicht`, `GET /api/beziehungen/tag?datum=…&limit=…`,
+    immer HTTP 200, `limit` auf 1…200 geklemmt) + `backend/tests/test_beziehungen_service.py`
+    (**761 Zeilen / 76 Testfunktionen**, alles offline, erfundene Daten in
+    `tmp_path`). Geändert: `_beziehungen_tool` in `chat.py` (Definition 1.235,
+    Aufruf 389 = `/chat`, 1925 = `/stream`, jeweils **nach** dem Foto-Werkzeug),
+    Selbsttest-Block `beziehungen`, Router-Registrierung mit Key-Schutz,
+    `test_selbsttest.py` (`PFLICHT_FELDER` vergleicht die **exakte**
+    Schlüsselmenge → musste den neuen Block aufnehmen).
+  - **Prüfbefehl selbst gefahren:** Baseline **2.789** → **2894 passed,
+    3 warnings, Exit 0** (101,6 s); der Commit-Hook hat dasselbe Tor beim Commit
+    noch einmal gefahren (2894, Exit 0, 113,8 s).
+  - **Live am echten Bestand (nur lesend):** **15.051** Aussagen · **645** Tage ·
+    2016-05-04 bis 2025-08-16 · **12** Kennungen · **0** bestätigte Namen ·
+    **253** Kontakte; `2022-08-21` → **61** (fotos 10 / gemeinsam_im_chat 6 /
+    fotos_und_chat 45), `2019-12-27` → **0** (`gueltig true`, `error null` — der
+    plan-interne Testtag trägt keine Andockung, **kein** Fehler), `2025-06-06` →
+    **685**, `31.02.2020` → `gueltig false`; `text_antwort` 1.223 Zeichen
+    (≤ 2.000, enthält den `hinweis` **wörtlich**). Belege:
+    `~/foto_sortierung/n28_belege.txt` (nur Zahlen/Daten).
+  - **Schutz:** die Datendateien wurden **nur gelesen** — sha256 vor **und**
+    nach allen Läufen identisch (`beziehungen.jsonl e0d0dc40…`, `beziehungen.json
+    9ec70dc2…`); kein Netz, keine Bilder, kein pCloud-Aufruf, keine
+    Löschfunktion (per Quelltext-Test abgesichert).
+  - **Ehrlich offen gelassen:** (1) die Frontend-Klartextzeile im Selbsttest
+    wurde **weggelassen** — `app.js` liest Felder explizit, der neue Block
+    erschiene nur mit JS-Umbau, und der Auftrag verbietet den (die Chat-Antwort
+    ist der Zweck); (2) `existiert: true` nur, wenn **beide** Dateien da sind,
+    `pfad` zeigt auf die Aussagen-Datei; (3) die Differenz 2.894 − 2.789 = 105
+    gegen 76 neue Testfunktionen ist offengelegt (ohne die neuen Dateien sammelt
+    die Suite 2.818 Tests — 29 waren beim Baseline-Lauf nicht mitgezählt);
+    (4) einmalige Flakiness in `test_ereignisse_bauen.py`
+    (`datetime.now(timespec="seconds")` als Teil von `stand`) — nicht Teil
+    dieses Auftrags, nicht angefasst.
+  - **Prüfer (`z-ai/glm-5.2`, frische Sitzung): BESTANDEN, 0 Abweichungen.**
+    Er hat selbst gefahren/geprüft: Prüfbefehl **2894 passed / Exit 0** (97 s),
+    neue Testdatei allein **76 passed**/76 Funktionen, Zeilenzahlen **622 / 136 /
+    761** wie behauptet, alle Live-Zahlen (15.051 · 645 · 12/0/253 · 61(10/6/45)
+    · 0 · 685 · 31.02.2020 ungültig), Formatprüfung von `datum_erkennen`
+    (`27.12.2019`/`27.12.19`/`2019-12-27`/`27. Dezember 2019`/`3. märz 2022`),
+    Router über `TestClient` (HTTP 200, `limit=500` geklemmt, `limit=0` → 1),
+    **Datenschutz: 0 echte Treffer** (813 Namen aus `chat_andockung.jsonl`
+    gegengeprüft; die vier Treffer sind das Wort „Roman", das Pronomen „Ich" und
+    zwei **altbestehende** Nutzerreferenzen), kein Netz/Bild/Schreib-/Löschcode,
+    Verdrahtung an **beiden** Stellen (389/1925, Reihenfolge unverändert),
+    Key-Schutz-Registrierung, Selbsttest-Feld in Struktur + Test, **`app.js`
+    unverändert und kein Cache-Bump**. Eigene Zweifel des Prüfers: die im
+    Changelog genannten Zeilen 385/1922 seien die Kommentarzeilen (keine echte
+    Abweichung) — die Angabe wurde danach auf die **Aufrufzeilen 389/1925**
+    präzisiert; „märz" allein ist korrekt `None`; die 105-zu-76-Differenz ist
+    plausibel, aber nicht unabhängig nachrechenbar.
+  - **Git:** Commit `088442d` = **9 Dateien** ohne Fremdarbeit, gepusht, `0 0`.
+    **Nächster Schritt:** die kanonischen Datendateien ans **Handy** übergeben
+    (wie N13c) und/oder der Massenlauf der Gesichter (Kandidat N27f, ~15 h,
+    eigene Entscheidung); **N8** (echtes Sortieren) bleibt **gesperrt** bis zu
+    Sebastians Blick auf die 39 Event-Vorschläge und die 1.146 datumslosen
+    Dateien; die **Namen** der 12 Personen warten auf `personen_bestaetigt.json`.
