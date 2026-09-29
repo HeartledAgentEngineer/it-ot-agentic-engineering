@@ -221,6 +221,19 @@ body {
     word-wrap: break-word;
 }
 
+/* Links in Antworten: hell statt Browser-Dunkelblau (auf dunklem Grund kaum
+   lesbar, Befund 29.09.2026); lange Adressen brechen um. */
+.message-content a {
+    color: #c9d4e3;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+}
+
+.message-content a:hover {
+    color: #ffffff;
+}
+
 .message.user .message-content {
     background: var(--accent);
     color: white;
@@ -933,6 +946,11 @@ body {
 .sources a {
     color: var(--text-secondary);
     text-decoration: none;
+    /* Fix 29.09.2026: Flex-Kinder schrumpfen sonst nicht unter ihre
+       Textbreite -> nowrap-Titel sprengten die Blase, die Ellipse griff nie. */
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -8208,54 +8208,29 @@ async function zeigeGespraech(id) {
 
             if (istOffeneQuizFrage) {
                 if (alsOffeneQuizKarte) {
-                    // Daten-URL holen und die interaktive Quiz-Karte (Bild + Rahmen
-                    // + Antworten) noninteraktiv-nachladen. Async nachladen, damit
-                    // der Chronik-Aufbau nicht blockiert.
-                    _baueOffeneQuizKarte(contentDiv, m);
+                    // Fix 29.09.2026: Beim Öffnen der App startet das Quiz NICHT
+                    // mehr von selbst. Früher wurde hier die letzte offene Frage als
+                    // laufende Quiz-Karte nachgebaut (_quizAktiv = true) — eine nie
+                    // beantwortete Frage „ging“ so bei jedem Öffnen wieder los.
+                    // Jetzt: Bild als normale Historie + Knopf zum Weitermachen.
+                    ladeBildLazy(contentDiv, m.bild_pfad);
+                    _quizFortsetzenKnopf(contentDiv);
                 }
             }
             return contentDiv;
         }
 
-        // Laedt die offene Quiz-Karte (letzte offene Frage) mit dem sauberen
-        // zeigeQuizKarte-Pfad. Wird NACH dem Blasen-Aufbau aufgerufen, damit das
-        // Bild via data_url (proportional im imgWrap) + gelbem Rahmen erscheint.
-        async function _baueOffeneQuizKarte(contentDiv, m) {
-            try {
-                const pfad = m.bild_pfad;
-                if (!pfad) return;
-                // bekannte Personen für die Antwort-Chips holen
-                const gr = await fetch(`${API_BASE}/api/gesichter`);
-                const gd = await gr.json();
-                const optionen = (gd && gd.personen || []).map(p => p.name).filter(Boolean);
-                const ui = m.ui || null;
-                const vermutung = ui && ui.vermutung && ui.vermutung.person ? ui.vermutung : null;
-                const gesichterUi = (ui && ui.gesichter) || [];
-                // Daten-URL frisch laden (nicht persistiert, in-memory)
-                const dr = await fetch(`${API_BASE}/api/dateien/daten?pfad=${encodeURIComponent(pfad)}`);
-                const dd = await dr.json();
-                const dataUrl = (dd && dd.data_url) || '';
-                if (!dataUrl) {
-                    const fehlt = document.createElement('div');
-                    fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
-                    fehlt.textContent = '🖼 Bild nicht (mehr) ladbar (gelöscht/verschoben).';
-                    contentDiv.appendChild(fehlt);
-                    return;
-                }
-                // In die BESTEHENDE Blase bauen (zielContainer), keine neue Karte.
-                // Eine wiederhergestellte offene Frage IST eine laufende Sitzung:
-                // _quizAktiv setzen, sonst wirkt der ✕-Knopf nicht (Bug: "Quiz
-                // laesst sich nach Reload nicht beenden").
-                _quizAktiv = true;
-                _quizWeiterAbbrechen();
-                zeigeQuizKarte(pfad, ui && ui.name || '', dataUrl, optionen, vermutung, gesichterUi.length, [], gesichterUi, contentDiv);
-            } catch (e) {
-                // Fehlschlag sanft melden (Bild bleibt Textblase)
-                const fehlt = document.createElement('div');
-                fehlt.style.cssText = 'font-size:0.78rem;color:#999;font-style:italic;margin-top:4px';
-                fehlt.textContent = '🖼 Quiz-Bild nicht ladbar (gelöscht/verschoben).';
-                contentDiv.appendChild(fehlt);
-            }
+        /** Knopf unter einer offenen Quiz-Frage aus dem Verlauf: das Quiz geht
+         *  erst weiter, wenn der Nutzer es will (quizFortsetzen). */
+        function _quizFortsetzenKnopf(contentDiv) {
+            const knopf = document.createElement('button');
+            knopf.type = 'button';
+            knopf.className = 'quiz-fortsetzen-btn';
+            knopf.textContent = '▶ Quiz fortsetzen';
+            knopf.style.cssText = 'margin-top:8px;padding:6px 12px;border-radius:8px;'
+                + 'border:1px solid var(--border);background:transparent;color:inherit;cursor:pointer';
+            knopf.addEventListener('click', () => { knopf.remove(); quizFortsetzen(); });
+            contentDiv.appendChild(knopf);
         }
 
         /** Rekonstruiert eine abgeschlossene Quiz-Runde als schöne Bildunterschrift-
