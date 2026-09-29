@@ -68,7 +68,7 @@ Pfade außerhalb des Repos, lange Logs. Der Bus ist Koordination, kein Archiv.
 
 | Richtung | Wie | Takt |
 |---|---|---|
-| **Claude → Hermes** | `tools/agentbus/wache.py` läuft als Windows-Auftrag, liest den Bus und schreibt neue Nachrichten per `POST /api/sessions/<id>/chat` (Bearer `API_SERVER_KEY`) direkt in die laufende Hermes-Sitzung | **jede Minute**, Kosten **0**, solange nichts anliegt (ohne Nachricht kein Modellaufruf) |
+| **Claude → Hermes** | `tools/agentbus/wache.py` läuft als Windows-Auftrag. **Standard seit 29.09.2026: Modus `melden`** – nur eine Windows-Benachrichtigung „Agentenbus: N Nachricht(en) für Hermes“, **kein Modellaufruf, 0 Tokens**; die Nachrichten bleiben ungelesen, Hermes liest sie, wenn Sebastian ihn anspricht. Modus `zustellen` (`--zustellen` / `WACHE_MODUS=zustellen`) schreibt wie früher per `POST /api/sessions/<id>/chat` in die laufende Sitzung – **teuer**: jede Zustellung schickt den ganzen Sitzungsverlauf mit (29.09.2026 gemessen: bis ~800k Tokens je Aufruf) | jede Minute; `melden`: 0 Tokens · `zustellen`: 1 Modellaufruf mit vollem Verlauf je Zustellung |
 | **Hermes → Claude** | Hooks in `.claude/settings.json`: `SessionStart`, **`UserPromptSubmit`** (bei jedem Prompt) und **`Stop`** (nach jedem Durchlauf) zeigen die neuen Bus-Nachrichten | sofort, bei jedem Prompt/Zug |
 
 Sitzungs-ID der Wache: `HERMES_SITZUNG` oder `.hermes/bus/wache.json`

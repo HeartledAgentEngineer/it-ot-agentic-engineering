@@ -1,9 +1,16 @@
-"""Wache: schiebt neue Agentenbus-Nachrichten in die laufende Hermes-Sitzung.
+"""Wache: meldet neue Agentenbus-Nachrichten fuer Hermes.
 
-Laeuft als geplanter Auftrag jede Minute. Kostet NICHTS, solange nichts auf dem
-Bus liegt: ohne neue Nachricht beendet sich das Skript sofort, ohne Modellaufruf.
+Zwei Modi (seit 29.09.2026):
+  * melden (STANDARD): nur eine Windows-Benachrichtigung, KEIN Modellaufruf,
+    0 Tokens. Nachrichten bleiben ungelesen, bis Hermes sie selbst liest.
+  * zustellen (--zustellen oder WACHE_MODUS=zustellen): wie frueher in die
+    laufende Hermes-Sitzung schreiben. ACHTUNG: jede Zustellung weckt die
+    Sitzung mit ihrem ganzen Verlauf - am 29.09.2026 bis ~800k Tokens je Aufruf.
 
-Ablauf:
+Laeuft als geplanter Auftrag jede Minute. Ohne neue Nachricht beendet sich das
+Skript sofort.
+
+Ablauf im Modus zustellen:
   1. ungelesene Nachrichten fuer 'hermes' vom Bus holen
   2. keine da -> still beenden (Exit 0)
   3. welche da -> per Hermes-API in die Sitzung schreiben
@@ -96,9 +103,62 @@ def nachrichtentext(neu: list[dict]) -> str:
     return "\n".join(zeilen)
 
 
-def wache(erzwingen: bool = False) -> int:
+def toast(titel: str, text: str) -> None:
+    """Windows-Benachrichtigung zeigen - kostet keine Tokens. Fehler still."""
+    import subprocess
+
+    def q(s: str) -> str:
+        return s.replace("'", "''")[:200]
+
+    befehl = (
+        "try { [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
+        "ContentType = WindowsRuntime] | Out-Null; "
+        "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+        "[Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+        f"$t.GetElementsByTagName('text').Item(0).InnerText = '{q(titel)}'; "
+        f"$t.GetElementsByTagName('text').Item(1).InnerText = '{q(text)}'; "
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Agentenbus')"
+        ".Show([Windows.UI.Notifications.ToastNotification]::new($t)) } catch {}"
+    )
+    try:
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", befehl],
+                       timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as fehler:
+        print(f"Benachrichtigung nicht moeglich: {fehler}")
+
+
+def melden(mod, d: Path) -> int:
+    """Modus 'melden' (Standard seit 29.09.2026): NUR eine Windows-Benachrichtigung.
+
+    Befund 29.09.2026: Jede Zustellung weckte die Hermes-Sitzung mit ihrem ganzen
+    Verlauf (bis ~800k Tokens je Aufruf) - viele kleine Bus-Nachrichten kosteten so
+    echtes Geld. Jetzt: kein Modellaufruf. Die Nachrichten bleiben UNGELESEN auf dem
+    Bus, Hermes liest sie, wenn Sebastian ihn anspricht ("schau auf den Bus").
+    Jede Nachricht wird nur EINMAL gemeldet (wache-gemeldet.txt).
+    """
+    offen = mod._ungelesen(d, "hermes")
+    if not offen:
+        return 0
+    datei = d / "wache-gemeldet.txt"
+    gemeldet = set(datei.read_text(encoding="utf-8").split()) if datei.is_file() else set()
+    neu = [m for m in offen if m["id"] not in gemeldet]
+    if not neu:
+        return 0
+    letzte = neu[-1]
+    toast(f"Agentenbus: {len(offen)} Nachricht(en) fuer Hermes",
+          f"{letzte['von']} [{letzte['typ']}] {(letzte.get('text') or '').strip()[:120]}")
+    with open(datei, "a", encoding="utf-8") as fh:
+        fh.write("".join(f"{m['id']}\n" for m in neu))
+    print(f"{len(neu)} neue Nachricht(en) gemeldet (keine Zustellung, 0 Tokens)")
+    return 0
+
+
+def wache(erzwingen: bool = False, modus: str | None = None) -> int:
     mod = busmodul()
     d = mod.bus_dir()
+    modus = modus or os.environ.get("WACHE_MODUS", "melden")
+    if modus != "zustellen":
+        return melden(mod, d)
     neu = mod.read(d, "hermes")
     if not neu:
         if erzwingen:
@@ -112,5 +172,26 @@ def wache(erzwingen: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.exit(wache(erzwingen="--laut" in sys.argv))
+    # pythonw.exe hat KEIN stdout (None) - reconfigure() wuerde abstuerzen.
+    if sys.stdout is not None:
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    # Ohne Konsole (pythonw.exe) gibt es kein sichtbares stdout -> alles in eine
+    # Logdatei neben dem Bus, damit der geplante Auftrag unsichtbar laeuft.
+    try:
+        ziel = None
+        try:
+            ziel = busmodul().bus_dir() / "wache.log"
+        except Exception:
+            ziel = HIER / "wache.log"
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        protokoll = open(ziel, "a", encoding="utf-8", buffering=1)
+        sys.stdout = protokoll
+        sys.stderr = protokoll
+        print(f"--- Lauf {__import__('datetime').datetime.now():%Y-%m-%d %H:%M:%S} (PID {os.getpid()})")
+    except Exception:
+        pass
+    sys.exit(wache(erzwingen="--laut" in sys.argv,
+                   modus="zustellen" if "--zustellen" in sys.argv else None))
