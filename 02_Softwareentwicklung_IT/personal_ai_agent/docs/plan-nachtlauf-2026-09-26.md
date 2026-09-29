@@ -170,6 +170,7 @@ ohnehin nachkontrolliert.
 | N29b | ✅ **Kabel-Push der Datendateien ans Handy** (Vollzug des N29-Schlusspunkts): Gerät hing am Kabel (`adb devices` → `device`); Abgleich aller fünf Namen PC ↔ `/sdcard/Download` per md5 → **drei waren schon byte-identisch** (`ereignisse.jsonl` **ohne Manifest-Zeile** — als Nachtrag `art: "festgestellt"` gebucht, kein neuer Schreibvorgang), **zwei fehlten** (`beziehungen.jsonl` 12.601.994 B, `beziehungen.json` 715 B) und wurden gepusht; Übernahmeweg (`uebergabe_uebernehmen.py`) mit den **echten** Dateien auf einer Wegwerf-Kopie durchgespielt (Trockenlauf → echt → Wiederholung); Manifest `manifest_handy.jsonl` 897 → 2.525 Bytes / 5 gültige Zeilen mit Klartext-Rückweg | Push beidseitig md5 **und** sha256 gleich; Trockenlauf schreibt nichts; echter Lauf `uebernommen 5 · Fehler 0`; zweiter Lauf `uebersprungen 5 · Fehler 0`; nichts gelöscht/verschoben, PC-Originale unverändert; Prüfbefehl Exit 0 | ✅ **bestanden (29.09.)** — siehe Journal unten: Prüfbefehl **2935 passed, 3 warnings, Exit 0** (194,5 s; **kein** Code in diesem Schritt, 0 eigene Testfunktionen), Gerätemessungen md5 `6a5704c7…`/`313c11a9…` bzw. sha256 `e0d0dc40…`/`9ec70dc2…` gleich den PC-Werten, Doku `docs/changelog-2026-09-29-n29b-kabel-push.md`. **Offen:** der **erste Übernahme-Lauf am Handy** selbst (Widget-Tipp; `hermes_diag/` existierte noch nicht) — danach sind die Übergabedateien wie vorgesehen verbraucht |
 
 | N19 | ✅ **Archiv-Suche auf Erwähnungen erweitern** (Sebastians Frage „was habe ich mit X gemacht?"): `_archiv_tool` feuerte nur auf Archiv-/Erinnerungs-Signale — eine Personenfrage enthielt **kein** Signal, also fand die Suche nichts, obwohl der Index die Person **113 ×** trägt. Neu: Personen-Signale (`_ERWAEHNUNG_SIGNALE`), reine Namens-aus-Frage-Funktion `_erwaehnung_name` (genau **ein** Wort, Satzzeichen/Stoppwörter weg, sonst `None`), Dienstfunktionen `ArchivSuche.erwaehnung_treffer` (FTS über **alle** Quellen, **ohne** Titel-Filter, je Fundstelle Quelle + Datum + Titel + `im_eigenen_chat`) und die reine `erwaehnungs_text` mit dem ehrlichen Satz „kein eigener Chat — Erwähnungen in anderen Gesprächen"; Bild-/Foto-Tor (`_ARCHIV_AUSSCHLUSS`) behält **Vorrang** | Volltext-Fundstellen mit Datum **und** Quelle auch **ohne** eigenen Chat; Bestandswege unverändert; Index nur lesend | ✅ **bestanden (29.09.)** — `archiv_suche.py` 1.317 → **1.533 Zeilen**, `chat.py` 2.174 → **2.284** (+110), Tests `backend/tests/test_erwaehnungssuche.py` **393 Zeilen / 14 Testfunktionen** (offline, winziger Index im `tmp_path`, erfundene Namen); Prüfbefehl **2.949 passed, 3 warnings, Exit 0** (Baseline **2.935** selbst gefahren, +14 = genau die neuen Tests), neue Datei allein **14 passed**; **echter Nur-Lese-Lauf** am echten Index (Programm gewählt, Name nie ausgegeben): `anzahl 113 · je_quelle {whatsapp 88, chatgpt 22, gemini 3} · eigene_chats 0 · nur_erwaehnungen true · fehler None`, Summe = anzahl, jede Fundstelle mit Quelle + Datum, Indexdatei unverändert; Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung, eigener Lauf **2.979 passed, 1 skipped, Exit 0** — die Differenz sind fremde Testfunktionen des zweiten Agenten): **BESTANDEN, 0 Abweichungen**. Doku: `docs/changelog-2026-09-29-n19-erwaehnungssuche.md`, Auftrag `docs/auftrag-n19-erwaehnungssuche.md`. **Ehrlich offen:** die Quellenaufteilung des Ausführer-Laufs (88/22/3) ist **nicht** die des Planers (108/4/2) — beide Male dieselbe Trefferzahl 113 und 0 eigene Chats, aber unterschiedlich gewählter Kandidat |
+| N22 | ✅ **Nächtliche Nachpflege des Archiv-Index** (inkrementell + idempotent, Sebastians Wunsch „täglich nachts"): neu `backend/scripts/archiv_nachpflege.py` — pflegt einen **bestehenden** Index nach, statt ihn neu zu bauen: Erkennung „neu" über einen **Inhaltsschlüssel** (`sha1("conv\x1ftimestamp\x1frole\x1ftext")[:16]` bzw. `…\x1fteil\x1fbeginn\x1fende\x1ftext…`), die Bestands-Schlüssel werden **aus dem Index selbst** gerechnet (kein Schema-Umbau); nur **anhängen** (`id = max + 1`, neue Chunks in `chunks_fts` + `optimize`, `gespraeche` per `INSERT OR REPLACE` nur für berührte Gespräche, `meta` wird nur **ergänzt**), Vektoren **nur für neue Chunks** und nur mit `--mit-vektoren`; Trockenlauf ist Standard, Repo-Ziel Exit 2, fehlende Quelle Exit 2, defekte Zeile wird gezählt statt geworfen | Erstlauf holt den Rückstand mit Zahlen; zweiter Lauf **0** neu; neue Nachricht erscheint in der Suche; Kosten < 0,05 $ — Nachweis auf **Kopien** (der echte Index ist heute in Sync) | ✅ **bestanden (29.09.)** — Werkzeug **623 Zeilen**, Tests `backend/tests/test_archiv_nachpflege.py` **697 Zeilen / 51 Testfunktionen** (alles offline, Attrappen-Einbetter, erfundene Texte); Prüfbefehl **3030 passed, 1 skipped, 3 warnings, Exit 0** (Baseline in derselben Runde selbst gemessen **2979 passed, 1 skipped, Exit 0**; +51 = genau die neuen Testfunktionen); **Original-Trockenlauf** `neu 0/0 · uebersprungen 282029/52679 · Fehler 0 · 13,7 s` (Lauf des Planers) bei **unveränderten** `sha256` beider Originale (`2ac72bf3…` / `61c95c6b…`); **Wirkung auf Kopien** (`~/foto_sortierung/n22_probe/`, nur kopiert): 3 erfundene Nachrichten + 1 erfundener Chunk in die Quell-Kopie → Schreib-Lauf `neu_nachrichten 3 · neu_chunks 1 · vektoren_gerechnet 1 · ohne_vektor 0 · gespraeche_beruehrt 1 · fehler 0`, Index-Kopie 447.496.192 → **451.739.648 B**, FTS **1 Treffer** auf `probebegriffn22` (rowid **52680**), Vektor **3072 B** = 1536 × 2 (float16), `meta` trägt `nachpflege_*`; **zweiter Lauf 0/0/0**, `sha256` der Index-Kopie `6ef66106…` **vor == nach** (kein Schreibvorgang); **Kosten 13 Token = 2,6e-07 $** (Zahl aus der API-Antwort) — Plangrenze 0,05 $ um fünf Größenordnungen unterboten; `archiv_index_bauen.py` **unverändert**. **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 blockierende Abweichungen** — eigener Prüfbefehl 3030/Exit 0, Testdatei allein 51 passed, Quelltext-Suche nach `DELETE|DROP|os.replace|os.remove|pcloud|urlopen|requests.|shutil` **0 Treffer**, Trockenlauf und Original-`sha256` nachgerechnet, Kopien nur lesend geprüft, **Idempotenz selbst nachgefahren** (zweiter Schreib-Lauf, `sha256` gleich), Datenschutz 0 Treffer, jede Changelog-Zahl nachgerechnet; **einzige Beobachtung (nicht blockierend):** er maß den Trockenlauf mit **18,4 s** statt der dokumentierten **12,0 s** — Laufzeit-Streuung, alle Zählungen und Prüfsummen gleich. **Ehrlich offen:** der **echte Erstlauf auf dem Original** steht aus, solange das Schwesterprojekt keine neuen Chats importiert (heute `0` neu); die Kopien (≈ 1,3 GB) bleiben bewusst liegen. Doku: `docs/changelog-2026-09-29-n22-archiv-nachpflege.md`, Auftrag `docs/auftrag-n22-archiv-nachpflege.md` |
 
 
 ## Journal (wird fortlaufend ergänzt)
@@ -2981,3 +2982,104 @@ ohnehin nachkontrolliert.
     Passphrase-Entscheidung); **N8** (echtes Sortieren) bleibt **gesperrt**, der
     **Massenlauf der Gesichter** läuft bereits als zweiter Strang (fremder
     Agent, `~/foto_sortierung/n0929_gesamtlauf`).
+* **29.09. ~14:10 — N22 gebaut, auf Kopien nachgewiesen und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,103 USD
+  (39 Aufrufe, 3,21 M ein / 54 k aus) · Prüfer: `z-ai/glm-5.2` — **andere
+  Modellfamilie**, frische Sitzung). Beginn wie in den Runden zuvor:
+  `git pull --rebase` scheiterte an den **fremden** Dateien des zweiten Agenten
+  (`tools/agentbus/wache.py`, `docs/experimente/live_zahlen.*`, neue
+  Recherche-HTML, `docs/spec-a1-android-hey-agent.md`); nichts angefasst, nichts
+  gestasht; `git fetch` + `git rev-list --left-right --count origin/main...HEAD`
+  → **`0 0`**. **Codex live erneut geprüft und weiter gesperrt** („You've hit
+  your usage limit … try again at Oct 15th, 2026 9:32 PM") → gebaut wurde mit
+  einem Hermes-Subagenten.
+  - **Warum N22 und nicht N25/N8:** N25 (verschlüsseltes Archiv-Backup in die
+    pCloud) braucht **Sebastians Passphrase-Entscheidung** — dafür ist ein
+    Nachtlauf ohne Nutzer der falsche Ort. **N8** (echtes Sortieren, 7.616
+    Dateien, 2.108 neue Ordner) bleibt gesperrt, bis Sebastian die 39 sicheren
+    Event-Vorschläge und die 1.146 datumslosen Dateien angesehen hat. N22 ist
+    der nächste Schritt, der **ohne** Nutzer und **ohne** Schreibzugriff auf den
+    Bestand auskommt.
+  - **Erst gemessen, dann entschieden (Planer, nur lesend `mode=ro`):** Quelle
+    `db/memory.db` **230.391.808 B** (`messages` 282.029, `chunks` 52.679),
+    Ziel `db/archiv_index.db` **447.496.192 B** (`nachrichten` 282.029,
+    `chunks` 52.679, `chunks_fts` 52.679, `vektoren` 52.679, `gespraeche` 1.590),
+    **0** Chunks ohne Vektor, `max(id)` 282.028 / 52.679, `meta` mit
+    `dimension 1536`, `float16`, `kosten_usd 0.320717`. **Der Index ist heute
+    vollständig in Sync — es gibt keinen Rückstand.** Damit stand fest: der
+    Beweis kann nicht am Original geführt werden, sondern nur auf **Kopien**
+    (so im Feinauftrag festgeschrieben, Abschnitt 5).
+  - **Gebaut:** `backend/scripts/archiv_nachpflege.py` (**623 Zeilen**) pflegt
+    einen **bestehenden** Index inkrementell nach. Erkennung „neu" über einen
+    **Inhaltsschlüssel** statt über `id` (Ordinale verschieben sich beim
+    Neu-Import): `sha1("conv\x1ftimestamp\x1frole\x1ftext")[:16]` bzw.
+    `sha1("conv\x1fteil\x1fbeginn\x1fende\x1ftext")[:16]`; die Bestands-Schlüssel
+    werden **aus dem Index selbst** gerechnet — kein Schema-Umbau, keine
+    Zusatztabelle. Nur **anhängen** (`id = max + 1` aufsteigend), neue Chunks in
+    `chunks_fts` (+ `optimize`), `gespraeche` per `INSERT OR REPLACE` **nur für
+    berührte** Gespräche (Aggregate über den Index), `meta` wird **ergänzt**
+    (`nachpflege_zuletzt`, `nachpflege_lauf`, `nachpflege_neu_*`) und nie
+    entfernt; Vektoren **nur für neue Chunks** und nur mit `--mit-vektoren`
+    (ohne bleibt `hat_vektor = 0`, ehrlich als „ohne Vektor" gezählt).
+    Trockenlauf ist **Standard** (`--schreiben` nötig), Repo-Ziel **Exit 2**,
+    fehlende Quelle/Index **Exit 2**, defekte Zeile wird als `fehler` gezählt
+    statt geworfen, `--stand` friert den Zeitstempel ein.
+    `archiv_index_bauen.py` blieb **unverändert** (nur gelesen; Bausteine
+    `EinbetterOpenRouter`, `_vektor_blob`, `_schluessel_holen` wiederverwendet).
+  - **Tests:** `backend/tests/test_archiv_nachpflege.py` **697 Zeilen / 51
+    Testfunktionen** (Auftrag: mindestens 28), alles offline: Quell- und
+    Zieldatenbank im `tmp_path` aus `SCHEMA_SQL`, Einbetter ist eine **Attrappe**
+    (zählt ihre Aufrufe), Texte sind **erfunden** („Probe-Nachricht",
+    „probebegriffn22"). Abgedeckt: Schlüsselfunktionen, Anhängen hinten,
+    FTS findet den neuen Text, Vektorzeile (3072 B bei 8 Dimensionen in der
+    Attrappe), `hat_vektor` wird 1, `gespraeche`-Zahlen, `meta` behält alle
+    alten Schlüssel, **zweiter Lauf 0 neu**, Trockenlauf schreibt nichts,
+    Repo-Ziel/fehlende Quelle Exit 2, defekte Zeile als `fehler`, leerer Text
+    **kein** Fehler, Quelltext ohne `DELETE`/`DROP`/`os.replace`, 500er-Bestand
+    liefert im zweiten Aufruf dieselben Zahlen.
+  - **Prüfbefehl selbst gefahren (Planer, frisch):** Baseline in derselben Runde
+    **2979 passed, 1 skipped, 3 warnings, Exit 0** (158,2 s) → nach der Änderung
+    **3030 passed, 1 skipped, 3 warnings, Exit 0** (154,5 s; **+51 = genau die
+    neuen Testfunktionen**).
+  - **Echter Nur-Lese-Lauf am Original (vom Planer selbst gefahren):**
+    `neu 0/0 · uebersprungen 282029/52679 · Vektoren 0 · Fehler 0 · 13,7 s`,
+    danach `sha256sum -c` gegen die vorher genommenen Werte → **beide Originale
+    OK** (`memory.db 2ac72bf3…`, `archiv_index.db 61c95c6b…`).
+  - **Der Nachweis auf Kopien** (`~/foto_sortierung/n22_probe/`, **nur kopiert**,
+    nichts gelöscht/verschoben): 3 erfundene Nachrichten + 1 erfundener Chunk in
+    die Quell-Kopie → Schreib-Lauf `neu_nachrichten 3 · neu_chunks 1 ·
+    vektoren_gerechnet 1 · ohne_vektor 0 · gespraeche_beruehrt 1 · fehler 0`
+    (23,5 s), Index-Kopie 447.496.192 → **451.739.648 B**; Volltext-Gegenprobe
+    `chunks_fts MATCH 'probebegriffn22'` → **1 Treffer, rowid 52680** (das ist
+    der Plan-Punkt „neue Nachricht erscheint nach dem Lauf in der Suche"),
+    `hat_vektor 1`, Vektor **3072 B** (= 1536 × 2, float16); **zweiter Lauf
+    0/0/0**, `sha256` der Index-Kopie `6ef66106…` **vor == nach** — kein
+    Schreibvorgang. Ich habe den Kopien-Zustand und die Prüfsumme **selbst**
+    nachgemessen (282032 Nachrichten / 52680 Chunks / 52680 `chunks_fts` /
+    52680 `vektoren`, 0 ohne Vektor).
+  - **Kosten:** 13 Token je Einbettungs-Aufruf = **2,6e-07 $** (echte Zahl aus
+    der API-Antwort); Plangrenze 0,05 $ um fünf Größenordnungen unterboten.
+  - **Prüfer (`z-ai/glm-5.2`, andere Modellfamilie, frische Sitzung):
+    BESTANDEN, 0 blockierende Abweichungen.** Eigenes Urteil mit eigenen
+    Messungen: Prüfbefehl selbst **3030 passed, 1 skipped, Exit 0** (149,95 s),
+    Testdatei allein **51 passed**, 51 `def test_` selbst gezählt; Quelltext-Suche
+    nach `DELETE|DROP|os.replace|os.remove|os.unlink|pcloud|urlopen|requests.|
+    shutil` → **0 Treffer**; Trockenlauf auf den Originalen `0/0 ·
+    282029/52679 · 0` mit `sha256` vor == nach; Kopien nur lesend geprüft
+    (Zählungen, FTS-rowid 52680, Vektor 3072 B, Probentexte erfunden); die
+    **Idempotenz hat er selbst nachgefahren** (zweiter Schreib-Lauf, `sha256`
+    unverändert); Datenschutz-Scan der drei neuen Dateien + Auftrag **0 Treffer**
+    für Namen/Telefon/Orte/Schlüssel ($werte nur als Längenangabe 73); jede
+    Changelog-Zahl nachgerechnet (Dateigrößen, `max(id)`, Kostenrechnung,
+    Zeilenzahlen 623/697). **Eine Beobachtung, keine Abweichung:** er maß den
+    Trockenlauf mit **18,4 s** statt der dokumentierten 12,0 s — reine
+    Laufzeit-Streuung, alle Zählungen und Prüfsummen identisch; hier offengelegt.
+  - **Ehrlich offen:** der **echte Erstlauf auf dem Original** steht aus,
+    solange das Schwesterprojekt keine neuen Chats importiert (heute `0` neu);
+    die Wirkung ist ausschließlich auf den **Kopien** belegt. Die Kopien
+    (≈ 1,3 GB) bleiben auftragsgemäß liegen (kein Aufräumen, Löschen ist tabu).
+  - **Nächster Schritt:** N25 (verschlüsseltes Archiv-Backup in die pCloud mit
+    Rückhol-Probe — **wartet auf Sebastians Passphrase-Entscheidung**), danach
+    N23 (Handy-Scheduler: den Nachpflege-Lauf als Cron im Android-Ökosystem
+    verankern, damit der Index ohne PC nachwächst). **N8 bleibt gesperrt**; der
+    Gesichter-Massenlauf läuft weiter als zweiter Strang (fremder Agent).
