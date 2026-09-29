@@ -382,6 +382,11 @@ async def chat(request: ChatRequest):
             # kein Netz. Beantwortet "wie viele Events gab's?" / "Urlaube 2021".
             if not werkzeug_notiz:
                 werkzeug_notiz = _fotos_uebersicht_tool(request.message)
+            # 1f4. Beziehungen (N28, 2026-09-29): „wer war mit wem wo" an einem
+            # Tag — nur aus der lokalen Datei beziehungen.jsonl (N27e), kein
+            # Bild, kein Netz, kein LLM-Aufruf.
+            if not werkzeug_notiz:
+                werkzeug_notiz = _beziehungen_tool(request.message)
         user_message_fuer_llm = request.message
         if werkzeug_notiz:
             user_message_fuer_llm = request.message + werkzeug_notiz
@@ -1227,6 +1232,54 @@ def _fotos_uebersicht_tool(frage: str) -> str:
         return ""
 
 
+def _beziehungen_tool(frage: str) -> str:
+    """Chat-Werkzeug: „wer war mit wem wo" an einem Tag (N28, 2026-09-29).
+
+    Beantwortet Fragen wie „was war am 27.12.2019?" belegt aus der lokalen
+    Datei ``~/foto_sortierung/beziehungen.jsonl`` (N27e). Quelle ist der Dienst
+    ``services/beziehungen_service.py`` — kein Bild, kein Netz, kein
+    LLM-Aufruf.
+
+    Enge Auslöseregel (bewusst, damit normale Fragen NICHT hier landen): Es
+    muss ein **Datum** erkannt werden **und** die Frage einen Zeit-/Beleg-Bezug
+    haben (z. B. „was war", „wer war", „damals", „an dem tag", „foto", „chat",
+    „mit wem") — oder die Frage ist kurz (< 60 Zeichen) und besteht überwiegend
+    aus dem Datum. Fehlt die Datei, ist die Antwort leer — der Chat bleibt
+    still, statt zu raten. Ein Fehler reißt den Chat nie.
+    """
+    try:
+        f = (frage or "").strip()
+        if not f:
+            return ""
+        from app.services import beziehungen_service
+
+        # Erst das Datum: ohne erkennbares Datum löst das Werkzeug nie aus.
+        datum = beziehungen_service.datum_erkennen(f)
+        if not datum:
+            return ""
+
+        bezug_woerter = (
+            "was war", "wer war", "was passierte", "was war los", "damals",
+            "an dem tag", "an diesem tag", "ereignis", "termin", "foto",
+            "fotos", "bild", "bilder", "chat", "zusammen", "mit wem", "dabei",
+        )
+        fl = f.lower()
+        # Kurze Frage, die überwiegend das Datum ist (z. B. „27.12.2019"):
+        # höchstens sechs Buchstaben, etwa für ein vorangestelltes „am".
+        kurz_und_datum = len(f) < 60 and sum(1 for z in f if z.isalpha()) <= 6
+        if not (any(w in fl for w in bezug_woerter) or kurz_und_datum):
+            return ""
+
+        # Fehlt die Aussagen-Datei, schweigt der Chat (statt zu raten).
+        if not os.path.isfile(beziehungen_service.aussagen_pfad()):
+            return ""
+
+        return beziehungen_service.text_antwort(datum)
+    except Exception as e:  # noqa: BLE001 – ein Werkzeug darf nie den Chat reißen
+        logger.warning("Beziehungen-Tool fehlgeschlagen: %s", e)
+        return ""
+
+
 def _datei_tool(frage: str) -> tuple:
     """Handy-Dateisuche als 'Tool' über Sprache (ohne UI).
 
@@ -1866,6 +1919,10 @@ async def chat_stream(request: ChatRequest):
                     # beide Wege identisch antworten (das Frontend nutzt /stream).
                     if not s_werkzeug_text:
                         s_werkzeug_text = _fotos_uebersicht_tool(request.message)
+                    # Beziehungen (N28): gleiche Kette wie in /chat, damit
+                    # beide Wege identisch antworten (das Frontend nutzt /stream).
+                    if not s_werkzeug_text:
+                        s_werkzeug_text = _beziehungen_tool(request.message)
                 s_user = (request.message + (s_werkzeug_text or "") + _zitat_anhang(request)
         + _gesichtsabgleich_notiz(request, s_werkzeug_bilder))
                 # Live-Status (Fortschritts-Feedback): Zeigt dem Nutzer, was

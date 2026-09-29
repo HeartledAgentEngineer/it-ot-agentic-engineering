@@ -39,7 +39,8 @@ PFAD = "/api/selbsttest"
 
 # Die Felder, die laut Auftrag IMMER vorhanden sein müssen.
 PFLICHT_FELDER = {"commit", "index", "daemon", "letzte_antwort",
-                  "gedaechtnis", "sprache", "uhrzeit", "pcloud", "fotos"}
+                  "gedaechtnis", "sprache", "uhrzeit", "pcloud", "fotos",
+                  "beziehungen"}
 
 
 class KeinNetz:

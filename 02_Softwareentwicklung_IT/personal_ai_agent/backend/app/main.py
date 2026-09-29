@@ -31,6 +31,7 @@ from app.router import (
     hermes_steuerung,
     selbsttest,
     fotos,
+    beziehungen,
     cloud,
     erzaehlen,
 )
@@ -194,6 +195,11 @@ app.include_router(selbsttest.router, dependencies=[Depends(auth.require_api_key
 # "zeig mir die Urlaube 2021". Rein lesend, kein Netz; fehlt die Datei,
 # antwortet die Route mit HTTP 200, ok=false und deutschem error-Text.
 app.include_router(fotos.router, dependencies=[Depends(auth.require_api_key)])
+# Beziehungen (2026-09-29, Nachtlauf N28): "wer war mit wem wo" an einem Tag aus
+# der kleinen Datei ~/foto_sortierung/beziehungen.jsonl (N27e) plus der
+# Uebersicht beziehungen.json. Rein lesend, kein Netz, keine Bilder; fehlt eine
+# Datei, antwortet die Route mit HTTP 200, ok=false und deutschem error-Text.
+app.include_router(beziehungen.router, dependencies=[Depends(auth.require_api_key)])
 # pCloud (2026-09-26): Kontostand, Ordnerliste, Namenssuche, Vorschaubild und
 # Datei-Download — ausschliesslich lesend (services/pcloud_service.py). Ohne
 # PCLOUD_TOKEN in der .env antworten die Routen mit HTTP 503 und Klartext;

@@ -602,6 +602,33 @@ def _fotos_info() -> Dict[str, Any]:
         }
 
 
+# ── Block: Beziehungen ───────────────────────────────────────────────────────
+
+def _beziehungen_info() -> Dict[str, Any]:
+    """Zustand der Beziehungen (N28) — Zahlen, Spanne, Stand und Quelle.
+
+    Nutzt denselben Dienst wie der Endpunkt ``/api/beziehungen/uebersicht``
+    (``services/beziehungen_service.py``). Die Aussagen-Datei
+    ``beziehungen.jsonl`` liegt auf dem Handy nur dann, wenn sie vom PC
+    übertragen wurde; fehlt sie, steht das als deutscher ``error``-Text drin.
+    Diese Funktion wirft nie — bei einem unerwarteten Fehler kommt derselbe
+    Schlüsselsatz mit einem Fehlertext zurück.
+    """
+    try:
+        from app.services.beziehungen_service import status_block
+
+        return status_block()
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Selbsttest: Beziehungen nicht prüfbar: %s", e)
+        return {
+            "quelle": None, "pfad": None, "existiert": False, "stand": None,
+            "aussagen": None, "personen_kennungen": None,
+            "namen_bestaetigt": None, "kontakte": None, "datum_von": None,
+            "datum_bis": None,
+            "error": f"Beziehungen nicht prüfbar ({type(e).__name__})",
+        }
+
+
 # ── Endpunkt ─────────────────────────────────────────────────────────────────
 
 @router.get("/selbsttest")
@@ -628,6 +655,10 @@ def selbsttest() -> Dict[str, Any]:
         "fotos": {"quelle": None, "pfad": None, "existiert": False, "stand": None,
                   "anlaesse": None, "events": None, "dateien": None, "jahre": None,
                   "error": "nicht geprüft"},
+        "beziehungen": {"quelle": None, "pfad": None, "existiert": False,
+                        "stand": None, "aussagen": None, "personen_kennungen": None,
+                        "namen_bestaetigt": None, "kontakte": None, "datum_von": None,
+                        "datum_bis": None, "error": "nicht geprüft"},
     }
 
     # Jeder Block einzeln abgesichert: Ein Fehler in einem Bereich darf die
@@ -642,6 +673,7 @@ def selbsttest() -> Dict[str, Any]:
         ("uhrzeit", _uhrzeit_info),
         ("pcloud", _pcloud_info),
         ("fotos", _fotos_info),
+        ("beziehungen", _beziehungen_info),
     ):
         try:
             ergebnis[feld] = bauer()
