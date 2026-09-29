@@ -66,6 +66,9 @@ cd "$BACKEND" || { log "❌ backend/ nicht gefunden"; exit 1; }
 PORT="8080"
 _env_port=$(grep -E "^PORT=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
 [ -n "$_env_port" ] && PORT="$_env_port"
+# Bindung aus der .env lesen. Standard bleibt 0.0.0.0 — keine Verhaltens-
+# aenderung, solange HOST_BIND nicht gesetzt ist. Das Muster ist identisch mit
+# dem in start-termux.sh und termux/agent-ensure.sh.
 HOST_BIND="0.0.0.0"
 _env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
 [ -n "$_env_host" ] && HOST_BIND="$_env_host"

@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse, Response
 from starlette.types import Scope
 
-from app.config import settings
+from app.config import settings, bindung_hinweis
 from app.db.chroma_client import chroma_client
 from app.router import (
     chat,
@@ -91,6 +91,14 @@ async def lifespan(app: FastAPI):
         )
 
     logger.info("Server starting on %s:%s", settings.host, settings.port)
+
+    # Datenschutz-Wächter (N24a): Warnt beim Start, wenn der Server auf allen
+    # Schnittstellen lauscht UND kein API-Key gesetzt ist. Die Bindung wird
+    # bewusst NICHT erzwungen — die Entscheidung trifft Sebastian über
+    # HOST_BIND in der .env. Der Text enthält kein Geheimnis und keine Geräte-IP.
+    _bindung_hinweis = bindung_hinweis(settings.host, bool(settings.api_key))
+    if _bindung_hinweis:
+        logger.warning(_bindung_hinweis)
 
     # Selbstheilung Track C (lokaler Hermes):
     # (1) Inbox-Daemon sicherstellen — ein toter Daemon war die Live-Ursache
@@ -243,6 +251,9 @@ async def health_check():
         # Damit man vom PC aus zugreifen kann, ohne den Server zu beenden.
         "lan_ip": lan_ip,
         "lan_url": f"http://{lan_ip}:{settings.port}" if lan_ip else None,
+        # Datenschutz-Wächter (N24a): Text (oder null), wenn ohne API-Key auf
+        # allen Schnittstellen gelauscht wird. Kein Geheimnis, keine Geräte-IP.
+        "bindung_warnung": bindung_hinweis(settings.host, bool(settings.api_key)),
     }
 
 

@@ -350,7 +350,15 @@ fi
 # weiterlaufen kann. `wait` hält die Session wie vorher am Server, Strg+C beendet
 # ihn weiterhin direkt.
 cd "$PROJEKT/backend" 2>/dev/null || true
-python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload &
+
+# Bindung aus der .env lesen (gleiches Muster wie termux/neu-start-nach-lauf.sh
+# und termux/agent-ensure.sh). Standard bleibt 0.0.0.0: ohne HOST_BIND in der
+# .env ändert sich nichts. Mit HOST_BIND=127.0.0.1 lauscht der Server nur lokal.
+HOST_BIND="0.0.0.0"
+_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
+[ -n "$_env_host" ] && HOST_BIND="$_env_host"
+
+python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --reload &
 SERVER_PID=$!
 
 # Kurz warten, bis der Port wirklich antwortet (max. ~20 s), dann öffnen.

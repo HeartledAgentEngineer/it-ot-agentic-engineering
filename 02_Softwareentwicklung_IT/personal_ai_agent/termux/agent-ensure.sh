@@ -71,8 +71,15 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
 
 log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
+# Bindung aus der .env lesen (gleiches Muster wie neu-start-nach-lauf.sh).
+# Standard bleibt 0.0.0.0: ohne HOST_BIND in der .env ändert sich nichts.
+# Mit HOST_BIND=127.0.0.1 lauscht der Server nur lokal (empfohlen fürs
+# Hotel-WLAN / fremde Netze) — die Entscheidung trifft die .env, nicht der Code.
+HOST_BIND="0.0.0.0"
+_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
+[ -n "$_env_host" ] && HOST_BIND="$_env_host"
 # Gleicher Startbefehl wie start-termux.sh, aber vom Terminal geloest (nohup),
 # weil dieses Skript im Hintergrund per Intent laeuft und danach endet.
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT" --reload >> "$LOG" 2>&1 &
+nohup python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --reload >> "$LOG" 2>&1 &
 log "uvicorn gestartet (PID $!)"
 exit 0

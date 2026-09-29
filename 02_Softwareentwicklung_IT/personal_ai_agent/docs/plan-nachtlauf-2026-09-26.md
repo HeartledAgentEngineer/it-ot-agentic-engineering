@@ -174,7 +174,11 @@ ohnehin nachkontrolliert.
 | N23 | ✅ **Nachpflege-Job im Android-Ökosystem** (Teil A, Repo-Seite; Sebastians Architektur-Regel „das muss alles auch so gebaut werden, dass es innerhalb des Android-Ökosystems eigenständig funktioniert"): das Handy pflegt den Archiv-Index **nachts selbst** nach, auch bei ausgeschaltetem PC. Neu `termux/nachpflege-job.sh` (Sperre per `mkdir`-Lock inkl. eigener veralteter Sperre > 6 h, Log-Kürzung > 200 KB auf 500 Zeilen, `termux-wake-lock`, Quelle/Index über `ARCHIV_QUELLE`/`ARCHIV_INDEX` bzw. Kandidatenliste, fehlende Quelle/Index → ehrliche Zeile + **Exit 3, nichts angelegt**, Aufruf von `backend/scripts/archiv_nachpflege.py` mit `--schreiben --mit-vektoren` und **einmaligem Rückfall ohne Vektoren** bei Exit 3, Bericht `hermes_diag/nachpflege_letzte.txt`) + `termux/nachpflege-einrichten.sh` (feste `JOB_ID=1901`, vorher `--list` → **idempotent**, `--period-ms 86400000`, `--persisted` **nur** wenn `--help` es kennt, crond-Rückfall, sonst ehrlich Exit 4) + Block in `start-termux.sh` (`\|\| true`, nach Git-Abgleich und Index-Übernahme — der **einzige** Weg aufs Handy) + **28 Wächter-Tests** offline (`backend/tests/test_nachpflege_job.py`) | Prüfbefehl grün; zweiter Einricht-Lauf registriert nichts neu; Job meldet fehlende Quelle ehrlich statt still zu laufen | ✅ **bestanden (29.09.)** — Werkzeuge **167 / 127 Zeilen**, `start-termux.sh` 375 → **388**, Tests **343 Zeilen / 28 Funktionen**; Prüfbefehl **3058 passed, 1 skipped, Exit 0** (Baseline in derselben Runde selbst gefahren **3030 passed, 1 skipped, Exit 0**; +28 = genau die neuen Testfunktionen), `bash -n` auf allen drei Shell-Dateien **Exit 0**; Commit `3020280` (**genau 6 Dateien**, gepusht, `0 0`); **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 blockierende Abweichungen** — eigener Prüfbefehl 3058/Exit 0, Testdatei allein 28 passed, Zeilenzahlen + Commit-Inhalt selbst geprüft, Doku ↔ Code ohne Widerspruch, **Idempotenz mit Attrappe selbst nachgefahren** (2 Läufe → **1** Registrierung). **Offen:** der **erste echte Handy-Lauf** ist nicht verifiziert (das Handy wurde nicht beschrieben) — **gemessen, warum:** `adb shell am startservice … com.termux.RUN_COMMAND` → `Error: Not found; no service started.` und `adb shell run-as com.termux` → `package not debuggable`; die Einrichtung passiert beim nächsten Widget-Tipp. Doku: `docs/changelog-2026-09-29-n23-nachpflege-job.md`, Auftrag `docs/auftrag-n23-handy-scheduler.md` |
 
 
+| N24a | ✅ **Datenschutz-/IT-Sicherheits-Wächter** (Teil A des Schritts N24, der seit 26.09. „geplant" war): sechs belegte Funde (F1–F6) — u. a. banden **zwei** von drei Startskripten hart `--host 0.0.0.0` und lasen die in `main.py` als „eigentlicher Schutz" bezeichnete Einstellung `HOST_BIND` **gar nicht**; in `backend/.env` standen weder `HOST_BIND` noch `API_KEY` (nur Namen geprüft, nie Werte) → der Key-Schutz der `/api`-Routen griff nicht und der Server lauschte auf allen Schnittstellen. Gebaut: alle drei Termux-Skripte lesen `HOST_BIND` (identisches Muster, **Standard bleibt `0.0.0.0`** = keine Verhaltensänderung), neu die reinen Funktionen `ist_loopback`/`bindung_hinweis` in `backend/app/config.py` (kein Netz/IO, Text ohne Geheimnis und ohne Geräte-IP), Start-Warnung im Log, Feld `bindung_warnung` in `/api/health`; dazu die **erste Wächter-Testdatei des Projekts** (`backend/tests/test_datenschutz_waechter.py`, 630 Zeilen / **52 Testfunktionen** / 66 gesammelte Tests, offline) mit acht Regelgruppen: **lebende Ausnahmeliste** der offenen `/api`-Routen (genau fünf erlaubt — eine neue offene Route wird rot), drei Startskripte, Hinweis-Funktion, Frontend ohne fremde Adressen, `.env`-Schutz, Löschregel (Löschbegriffe nur im Duplikate-Werkzeug), `no-store` für Medien, Wächter über sich selbst | Prüfbefehl **3124 passed, 1 skipped, Exit 0** (Baseline 3058, selbst gefahren; +66 = genau die neuen Tests), `bash -n` drei Skripte Exit 0; **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** (eigener Lauf 3124/Exit 0, Testdatei allein 66 passed, `def test_` selbst gezählt 52, eigene Sonde 85 `/api`-Routen mit genau 5 offenen, Doku Zeile für Zeile geprüft, Datenschutz-Scan 0 Treffer) | Prüfkriterium: Wächter-Tests grün; Funde mit Datei:Zeile belegt | ✅ **bestanden (29.09.)** — siehe Journal unten. **Offen (N24a-Rest):** `HOST_BIND=127.0.0.1` + `API_KEY` in `backend/.env` setzen — **Sebastians Griff, zwei Zeilen**, kein Code; Log und `/api/health` sagen es jetzt sichtbar. N24 Teil B (Android-Seite: Verschlüsselung, Widerruf) bleibt offen |
+| N24b | **Vorschlag als nächster Schritt:** Registrierung/Nachtlauf des Handys **ohne** Sebastians Tipp belegbar machen — der Job-Bericht liegt schon in `/sdcard/Download/hermes_diag/`, der PC kann ihn per Kabel lesen; fehlt nur, dass `start-termux.sh` beim Widget-Tipp zusätzlich die Job-Liste (`termux-job-scheduler --list`) und den Übernahme-Bericht in denselben Ordner schreibt | Berichtsdatei am Kabel sichtbar; Job-ID 1901 darin belegt | ⬜ offen (Kandidat) |
+
 ## Journal (wird fortlaufend ergänzt)
+
 
 * **26.09. ~04:40** — Regeln in `AGENTS.md` („Dauerlauf / Nachtarbeit")
   verankert; Entscheidungen oben festgehalten; Plan angelegt.
@@ -3152,3 +3156,89 @@ ohnehin nachkontrolliert.
   - **Nächster Schritt:** N23 Teil B (erster Handy-Lauf beobachten und die
     Job-Registrierung am Gerät belegen) bzw. **N25**, sobald Sebastian die
     Passphrase entschieden hat. **N8 bleibt gesperrt.**
+* **29.09. ~15:40–18:10 — N24a gebaut, geprüft und bestanden** (Planer:
+  Hauptagent · Ausführer: Hermes-Subagent `deepseek-v4.1-flash`, 0,093 USD ·
+  Prüfer: `z-ai/glm-5.2`, frische Sitzung — **andere Modellfamilie**).
+  Schritt aus dem Plan: **N24** („Datenschutz-/IT-Sicherheits-Prüfung") war seit
+  26.09. **nur geplant**; kein einziger Test des Projekts deckte eine der
+  Sicherheitsregeln maschinell ab (`ls backend/tests | grep -i -E
+  "sicher|datenschutz|security|privacy|waechter"` → 0 Treffer).
+  - **Erst gemessen, dann gebaut (Planer, read-only):** Sonde über `app.routes`
+    → **85** `/api`-Routen, **5** ohne Key-Schutz (`auth/token`, `auth/check`,
+    `health`, `hello`, `konfig`); dokumentiert als Ausnahme waren nur `health`
+    und `auth` (`main.py:166-167`) — `hello` und `konfig` waren **undokumentiert
+    offen**. `main.py:329-334` bezeichnet `HOST_BIND=127.0.0.1` ausdrücklich als
+    **eigentlichen** Schutz — aber `termux/agent-ensure.sh:76` und
+    `start-termux.sh:353` banden **hart** `--host 0.0.0.0` und lasen `HOST_BIND`
+    gar nicht (nur `termux/neu-start-nach-lauf.sh:69-75` tat es). In
+    `backend/.env` standen **weder** `HOST_BIND` **noch** `API_KEY` (nur die
+    Namen geprüft, **nie** Werte) → der Key-Schutz griff nicht, der Server
+    lauschte auf allen Schnittstellen. Kein Geheimniswert wurde gelesen oder
+    ausgegeben.
+  - **Gebaut:** alle **drei** Termux-Skripte lesen `HOST_BIND` aus
+    `backend/.env` mit **demselben** Muster (`agent-ensure.sh:79-83`,
+    `start-termux.sh:358-361`, `neu-start-nach-lauf.sh:72-74`); **Standard bleibt
+    `0.0.0.0`** → **keine Verhaltensänderung**. Neu in `backend/app/config.py`
+    die **reinen** Funktionen `ist_loopback(host)` (Z. 70) und
+    `bindung_hinweis(host, hat_api_key)` (Z. 92) — kein Netz, kein IO, Text
+    nennt `HOST_BIND`/`API_KEY`, enthält **kein** Geheimnis und **keine**
+    Geräte-IP. `main.py:99-101` warnt beim Start, `/api/health` trägt das Feld
+    `bindung_warnung` (`main.py:256`); `/api/konfig` und alle übrigen
+    Antwortfelder **unverändert**.
+  - **Der eigentliche Wert: die erste Wächter-Testdatei des Projekts.**
+    `backend/tests/test_datenschutz_waechter.py` **630 Zeilen / 52
+    Testfunktionen** (66 gesammelte Tests), **alles offline**, acht
+    Regelgruppen: (1) **lebende Ausnahmeliste** der offenen `/api`-Routen —
+    genau die fünf bekannten sind erlaubt, eine **neue** offene Route lässt den
+    Test **rot** werden; (2) die drei Startskripte (kein hartes
+    `--host 0.0.0.0`, `HOST_BIND` überall, identisches Muster, Standard
+    `0.0.0.0`); (3) `bindung_hinweis`/`ist_loopback`; (4) Frontend ohne fremde
+    Adressen (`cdn.`/`gstatic`/`googleapis`/`unsplash`/`sk-or-`); (5)
+    `.env`-Schutz (`.gitignore` + `git check-ignore` + `git ls-files`); (6)
+    **Löschregel** (Löschbegriffe nur im Duplikate-Werkzeug, im Backend gar
+    nicht); (7) `Cache-Control: no-store` für Medien; (8) der Wächter über sich
+    selbst (keine Netz-Tokens, liest die Einstellungsdatei nicht).
+  - **Prüfbefehl selbst gefahren (Planer, frisch):** Baseline **3058 passed, 1
+    skipped, Exit 0** (aus N23) → nach der Änderung **3124 passed, 1 skipped,
+    Exit 0** (182,7 s; **+66 = genau die gesammelten neuen Tests**); `bash -n`
+    auf den drei Shell-Dateien **Exit 0**.
+  - **Prüfer (`z-ai/glm-5.2`, frische Sitzung): BESTANDEN, 0 Abweichungen.**
+    Eigene Messungen: Prüfbefehl **3124 passed, 1 skipped, Exit 0** (254 s);
+    Testdatei allein **66 passed**; `def test_` selbst gezählt **52**; eigene
+    Sonde **85** `/api`-Routen mit **genau 5** offenen; `bash -n` **3× Exit 0**;
+    `bindung_hinweis` mit eigenen Aufrufen geprüft (Loopback-Varianten →
+    `None`, `0.0.0.0` ohne Key → Text, mit Key → `None`, LAN-Adresse → Text,
+    Text ohne Key-Wert); alle zitierten Zeilennummern der Doku gegen die Dateien
+    geprüft; Datenschutz-Scan der Testdatei (keine `requests.`/`urlopen`/`httpx`/
+    `socket.`, kein `.env`-Zugriff) — **0 Treffer**. Einzige Beobachtung, **nicht
+    blockierend:** im Arbeitsbaum liegen fremde uncommittete Änderungen
+    (`tools/agentbus/wache.py`, `docs/experimente/live_zahlen.*`) — nicht
+    angefasst, nicht committet (Regel `git commit --only`).
+  - **Ehrlich offen (kein Code):** wirksam wird der Schutz erst mit **zwei
+    Zeilen in `backend/.env`** (`HOST_BIND=127.0.0.1`, `API_KEY=<Wert>`) —
+    das ist Sebastians Griff; der Code **erzwingt keine** Loopback-Bindung,
+    sondern sagt jetzt im Log und in `/api/health` sichtbar, dass der Server
+    ohne Key im ganzen Netz offen ist. Eine bewusste Entscheidung dieser Runde:
+    **nichts umstellen, was Sebastian stillschweigend brechen könnte** (der
+    PC-Zugriff über die LAN-Adresse des Handys ist im Code angelegt und würde
+    von einer erzwungenen Loopback-Bindung abgeschnitten).
+  - **Nebenbefund dieser Runde (für N23 Teil B):** das Gerät hing am Kabel
+    (`adb devices` → `device`), aber ein Befehl ist auf dem Handy weiterhin
+    **nicht** startbar: `am startservice … com.termux/com.termux.app.RunCommandService`
+    → `Error: Not found; no service started.` und
+    `com.termux/com.termux.app.TermuxService` mit `com.termux.service_execute`
+    → `Error: Requires permission com.termux.permission.TERMUX_INTERNAL`. Damit
+    ist belegt: der Android-Teil läuft **nur** über den Widget-Tipp. Geprüft
+    wurde zusätzlich per Kabel: `/sdcard/Download/hermes_diag/` **existiert
+    noch nicht** → seit dem Bau von N23/N29b hat **kein** Widget-Tipp
+    stattgefunden; die Übergabedateien sind also noch nicht übernommen. Als
+    **N24b** in den Plan aufgenommen, damit der nächste Lauf den Beleg nicht
+    wieder nur behaupten muss.
+  - Doku: `docs/changelog-2026-09-29-n24a-datenschutz-waechter.md`,
+    Auftrag `docs/auftrag-n24a-datenschutz-waechter.md`; Projekt-`CLAUDE.md`:
+    Netzwerk-Zeile codegenau gezogen + Protokollzeile mit Prüfer-Befund.
+  - **Nächster Schritt:** **N23 Teil B** (Job-Registrierung am Gerät belegen,
+    sobald Sebastian das Widget tippt — der Bericht liegt dann in
+    `/sdcard/Download/hermes_diag/`) oder **N24b** (den Belegweg dafür im
+    Startskript ergänzen) bzw. **N25**, sobald die Passphrase entschieden ist.
+    **N8 bleibt gesperrt.**

@@ -67,6 +67,52 @@ def variable_aus_env_datei(pfad: Path, name: str) -> str:
     return ""
 
 
+def ist_loopback(host: str) -> bool:
+    """Reine Prüfung: Ist die Adresse nur vom eigenen Gerät erreichbar?
+
+    Loopback bedeutet, dass der Server ausschließlich über die lokale
+    Schleife (``localhost``/``127.0.0.x``/``::1``) ansprechbar ist — ein
+    fremdes Gerät im selben WLAN kann ihn dann nicht erreichen.
+
+    Bewusst OHNE Netz, ohne IO und ohne DNS-Auflösung: Es wird nur die
+    Zeichenkette bewertet. Unbekannte/leere Angaben gelten als NICHT
+    Loopback (im Zweifel warnen, nicht beruhigen).
+    """
+    h = (host or "").strip().lower()
+    if not h:
+        return False
+    if h in ("localhost", "::1", "[::1]"):
+        return True
+    # 127.0.0.1 sowie das gesamte 127.0.0.x-Netz (Loopback 127.0.0.0/8)
+    if h == "127.0.0.1" or h.startswith("127.0.0."):
+        return True
+    return False
+
+
+def bindung_hinweis(host: str, hat_api_key: bool) -> Optional[str]:
+    """Deutscher Warnsatz, wenn der Server offen im Heimnetz lauscht.
+
+    Reine Funktion (testbar, kein Netz, kein IO): Sie gibt einen Warnsatz
+    zurück, sobald ``host`` NICHT Loopback ist UND kein API-Key gesetzt ist —
+    dann kann im selben Netz jeder den Archiv-Index lesen. In allen anderen
+    Fällen (Loopback oder Key vorhanden) ist der Server geschützt und es
+    kommt ``None`` zurück.
+
+    Der Text enthält bewusst KEIN Geheimnis und KEINE Geräte-IP — nur den
+    Namen der Einstellung. Der Key-Wert selbst wird hier nie berührt.
+    """
+    if hat_api_key:
+        return None
+    if ist_loopback(host):
+        return None
+    anzeige = (host or "").strip() or "0.0.0.0"
+    return (
+        f"Server lauscht auf {anzeige} ohne API-Key — im gleichen Netz kann "
+        "jeder den Archiv-Index lesen. Schutz: HOST_BIND=127.0.0.1 und "
+        "API_KEY in backend/.env setzen."
+    )
+
+
 class Settings(BaseSettings):
     """Application settings loaded from .env or environment variables."""
 

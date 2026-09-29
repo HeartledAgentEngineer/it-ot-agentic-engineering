@@ -63,7 +63,7 @@ cd 02_Softwareentwicklung_IT/personal_ai_agent/backend
 ```
 
 A git pre-commit hook (`.githooks/pre-commit`) runs this automatically for the
-project whose code is staged. Current baseline: **2,924 passed, exit 0**.
+project whose code is staged. Current baseline: **3,124 passed, 1 skipped, exit 0**.
 "Done" means: gate green **and** docs updated **and** the evidence quoted.
 
 ---
@@ -135,7 +135,7 @@ On `cannot lock ref` / rejected push: `git pull --rebase`, then retry.
 | N19 | archive search: match **mentions**, not only chat partners | done: person questions ("was habe ich mit X gemacht?") now trigger a mention search — `_ERWAEHNUNG_SIGNALE` + `_erwaehnung_name` in `router/chat.py`, `ArchivSuche.erwaehnung_treffer` + `erwaehnungs_text` in `services/archiv_suche.py`; every hit carries source + date, and the note states honestly that there is no chat with that person (mentions in other conversations only). Measured on the real index: 113 hits, 0 own chats. Gate 2949 passed / Exit 0, verifier `z-ai/glm-5.2`: passed |
 | N22 | nightly maintenance job (new chats, photos, calendar) | DONE 29.09.2026 — incremental, idempotent re-index: `backend/scripts/archiv_nachpflege.py` (623 lines), tests `backend/tests/test_archiv_nachpflege.py` (51 functions); gate 3030 passed / exit 0; proof on copies (index was already in sync); verifier z-ai/glm-5.2: passed. Open: the Android scheduler (N23) and the first real run once new chats are imported |
 | N23 | everything must run on the phone alone (Termux scheduler) | rule, partially built |
-| N24 | privacy/IT-security pass (app, Android, encryption, revocation) | planned |
+| N24 | privacy/IT-security pass (app, Android, encryption, revocation) | **N24a done 29.09.2026** — privacy/security guard tests: `backend/tests/test_datenschutz_waechter.py` (630 lines / 52 test functions, offline) enforcing a **living whitelist** of the only five unprotected `/api` routes, the three Termux start scripts, the pure `ist_loopback`/`bindung_hinweis` functions in `app/config.py`, "frontend talks to nobody else", `.env` protection, the deletion rule, `no-store` for media. Real finding fixed: two start scripts hard-coded `--host 0.0.0.0` and ignored `HOST_BIND` (the very setting `main.py` calls "the actual protection"); all three now read it, default stays `0.0.0.0` (no behaviour change). Gate 3124 passed / exit 0; verifier z-ai/glm-5.2: passed, 0 deviations. **Open (Sebastian's two lines in `backend/.env`):** `HOST_BIND=127.0.0.1` + `API_KEY=<value>` — log and `/api/health` → `bindung_warnung` say so now. N24b (Android side: encryption, revocation) still open |
 | N25 | automatic backup of the archive DBs to pCloud (encrypted, restore test) | open |
 | N26 | WhatsApp media (3,660 + 346 images) as second photo source | open |
 | N27 | **link layer**: event objects = date + theme + photos + chats + people + calendar | done (N27a–e accepted) |
