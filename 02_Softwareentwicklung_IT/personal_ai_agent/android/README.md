@@ -119,7 +119,27 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 (Windows: `gradlew.bat` statt `./gradlew`.) Zeit bis „bereit" steht im Logcat:
 `adb logcat -s HeyAgent` → Zeile `Backend-Start: bereit=… dauer=… ms`.
 
-## Einrichtung Termux (einmalig, am Handy)
+## Einrichtung mit dem Play-Store-Termux (einmalig, am Handy)
+
+Das Play-Store-Termux hat keinen `RunCommandService`. Die App öffnet Termux deshalb sichtbar,
+und ein Eintrag in `~/.bashrc` startet beim Öffnen der Sitzung
+`termux/agent-ensure.sh --app-zurueck`: neuesten Stand ziehen (nur `pull --ff-only`, nur wenn
+das Handy hinter `origin` liegt), Backend starten, auf `/health` warten (höchstens 45 s), dann
+die App über `heyagent://start` zurückholen. Läuft das Backend schon, endet das Skript sofort,
+ohne Pull und ohne Rücksprung.
+
+1. Eintrag in `~/.bashrc` (die Zeile prüft selbst, ob er schon da ist):
+   `grep -q agent-ensure ~/.bashrc 2>/dev/null || echo '[ -L ~/.shortcuts/agent ] && sh "$(dirname "$(readlink ~/.shortcuts/agent)")/termux/agent-ensure.sh" --app-zurueck' >> ~/.bashrc`
+   Er ruft das Skript direkt im Repo auf, deshalb kommen Änderungen mit jedem Pull an. Keine
+   Kopie nach `~` nötig.
+2. Akku-Optimierung für Termux ausschalten (Einstellungen → Apps → Termux → Akku →
+   „Nicht eingeschränkt“). Mit der Wachhalte-Sperre der Skripte läuft das Backend dann dauerhaft,
+   und die App findet es beim Öffnen sofort.
+
+Grenze: Ist in Termux schon eine **offene, untätige** Sitzung, zeigt das Öffnen nur diese an,
+und `~/.bashrc` läuft nicht erneut. Dann einmal `exit` in der Sitzung oder das Widget tippen.
+
+## Einrichtung mit dem F-Droid-/GitHub-Termux (einmalig, am Handy)
 
 1. `~/.termux/termux.properties`: Zeile `allow-external-apps=true` eintragen, dann
    `termux-reload-settings`. Ohne das ignoriert Termux den Intent.
@@ -132,10 +152,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    (`com.termux.permission.RUN_COMMAND`) erteilen (Einstellungen → Apps → Hey Agent → Berechtigungen → Zusätzliche Berechtigungen; Bezeichnung je nach Hersteller).
 5. Empfohlen: Akku-Optimierung für Termux auf „Nicht optimieren" (Hintergrundstart, Spec 5.1).
 
-`agent-ensure.sh` startet das Backend **nur**, wenn `/health` nicht antwortet: kein `git pull`,
-kein Beenden laufender Prozesse. Startbefehl wie in `start-termux.sh`
-(`python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload` in `backend/`).
-Log: `~/agent-ensure.log`. „Update + Neustart" bleibt `start-termux.sh`.
+`agent-ensure.sh` startet das Backend **nur**, wenn `/health` nicht antwortet. Vorher zieht es
+den neuesten Stand, aber nur als Vorspulen (`pull --ff-only`, nur wenn das Handy hinter
+`origin` liegt); eigene Handy-Commits oder lokale Änderungen bleiben unangetastet. Es beendet
+keine laufenden Prozesse. Startbefehl wie in `start-termux.sh` (`python -m uvicorn app.main:app
+--host "$HOST_BIND" --port 8080 --reload` in `backend/`). Log: `~/agent-ensure.log`. Abgleich in
+beide Richtungen + Neustart bleibt `start-termux.sh`.
 
 ## Prüfkriterium A1b (aus der Spec)
 
@@ -152,11 +174,12 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   keine Berechtigung `com.termux.permission.RUN_COMMAND` (am Handy gemessen: `Unable to start
   service … com.termux/.app.RunCommandService … not found`; die App wartete dann 60 s bis
   `ZEITUEBERSCHREITUNG`). Die Schritte 1, 2 und 4 der Termux-Einrichtung oben gelten nur für
-  die F-Droid-/GitHub-Fassung. Bis zu einer Lösung: erst das Widget „agent“ tippen
-  (`start-termux.sh` öffnet danach die App), dann findet die App das laufende Backend sofort.
-- Die App merkt nicht, dass Android den Termux-Aufruf abweist: `TermuxLauncher.starte()`
-  wertet die Rückgabe von `startForegroundService` nicht aus (bei fehlendem Dienst `null`,
-  keine Ausnahme) und meldet `true`. Die App wartet dann trotzdem die vollen 60 s.
+  die F-Droid-/GitHub-Fassung. Lösung für das Play-Store-Termux: siehe „Einrichtung mit dem
+  Play-Store-Termux“ oben.
+- Behoben (29.09.2026, abends): `TermuxLauncher.starte()` wertet jetzt die Rückgabe von
+  `startForegroundService` aus (bei fehlendem Dienst `null`) und öffnet Termux dann sofort
+  sichtbar, statt 60 s zu warten. Der Weg über `~/.bashrc` ist am Handy noch nicht Ende zu Ende
+  belegt; das zeigt der erste Start mit ausgeschaltetem Backend.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
 - Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt

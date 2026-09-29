@@ -2,11 +2,19 @@
 #
 # agent-ensure.sh — startet das Backend NUR, wenn es nicht antwortet.
 #
-# Gegenstueck zu start-termux.sh, aber bewusst schlanker: kein git-Abgleich,
-# kein Beenden laufender Prozesse, keine Datei-Uebernahmen. Die Android-App
-# "Hey Agent" ruft dieses Skript per Termux-RUN_COMMAND-Intent auf, sobald
-# ihr Health-Check fehlschlaegt. Laeuft der Server schon, passiert nichts
-# (idempotent). "Update + Neustart" bleibt Sache von start-termux.sh.
+# Gegenstueck zu start-termux.sh, aber bewusst schlanker: kein Beenden
+# laufender Prozesse, keine Datei-Uebernahmen. Laeuft der Server schon,
+# passiert nichts (idempotent) - auch kein Pull.
+#
+# Zwei Aufrufwege aus der Android-App "Hey Agent":
+#   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar.
+#   b) Play-Store-Termux (hat kein RUN_COMMAND): die App oeffnet Termux, und
+#      der Eintrag in ~/.bashrc ruft  agent-ensure.sh --app-zurueck
+#      Dann zieht das Skript den neuesten Stand (nur Vorspulen), startet das
+#      Backend, wartet auf /health und holt die App ueber heyagent://start
+#      zurueck. Eintrag fuer ~/.bashrc (einmalig, siehe android/README.md):
+#        grep -q agent-ensure ~/.bashrc 2>/dev/null || echo '[ -L ~/.shortcuts/agent ] && sh "$(dirname "$(readlink ~/.shortcuts/agent)")/termux/agent-ensure.sh" --app-zurueck' >> ~/.bashrc
+# Voller Abgleich in beide Richtungen + Neustart bleibt Sache von start-termux.sh.
 #
 # Einrichtung einmalig (in Termux):
 #   1. Externe Apps erlauben:
@@ -28,6 +36,16 @@
 
 PORT="${PORT:-8080}"
 LOG="$HOME/agent-ensure.log"
+WARTEN_S=45          # so lange auf /health warten, bevor die App zurueckgeholt wird
+
+APP_ZURUECK=0
+[ "${1:-}" = "--app-zurueck" ] && APP_ZURUECK=1
+
+# Meldung ins Log und - beim Aufruf aus der Termux-Sitzung - auch auf den Schirm.
+sag() {
+    log "$*"
+    [ "$APP_ZURUECK" = 1 ] && echo "Hey Agent: $*"
+}
 
 # Log begrenzen (nur die letzten 500 Zeilen behalten).
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG" 2>/dev/null || echo 0)" -gt 204800 ]; then
@@ -68,6 +86,23 @@ fi
 # CPU nicht einschlafen lassen (wie start-termux.sh).
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
+# Neuesten Stand holen - NUR Vorspulen (pull --ff-only), und nur wenn das Handy
+# wirklich hinter origin liegt. Eigene Handy-Commits oder lokale Aenderungen
+# werden nie ueberschrieben; dann startet der Server mit dem vorhandenen Stand.
+if git -C "$PROJEKT" fetch origin --quiet 2>/dev/null; then
+    if git -C "$PROJEKT" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        if git -C "$PROJEKT" pull --ff-only --quiet 2>>"$LOG"; then
+            sag "Stand: $(git -C "$PROJEKT" log --oneline -1 2>/dev/null)"
+        else
+            sag "Pull nicht moeglich (lokale Aenderungen?) - starte mit altem Stand"
+        fi
+    else
+        sag "Handy hat eigene Commits - kein Pull, starte mit vorhandenem Stand (Abgleich per Widget)"
+    fi
+else
+    sag "git fetch fehlgeschlagen (Netz?) - starte mit altem Stand"
+fi
+
 cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
 
 log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
@@ -81,5 +116,20 @@ _env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cu
 # Gleicher Startbefehl wie start-termux.sh, aber vom Terminal geloest (nohup),
 # weil dieses Skript im Hintergrund per Intent laeuft und danach endet.
 nohup python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --reload >> "$LOG" 2>&1 &
-log "uvicorn gestartet (PID $!)"
+sag "Backend startet (PID $!) ..."
+
+if [ "$APP_ZURUECK" = 1 ]; then
+    i=0
+    while [ $i -lt "$WARTEN_S" ] && ! health_ok; do
+        i=$((i+1))
+        sleep 1
+    done
+    if health_ok; then
+        sag "Backend bereit nach ${i} s - zurueck zur App"
+    else
+        sag "Backend nach ${WARTEN_S} s noch nicht bereit - Log: $LOG"
+    fi
+    # Auch ohne Erfolg zurueck: die App zeigt dann ihre eigene Meldung.
+    am start -a android.intent.action.VIEW -d "heyagent://start" >/dev/null 2>&1         || sag "Hey Agent liess sich nicht oeffnen - bitte von Hand starten"
+fi
 exit 0

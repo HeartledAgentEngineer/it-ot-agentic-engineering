@@ -6,16 +6,24 @@ import android.os.Build
 import android.util.Log
 
 /**
- * Startet ~/agent-ensure.sh in Termux per RUN_COMMAND-Intent (im Hintergrund, ohne
- * Terminalfenster) und kann Termux sichtbar oeffnen (Rueckfall-Knopf).
+ * Stoesst den Backend-Start in Termux an.
  *
- * Voraussetzungen (siehe android/README.md): Permission com.termux.permission.RUN_COMMAND
- * (Manifest + einmalige Freigabe durch den Nutzer) und allow-external-apps=true in
- * ~/.termux/termux.properties.
+ * Weg 1: ~/agent-ensure.sh per RUN_COMMAND-Intent (unsichtbar). Das geht nur mit der
+ * F-Droid-/GitHub-Fassung von Termux (Permission com.termux.permission.RUN_COMMAND und
+ * allow-external-apps=true, siehe android/README.md).
+ * Weg 2 (Rueckfall): Termux sichtbar oeffnen. Das Play-Store-Termux hat keinen
+ * RunCommandService; dort startet der Eintrag in ~/.bashrc beim Oeffnen der Sitzung
+ * agent-ensure.sh --app-zurueck, und Termux holt die App danach ueber heyagent://start zurueck.
  */
 class TermuxLauncher(private val context: Context) : BackendStarter {
 
-    override fun starte(): Boolean {
+    override fun starte(): Boolean = perRunCommand() || termuxOeffnen()
+
+    /**
+     * true nur, wenn Android den Termux-Dienst wirklich gefunden hat. Fehlt er (Play-Store-
+     * Termux), liefert startForegroundService null statt einer Ausnahme.
+     */
+    private fun perRunCommand(): Boolean {
         val intent = Intent("com.termux.RUN_COMMAND").apply {
             setClassName(AppKonfig.TERMUX_PAKET, "com.termux.app.RunCommandService")
             putExtra("com.termux.RUN_COMMAND_PATH", AppKonfig.TERMUX_SKRIPT)
@@ -23,15 +31,16 @@ class TermuxLauncher(private val context: Context) : BackendStarter {
             putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
         }
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val komponente = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
             }
-            true
+            if (komponente == null) Log.i(TAG, "RUN_COMMAND nicht verfuegbar - oeffne Termux sichtbar")
+            komponente != null
         } catch (e: Exception) {
             // SecurityException (Permission fehlt), IllegalStateException (Hintergrundstart) u. a.:
-            // nur den Klassennamen loggen, die App zeigt die Meldung.
+            // nur den Klassennamen loggen, dann greift der sichtbare Rueckfall.
             Log.w(TAG, "RUN_COMMAND fehlgeschlagen: ${e.javaClass.simpleName}")
             false
         }
