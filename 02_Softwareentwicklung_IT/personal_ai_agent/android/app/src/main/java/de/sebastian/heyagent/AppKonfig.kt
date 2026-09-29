@@ -13,7 +13,7 @@ object AppKonfig {
     const val START_URL = "http://$BACKEND_HOST:$BACKEND_PORT/"
     const val HEALTH_URL = "http://$BACKEND_HOST:$BACKEND_PORT/health"
 
-    /** Name des Kopfes, den das Backend fuer /api/* verlangt. */
+    /** Name des Kopfes, den das Backend fuer alle /api-Routen verlangt. */
     const val KEY_HEADER = "X-API-Key"
 
     /** Termux-Paket und Pfade (Termux-Home ist fest, siehe Termux-Wiki RUN_COMMAND). */
