@@ -14,3 +14,13 @@ Sebastians OpenRouter-Guthaben (rund 6 € an einem Tag) wurde fast vollständig
 
 ## Nicht geändert
 Die Windows-Aufgabe bleibt deaktiviert, bis Sebastian sie wieder einschaltet (`schtasks /Change /TN HermesAgentenbusWache /ENABLE`).
+
+## Nachtrag: Modus `auftrag` (Hermes als „Subagent", frische Sitzung je Auftrag)
+- **Aufruf:** `wache.py --auftrag` bzw. `WACHE_MODUS=auftrag`.
+- **Auslöser:** Nur Bus-Nachrichten vom Typ `task` starten einen Lauf. `info`, `tip` und `frage` bleiben ungelesen und werden nur gemeldet.
+- **Ablauf:** Je Wache-Lauf wird höchstens **ein** Auftrag gestartet, mit Sperrdatei; ein Lock älter als `--max-minuten` gilt als verwaist. Die Wache ruft `hermes -z "<kurzer Auftrag>" --usage-file .hermes/bus/kosten/<zeit>_<id>.json --in <Repo>` auf. Das öffnet eine **frische Sitzung** und schleppt keinen alten Verlauf mit.
+- **Kosten:** Nach dem Lauf schreibt die Wache eine Zeile nach `.hermes/bus/kosten.jsonl` (Kosten, Tokens, Modell, Dauer, Exit) und zeigt einen Toast „Hermes-Auftrag <step> fertig (x.xx $)".
+- **Tagesbremse:** `WACHE_TAGESLIMIT_USD`, Standard 1,00 $. Ist das Limit erreicht, startet kein neuer Lauf.
+- **Rückmeldung:** Meldet Hermes kein `erledigt`/`blockiert` zum Step, schreibt die Wache selbst ein `blockiert` mit Exit-Code auf den Bus.
+- **Prüfung:** `backend/tests/test_wache_auftrag.py` mit 20 Tests, alle mit Attrappen. `hermes` wurde nie echt gestartet. Voller Prüfbefehl 3186 passed, 1 skipped, Exit 0 (Lauf durch den Ausführer).
+- **Offen:** Die Feldnamen im Kostenbericht der Hermes-CLI sind noch unbekannt. Nach dem ersten echten Probelauf muss `kosten.jsonl` geprüft werden.
