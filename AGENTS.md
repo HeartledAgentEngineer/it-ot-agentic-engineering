@@ -183,23 +183,37 @@ enthält fremden Code, obwohl er „fix(live_zahlen)" heißt). Dann gilt:
 - Nach dem Push `git rev-list --left-right --count origin/main...HEAD` prüfen
   (`0 0` = lokal und remote gleich).
 
-### Cloud-Sitzungen und PC-Agenten (GitHub-Issues als gemeinsame Tafel)
+### Zwei Claude-Modi und Hermes (GitHub-Issues als gemeinsame Tafel)
 
 Festgelegt am 30.09.2026. Anlass: Eine Cloud-Sitzung und der PC-Agent haben am selben
-Abend unabhängig voneinander denselben Fehler behoben — doppelte Kosten. Eine
-Cloud-Sitzung sieht weder den PC noch den Agentenbus (`.hermes/` ist per `.gitignore`
-gesperrt); die gemeinsame Sicht ist GitHub.
+Abend unabhängig voneinander denselben Fehler behoben — doppelte Kosten.
 
-- **Auf `main` pusht nur der PC.** Nur dort laufen der Windows-Prüfbefehl und der
-  Handytest per Kabel. Das Handy zieht `main` beim Start, also bleibt `main` grün.
-- **Cloud-Sitzungen liefern Branches, nie `main`:** Arbeit auf `claude/<thema>`,
-  abgezweigt vom frischen `origin/main`. Zusammengeführt wird am PC:
-  `git fetch` → `git merge origin/claude/<thema>` → Prüfbefehl → Push.
-- **Vor Arbeitsbeginn die offenen GitHub-Issues lesen**, dann ein Issue anlegen oder
-  übernehmen und mit dem Label `cloud` oder `hermes` belegen. Ist das Thema schon
-  belegt: nicht anfangen, sondern im Issue nachfragen. Übergabe (Branch, Befund,
-  Prüfstand) als Kommentar ins Issue; geschlossen wird nach dem Zusammenführen.
-- Der Agentenbus bleibt für Absprachen der Agenten am PC.
+| | Master-Chat (Claude Code am PC) | Cloud-Sitzung (Claude Code bei Anthropic) |
+|---|---|---|
+| Wann | 5-Stunden-Limit des Abos frei | Limit erschöpft, PC aus oder unterwegs |
+| Sieht | PC, Agentenbus, Hermes, Handy per Kabel | nur GitHub (`.hermes/` ist per `.gitignore` gesperrt) |
+| Pusht | `main`, nach grünem Prüfbefehl | nur `claude/<thema>`, nie `main` |
+| Absprache | Agentenbus mit Hermes **und** GitHub-Issues | GitHub-Issues |
+| Issue-Label | `claude-pc` | `cloud` |
+
+- **Auf `main` pusht nur der PC** (Master-Chat oder Hermes). Nur dort laufen der
+  Windows-Prüfbefehl und der Handytest per Kabel. Das Handy zieht `main` beim Start,
+  also bleibt `main` grün.
+- **Cloud-Branches führt der PC zusammen:** `git fetch` →
+  `git merge origin/claude/<thema>` → Prüfbefehl → Push.
+- **Vor Arbeitsbeginn die offenen GitHub-Issues lesen** — beide Modi und Hermes
+  (Label `hermes`). Dann Issue anlegen oder übernehmen und mit dem eigenen Label
+  belegen. Ist das Thema belegt: nicht anfangen, im Issue nachfragen. Übergabe
+  (Branch, Befund, Prüfstand) als Kommentar ins Issue; geschlossen wird nach dem
+  Zusammenführen.
+- **Moduswechsel:** Wer aufhört, hinterlässt seinen Stand gepusht und im Issue
+  kommentiert.
+  - Limit wieder frei: Der Master-Chat beginnt mit `git pull`, liest die Issues mit
+    Label `cloud` und führt fertige `claude/*`-Branches zusammen.
+  - Limit erschöpft: Die Cloud-Sitzung beginnt bei den offenen Issues, nicht beim
+    Chatverlauf.
+- Für Master-Chat und Hermes im selben Arbeitsbaum gilt zusätzlich der
+  Kollisionsschutz oben.
 - Leitplanke auf GitHub: Branch Protection für `main` (kein Force-Push, kein Löschen).
   Einrichtung durch Sebastian; Stand ungeprüft.
 
