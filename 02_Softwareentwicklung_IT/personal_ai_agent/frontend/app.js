@@ -3188,10 +3188,13 @@ function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx) {
 }
 
 // Bild-Vollbild (WhatsApp-nahe): Ein Tipp auf ein Quiz-/Chat-Bild oeffnet ein
-// dunkles Fullscreen-Overlay mit dem grossen Bild. Das Bild ist NATIV per
-// Zwei-Finger-Pinch zoombar (touch-action/gestures frei) — Tippen auf das
-// Bild selbst zoomt NICHT sofort zu (kein Button-Overlay). Geschlossen wird
-// ueber das X oben rechts oder Tipp auf den dunklen Rand.
+// dunkles Fullscreen-Overlay mit dem grossen Bild. Das Overlay faengt ALLE
+// Gesten selbst ab (touch-action:none, Pull-to-Refresh-Sperre) — der Browser
+// zoomt hier also nicht nativ (die Seite ist ohnehin user-scalable=no).
+// Zoomen rechnet der Code selbst (30.09.2026, Befund Sebastian: Dokument-Foto
+// liess sich nicht vergroessern): zwei Finger = zoomen + verschieben, ein
+// Finger bei Zoom = verschieben, Doppeltipp = 2,5x an der Stelle bzw. zurueck,
+// Mausrad am PC. Geschlossen wird ueber das X oben rechts.
 let _quizVollbild = null;
 // RAM-Editor-Zustand: vom Nutzer im Vollbild korrigierte Gesichts-Boxen
 // (Wunsch Sebastian 2026-09-09: Rahmen antippen/verschieben/löschen). Die
@@ -3327,6 +3330,57 @@ function bboxExifDrehSchritte(orientierung) {
     if (o === 8) return 3;   // 90° gegen den Uhrzeigersinn
     return 0;                // 1/2/4/5/7: keine reine Vierteldrehung
 }
+
+// ---------------------------------------------------------------------------
+// VOLLBILD-ZOOM (30.09.2026). Zustand {s, tx, ty} = CSS
+// `translate(tx,ty) scale(s)` um die MITTE der bildBox. Bild, Rahmen und
+// Griffe liegen alle in der bildBox und zoomen deshalb gemeinsam. Reine
+// Funktionen — damit testbar.
+// ---------------------------------------------------------------------------
+/** Zoomstufe zwischen 1 (ganzes Bild) und `max` (Standard 6) halten. */
+function zoomBegrenzen(s, max) {
+    const m = max || 6;
+    if (typeof s !== 'number' || !isFinite(s) || s < 1) return 1;
+    return Math.min(s, m);
+}
+/**
+ * Neuer Zustand, bei dem der Bildpunkt unter dem Brennpunkt f0 (Fingermitte
+ * beim Gestenstart) nach f1 wandert und die Stufe s1 gilt — Zoomen und
+ * Verschieben in einer Rechnung. `mitte` = Bildschirm-Mitte der bildBox OHNE
+ * Verschiebung (die Skalierung um die Mitte verschiebt die Mitte nicht).
+ */
+function zoomUmPunkt(z0, mitte, f0, f1, s1) {
+    const s = zoomBegrenzen(s1);
+    const k = s / (z0.s || 1);
+    return {
+        s: s,
+        tx: f1[0] - mitte[0] - k * (f0[0] - mitte[0] - z0.tx),
+        ty: f1[1] - mitte[1] - k * (f0[1] - mitte[1] - z0.ty),
+    };
+}
+/**
+ * Verschiebung so begrenzen, dass das vergroesserte Bild nicht aus dem
+ * Anzeigebereich rutscht; bei Stufe 1 immer mittig. `box` = [Breite, Hoehe]
+ * der bildBox ungezoomt, `sicht` = [Breite, Hoehe] des Anzeigebereichs.
+ */
+function zoomVerschiebungBegrenzen(z, box, sicht) {
+    const s = zoomBegrenzen(z.s);
+    if (s === 1) return { s: 1, tx: 0, ty: 0 };
+    const rx = Math.max(0, (box[0] * s - sicht[0]) / 2);
+    const ry = Math.max(0, (box[1] * s - sicht[1]) / 2);
+    return {
+        s: s,
+        tx: Math.max(-rx, Math.min(z.tx || 0, rx)),
+        ty: Math.max(-ry, Math.min(z.ty || 0, ry)),
+    };
+}
+/** Zweiter kurzer Tipp an (fast) derselben Stelle innerhalb von 320 ms? */
+function istDoppeltipp(vorher, jetzt) {
+    if (!vorher || !jetzt) return false;
+    const dt = jetzt.t - vorher.t;
+    return dt >= 0 && dt < 320 && Math.hypot(jetzt.x - vorher.x, jetzt.y - vorher.y) < 30;
+}
+
 function zeigeBildVollbild(imgEl, gesichter, opts) {
     if (!imgEl) return;
     const optionen = opts || {};
@@ -3393,13 +3447,17 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     // damit die Overlay-Rahmen exakt am Bild haften (auch bei Hoch-/Querformat
     // und Drehung — Wunsch Sebastian: Kästen müssen immer zu den Personen passen).
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:auto;width:100%;height:100%;touch-action:none;overscroll-behavior:contain';
+    // overflow:hidden (vorher auto): das gezoomte Bild wird per transform
+    // verschoben, nicht gescrollt.
+    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:hidden;width:100%;height:100%;touch-action:none;overscroll-behavior:contain';
     const bildBox = document.createElement('div');
-    bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:none';
+    bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:none;transform-origin:50% 50%';
     const big = document.createElement('img');
     big.src = src;
     big.alt = 'Vollbild';
-    big.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;touch-action:none;user-select:none;-webkit-user-drag:none';
+    // 100vw/100vh statt 100 %: die bildBox hat keine feste Hoehe, max-height:100%
+    // griff deshalb nie — hohe Bilder (Dokument-Fotos) ragten oben/unten heraus.
+    big.style.cssText = 'max-width:100vw;max-height:100vh;object-fit:contain;touch-action:none;user-select:none;-webkit-user-drag:none';
     bildBox.appendChild(big);
     wrap.appendChild(bildBox);
     ov.appendChild(x);
@@ -3413,6 +3471,83 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
         ov.addEventListener('pointermove', _keineBrowserGeste, { passive: false });
         ov.addEventListener('gesturestart', _keineBrowserGeste, { passive: false });
         ov.addEventListener('contextmenu', _keineBrowserGeste);
+    } catch (_e) {}
+    // --- Zoom: zwei Finger / Doppeltipp / Mausrad (30.09.2026) ---
+    // `zoom` und `zeiger` liest auch der Rahmen-Editor weiter unten (Zieh-Weg
+    // durch zoom.s teilen, bei zwei Fingern keinen Rahmen verschieben).
+    const zoom = { s: 1, tx: 0, ty: 0 };
+    const zeiger = new Map();      // pointerId -> [x, y]
+    let geste = null;              // { z0, mitte, f0, d0 } — d0 = 0 heisst verschieben
+    let tippStart = null, letzterTipp = null;
+    function zoomAnwenden(z) {
+        const b = zoomVerschiebungBegrenzen(z, [bildBox.offsetWidth, bildBox.offsetHeight],
+                                            [wrap.clientWidth, wrap.clientHeight]);
+        zoom.s = b.s; zoom.tx = b.tx; zoom.ty = b.ty;
+        bildBox.style.transform = (b.s === 1) ? '' :
+            ('translate(' + b.tx + 'px,' + b.ty + 'px) scale(' + b.s + ')');
+    }
+    function boxMitte() {
+        const r = bildBox.getBoundingClientRect();
+        return [r.left + r.width / 2 - zoom.tx, r.top + r.height / 2 - zoom.ty];
+    }
+    const aufRahmen = (el) => !!(el && el.closest && el.closest('[data-frei],[data-griff]'));
+    const fingerMitte = (p) => [(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2];
+    const fingerAbstand = (p) => Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+    try {
+        wrap.addEventListener('pointerdown', (ev) => {
+            zeiger.set(ev.pointerId, [ev.clientX, ev.clientY]);
+            if (zeiger.size === 2) {
+                const p = Array.from(zeiger.values());
+                geste = { z0: { s: zoom.s, tx: zoom.tx, ty: zoom.ty }, mitte: boxMitte(),
+                          f0: fingerMitte(p), d0: fingerAbstand(p) || 1 };
+                tippStart = null;   // aus einer Zwei-Finger-Geste wird kein Tipp
+            } else if (zeiger.size === 1) {
+                tippStart = { t: Date.now(), x: ev.clientX, y: ev.clientY };
+                geste = (zoom.s > 1 && !aufRahmen(ev.target))
+                    ? { z0: { s: zoom.s, tx: zoom.tx, ty: zoom.ty }, mitte: boxMitte(),
+                        f0: [ev.clientX, ev.clientY], d0: 0 }
+                    : null;
+            }
+        });
+        wrap.addEventListener('pointermove', (ev) => {
+            if (!zeiger.has(ev.pointerId)) return;
+            zeiger.set(ev.pointerId, [ev.clientX, ev.clientY]);
+            if (!geste) return;
+            const p = Array.from(zeiger.values());
+            if (p.length >= 2 && geste.d0) {
+                zoomAnwenden(zoomUmPunkt(geste.z0, geste.mitte, geste.f0, fingerMitte(p),
+                                         geste.z0.s * fingerAbstand(p) / geste.d0));
+            } else if (p.length === 1 && !geste.d0) {
+                zoomAnwenden({ s: zoom.s, tx: geste.z0.tx + ev.clientX - geste.f0[0],
+                               ty: geste.z0.ty + ev.clientY - geste.f0[1] });
+            }
+        });
+        const zeigerWeg = (ev) => {
+            const warEiner = (zeiger.size === 1);
+            zeiger.delete(ev.pointerId);
+            if (!zeiger.size || (geste && geste.d0)) geste = null;
+            if (ev.type !== 'pointerup' || !warEiner || !tippStart || aufRahmen(ev.target)) return;
+            const tipp = { t: Date.now(), x: ev.clientX, y: ev.clientY };
+            const kurz = (tipp.t - tippStart.t < 300) &&
+                         Math.hypot(tipp.x - tippStart.x, tipp.y - tippStart.y) < 12;
+            tippStart = null;
+            if (!kurz) { letzterTipp = null; return; }
+            if (istDoppeltipp(letzterTipp, tipp)) {
+                letzterTipp = null;
+                const f = [tipp.x, tipp.y];
+                zoomAnwenden(zoom.s > 1.05 ? { s: 1, tx: 0, ty: 0 }
+                                           : zoomUmPunkt(zoom, boxMitte(), f, f, 2.5));
+            } else {
+                letzterTipp = tipp;
+            }
+        };
+        wrap.addEventListener('pointerup', zeigerWeg);
+        wrap.addEventListener('pointercancel', zeigerWeg);
+        wrap.addEventListener('wheel', (ev) => {
+            try { ev.preventDefault(); } catch (_e) {}
+            const f = [ev.clientX, ev.clientY];
+            zoomAnwenden(zoomUmPunkt(zoom, boxMitte(), f, f, zoom.s * Math.exp(-ev.deltaY * 0.0015)));
+        }, { passive: false });
     } catch (_e) {}
     // Statuszeile des Editors (ehrliche Rueckmeldung statt stiller Fehlschlag).
     const status = document.createElement('div');
@@ -3498,9 +3633,11 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 var ausschnittBox = null;
                 function resync() {
                     try {
+                        // Bildschirmmass enthaelt den Vollbild-Zoom — die Rahmen
+                        // liegen aber IN der gezoomten bildBox, also ungezoomt rechnen.
                         var rb = big.getBoundingClientRect();
                         if (rb && rb.width > 0 && rb.height > 0) {
-                            letzteBigW = rb.width; letzteBigH = rb.height;
+                            letzteBigW = rb.width / zoom.s; letzteBigH = rb.height / zoom.s;
                         }
                     } catch (_e) {}
                     if (letzteBigW <= 0 || letzteBigH <= 0) return;
@@ -3635,8 +3772,9 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
                             var bewegen = function(mev){
                                 try { mev.preventDefault(); } catch (_e) {}
-                                var dxAnz = (mev.clientX - startX) / (skw || 1);
-                                var dyAnz = (mev.clientY - startY) / (skh || 1);
+                                if (zeiger.size > 1) return;   // zwei Finger = zoomen, nicht ziehen
+                                var dxAnz = (mev.clientX - startX) / ((skw || 1) * zoom.s);
+                                var dyAnz = (mev.clientY - startY) / ((skh || 1) * zoom.s);
                                 // Zieh-Delta aus dem gedrehten Anzeigeraum zurueck
                                 var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
                                 var px = bboxPixelVonNorm(startNorm, iw, ih);
@@ -3675,8 +3813,9 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
                     var bewegenGr = (mev) => {
                         try { mev.preventDefault(); } catch (_e) {}
-                        var dxAnz = (mev.clientX - sx) / (skw || 1);
-                        var dyAnz = (mev.clientY - sy) / (skh || 1);
+                        if (zeiger.size > 1) return;   // zwei Finger = zoomen, nicht ziehen
+                        var dxAnz = (mev.clientX - sx) / ((skw || 1) * zoom.s);
+                        var dyAnz = (mev.clientY - sy) / ((skh || 1) * zoom.s);
                         var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
                         var px = bboxPixelVonNorm(startNorm, iw, ih);
                         var neu = bboxSkalieren(px, griffUmrechnen(griffName, dreh),
