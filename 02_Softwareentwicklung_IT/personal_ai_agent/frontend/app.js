@@ -5932,7 +5932,11 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
         // vom urlaub" -> Galerie mit Kacheln + Diashow. Die Erkennung ist REIN
         // (kein DOM, kein Netz); reine Zaehlfragen bleiben beim Text-Werkzeug
         // aus N11, Upload/Loeschen sind ausgenommen.
-        const fotowunsch = fotoFrageErkennen(text);
+        // Mit Werkzeugen entscheidet das Modell selbst (Handy-Dateien, Archiv,
+        // Fotos …). Der Stichwort-Abfang fing sonst jede „zeig … Foto"-Frage ab,
+        // bevor sie das Backend erreichte (30.09.2026 am Handy: „Zeige mir das
+        // Foto, das ich heute aufgenommen habe" → pCloud-Galerie statt Handy).
+        const fotowunsch = state.werkzeuge ? null : fotoFrageErkennen(text);
         if (fotowunsch) {
             zeigeFotoGalerie(fotowunsch);
             return;

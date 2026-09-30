@@ -65,3 +65,15 @@ nicht mangels Anbieter abgelehnt.
    „🔧 durchsucht das Gesprächsarchiv …", dann eine Antwort, die Bild **und** Archiv verbindet.
 3. Plauderfrage ohne Werkzeug („Wie geht's dir?") → keine 🔧-Zeile.
 4. Zurück: Knopf wieder aus = alter Weg.
+
+## Nachtrag 30.09.2026 ~23:45 — Stichwort-Abfang nur ohne Werkzeuge
+
+Erster Test am Handy (Werkzeuge an): „Zeige mir jetzt das Foto, das ich heute aufgenommen habe.
+Such dafür auf meinem Handy." → Antwort „Datei-Kennungen nicht gefunden (die Kennungen entstehen
+auf dem PC …)". Ursache: `frontend/app.js` `fotoFrageErkennen` fängt jede Nachricht mit
+„zeig" + „Foto" **vor** dem Senden ab und öffnet die feste pCloud-Galerie
+(`/api/fotos/bilder`, `foto_bilder.py:205`); die braucht `fotos_dateien.json`, die am Handy
+fehlt (Übergabe läuft nur in `start-termux.sh`, nicht im echten Startweg — Plan Schritt 2).
+Die Frage erreichte das Modell nie. Jetzt: `const fotowunsch = state.werkzeuge ? null :
+fotoFrageErkennen(text);` — mit Werkzeugen entscheidet das Modell. `app.js?v=20260930B`;
+`test_werkzeuge_schalter.js` und `test_foto_galerie.js` nachgezogen, alle 21 Frontend-Tests grün.

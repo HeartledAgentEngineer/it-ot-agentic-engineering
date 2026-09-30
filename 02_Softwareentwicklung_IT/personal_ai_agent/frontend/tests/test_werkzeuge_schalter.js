@@ -34,6 +34,10 @@ pruefe(/setWerkzeuge\(state\.werkzeuge\);/.test(js),
 pruefe(/werkzeuge: state\.werkzeuge,/.test(streamKoerper),
     'Stream-Anfrage schickt werkzeuge mit');
 
+console.log('Stichwort-Abfang nur ohne Werkzeuge');
+pruefe(/const fotowunsch = state\.werkzeuge \? null : fotoFrageErkennen\(text\);/.test(js),
+    'mit Werkzeugen geht „zeig … Foto" ans Modell statt an die feste Galerie');
+
 console.log('Datenschutz-Riegel im Stream-Weg');
 pruefe(streamKoerper.length > 0, 'Stream-Anfrage gefunden');
 pruefe(/no_retention: state\.noRetention,/.test(streamKoerper),

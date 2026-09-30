@@ -236,12 +236,12 @@ pruefe('Ergebnis ist immer im gültigen Bereich', (() => {
 
 console.log('\n5) Verdrahtung im Quelltext (Teil B)');
 pruefe('Zweig in sendMessage vorhanden',
-  /const fotowunsch = fotoFrageErkennen\(text\);/.test(src));
+  /const fotowunsch = state\.werkzeuge \? null : fotoFrageErkennen\(text\);/.test(src));  // seit 30.09.: nur ohne Werkzeuge
 pruefe('Zweig ruft zeigeFotoGalerie und kehrt zurück',
   /if \(fotowunsch\) \{\s*zeigeFotoGalerie\(fotowunsch\);\s*return;\s*\}/.test(src));
 pruefe('Zweig steht VOR dem Abbruch-Guard',
-  src.indexOf('const fotowunsch = fotoFrageErkennen(text);') !== -1
-  && src.indexOf('const fotowunsch = fotoFrageErkennen(text);') < src.indexOf('// Abbruch-Guard'));
+  src.indexOf('const fotowunsch = state.werkzeuge ? null : fotoFrageErkennen(text);') !== -1
+  && src.indexOf('const fotowunsch = state.werkzeuge ? null : fotoFrageErkennen(text);') < src.indexOf('// Abbruch-Guard'));
 pruefe('Blase trägt data-foto-galerie',
   /data-foto-galerie/.test(src) && /data-foto-galerie/.test(galerieCode));
 pruefe('Raster trägt data-foto-kacheln', /data-foto-kacheln/.test(galerieCode));
@@ -308,7 +308,7 @@ pruefe('sw.js hat keine Sonderregel für /api/cloud/thumb', sw.indexOf('/api/clo
 console.log('\n8) Cache-Bump, Styling und Datenschutz');
 const vApp = (html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
 const vCss = (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] || '';
-pruefe('index.html lädt app.js mit ?v=20260930A', vApp === '20260930A', 'gefunden: ' + vApp);
+pruefe('index.html lädt app.js mit ?v=20260930B', vApp === '20260930B', 'gefunden: ' + vApp);
 pruefe('index.html lädt style.css mit ?v=20260929B', vCss === '20260929B', 'gefunden: ' + vCss);
 pruefe('?v= app.js ist HÖHER als vorher (20260927B)', vApp > '20260927B', 'gefunden: ' + vApp);
 pruefe('?v= style.css ist HÖHER als vorher (20260925F)', vCss > '20260925F', 'gefunden: ' + vCss);
