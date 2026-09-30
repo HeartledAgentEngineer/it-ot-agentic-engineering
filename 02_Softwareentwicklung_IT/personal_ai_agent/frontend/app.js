@@ -121,6 +121,9 @@ const state = {
     // abschaltbar wäre die gefährliche Kombination – man hielte sich für
     // geschützt, weil man den Schalter nicht mehr sieht.
     noRetention: true,
+    // Tool Use (docs/spec-tool-use-v1.md): das Modell wählt seine Werkzeuge
+    // selbst. Standard aus, Wunsch bleibt zwischen Sitzungen erhalten.
+    werkzeuge: localStorage.getItem('werkzeuge') === '1',
     // Der AbortController der laufenden Antwort, sonst null. Dient zugleich
     // als Antwort auf die Frage "schreibt der Agent gerade?" – die
     // Denke-nach-Anzeige taugt dafuer nicht, die verschwindet schon beim
@@ -179,6 +182,8 @@ const dom = {
     modelHint: document.getElementById('model-hint'),
     modelFilters: document.getElementById('model-filters'),
     privacyBtn: document.getElementById('privacy-btn'),
+    werkzeugBtn: document.getElementById('werkzeug-btn'),
+    werkzeugLabel: document.getElementById('werkzeug-label'),
     privacyLabel: document.getElementById('privacy-label'),
     loopBtn: document.getElementById('loop-btn'),
     loopLabel: document.getElementById('loop-label'),
@@ -1885,6 +1890,21 @@ function zeichneListe() {
     } else {
         treffer.slice(0, 120).forEach(m => dom.modelList.appendChild(zeileFuer(m)));
     }
+}
+
+/** Tool Use an/aus (docs/spec-tool-use-v1.md). Geht als `werkzeuge` an /api/chat/stream. */
+function setWerkzeuge(an) {
+    state.werkzeuge = !!an;
+    localStorage.setItem('werkzeuge', state.werkzeuge ? '1' : '0');
+    if (!dom.werkzeugBtn) return;
+    dom.werkzeugBtn.classList.toggle('active', state.werkzeuge);
+    dom.werkzeugBtn.setAttribute('aria-pressed', state.werkzeuge ? 'true' : 'false');
+    if (dom.werkzeugLabel) {
+        dom.werkzeugLabel.textContent = state.werkzeuge ? 'Werkzeuge an' : 'Werkzeuge';
+    }
+    dom.werkzeugBtn.title = state.werkzeuge
+        ? 'Werkzeuge an – der Agent sucht selbst in Handy-Dateien, Archiv, Erinnerungen und Fotos'
+        : 'Werkzeuge aus – der Agent nutzt die feste Vorab-Suche';
 }
 
 function setPrivacy(an) {
@@ -6128,6 +6148,13 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                 model: state.model,
                 force_agent: forceAgent === true,
                 ziel: ziel || undefined,
+                // Tool Use: das Modell wählt seine Werkzeuge selbst (Schalter).
+                werkzeuge: state.werkzeuge,
+                // Datenschutz-Riegel: fehlte bis 30.09.2026 im Stream-Weg (nur der
+                // Rückfallweg schickte ihn) - die Oberfläche sagte „fest an", das
+                // Backend bekam „aus". Laut OpenRouter-ZDR-Liste (30.09.) haben
+                // deepseek-v4.1-flash 27 und gemini-2.5-flash 4 passende Anbieter.
+                no_retention: state.noRetention,
                 // WhatsApp-artiges Antwort-Zitat (falls gesetzt)
                 antwort_auf: _antwortAuf ? _antwortAuf.text : undefined,
                 // Nur image/pdf senden (sonst 422 am ChatRequest-Literal["image","pdf"].
@@ -6789,6 +6816,9 @@ dom.modelBtn.addEventListener('click', oeffneBlatt);
 dom.modelClose.addEventListener('click', schliesseBlatt);
 dom.modelSearch.addEventListener('input', zeichneListe);
 dom.privacyBtn.addEventListener('click', () => setPrivacy(!state.noRetention));
+if (dom.werkzeugBtn) {
+    dom.werkzeugBtn.addEventListener('click', () => setWerkzeuge(!state.werkzeuge));
+}
 
 // ── Streaming-Geschwindigkeit (Zahnrad oben rechts, Wunsch Sebastian) ──
 // Die Verzoegerung zwischen SSE-delta-Haeppchen ist einstellbar (moeglichst
@@ -8532,6 +8562,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setWebSearch(state.webSearch);   // gespeicherten Wunsch wiederherstellen
     setModelLabel();                 // zeigt vorerst die gespeicherte Wahl
     setPrivacy(state.noRetention);   // Riegel-Zustand wiederherstellen
+    setWerkzeuge(state.werkzeuge);   // Werkzeug-Schalter wiederherstellen
     startHealthChecks();
     // Frischer Start = frischer Chat-Zustand: Der flüchtige Bild-Cache
     // (10-Minuten-RAM im Backend) wird verworfen, damit kein Bild aus einer

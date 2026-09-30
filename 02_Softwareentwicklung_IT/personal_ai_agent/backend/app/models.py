@@ -59,6 +59,10 @@ class ChatRequest(BaseModel):
     # die Anfrage garantiert nicht bei einem Anbieter landet, der Prompts
     # speichert. Passt keiner, wird sie abgelehnt – sichtbar statt still.
     no_retention: bool = False
+    # Tool Use (docs/spec-tool-use-v1.md): true = das Modell waehlt seine
+    # Werkzeuge selbst (Schleife), false = alte Vorab-Weiche, None = Vorgabe
+    # aus der Konfiguration (settings.tool_use, Standard aus).
+    werkzeuge: Optional[bool] = None
     # Chat-Archive mitdurchsuchen. Standard an – ohne den Wissensspeicher
     # kann der Agent nichts über die eigene Vergangenheit sagen. Abschaltbar,
     # falls eine Frage nichts damit zu tun hat.

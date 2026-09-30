@@ -128,6 +128,13 @@ class Settings(BaseSettings):
     # Hermes selbst (CLI, ~/.hermes/config.yaml) läuft ebenfalls auf diesem Modell.
     llm_model: str = "deepseek/deepseek-v4.1-flash"
 
+    # Tool Use (docs/spec-tool-use-v1.md): Das Modell waehlt seine Werkzeuge
+    # (Handy-Dateien, Archiv, Erinnerungen, Fotos, ...) selbst, statt dass die
+    # Vorab-Weiche im Chat aus Woertern raet. Standard AUS, bis Sebastian live
+    # getestet hat; je Anfrage ueberschreibbar (ChatRequest.werkzeuge).
+    # .env: TOOL_USE=true
+    tool_use: bool = False
+
     # Nur für den Modellkatalog, NIE für Chat-Aufrufe: Über diese Adresse
     # lässt sich abfragen, welche Modelle EU-in-Region bedient würden.
     # Der Chat darüber ist für dieses Konto gesperrt (HTTP 403, Enterprise).

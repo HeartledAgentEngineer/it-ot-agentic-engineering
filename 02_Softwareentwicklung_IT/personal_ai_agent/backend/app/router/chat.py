@@ -610,6 +610,18 @@ def _nutzer_name() -> str:
     return ""
 
 
+def _werkzeuge_an(request: Any) -> bool:
+    """Tool Use fuer diese Anfrage? Anfrage-Feld vor Konfiguration (Standard aus).
+
+    Gilt nur im Stream-Weg (den nutzt die Oberflaeche); /chat bleibt bei der
+    Vorab-Weiche. Spec: docs/spec-tool-use-v1.md.
+    """
+    wunsch = getattr(request, "werkzeuge", None)
+    if wunsch is not None:
+        return bool(wunsch)
+    return bool(getattr(settings, "tool_use", False))
+
+
 def _zitat_anhang(request: Any) -> str:
     """WhatsApp-artiger Antwort-Kontext: Legt als Text das konkret beantwortete
     Zitat bei, das an die LLM-Nachricht und den persistierten Verlauf geheftet wird.
@@ -2007,6 +2019,10 @@ async def chat_stream(request: ChatRequest):
         # zu, um den Bildpfad in den Verlauf zu schreiben. Ohne Vorab-Init wäre
         # er dort eine ungebundene Variable.
         s_werkzeug_bilder: List[dict] = []
+        # Tool Use (docs/spec-tool-use-v1.md): Mit Werkzeugen entfaellt die
+        # Vorab-Weiche unten - das Modell waehlt Archiv, Dateien, Fotos usw.
+        # selbst. Ohne Angabe gilt die Konfiguration (Standard aus).
+        s_werkzeuge_an = _werkzeuge_an(request)
         try:
             # Rolling-Summary + Datei-Tool auch hier (Stream = gleicher Kontext)
             try:
@@ -2017,9 +2033,9 @@ async def chat_stream(request: ChatRequest):
                 # Archiv-Frage hat VORRANG: keine Dateisuche bei Archiv-Ziel
                 # (gleiche Kette wie in /chat, damit beide Wege identisch
                 # antworten).
-                s_werkzeug_text = _archiv_tool(request.message)
+                s_werkzeug_text = "" if s_werkzeuge_an else _archiv_tool(request.message)
                 s_werkzeug_bilder = []
-                if not s_werkzeug_text:
+                if not s_werkzeug_text and not s_werkzeuge_an:
                     s_werkzeug_text, s_werkzeug_bilder = _datei_tool(request.message)
                     if not s_werkzeug_text:
                         s_werkzeug_text = _verlauf_tool(request.message)
@@ -2044,6 +2060,8 @@ async def chat_stream(request: ChatRequest):
                     yield _sse({"status": "🔎 Sage ich dir aus dem Archiv/Verlauf…"})
                 elif s_werkzeug_text:
                     yield _sse({"status": "🔍 Suche in deinen Dateien…"})
+                elif s_werkzeuge_an:
+                    yield _sse({"status": "🤔 Agent überlegt (mit Werkzeugen)…"})
                 else:
                     yield _sse({"status": "🤔 Agent überlegt…"})
             except Exception:
@@ -2101,10 +2119,22 @@ async def chat_stream(request: ChatRequest):
                     files=(
                         [f.model_dump() for f in request.files] if request.files else []
                     ) + (s_werkzeug_bilder if s_werkzeug_bilder else []),
+                    werkzeuge=s_werkzeuge_an,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])
                         yield _sse({"sources": ereignis["sources"]})
+                        continue
+                    # Tool Use: Statuszeile je Werkzeug; ein angesehenes Bild
+                    # wird wie ein Dateisuche-Bild behandelt (Vorschau, Pfad im
+                    # Verlauf).
+                    if ereignis.get("status"):
+                        yield _sse({"status": ereignis["status"]})
+                        continue
+                    if ereignis.get("bild"):
+                        s_werkzeug_bilder.append({"type": "image", **ereignis["bild"]})
+                        continue
+                    if ereignis.get("werkzeug"):
                         continue
                     stueck = ereignis.get("delta")
                     if stueck:

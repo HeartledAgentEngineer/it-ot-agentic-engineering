@@ -137,6 +137,12 @@ personal_ai_agent/
   und zu jedem Bild eine Geschichte tippen oder sprechen (Mikrofon); Geschichten hängen
   an Bild + Ereignis, Korrekturen ersetzen nur die Anzeige, nichts wird überschrieben
   (`GET/POST /api/erzaehlen/...`, Kopfzeilen-Knopf „📖 Erzählen")
+- 🧪 **Tool Use (Beta, Standard aus)** – Knopf „Werkzeuge" an der Eingabe: Das Modell wählt
+  selbst, ob und welche Werkzeuge es nutzt (Handy-Dateien suchen und ansehen, Gesprächsarchiv,
+  Erinnerungen, Foto-Übersicht, Fotos einer Person, bekannte Personen, Tagesbelege), statt dass
+  eine Vorab-Weiche aus Wörtern rät; mehrere nacheinander, höchstens 5 Runden, nur lesend,
+  Statuszeile je Aufruf. Server-Vorgabe `TOOL_USE=true` in `backend/.env`
+  (`docs/spec-tool-use-v1.md`)
 - ✅ **TTS** – Antworten werden vorgelesen (Browser SpeechSynthesis)
 - ✅ **Chat im Browser-Tab** – erreichbar über die lokale URL (keine App/keine Installation nötig)
 - ✅ **IT-Security & Netzwerktechnik** als Spezialgebiet

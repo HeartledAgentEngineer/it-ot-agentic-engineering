@@ -746,21 +746,29 @@ class LLMService:
         archiv: Optional[List[Dict[str, Any]]] = None,
         files: Optional[List[Dict[str, Any]]] = None,
         summary: str = "",
+        werkzeuge: bool = False,
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
         Args:
             model: Abweichendes Modell; ohne Angabe das aus der Konfiguration.
+            werkzeuge: Tool Use - das Modell ruft Werkzeuge selbst auf
+                (``werkzeug_schleife``, docs/spec-tool-use-v1.md).
 
         Yields:
             `{"delta": "..."}` für Textstücke,
-            `{"sources": [...]}` sobald neue Fundstellen auftauchen.
+            `{"sources": [...]}` sobald neue Fundstellen auftauchen,
+            mit Werkzeugen zusätzlich `{"status"}`, `{"werkzeug"}`, `{"bild"}`.
         """
         if not self.is_configured:
             yield {"delta": NICHT_KONFIGURIERT}
             return
 
         messages = self._build_messages(user_message, conversation_history, memories, archiv, files, summary)
+
+        if werkzeuge:
+            yield from self._chat_stream_mit_werkzeugen(messages, model, web_search, no_retention)
+            return
 
         stream = self.client.chat.completions.create(
             model=model or self.model,
@@ -796,6 +804,40 @@ class LLMService:
 
             if delta.content:
                 yield {"delta": delta.content}
+
+    def _chat_stream_mit_werkzeugen(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str],
+        web_search: str,
+        no_retention: bool,
+    ) -> Iterator[Dict[str, Any]]:
+        """Tool Use: das Modell ruft die Werkzeuge aus ``werkzeuge.REGISTER`` selbst auf.
+
+        Die Funktions-Schemata laufen ueber ``extra_body["tools"]`` - zusammen mit
+        dem OpenRouter-Werkzeug der Websuche (``auto``), das nicht ins SDK-Schema
+        passt. So bleiben Datenschutz-Riegel und Websuche wie im normalen Weg.
+        """
+        from app.services import werkzeug_schleife, werkzeuge
+
+        messages[0]["content"] = str(messages[0].get("content") or "") + werkzeuge.SYSTEM_HINWEIS
+        schemata = werkzeuge.schemata()
+
+        def erstellen(verlauf: List[Dict[str, Any]], tool_choice: Optional[str]) -> Any:
+            extra = self._extra_body(web_search, no_retention)
+            extra["tools"] = list(extra.get("tools") or []) + schemata
+            if tool_choice:
+                extra["tool_choice"] = tool_choice
+            return self.client.chat.completions.create(
+                model=model or self.model,
+                messages=verlauf,  # type: ignore
+                temperature=0.7,
+                max_tokens=4096,  # siehe chat_stream: Reasoning zaehlt mit
+                stream=True,
+                extra_body=extra,
+            )
+
+        yield from werkzeug_schleife.laufe(erstellen, messages, quellen_aus=self._quellen)
 
     def chat(
         self,
