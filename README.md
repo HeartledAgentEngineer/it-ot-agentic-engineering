@@ -1,6 +1,6 @@
 ﻿# Agentic Engineering — Portfolio: Software von der Web-Anwendung bis zur Maschinensteuerung
 
-> **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a disciplined, phase-based agentic-engineering workflow, documented at the end of this page.
+> **English summary:** Engineering portfolio of a software developer with an automation background (B.Sc. Electrical & Information Engineering). It covers two isolated domains: **IT** — web, voice-to-text, RAG and document-automation projects built with Python and Node.js — and **OT** — a TwinCAT 3 elevator control coupled with a Node.js ADS bridge and a Three.js 3D HMI as a hardware-in-the-loop simulation. All projects follow a disciplined agentic-engineering workflow (continuous iteration with a verification gate and code-plus-docs commits), documented at the end of this page.
 
 Alle Projekte hier sind mit KI-Coding-Agenten entstanden — nach einem Regelwerk, das
 pragmatisches Ausprobieren ebenso zulässt wie anschließende Strukturierung. Der Arbeitsstil ist
@@ -21,8 +21,8 @@ Beide Domänen laufen vollständig isoliert und tauschen keine Daten aus.
 
 | Projekt | Stack | Status | Doku |
 |---|---|---|---|
-| **✨ Personal AI Agent** (Kern-Projekt) | Python, FastAPI, ChromaDB (Vektor-Gedächtnis), OpenRouter/DeepSeek, Frontend (Browser-Tab), Hermes-CLI-Agent als Toolcall | **Produktiv im Eigeneinsatz (Android/Termux)** — verbindet das meiste Know-how dieses Portfolios | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
-| **typeFREE** (Diktier-Tool) | Python, OpenAI Whisper (`whisper-1`, direkt + OpenRouter-Fallback), OpenRouter/Gemini 2.5 Flash (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); 84 automatisierte Prüfungen; mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
+| **✨ Personal AI Agent** (Kern-Projekt) | Python, FastAPI, lokales Gedächtnis als JSON-Datei (Embeddings über OpenRouter), OpenRouter/DeepSeek, Web-Frontend + Android-Hülle „Hey Agent“, Hermes-CLI-Agent als Toolcall | **Produktiv im Eigeneinsatz (Android/Termux)** — verbindet das meiste Know-how dieses Portfolios | [README](02_Softwareentwicklung_IT/personal_ai_agent/README.md) |
+| **typeFREE** (Diktier-Tool) | Python, wählbare Transkriptions-Anbieterketten (OpenRouter `mai-transcribe`, ElevenLabs Scribe v2, Groq/OpenAI Whisper), Gemini-Modellkette über OpenRouter (Textglättung), Keyboard-Hooks, pytest | Produktiv im Eigeneinsatz (Windows); automatisierte Prüfungen (pytest); mitlaufende Kostenrechnung | [README](02_Softwareentwicklung_IT/typeFREE/README.md) |
 | **Concertify** (Konzert-Playlists) | Python, Flask, SQLite, Server-Sent Events, Spotify-/Ticketmaster-API | Funktionaler Prototyp (lokaler Einsatz) | [README](02_Softwareentwicklung_IT/concertify/README.md) |
 | **RAG-System** (Wissensdatenbank) | Python, FastAPI, PostgreSQL/`pgvector`, Mistral `mistral-embed` (1024-D), Hybrid-Suche (RRF) | Funktionaler Prototyp | [README](02_Softwareentwicklung_IT/RAG-Systeme/README.md) |
 | **Document Automation** | Node.js, `docx` (OpenXML), Puppeteer, `pdf-lib` | Stabil (lokales Tool) | [README](02_Softwareentwicklung_IT/document_automation/README.md) |
@@ -48,7 +48,7 @@ graph LR
     end
 
     subgraph APIs["Angebundene KI- & Cloud-APIs"]
-        WH["OpenAI Whisper (direkt + OpenRouter)"]
+        WH["Spracherkennung: mai-transcribe · ElevenLabs Scribe · Whisper"]
         G2F["Gemini 2.5 Flash (via OpenRouter)"]
         MB["Mistral Embed"]
         G2["Google Gemini (direkt)"]
@@ -122,7 +122,7 @@ Das Data-Flow-Diagramm der IT-Projekte (02) findet sich im [zugehörigen Bereich
 
 **3. RAG-System: Ablösung von n8n durch eine Python-Pipeline.** Der erste Entwurf als visueller n8n-Cloud-Workflow ließ sich schlecht versionieren und nicht automatisiert testen. Die Migration zu Skripten ([ingest.py](02_Softwareentwicklung_IT/RAG-Systeme/ingest.py), [query_db.py](02_Softwareentwicklung_IT/RAG-Systeme/query_db.py)) macht die Kernlogik — absatz- und satzgrenzenbasiertes Chunking, Hybrid-Suche aus `pgvector`-Vektorsuche und BM25 via Reciprocal Rank Fusion — als testbaren, diffbaren Code sichtbar. → [Details](02_Softwareentwicklung_IT/RAG-Systeme/README.md)
 
-**4. typeFREE: Clipboard-Injektion statt Tastatur-Simulation.** Diktate werden im RAM aufgezeichnet, per Whisper transkribiert, durch OpenRouter/Gemini 2.5 Flash von Füllwörtern befreit und über die Zwischenablage (`Strg+V`) in das aktive Fenster injiziert. Das Einfügen als ein Block statt zeichenweiser Tastensimulation vermeidet Umlaut-Codierungsfehler und Timing-Probleme. → [Details](02_Softwareentwicklung_IT/typeFREE/README.md)
+**4. typeFREE: Clipboard-Injektion statt Tastatur-Simulation.** Diktate werden im RAM aufgezeichnet, über eine wählbare Anbieterkette transkribiert (mai-transcribe, ElevenLabs Scribe, Whisper), durch eine Gemini-Modellkette über OpenRouter (zuerst Gemini 2.5 Flash) von Füllwörtern befreit und über die Zwischenablage (`Strg+V`) in das aktive Fenster injiziert. Das Einfügen als ein Block statt zeichenweiser Tastensimulation vermeidet Umlaut-Codierungsfehler und Timing-Probleme. → [Details](02_Softwareentwicklung_IT/typeFREE/README.md)
 
 **5. Document Automation: deklarative Dokumente statt manueller Formatierung.** Lebensläufe und Anschreiben werden aus strukturierten Daten per Code generiert (OpenXML/`docx`, Puppeteer-PDF-Rendering). Inhaltsänderungen können das Layout nicht mehr zerschießen; die Engine ist strikt von den privaten Bewerbungsdaten getrennt, die nie ins Repository gelangen. → [Details](02_Softwareentwicklung_IT/document_automation/README.md)
 
