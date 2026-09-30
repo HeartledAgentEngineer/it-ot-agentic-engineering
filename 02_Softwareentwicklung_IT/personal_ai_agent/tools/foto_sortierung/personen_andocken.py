@@ -217,14 +217,18 @@ def _als_int(wert):
 def _ist_person(wert) -> bool:
     """Ob ein Schluessel eine Personen-Kennung ``Person_001`` ist.
 
-    Nur genau drei Ziffern zaehlen (dasselbe Muster wie ``personen_cluster``);
-    fremde Schluessel sind keine Person und werden gezaehlt statt geraten.
+    Es zaehlt genau die Schreibweise, die ``personen_cluster.KENNUNG_MUSTER``
+    (``Person_%03d``) erzeugt: mindestens drei Ziffern, ohne zusaetzliche
+    fuehrende Nullen — ``Person_001`` und ab der 1.000. Gruppe ``Person_1000``,
+    aber nicht ``Person_01`` oder ``Person_0001``. (Bis 30.09.2026 galten nur
+    genau drei Ziffern; ab 1.000 Gruppen waeren Namen still ignoriert worden.)
+    Fremde Schluessel sind keine Person und werden gezaehlt statt geraten.
     """
     text = _text(wert)
     if not text.startswith("Person_"):
         return False
     rest = text[len("Person_"):]
-    return len(rest) == 3 and rest.isdigit()
+    return rest.isdigit() and "%03d" % int(rest) == rest
 
 
 def _stand_jz(stand=None) -> str:

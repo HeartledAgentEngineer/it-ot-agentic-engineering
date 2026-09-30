@@ -232,6 +232,11 @@ def test_ist_person_kennt_das_muster():
     assert pa._ist_person("Person_01") is False
     assert pa._ist_person("Person_0001") is False
     assert pa._ist_person("Beispielname") is False
+    # Ab der 1.000. Gruppe vergibt personen_cluster "Person_1000" (Person_%03d);
+    # bis 30.09.2026 wurde das still ignoriert.
+    assert pa._ist_person("Person_1000") is True
+    assert pa._ist_person("Person_12345") is True
+    assert pa._ist_person("Person_01000") is False
 
 
 def test_stand_jz_ohne_angabe_wird_gefuellt():
