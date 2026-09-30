@@ -1,10 +1,12 @@
-// Werkzeug-Schalter + Datenschutz-Riegel im Stream-Weg (30.09.2026)
+// Werkzeuge immer an + Datenschutz-Riegel im Stream-Weg (30.09. / 01.10.2026)
 //
-// Tool Use (docs/spec-tool-use-v1.md): Knopf „Werkzeuge" an der Eingabe, Standard
-// aus, Wunsch in localStorage; die Stream-Anfrage schickt `werkzeuge` mit.
-// Befund beim Einbau: Der Stream-Weg schickte `no_retention` NIE mit (nur der
-// Rückfallweg /api/chat) - die Oberfläche sagte „Riegel fest an", das Backend
-// bekam den Standard „aus". Beides wird hier festgehalten.
+// Tool Use (docs/spec-tool-use-v1.md): Seit 01.10.2026 sind Werkzeuge am Server
+// Standard an (Sebastian: „Werkzeuge brauch ich eigentlich immer"). Der Knopf
+// „Werkzeuge" ist weg, die Stream-Anfrage schickt KEIN `werkzeuge` mehr (sonst
+// würde ein altes gespeichertes „aus" den Server-Standard überstimmen), und der
+// Stichwort-Abfang „zeig … Foto" vor dem Senden ist aus — das Modell entscheidet.
+// Befund 30.09.: Der Stream-Weg schickte `no_retention` NIE mit (nur der
+// Rückfallweg /api/chat) — das bleibt hier festgehalten.
 //
 // Aufruf (aus dem Ordner frontend):  node tests/test_werkzeuge_schalter.js
 const fs = require('fs');
@@ -22,21 +24,19 @@ function pruefe(bed, text) {
 const start = js.indexOf('`${API_BASE}/api/chat/stream`');
 const streamKoerper = start === -1 ? '' : js.slice(start, js.indexOf('signal: controller.signal', start));
 
-console.log('Werkzeug-Schalter');
-pruefe(/<button id="werkzeug-btn" class="tool-toggle" aria-pressed="false"/.test(html),
-    'Knopf werkzeug-btn in der Werkzeugleiste, anfangs nicht gedrückt');
-pruefe(/werkzeuge: localStorage\.getItem\('werkzeuge'\) === '1'/.test(js),
-    'Standard aus: nur ein gespeichertes "1" schaltet ein');
-pruefe(/function setWerkzeuge\(an\)/.test(js) && /localStorage\.setItem\('werkzeuge'/.test(js),
-    'setWerkzeuge() merkt sich den Wunsch');
-pruefe(/setWerkzeuge\(state\.werkzeuge\);/.test(js),
-    'Zustand wird beim Start wiederhergestellt');
-pruefe(/werkzeuge: state\.werkzeuge,/.test(streamKoerper),
-    'Stream-Anfrage schickt werkzeuge mit');
+console.log('Werkzeuge immer an (kein Knopf)');
+pruefe(!/id="werkzeug-btn"/.test(html), 'Knopf werkzeug-btn ist aus der Werkzeugleiste entfernt');
+pruefe(/id="web-btn"/.test(html), 'Web-Schalter bleibt (bewusst abschaltbar)');
+pruefe(!/function setWerkzeuge\(/.test(js) && !/state\.werkzeuge/.test(js),
+    'kein Schalter-Zustand mehr im Frontend');
+pruefe(!/werkzeuge:/.test(streamKoerper),
+    'Stream-Anfrage schickt kein werkzeuge-Feld (Server-Standard gilt)');
 
-console.log('Stichwort-Abfang nur ohne Werkzeuge');
-pruefe(/const fotowunsch = state\.werkzeuge \? null : fotoFrageErkennen\(text\);/.test(js),
-    'mit Werkzeugen geht „zeig … Foto" ans Modell statt an die feste Galerie');
+console.log('Stichwort-Abfang aus');
+pruefe((js.match(/fotoFrageErkennen\(/g) || []).length === 1,  // nur noch die Definition
+    '„zeig … Foto" geht ans Modell statt vorab an die feste Galerie');
+pruefe(/function fotoFrageErkennen\(/.test(js) && /function zeigeFotoGalerie\(/.test(js),
+    'Galerie und Erkennung bleiben für das spätere galerie-Ereignis');
 
 console.log('Datenschutz-Riegel im Stream-Weg');
 pruefe(streamKoerper.length > 0, 'Stream-Anfrage gefunden');
@@ -45,8 +45,8 @@ pruefe(/no_retention: state\.noRetention,/.test(streamKoerper),
 pruefe(/noRetention: true,/.test(js), 'Riegel steht weiter fest auf an');
 
 console.log('Cache-Bump');
-const m = html.match(/app\.js\?v=(\d{8})([A-Z])/);
-pruefe(m && m[1] >= '20260930', 'app.js-Version ist vom 30.09.2026 oder neuer');
+const m = html.match(/app\.js\?v=(\d{8}[A-Z])/);
+pruefe(m && m[1] >= '20261001A', 'app.js-Version 20261001A oder neuer (gefunden: ' + (m && m[1]) + ')');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

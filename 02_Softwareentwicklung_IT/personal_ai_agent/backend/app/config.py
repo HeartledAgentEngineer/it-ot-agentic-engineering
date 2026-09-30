@@ -130,10 +130,12 @@ class Settings(BaseSettings):
 
     # Tool Use (docs/spec-tool-use-v1.md): Das Modell waehlt seine Werkzeuge
     # (Handy-Dateien, Archiv, Erinnerungen, Fotos, ...) selbst, statt dass die
-    # Vorab-Weiche im Chat aus Woertern raet. Standard AUS, bis Sebastian live
-    # getestet hat; je Anfrage ueberschreibbar (ChatRequest.werkzeuge).
-    # .env: TOOL_USE=true
-    tool_use: bool = False
+    # Vorab-Weiche im Chat aus Woertern raet. Standard AN seit 01.10.2026
+    # (Sebastian: „Werkzeuge brauch ich eigentlich immer" - der Knopf ist weg);
+    # scheitert der Werkzeug-Weg vor dem ersten Text, antwortet das Modell ohne
+    # (llm_service.chat_stream). Je Anfrage abschaltbar (ChatRequest.werkzeuge),
+    # am Server per .env: TOOL_USE=false.
+    tool_use: bool = True
 
     # Nur für den Modellkatalog, NIE für Chat-Aufrufe: Über diese Adresse
     # lässt sich abfragen, welche Modelle EU-in-Region bedient würden.

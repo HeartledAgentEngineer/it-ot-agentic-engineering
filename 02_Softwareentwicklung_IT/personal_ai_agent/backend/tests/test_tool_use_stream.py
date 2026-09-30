@@ -97,9 +97,10 @@ def test_schalter_vorrang_anfrage_vor_konfiguration(monkeypatch):
     assert chat._werkzeuge_an(ChatRequest(message="x", werkzeuge=False)) is False
 
 
-def test_standard_ist_aus():
+def test_standard_ist_an():
+    """Seit 01.10.2026 Standard an (Knopf weg); die Anfrage laesst das Feld leer."""
     from app.config import Settings
-    assert Settings.model_fields["tool_use"].default is False
+    assert Settings.model_fields["tool_use"].default is True
     assert ChatRequest(message="x").werkzeuge is None
 
 
@@ -163,3 +164,85 @@ def test_llm_aufruf_mit_werkzeugen_behaelt_riegel_und_websuche():
     assert "tool_choice" not in extra
     assert werkzeuge.SYSTEM_HINWEIS in aufrufe[0]["messages"][0]["content"]
     assert aufrufe[0]["stream"] is True
+
+
+def _mit_werkzeugen(extra_body) -> bool:
+    return any(t.get("type") == "function" for t in (extra_body or {}).get("tools") or [])
+
+
+def _llm_mit_attrappe(create):
+    from types import SimpleNamespace
+
+    from app.services.llm_service import llm_service
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    return llm_service, [
+        mock.patch.object(llm_service, "client", fake_client),
+        mock.patch.object(type(llm_service), "is_configured", new_callable=mock.PropertyMock,
+                          return_value=True),
+    ]
+
+
+def _stueck(text):
+    from types import SimpleNamespace
+    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+        content=text, tool_calls=None, annotations=None, reasoning_details=None))])
+
+
+def test_rueckfall_ohne_werkzeuge_wenn_werkzeug_weg_vor_dem_text_scheitert():
+    """Werkzeuge sind Standard (01.10.2026): lehnt das Modell/der Anbieter die
+    tools ab, kommt eine Antwort ohne Werkzeuge statt einer Fehlermeldung."""
+    from app.services import werkzeuge
+
+    aufrufe = []
+
+    def create(**kw):
+        aufrufe.append(kw)
+        if _mit_werkzeugen(kw["extra_body"]):
+            raise RuntimeError("400 tools not supported")
+        return iter([_stueck("Antwort ohne Werkzeuge")])
+
+    llm, patches = _llm_mit_attrappe(create)
+    for p in patches:
+        p.start()
+    try:
+        ereignisse = list(llm.chat_stream("Frage", no_retention=True, werkzeuge=True))
+    finally:
+        for p in reversed(patches):
+            p.stop()
+    assert len(aufrufe) == 2
+    assert _mit_werkzeugen(aufrufe[0]["extra_body"]) and not _mit_werkzeugen(aufrufe[1]["extra_body"])
+    assert any("ohne" in e.get("status", "") for e in ereignisse)
+    assert "".join(e.get("delta", "") for e in ereignisse) == "Antwort ohne Werkzeuge"
+    # Der Rueckfall bekommt den Werkzeug-Hinweis NICHT (Kopie statt Original geaendert).
+    assert werkzeuge.SYSTEM_HINWEIS not in aufrufe[1]["messages"][0]["content"]
+    assert aufrufe[1]["extra_body"]["provider"]["data_collection"] == "deny"
+
+
+def test_kein_rueckfall_wenn_schon_text_kam():
+    """Kam schon Text, wird nicht ein zweites Mal geantwortet - der Fehler bleibt."""
+    import pytest
+
+    aufrufe = []
+
+    def create(**kw):
+        aufrufe.append(kw)
+
+        def strom():
+            yield _stueck("Halbe Antw")
+            raise RuntimeError("Verbindung weg")
+        return strom()
+
+    llm, patches = _llm_mit_attrappe(create)
+    for p in patches:
+        p.start()
+    try:
+        gesehen = []
+        with pytest.raises(RuntimeError):
+            for e in llm.chat_stream("Frage", werkzeuge=True):
+                gesehen.append(e)
+    finally:
+        for p in reversed(patches):
+            p.stop()
+    assert len(aufrufe) == 1
+    assert [e.get("delta") for e in gesehen if e.get("delta")] == ["Halbe Antw"]

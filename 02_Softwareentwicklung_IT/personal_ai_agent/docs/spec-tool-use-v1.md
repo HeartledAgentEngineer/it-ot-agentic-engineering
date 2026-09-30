@@ -30,7 +30,7 @@ oder Gemini. Das Backend führt aus, gibt das Ergebnis zurück, das Modell ruft 
 | # | Entscheidung | Begründung |
 |---|---|---|
 | E1 | **Natives Function-Calling** (OpenAI-Format `tools`/`tool_calls`), kein Text-Protokoll | Standardmodell `deepseek/deepseek-v4.1-flash` kann laut OpenRouter `/models` (30.09.2026) `tools` + `tool_choice` + Bildeingabe; 0,02 $/M Eingabe, 0,396 $/M Ausgabe. Damit entfällt Weg B aus dem Plan vom 28.08. |
-| E2 | **Schalter `tool_use`, Standard AUS** (Konfiguration + je Anfrage `werkzeuge: true`) | Verhalten bleibt unverändert, bis Sebastian live getestet hat. Rückweg = Schalter aus. |
+| E2 | **Schalter `tool_use`, Standard AUS** (Konfiguration + je Anfrage `werkzeuge: true`) | Verhalten bleibt unverändert, bis Sebastian live getestet hat. Rückweg = Schalter aus. **Abgelöst 01.10.2026:** Standard AN, Knopf weg, Rückfall ohne Werkzeuge bei Fehler vor dem ersten Text (`docs/changelog-2026-10-01-werkzeuge-immer-an.md`). |
 | E3 | **Nur lesende Werkzeuge** in v1 | Keine Schreib-, Lösch-, Sende- oder Kostenaktion ohne eigenen Beschluss. |
 | E4 | Werkzeuge sind **dünne Hüllen um bestehende Dienste** | Kein neuer Datenzugriff, keine neue Datenquelle; erprobter Code (mit Tests) bleibt die Wahrheit. |
 | E5 | Bei `werkzeuge=an` **entfällt die Vorab-Weiche** (Archiv/Datei/Verlauf/Gesicht/Fotos/Beziehungen) | Sonst doppelte Quellen und doppelte Kosten; das Modell entscheidet. Erinnerungen, Zusammenfassung, Uploads und Websuche bleiben wie bisher. |

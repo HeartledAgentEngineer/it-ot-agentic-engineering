@@ -801,8 +801,26 @@ class LLMService:
         messages = self._build_messages(user_message, conversation_history, memories, archiv, files, summary)
 
         if werkzeuge:
-            yield from self._chat_stream_mit_werkzeugen(messages, model, web_search, no_retention)
-            return
+            # Rueckfall (01.10.2026, Werkzeuge sind jetzt Standard): Scheitert der
+            # Werkzeug-Weg, BEVOR Text kam (Modell/Anbieter lehnt tools ab,
+            # Schleifenfehler), antwortet das Modell ohne Werkzeuge statt mit einer
+            # Fehlermeldung. Kam schon Text, wird nicht doppelt geantwortet - der
+            # Fehler geht wie bisher an den Aufrufer. Kopien der Nachrichten, weil
+            # der Werkzeug-Weg den System-Hinweis an messages[0] anhaengt.
+            text_kam = False
+            try:
+                for ereignis in self._chat_stream_mit_werkzeugen(
+                        [dict(m) for m in messages], model, web_search, no_retention):
+                    if ereignis.get("delta"):
+                        text_kam = True
+                    yield ereignis
+                return
+            except Exception as e:
+                if text_kam:
+                    raise
+                logger.warning("Werkzeug-Weg fehlgeschlagen (%s) - Rueckfall ohne Werkzeuge",
+                               type(e).__name__)
+                yield {"status": "↩️ Werkzeuge gerade nicht verfügbar – antworte ohne."}
 
         stream = self.client.chat.completions.create(
             model=model or self.model,
