@@ -1,7 +1,8 @@
 # Android-App „Hey Agent" — Schritt A1b (WebView-Hülle)
 
-Stand: 2026-09-29. Bezug: `../docs/spec-a1-android-hey-agent.md`.
-**Status: Quellcode geschrieben, noch nie gebaut** (kein Android-SDK auf dem PC, siehe „Ungeprüft").
+Stand: 2026-09-30. Bezug: `../docs/spec-a1-android-hey-agent.md`.
+**Status: gebaut und am Handy installiert** (seit 29.09.2026; was davon am Handy belegt ist,
+steht unter „Ungeprüft / bekannte offene Punkte").
 
 ## Zweck
 
@@ -33,7 +34,9 @@ Klassen (`app/src/main/java/de/sebastian/heyagent/`):
 | `BackendWaechter.kt` | Ablauf Health-Check → Start → Polling, `HttpHealthPruefer` | ja (JUnit-testbar) |
 | `TermuxLauncher.kt` | Intent an Termux, „Termux öffnen" | nein |
 | `KeySpeicher.kt` | verschlüsselter Schlüsselspeicher | nein |
-| `MainActivity.kt` | WebView, Ladebildschirm, Zurück-Taste, Schlüsselabfrage | nein |
+| `MikrofonRegel.kt` | Mikrofon-Freigabe für die Seite (nur eigenes Backend, nie Kamera) | ja (JUnit-testbar) |
+| `DateiAuswahlRegel.kt` | Büroklammer: Dateiarten für die Android-Auswahl, Rückgabe an die Seite | ja (JUnit-testbar) |
+| `MainActivity.kt` | WebView, Ladebildschirm, Zurück-Taste, Schlüsselabfrage, Mikrofon, Dateiauswahl | nein |
 | `AppKonfig.kt` | Adresse, Port, Termux-Pfade an einer Stelle | ja |
 
 Die `applicationId` (`de.sebastian.heyagent`) steht in `app/build.gradle.kts`
@@ -68,7 +71,8 @@ JavaScript und DOM-Storage an; `allowFileAccess=false`, `allowContentAccess=fals
 `MIXED_CONTENT_NEVER_ALLOW`; Klartext-HTTP nur für `127.0.0.1`/`localhost`
 (`res/xml/network_security_config.xml`, Basis = kein Klartext); Navigation zu fremden Adressen
 wird an den Browser übergeben statt in der WebView geladen; Mikrofon-/Kamera-Anfragen der Seite
-werden nach `MikrofonRegel` entschieden (siehe „Mikrofon“); `allowBackup=false`.
+werden nach `MikrofonRegel` entschieden (siehe „Mikrofon“); die Büroklammer öffnet nur für das
+eigene Backend die Android-Dateiauswahl (siehe „Büroklammer“); `allowBackup=false`.
 `mediaPlaybackRequiresUserGesture=false` (Spec 5.5), damit das Vorlesen ohne Extra-Tipp startet.
 Zurück-Taste = WebView-Verlauf, danach beendet sie die App.
 
@@ -89,6 +93,25 @@ Die Sprachaufnahme im Chat braucht das Mikrofon in der WebView. Seit 30.09.2026:
   „Audio aufnehmen?“. Nach dem Ja bekommt die wartende Anfrage der Seite sofort das Mikrofon.
 - Nach zweimaligem Ablehnen zeigt Android den Dialog nicht mehr. Dann bietet die App an, die
   App-Einstellungen (Berechtigungen) direkt zu öffnen.
+
+## Büroklammer (Dateien anhängen)
+
+Die Büroklammer im Chat ist ein `<input type="file" multiple>` mit Bildern und `.pdf`
+(`frontend/index.html`). In einer WebView tut so ein Feld **still nichts**, solange die App
+`WebChromeClient.onShowFileChooser` nicht umsetzt — genau das war bis 30.09.2026 der Fall
+(am Handy bemerkt: Antippen ohne jede Reaktion). Seit 30.09.2026:
+- `onShowFileChooser` öffnet die Android-Dateiauswahl (`ACTION_GET_CONTENT`), nur für das eigene
+  Backend. Mehrfachauswahl, wenn die Seite `multiple` setzt.
+- **Keine neue Berechtigung:** Die Auswahl gibt der App nur die gewählten Dateien frei, jeweils für
+  diesen einen Zugriff. `READ_MEDIA_IMAGES` o. Ä. ist nicht nötig und nicht im Manifest.
+- `DateiAuswahlRegel` (reine Logik, 10 JUnit-Tests) übersetzt `accept` in MIME-Typen (`.pdf` →
+  `application/pdf`, unbekannte Endung → alle Dateiarten) und wählt die Rückgabe: Abbruch → `null`,
+  Mehrfachauswahl als Liste ohne Doppelte. Ein Wächter-Test liest `frontend/index.html` und schlägt
+  an, wenn die Seite eine Dateiart erlaubt, die die App nicht kennt.
+- Die eigene Auswahl statt `FileChooserParams.createIntent()`: Diese nimmt nur den **ersten**
+  accept-Typ (dann wären PDFs nicht wählbar) und keine Mehrfachauswahl.
+- Kamera-Aufnahme direkt aus der Büroklammer gibt es nicht (bräuchte `CAMERA` und einen
+  FileProvider); Fotos kommen aus der Galerie.
 
 ## Öffnen von außen: `heyagent://start`
 
@@ -197,6 +220,10 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   sichtbar, statt 60 s zu warten. **Ende zu Ende am Handy belegt (30.09.2026 00:29):** Termux
   per `force-stop` beendet, Backend aus → Hey Agent gestartet → 00:29:02 Termux geöffnet →
   00:29:11 `heyagent://start` aus Termux → `Backend-Start: bereit=true dauer=10080 ms`.
+- **Büroklammer (30.09.2026): gebaut, 28/28 JUnit-Tests grün, am Handy noch nicht Ende zu Ende
+  belegt.** Offen ist der Upload selbst: Die WebView läuft mit `allowContentAccess=false`; das
+  betrifft nach der Android-Doku das Laden von `content://`-Adressen, nicht die Dateiauswahl —
+  belegt ist es erst mit einem echten Anhang am Handy.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
 - Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt

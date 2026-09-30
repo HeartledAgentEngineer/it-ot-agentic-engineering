@@ -2,6 +2,8 @@ package de.sebastian.heyagent
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -12,6 +14,7 @@ import android.text.InputType
 import android.util.Log
 import android.view.View
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -77,6 +80,24 @@ class MainActivity : AppCompatActivity() {
                     einstellungenAnbieten()
                 }
             }
+        }
+
+    /** Datei-Anfrage der Seite (Bueroklammer), die auf die Android-Dateiauswahl wartet. */
+    private var offeneDateiAuswahl: ValueCallback<Array<Uri>>? = null
+
+    /**
+     * Android-Dateiauswahl (Fotos, Downloads, Drive ...). Sie braucht keine Speicher-Erlaubnis:
+     * Android gibt der App nur die gewaehlten Dateien frei, und nur fuer diesen einen Zugriff.
+     */
+    private val dateiAuswahl =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { ergebnis ->
+            val rueckruf = offeneDateiAuswahl
+            offeneDateiAuswahl = null
+            val daten = ergebnis.data
+            val clip = daten?.clipData
+            val mehrere = if (clip == null) emptyList() else (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+            val auswahl = DateiAuswahlRegel.gewaehlt(ergebnis.resultCode == Activity.RESULT_OK, daten?.data, mehrere)
+            rueckruf?.onReceiveValue(auswahl?.toTypedArray())
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,6 +221,38 @@ class MainActivity : AppCompatActivity() {
                     Freigabe.ABLEHNEN -> request.deny()
                 }
             }
+
+            // Bueroklammer der Seite: Ohne diese Methode tut <input type="file"> in einer WebView
+            // still gar nichts (kein Dialog, keine Fehlermeldung). Nur fuer das eigene Backend.
+            override fun onShowFileChooser(
+                view: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: WebChromeClient.FileChooserParams,
+            ): Boolean {
+                if (!istBackend(Uri.parse(view.url ?: ""))) return false
+                // Eine noch offene Anfrage beantworten, sonst reagiert die Seite nie wieder.
+                offeneDateiAuswahl?.onReceiveValue(null)
+                val typen = DateiAuswahlRegel.mimeTypen(fileChooserParams.acceptTypes)
+                val absicht = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = DateiAuswahlRegel.intentTyp(typen)
+                    if (typen.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, typen.toTypedArray())
+                    putExtra(
+                        Intent.EXTRA_ALLOW_MULTIPLE,
+                        fileChooserParams.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE,
+                    )
+                }
+                return try {
+                    offeneDateiAuswahl = filePathCallback
+                    dateiAuswahl.launch(absicht)
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    // false = WebView behandelt es selbst; der Rueckruf darf dann nicht kommen.
+                    offeneDateiAuswahl = null
+                    Log.w(TAG, "Keine Dateiauswahl auf dem Geraet: ${e.javaClass.simpleName}")
+                    false
+                }
+            }
         }
     }
 
@@ -316,6 +369,8 @@ class MainActivity : AppCompatActivity() {
         beendet = true
         offeneMikrofonAnfrage?.deny()
         offeneMikrofonAnfrage = null
+        offeneDateiAuswahl?.onReceiveValue(null)
+        offeneDateiAuswahl = null
         webView.destroy()
         super.onDestroy()
     }
