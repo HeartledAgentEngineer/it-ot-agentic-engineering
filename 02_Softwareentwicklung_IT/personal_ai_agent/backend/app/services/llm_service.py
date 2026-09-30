@@ -217,15 +217,26 @@ def _kontext_aufteilen(
     if letzte_user_idx is None:
         return list(nachrichten), ""
 
-    # Primär: NUR letzte User-Frage + die unmittelbar folgende Antwort.
-    primaer: List[Dict[str, str]] = [dict(nachrichten[letzte_user_idx])]
-    if letzte_user_idx + 1 < len(nachrichten):
-        folge = nachrichten[letzte_user_idx + 1]
-        if folge.get("role") in ("assistant", "system", "tool"):
-            primaer.append(dict(folge))
+    # Zusaetzlich die VORHERIGE Nutzerfrage suchen. Sebastians Befund vom
+    # 30.09.2026: „der vergisst irgendwie, kriegt die letzte Nachricht nicht
+    # mehr in Kontext" — genau das passierte, weil die vorherige Antwort nur
+    # als gedimmter Hintergrund ankam und dabei auf 400 Zeichen gekuerzt
+    # wurde. Rueckfragen („und was war davor?") brauchen die letzte Runde
+    # vollstaendig. Deshalb bleiben die letzten ZWEI Runden (Frage + Antwort)
+    # primaer; alles davor bleibt gedimmter Hintergrund.
+    vorherige_user_idx: Optional[int] = None
+    for i in range(letzte_user_idx - 1, -1, -1):
+        if nachrichten[i].get("role") == "user":
+            vorherige_user_idx = i
+            break
 
-    # Hintergrund: alles VOR der letzten User-Frage, kompakt + gedimmt.
-    vorher = nachrichten[:letzte_user_idx]
+    start = vorherige_user_idx if vorherige_user_idx is not None else letzte_user_idx
+
+    # Primaer: die letzten beiden Runden ungekuerzt und in Originalreihenfolge.
+    primaer: List[Dict[str, str]] = [dict(m) for m in nachrichten[start:]]
+
+    # Hintergrund: alles VOR der letzten Runde, kompakt + gedimmt.
+    vorher = nachrichten[:start]
     zeilen: List[str] = []
     for m in vorher[-_HINTERGRUND_MAX:]:
         rolle = m.get("role", "?")
@@ -238,6 +249,27 @@ def _kontext_aufteilen(
     aelterer = "\n".join(zeilen)
 
     return primaer, aelterer
+
+
+def _ohne_doppelte_frage(
+    primaer: List[Dict[str, str]], user_message: str
+) -> List[Dict[str, str]]:
+    """Entfernt die laufende Frage aus den primären Turns, wenn sie dort steht.
+
+    Grund (Befund 30.09.2026): `chat.py` speichert die gerade gestellte Frage
+    sofort im Verlauf (offen=True). Sie steckt damit schon in der History und
+    wird in `_build_messages` unten noch einmal angehängt — das Modell sah
+    dieselbe Frage zweimal, was Rückfragen zusätzlich verwirrte.
+    """
+    if not primaer or not user_message:
+        return primaer
+    letzter = primaer[-1]
+    if letzter.get("role") != "user":
+        return primaer
+    inhalt = letzter.get("content")
+    if isinstance(inhalt, str) and inhalt.strip() == user_message.strip():
+        return primaer[:-1]
+    return primaer
 
 
 def _staerke_ableiten(
@@ -690,6 +722,8 @@ class LLMService:
         # bleiben im persistenten Verlauf (append-only) unverändert erhalten.
         if conversation_history:
             primaer, aelterer = _kontext_aufteilen(conversation_history)
+            # Laufende Frage nicht doppelt (sie steht schon im Verlauf).
+            primaer = _ohne_doppelte_frage(primaer, user_message)
             for msg in primaer:
                 messages.append(msg)
             if aelterer:
