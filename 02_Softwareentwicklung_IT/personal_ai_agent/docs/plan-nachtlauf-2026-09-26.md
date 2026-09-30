@@ -176,7 +176,7 @@ ohnehin nachkontrolliert.
 
 | N24a | ✅ **Datenschutz-/IT-Sicherheits-Wächter** (Teil A des Schritts N24, der seit 26.09. „geplant" war): sechs belegte Funde (F1–F6) — u. a. banden **zwei** von drei Startskripten hart `--host 0.0.0.0` und lasen die in `main.py` als „eigentlicher Schutz" bezeichnete Einstellung `HOST_BIND` **gar nicht**; in `backend/.env` standen weder `HOST_BIND` noch `API_KEY` (nur Namen geprüft, nie Werte) → der Key-Schutz der `/api`-Routen griff nicht und der Server lauschte auf allen Schnittstellen. Gebaut: alle drei Termux-Skripte lesen `HOST_BIND` (identisches Muster, **Standard bleibt `0.0.0.0`** = keine Verhaltensänderung), neu die reinen Funktionen `ist_loopback`/`bindung_hinweis` in `backend/app/config.py` (kein Netz/IO, Text ohne Geheimnis und ohne Geräte-IP), Start-Warnung im Log, Feld `bindung_warnung` in `/api/health`; dazu die **erste Wächter-Testdatei des Projekts** (`backend/tests/test_datenschutz_waechter.py`, 630 Zeilen / **52 Testfunktionen** / 66 gesammelte Tests, offline) mit acht Regelgruppen: **lebende Ausnahmeliste** der offenen `/api`-Routen (genau fünf erlaubt — eine neue offene Route wird rot), drei Startskripte, Hinweis-Funktion, Frontend ohne fremde Adressen, `.env`-Schutz, Löschregel (Löschbegriffe nur im Duplikate-Werkzeug), `no-store` für Medien, Wächter über sich selbst | Prüfbefehl **3124 passed, 1 skipped, Exit 0** (Baseline 3058, selbst gefahren; +66 = genau die neuen Tests), `bash -n` drei Skripte Exit 0; **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** (eigener Lauf 3124/Exit 0, Testdatei allein 66 passed, `def test_` selbst gezählt 52, eigene Sonde 85 `/api`-Routen mit genau 5 offenen, Doku Zeile für Zeile geprüft, Datenschutz-Scan 0 Treffer) | Prüfkriterium: Wächter-Tests grün; Funde mit Datei:Zeile belegt | ✅ **bestanden (29.09.)** — siehe Journal unten. **Offen (N24a-Rest):** `HOST_BIND=127.0.0.1` + `API_KEY` in `backend/.env` setzen — **Sebastians Griff, zwei Zeilen**, kein Code; Log und `/api/health` sagen es jetzt sichtbar. N24 Teil B (Android-Seite: Verschlüsselung, Widerruf) bleibt offen |
 | N24b | ✅ **Belegweg für die Job-Registrierung am Handy** (Vollzug des N24a-Nebenbefunds): neu schreibt `start-termux.sh` beim Widget-Tipp den **Beleg** in den freigegebenen Diagnose-Ordner (`$DIAG/job_liste.txt` mit `JOB_ID_ERWARTET=1901`, `JOB_ID_GEFUNDEN=ja\|nein\|unbekannt` und der rohen Ausgabe von `termux-job-scheduler --list`, dazu `$DIAG/nachpflege_einrichtung_letzte.txt` mit den letzten 20 Zeilen des Einricht-Protokolls) — unabhängig vom Postfach, rein lesend, ohne den Serverstart je zu verhindern; dazu das PC-Werkzeug `tools/handy/diag_holen.py` (nur lesend über Kabel; Trockenlauf ist der Standard, `--holen` lädt mit Größenvorprobe und `*.vorher`-Sicherung, Inhalt **nur** der beiden technischen Berichte — private Chat-/Auftragsdateien erscheinen nur mit Name und Größe) und 18 Offline-Wächter-Tests | Berichtsdatei am Kabel sichtbar; Job-ID 1901 darin belegt | ✅ **bestanden (29.09.)** — siehe Journal unten: `start-termux.sh` 396 → **439** Zeilen (nur eingefügt), Werkzeug **438** Zeilen, Tests **363** Zeilen / **18 Testfunktionen**, Prüfbefehl **3142 passed, 1 skipped, Exit 0** (Baseline **3124 passed, 1 skipped, Exit 0** selbst gefahren, +18 = genau die neuen Tests), `bash -n` Exit 0, Prüfer `z-ai/glm-5.2` (andere Familie, frische Sitzung). **Offen:** der **erste echte Widget-Tipp** am Gerät — `hermes_diag/` fehlt weiterhin (Planer-Messung), der Beleg entsteht erst danach; dann ist N23 Teil B abschließbar. **N8 bleibt gesperrt.** |
-| N24c | **Vorschlag (aus der N24b-Messung):** die beiden Termux-Skripte legen hermes_diag an, aber der **PC** hat kein Skript, das die Belege beim Kabel-Stecken auswertet und in den Plan/Journal schreibt; denkbar: ein Nachtlauf-Schritt, der `diag_holen.py --holen` in den Rundenstart aufnimmt und `job_1901_belegt` im Journal festhält | Beleg-Zeile erscheint bei jedem Nachtlauf im Journal | ⬜ offen (Kandidat) |
+| N24c | ✅ **Belegstand beim Rundenstart in einer Zeile** (Vollzug des N24b-Kandidaten): neu `tools/handy/belegstand.py` — **ein Befehl** liefert am Rundenstart die Zeile `Belegstand <Datum>: Geraet=… \| Spiegel=… \| job_1901_belegt=…`; reine Funktionen `spiegel_lesen`, `letzter_tipp`, `geraete_lage`, `belegstand`, `journal_zeile`, `merken`; die Job-Lage kommt über die **bestehende** `job_beleg_deuten` aus `diag_holen.py` (eine Quelle), die Geräte-Lage unterscheidet an der rohen `adb`-Ausgabe **vier** Werte (`verbunden`/`geraet_ordner_fehlt`/`kein_geraet`/`unbekannt`); nur lesend, kein Netz außer dem lokalen `adb`, keine Löschfunktion, einzige Schreibstelle `--merken` (idempotent, außerhalb des Repos); **der Plan wird nie angefasst** (geteilte Datei) | Beleg-Zeile erscheint bei jedem Nachtlauf im Journal | ✅ **bestanden (29.09.)** — Werkzeug **459** Zeilen, Tests `backend/tests/test_belegstand_handy.py` **440** Zeilen / **19** Testfunktionen (alles offline, Attrappen-`adb`), Changelog 200 Zeilen; Prüfbefehl **3166 passed, 1 skipped, Exit 0** (177,19 s), neue Datei allein **19 passed**, Live-Lauf `--ohne-kabel` **Exit 0** mit der Journal-Zeile als letzter Zeile, `--merken` zweiter Lauf schreibt **nichts**; **Prüfer `z-ai/glm-5.2` (andere Modellfamilie, frische Sitzung): BESTANDEN, 0 Abweichungen** (eigener Lauf, alle zehn Behauptungen A–J mit eigenem Befehl belegt). **Offen:** der **erste echte Widget-Tipp** am Gerät — erst danach ist `job_1901_belegt=ja` belegbar (diese Runde: `unbekannt`, Spiegel fehlte, kein Gerät am Kabel); **N23 Teil B** bleibt damit offen, **N8 bleibt gesperrt** |
 
 ## Journal (wird fortlaufend ergänzt)
 
@@ -3311,3 +3311,72 @@ ohnehin nachkontrolliert.
     aufnehmen) in den Plan aufgenommen.
   - **Nächster Schritt:** **N23 Teil B** nach Sebastians Widget-Tipp bzw.
     **N25**, sobald die Passphrase entschieden ist. **N8 bleibt gesperrt.**
+* **29.09. ~17:40 — N24c gebaut, geprüft und bestanden** (Planer: Hauptagent ·
+  Ausführer: zwei Hermes-Subagenten `deepseek-v4.1-flash`, 0,079 + 0,048 USD ·
+  Prüfer: `z-ai/glm-5.2`, **andere Modellfamilie**, frische Sitzung).
+  **Codex weiterhin gesperrt** (Kontingent) → Hermes-Subagenten.
+  - **Rundenbeginn:** `git pull --rebase` **scheiterte wieder** an den
+    **fremden** ungestagten Dateien des zweiten Agenten (`tools/agentbus/wache.py`,
+    `docs/experimente/live_zahlen.*`, zwei neue Recherche-HTML); nichts angefasst,
+    nichts gestasht. `git fetch` + `git rev-list --left-right --count
+    origin/main...HEAD` → **`0 0`** (es gab nichts zu holen). `adb devices` →
+    **leer** (kein Gerät am Kabel) → **N23 Teil B nicht machbar**, deshalb der
+    Kandidat **N24c**.
+  - **Gebaut:** `tools/handy/belegstand.py` (**459** Zeilen, nur
+    Standardbibliothek, nur lesend, keine Löschfunktion, einzige Schreibstelle
+    `--merken`) — **ein Befehl** für den Rundenstart, der in **einer** Zeile
+    `Belegstand <TT.MM.JJJJ>: Geraet=… | Spiegel=… | job_1901_belegt=…` meldet;
+    reine Funktionen `spiegel_lesen`, `letzter_tipp`, `geraete_lage`,
+    `belegstand`, `journal_zeile`, `merken`; die Job-Lage kommt über die
+    **bestehende** `job_beleg_deuten` aus `diag_holen.py` (**eine Quelle**, kein
+    Duplikat); der **Plan wird nie angefasst** (geteilte Datei). Dazu
+    `backend/tests/test_belegstand_handy.py` (**440** Zeilen / **19**
+    Testfunktionen, alles offline, Attrappen-`adb` mit Markierungsdatei) und
+    `docs/changelog-2026-09-29-n24c-belegstand.md` (200 Zeilen). **Kein
+    Frontend → kein Cache-Bump.**
+  - **Nachtrag des Planers während der Umsetzung (Entscheidung statt Rückfrage):**
+    die drei Geräte-Werte aus dem Feinauftrag reichten **nicht** — „Gerät am
+    Kabel, aber `hermes_diag/` fehlt" (genau der Zustand seit N24b) und „kein
+    Gerät am Kabel" wären gleich ausgegeben worden, die Journal-Zeile hätte in
+    einem der beiden Fälle **falsch** gelautet, und genau diese Zeile ist der
+    Zweck des Werkzeugs. Deshalb vierter Wert **`geraet_ordner_fehlt`**,
+    unterschieden an der **rohen** `adb`-Ausgabe („no devices"/„device not
+    found" → `kein_geraet`; „No such file"/„does not exist" →
+    `geraet_ordner_fehlt`; sonst ehrlich `unbekannt`), durch drei neue
+    Testfunktionen belegt. Der Auftrag wurde entsprechend nachgezogen.
+  - **Prüfbefehl selbst gefahren (Planer, frisch):**
+    `pytest tests/test_belegstand_handy.py -q` → **19 passed** (4,36 s);
+    Gesamtlauf `pytest tests/ -q` → **3166 passed, 1 skipped, Exit 0**
+    (177,19 s). Der Skip ist vorbestehend (`test_video_gesichter.py`: kein `cv2`).
+  - **Live-Läufe (echte Geräte-Lage, kein Handy angefasst):**
+    `python tools/handy/belegstand.py --ohne-kabel` → Exit 0, letzte Zeile
+    `Belegstand 29.09.2026: Geraet=unbekannt | Spiegel=nicht_vorhanden |
+    job_1901_belegt=unbekannt`; ohne `--ohne-kabel` fragt es `adb` ehrlich und
+    meldet `Geraet=kein_geraet`, Exit 0 (**kein** Fehler — das ist das Ergebnis).
+    **Idempotenz belegt:** erster `--merken`-Lauf schreibt eine Zeile in
+    `~/foto_sortierung/belegstand.jsonl`, zweiter gleicher Lauf meldet „Nicht
+    gemerkt: die letzte Zeile ist schon gleich", die Datei hat danach **1** Zeile.
+  - **Eigener Befund, ehrlich notiert (Nebenläufigkeit):** mein
+    Baseline-Lauf zu Rundenbeginn meldete **1 failed, 3141 passed**
+    (`tests/test_ereignisse_bauen.py::test_haupt_schreiben_ist_byte_gleich_wiederholbar`)
+    — zu diesem Zeitpunkt lief der Gesamtlauf des Ausführers **gleichzeitig**.
+    Der Test allein ist grün (`134 passed`), der nächste Gesamtlauf allein
+    ebenfalls (**3158**). Die Erklärung ist damit belegt: **zwei gleichzeitige
+    Suite-Läufe im selben Baum** verfälschen byte-gleiche Schreibprüfungen —
+    **Lehre für die nächsten Runden: pytest-Läufe nicht parallel fahren.**
+  - **Prüfer (`z-ai/glm-5.2`, frische Sitzung): BESTANDEN, 0 Abweichungen** —
+    eigener Prüfbefehl, Zeilenzahlen und Testzahl selbst nachgezählt, die
+    Regel `geraete_lage` (Deutung der **rohen** `adb`-Ausgabe) mit eigenen Attrappen nachgefahren
+    (alle drei Zweige), Lösch-/Netz-/Schreibprüfung am Quelltext, `--spiegel` im
+    Repo → Exit 2, `--merken`-Idempotenz, Datenschutz-Scan **0 Treffer**
+    (nur die Wächter-Liste `VERBOTENE_NAMEN` selbst trifft ihre Namen — aus
+    N24b wortgleich übernommen, Bestandsmuster), fremde Dateien unangetastet,
+    und den Nebenläufigkeits-Befund als tragfähig eingeordnet.
+  - **Ehrlich offen:** der **echte Beleg** steht weiter aus — der lokale Spiegel
+    `~/foto_sortierung/handy_diag` existierte **nicht**, das Gerät war **nicht**
+    am Kabel; solange kein Widget-Tipp am Handy stattgefunden hat, entsteht kein
+    `job_liste.txt`, und das Werkzeug meldet `unbekannt`, statt einen Beleg zu
+    erfinden. **N23 Teil B bleibt offen. N25 wartet auf die
+    Passphrase-Entscheidung. N8 bleibt gesperrt.**
+  - **Nächster Schritt:** **N23 Teil B** nach Sebastians Widget-Tipp (dann ist
+    `job_1901_belegt=ja` belegbar) bzw. **N25**.
