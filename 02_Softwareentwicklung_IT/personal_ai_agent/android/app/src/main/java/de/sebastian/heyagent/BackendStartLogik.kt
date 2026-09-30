@@ -58,8 +58,10 @@ class BackendStartLogik(
                 "Du kannst Termux auch selbst öffnen und das Widget „agent“ antippen."
         FehlerGrund.ZEITUEBERSCHREITUNG ->
             "Das Backend antwortet nach ${sekunden(gesamtTimeoutMs)} Sekunden nicht. " +
-                "Öffne Termux und tippe das Widget „agent“ an (oder prüfe ~/agent-ensure.log), " +
-                "dann „Erneut versuchen“."
+                "Steht in Termux „Process completed“, hat Android die Sitzung beendet: dort " +
+                "Enter drücken und Hey Agent neu öffnen. Sonst das Widget „agent“ antippen " +
+                "(oder ~/agent-ensure.log prüfen). Sobald das Backend wieder läuft, lädt die " +
+                "App die Seite beim Zurückkehren selbst."
     }
 
     private fun sekunden(ms: Long): Long = ms.coerceAtLeast(0) / 1000

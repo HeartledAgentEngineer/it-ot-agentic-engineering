@@ -36,6 +36,7 @@ Klassen (`app/src/main/java/de/sebastian/heyagent/`):
 | `KeySpeicher.kt` | verschlüsselter Schlüsselspeicher | nein |
 | `MikrofonRegel.kt` | Mikrofon-Freigabe für die Seite (nur eigenes Backend, nie Kamera) | ja (JUnit-testbar) |
 | `DateiAuswahlRegel.kt` | Büroklammer: Dateiarten für die Android-Auswahl, Rückgabe an die Seite | ja (JUnit-testbar) |
+| `Nachkontrolle.kt` | Beim Zurückkehren: lebt das Backend noch? Sonst neu starten / Seite nachladen | ja (JUnit-testbar) |
 | `MainActivity.kt` | WebView, Ladebildschirm, Zurück-Taste, Schlüsselabfrage, Mikrofon, Dateiauswahl | nein |
 | `AppKonfig.kt` | Adresse, Port, Termux-Pfade an einer Stelle | ja |
 
@@ -112,6 +113,27 @@ Die Büroklammer im Chat ist ein `<input type="file" multiple>` mit Bildern und 
   accept-Typ (dann wären PDFs nicht wählbar) und keine Mehrfachauswahl.
 - Kamera-Aufnahme direkt aus der Büroklammer gibt es nicht (bräuchte `CAMERA` und einen
   FileProvider); Fotos kommen aus der Galerie.
+
+## Nachkontrolle beim Zurückkehren
+
+Android kann die Termux-Sitzung jederzeit hart beenden — am 30.09.2026 am Handy gesehen:
+`[Process completed (signal 9)]` bei knappem Speicher (`lowmemorykiller … watermark low`),
+das Backend lief in der Sitzung und war mit weg; die App merkte es nicht. Seit 30.09.2026 prüft
+die App in `onResume` (Rückkehr aus Termux, Dateiauswahl, Startbildschirm, `heyagent://start`):
+- **Seite sichtbar, Backend weg** (2 Versuche à 1,5 s) → Neustart wie beim Kaltstart
+  (Ladebildschirm, Termux, warten, Seite laden).
+- **Fehleransicht sichtbar, Backend wieder da** → Seite laden, ohne „Erneut versuchen“.
+- Während ein Start läuft: nie. Regel in `Nachkontrolle` (8 JUnit-Tests).
+
+**Am Handy belegt (30.09.2026 20:27):** Termux per `force-stop` beendet → `/health` 000 →
+Hey Agent wieder nach vorn → Log `Nachkontrolle: Backend weg - starte neu` → `Backend-Start:
+bereit=true dauer=8111 ms` → `/health` 200.
+
+Grenze: Ist die Termux-Sitzung tot, Termux aber noch offen (`Process completed`), zeigt das
+Öffnen nur die tote Sitzung — dann dort Enter drücken und Hey Agent neu öffnen (steht auch in der
+Fehlermeldung). Vorbeugend hilft am Handy **Entwickleroptionen → „Einschränkungen für
+untergeordnete Prozesse deaktivieren“** (Android 14+); das ist eine Systemeinstellung und bleibt
+Sebastians Griff.
 
 ## Öffnen von außen: `heyagent://start`
 
@@ -226,8 +248,8 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
   belegt ist es erst mit einem echten Anhang am Handy.
 - `agent-ensure.sh`: nur `sh -n` (Syntax) geprüft, nicht in Termux ausgeführt. Die Shebang zeigt
   auf den Termux-`sh`, weil Termux kein `/bin/sh` hat.
-- Der Ladebildschirm zeigt keinen Neustart, falls das Backend erst nach dem Laden der Seite stirbt
-  (nur `onReceivedError` der Hauptseite → Fehleransicht).
+- Stirbt das Backend, während die Seite offen **und im Vordergrund** ist, merkt die App es erst
+  beim nächsten Zurückkehren (Nachkontrolle in `onResume`), nicht sofort.
 - Schlüssel-Eingabe bei Fehleingabe: falscher Schlüssel wird nicht validiert; ändern/löschen
   vorerst nur durch App-Daten löschen.
 - Nicht Teil von A1b: Weckwort, Vordergrunddienst, native Wiedergabe, Timer/Wecker,

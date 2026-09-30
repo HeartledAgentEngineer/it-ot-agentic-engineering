@@ -60,6 +60,13 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var laeuft = false
 
+    /** Was gerade angezeigt wird (nur auf dem UI-Thread gesetzt). Start = Ladebildschirm. */
+    private var ansicht = Ansicht.LADEN
+
+    /** Laeuft gerade eine Nachkontrolle (onResume)? Verhindert doppelte Pruefungen. */
+    @Volatile
+    private var nachkontrolleLaeuft = false
+
     /** Mikrofon-Anfrage der Seite, die auf den Android-Dialog wartet. */
     private var offeneMikrofonAnfrage: PermissionRequest? = null
 
@@ -338,7 +345,40 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * Zurueck in der App (auch ueber heyagent://start oder aus der Dateiauswahl): pruefen, ob
+     * das Backend noch lebt. Android kann die Termux-Sitzung samt Backend jederzeit beenden;
+     * Regel und Begruendung stehen in [Nachkontrolle].
+     */
+    override fun onResume() {
+        super.onResume()
+        if (nachkontrolleLaeuft || !Nachkontrolle.sollPruefen(ansicht, laeuft)) return
+        nachkontrolleLaeuft = true
+        val ansichtVorher = ansicht
+        Thread {
+            val erreichbar = Nachkontrolle.erreichbar(HttpHealthPruefer())
+            nachkontrolleLaeuft = false
+            if (beendet) return@Thread
+            runOnUiThread {
+                // Hat sich inzwischen etwas geaendert (Start laeuft, andere Ansicht), nichts tun.
+                if (laeuft || ansicht != ansichtVorher) return@runOnUiThread
+                when (Nachkontrolle.entscheide(ansicht, erreichbar)) {
+                    Wiederkehr.NEU_STARTEN -> {
+                        Log.i(TAG, "Nachkontrolle: Backend weg - starte neu")
+                        backendStarten()
+                    }
+                    Wiederkehr.SEITE_LADEN -> {
+                        Log.i(TAG, "Nachkontrolle: Backend wieder da - lade Seite")
+                        seiteLaden()
+                    }
+                    Wiederkehr.NICHTS -> Unit
+                }
+            }
+        }.start()
+    }
+
     private fun seiteLaden() {
+        ansicht = Ansicht.SEITE
         // Der Kopf gilt nur fuer die erste Anfrage (Dokument). Die Seite holt sich den Schluessel
         // fuer ihre fetch-Aufrufe selbst (window.__API_KEY__ per /api/konfig) - siehe README.
         val kopf = keySpeicher.holen()?.let { mapOf(AppKonfig.KEY_HEADER to it) } ?: emptyMap()
@@ -348,6 +388,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun zeigeLaden(text: String) {
+        ansicht = Ansicht.LADEN
         webView.visibility = View.INVISIBLE
         ladeAnsicht.visibility = View.VISIBLE
         ladeFortschritt.visibility = View.VISIBLE
@@ -357,6 +398,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun zeigeFehler(text: String) {
+        ansicht = Ansicht.FEHLER
         webView.visibility = View.INVISIBLE
         ladeAnsicht.visibility = View.VISIBLE
         ladeFortschritt.visibility = View.GONE
