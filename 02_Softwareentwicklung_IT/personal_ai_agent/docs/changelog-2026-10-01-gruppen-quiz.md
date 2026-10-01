@@ -92,3 +92,22 @@ doppelte nur das Mikrofon der Eingabeleiste. `index.html` lädt es nicht mehr (K
 Stelle); die Datei bleibt im Repo für das echte Weckwort (A1c, Dienst in der Hey-Agent-App).
 `frontend/tests/test_wecken.js` Teil 9 prüft jetzt „nicht eingebunden" und dass das Mikrofon der
 Eingabeleiste bleibt; die übrigen Prüfungen der Datei unverändert. Alle 24 Frontend-Tests Exit 0.
+
+## Nachtrag 01.10.2026 ~09:50 — Prüfwerkzeug und Übergabe per Kabel
+
+Anlass: Sebastian will die Nachtläufe unabhängig nachprüfen („ist wirklich alles beschrieben, sind
+alle Gesichter fertig und gruppiert?") und das Quiz heute unterwegs am Handy benutzen.
+
+- **`tools/foto_sortierung/bestand_pruefen.py`** (neu, nur lesend, nur Zahlen): je Sortierplan
+  Fotos/Videos (Endung von `von_name`) gegen Gesichts-Vektorzeilen, `*.videos_fertig` +
+  Video-Standbilder und `bild_beschreibungen.jsonl`; Kennungen immer als Text verglichen (Pläne:
+  Zahl, Vektorzeilen: Text). Jede Datei wird über die Kennungen selbst den Plänen zugeordnet.
+  Gruppen: Anzahl, Größenklassen, Zwillingsverdacht, **Abdeckung** (wie viele der größten Gruppen
+  = 50/80/90 % der Gesichter), Zuordnungsquote; fehlen die Gruppen-Dateien, sagt es „nur
+  Trockenlauf". Ausgabe ohne Namen, Pfade, Beschreibungen oder Koordinaten; schreibt nichts.
+- **`tools/handy/gruppen_aufs_handy.py`** (neu): legt `personen_beispiele.json` und
+  `gesicht_zuordnung.jsonl` per `adb push` in `/sdcard/Download` und prüft die Größe am Handy
+  (`stat`); ohne `--senden` nur Trockenlauf; nur `devices`/`push`/`stat`, nie löschen; Ziel muss
+  unter `/sdcard/` liegen.
+- Neu `backend/tests/test_bestand_und_handy_uebergabe.py` (9 Tests, erfundene Dateien,
+  nachgebautes `adb`; u. a. „keine Inhalte in der Ausgabe", „schreibt nichts", „nie rm").
