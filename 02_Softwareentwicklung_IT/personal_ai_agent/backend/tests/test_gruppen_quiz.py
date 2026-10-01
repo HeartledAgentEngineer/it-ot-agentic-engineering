@@ -356,3 +356,54 @@ def test_profil_routen(basis):
     assert c.get("/api/gruppen/profil", params={"name": "Leon"}).json()["beziehung"] == "Bruder"
     r2 = c.post("/api/gruppen/profil", json={"name": "Leon", "notiz": "Geburtstag"})
     assert [n["text"] for n in r2.json()["notizen"]] == ["Urlaub 2016", "Geburtstag"]
+
+
+# ── „= dieselbe Person" ohne Namen, Namen fuer Verbundene (01.10.2026) ──────
+#
+# Befund am Handy: „= dieselbe Person" bei einem unbenannten Zwilling liess die
+# Oberflaeche dieselbe Frage neu zeichnen ("flackert, nichts passiert").
+
+def test_gleich_ohne_namen_verbindet_und_fragt_nicht_noch_einmal(basis):
+    r = gq.antworten("Person_1001", "gleich", ziel="Person_1003")
+    assert r["ok"] and r["gespeichert"]["name"] is None
+    g = r["gruppe"]
+    assert g["kennung"] == "Person_1001"                     # bleibt zum Benennen
+    assert g["zwillinge"] == []                              # Frage ist beantwortet
+    assert [v["kennung"] for v in g["verbunden"]] == ["Person_1003"]
+    assert g["verbunden"][0]["beispiel"]["fileid"] == "300"  # Bild kommt dazu
+
+
+def test_verschieden_fragt_nicht_noch_einmal(basis):
+    r = gq.antworten("Person_1001", "verschieden", ziel="Person_1003")
+    assert r["gruppe"]["kennung"] == "Person_1001"
+    assert r["gruppe"]["zwillinge"] == [] and r["gruppe"]["verbunden"] == []
+
+
+def test_name_gilt_fuer_alle_verbundenen_und_rueckgaengig_nimmt_ihn_mit(basis):
+    gq.antworten("Person_1001", "gleich", ziel="Person_1003")
+    gq.antworten("Person_1003", "gleich", ziel="Person_1004")    # mehrstufig
+    r = gq.antworten("Person_1001", "name", "Leon")
+    assert gq.bestaetigt_lesen() == {"Person_1001": "Leon", "Person_1003": "Leon",
+                                     "Person_1004": "Leon"}
+    assert r["gespeichert"]["weitere"] == 2
+    assert r["gruppe"]["kennung"] == "Person_1002"               # weiter zur naechsten
+    gq.rueckgaengig()
+    assert gq.bestaetigt_lesen() == {}
+    assert [v["kennung"] for v in gq.naechste()["gruppe"]["verbunden"]] == ["Person_1003", "Person_1004"]
+
+
+def test_gleich_mit_benanntem_zwilling_benennt_auch_dessen_verbundene(basis):
+    gq.antworten("Person_1003", "gleich", ziel="Person_1004")
+    gq.antworten("Person_1004", "name", "Tim")                    # 1003 wird mit benannt
+    gq.rueckgaengig()
+    gq.antworten("Person_1002", "name", "Tim")
+    r = gq.antworten("Person_1003", "gleich", ziel="Person_1002")
+    assert r["gespeichert"]["name"] == "Tim" and r["gespeichert"]["weitere"] == 1
+    assert gq.bestaetigt_lesen() == {"Person_1002": "Tim", "Person_1003": "Tim", "Person_1004": "Tim"}
+
+
+def test_vorhandene_namen_werden_nie_ueberschrieben(basis):
+    gq.antworten("Person_1003", "name", "Tim")
+    gq.antworten("Person_1004", "name", "Oma")
+    gq.antworten("Person_1003", "gleich", ziel="Person_1004")
+    assert gq.bestaetigt_lesen() == {"Person_1003": "Tim", "Person_1004": "Oma"}

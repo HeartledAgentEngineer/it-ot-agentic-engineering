@@ -92,6 +92,38 @@ function gruppenZwillingText(z) {
     return text;
 }
 
+/** Sichtbare Nummer eines Vorschlags: „Person_1003" → „Vorschlag 1003". */
+function gruppenNummer(kennung) {
+    const m = /(\d+)\s*$/.exec(String(kennung || ''));
+    return m ? 'Vorschlag ' + m[1] : '';
+}
+
+/** Kopfzeile der verbundenen Vorschläge („= dieselbe Person" ohne Namen). */
+function gruppenVerbundenText(verbunden) {
+    const n = Array.isArray(verbunden) ? verbunden.length : 0;
+    if (!n) return '';
+    return '🔗 Verbunden mit ' + (n === 1 ? '1 weiteren Vorschlag' : n + ' weiteren Vorschlägen')
+        + ' — der Name gilt für alle';
+}
+
+/** Rückmeldung nach einer Antwort; ``wechsel`` = ein anderer Vorschlag ist jetzt dran. */
+function gruppenAntwortText(art, s, wechsel) {
+    s = s || {};
+    const weitere = s.weitere > 0
+        ? ' · auch für ' + (s.weitere === 1 ? '1 verbundenen Vorschlag' : s.weitere + ' verbundene Vorschläge')
+        : '';
+    const texte = {
+        name: '✓ ' + (s.name || '') + ' gespeichert' + (s.notiz ? ' · Erinnerung angelegt' : '') + weitere,
+        gleich: s.name
+            ? '✓ als dieselbe Person gemerkt (' + s.name + ')' + weitere
+            : '✓ verbunden — der Name, den du jetzt vergibst, gilt für beide',
+        verschieden: '✓ als zwei Menschen gemerkt',
+        spaeter: '⏭ zurückgestellt — kommt zum Schluss wieder',
+        unbekannt: '🚫 wird nicht mehr gefragt',
+    };
+    return (texte[art] || '✓ gespeichert') + (wechsel ? ' → nächster Vorschlag' : '');
+}
+
 /** Kurzinfo zu einem vorhandenen Profil (Beziehung, Zahl der Erinnerungen). */
 function gruppenProfilText(p) {
     if (!p || p.ok !== true) return '';
@@ -216,9 +248,22 @@ function gruppenProfilText(p) {
             return;
         }
         const g = antwort.gruppe;
+        const vorher = zustand.gruppe ? zustand.gruppe.kennung : null;
         zustand.gruppe = g;
         if (fertig) fertig.hidden = true;
-        if (karte) karte.hidden = false;
+        if (karte) {
+            karte.hidden = false;
+            if (vorher && vorher !== g.kennung) {
+                // Neu auslösen: Klasse weg, Reflow, Klasse wieder dran.
+                karte.classList.remove('gruppen-wechsel');
+                void karte.offsetWidth;
+                karte.classList.add('gruppen-wechsel');
+                const body = karte.closest('.gruppen-body');
+                if (body) body.scrollTop = 0;
+            }
+        }
+        const nummer = el('gruppen-nummer');
+        if (nummer) nummer.textContent = gruppenNummer(g.kennung);
         el('gruppen-meta').textContent = gruppenMeta(g) + (g.war_spaeter ? ' · zurückgestellt' : '');
         el('gruppen-offen').textContent = gruppenZahl(antwort.offen) + ' offen';
         const kacheln = el('gruppen-kacheln');
@@ -230,6 +275,17 @@ function gruppenProfilText(p) {
             kacheln.appendChild(leer);
         }
         g.beispiele.forEach((b) => kacheln.appendChild(kachel(b, false)));
+        const vb = el('gruppen-verbunden');
+        if (vb) {
+            vb.innerHTML = '';
+            const verbunden = g.verbunden || [];
+            if (verbunden.length) {
+                const text = document.createElement('span');
+                text.textContent = gruppenVerbundenText(verbunden);
+                vb.appendChild(text);
+                verbunden.forEach((v) => { if (v.beispiel) vb.appendChild(kachel(v.beispiel, true)); });
+            }
+        }
         const zw = el('gruppen-zwillinge');
         zw.innerHTML = '';
         (g.zwillinge || []).forEach((z) => {
@@ -286,16 +342,10 @@ function gruppenProfilText(p) {
                 body: JSON.stringify(koerper),
             });
             if (antwort && antwort.ok === true) {
-                const s = antwort.gespeichert || {};
-                const texte = {
-                    name: '✓ ' + (s.name || '') + ' gespeichert' + (s.notiz ? ' · Erinnerung angelegt' : ''),
-                    gleich: '✓ als dieselbe Person gemerkt' + (s.name ? ' (' + s.name + ')' : ''),
-                    verschieden: '✓ als zwei Menschen gemerkt',
-                    spaeter: '⏭ zurückgestellt — kommt zum Schluss wieder',
-                    unbekannt: '🚫 wird nicht mehr gefragt',
-                };
+                const vorher = zustand.gruppe ? zustand.gruppe.kennung : null;
                 zeigen(antwort);
-                melde(texte[art] || '✓ gespeichert');
+                const jetzt = zustand.gruppe ? zustand.gruppe.kennung : null;
+                melde(gruppenAntwortText(art, antwort.gespeichert, Boolean(jetzt && jetzt !== vorher)));
                 fortschrittLaden();
             } else {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Speichern fehlgeschlagen'), false);

@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261001B">
+    <link rel="stylesheet" href="style.css?v=20261001C">
 </head>
 <body>
     <div id="app">
@@ -246,10 +246,14 @@
                 <section id="gruppen-karte" class="gruppen-karte" hidden>
                     <div class="gruppen-kopf">
                         <h3>Wer ist das?</h3>
+                        <span id="gruppen-nummer" class="gruppen-nummer"></span>
                         <span id="gruppen-offen" class="gruppen-offen"></span>
                     </div>
                     <p id="gruppen-meta" class="gruppen-meta"></p>
                     <div id="gruppen-kacheln" class="gruppen-kacheln"></div>
+                    <!-- Per „= dieselbe Person" verbundene Vorschläge (01.10.2026):
+                         der Name gilt beim Speichern für alle. -->
+                    <div id="gruppen-verbunden" class="gruppen-verbunden"></div>
                     <div id="gruppen-zwillinge" class="gruppen-zwillinge"></div>
                     <div class="gruppen-eingabe">
                         <input id="gruppen-name" type="text" list="gruppen-namen" maxlength="60"
@@ -267,7 +271,7 @@
                         <p id="gruppen-profil-info" class="gruppen-meta"></p>
                     </div>
                     <div class="gruppen-leiste">
-                        <button id="gruppen-spaeter" class="gruppen-knopf" type="button">⏭ Später</button>
+                        <button id="gruppen-spaeter" class="gruppen-knopf" type="button">⏭ Weiter (später)</button>
                         <button id="gruppen-unbekannt" class="gruppen-knopf" type="button">🚫 Kenne ich nicht</button>
                         <button id="gruppen-zurueck" class="gruppen-knopf" type="button">↩ Rückgängig</button>
                     </div>
@@ -372,7 +376,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
-    <script src="gruppen_quiz.js?v=20261001B"></script>
+    <script src="gruppen_quiz.js?v=20261001C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

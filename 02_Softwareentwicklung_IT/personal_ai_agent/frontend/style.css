@@ -1945,6 +1945,50 @@ button.footer-note:hover {
 
 .gruppen-zwillinge:empty { display: none; }
 
+/* Vorschlagsnummer + Wechsel-Animation (01.10.2026): Nach „Speichern" sah der
+   nächste Vorschlag oft gleich aus (wieder dieselbe Person) — jetzt sieht man,
+   dass gewechselt wurde. */
+.gruppen-nummer {
+    margin-right: auto;
+    padding: 1px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.gruppen-karte.gruppen-wechsel {
+    animation: gruppen-einblenden 0.45s ease;
+}
+
+@keyframes gruppen-einblenden {
+    from { opacity: 0.25; transform: translateX(18px); }
+    to   { opacity: 1;    transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .gruppen-karte.gruppen-wechsel { animation: none; }
+}
+
+.gruppen-verbunden:empty { display: none; }
+
+.gruppen-verbunden {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(108, 99, 255, 0.12), rgba(224, 64, 251, 0.06));
+    font-size: 0.8rem;
+}
+
+.gruppen-verbunden span {
+    flex: 1 1 100%;
+    color: var(--text-secondary);
+}
+
 .gruppen-zwillinge {
     display: flex;
     flex-direction: column;

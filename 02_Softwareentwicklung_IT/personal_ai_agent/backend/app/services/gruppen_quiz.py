@@ -14,6 +14,10 @@ Antworten (``ARTEN``):
                       die Vorgaben (dieselbe Person, beim naechsten PC-Lauf
                       zusammengelegt).
   * ``gleich``      — dieselbe Person wie Gruppe ``ziel`` (Zwillings-Kandidat).
+                      Ein Name gilt danach fuer alle so verbundenen Gruppen
+                      (auch mehrstufig, nur unbenannte werden ergaenzt); sind
+                      beide noch unbenannt, bleibt die Gruppe zum Benennen
+                      stehen und zeigt den verbundenen Vorschlag mit an.
   * ``verschieden`` — eine andere Person als Gruppe ``ziel``.
   * ``spaeter``     — jetzt nicht; kommt wieder, wenn alles andere erledigt ist.
   * ``unbekannt``   — kenne ich nicht / fremde Menge; wird nicht mehr gefragt.
@@ -270,6 +274,27 @@ def _paar(a: str, b: str) -> List[str]:
     return sorted([a, b])
 
 
+def _gleich_komponente(start: str, gleich: Iterable[Iterable[str]]) -> List[str]:
+    """Alle Gruppen, die ueber ``gleich``-Paare (auch mehrstufig) mit ``start``
+    verbunden sind — ohne ``start`` selbst, sortiert."""
+    nachbarn: Dict[str, set] = {}
+    for p in gleich:
+        p = list(p)
+        if len(p) != 2:
+            continue
+        a, b = str(p[0]), str(p[1])
+        nachbarn.setdefault(a, set()).add(b)
+        nachbarn.setdefault(b, set()).add(a)
+    gesehen, offen = {start}, [start]
+    while offen:
+        for n in nachbarn.get(offen.pop(), ()):
+            if n not in gesehen:
+                gesehen.add(n)
+                offen.append(n)
+    gesehen.discard(start)
+    return sorted(gesehen)
+
+
 def _beispiel_fuer_anzeige(b: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Nur Fotos mit gueltiger Kennung und Rahmen; Videos haben kein Vorschaubild."""
     fileid = str(b.get("bild_id") or "")
@@ -411,6 +436,7 @@ def naechste() -> Dict[str, Any]:
     try:
         gruppen, _ = _gruppen_laden()
         namen = bestaetigt_lesen()
+        vorgaben = vorgaben_lesen()
         st = _stand_lesen()
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -427,17 +453,34 @@ def naechste() -> Dict[str, Any]:
         return {"ok": True, "fertig": True, "gruppe": None, "offen": 0,
                 "namen": namen_liste(namen)}
     nach_kennung = {g["kennung"]: g for g in gruppen}
+
+    def erstes_beispiel(g: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return next((b for b in (_beispiel_fuer_anzeige(x)
+                                 for x in g.get("beispiele") or []) if b), None)
+
+    # Schon entschiedene Paare (gleich ODER verschieden) nicht noch einmal
+    # fragen — sonst zeichnet die Oberflaeche nach dem Klick dieselbe Frage
+    # neu, und es sieht aus, als waere nichts passiert (Befund 01.10.2026).
+    entschieden = {tuple(p) for art_paar in ("gleich", "verschieden")
+                   for p in vorgaben[art_paar]}
     zwillinge = []
     for z in gruppe.get("zwilling_kandidaten") or []:
         if not isinstance(z, dict) or z.get("kennung") not in nach_kennung:
             continue
+        if tuple(_paar(gruppe["kennung"], z["kennung"])) in entschieden:
+            continue
         andere = nach_kennung[z["kennung"]]
-        beispiel = next((b for b in (_beispiel_fuer_anzeige(x)
-                                     for x in andere.get("beispiele") or []) if b), None)
         zwillinge.append({"kennung": z["kennung"], "name": namen.get(z["kennung"]),
                           "aehnlich": z.get("aehnlich"),
                           "gemeinsame_bilder": z.get("gemeinsame_bilder"),
-                          "groesse": andere.get("groesse"), "beispiel": beispiel})
+                          "groesse": andere.get("groesse"), "beispiel": erstes_beispiel(andere)})
+    # Per „= dieselbe Person" verbundene, noch unbenannte Vorschlaege: Sie
+    # bekommen beim Benennen denselben Namen und werden hier mit angezeigt.
+    verbunden = []
+    for k in _gleich_komponente(gruppe["kennung"], vorgaben["gleich"]):
+        if k in nach_kennung and not namen.get(k):
+            verbunden.append({"kennung": k, "groesse": nach_kennung[k].get("groesse"),
+                              "beispiel": erstes_beispiel(nach_kennung[k])})
     beispiele = [b for b in (_beispiel_fuer_anzeige(x) for x in gruppe.get("beispiele") or []) if b]
     return {
         "ok": True, "fertig": False, "offen": len(offen),
@@ -447,6 +490,7 @@ def naechste() -> Dict[str, Any]:
             "von": gruppe.get("von"), "bis": gruppe.get("bis"),
             "war_spaeter": gruppe["kennung"] in spaeter,
             "beispiele": beispiele[:BEISPIELE_MAX], "zwillinge": zwillinge,
+            "verbunden": verbunden,
         },
         "namen": namen_liste(namen),
     }
@@ -473,7 +517,8 @@ def antworten(kennung: str, art: str, name: Optional[str] = None,
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
     weiter = naechste()
     weiter["gespeichert"] = {"kennung": kennung, "art": art, "name": eintrag.get("name"),
-                             "notiz": bool((eintrag.get("profil") or {}).get("notiz_id"))}
+                             "notiz": bool((eintrag.get("profil") or {}).get("notiz_id")),
+                             "weitere": len([k for k in eintrag["namen_vorher"] if k != kennung])}
     return weiter
 
 
@@ -542,6 +587,14 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         paar_dazu("verschieden", kennung, str(ziel))
 
     if art in ("name", "gleich"):
+        # Name an alle per „gleich" verbundenen, noch unbenannten Vorschlaege
+        # weitergeben (auch mehrstufig). Vorhandene Namen bleiben unberuehrt;
+        # jede Aenderung steht in namen_vorher, Rueckgaengig nimmt sie mit.
+        bekannt = namen.get(kennung) or (namen.get(str(ziel)) if art == "gleich" else None)
+        if bekannt:
+            for k in _gleich_komponente(kennung, vorgaben["gleich"]):
+                if not namen.get(k):
+                    name_setzen(k, bekannt)
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
         st["unbekannt"] = [k for k in st["unbekannt"] if k != kennung]
     elif art == "spaeter":
