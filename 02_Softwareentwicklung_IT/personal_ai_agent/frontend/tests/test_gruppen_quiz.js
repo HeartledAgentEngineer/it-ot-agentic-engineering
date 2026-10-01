@@ -26,7 +26,8 @@ function funktionAusschneiden(quelle, name) {
 
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
                'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText',
-               'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText'];
+               'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
+               'gruppenSchnellNamen'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -88,13 +89,22 @@ pruefe(/gruppen-wechsel/.test(src) && /@keyframes gruppen-einblenden/.test(css)
     && /prefers-reduced-motion: reduce\) \{\s*\.gruppen-karte\.gruppen-wechsel/.test(css), 'Wechsel-Animation, abschaltbar über „Bewegung reduzieren"');
 pruefe(/⏭ Weiter \(später\)/.test(html), 'Knopf heißt „Weiter (später)"');
 
+console.log('Schon vergebene Namen per Antippen (01.10.2026)');
+pruefe(JSON.stringify(f.gruppenSchnellNamen(['Leon', 'leon ', '', null, 'Oma'], 40)) === '["Leon","Oma"]',
+    'ohne Leere und Doppelte (Groß/Klein egal)');
+pruefe(f.gruppenSchnellNamen(['a', 'b', 'c'], 2).length === 2, 'höchstens max Knöpfe');
+pruefe(f.gruppenSchnellNamen(undefined).length === 0, 'ohne Namen keine Knöpfe');
+pruefe(/nameSpeichern\(n\)/.test(src) && /addEventListener\('click', \(\) => nameSpeichern\(\)\)/.test(src),
+    'Knopf speichert direkt; Speichern-Knopf übergibt kein Klick-Ereignis als Namen');
+pruefe(/b\.textContent = n;/.test(src) && !/innerHTML = [^';]*\bn\b/.test(src), 'Namen nur als Text, nie als HTML');
+
 console.log('Verdrahtung');
 pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in der Kopfzeile');
 ['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-namen',
  'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
- 'gruppen-nummer', 'gruppen-verbunden'].forEach((id) => {
+ 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-schnellnamen'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
         '#' + id + ' im HTML und im Skript');
 });
@@ -114,9 +124,9 @@ pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe 
 
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
-pruefe(v && v[1] >= '20261001C', 'gruppen_quiz.js mit Version 20261001C oder neuer');
+pruefe(v && v[1] >= '20261001D', 'gruppen_quiz.js mit Version 20261001D oder neuer');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
-pruefe(c && c[1] >= '20261001C', 'style.css-Version 20261001C oder neuer');
+pruefe(c && c[1] >= '20261001D', 'style.css-Version 20261001D oder neuer');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

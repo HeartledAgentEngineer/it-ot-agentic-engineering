@@ -65,3 +65,32 @@ Frontend (`gruppen_quiz.js`, `index.html`, `style.css`):
   Windows-Pfade ohne Unterscheidung von Groß- und Kleinschreibung. Das ist
   nicht belegt. Der maßgebliche Lauf ist der Windows-Prüfbefehl am PC beim
   Zusammenführen.
+
+## Teil 2 — Schon benannte Person per Antippen zuordnen
+
+### Befund
+
+Gleicher Name verknüpft schon heute automatisch (`gleich`-Paar, Groß/Klein egal),
+aber nur, wenn man den Namen **neu tippt**. Die Vorschlagsliste (`<datalist>`
+`#gruppen-namen`) zeigt die Android-WebView oft gar nicht an. Das ist bekanntes
+WebView-Verhalten und am Handy nicht gemessen.
+
+### Änderung
+
+- Neu `#gruppen-schnellnamen` über dem Namensfeld: alle schon vergebenen Namen
+  als Knöpfe („Schon benannt — antippen, wenn es dieselbe Person ist:“). Ein
+  Tipp speichert sofort wie „✓ Speichern“, samt Beziehung und Erinnerung aus
+  den Feldern darunter. Falsch getippt? „↩ Rückgängig“.
+- Reine Funktion `gruppenSchnellNamen(namen, max)`: ohne Leere und Doppelte
+  (Groß/Klein egal), höchstens 40 Knöpfe, bei vielen Namen scrollbar.
+- Namen nur per `textContent`, nie als HTML.
+- `nameSpeichern(vorgabe)` nimmt optional einen Namen. Der Speichern-Knopf
+  übergibt kein Klick-Ereignis mehr als Namen.
+- Cache: `gruppen_quiz.js?v=20261001D`, `style.css?v=20261001D`.
+
+### Prüfung
+
+- `frontend/tests/test_gruppen_quiz.js`: alle Prüfungen grün (neu:
+  Schnellnamen-Funktion, direkte Speicherung, nur Text, ID, Cache-Stand).
+- Alle 25 Frontend-Testdateien Exit 0.
+- Backend unverändert.

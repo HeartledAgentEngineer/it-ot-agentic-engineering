@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261001C">
+    <link rel="stylesheet" href="style.css?v=20261001D">
 </head>
 <body>
     <div id="app">
@@ -255,6 +255,9 @@
                          der Name gilt beim Speichern für alle. -->
                     <div id="gruppen-verbunden" class="gruppen-verbunden"></div>
                     <div id="gruppen-zwillinge" class="gruppen-zwillinge"></div>
+                    <!-- Schon vergebene Namen als Knöpfe (01.10.2026): ein Tipp ordnet
+                         den Vorschlag dieser Person zu, ohne neu zu tippen. -->
+                    <div id="gruppen-schnellnamen" class="gruppen-schnellnamen"></div>
                     <div class="gruppen-eingabe">
                         <input id="gruppen-name" type="text" list="gruppen-namen" maxlength="60"
                                placeholder="Name eingeben …" autocomplete="off" enterkeyhint="next">
@@ -376,7 +379,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
-    <script src="gruppen_quiz.js?v=20261001C"></script>
+    <script src="gruppen_quiz.js?v=20261001D"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

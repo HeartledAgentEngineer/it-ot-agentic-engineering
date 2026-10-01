@@ -1972,6 +1972,38 @@ button.footer-note:hover {
 
 .gruppen-verbunden:empty { display: none; }
 
+.gruppen-schnellnamen:empty { display: none; }
+
+.gruppen-schnellnamen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 7.5rem;
+    overflow-y: auto;
+}
+
+.gruppen-schnellnamen p {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.gruppen-schnellname {
+    padding: 5px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: rgba(108, 99, 255, 0.10);
+    color: var(--text-primary, inherit);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.gruppen-schnellname:hover { background: rgba(108, 99, 255, 0.25); }
+.gruppen-schnellname:active { transform: scale(0.96); }
+
 .gruppen-verbunden {
     display: flex;
     align-items: center;

@@ -124,6 +124,21 @@ function gruppenAntwortText(art, s, wechsel) {
     return (texte[art] || '✓ gespeichert') + (wechsel ? ' → nächster Vorschlag' : '');
 }
 
+/** Namen für die Schnellknöpfe: ohne Leere/Doppelte (Groß/Klein egal), höchstens ``max``. */
+function gruppenSchnellNamen(namen, max) {
+    const grenze = (typeof max === 'number' && max > 0) ? max : 40;
+    const gesehen = new Set();
+    const aus = [];
+    (Array.isArray(namen) ? namen : []).forEach((n) => {
+        const t = (typeof n === 'string') ? n.trim() : '';
+        const k = t.toLowerCase();
+        if (!t || gesehen.has(k) || aus.length >= grenze) return;
+        gesehen.add(k);
+        aus.push(t);
+    });
+    return aus;
+}
+
 /** Kurzinfo zu einem vorhandenen Profil (Beziehung, Zahl der Erinnerungen). */
 function gruppenProfilText(p) {
     if (!p || p.ok !== true) return '';
@@ -227,6 +242,28 @@ function gruppenProfilText(p) {
             const o = document.createElement('option');
             o.value = n;
             liste.appendChild(o);
+        });
+        schnellNamenZeigen(namen);
+    }
+
+    /** Schon vergebene Namen als Knöpfe: ein Tipp = diesem Menschen zuordnen.
+     *  Die <datalist> zeigt die Android-WebView oft gar nicht an. */
+    function schnellNamenZeigen(namen) {
+        const box = el('gruppen-schnellnamen');
+        if (!box) return;
+        box.innerHTML = '';
+        const liste = gruppenSchnellNamen(namen, 40);
+        if (!liste.length) return;
+        const hinweis = document.createElement('p');
+        hinweis.textContent = 'Schon benannt — antippen, wenn es dieselbe Person ist:';
+        box.appendChild(hinweis);
+        liste.forEach((n) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'gruppen-schnellname';
+            b.textContent = n;
+            b.addEventListener('click', () => nameSpeichern(n));
+            box.appendChild(b);
         });
     }
 
@@ -376,9 +413,10 @@ function gruppenProfilText(p) {
         }
     }
 
-    function nameSpeichern() {
+    function nameSpeichern(vorgabe) {
         const feld = el('gruppen-name');
-        const name = feld ? feld.value.trim() : '';
+        const name = (typeof vorgabe === 'string' && vorgabe.trim())
+            ? vorgabe.trim() : (feld ? feld.value.trim() : '');
         if (!name) { melde('Bitte einen Namen eingeben.', false); if (feld) feld.focus(); return; }
         const beziehung = (el('gruppen-beziehung') || {}).value || '';
         const notiz = (el('gruppen-notiz') || {}).value || '';
@@ -421,7 +459,7 @@ function gruppenProfilText(p) {
         const sheet = el('gruppen-sheet');
         if (sheet) sheet.addEventListener('click', (ev) => { if (ev.target === sheet) schliessen(); });
         const speichern = el('gruppen-speichern');
-        if (speichern) speichern.addEventListener('click', nameSpeichern);
+        if (speichern) speichern.addEventListener('click', () => nameSpeichern());
         const feld = el('gruppen-name');
         if (feld) {
             feld.addEventListener('keydown', (ev) => {
