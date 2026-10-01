@@ -139,6 +139,18 @@ function gruppenSchnellNamen(namen, max) {
     return aus;
 }
 
+/**
+ * Läuft am Erinnerungsfeld noch ein Diktat? Ja, solange aufgenommen wird oder
+ * nach dem Stopp die Erkennung noch nichts ins Feld geschrieben hat (höchstens
+ * bis ``offen.bis``). Sonst landete der Text erst im Feld des NÄCHSTEN
+ * Vorschlags — also bei der falschen Person.
+ */
+function gruppenDiktatOffen(aufnahme, offen, wertJetzt, jetztMs) {
+    if (aufnahme) return true;
+    if (!offen || typeof offen.bis !== 'number') return false;
+    return jetztMs < offen.bis && wertJetzt === offen.wert;
+}
+
 /** Kurzinfo zu einem vorhandenen Profil (Beziehung, Zahl der Erinnerungen). */
 function gruppenProfilText(p) {
     if (!p || p.ok !== true) return '';
@@ -155,7 +167,8 @@ function gruppenProfilText(p) {
 (function () {
     'use strict';
 
-    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [] };
+    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null };
+    const DIKTAT_WARTEN_MS = 20000;
 
     function el(id) { return document.getElementById(id); }
 
@@ -370,6 +383,14 @@ function gruppenProfilText(p) {
 
     async function antworten(art, extra) {
         if (zustand.beschaeftigt || !zustand.gruppe) return;
+        // Jede Antwort wechselt (meist) den Vorschlag — ein offenes Diktat
+        // landete dann im Erinnerungsfeld der NÄCHSTEN Person.
+        if (diktatOffen()) {
+            melde(nimmtAuf()
+                ? '🎙 Erst die Aufnahme beenden (⬤ antippen), dann weiter.'
+                : '… Das Diktat wird noch übertragen — gleich noch einmal tippen.', false);
+            return;
+        }
         const koerper = Object.assign({ kennung: zustand.gruppe.kennung, art: art }, extra || {});
         zustand.beschaeftigt = true;
         try {
@@ -411,6 +432,33 @@ function gruppenProfilText(p) {
         } finally {
             zustand.beschaeftigt = false;
         }
+    }
+
+    /** Nimmt der Sprechknopf gerade auf? (starteFeldDiktat beschriftet ihn mit ⬤.) */
+    function nimmtAuf() {
+        const b = el('gruppen-notiz-mikro');
+        return Boolean(b && String(b.textContent || '').indexOf('⬤') === 0);
+    }
+
+    function diktatOffen() {
+        const feld = el('gruppen-notiz');
+        return gruppenDiktatOffen(nimmtAuf(), zustand.diktat, feld ? feld.value : '', Date.now());
+    }
+
+    /** 🎙 am Erinnerungsfeld: Aufnahme starten bzw. stoppen (Erkennung wie die Chat-Zeile). */
+    async function diktatUmschalten() {
+        const feld = el('gruppen-notiz');
+        const knopf = el('gruppen-notiz-mikro');
+        if (!feld || !knopf) return;
+        if (typeof starteFeldDiktat !== 'function') {
+            melde('⚠️ Spracheingabe ist hier nicht verfügbar — bitte das Mikrofon der Tastatur nutzen.', false);
+            return;
+        }
+        const stoppt = nimmtAuf();
+        if (stoppt) zustand.diktat = { wert: feld.value, bis: Date.now() + DIKTAT_WARTEN_MS };
+        await starteFeldDiktat(feld, knopf);
+        if (!stoppt && nimmtAuf()) melde('🎙 Sprich jetzt — zum Beenden noch einmal auf ⬤ tippen.');
+        if (stoppt) melde('… Erinnerung wird übertragen');
     }
 
     function nameSpeichern(vorgabe) {
@@ -460,6 +508,8 @@ function gruppenProfilText(p) {
         if (sheet) sheet.addEventListener('click', (ev) => { if (ev.target === sheet) schliessen(); });
         const speichern = el('gruppen-speichern');
         if (speichern) speichern.addEventListener('click', () => nameSpeichern());
+        const mikro = el('gruppen-notiz-mikro');
+        if (mikro) mikro.addEventListener('click', diktatUmschalten);
         const feld = el('gruppen-name');
         if (feld) {
             feld.addEventListener('keydown', (ev) => {

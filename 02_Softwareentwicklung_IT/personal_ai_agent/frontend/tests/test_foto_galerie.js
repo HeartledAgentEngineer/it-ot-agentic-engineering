@@ -307,7 +307,7 @@ console.log('\n8) Cache-Bump, Styling und Datenschutz');
 const vApp = (html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
 const vCss = (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] || '';
 pruefe('index.html lädt app.js mit ?v=20261001B', vApp === '20261001B', 'gefunden: ' + vApp);
-pruefe('index.html lädt style.css mit ?v=20261001D', vCss === '20261001D', 'gefunden: ' + vCss);
+pruefe('index.html lädt style.css mit ?v=20261001E', vCss === '20261001E', 'gefunden: ' + vCss);
 pruefe('?v= app.js ist HÖHER als vorher (20260927B)', vApp > '20260927B', 'gefunden: ' + vApp);
 pruefe('?v= style.css ist HÖHER als vorher (20260925F)', vCss > '20260925F', 'gefunden: ' + vCss);
 pruefe('kein CDN/keine externe Quelle im Frontend',

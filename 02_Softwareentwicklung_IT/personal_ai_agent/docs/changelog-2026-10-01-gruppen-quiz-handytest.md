@@ -94,3 +94,59 @@ WebView-Verhalten und am Handy nicht gemessen.
   Schnellnamen-Funktion, direkte Speicherung, nur Text, ID, Cache-Stand).
 - Alle 25 Frontend-Testdateien Exit 0.
 - Backend unverändert.
+
+## Teil 3 — Erinnerungen per Sprechknopf einsprechen
+
+### Befund
+
+Das Erinnerungsfeld ließ sich nur über das Mikrofon der Tastatur besprechen. Die
+App hat dafür aber eine eigene Erkennung: dieselbe Kette wie die Chat-Zeile,
+also OpenRouter mit mai-transcribe → whisper. Sie liegt in `app.js` als
+`starteFeldDiktat` (global, schon genutzt für „Infos über die Person
+diktieren“ im alten Quiz).
+
+### Änderung
+
+- Neu `#gruppen-notiz-mikro` (🎙) rechts neben dem Erinnerungsfeld. Ein Tipp
+  startet die Aufnahme, ein zweiter Tipp auf „⬤ Aufnahme läuft…“ stoppt sie. Der
+  erkannte Text wird **angehängt**, vorhandener Text bleibt. Es gibt keinen
+  eigenen Audio- oder Netzweg und keinen neuen Anbieter.
+- **Schutz vor Fehlzuordnung:** Solange aufgenommen wird oder die Erkennung
+  noch nichts ins Feld geschrieben hat (höchstens 20 s), nimmt das Quiz **keine
+  Antwort** an, auch nicht „Weiter“ oder „= dieselbe Person“. Sonst landete der
+  Text im Feld des **nächsten** Vorschlags, also bei der falschen Person. Reine
+  Funktion `gruppenDiktatOffen`.
+- Fehlt `starteFeldDiktat` (etwa wenn `app.js` nicht geladen ist), kommt der
+  Hinweis auf das Tastatur-Mikrofon.
+- Cache: `gruppen_quiz.js?v=20261001E`, `style.css?v=20261001E`.
+
+### Bekannte Grenze
+
+Scheitert die Erkennung (kein Netz oder kein Schlüssel), meldet `app.js` den
+Fehler im Chat, also hinter dem Blatt. Das Quiz gibt nach 20 s wieder frei, das
+Feld bleibt unverändert.
+
+### Prüfung
+
+- `frontend/tests/test_gruppen_quiz.js`: alle Prüfungen grün (neu: Diktat-Sperre
+  in 5 Fällen, Nutzung von `starteFeldDiktat`, Sperre in **jeder** Antwort,
+  Knopf + Stil; Wächter auf `app.js`, dass `starteFeldDiktat` global bleibt und
+  mit „⬤“ beschriftet).
+- Alle 25 Frontend-Testdateien Exit 0.
+- **Browser-Prüfstand** (Chromium headless, 412 × 915 px, echtes Backend mit
+  erfundenen Testgruppen, Mikrofon per Chromium-Attrappe; ohne pCloud, daher
+  leere Kacheln):
+  1. Start: „Vorschlag 1001“, ein Zwillingsvorschlag.
+  2. „= dieselbe Person“ (Zwilling unbenannt): Es bleibt „Vorschlag 1001“, die
+     Frage verschwindet, „🔗 Verbunden mit 1 weiteren Vorschlag“ mit Bild, die
+     Meldung erklärt das.
+  3. 🎙: „⬤ Aufnahme läuft…“. Speichern wird abgewiesen („Erst die Aufnahme
+     beenden“). Nach dem Stopp wird es weiter abgewiesen („wird noch
+     übertragen“).
+  4. Speichern mit Namen und Erinnerung: Wechsel auf „Vorschlag 1002“ mit
+     Wechsel-Animation, Meldung „… · auch für 1 verbundenen Vorschlag → nächster
+     Vorschlag“, Fortschritt „2 von 3“ (der verbundene wurde mitbenannt),
+     Schnellname-Knopf „Testperson“ erscheint.
+  5. Schnellname antippen: alle Vorschläge erledigt.
+  6. Rückgängig: zurück auf „Vorschlag 1002“.
+  - Keine Seitenfehler, Seitenbreite 412 px (kein seitliches Überlaufen).

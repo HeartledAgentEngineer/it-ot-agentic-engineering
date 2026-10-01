@@ -27,7 +27,7 @@ function funktionAusschneiden(quelle, name) {
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
                'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText',
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
-               'gruppenSchnellNamen'];
+               'gruppenSchnellNamen', 'gruppenDiktatOffen'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -98,13 +98,28 @@ pruefe(/nameSpeichern\(n\)/.test(src) && /addEventListener\('click', \(\) => nam
     'Knopf speichert direkt; Speichern-Knopf übergibt kein Klick-Ereignis als Namen');
 pruefe(/b\.textContent = n;/.test(src) && !/innerHTML = [^';]*\bn\b/.test(src), 'Namen nur als Text, nie als HTML');
 
+console.log('Erinnerung einsprechen (01.10.2026)');
+pruefe(f.gruppenDiktatOffen(true, null, '', 0) === true, 'während der Aufnahme offen');
+pruefe(f.gruppenDiktatOffen(false, { wert: 'alt', bis: 1000 }, 'alt', 500) === true, 'nach dem Stopp offen, bis Text ankommt');
+pruefe(f.gruppenDiktatOffen(false, { wert: 'alt', bis: 1000 }, 'alt neu', 500) === false, 'Text angekommen → frei');
+pruefe(f.gruppenDiktatOffen(false, { wert: 'alt', bis: 1000 }, 'alt', 1500) === false, 'Erkennung gescheitert → nach der Frist frei');
+pruefe(f.gruppenDiktatOffen(false, null, '', 0) === false, 'ohne Diktat frei');
+pruefe(/typeof starteFeldDiktat !== 'function'/.test(src) && /await starteFeldDiktat\(feld, knopf\)/.test(src),
+    'nutzt die vorhandene Erkennung aus app.js (kein eigener Audio-/Netzweg), mit Rückfall-Hinweis');
+const antwortenRumpf = src.slice(src.indexOf('async function antworten('), src.indexOf('async function rueckgaengig('));
+pruefe(/if \(diktatOffen\(\)\)/.test(antwortenRumpf), 'jede Antwort wartet auf ein offenes Diktat (Text landet nie bei der nächsten Person)');
+pruefe(/<button id="gruppen-notiz-mikro" class="gruppen-mikro" type="button"/.test(html) && /\.gruppen-mikro \{/.test(css), 'Sprechknopf am Erinnerungsfeld mit Stil');
+const appJs = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+pruefe(/^async function starteFeldDiktat\(zielElem, btn\)/m.test(appJs) && /'⬤ Aufnahme läuft…'/.test(appJs),
+    'app.js: starteFeldDiktat global und beschriftet die Aufnahme mit ⬤ (darauf verlässt sich nimmtAuf)');
+
 console.log('Verdrahtung');
 pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in der Kopfzeile');
 ['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-namen',
  'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
- 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-schnellnamen'].forEach((id) => {
+ 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-schnellnamen', 'gruppen-notiz-mikro'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
         '#' + id + ' im HTML und im Skript');
 });
@@ -124,9 +139,9 @@ pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe 
 
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
-pruefe(v && v[1] >= '20261001D', 'gruppen_quiz.js mit Version 20261001D oder neuer');
+pruefe(v && v[1] >= '20261001E', 'gruppen_quiz.js mit Version 20261001E oder neuer');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
-pruefe(c && c[1] >= '20261001D', 'style.css-Version 20261001D oder neuer');
+pruefe(c && c[1] >= '20261001E', 'style.css-Version 20261001E oder neuer');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');
