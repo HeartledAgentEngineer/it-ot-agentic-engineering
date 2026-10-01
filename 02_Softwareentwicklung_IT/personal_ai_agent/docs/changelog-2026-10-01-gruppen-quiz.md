@@ -83,3 +83,12 @@ Bisher fragte das Gesichter-Quiz Bild für Bild — bei ~30.000 Gesichtern undur
   freigegebenen Ordner oder pCloud.
 - Brücke in den `gesichter_katalog.json` (neue Handy-Fotos erkennen die benannte Person) braucht
   ein Merkmal je Gesicht — eigener Schritt.
+
+## Nachtrag 01.10.2026 ~09:25 — Sprechknopf-Overlay aus der Oberfläche
+
+Wunsch Sebastian: „die App hat immer noch diesen komischen Mikrofon-Button unten, der bringt ja gar
+nix … der muss auf jeden Fall weg." Hermes' Overlay `frontend/wecken.js` (Commit a16dd27, 30.09.)
+doppelte nur das Mikrofon der Eingabeleiste. `index.html` lädt es nicht mehr (Kommentar an der
+Stelle); die Datei bleibt im Repo für das echte Weckwort (A1c, Dienst in der Hey-Agent-App).
+`frontend/tests/test_wecken.js` Teil 9 prüft jetzt „nicht eingebunden" und dass das Mikrofon der
+Eingabeleiste bleibt; die übrigen Prüfungen der Datei unverändert. Alle 24 Frontend-Tests Exit 0.

@@ -11,7 +11,7 @@
 //     passiert nichts,
 //   * der Quelltext baut KEINEN eigenen Audio-/Netz-Weg (kein Aufruf von
 //     getUserMedia/MediaRecorder/AudioWorklet/fetch/XMLHttpRequest),
-//   * index.html lädt wecken.js mit ?v= NACH app.js.
+//   * index.html lädt wecken.js seit 01.10.2026 NICHT mehr (Wunsch Sebastian).
 //
 // Aufruf (aus dem Repo-Ordner):  node frontend/tests/test_wecken.js
 const fs = require('fs');
@@ -252,16 +252,14 @@ pruefe('liest den BESTEHENDEN Zustand (#mic-status + MutationObserver)',
   /getElementById\('mic-status'\)/.test(src) && /new MutationObserver/.test(src));
 
 // ═══════════════════════════════════════════════════════════════════════
-// 9) index.html: wecken.js mit ?v= NACH app.js eingebunden
+// 9) index.html: Overlay NICHT eingebunden (Entscheidung Sebastian 01.10.2026)
 // ═══════════════════════════════════════════════════════════════════════
-console.log('\n9) index.html: wecken.js mit ?v= NACH app.js');
-const mv = html.match(/wecken\.js\?v=(\d{8}[A-Z])/);
-pruefe('index.html lädt wecken.js mit ?v=<JJJJMMTT><Buchstabe>', !!mv, 'gefunden: ' + (mv && mv[1]));
-pruefe('Version nicht älter als 20260930D (gefunden: ' + (mv && mv[1]) + ')',
-  !!mv && mv[1] >= '20260930D');
-pruefe('wecken.js wird NACH app.js geladen', html.indexOf('app.js?v=') !== -1
-  && html.indexOf('app.js?v=') < html.indexOf('wecken.js?v='));
-pruefe('die Quelle des Overlays existiert (#mic-btn und #mic-status in index.html)',
+// Der Sprechknopf doppelte das Mikrofon in der Eingabeleiste („bringt ja gar
+// nix, der muss auf jeden Fall weg"). Gebraucht wird das Weckwort von außen
+// (A1c, Dienst in der App). Die Datei bleibt und wird oben weiter geprüft.
+console.log('\n9) index.html: Overlay nicht eingebunden (Wunsch Sebastian 01.10.)');
+pruefe('index.html lädt wecken.js NICHT mehr', !/<script[^>]+wecken\.js/.test(html));
+pruefe('das Mikrofon in der Eingabeleiste bleibt (#mic-btn und #mic-status)',
   /id="mic-btn"/.test(html) && /id="mic-status"/.test(html));
 
 console.log(fehler ? `\n${fehler} Prüfung(en) rot` : '\nalle Prüfungen grün');
