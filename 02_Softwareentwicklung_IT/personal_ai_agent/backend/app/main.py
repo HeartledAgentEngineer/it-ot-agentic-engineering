@@ -35,6 +35,7 @@ from app.router import (
     cloud,
     erzaehlen,
     gruppen,
+    diagnose,
 )
 
 # Configure logging
@@ -225,6 +226,9 @@ app.include_router(erzaehlen.router, dependencies=[Depends(auth.require_api_key)
 # schreibt Namen und Vorgaben im Format von personen_gruppieren.py nach
 # ~/foto_sortierung (Sicherung *.vorher, Protokoll, Rueckgaengig). Immer HTTP 200.
 app.include_router(gruppen.router, dependencies=[Depends(auth.require_api_key)])
+# Ueberlauf-Waechter (01.10.2026): die Oberflaeche meldet nur Messwerte, wenn eine
+# Blase rechts herausragt; Ablage im kabel-lesbaren Diagnose-Ordner. Immer HTTP 200.
+app.include_router(diagnose.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

@@ -2630,6 +2630,64 @@ function zeigeBildVorschau(container, dataUrl, pfad, rahmen) {
 }
 
 /** Beendet eine Antwortblase: Markdown rendern, Verlauf und Fußzeile setzen. */
+// ---------------------------------------------------------------------------
+// ÜBERLAUF-WÄCHTER (01.10.2026). Befund Sebastian (mehrfach): eine frisch
+// gestreamte Antwort ragt am Handy rechts über den Rand, nach App-Neustart ist
+// dieselbe Nachricht richtig. Im Browser-Prüfstand nicht nachstellbar — daher
+// misst die App selbst und meldet NUR Messwerte (Fensterbreite, WebView-Zoom,
+// Seitenbreite, Blasenrand, die am weitesten herausragenden Elemente mit Tag/
+// Klasse/white-space/display) — nie Text. Ziel: console.warn (Logcat) und
+// POST /api/diagnose/ueberlauf (kabel-lesbarer Diagnose-Ordner). Je Blase und
+// Phase höchstens eine Meldung.
+// ---------------------------------------------------------------------------
+/** Reine Funktion: die bis zu `max` Elemente, die am weitesten über `grenze` ragen. */
+function ueberlaufTaeter(elemente, grenze, max) {
+    const n = max || 3;
+    return (elemente || [])
+        .filter(e => e && typeof e.rechts === 'number' && e.rechts > grenze + 1)
+        .sort((a, b) => b.rechts - a.rechts)
+        .slice(0, n);
+}
+
+function ueberlaufPruefen(contentDiv, phase) {
+    try {
+        if (!contentDiv || !contentDiv.isConnected) return null;
+        const merker = 'ueberlauf' + phase;
+        if (contentDiv.dataset[merker]) return null;
+        const W = document.documentElement.clientWidth || window.innerWidth;
+        const blase = contentDiv.closest('.message') || contentDiv;
+        const rb = blase.getBoundingClientRect();
+        const skala = (window.visualViewport && window.visualViewport.scale) || 1;
+        const seite = document.documentElement.scrollWidth;
+        const zuBreit = rb.right > W + 1 || seite > W + 1
+            || contentDiv.scrollWidth > contentDiv.clientWidth + 1 || Math.abs(skala - 1) > 0.01;
+        if (!zuBreit) return null;
+        contentDiv.dataset[merker] = '1';
+        const grenze = Math.min(W, contentDiv.getBoundingClientRect().right);
+        const quelle = seite > W + 1 ? document.body : contentDiv;
+        const elemente = Array.prototype.slice.call(quelle.querySelectorAll('*'), 0, 800).map((e) => {
+            const r = e.getBoundingClientRect();
+            const cs = getComputedStyle(e);
+            return { tag: e.tagName.toLowerCase(), klasse: String(e.className || '').slice(0, 120),
+                     rechts: Math.round(r.right), breite: Math.round(r.width),
+                     ws: cs.whiteSpace, display: cs.display };
+        });
+        const messung = {
+            phase: phase, fenster: W, skala: skala, seite_scroll: seite,
+            blase_rechts: Math.round(rb.right), inhalt_scroll: contentDiv.scrollWidth,
+            inhalt_breite: contentDiv.clientWidth, taeter: ueberlaufTaeter(elemente, grenze, 3),
+        };
+        console.warn('[UEBERLAUF] ' + JSON.stringify(messung));
+        fetch(`${API_BASE}/api/diagnose/ueberlauf`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messung),
+        }).catch(() => {});
+        return messung;
+    } catch (_e) {
+        return null;
+    }
+}
+
 function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
@@ -2681,6 +2739,10 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // Der Vorleser darf jetzt auch den letzten Rest ohne Satzzeichen holen.
     if (vorleser) vorleser.neuerText();
     if (untenGewesen) scrollToBottom(true);
+    // Überlauf-Wächter: kurz nach dem Abschluss und noch einmal später messen
+    // (Bilder/Quellen/Knöpfe ändern die Breite erst nach dem Einfügen).
+    setTimeout(() => ueberlaufPruefen(contentDiv, 'fertig'), 300);
+    setTimeout(() => ueberlaufPruefen(contentDiv, 'spaeter'), 2000);
 
     // Automatischer Auftrag-Tracker: Enthält die Antwort eine Auftrag-ID?
     // Er startet nur, wenn der /chat/stream NICHT schon selbst die Strecke
@@ -6390,6 +6452,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                         const untenGewesen = isAtBottom();
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
                         if (untenGewesen) scrollToBottom(true);
+                        ueberlaufPruefen(contentDiv, 'stream');
                     }
                 } else if (daten.art === 'gedanke' && daten.text) {
                     // Live-Zwischenmeldung von Hermes (Track C): IMMER als
