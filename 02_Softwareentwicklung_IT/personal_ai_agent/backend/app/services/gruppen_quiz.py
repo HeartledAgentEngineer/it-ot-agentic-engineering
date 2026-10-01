@@ -69,8 +69,8 @@ BILDER_LIMIT_MAX = 500
 
 FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
                  "tools/foto_sortierung/personen_gruppieren.py --schreiben laufen "
-                 "lassen und die Dateien per Kabel uebergeben (Download-Ordner; "
-                 "die App uebernimmt sie beim naechsten Start).")
+                 "lassen und die Dateien per Kabel übergeben (Download-Ordner; "
+                 "die App übernimmt sie beim nächsten Start).")
 
 _SCHREIBSPERRE = threading.Lock()
 _CACHE: Dict[str, Tuple[Tuple[float, int], Any]] = {}
@@ -193,8 +193,8 @@ def _stand_lesen() -> Dict[str, List[str]]:
 def _atomar_schreiben(name: str, inhalt: Any) -> None:
     pfad = _schreibpfad(name)
     if _im_projekt(pfad):
-        raise GruppenFehler("Schreibziel liegt im Projektordner - abgelehnt "
-                            "(persoenliche Daten gehoeren nicht ins Repo).")
+        raise GruppenFehler("Schreibziel liegt im Projektordner – abgelehnt "
+                            "(persönliche Daten gehören nicht ins Repo).")
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     if os.path.isfile(pfad):
         with open(pfad, "rb") as alt, open(pfad + ".vorher", "wb") as sicherung:
@@ -240,7 +240,7 @@ def _protokoll_lesen() -> List[Dict[str, Any]]:
 def _protokoll_anhaengen(eintrag: Dict[str, Any]) -> None:
     pfad = _schreibpfad(PROTOKOLL_DATEINAME)
     if _im_projekt(pfad):
-        raise GruppenFehler("Schreibziel liegt im Projektordner - abgelehnt.")
+        raise GruppenFehler("Schreibziel liegt im Projektordner – abgelehnt.")
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     with open(pfad, "a", encoding="utf-8", newline="\n") as datei:
         datei.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
@@ -259,7 +259,7 @@ def name_saeubern(name: Any) -> str:
     if not sauber:
         raise GruppenFehler("Bitte einen Namen eingeben.")
     if len(sauber) > NAME_MAX:
-        raise GruppenFehler(f"Name zu lang (hoechstens {NAME_MAX} Zeichen).")
+        raise GruppenFehler(f"Name zu lang (höchstens {NAME_MAX} Zeichen).")
     return sauber
 
 
@@ -462,7 +462,7 @@ def rueckgaengig() -> Dict[str, Any]:
             offen = [e for e in eintraege
                      if e.get("art") in ARTEN and e.get("id") not in erledigt]
             if not offen:
-                return {"ok": False, "fehler": "Es gibt nichts zurueckzunehmen."}
+                return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen."}
             letzte = offen[-1]
             namen = bestaetigt_lesen()
             vorgaben = vorgaben_lesen()
@@ -499,7 +499,7 @@ def rueckgaengig() -> Dict[str, Any]:
         return {"ok": False, "fehler": str(fehler)}
     except OSError as fehler:
         logger.error("Gruppen-Quiz: Rueckgaengig fehlgeschlagen: %s", fehler)
-        return {"ok": False, "fehler": f"Zuruecknehmen fehlgeschlagen ({fehler.__class__.__name__})."}
+        return {"ok": False, "fehler": f"Zurücknehmen fehlgeschlagen ({fehler.__class__.__name__})."}
     weiter = naechste()
     weiter["zurueckgenommen"] = {"kennung": kennung, "art": letzte.get("art")}
     return weiter

@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20260929B">
+    <link rel="stylesheet" href="style.css?v=20261001A">
 </head>
 <body>
     <div id="app">
@@ -55,6 +55,10 @@
                      erzaehlen.js — app.js bleibt unangetastet. -->
                 <button id="erzaehlen-btn" class="icon-btn" title="Erzählen – Diashow mit Geschichten"
                         aria-label="Erzähl-Diashow öffnen">📖</button>
+                <!-- Personen benennen im Gruppenmodus (Plan Foto-Gedächtnis
+                     Schritt 2, 01.10.2026). Eigene Datei gruppen_quiz.js. -->
+                <button id="gruppen-btn" class="icon-btn" title="Personen benennen – Gesichter-Gruppen aus deinen Fotos"
+                        aria-label="Personen benennen öffnen">👥</button>
             </div>
         </header>
 
@@ -228,6 +232,46 @@
         </div>
     </div>
 
+    <!-- Personen benennen (Plan Foto-Gedächtnis Schritt 2): die größte offene
+         Gesichter-Gruppe zuerst, bis zu 8 Ausschnitte, Name / später /
+         kenne ich nicht / rückgängig, bei Zwillingsverdacht gleich/andere. -->
+    <div id="gruppen-sheet" hidden>
+        <div class="sheet-panel gruppen-panel" role="dialog" aria-modal="true" aria-label="Personen benennen">
+            <div class="sheet-head">
+                <h2>👥 Personen benennen</h2>
+                <button id="gruppen-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div class="gruppen-body">
+                <p id="gruppen-fortschritt" class="gruppen-fortschritt"></p>
+                <section id="gruppen-karte" class="gruppen-karte" hidden>
+                    <div class="gruppen-kopf">
+                        <h3>Wer ist das?</h3>
+                        <span id="gruppen-offen" class="gruppen-offen"></span>
+                    </div>
+                    <p id="gruppen-meta" class="gruppen-meta"></p>
+                    <div id="gruppen-kacheln" class="gruppen-kacheln"></div>
+                    <div id="gruppen-zwillinge" class="gruppen-zwillinge"></div>
+                    <div class="gruppen-eingabe">
+                        <input id="gruppen-name" type="text" list="gruppen-namen" maxlength="60"
+                               placeholder="Name eingeben …" autocomplete="off" enterkeyhint="done">
+                        <datalist id="gruppen-namen"></datalist>
+                        <button id="gruppen-speichern" class="gruppen-knopf haupt" type="button">✓ Speichern</button>
+                    </div>
+                    <div class="gruppen-leiste">
+                        <button id="gruppen-spaeter" class="gruppen-knopf" type="button">⏭ Später</button>
+                        <button id="gruppen-unbekannt" class="gruppen-knopf" type="button">🚫 Kenne ich nicht</button>
+                        <button id="gruppen-zurueck" class="gruppen-knopf" type="button">↩ Rückgängig</button>
+                    </div>
+                </section>
+                <section id="gruppen-fertig" class="gruppen-fertig" hidden>
+                    <p>🎉 Alle Gruppen sind erledigt.</p>
+                    <button id="gruppen-zurueck-fertig" class="gruppen-knopf" type="button">↩ Letzte Antwort zurücknehmen</button>
+                </section>
+                <p id="gruppen-meldung" class="gruppen-meldung" role="status" aria-live="polite"></p>
+            </div>
+        </div>
+    </div>
+
     <!-- Erzähl-Diashow (Auftrag E8a): links Ereignisliste, rechts Diashow +
          Geschichten. Am Handy (< 768 px) zwei Stufen statt nebeneinander
          (erzaehlen.js schaltet per CSS-Klasse .erzaehl-stufe-diashow um). -->
@@ -319,6 +363,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001A"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
+    <script src="gruppen_quiz.js?v=20261001A"></script>
     <!-- Weck-Overlay (30.09.2026): großer Sprachknopf unten rechts. Er liest
          den Zustand aus der bestehenden Zeile #mic-status und tippt den
          vorhandenen Knopf #mic-btn an – kein zweiter Audio-Weg, kein

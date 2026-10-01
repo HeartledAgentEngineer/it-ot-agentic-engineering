@@ -1834,3 +1834,208 @@ button.footer-note:hover {
     flex: 0 0 auto;
 }
 
+
+/* =========================================================================
+   Personen benennen im Gruppenmodus (Plan Foto-Gedächtnis Schritt 2,
+   01.10.2026) — gruppen_quiz.js. Blatt wie Erzählen/Selbsttest; Kacheln mit
+   Gesichtsausschnitten (canvas), große Tippflächen fürs Handy.
+   ========================================================================= */
+#gruppen-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+}
+
+#gruppen-sheet[hidden] { display: none; }
+
+.gruppen-panel {
+    max-height: 92vh;
+}
+
+.gruppen-body {
+    overflow-y: auto;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.gruppen-fortschritt {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.gruppen-karte[hidden],
+.gruppen-fertig[hidden] { display: none; }
+
+.gruppen-karte {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.gruppen-kopf {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.gruppen-kopf h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--accent), #e040fb);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.gruppen-offen,
+.gruppen-meta {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.gruppen-kacheln {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.gruppen-kachel {
+    position: relative;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+    cursor: zoom-in;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.gruppen-kachel:hover,
+.gruppen-kachel:focus-visible { border-color: var(--accent); transform: scale(1.02); }
+
+.gruppen-kachel canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.gruppen-kachel.leer::after {
+    content: '—';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.gruppen-kachel.klein {
+    width: 44px;
+    flex-shrink: 0;
+}
+
+.gruppen-zwillinge:empty { display: none; }
+
+.gruppen-zwillinge {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gruppen-zwilling {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    font-size: 0.8rem;
+}
+
+.gruppen-zwilling span {
+    flex: 1 1 140px;
+    min-width: 0;
+}
+
+.gruppen-zwilling-knoepfe {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.gruppen-eingabe {
+    display: flex;
+    gap: 8px;
+}
+
+.gruppen-eingabe input {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: inherit;
+    font-size: 1rem;
+}
+
+.gruppen-eingabe input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.gruppen-leiste {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.gruppen-knopf {
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.gruppen-knopf:hover { border-color: var(--accent); }
+.gruppen-knopf:active { transform: scale(0.97); }
+
+.gruppen-knopf.haupt {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.gruppen-fertig {
+    text-align: center;
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.gruppen-meldung {
+    min-height: 1.2em;
+    font-size: 0.82rem;
+    color: #9f9;
+}
+
+.gruppen-meldung.fehler { color: #f99; }

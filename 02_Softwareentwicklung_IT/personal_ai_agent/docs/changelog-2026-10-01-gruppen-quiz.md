@@ -44,9 +44,37 @@ Bisher fragte das Gesichter-Quiz Bild für Bild — bei ~30.000 Gesichtern undur
   jeder Aufruf endet auf `|| true`). `bash -n` auf beiden Skripten OK.
 - Voller Prüfbefehl: siehe Commit.
 
-## Offen
+## 2b — Oberfläche „👥 Personen benennen"
 
-- **2b Oberfläche** (eigene Datei `frontend/gruppen_quiz.js`) — folgt.
+- **`frontend/gruppen_quiz.js`** (neu, eigene Datei wie `erzaehlen.js`/`wecken.js`; `app.js`
+  unberührt): Knopf 👥 in der Kopfzeile öffnet ein Blatt mit Fortschritt („12 von 986 Gruppen
+  benannt · 3.400 von 31.781 Gesichtern"), Kopfzeile der Gruppe (Gesichter, Fotos, Videos,
+  Zeitraum), bis zu 8 Gesichtsausschnitten, Namensfeld mit Vorschlägen (bekannte Namen,
+  `<datalist>`), „⏭ Später", „🚫 Kenne ich nicht", „↩ Rückgängig"; bei Zwillingsverdacht je
+  Kandidat „= dieselbe" / „≠ andere" mit Hinweis, wenn beide zusammen auf Fotos sind („also wohl
+  zwei Menschen") — auf einem Foto sind es immer zwei verschiedene.
+- Gesichter: Vorschaubild 480×480 über `/api/cloud/thumb`, Ausschnitt per `<canvas>` im Browser
+  (`gruppenAusschnitt`: quadratisch, 35 % Rand, am Bildrand geklemmt); passt das Seitenverhältnis
+  nicht (Vorschau anders gedreht als die Erkennung), wird das ganze Bild eingepasst statt eines
+  falschen Ausschnitts. Objekt-URLs werden sofort freigegeben, nichts wird gespeichert. Antippen
+  zeigt das Foto (800×800) im Vollbild von `app.js` — mit dem neuen Zoom.
+- Meldungen des Dienstes mit echten Umlauten. `style.css?v=20261001A`,
+  `gruppen_quiz.js?v=20261001A`.
+
+## Prüfung (2b)
+
+- Neu `frontend/tests/test_gruppen_quiz.js` (Ausschnitt-Rechnung inkl. Drehung und Rand, Texte,
+  alle IDs in HTML und Skript, keine Inline-Handler, Skript nach `app.js`, flüchtige
+  Vorschaubilder, Cache-Stand); `test_foto_galerie.js` auf den neuen `style.css`-Stand
+  nachgezogen. `node --check` OK, **alle 24 Frontend-Tests Exit 0**.
+- Browser-Prüfstand (Handybreite 375 px, echtes Blatt aus `index.html`, echtes
+  `gruppen_quiz.js`, erfundenes Backend mit gezeichneten Gesichtern): 8 Kacheln, Gesichter mittig
+  im Ausschnitt, Fortschritt/Kopfzeile/Zwillings-Hinweis korrekt, keine waagerechte
+  Scroll-Leiste; leerer Name → Hinweis, nichts gesendet; Name per Enter → gespeichert, nächste
+  Gruppe, Name in den Vorschlägen; Kachel → Vollbild; Rückgängig ohne Verlauf → ehrliche
+  Meldung; letzte Gruppe → „Alle Gruppen sind erledigt".
+
+## Offen
 - Die Dateien müssen einmal per Kabel in den Download-Ordner des Handys gelegt werden
   (`adb push … /sdcard/Download/`) — das startet Sebastian oder Hermes (persönliche Daten, nicht
   Claude). Danach übernimmt die App sie beim nächsten Start.

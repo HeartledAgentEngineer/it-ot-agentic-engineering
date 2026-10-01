@@ -144,6 +144,11 @@ personal_ai_agent/
   Statuszeile je Aufruf. Scheitert der Werkzeug-Weg vor dem ersten Text, antwortet das Modell
   ohne. Kein Knopf mehr (der Web-Knopf bleibt); am Server abschaltbar mit `TOOL_USE=false`
   in `backend/.env` (`docs/spec-tool-use-v1.md`)
+- ✅ **Personen benennen im Gruppenmodus** (Kopfzeilen-Knopf „👥") – statt Bild für Bild ganze
+  Gesichter-Gruppen aus `personen_gruppieren.py` benennen, die größte offene zuerst; später /
+  kenne ich nicht / rückgängig, bei Zwillingsverdacht dieselbe/andere. Namen und Vorgaben landen
+  im Format des Gruppierers; Register „Bilder mit X und/oder Y" (`/api/gruppen/bilder`)
+  (`docs/changelog-2026-10-01-gruppen-quiz.md`)
 - ✅ **TTS** – Antworten werden vorgelesen (Browser SpeechSynthesis)
 - ✅ **Chat im Browser-Tab** – erreichbar über die lokale URL (keine App/keine Installation nötig)
 - ✅ **IT-Security & Netzwerktechnik** als Spezialgebiet
