@@ -36,6 +36,7 @@ from app.services import beziehungen_service as dienst_beziehungen  # noqa: E402
 from app.services import erzaehl_service as dienst_erzaehlung  # noqa: E402
 from app.services import foto_bilder as dienst_bilder  # noqa: E402
 from app.services import foto_uebersicht as dienst_foto_uebersicht  # noqa: E402
+from app.services import gruppen_quiz as dienst_gruppen  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 WERKZEUG = REPO / "tools" / "handy" / "uebergabe_uebernehmen.py"
@@ -706,7 +707,7 @@ def test_quelltext_ohne_feste_ausgabepfade():
 def _erwartete_dateinamen() -> set:
     """Die von den Diensten gelesenen Dateinamen aus den Modulkonstanten.
 
-    Alle **fuenf** Dateien, die ein Dienst am Handy aus ``~/foto_sortierung``
+    Alle **sieben** Dateien, die ein Dienst am Handy aus ``~/foto_sortierung``
     liest — nicht nur die drei in diesem Schritt ergaenzten. Sonst koennte eine
     spaetere Aenderung die zwei aelteren Namen aus dem Startskript entfernen,
     ohne dass ein Waechter anschlaegt. ``geschichten.jsonl`` fehlt bewusst: die
@@ -718,13 +719,15 @@ def _erwartete_dateinamen() -> set:
         dienst_erzaehlung.EREIGNISSE_DATEINAME,        # ereignisse.jsonl
         dienst_beziehungen.BEZIEHUNGEN_DATEINAME,      # beziehungen.jsonl
         dienst_beziehungen.UEBERSICHT_DATEINAME,       # beziehungen.json
+        dienst_gruppen.BEISPIELE_DATEINAME,            # personen_beispiele.json (01.10.)
+        dienst_gruppen.ZUORDNUNG_DATEINAME,            # gesicht_zuordnung.jsonl (01.10.)
     }
 
 
 def test_waechter_erwartete_namen_deckt_alle_gelesenen_datendateien():
-    """Der Waechter kennt genau die fuenf Dateien, die die Dienste lesen."""
+    """Der Waechter kennt genau die sieben Dateien, die die Dienste lesen."""
     namen = _erwartete_dateinamen()
-    assert len(namen) == 5, f"unerwartete Namensmenge: {sorted(namen)}"
+    assert len(namen) == 7, f"unerwartete Namensmenge: {sorted(namen)}"
     for alt in (dienst_bilder.DATEIEN_DATEINAME,
                 dienst_foto_uebersicht.UEBERSICHT_DATEINAME):
         assert alt in namen, f"vorbestehende Datei fehlt im Waechter: {alt}"
@@ -840,3 +843,36 @@ def test_waechter_prueffunktion_weist_pfadanteil_und_leeren_eintrag_ab():
         basis + " ereignisse.jsonl beziehungen.jsonl beziehungen.json")
     assert sauber[-3:] == ["ereignisse.jsonl", "beziehungen.jsonl",
                            "beziehungen.json"]
+
+
+# ── Waechter: auch der ECHTE App-Startweg uebernimmt (01.10.2026) ─────────────
+#
+# Befund 30.09.2026: Die Uebernahme stand nur in start-termux.sh (Widget-Tipp).
+# Die App "Hey Agent" startet aber ueber termux/agent-ensure.sh — dort kam sie
+# nie vorbei, per Kabel gelegte Dateien blieben im Download-Ordner liegen.
+
+AGENT_ENSURE = REPO / "termux" / "agent-ensure.sh"
+
+
+def test_waechter_app_startweg_uebernimmt_dieselben_dateien():
+    text = AGENT_ENSURE.read_text(encoding="utf-8")
+    assert _pruefe_startskript(text)                      # --ziel da, Liste vollstaendig
+    zeilen = [z for z in text.splitlines()
+              if "--dateien" in z and not z.lstrip().startswith("#")]
+    assert len(zeilen) == 2, "mit und ohne Protokoll"
+    for zeile in zeilen:
+        geparst = _uebergabedateien_im_startskript(zeile)
+        for erwartet in _erwartete_dateinamen():
+            assert erwartet in geparst, f"in agent-ensure.sh fehlt {erwartet}"
+
+
+def test_waechter_app_startweg_uebernahme_vor_dem_serverstart_und_abgefangen():
+    text = AGENT_ENSURE.read_text(encoding="utf-8")
+    uebernahme = text.index("uebergabe_uebernehmen.py")
+    assert text.index("pull --ff-only") < uebernahme < text.index("python -m uvicorn")
+    # Jeden Aufruf als ganzen Befehl lesen (Fortsetzungszeilen mit \ verbunden).
+    befehle = text.replace("\\\n", " ").splitlines()
+    aufrufe = [b for b in befehle if "uebergabe_uebernehmen.py" in b and not b.lstrip().startswith("#")]
+    assert len(aufrufe) == 2
+    for befehl in aufrufe:
+        assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"

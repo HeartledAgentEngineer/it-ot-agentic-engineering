@@ -3,8 +3,9 @@
 # agent-ensure.sh — startet das Backend NUR, wenn es nicht antwortet.
 #
 # Gegenstueck zu start-termux.sh, aber bewusst schlanker: kein Beenden
-# laufender Prozesse, keine Datei-Uebernahmen. Laeuft der Server schon,
-# passiert nichts (idempotent) - auch kein Pull.
+# laufender Prozesse. Laeuft der Server schon, passiert nichts (idempotent) -
+# auch kein Pull und keine Uebernahme. Sonst: Pull, dann die Foto-/Personen-
+# Dateien aus dem Download-Ordner uebernehmen (seit 01.10.2026), dann Start.
 #
 # Zwei Aufrufwege aus der Android-App "Hey Agent":
 #   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar.
@@ -116,6 +117,30 @@ else
 fi
 
 cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
+
+# Datendateien vom PC uebernehmen (01.10.2026, Plan Foto-Gedaechtnis Schritt 2).
+# Vorher lief die Uebernahme NUR in start-termux.sh (Widget-Tipp) - der echte
+# App-Start kam dort nie vorbei, vom PC per Kabel gelegte Dateien blieben im
+# Download-Ordner liegen. Gleiches Werkzeug, gleiche Liste wie start-termux.sh
+# (sha256 hart, alte Fassung als *.vorher, entfernt nur die eigene
+# Uebergabedatei). Darf den Start NIE verhindern (|| true); fehlt die
+# Uebergabedatei (Normalfall), passiert nichts.
+QUELLE_DATEN="$HOME/storage/downloads"
+[ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
+PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
+mkdir -p "$PROTO_DATEN" 2>/dev/null || true
+if [ -d "$PROTO_DATEN" ]; then
+    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+        --quelle "$QUELLE_DATEN" \
+        --ziel "$HOME/foto_sortierung" \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl \
+        --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" >> "$LOG" 2>&1 || true
+else
+    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+        --quelle "$QUELLE_DATEN" \
+        --ziel "$HOME/foto_sortierung" \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl >> "$LOG" 2>&1 || true
+fi
 
 log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
 # Bindung aus der .env lesen (gleiches Muster wie neu-start-nach-lauf.sh).

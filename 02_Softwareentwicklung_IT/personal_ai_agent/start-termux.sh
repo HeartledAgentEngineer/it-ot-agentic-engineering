@@ -182,6 +182,8 @@ fi
 # der Übersicht). Dazu kommen drei Verknüpfungs-Dateien, die dieselben Dienste
 # am Handy lesen: ereignisse.jsonl (Ereignisliste für die Erzähl-Diashow),
 # beziehungen.jsonl und beziehungen.json (Antworten auf "was war am <Datum>?").
+# Seit 01.10.2026 zusätzlich personen_beispiele.json + gesicht_zuordnung.jsonl
+# (Personen benennen im Gruppenmodus, app/services/gruppen_quiz.py).
 # Alle fünf entstehen am PC (Werkzeuge tools/foto_sortierung/) und sind zu groß
 # und zu privat für Git. Der Termux-Heimordner ist über das Kabel
 # NICHT beschreibbar (App-Sandbox) — deshalb legt der PC sie per Kabel in den
@@ -203,7 +205,7 @@ QUELLE_DATEN="$HOME/storage/downloads"
 # der freigegebene Download-Ordner direkt (gleiches Muster wie Index und Token).
 [ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
 DATEN_GEFUNDEN=0
-for name in fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json; do
+for name in fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl; do
     [ -f "$QUELLE_DATEN/$name" ] && DATEN_GEFUNDEN=1
 done
 if [ "$DATEN_GEFUNDEN" = "1" ]; then
@@ -216,13 +218,13 @@ if [ "$DATEN_GEFUNDEN" = "1" ]; then
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json \
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl \
             --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
     else
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json || true
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl || true
     fi
 fi
 

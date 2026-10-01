@@ -34,6 +34,7 @@ from app.router import (
     beziehungen,
     cloud,
     erzaehlen,
+    gruppen,
 )
 
 # Configure logging
@@ -219,6 +220,11 @@ app.include_router(cloud.router, dependencies=[Depends(auth.require_api_key)])
 # ~/foto_sortierung/geschichten.jsonl an. Ohne die Ereignisdatei antwortet die
 # Route mit HTTP 200, ok=false und deutschem error-Text (wie fotos.router).
 app.include_router(erzaehlen.router, dependencies=[Depends(auth.require_api_key)])
+# Personen benennen im Gruppenmodus (Plan Foto-Gedaechtnis Schritt 2, 01.10.2026):
+# liest personen_beispiele.json / gesicht_zuordnung.jsonl (vom PC uebergeben),
+# schreibt Namen und Vorgaben im Format von personen_gruppieren.py nach
+# ~/foto_sortierung (Sicherung *.vorher, Protokoll, Rueckgaengig). Immer HTTP 200.
+app.include_router(gruppen.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
