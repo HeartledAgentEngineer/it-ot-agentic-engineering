@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261001A">
+    <link rel="stylesheet" href="style.css?v=20261001B">
 </head>
 <body>
     <div id="app">
@@ -253,9 +253,18 @@
                     <div id="gruppen-zwillinge" class="gruppen-zwillinge"></div>
                     <div class="gruppen-eingabe">
                         <input id="gruppen-name" type="text" list="gruppen-namen" maxlength="60"
-                               placeholder="Name eingeben …" autocomplete="off" enterkeyhint="done">
+                               placeholder="Name eingeben …" autocomplete="off" enterkeyhint="next">
                         <datalist id="gruppen-namen"></datalist>
                         <button id="gruppen-speichern" class="gruppen-knopf haupt" type="button">✓ Speichern</button>
+                    </div>
+                    <!-- Profil (01.10.2026, Wunsch Sebastian): Beziehung + Erinnerung
+                         gleich beim Benennen; Reinsprechen über das Tastatur-Mikrofon. -->
+                    <div class="gruppen-profil">
+                        <input id="gruppen-beziehung" type="text" maxlength="80" autocomplete="off"
+                               placeholder="Wer ist das für dich? (z. B. Bruder, Schulfreund)">
+                        <textarea id="gruppen-notiz" rows="3" maxlength="4000"
+                                  placeholder="Erinnerungen, Situationen … (zum Reinsprechen das Mikrofon der Tastatur)"></textarea>
+                        <p id="gruppen-profil-info" class="gruppen-meta"></p>
                     </div>
                     <div class="gruppen-leiste">
                         <button id="gruppen-spaeter" class="gruppen-knopf" type="button">⏭ Später</button>
@@ -363,7 +372,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
-    <script src="gruppen_quiz.js?v=20261001A"></script>
+    <script src="gruppen_quiz.js?v=20261001B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

@@ -25,7 +25,7 @@ function funktionAusschneiden(quelle, name) {
 }
 
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
-               'gruppenMeta', 'gruppenZwillingText'];
+               'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -58,18 +58,23 @@ pruefe(f.gruppenZeitraum(null, null) === '', 'ohne Daten leer');
 pruefe(f.gruppenZahl(31781) === '31.781', 'Tausenderpunkt');
 pruefe(f.gruppenFortschritt({ ok: true, benannt: 12, gruppen: 986, gesichter: 31781,
     gesichter_benannt: 3400, unbekannt: 2 })
-    === '12 von 986 Gruppen benannt · 3.400 von 31.781 Gesichtern · 2 unbekannt', 'Fortschrittszeile');
+    === '12 von 986 Vorschlägen benannt · 3.400 von 31.781 Gesichtern · 2 unbekannt', 'Fortschrittszeile (Vorschläge, nicht „Gruppen“)');
 pruefe(f.gruppenFortschritt({ ok: false }) === '', 'ohne Stand leer');
 pruefe(f.gruppenMeta({ groesse: 120, bilder: 90, videos: 1, von: '2015-01-01', bis: '2025-09-01' })
     === '120 Gesichter · 90 Fotos · 1 Video · 2015–2025', 'Kopfzeile');
 pruefe(/zwei Menschen/.test(f.gruppenZwillingText({ name: 'Tim', gemeinsame_bilder: 4 })),
     'gemeinsame Fotos → Hinweis „wohl zwei Menschen"');
-pruefe(f.gruppenZwillingText({ name: null, gemeinsame_bilder: 0 }) === 'Ähnlich: eine andere Gruppe',
-    'ohne Namen, ohne gemeinsame Fotos');
+pruefe(f.gruppenZwillingText({ name: null, gemeinsame_bilder: 0 }) === 'Ähnlich: ein noch unbenannter Vorschlag – dieselbe Person?',
+    'ohne Namen, ohne gemeinsame Fotos: Frage nach derselben Person');
+pruefe(!/dieselbe Person\?/.test(f.gruppenZwillingText({ name: 'Tim', gemeinsame_bilder: 2 })),
+    'gemeinsame Fotos: keine Frage nach derselben Person');
+pruefe(f.gruppenProfilText({ ok: true, beziehung: 'Bruder', notizen: [{}, {}] }) === 'Bekannt: Bruder · 2 Erinnerungen', 'Profilzeile');
+pruefe(f.gruppenProfilText({ ok: true, beziehung: '', notizen: [] }) === '' && f.gruppenProfilText(null) === '', 'leeres Profil ohne Zeile');
 
 console.log('Verdrahtung');
 pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in der Kopfzeile');
 ['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-namen',
+ 'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
@@ -85,11 +90,15 @@ pruefe(/revokeObjectURL/.test(src) && /groesse=\$\{groesse\}/.test(src), 'Vorsch
 pruefe(!/https?:\/\/(?!localhost)/.test(src), 'keine fremde Adresse');
 pruefe(/#gruppen-sheet\[hidden\] \{ display: none; \}/.test(css) && /\.gruppen-kacheln \{/.test(css), 'Stil vorhanden');
 
+pruefe(/beziehung: beziehung\.trim\(\), notiz: notiz\.trim\(\)/.test(src), 'Benennen schickt Beziehung und Erinnerung mit');
+pruefe(/\/api\/gruppen\/profil\?name=/.test(src), 'bekannter Name zeigt sein Profil');
+pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe sprechen von Personen');
+
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
-pruefe(v && v[1] >= '20261001A', 'gruppen_quiz.js mit Version');
+pruefe(v && v[1] >= '20261001B', 'gruppen_quiz.js mit Version 20261001B oder neuer');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
-pruefe(c && c[1] >= '20261001A', 'style.css-Version 20261001A oder neuer');
+pruefe(c && c[1] >= '20261001B', 'style.css-Version 20261001B oder neuer');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

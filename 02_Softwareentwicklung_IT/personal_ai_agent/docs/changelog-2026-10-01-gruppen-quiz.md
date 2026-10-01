@@ -111,3 +111,29 @@ alle Gesichter fertig und gruppiert?") und das Quiz heute unterwegs am Handy ben
   unter `/sdcard/` liegen.
 - Neu `backend/tests/test_bestand_und_handy_uebergabe.py` (9 Tests, erfundene Dateien,
   nachgebautes `adb`; u. a. „keine Inhalte in der Ausgabe", „schreibt nichts", „nie rm").
+
+## Nachtrag 01.10.2026 ~10:50 — Profil mit Erinnerungen, Wortwahl „Vorschlag“ statt „Gruppe“
+
+Wünsche Sebastian (am Handy beim ersten Benennen): „Ich möchte auch gleich das Profil anlegen,
+für die Person schon mal was reinsprechen zu den Situationen" und „Warum nennst du das Gruppe?
+Das ist doch eine Person … es können auch mehrere Gruppen die gleiche Person sein."
+
+- **Profil je Person** (`personen_profile.json`): beim Benennen optional „Wer ist das für dich?"
+  (Beziehung, ≤ 80 Zeichen) und „Erinnerungen" (≤ 4.000 Zeichen, Zeilenumbrüche bleiben; zum
+  Reinsprechen das Tastatur-Mikrofon). Erinnerungen werden **nur angehängt** (id, Zeit, Text,
+  Kennung, Quelle); gleicher Name in anderer Schreibweise landet im selben Profil. Rückgängig
+  setzt die Beziehung zurück und markiert die Erinnerung `zurueckgenommen` (nicht gelöscht).
+  Neu `GET/POST /api/gruppen/profil` (Profil lesen / Beziehung setzen, Erinnerung anhängen —
+  auch außerhalb des Quiz). Ein bekannter Name im Feld zeigt „Bekannt: Bruder · 3 Erinnerungen".
+  Enter im Namensfeld springt jetzt zur Beziehung (gespeichert wird über „✓ Speichern").
+- **Wortwahl:** Die Oberfläche spricht von **Vorschlägen** (vom Rechner vorsortierte
+  Gesichter-Häufchen) und **Personen**: „12 von 1.106 Vorschlägen benannt", „Ähnlich: … –
+  dieselbe Person?", Knöpfe „= dieselbe Person / ≠ andere Person". Mehrere Vorschläge können
+  dieselbe Person sein (Alter, Bart, Brille) — derselbe Name legt sie beim nächsten
+  Gruppierlauf zusammen.
+- `gruppen_quiz.js`/`style.css` `?v=20261001B`.
+- Prüfung: `backend/tests/test_gruppen_quiz.py` +5 Tests (31 passed: Profil anlegen, Anhängen
+  statt Ersetzen, Rückgängig markiert statt löscht, zu lange Erinnerung → nichts geschrieben,
+  Routen); `frontend/tests/test_gruppen_quiz.js` erweitert; alle 25 Frontend-Tests Exit 0.
+  Browser-Prüfstand: Fortschritt/Wortwahl/Knöpfe wie oben, bekannter Name zeigt Profil,
+  „Speichern" schickt Name + Beziehung + Erinnerung, Meldung „· Erinnerung angelegt", Felder leer.

@@ -2039,3 +2039,29 @@ button.footer-note:hover {
 }
 
 .gruppen-meldung.fehler { color: #f99; }
+
+.gruppen-profil {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gruppen-profil input,
+.gruppen-profil textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: inherit;
+    font: inherit;
+    font-size: 0.95rem;
+    resize: vertical;
+}
+
+.gruppen-profil input:focus,
+.gruppen-profil textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}

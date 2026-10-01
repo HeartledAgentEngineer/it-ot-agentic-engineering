@@ -59,7 +59,7 @@ function gruppenZahl(n) {
 /** Fortschrittszeile aus /api/gruppen/stand. */
 function gruppenFortschritt(stand) {
     if (!stand || stand.ok !== true) return '';
-    const teile = [gruppenZahl(stand.benannt) + ' von ' + gruppenZahl(stand.gruppen) + ' Gruppen benannt'];
+    const teile = [gruppenZahl(stand.benannt) + ' von ' + gruppenZahl(stand.gruppen) + ' Vorschlägen benannt'];
     if (stand.gesichter) {
         teile.push(gruppenZahl(stand.gesichter_benannt) + ' von ' + gruppenZahl(stand.gesichter) + ' Gesichtern');
     }
@@ -81,14 +81,25 @@ function gruppenMeta(g) {
 /** Hinweis zu einem Zwillings-Kandidaten. Gemeinsame Fotos = zwei Menschen. */
 function gruppenZwillingText(z) {
     if (!z) return '';
-    const wer = z.name ? z.name : 'eine andere Gruppe';
-    let text = 'Ähnlich: ' + wer;
+    const wer = z.name ? z.name : 'ein noch unbenannter Vorschlag';
+    let text = 'Ähnlich: ' + wer + ' – dieselbe Person?';
     if (z.gemeinsame_bilder > 0) {
         text += ' — beide zusammen auf ' + gruppenZahl(z.gemeinsame_bilder)
             + (z.gemeinsame_bilder === 1 ? ' Foto' : ' Fotos')
             + ', also wohl zwei Menschen (z. B. Geschwister)';
+        text = text.replace(' – dieselbe Person?', '');
     }
     return text;
+}
+
+/** Kurzinfo zu einem vorhandenen Profil (Beziehung, Zahl der Erinnerungen). */
+function gruppenProfilText(p) {
+    if (!p || p.ok !== true) return '';
+    const teile = [];
+    if (p.beziehung) teile.push(p.beziehung);
+    const n = (p.notizen || []).length;
+    if (n) teile.push(n + (n === 1 ? ' Erinnerung' : ' Erinnerungen'));
+    return teile.length ? 'Bekannt: ' + teile.join(' · ') : '';
 }
 
 // =========================================================================
@@ -97,7 +108,7 @@ function gruppenZwillingText(z) {
 (function () {
     'use strict';
 
-    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set() };
+    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [] };
 
     function el(id) { return document.getElementById(id); }
 
@@ -176,6 +187,7 @@ function gruppenZwillingText(z) {
     }
 
     function namenListeSetzen(namen) {
+        zustand.namen = namen || [];
         const liste = el('gruppen-namen');
         if (!liste) return;
         liste.innerHTML = '';
@@ -230,12 +242,12 @@ function gruppenZwillingText(z) {
             const gleich = document.createElement('button');
             gleich.type = 'button';
             gleich.className = 'gruppen-knopf';
-            gleich.textContent = '= dieselbe';
+            gleich.textContent = '= dieselbe Person';
             gleich.addEventListener('click', () => antworten('gleich', { ziel: z.kennung }));
             const andere = document.createElement('button');
             andere.type = 'button';
             andere.className = 'gruppen-knopf';
-            andere.textContent = '≠ andere';
+            andere.textContent = '≠ andere Person';
             andere.addEventListener('click', () => antworten('verschieden', { ziel: z.kennung }));
             const knoepfe = document.createElement('div');
             knoepfe.className = 'gruppen-zwilling-knoepfe';
@@ -244,8 +256,9 @@ function gruppenZwillingText(z) {
             zeile.appendChild(knoepfe);
             zw.appendChild(zeile);
         });
-        const feld = el('gruppen-name');
-        if (feld) feld.value = '';
+        ['gruppen-name', 'gruppen-beziehung', 'gruppen-notiz'].forEach((id) => { const f = el(id); if (f) f.value = ''; });
+        const info = el('gruppen-profil-info');
+        if (info) info.textContent = '';
     }
 
     async function fortschrittLaden() {
@@ -275,7 +288,7 @@ function gruppenZwillingText(z) {
             if (antwort && antwort.ok === true) {
                 const s = antwort.gespeichert || {};
                 const texte = {
-                    name: '✓ ' + (s.name || '') + ' gespeichert',
+                    name: '✓ ' + (s.name || '') + ' gespeichert' + (s.notiz ? ' · Erinnerung angelegt' : ''),
                     gleich: '✓ als dieselbe Person gemerkt' + (s.name ? ' (' + s.name + ')' : ''),
                     verschieden: '✓ als zwei Menschen gemerkt',
                     spaeter: '⏭ zurückgestellt — kommt zum Schluss wieder',
@@ -317,7 +330,23 @@ function gruppenZwillingText(z) {
         const feld = el('gruppen-name');
         const name = feld ? feld.value.trim() : '';
         if (!name) { melde('Bitte einen Namen eingeben.', false); if (feld) feld.focus(); return; }
-        antworten('name', { name: name });
+        const beziehung = (el('gruppen-beziehung') || {}).value || '';
+        const notiz = (el('gruppen-notiz') || {}).value || '';
+        antworten('name', { name: name, beziehung: beziehung.trim(), notiz: notiz.trim() });
+    }
+
+    /** Bekannter Name eingegeben? Dann das vorhandene Profil kurz zeigen. */
+    async function profilZeigen() {
+        const info = el('gruppen-profil-info');
+        const feld = el('gruppen-name');
+        if (!info || !feld) return;
+        const name = feld.value.trim();
+        if (!name || !zustand.namen.some((n) => n.toLowerCase() === name.toLowerCase())) {
+            info.textContent = '';
+            return;
+        }
+        const p = await jsonHolen('/api/gruppen/profil?name=' + encodeURIComponent(name)).catch(() => null);
+        info.textContent = gruppenProfilText(p);
     }
 
     function oeffnen() {
@@ -344,7 +373,15 @@ function gruppenZwillingText(z) {
         const speichern = el('gruppen-speichern');
         if (speichern) speichern.addEventListener('click', nameSpeichern);
         const feld = el('gruppen-name');
-        if (feld) feld.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); nameSpeichern(); } });
+        if (feld) {
+            feld.addEventListener('keydown', (ev) => {
+                if (ev.key !== 'Enter') return;
+                ev.preventDefault();
+                const bez = el('gruppen-beziehung');
+                if (bez) bez.focus(); else nameSpeichern();
+            });
+            feld.addEventListener('change', profilZeigen);
+        }
         const spaeter = el('gruppen-spaeter');
         if (spaeter) spaeter.addEventListener('click', () => antworten('spaeter'));
         const unbekannt = el('gruppen-unbekannt');

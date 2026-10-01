@@ -60,10 +60,13 @@ BESTAETIGT_DATEINAME = "personen_bestaetigt.json"
 VORGABEN_DATEINAME = "personen_vorgaben.json"
 STAND_DATEINAME = "gruppen_quiz_stand.json"
 PROTOKOLL_DATEINAME = "gruppen_antworten.jsonl"
+PROFILE_DATEINAME = "personen_profile.json"
 
 ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt")
 MODI = ("alle", "eine", "genau")
 NAME_MAX = 60
+BEZIEHUNG_MAX = 80
+NOTIZ_MAX = 4000
 BEISPIELE_MAX = 8
 BILDER_LIMIT_MAX = 500
 
@@ -286,6 +289,98 @@ def namen_liste(namen: Dict[str, str]) -> List[str]:
     return sorted(gesehen.values(), key=str.casefold)
 
 
+# ── Profile: Beziehung + Erinnerungen je Person (01.10.2026) ────────────────
+#
+# Wunsch Sebastian: beim Benennen gleich ein Profil anlegen und zur Person
+# etwas reinsprechen (Situationen, Erinnerungen). ``personen_profile.json``:
+# {"profile": {"Leon": {"beziehung": "Schulfreund",
+#                       "notizen": [{"id", "zeit", "text", "kennung", "quelle"}]}}}
+# Notizen werden nur angehaengt; Rueckgaengig markiert eine Notiz als
+# ``zurueckgenommen`` statt sie zu loeschen.
+
+def text_saeubern(text: Any, laenge: int, zeilen: bool = False) -> str:
+    """Steuerzeichen weg (Zeilenumbrueche nur, wenn erlaubt), getrimmt, Laenge geprueft."""
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        raise GruppenFehler("Ungültige Eingabe.")
+    if zeilen:
+        sauber = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text.replace("\r\n", "\n"))
+        sauber = re.sub(r"\n{3,}", "\n\n", sauber).strip()
+    else:
+        sauber = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", text)).strip()
+    if len(sauber) > laenge:
+        raise GruppenFehler(f"Text zu lang (höchstens {laenge} Zeichen).")
+    return sauber
+
+
+def _profile_laden() -> Dict[str, Any]:
+    daten = _json_lesen(_schreibpfad(PROFILE_DATEINAME), {})
+    if not isinstance(daten, dict):
+        daten = {}
+    if not isinstance(daten.get("profile"), dict):
+        daten["profile"] = {}
+    return daten
+
+
+def _profil_schluessel(profile: Dict[str, Any], name: str) -> str:
+    """Vorhandene Schreibweise wiederverwenden (Gross/Klein egal), sonst der neue Name."""
+    return next((k for k in profile if k.casefold() == name.casefold()), name)
+
+
+def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: str,
+                      kennung: Optional[str], quelle: str) -> Dict[str, Any]:
+    profile = daten["profile"]
+    schluessel = _profil_schluessel(profile, name)
+    eintrag = profile.setdefault(schluessel, {"beziehung": "", "notizen": []})
+    eintrag.setdefault("notizen", [])
+    aenderung: Dict[str, Any] = {"name": schluessel, "notiz_id": None}
+    if beziehung and beziehung != eintrag.get("beziehung"):
+        aenderung["beziehung_vorher"] = eintrag.get("beziehung") or ""
+        eintrag["beziehung"] = beziehung
+    if notiz:
+        nid = uuid.uuid4().hex[:12]
+        eintrag["notizen"].append({"id": nid, "zeit": datetime.now().isoformat(timespec="seconds"),
+                                   "text": notiz, "kennung": kennung, "quelle": quelle})
+        aenderung["notiz_id"] = nid
+    return aenderung
+
+
+def profil(name: str) -> Dict[str, Any]:
+    """Profil einer Person (ohne zurueckgenommene Notizen). Nie ein Wurf."""
+    try:
+        sauber = name_saeubern(name)
+        daten = _profile_laden()
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    schluessel = _profil_schluessel(daten["profile"], sauber)
+    p = daten["profile"].get(schluessel) or {}
+    notizen = [n for n in p.get("notizen") or [] if not n.get("zurueckgenommen")]
+    return {"ok": True, "name": schluessel, "beziehung": p.get("beziehung") or "",
+            "notizen": notizen}
+
+
+def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional[str] = None,
+                     kennung: Optional[str] = None) -> Dict[str, Any]:
+    """Beziehung setzen und/oder eine Erinnerung anhaengen (auch ohne Quiz). Nie ein Wurf."""
+    try:
+        sauber = name_saeubern(name)
+        b = text_saeubern(beziehung, BEZIEHUNG_MAX)
+        n = text_saeubern(notiz, NOTIZ_MAX, zeilen=True)
+        if not b and not n:
+            raise GruppenFehler("Bitte eine Beziehung oder eine Erinnerung eingeben.")
+        with _SCHREIBSPERRE:
+            daten = _profile_laden()
+            _profil_ergaenzen(daten, sauber, b, n, kennung, "profil")
+            _atomar_schreiben(PROFILE_DATEINAME, daten)
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Profil: Schreiben fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    return profil(sauber)
+
+
 # ── Abfragen ─────────────────────────────────────────────────────────────────
 
 def stand() -> Dict[str, Any]:
@@ -360,11 +455,16 @@ def naechste() -> Dict[str, Any]:
 # ── Antworten ────────────────────────────────────────────────────────────────
 
 def antworten(kennung: str, art: str, name: Optional[str] = None,
-              ziel: Optional[str] = None) -> Dict[str, Any]:
-    """Eine Antwort speichern und die naechste Gruppe liefern. Nie ein Wurf."""
+              ziel: Optional[str] = None, beziehung: Optional[str] = None,
+              notiz: Optional[str] = None) -> Dict[str, Any]:
+    """Eine Antwort speichern und die naechste Gruppe liefern. Nie ein Wurf.
+
+    Beim Benennen (``art="name"``) koennen ``beziehung`` und ``notiz`` mitkommen —
+    sie landen im Profil der Person (``personen_profile.json``).
+    """
     try:
         with _SCHREIBSPERRE:
-            eintrag = _antwort_anwenden(kennung, art, name, ziel)
+            eintrag = _antwort_anwenden(kennung, art, name, ziel, beziehung, notiz)
         logger.info("Gruppen-Quiz: %s fuer %s gespeichert", art, kennung)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -372,12 +472,14 @@ def antworten(kennung: str, art: str, name: Optional[str] = None,
         logger.error("Gruppen-Quiz: Schreiben fehlgeschlagen: %s", fehler)
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
     weiter = naechste()
-    weiter["gespeichert"] = {"kennung": kennung, "art": art, "name": eintrag.get("name")}
+    weiter["gespeichert"] = {"kennung": kennung, "art": art, "name": eintrag.get("name"),
+                             "notiz": bool((eintrag.get("profil") or {}).get("notiz_id"))}
     return weiter
 
 
 def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
-                      ziel: Optional[str]) -> Dict[str, Any]:
+                      ziel: Optional[str], beziehung: Optional[str] = None,
+                      notiz: Optional[str] = None) -> Dict[str, Any]:
     if art not in ARTEN:
         raise GruppenFehler(f"Unbekannte Antwort: {art!r}.")
     gruppen, _ = _gruppen_laden()
@@ -423,6 +525,11 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         name_setzen(kennung, sauber)
         if gleichnamig:
             paar_dazu("gleich", kennung, gleichnamig[0])
+        b = text_saeubern(beziehung, BEZIEHUNG_MAX)
+        n = text_saeubern(notiz, NOTIZ_MAX, zeilen=True)
+        if b or n:
+            profile = _profile_laden()
+            eintrag["profil"] = _profil_ergaenzen(profile, sauber, b, n, kennung, "quiz")
     elif art == "gleich":
         andere = str(ziel)          # oben geprueft: vorhanden und gueltig
         paar_dazu("gleich", kennung, andere)
@@ -448,6 +555,8 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         _bestaetigt_schreiben(namen)
     if any(eintrag["paare_neu"].values()) or any(eintrag["paare_weg"].values()):
         _vorgaben_schreiben(vorgaben)
+    if eintrag.get("profil"):
+        _atomar_schreiben(PROFILE_DATEINAME, profile)
     _atomar_schreiben(STAND_DATEINAME, st)
     _protokoll_anhaengen(eintrag)
     return eintrag
@@ -485,6 +594,17 @@ def rueckgaengig() -> Dict[str, Any]:
                     continue
                 ohne = [k for k in st[liste] if k != kennung]
                 st[liste] = ohne + [kennung] if war else ohne
+            pr = letzte.get("profil") or {}
+            if pr:
+                daten = _profile_laden()
+                p = daten["profile"].get(pr.get("name") or "")
+                if p is not None:
+                    if "beziehung_vorher" in pr:
+                        p["beziehung"] = pr["beziehung_vorher"]
+                    for notiz_eintrag in p.get("notizen") or []:
+                        if notiz_eintrag.get("id") == pr.get("notiz_id"):
+                            notiz_eintrag["zurueckgenommen"] = True
+                    _atomar_schreiben(PROFILE_DATEINAME, daten)
             if letzte.get("namen_vorher"):
                 _bestaetigt_schreiben(namen)
             if any((letzte.get("paare_neu") or {}).values()) or \

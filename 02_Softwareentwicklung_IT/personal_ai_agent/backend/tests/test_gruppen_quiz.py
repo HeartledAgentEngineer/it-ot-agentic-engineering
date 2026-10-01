@@ -306,3 +306,53 @@ def test_routen_sind_im_backend_mit_schluessel_geschuetzt():
     quelle = open(os.path.join(BACKEND, "app", "main.py"), encoding="utf-8").read()
     assert ("app.include_router(gruppen.router, dependencies=[Depends(auth.require_api_key)])"
             in quelle)
+
+
+# ── Profil: Beziehung + Erinnerungen (01.10.2026) ───────────────────────────
+
+def test_benennen_mit_beziehung_und_erinnerung_legt_profil_an(basis):
+    r = gq.antworten("Person_1001", "name", "Leon", beziehung=" Schul\tfreund ",
+                     notiz="Hurricane 2022,\r\nzusammen im Moshpit.\n\n\n\nDanach Pizza.")
+    assert r["ok"] and r["gespeichert"]["notiz"] is True
+    p = gq.profil("leon")                                     # Gross/Klein egal
+    assert p["name"] == "Leon" and p["beziehung"] == "Schul freund"
+    assert p["notizen"][0]["text"] == "Hurricane 2022,\nzusammen im Moshpit.\n\nDanach Pizza."
+    assert p["notizen"][0]["kennung"] == "Person_1001" and p["notizen"][0]["quelle"] == "quiz"
+    daten = _json(basis / gq.PROFILE_DATEINAME)
+    assert list(daten["profile"]) == ["Leon"]
+
+
+def test_weitere_erinnerung_wird_angehaengt_nicht_ersetzt(basis):
+    gq.antworten("Person_1001", "name", "Leon", notiz="erste")
+    gq.antworten("Person_1004", "name", "LEON", notiz="zweite")       # selbe Person
+    r = gq.profil_ergaenzen("Leon", beziehung="bester Freund", notiz="dritte")
+    assert r["ok"] and [n["text"] for n in r["notizen"]] == ["erste", "zweite", "dritte"]
+    assert r["beziehung"] == "bester Freund"
+    assert gq.profil_ergaenzen("Leon")["ok"] is False                  # nichts angegeben
+
+
+def test_rueckgaengig_markiert_erinnerung_statt_zu_loeschen(basis):
+    gq.antworten("Person_1001", "name", "Leon", beziehung="Bruder", notiz="falsch zugeordnet")
+    gq.rueckgaengig()
+    assert gq.profil("Leon")["notizen"] == [] and gq.profil("Leon")["beziehung"] == ""
+    roh = _json(basis / gq.PROFILE_DATEINAME)["profile"]["Leon"]["notizen"]
+    assert roh[0]["text"] == "falsch zugeordnet" and roh[0]["zurueckgenommen"] is True
+
+
+def test_zu_lange_erinnerung_wird_abgelehnt_und_nichts_geschrieben(basis):
+    r = gq.antworten("Person_1001", "name", "Leon", notiz="x" * (gq.NOTIZ_MAX + 1))
+    assert r["ok"] is False and "zu lang" in r["fehler"]
+    assert gq.bestaetigt_lesen() == {}
+    assert not (basis / gq.PROFILE_DATEINAME).exists()
+
+
+def test_profil_routen(basis):
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    r = c.post("/api/gruppen/antwort", json={"kennung": "Person_1001", "art": "name", "name": "Leon",
+                                             "beziehung": "Bruder", "notiz": "Urlaub 2016"})
+    assert r.json()["gespeichert"]["notiz"] is True
+    assert c.get("/api/gruppen/profil", params={"name": "Leon"}).json()["beziehung"] == "Bruder"
+    r2 = c.post("/api/gruppen/profil", json={"name": "Leon", "notiz": "Geburtstag"})
+    assert [n["text"] for n in r2.json()["notizen"]] == ["Urlaub 2016", "Geburtstag"]
