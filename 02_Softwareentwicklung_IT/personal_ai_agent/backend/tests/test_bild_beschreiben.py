@@ -648,3 +648,59 @@ def test_einbetten_trockenlauf_braucht_keinen_schluessel(tmp_path, capsys):
                       einbetter=None)
     assert rc == 0 and "Trockenlauf" in capsys.readouterr().out
     assert not (tmp_path / "i.db").exists()
+
+
+# ── 8. Plan-Eingang (01.10.2026): Sammlung ohne Sortierschluessel-CSV ───────
+#
+# Befund: der Nachtlauf las nur sortierschluessel.csv (Upload-Sammlung); die
+# 10.771 Fotos aus "Bilder & Videos" (sortierplan_bildervideos.json) blieben
+# ohne Beschreibung. --plan liest die zuege[] direkt (fileid bekannt).
+
+def _plan_schreiben(pfad: Path, zuege: list[dict]) -> Path:
+    pfad.write_text(json.dumps({"zuege": zuege}), encoding="utf-8")
+    return pfad
+
+
+def test_plan_zeilen_nur_fotos_mit_kennung_und_datum_aus_dem_namen(tmp_path):
+    plan = _plan_schreiben(tmp_path / "plan.json", [
+        {"fileid": 1001, "von_name": "IMG_20220618_112130.jpg", "von_ordner": "/Freunde/Hurricane", "jahr": 2022},
+        {"fileid": 1002, "von_name": "Urlaub.JPG", "von_ordner": "/Familie", "jahr": 2016},
+        {"fileid": 1003, "von_name": "VID_20220618.mp4", "jahr": 2022},          # Video raus
+        {"fileid": None, "von_name": "ohne.jpg"},                                 # ohne Kennung raus
+        {"fileid": 1001, "von_name": "IMG_20220618_112130.jpg", "jahr": 2022},    # doppelt raus
+        {"fileid": 1004, "von_name": "IMG-20190101-WA0001.jpg", "jahr": 2023},    # Name passt nicht zum Jahr
+    ])
+    zeilen = werkzeug.plan_zeilen_lesen(str(plan))
+    assert [z["fileid"] for z in zeilen] == [1001, 1002, 1004]
+    a, b, c = zeilen
+    assert (a["jahr"], a["monat"], a["tag"], a["zeit"]) == (2022, 6, 18, (11, 21, 30))
+    assert (b["jahr"], b["monat"], b["tag"], b["zeit"]) == (2016, 0, 0, None)    # nichts geraten
+    assert (c["jahr"], c["monat"]) == (2023, 0)
+    assert a["ordner"] == "/Freunde/Hurricane" and a["datei"] == "IMG_20220618_112130.jpg"
+
+
+def test_plan_lauf_ohne_ordner_abfrage_und_idempotent(tmp_path, capsys):
+    plan = _plan_schreiben(tmp_path / "sortierplan_bildervideos.json", [
+        {"fileid": 1000 + n, "von_name": f"Foto_{n}.jpg", "von_ordner": "/B", "jahr": 2019}
+        for n in range(1, 6)] + [{"fileid": 2000, "von_name": "clip.mov", "jahr": 2019}])
+    env = _env_schreiben(tmp_path / ".env")
+    argv = ["--plan", str(plan), "--ausgabe", str(tmp_path)]
+    rc = werkzeug.main(argv, sende=FakeSender(), api_abruf=Stolperfalle(),
+                       thumb_abruf=FakeThumb(), env_pfade=[str(env)])
+    ausgabe = capsys.readouterr().out
+    assert rc == 0 and "Sortierplan:" in ausgabe
+    jsonl = tmp_path / "bild_beschreibungen.jsonl"
+    zeilen = [json.loads(z) for z in jsonl.read_text(encoding="utf-8").splitlines()]
+    assert sorted(z["fileid"] for z in zeilen) == [1001, 1002, 1003, 1004, 1005]   # Video nicht
+    # Zweiter Lauf: alles erledigt, der Transport wird gar nicht gerufen.
+    rc2 = werkzeug.main(argv, sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                        thumb_abruf=Stolperfalle(), env_pfade=[str(env)])
+    assert rc2 == 0
+    assert len(jsonl.read_text(encoding="utf-8").splitlines()) == 5
+
+
+def test_plan_fehlt_ehrlich(tmp_path, capsys):
+    rc = werkzeug.main(["--plan", str(tmp_path / "gibtsnicht.json"), "--ausgabe", str(tmp_path)],
+                       sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                       thumb_abruf=Stolperfalle(), env_pfade=[])
+    assert rc == 2 and "Sortierplan nicht gefunden" in capsys.readouterr().out

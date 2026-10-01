@@ -255,6 +255,53 @@ def zeilen_vorbereiten(zeilen: list[dict]) -> list[dict]:
     return ergebnis
 
 
+PLAN_VIDEO_ENDUNGEN = (".mp4", ".mov", ".3gp", ".mkv", ".avi", ".m4v")
+_NAME_DATUM = re.compile(r"(?<!\d)((?:19|20)\d{2})[-_]?(\d{2})[-_]?(\d{2})(?!\d)")
+
+
+def plan_zeilen_lesen(pfad: str) -> list[dict]:
+    """Sortierplan (``zuege[]``) -> Zeilen wie aus der CSV, aber mit bekannter fileid.
+
+    Fuer Sammlungen ohne Sortierschluessel-CSV (01.10.2026: „Bilder & Videos",
+    ``sortierplan_bildervideos.json`` — der Nachtlauf las nur die CSV der
+    Upload-Sammlung und liess diese 10.771 Fotos deshalb aus). Videos (Endung)
+    und Eintraege ohne fileid fallen raus. Datum: ``jahr`` aus dem Plan,
+    Monat/Tag nur aus dem Dateinamen, wenn er ein zum Jahr passendes Datum
+    traegt — sonst 0, es wird nichts geraten. Ohne Datum bleibt die Zeile drin
+    (eine Beschreibung braucht keins); sortiert wird dann nach Jahr und Ordner.
+    """
+    with open(pfad, encoding="utf-8") as datei:
+        daten = json.load(datei)
+    zuege = daten.get("zuege") if isinstance(daten, dict) else daten
+    if not isinstance(zuege, list):
+        raise BildBeschreibenFehler(f"Sortierplan ohne Feld 'zuege': {pfad}")
+    zeilen: list[dict] = []
+    gesehen: set = set()
+    for zug in zuege:
+        if not isinstance(zug, dict):
+            continue
+        fileid = _als_int(zug.get("fileid"))
+        name = str(zug.get("von_name") or "").strip()
+        if not fileid or not name or fileid in gesehen:
+            continue
+        if name.lower().endswith(PLAN_VIDEO_ENDUNGEN):
+            continue
+        gesehen.add(fileid)
+        jahr = _als_int(zug.get("jahr"))
+        monat = tag = 0
+        treffer = _NAME_DATUM.search(name)
+        if treffer:
+            j, m, t = (int(x) for x in treffer.groups())
+            if (not jahr or j == jahr) and 1 <= m <= 12 and 1 <= t <= 31:
+                jahr, monat, tag = j, m, t
+        zeilen.append({
+            "fileid": fileid, "datei": name, "ordner": str(zug.get("von_ordner") or ""),
+            "jahr": jahr, "monat": monat, "tag": tag,
+            "zeit": zeit_aus_name(name, (jahr, monat, tag)) if monat else None,
+        })
+    return zeilen
+
+
 def sortierschluessel_sortieren(zeilen: list[dict]) -> list[dict]:
     """Chronologisch sortieren — deterministisch, ohne die CSV anzufassen.
 
@@ -655,6 +702,9 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
                     "bild_beschreibungen.jsonl (nur lesend).")
     zerleger.add_argument("--csv", default=STANDARD_CSV,
                           help="Sortierschluessel (CSV aus Stufe 1)")
+    zerleger.add_argument("--plan", default="",
+                          help="Sortierplan statt CSV (z. B. sortierplan_bildervideos.json): "
+                               "fileids stehen im Plan, keine Ordner-Abfrage noetig")
     zerleger.add_argument("--ausgabe", default=STANDARD_AUSGABE,
                           help="Zielordner der Ausgaben (ausserhalb des Repos)")
     zerleger.add_argument("--jsonl", default="",
@@ -696,8 +746,9 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     # Das gilt fuer jeden Modus, auch --trocken und --nur-liste.
     _pruefe_ausgabe(args.ausgabe)
 
-    if not os.path.exists(args.csv):
-        print(f"Sortierschluessel nicht gefunden: {args.csv}")
+    quelle = args.plan or args.csv
+    if not os.path.exists(quelle):
+        print(f"{'Sortierplan' if args.plan else 'Sortierschluessel'} nicht gefunden: {quelle}")
         return 2
     if args.kacheln_pro_bogen < 1:
         print("--kacheln-pro-bogen muss mindestens 1 sein.")
@@ -705,13 +756,19 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
 
     start = time.time()
     jsonl = args.jsonl or os.path.join(args.ausgabe, STANDARD_JSONL_NAME)
-    zeilen = zeilen_lesen(args.csv)
-    vorbereitet = zeilen_vorbereiten(zeilen)
-    ohne_datum = len(zeilen) - len(vorbereitet)
+    if args.plan:
+        # Plan-Eingang: fileids sind bekannt, Zeilen ohne Datum bleiben drin.
+        zeilen = plan_zeilen_lesen(args.plan)
+        vorbereitet = zeilen
+        ohne_datum = sum(1 for z in zeilen if not z.get("monat"))
+    else:
+        zeilen = zeilen_lesen(args.csv)
+        vorbereitet = zeilen_vorbereiten(zeilen)
+        ohne_datum = len(zeilen) - len(vorbereitet)
     erledigt = erledigtes_lesen(jsonl)
     ohne_netz_offen = [z for z in vorbereitet if not ist_erledigt(z, erledigt)]
 
-    print(f"Sortierschluessel: {args.csv}")
+    print(f"{'Sortierplan' if args.plan else 'Sortierschluessel'}: {quelle}")
     print(f"Zeilen: {len(zeilen)}   ohne Datum: {ohne_datum}   "
           f"schon beschrieben (Dateiabgleich): "
           f"{len(vorbereitet) - len(ohne_netz_offen)}")
@@ -751,7 +808,8 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     speicher: dict = {}
     ohne_kennung = 0
     try:
-        for zeile in vorbereitet:
+        # Mit --plan stehen die fileids schon fest — keine Ordner-Abfrage.
+        for zeile in ([] if args.plan else vorbereitet):
             index = dateien_im_ordner(zeile.get("ordner") or "", abruf_api,
                                       speicher)
             gefunden = index.get(str(zeile.get("datei") or ""))
