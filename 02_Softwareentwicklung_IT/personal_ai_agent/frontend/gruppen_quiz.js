@@ -188,13 +188,82 @@ function gruppenProfilText(p) {
     return teile.length ? 'Bekannt: ' + teile.join(' · ') : '';
 }
 
+// ── Benannte Personen wieder aufrufen (02.10.2026) ─────────────────────────
+
+/** Suchformen eines Textes: klein, „ä→ae“ und ohne Akzente („ä→a“) — wie im Backend. */
+function gruppenSuchformen(text) {
+    const klein = String(text || '').toLowerCase();
+    const ersetzt = klein.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+    const ohne = klein.normalize('NFD').replace(/\p{M}/gu, '');
+    return ersetzt === ohne ? [ersetzt] : [ersetzt, ohne];
+}
+
+/** Passt ``frage`` an einen Wortanfang im Namen? Jedes Wort der Frage muss passen; leer passt immer. */
+function gruppenPersonPasst(name, frage) {
+    const worte = String(frage || '').trim().split(/\s+/).filter(Boolean);
+    if (!worte.length) return true;
+    const namensWorte = [];
+    gruppenSuchformen(name).forEach((form) => form.split(/[\s\-.,()]+/).forEach((w) => { if (w) namensWorte.push(w); }));
+    return worte.every((wort) => gruppenSuchformen(wort)
+        .some((f) => namensWorte.some((w) => w.indexOf(f) === 0)));
+}
+
+/** Zweite Zeile in der Liste „Benannt“. */
+function gruppenPersonInfo(p) {
+    if (!p) return '';
+    const teile = [gruppenZahl(p.gesichter) + ' Gesichter'];
+    if (p.vorschlaege > 1) teile.push(p.vorschlaege + ' Vorschläge');
+    if (p.beziehung) teile.push(p.beziehung);
+    if (p.erinnerungen) teile.push(p.erinnerungen + (p.erinnerungen === 1 ? ' Erinnerung' : ' Erinnerungen'));
+    if (p.kontakt) teile.push('📇');
+    return teile.join(' · ');
+}
+
+/** Kopf eines Vorschlags in der Personenansicht. */
+function gruppenVorschlagKopf(v) {
+    if (!v) return '';
+    const teile = [gruppenNummer(v.kennung), gruppenZahl(v.groesse) + ' Gesichter'];
+    const zr = gruppenZeitraum(v.von, v.bis);
+    if (zr) teile.push(zr);
+    return teile.filter(Boolean).join(' · ');
+}
+
+/** Verknüpfter Kontakt (aus dem Profil, ``nummern`` als Liste) — ohne Nummern im Klartext. */
+function gruppenKontaktText(k) {
+    if (!k || !k.name) return 'Kein Kontakt verknüpft – unten suchen und antippen.';
+    const teile = ['📇 ' + k.name];
+    const gb = gruppenGeburtstagText(k.geburtstag);
+    if (gb) teile.push('🎂 ' + gb);
+    const n = Array.isArray(k.nummern) ? k.nummern.length : (Number(k.nummern) || 0);
+    if (n) teile.push(n === 1 ? '1 Nummer' : n + ' Nummern');
+    return teile.join(' · ');
+}
+
+/** Rückmeldung nach „↩ Rückgängig“, je nachdem, was zurückgenommen wurde. */
+function gruppenRueckgaengigText(z) {
+    const texte = {
+        umbenennen: '↩ Umbenennen zurückgenommen',
+        loesen: '↩ Lösen zurückgenommen – der Vorschlag gehört wieder zur Person',
+        profil: '↩ Profiländerung zurückgenommen',
+        ausschliessen: '↩ Ausschließen zurückgenommen',
+    };
+    return texte[z && z.art] || '↩ letzte Antwort zurückgenommen';
+}
+
+/** „2026-10-02T11:45:00“ → „02.10.2026“. */
+function gruppenNotizZeit(zeit) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(zeit || ''));
+    return m ? m[3] + '.' + m[2] + '.' + m[1] : '';
+}
+
 // =========================================================================
 // Oberfläche
 // =========================================================================
 (function () {
     'use strict';
 
-    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null };
+    const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null,
+                      reiter: 'offen', personen: [], person: null };
     const DIKTAT_WARTEN_MS = 20000;
 
     function el(id) { return document.getElementById(id); }
@@ -282,7 +351,9 @@ function gruppenProfilText(p) {
         } else {
             laden();
         }
-        if (typeof opt.beiTipp === 'function') {
+        if (typeof opt.beiTipp === 'function' && opt.ohneLupe) {
+            box.addEventListener('click', () => opt.beiTipp(box));
+        } else if (typeof opt.beiTipp === 'function') {
             box.addEventListener('click', () => opt.beiTipp(box));
             const lupe = document.createElement('span');
             lupe.className = 'gruppen-lupe';
@@ -341,14 +412,15 @@ function gruppenProfilText(p) {
         if (mehr) mehr.hidden = alle.seite >= alle.seiten;
     }
 
-    function alleOeffnen() {
-        if (!zustand.gruppe) return;
-        Object.assign(alle, { kennung: zustand.gruppe.kennung, seite: 0, seiten: 0, geladen: 0, letzte: null });
+    /** Gesamtansicht eines Vorschlags; ``vonPerson`` = aus „Benannt“ geöffnet (Zurück führt dorthin). */
+    function alleOeffnen(kennung, vonPerson) {
+        const k = (typeof kennung === 'string' && kennung) ? kennung : (zustand.gruppe && zustand.gruppe.kennung);
+        if (!k) return;
+        Object.assign(alle, { kennung: k, seite: 0, seiten: 0, geladen: 0, letzte: null, vonPerson: Boolean(vonPerson) });
         alle.markiert.clear();
         const raster = el('gruppen-alle-raster');
         if (raster) raster.innerHTML = '';
-        el('gruppen-karte').hidden = true;
-        el('gruppen-alle-ansicht').hidden = false;
+        nurZeigen('alle');
         alleKnopfAktualisieren();
         alleSeiteLaden();
     }
@@ -356,7 +428,277 @@ function gruppenProfilText(p) {
     function alleSchliessen() {
         el('gruppen-alle-ansicht').hidden = true;
         alle.kennung = null;
-        laden();                         // Karte neu: Beispiele ohne Ausgeschlossene
+        // Neu laden: Beispiele ohne die gerade Ausgeschlossenen
+        if (alle.vonPerson && zustand.person) personOeffnen(zustand.person.name);
+        else laden();
+    }
+
+    // ── Reiter „Offen“ / „Benannt“ (02.10.2026) ─────────────────────────────
+    // Wunsch Sebastian: schon benannte Personen wieder aufrufen und bearbeiten
+    // wie ein Dokument, dann beim nächsten offenen Vorschlag weitermachen.
+    const BEREICHE = { karte: 'gruppen-karte', fertig: 'gruppen-fertig', alle: 'gruppen-alle-ansicht',
+                       benannt: 'gruppen-benannt-ansicht', person: 'gruppen-person' };
+
+    function nurZeigen(name) {
+        Object.keys(BEREICHE).forEach((k) => { const e = el(BEREICHE[k]); if (e) e.hidden = (k !== name); });
+    }
+
+    function reiterSetzen(name) {
+        zustand.reiter = name === 'benannt' ? 'benannt' : 'offen';
+        [['gruppen-reiter-offen', 'offen'], ['gruppen-reiter-benannt', 'benannt']].forEach(([id, r]) => {
+            const k = el(id);
+            if (!k) return;
+            k.classList.toggle('aktiv', zustand.reiter === r);
+            k.setAttribute('aria-selected', zustand.reiter === r ? 'true' : 'false');
+        });
+        melde('');
+        if (zustand.reiter === 'benannt') {
+            nurZeigen('benannt');
+            personenLaden();
+        } else {
+            nurZeigen('');
+            laden();
+        }
+    }
+
+    async function personenLaden() {
+        const info = el('gruppen-benannt-info');
+        if (info) info.textContent = '… lädt';
+        const antwort = await jsonHolen('/api/gruppen/personen').catch(() => null);
+        if (!antwort || antwort.ok !== true) {
+            zustand.personen = [];
+            if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.');
+            personenZeigen();
+            return;
+        }
+        zustand.personen = antwort.personen || [];
+        personenZeigen();
+    }
+
+    function personenZeigen() {
+        const liste = el('gruppen-benannt-liste');
+        const info = el('gruppen-benannt-info');
+        if (!liste) return;
+        liste.innerHTML = '';
+        const frage = (el('gruppen-benannt-filter') || {}).value || '';
+        const passend = zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage));
+        if (info) {
+            info.textContent = !zustand.personen.length
+                ? 'Noch niemand benannt – im Reiter „Offen“ geht es los.'
+                : gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen')
+                  + ' · antippen zum Ansehen und Bearbeiten';
+        }
+        passend.forEach((p) => {
+            const zeile = document.createElement('div');
+            zeile.className = 'gruppen-benannt-zeile';
+            zeile.setAttribute('role', 'listitem');
+            zeile.tabIndex = 0;
+            if (p.beispiel) zeile.appendChild(kachel(p.beispiel, true, { verzoegert: true, ohneLupe: true, beiTipp: () => {} }));
+            const text = document.createElement('div');
+            text.className = 'gruppen-benannt-text';
+            const n = document.createElement('span');
+            n.className = 'gruppen-treffer-name';
+            n.textContent = p.name;
+            const i = document.createElement('span');
+            i.className = 'gruppen-treffer-info';
+            i.textContent = gruppenPersonInfo(p);
+            text.appendChild(n);
+            text.appendChild(i);
+            zeile.appendChild(text);
+            zeile.addEventListener('click', () => personOeffnen(p.name));
+            zeile.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') personOeffnen(p.name); });
+            liste.appendChild(zeile);
+        });
+    }
+
+    /** Person laden und zeigen; ``leise`` = bei Fehlschlag still zur Liste (z. B. nach Rückgängig). */
+    async function personOeffnen(name, leise) {
+        const antwort = await jsonHolen('/api/gruppen/person?name=' + encodeURIComponent(name)).catch(() => null);
+        if (!antwort || antwort.ok !== true) {
+            if (!leise) melde('⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.'), false);
+            zustand.person = null;
+            nurZeigen('benannt');
+            personenLaden();
+            return false;
+        }
+        zustand.person = antwort;
+        nurZeigen('person');
+        personZeigen(antwort);
+        return true;
+    }
+
+    function personZeigen(p) {
+        el('gruppen-person-titel').textContent = p.name;
+        const vorschlaege = p.vorschlaege || [];
+        const gesichter = vorschlaege.reduce((s, v) => s + (Number(v.groesse) || 0), 0);
+        el('gruppen-person-meta').textContent = gruppenZahl(gesichter) + ' Gesichter'
+            + (vorschlaege.length > 1 ? ' in ' + vorschlaege.length + ' Vorschlägen' : '');
+        const box = el('gruppen-person-vorschlaege');
+        box.innerHTML = '';
+        vorschlaege.forEach((v) => {
+            const teil = document.createElement('div');
+            teil.className = 'gruppen-person-vorschlag';
+            const kopf = document.createElement('p');
+            kopf.className = 'gruppen-meta';
+            kopf.textContent = gruppenVorschlagKopf(v);
+            teil.appendChild(kopf);
+            const kacheln = document.createElement('div');
+            kacheln.className = 'gruppen-kacheln';
+            (v.beispiele || []).forEach((b) => kacheln.appendChild(kachel(b, false, { verzoegert: true })));
+            teil.appendChild(kacheln);
+            const knoepfe = document.createElement('div');
+            knoepfe.className = 'gruppen-leiste';
+            const ansehen = document.createElement('button');
+            ansehen.type = 'button';
+            ansehen.className = 'gruppen-knopf';
+            ansehen.textContent = '🔍 Alle ' + gruppenZahl(v.groesse) + ' Gesichter';
+            ansehen.addEventListener('click', () => alleOeffnen(v.kennung, true));
+            const loesen = document.createElement('button');
+            loesen.type = 'button';
+            loesen.className = 'gruppen-knopf';
+            loesen.textContent = '✂ Gehört nicht zu ' + p.name;
+            loesen.addEventListener('click', () => vorschlagLoesen(v.kennung, loesen));
+            knoepfe.appendChild(ansehen);
+            knoepfe.appendChild(loesen);
+            teil.appendChild(knoepfe);
+            box.appendChild(teil);
+        });
+        const profil = p.profil || {};
+        el('gruppen-person-name').value = p.name;
+        el('gruppen-person-beziehung').value = profil.beziehung || '';
+        el('gruppen-person-notiz').value = '';
+        const notizen = el('gruppen-person-notizen');
+        notizen.innerHTML = '';
+        (profil.notizen || []).slice().reverse().forEach((n) => {
+            const zeile = document.createElement('div');
+            zeile.className = 'gruppen-person-notiz';
+            const zeit = document.createElement('span');
+            zeit.className = 'gruppen-meta';
+            zeit.textContent = gruppenNotizZeit(n.zeit);
+            const text = document.createElement('p');
+            text.textContent = n.text || '';
+            zeile.appendChild(zeit);
+            zeile.appendChild(text);
+            notizen.appendChild(zeile);
+        });
+        el('gruppen-person-kontakt').textContent = gruppenKontaktText(profil.kontakt);
+        el('gruppen-person-kontaktsuche').value = '';
+        el('gruppen-person-kontakttreffer').innerHTML = '';
+    }
+
+    /** POST an eine Bearbeiten-Route; sperrt Doppel-Tipps. */
+    async function bearbeiten(pfad, koerper) {
+        if (zustand.beschaeftigt) return null;
+        zustand.beschaeftigt = true;
+        try {
+            const antwort = await jsonHolen(pfad, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(koerper || {}),
+            });
+            if (!antwort || antwort.ok !== true) {
+                melde('⚠️ ' + ((antwort && antwort.fehler) || 'Speichern fehlgeschlagen'), false);
+                return null;
+            }
+            return antwort;
+        } catch (_e) {
+            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            return null;
+        } finally {
+            zustand.beschaeftigt = false;
+        }
+    }
+
+    /** „✂ Gehört nicht zu …“: zweimal tippen (Schutz vor Versehen), dann ist der Vorschlag wieder offen. */
+    async function vorschlagLoesen(kennung, knopf) {
+        const jetzt = Date.now();
+        if (!(Number(knopf.dataset.bereit) > jetzt - 4000)) {
+            knopf.dataset.bereit = String(jetzt);
+            knopf.textContent = 'Wirklich lösen? Noch einmal tippen';
+            return;
+        }
+        const antwort = await bearbeiten('/api/gruppen/loesen', { kennung: kennung });
+        if (!antwort) return;
+        const name = zustand.person ? zustand.person.name : '';
+        await personOeffnen(name, true);
+        melde('✓ ' + gruppenNummer(kennung) + ' gelöst – er steht wieder unter „Offen“ (↩ Rückgängig möglich).');
+    }
+
+    async function umbenennen() {
+        if (!zustand.person) return;
+        const neu = el('gruppen-person-name').value.trim();
+        if (!neu || neu === zustand.person.name) { melde('Bitte einen neuen Namen eingeben.', false); return; }
+        const antwort = await bearbeiten('/api/gruppen/umbenennen', { alt: zustand.person.name, neu: neu });
+        if (!antwort) return;
+        zustand.person = antwort;
+        personZeigen(antwort);
+        melde(antwort.zusammengefuehrt ? '✓ mit ' + antwort.name + ' zusammengeführt' : '✓ umbenannt in ' + antwort.name);
+    }
+
+    async function profilSpeichern() {
+        if (!zustand.person) return;
+        const vorher = (zustand.person.profil || {}).beziehung || '';
+        const beziehung = el('gruppen-person-beziehung').value.trim();
+        const notiz = el('gruppen-person-notiz').value.trim();
+        const koerper = { name: zustand.person.name };
+        if (beziehung && beziehung !== vorher) koerper.beziehung = beziehung;
+        if (notiz) koerper.notiz = notiz;
+        if (!koerper.beziehung && !koerper.notiz) { melde('Nichts geändert.', false); return; }
+        const antwort = await bearbeiten('/api/gruppen/profil', koerper);
+        if (!antwort) return;
+        zustand.person.profil = antwort;
+        personZeigen(zustand.person);
+        melde('✓ Profil gespeichert' + (koerper.notiz ? ' · Erinnerung angelegt' : ''));
+    }
+
+    let _kontaktUhr = null;
+    let _kontaktNr = 0;
+
+    async function kontaktSuchen() {
+        const frage = el('gruppen-person-kontaktsuche').value.trim();
+        const box = el('gruppen-person-kontakttreffer');
+        const nr = ++_kontaktNr;
+        if (!frage) { box.innerHTML = ''; return; }
+        const antwort = await jsonHolen('/api/gruppen/suche?limit=8&q=' + encodeURIComponent(frage)).catch(() => null);
+        if (nr !== _kontaktNr) return;                      // nur die neueste Antwort zeigen
+        box.innerHTML = '';
+        const kontakte = (antwort && antwort.ok === true && antwort.kontakte) || [];
+        kontakte.forEach((k) => box.appendChild(trefferZeile(k.name, gruppenTrefferInfo(k, 'kontakt'),
+            () => kontaktVerknuepfen(k.id))));
+        if (!kontakte.length) {
+            const leer = document.createElement('p');
+            leer.className = 'gruppen-treffer-leer';
+            leer.textContent = antwort && antwort.kontakte_vorhanden === false
+                ? 'Telefonbuch noch nicht übertragen.' : 'Kein Kontakt gefunden.';
+            box.appendChild(leer);
+        }
+    }
+
+    async function kontaktVerknuepfen(kontaktId) {
+        if (!zustand.person) return;
+        const antwort = await bearbeiten('/api/gruppen/profil', { name: zustand.person.name, kontakt_id: String(kontaktId) });
+        if (!antwort) return;
+        zustand.person.profil = antwort;
+        personZeigen(zustand.person);
+        melde('✓ Kontakt verknüpft');
+    }
+
+    async function personRueckgaengig() {
+        const antwort = await bearbeiten('/api/gruppen/rueckgaengig', {});
+        if (!antwort) return;
+        const z = antwort.zurueckgenommen || {};
+        const ziel = (z.art === 'umbenennen' && z.name) ? z.name : (zustand.person && zustand.person.name);
+        if (ziel) await personOeffnen(ziel, true);
+        melde(gruppenRueckgaengigText(z));
+    }
+
+    async function personDiktat() {
+        const feld = el('gruppen-person-notiz');
+        const knopf = el('gruppen-person-mikro');
+        if (typeof starteFeldDiktat !== 'function') {
+            melde('⚠️ Spracheingabe ist hier nicht verfügbar — bitte das Mikrofon der Tastatur nutzen.', false);
+            return;
+        }
+        await starteFeldDiktat(feld, knopf);
     }
 
     async function alleAusschliessen() {
@@ -458,6 +800,7 @@ function gruppenProfilText(p) {
         const karte = el('gruppen-karte');
         const fertig = el('gruppen-fertig');
         namenListeSetzen(antwort && antwort.namen);
+        if (zustand.reiter !== 'offen') return;          // inzwischen auf „Benannt“ gewechselt
         if (!antwort || antwort.ok !== true) {
             zustand.gruppe = null;
             if (karte) karte.hidden = true;
@@ -599,7 +942,7 @@ function gruppenProfilText(p) {
             const antwort = await jsonHolen('/api/gruppen/rueckgaengig', { method: 'POST' });
             if (antwort && antwort.ok === true) {
                 zeigen(antwort);
-                melde('↩ letzte Antwort zurückgenommen');
+                melde(gruppenRueckgaengigText(antwort.zurueckgenommen));
                 fortschrittLaden();
             } else {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Nichts zurückzunehmen'), false);
@@ -668,7 +1011,7 @@ function gruppenProfilText(p) {
         const sheet = el('gruppen-sheet');
         if (!sheet) return;
         sheet.hidden = false;
-        laden();
+        reiterSetzen(zustand.reiter);
     }
 
     function schliessen() {
@@ -716,6 +1059,26 @@ function gruppenProfilText(p) {
         if (alleAus) alleAus.addEventListener('click', alleAusschliessen);
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
+        // Reiter + Benannt (02.10.2026)
+        const anklick = (id, fn) => { const e = el(id); if (e) e.addEventListener('click', fn); };
+        anklick('gruppen-reiter-offen', () => reiterSetzen('offen'));
+        anklick('gruppen-reiter-benannt', () => reiterSetzen('benannt'));
+        anklick('gruppen-person-zurueck', () => { zustand.person = null; nurZeigen('benannt'); personenLaden(); });
+        anklick('gruppen-person-umbenennen', umbenennen);
+        anklick('gruppen-person-speichern', profilSpeichern);
+        anklick('gruppen-person-mikro', personDiktat);
+        anklick('gruppen-person-rueckgaengig', personRueckgaengig);
+        const filter = el('gruppen-benannt-filter');
+        if (filter) filter.addEventListener('input', personenZeigen);
+        const kontaktFeld = el('gruppen-person-kontaktsuche');
+        if (kontaktFeld) {
+            kontaktFeld.addEventListener('input', () => {
+                if (_kontaktUhr) clearTimeout(_kontaktUhr);
+                _kontaktUhr = setTimeout(kontaktSuchen, 150);
+            });
+        }
+        const neuName = el('gruppen-person-name');
+        if (neuName) neuName.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); umbenennen(); } });
     }
 
     if (document.readyState === 'loading') {

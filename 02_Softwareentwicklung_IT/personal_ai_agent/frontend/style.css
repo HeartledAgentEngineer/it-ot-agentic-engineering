@@ -2245,3 +2245,121 @@ button.footer-note:hover {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
 }
+
+/* Reiter „Offen“ / „Benannt“ + Person bearbeiten (02.10.2026, Wunsch Sebastian:
+   schon benannte Personen wieder aufrufen und bearbeiten wie ein Dokument). */
+.gruppen-reiter {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(15, 15, 26, 0.6);
+}
+
+.gruppen-reiter-knopf {
+    flex: 1;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.gruppen-reiter-knopf.aktiv {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff;
+    font-weight: 600;
+}
+
+.gruppen-benannt-ansicht[hidden],
+.gruppen-person[hidden] { display: none; }
+
+.gruppen-benannt-ansicht,
+.gruppen-person {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.gruppen-benannt-liste {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gruppen-benannt-zeile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 6px 6px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.gruppen-benannt-zeile:hover,
+.gruppen-benannt-zeile:focus-visible { border-color: var(--accent); outline: none; }
+.gruppen-benannt-zeile:active { transform: scale(0.99); }
+
+.gruppen-benannt-zeile .gruppen-kachel.klein { width: 52px; cursor: pointer; }
+
+.gruppen-benannt-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.gruppen-abschnitt {
+    margin: 6px 0 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.gruppen-person-vorschlag {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(108, 99, 255, 0.08), rgba(224, 64, 251, 0.04));
+}
+
+.gruppen-person-vorschlaege {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gruppen-person-notizen:empty { display: none; }
+
+.gruppen-person-notizen {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gruppen-person-notiz {
+    padding: 8px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+}
+
+.gruppen-person-notiz p {
+    margin: 2px 0 0;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

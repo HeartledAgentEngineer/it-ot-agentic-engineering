@@ -401,18 +401,29 @@ def profil(name: str) -> Dict[str, Any]:
 
 
 def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional[str] = None,
-                     kennung: Optional[str] = None) -> Dict[str, Any]:
-    """Beziehung setzen und/oder eine Erinnerung anhaengen (auch ohne Quiz). Nie ein Wurf."""
+                     kennung: Optional[str] = None,
+                     kontakt_id: Optional[str] = None) -> Dict[str, Any]:
+    """Beziehung setzen, Erinnerung anhaengen und/oder Kontakt verknuepfen (auch ohne
+    Quiz, z. B. aus „Benannt"). Steht im Protokoll, Rueckgaengig nimmt es zurueck. Nie ein Wurf."""
     try:
         sauber = name_saeubern(name)
         b = text_saeubern(beziehung, BEZIEHUNG_MAX)
         n = text_saeubern(notiz, NOTIZ_MAX, zeilen=True)
-        if not b and not n:
+        kontakt = None
+        if kontakt_id:
+            kontakt = _kontakte_laden().get(str(kontakt_id).strip())
+            if not kontakt:
+                raise GruppenFehler("Kontakt nicht (mehr) im Telefonbuch-Auszug.")
+        if not b and not n and not kontakt:
             raise GruppenFehler("Bitte eine Beziehung oder eine Erinnerung eingeben.")
         with _SCHREIBSPERRE:
             daten = _profile_laden()
-            _profil_ergaenzen(daten, sauber, b, n, kennung, "profil")
+            aenderung = _profil_ergaenzen(daten, sauber, b, n, kennung, "profil",
+                                          dict(kontakt) if kontakt else None)
             _atomar_schreiben(PROFILE_DATEINAME, daten)
+            _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                  "zeit": datetime.now().isoformat(timespec="seconds"),
+                                  "art": "profil", "kennung": kennung or "", "profil": aenderung})
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
     except OSError as fehler:
@@ -710,6 +721,161 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
             "gesamt": rest.get("gesamt", 0)}
 
 
+# ── Benannte Personen wieder oeffnen und bearbeiten (02.10.2026) ────────────
+#
+# Wunsch Sebastian: „aktuell bin ich nur am Sortieren, die alten kann ich nicht
+# aufrufen und noch mal bearbeiten." Eine Person = alle Vorschlaege mit
+# demselben bestaetigten Namen (Gross/Klein egal).
+
+def _anzeige_beispiele(gruppe: Dict[str, Any], aus: set) -> List[Dict[str, Any]]:
+    return [b for b in (_beispiel_fuer_anzeige(x) for x in gruppe.get("beispiele") or [])
+            if b and f"{b['fileid']}:{int(b.get('index') or 0)}" not in aus][:BEISPIELE_MAX]
+
+
+def personen() -> Dict[str, Any]:
+    """Alle benannten Personen: Vorschlaege, Gesichter, Beziehung, Kontakt, Beispiel. Nie ein Wurf."""
+    try:
+        gruppen, _ = _gruppen_laden()
+        namen = bestaetigt_lesen()
+        profile = _profile_laden()["profile"]
+        aus = ausgeschlossen_lesen()
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    nach_kennung = {g["kennung"]: g for g in gruppen}
+    je_name: Dict[str, Dict[str, Any]] = {}
+    for k, n in sorted(namen.items()):
+        e = je_name.setdefault(n.casefold(), {"name": n, "kennungen": [], "gesichter": 0})
+        e["kennungen"].append(k)
+        if k in nach_kennung:
+            e["gesichter"] += max(0, int(nach_kennung[k].get("groesse") or 0) - len(aus.get(k, ())))
+    liste = []
+    for e in je_name.values():
+        p = profile.get(_profil_schluessel(profile, e["name"])) or {}
+        vorhanden = [nach_kennung[k] for k in e["kennungen"] if k in nach_kennung]
+        groesste = max(vorhanden, key=lambda g: int(g.get("groesse") or 0), default=None)
+        beispiele = _anzeige_beispiele(groesste, aus.get(groesste["kennung"], set())) if groesste else []
+        liste.append({"name": e["name"], "vorschlaege": len(e["kennungen"]), "gesichter": e["gesichter"],
+                      "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt")),
+                      "erinnerungen": sum(1 for x in p.get("notizen") or [] if not x.get("zurueckgenommen")),
+                      "beispiel": beispiele[0] if beispiele else None})
+    liste.sort(key=lambda e: (-e["gesichter"], e["name"].casefold()))
+    return {"ok": True, "personen": liste}
+
+
+def person(name: str) -> Dict[str, Any]:
+    """Eine benannte Person: ihre Vorschlaege (mit Beispielen) und ihr Profil. Nie ein Wurf."""
+    try:
+        sauber = name_saeubern(name)
+        gruppen, _ = _gruppen_laden()
+        namen = bestaetigt_lesen()
+        aus = ausgeschlossen_lesen()
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    kennungen = sorted(k for k, n in namen.items() if n.casefold() == sauber.casefold())
+    if not kennungen:
+        return {"ok": False, "fehler": "Keine benannte Person mit diesem Namen."}
+    nach_kennung = {g["kennung"]: g for g in gruppen}
+    vorschlaege = []
+    for k in kennungen:
+        g = nach_kennung.get(k) or {"kennung": k}
+        vorschlaege.append({"kennung": k,
+                            "groesse": max(0, int(g.get("groesse") or 0) - len(aus.get(k, ()))),
+                            "von": g.get("von"), "bis": g.get("bis"),
+                            "beispiele": _anzeige_beispiele(g, aus.get(k, set()))})
+    vorschlaege.sort(key=lambda v: (-v["groesse"], v["kennung"]))
+    echter_name = namen[kennungen[0]]
+    return {"ok": True, "name": echter_name, "vorschlaege": vorschlaege, "profil": profil(echter_name)}
+
+
+def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
+    """Alle Vorschlaege einer Person umbenennen; gibt es den neuen Namen schon, zusammenfuehren."""
+    try:
+        alt_s, neu_s = name_saeubern(alt), name_saeubern(neu)
+        if alt_s == neu_s:
+            raise GruppenFehler("Der Name ist unverändert.")
+        with _SCHREIBSPERRE:
+            namen = bestaetigt_lesen()
+            betroffen = sorted(k for k, n in namen.items() if n.casefold() == alt_s.casefold())
+            if not betroffen:
+                raise GruppenFehler("Keine benannte Person mit diesem Namen.")
+            andere = sorted(k for k, n in namen.items()
+                            if n.casefold() == neu_s.casefold() and k not in betroffen)
+            eintrag: Dict[str, Any] = {
+                "id": uuid.uuid4().hex[:12], "zeit": datetime.now().isoformat(timespec="seconds"),
+                "art": "umbenennen", "kennung": betroffen[0], "alt": alt_s, "neu": neu_s,
+                "namen_vorher": {k: namen[k] for k in betroffen},
+                "paare_neu": {"gleich": [], "verschieden": []},
+                "paare_weg": {"gleich": [], "verschieden": []}, "profile_vorher": {}}
+            for k in betroffen:
+                namen[k] = neu_s
+            vorgaben = vorgaben_lesen()
+            if andere:                     # gleicher Name = dieselbe Person (wie beim Benennen)
+                paar = _paar(betroffen[0], andere[0])
+                if paar in vorgaben["verschieden"]:
+                    vorgaben["verschieden"].remove(paar)
+                    eintrag["paare_weg"]["verschieden"].append(paar)
+                if paar not in vorgaben["gleich"]:
+                    vorgaben["gleich"].append(paar)
+                    eintrag["paare_neu"]["gleich"].append(paar)
+            daten = _profile_laden()
+            prof = daten["profile"]
+            ak, nk = _profil_schluessel(prof, alt_s), _profil_schluessel(prof, neu_s)
+            if ak in prof:
+                eintrag["profile_vorher"] = {ak: json.loads(json.dumps(prof[ak])),
+                                             nk: json.loads(json.dumps(prof[nk])) if nk in prof else None}
+                quelle = prof.pop(ak)
+                if nk in prof and nk != ak:           # zusammenfuehren
+                    ziel = prof[nk]
+                    ziel["beziehung"] = ziel.get("beziehung") or quelle.get("beziehung") or ""
+                    ziel["notizen"] = (ziel.get("notizen") or []) + (quelle.get("notizen") or [])
+                    if not ziel.get("kontakt") and quelle.get("kontakt"):
+                        ziel["kontakt"] = quelle["kontakt"]
+                else:
+                    prof[neu_s] = quelle
+                _atomar_schreiben(PROFILE_DATEINAME, daten)
+            _bestaetigt_schreiben(namen)
+            if eintrag["paare_neu"]["gleich"] or eintrag["paare_weg"]["verschieden"]:
+                _vorgaben_schreiben(vorgaben)
+            _protokoll_anhaengen(eintrag)
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Umbenennen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    erg = person(neu_s)
+    erg["zusammengefuehrt"] = bool(andere)
+    return erg
+
+
+def loesen(kennung: str) -> Dict[str, Any]:
+    """Einen Vorschlag von seiner Person loesen („das ist doch nicht X") - er ist wieder offen."""
+    try:
+        with _SCHREIBSPERRE:
+            namen = bestaetigt_lesen()
+            if kennung not in namen:
+                raise GruppenFehler("Dieser Vorschlag ist nicht benannt.")
+            vorgaben = vorgaben_lesen()
+            eintrag: Dict[str, Any] = {
+                "id": uuid.uuid4().hex[:12], "zeit": datetime.now().isoformat(timespec="seconds"),
+                "art": "loesen", "kennung": kennung, "namen_vorher": {kennung: namen[kennung]},
+                "paare_neu": {"gleich": [], "verschieden": []},
+                "paare_weg": {"gleich": [p for p in vorgaben["gleich"] if kennung in p],
+                              "verschieden": []}}
+            # „gleich"-Paare mit diesem Vorschlag wuerden den Namen sonst wieder zurueckbringen.
+            vorgaben["gleich"] = [p for p in vorgaben["gleich"] if kennung not in p]
+            name = namen.pop(kennung)
+            _bestaetigt_schreiben(namen)
+            if eintrag["paare_weg"]["gleich"]:
+                _vorgaben_schreiben(vorgaben)
+            _protokoll_anhaengen(eintrag)
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Loesen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    return {"ok": True, "kennung": kennung, "name": name}
+
+
 # ── Antworten ────────────────────────────────────────────────────────────────
 
 def antworten(kennung: str, art: str, name: Optional[str] = None,
@@ -848,7 +1014,8 @@ def rueckgaengig() -> Dict[str, Any]:
             eintraege = _protokoll_lesen()
             erledigt = {e.get("bezug") for e in eintraege if e.get("art") == "rueckgaengig"}
             offen = [e for e in eintraege
-                     if e.get("art") in ARTEN + ("ausschliessen",) and e.get("id") not in erledigt]
+                     if e.get("art") in ARTEN + ("ausschliessen", "umbenennen", "loesen", "profil")
+                     and e.get("id") not in erledigt]
             if not offen:
                 return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen."}
             letzte = offen[-1]
@@ -890,6 +1057,16 @@ def rueckgaengig() -> Dict[str, Any]:
                     continue
                 ohne = [k for k in st[liste] if k != kennung]
                 st[liste] = ohne + [kennung] if war else ohne
+            if letzte.get("profile_vorher"):
+                daten = _profile_laden()
+                for schluessel, alt_profil in letzte["profile_vorher"].items():
+                    if alt_profil is None:
+                        daten["profile"].pop(schluessel, None)
+                    else:
+                        daten["profile"][schluessel] = alt_profil
+                if letzte.get("neu") and letzte.get("neu") not in letzte["profile_vorher"]:
+                    daten["profile"].pop(letzte["neu"], None)
+                _atomar_schreiben(PROFILE_DATEINAME, daten)
             pr = letzte.get("profil") or {}
             if pr:
                 daten = _profile_laden()
@@ -923,6 +1100,8 @@ def rueckgaengig() -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Zurücknehmen fehlgeschlagen ({fehler.__class__.__name__})."}
     weiter = naechste()
     weiter["zurueckgenommen"] = {"kennung": kennung, "art": letzte.get("art")}
+    if letzte.get("alt"):                   # Umbenennen: dorthin zurueck, wo die Person jetzt heisst
+        weiter["zurueckgenommen"]["name"] = letzte["alt"]
     return weiter
 
 

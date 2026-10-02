@@ -10,6 +10,10 @@
   GET  /api/gruppen/suche         ?q=Le&limit=12 -> benannte Personen, dann Kontakte
   GET  /api/gruppen/gesichter     ?kennung=Person_1001&seite=1 -> alle Gesichter, je 48
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
+  GET  /api/gruppen/personen      benannte Personen (Liste)
+  GET  /api/gruppen/person        ?name=Leon -> Vorschlaege + Profil
+  POST /api/gruppen/umbenennen    {alt, neu} (gleicher Name = zusammenfuehren)
+  POST /api/gruppen/loesen        {kennung} -> Vorschlag wieder offen
 
 Immer HTTP 200 mit ``ok`` und deutschem ``fehler``-Text (wie fotos/erzaehlen) —
 die Oberflaeche zeigt den Text an, statt an einem Statuscode zu scheitern.
@@ -42,11 +46,21 @@ class AusschlussEingabe(BaseModel):
     gesichter: List[str]
 
 
+class UmbenennenEingabe(BaseModel):
+    alt: str
+    neu: str
+
+
+class LoesenEingabe(BaseModel):
+    kennung: str
+
+
 class ProfilEingabe(BaseModel):
     name: str
     beziehung: Optional[str] = None
     notiz: Optional[str] = None
     kennung: Optional[str] = None
+    kontakt_id: Optional[str] = None
 
 
 @router.get("/stand")
@@ -87,7 +101,7 @@ def profil(name: str = Query(..., min_length=1, max_length=60)) -> Dict[str, Any
 @router.post("/profil")
 def profil_ergaenzen(eingabe: ProfilEingabe) -> Dict[str, Any]:
     return gruppen_quiz.profil_ergaenzen(eingabe.name, eingabe.beziehung, eingabe.notiz,
-                                         eingabe.kennung)
+                                         eingabe.kennung, eingabe.kontakt_id)
 
 
 @router.get("/suche")
@@ -105,3 +119,23 @@ def gesichter(kennung: str = Query(..., min_length=1, max_length=40),
 @router.post("/ausschliessen")
 def ausschliessen(eingabe: AusschlussEingabe) -> Dict[str, Any]:
     return gruppen_quiz.ausschliessen(eingabe.kennung, eingabe.gesichter)
+
+
+@router.get("/personen")
+def personen() -> Dict[str, Any]:
+    return gruppen_quiz.personen()
+
+
+@router.get("/person")
+def person(name: str = Query(..., min_length=1, max_length=60)) -> Dict[str, Any]:
+    return gruppen_quiz.person(name)
+
+
+@router.post("/umbenennen")
+def umbenennen(eingabe: UmbenennenEingabe) -> Dict[str, Any]:
+    return gruppen_quiz.umbenennen(eingabe.alt, eingabe.neu)
+
+
+@router.post("/loesen")
+def loesen(eingabe: LoesenEingabe) -> Dict[str, Any]:
+    return gruppen_quiz.loesen(eingabe.kennung)

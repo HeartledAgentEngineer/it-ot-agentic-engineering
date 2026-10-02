@@ -27,7 +27,9 @@ function funktionAusschneiden(quelle, name) {
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
                'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText',
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
-               'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen'];
+               'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
+               'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
+               'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -159,6 +161,48 @@ pruefe(!/gruppen-schnellnamen|<datalist/.test(html), 'Namensknöpfe und datalist
 pruefe(/\/api\/gruppen\/suche\?limit=8&q=/.test(src) && /kontakt_id = String\(kontaktId\)/.test(src),
     'Suchfeld fragt die Suche und schickt beim Kontakt die Kennung mit');
 pruefe(/if \(nr === _suchNr\) trefferZeigen/.test(src), 'nur die neueste Suchantwort wird gezeigt');
+
+console.log('Benannt: Personen wieder aufrufen und bearbeiten (02.10.2026)');
+pruefe(f.gruppenPersonPasst('Leon Müller', 'mue') && f.gruppenPersonPasst('Leon Müller', 'mul')
+    && f.gruppenPersonPasst('Leon Müller', 'le mü'), 'Filter: Wortanfang, Umlaute egal, mehrere Wörter');
+pruefe(!f.gruppenPersonPasst('Leon Müller', 'eon') && f.gruppenPersonPasst('Tim', '') && f.gruppenPersonPasst('Tim', '  '),
+    'Filter: Wortmitte passt nicht, leer passt immer');
+pruefe(f.gruppenPersonInfo({ gesichter: 1234, vorschlaege: 2, beziehung: 'Bruder', erinnerungen: 1, kontakt: true })
+    === '1.234 Gesichter · 2 Vorschläge · Bruder · 1 Erinnerung · 📇', 'Listenzeile einer Person');
+pruefe(f.gruppenPersonInfo({ gesichter: 5, vorschlaege: 1 }) === '5 Gesichter', 'Listenzeile ohne Profil');
+pruefe(f.gruppenVorschlagKopf({ kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' })
+    === 'Vorschlag 1001 · 120 Gesichter · 2015–2025', 'Kopf eines Vorschlags');
+pruefe(f.gruppenKontaktText({ id: '13', name: 'Tim B.', nummern: ['+49170', '040'], geburtstag: '--08-02' })
+    === '📇 Tim B. · 🎂 02.08. · 2 Nummern', 'Kontaktzeile ohne Nummern im Klartext');
+pruefe(/Kein Kontakt verknüpft/.test(f.gruppenKontaktText(null)), 'ohne Kontakt ein Hinweis');
+pruefe(f.gruppenRueckgaengigText({ art: 'umbenennen' }) === '↩ Umbenennen zurückgenommen'
+    && f.gruppenRueckgaengigText({ art: 'name' }) === '↩ letzte Antwort zurückgenommen'
+    && f.gruppenRueckgaengigText(null) === '↩ letzte Antwort zurückgenommen', 'Rückmeldung nach Rückgängig je Art');
+pruefe(f.gruppenNotizZeit('2026-10-02T11:45:00') === '02.10.2026' && f.gruppenNotizZeit('') === '', 'Datum einer Erinnerung');
+['gruppen-reiter-offen', 'gruppen-reiter-benannt', 'gruppen-benannt-ansicht', 'gruppen-benannt-filter',
+ 'gruppen-benannt-info', 'gruppen-benannt-liste', 'gruppen-person', 'gruppen-person-titel', 'gruppen-person-zurueck',
+ 'gruppen-person-meta', 'gruppen-person-vorschlaege', 'gruppen-person-name', 'gruppen-person-umbenennen',
+ 'gruppen-person-beziehung', 'gruppen-person-notiz', 'gruppen-person-mikro', 'gruppen-person-speichern',
+ 'gruppen-person-notizen', 'gruppen-person-kontakt', 'gruppen-person-kontaktsuche',
+ 'gruppen-person-kontakttreffer', 'gruppen-person-rueckgaengig'].forEach((id) => {
+    pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
+        '#' + id + ' im HTML und im Skript');
+});
+pruefe(/\/api\/gruppen\/personen'/.test(src) && /\/api\/gruppen\/person\?name=/.test(src)
+    && /\/api\/gruppen\/umbenennen'/.test(src) && /\/api\/gruppen\/loesen'/.test(src), 'Benannt nutzt die vier neuen Routen');
+pruefe(/kontakt_id: String\(kontaktId\)/.test(src) && /'\/api\/gruppen\/profil', koerper/.test(src),
+    'Profil speichern und Kontakt verknüpfen über /api/gruppen/profil');
+pruefe(/if \(zustand\.reiter !== 'offen'\) return;/.test(src), 'eine späte Antwort aus „Offen“ überschreibt „Benannt“ nicht');
+pruefe(/Wirklich lösen\? Noch einmal tippen/.test(src), 'Vorschlag lösen braucht zwei Tipps');
+pruefe(/n\.textContent = p\.name;/.test(src) && /text\.textContent = n\.text \|\| '';/.test(src)
+    && !/innerHTML = [^']/.test(src), 'Namen und Erinnerungen nur per textContent');
+pruefe(/alleOeffnen\(v\.kennung, true\)/.test(src) && /alle\.vonPerson && zustand\.person/.test(src),
+    'Alle Gesichter auch aus der Personenansicht, Zurück führt dorthin');
+pruefe(/\.gruppen-reiter-knopf\.aktiv \{/.test(css) && /\.gruppen-person\[hidden\] \{ display: none; \}/.test(css),
+    'Stil für Reiter und Personenansicht');
+const v3 = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
+const c3 = html.match(/style\.css\?v=(\d{8}[A-Z])/);
+pruefe(v3 && v3[1] >= '20261002C' && c3 && c3[1] >= '20261002C', 'Cache-Bump 20261002C (Skript und Stil)');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261002B">
+    <link rel="stylesheet" href="style.css?v=20261002C">
 </head>
 <body>
     <div id="app">
@@ -242,6 +242,14 @@
                 <button id="gruppen-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
             </div>
             <div class="gruppen-body">
+                <!-- Reiter (02.10.2026, Wunsch Sebastian): „Offen“ = weiter benennen,
+                     „Benannt“ = schon benannte Personen wieder aufrufen und bearbeiten. -->
+                <div class="gruppen-reiter" role="tablist" aria-label="Ansicht">
+                    <button id="gruppen-reiter-offen" class="gruppen-reiter-knopf aktiv" type="button"
+                            role="tab" aria-selected="true">🆕 Offen</button>
+                    <button id="gruppen-reiter-benannt" class="gruppen-reiter-knopf" type="button"
+                            role="tab" aria-selected="false">👤 Benannt</button>
+                </div>
                 <p id="gruppen-fortschritt" class="gruppen-fortschritt"></p>
                 <section id="gruppen-karte" class="gruppen-karte" hidden>
                     <div class="gruppen-kopf">
@@ -306,6 +314,55 @@
                 <section id="gruppen-fertig" class="gruppen-fertig" hidden>
                     <p>🎉 Alle Gruppen sind erledigt.</p>
                     <button id="gruppen-zurueck-fertig" class="gruppen-knopf" type="button">↩ Letzte Antwort zurücknehmen</button>
+                </section>
+                <!-- Benannt: Liste der Personen (eine Person = alle Vorschläge mit demselben Namen). -->
+                <section id="gruppen-benannt-ansicht" class="gruppen-benannt-ansicht" hidden>
+                    <div class="gruppen-eingabe">
+                        <input id="gruppen-benannt-filter" type="search" maxlength="60" autocomplete="off"
+                               placeholder="Person suchen …" aria-label="Benannte Person suchen">
+                    </div>
+                    <p id="gruppen-benannt-info" class="gruppen-meta"></p>
+                    <div id="gruppen-benannt-liste" class="gruppen-benannt-liste" role="list"></div>
+                </section>
+                <!-- Person bearbeiten: Vorschläge (Gesichter ansehen/ausschließen, Vorschlag
+                     lösen), Name ändern (gleicher Name = zusammenführen), Profil, Kontakt. -->
+                <section id="gruppen-person" class="gruppen-person" hidden>
+                    <div class="gruppen-kopf">
+                        <h3 id="gruppen-person-titel"></h3>
+                        <button id="gruppen-person-zurueck" class="gruppen-knopf" type="button">← Alle Personen</button>
+                    </div>
+                    <p id="gruppen-person-meta" class="gruppen-meta"></p>
+                    <div id="gruppen-person-vorschlaege" class="gruppen-person-vorschlaege"></div>
+                    <h4 class="gruppen-abschnitt">Name</h4>
+                    <div class="gruppen-eingabe">
+                        <input id="gruppen-person-name" type="text" maxlength="60" autocomplete="off"
+                               aria-label="Name der Person">
+                        <button id="gruppen-person-umbenennen" class="gruppen-knopf haupt" type="button">✎ Ändern</button>
+                    </div>
+                    <p class="gruppen-meta">Gibt es den neuen Namen schon, werden beide Personen zusammengeführt.</p>
+                    <h4 class="gruppen-abschnitt">Profil</h4>
+                    <div class="gruppen-profil">
+                        <input id="gruppen-person-beziehung" type="text" maxlength="80" autocomplete="off"
+                               placeholder="Wer ist das für dich? (z. B. Bruder, Schulfreund)">
+                        <div class="gruppen-notiz-zeile">
+                            <textarea id="gruppen-person-notiz" rows="3" maxlength="4000"
+                                      placeholder="Neue Erinnerung … (🎙 zum Einsprechen)"></textarea>
+                            <button id="gruppen-person-mikro" class="gruppen-mikro" type="button"
+                                    title="Erinnerung einsprechen" aria-label="Erinnerung einsprechen">🎙</button>
+                        </div>
+                        <button id="gruppen-person-speichern" class="gruppen-knopf haupt" type="button">✓ Profil speichern</button>
+                    </div>
+                    <div id="gruppen-person-notizen" class="gruppen-person-notizen"></div>
+                    <h4 class="gruppen-abschnitt">Kontakt</h4>
+                    <p id="gruppen-person-kontakt" class="gruppen-meta"></p>
+                    <div class="gruppen-eingabe">
+                        <input id="gruppen-person-kontaktsuche" type="search" maxlength="60" autocomplete="off"
+                               placeholder="Kontakt suchen und verknüpfen …" aria-label="Kontakt suchen">
+                    </div>
+                    <div id="gruppen-person-kontakttreffer" class="gruppen-treffer" role="listbox" aria-label="Kontakte"></div>
+                    <div class="gruppen-leiste">
+                        <button id="gruppen-person-rueckgaengig" class="gruppen-knopf" type="button">↩ Rückgängig</button>
+                    </div>
                 </section>
                 <p id="gruppen-meldung" class="gruppen-meldung" role="status" aria-live="polite"></p>
             </div>
@@ -403,7 +460,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
-    <script src="gruppen_quiz.js?v=20261002B"></script>
+    <script src="gruppen_quiz.js?v=20261002C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

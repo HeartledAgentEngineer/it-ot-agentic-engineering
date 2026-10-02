@@ -561,3 +561,145 @@ def test_ausschluss_routen(basis):
     assert c.get("/api/gruppen/gesichter", params={"kennung": "Person_1001", "seite": 2}).json()["seite"] == 2
     r = c.post("/api/gruppen/ausschliessen", json={"kennung": "Person_1001", "gesichter": ["130:0"]})
     assert r.status_code == 200 and r.json()["gesamt"] == 59
+
+
+# ── Benannte Personen wieder oeffnen und bearbeiten (02.10.2026) ────────────
+
+def _benannt(basis):
+    gq.antworten("Person_1001", "name", "Leon", beziehung="Bruder", notiz="Hurricane 2022")
+    gq.antworten("Person_1002", "name", "Leon")              # zweiter Vorschlag derselben Person
+    gq.antworten("Person_1004", "name", "Tim")
+
+
+def test_personen_liste_fasst_vorschlaege_zusammen(basis):
+    _benannt(basis)
+    r = gq.personen()
+    assert r["ok"] and [p["name"] for p in r["personen"]] == ["Leon", "Tim"]
+    leon = r["personen"][0]
+    assert leon["vorschlaege"] == 2 and leon["gesichter"] == 160
+    assert leon["beziehung"] == "Bruder" and leon["erinnerungen"] == 1 and leon["kontakt"] is False
+    assert leon["beispiel"]["fileid"] == "100"               # aus dem groessten Vorschlag
+    assert r["personen"][1]["gesichter"] == 5
+
+
+def test_personen_liste_ohne_namen_und_ohne_datei(basis, tmp_path, monkeypatch):
+    assert gq.personen() == {"ok": True, "personen": []}
+    monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path / "leer"))
+    gq._CACHE.clear()
+    assert gq.personen()["ok"] is False
+
+
+def test_person_zeigt_vorschlaege_und_profil(basis):
+    _benannt(basis)
+    r = gq.person("leon")                                   # Gross/Klein egal
+    assert r["ok"] and r["name"] == "Leon"
+    assert [v["kennung"] for v in r["vorschlaege"]] == ["Person_1001", "Person_1002"]
+    assert len(r["vorschlaege"][1]["beispiele"]) == 8
+    assert r["profil"]["beziehung"] == "Bruder"
+    assert gq.person("Unbekannt")["ok"] is False
+
+
+def test_person_ohne_ausgeschlossene_beispiele(basis):
+    _benannt(basis)
+    _gesichter_datei(basis)
+    gq.ausschliessen("Person_1001", ["100:0"])
+    v = gq.person("Leon")["vorschlaege"][0]
+    assert v["groesse"] == 119 and "100" not in [b["fileid"] for b in v["beispiele"]]
+
+
+def test_umbenennen_aendert_alle_vorschlaege_und_das_profil(basis):
+    _benannt(basis)
+    r = gq.umbenennen("Leon", "Leon Maier")
+    assert r["ok"] and r["name"] == "Leon Maier" and r["zusammengefuehrt"] is False
+    namen = _json(basis / gq.BESTAETIGT_DATEINAME)["bestaetigt"]
+    assert namen["Person_1001"] == namen["Person_1002"] == "Leon Maier"
+    profile = _json(basis / gq.PROFILE_DATEINAME)["profile"]
+    assert "Leon" not in profile and profile["Leon Maier"]["beziehung"] == "Bruder"
+
+
+def test_umbenennen_auf_vorhandenen_namen_fuehrt_zusammen(basis):
+    _benannt(basis)
+    gq.profil_ergaenzen("Tim", notiz="Schulfreund")
+    r = gq.umbenennen("Tim", "Leon")
+    assert r["ok"] and r["zusammengefuehrt"] is True and len(r["vorschlaege"]) == 3
+    assert ["Person_1001", "Person_1004"] in _json(basis / gq.VORGABEN_DATEINAME)["gleich"]
+    leon = _json(basis / gq.PROFILE_DATEINAME)["profile"]["Leon"]
+    assert [n["text"] for n in leon["notizen"]] == ["Hurricane 2022", "Schulfreund"]
+    assert leon["beziehung"] == "Bruder"
+    assert "Tim" not in _json(basis / gq.PROFILE_DATEINAME)["profile"]
+
+
+def test_umbenennen_rueckgaengig_stellt_namen_und_profile_her(basis):
+    _benannt(basis)
+    gq.profil_ergaenzen("Tim", notiz="Schulfreund")
+    namen_vorher = _json(basis / gq.BESTAETIGT_DATEINAME)["bestaetigt"]
+    profile_vorher = _json(basis / gq.PROFILE_DATEINAME)["profile"]
+    gq.umbenennen("Tim", "Leon")
+    r = gq.rueckgaengig()
+    assert r["ok"] and r["zurueckgenommen"]["art"] == "umbenennen" and r["zurueckgenommen"]["name"] == "Tim"
+    assert _json(basis / gq.BESTAETIGT_DATEINAME)["bestaetigt"] == namen_vorher
+    assert _json(basis / gq.PROFILE_DATEINAME)["profile"] == profile_vorher
+    assert ["Person_1001", "Person_1004"] not in _json(basis / gq.VORGABEN_DATEINAME)["gleich"]
+
+
+def test_umbenennen_nur_gross_klein_und_rueckgaengig(basis):
+    gq.antworten("Person_1004", "name", "tim", beziehung="Freund")
+    assert gq.umbenennen("tim", "Tim")["name"] == "Tim"
+    assert list(_json(basis / gq.PROFILE_DATEINAME)["profile"]) == ["Tim"]
+    gq.rueckgaengig()
+    assert list(_json(basis / gq.PROFILE_DATEINAME)["profile"]) == ["tim"]
+
+
+@pytest.mark.parametrize("alt, neu, teil", [
+    ("Leon", "Leon", "unverändert"), ("Niemand", "X", "Keine benannte"), ("Leon", "  ", "Namen"),
+])
+def test_umbenennen_ungueltig_schreibt_nichts(basis, alt, neu, teil):
+    _benannt(basis)
+    vorher = (basis / gq.BESTAETIGT_DATEINAME).read_bytes()
+    r = gq.umbenennen(alt, neu)
+    assert r["ok"] is False and teil in r["fehler"]
+    assert (basis / gq.BESTAETIGT_DATEINAME).read_bytes() == vorher
+
+
+def test_loesen_macht_vorschlag_wieder_offen_und_rueckgaengig(basis):
+    _benannt(basis)
+    assert ["Person_1001", "Person_1002"] in _json(basis / gq.VORGABEN_DATEINAME)["gleich"]
+    r = gq.loesen("Person_1002")
+    assert r == {"ok": True, "kennung": "Person_1002", "name": "Leon"}
+    assert "Person_1002" not in _json(basis / gq.BESTAETIGT_DATEINAME)["bestaetigt"]
+    assert ["Person_1001", "Person_1002"] not in _json(basis / gq.VORGABEN_DATEINAME)["gleich"]
+    assert gq.naechste()["gruppe"]["kennung"] == "Person_1002"
+    assert len(gq.person("Leon")["vorschlaege"]) == 1
+    gq.rueckgaengig()
+    assert _json(basis / gq.BESTAETIGT_DATEINAME)["bestaetigt"]["Person_1002"] == "Leon"
+    assert ["Person_1001", "Person_1002"] in _json(basis / gq.VORGABEN_DATEINAME)["gleich"]
+    assert gq.loesen("Person_1003")["ok"] is False
+
+
+def test_benannt_routen(basis):
+    _benannt(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    assert [p["name"] for p in c.get("/api/gruppen/personen").json()["personen"]] == ["Leon", "Tim"]
+    assert c.get("/api/gruppen/person", params={"name": "Tim"}).json()["vorschlaege"][0]["kennung"] == "Person_1004"
+    assert c.get("/api/gruppen/person", params={"name": ""}).status_code == 422
+    r = c.post("/api/gruppen/umbenennen", json={"alt": "Tim", "neu": "Timo"})
+    assert r.status_code == 200 and r.json()["name"] == "Timo"
+    r = c.post("/api/gruppen/loesen", json={"kennung": "Person_1004"})
+    assert r.status_code == 200 and r.json()["ok"]
+
+
+def test_profil_aus_benannt_mit_kontakt_und_rueckgaengig(basis):
+    _benannt(basis)
+    _kontakte(basis)
+    r = gq.profil_ergaenzen("Tim", kontakt_id="13")
+    assert r["ok"] and r["kontakt"]["id"] == "13"
+    assert gq.personen()["personen"][1]["kontakt"] is True
+    assert gq.profil_ergaenzen("Tim", kontakt_id="99")["ok"] is False
+    gq.profil_ergaenzen("Leon", beziehung="großer Bruder", notiz="Zelten")
+    gq.rueckgaengig()                                        # nimmt die Leon-Aenderung zurueck
+    leon = gq.profil("Leon")
+    assert leon["beziehung"] == "Bruder" and [n["text"] for n in leon["notizen"]] == ["Hurricane 2022"]
+    r = gq.rueckgaengig()                                    # dann die Verknuepfung
+    assert r["zurueckgenommen"]["art"] == "profil" and gq.profil("Tim")["kontakt"] is None
