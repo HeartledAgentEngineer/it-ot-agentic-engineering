@@ -27,7 +27,7 @@ function funktionAusschneiden(quelle, name) {
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
                'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText',
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
-               'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenDiktatOffen'];
+               'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -90,6 +90,12 @@ pruefe(/gruppen-wechsel/.test(src) && /@keyframes gruppen-einblenden/.test(css)
 pruefe(/⏭ Weiter \(später\)/.test(html), 'Knopf heißt „Weiter (später)"');
 
 console.log('Schon vergebene Namen per Antippen (01.10.2026)');
+pruefe(f.gruppenAusschlussKnopf(0) === 'Gesichter antippen zum Ausschließen'
+    && f.gruppenAusschlussKnopf(1) === '🚫 1 Gesicht ausschließen'
+    && f.gruppenAusschlussKnopf(3) === '🚫 3 Gesichter ausschließen', 'Ausschluss-Knopf');
+pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 412, ausgeschlossen: 2 }, 48)
+    === 'Tippe die Gesichter an, die NICHT zu dieser Person gehören. · 412 Gesichter · 48 geladen · 2 schon ausgeschlossen',
+    'Infozeile der Gesamtansicht');
 pruefe(f.gruppenGeburtstagText('1997-03-14') === '14.03.1997' && f.gruppenGeburtstagText('--08-02') === '02.08.'
     && f.gruppenGeburtstagText(null) === '' && f.gruppenGeburtstagText('Quatsch') === '', 'Geburtstag lesbar');
 pruefe(f.gruppenTrefferInfo({ name: 'Leon', beziehung: 'Bruder', kontakt: true }, 'person')
@@ -119,7 +125,8 @@ pruefe(/^async function starteFeldDiktat\(zielElem, btn\)/m.test(appJs) && /'⬤
 
 console.log('Verdrahtung');
 pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in der Kopfzeile');
-['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-treffer',
+['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-treffer', 'gruppen-alle', 'gruppen-alle-ansicht', 'gruppen-alle-zurueck',
+ 'gruppen-alle-raster', 'gruppen-alle-mehr', 'gruppen-alle-ausschliessen', 'gruppen-alle-info',
  'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
@@ -143,9 +150,11 @@ pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe 
 
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
-pruefe(v && v[1] >= '20261002A', 'gruppen_quiz.js mit Version 20261002A oder neuer');
+pruefe(v && v[1] >= '20261002B', 'gruppen_quiz.js mit Version 20261002B oder neuer');
+pruefe(/\/api\/gruppen\/gesichter\?kennung=/.test(src) && /\/api\/gruppen\/ausschliessen/.test(src)
+    && /new IntersectionObserver/.test(src), 'Gesamtansicht lädt seitenweise und Vorschaubilder erst beim Sichtbarwerden');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
-pruefe(c && c[1] >= '20261002A', 'style.css-Version 20261002A oder neuer');
+pruefe(c && c[1] >= '20261002B', 'style.css-Version 20261002B oder neuer');
 pruefe(!/gruppen-schnellnamen|<datalist/.test(html), 'Namensknöpfe und datalist sind durch das Suchfeld ersetzt');
 pruefe(/\/api\/gruppen\/suche\?limit=8&q=/.test(src) && /kontakt_id = String\(kontaktId\)/.test(src),
     'Suchfeld fragt die Suche und schickt beim Kontakt die Kennung mit');

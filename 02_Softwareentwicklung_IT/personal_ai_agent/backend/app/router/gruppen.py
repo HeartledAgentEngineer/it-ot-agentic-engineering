@@ -8,6 +8,8 @@
   GET  /api/gruppen/profil        ?name=Leon -> Beziehung + Erinnerungen
   POST /api/gruppen/profil        {name, beziehung?, notiz?, kennung?} -> anhaengen
   GET  /api/gruppen/suche         ?q=Le&limit=12 -> benannte Personen, dann Kontakte
+  GET  /api/gruppen/gesichter     ?kennung=Person_1001&seite=1 -> alle Gesichter, je 48
+  POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
 
 Immer HTTP 200 mit ``ok`` und deutschem ``fehler``-Text (wie fotos/erzaehlen) —
 die Oberflaeche zeigt den Text an, statt an einem Statuscode zu scheitern.
@@ -15,7 +17,7 @@ Die Logik steht in ``app/services/gruppen_quiz.py``.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -33,6 +35,11 @@ class GruppenAntwort(BaseModel):
     beziehung: Optional[str] = None
     notiz: Optional[str] = None
     kontakt_id: Optional[str] = None
+
+
+class AusschlussEingabe(BaseModel):
+    kennung: str
+    gesichter: List[str]
 
 
 class ProfilEingabe(BaseModel):
@@ -87,3 +94,14 @@ def profil_ergaenzen(eingabe: ProfilEingabe) -> Dict[str, Any]:
 def suche(q: str = Query(default="", max_length=60),
           limit: int = Query(default=12, ge=1, le=gruppen_quiz.SUCHE_LIMIT_MAX)) -> Dict[str, Any]:
     return gruppen_quiz.suche(q, limit)
+
+
+@router.get("/gesichter")
+def gesichter(kennung: str = Query(..., min_length=1, max_length=40),
+              seite: int = Query(default=1, ge=1, le=10000)) -> Dict[str, Any]:
+    return gruppen_quiz.gesichter(kennung, seite)
+
+
+@router.post("/ausschliessen")
+def ausschliessen(eingabe: AusschlussEingabe) -> Dict[str, Any]:
+    return gruppen_quiz.ausschliessen(eingabe.kennung, eingabe.gesichter)

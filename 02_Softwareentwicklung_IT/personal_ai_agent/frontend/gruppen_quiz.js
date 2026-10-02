@@ -124,6 +124,22 @@ function gruppenAntwortText(art, s, wechsel) {
     return (texte[art] || '✓ gespeichert') + (wechsel ? ' → nächster Vorschlag' : '');
 }
 
+/** Infozeile der Gesamtansicht. */
+function gruppenAlleInfo(antwort, geladen) {
+    if (!antwort || antwort.ok !== true) return '';
+    const teile = ['Tippe die Gesichter an, die NICHT zu dieser Person gehören.',
+                   gruppenZahl(antwort.gesamt) + ' Gesichter'];
+    if (geladen < antwort.gesamt) teile.push(gruppenZahl(geladen) + ' geladen');
+    if (antwort.ausgeschlossen) teile.push(gruppenZahl(antwort.ausgeschlossen) + ' schon ausgeschlossen');
+    return teile.join(' · ');
+}
+
+/** Beschriftung des Ausschluss-Knopfs. */
+function gruppenAusschlussKnopf(anzahl) {
+    if (!anzahl) return 'Gesichter antippen zum Ausschließen';
+    return '🚫 ' + gruppenZahl(anzahl) + (anzahl === 1 ? ' Gesicht ausschließen' : ' Gesichter ausschließen');
+}
+
 /** Geburtstag aus dem Telefonbuch lesbar: „1997-03-14“ → „14.03.1997“, „--08-02“ → „02.08.“. */
 function gruppenGeburtstagText(gb) {
     if (typeof gb !== 'string') return '';
@@ -215,8 +231,21 @@ function gruppenProfilText(p) {
         }
     }
 
-    /** Kachel mit Gesichtsausschnitt; Antippen zeigt das ganze Foto. */
-    function kachel(beispiel, klein) {
+    async function vollbildOeffnen(fileid) {
+        if (typeof zeigeBildVollbild !== 'function') return;
+        const url = await vorschauLaden(fileid, '800x800');
+        if (!url) { melde('⚠️ Foto konnte nicht geladen werden.', false); return; }
+        zustand.objektUrls.add(url);
+        const gross = new Image();
+        gross.src = url;
+        zeigeBildVollbild(gross, []);
+    }
+
+    /** Kachel mit Gesichtsausschnitt. Standard: Antippen zeigt das ganze Foto.
+     *  optionen.beiTipp ersetzt das (Gesamtansicht: markieren), dann öffnet die
+     *  Lupe in der Ecke das Foto; optionen.verzoegert lädt erst, wenn sichtbar. */
+    function kachel(beispiel, klein, optionen) {
+        const opt = optionen || {};
         const box = document.createElement('button');
         box.type = 'button';
         box.className = 'gruppen-kachel' + (klein ? ' klein' : '');
@@ -225,7 +254,7 @@ function gruppenProfilText(p) {
         leinwand.width = 160;
         leinwand.height = 160;
         box.appendChild(leinwand);
-        (async () => {
+        const laden = async () => {
             const url = await vorschauLaden(beispiel.fileid, '480x480');
             if (!url) { box.classList.add('leer'); return; }
             const bild = new Image();
@@ -244,17 +273,121 @@ function gruppenProfilText(p) {
             };
             bild.onerror = () => { box.classList.add('leer'); try { URL.revokeObjectURL(url); } catch (_e) { /* */ } };
             bild.src = url;
-        })();
-        box.addEventListener('click', async () => {
-            if (typeof zeigeBildVollbild !== 'function') return;
-            const url = await vorschauLaden(beispiel.fileid, '800x800');
-            if (!url) { melde('⚠️ Foto konnte nicht geladen werden.', false); return; }
-            zustand.objektUrls.add(url);
-            const gross = new Image();
-            gross.src = url;
-            zeigeBildVollbild(gross, []);
-        });
+        };
+        if (opt.verzoegert && typeof IntersectionObserver === 'function') {
+            const beobachter = new IntersectionObserver((eintraege) => {
+                if (eintraege.some((e) => e.isIntersecting)) { beobachter.disconnect(); laden(); }
+            }, { rootMargin: '200px' });
+            beobachter.observe(box);
+        } else {
+            laden();
+        }
+        if (typeof opt.beiTipp === 'function') {
+            box.addEventListener('click', () => opt.beiTipp(box));
+            const lupe = document.createElement('span');
+            lupe.className = 'gruppen-lupe';
+            lupe.setAttribute('role', 'button');
+            lupe.setAttribute('aria-label', 'Ganzes Foto ansehen');
+            lupe.textContent = '⤢';
+            lupe.addEventListener('click', (ev) => { ev.stopPropagation(); vollbildOeffnen(beispiel.fileid); });
+            box.appendChild(lupe);
+        } else {
+            box.addEventListener('click', () => vollbildOeffnen(beispiel.fileid));
+        }
         return box;
+    }
+
+    // ── Alle Gesichter eines Vorschlags (02.10.2026) ──────────────────────
+    // Seitenweise (48) aus /api/gruppen/gesichter; Antippen markiert, „🚫 …
+    // ausschließen“ schickt die Markierten an /api/gruppen/ausschliessen. Am
+    // Handy sind sie sofort raus, der nächste Gruppierlauf am PC ordnet sie neu.
+    const alle = { kennung: null, seite: 0, seiten: 0, geladen: 0, letzte: null, markiert: new Set() };
+
+    function alleKnopfAktualisieren() {
+        const k = el('gruppen-alle-ausschliessen');
+        if (!k) return;
+        k.textContent = gruppenAusschlussKnopf(alle.markiert.size);
+        k.disabled = alle.markiert.size === 0;
+    }
+
+    async function alleSeiteLaden() {
+        if (!alle.kennung || (alle.seiten && alle.seite >= alle.seiten)) return;
+        const antwort = await jsonHolen('/api/gruppen/gesichter?kennung=' + encodeURIComponent(alle.kennung)
+            + '&seite=' + (alle.seite + 1)).catch(() => null);
+        const info = el('gruppen-alle-info');
+        if (!antwort || antwort.ok !== true) {
+            if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Gesichter nicht ladbar.');
+            return;
+        }
+        alle.seite = antwort.seite;
+        alle.seiten = antwort.seiten;
+        alle.letzte = antwort;
+        const raster = el('gruppen-alle-raster');
+        (antwort.gesichter || []).forEach((g) => {
+            raster.appendChild(kachel(g, false, {
+                verzoegert: true,
+                beiTipp: (box) => {
+                    if (alle.markiert.has(g.gid)) { alle.markiert.delete(g.gid); box.classList.remove('markiert'); }
+                    else { alle.markiert.add(g.gid); box.classList.add('markiert'); }
+                    box.dataset.gid = g.gid;
+                    alleKnopfAktualisieren();
+                },
+            }));
+            raster.lastChild.dataset.gid = g.gid;
+        });
+        alle.geladen = raster.children.length;
+        if (info) info.textContent = gruppenAlleInfo(antwort, alle.geladen);
+        const mehr = el('gruppen-alle-mehr');
+        if (mehr) mehr.hidden = alle.seite >= alle.seiten;
+    }
+
+    function alleOeffnen() {
+        if (!zustand.gruppe) return;
+        Object.assign(alle, { kennung: zustand.gruppe.kennung, seite: 0, seiten: 0, geladen: 0, letzte: null });
+        alle.markiert.clear();
+        const raster = el('gruppen-alle-raster');
+        if (raster) raster.innerHTML = '';
+        el('gruppen-karte').hidden = true;
+        el('gruppen-alle-ansicht').hidden = false;
+        alleKnopfAktualisieren();
+        alleSeiteLaden();
+    }
+
+    function alleSchliessen() {
+        el('gruppen-alle-ansicht').hidden = true;
+        alle.kennung = null;
+        laden();                         // Karte neu: Beispiele ohne Ausgeschlossene
+    }
+
+    async function alleAusschliessen() {
+        if (!alle.kennung || !alle.markiert.size || zustand.beschaeftigt) return;
+        zustand.beschaeftigt = true;
+        try {
+            const liste = Array.from(alle.markiert);
+            const antwort = await jsonHolen('/api/gruppen/ausschliessen', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kennung: alle.kennung, gesichter: liste }),
+            });
+            if (antwort && antwort.ok === true) {
+                el('gruppen-alle-raster').querySelectorAll('.gruppen-kachel.markiert')
+                    .forEach((k) => k.remove());
+                alle.markiert.clear();
+                alle.geladen = el('gruppen-alle-raster').children.length;
+                if (alle.letzte) {
+                    alle.letzte.gesamt = antwort.gesamt;
+                    alle.letzte.ausgeschlossen = (alle.letzte.ausgeschlossen || 0) + antwort.ausgeschlossen;
+                    el('gruppen-alle-info').textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
+                }
+                melde('✓ ' + gruppenZahl(antwort.ausgeschlossen) + ' ausgeschlossen – sie gehören nicht mehr zu diesem Vorschlag (↩ Rückgängig in der Karte).');
+                alleKnopfAktualisieren();
+            } else {
+                melde('⚠️ ' + ((antwort && antwort.fehler) || 'Ausschließen fehlgeschlagen'), false);
+            }
+        } catch (_e) {
+            melde('⚠️ Keine Verbindung zum Agenten.', false);
+        } finally {
+            zustand.beschaeftigt = false;
+        }
     }
 
     function namenListeSetzen(namen) {
@@ -403,6 +536,8 @@ function gruppenProfilText(p) {
             zeile.appendChild(knoepfe);
             zw.appendChild(zeile);
         });
+        const alleKnopf = el('gruppen-alle');
+        if (alleKnopf) alleKnopf.textContent = '🔍 Alle ' + gruppenZahl(g.groesse) + ' Gesichter ansehen';
         ['gruppen-name', 'gruppen-beziehung', 'gruppen-notiz'].forEach((id) => { const f = el(id); if (f) f.value = ''; });
         const info = el('gruppen-profil-info');
         if (info) info.textContent = '';
@@ -571,6 +706,14 @@ function gruppenProfilText(p) {
         if (unbekannt) unbekannt.addEventListener('click', () => antworten('unbekannt'));
         const zurueck = el('gruppen-zurueck');
         if (zurueck) zurueck.addEventListener('click', rueckgaengig);
+        const alleKnopf = el('gruppen-alle');
+        if (alleKnopf) alleKnopf.addEventListener('click', alleOeffnen);
+        const alleZurueck = el('gruppen-alle-zurueck');
+        if (alleZurueck) alleZurueck.addEventListener('click', alleSchliessen);
+        const alleMehr = el('gruppen-alle-mehr');
+        if (alleMehr) alleMehr.addEventListener('click', alleSeiteLaden);
+        const alleAus = el('gruppen-alle-ausschliessen');
+        if (alleAus) alleAus.addEventListener('click', alleAusschliessen);
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
     }

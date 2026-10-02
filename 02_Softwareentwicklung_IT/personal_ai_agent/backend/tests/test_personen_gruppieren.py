@@ -324,3 +324,34 @@ def test_bericht_nur_zahlen_keine_namen():
     lauf = pg.lauf_rechnen(_eingelesen(v, bilder), bestaetigt={"Person_001": "Geheimname"})
     text = pg.bericht_text(lauf["bericht"])
     assert "Geheimname" not in text and "Person_" not in text
+
+
+# ── Nutzer-Regel „dieses Gesicht ist nicht diese Person" (02.10.2026) ──────
+
+def test_ausgeschlossenes_gesicht_kommt_nicht_mehr_in_den_vorschlag():
+    v, bilder, _, _ = _szene(personen=2, je_person=12, seed=31)
+    erst = pg.lauf_rechnen(_eingelesen(v, bilder))
+    gruppe = erst["gruppen"][0]
+    k = gruppe["kennung"]
+    opfer = next(g for g in erst["gesichter"] if g["kennung"] == k)
+    regel = (k, str(opfer["bild_id"]), int(opfer["index"]))
+    mit = pg.lauf_rechnen(_eingelesen(v, bilder), altbestand=erst["altbestand"],
+                          vorgaben={"gleich": set(), "verschieden": set(), "ausgeschlossen": {regel}})
+    nachher = next(g for g in mit["gesichter"]
+                   if g["bild_id"] == opfer["bild_id"] and g["index"] == opfer["index"])
+    assert nachher["kennung"] != k
+    assert mit["bericht"]["ausgeschlossen_nach_regel"] == 1
+    assert next(g for g in mit["gruppen"] if g["kennung"] == k)["groesse"] == gruppe["groesse"] - 1
+    assert "Nutzer-Regel" in pg.bericht_text(mit["bericht"])
+
+
+def test_vorgaben_lesen_kennt_ausschluesse(tmp_path):
+    pfad = tmp_path / "personen_vorgaben.json"
+    pfad.write_text(json.dumps({"gleich": [["Person_1001", "Person_1002"]], "verschieden": [],
+                                "ausgeschlossen": [{"kennung": "Person_1001", "bild_id": "123", "index": 2},
+                                                   {"kennung": "", "bild_id": "1", "index": 0},
+                                                   {"kennung": "Person_1001", "bild_id": "abc"}]}),
+                    encoding="utf-8")
+    v = pg.vorgaben_lesen(str(pfad))
+    assert v["ausgeschlossen"] == {("Person_1001", "123", 2)}
+    assert v["gleich"] == {("Person_1001", "Person_1002")}

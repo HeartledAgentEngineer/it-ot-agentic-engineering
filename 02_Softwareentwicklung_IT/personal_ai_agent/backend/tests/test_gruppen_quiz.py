@@ -483,3 +483,81 @@ def test_suche_route(basis):
     r = c.post("/api/gruppen/antwort", json={"kennung": "Person_1001", "art": "name", "kontakt_id": "12"})
     assert r.json()["gespeichert"]["name"] == "Lea Schulz"
     assert c.get("/api/gruppen/suche", params={"q": "x" * 61}).status_code == 422
+
+
+# ── Alle Gesichter eines Vorschlags + Ausschliessen (02.10.2026) ────────────
+
+def _gesichter_datei(basis):
+    zeilen = []
+    for i in range(60):                                    # 60 Gesichter von Person_1001
+        zeilen.append({"bild_id": str(100 + i), "index": 0, "kennung": "Person_1001",
+                       "bbox": [10, 20, 30, 40], "breite": 1000, "hoehe": 750,
+                       "anteil": 0.01 + i / 1000, "score": 0.9, "aufnahme": "2022-06-18T11:00:00"})
+    zeilen.append({"bild_id": "9#t=2", "video_id": "9", "index": 0, "kennung": "Person_1001",
+                   "bbox": [1, 1, 1, 1]})                  # Video-Standbild: nicht in der Liste
+    zeilen.append({"bild_id": "500", "index": 1, "kennung": "Person_1003", "bbox": [1, 1, 5, 5]})
+    (basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME).write_text(
+        "\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+
+
+def test_gesichter_seitenweise_beste_zuerst_ohne_videos(basis):
+    _gesichter_datei(basis)
+    s1 = gq.gesichter("Person_1001", 1)
+    assert s1["ok"] and s1["gesamt"] == 60 and s1["seiten"] == 2 and len(s1["gesichter"]) == 48
+    assert s1["gesichter"][0]["gid"] == "159:0"            # groesster Anteil zuerst
+    assert all("_guete" not in g for g in s1["gesichter"])
+    assert len(gq.gesichter("Person_1001", 2)["gesichter"]) == 12
+    assert gq.gesichter("Person_9999")["gesamt"] == 0
+
+
+def test_ausschliessen_wirkt_sofort_und_im_format_des_gruppierers(basis):
+    _gesichter_datei(basis)
+    pg = _werkzeug("personen_gruppieren")
+    r = gq.ausschliessen("Person_1001", ["100:0", "159:0", "100:0"])
+    assert r["ok"] and r["ausgeschlossen"] == 2 and r["gesamt"] == 58
+    gids = {g["gid"] for s in (1, 2) for g in gq.gesichter("Person_1001", s)["gesichter"]}
+    assert "100:0" not in gids and "159:0" not in gids
+    assert pg.vorgaben_lesen(str(basis / gq.VORGABEN_DATEINAME))["ausgeschlossen"] == \
+        {("Person_1001", "100", 0), ("Person_1001", "159", 0)}
+    # Beispielbild 100 der Gruppe wird nicht mehr gezeigt
+    assert "100" not in [b["fileid"] for b in gq.naechste()["gruppe"]["beispiele"]]
+    # ein zweites Mal: nichts Neues
+    assert gq.ausschliessen("Person_1001", ["100:0"])["ausgeschlossen"] == 0
+
+
+def test_ausschluss_aendert_bilder_mit(basis):
+    _gesichter_datei(basis)
+    gq.antworten("Person_1001", "name", "Leon")
+    vorher = gq.bilder_mit(["Leon"])["bilder"]
+    gq.ausschliessen("Person_1001", ["101:0", "102:0"])
+    assert gq.bilder_mit(["Leon"])["bilder"] == vorher - 2
+
+
+def test_ausschliessen_rueckgaengig(basis):
+    _gesichter_datei(basis)
+    gq.ausschliessen("Person_1001", ["120:0"])
+    r = gq.rueckgaengig()
+    assert r["ok"] and r["zurueckgenommen"] == {"kennung": "Person_1001", "art": "ausschliessen", "gesichter": 1}
+    assert gq.gesichter("Person_1001")["gesamt"] == 60
+    assert gq.ausgeschlossen_lesen() == {}
+
+
+@pytest.mark.parametrize("gids, teil", [
+    ([], "antippen"), (["abc"], "Ungültige"), (["500:1"], "gehört nicht"),
+    (["1:0"] * (gq.AUSSCHLUSS_MAX + 1), "Höchstens"),
+])
+def test_ausschliessen_ungueltig_schreibt_nichts(basis, gids, teil):
+    _gesichter_datei(basis)
+    r = gq.ausschliessen("Person_1001", gids)
+    assert r["ok"] is False and teil in r["fehler"]
+    assert not (basis / gq.VORGABEN_DATEINAME).exists()
+
+
+def test_ausschluss_routen(basis):
+    _gesichter_datei(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    assert c.get("/api/gruppen/gesichter", params={"kennung": "Person_1001", "seite": 2}).json()["seite"] == 2
+    r = c.post("/api/gruppen/ausschliessen", json={"kennung": "Person_1001", "gesichter": ["130:0"]})
+    assert r.status_code == 200 and r.json()["gesamt"] == 59

@@ -145,12 +145,25 @@ def bestaetigt_lesen(pfad) -> dict:
 
 
 def vorgaben_lesen(pfad) -> dict:
-    """``{"gleich": [[a, b]], "verschieden": [[a, b]]}`` -> zwei Mengen von Paaren."""
+    """``{"gleich": [[a, b]], "verschieden": [[a, b]], "ausgeschlossen": [...]}`` lesen.
+
+    ``gleich``/``verschieden`` -> Mengen von Kennungs-Paaren. ``ausgeschlossen``
+    (02.10.2026, Quiz am Handy: „dieses Gesicht ist nicht diese Person") ->
+    Menge von ``(kennung, bild_id, index)``: das Gesicht kommt nie wieder in
+    den Vorschlag mit dieser Kennung.
+    """
     daten = _json_lesen(pfad, {})
-    ergebnis = {"gleich": set(), "verschieden": set()}
+    ergebnis = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set()}
     if not isinstance(daten, dict):
         return ergebnis
-    for art in ergebnis:
+    for e in daten.get("ausgeschlossen") or []:
+        if (isinstance(e, dict) and isinstance(e.get("kennung"), str) and e["kennung"]
+                and str(e.get("bild_id") or "").isdigit()):
+            try:
+                ergebnis["ausgeschlossen"].add((e["kennung"], str(e["bild_id"]), int(e.get("index") or 0)))
+            except (TypeError, ValueError):
+                continue
+    for art in ("gleich", "verschieden"):
         for paar in daten.get(art) or []:
             if (isinstance(paar, (list, tuple)) and len(paar) == 2
                     and all(isinstance(x, str) and x for x in paar)
@@ -558,8 +571,15 @@ def lauf_rechnen(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     paare = zwillings_kandidaten(v, bild_ids, label, k, zwilling)
 
     je_gruppe: list[list[dict]] = [[] for _ in range(k)]
+    regeln = vorg.get("ausgeschlossen") or set()
+    ausgeschlossen = 0
     for g, c in zip(gesichter, label.tolist()):
         g["kennung"] = kennungen[c]["kennung"] if c >= 0 else None
+        if c >= 0 and (g["kennung"], str(g["bild_id"]), int(g.get("index") or 0)) in regeln:
+            # Nutzer-Regel: dieses Gesicht gehoert NICHT zu diesem Vorschlag.
+            g["kennung"] = None
+            ausgeschlossen += 1
+            continue
         if c >= 0:
             je_gruppe[c].append(g)
     kandidaten: list[list[dict]] = [[] for _ in range(k)]
@@ -601,6 +621,7 @@ def lauf_rechnen(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         "kennungen_wiederverwendet": sum(1 for e in kennungen if not e["neu"]),
         "namen_bestaetigt": sum(1 for g in gruppen if g["name"]),
         "aehnliche_paare": len(paare),
+        "ausgeschlossen_nach_regel": ausgeschlossen,
         "davon_mit_gemeinsamen_bildern": sum(1 for p in paare if p["gemeinsame_bilder"]),
         "sekunden": round(time.monotonic() - start, 1),
     }
@@ -667,6 +688,7 @@ def bericht_text(b) -> str:
         f"Aehnliche, getrennte Gruppenpaare: {b['aehnliche_paare']} "
         f"(davon mit gemeinsamen Bildern = sicher zwei Menschen: "
         f"{b['davon_mit_gemeinsamen_bildern']})",
+        f"Nach Nutzer-Regel aus einem Vorschlag genommen: {b.get('ausgeschlossen_nach_regel', 0)} Gesichter",
         f"Rechenzeit: {b['sekunden']} s",
     ]
     return "\n".join(zeilen)

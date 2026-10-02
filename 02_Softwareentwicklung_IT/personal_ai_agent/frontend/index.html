@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261002A">
+    <link rel="stylesheet" href="style.css?v=20261002B">
 </head>
 <body>
     <div id="app">
@@ -251,6 +251,9 @@
                     </div>
                     <p id="gruppen-meta" class="gruppen-meta"></p>
                     <div id="gruppen-kacheln" class="gruppen-kacheln"></div>
+                    <!-- Alle Gesichter (02.10.2026, Wunsch Sebastian): durchsehen und
+                         falsche ausschließen („das ist nicht Julian, das bin ich“). -->
+                    <button id="gruppen-alle" class="gruppen-knopf" type="button">🔍 Alle Gesichter ansehen</button>
                     <!-- Per „= dieselbe Person" verbundene Vorschläge (01.10.2026):
                          der Name gilt beim Speichern für alle. -->
                     <div id="gruppen-verbunden" class="gruppen-verbunden"></div>
@@ -286,6 +289,18 @@
                         <button id="gruppen-spaeter" class="gruppen-knopf" type="button">⏭ Weiter (später)</button>
                         <button id="gruppen-unbekannt" class="gruppen-knopf" type="button">🚫 Kenne ich nicht</button>
                         <button id="gruppen-zurueck" class="gruppen-knopf" type="button">↩ Rückgängig</button>
+                    </div>
+                </section>
+                <section id="gruppen-alle-ansicht" class="gruppen-alle-ansicht" hidden>
+                    <div class="gruppen-kopf">
+                        <h3>Alle Gesichter</h3>
+                        <button id="gruppen-alle-zurueck" class="gruppen-knopf" type="button">← Zurück</button>
+                    </div>
+                    <p id="gruppen-alle-info" class="gruppen-meta"></p>
+                    <div id="gruppen-alle-raster" class="gruppen-kacheln gruppen-alle-raster"></div>
+                    <button id="gruppen-alle-mehr" class="gruppen-knopf" type="button" hidden>Weitere laden</button>
+                    <div class="gruppen-alle-leiste">
+                        <button id="gruppen-alle-ausschliessen" class="gruppen-knopf haupt" type="button" disabled>Gesichter antippen zum Ausschließen</button>
                     </div>
                 </section>
                 <section id="gruppen-fertig" class="gruppen-fertig" hidden>
@@ -388,7 +403,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
     <script src="erzaehlen.js?v=20260928B"></script>
-    <script src="gruppen_quiz.js?v=20261002A"></script>
+    <script src="gruppen_quiz.js?v=20261002B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

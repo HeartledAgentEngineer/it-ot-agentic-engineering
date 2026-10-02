@@ -76,6 +76,8 @@ NOTIZ_MAX = 4000
 BEISPIELE_MAX = 8
 BILDER_LIMIT_MAX = 500
 SUCHE_LIMIT_MAX = 50
+GESICHTER_JE_SEITE = 48
+AUSSCHLUSS_MAX = 200
 
 FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
                  "tools/foto_sortierung/personen_gruppieren.py --schreiben laufen "
@@ -135,17 +137,23 @@ def _json_lesen(pfad: Optional[str], standard: Any) -> Any:
 
 
 def _gemerkt(pfad: str, laden):
-    """Ergebnis von ``laden(pfad)`` merken, solange sich Datei-Zeit und -Groesse nicht aendern."""
+    """Ergebnis von ``laden(pfad)`` merken, solange sich Datei-Zeit und -Groesse nicht aendern.
+
+    Gemerkt wird je (Pfad, Lesefunktion): ``gesicht_zuordnung.jsonl`` lesen zwei
+    verschiedene Funktionen (Register und Gesichterliste). Mit dem Pfad allein
+    bekam die zweite das Ergebnis der ersten (Befund 02.10.2026 im Test).
+    """
     try:
         st = os.stat(pfad)
     except OSError:
         return laden(pfad)
     schluessel = (st.st_mtime, st.st_size)
-    alt = _CACHE.get(pfad)
+    eintrag = f"{pfad}|{getattr(laden, '__qualname__', id(laden))}"
+    alt = _CACHE.get(eintrag)
     if alt and alt[0] == schluessel:
         return alt[1]
     wert = laden(pfad)
-    _CACHE[pfad] = (schluessel, wert)
+    _CACHE[eintrag] = (schluessel, wert)
     return wert
 
 
@@ -572,7 +580,9 @@ def naechste() -> Dict[str, Any]:
         if k in nach_kennung and not namen.get(k):
             verbunden.append({"kennung": k, "groesse": nach_kennung[k].get("groesse"),
                               "beispiel": erstes_beispiel(nach_kennung[k])})
-    beispiele = [b for b in (_beispiel_fuer_anzeige(x) for x in gruppe.get("beispiele") or []) if b]
+    aus = ausgeschlossen_lesen().get(gruppe["kennung"], set())
+    beispiele = [b for b in (_beispiel_fuer_anzeige(x) for x in gruppe.get("beispiele") or [])
+                 if b and f"{b['fileid']}:{int(b.get('index') or 0)}" not in aus]
     return {
         "ok": True, "fertig": False, "offen": len(offen),
         "gruppe": {
@@ -585,6 +595,119 @@ def naechste() -> Dict[str, Any]:
         },
         "namen": namen_liste(namen),
     }
+
+
+# ── Alle Gesichter eines Vorschlags + Ausschliessen (02.10.2026) ────────────
+#
+# Wunsch Sebastian: alle (z. B. 400) Gesichter eines Vorschlags durchsehen und
+# falsche antippen („das ist nicht Julian, das bin ich"). Ein ausgeschlossenes
+# Gesicht steht als Regel in ``personen_vorgaben.json`` unter
+# ``"ausgeschlossen": [{"kennung", "bild_id", "index"}]`` — am Handy wirkt sie
+# sofort (Liste, Beispiele, Register), am PC laesst ``personen_gruppieren.py``
+# das Gesicht nie wieder in diesen Vorschlag. Rueckgaengig nimmt sie zurueck.
+
+_GID = re.compile(r"^\d+:\d+$")
+
+
+def ausgeschlossen_lesen() -> Dict[str, set]:
+    """{kennung: {"bild_id:index", ...}} aus personen_vorgaben.json."""
+    daten = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+    ergebnis: Dict[str, set] = {}
+    for e in (daten.get("ausgeschlossen") if isinstance(daten, dict) else None) or []:
+        if isinstance(e, dict) and e.get("kennung") and str(e.get("bild_id") or "").isdigit():
+            ergebnis.setdefault(str(e["kennung"]), set()).add(f"{e['bild_id']}:{int(e.get('index') or 0)}")
+    return ergebnis
+
+
+def _gesichter_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
+    """``gesicht_zuordnung.jsonl`` -> {kennung: [Gesicht, ...]} (nur Fotos, beste zuerst)."""
+    je: Dict[str, List[Dict[str, Any]]] = {}
+    with open(pfad, encoding="utf-8") as datei:
+        for zeile in datei:
+            try:
+                z = json.loads(zeile)
+            except ValueError:
+                continue
+            if not isinstance(z, dict) or not z.get("kennung") or z.get("video_id"):
+                continue
+            bid, bbox = str(z.get("bild_id") or ""), z.get("bbox")
+            if not bid.isdigit() or not (isinstance(bbox, list) and len(bbox) == 4):
+                continue
+            try:
+                guete = float(z.get("anteil") or 0) * float(z.get("score") or 0)
+            except (TypeError, ValueError):
+                guete = 0.0
+            je.setdefault(str(z["kennung"]), []).append({
+                "gid": f"{bid}:{int(z.get('index') or 0)}", "fileid": bid,
+                "index": int(z.get("index") or 0), "bbox": bbox,
+                "breite": z.get("breite"), "hoehe": z.get("hoehe"),
+                "aufnahme": (str(z.get("aufnahme") or ""))[:10] or None, "_guete": guete})
+    for liste in je.values():
+        liste.sort(key=lambda g: (-g["_guete"], g["gid"]))
+    return je
+
+
+def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE) -> Dict[str, Any]:
+    """Alle (nicht ausgeschlossenen) Gesichter eines Vorschlags, seitenweise. Nie ein Wurf."""
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        alle = _gemerkt(pfad, _gesichter_laden).get(str(kennung), [])
+        aus = ausgeschlossen_lesen().get(str(kennung), set())
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    sichtbar = [g for g in alle if g["gid"] not in aus]
+    je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
+    seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
+    seite = max(1, min(int(seite or 1), seiten))
+    teil = sichtbar[(seite - 1) * je_seite: seite * je_seite]
+    return {"ok": True, "kennung": kennung, "gesamt": len(sichtbar), "ausgeschlossen": len(aus),
+            "seite": seite, "seiten": seiten,
+            "gesichter": [{k: v for k, v in g.items() if not k.startswith("_")} for g in teil]}
+
+
+def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
+    """Gesichter aus einem Vorschlag nehmen (Regel fuer den naechsten Gruppierlauf). Nie ein Wurf."""
+    liste = [str(g).strip() for g in (gids or [])]
+    if not liste:
+        return {"ok": False, "fehler": "Bitte mindestens ein Gesicht antippen."}
+    if len(liste) > AUSSCHLUSS_MAX:
+        return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
+    if not all(_GID.match(g) for g in liste):
+        return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        with _SCHREIBSPERRE:
+            vorhanden = {g["gid"] for g in _gemerkt(pfad, _gesichter_laden).get(str(kennung), [])}
+            fremd = [g for g in liste if g not in vorhanden]
+            if fremd:
+                raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
+            roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+            daten = roh if isinstance(roh, dict) else {}
+            eintraege = daten.get("ausgeschlossen") if isinstance(daten.get("ausgeschlossen"), list) else []
+            schon = ausgeschlossen_lesen().get(str(kennung), set())
+            neu = [g for g in dict.fromkeys(liste) if g not in schon]
+            for g in neu:
+                bid, idx = g.split(":")
+                eintraege.append({"kennung": str(kennung), "bild_id": bid, "index": int(idx)})
+            daten["ausgeschlossen"] = eintraege
+            if neu:
+                _atomar_schreiben(VORGABEN_DATEINAME, daten)
+                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                      "zeit": datetime.now().isoformat(timespec="seconds"),
+                                      "art": "ausschliessen", "kennung": str(kennung),
+                                      "gesichter": neu})
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Ausschliessen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    rest = gesichter(kennung, 1)
+    return {"ok": True, "kennung": kennung, "ausgeschlossen": len(neu),
+            "gesamt": rest.get("gesamt", 0)}
 
 
 # ── Antworten ────────────────────────────────────────────────────────────────
@@ -725,10 +848,27 @@ def rueckgaengig() -> Dict[str, Any]:
             eintraege = _protokoll_lesen()
             erledigt = {e.get("bezug") for e in eintraege if e.get("art") == "rueckgaengig"}
             offen = [e for e in eintraege
-                     if e.get("art") in ARTEN and e.get("id") not in erledigt]
+                     if e.get("art") in ARTEN + ("ausschliessen",) and e.get("id") not in erledigt]
             if not offen:
                 return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen."}
             letzte = offen[-1]
+            if letzte.get("art") == "ausschliessen":
+                roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+                daten = roh if isinstance(roh, dict) else {}
+                weg = {(str(letzte.get("kennung")), g) for g in letzte.get("gesichter") or []}
+                daten["ausgeschlossen"] = [
+                    e for e in daten.get("ausgeschlossen") or []
+                    if not (isinstance(e, dict) and (str(e.get("kennung")),
+                            f"{e.get('bild_id')}:{int(e.get('index') or 0)}") in weg)]
+                _atomar_schreiben(VORGABEN_DATEINAME, daten)
+                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                      "zeit": datetime.now().isoformat(timespec="seconds"),
+                                      "art": "rueckgaengig", "bezug": letzte.get("id"),
+                                      "kennung": letzte.get("kennung")})
+                weiter = naechste()
+                weiter["zurueckgenommen"] = {"kennung": letzte.get("kennung"), "art": "ausschliessen",
+                                             "gesichter": len(letzte.get("gesichter") or [])}
+                return weiter
             namen = bestaetigt_lesen()
             vorgaben = vorgaben_lesen()
             st = _stand_lesen()
@@ -829,6 +969,7 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
     try:
         bestaetigt = bestaetigt_lesen()
         medien = _gemerkt(pfad, _zuordnung_laden)
+        aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     person_von: Dict[str, str] = {k: n.casefold() for k, n in bestaetigt.items()}
@@ -836,7 +977,8 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
     unbekannt = sorted(n for n in gefragt if n.casefold() not in set(person_von.values()))
     treffer = []
     for schluessel, m in medien.items():
-        personen = {person_von[k] for k in m["kennungen"] if k in person_von}
+        personen = {person_von[k] for k in m["kennungen"]
+                    if k in person_von and (k, schluessel) not in aus_paare}
         if modus == "alle":
             passt = gesucht <= personen
         elif modus == "eine":
