@@ -1998,37 +1998,52 @@ button.footer-note:hover {
 .gruppen-mikro:hover { background: rgba(108, 99, 255, 0.25); }
 .gruppen-mikro:active { transform: scale(0.96); }
 
-.gruppen-schnellnamen:empty { display: none; }
+/* Suchfeld-Treffer (02.10.2026, Issue #3 B): benannte Personen, dann Kontakte. */
+.gruppen-treffer:empty { display: none; }
 
-.gruppen-schnellnamen {
+.gruppen-treffer {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    max-height: 7.5rem;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 14rem;
     overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    background: rgba(15, 15, 26, 0.6);
 }
 
-.gruppen-schnellnamen p {
-    flex: 1 1 100%;
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-}
-
-.gruppen-schnellname {
-    padding: 5px 12px;
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    background: rgba(108, 99, 255, 0.10);
+.gruppen-treffer-zeile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
     color: var(--text-primary, inherit);
     font: inherit;
-    font-size: 0.85rem;
+    text-align: left;
     cursor: pointer;
     transition: background 0.15s ease, transform 0.1s ease;
 }
 
-.gruppen-schnellname:hover { background: rgba(108, 99, 255, 0.25); }
-.gruppen-schnellname:active { transform: scale(0.96); }
+.gruppen-treffer-zeile:hover,
+.gruppen-treffer-zeile:focus-visible { background: rgba(108, 99, 255, 0.18); outline: none; }
+.gruppen-treffer-zeile:active { transform: scale(0.98); }
+
+.gruppen-treffer-name { font-size: 0.95rem; font-weight: 600; }
+
+.gruppen-treffer-info,
+.gruppen-treffer-leer {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.gruppen-treffer-leer { padding: 8px 12px; }
 
 .gruppen-verbunden {
     display: flex;

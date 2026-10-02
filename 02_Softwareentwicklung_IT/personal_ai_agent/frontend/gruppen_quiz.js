@@ -124,19 +124,30 @@ function gruppenAntwortText(art, s, wechsel) {
     return (texte[art] || '✓ gespeichert') + (wechsel ? ' → nächster Vorschlag' : '');
 }
 
-/** Namen für die Schnellknöpfe: ohne Leere/Doppelte (Groß/Klein egal), höchstens ``max``. */
-function gruppenSchnellNamen(namen, max) {
-    const grenze = (typeof max === 'number' && max > 0) ? max : 40;
-    const gesehen = new Set();
-    const aus = [];
-    (Array.isArray(namen) ? namen : []).forEach((n) => {
-        const t = (typeof n === 'string') ? n.trim() : '';
-        const k = t.toLowerCase();
-        if (!t || gesehen.has(k) || aus.length >= grenze) return;
-        gesehen.add(k);
-        aus.push(t);
-    });
-    return aus;
+/** Geburtstag aus dem Telefonbuch lesbar: „1997-03-14“ → „14.03.1997“, „--08-02“ → „02.08.“. */
+function gruppenGeburtstagText(gb) {
+    if (typeof gb !== 'string') return '';
+    let m = gb.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return m[3] + '.' + m[2] + '.' + m[1];
+    m = gb.match(/^--(\d{2})-(\d{2})$/);
+    return m ? m[2] + '.' + m[1] + '.' : '';
+}
+
+/** Zweite Zeile eines Suchtreffers (nur Hinweise, keine Nummern). */
+function gruppenTrefferInfo(eintrag, art) {
+    if (!eintrag) return '';
+    if (art === 'person') {
+        const teile = ['schon benannt'];
+        if (eintrag.beziehung) teile.push(eintrag.beziehung);
+        if (eintrag.kontakt) teile.push('📇 verknüpft');
+        return teile.join(' · ');
+    }
+    const teile = ['📇 Kontakt'];
+    const gb = gruppenGeburtstagText(eintrag.geburtstag);
+    if (gb) teile.push('🎂 ' + gb);
+    if (eintrag.nummern) teile.push(eintrag.nummern === 1 ? '1 Nummer' : eintrag.nummern + ' Nummern');
+    if (eintrag.verknuepft_mit) teile.push('schon bei ' + eintrag.verknuepft_mit);
+    return teile.join(' · ');
 }
 
 /**
@@ -248,36 +259,66 @@ function gruppenProfilText(p) {
 
     function namenListeSetzen(namen) {
         zustand.namen = namen || [];
-        const liste = el('gruppen-namen');
-        if (!liste) return;
-        liste.innerHTML = '';
-        (namen || []).forEach((n) => {
-            const o = document.createElement('option');
-            o.value = n;
-            liste.appendChild(o);
-        });
-        schnellNamenZeigen(namen);
     }
 
-    /** Schon vergebene Namen als Knöpfe: ein Tipp = diesem Menschen zuordnen.
-     *  Die <datalist> zeigt die Android-WebView oft gar nicht an. */
-    function schnellNamenZeigen(namen) {
-        const box = el('gruppen-schnellnamen');
+    // ── Suchfeld (02.10.2026, Issue #3 B) ─────────────────────────────────
+    // Tippen fragt /api/gruppen/suche (Wortanfang, Umlaute egal, rein lokal):
+    // zuerst schon benannte Personen, dann Telefonbuch-Kontakte. Ein Tipp auf
+    // einen Treffer ordnet zu — bei einem Kontakt mit Verknüpfung (kontakt_id).
+    // Leeres Feld: die schon benannten Personen (ersetzt die Namensknöpfe).
+    let _suchUhr = null;
+    let _suchNr = 0;
+
+    function trefferZeile(titel, info, beiTipp) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'gruppen-treffer-zeile';
+        b.setAttribute('role', 'option');
+        const t = document.createElement('span');
+        t.className = 'gruppen-treffer-name';
+        t.textContent = titel;
+        const i = document.createElement('span');
+        i.className = 'gruppen-treffer-info';
+        i.textContent = info;
+        b.appendChild(t);
+        b.appendChild(i);
+        b.addEventListener('click', beiTipp);
+        return b;
+    }
+
+    function trefferZeigen(antwort) {
+        const box = el('gruppen-treffer');
         if (!box) return;
         box.innerHTML = '';
-        const liste = gruppenSchnellNamen(namen, 40);
-        if (!liste.length) return;
-        const hinweis = document.createElement('p');
-        hinweis.textContent = 'Schon benannt — antippen, wenn es dieselbe Person ist:';
-        box.appendChild(hinweis);
-        liste.forEach((n) => {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'gruppen-schnellname';
-            b.textContent = n;
-            b.addEventListener('click', () => nameSpeichern(n));
-            box.appendChild(b);
-        });
+        if (!antwort || antwort.ok !== true) return;
+        const personen = antwort.personen || [];
+        const kontakte = antwort.kontakte || [];
+        personen.forEach((p) => box.appendChild(trefferZeile(p.name, gruppenTrefferInfo(p, 'person'),
+            () => nameSpeichern(p.name))));
+        kontakte.forEach((k) => box.appendChild(trefferZeile(k.name, gruppenTrefferInfo(k, 'kontakt'),
+            () => nameSpeichern(k.verknuepft_mit || k.name, k.id))));
+        if (antwort.frage && !personen.length && !kontakte.length) {
+            const leer = document.createElement('p');
+            leer.className = 'gruppen-treffer-leer';
+            leer.textContent = antwort.kontakte_vorhanden
+                ? 'Kein Treffer – „Speichern“ legt den Namen neu an.'
+                : 'Kein Treffer. Telefonbuch noch nicht übertragen – „Speichern“ legt den Namen neu an.';
+            box.appendChild(leer);
+        }
+    }
+
+    async function suchen() {
+        const feld = el('gruppen-name');
+        const frage = feld ? feld.value.trim() : '';
+        const nr = ++_suchNr;
+        const antwort = await jsonHolen('/api/gruppen/suche?limit=8&q=' + encodeURIComponent(frage))
+            .catch(() => null);
+        if (nr === _suchNr) trefferZeigen(antwort);      // nur die neueste Antwort zeigen
+    }
+
+    function sucheVormerken() {
+        if (_suchUhr) clearTimeout(_suchUhr);
+        _suchUhr = setTimeout(suchen, 150);
     }
 
     function zeigen(antwort) {
@@ -365,6 +406,7 @@ function gruppenProfilText(p) {
         ['gruppen-name', 'gruppen-beziehung', 'gruppen-notiz'].forEach((id) => { const f = el(id); if (f) f.value = ''; });
         const info = el('gruppen-profil-info');
         if (info) info.textContent = '';
+        suchen();
     }
 
     async function fortschrittLaden() {
@@ -461,14 +503,16 @@ function gruppenProfilText(p) {
         if (stoppt) melde('… Erinnerung wird übertragen');
     }
 
-    function nameSpeichern(vorgabe) {
+    function nameSpeichern(vorgabe, kontaktId) {
         const feld = el('gruppen-name');
         const name = (typeof vorgabe === 'string' && vorgabe.trim())
             ? vorgabe.trim() : (feld ? feld.value.trim() : '');
         if (!name) { melde('Bitte einen Namen eingeben.', false); if (feld) feld.focus(); return; }
         const beziehung = (el('gruppen-beziehung') || {}).value || '';
         const notiz = (el('gruppen-notiz') || {}).value || '';
-        antworten('name', { name: name, beziehung: beziehung.trim(), notiz: notiz.trim() });
+        const koerper = { name: name, beziehung: beziehung.trim(), notiz: notiz.trim() };
+        if (kontaktId) koerper.kontakt_id = String(kontaktId);
+        antworten('name', koerper);
     }
 
     /** Bekannter Name eingegeben? Dann das vorhandene Profil kurz zeigen. */
@@ -519,6 +563,7 @@ function gruppenProfilText(p) {
                 if (bez) bez.focus(); else nameSpeichern();
             });
             feld.addEventListener('change', profilZeigen);
+            feld.addEventListener('input', sucheVormerken);
         }
         const spaeter = el('gruppen-spaeter');
         if (spaeter) spaeter.addEventListener('click', () => antworten('spaeter'));

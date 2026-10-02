@@ -50,3 +50,28 @@ geht es heute nicht (Termux aus dem Play Store, Termux:API aus F-Droid: verschie
 ## Lauf (startet Sebastian, Handy am Kabel)
 
     backend\.venv\Scripts\python.exe tools\handy\kontakte_aufs_handy.py --senden
+
+## Teil B — Suchfeld statt Namensknöpfen
+
+- `frontend/gruppen_quiz.js`: Das Namensfeld `#gruppen-name` ist ein Suchfeld. Tippen fragt
+  (150 ms verzögert) `GET /api/gruppen/suche?limit=8&q=…`; die Trefferliste `#gruppen-treffer`
+  zeigt zuerst schon benannte Personen („schon benannt · Bruder · 📇 verknüpft"), dann
+  Kontakte („📇 Kontakt · 🎂 14.03.1997 · 1 Nummer · schon bei …" — Nummern nur als Anzahl).
+  Ein Tipp ordnet zu: Person per Name, Kontakt per Name + `kontakt_id` (ist der Kontakt schon
+  mit einem Profil verknüpft, gilt dessen Name). Beziehung und Erinnerung aus den Feldern gehen
+  mit. Leeres Feld = die benannten Personen (ersetzt die Namensknöpfe); kein Treffer = Hinweis,
+  dass „Speichern" einen neuen Namen anlegt. Nur die neueste Suchantwort wird gezeigt.
+- Entfallen: `#gruppen-schnellnamen`, `<datalist id="gruppen-namen">` (zeigte die
+  Android-WebView ohnehin oft nicht) und `gruppenSchnellNamen`; neu die reinen Funktionen
+  `gruppenGeburtstagText`, `gruppenTrefferInfo`. Namen nur per `textContent`.
+- `gruppen_quiz.js`/`style.css?v=20261002A`.
+
+## Prüfung (Teil B)
+
+- `frontend/tests/test_gruppen_quiz.js` angepasst (Geburtstag/Treffer-Info, IDs, keine
+  Knöpfe/`datalist` mehr, Suche + `kontakt_id`, nur neueste Antwort, Text statt HTML);
+  `test_foto_galerie.js` Cache-Stand. Alle 25 Frontend-Tests Exit 0.
+- Browser-Prüfstand (375 px, echtes Blatt + `gruppen_quiz.js`, erfundenes Backend): leeres Feld
+  zeigt die benannte Person; „le" → Leo, Leon Müller, Lea Schulz mit Infozeilen; Tipp auf den
+  Kontakt schickt `name`, `kontakt_id`, Beziehung; „xyz" → Hinweis; keine waagerechte
+  Scroll-Leiste.

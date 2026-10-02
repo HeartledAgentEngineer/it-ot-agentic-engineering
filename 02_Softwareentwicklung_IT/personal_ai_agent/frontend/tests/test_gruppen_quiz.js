@@ -27,7 +27,7 @@ function funktionAusschneiden(quelle, name) {
 const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFortschritt',
                'gruppenMeta', 'gruppenZwillingText', 'gruppenProfilText',
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
-               'gruppenSchnellNamen', 'gruppenDiktatOffen'];
+               'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenDiktatOffen'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -90,13 +90,17 @@ pruefe(/gruppen-wechsel/.test(src) && /@keyframes gruppen-einblenden/.test(css)
 pruefe(/⏭ Weiter \(später\)/.test(html), 'Knopf heißt „Weiter (später)"');
 
 console.log('Schon vergebene Namen per Antippen (01.10.2026)');
-pruefe(JSON.stringify(f.gruppenSchnellNamen(['Leon', 'leon ', '', null, 'Oma'], 40)) === '["Leon","Oma"]',
-    'ohne Leere und Doppelte (Groß/Klein egal)');
-pruefe(f.gruppenSchnellNamen(['a', 'b', 'c'], 2).length === 2, 'höchstens max Knöpfe');
-pruefe(f.gruppenSchnellNamen(undefined).length === 0, 'ohne Namen keine Knöpfe');
-pruefe(/nameSpeichern\(n\)/.test(src) && /addEventListener\('click', \(\) => nameSpeichern\(\)\)/.test(src),
-    'Knopf speichert direkt; Speichern-Knopf übergibt kein Klick-Ereignis als Namen');
-pruefe(/b\.textContent = n;/.test(src) && !/innerHTML = [^';]*\bn\b/.test(src), 'Namen nur als Text, nie als HTML');
+pruefe(f.gruppenGeburtstagText('1997-03-14') === '14.03.1997' && f.gruppenGeburtstagText('--08-02') === '02.08.'
+    && f.gruppenGeburtstagText(null) === '' && f.gruppenGeburtstagText('Quatsch') === '', 'Geburtstag lesbar');
+pruefe(f.gruppenTrefferInfo({ name: 'Leon', beziehung: 'Bruder', kontakt: true }, 'person')
+    === 'schon benannt · Bruder · 📇 verknüpft', 'Treffer-Info Person');
+pruefe(f.gruppenTrefferInfo({ name: 'Lea', geburtstag: '--08-02', nummern: 2, verknuepft_mit: 'Lea S.' }, 'kontakt')
+    === '📇 Kontakt · 🎂 02.08. · 2 Nummern · schon bei Lea S.', 'Treffer-Info Kontakt (ohne Nummern im Klartext)');
+pruefe(/nameSpeichern\(p\.name\)/.test(src) && /nameSpeichern\(k\.verknuepft_mit \|\| k\.name, k\.id\)/.test(src)
+    && /addEventListener\('click', \(\) => nameSpeichern\(\)\)/.test(src),
+    'Treffer speichert direkt; Speichern-Knopf übergibt kein Klick-Ereignis als Namen');
+pruefe(/t\.textContent = titel;/.test(src) && /i\.textContent = info;/.test(src)
+    && !/innerHTML = [^';]*\b(titel|info|name)\b/.test(src), 'Namen nur als Text, nie als HTML');
 
 console.log('Erinnerung einsprechen (01.10.2026)');
 pruefe(f.gruppenDiktatOffen(true, null, '', 0) === true, 'während der Aufnahme offen');
@@ -115,11 +119,11 @@ pruefe(/^async function starteFeldDiktat\(zielElem, btn\)/m.test(appJs) && /'⬤
 
 console.log('Verdrahtung');
 pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in der Kopfzeile');
-['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-namen',
+['gruppen-sheet', 'gruppen-close', 'gruppen-kacheln', 'gruppen-name', 'gruppen-treffer',
  'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
- 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-schnellnamen', 'gruppen-notiz-mikro'].forEach((id) => {
+ 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-notiz-mikro'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
         '#' + id + ' im HTML und im Skript');
 });
@@ -139,9 +143,13 @@ pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe 
 
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
-pruefe(v && v[1] >= '20261001E', 'gruppen_quiz.js mit Version 20261001E oder neuer');
+pruefe(v && v[1] >= '20261002A', 'gruppen_quiz.js mit Version 20261002A oder neuer');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
-pruefe(c && c[1] >= '20261001E', 'style.css-Version 20261001E oder neuer');
+pruefe(c && c[1] >= '20261002A', 'style.css-Version 20261002A oder neuer');
+pruefe(!/gruppen-schnellnamen|<datalist/.test(html), 'Namensknöpfe und datalist sind durch das Suchfeld ersetzt');
+pruefe(/\/api\/gruppen\/suche\?limit=8&q=/.test(src) && /kontakt_id = String\(kontaktId\)/.test(src),
+    'Suchfeld fragt die Suche und schickt beim Kontakt die Kennung mit');
+pruefe(/if \(nr === _suchNr\) trefferZeigen/.test(src), 'nur die neueste Suchantwort wird gezeigt');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');
