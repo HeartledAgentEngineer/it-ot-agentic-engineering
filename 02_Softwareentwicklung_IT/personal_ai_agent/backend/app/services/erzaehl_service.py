@@ -148,14 +148,37 @@ def _jetzt_iso() -> str:
 
 # ── Ereignisse lesen (nur lesend) ────────────────────────────────────────────
 
+FOTOBUCH_DATEINAME = "fotobuch_ereignisse.jsonl"
+
+
+def fotobuch_pfad() -> str:
+    """Seiten des digitalen Fotobuchs (tools/foto_sortierung/fotobuch_lesen.py, 02.10.2026).
+
+    Liegt im selben Ordner wie ``ereignisse.jsonl`` (Standard
+    ``~/foto_sortierung/``; leitet ein Test den Ereignis-Pfad um, wandert das
+    Fotobuch mit — echte Daten werden so nie versehentlich gelesen),
+    übersteuerbar mit ``ERZAEHL_FOTOBUCH_PFAD``. Zeilenformat wie ``ereignisse.jsonl``.
+    """
+    ueber = os.environ.get("ERZAEHL_FOTOBUCH_PFAD")
+    if ueber and ueber.strip():
+        return ueber.strip()
+    return os.path.join(os.path.dirname(ereignisse_pfad()), FOTOBUCH_DATEINAME)
+
+
 def _ereignisse_laden() -> Tuple[List[Dict[str, Any]], int]:
-    """``ereignisse.jsonl`` zeilenweise lesen. **Wirft nie.**
+    """Fotobuch-Seiten (zuerst, in Buchreihenfolge) + ``ereignisse.jsonl``. **Wirft nie.**"""
+    buch, defekt_buch = _datei_ereignisse_laden(fotobuch_pfad())
+    rest, defekt_rest = _datei_ereignisse_laden(ereignisse_pfad())
+    return buch + rest, defekt_buch + defekt_rest
+
+
+def _datei_ereignisse_laden(pfad: str) -> Tuple[List[Dict[str, Any]], int]:
+    """Eine Ereignis-JSONL zeilenweise lesen. **Wirft nie.**
 
     Liefert ``(gültige_ereignisse, defekte_zeilen)``. Fehlt die Datei, ist
     das Ergebnis ``([], 0)`` — kein Fehler, die App soll ehrlich „noch nicht
     vorhanden" melden können (das übernimmt der Router).
     """
-    pfad = ereignisse_pfad()
     ereignisse: List[Dict[str, Any]] = []
     defekt = 0
 
@@ -201,8 +224,8 @@ def _ereignis_datei_kennungen(ereignis: Dict[str, Any]) -> List[int]:
 
 
 def ereignisse_existiert() -> bool:
-    """Liegt die Ereignisdatei überhaupt vor? (für den Router-Fehlertext)."""
-    return os.path.isfile(ereignisse_pfad())
+    """Liegt eine Ereignisquelle vor (Ereignisse oder Fotobuch)? (für den Router-Fehlertext)."""
+    return os.path.isfile(ereignisse_pfad()) or os.path.isfile(fotobuch_pfad())
 
 
 def _ereignis_finden(kennung: str) -> Optional[Dict[str, Any]]:
