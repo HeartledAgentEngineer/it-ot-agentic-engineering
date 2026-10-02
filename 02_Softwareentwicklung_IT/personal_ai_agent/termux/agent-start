@@ -123,6 +123,12 @@ if [ -f "$HIER/hey-agent-einrichten.sh" ]; then
     sh "$HIER/hey-agent-einrichten.sh" 2>&1 | head -2 || true
 fi
 
+# pCloud-Zugang aus dem Download-Ordner in backend/.env uebernehmen — eine
+# gemeinsame Quelle fuer alle drei Startwege (start-termux.sh, Widget
+# agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
+# Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
+bash "$HIER/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" || true
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 

@@ -4,8 +4,8 @@
 #
 # Gegenstueck zu start-termux.sh, aber bewusst schlanker: kein Beenden
 # laufender Prozesse. Laeuft der Server schon, passiert nichts (idempotent) -
-# auch kein Pull und keine Uebernahme. Sonst: Pull, dann die Foto-/Personen-
-# Dateien aus dem Download-Ordner uebernehmen (seit 01.10.2026), dann Start.
+# auch kein Pull und keine Uebernahme. Sonst: Pull, pCloud-Schluessel und die
+# Foto-/Personen-Dateien aus dem Download-Ordner uebernehmen, dann Start.
 #
 # Zwei Aufrufwege aus der Android-App "Hey Agent":
 #   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar.
@@ -117,6 +117,12 @@ else
 fi
 
 cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
+
+# pCloud-Zugang aus dem Download-Ordner in backend/.env uebernehmen — eine
+# gemeinsame Quelle fuer alle drei Startwege (start-termux.sh, Widget
+# agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
+# Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
+bash "$PROJEKT/termux/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" >> "$LOG" 2>&1 || true
 
 # Datendateien vom PC uebernehmen (01.10.2026, Plan Foto-Gedaechtnis Schritt 2).
 # Vorher lief die Uebernahme NUR in start-termux.sh (Widget-Tipp) - der echte
