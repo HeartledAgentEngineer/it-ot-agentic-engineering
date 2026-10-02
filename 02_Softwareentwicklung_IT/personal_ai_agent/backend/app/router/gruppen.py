@@ -7,6 +7,7 @@
   GET  /api/gruppen/bilder        ?namen=Leon,Tim&modus=alle|eine|genau&limit=100
   GET  /api/gruppen/profil        ?name=Leon -> Beziehung + Erinnerungen
   POST /api/gruppen/profil        {name, beziehung?, notiz?, kennung?} -> anhaengen
+  GET  /api/gruppen/suche         ?q=Le&limit=12 -> benannte Personen, dann Kontakte
 
 Immer HTTP 200 mit ``ok`` und deutschem ``fehler``-Text (wie fotos/erzaehlen) —
 die Oberflaeche zeigt den Text an, statt an einem Statuscode zu scheitern.
@@ -31,6 +32,7 @@ class GruppenAntwort(BaseModel):
     ziel: Optional[str] = None
     beziehung: Optional[str] = None
     notiz: Optional[str] = None
+    kontakt_id: Optional[str] = None
 
 
 class ProfilEingabe(BaseModel):
@@ -53,7 +55,7 @@ def naechste() -> Dict[str, Any]:
 @router.post("/antwort")
 def antwort(eingabe: GruppenAntwort) -> Dict[str, Any]:
     return gruppen_quiz.antworten(eingabe.kennung, eingabe.art, eingabe.name, eingabe.ziel,
-                                  eingabe.beziehung, eingabe.notiz)
+                                  eingabe.beziehung, eingabe.notiz, eingabe.kontakt_id)
 
 
 @router.post("/rueckgaengig")
@@ -79,3 +81,9 @@ def profil(name: str = Query(..., min_length=1, max_length=60)) -> Dict[str, Any
 def profil_ergaenzen(eingabe: ProfilEingabe) -> Dict[str, Any]:
     return gruppen_quiz.profil_ergaenzen(eingabe.name, eingabe.beziehung, eingabe.notiz,
                                          eingabe.kennung)
+
+
+@router.get("/suche")
+def suche(q: str = Query(default="", max_length=60),
+          limit: int = Query(default=12, ge=1, le=gruppen_quiz.SUCHE_LIMIT_MAX)) -> Dict[str, Any]:
+    return gruppen_quiz.suche(q, limit)

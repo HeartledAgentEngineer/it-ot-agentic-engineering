@@ -707,7 +707,7 @@ def test_quelltext_ohne_feste_ausgabepfade():
 def _erwartete_dateinamen() -> set:
     """Die von den Diensten gelesenen Dateinamen aus den Modulkonstanten.
 
-    Alle **sieben** Dateien, die ein Dienst am Handy aus ``~/foto_sortierung``
+    Alle **acht** Dateien, die ein Dienst am Handy aus ``~/foto_sortierung``
     liest — nicht nur die drei in diesem Schritt ergaenzten. Sonst koennte eine
     spaetere Aenderung die zwei aelteren Namen aus dem Startskript entfernen,
     ohne dass ein Waechter anschlaegt. ``geschichten.jsonl`` fehlt bewusst: die
@@ -721,13 +721,14 @@ def _erwartete_dateinamen() -> set:
         dienst_beziehungen.UEBERSICHT_DATEINAME,       # beziehungen.json
         dienst_gruppen.BEISPIELE_DATEINAME,            # personen_beispiele.json (01.10.)
         dienst_gruppen.ZUORDNUNG_DATEINAME,            # gesicht_zuordnung.jsonl (01.10.)
+        dienst_gruppen.KONTAKTE_DATEINAME,             # kontakte.json (02.10., Issue #3)
     }
 
 
 def test_waechter_erwartete_namen_deckt_alle_gelesenen_datendateien():
-    """Der Waechter kennt genau die sieben Dateien, die die Dienste lesen."""
+    """Der Waechter kennt genau die acht Dateien, die die Dienste lesen."""
     namen = _erwartete_dateinamen()
-    assert len(namen) == 7, f"unerwartete Namensmenge: {sorted(namen)}"
+    assert len(namen) == 8, f"unerwartete Namensmenge: {sorted(namen)}"
     for alt in (dienst_bilder.DATEIEN_DATEINAME,
                 dienst_foto_uebersicht.UEBERSICHT_DATEINAME):
         assert alt in namen, f"vorbestehende Datei fehlt im Waechter: {alt}"

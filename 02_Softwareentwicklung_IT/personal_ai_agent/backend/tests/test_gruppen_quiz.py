@@ -407,3 +407,79 @@ def test_vorhandene_namen_werden_nie_ueberschrieben(basis):
     gq.antworten("Person_1004", "name", "Oma")
     gq.antworten("Person_1003", "gleich", ziel="Person_1004")
     assert gq.bestaetigt_lesen() == {"Person_1003": "Tim", "Person_1004": "Oma"}
+
+
+# ── Kontakte + Suche (02.10.2026, Issue #3 Teil A/B) — erfundene Kontakte ──
+
+KONTAKTE = {"stand": "2026-10-02", "quelle": "telefonbuch-adb", "kontakte": [
+    {"id": "11", "name": "Leon Müller", "nummern": ["+4917000000001"], "geburtstag": "1997-03-14"},
+    {"id": "12", "name": "Lea Schulz", "nummern": [], "geburtstag": "--08-02"},
+    {"id": "13", "name": "Tim Becker", "nummern": ["+4917000000003", "040000003"], "geburtstag": None},
+]}
+
+
+def _kontakte(basis):
+    (basis / gq.KONTAKTE_DATEINAME).write_text(json.dumps(KONTAKTE), encoding="utf-8")
+
+
+def test_suche_findet_wortanfang_umlaute_egal_personen_zuerst(basis):
+    _kontakte(basis)
+    gq.antworten("Person_1001", "name", "Leo")
+    r = gq.suche("le")
+    assert r["ok"] and r["kontakte_vorhanden"] is True
+    assert [p["name"] for p in r["personen"]] == ["Leo"]
+    assert [k["name"] for k in r["kontakte"]] == ["Lea Schulz", "Leon Müller"]
+    for frage in ("mül", "muel", "MUL", "leon m"):
+        assert [k["id"] for k in gq.suche(frage)["kontakte"]] == ["11"], frage
+    assert gq.suche("ller")["kontakte"] == []                         # nur Wortanfang
+    leer = gq.suche("")
+    assert leer["personen"][0]["name"] == "Leo" and leer["kontakte"] == []   # kein Telefonbuch-Auszug ohne Frage
+
+
+def test_benennen_mit_kontakt_verknuepft_das_profil(basis):
+    _kontakte(basis)
+    r = gq.antworten("Person_1001", "name", None, kontakt_id="11")
+    assert r["ok"] and r["gespeichert"]["name"] == "Leon Müller" and r["gespeichert"]["kontakt"] is True
+    p = gq.profil("Leon Müller")
+    assert p["kontakt"]["id"] == "11" and p["kontakt"]["geburtstag"] == "1997-03-14"
+    assert p["kontakt"]["nummern"] == ["+4917000000001"]
+    assert gq.suche("leon")["kontakte"][0]["verknuepft_mit"] == "Leon Müller"
+    assert gq.suche("leon")["personen"][0]["kontakt"] is True
+
+
+def test_eigener_name_plus_kontakt_bleibt_beim_eigenen_namen(basis):
+    _kontakte(basis)
+    gq.antworten("Person_1001", "name", "Leo", kontakt_id="11")
+    assert gq.bestaetigt_lesen()["Person_1001"] == "Leo"
+    assert gq.profil("Leo")["kontakt"]["name"] == "Leon Müller"
+
+
+def test_unbekannter_kontakt_wird_abgelehnt_und_nichts_geschrieben(basis):
+    _kontakte(basis)
+    r = gq.antworten("Person_1001", "name", None, kontakt_id="999")
+    assert r["ok"] is False and "Telefonbuch" in r["fehler"]
+    assert gq.bestaetigt_lesen() == {}
+
+
+def test_rueckgaengig_nimmt_die_kontakt_verknuepfung_ab(basis):
+    _kontakte(basis)
+    gq.antworten("Person_1001", "name", None, kontakt_id="13")
+    gq.rueckgaengig()
+    assert gq.bestaetigt_lesen() == {}
+    assert gq.profil("Tim Becker")["kontakt"] is None
+
+
+def test_suche_ohne_kontaktdatei(basis):
+    r = gq.suche("le")
+    assert r["ok"] and r["kontakte_vorhanden"] is False and r["kontakte"] == []
+
+
+def test_suche_route(basis):
+    _kontakte(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    assert [k["id"] for k in c.get("/api/gruppen/suche", params={"q": "tim"}).json()["kontakte"]] == ["13"]
+    r = c.post("/api/gruppen/antwort", json={"kennung": "Person_1001", "art": "name", "kontakt_id": "12"})
+    assert r.json()["gespeichert"]["name"] == "Lea Schulz"
+    assert c.get("/api/gruppen/suche", params={"q": "x" * 61}).status_code == 422

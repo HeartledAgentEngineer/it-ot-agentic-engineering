@@ -50,6 +50,7 @@ import logging
 import os
 import re
 import threading
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -65,6 +66,7 @@ VORGABEN_DATEINAME = "personen_vorgaben.json"
 STAND_DATEINAME = "gruppen_quiz_stand.json"
 PROTOKOLL_DATEINAME = "gruppen_antworten.jsonl"
 PROFILE_DATEINAME = "personen_profile.json"
+KONTAKTE_DATEINAME = "kontakte.json"   # Telefonbuch-Auszug (tools/handy/kontakte_aufs_handy.py)
 
 ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt")
 MODI = ("alle", "eine", "genau")
@@ -73,6 +75,7 @@ BEZIEHUNG_MAX = 80
 NOTIZ_MAX = 4000
 BEISPIELE_MAX = 8
 BILDER_LIMIT_MAX = 500
+SUCHE_LIMIT_MAX = 50
 
 FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
                  "tools/foto_sortierung/personen_gruppieren.py --schreiben laufen "
@@ -354,7 +357,8 @@ def _profil_schluessel(profile: Dict[str, Any], name: str) -> str:
 
 
 def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: str,
-                      kennung: Optional[str], quelle: str) -> Dict[str, Any]:
+                      kennung: Optional[str], quelle: str,
+                      kontakt: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     profile = daten["profile"]
     schluessel = _profil_schluessel(profile, name)
     eintrag = profile.setdefault(schluessel, {"beziehung": "", "notizen": []})
@@ -363,6 +367,9 @@ def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: s
     if beziehung and beziehung != eintrag.get("beziehung"):
         aenderung["beziehung_vorher"] = eintrag.get("beziehung") or ""
         eintrag["beziehung"] = beziehung
+    if kontakt and kontakt != eintrag.get("kontakt"):
+        aenderung["kontakt_vorher"] = eintrag.get("kontakt")
+        eintrag["kontakt"] = kontakt
     if notiz:
         nid = uuid.uuid4().hex[:12]
         eintrag["notizen"].append({"id": nid, "zeit": datetime.now().isoformat(timespec="seconds"),
@@ -382,7 +389,7 @@ def profil(name: str) -> Dict[str, Any]:
     p = daten["profile"].get(schluessel) or {}
     notizen = [n for n in p.get("notizen") or [] if not n.get("zurueckgenommen")]
     return {"ok": True, "name": schluessel, "beziehung": p.get("beziehung") or "",
-            "notizen": notizen}
+            "notizen": notizen, "kontakt": p.get("kontakt")}
 
 
 def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional[str] = None,
@@ -404,6 +411,90 @@ def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional
         logger.error("Profil: Schreiben fehlgeschlagen: %s", fehler)
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
     return profil(sauber)
+
+
+# ── Kontakte + Suche (02.10.2026, Issue #3 Teil A/B) ─────────────────────────
+#
+# Ein Personenbestand: Quelle der Kontakte bleibt das Telefonbuch (mit Google
+# abgeglichen); ``kontakte.json`` ist nur ein Auszug, das Profil verweist per
+# Kennung (Android ``contact_id``) darauf und haelt eine Kopie fuer die Anzeige.
+# Die Suche laeuft rein lokal (kein Sprachmodell, keine Kosten).
+
+def _kontakte_laden() -> Dict[str, Dict[str, Any]]:
+    pfad = _lesepfad(KONTAKTE_DATEINAME)
+    if not pfad:
+        return {}
+
+    def laden(p):
+        daten = _json_lesen(p, {})
+        liste = daten.get("kontakte") if isinstance(daten, dict) else None
+        ergebnis: Dict[str, Dict[str, Any]] = {}
+        for k in liste if isinstance(liste, list) else []:
+            if not isinstance(k, dict):
+                continue
+            kid, name = str(k.get("id") or "").strip(), str(k.get("name") or "").strip()
+            if not kid or not name:
+                continue
+            gb = k.get("geburtstag")
+            ergebnis[kid] = {"id": kid, "name": name,
+                             "nummern": [str(n) for n in (k.get("nummern") or [])
+                                         if isinstance(n, (str, int))][:10],
+                             "geburtstag": gb if isinstance(gb, str) and gb else None}
+        return ergebnis
+
+    return _gemerkt(pfad, laden)
+
+
+_UMLAUTE = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+
+def _suchformen(text: str) -> List[str]:
+    """Zwei Schreibweisen: Umlaut ausgeschrieben (mueller) und ohne Zeichen (muller)."""
+    klein = (text or "").casefold()
+    ohne = "".join(c for c in unicodedata.normalize("NFKD", klein)
+                   if not unicodedata.combining(c)).replace("ß", "ss")
+    return [klein.translate(_UMLAUTE), ohne]
+
+
+def passt_wortanfang(name: str, frage: str) -> bool:
+    """Jedes Suchwort ist der Anfang eines Wortes im Namen (Gross/Klein, Umlaute egal)."""
+    teile = [t for t in re.split(r"[\s\-]+", (frage or "").strip()) if t]
+    if not teile:
+        return False
+    namen_woerter = [w for form in _suchformen(name) for w in re.split(r"[\s\-]+", form) if w]
+    return all(any(w.startswith(tf) for w in namen_woerter for tf in _suchformen(t) if tf)
+               for t in teile)
+
+
+def suche(q: str, limit: int = 12) -> Dict[str, Any]:
+    """Suchfeld im Quiz: zuerst schon benannte Personen, dann Telefonbuch-Kontakte. Nie ein Wurf."""
+    try:
+        namen = bestaetigt_lesen()
+        kontakte = _kontakte_laden()
+        profile = _profile_laden()["profile"]
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    limit = max(1, min(int(limit or 12), SUCHE_LIMIT_MAX))
+    frage = (q or "").strip()
+    alle = namen_liste(namen)
+    if frage:
+        personen = [n for n in alle if passt_wortanfang(n, frage)][:limit]
+        treffer = sorted((k for k in kontakte.values() if passt_wortanfang(k["name"], frage)),
+                         key=lambda k: (k["name"].casefold(), k["id"]))[:limit]
+    else:
+        personen, treffer = alle[:limit], []
+    verknuepft = {str((p.get("kontakt") or {}).get("id")): n for n, p in profile.items()
+                  if isinstance(p, dict) and (p.get("kontakt") or {}).get("id")}
+
+    def person(n: str) -> Dict[str, Any]:
+        p = profile.get(_profil_schluessel(profile, n)) or {}
+        return {"name": n, "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt"))}
+
+    return {"ok": True, "frage": frage, "kontakte_vorhanden": bool(kontakte),
+            "personen": [person(n) for n in personen],
+            "kontakte": [{"id": k["id"], "name": k["name"], "geburtstag": k["geburtstag"],
+                          "nummern": len(k["nummern"]), "verknuepft_mit": verknuepft.get(k["id"])}
+                         for k in treffer]}
 
 
 # ── Abfragen ─────────────────────────────────────────────────────────────────
@@ -500,15 +591,16 @@ def naechste() -> Dict[str, Any]:
 
 def antworten(kennung: str, art: str, name: Optional[str] = None,
               ziel: Optional[str] = None, beziehung: Optional[str] = None,
-              notiz: Optional[str] = None) -> Dict[str, Any]:
+              notiz: Optional[str] = None, kontakt_id: Optional[str] = None) -> Dict[str, Any]:
     """Eine Antwort speichern und die naechste Gruppe liefern. Nie ein Wurf.
 
     Beim Benennen (``art="name"``) koennen ``beziehung`` und ``notiz`` mitkommen —
-    sie landen im Profil der Person (``personen_profile.json``).
+    sie landen im Profil der Person (``personen_profile.json``). ``kontakt_id``
+    verknuepft das Profil mit einem Telefonbuch-Kontakt (ohne Namen gilt dessen Name).
     """
     try:
         with _SCHREIBSPERRE:
-            eintrag = _antwort_anwenden(kennung, art, name, ziel, beziehung, notiz)
+            eintrag = _antwort_anwenden(kennung, art, name, ziel, beziehung, notiz, kontakt_id)
         logger.info("Gruppen-Quiz: %s fuer %s gespeichert", art, kennung)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -518,13 +610,15 @@ def antworten(kennung: str, art: str, name: Optional[str] = None,
     weiter = naechste()
     weiter["gespeichert"] = {"kennung": kennung, "art": art, "name": eintrag.get("name"),
                              "notiz": bool((eintrag.get("profil") or {}).get("notiz_id")),
+                             "kontakt": "kontakt_vorher" in (eintrag.get("profil") or {}),
                              "weitere": len([k for k in eintrag["namen_vorher"] if k != kennung])}
     return weiter
 
 
 def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
                       ziel: Optional[str], beziehung: Optional[str] = None,
-                      notiz: Optional[str] = None) -> Dict[str, Any]:
+                      notiz: Optional[str] = None,
+                      kontakt_id: Optional[str] = None) -> Dict[str, Any]:
     if art not in ARTEN:
         raise GruppenFehler(f"Unbekannte Antwort: {art!r}.")
     gruppen, _ = _gruppen_laden()
@@ -562,6 +656,14 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             vorgaben[art_paar].append(p)
             eintrag["paare_neu"][art_paar].append(p)
 
+    kontakt = None
+    if art == "name" and kontakt_id:
+        kontakt = _kontakte_laden().get(str(kontakt_id).strip())
+        if not kontakt:
+            raise GruppenFehler("Kontakt nicht (mehr) im Telefonbuch-Auszug.")
+        if not (name or "").strip():
+            name = kontakt["name"]
+
     if art == "name":
         sauber = name_saeubern(name)
         eintrag["name"] = sauber
@@ -572,9 +674,10 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             paar_dazu("gleich", kennung, gleichnamig[0])
         b = text_saeubern(beziehung, BEZIEHUNG_MAX)
         n = text_saeubern(notiz, NOTIZ_MAX, zeilen=True)
-        if b or n:
+        if b or n or kontakt:
             profile = _profile_laden()
-            eintrag["profil"] = _profil_ergaenzen(profile, sauber, b, n, kennung, "quiz")
+            eintrag["profil"] = _profil_ergaenzen(profile, sauber, b, n, kennung, "quiz",
+                                                  dict(kontakt) if kontakt else None)
     elif art == "gleich":
         andere = str(ziel)          # oben geprueft: vorhanden und gueltig
         paar_dazu("gleich", kennung, andere)
@@ -654,6 +757,11 @@ def rueckgaengig() -> Dict[str, Any]:
                 if p is not None:
                     if "beziehung_vorher" in pr:
                         p["beziehung"] = pr["beziehung_vorher"]
+                    if "kontakt_vorher" in pr:
+                        if pr["kontakt_vorher"]:
+                            p["kontakt"] = pr["kontakt_vorher"]
+                        else:
+                            p.pop("kontakt", None)
                     for notiz_eintrag in p.get("notizen") or []:
                         if notiz_eintrag.get("id") == pr.get("notiz_id"):
                             notiz_eintrag["zurueckgenommen"] = True

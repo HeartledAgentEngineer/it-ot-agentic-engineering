@@ -165,3 +165,89 @@ def test_uebergabe_ohne_dateien_und_falsches_ziel(tmp_path):
     code, zeilen = gh.senden(str(tmp_path), "/sdcard/Download", AdbAttrappe(), wirklich=True)
     assert code == 2 and "--schreiben" in zeilen[0]
     assert gh.main(["--ziel", "/data/data/com.termux", "--basis", str(tmp_path)]) == 2
+
+
+# ── Telefonbuch -> kontakte.json (02.10.2026, Issue #3 Teil A) — erfundene Daten ──
+
+kh = _laden("kontakte_aufs_handy", "handy")
+
+TELEFON_ROH = """Row: 0 contact_id=11, display_name=Leon Müller, data1=+49 170 000-0001
+Row: 1 contact_id=11, display_name=Leon Müller, data1=(040) 000 0002
+Row: 2 contact_id=11, display_name=Leon Müller, data1=+49 170 000-0001
+Row: 3 contact_id=12, display_name=Lea, Schulz, data1=0170 0000003
+Row: 4 contact_id=abc, display_name=Kaputt, data1=123
+"""
+EVENT_ROH = """Row: 0 contact_id=11, display_name=Leon Müller, data1=--03-14, data2=3, mimetype=vnd.android.cursor.item/contact_event
+Row: 1 contact_id=11, display_name=Leon Müller, data1=1997-03-14, data2=3, mimetype=vnd.android.cursor.item/contact_event
+Row: 2 contact_id=12, display_name=Lea, Schulz, data1=2010-06-01, data2=0, mimetype=vnd.android.cursor.item/contact_event
+Row: 3 contact_id=14, display_name=Nur Geburtstag, data1=--13-40, data2=3, mimetype=vnd.android.cursor.item/contact_event
+"""
+
+
+class TelefonbuchAdb:
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.befehle = []
+        self.abgelegt = {}
+
+    def __call__(self, befehl):
+        self.befehle.append(befehl)
+        if befehl[1] == "shell" and "content query" in befehl[2]:
+            if not self.ok:
+                return 1, "error"
+            return 0, (EVENT_ROH if "contact_event" in befehl[2] else TELEFON_ROH)
+        if befehl[1] == "push":
+            self.abgelegt[befehl[3]] = os.path.getsize(befehl[2])
+            return 0, "1 file pushed"
+        if befehl[1:4] == ["shell", "stat", "-c"]:
+            return 0, str(self.abgelegt.get(befehl[5]))
+        return 1, "?"
+
+
+def test_kontakte_bauen_je_kennung_nummern_geburtstag():
+    zerleger = kh._zuordnung()._zeilen_zerlegen
+    k = kh.kontakte_bauen(TELEFON_ROH, EVENT_ROH, zerleger)
+    assert [x["id"] for x in k] == ["12", "11"]                       # nach Name sortiert
+    leon = k[1]
+    assert leon["name"] == "Leon Müller"
+    assert leon["nummern"] == ["+491700000001", "0400000002"]          # gesaeubert, ohne Doppelte
+    assert leon["geburtstag"] == "1997-03-14"                          # mit Jahr bevorzugt
+    assert k[0]["name"] == "Lea, Schulz" and k[0]["geburtstag"] is None   # Jahrestag (Typ 0) zaehlt nicht
+
+
+def test_trockenlauf_zeigt_nur_zahlen(tmp_path, capsys):
+    adb = TelefonbuchAdb()
+    rc = kh.main(["--ausgabe", str(tmp_path / "kontakte.json")], ausfuehren=adb)
+    aus = capsys.readouterr().out
+    assert rc == 0 and "Kontakte: 2" in aus and "mit Geburtstag: 1 (davon mit Jahr: 1)" in aus
+    for privat in ("Leon", "Müller", "Schulz", "0001", "+49"):
+        assert privat not in aus
+    assert not (tmp_path / "kontakte.json").exists()
+    assert not any(b[1] == "push" for b in adb.befehle)
+
+
+def test_senden_schreibt_ausserhalb_und_legt_aufs_handy(tmp_path):
+    ziel = tmp_path / "kontakte.json"
+    adb = TelefonbuchAdb()
+    assert kh.main(["--ausgabe", str(ziel), "--senden"], ausfuehren=adb) == 0
+    daten = json.loads(ziel.read_text(encoding="utf-8"))
+    assert daten["quelle"] == "telefonbuch-adb" and len(daten["kontakte"]) == 2
+    assert list(adb.abgelegt) == ["/sdcard/Download/kontakte.json"]
+    assert not any("rm" in b for b in adb.befehle)
+
+
+def test_kontakte_nie_ins_repo_und_ehrlicher_fehler(tmp_path):
+    assert kh.main(["--ausgabe", os.path.join(PROJEKT, "kontakte.json"), "--schreiben"],
+                   ausfuehren=TelefonbuchAdb()) == 2
+    assert not os.path.exists(os.path.join(PROJEKT, "kontakte.json"))
+    assert kh.main(["--ausgabe", str(tmp_path / "k.json")], ausfuehren=TelefonbuchAdb(ok=False)) == 3
+    assert kh.main(["--ausgabe", str(tmp_path / "k.json"), "--ziel", "/data/x"],
+                   ausfuehren=TelefonbuchAdb()) == 2
+
+
+def test_geburtstag_und_nummer_saeubern():
+    assert kh.geburtstag_text("1997-03-14") == "1997-03-14"
+    assert kh.geburtstag_text("--03-14") == "--03-14"
+    assert kh.geburtstag_text("--13-01") is None and kh.geburtstag_text("gestern") is None
+    assert kh.nummer_saeubern("+49 (0) 170/123-45") == "+49017012345"
+    assert kh.nummer_saeubern("0170 12 34") == "01701234"
