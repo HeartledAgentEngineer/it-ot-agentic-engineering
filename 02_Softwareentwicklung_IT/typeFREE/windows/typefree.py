@@ -989,6 +989,8 @@ def _live_text_einfuegen(text):
     titel = _fenster_titel()
     pyperclip.copy(eingefuegt)
     time.sleep(0.15)
+    log.info('Messpunkt vor Live-Einfügen: %s · Fenster %r',
+             tastenzustand_text(), titel)
     with eigene_eingabe():
         pyautogui.hotkey('ctrl', 'v')
     with lock:
@@ -2011,6 +2013,26 @@ def eigene_eingabe():
         _eigene_eingabe_bis = time.monotonic() + EIGENE_EINGABE_NACHLAUF
 
 
+def _taste_unten(vk):
+    """Meldet Windows die Taste gerade als gedrückt? (GetAsyncKeyState)"""
+    return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def tastenzustand_text(unten=None):
+    """Messpunkt fürs Protokoll: „Alt=unten Strg=oben Shift=oben".
+
+    Anlass (06.10.2026): Der Live-Modus meldete „eingefügt", im Fenster kam
+    nichts an. Ob Alt beim Einfügen noch als gedrückt galt, stand nirgends.
+    """
+    unten = unten or _taste_unten
+    try:
+        return ' '.join('%s=%s' % (name, 'unten' if unten(vk) else 'oben')
+                        for name, vk in (('Alt', 0x12), ('Strg', 0x11),
+                                         ('Shift', 0x10)))
+    except Exception:
+        return 'Tastenzustand unbekannt'
+
+
 def zusatztasten_freigeben():
     """Lässt Alt, Strg und Shift per Software los (Finger bleibt drauf).
 
@@ -2018,12 +2040,16 @@ def zusatztasten_freigeben():
     sonst in vielen Programmen das Menü (die Ä-Taste dazwischen ist geschluckt).
     """
     global _mods_freigegeben
+    vorher = tastenzustand_text()
     with eigene_eingabe():
         pyautogui.keyDown('ctrlleft')
         pyautogui.keyUp('ctrlleft')
         for taste in _FREIGABE_TASTEN:
             pyautogui.keyUp(taste)
     _mods_freigegeben = True
+    time.sleep(0.05)
+    log.info('Messpunkt Freigabe: vorher %s · nachher %s', vorher,
+             tastenzustand_text())
 
 
 def _modifier_von(event):

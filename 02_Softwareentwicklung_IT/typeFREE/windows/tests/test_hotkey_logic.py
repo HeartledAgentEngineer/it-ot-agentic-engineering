@@ -126,3 +126,16 @@ def test_modifier_nach_aufnahme_kommt_durch():
 def test_eigene_eingabe_zeitfenster():
     assert typefree.eigene_eingabe_aktiv(jetzt=10.0, bis=10.2) is True
     assert typefree.eigene_eingabe_aktiv(jetzt=10.3, bis=10.2) is False
+
+
+# ── Messpunkte: welche Zusatztasten meldet Windows gerade als gedrückt? ──────
+def test_tastenzustand_text_nennt_gedrueckte_tasten():
+    gedrueckt = {0x12}                                   # nur Alt
+    text = typefree.tastenzustand_text(lambda vk: vk in gedrueckt)
+    assert text == 'Alt=unten Strg=oben Shift=oben'
+
+
+def test_tastenzustand_text_uebersteht_fehler():
+    def kaputt(vk):
+        raise OSError('kein Zugriff')
+    assert typefree.tastenzustand_text(kaputt) == 'Tastenzustand unbekannt'
