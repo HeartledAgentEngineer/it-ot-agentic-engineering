@@ -922,6 +922,7 @@ live_teile = []               # was schon im Dokument steht: {'text', 'roh', 'fe
 live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
 live_beschaeftigt = False     # der Schreiber transkribiert gerade einen Happen
 _live_lief = False            # lief Live in DIESER Aufnahme? (Tray-Wechsel mittendrin)
+live_ausstehend = ''          # zurückgehaltenes Satzzeichen des letzten Blocks
 
 
 class LivePuffer:
@@ -1096,17 +1097,18 @@ def unicode_tippen(text):
     return gesendet
 
 
-def _live_text_einfuegen(text):
-    """Fügt einen Happen roh am Cursor ein und merkt sich, was angekommen ist.
+def _live_text_einfuegen(text, fuge=''):
+    """Tippt `fuge` + `text` am Cursor und merkt sich, was angekommen ist.
 
-    `pyautogui.hotkey` meldet nicht, ob das Zielfenster den Text angenommen hat.
-    Deshalb wird der eingefügte Text mitgeschrieben: Der Abschluss ersetzt genau
-    diesen Block durch die geglättete Fassung. Ein Happen endet mit einem
-    Leerzeichen, damit die Stücke im Dokument nicht zusammenkleben.
+    Die `fuge` verbindet den Block mit dem vorigen: „. " wenn dort ein Satz
+    endete, „ " wenn er weitergeht (siehe `fuge_bestimmen`). Der Block selbst
+    endet ohne Satzzeichen und Leerzeichen — die kommen erst mit dem nächsten
+    Block oder beim Abschluss. Mitgeschrieben wird, damit die Glättung des
+    nächsten Blocks den Zusammenhang kennt (`live_kontext`).
     """
-    if not text or not text.strip():
+    eingefuegt = (fuge or '') + (text or '')
+    if not eingefuegt:
         return 0
-    eingefuegt = text if text.endswith((' ', '\n')) else text + ' '
     titel = _fenster_titel()
     log.info('Messpunkt vor Live-Einfügen: %s · Fenster %r',
              tastenzustand_text(), titel)
@@ -1134,14 +1136,91 @@ def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None,
     if not text or not text.strip():
         log.info('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
         return None
-    if glaetten is not None:
-        text = glaetten(text) or text
-    einfuegen(text)
+    global live_ausstehend
+    geglaettet = glaetten(text) if glaetten is not None else None
+    with lock:
+        erster = not live_teile
+        ausstehend = live_ausstehend
+    weiter = not erster and geht_weiter(text)          # der ROHE Anfang entscheidet
+    # Nur an Blockgrenzen angleichen — der erste Block bleibt, wie er kommt
+    # (vielleicht wird gerade in einen angefangenen Satz hinein diktiert).
+    inhalt = (geglaettet or text) if erster else anfang_angleichen(
+        text, geglaettet or text, weiter)
+    kern, zeichen = block_aufteilen(inhalt)
+    if not kern.strip():
+        log.info('Live-Happen nur Satzzeichen (%r) — nichts eingefügt', inhalt)
+        return None
+    fuge = fuge_bestimmen(weiter, ausstehend, erster)
+    einfuegen(kern, fuge)
+    with lock:
+        live_ausstehend = zeichen        # kommt erst mit dem nächsten Block
     if buchen is not None:
         buchen(stueck.shape[0] / SAMPLE_RATE, anbieter)
-    log.info('Live eingefügt (%s, %.1f s): %s', anbieter,
-             stueck.shape[0] / SAMPLE_RATE, text)
+    log.info('Live eingefügt (%s, %.1f s, Fuge %r): %s', anbieter,
+             stueck.shape[0] / SAMPLE_RATE, fuge, kern)
+    return kern
+
+
+# ── Blockgrenzen: kein Punkt mitten im Satz ──────────────────────────────────
+# 06.10.2026: Die Block-Glättung hielt jeden Block für einen fertigen Satz —
+# „…am Ende schlecht erkannt." | „worden oder schlecht übersetzt…". Deshalb wird
+# das Satzzeichen am Blockende zurückgehalten (`live_ausstehend`). Ob der Satz
+# weitergeht, verrät der ROHE neue Block: mai schreibt Fortsetzungen klein
+# („worden…", „dass…", „ähm, schon…"), neue Sätze groß. Gemessen an 6 echten
+# Grenzfällen: diese Regel 6/6 — das Lite-Modell per Markierung nur 4/6, mit
+# Zusatzhinweis 2/6. Schwachstelle: eine Fortsetzung, die mit einem Nomen
+# beginnt („die neue | Variante läuft"), gilt als neuer Satz.
+SATZENDE_ZEICHEN = '.!?…'
+
+
+def block_aufteilen(text):
+    """`('Kern ohne Satzzeichen', 'Satzzeichen am Ende')` — reine Funktion."""
+    kern = (text or '').rstrip()
+    i = len(kern)
+    while i > 0 and kern[i - 1] in SATZENDE_ZEICHEN:
+        i -= 1
+    return kern[:i].rstrip(), kern[i:]
+
+
+def geht_weiter(roh):
+    """Setzt der rohe Block einen Satz fort? Ja, wenn er klein beginnt."""
+    for zeichen in (roh or '').lstrip():
+        if zeichen.isalpha():
+            return zeichen.islower()
+        return False            # Zahl, Anführungszeichen o. Ä.: lieber neuer Satz
+    return False
+
+
+def anfang_angleichen(roh, geglaettet, weiter):
+    """Groß-/Kleinschreibung am Blockanfang an die Fuge anpassen.
+
+    Neuer Satz → groß. Fortsetzung → klein, aber nur, wenn das erste Wort im
+    Rohtext klein vorkam: Die Glättung schreibt den Anfang manchmal groß, ein
+    Nomen („Variante") muss aber groß bleiben.
+    """
+    text = (geglaettet or '').lstrip()
+    if not text:
+        return text
+    if not weiter:
+        return text[0].upper() + text[1:]
+    erstes = text.split()[0].strip('„",.;:!?')
+    if erstes and erstes.lower() in (roh or '').split():
+        return text[0].lower() + text[1:]
     return text
+
+
+def fuge_bestimmen(weiter, ausstehend, erster_block):
+    """Was zwischen vorigen und neuen Block kommt — reine Funktion.
+
+    Fortsetzung → nur ein Leerzeichen, das zurückgehaltene Satzzeichen fällt weg.
+    Neuer Satz → das zurückgehaltene Zeichen + Leerzeichen. Hatte mai keins
+    gesetzt, wird auch keins erfunden.
+    """
+    if erster_block:
+        return ''
+    if weiter:
+        return ' '
+    return (ausstehend + ' ') if ausstehend else ' '
 
 
 def live_kontext(teile, grenze=400):
@@ -1271,9 +1350,16 @@ def _live_abschluss(audio_data):
 
     with lock:
         teile = list(live_teile)
+        ausstehend = live_ausstehend
     _status_idle()
     if not teile:
         return False
+    # Das zurückgehaltene Satzzeichen des letzten Blocks — und ein Leerzeichen,
+    # damit man direkt weiterschreiben oder -diktieren kann.
+    try:
+        _live_text_einfuegen('', (ausstehend or '') + ' ')
+    except Exception:
+        log.exception('Satzzeichen am Ende konnte nicht getippt werden')
     log.info('Live fertig: %d Blöcke, %d Zeichen — nichts ersetzt', len(teile),
              sum(len(t.get('text') or '') for t in teile))
     retry_verwerfen()
@@ -1360,9 +1446,10 @@ def audio_callback(indata, frames, time_info, status):
 # ── Aufnahme starten ──────────────────────────────────────────────────────────
 def start_recording():
     global is_recording, audio_frames, _last_data_at, _last_signal_at, _session
-    global _mods_freigegeben, live_geschnitten, _live_lief
+    global _mods_freigegeben, live_geschnitten, _live_lief, live_ausstehend
     _mods_freigegeben = False
     _live_lief = False
+    live_ausstehend = ''
     jetzt = time.monotonic()
     # Alles in EINEM Abschnitt: leerer Puffer, gestellte Uhren und die neue
     # Sitzungsnummer gehören zusammen und dürfen nicht halb sichtbar werden.
@@ -1530,8 +1617,8 @@ def polish_text(raw_text, client=None, kontext='', modelle=None):
     if kontext:
         auftrag = ('Bisher steht im Dokument (nur zum Verständnis — NICHT '
                    'wiederholen, NICHT ausgeben):\n' + kontext.strip() +
-                   '\n\nBereinige nur diesen neuen Abschnitt und gib nur ihn '
-                   'zurück:\n\n' + raw_text)
+                   '\n\nBereinige nur diesen neuen '
+                   'Abschnitt und gib nur ihn zurück:\n\n' + raw_text)
     else:
         auftrag = f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"
     letzter_grund = 'kein Modell versucht'

@@ -25,6 +25,18 @@ def stille(sekunden, rate=16000):
 RATE = 16000
 
 
+@pytest.fixture(autouse=True)
+def live_zustand_frisch():
+    """Jeder Test beginnt ohne getippte Blöcke und ohne zurückgehaltenes Zeichen."""
+    with typefree.lock:
+        typefree.live_teile.clear()
+        typefree.live_ausstehend = ''
+    yield
+    with typefree.lock:
+        typefree.live_teile.clear()
+        typefree.live_ausstehend = ''
+
+
 def test_ohne_genug_audio_gibt_es_keinen_happen():
     """Unter der Mindestlänge wird nichts verschickt — sonst zahlt man für Silben."""
     assert typefree.live_schnitt(sprache(1.5), RATE, 0.0) is None
@@ -173,9 +185,10 @@ def test_happen_wird_transkribiert_und_eingefuegt():
     """Der Kern des Live-Modus: fertiger Happen → Text steht im Dokument."""
     eingefuegt = []
     text = typefree._live_stueck_verarbeiten(
-        sprache(4), lambda stueck: ('hallo welt', 'mai'), eingefuegt.append)
+        sprache(4), lambda stueck: ('hallo welt', 'mai'),
+        lambda kern, fuge: eingefuegt.append((kern, fuge)))
     assert text == 'hallo welt'
-    assert eingefuegt == ['hallo welt']
+    assert eingefuegt == [('hallo welt', '')], 'erster Block: keine Fuge'
 
 
 def test_leerer_happen_loest_keinen_aufruf_aus():
@@ -190,7 +203,8 @@ def test_happen_ohne_text_wird_nicht_eingefuegt():
     """Wenn das Modell nichts liefert, bleibt das Dokument unberührt."""
     eingefuegt = []
     assert typefree._live_stueck_verarbeiten(
-        sprache(4), lambda s: ('', 'mai'), eingefuegt.append) is None
+        sprache(4), lambda s: ('', 'mai'),
+        lambda kern, fuge: eingefuegt.append(kern)) is None
     assert eingefuegt == []
 
 
@@ -205,15 +219,15 @@ def test_einfuegen_merkt_sich_den_text(monkeypatch):
     with typefree.lock:
         typefree.live_teile.clear()
 
-    laenge = typefree._live_text_einfuegen('hallo welt')
+    laenge = typefree._live_text_einfuegen('hallo welt', '. ')
 
-    assert laenge == len('hallo welt ')
-    assert getippt == ['hallo welt '], 'ein Happen endet mit Leerzeichen'
+    assert laenge == len('. hallo welt')
+    assert getippt == ['. hallo welt'], 'erst die Fuge, dann der Block'
     # Direkt getippt statt Strg+V: Strg+V kommt bei gehaltenem Hotkey nicht an.
     assert kopiert == [] and gedrueckt == []
     teil = typefree.live_teile[0]
-    assert teil['text'] == 'hallo welt '
-    assert teil['roh'] == 'hallo welt', 'roh (ohne Trenner) wird geglättet'
+    assert teil['text'] == '. hallo welt'
+    assert teil['roh'] == 'hallo welt'
     assert teil['fenster'] == 'Editor'
     assert teil['zeit'] > 0
     with typefree.lock:
@@ -221,11 +235,9 @@ def test_einfuegen_merkt_sich_den_text(monkeypatch):
 
 
 def test_leerer_text_wird_nicht_eingefuegt(monkeypatch):
-    """Kein Fenster bekommt eine leere Zwischenablage zu sehen."""
-    kopiert = []
-    monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
-    assert typefree._live_text_einfuegen('   ') == 0
-    assert kopiert == []
+    """Ohne Text und ohne Fuge wird nichts getippt (die Sperre in conftest
+    würde jeden Tippversuch als Fehler melden)."""
+    assert typefree._live_text_einfuegen('', '') == 0
 
 
 # ── Schritt 4 (neu, 06.10.2026): jeder Block wird VOR dem Tippen geglättet ──
@@ -243,19 +255,48 @@ def test_kontext_ist_das_ende_des_bisher_getippten():
 def test_happen_wird_vor_dem_einfuegen_geglaettet():
     eingefuegt = []
     text = typefree._live_stueck_verarbeiten(
-        sprache(4), lambda s: ('ähm hallo welt', 'mai'), eingefuegt.append,
+        sprache(4), lambda s: ('ähm hallo welt', 'mai'),
+        lambda kern, fuge: eingefuegt.append((kern, fuge)),
         glaetten=lambda roh: 'Hallo Welt.')
-    assert eingefuegt == ['Hallo Welt.']
-    assert text == 'Hallo Welt.'
+    assert eingefuegt == [('Hallo Welt', '')]
+    assert text == 'Hallo Welt'
+    assert typefree.live_ausstehend == '.', 'der Punkt wartet auf den nächsten Block'
 
 
 def test_scheitert_die_glaettung_kommt_der_rohtext():
     """Lieber roh als gar nicht — der Block darf nicht verloren gehen."""
     eingefuegt = []
     typefree._live_stueck_verarbeiten(
-        sprache(4), lambda s: ('hallo welt', 'mai'), eingefuegt.append,
+        sprache(4), lambda s: ('hallo welt', 'mai'),
+        lambda kern, fuge: eingefuegt.append(kern),
         glaetten=lambda roh: None)
     assert eingefuegt == ['hallo welt']
+
+
+def test_zwei_bloecke_ein_satz_kein_punkt_dazwischen(monkeypatch):
+    """Der Fall vom 06.10.2026: „…schlecht erkannt." | „worden oder …"."""
+    getippt = []
+    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
+    antworten = iter(['Am Ende schlecht erkannt.', 'worden oder geglättet.'])
+    for roh in ('am ende schlecht erkannt', 'worden oder geglättet'):
+        typefree._live_stueck_verarbeiten(
+            sprache(2), lambda s, r=roh: (r, 'mai'), typefree._live_text_einfuegen,
+            glaetten=lambda r: next(antworten))
+    assert getippt == ['Am Ende schlecht erkannt', ' worden oder geglättet']
+    assert typefree.live_ausstehend == '.'
+
+
+def test_neuer_satz_bekommt_den_zurueckgehaltenen_punkt(monkeypatch):
+    getippt = []
+    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
+    antworten = iter(['Das ist ein Test?', 'Ja, genau'])
+    for roh in ('das ist ein test', 'Ja genau'):
+        typefree._live_stueck_verarbeiten(
+            sprache(2), lambda s, r=roh: (r, 'mai'), typefree._live_text_einfuegen,
+            glaetten=lambda r: next(antworten))
+    assert getippt == ['Das ist ein Test', '? Ja, genau']
 
 
 def _abschluss_vorbereiten(monkeypatch, teile, rest_text):
@@ -263,7 +304,7 @@ def _abschluss_vorbereiten(monkeypatch, teile, rest_text):
     monkeypatch.setattr(typefree, '_live_warte_auf_schreiber', lambda: True)
     monkeypatch.setattr(typefree, '_live_transkribieren',
                         lambda stueck: (rest_text, 'mai'))
-    monkeypatch.setattr(typefree, '_live_glaetten', lambda roh: roh.capitalize())
+    monkeypatch.setattr(typefree, '_live_glaetten', lambda roh: roh + '.')
     monkeypatch.setattr(typefree, '_live_buchen', lambda s, a: None)
     monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
     monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
@@ -276,9 +317,11 @@ def _abschluss_vorbereiten(monkeypatch, teile, rest_text):
 
 def test_abschluss_tippt_nur_den_rest_und_ersetzt_nichts(monkeypatch):
     getippt = _abschluss_vorbereiten(
-        monkeypatch, [{'text': 'Erster Satz. ', 'roh': 'Erster Satz.'}], 'und schluss')
+        monkeypatch, [{'text': 'Erster Satz', 'roh': 'Erster Satz'}], 'und schluss')
     assert typefree._live_abschluss(sprache(2)) is True
-    assert getippt == ['Und schluss ']     # geglättet angehängt, nichts gelöscht
+    # Rest angehängt (der Satz geht weiter), dann der zurückgehaltene Punkt —
+    # nichts gelöscht, nichts ersetzt.
+    assert getippt == [' und schluss', '. ']
     with typefree.lock:
         typefree.live_teile.clear()
 
@@ -308,7 +351,7 @@ def test_happen_werden_gebucht():
     """Jeder Happen bezahlt seinen eigenen Aufruf beim liefernden Anbieter."""
     gebucht = []
     typefree._live_stueck_verarbeiten(
-        sprache(4), lambda stueck: ('hallo welt', 'mai'), lambda t: None,
+        sprache(4), lambda stueck: ('hallo welt', 'mai'), lambda t, f: None,
         lambda sekunden, anbieter: gebucht.append((round(sekunden, 1), anbieter)))
     assert gebucht == [(4.0, 'mai')]
 
