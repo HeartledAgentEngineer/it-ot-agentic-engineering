@@ -9,7 +9,10 @@
   POST /api/gruppen/profil        {name, beziehung?, notiz?, kennung?} -> anhaengen
   GET  /api/gruppen/suche         ?q=Le&limit=12 -> benannte Personen, dann Kontakte
   GET  /api/gruppen/gesichter     ?kennung=Person_1001&seite=1 -> alle Gesichter, je 48
+                                  ?name=Leon&seite=1 -> alle Gesichter der Person ueber alle
+                                  Vorschlaege, je Gesicht seine kennung (07.10.2026)
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
+  POST /api/gruppen/person/ausschliessen {name, gesichter: [{kennung, gid}]} (07.10.2026)
   GET  /api/gruppen/personen      benannte Personen (Liste)
   GET  /api/gruppen/person        ?name=Leon -> Vorschlaege + Profil
   POST /api/gruppen/umbenennen    {alt, neu} (gleicher Name = zusammenfuehren)
@@ -44,6 +47,12 @@ class GruppenAntwort(BaseModel):
 class AusschlussEingabe(BaseModel):
     kennung: str
     gesichter: List[str]
+
+
+class PersonAusschlussEingabe(BaseModel):
+    """Ausschließen in der Gesamtansicht einer Person (07.10.2026): je Gesicht seine Kennung."""
+    name: str
+    gesichter: List[Dict[str, str]]
 
 
 class UmbenennenEingabe(BaseModel):
@@ -111,14 +120,25 @@ def suche(q: str = Query(default="", max_length=60),
 
 
 @router.get("/gesichter")
-def gesichter(kennung: str = Query(..., min_length=1, max_length=40),
+def gesichter(kennung: Optional[str] = Query(default=None, min_length=1, max_length=40),
+              name: Optional[str] = Query(default=None, min_length=1, max_length=120),
               seite: int = Query(default=1, ge=1, le=10000)) -> Dict[str, Any]:
-    return gruppen_quiz.gesichter(kennung, seite)
+    """Gesichter eines Vorschlags (``kennung``) oder einer Person über alle Vorschläge (``name``)."""
+    if name:
+        return gruppen_quiz.gesichter_person(name, seite)
+    if kennung:
+        return gruppen_quiz.gesichter(kennung, seite)
+    return {"ok": False, "fehler": "Bitte einen Vorschlag (kennung) oder eine Person (name) angeben."}
 
 
 @router.post("/ausschliessen")
 def ausschliessen(eingabe: AusschlussEingabe) -> Dict[str, Any]:
     return gruppen_quiz.ausschliessen(eingabe.kennung, eingabe.gesichter)
+
+
+@router.post("/person/ausschliessen")
+def person_ausschliessen(eingabe: PersonAusschlussEingabe) -> Dict[str, Any]:
+    return gruppen_quiz.ausschliessen_person(eingabe.name, eingabe.gesichter)
 
 
 @router.get("/personen")

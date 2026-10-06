@@ -30,7 +30,7 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
-               'gesichtKennung', 'gesichtRahmen'];
+               'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -181,8 +181,23 @@ pruefe(/= dieselbe Person/.test(src) && /≠ andere Person/.test(src), 'Knöpfe 
 console.log('Cache-Bump');
 const v = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
 pruefe(v && v[1] >= '20261002B', 'gruppen_quiz.js mit Version 20261002B oder neuer');
-pruefe(/\/api\/gruppen\/gesichter\?kennung=/.test(src) && /\/api\/gruppen\/ausschliessen/.test(src)
-    && /new IntersectionObserver/.test(src), 'Gesamtansicht lädt seitenweise und Vorschaubilder erst beim Sichtbarwerden');
+pruefe(/\/api\/gruppen\/gesichter\?/.test(src) && /'kennung='/.test(src) && /'name='/.test(src)
+    && /\/api\/gruppen\/ausschliessen/.test(src)
+    && /new IntersectionObserver/.test(src), 'Gesamtansicht lädt seitenweise (Vorschlag oder Person) und Vorschaubilder erst beim Sichtbarwerden');
+
+// Alle Gesichter einer Person über alle Vorschläge + Endlos-Scrollen (Wunsch 07.10.2026)
+console.log('Person: alle Gesichter in einer Liste');
+pruefe(f.gruppenPersonAlleKnopf('Testperson', 1234) === '🔍 Alle 1.234 Gesichter von Testperson durchsehen', 'Knopftext mit Zahl und Name');
+pruefe(f.gruppenPersonAlleKnopf('Testperson', 1) === '🔍 Alle 1 Gesicht von Testperson durchsehen', 'Einzahl');
+pruefe(f.gruppenPersonAlleKnopf('', 3).endsWith('von dieser Person durchsehen'), 'ohne Namen kein Wurf');
+pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 10, kennungen: ['P1', 'P2', 'P3'] }, 10).includes('aus 3 Vorschlägen'), 'Info nennt die Zahl der Vorschläge');
+pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 10, kennungen: ['P1'] }, 10).includes('Vorschlägen'), 'ein Vorschlag: kein Zusatz');
+pruefe(/alleOeffnenPerson\(p\.name\)/.test(src), 'Personenansicht hat den Knopf für alle Gesichter');
+pruefe(/\/api\/gruppen\/person\/ausschliessen/.test(src) && /kennungJeGid\.get\(gid\)/.test(src),
+    'Ausschließen in der Personenansicht schickt je Gesicht seine Kennung');
+pruefe(/function alleEndeBeobachten/.test(src) && /alle\.laedt/.test(src) && /rootMargin: '400px'/.test(src),
+    'nächste Seite lädt beim Scrollen von selbst, ohne Doppel-Laden');
+pruefe(/IntersectionObserver !== 'function'[\s\S]{0,80}mehr\.hidden = !offen/.test(src), 'ohne IntersectionObserver bleibt „Weitere laden“ als Rückfall');
 const c = html.match(/style\.css\?v=(\d{8}[A-Z])/);
 pruefe(c && c[1] >= '20261002B', 'style.css-Version 20261002B oder neuer');
 pruefe(!/gruppen-schnellnamen|<datalist/.test(html), 'Namensknöpfe und datalist sind durch das Suchfeld ersetzt');

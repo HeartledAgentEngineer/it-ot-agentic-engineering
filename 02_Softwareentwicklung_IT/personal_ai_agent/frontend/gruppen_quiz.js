@@ -160,7 +160,17 @@ function gruppenAlleInfo(antwort, geladen) {
                    gruppenZahl(antwort.gesamt) + ' Gesichter'];
     if (geladen < antwort.gesamt) teile.push(gruppenZahl(geladen) + ' geladen');
     if (antwort.ausgeschlossen) teile.push(gruppenZahl(antwort.ausgeschlossen) + ' schon ausgeschlossen');
+    if (Array.isArray(antwort.kennungen) && antwort.kennungen.length > 1) {
+        teile.push('aus ' + antwort.kennungen.length + ' Vorschlägen');
+    }
     return teile.join(' · ');
+}
+
+/** Knopf oben in der Personenansicht (07.10.2026): alle Gesichter über alle Vorschläge. */
+function gruppenPersonAlleKnopf(name, anzahl) {
+    const n = Number(anzahl) || 0;
+    return '🔍 Alle ' + gruppenZahl(n) + (n === 1 ? ' Gesicht' : ' Gesichter') + ' von '
+        + (typeof name === 'string' && name.trim() ? name.trim() : 'dieser Person') + ' durchsehen';
 }
 
 /** Beschriftung des Ausschluss-Knopfs. */
@@ -410,7 +420,10 @@ function gruppenNotizZeit(zeit) {
     // Seitenweise (48) aus /api/gruppen/gesichter; Antippen markiert, „🚫 …
     // ausschließen“ schickt die Markierten an /api/gruppen/ausschliessen. Am
     // Handy sind sie sofort raus, der nächste Gruppierlauf am PC ordnet sie neu.
-    const alle = { kennung: null, seite: 0, seiten: 0, geladen: 0, letzte: null, markiert: new Set() };
+    // Seit 07.10.2026 auch für eine ganze Person (``name``: alle Vorschläge in einer Liste);
+    // die nächste Seite lädt beim Scrollen von selbst (``beobachter`` am Listenende).
+    const alle = { kennung: null, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
+                   markiert: new Set(), kennungJeGid: new Map(), laedt: false, beobachter: null };
 
     function alleKnopfAktualisieren() {
         const k = el('gruppen-alle-ausschliessen');
@@ -420,9 +433,14 @@ function gruppenNotizZeit(zeit) {
     }
 
     async function alleSeiteLaden() {
-        if (!alle.kennung || (alle.seiten && alle.seite >= alle.seiten)) return;
-        const antwort = await jsonHolen('/api/gruppen/gesichter?kennung=' + encodeURIComponent(alle.kennung)
+        if ((!alle.kennung && !alle.name) || alle.laedt || (alle.seiten && alle.seite >= alle.seiten)) return;
+        alle.laedt = true;
+        const ziel = alle.name ? 'name=' + encodeURIComponent(alle.name) : 'kennung=' + encodeURIComponent(alle.kennung);
+        const fuer = alle.name || alle.kennung;
+        const antwort = await jsonHolen('/api/gruppen/gesichter?' + ziel
             + '&seite=' + (alle.seite + 1)).catch(() => null);
+        alle.laedt = false;
+        if ((alle.name || alle.kennung) !== fuer) return;          // inzwischen geschlossen/gewechselt
         const info = el('gruppen-alle-info');
         if (!antwort || antwort.ok !== true) {
             if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Gesichter nicht ladbar.');
@@ -443,19 +461,63 @@ function gruppenNotizZeit(zeit) {
                 },
             }));
             raster.lastChild.dataset.gid = g.gid;
+            alle.kennungJeGid.set(g.gid, g.kennung || alle.kennung);
         });
         alle.geladen = raster.children.length;
         if (info) info.textContent = gruppenAlleInfo(antwort, alle.geladen);
+        alleEndeBeobachten();
+    }
+
+    /** Endlos-Scrollen: ein Merker hinter der Liste lädt die nächste Seite, sobald er ins Bild
+     *  kommt. Ohne IntersectionObserver bleibt der Knopf „Weitere laden“ als Rückfall. */
+    function alleEndeBeobachten() {
         const mehr = el('gruppen-alle-mehr');
-        if (mehr) mehr.hidden = alle.seite >= alle.seiten;
+        const offen = alle.seite < alle.seiten;
+        if (typeof IntersectionObserver !== 'function') {
+            if (mehr) mehr.hidden = !offen;
+            return;
+        }
+        if (mehr) mehr.hidden = true;
+        const raster = el('gruppen-alle-raster');
+        let merker = el('gruppen-alle-ende');
+        if (!merker && raster) {
+            merker = document.createElement('div');
+            merker.id = 'gruppen-alle-ende';
+            merker.className = 'gruppen-meta';
+            merker.style.minHeight = '1px';
+            raster.insertAdjacentElement('afterend', merker);
+        }
+        if (!merker) return;
+        merker.textContent = offen ? 'lädt weitere …' : '';
+        if (alle.beobachter) alle.beobachter.disconnect();
+        if (!offen) return;
+        alle.beobachter = new IntersectionObserver((eintraege) => {
+            if (eintraege.some((e) => e.isIntersecting)) alleSeiteLaden();
+        }, { rootMargin: '400px' });
+        alle.beobachter.observe(merker);          // meldet sofort, falls das Ende schon sichtbar ist
     }
 
     /** Gesamtansicht eines Vorschlags; ``vonPerson`` = aus „Benannt“ geöffnet (Zurück führt dorthin). */
     function alleOeffnen(kennung, vonPerson) {
         const k = (typeof kennung === 'string' && kennung) ? kennung : (zustand.gruppe && zustand.gruppe.kennung);
         if (!k) return;
-        Object.assign(alle, { kennung: k, seite: 0, seiten: 0, geladen: 0, letzte: null, vonPerson: Boolean(vonPerson) });
+        Object.assign(alle, { kennung: k, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
+                              vonPerson: Boolean(vonPerson) });
         alle.markiert.clear();
+        alle.kennungJeGid.clear();
+        const raster = el('gruppen-alle-raster');
+        if (raster) raster.innerHTML = '';
+        nurZeigen('alle');
+        alleKnopfAktualisieren();
+        alleSeiteLaden();
+    }
+
+    /** Alle Gesichter einer benannten Person über alle ihre Vorschläge (07.10.2026). */
+    function alleOeffnenPerson(name) {
+        if (typeof name !== 'string' || !name) return;
+        Object.assign(alle, { kennung: null, name, seite: 0, seiten: 0, geladen: 0, letzte: null, vonPerson: true });
+        alle.markiert.clear();
+        alle.kennungJeGid.clear();
         const raster = el('gruppen-alle-raster');
         if (raster) raster.innerHTML = '';
         nurZeigen('alle');
@@ -465,7 +527,9 @@ function gruppenNotizZeit(zeit) {
 
     function alleSchliessen() {
         el('gruppen-alle-ansicht').hidden = true;
+        if (alle.beobachter) { alle.beobachter.disconnect(); alle.beobachter = null; }
         alle.kennung = null;
+        alle.name = null;
         // Neu laden: Beispiele ohne die gerade Ausgeschlossenen
         if (alle.vonPerson && zustand.person) personOeffnen(zustand.person.name);
         else laden();
@@ -573,6 +637,15 @@ function gruppenNotizZeit(zeit) {
             + (vorschlaege.length > 1 ? ' in ' + vorschlaege.length + ' Vorschlägen' : '');
         const box = el('gruppen-person-vorschlaege');
         box.innerHTML = '';
+        if (vorschlaege.length) {
+            const allesKnopf = document.createElement('button');
+            allesKnopf.type = 'button';
+            allesKnopf.id = 'gruppen-person-alle';
+            allesKnopf.className = 'gruppen-knopf haupt';
+            allesKnopf.textContent = gruppenPersonAlleKnopf(p.name, gesichter);
+            allesKnopf.addEventListener('click', () => alleOeffnenPerson(p.name));
+            box.appendChild(allesKnopf);
+        }
         vorschlaege.forEach((v) => {
             const teil = document.createElement('div');
             teil.className = 'gruppen-person-vorschlag';
@@ -740,14 +813,20 @@ function gruppenNotizZeit(zeit) {
     }
 
     async function alleAusschliessen() {
-        if (!alle.kennung || !alle.markiert.size || zustand.beschaeftigt) return;
+        if ((!alle.kennung && !alle.name) || !alle.markiert.size || zustand.beschaeftigt) return;
         zustand.beschaeftigt = true;
         try {
             const liste = Array.from(alle.markiert);
-            const antwort = await jsonHolen('/api/gruppen/ausschliessen', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ kennung: alle.kennung, gesichter: liste }),
-            });
+            const antwort = alle.name
+                ? await jsonHolen('/api/gruppen/person/ausschliessen', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: alle.name,
+                                           gesichter: liste.map((gid) => ({ kennung: alle.kennungJeGid.get(gid), gid })) }),
+                })
+                : await jsonHolen('/api/gruppen/ausschliessen', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kennung: alle.kennung, gesichter: liste }),
+                });
             if (antwort && antwort.ok === true) {
                 el('gruppen-alle-raster').querySelectorAll('.gruppen-kachel.markiert')
                     .forEach((k) => k.remove());
@@ -758,8 +837,10 @@ function gruppenNotizZeit(zeit) {
                     alle.letzte.ausgeschlossen = (alle.letzte.ausgeschlossen || 0) + antwort.ausgeschlossen;
                     el('gruppen-alle-info').textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
                 }
-                melde('✓ ' + gruppenZahl(antwort.ausgeschlossen) + ' ausgeschlossen – sie gehören nicht mehr zu diesem Vorschlag (↩ Rückgängig in der Karte).');
+                melde('✓ ' + gruppenZahl(antwort.ausgeschlossen) + ' ausgeschlossen – sie gehören nicht mehr zu '
+                      + (alle.name ? alle.name : 'diesem Vorschlag') + ' (↩ Rückgängig in der Karte).');
                 alleKnopfAktualisieren();
+                alleEndeBeobachten();          // Liste wurde kürzer: ggf. sofort nachladen
             } else {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Ausschließen fehlgeschlagen'), false);
             }

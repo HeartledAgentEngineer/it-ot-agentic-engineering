@@ -703,3 +703,80 @@ def test_profil_aus_benannt_mit_kontakt_und_rueckgaengig(basis):
     assert leon["beziehung"] == "Bruder" and [n["text"] for n in leon["notizen"]] == ["Hurricane 2022"]
     r = gq.rueckgaengig()                                    # dann die Verknuepfung
     assert r["zurueckgenommen"]["art"] == "profil" and gq.profil("Tim")["kontakt"] is None
+
+
+# ── Alle Gesichter einer Person ueber alle Vorschlaege (07.10.2026) ─────────
+
+def _person_daten(basis):
+    zeilen = []
+    for i in range(5):                                    # Leon, Vorschlag 1001
+        zeilen.append({"bild_id": str(100 + i), "index": 0, "kennung": "Person_1001",
+                       "bbox": [1, 1, 5, 5], "anteil": 0.01 + i / 1000, "score": 0.9})
+    for i in range(3):                                    # Leon, Vorschlag 1002 (bessere Gesichter)
+        zeilen.append({"bild_id": str(200 + i), "index": 1, "kennung": "Person_1002",
+                       "bbox": [1, 1, 5, 5], "anteil": 0.05 + i / 100, "score": 0.9})
+    for i in range(2):                                    # Tim
+        zeilen.append({"bild_id": str(300 + i), "index": 0, "kennung": "Person_1004",
+                       "bbox": [1, 1, 5, 5], "anteil": 0.02, "score": 0.9})
+    (basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME).write_text(
+        "\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+    gq.antworten("Person_1001", "name", "Leon")
+    gq.antworten("Person_1002", "name", "Leon")
+    gq.antworten("Person_1004", "name", "Tim")
+
+
+def test_gesichter_person_ueber_alle_vorschlaege_beste_zuerst(basis):
+    _person_daten(basis)
+    r = gq.gesichter_person("leon")                        # Gross/Klein egal
+    assert r["ok"] and r["name"] == "Leon" and r["kennungen"] == ["Person_1001", "Person_1002"]
+    assert r["gesamt"] == 8 and r["seiten"] == 1
+    assert [g["gid"] for g in r["gesichter"][:3]] == ["202:1", "201:1", "200:1"]   # beste zuerst
+    assert {g["kennung"] for g in r["gesichter"]} == {"Person_1001", "Person_1002"}
+    assert all("_guete" not in g for g in r["gesichter"])
+    seite2 = gq.gesichter_person("Leon", 2, je_seite=5)
+    assert seite2["seiten"] == 2 and len(seite2["gesichter"]) == 3
+    assert gq.gesichter_person("Niemand")["ok"] is False
+
+
+def test_ausschliessen_person_ueber_zwei_vorschlaege_und_rueckgaengig_in_einem_schritt(basis):
+    _person_daten(basis)
+    r = gq.ausschliessen_person("Leon", [{"kennung": "Person_1001", "gid": "100:0"},
+                                         {"kennung": "Person_1002", "gid": "201:1"}])
+    assert r["ok"] and r["ausgeschlossen"] == 2 and r["gesamt"] == 6
+    assert gq.ausgeschlossen_lesen() == {"Person_1001": {"100:0"}, "Person_1002": {"201:1"}}
+    pg = _werkzeug("personen_gruppieren")                 # Format des Gruppierers
+    assert pg.vorgaben_lesen(str(basis / gq.VORGABEN_DATEINAME))["ausgeschlossen"] == \
+        {("Person_1001", "100", 0), ("Person_1002", "201", 1)}
+    z = gq.rueckgaengig()
+    assert z["ok"] and z["zurueckgenommen"]["art"] == "ausschliessen" and z["zurueckgenommen"]["gesichter"] == 2
+    assert gq.ausgeschlossen_lesen() == {} and gq.gesichter_person("Leon")["gesamt"] == 8
+
+
+@pytest.mark.parametrize("eintraege, teil", [
+    ([], "antippen"),
+    ([{"kennung": "Person_1004", "gid": "300:0"}], "nicht zu dieser Person"),   # Tims Gesicht
+    ([{"kennung": "Person_1001", "gid": "200:1"}], "nicht (mehr)"),            # falscher Vorschlag
+    ([{"kennung": "Person_1001", "gid": "kaputt"}], "Ungültige"),
+])
+def test_ausschliessen_person_ungueltig_schreibt_nichts(basis, eintraege, teil):
+    _person_daten(basis)
+    vorher = (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8") \
+        if (basis / gq.VORGABEN_DATEINAME).exists() else None
+    r = gq.ausschliessen_person("Leon", eintraege)
+    assert r["ok"] is False and teil in r["fehler"]
+    nachher = (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8") \
+        if (basis / gq.VORGABEN_DATEINAME).exists() else None
+    assert vorher == nachher
+
+
+def test_person_routen(basis):
+    _person_daten(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    r = c.get("/api/gruppen/gesichter", params={"name": "Leon"}).json()
+    assert r["ok"] and r["gesamt"] == 8
+    assert c.get("/api/gruppen/gesichter").json()["ok"] is False                 # weder kennung noch name
+    a = c.post("/api/gruppen/person/ausschliessen",
+               json={"name": "Leon", "gesichter": [{"kennung": "Person_1002", "gid": "202:1"}]})
+    assert a.status_code == 200 and a.json()["gesamt"] == 7

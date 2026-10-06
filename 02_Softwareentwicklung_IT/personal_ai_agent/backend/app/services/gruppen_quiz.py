@@ -696,21 +696,7 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
             fremd = [g for g in liste if g not in vorhanden]
             if fremd:
                 raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
-            roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
-            daten = roh if isinstance(roh, dict) else {}
-            eintraege = daten.get("ausgeschlossen") if isinstance(daten.get("ausgeschlossen"), list) else []
-            schon = ausgeschlossen_lesen().get(str(kennung), set())
-            neu = [g for g in dict.fromkeys(liste) if g not in schon]
-            for g in neu:
-                bid, idx = g.split(":")
-                eintraege.append({"kennung": str(kennung), "bild_id": bid, "index": int(idx)})
-            daten["ausgeschlossen"] = eintraege
-            if neu:
-                _atomar_schreiben(VORGABEN_DATEINAME, daten)
-                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
-                                      "zeit": datetime.now().isoformat(timespec="seconds"),
-                                      "art": "ausschliessen", "kennung": str(kennung),
-                                      "gesichter": neu})
+            neu = _ausschluss_schreiben([(str(kennung), g) for g in liste])
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
     except OSError as fehler:
@@ -719,6 +705,122 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
     rest = gesichter(kennung, 1)
     return {"ok": True, "kennung": kennung, "ausgeschlossen": len(neu),
             "gesamt": rest.get("gesamt", 0)}
+
+
+def _ausschluss_schreiben(paare: List[Tuple[str, str]], extra: Optional[Dict[str, Any]] = None
+                          ) -> List[Tuple[str, str]]:
+    """Paare ``(kennung, "bild_id:index")`` als Nutzer-Regel eintragen. Unter ``_SCHREIBSPERRE`` rufen.
+
+    Schon ausgeschlossene Paare zaehlen nicht; geschrieben wird nur, wenn etwas neu ist — dann
+    EIN Protokolleintrag (``kennung`` + ``gesichter`` wie bisher; betrifft er mehrere Vorschlaege,
+    zusaetzlich ``je_kennung``, damit Rueckgaengig alles in einem Schritt zuruecknimmt).
+    """
+    roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+    daten = roh if isinstance(roh, dict) else {}
+    eintraege = daten.get("ausgeschlossen") if isinstance(daten.get("ausgeschlossen"), list) else []
+    schon = ausgeschlossen_lesen()
+    neu = [(k, g) for (k, g) in dict.fromkeys(paare) if g not in schon.get(k, set())]
+    for k, g in neu:
+        bid, idx = g.split(":")
+        eintraege.append({"kennung": k, "bild_id": bid, "index": int(idx)})
+    daten["ausgeschlossen"] = eintraege
+    if neu:
+        je_kennung: Dict[str, List[str]] = {}
+        for k, g in neu:
+            je_kennung.setdefault(k, []).append(g)
+        eintrag: Dict[str, Any] = {"id": uuid.uuid4().hex[:12],
+                                   "zeit": datetime.now().isoformat(timespec="seconds"),
+                                   "art": "ausschliessen", "kennung": neu[0][0],
+                                   "gesichter": [g for _, g in neu]}
+        if len(je_kennung) > 1:
+            eintrag["je_kennung"] = je_kennung
+        eintrag.update(extra or {})
+        _atomar_schreiben(VORGABEN_DATEINAME, daten)
+        _protokoll_anhaengen(eintrag)
+    return neu
+
+
+# ── Alle Gesichter einer Person ueber alle Vorschlaege (07.10.2026) ─────────
+# Wunsch Sebastian: bei bekannten Personen mit mehreren Vorschlaegen alle Gesichter
+# in EINER Liste durchsehen und Falsche aussortieren — ohne Vorschlag fuer Vorschlag.
+
+def _person_kennungen(name: str) -> Tuple[str, List[str]]:
+    """(gespeicherter Name, Kennungen) einer benannten Person; beides leer, wenn unbekannt."""
+    sauber = name_saeubern(name)
+    namen = bestaetigt_lesen()
+    kennungen = sorted(k for k, n in namen.items() if sauber and n.casefold() == sauber.casefold())
+    return (namen[kennungen[0]] if kennungen else ""), kennungen
+
+
+def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE) -> Dict[str, Any]:
+    """Alle (nicht ausgeschlossenen) Gesichter einer Person ueber ALLE ihre Vorschlaege, beste zuerst,
+    seitenweise; jedes Gesicht traegt seine ``kennung`` (fuers Ausschliessen). Nie ein Wurf."""
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        echter, kennungen = _person_kennungen(name)
+        if not kennungen:
+            return {"ok": False, "fehler": "Keine benannte Person mit diesem Namen."}
+        je = _gemerkt(pfad, _gesichter_laden)
+        aus = ausgeschlossen_lesen()
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    sichtbar: List[Dict[str, Any]] = []
+    ausgeschlossen = 0
+    for k in kennungen:
+        weg = aus.get(k, set())
+        ausgeschlossen += len(weg)
+        sichtbar += [dict(g, kennung=k) for g in je.get(k, []) if g["gid"] not in weg]
+    sichtbar.sort(key=lambda g: (-g["_guete"], g["gid"]))
+    je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
+    seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
+    seite = max(1, min(int(seite or 1), seiten))
+    teil = sichtbar[(seite - 1) * je_seite: seite * je_seite]
+    return {"ok": True, "name": echter, "kennungen": kennungen, "gesamt": len(sichtbar),
+            "ausgeschlossen": ausgeschlossen, "seite": seite, "seiten": seiten,
+            "gesichter": [{k: v for k, v in g.items() if not k.startswith("_")} for g in teil]}
+
+
+def ausschliessen_person(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
+    """Markierte Gesichter einer Person ausschliessen — auch aus mehreren Vorschlaegen auf einmal.
+
+    ``eintraege`` = ``[{"kennung": "Person_1001", "gid": "123:0"}, …]``. Jede Kennung muss zur
+    Person gehoeren, jedes Gesicht zu seiner Kennung. Ein Protokolleintrag fuer alles. Nie ein Wurf.
+    """
+    paare: List[Tuple[str, str]] = []
+    for e in eintraege or []:
+        if isinstance(e, dict):
+            paare.append((str(e.get("kennung") or "").strip(), str(e.get("gid") or "").strip()))
+    if not paare:
+        return {"ok": False, "fehler": "Bitte mindestens ein Gesicht antippen."}
+    if len(paare) > AUSSCHLUSS_MAX:
+        return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
+    if not all(_GID.match(g) for _, g in paare):
+        return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        echter, kennungen = _person_kennungen(name)
+        if not kennungen:
+            return {"ok": False, "fehler": "Keine benannte Person mit diesem Namen."}
+        with _SCHREIBSPERRE:
+            je = _gemerkt(pfad, _gesichter_laden)
+            vorhanden = {k: {g["gid"] for g in je.get(k, [])} for k in kennungen}
+            for k, g in paare:
+                if k not in vorhanden:
+                    raise GruppenFehler("Gesicht gehört nicht zu dieser Person.")
+                if g not in vorhanden[k]:
+                    raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
+            neu = _ausschluss_schreiben(paare, {"name": echter})
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Ausschliessen (Person) fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    rest = gesichter_person(echter, 1)
+    return {"ok": True, "name": echter, "ausgeschlossen": len(neu), "gesamt": rest.get("gesamt", 0)}
 
 
 # ── Benannte Personen wieder oeffnen und bearbeiten (02.10.2026) ────────────
@@ -1022,7 +1124,11 @@ def rueckgaengig() -> Dict[str, Any]:
             if letzte.get("art") == "ausschliessen":
                 roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
                 daten = roh if isinstance(roh, dict) else {}
-                weg = {(str(letzte.get("kennung")), g) for g in letzte.get("gesichter") or []}
+                je_kennung = letzte.get("je_kennung")
+                if isinstance(je_kennung, dict) and je_kennung:
+                    weg = {(str(k), g) for k, gs in je_kennung.items() for g in gs or []}
+                else:
+                    weg = {(str(letzte.get("kennung")), g) for g in letzte.get("gesichter") or []}
                 daten["ausgeschlossen"] = [
                     e for e in daten.get("ausgeschlossen") or []
                     if not (isinstance(e, dict) and (str(e.get("kennung")),
