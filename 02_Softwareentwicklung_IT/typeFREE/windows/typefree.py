@@ -9,6 +9,7 @@ Beenden: Rechtsklick auf Systemtray-Icon → Beenden
 """
 
 import base64
+import contextlib
 import io
 import json
 import os
@@ -988,7 +989,8 @@ def _live_text_einfuegen(text):
     titel = _fenster_titel()
     pyperclip.copy(eingefuegt)
     time.sleep(0.15)
-    pyautogui.hotkey('ctrl', 'v')
+    with eigene_eingabe():
+        pyautogui.hotkey('ctrl', 'v')
     with lock:
         live_teile.append({'text': eingefuegt, 'roh': text, 'fenster': titel,
                            'zeit': time.monotonic()})
@@ -1116,11 +1118,12 @@ def live_ersetzung_pruefen(teile, jetzt_fenster, geglaettet, letzter_tastendruck
 
 def _live_block_ersetzen(zeichen, text):
     """Rücktaste × Zeichenzahl, dann die geglättete Fassung einfügen."""
-    pyautogui.press('backspace', presses=zeichen, interval=LIVE_TASTE_ABSTAND)
-    time.sleep(0.1)
-    pyperclip.copy(text)
-    time.sleep(0.1)
-    pyautogui.hotkey('ctrl', 'v')
+    with eigene_eingabe():
+        pyautogui.press('backspace', presses=zeichen, interval=LIVE_TASTE_ABSTAND)
+        time.sleep(0.1)
+        pyperclip.copy(text)
+        time.sleep(0.1)
+        pyautogui.hotkey('ctrl', 'v')
 
 
 def _live_abschluss(audio_data):
@@ -1272,6 +1275,8 @@ def audio_callback(indata, frames, time_info, status):
 # ── Aufnahme starten ──────────────────────────────────────────────────────────
 def start_recording():
     global is_recording, audio_frames, _last_data_at, _last_signal_at, _session
+    global _mods_freigegeben
+    _mods_freigegeben = False
     jetzt = time.monotonic()
     # Alles in EINEM Abschnitt: leerer Puffer, gestellte Uhren und die neue
     # Sitzungsnummer gehören zusammen und dürfen nicht halb sichtbar werden.
@@ -1297,6 +1302,12 @@ def start_recording():
     threading.Thread(target=_watch_recording, args=(session,),
                      name='watchdog', daemon=True).start()
     if live_modus:
+        # Der Live-Modus tippt, während der Hotkey gehalten wird — ohne Freigabe
+        # käme Strg+V als Strg+Alt+V an und fügte nichts ein.
+        try:
+            zusatztasten_freigeben()
+        except Exception:
+            log.exception('Zusatztasten-Freigabe fehlgeschlagen')
         threading.Thread(target=_live_worker, args=(session,),
                          name='live', daemon=True).start()
         threading.Thread(target=_live_schreiber, args=(session,),
@@ -1946,16 +1957,79 @@ def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording):
     return 'start'
 
 
-def taste_schlucken(event_type, key_name, hotkey, recording):
+def taste_schlucken(event_type, key_name, hotkey, recording, modifier=None,
+                    mods_frei=False, eigene_eingabe=False):
     """Reine Entscheidung: Soll dieses Ereignis das Zielfenster NICHT erreichen?
 
     Wackelt Alt während der Aufnahme kurz weg, wiederholt Windows das gehaltene
     Ä als nacktes „ä" — gemessen: 16 bis 150 „ä" vor dem Diktat. Deshalb wird
     das Drücken der Haupttaste geschluckt, solange aufgenommen wird.
+
+    Im Live-Modus gibt typeFREE die Zusatztasten zu Beginn frei
+    (`mods_frei`, siehe `zusatztasten_freigeben`). Wackelt eine davon danach,
+    würde sie wieder als gedrückt gelten — also wird auch ihr Drücken
+    geschluckt. Ausgenommen ist typeFREEs eigenes Tippen (`eigene_eingabe`),
+    sonst träfe die Sperre das eigene Strg+V.
+
     Das Loslassen kommt IMMER durch: Ein geschlucktes Ereignis erreicht auch
     `on_key_event` nicht mehr, und ohne Loslassen endete die Aufnahme nie.
     """
-    return recording and event_type == 'down' and key_name == hotkey['key']
+    if not recording or event_type != 'down':
+        return False
+    if key_name == hotkey['key']:
+        return True
+    return bool(modifier) and mods_frei and not eigene_eingabe
+
+
+# ── Zusatztasten-Freigabe (Live-Modus) ────────────────────────────────────────
+# Gemessen in Notepad (06.10.2026): Bei gehaltenem Alt kommt Strg+V als
+# Strg+Alt+V an und fügt NICHTS ein; 3× Rücktaste mit Alt leerte das ganze
+# Dokument (Alt+Rücktaste = Rückgängig). Der Live-Modus tippt aber, während der
+# Hotkey gehalten wird. Deshalb lässt typeFREE die Zusatztasten zu Beginn der
+# Aufnahme per Software los — für die Programme sind sie dann oben, auch wenn
+# der Finger noch drauf ist.
+_mods_freigegeben = False         # in dieser Aufnahme losgelassen?
+_eigene_eingabe_bis = 0.0         # bis wann Tastenereignisse von typeFREE selbst stammen
+EIGENE_EINGABE_NACHLAUF = 0.3     # der Haken sieht eigene Tasten leicht verzögert
+_FREIGABE_TASTEN = ('altleft', 'altright', 'ctrlleft', 'ctrlright',
+                    'shiftleft', 'shiftright')
+
+
+def eigene_eingabe_aktiv(jetzt, bis):
+    """Stammt ein Tastenereignis gerade von typeFREE selbst?"""
+    return jetzt < bis
+
+
+@contextlib.contextmanager
+def eigene_eingabe():
+    """Markiert eigenes Tippen, damit die Zusatztasten-Sperre es durchlässt."""
+    global _eigene_eingabe_bis
+    _eigene_eingabe_bis = float('inf')
+    try:
+        yield
+    finally:
+        _eigene_eingabe_bis = time.monotonic() + EIGENE_EINGABE_NACHLAUF
+
+
+def zusatztasten_freigeben():
+    """Lässt Alt, Strg und Shift per Software los (Finger bleibt drauf).
+
+    Zuerst ein kurzer Strg-Tipp: Ein nacktes Alt-Drücken-und-Loslassen öffnet
+    sonst in vielen Programmen das Menü (die Ä-Taste dazwischen ist geschluckt).
+    """
+    global _mods_freigegeben
+    with eigene_eingabe():
+        pyautogui.keyDown('ctrlleft')
+        pyautogui.keyUp('ctrlleft')
+        for taste in _FREIGABE_TASTEN:
+            pyautogui.keyUp(taste)
+    _mods_freigegeben = True
+
+
+def _modifier_von(event):
+    """'alt' / 'ctrl' / 'shift' oder None — dieselbe Erkennung wie `on_key_event`."""
+    return (MODIFIER_SCAN_CODES.get(event.scan_code)
+            or MODIFIER_ALIASES.get((event.name or '').lower()))
 
 
 def _sperr_haken(event):
@@ -1968,8 +2042,11 @@ def _sperr_haken(event):
     """
     try:
         event_type = 'down' if event.event_type == keyboard.KEY_DOWN else 'up'
-        return not taste_schlucken(event_type, (event.name or '').lower(),
-                                   active_hotkey, is_recording)
+        return not taste_schlucken(
+            event_type, (event.name or '').lower(), active_hotkey, is_recording,
+            modifier=_modifier_von(event), mods_frei=_mods_freigegeben,
+            eigene_eingabe=eigene_eingabe_aktiv(time.monotonic(),
+                                                _eigene_eingabe_bis))
     except Exception:
         return True
 

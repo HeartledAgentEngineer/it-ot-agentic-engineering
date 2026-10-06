@@ -88,3 +88,41 @@ def test_sperr_haken_liefert_immer_bool(monkeypatch):
     monkeypatch.setattr(typefree, 'active_hotkey', ALT_AE)
     monkeypatch.setattr(typefree, 'is_recording', True)
     assert typefree._sperr_haken(Ereignis()) is True
+
+
+# ── Zusatztasten-Freigabe: bei gehaltenem Alt wird Strg+V zu Strg+Alt+V ───────
+# Gemessen in Notepad (06.10.2026): Strg+V bei gehaltenem Alt fügt nichts ein,
+# 3× Rücktaste bei gehaltenem Alt leerte das Dokument (Alt+Rücktaste = Rückgängig).
+def test_freigegebener_modifier_wird_waehrend_aufnahme_geschluckt():
+    """Wackelt Alt nach der Freigabe, darf es nicht wieder „gedrückt" werden."""
+    assert typefree.taste_schlucken('down', 'alt', ALT_AE, recording=True,
+                                    modifier='alt', mods_frei=True) is True
+
+
+def test_modifier_ohne_freigabe_kommt_durch():
+    """Modus „Alles auf einmal": keine Freigabe, also auch keine Sperre."""
+    assert typefree.taste_schlucken('down', 'alt', ALT_AE, recording=True,
+                                    modifier='alt', mods_frei=False) is False
+
+
+def test_eigenes_strg_v_wird_nicht_geschluckt():
+    """typeFREE tippt selbst Strg+V — das darf die Sperre nicht treffen."""
+    strg_ae = {'label': 'Strg + Ä', 'key': 'ä', 'mods': ['ctrl']}
+    assert typefree.taste_schlucken('down', 'ctrl', strg_ae, recording=True,
+                                    modifier='ctrl', mods_frei=True,
+                                    eigene_eingabe=True) is False
+
+
+def test_modifier_loslassen_kommt_immer_durch():
+    assert typefree.taste_schlucken('up', 'alt', ALT_AE, recording=True,
+                                    modifier='alt', mods_frei=True) is False
+
+
+def test_modifier_nach_aufnahme_kommt_durch():
+    assert typefree.taste_schlucken('down', 'alt', ALT_AE, recording=False,
+                                    modifier='alt', mods_frei=True) is False
+
+
+def test_eigene_eingabe_zeitfenster():
+    assert typefree.eigene_eingabe_aktiv(jetzt=10.0, bis=10.2) is True
+    assert typefree.eigene_eingabe_aktiv(jetzt=10.3, bis=10.2) is False
