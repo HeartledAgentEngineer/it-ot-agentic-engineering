@@ -2143,6 +2143,20 @@ def _modifier_von(event):
             or MODIFIER_ALIASES.get((event.name or '').lower()))
 
 
+def umschalt_stopp(event_type, key_name, hotkey, recording, modus, hotkey_unten):
+    """Reine Entscheidung: Ist dieses Drücken das zweite Tippen, das beendet?
+
+    Die Ä-Sperre schluckt das Drücken der Haupttaste während der Aufnahme —
+    `on_key_event` sieht es dann nie, und im Umschalt-Modus ließ sich die
+    Aufnahme nicht mehr beenden (06.10.2026 abends). Deshalb entscheidet der
+    Sperr-Haken selbst. Die Zusatztasten werden dafür NICHT verlangt: Ihr
+    Drücken schluckt die Freigabe-Sperre ebenfalls. Eine Tastenwiederholung
+    vom ersten Tippen (`hotkey_unten`) zählt nicht.
+    """
+    return (modus == 'umschalten' and recording and event_type == 'down'
+            and key_name == hotkey['key'] and not hotkey_unten)
+
+
 def _sperr_haken(event):
     """Läuft im Tastatur-Haken von Windows — muss blitzschnell bleiben.
 
@@ -2151,8 +2165,16 @@ def _sperr_haken(event):
     schluckt `keyboard` als Sperre. Daher die alte Warnung „suppress=True sperrt
     die ganze Tastatur". Deshalb: im Zweifel IMMER durchlassen.
     """
+    global _hotkey_unten
     try:
         event_type = 'down' if event.event_type == keyboard.KEY_DOWN else 'up'
+        name = (event.name or '').lower()
+        if umschalt_stopp(event_type, name, active_hotkey, is_recording,
+                          hotkey_modus, _hotkey_unten):
+            _hotkey_unten = True        # das Loslassen setzt es in on_key_event zurück
+            threading.Thread(target=stop_and_transcribe,
+                             name='transcribe', daemon=True).start()
+            return False                # geschluckt: kein „ä" im Zielfenster
         return not taste_schlucken(
             event_type, (event.name or '').lower(), active_hotkey, is_recording,
             modifier=_modifier_von(event), mods_frei=_mods_freigegeben,

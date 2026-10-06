@@ -139,3 +139,37 @@ def test_tastenzustand_text_uebersteht_fehler():
     def kaputt(vk):
         raise OSError('kein Zugriff')
     assert typefree.tastenzustand_text(kaputt) == 'Tastenzustand unbekannt'
+
+
+# ── Umschalt-Modus: das zweite Tippen muss trotz Ä-Sperre stoppen ────────────
+# 06.10.2026 abends: Die Sperre schluckte das zweite Tippen, bevor
+# `on_key_event` es sah — die Aufnahme ließ sich nicht mehr beenden.
+def test_zweites_tippen_stoppt_im_umschalt_modus():
+    assert typefree.umschalt_stopp('down', 'ä', ALT_AE, recording=True,
+                                   modus='umschalten', hotkey_unten=False) is True
+
+
+def test_wiederholung_des_ersten_tippens_stoppt_nicht():
+    """Taste vom Start noch gedrückt → Windows wiederholt, das ist kein Tipp."""
+    assert typefree.umschalt_stopp('down', 'ä', ALT_AE, recording=True,
+                                   modus='umschalten', hotkey_unten=True) is False
+
+
+def test_halten_modus_stoppt_nicht_beim_druecken():
+    assert typefree.umschalt_stopp('down', 'ä', ALT_AE, recording=True,
+                                   modus='halten', hotkey_unten=False) is False
+
+
+def test_ohne_aufnahme_kein_stopp():
+    assert typefree.umschalt_stopp('down', 'ä', ALT_AE, recording=False,
+                                   modus='umschalten', hotkey_unten=False) is False
+
+
+def test_andere_taste_stoppt_nicht():
+    assert typefree.umschalt_stopp('down', 'a', ALT_AE, recording=True,
+                                   modus='umschalten', hotkey_unten=False) is False
+
+
+def test_loslassen_stoppt_nicht():
+    assert typefree.umschalt_stopp('up', 'ä', ALT_AE, recording=True,
+                                   modus='umschalten', hotkey_unten=False) is False
