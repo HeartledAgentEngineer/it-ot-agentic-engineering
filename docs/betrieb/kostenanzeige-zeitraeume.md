@@ -247,6 +247,39 @@ Ausdruck aus `_where_clause` bringt das Wort schon mit) und doppeltes `SUM`
 `try/except` verschluckt und als 0,00 ausgegeben — deshalb jetzt: erst rechnen,
 dann prüfen, nicht schlucken.
 
+### Chat-Seite auf Aktivität umgestellt (06.10.2026)
+
+Auch die Chat-Werte (`status_session`) rechnen Zeiträume jetzt nach echter
+Aktivität statt nach Laufzeit: Lebenszeit-Summe des Chats × Anteil der
+Nachrichten in genau diesem Fenster (`_aktivitaets_anteil`, Kennzeichen
+`cost_source = "aktivitaet (Anteil der Nachrichten im Fenster)"`) — dieselbe
+Regel wie in der Tagesreihe und in `hermes/scripts/kosten_chat_tage.py`.
+
+Wichtig für den Einbau: die Anzeige liest den Betrag aus **`chat.own.cost_usd`**
+(nicht `chat.cost_usd`) — dort muss der Wert stehen, sonst ändert sich nichts
+sichtbar. Ebenso bleiben `bucket` und die Kopfzeile gefüllt.
+
+Gemessen (Chat `agentic enineering optimierungen`):
+
+| Zeitraum | vorher | jetzt | EUR inkl. |
+|---|---|---|---|
+| Heute | 0,1222 USD | **1,4922 USD** | **1,77 EUR** |
+| 24 Std | — | 1,4922 USD | 1,77 EUR |
+| Woche | — | 1,4922 USD | 1,77 EUR |
+| Monat | — | 1,5846 USD | 1,88 EUR |
+| Alles | 6,0501 USD | 6,0501 USD | 7,17 EUR |
+
+Gegenprobe: ein Chat ohne Arbeit heute bleibt bei **0,0000 USD**.
+
+**Zur Schnittstelle (aus der OpenRouter-Dokumentation):** Einzelzeilen mit
+Uhrzeit gibt es nur **zu einer bekannten Aufruf-Kennung** —
+„use the returned `id` to query for the generation stats (including token
+counts and cost) after the request is complete … useful for auditing historical
+usage". Eine *Liste* vergangener Aufrufe gibt die Schnittstelle nicht heraus
+(alle Listen-Endpunkte: 404); die 30-Tage-Grenze gilt für die Tagessummen.
+Deshalb: Kennungen selbst mitschreiben (Plugin) — dann sind Vergangenheit ab
+Neustart und Zukunft Sekunde für Sekunde belegt.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
