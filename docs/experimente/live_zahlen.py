@@ -29,12 +29,27 @@ ZIEL = Path(__file__).with_name("live_zahlen.json")
 KURS_FALLBACK = 0.87696
 STANDARD_SESSION = "20260828_015944_352e08"
 ZEITRAEUME = [
+    # Reihenfolge und Kennungen identisch mit plugin_api.py (PERIODS) und der
+    # Anzeige (plugin.js PERIODS). Erweitert am 06.10.2026 auf die Stufen der
+    # Zeitraum-Auswahl, die als Vorlage diente.
+    ("min15", "15 Min", "rollierend: jetzt minus 15 Minuten"),
+    ("min30", "30 Min", "rollierend: jetzt minus 30 Minuten"),
     ("stunde", "Letzte Stunde", "rollierend: jetzt minus 60 Minuten"),
+    ("std3", "3 Std", "rollierend: jetzt minus 3 Stunden"),
+    ("std24", "24 Std", "rollierend: jetzt minus 24 Stunden"),
+    ("std48", "48 Std", "rollierend: jetzt minus 48 Stunden"),
     ("letzte_woche", "Letzte 7 Tage", "rollierend: jetzt minus 7 x 24 Stunden"),
+    ("tage30", "30 Tage", "rollierend: jetzt minus 30 x 24 Stunden"),
+    ("jahr_roll", "1 Jahr", "rollierend: jetzt minus 365 x 24 Stunden"),
     ("heute", "Heute", "ab 00:00 heute (lokale Zeit)"),
+    ("gestern", "Gestern", "00:00 bis 24:00 des Vortags (lokale Zeit)"),
     ("woche", "Woche", "ab Montag 00:00 dieser Woche (ISO-Kalenderwoche)"),
+    ("vorwoche", "Vorwoche", "Montag 00:00 bis Montag 00:00 der Vorwoche"),
     ("monat", "Monat", "ab dem 1. des laufenden Monats"),
     ("letzter_monat", "Letzter Monat", "rollierend: gleicher Tag des Vormonats bis jetzt"),
+    ("vormonat", "Vormonat", "1. des Vormonats 00:00 bis 1. des laufenden Monats"),
+    ("jahr", "Jahr", "ab 1. Januar 00:00 des laufenden Jahres"),
+    ("vorjahr", "Vorjahr", "1. Januar 00:00 bis 1. Januar des laufenden Jahres"),
     ("alles", "Alles", "seit der ersten Aufzeichnung"),
 ]
 
@@ -97,6 +112,14 @@ def kurs_holen():
     return KURS_FALLBACK, "letzter bekannter Stand"
 
 
+def _mitternacht_epoch(wert):
+    """Epoch eines lokalen 00:00 - DST-fest (Versatz von heute abstreifen).
+
+    Ohne das lag der 1. Januar im Winter eine Stunde daneben ("31.12. 23:00").
+    """
+    return wert.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None).timestamp()
+
+
 def fenster(kennung):
     jetzt = datetime.now()
     mitternacht = jetzt.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -113,6 +136,37 @@ def fenster(kennung):
         return (jetzt - timedelta(days=7)).timestamp(), None
     if kennung == "letzte_7_tage":
         return (jetzt - timedelta(days=7)).timestamp(), None
+    if kennung == "min15":
+        return jetzt.timestamp() - 15 * 60, None
+    if kennung == "min30":
+        return jetzt.timestamp() - 30 * 60, None
+    if kennung == "std3":
+        return jetzt.timestamp() - 3 * 3600, None
+    if kennung == "std24":
+        return jetzt.timestamp() - 24 * 3600, None
+    if kennung == "std48":
+        return jetzt.timestamp() - 48 * 3600, None
+    if kennung == "tage30":
+        return jetzt.timestamp() - 30 * 24 * 3600, None
+    if kennung == "jahr_roll":
+        return jetzt.timestamp() - 365 * 24 * 3600, None
+    if kennung == "gestern":
+        start = mitternacht - timedelta(days=1)
+        return _mitternacht_epoch(start), _mitternacht_epoch(mitternacht)
+    if kennung == "vorwoche":
+        montag = mitternacht - timedelta(days=mitternacht.weekday())
+        return _mitternacht_epoch(montag - timedelta(days=7)), _mitternacht_epoch(montag)
+    if kennung == "vormonat":
+        erster = mitternacht.replace(day=1)
+        jahr, monat = jetzt.year, jetzt.month - 1
+        if monat < 1:
+            jahr, monat = jahr - 1, 12
+        return _mitternacht_epoch(erster.replace(year=jahr, month=monat, day=1)), _mitternacht_epoch(erster)
+    if kennung == "jahr":
+        return _mitternacht_epoch(mitternacht.replace(month=1, day=1)), None
+    if kennung == "vorjahr":
+        erster = mitternacht.replace(month=1, day=1)
+        return _mitternacht_epoch(erster.replace(year=jetzt.year - 1)), _mitternacht_epoch(erster)
     if kennung == "monat":
         return mitternacht.replace(day=1).timestamp(), None
     if kennung == "letzter_monat":
@@ -154,9 +208,14 @@ def cash_kette(nutzung_usd):
 
 
 def alle_chats(con, start, ende):
-    wo, werte = ["u.last_seen >= ?"], [start]
+    # Eine Zeile zaehlt nur, wenn sie IM Zeitraum begonnen hat: die Tabelle
+    # aggregiert pro (Sitzung, Modell) ueber die ganze Laufzeit, eine 14 Tage
+    # alte Zeile wuerde sonst ihre Gesamtsumme als "heute" eintragen.
+    wo, werte = ["u.last_seen >= ?", "u.first_seen >= ?"], [start, start]
     if ende is not None:
         wo.append("u.last_seen <= ?")
+        werte.append(ende)
+        wo.append("u.first_seen <= ?")
         werte.append(ende)
     sql = f"""SELECT SUM(u.estimated_cost_usd), SUM(u.api_call_count), SUM(u.input_tokens),
                      SUM(u.output_tokens), SUM(u.cache_read_tokens), COUNT(DISTINCT u.session_id)
