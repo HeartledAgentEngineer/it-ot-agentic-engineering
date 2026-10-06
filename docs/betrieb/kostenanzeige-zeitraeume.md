@@ -192,6 +192,35 @@ Schlüssel, ist sein Verbrauch nur als Differenz sichtbar. Mit eigenem Schlüsse
 ist er auf Schlüsselebene ausgewiesen — genauso getrennt wie `typeFree` und
 `vorlesen-tts`.
 
+## Prüfung: deckt sich die Zuordnung mit dem Konto?
+
+`hermes/scripts/kosten_pruefung.py` stellt **jeden** der 30 verfügbaren
+Kontotage Modell für Modell gegen die lokale Datenbank. Ergebnis vom 06.10.2026
+(23 Tage mit Verbrauch, 77 Modelltage):
+
+| Tag | Konto | lokal | exakte Deckung |
+|---|---|---|---|
+| 05.–14.09. | 3,95 – 11,45 USD | **je 0,07 USD** | keine |
+| 15.09. | 24,18 | 26,36 | keine |
+| 22.09. | 0,26 | 1,80 | keine |
+| 26.09. | 0,48 | 2,16 | keine |
+| **27.09.** | 17,76 | 4,70 | **gpt-5.6-luna, gemini-3.7-flash** |
+| 28.09. | 14,18 | 7,54 | keine |
+| Summe | **128,21 USD** | **73,88 USD** | **2 von 77** |
+
+**Bedeutung:** die Tageszuordnung aus der Datenbank ist **nicht** taggenau. Sie
+liegt an ruhigen Tagen zu hoch (22.09.: 1,80 statt 0,26) und an starken Tagen zu
+niedrig (15.09.: 24,18 statt 26,36; 28.09.: 7,54 statt 14,18), weil
+`session_model_usage` nur Anfangs- und Endzeitpunkt je Zeile kennt und die
+Laufzeit gleichmäßig verteilt. Fremde Modelle sind dagegen sauber erkennbar
+(z. B. 27.09. `gemini-2.5-flash` 3,44 USD — in der Datenbank überhaupt nicht
+vorhanden).
+
+**Folge:** taggenau je Chat ist **nur** über die Aufruf-Kennung zu bekommen
+(Abschnitt oben), also ab dem Neustart. **Stundengenau rückwärts ist nicht
+möglich** — die Kontoschnittstelle liefert keine Einzelzeilen mit Uhrzeit, sie
+gibt sie nur zu einer bekannten Kennung heraus.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
