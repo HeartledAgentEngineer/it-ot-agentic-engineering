@@ -317,6 +317,11 @@ class LLMService:
         self._anbieter_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
         self._index_cache: Dict[str, Any] = {"zeit": 0.0, "daten": None}
 
+        # Vorlese-Client mit eigenem Schlüssel (OPENROUTER_TTS_KEY), erst bei
+        # Bedarf gebaut — siehe _vorlese_client().
+        self._tts_client: Optional[OpenAI] = None
+        self._tts_schluessel: str = ""
+
         if not self.api_key:
             logger.warning("No OpenRouter API key configured!")
             self.client = None
@@ -1517,6 +1522,30 @@ class LLMService:
             for m in modelle
         ]
 
+    def _vorlese_client(self) -> Tuple[Optional[OpenAI], str]:
+        """Client fürs Vorlesen und welcher Schlüssel gilt (06.10.2026).
+
+        Ist ``OPENROUTER_TTS_KEY`` gesetzt, liest ein eigener Client mit diesem
+        Schlüssel vor — OpenRouter weist die Kosten dann getrennt aus. Sonst
+        der Hauptclient (wie bisher). Rückgabe ``(client, "eigener"|"haupt")``;
+        der Schlüsselwert wird nie geloggt.
+        """
+        schluessel = (settings.openrouter_tts_key or "").strip()
+        if not schluessel:
+            return self.client, "haupt"
+        if self._tts_client is None or self._tts_schluessel != schluessel:
+            self._tts_client = OpenAI(
+                base_url=self.base_url,
+                api_key=schluessel,
+                http_client=httpx.Client(timeout=httpx.Timeout(API_TIMEOUT_SECONDS)),
+                default_headers={
+                    "HTTP-Referer": "https://github.com/HeartledAgentEngineer/personal-ai-agent",
+                    "X-Title": "Personal AI Agent - Vorlesen",
+                },
+            )
+            self._tts_schluessel = schluessel
+        return self._tts_client, "eigener"
+
     def speak(
         self,
         text: str,
@@ -1533,7 +1562,8 @@ class LLMService:
         Returns:
             MP3-Daten oder None bei Fehler.
         """
-        if not self.is_configured or not text.strip():
+        client, schluessel_art = self._vorlese_client()
+        if client is None or not text.strip():
             return None
 
         modell = model or settings.tts_model
@@ -1542,7 +1572,7 @@ class LLMService:
         try:
             # voice ist im SDK ein Pflichtparameter – ohne ihn scheitert der
             # Aufruf schon in Python, bevor eine Anfrage rausgeht.
-            response = self.client.audio.speech.create(
+            response = client.audio.speech.create(
                 model=modell,
                 voice=stimme,
                 input=text,
@@ -1550,8 +1580,8 @@ class LLMService:
             )
             audio = response.read()
             logger.info(
-                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, %s / %s)",
-                len(text), len(audio), modell, stimme,
+                "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, %s / %s, Schlüssel: %s)",
+                len(text), len(audio), modell, stimme, schluessel_art,
             )
             return audio or None
 

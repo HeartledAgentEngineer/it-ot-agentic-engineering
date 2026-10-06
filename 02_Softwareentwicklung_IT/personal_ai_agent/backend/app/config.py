@@ -264,6 +264,12 @@ class Settings(BaseSettings):
     #   GET /api/v1/models?output_modalities=speech → supported_voices
     tts_model: str = "microsoft/mai-voice-2-flash"
     tts_voice: str = "de-DE-Klaus:MAI-Voice-2"
+    # Eigener OpenRouter-Schlüssel nur fürs Vorlesen (06.10.2026): OpenRouter
+    # zeigt die Kosten je Schlüssel, so ist sichtbar, was das Vorlesen kostet.
+    # Gleicher Variablenname wie bei Hermes (OPENROUTER_TTS_KEY). Leer = der
+    # Hauptschlüssel liest vor (wie bisher). Ans Handy kommt er über
+    # tools/handy/vorlese_schluessel_senden.py, nie über Git.
+    openrouter_tts_key: str = ""
 
     # System Prompt (liegt in backend/, nicht im Projektordner)
     system_prompt_file: str = str(BACKEND_DIR / "system_prompt.md")

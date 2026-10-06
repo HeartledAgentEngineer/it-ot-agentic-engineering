@@ -50,7 +50,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
-from app.config import BASE_DIR
+from app.config import BASE_DIR, settings
 from app.db.chroma_client import chroma_client
 from app.services.llm_service import TRANSCRIBE_MODELS
 from app.services.pcloud_service import pcloud_service
@@ -417,6 +417,9 @@ def _sprache_info() -> Dict[str, Any]:
         "modelle": [],
         "transcribe_registriert": False,
         "speak_registriert": False,
+        # Welcher OpenRouter-Schlüssel liest vor (06.10.2026) — nur die Art,
+        # nie der Wert: "eigener" (OPENROUTER_TTS_KEY) oder "haupt".
+        "vorlese_schluessel": "eigener" if (settings.openrouter_tts_key or "").strip() else "haupt",
         "error": None,
     }
 
@@ -648,7 +651,8 @@ def selbsttest() -> Dict[str, Any]:
         "letzte_antwort": {"antworten": None, "status": None},
         "gedaechtnis": {"anzahl": None, "error": "nicht geprüft"},
         "sprache": {"modelle": [], "transcribe_registriert": False,
-                    "speak_registriert": False, "error": "nicht geprüft"},
+                    "speak_registriert": False, "vorlese_schluessel": None,
+                    "error": "nicht geprüft"},
         "uhrzeit": {"iso": None, "lokal": None, "zeitzone": None, "error": "nicht geprüft"},
         "pcloud": {"konfiguriert": False, "host": None, "konto": None,
                    "quota_gb": None, "belegt_gb": None, "error": "nicht geprüft"},

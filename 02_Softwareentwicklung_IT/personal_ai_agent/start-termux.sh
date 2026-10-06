@@ -117,6 +117,9 @@ bash "$PROJEKT/termux/nachpflege-einrichten.sh" || true
 # agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
 # Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
 bash "$PROJEKT/termux/pcloud-schluessel-uebernehmen.sh" "backend/.env" || true
+# Vorlese-Schluessel (OPENROUTER_TTS_KEY, 06.10.2026) auf demselben Weg - vom PC
+# gelegt mit tools/handy/vorlese_schluessel_senden.py. Darf den Start nie verhindern.
+bash "$PROJEKT/termux/schluessel-uebernehmen.sh" "backend/.env" vorlese_schluessel.txt "Vorlese-Schlüssel" OPENROUTER_TTS_KEY || true
 
 # ── Foto- und Verknüpfungs-Datendateien übernehmen (selbstheilend) ───────────
 # Warum: Das Handy braucht ~/foto_sortierung/fotos_dateien.json (Datei-Kennungen

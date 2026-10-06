@@ -128,6 +128,9 @@ fi
 # agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
 # Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
 bash "$HIER/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" || true
+# Vorlese-Schluessel (OPENROUTER_TTS_KEY, 06.10.2026) auf demselben Weg - vom PC
+# gelegt mit tools/handy/vorlese_schluessel_senden.py. Darf den Start nie verhindern.
+bash "$HIER/schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" vorlese_schluessel.txt "Vorlese-Schlüssel" OPENROUTER_TTS_KEY || true
 
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
