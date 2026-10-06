@@ -133,6 +133,28 @@ Kontozahl stimmt mit der Antwort des Modells überein. Die Zeile erscheint mit
 Weil die Zeit vom Konto kommt, ist die Zuordnung **taggenau und stundengenau**,
 ohne Schätzung.
 
+## Tages- und Stundenkurve je Chat (Schätzung)
+
+`hermes/scripts/kosten_chat_tage.py` verteilt die **Lebenszeit-Summe** eines
+Chats nach der **echten Aktivität** (Nachrichten je Tag aus `messages`, für den
+laufenden Tag je Stunde) — nicht mehr gleichmäßig über die Laufzeit. Das
+behebt die Verzerrung der alten Tagesreihe (0,07 USD/Tag, 13,40 USD am 01.10.).
+
+Bearbeitet werden die elf Chats aus Sebastians Liste (Sitzungskennungen im
+Skript): agentic enineering optimierungen · Unterschrift in Erklärung ·
+PDF für Kühlschrank-Plan · Offene Sessions vom Handy · KI-Datenschutz ·
+Fritzbox 4749 · Whiteboard-Screenshots · KI-Beauftragter · Speicherkarte
+entlasten · entwicklung my agent · Weiterbildung New Horizons.
+
+Ergebnis: `hermes/kosten/chat_tage.csv` (je Chat und Tag) und
+`hermes/kosten/chat_stunden_heute.csv` (je Chat und Stunde, laufender Tag).
+Beide Spaltensätze enthalten USD, EUR und EUR inkl. Aufschlag sowie die Spalte
+`Art` = `geschätzt`.
+
+**Grenze:** das bleibt eine Schätzung — die Datenbank kennt je Chat keine
+Tagesspalte, das Konto kennt keine Chats. **Exakt** werden Tag und Stunde ab
+dem Neustart über die Aufruf-Kennung (Abschnitt oben).
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
