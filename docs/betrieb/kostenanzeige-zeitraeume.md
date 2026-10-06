@@ -76,6 +76,19 @@ liefert `/status/session/<id>/heute` **`has_data=false`** → die Zeile sagt
 `hermes/kosten/api_calls.jsonl` — solange dort nur die Start-Zeile steht und
 keine echten Modell-Aufrufe, läuft die App mit dem Stand von vor dem Neustart.
 
+## Anzeige erkennt den alten Rechenteil selbst
+
+Jede Antwort des Rechenteils trägt ihre Fassung (`version`). Die Anzeige
+vergleicht sie mit `ERWARTETE_RECHENTEIL_VERSION` (`plugin.js`); weicht sie ab,
+steht gelb **„Neustart nötig"** in der Zeile, im nativen Tooltip mit beiden
+Fassungsnummern. Damit ist „kein Verbrauch" eindeutig zuordenbar: leerer
+Zeitraum oder nicht neu gestarteter Python-Teil.
+
+**Regel:** bei jeder inhaltlichen Änderung am Rechenteil `VERSION` in
+`plugin_api.py` erhöhen **und** `ERWARTETE_RECHENTEIL_VERSION` in `plugin.js`
+nachziehen — sonst schweigt der Hinweis. Geprüft ist der Hinweis im Prüfstand
+mit einer künstlich alten Antwort (`1.0.0`): er erscheint, mit Nummer.
+
 ## Zwei Regeln, die aus Fehlern entstanden sind
 
 **1. Eine Zeile zählt, wenn sie das Fenster ÜBERSCHNEIDET** (nicht: wenn sie
