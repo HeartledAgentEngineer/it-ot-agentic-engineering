@@ -7,7 +7,9 @@
  * „← Alle Bilder" führt zurück. Tippen oder Mikrofon. Eine Geschichte hängt
  * am Ereignis, in der Einzelansicht zusätzlich am Bild (Backend:
  * app/services/erzaehl_service.py, app/router/erzaehlen.py, Präfix
- * /api/erzaehlen).
+ * /api/erzaehlen). Übersicht und Einzelbild zeigen, wer erkannt wurde
+ * (Gesichter-Zuordnung + bestätigte Namen, /ereignisse/{kennung}/personen);
+ * 🔊 liest es auf Tipp vor.
  *
  * Bewusst eine EIGENE Datei (kein Umbau von app.js — Quiz-Code, riskant).
  * app.js patcht window.fetch bereits global mit dem API-Key (Skript-
@@ -95,6 +97,57 @@ function erzaehlGeschichtenJeBild(geschichten) {
     return zaehler;
 }
 
+/** REINE Funktion: „A", „A und B", „A, B und C". */
+function _erzaehlAufzaehlen(namen) {
+    if (namen.length <= 1) return namen.join('');
+    return namen.slice(0, -1).join(', ') + ' und ' + namen[namen.length - 1];
+}
+
+/** REINE Funktion: „N Person(en) noch ohne Namen" oder ''. */
+function _erzaehlOhneNamen(n) {
+    if (!n || n < 1) return '';
+    return `${n} ${n === 1 ? 'Person' : 'Personen'} noch ohne Namen`;
+}
+
+/** REINE Funktion: Zeile „Wer ist auf diesen Bildern?" für die Übersicht —
+ *  aus der Antwort von /api/erzaehlen/ereignisse/{kennung}/personen
+ *  (Feld ``personen``). Höchstens 8 Namen, der Rest als „… und N weitere".
+ *  Keine Daten -> ''. */
+function erzaehlPersonenUebersicht(p) {
+    if (!p || typeof p !== 'object' || !Array.isArray(p.benannt)) return '';
+    const ohne = (p.ohne_namen && Number(p.ohne_namen.personen)) || 0;
+    if (!p.benannt.length && !ohne) return 'Auf diesen Bildern wurde niemand erkannt.';
+    const teile = [];
+    if (p.benannt.length) {
+        const namen = p.benannt.slice(0, 8)
+            .filter((e) => e && typeof e.name === 'string' && e.name)
+            .map((e) => `${e.name} (${e.bilder} ${e.bilder === 1 ? 'Bild' : 'Bilder'})`);
+        const rest = p.benannt.length - namen.length;
+        teile.push('Erkannt: ' + namen.join(', ') + (rest > 0 ? ` und ${rest} weitere` : ''));
+    }
+    if (ohne) teile.push(_erzaehlOhneNamen(ohne));
+    return teile.join(' · ');
+}
+
+/** REINE Funktion: Zeile für ein einzelnes Bild — ``eintrag`` ist
+ *  ``personen.bilder[fileid]`` (fehlt, wenn niemand erkannt wurde). */
+function erzaehlPersonenBild(eintrag) {
+    const namen = (eintrag && Array.isArray(eintrag.namen))
+        ? eintrag.namen.filter((n) => typeof n === 'string' && n) : [];
+    const ohne = (eintrag && Array.isArray(eintrag.ohne_namen)) ? eintrag.ohne_namen.length : 0;
+    if (!namen.length && !ohne) return 'Auf diesem Bild wurde niemand erkannt.';
+    const teile = [];
+    if (namen.length) teile.push('Auf diesem Bild: ' + _erzaehlAufzaehlen(namen));
+    if (ohne) teile.push(namen.length ? _erzaehlOhneNamen(ohne) : 'Auf diesem Bild: ' + _erzaehlOhneNamen(ohne));
+    return teile.join(' · ');
+}
+
+/** REINE Funktion: Anzeige-Zeile -> Sprechtext („·" wird zur Satzpause). */
+function erzaehlSprechtext(text) {
+    if (typeof text !== 'string') return '';
+    return text.replace(/\s*·\s*/g, '. ').replace(/\s+/g, ' ').trim();
+}
+
 // =========================================================================
 // Verdrahtung (DOM). Läuft nur im Browser — Node-Tests schneiden oben
 // stehende Funktionen wörtlich aus und lassen den Rest unangetastet.
@@ -130,6 +183,9 @@ function erzaehlGeschichtenJeBild(geschichten) {
         rasterBeobachter: null,
         rasterScroll: 0,           // Scrollstand der Übersicht beim Öffnen eines Bildes
         entwurf: { uebersicht: '', einzel: '' }, // halbfertiger Text je Ansicht
+        personen: null,            // Antwort von /ereignisse/{kennung}/personen (Feld personen)
+        personenFehler: '',
+        audio: null,               // laufende Vorlese-Ausgabe (nur über /api/speak)
     };
 
     function el(id) { return document.getElementById(id); }
@@ -198,6 +254,9 @@ function erzaehlGeschichtenJeBild(geschichten) {
         if (diashow) diashow.hidden = true;
         rasterFreigeben();
         objekteFreigeben();
+        vorlesenStoppen();
+        zustand.personen = null;
+        zustand.personenFehler = '';
         ansichtUmschalten('uebersicht');
         zustand.aktuellesEreignis = null;
         zustand.detail = null;
@@ -310,6 +369,97 @@ function erzaehlGeschichtenJeBild(geschichten) {
         rasterAufbauen();
         ansichtUmschalten('uebersicht');
         if (diashowSpalte) diashowSpalte.scrollTop = 0;
+        personenLaden(kennung);   // kommt nach — die Übersicht steht sofort
+    }
+
+    // ---- Wer ist auf den Bildern (06.10.2026) ------------------------------
+    // Quelle: Gesichter-Zuordnung + bestätigte Namen am Handy, nur lesend
+    // (GET /api/erzaehlen/ereignisse/{kennung}/personen).
+
+    async function personenLaden(kennung) {
+        zustand.personen = null;
+        zustand.personenFehler = '';
+        personenAnzeigen();
+        let daten;
+        try {
+            daten = await jsonHolen(`/api/erzaehlen/ereignisse/${encodeURIComponent(kennung)}/personen`);
+        } catch (_e) {
+            daten = { ok: false, error: 'Personen nicht erreichbar.' };
+        }
+        if (zustand.aktuellesEreignis !== kennung) return;   // inzwischen gewechselt
+        if (daten && daten.ok === true && daten.personen) zustand.personen = daten.personen;
+        else zustand.personenFehler = (daten && daten.error) || 'Personen nicht verfügbar.';
+        personenAnzeigen();
+    }
+
+    function personenAnzeigen() {
+        const einzel = zustand.ansicht === 'einzel';
+        const zeile = el(einzel ? 'erzaehl-bild-personen' : 'erzaehl-personen');
+        const text = el(einzel ? 'erzaehl-bild-personen-text' : 'erzaehl-personen-text');
+        const andere = el(einzel ? 'erzaehl-personen' : 'erzaehl-bild-personen');
+        if (andere) andere.hidden = true;
+        if (!zeile || !text) return;
+        let inhalt = '';
+        if (zustand.personen) {
+            inhalt = einzel
+                ? erzaehlPersonenBild((zustand.personen.bilder || {})[String(aktuelleDateiKennung())])
+                : erzaehlPersonenUebersicht(zustand.personen);
+        } else if (zustand.personenFehler && !einzel) {
+            inhalt = 'Personen: ' + zustand.personenFehler;
+        }
+        text.textContent = inhalt;
+        zeile.hidden = !inhalt;
+        const knopf = zeile.querySelector('.erzaehl-vorlesen');
+        if (knopf) knopf.hidden = !zustand.personen;
+    }
+
+    function vorlesenStoppen() {
+        if (zustand.audio) {
+            try { zustand.audio.pause(); } catch (_e) { /* schon aus */ }
+            if (typeof zustand.audio.onended === 'function') zustand.audio.onended();
+            zustand.audio = null;
+        }
+        if (window.speechSynthesis) {
+            try { window.speechSynthesis.cancel(); } catch (_e) { /* nichts zu tun */ }
+        }
+    }
+
+    /** Liest die Personen-Zeile vor — nur auf ausdrücklichen Tipp auf 🔊.
+     *  Zuerst die Browser-Stimme (bleibt auf dem Gerät; am PC vorhanden). Die
+     *  App am Handy hat keine (am 06.10.2026 gemessen: speechSynthesis fehlt
+     *  in der Android-WebView) -> dieselbe Strecke wie das Vorlesen im Chat
+     *  (POST /api/speak über OpenRouter). */
+    async function vorlesen(quelleId) {
+        const quelle = el(quelleId);
+        const sprech = erzaehlSprechtext(quelle ? quelle.textContent : '');
+        if (!sprech) return;
+        vorlesenStoppen();
+        const hinweis = el('erzaehl-hinweis');
+        if (hinweis) hinweis.textContent = '';
+        if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
+            const satz = new SpeechSynthesisUtterance(sprech);
+            satz.lang = 'de-DE';
+            const deutsch = window.speechSynthesis.getVoices().find((v) => (v.lang || '').startsWith('de'));
+            if (deutsch) satz.voice = deutsch;
+            window.speechSynthesis.speak(satz);
+            return;
+        }
+        try {
+            const res = await fetch(`${apiBase()}/api/speak`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: sprech.slice(0, 2000) }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const url = URL.createObjectURL(await res.blob());
+            const audio = new Audio(url);
+            audio.onended = () => { try { URL.revokeObjectURL(url); } catch (_e) { /* schon weg */ } };
+            audio.onerror = audio.onended;
+            zustand.audio = audio;
+            await audio.play();
+        } catch (_e) {
+            if (hinweis) hinweis.textContent = 'Vorlesen gerade nicht möglich.';
+        }
     }
 
     // ---- Übersicht: alle Bilder der Gruppe (06.10.2026) -------------------
@@ -448,6 +598,7 @@ function erzaehlGeschichtenJeBild(geschichten) {
             geschichtenAnzeigen();
             kachelMarkerAktualisieren();
         }
+        personenAnzeigen();
     }
 
     function bildOeffnen(index) {
@@ -486,6 +637,7 @@ function erzaehlGeschichtenJeBild(geschichten) {
         const n = dateien.length;
 
         if (zaehler) zaehler.textContent = `${n ? zustand.index + 1 : 0} / ${n}`;
+        personenAnzeigen();
 
         if (bild) { bild.hidden = true; }
         if (platzhalter) { platzhalter.hidden = false; platzhalter.textContent = '… lädt'; }
@@ -787,6 +939,10 @@ function erzaehlGeschichtenJeBild(geschichten) {
         if (zurueckBtn) zurueckBtn.addEventListener('click', zurZurListe);
         const zurUebersichtBtn = el('erzaehl-zur-uebersicht');
         if (zurUebersichtBtn) zurUebersichtBtn.addEventListener('click', zurUebersicht);
+        const vorlesenGruppe = el('erzaehl-personen-vorlesen');
+        if (vorlesenGruppe) vorlesenGruppe.addEventListener('click', () => vorlesen('erzaehl-personen-text'));
+        const vorlesenBild = el('erzaehl-bild-personen-vorlesen');
+        if (vorlesenBild) vorlesenBild.addEventListener('click', () => vorlesen('erzaehl-bild-personen-text'));
 
         const vorBtn = el('erzaehl-vor');
         if (vorBtn) vorBtn.addEventListener('click', () => diashowSchritt(-1));

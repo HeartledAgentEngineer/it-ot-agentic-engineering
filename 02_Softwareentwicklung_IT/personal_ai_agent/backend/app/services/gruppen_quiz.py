@@ -1175,3 +1175,63 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
         "treffer": treffer[:limit],
         "unbekannte_namen": unbekannt,
     }
+
+
+PERSONEN_BILDER_MAX = 2000
+
+
+def personen_auf_bildern(fileids: Any) -> Dict[str, Any]:
+    """Wer ist auf diesen Bildern? Fuer das Erzaehlen (06.10.2026). Nie ein Wurf.
+
+    Je Bild die erkannten Personen: benannt (Name aus ``personen_bestaetigt.json``,
+    mehrere Vorschlaege mit demselben Namen zaehlen einmal) oder noch ohne Namen
+    (Kennung). Ausgeschlossene Gesichter fehlen wie im Register; als „kenne ich
+    nicht" markierte Gruppen (fremde Menge) zaehlen nicht mit. Dazu die
+    Zusammenfassung ueber alle Bilder: Name -> Zahl der Bilder.
+    """
+    gefragt: List[str] = []
+    for f in fileids if isinstance(fileids, (list, tuple)) else []:
+        s = str(f).strip() if f is not None else ""
+        if s and s not in gefragt:
+            gefragt.append(s)
+    gefragt = gefragt[:PERSONEN_BILDER_MAX]
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        namen = bestaetigt_lesen()
+        medien = _gemerkt(pfad, _zuordnung_laden)
+        aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
+        fremd = set(_stand_lesen()["unbekannt"])
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    bilder: Dict[str, Dict[str, Any]] = {}
+    je_name: Dict[str, Dict[str, Any]] = {}
+    ohne_namen: set = set()
+    bilder_ohne_namen = 0
+    for fileid in gefragt:
+        m = medien.get(fileid)
+        if not m:
+            continue
+        benannt: Dict[str, str] = {}
+        unbenannt: List[str] = []
+        for k in sorted(m["kennungen"]):
+            if (k, fileid) in aus_paare or k in fremd:
+                continue
+            if k in namen:
+                benannt.setdefault(namen[k].casefold(), namen[k])
+            else:
+                unbenannt.append(k)
+        if not benannt and not unbenannt:
+            continue
+        liste = sorted(benannt.values(), key=str.casefold)
+        bilder[fileid] = {"namen": liste, "ohne_namen": unbenannt}
+        for n in liste:
+            e = je_name.setdefault(n.casefold(), {"name": n, "bilder": 0})
+            e["bilder"] += 1
+        ohne_namen.update(unbenannt)
+        bilder_ohne_namen += 1 if unbenannt else 0
+    benannt_liste = sorted(je_name.values(), key=lambda e: (-e["bilder"], e["name"].casefold()))
+    return {"ok": True, "gesamt": len(gefragt), "mit_personen": len(bilder), "bilder": bilder,
+            "benannt": benannt_liste,
+            "ohne_namen": {"personen": len(ohne_namen), "bilder": bilder_ohne_namen}}

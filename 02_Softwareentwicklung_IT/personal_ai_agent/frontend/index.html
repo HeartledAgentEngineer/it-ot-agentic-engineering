@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261006B">
+    <link rel="stylesheet" href="style.css?v=20261006C">
 </head>
 <body>
     <div id="app">
@@ -393,6 +393,11 @@
                          Geschichte zur ganzen Gruppe; Antippen öffnet ein Bild einzeln. -->
                     <div id="erzaehl-uebersicht" class="erzaehl-uebersicht">
                         <div id="erzaehl-uebersicht-kopf" class="erzaehl-zaehler"></div>
+                        <!-- Wer ist auf den Bildern (06.10.2026): Gesichter-Zuordnung + bestätigte Namen. -->
+                        <div id="erzaehl-personen" class="erzaehl-personen" hidden>
+                            <span id="erzaehl-personen-text"></span>
+                            <button id="erzaehl-personen-vorlesen" class="erzaehl-vorlesen" type="button" title="Vorlesen" aria-label="Personen vorlesen">🔊</button>
+                        </div>
                         <div id="erzaehl-gruppen-geschichten" class="erzaehl-geschichten"></div>
                         <div id="erzaehl-raster" class="erzaehl-raster" role="list"></div>
                     </div>
@@ -407,6 +412,10 @@
                             <button id="erzaehl-weiter" class="erzaehl-nav" type="button" aria-label="Nächstes Bild">▶</button>
                         </div>
                         <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
+                        <div id="erzaehl-bild-personen" class="erzaehl-personen" hidden>
+                            <span id="erzaehl-bild-personen-text"></span>
+                            <button id="erzaehl-bild-personen-vorlesen" class="erzaehl-vorlesen" type="button" title="Vorlesen" aria-label="Personen auf diesem Bild vorlesen">🔊</button>
+                        </div>
                         <div id="erzaehl-geschichten" class="erzaehl-geschichten"></div>
                     </div>
                     <div class="erzaehl-eingabe-fuss">
@@ -471,7 +480,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20261006A"></script>
+    <script src="erzaehlen.js?v=20261006B"></script>
     <script src="gruppen_quiz.js?v=20261002C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

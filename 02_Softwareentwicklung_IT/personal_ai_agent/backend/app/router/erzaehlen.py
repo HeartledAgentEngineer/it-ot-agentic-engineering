@@ -2,6 +2,7 @@
 
   GET  /api/erzaehlen/ereignisse            Gefilterte Ereignisliste
   GET  /api/erzaehlen/ereignisse/{kennung}  Ein Ereignis + Datei-Kennungen + Geschichten
+  GET  /api/erzaehlen/ereignisse/{kennung}/personen  Wer ist auf den Bildern (06.10.2026)
   POST /api/erzaehlen/geschichten           Eine Geschichte anhängen
   GET  /api/erzaehlen/geschichten           Geschichten (optional gefiltert)
 
@@ -21,7 +22,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.services import erzaehl_service
+from app.services import erzaehl_service, gruppen_quiz
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,35 @@ def ereignis_detail(kennung: str) -> Dict[str, Any]:
         logger.error("Ereignis-Detail fehlgeschlagen: %s", e)
         antwort["ok"] = False
         antwort["error"] = f"Ereignis nicht lesbar ({type(e).__name__})"
+    return antwort
+
+
+@router.get("/ereignisse/{kennung}/personen")
+def ereignis_personen(kennung: str) -> Dict[str, Any]:
+    """Wer ist auf den Bildern dieses Ereignisses? (06.10.2026)
+
+    Eigener Aufruf, damit die Übersicht sofort steht und die Personen
+    nachkommen. Quelle: Gesichter-Zuordnung + bestätigte Namen am Handy
+    (``services/gruppen_quiz.personen_auf_bildern``) — nur lesend.
+    """
+    antwort: Dict[str, Any] = {"ok": False, "personen": None, "error": None}
+    try:
+        if not erzaehl_service.ereignisse_existiert():
+            antwort["error"] = EREIGNISDATEI_FEHLT
+            return antwort
+        detail = erzaehl_service.ereignis_detail(kennung)
+        if detail is None:
+            antwort["error"] = f"Ereignis '{kennung}' nicht gefunden."
+            return antwort
+        ergebnis = gruppen_quiz.personen_auf_bildern(detail.get("datei_kennungen") or [])
+        if not ergebnis.get("ok"):
+            antwort["error"] = ergebnis.get("fehler") or "Personen nicht verfügbar."
+            return antwort
+        antwort["ok"] = True
+        antwort["personen"] = ergebnis
+    except Exception as e:  # noqa: BLE001 – der Endpunkt darf nie 500en
+        logger.error("Personen zum Ereignis fehlgeschlagen: %s", e)
+        antwort["error"] = f"Personen nicht lesbar ({type(e).__name__})"
     return antwort
 
 

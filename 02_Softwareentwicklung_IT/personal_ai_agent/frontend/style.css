@@ -1694,6 +1694,38 @@ button.footer-note:hover {
     font-size: 0.7rem;
 }
 
+/* Wer ist auf den Bildern (06.10.2026) — Zeile mit 🔊 zum Vorlesen. */
+.erzaehl-personen {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--text-primary);
+}
+
+.erzaehl-personen[hidden] { display: none; }
+
+.erzaehl-personen span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.erzaehl-vorlesen {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.erzaehl-vorlesen:hover { border-color: var(--accent); }
+
 .erzaehl-eingabe-fuss {
     position: sticky;
     bottom: 0;
