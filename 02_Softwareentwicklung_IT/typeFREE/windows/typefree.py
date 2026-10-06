@@ -408,6 +408,22 @@ def _config_schreiben(conf):
         log.exception('Konfiguration speichern fehlgeschlagen')
 
 
+def load_live_config():
+    """Ist der Live-Modus eingeschaltet? Standard: aus (Entscheidung 1 im Plan).
+
+    Erst wenn er sich im Alltag bewährt, wird er Standard — bis dahin entscheidet
+    der Tray-Schalter, und die Wahl bleibt in der `config.json` stehen.
+    """
+    return bool(_config_lesen().get('live', False))
+
+
+def save_live_config(an):
+    """Merkt sich die Ausgabe-Wahl, ohne andere Einstellungen zu überschreiben."""
+    conf = _config_lesen()
+    conf['live'] = bool(an)
+    _config_schreiben(conf)
+
+
 def load_hotkey_config():
     """Lädt die gespeicherte Hotkey-Wahl, Standard: Alt + Ä."""
     return HOTKEY_OPTIONS[_config_lesen().get('hotkey_index', DEFAULT_HOTKEY_INDEX)]
@@ -561,6 +577,27 @@ def _weg_beschriftung(wahl):
     return text
 
 
+def _select_live(an):
+    """Baut den Tray-Rückruf für die Ausgabe-Wahl (alles auf einmal / live)."""
+    def wechseln(icon=None, item=None):
+        global live_modus
+        live_modus = bool(an)
+        save_live_config(live_modus)
+        log.info('Ausgabe umgestellt auf: %s',
+                 'live satzweise' if live_modus else 'alles auf einmal')
+    return wechseln
+
+
+def _ausgabe_submenu():
+    """Zwei Wege, mit Punkt-Markierung beim aktiven."""
+    return pystray.Menu(
+        pystray.MenuItem('Alles auf einmal', _select_live(False),
+                         checked=lambda item: not live_modus, radio=True),
+        pystray.MenuItem('Live satzweise', _select_live(True),
+                         checked=lambda item: live_modus, radio=True),
+    )
+
+
 def _weg_submenu():
     """Die drei Wege mit Punkt-Markierung beim aktiven."""
     return pystray.Menu(*(
@@ -604,6 +641,11 @@ def _start_tray(on_ready=None):
         pystray.MenuItem('Hotkey wählen', _hotkey_submenu()),
         pystray.MenuItem('Transkription wählen', _weg_submenu()),
         pystray.MenuItem(lambda item: f"  Weg: {WEG_BESCHRIFTUNG[transkription_wahl()]}",
+                         None, enabled=False),
+        pystray.MenuItem('Ausgabe', _ausgabe_submenu()),
+        pystray.MenuItem(lambda item: '  Ausgabe: ' + ('live satzweise'
+                                                       if live_modus
+                                                       else 'alles auf einmal'),
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: retry_text(), _on_retry,
@@ -1968,7 +2010,7 @@ def _meldung_zeigen(titel, text):
 
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch
+    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus
 
     load_env_file()
     setup_logging()
@@ -1990,6 +2032,7 @@ def main():
         return
 
     active_hotkey = load_hotkey_config()
+    live_modus = load_live_config()
     verbrauch = load_verbrauch()
 
     # Alle Anbieter der Kette bauen, deren Schlüssel in der .env steht. Fehlt
@@ -2001,8 +2044,9 @@ def main():
     openai_whisper_client = baue_client('https://api.openai.com/v1',
                                         os.environ.get('OPENAI_API_KEY'))
 
-    log.info('typeFREE gestartet — Hotkey: %s · Transkription über: %s',
+    log.info('typeFREE gestartet — Hotkey: %s · Ausgabe: %s · Transkription über: %s',
              active_hotkey['label'],
+             'live satzweise' if live_modus else 'alles auf einmal',
              ', '.join(verfuegbare_anbieter(os.environ,
                                             aktive_kette(os.environ)))
              or 'kein Anbieter!')
