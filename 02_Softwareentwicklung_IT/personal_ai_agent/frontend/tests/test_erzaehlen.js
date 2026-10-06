@@ -111,5 +111,14 @@ pruefe('MediaRecorder wird bewusst NICHT instanziiert', !src.includes('new Media
 pruefe('nutzt pcm-recorder.js (AudioWorklet, wie app.js)', src.includes('pcm-recorder.js'));
 pruefe('app.js wird NICHT verändert (diese Datei ist eigenständig)', !src.includes('function sendMessage'));
 
+// Fehler 06.10.2026 (am Handy gemessen): .erzaehl-spalte { display: flex } hebelte das
+// hidden-Attribut aus — Liste blieb stehen, Diashow lag 20 px hoch darunter.
+let css = '';
+try { css = fs.readFileSync(path.join(verzeichnis, 'style.css'), 'utf8'); } catch (_) {}
+pruefe('hidden blendet die Spalten wirklich aus (.erzaehl-spalte[hidden] { display: none; })',
+    /\.erzaehl-spalte\[hidden\]\s*\{\s*display:\s*none;?\s*\}/.test(css));
+pruefe('Antippen versteckt am Handy die Liste und zeigt die Diashow',
+    /listeSpalte\.hidden = window\.matchMedia/.test(src) && /diashowSpalte\.hidden = false/.test(src));
+
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);

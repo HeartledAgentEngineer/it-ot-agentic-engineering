@@ -1449,6 +1449,11 @@ button.footer-note:hover {
     min-height: 0;
 }
 
+/* Fix 06.10.2026: „display: flex" oben hebelte das hidden-Attribut aus — am Handy
+   blieb die Liste stehen und die geöffnete Diashow lag 20 px hoch unter ihr
+   (Antippen „tat nichts"). Gemessen per WebView-Debug am Handy. */
+.erzaehl-spalte[hidden] { display: none; }
+
 .erzaehl-liste-spalte {
     width: 320px;
     max-width: 42%;
