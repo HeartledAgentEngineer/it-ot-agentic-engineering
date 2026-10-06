@@ -76,6 +76,36 @@ liefert `/status/session/<id>/heute` **`has_data=false`** → die Zeile sagt
 `hermes/kosten/api_calls.jsonl` — solange dort nur die Start-Zeile steht und
 keine echten Modell-Aufrufe, läuft die App mit dem Stand von vor dem Neustart.
 
+## Abgleich mit dem OpenRouter-Konto (Logs ↔ Chats)
+
+Werkzeuge (lesen den Management-Schlüssel aus `hermes/.env`, geben ihn nie aus):
+
+| Werkzeug | Aufgabe |
+|---|---|
+| `hermes/scripts/openrouter_export.py` | holt Aktivität (30 Tage), Schlüssel, Guthaben und schreibt vier CSVs nach `hermes/kosten/` (Zeilen, Tage, Modelle, Schlüssel; USD + EUR + EUR inkl. Aufschlag) |
+| `hermes/scripts/kosten_abgleich.py` | Tag für Tag: Konto gegen lokale Datenbank, plus Modell-Bilanz |
+| `hermes/scripts/kosten_zuordnung.py` | ein Tag im Detail: Kontozeilen ↔ Chats (Fensterregel des Backends) und Modell-Vergleich |
+
+**Grenzen der Schnittstelle** (gemessen): `/api/v1/activity` liefert nur die
+**letzten 30 abgeschlossenen UTC-Tage** — ältere Tage lehnt sie ab
+(`Date must be within the last 30 (completed) UTC days`). Einzel-Zeilen
+(Tempo, TTFT, Finish-Reason, App, API-Key) gibt der Schlüssel nicht heraus,
+diese Sicht existiert nur in der Web-Oberfläche.
+
+**Zuordnung:** die Kontoseite liefert **Tag × Modell** (ohne Chat), Hermes kennt
+seine Chats mit Zeitstempeln. Zugeordnet wird daher über das Tagesfenster mit
+**derselben** Regel wie die Anzeige (`_where_clause`, `_anteilige_kosten` aus
+dem Backend — keine zweite Rechnung). Ergebnis ist auf der Modellebene
+prüfbar: deckt sich der Kontobetrag eines Modells mit dem Hermes-Betrag, ist
+die Zuordnung belegt; ist das Konto größer, gehört der Rest zu anderen
+Schlüsseln/Programmen (erkennbar an Modellen, die Hermes nie benutzt).
+
+Für vergangene Tage bleibt die Hermes-Seite eine **Schätzung** (Fensterregel).
+**Exakt** wird sie durch das Aufruf-Protokoll (`docs/betrieb/kosten-protokoll.md`):
+es schreibt je Aufruf Chat, Zeit, Modell, Token (inkl. Cache) und Kosten mit —
+damit lässt sich jede Kontozeile 1:1 gegen die Aufrufe desselben Tages und
+Modells stellen.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
