@@ -146,6 +146,53 @@ def _jetzt_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+# ── Eigene Anlass-Titel (06.10.2026) ─────────────────────────────────────────
+# Sebastian benennt Anlässe im Erzählen selbst; der Name gewinnt vor dem
+# automatischen Titel und wird später zum Ordnernamen beim Sortieren (Plan
+# Schritt 3). Nur anhängend wie die Geschichten: je Kennung gilt die neueste
+# Zeile, ein leerer Name setzt auf den automatischen Titel zurück.
+
+TITEL_DATEINAME = "anlass_umbenennung.jsonl"
+TITEL_MAX_LAENGE = 120
+
+
+def titel_pfad() -> str:
+    """``anlass_umbenennung.jsonl`` im Ordner der Geschichten (Tests leiten ihn mit um)."""
+    return os.path.join(os.path.dirname(geschichten_pfad()), TITEL_DATEINAME)
+
+
+def eigene_titel() -> Dict[str, str]:
+    """``{kennung: name}`` — neueste Zeile je Kennung, leerer Name = zurückgesetzt. **Wirft nie.**"""
+    pfad = titel_pfad()
+    if not os.path.isfile(pfad):
+        return {}
+    namen: Dict[str, str] = {}
+    try:
+        with open(pfad, "r", encoding="utf-8") as datei:
+            for roh in datei:
+                try:
+                    eintrag = json.loads(roh)
+                except ValueError:
+                    continue
+                if not isinstance(eintrag, dict):
+                    continue
+                kennung, name = eintrag.get("kennung"), eintrag.get("name")
+                if isinstance(kennung, str) and kennung and isinstance(name, str):
+                    namen[kennung] = name.strip()
+    except OSError as e:
+        logger.warning("Eigene Titel nicht lesbar (%s): %s", pfad, e)
+        return {}
+    return {k: n for k, n in namen.items() if n}
+
+
+def _titel_fuer(ereignis: Dict[str, Any], eigene: Dict[str, str]) -> Tuple[str, bool]:
+    """(gültiger Titel, eigener?) — der eigene Name gewinnt vor dem automatischen."""
+    name = eigene.get(ereignis.get("kennung") or "")
+    if name:
+        return name, True
+    return _titel_aus(ereignis), False
+
+
 # ── Ereignisse lesen (nur lesend) ────────────────────────────────────────────
 
 FOTOBUCH_DATEINAME = "fotobuch_ereignisse.jsonl"
@@ -325,6 +372,7 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
     grenze = _limit_begrenzen(limit)
     versatz = _offset_begrenzen(offset)
 
+    eigene = eigene_titel()
     alle_geschichten = _neueste_fassungen(_geschichten_laden())
     geschichten_je_ereignis: Dict[str, int] = {}
     for eintrag in alle_geschichten:
@@ -348,8 +396,10 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
         if jahr_wert is not None and _als_zahl(ereignis.get("jahr")) != jahr_wert:
             continue
 
-        titel = _titel_aus(ereignis)
-        if suche_wert is not None and suche_wert not in _normalisieren(titel):
+        titel, titel_eigen = _titel_fuer(ereignis, eigene)
+        automatisch = _titel_aus(ereignis)
+        if suche_wert is not None and suche_wert not in _normalisieren(titel) \
+                and suche_wert not in _normalisieren(automatisch):
             continue
 
         treffer.append({
@@ -357,6 +407,8 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
             "datum": ereignis.get("datum") if isinstance(ereignis.get("datum"), str) else None,
             "jahr": _als_zahl(ereignis.get("jahr")),
             "titel": titel,
+            "titel_eigen": titel_eigen,
+            "titel_automatisch": automatisch,
             "kategorie": ereignis.get("kategorie") if isinstance(ereignis.get("kategorie"), str) else None,
             "anzahl_dateien": anzahl_dateien,
             "vorschau_kennungen": dateien[:4],
@@ -379,12 +431,14 @@ def ereignis_detail(kennung: str) -> Optional[Dict[str, Any]]:
         return None
 
     dateien = _ereignis_datei_kennungen(ereignis)
-    titel = _titel_aus(ereignis)
+    titel, titel_eigen = _titel_fuer(ereignis, eigene_titel())
     return {
         "kennung": ereignis.get("kennung"),
         "datum": ereignis.get("datum") if isinstance(ereignis.get("datum"), str) else None,
         "jahr": _als_zahl(ereignis.get("jahr")),
         "titel": titel,
+        "titel_eigen": titel_eigen,
+        "titel_automatisch": _titel_aus(ereignis),
         "kategorie": ereignis.get("kategorie") if isinstance(ereignis.get("kategorie"), str) else None,
         "anzahl_dateien": _als_zahl(ereignis.get("anzahl_dateien")) or len(dateien),
         "datei_kennungen": dateien,
@@ -454,7 +508,7 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
         "version": SCHICHT_VERSION,
         "ereignis_kennung": ek,
         "ereignis_datum": ereignis.get("datum") if isinstance(ereignis.get("datum"), str) else None,
-        "ereignis_titel": _titel_aus(ereignis),
+        "ereignis_titel": _titel_fuer(ereignis, eigene_titel())[0],
         "datei_kennung": dk,
         "text": text_wert,
         "quelle": quelle_wert,
@@ -472,3 +526,37 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
         os.fsync(datei.fileno())
 
     return zeile
+
+
+
+def titel_setzen(kennung: str, name: Any) -> Dict[str, Any]:
+    """Eigenen Titel für einen Anlass setzen (leer = zurück zum automatischen).
+
+    Validiert (Anlass existiert, höchstens ``TITEL_MAX_LAENGE`` Zeichen,
+    Leerraum zusammengezogen) und wirft :class:`GeschichteValidierungsfehler`
+    mit deutschem Text. Schreibt **nur anhängend** (``"a"`` + ``flush`` +
+    ``fsync``); die vorige Fassung bleibt in der Datei (Rückweg).
+    """
+    ek = kennung.strip() if isinstance(kennung, str) else ""
+    if not ek:
+        raise GeschichteValidierungsfehler("Ereignis-Kennung fehlt.")
+    ereignis = _ereignis_finden(ek)
+    if ereignis is None:
+        raise GeschichteValidierungsfehler(f"Ereignis '{ek}' existiert nicht.")
+    wert = " ".join(name.split()) if isinstance(name, str) else ""
+    if len(wert) > TITEL_MAX_LAENGE:
+        raise GeschichteValidierungsfehler(
+            f"Titel ist zu lang ({len(wert)} Zeichen, erlaubt sind höchstens {TITEL_MAX_LAENGE})."
+        )
+    vorher, _ = _titel_fuer(ereignis, eigene_titel())
+    zeile = {"kennung": ek, "name": wert, "zeit": _jetzt_iso(), "vorher": vorher}
+    pfad = titel_pfad()
+    ordner = os.path.dirname(pfad)
+    if ordner:
+        os.makedirs(ordner, exist_ok=True)
+    with open(pfad, "a", encoding="utf-8") as datei:
+        datei.write(json.dumps(zeile, ensure_ascii=False) + "\n")
+        datei.flush()
+        os.fsync(datei.fileno())
+    titel, eigen = _titel_fuer(ereignis, eigene_titel())
+    return {"kennung": ek, "titel": titel, "titel_eigen": eigen, "titel_automatisch": _titel_aus(ereignis)}

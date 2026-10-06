@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261006C">
+    <link rel="stylesheet" href="style.css?v=20261006D">
 </head>
 <body>
     <div id="app">
@@ -389,6 +389,19 @@
                 </section>
                 <section id="erzaehl-diashow-spalte" class="erzaehl-spalte erzaehl-diashow-spalte" hidden>
                     <button id="erzaehl-zurueck-zur-liste" class="erzaehl-back" type="button">← Ereignisse</button>
+                    <!-- Eigener Titel (06.10.2026): ✏️ antippen und ändern; leer = automatischer Titel.
+                         Der Name wird später zum Ordnernamen beim Sortieren. -->
+                    <div class="erzaehl-titel-zeile">
+                        <h3 id="erzaehl-titel" class="erzaehl-titel"></h3>
+                        <button id="erzaehl-titel-aendern" class="erzaehl-vorlesen" type="button" title="Titel ändern" aria-label="Titel ändern">✏️</button>
+                    </div>
+                    <div id="erzaehl-titel-bearbeiten" class="erzaehl-titel-bearbeiten" hidden>
+                        <input id="erzaehl-titel-eingabe" type="text" maxlength="120" autocomplete="off"
+                               placeholder="Eigener Titel, z. B. Festival 2022 mit Freunden">
+                        <button id="erzaehl-titel-speichern" class="icon-btn" type="button" title="Titel speichern" aria-label="Titel speichern">✔</button>
+                        <button id="erzaehl-titel-abbrechen" class="icon-btn" type="button" title="Abbrechen" aria-label="Abbrechen">✕</button>
+                        <button id="erzaehl-titel-zuruecksetzen" class="erzaehl-back erzaehl-back-immer" type="button" hidden>↺ Automatisch</button>
+                    </div>
                     <!-- Übersicht (06.10.2026): erst alle Bilder der Gruppe auf einmal,
                          Geschichte zur ganzen Gruppe; Antippen öffnet ein Bild einzeln. -->
                     <div id="erzaehl-uebersicht" class="erzaehl-uebersicht">
@@ -480,7 +493,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20261006B"></script>
+    <script src="erzaehlen.js?v=20261006C"></script>
     <script src="gruppen_quiz.js?v=20261002C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

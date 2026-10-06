@@ -5,6 +5,7 @@
   GET  /api/erzaehlen/ereignisse/{kennung}/personen  Wer ist auf den Bildern (06.10.2026)
   POST /api/erzaehlen/geschichten           Eine Geschichte anhängen
   GET  /api/erzaehlen/geschichten           Geschichten (optional gefiltert)
+  POST /api/erzaehlen/ereignisse/{kennung}/titel  Eigener Titel (06.10.2026, leer = automatisch)
 
 Eiserne Regeln
 --------------
@@ -173,3 +174,25 @@ def geschichte_speichern(eingabe: GeschichteEingabe) -> Dict[str, Any]:
             status_code=400, detail=f"Geschichte konnte nicht gespeichert werden ({type(e).__name__})."
         ) from e
     return {"ok": True, "geschichte": zeile}
+
+
+class TitelEingabe(BaseModel):
+    """Eingabe für ``POST /api/erzaehlen/ereignisse/{kennung}/titel`` (leer = automatischer Titel)."""
+
+    # Länge prüft der Dienst (deutscher Klartext statt Pydantic-422).
+    name: str = Field(default="", max_length=2000)
+
+
+@router.post("/ereignisse/{kennung}/titel")
+def titel_setzen(kennung: str, eingabe: TitelEingabe) -> Dict[str, Any]:
+    """Eigenen Titel für einen Anlass setzen (06.10.2026). HTTP 400 mit deutschem Text bei Fehler."""
+    try:
+        ergebnis = erzaehl_service.titel_setzen(kennung, eingabe.name)
+    except erzaehl_service.GeschichteValidierungsfehler as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001 – kein 500er ohne Klartext
+        logger.error("Titel speichern fehlgeschlagen: %s", e)
+        raise HTTPException(
+            status_code=400, detail=f"Titel konnte nicht gespeichert werden ({type(e).__name__})."
+        ) from e
+    return {"ok": True, **ergebnis}

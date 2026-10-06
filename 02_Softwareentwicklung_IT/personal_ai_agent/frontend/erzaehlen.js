@@ -142,6 +142,13 @@ function erzaehlPersonenBild(eintrag) {
     return teile.join(' · ');
 }
 
+/** REINE Funktion: eingegebener Titel -> gespeicherter Titel (Leerraum
+ *  zusammengezogen, höchstens 120 Zeichen; '' heißt „automatischer Titel"). */
+function erzaehlTitelSaeubern(text) {
+    if (typeof text !== 'string') return '';
+    return text.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 /** REINE Funktion: Anzeige-Zeile -> Sprechtext („·" wird zur Satzpause). */
 function erzaehlSprechtext(text) {
     if (typeof text !== 'string') return '';
@@ -368,8 +375,76 @@ function erzaehlSprechtext(text) {
         objekteFreigeben();
         rasterAufbauen();
         ansichtUmschalten('uebersicht');
+        titelBearbeitenSchliessen();
+        titelAnzeigen();
         if (diashowSpalte) diashowSpalte.scrollTop = 0;
         personenLaden(kennung);   // kommt nach — die Übersicht steht sofort
+    }
+
+    // ---- Eigener Titel (06.10.2026) ----------------------------------------
+    // ✏️ öffnet das Eingabefeld; gespeichert wird nur anhängend am Server
+    // (POST /ereignisse/{kennung}/titel). Leer = zurück zum automatischen Titel.
+
+    function titelAnzeigen() {
+        const ziel = el('erzaehl-titel');
+        if (ziel) ziel.textContent = zustand.detail ? erzaehlTitel(zustand.detail) : '';
+    }
+
+    function titelBearbeitenOeffnen() {
+        const block = el('erzaehl-titel-bearbeiten');
+        const eingabe = el('erzaehl-titel-eingabe');
+        const zurueck = el('erzaehl-titel-zuruecksetzen');
+        if (!block || !eingabe || !zustand.detail) return;
+        eingabe.value = erzaehlTitel(zustand.detail);
+        if (zurueck) {
+            zurueck.hidden = !zustand.detail.titel_eigen;
+            zurueck.textContent = '↺ Automatisch: ' + (zustand.detail.titel_automatisch || 'Ohne Titel');
+        }
+        block.hidden = false;
+        eingabe.focus();
+        try { eingabe.select(); } catch (_e) { /* ohne Auswahl auch gut */ }
+    }
+
+    function titelBearbeitenSchliessen() {
+        const block = el('erzaehl-titel-bearbeiten');
+        if (block) block.hidden = true;
+    }
+
+    async function titelSpeichern(name) {
+        const kennung = zustand.aktuellesEreignis;
+        const hinweis = el('erzaehl-hinweis');
+        if (!kennung) return;
+        let daten = {};
+        let ok = false;
+        try {
+            const res = await fetch(`${apiBase()}/api/erzaehlen/ereignisse/${encodeURIComponent(kennung)}/titel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: erzaehlTitelSaeubern(name) }),
+            });
+            daten = await res.json().catch(() => ({}));
+            ok = res.ok && daten.ok === true;
+        } catch (_e) {
+            daten = { detail: 'Verbindung zum Backend fehlgeschlagen.' };
+        }
+        if (!ok) {
+            if (hinweis) hinweis.textContent = daten.detail || daten.error || 'Titel nicht gespeichert.';
+            return;
+        }
+        if (hinweis) hinweis.textContent = '';
+        if (zustand.aktuellesEreignis !== kennung || !zustand.detail) return;   // inzwischen gewechselt
+        zustand.detail.titel = daten.titel;
+        zustand.detail.titel_eigen = daten.titel_eigen;
+        zustand.detail.titel_automatisch = daten.titel_automatisch;
+        titelAnzeigen();
+        titelBearbeitenSchliessen();
+        // Liste links/oben gleich mitziehen.
+        zustand.ereignisse.forEach((e) => { if (e && e.kennung === kennung) e.titel = daten.titel; });
+        document.querySelectorAll('#erzaehl-liste .erzaehl-row').forEach((zeile) => {
+            if (zeile.getAttribute('data-kennung') !== kennung) return;
+            const titelFeld = zeile.querySelector('.erzaehl-row-titel');
+            if (titelFeld) titelFeld.textContent = daten.titel;
+        });
     }
 
     // ---- Wer ist auf den Bildern (06.10.2026) ------------------------------
@@ -901,10 +976,14 @@ function erzaehlSprechtext(text) {
 
     function tastaturBehandeln(ev) {
         if (!zustand.offen || el('erzaehl-diashow-spalte').hidden) return;
+        const titelBlock = el('erzaehl-titel-bearbeiten');
         if (ev.key === 'Escape') {
-            if (zustand.ansicht === 'einzel') zurUebersicht(); else sheetSchliessen();
+            if (titelBlock && !titelBlock.hidden) titelBearbeitenSchliessen();
+            else if (zustand.ansicht === 'einzel') zurUebersicht(); else sheetSchliessen();
             return;
         }
+        // Pfeiltasten beim Tippen in einem Feld bewegen den Cursor, nicht die Diashow.
+        if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName || '')) return;
         if (ev.key === 'ArrowRight') { diashowSchritt(1); }
         else if (ev.key === 'ArrowLeft') { diashowSchritt(-1); }
     }
@@ -939,6 +1018,19 @@ function erzaehlSprechtext(text) {
         if (zurueckBtn) zurueckBtn.addEventListener('click', zurZurListe);
         const zurUebersichtBtn = el('erzaehl-zur-uebersicht');
         if (zurUebersichtBtn) zurUebersichtBtn.addEventListener('click', zurUebersicht);
+        const titelAendern = el('erzaehl-titel-aendern');
+        if (titelAendern) titelAendern.addEventListener('click', titelBearbeitenOeffnen);
+        const titelEingabe = el('erzaehl-titel-eingabe');
+        const titelOk = el('erzaehl-titel-speichern');
+        if (titelOk && titelEingabe) titelOk.addEventListener('click', () => titelSpeichern(titelEingabe.value));
+        if (titelEingabe) titelEingabe.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); titelSpeichern(titelEingabe.value); }
+        });
+        const titelAbbrechen = el('erzaehl-titel-abbrechen');
+        if (titelAbbrechen) titelAbbrechen.addEventListener('click', titelBearbeitenSchliessen);
+        const titelZurueck = el('erzaehl-titel-zuruecksetzen');
+        if (titelZurueck) titelZurueck.addEventListener('click', () => titelSpeichern(''));
+
         const vorlesenGruppe = el('erzaehl-personen-vorlesen');
         if (vorlesenGruppe) vorlesenGruppe.addEventListener('click', () => vorlesen('erzaehl-personen-text'));
         const vorlesenBild = el('erzaehl-bild-personen-vorlesen');

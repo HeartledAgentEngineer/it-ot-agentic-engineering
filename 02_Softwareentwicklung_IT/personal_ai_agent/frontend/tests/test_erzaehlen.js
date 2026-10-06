@@ -208,5 +208,23 @@ pruefe('Vorlesen nur auf Tipp (kein Aufruf außer in den Knopf-Handlern)',
 pruefe('Namen nur per textContent (kein innerHTML)', !/innerHTML/.test(src));
 pruefe('CSS: [hidden] wirkt auf die Personen-Zeile', /\.erzaehl-personen\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 
+// Eigener Titel (Wunsch 06.10.2026): ✏️ antippen und ändern; leer = automatischer Titel.
+eval(extractFn('erzaehlTitelSaeubern'));
+
+console.log('\n11) Eigener Titel');
+pruefe('Leerraum wird zusammengezogen', erzaehlTitelSaeubern('  Festival \n 2022  mit   Freunden ') === 'Festival 2022 mit Freunden');
+pruefe('höchstens 120 Zeichen', erzaehlTitelSaeubern('x'.repeat(200)).length === 120);
+pruefe('leer/kein Text -> "" (= automatischer Titel)', erzaehlTitelSaeubern('   ') === '' && erzaehlTitelSaeubern(null) === '');
+pruefe('index.html: Titelzeile mit ✏️ und Eingabe (versteckt)',
+    /id="erzaehl-titel"/.test(html) && /id="erzaehl-titel-aendern"/.test(html) && /id="erzaehl-titel-bearbeiten"[^>]*hidden/.test(html));
+pruefe('index.html: Speichern, Abbrechen, Zurücksetzen', /id="erzaehl-titel-speichern"/.test(html)
+    && /id="erzaehl-titel-abbrechen"/.test(html) && /id="erzaehl-titel-zuruecksetzen"[^>]*hidden/.test(html));
+pruefe('speichert über die Titel-Route', src.includes('/titel`') && /titelSpeichern\(''\)/.test(src));
+pruefe('Enter speichert, Escape schließt zuerst das Titelfeld',
+    /ev\.key === 'Enter'[\s\S]{0,80}titelSpeichern/.test(src) && /titelBlock && !titelBlock\.hidden\) titelBearbeitenSchliessen/.test(src));
+pruefe('Pfeiltasten im Eingabefeld blättern nicht', /\^\(INPUT\|TEXTAREA\)\$/.test(src));
+pruefe('Liste wird nach dem Speichern mitgezogen', /erzaehl-row-titel[\s\S]{0,80}daten\.titel/.test(src));
+pruefe('CSS: [hidden] wirkt auf das Titelfeld', /\.erzaehl-titel-bearbeiten\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
+
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);
