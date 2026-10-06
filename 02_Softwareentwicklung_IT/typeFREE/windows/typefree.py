@@ -1946,6 +1946,34 @@ def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording):
     return 'start'
 
 
+def taste_schlucken(event_type, key_name, hotkey, recording):
+    """Reine Entscheidung: Soll dieses Ereignis das Zielfenster NICHT erreichen?
+
+    Wackelt Alt während der Aufnahme kurz weg, wiederholt Windows das gehaltene
+    Ä als nacktes „ä" — gemessen: 16 bis 150 „ä" vor dem Diktat. Deshalb wird
+    das Drücken der Haupttaste geschluckt, solange aufgenommen wird.
+    Das Loslassen kommt IMMER durch: Ein geschlucktes Ereignis erreicht auch
+    `on_key_event` nicht mehr, und ohne Loslassen endete die Aufnahme nie.
+    """
+    return recording and event_type == 'down' and key_name == hotkey['key']
+
+
+def _sperr_haken(event):
+    """Läuft im Tastatur-Haken von Windows — muss blitzschnell bleiben.
+
+    Gibt True zurück, wenn das Ereignis durch darf (Vertrag von `keyboard`).
+    Alles, was nicht ausdrücklich True ist — auch `None` oder eine Ausnahme —
+    schluckt `keyboard` als Sperre. Daher die alte Warnung „suppress=True sperrt
+    die ganze Tastatur". Deshalb: im Zweifel IMMER durchlassen.
+    """
+    try:
+        event_type = 'down' if event.event_type == keyboard.KEY_DOWN else 'up'
+        return not taste_schlucken(event_type, (event.name or '').lower(),
+                                   active_hotkey, is_recording)
+    except Exception:
+        return True
+
+
 def on_key_event(event):
     """Sammelt Tastenereignisse ein und führt die Entscheidung aus."""
     name = (event.name or '').lower()
@@ -2051,6 +2079,7 @@ def main():
                                             aktive_kette(os.environ)))
              or 'kein Anbieter!')
     keyboard.hook(on_key_event)
+    keyboard.hook(_sperr_haken, suppress=True)   # Ä-Sperre während der Aufnahme
 
     # Das Tray-Icon läuft im Hauptthread und blockiert bis „Beenden".
     # Nur so beantwortet typeFREE das Abmeldesignal von Windows.

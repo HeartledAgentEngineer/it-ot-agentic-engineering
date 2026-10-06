@@ -107,7 +107,8 @@ typeFREE umgeht diese Probleme: Die zweistufige Pipeline (Whisper + Gemini über
 
 ### Hotkey-Handling: gelernte Stolperfallen
 Drei Erkenntnisse aus dem Praxisbetrieb stecken im Code:
-* `suppress=True` im `keyboard.hook()` ist tabu — es blockiert die gesamte Tastatur systemweit.
+* `suppress=True` im `keyboard.hook()` ist gefährlich: Gibt der Haken für ein Ereignis nicht `True` zurück, wird es geschluckt — ein fehlerhafter Haken blockiert die gesamte Tastatur systemweit. typeFREE nutzt ihn genau an einer Stelle (`_sperr_haken`), die bei jedem Fehler durchlässt.
+* **Ä-Sperre:** Wackelt der Modifier während der Aufnahme kurz weg, würde die gehaltene Haupttaste als normales Zeichen wiederholt („ääää"). Solange aufgenommen wird, schluckt typeFREE deshalb das Drücken der Haupttaste (`taste_schlucken`); das Loslassen kommt immer durch, damit die Aufnahme endet.
 * Modifier-Zustände werden über ein eigenes `_mods_down`-Set verfolgt statt über `keyboard.is_pressed()` — zuverlässiger bei schnellen Tastenfolgen (inkl. `AltGr`, das Windows intern als `Strg+Alt` meldet).
 * Key-Repeat-Events während einer laufenden Aufnahme werden ignoriert, sonst würde das Halten des Hotkeys die Aufnahme ständig neu starten.
 * **Das Loslassen der Haupttaste beendet die Aufnahme immer** — die Modifier werden dabei absichtlich *nicht* geprüft. Die Entscheidungslogik steckt zu diesem Zweck in einer reinen Funktion (`decide_hotkey_action`) und ist automatisiert geprüft.

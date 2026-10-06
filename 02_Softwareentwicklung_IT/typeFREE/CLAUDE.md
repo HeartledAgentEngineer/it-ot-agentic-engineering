@@ -26,7 +26,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv). **In der installierten Anlage gewinnt die `.env`** gegen eine gleichnamige Umgebungsvariable; beim Start aus dem Quellcode bleibt die Umgebung vorn (Terminal-Tests). Anlass der Regel (06.10.2026): `OPENROUTER_API_KEY` stand in der Windows-Umgebung auf dem Schlüssel „critic-Skill" — jedes Diktat wurde dort gebucht, der eigene Schlüssel „typeFree" blieb bei 0,00 $ |
 | Konfiguration | `windows/config.json` — gewählter Hotkey (`hotkey_index`) und Ausgabe-Wahl (`live`: true = live satzweise) |
 | Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — **202 Prüfungen** mit pytest in 17 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Tests | `windows/tests/` — **208 Prüfungen** mit pytest in 17 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Aussteuerung | `aussteuerung(daten)` + `AUSSTEUERUNG_MIN_RMS` (0,02). Jede Aufnahme schreibt „Aussteuerung: Spitze … · RMS …" ins Log; darunter warnt typeFREE. Referenzmessung: fehlerfreies deutsches Audio hatte RMS 0,088–0,095, leise aber fehlerfrei 0,062 |
 | Sprachmessung | `windows/sprachmessung.py` — Wortfehlerquote gegen bekannten Text (`wortfehlerquote`, reine Funktion; Test in `tests/test_sprachmessung.py`), optional in Happen mit Kontext. Referenzaudio samt Wortlaut in `windows/referenzaudio/`. Werkzeuge bauen ihre Clients selbst — `transkriptions_clients()` liefert außerhalb der App nur `None`, weil `main()` sie setzt |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
@@ -65,7 +65,8 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer e
 
 ## Wichtige technische Erkenntnisse
 
-- **`suppress=True` im `keyboard.hook()` NIEMALS verwenden** — sperrt die gesamte Tastatur
+- **`suppress=True` nur mit Haken, der IMMER `True` liefert** — `keyboard` sperrt jedes Ereignis, für das ein sperrender Haken nicht `True` zurückgibt (auch `None` oder Ausnahme). Ein solcher Haken sperrt sonst die gesamte Tastatur. Einziger Einsatz: `_sperr_haken` (Ä-Sperre, siehe unten), mit `try/except → True` und Test
+- **Ä-Sperre (06.10.2026):** Wackelt Alt während der Aufnahme kurz weg, tippte die gehaltene Ä-Taste „ääää" ins Zielfenster (16–150 Stück im Chat). `taste_schlucken` schluckt deshalb das **Drücken** der Haupttaste, solange aufgenommen wird. Das **Loslassen** kommt immer durch — ein geschlucktes Ereignis erreicht auch `on_key_event` nicht, die Aufnahme endete sonst nie
 - **AltGr = Ctrl+Alt** intern → kann fremde Shortcuts triggern
 - **Modifier-Tracking:** `_mods_down`-Set statt `keyboard.is_pressed()` — zuverlässiger
 - **Key-Repeat:** KEY_DOWN-Events während laufender Aufnahme ignorieren
