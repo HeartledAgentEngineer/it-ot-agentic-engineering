@@ -280,6 +280,45 @@ usage". Eine *Liste* vergangener Aufrufe gibt die Schnittstelle nicht heraus
 Deshalb: Kennungen selbst mitschreiben (Plugin) — dann sind Vergangenheit ab
 Neustart und Zukunft Sekunde für Sekunde belegt.
 
+## Echtzeit ohne Export: die Kennung je Aufruf (06.10.2026)
+
+Die Logs-Ansicht von OpenRouter zeigt jede Anfrage mit Uhrzeit, Token, Preis,
+Anbieter, Geschwindigkeit und Schlüssel. Über die Schnittstelle ist diese
+**Liste nicht abrufbar** (alle Listen-Adressen antworten 404), die Tagessummen
+gibt es nur für **abgeschlossene** Tage und nur 30 zurück. Echtzeit geht deshalb
+nur über die **Kennung**: jeder Aufruf liefert `gen-…` zurück, und
+`/api/v1/generation?id=<kennung>` gibt genau diese eine Zeile.
+
+Drei Teile machen das automatisch:
+
+1. **Haken-Nutzlast** (`hermes-agent/agent/api_request_hooks.py`,
+   `_api_response_payload_for_hook`): übergibt seit dem 06.10. zusätzlich
+   `"id": getattr(response, "id", None)`. Vorher enthielt die Nutzlast nur
+   `model`, `upstream_provider`, `finish_reason` und `usage` — die Kennung war
+   nie dabei. **Achtung:** diese Zeile ist die einzige Stelle, die ein
+   Hermes-Update überschreiben kann; Plugin und Sammler sind updatefest.
+2. **Wächter-Plugin** (`kosten-protokoll`, Fassung 1.1.0): zieht die Kennung aus
+   der Nutzlast (Wörterbuch oder Objekt, verschachtelt) und schreibt sie als
+   Feld `kennung` in `hermes/kosten/api_calls.jsonl`.
+3. **Sammler** (`hermes/scripts/konto_sammler.py`, Cron-Job `konto-sammler`
+   alle 15 Minuten): holt zu jeder noch offenen Kennung die Kontozeile und
+   schreibt sie fort nach `hermes/kosten/konto_zeilen_auto.csv` — mit Zeit
+   (lokal), Tag, Stunde, **Chat-Kennung**, Modell, Anbieter, Token
+   (ein/aus/cache/denk), Kosten in USD/EUR/EUR inkl. Aufschlag, Finish, Dauer
+   und Time-to-first-token.
+
+Gemessen am 06.10.2026: Aus 11 Kennungen holte der erste Lauf 8 Kontozeilen
+(drei waren noch nicht indiziert — der nächste Lauf nimmt sie mit). Beispiel:
+`gen-1791321484-…` → 23:18:04, Chat `20260828_015944_352e08`,
+deepseek-v4.1-flash / Together, 94.104 ein / 423 aus, 0,05695 USD.
+
+**Grenzen, ehrlich:** Kennungen gibt es erst ab dem 06.10. (davor schrieb der
+Wächter sie nicht mit) — Vergangenheit also weiterhin nur über den Export. Die
+Spalten `app` und `schluessel` bleiben in den automatischen Zeilen leer, weil
+die Einzelabfrage sie für frische Aufrufe noch nicht liefert; die Zuordnung
+Aufruf → Chat ist davon nicht betroffen. Der Schlüssel wird nur aus
+`hermes/.env` gelesen und nie ausgegeben.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
