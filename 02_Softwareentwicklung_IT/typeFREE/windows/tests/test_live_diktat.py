@@ -228,62 +228,80 @@ def test_leerer_text_wird_nicht_eingefuegt(monkeypatch):
     assert kopiert == []
 
 
-# ── Schritt 4: Abschluss — Glättung ersetzt den Rohtext ───────────────────────
+# ── Schritt 4 (neu, 06.10.2026): jeder Block wird VOR dem Tippen geglättet ──
+# Vorher löschte der Abschluss alles per Rücktaste und setzte die Gesamtglättung
+# ein — Sebastian: „dass dann alles wieder gelöscht und ersetzt wird, gefällt
+# mir nicht". Jetzt bleibt stehen, was einmal getippt ist.
 
-def _teile(fenster='Editor', zeit=100.0, roh='hallo welt'):
-    return [{'text': roh + ' ', 'roh': roh, 'fenster': fenster, 'zeit': zeit}]
-
-
-def test_ersetzung_erlaubt_wenn_alles_stimmt():
-    erlaubt, grund = typefree.live_ersetzung_pruefen(
-        _teile(), 'Editor', 'Hallo Welt.', 0.0)
-    assert erlaubt and grund == ''
-
-
-def test_ersetzung_abgelehnt_bei_leerer_liste():
-    erlaubt, grund = typefree.live_ersetzung_pruefen([], 'Editor', 'Hallo', 0.0)
-    assert not erlaubt and 'nichts' in grund
+def test_kontext_ist_das_ende_des_bisher_getippten():
+    teile = [{'text': 'Erster Satz. '}, {'text': 'Zweiter Satz. '}]
+    assert typefree.live_kontext(teile, grenze=14) == 'Zweiter Satz. '
+    assert typefree.live_kontext(teile) == 'Erster Satz. Zweiter Satz. '
+    assert typefree.live_kontext([]) == ''
 
 
-def test_ersetzung_abgelehnt_bei_fensterwechsel():
-    """Sicherung (b): wer wechselt, tippt woanders — Rohtext bleibt stehen."""
-    erlaubt, grund = typefree.live_ersetzung_pruefen(
-        _teile(), 'Browser', 'Hallo Welt.', 0.0)
-    assert not erlaubt and 'Fenster' in grund
+def test_happen_wird_vor_dem_einfuegen_geglaettet():
+    eingefuegt = []
+    text = typefree._live_stueck_verarbeiten(
+        sprache(4), lambda s: ('ähm hallo welt', 'mai'), eingefuegt.append,
+        glaetten=lambda roh: 'Hallo Welt.')
+    assert eingefuegt == ['Hallo Welt.']
+    assert text == 'Hallo Welt.'
 
 
-def test_ersetzung_abgelehnt_nach_eigener_taste():
-    """Sicherung (a): wurde nach dem Einfügen getippt, wird nichts angerührt."""
-    erlaubt, grund = typefree.live_ersetzung_pruefen(
-        _teile(zeit=100.0), 'Editor', 'Hallo Welt.', 105.0)
-    assert not erlaubt and 'getippt' in grund
+def test_scheitert_die_glaettung_kommt_der_rohtext():
+    """Lieber roh als gar nicht — der Block darf nicht verloren gehen."""
+    eingefuegt = []
+    typefree._live_stueck_verarbeiten(
+        sprache(4), lambda s: ('hallo welt', 'mai'), eingefuegt.append,
+        glaetten=lambda roh: None)
+    assert eingefuegt == ['hallo welt']
 
 
-def test_eigene_taste_vor_dem_einfuegen_stoert_nicht():
-    erlaubt, _ = typefree.live_ersetzung_pruefen(
-        _teile(zeit=100.0), 'Editor', 'Hallo Welt.', 90.0)
-    assert erlaubt
+def _abschluss_vorbereiten(monkeypatch, teile, rest_text):
+    getippt = []
+    monkeypatch.setattr(typefree, '_live_warte_auf_schreiber', lambda: True)
+    monkeypatch.setattr(typefree, '_live_transkribieren',
+                        lambda stueck: (rest_text, 'mai'))
+    monkeypatch.setattr(typefree, '_live_glaetten', lambda roh: roh.capitalize())
+    monkeypatch.setattr(typefree, '_live_buchen', lambda s, a: None)
+    monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
+    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_status_idle', lambda: None)
+    monkeypatch.setattr(typefree, 'live_geschnitten', 0.0)
+    with typefree.lock:
+        typefree.live_teile[:] = teile
+    return getippt
 
 
-def test_ersetzung_abgelehnt_bei_zu_kurzer_glaettung():
-    """Sicherung (c): lieber roh als halb — ein zu kurzes Ergebnis wird verworfen."""
-    erlaubt, grund = typefree.live_ersetzung_pruefen(
-        _teile(roh='ein ziemlich langer Satz mit vielen Wörtern'), 'Editor',
-        'kurz', 0.0)
-    assert not erlaubt and 'kurz' in grund
+def test_abschluss_tippt_nur_den_rest_und_ersetzt_nichts(monkeypatch):
+    getippt = _abschluss_vorbereiten(
+        monkeypatch, [{'text': 'Erster Satz. ', 'roh': 'Erster Satz.'}], 'und schluss')
+    assert typefree._live_abschluss(sprache(2)) is True
+    assert getippt == ['Und schluss ']     # geglättet angehängt, nichts gelöscht
+    with typefree.lock:
+        typefree.live_teile.clear()
 
 
-def test_ersetzung_abgelehnt_bei_leerer_glaettung():
-    erlaubt, grund = typefree.live_ersetzung_pruefen(_teile(), 'Editor', None, 0.0)
-    assert not erlaubt
+def test_abschluss_ohne_getippten_text_meldet_false(monkeypatch):
+    """Dann übernimmt die normale Verarbeitung — kein Diktat geht verloren."""
+    _abschluss_vorbereiten(monkeypatch, [], '')
+    assert typefree._live_abschluss(sprache(2)) is False
 
 
-def test_hotkey_tasten_gelten_nicht_als_fremde_taste():
-    """Sonst würde das Loslassen des Hotkeys die Sicherung selbst auslösen."""
-    assert not typefree.ist_fremde_taste('ä', 'Alt + Ä')
-    assert not typefree.ist_fremde_taste('Alt', 'alt+ä')
-    assert typefree.ist_fremde_taste('a', 'Alt + Ä')
-    assert typefree.ist_fremde_taste('enter', 'Alt + Ä')
+def test_glaettung_mit_kontext_wiederholt_den_kontext_nicht():
+    from test_transkription import GlattungsAttrappe
+    client = GlattungsAttrappe(antwort='Und dann gehen wir weiter.')
+    ergebnis = typefree.polish_text('und dann ähm gehen wir weiter', client=client,
+                                    kontext='Das ist der Anfang. ',
+                                    modelle=('modell-a',))
+    assert ergebnis == 'Und dann gehen wir weiter.'
+    aufruf = client.aufrufe[0]
+    assert aufruf['model'] == 'modell-a'
+    nachricht = aufruf['messages'][-1]['content']
+    assert 'Das ist der Anfang.' in nachricht
+    assert 'NICHT wiederholen' in nachricht
+    assert nachricht.rstrip().endswith('und dann ähm gehen wir weiter')
 
 
 def test_happen_werden_gebucht():

@@ -919,8 +919,7 @@ live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspe
 live_teile = []               # was schon im Dokument steht: {'text', 'roh', 'fenster', 'zeit'}
 live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
 live_beschaeftigt = False     # der Schreiber transkribiert gerade einen Happen
-LIVE_ERSETZEN_MINDESTANTEIL = 0.5   # geglättet muss mindestens halb so lang sein
-LIVE_TASTE_ABSTAND = 0.004    # Pause zwischen den Rücktasten beim Ersetzen
+_live_lief = False            # lief Live in DIESER Aufnahme? (Tray-Wechsel mittendrin)
 
 
 class LivePuffer:
@@ -1118,23 +1117,48 @@ def _live_text_einfuegen(text):
     return len(eingefuegt)
 
 
-def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None):
-    """Ein Happen: transkribieren, einfügen, buchen — die Nähte sind zum Prüfen da.
+def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None,
+                             glaetten=None):
+    """Ein Happen: transkribieren, glätten, einfügen, buchen — die Nähte sind
+    zum Prüfen da.
 
+    Geglättet wird VOR dem Einfügen: Was einmal getippt ist, bleibt stehen.
+    Scheitert die Glättung, kommt der Rohtext — der Block geht nicht verloren.
     Gibt den eingefügten Text zurück (oder None, wenn nichts eingefügt wurde).
     """
     if stueck is None or not getattr(stueck, 'size', 0):
         return None
     text, anbieter = transkribieren(stueck)
     if not text or not text.strip():
-        log.warning('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
+        log.info('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
         return None
+    if glaetten is not None:
+        text = glaetten(text) or text
     einfuegen(text)
     if buchen is not None:
         buchen(stueck.shape[0] / SAMPLE_RATE, anbieter)
     log.info('Live eingefügt (%s, %.1f s): %s', anbieter,
              stueck.shape[0] / SAMPLE_RATE, text)
     return text
+
+
+def live_kontext(teile, grenze=400):
+    """Das Ende des bisher Getippten — Zusammenhang für die Block-Glättung.
+
+    Begrenzt, damit ein langes Diktat nicht jeden Aufruf teurer macht.
+    """
+    return ''.join(t.get('text') or '' for t in teile)[-grenze:]
+
+
+def _live_glaetten(roh):
+    """Einen Block mit dem bisherigen Text als Zusammenhang glätten."""
+    with lock:
+        kontext = live_kontext(list(live_teile))
+    begonnen = time.monotonic()
+    geglaettet = polish_text(roh, kontext=kontext, modelle=POLISH_MODELLE_LIVE)
+    log.info('Live-Block geglättet (%.1f s): %s', time.monotonic() - begonnen,
+             geglaettet if geglaettet else 'fehlgeschlagen — Rohtext')
+    return geglaettet
 
 
 def _live_buchen(sekunden, anbieter):
@@ -1176,7 +1200,8 @@ def _live_schreiber(session):
                 live_beschaeftigt = True
             try:
                 _live_stueck_verarbeiten(stueck, _live_transkribieren,
-                                         _live_text_einfuegen, _live_buchen)
+                                         _live_text_einfuegen, _live_buchen,
+                                         glaetten=_live_glaetten)
             except Exception:
                 log.exception('Live-Happen fehlgeschlagen')
             finally:
@@ -1202,119 +1227,35 @@ def _live_warte_auf_schreiber(hoechstens=30.0):
     return False
 
 
-def ist_fremde_taste(name, hotkey):
-    """Gehört die Taste zum Diktat-Hotkey? (Sicherung (a) beim Ersetzen)
-
-    `hotkey` ist entweder ein Eintrag aus `HOTKEY_OPTIONS`
-    (`{'label': 'Alt + Ä', 'key': 'ä', 'mods': ['alt']}`) oder ein Anzeigename
-    wie „Alt + Ä" — beides wird auf seine Bestandteile zurückgeführt.
-    """
-    teile = []
-    if isinstance(hotkey, dict):
-        for schluessel, wert in hotkey.items():
-            if isinstance(wert, str):
-                teile.extend(re.split(r'\+', wert))
-            elif isinstance(wert, (list, tuple, set)):
-                teile.extend(str(w) for w in wert)
-    else:
-        teile = re.split(r'\+', str(hotkey or ''))
-    namen = {t.strip().lower() for t in teile if t and t.strip()}
-    return (name or '').lower() not in namen
-
-
-def live_ersetzung_pruefen(teile, jetzt_fenster, geglaettet, letzter_tastendruck):
-    """Die drei Sicherungen vor dem Ersetzen — gibt (erlaubt, Grund) zurück.
-
-    (a) seit dem letzten Einfügen wurde keine fremde Taste gedrückt,
-    (b) das Vordergrundfenster ist noch dasselbe,
-    (c) die geglättete Fassung ist nicht auffällig kürzer als das Rohmaterial.
-    Ist eine verletzt, bleibt der Rohtext stehen — lieber roh als kaputt.
-    """
-    if not teile:
-        return False, 'nichts eingefügt'
-    fenster = teile[0].get('fenster') or ''
-    if fenster and jetzt_fenster and fenster != jetzt_fenster:
-        return False, 'Fenster gewechselt (%s → %s)' % (fenster, jetzt_fenster)
-    if letzter_tastendruck and letzter_tastendruck > max(t.get('zeit', 0) for t in teile):
-        return False, 'seit dem Einfügen wurde getippt'
-    roh = sum(len(t.get('roh') or '') for t in teile)
-    if not geglaettet or len(geglaettet) < roh * LIVE_ERSETZEN_MINDESTANTEIL:
-        return False, 'geglättete Fassung zu kurz (%d statt %d Zeichen)' % (
-            len(geglaettet or ''), roh)
-    return True, ''
-
-
-def _live_block_ersetzen(zeichen, text):
-    """Rücktaste × Zeichenzahl, dann die geglättete Fassung einfügen."""
-    with eigene_eingabe():
-        pyautogui.press('backspace', presses=zeichen, interval=LIVE_TASTE_ABSTAND)
-        time.sleep(0.1)
-        pyperclip.copy(text)
-        time.sleep(0.1)
-        pyautogui.hotkey('ctrl', 'v')
-
-
 def _live_abschluss(audio_data):
-    """Rest transkribieren, ganzen Text glätten, eingefügten Block ersetzen.
+    """Rest transkribieren, glätten und anhängen — sonst nichts.
 
-    Gibt True zurück, wenn ersetzt wurde — sonst bleibt der Rohtext stehen und
-    die normale Verarbeitung übernimmt.
+    Bis zum 06.10.2026 glättete der Abschluss den GANZEN Text und ersetzte den
+    getippten Block per Rücktaste. Sebastian: „dass dann alles wieder gelöscht
+    und ersetzt wird, gefällt mir nicht". Seitdem wird jeder Block vor dem
+    Tippen geglättet (`_live_glaetten`) — was steht, bleibt stehen.
+
+    Gibt True zurück, wenn Live-Text getippt wurde. Sonst False: Dann übernimmt
+    die normale Verarbeitung, damit kein Diktat verloren geht.
     """
-    global _glattung_ausfaelle
-
     _live_warte_auf_schreiber()
 
-    # Den Rest nach dem letzten Happen noch transkribieren und anhängen.
     rest = audio_data[int(live_geschnitten * SAMPLE_RATE):]
     if rest.size:
         try:
-            text, anbieter = _live_transkribieren(rest)
-            if text and text.strip():
-                _live_text_einfuegen(text)
-                _live_buchen(rest.shape[0] / SAMPLE_RATE, anbieter)
-                log.info('Live-Rest eingefügt (%s, %.1f s): %s', anbieter,
-                         rest.shape[0] / SAMPLE_RATE, text)
+            _live_stueck_verarbeiten(rest, _live_transkribieren,
+                                     _live_text_einfuegen, _live_buchen,
+                                     glaetten=_live_glaetten)
         except Exception:
             log.exception('Live-Rest fehlgeschlagen')
 
     with lock:
         teile = list(live_teile)
+    _status_idle()
     if not teile:
         return False
-    roh = ' '.join((t.get('roh') or '').strip() for t in teile if t.get('roh')).strip()
-    if not roh:
-        return False
-
-    _status_polishing()
-    stufe = time.monotonic()
-    geglaettet = polish_text(roh)
-    _glattung_ausfaelle = ausfall_zaehlen(_glattung_ausfaelle, bool(geglaettet))
-    if ausfall_melden(_glattung_ausfaelle):
-        _melde_glattung_ausfall()
-    log.info('Live geglättet (%.1f s): %s', time.monotonic() - stufe,
-             geglaettet or roh)
-
-    zeichen = sum(len(t.get('text') or '') for t in teile)
-    erlaubt, grund = live_ersetzung_pruefen(teile, _fenster_titel(), geglaettet,
-                                            _letzter_tastendruck)
-    if not erlaubt:
-        log.warning('Live: Rohtext bleibt stehen — %s', grund)
-        _status_idle()
-        retry_verwerfen()
-        return False
-
-    try:
-        _live_block_ersetzen(zeichen, geglaettet)
-    except Exception:
-        log.exception('Live: Ersetzen fehlgeschlagen — Rohtext bleibt stehen')
-        report_error('Der eingefügte Text konnte nicht ersetzt werden — '
-                     'er bleibt roh stehen.')
-        _status_idle()
-        return False
-
-    log.info('Live ersetzt: %d Zeichen roh → %d Zeichen geglättet',
-             zeichen, len(geglaettet or ''))
-    _status_idle()
+    log.info('Live fertig: %d Blöcke, %d Zeichen — nichts ersetzt', len(teile),
+             sum(len(t.get('text') or '') for t in teile))
     retry_verwerfen()
     return True
 
@@ -1399,8 +1340,9 @@ def audio_callback(indata, frames, time_info, status):
 # ── Aufnahme starten ──────────────────────────────────────────────────────────
 def start_recording():
     global is_recording, audio_frames, _last_data_at, _last_signal_at, _session
-    global _mods_freigegeben
+    global _mods_freigegeben, live_geschnitten, _live_lief
     _mods_freigegeben = False
+    _live_lief = False
     jetzt = time.monotonic()
     # Alles in EINEM Abschnitt: leerer Puffer, gestellte Uhren und die neue
     # Sitzungsnummer gehören zusammen und dürfen nicht halb sichtbar werden.
@@ -1427,8 +1369,9 @@ def start_recording():
                      name='watchdog', daemon=True).start()
     if live_erlaubt(live_modus, hotkey_modus):
         # Der Live-Modus tippt direkt (Unicode) — das kommt auch beim Halten an.
-        # Die Freigabe lässt die Zusatztasten trotzdem los: Die Rücktaste beim
-        # Ersetzen wäre mit Alt sonst „Rückgängig".
+        # Die Freigabe lässt die Zusatztasten trotzdem los, damit Windows
+        # nichts Getipptes als Alt-Kürzel deutet.
+        _live_lief = True
         try:
             zusatztasten_freigeben()
         except Exception:
@@ -1454,6 +1397,15 @@ POLISH_MODELLE = (
     'google/gemini-2.5-flash',       # 0,8 s und gründlich (gemessen 25.09.2026)
     'google/gemini-3.5-flash-lite',  # Ausweichweg, ähnlich schnell
     'google/gemini-2.5-flash-lite',  # letzter Ausweichweg, günstigstes Modell
+)
+
+# Live-Modus: jeder Block wird einzeln geglättet — 8–10 Aufrufe je Minute. Die
+# Lite-Modelle zuerst halten die Kosten weit unter Sebastians 5-€-Grenze
+# (Schätzung 06.10.2026: grob 0,40 $/Monat bei ~6,5 h Diktat).
+POLISH_MODELLE_LIVE = (
+    'google/gemini-2.5-flash-lite',
+    'google/gemini-3.5-flash-lite',
+    'google/gemini-2.5-flash',
 )
 
 # So viele Glättungs-Ausfälle in Folge lösen einen Hinweis aus.
@@ -1540,24 +1492,34 @@ def zeiten_text(stufen):
                       for name, wert in stufen)
 
 
-def polish_text(raw_text, client=None):
+def polish_text(raw_text, client=None, kontext='', modelle=None):
     """Glättet über die Modellkette. Gibt None zurück, wenn keine Glättung ging.
 
     Scheitert ein Modell (abgekündigt, überlastet, unplausible Antwort), wird
     das nächste versucht. Erst wenn alle scheitern, bekommt der Aufrufer None
     und fügt den Rohtext ein. `client` überschreibt den OpenRouter-Client —
     gedacht für Tests und für die Ende-zu-Ende-Probe.
+
+    `kontext` (Live-Modus): was schon im Dokument steht. Es hilft beim
+    Verstehen, wird aber nicht wiederholt — zurück kommt nur der neue Block.
     """
     client = client or openrouter_client
+    modelle = modelle or POLISH_MODELLE
+    if kontext:
+        auftrag = ('Bisher steht im Dokument (nur zum Verständnis — NICHT '
+                   'wiederholen, NICHT ausgeben):\n' + kontext.strip() +
+                   '\n\nBereinige nur diesen neuen Abschnitt und gib nur ihn '
+                   'zurück:\n\n' + raw_text)
+    else:
+        auftrag = f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"
     letzter_grund = 'kein Modell versucht'
-    for modell in POLISH_MODELLE:
+    for modell in modelle:
         try:
             response = client.chat.completions.create(
                 model=modell,
                 messages=[
                     {"role": "system", "content": POLISH_ANWEISUNG},
-                    {"role": "user",
-                     "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
+                    {"role": "user", "content": auftrag},
                 ],
                 max_tokens=POLISH_MAX_TOKENS,
                 temperature=0.2,
@@ -1575,7 +1537,7 @@ def polish_text(raw_text, client=None):
                         modell, len(raw_text), len(polished))
             continue
 
-        if modell != POLISH_MODELLE[0]:
+        if modell != modelle[0]:
             log.info('Glättung über Ausweichmodell %s gelungen', modell)
         return polished
 
@@ -1973,14 +1935,16 @@ def stop_and_transcribe():
                     'wahrscheinlich; näher ans Mikrofon', rms,
                     AUSSTEUERUNG_MIN_RMS)
 
-    # Im Live-Modus steht der Rohtext schon im Dokument. Dann übernimmt der
-    # Abschluss — und die normale Verarbeitung darf NICHT zusätzlich laufen,
-    # sonst stünde alles doppelt da.
-    if live_modus and live_teile:
+    # Lief Live in dieser Aufnahme, übernimmt der Abschluss: Er wartet auch auf
+    # einen Block, der gerade noch transkribiert wird. (Vorher entschied
+    # `live_teile` — war der erste Block beim Loslassen noch unterwegs, lief
+    # zusätzlich die normale Verarbeitung, und alles stand doppelt da.)
+    # Hat Live gar nichts getippt, übernimmt die normale Verarbeitung.
+    if _live_lief:
         log.info('Live-Modus: %d Happen, %.1f s geschnitten — Abschluss läuft',
                  len(live_teile), live_geschnitten)
-        _live_abschluss(audio_data)
-        return
+        if _live_abschluss(audio_data):
+            return
 
     _verarbeite_audio(audio_data)
 
@@ -2050,10 +2014,6 @@ def _verarbeite_audio(audio_data, erneut=False):
 
 # ── Tastenerkennung ───────────────────────────────────────────────────────────
 _mods_down = set()
-# Für Sicherung (a) beim Live-Ersetzen: Wurde seit dem Einfügen getippt? Die
-# Tasten des Diktat-Hotkeys zählen nicht — sonst würde das Loslassen selbst die
-# Sicherung auslösen.
-_letzter_tastendruck = 0.0
 # Gegen Tasten-Wiederholung: In der Umschalt-Betriebsart würde ein gehaltener
 # Hotkey sonst im Sekundentakt an- und wieder ausschalten.
 _hotkey_unten = False
@@ -2268,7 +2228,7 @@ def _sperr_haken(event):
 
 def on_key_event(event):
     """Sammelt Tastenereignisse ein und führt die Entscheidung aus."""
-    global _letzter_tastendruck, _hotkey_unten
+    global _hotkey_unten
     name = (event.name or '').lower()
 
     alias = MODIFIER_SCAN_CODES.get(event.scan_code) or MODIFIER_ALIASES.get(name)
@@ -2287,8 +2247,6 @@ def on_key_event(event):
         if event_type == 'down' and _hotkey_unten:
             return                       # Tasten-Wiederholung, kein neuer Tipp
         _hotkey_unten = event_type == 'down'
-    if event_type == 'down' and ist_fremde_taste(name, active_hotkey):
-        _letzter_tastendruck = time.monotonic()
     action = decide_hotkey_action(event_type, name, _mods_down,
                                  active_hotkey, is_recording,
                                  modus=hotkey_modus)
