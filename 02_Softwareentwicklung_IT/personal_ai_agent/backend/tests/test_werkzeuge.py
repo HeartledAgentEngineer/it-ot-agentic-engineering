@@ -35,7 +35,8 @@ def speicher(tmp_path, monkeypatch):
 
 def test_schemata_sind_gueltiges_openai_format():
     schemata = wz.schemata()
-    assert len(schemata) == len(wz.REGISTER) == 8
+    # 8 Werkzeuge bis 06.10.2026, mit `notizen_suchen` (07.10.2026) sind es 9.
+    assert len(schemata) == len(wz.REGISTER) == 9
     for s in schemata:
         assert s["type"] == "function"
         f = s["function"]

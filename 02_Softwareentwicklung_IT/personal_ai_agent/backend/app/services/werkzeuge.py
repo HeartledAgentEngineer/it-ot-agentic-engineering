@@ -214,6 +214,27 @@ def _archiv_suchen(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen("Fundstellen (nenne Quelle und Datum):\n" + "\n".join(zeilen)))
 
 
+# ── Werkzeug: notizen_suchen (07.10.2026) ─────────────────────────────────
+
+def _notizen_suchen(args: Dict[str, Any]) -> Ergebnis:
+    """Sebastians eigene App-Notizen: Personen-Notizen und Erzähl-Geschichten.
+
+    Anlass: „was arbeitet mein Bruder?" blieb unbeantwortet, weil die
+    Personen-Notiz aus dem Quiz für den Chat unsichtbar war.
+    """
+    from app.services import notizen_service
+
+    frage = " ".join(str(args.get("frage") or "").split())
+    person = " ".join(str(args.get("person") or "").split())
+    if not frage and not person:
+        return Ergebnis("Bitte eine Frage oder einen Personennamen angeben.", ok=False)
+    anzahl = _ganzzahl(args.get("anzahl"), 8, 1, 25)
+    text = notizen_service.text_antwort(begriff=frage, person=person, limit=anzahl)
+    if not (text or "").strip():
+        return Ergebnis("Keine eigenen Notizen gefunden.", ok=False)
+    return Ergebnis(_kuerzen(text.strip()))
+
+
 # ── Werkzeug: erinnerungen_suchen ──────────────────────────────────────────
 
 def _erinnerungen_suchen(args: Dict[str, Any]) -> Ergebnis:
@@ -353,6 +374,22 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         }, ["frage"]),
         _archiv_suchen,
         "🔧 durchsucht das Gesprächsarchiv …",
+    ),
+    Werkzeug(
+        "notizen_suchen",
+        "Liest Sebastians EIGENE Notizen in der App: Notizen an Personen (aus dem "
+        "Personen-Quiz, z. B. Beziehung, Beruf, Vorlieben) und Geschichten an "
+        "Ereignissen (Erzähl-Ansicht). Dafür: 'was arbeitet mein Bruder', "
+        "'was habe ich zu X notiert', 'was weiß ich über Y', 'welche Notiz steht bei Z'. "
+        "Mit person=Name kommen alle Notizen dieser Person; mit frage=Stichwort wird in "
+        "allen Notizen und Geschichten gesucht.",
+        _obj({
+            "frage": {"type": "string", "description": "Stichwort, leer = alle Notizen"},
+            "person": {"type": "string", "description": "Name der Person (optional)"},
+            "anzahl": {"type": "integer", "minimum": 1, "maximum": 25},
+        }),
+        _notizen_suchen,
+        "🔧 sieht in eigenen Notizen nach …",
     ),
     Werkzeug(
         "erinnerungen_suchen",

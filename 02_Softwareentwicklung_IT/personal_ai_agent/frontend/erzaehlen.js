@@ -61,6 +61,29 @@ function erzaehlTitel(ereignis) {
     return 'Ohne Titel';
 }
 
+/** REINE Funktion: Zustand der Ereignis-Liste beim Blättern. ``gesamt`` kommt
+ *  vom Server (alle passenden Ereignisse), ``geladen`` ist die Zahl der schon
+ *  in der Liste stehenden Zeilen. Ergebnis sagt, ob ein „weitere laden"-Knopf
+ *  nötig ist, wie viele Zeilen der nächste Ruf holt und was im Hinweis steht.
+ *  Ohne das Blättern zeigte die Liste nur die ersten 200 von über 2.000
+ *  Ereignissen (Sebastian: „komme nicht auf die anderen 1.800 Anlässe"). */
+function erzaehlSeite(gesamt, geladen, seitenGroesse) {
+    const g = Math.max(0, Number(gesamt) || 0);
+    const gl = Math.max(0, Math.min(Number(geladen) || 0, g));
+    const sg = Math.max(1, Number(seitenGroesse) || 200);
+    const rest = Math.max(0, g - gl);
+    const naechste = Math.min(sg, rest);
+    return {
+        rest: rest,
+        naechste: naechste,
+        kannMehr: rest > 0,
+        text: rest > 0
+            ? `${gl} von ${g} Ereignissen · ${rest} noch nicht geladen`
+            : `${gl} von ${g} Ereignissen`,
+        knopfText: rest > 0 ? `Weitere ${naechste} laden (${rest} übrig)` : '',
+    };
+}
+
 /** REINE Funktion: nächster Diashow-Index, GEKLEMMT an den Rändern (kein
  *  Überlauf/Umlauf — am ersten Bild bleibt „zurück" auf 0, am letzten bleibt
  *  „weiter" auf n-1). richtung 1 = vor, -1 = zurück, alles andere -> 1.
@@ -153,6 +176,28 @@ function erzaehlTitelSaeubern(text) {
 function erzaehlSprechtext(text) {
     if (typeof text !== 'string') return '';
     return text.replace(/\s*·\s*/g, '. ').replace(/\s+/g, ' ').trim();
+}
+
+/** REINE Funktion: Tagebuch-Fassung eines Eintrags für „alles vorlesen".
+ *  Nimmt die sichtbaren Teile (Titel, Bildzahl, Personen, Notizen) in der
+ *  Reihenfolge, in der sie vorgelesen werden sollen. Leere Teile fallen weg,
+ *  doppelte nur einmal (Personen stehen im Baum manchmal doppelt), und jeder
+ *  Teil wird mit einem Punkt abgeschlossen, damit die Sprachausgabe saubere
+ *  Sätze spricht. (Sebastian 07.10.2026: „ich kann mir die Notiz nicht
+ *  vorlesen, das soll ja Tagebuch sein".) */
+function erzaehlAllesText(teile) {
+    if (!Array.isArray(teile)) return '';
+    const einmal = [];
+    teile.forEach((teil) => {
+        let sauber = erzaehlSprechtext(typeof teil === 'string' ? teil : '');
+        if (!sauber) return;
+        if (einmal.indexOf(sauber) !== -1) return;
+        einmal.push(sauber);
+    });
+    return einmal
+        .map((t) => (/[.!?]$/.test(t) ? t : `${t}.`))
+        .join(' ')
+        .trim();
 }
 
 // =========================================================================
@@ -271,16 +316,29 @@ function erzaehlSprechtext(text) {
 
     // ---- Ereignisliste ------------------------------------------------
 
-    async function ereignislisteLaden() {
+    // Wie viele Ereignisse stehen schon in der Liste? (Blättern, 07.10.2026)
+    let ereignisGeladen = 0;
+    const EREIGNIS_SEITE = 200;
+
+    async function ereignislisteLaden(anhaengen) {
         const hinweis = el('erzaehl-liste-hinweis');
         const liste = el('erzaehl-liste');
         if (!liste) return;
-        liste.textContent = '';
-        if (hinweis) hinweis.textContent = 'Lädt …';
+        if (anhaengen) {
+            const alt = el('erzaehl-mehr-knopf');
+            if (alt) alt.remove();
+            if (hinweis) hinweis.textContent = 'Lädt weitere …';
+        } else {
+            liste.textContent = '';
+            ereignisGeladen = 0;
+            if (hinweis) hinweis.textContent = 'Lädt …';
+        }
 
         const jahrFeld = el('erzaehl-jahr');
         const sucheFeld = el('erzaehl-suche');
         const params = new URLSearchParams();
+        params.set('limit', String(EREIGNIS_SEITE));
+        params.set('offset', String(anhaengen ? ereignisGeladen : 0));
         if (jahrFeld && jahrFeld.value.trim()) params.set('jahr', jahrFeld.value.trim());
         if (sucheFeld && sucheFeld.value.trim()) params.set('suche', sucheFeld.value.trim());
 
@@ -297,10 +355,14 @@ function erzaehlSprechtext(text) {
         }
 
         const eintraege = Array.isArray(daten.eintraege) ? daten.eintraege : [];
-        zustand.ereignisse = eintraege;
+        ereignisGeladen = (anhaengen ? ereignisGeladen : 0) + eintraege.length;
+        zustand.ereignisse = (anhaengen && Array.isArray(zustand.ereignisse))
+            ? zustand.ereignisse.concat(eintraege)
+            : eintraege;
+        const seite = erzaehlSeite(daten.gesamt, ereignisGeladen, EREIGNIS_SEITE);
         if (hinweis) {
-            hinweis.textContent = eintraege.length
-                ? `${eintraege.length} von ${daten.gesamt} Ereignissen`
+            hinweis.textContent = (ereignisGeladen || daten.gesamt)
+                ? seite.text
                     + (daten.defekte_zeilen ? ` · ${daten.defekte_zeilen} defekte Zeile(n) übersprungen` : '')
                 : 'Keine Ereignisse gefunden.';
         }
@@ -336,6 +398,18 @@ function erzaehlSprechtext(text) {
             zeile.addEventListener('click', () => ereignisOeffnen(ereignis.kennung));
             liste.appendChild(zeile);
         });
+
+        // Blätter-Knopf: der Server kennt mehr Ereignisse, als gerade in der
+        // Liste stehen (über 2.000 statt 200). Antippen hängt die nächsten an.
+        if (seite.kannMehr) {
+            const knopf = document.createElement('button');
+            knopf.type = 'button';
+            knopf.id = 'erzaehl-mehr-knopf';
+            knopf.className = 'erzaehl-mehr';
+            knopf.textContent = seite.knopfText;
+            knopf.addEventListener('click', () => ereignislisteLaden(true));
+            liste.appendChild(knopf);
+        }
     }
 
     // ---- Ereignis / Diashow ------------------------------------------
@@ -506,7 +580,12 @@ function erzaehlSprechtext(text) {
      *  (POST /api/speak über OpenRouter). */
     async function vorlesen(quelleId) {
         const quelle = el(quelleId);
-        const sprech = erzaehlSprechtext(quelle ? quelle.textContent : '');
+        await vorlesenText(erzaehlSprechtext(quelle ? quelle.textContent : ''));
+    }
+
+    /** Spricht einen fertigen Text: zuerst die Browser-Stimme (bleibt auf dem
+     *  Gerät), sonst die Strecke über /api/speak (Android-WebView hat keine). */
+    async function vorlesenText(sprech) {
         if (!sprech) return;
         vorlesenStoppen();
         const hinweis = el('erzaehl-hinweis');
@@ -535,6 +614,35 @@ function erzaehlSprechtext(text) {
         } catch (_e) {
             if (hinweis) hinweis.textContent = 'Vorlesen gerade nicht möglich.';
         }
+    }
+
+    /** „Alles vorlesen" (07.10.2026): Tagebuch-Fassung des sichtbaren Eintrags
+     *  — Titel, Bildzahl, Personen, Notizen/Geschichten in dieser Reihenfolge. */
+    async function allesVorlesen() {
+        const imRaster = zustand.ansicht !== 'einzel';
+        const teile = [];
+        const titel = el('erzaehl-titel');
+        if (titel) teile.push(titel.textContent);
+        const kopf = el('erzaehl-uebersicht-kopf');
+        if (kopf && imRaster) teile.push(kopf.textContent);
+        const personen = el(imRaster ? 'erzaehl-personen-text' : 'erzaehl-bild-personen-text');
+        if (personen) teile.push(personen.textContent);
+        teile.push(geschichtenTextSammeln());
+        await vorlesenText(erzaehlAllesText(teile));
+    }
+
+    /** Text aller sichtbaren Notizen/Geschichten (ohne die Überschriften
+     *  „Zu diesem Bild" / „Zur ganzen Gruppe" — die verwirren beim Hören). */
+    function geschichtenTextSammeln() {
+        const imRaster = zustand.ansicht !== 'einzel';
+        const container = el(imRaster ? 'erzaehl-gruppen-geschichten' : 'erzaehl-geschichten');
+        if (!container) return '';
+        const texte = [];
+        container.querySelectorAll('.erzaehl-geschichte-zeile > div:first-child').forEach((knoten) => {
+            const t = (knoten.textContent || '').trim();
+            if (t) texte.push(t);
+        });
+        return texte.join(' ');
     }
 
     // ---- Übersicht: alle Bilder der Gruppe (06.10.2026) -------------------
@@ -790,6 +898,13 @@ function erzaehlSprechtext(text) {
 
         if (!imRaster) abschnitt('Zu diesem Bild', zumBild);
         abschnitt('Zur ganzen Gruppe', zumEreignis);
+
+        // Kopfzeile mit dem Vorlese-Knopf nur zeigen, wenn hier etwas steht
+        // (07.10.2026): Notizen vorlesen können.
+        const kopfZeile = el(imRaster ? 'erzaehl-gruppen-geschichten-kopf' : 'erzaehl-geschichten-kopf');
+        const kopfAnderer = el(imRaster ? 'erzaehl-geschichten-kopf' : 'erzaehl-gruppen-geschichten-kopf');
+        if (kopfAnderer) kopfAnderer.hidden = true;
+        if (kopfZeile) kopfZeile.hidden = container.childElementCount === 0;
     }
 
     function diashowSchritt(richtung) {
@@ -1035,6 +1150,18 @@ function erzaehlSprechtext(text) {
         if (vorlesenGruppe) vorlesenGruppe.addEventListener('click', () => vorlesen('erzaehl-personen-text'));
         const vorlesenBild = el('erzaehl-bild-personen-vorlesen');
         if (vorlesenBild) vorlesenBild.addEventListener('click', () => vorlesen('erzaehl-bild-personen-text'));
+        // Notizen und Geschichten vorlesen (07.10.2026) — je Ansicht der
+        // sichtbare Block; „alles" liest den ganzen Eintrag als Tagebuch.
+        const vorlesenGeschichtenGruppe = el('erzaehl-gruppen-geschichten-vorlesen');
+        if (vorlesenGeschichtenGruppe) {
+            vorlesenGeschichtenGruppe.addEventListener('click', () => vorlesen('erzaehl-gruppen-geschichten'));
+        }
+        const vorlesenGeschichtenBild = el('erzaehl-geschichten-vorlesen');
+        if (vorlesenGeschichtenBild) {
+            vorlesenGeschichtenBild.addEventListener('click', () => vorlesen('erzaehl-geschichten'));
+        }
+        const vorlesenAlles = el('erzaehl-alles-vorlesen');
+        if (vorlesenAlles) vorlesenAlles.addEventListener('click', () => allesVorlesen());
 
         const vorBtn = el('erzaehl-vor');
         if (vorBtn) vorBtn.addEventListener('click', () => diashowSchritt(-1));

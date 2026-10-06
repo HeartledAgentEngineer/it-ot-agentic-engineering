@@ -46,6 +46,7 @@ function extractFn(name) {
 eval(extractFn('_erzaehlNormalisieren'));
 eval(extractFn('erzaehlSprachbefehl'));
 eval(extractFn('erzaehlTitel'));
+eval(extractFn('erzaehlSeite'));
 eval(extractFn('erzaehlIndex'));
 
 console.log('\n1) erzaehlSprachbefehl — nur exakte Treffer sind ein Befehl');
@@ -81,6 +82,31 @@ pruefe('ohne event -> thema', erzaehlTitel({ event: null, thema: 'Haus und Garte
 pruefe('ohne event/thema -> Ohne Titel', erzaehlTitel({ event: null, thema: null }) === 'Ohne Titel');
 pruefe('leere Zeichenketten zählen nicht', erzaehlTitel({ event: '   ', thema: '' }) === 'Ohne Titel');
 pruefe('null -> Ohne Titel (kein Wurf)', erzaehlTitel(null) === 'Ohne Titel');
+pruefe('undefined -> Ohne Titel (kein Wurf)', erzaehlTitel(undefined) === 'Ohne Titel');
+pruefe('Zahl -> Ohne Titel (kein Wurf)', erzaehlTitel(42) === 'Ohne Titel');
+
+console.log('\n2b) erzaehlSeite — Blättern der Ereignisliste (über 2.000 Ereignisse)');
+const s1 = erzaehlSeite(2127, 200, 200);
+pruefe('2127 gesamt, 200 geladen -> Knopf nötig', s1.kannMehr === true);
+pruefe('Rest = 1927', s1.rest === 1927);
+pruefe('nächste Seite holt 200', s1.naechste === 200);
+pruefe('Hinweis nennt beide Zahlen', s1.text === '200 von 2127 Ereignissen · 1927 noch nicht geladen');
+pruefe('Knopf-Text nennt Rest', s1.knopfText === 'Weitere 200 laden (1927 übrig)');
+
+const s2 = erzaehlSeite(2127, 2100, 200);
+pruefe('letzte Seite holt nur den Rest (27)', s2.naechste === 27);
+pruefe('letzte Seite: Knopf-Text passt', s2.knopfText === 'Weitere 27 laden (27 übrig)');
+
+const s3 = erzaehlSeite(150, 150, 200);
+pruefe('alles geladen -> kein Knopf', s3.kannMehr === false);
+pruefe('alles geladen: Hinweis ohne Zusatz', s3.text === '150 von 150 Ereignissen');
+pruefe('alles geladen: kein Knopf-Text', s3.knopfText === '');
+
+const s4 = erzaehlSeite(0, 0, 200);
+pruefe('keine Ereignisse -> kein Knopf (kein Wurf)', s4.kannMehr === false && s4.rest === 0);
+pruefe('Unsinn wird geklemmt', erzaehlSeite(-5, -3, 0).kannMehr === false);
+pruefe('geladen > gesamt wird geklemmt', erzaehlSeite(10, 99, 200).rest === 0);
+pruefe('null-Eingaben werfen nicht', erzaehlSeite(null, null, null).text === '0 von 0 Ereignissen');
 pruefe('undefined -> Ohne Titel (kein Wurf)', erzaehlTitel(undefined) === 'Ohne Titel');
 pruefe('Zahl -> Ohne Titel (kein Wurf)', erzaehlTitel(42) === 'Ohne Titel');
 
@@ -170,6 +196,7 @@ eval(extractFn('_erzaehlOhneNamen'));
 eval(extractFn('erzaehlPersonenUebersicht'));
 eval(extractFn('erzaehlPersonenBild'));
 eval(extractFn('erzaehlSprechtext'));
+eval(extractFn('erzaehlAllesText'));
 
 console.log('\n9) Personen-Zeilen — Übersicht, Einzelbild, Sprechtext');
 pruefe('Übersicht: Namen mit Bildzahl, Unbenannte dahinter',
@@ -195,6 +222,21 @@ pruefe('Sprechtext: „·" wird Satzpause', erzaehlSprechtext('Auf diesem Bild: 
     === 'Auf diesem Bild: A. 1 Person noch ohne Namen');
 pruefe('Sprechtext: kein Text -> leer', erzaehlSprechtext(null) === '');
 
+console.log('\n9b) Alles vorlesen — Tagebuch-Fassung des Eintrags (07.10.2026)');
+pruefe('Titel, Bildzahl, Personen, Notiz in dieser Reihenfolge, je als Satz',
+    erzaehlAllesText(['Festival 2022', '12 Bilder · Antippen öffnet ein Bild einzeln',
+        'Auf diesem Bild: A und B', 'Das war ein schöner Abend'])
+    === 'Festival 2022. 12 Bilder. Antippen öffnet ein Bild einzeln. '
+        + 'Auf diesem Bild: A und B. Das war ein schöner Abend.');
+pruefe('leere Teile fallen weg (keine Lücken, keine Punkte ohne Satz)',
+    erzaehlAllesText(['', '   ', null, undefined, 'Nur eins']) === 'Nur eins.');
+pruefe('doppelter Teil nur einmal (Personen stehen im Baum doppelt)',
+    erzaehlAllesText(['A', 'A', 'B']) === 'A. B.');
+pruefe('vorhandener Schlusspunkt wird nicht verdoppelt', erzaehlAllesText(['Schon fertig.']) === 'Schon fertig.');
+pruefe('Fragezeichen bleibt', erzaehlAllesText(['Wie war das?']) === 'Wie war das?');
+pruefe('kein Array -> leer (kein Wurf)', erzaehlAllesText(null) === '' && erzaehlAllesText('x') === '' && erzaehlAllesText(7) === '');
+pruefe('Zahlen/Objekte in der Liste werden übergangen', erzaehlAllesText([42, {}, 'Text']) === 'Text.');
+
 console.log('\n10) Verdrahtung Personen + Vorlesen');
 pruefe('index.html: Personen-Zeilen in Übersicht und Einzelbild, versteckt bis Daten da sind',
     /id="erzaehl-personen"[^>]*hidden/.test(html) && /id="erzaehl-bild-personen"[^>]*hidden/.test(html));
@@ -204,7 +246,18 @@ pruefe('veraltete Personen-Antwort wird verworfen', /if \(zustand\.aktuellesErei
 pruefe('Vorlesen: zuerst Browser-Stimme, sonst /api/speak',
     /function vorlesen[\s\S]*?speechSynthesis[\s\S]*?\/api\/speak/.test(src));
 pruefe('Vorlesen nur auf Tipp (kein Aufruf außer in den Knopf-Handlern)',
-    (src.match(/vorlesen\('/g) || []).length === 2);
+    (src.match(/vorlesen\('/g) || []).length === 4);
+pruefe('index.html: Notizen-Kopf mit 🔊 in Übersicht und Einzelbild (versteckt)',
+    /id="erzaehl-gruppen-geschichten-kopf"[^>]*hidden/.test(html)
+    && /id="erzaehl-gruppen-geschichten-vorlesen"/.test(html)
+    && /id="erzaehl-geschichten-kopf"[^>]*hidden/.test(html)
+    && /id="erzaehl-geschichten-vorlesen"/.test(html));
+pruefe('index.html: „alles vorlesen" in der Titelzeile', /id="erzaehl-alles-vorlesen"/.test(html));
+pruefe('Notizen-Kopf erscheint nur, wenn Notizen da sind', /container\.childElementCount === 0/.test(src));
+pruefe('Alles-Vorlesen nimmt nur die Notiztexte, nicht die Abschnitts-Köpfe',
+    /erzaehl-geschichte-zeile > div:first-child/.test(src));
+pruefe('CSS: [hidden] wirkt auf den Notizen-Kopf',
+    /\.erzaehl-geschichten-kopf\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('Namen nur per textContent (kein innerHTML)', !/innerHTML/.test(src));
 pruefe('CSS: [hidden] wirkt auf die Personen-Zeile', /\.erzaehl-personen\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 

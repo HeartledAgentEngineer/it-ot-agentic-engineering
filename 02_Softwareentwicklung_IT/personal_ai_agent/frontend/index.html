@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261006D">
+    <link rel="stylesheet" href="style.css?v=20261007A">
 </head>
 <body>
     <div id="app">
@@ -394,6 +394,9 @@
                     <div class="erzaehl-titel-zeile">
                         <h3 id="erzaehl-titel" class="erzaehl-titel"></h3>
                         <button id="erzaehl-titel-aendern" class="erzaehl-vorlesen" type="button" title="Titel ändern" aria-label="Titel ändern">✏️</button>
+                        <!-- Vorlesen des ganzen Eintrags (07.10.2026): Tagebuch-Fassung aus
+                             Titel, Bildzahl, Personen und Notizen/Geschichten. -->
+                        <button id="erzaehl-alles-vorlesen" class="erzaehl-vorlesen" type="button" title="Alles vorlesen: Titel, Bilder, Personen, Notizen" aria-label="Alles vorlesen">🔊</button>
                     </div>
                     <div id="erzaehl-titel-bearbeiten" class="erzaehl-titel-bearbeiten" hidden>
                         <input id="erzaehl-titel-eingabe" type="text" maxlength="120" autocomplete="off"
@@ -410,6 +413,10 @@
                         <div id="erzaehl-personen" class="erzaehl-personen" hidden>
                             <span id="erzaehl-personen-text"></span>
                             <button id="erzaehl-personen-vorlesen" class="erzaehl-vorlesen" type="button" title="Vorlesen" aria-label="Personen vorlesen">🔊</button>
+                        </div>
+                        <div id="erzaehl-gruppen-geschichten-kopf" class="erzaehl-geschichten-kopf" hidden>
+                            <span class="erzaehl-geschichten-kopf-text">Notizen und Geschichten</span>
+                            <button id="erzaehl-gruppen-geschichten-vorlesen" class="erzaehl-vorlesen" type="button" title="Notizen vorlesen" aria-label="Notizen und Geschichten der Gruppe vorlesen">🔊</button>
                         </div>
                         <div id="erzaehl-gruppen-geschichten" class="erzaehl-geschichten"></div>
                         <div id="erzaehl-raster" class="erzaehl-raster" role="list"></div>
@@ -428,6 +435,10 @@
                         <div id="erzaehl-bild-personen" class="erzaehl-personen" hidden>
                             <span id="erzaehl-bild-personen-text"></span>
                             <button id="erzaehl-bild-personen-vorlesen" class="erzaehl-vorlesen" type="button" title="Vorlesen" aria-label="Personen auf diesem Bild vorlesen">🔊</button>
+                        </div>
+                        <div id="erzaehl-geschichten-kopf" class="erzaehl-geschichten-kopf" hidden>
+                            <span class="erzaehl-geschichten-kopf-text">Notizen und Geschichten</span>
+                            <button id="erzaehl-geschichten-vorlesen" class="erzaehl-vorlesen" type="button" title="Notizen vorlesen" aria-label="Notizen und Geschichten zu diesem Bild vorlesen">🔊</button>
                         </div>
                         <div id="erzaehl-geschichten" class="erzaehl-geschichten"></div>
                     </div>
@@ -493,7 +504,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20261006C"></script>
+    <script src="erzaehlen.js?v=20261007A"></script>
     <script src="gruppen_quiz.js?v=20261006E"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

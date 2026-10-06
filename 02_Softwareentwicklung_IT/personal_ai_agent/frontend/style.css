@@ -1514,6 +1514,29 @@ button.footer-note:hover {
     background: var(--accent-glow);
 }
 
+/* Blätter-Knopf unter der Ereignisliste (07.10.2026): die Liste zeigt erst
+   200 Ereignisse, der Rest kommt auf Antippen nach. */
+.erzaehl-mehr {
+    display: block;
+    width: 100%;
+    text-align: center;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    margin: 6px 0 12px;
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.erzaehl-mehr:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
+}
+
 .erzaehl-row-titel {
     font-size: 0.87rem;
     font-weight: 500;
@@ -1752,6 +1775,21 @@ button.footer-note:hover {
 }
 
 .erzaehl-personen[hidden] { display: none; }
+
+/* Kopfzeile über den Notizen/Geschichten (07.10.2026): Beschriftung plus
+   Vorlese-Knopf, damit sich die Notizen wie ein Tagebuch anhören lassen. */
+.erzaehl-geschichten-kopf {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.erzaehl-geschichten-kopf[hidden] { display: none; }
+
+.erzaehl-geschichten-kopf-text { flex: 1; min-width: 0; }
 
 .erzaehl-personen span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
