@@ -409,6 +409,23 @@ def _config_schreiben(conf):
         log.exception('Konfiguration speichern fehlgeschlagen')
 
 
+def load_hotkey_modus():
+    """Betriebsart des Hotkeys: 'halten' (Standard) oder 'umschalten'.
+
+    Ein unbekannter Wert fällt auf 'halten' zurück — eine kaputte Konfiguration
+    darf die Anlage nicht in eine unbeabsichtigte Betriebsart zwingen.
+    """
+    wert = str(_config_lesen().get('hotkey_modus', 'halten')).lower()
+    return 'umschalten' if wert == 'umschalten' else 'halten'
+
+
+def save_hotkey_modus(modus):
+    """Merkt sich die Betriebsart, ohne andere Einstellungen zu überschreiben."""
+    conf = _config_lesen()
+    conf['hotkey_modus'] = 'umschalten' if modus == 'umschalten' else 'halten'
+    _config_schreiben(conf)
+
+
 def load_live_config():
     """Ist der Live-Modus eingeschaltet? Standard: aus (Entscheidung 1 im Plan).
 
@@ -599,6 +616,34 @@ def _ausgabe_submenu():
     )
 
 
+def _select_hotkey_modus(modus):
+    """Baut den Tray-Rückruf für die Betriebsart des Hotkeys."""
+    def wechseln(icon=None, item=None):
+        global hotkey_modus
+        hotkey_modus = 'umschalten' if modus == 'umschalten' else 'halten'
+        save_hotkey_modus(hotkey_modus)
+        log.info('Hotkey-Modus: %s', 'tippen zum Starten/Beenden'
+                 if hotkey_modus == 'umschalten' else 'halten und loslassen')
+    return wechseln
+
+
+def modus_submenu():
+    """Zwei Betriebsarten mit Punkt-Markierung bei der aktiven.
+
+    „Tippen" ist die Voraussetzung für den Live-Modus: Wer den Hotkey hält,
+    kann währenddessen nichts einfügen (Messung 06.10.2026).
+    """
+    return pystray.Menu(
+        pystray.MenuItem('Halten und loslassen', _select_hotkey_modus('halten'),
+                         checked=lambda item: hotkey_modus == 'halten',
+                         radio=True),
+        pystray.MenuItem('Tippen zum Starten/Beenden',
+                         _select_hotkey_modus('umschalten'),
+                         checked=lambda item: hotkey_modus == 'umschalten',
+                         radio=True),
+    )
+
+
 def _weg_submenu():
     """Die drei Wege mit Punkt-Markierung beim aktiven."""
     return pystray.Menu(*(
@@ -640,6 +685,10 @@ def _start_tray(on_ready=None):
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Hotkey wählen', _hotkey_submenu()),
+        pystray.MenuItem('Hotkey-Modus', modus_submenu()),
+        pystray.MenuItem(lambda item: '  Modus: ' + (
+            'tippen zum Starten/Beenden' if hotkey_modus == 'umschalten'
+            else 'halten und loslassen'), None, enabled=False),
         pystray.MenuItem('Transkription wählen', _weg_submenu()),
         pystray.MenuItem(lambda item: f"  Weg: {WEG_BESCHRIFTUNG[transkription_wahl()]}",
                          None, enabled=False),
@@ -865,6 +914,7 @@ def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
 
 LIVE_TAKT_SEKUNDEN = 0.5      # so oft schaut der Worker nach, ob ein Happen fertig ist
 live_modus = False            # Schritt 5: aus config.json bzw. Tray setzen
+hotkey_modus = 'halten'       # 'halten' (Standard) oder 'umschalten'; aus config.json
 live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspeicher
 live_teile = []               # was schon im Dokument steht: {'text', 'roh', 'fenster', 'zeit'}
 live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
@@ -1303,9 +1353,9 @@ def start_recording():
     _status_recording()
     threading.Thread(target=_watch_recording, args=(session,),
                      name='watchdog', daemon=True).start()
-    if live_modus:
-        # Der Live-Modus tippt, während der Hotkey gehalten wird — ohne Freigabe
-        # käme Strg+V als Strg+Alt+V an und fügte nichts ein.
+    if live_erlaubt(live_modus, hotkey_modus):
+        # Im Umschalt-Modus liegt während des Sprechens kein Finger auf den
+        # Zusatztasten; die Freigabe räumt nur den Windows-Nachlauf weg.
         try:
             zusatztasten_freigeben()
         except Exception:
@@ -1314,6 +1364,10 @@ def start_recording():
                          name='live', daemon=True).start()
         threading.Thread(target=_live_schreiber, args=(session,),
                          name='live-schreiber', daemon=True).start()
+    elif live_modus:
+        log.warning('Live-Modus ist an, aber der Hotkey wird gehalten — diese '
+                    'Aufnahme läuft wie „alles auf einmal" (Tray: Hotkey-Modus '
+                    'auf „Tippen zum Starten/Beenden" stellen)')
     log.info('Aufnahme läuft')
 
 
@@ -1919,6 +1973,9 @@ _mods_down = set()
 # Tasten des Diktat-Hotkeys zählen nicht — sonst würde das Loslassen selbst die
 # Sicherung auslösen.
 _letzter_tastendruck = 0.0
+# Gegen Tasten-Wiederholung: In der Umschalt-Betriebsart würde ein gehaltener
+# Hotkey sonst im Sekundentakt an- und wieder ausschalten.
+_hotkey_unten = False
 
 # Modifier werden über den SCANCODE erkannt, nicht über den Namen: Die Namen
 # sind sprachabhängig — deutsches Windows meldet „STRG" und „UMSCHALT" statt
@@ -1941,15 +1998,32 @@ MODIFIER_ALIASES = {
 }
 
 
-def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording):
+def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording,
+                         modus='halten'):
     """Reine Entscheidung: 'start', 'stop' oder None.
 
-    Loslassen der Haupttaste beendet die Aufnahme IMMER — die Modifier werden
-    dabei absichtlich NICHT geprüft. Sonst läuft die Aufnahme weiter, wenn man
-    Strg einen Wimpernschlag vor Ä loslässt, und das Diktat ist verloren.
+    Zwei Betriebsarten:
+
+    - `halten` (Standard): Hotkey halten → Aufnahme, loslassen → Ende.
+      Das Loslassen der Haupttaste beendet IMMER — die Modifier werden dabei
+      absichtlich NICHT geprüft. Sonst läuft die Aufnahme weiter, wenn man
+      Strg einen Wimpernschlag vor Ä loslässt, und das Diktat ist verloren.
+    - `umschalten`: einmal tippen → Aufnahme, nochmal tippen → Ende. Dann liegt
+      während des Sprechens kein Finger auf einer Taste. Gemessen am 06.10.2026:
+      Bei gehaltenen Zusatztasten kommt Getipptes im Zielfenster nicht an —
+      deshalb braucht der Live-Modus diese Betriebsart (`live_erlaubt`).
+
+    Ein Loslassen (`up`) beendet in der Umschalt-Betriebsart nichts — sonst
+    wäre die Aufnahme schon nach dem ersten Tippen wieder vorbei.
     """
     if key_name != hotkey['key']:
         return None
+    if modus == 'umschalten':
+        if event_type != 'down':
+            return None
+        if not set(hotkey['mods']).issubset(mods_down):
+            return None                                # Tippen ohne Zusatztasten
+        return 'stop' if recording else 'start'
     if event_type == 'up':
         return 'stop' if recording else None
     if recording:
@@ -1957,6 +2031,17 @@ def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording):
     if not set(hotkey['mods']).issubset(mods_down):
         return None
     return 'start'
+
+
+def live_erlaubt(live_an, modus):
+    """Darf der Live-Modus in dieser Betriebsart laufen?
+
+    Nein, solange der Hotkey gehalten wird: Bei gedrückten Zusatztasten kommt
+    Getipptes im Zielfenster nicht an (gemessen 06.10.2026 in Notepad). Die
+    Happen würden geschnitten, aber nie eingefügt — und der Abschluss löschte
+    dann Zeichen, die es nie gab. Lieber klassisch als kaputt.
+    """
+    return bool(live_an) and modus == 'umschalten'
 
 
 def taste_schlucken(event_type, key_name, hotkey, recording, modifier=None,
@@ -2079,6 +2164,7 @@ def _sperr_haken(event):
 
 def on_key_event(event):
     """Sammelt Tastenereignisse ein und führt die Entscheidung aus."""
+    global _letzter_tastendruck, _hotkey_unten
     name = (event.name or '').lower()
 
     alias = MODIFIER_SCAN_CODES.get(event.scan_code) or MODIFIER_ALIASES.get(name)
@@ -2090,14 +2176,25 @@ def on_key_event(event):
         return
 
     event_type = 'down' if event.event_type == keyboard.KEY_DOWN else 'up'
+    if hotkey_modus == 'umschalten' and name == (active_hotkey or {}).get('key'):
+        # Nur hier nötig: Beim Halten fängt `decide_hotkey_action` die
+        # Wiederholung schon ab (`if recording: return None`), beim Tippen
+        # würde ein gehaltener Hotkey sonst im Sekundentakt umschalten.
+        if event_type == 'down' and _hotkey_unten:
+            return                       # Tasten-Wiederholung, kein neuer Tipp
+        _hotkey_unten = event_type == 'down'
     if event_type == 'down' and ist_fremde_taste(name, active_hotkey):
-        global _letzter_tastendruck
         _letzter_tastendruck = time.monotonic()
     action = decide_hotkey_action(event_type, name, _mods_down,
-                                 active_hotkey, is_recording)
+                                 active_hotkey, is_recording,
+                                 modus=hotkey_modus)
 
     if action == 'start':
         start_recording()
+        if hotkey_modus == 'umschalten':
+            # Kein Finger auf den Zusatztasten — Windows hält Alt/Strg aber noch
+            # einen Moment als gedrückt, und ein nacktes Alt öffnet Menüs.
+            zusatztasten_freigeben()
     elif action == 'stop':
         threading.Thread(target=stop_and_transcribe,
                          name='transcribe', daemon=True).start()
@@ -2141,7 +2238,7 @@ def _meldung_zeigen(titel, text):
 
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus
+    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus, hotkey_modus
 
     load_env_file()
     setup_logging()
@@ -2163,6 +2260,7 @@ def main():
         return
 
     active_hotkey = load_hotkey_config()
+    hotkey_modus = load_hotkey_modus()
     live_modus = load_live_config()
     verbrauch = load_verbrauch()
 
@@ -2175,9 +2273,11 @@ def main():
     openai_whisper_client = baue_client('https://api.openai.com/v1',
                                         os.environ.get('OPENAI_API_KEY'))
 
-    log.info('typeFREE gestartet — Hotkey: %s · Ausgabe: %s · Transkription über: %s',
+    log.info('typeFREE gestartet — Hotkey: %s (%s) · Ausgabe: %s · Transkription über: %s',
              active_hotkey['label'],
-             'live satzweise' if live_modus else 'alles auf einmal',
+             'tippen' if hotkey_modus == 'umschalten' else 'halten',
+             'live satzweise' if live_erlaubt(live_modus, hotkey_modus)
+             else 'alles auf einmal',
              ', '.join(verfuegbare_anbieter(os.environ,
                                             aktive_kette(os.environ)))
              or 'kein Anbieter!')
