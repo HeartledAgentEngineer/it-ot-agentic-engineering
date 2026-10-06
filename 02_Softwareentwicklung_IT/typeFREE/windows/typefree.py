@@ -1635,6 +1635,26 @@ WHISPER_VOKABULAR = (
 )
 
 
+# App-Name für das OpenRouter-Dashboard: Ohne diese Kopfzeilen stand unter
+# „Top Apps" nur „Unknown" (06.10.2026). `hidden` hält typeFREE aus den
+# öffentlichen Ranglisten heraus — laut OpenRouter-Doku wirkt das NUR bei der
+# allerersten Anfrage, die die App anlegt; danach lässt es sich nicht mehr ändern.
+APP_NAME = 'typeFREE'
+APP_ADRESSE = 'https://github.com/HeartledAgentEngineer/it-ot-agentic-engineering'
+
+
+def kopfzeilen_fuer(basis_url):
+    """Zusätzliche Kopfzeilen je Anbieter — nur OpenRouter wertet sie aus."""
+    if 'openrouter.ai' not in (basis_url or ''):
+        return {}
+    return {
+        'HTTP-Referer': APP_ADRESSE,             # Pflicht für die Zuordnung
+        'X-OpenRouter-Title': APP_NAME,
+        'X-Title': APP_NAME,                     # ältere Schreibweise
+        'X-OpenRouter-App-Visibility': 'hidden',
+    }
+
+
 def baue_client(basis_url, schluessel):
     """OpenAI-kompatibler Client — oder None, wenn der Schlüssel fehlt.
 
@@ -1643,7 +1663,8 @@ def baue_client(basis_url, schluessel):
     """
     if not schluessel:
         return None
-    return OpenAI(base_url=basis_url, api_key=schluessel)
+    return OpenAI(base_url=basis_url, api_key=schluessel,
+                  default_headers=kopfzeilen_fuer(basis_url) or None)
 
 
 def verfuegbare_anbieter(umgebung, kette=None,

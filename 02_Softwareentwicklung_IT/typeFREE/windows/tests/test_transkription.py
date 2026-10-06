@@ -692,3 +692,26 @@ def test_live_schreiber_fragt_mit_stille_regel(monkeypatch):
     import numpy as np
     typefree._live_transkribieren(np.zeros((1600, 1), dtype='float32'))
     assert gesehen == [True]
+
+
+# ── App-Name im OpenRouter-Dashboard (06.10.2026) ────────────────────────────
+# Unter „Top Apps" stand „Unknown". OpenRouter ordnet Anfragen über Kopfzeilen
+# einer App zu; `hidden` hält sie aus den öffentlichen Ranglisten heraus — und
+# wirkt NUR bei der allerersten Anfrage, die die App anlegt.
+def test_openrouter_bekommt_app_namen_und_bleibt_verborgen():
+    kopf = typefree.kopfzeilen_fuer('https://openrouter.ai/api/v1')
+    assert kopf['X-OpenRouter-Title'] == 'typeFREE'
+    assert kopf['X-Title'] == 'typeFREE'
+    assert kopf['X-OpenRouter-App-Visibility'] == 'hidden'
+    assert kopf['HTTP-Referer'].startswith('https://')
+
+
+def test_andere_anbieter_bekommen_keine_openrouter_kopfzeilen():
+    assert typefree.kopfzeilen_fuer('https://api.groq.com/openai/v1') == {}
+    assert typefree.kopfzeilen_fuer('https://api.openai.com/v1') == {}
+
+
+def test_client_schickt_die_kopfzeilen_mit():
+    client = typefree.baue_client('https://openrouter.ai/api/v1', 'sk-test')
+    assert client.default_headers['X-OpenRouter-Title'] == 'typeFREE'
+    assert client.default_headers['X-OpenRouter-App-Visibility'] == 'hidden'
