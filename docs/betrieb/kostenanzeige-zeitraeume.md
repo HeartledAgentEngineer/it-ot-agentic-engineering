@@ -151,6 +151,16 @@ Ergebnis: `hermes/kosten/chat_tage.csv` (je Chat und Tag) und
 Beide Spaltensätze enthalten USD, EUR und EUR inkl. Aufschlag sowie die Spalte
 `Art` = `geschätzt`.
 
+**Aufruf `--heute-alle`:** wertet **alle** Chats mit Aktivität heute aus (nicht
+nur die feste Liste) und zeigt je Chat die Stundenverteilung — damit fehlt kein
+Chat mehr, auch wenn er nicht in der Liste steht (z. B. die
+Transkriptions-App). Gemessen am 06.10.2026: Weiterbildung 2,260 € ·
+agentic enineering 1,496 € · Type-Free App 0,440 € → **4,196 € von 4,87 €**
+des Kontos (86 %). Gegenprobe: keine Sitzung hat heute neu begonnen und es gibt
+keine Sitzung mit Verbrauch heute ohne Nachrichten heute — der Rest liegt also
+nicht in Hermes' Datenbank (anderer Client am selben Schlüssel oder anderer
+Schlüssel des Kontos). In der Datenbank beginnt Hermes' Tag heute um 12:00.
+
 **Grenze:** das bleibt eine Schätzung — die Datenbank kennt je Chat keine
 Tagesspalte, das Konto kennt keine Chats. **Exakt** werden Tag und Stunde ab
 dem Neustart über die Aufruf-Kennung (Abschnitt oben).
