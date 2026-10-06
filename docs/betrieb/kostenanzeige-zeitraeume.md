@@ -48,6 +48,24 @@ falsches Fenster zu zeigen. Ein eigener Bereich bekommt einen **eigenen
 Cache-Schlüssel**; ohne das liefert der Zwischenspeicher beim Wechsel die Zahlen
 des vorigen Fensters aus.
 
+## Bedienung ohne Sprechblase
+
+Der Chip hat **keine Sprechblase** mehr: die App-Voreinstellung zeichnet sie
+weiß auf dunklem Grund (`bg-foreground`, und der kleine Pfeil wird eigens weiß
+gefüllt) — von außen nur halb umfärbbar, weil der Pfeil ein eigenes Element ist.
+Die Erklärung zur Herkunft der Zahlen steht deshalb als Fußzeile **im Menü an
+der Lünette**; eine Backend-Meldung erscheint als kurzes `!` in der Zeile
+(Volltext im nativen Tooltip).
+
+## Der Rechenteil wirkt erst nach einem Neustart der App
+
+Python lädt seine Module beim Start; die **Anzeige** wird beim Speichern sofort
+neu geladen, der **Rechenteil** nicht. Läuft die App noch mit altem Code,
+liefert `/status/session/<id>/heute` **`has_data=false`** → die Zeile sagt
+„kein Verbrauch", obwohl Zeilen in der Datenbank stehen. Beweisbarer Merker:
+`hermes/kosten/api_calls.jsonl` — solange dort nur die Start-Zeile steht und
+keine echten Modell-Aufrufe, läuft die App mit dem Stand von vor dem Neustart.
+
 ## Zwei Regeln, die aus Fehlern entstanden sind
 
 **1. Eine Zeile zählt, wenn sie das Fenster ÜBERSCHNEIDET** (nicht: wenn sie
