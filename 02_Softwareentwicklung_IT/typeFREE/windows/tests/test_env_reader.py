@@ -55,3 +55,28 @@ def test_kommentarzeilen_und_leerzeilen_werden_uebersprungen(tmp_path):
         tmp_path, '# nur ein Kommentar\n\nPRUEF_LEER=wert\n\n')
     gefunden = typefree.load_env_file(pfad)
     assert gefunden == ['PRUEF_LEER']
+
+
+def test_installierte_anlage_gewinnt_gegen_die_umgebungsvariable(tmp_path, monkeypatch):
+    """Der eigene .env schlägt eine gleichnamige Benutzer-Variable (06.10.2026).
+
+    Anlass: `OPENROUTER_API_KEY` stand in der Windows-Umgebung auf dem Schlüssel
+    „critic-Skill". typeFREE buchte jedes Diktat dort, der eigene Schlüssel
+    „typeFree" blieb bei 0,00 $ — und die Kosten waren nicht mehr zuzuordnen.
+    """
+    monkeypatch.setenv('PRUEF_EXE', 'aus-der-umgebung')
+    monkeypatch.setattr(typefree, 'FROZEN', True)
+    pfad = _env_schreiben(tmp_path, 'PRUEF_EXE=aus-der-datei\n')
+    typefree.load_env_file(pfad)
+    import os
+    assert os.environ['PRUEF_EXE'] == 'aus-der-datei'
+
+
+def test_quellcode_start_behaelt_die_umgebungsvariable(tmp_path, monkeypatch):
+    """Beim Entwickeln bleibt der Terminal-Schlüssel vorn — bewusst so."""
+    monkeypatch.setenv('PRUEF_QUELLE', 'aus-der-umgebung')
+    monkeypatch.setattr(typefree, 'FROZEN', False)
+    pfad = _env_schreiben(tmp_path, 'PRUEF_QUELLE=aus-der-datei\n')
+    typefree.load_env_file(pfad)
+    import os
+    assert os.environ['PRUEF_QUELLE'] == 'aus-der-umgebung'

@@ -43,11 +43,21 @@ else:
 
 
 # ── API-Schlüssel aus der .env neben der EXE ──────────────────────────────────
+FROZEN = getattr(sys, 'frozen', False)
+
+
 def load_env_file(path=None):
     """Liest `KEY=WERT`-Zeilen aus der .env in die Umgebungsvariablen.
 
-    Echte Umgebungsvariablen haben Vorrang (`setdefault`) — so lässt sich beim
-    Entwickeln im Terminal ein anderer Schlüssel vorgeben.
+    In der **installierten Anlage** (EXE) hat die `.env` Vorrang: sie ist die
+    eigene Konfiguration des Programms. Eine gleichnamige Benutzer-Umgebungs-
+    variable gehört einem anderen Werkzeug (Kritik-Skill, Prüfskripte) und darf
+    die Anlage nicht auf ein fremdes Konto umleiten — genau das passierte am
+    06.10.2026: `OPENROUTER_API_KEY` stand auf dem Schlüssel „critic-Skill",
+    jede Diktat-Buchung landete dort, der eigene Schlüssel „typeFree" blieb leer.
+
+    Beim Start **aus dem Quellcode** bleibt die Umgebung vorn (`setdefault`),
+    damit man im Terminal mit einem anderen Schlüssel testen kann.
     Gibt die gefundenen Namen zurück, damit der Aufrufer prüfen kann.
     """
     path = path or os.path.join(_base, '.env')
@@ -67,7 +77,10 @@ def load_env_file(path=None):
             if ' #' in wert:
                 wert = wert.split(' #', 1)[0].rstrip()
             wert = wert.strip('"').strip("'")
-            os.environ.setdefault(name, wert)
+            if FROZEN:
+                os.environ[name] = wert
+            else:
+                os.environ.setdefault(name, wert)
             gefunden.append(name)
     return gefunden
 
