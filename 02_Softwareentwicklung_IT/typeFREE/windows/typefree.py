@@ -1250,21 +1250,36 @@ def _live_buchen(sekunden, anbieter):
     save_verbrauch(verbrauch)
 
 
-def verbindung_vorwaermen(client):
-    """Baut die Verbindung zu OpenRouter auf, bevor der erste Happen kommt.
+VORWAERM_MODELL = 'microsoft/mai-transcribe-2'
+VORWAERM_SEKUNDEN = 0.3
 
-    Gemessen 06.10.2026: Der erste Aufruf einer Aufnahme brauchte 2,2 s, die
-    folgenden 0,5–0,8 s — der Unterschied ist der Verbindungsaufbau. `/key`
-    liefert nur den Schlüsselstand und kostet nichts. Ein Fehler hier darf die
-    Aufnahme nie stören, deshalb still: Rückgabe True/False.
+
+def verbindung_vorwaermen(client):
+    """Weckt mai auf, bevor der erste Happen kommt.
+
+    Der erste Aufruf einer Aufnahme brauchte 2,2–3,6 s, die folgenden
+    0,5–0,8 s. Gemessen 07.10.2026 in frischen Prozessen: Vorwärmen nur der
+    Verbindung (`/key`) half nicht — der erste echte Block brauchte danach
+    4,5–7,6 s. Eine Mini-Transkription (0,3 s Stille) nimmt den Kaltstart von
+    mai vorweg: danach 0,3–0,4 s. Kosten: ein Hauch unter 0,001 Cent.
+    Ein Fehler hier darf die Aufnahme nie stören — Rückgabe True/False.
     """
     if client is None:
         return False
     try:
-        client.with_options(timeout=5).get('/key', cast_to=object)
+        puffer = io.BytesIO()
+        sf.write(puffer, np.zeros(int(VORWAERM_SEKUNDEN * SAMPLE_RATE),
+                                  dtype=np.float32),
+                 SAMPLE_RATE, format='WAV', subtype='PCM_16')
+        puffer.seek(0)
+        puffer.name = 'vorwaermen.wav'
+        begonnen = time.monotonic()
+        client.with_options(timeout=10).audio.transcriptions.create(
+            model=VORWAERM_MODELL, file=puffer, language='de')
+        log.info('mai vorgewärmt in %.1f s', time.monotonic() - begonnen)
         return True
     except Exception as e:
-        log.info('Vorwärmen der Verbindung fehlgeschlagen: %s', e)
+        log.info('Vorwärmen fehlgeschlagen: %s', e)
         return False
 
 

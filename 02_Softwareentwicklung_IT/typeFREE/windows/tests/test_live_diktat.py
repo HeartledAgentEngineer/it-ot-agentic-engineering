@@ -373,28 +373,42 @@ def test_unter_anderthalb_sekunden_wird_nicht_geschnitten():
     assert typefree.live_schnitt(daten, RATE, 0.0) is None
 
 
-def test_vorwaermen_ruft_den_billigen_schluessel_endpunkt():
-    """Kein Transkriptionsaufruf, nur Verbindungsaufbau — kostet nichts."""
+def test_vorwaermen_schickt_eine_winzige_stille_an_mai():
+    """Gemessen 07.10.2026: Nach Vorwärmen über `/key` brauchte der erste
+    echte Block 4,5–7,6 s, nach 0,3 s Stille an mai nur 0,3–0,4 s — der
+    Kaltstart liegt bei mai selbst, nicht bei der Verbindung."""
     aufrufe = []
 
     class Client:
+        def __init__(self):
+            self.audio = self
+            self.transcriptions = self
+
         def with_options(self, **kwargs):
             return self
 
-        def get(self, pfad, **kwargs):
-            aufrufe.append(pfad)
+        def create(self, **kwargs):
+            aufrufe.append(kwargs)
 
     assert typefree.verbindung_vorwaermen(Client()) is True
-    assert aufrufe == ['/key']
+    assert len(aufrufe) == 1
+    assert aufrufe[0]['model'] == typefree.VORWAERM_MODELL
+    datei = aufrufe[0]['file']
+    datei.seek(0, 2)
+    assert datei.tell() < 20000, 'nur ein Hauch Audio — kostet praktisch nichts'
 
 
 def test_vorwaermen_scheitert_still():
     """Ein Netzfehler beim Vorwärmen darf die Aufnahme nie stören."""
     class Kaputt:
+        def __init__(self):
+            self.audio = self
+            self.transcriptions = self
+
         def with_options(self, **kwargs):
             return self
 
-        def get(self, pfad, **kwargs):
+        def create(self, **kwargs):
             raise OSError('kein Netz')
 
     assert typefree.verbindung_vorwaermen(Kaputt()) is False
