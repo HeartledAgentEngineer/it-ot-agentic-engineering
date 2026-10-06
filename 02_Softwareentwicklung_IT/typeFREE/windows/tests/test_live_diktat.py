@@ -311,3 +311,48 @@ def test_happen_werden_gebucht():
         sprache(4), lambda stueck: ('hallo welt', 'mai'), lambda t: None,
         lambda sekunden, anbieter: gebucht.append((round(sekunden, 1), anbieter)))
     assert gebucht == [(4.0, 'mai')]
+
+
+# ── Schnellerer Start (06.10.2026 abends) ────────────────────────────────────
+# Sebastian: „Die ersten 5 Sekunden kam gar kein Output … man denkt, hakt es?"
+# Gemessen: 3 s Mindestlänge + 2,2 s erster Aufruf (kalte Verbindung).
+
+def test_kurzer_satz_mit_pause_wird_schon_nach_anderthalb_sekunden_geschnitten():
+    """mai erkennt schon 1 s Audio sauber (Messung 06.10.2026) — 3 s waren zu vorsichtig."""
+    daten = np.concatenate([sprache(1.7), stille(0.8)])
+    schnitt = typefree.live_schnitt(daten, RATE, 0.0)
+    assert schnitt is not None
+    assert 1.5 * RATE <= schnitt <= 2.0 * RATE
+
+
+def test_unter_anderthalb_sekunden_wird_nicht_geschnitten():
+    daten = np.concatenate([sprache(1.0), stille(0.4)])
+    assert typefree.live_schnitt(daten, RATE, 0.0) is None
+
+
+def test_vorwaermen_ruft_den_billigen_schluessel_endpunkt():
+    """Kein Transkriptionsaufruf, nur Verbindungsaufbau — kostet nichts."""
+    aufrufe = []
+
+    class Client:
+        def with_options(self, **kwargs):
+            return self
+
+        def get(self, pfad, **kwargs):
+            aufrufe.append(pfad)
+
+    assert typefree.verbindung_vorwaermen(Client()) is True
+    assert aufrufe == ['/key']
+
+
+def test_vorwaermen_scheitert_still():
+    """Ein Netzfehler beim Vorwärmen darf die Aufnahme nie stören."""
+    class Kaputt:
+        def with_options(self, **kwargs):
+            return self
+
+        def get(self, pfad, **kwargs):
+            raise OSError('kein Netz')
+
+    assert typefree.verbindung_vorwaermen(Kaputt()) is False
+    assert typefree.verbindung_vorwaermen(None) is False

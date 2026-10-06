@@ -834,7 +834,9 @@ def aussteuerung(daten):
 # (gemessen: 25-s-Happen 3,4 % gegen 4,0 % am Stück).
 
 LIVE_ZIEL_SEKUNDEN = 10.0     # spätestens nach so vielen Sekunden schneiden
-LIVE_MINDEST_SEKUNDEN = 3.0   # vorher lohnt kein Happen (Mindestlänge für die API)
+LIVE_MINDEST_SEKUNDEN = 1.5   # kürzer wird kein Happen. Bis 06.10.2026 waren es
+                              # 3 s — gemessen erkennt mai schon 1 s Audio sauber,
+                              # und 3 s ließen den ersten Text erst nach ~5 s kommen
 LIVE_PAUSE_SEKUNDEN = 0.5     # so lang muss eine Sprechpause sein
 LIVE_PAUSE_ANTEIL = 0.3       # „leise" heißt: unter 30 % des Happen-Pegels
 
@@ -1169,6 +1171,24 @@ def _live_buchen(sekunden, anbieter):
     save_verbrauch(verbrauch)
 
 
+def verbindung_vorwaermen(client):
+    """Baut die Verbindung zu OpenRouter auf, bevor der erste Happen kommt.
+
+    Gemessen 06.10.2026: Der erste Aufruf einer Aufnahme brauchte 2,2 s, die
+    folgenden 0,5–0,8 s — der Unterschied ist der Verbindungsaufbau. `/key`
+    liefert nur den Schlüsselstand und kostet nichts. Ein Fehler hier darf die
+    Aufnahme nie stören, deshalb still: Rückgabe True/False.
+    """
+    if client is None:
+        return False
+    try:
+        client.with_options(timeout=5).get('/key', cast_to=object)
+        return True
+    except Exception as e:
+        log.info('Vorwärmen der Verbindung fehlgeschlagen: %s', e)
+        return False
+
+
 def _live_transkribieren(stueck):
     """Einen Live-Happen transkribieren — leere Antwort heißt Stille.
 
@@ -1372,6 +1392,8 @@ def start_recording():
         # Die Freigabe lässt die Zusatztasten trotzdem los, damit Windows
         # nichts Getipptes als Alt-Kürzel deutet.
         _live_lief = True
+        threading.Thread(target=verbindung_vorwaermen, args=(openrouter_client,),
+                         name='vorwaermen', daemon=True).start()
         try:
             zusatztasten_freigeben()
         except Exception:
