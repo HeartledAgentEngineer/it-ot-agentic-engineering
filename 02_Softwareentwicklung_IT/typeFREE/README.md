@@ -84,6 +84,12 @@ Lokale Whisper-Modelle benötigen erhebliche GPU-Ressourcen und verzögern das D
 
 Sebastians Vorgabe vom 25.09.2026: **„nur über OpenRouter und das beste Modell, das meinem ZDR-Datenschutz entspricht."** Groq und OpenAI sind deshalb als Wege stillgelegt — die Schlüssel wurden aus der `.env` der Anlage entfernt (Sicherungen `.env.bak-groq` und `.env.bak-openai` liegen daneben, ein Zurück ist jederzeit möglich), und die Standardkette kennt nur noch OpenRouter. Damit ein einzelner Weg trotzdem kein Diktat kostet, ist die Kette dreigliedrig: das beste Modell zuerst, danach zwei Ausweichwege, alle über OpenRouter und alle unter der ZDR-Einstellung des Kontos.
 
+### Warum Rohtext live und Glättung am Ende?
+
+Wunsch vom 25.09.2026: „das schon Ausgeben im Wortfluss, aber dann quasi das Umschreiben und Umdeuten im Nachhinein" — wie bei Voicely oder Everlast AI. Echtes Wort-für-Wort-Streaming geht über OpenRouter nicht (der Transkriptions-Endpunkt nimmt fertige Dateien, Realtime-STT ist dort nicht buchbar). Stattdessen schneidet typeFREE während der Aufnahme an **Sprechpausen** Happen heraus — die erste nach drei Sekunden, spätestens nach zehn an der leisesten Stelle —, transkribiert sie sofort und fügt sie roh am Cursor ein. Der Text erscheint also mit ein bis zwei Sekunden Verzögerung, während gesprochen wird.
+
+Beim Loslassen wird der **ganze** Text noch einmal geglättet — nicht die Bruchstücke, denn ein Satz bekommt seine Bedeutung erst mit dem, was danach kommt — und der eingefügte Block durch die geglättete Fassung **ersetzt**. Das passiert nur, wenn drei Sicherungen es erlauben: Es wurde seither nichts dazwischengetippt, das Vordergrundfenster ist dasselbe geblieben, und die geglättete Fassung ist nicht auffällig kürzer als das Rohmaterial. Ist eine verletzt, bleibt der Rohtext stehen — lieber roh als kaputt. Eingeschaltet wird das im Tray unter **„Ausgabe"**; Standard ist „alles auf einmal", und jeder Happen wird beim liefernden Anbieter einzeln gebucht, damit die Kostenzeile ehrlich bleibt.
+
 ### Warum Clipboard-Injektion statt Tastaturemulation?
 Zeichenweise Tastaturemulation scheitert regelmäßig an Umlauten, Sonderzeichen und Tastaturlayouts. Der Weg über die Zwischenablage (`pyperclip.copy` → `Strg+V`) stellt den Text in jedem Windows-Programm codierungsfehlerfrei dar — die 0,3-Sekunden-Pause vor dem Einfügen stellt sicher, dass die Zwischenablage den Text sicher übernommen hat.
 
