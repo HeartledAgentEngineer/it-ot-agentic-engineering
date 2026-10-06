@@ -54,6 +54,23 @@ Aufruf::
 
     .venv/Scripts/python.exe ../tools/foto_sortierung/personen_gruppieren.py            # Trockenlauf
     .venv/Scripts/python.exe ../tools/foto_sortierung/personen_gruppieren.py --schreiben
+
+Nachtragen (``--nachtragen``, 06.10.2026):
+  Neue Gesichter an die **bestehenden** Gruppen haengen, ohne neu zu rechnen.
+  Anlass: die Fotobuch-Fotos fehlten in der Gesichtererkennung, und ein voller
+  Neu-Lauf bringt die schon benannten Gruppen durcheinander (gemessen: eine
+  Gruppe behielt nur 22 % ihrer Gesichter, 27 Gesichter wanderten zu einer
+  anderen benannten Person). Deshalb: alte Zuordnungszeilen 1:1 uebernehmen,
+  alte Mittelpunkte **nicht** verschieben; jedes neue Gesicht dockt an den
+  aehnlichsten alten Mittelpunkt (Cosinus >= ``ZUORDNUNG_AEHNLICH``, nie zwei
+  Gesichter desselben Bildes in dieselbe Gruppe, Nutzer-Ausschluesse beachtet).
+  Was nicht andockt, gruppiert sich untereinander und bekommt **neue** Kennungen
+  hinter der hoechsten Nummer. Vor dem Schreiben werden die drei Dateien als
+  ``*.vorher`` gesichert (Rueckweg); ein zweiter Lauf ist idempotent.
+
+    .venv/Scripts/python.exe ../tools/foto_sortierung/personen_gruppieren.py ^
+        --nachtragen %USERPROFILE%/foto_sortierung/personen_vektoren_fotobuch.jsonl
+    # Schreiben erst nach dem OK auf die Trockenlauf-Zahlen: zusaetzlich --schreiben
 """
 
 from __future__ import annotations
@@ -63,6 +80,7 @@ import datetime
 import importlib.util
 import json
 import os
+import shutil
 import time
 
 import numpy as np
@@ -694,6 +712,373 @@ def bericht_text(b) -> str:
     return "\n".join(zeilen)
 
 
+# ── Nachtragen (neue Gesichter an bestehende Gruppen haengen) ────────────
+#
+# Anlass (06.10.2026): die 842 Fotobuch-Fotos waren nie in der Gesichter-
+# erkennung. Ein voller Neu-Lauf bringt die schon benannten Gruppen durchein-
+# ander (gemessen: eine Gruppe behielt 22 % ihrer Gesichter, 27 Gesichter
+# wanderten zu einer anderen benannten Person). Dieser Weg haengt nur die NEUEN
+# Gesichter an; alte Zuordnung und alte Mittelpunkte bleiben unberuehrt.
+
+FELDER_BEISPIEL = ("bild_id", "index", "bbox", "breite", "hoehe",
+                   "anteil", "score", "aufnahme")
+
+
+def zuordnung_zeilen_lesen(pfad) -> list[str]:
+    """Die bestehende Zuordnung als ROHE Zeilen lesen — 1:1 weiterreichen."""
+    if not os.path.isfile(pfad):
+        raise PersonenFehler(f"Zuordnungsdatei nicht gefunden: {pfad}")
+    try:
+        with open(pfad, encoding="utf-8", newline="") as datei:
+            return datei.read().splitlines(keepends=True)
+    except OSError as problem:
+        raise PersonenFehler(
+            f"Zuordnungsdatei nicht lesbar ({problem.__class__.__name__}): {pfad}") from None
+
+
+def beispiele_lesen(pfad) -> dict:
+    """Bestehende Quiz-Beispiele lesen: ``{kennung: gruppe}`` (fehlend = leer)."""
+    daten = _json_lesen(pfad, {})
+    roh = daten.get("gruppen") if isinstance(daten, dict) else None
+    ergebnis: dict[str, dict] = {}
+    for gruppe in roh or []:
+        if isinstance(gruppe, dict) and isinstance(gruppe.get("kennung"), str):
+            ergebnis.setdefault(gruppe["kennung"], gruppe)
+    return ergebnis
+
+
+def _schluessel(gesicht) -> tuple:
+    """Der Schluessel eines Gesichts: ``(bild_id, index)`` — wie in der Zuordnung."""
+    try:
+        index = int(gesicht.get("index") or 0)
+    except (TypeError, ValueError):
+        index = 0
+    return (str(gesicht.get("bild_id")), index)
+
+
+def _gruppe_bauen(kennung, mitglieder, name=None, neu=True, zwilling=None) -> dict:
+    """Eine Gruppe im Format von ``lauf_rechnen`` (fuer Beispiele/Quiz)."""
+    daten = sorted(d for d in (m.get("aufnahme") for m in mitglieder) if d)
+    return {
+        "kennung": kennung,
+        "neu": bool(neu),
+        "name": name,
+        "groesse": len(mitglieder),
+        "bilder": len({m["bild_id"] for m in mitglieder if not m.get("video_id")}),
+        "videos": len({m["video_id"] for m in mitglieder if m.get("video_id")}),
+        "von": daten[0][:10] if daten else None,
+        "bis": daten[-1][:10] if daten else None,
+        "zwilling_kandidaten": list(zwilling or []),
+        "beispiele": beispiele_waehlen(mitglieder),
+    }
+
+
+def _mittelpunkt(vektoren) -> list[float]:
+    """Mittelpunkt eines Haufens Gesichtsvektoren (Einheitslaenge, wie kennungen.json)."""
+    m = einheitsvektoren(np.asarray(vektoren, dtype=np.float32))
+    if m.shape[0] == 0:
+        return []
+    mitte = einheitsvektoren(m.mean(axis=0, keepdims=True).astype(np.float32))
+    return [float(x) for x in mitte[0]]
+
+
+def _vorher_sichern(ausgabe) -> list[str]:
+    """Die drei Dateien VOR dem Schreiben als ``*.vorher`` kopieren (Rueckweg).
+
+    Eine vorhandene Sicherung wird **nicht** ueberschrieben — sie ist der Stand
+    vor dem ersten Nachtragen und bleibt als Rueckweg erhalten.
+    """
+    ergebnis: list[str] = []
+    for name in (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN):
+        quelle = os.path.join(ausgabe, name)
+        ziel = quelle + ".vorher"
+        if os.path.isfile(quelle) and not os.path.exists(ziel):
+            shutil.copy2(quelle, ziel)
+            ergebnis.append(ziel)
+    return ergebnis
+
+
+def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
+                     bestaetigt=None, vorgaben=None,
+                     zuordnung: float = ZUORDNUNG_AEHNLICH,
+                     min_groesse: int = MIN_GROESSE,
+                     runden: int = VERFEINERN_RUNDEN) -> dict:
+    """Neue Gesichter an BESTEHENDE Gruppen haengen — ohne Neu-Rechnen.
+
+    ``alte_zeilen`` = rohe Zeilen der ``gesicht_zuordnung.jsonl``,
+    ``alt_kennungen`` = rohe Liste aus ``kennungen.json`` (beide unveraendert
+    weitergereicht), ``beispiele_alt`` = bestehende Gruppen aus
+    ``personen_beispiele.json``. Rueckgabe ``{"neu": {stelle: kennung|null},
+    "zuwachs": {kennung: [stellen]}, "gruppen_alt": [...], "gruppen_neu": [...],
+    "kennungen_neu": [{"kennung", "mittelpunkt"}], "bericht": {...}}``.
+    """
+    start = time.monotonic()
+    gesichter = eingelesen["gesichter"]
+    v = einheitsvektoren(eingelesen["vektoren"])
+    namen = dict(bestaetigt or {})
+    regeln = (vorgaben or {}).get("ausgeschlossen") or set()
+
+    # ── 1) alte Zuordnung auswerten (nur lesend; nichts wird veraendert) ──
+    vorhanden: set = set()
+    groesse_alt: dict[str, int] = {}
+    bilder_je_kennung: dict[str, set] = {}
+    fotos_je_kennung: dict[str, set] = {}
+    videos_je_kennung: dict[str, set] = {}
+    daten_je_kennung: dict[str, list] = {}
+    for roh in alte_zeilen:
+        try:
+            eintrag = json.loads(roh)
+        except ValueError:
+            continue
+        if not isinstance(eintrag, dict) or eintrag.get("bild_id") in (None, ""):
+            continue
+        schluessel = _schluessel(eintrag)
+        vorhanden.add(schluessel)
+        kennung = eintrag.get("kennung") or None
+        if not kennung:
+            continue
+        kennung = str(kennung)
+        bild = schluessel[0]
+        groesse_alt[kennung] = groesse_alt.get(kennung, 0) + 1
+        bilder_je_kennung.setdefault(kennung, set()).add(bild)
+        if eintrag.get("video_id") in (None, ""):
+            fotos_je_kennung.setdefault(kennung, set()).add(bild)
+        else:
+            videos_je_kennung.setdefault(kennung, set()).add(str(eintrag["video_id"]))
+        if isinstance(eintrag.get("aufnahme"), str) and eintrag["aufnahme"]:
+            daten_je_kennung.setdefault(kennung, []).append(eintrag["aufnahme"])
+
+    # ── 2) neue Gesichter: schon vorhandene ueberspringen (idempotent) ──
+    neue = [i for i, g in enumerate(gesichter) if _schluessel(g) not in vorhanden]
+    uebersprungen = len(gesichter) - len(neue)
+
+    # ── 3) andocken: aehnlichster alter Mittelpunkt ueber der Schwelle ──
+    alt = _cluster.altbestand_lesen(alt_kennungen)
+    kennungen_alt = [e["kennung"] for e in alt]
+    m_alt = (einheitsvektoren(np.asarray([e["mittelpunkt"] for e in alt], dtype=np.float32))
+             if alt else None)
+    ziel: dict[int, str | None] = {}
+    neu_bilder: dict[str, set] = {}
+    for i in sorted(neue, key=lambda i: -(gesichter[i]["anteil"] * gesichter[i]["score"])):
+        bild, index = _schluessel(gesichter[i])
+        treffer = None
+        if m_alt is not None and m_alt.shape[0]:
+            s = m_alt @ v[i]
+            kandidaten = np.nonzero(s >= zuordnung)[0]
+            for c in kandidaten[np.argsort(-s[kandidaten], kind="stable")].tolist():
+                kennung = kennungen_alt[c]
+                if bild in bilder_je_kennung.get(kennung, ()) or bild in neu_bilder.get(kennung, ()):
+                    continue                    # cannot-link: zwei Gesichter, ein Bild
+                if (kennung, bild, index) in regeln:
+                    continue                    # Nutzer-Regel „nicht diese Person"
+                treffer = kennung
+                break
+        ziel[i] = treffer
+        if treffer:
+            neu_bilder.setdefault(treffer, set()).add(bild)
+    zuwachs: dict[str, list[int]] = {}
+    for i, kennung in ziel.items():
+        if kennung:
+            zuwachs.setdefault(kennung, []).append(i)
+    angedockt = sum(len(x) for x in zuwachs.values())
+
+    # ── 4) Rest untereinander gruppieren — neue Kennungen hinter der hoechsten ──
+    rest = [i for i in neue if not ziel.get(i)]
+    gruppen_neu: list[dict] = []
+    kennungen_neu: list[dict] = []
+    mitglieder_neu: dict[str, list[int]] = {}
+    if rest:
+        rq = np.array([gesichter[i]["anteil"] * gesichter[i]["score"] for i in rest])
+        erg = gruppieren(v[rest], [str(gesichter[i]["bild_id"]) for i in rest], rq,
+                         zuordnung, VERSCHMELZ_AEHNLICH, min_groesse, runden)
+        hoechste = _cluster._naechste_nummer(sorted(kennungen_alt))
+        for c in range(erg["k"]):
+            stellen = [rest[j] for j in np.nonzero(erg["label"] == c)[0].tolist()]
+            hoechste += 1
+            kennung = _cluster.KENNUNG_MUSTER % hoechste
+            for i in stellen:
+                ziel[i] = kennung
+            mitglieder_neu[kennung] = stellen
+            kennungen_neu.append({"kennung": kennung,
+                                  "mittelpunkt": _mittelpunkt(v[stellen])})
+            gruppen_neu.append(_gruppe_bauen(kennung, [gesichter[i] for i in stellen],
+                                             name=namen.get(kennung), neu=True))
+
+    # ── 5) bestehende Gruppen fortschreiben (nur Zuwachs, nichts verschieben) ──
+    alt_gruppen = dict(beispiele_alt or {})
+    reihenfolge = list(alt_gruppen) + [k for k in sorted(kennungen_alt) if k not in alt_gruppen]
+    gruppen_alt: list[dict] = []
+    for kennung in reihenfolge:
+        bekannt = alt_gruppen.get(kennung) or {}
+        zu_gesichter = [gesichter[i] for i in zuwachs.get(kennung, [])]
+        daten = list(daten_je_kennung.get(kennung, []))
+        daten += [g["aufnahme"] for g in zu_gesichter
+                  if isinstance(g.get("aufnahme"), str) and g["aufnahme"]]
+        daten.sort()
+        gruppen_alt.append({
+            "kennung": kennung,
+            "neu": bool(bekannt.get("neu", False)),
+            "name": bekannt.get("name") or namen.get(kennung),
+            "groesse": groesse_alt.get(kennung, 0) + len(zu_gesichter),
+            "bilder": len(fotos_je_kennung.get(kennung, set())
+                          | {str(g["bild_id"]) for g in zu_gesichter if not g.get("video_id")}),
+            "videos": len(videos_je_kennung.get(kennung, set())
+                          | {str(g["video_id"]) for g in zu_gesichter if g.get("video_id")}),
+            "von": daten[0][:10] if daten else None,
+            "bis": daten[-1][:10] if daten else None,
+            "zwilling_kandidaten": list(bekannt.get("zwilling_kandidaten") or []),
+            "beispiele": beispiele_waehlen(
+                list(bekannt.get("beispiele") or []) + zu_gesichter),
+        })
+
+    # Zwillings-Kandidaten der neuen Gruppen (nur markieren, nie zusammenlegen)
+    if gruppen_neu:
+        m_neu = einheitsvektoren(np.asarray([e["mittelpunkt"] for e in kennungen_neu],
+                                            dtype=np.float32))
+        for pos, gruppe in enumerate(gruppen_neu):
+            kennung = gruppe["kennung"]
+            meine = {str(gesichter[i]["bild_id"]) for i in mitglieder_neu[kennung]}
+            zwillinge: list[dict] = []
+            if m_alt is not None and m_alt.shape[0]:
+                s = m_alt @ m_neu[pos]
+                for c in np.argsort(-s, kind="stable").tolist():
+                    if s[c] < ZWILLING_AEHNLICH:
+                        break
+                    fremd = kennungen_alt[c]
+                    zwillinge.append({
+                        "kennung": fremd, "aehnlich": round(float(s[c]), 3),
+                        "gemeinsame_bilder": len(meine & bilder_je_kennung.get(fremd, set()))})
+            for pos2, andere in enumerate(gruppen_neu):
+                if pos2 == pos:
+                    continue
+                w = float(m_neu[pos2] @ m_neu[pos])
+                if w >= ZWILLING_AEHNLICH:
+                    fremde_bilder = {str(gesichter[i]["bild_id"])
+                                     for i in mitglieder_neu[andere["kennung"]]}
+                    zwillinge.append({"kennung": andere["kennung"], "aehnlich": round(w, 3),
+                                      "gemeinsame_bilder": len(meine & fremde_bilder)})
+            zwillinge.sort(key=lambda k: -k["aehnlich"])
+            gruppe["zwilling_kandidaten"] = zwillinge[:ZWILLING_KANDIDATEN_JE_GRUPPE]
+
+    rauschen = sum(1 for i in neue if not ziel.get(i))
+    bericht = {
+        "alt_zeilen": len(alte_zeilen),
+        "alt_gesichter": len(vorhanden),
+        "alt_gruppen": len(kennungen_alt),
+        "neue_gesichter": len(neue),
+        "uebersprungen": uebersprungen,
+        "angedockt": angedockt,
+        "gruppen_mit_zuwachs": len(zuwachs),
+        "neue_gruppen": len(gruppen_neu),
+        "neue_kennungen": [e["kennung"] for e in kennungen_neu],
+        "rauschen": rauschen,
+        "sekunden": round(time.monotonic() - start, 1),
+    }
+    return {"neu": ziel, "gesichter": gesichter, "zuwachs": zuwachs,
+            "gruppen_alt": gruppen_alt, "gruppen_neu": gruppen_neu,
+            "kennungen_neu": kennungen_neu, "alt_kennungen": list(alt_kennungen or []),
+            "bericht": bericht}
+
+
+def nachtrag_schreiben(lauf, ausgabe, alte_zeilen, stand=None) -> dict:
+    """Zuordnung + Beispiele + Kennungen schreiben (atomar, ausserhalb des Repos).
+
+    Die alten Zeilen kommen **wortgleich** zurueck in die Datei, dahinter die
+    neuen; vorher werden die drei Dateien als ``*.vorher`` gesichert (Rueckweg).
+    """
+    pruefe_ausserhalb_repo(ausgabe)
+    stand = stand or datetime.datetime.now().isoformat(timespec="seconds")
+    sicherungen = _vorher_sichern(ausgabe)
+
+    neu_zeilen = []
+    for i in sorted(lauf["neu"]):
+        g = lauf["gesichter"][i]
+        eintrag = {k: g.get(k) for k in FELDER_ZUORDNUNG}
+        eintrag["index"] = int(g.get("index") or 0)
+        eintrag["kennung"] = lauf["neu"][i]
+        neu_zeilen.append(json.dumps(eintrag, ensure_ascii=False))
+
+    def zuordnung(datei):
+        for roh in alte_zeilen:
+            datei.write(roh if roh.endswith("\n") else roh + "\n")
+        for zeile in neu_zeilen:
+            datei.write(zeile + "\n")
+
+    def beispiele(datei):
+        json.dump({"stand": stand, "verfahren": "mittelpunkt-nachtrag",
+                   "gruppen": lauf["gruppen_alt"] + lauf["gruppen_neu"]},
+                  datei, ensure_ascii=False, indent=1)
+        datei.write("\n")
+
+    def kennungen(datei):
+        json.dump({"stand": stand,
+                   "kennungen": list(lauf["alt_kennungen"]) + lauf["kennungen_neu"]},
+                  datei, ensure_ascii=False)
+        datei.write("\n")
+
+    geschrieben = [
+        _atomar(os.path.join(ausgabe, DATEI_ZUORDNUNG), zuordnung),
+        _atomar(os.path.join(ausgabe, DATEI_BEISPIELE), beispiele),
+        _atomar(os.path.join(ausgabe, DATEI_KENNUNGEN), kennungen),
+    ]
+    return {"geschrieben": geschrieben, "sicherungen": sicherungen}
+
+
+def nachtrag_bericht_text(b) -> str:
+    """Bericht des Nachtragens — nur Zahlen, keine Namen, keine Pfade."""
+    kennungen = b["neue_kennungen"]
+    return "\n".join([
+        f"Alte Zuordnung: {b['alt_zeilen']} Zeilen, {b['alt_gesichter']} Gesichter, "
+        f"{b['alt_gruppen']} Kennungen (wortgleich uebernommen)",
+        f"Neue Gesichter: {b['neue_gesichter']} "
+        f"(schon vorhanden, uebersprungen: {b['uebersprungen']})",
+        f"Angedockt an bestehende Gruppen: {b['angedockt']} Gesichter in "
+        f"{b['gruppen_mit_zuwachs']} Gruppen",
+        f"Neue Gruppen: {b['neue_gruppen']}"
+        + (f" (Kennungen {kennungen[0]}..{kennungen[-1]})" if kennungen else ""),
+        f"Nicht angedockt (Rauschen): {b['rauschen']}",
+        f"Rechenzeit: {b['sekunden']} s",
+    ])
+
+
+def _nachtragen_main(args, pfade, schreiben_an) -> int:
+    """Der ``--nachtragen``-Weg: lesen, andocken, nur mit ``--schreiben`` schreiben."""
+    katalog = _cluster.katalog_lesen(args.katalog) if args.katalog else {}
+    kennungen_roh = _json_lesen(os.path.join(args.ausgabe, DATEI_KENNUNGEN), {})
+    alt_kennungen = (kennungen_roh.get("kennungen") if isinstance(kennungen_roh, dict)
+                     else kennungen_roh) or []
+    print("Personen nachtragen — " + ("Schreiben ist eingeschaltet" if schreiben_an
+                                      else "Trockenlauf (es wird NICHTS geschrieben)"))
+    alte_zeilen = zuordnung_zeilen_lesen(os.path.join(args.ausgabe, DATEI_ZUORDNUNG))
+    if not alte_zeilen:
+        raise PersonenFehler(
+            "Die bestehende Zuordnung ist leer — ohne sie gibt es nichts zum Andocken.")
+    if not alt_kennungen:
+        raise PersonenFehler(
+            "Keine alten Mittelpunkte (kennungen.json) — ohne sie gibt es nichts zum Andocken.")
+    eingelesen = gesichter_lesen(pfade, katalog)
+    lauf = nachtrag_rechnen(
+        eingelesen, alte_zeilen, alt_kennungen,
+        beispiele_alt=beispiele_lesen(os.path.join(args.ausgabe, DATEI_BEISPIELE)),
+        bestaetigt=bestaetigt_lesen(args.bestaetigt),
+        vorgaben=vorgaben_lesen(args.vorgaben),
+        zuordnung=args.zuordnung, min_groesse=args.min_groesse)
+    print(nachtrag_bericht_text(lauf["bericht"]))
+    if not schreiben_an:
+        print("Ohne --schreiben wurde NICHTS geschrieben.")
+        return 0
+    if not lauf["bericht"]["neue_gesichter"]:
+        print("Nichts zu tun: alle Gesichter stehen schon in der Zuordnung "
+              "(es wurde NICHTS geschrieben).")
+        return 0
+    ergebnis = nachtrag_schreiben(lauf, args.ausgabe, alte_zeilen)
+    for pfad in ergebnis["sicherungen"]:
+        print(f"gesichert: {os.path.basename(pfad)}")
+    for pfad in ergebnis["geschrieben"]:
+        print(f"geschrieben: {os.path.basename(pfad)}")
+    return 0
+
+
 def main(argv=None) -> int:
     zerleger = argparse.ArgumentParser(
         description="Gruppiert alle Gesichter zu Personen (Mittelpunkt-Verfahren, "
@@ -711,14 +1096,21 @@ def main(argv=None) -> int:
     zerleger.add_argument("--verschmelzen", type=float, default=VERSCHMELZ_AEHNLICH)
     zerleger.add_argument("--zwilling", type=float, default=ZWILLING_AEHNLICH)
     zerleger.add_argument("--min-groesse", type=int, default=MIN_GROESSE)
+    zerleger.add_argument("--nachtragen", action="append", default=None,
+                          help="Vektordatei(en) NUR an die bestehenden Gruppen haengen "
+                               "(nichts neu rechnen; Trockenlauf ist Standard, "
+                               "--schreiben schreibt, vorher *.vorher-Sicherung)")
     zerleger.add_argument("--trocken", action="store_true", help="nichts schreiben (Vorrang)")
     zerleger.add_argument("--schreiben", action="store_true", help="wirklich schreiben")
     args = zerleger.parse_args(argv)
 
     pruefe_ausserhalb_repo(args.ausgabe)
+    nachtragen = list(args.nachtragen or [])
     pfade = args.vektoren or [p for p in STANDARD_VEKTOREN if os.path.isfile(p)]
     schreiben_an = bool(args.schreiben) and not bool(args.trocken)
     try:
+        if nachtragen:
+            return _nachtragen_main(args, nachtragen, schreiben_an)
         if not pfade:
             raise PersonenFehler("Keine Vektordatei gefunden (Standardpfade fehlen).")
         katalog = _cluster.katalog_lesen(args.katalog) if args.katalog else {}
