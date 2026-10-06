@@ -221,6 +221,32 @@ vorhanden).
 möglich** — die Kontoschnittstelle liefert keine Einzelzeilen mit Uhrzeit, sie
 gibt sie nur zu einer bekannten Kennung heraus.
 
+### Tagesreihe korrigiert (06.10.2026)
+
+Die Tagesreihe (`daily`) summierte die **ganze** Laufzeitsumme einer Zeile auf
+den Tag von `last_seen` — daher 13,40 USD am 01.10. und 0,07 USD/Tag im
+September. Neue Regel, in dieser Reihenfolge:
+
+1. **Tag im Kontofenster** (`hermes/kosten/openrouter_activity.json`, vom
+   Auswerter geholt): der **abgerechnete Kontobetrag** gilt (`source: konto`).
+   Fehlt der Tag dort, war der Verbrauch **null** — ebenfalls exakt.
+2. **Tag außerhalb des Fensters** (heute, ältere Tage): Schätzung nach echter
+   **Aktivität** — Lebenszeit-Summe des Chats mal Anteil der Nachrichten genau
+   dieses Tages (`source: geschaetzt`). Die frühere Zeitverteilung wurde dabei
+   verworfen: sie lieferte an einem stillen Tag 0,88 USD, an dem das Konto 0
+   zeigt.
+
+Gemessen nach dem Umbau: 30.09. 5,3221 · 01.10. 3,4358 · 02.10. 0,0549 ·
+03.10. 0,0000 · 04.10. 0,0035 (alle `konto`) · 05.10. 0,0000 · **06.10. 3,7115
+USD = 4,40 EUR inkl.** (`geschaetzt` — passt zur Schlüsselzahl 5,09 EUR des
+Tages, der Rest ist außerhalb von Hermes).
+
+**Zwei eigene Fehler dabei gefunden und behoben:** doppeltes `WHERE` (der
+Ausdruck aus `_where_clause` bringt das Wort schon mit) und doppeltes `SUM`
+(`_anteilige_kosten` summiert selbst). Beide wurden von einem stillen
+`try/except` verschluckt und als 0,00 ausgegeben — deshalb jetzt: erst rechnen,
+dann prüfen, nicht schlucken.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
