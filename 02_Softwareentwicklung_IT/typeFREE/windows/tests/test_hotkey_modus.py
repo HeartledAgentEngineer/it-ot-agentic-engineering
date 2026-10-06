@@ -40,11 +40,14 @@ def test_halten_bleibt_unveraendert():
         'up', 'ä', set(), HOTKEY, True) == 'stop'
 
 
-def test_live_braucht_den_umschalt_modus():
-    """Die Lehre aus dem 06.10.2026: halten und live vertragen sich nicht."""
+def test_live_laeuft_in_beiden_betriebsarten():
+    """Test mit echtem Finger (06.10.2026 abends): Beim Halten kam Strg+V nicht
+    an, direkt getippter Text (Unicode) dagegen schon — auch ohne Freigabe.
+    Seit der Live-Modus direkt tippt, darf er auch beim Halten laufen."""
     assert typefree.live_erlaubt(True, 'umschalten') is True
-    assert typefree.live_erlaubt(True, 'halten') is False
+    assert typefree.live_erlaubt(True, 'halten') is True
     assert typefree.live_erlaubt(False, 'umschalten') is False
+    assert typefree.live_erlaubt(False, 'halten') is False
 
 
 def _konfig(tmp_path, monkeypatch):

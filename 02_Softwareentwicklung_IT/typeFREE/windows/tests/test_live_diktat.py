@@ -196,7 +196,8 @@ def test_happen_ohne_text_wird_nicht_eingefuegt():
 
 def test_einfuegen_merkt_sich_den_text(monkeypatch):
     """Nach dem Einfügen ist bekannt, was im Dokument steht (für den Abschluss)."""
-    kopiert, gedrueckt = [], []
+    getippt, kopiert, gedrueckt = [], [], []
+    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
     monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
     monkeypatch.setattr(typefree.pyautogui, 'hotkey',
                         lambda *tasten: gedrueckt.append(tasten))
@@ -207,8 +208,9 @@ def test_einfuegen_merkt_sich_den_text(monkeypatch):
     laenge = typefree._live_text_einfuegen('hallo welt')
 
     assert laenge == len('hallo welt ')
-    assert kopiert == ['hallo welt '], 'ein Happen endet mit Leerzeichen'
-    assert gedrueckt == [('ctrl', 'v')]
+    assert getippt == ['hallo welt '], 'ein Happen endet mit Leerzeichen'
+    # Direkt getippt statt Strg+V: Strg+V kommt bei gehaltenem Hotkey nicht an.
+    assert kopiert == [] and gedrueckt == []
     teil = typefree.live_teile[0]
     assert teil['text'] == 'hallo welt '
     assert teil['roh'] == 'hallo welt', 'roh (ohne Trenner) wird geglättet'

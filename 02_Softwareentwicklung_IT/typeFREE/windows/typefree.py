@@ -1025,6 +1025,76 @@ def _fenster_titel():
         return ''
 
 
+# ── Direktes Tippen per Unicode (Live-Modus) ─────────────────────────────────
+# Test mit echtem Finger auf AltGr+Ä (06.10.2026 abends, Notepad): Strg+V kam
+# nicht an — auch nach der Zusatztasten-Freigabe nicht. Unicode-Tippen
+# (SendInput mit KEYEVENTF_UNICODE) kam an, sogar ohne Freigabe. Es braucht
+# keine Zwischenablage und keine Strg-Taste.
+_KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_UNICODE = 0x0004
+_VK_RETURN = 0x0D
+
+
+def unicode_ereignisse(text):
+    """Reine Funktion: `(vk, scan, flags)` je Tastenereignis für `text`.
+
+    Zeilenumbruch → Eingabetaste (einen Unicode-Zeilenumbruch ignorieren viele
+    Programme), Wagenrücklauf entfällt. Zeichen außerhalb der Grundebene
+    (Emoji) gehen als UTF-16-Ersatzpaar raus, sonst käme Müll an.
+    """
+    ereignisse = []
+    for zeichen in text or '':
+        if zeichen == '\r':
+            continue
+        if zeichen == '\n':
+            ereignisse += [(_VK_RETURN, 0, 0), (_VK_RETURN, 0, _KEYEVENTF_KEYUP)]
+            continue
+        roh = zeichen.encode('utf-16-le')
+        for i in range(0, len(roh), 2):
+            einheit = int.from_bytes(roh[i:i + 2], 'little')
+            ereignisse += [(0, einheit, _KEYEVENTF_UNICODE),
+                           (0, einheit, _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP)]
+    return ereignisse
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [('wVk', ctypes.c_ushort), ('wScan', ctypes.c_ushort),
+                ('dwFlags', ctypes.c_ulong), ('time', ctypes.c_ulong),
+                ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [('dx', ctypes.c_long), ('dy', ctypes.c_long),
+                ('mouseData', ctypes.c_ulong), ('dwFlags', ctypes.c_ulong),
+                ('time', ctypes.c_ulong), ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class _EINGABE_UNION(ctypes.Union):
+    _fields_ = [('ki', _KEYBDINPUT), ('mi', _MOUSEINPUT)]   # mi bestimmt die Größe
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [('type', ctypes.c_ulong), ('u', _EINGABE_UNION)]
+
+
+def unicode_tippen(text):
+    """Tippt `text` direkt ins Vordergrundfenster — in EINEM SendInput-Aufruf,
+    damit kein echter Tastendruck dazwischenrutscht. Gibt die Ereigniszahl zurück."""
+    ereignisse = unicode_ereignisse(text)
+    if not ereignisse:
+        return 0
+    feld = (_INPUT * len(ereignisse))()
+    for i, (vk, scan, flags) in enumerate(ereignisse):
+        feld[i].type = 1                                   # INPUT_KEYBOARD
+        feld[i].u.ki = _KEYBDINPUT(vk, scan, flags, 0, 0)
+    gesendet = ctypes.windll.user32.SendInput(len(ereignisse), feld,
+                                              ctypes.sizeof(_INPUT))
+    if gesendet != len(ereignisse):
+        raise OSError('SendInput hat nur %d von %d Ereignissen angenommen'
+                      % (gesendet, len(ereignisse)))
+    return gesendet
+
+
 def _live_text_einfuegen(text):
     """Fügt einen Happen roh am Cursor ein und merkt sich, was angekommen ist.
 
@@ -1037,12 +1107,11 @@ def _live_text_einfuegen(text):
         return 0
     eingefuegt = text if text.endswith((' ', '\n')) else text + ' '
     titel = _fenster_titel()
-    pyperclip.copy(eingefuegt)
-    time.sleep(0.15)
     log.info('Messpunkt vor Live-Einfügen: %s · Fenster %r',
              tastenzustand_text(), titel)
+    # Direkt tippen statt Strg+V — Strg+V kommt bei gehaltenem Hotkey nicht an.
     with eigene_eingabe():
-        pyautogui.hotkey('ctrl', 'v')
+        unicode_tippen(eingefuegt)
     with lock:
         live_teile.append({'text': eingefuegt, 'roh': text, 'fenster': titel,
                            'zeit': time.monotonic()})
@@ -1354,8 +1423,9 @@ def start_recording():
     threading.Thread(target=_watch_recording, args=(session,),
                      name='watchdog', daemon=True).start()
     if live_erlaubt(live_modus, hotkey_modus):
-        # Im Umschalt-Modus liegt während des Sprechens kein Finger auf den
-        # Zusatztasten; die Freigabe räumt nur den Windows-Nachlauf weg.
+        # Der Live-Modus tippt direkt (Unicode) — das kommt auch beim Halten an.
+        # Die Freigabe lässt die Zusatztasten trotzdem los: Die Rücktaste beim
+        # Ersetzen wäre mit Alt sonst „Rückgängig".
         try:
             zusatztasten_freigeben()
         except Exception:
@@ -1364,10 +1434,6 @@ def start_recording():
                          name='live', daemon=True).start()
         threading.Thread(target=_live_schreiber, args=(session,),
                          name='live-schreiber', daemon=True).start()
-    elif live_modus:
-        log.warning('Live-Modus ist an, aber der Hotkey wird gehalten — diese '
-                    'Aufnahme läuft wie „alles auf einmal" (Tray: Hotkey-Modus '
-                    'auf „Tippen zum Starten/Beenden" stellen)')
     log.info('Aufnahme läuft')
 
 
@@ -2036,12 +2102,13 @@ def decide_hotkey_action(event_type, key_name, mods_down, hotkey, recording,
 def live_erlaubt(live_an, modus):
     """Darf der Live-Modus in dieser Betriebsart laufen?
 
-    Nein, solange der Hotkey gehalten wird: Bei gedrückten Zusatztasten kommt
-    Getipptes im Zielfenster nicht an (gemessen 06.10.2026 in Notepad). Die
-    Happen würden geschnitten, aber nie eingefügt — und der Abschluss löschte
-    dann Zeichen, die es nie gab. Lieber klassisch als kaputt.
+    Ja, in beiden. Bis zum 06.10.2026 abends nur beim Tippen: Bei gehaltenem
+    Hotkey kam Strg+V im Zielfenster nicht an. Der Test mit echtem Finger
+    zeigte dann, dass direkt getippter Text (Unicode, `unicode_tippen`) sehr
+    wohl ankommt — seitdem tippt der Live-Modus direkt, und das Halten geht.
+    `modus` bleibt im Aufruf, damit eine künftige Einschränkung eine Stelle hat.
     """
-    return bool(live_an) and modus == 'umschalten'
+    return bool(live_an)
 
 
 def taste_schlucken(event_type, key_name, hotkey, recording, modifier=None,
