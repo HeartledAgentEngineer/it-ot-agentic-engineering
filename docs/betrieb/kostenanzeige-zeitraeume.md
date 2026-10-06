@@ -34,8 +34,10 @@ wandert.
 
 ## Eigener Bereich (Custom Range)
 
-Gesetzt wird er **im Menü an der Lünette** — zwei Felder **von / bis**,
-„Übernehmen". Leeres *bis* heißt „bis jetzt". Je Block getrennt gemerkt
+Gesetzt wird er **im Menü an der Lünette**: dort steht als letzter Eintrag
+**„Benutzerdefinierter Bereich …"**. Er wechselt im selben Menü in eine zweite
+Ansicht mit den Feldern **Von / Bis** und „Übernehmen" („← Liste" führt
+zurück). Leeres *bis* heißt „bis jetzt". Je Block getrennt gemerkt
 (Uhrzeit-Felder in Ortszeit). Die Anzeige schickt das Fenster als
 `eigen_von` / `eigen_bis` (Sekunden seit Epoche) an
 `/status` bzw. `/status/session/<id>/eigen`; das Backend nimmt die Kennung
@@ -44,9 +46,17 @@ Gesetzt wird er **im Menü an der Lünette** — zwei Felder **von / bis**,
 Im Knopf steht danach das Fenster selbst (`6.10. 9:00-13:53` bzw.
 `5.10.-7.10.`). Unbrauchbare Werte (leer, Ende vor Beginn, Text) ergeben
 **keinen** eigenen Bereich — dann bleiben die festen Stufen in Kraft, statt ein
-falsches Fenster zu zeigen. Ein eigener Bereich bekommt einen **eigenen
+falsches Fenster zeigen. Ein eigener Bereich bekommt einen **eigenen
 Cache-Schlüssel**; ohne das liefert der Zwischenspeicher beim Wechsel die Zahlen
 des vorigen Fensters aus.
+
+Das Menü öffnet **immer nach oben** (`avoidCollisions: false`) und **ohne
+Autofokus** (`onOpenAutoFocus` abgeschaltet). Beides gegen Abgeschnittenes: der
+Streifen der Statusleiste ist klein, Radix kippt ein zu hohes Menü sonst nach
+unten über den Fensterrand — und der Autofokus auf das Datumsfeld scrollte die
+Liste selbst nach unten, wodurch der unterste Knopf außerhalb lag. Beide
+Eigenschaften reicht die Popover-Komponente der App durch
+(`apps/desktop/src/components/ui/popover.tsx`, `...props`).
 
 ## Bedienung ohne Sprechblase
 
