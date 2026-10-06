@@ -117,9 +117,32 @@ def befund(gesamt: int, erkannt: int, mit_gesicht: int, gruppiert: int) -> str:
     return "Erkannt und gruppiert. Fehlen die Personen am Handy, ist dort ein älterer Stand — neu senden."
 
 
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PLAN = "fotobuch_plan.json"
+
+
+def plan_schreiben(fotos: Set[str], pfad: str) -> int:
+    """Auswahlliste fuer ``gesicht_erkennen.py --plan`` (Format ``{"zuege": [{"fileid"}]}``).
+
+    Nur ausserhalb des Repos (Datei-Kennungen sind privat). Abgeleitete Datei:
+    wird bei jedem Aufruf neu geschrieben (atomar), ist also mehrfach aufrufbar.
+    """
+    ziel = os.path.normcase(os.path.abspath(pfad))
+    if os.path.commonpath([ziel, os.path.normcase(REPO)]) == os.path.normcase(REPO):
+        raise SystemExit(f"Ziel liegt im Repo – abgelehnt: {pfad}")
+    zuege = [{"fileid": f, "jahr": None} for f in sorted(fotos)]
+    tmp = pfad + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as datei:
+        json.dump({"quelle": FOTOBUCH, "zuege": zuege}, datei)
+    os.replace(tmp, pfad)
+    return len(zuege)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     zerleger = argparse.ArgumentParser(description="Fotobuch-Fotos in Erkennung/Gruppen? Nur Zahlen.")
     zerleger.add_argument("--basis", default=STANDARD_BASIS)
+    zerleger.add_argument("--plan-schreiben", action="store_true",
+                          help=f"zusaetzlich <basis>/{PLAN} fuer gesicht_erkennen.py --plan schreiben")
     args = zerleger.parse_args(argv)
 
     buch = os.path.join(args.basis, FOTOBUCH)
@@ -128,6 +151,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     fotos = fotobuch_fotos(buch)
     print(f"Fotobuch: {len(fotos)} Fotos mit Datei-Kennung")
+    if args.plan_schreiben:
+        pfad = os.path.join(args.basis, PLAN)
+        print(f"Auswahlliste für die Gesichtererkennung geschrieben: {pfad} ({plan_schreiben(fotos, pfad)} Fotos)")
 
     erkannt_zahl = 0
     beste_mit_gesicht = 0

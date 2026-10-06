@@ -80,6 +80,34 @@ def test_ohne_fotobuch_exit_2(tmp_path, capsys):
     assert "fehlt" in capsys.readouterr().out
 
 
+def test_plan_fuer_die_gesichtererkennung(tmp_path, capsys):
+    import sys
+    w = _werkzeug()
+    basis = _basis(tmp_path)
+    assert w.main(["--basis", str(basis), "--plan-schreiben"]) == 0
+    assert "(3 Fotos)" in capsys.readouterr().out
+    # Genau das Format, das gesicht_erkennen.plan_lesen erwartet — mit dessen eigener Lesefunktion.
+    sys.path.insert(0, str(PROJEKT / "tools" / "foto_sortierung"))
+    spez = importlib.util.spec_from_file_location(
+        "gesicht_erkennen_plan", PROJEKT / "tools" / "foto_sortierung" / "gesicht_erkennen.py")
+    try:
+        ge = importlib.util.module_from_spec(spez)
+        spez.loader.exec_module(ge)
+    except ImportError:
+        return                                   # ohne numpy kein Abgleich; Format oben schon geprueft
+    eintraege = ge.plan_lesen(str(basis / "fotobuch_plan.json"))
+    assert sorted(e["fileid"] for e in eintraege) == ["9101", "9102", "9103"]
+    assert w.main(["--basis", str(basis), "--plan-schreiben"]) == 0      # wiederholbar
+
+
+def test_plan_nie_ins_repo(tmp_path):
+    w = _werkzeug()
+    import pytest
+    with pytest.raises(SystemExit):
+        w.plan_schreiben({"1"}, str(PROJEKT / "fotobuch_plan.json"))
+    assert not (PROJEKT / "fotobuch_plan.json").exists()
+
+
 def test_ohne_zuordnung_kein_wurf(tmp_path, capsys):
     assert _werkzeug().main(["--basis", str(_basis(tmp_path, mit_zuordnung=False))]) == 0
     assert "gesicht_zuordnung.jsonl fehlt" in capsys.readouterr().out

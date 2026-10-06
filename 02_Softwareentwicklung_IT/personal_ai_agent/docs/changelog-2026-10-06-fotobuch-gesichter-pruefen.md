@@ -24,6 +24,21 @@ Aufruf (PowerShell, aus dem Projektordner):
 & backend\.venv\Scripts\python.exe tools\foto_sortierung\fotobuch_gesichter_pruefen.py
 ```
 
+## Befund (Sebastians Lauf, 06.10.2026)
+
+„Die Fotobuch-Fotos waren NICHT in der Gesichtererkennung." Deshalb neu: `--plan-schreiben` legt
+`~/foto_sortierung/fotobuch_plan.json` an (Format `{"zuege": [{"fileid", "jahr"}]}`, genau das, was
+`gesicht_erkennen.plan_lesen` liest; nie im Repo, wiederholbar). Damit läuft die Erkennung nur über
+die Fotobuch-Fotos in eine **eigene** Vektordatei (bestehende bleiben unberührt):
+
+```powershell
+& backend\.venv\Scripts\python.exe tools\foto_sortierung\fotobuch_gesichter_pruefen.py --plan-schreiben
+& "$HOME\foto_sortierung\venv_gesicht\Scripts\python.exe" tools\foto_sortierung\gesicht_erkennen.py --plan "$HOME\foto_sortierung\fotobuch_plan.json" --vektoren "$HOME\foto_sortierung\personen_vektoren_fotobuch.jsonl" --schreiben --fortsetzen --max-bilder 1000
+```
+
+Danach (eigener Schritt): neu gruppieren mit dieser Datei zusätzlich, Namensstabilität prüfen, ans
+Handy senden.
+
 ## Prüfung
 
 - Neu `backend/tests/test_fotobuch_gesichter_pruefen.py` (5 Tests, erfundene Kennungen): Zählung je
