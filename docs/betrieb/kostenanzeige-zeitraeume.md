@@ -165,6 +165,33 @@ Schlüssel des Kontos). In der Datenbank beginnt Hermes' Tag heute um 12:00.
 Tagesspalte, das Konto kennt keine Chats. **Exakt** werden Tag und Stunde ab
 dem Neustart über die Aufruf-Kennung (Abschnitt oben).
 
+## Getrennte Schlüssel — Handy bekommt eigenen Schlüssel
+
+Am 06.10.2026 angelegt (über die Verwaltungs-Schnittstelle, idempotent — ein
+zweiter Lauf legt nichts doppelt an):
+
+| Schlüssel | Verbrauch | Limit | Rolle |
+|---|---|---|---|
+| **Hermes Agent** | 184,90 USD | keins | **dieser PC** (Prüfsumme abgeglichen) |
+| agentic enineering | 19,87 USD | keins | zweite Installation |
+| personal_ai_agent | 14,62 USD | keins | Hermes-Erweiterung für den persönlichen AI Agent |
+| critic-Skill | 3,47 USD | keins | Prüf-Skill |
+| typeFree | 0,39 USD | keins | Sprachtranskription (eigener Zweck) |
+| vorlesen-tts | 0,28 USD | **5 USD** | Vorlesen |
+| **hermes-handy** | 0,00 USD | keins | **neu** für Hermes auf dem Handy |
+
+**Wert wird nie im Chat ausgegeben.** Er liegt in
+`hermes/kosten/uebergabe_hermes_handy.txt` samt Einrichtungsschritten (aufs Handy
+bringt ihn **Sebastian selbst** — der Agent legt nichts aufs Handy).
+Rücknahme: in OpenRouter unter *Settings → Keys* löschen, im Handy die alte
+Zeile eintragen. Jede schreibende Operation steht in
+`hermes/kosten/manifest_schluessel.jsonl`.
+
+**Warum:** läuft das Handy-Hermes (oder ein anderes Werkzeug) über denselben
+Schlüssel, ist sein Verbrauch nur als Differenz sichtbar. Mit eigenem Schlüssel
+ist er auf Schlüsselebene ausgewiesen — genauso getrennt wie `typeFree` und
+`vorlesen-tts`.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
