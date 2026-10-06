@@ -206,11 +206,14 @@ def test_einfuegen_merkt_sich_den_text(monkeypatch):
 
     laenge = typefree._live_text_einfuegen('hallo welt')
 
-    assert laenge == len('hallo welt')
-    assert kopiert == ['hallo welt']
+    assert laenge == len('hallo welt ')
+    assert kopiert == ['hallo welt '], 'ein Happen endet mit Leerzeichen'
     assert gedrueckt == [('ctrl', 'v')]
-    assert [teil['text'] for teil in typefree.live_teile] == ['hallo welt']
-    assert typefree.live_teile[0]['fenster'] == 'Editor'
+    teil = typefree.live_teile[0]
+    assert teil['text'] == 'hallo welt '
+    assert teil['roh'] == 'hallo welt', 'roh (ohne Trenner) wird geglättet'
+    assert teil['fenster'] == 'Editor'
+    assert teil['zeit'] > 0
     with typefree.lock:
         typefree.live_teile.clear()
 
@@ -221,3 +224,70 @@ def test_leerer_text_wird_nicht_eingefuegt(monkeypatch):
     monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
     assert typefree._live_text_einfuegen('   ') == 0
     assert kopiert == []
+
+
+# ── Schritt 4: Abschluss — Glättung ersetzt den Rohtext ───────────────────────
+
+def _teile(fenster='Editor', zeit=100.0, roh='hallo welt'):
+    return [{'text': roh + ' ', 'roh': roh, 'fenster': fenster, 'zeit': zeit}]
+
+
+def test_ersetzung_erlaubt_wenn_alles_stimmt():
+    erlaubt, grund = typefree.live_ersetzung_pruefen(
+        _teile(), 'Editor', 'Hallo Welt.', 0.0)
+    assert erlaubt and grund == ''
+
+
+def test_ersetzung_abgelehnt_bei_leerer_liste():
+    erlaubt, grund = typefree.live_ersetzung_pruefen([], 'Editor', 'Hallo', 0.0)
+    assert not erlaubt and 'nichts' in grund
+
+
+def test_ersetzung_abgelehnt_bei_fensterwechsel():
+    """Sicherung (b): wer wechselt, tippt woanders — Rohtext bleibt stehen."""
+    erlaubt, grund = typefree.live_ersetzung_pruefen(
+        _teile(), 'Browser', 'Hallo Welt.', 0.0)
+    assert not erlaubt and 'Fenster' in grund
+
+
+def test_ersetzung_abgelehnt_nach_eigener_taste():
+    """Sicherung (a): wurde nach dem Einfügen getippt, wird nichts angerührt."""
+    erlaubt, grund = typefree.live_ersetzung_pruefen(
+        _teile(zeit=100.0), 'Editor', 'Hallo Welt.', 105.0)
+    assert not erlaubt and 'getippt' in grund
+
+
+def test_eigene_taste_vor_dem_einfuegen_stoert_nicht():
+    erlaubt, _ = typefree.live_ersetzung_pruefen(
+        _teile(zeit=100.0), 'Editor', 'Hallo Welt.', 90.0)
+    assert erlaubt
+
+
+def test_ersetzung_abgelehnt_bei_zu_kurzer_glaettung():
+    """Sicherung (c): lieber roh als halb — ein zu kurzes Ergebnis wird verworfen."""
+    erlaubt, grund = typefree.live_ersetzung_pruefen(
+        _teile(roh='ein ziemlich langer Satz mit vielen Wörtern'), 'Editor',
+        'kurz', 0.0)
+    assert not erlaubt and 'kurz' in grund
+
+
+def test_ersetzung_abgelehnt_bei_leerer_glaettung():
+    erlaubt, grund = typefree.live_ersetzung_pruefen(_teile(), 'Editor', None, 0.0)
+    assert not erlaubt
+
+
+def test_hotkey_tasten_gelten_nicht_als_fremde_taste():
+    """Sonst würde das Loslassen des Hotkeys die Sicherung selbst auslösen."""
+    assert not typefree.ist_fremde_taste('ä', 'Alt + Ä')
+    assert not typefree.ist_fremde_taste('Alt', 'alt+ä')
+    assert typefree.ist_fremde_taste('a', 'Alt + Ä')
+    assert typefree.ist_fremde_taste('enter', 'Alt + Ä')
+
+
+def test_happen_werden_gebucht():
+    """Jeder Happen bezahlt seinen eigenen Aufruf beim liefernden Anbieter."""
+    gebucht = []
+    typefree._live_stueck_verarbeiten(
+        sprache(4), lambda stueck: ('hallo welt', 'mai'), lambda t: None,
+        lambda sekunden, anbieter: gebucht.append((round(sekunden, 1), anbieter)))
+    assert gebucht == [(4.0, 'mai')]

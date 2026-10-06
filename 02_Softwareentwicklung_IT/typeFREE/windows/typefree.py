@@ -823,8 +823,11 @@ def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
 LIVE_TAKT_SEKUNDEN = 0.5      # so oft schaut der Worker nach, ob ein Happen fertig ist
 live_modus = False            # Schritt 5: aus config.json bzw. Tray setzen
 live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspeicher
-live_teile = []               # was schon im Dokument steht: {'text', 'fenster'}
+live_teile = []               # was schon im Dokument steht: {'text', 'roh', 'fenster', 'zeit'}
 live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
+live_beschaeftigt = False     # der Schreiber transkribiert gerade einen Happen
+LIVE_ERSETZEN_MINDESTANTEIL = 0.5   # geglättet muss mindestens halb so lang sein
+LIVE_TASTE_ABSTAND = 0.004    # Pause zwischen den Rücktasten beim Ersetzen
 
 
 class LivePuffer:
@@ -934,21 +937,24 @@ def _live_text_einfuegen(text):
 
     `pyautogui.hotkey` meldet nicht, ob das Zielfenster den Text angenommen hat.
     Deshalb wird der eingefügte Text mitgeschrieben: Der Abschluss ersetzt genau
-    diesen Block durch die geglättete Fassung.
+    diesen Block durch die geglättete Fassung. Ein Happen endet mit einem
+    Leerzeichen, damit die Stücke im Dokument nicht zusammenkleben.
     """
     if not text or not text.strip():
         return 0
+    eingefuegt = text if text.endswith((' ', '\n')) else text + ' '
     titel = _fenster_titel()
-    pyperclip.copy(text)
+    pyperclip.copy(eingefuegt)
     time.sleep(0.15)
     pyautogui.hotkey('ctrl', 'v')
     with lock:
-        live_teile.append({'text': text, 'fenster': titel})
-    return len(text)
+        live_teile.append({'text': eingefuegt, 'roh': text, 'fenster': titel,
+                           'zeit': time.monotonic()})
+    return len(eingefuegt)
 
 
-def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen):
-    """Ein Happen: transkribieren und roh einfügen — die Nähte sind zum Prüfen da.
+def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None):
+    """Ein Happen: transkribieren, einfügen, buchen — die Nähte sind zum Prüfen da.
 
     Gibt den eingefügten Text zurück (oder None, wenn nichts eingefügt wurde).
     """
@@ -959,9 +965,19 @@ def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen):
         log.warning('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
         return None
     einfuegen(text)
+    if buchen is not None:
+        buchen(stueck.shape[0] / SAMPLE_RATE, anbieter)
     log.info('Live eingefügt (%s, %.1f s): %s', anbieter,
              stueck.shape[0] / SAMPLE_RATE, text)
     return text
+
+
+def _live_buchen(sekunden, anbieter):
+    """Bucht einen Live-Happen beim liefernden Anbieter (wie ein normales Diktat)."""
+    global verbrauch
+    verbrauch = verbrauch_buchen(verbrauch, sekunden, time.strftime('%Y-%m'),
+                                 anbieter)
+    save_verbrauch(verbrauch)
 
 
 def _live_schreiber(session):
@@ -970,6 +986,8 @@ def _live_schreiber(session):
     Läuft, solange die Aufnahme läuft, und arbeitet danach die Warteschlange
     leer — kein geschnittener Happen darf liegen bleiben.
     """
+    global live_beschaeftigt
+
     def transkribieren(stueck):
         buffer = io.BytesIO()
         sf.write(buffer, stueck, SAMPLE_RATE, format='WAV', subtype='PCM_16')
@@ -982,13 +1000,154 @@ def _live_schreiber(session):
         with lock:
             weiter = is_recording and session == _session
         for stueck in live_abholen():
+            with lock:
+                live_beschaeftigt = True
             try:
                 _live_stueck_verarbeiten(stueck, transkribieren,
-                                         _live_text_einfuegen)
+                                         _live_text_einfuegen, _live_buchen)
             except Exception:
                 log.exception('Live-Happen fehlgeschlagen')
+            finally:
+                with lock:
+                    live_beschaeftigt = False
         if not weiter and not live_happen:
             return
+
+
+def _live_warte_auf_schreiber(hoechstens=30.0):
+    """Wartet, bis der Live-Schreiber alles abgearbeitet hat.
+
+    Wichtig für die Reihenfolge: Erst wenn kein Happen mehr in Arbeit ist, darf
+    der Rest hinten angehängt werden — sonst landen die Stücke vertauscht.
+    """
+    ende = time.monotonic() + hoechstens
+    while time.monotonic() < ende:
+        with lock:
+            if not live_happen and not live_beschaeftigt:
+                return True
+        time.sleep(0.1)
+    log.warning('Live-Schreiber war nach %.0f s nicht fertig', hoechstens)
+    return False
+
+
+def ist_fremde_taste(name, hotkey):
+    """Gehört die Taste zum Diktat-Hotkey? (Sicherung (a) beim Ersetzen)
+
+    `hotkey` ist entweder ein Eintrag aus `HOTKEY_OPTIONS`
+    (`{'label': 'Alt + Ä', 'key': 'ä', 'mods': ['alt']}`) oder ein Anzeigename
+    wie „Alt + Ä" — beides wird auf seine Bestandteile zurückgeführt.
+    """
+    teile = []
+    if isinstance(hotkey, dict):
+        for schluessel, wert in hotkey.items():
+            if isinstance(wert, str):
+                teile.extend(re.split(r'\+', wert))
+            elif isinstance(wert, (list, tuple, set)):
+                teile.extend(str(w) for w in wert)
+    else:
+        teile = re.split(r'\+', str(hotkey or ''))
+    namen = {t.strip().lower() for t in teile if t and t.strip()}
+    return (name or '').lower() not in namen
+
+
+def live_ersetzung_pruefen(teile, jetzt_fenster, geglaettet, letzter_tastendruck):
+    """Die drei Sicherungen vor dem Ersetzen — gibt (erlaubt, Grund) zurück.
+
+    (a) seit dem letzten Einfügen wurde keine fremde Taste gedrückt,
+    (b) das Vordergrundfenster ist noch dasselbe,
+    (c) die geglättete Fassung ist nicht auffällig kürzer als das Rohmaterial.
+    Ist eine verletzt, bleibt der Rohtext stehen — lieber roh als kaputt.
+    """
+    if not teile:
+        return False, 'nichts eingefügt'
+    fenster = teile[0].get('fenster') or ''
+    if fenster and jetzt_fenster and fenster != jetzt_fenster:
+        return False, 'Fenster gewechselt (%s → %s)' % (fenster, jetzt_fenster)
+    if letzter_tastendruck and letzter_tastendruck > max(t.get('zeit', 0) for t in teile):
+        return False, 'seit dem Einfügen wurde getippt'
+    roh = sum(len(t.get('roh') or '') for t in teile)
+    if not geglaettet or len(geglaettet) < roh * LIVE_ERSETZEN_MINDESTANTEIL:
+        return False, 'geglättete Fassung zu kurz (%d statt %d Zeichen)' % (
+            len(geglaettet or ''), roh)
+    return True, ''
+
+
+def _live_block_ersetzen(zeichen, text):
+    """Rücktaste × Zeichenzahl, dann die geglättete Fassung einfügen."""
+    pyautogui.press('backspace', presses=zeichen, interval=LIVE_TASTE_ABSTAND)
+    time.sleep(0.1)
+    pyperclip.copy(text)
+    time.sleep(0.1)
+    pyautogui.hotkey('ctrl', 'v')
+
+
+def _live_abschluss(audio_data):
+    """Rest transkribieren, ganzen Text glätten, eingefügten Block ersetzen.
+
+    Gibt True zurück, wenn ersetzt wurde — sonst bleibt der Rohtext stehen und
+    die normale Verarbeitung übernimmt.
+    """
+    global _glattung_ausfaelle
+
+    _live_warte_auf_schreiber()
+
+    # Den Rest nach dem letzten Happen noch transkribieren und anhängen.
+    rest = audio_data[int(live_geschnitten * SAMPLE_RATE):]
+    if rest.size:
+        try:
+            buffer = io.BytesIO()
+            sf.write(buffer, rest, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+            buffer.seek(0)
+            buffer.name = 'audio.wav'
+            text, anbieter = transcribe_audio(buffer, transkriptions_clients())
+            if text and text.strip():
+                _live_text_einfuegen(text)
+                _live_buchen(rest.shape[0] / SAMPLE_RATE, anbieter)
+                log.info('Live-Rest eingefügt (%s, %.1f s): %s', anbieter,
+                         rest.shape[0] / SAMPLE_RATE, text)
+        except Exception:
+            log.exception('Live-Rest fehlgeschlagen')
+
+    with lock:
+        teile = list(live_teile)
+    if not teile:
+        return False
+    roh = ' '.join((t.get('roh') or '').strip() for t in teile if t.get('roh')).strip()
+    if not roh:
+        return False
+
+    _status_polishing()
+    stufe = time.monotonic()
+    geglaettet = polish_text(roh)
+    _glattung_ausfaelle = ausfall_zaehlen(_glattung_ausfaelle, bool(geglaettet))
+    if ausfall_melden(_glattung_ausfaelle):
+        _melde_glattung_ausfall()
+    log.info('Live geglättet (%.1f s): %s', time.monotonic() - stufe,
+             geglaettet or roh)
+
+    zeichen = sum(len(t.get('text') or '') for t in teile)
+    erlaubt, grund = live_ersetzung_pruefen(teile, _fenster_titel(), geglaettet,
+                                            _letzter_tastendruck)
+    if not erlaubt:
+        log.warning('Live: Rohtext bleibt stehen — %s', grund)
+        _status_idle()
+        retry_verwerfen()
+        return False
+
+    try:
+        _live_block_ersetzen(zeichen, geglaettet)
+    except Exception:
+        log.exception('Live: Ersetzen fehlgeschlagen — Rohtext bleibt stehen')
+        report_error('Der eingefügte Text konnte nicht ersetzt werden — '
+                     'er bleibt roh stehen.')
+        _status_idle()
+        return False
+
+    log.info('Live ersetzt: %d Zeichen roh → %d Zeichen geglättet',
+             zeichen, len(geglaettet or ''))
+    _status_idle()
+    retry_verwerfen()
+    return True
 
 
 def _reconnect_microphone():
@@ -1078,6 +1237,7 @@ def start_recording():
         audio_frames = []
         live_happen.clear()          # keine Happen aus der vorigen Aufnahme behalten
         live_teile.clear()           # und keinen eingefügten Block der vorigen
+        live_geschnitten = 0.0
         _last_data_at   = jetzt
         _last_signal_at = jetzt
         _session += 1
@@ -1595,7 +1755,7 @@ def retry_text():
 
 
 def stop_and_transcribe():
-    global is_recording, verbrauch, _glattung_ausfaelle
+    global is_recording, verbrauch, _glattung_ausfaelle, live_geschnitten
 
     with lock:
         if not is_recording:
@@ -1622,6 +1782,15 @@ def stop_and_transcribe():
         log.warning('Sehr leise Aufnahme (RMS %.3f < %.2f) — Verhörer '
                     'wahrscheinlich; näher ans Mikrofon', rms,
                     AUSSTEUERUNG_MIN_RMS)
+
+    # Im Live-Modus steht der Rohtext schon im Dokument. Dann übernimmt der
+    # Abschluss — und die normale Verarbeitung darf NICHT zusätzlich laufen,
+    # sonst stünde alles doppelt da.
+    if live_modus and live_teile:
+        log.info('Live-Modus: %d Happen, %.1f s geschnitten — Abschluss läuft',
+                 len(live_teile), live_geschnitten)
+        _live_abschluss(audio_data)
+        return
 
     _verarbeite_audio(audio_data)
 
@@ -1691,6 +1860,10 @@ def _verarbeite_audio(audio_data, erneut=False):
 
 # ── Tastenerkennung ───────────────────────────────────────────────────────────
 _mods_down = set()
+# Für Sicherung (a) beim Live-Ersetzen: Wurde seit dem Einfügen getippt? Die
+# Tasten des Diktat-Hotkeys zählen nicht — sonst würde das Loslassen selbst die
+# Sicherung auslösen.
+_letzter_tastendruck = 0.0
 
 # Modifier werden über den SCANCODE erkannt, nicht über den Namen: Die Namen
 # sind sprachabhängig — deutsches Windows meldet „STRG" und „UMSCHALT" statt
@@ -1744,6 +1917,9 @@ def on_key_event(event):
         return
 
     event_type = 'down' if event.event_type == keyboard.KEY_DOWN else 'up'
+    if event_type == 'down' and ist_fremde_taste(name, active_hotkey):
+        global _letzter_tastendruck
+        _letzter_tastendruck = time.monotonic()
     action = decide_hotkey_action(event_type, name, _mods_down,
                                  active_hotkey, is_recording)
 
