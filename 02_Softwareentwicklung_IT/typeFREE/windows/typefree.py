@@ -1145,6 +1145,20 @@ def _live_buchen(sekunden, anbieter):
     save_verbrauch(verbrauch)
 
 
+def _live_transkribieren(stueck):
+    """Einen Live-Happen transkribieren — leere Antwort heißt Stille.
+
+    Ohne `leer_ist_stille` rückte die Kette in jeder Sprechpause auf den
+    Audio-Chat vor, und der erfand Sätze, die im Dokument landeten.
+    """
+    buffer = io.BytesIO()
+    sf.write(buffer, stueck, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+    buffer.seek(0)
+    buffer.name = 'audio.wav'
+    return transcribe_audio(buffer, transkriptions_clients(),
+                            leer_ist_stille=True)
+
+
 def _live_schreiber(session):
     """Holt fertige Happen ab, transkribiert sie und fügt sie roh ein.
 
@@ -1152,13 +1166,6 @@ def _live_schreiber(session):
     leer — kein geschnittener Happen darf liegen bleiben.
     """
     global live_beschaeftigt
-
-    def transkribieren(stueck):
-        buffer = io.BytesIO()
-        sf.write(buffer, stueck, SAMPLE_RATE, format='WAV', subtype='PCM_16')
-        buffer.seek(0)
-        buffer.name = 'audio.wav'
-        return transcribe_audio(buffer, transkriptions_clients())
 
     while True:
         time.sleep(LIVE_TAKT_SEKUNDEN / 2)
@@ -1168,7 +1175,7 @@ def _live_schreiber(session):
             with lock:
                 live_beschaeftigt = True
             try:
-                _live_stueck_verarbeiten(stueck, transkribieren,
+                _live_stueck_verarbeiten(stueck, _live_transkribieren,
                                          _live_text_einfuegen, _live_buchen)
             except Exception:
                 log.exception('Live-Happen fehlgeschlagen')
@@ -1261,11 +1268,7 @@ def _live_abschluss(audio_data):
     rest = audio_data[int(live_geschnitten * SAMPLE_RATE):]
     if rest.size:
         try:
-            buffer = io.BytesIO()
-            sf.write(buffer, rest, SAMPLE_RATE, format='WAV', subtype='PCM_16')
-            buffer.seek(0)
-            buffer.name = 'audio.wav'
-            text, anbieter = transcribe_audio(buffer, transkriptions_clients())
+            text, anbieter = _live_transkribieren(rest)
             if text and text.strip():
                 _live_text_einfuegen(text)
                 _live_buchen(rest.shape[0] / SAMPLE_RATE, anbieter)
@@ -1815,7 +1818,7 @@ def _ist_auftragstext(text):
 
 
 def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
-                       fach_vokabular=FACH_VOKABULAR):
+                       fach_vokabular=FACH_VOKABULAR, leer_ist_stille=False):
     """Eine Anbieterkette der Reihe nach versuchen; gibt `(text, anbieter)` zurück.
 
     Wirft erst, wenn KEIN Glied der Kette liefern konnte. `puffer` wird vor jedem
@@ -1824,6 +1827,11 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
 
     `vokabular` ist der kurze Hinweis für den Whisper-`prompt` (224-Token-Grenze),
     `fach_vokabular` die volle Fachliste für die Wege ohne diese Grenze.
+
+    `leer_ist_stille` (Live-Happen): Eine leere Antwort heißt „hier wurde nicht
+    gesprochen" — dann gibt es `('', anbieter)` und KEIN Weiterrücken. Sonst
+    fragte die Kette in jeder Sprechpause den Audio-Chat, und der erfand Sätze
+    („Vielen Dank.", „Okay.", sogar englische Absagen; 06.10.2026).
     """
     fehler = []
     for name, modell, basis_url, weg in kette:
@@ -1851,6 +1859,10 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
                 text = (antwort.text or '').strip()
             if _ist_auftragstext(text):
                 raise ValueError('Antwort war der Auftragstext selbst')
+            if not text and leer_ist_stille:
+                log.info('Stille laut %s in %.1f s — nichts eingefügt',
+                         name, time.monotonic() - begonnen)
+                return '', name
             if not text:
                 raise ValueError('leere Antwort')
             log.info('Transkription über %s in %.1f s',
@@ -1862,7 +1874,8 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
     raise RuntimeError('Kein Anbieter konnte transkribieren — ' + ' | '.join(fehler))
 
 
-def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
+def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR,
+                     leer_ist_stille=False):
     """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
 
     Ohne `kette` läuft die in der config.json gewählte (Standard: EU-Weg). Fällt
@@ -1875,7 +1888,8 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
     kette = aktive_kette() if kette is None else kette
     wahl = transkription_wahl()
     try:
-        return _kette_durchlaufen(puffer, clients, kette, vokabular)
+        return _kette_durchlaufen(puffer, clients, kette, vokabular,
+                                  leer_ist_stille=leer_ist_stille)
     except RuntimeError as erster_fehler:
         if ausdruecklich or not RUECKFALL:
             raise
@@ -1888,7 +1902,8 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR):
                         wahl, andere_wahl)
             try:
                 return _kette_durchlaufen(puffer, clients,
-                                          KETTEN[andere_wahl], vokabular)
+                                          KETTEN[andere_wahl], vokabular,
+                                          leer_ist_stille=leer_ist_stille)
             except RuntimeError as zweiter_fehler:
                 raise RuntimeError(f'{erster_fehler} || {zweiter_fehler}') from None
         raise

@@ -654,3 +654,41 @@ def test_der_schnelle_weg_bekommt_den_kurzen_kern():
                                 typefree.KETTEN['schnell'])
     assert attrappe.aufrufe[0]['prompt'] == typefree.WHISPER_VOKABULAR
     assert 'Synapse' not in attrappe.aufrufe[0]['prompt']
+
+
+# ── Live-Happen: leere Antwort heißt Stille, nicht Fehler ────────────────────
+# 06.10.2026: In Sprechpausen lieferte mai leer, die Kette rückte auf voxtral
+# (Audio-Chat) vor — und das erfand Sätze: „Vielen Dank.", „Okay.", „.",
+# „I'm sorry, but I don't have the necessary context …". Sie landeten im Text.
+def test_live_leere_antwort_ist_stille_und_fragt_niemanden_weiter():
+    groq = TranskriptionsAttrappe(text='   ')
+    openrouter = TranskriptionsAttrappe(text='Vielen Dank.')
+    text, anbieter = typefree.transcribe_audio(
+        puffer(), {'groq': groq, 'openrouter': openrouter}, kette=ZWEI_STUFEN,
+        leer_ist_stille=True)
+    assert (text, anbieter) == ('', 'groq')
+    assert openrouter.aufrufe == [], 'kein Ausweichen bei Stille'
+
+
+def test_live_echter_fehler_rueckt_weiter_nach():
+    """Netz/Drosselung bleibt ein Fehler — dann darf das nächste Glied ran."""
+    groq = TranskriptionsAttrappe(fehler=RuntimeError('429'))
+    openrouter = TranskriptionsAttrappe(text='richtiger Text')
+    text, anbieter = typefree.transcribe_audio(
+        puffer(), {'groq': groq, 'openrouter': openrouter}, kette=ZWEI_STUFEN,
+        leer_ist_stille=True)
+    assert (text, anbieter) == ('richtiger Text', 'openrouter')
+
+
+def test_live_schreiber_fragt_mit_stille_regel(monkeypatch):
+    """Der Live-Schreiber muss die Stille-Regel auch wirklich einschalten."""
+    gesehen = []
+
+    def transkription(puffer, clients, **kwargs):
+        gesehen.append(kwargs.get('leer_ist_stille'))
+        return '', 'mai'
+    monkeypatch.setattr(typefree, 'transcribe_audio', transkription)
+    monkeypatch.setattr(typefree, 'transkriptions_clients', lambda: {})
+    import numpy as np
+    typefree._live_transkribieren(np.zeros((1600, 1), dtype='float32'))
+    assert gesehen == [True]
