@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261006A">
+    <link rel="stylesheet" href="style.css?v=20261006B">
 </head>
 <body>
     <div id="app">
@@ -389,22 +389,34 @@
                 </section>
                 <section id="erzaehl-diashow-spalte" class="erzaehl-spalte erzaehl-diashow-spalte" hidden>
                     <button id="erzaehl-zurueck-zur-liste" class="erzaehl-back" type="button">← Ereignisse</button>
-                    <div class="erzaehl-bild-buehne">
-                        <button id="erzaehl-vor" class="erzaehl-nav" type="button" aria-label="Vorheriges Bild">◀</button>
-                        <div id="erzaehl-bild-rahmen" class="erzaehl-bild-rahmen">
-                            <img id="erzaehl-bild" alt="" hidden>
-                            <span id="erzaehl-bild-platzhalter" class="erzaehl-bild-platzhalter">… lädt</span>
+                    <!-- Übersicht (06.10.2026): erst alle Bilder der Gruppe auf einmal,
+                         Geschichte zur ganzen Gruppe; Antippen öffnet ein Bild einzeln. -->
+                    <div id="erzaehl-uebersicht" class="erzaehl-uebersicht">
+                        <div id="erzaehl-uebersicht-kopf" class="erzaehl-zaehler"></div>
+                        <div id="erzaehl-gruppen-geschichten" class="erzaehl-geschichten"></div>
+                        <div id="erzaehl-raster" class="erzaehl-raster" role="list"></div>
+                    </div>
+                    <div id="erzaehl-einzel" class="erzaehl-einzel" hidden>
+                        <button id="erzaehl-zur-uebersicht" class="erzaehl-back erzaehl-back-immer" type="button">← Alle Bilder</button>
+                        <div class="erzaehl-bild-buehne">
+                            <button id="erzaehl-vor" class="erzaehl-nav" type="button" aria-label="Vorheriges Bild">◀</button>
+                            <div id="erzaehl-bild-rahmen" class="erzaehl-bild-rahmen">
+                                <img id="erzaehl-bild" alt="" hidden>
+                                <span id="erzaehl-bild-platzhalter" class="erzaehl-bild-platzhalter">… lädt</span>
+                            </div>
+                            <button id="erzaehl-weiter" class="erzaehl-nav" type="button" aria-label="Nächstes Bild">▶</button>
                         </div>
-                        <button id="erzaehl-weiter" class="erzaehl-nav" type="button" aria-label="Nächstes Bild">▶</button>
+                        <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
+                        <div id="erzaehl-geschichten" class="erzaehl-geschichten"></div>
                     </div>
-                    <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
-                    <div id="erzaehl-geschichten" class="erzaehl-geschichten"></div>
-                    <div class="erzaehl-eingabe-zeile">
-                        <textarea id="erzaehl-text" rows="2" placeholder="Erzähl etwas zu diesem Bild …" maxlength="20000"></textarea>
-                        <button id="erzaehl-mic-btn" class="icon-btn" type="button" title="Erzählen per Mikrofon" aria-label="Mikrofon">🎤</button>
-                        <button id="erzaehl-speichern-btn" class="icon-btn" type="button" title="Geschichte speichern" aria-label="Speichern">💾</button>
+                    <div class="erzaehl-eingabe-fuss">
+                        <div class="erzaehl-eingabe-zeile">
+                            <textarea id="erzaehl-text" rows="2" placeholder="Erzähl etwas zur ganzen Gruppe …" maxlength="20000"></textarea>
+                            <button id="erzaehl-mic-btn" class="icon-btn" type="button" title="Erzählen per Mikrofon" aria-label="Mikrofon">🎤</button>
+                            <button id="erzaehl-speichern-btn" class="icon-btn" type="button" title="Geschichte speichern" aria-label="Speichern">💾</button>
+                        </div>
+                        <div id="erzaehl-mic-status" class="mic-status" role="status" aria-live="polite" hidden></div>
                     </div>
-                    <div id="erzaehl-mic-status" class="mic-status" role="status" aria-live="polite" hidden></div>
                 </section>
             </div>
             <p id="erzaehl-hinweis" class="sheet-note"></p>
@@ -459,7 +471,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20260928B"></script>
+    <script src="erzaehlen.js?v=20261006A"></script>
     <script src="gruppen_quiz.js?v=20261002C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

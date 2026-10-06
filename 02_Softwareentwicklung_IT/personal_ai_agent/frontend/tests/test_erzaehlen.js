@@ -120,5 +120,49 @@ pruefe('hidden blendet die Spalten wirklich aus (.erzaehl-spalte[hidden] { displ
 pruefe('Antippen versteckt am Handy die Liste und zeigt die Diashow',
     /listeSpalte\.hidden = window\.matchMedia/.test(src) && /diashowSpalte\.hidden = false/.test(src));
 
+// Übersicht (Wunsch 06.10.2026): erst alle Bilder der Gruppe, Geschichte zur
+// ganzen Gruppe; Antippen öffnet ein Bild einzeln mit eigener Geschichte.
+eval(extractFn('erzaehlGeschichteKoerper'));
+eval(extractFn('erzaehlGeschichtenJeBild'));
+
+console.log('\n6) erzaehlGeschichteKoerper — Gruppe ohne Bild, Einzelbild mit Bild');
+const gruppe = erzaehlGeschichteKoerper('ev-1', 'Alle zusammen am See', null);
+pruefe('Übersicht: keine datei_kennung (gilt der ganzen Gruppe)', !('datei_kennung' in gruppe));
+pruefe('Übersicht: undefined zählt wie null', !('datei_kennung' in erzaehlGeschichteKoerper('ev-1', 'x', undefined)));
+pruefe('Übersicht: Ereignis, Text, Quelle stimmen',
+    gruppe.ereignis_kennung === 'ev-1' && gruppe.text === 'Alle zusammen am See' && gruppe.quelle === 'tippen');
+const einzeln = erzaehlGeschichteKoerper('ev-1', 'Papa und ich', 4711);
+pruefe('Einzelbild: datei_kennung gesetzt', einzeln.datei_kennung === 4711);
+pruefe('Einzelbild: Kennung 0 bleibt erhalten (kein falsy-Fehler)',
+    erzaehlGeschichteKoerper('ev-1', 'x', 0).datei_kennung === 0);
+
+console.log('\n7) erzaehlGeschichtenJeBild — ✎ auf den Kacheln');
+const zahlen = erzaehlGeschichtenJeBild([
+    { datei_kennung: 11, text: 'a' }, { datei_kennung: 11, text: 'b' },
+    { datei_kennung: 12, text: 'c' }, { datei_kennung: null, text: 'Gruppe' },
+    null, 'kaputt', { text: 'ohne Feld' },
+]);
+pruefe('zwei Geschichten an Bild 11', zahlen['11'] === 2);
+pruefe('eine Geschichte an Bild 12', zahlen['12'] === 1);
+pruefe('Gruppen-Geschichten und kaputte Einträge zählen nicht', Object.keys(zahlen).length === 2);
+pruefe('keine Liste -> leeres Objekt (kein Wurf)', Object.keys(erzaehlGeschichtenJeBild(null)).length === 0);
+
+console.log('\n8) Verdrahtung Übersicht / Einzelansicht');
+pruefe('index.html hat Raster, Übersicht und Einzelansicht',
+    /id="erzaehl-raster"/.test(html) && /id="erzaehl-uebersicht"/.test(html) && /id="erzaehl-einzel"[^>]*hidden/.test(html));
+pruefe('index.html hat „← Alle Bilder" und den Platz für Gruppen-Geschichten',
+    /id="erzaehl-zur-uebersicht"/.test(html) && /id="erzaehl-gruppen-geschichten"/.test(html));
+pruefe('Öffnen eines Ereignisses zeigt zuerst die Übersicht',
+    /rasterAufbauen\(\);\s*ansichtUmschalten\('uebersicht'\)/.test(src));
+pruefe('Kachel-Antippen öffnet das Bild einzeln', /addEventListener\('click', \(\) => bildOeffnen\(i\)\)/.test(src));
+pruefe('Speichern: Übersicht ohne Bild, Einzelansicht mit Bild',
+    /zustand\.ansicht === 'einzel' \? aktuelleDateiKennung\(\) : null/.test(src));
+pruefe('Kacheln laden erst beim Hineinscrollen (IntersectionObserver)', src.includes('new IntersectionObserver'));
+pruefe('Kachel-URLs werden beim Verlassen freigegeben', /function rasterFreigeben[\s\S]*?revokeObjectURL/.test(src));
+pruefe('in der Übersicht wird nicht geblättert', /function diashowSchritt\(richtung\) \{\s*if \(zustand\.ansicht !== 'einzel'\) return;/.test(src));
+// Lehre aus dem Fehler oben: jede neue Regel mit display braucht ihr [hidden]-Gegenstück.
+pruefe('CSS: [hidden] wirkt auf Übersicht, Einzelansicht und Zurück-Knöpfe',
+    /\.erzaehl-uebersicht\[hidden\],\s*\.erzaehl-einzel\[hidden\],\s*\.erzaehl-back\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
+
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);

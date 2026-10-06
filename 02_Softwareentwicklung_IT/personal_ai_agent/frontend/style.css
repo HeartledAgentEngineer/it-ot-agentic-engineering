@@ -1462,7 +1462,7 @@ button.footer-note:hover {
 
 .erzaehl-diashow-spalte {
     flex: 1;
-    padding: 10px 14px;
+    padding: 10px 14px 0;      /* unten 0: der klebende Eingabe-Fuß bringt den Abstand mit */
     overflow-y: auto;
 }
 
@@ -1640,6 +1640,66 @@ button.footer-note:hover {
     font-family: inherit;
     font-size: 0.88rem;
     padding: 8px 10px;
+}
+
+/* Übersicht (06.10.2026): erst alle Bilder der Gruppe als Raster, dazu eine
+   Geschichte zur ganzen Gruppe; Antippen öffnet ein Bild einzeln. Die Eingabe
+   klebt unten, damit sie auch bei vielen Bildern erreichbar bleibt. Jede Regel
+   mit display hat ihr [hidden]-Gegenstück (Lehre aus dem Fehler vom selben Tag). */
+.erzaehl-uebersicht[hidden],
+.erzaehl-einzel[hidden],
+.erzaehl-back[hidden] { display: none; }
+
+.erzaehl-back-immer { display: inline-block; }
+
+.erzaehl-raster {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.erzaehl-kachel {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+}
+
+.erzaehl-kachel:hover { border-color: var(--accent); }
+.erzaehl-kachel:active { transform: scale(0.97); }
+
+.erzaehl-kachel img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.erzaehl-kachel.leer { opacity: 0.45; }
+
+.erzaehl-kachel-marker {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: var(--accent);
+    font-size: 0.7rem;
+}
+
+.erzaehl-eingabe-fuss {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding-bottom: 10px;
+    background: var(--bg-secondary);
 }
 
 /* Am Handy: Liste und Diashow als zwei Stufen statt nebeneinander. */

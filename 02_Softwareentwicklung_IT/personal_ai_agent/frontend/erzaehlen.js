@@ -1,10 +1,13 @@
 /**
  * Erzähl-Diashow (Auftrag E8a, 28.09.2026)
  * -----------------------------------------
- * Sebastian wählt ein Ereignis, klickt sich durch die Diashow der Bilder und
- * erzählt zu jedem Bild (tippen oder Mikrofon). Jede Geschichte hängt an
- * Bild + Ereignis (Backend: app/services/erzaehl_service.py,
- * app/router/erzaehlen.py, Präfix /api/erzaehlen).
+ * Sebastian wählt ein Ereignis und sieht zuerst ALLE Bilder als Raster
+ * (Übersicht, 06.10.2026) — dort erzählt er zur ganzen Gruppe. Antippen
+ * öffnet ein Bild einzeln (Diashow mit ◀ ▶), dort erzählt er zu diesem Bild;
+ * „← Alle Bilder" führt zurück. Tippen oder Mikrofon. Eine Geschichte hängt
+ * am Ereignis, in der Einzelansicht zusätzlich am Bild (Backend:
+ * app/services/erzaehl_service.py, app/router/erzaehlen.py, Präfix
+ * /api/erzaehlen).
  *
  * Bewusst eine EIGENE Datei (kein Umbau von app.js — Quiz-Code, riskant).
  * app.js patcht window.fetch bereits global mit dem API-Key (Skript-
@@ -69,6 +72,29 @@ function erzaehlIndex(i, n, richtung) {
     return Math.max(0, Math.min(anzahl - 1, naechster));
 }
 
+/** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
+ *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
+ *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
+function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung) {
+    const koerper = { ereignis_kennung: ereignisKennung, text, quelle: 'tippen' };
+    if (dateiKennung !== null && dateiKennung !== undefined) koerper.datei_kennung = dateiKennung;
+    return koerper;
+}
+
+/** REINE Funktion: Zahl der Geschichten je Bild (Schlüssel = datei_kennung
+ *  als Text) — für das ✎ auf den Kacheln der Übersicht. Geschichten zur
+ *  ganzen Gruppe (ohne Bild) und kaputte Einträge zählen nicht. */
+function erzaehlGeschichtenJeBild(geschichten) {
+    const zaehler = {};
+    if (!Array.isArray(geschichten)) return zaehler;
+    geschichten.forEach((g) => {
+        if (!g || g.datei_kennung === null || g.datei_kennung === undefined) return;
+        const k = String(g.datei_kennung);
+        zaehler[k] = (zaehler[k] || 0) + 1;
+    });
+    return zaehler;
+}
+
 // =========================================================================
 // Verdrahtung (DOM). Läuft nur im Browser — Node-Tests schneiden oben
 // stehende Funktionen wörtlich aus und lassen den Rest unangetastet.
@@ -98,6 +124,12 @@ function erzaehlIndex(i, n, richtung) {
         index: 0,                  // Diashow-Index
         objektUrls: new Set(),     // Buchführung, damit sie freigegeben werden
         aufnahmeLaeuft: false,
+        ansicht: 'uebersicht',     // 'uebersicht' (alle Bilder) | 'einzel' (ein Bild)
+        rasterUrls: new Set(),     // Objekt-URLs der Kacheln — leben bis zum Verlassen der Gruppe
+        rasterLauf: 0,             // Zähler: veraltete Kachel-Ladungen verwerfen
+        rasterBeobachter: null,
+        rasterScroll: 0,           // Scrollstand der Übersicht beim Öffnen eines Bildes
+        entwurf: { uebersicht: '', einzel: '' }, // halbfertiger Text je Ansicht
     };
 
     function el(id) { return document.getElementById(id); }
@@ -109,18 +141,23 @@ function erzaehlIndex(i, n, richtung) {
 
     /** fetch -> Blob -> Objekt-URL (wie fotoBildLaden in app.js). Fehlschlag
      *  -> null, damit die Diashow beim nächsten/vorigen Bild weiterläuft. */
-    async function bildLaden(url) {
+    async function objektUrlHolen(url) {
         try {
             const res = await fetch(url);
             if (!res || res.ok !== true) return null;
             const blob = await res.blob();
             if (!blob) return null;
-            const objektUrl = URL.createObjectURL(blob);
-            zustand.objektUrls.add(objektUrl);
-            return objektUrl;
+            return URL.createObjectURL(blob);
         } catch (_e) {
             return null;
         }
+    }
+
+    /** Großbild der Einzelansicht: wird beim nächsten Bildwechsel freigegeben. */
+    async function bildLaden(url) {
+        const objektUrl = await objektUrlHolen(url);
+        if (objektUrl) zustand.objektUrls.add(objektUrl);
+        return objektUrl;
     }
 
     function objekteFreigeben() {
@@ -159,6 +196,9 @@ function erzaehlIndex(i, n, richtung) {
         const diashow = el('erzaehl-diashow-spalte');
         if (liste) liste.hidden = false;
         if (diashow) diashow.hidden = true;
+        rasterFreigeben();
+        objekteFreigeben();
+        ansichtUmschalten('uebersicht');
         zustand.aktuellesEreignis = null;
         zustand.detail = null;
     }
@@ -264,7 +304,168 @@ function erzaehlIndex(i, n, richtung) {
         if (listeSpalte) listeSpalte.hidden = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
         if (diashowSpalte) diashowSpalte.hidden = false;
 
+        // Erst die Übersicht mit allen Bildern (Wunsch 06.10.2026), ein Bild
+        // öffnet sich einzeln erst per Antippen.
+        objekteFreigeben();
+        rasterAufbauen();
+        ansichtUmschalten('uebersicht');
+        if (diashowSpalte) diashowSpalte.scrollTop = 0;
+    }
+
+    // ---- Übersicht: alle Bilder der Gruppe (06.10.2026) -------------------
+    // Kacheln laden erst, wenn sie ins Bild scrollen, höchstens vier zugleich.
+    // Ihre Objekt-URLs leben bis zum Verlassen der Gruppe (eigene Buchführung —
+    // die Einzelansicht gibt bei jedem Bildwechsel nur ihre eigenen frei).
+
+    const KACHEL_GROESSE = '480x480';
+    const KACHEL_PARALLEL = 4;
+    const kachelSchlange = [];
+    let kachelnLaufend = 0;
+
+    function kachelSchlangeAbarbeiten() {
+        while (kachelnLaufend < KACHEL_PARALLEL && kachelSchlange.length) {
+            const aufgabe = kachelSchlange.shift();
+            kachelnLaufend++;
+            Promise.resolve().then(aufgabe).catch(() => {}).finally(() => {
+                kachelnLaufend--;
+                kachelSchlangeAbarbeiten();
+            });
+        }
+    }
+
+    function rasterFreigeben() {
+        zustand.rasterLauf++;                 // laufende Ladungen verwerfen ihr Ergebnis
+        kachelSchlange.length = 0;
+        if (zustand.rasterBeobachter) {
+            zustand.rasterBeobachter.disconnect();
+            zustand.rasterBeobachter = null;
+        }
+        zustand.rasterUrls.forEach((u) => {
+            try { URL.revokeObjectURL(u); } catch (_e) { /* schon weg */ }
+        });
+        zustand.rasterUrls.clear();
+        const raster = el('erzaehl-raster');
+        if (raster) raster.textContent = '';
+    }
+
+    function kachelLaden(kachel) {
+        const lauf = zustand.rasterLauf;
+        const fileid = kachel.getAttribute('data-datei');
+        kachelSchlange.push(async () => {
+            if (lauf !== zustand.rasterLauf) return;
+            const url = await objektUrlHolen(bildUrl(fileid, KACHEL_GROESSE));
+            if (lauf !== zustand.rasterLauf) {
+                if (url) { try { URL.revokeObjectURL(url); } catch (_e) { /* schon weg */ } }
+                return;
+            }
+            if (!url) { kachel.classList.add('leer'); return; }
+            zustand.rasterUrls.add(url);
+            const bild = document.createElement('img');
+            bild.alt = '';
+            bild.src = url;
+            kachel.insertBefore(bild, kachel.firstChild);
+        });
+        kachelSchlangeAbarbeiten();
+    }
+
+    function rasterAufbauen() {
+        rasterFreigeben();
+        const raster = el('erzaehl-raster');
+        const detail = zustand.detail;
+        if (!raster || !detail) return;
+        const dateien = Array.isArray(detail.datei_kennungen) ? detail.datei_kennungen : [];
+        const kacheln = dateien.map((kennung, i) => {
+            const kachel = document.createElement('button');
+            kachel.type = 'button';
+            kachel.className = 'erzaehl-kachel';
+            kachel.setAttribute('role', 'listitem');
+            kachel.setAttribute('data-datei', String(kennung));
+            kachel.setAttribute('aria-label', `Bild ${i + 1} von ${dateien.length} öffnen`);
+            const marker = document.createElement('span');
+            marker.className = 'erzaehl-kachel-marker';
+            marker.hidden = true;
+            kachel.appendChild(marker);
+            kachel.addEventListener('click', () => bildOeffnen(i));
+            raster.appendChild(kachel);
+            return kachel;
+        });
+        if (typeof IntersectionObserver === 'function') {
+            const beobachter = new IntersectionObserver((eintraege) => {
+                eintraege.forEach((e) => {
+                    if (!e.isIntersecting) return;
+                    beobachter.unobserve(e.target);
+                    kachelLaden(e.target);
+                });
+            }, { rootMargin: '300px' });
+            zustand.rasterBeobachter = beobachter;
+            kacheln.forEach((k) => beobachter.observe(k));
+        } else {
+            kacheln.forEach(kachelLaden);
+        }
+        kachelMarkerAktualisieren();
+    }
+
+    function kachelMarkerAktualisieren() {
+        const raster = el('erzaehl-raster');
+        if (!raster || !zustand.detail) return;
+        const zahlen = erzaehlGeschichtenJeBild(zustand.detail.geschichten);
+        raster.querySelectorAll('.erzaehl-kachel').forEach((kachel) => {
+            const n = zahlen[kachel.getAttribute('data-datei')] || 0;
+            const marker = kachel.querySelector('.erzaehl-kachel-marker');
+            if (!marker) return;
+            marker.hidden = !n;
+            marker.textContent = n ? `✎ ${n}` : '';
+        });
+    }
+
+    /** Schaltet Übersicht <-> Einzelansicht. Halbfertiger Text bleibt je
+     *  Ansicht stehen, damit ein Gruppen-Text nicht versehentlich an einem
+     *  Bild landet (und umgekehrt). */
+    function ansichtUmschalten(neu) {
+        const feld = el('erzaehl-text');
+        if (feld && neu !== zustand.ansicht) {
+            zustand.entwurf[zustand.ansicht] = feld.value;
+            feld.value = zustand.entwurf[neu] || '';
+        }
+        zustand.ansicht = neu;
+        const einzel = neu === 'einzel';
+        const uebersicht = el('erzaehl-uebersicht');
+        const einzelBlock = el('erzaehl-einzel');
+        const zurListe = el('erzaehl-zurueck-zur-liste');
+        if (uebersicht) uebersicht.hidden = einzel;
+        if (einzelBlock) einzelBlock.hidden = !einzel;
+        if (zurListe) zurListe.hidden = einzel;
+        if (feld) feld.placeholder = einzel ? 'Erzähl etwas zu diesem Bild …' : 'Erzähl etwas zur ganzen Gruppe …';
+
+        const kopf = el('erzaehl-uebersicht-kopf');
+        if (kopf && !einzel) {
+            const n = (zustand.detail && Array.isArray(zustand.detail.datei_kennungen))
+                ? zustand.detail.datei_kennungen.length : 0;
+            kopf.textContent = n === 0 ? 'Keine Bilder in diesem Ereignis.'
+                : `${n} Bild${n === 1 ? '' : 'er'} · Antippen öffnet ein Bild einzeln`;
+        }
+        if (zustand.detail) {
+            geschichtenAnzeigen();
+            kachelMarkerAktualisieren();
+        }
+    }
+
+    function bildOeffnen(index) {
+        const spalte = el('erzaehl-diashow-spalte');
+        if (zustand.ansicht === 'uebersicht' && spalte) zustand.rasterScroll = spalte.scrollTop;
+        zustand.index = index;
+        ansichtUmschalten('einzel');
+        if (spalte) spalte.scrollTop = 0;
         bildZeigen();
+    }
+
+    function zurUebersicht() {
+        objekteFreigeben();                 // Großbild raus, Kacheln bleiben
+        const bild = el('erzaehl-bild');
+        if (bild) { bild.hidden = true; bild.removeAttribute('src'); }
+        ansichtUmschalten('uebersicht');
+        const spalte = el('erzaehl-diashow-spalte');
+        if (spalte) spalte.scrollTop = zustand.rasterScroll;
     }
 
     function aktuelleDateiKennung() {
@@ -304,7 +505,7 @@ function erzaehlIndex(i, n, richtung) {
         // Veraltete Antwort (schnell weitergeklickt / Ereignis gewechselt):
         // verwerfen, sonst zeigt die Diashow ein anderes Bild als der Zähler
         // und eine Geschichte landet am falschen Foto.
-        if (zustand.index !== meinIndex || zustand.detail !== meinDetail) {
+        if (zustand.index !== meinIndex || zustand.detail !== meinDetail || zustand.ansicht !== 'einzel') {
             if (objektUrl) {
                 try { URL.revokeObjectURL(objektUrl); } catch (_e) { /* schon weg */ }
                 zustand.objektUrls.delete(objektUrl);
@@ -325,7 +526,12 @@ function erzaehlIndex(i, n, richtung) {
     }
 
     function geschichtenAnzeigen() {
-        const container = el('erzaehl-geschichten');
+        // Übersicht: Geschichten zur ganzen Gruppe über dem Raster;
+        // Einzelansicht: zu diesem Bild + zur ganzen Gruppe unter dem Bild.
+        const imRaster = zustand.ansicht !== 'einzel';
+        const container = el(imRaster ? 'erzaehl-gruppen-geschichten' : 'erzaehl-geschichten');
+        const anderer = el(imRaster ? 'erzaehl-geschichten' : 'erzaehl-gruppen-geschichten');
+        if (anderer) anderer.textContent = '';
         if (!container) return;
         container.textContent = '';
         const detail = zustand.detail;
@@ -355,11 +561,12 @@ function erzaehlIndex(i, n, richtung) {
             });
         };
 
-        abschnitt('Zu diesem Bild', zumBild);
-        abschnitt('Zum Ereignis', zumEreignis);
+        if (!imRaster) abschnitt('Zu diesem Bild', zumBild);
+        abschnitt('Zur ganzen Gruppe', zumEreignis);
     }
 
     function diashowSchritt(richtung) {
+        if (zustand.ansicht !== 'einzel') return; // in der Übersicht gibt es kein Blättern
         const detail = zustand.detail;
         if (!detail || !Array.isArray(detail.datei_kennungen)) return;
         zustand.index = erzaehlIndex(zustand.index, detail.datei_kennungen.length, richtung);
@@ -376,13 +583,10 @@ function erzaehlIndex(i, n, richtung) {
         if (!text) return;
         if (!zustand.aktuellesEreignis) return;
 
-        const body = {
-            ereignis_kennung: zustand.aktuellesEreignis,
-            text,
-            quelle: 'tippen',
-        };
-        const dk = aktuelleDateiKennung();
-        if (dk !== null && dk !== undefined) body.datei_kennung = dk;
+        // Übersicht -> Geschichte zur ganzen Gruppe (ohne Bild),
+        // Einzelansicht -> zu diesem Bild.
+        const dk = zustand.ansicht === 'einzel' ? aktuelleDateiKennung() : null;
+        const body = erzaehlGeschichteKoerper(zustand.aktuellesEreignis, text, dk);
 
         try {
             const res = await fetch(`${apiBase()}/api/erzaehlen/geschichten`, {
@@ -403,6 +607,7 @@ function erzaehlIndex(i, n, richtung) {
                 zustand.detail.geschichten.push(daten.geschichte);
             }
             geschichtenAnzeigen();
+            kachelMarkerAktualisieren();
         } catch (_e) {
             if (hinweis) hinweis.textContent = 'Verbindung zum Backend fehlgeschlagen.';
         }
@@ -544,7 +749,10 @@ function erzaehlIndex(i, n, richtung) {
 
     function tastaturBehandeln(ev) {
         if (!zustand.offen || el('erzaehl-diashow-spalte').hidden) return;
-        if (ev.key === 'Escape') { sheetSchliessen(); return; }
+        if (ev.key === 'Escape') {
+            if (zustand.ansicht === 'einzel') zurUebersicht(); else sheetSchliessen();
+            return;
+        }
         if (ev.key === 'ArrowRight') { diashowSchritt(1); }
         else if (ev.key === 'ArrowLeft') { diashowSchritt(-1); }
     }
@@ -577,6 +785,8 @@ function erzaehlIndex(i, n, richtung) {
 
         const zurueckBtn = el('erzaehl-zurueck-zur-liste');
         if (zurueckBtn) zurueckBtn.addEventListener('click', zurZurListe);
+        const zurUebersichtBtn = el('erzaehl-zur-uebersicht');
+        if (zurUebersichtBtn) zurUebersichtBtn.addEventListener('click', zurUebersicht);
 
         const vorBtn = el('erzaehl-vor');
         if (vorBtn) vorBtn.addEventListener('click', () => diashowSchritt(-1));
