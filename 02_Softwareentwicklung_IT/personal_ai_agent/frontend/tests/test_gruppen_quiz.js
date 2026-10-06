@@ -29,7 +29,8 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
-               'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit'];
+               'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
+               'gesichtKennung', 'gesichtRahmen'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -53,6 +54,33 @@ console.log('gruppenAusschnitt');
         'Vorschau anders gedreht (Hoch statt Quer) → null statt falscher Ausschnitt');
     pruefe(f.gruppenAusschnitt(null, 1000, 750, 480, 360) === null
         && f.gruppenAusschnitt([1, 2, 3, 4], 0, 750, 480, 360) === null, 'Unsinn → null');
+}
+
+console.log('gesichtKennung');
+pruefe(f.gesichtKennung({ fileid: 123 }) === 123, 'Gesichterliste: fileid');
+pruefe(f.gesichtKennung({ bild_id: '456' }) === '456',
+    'Personenvorschlag: bild_id (sonst leere Kacheln bei benannten Personen)');
+pruefe(f.gesichtKennung({ fileid: 123, bild_id: '456' }) === 123, 'fileid hat Vorrang');
+pruefe(f.gesichtKennung({ fileid: '', bild_id: '456' }) === '456', 'leeres fileid → bild_id');
+pruefe(f.gesichtKennung(null) === null && f.gesichtKennung({}) === null,
+    'ohne Kennung → null');
+
+console.log('gesichtRahmen');
+{
+    const r = f.gesichtRahmen({ bbox: [400, 300, 200, 150], breite: 1600, hoehe: 1200 });
+    pruefe(Array.isArray(r.bbox_norm) && r.bbox_norm.length === 4, 'vier Werte');
+    pruefe(Math.abs(r.bbox_norm[0] - 0.25) < 1e-9 && Math.abs(r.bbox_norm[1] - 0.25) < 1e-9
+        && Math.abs(r.bbox_norm[2] - 0.125) < 1e-9 && Math.abs(r.bbox_norm[3] - 0.125) < 1e-9,
+        'auf 0..1 normiert (x, y, Breite, Höhe)');
+    pruefe(r.bbox[2] === 200 && r.bbox[3] === 150, 'Pixel-bbox bleibt erhalten');
+    pruefe(f.gesichtRahmen({ bbox: [1, 2, 3, 4] }) === null
+        && f.gesichtRahmen({ bbox: [1, 2, 3, 4], breite: 0, hoehe: 100 }) === null,
+        'ohne Bildmaße → null (kein Rahmen auf dem falschen Fleck)');
+    pruefe(f.gesichtRahmen({ bbox: [1, 2, 0, 40], breite: 100, hoehe: 100 }) === null
+        && f.gesichtRahmen({ bbox: null, breite: 100, hoehe: 100 }) === null,
+        'unbrauchbare bbox → null');
+    const rand = f.gesichtRahmen({ bbox: [0, 0, 1600, 1200], breite: 1600, hoehe: 1200 });
+    pruefe(rand.bbox_norm[2] === 1 && rand.bbox_norm[3] === 1, 'ganzes Bild → 1 x 1');
 }
 
 console.log('Texte');

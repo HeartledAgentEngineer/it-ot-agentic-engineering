@@ -42,6 +42,35 @@ function gruppenAusschnitt(bbox, breite, hoehe, bildW, bildH, rand) {
     return { x: x, y: y, w: seite, h: seite };
 }
 
+/** Dateikennung eines Beispiels: die Gesichterliste liefert ``fileid``, die
+ *  Personenvorschläge (personen_beispiele.json) liefern ``bild_id``. Ohne
+ *  diese Fallunterscheidung bleiben die Kacheln bei benannten Personen leer. */
+function gesichtKennung(beispiel) {
+    if (!beispiel) return null;
+    const id = (beispiel.fileid != null && beispiel.fileid !== '')
+        ? beispiel.fileid : beispiel.bild_id;
+    return (id != null && id !== '') ? id : null;
+}
+
+/** Rahmen des referenzierten Gesichts für die Gesamtansicht (normiert 0..1).
+ *  bbox = [x, y, w, h] in Originalpixeln (breite x hoehe); gerechnet wird mit
+ *  bbox_norm, damit Zoom und Drehung den Rahmen am Gesicht lassen. Fehlen die
+ *  Maße oder ist die bbox unbrauchbar, kommt null — dann wird nichts markiert
+ *  (kein Rahmen auf dem falschen Fleck). */
+function gesichtRahmen(beispiel) {
+    if (!beispiel) return null;
+    const b = beispiel.bbox;
+    const br = Number(beispiel.breite), ho = Number(beispiel.hoehe);
+    if (!Array.isArray(b) || b.length < 4 || !(br > 0) || !(ho > 0)) return null;
+    const werte = [Number(b[0]), Number(b[1]), Number(b[2]), Number(b[3])];
+    if (!werte.every(function (w) { return Number.isFinite(w); })
+        || !(werte[2] > 0) || !(werte[3] > 0)) return null;
+    return {
+        bbox_norm: [werte[0] / br, werte[1] / ho, werte[2] / br, werte[3] / ho],
+        bbox: werte,
+    };
+}
+
 /** Zeitraum einer Gruppe: „2016–2025", „2022" oder "" (ohne Daten). */
 function gruppenZeitraum(von, bis) {
     const a = (typeof von === 'string') ? von.slice(0, 4) : '';
@@ -300,14 +329,18 @@ function gruppenNotizZeit(zeit) {
         }
     }
 
-    async function vollbildOeffnen(fileid) {
+    async function vollbildOeffnen(fileid, gesicht) {
         if (typeof zeigeBildVollbild !== 'function') return;
         const url = await vorschauLaden(fileid, '800x800');
         if (!url) { melde('⚠️ Foto konnte nicht geladen werden.', false); return; }
         zustand.objektUrls.add(url);
         const gross = new Image();
         gross.src = url;
-        zeigeBildVollbild(gross, []);
+        // Der gelbe Rahmen markiert GENAU das Gesicht, das zu dieser Gruppe
+        // gehört (Sebastian 06.10.2026): auf Gruppenfotos ist sonst nicht zu
+        // erkennen, ob das richtige Gesicht zugeordnet wurde. Ohne brauchbare
+        // Daten wird nichts markiert.
+        zeigeBildVollbild(gross, gesicht ? [gesicht] : []);
     }
 
     /** Kachel mit Gesichtsausschnitt. Standard: Antippen zeigt das ganze Foto.
@@ -315,6 +348,11 @@ function gruppenNotizZeit(zeit) {
      *  Lupe in der Ecke das Foto; optionen.verzoegert lädt erst, wenn sichtbar. */
     function kachel(beispiel, klein, optionen) {
         const opt = optionen || {};
+        // Die Kennung heißt je nach Quelle ``fileid`` (Gesichterliste) oder
+        // ``bild_id`` (Personenvorschläge); ``rahmen`` markiert im Vollbild
+        // genau das Gesicht, das zu dieser Gruppe gehört.
+        const kennung = gesichtKennung(beispiel);
+        const rahmen = gesichtRahmen(beispiel);
         const box = document.createElement('button');
         box.type = 'button';
         box.className = 'gruppen-kachel' + (klein ? ' klein' : '');
@@ -324,7 +362,7 @@ function gruppenNotizZeit(zeit) {
         leinwand.height = 160;
         box.appendChild(leinwand);
         const laden = async () => {
-            const url = await vorschauLaden(beispiel.fileid, '480x480');
+            const url = await vorschauLaden(kennung, '480x480');
             if (!url) { box.classList.add('leer'); return; }
             const bild = new Image();
             bild.onload = () => {
@@ -360,10 +398,10 @@ function gruppenNotizZeit(zeit) {
             lupe.setAttribute('role', 'button');
             lupe.setAttribute('aria-label', 'Ganzes Foto ansehen');
             lupe.textContent = '⤢';
-            lupe.addEventListener('click', (ev) => { ev.stopPropagation(); vollbildOeffnen(beispiel.fileid); });
+            lupe.addEventListener('click', (ev) => { ev.stopPropagation(); vollbildOeffnen(kennung, rahmen); });
             box.appendChild(lupe);
         } else {
-            box.addEventListener('click', () => vollbildOeffnen(beispiel.fileid));
+            box.addEventListener('click', () => vollbildOeffnen(kennung, rahmen));
         }
         return box;
     }
