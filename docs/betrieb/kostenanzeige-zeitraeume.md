@@ -106,6 +106,33 @@ es schreibt je Aufruf Chat, Zeit, Modell, Token (inkl. Cache) und Kosten mit —
 damit lässt sich jede Kontozeile 1:1 gegen die Aufrufe desselben Tages und
 Modells stellen.
 
+### Stundengenau: Kennung je Aufruf (Plugin 1.1.0)
+
+Die Oberfläche zeigt Einzelzeilen (Zeit, App, **API-Key**, Tempo, TTFT, Finish);
+der Management-Schlüssel bekommt diese Liste **nicht** (jeder Listen-Endpunkt
+antwortet 404). Er bekommt aber die Zeile zu einer **Kennung**:
+
+```
+GET /api/v1/generation?id=<kennung>   ->   created_at (UTC, ms), model,
+provider_name, tokens_prompt, tokens_completion, native_tokens_cached,
+native_tokens_reasoning, total_cost, latency, generation_time, finish_reason
+```
+
+Deshalb schreibt das Plugin (`kosten-protokoll`, Fassung **1.1.0**) zu jedem
+Aufruf die Kennung (`gen-…`) mit, und `hermes/scripts/kosten_konto_zeilen.py`
+holt daraus die Kontozahl: Tabelle `hermes/kosten/konto_zeilen.csv` mit
+**Chat, Tag, Stunde, Modell, Anbieter, Input, Output, Cache, Denk-Token,
+Kosten in USD / EUR / EUR inkl. Aufschlag, Finish, Dauer, Kennung** — dieselben
+Werte wie im Log, nur mit dem Chat verbunden. Ablage je Kennung:
+`hermes/kosten/konto_zeilen.json` (idempotent, holt nur Neues).
+
+Gemessen (06.10.2026): der Aufruf `gen-1791303973-…` lieferte 18:26:13 lokal,
+Anbieter `Together`, 5/6 Token, 0,0000171 USD, Finish `length`, 158 ms — die
+Kontozahl stimmt mit der Antwort des Modells überein. Die Zeile erscheint mit
+**Sekunden bis etwa einer Minute Verzögerung** (erster Versuch: 404, danach da).
+Weil die Zeit vom Konto kommt, ist die Zuordnung **taggenau und stundengenau**,
+ohne Schätzung.
+
 ## Anzeige erkennt den alten Rechenteil selbst
 
 Jede Antwort des Rechenteils trägt ihre Fassung (`version`) **und** den Zeitraum,
