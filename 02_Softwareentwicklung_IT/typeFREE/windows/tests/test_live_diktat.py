@@ -165,3 +165,59 @@ def test_abholen_gibt_happen_und_leert_die_liste():
     fertig = typefree.live_abholen()
     assert len(fertig) == 1
     assert typefree.live_abholen() == []
+
+
+# ── Schritt 3: Happen transkribieren und roh einfügen ─────────────────────────
+
+def test_happen_wird_transkribiert_und_eingefuegt():
+    """Der Kern des Live-Modus: fertiger Happen → Text steht im Dokument."""
+    eingefuegt = []
+    text = typefree._live_stueck_verarbeiten(
+        sprache(4), lambda stueck: ('hallo welt', 'mai'), eingefuegt.append)
+    assert text == 'hallo welt'
+    assert eingefuegt == ['hallo welt']
+
+
+def test_leerer_happen_loest_keinen_aufruf_aus():
+    """Ein leerer Happen darf weder Kosten noch Tastendrücke verursachen."""
+    gerufen = []
+    assert typefree._live_stueck_verarbeiten(
+        np.zeros(0, dtype=np.float32), lambda s: gerufen.append(1), print) is None
+    assert gerufen == []
+
+
+def test_happen_ohne_text_wird_nicht_eingefuegt():
+    """Wenn das Modell nichts liefert, bleibt das Dokument unberührt."""
+    eingefuegt = []
+    assert typefree._live_stueck_verarbeiten(
+        sprache(4), lambda s: ('', 'mai'), eingefuegt.append) is None
+    assert eingefuegt == []
+
+
+def test_einfuegen_merkt_sich_den_text(monkeypatch):
+    """Nach dem Einfügen ist bekannt, was im Dokument steht (für den Abschluss)."""
+    kopiert, gedrueckt = [], []
+    monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
+    monkeypatch.setattr(typefree.pyautogui, 'hotkey',
+                        lambda *tasten: gedrueckt.append(tasten))
+    monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
+    with typefree.lock:
+        typefree.live_teile.clear()
+
+    laenge = typefree._live_text_einfuegen('hallo welt')
+
+    assert laenge == len('hallo welt')
+    assert kopiert == ['hallo welt']
+    assert gedrueckt == [('ctrl', 'v')]
+    assert [teil['text'] for teil in typefree.live_teile] == ['hallo welt']
+    assert typefree.live_teile[0]['fenster'] == 'Editor'
+    with typefree.lock:
+        typefree.live_teile.clear()
+
+
+def test_leerer_text_wird_nicht_eingefuegt(monkeypatch):
+    """Kein Fenster bekommt eine leere Zwischenablage zu sehen."""
+    kopiert = []
+    monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
+    assert typefree._live_text_einfuegen('   ') == 0
+    assert kopiert == []

@@ -799,14 +799,19 @@ def recording_limit_reached(frames, sample_rate=SAMPLE_RATE,
     return recorded_seconds(frames, sample_rate) >= limit
 
 
-# ── Live-Modus: Happen schon während der Aufnahme schneiden (Schritt 2) ───────
+# ── Live-Modus: Happen während der Aufnahme schneiden und einfügen ───────────
 # Der Aufnahme-Callback darf nichts rechnen (er läuft im Audio-Thread), also
 # sammelt ein eigener Worker die Blöcke ein und legt fertige Happen in
-# `live_happen` ab. Transkribiert und eingefügt werden sie in Schritt 3.
+# `live_happen` ab. Ein zweiter Worker holt sie ab, transkribiert sie und fügt
+# sie roh am Cursor ein. Was eingefügt wurde, steht in `live_teile` — damit
+# kann der Abschluss (Schritt 4) den eingefügten Block später durch die
+# geglättete Fassung ersetzen.
 
 LIVE_TAKT_SEKUNDEN = 0.5      # so oft schaut der Worker nach, ob ein Happen fertig ist
 live_modus = False            # Schritt 5: aus config.json bzw. Tray setzen
 live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspeicher
+live_teile = []               # was schon im Dokument steht: {'text', 'fenster'}
+live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
 
 
 class LivePuffer:
@@ -884,6 +889,7 @@ def _live_worker(session):
     `session` wie beim Aufnahme-Wächter: ein Worker aus einer früheren Aufnahme
     beendet sich, statt in die neue hineinzuschneiden.
     """
+    global live_geschnitten
     puffer = LivePuffer()
     gesehen = 0
     while True:
@@ -896,8 +902,80 @@ def _live_worker(session):
         if happen is not None and happen.size:
             with lock:
                 live_happen.append(happen)
+                live_geschnitten = puffer.geschnitten / SAMPLE_RATE
             log.info('Live: Happen geschnitten — %.1f s, %.1f s Rest',
                      happen.shape[0] / SAMPLE_RATE, puffer.rest_sekunden())
+
+
+def _fenster_titel():
+    """Titel des Fensters, in das gerade eingefügt wird (für den Abschluss)."""
+    try:
+        fenster = pyautogui.getActiveWindow()
+        return fenster.title if fenster else ''
+    except Exception:
+        return ''
+
+
+def _live_text_einfuegen(text):
+    """Fügt einen Happen roh am Cursor ein und merkt sich, was angekommen ist.
+
+    `pyautogui.hotkey` meldet nicht, ob das Zielfenster den Text angenommen hat.
+    Deshalb wird der eingefügte Text mitgeschrieben: Der Abschluss ersetzt genau
+    diesen Block durch die geglättete Fassung.
+    """
+    if not text or not text.strip():
+        return 0
+    titel = _fenster_titel()
+    pyperclip.copy(text)
+    time.sleep(0.15)
+    pyautogui.hotkey('ctrl', 'v')
+    with lock:
+        live_teile.append({'text': text, 'fenster': titel})
+    return len(text)
+
+
+def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen):
+    """Ein Happen: transkribieren und roh einfügen — die Nähte sind zum Prüfen da.
+
+    Gibt den eingefügten Text zurück (oder None, wenn nichts eingefügt wurde).
+    """
+    if stueck is None or not getattr(stueck, 'size', 0):
+        return None
+    text, anbieter = transkribieren(stueck)
+    if not text or not text.strip():
+        log.warning('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
+        return None
+    einfuegen(text)
+    log.info('Live eingefügt (%s, %.1f s): %s', anbieter,
+             stueck.shape[0] / SAMPLE_RATE, text)
+    return text
+
+
+def _live_schreiber(session):
+    """Holt fertige Happen ab, transkribiert sie und fügt sie roh ein.
+
+    Läuft, solange die Aufnahme läuft, und arbeitet danach die Warteschlange
+    leer — kein geschnittener Happen darf liegen bleiben.
+    """
+    def transkribieren(stueck):
+        buffer = io.BytesIO()
+        sf.write(buffer, stueck, SAMPLE_RATE, format='WAV', subtype='PCM_16')
+        buffer.seek(0)
+        buffer.name = 'audio.wav'
+        return transcribe_audio(buffer, transkriptions_clients())
+
+    while True:
+        time.sleep(LIVE_TAKT_SEKUNDEN / 2)
+        with lock:
+            weiter = is_recording and session == _session
+        for stueck in live_abholen():
+            try:
+                _live_stueck_verarbeiten(stueck, transkribieren,
+                                         _live_text_einfuegen)
+            except Exception:
+                log.exception('Live-Happen fehlgeschlagen')
+        if not weiter and not live_happen:
+            return
 
 
 def _reconnect_microphone():
@@ -986,6 +1064,7 @@ def start_recording():
     with lock:
         audio_frames = []
         live_happen.clear()          # keine Happen aus der vorigen Aufnahme behalten
+        live_teile.clear()           # und keinen eingefügten Block der vorigen
         _last_data_at   = jetzt
         _last_signal_at = jetzt
         _session += 1
@@ -1005,6 +1084,8 @@ def start_recording():
     if live_modus:
         threading.Thread(target=_live_worker, args=(session,),
                          name='live', daemon=True).start()
+        threading.Thread(target=_live_schreiber, args=(session,),
+                         name='live-schreiber', daemon=True).start()
     log.info('Aufnahme läuft')
 
 
