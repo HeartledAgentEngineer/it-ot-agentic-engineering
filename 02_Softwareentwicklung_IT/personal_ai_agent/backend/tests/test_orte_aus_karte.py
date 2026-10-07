@@ -344,3 +344,53 @@ def test_zuordnen_eigener_ort_gewinnt_vor_der_karte(tmp_path):
     zeilen = {z["fileid"]: z for z in oak.csv_lesen(str(ziel))}
     assert zeilen["800"]["landmarke"] == "bei Testoma" and zeilen["800"]["landmarke_art"] == "eigener_ort"
     assert zeilen["801"]["landmarke"] != "bei Testoma"                         # ~280 m weg: Karte
+
+
+# --- Flug-Regel: Fensterblick aus dem Flugzeug (Issue #4 A4, 07.10.2026) ---
+
+HAMBURG, PALMA, BERLIN, FRANKFURT = (53.55, 9.99), (39.57, 2.65), (52.52, 13.40), (50.10, 8.68)
+
+
+def test_flug_bilder_ohne_gps_zwischen_zwei_fernen_fotos():
+    punkte = {
+        "1": (*HAMBURG, "2019-07-05T10:00:00"),          # Abflug, am Boden
+        "2": (None, None, "2019-07-05T11:30:00"),        # Fensterblick, Flugmodus
+        "3": (None, None, "2019-07-05T12:00:00"),
+        "4": (*PALMA, "2019-07-05T14:00:00"),            # Ankunft, am Boden
+        "5": (None, None, "2019-07-05T16:00:00"),        # nach der Landung
+        "6": (None, None, None),                          # ohne Zeit
+    }
+    assert oak.flug_bilder(punkte) == {"2", "3"}
+
+
+def test_flug_bilder_bahn_und_gps_fehler_sind_kein_flug():
+    bahn = {"1": (*HAMBURG, "2019-07-05T10:00:00"), "2": (None, None, "2019-07-05T11:00:00"),
+            "3": (*BERLIN, "2019-07-05T11:45:00")}                    # ~255 km in 1:45 h
+    assert oak.flug_bilder(bahn) == set()
+    fehler = {"1": (*HAMBURG, "2019-07-05T10:00:00"), "2": (*PALMA, "2019-07-05T10:01:00"),
+              "3": (*HAMBURG, "2019-07-05T10:02:00")}                 # Sprung schneller als jedes Flugzeug
+    assert oak.flug_bilder(fehler) == set()
+
+
+def test_flug_bilder_foto_mit_gps_mitten_im_flug():
+    punkte = {"1": (*HAMBURG, "2019-07-05T10:00:00"), "2": (*FRANKFURT, "2019-07-05T11:00:00"),
+              "3": (*PALMA, "2019-07-05T13:00:00")}
+    assert oak.flug_bilder(punkte) == {"2"}
+
+
+def test_zuordnen_schreibt_waehrend_des_flugs(tmp_path):
+    ordner = tmp_path / "csv"
+    assert oak.main(["--karte", karte_schreiben(tmp_path), "--ordner", str(ordner),
+                     "--alle", "--schreiben"]) == 0
+    vektoren = tmp_path / "flug.jsonl"
+    vektoren.write_text("\n".join(json.dumps(z) for z in [
+        {"bild_id": 1, "metadaten": {"gps": {"lat": 53.70002, "lon": 10.75002}, "aufnahme": "2019-07-05T09:00:00"}},
+        {"bild_id": 2, "metadaten": {"aufnahme": "2019-07-05T11:00:00"}},
+        {"bild_id": 3, "metadaten": {"gps": {"lat": PALMA[0], "lon": PALMA[1]}, "aufnahme": "2019-07-05T14:00:00"}},
+    ]), encoding="utf-8")
+    ziel = tmp_path / "bild_orte.csv"
+    assert oak.main(["--zuordnen", "--ordner", str(ordner), "--vektoren", str(vektoren),
+                     "--bild-orte", str(ziel), "--schreiben"]) == 0
+    zeilen = {z["fileid"]: z for z in oak.csv_lesen(str(ziel))}
+    assert zeilen["2"]["landmarke"] == "Während des Flugs" and zeilen["2"]["landmarke_art"] == "flug"
+    assert zeilen["1"]["landmarke"] == "Gasthaus am See"

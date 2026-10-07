@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import datetime
 import json
 import math
 import os
@@ -113,6 +114,15 @@ STANDARD_VEKTOREN = [os.path.join(os.path.expanduser("~"), "foto_sortierung", n)
     "personen_vektoren_n0929_bildervideos.jsonl", "personen_vektoren_n0929_voll.jsonl")]
 STANDARD_EIGENE_ORTE = os.path.join(os.path.expanduser("~"), "foto_sortierung", "eigene_orte.json")
 EIGENER_ORT_RADIUS_M = 100
+
+# Flug-Regel (Issue #4 A4): Fenster-Fotos aus dem Flugzeug bekommen keinen
+# Ort am Boden, sondern „Während des Flugs". Erkannt über den Schnitt zwischen
+# zwei Fotos mit GPS: Autobahn und ICE kommen im Schnitt nicht auf 250 km/h,
+# schneller als ein Linienflug ist ein GPS-Fehler, kurze Spruenge sind Rauschen.
+FLUG_KMH = 250.0
+FLUG_MAX_KMH = 1100.0
+FLUG_MIN_KM = 50.0
+FLUG_NAME = "Während des Flugs"
 
 
 class FotoNaehe:
@@ -317,6 +327,66 @@ def gps_aus_vektoren(pfad: str) -> dict:
     return punkte
 
 
+def _zeitpunkt(aufnahme):
+    """``"JJJJ-MM-TTTHH:MM:SS"`` -> datetime oder ``None``."""
+    if not isinstance(aufnahme, str) or not aufnahme.strip():
+        return None
+    try:
+        return datetime.datetime.fromisoformat(aufnahme.strip().replace(" ", "T")[:19])
+    except ValueError:
+        return None
+
+
+def _km(lat1, lon1, lat2, lon2) -> float:
+    """Grosskreis-Entfernung in km (Haversine) — Fluege sind lang, die flache Naeherung reicht nicht."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371.0 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def flug_bilder(punkte: dict) -> set:
+    """fileids, die waehrend eines Flugs entstanden sind (``{fileid: (lat, lon, aufnahme)}``).
+
+    Je zwei zeitlich aufeinanderfolgende Fotos **mit** GPS bilden einen
+    Abschnitt. Ein Flugabschnitt liegt vor, wenn sie mindestens ``FLUG_MIN_KM``
+    auseinanderliegen und der Schnitt zwischen ``FLUG_KMH`` und
+    ``FLUG_MAX_KMH`` liegt. Dann gilt:
+      * Fotos **ohne** GPS, die zeitlich dazwischen liegen (Flugmodus,
+        Fensterblick) -> Flug;
+      * ein Foto **mit** GPS -> Flug nur, wenn beide angrenzenden Abschnitte
+        Flugabschnitte sind (Start- und Zielfoto bleiben am Boden).
+    Fotos ohne Aufnahmezeit bleiben aussen vor. Rein, wirft nie.
+    """
+    zeitlich = []
+    for fileid, (lat, lon, aufnahme) in punkte.items():
+        zeit = _zeitpunkt(aufnahme)
+        if zeit is not None:
+            zeitlich.append((zeit, str(fileid), lat, lon))
+    zeitlich.sort(key=lambda z: (z[0], z[1]))
+    mit_gps = [z for z in zeitlich if z[2] is not None and z[3] is not None]
+
+    def ist_flug(a, b) -> bool:
+        stunden = (b[0] - a[0]).total_seconds() / 3600.0
+        if stunden <= 0:
+            return False
+        km = _km(a[2], a[3], b[2], b[3])
+        return km >= FLUG_MIN_KM and FLUG_KMH <= km / stunden <= FLUG_MAX_KMH
+
+    abschnitte = [ist_flug(a, b) for a, b in zip(mit_gps, mit_gps[1:])]
+    flug = set()
+    for i, (a, b) in enumerate(zip(mit_gps, mit_gps[1:])):
+        if not abschnitte[i]:
+            continue
+        for zeit, fileid, lat, lon in zeitlich:
+            if a[0] < zeit < b[0] and (lat is None or lon is None):
+                flug.add(fileid)
+    for i in range(1, len(mit_gps) - 1):
+        if abschnitte[i - 1] and abschnitte[i]:
+            flug.add(mit_gps[i][1])
+    return flug
+
+
 def gps_aus_dateien(pfade) -> dict:
     """Wie ``gps_aus_vektoren``, ueber mehrere Dateien (fehlende werden uebersprungen)."""
     punkte = {}
@@ -444,12 +514,17 @@ def main(argv=None) -> int:
         punkte = gps_aus_dateien(args.vektoren)
         mit_gps = sum(1 for v in punkte.values() if v[0] is not None)
         eigene = eigene_orte_lesen(args.eigene_orte)
-        print(f"Bilder: {len(punkte)} | mit GPS: {mit_gps} | eigene Orte: {len(eigene)}", flush=True)
+        flug = flug_bilder(punkte)
+        print(f"Bilder: {len(punkte)} | mit GPS: {mit_gps} | eigene Orte: {len(eigene)}"
+              f" | während des Flugs: {len(flug)}", flush=True)
         if not args.schreiben:
             print("Trockenlauf: nichts geschrieben (--schreiben zum Schreiben).", flush=True)
             return 0
         zeilen = []
         for fileid, (lat, lon, aufnahme) in punkte.items():
+            if str(fileid) in flug:              # Fensterblick: kein Ort am Boden
+                zeilen.append([fileid, aufnahme or "", "", "", "", FLUG_NAME, "flug", "flug", ""])
+                continue
             if lat is None:
                 zeilen.append([fileid, aufnahme or "", "", "", "", "", "", "ohne GPS", ""])
                 continue
