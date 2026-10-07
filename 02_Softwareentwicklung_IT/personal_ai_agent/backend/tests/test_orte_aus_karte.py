@@ -31,6 +31,14 @@ sys.path.insert(0, WERKZEUGE)
 
 import orte_aus_karte as oak  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _keine_echten_daten(tmp_path, monkeypatch):
+    """Standardpfade (Fotos mit GPS, eigene Orte) zeigen in jedem Test ins Leere —
+    ohne ausdrueckliches ``--vektoren`` liest kein Test Sebastians Daten (07.10.2026)."""
+    monkeypatch.setattr(oak, "STANDARD_VEKTOREN", [str(tmp_path / "keine_vektoren.jsonl")])
+    monkeypatch.setattr(oak, "STANDARD_EIGENE_ORTE", str(tmp_path / "keine_eigenen_orte.json"))
+
 KARTE = """<?xml version='1.0' encoding='UTF-8'?>
 <osm version="0.6" generator="test">
   <node id="1" lat="53.700000" lon="10.750000">
@@ -156,14 +164,14 @@ def test_repo_ziel_ist_gesperrt(tmp_path):
 def test_trockenlauf_schreibt_nichts(tmp_path):
     ordner = tmp_path / "csv"
     assert oak.main(["--karte", karte_schreiben(tmp_path),
-                     "--ordner", str(ordner), "--trocken"]) == 0
+                     "--ordner", str(ordner), "--alle", "--trocken"]) == 0
     assert not os.path.exists(ordner / "osm_adressen.csv")
 
 
 def test_schreiben_legt_tabellen_an(tmp_path):
     ordner = tmp_path / "csv"
     assert oak.main(["--karte", karte_schreiben(tmp_path),
-                     "--ordner", str(ordner), "--schreiben"]) == 0
+                     "--ordner", str(ordner), "--alle", "--schreiben"]) == 0
     adressen = oak.csv_lesen(str(ordner / "osm_adressen.csv"))
     orte = oak.csv_lesen(str(ordner / "osm_orte.csv"))
     assert len(adressen) == 2 and len(orte) == 4
@@ -191,7 +199,7 @@ def test_zuordnen_schreibt_eine_zeile_je_bild(tmp_path):
     # Karten auswerten und Tabellen in den Testordner legen
     ordner = tmp_path / "csv"
     assert oak.main(["--karte", karte_schreiben(tmp_path),
-                     "--ordner", str(ordner), "--schreiben"]) == 0
+                     "--ordner", str(ordner), "--alle", "--schreiben"]) == 0
     # Zwei Bilder: eines am Haus, eines ohne GPS
     vektoren = tmp_path / "vektoren.jsonl"
     vektoren.write_text("\n".join(json.dumps(z) for z in [
@@ -226,7 +234,7 @@ def test_zusammenfassen_verbindet_gebiete_und_ist_wiederholbar(tmp_path):
     ordner = tmp_path / "csv"
     quelle = karte_schreiben(tmp_path)
     for gebiet in ("gebiet_a", "gebiet_b"):
-        assert oak.main(["--karte", quelle, "--ordner", str(ordner / gebiet),
+        assert oak.main(["--karte", quelle, "--ordner", str(ordner / gebiet), "--alle",
                          "--schreiben"]) == 0
     assert oak.main(["--zusammenfassen", "--ordner", str(ordner), "--schreiben"]) == 0
     assert len(oak.csv_lesen(str(ordner / "osm_adressen.csv"))) == 4
@@ -240,3 +248,99 @@ def test_zusammenfassen_ohne_gebiete_meldet_fehler(tmp_path):
     leer = tmp_path / "leer"
     leer.mkdir()
     assert oak.main(["--zusammenfassen", "--ordner", str(leer), "--schreiben"]) == 2
+
+
+# --- Nur Orte rund um die Fotos, keine Adressen (Standard seit 07.10.2026) ---
+
+FERN = """  <node id="99" lat="54.000000" lon="11.200000">
+    <tag k="amenity" v="restaurant"/>
+    <tag k="name" v="Fernes Gasthaus"/>
+  </node>
+</osm>
+"""
+
+
+def _karte_mit_fernem_ort(tmp_path) -> str:
+    ziel = tmp_path / "fern.osm"
+    ziel.write_text(KARTE.replace("</osm>\n", FERN), encoding="utf-8")
+    return str(ziel)
+
+
+def _fotos(tmp_path, punkte) -> str:
+    pfad = tmp_path / "fotos.jsonl"
+    pfad.write_text("\n".join(json.dumps({"bild_id": 800 + i, "metadaten": {
+        "gps": {"lat": lat, "lon": lon} if lat is not None else None}})
+        for i, (lat, lon) in enumerate(punkte)), encoding="utf-8")
+    return str(pfad)
+
+
+def test_foto_naehe_je_umkreis():
+    naehe = oak.FotoNaehe([(53.70, 10.75)], [0.3, 5.0])
+    assert naehe.nah(53.7005, 10.7505, 0.3)            # ~65 m
+    assert not naehe.nah(53.75, 10.75, 0.3)            # ~5,5 km
+    assert naehe.nah(53.73, 10.75, 5.0)                # ~3,3 km
+    assert not naehe.nah(54.00, 11.20, 5.0)            # ~43 km
+
+
+def test_sammle_karte_nur_um_fotos_und_ohne_adressen(tmp_path):
+    naehe = oak.FotoNaehe([(53.70002, 10.75002)], list(oak.UMKREIS_KM.values()) + [oak.UMKREIS_ADRESSE_KM])
+    adressen, orte, zahlen = oak.sammle_karte(_karte_mit_fernem_ort(tmp_path), fotos=naehe, mit_adressen=False)
+    namen = {o[3] for o in orte}
+    assert adressen == [] and "Fernes Gasthaus" not in namen
+    assert {"Gasthaus am See", "Testdorf", "Testberg", "Testwald"} <= namen
+    assert zahlen["ausser_umkreis"] == 1
+
+
+def test_standard_ohne_fotos_bricht_ehrlich_ab(tmp_path):
+    ordner = tmp_path / "csv"
+    assert oak.main(["--karte", karte_schreiben(tmp_path), "--ordner", str(ordner), "--schreiben"]) == 2
+    assert not os.path.exists(ordner / "osm_orte.csv")
+
+
+def test_standard_schreibt_nur_nahe_orte_und_keine_adressen(tmp_path):
+    ordner = tmp_path / "csv"
+    fotos = _fotos(tmp_path, [(53.70002, 10.75002), (None, None)])
+    assert oak.main(["--karte", _karte_mit_fernem_ort(tmp_path), "--ordner", str(ordner),
+                     "--vektoren", fotos, "--schreiben"]) == 0
+    assert oak.csv_lesen(str(ordner / "osm_adressen.csv")) == []       # nur Kopfzeile
+    namen = {o["name"] for o in oak.csv_lesen(str(ordner / "osm_orte.csv"))}
+    assert "Gasthaus am See" in namen and "Fernes Gasthaus" not in namen
+    # mit --mit-adressen: nur die Hausnummer direkt am Foto, nicht der Waldweg (~500 m)
+    ordner2 = tmp_path / "csv2"
+    assert oak.main(["--karte", _karte_mit_fernem_ort(tmp_path), "--ordner", str(ordner2),
+                     "--vektoren", fotos, "--mit-adressen", "--schreiben"]) == 0
+    strassen = [a["strasse"] for a in oak.csv_lesen(str(ordner2 / "osm_adressen.csv"))]
+    assert strassen == ["Lauenburger Strasse"]
+
+
+def test_eigene_orte_lesen_ist_tolerant(tmp_path):
+    pfad = tmp_path / "eigene_orte.json"
+    pfad.write_text(json.dumps([
+        {"name": "bei Testoma", "lat": 53.7, "lon": 10.75},
+        {"name": "", "lat": 1, "lon": 1},
+        {"name": "kaputt", "lat": "x", "lon": 1},
+        {"name": "zu weit", "lat": 95, "lon": 1},
+        "quatsch",
+        {"name": "Nachbar Test", "lat": 53.71, "lon": 10.76, "radius_m": 50},
+    ]), encoding="utf-8")
+    orte = oak.eigene_orte_lesen(str(pfad))
+    assert [(o[2], o[3]) for o in orte] == [("bei Testoma", 100.0), ("Nachbar Test", 50.0)]
+    assert oak.eigene_orte_lesen(str(tmp_path / "fehlt.json")) == []
+    assert oak.eigener_ort(orte, 53.7003, 10.75)[0] == "bei Testoma"          # ~33 m
+    assert oak.eigener_ort(orte, 53.705, 10.75) is None                       # ~550 m
+
+
+def test_zuordnen_eigener_ort_gewinnt_vor_der_karte(tmp_path):
+    ordner = tmp_path / "csv"
+    assert oak.main(["--karte", karte_schreiben(tmp_path), "--ordner", str(ordner),
+                     "--alle", "--schreiben"]) == 0
+    fotos = _fotos(tmp_path, [(53.700020, 10.750020), (53.702000, 10.752000)])
+    eigene = tmp_path / "eigene_orte.json"
+    eigene.write_text(json.dumps([{"name": "bei Testoma", "lat": 53.70001, "lon": 10.75001}]),
+                      encoding="utf-8")
+    ziel = tmp_path / "bild_orte.csv"
+    assert oak.main(["--zuordnen", "--ordner", str(ordner), "--vektoren", fotos,
+                     "--eigene-orte", str(eigene), "--bild-orte", str(ziel), "--schreiben"]) == 0
+    zeilen = {z["fileid"]: z for z in oak.csv_lesen(str(ziel))}
+    assert zeilen["800"]["landmarke"] == "bei Testoma" and zeilen["800"]["landmarke_art"] == "eigener_ort"
+    assert zeilen["801"]["landmarke"] != "bei Testoma"                         # ~280 m weg: Karte

@@ -11,6 +11,19 @@ Wozu dieses Werkzeug:
   1. **Karten auswerten** (``--karte <osm.pbf>``, mehrfach): liest die Karten
      (Geofabrik-Ausschnitte) und schreibt zwei Tabellen als CSV —
      Adressen und benannte Orte (Landmarken). Rein lesend, kein Netz.
+
+     **Standard seit 07.10.2026: nur Orte rund um die Fotos, keine Adressen.**
+     Sebastian: „Brauche nicht alle Adressen … Das ist doch crazy." Ganze
+     Gebiete als Adresstabellen (Hamburg allein 293.330 Adressen) sind weder
+     nötig noch gewollt. Behalten wird ein benannter Ort nur, wenn ein Foto
+     (GPS aus ``--vektoren``) in der Nähe liegt — je Art ein eigener Umkreis
+     (``UMKREIS_KM``: Restaurant/Sehenswürdigkeit 300 m, Wald/See/Berg 2 km,
+     Ortschaft 5 km; Luftlinie). Hausnummern nur mit
+     ``--mit-adressen`` (dann ebenfalls nur ~100 m um Fotos). ``--alle`` stellt
+     die frühere Vollauswertung wieder her.
+     Private Orte (Großeltern, Freunde, Nachbarn) stehen in keiner Karte —
+     die kommen von Sebastian: ``~/foto_sortierung/eigene_orte.json`` (siehe
+     ``eigene_orte_lesen``), beim Zuordnen mit Vorrang vor der Karte.
   2. **Bilder zuordnen** (``--zuordnen``): liest die Tabellen und die GPS-Daten
      der Bilder, sucht zu jedem Punkt die naechste Adresse und die naechsten
      benannten Orte (je Art der naechste) und schreibt ``bild_orte.csv`` —
@@ -29,6 +42,8 @@ Datenschutz (Regeln des Auftrags, hier als Code):
 Aufruf:
     cd backend && .venv/Scripts/python ../tools/foto_sortierung/orte_aus_karte.py \
         --karte ~/foto_sortierung/osm/schleswig-holstein-latest.osm.pbf \
+        --vektoren ~/foto_sortierung/personen_vektoren_n0929_bildervideos.jsonl \
+                   ~/foto_sortierung/personen_vektoren_n0929_voll.jsonl \
         --schreiben
     ... --zuordnen --vektoren ~/foto_sortierung/personen_vektoren_n0929_bildervideos.jsonl \
         --schreiben
@@ -84,6 +99,55 @@ LANDSCHAFT = ("restaurant", "berg", "wasser", "fluss", "wald", "schutzgebiet",
 ORTE = {"city", "town", "village", "hamlet", "suburb", "neighbourhood", "locality"}
 ZELLE = 0.005
 
+# Umkreis je Art um die Fotos (km). Punkte (Restaurant, Museum) muessen nah
+# sein, Flaechen (Wald, See, Nationalpark) haben ihren Mittelpunkt oft weit weg,
+# Ortschaften noch weiter.
+UMKREIS_PUNKT_KM = 0.3
+UMKREIS_FLAECHE_KM = 2.0
+UMKREIS_ORT_KM = 5.0
+UMKREIS_ADRESSE_KM = 0.1
+FLAECHEN = ("berg", "wasser", "fluss", "wald", "schutzgebiet", "flughafen")
+UMKREIS_KM = {art: (UMKREIS_FLAECHE_KM if art in FLAECHEN else UMKREIS_PUNKT_KM) for art in LANDSCHAFT}
+UMKREIS_KM["ort"] = UMKREIS_ORT_KM
+STANDARD_VEKTOREN = [os.path.join(os.path.expanduser("~"), "foto_sortierung", n) for n in (
+    "personen_vektoren_n0929_bildervideos.jsonl", "personen_vektoren_n0929_voll.jsonl")]
+STANDARD_EIGENE_ORTE = os.path.join(os.path.expanduser("~"), "foto_sortierung", "eigene_orte.json")
+EIGENER_ORT_RADIUS_M = 100
+
+
+class FotoNaehe:
+    """Liegt ein Kartenpunkt hoechstens ``r`` km (Luftlinie) von einem Foto entfernt?
+
+    Je Umkreis ein Raster mit Zellen von mindestens ``r`` km Kantenlaenge
+    (mindestens ``ZELLE``); geprueft werden nur die Fotos der Nachbarzellen,
+    dort aber genau. Fotos an praktisch derselben Stelle (4 Nachkommastellen,
+    ~11 m) zaehlen einmal — so bleibt die Pruefung auch am Wohnort mit
+    Tausenden Fotos schnell.
+    """
+
+    def __init__(self, punkte, radien_km):
+        eindeutig = {(round(lat, 4), round(lon, 4)) for lat, lon in punkte}
+        self.punkte = len(eindeutig)
+        self.raster = {}
+        for radius in sorted(set(radien_km)):
+            zelle = max(ZELLE, radius / 111.0)
+            felder = collections.defaultdict(list)
+            for lat, lon in eindeutig:
+                felder[(int(math.floor(lat / zelle)), int(math.floor(lon / zelle)))].append((lat, lon))
+            self.raster[radius] = (zelle, felder)
+
+    def nah(self, lat: float, lon: float, radius_km: float) -> bool:
+        zelle, felder = self.raster[radius_km]
+        zi, zj = int(math.floor(lat / zelle)), int(math.floor(lon / zelle))
+        km_lon = 111.0 * math.cos(math.radians(lat))
+        ring_lon = int(math.ceil(1 / max(0.2, math.cos(math.radians(lat)))))
+        for i in range(zi - 1, zi + 2):
+            for j in range(zj - ring_lon, zj + ring_lon + 1):
+                for plat, plon in felder.get((i, j), ()):
+                    if math.hypot((plat - lat) * 111.0, (plon - lon) * km_lon) <= radius_km:
+                        return True
+        return False
+
 
 def _pruefe_ziel_ausserhalb_repo(pfad: str) -> str:
     """Zieldatei muss AUSSERHALB des Repos liegen (sonst SystemExit(2))."""
@@ -118,11 +182,16 @@ def _klassen(tags) -> list[str]:
     return treffer
 
 
-def sammle_karte(pfad: str, mit_wegen: bool = True) -> tuple:
+def sammle_karte(pfad: str, mit_wegen: bool = True, fotos: "FotoNaehe | None" = None,
+                 mit_adressen: bool = True) -> tuple:
     """Kartendatei lesen -> (adressen, orte). Nur lesend, ohne Netz.
 
     ``adressen``: (lat, lon, strasse, hausnummer, ort)
     ``orte``:     (lat, lon, art, name, zusatz)
+
+    Mit ``fotos`` bleibt nur, was in der Naehe eines Fotos liegt (je Art
+    ``UMKREIS_KM``); weiter weg Liegendes zaehlt als ``ausser_umkreis``.
+    ``mit_adressen=False`` laesst Hausnummern ganz weg.
     """
     import osmium
 
@@ -133,12 +202,18 @@ def sammle_karte(pfad: str, mit_wegen: bool = True) -> tuple:
         def _nimm(self, lat, lon, art, name, zusatz=""):
             if not name:
                 return
+            if fotos is not None and not fotos.nah(lat, lon, UMKREIS_KM.get(art, UMKREIS_PUNKT_KM)):
+                zaehler["ausser_umkreis"] += 1
+                return
             orte.append((lat, lon, art, name, zusatz))
             zaehler[art] += 1
 
         def _adresse(self, lat, lon, tags, mitte=False):
             nummer, strasse = tags.get("addr:housenumber"), tags.get("addr:street")
-            if not nummer or not strasse:
+            if not nummer or not strasse or not mit_adressen:
+                return
+            if fotos is not None and not fotos.nah(lat, lon, UMKREIS_ADRESSE_KM):
+                zaehler["ausser_umkreis"] += 1
                 return
             stadt = (tags.get("addr:city") or tags.get("addr:suburb")
                      or tags.get("addr:village") or "")
@@ -159,7 +234,7 @@ def sammle_karte(pfad: str, mit_wegen: bool = True) -> tuple:
         def way(self, w):
             t = w.tags
             arten = _klassen(t)
-            hat_adresse = bool(t.get("addr:housenumber") and t.get("addr:street"))
+            hat_adresse = bool(t.get("addr:housenumber") and t.get("addr:street")) and mit_adressen
             if not arten and (not hat_adresse or not mit_wegen):
                 return
             try:
@@ -242,6 +317,58 @@ def gps_aus_vektoren(pfad: str) -> dict:
     return punkte
 
 
+def gps_aus_dateien(pfade) -> dict:
+    """Wie ``gps_aus_vektoren``, ueber mehrere Dateien (fehlende werden uebersprungen)."""
+    punkte = {}
+    for pfad in pfade or []:
+        if pfad and os.path.isfile(pfad):
+            punkte.update(gps_aus_vektoren(pfad))
+    return punkte
+
+
+def eigene_orte_lesen(pfad: str) -> list:
+    """Sebastians eigene Orte (Großeltern, Freunde, Nachbarn — stehen in keiner Karte).
+
+    Datei ``eigene_orte.json`` (ausserhalb des Repos)::
+
+        [{"name": "bei Oma", "lat": 53.7, "lon": 10.7, "radius_m": 100}, ...]
+
+    ``radius_m`` ist optional (Standard 100). Kaputte Eintraege werden
+    uebersprungen; fehlt die Datei, gibt es keine eigenen Orte. Wirft nie.
+    """
+    if not pfad or not os.path.isfile(pfad):
+        return []
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        return []
+    eintraege = daten.get("orte") if isinstance(daten, dict) else daten
+    orte = []
+    for e in eintraege if isinstance(eintraege, list) else []:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("name") or "").strip()
+        try:
+            lat, lon = float(e.get("lat")), float(e.get("lon"))
+            radius = float(e.get("radius_m") or EIGENER_ORT_RADIUS_M)
+        except (TypeError, ValueError):
+            continue
+        if name and -90 <= lat <= 90 and -180 <= lon <= 180 and radius > 0:
+            orte.append((lat, lon, name, radius))
+    return orte
+
+
+def eigener_ort(orte: list, lat: float, lon: float):
+    """Naechster eigener Ort, in dessen Radius der Punkt liegt: ``(name, abstand_m)`` oder ``None``."""
+    bester = None
+    for olat, olon, name, radius in orte:
+        d = math.hypot((olat - lat) * 111000.0, (olon - lon) * 111000.0 * math.cos(math.radians(lat)))
+        if d <= radius and (bester is None or d < bester[1]):
+            bester = (name, d)
+    return bester
+
+
 def main(argv=None) -> int:
     zerleger = argparse.ArgumentParser(description=__doc__)
     zerleger.add_argument("--karte", action="append", default=[],
@@ -252,9 +379,14 @@ def main(argv=None) -> int:
                           help="Einzel-Tabellen je Gebiet zur Gesamttabelle verbinden")
     zerleger.add_argument("--ordner", default=STANDARD_ORDNER,
                           help="Zielordner fuer die Tabellen")
-    zerleger.add_argument("--vektoren", default=os.path.join(
-        os.path.expanduser("~"), "foto_sortierung",
-        "personen_vektoren_n0929_bildervideos.jsonl"))
+    zerleger.add_argument("--vektoren", nargs="+", default=STANDARD_VEKTOREN,
+                          help="Vektordateien mit GPS je Foto (Umkreis beim Auswerten, Punkte beim Zuordnen)")
+    zerleger.add_argument("--alle", action="store_true",
+                          help="frühere Vollauswertung: alle Orte und Adressen der Karte, ohne Foto-Umkreis")
+    zerleger.add_argument("--mit-adressen", action="store_true",
+                          help="Hausnummern mitnehmen (nur ~100 m um Fotos)")
+    zerleger.add_argument("--eigene-orte", default=STANDARD_EIGENE_ORTE,
+                          help="eigene Orte (JSON), beim Zuordnen mit Vorrang vor der Karte")
     zerleger.add_argument("--bild-orte", default=os.path.join(
         os.path.expanduser("~"), "foto_sortierung", "bild_orte.csv"))
     zerleger.add_argument("--max-km", type=float, default=2.0)
@@ -309,9 +441,10 @@ def main(argv=None) -> int:
         o_index = index_bauen(orte)
         a_index = index_bauen([(b, l, "adresse", f"{s}|{h}|{st}", "")
                                for (b, l, s, h, st) in adressen])
-        punkte = gps_aus_vektoren(args.vektoren)
+        punkte = gps_aus_dateien(args.vektoren)
         mit_gps = sum(1 for v in punkte.values() if v[0] is not None)
-        print(f"Bilder: {len(punkte)} | mit GPS: {mit_gps}", flush=True)
+        eigene = eigene_orte_lesen(args.eigene_orte)
+        print(f"Bilder: {len(punkte)} | mit GPS: {mit_gps} | eigene Orte: {len(eigene)}", flush=True)
         if not args.schreiben:
             print("Trockenlauf: nichts geschrieben (--schreiben zum Schreiben).", flush=True)
             return 0
@@ -328,6 +461,9 @@ def main(argv=None) -> int:
                 if t:
                     fund.append((t[1], t[2], t[0]))
             naechste = min(fund, key=lambda x: x[2]) if fund else None
+            privat = eigener_ort(eigene, lat, lon)
+            if privat:                       # Sebastians eigener Ort gewinnt vor der Karte
+                naechste = ("eigener_ort", privat[0], privat[1] / 1000.0)
             strasse = hausnummer = ""
             if adr:
                 teile = adr[2].split("|")
@@ -346,14 +482,26 @@ def main(argv=None) -> int:
     if not args.karte:
         print("Bitte --karte <datei> angeben (oder --zuordnen).", flush=True)
         return 2
+    fotos = None
+    if not args.alle:
+        punkte = [(v[0], v[1]) for v in gps_aus_dateien(args.vektoren).values() if v[0] is not None]
+        if not punkte:
+            print("Keine Fotos mit GPS gefunden (--vektoren). Ohne Fotos kein Umkreis - "
+                  "--alle wertet die ganze Karte aus.", flush=True)
+            return 2
+        fotos = FotoNaehe(punkte, list(UMKREIS_KM.values()) + [UMKREIS_ADRESSE_KM])
+        print(f"Umkreis um {len(punkte)} Fotos mit GPS | Adressen: "
+              f"{'nur nah an Fotos' if args.mit_adressen else 'keine'}", flush=True)
+    mit_adressen = args.alle or args.mit_adressen
     alle_adr, alle_ort, zahlen = [], [], collections.Counter()
     for karte in args.karte:
         print(f"=== {os.path.basename(karte)} ===", flush=True)
-        adr, orte, z = sammle_karte(karte)
-        print(f"   Adressen: {z.get('adresse', 0)} | Orte: {sum(v for k, v in z.items() if k != 'adresse')}",
-              flush=True)
+        adr, orte, z = sammle_karte(karte, fotos=fotos, mit_adressen=mit_adressen)
+        print(f"   Adressen: {z.get('adresse', 0)} | Orte: "
+              f"{sum(v for k, v in z.items() if k not in ('adresse', 'ausser_umkreis'))}"
+              f" | außer Umkreis verworfen: {z.get('ausser_umkreis', 0)}", flush=True)
         for art, n in sorted(z.items()):
-            if art != "adresse":
+            if art not in ("adresse", "ausser_umkreis"):
                 print(f"      {art:20s} {n:8d}", flush=True)
         alle_adr.extend(adr)
         alle_ort.extend(orte)
