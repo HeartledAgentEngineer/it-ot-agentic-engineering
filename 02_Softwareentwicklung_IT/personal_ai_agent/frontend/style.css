@@ -1847,6 +1847,136 @@ button.footer-note:hover {
 
 .erzaehl-beschreibung { color: var(--text-secondary); }
 
+/* Gesichter im Einzelbild benennen (#11b, 07.10.2026). */
+.erzaehl-gesichter {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    touch-action: pan-x pan-y;      /* Leiste waagerecht scrollen, ohne das Bild zu wechseln */
+}
+
+.erzaehl-gesichter[hidden],
+.erzaehl-gesicht-bearbeiten[hidden],
+.erzaehl-gesicht-meldung[hidden],
+.erzaehl-gesicht-zeile[hidden],
+.erzaehl-gesicht-felder [hidden] { display: none; }
+
+.erzaehl-gesicht {
+    flex-shrink: 0;
+    width: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+}
+
+.erzaehl-gesicht canvas {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+}
+
+.erzaehl-gesicht span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.erzaehl-gesicht.offen { border-style: dashed; color: var(--accent); }
+.erzaehl-gesicht.aktiv { border-color: var(--accent); background: var(--accent-glow); }
+.erzaehl-gesicht:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+.erzaehl-gesicht-bearbeiten {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+}
+
+.erzaehl-gesicht-bearbeiten canvas {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+.erzaehl-gesicht-felder {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.82rem;
+}
+
+.erzaehl-gesicht-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.erzaehl-gesicht-zeile input {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+}
+
+.erzaehl-gesicht-zeile .erzaehl-back { margin-bottom: 0; }
+
+.erzaehl-gesicht-treffer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.erzaehl-gesicht-vorschlag {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.erzaehl-gesicht-vorschlag:hover { border-color: var(--accent); }
+
+.erzaehl-gesicht-meldung {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.erzaehl-gesicht-meldung .erzaehl-back { margin-bottom: 0; }
+
 /* Kopfzeile über den Notizen/Geschichten (07.10.2026): Beschriftung plus
    Vorlese-Knopf, damit sich die Notizen wie ein Tagebuch anhören lassen. */
 .erzaehl-geschichten-kopf {

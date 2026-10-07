@@ -341,7 +341,7 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261007C', /erzaehlen\.js\?v=20261007C/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261007D', /erzaehlen\.js\?v=20261007D/.test(html));
 
 // Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
 eval(extractFn('erzaehlOrtText'));
@@ -366,6 +366,36 @@ pruefe('Alles vorlesen liest Orte bzw. Ort und Beschreibung mit',
     /imRaster \? \['erzaehl-orte-text'\] : \['erzaehl-bild-ort-text', 'erzaehl-bild-beschreibung'\]/.test(src));
 pruefe('CSS: [hidden] wirkt auf den Info-Block und seine Zeilen',
     /\.erzaehl-info\[hidden\],\s*\.erzaehl-info > \[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
+
+// Gesichter im Einzelbild benennen (#11b, 07.10.2026).
+eval(extractFn('erzaehlGesichtLabel'));
+eval(extractFn('erzaehlGesichtMeldung'));
+
+console.log('\n14) Gesichter im Einzelbild benennen');
+pruefe('Name oder „Wer ist das?"', erzaehlGesichtLabel({ name: ' Papa ' }) === 'Papa'
+    && erzaehlGesichtLabel({ name: null }) === 'Wer ist das?' && erzaehlGesichtLabel(null) === '');
+pruefe('Rückmeldungen', erzaehlGesichtMeldung('name', 'Mama').startsWith('✓ Mama gespeichert')
+    && erzaehlGesichtMeldung('unbekannt') === '✓ Als fremde Person markiert.'
+    && erzaehlGesichtMeldung('nicht', 'Tim').includes('nicht mehr zu Tim') && erzaehlGesichtMeldung('x') === '');
+pruefe('lädt die Gesichter des Bildes, veraltete Antwort wird verworfen',
+    src.includes('/api/gruppen/bild-gesichter?fileid=')
+    && /async function gesichterLaden[\s\S]{0,700}aktuelleDateiKennung\(\) !== fileid\) return;/.test(src));
+pruefe('benennen/fremd über /api/gruppen/antwort, „ist nicht" über /api/gruppen/ausschliessen',
+    /art: 'name', name/.test(src) && /art: 'unbekannt'/.test(src) && /gesichter: \[g\.gid\]/.test(src));
+pruefe('Rückgängig über /api/gruppen/rueckgaengig', src.includes("'/api/gruppen/rueckgaengig'"));
+pruefe('nach jeder Änderung Gesichter und Personen neu', /function nachGesichtAenderung\(\) \{\s*gesichterLaden\(\);[\s\S]{0,120}personenLaden/.test(src));
+pruefe('Ausschnitt über gruppenAusschnitt (aus gruppen_quiz.js), sonst Platzhalter',
+    /typeof gruppenAusschnitt === 'function'/.test(src) && src.includes("ctx.fillText('👤'"));
+pruefe('Sperre gegen Doppel-Speichern', /zustand\.gesichtBeschaeftigt = true;/.test(src));
+pruefe('Vorschläge wie im 👥-Quiz über die Suche (Personen, dann Kontakte mit kontakt_id), kein datalist',
+    src.includes("'/api/gruppen/suche?limit=6&q='") && /koerper\.kontakt_id = String\(vorschlag\.kontaktId\)/.test(src)
+    && /if \(nr !== zustand\.gesichtSuchNr\) return;/.test(src) && !/<datalist/.test(html));
+pruefe('Wischen in der Gesichter-Leiste wechselt das Bild nicht', /closest\('\.erzaehl-gesichter'\)/.test(src));
+pruefe('index.html: Gesichter-Leiste, Bearbeiten und Meldung (versteckt)',
+    /id="erzaehl-gesichter"[^>]*hidden/.test(html) && /id="erzaehl-gesicht-bearbeiten"[^>]*hidden/.test(html)
+    && /id="erzaehl-gesicht-meldung"[^>]*hidden/.test(html) && /id="erzaehl-gesicht-name"/.test(html));
+pruefe('CSS: [hidden] wirkt auf Leiste, Bearbeiten, Meldung', /\.erzaehl-gesichter\[hidden\],\s*\.erzaehl-gesicht-bearbeiten\[hidden\],\s*\.erzaehl-gesicht-meldung\[hidden\]/.test(css));
+pruefe('Namen nur per textContent (kein innerHTML)', !/innerHTML/.test(src));
 
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);

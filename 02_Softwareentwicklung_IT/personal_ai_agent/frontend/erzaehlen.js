@@ -166,6 +166,23 @@ function erzaehlOrteUebersicht(info) {
     return orte.length ? 'Orte: ' + _erzaehlAufzaehlen(orte) : '';
 }
 
+/** REINE Funktion (#11b, 07.10.2026): Beschriftung eines Gesichts im
+ *  Einzelbild — der bestätigte Name oder „Wer ist das?". */
+function erzaehlGesichtLabel(g) {
+    if (!g || typeof g !== 'object') return '';
+    return (typeof g.name === 'string' && g.name.trim()) ? g.name.trim() : 'Wer ist das?';
+}
+
+/** REINE Funktion (#11b): Rückmeldung nach dem Speichern. ``art``: name |
+ *  unbekannt | nicht. */
+function erzaehlGesichtMeldung(art, name) {
+    const n = (typeof name === 'string' && name.trim()) ? name.trim() : '';
+    if (art === 'name') return `✓ ${n || 'Name'} gespeichert – gilt für alle Bilder dieser Gruppe.`;
+    if (art === 'unbekannt') return '✓ Als fremde Person markiert.';
+    if (art === 'nicht') return `✓ Dieses Gesicht gehört nicht mehr zu ${n || 'der Person'}.`;
+    return '';
+}
+
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
@@ -307,6 +324,10 @@ function erzaehlAllesText(teile) {
         personen: null,            // Antwort von /ereignisse/{kennung}/personen (Feld personen)
         personenFehler: '',
         bilderInfo: null,          // Antwort von /ereignisse/{kennung}/bilder-info (Feld info)
+        gesichter: [],             // Gesichter des Einzelbilds (/api/gruppen/bild-gesichter)
+        gesichtAuswahl: null,      // angetipptes Gesicht (Eintrag aus gesichter)
+        gesichtBeschaeftigt: false,
+        gesichtSuchNr: 0,          // nur die neueste Suchantwort zeigen
         audio: null,               // laufende Vorlese-Ausgabe (nur über /api/speak)
         ereignisGesamt: 0,         // alle Anlässe laut Server (für „Anlass 5 von 2.127")
         anlassWechsel: false,      // Sperre: ein Anlass-Wechsel zur Zeit
@@ -855,6 +876,206 @@ function erzaehlAllesText(teile) {
         if (block) block.hidden = !(ort || text);
     }
 
+    // ---- Gesichter im Einzelbild benennen (#11b, 07.10.2026) ----------------
+    // Antippen: unbekanntes Gesicht -> Name (gilt für die ganze Gruppe, also
+    // für alle Bilder dieser Person) oder „Fremde Person"; benanntes Gesicht ->
+    // „Ist nicht X" (Gesicht raus aus der Gruppe). Gespeichert wird über die
+    // Wege des 👥-Quiz — mit Protokoll und Rückgängig.
+
+    async function gesichterLaden() {
+        const fileid = aktuelleDateiKennung();
+        zustand.gesichter = [];
+        gesichtBearbeitenSchliessen();
+        gesichterAnzeigen();
+        if (fileid === null || fileid === undefined) return;
+        let daten;
+        try {
+            daten = await jsonHolen(`/api/gruppen/bild-gesichter?fileid=${encodeURIComponent(fileid)}`);
+        } catch (_e) {
+            daten = null;
+        }
+        if (zustand.ansicht !== 'einzel' || aktuelleDateiKennung() !== fileid) return;  // inzwischen gewechselt
+        zustand.gesichter = (daten && daten.ok === true && Array.isArray(daten.gesichter)) ? daten.gesichter : [];
+        gesichterAnzeigen();
+    }
+
+    /** Ausschnitt aus dem geladenen Großbild; ohne Maße ein Platzhalter. */
+    function gesichtZeichnen(leinwand, g) {
+        const ctx = leinwand && leinwand.getContext ? leinwand.getContext('2d') : null;
+        if (!ctx) return;
+        const bild = el('erzaehl-bild');
+        const w = leinwand.width, h = leinwand.height;
+        ctx.clearRect(0, 0, w, h);
+        const fertig = bild && !bild.hidden && bild.complete && bild.naturalWidth > 0;
+        const a = (fertig && typeof gruppenAusschnitt === 'function')
+            ? gruppenAusschnitt(g.bbox, g.breite, g.hoehe, bild.naturalWidth, bild.naturalHeight, 0.25) : null;
+        if (a) {
+            ctx.drawImage(bild, a.x, a.y, a.w, a.h, 0, 0, w, h);
+            return;
+        }
+        ctx.fillStyle = 'rgba(127, 127, 160, 0.25)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.font = `${Math.round(h * 0.5)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👤', w / 2, h / 2);
+    }
+
+    function gesichterAnzeigen() {
+        const leiste = el('erzaehl-gesichter');
+        if (!leiste) return;
+        leiste.textContent = '';
+        const liste = zustand.ansicht === 'einzel' ? zustand.gesichter : [];
+        leiste.hidden = !liste.length;
+        const bild = el('erzaehl-bild');
+        liste.forEach((g) => {
+            const knopf = document.createElement('button');
+            knopf.type = 'button';
+            knopf.className = 'erzaehl-gesicht' + (g.name ? '' : ' offen')
+                + (zustand.gesichtAuswahl && zustand.gesichtAuswahl.gid === g.gid ? ' aktiv' : '');
+            knopf.setAttribute('data-gid', g.gid);
+            const leinwand = document.createElement('canvas');
+            leinwand.width = 112;
+            leinwand.height = 112;
+            leinwand.setAttribute('aria-hidden', 'true');
+            const name = document.createElement('span');
+            name.textContent = erzaehlGesichtLabel(g);
+            knopf.appendChild(leinwand);
+            knopf.appendChild(name);
+            knopf.addEventListener('click', () => gesichtBearbeitenOeffnen(g));
+            leiste.appendChild(knopf);
+            gesichtZeichnen(leinwand, g);
+        });
+        // Das Großbild kommt evtl. erst nach der Liste: dann neu zeichnen.
+        if (liste.length && bild && !(bild.complete && bild.naturalWidth > 0)) {
+            bild.addEventListener('load', () => gesichterAnzeigen(), { once: true });
+        }
+    }
+
+    /** Vorschläge wie im 👥-Quiz (/api/gruppen/suche): erst benannte Personen,
+     *  dann Telefonbuch-Kontakte; Antippen speichert sofort. */
+    async function gesichtSuche() {
+        const feld = el('erzaehl-gesicht-name');
+        const box = el('erzaehl-gesicht-treffer');
+        if (!feld || !box) return;
+        const nr = ++zustand.gesichtSuchNr;
+        const daten = await jsonHolen('/api/gruppen/suche?limit=6&q=' + encodeURIComponent(feld.value.trim()))
+            .catch(() => null);
+        if (nr !== zustand.gesichtSuchNr) return;                 // ältere Antwort
+        box.textContent = '';
+        if (!daten || daten.ok !== true) return;
+        const knopf = (text, aktion) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'erzaehl-gesicht-vorschlag';
+            b.textContent = text;
+            b.addEventListener('click', aktion);
+            box.appendChild(b);
+        };
+        (daten.personen || []).forEach((p) => {
+            if (p && typeof p.name === 'string' && p.name) knopf(p.name, () => gesichtSpeichern('name', { name: p.name }));
+        });
+        (daten.kontakte || []).forEach((k) => {
+            if (k && typeof k.name === 'string' && k.name && !k.verknuepft_mit) {
+                knopf('📇 ' + k.name, () => gesichtSpeichern('name', { name: k.name, kontaktId: k.id }));
+            }
+        });
+    }
+
+    function gesichtBearbeitenOeffnen(g) {
+        zustand.gesichtAuswahl = g;
+        const block = el('erzaehl-gesicht-bearbeiten');
+        if (!block) return;
+        block.hidden = false;
+        gesichtZeichnen(el('erzaehl-gesicht-gross'), g);
+        const benannt = Boolean(g.name);
+        const frage = el('erzaehl-gesicht-frage');
+        if (frage) frage.textContent = benannt ? `Das ist ${g.name}. Stimmt das nicht?` : 'Wer ist das?';
+        const neu = el('erzaehl-gesicht-neu');
+        if (neu) neu.hidden = benannt;
+        const fremd = el('erzaehl-gesicht-fremd');
+        if (fremd) fremd.hidden = benannt;
+        const nicht = el('erzaehl-gesicht-nicht');
+        if (nicht) { nicht.hidden = !benannt; nicht.textContent = `✕ Ist nicht ${g.name || ''}`.trim(); }
+        const feld = el('erzaehl-gesicht-name');
+        const treffer = el('erzaehl-gesicht-treffer');
+        if (treffer) treffer.textContent = '';
+        if (feld) {
+            feld.value = '';
+            if (!benannt) { gesichtSuche(); setTimeout(() => feld.focus(), 0); }
+        }
+        gesichterAnzeigen();
+    }
+
+    function gesichtBearbeitenSchliessen() {
+        zustand.gesichtAuswahl = null;
+        const block = el('erzaehl-gesicht-bearbeiten');
+        if (block) block.hidden = true;
+    }
+
+    function gesichtMelden(text, mitRueckgaengig) {
+        const zeile = el('erzaehl-gesicht-meldung');
+        const feld = el('erzaehl-gesicht-meldung-text');
+        const knopf = el('erzaehl-gesicht-rueckgaengig');
+        if (feld) feld.textContent = text || '';
+        if (knopf) knopf.hidden = !mitRueckgaengig;
+        if (zeile) zeile.hidden = !text;
+    }
+
+    /** Nach jeder Änderung: Gesichter dieses Bildes und Personen der Gruppe neu. */
+    function nachGesichtAenderung() {
+        gesichterLaden();
+        if (zustand.aktuellesEreignis) personenLaden(zustand.aktuellesEreignis);
+    }
+
+    async function gesichtSpeichern(art, vorschlag) {
+        const g = zustand.gesichtAuswahl;
+        if (!g || zustand.gesichtBeschaeftigt) return;
+        let pfad, koerper, name = g.name || '';
+        if (art === 'name') {
+            const feld = el('erzaehl-gesicht-name');
+            name = (vorschlag && vorschlag.name) || (feld ? feld.value.trim() : '');
+            if (!name) { if (feld) feld.focus(); return; }
+            pfad = '/api/gruppen/antwort';
+            koerper = { kennung: g.kennung, art: 'name', name };
+            if (vorschlag && vorschlag.kontaktId) koerper.kontakt_id = String(vorschlag.kontaktId);
+        } else if (art === 'unbekannt') {
+            pfad = '/api/gruppen/antwort';
+            koerper = { kennung: g.kennung, art: 'unbekannt' };
+        } else {
+            pfad = '/api/gruppen/ausschliessen';
+            koerper = { kennung: g.kennung, gesichter: [g.gid] };
+        }
+        zustand.gesichtBeschaeftigt = true;
+        try {
+            const daten = await jsonHolen(pfad, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(koerper),
+            }).catch(() => null);
+            if (!daten || daten.ok === false) {
+                gesichtMelden('⚠️ ' + ((daten && (daten.fehler || daten.error)) || 'Nicht gespeichert.'), false);
+                return;
+            }
+            gesichtBearbeitenSchliessen();
+            gesichtMelden(erzaehlGesichtMeldung(art, name), true);
+            nachGesichtAenderung();
+        } finally {
+            zustand.gesichtBeschaeftigt = false;
+        }
+    }
+
+    async function gesichtRueckgaengig() {
+        if (zustand.gesichtBeschaeftigt) return;
+        zustand.gesichtBeschaeftigt = true;
+        try {
+            const daten = await jsonHolen('/api/gruppen/rueckgaengig', { method: 'POST' }).catch(() => null);
+            gesichtMelden(daten && daten.ok !== false ? '↩ Zurückgenommen.'
+                : '⚠️ ' + ((daten && daten.fehler) || 'Rückgängig nicht möglich.'), false);
+            nachGesichtAenderung();
+        } finally {
+            zustand.gesichtBeschaeftigt = false;
+        }
+    }
+
     function vorlesenStoppen() {
         if (zustand.audio) {
             try { zustand.audio.pause(); } catch (_e) { /* schon aus */ }
@@ -1159,6 +1380,7 @@ function erzaehlAllesText(teile) {
         }
 
         geschichtenAnzeigen();
+        gesichterLaden();
         void zurueckBtn; // nur Referenz, damit Linter den Namen nicht als unbenutzt meldet
     }
 
@@ -1211,6 +1433,7 @@ function erzaehlAllesText(teile) {
 
     function diashowSchritt(richtung) {
         if (zustand.ansicht !== 'einzel') return; // in der Übersicht gibt es kein Blättern
+        gesichtMelden('', false);
         const detail = zustand.detail;
         if (!detail || !Array.isArray(detail.datei_kennungen)) return;
         zustand.index = erzaehlIndex(zustand.index, detail.datei_kennungen.length, richtung);
@@ -1422,7 +1645,8 @@ function erzaehlAllesText(teile) {
     let wischStartPunkt = null;
     function wischStart(ev) {
         const t = ev.touches && ev.touches[0];
-        const imFeld = ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName || '');
+        const imFeld = ev.target && (/^(INPUT|TEXTAREA)$/.test(ev.target.tagName || '')
+            || (typeof ev.target.closest === 'function' && ev.target.closest('.erzaehl-gesichter')));
         wischStartPunkt = (t && !imFeld && (!ev.touches || ev.touches.length === 1)) ? { x: t.clientX, y: t.clientY } : null;
     }
     function wischEnde(ev) {
@@ -1486,6 +1710,27 @@ function erzaehlAllesText(teile) {
         }
         const vorlesenAlles = el('erzaehl-alles-vorlesen');
         if (vorlesenAlles) vorlesenAlles.addEventListener('click', () => allesVorlesen());
+
+        const gesichtOk = el('erzaehl-gesicht-speichern');
+        if (gesichtOk) gesichtOk.addEventListener('click', () => gesichtSpeichern('name'));
+        const gesichtFeld = el('erzaehl-gesicht-name');
+        let gesichtSuchUhr = null;
+        if (gesichtFeld) gesichtFeld.addEventListener('input', () => {
+            clearTimeout(gesichtSuchUhr);
+            gesichtSuchUhr = setTimeout(gesichtSuche, 180);
+        });
+        if (gesichtFeld) gesichtFeld.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); gesichtSpeichern('name'); }
+            if (ev.key === 'Escape') { ev.stopPropagation(); gesichtBearbeitenSchliessen(); gesichterAnzeigen(); }
+        });
+        const gesichtFremd = el('erzaehl-gesicht-fremd');
+        if (gesichtFremd) gesichtFremd.addEventListener('click', () => gesichtSpeichern('unbekannt'));
+        const gesichtNicht = el('erzaehl-gesicht-nicht');
+        if (gesichtNicht) gesichtNicht.addEventListener('click', () => gesichtSpeichern('nicht'));
+        const gesichtAbbrechen = el('erzaehl-gesicht-abbrechen');
+        if (gesichtAbbrechen) gesichtAbbrechen.addEventListener('click', () => { gesichtBearbeitenSchliessen(); gesichterAnzeigen(); });
+        const gesichtZurueck = el('erzaehl-gesicht-rueckgaengig');
+        if (gesichtZurueck) gesichtZurueck.addEventListener('click', gesichtRueckgaengig);
 
         const vorBtn = el('erzaehl-vor');
         if (vorBtn) vorBtn.addEventListener('click', () => diashowSchritt(-1));

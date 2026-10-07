@@ -780,3 +780,57 @@ def test_person_routen(basis):
     a = c.post("/api/gruppen/person/ausschliessen",
                json={"name": "Leon", "gesichter": [{"kennung": "Person_1002", "gid": "202:1"}]})
     assert a.status_code == 200 and a.json()["gesamt"] == 7
+
+
+# ── Gesichter eines Fotos fuers Erzaehlen (#11b, 07.10.2026) ───────────────
+
+def _foto_mit_drei_gesichtern(basis):
+    zeilen = [
+        {"bild_id": "700", "index": 0, "kennung": "Person_1001", "bbox": [600, 50, 80, 90],
+         "breite": 1000, "hoehe": 750},                                   # rechts
+        {"bild_id": "700", "index": 1, "kennung": "Person_1003", "bbox": [100, 60, 70, 80],
+         "breite": 1000, "hoehe": 750},                                   # links
+        {"bild_id": "700", "index": 2, "kennung": "Person_1004", "bbox": [350, 40, 60, 70],
+         "breite": 1000, "hoehe": 750},                                   # Mitte
+        {"bild_id": "700#t=2", "video_id": "700", "index": 0, "kennung": "Person_1002",
+         "bbox": [1, 1, 1, 1]},                                           # Video: zaehlt nicht
+        {"bild_id": "701", "index": 0, "kennung": "Person_1002", "bbox": None},   # ohne Rahmen
+    ]
+    (basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME).write_text(
+        "\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+
+
+def test_gesichter_auf_bild_links_nach_rechts_mit_namen(basis):
+    _foto_mit_drei_gesichtern(basis)
+    gq.antworten("Person_1001", "name", "Leon")
+    r = gq.gesichter_auf_bild(700)
+    assert r["ok"] and r["fileid"] == "700"
+    assert [(g["kennung"], g["name"]) for g in r["gesichter"]] == [
+        ("Person_1003", None), ("Person_1004", None), ("Person_1001", "Leon")]
+    assert r["gesichter"][0] == {"gid": "700:1", "index": 1, "kennung": "Person_1003",
+                                 "bbox": [100, 60, 70, 80], "breite": 1000, "hoehe": 750, "name": None}
+    assert gq.gesichter_auf_bild("701")["gesichter"] == []              # ohne Rahmen: nichts
+    assert gq.gesichter_auf_bild("abc")["ok"] is False
+
+
+def test_gesichter_auf_bild_ohne_ausgeschlossene_und_fremde(basis):
+    _foto_mit_drei_gesichtern(basis)
+    gq.ausschliessen("Person_1001", ["700:0"])                           # „ist nicht Leon"
+    gq.antworten("Person_1004", "unbekannt")                             # „fremde Person"
+    assert [g["kennung"] for g in gq.gesichter_auf_bild("700")["gesichter"]] == ["Person_1003"]
+    gq.rueckgaengig()                                                    # fremd zuruecknehmen
+    assert [g["kennung"] for g in gq.gesichter_auf_bild("700")["gesichter"]] == ["Person_1003", "Person_1004"]
+
+
+def test_gesichter_auf_bild_benennen_wirkt_sofort_und_route(basis):
+    _foto_mit_drei_gesichtern(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    vorher = c.get("/api/gruppen/bild-gesichter", params={"fileid": "700"}).json()
+    assert vorher["ok"] and vorher["gesichter"][0]["name"] is None
+    assert c.post("/api/gruppen/antwort", json={"kennung": "Person_1003", "art": "name",
+                                                "name": "Papa"}).json()["ok"] is not False
+    nachher = c.get("/api/gruppen/bild-gesichter", params={"fileid": "700"}).json()
+    assert nachher["gesichter"][0]["name"] == "Papa"
+    assert c.get("/api/gruppen/bild-gesichter").status_code == 422      # fileid fehlt

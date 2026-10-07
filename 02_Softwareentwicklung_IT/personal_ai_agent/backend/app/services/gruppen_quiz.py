@@ -658,6 +658,56 @@ def _gesichter_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
     return je
 
 
+def _gesichter_je_bild_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
+    """``gesicht_zuordnung.jsonl`` -> {bild_id: [Gesicht, ...]} (nur Fotos, mit Rahmen)."""
+    je: Dict[str, List[Dict[str, Any]]] = {}
+    with open(pfad, encoding="utf-8") as datei:
+        for zeile in datei:
+            try:
+                z = json.loads(zeile)
+            except ValueError:
+                continue
+            if not isinstance(z, dict) or not z.get("kennung") or z.get("video_id"):
+                continue
+            bid, bbox = str(z.get("bild_id") or ""), z.get("bbox")
+            if not bid.isdigit() or not (isinstance(bbox, list) and len(bbox) == 4):
+                continue
+            index = int(z.get("index") or 0)
+            je.setdefault(bid, []).append({
+                "gid": f"{bid}:{index}", "index": index, "kennung": str(z["kennung"]),
+                "bbox": bbox, "breite": z.get("breite"), "hoehe": z.get("hoehe")})
+    return je
+
+
+def gesichter_auf_bild(fileid: Any) -> Dict[str, Any]:
+    """Die Gesichter eines Fotos fuers Erzaehlen (07.10.2026, #11b). Nie ein Wurf.
+
+    Je Gesicht ``gid`` (bild_id:index), ``kennung``, ``name`` (bestaetigt oder
+    ``None``), ``bbox`` mit ``breite``/``hoehe`` (Ausschnitt im Browser).
+    Ausgeschlossene Gesichter und als „kenne ich nicht" markierte Gruppen fehlen
+    — wie bei :func:`personen_auf_bildern`. Reihenfolge: von links nach rechts.
+    Benennen und „ist nicht X" laufen ueber die vorhandenen Wege
+    (:func:`antworten`, :func:`ausschliessen`) — mit Protokoll und Rueckgaengig.
+    """
+    s = str(fileid).strip() if fileid is not None else ""
+    if not s.isdigit():
+        return {"ok": False, "fehler": "Ungültige Bildkennung."}
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        je_bild = _gemerkt(pfad, _gesichter_je_bild_laden)
+        namen = bestaetigt_lesen()
+        aus = ausgeschlossen_lesen()
+        fremd = set(_stand_lesen()["unbekannt"])
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    gesichter = [dict(g, name=namen.get(g["kennung"])) for g in je_bild.get(s, [])
+                 if g["gid"] not in aus.get(g["kennung"], set()) and g["kennung"] not in fremd]
+    gesichter.sort(key=lambda g: (g["bbox"][0] if isinstance(g["bbox"][0], (int, float)) else 0, g["index"]))
+    return {"ok": True, "fileid": s, "gesichter": gesichter}
+
+
 def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE) -> Dict[str, Any]:
     """Alle (nicht ausgeschlossenen) Gesichter eines Vorschlags, seitenweise. Nie ein Wurf."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)

@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261007C">
+    <link rel="stylesheet" href="style.css?v=20261007D">
 </head>
 <body>
     <div id="app">
@@ -449,6 +449,30 @@
                             <span id="erzaehl-bild-personen-text"></span>
                             <button id="erzaehl-bild-personen-vorlesen" class="erzaehl-vorlesen" type="button" title="Vorlesen" aria-label="Personen auf diesem Bild vorlesen">🔊</button>
                         </div>
+                        <!-- Gesichter auf diesem Bild (#11b, 07.10.2026): antippen = benennen,
+                             „Fremde Person" oder „Ist nicht X" — über die Wege des 👥-Quiz. -->
+                        <div id="erzaehl-gesichter" class="erzaehl-gesichter" hidden></div>
+                        <div id="erzaehl-gesicht-bearbeiten" class="erzaehl-gesicht-bearbeiten" hidden>
+                            <canvas id="erzaehl-gesicht-gross" width="160" height="160" aria-hidden="true"></canvas>
+                            <div class="erzaehl-gesicht-felder">
+                                <div id="erzaehl-gesicht-frage" class="erzaehl-gesicht-frage"></div>
+                                <div id="erzaehl-gesicht-neu" class="erzaehl-gesicht-zeile">
+                                    <input id="erzaehl-gesicht-name" type="text" maxlength="60" autocomplete="off"
+                                           placeholder="Name, z. B. Papa">
+                                    <button id="erzaehl-gesicht-speichern" class="icon-btn" type="button" title="Name speichern" aria-label="Name speichern">✔</button>
+                                </div>
+                                <div id="erzaehl-gesicht-treffer" class="erzaehl-gesicht-treffer"></div>
+                                <div class="erzaehl-gesicht-zeile">
+                                    <button id="erzaehl-gesicht-fremd" class="erzaehl-back erzaehl-back-immer" type="button">Fremde Person</button>
+                                    <button id="erzaehl-gesicht-nicht" class="erzaehl-back erzaehl-back-immer" type="button" hidden>✕ Ist nicht …</button>
+                                    <button id="erzaehl-gesicht-abbrechen" class="erzaehl-back erzaehl-back-immer" type="button">Abbrechen</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="erzaehl-gesicht-meldung" class="erzaehl-gesicht-meldung" hidden>
+                            <span id="erzaehl-gesicht-meldung-text"></span>
+                            <button id="erzaehl-gesicht-rueckgaengig" class="erzaehl-back erzaehl-back-immer" type="button" hidden>↩ Rückgängig</button>
+                        </div>
                         <!-- Was und wo (07.10.2026): Ort und Beschreibung dieses Bildes. -->
                         <div id="erzaehl-bild-info" class="erzaehl-info" hidden>
                             <div id="erzaehl-bild-ort" hidden><span aria-hidden="true">📍</span> <span id="erzaehl-bild-ort-text"></span></div>
@@ -522,7 +546,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20261007C"></script>
+    <script src="erzaehlen.js?v=20261007D"></script>
     <script src="gruppen_quiz.js?v=20261007A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

@@ -11,6 +11,8 @@
   GET  /api/gruppen/gesichter     ?kennung=Person_1001&seite=1 -> alle Gesichter, je 48
                                   ?name=Leon&seite=1 -> alle Gesichter der Person ueber alle
                                   Vorschlaege, je Gesicht seine kennung (07.10.2026)
+  GET  /api/gruppen/bild-gesichter ?fileid=123 -> Gesichter eines Fotos mit Name/Rahmen
+                                  (Erzaehlen, 07.10.2026: benennen / „ist nicht X“)
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
   POST /api/gruppen/person/ausschliessen {name, gesichter: [{kennung, gid}]} (07.10.2026)
   GET  /api/gruppen/personen      benannte Personen (Liste)
@@ -129,6 +131,12 @@ def gesichter(kennung: Optional[str] = Query(default=None, min_length=1, max_len
     if kennung:
         return gruppen_quiz.gesichter(kennung, seite)
     return {"ok": False, "fehler": "Bitte einen Vorschlag (kennung) oder eine Person (name) angeben."}
+
+
+@router.get("/bild-gesichter")
+def bild_gesichter(fileid: str = Query(..., min_length=1, max_length=20)) -> Dict[str, Any]:
+    """Die Gesichter eines Fotos (Erzählen, 07.10.2026) — Benennen/Ausschließen über die vorhandenen Routen."""
+    return gruppen_quiz.gesichter_auf_bild(fileid)
 
 
 @router.post("/ausschliessen")
