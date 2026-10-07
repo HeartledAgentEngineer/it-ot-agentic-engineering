@@ -1675,6 +1675,56 @@ button.footer-note:hover {
 
 .erzaehl-back-immer { display: inline-block; }
 
+/* Zwischen Anlässen blättern (#18, 07.10.2026): ◀ Zähler ▶ über dem Titel,
+   Wischen über die ganze Spalte (senkrechtes Scrollen bleibt). */
+.erzaehl-diashow-spalte { touch-action: pan-y pinch-zoom; }
+
+.erzaehl-anlass-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.erzaehl-anlass-nav[hidden] { display: none; }
+.erzaehl-anlass-nav .erzaehl-back { margin-bottom: 0; }
+
+.erzaehl-anlass-blaettern {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.erzaehl-anlass-blaettern .erzaehl-zaehler {
+    margin-top: 0;
+    min-width: 8.5em;
+}
+
+.erzaehl-anlass-knopf {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+}
+
+.erzaehl-uebersicht.erzaehl-rein-vor { animation: erzaehlReinVor 0.22s ease; }
+.erzaehl-uebersicht.erzaehl-rein-zurueck { animation: erzaehlReinZurueck 0.22s ease; }
+
+@keyframes erzaehlReinVor {
+    from { opacity: 0.35; transform: translateX(28px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes erzaehlReinZurueck {
+    from { opacity: 0.35; transform: translateX(-28px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .erzaehl-uebersicht.erzaehl-rein-vor,
+    .erzaehl-uebersicht.erzaehl-rein-zurueck { animation: none; }
+}
+
 .erzaehl-raster {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));

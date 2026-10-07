@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261007A">
+    <link rel="stylesheet" href="style.css?v=20261007B">
 </head>
 <body>
     <div id="app">
@@ -388,7 +388,16 @@
                     <p id="erzaehl-liste-hinweis" class="sheet-note"></p>
                 </section>
                 <section id="erzaehl-diashow-spalte" class="erzaehl-spalte erzaehl-diashow-spalte" hidden>
-                    <button id="erzaehl-zurueck-zur-liste" class="erzaehl-back" type="button">← Ereignisse</button>
+                    <!-- Zwischen Anlässen blättern (#18, 07.10.2026): ◀ ▶, Pfeiltasten, Wischen in
+                         der Übersicht; Android-Zurück geht eine Ebene hoch statt aus dem Erzählen. -->
+                    <div id="erzaehl-anlass-nav" class="erzaehl-anlass-nav">
+                        <button id="erzaehl-zurueck-zur-liste" class="erzaehl-back" type="button">← Ereignisse</button>
+                        <span class="erzaehl-anlass-blaettern">
+                            <button id="erzaehl-anlass-vor" class="erzaehl-nav erzaehl-anlass-knopf" type="button" title="Voriger Anlass (←)" aria-label="Voriger Anlass">◀</button>
+                            <span id="erzaehl-anlass-zaehler" class="erzaehl-zaehler" aria-live="polite"></span>
+                            <button id="erzaehl-anlass-weiter" class="erzaehl-nav erzaehl-anlass-knopf" type="button" title="Nächster Anlass (→)" aria-label="Nächster Anlass">▶</button>
+                        </span>
+                    </div>
                     <!-- Eigener Titel (06.10.2026): ✏️ antippen und ändern; leer = automatischer Titel.
                          Der Name wird später zum Ordnernamen beim Sortieren. -->
                     <div class="erzaehl-titel-zeile">
@@ -504,7 +513,7 @@
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
     <script src="app.js?v=20261001B"></script>
-    <script src="erzaehlen.js?v=20261007A"></script>
+    <script src="erzaehlen.js?v=20261007B"></script>
     <script src="gruppen_quiz.js?v=20261007A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

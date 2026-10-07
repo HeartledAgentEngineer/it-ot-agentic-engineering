@@ -97,6 +97,54 @@ function erzaehlIndex(i, n, richtung) {
     return Math.max(0, Math.min(anzahl - 1, naechster));
 }
 
+/** REINE Funktion: Zahl mit Tausenderpunkt (2127 -> "2.127"). */
+function _erzaehlZahl(n) {
+    return String(Math.max(0, Math.floor(Number(n) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** REINE Funktion (#18, 07.10.2026): Nachbarn des offenen Anlasses in der
+ *  geladenen Liste. ``kennungen`` = Reihenfolge der Liste, ``gesamt`` = alle
+ *  Anlässe laut Server. ``mehrLaden``: am Ende der geladenen Liste, aber der
+ *  Server kennt weitere — dann erst nachladen, dann weiter. */
+function erzaehlAnlassNav(kennungen, aktuell, gesamt) {
+    const liste = Array.isArray(kennungen) ? kennungen : [];
+    const i = (aktuell === null || aktuell === undefined) ? -1 : liste.indexOf(aktuell);
+    const g = Math.max(liste.length, Math.floor(Number(gesamt) || 0));
+    if (i === -1) return { index: -1, vor: null, weiter: null, mehrLaden: false, text: '' };
+    return {
+        index: i,
+        vor: i > 0 ? liste[i - 1] : null,
+        weiter: i + 1 < liste.length ? liste[i + 1] : null,
+        mehrLaden: i + 1 >= liste.length && g > liste.length,
+        text: `Anlass ${_erzaehlZahl(i + 1)} von ${_erzaehlZahl(g)}`,
+    };
+}
+
+/** REINE Funktion (#18): Wischrichtung aus der Fingerbewegung. Nach links
+ *  wischen = vor (1), nach rechts = zurück (-1), sonst 0. Nur deutlich
+ *  waagerechte Bewegungen zählen, damit Scrollen nie blättert. */
+function erzaehlWischRichtung(dx, dy) {
+    const x = Number(dx) || 0;
+    const y = Math.abs(Number(dy) || 0);
+    if (Math.abs(x) < 50 || Math.abs(x) < 1.5 * y) return 0;
+    return x < 0 ? 1 : -1;
+}
+
+/** REINE Funktion (#18): Was tut die Android-Zurück-Geste? Jede Ebene des
+ *  Erzählens (Liste, Anlass, Einzelbild) legt einen Verlaufseintrag an.
+ *  ``ziel`` = Ebene des Eintrags, auf dem der Browser landet ('zu' = kein
+ *  eigener Eintrag), ``jetzt`` = sichtbare Ebene. 'anwenden' = auf ``ziel``
+ *  zurückgehen; 'weiter' = veralteter Eintrag (z. B. nach ✕), noch einen
+ *  Schritt zurück; 'nichts' = Grundseite erreicht. */
+function erzaehlZurueckEntscheiden(ziel, jetzt) {
+    const rang = { zu: 0, liste: 1, anlass: 2, bild: 3 };
+    const z = Object.prototype.hasOwnProperty.call(rang, ziel) ? rang[ziel] : 0;
+    const j = Object.prototype.hasOwnProperty.call(rang, jetzt) ? rang[jetzt] : 0;
+    if (z < j) return 'anwenden';
+    if (z === 0) return 'nichts';
+    return 'weiter';
+}
+
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
@@ -238,6 +286,9 @@ function erzaehlAllesText(teile) {
         personen: null,            // Antwort von /ereignisse/{kennung}/personen (Feld personen)
         personenFehler: '',
         audio: null,               // laufende Vorlese-Ausgabe (nur über /api/speak)
+        ereignisGesamt: 0,         // alle Anlässe laut Server (für „Anlass 5 von 2.127")
+        anlassWechsel: false,      // Sperre: ein Anlass-Wechsel zur Zeit
+        entwurfJeAnlass: new Map(), // halbfertiger Text je Anlass — Wischen verliert nichts
     };
 
     function el(id) { return document.getElementById(id); }
@@ -285,8 +336,10 @@ function erzaehlAllesText(teile) {
     function sheetOeffnen() {
         const sheet = el('erzaehlen-sheet');
         if (!sheet) return;
+        const warOffen = zustand.offen;
         sheet.hidden = false;
         zustand.offen = true;
+        if (!warOffen) verlaufRein('liste');
         ereignislisteLaden();
     }
 
@@ -300,6 +353,7 @@ function erzaehlAllesText(teile) {
     }
 
     function zurZurListe() {
+        entwurfSichern();
         const liste = el('erzaehl-liste-spalte');
         const diashow = el('erzaehl-diashow-spalte');
         if (liste) liste.hidden = false;
@@ -312,6 +366,7 @@ function erzaehlAllesText(teile) {
         ansichtUmschalten('uebersicht');
         zustand.aktuellesEreignis = null;
         zustand.detail = null;
+        listeMarkieren();
     }
 
     // ---- Ereignisliste ------------------------------------------------
@@ -359,6 +414,7 @@ function erzaehlAllesText(teile) {
         zustand.ereignisse = (anhaengen && Array.isArray(zustand.ereignisse))
             ? zustand.ereignisse.concat(eintraege)
             : eintraege;
+        zustand.ereignisGesamt = Math.max(0, Number(daten.gesamt) || 0);
         const seite = erzaehlSeite(daten.gesamt, ereignisGeladen, EREIGNIS_SEITE);
         if (hinweis) {
             hinweis.textContent = (ereignisGeladen || daten.gesamt)
@@ -410,12 +466,15 @@ function erzaehlAllesText(teile) {
             knopf.addEventListener('click', () => ereignislisteLaden(true));
             liste.appendChild(knopf);
         }
+        listeMarkieren();
+        anlassNavAktualisieren();
     }
 
     // ---- Ereignis / Diashow ------------------------------------------
 
-    async function ereignisOeffnen(kennung) {
+    async function ereignisOeffnen(kennung, richtung) {
         if (!kennung) return;
+        const vonListe = ebeneJetzt() === 'liste';
         const listeSpalte = el('erzaehl-liste-spalte');
         const diashowSpalte = el('erzaehl-diashow-spalte');
         const hinweis = el('erzaehl-hinweis');
@@ -432,9 +491,13 @@ function erzaehlAllesText(teile) {
             return;
         }
 
+        entwurfSichern();                    // Text des bisherigen Anlasses aufheben
         zustand.aktuellesEreignis = kennung;
         zustand.detail = daten.ereignis;
         zustand.index = 0;
+        zustand.ansicht = 'uebersicht';
+        entwurfHolen(kennung);
+        if (vonListe) verlaufRein('anlass');
         if (hinweis) hinweis.textContent = '';
 
         // Am Handy: zwei Stufen. Auf dem Desktop bleibt die Liste sichtbar
@@ -452,7 +515,172 @@ function erzaehlAllesText(teile) {
         titelBearbeitenSchliessen();
         titelAnzeigen();
         if (diashowSpalte) diashowSpalte.scrollTop = 0;
+        listeMarkieren();
+        anlassNavAktualisieren();
+        einblenden(richtung);
         personenLaden(kennung);   // kommt nach — die Übersicht steht sofort
+    }
+
+    // ---- Zwischen Anlässen blättern (#18, 07.10.2026) -------------------
+    // In der Übersicht: ◀ ▶, Pfeiltasten, Wischen (Bildmitte) und Sprache
+    // „weiter"/„zurück" wechseln den Anlass; in der Einzelansicht das Bild.
+
+    function anlassNavAktualisieren() {
+        const nav = erzaehlAnlassNav(zustand.ereignisse.map((e) => e && e.kennung),
+            zustand.aktuellesEreignis, zustand.ereignisGesamt);
+        const vor = el('erzaehl-anlass-vor');
+        const weiter = el('erzaehl-anlass-weiter');
+        const zaehler = el('erzaehl-anlass-zaehler');
+        if (vor) vor.disabled = !nav.vor;
+        if (weiter) weiter.disabled = !nav.weiter && !nav.mehrLaden;
+        if (zaehler) zaehler.textContent = nav.text;
+    }
+
+    /** Offenen Anlass in der Liste hervorheben (am PC stehen beide nebeneinander). */
+    function listeMarkieren() {
+        const liste = el('erzaehl-liste');
+        if (!liste) return;
+        const aktuell = zustand.aktuellesEreignis ? String(zustand.aktuellesEreignis) : null;
+        let treffer = null;
+        liste.querySelectorAll('.erzaehl-row').forEach((zeile) => {
+            const an = aktuell !== null && zeile.getAttribute('data-kennung') === aktuell;
+            zeile.classList.toggle('aktiv', an);
+            if (an) treffer = zeile;
+        });
+        if (treffer && typeof treffer.scrollIntoView === 'function') {
+            try { treffer.scrollIntoView({ block: 'nearest' }); } catch (_e) { /* alte WebView */ }
+        }
+    }
+
+    /** Kurzes Hereingleiten aus der Wischrichtung (Mikro-Animation). */
+    function einblenden(richtung) {
+        const uebersicht = el('erzaehl-uebersicht');
+        if (!uebersicht || (richtung !== 1 && richtung !== -1)) return;
+        uebersicht.classList.remove('erzaehl-rein-vor', 'erzaehl-rein-zurueck');
+        void uebersicht.offsetWidth;          // Animation neu starten
+        uebersicht.classList.add(richtung === 1 ? 'erzaehl-rein-vor' : 'erzaehl-rein-zurueck');
+    }
+
+    async function anlassSchritt(richtung) {
+        if (!zustand.aktuellesEreignis || zustand.anlassWechsel) return;
+        const r = richtung === -1 ? -1 : 1;
+        zustand.anlassWechsel = true;
+        try {
+            const kennungen = () => zustand.ereignisse.map((e) => e && e.kennung);
+            let nav = erzaehlAnlassNav(kennungen(), zustand.aktuellesEreignis, zustand.ereignisGesamt);
+            if (r === 1 && !nav.weiter && nav.mehrLaden) {
+                await ereignislisteLaden(true);           // Ende der geladenen Liste: nachladen
+                nav = erzaehlAnlassNav(kennungen(), zustand.aktuellesEreignis, zustand.ereignisGesamt);
+            }
+            const ziel = r === 1 ? nav.weiter : nav.vor;
+            if (!ziel) {
+                const zaehler = el('erzaehl-anlass-zaehler');
+                if (zaehler && nav.text) zaehler.textContent = (r === 1 ? 'Letzter' : 'Erster') + ' Anlass der Liste';
+                return;
+            }
+            await ereignisOeffnen(ziel, r);
+        } finally {
+            zustand.anlassWechsel = false;
+        }
+    }
+
+    /** Ein Schritt „weiter"/„zurück": Einzelansicht = Bild, Übersicht = Anlass. */
+    function blaettern(richtung) {
+        if (zustand.ansicht === 'einzel') diashowSchritt(richtung);
+        else anlassSchritt(richtung);
+    }
+
+    // ---- Entwurf je Anlass ----------------------------------------------
+    // Ohne das blieb ein halbfertiger Text beim Wechsel im Feld stehen und
+    // wäre beim Speichern am FALSCHEN Anlass gelandet.
+
+    function entwurfSichern() {
+        const kennung = zustand.aktuellesEreignis;
+        if (!kennung) return;
+        const feld = el('erzaehl-text');
+        const e = { uebersicht: zustand.entwurf.uebersicht || '', einzel: zustand.entwurf.einzel || '' };
+        if (feld) e[zustand.ansicht] = feld.value;
+        if (e.uebersicht.trim() || e.einzel.trim()) zustand.entwurfJeAnlass.set(kennung, e);
+        else zustand.entwurfJeAnlass.delete(kennung);
+    }
+
+    function entwurfHolen(kennung) {
+        const e = zustand.entwurfJeAnlass.get(kennung) || { uebersicht: '', einzel: '' };
+        zustand.entwurf = { uebersicht: e.uebersicht || '', einzel: e.einzel || '' };
+        const feld = el('erzaehl-text');
+        if (feld) feld.value = zustand.entwurf[zustand.ansicht] || '';
+    }
+
+    /** Diktat, das erst nach einem Wechsel fertig wurde: in den Entwurf des
+     *  Anlasses/der Ansicht, für die es gesprochen wurde — nicht ins neue Feld. */
+    function entwurfAnhaengen(kennung, ansicht, text) {
+        if (!kennung || !text) return;
+        const anhaengen = (alt) => (alt && alt.trim() ? alt.trim() + ' ' + text : text);
+        if (kennung === zustand.aktuellesEreignis) {
+            zustand.entwurf[ansicht] = anhaengen(zustand.entwurf[ansicht]);
+            return;
+        }
+        const e = zustand.entwurfJeAnlass.get(kennung) || { uebersicht: '', einzel: '' };
+        e[ansicht] = anhaengen(e[ansicht]);
+        zustand.entwurfJeAnlass.set(kennung, e);
+    }
+
+    // ---- Zurück-Geste / Verlauf (#18) -------------------------------------
+    // Android: Wisch vom Bildschirmrand = Zurück; die App ruft dann
+    // webView.goBack(). Ohne eigene Verlaufseinträge verließ das das ganze
+    // Erzählen („zurück zur Hauptansicht"). Jetzt legt jede Ebene einen
+    // Eintrag an, Zurück geht genau eine Ebene hoch. Anlass- und Bildwechsel
+    // legen keinen an — Zurück führt zur Liste, nicht durch alle Anlässe.
+    const EBENEN = ['zu', 'liste', 'anlass', 'bild'];
+
+    function ebeneJetzt() {
+        if (!zustand.offen) return 'zu';
+        if (!zustand.aktuellesEreignis) return 'liste';
+        return zustand.ansicht === 'einzel' ? 'bild' : 'anlass';
+    }
+
+    function verlaufStand() {
+        try {
+            const s = history.state;
+            return (s && typeof s.erzaehlen === 'string') ? s.erzaehlen : 'zu';
+        } catch (_e) {
+            return 'zu';
+        }
+    }
+
+    function verlaufRein(ebene) {
+        try { history.pushState({ erzaehlen: ebene }, ''); } catch (_e) { /* ohne Verlauf: Knöpfe direkt */ }
+    }
+
+    function ebeneAnwenden(ziel) {
+        if (ziel === 'zu') sheetSchliessen();
+        else if (ziel === 'liste') zurZurListe();
+        else if (ziel === 'anlass' && zustand.ansicht === 'einzel') zurUebersicht();
+    }
+
+    /** Knöpfe „← Ereignisse"/„← Alle Bilder" und Escape: eine Ebene hoch —
+     *  über den Verlauf, wenn der oberste Eintrag zur sichtbaren Ebene gehört
+     *  (popstate erledigt den Rest), sonst direkt. */
+    function ebeneHoch() {
+        const jetzt = ebeneJetzt();
+        if (jetzt !== 'zu' && verlaufStand() === jetzt) {
+            try { history.back(); return; } catch (_e) { /* direkt weiter unten */ }
+        }
+        ebeneAnwenden(EBENEN[Math.max(0, EBENEN.indexOf(jetzt) - 1)]);
+    }
+
+    function verlaufZurueck(ev) {
+        const ziel = (ev && ev.state && typeof ev.state.erzaehlen === 'string') ? ev.state.erzaehlen : 'zu';
+        const tun = erzaehlZurueckEntscheiden(ziel, ebeneJetzt());
+        if (tun === 'anwenden') ebeneAnwenden(ziel);
+        else if (tun === 'weiter') { try { history.back(); } catch (_e) { /* Grundseite */ } }
+    }
+
+    /** ✕ und Klick daneben: Blatt sofort zu, eigene Einträge abbauen. */
+    function sheetSchliessenMitVerlauf() {
+        const rang = EBENEN.indexOf(verlaufStand());
+        sheetSchliessen();
+        if (rang > 0) { try { history.go(-rang); } catch (_e) { /* bleibt stehen, heilt beim nächsten Zurück */ } }
     }
 
     // ---- Eigener Titel (06.10.2026) ----------------------------------------
@@ -768,6 +996,8 @@ function erzaehlAllesText(teile) {
         if (uebersicht) uebersicht.hidden = einzel;
         if (einzelBlock) einzelBlock.hidden = !einzel;
         if (zurListe) zurListe.hidden = einzel;
+        const anlassNav = el('erzaehl-anlass-nav');
+        if (anlassNav) anlassNav.hidden = einzel;
         if (feld) feld.placeholder = einzel ? 'Erzähl etwas zu diesem Bild …' : 'Erzähl etwas zur ganzen Gruppe …';
 
         const kopf = el('erzaehl-uebersicht-kopf');
@@ -787,6 +1017,7 @@ function erzaehlAllesText(teile) {
     function bildOeffnen(index) {
         const spalte = el('erzaehl-diashow-spalte');
         if (zustand.ansicht === 'uebersicht' && spalte) zustand.rasterScroll = spalte.scrollTop;
+        if (ebeneJetzt() === 'anlass') verlaufRein('bild');
         zustand.index = index;
         ansichtUmschalten('einzel');
         if (spalte) spalte.scrollTop = 0;
@@ -928,7 +1159,8 @@ function erzaehlAllesText(teile) {
         // Übersicht -> Geschichte zur ganzen Gruppe (ohne Bild),
         // Einzelansicht -> zu diesem Bild.
         const dk = zustand.ansicht === 'einzel' ? aktuelleDateiKennung() : null;
-        const body = erzaehlGeschichteKoerper(zustand.aktuellesEreignis, text, dk);
+        const kennung = zustand.aktuellesEreignis;
+        const body = erzaehlGeschichteKoerper(kennung, text, dk);
 
         try {
             const res = await fetch(`${apiBase()}/api/erzaehlen/geschichten`, {
@@ -939,6 +1171,12 @@ function erzaehlAllesText(teile) {
             const daten = await res.json().catch(() => ({}));
             if (!res.ok || daten.ok !== true) {
                 if (hinweis) hinweis.textContent = daten.detail || daten.error || 'Speichern fehlgeschlagen.';
+                return;
+            }
+            if (zustand.aktuellesEreignis !== kennung) {
+                // Inzwischen weitergewischt: gespeichert ist am richtigen Anlass;
+                // dessen aufgehobener Entwurf ist damit erledigt, das neue Feld bleibt.
+                zustand.entwurfJeAnlass.delete(kennung);
                 return;
             }
             feld.value = '';
@@ -1061,6 +1299,8 @@ function erzaehlAllesText(teile) {
 
     async function transkribieren(blob) {
         micStatusSetzen('denkt nach …');
+        const kennungVorher = zustand.aktuellesEreignis;
+        const ansichtVorher = zustand.ansicht;
         try {
             const formData = new FormData();
             formData.append('file', blob, 'audio.wav');
@@ -1070,10 +1310,12 @@ function erzaehlAllesText(teile) {
             if (!text) { micStatusSetzen(''); return; }
 
             const befehl = erzaehlSprachbefehl(text);
-            if (befehl === 'weiter') { diashowSchritt(1); }
-            else if (befehl === 'zurueck') { diashowSchritt(-1); }
+            if (befehl === 'weiter') { blaettern(1); }
+            else if (befehl === 'zurueck') { blaettern(-1); }
             else if (befehl === 'speichern') { await geschichteSpeichern(); }
-            else {
+            else if (zustand.aktuellesEreignis !== kennungVorher || zustand.ansicht !== ansichtVorher) {
+                entwurfAnhaengen(kennungVorher, ansichtVorher, text);
+            } else {
                 const feld = el('erzaehl-text');
                 if (feld) {
                     const vorhanden = feld.value.trim();
@@ -1094,28 +1336,34 @@ function erzaehlAllesText(teile) {
         const titelBlock = el('erzaehl-titel-bearbeiten');
         if (ev.key === 'Escape') {
             if (titelBlock && !titelBlock.hidden) titelBearbeitenSchliessen();
-            else if (zustand.ansicht === 'einzel') zurUebersicht(); else sheetSchliessen();
+            else ebeneHoch();
             return;
         }
         // Pfeiltasten beim Tippen in einem Feld bewegen den Cursor, nicht die Diashow.
         if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName || '')) return;
-        if (ev.key === 'ArrowRight') { diashowSchritt(1); }
-        else if (ev.key === 'ArrowLeft') { diashowSchritt(-1); }
+        // Einzelansicht: Bild; Übersicht: Anlass (#18).
+        if (ev.key === 'ArrowRight') { blaettern(1); }
+        else if (ev.key === 'ArrowLeft') { blaettern(-1); }
     }
 
-    let wischStartX = null;
+    // Wischen über die ganze rechte Spalte (#18): Einzelansicht = Bild,
+    // Übersicht = Anlass. Nicht in Eingabefeldern (dort wird Text markiert).
+    let wischStartPunkt = null;
     function wischStart(ev) {
-        wischStartX = (ev.touches && ev.touches[0]) ? ev.touches[0].clientX : null;
+        const t = ev.touches && ev.touches[0];
+        const imFeld = ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName || '');
+        wischStartPunkt = (t && !imFeld && (!ev.touches || ev.touches.length === 1)) ? { x: t.clientX, y: t.clientY } : null;
     }
     function wischEnde(ev) {
-        if (wischStartX === null) return;
-        const endX = (ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientX : null;
-        if (endX === null) { wischStartX = null; return; }
-        const delta = endX - wischStartX;
-        wischStartX = null;
-        if (Math.abs(delta) < 40) return;
-        diashowSchritt(delta < 0 ? 1 : -1);
+        if (!wischStartPunkt) return;
+        const t = ev.changedTouches && ev.changedTouches[0];
+        const start = wischStartPunkt;
+        wischStartPunkt = null;
+        if (!t) return;
+        const richtung = erzaehlWischRichtung(t.clientX - start.x, t.clientY - start.y);
+        if (richtung) blaettern(richtung);
     }
+    function wischAbbruch() { wischStartPunkt = null; }
 
     // ---- Aufbau ------------------------------------------------------
 
@@ -1124,15 +1372,20 @@ function erzaehlAllesText(teile) {
         if (oeffnenBtn) oeffnenBtn.addEventListener('click', sheetOeffnen);
 
         const schliessenBtn = el('erzaehlen-close');
-        if (schliessenBtn) schliessenBtn.addEventListener('click', sheetSchliessen);
+        if (schliessenBtn) schliessenBtn.addEventListener('click', sheetSchliessenMitVerlauf);
 
         const sheet = el('erzaehlen-sheet');
-        if (sheet) sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheetSchliessen(); });
+        if (sheet) sheet.addEventListener('click', (ev) => { if (ev.target === sheet) sheetSchliessenMitVerlauf(); });
 
         const zurueckBtn = el('erzaehl-zurueck-zur-liste');
-        if (zurueckBtn) zurueckBtn.addEventListener('click', zurZurListe);
+        if (zurueckBtn) zurueckBtn.addEventListener('click', ebeneHoch);
         const zurUebersichtBtn = el('erzaehl-zur-uebersicht');
-        if (zurUebersichtBtn) zurUebersichtBtn.addEventListener('click', zurUebersicht);
+        if (zurUebersichtBtn) zurUebersichtBtn.addEventListener('click', ebeneHoch);
+        const anlassVor = el('erzaehl-anlass-vor');
+        if (anlassVor) anlassVor.addEventListener('click', () => anlassSchritt(-1));
+        const anlassWeiter = el('erzaehl-anlass-weiter');
+        if (anlassWeiter) anlassWeiter.addEventListener('click', () => anlassSchritt(1));
+        window.addEventListener('popstate', verlaufZurueck);
         const titelAendern = el('erzaehl-titel-aendern');
         if (titelAendern) titelAendern.addEventListener('click', titelBearbeitenOeffnen);
         const titelEingabe = el('erzaehl-titel-eingabe');
@@ -1181,10 +1434,11 @@ function erzaehlAllesText(teile) {
 
         document.addEventListener('keydown', tastaturBehandeln);
 
-        const buehne = el('erzaehl-bild-rahmen');
-        if (buehne) {
-            buehne.addEventListener('touchstart', wischStart, { passive: true });
-            buehne.addEventListener('touchend', wischEnde, { passive: true });
+        const wischFlaeche = el('erzaehl-diashow-spalte');
+        if (wischFlaeche) {
+            wischFlaeche.addEventListener('touchstart', wischStart, { passive: true });
+            wischFlaeche.addEventListener('touchend', wischEnde, { passive: true });
+            wischFlaeche.addEventListener('touchcancel', wischAbbruch, { passive: true });
         }
     }
 

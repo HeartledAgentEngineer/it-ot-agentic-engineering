@@ -279,5 +279,69 @@ pruefe('Pfeiltasten im Eingabefeld blättern nicht', /\^\(INPUT\|TEXTAREA\)\$/.t
 pruefe('Liste wird nach dem Speichern mitgezogen', /erzaehl-row-titel[\s\S]{0,80}daten\.titel/.test(src));
 pruefe('CSS: [hidden] wirkt auf das Titelfeld', /\.erzaehl-titel-bearbeiten\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 
+// Zwischen Anlässen blättern (#18, 07.10.2026): ◀ ▶, Pfeiltasten, Wischen, Android-Zurück.
+eval(extractFn('_erzaehlZahl'));
+eval(extractFn('erzaehlAnlassNav'));
+eval(extractFn('erzaehlWischRichtung'));
+eval(extractFn('erzaehlZurueckEntscheiden'));
+
+console.log('\n12) Zwischen Anlässen blättern');
+const navMitte = erzaehlAnlassNav(['a', 'b', 'c'], 'b', 2127);
+pruefe('Mitte: voriger und nächster Anlass', navMitte.vor === 'a' && navMitte.weiter === 'c' && navMitte.index === 1);
+pruefe('Zähler mit Tausenderpunkt', navMitte.text === 'Anlass 2 von 2.127', navMitte.text);
+const navEnde = erzaehlAnlassNav(['a', 'b', 'c'], 'c', 2127);
+pruefe('Ende der geladenen Liste, Server kennt mehr -> nachladen', navEnde.weiter === null && navEnde.mehrLaden === true);
+const navLetzter = erzaehlAnlassNav(['a', 'b', 'c'], 'c', 3);
+pruefe('wirklich letzter Anlass -> nichts mehr', navLetzter.weiter === null && navLetzter.mehrLaden === false);
+pruefe('erster Anlass -> kein voriger', erzaehlAnlassNav(['a', 'b'], 'a', 2).vor === null);
+pruefe('Anlass nicht in der Liste (Filter geändert) -> keine Nachbarn',
+    erzaehlAnlassNav(['a'], 'x', 9).index === -1 && erzaehlAnlassNav(['a'], 'x', 9).weiter === null);
+pruefe('kaputte Eingaben werfen nicht', erzaehlAnlassNav(null, null, 'x').text === '');
+pruefe('gesamt kleiner als Liste -> Liste zählt', erzaehlAnlassNav(['a', 'b'], 'a', 0).text === 'Anlass 1 von 2');
+pruefe('Zahl: 0, 999, 1000, 1234567', _erzaehlZahl(0) === '0' && _erzaehlZahl(999) === '999'
+    && _erzaehlZahl(1000) === '1.000' && _erzaehlZahl(1234567) === '1.234.567');
+
+pruefe('nach links wischen = vor', erzaehlWischRichtung(-120, 10) === 1);
+pruefe('nach rechts wischen = zurück', erzaehlWischRichtung(120, -10) === -1);
+pruefe('kurzer Wisch zählt nicht', erzaehlWischRichtung(-30, 0) === 0);
+pruefe('schräges Scrollen blättert nicht', erzaehlWischRichtung(-80, 70) === 0);
+pruefe('senkrechtes Scrollen blättert nicht', erzaehlWischRichtung(5, 300) === 0);
+pruefe('kaputte Werte -> 0', erzaehlWischRichtung(undefined, null) === 0);
+
+pruefe('Zurück aus dem Einzelbild landet auf dem Anlass', erzaehlZurueckEntscheiden('anlass', 'bild') === 'anwenden');
+pruefe('Zurück aus dem Anlass landet auf der Liste', erzaehlZurueckEntscheiden('liste', 'anlass') === 'anwenden');
+pruefe('Zurück aus der Liste schließt das Blatt', erzaehlZurueckEntscheiden('zu', 'liste') === 'anwenden');
+pruefe('veralteter Eintrag (Blatt schon zu) -> noch ein Schritt', erzaehlZurueckEntscheiden('anlass', 'zu') === 'weiter');
+pruefe('veralteter Eintrag gleicher Ebene -> noch ein Schritt', erzaehlZurueckEntscheiden('anlass', 'anlass') === 'weiter');
+pruefe('Grundseite erreicht -> nichts (nie über die Seite hinaus)', erzaehlZurueckEntscheiden('zu', 'zu') === 'nichts');
+pruefe('fremder Verlaufseintrag zählt als Grundseite', erzaehlZurueckEntscheiden('quatsch', 'zu') === 'nichts');
+
+pruefe('index.html: Anlass-Leiste mit ◀ Zähler ▶', /id="erzaehl-anlass-nav"/.test(html)
+    && /id="erzaehl-anlass-vor"/.test(html) && /id="erzaehl-anlass-zaehler"/.test(html) && /id="erzaehl-anlass-weiter"/.test(html));
+pruefe('Pfeiltasten und Sprache blättern über blaettern()',
+    /ev\.key === 'ArrowRight'\) \{ blaettern\(1\)/.test(src) && /befehl === 'weiter'\) \{ blaettern\(1\)/.test(src));
+pruefe('blaettern: Einzelansicht = Bild, Übersicht = Anlass',
+    /function blaettern\(richtung\) \{\s*if \(zustand\.ansicht === 'einzel'\) diashowSchritt\(richtung\);\s*else anlassSchritt\(richtung\);/.test(src));
+pruefe('Wischen über die ganze Spalte, Abbruch wird beachtet',
+    /wischFlaeche = el\('erzaehl-diashow-spalte'\)/.test(src) && /'touchcancel', wischAbbruch/.test(src));
+pruefe('am Ende der geladenen Liste wird erst nachgeladen', /nav\.mehrLaden\) \{\s*await ereignislisteLaden\(true\)/.test(src));
+pruefe('Ebenen legen Verlaufseinträge an (Liste, Anlass, Bild)',
+    /verlaufRein\('liste'\)/.test(src) && /if \(vonListe\) verlaufRein\('anlass'\)/.test(src) && /verlaufRein\('bild'\)/.test(src));
+pruefe('Zurück-Geste läuft über popstate', /addEventListener\('popstate', verlaufZurueck\)/.test(src));
+pruefe('Knöpfe gehen über den Verlauf eine Ebene hoch',
+    /zurueckBtn\.addEventListener\('click', ebeneHoch\)/.test(src) && /zurUebersichtBtn\.addEventListener\('click', ebeneHoch\)/.test(src));
+pruefe('✕ baut die eigenen Einträge ab', /schliessenBtn\.addEventListener\('click', sheetSchliessenMitVerlauf\)/.test(src)
+    && /history\.go\(-rang\)/.test(src));
+pruefe('Entwurf je Anlass: vor dem Wechsel sichern, danach holen',
+    /entwurfSichern\(\);[^\n]*\n\s*zustand\.aktuellesEreignis = kennung;/.test(src) && /entwurfHolen\(kennung\)/.test(src));
+pruefe('Speichern nach Weiterwischen schreibt nicht ins neue Feld',
+    /if \(zustand\.aktuellesEreignis !== kennung\) \{[\s\S]{0,200}entwurfJeAnlass\.delete\(kennung\)/.test(src));
+pruefe('spätes Diktat landet im Entwurf des richtigen Anlasses', /entwurfAnhaengen\(kennungVorher, ansichtVorher, text\)/.test(src));
+pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', an\)/.test(src));
+pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
+pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
+pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261007B', /erzaehlen\.js\?v=20261007B/.test(html));
+
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);
