@@ -1826,6 +1826,27 @@ button.footer-note:hover {
 
 .erzaehl-personen[hidden] { display: none; }
 
+/* Was und wo (07.10.2026): Orte der Gruppe, Ort und Beschreibung je Bild. */
+.erzaehl-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+
+.erzaehl-info[hidden],
+.erzaehl-info > [hidden] { display: none; }
+
+.erzaehl-beschreibung { color: var(--text-secondary); }
+
 /* Kopfzeile über den Notizen/Geschichten (07.10.2026): Beschriftung plus
    Vorlese-Knopf, damit sich die Notizen wie ein Tagebuch anhören lassen. */
 .erzaehl-geschichten-kopf {

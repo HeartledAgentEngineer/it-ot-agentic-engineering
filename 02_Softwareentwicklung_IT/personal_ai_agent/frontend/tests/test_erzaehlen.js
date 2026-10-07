@@ -341,7 +341,31 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261007B', /erzaehlen\.js\?v=20261007B/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261007C', /erzaehlen\.js\?v=20261007C/.test(html));
+
+// Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
+eval(extractFn('erzaehlOrtText'));
+eval(extractFn('erzaehlOrteUebersicht'));
+
+console.log('\n13) Was und wo');
+pruefe('Landmarke und Ort', erzaehlOrtText({ landmarke: 'Gasthaus am See', art: 'restaurant', ort: 'Testdorf' }) === 'Gasthaus am See, Testdorf');
+pruefe('nur Ort', erzaehlOrtText({ landmarke: null, ort: 'Testdorf' }) === 'Testdorf');
+pruefe('gleicher Name nur einmal', erzaehlOrtText({ landmarke: 'Testdorf', ort: 'testdorf' }) === 'Testdorf');
+pruefe('Flug', erzaehlOrtText({ art: 'flug', landmarke: 'x' }) === 'Während des Flugs');
+pruefe('nichts -> leer', erzaehlOrtText(null) === '' && erzaehlOrtText({}) === '');
+pruefe('Orte der Gruppe', erzaehlOrteUebersicht({ orte: ['A', 'B', 'C'] }) === 'Orte: A, B und C');
+pruefe('keine Orte -> leer', erzaehlOrteUebersicht({ orte: [] }) === '' && erzaehlOrteUebersicht(null) === '');
+pruefe('lädt über die eigene Route, veraltete Antwort wird verworfen',
+    src.includes('/bilder-info`') && /bilderInfoLaden\(kennung\)/.test(src)
+    && /async function bilderInfoLaden[\s\S]{0,400}if \(zustand\.aktuellesEreignis !== kennung\) return;/.test(src));
+pruefe('Anzeige bei jedem Ansichts- und Bildwechsel', (src.match(/bildInfoAnzeigen\(\);/g) || []).length >= 4);
+pruefe('index.html: Orte-Zeile und Bild-Info (versteckt)',
+    /id="erzaehl-orte"[^>]*hidden/.test(html) && /id="erzaehl-bild-info"[^>]*hidden/.test(html)
+    && /id="erzaehl-bild-ort"[^>]*hidden/.test(html) && /id="erzaehl-bild-beschreibung"[^>]*hidden/.test(html));
+pruefe('Alles vorlesen liest Orte bzw. Ort und Beschreibung mit',
+    /imRaster \? \['erzaehl-orte-text'\] : \['erzaehl-bild-ort-text', 'erzaehl-bild-beschreibung'\]/.test(src));
+pruefe('CSS: [hidden] wirkt auf den Info-Block und seine Zeilen',
+    /\.erzaehl-info\[hidden\],\s*\.erzaehl-info > \[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 
 console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
 process.exit(fehler ? 1 : 0);

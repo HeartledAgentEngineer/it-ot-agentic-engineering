@@ -145,6 +145,27 @@ function erzaehlZurueckEntscheiden(ziel, jetzt) {
     return 'weiter';
 }
 
+/** REINE Funktion (07.10.2026): Ort eines Bildes ``{landmarke, art, ort}``
+ *  (aus /bilder-info) als Text — „Gasthaus am See, Mölln", „Während des Flugs"
+ *  oder ''. Gleiche Namen erscheinen nur einmal. */
+function erzaehlOrtText(ort) {
+    if (!ort || typeof ort !== 'object') return '';
+    if (ort.art === 'flug') return 'Während des Flugs';
+    const teile = [ort.landmarke, ort.ort]
+        .filter((t) => typeof t === 'string' && t.trim())
+        .map((t) => t.trim());
+    if (teile.length === 2 && teile[0].toLowerCase() === teile[1].toLowerCase()) teile.pop();
+    return teile.join(', ');
+}
+
+/** REINE Funktion (07.10.2026): Orte-Zeile der Übersicht („Orte: A, B und C")
+ *  aus der Antwort von /bilder-info (Feld ``info``); keine Orte -> ''. */
+function erzaehlOrteUebersicht(info) {
+    if (!info || !Array.isArray(info.orte)) return '';
+    const orte = info.orte.filter((o) => typeof o === 'string' && o.trim()).map((o) => o.trim());
+    return orte.length ? 'Orte: ' + _erzaehlAufzaehlen(orte) : '';
+}
+
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
@@ -285,6 +306,7 @@ function erzaehlAllesText(teile) {
         entwurf: { uebersicht: '', einzel: '' }, // halbfertiger Text je Ansicht
         personen: null,            // Antwort von /ereignisse/{kennung}/personen (Feld personen)
         personenFehler: '',
+        bilderInfo: null,          // Antwort von /ereignisse/{kennung}/bilder-info (Feld info)
         audio: null,               // laufende Vorlese-Ausgabe (nur über /api/speak)
         ereignisGesamt: 0,         // alle Anlässe laut Server (für „Anlass 5 von 2.127")
         anlassWechsel: false,      // Sperre: ein Anlass-Wechsel zur Zeit
@@ -363,6 +385,7 @@ function erzaehlAllesText(teile) {
         vorlesenStoppen();
         zustand.personen = null;
         zustand.personenFehler = '';
+        zustand.bilderInfo = null;
         ansichtUmschalten('uebersicht');
         zustand.aktuellesEreignis = null;
         zustand.detail = null;
@@ -519,6 +542,7 @@ function erzaehlAllesText(teile) {
         anlassNavAktualisieren();
         einblenden(richtung);
         personenLaden(kennung);   // kommt nach — die Übersicht steht sofort
+        bilderInfoLaden(kennung);
     }
 
     // ---- Zwischen Anlässen blättern (#18, 07.10.2026) -------------------
@@ -790,6 +814,47 @@ function erzaehlAllesText(teile) {
         if (knopf) knopf.hidden = !zustand.personen;
     }
 
+    // ---- Was und wo (07.10.2026) -----------------------------------------
+    // Ort (OpenStreetMap-Zuordnung, eigene Orte) und Beschreibung je Bild
+    // (GET /api/erzaehlen/ereignisse/{kennung}/bilder-info), nur lesend.
+    // Fehlen die Dateien am Handy, bleibt der Block einfach weg.
+
+    async function bilderInfoLaden(kennung) {
+        zustand.bilderInfo = null;
+        bildInfoAnzeigen();
+        let daten;
+        try {
+            daten = await jsonHolen(`/api/erzaehlen/ereignisse/${encodeURIComponent(kennung)}/bilder-info`);
+        } catch (_e) {
+            daten = null;
+        }
+        if (zustand.aktuellesEreignis !== kennung) return;   // inzwischen gewechselt
+        zustand.bilderInfo = (daten && daten.ok === true && daten.info) ? daten.info : null;
+        bildInfoAnzeigen();
+    }
+
+    function bildInfoAnzeigen() {
+        const einzel = zustand.ansicht === 'einzel';
+        const info = zustand.bilderInfo;
+        const orteZeile = el('erzaehl-orte');
+        const orteText = el('erzaehl-orte-text');
+        const orte = (!einzel && info) ? erzaehlOrteUebersicht(info) : '';
+        if (orteText) orteText.textContent = orte;
+        if (orteZeile) orteZeile.hidden = !orte;
+
+        const block = el('erzaehl-bild-info');
+        const ortZeile = el('erzaehl-bild-ort');
+        const ortText = el('erzaehl-bild-ort-text');
+        const beschreibung = el('erzaehl-bild-beschreibung');
+        const eintrag = (einzel && info && info.bilder) ? info.bilder[String(aktuelleDateiKennung())] : null;
+        const ort = eintrag ? erzaehlOrtText(eintrag.ort) : '';
+        const text = (eintrag && typeof eintrag.beschreibung === 'string') ? eintrag.beschreibung.trim() : '';
+        if (ortText) ortText.textContent = ort ? 'Ort: ' + ort : '';
+        if (ortZeile) ortZeile.hidden = !ort;
+        if (beschreibung) { beschreibung.textContent = text; beschreibung.hidden = !text; }
+        if (block) block.hidden = !(ort || text);
+    }
+
     function vorlesenStoppen() {
         if (zustand.audio) {
             try { zustand.audio.pause(); } catch (_e) { /* schon aus */ }
@@ -855,6 +920,10 @@ function erzaehlAllesText(teile) {
         if (kopf && imRaster) teile.push(kopf.textContent);
         const personen = el(imRaster ? 'erzaehl-personen-text' : 'erzaehl-bild-personen-text');
         if (personen) teile.push(personen.textContent);
+        // Orte (Übersicht) bzw. Ort und Beschreibung (Einzelbild); leere Felder
+        // fallen in erzaehlAllesText heraus (bildInfoAnzeigen leert sie).
+        (imRaster ? ['erzaehl-orte-text'] : ['erzaehl-bild-ort-text', 'erzaehl-bild-beschreibung'])
+            .forEach((id) => { const feld = el(id); if (feld) teile.push(feld.textContent); });
         teile.push(geschichtenTextSammeln());
         await vorlesenText(erzaehlAllesText(teile));
     }
@@ -1012,6 +1081,7 @@ function erzaehlAllesText(teile) {
             kachelMarkerAktualisieren();
         }
         personenAnzeigen();
+        bildInfoAnzeigen();
     }
 
     function bildOeffnen(index) {
@@ -1052,6 +1122,7 @@ function erzaehlAllesText(teile) {
 
         if (zaehler) zaehler.textContent = `${n ? zustand.index + 1 : 0} / ${n}`;
         personenAnzeigen();
+        bildInfoAnzeigen();
 
         if (bild) { bild.hidden = true; }
         if (platzhalter) { platzhalter.hidden = false; platzhalter.textContent = '… lädt'; }

@@ -15,6 +15,12 @@ Sicherheit: nur ``adb push`` (anlegen/ersetzen im Download-Ordner) und
 ``adb shell stat`` (Groesse pruefen). Nichts wird geloescht, nichts gelesen
 ausser Groesse und Name. Ohne ``--senden`` wird nur gezeigt, was geschaehe.
 
+Seit 07.10.2026 auch fuer andere Dateien aus ``~/foto_sortierung`` (``--dateien``),
+z. B. Bildbeschreibungen und Orte fuers Erzaehlen::
+
+    python tools/handy/gruppen_aufs_handy.py --basis ~/foto_sortierung \
+        --dateien bild_beschreibungen.jsonl bild_orte.csv --senden
+
 Aufruf:
     python tools/handy/gruppen_aufs_handy.py --senden
 Exit 0 = gesendet (oder Trockenlauf), 1 = Uebertragung fehlgeschlagen,
@@ -52,15 +58,21 @@ def geraet_da(ausfuehren: Ausfuehren, adb: str = "adb") -> bool:
 
 
 def senden(basis: str, ziel: str, ausfuehren: Ausfuehren = _ausfuehren, adb: str = "adb",
-           wirklich: bool = False) -> Tuple[int, List[str]]:
+           wirklich: bool = False, dateien=DATEIEN) -> Tuple[int, List[str]]:
     zeilen: List[str] = []
-    fehlend = [n for n in DATEIEN if not os.path.isfile(os.path.join(basis, n))]
+    dateien = tuple(dateien)
+    falsch = [n for n in dateien if not n or n in (".", "..") or "/" in n or "\\" in n]
+    if falsch or not dateien:
+        zeilen.append("Nur reine Dateinamen ohne Pfad angeben.")
+        return 2, zeilen
+    fehlend = [n for n in dateien if not os.path.isfile(os.path.join(basis, n))]
     if fehlend:
-        zeilen.append("Fehlt am PC: " + ", ".join(fehlend) +
-                      " - zuerst tools/foto_sortierung/personen_gruppieren.py --schreiben")
+        hinweis = (" - zuerst tools/foto_sortierung/personen_gruppieren.py --schreiben"
+                   if dateien == DATEIEN else "")
+        zeilen.append("Fehlt am PC: " + ", ".join(fehlend) + hinweis)
         return 2, zeilen
     if not wirklich:
-        for n in DATEIEN:
+        for n in dateien:
             zeilen.append(f"wuerde senden: {n} ({os.path.getsize(os.path.join(basis, n)):,} Bytes)"
                           .replace(",", "."))
         zeilen.append("Trockenlauf - mit --senden wirklich uebertragen.")
@@ -69,7 +81,7 @@ def senden(basis: str, ziel: str, ausfuehren: Ausfuehren = _ausfuehren, adb: str
         zeilen.append("Kein Handy am Kabel (adb devices) - USB-Debugging an? Kabel steckt?")
         return 2, zeilen
     fehler = 0
-    for n in DATEIEN:
+    for n in dateien:
         quelle = os.path.join(basis, n)
         groesse = os.path.getsize(quelle)
         code, _ = ausfuehren([adb, "push", quelle, f"{ziel}/{n}"])
@@ -93,11 +105,14 @@ def main(argv=None) -> int:
     parser.add_argument("--ziel", default=STANDARD_ZIEL)
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--senden", action="store_true", help="wirklich uebertragen")
+    parser.add_argument("--dateien", nargs="+", default=list(DATEIEN),
+                        help="reine Dateinamen im --basis-Ordner (Standard: die zwei Gruppen-Dateien)")
     args = parser.parse_args(argv)
     if not args.ziel.startswith("/sdcard/"):
         print("Ziel muss im freigegebenen Speicher liegen (/sdcard/...).")
         return 2
-    code, zeilen = senden(args.basis, args.ziel, adb=args.adb, wirklich=args.senden)
+    code, zeilen = senden(args.basis, args.ziel, adb=args.adb, wirklich=args.senden,
+                          dateien=args.dateien)
     print("\n".join(zeilen))
     return code
 

@@ -479,6 +479,118 @@ def ereignis_detail(kennung: str) -> Optional[Dict[str, Any]]:
     }
 
 
+# ── Was ist auf dem Bild, wo entstand es? (07.10.2026) ───────────────────────
+# Sebastian: „genauere Beschreibung der einzelnen Bilder mit den Orten … wer wo
+# drauf ist". Beides liegt schon am PC vor (Bildbeschreibungen aus dem
+# Kontaktbogen-Lauf, Orte aus der OpenStreetMap-Zuordnung) und kommt per
+# Übergabe neben ``ereignisse.jsonl``. Nur lesend; je Datei ein Zwischenspeicher,
+# der erst bei geänderter Datei (Zeit/Größe) neu liest.
+
+BESCHREIBUNGEN_DATEINAME = "bild_beschreibungen.jsonl"
+BILD_ORTE_DATEINAME = "bild_orte.csv"
+BESCHREIBUNG_MAX_LAENGE = 600
+_BILDINFO_SPEICHER: Dict[str, Tuple[Tuple[float, int], Dict[int, Any]]] = {}
+
+
+def beschreibungen_pfad() -> str:
+    """``bild_beschreibungen.jsonl`` neben ``ereignisse.jsonl`` (wandert in Tests mit)."""
+    return os.path.join(os.path.dirname(ereignisse_pfad()), BESCHREIBUNGEN_DATEINAME)
+
+
+def bild_orte_pfad() -> str:
+    """``bild_orte.csv`` (tools/foto_sortierung/orte_aus_karte.py --zuordnen) neben ``ereignisse.jsonl``."""
+    return os.path.join(os.path.dirname(ereignisse_pfad()), BILD_ORTE_DATEINAME)
+
+
+def _zwischengespeichert(pfad: str, lesen) -> Dict[int, Any]:
+    """Datei nur neu lesen, wenn sie sich geändert hat. **Wirft nie.**"""
+    try:
+        stand = os.stat(pfad)
+    except OSError:
+        return {}
+    schluessel = (stand.st_mtime, stand.st_size)
+    alt = _BILDINFO_SPEICHER.get(pfad)
+    if alt and alt[0] == schluessel:
+        return alt[1]
+    try:
+        daten = lesen(pfad)
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        logger.warning("Bild-Info nicht lesbar (%s): %s", pfad, e)
+        daten = {}
+    _BILDINFO_SPEICHER[pfad] = (schluessel, daten)
+    return daten
+
+
+def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
+    """``{fileid: beschreibung}`` — die Datei wächst nur an, die letzte Zeile je Bild gilt."""
+    ergebnis: Dict[int, str] = {}
+    with open(pfad, "r", encoding="utf-8") as datei:
+        for zeile in datei:
+            try:
+                eintrag = json.loads(zeile)
+            except ValueError:
+                continue
+            if not isinstance(eintrag, dict):
+                continue
+            fileid = _als_zahl(eintrag.get("fileid"))
+            text = eintrag.get("beschreibung")
+            if fileid is not None and isinstance(text, str) and text.strip():
+                ergebnis[fileid] = " ".join(text.split())[:BESCHREIBUNG_MAX_LAENGE]
+    return ergebnis
+
+
+def _bild_orte_lesen(pfad: str) -> Dict[int, Dict[str, Any]]:
+    """``{fileid: {"landmarke", "art", "ort"}}`` aus ``bild_orte.csv`` — ohne Hausnummern, ohne Koordinaten."""
+    import csv
+
+    ergebnis: Dict[int, Dict[str, Any]] = {}
+    with open(pfad, "r", encoding="utf-8", newline="") as datei:
+        for zeile in csv.DictReader(datei):
+            fileid = _als_zahl(zeile.get("fileid"))
+            landmarke = (zeile.get("landmarke") or "").strip()
+            ort = (zeile.get("ort_osm") or "").strip()
+            if fileid is None or not (landmarke or ort):
+                continue
+            ergebnis[fileid] = {"landmarke": landmarke or None,
+                                "art": (zeile.get("landmarke_art") or "").strip() or None,
+                                "ort": ort or None}
+    return ergebnis
+
+
+def bilder_info(kennung: str) -> Optional[Dict[str, Any]]:
+    """Beschreibung und Ort je Bild eines Anlasses, dazu die häufigsten Orte.
+
+    ``None`` bei unbekanntem Anlass. Ergebnis ``{"bilder": {fileid: {"beschreibung",
+    "ort"}}, "orte": [häufigste Namen, höchstens 3], "mit_beschreibung", "mit_ort",
+    "beschreibungen_vorhanden", "orte_vorhanden"}`` — Bilder ohne beides fehlen in
+    ``bilder``. **Wirft nie** (fehlende Dateien = leere Angaben).
+    """
+    ereignis = _ereignis_finden(kennung)
+    if ereignis is None:
+        return None
+    beschreibungen = _zwischengespeichert(beschreibungen_pfad(), _beschreibungen_lesen)
+    orte = _zwischengespeichert(bild_orte_pfad(), _bild_orte_lesen)
+    bilder: Dict[str, Dict[str, Any]] = {}
+    zaehler: Dict[str, int] = {}
+    for fileid in _ereignis_datei_kennungen(ereignis):
+        text, ort = beschreibungen.get(fileid), orte.get(fileid)
+        if not text and not ort:
+            continue
+        bilder[str(fileid)] = {"beschreibung": text, "ort": ort}
+        name = ort and (ort.get("landmarke") or ort.get("ort"))
+        if name:
+            zaehler[name] = zaehler.get(name, 0) + 1
+    haeufigste = sorted(zaehler.items(), key=lambda kv: (-kv[1], kv[0].casefold()))[:3]
+    return {
+        "bilder": bilder,
+        "orte": [name for name, _ in haeufigste],
+        "mit_beschreibung": sum(1 for b in bilder.values() if b["beschreibung"]),
+        "mit_ort": sum(1 for b in bilder.values() if b["ort"]),
+        "beschreibungen_vorhanden": os.path.isfile(beschreibungen_pfad()),
+        "orte_vorhanden": os.path.isfile(bild_orte_pfad()),
+    }
+
+
 # ── Geschichte speichern (nur anhängend) ─────────────────────────────────────
 
 class GeschichteValidierungsfehler(ValueError):

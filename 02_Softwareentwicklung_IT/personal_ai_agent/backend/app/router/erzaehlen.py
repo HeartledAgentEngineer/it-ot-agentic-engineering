@@ -3,6 +3,7 @@
   GET  /api/erzaehlen/ereignisse            Gefilterte Ereignisliste
   GET  /api/erzaehlen/ereignisse/{kennung}  Ein Ereignis + Datei-Kennungen + Geschichten
   GET  /api/erzaehlen/ereignisse/{kennung}/personen  Wer ist auf den Bildern (06.10.2026)
+  GET  /api/erzaehlen/ereignisse/{kennung}/bilder-info  Beschreibung + Ort je Bild (07.10.2026)
   POST /api/erzaehlen/geschichten           Eine Geschichte anhängen
   GET  /api/erzaehlen/geschichten           Geschichten (optional gefiltert)
   POST /api/erzaehlen/ereignisse/{kennung}/titel  Eigener Titel (06.10.2026, leer = automatisch)
@@ -119,6 +120,31 @@ def ereignis_personen(kennung: str) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001 – der Endpunkt darf nie 500en
         logger.error("Personen zum Ereignis fehlgeschlagen: %s", e)
         antwort["error"] = f"Personen nicht lesbar ({type(e).__name__})"
+    return antwort
+
+
+@router.get("/ereignisse/{kennung}/bilder-info")
+def ereignis_bilder_info(kennung: str) -> Dict[str, Any]:
+    """Was ist auf den Bildern, wo entstanden sie? (07.10.2026)
+
+    Beschreibung (Kontaktbogen-Lauf) und Ort (OpenStreetMap-Zuordnung) je Bild,
+    dazu die häufigsten Orte. Eigener Aufruf wie die Personen — die Übersicht
+    steht sofort, die Angaben kommen nach. Nur lesend.
+    """
+    antwort: Dict[str, Any] = {"ok": False, "info": None, "error": None}
+    try:
+        if not erzaehl_service.ereignisse_existiert():
+            antwort["error"] = EREIGNISDATEI_FEHLT
+            return antwort
+        info = erzaehl_service.bilder_info(kennung)
+        if info is None:
+            antwort["error"] = f"Ereignis '{kennung}' nicht gefunden."
+            return antwort
+        antwort["ok"] = True
+        antwort["info"] = info
+    except Exception as e:  # noqa: BLE001 – der Endpunkt darf nie 500en
+        logger.error("Bild-Info zum Ereignis fehlgeschlagen: %s", e)
+        antwort["error"] = f"Bild-Info nicht lesbar ({type(e).__name__})"
     return antwort
 
 
