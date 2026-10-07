@@ -1097,6 +1097,34 @@ def unicode_tippen(text):
     return gesendet
 
 
+# Tipp-Animation: Ein Block wird Zeichen für Zeichen getippt, damit es wie
+# geschrieben aussieht statt zu ruckeln. Höchstens LIVE_TIPP_DAUER je Block —
+# der Schreiber transkribiert erst danach den nächsten, und ein Block kommt
+# etwa alle 2–3 s (gemessen 07.10.2026: Transkription 0,6–1,0 s + Glättung 0,4 s).
+LIVE_TIPP_DAUER = 0.8     # Sekunden je Block, höchstens
+LIVE_TIPP_PAUSE = 0.035   # natürliches Tempo für kurze Blöcke (~30 Zeichen/s)
+
+
+def tipp_pause(text, max_dauer, max_pause):
+    """Wartezeit zwischen zwei Zeichen — reine Funktion.
+
+    Kurze Blöcke im natürlichen Tempo, lange so schnell, dass sie in
+    `max_dauer` fertig sind.
+    """
+    if not text:
+        return 0.0
+    return min(max_pause, max_dauer / len(text))
+
+
+def _tippen_animiert(text):
+    """Zeichen für Zeichen tippen — ein Block auf einen Schlag „ruckelt"."""
+    pause = tipp_pause(text, LIVE_TIPP_DAUER, LIVE_TIPP_PAUSE)
+    for zeichen in text:
+        unicode_tippen(zeichen)
+        if pause:
+            time.sleep(pause)
+
+
 def _live_text_einfuegen(text, fuge=''):
     """Tippt `fuge` + `text` am Cursor und merkt sich, was angekommen ist.
 
@@ -1114,7 +1142,7 @@ def _live_text_einfuegen(text, fuge=''):
              tastenzustand_text(), titel)
     # Direkt tippen statt Strg+V — Strg+V kommt bei gehaltenem Hotkey nicht an.
     with eigene_eingabe():
-        unicode_tippen(eingefuegt)
+        _tippen_animiert(eingefuegt)
     with lock:
         live_teile.append({'text': eingefuegt, 'roh': text, 'fenster': titel,
                            'zeit': time.monotonic()})

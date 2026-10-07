@@ -58,3 +58,34 @@ def test_nomen_am_anfang_bleibt_gross():
 def test_neuer_satz_beginnt_gross():
     assert typefree.anfang_angleichen('mal gucken', 'mal gucken.',
                                       weiter=False) == 'Mal gucken.'
+
+
+# ── Tipp-Animation (07.10.2026): „Das ruckelt ein bisschen" ─────────────────
+# Ein Block erschien auf einen Schlag. Jetzt Zeichen für Zeichen, verteilt auf
+# höchstens LIVE_TIPP_DAUER — kostet nichts, sieht aus wie geschrieben.
+
+def test_kurzer_block_tippt_in_natuerlichem_tempo():
+    assert typefree.tipp_pause('Genau', max_dauer=1.0, max_pause=0.035) == 0.035
+
+
+def test_langer_block_bleibt_unter_der_hoechstdauer():
+    text = 'x' * 200
+    pause = typefree.tipp_pause(text, max_dauer=1.0, max_pause=0.035)
+    assert pause * len(text) <= 1.0 + 1e-9
+
+
+def test_leerer_text_braucht_keine_pause():
+    assert typefree.tipp_pause('', max_dauer=1.0, max_pause=0.035) == 0.0
+
+
+def test_einfuegen_tippt_zeichen_fuer_zeichen(monkeypatch):
+    getippt = []
+    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
+    monkeypatch.setattr(typefree, 'LIVE_TIPP_DAUER', 0.0)     # Test ohne Wartezeit
+    with typefree.lock:
+        typefree.live_teile.clear()
+    typefree._live_text_einfuegen('Hallo', ' ')
+    assert getippt == [' ', 'H', 'a', 'l', 'l', 'o']
+    with typefree.lock:
+        typefree.live_teile.clear()

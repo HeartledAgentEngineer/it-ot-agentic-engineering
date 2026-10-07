@@ -211,7 +211,7 @@ def test_happen_ohne_text_wird_nicht_eingefuegt():
 def test_einfuegen_merkt_sich_den_text(monkeypatch):
     """Nach dem Einfügen ist bekannt, was im Dokument steht (für den Abschluss)."""
     getippt, kopiert, gedrueckt = [], [], []
-    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_tippen_animiert', getippt.append)
     monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
     monkeypatch.setattr(typefree.pyautogui, 'hotkey',
                         lambda *tasten: gedrueckt.append(tasten))
@@ -276,7 +276,7 @@ def test_scheitert_die_glaettung_kommt_der_rohtext():
 def test_zwei_bloecke_ein_satz_kein_punkt_dazwischen(monkeypatch):
     """Der Fall vom 06.10.2026: „…schlecht erkannt." | „worden oder …"."""
     getippt = []
-    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_tippen_animiert', getippt.append)
     monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
     antworten = iter(['Am Ende schlecht erkannt.', 'worden oder geglättet.'])
     for roh in ('am ende schlecht erkannt', 'worden oder geglättet'):
@@ -289,7 +289,7 @@ def test_zwei_bloecke_ein_satz_kein_punkt_dazwischen(monkeypatch):
 
 def test_neuer_satz_bekommt_den_zurueckgehaltenen_punkt(monkeypatch):
     getippt = []
-    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_tippen_animiert', getippt.append)
     monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
     antworten = iter(['Das ist ein Test?', 'Ja, genau'])
     for roh in ('das ist ein test', 'Ja genau'):
@@ -307,7 +307,7 @@ def _abschluss_vorbereiten(monkeypatch, teile, rest_text):
     monkeypatch.setattr(typefree, '_live_glaetten', lambda roh: roh + '.')
     monkeypatch.setattr(typefree, '_live_buchen', lambda s, a: None)
     monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')
-    monkeypatch.setattr(typefree, 'unicode_tippen', getippt.append)
+    monkeypatch.setattr(typefree, '_tippen_animiert', getippt.append)
     monkeypatch.setattr(typefree, '_status_idle', lambda: None)
     monkeypatch.setattr(typefree, 'live_geschnitten', 0.0)
     with typefree.lock:
