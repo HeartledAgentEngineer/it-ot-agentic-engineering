@@ -150,7 +150,7 @@ QUELLE_DATEN="$HOME/storage/downloads"
 # der freigegebene Download-Ordner direkt (gleiches Muster wie Index und Token).
 [ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
 DATEN_GEFUNDEN=0
-for name in fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl; do
+for name in fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl; do
     [ -f "$QUELLE_DATEN/$name" ] && DATEN_GEFUNDEN=1
 done
 if [ "$DATEN_GEFUNDEN" = "1" ]; then
@@ -163,13 +163,13 @@ if [ "$DATEN_GEFUNDEN" = "1" ]; then
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl \
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl \
             --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
     else
         python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
             --quelle "$QUELLE_DATEN" \
             --ziel "$HOME/foto_sortierung" \
-            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl || true
+            --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl || true
     fi
 fi
 

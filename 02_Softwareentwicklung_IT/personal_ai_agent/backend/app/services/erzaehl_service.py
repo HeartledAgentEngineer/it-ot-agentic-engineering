@@ -212,11 +212,43 @@ def fotobuch_pfad() -> str:
     return os.path.join(os.path.dirname(ereignisse_pfad()), FOTOBUCH_DATEINAME)
 
 
+ORDNER_EREIGNISSE_DATEINAME = "ordner_ereignisse.jsonl"
+
+
+def ordner_ereignisse_pfad() -> str:
+    """Anlässe der Sammlung „Bilder & Videos“ (tools/foto_sortierung/ereignisse_ordner_bauen.py, 07.10.2026).
+
+    Liegt neben ``ereignisse.jsonl`` (wandert mit, wenn ein Test den Pfad
+    umleitet), übersteuerbar mit ``ERZAEHL_ORDNER_EREIGNISSE_PFAD``.
+    """
+    ueber = os.environ.get("ERZAEHL_ORDNER_EREIGNISSE_PFAD")
+    if ueber and ueber.strip():
+        return ueber.strip()
+    return os.path.join(os.path.dirname(ereignisse_pfad()), ORDNER_EREIGNISSE_DATEINAME)
+
+
+def _zeitschluessel(ereignis: Dict[str, Any]) -> str:
+    """Chronologischer Schlüssel: Datum; nur Jahr -> ans Ende des Jahres; nichts -> ganz ans Ende."""
+    datum = ereignis.get("datum")
+    if isinstance(datum, str) and datum.strip():
+        return datum.strip()
+    jahr = _als_zahl(ereignis.get("jahr"))
+    return f"{jahr:04d}-99" if jahr is not None and jahr >= 0 else "9999"
+
+
 def _ereignisse_laden() -> Tuple[List[Dict[str, Any]], int]:
-    """Fotobuch-Seiten (zuerst, in Buchreihenfolge) + ``ereignisse.jsonl``. **Wirft nie.**"""
+    """Fotobuch-Seiten (zuerst, in Buchreihenfolge) + ``ereignisse.jsonl``. **Wirft nie.**
+
+    Gibt es Anlässe aus „Bilder & Videos“ (``ordner_ereignisse.jsonl``), werden
+    sie mit ``ereignisse.jsonl`` chronologisch zusammengeführt (stabil: bei
+    gleichem Datum bleibt die Reihenfolge der Dateien).
+    """
     buch, defekt_buch = _datei_ereignisse_laden(fotobuch_pfad())
     rest, defekt_rest = _datei_ereignisse_laden(ereignisse_pfad())
-    return buch + rest, defekt_buch + defekt_rest
+    ordner, defekt_ordner = _datei_ereignisse_laden(ordner_ereignisse_pfad())
+    if ordner:
+        rest = sorted(rest + ordner, key=_zeitschluessel)
+    return buch + rest, defekt_buch + defekt_rest + defekt_ordner
 
 
 def _datei_ereignisse_laden(pfad: str) -> Tuple[List[Dict[str, Any]], int]:
@@ -271,8 +303,9 @@ def _ereignis_datei_kennungen(ereignis: Dict[str, Any]) -> List[int]:
 
 
 def ereignisse_existiert() -> bool:
-    """Liegt eine Ereignisquelle vor (Ereignisse oder Fotobuch)? (für den Router-Fehlertext)."""
-    return os.path.isfile(ereignisse_pfad()) or os.path.isfile(fotobuch_pfad())
+    """Liegt eine Ereignisquelle vor (Ereignisse, Fotobuch oder Ordner-Anlässe)? (für den Router-Fehlertext)."""
+    return (os.path.isfile(ereignisse_pfad()) or os.path.isfile(fotobuch_pfad())
+            or os.path.isfile(ordner_ereignisse_pfad()))
 
 
 def _ereignis_finden(kennung: str) -> Optional[Dict[str, Any]]:

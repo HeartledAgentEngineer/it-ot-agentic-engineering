@@ -142,13 +142,13 @@ if [ -d "$PROTO_DATEN" ]; then
     python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
         --quelle "$QUELLE_DATEN" \
         --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl \
         --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" >> "$LOG" 2>&1 || true
 else
     python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
         --quelle "$QUELLE_DATEN" \
         --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl >> "$LOG" 2>&1 || true
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl >> "$LOG" 2>&1 || true
 fi
 
 log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
