@@ -459,6 +459,76 @@ def test_gesichter_mit_detektor_nutzt_face_infer_orientierung():
     assert hasattr(gs._face_infer(), "exif_orientierung")
 
 
+# ── 4a. Genau EINE Drehung, egal was OpenCV selbst tut (Befund 08.10.2026) ─
+# OpenCV 5.0 wendet die EXIF-Drehung in imdecode schon selbst an; danach
+# drehte orientiere_bild ein zweites Mal -> Hochkant-Fotos lagen bei der
+# Erkennung quer, der Rahmen passte nicht zur Anzeige. Die Attrappe verhaelt
+# sich wie OpenCV 5.0: ohne IMREAD_IGNORE_ORIENTATION dreht sie selbst.
+
+class Cv2WieFassung50:
+    """Bildet ``cv2.imdecode`` von OpenCV 5.0 nach (nur im Test)."""
+
+    IMREAD_COLOR = 1
+    IMREAD_IGNORE_ORIENTATION = 128
+
+    def __init__(self):
+        self.flags = []
+
+    def imdecode(self, puffer, flags):
+        from PIL import ImageOps
+        self.flags.append(flags)
+        with Image.open(io.BytesIO(bytes(puffer))) as bild:
+            if not flags & self.IMREAD_IGNORE_ORIENTATION:
+                bild = ImageOps.exif_transpose(bild)
+            return np.asarray(bild.convert("RGB"))[:, :, ::-1].copy()
+
+
+class DetektorOhneDekodierer:
+    """Wie der echte YuNet-Detektor: kein eigenes ``dekodiere_bild``."""
+
+
+def _jpeg_mit_markierung(orientierung: int) -> bytes:
+    """40x20-Rohbild, gruener Block oben links, mit EXIF-Orientierung."""
+    bild = Image.new("RGB", (40, 20), (200, 0, 0))
+    bild.paste((0, 200, 0), (0, 0, 10, 10))
+    exif = Image.Exif()
+    exif[274] = orientierung
+    puffer = io.BytesIO()
+    bild.save(puffer, format="JPEG", exif=exif, quality=95)
+    return puffer.getvalue()
+
+
+def _anzeige(rohdaten: bytes):
+    """So zeigt der Browser das Foto: EXIF-Drehung genau einmal (BGR)."""
+    from PIL import ImageOps
+    with Image.open(io.BytesIO(rohdaten)) as bild:
+        return np.asarray(ImageOps.exif_transpose(bild).convert("RGB"))[:, :, ::-1]
+
+
+@pytest.mark.parametrize("orientierung", [1, 3, 6, 8])
+def test_bild_bereitstellen_dreht_genau_einmal(monkeypatch, orientierung):
+    """Erkennungsbild == Anzeigebild (Form UND Lage des Blocks)."""
+    import sys
+    attrappe = Cv2WieFassung50()
+    monkeypatch.setitem(sys.modules, "cv2", attrappe)
+    rohdaten = _jpeg_mit_markierung(orientierung)
+    bild, fehler = gs._bild_bereitstellen(rohdaten, DetektorOhneDekodierer())
+    assert fehler == ""
+    erwartet = _anzeige(rohdaten)
+    assert bild.shape == erwartet.shape
+    # Der gruene Block liegt an derselben Stelle wie in der Anzeige.
+    gruen = lambda a: np.argwhere(a[:, :, 1] > 120).mean(axis=0)  # noqa: E731
+    assert np.allclose(gruen(bild), gruen(erwartet), atol=1.5)
+
+
+def test_bild_bereitstellen_schaltet_opencv_drehung_ab(monkeypatch):
+    import sys
+    attrappe = Cv2WieFassung50()
+    monkeypatch.setitem(sys.modules, "cv2", attrappe)
+    gs._bild_bereitstellen(_jpeg_mit_markierung(6), DetektorOhneDekodierer())
+    assert attrappe.flags and all(f & 128 for f in attrappe.flags)
+
+
 # ── 4b. Aufrufform von alignCrop: volle Detektionszeile + Waechter ────────
 
 def test_merkmal_bekommt_die_volle_detektionszeile():

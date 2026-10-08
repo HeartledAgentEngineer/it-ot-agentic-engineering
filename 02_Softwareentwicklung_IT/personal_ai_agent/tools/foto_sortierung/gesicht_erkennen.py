@@ -299,7 +299,10 @@ def _bild_bereitstellen(roh, detektor):
             return None, "Bild nicht dekodierbar (cv2 nicht verfuegbar)."
         try:
             puffer = np.frombuffer(rohdaten, np.uint8)
-            bild = cv2.imdecode(puffer, cv2.IMREAD_COLOR)
+            # Ohne OpenCV-eigene EXIF-Drehung: gedreht wird genau einmal
+            # unten (orientiere_bild). OpenCV 5.0 drehte sonst schon selbst,
+            # das Bild lag dann doppelt gedreht quer (Befund 08.10.2026).
+            bild = cv2.imdecode(puffer, _face_infer().dekodier_flags(cv2))
         except Exception as problem:
             return None, f"Bild nicht dekodierbar ({problem.__class__.__name__})."
     if bild is None or not isinstance(bild, np.ndarray) or bild.ndim < 2:

@@ -233,3 +233,74 @@ def test_quelle_importiert_kein_cv2_oben():
         elif isinstance(knoten, ast.ImportFrom):
             oben.add(knoten.module or "")
     assert "cv2" not in oben
+
+
+# ---------------------------------------------------------------------------
+# Genau EINE EXIF-Drehung (Befund 08.10.2026)
+# ---------------------------------------------------------------------------
+# OpenCV 5.0 dreht in imdecode schon selbst; danach drehte orientiere_bild ein
+# zweites Mal -> Hochkant-Fotos lagen quer, der Rahmen passte nicht zur
+# Anzeige. Die Attrappe verhaelt sich wie OpenCV 5.0.
+
+class _Cv2WieFassung50:
+    IMREAD_COLOR = 1
+    IMREAD_IGNORE_ORIENTATION = 128
+
+    def __init__(self):
+        self.flags = []
+
+    def imdecode(self, puffer, flags):
+        import io
+        from PIL import Image, ImageOps
+        self.flags.append(flags)
+        with Image.open(io.BytesIO(bytes(puffer))) as bild:
+            if not flags & self.IMREAD_IGNORE_ORIENTATION:
+                bild = ImageOps.exif_transpose(bild)
+            return np.asarray(bild.convert("RGB"))[:, :, ::-1].copy()
+
+
+def _hochkant_jpeg(orientierung: int) -> bytes:
+    import io
+    from PIL import Image
+    bild = Image.new("RGB", (40, 20), (200, 0, 0))
+    bild.paste((0, 200, 0), (0, 0, 10, 10))
+    exif = Image.Exif()
+    exif[274] = orientierung
+    puffer = io.BytesIO()
+    bild.save(puffer, format="JPEG", exif=exif, quality=95)
+    return puffer.getvalue()
+
+
+def _anzeige(rohdaten: bytes):
+    import io
+    from PIL import Image, ImageOps
+    with Image.open(io.BytesIO(rohdaten)) as bild:
+        return np.asarray(ImageOps.exif_transpose(bild).convert("RGB"))[:, :, ::-1]
+
+
+def test_dekodiere_bild_dreht_genau_einmal(monkeypatch):
+    import sys
+    for orientierung in (1, 3, 6, 8):
+        attrappe = _Cv2WieFassung50()
+        monkeypatch.setitem(sys.modules, "cv2", attrappe)
+        rohdaten = _hochkant_jpeg(orientierung)
+        bild = fi.dekodiere_bild(rohdaten)
+        erwartet = _anzeige(rohdaten)
+        assert bild.shape == erwartet.shape, orientierung
+        gruen = lambda a: np.argwhere(a[:, :, 1] > 120).mean(axis=0)  # noqa: E731
+        assert np.allclose(gruen(bild), gruen(erwartet), atol=1.5), orientierung
+        assert all(f & 128 for f in attrappe.flags)
+
+
+def test_dekodier_flags_ohne_konstante_nutzt_rueckfall():
+    class Alt:
+        IMREAD_COLOR = 1
+    assert fi.dekodier_flags(Alt()) == 1 | 128
+
+
+def test_dekodiere_bild_mit_echtem_opencv():
+    """Laeuft nur, wo OpenCV installiert ist (Handy, Gesichter-venv am PC)."""
+    import pytest
+    pytest.importorskip("cv2")
+    rohdaten = _hochkant_jpeg(6)
+    assert fi.dekodiere_bild(rohdaten).shape[:2] == _anzeige(rohdaten).shape[:2]

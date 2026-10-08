@@ -54,6 +54,26 @@ _rec = None
 # bbox in einem anderen Koordinatenraum als das angezeigte Bild (90°-Faelle
 # sogar mit vertauschten Seiten -> "viel zu groß"). Hier wird das Bild VOR der
 # Detektion identisch zur Anzeige orientiert.
+#
+# Nachtrag 08.10.2026 (Befund Sebastian: "der Rahmen sitzt nicht auf dem
+# Gesicht"): Ob cv2.imdecode die EXIF-Drehung selbst anwendet, haengt von der
+# OpenCV-Fassung ab. Gemessen mit OpenCV 5.0 (PC, Gesichterlauf): imdecode
+# dreht ein Hochkant-Foto (Orientierung 6) bereits richtig, orientiere_bild
+# drehte es dann ein ZWEITES Mal -> das Bild lag bei der Erkennung quer, die
+# bbox passte nicht zur Anzeige. Deshalb wird jetzt immer mit
+# IMREAD_IGNORE_ORIENTATION dekodiert: OpenCV liefert die Rohpixel, gedreht
+# wird genau einmal hier - gleich auf jeder OpenCV-Fassung.
+
+# cv2.IMREAD_IGNORE_ORIENTATION (seit OpenCV 3.1); Zahl als Rueckfall, falls
+# eine Fassung die Konstante nicht ausweist.
+IMREAD_IGNORE_ORIENTATION = 128
+
+
+def dekodier_flags(cv2) -> int:
+    """IMREAD_COLOR ohne OpenCV-eigene EXIF-Drehung (gedreht wird nur in
+    ``orientiere_bild``)."""
+    return int(cv2.IMREAD_COLOR) | int(getattr(cv2, "IMREAD_IGNORE_ORIENTATION",
+                                               IMREAD_IGNORE_ORIENTATION))
 
 def exif_orientierung(roh: bytes) -> int:
     """Liest den EXIF-Orientierungs-Tag (274) aus JPEG-Bytes. 1 = normal.
@@ -136,7 +156,7 @@ def dekodiere_bild(roh: bytes):
     """JPEG/PNG-Bytes -> BGR-Array, EXIF-orientiert wie im Frontend."""
     import cv2
     arr = np.frombuffer(roh, np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    img = cv2.imdecode(arr, dekodier_flags(cv2))
     if img is None:
         return None
     return orientiere_bild(img, roh)
