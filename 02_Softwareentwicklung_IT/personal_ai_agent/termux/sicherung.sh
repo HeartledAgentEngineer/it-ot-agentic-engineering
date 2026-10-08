@@ -9,9 +9,10 @@
 # Was gesichert wird (je ein verschluesselter Teil):
 #   home.tar.age  - der ganze Termux-Heimordner (Repo mit .env, Datenbanken,
 #                   foto_sortierung, Erinnerungen, Verlaeufe, Hermes, Widgets)
-#   usr.tar.age   - die installierten Programme samt Debian-Umgebung fuer die
-#                   Gesichtserkennung (proot-distro), damit sie nicht von Hand neu
-#                   eingerichtet werden muss
+#   distro_<name>.tar.age - je Linux-Umgebung (proot-distro, z. B. debian mit
+#                   der Gesichtserkennung), gesichert mit "proot-distro backup".
+#                   Die Programme in usr/ selbst werden neu installiert
+#                   (pakete_manuell.txt), nicht zurueckkopiert.
 #   pakete_manuell.txt - Liste der von Hand installierten Pakete (unverschluesselt,
 #                   enthaelt nur Paketnamen)
 #   MANIFEST.txt  - Groesse, sha256 und Eintragszahl je Teil (fuer die Pruefung am PC)
@@ -99,36 +100,90 @@ else
     meldung "  (apt-mark fehlt - keine Paketliste)"
 fi
 
-# ── Einen Teil sichern: tar | age, dazu Eintragszahl, Groesse, sha256 ─────
+# ── Manifest-Zeile: Groesse, sha256, Eintraege (-1 = nicht gezaehlt) ───────
+manifest_eintrag() {
+    local datei="$1" eintraege="$2" groesse summe
+    groesse="$(wc -c < "$datei" | tr -d ' ')"
+    summe="$(sha256sum "$datei" | cut -d' ' -f1)"
+    printf '%s groesse=%s eintraege=%s sha256=%s\n' \
+        "$(basename "$datei")" "$groesse" "$eintraege" "$summe" >> "$ZIEL/MANIFEST.txt"
+    meldung "    fertig: $([ "$eintraege" -ge 0 ] && echo "$eintraege Eintraege, ")$(( groesse / 1048576 )) MB"
+}
+
+# Erste Fehlerzeilen zeigen (vorher wurden sie verschluckt - 08.10.2026, Lauf 22:35).
+fehler_zeigen() {
+    [ -s "$1" ] || return 0
+    meldung "    Meldungen ($(wc -l < "$1" | tr -d ' ') Zeilen, die ersten 5):"
+    head -5 "$1" | sed 's/^/      /'
+}
+
+# ── Heimordner sichern: tar | age ─────────────────────────────────────────
 # tar meldet Exit 1, wenn sich eine Datei waehrend des Lesens aendert (z. B. ein
 # Log). Das ist eine Warnung, kein Abbruch; Exit >= 2 ist ein echter Fehler.
 teil_sichern() {
     local name="$1"; shift
     local ausgabe="$ZIEL/$name.tar.age"
     local liste="$ZWISCHEN/.sicherung_liste_$name.$$"
+    local fehler="$ZWISCHEN/.sicherung_fehler_$name.$$"
     meldung "  $name: wird gesichert ..."
-    tar -C "$BASIS" -cf - --index-file="$liste" -v "$@" "$name" 2>/dev/null \
+    tar -C "$BASIS" -cf - --index-file="$liste" -v "$@" "$name" 2>"$fehler" \
         | age -r "$EMPFAENGER" -o "$ausgabe"
     local stufen=("${PIPESTATUS[@]}")
     local eintraege=0
     [ -f "$liste" ] && eintraege="$(wc -l < "$liste" | tr -d ' ')"
-    rm -f "$liste"
     if [ "${stufen[0]}" -ge 2 ] || [ "${stufen[1]}" -ne 0 ] || [ ! -s "$ausgabe" ]; then
         meldung "Abbruch: $name scheiterte (tar ${stufen[0]}, age ${stufen[1]})."
+        fehler_zeigen "$fehler"
+        rm -f "$liste" "$fehler"
         exit 6
     fi
-    [ "${stufen[0]}" -eq 1 ] && meldung "    Hinweis: Dateien haben sich beim Lesen geaendert (Logs?)."
-    local groesse summe
-    groesse="$(wc -c < "$ausgabe" | tr -d ' ')"
-    summe="$(sha256sum "$ausgabe" | cut -d' ' -f1)"
-    printf '%s.tar.age groesse=%s eintraege=%s sha256=%s\n' \
-        "$name" "$groesse" "$eintraege" "$summe" >> "$ZIEL/MANIFEST.txt"
-    meldung "    fertig: $eintraege Eintraege, $(( groesse / 1048576 )) MB"
+    if [ "${stufen[0]}" -eq 1 ]; then
+        meldung "    Hinweis: Dateien haben sich beim Lesen geaendert (Logs?)."
+        fehler_zeigen "$fehler"
+    fi
+    rm -f "$liste" "$fehler"
+    manifest_eintrag "$ausgabe" "$eintraege"
+}
+
+# ── Linux-Umgebungen (proot-distro) sichern ───────────────────────────────
+# Die Programme in usr/ werden NICHT gesichert: Die Wiederherstellung installiert
+# sie neu aus pakete_manuell.txt (Play- und F-Droid-Fassung koennen sich darin
+# unterscheiden). Wertvoll ist nur die Debian-Umgebung der Gesichtserkennung
+# (/root/facy_venv mit OpenCV), die in keinem Einrichtungsskript steht. Ein
+# einfaches tar darf darin nicht alles lesen (Lauf 22:35: tar Exit 2); deshalb
+# sichert proot-distro selbst, mit seinen Schein-root-Rechten.
+distros_sichern() {
+    local wurzel="$BASIS/usr/var/lib/proot-distro/installed-rootfs"
+    if [ ! -d "$wurzel" ] || [ -z "$(ls -A "$wurzel" 2>/dev/null)" ]; then
+        meldung "  Keine Linux-Umgebung (proot-distro) installiert."
+        return 0
+    fi
+    if ! command -v proot-distro >/dev/null 2>&1; then
+        meldung "Abbruch: Linux-Umgebung vorhanden, aber proot-distro fehlt."
+        exit 6
+    fi
+    local ordner name ausgabe fehler
+    for ordner in "$wurzel"/*/; do
+        name="$(basename "$ordner")"
+        ausgabe="$ZIEL/distro_$name.tar.age"
+        fehler="$ZWISCHEN/.sicherung_fehler_distro.$$"
+        meldung "  Linux-Umgebung $name: wird gesichert ..."
+        proot-distro backup "$name" 2>"$fehler" | age -r "$EMPFAENGER" -o "$ausgabe"
+        local stufen=("${PIPESTATUS[@]}")
+        if [ "${stufen[0]}" -ne 0 ] || [ "${stufen[1]}" -ne 0 ] || [ ! -s "$ausgabe" ]; then
+            meldung "Abbruch: $name scheiterte (proot-distro ${stufen[0]}, age ${stufen[1]})."
+            fehler_zeigen "$fehler"
+            rm -f "$fehler"
+            exit 6
+        fi
+        rm -f "$fehler"
+        manifest_eintrag "$ausgabe" -1
+    done
 }
 
 printf 'stand=%s\nbasis=%s\n' "$STAND" "$BASIS" > "$ZIEL/MANIFEST.txt"
 teil_sichern home --exclude=home/storage --exclude=home/.cache
-teil_sichern usr --exclude=usr/tmp
+distros_sichern
 date '+%Y-%m-%d %H:%M:%S' > "$ZIEL/FERTIG"
 
 meldung ""

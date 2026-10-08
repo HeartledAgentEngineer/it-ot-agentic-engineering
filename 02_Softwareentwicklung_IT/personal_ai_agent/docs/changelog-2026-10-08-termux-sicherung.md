@@ -87,3 +87,31 @@ Tests: `backend/tests/test_termux_sicherung.py`, jetzt 20.
 - Ein Wächter prüft die Reihenfolge im Widget.
 - Der PC-Weg wird mit einer adb-Attrappe geprüft: ganzer Ablauf, kein doppeltes Holen,
   alle Fehler-Exits, Zeitablauf.
+
+## Nachtrag: erster echter Lauf am Handy und Umbau (08.10.2026, ~22:45)
+
+**Lauf 22:35 (Ordner `2026-10-08_2235`):**
+- `age` 1.3.1 wurde vom Skript selbst installiert.
+- `home` war fertig: 109.904 Einträge, 3.284 MB.
+- `usr` brach mit **tar Exit 2** ab. Die Ursache ist nicht sichtbar, weil das Skript die
+  Fehlermeldungen von tar nach `/dev/null` schickte. Dieser Ordner hat kein `FERTIG` und
+  gilt als unvollständig. Er wird nicht gelöscht.
+
+**Umbau:**
+- `usr/` wird **nicht mehr** gesichert. Die Wiederherstellung installiert die Programme
+  ohnehin neu aus `pakete_manuell.txt`, weil Play- und F-Droid-Fassung sich darin
+  unterscheiden können.
+- Gesichert wird stattdessen jede Linux-Umgebung unter
+  `usr/var/lib/proot-distro/installed-rootfs/` mit **`proot-distro backup <name>`** als
+  `distro_<name>.tar.age`. Darin liegt die Debian-Umgebung der Gesichtserkennung.
+  - proot-distro liest sie mit seinen Schein-root-Rechten.
+  - Laut README schreibt es ohne `--output` ein unkomprimiertes Archiv auf stdout.
+  - `proot-distro restore` liest es später wieder von stdin.
+  - Dieser Teil hat im Manifest `eintraege=-1`, weil das Handy nicht zählt.
+- Fehlermeldungen von tar und proot-distro landen in einer Zwischendatei. Bei einem
+  Abbruch oder einer Warnung erscheinen die ersten 5 Zeilen.
+- Der PC-Prüfer liest jetzt auch komprimierte Archive (`r|*`). Bei `eintraege=-1`
+  vergleicht er keine Zahl, liest das Archiv aber vollständig.
+
+Tests: 23. Neu sind ein Distro-Fehler mit sichtbarer Meldung und Exit 6, ein Lauf ohne
+Linux-Umgebung (nur `home`) und der Prüfer mit gzip ohne Eintragszahl.

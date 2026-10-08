@@ -58,6 +58,10 @@ def _termux_attrappe(tmp_path: Path) -> Path:
     (basis / "usr" / "bin" / "programm").write_text("#!/bin/sh\n", encoding="utf-8")
     (basis / "usr" / "tmp").mkdir()
     (basis / "usr" / "tmp" / "fluechtig").write_text("x", encoding="utf-8")
+    rootfs = basis / "usr" / "var" / "lib" / "proot-distro" / "installed-rootfs" / "debian"
+    (rootfs / "root" / "facy_venv").mkdir(parents=True)
+    (rootfs / "etc").mkdir()
+    (rootfs / "etc" / "os-release").write_text("ID=debian\n", encoding="utf-8")
     return basis
 
 
@@ -68,6 +72,12 @@ def _age_platzhalter(tmp_path: Path) -> Path:
     datei = ordner / "age"
     datei.write_text('#!/bin/bash\nwhile [ $# -gt 0 ]; do case "$1" in -o) aus="$2"; shift 2;; '
                      '*) shift;; esac; done\ncat > "$aus"\n', encoding="utf-8", newline="\n")
+    # 'proot-distro backup <name>' -> tar des Rootfs auf stdout (wie das echte Werkzeug)
+    (ordner / "proot-distro").write_text(
+        '#!/bin/bash\n[ "$1" = backup ] || exit 2\n'
+        '[ -n "${PD_KAPUTT:-}" ] && { echo "kaputt" >&2; exit 1; }\n'
+        'tar -C "$TERMUX_BASIS/usr/var/lib/proot-distro/installed-rootfs" -cf - "$2"\n',
+        encoding="utf-8", newline="\n")
     return ordner
 
 
@@ -103,7 +113,9 @@ def test_skript_hat_termux_shebang_und_loescht_nichts_fremdes():
     assert text.startswith(SHEBANG)
     assert "set -u -o pipefail" in text
     loeschen = [z for z in text.splitlines() if re.search(r"\brm\b", z) and not z.lstrip().startswith("#")]
-    assert loeschen == ['    rm -f "$liste"']        # nur die eigene Zaehl-Zwischendatei
+    # nur die eigenen Zwischendateien (Eintragsliste, Fehlermeldungen)
+    assert {z.strip() for z in loeschen} == {'rm -f "$liste" "$fehler"', 'rm -f "$fehler"'}
+    assert "usr.tar.age" not in text and "teil_sichern usr" not in text
 
 
 def test_skript_syntax():
@@ -119,14 +131,15 @@ def test_sicherung_und_pruefung_passen_zusammen(tmp_path, capsys):
     assert ergebnis.returncode == 0, ergebnis.stdout + ergebnis.stderr
     assert (ordner / "FERTIG").is_file()
     manifest = sp.manifest_lesen(str(ordner / "MANIFEST.txt"))
-    assert set(manifest) == {"home.tar.age", "usr.tar.age"}
+    assert set(manifest) == {"home.tar.age", "distro_debian.tar.age"}
+    assert manifest["distro_debian.tar.age"]["eintraege"] == -1
 
     with tarfile.open(ordner / "home.tar.age") as archiv:
         namen = archiv.getnames()
     assert "home/projekt/notiz.txt" in namen
     assert not any(n.startswith(("home/.cache", "home/storage")) for n in namen)
-    with tarfile.open(ordner / "usr.tar.age") as archiv:
-        assert not any(n.startswith("usr/tmp") for n in archiv.getnames())
+    with tarfile.open(ordner / "distro_debian.tar.age") as archiv:
+        assert "debian/root/facy_venv" in archiv.getnames()
 
     code = sp.main([str(ordner)], oeffnen=_datei_oeffnen)
     ausgabe = capsys.readouterr().out
@@ -356,3 +369,49 @@ def test_fernauftrag_zeitablauf(tmp_path):
     code = sa.main(["--lokal", str(tmp_path / "l"), "--max-minuten", "1"], adb=Stumm(tmp_path),
                    schlafen=lambda s: None, pruefen=lambda a: 0)
     assert code == 4
+
+
+# ── Linux-Umgebung (proot-distro) statt usr/ (nach Lauf 08.10. 22:35) ─────
+
+def test_distro_fehler_zeigt_meldung_und_bricht_ab(tmp_path, monkeypatch):
+    monkeypatch.setenv("PD_KAPUTT", "1")
+    ergebnis, ordner = _lauf(tmp_path)
+    assert ergebnis.returncode == 6
+    assert "Linux-Umgebung debian: wird gesichert" in ergebnis.stdout
+    assert "kaputt" in ergebnis.stdout                 # Meldung wird nicht mehr verschluckt
+    assert not (ordner / "FERTIG").exists()
+
+
+def test_ohne_linux_umgebung_nur_home(tmp_path):
+    bash = _bash()
+    basis = _termux_attrappe(tmp_path)
+    shutil.rmtree(basis / "usr" / "var")
+    (basis / "home" / ".sicherung_empfaenger.txt").write_text(SCHLUESSEL, encoding="utf-8")
+    werkzeuge = _age_platzhalter(tmp_path)
+    umgebung = dict(os.environ, TERMUX_BASIS=_posix(basis), SICHERUNG_ZIEL=_posix(tmp_path / "d"),
+                    SICHERUNG_STAND="s", HOME=_posix(basis / "home"), TMPDIR=_posix(tmp_path),
+                    PORT="1")
+    befehl = f'export PATH="{_posix(werkzeuge)}:$PATH"; bash "{_posix(SKRIPT)}"'
+    ergebnis = subprocess.run([bash, "-c", befehl], env=umgebung, capture_output=True, text=True)
+    assert ergebnis.returncode == 0, ergebnis.stdout
+    assert "Keine Linux-Umgebung" in ergebnis.stdout
+    assert set(sp.manifest_lesen(str(tmp_path / "d" / "s" / "MANIFEST.txt"))) == {"home.tar.age"}
+
+
+def test_pruefer_ohne_eintragszahl_und_komprimiert(tmp_path):
+    import gzip
+    ordner = tmp_path / "s"
+    ordner.mkdir()
+    puffer = io.BytesIO()
+    with tarfile.open(fileobj=puffer, mode="w") as archiv:
+        info = tarfile.TarInfo("debian/etc/os-release")
+        info.size = 3
+        archiv.addfile(info, io.BytesIO(b"x=1"))
+    teil = ordner / "distro_debian.tar.age"
+    teil.write_bytes(gzip.compress(puffer.getvalue()))
+    (ordner / "MANIFEST.txt").write_text(
+        f"distro_debian.tar.age groesse={teil.stat().st_size} eintraege=-1 "
+        f"sha256={sp.sha256_datei(str(teil))}\n", encoding="utf-8")
+    (ordner / "FERTIG").write_text("x", encoding="utf-8")
+    zeilen, gruen = sp.pruefen(str(ordner), _datei_oeffnen)
+    assert gruen and "Eintraege" not in zeilen[0] and "bis zum Ende lesbar" in zeilen[0]

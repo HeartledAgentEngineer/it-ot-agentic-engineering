@@ -1,13 +1,15 @@
 r"""Termux-Sicherung am PC pruefen, bevor am Handy deinstalliert wird. (08.10.2026)
 
-Gegenstelle zu ``termux/sicherung.sh``. Geprueft wird je Teil (``home``, ``usr``):
+Gegenstelle zu ``termux/sicherung.sh``. Geprueft wird je Teil (``home``,
+``distro_<name>`` fuer jede Linux-Umgebung):
 
 1. ``FERTIG`` ist da (sonst brach die Sicherung ab),
 2. Groesse und sha256 stimmen mit ``MANIFEST.txt`` ueberein (Kopie heil),
 3. der Teil laesst sich mit dem **privaten** Schluessel entschluesseln, und das
    tar-Archiv darin ist bis zum Ende lesbar,
 4. die Zahl der Eintraege im Archiv ist dieselbe, die das Handy beim Sichern
-   gezaehlt hat.
+   gezaehlt hat (``eintraege=-1``: vom Handy nicht gezaehlt, z. B. bei
+   ``proot-distro backup`` - dann gilt nur 3.).
 
 Entpackt wird nichts: Das Archiv wird nur im Speicher durchgelesen. Die Ausgabe
 zeigt nur Zahlen, keine Dateinamen.
@@ -61,9 +63,10 @@ def sha256_datei(pfad: str) -> str:
 
 
 def eintraege_zaehlen(strom) -> int:
-    """tar-Strom bis zum Ende lesen (nichts entpacken) und die Eintraege zaehlen."""
+    """tar-Strom bis zum Ende lesen (nichts entpacken) und die Eintraege zaehlen.
+    ``r|*``: auch gzip/bz2/xz (``proot-distro backup`` kann komprimieren)."""
     anzahl = 0
-    with tarfile.open(fileobj=strom, mode="r|") as archiv:
+    with tarfile.open(fileobj=strom, mode="r|*") as archiv:
         for _ in archiv:
             anzahl += 1
     return anzahl
@@ -112,7 +115,7 @@ def teil_pruefen(ordner: str, name: str, soll: dict, oeffnen) -> list:
             strom.close()
         except Exception as problem:
             fehler.append(str(problem))
-    if anzahl != soll["eintraege"]:
+    if soll["eintraege"] >= 0 and anzahl != soll["eintraege"]:
         fehler.append(f"{anzahl} Eintraege statt {soll['eintraege']}")
     return fehler
 
@@ -133,7 +136,8 @@ def pruefen(ordner: str, oeffnen) -> tuple:
             gruen = False
             zeilen.append(f"✗ {name}: " + "; ".join(fehler))
         else:
-            zeilen.append(f"✔ {name}: {soll['eintraege']} Eintraege, {mb} MB, sha256 ok, entschluesselt")
+            zahl = f"{soll['eintraege']} Eintraege, " if soll["eintraege"] >= 0 else ""
+            zeilen.append(f"✔ {name}: {zahl}{mb} MB, sha256 ok, entschluesselt, bis zum Ende lesbar")
     zeilen.append("GRUEN: Sicherung vollstaendig und lesbar." if gruen
                   else "ROT: Nicht deinstallieren. Sicherung wiederholen.")
     return zeilen, gruen
