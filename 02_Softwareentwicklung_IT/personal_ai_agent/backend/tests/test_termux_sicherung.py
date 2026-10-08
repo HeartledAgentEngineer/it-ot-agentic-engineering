@@ -223,3 +223,136 @@ def test_pruefer_entschluesselung_scheitert_rot(tmp_path):
 def test_pruefer_ohne_schluessel_exit_1(tmp_path):
     ordner = _sicherung_bauen(tmp_path / "s")
     assert sp.main([str(ordner), "--schluessel", str(tmp_path / "fehlt.key")]) == 1
+
+
+# ── Sicherung auf Auftrag beim Widget-Start ───────────────────────────────
+
+AUFTRAG_SKRIPT = PROJEKT / "termux" / "sicherung-auftrag.sh"
+WIDGET = PROJEKT / "termux" / "agent-start"
+
+spez_a = importlib.util.spec_from_file_location(
+    "sicherung_auftrag", PROJEKT / "tools" / "handy" / "sicherung_auftrag.py")
+assert spez_a is not None and spez_a.loader is not None
+sa = importlib.util.module_from_spec(spez_a)
+spez_a.loader.exec_module(sa)
+
+
+def _auftrag_lauf(tmp_path: Path, mit_auftrag: bool):
+    bash = _bash()
+    basis = _termux_attrappe(tmp_path)
+    download = tmp_path / "download"
+    download.mkdir()
+    (basis / "home" / ".sicherung_empfaenger.txt").write_text(SCHLUESSEL + "\n", encoding="utf-8")
+    if mit_auftrag:
+        (download / "AUFTRAG").write_text("20261008223000\n", encoding="utf-8")
+    werkzeuge = _age_platzhalter(tmp_path)
+    umgebung = dict(os.environ, TERMUX_BASIS=_posix(basis), SICHERUNG_ZIEL=_posix(download),
+                    SICHERUNG_STAND="2026-10-08_2230", HOME=_posix(basis / "home"),
+                    TMPDIR=_posix(tmp_path), PORT="1")
+    befehl = f'export PATH="{_posix(werkzeuge)}:$PATH"; bash "{_posix(AUFTRAG_SKRIPT)}"'
+    ergebnis = subprocess.run([bash, "-c", befehl], env=umgebung, capture_output=True,
+                              text=True, encoding="utf-8", timeout=120)
+    return ergebnis, download
+
+
+def test_auftrag_ohne_datei_tut_nichts(tmp_path):
+    ergebnis, download = _auftrag_lauf(tmp_path, mit_auftrag=False)
+    assert ergebnis.returncode == 0
+    assert list(download.iterdir()) == []
+
+
+def test_auftrag_sichert_einmal_und_benennt_um(tmp_path):
+    ergebnis, download = _auftrag_lauf(tmp_path, mit_auftrag=True)
+    assert ergebnis.returncode == 0, ergebnis.stdout + ergebnis.stderr
+    assert not (download / "AUFTRAG").exists()
+    assert (download / "AUFTRAG.erledigt_20261008223000").is_file()
+    assert (download / "2026-10-08_2230" / "FERTIG").is_file()
+    log = (download / "lauf_20261008223000.log").read_text(encoding="utf-8").splitlines()
+    assert log[-1] == "EXIT=0"
+    assert any(z.startswith("Sicherung nach ") for z in log)
+
+
+def test_widget_ruft_auftrag_nach_pull_und_vor_serverstart():
+    text = WIDGET.read_text(encoding="utf-8")
+    aufruf = text.index('bash "$HIER/sicherung-auftrag.sh" || true')
+    assert text.index("git pull --ff-only") < aufruf < text.index("cd backend ||")
+    assert text.index("_pkill_server\n") < aufruf
+
+
+def test_auftrag_skript_syntax_und_shebang():
+    bash = _bash()
+    assert AUFTRAG_SKRIPT.read_text(encoding="utf-8").startswith(SHEBANG)
+    for datei in (AUFTRAG_SKRIPT, WIDGET):
+        ergebnis = subprocess.run([bash, "-n", _posix(datei)], capture_output=True, text=True)
+        assert ergebnis.returncode == 0, ergebnis.stderr
+
+
+class AdbAttrappe:
+    """Spielt das Handy: Geraet, Schluessel, Log waechst bis EXIT, pull legt Ordner an."""
+    def __init__(self, tmp_path, geraet=True, schluessel=True, exit_code=0, laeuft=False):
+        self.tmp, self.geraet, self.schluessel = tmp_path, geraet, schluessel
+        self.exit_code, self.laeuft = exit_code, laeuft
+        self.aufrufe, self.cat_runde = [], 0
+
+    def __call__(self, argumente):
+        self.aufrufe.append(argumente)
+        if argumente[0] == "devices":
+            return 0, "List of devices attached\n" + ("ABC123\tdevice\n" if self.geraet else "")
+        if argumente[0] == "shell" and argumente[1].startswith("ls "):
+            pfad = argumente[1][3:]
+            da = (pfad.endswith("sicherung_empfaenger.txt") and self.schluessel) or \
+                 (pfad.endswith("AUFTRAG.laeuft") and self.laeuft)
+            return (0, pfad) if da else (1, f"ls: {pfad}: No such file or directory")
+        if argumente[0] == "shell" and argumente[1].startswith("cat "):
+            self.cat_runde += 1
+            zeilen = ["Start", "Sicherung nach /sdcard/Download/termux-sicherung/2026-10-08_2230"]
+            if self.cat_runde >= 2:
+                zeilen += ["  home: fertig: 12 Eintraege, 1 MB", f"EXIT={self.exit_code}"]
+            return 0, "\n".join(zeilen) + "\n"
+        if argumente[0] == "pull":
+            os.makedirs(os.path.join(argumente[2], "2026-10-08_2230"))
+            return 0, "1 file pulled"
+        return 0, ""
+
+
+def test_fernauftrag_ganzer_weg(tmp_path, capsys):
+    adb = AdbAttrappe(tmp_path)
+    geprueft = []
+    code = sa.main(["--lokal", str(tmp_path / "lokal"), "--kennung", "k1"], adb=adb,
+                   schlafen=lambda s: None, pruefen=lambda a: geprueft.append(a) or 0)
+    ausgabe = capsys.readouterr().out
+    assert code == 0
+    assert "Agent-Widget antippen" in ausgabe and "EXIT=0" in ausgabe
+    push = [a for a in adb.aufrufe if a[0] == "push"]
+    assert len(push) == 1 and push[0][2] == "/sdcard/Download/termux-sicherung/AUFTRAG"
+    assert geprueft == [[str(tmp_path / "lokal" / "2026-10-08_2230")]]
+
+
+def test_fernauftrag_holt_vorhandenes_nicht_doppelt(tmp_path):
+    (tmp_path / "lokal" / "2026-10-08_2230").mkdir(parents=True)
+    adb = AdbAttrappe(tmp_path)
+    code = sa.main(["--lokal", str(tmp_path / "lokal"), "--kennung", "k1"], adb=adb,
+                   schlafen=lambda s: None, pruefen=lambda a: 0)
+    assert code == 0 and not [a for a in adb.aufrufe if a[0] == "pull"]
+
+
+def test_fernauftrag_fehlerfaelle(tmp_path):
+    ohne = dict(schlafen=lambda s: None, pruefen=lambda a: 0)
+    lokal = ["--lokal", str(tmp_path / "l")]
+    assert sa.main(lokal, adb=AdbAttrappe(tmp_path, geraet=False), **ohne) == 1
+    assert sa.main(lokal, adb=AdbAttrappe(tmp_path, schluessel=False), **ohne) == 2
+    assert sa.main(lokal, adb=AdbAttrappe(tmp_path, laeuft=True), **ohne) == 6
+    assert sa.main(lokal, adb=AdbAttrappe(tmp_path, exit_code=6), **ohne) == 3
+    assert sa.main(lokal, adb=AdbAttrappe(tmp_path), schlafen=lambda s: None,
+                   pruefen=lambda a: 3) == 5
+
+
+def test_fernauftrag_zeitablauf(tmp_path):
+    class Stumm(AdbAttrappe):
+        def __call__(self, argumente):
+            if argumente[0] == "shell" and argumente[1].startswith("cat "):
+                return 1, ""
+            return super().__call__(argumente)
+    code = sa.main(["--lokal", str(tmp_path / "l"), "--max-minuten", "1"], adb=Stumm(tmp_path),
+                   schlafen=lambda s: None, pruefen=lambda a: 0)
+    assert code == 4

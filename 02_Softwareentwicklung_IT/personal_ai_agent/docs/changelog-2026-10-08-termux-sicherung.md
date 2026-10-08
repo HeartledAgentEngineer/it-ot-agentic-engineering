@@ -56,3 +56,34 @@ in keinem Einrichtungsskript festgehalten.
   - das einzige `rm` im Skript löscht die eigene Zwischendatei
 - **Noch nicht belegt:** ein echter Lauf am Handy mit echtem `age` und die
   Wiederherstellung. Das Wiederherstellungs-Skript ist der nächste Schritt.
+
+## Nachtrag: Sicherung auf Auftrag beim Widget-Start (08.10.2026, ~23:00)
+
+Wunsch Sebastian: am Handy nichts tippen. Deshalb:
+
+- **`tools/handy/sicherung_auftrag.py`** (PC). Ein Befehl erledigt alles:
+  - Kabel-Check und Prüfung, ob der öffentliche Schlüssel am Handy liegt.
+  - Legt `/sdcard/Download/termux-sicherung/AUFTRAG` ab (Inhalt: Kennung) und fordert
+    zum Tippen des Agent-Widgets auf.
+  - Liest `lauf_<kennung>.log` bis `EXIT=<code>` mit.
+  - Holt den Sicherungsordner per `adb pull` nach `~/termux-sicherung/`. Ein schon
+    vorhandener Ordner wird nicht erneut geholt.
+  - Prüft ihn mit `sicherung_pruefen.py`.
+  - Exit-Codes: 0 GRÜN, 1 kein Handy, 2 Schlüssel fehlt, 3 Sicherung am Handy
+    gescheitert, 4 Zeit abgelaufen, 5 Prüfung ROT, 6 Auftrag läuft schon.
+- **`termux/sicherung-auftrag.sh`** (Handy):
+  - Ohne `AUFTRAG` kehrt es sofort zurück.
+  - Sonst wird `AUFTRAG` zu `AUFTRAG.laeuft` umbenannt, sodass ein zweiter Widget-Druck
+    nicht doppelt sichert. Fehlt `age`, wird es installiert. Dann läuft `sicherung.sh`.
+  - Am Ende heißt die Datei `AUFTRAG.erledigt_<kennung>`. Nichts wird gelöscht.
+- **`termux/agent-start`** (Widget) ruft das Skript mit `|| true` auf:
+  - **nach** dem Beenden von Server und Daemon und nach `git pull`
+  - **vor** dem Neustart
+  - Ein normaler Start ohne Auftrag verhält sich wie bisher.
+
+Tests: `backend/tests/test_termux_sicherung.py`, jetzt 20.
+- Das Auftragsskript läuft echt: ohne Auftrag passiert nichts, mit Auftrag wird einmal
+  gesichert und umbenannt, das Log endet mit `EXIT=0`.
+- Ein Wächter prüft die Reihenfolge im Widget.
+- Der PC-Weg wird mit einer adb-Attrappe geprüft: ganzer Ablauf, kein doppeltes Holen,
+  alle Fehler-Exits, Zeitablauf.

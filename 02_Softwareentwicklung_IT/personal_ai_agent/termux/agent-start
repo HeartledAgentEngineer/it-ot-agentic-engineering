@@ -135,6 +135,13 @@ bash "$HIER/schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" vorlese_schluesse
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
+# Sicherung auf Auftrag (08.10.2026): Liegt vom PC eine Auftragsdatei im
+# Download-Ordner (tools/handy/sicherung_auftrag.py), wird HIER einmal
+# verschluesselt gesichert - Server und Daemon sind schon beendet, der Stand ist
+# frisch gezogen. Ohne Auftrag kehrt das Skript sofort zurueck. Darf den Start
+# nie verhindern.
+bash "$HIER/sicherung-auftrag.sh" || true
+
 cd backend || { melde "backend/ fehlt"; exit 1; }
 
 # Inbox-Daemon starten (falls nicht schon einer laeuft) fuer den
