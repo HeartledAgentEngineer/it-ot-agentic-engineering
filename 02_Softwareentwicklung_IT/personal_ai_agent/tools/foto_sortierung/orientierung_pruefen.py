@@ -1,4 +1,4 @@
-"""Welche Fotos waren von der doppelten Drehung betroffen? (08.10.2026)
+r"""Welche Fotos waren von der doppelten Drehung betroffen? (08.10.2026)
 
 Hintergrund (``docs/changelog-2026-10-08-exif-doppelte-drehung.md``): Mit
 OpenCV 5.0 lief die Gesichtserkennung bei Fotos mit EXIF-Orientierung != 1 auf
@@ -37,6 +37,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HIER))            # .../personal_ai_agent
@@ -116,13 +117,45 @@ def erledigte_lesen(pfad: str) -> dict:
     return erledigt
 
 
-def pruefen(ids, kopf_holen, erledigt, ausgabe: str) -> dict:
+def _zahl(wert: int) -> str:
+    """12345 -> '12.345' (deutsche Tausenderpunkte)."""
+    return f"{wert:,}".replace(",", ".")
+
+
+def _dauer(sekunden: float) -> str:
+    """Restzeit grob und lesbar: 'unter 1 min', '25 min', '1 h 40 min'."""
+    minuten = int(round(sekunden / 60))
+    if minuten < 1:
+        return "unter 1 min"
+    if minuten < 60:
+        return f"{minuten} min"
+    return f"{minuten // 60} h {minuten % 60:02d} min"
+
+
+def fortschritt_zeile(fertig: int, gesamt: int, bearbeitet: int, offen: int,
+                      sekunden: float, fehler: int) -> str:
+    """Eine Fortschrittszeile, nur Zahlen. ``bearbeitet``/``offen`` zaehlen nur
+    diesen Lauf (fuer Tempo und Restzeit), ``fertig``/``gesamt`` den Bestand."""
+    tempo = bearbeitet / sekunden if sekunden > 0 else 0.0
+    rest = (offen - bearbeitet) / tempo if tempo > 0 else 0.0
+    prozent = 100 * fertig / gesamt if gesamt else 100.0
+    return (f"  {_zahl(fertig)} / {_zahl(gesamt)} geprueft ({prozent:.0f} %) · "
+            f"{tempo:.1f} pro s · noch ca. {_dauer(rest)} · Fehler {fehler}")
+
+
+def pruefen(ids, kopf_holen, erledigt, ausgabe: str, melden=None, alle: int = 100,
+            uhr=time.monotonic) -> dict:
     """Je offenes Bild den Kopf holen, Orientierung lesen, Zeile anhaengen.
 
     ``kopf_holen(fileid) -> bytes`` ist eingesteckt (Tests ohne Netz). Ein
-    Fehler bei einem Bild bricht den Lauf nie ab."""
+    Fehler bei einem Bild bricht den Lauf nie ab. ``melden(text)`` bekommt alle
+    ``alle`` Bilder und am Ende eine Fortschrittszeile (nur Zahlen)."""
     lesen = _face_infer().exif_orientierung
     zaehler = collections.Counter()
+    offen = sum(1 for k in ids if k not in erledigt)
+    fertig = len(ids) - offen
+    bearbeitet = 0
+    beginn = uhr()
     with open(ausgabe, "a", encoding="utf-8") as datei:
         for kennung in ids:
             if kennung in erledigt:
@@ -139,6 +172,11 @@ def pruefen(ids, kopf_holen, erledigt, ausgabe: str) -> dict:
                 zaehler["fehler"] += 1
             datei.write(json.dumps(zeile) + "\n")
             datei.flush()
+            bearbeitet += 1
+            fertig += 1
+            if melden and (bearbeitet % alle == 0 or bearbeitet == offen):
+                melden(fortschritt_zeile(fertig, len(ids), bearbeitet, offen,
+                                         uhr() - beginn, zaehler["fehler"]))
     return dict(zaehler)
 
 
@@ -227,7 +265,11 @@ def main(argv=None, kopf_holen=None) -> int:
 
     os.makedirs(os.path.dirname(os.path.abspath(args.ausgabe)), exist_ok=True)
     holer = kopf_holen or pcloud_kopf_holer()
-    zaehler = pruefen(ids, holer, erledigt, args.ausgabe)
+    print(f"Start: {_zahl(len(ids))} Fotos, schon geprueft {_zahl(len(ids) - offen)}, "
+          f"offen {_zahl(offen)}. Fortschritt alle 100 Fotos, Abbruch mit Strg+C "
+          "(beim naechsten Start geht es dort weiter).", flush=True)
+    zaehler = pruefen(ids, holer, erledigt, args.ausgabe,
+                      melden=lambda text: print(text, flush=True))
     anzahl_plan = plan_schreiben(args.plan, erledigt)
     print(f"Lauf: neu geprueft {zaehler.get('neu_geprueft', 0)}, "
           f"schon geprueft {zaehler.get('schon_geprueft', 0)}, Fehler {zaehler.get('fehler', 0)}")

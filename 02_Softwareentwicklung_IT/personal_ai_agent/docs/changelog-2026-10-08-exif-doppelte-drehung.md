@@ -98,3 +98,11 @@ künstlichen JPEG-Köpfen und eingestecktem Holer statt Netz.
 - Ihre alten Zeilen in den Gruppen ersetzen statt anhängen. Namen und
   Mittelpunkte bleiben dabei.
 - Danach folgt der Speicherweg für von Hand verschobene Rahmen.
+
+**Nachtrag Fortschrittsanzeige (08.10.2026, 21:40):** Beim ersten echten Lauf blieb die
+Konsole bis zum Ende leer. Jetzt gibt es sofort eine Startzeile mit der Zahl aller,
+der schon geprüften und der offenen Fotos. Danach kommt alle 100 Fotos und am Ende
+eine Zeile wie `3.200 / 18.900 geprueft (17 %) · 10.0 pro s · noch ca. 26 min · Fehler 0`.
+Die Zeilen enthalten nur Zahlen. Das Tempo zählt nur diesen Lauf, schon geprüfte
+Fotos verfälschen es also nicht. 4 neue Tests mit künstlicher Uhr, die Datei hat
+jetzt 12 Tests.

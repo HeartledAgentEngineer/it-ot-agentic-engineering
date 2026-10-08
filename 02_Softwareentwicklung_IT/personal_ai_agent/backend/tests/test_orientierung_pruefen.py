@@ -132,3 +132,51 @@ def test_fehlende_vektordatei_ist_exit_1(tmp_path):
     code = op.main(["--vektoren", str(tmp_path / "fehlt.jsonl"), "--ausgabe",
                     str(tmp_path / "o.jsonl"), "--plan", str(tmp_path / "p.json")])
     assert code == 1
+
+
+class Uhr:
+    """Kuenstliche Uhr: jeder Aufruf zaehlt eine Sekunde weiter."""
+    def __init__(self):
+        self.jetzt = 0.0
+
+    def __call__(self):
+        self.jetzt += 1.0
+        return self.jetzt
+
+
+def test_fortschritt_alle_n_bilder_und_am_ende(tmp_path):
+    ids = [f"20000{i:02d}" for i in range(5)]
+    meldungen = []
+    op.pruefen(ids, lambda k: _jpeg(1)[:4096], {}, str(tmp_path / "o.jsonl"),
+               melden=meldungen.append, alle=2, uhr=Uhr())
+    assert len(meldungen) == 3                       # nach 2, 4 und am Ende (5)
+    assert meldungen[0].startswith("  2 / 5 geprueft (40 %)")
+    assert meldungen[-1].startswith("  5 / 5 geprueft (100 %)")
+    for zeile in meldungen:
+        assert "pro s" in zeile and "noch ca." in zeile and "Fehler 0" in zeile
+        for kennung in ids:
+            assert kennung not in zeile
+
+
+def test_fortschritt_zaehlt_schon_gepruefte_mit(tmp_path):
+    ids = ["3000001", "3000002", "3000003"]
+    meldungen = []
+    op.pruefen(ids, lambda k: _jpeg(6)[:4096], {"3000001": 1}, str(tmp_path / "o.jsonl"),
+               melden=meldungen.append, alle=100, uhr=Uhr())
+    assert meldungen == [meldungen[0]] and meldungen[0].startswith("  3 / 3 geprueft")
+
+
+def test_fortschritt_zeile_restzeit_und_tausenderpunkt():
+    zeile = op.fortschritt_zeile(fertig=3200, gesamt=18900, bearbeitet=200, offen=15900,
+                                 sekunden=20.0, fehler=2)
+    assert zeile.startswith("  3.200 / 18.900 geprueft (17 %)")
+    assert "10.0 pro s" in zeile
+    assert "noch ca. 26 min" in zeile and "Fehler 2" in zeile
+    assert op._dauer(30) == "unter 1 min" and op._dauer(6000) == "1 h 40 min"
+
+
+def test_main_meldet_start_und_fortschritt(tmp_path, capsys):
+    _lauf(tmp_path, Holer(), "--schreiben")
+    ausgabe = capsys.readouterr().out
+    assert "Start: 4 Fotos, schon geprueft 0, offen 4." in ausgabe
+    assert "4 / 4 geprueft (100 %)" in ausgabe
