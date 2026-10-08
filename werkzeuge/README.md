@@ -19,8 +19,21 @@ Store-Apps. Zu jedem Programm stehen Größe, Herausgeber, Datum und eine Empfeh
 | Arbeit/Studium | Beckhoff/TwinCAT, Visual Studio, Office, SQL Server, TeXstudio, CEWE … | nein, du entscheidest |
 | Du entscheidest | alles andere | nein |
 
+**Was ist das? / Vorschlag (seit 08.10.2026, auf Wunsch Sebastian):** Für die Programme auf
+diesem PC steht in der Tabelle `$Wissen` eine Klartext-Erklärung mit einem Vorschlag:
+
+| Vorschlag | Bedeutung |
+|---|---|
+| Kann weg | sicher entbehrlich, z. B. Umzugshelfer, Windows-10-Upgrade-Werkzeug, altes Teams, Viewer, Werbe-Helfer; vorab angehakt und orange markiert |
+| Behalten | vorab geschützt |
+| Prüfen | du entscheidest; die Erklärung sagt, worauf es ankommt (Visual Studio, TwinCAT/Siemens, SQL Server, Office, Drucker …) |
+
+Ein Klick auf eine Zeile zeigt unten die volle Erklärung. Wird ein Programm nicht erkannt, gilt
+die Gruppe aus der ersten Tabelle.
+
 **Nichts passiert unkontrolliert:**
-1. Für die Deinstallation ist anfangs **nichts** angehakt.
+1. Für die Deinstallation sind anfangs nur die Vorschläge „Kann weg" angehakt. Jeden Haken
+   kannst du entfernen.
 2. „Brauche ich" schützt ein Programm. Die Auswahl wird sofort gespeichert und beim nächsten
    Start wieder geladen. Ein geschütztes Programm lässt sich nicht zur Deinstallation auswählen.
 3. „Ausgewählte deinstallieren …" zeigt die Liste noch einmal und fragt nach.

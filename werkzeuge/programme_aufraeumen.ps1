@@ -60,8 +60,8 @@ $ProtokollDatei = Join-Path $Ablage 'protokoll.csv'
 
 $MusterMeineListe = '(?i)\b(Hermes|Claude|DeepL|PowerShell|pCloud|Google Drive|OneDrive|Teams|Windows Terminal|' +
     'Bitwarden|Git|GitHub|Python|Node\.js|Android Studio|Microsoft Edge|Google Chrome|Comet|Visual Studio Code|' +
-    'WhatsApp|uv|Codex|Antigravity|Cursor|scrcpy|FFmpeg|Android SDK|Platform-Tools)\b'
-$MusterLaufzeit = '(?i)(Redistributable|Runtime|Laufzeit|WebView2|\.NET|Driver|Treiber|Chipset|Firmware|Realtek|' +
+    'WhatsApp|uv|Codex|Antigravity|Cursor|scrcpy|FFmpeg|Android SDK|Platform-Tools|typeFREE|RipGrep)\b'
+$MusterLaufzeit = '(?i)(Redistributable|Runtime|Laufzeit|WebView2|\.NET\b|Driver|Treiber|Chipset|Firmware|Realtek|' +
     'Intel\(R\)|Intel®|NVIDIA|AMD Software|Synaptics|Dolby|Bluetooth|Wireless|Wi-?Fi|WLAN|Thunderbolt|' +
     'Update Health|Microsoft Update|Windows App Runtime|VCLibs|UI\.Xaml|DirectX)'
 $MusterArbeit = '(?i)(Beckhoff|TwinCAT|Visual Studio(?! Code)|SQL Server|Microsoft Office|Microsoft 365|OneNote|' +
@@ -82,6 +82,93 @@ function Get-Empfehlung {
 function Test-StandardGeschuetzt {
     param([string]$Empfehlung)
     return ($Empfehlung -eq 'Deine Liste' -or $Empfehlung -eq 'Laufzeit/Treiber' -or $Empfehlung -eq 'Windows-App')
+}
+
+# ── Was ist das? (Klartext je Programm, Stand 08.10.2026, für diesen PC) ─────
+# Erster Treffer gilt. Vorschlag: 'Kann weg' (vorab angehakt), 'Behalten' (vorab
+# geschützt) oder 'Prüfen' (du entscheidest, die Begründung sagt worauf es ankommt).
+
+$Wissen = @(
+    @('typeFREE', 'Dein eigenes Diktier-Programm (Projekt typeFREE).', 'Behalten'),
+    @('Antigravity', 'Google-KI-Entwicklungsumgebung; im Workspace für die Fremdprüfung (Critic) eingeplant.', 'Behalten'),
+    @('Codex', 'OpenAI Codex – unser Ausweich-Planer, wenn das Claude-Limit erreicht ist.', 'Behalten'),
+    @('^Comet', 'Dein Browser (Perplexity Comet), darin läuft Claude in Chrome.', 'Behalten'),
+    @('Bitwarden', 'Passwort-Manager.', 'Behalten'),
+    @('DeepL', 'Übersetzer.', 'Behalten'),
+    @('pCloud', 'Cloud-Speicher: Laufwerk P: und der Ordner-Abgleich.', 'Behalten'),
+    @('HP Google Drive Plugin', 'HP-Scanner-Zusatz: Scans direkt nach Google Drive ablegen. Nutzt du so gut wie nie.', 'Kann weg'),
+    @('HP Dropbox Plugin', 'HP-Scanner-Zusatz: Scans direkt nach Dropbox ablegen.', 'Kann weg'),
+    @('^Google Drive', 'Google-Drive-Abgleich (wird zusätzlich nach pCloud gesichert).', 'Behalten'),
+    @('OneDrive', 'Microsoft-Cloud (dein privates OneDrive).', 'Behalten'),
+    @('Android Studio|Android SDK|Platform-Tools', 'Zum Bauen der Hey-Agent-App und für adb (Handy per Kabel).', 'Behalten'),
+    @('scrcpy', 'Zeigt den Handy-Bildschirm am PC (über adb).', 'Behalten'),
+    @('FFmpeg', 'Video-Werkzeug; für Standbilder aus Videos im Foto-Gedächtnis.', 'Behalten'),
+    @('Temurin|JDK', 'Java; nötig zum Bauen der Android-App (Gradle).', 'Behalten'),
+    @('^Python|Python Launcher', 'Python – damit laufen Backend, Werkzeuge und Tests.', 'Behalten'),
+    @('Node\.js', 'Node.js – für Frontend-Tests und Agenten-Werkzeuge.', 'Behalten'),
+    @('^Git$|GitHub CLI', 'Git und GitHub-Konsole – Versionsverwaltung.', 'Behalten'),
+    @('TortoiseGit', 'Git per Rechtsklick-Menü. Wir nutzen Git über die Konsole; nur behalten, wenn du die Menüs magst.', 'Prüfen'),
+    @('RipGrep', 'Schnelle Textsuche, nutzen die Agenten-Werkzeuge.', 'Behalten'),
+    @('7-Zip', 'Packprogramm für ZIP/7z-Archive.', 'Behalten'),
+    @('PowerShell', 'Deine Konsole (PowerShell 7).', 'Behalten'),
+    @('Visual Studio Code', 'Code-Editor (VS Code).', 'Behalten'),
+    @('AusweisApp', 'Online-Ausweis für Behörden (z. B. Agentur für Arbeit).', 'Behalten'),
+    @('PDF24', 'PDF-Werkzeug (zusammenfügen, umwandeln, Texterkennung) – praktisch für Bewerbungen.', 'Behalten'),
+    @('Lenovo Vantage', 'Lenovo-Treiber- und BIOS-Updates für diesen Laptop.', 'Behalten'),
+    @('Lenovo Migration Assistant', 'Einmal-Werkzeug zum Umzug auf einen neuen PC – längst erledigt.', 'Kann weg'),
+    @('Lenovo Pen|Wacom', 'Treiber/Einstellungen für den Stift. Nur nötig, wenn du einen Stift nutzt.', 'Prüfen'),
+    @('Teams classic|Teams Machine-Wide', 'Das alte Microsoft Teams. Das neue Teams ist als App installiert und ersetzt es.', 'Kann weg'),
+    @('Teams Meeting Add-in', 'Teams-Knopf in Outlook für Besprechungen.', 'Behalten'),
+    @('MSTeams', 'Das neue Microsoft Teams.', 'Behalten'),
+    @('Microsoft 365 Apps for Enterprise', 'Office (Word, Excel, Outlook) über die Uni-Lizenz der HAW – zusammen mit dem Eintrag "Microsoft 365 - de-de" ist das dieselbe Office-Installation. Nicht beide entfernen; im Zweifel behalten.', 'Prüfen'),
+    @('Microsoft 365', 'Office: Word, Excel, Outlook, PowerPoint, OneNote.', 'Prüfen'),
+    @('Windows 10-Update-Assistent', 'Altes Upgrade-Werkzeug für Windows 10 – du hast Windows 11.', 'Kann weg'),
+    @('PC-Integritätsprüfung|PC Health Check', 'Prüfte nur, ob der PC Windows 11 kann – erledigt.', 'Kann weg'),
+    @('Logi Download Assistant', 'Logitech-Hinweisprogramm, das beim Start nach Treibern fragt (Werbung).', 'Kann weg'),
+    @('CrypTool', 'Lernprogramm Kryptografie aus dem Studium.', 'Kann weg'),
+    @('Web Deploy', 'Veröffentlichungs-Werkzeug für IIS-Webserver (kam mit Visual Studio).', 'Kann weg'),
+    @('Visio Viewer', 'Nur zum Ansehen alter Visio-Diagramme.', 'Kann weg'),
+    @('I\.R\.I\.S\.', 'Texterkennung (OCR), kam mit einem Scanner. PDF24 kann das auch.', 'Kann weg'),
+    @('Clipchamp', 'Microsoft-Videoschnitt-App.', 'Kann weg'),
+    @('MixedReality', 'Portal für VR-Brillen.', 'Kann weg'),
+    @('Print3D', 'App für 3D-Druck.', 'Kann weg'),
+    @('BingNews', 'Microsoft-Nachrichten-App.', 'Kann weg'),
+    @('Netflix', 'Netflix-App. Nur behalten, wenn du am PC Netflix schaust.', 'Prüfen'),
+    @('SIMPLORER', 'Simulationsprogramm (Uni-Version) aus dem Studium.', 'Prüfen'),
+    @('Visual Studio Community|Visual Studio Installer|Help Viewer|^vs_|Windows Software Development Kit|Windows SDK|Primary Interoperability', 'Microsoft Visual Studio (C#/C++-Entwicklung) mit Zubehör. Für unsere Arbeit (Python, JavaScript, Android) nicht nötig – nur, wenn du .NET-/Windows-Programme baust. Größter Brocken (~8 GB mit SDK).', 'Prüfen'),
+    @('Beckhoff|TwinCAT|Target Browser|OPC', 'Beckhoff TwinCAT 3 – SPS-Programmierung (dein OT-Bereich). Nur behalten, wenn du weiter SPS-Projekte machst.', 'Prüfen'),
+    @('SIMATIC|TIA Portal|PLCSIM|Prosave', 'Siemens SPS-Software (TIA Portal V15, PLCSIM). Wie TwinCAT: nur für SPS-Arbeit.', 'Prüfen'),
+    @('SQL Server|ODBC Driver|ReportViewer|System CLR Types|ScriptDom', 'Microsoft SQL Server 2008–2014 (Datenbank aus Studium/SPS-Software; Siemens WinCC nutzt ihn). Kann weg, wenn du TIA/WinCC nicht mehr brauchst.', 'Prüfen'),
+    @('National Instruments', 'NI-Software (LabVIEW/Messtechnik) aus dem Studium.', 'Prüfen'),
+    @('ProMod', 'Virtuelle Prozessmodelle für SPS-Übungen.', 'Prüfen'),
+    @('DIAL', 'DIALux – Lichtplanung (Studium).', 'Prüfen'),
+    @('CEWE', 'CEWE-Fotobuch-Programm. Das Fotobuch selbst liegt in pCloud; das Programm brauchst du nur zum Bearbeiten oder Bestellen.', 'Prüfen'),
+    @('TeXstudio|MiKTeX', 'LaTeX-Editor (z. B. für die Bachelorarbeit).', 'Prüfen'),
+    @('Discord', 'Chat-App (Gruppen, Communities).', 'Prüfen'),
+    @('Spotify', 'Musik-Streaming.', 'Prüfen'),
+    @('TeamViewer', 'Fernwartung. Wenn du es nicht nutzt: lieber entfernen (auch aus Sicherheitsgründen).', 'Prüfen'),
+    @('Splashtop', 'Tablet als zweiter Bildschirm (Splashtop XDisplay).', 'Prüfen'),
+    @('PS Remote Play', 'PlayStation-Spiele auf dem PC spielen.', 'Prüfen'),
+    @('Maus- und Tastatur', 'Einstellungen für Microsoft-Maus/-Tastatur. Nur mit Microsoft-Maus oder -Tastatur nötig.', 'Prüfen'),
+    @('HP.*(Officejet|OfficeJet)|HPPrinterControl', 'HP-Druckersoftware. Behalten, wenn du den Drucker noch hast.', 'Prüfen'),
+    @('WireGuard', 'VPN – z. B. für den Zugang zur FRITZ!Box von unterwegs. Behalten, wenn du VPN nutzt.', 'Prüfen'),
+    @('PowerAutomate', 'Microsoft-Automatisierung (RPA). Nutzen wir nicht.', 'Prüfen'),
+    @('YourPhone|CrossDevice', 'Smartphone-Link: Handy mit Windows verbinden.', 'Behalten'),
+    @('WebExperience|Widgets', 'Windows-Widgets (Teil von Windows).', 'Behalten'),
+    @('Speech|Ink\.Handwriting', 'Windows-Sprach- und Handschrifterkennung.', 'Behalten'),
+    @('Microsoft Edge', 'Microsoft Edge – Windows und viele Programme brauchen ihn (WebView).', 'Behalten'),
+    @('\.NET Core SDK 2\.1', 'Altes .NET-Entwicklungspaket von 2018, seit 2021 ohne Sicherheits-Updates.', 'Prüfen'),
+    @('Redistributable|Runtime|WinAppRuntime|VCLibs', 'Laufzeit-Paket – andere Programme brauchen es im Hintergrund.', 'Behalten'),
+    @('Treiberpaket|Driver Package|Realtek|Dolby|Intel', 'Treiber für Geräte im PC.', 'Behalten')
+)
+
+function Get-Wissen {
+    <# Erster passender Eintrag aus $Wissen: @{ Was; Vorschlag } — sonst leer. Reine Funktion. #>
+    param([string]$Name)
+    foreach ($w in $Wissen) {
+        if ($Name -match "(?i)$($w[0])") { return @{ Was = $w[1]; Vorschlag = $w[2] } }
+    }
+    return @{ Was = ''; Vorschlag = '' }
 }
 
 # ── Programme einsammeln ─────────────────────────────────────────────────────
@@ -182,6 +269,9 @@ function Get-AlleProgramme {
         $empfehlung = Get-Empfehlung -Name $p.Name -Herausgeber $p.Herausgeber
         if ($p.Art -eq 'Store-App' -and $p.VonMicrosoft -and $empfehlung -eq 'Du entscheidest') { $empfehlung = 'Windows-App' }
         $p | Add-Member -NotePropertyName Empfehlung -NotePropertyValue $empfehlung -Force
+        $w = Get-Wissen $p.Name
+        $p | Add-Member -NotePropertyName Was -NotePropertyValue $w.Was -Force
+        $p | Add-Member -NotePropertyName Vorschlag -NotePropertyValue $w.Vorschlag -Force
     }
     Write-Progress -Activity 'Größen ermitteln' -Completed
     return $liste
@@ -213,6 +303,8 @@ function Save-Schutzliste {
 function Test-Geschuetzt {
     param($Programm, [hashtable]$Schutz)
     if ($Schutz.ContainsKey($Programm.Schluessel)) { return $Schutz[$Programm.Schluessel] }
+    if ($Programm.Vorschlag -eq 'Kann weg') { return $false }
+    if ($Programm.Vorschlag -eq 'Behalten') { return $true }
     return (Test-StandardGeschuetzt $Programm.Empfehlung)
 }
 
@@ -271,7 +363,7 @@ if ($NurListe) {
     $schutz = Read-Schutzliste
     Get-AlleProgramme -MitWindowsApps:$MitWindowsApps |
         Sort-Object @{ Expression = { if ($null -eq $_.GroesseMB) { -1 } else { $_.GroesseMB } } } -Descending |
-        Select-Object @{ n = 'MB'; e = { $_.GroesseMB } }, Name, Empfehlung,
+        Select-Object @{ n = 'MB'; e = { $_.GroesseMB } }, Name, Vorschlag, Empfehlung,
                       @{ n = 'Geschützt'; e = { if (Test-Geschuetzt $_ $schutz) { 'ja' } else { '' } } }, Art |
         Format-Table -AutoSize | Out-String -Width 220
     "C: frei: $(Get-FreiGB) GB"
@@ -299,6 +391,8 @@ $tabelle = New-Object System.Data.DataTable
 [void]$tabelle.Columns.Add('BraucheIch', [bool])
 [void]$tabelle.Columns.Add('Name', [string])
 [void]$tabelle.Columns.Add('MB', [double])
+[void]$tabelle.Columns.Add('Vorschlag', [string])
+[void]$tabelle.Columns.Add('WasIstDas', [string])
 [void]$tabelle.Columns.Add('Empfehlung', [string])
 [void]$tabelle.Columns.Add('Herausgeber', [string])
 [void]$tabelle.Columns.Add('Installiert', [string])
@@ -310,10 +404,14 @@ function Update-Tabelle {
     $tabelle.Rows.Clear()
     foreach ($p in $script:programme) {
         $zeile = $tabelle.NewRow()
-        $zeile.Deinstallieren = $false
-        $zeile.BraucheIch = [bool](Test-Geschuetzt $p $schutz)
+        $geschuetzt = [bool](Test-Geschuetzt $p $schutz)
+        # Vorschlags-Haken: nur bei "Kann weg" und nur, wenn nicht geschützt
+        $zeile.Deinstallieren = ($p.Vorschlag -eq 'Kann weg' -and -not $geschuetzt)
+        $zeile.BraucheIch = $geschuetzt
         $zeile.Name = $p.Name
         if ($null -ne $p.GroesseMB) { $zeile.MB = [double]$p.GroesseMB } else { $zeile.MB = [DBNull]::Value }
+        $zeile.Vorschlag = $p.Vorschlag
+        $zeile.WasIstDas = $p.Was
         $zeile.Empfehlung = $p.Empfehlung
         $zeile.Herausgeber = $p.Herausgeber
         $zeile.Installiert = $p.Installiert
@@ -334,7 +432,9 @@ $hinweis = New-Object System.Windows.Forms.Label
 $hinweis.Dock = 'Top'
 $hinweis.Height = 46
 $hinweis.Padding = New-Object System.Windows.Forms.Padding(8, 6, 8, 0)
-$hinweis.Text = '„Brauche ich" schützt ein Programm (wird gespeichert). „Deinstallieren" anhaken, was weg darf. ' +
+$hinweis.Height = 62
+$hinweis.Text = 'Orange = Vorschlag "Kann weg" (vorab angehakt). "Prüfen" = du entscheidest, unten steht warum. ' +
+    '„Brauche ich" schützt ein Programm (wird gespeichert). Zeile anklicken = Erklärung unten. ' +
     'Nichts passiert ohne deine Bestätigung; jedes Programm fragt mit seinem eigenen Deinstallationsprogramm nach.'
 
 $leiste = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -380,9 +480,19 @@ $knopfZu.Text = 'Schließen'
 $knopfZu.AutoSize = $true
 $unten.Controls.AddRange(@($status, $knopfLos, $knopfZu))
 
+$detail = New-Object System.Windows.Forms.TextBox
+$detail.Multiline = $true
+$detail.ReadOnly = $true
+$detail.Dock = 'Bottom'
+$detail.Height = 70
+$detail.ScrollBars = 'Vertical'
+$detail.Text = 'Zeile anklicken: hier steht, was das Programm ist und ob du es brauchst.'
+
+# Reihenfolge zählt: zuletzt hinzugefügt = zuerst angedockt (Knöpfe ganz unten, darüber die Erklärung)
 $fenster.Controls.Add($raster)
 $fenster.Controls.Add($leiste)
 $fenster.Controls.Add($hinweis)
+$fenster.Controls.Add($detail)
 $fenster.Controls.Add($unten)
 
 function Update-Status {
@@ -399,17 +509,26 @@ $raster.add_DataBindingComplete({
     $raster.Columns['BraucheIch'].ReadOnly = $false
     $raster.Columns['BraucheIch'].HeaderText = 'Brauche ich'
     $raster.Columns['MB'].HeaderText = 'Größe (MB)'
+    $raster.Columns['WasIstDas'].HeaderText = 'Was ist das?'
+    $raster.Columns['Empfehlung'].HeaderText = 'Gruppe'
     $raster.Columns['Schluessel'].Visible = $false
     $raster.Columns['Deinstallieren'].FillWeight = 45
     $raster.Columns['BraucheIch'].FillWeight = 45
-    $raster.Columns['Name'].FillWeight = 220
-    $raster.Columns['MB'].FillWeight = 50
+    $raster.Columns['Name'].FillWeight = 170
+    $raster.Columns['MB'].FillWeight = 45
+    $raster.Columns['Vorschlag'].FillWeight = 55
+    $raster.Columns['WasIstDas'].FillWeight = 260
+    $raster.Columns['Empfehlung'].FillWeight = 70
     $raster.Columns['MB'].DefaultCellStyle.Format = 'N0'
     foreach ($zeile in $raster.Rows) {
+        $zeile.DefaultCellStyle.BackColor = [System.Drawing.Color]::White
         if ($zeile.Cells['BraucheIch'].Value -eq $true) {
             $zeile.DefaultCellStyle.ForeColor = [System.Drawing.Color]::DimGray
         } else {
             $zeile.DefaultCellStyle.ForeColor = [System.Drawing.Color]::Black
+            if ($zeile.Cells['Vorschlag'].Value -eq 'Kann weg') {
+                $zeile.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255, 236, 210)
+            }
         }
     }
 })
@@ -435,6 +554,16 @@ $raster.add_CellValueChanged({
             'Geschützt', 'OK', 'Information') | Out-Null
     }
     Update-Status
+})
+
+$raster.add_SelectionChanged({
+    if (-not $raster.CurrentRow -or $raster.CurrentRow.Index -lt 0 -or $raster.CurrentRow.Index -ge $ansicht.Count) { return }
+    $z = $ansicht[$raster.CurrentRow.Index].Row
+    $groesse = if ($z.MB -is [DBNull]) { 'Größe unbekannt' } else { '{0:N0} MB' -f $z.MB }
+    $was = if ($z.WasIstDas) { $z.WasIstDas } else { 'Keine Erklärung hinterlegt – im Zweifel behalten oder Claude fragen.' }
+    $vorschlag = if ($z.Vorschlag) { $z.Vorschlag } else { 'keiner' }
+    $detail.Text = "$($z.Name)  ·  $groesse  ·  $($z.Herausgeber)  ·  installiert $($z.Installiert)`r`n" +
+        "Was ist das?  $was`r`nVorschlag: $vorschlag" + $(if ($z.BraucheIch) { '   (geschützt durch "Brauche ich")' } else { '' })
 })
 
 $suche.add_TextChanged({
