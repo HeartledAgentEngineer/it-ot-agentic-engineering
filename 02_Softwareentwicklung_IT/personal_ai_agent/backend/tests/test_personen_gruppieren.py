@@ -355,3 +355,33 @@ def test_vorgaben_lesen_kennt_ausschluesse(tmp_path):
     v = pg.vorgaben_lesen(str(pfad))
     assert v["ausgeschlossen"] == {("Person_1001", "123", 2)}
     assert v["gleich"] == {("Person_1001", "Person_1002")}
+
+
+def test_min_score_laesst_unsichere_funde_ohne_gruppe(tmp_path):
+    """08.10.2026: Mischgruppen bestanden zu 81 % aus Funden unter 0,8."""
+    rng = np.random.default_rng(41)
+    m = _mitte(rng)
+    zeilen = []
+    for i, score in enumerate((0.95, 0.85, 0.79, 0.65)):
+        daten = json.loads(_zeile(str(100 + i), [_gesicht(rng, m)]))
+        daten["gesichter"][0]["score"] = score
+        zeilen.append(json.dumps(daten))
+    datei = tmp_path / "v.jsonl"
+    datei.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    standard = pg.gesichter_lesen([str(datei)])
+    streng = pg.gesichter_lesen([str(datei)], min_score=0.8)
+    assert len(standard["gesichter"]) == 4                       # Standard 0,6 laesst alle durch
+    assert [g["score"] for g in streng["gesichter"]] == [0.95, 0.85]
+    assert streng["vektoren"].shape == (2, D)
+
+
+def test_erste_datei_gewinnt_bei_doppelter_bild_id(tmp_path):
+    """Neuerkennung gedrehter Fotos: die neue Datei wird ZUERST genannt und gewinnt."""
+    rng = np.random.default_rng(43)
+    m = _mitte(rng)
+    neu, alt = tmp_path / "neu.jsonl", tmp_path / "alt.jsonl"
+    neu.write_text(_zeile("500", [_gesicht(rng, m), _gesicht(rng, _mitte(rng))]) + "\n",
+                   encoding="utf-8")
+    alt.write_text(_zeile("500", [_gesicht(rng, m)]) + "\n", encoding="utf-8")
+    e = pg.gesichter_lesen([str(neu), str(alt)])
+    assert e["doppelt"] == 1 and len(e["gesichter"]) == 2

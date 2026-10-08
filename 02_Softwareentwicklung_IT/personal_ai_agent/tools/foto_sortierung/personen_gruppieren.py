@@ -190,8 +190,13 @@ def vorgaben_lesen(pfad) -> dict:
     return ergebnis
 
 
-def gesichter_lesen(pfade, katalog=None) -> dict:
+def gesichter_lesen(pfade, katalog=None, min_score=None) -> dict:
     """Alle Vektordateien lesen — nur lesend. Rueckgabe siehe unten.
+
+    ``min_score`` (08.10.2026): Mindest-Erkennungssicherheit eines Gesichts, um
+    gruppiert zu werden (Standard ``personen_cluster.MIN_SCORE`` = 0,6). Die
+    Gruppen-Diagnose zeigte: Mischgruppen bestehen zu 81 % aus Funden unter 0,8,
+    echte Gruppen nur zu 10 %. Funde darunter bleiben ohne Gruppe.
 
     Je Bild entscheidet die Mengen-Regel aus ``personen_cluster``, ob es
     gruppiert wird. Ein Bild, das schon aus einer frueheren Datei kam
@@ -208,6 +213,7 @@ def gesichter_lesen(pfade, katalog=None) -> dict:
     gesehen: set[str] = set()
     je_grund: dict[str, int] = {}
     bilder = gruppiert = ungueltig_gesamt = doppelt = 0
+    params = {"min_score": float(min_score)} if min_score is not None else None
     for pfad in pfade:
         if not os.path.isfile(pfad):
             raise PersonenFehler(f"Vektordatei nicht gefunden: {pfad}")
@@ -243,7 +249,8 @@ def gesichter_lesen(pfade, katalog=None) -> dict:
                     zeit_s = daten.get("zeit_s")
                     for g in _cluster.gesichter_bewerten(geprueft["gesichter"],
                                                          geprueft["breite"],
-                                                         geprueft["hoehe"]):
+                                                         geprueft["hoehe"],
+                                                         params=params):
                         if not g["nutzbar"]:
                             continue
                         gesichter.append({
@@ -1096,6 +1103,9 @@ def main(argv=None) -> int:
     zerleger.add_argument("--verschmelzen", type=float, default=VERSCHMELZ_AEHNLICH)
     zerleger.add_argument("--zwilling", type=float, default=ZWILLING_AEHNLICH)
     zerleger.add_argument("--min-groesse", type=int, default=MIN_GROESSE)
+    zerleger.add_argument("--min-score", type=float, default=None,
+                          help="Mindest-Erkennungssicherheit fuer die Gruppierung "
+                               "(Standard 0,6; empfohlen 0,8 seit 08.10.2026)")
     zerleger.add_argument("--nachtragen", action="append", default=None,
                           help="Vektordatei(en) NUR an die bestehenden Gruppen haengen "
                                "(nichts neu rechnen; Trockenlauf ist Standard, "
@@ -1118,7 +1128,9 @@ def main(argv=None) -> int:
             os.path.join(args.ausgabe, DATEI_KENNUNGEN))
         print("Personen gruppieren — " + ("Schreiben ist eingeschaltet" if schreiben_an
                                            else "Trockenlauf (es wird NICHTS geschrieben)"))
-        eingelesen = gesichter_lesen(pfade, katalog)
+        if args.min_score is not None:
+            print(f"Mindest-Erkennungssicherheit: {args.min_score:.2f}")
+        eingelesen = gesichter_lesen(pfade, katalog, min_score=args.min_score)
         lauf = lauf_rechnen(eingelesen, altbestand=altbestand,
                             bestaetigt=bestaetigt_lesen(args.bestaetigt),
                             vorgaben=vorgaben_lesen(args.vorgaben),
