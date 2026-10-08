@@ -58,7 +58,8 @@ def _termux_attrappe(tmp_path: Path) -> Path:
     (basis / "usr" / "bin" / "programm").write_text("#!/bin/sh\n", encoding="utf-8")
     (basis / "usr" / "tmp").mkdir()
     (basis / "usr" / "tmp" / "fluechtig").write_text("x", encoding="utf-8")
-    rootfs = basis / "usr" / "var" / "lib" / "proot-distro" / "installed-rootfs" / "debian"
+    # neue Ablage von proot-distro (containers/<name>/rootfs) wie am Handy (Lauf 23:00)
+    rootfs = basis / "usr" / "var" / "lib" / "proot-distro" / "containers" / "debian" / "rootfs"
     (rootfs / "root" / "facy_venv").mkdir(parents=True)
     (rootfs / "etc").mkdir()
     (rootfs / "etc" / "os-release").write_text("ID=debian\n", encoding="utf-8")
@@ -76,7 +77,9 @@ def _age_platzhalter(tmp_path: Path) -> Path:
     (ordner / "proot-distro").write_text(
         '#!/bin/bash\n[ "$1" = backup ] || exit 2\n'
         '[ -n "${PD_KAPUTT:-}" ] && { echo "kaputt" >&2; exit 1; }\n'
-        'tar -C "$TERMUX_BASIS/usr/var/lib/proot-distro/installed-rootfs" -cf - "$2"\n',
+        'L="$TERMUX_BASIS/usr/var/lib/proot-distro"\n'
+        'if [ -d "$L/containers/$2/rootfs" ]; then tar -C "$L/containers/$2" -cf - rootfs\n'
+        'else tar -C "$L/installed-rootfs" -cf - "$2"; fi\n',
         encoding="utf-8", newline="\n")
     return ordner
 
@@ -139,7 +142,7 @@ def test_sicherung_und_pruefung_passen_zusammen(tmp_path, capsys):
     assert "home/projekt/notiz.txt" in namen
     assert not any(n.startswith(("home/.cache", "home/storage")) for n in namen)
     with tarfile.open(ordner / "distro_debian.tar.age") as archiv:
-        assert "debian/root/facy_venv" in archiv.getnames()
+        assert "rootfs/root/facy_venv" in archiv.getnames()
 
     code = sp.main([str(ordner)], oeffnen=_datei_oeffnen)
     ausgabe = capsys.readouterr().out
@@ -394,7 +397,7 @@ def test_ohne_linux_umgebung_nur_home(tmp_path):
     befehl = f'export PATH="{_posix(werkzeuge)}:$PATH"; bash "{_posix(SKRIPT)}"'
     ergebnis = subprocess.run([bash, "-c", befehl], env=umgebung, capture_output=True, text=True)
     assert ergebnis.returncode == 0, ergebnis.stdout
-    assert "Keine Linux-Umgebung" in ergebnis.stdout
+    assert "Keine Linux-Umgebung (proot-distro) gefunden" in ergebnis.stdout
     assert set(sp.manifest_lesen(str(tmp_path / "d" / "s" / "MANIFEST.txt"))) == {"home.tar.age"}
 
 
@@ -415,3 +418,30 @@ def test_pruefer_ohne_eintragszahl_und_komprimiert(tmp_path):
     (ordner / "FERTIG").write_text("x", encoding="utf-8")
     zeilen, gruen = sp.pruefen(str(ordner), _datei_oeffnen)
     assert gruen and "Eintraege" not in zeilen[0] and "bis zum Ende lesbar" in zeilen[0]
+
+
+def test_alte_ablage_installed_rootfs_wird_auch_gesichert(tmp_path):
+    bash = _bash()
+    basis = _termux_attrappe(tmp_path)
+    lager = basis / "usr" / "var" / "lib" / "proot-distro"
+    shutil.rmtree(lager / "containers")
+    (lager / "installed-rootfs" / "ubuntu" / "etc").mkdir(parents=True)
+    (basis / "home" / ".sicherung_empfaenger.txt").write_text(SCHLUESSEL, encoding="utf-8")
+    werkzeuge = _age_platzhalter(tmp_path)
+    umgebung = dict(os.environ, TERMUX_BASIS=_posix(basis), SICHERUNG_ZIEL=_posix(tmp_path / "d"),
+                    SICHERUNG_STAND="s", HOME=_posix(basis / "home"), TMPDIR=_posix(tmp_path),
+                    PORT="1")
+    befehl = f'export PATH="{_posix(werkzeuge)}:$PATH"; bash "{_posix(SKRIPT)}"'
+    ergebnis = subprocess.run([bash, "-c", befehl], env=umgebung, capture_output=True, text=True)
+    assert ergebnis.returncode == 0, ergebnis.stdout
+    assert set(sp.manifest_lesen(str(tmp_path / "d" / "s" / "MANIFEST.txt"))) == {
+        "home.tar.age", "distro_ubuntu.tar.age"}
+
+
+def test_pruefer_rot_wenn_proot_distro_installiert_aber_keine_umgebung(tmp_path):
+    ordner = _sicherung_bauen(tmp_path / "s")
+    (ordner / "pakete_manuell.txt").write_text("age\ngit\nproot-distro\npython\n", encoding="utf-8")
+    zeilen, gruen = sp.pruefen(str(ordner), _datei_oeffnen)
+    assert not gruen
+    assert any("keine Linux-Umgebung" in z for z in zeilen)
+    assert any(z.startswith("✔ home.tar.age") for z in zeilen)    # home selbst bleibt ok

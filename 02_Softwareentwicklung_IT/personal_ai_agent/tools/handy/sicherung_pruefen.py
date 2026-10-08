@@ -129,6 +129,15 @@ def pruefen(ordner: str, oeffnen) -> tuple:
     if not soll_alle:
         return ["MANIFEST.txt enthaelt keine Teile."], False
     gruen = True
+    # Lauf 08.10. 23:00: proot-distro installiert, aber keine Umgebung gesichert
+    # (neue Ablage containers/ nicht erkannt) - und trotzdem GRUEN. Das darf nicht sein.
+    pakete = os.path.join(ordner, "pakete_manuell.txt")
+    if os.path.isfile(pakete) and not any(n.startswith("distro_") for n in soll_alle):
+        with open(pakete, encoding="utf-8") as datei:
+            if "proot-distro" in {z.strip() for z in datei}:
+                gruen = False
+                zeilen.append("✗ proot-distro ist installiert, aber keine Linux-Umgebung "
+                              "(distro_*.tar.age) ist gesichert.")
     for name, soll in sorted(soll_alle.items()):
         fehler = teil_pruefen(ordner, name, soll, oeffnen)
         mb = max(soll["groesse"], 0) // (1024 * 1024)

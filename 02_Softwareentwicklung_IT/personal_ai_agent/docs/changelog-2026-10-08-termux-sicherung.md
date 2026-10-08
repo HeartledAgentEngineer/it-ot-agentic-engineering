@@ -115,3 +115,23 @@ Tests: `backend/tests/test_termux_sicherung.py`, jetzt 20.
 
 Tests: 23. Neu sind ein Distro-Fehler mit sichtbarer Meldung und Exit 6, ein Lauf ohne
 Linux-Umgebung (nur `home`) und der Prüfer mit gzip ohne Eintragszahl.
+
+## Nachtrag: Debian fehlte in der Sicherung (08.10.2026, ~23:15)
+
+**Lauf 23:00 (Ordner `2026-10-08_2300`):**
+- `home` war fertig: 109.927 Einträge, 3.284 MB. Die Prüfung am PC war GRÜN.
+- Das Log meldete aber „Keine Linux-Umgebung (proot-distro) installiert“, obwohl
+  `proot-distro` in `pakete_manuell.txt` steht.
+- Ursache laut README von proot-distro: Neuere Fassungen legen Umgebungen unter
+  `usr/var/lib/proot-distro/containers/<name>/rootfs/` ab. Das Skript kannte nur die alte
+  Ablage `installed-rootfs/<name>/`.
+
+**Behoben:**
+- `distro_namen` sucht in beiden Ablagen und entfernt Doppelte.
+- Wird nichts gefunden, nennt die Meldung die gesuchten Pfade.
+- Der PC-Prüfer meldet jetzt **ROT**, wenn `proot-distro` in der Paketliste steht, aber
+  kein `distro_*.tar.age` gesichert ist. So eine Sicherung galt vorher fälschlich als
+  vollständig.
+
+Tests: 25. Neu sind die neue Ablage (`containers/debian/rootfs`), die alte Ablage
+(`installed-rootfs/ubuntu`) und der Prüfer mit ROT bei fehlender Umgebung.

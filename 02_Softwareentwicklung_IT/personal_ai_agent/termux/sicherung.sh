@@ -152,19 +152,33 @@ teil_sichern() {
 # (/root/facy_venv mit OpenCV), die in keinem Einrichtungsskript steht. Ein
 # einfaches tar darf darin nicht alles lesen (Lauf 22:35: tar Exit 2); deshalb
 # sichert proot-distro selbst, mit seinen Schein-root-Rechten.
+# Ablage (README proot-distro, 08.10.2026): neu containers/<name>/rootfs/, alt
+# installed-rootfs/<name>/ (wird beim naechsten login migriert). Lauf 23:00 fand
+# nur den alten Pfad und meldete faelschlich "keine Linux-Umgebung".
+distro_namen() {
+    local lager="$BASIS/usr/var/lib/proot-distro" ordner
+    for ordner in "$lager"/containers/*/rootfs/; do
+        [ -d "$ordner" ] && basename "$(dirname "$ordner")"
+    done
+    for ordner in "$lager"/installed-rootfs/*/; do
+        [ -d "$ordner" ] && basename "$ordner"
+    done
+}
+
 distros_sichern() {
-    local wurzel="$BASIS/usr/var/lib/proot-distro/installed-rootfs"
-    if [ ! -d "$wurzel" ] || [ -z "$(ls -A "$wurzel" 2>/dev/null)" ]; then
-        meldung "  Keine Linux-Umgebung (proot-distro) installiert."
+    local namen
+    namen="$(distro_namen | sort -u)"
+    if [ -z "$namen" ]; then
+        meldung "  Keine Linux-Umgebung (proot-distro) gefunden"
+        meldung "  (gesucht: usr/var/lib/proot-distro/containers/*/rootfs und installed-rootfs/*)."
         return 0
     fi
     if ! command -v proot-distro >/dev/null 2>&1; then
         meldung "Abbruch: Linux-Umgebung vorhanden, aber proot-distro fehlt."
         exit 6
     fi
-    local ordner name ausgabe fehler
-    for ordner in "$wurzel"/*/; do
-        name="$(basename "$ordner")"
+    local name ausgabe fehler
+    for name in $namen; do
         ausgabe="$ZIEL/distro_$name.tar.age"
         fehler="$ZWISCHEN/.sicherung_fehler_distro.$$"
         meldung "  Linux-Umgebung $name: wird gesichert ..."
