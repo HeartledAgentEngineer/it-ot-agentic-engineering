@@ -156,14 +156,54 @@ function gruppenAntwortText(art, s, wechsel) {
 /** Infozeile der Gesamtansicht. */
 function gruppenAlleInfo(antwort, geladen) {
     if (!antwort || antwort.ok !== true) return '';
-    const teile = ['Tippe die Gesichter an, die NICHT zu dieser Person gehören.',
+    // 10.10.2026: Vorschläge nur aus Video-Standbildern blieben leer ohne Erklärung.
+    const videos = Number(antwort.videos) || 0;
+    if (!antwort.gesamt && videos) {
+        return '🎬 Dieser Vorschlag besteht nur aus ' + gruppenZahl(videos)
+            + ' Gesichtern aus Videos – die kann die Ansicht noch nicht zeigen.'
+            + ' Bitte mit „⏭ Weiter (später)“ überspringen.';
+    }
+    const teile = ['Gesichter antippen, dann 🚫 ausschließen oder 👤 einer Person zuordnen.',
                    gruppenZahl(antwort.gesamt) + ' Gesichter'];
     if (geladen < antwort.gesamt) teile.push(gruppenZahl(geladen) + ' geladen');
     if (antwort.ausgeschlossen) teile.push(gruppenZahl(antwort.ausgeschlossen) + ' schon ausgeschlossen');
+    if (videos) teile.push('+ ' + gruppenZahl(videos) + ' aus Videos (nicht gezeigt)');
     if (Array.isArray(antwort.kennungen) && antwort.kennungen.length > 1) {
         teile.push('aus ' + antwort.kennungen.length + ' Vorschlägen');
     }
     return teile.join(' · ');
+}
+
+/** Beschriftung des Zuordnen-Knopfs (10.10.2026). */
+function gruppenZuordnenKnopf(anzahl) {
+    if (!anzahl) return '👤 Zuordnen';
+    return '👤 ' + gruppenZahl(anzahl) + (anzahl === 1 ? ' Gesicht zuordnen …' : ' Gesichter zuordnen …');
+}
+
+/** Namen zum Zuordnen: ohne die gerade offene Person, ohne Leere/Doppelte (Groß/Klein egal), A–Z. */
+function gruppenZuordnenNamen(namen, ohne) {
+    const weg = typeof ohne === 'string' ? ohne.trim().toLowerCase() : '';
+    const gesehen = new Set();
+    const liste = [];
+    (Array.isArray(namen) ? namen : []).forEach((n) => {
+        const s = typeof n === 'string' ? n.trim() : '';
+        const k = s.toLowerCase();
+        if (!s || k === weg || gesehen.has(k)) return;
+        gesehen.add(k);
+        liste.push(s);
+    });
+    return liste.sort((a, b) => a.localeCompare(b, 'de'));
+}
+
+/** Zeitblöcke (10.10.2026): „2004-03-02“ → „2004“, ohne Datum → „ohne Datum“. */
+function gruppenJahr(aufnahme) {
+    const m = /^(\d{4})/.exec(String(aufnahme || ''));
+    return m ? m[1] : 'ohne Datum';
+}
+
+/** Umschalter der Sortierung: zeigt, wohin ein Tipp wechselt. */
+function gruppenOrdnungKnopf(ordnung) {
+    return ordnung === 'zeit' ? '⭐ Beste zuerst' : '📅 Nach Jahren';
 }
 
 /** Knopf oben in der Personenansicht (07.10.2026): alle Gesichter über alle Vorschläge. */
@@ -285,6 +325,7 @@ function gruppenRueckgaengigText(z) {
         loesen: '↩ Lösen zurückgenommen – der Vorschlag gehört wieder zur Person',
         profil: '↩ Profiländerung zurückgenommen',
         ausschliessen: '↩ Ausschließen zurückgenommen',
+        zuordnen: '↩ Zuordnen zurückgenommen – die Gesichter sind wieder im alten Vorschlag',
     };
     return texte[z && z.art] || '↩ letzte Antwort zurückgenommen';
 }
@@ -422,25 +463,56 @@ function gruppenNotizZeit(zeit) {
     // Handy sind sie sofort raus, der nächste Gruppierlauf am PC ordnet sie neu.
     // Seit 07.10.2026 auch für eine ganze Person (``name``: alle Vorschläge in einer Liste);
     // die nächste Seite lädt beim Scrollen von selbst (``beobachter`` am Listenende).
+    // 10.10.2026: ``ordnung`` „zeit“ zeigt Jahresblöcke (gemischte Kinder-/Zwillingsgruppen
+    // zerfallen so in Abschnitte); „👤 Zuordnen“ hängt Markierte fest an eine benannte Person.
+    // Die Sortierung bleibt für die Sitzung gewählt, auch beim nächsten Vorschlag.
     const alle = { kennung: null, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
-                   markiert: new Set(), kennungJeGid: new Map(), laedt: false, beobachter: null };
+                   markiert: new Set(), kennungJeGid: new Map(), laedt: false, beobachter: null,
+                   ordnung: 'guete', letztesJahr: null };
 
     function alleKnopfAktualisieren() {
         const k = el('gruppen-alle-ausschliessen');
-        if (!k) return;
-        k.textContent = gruppenAusschlussKnopf(alle.markiert.size);
-        k.disabled = alle.markiert.size === 0;
+        if (k) {
+            k.textContent = gruppenAusschlussKnopf(alle.markiert.size);
+            k.disabled = alle.markiert.size === 0;
+        }
+        const z = el('gruppen-alle-zuordnen');
+        if (z) {
+            z.textContent = gruppenZuordnenKnopf(alle.markiert.size);
+            z.disabled = alle.markiert.size === 0;
+        }
+        const namen = el('gruppen-alle-namen');
+        if (namen && !alle.markiert.size) namen.hidden = true;
+        const o = el('gruppen-alle-ordnung');
+        if (o) o.textContent = gruppenOrdnungKnopf(alle.ordnung);
+    }
+
+    function alleKachelZahl() {
+        const raster = el('gruppen-alle-raster');
+        return raster ? raster.querySelectorAll('.gruppen-kachel').length : 0;
+    }
+
+    /** Jahresköpfe ohne Gesichter darunter entfernen (nach Ausschließen/Zuordnen). */
+    function alleJahreAufraeumen() {
+        const raster = el('gruppen-alle-raster');
+        if (!raster) return;
+        Array.from(raster.querySelectorAll('.gruppen-alle-jahr')).forEach((kopf) => {
+            const nach = kopf.nextElementSibling;
+            if (!nach || nach.classList.contains('gruppen-alle-jahr')) kopf.remove();
+        });
+        const koepfe = raster.querySelectorAll('.gruppen-alle-jahr');
+        alle.letztesJahr = koepfe.length ? koepfe[koepfe.length - 1].textContent : null;
     }
 
     async function alleSeiteLaden() {
         if ((!alle.kennung && !alle.name) || alle.laedt || (alle.seiten && alle.seite >= alle.seiten)) return;
         alle.laedt = true;
         const ziel = alle.name ? 'name=' + encodeURIComponent(alle.name) : 'kennung=' + encodeURIComponent(alle.kennung);
-        const fuer = alle.name || alle.kennung;
+        const fuer = (alle.name || alle.kennung) + '|' + alle.ordnung;
         const antwort = await jsonHolen('/api/gruppen/gesichter?' + ziel
-            + '&seite=' + (alle.seite + 1)).catch(() => null);
+            + '&seite=' + (alle.seite + 1) + '&ordnung=' + alle.ordnung).catch(() => null);
         alle.laedt = false;
-        if ((alle.name || alle.kennung) !== fuer) return;          // inzwischen geschlossen/gewechselt
+        if ((alle.name || alle.kennung) + '|' + alle.ordnung !== fuer) return;   // geschlossen/gewechselt
         const info = el('gruppen-alle-info');
         if (!antwort || antwort.ok !== true) {
             if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Gesichter nicht ladbar.');
@@ -451,6 +523,16 @@ function gruppenNotizZeit(zeit) {
         alle.letzte = antwort;
         const raster = el('gruppen-alle-raster');
         (antwort.gesichter || []).forEach((g) => {
+            if (alle.ordnung === 'zeit') {
+                const jahr = gruppenJahr(g.aufnahme);
+                if (jahr !== alle.letztesJahr) {
+                    const kopf = document.createElement('div');
+                    kopf.className = 'gruppen-alle-jahr';
+                    kopf.textContent = jahr;
+                    raster.appendChild(kopf);
+                    alle.letztesJahr = jahr;
+                }
+            }
             raster.appendChild(kachel(g, false, {
                 verzoegert: true,
                 beiTipp: (box) => {
@@ -461,9 +543,13 @@ function gruppenNotizZeit(zeit) {
                 },
             }));
             raster.lastChild.dataset.gid = g.gid;
+            if (g.zugeordnet) {
+                raster.lastChild.classList.add('zugeordnet');
+                raster.lastChild.title += ' · von Hand zugeordnet';
+            }
             alle.kennungJeGid.set(g.gid, g.kennung || alle.kennung);
         });
-        alle.geladen = raster.children.length;
+        alle.geladen = alleKachelZahl();
         if (info) info.textContent = gruppenAlleInfo(antwort, alle.geladen);
         alleEndeBeobachten();
     }
@@ -498,31 +584,38 @@ function gruppenNotizZeit(zeit) {
     }
 
     /** Gesamtansicht eines Vorschlags; ``vonPerson`` = aus „Benannt“ geöffnet (Zurück führt dorthin). */
-    function alleOeffnen(kennung, vonPerson) {
-        const k = (typeof kennung === 'string' && kennung) ? kennung : (zustand.gruppe && zustand.gruppe.kennung);
-        if (!k) return;
-        Object.assign(alle, { kennung: k, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
-                              vonPerson: Boolean(vonPerson) });
+    /** Liste leeren und ab Seite 1 laden (Öffnen, Sortierung wechseln). */
+    function alleVonVorn() {
+        Object.assign(alle, { seite: 0, seiten: 0, geladen: 0, letzte: null, letztesJahr: null, laedt: false });
         alle.markiert.clear();
         alle.kennungJeGid.clear();
         const raster = el('gruppen-alle-raster');
         if (raster) raster.innerHTML = '';
-        nurZeigen('alle');
+        const info = el('gruppen-alle-info');
+        if (info) info.textContent = '';
         alleKnopfAktualisieren();
         alleSeiteLaden();
+    }
+
+    function alleOeffnen(kennung, vonPerson) {
+        const k = (typeof kennung === 'string' && kennung) ? kennung : (zustand.gruppe && zustand.gruppe.kennung);
+        if (!k) return;
+        Object.assign(alle, { kennung: k, name: null, vonPerson: Boolean(vonPerson) });
+        nurZeigen('alle');
+        alleVonVorn();
     }
 
     /** Alle Gesichter einer benannten Person über alle ihre Vorschläge (07.10.2026). */
     function alleOeffnenPerson(name) {
         if (typeof name !== 'string' || !name) return;
-        Object.assign(alle, { kennung: null, name, seite: 0, seiten: 0, geladen: 0, letzte: null, vonPerson: true });
-        alle.markiert.clear();
-        alle.kennungJeGid.clear();
-        const raster = el('gruppen-alle-raster');
-        if (raster) raster.innerHTML = '';
+        Object.assign(alle, { kennung: null, name, vonPerson: true });
         nurZeigen('alle');
-        alleKnopfAktualisieren();
-        alleSeiteLaden();
+        alleVonVorn();
+    }
+
+    function alleOrdnungWechseln() {
+        alle.ordnung = alle.ordnung === 'zeit' ? 'guete' : 'zeit';
+        alleVonVorn();
     }
 
     function alleSchliessen() {
@@ -828,10 +921,7 @@ function gruppenNotizZeit(zeit) {
                     body: JSON.stringify({ kennung: alle.kennung, gesichter: liste }),
                 });
             if (antwort && antwort.ok === true) {
-                el('gruppen-alle-raster').querySelectorAll('.gruppen-kachel.markiert')
-                    .forEach((k) => k.remove());
-                alle.markiert.clear();
-                alle.geladen = el('gruppen-alle-raster').children.length;
+                alleMarkierteEntfernen();
                 if (alle.letzte) {
                     alle.letzte.gesamt = antwort.gesamt;
                     alle.letzte.ausgeschlossen = (alle.letzte.ausgeschlossen || 0) + antwort.ausgeschlossen;
@@ -843,6 +933,85 @@ function gruppenNotizZeit(zeit) {
                 alleEndeBeobachten();          // Liste wurde kürzer: ggf. sofort nachladen
             } else {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Ausschließen fehlgeschlagen'), false);
+            }
+        } catch (_e) {
+            melde('⚠️ Keine Verbindung zum Agenten.', false);
+        } finally {
+            zustand.beschaeftigt = false;
+        }
+    }
+
+    /** Markierte Kacheln aus der Liste nehmen; gibt ihre Zahl zurück. */
+    function alleMarkierteEntfernen() {
+        const raster = el('gruppen-alle-raster');
+        const weg = raster.querySelectorAll('.gruppen-kachel.markiert');
+        weg.forEach((k) => k.remove());
+        alle.markiert.clear();
+        alleJahreAufraeumen();
+        alle.geladen = alleKachelZahl();
+        return weg.length;
+    }
+
+    // ── Gesichter fest einer Person zuordnen (10.10.2026) ─────────────────
+    // Gemischte Vorschläge (Zwillinge, Geschwister als Kinder, Fotobuch): statt nur
+    // auszuschließen, gehen markierte Gesichter direkt an eine schon benannte Person.
+    // Am Handy wirkt das sofort, der nächste Gruppierlauf am PC übernimmt es.
+
+    /** Die Person, die gerade offen ist (deren Name taucht in der Auswahl nicht auf). */
+    function alleOffenePerson() {
+        if (alle.name) return alle.name;
+        return (alle.vonPerson && zustand.person && zustand.person.name) || '';
+    }
+
+    function alleNamenZeigen() {
+        const kasten = el('gruppen-alle-namen');
+        if (!kasten || !alle.markiert.size) return;
+        if (!kasten.hidden) { kasten.hidden = true; return; }
+        kasten.innerHTML = '';
+        // Namen aus dem Offen-Reiter UND der Personenliste (wer direkt in „Benannt“ startet)
+        const namen = gruppenZuordnenNamen((zustand.namen || []).concat(
+            (zustand.personen || []).map((p) => p && p.name)), alleOffenePerson());
+        const kopf = document.createElement('p');
+        kopf.className = 'gruppen-meta';
+        kopf.textContent = namen.length
+            ? 'Zu wem gehören die markierten Gesichter?'
+            : 'Noch keine andere Person benannt – erst einen Vorschlag benennen.';
+        kasten.appendChild(kopf);
+        namen.forEach((n) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'gruppen-knopf gruppen-namen-chip';
+            b.textContent = n;
+            b.addEventListener('click', () => alleZuordnen(n));
+            kasten.appendChild(b);
+        });
+        kasten.hidden = false;
+    }
+
+    async function alleZuordnen(name) {
+        if (!alle.markiert.size || zustand.beschaeftigt || typeof name !== 'string' || !name) return;
+        zustand.beschaeftigt = true;
+        try {
+            const liste = Array.from(alle.markiert);
+            const antwort = await jsonHolen('/api/gruppen/zuordnen', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name,
+                                       gesichter: liste.map((gid) => ({ kennung: alle.kennungJeGid.get(gid), gid })) }),
+            });
+            if (antwort && antwort.ok === true) {
+                const weg = alleMarkierteEntfernen();
+                if (alle.letzte) {
+                    alle.letzte.gesamt = Math.max(0, (Number(alle.letzte.gesamt) || 0) - weg);
+                    el('gruppen-alle-info').textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
+                }
+                melde(antwort.zugeordnet
+                    ? '✓ ' + gruppenZahl(antwort.zugeordnet) + ' zu ' + antwort.name
+                      + ' zugeordnet (↩ Rückgängig in der Karte).'
+                    : '✓ Die Gesichter gehörten schon zu ' + antwort.name + '.');
+                alleKnopfAktualisieren();
+                alleEndeBeobachten();
+            } else {
+                melde('⚠️ ' + ((antwort && antwort.fehler) || 'Zuordnen fehlgeschlagen'), false);
             }
         } catch (_e) {
             melde('⚠️ Keine Verbindung zum Agenten.', false);
@@ -1176,6 +1345,10 @@ function gruppenNotizZeit(zeit) {
         if (alleMehr) alleMehr.addEventListener('click', alleSeiteLaden);
         const alleAus = el('gruppen-alle-ausschliessen');
         if (alleAus) alleAus.addEventListener('click', alleAusschliessen);
+        const alleZu = el('gruppen-alle-zuordnen');
+        if (alleZu) alleZu.addEventListener('click', alleNamenZeigen);
+        const alleOrdnung = el('gruppen-alle-ordnung');
+        if (alleOrdnung) alleOrdnung.addEventListener('click', alleOrdnungWechseln);
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
         // Reiter + Benannt (02.10.2026)

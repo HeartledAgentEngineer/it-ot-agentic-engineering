@@ -658,6 +658,33 @@ def _gesichter_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
     return je
 
 
+def _video_gesichter_zaehlen(pfad: str) -> Dict[str, int]:
+    """{kennung: Zahl der Gesichter aus Videos}. Befund 10.10.2026: 89 Vorschlaege bestehen
+    NUR aus Video-Standbildern - die Gesamtansicht blieb dort leer ohne Erklaerung."""
+    je: Dict[str, int] = {}
+    with open(pfad, encoding="utf-8") as datei:
+        for zeile in datei:
+            try:
+                z = json.loads(zeile)
+            except ValueError:
+                continue
+            if isinstance(z, dict) and z.get("kennung") and z.get("video_id"):
+                je[str(z["kennung"])] = je.get(str(z["kennung"]), 0) + 1
+    return je
+
+
+ORDNUNGEN = ("guete", "zeit")
+
+
+def _ordnen(liste: List[Dict[str, Any]], ordnung: str) -> None:
+    """``guete`` (Standard): groesste/sicherste zuerst. ``zeit`` (10.10.2026): nach Aufnahme,
+    ohne Datum am Ende - gemischte Kinder-/Zwillingsgruppen zerfallen so in Zeitbloecke."""
+    if ordnung == "zeit":
+        liste.sort(key=lambda g: (g.get("aufnahme") or "9999", g["gid"]))
+    else:
+        liste.sort(key=lambda g: (-g["_guete"], g["gid"]))
+
+
 def _gesichter_je_bild_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
     """``gesicht_zuordnung.jsonl`` -> {bild_id: [Gesicht, ...]} (nur Fotos, mit Rahmen)."""
     je: Dict[str, List[Dict[str, Any]]] = {}
@@ -699,32 +726,40 @@ def gesichter_auf_bild(fileid: Any) -> Dict[str, Any]:
         je_bild = _gemerkt(pfad, _gesichter_je_bild_laden)
         namen = bestaetigt_lesen()
         aus = ausgeschlossen_lesen()
+        zug = zugeordnet_lesen()
         fremd = set(_stand_lesen()["unbekannt"])
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
-    gesichter = [dict(g, name=namen.get(g["kennung"])) for g in je_bild.get(s, [])
-                 if g["gid"] not in aus.get(g["kennung"], set()) and g["kennung"] not in fremd]
+    # Von Hand zugeordnete Gesichter zeigen den zugeordneten Namen (10.10.2026).
+    gesichter = [dict(g, name=zug[g["gid"]]["name"]) if g["gid"] in zug
+                 else dict(g, name=namen.get(g["kennung"])) for g in je_bild.get(s, [])
+                 if g["gid"] in zug or (g["gid"] not in aus.get(g["kennung"], set())
+                                        and g["kennung"] not in fremd)]
     gesichter.sort(key=lambda g: (g["bbox"][0] if isinstance(g["bbox"][0], (int, float)) else 0, g["index"]))
     return {"ok": True, "fileid": s, "gesichter": gesichter}
 
 
-def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE) -> Dict[str, Any]:
-    """Alle (nicht ausgeschlossenen) Gesichter eines Vorschlags, seitenweise. Nie ein Wurf."""
+def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
+              ordnung: str = "guete") -> Dict[str, Any]:
+    """Alle (nicht ausgeschlossenen) Gesichter eines Vorschlags, seitenweise. Nie ein Wurf.
+    ``videos``: Gesichter aus Videos - die zeigt die Ansicht (noch) nicht."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
     try:
         alle = _gemerkt(pfad, _gesichter_laden).get(str(kennung), [])
         aus = ausgeschlossen_lesen().get(str(kennung), set())
+        videos = _gemerkt(pfad, _video_gesichter_zaehlen).get(str(kennung), 0)
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     sichtbar = [g for g in alle if g["gid"] not in aus]
+    _ordnen(sichtbar, ordnung)
     je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
     seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
     seite = max(1, min(int(seite or 1), seiten))
     teil = sichtbar[(seite - 1) * je_seite: seite * je_seite]
     return {"ok": True, "kennung": kennung, "gesamt": len(sichtbar), "ausgeschlossen": len(aus),
-            "seite": seite, "seiten": seiten,
+            "videos": videos, "seite": seite, "seiten": seiten, "ordnung": ordnung,
             "gesichter": [{k: v for k, v in g.items() if not k.startswith("_")} for g in teil]}
 
 
@@ -802,7 +837,8 @@ def _person_kennungen(name: str) -> Tuple[str, List[str]]:
     return (namen[kennungen[0]] if kennungen else ""), kennungen
 
 
-def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE) -> Dict[str, Any]:
+def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
+                     ordnung: str = "guete") -> Dict[str, Any]:
     """Alle (nicht ausgeschlossenen) Gesichter einer Person ueber ALLE ihre Vorschlaege, beste zuerst,
     seitenweise; jedes Gesicht traegt seine ``kennung`` (fuers Ausschliessen). Nie ein Wurf."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
@@ -814,6 +850,7 @@ def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEI
             return {"ok": False, "fehler": "Keine benannte Person mit diesem Namen."}
         je = _gemerkt(pfad, _gesichter_laden)
         aus = ausgeschlossen_lesen()
+        zug = zugeordnet_lesen()
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     sichtbar: List[Dict[str, Any]] = []
@@ -821,14 +858,32 @@ def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEI
     for k in kennungen:
         weg = aus.get(k, set())
         ausgeschlossen += len(weg)
-        sichtbar += [dict(g, kennung=k) for g in je.get(k, []) if g["gid"] not in weg]
-    sichtbar.sort(key=lambda g: (-g["_guete"], g["gid"]))
+        # Von Hand einer ANDEREN Person zugeordnet -> gehoert nicht mehr hierher.
+        sichtbar += [dict(g, kennung=k) for g in je.get(k, []) if g["gid"] not in weg
+                     and (zug.get(g["gid"]) or {}).get("name", echter).casefold() == echter.casefold()]
+    # Von Hand dieser Person zugeordnete Gesichter aus fremden Vorschlaegen (10.10.2026).
+    schon = {g["gid"] for g in sichtbar}
+    eigene = {gid: e["kennung"] for gid, e in zug.items()
+              if e["name"].casefold() == echter.casefold() and gid not in schon}
+    fehlend = set(eigene)
+    for k in set(eigene.values()):
+        for g in je.get(k, []):
+            if eigene.get(g["gid"]) == k:
+                sichtbar.append(dict(g, kennung=k, zugeordnet=True))
+                fehlend.discard(g["gid"])
+    if fehlend:     # nach einem neuen PC-Lauf liegt das Gesicht oft unter einer anderen Kennung
+        for k, liste in je.items():
+            for g in liste:
+                if g["gid"] in fehlend:
+                    sichtbar.append(dict(g, kennung=k, zugeordnet=True))
+                    fehlend.discard(g["gid"])
+    _ordnen(sichtbar, ordnung)
     je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
     seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
     seite = max(1, min(int(seite or 1), seiten))
     teil = sichtbar[(seite - 1) * je_seite: seite * je_seite]
     return {"ok": True, "name": echter, "kennungen": kennungen, "gesamt": len(sichtbar),
-            "ausgeschlossen": ausgeschlossen, "seite": seite, "seiten": seiten,
+            "ausgeschlossen": ausgeschlossen, "seite": seite, "seiten": seiten, "ordnung": ordnung,
             "gesichter": [{k: v for k, v in g.items() if not k.startswith("_")} for g in teil]}
 
 
@@ -873,6 +928,122 @@ def ausschliessen_person(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
     return {"ok": True, "name": echter, "ausgeschlossen": len(neu), "gesamt": rest.get("gesamt", 0)}
 
 
+# ── Gesichter fest einer Person zuordnen (10.10.2026) ───────────────────────
+#
+# Anlass: gemischte Kinder- und Zwillingsgruppen (Sebastian, sein Zwilling Julian,
+# Bruder David), vor allem aus dem Fotobuch. Ausschliessen nahm ein Gesicht nur aus
+# dem Vorschlag - danach gehoerte es niemandem. ``zuordnen`` nimmt es aus seinem
+# Vorschlag UND haengt es fest an eine schon benannte Person:
+# ``personen_vorgaben.json`` -> ``"zugeordnet": [{"bild_id", "index", "name",
+# "kennung", "aktion"}]``; ein spaeterer Eintrag fuer dasselbe Gesicht gewinnt.
+# Am Handy wirkt das sofort (Person, Register, Erzaehlen); ``personen_gruppieren.py``
+# legt das Gesicht beim naechsten Lauf in einen Vorschlag dieser Person.
+# Rueckgaengig nimmt beides zurueck (Eintraege mit derselben ``aktion``).
+
+def zugeordnet_lesen() -> Dict[str, Dict[str, str]]:
+    """{"bild_id:index": {"name", "kennung"}} - der letzte Eintrag je Gesicht gilt."""
+    daten = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+    ergebnis: Dict[str, Dict[str, str]] = {}
+    for e in (daten.get("zugeordnet") if isinstance(daten, dict) else None) or []:
+        if not isinstance(e, dict) or not str(e.get("bild_id") or "").isdigit():
+            continue
+        name = name_saeubern(e.get("name"))
+        if name:
+            ergebnis[f"{e['bild_id']}:{int(e.get('index') or 0)}"] = {
+                "name": name, "kennung": str(e.get("kennung") or "")}
+    return ergebnis
+
+
+def _zugeordnet_je_bild(zug: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    """{bild_id: {name.casefold(): name}} aus :func:`zugeordnet_lesen`."""
+    je: Dict[str, Dict[str, str]] = {}
+    for gid, e in zug.items():
+        je.setdefault(gid.split(":")[0], {}).setdefault(e["name"].casefold(), e["name"])
+    return je
+
+
+def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
+    """Markierte Gesichter fest einer benannten Person zuordnen. Nie ein Wurf.
+
+    ``eintraege`` = ``[{"kennung": "Person_1113", "gid": "123:0"}, …]`` - jedes Gesicht
+    muss zu seiner Kennung gehoeren (wie beim Ausschliessen). Die Person muss schon
+    benannt sein (mindestens ein Vorschlag mit diesem Namen). Ein Protokolleintrag.
+    """
+    paare: List[Tuple[str, str]] = []
+    for e in eintraege or []:
+        if isinstance(e, dict):
+            paare.append((str(e.get("kennung") or "").strip(), str(e.get("gid") or "").strip()))
+    if not paare:
+        return {"ok": False, "fehler": "Bitte mindestens ein Gesicht antippen."}
+    if len(paare) > AUSSCHLUSS_MAX:
+        return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
+    if not all(_GID.match(g) for _, g in paare):
+        return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        echter, kennungen = _person_kennungen(name)
+        if not kennungen:
+            return {"ok": False, "fehler": "Diese Person ist noch nicht benannt – erst einen "
+                                           "Vorschlag mit diesem Namen benennen."}
+        with _SCHREIBSPERRE:
+            je = _gemerkt(pfad, _gesichter_laden)
+            for k, g in paare:
+                if g not in {x["gid"] for x in je.get(k, [])}:
+                    raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
+            aus = ausgeschlossen_lesen()
+            zug = zugeordnet_lesen()
+            neu = [(k, g) for k, g in dict.fromkeys(paare)
+                   if (zug.get(g) or {}).get("name") != echter
+                   and not (k in kennungen and g not in aus.get(k, set()) and g not in zug)]
+            if not neu:
+                return {"ok": True, "name": echter, "zugeordnet": 0}
+            aktion = uuid.uuid4().hex[:12]
+            roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+            daten = roh if isinstance(roh, dict) else {}
+            aus_roh, zug_roh = daten.get("ausgeschlossen"), daten.get("zugeordnet")
+            aus_liste: List[Any] = aus_roh if isinstance(aus_roh, list) else []
+            zug_liste: List[Any] = zug_roh if isinstance(zug_roh, list) else []
+            aus_neu = [(k, g) for k, g in neu if k not in kennungen and g not in aus.get(k, set())]
+            for k, g in aus_neu:
+                bid, idx = g.split(":")
+                aus_liste.append({"kennung": k, "bild_id": bid, "index": int(idx)})
+            for k, g in neu:
+                bid, idx = g.split(":")
+                zug_liste.append({"bild_id": bid, "index": int(idx), "name": echter,
+                                  "kennung": k, "aktion": aktion})
+            daten["ausgeschlossen"] = aus_liste
+            daten["zugeordnet"] = zug_liste
+            _atomar_schreiben(VORGABEN_DATEINAME, daten)
+            _protokoll_anhaengen({"id": aktion, "zeit": datetime.now().isoformat(timespec="seconds"),
+                                  "art": "zuordnen", "name": echter, "kennung": neu[0][0],
+                                  "gesichter": [g for _, g in neu],
+                                  "ausgeschlossen_neu": [[k, g] for k, g in aus_neu]})
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Zuordnen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    return {"ok": True, "name": echter, "zugeordnet": len(neu)}
+
+
+def _zuordnen_zuruecknehmen(letzte: Dict[str, Any]) -> None:
+    """Rueckgaengig fuer ``zuordnen``: eigene Zuordnungen und eigene Ausschluesse entfernen.
+    Unter ``_SCHREIBSPERRE`` rufen."""
+    roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+    daten = roh if isinstance(roh, dict) else {}
+    aktion = letzte.get("id")
+    daten["zugeordnet"] = [e for e in daten.get("zugeordnet") or []
+                           if not (isinstance(e, dict) and e.get("aktion") == aktion)]
+    weg = {(str(k), str(g)) for k, g in letzte.get("ausgeschlossen_neu") or []}
+    daten["ausgeschlossen"] = [
+        e for e in daten.get("ausgeschlossen") or []
+        if not (isinstance(e, dict) and (str(e.get("kennung")),
+                f"{e.get('bild_id')}:{int(e.get('index') or 0)}") in weg)]
+    _atomar_schreiben(VORGABEN_DATEINAME, daten)
+
+
 # ── Benannte Personen wieder oeffnen und bearbeiten (02.10.2026) ────────────
 #
 # Wunsch Sebastian: „aktuell bin ich nur am Sortieren, die alten kann ich nicht
@@ -900,6 +1071,14 @@ def personen() -> Dict[str, Any]:
         e["kennungen"].append(k)
         if k in nach_kennung:
             e["gesichter"] += max(0, int(nach_kennung[k].get("groesse") or 0) - len(aus.get(k, ())))
+    try:
+        zug = zugeordnet_lesen()
+    except GruppenFehler:
+        zug = {}
+    for z in zug.values():                  # von Hand zugeordnet (10.10.2026)
+        e = je_name.get(z["name"].casefold())
+        if e is not None and z["kennung"] not in e["kennungen"]:
+            e["gesichter"] += 1
     liste = []
     for e in je_name.values():
         p = profile.get(_profil_schluessel(profile, e["name"])) or {}
@@ -1166,11 +1345,22 @@ def rueckgaengig() -> Dict[str, Any]:
             eintraege = _protokoll_lesen()
             erledigt = {e.get("bezug") for e in eintraege if e.get("art") == "rueckgaengig"}
             offen = [e for e in eintraege
-                     if e.get("art") in ARTEN + ("ausschliessen", "umbenennen", "loesen", "profil")
+                     if e.get("art") in ARTEN + ("ausschliessen", "zuordnen", "umbenennen", "loesen", "profil")
                      and e.get("id") not in erledigt]
             if not offen:
                 return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen."}
             letzte = offen[-1]
+            if letzte.get("art") == "zuordnen":
+                _zuordnen_zuruecknehmen(letzte)
+                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                      "zeit": datetime.now().isoformat(timespec="seconds"),
+                                      "art": "rueckgaengig", "bezug": letzte.get("id"),
+                                      "kennung": letzte.get("kennung")})
+                weiter = naechste()
+                weiter["zurueckgenommen"] = {"kennung": letzte.get("kennung"), "art": "zuordnen",
+                                             "name": letzte.get("name"),
+                                             "gesichter": len(letzte.get("gesichter") or [])}
+                return weiter
             if letzte.get("art") == "ausschliessen":
                 roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
                 daten = roh if isinstance(roh, dict) else {}
@@ -1305,6 +1495,7 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
         bestaetigt = bestaetigt_lesen()
         medien = _gemerkt(pfad, _zuordnung_laden)
         aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
+        zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     person_von: Dict[str, str] = {k: n.casefold() for k, n in bestaetigt.items()}
@@ -1314,6 +1505,7 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
     for schluessel, m in medien.items():
         personen = {person_von[k] for k in m["kennungen"]
                     if k in person_von and (k, schluessel) not in aus_paare}
+        personen |= set(zug_bild.get(schluessel, {}))       # von Hand zugeordnet
         if modus == "alle":
             passt = gesucht <= personen
         elif modus == "eine":
@@ -1358,6 +1550,7 @@ def personen_auf_bildern(fileids: Any) -> Dict[str, Any]:
         namen = bestaetigt_lesen()
         medien = _gemerkt(pfad, _zuordnung_laden)
         aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
+        zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
         fremd = set(_stand_lesen()["unbekannt"])
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -1378,6 +1571,8 @@ def personen_auf_bildern(fileids: Any) -> Dict[str, Any]:
                 benannt.setdefault(namen[k].casefold(), namen[k])
             else:
                 unbenannt.append(k)
+        for schl, n in zug_bild.get(fileid, {}).items():      # von Hand zugeordnet
+            benannt.setdefault(schl, n)
         if not benannt and not unbenannt:
             continue
         liste = sorted(benannt.values(), key=str.casefold)

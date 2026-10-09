@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261007D">
+    <link rel="stylesheet" href="style.css?v=20261010A">
 </head>
 <body>
     <div id="app">
@@ -305,10 +305,15 @@
                         <button id="gruppen-alle-zurueck" class="gruppen-knopf" type="button">← Zurück</button>
                     </div>
                     <p id="gruppen-alle-info" class="gruppen-meta"></p>
+                    <div class="gruppen-alle-werkzeuge">
+                        <button id="gruppen-alle-ordnung" class="gruppen-knopf" type="button">📅 Nach Jahren</button>
+                    </div>
                     <div id="gruppen-alle-raster" class="gruppen-kacheln gruppen-alle-raster"></div>
                     <button id="gruppen-alle-mehr" class="gruppen-knopf" type="button" hidden>Weitere laden</button>
                     <div class="gruppen-alle-leiste">
+                        <div id="gruppen-alle-namen" class="gruppen-alle-namen" hidden></div>
                         <button id="gruppen-alle-ausschliessen" class="gruppen-knopf haupt" type="button" disabled>Gesichter antippen zum Ausschließen</button>
+                        <button id="gruppen-alle-zuordnen" class="gruppen-knopf" type="button" disabled>👤 Zuordnen</button>
                     </div>
                 </section>
                 <section id="gruppen-fertig" class="gruppen-fertig" hidden>
@@ -547,7 +552,7 @@
     <script src="api/konfig"></script>
     <script src="app.js?v=20261010A"></script>
     <script src="erzaehlen.js?v=20261007D"></script>
-    <script src="gruppen_quiz.js?v=20261007A"></script>
+    <script src="gruppen_quiz.js?v=20261010A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

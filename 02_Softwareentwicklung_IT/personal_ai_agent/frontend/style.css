@@ -2615,7 +2615,57 @@ button.footer-note:hover {
     background: linear-gradient(to top, var(--bg-secondary) 70%, transparent);
 }
 
-.gruppen-alle-leiste .gruppen-knopf { width: 100%; }
+.gruppen-alle-leiste {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.gruppen-alle-leiste .gruppen-knopf { flex: 1 1 45%; min-width: 0; }
+
+/* Zuordnen (10.10.2026): Namen als Knöpfe über der Leiste. */
+.gruppen-alle-namen[hidden] { display: none; }
+
+.gruppen-alle-namen {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+.gruppen-alle-namen .gruppen-meta { flex-basis: 100%; margin: 0; }
+
+.gruppen-alle-leiste .gruppen-alle-namen .gruppen-namen-chip { flex: 0 1 auto; }
+
+.gruppen-alle-werkzeuge {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Zeitblöcke: Jahreskopf über die ganze Rasterbreite. */
+.gruppen-alle-jahr {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    padding: 2px 4px;
+    font-weight: 600;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+}
+
+/* Von Hand zugeordnet: kleines Personen-Zeichen unten links. */
+.gruppen-kachel.zugeordnet::before {
+    content: '👤';
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    z-index: 1;
+    font-size: 0.8rem;
+    padding: 1px 3px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+}
 
 .gruppen-alle-leiste .gruppen-knopf:disabled {
     opacity: 0.55;

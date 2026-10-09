@@ -834,3 +834,147 @@ def test_gesichter_auf_bild_benennen_wirkt_sofort_und_route(basis):
     nachher = c.get("/api/gruppen/bild-gesichter", params={"fileid": "700"}).json()
     assert nachher["gesichter"][0]["name"] == "Papa"
     assert c.get("/api/gruppen/bild-gesichter").status_code == 422      # fileid fehlt
+
+
+# ── Gesichter fest einer Person zuordnen + Zeitbloecke (10.10.2026) ────────
+
+def _misch_daten(basis):
+    """Leon (1001, 1002), Tim (1004) wie oben, dazu der unbenannte Mischvorschlag 1003
+    mit Datum (Zeitbloecke) und einem Video-Gesicht."""
+    _person_daten(basis)
+    zeilen = [
+        {"bild_id": "500", "index": 0, "kennung": "Person_1003", "bbox": [1, 1, 5, 5],
+         "anteil": 0.01, "score": 0.9, "aufnahme": "2015-07-01T10:00:00"},
+        {"bild_id": "501", "index": 0, "kennung": "Person_1003", "bbox": [1, 1, 5, 5],
+         "anteil": 0.09, "score": 0.9, "aufnahme": "2004-03-02T10:00:00"},
+        {"bild_id": "502", "index": 2, "kennung": "Person_1003", "bbox": [1, 1, 5, 5],
+         "anteil": 0.05, "score": 0.9},                                    # ohne Datum
+        {"bild_id": "503#t=4", "video_id": "503", "index": 0, "kennung": "Person_1003",
+         "bbox": [1, 1, 5, 5], "anteil": 0.05, "score": 0.9},             # Video
+    ]
+    with open(basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME, "a", encoding="utf-8") as f:
+        f.write("\n".join(json.dumps(z) for z in zeilen) + "\n")
+    gq._CACHE.clear()
+
+
+def test_zuordnen_aus_fremdem_vorschlag_wirkt_ueberall_und_rueckgaengig(basis):
+    _misch_daten(basis)
+    r = gq.zuordnen("tim", [{"kennung": "Person_1003", "gid": "500:0"}])
+    assert r == {"ok": True, "name": "Tim", "zugeordnet": 1}
+    # aus dem Mischvorschlag raus ...
+    assert "500:0" not in {g["gid"] for g in gq.gesichter("Person_1003")["gesichter"]}
+    # ... und bei Tim drin, mit Herkunft
+    tim = gq.gesichter_person("Tim")
+    assert tim["gesamt"] == 3
+    neu = [g for g in tim["gesichter"] if g["gid"] == "500:0"]
+    assert neu and neu[0]["kennung"] == "Person_1003" and neu[0]["zugeordnet"] is True
+    assert [p["gesichter"] for p in gq.personen()["personen"] if p["name"] == "Tim"] == [6]
+    assert "500" in [t["fileid"] for t in gq.bilder_mit(["Tim"])["treffer"]]
+    assert gq.personen_auf_bildern(["500"])["bilder"]["500"] == {"namen": ["Tim"], "ohne_namen": []}
+    assert [g["name"] for g in gq.gesichter_auf_bild("500")["gesichter"]] == ["Tim"]
+    # Datei bleibt im Format des Gruppierers lesbar
+    pg = _werkzeug("personen_gruppieren")
+    assert pg.vorgaben_lesen(str(basis / gq.VORGABEN_DATEINAME))["ausgeschlossen"] == \
+        {("Person_1003", "500", 0)}
+    assert gq.zugeordnet_lesen() == {"500:0": {"name": "Tim", "kennung": "Person_1003"}}
+    # Rueckgaengig nimmt Zuordnung UND Ausschluss in einem Schritt zurueck
+    z = gq.rueckgaengig()
+    assert z["zurueckgenommen"] == {"kennung": "Person_1003", "art": "zuordnen", "name": "Tim",
+                                    "gesichter": 1}
+    assert gq.zugeordnet_lesen() == {} and gq.ausgeschlossen_lesen() == {}
+    assert gq.gesichter_person("Tim")["gesamt"] == 2
+    assert "500:0" in {g["gid"] for g in gq.gesichter("Person_1003")["gesichter"]}
+
+
+def test_zuordnen_umhaengen_zwischen_benannten_und_zurueck(basis):
+    _misch_daten(basis)
+    assert gq.zuordnen("Tim", [{"kennung": "Person_1001", "gid": "100:0"}])["zugeordnet"] == 1
+    assert gq.gesichter_person("Leon")["gesamt"] == 7
+    assert gq.gesichter_person("Tim")["gesamt"] == 3
+    # zurueck zu Leon: das Gesicht kommt als Zuordnung, Tim verliert es
+    assert gq.zuordnen("Leon", [{"kennung": "Person_1001", "gid": "100:0"}])["zugeordnet"] == 1
+    leon = gq.gesichter_person("Leon")
+    assert leon["gesamt"] == 8 and "100:0" in {g["gid"] for g in leon["gesichter"]}
+    assert gq.gesichter_person("Tim")["gesamt"] == 2
+    # noch einmal: nichts Neues, nichts geschrieben
+    vorher = (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8")
+    assert gq.zuordnen("Leon", [{"kennung": "Person_1001", "gid": "100:0"}])["zugeordnet"] == 0
+    assert (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8") == vorher
+    # eigenes, nie ausgeschlossenes Gesicht: schon zugeordnet
+    assert gq.zuordnen("Leon", [{"kennung": "Person_1002", "gid": "200:1"}])["zugeordnet"] == 0
+
+
+def test_zuordnen_mehrere_gesichter_ein_rueckgaengig(basis):
+    _misch_daten(basis)
+    r = gq.zuordnen("Leon", [{"kennung": "Person_1003", "gid": "500:0"},
+                             {"kennung": "Person_1003", "gid": "501:0"},
+                             {"kennung": "Person_1004", "gid": "300:0"}])
+    assert r["zugeordnet"] == 3
+    assert gq.gesichter_person("Leon")["gesamt"] == 11 and gq.gesichter_person("Tim")["gesamt"] == 1
+    gq.rueckgaengig()
+    assert gq.gesichter_person("Leon")["gesamt"] == 8 and gq.gesichter_person("Tim")["gesamt"] == 2
+
+
+@pytest.mark.parametrize("name, eintraege, teil", [
+    ("Niemand", [{"kennung": "Person_1003", "gid": "500:0"}], "noch nicht benannt"),
+    ("Tim", [], "antippen"),
+    ("Tim", [{"kennung": "Person_1003", "gid": "kaputt"}], "Ungültige"),
+    ("Tim", [{"kennung": "Person_1001", "gid": "500:0"}], "nicht (mehr)"),
+    ("Tim", [{"kennung": "Person_1003", "gid": "503:0"}], "nicht (mehr)"),   # Video-Gesicht
+])
+def test_zuordnen_ungueltig_schreibt_nichts(basis, name, eintraege, teil):
+    _misch_daten(basis)
+    vorher = (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8") \
+        if (basis / gq.VORGABEN_DATEINAME).exists() else None
+    r = gq.zuordnen(name, eintraege)
+    assert r["ok"] is False and teil in r["fehler"]
+    nachher = (basis / gq.VORGABEN_DATEINAME).read_text(encoding="utf-8") \
+        if (basis / gq.VORGABEN_DATEINAME).exists() else None
+    assert vorher == nachher
+
+
+def test_gesichter_nach_zeit_und_videos_gezaehlt(basis):
+    _misch_daten(basis)
+    guete = gq.gesichter("Person_1003")
+    assert guete["ordnung"] == "guete" and guete["videos"] == 1 and guete["gesamt"] == 3
+    assert [g["gid"] for g in guete["gesichter"]] == ["501:0", "502:2", "500:0"]
+    zeit = gq.gesichter("Person_1003", ordnung="zeit")
+    assert zeit["ordnung"] == "zeit"
+    assert [g["gid"] for g in zeit["gesichter"]] == ["501:0", "500:0", "502:2"]   # ohne Datum zuletzt
+    assert [g["aufnahme"] for g in zeit["gesichter"]] == ["2004-03-02", "2015-07-01", None]
+    assert gq.gesichter("Person_1002")["videos"] == 0
+    assert gq.gesichter_person("Leon", ordnung="zeit")["ordnung"] == "zeit"
+
+
+def test_zuordnen_routen(basis):
+    _misch_daten(basis)
+    app = FastAPI()
+    app.include_router(gruppen_router.router)
+    c = TestClient(app)
+    r = c.post("/api/gruppen/zuordnen",
+               json={"name": "Tim", "gesichter": [{"kennung": "Person_1003", "gid": "501:0"}]})
+    assert r.status_code == 200 and r.json() == {"ok": True, "name": "Tim", "zugeordnet": 1}
+    z = c.get("/api/gruppen/gesichter", params={"kennung": "Person_1003", "ordnung": "zeit"}).json()
+    assert z["ordnung"] == "zeit" and z["gesamt"] == 2 and z["videos"] == 1
+    assert c.get("/api/gruppen/gesichter",
+                 params={"kennung": "Person_1003", "ordnung": "quatsch"}).status_code == 422
+
+
+def test_zuordnung_ueberlebt_neuen_pc_lauf_mit_anderer_kennung(basis):
+    """Nach einem neuen Gruppierlauf liegt das Gesicht unter einer anderen Kennung."""
+    _misch_daten(basis)
+    gq.zuordnen("Tim", [{"kennung": "Person_1003", "gid": "500:0"},
+                        {"kennung": "Person_1003", "gid": "501:0"}])
+    datei = basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME
+    zeilen = [json.loads(z) for z in datei.read_text(encoding="utf-8").splitlines() if z.strip()]
+    for z in zeilen:
+        if z["bild_id"] == "500":
+            z["kennung"] = "Person_1005"          # neuer, unbenannter Vorschlag
+        if z["bild_id"] == "501":
+            z["kennung"] = "Person_1001"          # ausgerechnet bei Leon gelandet
+    datei.write_text("\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+    gq._CACHE.clear()
+    tim = {g["gid"]: g for g in gq.gesichter_person("Tim")["gesichter"]}
+    assert tim["500:0"]["kennung"] == "Person_1005" and tim["500:0"]["zugeordnet"] is True
+    assert tim["501:0"]["kennung"] == "Person_1001"
+    assert "501:0" not in {g["gid"] for g in gq.gesichter_person("Leon")["gesichter"]}

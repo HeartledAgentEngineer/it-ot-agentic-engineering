@@ -124,12 +124,14 @@ def suche(q: str = Query(default="", max_length=60),
 @router.get("/gesichter")
 def gesichter(kennung: Optional[str] = Query(default=None, min_length=1, max_length=40),
               name: Optional[str] = Query(default=None, min_length=1, max_length=120),
-              seite: int = Query(default=1, ge=1, le=10000)) -> Dict[str, Any]:
-    """Gesichter eines Vorschlags (``kennung``) oder einer Person über alle Vorschläge (``name``)."""
+              seite: int = Query(default=1, ge=1, le=10000),
+              ordnung: str = Query(default="guete", pattern="^(guete|zeit)$")) -> Dict[str, Any]:
+    """Gesichter eines Vorschlags (``kennung``) oder einer Person über alle Vorschläge (``name``).
+    ``ordnung=zeit`` (10.10.2026): nach Aufnahme sortiert, für Zeitblöcke."""
     if name:
-        return gruppen_quiz.gesichter_person(name, seite)
+        return gruppen_quiz.gesichter_person(name, seite, ordnung=ordnung)
     if kennung:
-        return gruppen_quiz.gesichter(kennung, seite)
+        return gruppen_quiz.gesichter(kennung, seite, ordnung=ordnung)
     return {"ok": False, "fehler": "Bitte einen Vorschlag (kennung) oder eine Person (name) angeben."}
 
 
@@ -147,6 +149,13 @@ def ausschliessen(eingabe: AusschlussEingabe) -> Dict[str, Any]:
 @router.post("/person/ausschliessen")
 def person_ausschliessen(eingabe: PersonAusschlussEingabe) -> Dict[str, Any]:
     return gruppen_quiz.ausschliessen_person(eingabe.name, eingabe.gesichter)
+
+
+@router.post("/zuordnen")
+def zuordnen(eingabe: PersonAusschlussEingabe) -> Dict[str, Any]:
+    """Markierte Gesichter fest einer benannten Person zuordnen (10.10.2026).
+    Gleiche Form wie ``/person/ausschliessen``: ``name`` = Ziel, je Gesicht seine Kennung."""
+    return gruppen_quiz.zuordnen(eingabe.name, eingabe.gesichter)
 
 
 @router.get("/personen")

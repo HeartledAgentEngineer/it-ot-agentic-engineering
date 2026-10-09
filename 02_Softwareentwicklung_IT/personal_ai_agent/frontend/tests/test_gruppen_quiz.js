@@ -30,7 +30,8 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
-               'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf'];
+               'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
+               'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -124,7 +125,7 @@ pruefe(f.gruppenAusschlussKnopf(0) === 'Gesichter antippen zum Ausschließen'
     && f.gruppenAusschlussKnopf(1) === '🚫 1 Gesicht ausschließen'
     && f.gruppenAusschlussKnopf(3) === '🚫 3 Gesichter ausschließen', 'Ausschluss-Knopf');
 pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 412, ausgeschlossen: 2 }, 48)
-    === 'Tippe die Gesichter an, die NICHT zu dieser Person gehören. · 412 Gesichter · 48 geladen · 2 schon ausgeschlossen',
+    === 'Gesichter antippen, dann 🚫 ausschließen oder 👤 einer Person zuordnen. · 412 Gesichter · 48 geladen · 2 schon ausgeschlossen',
     'Infozeile der Gesamtansicht');
 pruefe(f.gruppenGeburtstagText('1997-03-14') === '14.03.1997' && f.gruppenGeburtstagText('--08-02') === '02.08.'
     && f.gruppenGeburtstagText(null) === '' && f.gruppenGeburtstagText('Quatsch') === '', 'Geburtstag lesbar');
@@ -160,7 +161,8 @@ pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in de
  'gruppen-beziehung', 'gruppen-notiz', 'gruppen-profil-info',
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
- 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-notiz-mikro'].forEach((id) => {
+ 'gruppen-nummer', 'gruppen-verbunden', 'gruppen-notiz-mikro',
+ 'gruppen-alle-zuordnen', 'gruppen-alle-namen', 'gruppen-alle-ordnung'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
         '#' + id + ' im HTML und im Skript');
 });
@@ -246,6 +248,32 @@ pruefe(/\.gruppen-reiter-knopf\.aktiv \{/.test(css) && /\.gruppen-person\[hidden
 const v3 = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
 const c3 = html.match(/style\.css\?v=(\d{8}[A-Z])/);
 pruefe(v3 && v3[1] >= '20261002C' && c3 && c3[1] >= '20261002C', 'Cache-Bump 20261002C (Skript und Stil)');
+
+console.log('Zuordnen und Zeitblöcke (10.10.2026)');
+pruefe(f.gruppenZuordnenKnopf(0) === '👤 Zuordnen' && f.gruppenZuordnenKnopf(1) === '👤 1 Gesicht zuordnen …'
+    && f.gruppenZuordnenKnopf(12) === '👤 12 Gesichter zuordnen …', 'Zuordnen-Knopf');
+pruefe(JSON.stringify(f.gruppenZuordnenNamen(['Julian', 'sebastian', ' ', 'Sebastian', 'David', null, 'julian'], 'Sebastian'))
+    === JSON.stringify(['David', 'Julian']), 'Namen: ohne offene Person, ohne Leere/Doppelte, A–Z');
+pruefe(f.gruppenZuordnenNamen(null, '').length === 0, 'keine Namen → leere Liste');
+pruefe(f.gruppenJahr('2004-03-02') === '2004' && f.gruppenJahr(null) === 'ohne Datum'
+    && f.gruppenJahr('Quatsch') === 'ohne Datum', 'Jahr eines Gesichts');
+pruefe(f.gruppenOrdnungKnopf('guete') === '📅 Nach Jahren' && f.gruppenOrdnungKnopf('zeit') === '⭐ Beste zuerst',
+    'Sortier-Umschalter zeigt das Ziel');
+{
+    const nurVideo = f.gruppenAlleInfo({ ok: true, gesamt: 0, videos: 45 }, 0);
+    pruefe(nurVideo.includes('45') && nurVideo.includes('Videos') && nurVideo.includes('Weiter (später)'),
+        'nur Video-Gesichter: klare Meldung statt leerer Liste (Vorschlag 064)');
+    pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 10, videos: 3 }, 10).includes('+ 3 aus Videos (nicht gezeigt)'),
+        'gemischt: Videos werden genannt');
+    pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 10, videos: 0 }, 10).includes('Videos'), 'ohne Videos: kein Zusatz');
+}
+pruefe(f.gruppenRueckgaengigText({ art: 'zuordnen' }).startsWith('↩ Zuordnen zurückgenommen'), 'Rückgängig-Text Zuordnen');
+pruefe(/\/api\/gruppen\/zuordnen/.test(src) && /kennungJeGid\.get\(gid\)/.test(src), 'Zuordnen schickt je Gesicht seine Kennung');
+pruefe(/'&ordnung=' \+ alle\.ordnung/.test(src), 'Gesichterliste fragt mit der gewählten Sortierung');
+pruefe(/\.gruppen-alle-jahr\s*\{[^}]*grid-column:\s*1 \/ -1/.test(css), 'Jahreskopf über die ganze Rasterbreite');
+pruefe(/\.gruppen-alle-namen\[hidden\]\s*\{\s*display:\s*none/.test(css), 'Namensauswahl versteckbar trotz display:flex');
+pruefe(/textContent = n;/.test(src) && !/innerHTML = n/.test(src), 'Namen nur per textContent');
+pruefe(/gruppen_quiz\.js\?v=20261010A/.test(html) && /style\.css\?v=20261010A/.test(html), 'Cache-Bump 20261010A');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');
