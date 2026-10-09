@@ -92,3 +92,32 @@ Tests: +2 in `test_personen_gruppieren.py`.
     (Benennen im Quiz genügt).
   - 64 liegen in einer Mischgruppe mit Kinderfotos zweier Personen.
 - Aus gedrehten Fotos stammt davon nur 1 Gesicht.
+
+## Nachtrag: Das Widget übernimmt jetzt auch (10.10.2026, ~00:30)
+
+Befund am Handy: Nach dem Schreiben und `gruppen_aufs_handy.py --senden` zeigte das Quiz
+weiter die alten Mischgruppen. Die zwei Dateien lagen unverändert in `/sdcard/Download`.
+
+Ursache:
+- Das Widget `termux/agent-start` rief `uebergabe_uebernehmen.py` **nie** auf.
+- Die Übernahme stand nur in `start-termux.sh` und in `termux/agent-ensure.sh`, und dort nur,
+  wenn das Backend gerade **nicht** lief.
+- Der Hinweis „Widget antippen“ in `gruppen_aufs_handy.py` stimmte deshalb nicht.
+
+**Behoben:**
+- `agent-start` übernimmt nach `git pull` und vor dem Serverstart dieselbe Dateiliste wie
+  `agent-ensure.sh`. Die Übernahme ist hart über sha256 geprüft, die alte Fassung wird als
+  `*.vorher` gesichert.
+- Der Aufruf endet mit `|| true` und kann den Start nie verhindern.
+
+Tests: +3 Wächter in `test_uebergabe_uebernehmen.py`.
+- Die Dateiliste ist vollständig.
+- Die Reihenfolge stimmt: Pull, dann Übernahme, dann Server.
+- Die Übernahme ist abgefangen.
+- Widget und App führen dieselbe Liste.
+
+**Wichtig beim ersten Mal:** bash liest ein laufendes Skript aus der Datei, die beim Start
+offen war. `git pull` ersetzt `agent-start` durch eine neue Datei, der laufende Widget-Start
+arbeitet aber noch die **alte** Fassung ab. Eine Änderung an `agent-start` selbst wirkt
+deshalb erst beim **zweiten** Widget-Tipp. Python-Werkzeuge, die nach dem Pull aufgerufen
+werden, sind dagegen sofort neu.

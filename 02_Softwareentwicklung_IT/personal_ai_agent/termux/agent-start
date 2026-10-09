@@ -132,6 +132,29 @@ bash "$HIER/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" || true
 # gelegt mit tools/handy/vorlese_schluessel_senden.py. Darf den Start nie verhindern.
 bash "$HIER/schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" vorlese_schluessel.txt "Vorlese-Schlüssel" OPENROUTER_TTS_KEY || true
 
+# Datendateien vom PC uebernehmen (10.10.2026). Befund: Das Widget kam nie an der
+# Uebernahme vorbei - sie stand nur in start-termux.sh und agent-ensure.sh (dort
+# nur, wenn das Backend gerade NICHT lief). Neue Gruppen vom PC
+# (tools/handy/gruppen_aufs_handy.py) blieben im Download-Ordner liegen, das Quiz
+# zeigte weiter die alten. Gleiches Werkzeug, gleiche Liste wie agent-ensure.sh
+# (sha256 hart, alte Fassung als *.vorher). Darf den Start NIE verhindern.
+QUELLE_DATEN="$HOME/storage/downloads"
+[ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
+PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
+mkdir -p "$PROTO_DATEN" 2>/dev/null || true
+if [ -d "$PROTO_DATEN" ]; then
+    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+        --quelle "$QUELLE_DATEN" \
+        --ziel "$HOME/foto_sortierung" \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv \
+        --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
+else
+    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
+        --quelle "$QUELLE_DATEN" \
+        --ziel "$HOME/foto_sortierung" \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv || true
+fi
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 

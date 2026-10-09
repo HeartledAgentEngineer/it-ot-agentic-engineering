@@ -881,3 +881,44 @@ def test_waechter_app_startweg_uebernahme_vor_dem_serverstart_und_abgefangen():
     assert len(aufrufe) == 2
     for befehl in aufrufe:
         assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"
+
+
+# ── Waechter: auch das Widget agent-start uebernimmt (10.10.2026) ─────────────
+#
+# Befund 10.10.2026: Neue Gruppen vom PC lagen nach dem Widget-Tipp weiter im
+# Download-Ordner - agent-start rief die Uebernahme nie auf, agent-ensure.sh nur,
+# wenn das Backend gerade nicht lief. Das Quiz zeigte weiter die alten Gruppen.
+
+WIDGET = REPO / "termux" / "agent-start"
+
+
+def test_waechter_widget_uebernimmt_dieselben_dateien():
+    text = WIDGET.read_text(encoding="utf-8")
+    assert _pruefe_startskript(text)
+    zeilen = [z for z in text.splitlines()
+              if "--dateien" in z and not z.lstrip().startswith("#")]
+    assert len(zeilen) == 2, "mit und ohne Protokoll"
+    for zeile in zeilen:
+        geparst = _uebergabedateien_im_startskript(zeile)
+        for erwartet in _erwartete_dateinamen():
+            assert erwartet in geparst, f"in agent-start fehlt {erwartet}"
+
+
+def test_waechter_widget_uebernahme_nach_pull_vor_serverstart_und_abgefangen():
+    text = WIDGET.read_text(encoding="utf-8")
+    uebernahme = text.index("uebergabe_uebernehmen.py")
+    assert text.index("git pull --ff-only") < uebernahme < text.rindex("uvicorn")
+    befehle = text.replace("\\\n", " ").splitlines()
+    aufrufe = [b for b in befehle if "uebergabe_uebernehmen.py" in b and not b.lstrip().startswith("#")]
+    assert len(aufrufe) == 2
+    for befehl in aufrufe:
+        assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"
+
+
+def test_waechter_widget_und_app_haben_dieselbe_dateiliste():
+    def liste(pfad):
+        return sorted({n for z in pfad.read_text(encoding="utf-8").splitlines()
+                       if "--dateien" in z and not z.lstrip().startswith("#")
+                       for n in _uebergabedateien_im_startskript(z)
+                       if "." in n and not n.startswith(("$", ">", "2>"))})  # Log-Umleitung ist kein Dateiname
+    assert liste(WIDGET) == liste(AGENT_ENSURE)
