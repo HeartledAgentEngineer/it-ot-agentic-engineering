@@ -805,6 +805,22 @@ def _vorher_sichern(ausgabe) -> list[str]:
     return ergebnis
 
 
+def _stempel_sichern(ausgabe, stempel=None) -> list[str]:
+    """Vor einem vollen Neugruppieren die drei Dateien als ``*.vorher_<stempel>``
+    kopieren (09.10.2026). Bis dahin sicherte nur ``--nachtragen``; ein voller
+    Lauf ersetzte die Gruppen ohne Rueckweg. Der Zeitstempel haelt jede Fassung
+    getrennt; eine vorhandene Sicherung wird nie ueberschrieben."""
+    stempel = stempel or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ergebnis: list[str] = []
+    for name in (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN):
+        quelle = os.path.join(ausgabe, name)
+        ziel = f"{quelle}.vorher_{stempel}"
+        if os.path.isfile(quelle) and not os.path.exists(ziel):
+            shutil.copy2(quelle, ziel)
+            ergebnis.append(ziel)
+    return ergebnis
+
+
 def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
                      bestaetigt=None, vorgaben=None,
                      zuordnung: float = ZUORDNUNG_AEHNLICH,
@@ -1138,6 +1154,9 @@ def main(argv=None) -> int:
                             zwilling=args.zwilling, min_groesse=args.min_groesse)
         print(bericht_text(lauf["bericht"]))
         if schreiben_an:
+            pruefe_ausserhalb_repo(args.ausgabe)
+            for pfad in _stempel_sichern(args.ausgabe):
+                print(f"gesichert: {os.path.basename(pfad)}")
             for pfad in schreiben(lauf, args.ausgabe):
                 print(f"geschrieben: {os.path.basename(pfad)}")
         else:

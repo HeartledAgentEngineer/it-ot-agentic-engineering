@@ -63,3 +63,32 @@ Sicherung. Mit `--min-score 0.8`:
 - Neuerkennung der 2.373 gedrehten Fotos: Nachtlauf seit 08./09.10.
 - Danach ein Trockenlauf mit der neuen Datei vorn.
 - Erst nach gemeinsamer Durchsicht wird mit `--schreiben` geschrieben und ans Handy übergeben.
+
+## Nachtrag: Sicherung auch beim vollen Neugruppieren (09.10.2026, ~23:45)
+
+Befund vor dem ersten echten Schreiblauf: Nur `--nachtragen` sicherte die drei Gruppendateien
+als `*.vorher`. Ein **voller** Lauf mit `--schreiben` ersetzte `gesicht_zuordnung.jsonl`,
+`personen_beispiele.json` und `kennungen.json` ohne Rückweg. Außerdem überschreibt
+`*.vorher` nie, weil es den Stand vor dem ersten Nachtragen festhält. Für einen zweiten
+Rückweg reicht es deshalb nicht.
+
+**Behoben:**
+- Neu `_stempel_sichern`. Vor jedem vollen Schreiblauf werden die drei Dateien als
+  `*.vorher_<JJJJMMTT_hhmmss>` kopiert.
+- Die Konsole meldet jede Sicherung mit „gesichert: …“.
+- Eine vorhandene Sicherung wird nie überschrieben.
+- Die Repo-Prüfung läuft vor der Sicherung.
+
+Tests: +2 in `test_personen_gruppieren.py`.
+- Der zweite Schreiblauf sichert genau die drei vorherigen Fassungen, byte-gleich.
+- Eine vorhandene Sicherung bleibt unangetastet.
+- Zusammen mit `test_personen_gruppieren_nachtragen.py`: 40 passed.
+
+**Messung Nachtlauf 09.10.:**
+- 2.281 gedrehte Fotos neu erkannt, 51 lieferte pCloud nicht, 0 Fehler, 2 h 19 min.
+- Trockenlauf mit neuer Datei vorn: 644 Gruppen und 1.003 ähnliche Paare.
+- Je Name bleiben 90–100 % beim Namen, bei einer Person 66 %.
+  - Deren fehlende Gesichter liegen zu 248 in einer überwiegend gleichen, unbenannten Gruppe
+    (Benennen im Quiz genügt).
+  - 64 liegen in einer Mischgruppe mit Kinderfotos zweier Personen.
+- Aus gedrehten Fotos stammt davon nur 1 Gesicht.

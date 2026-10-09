@@ -313,6 +313,36 @@ def test_main_trocken_schreibt_nichts_und_schreiben_ohne_vektoren(tmp_path, caps
     assert all(not g["neu"] for g in zweit["gruppen"])
 
 
+def test_schreiben_sichert_vorherige_gruppen_mit_zeitstempel(tmp_path, capsys):
+    """Ein voller Lauf mit --schreiben ersetzte die Gruppen bisher ohne Rueckweg."""
+    rng = np.random.default_rng(43)
+    mitte = _mitte(rng)
+    datei = tmp_path / "v.jsonl"
+    datei.write_text("\n".join(_zeile(f"b_{i}", [_gesicht(rng, mitte)]) for i in range(6)) + "\n",
+                     encoding="utf-8")
+    aus = tmp_path / "gruppen"
+    leer = str(tmp_path / "keine.json")
+    grund = ["--vektoren", str(datei), "--ausgabe", str(aus), "--bestaetigt", leer,
+             "--vorgaben", leer, "--schreiben"]
+    assert pg.main(grund) == 0
+    assert not list(aus.glob("*.vorher_*"))          # erster Lauf: nichts zu sichern
+    alt = {n: (aus / n).read_bytes() for n in
+           (pg.DATEI_ZUORDNUNG, pg.DATEI_BEISPIELE, pg.DATEI_KENNUNGEN)}
+    capsys.readouterr()
+    assert pg.main(grund) == 0
+    assert capsys.readouterr().out.count("gesichert: ") == 3
+    for name, inhalt in alt.items():
+        sicherungen = list(aus.glob(name + ".vorher_*"))
+        assert len(sicherungen) == 1 and sicherungen[0].read_bytes() == inhalt
+
+
+def test_stempel_sicherung_ueberschreibt_nie(tmp_path):
+    (tmp_path / pg.DATEI_ZUORDNUNG).write_text("neu", encoding="utf-8")
+    (tmp_path / (pg.DATEI_ZUORDNUNG + ".vorher_x")).write_text("alt", encoding="utf-8")
+    assert pg._stempel_sichern(str(tmp_path), "x") == []
+    assert (tmp_path / (pg.DATEI_ZUORDNUNG + ".vorher_x")).read_text(encoding="utf-8") == "alt"
+
+
 def test_ausgabe_im_repo_wird_verweigert():
     with pytest.raises(SystemExit) as ende:
         pg.main(["--ausgabe", os.path.join(BACKEND, "gruppen_test")])
