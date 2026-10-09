@@ -121,3 +121,30 @@ offen war. `git pull` ersetzt `agent-start` durch eine neue Datei, der laufende 
 arbeitet aber noch die **alte** Fassung ab. Eine Änderung an `agent-start` selbst wirkt
 deshalb erst beim **zweiten** Widget-Tipp. Python-Werkzeuge, die nach dem Pull aufgerufen
 werden, sind dagegen sofort neu.
+
+## Nachtrag: Abgelöste Widget-Sitzung schließt sich selbst (10.10.2026, ~00:50)
+
+Befund am Handy: Jeder Widget-Tipp ließ die vorige Termux-Sitzung durchgestrichen stehen,
+mit „Process completed (code 137) - press Enter“. Nach drei Starts lagen zwei tote
+Sitzungen herum, die man von Hand wegtippen musste.
+
+Ursache:
+- `agent-start` endet mit `wait "$server"`.
+- Der nächste Widget-Tipp beendet den alten Server mit `kill -9`. `wait` gibt dann
+  137 (= 128 + 9) zurück, und das Skript endet mit diesem Code.
+- Laut Termux-Quellcode (`TermuxTerminalSessionActivityClient.onSessionFinished`) schließt
+  Termux eine Sitzung nur bei Code **0 oder 130** von selbst.
+
+**Behoben:**
+- Liefert der Server 137, weil ein neuerer Start ihn abgelöst hat, endet das Skript mit 0
+  und Termux schließt die Sitzung.
+- Jeder andere Code, etwa ein echter Absturz, wird unverändert weitergegeben. Die Sitzung
+  bleibt dann zum Lesen stehen.
+
+Tests: +3 in `test_widget_agent_start.py`.
+- Der Schluss von `agent-start` läuft echt in bash mit einem Platzhalter-Server.
+- Abgelöst mit `kill -9` → 0, Absturz mit Code 3 → 3, normales Ende → 0.
+- Gegenprobe mit dem alten Schluss: Exit 137.
+
+Wirkt ab dem zweiten Widget-Tipp nach dem Pull, siehe oben. Eine schon durchgestrichene
+Sitzung muss einmal von Hand geschlossen werden.

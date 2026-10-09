@@ -227,3 +227,15 @@ _lock_loesen
 # Haelt das Skript am Leben, solange der Server laeuft. Ohne das wuerde
 # die Widget-Session enden und den Server mitnehmen.
 wait "$server"
+_code=$?
+# Sitzung selbst schliessen lassen (10.10.2026). Der naechste Widget-Tipp beendet
+# diesen Server mit kill -9 -> wait liefert 137, und Termux liess die alte Sitzung
+# durchgestrichen mit "Process completed (code 137) - press Enter" stehen. Termux
+# schliesst eine Sitzung nur bei Code 0 oder 130 von selbst
+# (TermuxTerminalSessionActivityClient.onSessionFinished). Abgeloest = 0 melden;
+# jeder andere Code (echter Absturz) bleibt sichtbar stehen.
+if [ "$_code" = "137" ]; then
+    echo "Server von einem neueren Widget-Start abgeloest - diese Sitzung schliesst sich."
+    exit 0
+fi
+exit "$_code"

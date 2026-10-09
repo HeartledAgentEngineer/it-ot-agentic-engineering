@@ -54,3 +54,42 @@ def test_agent_ensure_findet_projekt_ueber_eigenen_ort():
     assert '*/termux) PROJEKT="$(dirname "$PROJEKT")"' in text, (
         "Verknuepfung auf termux/agent-start: Elternordner nehmen"
     )
+
+
+# ── Abgeloeste Widget-Sitzung schliesst sich selbst (10.10.2026) ──────────────
+#
+# Am Handy: Jeder neue Widget-Tipp liess die vorige Sitzung durchgestrichen mit
+# "Process completed (code 137) - press Enter" stehen. Termux schliesst Sitzungen
+# nur bei Code 0 oder 130 selbst (TermuxTerminalSessionActivityClient). Der Schluss
+# von agent-start laeuft hier ECHT in bash mit einem Platzhalter-Server.
+
+import shutil
+import subprocess
+
+import pytest
+
+
+def _schluss_ausfuehren(signal_oder_code: str) -> int:
+    bash = shutil.which("bash")
+    if not bash or "system32" in bash.lower():
+        pytest.skip("Git Bash nicht vorhanden")
+    text = _lies("agent-start")
+    schluss = text[text.rindex('wait "$server"'):]
+    if signal_oder_code == "kill9":
+        vorlauf = 'sleep 30 & server=$!\nkill -9 "$server"\n'
+    else:
+        vorlauf = f'(exit {signal_oder_code}) & server=$!\n'
+    return subprocess.run([bash, "-c", vorlauf + schluss], capture_output=True,
+                          timeout=20).returncode
+
+
+def test_von_neuerem_start_abgeloest_endet_mit_0_damit_termux_schliesst():
+    assert _schluss_ausfuehren("kill9") == 0
+
+
+def test_echter_absturz_bleibt_mit_seinem_code_stehen():
+    assert _schluss_ausfuehren("3") == 3
+
+
+def test_normales_ende_bleibt_0():
+    assert _schluss_ausfuehren("0") == 0
