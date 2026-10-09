@@ -3651,7 +3651,11 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     re.setAttribute('data-frei', String(i));
                     re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none';
                     var marke = document.createElement('div');
-                    marke.style.cssText = 'position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
+                    // Ausserhalb ueber der rechten oberen Ecke (10.10.2026): innen
+                    // verdeckte der Knopf kleine Gesichter - auch vergroessert, weil
+                    // er im gezoomten Bereich mitwaechst.
+                    marke.className = 'vollbild-rahmen-marke';
+                    marke.style.cssText = 'position:absolute;bottom:100%;right:-2px;margin-bottom:4px;width:22px;height:22px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
                     marke.textContent = '✕';
                     (function(ix){
                         marke.addEventListener('click', function(ev){
