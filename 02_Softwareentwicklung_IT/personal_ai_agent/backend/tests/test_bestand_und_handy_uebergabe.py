@@ -82,6 +82,35 @@ def test_bestand_zaehlt_ehrlich_und_findet_luecken(tmp_path):
     assert "sortierplan_bildervideos.json: 1 Fotos ohne Beschreibung" in luecken
 
 
+def _papa(tmp_path):
+    """Papas Plan traegt die Feldnamen name/ordner (nicht von_name/von_ordner)."""
+    (tmp_path / "sortierplan_papa.json").write_text(json.dumps({"zuege": [
+        {"fileid": 101, "name": "P1.jpg"}, {"fileid": 102, "name": "P2.JPG"},
+        {"fileid": 103, "name": "VID.mp4"}]}), encoding="utf-8")
+    _jsonl(tmp_path / "personen_vektoren_papa.jsonl", [
+        {"bild_id": "101", "gesichter": [{"bbox": [1, 2, 3, 4]}]},
+        {"bild_id": "102", "gesichter": []}])
+    _jsonl(tmp_path / "bild_beschreibungen_papa_reich.jsonl", [
+        {"fileid": 101, "beschreibung": "ein Junge am Strand", "kosten_usd": 0.0004}])
+
+
+def test_bestand_prueft_papas_plan_und_mehrere_beschreibungsdateien(tmp_path):
+    _bestand(tmp_path)
+    _papa(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    # Papas Plan wird ueberhaupt erst geprueft (frueher fehlte er ganz).
+    assert "Plan sortierplan_papa.json: 3 Eintraege = 2 Fotos + 1 Videos" in text
+    assert "Gesichter Fotos:  2 von 2 (100,0 %), davon 1 mit Gesicht, 0 mit Fehler" in text
+    # Beschreibungen aus der zweiten (Papa-)Datei werden mitgezaehlt.
+    assert "bild_beschreibungen_papa_reich.jsonl: 1 Zeilen, 1 Fotos" in text
+    assert "sortierplan_papa.json: 1 Videos ohne Gesichter-Lauf" in luecken
+    assert "sortierplan_papa.json: 1 Fotos ohne Beschreibung" in luecken
+    # Der Dateiname traegt einen Punkt — nicht zu Komma verstuemmeln.
+    assert "bild_beschreibungen,jsonl" not in text
+    assert "bild_beschreibungen.jsonl: 3 Zeilen" in text
+
+
 def test_bestand_meldet_trockenlauf_ohne_gruppendateien(tmp_path):
     _bestand(tmp_path, mit_gruppen=False)
     zeilen, luecken = bp.pruefen(str(tmp_path))

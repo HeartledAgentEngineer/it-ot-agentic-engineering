@@ -8,11 +8,20 @@ Warum:
 Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
   * Gesichter Fotos:  Plan-Fotos  <->  Zeilen in den Vektordateien (``bild_id``)
   * Gesichter Videos: Plan-Videos <->  ``*.videos_fertig`` + Video-Vektorzeilen
-  * Beschreibungen:   Plan-Fotos  <->  ``bild_beschreibungen.jsonl`` (``fileid``)
+  * Beschreibungen:   Plan-Fotos  <->  jede Beschreibungsdatei ueber ``fileid``;
+                      Standard sind ``bild_beschreibungen.jsonl`` (Altspeicher)
+                      und ``bild_beschreibungen_papa_reich.jsonl`` (Papas Fotos,
+                      reiche Fassung — eigener Lauf, weil Papas Plan andere
+                      Feldnamen traegt).
   * Gruppen:          ``personen_gruppen/personen_beispiele.json`` und
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
                       groessten Gruppen enthalten 50/80/90 % aller Gesichter.
+  Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
+  ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
+  entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
+  blieb sein ganzer Bestand ungeprueft — die fruehere Annahme „erkennt Papa
+  ueber die Kennungen automatisch\" traf nicht zu (Befund 10.10.2026).
   Jede Vektor-/Beschreibungsdatei wird ueber die Kennungen SELBST den Plaenen
   zugeordnet — es kommt nicht darauf an, welche Datei zu welchem Plan gehoert.
   Kennungen werden immer als Text verglichen (Plaene: Zahl, Vektorzeilen: Text).
@@ -34,11 +43,16 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 STANDARD_BASIS = os.path.join(os.path.expanduser("~"), "foto_sortierung")
-STANDARD_PLAENE = ("sortierplan.json", "sortierplan_bildervideos.json")
+# Papas Plan traegt die Feldnamen name/ordner und fehlte hier ganz — sein
+# Bestand (6.336 Fotos) blieb damit ungeprueft (Befund 10.10.2026).
+STANDARD_PLAENE = ("sortierplan.json", "sortierplan_bildervideos.json", "sortierplan_papa.json")
 STANDARD_FOTO_VEKTOREN = ("personen_vektoren_n0929_voll.jsonl",
-                          "personen_vektoren_n0929_bildervideos.jsonl")
+                          "personen_vektoren_n0929_bildervideos.jsonl",
+                          "personen_vektoren_papa.jsonl")
 STANDARD_VIDEO_VEKTOREN = ("video_vektoren_bildervideos.jsonl", "video_vektoren_upload.jsonl")
-STANDARD_BESCHREIBUNGEN = "bild_beschreibungen.jsonl"
+# Mehrere Beschreibungsquellen: der Altspeicher und Papas reiche Fassung
+# (eigener Lauf, eigene Datei — der Altspeicher enthaelt Papa nicht).
+STANDARD_BESCHREIBUNGEN = ("bild_beschreibungen.jsonl", "bild_beschreibungen_papa_reich.jsonl")
 GRUPPEN_ORDNER = "personen_gruppen"
 VIDEO_ENDUNGEN = (".mp4", ".mov", ".3gp", ".mkv", ".avi", ".m4v")
 FERTIG_ENDUNG = ".videos_fertig"
@@ -236,6 +250,11 @@ def _anteil(teil: int, ganz: int) -> str:
     return f"{(100.0 * teil / ganz):.1f} %".replace(".", ",") if ganz else "–"
 
 
+def _usd(betrag: float) -> str:
+    """USD mit Komma — nur die Zahl, nie der Dateiname (der traegt einen Punkt)."""
+    return f"{betrag:.2f}".replace(".", ",")
+
+
 def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKTOREN,
             video_vektoren=STANDARD_VIDEO_VEKTOREN,
             beschreibungen=STANDARD_BESCHREIBUNGEN) -> Tuple[List[str], List[str]]:
@@ -245,12 +264,12 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
 
     fv = {n: foto_vektoren_lesen(os.path.join(basis, n)) for n in foto_vektoren}
     vv = {n: video_vektoren_lesen(os.path.join(basis, n)) for n in video_vektoren}
-    be = beschreibungen_lesen(os.path.join(basis, beschreibungen))
+    bq = {n: beschreibungen_lesen(os.path.join(basis, n)) for n in beschreibungen}
     alle_bilder: Set[str] = set().union(*(d["bilder"] for d in fv.values() if not d.get("fehlt")))
     mit_gesicht: Set[str] = set().union(*(d["mit_gesicht"] for d in fv.values() if not d.get("fehlt")))
     mit_fehler: Set[str] = set().union(*(d["mit_fehler"] for d in fv.values() if not d.get("fehlt")))
     videos_fertig: Set[str] = set().union(*(d["fertig"] for d in vv.values() if not d.get("fehlt")))
-    beschrieben: Set[str] = be.get("kennungen", set())
+    beschrieben: Set[str] = set().union(*(d["kennungen"] for d in bq.values() if not d.get("fehlt")))
 
     zeilen.append("Dateien:")
     for n, d in fv.items():
@@ -263,10 +282,11 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     for n, d in vv.items():
         zeilen.append(f"  {n}: fehlt" if d.get("fehlt") else
                       f"  {n}: {_z(len(d['fertig']))} Videos fertig, {_z(d['gesichter'])} Gesichter")
-    zeilen.append(f"  {beschreibungen}: fehlt" if be.get("fehlt") else
-                  f"  {beschreibungen}: {_z(be['zeilen'])} Zeilen, {_z(len(beschrieben))} Fotos, "
-                  f"{_z(be['leer'])} leer, {_z(be['kaputt'])} kaputt, Kosten "
-                  f"{be['kosten']:.2f} USD".replace(".", ","))
+    for n, d in bq.items():
+        zeilen.append(f"  {n}: fehlt" if d.get("fehlt") else
+                      f"  {n}: {_z(d['zeilen'])} Zeilen, {_z(len(d['kennungen']))} Fotos, "
+                      f"{_z(d['leer'])} leer, {_z(d['kaputt'])} kaputt, Kosten "
+                      f"{_usd(d['kosten'])} USD")
     zeilen.append("")
 
     plan_fotos: Set[str] = set()
