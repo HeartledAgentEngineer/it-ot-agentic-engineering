@@ -49,3 +49,17 @@ diese Kennung→Datei/Ordner-Zuordnung war der fehlende Baustein.
 
 - **„Anlässe" einer Person** (in welchen Ereignissen sie vorkommt) fehlt weiterhin: dafür gibt es
   die Verknüpfung Gesicht → Ereignis noch nicht als Dienst. Eigener Schritt.
+
+## Nebenbei: das Prüf-Tor gehärtet (`tools/gate/tor.py`)
+
+Beim Commit selbst passiert: der erste Versuch wurde mit **„PRÜFBEFEHL ROT — Commit abgebrochen"**
+abgewiesen, **obwohl die Tests grün waren**. Ursache (aus dem Traceback belegt): das Tor hält eine
+Sperre in `.git/tor.lock` mit der PID des prüfenden Prozesses. Für eine **tote** PID wirft
+`os.kill(pid, 0)` unter Windows je nach Lage `OSError` (WinError 87) **oder** `SystemError`
+(„returned a result with an exception set"). Nur `OSError` wurde gefangen — der `SystemError` riss
+das Tor ab, und die verwaiste Sperre blockierte jeden weiteren Commit.
+
+Fix: `_lebt()` fängt jetzt `OSError` **und** `SystemError`; eine tote Sperre wird wie vorgesehen
+übernommen (Log danach: „tote Sperre von PID … - uebernehmen"). Kein `--no-verify` nötig, keine
+Sperre von Hand gelöscht. Betrifft alle Agenten im Arbeitsbaum (Hermes, Claude Code, Nachtlauf).
+
