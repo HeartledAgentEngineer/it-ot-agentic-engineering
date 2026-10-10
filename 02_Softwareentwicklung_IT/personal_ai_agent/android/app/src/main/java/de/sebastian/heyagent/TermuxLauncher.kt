@@ -20,6 +20,14 @@ class TermuxLauncher(private val context: Context) : BackendStarter {
     override fun starte(): Boolean = perRunCommand() || termuxOeffnen()
 
     /**
+     * Still anstossen (10.10.2026): nur der unsichtbare RUN_COMMAND, KEIN sichtbares
+     * Termux als Rueckfall. Laeuft das Backend schon, stoesst der App-Knopf so die
+     * Start-Vorbereitung an (git pull + Uebernahmen im Hintergrund), ohne etwas zu
+     * oeffnen. Fehlt der Termux-Dienst (Play-Store-Termux), passiert nichts.
+     */
+    override fun stillerAnstoss(): Boolean = perRunCommand()
+
+    /**
      * true nur, wenn Android den Termux-Dienst wirklich gefunden hat. Fehlt er (Play-Store-
      * Termux), liefert startForegroundService null statt einer Ausnahme.
      */

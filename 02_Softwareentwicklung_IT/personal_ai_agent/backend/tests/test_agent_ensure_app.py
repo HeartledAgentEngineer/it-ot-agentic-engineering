@@ -1,9 +1,11 @@
-"""Waechter: agent-ensure.sh als Startweg der Hey-Agent-App (Play-Store-Termux).
+"""Waechter: agent-ensure.sh als Startweg der Hey-Agent-App.
 
-Die App kann das Play-Store-Termux nicht fernsteuern (kein RUN_COMMAND). Sie oeffnet
-Termux sichtbar; der Eintrag in ~/.bashrc ruft dann `agent-ensure.sh --app-zurueck`.
-Das Skript zieht den neuesten Stand (nur Vorspulen), startet das Backend, wartet auf
-/health und holt die App ueber heyagent://start zurueck.
+Der App-Weg ruft die GEMEINSAME Start-Vorbereitung (termux/start-vorbereiten.sh:
+git pull + Uebernahmen inkl. Wissensdatei memory.db) - auch wenn das Backend schon
+laeuft - und startet uvicorn nur, wenn /health nicht antwortet. Die App oeffnet bei
+Bedarf Termux sichtbar; der Eintrag in $PREFIX/etc/profile.d ruft dann
+`agent-ensure.sh --app-zurueck`, das wartet auf /health und holt die App ueber
+heyagent://start zurueck.
 Offline, liest nur den Skripttext.
 """
 from pathlib import Path
@@ -25,24 +27,42 @@ def test_schalter_app_zurueck_und_ruecksprung():
     )
 
 
-def test_laufendes_backend_bleibt_unberuehrt():
-    """Laeuft das Backend, endet das Skript sofort - vor Pull und Start, und ohne
-    Ruecksprung (sonst springt jedes manuelle Termux-Oeffnen in die App)."""
+def test_laufendes_backend_wird_vorbereitet_aber_nicht_neu_gestartet():
+    """10.10.2026: Der App-Weg bereitet AUCH vor, wenn das Backend schon laeuft
+    (git pull + Wissensdatei-Uebernahme ueber die gemeinsame Vorbereitung - bei
+    dauerhaft laufendem Server liefen sie sonst nie). Neu gestartet wird nichts:
+    kein Kill, kein Ruecksprung; nur der Serverstart entfaellt."""
     text = _text()
-    pos_ok = text.index("if health_ok; then")
-    assert pos_ok < text.index("git -C") < text.index("nohup python -m uvicorn"), (
-        "Reihenfolge muss sein: Health-Check -> Pull -> Start"
+    pos_check = text.index("if health_ok; then")
+    pos_prep = text.index('bash "$PROJEKT/termux/start-vorbereiten.sh"')
+    pos_skip = text.index("Serverstart uebersprungen")
+    pos_start = text.index("nohup python -m uvicorn")
+    assert pos_check < pos_prep < pos_skip < pos_start, (
+        "Reihenfolge: Health-Check -> Vorbereitung -> (bei laufendem Backend Ende) -> Start"
     )
+    assert '"--laufend"' in text and "_VORBEREITUNG_MODUS" in text
+    assert text.rindex("heyagent://start") > pos_start, (
+        "kein Ruecksprung zur App, wenn nichts gestartet wurde"
+    )
+    for verboten in ("pkill", "kill -9"):
+        assert verboten not in text, f"der App-Weg beendet nichts: {verboten}"
 
 
 def test_pull_nur_vorspulen_nie_ueberschreiben():
-    text = _text()
-    assert "pull --ff-only" in text, "Pull muss --ff-only sein"
-    assert "merge-base --is-ancestor HEAD origin/main" in text, (
+    """Die Pull-Regel steht seit 10.10.2026 EINMAL in der gemeinsamen Vorbereitung
+    (termux/start-vorbereiten.sh); App-Weg und Widget rufen nur noch sie auf."""
+    vorbereitung = (REPO / "termux" / "start-vorbereiten.sh").read_text(encoding="utf-8")
+    assert "pull --ff-only" in vorbereitung, "Pull muss --ff-only sein"
+    assert "merge-base --is-ancestor HEAD origin/main" in vorbereitung, (
         "Pull nur, wenn das Handy wirklich hinter origin liegt"
     )
+    for name in ("agent-ensure.sh", "agent-start"):
+        text = (REPO / "termux" / name).read_text(encoding="utf-8")
+        assert "start-vorbereiten.sh" in text, f"{name}: ruft die gemeinsame Vorbereitung"
+        for verboten in ("reset --hard", "push", "--force", "clean -f"):
+            assert verboten not in text, f"verbotener Befehl in {name}: {verboten}"
     for verboten in ("reset --hard", "push", "--force", "rm -rf", "clean -f"):
-        assert verboten not in text, f"verbotener Befehl im Startskript: {verboten}"
+        assert verboten not in vorbereitung, f"verbotener Befehl in der Vorbereitung: {verboten}"
 
 
 def test_wartet_auf_health_vor_ruecksprung():

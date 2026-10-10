@@ -205,23 +205,32 @@ und `profile.d` läuft nicht erneut. Dann einmal `exit` in der Sitzung oder das 
 
 ## Einrichtung mit dem F-Droid-/GitHub-Termux (einmalig, am Handy)
 
-1. `~/.termux/termux.properties`: Zeile `allow-external-apps=true` eintragen, dann
-   `termux-reload-settings`. Ohne das ignoriert Termux den Intent.
-2. Skript ins Home kopieren und ausführbar machen:
-   `cp <Repo>/02_Softwareentwicklung_IT/personal_ai_agent/termux/agent-ensure.sh ~/agent-ensure.sh && chmod +x ~/agent-ensure.sh`
-   (Die App ruft den festen Pfad `/data/data/com.termux/files/home/agent-ensure.sh`. Nach Änderungen im Repo erneut kopieren.)
-3. Das Skript findet den Projektordner über den Symlink `~/.shortcuts/agent` (Einrichtung von
-   `start-termux.sh`, siehe dort); alternativ `PROJEKT=…` setzen.
-4. In den Android-Einstellungen der App „Hey Agent" die Berechtigung „Termux-Befehle ausführen"
+1. Im Projektordner einmal ausführen (darf beliebig oft laufen):
+   `sh termux/hey-agent-einrichten.sh`
+   Das Skript legt den profile.d-Eintrag an, legt `~/agent-ensure.sh` als **dünne
+   Weiterleitung** (Brücke) auf `termux/agent-ensure.sh` im Projektordner an — keine
+   veraltende Kopie mehr (eine alte Kopie wird als `~/agent-ensure.sh.vor_<datum>`
+   gesichert, nie gelöscht; 10.10.2026) — und setzt `allow-external-apps=true` in
+   `~/.termux/termux.properties`, falls die Zeile fehlt; danach lädt Termux die
+   Einstellungen neu (`termux-reload-settings`). Ohne diese Zeile ignoriert Termux den
+   Intent STILL — der Knopf tut dann scheinbar nichts.
+2. Das Skript findet den Projektordner über den Symlink `~/.shortcuts/agent` (Einrichtung von
+   `start-termux.sh`, siehe dort); alternativ `PROJEKT=…` setzen. Die Brücke trägt den
+   Projektpfad zusätzlich fest ein (funktioniert also auch ohne die Verknüpfung).
+3. In den Android-Einstellungen der App „Hey Agent" die Berechtigung „Termux-Befehle ausführen"
    (`com.termux.permission.RUN_COMMAND`) erteilen (Einstellungen → Apps → Hey Agent → Berechtigungen → Zusätzliche Berechtigungen; Bezeichnung je nach Hersteller).
-5. Empfohlen: Akku-Optimierung für Termux auf „Nicht optimieren" (Hintergrundstart, Spec 5.1).
+4. Empfohlen: Akku-Optimierung für Termux auf „Nicht optimieren" (Hintergrundstart, Spec 5.1).
 
-`agent-ensure.sh` startet das Backend **nur**, wenn `/health` nicht antwortet. Vorher zieht es
-den neuesten Stand, aber nur als Vorspulen (`pull --ff-only`, nur wenn das Handy hinter
-`origin` liegt); eigene Handy-Commits oder lokale Änderungen bleiben unangetastet. Es beendet
-keine laufenden Prozesse. Startbefehl wie in `start-termux.sh` (`python -m uvicorn app.main:app
---host "$HOST_BIND" --port 8080 --reload` in `backend/`). Log: `~/agent-ensure.log`. Abgleich in
-beide Richtungen + Neustart bleibt `start-termux.sh`.
+`agent-ensure.sh` führt bei JEDEM Lauf die gemeinsame Start-Vorbereitung aus
+(`termux/start-vorbereiten.sh`: `git pull --ff-only` — nur Vorspulen, eigene Handy-Commits
+oder lokale Änderungen bleiben unangetastet — plus alle Übernahmen inkl. Wissensdatei
+`memory.db`). Das läuft auch, wenn das Backend schon antwortet; gestartet wird uvicorn nur,
+wenn `/health` nicht antwortet (kein Kill, kein Neustart eines laufenden Servers). Bei
+laufendem Backend stößt die App diesen Ablauf still im Hintergrund an (RUN_COMMAND,
+unsichtbar), damit Pull und Übernahmen nicht ausbleiben (10.10.2026). Startbefehl wie in
+`start-termux.sh` (`python -m uvicorn app.main:app --host "$HOST_BIND" --port 8080 --reload`
+in `backend/`). Log: `~/agent-ensure.log`. Der volle Abgleich in beide Richtungen + Neustart
+bleibt `start-termux.sh` (und das Widget, das denselben Ablauf nutzt).
 
 ## Prüfkriterium A1b (aus der Spec)
 

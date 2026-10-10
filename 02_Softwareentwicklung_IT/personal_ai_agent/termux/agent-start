@@ -7,8 +7,8 @@
 # Befehlen — genau das war der Grund, warum der Agent zu selten benutzt
 # wurde.
 #
-# Laeuft der Server schon, wird nur die Oberflaeche geoeffnet. Zweimal
-# tippen startet also keinen zweiten Server.
+# Zweimal tippen startet keinen zweiten Server: der zweite Druck beendet den
+# alten Server sauber und startet genau einen frischen (Verlauf bleibt erhalten).
 #
 # Einrichtung einmalig:  ./termux/einrichten.sh
 
@@ -105,93 +105,21 @@ _pkill_server
 
 cd "$PROJEKT" || { melde "Projektordner nicht gefunden"; exit 1; }
 
-echo "── Aktualisieren ──────────────────────────────"
-# --ff-only: Bei lokalen Aenderungen lieber abbrechen als mitten im Start
-# einen Merge-Konflikt zu erzeugen.
-if git pull --ff-only; then
-    echo "Stand: $(git log --oneline -1)"
+# ── Gemeinsame Start-Vorbereitung (10.10.2026) ──────────────────────────────
+# App-Knopf und Widget machen dieselben Schritte ueber EINE Datei:
+# termux/start-vorbereiten.sh (git pull, Einrichtung, pCloud-/Vorlese-Schluessel,
+# Datendateien, Wissensdatei memory.db, Weckruf, Sicherung auf Auftrag,
+# Postfach-Daemon). Vorher stand die Wissensdatei-Uebernahme hier im Widget allein -
+# wuerde nur noch der App-Knopf benutzt, liefe sie nie. Hier OHNE --laufend:
+# der Server wurde oben bereits beendet, es folgt gleich ein Start, also laeuft
+# auch ein anstehender Sicherungs-Auftrag.
+if [ -f "$HIER/start-vorbereiten.sh" ]; then
+    bash "$HIER/start-vorbereiten.sh" "$PROJEKT" || true
 else
-    echo "⚠️  git pull fehlgeschlagen – es startet der alte Stand."
-    echo "    Nachsehen mit: git status"
+    melde "FEHLER: termux/start-vorbereiten.sh fehlt - Uebernahmen uebersprungen."
 fi
-
-# Hey-Agent-App: Starteintrag in $PREFIX/etc/profile.d anlegen/erneuern, damit die
-# App das Backend selbst starten kann (wiederholbar, siehe hey-agent-einrichten.sh).
-# Laeuft nach dem Pull, damit immer die neueste Fassung wirkt; darf den Start nie
-# verhindern.
-if [ -f "$HIER/hey-agent-einrichten.sh" ]; then
-    sh "$HIER/hey-agent-einrichten.sh" 2>&1 | head -2 || true
-fi
-
-# pCloud-Zugang aus dem Download-Ordner in backend/.env uebernehmen — eine
-# gemeinsame Quelle fuer alle drei Startwege (start-termux.sh, Widget
-# agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
-# Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
-bash "$HIER/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" || true
-# Vorlese-Schluessel (OPENROUTER_TTS_KEY, 06.10.2026) auf demselben Weg - vom PC
-# gelegt mit tools/handy/vorlese_schluessel_senden.py. Darf den Start nie verhindern.
-bash "$HIER/schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" vorlese_schluessel.txt "Vorlese-Schlüssel" OPENROUTER_TTS_KEY || true
-
-# Datendateien vom PC uebernehmen (10.10.2026). Befund: Das Widget kam nie an der
-# Uebernahme vorbei - sie stand nur in start-termux.sh und agent-ensure.sh (dort
-# nur, wenn das Backend gerade NICHT lief). Neue Gruppen vom PC
-# (tools/handy/gruppen_aufs_handy.py) blieben im Download-Ordner liegen, das Quiz
-# zeigte weiter die alten. Gleiches Werkzeug, gleiche Liste wie agent-ensure.sh
-# (sha256 hart, alte Fassung als *.vorher). Darf den Start NIE verhindern.
-QUELLE_DATEN="$HOME/storage/downloads"
-[ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
-PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
-mkdir -p "$PROTO_DATEN" 2>/dev/null || true
-if [ -d "$PROTO_DATEN" ]; then
-    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
-        --quelle "$QUELLE_DATEN" \
-        --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv \
-        --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
-else
-    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
-        --quelle "$QUELLE_DATEN" \
-        --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv || true
-fi
-
-# Wissensdatei (memory.db) uebernehmen (10.10.2026). Befund des Nachtlaufs:
-# Der Chat liest ~/memory.db - dort lag eine ALTE Kopie (30.891 Vektorzeilen,
-# Stand vor dem WhatsApp-Vollimport); die frische Datei (241.402 WhatsApp-
-# Nachrichten, 481 Gespraeche) lag unbenutzt in /sdcard/Download, weil KEIN
-# Startweg sie uebernahm - dabei startet genau dieser Widget-Weg den Server.
-# Werkzeug: termux/wissensdatei-uebernehmen.sh (sha256-Vergleich: gleich ->
-# nichts tun; sonst zuerst ~/memory.db.vor_<datum> sichern, dann kopieren;
-# Protokoll nach hermes_diag/wissensdatei_uebernahme.log; kein Netz, kein
-# pCloud). Darf den Start NIEMALS verhindern (|| true).
-bash "$HIER/wissensdatei-uebernehmen.sh" || true
-
-# Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
-command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
-
-# Sicherung auf Auftrag (08.10.2026): Liegt vom PC eine Auftragsdatei im
-# Download-Ordner (tools/handy/sicherung_auftrag.py), wird HIER einmal
-# verschluesselt gesichert - Server und Daemon sind schon beendet, der Stand ist
-# frisch gezogen. Ohne Auftrag kehrt das Skript sofort zurueck. Darf den Start
-# nie verhindern.
-bash "$HIER/sicherung-auftrag.sh" || true
 
 cd backend || { melde "backend/ fehlt"; exit 1; }
-
-# Inbox-Daemon starten (falls nicht schon einer laeuft) fuer den
-# bidirektionalen Spiegel: Frontend-Nachrichten -> Inbox -> dieser Daemon
-# beantwortet (mit session_kontext.md) -> Antwort zurueck ins Frontend.
-# Guarded, damit NUR EIN Daemon laeuft (mehrere waeren mehrere Antwort-Instanzen).
-_daemon_skript="hermes_inbox_daemon.py"
-if [ -f "$_daemon_skript" ]; then
-    if ! pgrep -f "$_daemon_skript" >/dev/null 2>&1; then
-        nohup python "$_daemon_skript" >/dev/null 2>&1 &
-        disown
-        echo "── Inbox-Daemon gestartet (bidirektionaler Spiegel) ──"
-    else
-        echo "Inbox-Daemon laeuft bereits."
-    fi
-fi
 
 
 echo

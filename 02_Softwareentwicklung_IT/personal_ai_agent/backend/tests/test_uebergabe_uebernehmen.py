@@ -850,17 +850,18 @@ def test_waechter_prueffunktion_weist_pfadanteil_und_leeren_eintrag_ab():
                            "beziehungen.json"]
 
 
-# ── Waechter: auch der ECHTE App-Startweg uebernimmt (01.10.2026) ─────────────
+# ── Waechter: EIN gemeinsamer Ablauf fuer App- und Widget-Weg (10.10.2026) ────
 #
-# Befund 30.09.2026: Die Uebernahme stand nur in start-termux.sh (Widget-Tipp).
-# Die App "Hey Agent" startet aber ueber termux/agent-ensure.sh — dort kam sie
-# nie vorbei, per Kabel gelegte Dateien blieben im Download-Ordner liegen.
+# Befund: Die Uebernahme stand doppelt (start-termux.sh und agent-ensure.sh,
+# zuletzt zusaetzlich im Widget) - und die Wissensdatei hing allein im Widget.
+# Seit 10.10.2026 steht sie EINMAL in termux/start-vorbereiten.sh; App-Weg und
+# Widget rufen nur noch diese Datei auf (vor ihrem jeweiligen Serverstart).
 
-AGENT_ENSURE = REPO / "termux" / "agent-ensure.sh"
+VORBEREITUNG = REPO / "termux" / "start-vorbereiten.sh"
 
 
-def test_waechter_app_startweg_uebernimmt_dieselben_dateien():
-    text = AGENT_ENSURE.read_text(encoding="utf-8")
+def test_waechter_gemeinsame_vorbereitung_uebernimmt_dieselben_dateien():
+    text = VORBEREITUNG.read_text(encoding="utf-8")
     assert _pruefe_startskript(text)                      # --ziel da, Liste vollstaendig
     zeilen = [z for z in text.splitlines()
               if "--dateien" in z and not z.lstrip().startswith("#")]
@@ -868,57 +869,53 @@ def test_waechter_app_startweg_uebernimmt_dieselben_dateien():
     for zeile in zeilen:
         geparst = _uebergabedateien_im_startskript(zeile)
         for erwartet in _erwartete_dateinamen():
-            assert erwartet in geparst, f"in agent-ensure.sh fehlt {erwartet}"
+            assert erwartet in geparst, f"in start-vorbereiten.sh fehlt {erwartet}"
 
 
-def test_waechter_app_startweg_uebernahme_vor_dem_serverstart_und_abgefangen():
-    text = AGENT_ENSURE.read_text(encoding="utf-8")
-    uebernahme = text.index("uebergabe_uebernehmen.py")
-    assert text.index("pull --ff-only") < uebernahme < text.index("python -m uvicorn")
+def test_waechter_uebernahme_nach_pull_vor_beiden_serverstarts_und_abgefangen():
+    text = VORBEREITUNG.read_text(encoding="utf-8")
+    uebernahme = text.index('python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py"')
+    assert text.index("if git pull --ff-only --quiet; then") < uebernahme
     # Jeden Aufruf als ganzen Befehl lesen (Fortsetzungszeilen mit \ verbunden).
     befehle = text.replace("\\\n", " ").splitlines()
     aufrufe = [b for b in befehle if "uebergabe_uebernehmen.py" in b and not b.lstrip().startswith("#")]
     assert len(aufrufe) == 2
     for befehl in aufrufe:
         assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"
+    # Beide Wege rufen die gemeinsame Datei VOR ihrem Serverstart auf.
+    for name, start in (("agent-start", "python -m uvicorn app.main:app --host"),
+                        ("agent-ensure.sh", "nohup python -m uvicorn")):
+        weg = (REPO / "termux" / name).read_text(encoding="utf-8")
+        assert "start-vorbereiten.sh" in weg, f"{name}: ruft die gemeinsame Vorbereitung"
+        assert weg.index("start-vorbereiten.sh") < weg.index(start), (
+            f"{name}: Vorbereitung vor dem Serverstart")
 
 
-# ── Waechter: auch das Widget agent-start uebernimmt (10.10.2026) ─────────────
+# ── Waechter: das Widget nutzt denselben Ablauf (Befund 10.10.2026) ──────────
 #
-# Befund 10.10.2026: Neue Gruppen vom PC lagen nach dem Widget-Tipp weiter im
-# Download-Ordner - agent-start rief die Uebernahme nie auf, agent-ensure.sh nur,
-# wenn das Backend gerade nicht lief. Das Quiz zeigte weiter die alten Gruppen.
+# Neue Gruppen vom PC lagen nach dem Widget-Tipp weiter im Download-Ordner,
+# weil die Uebernahme dort nicht lief. Seit der Zusammenfuehrung ruft das Widget
+# die gemeinsame Vorbereitung auf - ohne --laufend, also MIT Sicherung, direkt
+# nach dem Beenden des alten Servers und vor dem Start des neuen.
 
 WIDGET = REPO / "termux" / "agent-start"
 
 
-def test_waechter_widget_uebernimmt_dieselben_dateien():
+def test_waechter_widget_ruft_die_gemeinsame_vorbereitung_vor_dem_serverstart():
     text = WIDGET.read_text(encoding="utf-8")
-    assert _pruefe_startskript(text)
-    zeilen = [z for z in text.splitlines()
-              if "--dateien" in z and not z.lstrip().startswith("#")]
-    assert len(zeilen) == 2, "mit und ohne Protokoll"
-    for zeile in zeilen:
-        geparst = _uebergabedateien_im_startskript(zeile)
-        for erwartet in _erwartete_dateinamen():
-            assert erwartet in geparst, f"in agent-start fehlt {erwartet}"
+    assert "start-vorbereiten.sh" in text
+    assert text.index("_pkill_server\n") < text.index("start-vorbereiten.sh"), (
+        "Widget beendet erst den alten Server, dann die Vorbereitung")
+    assert text.index("start-vorbereiten.sh") < text.index("python -m uvicorn app.main:app --host")
+    assert "uebergabe_uebernehmen.py" not in text, "kein zweiter Aufruf im Widget"
 
 
-def test_waechter_widget_uebernahme_nach_pull_vor_serverstart_und_abgefangen():
-    text = WIDGET.read_text(encoding="utf-8")
-    uebernahme = text.index("uebergabe_uebernehmen.py")
-    assert text.index("git pull --ff-only") < uebernahme < text.rindex("uvicorn")
-    befehle = text.replace("\\\n", " ").splitlines()
-    aufrufe = [b for b in befehle if "uebergabe_uebernehmen.py" in b and not b.lstrip().startswith("#")]
-    assert len(aufrufe) == 2
-    for befehl in aufrufe:
-        assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"
-
-
-def test_waechter_widget_und_app_haben_dieselbe_dateiliste():
-    def liste(pfad):
-        return sorted({n for z in pfad.read_text(encoding="utf-8").splitlines()
-                       if "--dateien" in z and not z.lstrip().startswith("#")
-                       for n in _uebergabedateien_im_startskript(z)
-                       if "." in n and not n.startswith(("$", ">", "2>"))})  # Log-Umleitung ist kein Dateiname
-    assert liste(WIDGET) == liste(AGENT_ENSURE)
+def test_waechter_widget_und_app_nutzen_dieselbe_eine_dateiliste():
+    """Seit 10.10.2026 gibt es nur noch EINE Dateiliste - in der gemeinsamen
+    Vorbereitung; App-Weg und Widget enthalten keine eigene mehr."""
+    for pfad in (WIDGET, REPO / "termux" / "agent-ensure.sh"):
+        text = pfad.read_text(encoding="utf-8")
+        assert "--dateien" not in text, f"{pfad.name}: keine eigene Dateiliste mehr"
+        assert "start-vorbereiten.sh" in text, f"{pfad.name}: ruft die gemeinsame Vorbereitung"
+    vorbereitung = (REPO / "termux" / "start-vorbereiten.sh").read_text(encoding="utf-8")
+    assert "--dateien" in vorbereitung

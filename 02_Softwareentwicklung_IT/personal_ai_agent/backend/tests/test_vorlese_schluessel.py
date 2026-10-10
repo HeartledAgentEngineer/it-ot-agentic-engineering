@@ -23,6 +23,9 @@ PROJEKT = Path(__file__).resolve().parents[2]
 SKRIPT = PROJEKT / "termux" / "schluessel-uebernehmen.sh"
 STARTWEGE = {
     "start-termux.sh": PROJEKT / "start-termux.sh",
+    "start-vorbereiten.sh": PROJEKT / "termux" / "start-vorbereiten.sh",
+}
+GEMEINSAM_RUFER = {
     "agent-start": PROJEKT / "termux" / "agent-start",
     "agent-ensure.sh": PROJEKT / "termux" / "agent-ensure.sh",
 }
@@ -136,7 +139,17 @@ def test_jeder_startweg_uebernimmt_den_vorlese_schluessel(name):
     assert "schluessel-uebernehmen.sh" in zeilen[0] and "OPENROUTER_TTS_KEY" in zeilen[0]
     assert zeilen[0].rstrip().endswith("|| true"), f"{name}: darf den Start nie verhindern"
     aufruf = text.index(zeilen[0])
-    assert text.index("pull --ff-only") < aufruf < text.index("python -m uvicorn app.main:app")
+    assert text.index("pull --ff-only") < aufruf
+    if name == "start-termux.sh":
+        assert aufruf < text.index("python -m uvicorn app.main:app")
+
+
+@pytest.mark.parametrize("name", sorted(GEMEINSAM_RUFER))
+def test_app_und_widget_rufen_die_gemeinsame_vorbereitung(name):
+    text = GEMEINSAM_RUFER[name].read_text(encoding="utf-8")
+    assert "start-vorbereiten.sh" in text, f"{name}: gemeinsame Vorbereitung fehlt"
+    assert "schluessel-uebernehmen.sh" not in text, (
+        f"{name}: kein zweiter Aufruf neben der gemeinsamen Vorbereitung")
 
 
 # ── PC-Werkzeug ─────────────────────────────────────────────────────────────

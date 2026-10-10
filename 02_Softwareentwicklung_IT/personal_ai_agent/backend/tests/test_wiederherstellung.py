@@ -6,10 +6,11 @@ Test-Hauptschluessel verschluesselt, ueber den Einmal-Schluessel umgeschluesselt
 und im Test-"Termux" (Git Bash) wieder ausgepackt.
 
 Nachtrag 10.10.2026: Dazu die Wissensdatei-Uebernahme
-(``termux/wissensdatei-uebernehmen.sh``), die das Widget (``termux/agent-start``)
-aufruft — als eigener Abschnitt unten, im selben Muster (echte Skriptlaeufe in
-Git Bash mit erfundenen Dateien); den Aufruf selbst bewacht
-``test_widget_agent_start.py``.
+(``termux/wissensdatei-uebernehmen.sh``), die die gemeinsame Start-Vorbereitung
+(``termux/start-vorbereiten.sh``) aufruft - dieselbe Ablaufdatei nutzen App-Weg
+und Widget. Die Faelle laufen ECHT in Git Bash mit erfundenen Dateien; den
+Aufruf selbst bewachen ``test_widget_agent_start.py`` und
+``test_ein_startweg.py``.
 
 Aufruf:
     cd backend && .venv/Scripts/python -m pytest tests/test_wiederherstellung.py -q
@@ -354,14 +355,15 @@ def test_unbekannter_aufruf_exit_1(tmp_path):
     assert _skript(umgebung).returncode == 1
 
 
-# ── Wissensdatei-Uebernahme (memory.db) im Widget-Start (10.10.2026) ────────
+# ── Wissensdatei-Uebernahme (memory.db) im gemeinsamen Startweg (10.10.2026) ─
 #
 # Befund des Nachtlaufs: Der Chat liest ~/memory.db — dort lag die alte Kopie
 # (30.891 Vektorzeilen, Stand vor dem WhatsApp-Vollimport); die frische Datei
 # (241.402 WhatsApp-Nachrichten) lag unbenutzt in /sdcard/Download, weil KEIN
 # Startweg sie uebernahm. Neu: termux/wissensdatei-uebernehmen.sh, aufgerufen
-# aus dem benutzten Startweg termux/agent-start (Waechter dort in
-# test_widget_agent_start.py). Die Faelle laufen ECHT in Git Bash mit
+# aus der gemeinsamen Start-Vorbereitung (termux/start-vorbereiten.sh), die
+# App-Weg und Widget rufen (Waechter: test_widget_agent_start.py,
+# test_ein_startweg.py). Die Faelle laufen ECHT in Git Bash mit
 # erfundenen Dateien — dasselbe Muster wie der Wiederherstellungs-Teil.
 
 SKRIPT_WISSEN = PROJEKT / "termux" / "wissensdatei-uebernehmen.sh"

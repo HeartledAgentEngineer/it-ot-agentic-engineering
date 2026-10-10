@@ -4,7 +4,9 @@ Befund: Die Uebernahme stand nur in start-termux.sh. Das Widget "agent" startet
 termux/agent-start, die App termux/agent-ensure.sh — beide kamen nie daran
 vorbei; der Schluessel lag seit 27.09. unbenutzt im Download-Ordner, die
 Gesichter-Kacheln im Quiz blieben leer. Jetzt ein Skript
-(termux/pcloud-schluessel-uebernehmen.sh), alle drei Startwege rufen es auf.
+(termux/pcloud-schluessel-uebernehmen.sh); seit 10.10.2026 steht der Aufruf
+EINMAL in der gemeinsamen Ablaufdatei termux/start-vorbereiten.sh, die sowohl
+der App-Weg als auch das Widget aufrufen.
 
 Funktionstests laufen das echte Skript mit bash gegen Dateien in tmp_path
 (erfundene Werte, nie ein echter Schluessel).
@@ -21,6 +23,9 @@ PROJEKT = Path(__file__).resolve().parents[2]
 SKRIPT = PROJEKT / "termux" / "pcloud-schluessel-uebernehmen.sh"
 STARTWEGE = {
     "start-termux.sh": PROJEKT / "start-termux.sh",
+    "start-vorbereiten.sh": PROJEKT / "termux" / "start-vorbereiten.sh",
+}
+GEMEINSAM_RUFER = {
     "agent-start": PROJEKT / "termux" / "agent-start",
     "agent-ensure.sh": PROJEKT / "termux" / "agent-ensure.sh",
 }
@@ -46,8 +51,18 @@ def test_jeder_startweg_ruft_die_uebernahme_auf(name):
     assert len(zeilen) == 1, f"{name}: genau ein Aufruf erwartet"
     assert zeilen[0].rstrip().endswith("|| true"), f"{name}: darf den Start nie verhindern"
     aufruf = text.index(zeilen[0])
-    assert aufruf < text.index("python -m uvicorn app.main:app"), f"{name}: Uebernahme vor dem Serverstart"
     assert text.index("pull --ff-only") < aufruf, f"{name}: erst den neuesten Stand holen"
+    if name == "start-termux.sh":
+        assert aufruf < text.index("python -m uvicorn app.main:app"), (
+            f"{name}: Uebernahme vor dem Serverstart")
+
+
+@pytest.mark.parametrize("name", sorted(GEMEINSAM_RUFER))
+def test_app_und_widget_rufen_die_gemeinsame_vorbereitung(name):
+    text = GEMEINSAM_RUFER[name].read_text(encoding="utf-8")
+    assert "start-vorbereiten.sh" in text, f"{name}: gemeinsame Vorbereitung fehlt"
+    assert "pcloud-schluessel-uebernehmen.sh" not in text, (
+        f"{name}: kein zweiter Aufruf neben der gemeinsamen Vorbereitung")
 
 
 def test_der_alte_block_steht_nirgends_mehr_doppelt():

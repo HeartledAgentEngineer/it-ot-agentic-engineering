@@ -289,11 +289,20 @@ def test_auftrag_sichert_einmal_und_benennt_um(tmp_path):
     assert any(z.startswith("Sicherung nach ") for z in log)
 
 
-def test_widget_ruft_auftrag_nach_pull_und_vor_serverstart():
-    text = WIDGET.read_text(encoding="utf-8")
-    aufruf = text.index('bash "$HIER/sicherung-auftrag.sh" || true')
-    assert text.index("git pull --ff-only") < aufruf < text.index("cd backend ||")
-    assert text.index("_pkill_server\n") < aufruf
+def test_auftrag_laeuft_im_gemeinsamen_startweg_nach_pull_vor_serverstart():
+    """10.10.2026: Der Sicherungs-Auftrag steht in der gemeinsamen Vorbereitung
+    (termux/start-vorbereiten.sh); das Widget ruft sie OHNE --laufend auf, also
+    laeuft der Auftrag dort nach dem Pull und vor dem Serverstart weiter. Beim
+    App-Druck auf einen LAUFENDEN Server (--laufend) ist er bewusst aus."""
+    widget = WIDGET.read_text(encoding="utf-8")
+    assert 'bash "$HIER/start-vorbereiten.sh" "$PROJEKT"' in widget
+    assert widget.index("_pkill_server\n") < widget.index("start-vorbereiten.sh")
+    assert widget.index("start-vorbereiten.sh") < widget.index("python -m uvicorn app.main:app --host")
+    vorbereitung = (PROJEKT / "termux" / "start-vorbereiten.sh").read_text(encoding="utf-8")
+    aufruf = vorbereitung.index('bash "$HIER/sicherung-auftrag.sh" || true')
+    assert vorbereitung.index("if git pull --ff-only --quiet; then") < aufruf
+    wache = vorbereitung.index('if [ "$LAUFEND" != "1" ]; then')
+    assert wache < aufruf < vorbereitung.index("fi", aufruf)
 
 
 def test_auftrag_skript_syntax_und_shebang():

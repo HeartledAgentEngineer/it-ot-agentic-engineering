@@ -30,12 +30,19 @@ def test_widget_oeffnet_hey_agent_nicht_den_browser():
 
 
 def test_widget_richtet_app_start_selbst_ein():
+    """Kein Tippen in Termux: jeder Widget-Tipp laesst die gemeinsame Vorbereitung
+    laufen (termux/start-vorbereiten.sh); darin richtet hey-agent-einrichten.sh nach
+    dem Pull den App-Start ein (profile.d + Bruecke + allow-external-apps)."""
     text = _lies("agent-start")
-    assert 'hey-agent-einrichten.sh' in text, "Widget muss die Einrichtung aufrufen"
-    pos_pull = text.index("git pull --ff-only")
-    pos_einr = text.index("hey-agent-einrichten.sh\"")
+    assert "start-vorbereiten.sh" in text, "Widget ruft die gemeinsame Vorbereitung"
+    pos_prep = text.index('bash "$HIER/start-vorbereiten.sh"')
     pos_server = text.index("python -m uvicorn app.main:app --host")
-    assert pos_pull < pos_einr < pos_server, "Einrichtung nach dem Pull, vor dem Serverstart"
+    assert pos_prep < pos_server, "Vorbereitung vor dem Serverstart"
+    prep = _lies("start-vorbereiten.sh")
+    assert "hey-agent-einrichten.sh" in prep, "Widget muss die Einrichtung anstossen"
+    pos_pull = prep.index("git pull --ff-only")
+    pos_einr = prep.index('hey-agent-einrichten.sh"')
+    assert pos_pull < pos_einr, "Einrichtung nach dem Pull, vor dem Serverstart"
 
 
 def test_einrichtung_schreibt_festen_pfad():
@@ -111,13 +118,24 @@ def test_normales_ende_bleibt_0():
 # dem Serverstart (der Server liest die Datei beim Hochfahren). Die Funktion
 # selbst prueft test_wiederherstellung.py (echte Skriptlaeufe in Git Bash).
 
-def test_widget_uebernimmt_die_wissensdatei_vor_dem_serverstart():
+def test_wissensdatei_uebernahme_laeuft_auf_dem_widget_weg():
+    """10.10.2026: Die Uebernahme der Wissensdatei (memory.db) steht seit der
+    Zusammenfuehrung EINMAL in der gemeinsamen Vorbereitung
+    (termux/start-vorbereiten.sh). Das Widget ruft sie ueber diesen Ablauf auf -
+    nach dem Pull und vor dem Serverstart; die Funktion selbst prueft
+    test_wiederherstellung.py (echte Skriptlaeufe in Git Bash)."""
     text = _lies("agent-start")
-    aufrufe = [z for z in text.splitlines()
+    assert "wissensdatei-uebernehmen.sh" not in text, (
+        "kein zweiter Aufruf neben der gemeinsamen Vorbereitung")
+    assert "start-vorbereiten.sh" in text
+    prep = _lies("start-vorbereiten.sh")
+    aufrufe = [z for z in prep.splitlines()
                if "wissensdatei-uebernehmen.sh" in z and z.lstrip().startswith("bash")]
-    assert len(aufrufe) == 1, "genau ein Aufruf im Widget-Skript"
+    assert len(aufrufe) == 1, "genau ein Aufruf in der gemeinsamen Vorbereitung"
     assert "|| true" in aufrufe[0], "darf den Start nie verhindern"
-    pos_pull = text.index("git pull --ff-only")
-    pos_aufruf = text.index('bash "$HIER/wissensdatei-uebernehmen.sh"')
+    pos_pull = prep.index("if git pull --ff-only --quiet; then")
+    pos_aufruf = prep.index('bash "$HIER/wissensdatei-uebernehmen.sh"')
+    assert pos_pull < pos_aufruf, "nach dem Pull"
+    pos_prep = text.index('bash "$HIER/start-vorbereiten.sh"')
     pos_server = text.index("python -m uvicorn app.main:app --host")
-    assert pos_pull < pos_aufruf < pos_server, "nach dem Pull, vor dem Serverstart"
+    assert pos_prep < pos_server, "vor dem Serverstart"

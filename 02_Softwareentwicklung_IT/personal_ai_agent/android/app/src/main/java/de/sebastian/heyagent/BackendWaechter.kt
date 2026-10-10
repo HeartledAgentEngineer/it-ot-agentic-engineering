@@ -12,6 +12,15 @@ interface HealthPruefer {
 interface BackendStarter {
     /** true, wenn der Startauftrag abgeschickt wurde (nicht, dass das Backend schon laeuft). */
     fun starte(): Boolean
+
+    /**
+     * Stiller Anstoss der Start-Vorbereitung im Hintergrund (10.10.2026): OHNE
+     * sichtbares Termux und OHNE den Server anzufassen. Laeuft das Backend schon,
+     * soll der App-Knopf trotzdem git pull + Wissensdatei-Uebernahme anstossen -
+     * bei dauerhaft laufendem Server liefen sie sonst nie. Standard: nichts tun
+     * (bestehende Attrappen und Tests funktionieren damit unveraendert).
+     */
+    fun stillerAnstoss(): Boolean = false
 }
 
 /** Ergebnis von [BackendWaechter.sicherstellen]. */
@@ -70,6 +79,10 @@ class BackendWaechter(
 
         meldung(Phase.PRUEFE, logik.statusText(Phase.PRUEFE))
         if (logik.nachErstemCheck(pruefer.istErreichbar(logik.healthTimeoutMs)) == Aktion.FERTIG) {
+            // Laeuft das Backend schon, stossen wir still die Start-Vorbereitung an
+            // (git pull + Uebernahmen in Termux, unsichtbar); der Server bleibt
+            // unangetastet. Scheitert der Anstoss, ist die App trotzdem bereit.
+            starter.stillerAnstoss()
             meldung(Phase.BEREIT, logik.statusText(Phase.BEREIT))
             return StartErgebnis(true, dauer())
         }

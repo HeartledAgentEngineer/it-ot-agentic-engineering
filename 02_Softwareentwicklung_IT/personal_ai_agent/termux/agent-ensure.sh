@@ -1,38 +1,32 @@
 #!/data/data/com.termux/files/usr/bin/sh
 #
-# agent-ensure.sh — startet das Backend NUR, wenn es nicht antwortet.
+# agent-ensure.sh — der App-Weg: Backend sicherstellen, ohne laufenden Betrieb
+# anzufassen. Seit 10.10.2026 gibt es EINEN gemeinsamen Startweg: App-Knopf und
+# Widget tippen denselben Ablauf. Die Vorbereitung (git pull + alle Uebernahmen
+# inkl. Wissensdatei memory.db) steht EINMAL in termux/start-vorbereiten.sh und
+# wird hier aufgerufen; in dieser Datei steht kein Uebernahme-Schritt doppelt.
 #
-# Gegenstueck zu start-termux.sh, aber bewusst schlanker: kein Beenden
-# laufender Prozesse. Laeuft der Server schon, passiert nichts (idempotent) -
-# auch kein Pull und keine Uebernahme. Sonst: Pull, pCloud-Schluessel und die
-# Foto-/Personen-Dateien aus dem Download-Ordner uebernehmen, dann Start.
-#
-# Zwei Aufrufwege aus der Android-App "Hey Agent":
-#   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar.
+# Aufrufwege aus der Android-App "Hey Agent":
+#   a) F-Droid-/GitHub-Termux: per RUN_COMMAND-Intent, unsichtbar, auf den
+#      festen Pfad ~/agent-ensure.sh - das ist seit 10.10.2026 nur noch eine
+#      duenne Weiterleitung auf DIESE Datei im Projektordner (angelegt von
+#      termux/hey-agent-einrichten.sh; eine Kopie dort veraltete still).
 #   b) Play-Store-Termux (hat kein RUN_COMMAND): die App oeffnet Termux, und
 #      $PREFIX/etc/profile.d/hey-agent.sh ruft beim Sitzungsstart
 #      agent-ensure.sh --app-zurueck
-#      Dann zieht das Skript den neuesten Stand (nur Vorspulen), startet das
-#      Backend, wartet auf /health und holt die App ueber heyagent://start
+#      Dann holt das Skript nach dem Start die App ueber heyagent://start
 #      zurueck. Einrichtung einmalig: sh termux/hey-agent-einrichten.sh
 #      (NICHT ~/.bashrc: Termux startet Login-Shells, die lesen es nicht.)
-# Voller Abgleich in beide Richtungen + Neustart bleibt Sache von start-termux.sh.
 #
-# Einrichtung einmalig (in Termux):
-#   1. Externe Apps erlauben:
-#        mkdir -p ~/.termux
-#        echo "allow-external-apps=true" >> ~/.termux/termux.properties
-#        termux-reload-settings
-#      (Zeile nur einmal eintragen; Termux schliessen/oeffnen, falls der
-#       Intent danach noch ignoriert wird.)
-#   2. Skript ins Home kopieren und ausfuehrbar machen:
-#        cp <Repo>/02_Softwareentwicklung_IT/personal_ai_agent/termux/agent-ensure.sh ~/agent-ensure.sh
-#        chmod +x ~/agent-ensure.sh
-#      (Kopie noetig, weil die App den festen Pfad ~/agent-ensure.sh ruft.
-#       Nach Aenderungen am Skript im Repo erneut kopieren.)
-#   3. Projektordner: wird aus dem Symlink ~/.shortcuts/agent (zeigt auf
-#      start-termux.sh) abgeleitet — dieselbe Einrichtung wie fuer start-termux.sh.
-#      Alternativ PROJEKT=/pfad/zum/personal_ai_agent setzen.
+# Verhalten (Entscheidung 10.10.2026; Befund: bei dauerhaft laufendem Server
+# liefen Pull und Wissensdatei-Uebernahme sonst NIE):
+#   * Die gemeinsame Vorbereitung laeuft bei JEDEM Lauf - auch wenn /health
+#     schon antwortet (beides schnell und idempotent). Mit --laufend entfaellt
+#     darin nur die Sicherung auf Auftrag (kein Sichern aus laufendem Betrieb).
+#   * Der Serverstart selbst wird uebersprungen, wenn das Backend antwortet:
+#     kein Neustart, kein Ruecksprung zur App (sonst spraenge jedes manuelle
+#     Termux-Oeffnen in die App).
+#   * Nur wenn /health NICHT antwortet, startet uvicorn (nohup, wie bisher).
 #
 # Log: ~/agent-ensure.log (wird bei jedem Lauf angehaengt, bei > 200 KB gekuerzt)
 
@@ -67,10 +61,9 @@ health_ok() {
     fi
 }
 
-if health_ok; then
-    log "Backend laeuft bereits (Port $PORT) - nichts zu tun."
-    exit 0
-fi
+# Laeuft das Backend schon? EINMAL fragen; das Ergebnis steuert nur noch den
+# Serverstart, nicht mehr die Vorbereitung (Entscheidung 10.10.2026).
+if health_ok; then LAEUFT=1; else LAEUFT=0; fi
 
 # Projektordner bestimmen. Zuerst ueber den eigenen Ort: das Skript liegt in
 # <Projekt>/termux/ (so ruft es der Starteintrag aus profile.d). Liegt es als Kopie
@@ -96,60 +89,23 @@ if [ -z "${PROJEKT:-}" ] || [ ! -d "$PROJEKT/backend" ]; then
     exit 1
 fi
 
-# CPU nicht einschlafen lassen (wie start-termux.sh).
-command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
-
-# Neuesten Stand holen - NUR Vorspulen (pull --ff-only), und nur wenn das Handy
-# wirklich hinter origin liegt. Eigene Handy-Commits oder lokale Aenderungen
-# werden nie ueberschrieben; dann startet der Server mit dem vorhandenen Stand.
-if git -C "$PROJEKT" fetch origin --quiet 2>/dev/null; then
-    if git -C "$PROJEKT" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
-        if git -C "$PROJEKT" pull --ff-only --quiet 2>>"$LOG"; then
-            sag "Stand: $(git -C "$PROJEKT" log --oneline -1 2>/dev/null)"
-        else
-            sag "Pull nicht moeglich (lokale Aenderungen?) - starte mit altem Stand"
-        fi
-    else
-        sag "Handy hat eigene Commits - kein Pull, starte mit vorhandenem Stand (Abgleich per Widget)"
-    fi
+# DIE gemeinsame Start-Vorbereitung: git pull + alle Uebernahmen + Wissensdatei.
+# Laeuft IMMER (auch bei laufendem Server) - bei laufendem Server mit --laufend,
+# damit die Sicherung auf Auftrag nicht aus dem laufenden Betrieb startet.
+_VORBEREITUNG_MODUS=""
+[ "$LAEUFT" = "1" ] && _VORBEREITUNG_MODUS="--laufend"
+if [ -f "$PROJEKT/termux/start-vorbereiten.sh" ]; then
+    bash "$PROJEKT/termux/start-vorbereiten.sh" $_VORBEREITUNG_MODUS "$PROJEKT" >> "$LOG" 2>&1 || true
 else
-    sag "git fetch fehlgeschlagen (Netz?) - starte mit altem Stand"
+    sag "FEHLER: $PROJEKT/termux/start-vorbereiten.sh fehlt - es startet ohne Uebernahmen."
+fi
+
+if [ "$LAEUFT" = "1" ]; then
+    log "Backend laeuft bereits (Port $PORT) - Vorbereitung gelaufen, Serverstart uebersprungen."
+    exit 0
 fi
 
 cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
-
-# pCloud-Zugang aus dem Download-Ordner in backend/.env uebernehmen — eine
-# gemeinsame Quelle fuer alle drei Startwege (start-termux.sh, Widget
-# agent-start, App agent-ensure.sh; Issue #3 Befund 1, 02.10.2026). Darf den
-# Start nie verhindern (|| true); fehlt die Datei, passiert nichts.
-bash "$PROJEKT/termux/pcloud-schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" >> "$LOG" 2>&1 || true
-# Vorlese-Schluessel (OPENROUTER_TTS_KEY, 06.10.2026) auf demselben Weg - vom PC
-# gelegt mit tools/handy/vorlese_schluessel_senden.py. Darf den Start nie verhindern.
-bash "$PROJEKT/termux/schluessel-uebernehmen.sh" "$PROJEKT/backend/.env" vorlese_schluessel.txt "Vorlese-Schlüssel" OPENROUTER_TTS_KEY >> "$LOG" 2>&1 || true
-
-# Datendateien vom PC uebernehmen (01.10.2026, Plan Foto-Gedaechtnis Schritt 2).
-# Vorher lief die Uebernahme NUR in start-termux.sh (Widget-Tipp) - der echte
-# App-Start kam dort nie vorbei, vom PC per Kabel gelegte Dateien blieben im
-# Download-Ordner liegen. Gleiches Werkzeug, gleiche Liste wie start-termux.sh
-# (sha256 hart, alte Fassung als *.vorher, entfernt nur die eigene
-# Uebergabedatei). Darf den Start NIE verhindern (|| true); fehlt die
-# Uebergabedatei (Normalfall), passiert nichts.
-QUELLE_DATEN="$HOME/storage/downloads"
-[ -d "$QUELLE_DATEN" ] || QUELLE_DATEN="/sdcard/Download"
-PROTO_DATEN="$QUELLE_DATEN/hermes_diag"
-mkdir -p "$PROTO_DATEN" 2>/dev/null || true
-if [ -d "$PROTO_DATEN" ]; then
-    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
-        --quelle "$QUELLE_DATEN" \
-        --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv \
-        --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" >> "$LOG" 2>&1 || true
-else
-    python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
-        --quelle "$QUELLE_DATEN" \
-        --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv >> "$LOG" 2>&1 || true
-fi
 
 log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
 # Bindung aus der .env lesen (gleiches Muster wie neu-start-nach-lauf.sh).
