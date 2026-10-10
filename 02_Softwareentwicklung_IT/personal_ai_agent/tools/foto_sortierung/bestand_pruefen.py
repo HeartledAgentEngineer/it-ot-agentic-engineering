@@ -9,10 +9,21 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
   * Gesichter Fotos:  Plan-Fotos  <->  Zeilen in den Vektordateien (``bild_id``)
   * Gesichter Videos: Plan-Videos <->  ``*.videos_fertig`` + Video-Vektorzeilen
   * Beschreibungen:   Plan-Fotos  <->  jede Beschreibungsdatei ueber ``fileid``;
-                      Standard sind ``bild_beschreibungen.jsonl`` (Altspeicher)
-                      und ``bild_beschreibungen_papa_reich.jsonl`` (Papas Fotos,
+                      Standard sind ``bild_beschreibungen.jsonl`` (Altspeicher),
+                      ``bild_beschreibungen_papa_reich.jsonl`` (Papas Fotos,
                       reiche Fassung — eigener Lauf, weil Papas Plan andere
-                      Feldnamen traegt).
+                      Feldnamen traegt), ``bild_beschreibungen_reich.jsonl``
+                      (reiche Fassung der Sammlung) und
+                      ``bild_beschreibungen_rest_reich.jsonl`` (Nachzuegler).
+                      Die frueher gemeldeten 3 + 5 Luecken der Einzelplaene sind
+                      in Wahrheit versorgt — nur eine Deckung ueber ALLE Quellen
+                      sagt, ob wirklich ein Foto fehlt.
+  * Gesamtplan:       ``sortierplan_reich_gesamt.json`` (Union aller Plaene)
+                      <->  alle Beschreibungsdateien zusammen. Beantwortet die
+                      Frage „ist der ganze Bestand beschrieben?" in einer Zeile;
+                      der Plan mischt die Feldnamen (``von_name`` bei Sammlung/
+                      Sortierplan, ``name`` bei Papas Plan) — hier wird deshalb
+                      wie im Beschreibungs-Werkzeug BEIDE Formen gelesen.
   * Gruppen:          ``personen_gruppen/personen_beispiele.json`` und
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
@@ -50,9 +61,14 @@ STANDARD_FOTO_VEKTOREN = ("personen_vektoren_n0929_voll.jsonl",
                           "personen_vektoren_n0929_bildervideos.jsonl",
                           "personen_vektoren_papa.jsonl")
 STANDARD_VIDEO_VEKTOREN = ("video_vektoren_bildervideos.jsonl", "video_vektoren_upload.jsonl")
-# Mehrere Beschreibungsquellen: der Altspeicher und Papas reiche Fassung
-# (eigener Lauf, eigene Datei — der Altspeicher enthaelt Papa nicht).
-STANDARD_BESCHREIBUNGEN = ("bild_beschreibungen.jsonl", "bild_beschreibungen_papa_reich.jsonl")
+# Mehrere Beschreibungsquellen: Altspeicher, Papas reiche Fassung (eigener
+# Lauf, eigene Datei — der Altspeicher enthaelt Papa nicht), die reiche Fassung
+# der Sammlung und der Nachzuegler-Lauf.
+STANDARD_BESCHREIBUNGEN = ("bild_beschreibungen.jsonl", "bild_beschreibungen_papa_reich.jsonl",
+                           "bild_beschreibungen_reich.jsonl", "bild_beschreibungen_rest_reich.jsonl")
+# Union aller Plaene — die einzige Stelle, an der sich „ist wirklich jedes Foto
+# beschrieben?" fuer den GESAMTEN Bestand ablesen laesst (10.10.2026).
+STANDARD_GESAMTPLAN = "sortierplan_reich_gesamt.json"
 GRUPPEN_ORDNER = "personen_gruppen"
 VIDEO_ENDUNGEN = (".mp4", ".mov", ".3gp", ".mkv", ".avi", ".m4v")
 FERTIG_ENDUNG = ".videos_fertig"
@@ -192,6 +208,45 @@ def beschreibungen_lesen(pfad: str) -> Dict[str, Any]:
             "kosten": kosten}
 
 
+def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
+    """Union-Plan lesen: Fotos, Videos, Eintraege ohne Namen, ohne Kennung.
+
+    Der Gesamtplan mischt die Feldnamen der Quell-Plaene (``von_name``/
+    ``von_ordner`` bei Sammlung und Sortierplan, ``name``/``ordner`` bei Papas
+    Plan). Wer nur ``von_name`` liest, verliert Papas 6.336 Fotos still — genau
+    der Fehler vom 10.10.2026 (Changelog union-plan-feldnamen). Hier wird
+    deshalb wie im Beschreibungs-Werkzeug BEIDE Formen gelesen; Eintraege ohne
+    Namen (z. B. Fotobuch-Scans) und ohne Kennung werden gezaehlt, nicht
+    verschluckt.
+    """
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError) as problem:
+        return {"fehlt": True, "fehler": problem.__class__.__name__}
+    zuege = daten.get("zuege") if isinstance(daten, dict) else daten
+    zuege = zuege if isinstance(zuege, list) else []
+    fotos: Set[str] = set()
+    videos: Set[str] = set()
+    ohne_namen = ohne_kennung = 0
+    for zug in zuege:
+        if not isinstance(zug, dict):
+            continue
+        k = _kennung(zug.get("fileid"))
+        if not k:
+            ohne_kennung += 1
+            continue
+        name = zug.get("von_name") or zug.get("name") or ""
+        if not (isinstance(name, str) and name.strip()):
+            ohne_namen += 1
+            continue
+        (videos if name.strip().lower().endswith(VIDEO_ENDUNGEN) else fotos).add(k)
+    return {"eintraege": len(zuege), "fotos": fotos, "videos": videos,
+            "ohne_namen": ohne_namen, "ohne_kennung": ohne_kennung}
+
+
 def abdeckung(groessen: List[int], anteile=(0.5, 0.8, 0.9)) -> Dict[float, int]:
     """Wie viele der groessten Gruppen braucht es fuer 50/80/90 % aller Gesichter?"""
     sortiert = sorted((g for g in groessen if g > 0), reverse=True)
@@ -257,7 +312,8 @@ def _usd(betrag: float) -> str:
 
 def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKTOREN,
             video_vektoren=STANDARD_VIDEO_VEKTOREN,
-            beschreibungen=STANDARD_BESCHREIBUNGEN) -> Tuple[List[str], List[str]]:
+            beschreibungen=STANDARD_BESCHREIBUNGEN,
+            gesamtplan: Optional[str] = STANDARD_GESAMTPLAN) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen und Dateinamen."""
     zeilen: List[str] = ["Bestandspruefung Fotos - nur Zahlen, nur lesend", ""]
     luecken: List[str] = []
@@ -311,6 +367,22 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             luecken.append(f"{name}: {_z(len(v) - g_v)} Videos ohne Gesichter-Lauf")
         if b_f < len(f):
             luecken.append(f"{name}: {_z(len(f) - b_f)} Fotos ohne Beschreibung")
+    if gesamtplan:
+        gp = gesamtplan_lesen(os.path.join(basis, gesamtplan))
+        if gp.get("fehlt"):
+            zeilen.append(f"Gesamtplan {gesamtplan}: fehlt - Deckung ueber alle Quellen nicht pruefbar")
+        else:
+            f = gp["fotos"]
+            b_f = len(f & beschrieben)
+            ohne = len(f) - b_f
+            zeilen.append(f"Gesamtplan {gesamtplan}: {_z(gp['eintraege'])} Eintraege = "
+                          f"{_z(len(f))} Fotos + {_z(len(gp['videos']))} Videos + "
+                          f"{_z(gp['ohne_namen'])} ohne Namen"
+                          f"{' + ' + _z(gp['ohne_kennung']) + ' ohne Kennung' if gp['ohne_kennung'] else ''}")
+            zeilen.append(f"  Beschreibungen:   {_z(b_f)} von {_z(len(f))} Fotos ({_anteil(b_f, len(f))}) "
+                          f"- in keiner Beschreibungsdatei fehlen {_z(ohne)}")
+            if ohne:
+                luecken.append(f"{gesamtplan}: {_z(ohne)} Fotos ohne Beschreibung")
     ausserhalb = len(alle_bilder - plan_fotos)
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")

@@ -111,6 +111,43 @@ def test_bestand_prueft_papas_plan_und_mehrere_beschreibungsdateien(tmp_path):
     assert "bild_beschreibungen.jsonl: 3 Zeilen" in text
 
 
+def _gesamtplan(tmp_path):
+    """Union-Plan mit GEMISCHTEN Feldnamen (Sammlung: von_name, Papa: name)."""
+    (tmp_path / "sortierplan_reich_gesamt.json").write_text(json.dumps({"zuege": [
+        {"fileid": 1, "von_name": "IMG_1.jpg"},        # Sammlung, beschrieben
+        {"fileid": 102, "name": "P2.jpg"},             # Papa-Form, NICHT beschrieben
+        {"fileid": 9, "von_name": "VID_9.mp4"},        # Video
+        {"fileid": 500},                               # ohne Namen (Fotobuch-Scan)
+        {"von_name": "IMG_ohne_id.jpg"},               # ohne Kennung
+    ]}), encoding="utf-8")
+
+
+def test_gesamtplan_deckung_liest_beide_feldnamen(tmp_path):
+    """Die Deckung ueber ALLE Beschreibungsdateien geht nur, wenn der Union-Plan
+    auch Papas Feldnamen liest (sonst fehlten 6.336 Fotos still)."""
+    _bestand(tmp_path)
+    _papa(tmp_path)
+    _gesamtplan(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Gesamtplan sortierplan_reich_gesamt.json: 5 Eintraege = 2 Fotos + 1 Videos "
+            "+ 1 ohne Namen + 1 ohne Kennung") in text
+    # 2 Fotos nur moeglich, wenn `name` (Papas Form) mitgelesen wird.
+    assert "Beschreibungen:   1 von 2 Fotos (50,0 %) - in keiner Beschreibungsdatei fehlen 1" in text
+    assert "sortierplan_reich_gesamt.json: 1 Fotos ohne Beschreibung" in luecken
+
+
+def test_gesamtplan_fehlt_wird_ehrlich_gemeldet(tmp_path):
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Gesamtplan sortierplan_reich_gesamt.json: fehlt" in text
+    assert not any("ohne Beschreibung" in l for l in luecken if "gesamtplan" in l)
+    # abschaltbar (z. B. fuer andere Bestaende)
+    zeilen2, _ = bp.pruefen(str(tmp_path), gesamtplan=None)
+    assert "Gesamtplan" not in "\n".join(zeilen2)
+
+
 def test_bestand_meldet_trockenlauf_ohne_gruppendateien(tmp_path):
     _bestand(tmp_path, mit_gruppen=False)
     zeilen, luecken = bp.pruefen(str(tmp_path))
