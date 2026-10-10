@@ -808,6 +808,60 @@ def test_kachel_quelle_ohne_dienst_gibt_none():
     assert holen({"fileid": BILD_A}) is None
 
 
+def test_kachel_quelle_zaehlt_grund_zu_gross():
+    """Ein zu grosses Bild ist kein Netzfehler: eigener Grund, nachholbar.
+
+    Befund 10.10.2026: 24 Papas Fotos (9–15 MB) verwarf die Kachelquelle still
+    als „Loch", weil sie die feste 8-MB-Grenze ueberschritten. Die Zahl allein
+    sagte nicht, dass ein groesserer ``--max-bytes`` sie nachholt.
+    """
+    class PCloudZuGross(Exception):
+        pass
+
+    def zu_gross():
+        raise PCloudZuGross("9.2 MB gross")
+
+    gruende: dict = {}
+    dienst = AttrappeDienst({BILD_A: zu_gross})
+    holen = gs.kachel_quelle(dienst, grund_zaehler=gruende)
+    assert holen({"fileid": BILD_A}) is None
+    assert gruende == {"zu_gross": 1}
+
+
+def test_kachel_quelle_zaehlt_netzfehler_und_leere_antwort():
+    gruende: dict = {}
+
+    def kaputt():
+        raise RuntimeError("netzkaputt")
+
+    dienst = AttrappeDienst({BILD_A: kaputt, BILD_B: b""})
+    holen = gs.kachel_quelle(dienst, grund_zaehler=gruende)
+    assert holen({"fileid": BILD_A}) is None
+    assert holen({"fileid": BILD_B}) is None
+    assert gruende == {"fehler": 1, "leer": 1}
+
+
+def test_kachel_quelle_ohne_zaehler_bleibt_still():
+    """Ohne Zaehler aendert sich nichts (Rueckwaertsvertraeglichkeit)."""
+    class PCloudZuGross(Exception):
+        pass
+
+    def zu_gross():
+        raise PCloudZuGross("x")
+
+    dienst = AttrappeDienst({BILD_A: zu_gross})
+    holen = gs.kachel_quelle(dienst)
+    assert holen({"fileid": BILD_A}) is None
+
+
+def test_mb_text_mit_komma():
+    # Gleiche Rechnung wie pcloud_service (1 MB = 1e6), sonst widersprechen sich
+    # die Meldungen (8,0 gegen 8,4 MB fuer dieselbe Grenze).
+    assert gs._mb_text(8388608) == "8,4 MB"
+    assert gs._mb_text(25165824) == "25,2 MB"
+    assert gs._mb_text("kaputt") == "?"
+
+
 def test_kachel_quelle_nimmt_direkt_eine_fileid():
     dienst = AttrappeDienst({BILD_A: _png_bytes()})
     holen = gs.kachel_quelle(dienst)

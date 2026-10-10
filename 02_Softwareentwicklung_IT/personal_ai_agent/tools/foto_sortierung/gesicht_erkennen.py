@@ -957,8 +957,34 @@ def _ausschnitt_bytes(rohdaten, bbox, rand, ziel):
         return None
 
 
+def _mb_text(bytes_anzahl) -> str:
+    """Bytes als MB mit Komma — dieselbe Rechnung wie die pCloud-Anzeige.
+
+    ``backend/app/services/pcloud_service.py`` rechnet mit ``1 MB = 1e6``; hier
+    wird bewusst genauso gerechnet, damit „ueber der Groessengrenze (8,4 MB)"
+    und die Meldung des Dienstes dieselbe Zahl nennen.
+    """
+    try:
+        return f"{int(bytes_anzahl) / 1_000_000:.1f} MB".replace(".", ",")
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _grund_zaehlen(zaehler, name: str) -> None:
+    """Einen Grund im uebergebenen dict zaehlen (``None`` heisst: nicht zaehlen).
+
+    Warum das noetig ist (Befund 10.10.2026): Die Kachelquelle verwarf 24 Papas
+    Fotos still als „Loch" — sie waren 9–15 MB gross und ueberschritten die
+    feste Obergrenze ``KACHEL_MAX_BYTES`` (8 MB). Ohne Grund blieb nur die Zahl
+    „Loecher: 24" uebrig; dass ein groesserer ``--max-bytes`` sie nachholt, war
+    nirgends zu sehen. Der Grund wird jetzt gezaehlt und gemeldet.
+    """
+    if isinstance(zaehler, dict):
+        zaehler[name] = int(zaehler.get(name) or 0) + 1
+
+
 def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None,
-                  ausschnitt=False, rand=AUSSCHNITT_RAND):
+                  ausschnitt=False, rand=AUSSCHNITT_RAND, grund_zaehler=None):
     """Eine ``kachel_holen(eintrag) -> bytes | None`` aus einem Dienst bauen.
 
     ``service`` wird **eingesteckt** (Duck-Typing): es genuegt ein Objekt mit
@@ -1006,9 +1032,17 @@ def kachel_quelle(service, max_bytes=KACHEL_MAX_BYTES, groesse=None,
             return None
         try:
             rohdaten = holen(fileid, max_bytes)
-        except Exception:
+        except Exception as problem:
+            # ``PCloudZuGross`` wird ueber den KLASSENNAMEN erkannt: dieses Modul
+            # steckt den Dienst ein (Duck-Typing) und kennt seine Klassen nicht.
+            # Ein zu grosses Bild ist kein Netzfehler — es ist mit einem
+            # groesseren ``max_bytes`` nachholbar, deshalb eigener Grund.
+            _grund_zaehlen(grund_zaehler,
+                           "zu_gross" if problem.__class__.__name__ == "PCloudZuGross"
+                           else "fehler")
             return None
         if not isinstance(rohdaten, (bytes, bytearray)) or not rohdaten:
+            _grund_zaehlen(grund_zaehler, "leer")
             return None
         rohdaten = bytes(rohdaten)
         if schneiden:
@@ -1306,8 +1340,9 @@ def main(argv=None) -> int:
                       "Es wurde NICHTS geschrieben.")
                 return 2
         dienst = _pcloud_dienst()
+        gruende: dict = {}
         holen = kachel_quelle(dienst, max_bytes=args.max_bytes,
-                              ausschnitt=args.ausschnitt)
+                              ausschnitt=args.ausschnitt, grund_zaehler=gruende)
         print(kachelquelle_hinweis(args.ausschnitt))
 
         def hole_fuer(fileid):
@@ -1338,6 +1373,16 @@ def main(argv=None) -> int:
         print(f"Metadaten: mit Aufnahmedatum: {zaehler['mit_aufnahme']}   "
               f"mit GPS: {zaehler['mit_gps']}")
         print(f"Vektorzeilen geschrieben: {anzahl}")
+        if any(gruende.values()):
+            print(f"Nicht geladen: {sum(gruende.values())}   "
+                  f"davon ueber der Groessengrenze ({_mb_text(args.max_bytes)}): "
+                  f"{gruende.get('zu_gross', 0)}   "
+                  f"Netz-/Sonstfehler: {gruende.get('fehler', 0)}   "
+                  f"leere Antworten: {gruende.get('leer', 0)}")
+            if gruende.get("zu_gross"):
+                print("  Zu grosse Bilder holt derselbe Lauf mit einem groesseren "
+                      "--max-bytes nach (z. B. --max-bytes 25165824 = 25 MB); "
+                      "es entsteht keine Vektorzeile, das Bild gilt sonst als Loch.")
         print(f"Mengen ohne bekannte Person (nicht geclustert): "
               f"{uebersicht['mengen_ohne_bekannte_person']}")
         return 0
