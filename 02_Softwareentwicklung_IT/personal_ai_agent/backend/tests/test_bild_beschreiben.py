@@ -681,6 +681,25 @@ def test_plan_zeilen_nur_fotos_mit_kennung_und_datum_aus_dem_namen(tmp_path):
     assert a["ordner"] == "/Freunde/Hurricane" and a["datei"] == "IMG_20220618_112130.jpg"
 
 
+def test_plan_zeilen_liest_beide_feldnamen_formen_und_zaehlt_ausgelassenes(tmp_path):
+    """Union-Plan mischt von_name/von_ordner UND name/ordner (Papas Plan).
+
+    Nur eine Form zu lesen liess Papas 6.336 Fotos still aus dem Beschreibungs-
+    lauf fallen (Befund 10.10.2026: geplant 17.580 statt 23.916 Zeilen).
+    """
+    plan = _plan_schreiben(tmp_path / "union.json", [
+        {"fileid": 11, "von_name": "a.jpg", "von_ordner": "/A", "jahr": 2020},
+        {"fileid": 12, "name": "b.jpg", "ordner": "/B", "jahr": 2021},   # Papa-Form
+        {"fileid": 13},                                                  # nur Kennung: raus
+        {"fileid": 14, "name": "clip.mp4", "ordner": "/C"},              # Video: raus
+    ])
+    stat: dict = {}
+    zeilen = werkzeug.plan_zeilen_lesen(str(plan), stat)
+    assert [z["fileid"] for z in zeilen] == [11, 12]
+    assert zeilen[1]["datei"] == "b.jpg" and zeilen[1]["ordner"] == "/B"
+    assert stat == {"keine_kennung": 0, "kein_name": 1, "video": 1, "doppelt": 0}
+
+
 def test_plan_lauf_ohne_ordner_abfrage_und_idempotent(tmp_path, capsys):
     plan = _plan_schreiben(tmp_path / "sortierplan_bildervideos.json", [
         {"fileid": 1000 + n, "von_name": f"Foto_{n}.jpg", "von_ordner": "/B", "jahr": 2019}

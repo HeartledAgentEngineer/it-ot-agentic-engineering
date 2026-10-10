@@ -297,7 +297,7 @@ PLAN_VIDEO_ENDUNGEN = (".mp4", ".mov", ".3gp", ".mkv", ".avi", ".m4v")
 _NAME_DATUM = re.compile(r"(?<!\d)((?:19|20)\d{2})[-_]?(\d{2})[-_]?(\d{2})(?!\d)")
 
 
-def plan_zeilen_lesen(pfad: str) -> list[dict]:
+def plan_zeilen_lesen(pfad: str, statistik: dict | None = None) -> list[dict]:
     """Sortierplan (``zuege[]``) -> Zeilen wie aus der CSV, aber mit bekannter fileid.
 
     Fuer Sammlungen ohne Sortierschluessel-CSV (01.10.2026: „Bilder & Videos",
@@ -307,6 +307,17 @@ def plan_zeilen_lesen(pfad: str) -> list[dict]:
     Monat/Tag nur aus dem Dateinamen, wenn er ein zum Jahr passendes Datum
     traegt — sonst 0, es wird nichts geraten. Ohne Datum bleibt die Zeile drin
     (eine Beschreibung braucht keins); sortiert wird dann nach Jahr und Ordner.
+
+    **Feldnamen:** Ein zusammengefuehrter Plan (Union) mischt die Formen der
+    Einzelplaene — die aeltere Sammlung traegt ``von_name``/``von_ordner``,
+    Papas Plan traegt ``name``/``ordner``. Beide Formen gelten; nur eine zu
+    lesen hiess, dass Papas 6.336 Fotos still aus dem Lauf fielen (Befund
+    10.10.2026: der Lauf plante 17.580 statt 23.916 Zeilen). Eintraege, die
+    gar keinen Dateinamen tragen (``gedreht_plan.json`` nur ``fileid``,
+    ``fotobuch_plan.json`` ``fileid``/``jahr``), bleiben aus — sie sind ohne
+    Namensabgleich nicht benennbar. Sie werden jetzt gezaehlt statt still
+    verschluckt: Ist ``statistik`` uebergeben, stehen dort ``keine_kennung``,
+    ``kein_name``, ``video`` und ``doppelt``.
     """
     with open(pfad, encoding="utf-8") as datei:
         daten = json.load(datei)
@@ -315,14 +326,25 @@ def plan_zeilen_lesen(pfad: str) -> list[dict]:
         raise BildBeschreibenFehler(f"Sortierplan ohne Feld 'zuege': {pfad}")
     zeilen: list[dict] = []
     gesehen: set = set()
+    zaehler = {"keine_kennung": 0, "kein_name": 0, "video": 0, "doppelt": 0}
     for zug in zuege:
         if not isinstance(zug, dict):
             continue
         fileid = _als_int(zug.get("fileid"))
-        name = str(zug.get("von_name") or "").strip()
-        if not fileid or not name or fileid in gesehen:
+        if not fileid:
+            zaehler["keine_kennung"] += 1
+            continue
+        if fileid in gesehen:
+            zaehler["doppelt"] += 1
+            continue
+        # Zwei Feldnamen-Formen (Union-Plan): von_name/von_ordner ODER name/ordner.
+        name = str(zug.get("von_name") or zug.get("name") or "").strip()
+        ordner = str(zug.get("von_ordner") or zug.get("ordner") or "").strip()
+        if not name:
+            zaehler["kein_name"] += 1
             continue
         if name.lower().endswith(PLAN_VIDEO_ENDUNGEN):
+            zaehler["video"] += 1
             continue
         gesehen.add(fileid)
         jahr = _als_int(zug.get("jahr"))
@@ -333,10 +355,12 @@ def plan_zeilen_lesen(pfad: str) -> list[dict]:
             if (not jahr or j == jahr) and 1 <= m <= 12 and 1 <= t <= 31:
                 jahr, monat, tag = j, m, t
         zeilen.append({
-            "fileid": fileid, "datei": name, "ordner": str(zug.get("von_ordner") or ""),
+            "fileid": fileid, "datei": name, "ordner": ordner,
             "jahr": jahr, "monat": monat, "tag": tag,
             "zeit": zeit_aus_name(name, (jahr, monat, tag)) if monat else None,
         })
+    if statistik is not None:
+        statistik.update(zaehler)
     return zeilen
 
 
@@ -893,7 +917,8 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     jsonl = args.jsonl or os.path.join(args.ausgabe, STANDARD_JSONL_NAME)
     if args.plan:
         # Plan-Eingang: fileids sind bekannt, Zeilen ohne Datum bleiben drin.
-        zeilen = plan_zeilen_lesen(args.plan)
+        plan_statistik: dict = {}
+        zeilen = plan_zeilen_lesen(args.plan, plan_statistik)
         vorbereitet = zeilen
         ohne_datum = sum(1 for z in zeilen if not z.get("monat"))
     else:
@@ -907,6 +932,11 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     print(f"Zeilen: {len(zeilen)}   ohne Datum: {ohne_datum}   "
           f"schon beschrieben (Dateiabgleich): "
           f"{len(vorbereitet) - len(ohne_netz_offen)}")
+    if args.plan:
+        print(f"Ausgelassen: {plan_statistik.get('kein_name', 0)} ohne Dateinamen "
+              f"(nur Kennung), {plan_statistik.get('video', 0)} Videos, "
+              f"{plan_statistik.get('keine_kennung', 0)} ohne Kennung, "
+              f"{plan_statistik.get('doppelt', 0)} doppelt.")
     print(f"Boegen: je {args.kacheln_pro_bogen} Kacheln   "
           f"Modell: {args.modell}   Budget: {args.budget:.2f} USD   "
           f"Prompt: {args.prompt_variante}")
