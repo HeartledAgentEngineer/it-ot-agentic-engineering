@@ -214,3 +214,32 @@ def test_abbruch_wenn_quelle_fehlt(monkeypatch, capsys):
     _mit_server(monkeypatch, Kaputt())
     assert entpacken.main([]) == 2
     assert "Abbruch" in capsys.readouterr().out
+
+
+def test_pause_wartet_zwischen_den_archiven(monkeypatch, capsys, _token_und_manifest):
+    """pCloud bricht bei einem Schwall mit Fehler 3006 ab (10.10.2026 gemessen:
+    15 von 32). --pause legt zwischen zwei Archiven eine Wartezeit ein, aber
+    NICHT nach dem letzten (sonst wartet der Lauf am Ende sinnlos)."""
+    _mit_server(monkeypatch, Server())
+    monkeypatch.setattr(
+        entpacken, "archiv_liste",
+        lambda *a, **k: _quelle_mit_archiven("A.zip", "B.zip", "C.zip"))
+
+    gewartet = []
+    monkeypatch.setattr(entpacken.time, "sleep", lambda s: gewartet.append(s))
+
+    assert entpacken.main(["--schreiben", "--pause", "7.5"]) == 0
+    assert gewartet == [7.5, 7.5]          # zwischen 1-2 und 2-3, nicht danach
+    assert "entpackt:            3" in capsys.readouterr().out
+
+
+def test_ohne_pause_kein_warteaufruf(monkeypatch, capsys, _token_und_manifest):
+    """Standard bleibt ohne Wartezeit — der Probelauf soll schnell sein."""
+    _mit_server(monkeypatch, Server())
+    monkeypatch.setattr(entpacken, "archiv_liste", lambda *a, **k: _quelle_mit_archiven("A.zip"))
+
+    gerufen = []
+    monkeypatch.setattr(entpacken.time, "sleep", lambda s: gerufen.append(s))
+
+    assert entpacken.main(["--schreiben"]) == 0
+    assert gerufen == []

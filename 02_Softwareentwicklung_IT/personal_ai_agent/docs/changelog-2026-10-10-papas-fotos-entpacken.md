@@ -67,6 +67,22 @@ Manifest liegt außerhalb des Repos (`~/foto_sortierung/manifest.jsonl`).
   0 Fehler; danach 139 Dateien im Zielordner gezählt (Zahl über die API, nicht geraten).
 - Am Handy/Termux war nichts zu tun; der Schritt läuft rein in der Cloud.
 
+## Nachtrag 10.10.2026, ca. 05:10: Schwall-Fehler und die Pause
+
+Der erste Massenlauf meldete 16 Erfolge — **nachgezählt hatten aber nur 2 Archive wirklich
+Inhalt.** 15 Aufrufe kamen mit pCloud-Fehler **3006** („Extracting of the archive failed“)
+zurück, 15 meldeten Erfolg und lieferten (noch) nichts. Kein Größenmuster: das kleinste
+(180 MB) und ein großes (696 MB) waren durch, alles andere nicht.
+
+**Ursache:** nicht der Code, sondern der Schwall — 32 Aufträge in zweieinhalb Minuten. Nach
+25 Minuten Pause lief dasselbe Archiv (`AmazonPhotos (33).zip`) ohne jede Änderung durch.
+
+**Lehre für das Werkzeug:** Fortschritt niemals aus der Erfolgsmeldung ableiten, sondern per
+`listfolder` nachzählen (macht das Werkzeug jetzt selbst, und `werkzeuge/fortschritt/` zählt
+für die Anzeige mit). Und: `--pause <sekunden>` legt zwischen zwei Archiven eine Wartezeit
+ein — Standard bleibt 0, der Massenlauf fährt mit 45 s. Zwei Tests halten das fest
+(Wartezeit zwischen den Archiven, aber nicht nach dem letzten).
+
 ## Offen (bewusst nicht in diesem Schritt)
 
 - Die 31 übrigen Archive. Sie laufen erst nach dem Probelauf — auf Sebastians Wort

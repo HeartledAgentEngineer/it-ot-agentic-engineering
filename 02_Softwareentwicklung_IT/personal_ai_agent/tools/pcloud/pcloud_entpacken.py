@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -73,6 +74,8 @@ def _argumente(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--eltern", default=STANDARD_ELTERN, help=f"Elternordner des Ziels (Standard {STANDARD_ELTERN})")
     p.add_argument("--zielname", default=STANDARD_ZIELNAME, help=f"Zielordner (Standard {STANDARD_ZIELNAME})")
     p.add_argument("--nur", default="", help="Nur Archive, deren Name diesen Text enthaelt (erst messen)")
+    p.add_argument("--pause", type=float, default=0.0,
+                   help="Sekunden zwischen zwei Archiven (pCloud bricht sonst mit Fehler 3006 ab)")
     p.add_argument("--schreiben", action="store_true", help="WIRKLICH entpacken (ohne: Trockenlauf)")
     p.add_argument("--manifest", default=None, help="Ablage des Manifests (Standard ~/foto_sortierung/manifest.jsonl)")
     return p.parse_args(argv)
@@ -154,6 +157,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             zaehler["fehler"] += 1
             print(f"  [{nummer}/{len(archive)}] Fehler: {fehler}")
             continue
+        if args.pause and nummer < len(archive):
+            time.sleep(args.pause)
 
     print()
     print(f"Archive gesamt:      {len(archive)}")
