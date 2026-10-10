@@ -1,4 +1,4 @@
-# Änderungsprotokoll 11.10.2026 — zweite Prompt-Fassung „bildgeschichte" in bild_beschreiben.py
+# Änderungsprotokoll 10.10.2026 — zweite Prompt-Fassung „bildgeschichte" in bild_beschreiben.py
 
 ## Anlass
 

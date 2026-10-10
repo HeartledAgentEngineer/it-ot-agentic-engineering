@@ -774,7 +774,16 @@ def test_anfrage_bauen_reicht_die_variante_an_den_prompt_durch():
                                      variante="bildgeschichte")
     text = anfrage["messages"][0]["content"][0]["text"]
     assert "exactly 2 tiles" in text and "at most 70 words" in text
-    assert anfrage["max_tokens"] == werkzeug.max_tokens_fuer(2), "Kostengrenze unveraendert"
+    # Die Ausgabegrenze folgt der Fassung: die reiche Fassung braucht mehr Kopfraum,
+    # sonst waeren die laengeren Beschreibungen abgeschnitten (Nachtrag 10.10.2026).
+    assert anfrage["max_tokens"] == werkzeug.max_tokens_fuer(2, "bildgeschichte")
+    assert anfrage["max_tokens"] > werkzeug.max_tokens_fuer(2, "stichwort")
+
+
+def test_anfrage_bauen_standardgrenze_bleibt_bei_zwei_kacheln():
+    """Ohne Variante gilt unveraendert die Stichwort-Grenze."""
+    anfrage = werkzeug.anfrage_bauen("modell/x", "data:image/jpeg;base64,AAAA", 2)
+    assert anfrage["max_tokens"] == werkzeug.max_tokens_fuer(2)
 
 
 def test_lauf_bildgeschichte_englischer_prompt_und_70er_grenze(tmp_path):
@@ -814,3 +823,30 @@ def test_unbekannte_prompt_variante_wird_abgelehnt(tmp_path):
                       sende=Stolperfalle(), api_abruf=Stolperfalle(),
                       thumb_abruf=Stolperfalle(), env_pfade=[])
     assert fehler.value.code == 2
+
+
+# ── 10) Ausgabegrenze folgt der Prompt-Fassung ─────────────────────────────
+# Anlass (10.10.2026): Die reiche Fassung verlangt 2-4 Saetze je Kachel. Mit den
+# 60 Tokens der Stichwort-Fassung waeren ihre Antworten ABGESCHNITTEN — genau der
+# Fehler, der bei einem Fremdlauf auftrat und dort wie ein Qualitaetsproblem
+# aussah. Der Standard darf sich dabei NICHT aendern.
+
+def test_max_tokens_standard_bleibt_unveraendert():
+    """Ohne Variante gilt weiter die Stichwort-Grenze (60 Tokens je Kachel)."""
+    assert werkzeug.max_tokens_fuer(36) == werkzeug.max_tokens_fuer(36, "stichwort")
+    assert werkzeug.max_tokens_fuer(36) == werkzeug.MAX_TOKENS_GRUND + 36 * werkzeug.MAX_TOKENS_JE_KACHEL
+
+
+def test_max_tokens_reiche_fassung_bekommt_mehr_kopfraum():
+    """Die reiche Fassung bekommt je Kachel deutlich mehr Tokens als die Stichwort-Fassung."""
+    stichwort = werkzeug.max_tokens_fuer(12, "stichwort")
+    reich = werkzeug.max_tokens_fuer(12, "bildgeschichte")
+    assert reich > stichwort
+    assert reich == werkzeug.MAX_TOKENS_GRUND + 12 * werkzeug.MAX_TOKENS_JE_KACHEL_BILDGESCHICHTE
+    # 70 Woerter brauchen rund 100 Tokens — je Kachel muss das hineinpassen.
+    assert werkzeug.MAX_TOKENS_JE_KACHEL_BILDGESCHICHTE >= 100
+
+
+def test_max_tokens_bleibt_gedeckelt():
+    """Der Deckel gilt auch fuer die reiche Fassung (kein unbegrenzter Aufruf)."""
+    assert werkzeug.max_tokens_fuer(500, "bildgeschichte") == werkzeug.MAX_TOKENS_DECKEL

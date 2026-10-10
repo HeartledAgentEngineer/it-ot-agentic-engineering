@@ -205,6 +205,11 @@ VERSUCHE = 3
 # Ausgabegrenze: je Kachel ein JSON-Objekt; Grundwert + Kopfraum, gedeckelt.
 MAX_TOKENS_GRUND = 600
 MAX_TOKENS_JE_KACHEL = 60
+# Die reiche Fassung verlangt 2-4 Saetze (bis 70 Woerter) je Kachel. Mit den
+# 60 Tokens der Stichwort-Fassung waeren ihre Antworten ABGESCHNITTEN — genau der
+# Fehler, der bei einem Fremdlauf mit einem kleinen Modell auftrat
+# („Antworten waren nur die Token-Grenze, kein Qualitaetsproblem").
+MAX_TOKENS_JE_KACHEL_BILDGESCHICHTE = 160
 MAX_TOKENS_DECKEL = 8000
 
 # Zeilen ohne Uhrzeit im Namen bekommen diese Uhrzeit — sie stehen damit wie in
@@ -224,9 +229,16 @@ def _als_int(wert) -> int:
         return 0
 
 
-def max_tokens_fuer(anzahl: int) -> int:
-    """Ausgabegrenze passend zur Kachelzahl (rein, ohne Nebenwirkung)."""
-    wunsch = MAX_TOKENS_GRUND + MAX_TOKENS_JE_KACHEL * max(1, _als_int(anzahl))
+def max_tokens_fuer(anzahl: int, variante: str = "stichwort") -> int:
+    """Ausgabegrenze passend zu Kachelzahl UND Prompt-Fassung (rein, ohne Nebenwirkung).
+
+    Standard bleibt die Stichwort-Fassung (60 Tokens je Kachel) — der heutige Weg
+    ist damit unveraendert. Die reiche Fassung bekommt mehr Kopfraum, damit ihre
+    laengeren Beschreibungen nicht abgeschnitten werden.
+    """
+    reich = _variante_normalisieren(variante) == "bildgeschichte"
+    je_kachel = MAX_TOKENS_JE_KACHEL_BILDGESCHICHTE if reich else MAX_TOKENS_JE_KACHEL
+    wunsch = MAX_TOKENS_GRUND + je_kachel * max(1, _als_int(anzahl))
     return max(MAX_TOKENS_GRUND, min(MAX_TOKENS_DECKEL, wunsch))
 
 
@@ -549,7 +561,7 @@ def anfrage_bauen(modell: str, daten_uri: str, anzahl: int,
     (Standard ``stichwort`` = Bestand).
     """
     if max_tokens is None:
-        max_tokens = max_tokens_fuer(anzahl)
+        max_tokens = max_tokens_fuer(anzahl, variante)
     return {
         "model": modell,
         "messages": [

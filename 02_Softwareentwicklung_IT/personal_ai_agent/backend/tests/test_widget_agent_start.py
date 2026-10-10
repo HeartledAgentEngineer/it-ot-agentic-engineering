@@ -79,8 +79,15 @@ def _schluss_ausfuehren(signal_oder_code: str) -> int:
         vorlauf = 'sleep 30 & server=$!\nkill -9 "$server"\n'
     else:
         vorlauf = f'(exit {signal_oder_code}) & server=$!\n'
+    # Zeitueberschreitung bewusst grosszuegig (Notiz 10.10.2026): Dieser Test
+    # prueft den RUECKGABEWERT des Schlusses, nicht die Geschwindigkeit. Mit 20
+    # Sekunden wurde er rot, sobald die Maschine ausgelastet war (parallel
+    # laufende Bildbeschreibung und Gesichtserkennung: die Suite brauchte 570
+    # statt 339 Sekunden, und dieser Unterprozess lief in die Zeitueberschreitung).
+    # Ein echter Haenger faellt auch bei 90 Sekunden auf — nur eben nicht mehr
+    # die Auslastung.
     return subprocess.run([bash, "-c", vorlauf + schluss], capture_output=True,
-                          timeout=20).returncode
+                          timeout=90).returncode
 
 
 def test_von_neuerem_start_abgeloest_endet_mit_0_damit_termux_schliesst():
