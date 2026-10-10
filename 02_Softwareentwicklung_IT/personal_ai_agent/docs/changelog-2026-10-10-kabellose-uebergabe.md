@@ -95,3 +95,27 @@ Prüfsumme) in `~/foto_sortierung/uebergabe_manifest.jsonl`. Zurücknehmen heiß
 die Datei im pCloud-Ordner von Hand entfernen (Löschen ist bewusst nicht Teil der
 Werkzeuge). Am Handy bleibt von jeder ersetzten Datei die Sicherung
 `<ziel>.vor_<datum>` neben der Datei liegen — es wird nie etwas gelöscht.
+
+## Vollzug: der erste echte kabellose Lauf (Nachtlauf 10./11.10.2026)
+
+Der Weg ist nicht nur gebaut, er ist gelaufen — und dabei fiel eine Lücke auf.
+
+- Um 17:12 legte der PC die ersten Ergebnisdateien nach `/Agent/uebergabe`:
+  `bild_index.db` (104.251.392 B), `orte.jsonl`, `bild_orte.csv`,
+  `ordner_ereignisse.jsonl`, `bild_beschreibungen_reich.jsonl`,
+  `bild_beschreibungen_papa_reich.jsonl`. Je Datei eine Manifest-Zeile in
+  `~/foto_sortierung/uebergabe_manifest.jsonl`.
+- **Gefundene Lücke, geschlossen:** `--ordner ~/foto_sortierung` liest nur EINE
+  Ebene — die um Papas Gruppen erweiterten Dateien in `personen_gruppen/` fielen
+  dadurch durch. Sie wurden um 17:2x einzeln nachgeschoben:
+  `gesicht_zuordnung.jsonl` (8.741.862 B) und `personen_beispiele.json`
+  (1.595.146 B). `kennungen.json` gehört NICHT aufs Handy — kein Dienst liest es.
+- **Nachweis (per API, `listfolder` + `getfilelink`):** der Ordner enthält jetzt
+  8 Dateien; die sha256 der beiden nachgeschobenen stimmt mit dem Manifest überein
+  (`gesicht_zuordnung.jsonl` c4381b60…, `personen_beispiele.json` abda14a4…),
+  Größen gleich.
+- **Flach ist richtig:** `gruppen_quiz._lesepfad` liest erst
+  `~/foto_sortierung/personen_gruppen/<name>`, dann `~/foto_sortierung/<name>` —
+  am Handy greift die flache Übergabe (dort gibt es keinen Unterordner).
+- Am Handy ist nichts weiter zu tun: beim nächsten App-Knopf-/Widget-Start läuft
+  Schritt 6b und holt die acht Dateien.

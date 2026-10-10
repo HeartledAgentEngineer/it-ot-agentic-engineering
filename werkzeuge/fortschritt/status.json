@@ -1,7 +1,7 @@
 {
   "aufgabe": "Nachtlauf 10./11.10.2026",
   "plan": ".hermes/plans/2026-10-10_nachtlauf-papas-fotos-und-chat.md",
-  "stand": "10.10.2026 16:30:00",
+  "stand": "10.10.2026 17:27:00",
   "schritte": [
     {
       "nr": 1,
@@ -54,7 +54,7 @@
     "dateien": 6336,
     "groesse_mb": 16123.6
   },
-  "hinweis": "Alle nummerierten Schritte erledigt. Kartenstueck (OSM) fertig: 15 Gebiete, bild_orte.csv 18.840 Zeilen. Offen bleiben nur Kostenpflichtiges (8 Fotos, Videos) und Geraeteeingaenge (Handy-Uebergabe, WhatsApp).",
+  "hinweis": "Alle nummerierten Schritte erledigt. Kartenstueck (OSM) fertig: 15 Gebiete, bild_orte.csv 18.840 Zeilen. bild_index.db existiert (25.352 Vektoren). Kabellose Uebergabe (pCloud /Agent/uebergabe) vollzogen und per API belegt: 8 Dateien inkl. Papas Gruppen (gesicht_zuordnung, personen_beispiele). Offen bleiben nur Kostenpflichtiges (8 Fotos, Videos) und Geraeteeingaenge (WhatsApp).",
   "laufende": [
     {
       "titel": "Bildbeschreibung reich",
