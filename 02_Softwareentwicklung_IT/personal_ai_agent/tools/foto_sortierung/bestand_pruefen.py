@@ -36,6 +36,14 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
                       groessten Gruppen enthalten 50/80/90 % aller Gesichter.
+  * Orte (OSM):       ``bild_orte.csv`` (eine Zeile je Bild, aus den
+                      OpenStreetMap-Karten) — Zeilen, Bilder mit/ohne GPS,
+                      Bilder im Flug, mit Ortsname/Landmarke/Strasse/Hausnummer,
+                      dazu die Zahl der ausgewerteten Kartengebiete
+                      (``osm/csv/<gebiet>``). Damit ist der Karten-Zweig
+                      (Schritt 3c der Papas-Kette) genauso nachpruefbar wie die
+                      uebrigen Stufen — er stand bisher in KEINEM Nachweis.
+                      Nur Zahlen: keine Ortsnamen, keine Koordinaten.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -56,6 +64,7 @@ Exit-Code 0 (Bericht), 2 = Basisordner fehlt.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -77,6 +86,12 @@ STANDARD_BESCHREIBUNGEN = ("bild_beschreibungen.jsonl", "bild_beschreibungen_pap
 # Union aller Plaene — die einzige Stelle, an der sich „ist wirklich jedes Foto
 # beschrieben?" fuer den GESAMTEN Bestand ablesen laesst (10.10.2026).
 STANDARD_GESAMTPLAN = "sortierplan_reich_gesamt.json"
+# Eine Zeile je Bild, aus den OSM-Karten (orte_aus_karte.py --zuordnen).
+STANDARD_BILD_ORTE = "bild_orte.csv"
+# Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
+KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
+KARTEN_ORTE = "osm_orte.csv"
+KARTEN_ADRESSEN = "osm_adressen.csv"
 GRUPPEN_ORDNER = "personen_gruppen"
 VIDEO_ENDUNGEN = (".mp4", ".mov", ".3gp", ".mkv", ".avi", ".m4v")
 FERTIG_ENDUNG = ".videos_fertig"
@@ -379,6 +394,80 @@ def gruppen_lesen(basis: str) -> Dict[str, Any]:
     return erg
 
 
+# ── Orte (OpenStreetMap) ────────────────────────────────────────────────────
+
+def orte_lesen(pfad: str) -> Dict[str, Any]:
+    """``bild_orte.csv`` zaehlen — eine Zeile je Bild, nur Zahlen.
+
+    Der Zuordner schreibt je Bild eine Zeile. Ohne GPS steht dort ehrlich
+    ``ohne GPS`` (Bild bleibt drin, statt weggelassen); Bilder aus dem Flugzeug
+    tragen die Art ``flug``. Gezaehlt werden nur Zahlen — keine Ortsnamen,
+    keine Strassen, keine Koordinaten.
+    """
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    zeilen = mit_gps = ohne_gps = flug = 0
+    mit_ort = mit_landmarke = mit_strasse = mit_hausnummer = 0
+    kaputt = 0
+    try:
+        with open(pfad, encoding="utf-8-sig", newline="") as datei:
+            for satz in csv.DictReader(datei):
+                if not isinstance(satz, dict):
+                    kaputt += 1
+                    continue
+                zeilen += 1
+                art = (satz.get("landmarke_art") or "").strip().lower()
+                hinweis = (satz.get("hinweise") or "").strip().lower()
+                if art == "flug":
+                    flug += 1
+                elif hinweis == "ohne gps":
+                    ohne_gps += 1
+                else:
+                    mit_gps += 1
+                if (satz.get("ort_osm") or "").strip():
+                    mit_ort += 1
+                if (satz.get("landmarke") or "").strip():
+                    mit_landmarke += 1
+                if (satz.get("adresse") or "").strip():
+                    mit_strasse += 1
+                if (satz.get("hausnummer") or "").strip():
+                    mit_hausnummer += 1
+    except (OSError, csv.Error, UnicodeDecodeError) as problem:
+        return {"fehlt": True, "fehler": problem.__class__.__name__}
+    return {"zeilen": zeilen, "mit_gps": mit_gps, "ohne_gps": ohne_gps,
+            "flug": flug, "mit_ort": mit_ort, "mit_landmarke": mit_landmarke,
+            "mit_strasse": mit_strasse, "mit_hausnummer": mit_hausnummer,
+            "kaputt": kaputt}
+
+
+def karten_gebiete(ordner: str) -> int:
+    """Wie viele Kartengebiete haben beide Tabellen (Orte UND Adressen)?
+
+    Je Gebiet ein Unterordner ``osm/csv/<name>``. Ein Gebiet zaehlt nur, wenn
+    BEIDE Tabellen da sind — eine halbe Auswertung ist keine fertige.
+    """
+    if not os.path.isdir(ordner):
+        return 0
+    anzahl = 0
+    for eintrag in sorted(os.listdir(ordner)):
+        pfad = os.path.join(ordner, eintrag)
+        if (os.path.isdir(pfad) and os.path.isfile(os.path.join(pfad, KARTEN_ORTE))
+                and os.path.isfile(os.path.join(pfad, KARTEN_ADRESSEN))):
+            anzahl += 1
+    return anzahl
+
+
+def tabellen_zeilen(pfad: str) -> int:
+    """Datenzeilen einer Gesamttabelle (ohne Kopfzeile); 0 wenn sie fehlt."""
+    if not os.path.isfile(pfad):
+        return 0
+    anzahl = 0
+    with open(pfad, encoding="utf-8-sig", errors="replace") as datei:
+        for _ in datei:
+            anzahl += 1
+    return max(0, anzahl - 1)
+
+
 # ── Bericht ─────────────────────────────────────────────────────────────────
 
 def _z(n: int) -> str:
@@ -398,6 +487,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             video_vektoren=STANDARD_VIDEO_VEKTOREN,
             beschreibungen=STANDARD_BESCHREIBUNGEN,
             gesamtplan: Optional[str] = STANDARD_GESAMTPLAN,
+            bild_orte: Optional[str] = STANDARD_BILD_ORTE,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -483,6 +573,27 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     ausserhalb = len(alle_bilder - plan_fotos)
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")
+    zeilen.append("")
+
+    if bild_orte:
+        o = orte_lesen(os.path.join(basis, bild_orte))
+        gebiete = karten_gebiete(os.path.join(basis, KARTEN_CSV_ORDNER))
+        if o.get("fehlt"):
+            zeilen.append(f"Orte (OSM): {bild_orte} fehlt - Kartenauswertung nicht zugeordnet "
+                          f"(orte_aus_karte.py --zuordnen); Gebiete mit Tabellen: {_z(gebiete)}")
+            luecken.append(f"{bild_orte} fehlt (Kartenauswertung nicht zugeordnet)")
+        else:
+            zeilen.append(f"Orte (OSM): {bild_orte}: {_z(o['zeilen'])} Zeilen (eine je Bild) = "
+                          f"{_z(o['mit_gps'])} mit GPS + {_z(o['ohne_gps'])} ohne GPS + "
+                          f"{_z(o['flug'])} im Flug")
+            zeilen.append(f"  Ortsname {_z(o['mit_ort'])}, Landmarke {_z(o['mit_landmarke'])}, "
+                          f"Strasse {_z(o['mit_strasse'])}, Hausnummer {_z(o['mit_hausnummer'])}"
+                          + (f", {_z(o['kaputt'])} kaputte Zeilen" if o["kaputt"] else ""))
+            zeilen.append(f"  Karten: {_z(gebiete)} Gebiete mit beiden Tabellen (osm/csv)")
+            z_orte = tabellen_zeilen(os.path.join(basis, KARTEN_CSV_ORDNER, KARTEN_ORTE))
+            z_adr = tabellen_zeilen(os.path.join(basis, KARTEN_CSV_ORDNER, KARTEN_ADRESSEN))
+            if z_orte or z_adr:
+                zeilen.append(f"  Gesamttabellen: {_z(z_orte)} Orte, {_z(z_adr)} Adressen")
     zeilen.append("")
 
     gr = gruppen_lesen(basis)

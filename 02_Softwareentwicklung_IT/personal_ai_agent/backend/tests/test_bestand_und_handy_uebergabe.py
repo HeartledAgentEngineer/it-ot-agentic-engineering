@@ -237,6 +237,64 @@ def test_abdeckung():
     assert bp.abdeckung([]) == {0.5: 0, 0.8: 0, 0.9: 0}
 
 
+# ── Orte (OpenStreetMap) im Nachweis ────────────────────────────────────────
+
+def _orte(tmp_path):
+    """bild_orte.csv nachgebaut: mit GPS, ohne GPS, im Flug, ohne Kennung."""
+    (tmp_path / "bild_orte.csv").write_text(
+        "fileid,aufnahme,adresse,hausnummer,ort_osm,landmarke,landmarke_art,hinweise,abstand_m\n"
+        "1,2020-01-01,Lauenburger Strasse,41,Hamburg,Alster,fluss,fluss:Alster|0.10,100\n"
+        "2,2020-01-02,,,,,,ohne GPS,\n"
+        "3,2020-01-03,,,Berlin,,flug,flug,\n"
+        "4,,,,,,,restaurant:X|0.20,50\n",
+        encoding="utf-8")
+
+
+def test_nachweis_zaehlt_bild_orte(tmp_path):
+    """Der Karten-Zweig stand in KEINEM Nachweis — jetzt wird er gezaehlt."""
+    _bestand(tmp_path)
+    _orte(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert ("Orte (OSM): bild_orte.csv: 4 Zeilen (eine je Bild) = 2 mit GPS + 1 ohne GPS "
+            "+ 1 im Flug") in text
+    assert "Ortsname 2, Landmarke 1, Strasse 1, Hausnummer 1" in text
+
+
+def test_nachweis_meldet_fehlende_bild_orte_ehrlich(tmp_path):
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Orte (OSM): bild_orte.csv fehlt" in "\n".join(zeilen)
+    assert "bild_orte.csv fehlt (Kartenauswertung nicht zugeordnet)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Karten)
+    assert "Orte (OSM)" not in "\n".join(bp.pruefen(str(tmp_path), bild_orte=None)[0])
+
+
+def test_nachweis_zeigt_keine_ortsnamen_und_zaehlt_nur_fertige_gebiete(tmp_path):
+    """Ein Gebiet zaehlt nur mit BEIDEN Tabellen; keine Namen/Koordinaten im Text."""
+    _bestand(tmp_path)
+    _orte(tmp_path)
+    ordner = tmp_path / "osm" / "csv"
+    voll = ordner / "hamburg-latest"
+    voll.mkdir(parents=True)
+    (voll / "osm_orte.csv").write_text("breite,laenge,art,name,zusatz\n", encoding="utf-8")
+    (voll / "osm_adressen.csv").write_text("breite,laenge,strasse,hausnummer,ort,region\n",
+                                           encoding="utf-8")
+    halb = ordner / "bayern-latest"          # nur eine Tabelle = nicht fertig
+    halb.mkdir()
+    (halb / "osm_orte.csv").write_text("breite,laenge,art,name,zusatz\n", encoding="utf-8")
+    (ordner / "osm_orte.csv").write_text("breite,laenge,art,name,zusatz\na\nb\n",
+                                         encoding="utf-8")
+    (ordner / "osm_adressen.csv").write_text("breite,laenge,strasse,hausnummer,ort,region\nc\n",
+                                             encoding="utf-8")
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Karten: 1 Gebiete mit beiden Tabellen (osm/csv)" in text
+    assert "Gesamttabellen: 2 Orte, 1 Adressen" in text
+    assert bp.karten_gebiete(str(ordner)) == 1
+    assert bp.karten_gebiete(str(tmp_path / "gibtsnicht")) == 0
+    for verboten in ("Hamburg", "Berlin", "Alster", "Lauenburger"):
+        assert verboten not in text
+
+
 # ── Uebergabe per Kabel ─────────────────────────────────────────────────────
 
 class AdbAttrappe:
