@@ -615,13 +615,17 @@ class LLMService:
         """
         if not treffer:
             return ""
+        from app.services.archiv_service import zeitraum_kurz
 
         teile = [
             "\n## AUS DEINEN FRÜHEREN GESPRÄCHEN "
             "(Archiv – nenne Quelle und Datum, wenn du dich darauf beziehst):"
         ]
         for t in treffer:
-            datum = (t.get("beginn") or "")[:10]
+            # Tag oder Tagesspanne (siehe `archiv_service.zeitraum_kurz`): ein
+            # Abschnitt kann mehrere Tage umfassen — ein einzelner Zitattag
+            # waere dann schlicht falsch.
+            datum = zeitraum_kurz(t.get("beginn"), t.get("ende"))
             quelle = t.get("source") or "unbekannt"
             titel = t.get("title") or ""
             kopf = f"[{quelle}, {datum}]" + (f" {titel}" if titel else "")

@@ -241,9 +241,21 @@ def nachricht_ids(chunk_zeile: sqlite3.Row) -> List[int]:
     return [int(x) for x in roh if isinstance(x, (int, float, str)) and str(x).lstrip("-").isdigit()]
 
 
-def _datum_kurz(wert: Optional[str]) -> Optional[str]:
-    """ISO-Zeitstempel auf den Tag kuerzen — Chroniken brauchen keine Uhrzeit."""
-    return (wert or "")[:10] or None
+def _datum_kurz(wert: Optional[str], ende: Optional[str] = None) -> Optional[str]:
+    """ISO-Zeitstempel auf den Tag kuerzen — Chroniken brauchen keine Uhrzeit.
+
+    Umfasst ein Abschnitt mehrere Tage, kommt die **Spanne** zurueck statt eines
+    einzelnen (dann falschen) Tages. Gleiche Logik wie
+    ``archiv_service.zeitraum_kurz`` — hier bewusst als eigener kleiner Helfer,
+    weil dieses Modul ohne den Dienst auskommen muss.
+    """
+    beginn = (wert or "")[:10]
+    if not beginn:
+        return None
+    spaet = (ende or "")[:10]
+    if spaet and spaet != beginn:
+        return f"{beginn}–{spaet}"
+    return beginn
 
 
 class ArchivSuche:
@@ -835,7 +847,7 @@ class ArchivSuche:
             "text": ausschnitt(zeile["text"]),
             "laenge": len(zeile["text"] or ""),
             "source": zeile["source"],
-            "datum": _datum_kurz(zeile["beginn"]),
+            "datum": _datum_kurz(zeile["beginn"], zeile["ende"]),
             "beginn": zeile["beginn"],
             "ende": zeile["ende"],
             "title": zeile["title"],
@@ -851,7 +863,7 @@ class ArchivSuche:
                 "ordinal": ids[0],
                 "ordinale": ids,
                 "titel": zeile["title"],
-                "datum": _datum_kurz(zeile["beginn"]),
+                "datum": _datum_kurz(zeile["beginn"], zeile["ende"]),
             },
         }
 

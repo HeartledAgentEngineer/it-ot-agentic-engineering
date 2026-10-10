@@ -196,7 +196,7 @@ def _datei_ansehen(args: Dict[str, Any]) -> Ergebnis:
 # ── Werkzeug: archiv_suchen ────────────────────────────────────────────────
 
 def _archiv_suchen(args: Dict[str, Any]) -> Ergebnis:
-    from app.services.archiv_service import archiv_service
+    from app.services.archiv_service import archiv_service, zeitraum_kurz
 
     frage = str(args.get("frage") or "").strip()
     if not frage:
@@ -211,7 +211,9 @@ def _archiv_suchen(args: Dict[str, Any]) -> Ergebnis:
     zeilen = []
     for t in treffer[:anzahl]:
         quelle = t.get("source") or "unbekannt"
-        datum = (t.get("beginn") or "")[:10]
+        # Tag oder Tagesspanne — ein Abschnitt kann mehrere Tage umfassen
+        # (`archiv_service.zeitraum_kurz`); sonst nennt das Zitat einen falschen Tag.
+        datum = zeitraum_kurz(t.get("beginn"), t.get("ende"))
         text = (t.get("text") or "").strip().replace("\n", " ")[:500]
         zeilen.append(f"- [{quelle}{', ' + datum if datum else ''}] {text}")
     return Ergebnis(_kuerzen("Fundstellen (nenne Quelle und Datum):\n" + "\n".join(zeilen)))

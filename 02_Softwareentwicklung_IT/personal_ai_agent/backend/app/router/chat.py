@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from app.config import settings, BASE_DIR
 from app.models import ChatRequest, ChatResponse
-from app.services.archiv_service import archiv_service
+from app.services.archiv_service import archiv_service, zeitraum_kurz
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
 from app.services.faehigkeiten import stoesst_an_grenze
@@ -1234,7 +1234,10 @@ def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
     zeilen = []
     for t in treffer[:5]:
         quelle = t.get("source") or "unbekannt"
-        datum = (t.get("beginn") or "")[:10]
+        # Tag oder Tagesspanne: ein Abschnitt kann mehrere Tage umfassen, und
+        # der Zitattag darf dann nicht der erste Tag sein (sonst „falscher
+        # Zeitpunkt"). Aeltere Aufrufer ohne `ende` bleiben beim Einzeldatum.
+        datum = zeitraum_kurz(t.get("beginn"), t.get("ende"))
         kopf = f"[{quelle}, {datum}]" if datum else f"[{quelle}]"
         text = (t.get("text") or "").strip().replace("\n", " ")[:300]
         zeilen.append(f"{kopf} {text}")

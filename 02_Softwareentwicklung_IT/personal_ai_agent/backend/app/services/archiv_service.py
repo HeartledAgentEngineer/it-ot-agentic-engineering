@@ -60,6 +60,28 @@ STOPWORTE = {
 MIN_LAENGE = 3
 
 
+def zeitraum_kurz(beginn: Optional[str], ende: Optional[str]) -> str:
+    """Den Tag eines Abschnitts nennen — und ehrlich die Spanne, wenn er mehrere Tage umfasst.
+
+    Warum (am echten Index gemessen, 10.10.2026): ``beginn``/``ende`` sind die
+    Zeitstempel des ERSTEN und LETZTEN Eintrags eines Chunks. Zitiert wurde
+    bisher nur ``beginn[:10]`` — steht der gesuchte Satz spaeter im Abschnitt,
+    nennt das Zitat einen **falschen Tag**. Genau das reklamierte Sebastian
+    („die Belegstellen nennen Zeitpunkte, die nicht stimmen"). Gemessene Groesse
+    des Fehlers: 98 der 30.447 Chat-Chunks und 9.165 von 21.788
+    WhatsApp-Chunks umfassen mehr als einen Tag; der weiteste reicht vom
+    11.02. bis 13.06.2025. Deshalb: gleicher Tag → ein Datum, sonst die Spanne.
+    Fehlt ``ende`` (aeltere Aufrufer, Attrappen), bleibt es beim Einzeldatum.
+    """
+    b = (beginn or "")[:10]
+    e = (ende or "")[:10]
+    if not b:
+        return ""
+    if not e or e == b:
+        return b
+    return f"{b}–{e}"
+
+
 class ArchivService:
     """Durchsucht den Wissensspeicher per Volltext."""
 
@@ -137,7 +159,7 @@ class ArchivService:
                 # Einfügung zurück, also praktisch Zufall.
                 zeilen = db.execute(
                     """
-                    SELECT c.text, c.source, c.beginn, c.title, c.conversation_id
+                    SELECT c.text, c.source, c.beginn, c.ende, c.title, c.conversation_id
                     FROM chunks_fts f
                     JOIN chunks c ON c.id = f.rowid
                     WHERE chunks_fts MATCH ?
@@ -160,6 +182,7 @@ class ArchivService:
                 "text": z["text"],
                 "source": z["source"],
                 "beginn": z["beginn"],
+                "ende": z["ende"],
                 "title": z["title"],
                 "conversation_id": z["conversation_id"],
             }
@@ -267,7 +290,7 @@ class ArchivService:
                 treffer = []
                 for zeile in beste:
                     z = db.execute(
-                        "SELECT text, source, beginn, title, conversation_id "
+                        "SELECT text, source, beginn, ende, title, conversation_id "
                         "FROM chunks WHERE id = ?",
                         (ids[int(zeile)],),
                     ).fetchone()
@@ -276,6 +299,7 @@ class ArchivService:
                             "text": z["text"],
                             "source": z["source"],
                             "beginn": z["beginn"],
+                            "ende": z["ende"],
                             "title": z["title"],
                             "conversation_id": z["conversation_id"],
                             "aehnlichkeit": round(float(aehnlich[zeile]), 4),
@@ -328,10 +352,26 @@ class ArchivService:
         if not self.is_available:
             return {"verfuegbar": False, "pfad": settings.archiv_db_path or None}
 
+        tabelle = None
         try:
             with self._verbindung() as db:
                 chunks = db.execute("SELECT count(*) FROM chunks").fetchone()[0]
-                nachrichten = db.execute("SELECT count(*) FROM messages").fetchone()[0]
+                # Der Index des Schwesternprojekts nannte die Nachrichtentabelle
+                # frueher `messages`, heute `nachrichten` (siehe
+                # `archiv_suche.SCHEMA_SQL`). Beides lesen: sonst meldet sich
+                # der Wissensspeicher als „nicht verfuegbar", obwohl die Suche
+                # einwandfrei laeuft (gemessen am echten Index, 10.10.2026:
+                # „no such table: messages" bei 241.402 Nachrichten).
+                tabelle = next(
+                    (t for t in ("nachrichten", "messages")
+                     if db.execute(
+                         "SELECT 1 FROM sqlite_master WHERE name = ? "
+                         "AND type IN ('table', 'view')", (t,)
+                     ).fetchone()),
+                    None,
+                )
+                nachrichten = (db.execute(f"SELECT count(*) FROM {tabelle}").fetchone()[0]
+                               if tabelle else 0)
                 quellen = {
                     zeile[0]: zeile[1]
                     for zeile in db.execute(
@@ -347,6 +387,7 @@ class ArchivService:
             "verfuegbar": True,
             "chunks": chunks,
             "nachrichten": nachrichten,
+            "nachrichten_tabelle": tabelle,
             "quellen": quellen,
             "von": zeitraum[0],
             "bis": zeitraum[1],
