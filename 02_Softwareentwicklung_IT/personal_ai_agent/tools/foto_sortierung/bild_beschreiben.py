@@ -43,6 +43,18 @@ Ablauf eines Laufs:
      ``kosten_usd`` ist der Anteil der Aufruf-Kosten an dieser Kachel
      (Summe ueber alle Zeilen eines Bogens = tatsaechliche Aufruf-Kosten).
 
+Prompt-Fassungen (Schalter ``--prompt-variante``):
+  * ``stichwort`` (Standard): der bisherige deutsche Prompt — EIN knapper
+    Satz je Kachel, hoechstens 14 Woerter. Wort fuer Wort unveraendert.
+  * ``bildgeschichte``: englischer Prompt — je Kachel 2 bis 4 Saetze: wer zu
+    sehen ist (OHNE Personennamen, ohne Kennzeichen, ohne Adressen), was
+    passiert (Handlung), Umgebung/Ort (drinnen/draussen, Landschaft, Raum),
+    Stimmung und Licht, auffaellige Gegenstaende oder lesbarer Text;
+    hoechstens 70 Woerter. Englisch, weil Modelle in ihrer besten Sprache
+    besser schreiben und englischer Text rund 20 % token-sparsamer ist.
+    Verbote und Ausgabeschema (``je_kachel`` bis JSONL-Felder) bleiben in
+    beiden Fassungen identisch — am Ausgabeformat aendert sich nichts.
+
 Kostenbremse (harte Grenze):
   ``--budget`` (Standard 1,00 USD) ist die Obergrenze. Vor jedem Aufruf wird
   geprueft: bereits ausgegeben + erwartete Kosten des naechsten Bogens
@@ -81,6 +93,8 @@ Aufruf (venv des Backends — dort liegen httpx und Pillow):
     .venv/Scripts/python ../tools/foto_sortierung/bild_beschreiben.py --nur-liste
     .venv/Scripts/python ../tools/foto_sortierung/bild_beschreiben.py --trocken
     .venv/Scripts/python ../tools/foto_sortierung/bild_beschreiben.py --limit 3
+    .venv/Scripts/python ../tools/foto_sortierung/bild_beschreiben.py --prompt-variante bildgeschichte
+        # zweite Fassung: englische Bildgeschichten (2-4 Saetze, bis 70 Woerter)
     .venv/Scripts/python ../tools/foto_sortierung/bild_beschreiben.py
         # Vollauf mit Kostenbremse 1,00 USD; Abbruch jederzeit wiederholbar
 
@@ -171,8 +185,20 @@ KACHEL = 160
 MESSUNG_BOEGEN = 3
 STAPEL_BOEGEN = 25
 
-# Beschreibung je Kachel: eine Zeile, hoechstens so viele Woerter.
+# Beschreibung je Kachel, hoechstens so viele Woerter.
+# Variante "stichwort" (Standard, Bestand) = 14 — dieser Wert bleibt unveraendert.
 BESCHREIBUNG_MAX_WOERTER = 14
+
+# Zweite Fassung "bildgeschichte": 2 bis 4 Saetze je Kachel -> eigene Wortgrenze.
+BESCHREIBUNG_MAX_WOERTER_BILDGESCHICHTE = 70
+
+# Wortgrenze je Prompt-Variante (Schalter --prompt-variante). Einzige Quelle:
+# Prompt UND Antwort-Normalisierung ziehen ihre Grenze hierueber.
+PROMPT_VARIANTEN = {
+    "stichwort": BESCHREIBUNG_MAX_WOERTER,
+    "bildgeschichte": BESCHREIBUNG_MAX_WOERTER_BILDGESCHICHTE,
+}
+STANDARD_PROMPT_VARIANTE = "stichwort"
 
 VERSUCHE = 3
 
@@ -404,16 +430,40 @@ def zeilen_anhaengen(jsonl_pfad: str, eintraege: list[dict]) -> int:
 
 # ── Prompt und Anfrage (reine Funktionen) ──────────────────────────────────
 
-def prompt_bauen(anzahl: int) -> str:
-    """Den strengen deutschen Beschreibungs-Prompt bauen (Kacheln 1..n).
+def _variante_normalisieren(variante) -> str:
+    """Variantennamen klein und ohne Rand-Leerzeichen lesen; Unbekanntes -> Standard."""
+    name = str(variante or "").strip().casefold()
+    return name if name in PROMPT_VARIANTEN else STANDARD_PROMPT_VARIANTE
 
-    Die Nummern stehen ausgeschrieben im Text: Ohne sie erfindet das Modell
-    Kacheln, die es nicht gibt, und die Zuordnung waere geraten. Verlangt wird
-    eine kurze, gegenstaendliche Zeile je Kachel (fuer die Textsuche), ohne
-    Personennamen — die Beschreibung liegt ausserhalb des Repos, aber private
-    Namen haben in Suchtexten nichts verloren.
+
+def max_woerter_fuer(variante: str = STANDARD_PROMPT_VARIANTE) -> int:
+    """Wortgrenze der gewaehlten Prompt-Variante (reine Funktion, nie ein Fehler)."""
+    return PROMPT_VARIANTEN[_variante_normalisieren(variante)]
+
+
+def prompt_bauen(anzahl: int, variante: str = STANDARD_PROMPT_VARIANTE) -> str:
+    """Den Beschreibungs-Prompt bauen (Kacheln 1..n) — Fassung nach ``variante``.
+
+    ``stichwort`` (Standard) liefert den bisherigen deutschen Prompt Wort fuer
+    Wort unveraendert: EIN knapper Satz je Kachel, 14 Woerter (fuer die
+    Textsuche), ohne Personennamen. ``bildgeschichte`` liefert den englischen
+    Prompt mit 2 bis 4 Saetzen je Kachel und eigener Wortgrenze (70).
+
+    Die Nummern stehen in beiden Fassungen ausgeschrieben im Text: Ohne sie
+    erfindet das Modell Kacheln, die es nicht gibt, und die Zuordnung waere
+    geraten. Die Verbote bleiben gleich (keine Personennamen, keine
+    Kennzeichen, keine Adressen, nichts erfinden, nur sicher Erkennbares) —
+    die Beschreibung liegt ausserhalb des Repos, aber private Namen haben in
+    Suchtexten nichts verloren.
     """
     anzahl = max(1, _als_int(anzahl))
+    if _variante_normalisieren(variante) == "bildgeschichte":
+        return _prompt_bildgeschichte_bauen(anzahl)
+    return _prompt_stichwort_bauen(anzahl)
+
+
+def _prompt_stichwort_bauen(anzahl: int) -> str:
+    """Der Bestands-Prompt (deutsch, EIN Satz je Kachel) — Wort fuer Wort unveraendert."""
     nummern = ", ".join(str(i) for i in range(1, anzahl + 1))
     return (
         "Du siehst einen Kontaktbogen: nummerierte Miniaturbilder, meist aus "
@@ -447,9 +497,57 @@ def prompt_bauen(anzahl: int) -> str:
     )
 
 
+def _prompt_bildgeschichte_bauen(anzahl: int) -> str:
+    """Der englische Prompt der Variante 'bildgeschichte' (2 bis 4 Saetze je Kachel).
+
+    Warum Englisch: Modelle schreiben in ihrer besten Sprache besser, und
+    englischer Text ist rund 20 % token-sparsamer. Die Verbote und das
+    Ausgabeschema sind dieselben wie im Bestands-Prompt.
+    """
+    nummern = ", ".join(str(i) for i in range(1, anzahl + 1))
+    return (
+        "You see a contact sheet: numbered thumbnail images, usually from "
+        "a photo album.\n"
+        f"The sheet has exactly {anzahl} tiles, numbered 1 to {anzahl}.\n"
+        f"The valid tile numbers are: {nummern}.\n"
+        "\n"
+        "Task: Describe EVERY tile as a short picture story so that the image "
+        "can later be found through a text search. Write 2 to 4 sentences per "
+        "tile: who can be seen (people WITHOUT names, no license plates, no "
+        "addresses), what is happening (the action), the surroundings or place "
+        "(indoors or outdoors, landscape, room), the mood and the light, and "
+        "any striking objects or readable text. Answer in English.\n"
+        "\n"
+        "Answer ONLY with a single JSON object, no text before or after, no "
+        "Markdown. Exactly these keys:\n"
+        "  \"je_kachel\": list with one entry per tile, in the order\n"
+        f"             1..{anzahl}; each entry:\n"
+        "             {\"kachel\": <number 1.." + str(anzahl) + ">, "
+        "\"beschreibung\": \"<2 to 4 sentences, at most "
+        f"{BESCHREIBUNG_MAX_WOERTER_BILDGESCHICHTE} words>\", "
+        "\"unbrauchbar\": <true or false>}\n"
+        "             \"beschreibung\" is mandatory and describes ONLY what "
+        "is really visible; no person names, no license plates, no "
+        "addresses.\n"
+        "             \"unbrauchbar\" is true if the tile shows nothing "
+        "recognizable (blurry, black, empty area) — then\n"
+        "             \"beschreibung\" briefly states the reason.\n"
+        "\n"
+        f"Rules: Name only tile numbers from 1 to {anzahl}. Do not invent "
+        "tiles. Do not skip any entry and do not add any field. If you are "
+        "unsure, describe only what is clearly recognizable.\n"
+        "The JSON object is the entire answer."
+    )
+
+
 def anfrage_bauen(modell: str, daten_uri: str, anzahl: int,
-                  max_tokens: int | None = None) -> dict:
-    """Den Anfragekoerper fuer OpenRouter bauen (content-Array mit Bild)."""
+                  max_tokens: int | None = None,
+                  variante: str = STANDARD_PROMPT_VARIANTE) -> dict:
+    """Den Anfragekoerper fuer OpenRouter bauen (content-Array mit Bild).
+
+    ``variante`` wird unveraendert an ``prompt_bauen`` durchgereicht
+    (Standard ``stichwort`` = Bestand).
+    """
     if max_tokens is None:
         max_tokens = max_tokens_fuer(anzahl)
     return {
@@ -458,7 +556,7 @@ def anfrage_bauen(modell: str, daten_uri: str, anzahl: int,
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt_bauen(anzahl)},
+                    {"type": "text", "text": prompt_bauen(anzahl, variante)},
                     {"type": "image_url", "image_url": {"url": daten_uri}},
                 ],
             }
@@ -481,16 +579,22 @@ def bild_daten_uri(bogen_bytes: bytes) -> str:
 
 # ── Antwort zerlegen (robust, ohne Raten) ──────────────────────────────────
 
-def beschreibung_normalisieren(text) -> str:
-    """Kurzbeschreibung einer Kachel: eine Zeile, hoechstens 14 Woerter."""
+def beschreibung_normalisieren(text, max_woerter: int = BESCHREIBUNG_MAX_WOERTER) -> str:
+    """Kurzbeschreibung einer Kachel: eine Zeile, hoechstens ``max_woerter`` Woerter.
+
+    Standard 14 (Variante "stichwort", Bestand); die Variante "bildgeschichte"
+    ruft mit ihrer eigenen Grenze (70) auf.
+    """
     if not isinstance(text, str):
         return ""
+    grenze = max(1, _als_int(max_woerter))
     sauber = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
     woerter = sauber.split(" ")
-    return " ".join(woerter[:BESCHREIBUNG_MAX_WOERTER])
+    return " ".join(woerter[:grenze])
 
 
-def beschreibungen_uebernehmen(daten: dict, anzahl: int) -> list[dict]:
+def beschreibungen_uebernehmen(daten: dict, anzahl: int,
+                               max_woerter: int = BESCHREIBUNG_MAX_WOERTER) -> list[dict]:
     """``je_kachel`` pruefen — dieselben Regeln wie in der Themen-Stufe.
 
     Nur Kachelnummern, die es im Bogen wirklich gibt (1..anzahl), werden
@@ -503,6 +607,9 @@ def beschreibungen_uebernehmen(daten: dict, anzahl: int) -> list[dict]:
     Eintraege mit ``unbrauchbar: true`` werden BEHALTEN (welches Bild
     verwackelt/schwarz ist, ist Information). Die Zahl der verworfenen
     Eintraege steht als ``verworfen`` am ersten uebernommenen Eintrag.
+
+    ``max_woerter`` ist die Wortgrenze der gewaehlten Prompt-Variante
+    (Standard 14 = Bestand; ``bildgeschichte`` normalisiert mit 70).
     """
     eintraege = daten.get("je_kachel")
     if not isinstance(eintraege, list):
@@ -522,7 +629,8 @@ def beschreibungen_uebernehmen(daten: dict, anzahl: int) -> list[dict]:
         if nummer in gesehen:                          # unsinnig: Doppelung
             verworfen += 1                             # der ERSTE Eintrag bleibt
             continue
-        beschreibung = beschreibung_normalisieren(eintrag.get("beschreibung"))
+        beschreibung = beschreibung_normalisieren(eintrag.get("beschreibung"),
+                                                  max_woerter)
         if not beschreibung:                           # unsinnig: leerer Text
             verworfen += 1
             continue
@@ -591,7 +699,8 @@ def bogen_verarbeiten(zeilen: list[dict], schluessel: str, sende,
                       thumb_abruf=None, modell: str = STANDARD_MODELL,
                       basis: str = STANDARD_BASIS,
                       preis_ein=STANDARD_PREIS_EIN,
-                      preis_aus=STANDARD_PREIS_AUS) -> dict:
+                      preis_aus=STANDARD_PREIS_AUS,
+                      variante: str = STANDARD_PROMPT_VARIANTE) -> dict:
     """EINEN Bogen ansehen: eine Anfrage, eine Antwort, je Kachel eine Zeile.
 
     Holt die Vorschaubilder; Kacheln OHNE Vorschau fallen aus dem Bogen (sie
@@ -602,6 +711,9 @@ def bogen_verarbeiten(zeilen: list[dict], schluessel: str, sende,
     "unbrauchbar"}`` — die ``eintraege`` tragen ``kachel``, ``beschreibung``
     (entschaerft), ``unbrauchbar`` und die Quellzeile ``zeile``; die fertigen
     JSONL-Zeilen baut der Aufrufer (``jsonl_zeilen_bauen``).
+
+    ``variante`` waehlt die Prompt-Fassung (``--prompt-variante``): Prompt UND
+    Wortgrenze der Antwortpruefung kommen aus derselben Fassung.
     """
     anfang = time.time()
     ids = [z["fileid"] for z in zeilen if _als_int(z.get("fileid"))]
@@ -617,11 +729,13 @@ def bogen_verarbeiten(zeilen: list[dict], schluessel: str, sende,
     bogen_bytes = bogen_bauen({"zeilen": sendbare}, vorschauen,
                               spalten=SPALTEN, kachel=KACHEL)
     daten_uri = bild_daten_uri(bogen_bytes)
-    payload = anfrage_bauen(modell, daten_uri, len(sendbare))
+    payload = anfrage_bauen(modell, daten_uri, len(sendbare),
+                            variante=variante)
     antwort = sende(payload, schluessel, basis, versuche=VERSUCHE)
 
     daten = antwort_zerlegen(antwort["text"])
-    kacheln = beschreibungen_uebernehmen(daten, len(sendbare))
+    kacheln = beschreibungen_uebernehmen(daten, len(sendbare),
+                                         max_woerter=max_woerter_fuer(variante))
     verworfen = _als_int(kacheln[0].get("verworfen")) if kacheln else 0
     eintraege: list[dict] = []
     for kachel in kacheln:
@@ -728,6 +842,15 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
                           help=f"Vision-Modell (Standard {STANDARD_MODELL})")
     zerleger.add_argument("--basis", default=STANDARD_BASIS,
                           help="OpenRouter-Basis-URL")
+    zerleger.add_argument("--prompt-variante", dest="prompt_variante",
+                          choices=list(PROMPT_VARIANTEN),
+                          default=STANDARD_PROMPT_VARIANTE,
+                          help="Prompt-Fassung je Kachel: 'stichwort' "
+                               "(Standard, ein knapper deutscher Satz, 14 "
+                               "Woerter) oder 'bildgeschichte' (englisch, "
+                               "2-4 Saetze, bis "
+                               f"{BESCHREIBUNG_MAX_WOERTER_BILDGESCHICHTE} "
+                               "Woerter)")
     zerleger.add_argument("--preis-ein", dest="preis_ein", type=float,
                           default=STANDARD_PREIS_EIN,
                           help=f"USD je 1 Mio Eingabe-Tokens (gemessen: "
@@ -773,7 +896,8 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
           f"schon beschrieben (Dateiabgleich): "
           f"{len(vorbereitet) - len(ohne_netz_offen)}")
     print(f"Boegen: je {args.kacheln_pro_bogen} Kacheln   "
-          f"Modell: {args.modell}   Budget: {args.budget:.2f} USD")
+          f"Modell: {args.modell}   Budget: {args.budget:.2f} USD   "
+          f"Prompt: {args.prompt_variante}")
     print(f"Ausgabe: {args.ausgabe}   JSONL: {jsonl}")
 
     if args.nur_liste:
@@ -872,7 +996,8 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
                 ergebnis = bogen_verarbeiten(
                     bogen["zeilen"], schluessel, senden, abruf_thumb,
                     modell=args.modell, basis=args.basis,
-                    preis_ein=args.preis_ein, preis_aus=args.preis_aus)
+                    preis_ein=args.preis_ein, preis_aus=args.preis_aus,
+                    variante=args.prompt_variante)
             except Exception as problem:              # entschaerfen, weiter
                 roh = str(problem)
                 meldung = geheimnis_entfernen(

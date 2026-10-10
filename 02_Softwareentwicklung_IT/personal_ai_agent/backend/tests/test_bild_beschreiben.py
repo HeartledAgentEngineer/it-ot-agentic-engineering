@@ -6,7 +6,9 @@ getthumbs sind Attrappen, zusaetzlich sperrt die autouse-Fixture ``httpx.post``/
 die Vorschaubilder sind winzige, im Test erzeugte JPEGs; eine echte Platte sieht
 nie ein Bild. Alle Ausgaben gehen nach ``tmp_path``, nie nach
 ``~/foto_sortierung`` und nie ins Repo. Ein erfundener Schluessel liegt in einer
-temporaeren .env — niemals der echte.
+temporaeren .env — niemals der echte. Unter ``tests/testdaten/`` liegen zwei
+byte-genaue Goldtexte des Stichwort-Prompts (Stand VOR der Prompt-Varianten-
+Aenderung, n=3 und n=36) — sie halten den Bestand wortgleich fest.
 
 Aufruf:
     cd backend && .venv/Scripts/python -m pytest tests/test_bild_beschreiben.py -q
@@ -121,8 +123,8 @@ class FakeSender:
         if self.fehler_immer or len(self.aufrufe) <= self.fehler_bis:
             raise RuntimeError("Netz weg (Attrappe)")
         prompt = payload["messages"][0]["content"][0]["text"]
-        treffer = re.search(r"genau (\d+) Kacheln", prompt)
-        anzahl = int(treffer.group(1)) if treffer else 1
+        treffer = re.search(r"genau (\d+) Kacheln|exactly (\d+) tiles", prompt)
+        anzahl = int(treffer.group(1) or treffer.group(2)) if treffer else 1
         kacheln = self.kacheln or [
             {"kachel": i, "beschreibung": f"Bild {i}: Buehne, Menschen, Licht",
              "unbrauchbar": False} for i in range(1, anzahl + 1)]
@@ -704,3 +706,111 @@ def test_plan_fehlt_ehrlich(tmp_path, capsys):
                        sende=Stolperfalle(), api_abruf=Stolperfalle(),
                        thumb_abruf=Stolperfalle(), env_pfade=[])
     assert rc == 2 and "Sortierplan nicht gefunden" in capsys.readouterr().out
+
+
+# ── 9. Prompt-Varianten (--prompt-variante) ────────────────────────────────
+#
+# Der Stichwort-Prompt ist der Bestand und muss Wort fuer Wort gleich bleiben:
+# die Goldtexte in tests/testdaten/ wurden VOR dieser Aenderung aus dem
+# Werkzeug erzeugt (n=3 und n=36), die Pruefung vergleicht byteweise. Die
+# zweite Fassung "bildgeschichte" ist englisch und hat ihre eigene Wortgrenze
+# (70); das Ausgabeschema selbst bleibt in beiden Fassungen identisch.
+
+TESTDATEN = Path(__file__).resolve().parent / "testdaten"
+
+
+def test_prompt_stichwort_ist_wortgleich_zum_bestand():
+    for n in (3, 36):
+        gold = (TESTDATEN / f"prompt_stichwort_n{n}.txt").read_text(encoding="utf-8")
+        assert werkzeug.prompt_bauen(n) == gold, f"n={n} weicht vom Bestand ab"
+        assert werkzeug.prompt_bauen(n, "stichwort") == gold
+
+
+def test_prompt_varianten_wortgrenzen_und_standard():
+    assert werkzeug.BESCHREIBUNG_MAX_WOERTER == 14
+    assert werkzeug.BESCHREIBUNG_MAX_WOERTER_BILDGESCHICHTE == 70
+    assert werkzeug.max_woerter_fuer() == 14
+    assert werkzeug.max_woerter_fuer("stichwort") == 14
+    assert werkzeug.max_woerter_fuer("bildgeschichte") == 70
+    assert werkzeug.max_woerter_fuer("Bildgeschichte") == 70, "Name wird tolerant gelesen"
+    assert werkzeug.max_woerter_fuer("unbekannt") == 14, "Unbekanntes faellt auf den Standard"
+    stichwort = werkzeug.prompt_bauen(9)
+    assert "4 bis 14 Woerter" in stichwort and "auf Deutsch" in stichwort
+
+
+def test_prompt_bildgeschichte_ist_englisch_mit_70_woertern():
+    prompt = werkzeug.prompt_bauen(4, "bildgeschichte")
+    assert "exactly 4 tiles" in prompt
+    assert "1, 2, 3, 4." in prompt
+    assert "2 to 4 sentences" in prompt
+    assert "at most 70 words" in prompt
+    assert "Answer in English" in prompt
+    assert "no person names, no license plates, no addresses" in prompt
+    assert "Do not invent" in prompt and "clearly recognizable" in prompt
+    assert "Woerter" not in prompt, "kein deutscher Rest im englischen Prompt"
+    assert "auf Deutsch" not in prompt
+
+
+def test_beschreibung_normalisieren_kuerzt_bei_14_und_bei_70():
+    text = " ".join(f"w{i}" for i in range(1, 101))
+    assert len(werkzeug.beschreibung_normalisieren(text).split(" ")) == 14
+    assert len(werkzeug.beschreibung_normalisieren(text, 14).split(" ")) == 14
+    assert len(werkzeug.beschreibung_normalisieren(text, max_woerter=70).split(" ")) == 70
+    assert werkzeug.beschreibung_normalisieren("  zwei \n Woerter ", 70) == "zwei Woerter"
+
+
+def test_beschreibungen_uebernehmen_nutzt_die_grenze_der_variante():
+    lang = {"kachel": 1, "beschreibung": " ".join(f"w{i}" for i in range(1, 91)),
+            "unbrauchbar": False}
+    kurz = werkzeug.beschreibungen_uebernehmen({"je_kachel": [lang]}, 1)
+    weit = werkzeug.beschreibungen_uebernehmen({"je_kachel": [lang]}, 1,
+                                               max_woerter=70)
+    assert len(kurz[0]["beschreibung"].split(" ")) == 14
+    assert len(weit[0]["beschreibung"].split(" ")) == 70
+
+
+def test_anfrage_bauen_reicht_die_variante_an_den_prompt_durch():
+    anfrage = werkzeug.anfrage_bauen("modell/x", "data:image/jpeg;base64,AAAA", 2,
+                                     variante="bildgeschichte")
+    text = anfrage["messages"][0]["content"][0]["text"]
+    assert "exactly 2 tiles" in text and "at most 70 words" in text
+    assert anfrage["max_tokens"] == werkzeug.max_tokens_fuer(2), "Kostengrenze unveraendert"
+
+
+def test_lauf_bildgeschichte_englischer_prompt_und_70er_grenze(tmp_path):
+    lang = " ".join(f"wort{i}" for i in range(1, 91))
+    sender = FakeSender(kacheln=[
+        {"kachel": 1, "beschreibung": lang, "unbrauchbar": False},
+        {"kachel": 2, "beschreibung": "Zweite Kachel, kurzer Satz", "unbrauchbar": False},
+        {"kachel": 3, "beschreibung": "unscharf", "unbrauchbar": True},
+    ])
+    rc, zeilen, _ = _lauf(tmp_path, sender, anzahl=3,
+                          prompt_variante="bildgeschichte")
+    assert rc == 0 and len(zeilen) == 3
+    text = sender.aufrufe[0]["messages"][0]["content"][0]["text"]
+    assert "exactly 3 tiles" in text and "2 to 4 sentences" in text
+    assert "at most 70 words" in text
+    assert len(zeilen[0]["beschreibung"].split(" ")) == 70, "70-Wort-Grenze greift"
+    # JSON-Schema unveraendert: genau die vereinbarten Felder.
+    assert sorted(zeilen[0]) == ["beschreibung", "bogen_id", "datei", "fileid",
+                                 "jahr", "kosten_usd", "modell", "monat",
+                                 "ordner", "tag", "zeit"]
+
+
+def test_lauf_stichwort_bleibt_bei_14_woertern(tmp_path):
+    lang = " ".join(f"wort{i}" for i in range(1, 91))
+    sender = FakeSender(kacheln=[{"kachel": 1, "beschreibung": lang,
+                                  "unbrauchbar": False}])
+    rc, zeilen, _ = _lauf(tmp_path, sender, anzahl=1)
+    assert rc == 0 and len(zeilen) == 1
+    assert len(zeilen[0]["beschreibung"].split(" ")) == 14, "Bestand bleibt bei 14"
+
+
+def test_unbekannte_prompt_variante_wird_abgelehnt(tmp_path):
+    csv = _csv_schreiben(tmp_path / "s.csv", [_zeile(1)])
+    with pytest.raises(SystemExit) as fehler:
+        werkzeug.main(["--csv", str(csv), "--ausgabe", str(tmp_path),
+                       "--prompt-variante", "roman"],
+                      sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                      thumb_abruf=Stolperfalle(), env_pfade=[])
+    assert fehler.value.code == 2

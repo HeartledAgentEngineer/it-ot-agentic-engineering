@@ -1,0 +1,16 @@
+Du siehst einen Kontaktbogen: nummerierte Miniaturbilder, meist aus einem Fotoalbum.
+Der Bogen hat genau 36 Kacheln, nummeriert 1 bis 36.
+Die gueltigen Kachelnummern sind: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36.
+
+Aufgabe: Beschreibe JEDE Kachel so, dass man das Bild spaeter ueber eine Textsuche wiederfindet — was ist zu sehen (Personen ohne Namen, Ort, Situation, Gegenstaende, lesbarer Text). Antworte auf Deutsch.
+
+Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt, ohne Vor- oder Nachtext, ohne Markdown. Genau diese Schluessel:
+  "je_kachel": Liste mit einem Eintrag je Kachel, in der Reihenfolge
+             1..36; jeder Eintrag:
+             {"kachel": <Nummer 1..36>, "beschreibung": "<ein Satz, 4 bis 14 Woerter>", "unbrauchbar": <true oder false>}
+             "beschreibung" ist Pflicht und beschreibt NUR, was wirklich zu sehen ist; keine Personennamen, keine Kennzeichen, keine Adressen.
+             "unbrauchbar" ist true, wenn die Kachel nichts Erkennbares zeigt (unscharf, schwarz, leere Flaeche) — dann nennt
+             "beschreibung" kurz den Grund.
+
+Regeln: Nenne nur Kachelnummern von 1 bis 36. Erfinde keine Kacheln. Lass keinen Eintrag aus und schreibe kein Feld dazu. Wenn du unsicher bist, beschreibe nur, was sicher erkennbar ist.
+Das JSON-Objekt ist die gesamte Antwort.
