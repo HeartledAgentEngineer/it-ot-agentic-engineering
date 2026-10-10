@@ -44,6 +44,16 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       (Schritt 3c der Papas-Kette) genauso nachpruefbar wie die
                       uebrigen Stufen — er stand bisher in KEINEM Nachweis.
                       Nur Zahlen: keine Ortsnamen, keine Koordinaten.
+  * Bildindex:        ``bild_index.db`` (Bildsuche; Beschreibungen als Vektoren,
+                      Ketten-Schritt 7) — Bilder, mit Vektor, mit Beschreibung,
+                      Modell/Dimension/Token/Kosten aus dem eigenen ``meta``,
+                      dazu der Abgleich gegen die Beschreibungsdateien:
+                      „beschrieben, aber ohne Vektor im Index\" ist die eine
+                      offene Richtung (die Bildsuche waere unvollstaendig),
+                      „im Index, aber nicht beschrieben\" die andere. Nur Zahlen —
+                      keine Beschreibungstexte, keine Ordner, keine Vektoren.
+                      Der Bildindex stand bisher in KEINEM Nachweis, obwohl er der
+                      Schluss der Kette ist.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -67,6 +77,7 @@ import argparse
 import csv
 import json
 import os
+import sqlite3
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -88,6 +99,10 @@ STANDARD_BESCHREIBUNGEN = ("bild_beschreibungen.jsonl", "bild_beschreibungen_pap
 STANDARD_GESAMTPLAN = "sortierplan_reich_gesamt.json"
 # Eine Zeile je Bild, aus den OSM-Karten (orte_aus_karte.py --zuordnen).
 STANDARD_BILD_ORTE = "bild_orte.csv"
+# Der Bildindex (Ketten-Schritt 7): Beschreibungen als Vektoren fuer die Bildsuche.
+# Er stand bisher in keinem Nachweis — und ist der Schluss der Kette.
+STANDARD_BILDINDEX = "bild_index.db"
+BILDINDEX_TABELLE = "bilder"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -468,6 +483,80 @@ def tabellen_zeilen(pfad: str) -> int:
     return max(0, anzahl - 1)
 
 
+# ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
+
+def _zahl_aus(wert: Any) -> Optional[float]:
+    """Eine Zahl aus dem ``meta``-Text — oder ``None`` (nichts geraten)."""
+    try:
+        return float(str(wert).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def bildindex_lesen(pfad: str) -> Dict[str, Any]:
+    """``bild_index.db`` zaehlen — nur Zahlen, nur lesend, keine Inhalte.
+
+    Der Index traegt je Bild eine Beschreibung und einen Vektor (Ketten-
+    Schritt 7, Grundlage der Bildsuche). Gelesen werden nur ``fileid`` und je
+    Bild, ob ein Vektor da ist und ob die Beschreibung nicht leer ist — der
+    Text selbst, der Ordner und die Vektoren werden NIE gelesen oder
+    ausgegeben. Fehlt die Datei (oder ist sie keine gueltige Datenbank),
+    meldet das Ergebnis ehrlich ``fehlt`` statt zu werfen.
+    """
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    try:
+        verbindung = sqlite3.connect(f"file:{pfad}?mode=ro", uri=True)
+    except sqlite3.Error as problem:
+        return {"fehlt": True, "fehler": problem.__class__.__name__}
+    kennungen: Set[str] = set()
+    bilder = mit_vektor = mit_beschreibung = 0
+    meta: Dict[str, str] = {}
+    try:
+        for zeile in verbindung.execute(
+                f"SELECT fileid, beschreibung, vektor FROM {BILDINDEX_TABELLE}"):
+            kennung = _kennung(zeile[0])
+            if not kennung:
+                continue
+            bilder += 1
+            kennungen.add(kennung)
+            if zeile[2] is not None:
+                mit_vektor += 1
+            if str(zeile[1] or "").strip():
+                mit_beschreibung += 1
+        try:
+            meta = {str(z[0]): str(z[1]) for z in
+                    verbindung.execute("SELECT schluessel, wert FROM meta")}
+        except sqlite3.Error:
+            meta = {}
+    except sqlite3.Error as problem:
+        return {"fehlt": True, "fehler": problem.__class__.__name__}
+    finally:
+        verbindung.close()
+    return {"bilder": bilder, "mit_vektor": mit_vektor,
+            "mit_beschreibung": mit_beschreibung, "kennungen": kennungen,
+            "meta": meta}
+
+
+def _bildindex_kopf(meta: Dict[str, str]) -> str:
+    """Die ``meta``-Angaben des Index als eine Zeile — nur Zahlen und Namen
+    des Modells (kein Inhalt, kein Pfad)."""
+    teile: List[str] = []
+    if meta.get("modell"):
+        teile.append(meta["modell"])
+    if meta.get("dimension"):
+        teile.append(meta["dimension"] + " Dimensionen")
+    token = _zahl_aus(meta.get("tokens_gezaehlt"))
+    if token:
+        teile.append(_z(int(token)) + " Token")
+    kosten = _zahl_aus(meta.get("kosten_usd"))
+    if kosten:
+        teile.append(_usd(kosten) + " USD")
+    if meta.get("stand"):
+        teile.append("Stand " + meta["stand"])
+    return "; ".join(teile)
+
+
 # ── Bericht ─────────────────────────────────────────────────────────────────
 
 def _z(n: int) -> str:
@@ -488,6 +577,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             beschreibungen=STANDARD_BESCHREIBUNGEN,
             gesamtplan: Optional[str] = STANDARD_GESAMTPLAN,
             bild_orte: Optional[str] = STANDARD_BILD_ORTE,
+            bild_index: Optional[str] = STANDARD_BILDINDEX,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -574,6 +664,28 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")
     zeilen.append("")
+
+    if bild_index:
+        bi = bildindex_lesen(os.path.join(basis, bild_index))
+        if bi.get("fehlt"):
+            zeilen.append(f"Bildindex (Bildsuche): {bild_index} fehlt - die Beschreibungen "
+                          f"sind nicht eingebettet (bild_index_einbetten.py)")
+            luecken.append(f"{bild_index} fehlt (Bildsuche nicht eingebettet)")
+        else:
+            zeilen.append(f"Bildindex (Bildsuche): {bild_index}: {_z(bi['bilder'])} Bilder, "
+                          f"{_z(bi['mit_vektor'])} mit Vektor, "
+                          f"{_z(bi['mit_beschreibung'])} mit Beschreibung")
+            kopf = _bildindex_kopf(bi.get("meta") or {})
+            if kopf:
+                zeilen.append("  " + kopf)
+            ohne_vektor = beschrieben - bi["kennungen"]
+            ohne_eintrag = bi["kennungen"] - beschrieben
+            zeilen.append(f"  Beschrieben, aber ohne Vektor im Index: {_z(len(ohne_vektor))}; "
+                          f"im Index, aber nicht beschrieben: {_z(len(ohne_eintrag))}")
+            if ohne_vektor:
+                luecken.append(f"{bild_index}: {_z(len(ohne_vektor))} beschriebene Fotos ohne "
+                               f"Vektor (Bildsuche unvollstaendig)")
+        zeilen.append("")
 
     if bild_orte:
         o = orte_lesen(os.path.join(basis, bild_orte))

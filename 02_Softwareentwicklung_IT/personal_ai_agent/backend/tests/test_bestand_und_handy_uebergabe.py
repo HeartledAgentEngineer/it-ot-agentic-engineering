@@ -295,6 +295,78 @@ def test_nachweis_zeigt_keine_ortsnamen_und_zaehlt_nur_fertige_gebiete(tmp_path)
         assert verboten not in text
 
 
+# ── Bildindex (Bildsuche) im Nachweis ───────────────────────────────────────
+
+def _bildindex(tmp_path, ids, meta=None):
+    """``bild_index.db`` nachgebaut: Tabelle ``bilder`` + ``meta`` (echte Mini-SQLite)."""
+    import sqlite3
+    db = tmp_path / "bild_index.db"
+    con = sqlite3.connect(str(db))
+    con.executescript(
+        "CREATE TABLE bilder (fileid INTEGER PRIMARY KEY,"
+        " datum TEXT NOT NULL DEFAULT '', ordner TEXT NOT NULL DEFAULT '',"
+        " beschreibung TEXT NOT NULL DEFAULT '', vektor BLOB);"
+        "CREATE TABLE meta (schluessel TEXT PRIMARY KEY, wert TEXT NOT NULL DEFAULT '');")
+    con.executemany("INSERT INTO bilder (fileid, datum, ordner, beschreibung, vektor)"
+                    " VALUES (?,?,?,?,?)",
+                    [(k, "", "geheim/ordner", "eine Beschreibung", b"\x00\x01") for k in ids])
+    for schluessel, wert in (meta or {}).items():
+        con.execute("INSERT INTO meta (schluessel, wert) VALUES (?,?)", (schluessel, wert))
+    con.commit()
+    con.close()
+    return db
+
+
+def test_nachweis_zaehlt_den_bildindex(tmp_path):
+    """Der Bildindex stand in KEINEM Nachweis, obwohl er der Schluss der Kette ist."""
+    _bestand(tmp_path)
+    _bildindex(tmp_path, [1, 5], {"modell": "openai/text-embedding-3-small",
+                                  "dimension": "1536", "tokens_gezaehlt": "947779",
+                                  "kosten_usd": "0.018956", "stand": "2026-10-10T14:32"})
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert ("Bildindex (Bildsuche): bild_index.db: 2 Bilder, 2 mit Vektor, 2 mit Beschreibung"
+            ) in text
+    assert ("openai/text-embedding-3-small; 1536 Dimensionen; 947.779 Token; 0,02 USD; "
+            "Stand 2026-10-10T14:32") in text
+    # Beschrieben sind in _bestand nur die Kennungen 1 und 5 -> beide im Index.
+    assert "Beschrieben, aber ohne Vektor im Index: 0; im Index, aber nicht beschrieben: 0" in text
+
+
+def test_nachweis_meldet_fehlenden_bildindex_ehrlich(tmp_path):
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Bildindex (Bildsuche): bild_index.db fehlt" in "\n".join(zeilen)
+    assert "bild_index.db fehlt (Bildsuche nicht eingebettet)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Bildsuche)
+    assert "Bildindex" not in "\n".join(bp.pruefen(str(tmp_path), bild_index=None)[0])
+
+
+def test_nachweis_benennt_fehlende_vektoren_im_index(tmp_path):
+    """Ein beschriebenes Foto ohne Vektor im Index ist eine offene Luecke."""
+    _bestand(tmp_path)
+    _bildindex(tmp_path, [1])                     # Kennung 5 (beschrieben) fehlt im Index
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert ("Beschrieben, aber ohne Vektor im Index: 1; im Index, aber nicht beschrieben: 0"
+            ) in "\n".join(zeilen)
+    assert "bild_index.db: 1 beschriebene Fotos ohne Vektor (Bildsuche unvollstaendig)" in luecken
+
+
+def test_nachweis_zeigt_keine_inhalte_aus_dem_index(tmp_path):
+    _bestand(tmp_path)
+    _bildindex(tmp_path, [1], {"modell": "m"})
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    for verboten in ("eine Beschreibung", "geheim"):
+        assert verboten not in text
+
+
+def test_bildindex_kaputte_datei_wird_ehrlich_gemeldet(tmp_path):
+    kaputt = tmp_path / "kaputt.db"
+    kaputt.write_text("kein sqlite", encoding="utf-8")
+    erg = bp.bildindex_lesen(str(kaputt))
+    assert erg.get("fehlt") is True
+    assert bp.bildindex_lesen(str(tmp_path / "gibtsnicht.db")) == {"fehlt": True}
+
+
 # ── Uebergabe per Kabel ─────────────────────────────────────────────────────
 
 class AdbAttrappe:
