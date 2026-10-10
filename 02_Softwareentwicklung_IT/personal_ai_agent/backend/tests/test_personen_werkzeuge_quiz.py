@@ -116,3 +116,66 @@ def test_person_auskunft_unbekannter_name(basis):
 def test_person_auskunft_nimmt_nie_vektoren_oder_pfade(basis):
     r = _auskunft(person="Testperson A")
     assert "bbox" not in r.text and ".json" not in r.text and "/" not in r.text
+
+
+# ── fotos_mit_person: Trefferliste aus der Quiz-Quelle (Teil B, 10.10.2026) ──
+#
+# Befund: Der alte Weg tippte lokale Bildpfade ab und liess die Gesichtserkennung
+# live laufen; auf dem Handy liegen die Fotos aber nicht. Jetzt kommt die Liste aus
+# ``gruppen_quiz.bilder_mit`` und die Kennung -> Datei/Ordner aus dem
+# Beschreibungs-Index (``bild_beschreibungen.jsonl`` ueber ERZAEHL_EREIGNISSE_PFAD).
+
+ZUORDNUNG = [
+    {"bild_id": "5001", "index": 0, "kennung": "Person_1001", "bbox": [10.0, 20.0, 30.0, 40.0],
+     "anteil": 0.01, "score": 0.90, "aufnahme": "2019-07-01T12:00:00", "video_id": None},
+    {"bild_id": "5002", "index": 0, "kennung": "Person_1001", "bbox": [10.0, 20.0, 30.0, 40.0],
+     "anteil": 0.02, "score": 0.95, "aufnahme": "2021-03-05T09:30:00", "video_id": None},
+    {"bild_id": "5003", "index": 0, "kennung": "Person_1003", "bbox": [1.0, 2.0, 3.0, 4.0],
+     "anteil": 0.02, "score": 0.95, "aufnahme": "2020-01-01T00:00:00", "video_id": None},
+]
+BESCHREIBUNGEN = [
+    {"fileid": 5001, "datei": "IMG_5001.jpg", "ordner": "P:/Fotos/Urlaub", "beschreibung": "Strand"},
+    {"fileid": 5002, "datei": "IMG_5002.jpg", "ordner": "P:/Fotos/Urlaub", "beschreibung": "Berg"},
+    {"fileid": 5003, "datei": "IMG_5003.jpg", "ordner": "P:/Fotos/Zuhause", "beschreibung": "Kueche"},
+]
+
+
+def _mit_fotos(basis, monkeypatch):
+    """Zuordnung (Gesicht->Bild) und Beschreibungs-Index in die Quiz-Basis legen."""
+    _schreibe(basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME, ZUORDNUNG)
+    _schreibe(basis / "ereignisse.jsonl", [])
+    monkeypatch.setenv("ERZAEHL_EREIGNISSE_PFAD", str(basis / "ereignisse.jsonl"))
+    _schreibe(basis / "bild_beschreibungen.jsonl", BESCHREIBUNGEN)
+    gq._CACHE.clear()
+    wz._BILD_DATEIEN.clear()
+
+
+def _fotos(**args):
+    return wz.REGISTER["fotos_mit_person"].ausfuehren(args)
+
+
+def test_fotos_mit_person_kommt_aus_dem_quiz(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)
+    e = _fotos(person="Testperson A")
+    assert e.ok is True
+    assert "2 Foto(s)/Video(s) mit Testperson A" in e.text
+    # Datei, Aufnahmedatum und Ordner stammen aus dem Beschreibungs-Index.
+    assert "IMG_5002.jpg" in e.text and "2021-03-05" in e.text
+    assert "IMG_5001.jpg" in e.text and "2019-07-01" in e.text
+    assert "P:/Fotos/Urlaub" in e.text
+    # Eine andere Person taucht nicht auf; keine Innereien (bbox, Kennung).
+    assert "IMG_5003.jpg" not in e.text
+    assert "bbox" not in e.text and "Person_1001" not in e.text
+
+
+def test_fotos_mit_person_unbekannter_name_ist_ehrlich(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)
+    e = _fotos(person="Gibt-es-nicht")
+    assert e.ok is False and "bestätigte Person" in e.text
+
+
+def test_fotos_mit_person_tage_grenze(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)
+    e = _fotos(person="Testperson A", tage=30)
+    # Die Aufnahmen liegen 2019/2021 — weit ausserhalb der letzten 30 Tage.
+    assert "Keine Fotos" in e.text

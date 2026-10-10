@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 MAX_ZEICHEN = 6000
 MAX_TREFFER = 15
 
+# Zwischenspeicher fuer den Kennung->Datei/Ordner-Index (Beschreibungsdatei).
+_BILD_DATEIEN: Dict[str, Any] = {}
+
 # Kommt an den System-Prompt, wenn Werkzeuge aktiv sind.
 SYSTEM_HINWEIS = (
     "\n\n[Werkzeuge] Du hast Werkzeuge für Sebastians Handy-Dateien, sein Gesprächsarchiv, "
@@ -274,17 +277,98 @@ def _fotos_uebersicht(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen(text.strip()))
 
 
+def _bild_dateien_index() -> Dict[str, Dict[str, str]]:
+    """Kennung -> ``{"datei", "ordner"}`` aus dem Beschreibungs-Index.
+
+    Die Quiz-Gesichter tragen nur die ``fileid`` (pCloud-Kennung), nicht den Pfad
+    (``gesicht_zuordnung.jsonl``). Diese Zuordnung liefert Dateiname und Ordner aus
+    ``bild_beschreibungen.jsonl`` (Dienst ``erzaehl_service``), ohne ein Bild zu
+    oeffnen. Zwischengespeichert nach Datei-Zeit und -Groesse; **wirft nie**.
+    """
+    from app.services import erzaehl_service
+
+    pfad = erzaehl_service.beschreibungen_pfad()
+    try:
+        stand = os.stat(pfad)
+    except OSError:
+        return {}
+    schluessel = (stand.st_mtime, stand.st_size)
+    alt = _BILD_DATEIEN.get(pfad)
+    if alt and alt[0] == schluessel:
+        return alt[1]
+    index: Dict[str, Dict[str, str]] = {}
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            for zeile in datei:
+                try:
+                    eintrag = json.loads(zeile)
+                except ValueError:
+                    continue
+                if not isinstance(eintrag, dict):
+                    continue
+                name, kennung = eintrag.get("datei"), eintrag.get("fileid")
+                if kennung in (None, "") or not (isinstance(name, str) and name.strip()):
+                    continue
+                index[str(kennung)] = {"datei": name.strip(),
+                                       "ordner": str(eintrag.get("ordner") or "").strip()}
+    except (OSError, UnicodeDecodeError):
+        index = {}
+    _BILD_DATEIEN[pfad] = (schluessel, index)
+    return index
+
+
 def _fotos_mit_person(args: Dict[str, Any]) -> Ergebnis:
-    from app.services import gesicht_fotos
+    """Fotos und Videos mit einer Person — aus der QUIZ-Quelle.
+
+    Befund 10.10.2026: Der fruehere Weg (``gesicht_fotos``) tippte lokale Bildpfade
+    ab und liess die Gesichtserkennung live laufen. Auf dem Handy liegen die Fotos
+    aber nicht (das Archiv lebt in pCloud), und der Chat kannte nur die rund zehn
+    Namen des alten Katalogs. Jetzt kommt die Trefferliste aus
+    ``gruppen_quiz.bilder_mit`` (dieselbe Quelle wie ``personen_liste``); die
+    Kennung -> Datei/Ordner liefert der Beschreibungs-Index. Nur wenn die Quiz-Dateien
+    fehlen, greift der alte Weg als Notnagel. Nur Klartext, keine Vektoren, keine Bilder.
+    """
+    from app.services import gruppen_quiz
 
     person = str(args.get("person") or "").strip()
     if not person:
         return Ergebnis("Bitte den Namen der Person angeben (siehe personen_liste).", ok=False)
-    tage = args.get("tage")
-    try:
-        tage = int(tage) if tage not in (None, "") else None
-    except (TypeError, ValueError):
-        tage = None
+    tage = _ganzzahl(args.get("tage"), 0, 0, 36500) or None
+
+    quiz = gruppen_quiz.bilder_mit([person], modus="eine", limit=500)
+    if quiz.get("ok"):
+        if quiz.get("unbekannte_namen"):
+            return Ergebnis(
+                f"„{person}“ ist keine bestätigte Person. Bitte den Namen mit "
+                f"personen_liste prüfen.", ok=False)
+        treffer = list(quiz.get("treffer") or [])
+        if tage:
+            grenze = time.strftime("%Y-%m-%d",
+                                   time.localtime(time.time() - tage * 86400))
+            treffer = [t for t in treffer if str(t.get("aufnahme") or "") >= grenze]
+        zeitraum = f" in den letzten {tage} Tagen" if tage else ""
+        if not treffer:
+            return Ergebnis(f"Keine Fotos mit {person}{zeitraum} gefunden.")
+        index = _bild_dateien_index()
+        zeilen = []
+        for t in treffer[:MAX_TREFFER]:
+            info = index.get(str(t.get("fileid") or "")) or {}
+            teile = [info.get("datei") or f"Bild {t.get('fileid')}"]
+            if t.get("aufnahme"):
+                teile.append(str(t["aufnahme"])[:10])
+            if t.get("art") == "video":
+                teile.append("Video")
+            if info.get("ordner"):
+                teile.append(info["ordner"])
+            zeilen.append("- " + " | ".join(teile))
+        kopf = f"{len(treffer)} Foto(s)/Video(s) mit {person}{zeitraum}"
+        if len(treffer) > len(zeilen):
+            kopf += f", die {len(zeilen)} neuesten"
+        return Ergebnis(_kuerzen(kopf + ":\n" + "\n".join(zeilen)))
+
+    # Notnagel: alter Weg (lokale Gesichtserkennung) — nur wenn die Quiz-Quelle fehlt.
+    from app.services import gesicht_fotos
+
     ergebnis = gesicht_fotos.suche_bilder_mit_person(person, tage=tage) or {}
     gefunden = ergebnis.get("gefunden") or []
     if not gefunden:
@@ -477,8 +561,10 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
     ),
     Werkzeug(
         "fotos_mit_person",
-        "Findet Fotos auf dem Handy, auf denen eine bekannte Person erkannt wurde. Namen "
-        "vorher mit personen_liste prüfen.",
+        "Findet Fotos und Videos, auf denen eine bestätigte Person erkannt wurde "
+        "(aus dem Personen-Bestand des Quiz), mit Dateiname, Aufnahmedatum und Ordner. "
+        "Für 'zeig mir Fotos von X', 'was habe ich mit X'. Namen vorher mit "
+        "personen_liste prüfen.",
         _obj({
             "person": {"type": "string"},
             "tage": {"type": "integer", "description": "nur die letzten N Tage"},

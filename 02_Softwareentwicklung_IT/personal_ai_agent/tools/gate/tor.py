@@ -38,7 +38,12 @@ def _lebt(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
-    except OSError:
+    except (OSError, SystemError):
+        # Windows: fuer eine tote PID wirft os.kill(pid, 0) je nach Lage OSError
+        # (WinError 87) ODER SystemError ("returned a result with an exception
+        # set"). Beides heisst: der Prozess lebt nicht. Der SystemError brach das
+        # Tor sonst ab (Befund 10.10.2026: Commit mit "PRUEFBEFEHL ROT"
+        # abgewiesen, obwohl die Tests gruen waren — nur die tote Sperre stand im Weg).
         return False
 
 

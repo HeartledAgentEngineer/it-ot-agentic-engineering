@@ -207,12 +207,18 @@ def test_personen_liste_gibt_keine_vektoren_oder_bilder_heraus(tmp_path, monkeyp
         assert verboten not in e.text
 
 
-def test_fotos_mit_person(monkeypatch):
-    from app.services import gesicht_fotos
+def test_fotos_mit_person(monkeypatch, tmp_path):
+    # Ohne Quiz-Bestand greift der Notnagel (alte lokale Gesichtssuche) — genau den
+    # prüft dieser Test. Der Quiz-Weg hat eigene Tests:
+    # tests/test_personen_werkzeuge_quiz.py.
+    from app.services import gesicht_fotos, gruppen_quiz
+    monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path / "leer"))
+    gruppen_quiz._CACHE.clear()
     monkeypatch.setattr(gesicht_fotos, "suche_bilder_mit_person", lambda p, tage=None: {
         "gefunden": [{"name": "Musterperson", "pfad": "/sdcard/DCIM/IMG_1.jpg", "sicher": True}]})
     e = wz.ausfuehren("fotos_mit_person", {"person": "Musterperson", "tage": "7"})
     assert "1 Foto(s)" in e.text and "IMG_1.jpg" in e.text and "sicher" in e.text
+    gruppen_quiz._CACHE.clear()
 
 
 def test_wer_war_wann_prueft_datum(monkeypatch):
