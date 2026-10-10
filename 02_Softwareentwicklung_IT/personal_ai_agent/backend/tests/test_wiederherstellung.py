@@ -68,6 +68,47 @@ def test_teil_senden_bricht_bei_fehlerhafter_stufe_ab(tmp_path):
         ws.teil_senden(str(quelle), kaputt, XOR + ["1"], _schreiber(tmp_path / "z.bin"))
 
 
+class _WackelZiel(ws.LokalZiel):
+    """Wie das Handy mit wackliger USB-Verbindung: die ersten ``kaputt`` Schreibversuche
+    kommen nur halb an (``adb exec-in`` meldet trotzdem Erfolg)."""
+
+    def __init__(self, kaputt):
+        self.kaputt = kaputt
+
+    def schreiben(self, pfad, inhalt):
+        if self.kaputt > 0:
+            self.kaputt -= 1
+            inhalt = inhalt[: len(inhalt) // 2]
+        return super().schreiben(pfad, inhalt)
+
+
+def test_stueckweise_wiederholt_kaputtes_stueck_unter_neuem_namen(tmp_path):
+    quelle = tmp_path / "teil.bin"
+    quelle.write_bytes(os.urandom(3 * 1024 * 1024 + 17))
+    (tmp_path / "teile").mkdir()
+    ziel, meldungen = _WackelZiel(kaputt=1), []
+    ablage = ws.StueckAblage(ziel, str(tmp_path / "teile"), "x.age", groesse=1 << 20, melden=meldungen.append)
+    alt, neu, groesse = ws.teil_senden(str(quelle), XOR + ["85"], XOR + ["17"], None, ablage=ablage)
+    assert len(ablage.teile) == 4 and ablage.teile[0].endswith("x.age.000.v2")
+    assert (tmp_path / "teile" / "x.age.000").exists()          # der kaputte Versuch bleibt liegen
+    assert len(meldungen) == 1
+    ganz = tmp_path / "x.age"
+    assert ziel.zusammensetzen(str(ganz), ablage.teile)
+    assert alt == _sha(quelle) and neu == _sha(ganz) and groesse == ganz.stat().st_size
+    assert ganz.read_bytes() == bytes(b ^ 85 ^ 17 for b in quelle.read_bytes())
+
+
+def test_stueckweise_gibt_nach_drei_versuchen_auf_ohne_zu_haengen(tmp_path):
+    quelle = tmp_path / "teil.bin"
+    quelle.write_bytes(os.urandom(3 * 1024 * 1024))
+    (tmp_path / "teile").mkdir()
+    ablage = ws.StueckAblage(_WackelZiel(kaputt=99), str(tmp_path / "teile"), "x.age",
+                             groesse=1 << 20, melden=lambda _: None)
+    with pytest.raises(ws.TransferFehler, match="3 Versuchen"):
+        ws.teil_senden(str(quelle), XOR + ["85"], XOR + ["17"], None, ablage=ablage)
+    assert ablage.teile == [] and len(list((tmp_path / "teile").iterdir())) == 3
+
+
 # ── Ganzer Weg mit echtem age (Probelauf in einen Ordner) ───────────────────
 
 def _age():

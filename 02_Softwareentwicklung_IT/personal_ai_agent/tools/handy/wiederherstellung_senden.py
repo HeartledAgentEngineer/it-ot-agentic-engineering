@@ -9,6 +9,10 @@ Hauptschluessel verschluesselt; dessen privater Teil bleibt am PC. Dieses Werkze
 3. schickt jeden Teil (``home.tar.age``, ``distro_*.tar.age``) als Strom:
    ``age -d`` (Hauptschluessel) -> ``age -r`` (Einmal-Schluessel) -> ``adb exec-in``.
    Klartext gibt es nur im Arbeitsspeicher des PCs, nie auf einem Datentraeger.
+   Der Strom geht in Stuecken zu 128 MB nach ``<sendung>/teile/``. Jedes Stueck wird
+   am Handy per sha256 geprueft und notfalls unter neuem Namen wiederholt (bis zu 3x),
+   dann setzt das Handy die Stuecke selbst zusammen. Grund: Die USB-Verbindung riss
+   nach ~45-50 s Dauerlast ab, ``adb exec-in`` meldet das nicht.
 4. prueft unterwegs die sha256 der Quelle gegen ``MANIFEST.txt`` und am Ende die
    sha256 der Datei auf dem Handy, schreibt ``MANIFEST.txt`` und zuletzt ``FERTIG``.
 
@@ -45,6 +49,8 @@ HANDY_EMPFAENGER = f"{HANDY_ABLAGE}/einmal_empfaenger.txt"
 STANDARD_LOKAL = os.path.join(os.path.expanduser("~"), "termux-sicherung")
 EMPFAENGER_MUSTER = re.compile(r"age1[0-9a-z]{50,}")
 STUECK = 1 << 20
+TEIL_GROESSE = 128 << 20    # je Stueck ~4 s ueber USB; ein Abriss kostet nur ein Stueck
+VERSUCHE = 3
 
 
 class TransferFehler(Exception):
@@ -92,18 +98,68 @@ def manifest_lesen(ordner: str) -> dict:
     return teile
 
 
-def teil_senden(quelle: str, entschluesseln, verschluesseln, ziel, starten=subprocess.Popen):
+class StueckAblage:
+    """Nimmt den Strom an und legt ihn stueckweise am Ziel ab (10.10.2026).
+
+    Anlass: Am Handy riss die USB-Verbindung nach ~45-50 s Dauerlast ab (logcat adbd
+    ``UsbFfs: connection terminated``, zweimal bei ``home.tar.age``), und ``adb exec-in``
+    meldete das nicht. Jedes Stueck wird deshalb einzeln geschickt, am Ziel per sha256
+    geprueft und bei Bedarf unter neuem Namen wiederholt (nie ueberschreiben).
+    """
+
+    def __init__(self, ziel, ordner: str, name: str, groesse: int = 0, versuche: int = VERSUCHE,
+                 melden=print):
+        self.ziel, self.ordner, self.name = ziel, ordner, name
+        self.groesse, self.versuche, self.melden = groesse or TEIL_GROESSE, versuche, melden
+        self.puffer = bytearray()
+        self.teile: list = []
+        self.kaputt = False
+
+    def write(self, daten: bytes):
+        self.puffer += daten
+        while len(self.puffer) >= self.groesse:
+            self._senden(bytes(self.puffer[:self.groesse]))
+            del self.puffer[:self.groesse]
+
+    def close(self):
+        if self.puffer and not self.kaputt:
+            rest, self.puffer = bytes(self.puffer), bytearray()
+            self._senden(rest)
+
+    def _senden(self, daten: bytes):
+        nr, soll = len(self.teile), hashlib.sha256(daten).hexdigest()
+        for versuch in range(1, self.versuche + 1):
+            pfad = f"{self.ordner}/{self.name}.{nr:03d}" + ("" if versuch == 1 else f".v{versuch}")
+            try:
+                angekommen = self.ziel.schreiben(pfad, daten) and self.ziel.sha256(pfad) == soll
+            except OSError:
+                angekommen = False
+            if angekommen:
+                self.teile.append(pfad)
+                return
+            self.melden(f"    Stueck {nr} kam nicht heil an (Versuch {versuch} von {self.versuche})")
+        self.kaputt = True
+        raise TransferFehler(f"Stueck {nr} nach {self.versuche} Versuchen nicht angekommen")
+
+
+def teil_senden(quelle: str, entschluesseln, verschluesseln, ziel, starten=subprocess.Popen, ablage=None):
     """Strom ``quelle -> entschluesseln -> verschluesseln -> ziel``.
 
+    ``ziel`` ist ein Befehl, der den Strom auf stdin bekommt; alternativ nimmt
+    ``ablage`` (z. B. ``StueckAblage``) ihn mit ``write``/``close`` an.
     Gibt ``(sha256_quelle, sha256_neu, groesse_neu)`` zurueck; wirft TransferFehler,
     wenn eine Stufe scheitert.
     """
     alt, neu = hashlib.sha256(), hashlib.sha256()
     p1 = starten(entschluesseln, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     p2 = starten(verschluesseln, stdin=p1.stdout, stdout=subprocess.PIPE)
-    p3 = starten(ziel, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
-    assert p1.stdin and p1.stdout and p2.stdout and p3.stdin
-    eingang, zwischen, ausgang, ablage = p1.stdin, p1.stdout, p2.stdout, p3.stdin
+    p3 = None
+    if ablage is None:
+        p3 = starten(ziel, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+        assert p3.stdin
+        ablage = p3.stdin
+    assert p1.stdin and p1.stdout and p2.stdout
+    eingang, zwischen, ausgang = p1.stdin, p1.stdout, p2.stdout
     zwischen.close()        # gehoert jetzt p2; so bekommt p1 ein Rohrende, wenn p2 abbricht
     fehler = []
 
@@ -135,15 +191,20 @@ def teil_senden(quelle: str, entschluesseln, verschluesseln, ziel, starten=subpr
             neu.update(stueck)
             groesse += len(stueck)
             ablage.write(stueck)
-    except OSError as problem:
-        fehler.append(problem.__class__.__name__)
+    except (OSError, TransferFehler) as problem:
+        fehler.append(str(problem) if isinstance(problem, TransferFehler) else problem.__class__.__name__)
+        for prozess in (p1, p2):        # sonst staut sich der Strom und join() haengt
+            try:
+                prozess.kill()
+            except (OSError, AttributeError):
+                pass
     finally:
         try:
             ablage.close()
-        except OSError:
-            pass
+        except (OSError, TransferFehler) as problem:
+            fehler.append(str(problem) if isinstance(problem, TransferFehler) else problem.__class__.__name__)
     faden.join()
-    codes = (p1.wait(), p2.wait(), p3.wait())
+    codes = (p1.wait(), p2.wait()) + ((p3.wait(),) if p3 else ())
     if fehler or any(codes):
         raise TransferFehler(f"Stufen {codes}, Fehler {fehler or '-'}")
     return alt.hexdigest(), neu.hexdigest(), groesse
@@ -174,6 +235,10 @@ class HandyZiel:
     def sha256(self, pfad):
         code, text = self.adb(["shell", f"sha256sum {pfad}"])
         return text.split(" ", 1)[0].strip() if code == 0 else ""
+
+    def zusammensetzen(self, pfad, teile):
+        """Laeuft ganz am Handy (``cat``), ohne Daten ueber das Kabel."""
+        return self.adb(["shell", f"cat {' '.join(teile)} > {pfad}"])[0] == 0
 
 
 class LokalZiel:
@@ -208,6 +273,13 @@ class LokalZiel:
             for stueck in iter(lambda: datei.read(STUECK), b""):
                 h.update(stueck)
         return h.hexdigest()
+
+    def zusammensetzen(self, pfad, teile):
+        with open(pfad, "xb") as aus:
+            for teil in teile:
+                with open(teil, "rb") as ein:
+                    shutil.copyfileobj(ein, aus)
+        return True
 
 
 def ziel_waehlen(ziel, wurzel: str, stand: str, empfaenger: str):
@@ -288,22 +360,27 @@ def main(argv=None, adb=adb_echt, starten=subprocess.Popen) -> int:
         print(f"Liegt schon vollstaendig in {ordner} - nichts zu tun.")
         return 0
     ziel.anlegen(ordner)
+    ziel.anlegen(f"{ordner}/teile")
     print(f"Sende Sicherung {stand} nach {ordner} (Einmal-Schluessel {empfaenger[:12]}...)")
 
     zeilen = [f"stand={stand}"]
     for name, soll in sorted(teile.items()):
         quelle = os.path.join(sicherung, name)
         print(f"  {name}: {os.path.getsize(quelle) // 1048576} MB ...", flush=True)
+        ablage = StueckAblage(ziel, f"{ordner}/teile", name)
         try:
             ist_alt, ist_neu, groesse = teil_senden(
                 quelle, [age, "-d", "-i", schluessel], [age, "-r", empfaenger],
-                ziel.befehl(f"{ordner}/{name}"), starten=starten)
+                None, starten=starten, ablage=ablage)
         except TransferFehler as problem:
             print(f"Abbruch: {name} scheiterte ({problem}). Kein FERTIG - Sendung ist unvollstaendig.")
             return 6
         if ist_alt != soll:
             print(f"Abbruch: {name} am PC beschaedigt (sha256 passt nicht zu MANIFEST.txt).")
             return 5
+        if not ziel.zusammensetzen(f"{ordner}/{name}", ablage.teile):
+            print(f"Abbruch: {name} liess sich am Ziel nicht aus {len(ablage.teile)} Stuecken zusammensetzen.")
+            return 6
         if ziel.sha256(f"{ordner}/{name}") != ist_neu:
             print(f"Abbruch: {name} kam nicht vollstaendig an (sha256 am Ziel falsch).")
             return 5

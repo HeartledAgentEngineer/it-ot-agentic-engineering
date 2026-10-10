@@ -65,6 +65,34 @@ Für die Sicherung vom 10.10. legt Sebastian die Liste vor dem Deinstallieren ei
 - `adb exec-in` überträgt Binärdaten unverändert, geprüft mit 300 KB Zufallsdaten, sha256 gleich.
 - **Am Handy noch nicht gelaufen.** Das passiert beim echten Umzug.
 
+## Nachtrag 10.10.2026, ca. 03:45: Senden in Stücken
+
+Beim echten Umzug riss die USB-Verbindung zweimal mitten in `home.tar.age` ab: nach 51 s bei
+1.864 MB und nach 46 s bei 1.678 MB.
+- Belegt ist das im logcat von `adbd` mit `UsbFfs: connection terminated … Connection reset
+  by peer`.
+- `distro_debian.tar.age` (1.433 MB, ~38 s) kam beide Male heil an.
+- `adb exec-in` meldet so einen Abriss nicht als Fehler. Erkannt hat ihn nur der
+  sha256-Vergleich am Ziel. Deshalb gab es Exit 5, kein `FERTIG` und nichts wurde ausgepackt.
+
+Neu in `tools/handy/wiederherstellung_senden.py`:
+- `StueckAblage`: Der Strom geht in Stücken zu 128 MB nach `<sendung>/teile/`.
+  - Jedes Stück wird am Handy per sha256 geprüft.
+  - Kommt es nicht heil an, wird es unter neuem Namen (`.v2`, `.v3`) wiederholt, bis zu
+    dreimal. Danach bricht das Werkzeug mit Exit 6 ab.
+  - Ein Abriss kostet so nur ein Stück.
+- `zusammensetzen`: Das Handy fügt die Stücke selbst mit `cat` zusammen, ohne Daten über das
+  Kabel. Danach wird wie bisher die sha256 der ganzen Datei geprüft.
+- Behebt nebenbei einen alten Fehler: Fiel das Ziel aus, staute sich der Strom, und das
+  Werkzeug konnte hängen. Jetzt werden die beiden age-Prozesse beendet.
+- Die Stücke bleiben in `teile/` liegen (das Werkzeug löscht nichts). Wenn die
+  Wiederherstellung gelaufen ist, kann Sebastian sie löschen, ebenso die beiden
+  unvollständigen Sendeordner ohne `FERTIG`.
+
+Tests: `backend/tests/test_wiederherstellung.py` +2:
+- Ein Stück kommt halb an und wird unter neuem Namen wiederholt. Der Inhalt stimmt danach.
+- Es kommt nie heil an: Nach 3 Versuchen bricht das Werkzeug ab, ohne zu hängen.
+
 ## Ablauf für den Umzug
 
 1. Im alten Termux: `pip freeze > /sdcard/Download/termux-sicherung/pip_alt.txt`.
