@@ -22,6 +22,7 @@ from app.services.hermes_local import (
     ist_verfuegbar as hermes_local_ist_verfuegbar,
     stream_auftrag as hermes_local_stream_auftrag,
     hermes_registry,
+    arbeits_start_zeile as hermes_arbeits_start_zeile,
 )
 from app.services.llm_service import llm_service
 from app.services.memory_service import memory_service
@@ -1946,12 +1947,19 @@ async def chat_stream(request: ChatRequest):
                 # bleibt. (Wunsch Sebastian 2026-09-07)
                 reply_text = "▶️ Hermes bearbeitet…\n"
             else:
+                # Konkrete Startzeile (was, womit, Zeitbudget) statt vager
+                # Zeilen — Sebastian 10.10.2026: "Das muss auf jeden Fall
+                # konkreter sein, was er gerade macht". Der Fortschritt
+                # bleibt zusaetzlich oben in der Statusleiste sichtbar
+                # (GET /api/laeuft, app/services/laufende_arbeiten.py).
                 reply_text = (
                     "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
                     "➡️ **Weitergeleitet an:** Hermes (Handy)\n\n"
                     f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
+                    + hermes_arbeits_start_zeile() + "\n"
                     "Gedanken & Zwischenschritte erscheinen hier live, das "
-                    "Endergebnis danach.\n"
+                    "Endergebnis danach. Der Fortschritt bleibt oben in der "
+                    "Leiste sichtbar.\n"
                 )
             _finish_exchange(conversation_id, request.message, reply_text)
             # Verknuepfung Auftrag <-> Gespraech setzt _starte_lokale_hermes

@@ -13,14 +13,19 @@ Der Agent weiß begründet, was er kann und was nicht:
   Tool-Install) **mit Wortgrenzen (Regex)**, damit kurze Marker wie "git" oder
   "run" nicht in "digital"/"darunter" fälschlich treffen.
 - **`faehigkeits_block()`** — wird in den System-Prompt eingebettet (siehe
-  `llm_service.load_system_prompt()`). Das Selbstbild ist **proaktiv**: Es nennt
-  Hermes als benutzbares Werkzeug, listet die **Auslöser-Stichworte**, an denen
-  die Weiche automatisch delegiert (Terminal/Datei schreiben/Git/Docker/
-  Tool-Install/SPS-OT + Arbeitsverb mit System-Bezug), und weist den Agenten an,
-  bei solchen Anfragen **NICHT zurückzufragen**, sondern direkt **"Das übernimmt
-  Hermes."** zu sagen. Zusätzlich nennt es die **Handy-Dateisuche** als eigene
-  Fähigkeit: Bilder/Screenshots/Fotos per Suchbegriff anzeigen und PDF-/Text-
-  Dokumente vom Gerät lesen (ohne Upload), statt nach einem Upload zu fragen.
+  `llm_service.load_system_prompt()`). Das Selbstbild benennt (seit 10.10.2026)
+  **ausdrücklich, dass Hermes KEIN aufrufbares Werkzeug** in der Werkzeugliste
+  ist: die Übergabe macht die Weiche automatisch im Backend, VOR dem Modell;
+  das Modell erfindet keinen Aufruf, keine Übergabe und kein Ergebnis.
+  Es nennt weiterhin die **Auslöser-Stichworte** der automatischen Delegation
+  (Terminal/Datei schreiben/Git/Docker/Tool-Install/SPS-OT + Arbeitsverb mit
+  System-Bezug). Die frühere Formulierung „sage: ‚Das übernimmt Hermes.'" ist
+  entfernt — sie ließ das Modell eine Übergabe behaupten, obwohl ihm solche
+  Nachrichten gar nicht mehr zugestellt werden (Befund 10.10.2026: „mein
+  Personal Agent wollte Hermes, was gar nicht aktiviert ist").
+  Zusätzlich nennt es die **Handy-Dateisuche** als eigene Fähigkeit:
+  Bilder/Screenshots/Fotos per Suchbegriff anzeigen und PDF-/Text-Dokumente
+  vom Gerät lesen (ohne Upload), statt nach einem Upload zu fragen.
 
 ## 2. Hermes-Delegation (`soll_hermes_delegieren`)
 

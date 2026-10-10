@@ -36,6 +36,7 @@ from app.router import (
     erzaehlen,
     gruppen,
     diagnose,
+    laeuft,
 )
 
 # Configure logging
@@ -229,6 +230,12 @@ app.include_router(gruppen.router, dependencies=[Depends(auth.require_api_key)])
 # Ueberlauf-Waechter (01.10.2026): die Oberflaeche meldet nur Messwerte, wenn eine
 # Blase rechts herausragt; Ablage im kabel-lesbaren Diagnose-Ordner. Immer HTTP 200.
 app.include_router(diagnose.router, dependencies=[Depends(auth.require_api_key)])
+# Statusleiste (10.10.2026): Was laeuft gerade im Hintergrund? Fasst
+# angemeldete Backend-Arbeiten, laufende Auftraege (Status 'laeuft') und die
+# kabel-lesbaren Protokolldateien zusammen (app/services/laufende_arbeiten.py).
+# Rein lesend, fehlertolerant: fehlende Quellen ergeben eine leere Liste.
+# Die Oberflaeche pollt die Route fuer die dauerhafte Leiste oben.
+app.include_router(laeuft.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

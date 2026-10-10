@@ -631,15 +631,170 @@ def schemata() -> List[Dict[str, Any]]:
     ]
 
 
-def status_text(name: str) -> str:
+def _kurz(wert: Any, grenze: int = 60) -> str:
+    text = str(wert or "").strip().replace("\n", " ")
+    return text[:grenze]
+
+
+def _args_lesen(argumente: Any) -> Dict[str, Any]:
+    """Argumente des Modells als Dict — kaputte Eingaben ergeben {}."""
+    if isinstance(argumente, dict):
+        return argumente
+    if not argumente:
+        return {}
+    try:
+        daten = json.loads(argumente)
+    except (ValueError, TypeError):
+        return {}
+    return daten if isinstance(daten, dict) else {}
+
+
+def argument_detail(name: str, argumente: Any = None) -> str:
+    """Konkreter Zusatz aus den Aufruf-Argumenten, z. B. `Person „Anna“`.
+
+    Sebastian 10.10.2026: „Das muss auf jeden Fall konkreter sein, was er
+    gerade macht" — vage Zeilen wie „liest" sind unbrauchbar. Leer, wenn
+    nichts Aussagekraeftiges dabei ist; wirft nie.
+    """
+    args = _args_lesen(argumente)
+    teile: List[str] = []
+    try:
+        if name == "dateien_suchen":
+            art = _kurz(args.get("art"), 20)
+            if art == "bild":
+                teile.append("Bilder")
+            elif art == "dokument":
+                teile.append("Dokumente")
+            if args.get("stichwort"):
+                teile.append(f"Stichwort „{_kurz(args.get('stichwort'))}“")
+            if args.get("jahr"):
+                teile.append(f"Jahr {_kurz(args.get('jahr'), 8)}")
+            if args.get("tag"):
+                teile.append(f"Tag {_kurz(args.get('tag'), 20)}")
+        elif name == "datei_ansehen":
+            pfad = _kurz(args.get("pfad"), 160)
+            if pfad:
+                teile.append("Datei " + pfad.rsplit("/", 1)[-1])
+        elif name == "archiv_suchen":
+            if args.get("frage"):
+                teile.append(f"Thema „{_kurz(args.get('frage'), 80)}“")
+        elif name == "notizen_suchen":
+            if args.get("person"):
+                teile.append(f"Person „{_kurz(args.get('person'))}“")
+            if args.get("frage"):
+                teile.append(f"Stichwort „{_kurz(args.get('frage'), 80)}“")
+        elif name == "erinnerungen_suchen":
+            if args.get("frage"):
+                teile.append(f"Frage „{_kurz(args.get('frage'), 80)}“")
+        elif name == "fotos_uebersicht":
+            if args.get("suche"):
+                teile.append(f"Thema „{_kurz(args.get('suche'), 80)}“")
+            if args.get("jahr"):
+                teile.append(f"Jahr {_kurz(args.get('jahr'), 8)}")
+        elif name == "fotos_mit_person":
+            if args.get("person"):
+                teile.append(f"Person „{_kurz(args.get('person'))}“")
+            tage = args.get("tage")
+            if isinstance(tage, int) and tage > 0:
+                teile.append(f"letzte {tage} Tage")
+        elif name == "person_auskunft":
+            if args.get("person"):
+                teile.append(f"Person „{_kurz(args.get('person'))}“")
+        elif name == "wer_war_wann":
+            if args.get("datum"):
+                teile.append(f"Datum {_kurz(args.get('datum'), 20)}")
+    except Exception:  # pragma: no cover - Darstellung darf nie brechen
+        return ""
+    return ", ".join(teile)
+
+
+def status_text(name: str, argumente: Any = None) -> str:
+    """Statuszeile fuer die Oberflaeche — MIT den konkreten Argumenten.
+
+    Beispiel: „🔧 sucht Fotos mit einer Person (Person „Anna“) …" statt nur
+    „🔧 sucht Fotos mit einer Person …". Ohne erkennbare Argumente bleibt es
+    beim bisherigen Text.
+    """
     w = REGISTER.get(name)
-    return w.status if w else f"🔧 {name} …"
+    basis = w.status if w else f"🔧 {name} …"
+    detail = argument_detail(name, argumente) if w else ""
+    if not detail:
+        return basis
+    grund = basis.rstrip().rstrip("…").rstrip()
+    return f"{grund} ({detail}) …"
+
+
+def laufender_name(name: str, argumente: Any = None) -> str:
+    """Klartext-Name fuer die Statusleiste (ohne Symbole), z. B. fuer /api/laeuft."""
+    detail = argument_detail(name, argumente)
+    text = f"Werkzeug {name}"
+    return f"{text} ({detail})" if detail else text
+
+
+def pruefe_register() -> List[str]:
+    """Invariante: Jedes ANGEBOTENE Werkzeug ist ausfuehrbar.
+
+    Prueft, dass JEDER Eintrag aus ``schemata()`` (das, was dem Modell als
+    Werkzeugliste angeboten wird) im REGISTER steht UND dort ein aufrufbares
+    ``ausfuehren`` hat — und umgekehrt jedes Register-Werkzeug auch angeboten
+    wird. Liefert die Liste der Beanstandungen; leer = in Ordnung.
+    (Sebastian 10.10.2026: „nach der Aenderung darf kein Werkzeugname mehr
+    angeboten werden, der nicht ausfuehrbar ist" — der Test
+    ``test_jedes_angebotene_werkzeug_hat_einen_ausfuehrer`` ruft das hier auf.)
+
+    Bewusst defensiv: Die angebotenen Schemata werden direkt gelesen, nicht
+    aus dem Register rekonstruiert — so faellt auch ein von Hand eingefuegter
+    Schema-Eintrag ohne Ausfuehrer auf.
+    """
+    probleme: List[str] = []
+    for name, w in REGISTER.items():
+        if not str(name or "").strip():
+            probleme.append("Werkzeug ohne Namen im Register")
+        if name != getattr(w, "name", None):
+            probleme.append(
+                f"{name}: Registerschluessel != Werkzeug-Name {getattr(w, 'name', '?')!r}"
+            )
+        if not callable(getattr(w, "ausfuehren", None)):
+            probleme.append(f"{name}: kein aufrufbarer Ausfuehrer")
+        if not str(getattr(w, "beschreibung", "") or "").strip():
+            probleme.append(f"{name}: ohne Beschreibung fuer das Modell")
+        parameter = getattr(w, "parameter", None)
+        if not isinstance(parameter, dict) or parameter.get("type") != "object":
+            probleme.append(f"{name}: Parameter sind kein JSON-Objekt")
+    angeboten: List[str] = []
+    for schema in schemata():
+        fn = (schema or {}).get("function") if isinstance(schema, dict) else None
+        name = (fn or {}).get("name") if isinstance(fn, dict) else None
+        angeboten.append(name)
+        w = REGISTER.get(name) if isinstance(name, str) else None
+        if w is None:
+            probleme.append(f"{name!r}: wird angeboten, ist aber nicht im Register")
+        elif not callable(getattr(w, "ausfuehren", None)):
+            probleme.append(f"{name}: wird angeboten, hat aber keinen Ausfuehrer")
+    for fehlend in sorted(set(REGISTER) - {n for n in angeboten if n}):
+        probleme.append(f"{fehlend}: im Register, wird dem Modell aber nicht angeboten")
+    return probleme
 
 
 def ausfuehren(name: str, argumente_json: Any) -> Ergebnis:
     """Ein Werkzeug ausfuehren. Wirft nie; Fehler kommen als Text zurueck."""
     werkzeug = REGISTER.get(name)
     if werkzeug is None:
+        # „Hermes" ist bewusst KEIN Werkzeug (Spec docs/spec-tool-use-v1.md:
+        # nur lesende Werkzeuge; die Delegation macht die Weiche vor dem
+        # Modell). Kam trotzdem ein Aufruf, bekam das Modell frueher nur den
+        # Standardsatz — und erzaehlte dem Nutzer dann von einem „nicht
+        # aktivierten Werkzeug" (Befund Sebastian 10.10.2026). Jetzt eine
+        # klare, ehrliche Antwort, damit nie eine Uebergabe behauptet wird.
+        if str(name or "").strip().lower() in (
+            "hermes", "hermes_aufgabe", "hermes_tool", "hermes_werkzeug",
+        ):
+            return Ergebnis(
+                "Es gibt KEIN aufrufbares Werkzeug „Hermes“ — die Übergabe an "
+                "Hermes macht das Backend automatisch, bevor eine Aufgabe zu "
+                "dir kommt. Du kannst selbst nichts an Hermes schicken: Sage "
+                "ehrlich, dass diese Aufgabe nicht bei dir ausführbar ist, und "
+                "behaupte keine Übergabe und kein Ergebnis.", ok=False)
         return Ergebnis(f"Unbekanntes Werkzeug „{name}“. Verfügbar: {', '.join(REGISTER)}.", ok=False)
     try:
         if isinstance(argumente_json, dict):

@@ -11,7 +11,7 @@
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261010A">
+    <link rel="stylesheet" href="style.css?v=20261010B">
 </head>
 <body>
     <div id="app">
@@ -61,6 +61,21 @@
                         aria-label="Personen benennen öffnen">👥</button>
             </div>
         </header>
+
+        <!-- Hintergrund-Leiste (10.10.2026, Wunsch Sebastian: "muss jederzeit
+             ersichtlich sein, welche Hintergrundprozesse laufen"): dauerhafte
+             Statuszeile am oberen Rand. Zeigt Name und Dauer der laufenden
+             Hintergrundarbeit, antippbar fuer Einzelheiten (Zustand, Start,
+             Fortschritt, letzte Zeile); ohne Arbeit "Keine Hintergrundarbeit".
+             Quelle: GET /api/laeuft, regelmaessig selbst erneuert (app.js).
+             Deutsch, bewusst ohne Symbole. -->
+        <div id="hintergrund-leiste" class="hintergrund-leiste" data-zustand="ruhe">
+            <button id="hintergrund-kopf" type="button" aria-expanded="false"
+                    title="Einzelheiten anzeigen">
+                <span id="hintergrund-text">Keine Hintergrundarbeit</span>
+            </button>
+            <div id="hintergrund-einzelheiten" hidden></div>
+        </div>
 
         <!-- Streaming-Geschwindigkeit-Menue (ueber dem Chat, Zahnrad oben rechts) -->
         <div id="stream-menu" class="stream-menu" hidden>
@@ -550,7 +565,7 @@
     <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
          serverseitig, nie im versionierten Code). -->
     <script src="api/konfig"></script>
-    <script src="app.js?v=20261010B"></script>
+    <script src="app.js?v=20261010C"></script>
     <script src="erzaehlen.js?v=20261007D"></script>
     <script src="gruppen_quiz.js?v=20261010A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

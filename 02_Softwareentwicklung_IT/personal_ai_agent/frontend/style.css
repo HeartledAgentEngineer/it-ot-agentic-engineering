@@ -132,6 +132,52 @@ body {
 }
 
 /* =========================================
+   Hintergrund-Leiste (10.10.2026)
+   Dauerhafte Statuszeile am oberen Rand: zeigt jederzeit, welche
+   Hintergrundarbeit laeuft (Quelle: GET /api/laeuft). Antippen zeigt
+   Einzelheiten. Deutsch, bewusst ohne Symbole.
+   ========================================= */
+
+.hintergrund-leiste {
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+#hintergrund-kopf {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 6px 20px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hintergrund-leiste[data-zustand="arbeit"] #hintergrund-text {
+    color: #ffb86b;
+}
+
+#hintergrund-einzelheiten {
+    padding: 6px 20px 10px;
+    border-top: 1px dashed var(--border);
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+#hintergrund-einzelheiten[hidden] {
+    display: none;
+}
+
+/* =========================================
    Chat Container
    ========================================= */
 

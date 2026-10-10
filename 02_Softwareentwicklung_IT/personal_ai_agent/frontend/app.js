@@ -6518,6 +6518,15 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                         htext || daten.text,
                         zeitIso || new Date().toISOString()
                     );
+                } else if (daten.status) {
+                    // Konkrete Arbeits-Zeile des Agenten (was er JETZT tut,
+                    // inklusive Argumenten wie Personenname/Suchbegriff —
+                    // Sebastian 10.10.2026: "Das muss auf jeden Fall
+                    // konkreter sein, was er gerade macht"). Diese Ereignisse
+                    // kamen vom Backend schon immer, wurden hier aber
+                    // verworfen — es blieb nur "Agent liest deine Nachricht…"
+                    // stehen. Jetzt zeigt die untere Bubble den echten Schritt.
+                    try { setzeTutZeile(daten.status); } catch (_) {}
                 } else if (daten.done) {
                     // WICHTIG: VOR `daten.sources` pruefen! Das done-Ereignis
                     // traegt selbst sources UND bild_vorschau (Backend chat.py:
@@ -9108,6 +9117,144 @@ function hermesLiveJobWaehlen(jobs, jetztMs, ausgeblendet, maxAlterMs) {
     // Alle 3s polln
     pollHermes();
     setInterval(pollHermes, 3000);
+})();
+
+// ── Hintergrund-Leiste (10.10.2026) ─────────────────────────────────────────
+// Dauerhafte Statuszeile am oberen Rand (index.html #hintergrund-leiste):
+// zeigt jederzeit, welche Hintergrundarbeit laeuft — Name, seit wann,
+// antippbar fuer Einzelheiten; ohne Arbeit "Keine Hintergrundarbeit".
+// Quelle: GET /api/laeuft (backend/app/router/laeuft.py; angemeldete
+// Backend-Arbeiten, laufende Auftraege, Protokolldateien). Deutsch, ohne
+// Symbole. Die reinen Text-Funktionen sind ohne DOM testbar
+// (frontend/tests/test_hintergrund_leiste.js).
+const HINTERGRUND_TAKT_MS = 15000;
+
+/** Dauer als Klartext: "weniger als eine Minute", "5 Minuten", "1 Stunde 20 Minuten". */
+function hintergrundDauerText(sekunden) {
+    const gesamt = Math.max(0, Math.floor(Number(sekunden) || 0));
+    if (gesamt < 60) return 'weniger als eine Minute';
+    const minuten = Math.floor(gesamt / 60);
+    if (minuten < 60) return minuten + (minuten === 1 ? ' Minute' : ' Minuten');
+    const stunden = Math.floor(minuten / 60);
+    const rest = minuten % 60;
+    return stunden + (stunden === 1 ? ' Stunde' : ' Stunden')
+        + (rest ? ' ' + rest + (rest === 1 ? ' Minute' : ' Minuten') : '');
+}
+
+/** Startzeit kurz: "14:03 Uhr" fuer heute, sonst "10.10. 14:03 Uhr". */
+function hintergrundZeitText(iso) {
+    const ms = Date.parse(String(iso || ''));
+    if (isNaN(ms)) return '';
+    const d = new Date(ms);
+    const zwei = (n) => (n < 10 ? '0' + n : '' + n);
+    const jetzt = new Date();
+    const gleichTag = d.getFullYear() === jetzt.getFullYear()
+        && d.getMonth() === jetzt.getMonth() && d.getDate() === jetzt.getDate();
+    const zeit = zwei(d.getHours()) + ':' + zwei(d.getMinutes()) + ' Uhr';
+    return gleichTag ? zeit : zwei(d.getDate()) + '.' + zwei(d.getMonth() + 1) + '. ' + zeit;
+}
+
+/** Kopfzeile: "Es läuft: <Name> seit <Dauer>" bzw. "Keine Hintergrundarbeit".
+ *  Gezählt werden NUR wirklich laufende Einträge (zustand 'laeuft') —
+ *  alte/stehende Protokolle dürfen nicht als "läuft" erscheinen; sie stehen
+ *  in den Einzelheiten. */
+function hintergrundKurzText(daten, jetztMs) {
+    const arbeiten = (daten && Array.isArray(daten.arbeiten)) ? daten.arbeiten : [];
+    const laufende = arbeiten.filter((a) => a && a.zustand === 'laeuft');
+    if (!laufende.length) return 'Keine Hintergrundarbeit';
+    const erste = laufende[0] || {};
+    const name = String(erste.name || 'Hintergrundarbeit');
+    let seit = '';
+    if (typeof erste.dauer_sekunden === 'number') {
+        seit = ' seit ' + hintergrundDauerText(erste.dauer_sekunden);
+    } else if (erste.seit) {
+        const ms = Date.parse(String(erste.seit));
+        if (!isNaN(ms) && typeof jetztMs === 'number') {
+            seit = ' seit ' + hintergrundDauerText((jetztMs - ms) / 1000);
+        }
+    }
+    if (laufende.length === 1) return 'Es läuft: ' + name + seit;
+    return 'Es laufen ' + laufende.length + ' Arbeiten: ' + name + seit;
+}
+
+/** Zustand als Klartext (englische Werte des Backends uebersetzt). */
+function hintergrundZustandText(zustand) {
+    if (zustand === 'laeuft') return 'läuft';
+    if (zustand === 'steht') return 'steht (keine neuen Zeilen)';
+    if (zustand === 'leer') return 'leer';
+    return String(zustand || 'unbekannt');
+}
+
+/** Einzelheiten (antippbar): je Arbeit Name, Zustand, Start, Dauer, Fortschritt, letzte Zeile.
+ *  Laufende zuerst, stehende danach (der Zustand steht in der Klammer). */
+function hintergrundEinzelheitenText(daten) {
+    const arbeiten = (daten && Array.isArray(daten.arbeiten)) ? daten.arbeiten : [];
+    if (!arbeiten.length) return '';
+    const sortiert = arbeiten.slice().sort((a, b) => {
+        const aLaeuft = a && a.zustand === 'laeuft' ? 0 : 1;
+        const bLaeuft = b && b.zustand === 'laeuft' ? 0 : 1;
+        return aLaeuft - bLaeuft;
+    });
+    const bloecke = sortiert.map((eintrag) => {
+        const e = eintrag || {};
+        const zeilen = [String(e.name || 'Hintergrundarbeit')
+            + ' (' + hintergrundZustandText(e.zustand) + ')'];
+        const start = hintergrundZeitText(e.seit);
+        if (start) zeilen.push('Start: ' + start);
+        if (typeof e.dauer_sekunden === 'number') {
+            zeilen.push('Dauer: ' + hintergrundDauerText(e.dauer_sekunden));
+        }
+        if (e.fortschritt) zeilen.push('Fortschritt: ' + String(e.fortschritt));
+        if (e.letzte_zeile) zeilen.push('Letzte Zeile: ' + String(e.letzte_zeile));
+        return zeilen.join('\n');
+    });
+    return bloecke.join('\n\n');
+}
+
+(function () {
+    const leiste = document.getElementById('hintergrund-leiste');
+    if (!leiste) return;
+    const textEl = document.getElementById('hintergrund-text');
+    const einzelheitenEl = document.getElementById('hintergrund-einzelheiten');
+    const kopfBtn = document.getElementById('hintergrund-kopf');
+    let offen = false;
+
+    function zeichnen(daten) {
+        const arbeiten = (daten && Array.isArray(daten.arbeiten)) ? daten.arbeiten : [];
+        const laufende = arbeiten.filter((a) => a && a.zustand === 'laeuft');
+        leiste.setAttribute('data-zustand', laufende.length ? 'arbeit' : 'ruhe');
+        if (textEl) textEl.textContent = hintergrundKurzText(daten, Date.now());
+        if (einzelheitenEl) einzelheitenEl.textContent = hintergrundEinzelheitenText(daten);
+    }
+
+    async function laden() {
+        try {
+            const res = await fetch(`${API_BASE}/api/laeuft`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            zeichnen(await res.json());
+        } catch (_) {
+            // Server kurz weg: ehrlich zeigen statt alte Angaben stehen zu
+            // lassen. Der naechste Takt versucht es wieder.
+            if (textEl) textEl.textContent = 'Hintergrund-Status gerade nicht abrufbar';
+            leiste.setAttribute('data-zustand', 'ruhe');
+        }
+    }
+
+    if (kopfBtn) {
+        kopfBtn.addEventListener('click', function () {
+            offen = !offen;
+            kopfBtn.setAttribute('aria-expanded', offen ? 'true' : 'false');
+            if (einzelheitenEl) einzelheitenEl.hidden = !offen;
+        });
+    }
+
+    // Sofort laden und dann regelmaessig selbst erneuern; beim Zurueckkommen
+    // in die App (Reiter war inaktiv) ebenfalls sofort.
+    laden();
+    setInterval(laden, HINTERGRUND_TAKT_MS);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) laden();
+    });
 })();
 
 // =========================================

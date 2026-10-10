@@ -273,7 +273,8 @@ pruefe(/'&ordnung=' \+ alle\.ordnung/.test(src), 'Gesichterliste fragt mit der g
 pruefe(/\.gruppen-alle-jahr\s*\{[^}]*grid-column:\s*1 \/ -1/.test(css), 'Jahreskopf über die ganze Rasterbreite');
 pruefe(/\.gruppen-alle-namen\[hidden\]\s*\{\s*display:\s*none/.test(css), 'Namensauswahl versteckbar trotz display:flex');
 pruefe(/textContent = n;/.test(src) && !/innerHTML = n/.test(src), 'Namen nur per textContent');
-pruefe(/gruppen_quiz\.js\?v=20261010A/.test(html) && /style\.css\?v=20261010A/.test(html), 'Cache-Bump 20261010A');
+pruefe(/gruppen_quiz\.js\?v=20261010A/.test(html) && /style\.css\?v=20261010B/.test(html),
+    'Cache-Bump: Skript 20261010A, Stil 20261010B (Stil-Bump 10.10. für die Hintergrund-Leiste)');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

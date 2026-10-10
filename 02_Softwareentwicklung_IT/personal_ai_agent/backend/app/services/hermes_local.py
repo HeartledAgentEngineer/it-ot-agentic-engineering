@@ -325,6 +325,35 @@ def ist_verfuegbar() -> bool:
     return shutil.which("hermes") is not None and shutil.which("tmux") is not None
 
 
+def arbeits_start_zeile() -> str:
+    """Konkrete Startzeile fuer den Chat, wenn der lokale Hermes uebernimmt.
+
+    Sebastian 10.10.2026: „Das muss auf jeden Fall konkreter sein, was er
+    gerade macht" — vage Zeilen sind unbrauchbar. Die Zeile nennt Uhrzeit,
+    Arbeitsmittel (lokaler Hermes im Termux, Modell) und das Zeitbudget als
+    ehrliche Obergrenze. Wirft nie; fehlende Settings ergeben eine kuerzere
+    Zeile statt eines Fehlers.
+    """
+    start = time.strftime("%H:%M")
+    modell = ""
+    budget_min = 0
+    try:
+        from app.config import settings
+
+        modell = str(getattr(settings, "hermes_local_model", "") or "").strip()
+        budget_min = max(0, int(getattr(settings, "hermes_auftrag_timeout", 0) or 0)) // 60
+    except Exception:  # pragma: no cover - Darstellung darf nie brechen
+        pass
+    womit = "lokaler Hermes im Termux-CLI"
+    if modell:
+        womit += f", Modell {modell}"
+    if budget_min > 0:
+        dauer = f"Zeitbudget bis zu {budget_min} Minuten"
+    else:
+        dauer = "Zeitbudget einige Minuten"
+    return f"Gestartet {start} Uhr · Womit: {womit} · {dauer}."
+
+
 def hat_mehrwert(kommentar: str) -> bool:
     """Soll der Kommentar ins persoenliche Gedaechtnis gelernt werden?
 

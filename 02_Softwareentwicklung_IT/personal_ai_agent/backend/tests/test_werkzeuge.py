@@ -232,3 +232,69 @@ def test_fotos_uebersicht_fehlt(monkeypatch):
     from app.services import foto_uebersicht
     monkeypatch.setattr(foto_uebersicht, "text_antwort", lambda **k: "")
     assert not wz.ausfuehren("fotos_uebersicht", {}).ok
+
+
+# ── Angebotene Werkzeuge sind ausfuehrbar (Befund 10.10.2026) ──────────────
+# Warum diese Gruppe: Der Agent bot „Hermes" als Werkzeug an, das es nie gab
+# (der System-Prompt versprach es — Reparatur in faehigkeiten.py, Sonderfall
+# in ausfuehren()). Diese Tests halten die Invariante fest: JEDES Werkzeug,
+# das dem Modell angeboten wird (schemata()), hat im REGISTER einen
+# aufrufbaren Ausfuehrer.
+
+def test_jedes_angebotene_werkzeug_hat_einen_ausfuehrer():
+    schemata = wz.schemata()
+    assert schemata, "Ohne Angebot kann das Modell nichts aufrufen"
+    for schema in schemata:
+        name = schema["function"]["name"]
+        werkzeug = wz.REGISTER.get(name)
+        assert werkzeug is not None, f"{name} wird angeboten, fehlt aber im Register"
+        assert callable(getattr(werkzeug, "ausfuehren", None)), \
+            f"{name} wird angeboten, hat aber keinen Ausfuehrer"
+    # Und umgekehrt: kein Register-Werkzeug wird stillschweigend verschwiegen.
+    angeboten = {s["function"]["name"] for s in schemata}
+    assert angeboten == set(wz.REGISTER)
+
+
+def test_pruefe_register_ist_sauber():
+    assert wz.pruefe_register() == []
+
+
+def test_pruefe_register_findet_fehlenden_ausfuehrer(monkeypatch):
+    """Gegenprobe: ein angebotenes Werkzeug OHNE Ausfuehrer wird gemeldet."""
+    kaputt = wz.Werkzeug(
+        "test_kaputt",
+        "Testbeschreibung lang genug fuer die Register-Pruefung",
+        wz._obj({}),
+        None,  # type: ignore[arg-type]  — genau der Fehler, den es zu finden gilt
+    )
+    monkeypatch.setitem(wz.REGISTER, "test_kaputt", kaputt)
+    probleme = wz.pruefe_register()
+    assert any("test_kaputt" in p and "Ausfuehrer" in p for p in probleme)
+
+
+def test_hermes_ist_kein_aufrufbares_werkzeug():
+    """Der Befund selbst: 'hermes' ist kein Werkzeug. Die Antwort muss ehrlich
+    sein (keine vorgetaeuschte Uebergabe) und darf nicht angeboten werden."""
+    e = wz.ausfuehren("hermes", {"aufgabe": "Baue X"})
+    assert not e.ok
+    assert "KEIN aufrufbares Werkzeug" in e.text and "automatisch" in e.text
+    assert "hermes" not in [s["function"]["name"] for s in wz.schemata()]
+
+
+def test_status_text_nennt_die_konkreten_argumente():
+    """Konkrete Statuszeilen statt vager („Das muss konkreter sein")."""
+    text = wz.status_text("fotos_mit_person", '{"person": "Anna"}')
+    assert "Person „Anna“" in text and text.startswith("🔧")
+    assert "Stichwort „tabelle“" in wz.status_text(
+        "dateien_suchen", '{"stichwort": "tabelle", "art": "bild"}')
+    # Kaputte Argumente aendern nichts und werfen nicht.
+    grund = wz.status_text("fotos_mit_person")
+    assert wz.status_text("fotos_mit_person", "kein json") == grund
+    # Ohne Argumente bleibt der bisherige Text.
+    assert wz.status_text("personen_liste") == wz.REGISTER["personen_liste"].status
+
+
+def test_laufender_name_ist_klartext_ohne_symbole():
+    text = wz.laufender_name("fotos_mit_person", '{"person": "Anna"}')
+    assert text == "Werkzeug fotos_mit_person (Person „Anna“)"
+    assert "🔧" not in text

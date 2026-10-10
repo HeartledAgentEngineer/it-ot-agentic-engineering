@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 from app.services.hermes_gateway import hermes_gateway
 from app.services.hermes_local import ist_verfuegbar as hermes_local_ist_verfuegbar
+from app.services.hermes_local import arbeits_start_zeile
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +136,12 @@ def route_auftrag(
             "🧩 **Hermes-Aufgabe erkannt – erweitertes Werkzeug übernimmt.**\n\n"
             f"{ziel_zeile('handy')}"
             f"📋 **Aufgabe:** {message[:150]}…\n\n"
+            # Konkrete Startzeile (was, womit, Zeitbudget) statt vager Zeilen —
+            # Sebastian 10.10.2026: "Das muss auf jeden Fall konkreter sein".
+            + arbeits_start_zeile() + "\n"
             "Gedanken & Zwischenschritte erscheinen hier live, das "
-            "Endergebnis danach.\n"
+            "Endergebnis danach. Der Fortschritt bleibt oben in der Leiste "
+            "sichtbar.\n"
         )
         finish_exchange(conv_id, message, reply_text)
         return {"art": "lokal", "ziel": "handy", "reply": reply_text,

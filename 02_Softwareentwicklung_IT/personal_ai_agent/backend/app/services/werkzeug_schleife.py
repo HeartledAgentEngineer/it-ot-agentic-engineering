@@ -13,7 +13,8 @@ liefert die Stream-Haeppchen im OpenAI-Format (``chunk.choices[0].delta``).
 Ereignisse, die die Schleife liefert:
 - ``{"delta": str}``    Antworttext
 - ``{"sources": list}`` Fundstellen der Websuche (ueber ``quellen_aus``)
-- ``{"status": str}``   Statuszeile fuer die Oberflaeche („🔧 …")
+- ``{"status": str}``   Statuszeile fuer die Oberflaeche („🔧 …", mit den
+                        konkreten Argumenten des Aufrufs, z. B. Personenname)
 - ``{"werkzeug": {...}}`` Protokoll je Aufruf (Name, ok, Dauer, Zeichen)
 - ``{"bild": {...}}``   Bild, das ein Werkzeug geladen hat (Vorschau/Verlauf)
 """
@@ -23,6 +24,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
+from app.services import laufende_arbeiten
 from app.services import werkzeuge
 
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ def laufe(
     erstellen: Callable[[List[Dict[str, Any]], Optional[str]], Iterable[Any]],
     messages: List[Dict[str, Any]],
     ausfuehren: Callable[[str, Any], "werkzeuge.Ergebnis"] = werkzeuge.ausfuehren,
-    status_text: Callable[[str], str] = werkzeuge.status_text,
+    status_text: Callable[..., str] = werkzeuge.status_text,
     quellen_aus: Optional[Callable[[Any], List[Dict[str, str]]]] = None,
     max_runden: int = MAX_RUNDEN,
     max_aufrufe: int = MAX_AUFRUFE_JE_RUNDE,
@@ -139,9 +141,20 @@ def laufe(
                                             "Werkzeuge je Runde. Bei Bedarf in der "
                                             "nächsten Runde erneut aufrufen."})
                 continue
-            yield {"status": status_text(a["name"])}
+            # Konkrete Statuszeile MIT den Argumenten („Das muss auf jeden Fall
+            # konkreter sein, was er gerade macht" — Sebastian 10.10.2026):
+            # z. B. „🔧 sucht Fotos mit einer Person (Person „Anna“) …".
+            yield {"status": status_text(a["name"], a["arguments"])}
+            # Die laufende Ausfuehrung bei /api/laeuft anmelden, damit auch
+            # eine lange Suche in der Statusleiste sichtbar bleibt — nicht nur
+            # als kurze Zeile im Chat. Abmeldung im finally (auch bei Abbruch).
+            kennung = laufende_arbeiten.merke_start(
+                werkzeuge.laufender_name(a["name"], a["arguments"]), art="werkzeug")
             start = time.monotonic()
-            ergebnis = ausfuehren(a["name"], a["arguments"])
+            try:
+                ergebnis = ausfuehren(a["name"], a["arguments"])
+            finally:
+                laufende_arbeiten.beende(kennung)
             dauer_ms = int((time.monotonic() - start) * 1000)
             logger.info("Werkzeug %s: ok=%s %d ms %d Zeichen %d Bilder", a["name"],
                         ergebnis.ok, dauer_ms, len(ergebnis.text), len(ergebnis.bilder))

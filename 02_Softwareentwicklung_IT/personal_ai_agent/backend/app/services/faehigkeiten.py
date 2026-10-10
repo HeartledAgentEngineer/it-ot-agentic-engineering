@@ -1,7 +1,8 @@
 """Fähigkeiten-Manifest des Personal-Agents (Selbstbild).
 
 Der Agent soll wissen, was er KANN und was NICHT — und wann eine Anfrage an
-seine Grenze stößt (Terminal/Dateien/System → dann Hermes als Toolcall).
+seine Grenze stößt (Terminal/Dateien/System → dann übernimmt Hermes; die
+Übergabe macht die Weiche im Backend, NICHT das Modell selbst).
 
 Dieses Manifest ist die datengetriebene Grundlage:
 - `FAEHIGKEITEN` — was kann / was nicht (für System-Prompt + Explikation).
@@ -94,10 +95,11 @@ def faehigkeits_block() -> str:
     """Baut den Fähigkeiten-/Grenzen-Text für den System-Prompt.
 
     Wird an den System-Prompt angehängt, damit der Agent begründet weiß,
-    was er kann und was an Hermes delegiert wird. Proaktiv: Der Agent kennt
-    Hermes als benutzbares Werkzeug UND die Trigger-Stichworte, an denen die
-    Weiche ihn automatisch delegiert — so stellt er bei solchen Anfragen keine
-    Rückfrage, sondern formuliert zum Hermes-Auftrag hin.
+    was er kann und was an Hermes delegiert wird. Der Block sagt KLAR, dass
+    die Übergabe automatisch im Backend passiert (Weiche, VOR dem Modell) und
+    dass Hermes **kein aufrufbares Werkzeug** in der Werkzeugliste ist —
+    sonst verspricht das Modell etwas, das es nicht hat (Befund 10.10.2026:
+    „mein Personal Agent wollte Hermes, was gar nicht aktiviert ist").
     """
     kann = ", ".join(FAEHIGKEITEN["kann"])
     kann_nicht = ", ".join(FAEHIGKEITEN["kann_nicht"])
@@ -117,9 +119,13 @@ def faehigkeits_block() -> str:
         "\n\n## DEINE FÄHIGKEITEN & GRENZEN & HERMES (Selbstbild)\n"
         "Du bist der persönliche Assistent. Du kannst:\n"
         f"- {kann}.\n\n"
-        "Du hast auch ein benutzbares Werkzeug: **Hermes** (ein Coding-Agent "
-        "mit Terminal-/Dateisystem-/System-Zugriff). Er erledigt alles, was "
-        "deine Fähigkeiten übersteigt — du musst es nicht selbst versuchen.\n\n"
+        "Wichtig zu Hermes: Hermes ist ein Coding-Agent mit Terminal-, "
+        "Datei- und System-Zugriff — aber **kein Werkzeug in deiner "
+        "Werkzeugliste**. Du kannst ihn nicht aufrufen; erfinde keinen "
+        "Werkzeugaufruf, keine Übergabe und kein Ergebnis für ihn. Die "
+        "Übergabe an Hermes passiert automatisch im Backend, BEVOR du eine "
+        "Nachricht überhaupt zu sehen bekommst: Kommt eine Aufgabe bei dir "
+        "an, ist sie bewusst dir gestellt (Lesen, Suchen, Erklären).\n\n"
         "Zusätzlich hast du die **Handy-Dateisuche** (über Suchbegriff, ohne "
         "dass der Nutzer etwas hochladen muss): Du kannst Bilddateien finden "
         "und als Vorschau anzeigen (z. B. den letzten Screenshot oder ein Foto) "
@@ -142,16 +148,15 @@ def faehigkeits_block() -> str:
         "Zwillingsbrüder) benenne Unsicherheit ehrlich, statt blind zu raten.\n\n"
         "Du kannst NICHT (dafür fehlen dir Tools/Terminal/System-Zugriff):\n"
         f"- {kann_nicht}.\n\n"
-        "Eine Anfrage stößt an diese Grenze (und wird automatisch an Hermes "
-        f"delegiert), wenn eines davon vorkommt: {ausloeser}\n\n"
-        "Wenn so eine Anfrage kommt, **frage NICHT zurück** und erfinde keine "
-        "Umwege — sage deutlich und direkt:\n"
-        "**'Das übernimmt Hermes.'** und begründe in einem kurzen Satz, warum "
-        "es deine Fähigkeiten übersteigt (Terminal/Datei/System/Tool-Install). "
-        "Die Weiche schickt den Auftrag dann automatisch an Hermes weiter; "
-        "du brauchst ihn nicht selbst auszuführen, nur sauber zu übergeben. "
-        "Bei einer reinen Wissens-/Analysefrage (ohne Arbeitsverb und ohne "
-        "System-Bezug) beantwortest du sie normal selbst."
+        "Eine Anfrage stößt an diese Grenze, wenn eines davon vorkommt: "
+        f"{ausloeser}\n\n"
+        "Solche Anfragen delegiert das Backend automatisch an Hermes — in der "
+        "Regel, bevor du sie zu sehen bekommst. Sollte doch einmal eine "
+        "solche Grenz-Anfrage bei dir ankommen, erfinde keinen Umweg und "
+        "behaupte keine Übergabe: Sage ehrlich, dass das eine Aufgabe für den "
+        "Coding-Agenten Hermes ist und dass mehr als Lesen/Suchen/Erklären "
+        "hier nicht geht. Bei einer reinen Wissens-/Analysefrage (ohne "
+        "Arbeitsverb und ohne System-Bezug) beantwortest du sie normal selbst."
     )
 
 
