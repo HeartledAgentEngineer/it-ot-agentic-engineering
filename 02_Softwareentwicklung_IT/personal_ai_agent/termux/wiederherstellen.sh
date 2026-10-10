@@ -37,6 +37,24 @@ LAGER="$BASIS/usr/var/lib/proot-distro"
 
 meldung() { printf '%s\n' "$*"; }
 
+# pkg/dpkg ohne Rueckfragen laufen lassen. Zwei Dinge sind dabei noetig, sonst
+# bricht der Aufruf STILL ab:
+#  1. </dev/null  — dpkg darf die Paketliste nicht als Eingabe lesen; in der
+#     while-read-Schleife wuerde es ihr sonst die Zeilen weglesen.
+#  2. DEBIAN_FRONTEND=noninteractive + --force-confold/--force-confdef — sonst
+#     haelt dpkg an einer Konfigurations-Rueckfrage an (z.B. openssl.cnf:
+#     "eigene Version behalten?") und bricht mit "end of file on stdin at
+#     conffile prompt" ab. Genau das passierte am Handy am 10.10.2026: openssl
+#     blieb unabgeschlossen, ffmpeg halb eingerichtet (Fehler 100), und die
+#     63 faelligen Aktualisierungen liefen nie durch. --force-confold behaelt
+#     dabei die vorhandene Konfiguration — es wird nichts ueberschrieben.
+_pkg_ruhig() {
+    local unterbefehl="$1"; shift
+    DEBIAN_FRONTEND=noninteractive pkg "$unterbefehl" "$@" \
+        -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+        </dev/null >/dev/null 2>&1
+}
+
 vorbereiten() {
     command -v age-keygen >/dev/null 2>&1 || { meldung "Abbruch: age fehlt. Erst: pkg install age"; exit 3; }
     mkdir -p "$ABLAGE" 2>/dev/null || { meldung "Abbruch: $ABLAGE nicht erreichbar. Erst: termux-setup-storage"; exit 3; }
@@ -77,16 +95,15 @@ pakete() {
     # Erst die Grundausstattung hochziehen: Das frische Termux hatte 72 veraltete Pakete,
     # ffmpeg 8.1 fand dann ein Symbol in libc++ nicht, blieb halb eingerichtet, und jedes
     # weitere "pkg install" endete mit Fehler 100 (Handy, 10.10.2026).
-    pkg upgrade -y </dev/null >/dev/null 2>&1 || true
-    # </dev/null: pkg/dpkg duerfen die Paketliste nicht als Eingabe lesen (Rueckfragen)
+    _pkg_ruhig upgrade -y || true
     while read -r paket; do
         [ -n "$paket" ] || continue
         dpkg -s "$paket" >/dev/null 2>&1 && continue
-        pkg install -y "$paket" </dev/null >/dev/null 2>&1 || fehlen="$fehlen $paket"
+        _pkg_ruhig install -y "$paket" || fehlen="$fehlen $paket"
     done < "$liste"
     # Fertige Termux-Pakete statt Kompilieren mit pip
     for paket in python-numpy python-pillow; do
-        dpkg -s "$paket" >/dev/null 2>&1 || pkg install -y "$paket" </dev/null >/dev/null 2>&1 \
+        dpkg -s "$paket" >/dev/null 2>&1 || _pkg_ruhig install -y "$paket" \
             || fehlen="$fehlen $paket"
     done
     [ -z "$fehlen" ] && meldung "  alle Pakete da" || meldung "  nicht installierbar:$fehlen"

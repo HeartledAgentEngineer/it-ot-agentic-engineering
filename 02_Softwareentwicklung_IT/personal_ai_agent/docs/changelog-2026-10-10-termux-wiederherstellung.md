@@ -121,3 +121,92 @@ Das Skript ist jetzt so geändert:
 5. Am PC: `tools/handy/wiederherstellung_senden.py`.
 6. Im neuen Termux: `bash /sdcard/Download/termux-sicherung/wiederherstellen.sh einspielen`,
    danach `termux/einrichten.sh` und das Widget neu ablegen.
+
+## Nachtrag 10.10.2026, ca. 04:15: das Upgrade lief ins Leere
+
+**Der Umzug ist am 10.10.2026 durchgelaufen: Termux (F-Droid) neu aufgesetzt, Heimordner und
+Debian zurückgespielt, Server läuft.** Dabei kam ein zweiter, tieferliegender Fehler heraus.
+
+### Der Befund
+
+Der zweite `einspielen`-Lauf meldete „alle Pakete da“ (Exit 0) — und `ffmpeg` startete trotzdem
+nicht:
+
+```
+CANNOT LINK EXECUTABLE "ffmpeg": cannot locate symbol
+  "_ZNSt6__ndk127__from_chars_floating_pointIfEE…" referenced by "…/lib/libplacebo.so"
+```
+
+`dpkg` hielt `ffmpeg` für installiert, weil `dpkg -s ffmpeg` erfolgreich antwortet. Der
+Zustand war aber „half configured“. Der Grund stand in `dpkg --audit`:
+
+- `openssl` war „unpacked but not yet configured“,
+- `ffmpeg` war „half configured“,
+- 63 Pakete waren noch hochzuziehen.
+
+Ein sichtbares `pkg upgrade -y` brach dann hier ab:
+
+```
+Configuration file '…/usr/etc/tls/openssl.cnf'
+   What would you like to do about it ?
+*** openssl.cnf (Y/I/N/O/D/Z) [default=N] ?
+dpkg: error processing package openssl (--configure):
+ end of file on stdin at conffile prompt
+```
+
+**Das `</dev/null` aus dem vorherigen Nachtrag war genau die Ursache:** Es verhindert zwar, dass
+`dpkg` die Paketliste als Eingabe liest, führt aber bei einer Konfigurationsrückfrage zum
+sofortigen Dateiende — und `dpkg` bricht die Konfiguration ab. Ergebnis: `openssl` blieb
+unabgeschlossen, `ffmpeg` wurde nie fertig eingerichtet, die 63 Aktualisierungen liefen nie
+durch, und weil der Aufruf hinter `|| true` mit `>/dev/null 2>&1` stand, war der Fehlschlag
+**unsichtbar**. Das Skript meldete „alle Pakete da“, weil es nur `dpkg -s` fragte.
+
+### Die Reparatur
+
+Neu im Skript ein Helfer, den `pakete()` jetzt für **alle** `pkg`-Aufrufe benutzt:
+
+```bash
+_pkg_ruhig() {
+    local unterbefehl="$1"; shift
+    DEBIAN_FRONTEND=noninteractive pkg "$unterbefehl" "$@" \
+        -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+        </dev/null >/dev/null 2>&1
+}
+```
+
+- `--force-confold` behält die vorhandene Konfigurationsdatei. Es wird nichts überschrieben —
+  dieselbe Regel wie überall im Skript.
+- `--force-confdef` nimmt sonst die Vorgabe.
+- `DEBIAN_FRONTEND=noninteractive` schaltet die Menüs ab.
+
+Auf dem Handy nachgefahren: **63 Pakete aktualisiert, 5 neu, `dpkg --audit` leer,
+`ffmpeg version 8.1.3` startet.** Alle 18 zuvor gemeldeten Pakete sind da (`git`, `nodejs`,
+`proot-distro`, `python-numpy`, `python-pillow`, `tmux`, `uv`, `rclone`, `ripgrep`, `tesseract`,
+`age`, …), Python 3.14.6.
+
+### Der Test war ebenfalls zu schwach
+
+`test_pakete_erst_upgrade_und_ohne_listen_eingabe` prüfte nur, dass die Zeichenfolge
+`pkg upgrade -y </dev/null` vorkommt — also genau die Fassung, die nicht funktionierte. Er ist
+jetzt auf den Helfer umgestellt und prüft die drei Schalter.
+
+### Nebenbei: zwei Tests waren auf dem PC rot (nicht auf dem Handy)
+
+`test_ganzer_umzug_vorbereiten_senden_einspielen` und
+`test_einspielen_ohne_sendung_und_mit_falscher_pruefsumme` scheiterten mit Exit 2
+(„Schlüssel nicht erzeugbar“). Ursache ist eine PC-Eigenheit und **kein** Projektfehler:
+Die Hermes-Shell setzt `MSYS2_ARG_CONV_EXCL=*` und `MSYS_NO_PATHCONV=1`; dadurch bekommt das
+Windows-Programm `age-keygen` den Pfad `/c/Users/…`, den es nicht öffnen kann. Auf dem Handy
+gibt es diese Variablen nicht. Die Testumgebung `_termux()` entfernt beide Variablen jetzt für
+den Lauf — der Fehler lag in der Umgebung, nicht im Skript.
+
+Das war schon vor dieser Änderung rot (gegengeprüft mit der Fassung aus `HEAD`), also eine
+Altlast: seit `age` am PC im PATH liegt, wird der Test nicht mehr übersprungen.
+
+### Prüfung
+
+- `cd backend && .venv/Scripts/python -m pytest tests/test_wiederherstellung.py -q` → **15 passed**, Exit 0.
+- Am Handy belegt: `/api/health` → `{"status":"ok","memory_count":178,"llm_configured":true}`,
+  Personenliste im Quiz **106 Personen**, „151 von 644 Vorschlägen benannt · 7.044 von 10.884
+  Gesichtern“, Repo-Stand `369ac75` (gleich wie am PC).
+

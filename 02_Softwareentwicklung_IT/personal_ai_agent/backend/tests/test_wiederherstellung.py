@@ -256,12 +256,24 @@ def test_skript_syntax_shebang_und_kein_loeschen():
 
 def test_pakete_erst_upgrade_und_ohne_listen_eingabe():
     """Handy 10.10.2026: ohne "pkg upgrade" blieb ffmpeg halb eingerichtet und jedes
-    weitere "pkg install" scheiterte; pkg in der while-read-Schleife darf die Liste nicht lesen."""
+    weitere "pkg install" scheiterte; pkg in der while-read-Schleife darf die Liste nicht
+    lesen. Nachtrag 10.10.2026: mit blossem "</dev/null" lief das Upgrade trotzdem ins
+    Leere — dpkg hielt an der openssl.cnf-Rueckfrage an ("end of file on stdin at
+    conffile prompt"). Erst noninteractive + --force-confold/--force-confdef half."""
     text = SKRIPT.read_text(encoding="utf-8")
     pakete = text[text.index("pakete() {"):text.index("python_pakete() {")]
-    assert pakete.index("pkg upgrade -y </dev/null") < pakete.index("while read -r paket")
-    installs = re.findall(r"pkg install -y \"\$paket\"[^\n]*", pakete)
-    assert len(installs) == 2 and all("</dev/null" in zeile for zeile in installs)
+    helfer = text[text.index("_pkg_ruhig() {"):text.index("vorbereiten() {")]
+    # Der Helfer: kein Stillstand an Rueckfragen, keine Eingabe von der Paketliste.
+    assert "DEBIAN_FRONTEND=noninteractive" in helfer
+    assert "--force-confold" in helfer and "--force-confdef" in helfer
+    assert "</dev/null" in helfer and ">/dev/null 2>&1" in helfer
+    # Reihenfolge unveraendert: erst die Grundausstattung, dann die Einzelpakete.
+    assert pakete.index("_pkg_ruhig upgrade -y") < pakete.index("while read -r paket")
+    # Kein blankes "pkg install"/"pkg upgrade" als Befehl mehr — alles laeuft ueber
+    # den Helfer. (Nur Zeilenanfaenge pruefen: "pkg install proot-distro" kommt in
+    # einer Meldung vor und ist kein Aufruf.)
+    assert not re.search(r"^\s*pkg (install|upgrade)\b", pakete, re.M)
+    assert len(re.findall(r"_pkg_ruhig install -y", pakete)) == 2
 
 
 def _termux(tmp_path: Path):
@@ -270,6 +282,14 @@ def _termux(tmp_path: Path):
     ablage = tmp_path / "download"
     umgebung = dict(os.environ, TERMUX_BASIS=_posix(basis), HOME=_posix(basis / "home"),
                     WIEDERHERSTELLUNG_ABLAGE=_posix(ablage), WIEDERHERSTELLUNG_OHNE_PAKETE="1")
+    # PC-Eigenheit (MSYS), nicht Skript-Verhalten: die Hermes-Shell unterdrueckt die
+    # Uebersetzung von Unix- in Windows-Pfade (MSYS2_ARG_CONV_EXCL="*" /
+    # MSYS_NO_PATHCONV=1). age ist ein Windows-Programm und kann "/c/..." nicht
+    # oeffnen — das Skript meldete dann "Schluessel nicht erzeugbar" (Exit 2) und die
+    # beiden Durchlauf-Tests waren rot, obwohl der Fehler auf dem Handy nicht
+    # existiert (dort gibt es die Variablen nicht). Fuer diesen Lauf wieder zulassen.
+    for _v in ("MSYS2_ARG_CONV_EXCL", "MSYS_NO_PATHCONV"):
+        umgebung.pop(_v, None)
     return basis, ablage, umgebung
 
 
