@@ -52,7 +52,7 @@ oder Gemini. Das Backend führt aus, gibt das Ergebnis zurück, das Modell ruft 
 | `fotos_uebersicht` | Übersicht der sortierten Fotos: Anlässe, Jahre, Zahlen | `foto_uebersicht.text_antwort` |
 | `fotos_mit_person` | Fotos/Videos mit einer bestätigten Person: Datei, Aufnahmedatum, Ordner (aus dem Personen-Quiz; Notnagel: alte lokale Gesichtssuche) | `gruppen_quiz.bilder_mit` + Beschreibungs-Index (Notnagel `gesicht_fotos.suche_bilder_mit_person`) |
 | `personen_liste` | Welche Personen der Agent kennt (aus dem Personen-Quiz; Notnagel: alter Katalog) | `gruppen_quiz.personen` (Notnagel `gesichter_service.liste_personen`) |
-| `person_auskunft` | Alles über EINE Person: Beziehung, eigene Notizen, Geburtstag, Zahl der Fotos (10.10.2026) | `gruppen_quiz.person` |
+| `person_auskunft` | Alles über EINE Person: Beziehung, eigene Notizen, Geburtstag, Zahl der Fotos, Anlässe (10.10.2026) | `gruppen_quiz.person` + `gruppen_quiz.bild_kennungen_person` + `erzaehl_service.anlaesse_zu_kennungen` |
 | `wer_war_wann` | Was an einem Datum belegt ist: wer mit wem, Fotos, Chats | `beziehungen_service.text_antwort` |
 
 Bewusst **nicht** in v1: pCloud-Suche (`pcloud_service.suche` ist nicht rekursiv — eigener

@@ -1,7 +1,7 @@
 {
   "aufgabe": "Nachtlauf 10./11.10.2026",
   "plan": ".hermes/plans/2026-10-10_nachtlauf-papas-fotos-und-chat.md",
-  "stand": "10.10.2026 06:21:03",
+  "stand": "10.10.2026 09:08:59",
   "schritte": [
     {
       "nr": 1,
@@ -16,22 +16,27 @@
     {
       "nr": 3,
       "text": "Chat: Personen-Daten anbinden",
-      "lage": "laeuft"
+      "lage": "fertig"
     },
     {
       "nr": 4,
       "text": "Hey-Agent-App bauen",
-      "lage": "offen"
+      "lage": "fertig"
     },
     {
       "nr": 5,
-      "text": "Bildbeschreibungen: Stichprobe 50 Bilder, 3 Fassungen, Preistabelle",
-      "lage": "offen"
+      "text": "Bildbeschreibungen: Preistabelle + Modellentscheidung (Lauf laeuft)",
+      "lage": "fertig"
     },
     {
       "nr": 6,
-      "text": "Abschlussbericht",
+      "text": "Abschlussbericht (wartet auf das Ende der zwei langen Laeufe)",
       "lage": "offen"
+    },
+    {
+      "nr": 7,
+      "text": "Anlaesse einer Person (Verknuepfung Gesicht->Ereignis steht)",
+      "lage": "fertig"
     }
   ],
   "zaehler": {
@@ -49,5 +54,37 @@
     "dateien": 6336,
     "groesse_mb": 16123.6
   },
-  "hinweis": "Der Nachzuegler-Lauf arbeitet mit 45 s Pause je Archiv (pCloud bricht bei Schwall mit Fehler 3006 ab)."
+  "hinweis": "Der Nachzuegler-Lauf arbeitet mit 45 s Pause je Archiv (pCloud bricht bei Schwall mit Fehler 3006 ab).",
+  "laufende": [
+    {
+      "titel": "Bildbeschreibung reich",
+      "auftrag": "489 Boegen zu je 36 Kacheln",
+      "einheit": "Bilder",
+      "fertig": 9787,
+      "gesamt": 17580,
+      "prozent": 55.7,
+      "kosten_usd": 3.755821,
+      "budget_usd": 12.0,
+      "datei": "C:\\Users\\sebas\\foto_sortierung\\bild_beschreibungen_reich.jsonl",
+      "letzte_datei": "IMG20220421152810.jpg",
+      "letzte_zeit": "10.10.2026 09:08:31",
+      "zeit_quelle": "eintrag",
+      "hinweis": ""
+    },
+    {
+      "titel": "Gesichtserkennung Papas Fotos",
+      "auftrag": "",
+      "einheit": "Bilder",
+      "fertig": 2133,
+      "gesamt": 6336,
+      "prozent": 33.7,
+      "kosten_usd": null,
+      "budget_usd": null,
+      "datei": "C:\\Users\\sebas\\foto_sortierung\\personen_vektoren_papa.jsonl",
+      "letzte_datei": "108862846800",
+      "letzte_zeit": "10.10.2026 09:08:57",
+      "zeit_quelle": "datei",
+      "hinweis": ""
+    }
+  ]
 }

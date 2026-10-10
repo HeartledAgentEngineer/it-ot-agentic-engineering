@@ -1525,6 +1525,42 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
     }
 
 
+def bild_kennungen_person(name: str) -> Dict[str, Any]:
+    """Alle Bild/Video-Kennungen mit dieser Person — ohne Obergrenze.
+
+    Dieselbe Quelle wie :func:`bilder_mit` (``gesicht_zuordnung.jsonl`` +
+    bestätigte Namen), aber **kein Limit** — für Verknüpfungen (Anlässe eines
+    Menschen) braucht es die volle Menge, nicht nur die 500 neuesten.
+    Ausschluss und Handzuordnung zählen wie im Register. Nie ein Wurf.
+    """
+    person = name_saeubern(name)
+    if not person:
+        return {"ok": False, "fehler": "Bitte den Namen angeben."}
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {"ok": False, "fehler": FEHLT_HINWEIS}
+    try:
+        bestaetigt = bestaetigt_lesen()
+        medien = _gemerkt(pfad, _zuordnung_laden)
+        aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
+        zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    person_von: Dict[str, str] = {k: n.casefold() for k, n in bestaetigt.items()}
+    gesucht = person.casefold()
+    if gesucht not in set(person_von.values()):
+        return {"ok": True, "name": person, "kennungen": [], "unbekannt": True}
+    kennungen: List[int] = []
+    for schluessel, m in medien.items():
+        personen = {person_von[k] for k in m["kennungen"]
+                    if k in person_von and (k, schluessel) not in aus_paare}
+        personen |= set(zug_bild.get(schluessel, {}))
+        if gesucht in personen and schluessel.isdigit():
+            kennungen.append(int(schluessel))
+    kennungen.sort(reverse=True)
+    return {"ok": True, "name": person, "kennungen": kennungen, "unbekannt": False}
+
+
 PERSONEN_BILDER_MAX = 2000
 
 

@@ -302,6 +302,44 @@ def _ereignis_datei_kennungen(ereignis: Dict[str, Any]) -> List[int]:
     return ergebnis
 
 
+def anlaesse_zu_kennungen(kennungen: Any, limit: Any = 20) -> List[Dict[str, Any]]:
+    """Anlässe, in denen mindestens eine dieser Datei-Kennungen vorkommt.
+
+    Die Verknüpfung **Gesicht → Anlass** (10.10.2026): die Personen-Werkzeuge
+    kennen die ``fileid`` je Bild (Quiz-/Gesichts-Zuordnung), die Ereignisse
+    tragen ihre Dateien als ``datei_kennungen``. Hier treffen beide zusammen —
+    nur lesend, nur Klartext (``kennung, datum, jahr, titel, kategorie,
+    anzahl_dateien, treffer``), keine Bilder, keine Pfade. **Wirft nie**,
+    neueste zuerst; fehlt eine Ereignisquelle, ist das Ergebnis leer.
+    """
+    zahlen = {z for z in (_als_zahl(k) for k in (kennungen or [])) if z is not None}
+    if not zahlen:
+        return []
+    ereignisse, _ = _ereignisse_laden()
+    eigene = eigene_titel()
+    treffer: List[Dict[str, Any]] = []
+    for ereignis in ereignisse:
+        gemeinsam = zahlen & set(_ereignis_datei_kennungen(ereignis))
+        if not gemeinsam:
+            continue
+        titel, _eigen = _titel_fuer(ereignis, eigene)
+        datum = ereignis.get("datum")
+        treffer.append({
+            "kennung": ereignis.get("kennung"),
+            "datum": str(datum)[:10] if isinstance(datum, str) and datum.strip() else None,
+            "jahr": _als_zahl(ereignis.get("jahr")),
+            "titel": titel,
+            "kategorie": ereignis.get("kategorie"),
+            "anzahl_dateien": _als_zahl(ereignis.get("anzahl_dateien")),
+            "treffer": len(gemeinsam),
+        })
+    treffer.sort(key=lambda t: (t["datum"] or "", str(t["kennung"] or "")), reverse=True)
+    grenze = _als_zahl(limit)
+    if grenze is None or grenze < 1:
+        grenze = 20
+    return treffer[:grenze]
+
+
 def ereignisse_existiert() -> bool:
     """Liegt eine Ereignisquelle vor (Ereignisse, Fotobuch oder Ordner-Anlässe)? (für den Router-Fehlertext)."""
     return (os.path.isfile(ereignisse_pfad()) or os.path.isfile(fotobuch_pfad())

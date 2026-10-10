@@ -179,3 +179,50 @@ def test_fotos_mit_person_tage_grenze(basis, monkeypatch):
     e = _fotos(person="Testperson A", tage=30)
     # Die Aufnahmen liegen 2019/2021 — weit ausserhalb der letzten 30 Tage.
     assert "Keine Fotos" in e.text
+
+
+# ── person_auskunft: Anlässe einer Person (Schritt 7, 10.10.2026) ────────────
+# Verknüpfung Gesicht -> Anlass: die Bild-Kennungen der Person (Quiz-Zuordnung)
+# treffen die ``datei_kennungen`` der Ereignisse (``erzaehl_service``).
+
+EREIGNISSE = [
+    {"kennung": "E-2019-07-01_Anlass-01", "datum": "2019-07-01", "jahr": 2019,
+     "event": "2019-07-01 Urlaub am Meer", "kategorie": "Urlaub",
+     "anzahl_dateien": 1, "datei_kennungen": [5001]},
+    {"kennung": "E-2021-03-05_Anlass-01", "datum": "2021-03-05", "jahr": 2021,
+     "event": "2021-03-05 Wanderung", "kategorie": "Reise",
+     "anzahl_dateien": 2, "datei_kennungen": [5002, 9999]},
+    {"kennung": "E-2020-01-01_Anlass-01", "datum": "2020-01-01", "jahr": 2020,
+     "event": "2020-01-01 In der Kueche", "kategorie": "Alltag",
+     "anzahl_dateien": 1, "datei_kennungen": [5003]},
+]
+
+
+def test_person_auskunft_zeigt_anlaesse(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)
+    _schreibe(basis / "ereignisse.jsonl", EREIGNISSE)
+    r = _auskunft(person="Testperson A")
+    assert r.ok is True
+    assert "Anlässe (2)" in r.text
+    assert "2019-07-01 Urlaub am Meer" in r.text
+    assert "2021-03-05 Wanderung" in r.text
+    # Der Anlass von Testperson B gehoert nicht dazu; keine Innereien.
+    assert "In der Kueche" not in r.text
+    assert "Anlass-01" not in r.text and "bbox" not in r.text
+
+
+def test_person_auskunft_ohne_ereignisquelle_bleibt_ruhig(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)   # schreibt ereignisse.jsonl als leere Liste
+    r = _auskunft(person="Testperson A")
+    assert r.ok is True and "Anlässe" not in r.text
+
+
+def test_person_auskunft_anlaesse_ohne_treffer_ist_leer(basis, monkeypatch):
+    _mit_fotos(basis, monkeypatch)
+    _schreibe(basis / "ereignisse.jsonl", [
+        {"kennung": "E-2000-01-01_Anlass-01", "datum": "2000-01-01", "jahr": 2000,
+         "event": "2000-01-01 Fremd", "kategorie": "Alltag",
+         "anzahl_dateien": 1, "datei_kennungen": [424242]},
+    ])
+    r = _auskunft(person="Testperson A")
+    assert r.ok is True and "Anlässe" not in r.text

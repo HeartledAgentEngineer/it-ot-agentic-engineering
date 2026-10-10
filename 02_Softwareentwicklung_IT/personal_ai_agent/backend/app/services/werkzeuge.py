@@ -424,7 +424,8 @@ def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
 
 def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     """Alles, was das Personen-Quiz über EINE Person weiß: Beziehung, eigene
-    Notizen, Geburtstag (aus dem Telefonbuch-Auszug) und die Zahl ihrer Fotos.
+    Notizen, Geburtstag (aus dem Telefonbuch-Auszug), die Zahl ihrer Fotos und
+    die Anlässe, in denen sie vorkommt (Verknüpfung Gesicht → Anlass).
 
     Dieselbe Quelle wie das Quiz (``personen_profile.json`` über
     ``personen_bestaetigt.json``) — deshalb findet der Chat jetzt dieselben
@@ -459,6 +460,20 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     if notizen:
         zeilen.append(f"Notizen ({len(notizen)}):")
         zeilen += [f"- {str(n.get('text') or '').strip()}" for n in notizen[:20]]
+    # Anlässe (in welchen Ereignissen kommt die Person vor) — Verknüpfung
+    # Gesicht -> Anlass: die Bild-Kennungen der Person gegen die
+    # ``datei_kennungen`` der Ereignisse. Nur Klartext, keine Pfade/Bilder.
+    auskunft = gruppen_quiz.bild_kennungen_person(name)
+    kennungen = (auskunft.get("kennungen") or []) if auskunft.get("ok") else []
+    if kennungen:
+        from app.services import erzaehl_service
+
+        anlaesse = erzaehl_service.anlaesse_zu_kennungen(kennungen, limit=15)
+        if anlaesse:
+            zeilen.append(f"Anlässe ({len(anlaesse)}):")
+            for a in anlaesse[:10]:
+                teile = [str(t) for t in (a.get("datum"), a.get("titel")) if t]
+                zeilen.append("- " + " | ".join(teile))
     return Ergebnis(_kuerzen("\n".join(zeilen)))
 
 
@@ -582,8 +597,9 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
     Werkzeug(
         "person_auskunft",
         "Alles, was über EINE bekannte Person bekannt ist: Beziehung, eigene Notizen, "
-        "Geburtstag (aus dem Telefonbuch) und die Zahl ihrer Fotos. Für 'wer ist X', "
-        "'was weiß ich über X', 'wie viele Fotos habe ich von X'. Namen vorher mit "
+        "Geburtstag (aus dem Telefonbuch), die Zahl ihrer Fotos und die Anlässe, in "
+        "denen sie vorkommt. Für 'wer ist X', 'was weiß ich über X', 'wie viele Fotos "
+        "habe ich von X', 'auf welchen Anlässen war X dabei'. Namen vorher mit "
         "personen_liste prüfen.",
         _obj({"person": {"type": "string"}}, ["person"]),
         _person_auskunft,
