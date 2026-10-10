@@ -179,7 +179,7 @@ def test_manifest_eintrag_hat_alle_felder_und_iso_zeit(mfad):
 
 
 def test_manifest_lehnt_unbekannte_art_ab(mfad):
-    """Nur die vier erlaubten Arten kommen ins Manifest."""
+    """Nur die erlaubten Arten kommen ins Manifest."""
     with pytest.raises(modul.PCloudBewegungsFehler) as fehler:
         modul.manifest_anhaengen({"art": "schraeg", "name": "x"}, pfad=mfad)
     assert "schraeg" in str(fehler.value)
@@ -493,12 +493,79 @@ def test_zielordner_finden_oder_bauen_konflikt_mit_datei(mfad, monkeypatch):
     assert not mfad.exists()
 
 
+# ── archiv_entpacken (Papas Amazon-Fotos, 10.10.2026) ──────────────────────
+
+def test_entpacken_trocken_sendet_nichts(mfad, monkeypatch):
+    """Trockenlauf ist Standard: kein Aufruf, keine Manifest-Zeile."""
+    monkeypatch.setattr(httpx, "get", Stolperfalle())
+    eintrag = modul.archiv_entpacken(
+        108721897936, 4242, name="AmazonPhotos (11).zip", manifest_pfad=mfad)
+
+    assert eintrag["art"] == "extractarchive"
+    assert eintrag["fileid"] == 108721897936
+    assert eintrag["nach_folderid"] == 4242
+    assert eintrag["trocken"] is True
+    assert not mfad.exists()
+
+
+def test_entpacken_leerer_ordner_entpackt_und_bucht(mfad, monkeypatch):
+    """Leerer Zielordner: erst lesen, dann entpacken, dann EINE Manifest-Zeile."""
+    fake = mit_get(
+        monkeypatch,
+        _liste(),
+        _ok(metadata={"path": "/Bilder & Videos/Papa (Amazon)/AmazonPhotos (11)"}, taskid=77),
+    )
+    eintrag = modul.archiv_entpacken(
+        108721897936, 4242, name="AmazonPhotos (11).zip",
+        trocken=False, manifest_pfad=mfad, token=TOKEN, host=HOST)
+
+    assert len(fake.aufrufe) == 2
+    assert fake.aufrufe[0]["params"]["folderid"] == 4242          # Vorpruefung: lesen
+    letzter = fake.aufrufe[-1]
+    assert letzter["url"].endswith("/extractarchive")
+    assert letzter["params"]["fileid"] == 108721897936
+    assert letzter["params"]["tofolderid"] == 4242
+    zeilen = _zeilen(mfad)
+    assert len(zeilen) == 1
+    assert zeilen[0]["art"] == "extractarchive"
+    assert zeilen[0]["taskid"] == 77
+    assert zeilen[0]["nach_pfad"] == "/Bilder & Videos/Papa (Amazon)/AmazonPhotos (11)"
+    assert eintrag["name"] == "AmazonPhotos (11).zip"
+
+
+def test_entpacken_voller_ordner_entpackt_nicht(mfad, monkeypatch):
+    """Zielordner nicht leer: kein Entpacken, keine Buchung — so ist es idempotent."""
+    fake = mit_get(monkeypatch, _liste(_eintrag("IMG_1.jpg", 5)))
+    z = modul.archiv_entpacken(
+        108721897936, 4242, trocken=False, manifest_pfad=mfad, token=TOKEN, host=HOST)
+
+    assert z["uebersprungen"] is True
+    assert z["grund"] == "ziel_nicht_leer"
+    assert z["anzahl_vorhanden"] == 1
+    assert len(fake.aufrufe) == 1                                 # nur gelesen
+    assert not mfad.exists()
+
+
+def test_entpacken_ohne_token_klartext_ohne_netz(ohne_env, mfad):
+    """Ohne Token gibt es einen Klartextfehler — und keinen Netz-Aufruf."""
+    with pytest.raises(modul.PCloudBewegungsFehler) as fehler:
+        modul.archiv_entpacken(1, 2, trocken=False, manifest_pfad=mfad)
+    assert "PCLOUD_TOKEN" in str(fehler.value)
+
+
+def test_entpacken_token_taucht_nicht_in_der_buchung_auf(mfad, monkeypatch):
+    """Der Geheimwert steht in keiner Manifest-Zeile."""
+    mit_get(monkeypatch, _liste(), _ok(metadata={"path": "/x"}))
+    modul.archiv_entpacken(1, 2, trocken=False, manifest_pfad=mfad, token=TOKEN, host=HOST)
+    assert TOKEN not in mfad.read_text(encoding="utf-8")
+
+
 # ── Positivliste und Quelltext ─────────────────────────────────────────────
 
-def test_positivliste_enthaelt_nur_lesen_und_die_drei_wege():
-    """Die Positivliste ist exakt: lesen + die drei Schreibwege, sonst nichts."""
+def test_positivliste_enthaelt_nur_lesen_und_die_schreibwege():
+    """Die Positivliste ist exakt: lesen + die Schreibwege, sonst nichts."""
     assert set(modul.ERLAUBTE_METHODEN) == {
-        "createfolder", "renamefile", "renamefolder", "listfolder"}
+        "createfolder", "renamefile", "renamefolder", "listfolder", "extractarchive"}
 
 
 def test_positivliste_weist_fremde_methoden_ab(monkeypatch):

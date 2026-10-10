@@ -15,10 +15,12 @@ Was dieses Modul bewusst NICHT kann:
     durch (Positivliste) — ein spaeterer Aufruf mit einer fremden Methode
     wird abgewiesen, BEVOR irgendetwas gesendet wird.
 
-Die drei Schreibwege (die einzigen):
+Die Schreibwege:
     * ``ordner_anlegen(ordner_id, name)``           -> createfolder
     * ``datei_verschieben(fileid, ziel_id)``        -> renamefile (verschieben)
     * ``ordner_verschieben(ordner_id, ziel_id)``    -> renamefolder (verschieben)
+    * ``archiv_entpacken(fileid, ziel_id)``         -> extractarchive (entpacken
+      auf dem Server; seit 10.10.2026 fuer Papas Amazon-Fotos)
     Dazu ``zielordner_finden_oder_bauen(eltern_id, name)``: vorhandenen
     Ordner nehmen, sonst anlegen — nie doppelt (idempotent).
 
@@ -68,6 +70,10 @@ STANDARD_HOST = "eapi.pcloud.com"
 # Ein Aufruf soll schnell scheitern, statt minutenlang zu haengen.
 TIMEOUT_SEKUNDEN = 30.0
 
+# Das Entpacken laeuft auf dem pCloud-Server (bis zu ~900 MB je Archiv) —
+# dafuer mehr Zeit als fuer die kurzen Ordner-/Dateiaufrufe.
+ENTPACKEN_TIMEOUT_SEKUNDEN = 300.0
+
 # Standard-Ablage des Manifests: im Benutzerverzeichnis, niemals im Repo.
 STANDARD_MANIFEST = "~/foto_sortierung/manifest.jsonl"
 UMGEBUNG_MANIFEST = "PCLOUD_MANIFEST"
@@ -75,13 +81,18 @@ UMGEBUNG_MANIFEST = "PCLOUD_MANIFEST"
 # Nur diese Arten von Manifest-Eintraegen gibt es. ``loeschen`` gehoert dazu,
 # seit es das Loesch-Werkzeug ``pcloud_duplikate_loeschen.py`` gibt (es bucht
 # seine Loeschungen ueber ``manifest_anhaengen`` -> genau eine Manifest-Logik).
-ERLAUBTE_ARTEN = ("movefile", "movefolder", "createfolder", "rueckroll", "loeschen")
+# ``extractarchive`` seit dem 10.10.2026 (Papas Amazon-Fotos: das Archiv wird
+# auf dem pCloud-Server entpackt, nichts wird herunter- oder hochgeladen).
+ERLAUBTE_ARTEN = (
+    "movefile", "movefolder", "createfolder", "rueckroll", "loeschen", "extractarchive",
+)
 
-# Positivliste der API-Methoden — nur Lesen (listfolder) und die drei
-# Schreibwege. Waere hier ein Entfernungs-Aufruf dabei, waere das
-# Sicherheitsnetz kaputt: Aenderungen an dieser Liste sind eine bewusste
-# Entscheidung, kein Versehen.
-ERLAUBTE_METHODEN = ("createfolder", "renamefile", "renamefolder", "listfolder")
+# Positivliste der API-Methoden — nur Lesen (listfolder) und die Schreibwege.
+# Waere hier ein Entfernungs-Aufruf dabei, waere das Sicherheitsnetz kaputt:
+# Aenderungen an dieser Liste sind eine bewusste Entscheidung, kein Versehen.
+ERLAUBTE_METHODEN = (
+    "createfolder", "renamefile", "renamefolder", "listfolder", "extractarchive",
+)
 
 # Diese Felder stehen in JEDER Manifest-Zeile (Reihenfolge = Leselogik).
 MANIFEST_FELDER = (
@@ -378,6 +389,41 @@ def ordner_inhalt(
             }
         )
     return ergebnis
+
+
+def ordner_per_pfad(
+    pfad: str,
+    *,
+    token: Optional[str] = None,
+    host: Optional[str] = None,
+    timeout: float = TIMEOUT_SEKUNDEN,
+) -> Dict[str, Any]:
+    """Einen Ordner ueber seinen PFAD finden (nur lesend) — ein listfolder.
+
+    Zurueck kommt ``{"folderid": …, "name": …, "path": …}``. Wurzel ``"/"``
+    liefert die Kennung 0. Ist der Pfad unbekannt, gibt es einen Klartextfehler
+    statt einer stillen 0 — sonst koennte ein Tippfehler in den Wurzelordner
+    schreiben.
+    """
+    text = str(pfad or "").strip()
+    if not text:
+        raise PCloudBewegungsFehler("ordner_per_pfad braucht einen Pfad.")
+    daten = _api_senden("listfolder", {"path": text}, token=token, host=host, timeout=timeout)
+    metadata = _metadata(daten)
+    if not metadata:
+        raise PCloudBewegungsFehler(f"Ordner nicht gefunden: {text!r}")
+    kennung = _als_optional_id(metadata.get("folderid"), "folderid")
+    if kennung is None:
+        # Die Wurzel liefert folderid 0 — das ist ein gueltiger Wert.
+        if str(metadata.get("path") or "").strip() == "/":
+            kennung = 0
+        else:
+            raise PCloudBewegungsFehler(f"Ohne Ordnerkennung zurueckgekommen: {text!r}")
+    return {
+        "folderid": kennung,
+        "name": str(metadata.get("name") or ""),
+        "path": str(metadata.get("path") or text),
+    }
 
 
 def element_kennung(eintrag: Dict[str, Any]) -> Optional[int]:
@@ -690,3 +736,68 @@ def zielordner_finden_oder_bauen(
         token=token, host=host, timeout=timeout,
     )
     return {"folderid": angelegt["folderid"], "name": name, "angelegt": True, "eintrag": angelegt}
+
+
+def archiv_entpacken(
+    fileid: Any,
+    ziel_id: Any,
+    *,
+    name: str = "",
+    von_folderid: Any = None,
+    von_pfad: Optional[str] = None,
+    nach_pfad: Optional[str] = None,
+    trocken: bool = True,
+    manifest_pfad: PfadAngabe = None,
+    token: Optional[str] = None,
+    host: Optional[str] = None,
+    timeout: float = TIMEOUT_SEKUNDEN,
+) -> Dict[str, Any]:
+    """Ein Archiv auf dem pCloud-SERVER in den Ordner ``ziel_id`` entpacken.
+
+    Anlass (10.10.2026): Sebastians Papa hat 32 ZIPs mit 16,1 GB Amazon-Fotos
+    in die Cloud gelegt. Die packt pCloud selbst aus (``extractarchive``) —
+    es wird nichts heruntergeladen und nichts hochgeladen.
+
+    ``trocken=True`` (Standard) sendet nichts — nur der geplante Eintrag
+    kommt zurueck.
+
+    Vor jedem echten Entpacken wird der Zielordner GELESEN:
+      * Liegen dort schon Eintraege, wird NICHT entpackt; zurueck kommt der
+        Eintrag mit ``uebersprungen: True`` und ``grund: "ziel_nicht_leer"``.
+        So ist der Aufruf idempotent (ein zweiter Lauf tut nichts) und es
+        kann kein vorhandenes Bild ueberschrieben werden.
+      * Sonst entpackt pCloud in den leeren Ordner.
+
+    Rueckholbar: Der Manifest-Eintrag traegt ``nach_folderid`` (der angelegte
+    Ordner) und ``fileid`` (das Archiv) — der Ordner laesst sich damit
+    gezielt wieder entfernen, das Archiv bleibt unberuehrt.
+    """
+    quelle = _als_id(fileid, "fileid")
+    ziel = _als_id(ziel_id, "ziel_id")
+    eintrag = _eintrag(
+        "extractarchive", name=name, fileid=quelle, nach_folderid=ziel,
+        von_folderid=von_folderid, von_pfad=von_pfad, nach_pfad=nach_pfad,
+    )
+    if trocken:
+        return _geplant(eintrag)
+    vorhanden = ordner_inhalt(ziel, token=token, host=host, timeout=timeout)
+    if vorhanden:
+        return {
+            **eintrag,
+            "uebersprungen": True,
+            "grund": "ziel_nicht_leer",
+            "anzahl_vorhanden": len(vorhanden),
+        }
+    # Grosses Archiv: nicht mit dem Standard-Zeitlimit abwuergen.
+    daten = _api_senden(
+        "extractarchive", {"fileid": quelle, "tofolderid": ziel},
+        token=token, host=host, timeout=max(timeout, ENTPACKEN_TIMEOUT_SEKUNDEN),
+    )
+    metadata = _metadata(daten)
+    if metadata.get("path"):
+        eintrag["nach_pfad"] = str(metadata["path"])
+    # pCloud arbeitet im Hintergrund; eine Aufgabe waere hier vermerkt.
+    for feld in ("taskid", "progress"):
+        if daten.get(feld) is not None:
+            eintrag[feld] = daten[feld]
+    return manifest_anhaengen(eintrag, pfad=manifest_pfad)
