@@ -99,6 +99,10 @@ if command -v apt-mark >/dev/null 2>&1; then
 else
     meldung "  (apt-mark fehlt - keine Paketliste)"
 fi
+# Python-Pakete liegen in usr/ (nicht gesichert): Liste fuer die Wiederherstellung (10.10.2026)
+if command -v pip >/dev/null 2>&1; then
+    pip freeze > "$ZIEL/pip_alt.txt" 2>/dev/null || true
+fi
 
 # ── Manifest-Zeile: Groesse, sha256, Eintraege (-1 = nicht gezaehlt) ───────
 manifest_eintrag() {
