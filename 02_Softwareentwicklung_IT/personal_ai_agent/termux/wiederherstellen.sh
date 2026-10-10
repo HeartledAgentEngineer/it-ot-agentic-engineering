@@ -74,15 +74,20 @@ pakete() {
     local liste="$1/pakete_manuell.txt" paket fehlen=""
     [ -f "$liste" ] || { meldung "  (keine Paketliste - uebersprungen)"; return 0; }
     meldung "Pakete installieren ($(wc -l < "$liste" | tr -d ' ') Stueck, dauert) ..."
-    pkg update -y >/dev/null 2>&1 || true
+    # Erst die Grundausstattung hochziehen: Das frische Termux hatte 72 veraltete Pakete,
+    # ffmpeg 8.1 fand dann ein Symbol in libc++ nicht, blieb halb eingerichtet, und jedes
+    # weitere "pkg install" endete mit Fehler 100 (Handy, 10.10.2026).
+    pkg upgrade -y </dev/null >/dev/null 2>&1 || true
+    # </dev/null: pkg/dpkg duerfen die Paketliste nicht als Eingabe lesen (Rueckfragen)
     while read -r paket; do
         [ -n "$paket" ] || continue
         dpkg -s "$paket" >/dev/null 2>&1 && continue
-        pkg install -y "$paket" >/dev/null 2>&1 || fehlen="$fehlen $paket"
+        pkg install -y "$paket" </dev/null >/dev/null 2>&1 || fehlen="$fehlen $paket"
     done < "$liste"
     # Fertige Termux-Pakete statt Kompilieren mit pip
     for paket in python-numpy python-pillow; do
-        dpkg -s "$paket" >/dev/null 2>&1 || pkg install -y "$paket" >/dev/null 2>&1 || fehlen="$fehlen $paket"
+        dpkg -s "$paket" >/dev/null 2>&1 || pkg install -y "$paket" </dev/null >/dev/null 2>&1 \
+            || fehlen="$fehlen $paket"
     done
     [ -z "$fehlen" ] && meldung "  alle Pakete da" || meldung "  nicht installierbar:$fehlen"
 }

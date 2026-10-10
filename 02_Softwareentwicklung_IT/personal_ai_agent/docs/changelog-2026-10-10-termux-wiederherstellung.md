@@ -93,6 +93,23 @@ Tests: `backend/tests/test_wiederherstellung.py` +2:
 - Ein Stück kommt halb an und wird unter neuem Namen wiederholt. Der Inhalt stimmt danach.
 - Es kommt nie heil an: Nach 3 Versuchen bricht das Werkzeug ab, ohne zu hängen.
 
+## Nachtrag 10.10.2026, ca. 04:00: Pakete erst aktualisieren
+
+Beim ersten echten `einspielen` meldete das Skript 18 von 86 Paketen als „nicht installierbar“.
+- Das betraf `git`, `nodejs`, `proot-distro`, `python-numpy` und weitere.
+- Die Ursache stand im vollen Log von `pkg install -y git`:
+  - Das frische F-Droid-Termux hatte noch 72 veraltete Grundpakete.
+  - `ffmpeg` 8.1.3 fand ein Symbol in der alten `libc++` nicht. Sein Einrichtungsschritt
+    scheiterte, und das Paket blieb „halb eingerichtet“.
+  - Jedes weitere `pkg install` versuchte, `ffmpeg` fertig einzurichten, und endete mit
+    Fehler 100. Gemeldet wurden deshalb alle Pakete, die im Alphabet nach `ffmpeg` kommen.
+    Installiert waren sie meist trotzdem (`git` 2.56.0).
+
+Das Skript ist jetzt so geändert:
+- `pakete()` ruft vor den Einzelinstallationen `pkg upgrade -y` statt `pkg update -y` auf.
+- `pkg install` bekommt `</dev/null`, damit eine Rückfrage keine Zeilen der Paketliste liest.
+- Abgesichert ist das mit dem neuen Test `test_pakete_erst_upgrade_und_ohne_listen_eingabe`.
+
 ## Ablauf für den Umzug
 
 1. Im alten Termux: `pip freeze > /sdcard/Download/termux-sicherung/pip_alt.txt`.

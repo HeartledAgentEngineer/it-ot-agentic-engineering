@@ -254,6 +254,16 @@ def test_skript_syntax_shebang_und_kein_loeschen():
     assert ergebnis.returncode == 0, ergebnis.stderr
 
 
+def test_pakete_erst_upgrade_und_ohne_listen_eingabe():
+    """Handy 10.10.2026: ohne "pkg upgrade" blieb ffmpeg halb eingerichtet und jedes
+    weitere "pkg install" scheiterte; pkg in der while-read-Schleife darf die Liste nicht lesen."""
+    text = SKRIPT.read_text(encoding="utf-8")
+    pakete = text[text.index("pakete() {"):text.index("python_pakete() {")]
+    assert pakete.index("pkg upgrade -y </dev/null") < pakete.index("while read -r paket")
+    installs = re.findall(r"pkg install -y \"\$paket\"[^\n]*", pakete)
+    assert len(installs) == 2 and all("</dev/null" in zeile for zeile in installs)
+
+
 def _termux(tmp_path: Path):
     basis = tmp_path / "termux"
     (basis / "home").mkdir(parents=True)
