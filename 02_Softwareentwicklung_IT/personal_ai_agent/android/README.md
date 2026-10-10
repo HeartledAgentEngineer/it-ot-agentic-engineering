@@ -150,9 +150,12 @@ weiße Sprechblase mit Sprach-Wellen, kleiner Funke. Alles liegt im sicheren Kre
 damit runde und eckige Masken nichts abschneiden. Eine einfarbige Fassung (`monochrome`) dient den
 „Designfarben"-Symbolen ab Android 13. Achtung: In XML-Kommentaren ist `--` verboten.
 
-## Voraussetzungen zum Bauen (noch nicht installiert)
+## Voraussetzungen zum Bauen (am 10.10.2026 belegt vorhanden)
 
-- JDK 17 (vorhanden: Temurin 17.0.18)
+- JDK 17: **vorhanden** unter `~/.gradle/jdks/eclipse_adoptium-17-amd64-windows.2` (Temurin 17.0.18,
+  von Gradle bereitgestellt; liegt nicht im PATH). Bauen damit:
+  `JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-17-amd64-windows.2 ./gradlew assembleDebug`.
+  Ein JDK **11** (das `jre` von Android Studio) genügt NICHT — AGP 8.7 verlangt 17.
 - Android-SDK-Kommandozeilentools (`cmdline-tools/latest`) mit
   `sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"` und akzeptierten Lizenzen
 - `local.properties` mit `sdk.dir=…` (ist gitignored)
@@ -228,6 +231,12 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
 
 ## Ungeprüft / bekannte offene Punkte
 
+- **Aus dem Quellstand neu gebaut (10.10.2026, 08:11):** `./gradlew --offline clean assembleDebug`
+  → **BUILD SUCCESSFUL in 2m57s, 34 Tasks ausgeführt** (nicht „up-to-date"), Exit 0. Ergebnis
+  `app/build/outputs/apk/debug/app-debug.apk`, **9.723.147 Byte**. Kein Quellstand hatte sich seit
+  dem Bau vom 30.09. geändert — ein Lauf ohne `clean` meldete zu Recht „up-to-date"; der
+  Neubau erzwingt die volle Kette (Kotlin → dex → Package). **Nicht aufs Handy installiert**
+  (Geräteeingriff bleibt bei Sebastian).
 - **Gebaut und am Handy installiert (29.09.2026):** `assembleDebug` + 12 JUnit-Tests grün,
   installiert per `adb install -r` auf dem motorola edge 50, Start ohne Absturz.
 - **Termux-Start aus der App geht mit dem Play-Store-Termux NICHT.** Dort ist Termux in der
