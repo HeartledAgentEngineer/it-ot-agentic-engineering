@@ -100,3 +100,24 @@ def test_echter_absturz_bleibt_mit_seinem_code_stehen():
 
 def test_normales_ende_bleibt_0():
     assert _schluss_ausfuehren("0") == 0
+
+
+# ── Wissensdatei (memory.db) im Widget-Start (10.10.2026) ─────────────────────
+#
+# Befund des Nachtlaufs: Der Chat liest ~/memory.db — dort lag die alte Kopie
+# ohne die 241.402 WhatsApp-Nachrichten; die frische Datei lag unbenutzt in
+# /sdcard/Download, weil KEIN Startweg sie uebernahm. Das Widget muss die
+# Uebernahme deshalb selbst aufrufen: nach dem Pull (frischer Stand) und vor
+# dem Serverstart (der Server liest die Datei beim Hochfahren). Die Funktion
+# selbst prueft test_wiederherstellung.py (echte Skriptlaeufe in Git Bash).
+
+def test_widget_uebernimmt_die_wissensdatei_vor_dem_serverstart():
+    text = _lies("agent-start")
+    aufrufe = [z for z in text.splitlines()
+               if "wissensdatei-uebernehmen.sh" in z and z.lstrip().startswith("bash")]
+    assert len(aufrufe) == 1, "genau ein Aufruf im Widget-Skript"
+    assert "|| true" in aufrufe[0], "darf den Start nie verhindern"
+    pos_pull = text.index("git pull --ff-only")
+    pos_aufruf = text.index('bash "$HIER/wissensdatei-uebernehmen.sh"')
+    pos_server = text.index("python -m uvicorn app.main:app --host")
+    assert pos_pull < pos_aufruf < pos_server, "nach dem Pull, vor dem Serverstart"

@@ -5,6 +5,12 @@
 Test-Hauptschluessel verschluesselt, ueber den Einmal-Schluessel umgeschluesselt
 und im Test-"Termux" (Git Bash) wieder ausgepackt.
 
+Nachtrag 10.10.2026: Dazu die Wissensdatei-Uebernahme
+(``termux/wissensdatei-uebernehmen.sh``), die das Widget (``termux/agent-start``)
+aufruft — als eigener Abschnitt unten, im selben Muster (echte Skriptlaeufe in
+Git Bash mit erfundenen Dateien); den Aufruf selbst bewacht
+``test_widget_agent_start.py``.
+
 Aufruf:
     cd backend && .venv/Scripts/python -m pytest tests/test_wiederherstellung.py -q
 """
@@ -346,3 +352,147 @@ def test_einspielen_ohne_sendung_und_mit_falscher_pruefsumme(tmp_path):
 def test_unbekannter_aufruf_exit_1(tmp_path):
     _, _, umgebung = _termux(tmp_path)
     assert _skript(umgebung).returncode == 1
+
+
+# ── Wissensdatei-Uebernahme (memory.db) im Widget-Start (10.10.2026) ────────
+#
+# Befund des Nachtlaufs: Der Chat liest ~/memory.db — dort lag die alte Kopie
+# (30.891 Vektorzeilen, Stand vor dem WhatsApp-Vollimport); die frische Datei
+# (241.402 WhatsApp-Nachrichten) lag unbenutzt in /sdcard/Download, weil KEIN
+# Startweg sie uebernahm. Neu: termux/wissensdatei-uebernehmen.sh, aufgerufen
+# aus dem benutzten Startweg termux/agent-start (Waechter dort in
+# test_widget_agent_start.py). Die Faelle laufen ECHT in Git Bash mit
+# erfundenen Dateien — dasselbe Muster wie der Wiederherstellungs-Teil.
+
+SKRIPT_WISSEN = PROJEKT / "termux" / "wissensdatei-uebernehmen.sh"
+
+
+def _wissen_umgebung(tmp_path: Path):
+    """Arbeitsordner fuer die Wissensdatei-Faelle bauen.
+
+    Das Skript kennt nur die Handy-Standardpfade; fuer den Testlauf kommen
+    Quelle, Ziel und Protokoll ueber die WISSENSDATEI_*-Variablen. HOME zeigt
+    auf den Testordner, damit kein Standardpfad den echten Heimordner trifft.
+    """
+    heim = tmp_path / "heim"
+    heim.mkdir()
+    download = tmp_path / "download"
+    download.mkdir()
+    protokoll = download / "hermes_diag" / "wissensdatei_uebernahme.log"
+    umgebung = dict(os.environ, HOME=_posix(heim),
+                    WISSENSDATEI_QUELLE=_posix(download / "memory.db"),
+                    WISSENSDATEI_ZIEL=_posix(heim / "memory.db"),
+                    WISSENSDATEI_PROTOKOLL=_posix(protokoll))
+    # MSYS-Eigenheit des PC-Laufs (wie _termux): die Hermes-Shell unterdrueckt
+    # die Uebersetzung von Unix- in Windows-Pfade. Zur Sicherheit freigeben.
+    for _v in ("MSYS2_ARG_CONV_EXCL", "MSYS_NO_PATHCONV"):
+        umgebung.pop(_v, None)
+    return heim, download, protokoll, umgebung
+
+
+def _wissen_ausfuehren(umgebung):
+    return subprocess.run([_bash(), _posix(SKRIPT_WISSEN)], capture_output=True,
+                          text=True, env=umgebung, timeout=60)
+
+
+def test_wissen_skript_syntax_lf_und_kein_netz():
+    text = SKRIPT_WISSEN.read_text(encoding="utf-8")
+    assert text.startswith(SHEBANG + "\n") and "\r\n" not in text
+    assert not re.search(r"\brm\s", text), "es wird nie etwas geloescht"
+    for verboten in ("pcloud", "curl", "wget", "adb", "http://", "https://", "git"):
+        assert verboten not in text.lower(), f"kein Netzweg im Skript: {verboten}"
+    ergebnis = subprocess.run([_bash(), "-n", _posix(SKRIPT_WISSEN)],
+                              capture_output=True, text=True)
+    assert ergebnis.returncode == 0, ergebnis.stderr
+
+
+def test_wissen_gleiche_pruefsumme_nichts_kopieren(tmp_path):
+    """(a) Gleiche Pruefsumme -> kein Kopieren, still; nur eine Beleg-Zeile."""
+    heim, download, protokoll, umgebung = _wissen_umgebung(tmp_path)
+    inhalt = b"gleiche Wissensdatei ohne Aenderung" * 100
+    (download / "memory.db").write_bytes(inhalt)
+    ziel = heim / "memory.db"
+    ziel.write_bytes(inhalt)
+    vorher = ziel.stat().st_mtime_ns
+    ergebnis = _wissen_ausfuehren(umgebung)
+    assert ergebnis.returncode == 0, ergebnis.stderr
+    assert ergebnis.stdout.strip() == ""                     # still: nichts passiert
+    assert ziel.stat().st_mtime_ns == vorher                 # nicht angetastet
+    assert list(heim.glob("memory.db.vor_*")) == []          # keine Sicherung
+    assert list(heim.glob("memory.db.teil")) == []           # keine temp-Datei
+    text = protokoll.read_text(encoding="utf-8")
+    assert "uebersprungen (Pruefsumme gleich, nichts kopiert)" in text
+    assert "groesse=" in text and "sha256=" in text          # Beleg vollstaendig
+    assert (download / "memory.db").read_bytes() == inhalt   # Quelle bleibt liegen
+
+
+def test_wissen_andere_datei_erst_sichern_dann_kopieren(tmp_path):
+    """(b)+(d) Unterschiedliche Datei: Sicherung angelegt UND kopiert; die
+    Sicherung traegt den ALTEN Inhalt, das Ziel den neuen -> die Reihenfolge
+    (erst sichern, dann kopieren) ist am Inhalt belegt, nicht nur behauptet."""
+    heim, download, protokoll, umgebung = _wissen_umgebung(tmp_path)
+    alt = b"alte Fassung ohne WhatsApp" * 30
+    neu = b"frische Fassung mit WhatsApp-Bestand" * 40
+    (download / "memory.db").write_bytes(neu)
+    ziel = heim / "memory.db"
+    ziel.write_bytes(alt)
+    ergebnis = _wissen_ausfuehren(umgebung)
+    assert ergebnis.returncode == 0, ergebnis.stderr
+    sicherungen = list(heim.glob("memory.db.vor_*"))
+    assert len(sicherungen) == 1
+    assert sicherungen[0].read_bytes() == alt                # erst sichern ...
+    assert ziel.read_bytes() == neu                          # ... dann kopieren
+    assert (download / "memory.db").read_bytes() == neu      # Quelle nie geloescht
+    assert list(heim.glob("memory.db.teil")) == []           # keine temp-Reste
+    text = protokoll.read_text(encoding="utf-8")
+    assert "Sicherung angelegt" in text and "uebernommen (kopiert)" in text
+    assert text.index("Sicherung angelegt") < text.index("uebernommen (kopiert)")
+    assert "sha256=" in text and "vor_" in text              # Sicherungspfad im Beleg
+    assert ergebnis.stdout.strip() != ""                     # Uebernahme wird gemeldet
+
+
+def test_wissen_fehlende_quelle_kein_abbruch_klare_meldung(tmp_path):
+    """(c) Fehlende Quelle: Exit 0, Ziel unberuehrt, klare Protokoll-Zeile."""
+    heim, download, protokoll, umgebung = _wissen_umgebung(tmp_path)
+    ziel = heim / "memory.db"
+    ziel.write_bytes(b"alte Fassung")
+    ergebnis = _wissen_ausfuehren(umgebung)
+    assert ergebnis.returncode == 0, ergebnis.stderr         # kein Abbruch
+    assert ergebnis.stdout.strip() == ""
+    assert ziel.read_bytes() == b"alte Fassung"              # nichts angefasst
+    assert list(heim.glob("memory.db.vor_*")) == []
+    text = protokoll.read_text(encoding="utf-8")             # Protokoll entstand trotzdem
+    assert "Quelle fehlt" in text and "Start laeuft weiter" in text
+
+
+def test_wissen_ziel_fehlt_kopieren_ohne_sicherung(tmp_path):
+    """Erstlauf: kein Ziel vorhanden -> kopieren, keine Sicherung noetig."""
+    heim, download, protokoll, umgebung = _wissen_umgebung(tmp_path)
+    neu = b"allererste Wissensdatei" * 50
+    (download / "memory.db").write_bytes(neu)
+    ergebnis = _wissen_ausfuehren(umgebung)
+    assert ergebnis.returncode == 0, ergebnis.stderr
+    assert (heim / "memory.db").read_bytes() == neu
+    assert list(heim.glob("memory.db.vor_*")) == []
+    text = protokoll.read_text(encoding="utf-8")
+    assert "uebernommen (kopiert)" in text and "sicherung=keine" in text
+
+
+def test_wissen_zweiter_lauf_ist_idempotent(tmp_path):
+    """Zweiter Lauf bei unveraenderter Quelle: nichts Neues, keine zweite
+    Sicherung, Ziel bleibt unangetastet — beide Entscheidungen stehen im
+    Protokoll (uebernommen, dann uebersprungen)."""
+    heim, download, protokoll, umgebung = _wissen_umgebung(tmp_path)
+    (download / "memory.db").write_bytes(b"stand eins")
+    ziel = heim / "memory.db"
+    ziel.write_bytes(b"stand null")
+    assert _wissen_ausfuehren(umgebung).returncode == 0
+    sicherungen = sorted(p.name for p in heim.glob("memory.db.vor_*"))
+    assert len(sicherungen) == 1
+    vorher = ziel.stat().st_mtime_ns
+    ergebnis = _wissen_ausfuehren(umgebung)
+    assert ergebnis.returncode == 0, ergebnis.stderr
+    assert sorted(p.name for p in heim.glob("memory.db.vor_*")) == sicherungen
+    assert ziel.stat().st_mtime_ns == vorher                 # nichts neu kopiert
+    text = protokoll.read_text(encoding="utf-8")
+    assert "uebernommen (kopiert)" in text and "uebersprungen" in text

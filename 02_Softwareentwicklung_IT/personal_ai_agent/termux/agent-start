@@ -155,6 +155,17 @@ else
         --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv || true
 fi
 
+# Wissensdatei (memory.db) uebernehmen (10.10.2026). Befund des Nachtlaufs:
+# Der Chat liest ~/memory.db - dort lag eine ALTE Kopie (30.891 Vektorzeilen,
+# Stand vor dem WhatsApp-Vollimport); die frische Datei (241.402 WhatsApp-
+# Nachrichten, 481 Gespraeche) lag unbenutzt in /sdcard/Download, weil KEIN
+# Startweg sie uebernahm - dabei startet genau dieser Widget-Weg den Server.
+# Werkzeug: termux/wissensdatei-uebernehmen.sh (sha256-Vergleich: gleich ->
+# nichts tun; sonst zuerst ~/memory.db.vor_<datum> sichern, dann kopieren;
+# Protokoll nach hermes_diag/wissensdatei_uebernahme.log; kein Netz, kein
+# pCloud). Darf den Start NIEMALS verhindern (|| true).
+bash "$HIER/wissensdatei-uebernehmen.sh" || true
+
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
