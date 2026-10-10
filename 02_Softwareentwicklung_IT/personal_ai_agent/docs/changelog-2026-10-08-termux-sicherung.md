@@ -135,3 +135,28 @@ Linux-Umgebung (nur `home`) und der Prüfer mit gzip ohne Eintragszahl.
 
 Tests: 25. Neu sind die neue Ablage (`containers/debian/rootfs`), die alte Ablage
 (`installed-rootfs/ubuntu`) und der Prüfer mit ROT bei fehlender Umgebung.
+
+## Nachtrag 10.10.2026: Mitlesen bricht nicht mehr an Sonderzeichen ab
+
+Befund beim ersten echten Fernauftrag: Am Handy lief die Sicherung sauber durch. Am PC brach
+`tools/handy/sicherung_auftrag.py` aber beim Mitlesen ab. Die erste Log-Zeile vom Handy
+enthielt Zeichen, die die Windows-Konsole (cp1252) nicht darstellen kann
+(`UnicodeEncodeError`).
+
+**Behoben:**
+- Das Werkzeug ersetzt solche Zeichen jetzt durch `?`
+  (`sys.stdout.reconfigure(errors="replace")`), statt abzubrechen.
+- Neu ist die Option `--fortsetzen --kennung <Kennung>`. Sie liest einen schon laufenden
+  Auftrag weiter mit, holt die Sicherung und prüft sie, ohne einen neuen Auftrag zu legen.
+- Exit 6 („läuft schon“) nennt jetzt diesen Weg.
+
+**Prüfung:** `backend/tests/test_termux_sicherung.py` hat 2 neue Tests: Fortsetzen ohne
+neuen Auftrag und eine cp1252-Konsole mit Sonderzeichen. Die Datei läuft mit 27 passed.
+
+**Erster echter Lauf**, Auftrag `20261010022842`:
+- Am Handy: `home` mit 109.653 Einträgen und 3.280 MB, Debian mit 1.433 MB.
+- Am PC per `--fortsetzen` geholt und geprüft: **GRÜN** (sha256, Entschlüsseln, Lesen bis zum
+  Ende).
+- Inhalt nur gezählt: 153 benannte Vorschläge (106 Personen), 103 Profile mit 31 Erinnerungen,
+  5 Geschichten.
+- Eine verschlüsselte Kopie liegt zusätzlich in pCloud unter `Agent/sicherungen/`.

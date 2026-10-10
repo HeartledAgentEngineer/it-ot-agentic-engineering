@@ -118,7 +118,16 @@ def main(argv=None, adb=adb_echt, schlafen=time.sleep, pruefen=None) -> int:
     zerleger.add_argument("--lokal", default=STANDARD_LOKAL)
     zerleger.add_argument("--max-minuten", type=int, default=90)
     zerleger.add_argument("--kennung", default=datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+    zerleger.add_argument("--fortsetzen", action="store_true",
+                          help="laufenden Auftrag --kennung weiter mitlesen, keinen neuen legen")
     args = zerleger.parse_args(argv)
+    # Handy-Log kann Zeichen enthalten, die die Windows-Konsole (cp1252) nicht kennt
+    # (Befund 10.10.2026: Absturz beim Mitlesen) -> ersetzen statt abbrechen.
+    for strom in (sys.stdout, sys.stderr):
+        try:
+            strom.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
     if not geraet_da(adb):
         print("Abbruch: kein Handy am Kabel (adb devices). USB-Debugging an?")
@@ -126,16 +135,19 @@ def main(argv=None, adb=adb_echt, schlafen=time.sleep, pruefen=None) -> int:
     if not datei_da(adb, HANDY_SCHLUESSEL):
         print(f"Abbruch: oeffentlicher Schluessel fehlt am Handy ({HANDY_SCHLUESSEL}).")
         return 2
-    if datei_da(adb, f"{HANDY_ORDNER}/AUFTRAG.laeuft"):
-        print("Abbruch: am Handy laeuft schon eine Sicherung (AUFTRAG.laeuft).")
-        return 6
-    if not auftrag_legen(adb, args.kennung):
-        print("Abbruch: Auftrag liess sich nicht aufs Handy legen.")
-        return 1
-
-    print(f"Auftrag {args.kennung} liegt am Handy.")
-    print(">>> Jetzt am Handy das Agent-Widget antippen. <<<")
-    print("    Der Agent startet erst nach der Sicherung (einige Minuten). Mitlesen:")
+    if args.fortsetzen:
+        print(f"Auftrag {args.kennung}: lese weiter mit.")
+    else:
+        if datei_da(adb, f"{HANDY_ORDNER}/AUFTRAG.laeuft"):
+            print("Abbruch: am Handy laeuft schon eine Sicherung (AUFTRAG.laeuft).")
+            print("Mitlesen: --fortsetzen --kennung <Kennung>")
+            return 6
+        if not auftrag_legen(adb, args.kennung):
+            print("Abbruch: Auftrag liess sich nicht aufs Handy legen.")
+            return 1
+        print(f"Auftrag {args.kennung} liegt am Handy.")
+        print(">>> Jetzt am Handy das Agent-Widget antippen. <<<")
+        print("    Der Agent startet erst nach der Sicherung (einige Minuten). Mitlesen:")
     code, handy_ziel = mitlesen(adb, args.kennung, schlafen=schlafen,
                                 max_sekunden=args.max_minuten * 60)
     if code is None:

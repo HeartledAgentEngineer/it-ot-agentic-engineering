@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -372,6 +373,33 @@ def test_fernauftrag_zeitablauf(tmp_path):
     code = sa.main(["--lokal", str(tmp_path / "l"), "--max-minuten", "1"], adb=Stumm(tmp_path),
                    schlafen=lambda s: None, pruefen=lambda a: 0)
     assert code == 4
+
+
+def test_fernauftrag_fortsetzen_legt_keinen_neuen_auftrag(tmp_path, capsys):
+    """10.10.2026: Mitlesen war abgestuerzt, die Sicherung lief am Handy weiter."""
+    adb = AdbAttrappe(tmp_path, laeuft=True)
+    code = sa.main(["--lokal", str(tmp_path / "l"), "--kennung", "k1", "--fortsetzen"], adb=adb,
+                   schlafen=lambda s: None, pruefen=lambda a: 0)
+    assert code == 0 and not [a for a in adb.aufrufe if a[0] == "push"]
+    assert "lese weiter mit" in capsys.readouterr().out
+
+
+def test_fernauftrag_zeichen_ausserhalb_cp1252_brechen_nicht_ab(tmp_path, monkeypatch):
+    """Befund 10.10.2026: ein Haken im Handy-Log liess das Mitlesen unter cp1252 abstuerzen."""
+    roh = io.BytesIO()
+    konsole = io.TextIOWrapper(roh, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", konsole)
+
+    class MitHaken(AdbAttrappe):
+        def __call__(self, argumente):
+            code, text = super().__call__(argumente)
+            if argumente[0] == "shell" and argumente[1].startswith("cat "):
+                text = "✓ home → fertig\n" + text
+            return code, text
+    code = sa.main(["--lokal", str(tmp_path / "l"), "--kennung", "k1"], adb=MitHaken(tmp_path),
+                   schlafen=lambda s: None, pruefen=lambda a: 0)
+    konsole.flush()
+    assert code == 0 and b"home ? fertig" in roh.getvalue()
 
 
 # ── Linux-Umgebung (proot-distro) statt usr/ (nach Lauf 08.10. 22:35) ─────
