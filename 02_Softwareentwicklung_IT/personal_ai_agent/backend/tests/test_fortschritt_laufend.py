@@ -235,3 +235,89 @@ def test_ohne_laufende_bleibt_die_alte_anzeige_unveraendert(fortschritt):
     assert "1. Schritt eins" in text
     seite = fortschritt.html(daten)
     assert "Laufende Arbeiten" not in seite
+
+
+# ---------------------------------------------------------------------------
+# Zustand: fertig / angehalten / laeuft (nicht mehr "laeuft" behaupten)
+# ---------------------------------------------------------------------------
+
+def test_lage_fertig_wenn_ziel_erreicht(fortschritt):
+    assert fortschritt.lage_bestimmen(100, 100, 5.0) == "fertig"
+    assert fortschritt.lage_bestimmen(120, 100, 9999.0) == "fertig"   # Ziel zaehlt vor Ruhe
+
+
+def test_lage_angehalten_bei_ruhender_datei(fortschritt):
+    assert fortschritt.lage_bestimmen(50, 100, 200.0) == "angehalten"
+    # Genau an der Grenze gilt noch als laufend, erst DANACH als angehalten.
+    assert fortschritt.lage_bestimmen(50, 100, fortschritt.RUHE_MINUTEN) == "laeuft"
+    assert fortschritt.lage_bestimmen(50, 100, fortschritt.RUHE_MINUTEN + 1) == "angehalten"
+
+
+def test_lage_laeuft_bei_frischer_datei_und_ohne_messwert(fortschritt):
+    assert fortschritt.lage_bestimmen(50, 100, 3.0) == "laeuft"
+    assert fortschritt.lage_bestimmen(50, 100, None) == "laeuft"       # nicht messbar
+    assert fortschritt.lage_bestimmen(0, 0, 9999.0) == "angehalten"   # kein Ziel: nach Ruhe angehalten
+
+
+def test_messe_laufende_arbeiten_traegt_den_zustand(fortschritt, tmp_path):
+    import os
+    frisch = tmp_path / "frisch.jsonl"
+    frisch.write_text("".join(_zeile(nr=n) + "\n" for n in range(50)), encoding="utf-8")
+
+    alt = tmp_path / "alt.jsonl"
+    alt.write_text("".join(_zeile(nr=n) + "\n" for n in range(50)), encoding="utf-8")
+    vor_vier_stunden = frisch.stat().st_mtime - 4 * 3600
+    os.utime(alt, (vor_vier_stunden, vor_vier_stunden))
+
+    voll = tmp_path / "voll.jsonl"
+    voll.write_text("".join(_zeile(nr=n) + "\n" for n in range(100)), encoding="utf-8")
+
+    arbeiten = [
+        {"titel": "laeuft", "auftrag": "", "datei": frisch, "gesamt": 100,
+         "einheit": "Bilder", "mit_kosten": False, "budget_usd": None},
+        {"titel": "angehalten", "auftrag": "", "datei": alt, "gesamt": 100,
+         "einheit": "Bilder", "mit_kosten": False, "budget_usd": None},
+        {"titel": "fertig", "auftrag": "", "datei": voll, "gesamt": 100,
+         "einheit": "Bilder", "mit_kosten": False, "budget_usd": None},
+    ]
+    lagen = {e["titel"]: e["lage"] for e in fortschritt.messe_laufende_arbeiten(arbeiten)}
+    assert lagen == {"laeuft": "laeuft", "angehalten": "angehalten", "fertig": "fertig"}
+
+    # Das gemessene Alter wird mitgegeben, damit die Anzeige es begruenden kann.
+    angehalten = [e for e in fortschritt.messe_laufende_arbeiten(arbeiten)
+                  if e["titel"] == "angehalten"][0]
+    assert angehalten["stand_minuten"] > fortschritt.RUHE_MINUTEN
+
+
+def test_anzeige_trennt_laufende_von_angehaltenen(fortschritt):
+    daten = {
+        "aufgabe": "Probe", "stand": "10.10.2026 08:00:00", "schritte": [],
+        "laufende": [
+            {"titel": "Arbeit A", "auftrag": "", "einheit": "Bilder",
+             "fertig": 50, "gesamt": 100, "prozent": 50.0,
+             "kosten_usd": None, "budget_usd": None, "datei": "C:/p/a.jsonl",
+             "letzte_datei": "a", "letzte_zeit": "10.10.2026 07:00:00",
+             "zeit_quelle": "datei", "stand_minuten": 2.0, "lage": "laeuft", "hinweis": ""},
+            {"titel": "Arbeit B", "auftrag": "", "einheit": "Bilder",
+             "fertig": 99, "gesamt": 100, "prozent": 99.0,
+             "kosten_usd": None, "budget_usd": None, "datei": "C:/p/b.jsonl",
+             "letzte_datei": "b", "letzte_zeit": "09.10.2026 07:00:00",
+             "zeit_quelle": "datei", "stand_minuten": 1500.0, "lage": "angehalten", "hinweis": ""},
+        ],
+    }
+    text = fortschritt.terminal(daten)
+    # Beide Abschnitte stehen da, aber getrennt.
+    assert "Laufende Arbeiten:" in text
+    assert "Abgeschlossen oder angehalten:" in text
+    assert text.index("Arbeit A") < text.index("Abgeschlossen oder angehalten:")
+    assert text.index("Arbeit B") > text.index("Abgeschlossen oder angehalten:")
+    assert "Zustand: angehalten - keine neue Zeile seit rund" in text
+
+    seite = fortschritt.html(daten)
+    assert "Abgeschlossen oder angehalten" in seite
+    assert "fuell-lauf" in seite            # A laeuft
+    assert "fuell-ruhe" in seite            # B ruht
+    assert "lauf-zustand" in seite
+    # Auch hier gilt: keine Fremdbibliotheken, kein Netzzugriff.
+    assert "http://" not in seite and "https://" not in seite
+    assert "<script" not in seite

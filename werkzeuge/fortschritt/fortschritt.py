@@ -19,14 +19,20 @@ Aufbau (eine Wahrheit, drei Ansichten):
     * ``--zaehle``     — zaehlt bei Papas Fotos nach (pCloud-API): wie viele
       Zielordner schon Inhalt haben und wie viele Dateien es sind. Nichts wird
       dabei geschrieben ausser den Zahlen in ``status.json``.
-    * ``laufende``     — zwei lebende Balken aus den Ergebnisdateien der gerade
-      laufenden Arbeiten (reiche Bildbeschreibung, Gesichtserkennung Papas
+    * ``laufende``     — Balken aus den Ergebnisdateien der konfigurierten
+      Arbeiten (reiche Bildbeschreibung, Gesichtserkennung Papas
       Fotos): fertige von geplanten Zeilen, Prozent, Kosten samt Budgetdeckel
       (nur Bildbeschreibung) und die zuletzt bearbeitete Datei mit Uhrzeit.
       Rein lokal und nur lesend, ohne Netzzugriff; fehlertolerant (fehlende
       Datei oder gerade erst halb geschriebene letzte Zeile stuerzen nie ab —
       dann gilt die letzte lesbare Zeile plus Hinweis). Laeuft bei jedem
       Aufruf mit und landet unter ``laufende`` in ``status.json``.
+      Jede Arbeit traegt ihren gemessenen Zustand ``lage``: ``fertig`` (Ziel
+      erreicht), ``angehalten`` (Ergebnisdatei ruht seit mehr als
+      ``RUHE_MINUTEN``) oder ``laeuft``. Nur die wirklich laufenden stehen
+      unter "Laufende Arbeiten"; der Rest unter "Abgeschlossen oder
+      angehalten" — sonst behauptet die Anzeige nach dem Nachtlauf dauerhaft
+      Arbeit, die laengst beendet ist.
 
 Aufruf:
     python werkzeuge/fortschritt/fortschritt.py --terminal
@@ -58,6 +64,12 @@ STANDARD_HOST = "eapi.pcloud.com"
 # Wo Papas Fotos landen (Sebastians Freigabe 10.10.2026).
 PCLOUD_ZIEL = "/Bilder & Videos/Papa (Amazon)"
 PCLOUD_QUELLE = "/AmazonPhotosvonPapa"
+
+# Nach so vielen Minuten ohne neue Zeile gilt eine Arbeit als angehalten, nicht
+# mehr als laufend. Ohne diese Grenze behauptet die Anzeige nach dem Nachtlauf
+# auf ewig "laufende Arbeiten", die in Wahrheit beendet sind (die zwei Balken
+# standen 14 h nach dem letzten Bild unveraendert bei 99,1 % bzw. 100 %).
+RUHE_MINUTEN = 120
 
 # Ergebnisdateien der zwei laufenden Arbeiten (Stand 10.10.2026). Gelesen wird
 # nur; fehlt eine Datei, zeigt die Anzeige 0 Prozent mit Hinweis statt Fehler.
@@ -172,6 +184,29 @@ def _datei_stand_lesbar(pfad: Path) -> str:
         return ""
 
 
+def _alter_minuten(pfad: Path) -> Optional[float]:
+    """Wie lange die Ergebnisdatei schon unveraendert ist — None, wenn nicht messbar."""
+    try:
+        return (datetime.now().timestamp() - pfad.stat().st_mtime) / 60.0
+    except OSError:
+        return None
+
+
+def lage_bestimmen(fertig: int, gesamt: int, alter_minuten: Optional[float],
+                   ruhe_minuten: float = RUHE_MINUTEN) -> str:
+    """Ehrlicher Zustand einer Arbeit: ``fertig``, ``angehalten`` oder ``laeuft``.
+
+    Ohne die Unterscheidung meldet die Anzeige nach dem Ende eines Laufs
+    weiterhin "laufend" — der Zustand wird deshalb aus Messwerten abgeleitet
+    (Ziel erreicht? Ergebnisdatei ruht?) und nicht behauptet.
+    """
+    if gesamt > 0 and int(fertig) >= int(gesamt):
+        return "fertig"
+    if alter_minuten is not None and alter_minuten > ruhe_minuten:
+        return "angehalten"
+    return "laeuft"
+
+
 def _kosten_aus_eintrag(eintrag: Dict[str, Any]) -> float:
     try:
         return float(eintrag.get("kosten_usd") or 0.0)
@@ -206,11 +241,13 @@ def messe_jsonl(pfad: Path, gesamt: int, mit_kosten: bool = False) -> Dict[str, 
         "letzte_datei": "",
         "letzte_zeit": "",
         "zeit_quelle": "",
+        "stand_minuten": None,
         "hinweis": "",
     }
     if not pfad.is_file():
         ergebnis["hinweis"] = "Ergebnisdatei fehlt noch"
         return ergebnis
+    ergebnis["stand_minuten"] = _alter_minuten(pfad)
     try:
         rohdaten = pfad.read_bytes()
     except OSError as fehler:
@@ -295,10 +332,16 @@ def messe_jsonl(pfad: Path, gesamt: int, mit_kosten: bool = False) -> Dict[str, 
     return ergebnis
 
 
-def messe_laufende_arbeiten() -> List[Dict[str, Any]]:
-    """Die zwei laufenden Arbeiten messen (rein lokal, nur lesend)."""
+def messe_laufende_arbeiten(arbeiten: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Die konfigurierten Arbeiten messen (rein lokal, nur lesend).
+
+    Je Arbeit kommt der ehrliche Zustand mit: ``lage`` = ``fertig`` (Ziel
+    erreicht), ``angehalten`` (Ergebnisdatei ruht seit mehr als
+    ``RUHE_MINUTEN``) oder ``laeuft``. ``stand_minuten`` nennt das gemessene
+    Alter der Ergebnisdatei, damit die Anzeige es begruenden kann.
+    """
     ergebnisse: List[Dict[str, Any]] = []
-    for eintrag in LAUFENDE_ARBEITEN:
+    for eintrag in (LAUFENDE_ARBEITEN if arbeiten is None else arbeiten):
         messwerte = messe_jsonl(eintrag["datei"], eintrag["gesamt"],
                                 mit_kosten=bool(eintrag["mit_kosten"]))
         ergebnisse.append({
@@ -314,6 +357,9 @@ def messe_laufende_arbeiten() -> List[Dict[str, Any]]:
             "letzte_datei": messwerte["letzte_datei"],
             "letzte_zeit": messwerte["letzte_zeit"],
             "zeit_quelle": messwerte["zeit_quelle"],
+            "stand_minuten": messwerte["stand_minuten"],
+            "lage": lage_bestimmen(messwerte["fertig"], messwerte["gesamt"],
+                                   messwerte["stand_minuten"]),
             "hinweis": messwerte["hinweis"],
         })
     return ergebnisse
@@ -365,6 +411,20 @@ def _laufende_zeilen(eintrag: Dict[str, Any]) -> Dict[str, str]:
             letzte = f"zuletzt bearbeitet: {kennung} — {zeit}"
         else:
             letzte = f"zuletzt: {kennung} — Datei geaendert {zeit}"
+    zustand = ""
+    lage = str(eintrag.get("lage") or "laeuft")
+    stand = eintrag.get("stand_minuten")
+    if lage == "fertig":
+        zustand = "Ziel erreicht"
+    elif lage == "angehalten":
+        if stand is None:
+            zustand = "angehalten - keine neue Zeile"
+        else:
+            try:
+                stunden = float(stand) / 60.0
+                zustand = f"angehalten - keine neue Zeile seit rund {_zahl(stunden, 1)} h"
+            except (TypeError, ValueError):
+                zustand = "angehalten - keine neue Zeile"
     return {
         "titel": str(eintrag.get("titel") or "Arbeit"),
         "auftrag": str(eintrag.get("auftrag") or ""),
@@ -372,6 +432,8 @@ def _laufende_zeilen(eintrag: Dict[str, Any]) -> Dict[str, str]:
         "prozent": f"{_zahl(eintrag.get('prozent') or 0, 1)} %",
         "kosten": kosten,
         "letzte": letzte,
+        "zustand": zustand,
+        "lage": lage,
         "hinweis": str(eintrag.get("hinweis") or ""),
     }
 
@@ -387,22 +449,30 @@ def terminal(daten: Dict[str, Any]) -> str:
             zeilen.append(f"   {z['neben']}")
     laufende = daten.get("laufende") or []
     if laufende:
-        zeilen.append("")
-        zeilen.append("Laufende Arbeiten:")
-        for eintrag in laufende:
-            teile = _laufende_zeilen(eintrag)
-            fertig_l = int(eintrag.get("fertig") or 0)
-            gesamt_l = int(eintrag.get("gesamt") or 0)
-            kopf = teile["titel"] + (f" ({teile['auftrag']})" if teile["auftrag"] else "")
-            zeilen.append(f"  {kopf}")
-            zeilen.append(f"    {teile['zahlen']}")
-            zeilen.append("    " + _balken(fertig_l, gesamt_l, komma=True))
-            if teile["kosten"]:
-                zeilen.append(f"    {teile['kosten']}")
-            if teile["letzte"]:
-                zeilen.append(f"    {teile['letzte']}")
-            if teile["hinweis"]:
-                zeilen.append(f"    Hinweis: {teile['hinweis']}")
+        echte = [e for e in laufende if str(e.get("lage") or "laeuft") == "laeuft"]
+        ruhende = [e for e in laufende if str(e.get("lage") or "laeuft") != "laeuft"]
+        for ueberschrift, gruppe in (("Laufende Arbeiten:", echte),
+                                     ("Abgeschlossen oder angehalten:", ruhende)):
+            if not gruppe:
+                continue
+            zeilen.append("")
+            zeilen.append(ueberschrift)
+            for eintrag in gruppe:
+                teile = _laufende_zeilen(eintrag)
+                fertig_l = int(eintrag.get("fertig") or 0)
+                gesamt_l = int(eintrag.get("gesamt") or 0)
+                kopf = teile["titel"] + (f" ({teile['auftrag']})" if teile["auftrag"] else "")
+                zeilen.append(f"  {kopf}")
+                zeilen.append(f"    {teile['zahlen']}")
+                zeilen.append("    " + _balken(fertig_l, gesamt_l, komma=True))
+                if teile["kosten"]:
+                    zeilen.append(f"    {teile['kosten']}")
+                if teile["letzte"]:
+                    zeilen.append(f"    {teile['letzte']}")
+                if teile["zustand"]:
+                    zeilen.append(f"    Zustand: {teile['zustand']}")
+                if teile["hinweis"]:
+                    zeilen.append(f"    Hinweis: {teile['hinweis']}")
     zeilen.append("")
     for s in daten.get("schritte") or []:
         zeichen = {"fertig": "x", "laeuft": ">", "offen": " ", "blockiert": "!"}.get(s.get("lage"), " ")
@@ -441,7 +511,8 @@ def html(daten: Dict[str, Any]) -> str:
         ]
         if teile["auftrag"]:
             teile_html.append(f'<div class="lauf-unter">{escape(teile["auftrag"])}</div>')
-        teile_html.append('<div class="leiste"><div class="fuell fuell-lauf" '
+        teile_html.append('<div class="leiste"><div class="fuell '
+                          f'{"fuell-ruhe" if teile["lage"] != "laeuft" else "fuell-lauf"}" '
                           f'style="width:{anteil_l:.1f}%"></div></div>')
         meta = f'<span class="pct">{escape(teile["prozent"])}</span>'
         if teile["kosten"]:
@@ -449,16 +520,23 @@ def html(daten: Dict[str, Any]) -> str:
         teile_html.append(f'<div class="lauf-meta">{meta}</div>')
         if teile["letzte"]:
             teile_html.append(f'<div class="lauf-meta"><span>{escape(teile["letzte"])}</span></div>')
+        if teile["zustand"]:
+            teile_html.append(f'<div class="lauf-zustand">{escape(teile["zustand"])}</div>')
         if teile["hinweis"]:
             teile_html.append(f'<div class="lauf-hinweis">Hinweis: {escape(teile["hinweis"])}</div>')
         return '<div class="lauf">' + "".join(teile_html) + "</div>"
 
     schritte = "\n".join(schritt_zeile(s) for s in daten.get("schritte") or [])
     laufende = daten.get("laufende") or []
+    echte = [e for e in laufende if str(e.get("lage") or "laeuft") == "laeuft"]
+    ruhende = [e for e in laufende if str(e.get("lage") or "laeuft") != "laeuft"]
     lauf_html = ""
-    if laufende:
-        lauf_html = ('<h2 class="lauf-h">Laufende Arbeiten</h2>\n'
-                     + "\n".join(lauf_block(e) for e in laufende))
+    for ueberschrift, gruppe in (("Laufende Arbeiten", echte),
+                                 ("Abgeschlossen oder angehalten", ruhende)):
+        if not gruppe:
+            continue
+        lauf_html += (f'<h2 class="lauf-h">{ueberschrift}</h2>\n'
+                      + "\n".join(lauf_block(e) for e in gruppe) + "\n")
     return f"""<!doctype html>
 <html lang="de">
 <head>
@@ -501,10 +579,12 @@ def html(daten: Dict[str, Any]) -> str:
   .lauf-unter {{ color: var(--muted-foreground); font-size: 11px; margin-top: 1px; }}
   .lauf .leiste {{ height: 10px; margin-top: 6px; }}
   .fuell-lauf {{ background: var(--accent); }}
+  .fuell-ruhe {{ background: color-mix(in srgb, var(--muted-foreground) 55%, transparent); }}
   .lauf-meta {{ display: flex; justify-content: space-between; gap: 10px; margin-top: 5px;
                color: var(--muted-foreground); font-size: 11.5px; font-variant-numeric: tabular-nums; }}
   .lauf-meta .pct {{ color: var(--foreground); }}
   .lauf-hinweis {{ margin-top: 5px; font-size: 11px; color: var(--muted-foreground); }}
+  .lauf-zustand {{ margin-top: 5px; font-size: 11px; color: var(--muted-foreground); }}
 </style>
 </head>
 <body>

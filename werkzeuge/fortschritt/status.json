@@ -1,7 +1,7 @@
 {
   "aufgabe": "Nachtlauf 10./11.10.2026",
   "plan": ".hermes/plans/2026-10-10_nachtlauf-papas-fotos-und-chat.md",
-  "stand": "10.10.2026 17:27:00",
+  "stand": "11.10.2026 01:36:23",
   "schritte": [
     {
       "nr": 1,
@@ -54,7 +54,7 @@
     "dateien": 6336,
     "groesse_mb": 16123.6
   },
-  "hinweis": "Alle nummerierten Schritte erledigt. Kartenstueck (OSM) fertig: 15 Gebiete, bild_orte.csv 18.840 Zeilen. bild_index.db existiert (25.352 Vektoren). Kabellose Uebergabe (pCloud /Agent/uebergabe) vollzogen und per API belegt: 8 Dateien inkl. Papas Gruppen (gesicht_zuordnung, personen_beispiele). Offen bleiben nur Kostenpflichtiges (8 Fotos, Videos) und Geraeteeingaenge (WhatsApp).",
+  "hinweis": "Alle nummerierten Schritte erledigt. Kartenstueck (OSM) fertig: 15 Gebiete, bild_orte.csv 18.840 Zeilen. bild_index.db: 26.241 Bilder, alle mit Vektor (gemessen). Kabellose Uebergabe (pCloud /Agent/uebergabe) vollzogen und per API belegt: 8 Dateien inkl. Papas Gruppen. Beide grossen Laeufe sind beendet (Zustand wird gemessen, nicht behauptet): Gesichtserkennung Papas Fotos 6.336/6.336 fertig, reiche Bildbeschreibung bei 17.428 angehalten (seit 10.10. 10:51 keine neue Zeile). Offen bleiben nur Kostenpflichtiges (8 Fotos, Videos) und Geraeteeingaenge (WhatsApp).",
   "laufende": [
     {
       "titel": "Bildbeschreibung reich",
@@ -69,6 +69,8 @@
       "letzte_datei": "DSC_2098.JPG",
       "letzte_zeit": "10.10.2026 10:51:56",
       "zeit_quelle": "eintrag",
+      "stand_minuten": 884.4371538917223,
+      "lage": "angehalten",
       "hinweis": ""
     },
     {
@@ -84,6 +86,8 @@
       "letzte_datei": "108863620662",
       "letzte_zeit": "10.10.2026 15:15:17",
       "zeit_quelle": "datei",
+      "stand_minuten": 621.0943357070287,
+      "lage": "fertig",
       "hinweis": ""
     }
   ]

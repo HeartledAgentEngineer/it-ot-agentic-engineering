@@ -14,4 +14,11 @@ plan for three consumers:
 Step state comes from `status.json` (`lage`: `fertig`, `laeuft`, `offen`,
 `blockiert`); the counter bar is derived from the pCloud count, never asserted.
 
+Each work in `laufende` also carries a **measured** state (`lage`): `fertig`
+(target reached), `angehalten` (result file unchanged for more than
+`RUHE_MINUTEN`, default 120 min) or `laeuft`. Only the truly running ones are
+listed under "Laufende Arbeiten"; the rest appear under "Abgeschlossen oder
+angehalten" with the reason. Without that split the board kept claiming work
+that had ended hours ago.
+
 Keep it cheap: `--zaehle` only reads the cloud, no model call, no images.
