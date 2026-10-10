@@ -154,6 +154,7 @@ def _sandkasten(tmp_path: Path):
         ("pcloud-schluessel-uebernehmen.sh", "pcloud"),
         ("schluessel-uebernehmen.sh", "schluessel"),
         ("wissensdatei-uebernehmen.sh", "wissensdatei"),
+        ("pcloud-uebernehmen.sh", "pclouduebergabe"),
         ("sicherung-auftrag.sh", "sicherung"),
     ):
         (sb / "termux" / name).write_bytes(
@@ -200,7 +201,7 @@ def test_ablauf_laeuft_echt_und_haelt_die_reihenfolge(tmp_path):
     # weiter (das ist die Eigenschaft 'darf den Start nie verhindern').
     assert "git fetch fehlgeschlagen" in lauf.stdout
     _stellen(lauf.stdout, "git fetch fehlgeschlagen", "SCHRITT:pcloud", "SCHRITT:schluessel",
-             "SCHRITT:daten", "SCHRITT:wissensdatei", "SCHRITT:sicherung")
+             "SCHRITT:daten", "SCHRITT:wissensdatei", "SCHRITT:pclouduebergabe", "SCHRITT:sicherung")
     # Einrichtung (echte Datei) hat Hook + Bruecke im Sandkasten-Heim angelegt.
     assert (heim / "agent-ensure.sh").is_file()
     assert (prefix / "etc" / "profile.d" / "hey-agent.sh").is_file()
@@ -217,7 +218,7 @@ def test_ablauf_mit_laufend_laesst_nur_die_sicherung_aus(tmp_path):
     assert lauf.returncode == 0, lauf.stdout + lauf.stderr
     assert "SCHRITT:sicherung" not in lauf.stdout
     _stellen(lauf.stdout, "SCHRITT:pcloud", "SCHRITT:schluessel", "SCHRITT:daten",
-             "SCHRITT:wissensdatei")
+             "SCHRITT:wissensdatei", "SCHRITT:pclouduebergabe")
 
 
 # ── Einrichtung: Bruecke ~/agent-ensure.sh (keine veraltende Kopie) ─────────

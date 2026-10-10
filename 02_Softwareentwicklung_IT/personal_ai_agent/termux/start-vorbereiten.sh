@@ -17,6 +17,8 @@
 #   4. Vorlese-Schluessel (OPENROUTER_TTS_KEY) auf demselben Weg
 #   5. Datendateien vom PC (Werkzeug tools/handy/uebergabe_uebernehmen.py)
 #   6. Wissensdatei memory.db (termux/wissensdatei-uebernehmen.sh)
+#   6b. Ergebnisse kabellos aus der pCloud (termux/pcloud-uebernehmen.sh) —
+#       holt, was der PC in /Agent/uebergabe gelegt hat
 #   7. Weckruf-Sperre (Aufruf termux-wake-lock)
 #   8. Sicherung auf Auftrag (termux/sicherung-auftrag.sh) - NUR ohne --laufend
 #      (im Widget-Weg ist der Server beendet; beim App-Druck auf einen
@@ -131,6 +133,17 @@ fi
 # Protokoll nach hermes_diag/wissensdatei_uebernahme.log. Kein Netz, kein
 # Cloud-Abruf. Darf den Start NIEMALS verhindern (|| true).
 bash "$HIER/wissensdatei-uebernehmen.sh" || true
+
+# ── 6b. Ergebnisse kabellos aus der pCloud uebernehmen ──────────────────────
+# Kabellose Uebergabe (Sebastian 10.10.2026): Der PC laedt die Ergebnisdateien
+# mit tools/pcloud/uebergabe_hochladen.py in den pCloud-Ordner /Agent/uebergabe;
+# dieses Skript holt sie beim Start in den Datenordner. Vorhandene Fassungen
+# werden vorher als *.vor_<datum> gesichert, kopiert wird ueber .teil + Pruefsumme
+# (Muster wissensdatei-uebernehmen.sh). Ausdruecklich erlaubt sind auch die
+# Gesichts-Vektoren (eigenes Geraet, eigenes Konto, kein fremder Anbieter).
+# Darf den Start NIE verhindern (|| true); fehlender Token/kein Netz -> klare
+# Zeile, es geht mit dem vorhandenen Stand weiter.
+bash "$HIER/pcloud-uebernehmen.sh" "$PROJEKT" || true
 
 # ── 7. Weckruf-Sperre ───────────────────────────────────────────────────────
 # Verhindert, dass Android den Server beim Bildschirmsperren einschlaefert.
