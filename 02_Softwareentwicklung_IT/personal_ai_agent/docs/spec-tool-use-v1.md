@@ -51,7 +51,8 @@ oder Gemini. Das Backend führt aus, gibt das Ergebnis zurück, das Modell ruft 
 | `erinnerungen_suchen` | Gemerkte Fakten über Sebastian abrufen | `memory_service.retrieve_relevant_memories` |
 | `fotos_uebersicht` | Übersicht der sortierten Fotos: Anlässe, Jahre, Zahlen | `foto_uebersicht.text_antwort` |
 | `fotos_mit_person` | Fotos finden, auf denen eine bekannte Person ist | `gesicht_fotos.suche_bilder_mit_person` |
-| `personen_liste` | Welche Personen der Agent auf Fotos kennt | `gesichter_service.liste_personen` |
+| `personen_liste` | Welche Personen der Agent kennt (aus dem Personen-Quiz; Notnagel: alter Katalog) | `gruppen_quiz.personen` (Notnagel `gesichter_service.liste_personen`) |
+| `person_auskunft` | Alles über EINE Person: Beziehung, eigene Notizen, Geburtstag, Zahl der Fotos (10.10.2026) | `gruppen_quiz.person` |
 | `wer_war_wann` | Was an einem Datum belegt ist: wer mit wem, Fotos, Chats | `beziehungen_service.text_antwort` |
 
 Bewusst **nicht** in v1: pCloud-Suche (`pcloud_service.suche` ist nicht rekursiv — eigener

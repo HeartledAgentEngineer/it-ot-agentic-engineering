@@ -35,8 +35,9 @@ def speicher(tmp_path, monkeypatch):
 
 def test_schemata_sind_gueltiges_openai_format():
     schemata = wz.schemata()
-    # 8 Werkzeuge bis 06.10.2026, mit `notizen_suchen` (07.10.2026) sind es 9.
-    assert len(schemata) == len(wz.REGISTER) == 9
+    # 8 Werkzeuge bis 06.10.2026, mit `notizen_suchen` (07.10.2026) 9, mit
+    # `person_auskunft` (10.10.2026, Personen aus dem Quiz) sind es 10.
+    assert len(schemata) == len(wz.REGISTER) == 10
     for s in schemata:
         assert s["type"] == "function"
         f = s["function"]
@@ -188,8 +189,13 @@ def test_erinnerungen_suchen(monkeypatch):
     assert "Mag Windsurfen" in e.text and e.text.count("\n- ") == 1
 
 
-def test_personen_liste_gibt_keine_vektoren_oder_bilder_heraus(monkeypatch):
-    from app.services import gesichter_service
+def test_personen_liste_gibt_keine_vektoren_oder_bilder_heraus(tmp_path, monkeypatch):
+    # Ohne Quiz-Bestand greift der Notnagel (alter Gesichtskatalog) — genau den
+    # prüft dieser Test. Der Quiz-Weg hat einen eigenen Test:
+    # tests/test_personen_werkzeuge_quiz.py.
+    from app.services import gesichter_service, gruppen_quiz
+    monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path / "leer"))
+    gruppen_quiz._CACHE.clear()
     monkeypatch.setattr(gesichter_service, "liste_personen", lambda: [{
         "name": "Musterperson", "rolle": "Bruder", "embedding": [0.1] * 128,
         "referenz_bild_miniatur": "data:image/jpeg;base64,AAAA",

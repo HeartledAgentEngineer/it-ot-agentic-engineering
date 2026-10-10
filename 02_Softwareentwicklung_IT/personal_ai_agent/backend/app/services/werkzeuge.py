@@ -299,21 +299,83 @@ def _fotos_mit_person(args: Dict[str, Any]) -> Ergebnis:
 
 
 def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
-    from app.services import gesichter_service
+    """Bekannte Personen — aus dem Personen-Quiz (dieselbe Quelle, die das Quiz
+    führt), nicht mehr aus dem alten Gesichtskatalog.
 
-    personen = gesichter_service.liste_personen() or []
+    Grund (Befund 10.10.2026): Der Chat fand Personen nicht, weil dieser Weg auf
+    ``gesichter_service`` (alter Katalog, 10 Personen) baute, während das Quiz in
+    ``personen_bestaetigt.json``/``personen_profile.json`` über 100 benannte
+    Personen führt. Nur wenn diese Dateien fehlen, greift der alte Katalog als
+    Notnagel. Bewusst nur Klartext — nie Vektoren, Miniaturen oder Pfade.
+    """
+    from app.services import gruppen_quiz
+
+    quiz = gruppen_quiz.personen()
+    personen = (quiz.get("personen") or []) if quiz.get("ok") else []
     if not personen:
-        return Ergebnis("Es sind noch keine Personen angelernt.")
+        from app.services import gesichter_service
+
+        alt = gesichter_service.liste_personen() or []
+        if not alt:
+            return Ergebnis("Es sind noch keine Personen angelernt.")
+        zeilen = []
+        for p in alt:
+            teile = [str(p.get("name") or "?")]
+            for feld in ("rolle", "beziehung"):
+                wert = p.get(feld)
+                if isinstance(wert, str) and wert.strip():
+                    teile.append(wert.strip()[:60])
+            zeilen.append("- " + " | ".join(teile))
+        return Ergebnis(_kuerzen(f"{len(alt)} bekannte Personen:\n" + "\n".join(zeilen)))
     zeilen = []
     for p in personen:
-        # Bewusst nur Klartext-Felder: nie Vektoren, Miniaturen oder Pfade.
         teile = [str(p.get("name") or "?")]
-        for feld in ("rolle", "beziehung"):
-            wert = p.get(feld)
-            if isinstance(wert, str) and wert.strip():
-                teile.append(wert.strip()[:60])
+        beziehung = str(p.get("beziehung") or "").strip()
+        if beziehung:
+            teile.append(beziehung[:60])
+        teile.append(f"{max(0, int(p.get('gesichter') or 0))} Gesichter")
         zeilen.append("- " + " | ".join(teile))
     return Ergebnis(_kuerzen(f"{len(personen)} bekannte Personen:\n" + "\n".join(zeilen)))
+
+
+def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
+    """Alles, was das Personen-Quiz über EINE Person weiß: Beziehung, eigene
+    Notizen, Geburtstag (aus dem Telefonbuch-Auszug) und die Zahl ihrer Fotos.
+
+    Dieselbe Quelle wie das Quiz (``personen_profile.json`` über
+    ``personen_bestaetigt.json``) — deshalb findet der Chat jetzt dieselben
+    Personen, die im Quiz bestätigt wurden. Nur Klartext, keine Vektoren,
+    keine Bilddaten, keine Pfade.
+    """
+    from app.services import gruppen_quiz
+
+    name = str(args.get("person") or "").strip()
+    if not name:
+        return Ergebnis("Bitte den Namen der Person angeben (siehe personen_liste).", ok=False)
+    daten = gruppen_quiz.person(name)
+    if not daten.get("ok"):
+        return Ergebnis(str(daten.get("fehler") or "Diese Person ist nicht bekannt."), ok=False)
+    profil_roh = daten.get("profil")
+    profil: Dict[str, Any] = profil_roh if isinstance(profil_roh, dict) else {}
+    vorschlaege = daten.get("vorschlaege") or []
+    fotos = sum(max(0, int(v.get("groesse") or 0))
+                for v in vorschlaege if isinstance(v, dict))
+    zeilen = [f"Person: {daten.get('name') or name}"]
+    beziehung = str(profil.get("beziehung") or "").strip()
+    if beziehung:
+        zeilen.append(f"Beziehung: {beziehung}")
+    kontakt = profil.get("kontakt")
+    if isinstance(kontakt, dict) and str(kontakt.get("geburtstag") or "").strip():
+        zeilen.append(f"Geburtstag: {str(kontakt['geburtstag']).strip()}")
+    zeilen.append(f"Fotos (erkannte Gesichter): {fotos}")
+    if len(vorschlaege) > 1:
+        zeilen.append(f"Vorschläge (Bildgruppen): {len(vorschlaege)}")
+    notizen = [n for n in (profil.get("notizen") or [])
+               if isinstance(n, dict) and not n.get("zurueckgenommen")]
+    if notizen:
+        zeilen.append(f"Notizen ({len(notizen)}):")
+        zeilen += [f"- {str(n.get('text') or '').strip()}" for n in notizen[:20]]
+    return Ergebnis(_kuerzen("\n".join(zeilen)))
 
 
 def _wer_war_wann(args: Dict[str, Any]) -> Ergebnis:
@@ -430,6 +492,16 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         _obj({}),
         _personen_liste,
         "🔧 schaut, wen ich kenne …",
+    ),
+    Werkzeug(
+        "person_auskunft",
+        "Alles, was über EINE bekannte Person bekannt ist: Beziehung, eigene Notizen, "
+        "Geburtstag (aus dem Telefonbuch) und die Zahl ihrer Fotos. Für 'wer ist X', "
+        "'was weiß ich über X', 'wie viele Fotos habe ich von X'. Namen vorher mit "
+        "personen_liste prüfen.",
+        _obj({"person": {"type": "string"}}, ["person"]),
+        _person_auskunft,
+        "🔧 sieht nach, was ich über eine Person weiß …",
     ),
     Werkzeug(
         "wer_war_wann",
