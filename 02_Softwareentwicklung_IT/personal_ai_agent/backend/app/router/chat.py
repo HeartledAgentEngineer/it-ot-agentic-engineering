@@ -1241,11 +1241,11 @@ def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
         kopf = f"[{quelle}, {datum}]" if datum else f"[{quelle}]"
         text = (t.get("text") or "").strip().replace("\n", " ")[:300]
         zeilen.append(f"{kopf} {text}")
+    from app.services.archiv_suche import ARCHIV_FLUSS_ANWEISUNG
     return (
         "\n\n[Aus dem Archiv zu '" + stichwort + "':]\n"
         + "\n".join(zeilen)
-        + "\nZitiere dem Nutzer die relevanten Stellen aus der Vergangenheit "
-          "und nenne dabei die Quelle (ChatGPT/Gemini/Claude) und das Datum.]"
+        + "\n" + ARCHIV_FLUSS_ANWEISUNG + "]"
     )
 
 
@@ -1734,7 +1734,8 @@ def _verlauf_tool(frage: str, verlauf: Optional[Dict[str, list]] = None) -> str:
         + stichwort
         + "':]\n"
         + "\n".join(zeilen)
-        + "\nZitiere dem Nutzer die relevanten Stellen aus der Vergangenheit.]"
+        + "\nBeziehe dich im Fluss darauf, wie Rede: ganze Sätze, keine "
+          "Strichliste und keine Aufzählung — und nur auf das, was dort steht.]"
     )
 
 

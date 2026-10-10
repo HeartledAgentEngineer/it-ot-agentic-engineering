@@ -619,7 +619,12 @@ class LLMService:
 
         teile = [
             "\n## AUS DEINEN FRÜHEREN GESPRÄCHEN "
-            "(Archiv – nenne Quelle und Datum, wenn du dich darauf beziehst):"
+            "(Archiv – nenne Quelle und Datum, wenn du dich darauf beziehst):\n"
+            "Erzähle das im Fluss, wie Rede: ganze Sätze, keine Strichliste "
+            "und keine Aufzählung. Nenne Quelle und Datum im Satz, nicht als "
+            "Liste vorweg. Schreibe die Fundstellen nicht wörtlich ab — gib "
+            "in einer zusammenhängenden Darstellung wieder, wer wann was "
+            "gesagt hat."
         ]
         for t in treffer:
             # Tag oder Tagesspanne (siehe `archiv_service.zeitraum_kurz`): ein

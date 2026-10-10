@@ -1451,6 +1451,23 @@ _REGELN = {
 }
 
 
+# Wie das Modell aus Archiv-Fundstellen erzählen soll (Antwort-Weg, nicht Index).
+#
+# Sebastians Befund 10.10.2026: „Kein Gesprächsfluss — die Verweise wirken wie
+# Striche/Stichpunkte statt wie Rede." Die Ursache lag in der Anweisung selbst:
+# die Notizen sagten „Zitiere dem Nutzer die Fundstellen … mit Quelle und Datum"
+# und lieferten sie als „[Quelle, Datum] Titel — Text"-Zeilen (Strich inklusive).
+# Das Modell schrieb diese Liste ab. Diese Anweisung verlangt stattdessen
+# Fließtext. Steht an EINER Stelle, damit alle Anzeigewege dasselbe sagen.
+ARCHIV_FLUSS_ANWEISUNG = (
+    "Erzähle das im Fluss, wie Rede: ganze Sätze, keine Strichliste und keine "
+    "Aufzählung. Nenne die Quelle (WhatsApp, ChatGPT, Gemini oder Claude) und "
+    "das Datum im Satz, nicht als Liste vorweg. Schreibe die Fundstellen nicht "
+    "wörtlich ab — gib in einer zusammenhängenden Darstellung wieder, wer wann "
+    "was gesagt hat, und nur das, was dort steht."
+)
+
+
 def erwaehnungs_text(ergebnis: Dict[str, Any], hoechstens: int = 5) -> str:
     """Aus einem Erwähnungsergebnis den Notiztext fuer das Chat-Werkzeug bauen.
 
@@ -1506,10 +1523,7 @@ def erwaehnungs_text(ergebnis: Dict[str, Any], hoechstens: int = 5) -> str:
         ausschnitt = (t.get("text") or "").strip().replace("\n", " ")
         zeilen.append(f"[{quelle}, {datum}] {titel} — {ausschnitt}")
 
-    zeilen.append(
-        "Zitiere dem Nutzer diese Fundstellen mit Quelle und Datum — und nur "
-        "das, was dort steht."
-    )
+    zeilen.append(ARCHIV_FLUSS_ANWEISUNG)
     return "\n".join(zeilen)
 
 

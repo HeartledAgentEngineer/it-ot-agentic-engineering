@@ -215,8 +215,12 @@ def _archiv_suchen(args: Dict[str, Any]) -> Ergebnis:
         # (`archiv_service.zeitraum_kurz`); sonst nennt das Zitat einen falschen Tag.
         datum = zeitraum_kurz(t.get("beginn"), t.get("ende"))
         text = (t.get("text") or "").strip().replace("\n", " ")[:500]
-        zeilen.append(f"- [{quelle}{', ' + datum if datum else ''}] {text}")
-    return Ergebnis(_kuerzen("Fundstellen (nenne Quelle und Datum):\n" + "\n".join(zeilen)))
+        zeilen.append(f"[{quelle}{', ' + datum if datum else ''}] {text}")
+    from app.services.archiv_suche import ARCHIV_FLUSS_ANWEISUNG
+    return Ergebnis(_kuerzen(
+        "Fundstellen aus den alten Gesprächen:\n" + "\n".join(zeilen)
+        + "\n" + ARCHIV_FLUSS_ANWEISUNG
+    ))
 
 
 # ── Werkzeug: notizen_suchen (07.10.2026) ─────────────────────────────────
