@@ -2688,6 +2688,55 @@ function ueberlaufPruefen(contentDiv, phase) {
     }
 }
 
+/** Misst ALLE sichtbaren Nachrichtenblasen einmal (Verlauf, Größenwechsel).
+ *
+ *  Der Wächter oben feuerte bisher nur für FRISCH gestreamte Antworten. Genau
+ *  deshalb blieb Sebastians kaputte Blase ungemessen: sie kam aus dem Verlauf
+ *  (nach App-Start geladen). Diese Funktion geht die vorhandenen Blasen durch
+ *  und misst jede sichtbare — der dataset-Merker in ueberlaufPruefen sorgt
+ *  dafür, dass je Blase und Phase höchstens EINE Meldung entsteht.
+ *
+ *  Bewusst nur SICHTBARES (im Fenster liegende Blasen): je Messung läuft ein
+ *  DOM-Durchlauf, und außerhalb des Bildes wäre er Verschwendung. `max` deckelt
+ *  zusätzlich die Zahl der Messungen je Aufruf. Rückgabe = Zahl der Messungen.
+ */
+function ueberlaufAllePruefen(phase, max) {
+    try {
+        const grenze = max || 80;
+        const hoehe = window.innerHeight || 0;
+        const liste = document.querySelectorAll('.message-content');
+        let gemessen = 0;
+        for (let i = 0; i < liste.length && gemessen < grenze; i++) {
+            const contentDiv = liste[i];
+            if (!contentDiv || !contentDiv.isConnected) continue;
+            const r = contentDiv.getBoundingClientRect();
+            if (hoehe && (r.bottom < 0 || r.top > hoehe)) continue;  // außerhalb des Bildes
+            if (ueberlaufPruefen(contentDiv, phase)) gemessen++;
+        }
+        return gemessen;
+    } catch (_e) {
+        return 0;
+    }
+}
+
+// Größenwechsel (Drehen, Tastatur, Pinch-Zoom) = eigener Messgrund. Entprellt,
+// damit das Drehen nicht bei jedem Zwischenschritt rechnet; die aktuelle
+// Fensterbreite steckt im Phasennamen, sodass ZURÜCKdrehen erneut messen kann,
+// ohne bei derselben Breite doppelt zu melden.
+let _ueberlaufGroesseTimer = null;
+
+function ueberlaufBeiGroessenwechsel() {
+    if (_ueberlaufGroesseTimer) clearTimeout(_ueberlaufGroesseTimer);
+    _ueberlaufGroesseTimer = setTimeout(() => {
+        _ueberlaufGroesseTimer = null;
+        const W = document.documentElement.clientWidth || window.innerWidth;
+        ueberlaufAllePruefen('resize' + Math.round(W));
+    }, 400);
+}
+
+window.addEventListener('resize', ueberlaufBeiGroessenwechsel);
+window.addEventListener('orientationchange', ueberlaufBeiGroessenwechsel);
+
 function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     const untenGewesen = isAtBottom();
     contentDiv.innerHTML = parseMarkdown(antwort);
@@ -8514,6 +8563,9 @@ async function zeigeGespraech(id) {
                 dom.messages.insertBefore(frag, erste);
                 _geladenBis = von;
                 knopf.remove();
+                // Die nachgeladenen (älteren) Blasen sind neu — sie wurden noch
+                // nie gemessen. Zweite Phase, damit ihr Merker frei bleibt.
+                setTimeout(() => ueberlaufAllePruefen('verlauf_aelter'), 300);
                 _ergaenzeAeltereKnopf.call(this); // neu einsetzen, falls weitere ausstehen
             });
             dom.messages.insertBefore(knopf, dom.messages.querySelector('.message'));
@@ -8534,6 +8586,15 @@ async function zeigeGespraech(id) {
         // Sichtbar machen, welcher Chat offen ist (+ Anzahl + letzte Aktivität).
         setzeChatAnzeige(idServer, anzahl, nachrichten[nachrichten.length - 1].zeit || '');
         scrollToBottom(true);
+        // Überlauf-Wächter auch für den VERLAUF (nicht nur für frisch
+        // gestreamte Antworten): Sebastians kaputte Blase kam aus dem Verlauf
+        // (nach App-Start geladen) und wurde deshalb nie vermessen. Hier werden
+        // die frisch aufgebauten Blasen gemessen — kurz nach dem Aufbau und
+        // noch einmal später, weil Bilder/Quellen/Knöpfe die Breite erst nach
+        // dem Einfügen verändern. Je Blase und Phase höchstens eine Meldung
+        // (dataset-Merker in ueberlaufPruefen).
+        setTimeout(() => ueberlaufAllePruefen('verlauf'), 300);
+        setTimeout(() => ueberlaufAllePruefen('verlauf_spaeter'), 2000);
         return true;
     } catch (err) {
         console.warn('Gespräch nicht abrufbar:', err);

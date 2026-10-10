@@ -45,6 +45,19 @@ pruefe(/ueberlaufPruefen\(contentDiv, 'stream'\)/.test(src), 'prüft während de
 pruefe(/ueberlaufPruefen\(contentDiv, 'fertig'\), 300\)/.test(src)
     && /ueberlaufPruefen\(contentDiv, 'spaeter'\), 2000\)/.test(src), 'prüft nach dem Abschluss zweimal');
 
+console.log('Verlauf und Größenwechsel');
+const allePruefen = funktionAusschneiden(src, 'ueberlaufAllePruefen');
+pruefe(/querySelectorAll\('\.message-content'\)/.test(allePruefen), 'geht die vorhandenen Blasen durch');
+pruefe(/ueberlaufPruefen\(contentDiv, phase\)/.test(allePruefen), 'misst je Blase mit der Phase');
+pruefe(!/textContent|innerText|innerHTML/.test(allePruefen), 'nimmt auch hier NIE Text mit');
+pruefe(/ueberlaufAllePruefen\('verlauf'\), 300\)/.test(src), 'misst den Verlauf nach dem Aufbau');
+pruefe(/ueberlaufAllePruefen\('verlauf_spaeter'\), 2000\)/.test(src), 'misst den Verlauf noch einmal später');
+pruefe(/ueberlaufAllePruefen\('verlauf_aelter'\)/.test(src), 'misst nachgeladene ältere Blasen');
+pruefe(/addEventListener\('resize', ueberlaufBeiGroessenwechsel\)/.test(src)
+    && /addEventListener\('orientationchange', ueberlaufBeiGroessenwechsel\)/.test(src),
+    'misst beim Größenwechsel und beim Drehen');
+pruefe(/'resize' \+ Math\.round\(W\)/.test(src), 'Phasenname trägt die Fensterbreite (Dedup je Breite)');
+
 console.log('Cache-Bump');
 const m = html.match(/app\.js\?v=(\d{8}[A-Z])/);
 pruefe(m && m[1] >= '20261001B', 'app.js-Version 20261001B oder neuer');

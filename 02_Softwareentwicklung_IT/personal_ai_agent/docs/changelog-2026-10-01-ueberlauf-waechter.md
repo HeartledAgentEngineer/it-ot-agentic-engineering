@@ -42,3 +42,10 @@ Ohne Messung am Gerät wäre jede Reparatur geraten.
 
 Tritt der Fehler wieder auf: per Kabel `/sdcard/Download/hermes_diag/ueberlauf.jsonl` lesen
 (oder Logcat `[UEBERLAUF]`) — dann steht dort, welches Element die Blase sprengt.
+
+## Nachtrag 10.10.2026
+
+Der Wächter feuerte **nur** bei frisch gestreamten Antworten; die kaputte Blase kam aus dem
+Verlauf und blieb deshalb ungemessen (`ueberlauf.jsonl` war am Handy nicht vorhanden). Erweiterung:
+`ueberlaufAllePruefen(...)` misst jetzt auch den Verlauf und den Größenwechsel — siehe
+`changelog-2026-10-10-ueberlauf-waechter-verlauf.md`.
