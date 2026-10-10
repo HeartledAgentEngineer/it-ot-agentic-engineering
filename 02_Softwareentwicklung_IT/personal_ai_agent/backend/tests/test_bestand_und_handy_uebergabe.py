@@ -148,6 +148,68 @@ def test_gesamtplan_fehlt_wird_ehrlich_gemeldet(tmp_path):
     assert "Gesamtplan" not in "\n".join(zeilen2)
 
 
+def test_gesamtplan_luecke_wird_benannt_mit_grund(tmp_path):
+    """Die Luecke wird nicht nur gezaehlt, sondern mit Kennung und Grund benannt.
+
+    Kennung 102 (Papas Feldnamenform) hat eine Vektorzeile, aber keine
+    Bildmasse (Breite/Hoehe fehlen) -> das Bild war nicht ladbar.
+    """
+    _bestand(tmp_path)
+    _papa(tmp_path)
+    _gesamtplan(tmp_path)
+    zeilen, _ = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Fehlende Fotos (1), mit Kennung und Grund:" in text
+    assert "102: ohne Bildmasse (Bild nicht ladbar, keine Vorschau)" in text
+    assert "Ursachen: 0 ohne Vektorzeile, 1 ohne Bildmasse, 0 ohne Beschreibungseintrag" in text
+    # abschaltbar: dann steht nur noch die Zahl, keine Kennung
+    text2 = "\n".join(bp.pruefen(str(tmp_path), luecken_details_max=0)[0])
+    assert "Fehlende Fotos (1), mit Kennung und Grund:" in text2
+    assert "102:" not in text2
+    assert "--luecken-details 0" in text2
+
+
+def _gesamtplan_mit_massen(tmp_path):
+    """Derselbe Dateiname zweimal (Dublette), dazu ein Bild ohne Masse."""
+    (tmp_path / "sortierplan_reich_gesamt.json").write_text(json.dumps({"zuege": [
+        {"fileid": 11, "von_name": "gleich.jpg"},
+        {"fileid": 12, "von_name": "gleich.jpg"},     # gleicher Name, andere Kennung
+        {"fileid": 13, "von_name": "allein.jpg"}]}), encoding="utf-8")
+    _jsonl(tmp_path / "personen_vektoren_n0929_voll.jsonl", [
+        {"bild_id": "11", "breite": 100, "hoehe": 200, "gesichter": []},
+        {"bild_id": "12", "breite": 100, "hoehe": 200, "gesichter": []},
+        {"bild_id": "13", "breite": 0, "hoehe": 0, "gesichter": []}])
+
+
+def test_luecken_details_klassifiziert_masse_und_dubletten(tmp_path):
+    """Drei Gruende sauber getrennt: geladen / ohne Masse / ohne Vektorzeile,
+    dazu der Dubletten-Hinweis — und nie ein Dateiname im Text."""
+    _bestand(tmp_path, mit_gruppen=False)
+    _gesamtplan_mit_massen(tmp_path)
+    _jsonl(tmp_path / "bild_beschreibungen.jsonl", [])          # nichts beschrieben
+    zeilen, _ = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "11: Bild geladen, kein Beschreibungseintrag; Name mehrfach im Plan (Dublette)" in text
+    assert "12: Bild geladen, kein Beschreibungseintrag; Name mehrfach im Plan (Dublette)" in text
+    assert "13: ohne Bildmasse (Bild nicht ladbar, keine Vorschau)" in text
+    assert "Ursachen: 0 ohne Vektorzeile, 1 ohne Bildmasse, 2 ohne Beschreibungseintrag" in text
+    assert "2 mit mehrfach vorkommendem Namen" in text
+    for verboten in ("gleich.jpg", "allein.jpg"):
+        assert verboten not in text
+    # Masse-Erkennung direkt
+    assert bp.masse_da({"breite": 10, "hoehe": 10}) is True
+    assert bp.masse_da({"breite": 0, "hoehe": 100}) is False
+    assert bp.masse_da({}) is False
+
+
+def test_luecken_details_deckelt_die_ausgabe():
+    fehlende = {str(i) for i in range(25)}
+    zeilen, zaehler = bp.luecken_details(fehlende, set(), set(), max_kennungen=20)
+    assert len(zeilen) == 21 and zeilen[-1] == "    ... und 5 weitere"
+    assert zaehler["ohne_vektorzeile"] == 25
+    assert bp.luecken_details(fehlende, set(), set(), max_kennungen=0)[0] == []
+
+
 def test_bestand_meldet_trockenlauf_ohne_gruppendateien(tmp_path):
     _bestand(tmp_path, mit_gruppen=False)
     zeilen, luecken = bp.pruefen(str(tmp_path))

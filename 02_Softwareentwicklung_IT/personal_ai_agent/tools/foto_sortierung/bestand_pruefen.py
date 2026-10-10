@@ -24,6 +24,14 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       der Plan mischt die Feldnamen (``von_name`` bei Sammlung/
                       Sortierplan, ``name`` bei Papas Plan) — hier wird deshalb
                       wie im Beschreibungs-Werkzeug BEIDE Formen gelesen.
+                      Fehlende Fotos werden nicht nur gezaehlt, sondern mit
+                      Kennung und Grund benannt (``--luecken-details``, Standard
+                      20): ``keine Vektorzeile`` (kein Gesichtslauf), ``ohne
+                      Bildmasse`` (Vektorzeile ohne Breite/Hoehe — das Bild war
+                      beim Beschreibungslauf nicht ladbar) oder ``Bild geladen,
+                      kein Beschreibungseintrag`` (offener Rest). Zusaetzlich
+                      wird vermerkt, wenn derselbe Dateiname im Plan mehrfach
+                      vorkommt (Dublette, nur die Zahl — nie der Name).
   * Gruppen:          ``personen_gruppen/personen_beispiele.json`` und
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
@@ -123,6 +131,21 @@ def _jsonl(pfad: str) -> Iterable[Optional[dict]]:
             yield obj if isinstance(obj, dict) else None
 
 
+def masse_da(zeile: dict) -> bool:
+    """Traegt die Vektorzeile echte Bildmasse?
+
+    0 oder fehlend heisst: das Bild war beim Lauf nicht ladbar (keine Vorschau
+    in pCloud, defekte Datei). Genau diese Zeilen erklaeren einen Teil der
+    fehlenden Beschreibungen — deshalb wird das je Bild festgehalten.
+    """
+    def zahl(wert: Any) -> int:
+        try:
+            return int(wert or 0)
+        except (TypeError, ValueError):
+            return 0
+    return zahl(zeile.get("breite")) > 0 and zahl(zeile.get("hoehe")) > 0
+
+
 def foto_vektoren_lesen(pfad: str) -> Dict[str, Any]:
     """Foto-Vektorzeilen zaehlen: Bilder, Fehler, Bilder mit Gesicht, Gesichter."""
     if not os.path.isfile(pfad):
@@ -130,6 +153,7 @@ def foto_vektoren_lesen(pfad: str) -> Dict[str, Any]:
     bilder: Set[str] = set()
     mit_gesicht: Set[str] = set()
     mit_fehler: Set[str] = set()
+    mit_massen: Set[str] = set()
     gesichter = kaputt = doppelt = video_zeilen = 0
     for z in _jsonl(pfad):
         if z is None:
@@ -148,12 +172,14 @@ def foto_vektoren_lesen(pfad: str) -> Dict[str, Any]:
         g = z.get("gesichter") if isinstance(z.get("gesichter"), list) else []
         if z.get("fehler"):
             mit_fehler.add(k)
+        if masse_da(z):
+            mit_massen.add(k)
         if g:
             mit_gesicht.add(k)
             gesichter += len(g)
     return {"bilder": bilder, "mit_gesicht": mit_gesicht, "mit_fehler": mit_fehler,
-            "gesichter": gesichter, "kaputt": kaputt, "doppelt": doppelt,
-            "video_zeilen": video_zeilen}
+            "mit_massen": mit_massen, "gesichter": gesichter, "kaputt": kaputt,
+            "doppelt": doppelt, "video_zeilen": video_zeilen}
 
 
 def video_vektoren_lesen(pfad: str) -> Dict[str, Any]:
@@ -231,6 +257,7 @@ def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
     fotos: Set[str] = set()
     videos: Set[str] = set()
     ohne_namen = ohne_kennung = 0
+    namen: Dict[str, Set[str]] = {}
     for zug in zuege:
         if not isinstance(zug, dict):
             continue
@@ -242,9 +269,66 @@ def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
         if not (isinstance(name, str) and name.strip()):
             ohne_namen += 1
             continue
+        namen.setdefault(name.strip().lower(), set()).add(k)
         (videos if name.strip().lower().endswith(VIDEO_ENDUNGEN) else fotos).add(k)
+    # Kennungen, deren Dateiname im Plan mehrfach vorkommt = Dubletten-Kandidaten
+    # (derselbe Name in zwei Ordnern, zwei verschiedene fileids). Nur die Zahl
+    # bzw. die Kennungen werden gemeldet, nie der Name selbst.
+    namen_doppelt: Set[str] = set()
+    for kennungen in namen.values():
+        if len(kennungen) > 1:
+            namen_doppelt |= kennungen
     return {"eintraege": len(zuege), "fotos": fotos, "videos": videos,
-            "ohne_namen": ohne_namen, "ohne_kennung": ohne_kennung}
+            "ohne_namen": ohne_namen, "ohne_kennung": ohne_kennung,
+            "namen_doppelt": namen_doppelt}
+
+
+def luecken_details(fehlende: Iterable[str], alle_bilder: Set[str], mit_massen: Set[str],
+                    namen_doppelt: Optional[Set[str]] = None,
+                    max_kennungen: int = 20) -> Tuple[List[str], Dict[str, int]]:
+    """Fehlende Fotos mit Kennung und Grund benennen statt nur zu zaehlen.
+
+    Gruende (mechanisch aus den vorhandenen Dateien abgeleitet, nichts geraten):
+      * ``keine Vektorzeile``  — kein Gesichtslauf/keine Zeile fuer dieses Bild
+      * ``ohne Bildmasse``     — Vektorzeile ohne Breite/Hoehe: das Bild war
+                                 nicht ladbar (keine Vorschau, defekte Datei)
+      * ``Bild geladen``       — Zeile mit Massen da, aber kein
+                                 Beschreibungseintrag (offener Rest)
+    Dazu der Hinweis ``Name mehrfach im Plan`` (Dublette), wenn derselbe
+    Dateiname bei mehreren Kennungen steht — es wird nur die Kennung genannt,
+    nie der Name selbst.
+
+    -> (Zeilen, Zaehler je Grund)
+    """
+    namen_doppelt = namen_doppelt or set()
+    liste = sorted(fehlende)
+    zaehler = {"ohne_vektorzeile": 0, "ohne_masse": 0, "kein_eintrag": 0, "name_doppelt": 0}
+    zeilen: List[str] = []
+    for k in liste:
+        if k not in alle_bilder:
+            grund = "keine Vektorzeile (kein Gesichtslauf fuer dieses Bild)"
+            zaehler["ohne_vektorzeile"] += 1
+        elif k not in mit_massen:
+            grund = "ohne Bildmasse (Bild nicht ladbar, keine Vorschau)"
+            zaehler["ohne_masse"] += 1
+        else:
+            grund = "Bild geladen, kein Beschreibungseintrag"
+            zaehler["kein_eintrag"] += 1
+        if k in namen_doppelt:
+            grund += "; Name mehrfach im Plan (Dublette)"
+            zaehler["name_doppelt"] += 1
+        if max_kennungen and len(zeilen) < max_kennungen:
+            zeilen.append(f"    {k}: {grund}")
+    if max_kennungen and len(liste) > max_kennungen:
+        zeilen.append(f"    ... und {_z(len(liste) - max_kennungen)} weitere")
+    return zeilen, zaehler
+
+
+def _grund_zeile(zaehler: Dict[str, int]) -> str:
+    return ("Ursachen: " + _z(zaehler["ohne_vektorzeile"]) + " ohne Vektorzeile, "
+            + _z(zaehler["ohne_masse"]) + " ohne Bildmasse, "
+            + _z(zaehler["kein_eintrag"]) + " ohne Beschreibungseintrag; "
+            + _z(zaehler["name_doppelt"]) + " mit mehrfach vorkommendem Namen")
 
 
 def abdeckung(groessen: List[int], anteile=(0.5, 0.8, 0.9)) -> Dict[float, int]:
@@ -313,8 +397,13 @@ def _usd(betrag: float) -> str:
 def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKTOREN,
             video_vektoren=STANDARD_VIDEO_VEKTOREN,
             beschreibungen=STANDARD_BESCHREIBUNGEN,
-            gesamtplan: Optional[str] = STANDARD_GESAMTPLAN) -> Tuple[List[str], List[str]]:
-    """-> (Berichtszeilen, Luecken). Nur Zahlen und Dateinamen."""
+            gesamtplan: Optional[str] = STANDARD_GESAMTPLAN,
+            luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
+    """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
+
+    ``luecken_details_max`` = wie viele fehlende Fotos der Gesamtplan mit
+    Kennung und Grund benennt (0 = nur zaehlen, wie frueher).
+    """
     zeilen: List[str] = ["Bestandspruefung Fotos - nur Zahlen, nur lesend", ""]
     luecken: List[str] = []
 
@@ -324,6 +413,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     alle_bilder: Set[str] = set().union(*(d["bilder"] for d in fv.values() if not d.get("fehlt")))
     mit_gesicht: Set[str] = set().union(*(d["mit_gesicht"] for d in fv.values() if not d.get("fehlt")))
     mit_fehler: Set[str] = set().union(*(d["mit_fehler"] for d in fv.values() if not d.get("fehlt")))
+    mit_massen: Set[str] = set().union(*(d["mit_massen"] for d in fv.values() if not d.get("fehlt")))
     videos_fertig: Set[str] = set().union(*(d["fertig"] for d in vv.values() if not d.get("fehlt")))
     beschrieben: Set[str] = set().union(*(d["kennungen"] for d in bq.values() if not d.get("fehlt")))
 
@@ -383,6 +473,13 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                           f"- in keiner Beschreibungsdatei fehlen {_z(ohne)}")
             if ohne:
                 luecken.append(f"{gesamtplan}: {_z(ohne)} Fotos ohne Beschreibung")
+                zeilen.append(f"  Fehlende Fotos ({_z(ohne)}), mit Kennung und Grund:")
+                detail_zeilen, zaehler = luecken_details(
+                    f - beschrieben, alle_bilder, mit_massen,
+                    gp.get("namen_doppelt"), luecken_details_max)
+                zeilen.extend(detail_zeilen if detail_zeilen else
+                              ["    (Einzelheiten abgeschaltet: --luecken-details 0)"])
+                zeilen.append("  " + _grund_zeile(zaehler))
     ausserhalb = len(alle_bilder - plan_fotos)
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")
@@ -418,11 +515,14 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bestand pruefen - nur lesend, nur Zahlen.")
     parser.add_argument("--basis", default=STANDARD_BASIS)
+    parser.add_argument("--luecken-details", type=int, default=20, dest="luecken_details",
+                        help="wie viele fehlende Fotos mit Kennung und Grund benannt werden "
+                             "(0 = nur zaehlen)")
     args = parser.parse_args(argv)
     if not os.path.isdir(args.basis):
         print(f"Ordner fehlt: {args.basis}")
         return 2
-    zeilen, _ = pruefen(args.basis)
+    zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details)
     print("\n".join(zeilen))
     return 0
 
