@@ -1251,3 +1251,125 @@ def test_duplikate_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     zeilen, luecken = bp.pruefen(str(tmp_path))
     assert "Doppelte (pCloud): duplikate.json nicht lesbar (kein JSON)" in "\n".join(zeilen)
     assert "duplikate.json nicht lesbar" in luecken
+
+
+# ── Eigene Erzaehl-Stufen (Schicht "mensch": Geschichten + eigene Titel) ─────
+
+def _erzaehl_mensch(tmp_path, ohne_anlass=False, kaputt=False, ohne_id=False,
+                    toter_verweis=False, titel_ohne_kennung=False):
+    """Anlass-Bestand + die zwei Dateien, die Sebastian selbst am Geraet fuellt.
+
+    Absichtlich Fantasieworte: der Nachweis darf NIE einen Geschichtentext und
+    NIE einen eigenen Titel zeigen. ``ohne_anlass`` laesst beide Dateien auf
+    einen Anlass zeigen, den es im Anlass-Bestand nicht gibt; ``toter_verweis``
+    bricht die Fassungskette (``ersetzt`` auf eine unbekannte Kennung).
+    """
+    _jsonl(tmp_path / "ordner_ereignisse.jsonl", [
+        {"kennung": "O-100", "datum": "2020-07-01", "datei_kennungen": [1, 2]},
+        {"kennung": "O-200", "datum": "2021-08-02", "datei_kennungen": [3]},
+    ])
+    fremd = "O-FREMD" if ohne_anlass else "O-200"
+    geschichten = [
+        {"id": "g1", "schicht": "mensch", "ereignis_kennung": "O-100",
+         "text": "TEXT_DARF_NICHT_ERSCHEINEN", "quelle": "sprache", "ersetzt": None},
+        {"id": "g2", "schicht": "mensch", "ereignis_kennung": "O-100", "datei_kennung": 2,
+         "text": "TEXT_DARF_NICHT_ERSCHEINEN", "quelle": "tippen", "ersetzt": "g1"},
+        {"id": "g3", "schicht": "mensch", "ereignis_kennung": fremd,
+         "text": "TEXT_DARF_NICHT_ERSCHEINEN", "quelle": "import"},
+    ]
+    if toter_verweis:
+        geschichten.append({"id": "g4", "schicht": "mensch", "ereignis_kennung": "O-100",
+                            "text": "TEXT_DARF_NICHT_ERSCHEINEN", "quelle": "tippen",
+                            "ersetzt": "g-weg"})
+    if ohne_id:
+        geschichten.append({"schicht": "mensch", "ereignis_kennung": "O-200",
+                            "text": "TEXT_DARF_NICHT_ERSCHEINEN"})
+    rohdaten = "\n".join(json.dumps(z) for z in geschichten) + "\n"
+    (tmp_path / "geschichten.jsonl").write_text(
+        rohdaten + ("{kein json\n" if kaputt else ""), encoding="utf-8")
+    titel = [
+        {"kennung": "O-100", "name": "TITEL_DARF_NICHT_ERSCHEINEN"},
+        {"kennung": "O-100", "name": ""},                  # leer = zurueckgesetzt (neueste Zeile)
+        {"kennung": "O-200", "name": "TITEL_DARF_NICHT_ERSCHEINEN"},
+    ]
+    if titel_ohne_kennung:
+        titel.append({"name": "TITEL_DARF_NICHT_ERSCHEINEN"})  # ohne Kennung: Name geht verloren
+    if ohne_anlass:
+        titel.append({"kennung": "O-FREMD", "name": "TITEL_DARF_NICHT_ERSCHEINEN"})
+    _jsonl(tmp_path / "anlass_umbenennung.jsonl", titel)
+
+
+def test_nachweis_zaehlt_erzaehl_mensch(tmp_path):
+    """Die eigenen Erzaehl-Stufen standen in KEINEM Nachweis — jetzt werden sie gezaehlt."""
+    _erzaehl_mensch(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Eigene Geschichten: geschichten.jsonl: 3 Geschichten, 2 Anlaesse, 1 zu einem Bild" in text
+    assert "  Quellen: import 1, sprache 1, tippen 1; 1 abgeloeste Fassungen" in text
+    assert ("Eigene Titel: anlass_umbenennung.jsonl: 2 Anlaesse umbenannt (1 mit eigenem Namen, "
+            "1 zurueckgesetzt), 1 mit mehreren Zeilen (Fassungen)") in text
+    # Eine stimmige Datei ist kein Befund.
+    assert not [l for l in luecken
+                if "geschichten.jsonl" in l or "anlass_umbenennung.jsonl" in l]
+
+
+def test_nachweis_zeigt_keine_texte_und_meldet_verwaiste_kennungen(tmp_path):
+    """Nur Zahlen — kein Text, kein Titel. Ein Text ohne Anlass ist eine Luecke."""
+    _erzaehl_mensch(tmp_path)
+    zeilen, _ = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("TEXT_DARF_NICHT_ERSCHEINEN", "TITEL_DARF_NICHT_ERSCHEINEN"):
+        assert verboten not in text
+    # Beide Dateien zeigen auf einen Anlass, den es nicht mehr gibt.
+    _erzaehl_mensch(tmp_path, ohne_anlass=True)
+    _, luecken = bp.pruefen(str(tmp_path))
+    assert ("geschichten.jsonl: 1 Geschichten zu einem Anlass, den es nicht mehr gibt "
+            "(Text zeigt ins Leere)") in luecken
+    assert ("anlass_umbenennung.jsonl: 1 eigene Titel zu einem Anlass, den es nicht mehr gibt "
+            "(Name zeigt ins Leere)") in luecken
+    # Gebrochene Fassungskette, Zeile ohne Kennung und ein Titel ohne Kennung.
+    _erzaehl_mensch(tmp_path, toter_verweis=True, ohne_id=True, kaputt=True,
+                    titel_ohne_kennung=True)
+    _, luecken2 = bp.pruefen(str(tmp_path))
+    assert ("geschichten.jsonl: 1 kaputte Zeilen") in luecken2
+    assert ("geschichten.jsonl: 1 Zeilen ohne Kennung (der Dienst verwirft sie still - "
+            "die Geschichte fehlt)") in luecken2
+    assert ("geschichten.jsonl: 1 ersetzt-Verweise auf eine nicht vorhandene Kennung "
+            "(Fassungskette gebrochen)") in luecken2
+    assert ("anlass_umbenennung.jsonl: 1 Zeilen ohne brauchbare Kennung "
+            "(der eigene Name geht verloren)") in luecken2
+    # Eine leere Geschichte zaehlt als eigener Fall.
+    _erzaehl_mensch(tmp_path)
+    _jsonl(tmp_path / "geschichten.jsonl", [{"id": "g1", "ereignis_kennung": "O-100", "text": " "}])
+    _, luecken3 = bp.pruefen(str(tmp_path))
+    assert "geschichten.jsonl: 1 leere Geschichten" in luecken3
+
+
+def test_nachweis_meldet_fehlende_erzaehl_mensch_ehrlich(tmp_path):
+    """Am PC noch nicht angelegt heisst 'noch nicht angelegt' — nicht 'Luecke'."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Eigene Geschichten: geschichten.jsonl noch nicht angelegt" in text
+    assert "Eigene Titel: anlass_umbenennung.jsonl noch nicht angelegt" in text
+    assert not [l for l in luecken
+                if "geschichten.jsonl" in l or "anlass_umbenennung.jsonl" in l]
+    ohne = "\n".join(bp.pruefen(str(tmp_path), geschichten=None, titel=None)[0])
+    assert "Eigene Geschichten" not in ohne and "Eigene Titel" not in ohne
+
+
+def test_erzaehl_mensch_leser_werfen_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    leer = bp.geschichten_lesen(os.path.join(str(tmp_path), bp.STANDARD_GESCHICHTEN))
+    assert leer["fehlt"] is True and leer["eintraege"] == 0
+    leer_titel = bp.eigene_titel_lesen(os.path.join(str(tmp_path), bp.STANDARD_TITEL))
+    assert leer_titel["fehlt"] is True and leer_titel["kennungen"] == set()
+    # Fremde Formen (Liste statt Zeile, kaputtes JSON) zaehlen als kaputt, nie ein Wurf.
+    (tmp_path / "geschichten.jsonl").write_text(
+        '[1, 2, 3]\n{kein json\n{"id": "g1", "ereignis_kennung": "O-100", "text": "x"}\n',
+        encoding="utf-8")
+    e = bp.geschichten_lesen(os.path.join(str(tmp_path), "geschichten.jsonl"))
+    assert e["fehlt"] is False and e["kaputt_zeilen"] == 2 and e["eintraege"] == 1
+    (tmp_path / "anlass_umbenennung.jsonl").write_text('[{"kennung": "O-100"}]\n', encoding="utf-8")
+    t = bp.eigene_titel_lesen(os.path.join(str(tmp_path), "anlass_umbenennung.jsonl"))
+    assert t["fehlt"] is False and t["kaputt_zeilen"] == 1 and t["kennungen"] == set()

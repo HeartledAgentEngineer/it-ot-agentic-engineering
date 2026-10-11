@@ -131,6 +131,20 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen,
                       Beziehungen, Personen und der App-Uebersicht. Nur Zahlen:
                       kein Dateiname, kein Pfad, keine Pruefsumme.
+  * Eigene Erzaehl-Stufen: ``geschichten.jsonl`` (Sebastians eigene Erzaehlungen
+                      zu einem Anlass oder einem Bild, Schicht „mensch\") und
+                      ``anlass_umbenennung.jsonl`` (eigene Anlassnamen; ein leerer
+                      Name setzt auf den automatischen Titel zurueck). Beide
+                      schreibt die App am GERAET, beide wachsen nur anhaengend und
+                      beide liest der Erzaehl- UND der Notizdienst — sie standen in
+                      KEINEM Nachweis. Gezaehlt werden Geschichten, Anlaesse,
+                      Quellen-Schluessel, abgeloeste Fassungen, Zeilen OHNE
+                      brauchbare Kennung (der Dienst verwirft sie STILL), tote
+                      ``ersetzt``-Verweise und — der eigentliche Fehlerfall — eigene
+                      Texte/Titel, deren Anlass es nicht mehr gibt (sie zeigen ins
+                      Leere). Am PC heisst „nicht vorhanden\" ehrlich „noch nicht
+                      angelegt\", nicht „Luecke\". Nur Zahlen: NIE ein
+                      Geschichtentext, NIE ein eigener Titel.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -260,6 +274,20 @@ STANDARD_APP_DATEIEN = "fotos_dateien.json"
 # Entscheidungsgrundlage weg, ohne dass es auffiele. Der Nachweis zaehlt sie mit:
 # nur Zahlen — kein Dateiname, kein Pfad, keine Pruefsumme.
 STANDARD_DUPLIKATE = "duplikate.json"
+# Die Erzaehl-Stufen, die SEBASTIAN selbst fuellt (Schicht "mensch",
+# ``services/erzaehl_service.py``): ``geschichten.jsonl`` (eigene Erzaehlungen zu
+# einem Anlass oder einem einzelnen Bild — je Zeile ``id``, ``ersetzt`` fuer die
+# abgeloeste Fassung) und ``anlass_umbenennung.jsonl`` (eigene Titel fuer
+# Anlaesse; ein leerer Name setzt auf den automatischen Titel zurueck). Beide
+# werden vom Erzaehl- UND vom Notizdienst gelesen, beide wachsen **nur
+# anhaengend**, und beide entstehen am GERAET (die App schreibt sie) — am PC
+# lagen sie damit in KEINEM Nachweis. Faellt eine weg oder zeigt ihre Kennung auf
+# einen Anlass, den es nicht mehr gibt, verschwindet Sebastians eigener Text still
+# (dieselbe Luecke wie bei OSM, Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen,
+# Beziehungen, Personen, App-Uebersicht und Doppelten). Der Nachweis zaehlt sie
+# mit: nur Zahlen — NIE ein Geschichtentext, NIE ein eigener Titel.
+STANDARD_GESCHICHTEN = "geschichten.jsonl"
+STANDARD_TITEL = "anlass_umbenennung.jsonl"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -1214,6 +1242,129 @@ def duplikate_lesen(pfad: str) -> Dict[str, Any]:
     return e
 
 
+# ── Erzaehl-Stufen, die Sebastian selbst fuellt (Schicht "mensch") ───────────
+
+def anlass_kennungen_sammeln(basis: str,
+                             dateien=(STANDARD_ANLAESSE,) + tuple(STANDARD_ERZAHL_QUELLEN)) -> Set[str]:
+    """Alle Anlass-Kennungen der drei Erzaehl-Quellen — nur Kennungen, nie Titel.
+
+    Die eigenen Geschichten und Titel zeigen mit ihrer Kennung auf einen Anlass
+    (``ereignis_kennung`` bzw. ``kennung``). Verschwindet der Anlass (Neu-Lauf,
+    andere Gruppierung), zeigt der eigene Text ins Leere — genau dagegen wird
+    geprueft. Fehlende Quellen zaehlen nicht mit (kein stiller Fehlalarm).
+    """
+    kennungen: Set[str] = set()
+    for name in dateien:
+        pfad = os.path.join(basis, name)
+        if not os.path.isfile(pfad):
+            continue
+        for zeile in _jsonl(pfad):
+            if isinstance(zeile, dict) and _kennung(zeile.get("kennung")):
+                kennungen.add(_kennung(zeile.get("kennung")))
+    return kennungen
+
+
+def geschichten_lesen(pfad: str, anlass_kennungen: Optional[Set[str]] = None) -> Dict[str, Any]:
+    """``geschichten.jsonl`` zaehlen — nur Zahlen, NIE ein Text.
+
+    Die Datei ist Sebastians eigene Schicht (``erzaehl_service``, Schicht
+    "mensch"): je Zeile ``id``, ``ereignis_kennung``, optional ``datei_kennung``
+    (Geschichte zu EINEM Bild), ``text``, ``quelle`` (tippen/sprache/import) und
+    ``ersetzt`` (Verweis auf die abgeloeste Fassung). Sie wird **nur anhaengend**
+    geschrieben — je ``id`` gilt die neueste Zeile, ersetzte Zeilen bleiben als
+    Rueckweg stehen.
+
+    Ehrlich statt still: eine Zeile ohne brauchbare ``id`` wird vom Dienst
+    **verworfen** (die Geschichte waere unsichtbar), und ein ``ersetzt``-Verweis
+    auf eine nicht vorhandene Kennung ist ein toter Verweis. Beides wird
+    gezaehlt. Sind ``anlass_kennungen`` bekannt, werden die Geschichten gezaehlt,
+    deren Anlass es nicht mehr gibt. Nie ein Wurf; fehlt die Datei, ist das
+    ehrlich ``fehlt``.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "zeilen": 0, "kaputt_zeilen": 0, "eintraege": 0,
+                         "ohne_id": 0, "kennungen": set(), "alte_fassungen": 0,
+                         "tote_verweise": 0, "ohne_ereignis": 0, "mit_bild": 0,
+                         "ohne_text": 0, "quellen": {}, "schichten": {},
+                         "ereignis_kennungen": set(), "ohne_anlass": set()}
+    if not os.path.isfile(pfad):
+        return e
+    e["fehlt"] = False
+    eintraege: List[dict] = []
+    for zeile in _jsonl(pfad):
+        if not isinstance(zeile, dict):
+            e["kaputt_zeilen"] += 1
+            continue
+        e["zeilen"] += 1
+        kennung = _kennung(zeile.get("id"))
+        if not kennung:
+            e["ohne_id"] += 1
+            continue
+        eintraege.append(zeile)
+        e["kennungen"].add(kennung)
+    e["eintraege"] = len(eintraege)
+    ersetzte = {_kennung(z.get("ersetzt")) for z in eintraege if _kennung(z.get("ersetzt"))}
+    e["alte_fassungen"] = len(ersetzte & e["kennungen"])
+    e["tote_verweise"] = len(ersetzte - e["kennungen"])
+    for z in eintraege:
+        ereignis = _kennung(z.get("ereignis_kennung"))
+        if ereignis:
+            e["ereignis_kennungen"].add(ereignis)
+        else:
+            e["ohne_ereignis"] += 1
+        if _kennung(z.get("datei_kennung")):
+            e["mit_bild"] += 1
+        if not str(z.get("text") or "").strip():
+            e["ohne_text"] += 1
+        quelle = _kennung(z.get("quelle")) or "ohne_quelle"
+        e["quellen"][quelle] = e["quellen"].get(quelle, 0) + 1
+        schicht = _kennung(z.get("schicht")) or "ohne_schicht"
+        e["schichten"][schicht] = e["schichten"].get(schicht, 0) + 1
+    if anlass_kennungen:
+        e["ohne_anlass"] = e["ereignis_kennungen"] - anlass_kennungen
+    return e
+
+
+def eigene_titel_lesen(pfad: str, anlass_kennungen: Optional[Set[str]] = None) -> Dict[str, Any]:
+    """``anlass_umbenennung.jsonl`` zaehlen — nur Zahlen, NIE ein Titel.
+
+    Je Zeile ``kennung`` (Anlass) und ``name``; nur anhaengend, je Kennung gilt
+    die neueste Zeile, und ein **leerer** Name setzt auf den automatischen Titel
+    zurueck. Gezaehlt werden Zeilen, kaputte Zeilen, Kennungen, mehrfache Zeilen
+    je Kennung (Fassungen), wie viele eigene Namen zuletzt GESETZT bzw.
+    zurueckgesetzt waren — und, wenn ``anlass_kennungen`` bekannt sind, Titel
+    deren Anlass es nicht mehr gibt. Die Namen selbst werden NICHT gelesen oder
+    ausgegeben.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "zeilen": 0, "kaputt_zeilen": 0, "eintraege": 0,
+                         "ohne_kennung": 0, "kennungen": set(), "mehrfach": 0,
+                         "gesetzt": 0, "zurueckgesetzt": 0, "ohne_anlass": set()}
+    if not os.path.isfile(pfad):
+        return e
+    e["fehlt"] = False
+    letzte: Dict[str, str] = {}
+    anzahl_je_kennung: Dict[str, int] = {}
+    for zeile in _jsonl(pfad):
+        if not isinstance(zeile, dict):
+            e["kaputt_zeilen"] += 1
+            continue
+        e["zeilen"] += 1
+        kennung = _kennung(zeile.get("kennung"))
+        name = zeile.get("name")
+        if not kennung or not isinstance(name, str):
+            e["ohne_kennung"] += 1
+            continue
+        e["eintraege"] += 1
+        anzahl_je_kennung[kennung] = anzahl_je_kennung.get(kennung, 0) + 1
+        letzte[kennung] = name.strip()
+    e["kennungen"] = set(letzte)
+    e["mehrfach"] = sum(1 for n in anzahl_je_kennung.values() if n > 1)
+    e["gesetzt"] = sum(1 for name in letzte.values() if name)
+    e["zurueckgesetzt"] = len(letzte) - e["gesetzt"]
+    if anlass_kennungen:
+        e["ohne_anlass"] = set(letzte) - anlass_kennungen
+    return e
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -1325,6 +1476,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             app_uebersicht: Optional[str] = STANDARD_APP_UEBERSICHT,
             app_dateien: Optional[str] = STANDARD_APP_DATEIEN,
             duplikate: Optional[str] = STANDARD_DUPLIKATE,
+            geschichten: Optional[str] = STANDARD_GESCHICHTEN,
+            titel: Optional[str] = STANDARD_TITEL,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -1722,6 +1875,67 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 if unvergleichbar:
                     luecken.append(f"{duplikate}: Baum {name} {_z(unvergleichbar)} Dateien ohne "
                                    f"Pruefsumme, Groesse oder Kennung (nicht vergleichbar)")
+        zeilen.append("")
+
+    if geschichten or titel:
+        anlass_kennungen = anlass_kennungen_sammeln(basis)
+        if geschichten:
+            gs = geschichten_lesen(os.path.join(basis, geschichten), anlass_kennungen)
+            if gs.get("fehlt"):
+                zeilen.append(f"Eigene Geschichten: {geschichten} noch nicht angelegt - die "
+                              f"Schicht 'mensch' entsteht am Geraet (erzaehl_service), am PC "
+                              f"nicht pruefbar")
+            else:
+                quellen = ", ".join(f"{name} {_z(n)}" for name, n in sorted(gs["quellen"].items()))
+                zeilen.append(f"Eigene Geschichten: {geschichten}: {_z(gs['eintraege'])} Geschichten, "
+                              f"{_z(len(gs['ereignis_kennungen']))} Anlaesse, "
+                              f"{_z(gs['mit_bild'])} zu einem Bild"
+                              + (f", {_z(gs['ohne_ereignis'])} ohne Anlass-Kennung"
+                                 if gs["ohne_ereignis"] else "")
+                              + (f", {_z(gs['kaputt_zeilen'])} kaputte Zeilen"
+                                 if gs["kaputt_zeilen"] else "")
+                              + (f", {_z(gs['ohne_id'])} ohne Kennung" if gs["ohne_id"] else ""))
+                zeilen.append("  Quellen: " + (quellen or "keine Quellenangabe")
+                              + (f"; {_z(gs['alte_fassungen'])} abgeloeste Fassungen"
+                                 if gs["alte_fassungen"] else "")
+                              + (f"; {_z(len(gs['ohne_anlass']))} Anlass-Kennungen ohne Anlass"
+                                 if gs["ohne_anlass"] else ""))
+                if gs["kaputt_zeilen"]:
+                    luecken.append(f"{geschichten}: {_z(gs['kaputt_zeilen'])} kaputte Zeilen")
+                if gs["ohne_id"]:
+                    luecken.append(f"{geschichten}: {_z(gs['ohne_id'])} Zeilen ohne Kennung "
+                                   f"(der Dienst verwirft sie still - die Geschichte fehlt)")
+                if gs["ohne_text"]:
+                    luecken.append(f"{geschichten}: {_z(gs['ohne_text'])} leere Geschichten")
+                if gs["tote_verweise"]:
+                    luecken.append(f"{geschichten}: {_z(gs['tote_verweise'])} ersetzt-Verweise auf "
+                                   f"eine nicht vorhandene Kennung (Fassungskette gebrochen)")
+                if gs["ohne_anlass"]:
+                    luecken.append(f"{geschichten}: {_z(len(gs['ohne_anlass']))} Geschichten zu einem "
+                                   f"Anlass, den es nicht mehr gibt (Text zeigt ins Leere)")
+        if titel:
+            tt = eigene_titel_lesen(os.path.join(basis, titel), anlass_kennungen)
+            if tt.get("fehlt"):
+                zeilen.append(f"Eigene Titel: {titel} noch nicht angelegt - die eigenen "
+                              f"Anlassnamen entstehen am Geraet, am PC nicht pruefbar")
+            else:
+                zeilen.append(f"Eigene Titel: {titel}: {_z(len(tt['kennungen']))} Anlaesse umbenannt "
+                              f"({_z(tt['gesetzt'])} mit eigenem Namen, "
+                              f"{_z(tt['zurueckgesetzt'])} zurueckgesetzt)"
+                              + (f", {_z(tt['mehrfach'])} mit mehreren Zeilen (Fassungen)"
+                                 if tt["mehrfach"] else "")
+                              + (f", {_z(tt['kaputt_zeilen'])} kaputte Zeilen"
+                                 if tt["kaputt_zeilen"] else "")
+                              + (f", {_z(tt['ohne_kennung'])} ohne Kennung"
+                                 if tt["ohne_kennung"] else ""))
+                if tt["kaputt_zeilen"]:
+                    luecken.append(f"{titel}: {_z(tt['kaputt_zeilen'])} kaputte Zeilen")
+                if tt["ohne_kennung"]:
+                    luecken.append(f"{titel}: {_z(tt['ohne_kennung'])} Zeilen ohne brauchbare Kennung "
+                                   f"(der eigene Name geht verloren)")
+                if tt["ohne_anlass"]:
+                    luecken.append(f"{titel}: {_z(len(tt['ohne_anlass']))} eigene Titel zu einem Anlass, "
+                                   f"den es nicht mehr gibt (Name zeigt ins Leere)")
         zeilen.append("")
 
     if bild_index:
