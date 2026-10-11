@@ -8,6 +8,7 @@ Aufruf:
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 
@@ -1373,3 +1374,99 @@ def test_erzaehl_mensch_leser_werfen_bei_kaputter_datei_nicht(tmp_path):
     (tmp_path / "anlass_umbenennung.jsonl").write_text('[{"kennung": "O-100"}]\n', encoding="utf-8")
     t = bp.eigene_titel_lesen(os.path.join(str(tmp_path), "anlass_umbenennung.jsonl"))
     assert t["fehlt"] is False and t["kaputt_zeilen"] == 1 and t["kennungen"] == set()
+
+
+# ── Uebergabe (Handy): Ketten-Schritt 9 ─────────────────────────────────────
+
+def _sha(pfad):
+    return hashlib.sha256(pfad.read_bytes()).hexdigest()
+
+
+def _uebergabe_manifest(tmp_path, eintraege):
+    (tmp_path / bp.STANDARD_UEBERGABE_MANIFEST).write_text(
+        "\n".join(json.dumps(z) for z in eintraege) + "\n", encoding="utf-8")
+
+
+def test_nachweis_zaehlt_die_uebergabe_stufe(tmp_path):
+    """Die Uebergabe (Kettenschritt 9) stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _bestand(tmp_path)
+    (tmp_path / "orte.jsonl").write_text("eine zeile\n", encoding="utf-8")
+    (tmp_path / "bild_index.db").write_bytes(b"frisch")
+    _uebergabe_manifest(tmp_path, [
+        {"name": "orte.jsonl", "quelle": "C:/irgendwo/orte.jsonl",
+         "groesse": (tmp_path / "orte.jsonl").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "orte.jsonl")},
+        # Zwei Buchungen fuer dieselbe Datei: die JUENGSTE gilt (hier stimmt sie).
+        {"name": "bild_index.db", "quelle": "C:/irgendwo/bild_index.db",
+         "groesse": 1, "pruefsumme": "veraltet"},
+        {"name": "bild_index.db", "quelle": "C:/irgendwo/bild_index.db",
+         "groesse": (tmp_path / "bild_index.db").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "bild_index.db")},
+    ])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Uebergabe (Handy): uebergabe_manifest.jsonl: 3 Buchungen, 2 verschiedene Dateien "
+            "(gleich 2, geaendert 0, am PC fehlt 0)") in text
+    # Zwei stimmige Dateien sind kein Befund.
+    assert not [l for l in luecken if "uebergabe_manifest" in l]
+    # Nur die eigenen Ergebnis-Dateinamen — kein Pfad, kein Inhalt.
+    assert "C:/irgendwo" not in text and str(tmp_path) not in text
+
+
+def test_nachweis_uebergabe_meldet_geaendert_und_fehlend_als_luecke(tmp_path):
+    """Eine seit der Uebergabe geaenderte Datei ist der Fehlerfall aus Journal 13."""
+    _bestand(tmp_path)
+    (tmp_path / "orte.jsonl").write_text("alt\n", encoding="utf-8")
+    alte_groesse = (tmp_path / "orte.jsonl").stat().st_size
+    alte_summe = _sha(tmp_path / "orte.jsonl")
+    (tmp_path / "gleich.jsonl").write_text("gleich\n", encoding="utf-8")
+    (tmp_path / "orte.jsonl").write_text("NEU und laenger\n", encoding="utf-8")   # andere Groesse
+    _uebergabe_manifest(tmp_path, [
+        {"name": "orte.jsonl", "groesse": alte_groesse, "pruefsumme": alte_summe},
+        {"name": "weg.jsonl", "groesse": 5, "pruefsumme": "ab" * 32},             # lokal nicht da
+        # Gleiche Groesse, andere Pruefsumme: nur der Hash merkt es.
+        {"name": "gleich.jsonl",
+         "groesse": (tmp_path / "gleich.jsonl").stat().st_size, "pruefsumme": "f" * 64},
+    ])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Uebergabe (Handy): uebergabe_manifest.jsonl: 3 Buchungen, 3 verschiedene Dateien "
+            "(gleich 0, geaendert 2, am PC fehlt 1)") in text
+    assert ("  Seit der letzten Uebergabe geaendert (2) - das Geraet holt die alte Fassung: "
+            "gleich.jsonl, orte.jsonl") in text
+    assert "  Am PC nicht mehr vorhanden (1): weg.jsonl" in text
+    assert ("uebergabe_manifest.jsonl: 2 Datei(en) seit der letzten Uebergabe geaendert - das "
+            "Geraet holt beim naechsten Start die alte Fassung") in luecken
+    assert ("uebergabe_manifest.jsonl: 1 uebertragene Datei(en) am PC nicht mehr vorhanden "
+            "(Uebergabe nicht nachvollziehbar)") in luecken
+
+
+def test_nachweis_meldet_fehlende_uebergabe_ehrlich(tmp_path):
+    """Ohne Manifest heisst es 'noch nicht angelegt' — nicht 'Luecke'."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Uebergabe (Handy): uebergabe_manifest.jsonl noch nicht angelegt - es wurde noch "
+            "nichts kabellos uebergeben (uebergabe_hochladen.py)") in text
+    assert not [l for l in luecken if "uebergabe_manifest" in l]
+    ohne = "\n".join(bp.pruefen(str(tmp_path), uebergabe=None)[0])
+    assert "Uebergabe (Handy)" not in ohne
+
+
+def test_uebergabe_stand_leser_wirft_nie_und_juengste_buchung_gilt(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    leer = bp.uebergabe_stand_lesen(str(tmp_path))
+    assert leer["fehlt"] is True
+    (tmp_path / "a.jsonl").write_text("kurz\n", encoding="utf-8")
+    groesse = (tmp_path / "a.jsonl").stat().st_size
+    alle = ([1, 2],                                              # fremde Form -> kaputt
+            "{kein json",                                        # kaputt
+            {"name": "", "groesse": 1},                          # ohne Namen -> kaputt
+            {"name": "a.jsonl", "groesse": 999, "pruefsumme": "falsch"},   # aeltere Buchung
+            {"name": "a.jsonl", "groesse": groesse, "pruefsumme": _sha(tmp_path / "a.jsonl")})
+    (tmp_path / "uebergabe_manifest.jsonl").write_text(
+        "\n".join(json.dumps(z) for z in alle) + "\n", encoding="utf-8")
+    e = bp.uebergabe_stand_lesen(str(tmp_path))
+    assert e["fehlt"] is False and e["kaputt"] == 3 and e["buchungen"] == 2
+    assert e["gleich"] == ["a.jsonl"] and e["geaendert"] == []   # die juengste Buchung gilt
+    assert e["fehlt_lokal"] == [] and e["ohne_pruefsumme"] == []

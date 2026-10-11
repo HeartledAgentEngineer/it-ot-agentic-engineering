@@ -145,6 +145,26 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Leere). Am PC heisst „nicht vorhanden\" ehrlich „noch nicht
                       angelegt\", nicht „Luecke\". Nur Zahlen: NIE ein
                       Geschichtentext, NIE ein eigener Titel.
+  * Uebergabe (Handy): ``uebergabe_manifest.jsonl`` — der Weg, auf dem die
+                      gebauten Ergebnisdateien aufs GERAET kommen (Ketten-Schritt 9).
+                      Zwei Wege bestehen: das Kabel (``tools/handy/
+                      uebergabe_uebernehmen.py``, Namensliste in
+                      ``termux/start-vorbereiten.sh``) und kabellos ueber pCloud
+                      (``tools/pcloud/uebergabe_hochladen.py`` laedt nach
+                      ``/Agent/uebergabe``, das Geraet holt sie mit
+                      ``termux/pcloud-uebernehmen.sh``). JEDE Uebertragung bucht eine
+                      Zeile im Manifest (ausserhalb des Repos) — und dieses Manifest
+                      stand in KEINER Pruefzeile, obwohl genau daran am 10.10. ein
+                      echter Fehler auffiel: das Geraet haette eine VERALTETE
+                      ``bild_index.db`` geholt, weil die frische Fassung noch nicht
+                      hochgeladen war (von Hand gefunden, nicht vom Nachweis). Der
+                      Nachweis stellt jetzt je uebertragener Datei die lokale Fassung
+                      gegen die JUENGSTE Buchung (Groesse UND Pruefsumme): gleich,
+                      geaendert (das Geraet holt die alte Fassung) oder lokal nicht
+                      mehr vorhanden. Grenze (ehrlich): verglichen wird offline gegen
+                      die letzte Buchung — ein spaeterer Wechsel der Datei IM
+                      pCloud-Ordner ist ohne Netzabruf nicht sichtbar. Nur Zahlen und
+                      die eigenen Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -166,6 +186,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import sqlite3
@@ -288,6 +309,23 @@ STANDARD_DUPLIKATE = "duplikate.json"
 # mit: nur Zahlen — NIE ein Geschichtentext, NIE ein eigener Titel.
 STANDARD_GESCHICHTEN = "geschichten.jsonl"
 STANDARD_TITEL = "anlass_umbenennung.jsonl"
+# Die Uebergabe-Stufe (Ketten-Schritt 9) — der Weg, auf dem die gebauten
+# Ergebnisdateien aufs GERAET kommen. Zwei Wege bestehen: das Kabel
+# (``tools/handy/uebergabe_uebernehmen.py``, Namensliste in
+# ``termux/start-vorbereiten.sh``) und kabellos ueber pCloud
+# (``tools/pcloud/uebergabe_hochladen.py`` laedt nach ``/Agent/uebergabe``, das
+# Geraet holt sie mit ``termux/pcloud-uebernehmen.sh``). Jede Uebertragung bucht
+# eine Zeile im Manifest (ausserhalb des Repos). Dieses Manifest stand in KEINER
+# Pruefzeile — dieselbe Luecke wie bei OSM, Bildindex, Anlaessen, Ortsnamen,
+# Erzaehl-Quellen, Beziehungen, Personen, App-Uebersicht, Doppelten und den
+# eigenen Erzaehl-Stufen. Genau daran fiel am 10.10. ein echter Fehler auf: das
+# Geraet haette eine VERALTETE ``bild_index.db`` geholt (von Hand gefunden). Der
+# Nachweis zaehlt jetzt je uebertragener Datei nach, ob die lokale Fassung noch
+# zur juengsten Buchung passt. Nur Zahlen und die eigenen Ergebnis-Dateinamen.
+STANDARD_UEBERGABE_MANIFEST = "uebergabe_manifest.jsonl"
+UEBERGABE_GLEICH = "gleich"
+UEBERGABE_GEAENDERT = "geaendert"
+UEBERGABE_FEHLT_LOKAL = "fehlt_lokal"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -1365,6 +1403,93 @@ def eigene_titel_lesen(pfad: str, anlass_kennungen: Optional[Set[str]] = None) -
     return e
 
 
+# ── Uebergabe (Handy): was das Geraet beim naechsten Start bekäme ────────────
+
+def _sha256_datei(pfad: str) -> Optional[str]:
+    """``sha256`` einer Datei, blockweise und nur lesend; ``None`` wenn unlesbar."""
+    pruefer = hashlib.sha256()
+    try:
+        with open(pfad, "rb") as datei:
+            while True:
+                stueck = datei.read(65536)
+                if not stueck:
+                    break
+                pruefer.update(stueck)
+    except OSError:
+        return None
+    return pruefer.hexdigest()
+
+
+def uebergabe_stand_lesen(basis: str,
+                          manifest_name: str = STANDARD_UEBERGABE_MANIFEST) -> Dict[str, Any]:
+    """Die Uebergabe-Stufe nachzaehlen — **wirft nie**.
+
+    Liest das Manifest (je uebertragener Datei eine Zeile mit ``name``,
+    ``quelle``, ``groesse``, ``pruefsumme``), nimmt je Namen die JUENGSTE Zeile
+    und stellt sie gegen die lokale Fassung:
+
+    * ``gleich``      — Groesse UND Pruefsumme stimmen (das Geraet holt nichts Neues),
+    * ``geaendert``   — die lokale Fassung ist anders: das Geraet wuerde beim
+                        naechsten Start die ALTE Fassung aus der pCloud holen,
+    * ``fehlt_lokal`` — die uebertragene Datei gibt es am PC nicht mehr.
+
+    Nur Zustand und Zahlen je Datei — nie ein Inhalt, nie ein Pfad. Grenze
+    (ehrlich): verglichen wird offline gegen die letzte Buchung; ein spaeterer
+    Wechsel der Datei im pCloud-Ordner selbst ist ohne Netzabruf nicht sichtbar.
+    """
+    pfad = os.path.join(basis, manifest_name)
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    buchungen = 0
+    kaputt = 0
+    letzte: Dict[str, dict] = {}
+    for objekt in _jsonl(pfad):
+        if objekt is None:
+            kaputt += 1
+            continue
+        name = _kennung(objekt.get("name"))
+        if not name:
+            kaputt += 1                      # ohne Namen nicht nachvollziehbar
+            continue
+        buchungen += 1
+        letzte[name] = objekt                 # spaeterer Lauf ueberschreibt
+    gleich: List[str] = []
+    geaendert: List[str] = []
+    fehlt_lokal: List[str] = []
+    ohne_pruefsumme: List[str] = []
+    unlesbar: List[str] = []
+    for name, eintrag in sorted(letzte.items()):
+        pruefsumme = eintrag.get("pruefsumme")
+        pruefsumme = pruefsumme.strip() if isinstance(pruefsumme, str) else ""
+        # Die lokale Fassung: erst flach in ``basis`` (so legt die kabellose
+        # Uebergabe sie ab), dann an der im Manifest gebuchten Stelle.
+        kandidaten = [os.path.join(basis, name)]
+        quelle = eintrag.get("quelle")
+        if isinstance(quelle, str) and quelle.strip():
+            kandidaten.append(quelle)
+        lokal = next((p for p in kandidaten if os.path.isfile(p)), None)
+        if lokal is None:
+            fehlt_lokal.append(name)
+            continue
+        if _ganze_zahl(eintrag.get("groesse")) != os.path.getsize(lokal):
+            geaendert.append(name)
+            continue
+        if not pruefsumme:
+            ohne_pruefsumme.append(name)
+            continue
+        ist = _sha256_datei(lokal)
+        if ist is None:
+            unlesbar.append(name)
+        elif ist == pruefsumme:
+            gleich.append(name)
+        else:
+            geaendert.append(name)
+    return {"fehlt": False, "buchungen": buchungen, "kaputt": kaputt,
+            "namen": set(letzte), "gleich": gleich, "geaendert": geaendert,
+            "fehlt_lokal": fehlt_lokal, "ohne_pruefsumme": ohne_pruefsumme,
+            "unlesbar": unlesbar}
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -1454,6 +1579,12 @@ def _usd(betrag: float) -> str:
     return f"{betrag:.2f}".replace(".", ",")
 
 
+def _namen_kurz(namen: List[str], max_: int = 8) -> str:
+    """Die eigenen Ergebnis-Dateinamen kurz auflisten — nie ein Pfad, nie ein Inhalt."""
+    rest = len(namen) - max_
+    return ", ".join(namen[:max_]) + (f" ... (+{rest})" if rest > 0 else "")
+
+
 def _mb(betrag: float) -> str:
     """MegaByte mit Komma und Tausenderpunkt — nur die Zahl."""
     return f"{betrag:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -1478,6 +1609,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             duplikate: Optional[str] = STANDARD_DUPLIKATE,
             geschichten: Optional[str] = STANDARD_GESCHICHTEN,
             titel: Optional[str] = STANDARD_TITEL,
+            uebergabe: Optional[str] = STANDARD_UEBERGABE_MANIFEST,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -1936,6 +2068,48 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 if tt["ohne_anlass"]:
                     luecken.append(f"{titel}: {_z(len(tt['ohne_anlass']))} eigene Titel zu einem Anlass, "
                                    f"den es nicht mehr gibt (Name zeigt ins Leere)")
+        zeilen.append("")
+
+    if uebergabe:
+        ub = uebergabe_stand_lesen(basis, uebergabe)
+        if ub.get("fehlt"):
+            zeilen.append(f"Uebergabe (Handy): {uebergabe} noch nicht angelegt - es wurde noch "
+                          f"nichts kabellos uebergeben (uebergabe_hochladen.py)")
+        else:
+            zeilen.append(f"Uebergabe (Handy): {uebergabe}: {_z(ub['buchungen'])} Buchungen, "
+                          f"{_z(len(ub['namen']))} verschiedene Dateien "
+                          f"(gleich {_z(len(ub['gleich']))}, geaendert {_z(len(ub['geaendert']))}, "
+                          f"am PC fehlt {_z(len(ub['fehlt_lokal']))})"
+                          + (f", {_z(ub['kaputt'])} kaputte Zeilen" if ub["kaputt"] else ""))
+            if ub["geaendert"]:
+                zeilen.append(f"  Seit der letzten Uebergabe geaendert ({_z(len(ub['geaendert']))}) "
+                              f"- das Geraet holt die alte Fassung: {_namen_kurz(ub['geaendert'])}")
+            if ub["fehlt_lokal"]:
+                zeilen.append(f"  Am PC nicht mehr vorhanden ({_z(len(ub['fehlt_lokal']))}): "
+                              f"{_namen_kurz(ub['fehlt_lokal'])}")
+            if ub["unlesbar"]:
+                zeilen.append(f"  Nicht lesbar ({_z(len(ub['unlesbar']))}): "
+                              f"{_namen_kurz(ub['unlesbar'])}")
+            if ub["ohne_pruefsumme"]:
+                zeilen.append(f"  Ohne Pruefsumme gebucht, nur ueber die Groesse verglichen "
+                              f"({_z(len(ub['ohne_pruefsumme']))}): "
+                              f"{_namen_kurz(ub['ohne_pruefsumme'])}")
+            if ub["kaputt"]:
+                luecken.append(f"{uebergabe}: {_z(ub['kaputt'])} kaputte Buchungen "
+                               f"(Uebergabe nicht nachvollziehbar)")
+            if ub["geaendert"]:
+                luecken.append(f"{uebergabe}: {_z(len(ub['geaendert']))} Datei(en) seit der letzten "
+                               f"Uebergabe geaendert - das Geraet holt beim naechsten Start die "
+                               f"alte Fassung")
+            if ub["fehlt_lokal"]:
+                luecken.append(f"{uebergabe}: {_z(len(ub['fehlt_lokal']))} uebertragene Datei(en) "
+                               f"am PC nicht mehr vorhanden (Uebergabe nicht nachvollziehbar)")
+            if ub["unlesbar"]:
+                luecken.append(f"{uebergabe}: {_z(len(ub['unlesbar']))} uebertragene Datei(en) "
+                               f"nicht lesbar (Stand nicht pruefbar)")
+            if ub["ohne_pruefsumme"]:
+                luecken.append(f"{uebergabe}: {_z(len(ub['ohne_pruefsumme']))} Buchung(en) ohne "
+                               f"Pruefsumme (nur ueber die Groesse vergleichbar)")
         zeilen.append("")
 
     if bild_index:
