@@ -13,7 +13,8 @@ from fastapi.responses import StreamingResponse
 
 from app.config import settings, BASE_DIR
 from app.models import ChatRequest, ChatResponse
-from app.services.archiv_service import archiv_service, zeitraum_kurz
+from app.services.archiv_service import zeitraum_kurz
+from app.services.archiv_standard import StandardArchiv
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
 from app.services.faehigkeiten import stoesst_an_grenze
@@ -92,13 +93,18 @@ _strom_auftrag_live = sse_service.strom_auftrag_live
 def _archiv_treffer(frage: str, aktiv: bool) -> List[Dict[str, Any]]:
     """Passende Stellen aus den Chat-Archiven holen.
 
+    Gesucht wird ueber den **Standardweg** (:class:`StandardArchiv`): erst der
+    volle Index (mit dem WhatsApp-Vollbestand), dann der alte Dienst. Bis zum
+    11.10.2026 lief hier nur der alte Dienst — deshalb kam aus den
+    WhatsApp-Daten nie ein Zusammenhang an (Sebastians Befund Nr. 3).
+
     Scheitert die Suche, geht die Anfrage trotzdem durch – nur ohne
     Vergangenheitswissen. Ein kaputtes Archiv darf den Chat nicht lahmlegen.
     """
-    if not aktiv or not archiv_service.is_available:
+    if not aktiv:
         return []
     try:
-        return archiv_service.hybrid(frage)
+        return StandardArchiv().hybrid(frage)
     except Exception as e:
         logger.warning("Archivsuche uebersprungen: %s", e)
         return []
@@ -1117,9 +1123,9 @@ def _erwaehnung_notiz(name: str, service: Optional[Any] = None) -> str:
     """Die Erwähnungssuche als Notiz für das Modell (Form „\\n\\n[…]").
 
     ``service`` ist injizierbar (Tests). Kennt der übergebene Dienst die
-    Erwähnungssuche nicht (der Standard ``archiv_service`` ist der alte
-    Volltext-Dienst), wird der Indexdienst aus
-    ``app.services.archiv_suche`` genommen. Ist nichts erreichbar oder
+    Erwähnungssuche nicht (weder der Standardweg ``StandardArchiv`` noch der
+    alte Volltext-Dienst ``archiv_service`` kennen sie), wird der Indexdienst
+    aus ``app.services.archiv_suche`` genommen. Ist nichts erreichbar oder
     scheitert die Suche, kommt ein ehrlicher Hinweis statt eines stillen
     Rückfalls — erfunden wird nie.
     """
@@ -1168,13 +1174,15 @@ def _archiv_tool(frage: str, service: Optional[Any] = None) -> str:
     weiche Erinnerungs-Signale fallen bei fehlendem Archiv still auf den
     lokalen Gesprächsverlauf (_verlauf_tool) zurück.
 
-    `service` ist injizierbar (Tests); Default ist der Archiv-Service.
+    `service` ist injizierbar (Tests); Default ist der Standardweg
+    (:class:`StandardArchiv`): erst der volle Index mit dem WhatsApp-Bestand,
+    dann der alte Dienst. Bis zum 11.10.2026 lief hier nur der alte Dienst.
 
     Liefert "" wenn kein Archiv-Wunsch vorliegt (dann läuft die
     Dateisuche/Verlaufssuche ganz normal).
     """
     if service is None:
-        service = archiv_service
+        service = StandardArchiv()
     f = frage.lower().strip()
     if not f:
         return ""

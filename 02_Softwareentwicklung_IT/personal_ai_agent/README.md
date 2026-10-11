@@ -106,6 +106,7 @@ personal_ai_agent/
 │   │   │   ├── memory_service.py    #   Erinnerungen: Auswahl, Wiederholungs-Prüfung, Einbetten
 │   │   │   ├── archiv_service.py    #   Suche in alten Chat-Archiven (memory.db)
 │   │   │   ├── archiv_suche.py      #   Wissensspeicher-Index: Hybridsuche + Original
+│   │   │   ├── archiv_standard.py   #   Standardweg: voller Index zuerst, sonst der alte
 │   │   │   ├── auftrag_service.py   #   Auftragsbuch-Verwaltung
 │   │   │   ├── auftrags_erkennung.py#   Heuristik: ist das ein Auftrag?
 │   │   │   ├── hermes_gateway.py    #   PC-Hermes (Track A)

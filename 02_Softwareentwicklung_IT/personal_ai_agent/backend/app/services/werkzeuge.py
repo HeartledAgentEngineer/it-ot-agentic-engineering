@@ -196,16 +196,21 @@ def _datei_ansehen(args: Dict[str, Any]) -> Ergebnis:
 # ── Werkzeug: archiv_suchen ────────────────────────────────────────────────
 
 def _archiv_suchen(args: Dict[str, Any]) -> Ergebnis:
-    from app.services.archiv_service import archiv_service, zeitraum_kurz
+    from app.services.archiv_service import zeitraum_kurz
+    from app.services.archiv_standard import StandardArchiv
 
     frage = str(args.get("frage") or "").strip()
     if not frage:
         return Ergebnis("Bitte eine Suchfrage angeben.", ok=False)
-    if not archiv_service.is_available:
+    # Standardweg: erst der volle Index (mit dem WhatsApp-Bestand), dann der
+    # alte Dienst. Bis zum 11.10.2026 suchte dieses Werkzeug nur im alten —
+    # aus den WhatsApp-Daten kam so nie ein Zusammenhang an (Befund Nr. 3).
+    dienst = StandardArchiv()
+    if not dienst.is_available:
         return Ergebnis("Das Archiv der alten Gespräche ist gerade nicht erreichbar. "
                         "Erfinde keine Fundstellen.", ok=False)
     anzahl = _ganzzahl(args.get("anzahl"), 5, 1, 8)
-    treffer = archiv_service.hybrid(frage, top_k=anzahl) or []
+    treffer = dienst.hybrid(frage, top_k=anzahl) or []
     if not treffer:
         return Ergebnis(f"Im Archiv nichts zu „{frage}“ gefunden.")
     zeilen = []

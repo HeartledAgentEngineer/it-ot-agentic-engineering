@@ -107,7 +107,9 @@ def test_erwaehnungs_text_traegt_die_fluss_anweisung():
 # ── Weg 4: Modell-Werkzeug (werkzeuge._archiv_suchen) ─────────────────────
 
 def test_werkzeug_archiv_suchen_ohne_strich_und_mit_fluss(monkeypatch):
+    # Rueckfall-Weg: voller Index fehlt, der alte Dienst traegt.
     from app.services import archiv_service as modul
+    from app.services import archiv_suche as suche_modul
     from app.services import werkzeuge as wz
 
     class FakeArchiv:
@@ -116,7 +118,12 @@ def test_werkzeug_archiv_suchen_ohne_strich_und_mit_fluss(monkeypatch):
         def hybrid(self, frage, top_k=None):
             return [{"source": "ChatGPT", "beginn": "2024-03-01T10:00",
                      "text": "Über Momo gesprochen"}]
+
+    class KeinIndex:
+        is_available = False
+
     monkeypatch.setattr(modul, "archiv_service", FakeArchiv())
+    monkeypatch.setattr(suche_modul, "archiv_suche", KeinIndex())
 
     e = wz.ausfuehren("archiv_suchen", {"frage": "Momo"})
     assert e.ok

@@ -46,7 +46,7 @@ oder Gemini. Das Backend führt aus, gibt das Ergebnis zurück, das Modell ruft 
 |---|---|---|
 | `dateien_suchen` | Dateien auf dem Handy finden (Fotos, Screenshots, PDFs, Dokumente); Name, Art, neueste zuerst, Jahr, Tag | `datei_suche.suche_dateien` |
 | `datei_ansehen` | Eine gefundene Datei öffnen: Text lesen oder Bild ansehen | `datei_suche.lese_datei_info` |
-| `archiv_suchen` | Alte Gespräche (ChatGPT, Gemini, Claude …) nach Thema durchsuchen | `archiv_service.hybrid` |
+| `archiv_suchen` | Alte Gespräche (ChatGPT, Gemini, Claude …) nach Thema durchsuchen — **inklusive WhatsApp-Vollbestand** (Standardweg: voller Index zuerst, sonst der alte Dienst) | `archiv_standard.StandardArchiv.hybrid` |
 | `notizen_suchen` | Sebastians **eigene** App-Notizen: Personen-Notizen (Beziehung, Beruf, Vorlieben) und Geschichten an Ereignissen; mit `person=Name` alle Notizen einer Person (07.10.2026) | `notizen_service.text_antwort` |
 | `erinnerungen_suchen` | Gemerkte Fakten über Sebastian abrufen | `memory_service.retrieve_relevant_memories` |
 | `fotos_uebersicht` | Übersicht der sortierten Fotos: Anlässe, Jahre, Zahlen | `foto_uebersicht.text_antwort` |

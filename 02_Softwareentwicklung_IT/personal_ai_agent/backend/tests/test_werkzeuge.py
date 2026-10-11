@@ -156,24 +156,34 @@ def test_datei_ansehen_ohne_pfad():
 # ── Archiv, Erinnerungen, Personen, Tage ───────────────────────────────────
 
 def test_archiv_suchen_nennt_quelle_und_datum(monkeypatch):
+    # Rueckfall-Weg: der volle Index ist nicht da (Geraet ohne ihn) — dann
+    # muss der alte Dienst tragen und Quelle+Datum nennen.
     from app.services import archiv_service as modul
+    from app.services import archiv_suche as suche_modul
 
     class FakeArchiv:
         is_available = True
 
         def hybrid(self, frage, top_k=None):
             return [{"source": "ChatGPT", "beginn": "2024-03-01T10:00", "text": "Über Momo gesprochen"}]
+
+    class KeinIndex:
+        is_available = False
+
     monkeypatch.setattr(modul, "archiv_service", FakeArchiv())
+    monkeypatch.setattr(suche_modul, "archiv_suche", KeinIndex())
     e = wz.ausfuehren("archiv_suchen", {"frage": "Momo"})
     assert e.ok and "[ChatGPT, 2024-03-01]" in e.text and "Momo" in e.text
 
 
 def test_archiv_nicht_erreichbar(monkeypatch):
     from app.services import archiv_service as modul
+    from app.services import archiv_suche as suche_modul
 
     class Weg:
         is_available = False
     monkeypatch.setattr(modul, "archiv_service", Weg())
+    monkeypatch.setattr(suche_modul, "archiv_suche", Weg())
     e = wz.ausfuehren("archiv_suchen", {"frage": "x"})
     assert not e.ok and "nicht erreichbar" in e.text
 
