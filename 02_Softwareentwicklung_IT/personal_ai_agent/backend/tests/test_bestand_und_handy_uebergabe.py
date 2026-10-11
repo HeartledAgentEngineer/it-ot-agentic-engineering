@@ -892,3 +892,122 @@ def test_beziehungen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     (tmp_path / "kaputt.json").write_text("{kein json", encoding="utf-8")
     u2 = bp.beziehungen_uebersicht_lesen(str(tmp_path / "kaputt.json"))
     assert u2["fehlt"] is False and u2["kaputt"] is True and u2["summe"] == 0
+
+
+# ── Personen-Stufe (Quiz + Telefonbuch) im Nachweis ─────────────────────────
+# Die Chat-Werkzeuge `personen_liste` / `person_auskunft` / `fotos_mit_person`
+# lesen seit dem 10.10. die QUIZ-Quelle (`gruppen_quiz.personen()`): bestaetigte
+# Namen, Vorgaben, Profile (Beziehung/Notizen/Kontakt) und das Telefonbuch.
+# Gezaehlt wurden bisher nur die Gruppen — die NAMEN standen in KEINEM Nachweis.
+# Faellt oder halbiert sich `personen_bestaetigt.json`, findet die
+# Personen-Auskunft niemanden mehr, ohne dass es auffiele.
+
+def _personen(tmp_path):
+    """Quiz- und Telefonbuch-Dateien nachgebaut (Fantasienamen).
+
+    Absichtlich Fantasieworte: der Nachweis darf NIE einen Personennamen, eine
+    Telefonnummer oder einen Geburtstag zeigen. ``personen_bestaetigt.json`` und
+    die Vorgaben liegen in ``personen_gruppen/`` (so schreibt der PC), die
+    Profile und das Telefonbuch FLACH (so legt die Uebergabe sie am Handy ab) —
+    damit ist der zweite Lesepfad aus ``gruppen_quiz._lesepfad`` mitgeprueft.
+    """
+    ordner = tmp_path / "personen_gruppen"
+    ordner.mkdir(exist_ok=True)
+    (ordner / "personen_bestaetigt.json").write_text(json.dumps({"bestaetigt": {
+        "Person_1001": "NAME_DARF_NICHT_ERSCHEINEN_A",      # dieselbe Person
+        "Person_1002": "NAME_DARF_NICHT_ERSCHEINEN_A",      # an zwei Kennungen
+        "Person_9000": "NAME_DARF_NICHT_ERSCHEINEN_B",      # ohne Gruppe
+        "Person_1003": "",                                  # ohne Namen
+    }}), encoding="utf-8")
+    (ordner / "personen_vorgaben.json").write_text(json.dumps({
+        "gleich": [["Person_1001", "Person_1002"], ["Person_1001", "Person_9000"]],
+        "verschieden": [["Person_1001", "Person_1003"]],
+        "ausgeschlossen": [{"kennung": "Person_1001", "bild_id": "1", "index": 0},
+                           {"kennung": "Person_1001", "bild_id": "2", "index": 0},
+                           {"kennung": "Person_1002", "bild_id": "3", "index": 0}],
+    }), encoding="utf-8")
+    (tmp_path / "personen_profile.json").write_text(json.dumps({"profile": {
+        "NAME_DARF_NICHT_ERSCHEINEN_A": {
+            "beziehung": "BEZIEHUNG_DARF_NICHT_ERSCHEINEN",
+            "notizen": [{"text": "NOTIZ_DARF_NICHT_ERSCHEINEN"},
+                        {"text": "zurueckgenommen", "zurueckgenommen": True}],
+            "kontakt": {"id": "1"}},
+        "NAME_DARF_NICHT_ERSCHEINEN_B": {},
+    }}), encoding="utf-8")
+    (tmp_path / "kontakte.json").write_text(json.dumps({
+        "stand": "2026-10-02", "quelle": "QUELLE_DARF_NICHT_ERSCHEINEN",
+        "kontakte": [{"id": "1", "name": "KONTAKT_DARF_NICHT_ERSCHEINEN",
+                      "nummern": ["0176 000000"], "geburtstag": "1990-01-01"},
+                     {"id": "2", "name": "KONTAKT_2", "nummern": []}]}), encoding="utf-8")
+    (tmp_path / "gruppen_quiz_stand.json").write_text(json.dumps(
+        {"spaeter": ["Person_1004"], "unbekannt": ["Person_1005", "Person_1006"]}),
+        encoding="utf-8")
+    _jsonl(tmp_path / "gruppen_antworten.jsonl", [{"art": "name"}, {"art": "spaeter"}])
+
+
+def test_nachweis_zaehlt_personen(tmp_path):
+    """Die Personen-Stufe stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _bestand(tmp_path)
+    _personen(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert ("Personen (Quiz): personen_bestaetigt.json: 4 Kennungen mit Namen = 2 Personen, "
+            "1 ohne Namen; 1 Kennungen ohne Gruppe") in text
+    assert "  Vorgaben: gleich 2, verschieden 1, ausgeschlossen 3" in text
+    assert ("  Profile (personen_profile.json): 2 Eintraege, davon 1 mit Beziehung, "
+            "1 mit Notiz (1 Notizen), 1 mit Telefonbuch-Kontakt") in text
+    assert "  Telefonbuch (kontakte.json): 2 Kontakte, davon 1 mit Geburtstag" in text
+    assert "  Quiz-Stand: spaeter 1, unbekannt 2; Protokoll 2 Zeilen" in text
+
+
+def test_nachweis_zeigt_keine_namen_nummern_geburtstage(tmp_path):
+    """Nur Zahlen: kein Personenname, keine Nummer, kein Geburtstag, keine Notiz."""
+    _bestand(tmp_path)
+    _personen(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("NAME_DARF_NICHT_ERSCHEINEN", "KONTAKT_DARF_NICHT_ERSCHEINEN",
+                     "KONTAKT_2", "BEZIEHUNG_DARF_NICHT_ERSCHEINEN",
+                     "NOTIZ_DARF_NICHT_ERSCHEINEN", "QUELLE_DARF_NICHT_ERSCHEINEN",
+                     "0176", "1990-01-01"):
+        assert verboten not in text
+    # Der Name ohne Gruppe (Person_9000) ist ein echter Befund, kein stiller Wert.
+    assert "personen_bestaetigt.json: 1 Kennungen ohne Gruppe (Namen ohne Gesichter)" in luecken
+    # Und eine leere Namen-Datei meldet keine erfundenen Personen.
+    (tmp_path / "personen_gruppen" / "personen_bestaetigt.json").write_text(
+        json.dumps({"bestaetigt": {}}), encoding="utf-8")
+    leer = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "personen_bestaetigt.json: 0 Kennungen mit Namen = 0 Personen" in leer
+
+
+def test_nachweis_meldet_fehlende_personen_ehrlich(tmp_path):
+    """Fehlt die Namens-Datei, steht das als Luecke — nicht als stiller Nullwert."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Personen (Quiz): personen_bestaetigt.json fehlt" in text
+    assert "personen_bestaetigt.json fehlt (Personen ohne Namen)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Quiz-Daten)
+    assert "Personen (Quiz)" not in "\n".join(bp.pruefen(str(tmp_path), personen=None)[0])
+
+
+def test_personen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.personen_lesen(str(tmp_path))
+    assert e["fehlt"] is True and e["kennungen"] == 0 and e["personen"] == 0
+    assert e["fehlende"] == [bp.STANDARD_PERSONEN]
+    ordner = tmp_path / "personen_gruppen"
+    ordner.mkdir()
+    (ordner / "personen_bestaetigt.json").write_text("{kein json", encoding="utf-8")
+    kaputt = bp.personen_lesen(str(tmp_path))
+    assert kaputt["fehlt"] is False and kaputt["kaputt"] is True
+    assert "\n".join(bp.pruefen(str(tmp_path))[0]).count("nicht lesbar (kein JSON)") == 1
+    assert "personen_bestaetigt.json nicht lesbar" in bp.pruefen(str(tmp_path))[1]
+    # Nur der Namensteil fehlt: die uebrigen Dateien werden trotzdem gezaehlt.
+    (ordner / "personen_bestaetigt.json").write_text(json.dumps({"bestaetigt": {
+        "Person_1001": "X", "Person_1001b": "X", "Person_1001c": None}}), encoding="utf-8")
+    (tmp_path / "kontakte.json").write_text(json.dumps({"kontakte": "keine Liste"}),
+                                            encoding="utf-8")
+    e3 = bp.personen_lesen(str(tmp_path))
+    assert e3["kennungen"] == 3 and e3["personen"] == 1 and e3["ohne_namen"] == 1
+    assert e3["kontakte"] == 0                      # kaputte Liste = 0, kein Wurf
+    assert e3["fehlt"] is False                     # die Namen sind ja da

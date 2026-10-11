@@ -93,6 +93,19 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       gegen die gemessene Zeilenzahl gestellt (Kennzahlen und
                       Datei muessen zusammenpassen). Nur Zahlen — keine Namen,
                       keine Chat-Namen, keine Themen, keine Ordner.
+  * Personen:         ``personen_bestaetigt.json`` (Kennung -> Name), dazu die
+                      Vorgaben, die Profile (Beziehung/Notizen/Kontakt), das
+                      Telefonbuch ``kontakte.json``, der Quiz-Stand und das
+                      Protokoll — genau die Dateien, die ``gruppen_quiz`` fuer die
+                      Chat-Werkzeuge ``personen_liste`` / ``person_auskunft`` /
+                      ``fotos_mit_person`` liest (Quiz-Quelle statt alter
+                      Gesichtskatalog, 10.10.2026). Die Gruppen wurden bisher
+                      gezaehlt, die NAMEN nicht: faellt oder halbiert sich die
+                      Datei, findet die Personen-Auskunft niemanden mehr, ohne
+                      dass es auffiele. Zwei ehrliche Pruefungen: Kennungen OHNE
+                      Gruppe (Name ohne Gesichter) und verschiedene Namen. Nur
+                      Zahlen — NIE ein Personenname, nie eine Nummer, nie ein
+                      Geburtstag.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -183,6 +196,24 @@ STANDARD_ERZAHL_QUELLEN = ("ereignisse.jsonl", "fotobuch_ereignisse.jsonl")
 # keine Namen, keine Chat-Namen, keine Themen, keine Ordner.
 STANDARD_BEZEIHUNGEN = "beziehungen.jsonl"
 STANDARD_BEZEIHUNGEN_UEBERSICHT = "beziehungen.json"
+# Die Personen-Stufe (Ketten-Schritt 3/4, Quiz + Telefonbuch): die Chat-Werkzeuge
+# ``personen_liste`` / ``person_auskunft`` / ``fotos_mit_person`` lesen seit dem
+# 10.10. die QUIZ-Quelle (``gruppen_quiz.personen()``) statt des alten
+# Gesichtskatalogs — bestaetigte Namen (personen_bestaetigt.json), Vorgaben
+# (personen_vorgaben.json), Profile mit Beziehung/Notizen/Kontakt
+# (personen_profile.json) und das Telefonbuch (kontakte.json). Die ganze Stufe
+# stand in KEINEM Nachweis: die Gruppen werden gezaehlt, die NAMEN nicht. Faellt
+# oder halbiert sich personen_bestaetigt.json, findet ``personen_liste``
+# niemanden mehr und es merkt heute niemand (dieselbe Luecke wie bei OSM,
+# Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen und Beziehungen). Der
+# Nachweis zaehlt sie mit: nur Zahlen — NIE einen Personennamen, nie eine
+# Telefonnummer, nie einen Geburtstag.
+STANDARD_PERSONEN = "personen_bestaetigt.json"
+PERSONEN_VORGABEN = "personen_vorgaben.json"
+PERSONEN_PROFILE = "personen_profile.json"
+PERSONEN_KONTAKTE = "kontakte.json"
+PERSONEN_STAND = "gruppen_quiz_stand.json"
+PERSONEN_PROTOKOLL = "gruppen_antworten.jsonl"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -783,6 +814,161 @@ def beziehungen_uebersicht_lesen(pfad: str) -> Dict[str, Any]:
             "stand": _kennung(daten.get("stand")) or None}
 
 
+# ── Personen (Quiz + Telefonbuch) ────────────────────────────────────────────
+
+def _quiz_pfad(basis: str, name: str) -> Optional[str]:
+    """Wie ``gruppen_quiz._lesepfad``: erst ``personen_gruppen/<name>`` (so
+    schreibt der PC), dann ``<name>`` direkt im Ordner (so legt die Uebergabe am
+    Handy sie ab). Ohne diesen zweiten Ort meldete der Nachweis Dateien als
+    fehlend, die der Dienst sehr wohl liest."""
+    for pfad in (os.path.join(basis, GRUPPEN_ORDNER, name), os.path.join(basis, name)):
+        if os.path.isfile(pfad):
+            return pfad
+    return None
+
+
+def _json_lesen(pfad: Optional[str]) -> Tuple[Any, bool]:
+    """JSON lesen -> (Daten, kaputt). Fehlende Datei = (None, False), nie ein Wurf."""
+    if not pfad:
+        return None, False
+    try:
+        with open(pfad, "r", encoding="utf-8") as datei:
+            return json.load(datei), False
+    except (OSError, ValueError):
+        return None, True
+
+
+def personen_lesen(basis: str, namen_datei: str = STANDARD_PERSONEN) -> Dict[str, Any]:
+    """Die Personen-Stufe zaehlen (Quiz + Telefonbuch) — nur Zahlen, NIE ein Name.
+
+    Gelesen werden genau die Dateien, die ``gruppen_quiz`` fuer die Chat-Werkzeuge
+    liest: ``personen_bestaetigt.json`` (Kennung -> Name), ``personen_vorgaben.json``
+    (gleich/verschieden/ausgeschlossen), ``personen_profile.json``
+    (Beziehung/Notizen/Kontakt), ``kontakte.json`` (Telefonbuch-Auszug),
+    ``gruppen_quiz_stand.json`` (spaeter/unbekannt) und ``gruppen_antworten.jsonl``
+    (Protokoll). Ausgegeben werden nur Zaehlungen — Personennamen, Telefonnummern
+    und Geburtstage werden NICHT gelesen oder ausgegeben.
+
+    Zwei ehrliche Pruefungen: ``kennungen_ohne_gruppe`` zaehlt bestaetigte
+    Kennungen, zu denen es in ``personen_beispiele.json`` keine Gruppe gibt (ein
+    Name ohne Gesichter), und ``personen`` zaehlt VERSCHIEDENE Namen (dieselbe
+    Person an mehreren Kennungen ist eine Person).
+    """
+    e: Dict[str, Any] = {"fehlt": True, "kaputt": False, "kennungen": 0, "personen": 0,
+                         "ohne_namen": 0, "kennungen_ohne_gruppe": 0,
+                         "gleich": 0, "verschieden": 0, "ausgeschlossen": 0,
+                         "profile": 0, "profile_mit_beziehung": 0, "profile_mit_notiz": 0,
+                         "notizen": 0, "profile_mit_kontakt": 0,
+                         "kontakte": 0, "kontakte_mit_geburtstag": 0,
+                         "spaeter": 0, "unbekannt": 0, "protokoll_zeilen": 0,
+                         "fehlende": []}
+    pfad = _quiz_pfad(basis, namen_datei)
+    if not pfad:
+        e["fehlende"].append(namen_datei)
+        return e
+    daten, kaputt = _json_lesen(pfad)
+    if kaputt or not isinstance(daten, dict):
+        return dict(e, fehlt=False, kaputt=True, fehlende=[namen_datei])
+    e["fehlt"] = False
+    namen = daten.get("bestaetigt")
+    if not isinstance(namen, dict):
+        namen = {}
+    personen = set()
+    for kennung, name in namen.items():
+        if not _kennung(kennung):
+            continue
+        e["kennungen"] += 1
+        sauber = name.strip() if isinstance(name, str) else ""
+        if sauber:
+            personen.add(sauber.casefold())
+        else:
+            e["ohne_namen"] += 1
+    e["personen"] = len(personen)
+
+    # Kennungen ohne Gruppe: der Name haengt an keiner Gruppe (kein Gesicht).
+    beispiele = _quiz_pfad(basis, "personen_beispiele.json")
+    gruppen_kennungen: Set[str] = set()
+    if beispiele:
+        bdaten, _ = _json_lesen(beispiele)
+        for gruppe in (bdaten or {}).get("gruppen") or []:
+            if isinstance(gruppe, dict) and _kennung(gruppe.get("kennung")):
+                gruppen_kennungen.add(_kennung(gruppe.get("kennung")))
+    if gruppen_kennungen:
+        e["kennungen_ohne_gruppe"] = sum(1 for k in namen if _kennung(k)
+                                         and _kennung(k) not in gruppen_kennungen)
+
+    vorgaben_pfad = _quiz_pfad(basis, PERSONEN_VORGABEN)
+    if not vorgaben_pfad:
+        e["fehlende"].append(PERSONEN_VORGABEN)
+    else:
+        vdaten, _ = _json_lesen(vorgaben_pfad)
+        if isinstance(vdaten, dict):
+            for feld, schluessel in (("gleich", "gleich"), ("verschieden", "verschieden"),
+                                     ("ausgeschlossen", "ausgeschlossen")):
+                wert = vdaten.get(schluessel)
+                e[feld] = len(wert) if isinstance(wert, list) else 0
+        else:
+            e["fehlende"].append(PERSONEN_VORGABEN)
+
+    profil_pfad = _quiz_pfad(basis, PERSONEN_PROFILE)
+    if not profil_pfad:
+        e["fehlende"].append(PERSONEN_PROFILE)
+    else:
+        pdaten, _ = _json_lesen(profil_pfad)
+        profile = ((pdaten or {}).get("profile") if isinstance(pdaten, dict) else None) or {}
+        if not isinstance(profile, dict):
+            profile = {}
+        for eintrag in profile.values():
+            if not isinstance(eintrag, dict):
+                continue
+            e["profile"] += 1
+            if _kennung(eintrag.get("beziehung")):
+                e["profile_mit_beziehung"] += 1
+            notizen = [n for n in (eintrag.get("notizen") or [])
+                       if isinstance(n, dict) and not n.get("zurueckgenommen")]
+            if notizen:
+                e["profile_mit_notiz"] += 1
+                e["notizen"] += len(notizen)
+            if isinstance(eintrag.get("kontakt"), dict):
+                e["profile_mit_kontakt"] += 1
+
+    kontakte_pfad = _quiz_pfad(basis, PERSONEN_KONTAKTE)
+    if not kontakte_pfad:
+        e["fehlende"].append(PERSONEN_KONTAKTE)
+    else:
+        kdaten, _ = _json_lesen(kontakte_pfad)
+        liste = kdaten.get("kontakte") if isinstance(kdaten, dict) else None
+        for kontakt in liste if isinstance(liste, list) else []:
+            if not isinstance(kontakt, dict):
+                continue
+            e["kontakte"] += 1
+            if isinstance(kontakt.get("geburtstag"), str) and kontakt["geburtstag"].strip():
+                e["kontakte_mit_geburtstag"] += 1
+        if not isinstance(kdaten, dict):
+            e["fehlende"].append(PERSONEN_KONTAKTE)
+
+    stand_pfad = _quiz_pfad(basis, PERSONEN_STAND)
+    if not stand_pfad:
+        e["fehlende"].append(PERSONEN_STAND)
+    else:
+        sdaten, _ = _json_lesen(stand_pfad)
+        if isinstance(sdaten, dict):
+            for feld in ("spaeter", "unbekannt"):
+                wert = sdaten.get(feld)
+                e[feld] = len(wert) if isinstance(wert, list) else 0
+        else:
+            e["fehlende"].append(PERSONEN_STAND)
+
+    protokoll_pfad = _quiz_pfad(basis, PERSONEN_PROTOKOLL)
+    if not protokoll_pfad:
+        e["fehlende"].append(PERSONEN_PROTOKOLL)
+    else:
+        for zeile in _jsonl(protokoll_pfad):
+            if zeile is not None:
+                e["protokoll_zeilen"] += 1
+    return e
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -885,6 +1071,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             orte_namen: Optional[str] = STANDARD_ORTE_NAMEN,
             beziehungen: Optional[str] = STANDARD_BEZEIHUNGEN,
             beziehungen_uebersicht: Optional[str] = STANDARD_BEZEIHUNGEN_UEBERSICHT,
+            personen: Optional[str] = STANDARD_PERSONEN,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -1094,6 +1281,39 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                   f"{_z(bz['zeilen'])} - Datei und Kennzahlen passen nicht zusammen")
                     luecken.append(f"{beziehungen}: {_z(bz['zeilen'])} Aussagen, Uebersicht nennt "
                                    f"{_z(ub['summe'])} (nicht reproduzierbar)")
+        zeilen.append("")
+
+    if personen:
+        pe = personen_lesen(basis, personen)
+        if pe.get("fehlt"):
+            zeilen.append(f"Personen (Quiz): {personen} fehlt - die Personen-Auskunft hat keine "
+                          f"Quelle (personen_gruppieren.py --schreiben, dann uebergeben)")
+            luecken.append(f"{personen} fehlt (Personen ohne Namen)")
+        elif pe.get("kaputt"):
+            zeilen.append(f"Personen (Quiz): {personen} nicht lesbar (kein JSON) - die "
+                          f"Personen-Auskunft faellt aus")
+            luecken.append(f"{personen} nicht lesbar")
+        else:
+            zeilen.append(f"Personen (Quiz): {personen}: {_z(pe['kennungen'])} Kennungen mit Namen "
+                          f"= {_z(pe['personen'])} Personen"
+                          + (f", {_z(pe['ohne_namen'])} ohne Namen" if pe["ohne_namen"] else "")
+                          + (f"; {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe"
+                             if pe["kennungen_ohne_gruppe"] else ""))
+            zeilen.append(f"  Vorgaben: gleich {_z(pe['gleich'])}, verschieden {_z(pe['verschieden'])}, "
+                          f"ausgeschlossen {_z(pe['ausgeschlossen'])}")
+            zeilen.append(f"  Profile ({PERSONEN_PROFILE}): {_z(pe['profile'])} Eintraege, davon "
+                          f"{_z(pe['profile_mit_beziehung'])} mit Beziehung, "
+                          f"{_z(pe['profile_mit_notiz'])} mit Notiz ({_z(pe['notizen'])} Notizen), "
+                          f"{_z(pe['profile_mit_kontakt'])} mit Telefonbuch-Kontakt")
+            zeilen.append(f"  Telefonbuch ({PERSONEN_KONTAKTE}): {_z(pe['kontakte'])} Kontakte, davon "
+                          f"{_z(pe['kontakte_mit_geburtstag'])} mit Geburtstag")
+            zeilen.append(f"  Quiz-Stand: spaeter {_z(pe['spaeter'])}, unbekannt {_z(pe['unbekannt'])}; "
+                          f"Protokoll {_z(pe['protokoll_zeilen'])} Zeilen")
+            if pe["fehlende"]:
+                zeilen.append(f"  Noch nicht angelegt: {', '.join(pe['fehlende'])}")
+            if pe["kennungen_ohne_gruppe"]:
+                luecken.append(f"{personen}: {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe "
+                               f"(Namen ohne Gesichter)")
         zeilen.append("")
 
     if bild_index:
