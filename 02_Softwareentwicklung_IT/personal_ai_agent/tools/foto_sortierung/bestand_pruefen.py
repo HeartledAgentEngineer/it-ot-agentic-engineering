@@ -103,6 +103,13 @@ STANDARD_BILD_ORTE = "bild_orte.csv"
 # Er stand bisher in keinem Nachweis — und ist der Schluss der Kette.
 STANDARD_BILDINDEX = "bild_index.db"
 BILDINDEX_TABELLE = "bilder"
+# Die Neuausrichtung: gedreht_plan.json listet die Bilder, die neu gedreht und
+# neu erkannt wurden (personen_vektoren_gedreht_neu.jsonl). Diese Stufe stand in
+# KEINEM Nachweis — 51 Bilder fehlten dort zwei Tage unbemerkt (50 davon ueber
+# 8 MB; gleiche Ursache wie bei Papas 24: KACHEL_MAX_BYTES = 8 MB vor dem Fix
+# vom 10.10.). Der Nachweis prueft die Stufe jetzt genauso wie die Plaene.
+STANDARD_GEDREHT_PLAN = "gedreht_plan.json"
+STANDARD_GEDREHT_VEKTOREN = "personen_vektoren_gedreht_neu.jsonl"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -578,6 +585,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             gesamtplan: Optional[str] = STANDARD_GESAMTPLAN,
             bild_orte: Optional[str] = STANDARD_BILD_ORTE,
             bild_index: Optional[str] = STANDARD_BILDINDEX,
+            gedreht_plan: Optional[str] = STANDARD_GEDREHT_PLAN,
+            gedreht_vektoren: Optional[str] = STANDARD_GEDREHT_VEKTOREN,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -660,6 +669,30 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 zeilen.extend(detail_zeilen if detail_zeilen else
                               ["    (Einzelheiten abgeschaltet: --luecken-details 0)"])
                 zeilen.append("  " + _grund_zeile(zaehler))
+    if gedreht_plan:
+        gdp = plan_lesen(os.path.join(basis, gedreht_plan))
+        if gdp.get("fehlt"):
+            zeilen.append(f"Rotierte Bilder ({gedreht_plan}): fehlt - Neuausrichtung nicht pruefbar")
+        else:
+            rotiert = gdp["fotos"] | gdp["videos"]
+            if not gedreht_vektoren:
+                zeilen.append(f"Rotierte Bilder ({gedreht_plan}): {_z(len(rotiert))} Bilder "
+                              f"(Vektordatei nicht geprueft)")
+            else:
+                gdv = foto_vektoren_lesen(os.path.join(basis, gedreht_vektoren))
+                if gdv.get("fehlt"):
+                    zeilen.append(f"Rotierte Bilder ({gedreht_plan}): {_z(len(rotiert))} Bilder; "
+                                  f"{gedreht_vektoren} fehlt - neue Zeilen nicht pruefbar")
+                    luecken.append(f"{gedreht_vektoren} fehlt (rotierte Bilder ohne neue Zeile)")
+                else:
+                    neu = gdv["bilder"]
+                    mit = len(rotiert & neu)
+                    ohne = len(rotiert - neu)
+                    zeilen.append(f"Rotierte Bilder ({gedreht_plan}): {_z(len(rotiert))} Bilder, "
+                                  f"davon {_z(mit)} mit neuer Vektorzeile ({_anteil(mit, len(rotiert))}), "
+                                  f"ohne {_z(ohne)}")
+                    if ohne:
+                        luecken.append(f"{gedreht_plan}: {_z(ohne)} Bilder ohne neue Vektorzeile")
     ausserhalb = len(alle_bilder - plan_fotos)
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")

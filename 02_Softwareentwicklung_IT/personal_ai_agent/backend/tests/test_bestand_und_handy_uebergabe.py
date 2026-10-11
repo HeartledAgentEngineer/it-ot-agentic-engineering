@@ -111,6 +111,56 @@ def test_bestand_prueft_papas_plan_und_mehrere_beschreibungsdateien(tmp_path):
     assert "bild_beschreibungen.jsonl: 3 Zeilen" in text
 
 
+def _gedreht(tmp_path, mit_vektoren=True, ohne=1):
+    """Neuausrichtung (gedreht_plan.json) + ihre neue Vektorzeilen-Datei.
+
+    Die Planzeilen tragen nur `fileid` (kein Name) — genau wie in der echten
+    Datei. `ohne` = so viele Zielfotos bekommen absichtlich keine neue Zeile.
+    """
+    kennungen = [201, 202, 203]
+    (tmp_path / "gedreht_plan.json").write_text(
+        json.dumps({"zuege": [{"fileid": k} for k in kennungen]}), encoding="utf-8")
+    if mit_vektoren:
+        _jsonl(tmp_path / "personen_vektoren_gedreht_neu.jsonl",
+               [{"bild_id": str(k), "gesichter": []} for k in kennungen[:len(kennungen) - ohne]])
+
+
+def test_nachweis_prueft_die_neuausrichtung(tmp_path):
+    _bestand(tmp_path)
+    _gedreht(tmp_path, ohne=1)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    # Der Plan ohne Namensfeld zaehlt trotzdem (nur fileid), 3 Bilder.
+    assert "Rotierte Bilder (gedreht_plan.json): 3 Bilder" in text
+    assert "davon 2 mit neuer Vektorzeile (66,7 %), ohne 1" in text
+    assert "gedreht_plan.json: 1 Bilder ohne neue Vektorzeile" in luecken
+
+
+def test_nachweis_neuausrichtung_vollstaendig_ohne_luecke(tmp_path):
+    _bestand(tmp_path)
+    _gedreht(tmp_path, ohne=0)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Rotierte Bilder (gedreht_plan.json): 3 Bilder, davon 3 mit neuer Vektorzeile (100,0 %), ohne 0" in text
+    assert not any("ohne neue Vektorzeile" in l for l in luecken)
+
+
+def test_nachweis_neuausrichtung_fehlende_dateien_ehrlich(tmp_path):
+    _bestand(tmp_path)
+    # Plan fehlt ganz: eine ehrliche Zeile, kein Wurf, keine Luecke.
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Rotierte Bilder (gedreht_plan.json): fehlt - Neuausrichtung nicht pruefbar" in "\n".join(zeilen)
+    assert not any("ohne neue Vektorzeile" in l for l in luecken)
+    # Plan da, Vektordatei fehlt: eigene Zeile UND eine benannte Luecke.
+    _gedreht(tmp_path, mit_vektoren=False)
+    zeilen2, luecken2 = bp.pruefen(str(tmp_path))
+    assert "personen_vektoren_gedreht_neu.jsonl fehlt - neue Zeilen nicht pruefbar" in "\n".join(zeilen2)
+    assert "personen_vektoren_gedreht_neu.jsonl fehlt (rotierte Bilder ohne neue Zeile)" in luecken2
+    # Abschaltbar: kein Abschnitt mehr.
+    zeilen3, _ = bp.pruefen(str(tmp_path), gedreht_plan=None)
+    assert "Rotierte Bilder" not in "\n".join(zeilen3)
+
+
 def _gesamtplan(tmp_path):
     """Union-Plan mit GEMISCHTEN Feldnamen (Sammlung: von_name, Papa: name)."""
     (tmp_path / "sortierplan_reich_gesamt.json").write_text(json.dumps({"zuege": [
