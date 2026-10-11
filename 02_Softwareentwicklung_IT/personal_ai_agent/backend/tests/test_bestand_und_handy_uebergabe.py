@@ -559,3 +559,69 @@ def test_geburtstag_und_nummer_saeubern():
     assert kh.geburtstag_text("--13-01") is None and kh.geburtstag_text("gestern") is None
     assert kh.nummer_saeubern("+49 (0) 170/123-45") == "+49017012345"
     assert kh.nummer_saeubern("0170 12 34") == "01701234"
+
+
+# ── Anlaesse im Nachweis ────────────────────────────────────────────────────
+# Die Anlass-Datei (ordner_ereignisse.jsonl, Ketten-Schritt 5) traegt „Anlaesse
+# einer Person" und das Erzaehlen — und stand bisher in KEINEM Nachweis. Sie ist
+# der Stufe OSM (Journal 8) und dem Bildindex (Journal 12) gleichgestellt.
+
+def _anlaesse(tmp_path, kaputt=False):
+    """ordner_ereignisse.jsonl nachgebaut: zwei Anlaesse, drei Kennungen, ein Video.
+
+    Die Titel/Kategorien sind ABSICHTLICH Fantasieworte — der Nachweis darf sie
+    nie zeigen (Privatsphaere).
+    """
+    (tmp_path / "ordner_ereignisse.jsonl").write_text(
+        json.dumps({"anlass_id": "O-1", "datei_kennungen": [1, 2], "videos": 0,
+                    "datum": "2020-01-01", "jahr": 2020,
+                    "event": "TITEL_DARF_NICHT_ERSCHEINEN",
+                    "kategorie": "KATEGORIE_DARF_NICHT_ERSCHEINEN",
+                    "quellen": {"datum": {"exif": 1}}}) + "\n"
+        + json.dumps({"anlass_id": "O-2", "datei_kennungen": [5], "videos": 1,
+                      "datum": None, "jahr": 2019,
+                      "quellen": {"datum": {"dateiname": 1}}}) + "\n"
+        + ("kaputt\n" if kaputt else ""),
+        encoding="utf-8")
+
+
+def test_nachweis_zaehlt_anlaesse(tmp_path):
+    """Die Anlass-Stufe stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _bestand(tmp_path)
+    _anlaesse(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Anlaesse (ordner_ereignisse.jsonl): 2 Anlaesse, 3 Datei-Kennungen, davon 1 Videos" in text
+    assert "Datum: 1 von 2 Anlaessen tragen eines (dateiname 1, exif 1)" in text
+    assert "Jahre: 2019-2020" in text
+    # Plan-Fotos sind 1..6, in Anlaessen sind 1, 2 und 5 -> 3 von 6.
+    assert "Deckung: 3 von 6 Plan-Fotos liegen in einem Anlass (50,0 %)" in text
+
+
+def test_nachweis_zeigt_keine_titel_und_zaehlt_kaputte_zeilen(tmp_path):
+    """Nur Zahlen: kein Titel, keine Kategorie; eine kaputte Zeile wird gemeldet."""
+    _bestand(tmp_path)
+    _anlaesse(tmp_path, kaputt=True)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "TITEL_DARF_NICHT_ERSCHEINEN" not in text
+    assert "KATEGORIE_DARF_NICHT_ERSCHEINEN" not in text
+    assert "1 kaputte Zeilen" in text
+
+
+def test_nachweis_meldet_fehlende_anlaesse_ehrlich(tmp_path):
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Anlaesse (ordner_ereignisse.jsonl): fehlt" in "\n".join(zeilen)
+    assert "ordner_ereignisse.jsonl fehlt (Anlaesse nicht gebaut)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Anlass-Datei)
+    assert "Anlaesse" not in "\n".join(bp.pruefen(str(tmp_path), anlaesse=None)[0])
+
+
+def test_anlaesse_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende Datei und ein Nicht-JSON-Zeile ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.anlaesse_lesen(str(tmp_path / "gibts_nicht.jsonl"))
+    assert e["fehlt"] is True and e["anlaesse"] == 0
+    (tmp_path / "halb.jsonl").write_text(
+        json.dumps({"datei_kennungen": [7], "jahr": 2001}) + "\nnur text\n", encoding="utf-8")
+    e2 = bp.anlaesse_lesen(str(tmp_path / "halb.jsonl"))
+    assert e2["anlaesse"] == 1 and e2["kaputt"] == 1 and e2["kennungen"] == {"7"}
+    assert e2["mit_datum"] == 0 and e2["jahr_min"] == 2001 and e2["jahr_max"] == 2001

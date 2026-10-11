@@ -54,6 +54,14 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       keine Beschreibungstexte, keine Ordner, keine Vektoren.
                       Der Bildindex stand bisher in KEINEM Nachweis, obwohl er der
                       Schluss der Kette ist.
+  * Anlaesse:         ``ordner_ereignisse.jsonl`` (Ketten-Schritt 5: Anlass aus
+                      EXIF/Dateiname/Ordnerjahr, Gebuendelung nach >18 h Pause) —
+                      Anlaesse, Datei-Kennungen, Videos, wie viele Anlaesse ein
+                      Datum tragen und woher es kommt (Quellen-Schluessel aus
+                      ``quellen.datum``), die Jahresspanne und die Deckung gegen
+                      die Plan-Fotos. Diese Stufe traegt „Anlaesse einer Person"
+                      und das Erzaehlen und stand bisher in KEINEM Nachweis. Nur
+                      Zahlen — keine Titel, keine Themen, keine Kategorien.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -110,6 +118,13 @@ BILDINDEX_TABELLE = "bilder"
 # vom 10.10.). Der Nachweis prueft die Stufe jetzt genauso wie die Plaene.
 STANDARD_GEDREHT_PLAN = "gedreht_plan.json"
 STANDARD_GEDREHT_VEKTOREN = "personen_vektoren_gedreht_neu.jsonl"
+# Die Anlaesse (Ketten-Schritt 5): je Anlass ein Datum und die Bild-Kennungen,
+# aus EXIF/Dateiname/Ordnerjahr/Planjahr gebuendelt. Sie tragen die Funktionen
+# „Anlaesse einer Person" (person_auskunft) und das Erzaehlen. Diese Stufe stand
+# in KEINEM Nachweis — gebaut am 10.10. (2.268 Anlaesse ueber den Union-Plan),
+# aber niemandem auffaellig, wenn die Datei fehlt oder halb ist. Der Nachweis
+# prueft sie jetzt wie die uebrigen Stufen (nur Zahlen, keine Titel).
+STANDARD_ANLAESSE = "ordner_ereignisse.jsonl"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -490,6 +505,52 @@ def tabellen_zeilen(pfad: str) -> int:
     return max(0, anzahl - 1)
 
 
+# ── Anlaesse (Ereignis-Datei) ───────────────────────────────────────────────
+
+def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
+    """Anlaesse zaehlen — nur Zahlen und Quellen-Schluessel, nie Titel/Themen.
+
+    Felder: ``fehlt``, ``anlaesse``, ``kaputt``, ``kennungen`` (Datei-Kennungen
+    als Text), ``videos``, ``mit_datum``, ``datum_quellen`` (Zaehler der
+    Schluessel aus ``quellen.datum``, z. B. ``exif``/``dateiname``) sowie
+    ``jahr_min``/``jahr_max``. Kaputte Zeilen zaehlen, statt zu werfen.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "anlaesse": 0, "kaputt": 0, "kennungen": set(),
+                         "videos": 0, "mit_datum": 0, "datum_quellen": {},
+                         "jahr_min": None, "jahr_max": None}
+    if not os.path.isfile(pfad):
+        return e
+    e["fehlt"] = False
+    for zeile in _jsonl(pfad):
+        if not isinstance(zeile, dict):
+            e["kaputt"] += 1
+            continue
+        e["anlaesse"] += 1
+        for roh in zeile.get("datei_kennungen") or []:
+            k = _kennung(roh)
+            if k:
+                e["kennungen"].add(k)
+        try:
+            e["videos"] += int(zeile.get("videos") or 0)
+        except (TypeError, ValueError):
+            pass
+        if zeile.get("datum"):
+            e["mit_datum"] += 1
+        quellen = (zeile.get("quellen") or {}).get("datum")
+        if isinstance(quellen, dict):
+            for schluessel in quellen:
+                e["datum_quellen"][schluessel] = e["datum_quellen"].get(schluessel, 0) + 1
+        jahr_wert = zeile.get("jahr")
+        try:
+            jahr = int(jahr_wert) if jahr_wert is not None else 0
+        except (TypeError, ValueError):
+            jahr = 0
+        if jahr:
+            e["jahr_min"] = jahr if e["jahr_min"] is None else min(e["jahr_min"], jahr)
+            e["jahr_max"] = jahr if e["jahr_max"] is None else max(e["jahr_max"], jahr)
+    return e
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -587,6 +648,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             bild_index: Optional[str] = STANDARD_BILDINDEX,
             gedreht_plan: Optional[str] = STANDARD_GEDREHT_PLAN,
             gedreht_vektoren: Optional[str] = STANDARD_GEDREHT_VEKTOREN,
+            anlaesse: Optional[str] = STANDARD_ANLAESSE,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -697,6 +759,29 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     zeilen.append(f"Vektorzeilen ausserhalb aller Plaene: {_z(ausserhalb)}; "
                   f"Beschreibungen ausserhalb aller Plaene: {_z(len(beschrieben - plan_fotos))}")
     zeilen.append("")
+
+    if anlaesse:
+        an = anlaesse_lesen(os.path.join(basis, anlaesse))
+        if an.get("fehlt"):
+            zeilen.append(f"Anlaesse ({anlaesse}): fehlt - Anlass aus EXIF/Dateiname nicht "
+                          f"gebaut (ereignisse_ordner_bauen.py)")
+            luecken.append(f"{anlaesse} fehlt (Anlaesse nicht gebaut)")
+        else:
+            k = an["kennungen"]
+            in_anlaessen = len(plan_fotos & k)
+            zeilen.append(f"Anlaesse ({anlaesse}): {_z(an['anlaesse'])} Anlaesse, "
+                          f"{_z(len(k))} Datei-Kennungen, davon {_z(an['videos'])} Videos"
+                          + (f", {_z(an['kaputt'])} kaputte Zeilen" if an["kaputt"] else ""))
+            quellen = ", ".join(f"{name} {_z(n)}" for name, n in sorted(an["datum_quellen"].items()))
+            zeilen.append(f"  Datum: {_z(an['mit_datum'])} von {_z(an['anlaesse'])} Anlaessen "
+                          f"tragen eines"
+                          + (f" ({quellen})" if quellen else " (keine Quellenangabe)"))
+            if an["jahr_min"]:
+                zeilen.append(f"  Jahre: {an['jahr_min']}-{an['jahr_max']}")
+            if plan_fotos:
+                zeilen.append(f"  Deckung: {_z(in_anlaessen)} von {_z(len(plan_fotos))} "
+                              f"Plan-Fotos liegen in einem Anlass ({_anteil(in_anlaessen, len(plan_fotos))})")
+        zeilen.append("")
 
     if bild_index:
         bi = bildindex_lesen(os.path.join(basis, bild_index))
