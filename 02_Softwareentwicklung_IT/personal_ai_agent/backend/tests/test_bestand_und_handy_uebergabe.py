@@ -612,8 +612,9 @@ def test_nachweis_meldet_fehlende_anlaesse_ehrlich(tmp_path):
     zeilen, luecken = bp.pruefen(str(tmp_path))
     assert "Anlaesse (ordner_ereignisse.jsonl): fehlt" in "\n".join(zeilen)
     assert "ordner_ereignisse.jsonl fehlt (Anlaesse nicht gebaut)" in luecken
-    # abschaltbar (z. B. fuer einen Bestand ohne Anlass-Datei)
-    assert "Anlaesse" not in "\n".join(bp.pruefen(str(tmp_path), anlaesse=None)[0])
+    # abschaltbar (z. B. fuer einen Bestand ohne Anlass-Datei) — beide Anlass-Sichten
+    assert "Anlaesse" not in "\n".join(
+        bp.pruefen(str(tmp_path), anlaesse=None, erzaehl_quellen=None)[0])
 
 
 def test_anlaesse_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
@@ -697,3 +698,101 @@ def test_ortsnamen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     e2 = bp.ortsnamen_lesen(str(tmp_path / "halb.jsonl"))
     assert e2["zeilen"] == 1 and e2["kaputt"] == 1 and e2["kennungen"] == {"7"}
     assert e2["laender"] == 1 and e2["orte"] == 1 and e2["tage"] == 1 and e2["doppelt"] == 0
+
+
+# ── Erzaehl-Quellen im Nachweis ─────────────────────────────────────────────
+# `erzaehl_service._ereignisse_laden()` liest drei Dateien: fotobuch_ereignisse
+# (Buchseiten, zuerst), ereignisse.jsonl (Anlaesse der Sammlung) und
+# ordner_ereignisse.jsonl (Bau vom 10.10.). Nur die dritte hatte einen Nachweis —
+# die zwei anderen trugen das Erzaehlen ohne jede Pruefzeile.
+
+def _erzaehl_quellen(tmp_path, ohne_kennung=False):
+    """ereignisse.jsonl + fotobuch_ereignisse.jsonl nachgebaut.
+
+    Titel, Buchname und Buchtexte sind ABSICHTLICH Fantasieworte — der Nachweis
+    darf sie nie zeigen (Privatsphaere).
+    """
+    zweiter: dict = {"kennung": "E-2", "datei_kennungen": [5], "datum": None,
+                     "jahr": 2019, "quellen": {"datum": {"sortierplan": 1}}}
+    if ohne_kennung:
+        zweiter["kennung"] = None
+    zeilen = [
+        {"kennung": "E-1", "datei_kennungen": [1, 2], "datum": "2020-01-01", "jahr": 2020,
+         "event": "TITEL_DARF_NICHT_ERSCHEINEN", "kategorie": "KATEGORIE_DARF_NICHT_ERSCHEINEN",
+         "quellen": {"datum": {"exif": 1}}},
+        zweiter,
+    ]
+    (tmp_path / "ereignisse.jsonl").write_text(
+        "\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+    (tmp_path / "fotobuch_ereignisse.jsonl").write_text(json.dumps(
+        {"kennung": "buch-1", "datei_kennungen": [3], "datum": None, "jahr": None,
+         "titel": "TITEL_DARF_NICHT_ERSCHEINEN", "buch": "BUCH_DARF_NICHT_ERSCHEINEN",
+         "seite": 7, "texte": ["TEXT_DARF_NICHT_ERSCHEINEN"]}) + "\n", encoding="utf-8")
+
+
+def test_nachweis_zaehlt_erzaehl_quellen(tmp_path):
+    """Die zwei Erzaehl-Quellen standen in KEINEM Nachweis — jetzt werden sie gezaehlt."""
+    _bestand(tmp_path)
+    _erzaehl_quellen(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Erzaehl-Anlaesse (ereignisse.jsonl): 2 Anlaesse, 3 Datei-Kennungen" in text
+    assert "Erzaehl-Anlaesse (fotobuch_ereignisse.jsonl): 1 Anlaesse, 1 Datei-Kennungen" in text
+    assert "  Datum: 1 von 2 tragen eines (exif 1, sortierplan 1)" in text
+    assert "  Jahre: 2019-2020" in text
+    # Plan-Fotos sind 1..6; ereignisse.jsonl traegt 1, 2, 5 -> 3 von 6,
+    # fotobuch_ereignisse.jsonl traegt 3 -> ebenfalls 3 von 6.
+    assert "  Deckung: 3 von 6 Plan-Fotos liegen in einem Anlass (50,0 %)" in text
+    assert "  Erzaehl-Dienst: 2 von 2 dieser Quellen vorhanden (dazu ordner_ereignisse.jsonl)" in text
+
+
+def test_nachweis_zeigt_keine_titel_und_zaehlt_anlaesse_ohne_kennung(tmp_path):
+    """Nur Zahlen: kein Titel, kein Buchname, kein Buchtext; Zeile ohne Kennung gemeldet.
+
+    Eine Anlass-Zeile ohne `kennung` verwirft `erzaehl_service` still — der Anlass
+    verschwindet damit aus den Geschichten. Der Nachweis muss das zeigen.
+    """
+    _bestand(tmp_path)
+    _erzaehl_quellen(tmp_path, ohne_kennung=True)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("TITEL_DARF_NICHT_ERSCHEINEN", "KATEGORIE_DARF_NICHT_ERSCHEINEN",
+                     "BUCH_DARF_NICHT_ERSCHEINEN", "TEXT_DARF_NICHT_ERSCHEINEN"):
+        assert verboten not in text
+    assert "1 ohne Kennung (wird nicht erzaehlt)" in text
+    assert "ereignisse.jsonl: 1 Anlaesse ohne Kennung (werden nicht erzaehlt)" in luecken
+
+
+def test_nachweis_meldet_fehlende_erzaehl_quellen_ehrlich(tmp_path):
+    """Fehlt eine Erzaehl-Quelle, steht das als Luecke — nicht als stiller Nullwert."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Erzaehl-Anlaesse (ereignisse.jsonl): fehlt" in text
+    assert "Erzaehl-Anlaesse (fotobuch_ereignisse.jsonl): fehlt" in text
+    assert "  Erzaehl-Dienst: 0 von 2 dieser Quellen vorhanden (dazu ordner_ereignisse.jsonl)" in text
+    assert "ereignisse.jsonl fehlt (Erzaehl-Anlaesse nicht gebaut)" in luecken
+    assert "fotobuch_ereignisse.jsonl fehlt (Erzaehl-Anlaesse nicht gebaut)" in luecken
+    assert "keine Erzaehl-Anlaesse vorhanden (Geschichten ohne Anlass)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne diese Dateien)
+    assert "Erzaehl-Anlaesse" not in "\n".join(
+        bp.pruefen(str(tmp_path), erzaehl_quellen=None)[0])
+
+
+def test_anlaesse_lesen_zaehlt_zeilen_ohne_kennung(tmp_path):
+    """Eine Zeile ohne brauchbare kennung zaehlt als Anlass UND als ohne_kennung."""
+    pfad = tmp_path / "quellen.jsonl"
+    pfad.write_text(
+        json.dumps({"kennung": "E-1", "datei_kennungen": [1], "jahr": 2020}) + "\n"
+        + json.dumps({"kennung": None, "datei_kennungen": [2], "jahr": 2021}) + "\n"
+        + json.dumps({"kennung": "   ", "datei_kennungen": [3], "jahr": 2022}) + "\n"
+        # Quellenangabe als TEXT statt als Zaehler-Dict (Sammlungs-Anlaesse):
+        # ohne diesen Zweig stuende im Bericht "keine Quellenangabe", obwohl die
+        # Quelle dasteht.
+        + json.dumps({"kennung": "E-4", "datei_kennungen": [4], "jahr": 2023,
+                      "datum": "2023-01-01",
+                      "quellen": {"datum": "sortierplan.json:anlaesse"}}) + "\n",
+        encoding="utf-8")
+    e = bp.anlaesse_lesen(str(pfad))
+    assert e["anlaesse"] == 4 and e["ohne_kennung"] == 2 and e["kaputt"] == 0
+    assert e["kennungen"] == {"1", "2", "3", "4"}
+    assert e["mit_datum"] == 1 and e["datum_quellen"] == {"sortierplan.json": 1}

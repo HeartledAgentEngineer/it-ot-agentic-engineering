@@ -72,6 +72,17 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       die Erzaehlung und stand bisher in KEINEM Nachweis — wie
                       OSM, Bildindex und Anlaesse. Nur Zahlen: keine Ortsnamen,
                       keine Koordinaten.
+  * Erzaehl-Anlaesse: ``ereignisse.jsonl`` (Anlaesse der Sammlung) und
+                      ``fotobuch_ereignisse.jsonl`` (Fotobuch-Seiten) — genau die
+                      beiden Dateien, die ``erzaehl_service._ereignisse_laden()``
+                      zusammen mit ``ordner_ereignisse.jsonl`` liest, um
+                      Geschichten anzuhaengen. Nur die dritte hatte bisher einen
+                      Nachweis; fehlt eine der beiden, fehlen dem Erzaehlen ihre
+                      Anlaesse, ohne dass es auffiele. Gezaehlt werden Anlaesse,
+                      Datei-Kennungen, Zeilen ohne Kennung (der Dienst verwirft
+                      sie still), Datum + Quellen-Schluessel, Jahresspanne und die
+                      Deckung gegen die Plan-Fotos. Nur Zahlen — keine Titel,
+                      keine Buchseiten, keine Texte.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -143,6 +154,14 @@ STANDARD_ANLAESSE = "ordner_ereignisse.jsonl"
 # und Anlaessen. Der Nachweis prueft sie jetzt wie die uebrigen Stufen: nur
 # Zahlen und Zaehlungen von Land/Region/Ort — keine Namen, keine Koordinaten.
 STANDARD_ORTE_NAMEN = "orte.jsonl"
+# Die beiden uebrigen Erzaehl-Quellen: ``ereignisse.jsonl`` (Anlaesse der
+# Sammlung aus ``ereignisse_bauen.py``, 2.127 Anlaesse) und
+# ``fotobuch_ereignisse.jsonl`` (Fotobuch-Seiten aus ``fotobuch_lesen.py``).
+# ``erzaehl_service._ereignisse_laden()`` liest genau diese beiden PLUS
+# ``ordner_ereignisse.jsonl`` — und nur die dritte hatte einen Nachweis. Fehlt
+# ``ereignisse.jsonl``, fehlen dem Erzaehlen 2.127 Anlaesse, und es merkt heute
+# niemand (dieselbe Luecke wie bei OSM, Bildindex, Anlaessen und Ortsnamen).
+STANDARD_ERZAHL_QUELLEN = ("ereignisse.jsonl", "fotobuch_ereignisse.jsonl")
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -577,14 +596,19 @@ def ortsnamen_lesen(pfad: str) -> Dict[str, Any]:
 def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
     """Anlaesse zaehlen — nur Zahlen und Quellen-Schluessel, nie Titel/Themen.
 
-    Felder: ``fehlt``, ``anlaesse``, ``kaputt``, ``kennungen`` (Datei-Kennungen
-    als Text), ``videos``, ``mit_datum``, ``datum_quellen`` (Zaehler der
-    Schluessel aus ``quellen.datum``, z. B. ``exif``/``dateiname``) sowie
-    ``jahr_min``/``jahr_max``. Kaputte Zeilen zaehlen, statt zu werfen.
+    Felder: ``fehlt``, ``anlaesse``, ``kaputt``, ``ohne_kennung``, ``kennungen``
+    (Datei-Kennungen als Text), ``videos``, ``mit_datum``, ``datum_quellen``
+    (Zaehler der Schluessel aus ``quellen.datum``, z. B. ``exif``/``dateiname``)
+    sowie ``jahr_min``/``jahr_max``. Kaputte Zeilen zaehlen, statt zu werfen.
+
+    ``ohne_kennung`` zaehlt Zeilen ohne brauchbare ``kennung``: der Erzaehl-Dienst
+    (``erzaehl_service._datei_ereignisse_laden``) verwirft solche Zeilen still —
+    ein Anlass ohne Kennung verschwindet damit aus den Geschichten, ohne dass es
+    auffiele. Dieselbe Datei bedient drei Quellen, deshalb steht die Pruefung hier.
     """
-    e: Dict[str, Any] = {"fehlt": True, "anlaesse": 0, "kaputt": 0, "kennungen": set(),
-                         "videos": 0, "mit_datum": 0, "datum_quellen": {},
-                         "jahr_min": None, "jahr_max": None}
+    e: Dict[str, Any] = {"fehlt": True, "anlaesse": 0, "kaputt": 0, "ohne_kennung": 0,
+                         "kennungen": set(), "videos": 0, "mit_datum": 0,
+                         "datum_quellen": {}, "jahr_min": None, "jahr_max": None}
     if not os.path.isfile(pfad):
         return e
     e["fehlt"] = False
@@ -593,6 +617,8 @@ def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
             e["kaputt"] += 1
             continue
         e["anlaesse"] += 1
+        if not _kennung(zeile.get("kennung")):
+            e["ohne_kennung"] += 1
         for roh in zeile.get("datei_kennungen") or []:
             k = _kennung(roh)
             if k:
@@ -605,8 +631,17 @@ def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
             e["mit_datum"] += 1
         quellen = (zeile.get("quellen") or {}).get("datum")
         if isinstance(quellen, dict):
-            for schluessel in quellen:
-                e["datum_quellen"][schluessel] = e["datum_quellen"].get(schluessel, 0) + 1
+            schluessel = list(quellen)
+        elif isinstance(quellen, str) and quellen.strip():
+            # Die Sammlungs-Anlaesse nennen die Quelle als TEXT
+            # ("sortierplan.json:anlaesse") statt als Zaehler-Dict. Ohne diesen
+            # Zweig stuende dort "keine Quellenangabe", obwohl die Quelle dasteht.
+            schluessel = [quellen.split(":")[0].strip()]
+        else:
+            schluessel = []
+        for name in schluessel:
+            if name:
+                e["datum_quellen"][name] = e["datum_quellen"].get(name, 0) + 1
         jahr_wert = zeile.get("jahr")
         try:
             jahr = int(jahr_wert) if jahr_wert is not None else 0
@@ -716,6 +751,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             gedreht_plan: Optional[str] = STANDARD_GEDREHT_PLAN,
             gedreht_vektoren: Optional[str] = STANDARD_GEDREHT_VEKTOREN,
             anlaesse: Optional[str] = STANDARD_ANLAESSE,
+            erzaehl_quellen=STANDARD_ERZAHL_QUELLEN,
             orte_namen: Optional[str] = STANDARD_ORTE_NAMEN,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
@@ -839,7 +875,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             in_anlaessen = len(plan_fotos & k)
             zeilen.append(f"Anlaesse ({anlaesse}): {_z(an['anlaesse'])} Anlaesse, "
                           f"{_z(len(k))} Datei-Kennungen, davon {_z(an['videos'])} Videos"
-                          + (f", {_z(an['kaputt'])} kaputte Zeilen" if an["kaputt"] else ""))
+                          + (f", {_z(an['kaputt'])} kaputte Zeilen" if an["kaputt"] else "")
+                          + (f", {_z(an['ohne_kennung'])} ohne Kennung" if an["ohne_kennung"] else ""))
             quellen = ", ".join(f"{name} {_z(n)}" for name, n in sorted(an["datum_quellen"].items()))
             zeilen.append(f"  Datum: {_z(an['mit_datum'])} von {_z(an['anlaesse'])} Anlaessen "
                           f"tragen eines"
@@ -849,6 +886,41 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             if plan_fotos:
                 zeilen.append(f"  Deckung: {_z(in_anlaessen)} von {_z(len(plan_fotos))} "
                               f"Plan-Fotos liegen in einem Anlass ({_anteil(in_anlaessen, len(plan_fotos))})")
+        zeilen.append("")
+
+    if erzaehl_quellen:
+        vorhanden = 0
+        for name in erzaehl_quellen:
+            eq = anlaesse_lesen(os.path.join(basis, name))
+            if eq.get("fehlt"):
+                zeilen.append(f"Erzaehl-Anlaesse ({name}): fehlt - Anlaesse nicht gebaut "
+                              f"(dem Erzaehlen fehlt diese Quelle)")
+                luecken.append(f"{name} fehlt (Erzaehl-Anlaesse nicht gebaut)")
+                continue
+            vorhanden += 1
+            k = eq["kennungen"]
+            zeilen.append(f"Erzaehl-Anlaesse ({name}): {_z(eq['anlaesse'])} Anlaesse, "
+                          f"{_z(len(k))} Datei-Kennungen"
+                          + (f", {_z(eq['kaputt'])} kaputte Zeilen" if eq["kaputt"] else "")
+                          + (f", {_z(eq['ohne_kennung'])} ohne Kennung (wird nicht erzaehlt)"
+                             if eq["ohne_kennung"] else ""))
+            if eq["mit_datum"]:
+                quellen = ", ".join(f"{q} {_z(n)}" for q, n in sorted(eq["datum_quellen"].items()))
+                zeilen.append(f"  Datum: {_z(eq['mit_datum'])} von {_z(eq['anlaesse'])} tragen eines"
+                              + (f" ({quellen})" if quellen else " (keine Quellenangabe)"))
+            if eq["jahr_min"]:
+                zeilen.append(f"  Jahre: {eq['jahr_min']}-{eq['jahr_max']}")
+            if plan_fotos:
+                drin = len(plan_fotos & k)
+                zeilen.append(f"  Deckung: {_z(drin)} von {_z(len(plan_fotos))} Plan-Fotos "
+                              f"liegen in einem Anlass ({_anteil(drin, len(plan_fotos))})")
+            if eq["ohne_kennung"]:
+                luecken.append(f"{name}: {_z(eq['ohne_kennung'])} Anlaesse ohne Kennung "
+                               f"(werden nicht erzaehlt)")
+        zeilen.append(f"  Erzaehl-Dienst: {_z(vorhanden)} von {_z(len(erzaehl_quellen))} dieser "
+                      f"Quellen vorhanden (dazu {anlaesse or 'ordner_ereignisse.jsonl'})")
+        if not vorhanden:
+            luecken.append("keine Erzaehl-Anlaesse vorhanden (Geschichten ohne Anlass)")
         zeilen.append("")
 
     if bild_index:
