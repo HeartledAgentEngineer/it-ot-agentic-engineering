@@ -85,10 +85,17 @@ Nur Werkzeug, Test und Doku — **kein Betriebs- oder Anzeigecode**.
 ## Ehrlicher Neben-Befund (nicht behoben)
 
 Der Abgleich der eigenen Texte gegen den Anlass-Bestand kann erst **greifen,
-wenn die beiden Dateien vom Geraet auf dem PC liegen**. Sie stehen nicht in der
-Uebergabeliste von `termux/agent-start` und sind damit heute auch nach einem
-Handy-Start nicht am PC nachpruefbar — das waere ein eigener, kleiner Schritt
-(Datei zur Uebergabe ergaenzen). Gemessen und benannt, nicht geaendert.
+wenn die beiden Dateien vom Geraet auf dem PC liegen** — und dafür fehlt der
+Weg. Gemessen (nicht behauptet): die bestehende Übergabeliste (12 Namen, u. a.
+`ordner_ereignisse.jsonl`, `bild_orte.csv`) steht in `termux/start-vorbereiten.sh`
+(der gemeinsamen Vorbereitung, zwei Stellen) und noch in der alten
+`start-termux.sh` — sie läuft aber **PC → Handy**
+(`uebergabe_uebernehmen.py` holt Dateien aus `/sdcard/Download` in den
+Termux-Heimordner). `geschichten.jsonl` und `anlass_umbenennung.jsonl` entstehen
+am Handy; sie bräuchten den **Rückweg Handy → PC**, den es heute nicht gibt. Ein
+Eintrag in die vorhandene Liste wäre die falsche Richtung. Ein Gerät hing in
+dieser Runde nicht an `adb` (gemessen: „List of devices attached" leer), also
+auch keine Leseprobe. Gemessen und benannt, nicht geändert.
 
 ## Ehrlich offen
 
