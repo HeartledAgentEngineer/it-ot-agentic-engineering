@@ -62,6 +62,16 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       die Plan-Fotos. Diese Stufe traegt „Anlaesse einer Person"
                       und das Erzaehlen und stand bisher in KEINEM Nachweis. Nur
                       Zahlen — keine Titel, keine Themen, keine Kategorien.
+  * Orte (GeoNames): ``orte.jsonl`` (Ketten-Schritt 3b, ``orte_zuordnen.py``:
+                      je Bild Land/Region/naechster Ort + Aufnahmedatum, offline;
+                      anhaengend und idempotent) — Zeilen, Bilder (Kennungen),
+                      doppelte Zeilen (ein nicht-idempotenter Lauf wuerde
+                      auffallen), Laender/Regionen/Orte als ANZAHL, Zeilen mit
+                      Datum und die Deckung gegen die Plan-Fotos. Diese Stufe
+                      traegt die Auskunft „wo war das?" und die Ortsnamen fuer
+                      die Erzaehlung und stand bisher in KEINEM Nachweis — wie
+                      OSM, Bildindex und Anlaesse. Nur Zahlen: keine Ortsnamen,
+                      keine Koordinaten.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -125,6 +135,14 @@ STANDARD_GEDREHT_VEKTOREN = "personen_vektoren_gedreht_neu.jsonl"
 # aber niemandem auffaellig, wenn die Datei fehlt oder halb ist. Der Nachweis
 # prueft sie jetzt wie die uebrigen Stufen (nur Zahlen, keine Titel).
 STANDARD_ANLAESSE = "ordner_ereignisse.jsonl"
+# Die Ortsnamen (Ketten-Schritt 3b): je Bild eine Zeile aus den offline
+# GeoNames-Daten — Land, Region, naechster Ort, Aufnahmedatum (orte_zuordnen.py,
+# anhaengend und idempotent: vorhandene bild_id wird uebersprungen). Diese Stufe
+# stand in KEINEM Nachweis, obwohl sie die Auskunft „wo war das?" und die
+# Ortsnamen fuer die Erzaehlung traegt — dieselbe Luecke wie bei OSM, Bildindex
+# und Anlaessen. Der Nachweis prueft sie jetzt wie die uebrigen Stufen: nur
+# Zahlen und Zaehlungen von Land/Region/Ort — keine Namen, keine Koordinaten.
+STANDARD_ORTE_NAMEN = "orte.jsonl"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -505,6 +523,55 @@ def tabellen_zeilen(pfad: str) -> int:
     return max(0, anzahl - 1)
 
 
+# ── Ortsnamen (GeoNames) ────────────────────────────────────────────────────
+
+def ortsnamen_lesen(pfad: str) -> Dict[str, Any]:
+    """``orte.jsonl`` zaehlen — nur Zahlen, keine Ortsnamen, keine Koordinaten.
+
+    Je Bild eine Zeile aus den offline GeoNames-Daten (Ketten-Schritt 3b,
+    ``orte_zuordnen.py``): Land, Region, naechster Ort, Aufnahmedatum. Der
+    Zuordner haengt an und ueberspringt vorhandene ``bild_id`` — deshalb wird
+    hier auch auf Dubletten geprueft (mehr Zeilen als Kennungen = der idempotente
+    Lauf wurde umgangen). Gezaehlt werden nur Zahlen sowie die ANZAHL
+    verschiedener Laender/Regionen/Orte und Aufnahmetage — nie ein Name.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "zeilen": 0, "kaputt": 0, "kennungen": set(),
+                         "doppelt": 0, "mit_datum": 0, "tage": 0, "laender": 0,
+                         "regionen": 0, "orte": 0, "ohne_ort": 0}
+    if not os.path.isfile(pfad):
+        return e
+    e["fehlt"] = False
+    gesehen: Set[str] = set()
+    laender: Set[str] = set()
+    regionen: Set[str] = set()
+    orte: Set[str] = set()
+    tage: Set[str] = set()
+    for zeile in _jsonl(pfad):
+        if not isinstance(zeile, dict):
+            e["kaputt"] += 1
+            continue
+        e["zeilen"] += 1
+        k = _kennung(zeile.get("bild_id"))
+        if k:
+            if k in gesehen:
+                e["doppelt"] += 1
+            gesehen.add(k)
+            e["kennungen"].add(k)
+        for feld, sammlung in (("land", laender), ("region", regionen), ("ort", orte)):
+            wert = str(zeile.get(feld) or "").strip()
+            if wert:
+                sammlung.add(wert)
+        if not str(zeile.get("ort") or "").strip():
+            e["ohne_ort"] += 1
+        aufnahme = str(zeile.get("aufnahme") or "").strip()
+        if aufnahme:
+            e["mit_datum"] += 1
+            tage.add(aufnahme[:10])
+    e.update(laender=len(laender), regionen=len(regionen), orte=len(orte),
+             tage=len(tage))
+    return e
+
+
 # ── Anlaesse (Ereignis-Datei) ───────────────────────────────────────────────
 
 def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
@@ -649,6 +716,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             gedreht_plan: Optional[str] = STANDARD_GEDREHT_PLAN,
             gedreht_vektoren: Optional[str] = STANDARD_GEDREHT_VEKTOREN,
             anlaesse: Optional[str] = STANDARD_ANLAESSE,
+            orte_namen: Optional[str] = STANDARD_ORTE_NAMEN,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -825,6 +893,31 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             if z_orte or z_adr:
                 zeilen.append(f"  Gesamttabellen: {_z(z_orte)} Orte, {_z(z_adr)} Adressen")
     zeilen.append("")
+
+    if orte_namen:
+        on = ortsnamen_lesen(os.path.join(basis, orte_namen))
+        if on.get("fehlt"):
+            zeilen.append(f"Orte (GeoNames): {orte_namen} fehlt - Ortsnamen nicht zugeordnet "
+                          f"(orte_zuordnen.py)")
+            luecken.append(f"{orte_namen} fehlt (Ortsnamen nicht zugeordnet)")
+        else:
+            eintraege = len(on["kennungen"])
+            zeilen.append(f"Orte (GeoNames): {orte_namen}: {_z(on['zeilen'])} Zeilen, "
+                          f"{_z(eintraege)} Bilder"
+                          + (f", {_z(on['doppelt'])} doppelt" if on["doppelt"] else "")
+                          + (f", {_z(on['kaputt'])} kaputte Zeilen" if on["kaputt"] else ""))
+            zeilen.append(f"  Namen: {_z(on['laender'])} Laender, {_z(on['regionen'])} Regionen, "
+                          f"{_z(on['orte'])} Orte; ohne Ortsnamen {_z(on['ohne_ort'])}")
+            zeilen.append(f"  Aufnahme: {_z(on['mit_datum'])} von {_z(on['zeilen'])} Zeilen "
+                          f"tragen ein Datum ({_z(on['tage'])} verschiedene Tage)")
+            if plan_fotos:
+                drin = len(plan_fotos & on["kennungen"])
+                zeilen.append(f"  Deckung: {_z(drin)} von {_z(len(plan_fotos))} Plan-Fotos "
+                              f"haben einen Ortsnamen ({_anteil(drin, len(plan_fotos))})")
+            if on["doppelt"]:
+                luecken.append(f"{orte_namen}: {_z(on['doppelt'])} doppelte Zeilen "
+                               f"(anhaengender Lauf nicht idempotent)")
+        zeilen.append("")
 
     gr = gruppen_lesen(basis)
     if gr.get("fehlt"):

@@ -625,3 +625,75 @@ def test_anlaesse_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     e2 = bp.anlaesse_lesen(str(tmp_path / "halb.jsonl"))
     assert e2["anlaesse"] == 1 and e2["kaputt"] == 1 and e2["kennungen"] == {"7"}
     assert e2["mit_datum"] == 0 and e2["jahr_min"] == 2001 and e2["jahr_max"] == 2001
+
+
+# ── Ortsnamen (GeoNames) im Nachweis ────────────────────────────────────────
+# Die Ortsnamen (orte.jsonl, Ketten-Schritt 3b) tragen die Auskunft „wo war das?"
+# und die Ortsnamen fuer die Erzaehlung — und standen in KEINEM Nachweis. Sie
+# sind der Stufe OSM (Journal 8), dem Bildindex (Journal 12) und den Anlaessen
+# (Journal 19) gleichgestellt.
+
+def _orte_namen(tmp_path, kaputt=False, doppelt=False):
+    """orte.jsonl nachgebaut: Land/Region/Ort mit Aufnahmedatum, ein Bild ohne Ort.
+
+    Die Ortsnamen sind ABSICHTLICH Fantasieworte — der Nachweis darf sie nie
+    zeigen (Privatsphaere).
+    """
+    zeilen = [
+        {"bild_id": 1, "land": "FANTASIELAND", "region": "REGION_A", "ort": "ORT_A",
+         "aufnahme": "2020-01-01T10:00:00"},
+        {"bild_id": 2, "land": "FANTASIELAND", "region": "REGION_A", "ort": "ORT_B",
+         "aufnahme": "2021-02-02T10:00:00"},
+        {"bild_id": 3, "land": "FANTASIELAND", "region": "REGION_B", "ort": None,
+         "aufnahme": None},
+    ]
+    if doppelt:
+        zeilen.append({"bild_id": 1, "land": "FANTASIELAND", "region": "REGION_A",
+                       "ort": "ORT_A", "aufnahme": "2020-01-01T10:00:00"})
+    text = "\n".join(json.dumps(z) for z in zeilen) + "\n" + ("kaputt\n" if kaputt else "")
+    (tmp_path / "orte.jsonl").write_text(text, encoding="utf-8")
+
+
+def test_nachweis_zaehlt_ortsnamen(tmp_path):
+    """Die Ortsnamen-Stufe stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _bestand(tmp_path)
+    _orte_namen(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Orte (GeoNames): orte.jsonl: 3 Zeilen, 3 Bilder" in text
+    assert "Namen: 1 Laender, 2 Regionen, 2 Orte; ohne Ortsnamen 1" in text
+    assert "Aufnahme: 2 von 3 Zeilen tragen ein Datum (2 verschiedene Tage)" in text
+    # Plan-Fotos sind 1..6, mit Ortsnamen sind 1, 2 und 3 -> 3 von 6.
+    assert "Deckung: 3 von 6 Plan-Fotos haben einen Ortsnamen (50,0 %)" in text
+
+
+def test_nachweis_zeigt_keine_ortsnamen_und_meldet_dubletten(tmp_path):
+    """Nur Zahlen: kein Land/Region/Ort im Text; doppelte Zeilen werden gemeldet."""
+    _bestand(tmp_path)
+    _orte_namen(tmp_path, doppelt=True, kaputt=True)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("FANTASIELAND", "REGION_A", "REGION_B", "ORT_A", "ORT_B"):
+        assert verboten not in text
+    assert "1 doppelt" in text and "1 kaputte Zeilen" in text
+    assert "orte.jsonl: 1 doppelte Zeilen (anhaengender Lauf nicht idempotent)" in luecken
+
+
+def test_nachweis_meldet_fehlende_ortsnamen_ehrlich(tmp_path):
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Orte (GeoNames): orte.jsonl fehlt" in "\n".join(zeilen)
+    assert "orte.jsonl fehlt (Ortsnamen nicht zugeordnet)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Ortsnamen)
+    assert "Orte (GeoNames)" not in "\n".join(bp.pruefen(str(tmp_path), orte_namen=None)[0])
+
+
+def test_ortsnamen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende Datei und Nicht-JSON-Zeilen ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.ortsnamen_lesen(str(tmp_path / "gibts_nicht.jsonl"))
+    assert e["fehlt"] is True and e["zeilen"] == 0 and e["kennungen"] == set()
+    (tmp_path / "halb.jsonl").write_text(
+        json.dumps({"bild_id": 7, "land": "X", "ort": "Y", "aufnahme": "2019-05-05T09:00:00"})
+        + "\nnur text\n", encoding="utf-8")
+    e2 = bp.ortsnamen_lesen(str(tmp_path / "halb.jsonl"))
+    assert e2["zeilen"] == 1 and e2["kaputt"] == 1 and e2["kennungen"] == {"7"}
+    assert e2["laender"] == 1 and e2["orte"] == 1 and e2["tage"] == 1 and e2["doppelt"] == 0
