@@ -15,10 +15,13 @@ Der Agent hat zwei Wege in die alten Gespraeche:
   (``archiv_vektor_path``, 30.891 x 1024 = Stand *vor* dem WhatsApp-Import).
   Er findet Wortlaut, aber aus den WhatsApp-Daten keine Bedeutung mehr.
 
-Die Standard-Suche des Chats (``router.chat._archiv_treffer``) und das
-Modell-Werkzeug ``archiv_suchen`` nutzten bisher den **alten** Dienst. Genau
-deshalb kam aus den WhatsApp-Daten nie ein Zusammenhang an (Sebastians Befund
-vom 10.10.2026) — die Daten waren da, der Weg dorthin fehlte.
+Die Standard-Suche des Chats (``router.chat._archiv_treffer``), das
+Modell-Werkzeug ``archiv_suchen`` und die Nachschau-Endpunkte
+(``router.archiv``: ``/api/archiv/status`` und ``/api/archiv/suche``) nutzten
+bisher den **alten** Dienst. Genau deshalb kam aus den WhatsApp-Daten nie ein
+Zusammenhang an (Sebastians Befund vom 10.10.2026) — die Daten waren da, der Weg
+dorthin fehlte. Bei den Nachschau-Endpunkten wog es doppelt: eine Fehlersuche,
+die den alten Stand zeigt, verdeckt genau den Fehler, den sie finden soll.
 
 Diese eine Stelle entscheidet
 =============================
@@ -99,25 +102,80 @@ class StandardArchiv:
     def is_available(self) -> bool:
         return self.quelle is not None
 
-    def hybrid(self, frage: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Treffer aus dem vollen Index; faellt der aus oder leer aus, aus dem alten."""
+    def _ueber_weg(self, frage: str, top_k: Optional[int],
+                   methode_voll: str, methode_alt: str) -> List[Dict[str, Any]]:
+        """Einen Suchweg ueber beide Dienste fahren: erst voll, dann alt.
+
+        ``methode_voll``/``methode_alt`` sind die **Methodennamen** der beiden
+        Dienste — sie heissen unterschiedlich (der volle Index kennt
+        ``volltext_suche``, der alte ``suche``; ``semantische_suche`` und
+        ``hybrid`` heissen gleich). Fehlt einem Dienst die Methode, wird er
+        uebergangen statt zu werfen. Beide Rueckgabeformen bringt
+        :func:`_als_liste` auf eine Liste.
+        """
         k = top_k or 5
 
         if getattr(self.voll, "is_available", False):
-            try:
-                treffer = _als_liste(self.voll.hybrid(frage, top_k=k))
-            except Exception as e:  # nie gegen eine Ausnahme anlaufen
-                logger.warning("Voller Index scheiterte (%s) — alter Dienst uebernimmt", e)
-                treffer = []
-            if treffer:
-                return treffer
+            fn = getattr(self.voll, methode_voll, None)
+            if callable(fn):
+                try:
+                    treffer = _als_liste(fn(frage, top_k=k))
+                except Exception as e:  # nie gegen eine Ausnahme anlaufen
+                    logger.warning("Voller Index scheiterte (%s) — alter Dienst uebernimmt", e)
+                    treffer = []
+                if treffer:
+                    return treffer
 
         if getattr(self.alt, "is_available", False):
-            try:
-                return _als_liste(self.alt.hybrid(frage, top_k=k))
-            except Exception as e:
-                logger.warning("Alter Archivdienst scheiterte ebenfalls: %s", e)
+            fn = getattr(self.alt, methode_alt, None)
+            if callable(fn):
+                try:
+                    return _als_liste(fn(frage, top_k=k))
+                except Exception as e:
+                    logger.warning("Alter Archivdienst scheiterte ebenfalls: %s", e)
         return []
+
+    def hybrid(self, frage: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Treffer aus dem vollen Index; faellt der aus oder leer aus, aus dem alten."""
+        return self._ueber_weg(frage, top_k, "hybrid", "hybrid")
+
+    def suche(self, frage: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Volltextsuche ueber den Standardweg (voll: ``volltext_suche``, alt: ``suche``)."""
+        return self._ueber_weg(frage, top_k, "volltext_suche", "suche")
+
+    def semantische_suche(self, frage: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Bedeutungssuche ueber den Standardweg (beide Dienste: ``semantische_suche``)."""
+        return self._ueber_weg(frage, top_k, "semantische_suche", "semantische_suche")
+
+    def status(self) -> Dict[str, Any]:
+        """Stand des **tragenden** Dienstes, plus ``quelle`` („voll"/„alt"/None).
+
+        Der Endpunkt ``/api/archiv/status`` soll zeigen, was der Chat
+        tatsaelich benutzt — sonst meldet die Fehlersuche den alten Stand
+        (ohne WhatsApp) und verdeckt den Fehler, den sie finden soll. Der
+        tragende Dienst liefert seinen eigenen Stand (``status`` beim alten,
+        ``statistik`` beim vollen Index); fehlt beides, bleibt es ehrlich bei
+        ``verfuegbar: True`` ohne weitere Felder.
+        """
+        quelle = self.quelle
+        if quelle is None:
+            return {"verfuegbar": False, "quelle": None}
+
+        dienst = self.voll if quelle == "voll" else self.alt
+        roh: Any = {}
+        for name in ("status", "statistik"):
+            fn = getattr(dienst, name, None)
+            if callable(fn):
+                try:
+                    roh = fn() or {}
+                except Exception as e:
+                    logger.warning("Archiv-Status des tragenden Dienstes nicht lesbar: %s", e)
+                    roh = {}
+                break
+        ergebnis: Dict[str, Any] = dict(roh) if isinstance(roh, dict) else {}
+        ergebnis.setdefault("verfuegbar", True)
+        ergebnis["quelle"] = quelle
+        return ergebnis
 
 
 # Einzige Instanz fuer den Standardweg (die Dienste darin werden trotzdem

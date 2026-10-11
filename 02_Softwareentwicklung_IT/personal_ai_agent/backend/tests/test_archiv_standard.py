@@ -12,6 +12,8 @@ Vorrang, Rückfall, Ehrlichkeit bei Ausfall. Kein echter Index, kein Netz.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.services.archiv_standard import StandardArchiv, _als_liste
@@ -26,12 +28,28 @@ class _Voll:
         self._treffer = treffer if treffer is not None else []
         self._fehler = fehler
         self.aufrufe = []
+        self.wege = []  # (Methodenname, frage, top_k) — für die drei Suchwege
 
-    def hybrid(self, frage, top_k=None):
-        self.aufrufe.append((frage, top_k))
+    def _ergebnis(self, frage):
         if self._fehler:
             raise self._fehler
         return {"frage": frage, "treffer": self._treffer, "sicher": True, "grund": "ok"}
+
+    def hybrid(self, frage, top_k=None):
+        self.aufrufe.append((frage, top_k))
+        self.wege.append(("hybrid", frage, top_k))
+        return self._ergebnis(frage)
+
+    def volltext_suche(self, frage, top_k=None):
+        self.wege.append(("volltext_suche", frage, top_k))
+        return self._ergebnis(frage)
+
+    def semantische_suche(self, frage, top_k=None):
+        self.wege.append(("semantische_suche", frage, top_k))
+        return self._ergebnis(frage)
+
+    def statistik(self):
+        return {"verfuegbar": True, "gesamt": {"chunks": 52679}, "hinweis": "voller Index"}
 
 
 class _Alt:
@@ -43,12 +61,28 @@ class _Alt:
         self._treffer = treffer if treffer is not None else []
         self._fehler = fehler
         self.aufrufe = []
+        self.wege = []
 
-    def hybrid(self, frage, top_k=None):
-        self.aufrufe.append((frage, top_k))
+    def _liste(self):
         if self._fehler:
             raise self._fehler
         return list(self._treffer)
+
+    def hybrid(self, frage, top_k=None):
+        self.aufrufe.append((frage, top_k))
+        self.wege.append(("hybrid", frage, top_k))
+        return self._liste()
+
+    def suche(self, frage, top_k=None):
+        self.wege.append(("suche", frage, top_k))
+        return self._liste()
+
+    def semantische_suche(self, frage, top_k=None):
+        self.wege.append(("semantische_suche", frage, top_k))
+        return self._liste()
+
+    def status(self):
+        return {"verfuegbar": True, "chunks": 100, "hinweis": "alter Dienst"}
 
 
 class _Weg:
@@ -179,3 +213,129 @@ def test_top_k_wird_durchgereicht(top_k):
     dienst = StandardArchiv(voll=voll, alt=_Weg())
     dienst.hybrid("Momo", top_k=top_k)
     assert voll.aufrufe == [("Momo", top_k or 5)]
+
+
+# ── Die drei Suchwege laufen alle ueber denselben Standardweg ──────────────
+
+def test_volltext_fragt_den_vollen_index_und_laesst_den_alten_in_ruhe():
+    """Der volle Index heisst ``volltext_suche`` — der alte ``suche``."""
+    voll = _Voll([_t("voller Wortlaut")])
+    alt = _Alt([_t("alter Wortlaut", source="chatgpt")])
+    dienst = StandardArchiv(voll=voll, alt=alt)
+
+    assert dienst.suche("Momo", top_k=2) == [_t("voller Wortlaut")]
+    assert voll.wege == [("volltext_suche", "Momo", 2)]
+    assert alt.wege == []
+
+
+def test_volltext_faellt_auf_die_alte_suche_zurueck():
+    alt = _Alt([_t("alter Wortlaut", source="chatgpt")])
+    dienst = StandardArchiv(voll=_Weg(), alt=alt)
+
+    assert dienst.suche("Momo") == [_t("alter Wortlaut", source="chatgpt")]
+    assert alt.wege == [("suche", "Momo", 5)]
+
+
+def test_semantische_suche_geht_ueber_den_vollen_index():
+    voll = _Voll([_t("Bedeutung aus dem vollen Index")])
+    dienst = StandardArchiv(voll=voll, alt=_Weg())
+
+    assert dienst.semantische_suche("Momo") == [_t("Bedeutung aus dem vollen Index")]
+    assert voll.wege == [("semantische_suche", "Momo", 5)]
+
+
+def test_fehlt_einem_dienst_die_methode_wird_er_uebergangen_statt_zu_werfen():
+    class _NurHybrid:
+        is_available = True
+
+        def hybrid(self, frage, top_k=None):
+            return {"treffer": [_t("nur hybrid")]}
+
+    alt = _Alt([_t("alter Weg", source="gemini")])
+    dienst = StandardArchiv(voll=_NurHybrid(), alt=alt)
+
+    # Der volle kennt ``volltext_suche`` nicht -> er wird uebergangen, der alte traegt.
+    assert dienst.suche("Momo") == [_t("alter Weg", source="gemini")]
+    assert alt.wege == [("suche", "Momo", 5)]
+
+
+# ── Der Status kommt vom tragenden Dienst ──────────────────────────────────
+
+def test_status_kommt_vom_vollen_index_und_nennt_die_quelle():
+    dienst = StandardArchiv(voll=_Voll([_t("x")]), alt=_Alt([_t("y")]))
+    s = dienst.status()
+
+    assert s["verfuegbar"] is True and s["quelle"] == "voll"
+    assert s["gesamt"]["chunks"] == 52679          # aus ``statistik`` des vollen
+    assert "hinweis" in s
+
+
+def test_status_ohne_vollen_index_kommt_vom_alten_dienst():
+    dienst = StandardArchiv(voll=_Weg(), alt=_Alt([_t("y")]))
+    s = dienst.status()
+
+    assert s["verfuegbar"] is True and s["quelle"] == "alt"
+    assert s["chunks"] == 100                       # aus ``status`` des alten
+
+
+def test_status_ohne_erreichbaren_dienst_ist_ehrlich():
+    assert StandardArchiv(voll=_Weg(), alt=_Weg()).status() == {
+        "verfuegbar": False, "quelle": None,
+    }
+
+
+def test_status_wenn_der_tragende_dienst_keinen_stand_liefert():
+    class _OhneStand:
+        is_available = True
+
+    s = StandardArchiv(voll=_OhneStand(), alt=_Weg()).status()
+    assert s == {"verfuegbar": True, "quelle": "voll"}
+
+
+# ── Die Nachschau-Endpunkte (/api/archiv) nehmen den Standardweg ───────────
+
+def test_nachschau_endpunkte_gehen_ueber_den_standardweg(monkeypatch):
+    from app.router import archiv as archiv_modul
+
+    benutzt = {}
+
+    class _Merker:
+        quelle = "voll"
+
+        def suche(self, frage, top_k=None):
+            benutzt["volltext"] = (frage, top_k)
+            return [_t("aus dem vollen Index")]
+
+        def semantische_suche(self, frage, top_k=None):
+            benutzt["semantisch"] = (frage, top_k)
+            return [_t("aus dem vollen Index")]
+
+        def hybrid(self, frage, top_k=None):
+            benutzt["hybrid"] = (frage, top_k)
+            return [_t("aus dem vollen Index")]
+
+        def status(self):
+            return {"verfuegbar": True, "quelle": "voll"}
+
+    monkeypatch.setattr(archiv_modul, "StandardArchiv", _Merker)
+
+    a = archiv_modul.suche(q="Momo", top_k=3, modus="hybrid")
+    assert a["treffer"] == [_t("aus dem vollen Index")] and a["quelle"] == "voll"
+    assert benutzt["hybrid"] == ("Momo", 3)
+
+    archiv_modul.suche(q="Momo", top_k=3, modus="volltext")
+    assert benutzt["volltext"] == ("Momo", 3)
+
+    archiv_modul.suche(q="Momo", top_k=3, modus="semantisch")
+    assert benutzt["semantisch"] == ("Momo", 3)
+
+    assert archiv_modul.status() == {"verfuegbar": True, "quelle": "voll"}
+
+
+def test_router_archiv_greift_nicht_mehr_direkt_auf_den_alten_dienst():
+    """Waechter gegen den Rueckfall: kein direkter Griff auf ``archiv_service``."""
+    from app.router import archiv as archiv_modul
+
+    text = Path(archiv_modul.__file__).read_text(encoding="utf-8")
+    assert "archiv_service" not in text
+    assert "StandardArchiv" in text

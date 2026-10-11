@@ -187,8 +187,8 @@ personal_ai_agent/
 | `POST` | `/api/gesichter/quiz/analysiere` | Führt die (langsame) Gesichts-Analyse für ein schon angezeigtes Bild nach: erkennt Gesichter (inkl. Vermutung) |
 | `POST` | `/api/gesichter/quiz/antwort` | Speichert die Quiz-Antwort. `ueberspringen:true` markiert das Bild nur als gesehen. `manuell_bbox:true` (seit 2026-09-11) bettet den SELBST gezeichneten `bbox`-Ausschnitt direkt als Personen-Referenz ein (`op:embed_crop`) — so lässt sich auch eine Person anlernen, die YuNet nicht (richtig) erkannt hat. Ohne `manuell_bbox` wird unter den YuNet-erkannten Gesichtern gewählt |
 | `GET` | `/api/gesichter/referenzen` | Alle gelernten Referenzen je Person (ref_id, Jahr, Miniatur) für das Referenz-Management |
-| `GET` | `/api/archiv/status` | Alter Archiv-Zugriff (`memory.db`): eingebunden? Was steckt drin, welcher Suchweg trägt? |
-| `GET` | `/api/archiv/suche?q=…&modus=hybrid\|volltext\|semantisch` | Suche im alten Archiv (`memory.db`) |
+| `GET` | `/api/archiv/status` | Wissensspeicher über den **Standardweg** (voller Index zuerst, sonst der alte `memory.db`): eingebunden? Was steckt drin, welcher Suchweg trägt (`quelle`: `voll`/`alt`/`null`)? |
+| `GET` | `/api/archiv/suche?q=…&modus=hybrid\|volltext\|semantisch` | Suche über den **Standardweg** — derselbe Weg wie im Chat (voller Index inkl. WhatsApp zuerst, sonst der alte). Antwort trägt zusätzlich `quelle` |
 | `GET` | `/api/archiv/wissen/statistik` | Wissensspeicher (neuer Index): Gespräche/Nachrichten/Chunks/Vektoren je Quelle, Zeitraum, Themen-Häufigkeit |
 | `GET` | `/api/archiv/wissen/chronik?richtung=alt\|neu&limit=N` | älteste/neueste Gespräche mit Datum, Quelle, Thema und Zeiger |
 | `GET` | `/api/archiv/wissen/frage?q=…&modus=hybrid\|volltext\|vektor` | Hybridsuche, zeitlich sortiert, mit `sicher`/`grund`/`rueckfrage` (bei Unsicherheit **keine** behauptete Antwort) |
