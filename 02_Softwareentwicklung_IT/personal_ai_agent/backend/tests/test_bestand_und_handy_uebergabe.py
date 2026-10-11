@@ -1118,3 +1118,136 @@ def test_app_leser_werfen_bei_kaputter_datei_nicht(tmp_path):
     assert kaputt_ue["fehlt"] is False and kaputt_ue["kaputt"] is True
     assert kaputt_da["fehlt"] is False and kaputt_da["kaputt"] is True
     assert "\n".join(bp.pruefen(str(tmp_path))[0]).count("nicht lesbar (kein JSON)") == 2
+
+
+# ── Doppelte (pCloud, Pruefsumme) im Nachweis ───────────────────────────────
+# `duplikate.json` (`tools/pcloud/pcloud_duplikate.py`) vergleicht die zwei
+# pCloud-Baeume ueber die Pruefsumme — die Entscheidungsgrundlage „was ist
+# doppelt, was wuerde eine Freigabe bringen?". Sie stand in KEINEM Nachweis
+# (dieselbe Luecke wie OSM, Bildindex, Anlaesse, Ortsnamen, Erzaehl-Quellen,
+# Beziehungen, Personen und die App-Uebersicht). Faellt sie weg oder halbiert
+# sie sich, faellt die Grundlage weg, ohne dass es auffiele.
+
+def _duplikate(tmp_path, abgebrochen=False, abweichung=False):
+    """Eine kleine ``duplikate.json`` nachgebaut — mit Fantasienamen.
+
+    Absichtlich Fantasieworte: der Nachweis darf NIE einen Dateinamen, einen Pfad
+    oder eine Pruefsumme zeigen. Die Zahlen sind in sich stimmig (2 Gruppen,
+    3 betroffene Dateien, 2 Loesch-Kandidaten); ``abweichung`` bricht genau das
+    (die Zusammenfassung nennt dann 9 Gruppen, die Liste hat 2).
+    """
+    datei = {
+        "stand": "2026-09-27T22:15:30+02:00", "trocken": True,
+        "werkzeug": "tools/pcloud/pcloud_duplikate.py", "tiefe_grenze": 8,
+        "baeume": {
+            "upload": {"gelesen": True, "name": "BAUM_DARF_NICHT_ERSCHEINEN",
+                       "dateien": 100, "ordner_gelesen": 3, "tiefe_erreicht": 2,
+                       "abgebrochen": abgebrochen, "offen_gelassen": 4 if abgebrochen else 0,
+                       "ohne_hash": 1 if abgebrochen else 0, "ohne_groesse": 0,
+                       "ohne_kennung": 0, "kaputte_eintraege": 0},
+            "sammlung": {"gelesen": True, "name": "BAUM_DARF_NICHT_ERSCHEINEN",
+                         "dateien": 50, "ordner_gelesen": 2, "tiefe_erreicht": 3,
+                         "abgebrochen": False, "offen_gelassen": 0, "ohne_hash": 0,
+                         "ohne_groesse": 0, "ohne_kennung": 0, "kaputte_eintraege": 0},
+        },
+        "gruppen": [
+            {"size": 9000000, "hash": 12345, "hash_text": "HASH_DARF_NICHT_ERSCHEINEN",
+             "anzahl": 2, "art": "ueber_baeume", "baeume": ["upload", "sammlung"],
+             "mitglieder": [{"fileid": 1, "name": "DATEINAME_DARF_NICHT_ERSCHEINEN.jpg",
+                             "pfad": "/PFAD_DARF_NICHT_ERSCHEINEN"},
+                            {"fileid": 2, "name": "DATEINAME_DARF_NICHT_ERSCHEINEN.jpg",
+                             "pfad": "/PFAD_DARF_NICHT_ERSCHEINEN"}],
+             "loesch_kandidaten": [{"fileid": 1}]},
+            {"size": 5000000, "hash": 54321, "hash_text": "HASH_DARF_NICHT_ERSCHEINEN",
+             "anzahl": 1, "art": "innerhalb_upload", "baeume": ["upload"],
+             "mitglieder": [{"fileid": 3, "name": "DATEINAME_DARF_NICHT_ERSCHEINEN.jpg",
+                             "pfad": "/PFAD_DARF_NICHT_ERSCHEINEN"}],
+             "loesch_kandidaten": [{"fileid": 3}]},
+        ],
+        "loesch_kandidaten": {"dateien": 2, "mb": 12.5, "liste": [{"fileid": 1}, {"fileid": 3}]},
+        "zusammenfassung": {
+            "gescannte_dateien": 150, "vergleichbare_dateien": 150,
+            "duplikatgruppen": 2, "betroffene_dateien": 3,
+            "mb_alle_kopien": 45.5, "mb_freigabe_kandidaten": 12.5,
+            "ueber_baeume": {"gruppen": 1, "dateien": 2, "mb_alle_kopien": 9.0,
+                             "mb_freigabe_kandidaten": 4.5},
+            "innerhalb": {"upload": {"gruppen": 1, "dateien": 1, "mb_alle_kopien": 5.0,
+                                     "mb_freigabe_kandidaten": 5.0},
+                          "sammlung": {"gruppen": 0, "dateien": 0, "mb_alle_kopien": 0.0,
+                                       "mb_freigabe_kandidaten": 0.0}},
+            "loesch_kandidaten": {"dateien": 2, "mb": 12.5},
+        },
+    }
+    if abweichung:
+        datei["zusammenfassung"]["duplikatgruppen"] = 9
+    (tmp_path / "duplikate.json").write_text(json.dumps(datei), encoding="utf-8")
+
+
+def test_nachweis_zaehlt_doppelte(tmp_path):
+    """Die Duplikat-Pruefung stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _duplikate(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Doppelte (pCloud): duplikate.json: 2 Gruppen, 3 betroffene Dateien, 3 Mitglieder "
+            "(innerhalb_upload 1, ueber_baeume 1)") in text
+    assert "  Baum sammlung: 50 Dateien in 2 Ordnern gelesen, Tiefe 3" in text
+    assert "  Baum upload: 100 Dateien in 3 Ordnern gelesen, Tiefe 2" in text
+    assert ("  Zusammenfassung: 150 gescannte_dateien, 150 vergleichbare_dateien, "
+            "2 duplikatgruppen, 3 betroffene_dateien") in text
+    assert "  Groesse: 45,5 MB in allen Kopien, 12,5 MB Loesch-Kandidaten (2 Dateien)" in text
+    assert ("  Ueber Baeume: 1 Gruppen, 2 Dateien; innerhalb je Baum (Gruppen/Dateien): "
+            "sammlung 0/0, upload 1/1") in text
+    assert ("  Abgleich: Gruppen 2 / 2, Dateien 3 / 3, Kandidaten 2 / 2; "
+            "Stand 2026-09-27T22:15:30+02:00; Trockenlauf (es wurde nichts geloescht)") in text
+    # Eine stimmige Datei ist kein Befund.
+    assert not [l for l in luecken if "duplikate.json" in l]
+
+
+def test_nachweis_zeigt_keine_dateinamen_und_meldet_abweichung(tmp_path):
+    """Nur Zahlen — kein Dateiname, kein Pfad, keine Pruefsumme. Abweichung = Luecke."""
+    _duplikate(tmp_path)
+    zeilen, _ = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("DATEINAME_DARF_NICHT_ERSCHEINEN", "PFAD_DARF_NICHT_ERSCHEINEN",
+                     "HASH_DARF_NICHT_ERSCHEINEN", "BAUM_DARF_NICHT_ERSCHEINEN"):
+        assert verboten not in text
+    # Zusammenfassung nennt 9 Gruppen, die Liste hat 2: nicht reproduzierbar.
+    _duplikate(tmp_path, abweichung=True)
+    _, luecken = bp.pruefen(str(tmp_path))
+    assert ("duplikate.json: 2 Gruppen in der Liste, Zusammenfassung nennt 9 "
+            "(nicht reproduzierbar)") in luecken
+    # Ein abgebrochener Baum und Dateien ohne Pruefsumme sind ehrliche Luecken.
+    _duplikate(tmp_path, abgebrochen=True)
+    zeilen2, luecken2 = bp.pruefen(str(tmp_path))
+    assert ("  Baum upload: 100 Dateien in 3 Ordnern gelesen, Tiefe 2; nicht zu Ende gelesen "
+            "(offen 4); 1 ohne Pruefsumme") in "\n".join(zeilen2)
+    assert ("duplikate.json: Baum upload nicht zu Ende gelesen (offen 4) - Doppeltenzahl "
+            "unvollstaendig") in luecken2
+    assert ("duplikate.json: Baum upload 1 Dateien ohne Pruefsumme, Groesse oder Kennung "
+            "(nicht vergleichbar)") in luecken2
+
+
+def test_nachweis_meldet_fehlende_doppelte_ehrlich(tmp_path):
+    """Fehlt die Duplikat-Datei, steht das als Luecke — nicht als stiller Nullwert."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Doppelte (pCloud): duplikate.json fehlt" in "\n".join(zeilen)
+    assert "duplikate.json fehlt (Doppelte nicht geprueft)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand, der nie doppelt geprueft wurde)
+    ohne = "\n".join(bp.pruefen(str(tmp_path), duplikate=None)[0])
+    assert "Doppelte (pCloud)" not in ohne
+
+
+def test_duplikate_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.duplikate_lesen(os.path.join(str(tmp_path), bp.STANDARD_DUPLIKATE))
+    assert e["fehlt"] is True and e["gruppen"] == 0 and e["baeume"] == {}
+    (tmp_path / "duplikate.json").write_text("{kein json", encoding="utf-8")
+    kaputt = bp.duplikate_lesen(os.path.join(str(tmp_path), "duplikate.json"))
+    assert kaputt["fehlt"] is False and kaputt["kaputt"] is True
+    (tmp_path / "duplikate.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    liste = bp.duplikate_lesen(os.path.join(str(tmp_path), "duplikate.json"))
+    assert liste["fehlt"] is False and liste["kaputt"] is True
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    assert "Doppelte (pCloud): duplikate.json nicht lesbar (kein JSON)" in "\n".join(zeilen)
+    assert "duplikate.json nicht lesbar" in luecken

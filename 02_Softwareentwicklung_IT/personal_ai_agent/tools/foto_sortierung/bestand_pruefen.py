@@ -117,6 +117,20 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Kennzahlen und stellt die beiden gegeneinander (Events und
                       Dateien muessen gleich sein) — nur Zahlen, keine Event-Namen,
                       keine Dateinamen, keine Kategorien-Namen.
+  * Doppelte:         ``duplikate.json`` (``pcloud_duplikate.py``: Pruefsummen-
+                      Vergleich der zwei pCloud-Baeume ``Automatic Upload`` und
+                      ``Bilder & Videos`` — nur lesend, es wird nie geloescht) —
+                      Duplikat-Gruppen, betroffene Dateien, Groesse aller Kopien
+                      und der Loesch-Kandidaten, je Baum die gelesenen Ordner und
+                      Dateien samt Vollstaendigkeit (``abgebrochen`` /
+                      ``offen_gelassen`` / ``ohne_hash``) und ein Abgleich der
+                      Zusammenfassung gegen die wirklich gezaehlten Gruppen
+                      (Kennzahlen und Liste muessen zusammenpassen). Diese Datei
+                      ist die Entscheidungsgrundlage „was ist doppelt?" und stand
+                      bisher in KEINEM Nachweis — dieselbe Luecke wie bei OSM,
+                      Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen,
+                      Beziehungen, Personen und der App-Uebersicht. Nur Zahlen:
+                      kein Dateiname, kein Pfad, keine Pruefsumme.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -237,6 +251,15 @@ PERSONEN_PROTOKOLL = "gruppen_antworten.jsonl"
 # Zahlen — kein Event-Name, kein Dateiname, kein Kategorien-Name.
 STANDARD_APP_UEBERSICHT = "fotos_uebersicht.json"
 STANDARD_APP_DATEIEN = "fotos_dateien.json"
+# Die Duplikat-Pruefung per Pruefsumme (``tools/pcloud/pcloud_duplikate.py``) —
+# Entscheidungsgrundlage „was ist doppelt, was wuerde eine Freigabe bringen?"; die
+# Datei liegt ausserhalb des Repos und wird von Sebastian selbst ausgewertet
+# (Loeschen ist Handarbeit). Sie stand in KEINER Pruefzeile — dieselbe Luecke wie
+# bei OSM, Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen, Beziehungen, Personen
+# und der App-Uebersicht. Fällt die Datei weg oder halbiert sie sich, faellt die
+# Entscheidungsgrundlage weg, ohne dass es auffiele. Der Nachweis zaehlt sie mit:
+# nur Zahlen — kein Dateiname, kein Pfad, keine Pruefsumme.
+STANDARD_DUPLIKATE = "duplikate.json"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -1097,6 +1120,100 @@ def app_dateien_lesen(pfad: str) -> Dict[str, Any]:
     return e
 
 
+# ── Doppelte (pCloud, Pruefsumme) ───────────────────────────────────────────
+
+def _zahlen_baum(daten: Any) -> Dict[str, Any]:
+    """Einen Zahlen-Teilbaum der Zusammenfassung lesen — nie ein Wurf.
+
+    ``ueber_baeume`` und die zwei Teile unter ``innerhalb`` tragen dieselben vier
+    Felder (``gruppen``, ``dateien``, ``mb_alle_kopien``, ``mb_freigabe_kandidaten``).
+    """
+    if not isinstance(daten, dict):
+        return {}
+    return {"gruppen": _ganze_zahl(daten.get("gruppen")),
+            "dateien": _ganze_zahl(daten.get("dateien")),
+            "mb_alle": _zahl_aus(daten.get("mb_alle_kopien")) or 0.0,
+            "mb_frei": _zahl_aus(daten.get("mb_freigabe_kandidaten")) or 0.0}
+
+
+def duplikate_lesen(pfad: str) -> Dict[str, Any]:
+    """``duplikate.json`` zaehlen (Pruefsummen-Vergleich, ``pcloud_duplikate.py``).
+
+    Gezaehlt werden die Summen (``zusammenfassung``), die zwei Baeume (Schluessel
+    ``upload`` / ``sammlung`` — je Baum Dateien, gelesene Ordner, erreichte Tiefe,
+    Vollstaendigkeit ``abgebrochen`` / ``offen_gelassen`` und die Zaehler
+    ``ohne_hash`` / ``ohne_groesse`` / ``ohne_kennung`` / ``kaputte_eintraege``),
+    die Duplikat-Gruppen (Anzahl, Mitglieder, Zahl je ``art``, Kandidaten je
+    Gruppe) und die Kandidaten-Gesamtliste. Die Mitglieder-NAMEN, Pfade und
+    Pruefsummen der Gruppen werden NICHT gelesen oder ausgegeben — nur ihre Zahl.
+    Nie ein Wurf: fehlt/kaputt werden ehrlich gemeldet.
+    """
+    e: Dict[str, Any] = {
+        "fehlt": True, "kaputt": False, "stand": None, "trocken": None,
+        "werkzeug": None, "tiefe_grenze": 0, "baeume": {}, "gruppen": 0,
+        "arten": {}, "mitglieder": 0, "gruppen_anzahl": 0, "kandidaten_aus_gruppen": 0,
+        "kandidaten_dateien": 0, "kandidaten_mb": 0.0, "kandidaten_liste": 0,
+        "zahlen": {}, "mb": {}, "ueber_baeume": {}, "innerhalb": {},
+    }
+    if not os.path.isfile(pfad):
+        return e
+    daten, zustand = _datei_json(pfad)
+    if zustand == "kaputt" or daten is None:
+        return dict(e, fehlt=False, kaputt=True)
+    e["fehlt"] = False
+    e["stand"] = _kennung(daten.get("stand")) or None
+    e["trocken"] = daten.get("trocken") if isinstance(daten.get("trocken"), bool) else None
+    e["werkzeug"] = _kennung(daten.get("werkzeug")) or None
+    e["tiefe_grenze"] = _ganze_zahl(daten.get("tiefe_grenze"))
+    baeume = daten.get("baeume")
+    for name, baum in (baeume.items() if isinstance(baeume, dict) else []):
+        if not isinstance(baum, dict):
+            continue
+        e["baeume"][str(name)] = {
+            "gelesen": bool(baum.get("gelesen")),
+            "dateien": _ganze_zahl(baum.get("dateien")),
+            "ordner": _ganze_zahl(baum.get("ordner_gelesen")),
+            "tiefe": _ganze_zahl(baum.get("tiefe_erreicht")),
+            "abgebrochen": bool(baum.get("abgebrochen")),
+            "offen": _ganze_zahl(baum.get("offen_gelassen")),
+            "ohne_hash": _ganze_zahl(baum.get("ohne_hash")),
+            "ohne_groesse": _ganze_zahl(baum.get("ohne_groesse")),
+            "ohne_kennung": _ganze_zahl(baum.get("ohne_kennung")),
+            "kaputt": _ganze_zahl(baum.get("kaputte_eintraege")),
+        }
+    gruppen = daten.get("gruppen")
+    for gruppe in (gruppen if isinstance(gruppen, list) else []):
+        if not isinstance(gruppe, dict):
+            continue
+        e["gruppen"] += 1
+        e["gruppen_anzahl"] += _ganze_zahl(gruppe.get("anzahl"))
+        if isinstance(gruppe.get("mitglieder"), list):
+            e["mitglieder"] += len(gruppe["mitglieder"])
+        if isinstance(gruppe.get("loesch_kandidaten"), list):
+            e["kandidaten_aus_gruppen"] += len(gruppe["loesch_kandidaten"])
+        art = _kennung(gruppe.get("art")) or "ohne_art"
+        e["arten"][art] = e["arten"].get(art, 0) + 1
+    lk = daten.get("loesch_kandidaten")
+    lk = lk if isinstance(lk, dict) else {}
+    e["kandidaten_dateien"] = _ganze_zahl(lk.get("dateien"))
+    e["kandidaten_mb"] = _zahl_aus(lk.get("mb")) or 0.0
+    e["kandidaten_liste"] = len(lk["liste"]) if isinstance(lk.get("liste"), list) else 0
+    zus = daten.get("zusammenfassung")
+    zus = zus if isinstance(zus, dict) else {}
+    for schluessel, wert in zus.items():
+        if isinstance(wert, bool) or not isinstance(wert, (int, float)):
+            continue
+        if isinstance(wert, int):
+            e["zahlen"][str(schluessel)] = wert
+        else:
+            e["mb"][str(schluessel)] = float(wert)
+    e["ueber_baeume"] = _zahlen_baum(zus.get("ueber_baeume"))
+    innerhalb = zus.get("innerhalb")
+    e["innerhalb"] = {str(n): _zahlen_baum(b) for n, b in
+                      (innerhalb.items() if isinstance(innerhalb, dict) else [])}
+    return e
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -1186,6 +1303,11 @@ def _usd(betrag: float) -> str:
     return f"{betrag:.2f}".replace(".", ",")
 
 
+def _mb(betrag: float) -> str:
+    """MegaByte mit Komma und Tausenderpunkt — nur die Zahl."""
+    return f"{betrag:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKTOREN,
             video_vektoren=STANDARD_VIDEO_VEKTOREN,
             beschreibungen=STANDARD_BESCHREIBUNGEN,
@@ -1202,6 +1324,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             personen: Optional[str] = STANDARD_PERSONEN,
             app_uebersicht: Optional[str] = STANDARD_APP_UEBERSICHT,
             app_dateien: Optional[str] = STANDARD_APP_DATEIEN,
+            duplikate: Optional[str] = STANDARD_DUPLIKATE,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -1520,6 +1643,85 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             if ue_zuege and da["datei_eintraege"] and ue_zuege != da["datei_eintraege"]:
                 luecken.append(f"App-Uebersicht nennt {_z(ue_zuege)} Zuege, Datei-Kennungen "
                                f"{_z(da['datei_eintraege'])} (nicht reproduzierbar)")
+        zeilen.append("")
+
+    if duplikate:
+        dp = duplikate_lesen(os.path.join(basis, duplikate))
+        if dp.get("fehlt"):
+            zeilen.append(f"Doppelte (pCloud): {duplikate} fehlt - die Duplikat-Pruefung ist "
+                          f"nicht gelaufen (pcloud_duplikate.py, nur lesend, kein Loeschen)")
+            luecken.append(f"{duplikate} fehlt (Doppelte nicht geprueft)")
+        elif dp.get("kaputt"):
+            zeilen.append(f"Doppelte (pCloud): {duplikate} nicht lesbar (kein JSON)")
+            luecken.append(f"{duplikate} nicht lesbar")
+        else:
+            z, mb = dp["zahlen"], dp["mb"]
+            arten = ", ".join(f"{name} {_z(n)}" for name, n in sorted(dp["arten"].items()))
+            zeilen.append(f"Doppelte (pCloud): {duplikate}: {_z(dp['gruppen'])} Gruppen, "
+                          f"{_z(dp['gruppen_anzahl'])} betroffene Dateien, "
+                          f"{_z(dp['mitglieder'])} Mitglieder ({arten or 'keine Arten'})")
+            for name, baum in sorted(dp["baeume"].items()):
+                zeilen.append(f"  Baum {name}: {_z(baum['dateien'])} Dateien in "
+                              f"{_z(baum['ordner'])} Ordnern gelesen, Tiefe {_z(baum['tiefe'])}"
+                              + (f"; nicht zu Ende gelesen (offen {_z(baum['offen'])})"
+                                 if baum["abgebrochen"] or baum["offen"] else "")
+                              + (f"; {_z(baum['ohne_hash'])} ohne Pruefsumme"
+                                 if baum["ohne_hash"] else ""))
+            kennzahlen = ", ".join(f"{_z(z[k])} {k}" for k in
+                                   ("gescannte_dateien", "vergleichbare_dateien",
+                                    "duplikatgruppen", "betroffene_dateien") if k in z)
+            zeilen.append("  Zusammenfassung: " + (kennzahlen or "keine Zahlen"))
+            zeilen.append(f"  Groesse: {_mb(mb.get('mb_alle_kopien', 0.0))} MB in allen Kopien, "
+                          f"{_mb(dp['kandidaten_mb'])} MB Loesch-Kandidaten "
+                          f"({_z(dp['kandidaten_dateien'])} Dateien)")
+            ueber, innen = dp["ueber_baeume"], dp["innerhalb"]
+            if ueber or innen:
+                innen_text = ", ".join(f"{name} {_z(b['gruppen'])}/{_z(b['dateien'])}"
+                                       for name, b in sorted(innen.items()))
+                zeilen.append(f"  Ueber Baeume: {_z(ueber.get('gruppen', 0))} Gruppen, "
+                              f"{_z(ueber.get('dateien', 0))} Dateien"
+                              + (f"; innerhalb je Baum (Gruppen/Dateien): {innen_text}"
+                                 if innen_text else ""))
+            zeilen.append(f"  Abgleich: Gruppen {_z(dp['gruppen'])} / "
+                          f"{_z(z.get('duplikatgruppen', 0))}, Dateien {_z(dp['gruppen_anzahl'])} / "
+                          f"{_z(z.get('betroffene_dateien', 0))}, Kandidaten "
+                          f"{_z(dp['kandidaten_dateien'])} / {_z(dp['kandidaten_liste'])}"
+                          + (f"; Stand {dp['stand']}" if dp["stand"] else "")
+                          + ("; Trockenlauf (es wurde nichts geloescht)" if dp["trocken"] else ""))
+            # Ehrliche Pruefungen: die Kennzahlen muessen zur gezaehlten Liste passen.
+            if dp["gruppen"] and z.get("duplikatgruppen") and dp["gruppen"] != z["duplikatgruppen"]:
+                luecken.append(f"{duplikate}: {_z(dp['gruppen'])} Gruppen in der Liste, "
+                               f"Zusammenfassung nennt {_z(z['duplikatgruppen'])} "
+                               f"(nicht reproduzierbar)")
+            if dp["gruppen"] and dp["gruppen_anzahl"] != dp["mitglieder"]:
+                luecken.append(f"{duplikate}: {_z(dp['gruppen_anzahl'])} betroffene Dateien, "
+                               f"aber {_z(dp['mitglieder'])} Mitglieder (nicht reproduzierbar)")
+            if (z.get("betroffene_dateien") and dp["gruppen_anzahl"]
+                    and z["betroffene_dateien"] != dp["gruppen_anzahl"]):
+                luecken.append(f"{duplikate}: {_z(dp['gruppen_anzahl'])} betroffene Dateien, "
+                               f"Zusammenfassung nennt {_z(z['betroffene_dateien'])} "
+                               f"(nicht reproduzierbar)")
+            if dp["kandidaten_dateien"] and (dp["kandidaten_dateien"] != dp["kandidaten_liste"]
+                                             or dp["kandidaten_dateien"] != dp["kandidaten_aus_gruppen"]):
+                luecken.append(f"{duplikate}: {_z(dp['kandidaten_dateien'])} Loesch-Kandidaten, "
+                               f"Liste {_z(dp['kandidaten_liste'])}, in den Gruppen "
+                               f"{_z(dp['kandidaten_aus_gruppen'])} (nicht reproduzierbar)")
+            if ueber.get("gruppen") is not None and z.get("duplikatgruppen"):
+                zusammen = ueber.get("gruppen", 0) + sum(b.get("gruppen", 0) for b in innen.values())
+                if zusammen != z["duplikatgruppen"]:
+                    luecken.append(f"{duplikate}: ueber Baeume {_z(ueber.get('gruppen', 0))} + "
+                                   f"innerhalb {_z(zusammen - ueber.get('gruppen', 0))} Gruppen, "
+                                   f"Zusammenfassung nennt {_z(z['duplikatgruppen'])} "
+                                   f"(nicht reproduzierbar)")
+            # Der Scan selbst muss vollstaendig sein, sonst ist die Zahl nur ein Teil.
+            for name, baum in sorted(dp["baeume"].items()):
+                if baum["abgebrochen"] or baum["offen"]:
+                    luecken.append(f"{duplikate}: Baum {name} nicht zu Ende gelesen "
+                                   f"(offen {_z(baum['offen'])}) - Doppeltenzahl unvollstaendig")
+                unvergleichbar = baum["ohne_hash"] + baum["ohne_groesse"] + baum["ohne_kennung"]
+                if unvergleichbar:
+                    luecken.append(f"{duplikate}: Baum {name} {_z(unvergleichbar)} Dateien ohne "
+                                   f"Pruefsumme, Groesse oder Kennung (nicht vergleichbar)")
         zeilen.append("")
 
     if bild_index:
