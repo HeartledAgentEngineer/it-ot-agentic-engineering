@@ -106,6 +106,17 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Gruppe (Name ohne Gesichter) und verschiedene Namen. Nur
                       Zahlen — NIE ein Personenname, nie eine Nummer, nie ein
                       Geburtstag.
+  * Fotos-Uebersicht: ``fotos_uebersicht.json`` (N11: die Zahlen der App —
+                      Events, Jahre, Kategorien, Themen) und ``fotos_dateien.json``
+                      (N13a: je Event die Datei-Kennungen fuer die Bildvorschau).
+                      Beide leitet das PC-Werkzeug aus ``sortierplan.json`` ab und
+                      uebergibt sie ans Handy; gelesen werden sie von
+                      ``services/foto_uebersicht.py`` / ``services/foto_bilder.py``
+                      (router/fotos.py und das Chat-Werkzeug). KEINE der beiden
+                      hatte eine Pruefzeile. Der Nachweis zaehlt je Datei die
+                      Kennzahlen und stellt die beiden gegeneinander (Events und
+                      Dateien muessen gleich sein) — nur Zahlen, keine Event-Namen,
+                      keine Dateinamen, keine Kategorien-Namen.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -214,6 +225,18 @@ PERSONEN_PROFILE = "personen_profile.json"
 PERSONEN_KONTAKTE = "kontakte.json"
 PERSONEN_STAND = "gruppen_quiz_stand.json"
 PERSONEN_PROTOKOLL = "gruppen_antworten.jsonl"
+# Die abgeleiteten App-Dateien der Fotos-Uebersicht (N11/N13a): ``fotos_uebersicht.json``
+# (nur Zahlen und Event-Namen — gelesen von ``services/foto_uebersicht.py``) und
+# ``fotos_dateien.json`` (je Event die Datei-Kennungen fuer die Bildvorschau —
+# gelesen von ``services/foto_bilder.py``; beide ueber ``router/fotos.py`` und das
+# Chat-Werkzeug). Beide entstehen aus ``sortierplan.json`` und werden ans Handy
+# uebergeben — und KEINE der beiden hatte eine Pruefzeile. Faellt eine weg oder
+# halbiert sie sich, zeigt die App falsche Zahlen oder keine Vorschaubilder, und es
+# merkt heute niemand (dieselbe Luecke wie bei OSM, Bildindex, Anlaessen, Ortsnamen,
+# Erzaehl-Quellen, Beziehungen und Personen). Der Nachweis zaehlt sie mit: nur
+# Zahlen — kein Event-Name, kein Dateiname, kein Kategorien-Name.
+STANDARD_APP_UEBERSICHT = "fotos_uebersicht.json"
+STANDARD_APP_DATEIEN = "fotos_dateien.json"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -969,6 +992,111 @@ def personen_lesen(basis: str, namen_datei: str = STANDARD_PERSONEN) -> Dict[str
     return e
 
 
+# ── Fotos-Uebersicht fuer die App (N11/N13a) ─────────────────────────────────
+
+def _datei_json(pfad: str) -> Tuple[Optional[dict], str]:
+    """JSON-Objekt lesen -> (Daten, Zustand). Zustand: ``"fehlt"``, ``"kaputt"``, ``""``.
+
+    Fehlt die Datei, ist das kein Fehler; ist sie da, aber kein lesbares Objekt,
+    meldet der Zustand ``"kaputt"``. Nie ein Wurf.
+    """
+    if not os.path.isfile(pfad):
+        return None, "fehlt"
+    try:
+        with open(pfad, "r", encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        return None, "kaputt"
+    if not isinstance(daten, dict):
+        return None, "kaputt"
+    return daten, ""
+
+
+def _zahlenblock(daten: dict) -> Dict[str, int]:
+    """Den ``zahlen``-Block als {Schluessel: ganze Zahl} — nur echte Zahlen."""
+    zahlen = daten.get("zahlen")
+    if not isinstance(zahlen, dict):
+        return {}
+    return {str(k): _ganze_zahl(v) for k, v in zahlen.items()
+            if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
+
+
+def app_uebersicht_lesen(pfad: str) -> Dict[str, Any]:
+    """``fotos_uebersicht.json`` zaehlen (App-Uebersicht, N11) — nur Zahlen.
+
+    Gezaehlt werden die Kennzahlen aus ``zahlen``, die Laengen der Listen
+    ``jahre``/``kategorien``/``themen`` und die Event-Zeilen. Die Event-NAMEN,
+    Kategorien-Namen und Themen werden NICHT gelesen oder ausgegeben — nur ihre
+    Anzahl.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "kaputt": False, "art": None, "version": None,
+                         "stand": None, "zahlen": {}, "events": 0, "events_ohne_name": 0,
+                         "jahre": 0, "kategorien": 0, "themen": 0}
+    if not os.path.isfile(pfad):
+        return e
+    daten, zustand = _datei_json(pfad)
+    if zustand == "kaputt" or daten is None:
+        return dict(e, fehlt=False, kaputt=True)
+    e["fehlt"] = False
+    e["art"] = daten.get("art")
+    e["version"] = daten.get("version")
+    e["stand"] = _kennung(daten.get("stand")) or None
+    e["zahlen"] = _zahlenblock(daten)
+    for feld in ("jahre", "kategorien", "themen"):
+        wert = daten.get(feld)
+        e[feld] = len(wert) if isinstance(wert, list) else 0
+    ev = daten.get("events")
+    for eintrag in ev if isinstance(ev, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        e["events"] += 1
+        if not _kennung(eintrag.get("name")):
+            e["events_ohne_name"] += 1
+    return e
+
+
+def app_dateien_lesen(pfad: str) -> Dict[str, Any]:
+    """``fotos_dateien.json`` zaehlen (Datei-Kennungen fuer die Vorschau, N13a).
+
+    Gezaehlt werden Events, Datei-Eintraege und die Summe der ``anzahl``-Werte,
+    dazu Events ohne Dateien und Dateien ohne Kennung. Die DateiNAMEN der Bilder
+    werden NICHT gelesen oder ausgegeben — nur die Zahl der Kennungen.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "kaputt": False, "art": None, "version": None,
+                         "stand": None, "plan_stand": None, "zahlen": {},
+                         "events": 0, "datei_eintraege": 0, "anzahl_summe": 0,
+                         "events_ohne_event": 0, "events_ohne_dateien": 0,
+                         "dateien_ohne_kennung": 0}
+    if not os.path.isfile(pfad):
+        return e
+    daten, zustand = _datei_json(pfad)
+    if zustand == "kaputt" or daten is None:
+        return dict(e, fehlt=False, kaputt=True)
+    e["fehlt"] = False
+    e["art"] = daten.get("art")
+    e["version"] = daten.get("version")
+    e["stand"] = _kennung(daten.get("stand")) or None
+    e["plan_stand"] = _kennung(daten.get("plan_stand")) or None
+    e["zahlen"] = _zahlenblock(daten)
+    ev = daten.get("events")
+    for eintrag in ev if isinstance(ev, list) else []:
+        if not isinstance(eintrag, dict):
+            continue
+        e["events"] += 1
+        if not _kennung(eintrag.get("event")):
+            e["events_ohne_event"] += 1
+        dateien = eintrag.get("dateien")
+        if not isinstance(dateien, list) or not dateien:
+            e["events_ohne_dateien"] += 1
+            continue
+        e["datei_eintraege"] += len(dateien)
+        for bild in dateien:
+            if not isinstance(bild, dict) or not _kennung(bild.get("datei_id")):
+                e["dateien_ohne_kennung"] += 1
+        e["anzahl_summe"] += _ganze_zahl(eintrag.get("anzahl"))
+    return e
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -1072,6 +1200,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             beziehungen: Optional[str] = STANDARD_BEZEIHUNGEN,
             beziehungen_uebersicht: Optional[str] = STANDARD_BEZEIHUNGEN_UEBERSICHT,
             personen: Optional[str] = STANDARD_PERSONEN,
+            app_uebersicht: Optional[str] = STANDARD_APP_UEBERSICHT,
+            app_dateien: Optional[str] = STANDARD_APP_DATEIEN,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -1314,6 +1444,82 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             if pe["kennungen_ohne_gruppe"]:
                 luecken.append(f"{personen}: {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe "
                                f"(Namen ohne Gesichter)")
+        zeilen.append("")
+
+    if app_uebersicht or app_dateien:
+        ue = app_uebersicht_lesen(os.path.join(basis, app_uebersicht) if app_uebersicht else "")
+        da = app_dateien_lesen(os.path.join(basis, app_dateien) if app_dateien else "")
+        if app_uebersicht:
+            if ue.get("fehlt"):
+                zeilen.append(f"Fotos-Uebersicht (App): {app_uebersicht} fehlt - die App hat keine "
+                              f"Zahlen (foto_uebersicht.py)")
+                luecken.append(f"{app_uebersicht} fehlt (App-Uebersicht nicht abgeleitet)")
+            elif ue.get("kaputt"):
+                zeilen.append(f"Fotos-Uebersicht (App): {app_uebersicht} nicht lesbar (kein JSON)")
+                luecken.append(f"{app_uebersicht} nicht lesbar")
+            else:
+                zahlen = ue["zahlen"]
+                zeilen.append(f"Fotos-Uebersicht (App): {app_uebersicht}: {_z(ue['events'])} Events, "
+                              f"{_z(ue['jahre'])} Jahre, {_z(ue['kategorien'])} Kategorien, "
+                              f"{_z(ue['themen'])} Themen"
+                              + (f", {_z(ue['events_ohne_name'])} Events ohne Namen"
+                                 if ue["events_ohne_name"] else ""))
+                kennzahlen = ", ".join(f"{_z(zahlen[k])} {k}" for k in
+                                       ("zeilen", "anlaesse", "zuege") if k in zahlen)
+                zeilen.append("  zahlen: " + (kennzahlen or "keine Zahlen")
+                              + (f"; Stand {ue['stand']}" if ue["stand"] else ""))
+                z_events = _ganze_zahl(zahlen.get("events"))
+                if ue["events"] and z_events and ue["events"] != z_events:
+                    zeilen.append(f"    Abweichung: {_z(ue['events'])} Event-Zeilen, zahlen.events "
+                                  f"nennt {_z(z_events)}")
+                    luecken.append(f"{app_uebersicht}: {_z(ue['events'])} Event-Zeilen, zahlen.events "
+                                   f"{_z(z_events)} (nicht reproduzierbar)")
+        if app_dateien:
+            if da.get("fehlt"):
+                zeilen.append(f"Datei-Kennungen (App): {app_dateien} fehlt - die Bildvorschau hat "
+                              f"keine Kennungen (foto_dateien.py)")
+                luecken.append(f"{app_dateien} fehlt (Vorschau ohne Datei-Kennungen)")
+            elif da.get("kaputt"):
+                zeilen.append(f"Datei-Kennungen (App): {app_dateien} nicht lesbar (kein JSON)")
+                luecken.append(f"{app_dateien} nicht lesbar")
+            else:
+                zahlen = da["zahlen"]
+                zeilen.append(f"Datei-Kennungen (App): {app_dateien}: {_z(da['events'])} Events, "
+                              f"{_z(da['datei_eintraege'])} Datei-Kennungen, Summe anzahl "
+                              f"{_z(da['anzahl_summe'])}"
+                              + (f", {_z(da['events_ohne_dateien'])} Events ohne Dateien"
+                                 if da["events_ohne_dateien"] else "")
+                              + (f", {_z(da['dateien_ohne_kennung'])} Dateien ohne Kennung"
+                                 if da["dateien_ohne_kennung"] else ""))
+                kennzahlen = ", ".join(f"{_z(zahlen[k])} {k}" for k in
+                                       ("events", "dateien", "ohne_kennung") if k in zahlen)
+                zeilen.append("  zahlen: " + (kennzahlen or "keine Zahlen")
+                              + (f"; Stand {da['stand']}" if da["stand"] else "")
+                              + (f"; Plan-Stand {da['plan_stand']}" if da["plan_stand"] else ""))
+                if da["events_ohne_event"]:
+                    luecken.append(f"{app_dateien}: {_z(da['events_ohne_event'])} Events ohne Namen")
+                if da["dateien_ohne_kennung"]:
+                    luecken.append(f"{app_dateien}: {_z(da['dateien_ohne_kennung'])} Dateien ohne "
+                                   f"Kennung (Vorschau nicht ladbar)")
+                z_dateien = _ganze_zahl(zahlen.get("dateien"))
+                if da["datei_eintraege"] and z_dateien and da["datei_eintraege"] != z_dateien:
+                    zeilen.append(f"    Abweichung: {_z(da['datei_eintraege'])} Datei-Eintraege, "
+                                  f"zahlen.dateien nennt {_z(z_dateien)}")
+                    luecken.append(f"{app_dateien}: {_z(da['datei_eintraege'])} Datei-Eintraege, "
+                                   f"zahlen.dateien {_z(z_dateien)} (nicht reproduzierbar)")
+        # Abgleich der beiden Dateien: sie stammen aus derselben Quelle
+        # (sortierplan.json) und muessen dieselbe Zahl Events/Dateien nennen.
+        if (app_uebersicht and app_dateien and not ue.get("fehlt") and not ue.get("kaputt")
+                and not da.get("fehlt") and not da.get("kaputt")):
+            ue_zuege = _ganze_zahl(ue["zahlen"].get("zuege"))
+            zeilen.append(f"  Abgleich: Events {_z(ue['events'])} / {_z(da['events'])}; "
+                          f"Dateien {_z(ue_zuege)} / {_z(da['datei_eintraege'])}")
+            if ue["events"] != da["events"]:
+                luecken.append(f"App-Uebersicht ({_z(ue['events'])} Events) und Datei-Kennungen "
+                               f"({_z(da['events'])}) passen nicht zusammen")
+            if ue_zuege and da["datei_eintraege"] and ue_zuege != da["datei_eintraege"]:
+                luecken.append(f"App-Uebersicht nennt {_z(ue_zuege)} Zuege, Datei-Kennungen "
+                               f"{_z(da['datei_eintraege'])} (nicht reproduzierbar)")
         zeilen.append("")
 
     if bild_index:

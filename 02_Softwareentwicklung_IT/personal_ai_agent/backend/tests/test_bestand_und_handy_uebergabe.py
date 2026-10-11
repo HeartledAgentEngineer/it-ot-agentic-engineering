@@ -1011,3 +1011,110 @@ def test_personen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     assert e3["kennungen"] == 3 and e3["personen"] == 1 and e3["ohne_namen"] == 1
     assert e3["kontakte"] == 0                      # kaputte Liste = 0, kein Wurf
     assert e3["fehlt"] is False                     # die Namen sind ja da
+
+
+# ── Fotos-Uebersicht fuer die App (N11/N13a) im Nachweis ─────────────────────
+# `fotos_uebersicht.json` (Zahlen der App) und `fotos_dateien.json` (Datei-
+# Kennungen je Event) leitet das PC-Werkzeug aus `sortierplan.json` ab; gelesen
+# werden sie von `services/foto_uebersicht.py` / `services/foto_bilder.py` (App
+# und Chat-Werkzeug). Gezaehlt wurden sie bisher NIRGENDS — dieselbe Luecke wie
+# bei OSM, Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen, Beziehungen und
+# Personen.
+
+def _app_dateien(tmp_path, uebersicht_events=2, dateien_events=2, pro_event=3):
+    """Die zwei abgeleiteten App-Dateien nachgebaut (Fantasienamen).
+
+    Absichtlich Fantasieworte: der Nachweis darf NIE einen Event-Namen, einen
+    Kategorien-Namen, ein Thema oder einen Dateinamen zeigen.
+    """
+    (tmp_path / "fotos_uebersicht.json").write_text(json.dumps({
+        "version": 1, "art": "foto_uebersicht", "stand": "2026-09-27T22:40:09+02:00",
+        "zahlen": {"zeilen": 10, "anlaesse": 4, "zuege": dateien_events * pro_event,
+                   "events": uebersicht_events},
+        "jahre": [2014, 2015], "themen": ["THEMA_DARF_NICHT_ERSCHEINEN"],
+        "kategorien": ["KAT_DARF_NICHT_ERSCHEINEN"],
+        "events": [{"jahr": 2014, "kategorie": "KAT_DARF_NICHT_ERSCHEINEN",
+                    "name": "EVENT_DARF_NICHT_ERSCHEINEN", "dateien": pro_event,
+                    "quelle": "neu"}] * uebersicht_events,
+    }), encoding="utf-8")
+    (tmp_path / "fotos_dateien.json").write_text(json.dumps({
+        "art": "foto_dateien", "version": 1, "stand": "2026-09-28T09:44:53+02:00",
+        "plan_stand": "2026-09-27T13:49:46",
+        "zahlen": {"events": dateien_events, "dateien": dateien_events * pro_event,
+                   "ohne_kennung": 0},
+        "events": [{"jahr": 2014, "kategorie": "DATEI_KAT_DARF_NICHT_ERSCHEINEN",
+                    "event": "DATEI_EVENT_DARF_NICHT_ERSCHEINEN", "anzahl": pro_event,
+                    "dateien": [{"datei_id": 111, "name": "DATEINAME_DARF_NICHT_ERSCHEINEN.jpg"},
+                                {"datei_id": 222, "name": "b.jpg"},
+                                {"datei_id": 333, "name": "c.jpg"}][:pro_event]}]
+                   * dateien_events,
+    }), encoding="utf-8")
+
+
+def test_nachweis_zaehlt_app_uebersicht(tmp_path):
+    """Die App-Dateien standen in KEINEM Nachweis — jetzt werden sie gezaehlt."""
+    _app_dateien(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert ("Fotos-Uebersicht (App): fotos_uebersicht.json: 2 Events, 2 Jahre, 1 Kategorien, "
+            "1 Themen") in text
+    assert "  zahlen: 10 zeilen, 4 anlaesse, 6 zuege; Stand 2026-09-27T22:40:09+02:00" in text
+    assert ("Datei-Kennungen (App): fotos_dateien.json: 2 Events, 6 Datei-Kennungen, "
+            "Summe anzahl 6") in text
+    assert ("  zahlen: 2 events, 6 dateien, 0 ohne_kennung; Stand 2026-09-28T09:44:53+02:00; "
+            "Plan-Stand 2026-09-27T13:49:46") in text
+    assert "  Abgleich: Events 2 / 2; Dateien 6 / 6" in text
+
+
+def test_nachweis_zeigt_keine_event_namen_und_meldet_abweichung(tmp_path):
+    """Nur Zahlen — kein Event-/Kategorien-/Thema-/Dateiname. Abweichung = Luecke."""
+    _app_dateien(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("EVENT_DARF_NICHT_ERSCHEINEN", "KAT_DARF_NICHT_ERSCHEINEN",
+                     "THEMA_DARF_NICHT_ERSCHEINEN", "DATEI_EVENT_DARF_NICHT_ERSCHEINEN",
+                     "DATEI_KAT_DARF_NICHT_ERSCHEINEN", "DATEINAME_DARF_NICHT_ERSCHEINEN"):
+        assert verboten not in text
+    # Zwei Event-Zeilen, aber zahlen.events behauptet 99: nicht reproduzierbar.
+    _app_dateien(tmp_path, uebersicht_events=2)
+    daten = json.loads((tmp_path / "fotos_uebersicht.json").read_text(encoding="utf-8"))
+    daten["zahlen"]["events"] = 99
+    (tmp_path / "fotos_uebersicht.json").write_text(json.dumps(daten), encoding="utf-8")
+    zeilen2, luecken2 = bp.pruefen(str(tmp_path))
+    assert "    Abweichung: 2 Event-Zeilen, zahlen.events nennt 99" in "\n".join(zeilen2)
+    assert ("fotos_uebersicht.json: 2 Event-Zeilen, zahlen.events 99 (nicht reproduzierbar)"
+            in luecken2)
+    # Und zwei verschiedene Event-Zahlen der beiden Dateien sind ein Befund.
+    _app_dateien(tmp_path, uebersicht_events=2, dateien_events=3)
+    _, luecken3 = bp.pruefen(str(tmp_path))
+    assert ("App-Uebersicht (2 Events) und Datei-Kennungen (3) passen nicht zusammen"
+            in luecken3)
+
+
+def test_nachweis_meldet_fehlende_app_dateien_ehrlich(tmp_path):
+    """Fehlen die App-Dateien, steht das als Luecke — nicht als stiller Nullwert."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Fotos-Uebersicht (App): fotos_uebersicht.json fehlt" in text
+    assert "fotos_uebersicht.json fehlt (App-Uebersicht nicht abgeleitet)" in luecken
+    assert "Datei-Kennungen (App): fotos_dateien.json fehlt" in text
+    assert "fotos_dateien.json fehlt (Vorschau ohne Datei-Kennungen)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne abgeleitete App-Dateien)
+    ohne = "\n".join(bp.pruefen(str(tmp_path), app_uebersicht=None, app_dateien=None)[0])
+    assert "Fotos-Uebersicht (App)" not in ohne
+    assert "Datei-Kennungen (App)" not in ohne
+
+
+def test_app_leser_werfen_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.app_uebersicht_lesen(os.path.join(str(tmp_path), bp.STANDARD_APP_UEBERSICHT))
+    assert e["fehlt"] is True and e["events"] == 0 and e["zahlen"] == {}
+    d = bp.app_dateien_lesen(os.path.join(str(tmp_path), bp.STANDARD_APP_DATEIEN))
+    assert d["fehlt"] is True and d["events"] == 0 and d["datei_eintraege"] == 0
+    (tmp_path / "fotos_uebersicht.json").write_text("{kein json", encoding="utf-8")
+    (tmp_path / "fotos_dateien.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    kaputt_ue = bp.app_uebersicht_lesen(os.path.join(str(tmp_path), "fotos_uebersicht.json"))
+    kaputt_da = bp.app_dateien_lesen(os.path.join(str(tmp_path), "fotos_dateien.json"))
+    assert kaputt_ue["fehlt"] is False and kaputt_ue["kaputt"] is True
+    assert kaputt_da["fehlt"] is False and kaputt_da["kaputt"] is True
+    assert "\n".join(bp.pruefen(str(tmp_path))[0]).count("nicht lesbar (kein JSON)") == 2
