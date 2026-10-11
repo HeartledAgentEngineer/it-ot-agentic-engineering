@@ -339,3 +339,94 @@ def test_router_archiv_greift_nicht_mehr_direkt_auf_den_alten_dienst():
     text = Path(archiv_modul.__file__).read_text(encoding="utf-8")
     assert "archiv_service" not in text
     assert "StandardArchiv" in text
+
+
+# ── Derselbe Fehler, repo-weit abgesichert ─────────────────────────────────
+#
+# Der Fehler ist nicht einmal, sondern viermal aufgetreten: drei Verbraucher
+# (Chat-Suche, Archiv-Notiz, Modell-Werkzeug) UND zuletzt die Nachschau-
+# Endpunkte (``router/archiv.py``) griffen direkt auf den ALTEN Dienst
+# ``archiv_service`` zu — jeder zeigte damit den Stand VOR dem WhatsApp-Import.
+# Ein Waechter, der nur EINE Datei prueft, haette den vierten Fall nie gefunden
+# (er wurde von Hand gegriffen). Deshalb gilt die Regel jetzt fuer ALLE Module
+# unter ``app/`` und wird aus dem Quelltext gelesen (AST), nicht per Textsuche:
+# ein blosser Kommentar, der das Wort nennt, darf nicht anschlagen, der
+# Import des DIENSTES aber schon.
+
+_ALT_DIENST_ERLAUBT = {"archiv_standard.py", "archiv_service.py"}
+
+
+def _alte_dienst_importe(wurzel=None):
+    """Alle Stellen, die den ALTEN Dienst direkt holen (Pfad relativ:Zeile).
+
+    Erlaubt sind nur der Standardweg selbst (``archiv_standard.py``) und der
+    Dienst selbst (``archiv_service.py``). ``wurzel`` ist injizierbar, damit
+    der Waechter sich selbst pruefen kann (Selbstprobe unten).
+    """
+    import ast
+
+    from app.services import archiv_standard as std_modul
+
+    app_wurzel = Path(std_modul.__file__).resolve().parents[1] if wurzel is None else Path(wurzel)
+    funde = []
+    for pfad in sorted(app_wurzel.rglob("*.py")):
+        if pfad.name in _ALT_DIENST_ERLAUBT:
+            continue
+        baum = ast.parse(pfad.read_text(encoding="utf-8"), filename=str(pfad))
+        for knoten in ast.walk(baum):
+            if not isinstance(knoten, ast.ImportFrom):
+                continue
+            if not (knoten.module or "").endswith("archiv_service"):
+                continue
+            # Nur der DIENST (die Instanz) ist ein Verstoss — der Helfer
+            # ``zeitraum_kurz`` darf weiter aus dem Modul kommen.
+            if any(a.name == "archiv_service" for a in knoten.names):
+                funde.append(f"{pfad.relative_to(app_wurzel)}:{knoten.lineno}")
+    return funde
+
+
+def test_kein_modul_greift_direkt_auf_den_alten_dienst_zu():
+    """Waechter gegen den Rueckfall — jetzt repo-weit, nicht nur ein Router."""
+    assert _alte_dienst_importe() == [], (
+        "Direkter Griff auf den alten Dienst (archiv_service): bitte ueber "
+        "StandardArchiv gehen."
+    )
+
+
+def test_waechter_faengt_den_rueckfall(tmp_path):
+    """Selbstprobe: der Waechter meldet den direkten Griff wirklich.
+
+    Ohne diese Probe waere der Waechter eine Behauptung — er koennte
+    versehentlich immer leer zurueckkommen und trotzdem gruen sein.
+    """
+    (tmp_path / "boese.py").write_text(
+        "from app.services.archiv_service import archiv_service\n", encoding="utf-8"
+    )
+    (tmp_path / "gut.py").write_text(
+        "from app.services.archiv_service import zeitraum_kurz\n", encoding="utf-8"
+    )
+    # Auch unter anderem Namen geholt — der Import selbst wird gelesen, nicht
+    # die spaetere Verwendung.
+    (tmp_path / "archiv_standard.py").write_text(
+        "from app.services.archiv_service import archiv_service\n", encoding="utf-8"
+    )
+
+    funde = _alte_dienst_importe(tmp_path)
+    assert funde == ["boese.py:1"]
+
+
+def test_alle_suchverbraucher_nennen_den_standardweg():
+    """Die vier bekannten Verbraucher muessen ``StandardArchiv`` nennen.
+
+    Positiv-Seite des Waechters: der Rueckfall ist nicht nur verboten, der
+    Standardweg steht auch da, wo gesucht wird.
+    """
+    from app.router import archiv as archiv_modul
+    from app.router import chat as chat_modul
+    from app.services import werkzeuge as wz
+
+    for modul in (archiv_modul, chat_modul, wz):
+        text = Path(modul.__file__).read_text(encoding="utf-8")
+        assert "StandardArchiv" in text, (
+            f"{Path(modul.__file__).name} nennt den Standardweg nicht"
+        )
