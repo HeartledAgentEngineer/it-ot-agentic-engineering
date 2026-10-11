@@ -83,6 +83,16 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       sie still), Datum + Quellen-Schluessel, Jahresspanne und die
                       Deckung gegen die Plan-Fotos. Nur Zahlen — keine Titel,
                       keine Buchseiten, keine Texte.
+  * Beziehungen:      ``beziehungen.jsonl`` (15.051 Aussagen „wer war mit wem
+                      wo" — Anlass, Datum, Unterart, beteiligte Personen) und die
+                      Uebersicht ``beziehungen.json`` (Kennzahlen). Beide liest
+                      der Dienst ``beziehungen_service`` (Antwortstufe N28) — und
+                      beide standen in KEINEM Nachweis. Gezaehlt werden Aussagen,
+                      Anlaesse, Tage, Unterarten, Personen-Eintraege (bestaetigt /
+                      mit Kennung), Kategorien, Datumsspanne; die Uebersicht wird
+                      gegen die gemessene Zeilenzahl gestellt (Kennzahlen und
+                      Datei muessen zusammenpassen). Nur Zahlen — keine Namen,
+                      keine Chat-Namen, keine Themen, keine Ordner.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -162,6 +172,17 @@ STANDARD_ORTE_NAMEN = "orte.jsonl"
 # ``ereignisse.jsonl``, fehlen dem Erzaehlen 2.127 Anlaesse, und es merkt heute
 # niemand (dieselbe Luecke wie bei OSM, Bildindex, Anlaessen und Ortsnamen).
 STANDARD_ERZAHL_QUELLEN = ("ereignisse.jsonl", "fotobuch_ereignisse.jsonl")
+# Die Beziehungen (N27e/N28): ``beziehungen.jsonl`` (15.051 Aussagen „wer war
+# mit wem wo" — je Zeile Anlass, Datum, Unterart und die beteiligten Personen)
+# und die kleine ``beziehungen.json`` (Kennzahlen). Beide liest der Dienst
+# ``beziehungen_service`` (Antwortstufe N28, ``router/beziehungen.py`` und das
+# Chat-Werkzeug) — und BEIDE standen in KEINEM Nachweis. Faellt die Aussagen-
+# Datei weg oder halbiert sie sich, schweigt die Auskunft „wer war mit wem wo",
+# und es merkt heute niemand (dieselbe Luecke wie bei OSM, Bildindex, Anlaessen,
+# Ortsnamen und den Erzaehl-Quellen). Der Nachweis zaehlt sie mit: nur Zahlen —
+# keine Namen, keine Chat-Namen, keine Themen, keine Ordner.
+STANDARD_BEZEIHUNGEN = "beziehungen.jsonl"
+STANDARD_BEZEIHUNGEN_UEBERSICHT = "beziehungen.json"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -177,6 +198,16 @@ def _kennung(wert: Any) -> str:
     if isinstance(wert, bool) or wert is None:
         return ""
     return str(wert).strip()
+
+
+def _ganze_zahl(wert: Any) -> int:
+    """Wert als ganze Zahl — sonst 0 (nichts geraten, nie ein Wurf)."""
+    if isinstance(wert, bool):
+        return 0
+    try:
+        return int(wert)
+    except (TypeError, ValueError):
+        return 0
 
 
 def plan_lesen(pfad: str) -> Dict[str, Any]:
@@ -653,6 +684,105 @@ def anlaesse_lesen(pfad: str) -> Dict[str, Any]:
     return e
 
 
+# ── Beziehungen („wer war mit wem wo") ──────────────────────────────────────
+
+def beziehungen_lesen(pfad: str) -> Dict[str, Any]:
+    """``beziehungen.jsonl`` zaehlen — nur Zahlen, NIE einen Personennamen.
+
+    Felder: ``fehlt``, ``zeilen``, ``kaputt``, ``anlaesse`` (verschiedene
+    ``anlass_id``), ``ereignis_kennungen`` (verschiedene ``ereignis_kennung``),
+    ``tage`` (verschiedene ``datum``), ``unterarten`` (Zaehler),
+    ``personen_eintraege``, ``personen_bestaetigt``, ``personen_mit_kennung``,
+    ``kategorien`` (Anzahl), ``mit_datum``, ``jahr_min``/``jahr_max``.
+
+    Die Datei traegt Namen (``personen[].name``, ``beleg.chat_name``), Themen
+    und Zielordner — NICHTS davon wird gelesen oder ausgegeben, nur gezaehlt.
+    Eine kaputte Zeile zaehlt, statt zu werfen. ``personen_mit_kennung`` zaehlt
+    Eintraege mit brauchbarer ``kennung``: ohne Kennung ist eine Aussage nicht
+    an ein Gesicht gebunden.
+    """
+    e: Dict[str, Any] = {"fehlt": True, "zeilen": 0, "kaputt": 0, "anlaesse": set(),
+                         "ereignis_kennungen": set(), "tage": set(), "unterarten": {},
+                         "personen_eintraege": 0, "personen_bestaetigt": 0,
+                         "personen_mit_kennung": 0, "kategorien": set(),
+                         "mit_datum": 0, "jahr_min": None, "jahr_max": None}
+    if not os.path.isfile(pfad):
+        return e
+    e["fehlt"] = False
+    for zeile in _jsonl(pfad):
+        if not isinstance(zeile, dict):
+            e["kaputt"] += 1
+            continue
+        e["zeilen"] += 1
+        anlass = _kennung(zeile.get("anlass_id"))
+        if anlass:
+            e["anlaesse"].add(anlass)
+        ereignis = _kennung(zeile.get("ereignis_kennung"))
+        if ereignis:
+            e["ereignis_kennungen"].add(ereignis)
+        datum = _kennung(zeile.get("datum"))
+        if datum:
+            e["mit_datum"] += 1
+            e["tage"].add(datum)
+            jahr = _ganze_zahl(datum[:4])
+            if jahr:
+                e["jahr_min"] = jahr if e["jahr_min"] is None else min(e["jahr_min"], jahr)
+                e["jahr_max"] = jahr if e["jahr_max"] is None else max(e["jahr_max"], jahr)
+        unterart = _kennung(zeile.get("unterart"))
+        if unterart:
+            e["unterarten"][unterart] = e["unterarten"].get(unterart, 0) + 1
+        kategorie = _kennung(zeile.get("kategorie"))
+        if kategorie:
+            e["kategorien"].add(kategorie)
+        personen = zeile.get("personen")
+        if isinstance(personen, list):
+            for person in personen:
+                if not isinstance(person, dict):
+                    continue
+                e["personen_eintraege"] += 1
+                if person.get("bestaetigt") is True:
+                    e["personen_bestaetigt"] += 1
+                if _kennung(person.get("kennung")):
+                    e["personen_mit_kennung"] += 1
+    return e
+
+
+def beziehungen_uebersicht_lesen(pfad: str) -> Dict[str, Any]:
+    """``beziehungen.json`` lesen — nur Kennzahlen, nie ein Wurf.
+
+    Felder: ``fehlt``, ``kaputt`` (kein lesbares JSON), ``art``, ``anzahl``
+    (Zaehler je Unterart), ``summe`` (Summe der Unterarten — die Zahl, die die
+    Datei als „Aussagen" meint), ``kontakte``, ``personen_kennungen``,
+    ``datum_von``/``datum_bis``, ``stand``. Die Uebersicht traegt keine Namen
+    und keine Themen — gelesen werden nur Zahlen und Textfelder wie ``art``.
+    """
+    leer: Dict[str, Any] = {"fehlt": True, "kaputt": False, "art": None, "anzahl": {},
+                            "summe": 0, "kontakte": 0, "personen_kennungen": 0,
+                            "datum_von": None, "datum_bis": None, "stand": None}
+    if not os.path.isfile(pfad):
+        return leer
+    daten: Any = None
+    try:
+        with open(pfad, "r", encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        daten = None
+    if not isinstance(daten, dict):
+        return dict(leer, fehlt=False, kaputt=True)
+    anzahl_roh = daten.get("anzahl")
+    anzahl: Dict[str, int] = {}
+    if isinstance(anzahl_roh, dict):
+        for name, wert in anzahl_roh.items():
+            anzahl[str(name)] = _ganze_zahl(wert)
+    return {"fehlt": False, "kaputt": False, "art": _kennung(daten.get("art")) or None,
+            "anzahl": anzahl, "summe": sum(anzahl.values()),
+            "kontakte": _ganze_zahl(daten.get("anzahl_kontakte")),
+            "personen_kennungen": _ganze_zahl(daten.get("anzahl_personen_kennungen")),
+            "datum_von": _kennung(daten.get("datum_von")) or None,
+            "datum_bis": _kennung(daten.get("datum_bis")) or None,
+            "stand": _kennung(daten.get("stand")) or None}
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -753,6 +883,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             anlaesse: Optional[str] = STANDARD_ANLAESSE,
             erzaehl_quellen=STANDARD_ERZAHL_QUELLEN,
             orte_namen: Optional[str] = STANDARD_ORTE_NAMEN,
+            beziehungen: Optional[str] = STANDARD_BEZEIHUNGEN,
+            beziehungen_uebersicht: Optional[str] = STANDARD_BEZEIHUNGEN_UEBERSICHT,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -921,6 +1053,47 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                       f"Quellen vorhanden (dazu {anlaesse or 'ordner_ereignisse.jsonl'})")
         if not vorhanden:
             luecken.append("keine Erzaehl-Anlaesse vorhanden (Geschichten ohne Anlass)")
+        zeilen.append("")
+
+    if beziehungen:
+        bz = beziehungen_lesen(os.path.join(basis, beziehungen))
+        if bz.get("fehlt"):
+            zeilen.append(f"Beziehungen ({beziehungen}): fehlt - die Auskunft \"wer war mit wem wo\" "
+                          f"hat keine Quelle (beziehungen_ableiten.py)")
+            luecken.append(f"{beziehungen} fehlt (Beziehungen nicht abgeleitet)")
+        else:
+            unterarten = ", ".join(f"{name} {_z(n)}" for name, n in sorted(bz["unterarten"].items()))
+            zeilen.append(f"Beziehungen ({beziehungen}): {_z(bz['zeilen'])} Aussagen, "
+                          f"{_z(len(bz['anlaesse']))} Anlaesse, {_z(len(bz['tage']))} Tage, "
+                          f"{_z(len(bz['kategorien']))} Kategorien"
+                          + (f", {_z(bz['kaputt'])} kaputte Zeilen" if bz["kaputt"] else ""))
+            zeilen.append(f"  Unterarten: {unterarten or 'keine'}")
+            zeilen.append(f"  Personen-Eintraege: {_z(bz['personen_eintraege'])}, davon "
+                          f"{_z(bz['personen_bestaetigt'])} bestaetigt, "
+                          f"{_z(bz['personen_mit_kennung'])} mit Kennung")
+            if bz["jahr_min"]:
+                zeilen.append(f"  Datum: {_z(bz['mit_datum'])} von {_z(bz['zeilen'])} tragen eines; "
+                              f"Jahre {bz['jahr_min']}-{bz['jahr_max']}")
+        if beziehungen_uebersicht:
+            ub = beziehungen_uebersicht_lesen(os.path.join(basis, beziehungen_uebersicht))
+            if ub.get("fehlt"):
+                zeilen.append(f"  Uebersicht ({beziehungen_uebersicht}): fehlt - die Kennzahlen der "
+                              f"Antwortstufe fehlen")
+                luecken.append(f"{beziehungen_uebersicht} fehlt (Beziehungs-Kennzahlen fehlen)")
+            elif ub.get("kaputt"):
+                zeilen.append(f"  Uebersicht ({beziehungen_uebersicht}): nicht lesbar (kein JSON)")
+                luecken.append(f"{beziehungen_uebersicht} nicht lesbar")
+            else:
+                arten = ", ".join(f"{name} {_z(n)}" for name, n in sorted(ub["anzahl"].items()))
+                zeilen.append(f"  Uebersicht ({beziehungen_uebersicht}): nennt {_z(ub['summe'])} "
+                              f"Aussagen ({arten or 'keine Arten'}); Kontakte {_z(ub['kontakte'])}, "
+                              f"Kennungen {_z(ub['personen_kennungen'])}"
+                              + (f"; {ub['datum_von']} bis {ub['datum_bis']}" if ub["datum_von"] else ""))
+                if not bz.get("fehlt") and ub["summe"] and ub["summe"] != bz["zeilen"]:
+                    zeilen.append(f"    Abweichung: Uebersicht nennt {_z(ub['summe'])}, gemessen "
+                                  f"{_z(bz['zeilen'])} - Datei und Kennzahlen passen nicht zusammen")
+                    luecken.append(f"{beziehungen}: {_z(bz['zeilen'])} Aussagen, Uebersicht nennt "
+                                   f"{_z(ub['summe'])} (nicht reproduzierbar)")
         zeilen.append("")
 
     if bild_index:

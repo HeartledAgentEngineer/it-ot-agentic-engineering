@@ -796,3 +796,99 @@ def test_anlaesse_lesen_zaehlt_zeilen_ohne_kennung(tmp_path):
     assert e["anlaesse"] == 4 and e["ohne_kennung"] == 2 and e["kaputt"] == 0
     assert e["kennungen"] == {"1", "2", "3", "4"}
     assert e["mit_datum"] == 1 and e["datum_quellen"] == {"sortierplan.json": 1}
+
+
+# ── Beziehungen („wer war mit wem wo") im Nachweis ──────────────────────────
+# `beziehungen_service` (Antwortstufe N28) liest `beziehungen.jsonl` (15.051
+# Aussagen) UND die Uebersicht `beziehungen.json` — beide standen in KEINEM
+# Nachweis. Faellt die Aussagen-Datei weg oder halbiert sie sich, schweigt die
+# Auskunft „wer war mit wem wo", ohne dass es auffiele.
+
+def _beziehungen(tmp_path, uebersicht_summe=None):
+    """``beziehungen.jsonl`` + ``beziehungen.json`` nachgebaut (Fantasienamen).
+
+    Die Namen und Kategorien sind ABSICHTLICH Fantasieworte — der Nachweis darf
+    sie nie zeigen (Privatsphaere). ``uebersicht_summe`` setzt eine abweichende
+    Kennzahl, um die Reproduzierbarkeits-Pruefung zu belegen.
+    """
+    zeilen = [
+        {"anlass_id": "2016-05-04_Anlass-01", "ereignis_kennung": "E-1", "datum": "2016-05-04",
+         "unterart": "gemeinsam_im_chat", "kategorie": "KATEGORIE_DARF_NICHT_ERSCHEINEN",
+         "beleg": {"chat_name": "CHAT_DARF_NICHT_ERSCHEINEN"},
+         "personen": [{"bestaetigt": True, "kennung": "P-1", "name": "NAME_DARF_NICHT_ERSCHEINEN"},
+                      {"bestaetigt": True, "kennung": None, "name": "NAME_DARF_NICHT_ERSCHEINEN"}]},
+        {"anlass_id": "2016-05-04_Anlass-01", "ereignis_kennung": "E-1", "datum": "2016-05-04",
+         "unterart": "fotos", "kategorie": "KATEGORIE_DARF_NICHT_ERSCHEINEN",
+         "personen": [{"bestaetigt": False, "kennung": "P-2", "name": "NAME_DARF_NICHT_ERSCHEINEN"}]},
+        {"anlass_id": "2020-01-01_Anlass-02", "ereignis_kennung": "E-2", "datum": "2020-01-01",
+         "unterart": "fotos_und_chat",
+         "personen": [{"bestaetigt": True, "kennung": "P-3", "name": "NAME_DARF_NICHT_ERSCHEINEN"}]},
+    ]
+    _jsonl(tmp_path / "beziehungen.jsonl", zeilen)
+    summe = uebersicht_summe if uebersicht_summe is not None else 3
+    (tmp_path / "beziehungen.json").write_text(json.dumps({
+        "art": "beziehungen", "stand": "2026-09-29T01:42:52+02:00",
+        "anzahl": {"fotos": 1, "fotos_und_chat": 1, "gemeinsam_im_chat": summe - 2},
+        "anzahl_kontakte": 5, "anzahl_personen_kennungen": 3,
+        "datum_von": "2016-05-04", "datum_bis": "2020-01-01"}), encoding="utf-8")
+
+
+def test_nachweis_zaehlt_beziehungen(tmp_path):
+    """Die Beziehungs-Stufe stand in KEINEM Nachweis — jetzt wird sie gezaehlt."""
+    _bestand(tmp_path)
+    _beziehungen(tmp_path)
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Beziehungen (beziehungen.jsonl): 3 Aussagen, 2 Anlaesse, 2 Tage, 1 Kategorien" in text
+    assert "  Unterarten: fotos 1, fotos_und_chat 1, gemeinsam_im_chat 1" in text
+    assert "  Personen-Eintraege: 4, davon 3 bestaetigt, 3 mit Kennung" in text
+    assert "  Datum: 3 von 3 tragen eines; Jahre 2016-2020" in text
+    assert ("  Uebersicht (beziehungen.json): nennt 3 Aussagen (fotos 1, fotos_und_chat 1, "
+            "gemeinsam_im_chat 1); Kontakte 5, Kennungen 3; 2016-05-04 bis 2020-01-01") in text
+
+
+def test_nachweis_zeigt_keine_namen_und_meldet_abweichung(tmp_path):
+    """Nur Zahlen: kein Name, kein Chat-Name, keine Kategorie; Abweichung als Luecke."""
+    _bestand(tmp_path)
+    _beziehungen(tmp_path, uebersicht_summe=99)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    for verboten in ("NAME_DARF_NICHT_ERSCHEINEN", "CHAT_DARF_NICHT_ERSCHEINEN",
+                     "KATEGORIE_DARF_NICHT_ERSCHEINEN"):
+        assert verboten not in text
+    assert "    Abweichung: Uebersicht nennt 99, gemessen 3" in text
+    assert "beziehungen.jsonl: 3 Aussagen, Uebersicht nennt 99 (nicht reproduzierbar)" in luecken
+
+
+def test_nachweis_meldet_fehlende_beziehungen_ehrlich(tmp_path):
+    """Fehlen die Dateien, steht das als Luecke — nicht als stiller Nullwert."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Beziehungen (beziehungen.jsonl): fehlt" in text
+    assert "  Uebersicht (beziehungen.json): fehlt" in text
+    assert "beziehungen.jsonl fehlt (Beziehungen nicht abgeleitet)" in luecken
+    assert "beziehungen.json fehlt (Beziehungs-Kennzahlen fehlen)" in luecken
+    # abschaltbar (z. B. fuer einen Bestand ohne Beziehungen)
+    assert "Beziehungen" not in "\n".join(
+        bp.pruefen(str(tmp_path), beziehungen=None, beziehungen_uebersicht=None)[0])
+
+
+def test_beziehungen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
+    """Fehlende und kaputte Dateien ergeben ehrliche Zahlen, keinen Wurf."""
+    e = bp.beziehungen_lesen(str(tmp_path / "gibts_nicht.jsonl"))
+    assert e["fehlt"] is True and e["zeilen"] == 0 and e["anlaesse"] == set()
+    (tmp_path / "halb.jsonl").write_text(
+        json.dumps({"anlass_id": "A-1", "datum": "2021-03-04", "unterart": "fotos",
+                    "personen": [{"bestaetigt": True, "kennung": "P-1"}]}) + "\nnur text\n",
+        encoding="utf-8")
+    e2 = bp.beziehungen_lesen(str(tmp_path / "halb.jsonl"))
+    assert e2["zeilen"] == 1 and e2["kaputt"] == 1
+    assert e2["anlaesse"] == {"A-1"} and e2["tage"] == {"2021-03-04"}
+    assert e2["personen_eintraege"] == 1 and e2["personen_bestaetigt"] == 1
+    assert e2["personen_mit_kennung"] == 1 and e2["jahr_min"] == 2021 and e2["jahr_max"] == 2021
+    # Uebersicht-Leser: fehlend und kaputt ergeben ehrliche Werte, keinen Wurf.
+    u = bp.beziehungen_uebersicht_lesen(str(tmp_path / "keine.json"))
+    assert u["fehlt"] is True and u["summe"] == 0 and u["anzahl"] == {}
+    (tmp_path / "kaputt.json").write_text("{kein json", encoding="utf-8")
+    u2 = bp.beziehungen_uebersicht_lesen(str(tmp_path / "kaputt.json"))
+    assert u2["fehlt"] is False and u2["kaputt"] is True and u2["summe"] == 0
