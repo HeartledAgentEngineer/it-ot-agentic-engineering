@@ -37,8 +37,11 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Kennungen im Plan stehen, und die Zahl vor Sebastians
                       Kostenentscheidung soll Bilder zaehlen, nicht Dateien.
                       Dazu nennt sie die Endungen der nicht ladbaren Dateien
-                      (Format, kein Name) und ob ein fehlendes Bild unter einer
-                      anderen Kennung schon beschrieben ist.
+                      (Format, kein Name). **Der Name ist dabei nur ein Hinweis:**
+                      dieselbe Zahl wird zusaetzlich auf die Pruefsummen der
+                      Duplikat-Pruefung gestuetzt (gleiche Groesse UND gleiche
+                      Pruefsumme = derselbe Inhalt, ``duplikate.json``) — nur das
+                      ist belegt, und nur das darf sich „dasselbe Bild" nennen.
   * Gruppen:          ``personen_gruppen/personen_beispiele.json`` und
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
@@ -815,7 +818,8 @@ def _grund_zeile(zaehler: Dict[str, int]) -> str:
 
 
 def bilder_zaehlen(fehlende: Iterable[str], namen_je_kennung: Optional[Dict[str, str]] = None,
-                   beschrieben: Optional[Set[str]] = None) -> Dict[str, int]:
+                   beschrieben: Optional[Set[str]] = None,
+                   inhaltsgleich: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
     """Kennungen in BILDER umrechnen: derselbe Dateiname = dasselbe Bild.
 
     Eine Kennung ist eine Datei, nicht ein Bild: dasselbe Bild kann unter zwei
@@ -824,20 +828,40 @@ def bilder_zaehlen(fehlende: Iterable[str], namen_je_kennung: Optional[Dict[str,
     Kostenentscheidung. Gemessen (12.10.2026): 8 Kennungen = 6 Bilder, weil zwei
     Namen je doppelt vorkommen.
 
+    **Der Name ist ein Hinweis, kein Beleg.** Zwei Dateien mit demselben Namen
+    koennen zwei verschiedene Fotos sein (Kameranamen wie ``IMG_20241117…``
+    kommen mehrfach vor). Belastbar ist nur: gleiche Groesse UND gleiche
+    Pruefsumme = derselbe Inhalt (``duplikate.json``, ``inhaltsgleich``). Deshalb
+    trennt diese Funktion beides:
+      * Name — ``bilder`` / ``doppelte_kennungen`` / ``anderswo_beschrieben``
+        (wie bisher, unveraendert),
+      * Inhalt — ``inhaltsgruppen`` / ``inhaltsgleich_kennungen`` /
+        ``inhaltsgleich_beschrieben`` und, **nur wenn Pruefsummen vorliegen**,
+        ``inhalte`` und ``bilder_ohne_text_belegt``.
+
     Gezaehlt werden (nur Zahlen, NIE ein Name):
       * ``kennungen`` — die uebergebenen Kennungen,
       * ``bilder`` — verschiedene Namen (+ 1 je Eintrag ohne Namen),
       * ``doppelte_kennungen`` — Kennungen, deren Name bei den Fehlenden mehrfach steht,
       * ``ohne_name`` — Eintraege ohne Namen im Plan (Fotobuch-Scans),
       * ``anderswo_beschrieben`` — Fehlende, deren Name unter einer ANDEREN
-        Kennung schon einen Beschreibungstext hat (das Bild ist beschrieben),
-      * ``bilder_ohne_text`` — verschiedene Namen ohne irgendwo vorhandenen Text.
+        Kennung schon einen Beschreibungstext hat (nur ein NAME-Treffer: ob es
+        dasselbe Bild ist, sagt der Name nicht),
+      * ``bilder_ohne_text`` — verschiedene Namen ohne irgendwo vorhandenen Text
+        (Name-Sicht, unveraendert),
+      * ``inhaltsgruppen`` — Zahl der Gruppen gleichen Inhalts unter den Fehlenden,
+      * ``inhaltsgleich_kennungen`` — Fehlende mit einer inhaltsgleichen anderen Kennung,
+      * ``inhaltsgleich_beschrieben`` — Fehlende, deren Inhalt schon einen Text hat
+        (eine Beschreibung deckt beide Kopien ab),
+      * ``inhalte`` / ``bilder_ohne_text_belegt`` — verschiedene INHALTE unter den
+        Fehlenden und davon ohne Text; ``None`` ohne Pruefsummen-Daten (nichts geraten).
 
     Ohne ``namen_je_kennung`` (aeltere Aufrufer, abgeschaltete Pruefung) bleibt
     alles 0 — es wird nichts geraten.
     """
     namen_je_kennung = namen_je_kennung or {}
     beschrieben = beschrieben or set()
+    inhaltsgleich = inhaltsgleich or {}
     liste = list(fehlende)
     namen_beschrieben = {namen_je_kennung[k] for k in beschrieben if k in namen_je_kennung}
     je_name: Dict[str, int] = {}
@@ -852,9 +876,48 @@ def bilder_zaehlen(fehlende: Iterable[str], namen_je_kennung: Optional[Dict[str,
             anderswo += 1
     doppelt = sum(n - 1 for n in je_name.values() if n > 1)
     ohne_text = len([n for n in je_name if n not in namen_beschrieben])
-    return {"kennungen": len(liste), "bilder": len(je_name) + ohne_name,
-            "doppelte_kennungen": doppelt, "ohne_name": ohne_name,
-            "anderswo_beschrieben": anderswo, "bilder_ohne_text": ohne_text + ohne_name}
+    ergebnis: Dict[str, Any] = {"kennungen": len(liste), "bilder": len(je_name) + ohne_name,
+                                "doppelte_kennungen": doppelt, "ohne_name": ohne_name,
+                                "anderswo_beschrieben": anderswo,
+                                "bilder_ohne_text": ohne_text + ohne_name,
+                                "inhaltsgruppen": 0, "inhaltsgleich_kennungen": 0,
+                                "inhaltsgleich_beschrieben": 0,
+                                "inhalte": None, "bilder_ohne_text_belegt": None}
+    if not inhaltsgleich:
+        return ergebnis
+    # Verbund ueber die Pruefsummen-Partner bilden: je Gruppe gleichen Inhalts
+    # eine Wurzel. Nur Kennungen, nie ein Name.
+    eltern: Dict[str, str] = {}
+
+    def wurzel(kennung: str) -> str:
+        while eltern.get(kennung, kennung) != kennung:
+            kennung = eltern[kennung]
+        return kennung
+
+    def vereine(a: str, b: str) -> None:
+        ra, rb = wurzel(a), wurzel(b)
+        if ra != rb:
+            eltern[max(ra, rb)] = min(ra, rb)
+
+    for k in liste:
+        for partner in (inhaltsgleich.get(k) or ()):
+            vereine(k, partner)
+    ergebnis["inhaltsgleich_kennungen"] = len([k for k in liste if inhaltsgleich.get(k)])
+    # Inhalt-Klassen: alle Kennungen, die ueber Pruefsummen-Gleichheit
+    # zusammenhaengen. Gezaehlt werden nur Klassen, in denen eine FEHLENDE
+    # Kennung haengt; eine Klasse deckt sich mit einem Text, wenn irgendeine
+    # ihrer Kennungen (auch eine nicht fehlende) schon beschrieben ist.
+    klassen: Dict[str, Set[str]] = {}
+    for k in liste:
+        klassen.setdefault(wurzel(k), set()).add(k)
+    inhalte = len(klassen)
+    mit_text = len([k for k, g in klassen.items() if g & beschrieben])
+    ergebnis["inhaltsgruppen"] = len([g for g in klassen.values() if len(g) > 1])
+    ergebnis["inhaltsgleich_beschrieben"] = len(
+        [k for k in liste if inhaltsgleich.get(k) and beschrieben & set(inhaltsgleich.get(k) or ())])
+    ergebnis["inhalte"] = inhalte
+    ergebnis["bilder_ohne_text_belegt"] = inhalte - mit_text
+    return ergebnis
 
 
 def endungen_zaehlen(kennungen: Iterable[str], namen_je_kennung: Optional[Dict[str, str]] = None,
@@ -1522,6 +1585,11 @@ def duplikate_lesen(pfad: str) -> Dict[str, Any]:
     die Duplikat-Gruppen (Anzahl, Mitglieder, Zahl je ``art``, Kandidaten je
     Gruppe) und die Kandidaten-Gesamtliste. Die Mitglieder-NAMEN, Pfade und
     Pruefsummen der Gruppen werden NICHT gelesen oder ausgegeben — nur ihre Zahl.
+
+    Zusaetzlich (fuer die Umrechnung Kennung -> Bild): ``inhaltsgleich`` bildet
+    je Kennung die Partner-Kennungen derselben Gruppe ab — gleiche Groesse UND
+    gleiche Pruefsumme heisst **derselbe Inhalt**, das ist die einzige belastbare
+    Gleichheit (der Dateiname ist es nicht). Nur Kennungen, nie ein Name.
     Nie ein Wurf: fehlt/kaputt werden ehrlich gemeldet.
     """
     e: Dict[str, Any] = {
@@ -1530,6 +1598,7 @@ def duplikate_lesen(pfad: str) -> Dict[str, Any]:
         "arten": {}, "mitglieder": 0, "gruppen_anzahl": 0, "kandidaten_aus_gruppen": 0,
         "kandidaten_dateien": 0, "kandidaten_mb": 0.0, "kandidaten_liste": 0,
         "zahlen": {}, "mb": {}, "ueber_baeume": {}, "innerhalb": {},
+        "inhaltsgleich": {}, "inhaltsgleich_kennungen": 0,
     }
     if not os.path.isfile(pfad):
         return e
@@ -1565,6 +1634,12 @@ def duplikate_lesen(pfad: str) -> Dict[str, Any]:
         e["gruppen_anzahl"] += _ganze_zahl(gruppe.get("anzahl"))
         if isinstance(gruppe.get("mitglieder"), list):
             e["mitglieder"] += len(gruppe["mitglieder"])
+            # Gleiche Groesse UND gleiche Pruefsumme = derselbe Inhalt. Nur die
+            # Kennungen werden verknuepft (nie Name, Pfad oder Pruefsumme).
+            kennungen = [k for k in (_kennung(m.get("fileid"))
+                                     for m in gruppe["mitglieder"] if isinstance(m, dict)) if k]
+            for k in kennungen:
+                e["inhaltsgleich"].setdefault(k, set()).update(x for x in kennungen if x != k)
         if isinstance(gruppe.get("loesch_kandidaten"), list):
             e["kandidaten_aus_gruppen"] += len(gruppe["loesch_kandidaten"])
         art = _kennung(gruppe.get("art")) or "ohne_art"
@@ -1587,6 +1662,8 @@ def duplikate_lesen(pfad: str) -> Dict[str, Any]:
     innerhalb = zus.get("innerhalb")
     e["innerhalb"] = {str(n): _zahlen_baum(b) for n, b in
                       (innerhalb.items() if isinstance(innerhalb, dict) else [])}
+    e["inhaltsgleich"] = {k: tuple(sorted(v)) for k, v in e["inhaltsgleich"].items()}
+    e["inhaltsgleich_kennungen"] = len(e["inhaltsgleich"])
     return e
 
 
@@ -2544,6 +2621,10 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             luecken.append(f"{name}: {_z(len(v) - g_v)} Videos ohne Gesichter-Lauf")
         if b_f < len(f):
             luecken.append(f"{name}: {_z(len(f) - b_f)} Fotos ohne Beschreibung")
+    # Die Duplikat-Pruefung wird EINMAL gelesen: sie traegt die einzige belastbare
+    # Gleichheit (gleiche Groesse UND gleiche Pruefsumme = derselbe Inhalt) fuer
+    # die Umrechnung Kennung -> Bild weiter unten.
+    dp = duplikate_lesen(os.path.join(basis, duplikate)) if duplikate else None
     if gesamtplan:
         gp = gesamtplan_lesen(os.path.join(basis, gesamtplan))
         if gp.get("fehlt"):
@@ -2569,17 +2650,36 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 zeilen.append("  " + _grund_zeile(zaehler))
                 # Kennung ist nicht Bild: dasselbe Foto kann unter zwei
                 # Kennungen im Plan stehen. Vor der Kostenentscheidung muss die
-                # Zahl die BILDER nennen, nicht die Dateien.
-                bn = bilder_zaehlen(f - beschrieben, gp.get("namen_je_kennung"), beschrieben)
+                # Zahl die BILDER nennen, nicht die Dateien. Der NAME ist dabei
+                # nur ein Hinweis — belastbar ist die Pruefsumme (gleiche Groesse
+                # UND gleiche Pruefsumme = derselbe Inhalt, ``duplikate.json``).
+                inhaltsgleich = (dp or {}).get("inhaltsgleich") or {}
+                bn = bilder_zaehlen(f - beschrieben, gp.get("namen_je_kennung"), beschrieben,
+                                    inhaltsgleich)
                 if bn["bilder"] != bn["kennungen"] or bn["anderswo_beschrieben"]:
                     zeilen.append(
                         f"  Bilder statt Kennungen: {_z(bn['kennungen'])} Kennungen = "
                         f"{_z(bn['bilder'])} Bilder"
                         + (f" ({_z(bn['doppelte_kennungen'])} Kennungen sind Doppel desselben "
                            f"Namens)" if bn["doppelte_kennungen"] else "")
-                        + (f"; {_z(bn['anderswo_beschrieben'])} davon ist unter einer anderen "
-                           f"Kennung schon beschrieben" if bn["anderswo_beschrieben"] else "")
-                        + f" - ohne Beschreibungstext bleiben {_z(bn['bilder_ohne_text'])} Bilder")
+                        + (f"; {_z(bn['anderswo_beschrieben'])} davon traegt einen Namen, der "
+                           f"an einer anderen Kennung schon beschrieben ist (Name ist kein "
+                           f"Beleg fuer denselben Inhalt)"
+                           if bn["anderswo_beschrieben"] else "")
+                        + f" - die Namens-Sicht ergaebe {_z(bn['bilder_ohne_text'])} Bilder "
+                          f"ohne Beschreibungstext (nicht belegt)")
+                if bn["inhalte"] is not None and (bn["inhaltsgruppen"]
+                                                  or bn["inhalte"] != bn["bilder"]):
+                    stand_dp = ((dp or {}).get("stand") or "")[:10] or "ohne Stand"
+                    zeilen.append(
+                        f"  Inhaltsgleich (Pruefsumme, {duplikate} vom {stand_dp}): "
+                        f"{_z(bn['inhaltsgleich_kennungen'])} der {_z(bn['kennungen'])} "
+                        f"Kennungen haben eine inhaltsgleiche andere Datei, "
+                        f"{_z(bn['inhaltsgruppen'])} Gruppe(n) gleichen Inhalts unter den "
+                        f"Fehlenden; {_z(bn['inhaltsgleich_beschrieben'])} davon hat schon "
+                        f"einen Text - es bleiben {_z(bn['inhalte'])} verschiedene Bilder, "
+                        f"{_z(bn['bilder_ohne_text_belegt'])} davon ohne Beschreibungstext "
+                        f"(belastbare Zahl fuer die Kostenentscheidung)")
                 # Der Grund „nicht ladbar" hat oft eine technische Ursache, die
                 # die Endung zeigt (Format, kein Name).
                 ohne_masse = [k for k in (f - beschrieben) if k in alle_bilder and k not in mit_massen]
@@ -2831,7 +2931,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
         zeilen.append("")
 
     if duplikate:
-        dp = duplikate_lesen(os.path.join(basis, duplikate))
+        dp = dp if dp is not None else duplikate_lesen(os.path.join(basis, duplikate))
         if dp.get("fehlt"):
             zeilen.append(f"Doppelte (pCloud): {duplikate} fehlt - die Duplikat-Pruefung ist "
                           f"nicht gelaufen (pcloud_duplikate.py, nur lesend, kein Loeschen)")

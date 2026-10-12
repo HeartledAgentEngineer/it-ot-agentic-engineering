@@ -2201,9 +2201,10 @@ def test_gesamtplan_rechnet_kennungen_in_bilder_um(tmp_path):
     zeilen, luecken = bp.pruefen(str(tmp_path))
     text = "\n".join(zeilen)
     assert "Fehlende Fotos (4), mit Kennung und Grund:" in text
-    assert ("  Bilder statt Kennungen: 4 Kennungen = 3 Bilder (1 Kennungen sind Doppel "
-            "desselben Namens); 1 davon ist unter einer anderen Kennung schon beschrieben "
-            "- ohne Beschreibungstext bleiben 2 Bilder") in text
+    assert (("  Bilder statt Kennungen: 4 Kennungen = 3 Bilder (1 Kennungen sind Doppel "
+             "desselben Namens); 1 davon traegt einen Namen, der an einer anderen Kennung "
+             "schon beschrieben ist (Name ist kein Beleg fuer denselben Inhalt) "
+             "- die Namens-Sicht ergaebe 2 Bilder ohne Beschreibungstext (nicht belegt)") in text)
     # Die Luecke selbst bleibt die Luecke (nichts wird schoengerechnet).
     assert "sortierplan_reich_gesamt.json: 4 Fotos ohne Beschreibung" in luecken
     # Ohne Bildmasse gibt es hier nichts zu melden.
@@ -2237,10 +2238,14 @@ def test_gesamtplan_nennt_endungen_der_nicht_ladbaren(tmp_path):
 
 def test_bilder_zaehlen_und_endungen_tolerant_und_ohne_namen(tmp_path):
     """Die zwei neuen Zaehler: nichts geraten, nichts benannt."""
-    # Ohne Namenskarte bleibt es bei den Kennungen (aeltere Aufrufer).
+    # Ohne Namenskarte bleibt es bei den Kennungen (aeltere Aufrufer); die
+    # Pruefsummen-Sicht bleibt ehrlich leer (nichts geraten).
     leer = bp.bilder_zaehlen(["1", "2"], None, set())
-    assert leer == {"kennungen": 2, "bilder": 2, "doppelte_kennungen": 0,
-                    "ohne_name": 2, "anderswo_beschrieben": 0, "bilder_ohne_text": 2}
+    assert leer["kennungen"] == 2 and leer["bilder"] == 2
+    assert leer["doppelte_kennungen"] == 0 and leer["ohne_name"] == 2
+    assert leer["anderswo_beschrieben"] == 0 and leer["bilder_ohne_text"] == 2
+    assert leer["inhalte"] is None and leer["bilder_ohne_text_belegt"] is None
+    assert leer["inhaltsgruppen"] == 0 and leer["inhaltsgleich_kennungen"] == 0
     karte = {"1": "a.jpg", "2": "a.jpg", "3": "b.jpg", "9": "a.jpg"}
     z = bp.bilder_zaehlen(["1", "2", "3"], karte, {"9"})
     assert z["kennungen"] == 3 and z["bilder"] == 2        # a.jpg zweimal = ein Bild
@@ -2256,3 +2261,130 @@ def test_bilder_zaehlen_und_endungen_tolerant_und_ohne_namen(tmp_path):
     assert bp.endungen_zaehlen(["1", "2", "3"], {"1": "A.jpg", "2": "B.JPG",
                                                 "3": "C.webp"}, max_endungen=1) == [(".jpg", 2)]
     assert bp.endungen_zaehlen(["1"], None) == [("(ohne Endung)", 1)]
+
+
+# ── Pruefsummen-Sicht: Name ist ein Hinweis, Inhalt ist der Beleg ────────────
+# Vor der Kostenentscheidung (Sebastians bezahlter Nachzieh-Lauf) stand die Zahl
+# auf einem NAME-Treffer: „dasselbe Foto unter zwei Kennungen". Zwei Dateien mit
+# demselben Namen koennen aber zwei verschiedene Fotos sein. Belastbar ist nur
+# gleiche Groesse UND gleiche Pruefsumme (``duplikate.json``).
+
+def _duplikate_inhalt(tmp_path, gruppen, stand="2026-10-12T18:23:45+02:00"):
+    """Kleine ``duplikate.json`` mit Pruefsummen-Gruppen (Fantasienamen/Pfade)."""
+    mitglieder = sum(len(g) for g in gruppen)
+    datei = {
+        "stand": stand, "trocken": True, "tiefe_grenze": 8,
+        "baeume": {
+            "upload": {"gelesen": True, "dateien": 10, "ordner_gelesen": 2,
+                       "tiefe_erreicht": 2, "abgebrochen": False, "offen_gelassen": 0,
+                       "ohne_hash": 0, "ohne_groesse": 0, "ohne_kennung": 0,
+                       "kaputte_eintraege": 0},
+            "sammlung": {"gelesen": True, "dateien": 10, "ordner_gelesen": 2,
+                         "tiefe_erreicht": 2, "abgebrochen": False, "offen_gelassen": 0,
+                         "ohne_hash": 0, "ohne_groesse": 0, "ohne_kennung": 0,
+                         "kaputte_eintraege": 0},
+        },
+        "gruppen": [
+            {"size": 1000, "hash": 111, "hash_text": "GEHEIMHASH", "anzahl": len(g),
+             "art": "innerhalb_sammlung", "baeume": ["sammlung"],
+             "mitglieder": [{"fileid": k, "name": "GEHEIMNAME.jpg", "pfad": "/GEHEIMPFAD"}
+                            for k in g],
+             "loesch_kandidaten": []}
+            for g in gruppen
+        ],
+        "loesch_kandidaten": {"dateien": 0, "mb": 0.0, "liste": []},
+        "zusammenfassung": {
+            "gescannte_dateien": 20, "vergleichbare_dateien": 20,
+            "duplikatgruppen": len(gruppen), "betroffene_dateien": mitglieder,
+            "mb_alle_kopien": 1.0, "mb_freigabe_kandidaten": 0.0,
+            "ueber_baeume": _zahlen_baum_dummy(),
+            "innerhalb": {"upload": _zahlen_baum_dummy(), "sammlung": _zahlen_baum_dummy()},
+        },
+    }
+    (tmp_path / "duplikate.json").write_text(json.dumps(datei), encoding="utf-8")
+
+
+def _zahlen_baum_dummy():
+    return {"gruppen": 0, "dateien": 0, "mb_alle_kopien": 0.0, "mb_freigabe_kandidaten": 0.0}
+
+
+def test_duplikate_lesen_verknuepft_inhaltsgleiche_kennungen(tmp_path):
+    """Die Pruefsummen-Gruppen werden als Kennungs-Paare lesbar — ohne Namen."""
+    _duplikate_inhalt(tmp_path, [["11", "12"], ["13", "14", "15"]])
+    d = bp.duplikate_lesen(os.path.join(str(tmp_path), "duplikate.json"))
+    assert d["inhaltsgleich_kennungen"] == 5
+    assert d["inhaltsgleich"]["11"] == ("12",)
+    assert d["inhaltsgleich"]["12"] == ("11",)
+    assert set(d["inhaltsgleich"]["13"]) == {"14", "15"}
+    # Nur Kennungen — kein Name, kein Pfad, keine Pruefsumme.
+    for werte in d["inhaltsgleich"].values():
+        for wert in werte:
+            assert wert.isdigit()
+    # Ohne Datei: ehrlich leer, kein Wurf.
+    leer = bp.duplikate_lesen(os.path.join(str(tmp_path), "gibtsnicht.json"))
+    assert leer["inhaltsgleich"] == {} and leer["inhaltsgleich_kennungen"] == 0
+
+
+def test_bilder_zaehlen_trennt_name_und_inhalt():
+    """Der Name ist ein Hinweis (unveraendert), der Inhalt ist der Beleg."""
+    karte = {"1": "a.jpg", "2": "a.jpg", "3": "b.jpg", "9": "a.jpg"}
+    ohne = bp.bilder_zaehlen(["1", "2", "3"], karte, {"9"})
+    assert ohne["inhalte"] is None and ohne["bilder_ohne_text_belegt"] is None
+    # 1+2 sind inhaltsgleich (Pruefsumme): aus zwei Kennungen wird ein Inhalt.
+    gleich = {"1": ("2",), "2": ("1",)}
+    z = bp.bilder_zaehlen(["1", "2", "3"], karte, {"9"}, gleich)
+    assert z["inhaltsgruppen"] == 1 and z["inhaltsgleich_kennungen"] == 2
+    assert z["inhaltsgleich_beschrieben"] == 0
+    # Der Text bei 9 zaehlt hier NICHT mit: gleicher Name, aber kein belegter
+    # gleicher Inhalt — genau die Korrektur.
+    assert z["inhalte"] == 2 and z["bilder_ohne_text_belegt"] == 2
+    # Ein inhaltsgleicher beschriebener Zwilling deckt den Text ab.
+    z2 = bp.bilder_zaehlen(["1", "2"], karte, {"2"}, {"1": ("2",), "2": ("1",)})
+    assert z2["inhaltsgleich_beschrieben"] == 1
+    assert z2["inhalte"] == 1 and z2["bilder_ohne_text_belegt"] == 0
+    # Inhaltsgleich zu einem NICHT fehlenden Bild zaehlt die Klasse mit.
+    z3 = bp.bilder_zaehlen(["3"], karte, set(), {"3": ("7",), "7": ("3",)})
+    assert z3["inhaltsgruppen"] == 0 and z3["inhaltsgleich_kennungen"] == 1
+    assert z3["inhalte"] == 1 and z3["bilder_ohne_text_belegt"] == 1
+
+
+def test_gesamtplan_nennt_die_belastbare_bilderzahl(tmp_path):
+    """Der echte Fall: zwei Namenspaare, aber nur der Inhalt ist belegt.
+
+    Plan: 21/22 ``gleich.jpg``, 23/24 ``anders.jpg``, 25 ``IMG_9.jpg``; die
+    Duplikat-Pruefung belegt die zwei Paare. 25 traegt einen Namen, der an der
+    Kennung 99 schon beschrieben ist — der Inhalt ist damit NICHT belegt.
+    """
+    _gesamtplan_dubletten(
+        tmp_path,
+        [(21, "gleich.jpg"), (22, "gleich.jpg"), (23, "anders.jpg"), (24, "anders.jpg"),
+         (25, "IMG_9.jpg"), (99, "IMG_9.jpg")],
+        beschrieben_ids=(99,))
+    _duplikate_inhalt(tmp_path, [["21", "22"], ["23", "24"]])
+    zeilen, _ = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    # Namens-Sicht bleibt stehen, aber als „nicht belegt" gekennzeichnet.
+    assert "Bilder statt Kennungen: 5 Kennungen = 3 Bilder" in text
+    assert "die Namens-Sicht ergaebe 2 Bilder ohne Beschreibungstext (nicht belegt)" in text
+    assert "Name ist kein Beleg fuer denselben Inhalt" in text
+    # Die belastbare Zahl: 2 Paare + 1 Einzelnes = 3 Inhalte, keiner mit Text.
+    assert ("Inhaltsgleich (Pruefsumme, duplikate.json vom 2026-10-12): 4 der 5 Kennungen "
+            "haben eine inhaltsgleiche andere Datei, 2 Gruppe(n) gleichen Inhalts unter den "
+            "Fehlenden; 0 davon hat schon einen Text - es bleiben 3 verschiedene Bilder, "
+            "3 davon ohne Beschreibungstext (belastbare Zahl fuer die Kostenentscheidung)") in text
+    # Kein Name, kein Pfad, keine Pruefsumme im Bericht.
+    for verboten in ("GEHEIMNAME", "GEHEIMPFAD", "GEHEIMHASH", "gleich.jpg", "IMG_9.jpg"):
+        assert verboten not in text
+
+
+def test_gesamtplan_ohne_pruefsummen_bleibt_bei_der_namenssicht(tmp_path):
+    """Fehlen die Pruefsummen-Daten, wird NICHT geraten: die Inhalts-Zeile bleibt weg."""
+    _gesamtplan_dubletten(tmp_path, [(31, "dopp.jpg"), (32, "dopp.jpg")])
+    ohne = "\n".join(bp.pruefen(str(tmp_path), duplikate=None)[0])
+    assert "Bilder statt Kennungen: 2 Kennungen = 1 Bilder" in ohne
+    assert "Inhaltsgleich (Pruefsumme" not in ohne
+    # Auch eine vorhandene, aber gruppenlose Datei ergibt keine Zeile.
+    _duplikate_inhalt(tmp_path, [])
+    leer = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Inhaltsgleich (Pruefsumme" not in leer
+    assert "Bilder statt Kennungen" in leer
