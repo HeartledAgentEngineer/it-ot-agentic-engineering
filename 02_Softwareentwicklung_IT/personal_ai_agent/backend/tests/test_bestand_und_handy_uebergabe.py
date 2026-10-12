@@ -2176,3 +2176,83 @@ def test_nachweis_zeigt_geraeteseitige_dateien_ohne_rueckweg(tmp_path):
     assert ("  Geraeteseitige Dateien: 19 bekannt, 2 mit Rueckweg, 17 ohne: "
             "antworten.jsonl, archiv_index.db") in text
     assert not [l for l in luecken if "Rueckweg" in l]
+
+
+# ── Kennung ist nicht Bild (12.10.2026) ──────────────────────────────────────
+
+def _gesamtplan_dubletten(tmp_path, namen, beschrieben_ids=()):
+    (tmp_path / "sortierplan_reich_gesamt.json").write_text(json.dumps({"zuege": [
+        {"fileid": k, "von_name": n} for k, n in namen]}), encoding="utf-8")
+    _jsonl(tmp_path / "personen_vektoren_n0929_voll.jsonl", [
+        {"bild_id": str(k), "breite": 100, "hoehe": 200, "gesichter": []} for k, _ in namen])
+    _jsonl(tmp_path / "bild_beschreibungen.jsonl", [
+        {"fileid": k, "beschreibung": "x"} for k in beschrieben_ids])
+
+
+def test_gesamtplan_rechnet_kennungen_in_bilder_um(tmp_path):
+    """Dasselbe Foto unter zwei Kennungen ist EIN Bild — vor der Kostenfrage muss
+    die Zahl die Bilder nennen. Hier: 4 fehlende Kennungen = 3 Bilder, eines
+    davon unter einer anderen Kennung schon beschrieben."""
+    _gesamtplan_dubletten(
+        tmp_path,
+        [(11, "gleich.jpg"), (12, "gleich.jpg"), (13, "allein.jpg"),
+         (14, "schon.jpg"), (15, "schon.jpg")],
+        beschrieben_ids=(15,))
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Fehlende Fotos (4), mit Kennung und Grund:" in text
+    assert ("  Bilder statt Kennungen: 4 Kennungen = 3 Bilder (1 Kennungen sind Doppel "
+            "desselben Namens); 1 davon ist unter einer anderen Kennung schon beschrieben "
+            "- ohne Beschreibungstext bleiben 2 Bilder") in text
+    # Die Luecke selbst bleibt die Luecke (nichts wird schoengerechnet).
+    assert "sortierplan_reich_gesamt.json: 4 Fotos ohne Beschreibung" in luecken
+    # Ohne Bildmasse gibt es hier nichts zu melden.
+    assert "Ohne Bildmasse" not in text
+
+
+def test_gesamtplan_bilder_zeile_bleibt_aus_wenn_nichts_zu_buendeln(tmp_path):
+    """Ehrlich statt immer: ohne Doppel-Namen und ohne anderswo beschriebenes Bild
+    steht die Zeile NICHT da (sonst waere sie Rauschen mit falscher Aussage)."""
+    _gesamtplan_dubletten(tmp_path, [(21, "einmalig.jpg")])
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Fehlende Fotos (1), mit Kennung und Grund:" in text
+    assert "einmalig.jpg" not in text
+    assert "21: Bild geladen, kein Beschreibungseintrag" in text
+    assert "Bilder statt Kennungen" not in text
+
+
+def test_gesamtplan_nennt_endungen_der_nicht_ladbaren(tmp_path):
+    """Der Grund „nicht ladbar" bekommt die Endung (Format, kein Name) — damit
+    steht im Bericht, ob das Format schuld sein kann oder die Datei selbst."""
+    _gesamtplan_dubletten(tmp_path, [(31, "GEHEIMNAME.jpg"), (32, "zwei.webp")])
+    _jsonl(tmp_path / "personen_vektoren_n0929_voll.jsonl", [
+        {"bild_id": "31", "breite": 0, "hoehe": 0, "gesichter": []},
+        {"bild_id": "32", "breite": 0, "hoehe": 0, "gesichter": []}])
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    assert "Ohne Bildmasse (nicht ladbar): 2 - Endungen: .jpg 1, .webp 1" in text
+    # Nur die Endung, nie der Dateiname.
+    assert "GEHEIMNAME" not in text
+    assert ".jpg" in text and ".webp" in text
+
+
+def test_bilder_zaehlen_und_endungen_tolerant_und_ohne_namen(tmp_path):
+    """Die zwei neuen Zaehler: nichts geraten, nichts benannt."""
+    # Ohne Namenskarte bleibt es bei den Kennungen (aeltere Aufrufer).
+    leer = bp.bilder_zaehlen(["1", "2"], None, set())
+    assert leer == {"kennungen": 2, "bilder": 2, "doppelte_kennungen": 0,
+                    "ohne_name": 2, "anderswo_beschrieben": 0, "bilder_ohne_text": 2}
+    karte = {"1": "a.jpg", "2": "a.jpg", "3": "b.jpg", "9": "a.jpg"}
+    z = bp.bilder_zaehlen(["1", "2", "3"], karte, {"9"})
+    assert z["kennungen"] == 3 and z["bilder"] == 2        # a.jpg zweimal = ein Bild
+    assert z["doppelte_kennungen"] == 1 and z["ohne_name"] == 0
+    assert z["anderswo_beschrieben"] == 2                  # a.jpg liegt bei 9 beschrieben
+    assert z["bilder_ohne_text"] == 1
+    # Eintrag ohne Namen zaehlt als eigenes Bild, nicht als Dublette.
+    z2 = bp.bilder_zaehlen(["1", "8"], {"1": "a.jpg"}, set())
+    assert z2["bilder"] == 2 and z2["doppelte_kennungen"] == 0
+    # Endungen: klein geschrieben, zusammengefasst, gedeckelt, ohne Endung benannt.
+    assert bp.endungen_zaehlen(["1", "2", "3"], {"1": "A.jpg", "2": "B.JPG",
+                                                "3": "C.webp"}) == [(".jpg", 2), (".webp", 1)]
+    assert bp.endungen_zaehlen(["1", "2", "3"], {"1": "A.jpg", "2": "B.JPG",
+                                                "3": "C.webp"}, max_endungen=1) == [(".jpg", 2)]
+    assert bp.endungen_zaehlen(["1"], None) == [("(ohne Endung)", 1)]

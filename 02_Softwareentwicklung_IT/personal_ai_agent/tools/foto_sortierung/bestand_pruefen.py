@@ -32,6 +32,13 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       kein Beschreibungseintrag`` (offener Rest). Zusaetzlich
                       wird vermerkt, wenn derselbe Dateiname im Plan mehrfach
                       vorkommt (Dublette, nur die Zahl — nie der Name).
+                      Seit 12.10.2026 rechnet die Zeile die Kennungen in BILDER
+                      um (``bilder_zaehlen``): dasselbe Foto kann unter zwei
+                      Kennungen im Plan stehen, und die Zahl vor Sebastians
+                      Kostenentscheidung soll Bilder zaehlen, nicht Dateien.
+                      Dazu nennt sie die Endungen der nicht ladbaren Dateien
+                      (Format, kein Name) und ob ein fehlendes Bild unter einer
+                      anderen Kennung schon beschrieben ist.
   * Gruppen:          ``personen_gruppen/personen_beispiele.json`` und
                       ``gesicht_zuordnung.jsonl`` (fehlen sie, lief der
                       Gruppierer nur trocken) — mit Abdeckung: wie viele der
@@ -732,6 +739,7 @@ def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
     videos: Set[str] = set()
     ohne_namen = ohne_kennung = 0
     namen: Dict[str, Set[str]] = {}
+    namen_je_kennung: Dict[str, str] = {}
     for zug in zuege:
         if not isinstance(zug, dict):
             continue
@@ -744,6 +752,7 @@ def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
             ohne_namen += 1
             continue
         namen.setdefault(name.strip().lower(), set()).add(k)
+        namen_je_kennung[k] = name.strip().lower()
         (videos if name.strip().lower().endswith(VIDEO_ENDUNGEN) else fotos).add(k)
     # Kennungen, deren Dateiname im Plan mehrfach vorkommt = Dubletten-Kandidaten
     # (derselbe Name in zwei Ordnern, zwei verschiedene fileids). Nur die Zahl
@@ -754,7 +763,7 @@ def gesamtplan_lesen(pfad: str) -> Dict[str, Any]:
             namen_doppelt |= kennungen
     return {"eintraege": len(zuege), "fotos": fotos, "videos": videos,
             "ohne_namen": ohne_namen, "ohne_kennung": ohne_kennung,
-            "namen_doppelt": namen_doppelt}
+            "namen_doppelt": namen_doppelt, "namen_je_kennung": namen_je_kennung}
 
 
 def luecken_details(fehlende: Iterable[str], alle_bilder: Set[str], mit_massen: Set[str],
@@ -803,6 +812,71 @@ def _grund_zeile(zaehler: Dict[str, int]) -> str:
             + _z(zaehler["ohne_masse"]) + " ohne Bildmasse, "
             + _z(zaehler["kein_eintrag"]) + " ohne Beschreibungseintrag; "
             + _z(zaehler["name_doppelt"]) + " mit mehrfach vorkommendem Namen")
+
+
+def bilder_zaehlen(fehlende: Iterable[str], namen_je_kennung: Optional[Dict[str, str]] = None,
+                   beschrieben: Optional[Set[str]] = None) -> Dict[str, int]:
+    """Kennungen in BILDER umrechnen: derselbe Dateiname = dasselbe Bild.
+
+    Eine Kennung ist eine Datei, nicht ein Bild: dasselbe Bild kann unter zwei
+    Kennungen im Plan stehen (zwei Ordner). Die Zahl „8 Fotos ohne Beschreibung"
+    ist deshalb ohne diese Umrechnung zu hoch — und genau davor steht Sebastians
+    Kostenentscheidung. Gemessen (12.10.2026): 8 Kennungen = 6 Bilder, weil zwei
+    Namen je doppelt vorkommen.
+
+    Gezaehlt werden (nur Zahlen, NIE ein Name):
+      * ``kennungen`` — die uebergebenen Kennungen,
+      * ``bilder`` — verschiedene Namen (+ 1 je Eintrag ohne Namen),
+      * ``doppelte_kennungen`` — Kennungen, deren Name bei den Fehlenden mehrfach steht,
+      * ``ohne_name`` — Eintraege ohne Namen im Plan (Fotobuch-Scans),
+      * ``anderswo_beschrieben`` — Fehlende, deren Name unter einer ANDEREN
+        Kennung schon einen Beschreibungstext hat (das Bild ist beschrieben),
+      * ``bilder_ohne_text`` — verschiedene Namen ohne irgendwo vorhandenen Text.
+
+    Ohne ``namen_je_kennung`` (aeltere Aufrufer, abgeschaltete Pruefung) bleibt
+    alles 0 — es wird nichts geraten.
+    """
+    namen_je_kennung = namen_je_kennung or {}
+    beschrieben = beschrieben or set()
+    liste = list(fehlende)
+    namen_beschrieben = {namen_je_kennung[k] for k in beschrieben if k in namen_je_kennung}
+    je_name: Dict[str, int] = {}
+    ohne_name = anderswo = 0
+    for k in liste:
+        name = namen_je_kennung.get(k)
+        if not name:
+            ohne_name += 1
+            continue
+        je_name[name] = je_name.get(name, 0) + 1
+        if name in namen_beschrieben:
+            anderswo += 1
+    doppelt = sum(n - 1 for n in je_name.values() if n > 1)
+    ohne_text = len([n for n in je_name if n not in namen_beschrieben])
+    return {"kennungen": len(liste), "bilder": len(je_name) + ohne_name,
+            "doppelte_kennungen": doppelt, "ohne_name": ohne_name,
+            "anderswo_beschrieben": anderswo, "bilder_ohne_text": ohne_text + ohne_name}
+
+
+def endungen_zaehlen(kennungen: Iterable[str], namen_je_kennung: Optional[Dict[str, str]] = None,
+                     max_endungen: int = 3) -> List[Tuple[str, int]]:
+    """Datei-Endungen (Typ, kein Name) unter den genannten Kennungen zaehlen.
+
+    Zweck: „Bild nicht ladbar" hat oft einen technischen Grund, den die Endung
+    verraet — oder ausschliesst. Gemessen 12.10.2026: die drei Fotos ohne
+    Bildmasse sind alle ``.jpg``; das Format ist damit NICHT die Ursache (es
+    sind die Dateien selbst), und das steht so im Bericht, statt eine Vermutung
+    zu wiederholen. Die Endung ist eine Formatangabe, kein Name — der Dateiname
+    selbst bleibt draussen.
+    """
+    namen_je_kennung = namen_je_kennung or {}
+    zaehler: Dict[str, int] = {}
+    for k in kennungen:
+        name = namen_je_kennung.get(k, "")
+        endung = os.path.splitext(name)[1].lower() if name else ""
+        endung = endung if endung else "(ohne Endung)"
+        zaehler[endung] = zaehler.get(endung, 0) + 1
+    geordnet = sorted(zaehler.items(), key=lambda p: (-p[1], p[0]))
+    return geordnet[:max_endungen] if max_endungen else geordnet
 
 
 def abdeckung(groessen: List[int], anteile=(0.5, 0.8, 0.9)) -> Dict[float, int]:
@@ -2493,6 +2567,27 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 zeilen.extend(detail_zeilen if detail_zeilen else
                               ["    (Einzelheiten abgeschaltet: --luecken-details 0)"])
                 zeilen.append("  " + _grund_zeile(zaehler))
+                # Kennung ist nicht Bild: dasselbe Foto kann unter zwei
+                # Kennungen im Plan stehen. Vor der Kostenentscheidung muss die
+                # Zahl die BILDER nennen, nicht die Dateien.
+                bn = bilder_zaehlen(f - beschrieben, gp.get("namen_je_kennung"), beschrieben)
+                if bn["bilder"] != bn["kennungen"] or bn["anderswo_beschrieben"]:
+                    zeilen.append(
+                        f"  Bilder statt Kennungen: {_z(bn['kennungen'])} Kennungen = "
+                        f"{_z(bn['bilder'])} Bilder"
+                        + (f" ({_z(bn['doppelte_kennungen'])} Kennungen sind Doppel desselben "
+                           f"Namens)" if bn["doppelte_kennungen"] else "")
+                        + (f"; {_z(bn['anderswo_beschrieben'])} davon ist unter einer anderen "
+                           f"Kennung schon beschrieben" if bn["anderswo_beschrieben"] else "")
+                        + f" - ohne Beschreibungstext bleiben {_z(bn['bilder_ohne_text'])} Bilder")
+                # Der Grund „nicht ladbar" hat oft eine technische Ursache, die
+                # die Endung zeigt (Format, kein Name).
+                ohne_masse = [k for k in (f - beschrieben) if k in alle_bilder and k not in mit_massen]
+                endungen = endungen_zaehlen(ohne_masse, gp.get("namen_je_kennung"))
+                if endungen:
+                    zeilen.append(f"  Ohne Bildmasse (nicht ladbar): {_z(len(ohne_masse))} "
+                                  f"- Endungen: "
+                                  + ", ".join(f"{e} {_z(n)}" for e, n in endungen))
     if gedreht_plan:
         gdp = plan_lesen(os.path.join(basis, gedreht_plan))
         if gdp.get("fehlt"):
