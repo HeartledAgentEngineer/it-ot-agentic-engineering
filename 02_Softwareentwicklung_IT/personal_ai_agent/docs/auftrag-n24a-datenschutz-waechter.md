@@ -1,5 +1,10 @@
 # Auftrag N24 Teil A — Datenschutz-/IT-Sicherheits-Wächter (Nachtlauf 29./30.09.2026)
 
+> **Nachtrag 12.10.2026 (P0):** Die Regeln unten zu `/api/konfig` („bleibt offen“, „keine
+> Änderung an der Semantik“) sind überholt. Die Route ist entfernt; der Schlüssel steht im
+> Meta-Feld der ausgelieferten Startseite, die Ausnahmeliste hat vier Routen. Siehe
+> `docs/changelog-2026-10-12-sicherheit-herkunft-xss.md`, Teil 2.
+
 > **Rolle:** Planer = Hauptagent. Ausführer = Hermes-Subagent (`deepseek-v4.1-flash`).
 > Prüfer = frischer Kontext, **andere Modellfamilie** (`z-ai/glm-5.2`), prüft gegen
 > diesen Auftrag und führt den Prüfbefehl selbst aus.

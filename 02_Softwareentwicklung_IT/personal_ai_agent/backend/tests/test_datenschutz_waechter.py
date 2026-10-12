@@ -38,16 +38,19 @@ REPO = Path(__file__).resolve().parents[2]
 # belegen, dass diese Datei sie nirgends liest.
 ENV_NAME = ".e" + "nv"
 
-# Die fünf /api-Routen, die OHNE API-Key erreichbar sein dürfen. Wird eine
+# Die vier /api-Routen, die OHNE API-Key erreichbar sein dürfen. Wird eine
 # neue offene Route ergänzt, muss sie hier bewusst eingetragen werden — sonst
-# rot. health und auth sind dokumentiert; hello und konfig sind bewusst offen.
+# rot. health und auth sind dokumentiert; hello ist bewusst offen. konfig ist
+# seit P0 (12.10.2026) entfernt: Der Schlüssel steht im Meta-Feld der Startseite.
 ERWARTETE_OFFENE_ROUTEN = {
     "/api/auth/token",
     "/api/auth/check",
     "/api/health",
     "/api/hello",
-    "/api/konfig",
 }
+
+# Attrappe für den Schlüssel-Test — kein echter Wert.
+ATTRAPPE_SCHLUESSEL = "Attrappe-Schluessel-0815"
 
 DREI_SKRIPTE = (
     "start-termux.sh",
@@ -115,8 +118,8 @@ def test_regel_api_routen_gesamt_mehr_als_50():
     )
 
 
-def test_regel_offene_routen_genau_die_bekannten_fuenf():
-    """Regel: Genau diese fünf /api-Routen sind ohne Key-Schutz erlaubt."""
+def test_regel_offene_routen_genau_die_bekannten_vier():
+    """Regel: Genau diese vier /api-Routen sind ohne Key-Schutz erlaubt."""
     routen = _api_routen()
     offen = {p for p, namen in routen.items() if not _hat_key_schutz(namen)}
     assert offen == ERWARTETE_OFFENE_ROUTEN, (
@@ -150,14 +153,17 @@ def test_regel_offene_route_hello_vorhanden():
     assert "/api/hello" in routen, "Regel 'Ausnahmeliste': /api/hello fehlt."
 
 
-def test_regel_offene_route_konfig_vorhanden():
-    """Regel: /api/konfig existiert wirklich (bewusst offen für den Frontend-Key)."""
+def test_regel_keine_konfig_route_mehr():
+    """Regel (P0): /api/konfig gibt es nicht mehr — sie gab jeder Webseite den Key."""
     routen = _api_routen()
-    assert "/api/konfig" in routen, "Regel 'Ausnahmeliste': /api/konfig fehlt."
+    assert "/api/konfig" not in routen, (
+        "Regel 'Key-Auslieferung': /api/konfig ist wieder da. Der Schlüssel kommt "
+        "nur noch im Meta-Feld der vom Server ausgelieferten Startseite."
+    )
 
 
 def test_regel_jede_geschuetzte_route_hat_key_schutz():
-    """Regel: Jede /api-Route außer den fünf erlaubten trägt require_api_key."""
+    """Regel: Jede /api-Route außer den vier erlaubten trägt require_api_key."""
     routen = _api_routen()
     ohne_schutz = {p for p in routen if p not in ERWARTETE_OFFENE_ROUTEN}
     for pfad in sorted(ohne_schutz):
@@ -166,12 +172,18 @@ def test_regel_jede_geschuetzte_route_hat_key_schutz():
         )
 
 
-def test_regel_konfig_bleibt_offen_fuer_frontend():
-    """Regel: /api/konfig darf NICHT geschützt werden (sonst kein Key-Holen)."""
-    routen = _api_routen()
-    assert not _hat_key_schutz(routen["/api/konfig"]), (
-        "Regel 'Key-Holen': /api/konfig wurde geschützt — das Frontend könnte "
-        "den Key nicht mehr abholen."
+@pytest.mark.parametrize("pfad", ["/api/health", "/api/hello", "/api/auth/check"])
+def test_regel_offene_route_liefert_keinen_schluessel(pfad: str, monkeypatch):
+    """Regel (P0): Keine offene Route gibt den Schlüssel heraus (Attrappe gesetzt)."""
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.main import app
+
+    monkeypatch.setattr(settings, "api_key", ATTRAPPE_SCHLUESSEL)
+    antwort = TestClient(app).get(pfad)
+    assert ATTRAPPE_SCHLUESSEL not in antwort.text, (
+        f"Regel 'Key-Auslieferung': {pfad} gibt den Schlüssel ohne Schutz heraus."
     )
 
 
@@ -573,7 +585,7 @@ def test_regel_no_store_in_speak_router():
 
 
 def test_regel_no_store_in_main():
-    """Regel: main.py setzt no-store (statische Auslieferung /api/konfig)."""
+    """Regel: main.py setzt no-store (statische Auslieferung, Startseite mit Key)."""
     assert "no-store" in _repo_datei("backend/app/main.py"), (
         "Regel 'ohne Zwischenspeicher': backend/app/main.py ohne no-store."
     )

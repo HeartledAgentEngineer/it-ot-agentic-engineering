@@ -1,5 +1,6 @@
 """Authentication API routes (prepared for future use)."""
 
+import hmac
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
@@ -9,6 +10,15 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _schluessel_passt(gesendet: Optional[str]) -> bool:
+    """Vergleicht in konstanter Zeit (P0, 12.10.2026) statt mit ``!=``.
+
+    Sonst verrät die Antwortzeit, wie viele Zeichen am Anfang schon stimmen.
+    """
+    erwartet = settings.api_key or ""
+    return hmac.compare_digest((gesendet or "").encode("utf-8"), erwartet.encode("utf-8"))
 
 # python-jose ist optional – wird erst bei Bedarf installiert
 try:
@@ -39,7 +49,7 @@ def create_access_token(subject: str, expires_delta: Optional[timedelta] = None)
 async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> bool:
     """Verify API key from header (MVP simple auth)."""
     if settings.api_key:
-        if x_api_key != settings.api_key:
+        if not _schluessel_passt(x_api_key):
             raise HTTPException(
                 status_code=401,
                 detail="Ungültiger API-Key. Prüfe den Header 'X-API-Key'.",
@@ -72,7 +82,7 @@ async def require_api_key(request: "Request") -> None:
     if pfad.startswith(OPEN_API_PFIXE):
         return
     key = request.headers.get("x-api-key")
-    if key != settings.api_key:
+    if not _schluessel_passt(key):
         raise HTTPException(
             status_code=401,
             detail="Zugriff verweigert: gültiger X-API-Key erforderlich.",
@@ -82,7 +92,7 @@ async def require_api_key(request: "Request") -> None:
 @router.post("/token")
 async def get_token(x_api_key: Optional[str] = Header(None)):
     """Exchange API key for a JWT token."""
-    if settings.api_key and x_api_key != settings.api_key:
+    if settings.api_key and not _schluessel_passt(x_api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     token = create_access_token(subject="sebastian")

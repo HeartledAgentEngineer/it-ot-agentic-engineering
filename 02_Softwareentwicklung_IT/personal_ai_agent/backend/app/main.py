@@ -1,6 +1,5 @@
 """FastAPI application entry point."""
 
-import json
 import logging
 import os
 import socket
@@ -10,10 +9,18 @@ from typing import Optional
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse, HTMLResponse, Response
 from starlette.types import Scope
 
 from app.config import settings, bindung_hinweis
+from app.sicherheit import (
+    FRONTEND_DATEIEN,
+    SCHLUESSEL_SEITEN,
+    SicherheitsMiddleware,
+    cors_herkunft,
+    schluessel_einsetzen,
+)
 from app.db.chroma_client import chroma_client
 from app.router import (
     chat,
@@ -161,16 +168,31 @@ app = FastAPI(
     description="Ein datenschutzkonformer, persönlicher KI-Assistent",
     version="0.1.0",
     lifespan=lifespan,
+    # P0 (12.10.2026): keine API-Doku-Seiten. /openapi.json legte die ganze
+    # API-Oberfläche offen, /docs lud Skripte aus einem CDN.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
-# CORS – allow all origins for MVP (runs on same device)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS ist aus (P0, 12.10.2026). Vorher stand hier allow_origins=["*"] mit
+# Zugangsdaten — jede Webseite im Browser durfte unsere Antworten lesen. Die
+# Oberfläche kommt vom selben Server und braucht kein CORS. Nur eine in
+# CORS_HERKUNFT ausdrücklich genannte Seite darf lesen (ohne *, ohne Zugangsdaten;
+# wirkt nach einem Neustart).
+_cors_liste = sorted(cors_herkunft())
+if _cors_liste:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_liste,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+# Host- und Herkunftsprüfung plus Sicherheitskopfzeilen auf jeder Antwort
+# (app/sicherheit.py). Als Letztes hinzugefügt = äußerste Schicht: Sie prüft
+# vor allem anderen, auch vor dem Frontend und den schlüsselfreien Routen.
+app.add_middleware(SicherheitsMiddleware)
 
 # Register API routers (they define their own /api prefix)
 # API-Key-Schutz (Hotel-WLAN): Ist `settings.api_key` gesetzt (aus .env),
@@ -336,10 +358,41 @@ class NoCacheStaticFiles(StaticFiles):
     längst geändert wurde (das Kernproblem 'ich sehe Korrekturen nicht').
     Diese Unterklasse setzt auf jede Antwort Cache-Control: no-store, sodass der
     Browser immer die aktuelle Datei holt und nie etwas Altes behält.
+
+    P0 (12.10.2026):
+    - Ausgeliefert wird nur, was in ``sicherheit.FRONTEND_DATEIEN`` steht. Alles
+      andere (Tests, Sicherungskopien, wecken.js) bekommt 404. Verglichen wird
+      der aufgelöste Pfad, damit auch ``%74ests/…`` oder ``Tests/…`` nicht greifen.
+    - In ``index.html`` und ``hermes_status.html`` setzt der Server den
+      API-Schlüssel ins Meta-Feld ``agent-schluessel``. Fremde Seiten können
+      dieses HTML nicht lesen: kein CORS, CORP same-origin, Host-Prüfung.
+      Vorher holte das Frontend den Schlüssel über die offene Route
+      ``/api/konfig`` — und jede fremde Webseite konnte das auch.
     """
 
+    def _erlaubter_name(self, path: str) -> Optional[str]:
+        """Name aus der Positivliste, auf den ``path`` zeigt — sonst ``None``."""
+        basis = os.path.normcase(os.path.realpath(str(self.directory)))
+        ziel = os.path.normcase(os.path.realpath(os.path.join(basis, path)))
+        if ziel == basis:
+            return "index.html"
+        for name in FRONTEND_DATEIEN:
+            if ziel == os.path.normcase(os.path.join(basis, name)):
+                return name
+        return None
+
     async def get_response(self, path: str, scope: Scope) -> Response:
-        antwort = await super().get_response(path, scope)
+        name = self._erlaubter_name(path)
+        if name is None:
+            raise StarletteHTTPException(status_code=404)
+        if name in SCHLUESSEL_SEITEN:
+            if scope["method"] not in ("GET", "HEAD"):
+                raise StarletteHTTPException(status_code=405)
+            with open(os.path.join(str(self.directory), name), encoding="utf-8") as datei:
+                antwort: Response = HTMLResponse(
+                    schluessel_einsetzen(datei.read(), settings.api_key))
+        else:
+            antwort = await super().get_response(name, scope)
         try:
             antwort.headers["Cache-Control"] = "no-store, max-age=0"
             antwort.headers["Pragma"] = "no-cache"
@@ -347,26 +400,6 @@ class NoCacheStaticFiles(StaticFiles):
         except Exception:
             pass
         return antwort
-
-
-@app.get("/api/konfig", include_in_schema=False)
-def api_konfig():
-    """Liefert dem Frontend den API-Key als JS, damit es ihn automatisch an
-    alle /api/*-Requests haengen kann.
-
-    Achtung (Sebastian, 2026-08-31): Dieser Endpunkt ist bewusst OFFEN (kein
-    API-Key erforderlich), sonst koennte das Frontend den Key nie abholen. Der
-    eigentliche Schutz vor fremden WLAN-Gaesten ist NICHT der Key, sondern
-    `HOST_BIND=127.0.0.1` in der .env (nur lokal erreichbar). Der Key hier
-    schuetzt nur zusaetzlich vor versehentlichem Zugriff, wenn der Server
-    doch auf 0.0.0.0 lauscht.
-    """
-    key = settings.api_key or ""
-    return Response(
-        content=f"window.__API_KEY__ = {json.dumps(key)};\n".encode("utf-8"),
-        media_type="application/javascript",
-        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
-    )
 
 
 # Serve frontend static files at / – MUSS als Letztes registriert werden.

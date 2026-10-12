@@ -9,6 +9,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <meta name="theme-color" content="#0f0f1a">
     <meta name="description" content="Personal AI Agent – Dein persönlicher KI-Assistent">
+    <!-- API-Schlüssel: Das Backend setzt ihn beim Ausliefern hier ein (P0,
+         12.10.2026). Im Repo bleibt das Feld leer. Fremde Seiten können
+         dieses HTML nicht lesen (kein CORS, CORP same-origin, Host-Prüfung). -->
+    <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css?v=20261010B">
@@ -562,10 +566,7 @@
     <!-- Kanban-Board entfernt (2026-09-02): kein sichtbares Auftragsbuch
          mehr – Sebastian nutzt den Assistenten direkt über Hermes. -->
 
-    <!-- Setzt window.__API_KEY__ (wird vom Backend-Endpunkt /api/konfig geliefert,
-         serverseitig, nie im versionierten Code). -->
-    <script src="api/konfig"></script>
-    <script src="app.js?v=20261012A"></script>
+    <script src="app.js?v=20261012B"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261012A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

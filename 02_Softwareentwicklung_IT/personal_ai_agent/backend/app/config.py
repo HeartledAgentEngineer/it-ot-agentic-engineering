@@ -361,6 +361,13 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24h
+    # Zugriff von außen (P0, 12.10.2026, app/sicherheit.py).
+    # Weitere Host-Namen außer localhost und IP-Adressen, Komma-Liste — z. B.
+    # der Tailscale-Name des Handys. Andere Namen bekommen 400 (DNS-Rebinding).
+    erlaubte_hosts: str = ""
+    # Fremde Seiten, die die API lesen dürfen (Komma-Liste, ohne *, ohne
+    # Zugangsdaten). Leer = CORS aus; die Oberfläche kommt vom selben Server.
+    cors_herkunft: str = ""
 
     @model_validator(mode="after")
     def _schluessel_aus_workspace_wurzel(self):

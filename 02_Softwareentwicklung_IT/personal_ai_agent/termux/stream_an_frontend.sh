@@ -28,9 +28,13 @@ fi
 PORT="${PORT:-8080}"
 URL="http://127.0.0.1:${PORT}/api/hermes/stream"
 
-# API-Key automatisch holen (wie das Frontend es tut).
-KEY="$(curl -s --max-time 5 http://127.0.0.1:${PORT}/api/konfig 2>/dev/null \
-        | sed -E 's/.*"([^"]+)".*/\1/')"
+# API-Key aus der Einstellungsdatei (P0, 12.10.2026; der frühere Weg über den
+# Server ist entfernt). backend/.env geht vor, wie im Backend.
+PROJEKT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)"
+KEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/backend/.env" 2>/dev/null)" \
+    || KEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/.env" 2>/dev/null)" \
+    || KEY=""
+[ -n "$KEY" ] || echo "stream_an_frontend: kein API_KEY in der Einstellungsdatei - Abruf ohne Schluessel." >&2
 
 # JSON-sicher einpacken (Umlaute, Zeilenumbrueche).
 JSON_BODY="$(python3 - "$TEXT" "$DELAY" <<'PYEOF'

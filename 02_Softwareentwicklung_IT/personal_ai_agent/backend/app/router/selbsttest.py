@@ -632,6 +632,21 @@ def _beziehungen_info() -> Dict[str, Any]:
         }
 
 
+# ── Block: Abgewiesene Anfragen ──────────────────────────────────────────────
+
+def _abgewiesen_info() -> Dict[str, int]:
+    """Abgewiesene Anfragen seit dem Start je Grund (P0, 12.10.2026).
+
+    Gründe: ``host`` (fremder Host-Name), ``cross-site``/``same-site`` (fremde
+    Webseite laut Browser), ``origin`` (fremde Herkunft). Nur Zähler, keine
+    Pfade, keine Kopfwerte. So ist am Handy ohne Kabel ablesbar, ob fremde
+    Seiten anklopfen oder ob ein eigener Zugang (Host-Name) fehlt.
+    """
+    from app.sicherheit import abgewiesen
+
+    return {grund: int(anzahl) for grund, anzahl in sorted(abgewiesen.items())}
+
+
 # ── Endpunkt ─────────────────────────────────────────────────────────────────
 
 @router.get("/selbsttest")
@@ -663,6 +678,7 @@ def selbsttest() -> Dict[str, Any]:
                         "stand": None, "aussagen": None, "personen_kennungen": None,
                         "namen_bestaetigt": None, "kontakte": None, "datum_von": None,
                         "datum_bis": None, "error": "nicht geprüft"},
+        "abgewiesen": {},
     }
 
     # Jeder Block einzeln abgesichert: Ein Fehler in einem Bereich darf die
@@ -678,6 +694,7 @@ def selbsttest() -> Dict[str, Any]:
         ("pcloud", _pcloud_info),
         ("fotos", _fotos_info),
         ("beziehungen", _beziehungen_info),
+        ("abgewiesen", _abgewiesen_info),
     ):
         try:
             ergebnis[feld] = bauer()

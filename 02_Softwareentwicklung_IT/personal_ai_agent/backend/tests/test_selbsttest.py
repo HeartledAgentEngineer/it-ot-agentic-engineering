@@ -40,7 +40,9 @@ PFAD = "/api/selbsttest"
 # Die Felder, die laut Auftrag IMMER vorhanden sein müssen.
 PFLICHT_FELDER = {"commit", "index", "daemon", "letzte_antwort",
                   "gedaechtnis", "sprache", "uhrzeit", "pcloud", "fotos",
-                  "beziehungen"}
+                  "beziehungen",
+                  # P0 (12.10.2026): abgewiesene fremde Anfragen je Grund.
+                  "abgewiesen"}
 
 
 class KeinNetz:

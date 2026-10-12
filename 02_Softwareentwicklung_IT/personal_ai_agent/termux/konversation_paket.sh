@@ -9,8 +9,13 @@ PORT="${PORT:-8080}"
 ANZAHL="${1:-3}"
 
 URL="http://127.0.0.1:${PORT}/api/conversations/conv_main"
-KEY="$(curl -s --max-time 5 http://127.0.0.1:${PORT}/api/konfig 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/')"
-[ -z "$KEY" ] && exit 0
+# API-Key aus der Einstellungsdatei (P0, 12.10.2026; der frühere Weg über den
+# Server ist entfernt). backend/.env geht vor, wie im Backend.
+PROJEKT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)"
+KEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/backend/.env" 2>/dev/null)" \
+    || KEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/.env" 2>/dev/null)" \
+    || KEY=""
+[ -n "$KEY" ] || echo "konversation_paket: kein API_KEY in der Einstellungsdatei - Abruf ohne Schluessel." >&2
 
 DATA="$(curl -s --max-time 8 -H "X-API-Key: $KEY" "$URL" 2>/dev/null)"
 [ -z "$DATA" ] && exit 0

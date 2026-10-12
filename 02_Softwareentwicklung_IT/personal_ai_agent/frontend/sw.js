@@ -14,10 +14,13 @@
 // Frontend-Änderung diese Zahl von Hand zu erhöhen. Wird es vergessen –
 // und es wird vergessen –, liefert das Handy nach einem `git pull`
 // weiterhin die alte Oberfläche aus, ohne jeden Hinweis darauf.
-const CACHE_NAME = 'personal-ai-agent-v17';
+//
+// v18 (P0, 12.10.2026): '/' und '/index.html' stehen NICHT mehr in der Liste.
+// Der Server setzt den API-Schlüssel in index.html ein; ein rohes addAll legte
+// ihn sonst dauerhaft im Cache ab. Die Seite kommt über den Fetch-Zweig in den
+// Cache, und zwar nur ohne Schlüssel (schluesselEntfernen).
+const CACHE_NAME = 'personal-ai-agent-v18';
 const STATIC_ASSETS = [
-    '/',
-    '/index.html',
     '/style.css',
     '/app.js',
     '/pcm-recorder.js',
@@ -90,16 +93,35 @@ self.addEventListener('fetch', (event) => {
                 // Offline-Fassung zu konservieren wäre schlimmer als nichts.
                 if (response && response.ok) {
                     const kopie = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => cache.put(request, kopie));
+                    const typ = response.headers.get('Content-Type') || '';
+                    // HTML trägt den API-Schlüssel im Meta-Feld: nur ohne ablegen.
+                    const ablage = typ.includes('text/html')
+                        ? kopie.text().then((text) => new Response(schluesselEntfernen(text), {
+                            status: kopie.status,
+                            statusText: kopie.statusText,
+                            headers: kopie.headers,
+                        }))
+                        : Promise.resolve(kopie);
+                    ablage.then((eintrag) => caches.open(CACHE_NAME)
+                        .then((cache) => cache.put(request, eintrag)));
                 }
                 return response;
             })
             .catch(() => caches.match(request).then((cached) => {
                 if (cached) return cached;
                 if (request.mode === 'navigate') {
-                    return caches.match('/index.html');
+                    // Offline-Hülle: die zuletzt geladene Startseite (ohne Schlüssel).
+                    return caches.match('/').then((seite) => seite || caches.match('/index.html'));
                 }
                 return new Response('Offline', { status: 503 });
             }))
     );
 });
+
+/** Leert das Meta-Feld agent-schluessel einer HTML-Seite (P0, 12.10.2026).
+ *  Der übrige Text bleibt Zeichen für Zeichen gleich. Offline startet die App
+ *  damit ohne Schlüssel – der Server ist dann ohnehin nicht erreichbar. */
+function schluesselEntfernen(html) {
+    return String(html).replace(
+        /(<meta\s+name="agent-schluessel"\s+content=")[^"]*(")/gi, '$1$2');
+}

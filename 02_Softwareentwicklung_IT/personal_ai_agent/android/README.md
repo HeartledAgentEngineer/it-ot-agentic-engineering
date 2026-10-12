@@ -45,14 +45,14 @@ Die `applicationId` (`de.sebastian.heyagent`) steht in `app/build.gradle.kts`
 
 ## API-Schlüssel: gewählter Weg
 
-**Befund aus dem Code (nur gelesen):** `frontend/index.html` lädt `<script src="api/konfig">`.
-Der Backend-Endpunkt `/api/konfig` (`backend/app/main.py`, bewusst ohne Schlüssel erreichbar)
-liefert `window.__API_KEY__ = "…"`, und `frontend/app.js` (Z. 32–59) patcht damit `window.fetch`
-so, dass jeder Aufruf an `/api/*` automatisch den Kopf `X-API-Key` bekommt.
+**Befund aus dem Code (seit P0, 12.10.2026):** Das Backend setzt den Schlüssel beim Ausliefern
+von `index.html` in das Meta-Feld `<meta name="agent-schluessel">` ein (`backend/app/sicherheit.py`,
+`schluessel_einsetzen`). `frontend/app.js` liest ihn dort und patcht damit `window.fetch` so,
+dass jeder Aufruf an `/api/*` automatisch den Kopf `X-API-Key` bekommt. Die frühere offene Route
+`/api/konfig` ist entfernt — jede fremde Webseite konnte den Schlüssel dort abholen.
 
 **Folge:** Die WebView braucht für die Seite selbst **keine** Schlüssel-Injektion — weder
-`shouldInterceptRequest` (sähe ohnehin keinen POST-Body) noch `evaluateJavascript`. Ein per
-JS gesetztes `window.__API_KEY__` würde vom `api/konfig`-Skript ohnehin überschrieben.
+`shouldInterceptRequest` (sähe ohnehin keinen POST-Body) noch `evaluateJavascript`.
 
 Trotzdem, wie gefordert:
 - Erster Start: Eingabemaske (Passwortfeld) für den Schlüssel → `EncryptedSharedPreferences`
@@ -63,8 +63,9 @@ Trotzdem, wie gefordert:
   Seite, die ihn selbst abholt.
 - Der Schlüssel steht nie im Code oder Repo und wird nie geloggt.
 
-Sicherheitshinweis: `/api/konfig` ist offen. Schutz gegen Fremde im WLAN ist laut Backend-Kommentar
-`HOST_BIND=127.0.0.1`; die App spricht ohnehin nur den Loopback an.
+Sicherheitshinweis: Wer die Startseite laden kann, bekommt den Schlüssel. Das Backend weist
+deshalb fremde Hosts und fremde Herkunft (Origin, Sec-Fetch-Site) ab. Schutz gegen Fremde im
+WLAN bleibt `HOST_BIND=127.0.0.1`; die App spricht ohnehin nur den Loopback an.
 
 ## WebView-Härtung
 

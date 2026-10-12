@@ -380,7 +380,7 @@ class MainActivity : AppCompatActivity() {
     private fun seiteLaden() {
         ansicht = Ansicht.SEITE
         // Der Kopf gilt nur fuer die erste Anfrage (Dokument). Die Seite holt sich den Schluessel
-        // fuer ihre fetch-Aufrufe selbst (window.__API_KEY__ per /api/konfig) - siehe README.
+        // fuer ihre fetch-Aufrufe selbst (Meta-Feld agent-schluessel, vom Backend eingesetzt) - siehe README.
         val kopf = keySpeicher.holen()?.let { mapOf(AppKonfig.KEY_HEADER to it) } ?: emptyMap()
         webView.visibility = View.VISIBLE
         ladeAnsicht.visibility = View.GONE

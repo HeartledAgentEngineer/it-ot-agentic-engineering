@@ -17,7 +17,9 @@
 #   - git im Projekt, hermes-CLI im PATH
 # =============================================================================
 set -u
-PROJEKT="/data/data/com.termux/files/home/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent"
+# Projektordner aus dem eigenen Ort (termux/..); alter fester Pfad als Rückfall.
+PROJEKT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)"
+[ -d "$PROJEKT/backend" ] || PROJEKT="/data/data/com.termux/files/home/it-ot-agentic-engineering/02_Softwareentwicklung_IT/personal_ai_agent"
 INBOX="$HOME/hermes_inbox"
 AUFTR="$INBOX/auftraege.jsonl"
 ANTW="$INBOX/antworten.jsonl"
@@ -37,16 +39,20 @@ fi
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOGFILE"; }
 
 # ---------------------------------------------------------------------------
-# API-Key (X-API-Key) wie das Frontend holen: serverseitig aus /api/konfig
-# (öffentlich, derselbe Weg wie <script src="api/konfig">). Der Key bleibt nur
+# API-Key (X-API-Key) aus der Einstellungsdatei (P0, 12.10.2026). Den früheren
+# Weg über den Server gibt es nicht mehr. termux/api-schluessel.sh liest nur
+# die Zeile API_KEY; backend/.env geht vor (wie im Backend). Der Key bleibt nur
 # in einer Shell-Variable, wird nie geloggt/gedruckt.
 # ---------------------------------------------------------------------------
 APIKEY=""
+APIKEY_GELESEN=0
 _api_key() {
-    if [ -z "$APIKEY" ]; then
-        APIKEY=$(curl -s --max-time 3 http://127.0.0.1:8080/api/konfig 2>/dev/null \
-            | python3 -c "import re,sys; m=re.search(r'__API_KEY__\s*=\s*[\"\x27]([^\"\x27]*)[\"\x27]', sys.stdin.read()); print(m.group(1) if m else '')" 2>/dev/null)
-    fi
+    [ "$APIKEY_GELESEN" = "1" ] && return 0
+    APIKEY_GELESEN=1
+    APIKEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/backend/.env" 2>/dev/null)" \
+        || APIKEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/.env" 2>/dev/null)" \
+        || APIKEY=""
+    [ -n "$APIKEY" ] || log "WARNUNG: kein API_KEY in der Einstellungsdatei - Anfragen laufen ohne Schluessel."
 }
 # GET /api/... -> stdout (JSON)
 api_get() {
@@ -103,7 +109,7 @@ fi
 # ---------------------------------------------------------------------------
 # 3) Auftrag wählen: Ersten plausiblen Programmier-Auftrag (status in
 #    offen/laeuft/fehler), kein Test/Cron. Der Agent prüft selbst, ob er schon
-#    umgesetzt ist. löscht nichts; holt Liste via API (mit Key aus api/konfig).
+#    umgesetzt ist. löscht nichts; holt Liste via API (Key aus der Einstellungsdatei).
 # ---------------------------------------------------------------------------
 AUFTRAGE_JSON="$(api_get '/api/auftraege?limit=200')"
 if [ -z "$AUFTRAGE_JSON" ]; then

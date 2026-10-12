@@ -22,17 +22,25 @@
  * Skript hätte damit alle Anfragen samt Schlüssel an einen fremden Server
  * lenken können. Ein alter Eintrag wird beim Start gelöscht.
  *
- * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
- *             nie im Frontend-Code.
+ * Sicherheit: Der API-Key steht NUR in der .env auf dem Handy, nie im
+ * versionierten Frontend-Code. Das Backend setzt ihn beim Ausliefern in das
+ * Meta-Feld agent-schluessel von index.html ein (siehe unten).
  */
 try { localStorage.removeItem('api_base'); } catch (_e) { /* Speicher gesperrt */ }
 const API_BASE = location.origin;
 
-/** API-Key, den das Backend serverseitig in die index.html injiziert hat.
- *  Ohne gesetzten Key (__API_KEY__ leer) bleibt der Schutz deaktiviert. */
-const API_KEY = (typeof window !== 'undefined' && window.__API_KEY__)
-    ? window.__API_KEY__
-    : '';
+/** API-Key aus dem Meta-Feld, das das Backend in index.html einsetzt (P0,
+ *  12.10.2026). Vorher kam er über die offene Route /api/konfig – die konnte
+ *  jede fremde Webseite ebenso abrufen. Leeres Feld = kein Key konfiguriert,
+ *  dann bleibt der Schutz deaktiviert. */
+const API_KEY = (() => {
+    try {
+        const feld = document.querySelector('meta[name="agent-schluessel"]');
+        return (feld && feld.getAttribute('content')) || '';
+    } catch (_e) {
+        return '';
+    }
+})();
 
 /**
  * Zentrale fetch-Kapselung: hängt den X-API-Key an alle Anfragen an unser
@@ -8989,6 +8997,17 @@ function selbsttestText(daten) {
             + (foTeile.length ? foTeile.join(' · ') : 'keine Zahlen gemeldet')
             + (foZusatz.length ? ' (' + foZusatz.join(', ') + ')' : '')
             + (t(fo.error) ? ' · ' + t(fo.error) : ''));
+    }
+
+    // Abgewiesene Anfragen seit dem Start (P0): fremde Webseiten (cross-site,
+    // same-site, origin) oder ein Host-Name, der nicht freigegeben ist (host).
+    // Fehlt das Feld (älteres Backend), entfällt die Zeile.
+    const ab = d.abgewiesen;
+    if (ab && typeof ab === 'object') {
+        const abTeile = Object.keys(ab).sort().map((g) => g + ' ' + zahl(ab[g]));
+        zeilen.push(abTeile.length
+            ? '⚠ Abgewiesen seit Start: ' + abTeile.join(' · ')
+            : '✓ Abgewiesen seit Start: keine');
     }
 
     return zeilen.join('\n');
