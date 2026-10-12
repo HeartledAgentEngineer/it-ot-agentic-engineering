@@ -162,6 +162,11 @@ Ausführerlauf. Sensible Arbeit bleibt ausschließlich bei Hermes.
 Keine stille Wahl eines anderen Prüfmodells und kein automatischer
 Masterwechsel: Der Nutzer bestimmt die Rollen und deren Wechsel.
 
+**Ersatzprüfer (Sebastian, 12.10.2026):** Ist Codex gesperrt (Nutzungslimit),
+prüft Hermes mit DeepSeek v4.1 Flash ersatzweise — es wird nicht gewartet, bis
+Codex wieder frei ist. Der Wechsel ist nicht still: Er steht im Prüfprotokoll.
+`tools/pruefkreis/pruefkreis.py` (personal_ai_agent) macht das automatisch.
+
 **Alles Sensible bleibt IMMER bei Hermes.** Das gilt unabhängig davon, wer
 Master, Planer, Ausführer oder Prüfer ist. Persönliche Texte, Lebenslaufdaten,
 Chats, Kontakte, echte Kennungen, private Pfade, Zugangsschlüssel, Bildinhalte

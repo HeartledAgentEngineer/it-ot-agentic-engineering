@@ -110,6 +110,78 @@ def test_fehlergrund_steht_im_protokoll(pk, vorlage, monkeypatch):
     assert "usage limit" in Path(erg["protokoll"]).read_text(encoding="utf-8")
 
 
+def _attrappe_codex_gesperrt(pk, monkeypatch, hermes_antwort="Belegt.\nURTEIL: FREI"):
+    """Codex meldet das Nutzungslimit (echter Text 12.10.2026), Hermes antwortet."""
+    limit = "ERROR: You've hit your usage limit. Upgrade to Pro or try again at 7:38 PM.\n"
+
+    def starte(befehl, zeitgrenze):
+        pk.aufrufe.append(befehl)
+        if "-o" in befehl:
+            return 1, "", limit
+        Path(befehl[befehl.index("--usage-file") + 1]).write_text(
+            '{"session_id": "20261012_190000_ersatz", "estimated_cost_usd": 0.01}', encoding="utf-8")
+        return 0, hermes_antwort, ""
+    monkeypatch.setattr(pk, "starte", starte)
+
+
+def test_codex_gesperrt_hermes_prueft_ersatzweise(pk, vorlage, monkeypatch):
+    """Sebastian 12.10.2026: ist Codex gesperrt, prueft Hermes - nicht warten."""
+    _attrappe_codex_gesperrt(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "probe")
+    assert [b[0] for b in pk.aufrufe] == ["codex-attrappe", "hermes-attrappe"]
+    assert erg["pruefer"] == "hermes" and erg["status"] == "frei"
+    assert erg["sitzung"] == "20261012_190000_ersatz"
+    text = Path(erg["protokoll"]).read_text(encoding="utf-8")
+    assert "Ersatzpruefer: Hermes statt Codex - Codex gesperrt" in text and "usage limit" in text
+    assert "Pruefer hermes" in text
+
+
+def test_codex_gesperrt_einwand_von_hermes_zaehlt(pk, vorlage, monkeypatch):
+    _attrappe_codex_gesperrt(pk, monkeypatch, hermes_antwort="Fehler.\nURTEIL: EINWAND")
+    assert pk.main(["pruefen", "--vorlage", vorlage, "--thema", "probe"]) == 1
+
+
+def test_codex_gesperrt_ohne_hermes_bleibt_fehler(pk, vorlage, monkeypatch):
+    _attrappe_codex_gesperrt(pk, monkeypatch)
+    monkeypatch.setattr(pk, "hermes_programm", lambda: None)
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["status"] == "fehler" and erg["pruefer"] == "codex"
+    assert "Hermes nicht gefunden" in erg["ersatz"] and len(pk.aufrufe) == 1
+
+
+@pytest.mark.parametrize("stderr", ["ERROR: Sandbox kaputt", "ERROR: model not supported", ""])
+def test_anderer_codex_fehler_loest_keinen_ersatz_aus(pk, vorlage, monkeypatch, stderr):
+    _attrappe(pk, monkeypatch, antwort="", exitcode=1, stderr=stderr)
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "codex" and erg["status"] == "fehler" and not erg["ersatz"]
+    assert len(pk.aufrufe) == 1
+
+
+def test_protokoll_nennt_modell_und_planfassung(pk, vorlage, monkeypatch, tmp_path):
+    """Plan Schritt 1: Protokoll mit Runde, Pruefer, Modell, Planfassung, Urteil, Kosten (Einwand Hermes R2)."""
+    _attrappe(pk, monkeypatch)
+    text = Path(pk.pruefen(vorlage, "probe")["protokoll"]).read_text(encoding="utf-8")
+    assert "Modell: Codex-App-Standard (Denkstufe high) · Planfassung: nicht angegeben" in text
+    mit_fassung = tmp_path / "auftrag.md"
+    mit_fassung.write_text("Plan (Fassung 4, freigegeben)\n", encoding="utf-8")
+    erg = pk.pruefen(str(mit_fassung), "probe", gruendlich=True)
+    assert "Modell: gpt-6-astra · Planfassung: 4" in Path(erg["protokoll"]).read_text(encoding="utf-8")
+    erg = pk.pruefen(str(mit_fassung), "probe", pruefer="hermes", planfassung="5b")
+    assert f"Modell: {pk.HERMES_MODELL} · Planfassung: 5b" in Path(erg["protokoll"]).read_text(encoding="utf-8")
+
+
+def test_ersatz_traegt_das_hermes_modell_ein(pk, vorlage, monkeypatch):
+    _attrappe_codex_gesperrt(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "probe", gruendlich=True)
+    assert erg["modell"] == pk.HERMES_MODELL
+
+
+def test_codex_zeitgrenze_loest_keinen_ersatz_aus(pk):
+    assert not pk.codex_gesperrt(-1, "usage limit")
+    assert pk.codex_gesperrt(1, "HTTP 429 Too Many Requests")
+    assert not pk.codex_gesperrt(1, "Zeile 4290 kaputt")
+
+
 def test_fehlergrund_bei_sensibel_verschwiegen(pk, vorlage, monkeypatch):
     _attrappe(pk, monkeypatch, antwort="", exitcode=1, stderr="ERROR: Inhalt GEHEIMNAME\n")
     erg = pk.pruefen(vorlage, "probe", sensibel=True)

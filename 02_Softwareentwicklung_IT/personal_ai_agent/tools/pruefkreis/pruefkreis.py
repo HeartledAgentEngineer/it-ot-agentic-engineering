@@ -46,6 +46,9 @@ CODEX_GRUENDLICH_MODELL = "gpt-6-astra"
 ZEITGRENZE_STANDARD = 900
 URTEIL_MUSTER = re.compile(r"^URTEIL:\s*(FREI|EINWAND)\s*$")
 THEMA_MUSTER = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
+FASSUNG_MUSTER = re.compile(r"Fassung\s*(\d+)", re.IGNORECASE)
+# Codex gesperrt (Nutzungslimit o. ae.) -> Hermes prueft ersatzweise (Sebastian, 12.10.2026).
+GESPERRT_MUSTER = re.compile(r"usage limit|rate.?limit|quota|\b429\b", re.IGNORECASE)
 
 
 class PruefkreisFehler(Exception):
@@ -154,33 +157,12 @@ def _nutzung_lesen(datei: Path) -> dict:
     return {"sitzung": daten.get("session_id"), "kosten_usd": daten.get("estimated_cost_usd")}
 
 
-def protokoll_block(ergebnis: dict) -> str:
-    kopf = (f"## Runde {ergebnis['runde']} · {ergebnis['zeit']} · Pruefer {ergebnis['pruefer']}"
-            f" · Vorlage `{ergebnis['vorlage']}`")
-    zeilen = [kopf, "", f"**Status: {ergebnis['status'].upper()}**"]
-    if ergebnis.get("grund"):
-        zeilen.append(f"Grund: {ergebnis['grund']}")
-    if ergebnis.get("sitzung"):
-        zeilen.append(f"Hermes-Sitzung: `{ergebnis['sitzung']}`")
-    if ergebnis.get("kosten_usd") is not None:
-        zeilen.append(f"Kosten: {ergebnis['kosten_usd']:.4f} USD")
-    zeilen += [f"Dauer: {ergebnis['dauer_s']} s", "", ergebnis["ausgabe"].strip() or "(keine Ausgabe)", ""]
-    return "\n".join(zeilen)
+def codex_gesperrt(exitcode: int, stderr: str) -> bool:
+    """Codex endete wegen Limit/Kontingent - dann springt Hermes ein, statt zu warten."""
+    return exitcode not in (0, -1) and bool(GESPERRT_MUSTER.search(stderr or ""))
 
 
-def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool = False,
-            gruendlich: bool = False, zeitgrenze: float = ZEITGRENZE_STANDARD) -> dict:
-    if not THEMA_MUSTER.match(thema):
-        raise PruefkreisFehler("Thema nur aus a-z, 0-9 und Bindestrich (wird Dateiname).")
-    if not (REPO / vorlage).is_file() and not Path(vorlage).is_file():
-        raise PruefkreisFehler(f"Vorlage nicht gefunden: {vorlage}")
-    wer = pruefer_waehlen(pruefer, sensibel)
-    programm = codex_programm() if wer == "codex" else hermes_programm()
-    if not programm:
-        raise PruefkreisFehler(f"Programm fuer {wer} nicht gefunden.")
-    runde = naechste_runde(thema)
-    auftrag = auftrag_text(vorlage, runde, sensibel)
-
+def _lauf(wer: str, programm: str, auftrag: str, gruendlich: bool, zeitgrenze: float) -> dict:
     with tempfile.TemporaryDirectory(prefix="pruefkreis-") as tmp:
         ablage = Path(tmp) / ("antwort.md" if wer == "codex" else "nutzung.json")
         befehl = (befehl_codex(programm, auftrag, ablage, gruendlich) if wer == "codex"
@@ -193,6 +175,72 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
             nutzung = {}
         else:
             text, nutzung = stdout, _nutzung_lesen(ablage)
+    return {"exitcode": exitcode, "text": text, "stderr": stderr, "nutzung": nutzung, "dauer": dauer}
+
+
+def modell_fuer(wer: str, gruendlich: bool) -> str:
+    if wer == "hermes":
+        return HERMES_MODELL
+    return CODEX_GRUENDLICH_MODELL if gruendlich else "Codex-App-Standard (Denkstufe high)"
+
+
+def planfassung_lesen(vorlage: str, angegeben: str | None) -> str:
+    """Planfassung fuers Protokoll: ausdruecklich angegeben, sonst 'Fassung N' aus der Vorlage."""
+    if angegeben:
+        return angegeben
+    datei = REPO / vorlage if (REPO / vorlage).is_file() else Path(vorlage)
+    try:
+        treffer = FASSUNG_MUSTER.search(datei.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        treffer = None
+    return treffer.group(1) if treffer else "nicht angegeben"
+
+
+def protokoll_block(ergebnis: dict) -> str:
+    kopf = (f"## Runde {ergebnis['runde']} · {ergebnis['zeit']} · Pruefer {ergebnis['pruefer']}"
+            f" · Vorlage `{ergebnis['vorlage']}`")
+    zeilen = [kopf, "", f"**Status: {ergebnis['status'].upper()}**",
+              f"Modell: {ergebnis.get('modell', '?')} · Planfassung: {ergebnis.get('planfassung', '?')}"]
+    if ergebnis.get("ersatz"):
+        zeilen.append(f"Ersatzpruefer: {ergebnis['ersatz']}")
+    if ergebnis.get("grund"):
+        zeilen.append(f"Grund: {ergebnis['grund']}")
+    if ergebnis.get("sitzung"):
+        zeilen.append(f"Hermes-Sitzung: `{ergebnis['sitzung']}`")
+    if ergebnis.get("kosten_usd") is not None:
+        zeilen.append(f"Kosten: {ergebnis['kosten_usd']:.4f} USD")
+    zeilen += [f"Dauer: {ergebnis['dauer_s']} s", "", ergebnis["ausgabe"].strip() or "(keine Ausgabe)", ""]
+    return "\n".join(zeilen)
+
+
+def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool = False,
+            gruendlich: bool = False, zeitgrenze: float = ZEITGRENZE_STANDARD,
+            planfassung: str | None = None) -> dict:
+    if not THEMA_MUSTER.match(thema):
+        raise PruefkreisFehler("Thema nur aus a-z, 0-9 und Bindestrich (wird Dateiname).")
+    if not (REPO / vorlage).is_file() and not Path(vorlage).is_file():
+        raise PruefkreisFehler(f"Vorlage nicht gefunden: {vorlage}")
+    wer = pruefer_waehlen(pruefer, sensibel)
+    programm = codex_programm() if wer == "codex" else hermes_programm()
+    if not programm:
+        raise PruefkreisFehler(f"Programm fuer {wer} nicht gefunden.")
+    runde = naechste_runde(thema)
+    auftrag = auftrag_text(vorlage, runde, sensibel)
+
+    lauf = _lauf(wer, programm, auftrag, gruendlich, zeitgrenze)
+    ersatz = ""
+    if wer == "codex" and codex_gesperrt(lauf["exitcode"], lauf["stderr"]):
+        ersatz = f"Hermes statt Codex - Codex gesperrt ({fehlerzeile(lauf['stderr'])})"
+        hermes = hermes_programm()
+        if hermes:
+            dauer_codex = lauf["dauer"]
+            wer, gruendlich = "hermes", False
+            lauf = _lauf("hermes", hermes, auftrag, False, zeitgrenze)
+            lauf["dauer"] = round(lauf["dauer"] + dauer_codex, 1)
+        else:
+            ersatz += "; Hermes nicht gefunden - kein Ersatzlauf"
+    exitcode, text, stderr, nutzung, dauer = (lauf["exitcode"], lauf["text"], lauf["stderr"],
+                                              lauf["nutzung"], lauf["dauer"])
 
     urteil = urteil_lesen(text)
     if exitcode == -1:
@@ -215,7 +263,8 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
         ausgabe = text
 
     ergebnis = {"runde": runde, "zeit": time.strftime("%Y-%m-%d %H:%M"), "pruefer": wer, "vorlage": vorlage,
-                "status": status, "grund": grund, "dauer_s": dauer, "ausgabe": ausgabe, **nutzung}
+                "modell": modell_fuer(wer, gruendlich), "planfassung": planfassung_lesen(vorlage, planfassung),
+                "status": status, "grund": grund, "ersatz": ersatz, "dauer_s": dauer, "ausgabe": ausgabe, **nutzung}
     ordner = protokoll_ordner()
     ordner.mkdir(parents=True, exist_ok=True)
     datei = ordner / f"{thema}.md"
@@ -237,9 +286,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sensibel", action="store_true")
     p.add_argument("--gruendlich", action="store_true", help=f"Codex mit {CODEX_GRUENDLICH_MODELL}")
     p.add_argument("--zeitgrenze", type=float, default=ZEITGRENZE_STANDARD)
+    p.add_argument("--planfassung", help="sonst 'Fassung N' aus der Vorlage")
     args = parser.parse_args(argv)
     try:
-        ergebnis = pruefen(args.vorlage, args.thema, args.pruefer, args.sensibel, args.gruendlich, args.zeitgrenze)
+        ergebnis = pruefen(args.vorlage, args.thema, args.pruefer, args.sensibel, args.gruendlich, args.zeitgrenze,
+                           args.planfassung)
     except PruefkreisFehler as fehler:
         print(f"FEHLER: {fehler}", file=sys.stderr)
         return 2

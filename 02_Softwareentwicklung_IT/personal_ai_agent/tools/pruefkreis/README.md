@@ -13,7 +13,7 @@ Rollen: Abschnitt „Rollen und Datenschutz im Agenten-Workflow“ in `AGENTS.md
 
 ```bash
 python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung> \
-    [--pruefer codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900]
+    [--pruefer codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900] [--planfassung N]
 ```
 
 | Exit | Bedeutung |
@@ -33,6 +33,12 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
   er in die Zeitgrenze, ist der Status `fehler`, nie `frei`.
   Bei einem Fehler steht die letzte `ERROR`-Zeile des Prüfers im Grund
   (z. B. das erreichte Codex-Nutzungslimit), bei `--sensibel` nicht.
+- **Codex gesperrt → Hermes prüft** (Sebastian, 12.10.2026): Endet Codex mit
+  einer Limit-Meldung (`usage limit`, `rate limit`, `quota`, `429` in der
+  Fehlerausgabe), startet sofort Hermes mit demselben Auftrag. Das Protokoll
+  vermerkt `Ersatzpruefer: Hermes statt Codex - Codex gesperrt (<Meldung>)`,
+  das Urteil kommt dann von Hermes. Andere Codex-Fehler und die Zeitgrenze
+  lösen keinen Ersatz aus; ohne Hermes-Programm bleibt es bei `fehler`.
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 
@@ -51,8 +57,9 @@ Protokollordner mit `PRUEFKREIS_DIR`.
 ## Protokoll
 
 `.hermes/pruefkreis/<thema>.md` (gitignored), je Runde ein Abschnitt
-`## Runde N · Zeit · Prüfer · Vorlage` mit Status, Grund, Sitzung, Kosten,
-Dauer und Antwort.
+`## Runde N · Zeit · Prüfer · Vorlage` mit Status, Modell, Planfassung,
+Ersatzprüfer, Grund, Sitzung, Kosten, Dauer und Antwort. Die Planfassung kommt aus
+`--planfassung` oder, wenn nicht angegeben, aus dem ersten `Fassung N` in der Vorlage.
 
 ## Stand (12.10.2026, Schritt 1 von 6)
 
