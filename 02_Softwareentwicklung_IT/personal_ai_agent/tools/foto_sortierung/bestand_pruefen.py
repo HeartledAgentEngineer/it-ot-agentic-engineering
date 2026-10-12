@@ -181,6 +181,31 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Dauerfehlalarm). Ueber ``--uebergabe-listen`` steuerbar
                       (leer = nicht pruefen; die uebrigen Pruefungen bleiben
                       dadurch unveraendert). Nur Zahlen und Dateinamen.
+  * pCloud-Operationen: ``manifest.jsonl`` — das Manifest der SCHREIBENDEN
+                      Operationen auf dem fremden System pCloud (Ordner anlegen,
+                      Archiv entpacken, verschieben, loeschen; Standard
+                      ``~/foto_sortierung/manifest.jsonl``, nie im Repo). Es ist
+                      die einzige Antwort auf die Frage „wie mache ich das
+                      rueckgaengig?" (AGENTS.md: „Jede schreibende Operation auf
+                      einem fremden System kommt in ein Manifest […], damit sie
+                      zurueckgenommen werden kann") — und stand in KEINER
+                      Pruefzeile, obwohl in der Nacht 32 Archive entpackt und
+                      Ordner angelegt wurden. Gezaehlt werden Buchungen, nicht
+                      lesbare Zeilen, Buchungen ohne Art und ohne Ziel (dann gibt
+                      es nichts zurueckzufahren), doppelte Buchungen (ein
+                      Rueckroll-Lauf wuerde sie zweimal fahren) und die Arten.
+                      Ehrlich getrennt: ZURUECKFAHRBAR sind nur die Arten, die das
+                      Rueckroll-Werkzeug wirklich faehrt (``movefile``,
+                      ``movefolder`` — Verschiebungen); ``createfolder`` wird nur
+                      GEMELDET (das Werkzeug entfernt angelegte Ordner
+                      ausdruecklich nicht) und alles Uebrige — z. B.
+                      ``extractarchive`` — hat keine Rueckroll-Regel. Die
+                      Zeitspanne steht in Tagen. Grenze (ehrlich): offline
+                      pruefbar ist nur das Manifest, nicht ob die Operation auf
+                      pCloud noch so steht. Nur Zahlen und die technischen
+                      Arten-Namen — kein Datei-/Ordnername, kein Pfad, kein
+                      Inhalt. Ueber ``--bewegungen`` steuerbar (leer = nicht
+                      pruefen).
   * Archiv:           das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts,
                       ueber ``--archiv`` steuerbar; Voreinstellung der Ordner
                       neben dem Projekt, ``--archiv ""`` schaltet es ab) — die
@@ -415,6 +440,31 @@ UEBERGABE_GERAETESEITIG = {
     "letzte_nachricht.json": "Zustand am Geraet",
     "ueberlauf.jsonl": "Diagnose des Geraets (Layout-Waechter)",
 }
+# Das Manifest der SCHREIBENDEN Operationen auf dem fremden System pCloud
+# (``tools/pcloud/pcloud_bewegungen.py`` und die Entpack-/Loesch-Werkzeuge
+# buchen hierher; Standard ``~/foto_sortierung/manifest.jsonl``, nie im Repo).
+# AGENTS.md verlangt: „Jede schreibende Operation auf einem fremden System
+# kommt in ein Manifest […], damit sie zurueckgenommen werden kann. ‚Wie mache
+# ich das rueckgaengig?‘ wird VOR der Operation beantwortet." Genau diese eine
+# Antwort auf die Rueckhol-Frage stand in KEINER Pruefzeile — obwohl in dieser
+# Nacht 32 Archive auf pCloud entpackt und 33 Ordner angelegt wurden (79
+# Buchungen). Nur Zahlen und die ARTEN (technische Namen der Operation), kein
+# Datei-/Ordnername, kein Pfad, kein Inhalt.
+STANDARD_BEWEGUNGEN = "manifest.jsonl"
+# Die Arten, die das Rueckroll-Werkzeug kennt (``pcloud_rueckrollen.py``,
+# ``AKTIONS_ARTEN``). Der Test
+# ``test_bewegungen_arten_spiegeln_das_rueckrollwerkzeug`` liest die Konstante
+# per AST aus dem Werkzeug und haelt beide zusammen — sonst driften sie still
+# auseinander und die Pruefzeile wuerde eine falsche Rueckholbarkeit melden.
+BEWEGUNG_AKTIONS_ARTEN = ("movefile", "movefolder", "createfolder")
+# Davon wirklich ZURUECKFAHRBAR: das Werkzeug faehrt nur Verschiebungen zurueck.
+# Angelegte Ordner werden ausdruecklich NICHT entfernt (Docstring des
+# Werkzeugs: „Angelegte Ordner werden NICHT entfernt — dafuer gibt es hier
+# keinen Weg, auch nicht als Schalter").
+BEWEGUNG_ZURUECKFAHRBAR = ("movefile", "movefolder")
+# Die Buchung einer selbst durchgefuehrten Rueckrollung (kein eigener Vorgang,
+# sondern der Beleg, dass zurueckgefahren wurde).
+BEWEGUNG_ART_RUECKROLL = "rueckroll"
 # Das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts): die Stufe, aus der
 # JEDE Archiv-Antwort im Chat ihre Fundstellen zieht (Suchdienst
 # ``archiv_suche``, seit dem 10.10. der Standardweg; der alte Weg
@@ -1745,6 +1795,69 @@ def _projekt_wurzel() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 
+# ── pCloud-Operationen (Rueckholbarkeit) ────────────────────────────────────
+
+def bewegungen_lesen(pfad: str) -> Dict[str, Any]:
+    """Das Manifest der pCloud-Operationen lesen (wirft nie).
+
+    Gezaehlt werden nur Zahlen: Buchungen, nicht lesbare Zeilen, Buchungen
+    ohne Art, die Arten (technische Op-Namen) und je Buchung, ob sie
+    ZURUECKFAHRBAR ist. Zurueckfahrbar heisst: das Rueckroll-Werkzeug kann die
+    Operation umkehren (``BEWEGUNG_ZURUECKFAHRBAR``). Alles Uebrige wird
+    ehrlich getrennt: „nur gemeldet\\" (das Werkzeug kennt die Art, entfernt
+    aber nichts — ``createfolder``) und „ohne Rueckroll-Regel\\" (das Werkzeug
+    fasst die Art gar nicht an, z. B. ``extractarchive``). Dazu Buchungen ohne
+    Ziel (dann gibt es nichts zurueckzufahren), doppelte Buchungen (ein
+    Rueckroll-Lauf wuerde sie zweimal fahren), Buchungen einer selbst
+    durchgefuehrten Rueckrollung und die Zeitspanne in Tagen.
+    """
+    stand: Dict[str, Any] = {
+        "fehlt": True, "buchungen": 0, "kaputt": 0, "ohne_art": 0,
+        "arten": {}, "verschiedene_arten": 0, "rueckholbar": 0,
+        "nur_gemeldet": 0, "ohne_regel": 0, "rueckrollungen": 0,
+        "ohne_ziel": 0, "doppelt": 0, "tage": 0, "zeit_von": "", "zeit_bis": ""}
+    if not os.path.isfile(pfad):
+        return stand
+    stand["fehlt"] = False
+    arten: Dict[str, int] = {}
+    gesehen: Set[Tuple[str, str, str]] = set()
+    zeiten: Set[str] = set()
+    for roh in _jsonl(pfad):
+        if roh is None:
+            stand["kaputt"] += 1
+            continue
+        stand["buchungen"] += 1
+        art = str(roh.get("art") or "").strip()
+        if not art:
+            stand["ohne_art"] += 1
+        else:
+            arten[art] = arten.get(art, 0) + 1
+            if art in BEWEGUNG_ZURUECKFAHRBAR:
+                stand["rueckholbar"] += 1
+            elif art in BEWEGUNG_AKTIONS_ARTEN:
+                stand["nur_gemeldet"] += 1
+            elif art == BEWEGUNG_ART_RUECKROLL:
+                stand["rueckrollungen"] += 1
+            else:
+                stand["ohne_regel"] += 1
+        # Ohne Ziel (Ordner- oder Pfadkennung) gibt es nichts zurueckzufahren.
+        if not (roh.get("nach_folderid") or roh.get("nach_pfad")):
+            stand["ohne_ziel"] += 1
+        schluessel = (art, str(roh.get("name") or ""), str(roh.get("zeit") or ""))
+        if schluessel in gesehen:
+            stand["doppelt"] += 1
+        gesehen.add(schluessel)
+        zeit = str(roh.get("zeit") or "")
+        if zeit:
+            zeiten.add(zeit[:10])
+    stand["arten"] = arten
+    stand["verschiedene_arten"] = len(arten)
+    stand["tage"] = len(zeiten)
+    if zeiten:
+        stand["zeit_von"], stand["zeit_bis"] = min(zeiten), max(zeiten)
+    return stand
+
+
 # ── Archiv (Chat/WhatsApp) ──────────────────────────────────────────────────
 
 def _ro_verbindung(pfad: str) -> sqlite3.Connection:
@@ -2120,6 +2233,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             titel: Optional[str] = STANDARD_TITEL,
             uebergabe: Optional[str] = STANDARD_UEBERGABE_MANIFEST,
             uebergabe_listen: Optional[Sequence[str]] = None,
+            bewegungen: Optional[str] = STANDARD_BEWEGUNGEN,
             projekt: Optional[str] = None,
             archiv: Optional[str] = None,
             archiv_heute: Optional[str] = None,
@@ -2134,6 +2248,11 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     = nicht pruefen; die uebrigen Pruefungen bleiben dadurch schnell und
     unveraendert). ``projekt`` = Wurzel des Projekts (Voreinstellung: der
     Projektordner dieses Werkzeugs).
+
+    ``bewegungen`` = das Manifest der schreibenden pCloud-Operationen
+    (``manifest.jsonl``, Rueckholbarkeit; ``None`` = nicht pruefen). Fehlt die
+    Datei am PC, steht das ehrlich als „noch nicht angelegt\\" da — kein
+    Dauer-Fehlalarm.
     """
     zeilen: List[str] = ["Bestandspruefung Fotos - nur Zahlen, nur lesend", ""]
     luecken: List[str] = []
@@ -2688,6 +2807,47 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                            f"kabellos uebergeben)")
         zeilen.append("")
 
+    if bewegungen:
+        bw = bewegungen_lesen(os.path.join(basis, bewegungen))
+        if bw.get("fehlt"):
+            zeilen.append(f"pCloud-Operationen (Rueckholbarkeit): {bewegungen} noch nicht "
+                          f"angelegt - es wurde noch nichts auf pCloud angelegt oder entpackt "
+                          f"(pcloud_bewegungen.py)")
+        else:
+            arten = ", ".join(f"{name} {_z(n)}" for name, n in sorted(bw["arten"].items()))
+            zeilen.append(f"pCloud-Operationen (Rueckholbarkeit): {bewegungen}: "
+                          f"{_z(bw['buchungen'])} Buchungen, "
+                          f"{_z(bw['verschiedene_arten'])} Arten"
+                          + (f" ({arten})" if arten else "")
+                          + (f", {_z(bw['ohne_art'])} ohne Art" if bw["ohne_art"] else "")
+                          + (f", {_z(bw['kaputt'])} kaputte Zeilen" if bw["kaputt"] else "")
+                          + (f", {_z(bw['doppelt'])} doppelt" if bw["doppelt"] else "")
+                          + (f", {_z(bw['ohne_ziel'])} ohne Ziel" if bw["ohne_ziel"] else ""))
+            zeilen.append(f"  Zurueckfahrbar (movefile/movefolder): {_z(bw['rueckholbar'])}; "
+                          f"nur gemeldet, nichts entfernt (createfolder): "
+                          f"{_z(bw['nur_gemeldet'])}; ohne Rueckroll-Regel (das Werkzeug "
+                          f"fasst sie gar nicht an): {_z(bw['ohne_regel'])}"
+                          + (f"; Rueckrollungen gebucht: {_z(bw['rueckrollungen'])}"
+                             if bw["rueckrollungen"] else ""))
+            if bw["zeit_von"]:
+                zeilen.append(f"  Stand: {bw['zeit_von']} bis {bw['zeit_bis']} "
+                              f"({_z(bw['tage'])} Tag(e))")
+            zeilen.append("  Grenze (ehrlich): offline pruefbar ist nur das Manifest - ob die "
+                          "Operation auf pCloud noch so steht, zeigt erst ein Netzabruf")
+            if bw["kaputt"]:
+                luecken.append(f"{bewegungen}: {_z(bw['kaputt'])} nicht lesbare Buchungen "
+                               f"(die pCloud-Operationen sind nicht nachvollziehbar)")
+            if bw["ohne_art"]:
+                luecken.append(f"{bewegungen}: {_z(bw['ohne_art'])} Buchung(en) ohne Art "
+                               f"(nicht rueckholbar)")
+            if bw["ohne_ziel"]:
+                luecken.append(f"{bewegungen}: {_z(bw['ohne_ziel'])} Buchung(en) ohne Ziel "
+                               f"(es gibt nichts zurueckzufahren)")
+            if bw["doppelt"]:
+                luecken.append(f"{bewegungen}: {_z(bw['doppelt'])} doppelte Buchung(en) "
+                               f"(ein Rueckroll-Lauf wuerde sie zweimal fahren)")
+        zeilen.append("")
+
     if archiv is not None:
         if not os.path.isdir(archiv):
             zeilen.append("Archiv (Chat/WhatsApp): Archivordner nicht gefunden - das "
@@ -2915,6 +3075,9 @@ def main(argv=None) -> int:
     parser.add_argument("--archiv-heute", default="", dest="archiv_heute",
                         help="Grenze fuer „Zeitstempel in der Zukunft\" (JJJJ-MM-TT; "
                              "leer = heutiger Tag)")
+    parser.add_argument("--bewegungen", default=STANDARD_BEWEGUNGEN,
+                        help="Manifest der schreibenden pCloud-Operationen "
+                             "(Rueckholbarkeit; leer lassen = nicht pruefen)")
     parser.add_argument("--luecken-details", type=int, default=20, dest="luecken_details",
                         help="wie viele fehlende Fotos mit Kennung und Grund benannt werden "
                              "(0 = nur zaehlen)")
@@ -2928,6 +3091,7 @@ def main(argv=None) -> int:
         return 2
     listen = tuple(t.strip() for t in (args.uebergabe_listen or "").split(",") if t.strip())
     zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details,
+                        bewegungen=(args.bewegungen or None),
                         uebergabe_listen=(listen or None),
                         archiv=(args.archiv or None),
                         archiv_heute=(args.archiv_heute or None))

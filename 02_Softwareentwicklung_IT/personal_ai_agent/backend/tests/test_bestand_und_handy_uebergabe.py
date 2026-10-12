@@ -1860,3 +1860,96 @@ def test_uebergabe_deckung_weg_bleibt_abschaltbar_und_tolerant(tmp_path):
     # Das kaputte Manifest ist eine Luecke (nicht nachvollziehbar) — die Weg-Frage
     # selbst schweigt still statt zu raten.
     assert not [l for l in luecken if "Kabelloser" in l]
+
+
+# ── pCloud-Operationen: die Rueckholbarkeit in einer Pruefzeile ─────────────
+
+def test_nachweis_zaehlt_die_pcloud_operationen(tmp_path):
+    """Die Rueckholbarkeit der pCloud-Schreibvorgaenge steht jetzt in einer Pruefzeile."""
+    _bestand(tmp_path)
+    _jsonl(tmp_path / "manifest.jsonl", [
+        {"zeit": "2026-10-10T04:40:13+02:00", "art": "createfolder", "name": "Papa (Amazon)",
+         "folderid": 11, "nach_folderid": 12},
+        {"zeit": "2026-10-10T04:40:13+02:00", "art": "extractarchive", "name": "a.zip",
+         "fileid": 5, "nach_folderid": 12},
+        {"zeit": "2026-10-11T05:27:21+02:00", "art": "movefile", "name": "IMG_1.jpg",
+         "fileid": 7, "von_folderid": 12, "nach_folderid": 13},
+    ])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("pCloud-Operationen (Rueckholbarkeit): manifest.jsonl: 3 Buchungen, 3 Arten "
+            "(createfolder 1, extractarchive 1, movefile 1)") in text
+    assert ("  Zurueckfahrbar (movefile/movefolder): 1; nur gemeldet, nichts entfernt "
+            "(createfolder): 1; ohne Rueckroll-Regel (das Werkzeug fasst sie gar nicht an): 1"
+            ) in text
+    assert "  Stand: 2026-10-10 bis 2026-10-11 (2 Tag(e))" in text
+    # Eine Art ohne Rueckroll-Regel ist eine ZEILE, keine Luecke (das Werkzeug sagt
+    # selbst, dass es angelegte Ordner nicht entfernt) — kein Dauer-Fehlalarm.
+    assert not [l for l in luecken if "manifest.jsonl" in l]
+    # Nur Zahlen und Arten-Namen: nie ein Datei-/Ordnername, nie ein Pfad.
+    assert "Papa (Amazon)" not in text and "a.zip" not in text and "IMG_1" not in text
+    assert str(tmp_path) not in text
+
+
+def test_nachweis_bewegungen_meldet_kaputt_ohne_art_ohne_ziel_doppelt(tmp_path):
+    """Was nicht rueckholbar oder doppelt gebucht ist, wird zur Luecke."""
+    _bestand(tmp_path)
+    (tmp_path / "manifest.jsonl").write_text(
+        json.dumps({"zeit": "2026-10-10T04:40:13+02:00", "art": "createfolder",
+                    "name": "x", "nach_folderid": 1}) + "\n"
+        + "{kein json\n"
+        + json.dumps({"zeit": "2026-10-10T04:40:13+02:00", "name": "y",
+                      "nach_folderid": 2}) + "\n"
+        + json.dumps({"zeit": "2026-10-10T05:00:00+02:00", "art": "movefile",
+                      "name": "z"}) + "\n"
+        + json.dumps({"zeit": "2026-10-10T04:40:13+02:00", "art": "createfolder",
+                      "name": "x", "nach_folderid": 1}) + "\n",
+        encoding="utf-8")
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "manifest.jsonl: 4 Buchungen, 2 Arten" in text
+    assert "1 kaputte Zeilen" in text and "1 ohne Art" in text
+    assert "1 doppelt" in text and "1 ohne Ziel" in text
+    assert ("manifest.jsonl: 1 nicht lesbare Buchungen (die pCloud-Operationen sind "
+            "nicht nachvollziehbar)") in luecken
+    assert "manifest.jsonl: 1 Buchung(en) ohne Art (nicht rueckholbar)" in luecken
+    assert "manifest.jsonl: 1 Buchung(en) ohne Ziel (es gibt nichts zurueckzufahren)" in luecken
+    assert ("manifest.jsonl: 1 doppelte Buchung(en) (ein Rueckroll-Lauf wuerde sie "
+            "zweimal fahren)") in luecken
+
+
+def test_nachweis_bewegungen_fehlend_und_abschaltbar(tmp_path):
+    """Ohne Manifest ehrlich „noch nicht angelegt\\" (keine Luecke) und abschaltbar."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("pCloud-Operationen (Rueckholbarkeit): manifest.jsonl noch nicht angelegt - "
+            "es wurde noch nichts auf pCloud angelegt oder entpackt (pcloud_bewegungen.py)"
+            ) in text
+    assert not [l for l in luecken if "manifest.jsonl" in l]
+    ohne = "\n".join(bp.pruefen(str(tmp_path), bewegungen=None)[0])
+    assert "pCloud-Operationen" not in ohne and "Rueckholbarkeit" not in ohne
+
+
+def test_bewegungen_leser_wirft_nie_und_arten_spiegeln_das_rueckrollwerkzeug(tmp_path):
+    """Der Leser ist tolerant — und die Arten muessen die des Rueckroll-Werkzeugs sein."""
+    assert bp.bewegungen_lesen(str(tmp_path / "gibtsnicht.jsonl"))["fehlt"] is True
+    (tmp_path / "manifest.jsonl").write_text("[1, 2]\n{kein json\n\"nur text\"\n",
+                                             encoding="utf-8")
+    stand = bp.bewegungen_lesen(str(tmp_path / "manifest.jsonl"))
+    assert stand["buchungen"] == 0 and stand["kaputt"] == 3 and stand["arten"] == {}
+    # Waechter: die Pruefzeile muss dieselben Arten kennen wie das Werkzeug, sonst
+    # meldet sie eine falsche Rueckholbarkeit. Gelesen wird die Konstante per AST
+    # aus dem Werkzeug (ein Kommentar ist kein Literal).
+    import ast
+    quelle = os.path.join(PROJEKT, "tools", "pcloud", "pcloud_rueckrollen.py")
+    with open(quelle, encoding="utf-8") as datei:
+        baum = ast.parse(datei.read())
+    gefunden = [n for n in baum.body if isinstance(n, ast.Assign)
+                and any(getattr(t, "id", "") == "AKTIONS_ARTEN" for t in n.targets)]
+    assert len(gefunden) == 1
+    im_werkzeug = tuple(ast.literal_eval(gefunden[0].value))
+    assert set(bp.BEWEGUNG_AKTIONS_ARTEN) == set(im_werkzeug)
+    assert set(bp.BEWEGUNG_ZURUECKFAHRBAR) <= set(im_werkzeug)
+    assert bp.BEWEGUNG_ZURUECKFAHRBAR == ("movefile", "movefolder")
+    assert bp.BEWEGUNG_ART_RUECKROLL not in im_werkzeug
