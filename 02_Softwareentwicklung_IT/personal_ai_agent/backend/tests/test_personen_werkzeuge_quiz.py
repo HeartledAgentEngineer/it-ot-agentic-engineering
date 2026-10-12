@@ -107,11 +107,18 @@ def test_person_auskunft_liest_profil_und_notizen(basis):
 # Form der Werkzeugausgabe („Notizen (n):“ + „- …“). Geprüft wird nur die
 # EIGENE Rahmung — Notiztexte bleiben, wie Sebastian sie eingegeben hat.
 
+NOTIZ_KOPF = "Eigene Notizen: "
+
+
 def _rahmen_ist_fliesstext(text: str) -> None:
-    for zeile in text.splitlines():
+    """Prüft nur die eigene Rahmung: alles VOR dem Notiz-Absatz und dessen Kopf."""
+    rahmen, _, notizen = text.partition("\n\n" + NOTIZ_KOPF)
+    if not notizen and text.startswith(NOTIZ_KOPF):  # nur Notizen, kein Stamm
+        rahmen = ""
+    for zeile in rahmen.splitlines():
         assert not zeile.startswith("- "), zeile
         assert not zeile.rstrip().endswith(":"), zeile
-    assert " | " not in text
+    assert " | " not in rahmen
 
 
 def test_person_auskunft_ist_fliesstext(basis):
@@ -131,6 +138,45 @@ def test_person_auskunft_ueberspringt_leere_notizen(basis):
     r = _auskunft(person="Testperson A")
     assert "Eigene Notizen: Mag Beispielhaftes. Endet schon mit Punkt." in r.text
     assert ".." not in r.text and ". ." not in r.text
+
+
+def test_person_auskunft_laesst_notiztexte_unveraendert(basis):
+    """Notizen mit „|“, „- “ oder Doppelpunkt am Ende bleiben wörtlich; der
+    Rahmen-Test schlägt dabei nicht an (er prüft nur die eigene Rahmung)."""
+    profile = json.loads(json.dumps(PROFILE))
+    profile["profile"]["Testperson A"]["notizen"] = [
+        {"id": "n1", "text": "Vorlieben: Kaffee | Tee"},
+        {"id": "n2", "text": "- beginnt mit Strich"},
+        {"id": "n3", "text": "Wichtig:"},
+    ]
+    _schreibe(basis / gq.PROFILE_DATEINAME, profile)
+    gq._CACHE.clear()
+    r = _auskunft(person="Testperson A")
+    _rahmen_ist_fliesstext(r.text)
+    assert r.text.endswith(
+        "Eigene Notizen: Vorlieben: Kaffee | Tee. - beginnt mit Strich. Wichtig:")
+
+
+@pytest.mark.parametrize("anlaesse, erwartet", [
+    ([], ""),
+    ([{"datum": "2019-07-01", "titel": "Urlaub"}],
+     "Kommt in einem Anlass vor: am 2019-07-01 „Urlaub“."),
+    ([{"datum": "2019-07-01", "titel": ""}],
+     "Kommt in einem Anlass vor: am 2019-07-01 „ohne Titel“."),
+    ([{"datum": None, "titel": None}],
+     "Kommt in einem Anlass vor: „ohne Titel“."),
+    ([{"titel": "Nur Titel"}, {"datum": "2018-05-05", "titel": "2018-05-05 Mit Datum"}],
+     "Kommt in 2 Anlässen vor: „Nur Titel“, „2018-05-05 Mit Datum“."),
+])
+def test_anlaesse_satz_grenzfaelle(anlaesse, erwartet):
+    assert wz._anlaesse_satz(anlaesse) == erwartet
+
+
+def test_anlaesse_satz_genau_zehn_ohne_auswahlhinweis():
+    zehn = [{"datum": f"20{i:02d}-01-01", "titel": f"A{i:02d}"} for i in range(10, 0, -1)]
+    satz = wz._anlaesse_satz(zehn)
+    assert satz.startswith("Kommt in 10 Anlässen vor: am 2010-01-01 „A10“")
+    assert "jüngsten" not in satz and satz.count("„") == 10
 
 
 def test_person_auskunft_langfall_grenzen_und_reihenfolge(basis, monkeypatch):

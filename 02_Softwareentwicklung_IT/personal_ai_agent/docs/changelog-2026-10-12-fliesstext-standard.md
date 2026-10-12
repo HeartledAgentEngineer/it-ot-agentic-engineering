@@ -35,8 +35,8 @@ Zwei Ursachen, beide im Code belegt:
    Notizen.
    - Gleich geblieben sind die Datenquelle, die Grenzen (20 Notizen, 10 Anlässe,
      Abfrage bis 15) und der Schutz (keine Pfade, keine Kennungen).
-   - Notiztexte bleiben wörtlich. Nur ein fehlendes Satzende kommt dazu, damit
-     zwei Notizen beim Vorlesen nicht ineinanderlaufen.
+   - Notiztexte bleiben wörtlich. Nur ein fehlendes Satzende kommt dazu (nicht
+     nach „. ! ? … : ;“), damit zwei Notizen beim Vorlesen nicht ineinanderlaufen.
    - Leere und zurückgenommene Notizen fallen weg.
    - Beginnt ein Anlass-Titel schon mit dem Datum, steht das Datum nicht doppelt.
    - Erreicht die Abfrage ihre Grenze von 15, heißt es „mindestens 15“. Vorher
@@ -82,6 +82,30 @@ Prüfbefehl siehe Änderungsprotokoll in `CLAUDE.md`.
   gaben beide „freigegeben mit Auflagen“. Die Auflagen sind umgesetzt.
 - Ausgeführt hat Claude Code; das Thema ist nicht sensibel (Prompt-Text,
   Werkzeug-Form, erfundene Testdaten).
+
+## Nachtrag: Ergebnisprüfung durch Codex
+
+Codex (gpt-5.6-terra, read-only) hat Commit `1e7ef0c` geprüft: **„nicht
+bestanden“**. Beide blockierenden Befunde waren berechtigt und sind behoben:
+
+1. Der Rahmen-Test prüfte auch den Notiztext auf „ | “ und auf „:“ am
+   Zeilenende. Das widersprach der Auflage, nur die eigene Rahmung zu prüfen.
+   Jetzt prüft er nur den Teil vor dem Notiz-Absatz. Neu ist
+   `test_person_auskunft_laesst_notiztexte_unveraendert`: Notizen mit „|“, mit
+   „- “ am Anfang und mit „:“ am Ende bleiben wörtlich.
+2. Grenzfälle von `_anlaesse_satz` fehlten. Neu sind
+   `test_anlaesse_satz_grenzfaelle` mit 5 Fällen und
+   `test_anlaesse_satz_genau_zehn_ohne_auswahlhinweis`. Die 5 Fälle sind: leere
+   Liste, ein Anlass, leerer Titel, Datum ohne Titel, Titel ohne Datum bzw. mit
+   Datum vorn. Dazu kommt der Fall mit genau 10 Anlässen, ohne „die jüngsten“.
+
+Die Hinweise von Codex sind ebenfalls umgesetzt:
+
+- `_anlaesse_satz([])` liefert jetzt leeren Text statt „Kommt in 0 Anlässen
+  vor: .“.
+- Eine Notiz, die auf „:“ oder „;“ endet, bekommt keinen Punkt mehr
+  (`_SATZENDE = ".!?…:;"`).
+- Die Konstanten stehen jetzt über `_person_auskunft`.
 
 ## Ehrlich offen
 

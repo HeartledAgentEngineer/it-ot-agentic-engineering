@@ -433,6 +433,14 @@ def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen(f"{len(personen)} bekannte Personen:\n" + "\n".join(zeilen)))
 
 
+# Grenzen der Personenauskunft: Abfrage bis 15 Anlaesse, gezeigt werden 10.
+_ANLAESSE_ABFRAGE = 15
+_ANLAESSE_ZEIGEN = 10
+_NOTIZEN_ZEIGEN = 20
+# Endet eine Notiz schon so, kommt kein Punkt dazu („Wichtig:“ bleibt „Wichtig:“).
+_SATZENDE = ".!?…:;"
+
+
 def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     """Alles, was das Personen-Quiz über EINE Person weiß: Beziehung, eigene
     Notizen, Geburtstag (aus dem Telefonbuch-Auszug), die Zahl ihrer Fotos und
@@ -488,19 +496,16 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     if notizen:
         # Notiztexte bleiben wie eingegeben; nur ein fehlendes Satzende kommt dazu,
         # damit zwei Notizen beim Vorlesen nicht ineinanderlaufen.
-        saetze = [n if n[-1] in ".!?…" else n + "." for n in notizen[:_NOTIZEN_ZEIGEN]]
+        saetze = [n if n[-1] in _SATZENDE else n + "." for n in notizen[:_NOTIZEN_ZEIGEN]]
         absaetze.append("Eigene Notizen: " + " ".join(saetze))
     return Ergebnis(_kuerzen("\n\n".join(absaetze)))
 
 
-# Grenzen der Personenauskunft: Abfrage bis 15 Anlaesse, gezeigt werden 10.
-_ANLAESSE_ABFRAGE = 15
-_ANLAESSE_ZEIGEN = 10
-_NOTIZEN_ZEIGEN = 20
-
-
 def _anlaesse_satz(anlaesse: List[Dict[str, Any]]) -> str:
-    """Die Anlaesse einer Person als ein Satz (neueste zuerst, wie geliefert)."""
+    """Die Anlaesse einer Person als ein Satz (neueste zuerst, wie geliefert).
+    Leere Liste -> leerer Text (kein „Kommt in 0 Anlässen vor“)."""
+    if not anlaesse:
+        return ""
     teile = []
     for a in anlaesse[:_ANLAESSE_ZEIGEN]:
         titel = str(a.get("titel") or "").strip() or "ohne Titel"
