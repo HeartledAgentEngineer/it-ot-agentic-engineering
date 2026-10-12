@@ -113,7 +113,10 @@ haupt(argv=None) -> int
 **Kommandozeile:** `--plan` (Standard `~/foto_sortierung/sortierplan.json`),
 `--ausgabe` (Standard `~/foto_sortierung/ereignisse.jsonl`), `--trocken`
 (Standard, schreibt nichts), `--schreiben` (schreibt atomar), `--limit N`
-(zeigt nur die ersten N Knoten auf der Konsole).
+(zeigt nur die ersten N Knoten auf der Konsole), `--stand TEXT`
+(Lauf-Zeitstempel fest vorgeben, Standard: jetzt; mit gleichem `--stand` sind
+zwei Laeufe byte-gleich — ohne ihn ist der Stand der einzige Unterschied,
+Nachtrag 12.10.2026).
 
 ## Was das Werkzeug NICHT tut (verbindlich, mit Test belegt)
 
@@ -152,6 +155,11 @@ Abzudecken (mindestens 45 Pruefungen):
 12. `knoten_zeile` ist rein (kein Dateizugriff): gleiche Eingabe, gleiche
     Ausgabe.
 13. `zahlen_text` nennt alle Zahlen und **nicht** "geloescht" o. Ae.
+14. `--stand TEXT` (12.10.2026): zwei Laeufe mit gleichem `--stand` sind
+    **byte-gleich** (Pruefsumme), die Zeile traegt genau diesen Stand; **ohne**
+    `--stand` unterscheiden zwei Laeufe sich **ausschliesslich** im Feld `stand`;
+    ein leerer/blanker `--stand` wird **nicht** stillschweigend zur Uhrzeit
+    (Exit 2, nichts geschrieben).
 
 ## Pruefkriterium des Schritts (Pruefbefehl + Live)
 
@@ -168,6 +176,9 @@ Abzudecken (mindestens 45 Pruefungen):
    byte-gleich (`sha256`-Auszug `cfbbe6f68961b142` über beide Läufe). Die
    Zusage „byte-gleich" gilt nur bei **vorgegebenem** `stand` — so wie die
    Tests ihn setzen. Das ursprüngliche Kriterium war zu absolut formuliert.
+   **Umgesetzt am 12.10.2026:** dafür gibt es jetzt `--stand TEXT` auf der
+   Kommandozeile (vorher nur als Funktionsparameter für Tests) — die Zusage ist
+   damit auch auf der Konsole einhaltbar, statt von der Uhr abzuhängen.
 4. Ziel im Repo → **Exit 2**.
 
 ## Grenzen (unveraendert)

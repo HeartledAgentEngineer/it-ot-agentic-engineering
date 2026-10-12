@@ -967,12 +967,54 @@ def test_haupt_mit_schreiben_legt_jsonl_an(tmp_path):
 
 
 def test_haupt_schreiben_ist_byte_gleich_wiederholbar(tmp_path):
+    """Mit festem ``--stand`` sind zwei Schreibvorgaenge WIRKLICH byte-gleich.
+
+    Vorher lief der Test OHNE ``--stand``: der Lauf-Zeitstempel kam aus der Uhr,
+    und fielen die zwei Schreibvorgaenge auf zwei Sekunden, unterschieden sich
+    die Dateien (belegte Zeitgrenzen-Flakiness, Changelog 29.09.2026 — sie hat am
+    12.10.2026 den Commit-Haken eines Nachtlaufs rot gemacht). Mit dem neuen
+    ``--stand`` prueft der Test die zugesagte Eigenschaft statt zu wuerfeln.
+    """
     plan = _plan_datei(tmp_path)
     ziel = tmp_path / "ereignisse.jsonl"
-    eb.haupt(["--plan", str(plan), "--ausgabe", str(ziel), "--schreiben"])
+    eb.haupt(["--plan", str(plan), "--ausgabe", str(ziel), "--stand", STAND,
+              "--schreiben"])
     vorher = _datei_hash(ziel)
-    eb.haupt(["--plan", str(plan), "--ausgabe", str(ziel), "--schreiben"])
+    eb.haupt(["--plan", str(plan), "--ausgabe", str(ziel), "--stand", STAND,
+              "--schreiben"])
     assert _datei_hash(ziel) == vorher
+    # Der vorgegebene Stand steht auch wirklich in der Zeile.
+    assert json.loads(ziel.read_text(encoding="utf-8").splitlines()[0])["stand"] == STAND
+
+
+def test_haupt_ohne_stand_unterscheidet_sich_nur_im_stand(tmp_path):
+    """Ohne ``--stand`` ist der Laufzeitpunkt der EINZIGE Unterschied zweier Laeufe.
+
+    Das ist die wahre Eigenschaft (der Zeitstempel steht in jeder Zeile) — sie
+    gilt immer, waehrend Byte-Gleichheit ohne festen Stand Glueckssache waere.
+    """
+    plan = _plan_datei(tmp_path)
+    eins = tmp_path / "e1.jsonl"
+    zwei = tmp_path / "e2.jsonl"
+    eb.haupt(["--plan", str(plan), "--ausgabe", str(eins), "--schreiben"])
+    eb.haupt(["--plan", str(plan), "--ausgabe", str(zwei), "--schreiben"])
+    a = [json.loads(z) for z in eins.read_text(encoding="utf-8").splitlines()]
+    b = [json.loads(z) for z in zwei.read_text(encoding="utf-8").splitlines()]
+    assert len(a) == len(b) > 0
+    for links, rechts in zip(a, b):
+        links.pop("stand")
+        rechts.pop("stand")
+        assert links == rechts
+
+
+def test_haupt_leerer_stand_ergibt_exit_2(tmp_path, capsys):
+    """Ein leerer ``--stand`` wird NICHT stillschweigend zur Uhrzeit."""
+    plan = _plan_datei(tmp_path)
+    ziel = tmp_path / "ereignisse.jsonl"
+    assert eb.haupt(["--plan", str(plan), "--ausgabe", str(ziel),
+                     "--stand", "   ", "--schreiben"]) == 2
+    assert "Stand" in capsys.readouterr().err
+    assert not ziel.exists()
 
 
 def test_haupt_repo_ziel_ergibt_exit_2(tmp_path, capsys):

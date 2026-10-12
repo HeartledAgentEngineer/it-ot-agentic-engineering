@@ -75,6 +75,8 @@ Aufruf (Kommandozeile)::
     python tools/foto_sortierung/ereignisse_bauen.py --trocken
     python tools/foto_sortierung/ereignisse_bauen.py --limit 3
     python tools/foto_sortierung/ereignisse_bauen.py --ausgabe C:/tmp/e.jsonl --schreiben
+    python tools/foto_sortierung/ereignisse_bauen.py --stand 2026-10-12T20:00:00+02:00 \
+        --ausgabe C:/tmp/e.jsonl --schreiben      # byte-gleich wiederholbar
 
 Als Modul (Tests, spaetere Schritte): ``haupt(argv=[...])`` sowie die reinen
 Funktionen ``plan_laden``, ``ereignisse_bauen``, ``ereignisse_schreiben``,
@@ -550,7 +552,10 @@ def haupt(argv=None) -> int:
     ``--plan`` (Standard: der echte Sortierplan), ``--ausgabe`` (Standard:
     ``~/foto_sortierung/ereignisse.jsonl``), ``--trocken`` (Standard) und
     ``--schreiben``; ``--limit N`` zeigt nur die ersten N Knoten auf der
-    Konsole (Standard 5). Ohne ``--schreiben`` ist es ein reiner Trockenlauf:
+    Konsole (Standard 5); ``--stand`` gibt den Lauf-Zeitstempel fest vor
+    (Standard: jetzt) — damit sind zwei Laeufe **byte-gleich** wiederholbar
+    (der Zeitstempel steht in jeder Zeile; siehe ``knoten_zeile``). Ohne
+    ``--schreiben`` ist es ein reiner Trockenlauf:
     dieselben Zahlen auf der Konsole, keine Datei. Ein Ziel im Repo ergibt eine
     deutsche Meldung auf ``stderr`` und Exit 2 — auch im Trockenlauf, damit der
     Fehler frueh auffaellt und nicht erst beim ersten Schreiben.
@@ -572,6 +577,11 @@ def haupt(argv=None) -> int:
     zerleger.add_argument("--limit", dest="limit", type=int, default=5,
                           help="nur die ersten N Knoten auf der Konsole zeigen "
                                "(Standard 5)")
+    zerleger.add_argument("--stand", dest="stand", default=None,
+                          help="Lauf-Zeitstempel fest vorgeben (nicht-leerer "
+                               "Text, z. B. 2026-10-12T20:00:00+02:00; "
+                               "Standard: jetzt) — mit gleichem --stand sind "
+                               "zwei Laeufe byte-gleich")
     args = zerleger.parse_args(argv)
 
     schreiben = bool(args.schreiben) and not bool(args.trocken)
@@ -581,7 +591,7 @@ def haupt(argv=None) -> int:
         if limit < 0:
             raise ValueError("Das Limit muss eine Zahl >= 0 sein.")
         plan = plan_laden(args.plan)
-        daten = ereignisse_bauen(plan)
+        daten = ereignisse_bauen(plan, stand=args.stand)
         _pruefe_ziel_ausserhalb_repo(args.ausgabe)
     except ValueError as problem:
         print(f"Fehler: {problem}", file=sys.stderr)
