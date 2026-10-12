@@ -165,6 +165,29 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       die letzte Buchung — ein spaeterer Wechsel der Datei IM
                       pCloud-Ordner ist ohne Netzabruf nicht sichtbar. Nur Zahlen und
                       die eigenen Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
+  * Archiv:           das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts,
+                      ueber ``--archiv`` steuerbar; Voreinstellung der Ordner
+                      neben dem Projekt, ``--archiv ""`` schaltet es ab) — die
+                      Stufe, aus der JEDE Archiv-Antwort im Chat ihre Fundstellen
+                      zieht (``archiv_suche``, seit dem 10.10. der Standardweg;
+                      der alte Weg ``archiv_service`` liest ``db/memory.db``).
+                      Gezaehlt werden die Rohdaten ``normalized/messages.jsonl``
+                      (Zeilen, nicht lesbare, ohne Quelle/Text, Quellen als
+                      Zahl), der volle Index ``db/archiv_index.db`` (Nachrichten,
+                      Gespraeche, Chunks, davon mit Vektor, Vektoren samt Waisen
+                      und Modell/Dimension, Volltextindex, Selbstauskunft aus
+                      ``meta``) und die Textschicht ``db/memory.db``. Ehrliche
+                      Pruefungen, jede wird zur Luecke: Zeilen gegen Nachrichten
+                      im Index (die Textschicht gegen beide), eine Quelle ohne
+                      Nachricht im Index, Chunks ohne Vektor, Vektoren != Chunks
+                      mit Vektor, verwaiste Vektoren, ein unvollstaendiger
+                      Volltextindex (die Volltextsuche liefert dann still zu
+                      wenig) und eine Selbstauskunft, die der Zaehlung
+                      widerspricht. Zeitstempel
+                      werden als Jahresspanne gemeldet, dazu die Zahl der
+                      Nachrichten vor 1990 und in der Zukunft (Kalendereintraege
+                      mit alten Jahren). Nur Zahlen und Quellen-NAMEN — kein
+                      Nachrichtentext, kein Titel, kein Gespraechsname.
   Standard-Plaene: ``sortierplan.json``, ``sortierplan_bildervideos.json`` und
   ``sortierplan_papa.json`` (Papas 6.336 Amazon-Fotos); Standard-Vektordateien
   entsprechend inkl. ``personen_vektoren_papa.jsonl``. Ohne Papa in dieser Liste
@@ -326,6 +349,29 @@ STANDARD_UEBERGABE_MANIFEST = "uebergabe_manifest.jsonl"
 UEBERGABE_GLEICH = "gleich"
 UEBERGABE_GEAENDERT = "geaendert"
 UEBERGABE_FEHLT_LOKAL = "fehlt_lokal"
+# Das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts): die Stufe, aus der
+# JEDE Archiv-Antwort im Chat ihre Fundstellen zieht (Suchdienst
+# ``archiv_suche``, seit dem 10.10. der Standardweg; der alte Weg
+# ``archiv_service`` liest ``db/memory.db``). Es besteht aus den Rohdaten
+# ``normalized/messages.jsonl``, der Textschicht ``db/memory.db`` und dem vollen
+# Index ``db/archiv_index.db`` (Nachrichten, Chunks, Vektoren, Volltextindex) —
+# und KEINE dieser Dateien stand in einer Pruefzeile, obwohl genau an dieser
+# Stufe am 10.10. ein echter Fehler auffiel (der Chat suchte in einer alten
+# Kopie, Journal 3 des Plans). Faellt der Index weg oder ist er halb, findet der
+# Chat nichts mehr aus WhatsApp, und es merkt heute niemand (dieselbe Luecke wie
+# bei OSM, Bildindex, Anlaessen, Ortsnamen, Erzaehl-Quellen, Beziehungen,
+# Personen, App-Uebersicht, Doppelten, eigenen Erzaehl-Stufen und der Uebergabe).
+# Nur Zahlen — kein Nachrichtentext, kein Titel, kein Gespraechsname.
+STANDARD_ARCHIV_ORDNER = os.path.abspath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+    "Chats von GPT, GEMINI, Claude"))
+ARCHIV_MESSAGES = os.path.join("normalized", "messages.jsonl")
+ARCHIV_INDEX_DB = os.path.join("db", "archiv_index.db")
+ARCHIV_MEMORY_DB = os.path.join("db", "memory.db")
+ARCHIV_VEKTORDATEI = os.path.join("db", "memory.vektoren.f32")
+# Vor 1990 kann keine Chat-Nachricht entstanden sein; was aelter ist, kommt aus
+# Kalendereintraegen (Geburtstage) und ist ein Datum, keine Nachricht.
+ARCHIV_FRUEHESTES_JAHR = "1990"
 # Je Gebiet ein Unterordner mit osm_orte.csv + osm_adressen.csv.
 KARTEN_CSV_ORDNER = os.path.join("osm", "csv")
 KARTEN_ORTE = "osm_orte.csv"
@@ -1490,6 +1536,260 @@ def uebergabe_stand_lesen(basis: str,
             "unlesbar": unlesbar}
 
 
+# ── Archiv (Chat/WhatsApp) ──────────────────────────────────────────────────
+
+def _ro_verbindung(pfad: str) -> sqlite3.Connection:
+    """Eine NUR-LESE-Verbindung (``mode=ro``) — nichts wird geschrieben."""
+    return sqlite3.connect(f"file:{pfad}?mode=ro", uri=True)
+
+
+def _zaehle_sql(verb: sqlite3.Connection, sql: str,
+                argumente: Tuple[Any, ...] = ()) -> Optional[int]:
+    """Eine Zahl aus SQL — ``None``, wenn die Tabelle/Spalte fehlt (nie ein Wurf)."""
+    try:
+        zeile = verb.execute(sql, argumente).fetchone()
+    except sqlite3.Error:
+        return None
+    return _ganze_zahl(zeile[0]) if zeile else 0
+
+
+def _je_quelle(verb: sqlite3.Connection, tabelle: str,
+               spalte: str = "source") -> Dict[str, int]:
+    """Zeilen je Quelle — leere Antwort, wenn die Tabelle fehlt."""
+    try:
+        return {(_kennung(q) or "(ohne)"): _ganze_zahl(n) for q, n in
+                verb.execute(f"SELECT {spalte}, count(*) FROM {tabelle} "
+                             f"GROUP BY {spalte} ORDER BY 2 DESC")}
+    except sqlite3.Error:
+        return {}
+
+
+def archiv_jsonl_zaehlen(pfad: str) -> Dict[str, Any]:
+    """Die Archiv-Rohdaten zeilenweise zaehlen — **wirft nie**.
+
+    Gelesen wird NUR gezaehlt: Zeilen, nicht lesbare Zeilen, Zeilen ohne Quelle
+    und ohne Text, dazu die Quellen als Zahl. Kein Text, kein Titel, kein
+    Gespraechsname verlaesst diese Funktion.
+    """
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    zeilen = kaputt = ohne_quelle = ohne_text = 0
+    quellen: Dict[str, int] = {}
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as datei:
+            for roh in datei:
+                if not roh.strip():
+                    continue
+                zeilen += 1
+                try:
+                    objekt = json.loads(roh)
+                except (ValueError, TypeError):
+                    kaputt += 1
+                    continue
+                if not isinstance(objekt, dict):
+                    kaputt += 1
+                    continue
+                quelle = _kennung(objekt.get("source") or objekt.get("quelle"))
+                if quelle:
+                    quellen[quelle] = quellen.get(quelle, 0) + 1
+                else:
+                    ohne_quelle += 1
+                if not _kennung(objekt.get("text")):
+                    ohne_text += 1
+    except OSError:
+        return {"fehlt": True}
+    return {"fehlt": False, "zeilen": zeilen, "kaputt": kaputt,
+            "ohne_quelle": ohne_quelle, "ohne_text": ohne_text, "quellen": quellen}
+
+
+def archiv_index_lesen(pfad: str, heute: Optional[str] = None) -> Dict[str, Any]:
+    """Den vollen Archiv-Index nachzaehlen (nur lesend) — **wirft nie**.
+
+    Gezaehlt werden Nachrichten (je Quelle, ohne Quelle, ohne Zeitstempel),
+    Gespraeche, Chunks (je Quelle, davon mit Vektor), Vektoren (je Modell,
+    Dimension, Waisen ohne Chunk), der Volltextindex und die Selbstauskunft in
+    ``meta``. ``heute`` (JJJJ-MM-TT) setzt die Grenze fuer „Zeitstempel in der
+    Zukunft"; ohne Angabe gilt der heutige Tag. Nur Zahlen — kein Text.
+    """
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    try:
+        verb = _ro_verbindung(pfad)
+    except (sqlite3.Error, OSError):
+        return {"nicht_lesbar": True}
+    try:
+        nachrichten = _zaehle_sql(verb, "SELECT count(*) FROM nachrichten")
+        chunks = _zaehle_sql(verb, "SELECT count(*) FROM chunks")
+        if nachrichten is None or chunks is None:
+            return {"nicht_lesbar": True}
+        grenze = (heute or "").strip() or _heute()
+        d: Dict[str, Any] = {
+            "fehlt": False, "nicht_lesbar": False,
+            "nachrichten": nachrichten,
+            "nachrichten_je_quelle": _je_quelle(verb, "nachrichten"),
+            "ohne_quelle": _zaehle_sql(
+                verb, "SELECT count(*) FROM nachrichten "
+                      "WHERE source IS NULL OR source = ''") or 0,
+            "ohne_zeit": _zaehle_sql(
+                verb, "SELECT count(*) FROM nachrichten "
+                      "WHERE timestamp IS NULL OR timestamp = ''") or 0,
+            "zeit_von": _jahr(verb, "SELECT min(timestamp) FROM nachrichten"),
+            "zeit_bis": _jahr(verb, "SELECT max(timestamp) FROM nachrichten"),
+            "zu_frueh": _zaehle_sql(
+                verb, "SELECT count(*) FROM nachrichten WHERE timestamp < ?",
+                (ARCHIV_FRUEHESTES_JAHR,)) or 0,
+            "in_der_zukunft": _zaehle_sql(
+                verb, "SELECT count(*) FROM nachrichten WHERE timestamp > ?",
+                (grenze,)) or 0,
+            "chunks": chunks,
+            "chunks_mit_vektor": _zaehle_sql(
+                verb, "SELECT COALESCE(sum(hat_vektor), 0) FROM chunks") or 0,
+            "chunks_je_quelle": _je_quelle(verb, "chunks"),
+            "gespraeche": _zaehle_sql(verb, "SELECT count(*) FROM gespraeche"),
+            "vektoren": _zaehle_sql(verb, "SELECT count(*) FROM vektoren"),
+            "vektoren_ohne_chunk": _zaehle_sql(
+                verb, "SELECT count(*) FROM vektoren v WHERE NOT EXISTS "
+                      "(SELECT 1 FROM chunks c WHERE c.id = v.chunk_id)") or 0,
+            "vektor_modelle": _je_quelle(verb, "vektoren", "modell"),
+            "dimensionen": _dimensionen(verb),
+            "fts_indexiert": _zaehle_sql(verb, "SELECT count(*) FROM chunks_fts_docsize"),
+            "meta": _meta_lesen(verb),
+        }
+    except sqlite3.Error:
+        return {"nicht_lesbar": True}
+    finally:
+        try:
+            verb.close()
+        except sqlite3.Error:
+            pass
+    return d
+
+
+def _heute() -> str:
+    """Der heutige Tag als JJJJ-MM-TT (ohne Zeitzonen-Rechnerei)."""
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+def _jahr(verb: sqlite3.Connection, sql: str) -> str:
+    """Nur das Jahr aus einem Zeitstempel — nie ein volles Datum, nie ein Fehler."""
+    try:
+        zeile = verb.execute(sql).fetchone()
+    except sqlite3.Error:
+        return ""
+    wert = _kennung(zeile[0]) if zeile else ""
+    return wert[:4] if len(wert) >= 4 and wert[:4].isdigit() else ""
+
+
+def _dimensionen(verb: sqlite3.Connection) -> List[int]:
+    """Die vorkommenden Vektor-Dimensionen (Zahlen) — leer, wenn nicht lesbar."""
+    try:
+        return sorted({_ganze_zahl(d) for (d,) in
+                       verb.execute("SELECT DISTINCT dimension FROM vektoren")})
+    except sqlite3.Error:
+        return []
+
+
+def _meta_lesen(verb: sqlite3.Connection) -> Dict[str, str]:
+    """Die Schluessel/Wert-Tabelle des Index (Selbstauskunft) — nie ein Wurf."""
+    try:
+        return {_kennung(k): _kennung(w) for k, w in
+                verb.execute("SELECT schluessel, wert FROM meta")}
+    except sqlite3.Error:
+        return {}
+
+
+def archiv_memory_lesen(pfad: str) -> Dict[str, Any]:
+    """Die Textschicht des alten Weges (``db/memory.db``) nachzaehlen — wirft nie."""
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    try:
+        verb = _ro_verbindung(pfad)
+    except (sqlite3.Error, OSError):
+        return {"nicht_lesbar": True}
+    try:
+        nachrichten = _zaehle_sql(verb, "SELECT count(*) FROM messages")
+        chunks = _zaehle_sql(verb, "SELECT count(*) FROM chunks")
+        if nachrichten is None or chunks is None:
+            return {"nicht_lesbar": True}
+        d = {"fehlt": False, "nicht_lesbar": False, "nachrichten": nachrichten,
+             "chunks": chunks,
+             "chunks_mit_vektor": _zaehle_sql(
+                 verb, "SELECT COALESCE(sum(hat_vektor), 0) FROM chunks") or 0,
+             "meta": {}}
+        try:
+            d["meta"] = {_kennung(k): _kennung(w) for k, w in
+                         verb.execute("SELECT schluessel, wert FROM index_meta")}
+        except sqlite3.Error:
+            pass
+    except sqlite3.Error:
+        return {"nicht_lesbar": True}
+    finally:
+        try:
+            verb.close()
+        except sqlite3.Error:
+            pass
+    return d
+
+
+def archiv_vektordatei_stand(ordner: str) -> Dict[str, Any]:
+    """Liegt die Vektordatei des alten Weges unter dem ERWARTETEN Namen?
+
+    Der alte Weg oeffnet die Vektoren ueber einen festen Dateinamen. Liegt die
+    Datei nur unter einem abweichenden Namen daneben (z. B. ein Git-Konflikt-
+    Rest), findet der alte Weg seine Vektoren nicht — die Bedeutungssuche
+    schweigt dann still. Gemeldet wird nur: da / fehlt, und wie viele Dateien
+    mit abweichendem Namen daneben liegen (kein Pfad, kein Dateiname).
+    """
+    if not os.path.isdir(ordner):
+        return {"ordner_fehlt": True}
+    if os.path.isfile(os.path.join(ordner, os.path.basename(ARCHIV_VEKTORDATEI))):
+        return {"da": True}
+    stamm = os.path.basename(ARCHIV_VEKTORDATEI).rsplit(".", 1)[0]
+    try:
+        andere = [n for n in os.listdir(ordner) if stamm in n and n.endswith(".f32")]
+    except OSError:
+        andere = []
+    return {"da": False, "andere": len(andere)}
+
+
+def _archiv_kopf(meta: Dict[str, str]) -> str:
+    """Eine Zeile aus der Selbstauskunft des Index (Modell, Dimension, Stand, Preis)."""
+    teile: List[str] = []
+    for schluessel, titel in (("modell", "Modell"), ("dimension", "Dimension"),
+                              ("vektor_speicher", "Speicher")):
+        wert = _kennung(meta.get(schluessel))
+        if wert:
+            teile.append(f"{titel} {wert}")
+    zeitraum = []
+    for schluessel, titel in (("gebaut_am", "gebaut"), ("ergaenzt_am", "ergaenzt")):
+        wert = _kennung(meta.get(schluessel))
+        if len(wert) >= 10:
+            zeitraum.append(f"{titel} {wert[:10]}")
+    kosten = _zahl_aus(meta.get("kosten_usd"))
+    token = _zahl_aus(meta.get("tokens_gezaehlt"))
+    zahlenteil: List[str] = []
+    if token:
+        zahlenteil.append(f"Token {_z(int(token))}")
+    if kosten is not None:
+        zahlenteil.append(f"Kosten {_usd(kosten)} USD")
+    zeile = ", ".join(teile)
+    if zeitraum:
+        zeile += ("; " if zeile else "") + ", ".join(zeitraum)
+    if zahlenteil:
+        zeile += ("; " if zeile else "") + ", ".join(zahlenteil)
+    return zeile
+
+
+def _quellen_kurz(quellen: Dict[str, int], max_: int = 8) -> str:
+    """„whatsapp 1.234, chatgpt 56" — nur Quellen-NAMEN (Apps), nie Inhalte."""
+    geordnet = sorted(quellen.items(), key=lambda p: (-p[1], p[0]))
+    genommen = [f"{name} {_z(zahl)}" for name, zahl in geordnet[:max_]]
+    if len(geordnet) > max_:
+        genommen.append(f"und {len(geordnet) - max_} weitere")
+    return ", ".join(genommen)
+
+
 # ── Bildindex (Bildsuche) ───────────────────────────────────────────────────
 
 def _zahl_aus(wert: Any) -> Optional[float]:
@@ -1610,6 +1910,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             geschichten: Optional[str] = STANDARD_GESCHICHTEN,
             titel: Optional[str] = STANDARD_TITEL,
             uebergabe: Optional[str] = STANDARD_UEBERGABE_MANIFEST,
+            archiv: Optional[str] = None,
+            archiv_heute: Optional[str] = None,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
     """-> (Berichtszeilen, Luecken). Nur Zahlen, Kennungen und Dateinamen.
 
@@ -2112,6 +2414,129 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                f"Pruefsumme (nur ueber die Groesse vergleichbar)")
         zeilen.append("")
 
+    if archiv is not None:
+        if not os.path.isdir(archiv):
+            zeilen.append("Archiv (Chat/WhatsApp): Archivordner nicht gefunden - das "
+                          "Chat-Archiv ist nicht pruefbar")
+            luecken.append("Chat-Archiv nicht gefunden (Archiv-Antworten ohne Fundstellen)")
+        else:
+            aj = archiv_jsonl_zaehlen(os.path.join(archiv, ARCHIV_MESSAGES))
+            ai = archiv_index_lesen(os.path.join(archiv, ARCHIV_INDEX_DB),
+                                    heute=archiv_heute)
+            am = archiv_memory_lesen(os.path.join(archiv, ARCHIV_MEMORY_DB))
+            av = archiv_vektordatei_stand(
+                os.path.join(archiv, os.path.dirname(ARCHIV_VEKTORDATEI)))
+            n_roh = os.path.basename(ARCHIV_MESSAGES)
+            n_index = os.path.basename(ARCHIV_INDEX_DB)
+            n_memory = os.path.basename(ARCHIV_MEMORY_DB)
+            n_vektor = os.path.basename(ARCHIV_VEKTORDATEI)
+            if aj.get("fehlt"):
+                zeilen.append(f"Archiv (Chat/WhatsApp): {n_roh} fehlt - die Rohdaten des "
+                              f"Archivs fehlen, der Bestand ist nicht nachzaehlbar")
+                luecken.append(f"{n_roh} fehlt (Archiv-Rohdaten fehlen)")
+            else:
+                zeilen.append(f"Archiv (Chat/WhatsApp): {n_roh}: {_z(aj['zeilen'])} Zeilen"
+                              + (f", {_z(aj['kaputt'])} nicht lesbar" if aj["kaputt"] else "")
+                              + (f", {_z(aj['ohne_quelle'])} ohne Quelle" if aj["ohne_quelle"] else "")
+                              + (f", {_z(aj['ohne_text'])} ohne Text" if aj["ohne_text"] else "")
+                              + f" - {_z(len(aj['quellen']))} Quellen")
+                zeilen.append(f"  Quellen: {_quellen_kurz(aj['quellen'])}")
+                if aj["kaputt"]:
+                    luecken.append(f"{n_roh}: {_z(aj['kaputt'])} Zeilen nicht lesbar "
+                                   f"(Nachrichten fehlen im Archiv)")
+                if aj["ohne_quelle"]:
+                    luecken.append(f"{n_roh}: {_z(aj['ohne_quelle'])} Zeilen ohne Quelle "
+                                   f"(nicht auffindbar)")
+            if ai.get("fehlt"):
+                zeilen.append(f"  {n_index} fehlt - der Chat sucht nur im alten Weg; "
+                              f"WhatsApp-Bestand nicht im Index (archiv_index_bauen.py)")
+                luecken.append(f"{n_index} fehlt (Chat-Suche ohne vollen Bestand)")
+            elif ai.get("nicht_lesbar"):
+                zeilen.append(f"  {n_index}: nicht lesbar (keine brauchbare SQLite-Datei) - "
+                              f"Archiv nicht nachzaehlbar")
+                luecken.append(f"{n_index} nicht lesbar (Archiv nicht nachzaehlbar)")
+            else:
+                zeilen.append(f"  {n_index}: {_z(ai['nachrichten'])} Nachrichten, "
+                              f"{_z(ai['gespraeche'])} Gespraeche, {_z(ai['chunks'])} Chunks, "
+                              f"{_z(ai['chunks_mit_vektor'])} mit Vektor, "
+                              f"{_z(ai['vektoren'])} Vektoren"
+                              + (f", {_z(ai['vektoren_ohne_chunk'])} Vektoren ohne Chunk"
+                                 if ai["vektoren_ohne_chunk"] else ""))
+                kopf = _archiv_kopf(ai.get("meta") or {})
+                if kopf:
+                    zeilen.append("  " + kopf)
+                if ai.get("fts_indexiert") is None:
+                    zeilen.append("  Volltextindex: nicht gefunden (kein FTS-Bestand)")
+                    luecken.append(f"{n_index}: Volltextindex fehlt (Volltextsuche ohne Treffer)")
+                else:
+                    zeilen.append(f"  Volltextindex: {_z(ai['fts_indexiert'])} von "
+                                  f"{_z(ai['chunks'])} Chunks indexiert")
+                    if ai["fts_indexiert"] != ai["chunks"]:
+                        luecken.append(f"{n_index}: {_z(abs(ai['chunks'] - ai['fts_indexiert']))} "
+                                       f"Chunks nicht im Volltextindex (Volltextsuche unvollstaendig)")
+                if ai["dimensionen"]:
+                    aufzaehlung = ", ".join(_z(d) for d in ai["dimensionen"])
+                    zeilen.append(f"  Vektor-Dimensionen: {_z(len(ai['dimensionen']))}"
+                                  + (f" ({aufzaehlung})" if len(ai["dimensionen"]) <= 4 else ""))
+                zeilen.append(f"  Zeitstempel: {_z(ai['ohne_zeit'])} ohne"
+                              + (f", Jahre {ai['zeit_von']}-{ai['zeit_bis']}"
+                                 if ai["zeit_von"] or ai["zeit_bis"] else "")
+                              + f"; vor {ARCHIV_FRUEHESTES_JAHR}: {_z(ai['zu_frueh'])}"
+                              + (f"; in der Zukunft: {_z(ai['in_der_zukunft'])}"
+                                 if ai["in_der_zukunft"] else ""))
+                if ai["ohne_quelle"]:
+                    luecken.append(f"{n_index}: {_z(ai['ohne_quelle'])} Nachrichten ohne Quelle")
+                if ai["ohne_zeit"]:
+                    luecken.append(f"{n_index}: {_z(ai['ohne_zeit'])} Nachrichten ohne Zeitstempel")
+                if ai["chunks_mit_vektor"] < ai["chunks"]:
+                    luecken.append(f"{n_index}: {_z(ai['chunks'] - ai['chunks_mit_vektor'])} "
+                                   f"Chunks ohne Vektor (Bedeutungssuche unvollstaendig)")
+                if ai["vektoren"] != ai["chunks_mit_vektor"]:
+                    luecken.append(f"{n_index}: Vektoren ({_z(ai['vektoren'])}) und Chunks mit "
+                                   f"Vektor ({_z(ai['chunks_mit_vektor'])}) passen nicht zusammen "
+                                   f"-> nicht reproduzierbar")
+                if ai["vektoren_ohne_chunk"]:
+                    luecken.append(f"{n_index}: {_z(ai['vektoren_ohne_chunk'])} Vektoren ohne "
+                                   f"Chunk (verwaist)")
+                if not aj.get("fehlt"):
+                    if ai["nachrichten"] != aj["zeilen"]:
+                        luecken.append(f"{n_index}: {_z(ai['nachrichten'])} Nachrichten gegen "
+                                       f"{_z(aj['zeilen'])} Zeilen in {n_roh} "
+                                       f"-> nicht reproduzierbar")
+                    fehlend = sorted(set(aj["quellen"]) - set(ai["nachrichten_je_quelle"]))
+                    if fehlend:
+                        luecken.append(f"{n_index}: Quelle(n) ohne Nachricht im Index: "
+                                       f"{_quellen_kurz({q: aj['quellen'][q] for q in fehlend}, 4)}")
+                selbst = {k: _ganze_zahl((ai.get("meta") or {}).get(k)) for k in
+                          ("nachrichten", "chunks", "gespraeche")}
+                abweichung = [k for k, v in selbst.items()
+                              if v and v != ai[k]]
+                if abweichung:
+                    luecken.append(f"{n_index}: Selbstauskunft weicht von der Zaehlung ab "
+                                   f"({', '.join(abweichung)}) -> nicht reproduzierbar")
+            if am.get("fehlt"):
+                zeilen.append(f"  {n_memory} fehlt - der Rueckfallweg hat keine Textschicht")
+                luecken.append(f"{n_memory} fehlt (Rueckfallweg der Chat-Suche ohne Text)")
+            elif am.get("nicht_lesbar"):
+                zeilen.append(f"  {n_memory}: nicht lesbar")
+                luecken.append(f"{n_memory} nicht lesbar (Rueckfallweg nicht pruefbar)")
+            else:
+                zeilen.append(f"  Rueckfallweg {n_memory}: {_z(am['nachrichten'])} Nachrichten, "
+                              f"{_z(am['chunks'])} Chunks, davon {_z(am['chunks_mit_vektor'])} mit "
+                              f"Vektor (alter Stand)")
+                if not aj.get("fehlt") and am["nachrichten"] != aj["zeilen"]:
+                    luecken.append(f"{n_memory}: {_z(am['nachrichten'])} Nachrichten gegen "
+                                   f"{_z(aj['zeilen'])} Zeilen in {n_roh} "
+                                   f"-> nicht reproduzierbar")
+            if not av.get("ordner_fehlt"):
+                if av.get("da"):
+                    zeilen.append(f"  Vektordatei des Rueckfallwegs ({n_vektor}): vorhanden")
+                else:
+                    zeilen.append(f"  Vektordatei des Rueckfallwegs ({n_vektor}): fehlt"
+                                  + (f" ({_z(av.get('andere', 0))} Datei(en) mit abweichendem "
+                                     f"Namen daneben)" if av.get("andere") else ""))
+        zeilen.append("")
+
     if bild_index:
         bi = bildindex_lesen(os.path.join(basis, bild_index))
         if bi.get("fehlt"):
@@ -2210,6 +2635,12 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bestand pruefen - nur lesend, nur Zahlen.")
     parser.add_argument("--basis", default=STANDARD_BASIS)
+    parser.add_argument("--archiv", default=STANDARD_ARCHIV_ORDNER,
+                        help="Ordner des Chat-Archivs (Schwesterordner des Projekts); "
+                             "leer lassen = nicht pruefen")
+    parser.add_argument("--archiv-heute", default="", dest="archiv_heute",
+                        help="Grenze fuer „Zeitstempel in der Zukunft\" (JJJJ-MM-TT; "
+                             "leer = heutiger Tag)")
     parser.add_argument("--luecken-details", type=int, default=20, dest="luecken_details",
                         help="wie viele fehlende Fotos mit Kennung und Grund benannt werden "
                              "(0 = nur zaehlen)")
@@ -2217,7 +2648,9 @@ def main(argv=None) -> int:
     if not os.path.isdir(args.basis):
         print(f"Ordner fehlt: {args.basis}")
         return 2
-    zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details)
+    zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details,
+                        archiv=(args.archiv or None),
+                        archiv_heute=(args.archiv_heute or None))
     print("\n".join(zeilen))
     return 0
 

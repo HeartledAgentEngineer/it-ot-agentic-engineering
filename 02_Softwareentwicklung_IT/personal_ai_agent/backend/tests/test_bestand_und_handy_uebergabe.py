@@ -11,6 +11,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import sqlite3
 
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJEKT = os.path.dirname(BACKEND)
@@ -1470,3 +1471,157 @@ def test_uebergabe_stand_leser_wirft_nie_und_juengste_buchung_gilt(tmp_path):
     assert e["fehlt"] is False and e["kaputt"] == 3 and e["buchungen"] == 2
     assert e["gleich"] == ["a.jsonl"] and e["geaendert"] == []   # die juengste Buchung gilt
     assert e["fehlt_lokal"] == [] and e["ohne_pruefsumme"] == []
+
+
+def _mini_archiv(tmp_path, *, index_nachrichten=None, chunks_mit_vektor=None,
+                 waisen=0, fts=None, meta_nachrichten=None, memory_nachrichten=None,
+                 vektor_richtig=False, roh_text=None):
+    """Ein winziges Chat-Archiv nachbauen: Rohdaten, Index und Textschicht."""
+    archiv = tmp_path / "archiv"
+    (archiv / "normalized").mkdir(parents=True)
+    (archiv / "db").mkdir(parents=True)
+    roh = roh_text if roh_text is not None else [
+        json.dumps({"source": "whatsapp", "text": "Fantasiewort im Chat"}),
+        json.dumps({"source": "whatsapp", "text": "noch eine Nachricht"}),
+        json.dumps({"source": "chatgpt", "text": "und noch eine"}),
+    ]
+    (archiv / "normalized" / "messages.jsonl").write_text("\n".join(roh) + "\n",
+                                                          encoding="utf-8")
+    n = 3 if index_nachrichten is None else index_nachrichten
+    c = 3
+    mit = c if chunks_mit_vektor is None else chunks_mit_vektor
+    verb = sqlite3.connect(str(archiv / "db" / "archiv_index.db"))
+    verb.executescript(
+        "CREATE TABLE meta (schluessel TEXT PRIMARY KEY, wert TEXT);"
+        "CREATE TABLE gespraeche (conversation_id TEXT PRIMARY KEY, source TEXT);"
+        "CREATE TABLE nachrichten (id INTEGER PRIMARY KEY, source TEXT, timestamp TEXT);"
+        "CREATE TABLE chunks (id INTEGER PRIMARY KEY, source TEXT, hat_vektor INTEGER DEFAULT 1);"
+        "CREATE TABLE vektoren (chunk_id INTEGER PRIMARY KEY, dimension INTEGER, modell TEXT);"
+        "CREATE TABLE chunks_fts_docsize (id INTEGER PRIMARY KEY);")
+    for i in range(1, n + 1):
+        verb.execute("INSERT INTO nachrichten (id, source, timestamp) VALUES (?,?,?)",
+                     (i, "whatsapp" if i < 3 else "chatgpt",
+                      "2026-01-0%dT10:00:00+00:00" % (i % 9 + 1)))
+    verb.execute("INSERT INTO gespraeche (conversation_id, source) VALUES (?,?)",
+                 ("g1", "whatsapp"))
+    for i in range(1, c + 1):
+        verb.execute("INSERT INTO chunks (id, source, hat_vektor) VALUES (?,?,?)",
+                     (i, "whatsapp" if i < 3 else "chatgpt", 1 if i <= mit else 0))
+        if i <= mit:
+            verb.execute("INSERT INTO vektoren (chunk_id, dimension, modell) VALUES (?,?,?)",
+                         (i, 8, "test-embed"))
+    for i in range(waisen):
+        verb.execute("INSERT INTO vektoren (chunk_id, dimension, modell) VALUES (?,?,?)",
+                     (900 + i, 8, "test-embed"))
+    for i in range(1, (c if fts is None else fts) + 1):
+        verb.execute("INSERT INTO chunks_fts_docsize (id) VALUES (?)", (i,))
+    for k, v in (("nachrichten", str(n if meta_nachrichten is None else meta_nachrichten)),
+                 ("chunks", str(c)), ("gespraeche", "1"), ("modell", "test-embed"),
+                 ("dimension", "8"), ("gebaut_am", "2026-01-01T10:00:00+00:00"),
+                 ("tokens_gezaehlt", "1000"), ("kosten_usd", "0.000001")):
+        verb.execute("INSERT INTO meta (schluessel, wert) VALUES (?,?)", (k, v))
+    verb.commit()
+    verb.close()
+    verb = sqlite3.connect(str(archiv / "db" / "memory.db"))
+    verb.executescript(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY, source TEXT, text TEXT);"
+        "CREATE TABLE chunks (id INTEGER PRIMARY KEY, source TEXT, hat_vektor INTEGER DEFAULT 1);"
+        "CREATE TABLE index_meta (schluessel TEXT PRIMARY KEY, wert TEXT);")
+    for i in range(1, (3 if memory_nachrichten is None else memory_nachrichten) + 1):
+        verb.execute("INSERT INTO messages (id, source, text) VALUES (?,?,?)",
+                     (i, "whatsapp", "x"))
+    for i in range(1, 4):
+        verb.execute("INSERT INTO chunks (id, source, hat_vektor) VALUES (?,?,?)",
+                     (i, "whatsapp", 1))
+    verb.execute("INSERT INTO index_meta (schluessel, wert) VALUES (?,?)",
+                 ("modell", "mistral-embed"))
+    verb.commit()
+    verb.close()
+    name = "memory.vektoren.f32" if vektor_richtig else "memory.vektoren [conflicted].f32"
+    (archiv / "db" / name).write_bytes(b"\x00" * 16)
+    return archiv
+
+
+def test_nachweis_zaehlt_das_chat_archiv(tmp_path):
+    """Das Chat-/WhatsApp-Archiv stand in KEINEM Nachweis — jetzt wird es gezaehlt."""
+    _bestand(tmp_path)
+    archiv = _mini_archiv(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    text = "\n".join(zeilen)
+    assert "Archiv (Chat/WhatsApp): messages.jsonl: 3 Zeilen - 2 Quellen" in text
+    assert "  Quellen: whatsapp 2, chatgpt 1" in text
+    assert ("archiv_index.db: 3 Nachrichten, 1 Gespraeche, 3 Chunks, 3 mit Vektor, "
+            "3 Vektoren") in text
+    assert "Volltextindex: 3 von 3 Chunks indexiert" in text
+    assert "Zeitstempel: 0 ohne" in text and "vor 1990: 0" in text
+    assert "Rueckfallweg memory.db: 3 Nachrichten, 3 Chunks, davon 3 mit Vektor" in text
+    # Nur Zahlen: kein Nachrichtentext, kein Pfad.
+    assert "Fantasiewort" not in text and str(tmp_path) not in text
+    # Ein stimmiges Archiv ist kein Befund.
+    assert not [l for l in luecken if "archiv_index.db" in l or "memory.db" in l]
+
+
+def test_nachweis_archiv_meldet_abweichungen_als_luecke(tmp_path):
+    """Jede stille Abweichung der Archiv-Stufe wird eine Luecke."""
+    _bestand(tmp_path)
+    archiv = _mini_archiv(tmp_path, index_nachrichten=5, chunks_mit_vektor=1,
+                          waisen=2, fts=2, meta_nachrichten=9, memory_nachrichten=4)
+    zeilen, luecken = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    text = "\n".join(zeilen)
+    assert "2 Vektoren ohne Chunk" in text
+    assert ("archiv_index.db: 5 Nachrichten gegen 3 Zeilen in messages.jsonl "
+            "-> nicht reproduzierbar") in luecken
+    assert "archiv_index.db: 2 Chunks ohne Vektor (Bedeutungssuche unvollstaendig)" in luecken
+    assert ("archiv_index.db: Vektoren (3) und Chunks mit Vektor (1) passen nicht zusammen "
+            "-> nicht reproduzierbar") in luecken
+    assert ("archiv_index.db: 1 Chunks nicht im Volltextindex "
+            "(Volltextsuche unvollstaendig)") in luecken
+    assert ("archiv_index.db: Selbstauskunft weicht von der Zaehlung ab (nachrichten) "
+            "-> nicht reproduzierbar") in luecken
+    assert ("memory.db: 4 Nachrichten gegen 3 Zeilen in messages.jsonl "
+            "-> nicht reproduzierbar") in luecken
+
+
+def test_nachweis_archiv_fehlend_und_abschaltbar(tmp_path):
+    """Fehlender Ordner/Index ist ehrlich eine Luecke; abschaltbar mit archiv=None."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path), archiv=str(tmp_path / "gibtsnicht"))
+    assert ("Archiv (Chat/WhatsApp): Archivordner nicht gefunden - das Chat-Archiv ist "
+            "nicht pruefbar") in zeilen
+    assert "Chat-Archiv nicht gefunden (Archiv-Antworten ohne Fundstellen)" in luecken
+    ohne = "\n".join(bp.pruefen(str(tmp_path), archiv=None)[0])
+    assert "Archiv (Chat/WhatsApp)" not in ohne
+    # Ordner da, aber der volle Index fehlt: der Chat sucht nur im alten Weg.
+    archiv = _mini_archiv(tmp_path, vektor_richtig=True)
+    os.remove(str(archiv / "db" / "archiv_index.db"))
+    zeilen3, luecken2 = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    assert "archiv_index.db fehlt (Chat-Suche ohne vollen Bestand)" in luecken2
+    assert "Vektordatei des Rueckfallwegs (memory.vektoren.f32): vorhanden" in \
+        "\n".join(zeilen3)
+
+
+def test_archiv_leser_werfen_nie(tmp_path):
+    """Kaputte Rohdaten, keine brauchbare SQLite-Datei: ehrliche Zahlen, kein Wurf."""
+    assert bp.archiv_jsonl_zaehlen(str(tmp_path / "weg.jsonl"))["fehlt"] is True
+    assert bp.archiv_index_lesen(str(tmp_path / "weg.db"))["fehlt"] is True
+    assert bp.archiv_memory_lesen(str(tmp_path / "weg.db"))["fehlt"] is True
+    kaputt = tmp_path / "roh.jsonl"
+    kaputt.write_text("\n".join(["Fantasiewort", "[1, 2]",
+                                 json.dumps({"text": "ohne Quelle"}),
+                                 json.dumps({"source": "whatsapp", "text": "gut"})]) + "\n",
+                      encoding="utf-8")
+    z = bp.archiv_jsonl_zaehlen(str(kaputt))
+    assert z["zeilen"] == 4 and z["kaputt"] == 2 and z["ohne_quelle"] == 1
+    assert z["quellen"] == {"whatsapp": 1}
+    keine_db = tmp_path / "kein.db"
+    keine_db.write_bytes(b"das ist keine SQLite-Datei")
+    assert bp.archiv_index_lesen(str(keine_db)).get("nicht_lesbar") is True
+    assert bp.archiv_memory_lesen(str(keine_db)).get("nicht_lesbar") is True
+    # Leere, aber gueltige DB: keine Tabellen -> ehrlich "nicht lesbar" (keine Nullwerte).
+    leer = tmp_path / "leer.db"
+    sqlite3.connect(str(leer)).close()
+    assert bp.archiv_index_lesen(str(leer)).get("nicht_lesbar") is True
+    assert bp.archiv_vektordatei_stand(str(tmp_path))["da"] is False
+    archiv = _mini_archiv(tmp_path)
+    assert bp.archiv_vektordatei_stand(str(archiv / "db"))["andere"] == 1
+    assert bp.archiv_vektordatei_stand(str(tmp_path / "gibtsnicht"))["ordner_fehlt"] is True
