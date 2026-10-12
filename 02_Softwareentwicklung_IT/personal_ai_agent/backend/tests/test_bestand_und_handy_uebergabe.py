@@ -2017,3 +2017,162 @@ def test_bewegungen_leser_wirft_nie_und_arten_spiegeln_das_rueckrollwerkzeug(tmp
     assert set(bp.BEWEGUNG_ZURUECKFAHRBAR) <= set(im_werkzeug)
     assert bp.BEWEGUNG_ZURUECKFAHRBAR == ("movefile", "movefolder")
     assert bp.BEWEGUNG_ART_RUECKROLL not in im_werkzeug
+
+
+# ── Rueckweg Handy -> PC im Nachweis (12.10.2026) ───────────────────────────
+# Die am GERAET erzeugten Datendateien (geschichten.jsonl, anlass_umbenennung.jsonl)
+# kommen seit dem 12.10. ueber den Rueckweg an den PC (termux/rueckweg-bereitstellen.sh
+# + tools/handy/rueckweg_holen.py). Der Nachweis hat diesen Weg bisher NICHT gekannt —
+# er konnte nur sagen "noch nicht angelegt".
+
+def _rueckweg_dateien(tmp_path):
+    """Die zwei eigenen Dateien anlegen (Inhalte sind Geheimtexte fuer den Test)."""
+    (tmp_path / "geschichten.jsonl").write_text(
+        json.dumps({"id": "G-1", "ereignis_kennung": "O-1", "text": "GEHEIM-TESTTEXT",
+                    "quelle": "tippen"}) + "\n", encoding="utf-8")
+    (tmp_path / "anlass_umbenennung.jsonl").write_text(
+        json.dumps({"kennung": "O-1", "name": "GEHEIM-TITEL"}) + "\n", encoding="utf-8")
+
+
+def _buchung(tmp_path, name, zeit="2026-10-12T15:00:00", bytes_=None):
+    """Eine Rueckweg-Manifest-Zeile mit der ECHTEN Pruefsumme der Zieldatei bauen."""
+    daten = (tmp_path / name).read_bytes()
+    return {"name": name, "bytes": len(daten) if bytes_ is None else bytes_,
+            "sha256": hashlib.sha256(daten).hexdigest(), "zeit": zeit,
+            "richtung": "handy->pc"}
+
+
+def _rueckweg_manifest(tmp_path, buchungen, roh_zeilen=()):
+    """Das Manifest schreiben: geordnete Buchungen plus rohe Zusatzzeilen."""
+    zeilen = [json.dumps(b, sort_keys=True) for b in buchungen] + list(roh_zeilen)
+    (tmp_path / "rueckweg_manifest.jsonl").write_text("\n".join(zeilen) + "\n",
+                                                      encoding="utf-8")
+
+
+def test_rueckweg_liste_spiegelt_das_holwerkzeug():
+    """Waechter: die Dateiliste der Pruefzeile muss die des Hol-Werkzeugs sein.
+
+    Sonst meldete der Nachweis Buchungen als "ausserhalb der erlaubten Liste",
+    die laengst dazugehoeren — gelesen wird die Konstante per AST (ein Kommentar
+    ist kein Zeichenketten-Literal).
+    """
+    import ast
+    assert bp.STANDARD_RUECKWEG_NAMEN == ("geschichten.jsonl", "anlass_umbenennung.jsonl")
+    quelle = os.path.join(PROJEKT, "tools", "handy", "rueckweg_holen.py")
+    with open(quelle, encoding="utf-8") as datei:
+        baum = ast.parse(datei.read())
+    gefunden = [n for n in baum.body if isinstance(n, ast.Assign)
+                and any(getattr(t, "id", "") == "ERLAUBTE_NAMEN" for t in n.targets)]
+    assert len(gefunden) == 1
+    assert tuple(ast.literal_eval(gefunden[0].value)) == bp.STANDARD_RUECKWEG_NAMEN
+
+
+def test_nachweis_zaehlt_den_rueckweg_unversehrt(tmp_path):
+    """Passende Bytes UND Pruefsumme = die geholte Kopie liegt unversehrt (keine Luecke)."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    _rueckweg_manifest(tmp_path, [
+        _buchung(tmp_path, "geschichten.jsonl", "2026-10-12T14:00:00"),
+        _buchung(tmp_path, "anlass_umbenennung.jsonl", "2026-10-12T15:00:00")])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Rueckweg (Handy -> PC): rueckweg_manifest.jsonl: 2 Buchungen, 2 verschiedene "
+            "Dateien (unversehrt 2, abweichend 0, am PC fehlt 0), letzte 2026-10-12T15:00:00"
+            ) in text
+    assert "  Unversehrt am PC (2): anlass_umbenennung.jsonl, geschichten.jsonl" in text
+    assert not [l for l in luecken if "rueckweg_manifest.jsonl" in l]
+    stand = bp.rueckweg_lesen(str(tmp_path))
+    assert stand["gleich"] == ["anlass_umbenennung.jsonl", "geschichten.jsonl"]
+    assert stand["vorher"] == [] and stand["mehrfach"] == []
+
+
+def test_nachweis_meldet_abweichende_rueckweg_kopie(tmp_path):
+    """Lokal anders als gebucht = Luecke: am PC liegt nicht die geholte Fassung."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    buchungen = [_buchung(tmp_path, "geschichten.jsonl")]
+    _rueckweg_manifest(tmp_path, buchungen)
+    # Nach dem Holen ist die lokale Datei weitergewachsen (oder wurde ersetzt).
+    (tmp_path / "geschichten.jsonl").write_text(
+        json.dumps({"id": "G-1", "ereignis_kennung": "O-1", "text": "GEHEIM-TESTTEXT",
+                    "quelle": "tippen"}) + "\n"
+        + json.dumps({"id": "G-2", "text": "GEHEIM-TESTTEXT2"}) + "\n", encoding="utf-8")
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Nicht die gebuchte Fassung (1): geschichten.jsonl" in text
+    assert ("rueckweg_manifest.jsonl: 1 geholte Datei(en) weichen von der Buchung ab - "
+            "am PC liegt nicht die geholte Fassung") in luecken
+    # Gleiche Groesse, falscher Inhalt: auch das faellt auf (Pruefsumme).
+    (tmp_path / "geschichten.jsonl").write_text("x" * buchungen[0]["bytes"], encoding="utf-8")
+    assert bp.rueckweg_lesen(str(tmp_path))["abweichend"] == ["geschichten.jsonl"]
+
+
+def test_nachweis_meldet_fehlende_rueckweg_datei(tmp_path):
+    """Gebucht, aber am PC weg = Luecke (der Rueckweg ist nicht nachvollziehbar)."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    _rueckweg_manifest(tmp_path, [_buchung(tmp_path, "geschichten.jsonl")])
+    os.remove(tmp_path / "geschichten.jsonl")
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "Gebucht, am PC nicht vorhanden (1): geschichten.jsonl" in text
+    assert ("rueckweg_manifest.jsonl: 1 gebuchte Datei(en) am PC nicht vorhanden "
+            "(Rueckweg nicht nachvollziehbar)") in luecken
+
+
+def test_nachweis_rueckweg_noch_nicht_angelegt_ist_keine_luecke(tmp_path):
+    """Ohne Manifest ehrlich "noch nicht angelegt" (keine Luecke) und abschaltbar."""
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("Rueckweg (Handy -> PC): rueckweg_manifest.jsonl noch nicht angelegt - die am "
+            "Geraet erzeugten Datendateien sind noch nie an den PC geholt (rueckweg_holen.py; "
+            "das Geraet stellt sie beim naechsten Start bereit)") in text
+    assert not [l for l in luecken if "rueckweg_manifest.jsonl" in l]
+    ohne = "\n".join(bp.pruefen(str(tmp_path), rueckweg=None)[0])
+    assert "Rueckweg (Handy -> PC)" not in ohne
+    assert bp.rueckweg_lesen(str(tmp_path / "gibtsnicht.jsonl"))["fehlt"] is True
+
+
+def test_nachweis_zeigt_keine_rueckweg_inhalte(tmp_path):
+    """Nur Zahlen und Dateinamen — nie ein Geschichtentext, nie ein eigener Titel, kein Pfad."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    _rueckweg_manifest(tmp_path, [_buchung(tmp_path, "geschichten.jsonl")])
+    text = "\n".join(bp.pruefen(str(tmp_path))[0])
+    for verboten in ("GEHEIM-TESTTEXT", "GEHEIM-TITEL", str(tmp_path), "sha256"):
+        assert verboten not in text
+
+
+def test_nachweis_benennt_alte_fassung_fremde_buchung_und_kaputte_zeile(tmp_path):
+    """.vorher-Sicherung, Buchung ausserhalb der Liste und kaputte Zeilen werden benannt."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    (tmp_path / "geschichten.jsonl.vorher").write_text("alte Fassung\n", encoding="utf-8")
+    buchungen = [_buchung(tmp_path, "geschichten.jsonl"),
+                 _buchung(tmp_path, "geschichten.jsonl", "2026-10-12T16:00:00")]
+    (tmp_path / "fremd.jsonl").write_bytes((tmp_path / "geschichten.jsonl").read_bytes())
+    buchungen.append(dict(buchungen[0], name="fremd.jsonl"))
+    _rueckweg_manifest(tmp_path, buchungen, roh_zeilen=["{kein json"])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert "  Aeltere Fassung liegt als .vorher beiseite (1): geschichten.jsonl" in text
+    assert "  Mehrfach gebucht (1): geschichten.jsonl" in text
+    assert "  Ausserhalb der erlaubten Liste gebucht (1): fremd.jsonl" in text
+    assert "3 Buchungen, 2 verschiedene Dateien" in text and "1 kaputte Zeilen" in text
+    assert ("rueckweg_manifest.jsonl: 1 kaputte Buchungen (Rueckweg nicht "
+            "nachvollziehbar)") in luecken
+    # Eine fremde Buchung ist eine Zeile, keine Luecke (die Liste kann wachsen).
+    assert not [l for l in luecken if "erlaubten Liste" in l]
+
+
+def test_nachweis_zeigt_geraeteseitige_dateien_ohne_rueckweg(tmp_path):
+    """Deckung: wie viele Dateien entstehen am Geraet und haben keinen Weg her (Zeile)."""
+    _bestand(tmp_path)
+    _rueckweg_dateien(tmp_path)
+    _rueckweg_manifest(tmp_path, [_buchung(tmp_path, "geschichten.jsonl")])
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("  Geraeteseitige Dateien: 19 bekannt, 2 mit Rueckweg, 17 ohne: "
+            "antworten.jsonl, archiv_index.db") in text
+    assert not [l for l in luecken if "Rueckweg" in l]

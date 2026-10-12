@@ -181,6 +181,28 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Dauerfehlalarm). Ueber ``--uebergabe-listen`` steuerbar
                       (leer = nicht pruefen; die uebrigen Pruefungen bleiben
                       dadurch unveraendert). Nur Zahlen und Dateinamen.
+  * Rueckweg (Handy -> PC): ``rueckweg_manifest.jsonl`` — das Gegenstueck zur
+                      Uebergabe. Die Dateien, die die APP AM GERAET erzeugt
+                      (``geschichten.jsonl`` = eigene Erzaehlungen,
+                      ``anlass_umbenennung.jsonl`` = eigene Anlassnamen), liegen
+                      im Termux-Heimordner und sind ueber das Kabel NICHT lesbar
+                      (gemessen 12.10.: „Permission denied\"). Das Geraet KOPIERT
+                      sie mit ``termux/rueckweg-bereitstellen.sh`` in
+                      ``/sdcard/Download/hermes_rueckweg``, der PC holt sie mit
+                      ``tools/handy/rueckweg_holen.py`` und bucht je Datei eine
+                      Manifest-Zeile (Bytes, sha256, Zeit, ``richtung:
+                      handy->pc``). Damit sind die beiden Stufen „Eigene
+                      Geschichten\"/„Eigene Titel\" die einzigen, die bisher NUR in
+                      eine Richtung nachpruefbar waren; der Nachweis stellt jetzt
+                      je gebuchter Datei die lokale Fassung gegen die JUENGSTE
+                      Buchung: unversehrt (Bytes UND Pruefsumme), abweichend (am
+                      PC liegt nicht die geholte Fassung), am PC fehlt. Dazu die
+                      Zahl der Namen ohne Rueckweg (Zeile, keine Luecke: welche
+                      Datei nur am Geraet lebt, ist eine Entscheidung). Ueber
+                      ``--rueckweg`` steuerbar (leer = nicht pruefen). Grenze
+                      (ehrlich): was seit dem Holen AM GERAET dazukam, ist ohne
+                      Kabel nicht sichtbar. Nur Zahlen und Dateinamen — NIE ein
+                      Geschichtentext, NIE ein eigener Titel.
   * pCloud-Operationen: ``manifest.jsonl`` — das Manifest der SCHREIBENDEN
                       Operationen auf dem fremden System pCloud (Ordner anlegen,
                       Archiv entpacken, verschieben, loeschen; Standard
@@ -440,6 +462,33 @@ UEBERGABE_GERAETESEITIG = {
     "letzte_nachricht.json": "Zustand am Geraet",
     "ueberlauf.jsonl": "Diagnose des Geraets (Layout-Waechter)",
 }
+# Der RUECKWEG Handy -> PC: die Dateien, die die APP AM GERAET erzeugt
+# (``geschichten.jsonl`` = eigene Erzaehlungen, ``anlass_umbenennung.jsonl`` =
+# eigene Anlassnamen), liegen im Termux-Heimordner — der ist ueber das Kabel
+# NICHT lesbar (gemessen 12.10.: „Permission denied\", ``find`` ueber /sdcard
+# Tiefe 4: 0 Treffer). Das Geraet KOPIERT sie deshalb mit
+# ``termux/rueckweg-bereitstellen.sh`` in den freigegebenen Ordner
+# ``/sdcard/Download/hermes_rueckweg``, der PC holt sie mit
+# ``tools/handy/rueckweg_holen.py`` ab und bucht je Datei eine Manifest-Zeile
+# (Name, Bytes, sha256, Zeit, ``richtung: handy->pc\"; Standard
+# ``~/foto_sortierung/rueckweg_manifest.jsonl``, nie im Repo). Ohne diesen Weg
+# konnte der Nachweis die beiden Stufen („Eigene Geschichten\"/„Eigene Titel\")
+# NIE gegen das Geraet stellen — sie waren die einzigen, die nur in eine
+# Richtung nachpruefbar waren. Hier wird nachgezaehlt, ob die gebuchte Fassung
+# unversehrt am PC liegt. Nur Zahlen, Dateinamen und Zustand — NIE ein
+# Geschichtentext, NIE ein eigener Titel.
+STANDARD_RUECKWEG_MANIFEST = "rueckweg_manifest.jsonl"
+# Die Dateien, die den Rueckweg nehmen duerfen — WORTGLEICH zu ``ERLAUBTE_NAMEN``
+# in ``tools/handy/rueckweg_holen.py`` und ``RUECKWEG_NAMEN`` in
+# ``termux/rueckweg-bereitstellen.sh``. Der Test
+# ``test_rueckweg_liste_spiegelt_das_holwerkzeug`` liest die Konstante per AST
+# aus dem Hol-Werkzeug und haelt beide Mengen zusammen — sonst meldete die
+# Pruefzeile Buchungen als „ausserhalb der Liste\", die laengst dazugehoeren.
+STANDARD_RUECKWEG_NAMEN = ("geschichten.jsonl", "anlass_umbenennung.jsonl")
+# Suffix der Sicherung, die das Hol-Werkzeug vor dem Ersetzen einer vorhandenen
+# Zieldatei beiseitelegt (``<name>.vorher``) — liegt sie da, wurde eine aeltere
+# Fassung ersetzt und der Rueckweg ist offen.
+RUECKWEG_VORHER_SUFFIX = ".vorher"
 # Das Manifest der SCHREIBENDEN Operationen auf dem fremden System pCloud
 # (``tools/pcloud/pcloud_bewegungen.py`` und die Entpack-/Loesch-Werkzeuge
 # buchen hierher; Standard ``~/foto_sortierung/manifest.jsonl``, nie im Repo).
@@ -1677,6 +1726,89 @@ def uebergabe_stand_lesen(basis: str,
             "unlesbar": unlesbar}
 
 
+# ── RUECKWEG Handy -> PC: liegt die geholte Kopie unversehrt am PC ──────────
+
+def rueckweg_lesen(basis: str, manifest_name: str = STANDARD_RUECKWEG_MANIFEST,
+                   namen=STANDARD_RUECKWEG_NAMEN) -> Dict[str, Any]:
+    """Den Rueckweg Handy -> PC nachzaehlen — **wirft nie**.
+
+    Liest das Manifest (je geholter Datei eine Zeile mit ``name``, ``bytes``,
+    ``sha256``, ``zeit``, ``richtung``), nimmt je Namen die JUENGSTE Buchung und
+    stellt sie gegen die lokale Fassung (``basis/<name>`` = der Zielordner des
+    Hol-Werkzeugs, Standards dieselben wie in ``rueckweg_holen.py``):
+
+    * ``gleich``          — Bytes UND Pruefsumme stimmen: die geholte Kopie liegt
+                             unversehrt am PC,
+    * ``abweichend``      — lokal ist etwas anderes: die Kopie ist NICHT die
+                             gebuchte Fassung,
+    * ``fehlt_lokal``     — gebucht, aber am PC nicht (mehr) vorhanden,
+    * ``ohne_pruefsumme`` / ``unlesbar`` — nicht vollstaendig vergleichbar.
+
+    Dazu ``unbekannt`` (Buchung ausserhalb der erlaubten Liste), ``mehrfach``
+    (mehr als eine Buchung je Name — jeder Lauf bucht, das ist normal) und
+    ``vorher`` (zu dem Namen liegt eine ``.vorher``-Sicherung: eine aeltere
+    Fassung wurde ersetzt, der Rueckweg ist damit offen). ``letzte`` ist der
+    juengste gebuchte Zeitstempel (Textvergleich, ISO-Form).
+
+    Grenze (ehrlich): verglichen wird offline gegen die letzte Buchung. Was seit
+    dem Holen AM GERAET dazugekommen ist, ist ohne Kabel nicht sichtbar — und
+    ob die Datei am Geraet ueberhaupt neu bereitgestellt wurde, ebenso wenig.
+    """
+    pfad = os.path.join(basis, manifest_name)
+    if not os.path.isfile(pfad):
+        return {"fehlt": True}
+    satz = {n for n in (namen or ()) if _kennung(n)}
+    buchungen = 0
+    kaputt = 0
+    je_name: Dict[str, dict] = {}
+    anzahl: Dict[str, int] = {}
+    for objekt in _jsonl(pfad):
+        if objekt is None:
+            kaputt += 1
+            continue
+        name = _kennung(objekt.get("name"))
+        if not name:
+            kaputt += 1                      # ohne Namen nicht nachvollziehbar
+            continue
+        buchungen += 1
+        je_name[name] = objekt               # spaetere Buchung ueberschreibt
+        anzahl[name] = anzahl.get(name, 0) + 1
+    gleich: List[str] = []
+    abweichend: List[str] = []
+    fehlt_lokal: List[str] = []
+    ohne_pruefsumme: List[str] = []
+    unlesbar: List[str] = []
+    for name, eintrag in sorted(je_name.items()):
+        gebucht_bytes = _ganze_zahl(eintrag.get("bytes"))
+        pruefsumme = _kennung(eintrag.get("sha256"))
+        lokal = os.path.join(basis, name)
+        if not os.path.isfile(lokal):
+            fehlt_lokal.append(name)
+            continue
+        if gebucht_bytes is None or gebucht_bytes != os.path.getsize(lokal):
+            abweichend.append(name)
+            continue
+        if not pruefsumme:
+            ohne_pruefsumme.append(name)
+            continue
+        ist = _sha256_datei(lokal)
+        if ist is None:
+            unlesbar.append(name)
+        elif ist == pruefsumme:
+            gleich.append(name)
+        else:
+            abweichend.append(name)
+    vorher = sorted(n for n in je_name
+                    if os.path.isfile(os.path.join(basis, n + RUECKWEG_VORHER_SUFFIX)))
+    zeiten = [_kennung(e.get("zeit")) for e in je_name.values()]
+    return {"fehlt": False, "buchungen": buchungen, "kaputt": kaputt,
+            "namen": set(je_name), "unbekannt": sorted(n for n in je_name if n not in satz),
+            "mehrfach": sorted(n for n, k in anzahl.items() if k > 1),
+            "gleich": gleich, "abweichend": abweichend, "fehlt_lokal": fehlt_lokal,
+            "ohne_pruefsumme": ohne_pruefsumme, "unlesbar": unlesbar,
+            "vorher": vorher, "letzte": max([z for z in zeiten if z], default="")}
+
+
 # ── Uebergabe-LISTEN: was geht ueberhaupt ans Geraet ────────────────────────
 
 def uebergabe_listen_lesen(pfad: str) -> Dict[str, Any]:
@@ -2258,6 +2390,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             titel: Optional[str] = STANDARD_TITEL,
             uebergabe: Optional[str] = STANDARD_UEBERGABE_MANIFEST,
             uebergabe_listen: Optional[Sequence[str]] = None,
+            rueckweg: Optional[str] = STANDARD_RUECKWEG_MANIFEST,
             bewegungen: Optional[str] = STANDARD_BEWEGUNGEN,
             projekt: Optional[str] = None,
             archiv: Optional[str] = None,
@@ -2273,6 +2406,11 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
     = nicht pruefen; die uebrigen Pruefungen bleiben dadurch schnell und
     unveraendert). ``projekt`` = Wurzel des Projekts (Voreinstellung: der
     Projektordner dieses Werkzeugs).
+
+    ``rueckweg`` = das Manifest des Rueckwegs Handy -> PC
+    (``rueckweg_manifest.jsonl``, gefuellt von ``tools/handy/rueckweg_holen.py``;
+    ``None`` = nicht pruefen). Fehlt die Datei, steht das ehrlich als „noch nicht
+    angelegt\" da — kein Dauer-Fehlalarm.
 
     ``bewegungen`` = das Manifest der schreibenden pCloud-Operationen
     (``manifest.jsonl``, Rueckholbarkeit; ``None`` = nicht pruefen). Fehlt die
@@ -2782,6 +2920,62 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                f"Pruefsumme (nur ueber die Groesse vergleichbar)")
         zeilen.append("")
 
+    if rueckweg:
+        rw = rueckweg_lesen(basis, rueckweg)
+        if rw.get("fehlt"):
+            zeilen.append(f"Rueckweg (Handy -> PC): {rueckweg} noch nicht angelegt - die am "
+                          f"Geraet erzeugten Datendateien sind noch nie an den PC geholt "
+                          f"(rueckweg_holen.py; das Geraet stellt sie beim naechsten Start bereit)")
+        else:
+            zeilen.append(f"Rueckweg (Handy -> PC): {rueckweg}: {_z(rw['buchungen'])} Buchungen, "
+                          f"{_z(len(rw['namen']))} verschiedene Dateien "
+                          f"(unversehrt {_z(len(rw['gleich']))}, abweichend "
+                          f"{_z(len(rw['abweichend']))}, am PC fehlt {_z(len(rw['fehlt_lokal']))})"
+                          + (f", letzte {rw['letzte']}" if rw["letzte"] else "")
+                          + (f", {_z(rw['kaputt'])} kaputte Zeilen" if rw["kaputt"] else ""))
+            if rw["gleich"]:
+                zeilen.append(f"  Unversehrt am PC ({_z(len(rw['gleich']))}): "
+                              f"{_namen_kurz(rw['gleich'])}")
+            if rw["abweichend"]:
+                zeilen.append(f"  Nicht die gebuchte Fassung ({_z(len(rw['abweichend']))}): "
+                              f"{_namen_kurz(rw['abweichend'])}")
+            if rw["fehlt_lokal"]:
+                zeilen.append(f"  Gebucht, am PC nicht vorhanden "
+                              f"({_z(len(rw['fehlt_lokal']))}): {_namen_kurz(rw['fehlt_lokal'])}")
+            if rw["vorher"]:
+                zeilen.append(f"  Aeltere Fassung liegt als .vorher beiseite "
+                              f"({_z(len(rw['vorher']))}): {_namen_kurz(rw['vorher'])}")
+            if rw["mehrfach"]:
+                zeilen.append(f"  Mehrfach gebucht ({_z(len(rw['mehrfach']))}): "
+                              f"{_namen_kurz(rw['mehrfach'])}")
+            if rw["unbekannt"]:
+                zeilen.append(f"  Ausserhalb der erlaubten Liste gebucht "
+                              f"({_z(len(rw['unbekannt']))}): {_namen_kurz(rw['unbekannt'])}")
+            if rw["kaputt"]:
+                luecken.append(f"{rueckweg}: {_z(rw['kaputt'])} kaputte Buchungen "
+                               f"(Rueckweg nicht nachvollziehbar)")
+            if rw["abweichend"]:
+                luecken.append(f"{rueckweg}: {_z(len(rw['abweichend']))} geholte Datei(en) weichen "
+                               f"von der Buchung ab - am PC liegt nicht die geholte Fassung")
+            if rw["fehlt_lokal"]:
+                luecken.append(f"{rueckweg}: {_z(len(rw['fehlt_lokal']))} gebuchte Datei(en) am "
+                               f"PC nicht vorhanden (Rueckweg nicht nachvollziehbar)")
+            if rw["unlesbar"]:
+                luecken.append(f"{rueckweg}: {_z(len(rw['unlesbar']))} geholte Datei(en) nicht "
+                               f"lesbar (Stand nicht pruefbar)")
+            if rw["ohne_pruefsumme"]:
+                luecken.append(f"{rueckweg}: {_z(len(rw['ohne_pruefsumme']))} Buchung(en) ohne "
+                               f"Pruefsumme (nur ueber die Groesse vergleichbar)")
+        # Deckung des Rueckwegs — eine ZEILE, keine Luecke: welche Datei nur am
+        # Geraet lebt, ist Sebastians Entscheidung (sonst Dauer-Fehlalarm). Nur
+        # Zahlen und Dateinamen.
+        ohne_weg = sorted(n for n in UEBERGABE_GERAETESEITIG
+                          if n not in set(STANDARD_RUECKWEG_NAMEN))
+        zeilen.append(f"  Geraeteseitige Dateien: {_z(len(UEBERGABE_GERAETESEITIG))} bekannt, "
+                      f"{_z(len(STANDARD_RUECKWEG_NAMEN))} mit Rueckweg, "
+                      f"{_z(len(ohne_weg))} ohne: {_namen_kurz(ohne_weg)}")
+        zeilen.append("")
+
     if uebergabe_listen:
         dl = uebergabe_deckung_pruefen(projekt or _projekt_wurzel(), tuple(uebergabe_listen),
                                        uebergebene=ub_namen)
@@ -3114,6 +3308,9 @@ def main(argv=None) -> int:
                         dest="uebergabe_listen",
                         help="Startskripte mit --dateien-Liste, mit Komma getrennt "
                              "(leer lassen = nicht pruefen)")
+    parser.add_argument("--rueckweg", default=STANDARD_RUECKWEG_MANIFEST,
+                        help="Manifest des Rueckwegs Handy -> PC "
+                             "(rueckweg_manifest.jsonl; leer lassen = nicht pruefen)")
     args = parser.parse_args(argv)
     if not os.path.isdir(args.basis):
         print(f"Ordner fehlt: {args.basis}")
@@ -3122,6 +3319,7 @@ def main(argv=None) -> int:
     zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details,
                         bewegungen=(args.bewegungen or None),
                         uebergabe_listen=(listen or None),
+                        rueckweg=(args.rueckweg or None),
                         archiv=(args.archiv or None),
                         archiv_heute=(args.archiv_heute or None))
     print("\n".join(zeilen))
