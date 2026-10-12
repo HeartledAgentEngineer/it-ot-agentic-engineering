@@ -23,7 +23,8 @@ pruefe(zeile.includes('bottom:100%'), 'Marke sitzt ueber dem Rahmen (bottom:100%
 pruefe(!/top:\s*2px/.test(zeile), 'Marke sitzt nicht mehr innen oben');
 pruefe(zeile.includes("textContent = '✕'") || src.slice(start, start + 600).includes("textContent = '✕'"),
        'Loeschen bleibt erreichbar');
-pruefe(/app\.js\?v=20261010[A-Z]/.test(html), 'Cache-Kennung von app.js erhoeht');
+const vApp = html.match(/app\.js\?v=(\d{8}[A-Z])/);
+pruefe(vApp && vApp[1] >= '20261010A', 'Cache-Kennung von app.js erhoeht (ab 20261010A)');
 
 if (fehler) { console.log(fehler + ' Pruefung(en) rot'); process.exit(1); }
 console.log('alle Pruefungen gruen');

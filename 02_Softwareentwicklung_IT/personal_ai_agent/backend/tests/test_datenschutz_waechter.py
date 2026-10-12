@@ -8,7 +8,8 @@ Werte aus einer Einstellungsdatei. Geprüft werden:
      Route lässt einen Test rot werden — das ist gewollt),
   2. die drei Termux-Startskripte (Bindung kommt aus ``HOST_BIND``),
   3. die reine Funktion ``bindung_hinweis`` in ``app/config.py``,
-  4. das Frontend ohne fremde Adressen/Marker,
+  4. das Frontend ohne fremde Adressen/Marker und ohne Umleitung über
+     ``localStorage`` (``api_base``, seit P0),
   5. der Schutz der Einstellungsdatei (``.gitignore`` / ``git check-ignore``),
   6. die Löschregel (Lösch-Begriffe nur im Duplikate-Werkzeug),
   7. Medien ohne Zwischenspeicher (``Cache-Control: no-store``),
@@ -402,11 +403,11 @@ def test_regel_frontend_ohne_fremde_marker():
     )
 
 
-def test_regel_frontend_urls_nur_lokal_oder_api_base():
+def test_regel_frontend_urls_nur_lokal():
     """Regel: http(s)-Adressen im Frontend zeigen nur auf localhost/127.0.0.1.
 
-    Einzige Ausnahme ist die dokumentierte ``api_base``-Beispielzeile in
-    ``app.js`` (Kommentar, wie man am PC die Adresse setzt).
+    Bis P0 (12.10.2026) war die ``api_base``-Beispielzeile in ``app.js`` eine
+    Ausnahme. Die Umleitung ist entfernt, also gibt es keine Ausnahme mehr.
     """
     verstoesse = []
     for pfad in _frontend_dateien():
@@ -417,19 +418,34 @@ def test_regel_frontend_urls_nur_lokal_oder_api_base():
                 host = treffer.group(1).lower()
                 if host in ERLAUBTE_HOSTS:
                     continue
-                if "api_base" in zeile:
-                    continue
                 verstoesse.append(f"{pfad.relative_to(REPO)}:{nummer}: {host}")
     assert not verstoesse, (
         "Regel 'Frontend nur lokal': Fremde Adressen gefunden: " f"{verstoesse}."
     )
 
 
-def test_regel_frontend_app_js_hat_api_base_zeile():
-    """Regel: Die erlaubte Ausnahme muss es wirklich geben (sonst tote Regel)."""
+API_BASE_LESER = ("frontend/app.js", "frontend/erzaehlen.js", "frontend/gruppen_quiz.js")
+
+
+def test_regel_frontend_liest_kein_api_base():
+    """Regel (P0): Kein Frontend-Teil lässt sich über localStorage umleiten.
+
+    Ein eingeschleustes Skript hätte mit ``localStorage.setItem('api_base', …)``
+    alle Anfragen samt Schlüssel an einen fremden Server lenken können. Die drei
+    Dateien, die den Eintrag früher lasen, nehmen jetzt ``location.origin``.
+    """
+    for relativ in API_BASE_LESER:
+        text = _repo_datei(relativ)
+        assert not re.search(r"getItem\(\s*['\"]api_base['\"]", text), (
+            f"Regel 'Frontend nur eigene Herkunft': {relativ} liest wieder api_base."
+        )
+
+
+def test_regel_frontend_app_js_raeumt_api_base_auf():
+    """Regel (P0): ``app.js`` löscht einen alten ``api_base``-Eintrag beim Start."""
     text = _repo_datei("frontend/app.js")
-    assert "api_base" in text, (
-        "Regel 'Frontend nur lokal': Die dokumentierte api_base-Zeile fehlt."
+    assert re.search(r"removeItem\(\s*['\"]api_base['\"]\s*\)", text), (
+        "Regel 'Frontend nur eigene Herkunft': app.js räumt api_base nicht mehr auf."
     )
 
 

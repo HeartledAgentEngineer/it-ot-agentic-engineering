@@ -13,21 +13,20 @@
 /**
  * BACKEND-ADRESSE
  * ----------------
- * Standardmäßig dieselbe Adresse, von der die Seite geladen wurde. Das
- * Backend liefert das Frontend selbst aus, also stimmt das immer – egal ob
- * man am Handy über localhost draufgeht oder vom PC über die Heimnetz-IP.
+ * Immer dieselbe Adresse, von der die Seite geladen wurde. Das Backend
+ * liefert das Frontend selbst aus, also stimmt das immer – egal ob man am
+ * Handy über localhost draufgeht oder vom PC über die Heimnetz-IP.
  *
- * Vorher stand hier fest 'http://localhost:8080'. Vom PC aus zeigte das auf
- * den PC selbst, wo kein Server läuft – die App meldete "Offline".
- *
- * Abweichender Server nur zum Ausprobieren:
- *   localStorage.setItem('api_base', 'http://192.168.178.118:8080')
+ * Früher ließ sich die Adresse über einen localStorage-Eintrag 'api_base'
+ * umbiegen. Das ist seit P0 (12.10.2026) entfernt: Ein eingeschleustes
+ * Skript hätte damit alle Anfragen samt Schlüssel an einen fremden Server
+ * lenken können. Ein alter Eintrag wird beim Start gelöscht.
  *
  * Sicherheit: Der API-Key liegt NUR auf dem Handy in .env,
  *             nie im Frontend-Code.
  */
-const API_BASE = localStorage.getItem('api_base')
-    || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
+try { localStorage.removeItem('api_base'); } catch (_e) { /* Speicher gesperrt */ }
+const API_BASE = location.origin;
 
 /** API-Key, den das Backend serverseitig in die index.html injiziert hat.
  *  Ohne gesetzten Key (__API_KEY__ leer) bleibt der Schutz deaktiviert. */
@@ -239,18 +238,24 @@ if (dom.codechatBtn) {
 // =========================================
 /** Zeichenweise Auszeichnung – auch innerhalb von Tabellenzellen gebraucht.
  *  Links (Markdown-Links + rohe URLs) werden klickbar gemacht: http/https/www →
- *  <a target="_blank" rel="noopener noreferrer">. */
+ *  <a target="_blank" rel="noopener noreferrer">.
+ *
+ *  Erwartet MASKIERTEN Text (escapeHtml lief schon, siehe parseMarkdown).
+ *  Darum endet eine URL an jeder Entität außer &amp; – ein maskiertes
+ *  Anführungszeichen (&quot;) oder ein Apostroph (&#39;) kann so nie in ein
+ *  href-Attribut geraten. Die Roh-URL erlaubt ')' (Wiki-Links wie …/X_(Y)),
+ *  der Markdown-Link nicht, weil dort ')' die Adresse abschließt. */
 function inlineMarkdown(text) {
     let t = text;
     // 1) Markdown-Links [text](url) → parken (Platzhalter), damit der Roh-URL-
     //    Schritt sie nicht doppelt auseinanderreißt.
     const geparkt = [];
-    t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, text_, url) => {
+    t = t.replace(/\[([^\]]+)\]\((https?:\/\/(?:[^\s&)\u0000]|&amp;)+)\)/g, (m, text_, url) => {
         geparkt.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text_}</a>`);
         return `\u0000L${geparkt.length - 1}\u0000`;
     });
     // 2) Roh-URLs (https://…, http://…, www.…) → klickbar (außer die geparkten).
-    t = t.replace(/(^|[^"\u0000])(https?:\/\/[^\s<"'\u0000]+|www\.[^\s<"'\u0000]+)/g, (_m, davor, url) => {
+    t = t.replace(/(^|[^"\u0000])(https?:\/\/(?:[^\s&\u0000]|&amp;)+|www\.(?:[^\s&\u0000]|&amp;)+)/g, (_m, davor, url) => {
         const href = url.startsWith('www.') ? 'https://' + url : url;
         return `${davor}<a href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>`;
     });
@@ -288,8 +293,18 @@ function parseMarkdown(text) {
     const geparkt = [];
     const parke = (html) => `\u0000${geparkt.push(html) - 1}\u0000`;
 
+    // Das Nullzeichen ist unser Platzhalter-Rand; aus der Eingabe fliegt es raus.
+    text = String(text ?? '').replace(/\u0000/g, '');
+
+    // Codeblöcke maskieren sich in codeBlockZuHtml selbst.
     text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
         parke(codeBlockZuHtml(lang, code)));
+
+    // Sicherheit (P0, 12.10.2026): ALLES Übrige wird maskiert, BEVOR daraus
+    // HTML entsteht. Vorher gingen Modellantworten roh in innerHTML – ein
+    // <img onerror=…> in einer Antwort lief als Skript. Die Markdown-Zeichen
+    // | - : * ` [ ] ( ) bleiben dabei unberührt.
+    text = escapeHtml(text);
 
     // Tabelle: Kopfzeile, Trennzeile aus Strichen, dann beliebig viele Zeilen.
     text = text.replace(
@@ -311,10 +326,16 @@ function parseMarkdown(text) {
     return html.replace(/\u0000(\d+)\u0000/g, (_, i) => geparkt[i]);
 }
 
+/** Text für HTML maskieren – für Inhalt UND Attributwerte (auch " und ').
+ *  Reiner Zeichenersatz ohne DOM; die Tests schneiden die Funktion wörtlich
+ *  aus, darum keine Hilfsfunktion dazwischen. */
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 /**
@@ -1507,7 +1528,7 @@ function _showCloseOverlay() {
         <p style="color:#888;font-size:12px;margin-top:10px">
             Automatische Schließung in <span id="close-countdown-label">30</span>s
         </p>
-        <button onclick="window.close();document.getElementById('hermes-close-overlay').remove()"
+        <button id="hermes-close-btn"
                 style="margin-top:20px;padding:10px 30px;background:#ff6b6b;color:#fff;
                        border:none;border-radius:8px;cursor:pointer;font-size:16px">
             Tab jetzt schließen
@@ -1515,6 +1536,14 @@ function _showCloseOverlay() {
     `;
     document.body.innerHTML = '';
     document.body.appendChild(overlay);
+    // Kein onclick-Attribut: Die Inhaltsrichtlinie (CSP, P0) sperrt Inline-Skripte.
+    const schliessen = document.getElementById('hermes-close-btn');
+    if (schliessen) {
+        schliessen.addEventListener('click', () => {
+            try { window.close(); } catch (_) {}
+            overlay.remove();
+        });
+    }
 
     // Countdown von 30s
     let count = 30;
@@ -6348,7 +6377,7 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     const anzeige = () => {
                         contentDiv.innerHTML = (typeof parseMarkdownPartial === 'function')
                             ? parseMarkdownPartial(sichtbar)
-                            : sichtbar;
+                            : escapeHtml(sichtbar);
                         if (isAtBottom()) scrollToBottom(true);
                     };
                     const chunk = Math.max(2, Math.round(3 * ms / 120));
@@ -7847,7 +7876,7 @@ async function streamHermesText(text, conversationId) {
         while (_einzuBlenden) _zeigeEingeblendet();
         clearInterval(_renderTimer);
         // finalisieren
-        contentDiv.innerHTML = parseMarkdownPartial ? parseMarkdownPartial(antwort) : antwort;
+        contentDiv.innerHTML = parseMarkdownPartial ? parseMarkdownPartial(antwort) : escapeHtml(antwort);
         state.messages[state.messages.length - 1] = entry;
         if (isAtBottom()) scrollToBottom(true);
     } catch (err) {
@@ -8631,7 +8660,7 @@ async function zeichneGespraeche() {
             knopf.type = 'button';
             knopf.className = 'chat-row' + (c.id === state.conversationId ? ' aktiv' : '');
             knopf.innerHTML =
-                `<strong>${escapeHtml(c.id)}</strong> · ${c.message_count} Nachrichten`
+                `<strong>${escapeHtml(c.id)}</strong> · ${Number(c.message_count) || 0} Nachrichten`
                 + `<span class="chat-vorschau">${escapeHtml(c.last_message || '')}</span>`;
             knopf.addEventListener('click', async () => {
                 if (await zeigeGespraech(c.id)) schliesseChatBlatt();

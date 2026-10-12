@@ -273,8 +273,11 @@ pruefe(/'&ordnung=' \+ alle\.ordnung/.test(src), 'Gesichterliste fragt mit der g
 pruefe(/\.gruppen-alle-jahr\s*\{[^}]*grid-column:\s*1 \/ -1/.test(css), 'Jahreskopf über die ganze Rasterbreite');
 pruefe(/\.gruppen-alle-namen\[hidden\]\s*\{\s*display:\s*none/.test(css), 'Namensauswahl versteckbar trotz display:flex');
 pruefe(/textContent = n;/.test(src) && !/innerHTML = n/.test(src), 'Namen nur per textContent');
-pruefe(/gruppen_quiz\.js\?v=20261010A/.test(html) && /style\.css\?v=20261010B/.test(html),
-    'Cache-Bump: Skript 20261010A, Stil 20261010B (Stil-Bump 10.10. für die Hintergrund-Leiste)');
+// „diese Fassung oder neuer“: ein späterer Bump (z. B. P0, 12.10.) darf den Test nicht brechen.
+const vQ = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
+const vS = html.match(/style\.css\?v=(\d{8}[A-Z])/);
+pruefe(vQ && vQ[1] >= '20261010A' && vS && vS[1] >= '20261010B',
+    'Cache-Bump: Skript ab 20261010A, Stil ab 20261010B (Stil-Bump 10.10. für die Hintergrund-Leiste)');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

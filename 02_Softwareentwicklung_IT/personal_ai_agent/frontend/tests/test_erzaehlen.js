@@ -341,7 +341,7 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261007D', /erzaehlen\.js\?v=20261007D/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261012A', /erzaehlen\.js\?v=20261012A/.test(html));
 
 // Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
 eval(extractFn('erzaehlOrtText'));

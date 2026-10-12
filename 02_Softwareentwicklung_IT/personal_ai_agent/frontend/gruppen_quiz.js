@@ -348,13 +348,10 @@ function gruppenNotizZeit(zeit) {
 
     function el(id) { return document.getElementById(id); }
 
+    /** Immer die eigene Herkunft wie in app.js; seit P0 (12.10.2026) ohne
+     *  Umbiegen über localStorage. */
     function apiBase() {
-        try {
-            return localStorage.getItem('api_base')
-                || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
-        } catch (_e) {
-            return location.origin;
-        }
+        return location.origin;
     }
 
     async function jsonHolen(pfad, optionen) {

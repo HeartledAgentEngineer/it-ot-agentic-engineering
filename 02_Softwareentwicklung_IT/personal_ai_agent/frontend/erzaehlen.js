@@ -296,15 +296,10 @@ function erzaehlAllesText(teile) {
     const ERLAUBTE_GROESSEN = ['32x32', '120x120', '480x480', '800x800'];
     const GROESSE_GROSS = '800x800';
 
-    /** Basis-Adresse wie in app.js (dieselbe Herleitung, eigenständig, damit
-     *  diese Datei ohne app.js-Umbau auskommt). */
+    /** Basis-Adresse wie in app.js: immer die eigene Herkunft. Ein
+     *  localStorage-Eintrag kann sie seit P0 (12.10.2026) nicht mehr umbiegen. */
     function apiBase() {
-        try {
-            return localStorage.getItem('api_base')
-                || (location.origin.startsWith('http') ? location.origin : 'http://localhost:8080');
-        } catch (_e) {
-            return location.origin;
-        }
+        return location.origin;
     }
 
     const zustand = {
