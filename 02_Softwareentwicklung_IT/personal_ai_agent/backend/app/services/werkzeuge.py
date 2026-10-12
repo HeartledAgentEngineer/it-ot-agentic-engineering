@@ -456,21 +456,21 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     vorschlaege = daten.get("vorschlaege") or []
     fotos = sum(max(0, int(v.get("groesse") or 0))
                 for v in vorschlaege if isinstance(v, dict))
-    zeilen = [f"Person: {daten.get('name') or name}"]
+    # Saetze statt Ueberschriften und Strichlisten (12.10.2026): Das Modell
+    # uebernahm die Form dieser Ausgabe und zeigte Personen als Tabelle;
+    # gewuenscht ist vorlesbarer Fliesstext. Wichtiges zuerst, damit eine
+    # Kuerzung nur die Notizen am Ende trifft.
+    anzeige = str(daten.get("name") or name)
     beziehung = str(profil.get("beziehung") or "").strip()
-    if beziehung:
-        zeilen.append(f"Beziehung: {beziehung}")
+    stamm = [f"{anzeige} — Beziehung: {beziehung}." if beziehung else f"Zur Person {anzeige}."]
     kontakt = profil.get("kontakt")
     if isinstance(kontakt, dict) and str(kontakt.get("geburtstag") or "").strip():
-        zeilen.append(f"Geburtstag: {str(kontakt['geburtstag']).strip()}")
-    zeilen.append(f"Fotos (erkannte Gesichter): {fotos}")
+        stamm.append(f"Geburtstag laut Telefonbuch: {str(kontakt['geburtstag']).strip()}.")
     if len(vorschlaege) > 1:
-        zeilen.append(f"Vorschläge (Bildgruppen): {len(vorschlaege)}")
-    notizen = [n for n in (profil.get("notizen") or [])
-               if isinstance(n, dict) and not n.get("zurueckgenommen")]
-    if notizen:
-        zeilen.append(f"Notizen ({len(notizen)}):")
-        zeilen += [f"- {str(n.get('text') or '').strip()}" for n in notizen[:20]]
+        stamm.append(f"Erkannt auf {fotos} Fotos, verteilt auf {len(vorschlaege)} Bildgruppen.")
+    else:
+        stamm.append(f"Erkannt auf {fotos} Fotos.")
+    absaetze = [" ".join(stamm)]
     # Anlässe (in welchen Ereignissen kommt die Person vor) — Verknüpfung
     # Gesicht -> Anlass: die Bild-Kennungen der Person gegen die
     # ``datei_kennungen`` der Ereignisse. Nur Klartext, keine Pfade/Bilder.
@@ -479,13 +479,45 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     if kennungen:
         from app.services import erzaehl_service
 
-        anlaesse = erzaehl_service.anlaesse_zu_kennungen(kennungen, limit=15)
+        anlaesse = erzaehl_service.anlaesse_zu_kennungen(kennungen, limit=_ANLAESSE_ABFRAGE)
         if anlaesse:
-            zeilen.append(f"Anlässe ({len(anlaesse)}):")
-            for a in anlaesse[:10]:
-                teile = [str(t) for t in (a.get("datum"), a.get("titel")) if t]
-                zeilen.append("- " + " | ".join(teile))
-    return Ergebnis(_kuerzen("\n".join(zeilen)))
+            absaetze.append(_anlaesse_satz(anlaesse))
+    notizen = [str(n.get("text") or "").strip() for n in (profil.get("notizen") or [])
+               if isinstance(n, dict) and not n.get("zurueckgenommen")]
+    notizen = [n for n in notizen if n]
+    if notizen:
+        # Notiztexte bleiben wie eingegeben; nur ein fehlendes Satzende kommt dazu,
+        # damit zwei Notizen beim Vorlesen nicht ineinanderlaufen.
+        saetze = [n if n[-1] in ".!?…" else n + "." for n in notizen[:_NOTIZEN_ZEIGEN]]
+        absaetze.append("Eigene Notizen: " + " ".join(saetze))
+    return Ergebnis(_kuerzen("\n\n".join(absaetze)))
+
+
+# Grenzen der Personenauskunft: Abfrage bis 15 Anlaesse, gezeigt werden 10.
+_ANLAESSE_ABFRAGE = 15
+_ANLAESSE_ZEIGEN = 10
+_NOTIZEN_ZEIGEN = 20
+
+
+def _anlaesse_satz(anlaesse: List[Dict[str, Any]]) -> str:
+    """Die Anlaesse einer Person als ein Satz (neueste zuerst, wie geliefert)."""
+    teile = []
+    for a in anlaesse[:_ANLAESSE_ZEIGEN]:
+        titel = str(a.get("titel") or "").strip() or "ohne Titel"
+        datum = str(a.get("datum") or "").strip()
+        # Automatische Titel beginnen oft schon mit dem Datum.
+        teile.append(f"„{titel}“" if not datum or titel.startswith(datum)
+                     else f"am {datum} „{titel}“")
+    zahl = len(anlaesse)
+    if zahl >= _ANLAESSE_ABFRAGE:
+        kopf = f"Kommt in mindestens {zahl} Anlässen vor, die jüngsten {len(teile)}"
+    elif zahl > len(teile):
+        kopf = f"Kommt in {zahl} Anlässen vor, die jüngsten {len(teile)}"
+    elif zahl == 1:
+        kopf = "Kommt in einem Anlass vor"
+    else:
+        kopf = f"Kommt in {zahl} Anlässen vor"
+    return f"{kopf}: " + ", ".join(teile) + "."
 
 
 def _wer_war_wann(args: Dict[str, Any]) -> Ergebnis:

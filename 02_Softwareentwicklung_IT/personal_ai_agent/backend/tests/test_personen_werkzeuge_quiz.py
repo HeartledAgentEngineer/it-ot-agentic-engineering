@@ -95,12 +95,85 @@ def test_personen_liste_ohne_quiz_nennt_keine_erfundenen_personen(tmp_path, monk
 def test_person_auskunft_liest_profil_und_notizen(basis):
     r = _auskunft(person="Testperson A")
     assert r.ok is True
-    assert "Person: Testperson A" in r.text
-    assert "Beziehung: Beispiel-Beziehung" in r.text
-    assert "Geburtstag: 1990-01-02" in r.text          # aus dem Telefonbuch-Auszug
-    assert "Fotos (erkannte Gesichter): 120" in r.text
-    assert "Mag Beispielhaftes" in r.text
+    assert r.text.startswith("Testperson A — Beziehung: Beispiel-Beziehung.")
+    assert "Geburtstag laut Telefonbuch: 1990-01-02." in r.text   # Telefonbuch-Auszug
+    assert "Erkannt auf 120 Fotos." in r.text
+    assert "Eigene Notizen: Mag Beispielhaftes." in r.text
     assert "zurueckgenommen" not in r.text             # zurueckgenommene Notiz zaehlt nicht
+
+
+# ── Fließtext statt Überschriften/Strichlisten (12.10.2026) ─────────────────
+# Befund Sebastian: Personen kamen im Chat als Tabelle. Das Modell übernahm die
+# Form der Werkzeugausgabe („Notizen (n):“ + „- …“). Geprüft wird nur die
+# EIGENE Rahmung — Notiztexte bleiben, wie Sebastian sie eingegeben hat.
+
+def _rahmen_ist_fliesstext(text: str) -> None:
+    for zeile in text.splitlines():
+        assert not zeile.startswith("- "), zeile
+        assert not zeile.rstrip().endswith(":"), zeile
+    assert " | " not in text
+
+
+def test_person_auskunft_ist_fliesstext(basis):
+    r = _auskunft(person="Testperson A")
+    _rahmen_ist_fliesstext(r.text)
+    # Person ohne Beziehung, Notizen, Kontakt: trotzdem ein ganzer Satz.
+    b = _auskunft(person="Testperson B")
+    assert b.ok is True and b.text == "Zur Person Testperson B. Erkannt auf 7 Fotos."
+
+
+def test_person_auskunft_ueberspringt_leere_notizen(basis):
+    profile = json.loads(json.dumps(PROFILE))
+    profile["profile"]["Testperson A"]["notizen"] += [
+        {"id": "n3", "text": "   "}, {"id": "n4", "text": "Endet schon mit Punkt."}]
+    _schreibe(basis / gq.PROFILE_DATEINAME, profile)
+    gq._CACHE.clear()
+    r = _auskunft(person="Testperson A")
+    assert "Eigene Notizen: Mag Beispielhaftes. Endet schon mit Punkt." in r.text
+    assert ".." not in r.text and ". ." not in r.text
+
+
+def test_person_auskunft_langfall_grenzen_und_reihenfolge(basis, monkeypatch):
+    """21 Notizen / 11 Anlässe → höchstens 20 / 10; Wichtiges vor den Notizen."""
+    from app.services import erzaehl_service
+
+    profile = json.loads(json.dumps(PROFILE))
+    profile["profile"]["Testperson A"]["notizen"] = [
+        {"id": f"n{i}", "text": f"Notiz Nummer {i:02d}"} for i in range(1, 22)
+    ] + [{"id": "nz", "text": "Zurueckgenommene Notiz", "zurueckgenommen": True}]
+    _schreibe(basis / gq.PROFILE_DATEINAME, profile)
+    gq._CACHE.clear()
+    monkeypatch.setattr(gq, "bild_kennungen_person",
+                        lambda name: {"ok": True, "kennungen": [5001]})
+    anlaesse = [{"kennung": f"E-20{i:02d}-01-01_Anlass-01", "datum": f"20{i:02d}-01-01",
+                 "titel": f"Ausflug Nummer {i:02d}"} for i in range(11, 0, -1)]
+    monkeypatch.setattr(erzaehl_service, "anlaesse_zu_kennungen",
+                        lambda kennungen, limit=15: anlaesse[:limit])
+    r = _auskunft(person="Testperson A")
+    _rahmen_ist_fliesstext(r.text)
+    assert "gekürzt" not in r.text
+    assert sum(f"Notiz Nummer {i:02d}." in r.text for i in range(1, 22)) == 20
+    assert "Notiz Nummer 21" not in r.text and "Zurueckgenommene" not in r.text
+    assert sum(f"Ausflug Nummer {i:02d}" in r.text for i in range(1, 12)) == 10
+    assert "Kommt in 11 Anlässen vor, die jüngsten 10:" in r.text
+    assert "am 2011-01-01 „Ausflug Nummer 11“" in r.text
+    assert "Ausflug Nummer 01" not in r.text           # der älteste fällt weg
+    assert "Anlass-01" not in r.text and "/" not in r.text and "Person_1001" not in r.text
+    # Reihenfolge: Stammdaten, dann Anlässe, Notizen zuletzt (Kürzung trifft sie).
+    assert r.text.index("Erkannt auf") < r.text.index("Kommt in") < r.text.index("Eigene Notizen")
+
+
+def test_person_auskunft_abfragegrenze_heisst_mindestens(basis, monkeypatch):
+    from app.services import erzaehl_service
+
+    monkeypatch.setattr(gq, "bild_kennungen_person",
+                        lambda name: {"ok": True, "kennungen": [5001]})
+    monkeypatch.setattr(erzaehl_service, "anlaesse_zu_kennungen", lambda kennungen, limit=15: [
+        {"datum": "2020-01-01", "titel": "2020-01-01 Ein Anlass"}] * limit)
+    r = _auskunft(person="Testperson A")
+    assert "Kommt in mindestens 15 Anlässen vor, die jüngsten 10:" in r.text
+    # Titel mit Datum vorn: das Datum steht nicht doppelt.
+    assert "am 2020-01-01" not in r.text and "„2020-01-01 Ein Anlass“" in r.text
 
 
 def test_person_auskunft_ohne_namen_ist_ehrlich(basis):
@@ -203,7 +276,7 @@ def test_person_auskunft_zeigt_anlaesse(basis, monkeypatch):
     _schreibe(basis / "ereignisse.jsonl", EREIGNISSE)
     r = _auskunft(person="Testperson A")
     assert r.ok is True
-    assert "Anlässe (2)" in r.text
+    assert "Kommt in 2 Anlässen vor:" in r.text
     assert "2019-07-01 Urlaub am Meer" in r.text
     assert "2021-03-05 Wanderung" in r.text
     # Der Anlass von Testperson B gehoert nicht dazu; keine Innereien.
@@ -214,7 +287,7 @@ def test_person_auskunft_zeigt_anlaesse(basis, monkeypatch):
 def test_person_auskunft_ohne_ereignisquelle_bleibt_ruhig(basis, monkeypatch):
     _mit_fotos(basis, monkeypatch)   # schreibt ereignisse.jsonl als leere Liste
     r = _auskunft(person="Testperson A")
-    assert r.ok is True and "Anlässe" not in r.text
+    assert r.ok is True and "Kommt in" not in r.text and "Anlass" not in r.text
 
 
 def test_person_auskunft_anlaesse_ohne_treffer_ist_leer(basis, monkeypatch):
@@ -225,4 +298,4 @@ def test_person_auskunft_anlaesse_ohne_treffer_ist_leer(basis, monkeypatch):
          "anzahl_dateien": 1, "datei_kennungen": [424242]},
     ])
     r = _auskunft(person="Testperson A")
-    assert r.ok is True and "Anlässe" not in r.text
+    assert r.ok is True and "Kommt in" not in r.text and "Fremd" not in r.text
