@@ -102,6 +102,8 @@ Dateien** — und der Grund ist nicht Bequemlichkeit, sondern die App-Sandbox
   Handy den neuen Stand ziehen (App oeffnen oder `git pull` + Start), dann
   laeuft Schritt 5b, danach holt der PC. Solange die zwei Dateien am Geraet
   nicht existieren, sagt der Nachweis weiterhin ehrlich „noch nicht angelegt".
+  **Ueberholt am 12.10.2026, 21:2x** — siehe Nachtrag unten: das Geraet hatte
+  beim App-Start bereitgestellt, der Hol-Lauf ist mit echten Daten gelaufen.
 - Der Weg ist **an das Kabel gebunden** (wie `diag_holen.py`). Der kabellose
   Weg (Geraet laedt selbst in die pCloud) waere ein eigener Schritt und ist
   **nicht** gebaut — Entscheidung liegt bei Sebastian.
@@ -116,6 +118,65 @@ Dateien** — und der Grund ist nicht Bequemlichkeit, sondern die App-Sandbox
   `richtung: handy->pc`) und wurde entfernt; die Tests nehmen jetzt ausnahmslos
   ein Manifest unter `tmp_path`, und ein neuer Test haelt fest, dass die
   Vorgaben ausserhalb des Repos liegen.
+
+## Nachtrag (12.10.2026, 21:2x) — der erste echte Hol-Lauf, und ein Fehler darin
+
+**Der Rueckweg ist mit echten Daten gelaufen.** Das Handy hing am Kabel
+(`adb devices`: ein Geraet) und hatte beim App-Start bereitgestellt: in
+`/sdcard/Download/hermes_rueckweg` lag `geschichten.jsonl`, 3.685 Bytes vom
+12.10.2026 20:58. Trockenlauf, dann `--holen`:
+„geholt 1 - uebersprungen 0 - nicht in der Liste 0 - Fehler 0“, Ziel
+`~/foto_sortierung`, eine Manifest-Zeile. Am Geraet wurde nur `ls` und `pull`
+gemacht (lesend), nichts geschrieben, nichts geloescht.
+
+**Die Kette ist damit ganz belegt:** die App erzeugt die Erzaehlungen am Geraet
+→ das Geraet stellt sie bereit → das Kabel holt sie → der Nachweis vergleicht
+sie. `bestand_pruefen.py` (Exit 0) zeigt die zwei Stufen jetzt zum ersten Mal
+von beiden Seiten:
+
+- „Eigene Geschichten: geschichten.jsonl: **5 Geschichten, 3 Anlaesse, 3 zu
+  einem Bild**; Quellen: tippen 5“ (vorher: „noch nicht angelegt“),
+- „Rueckweg (Handy -> PC): rueckweg_manifest.jsonl: 1 Buchungen, 1 verschiedene
+  Dateien (**unversehrt 1**, abweichend 0, am PC fehlt 0)“.
+  „Unversehrt“ heisst: Bytes UND sha256 der PC-Kopie stimmen mit der Buchung.
+
+**Der Fehler, den dieser Lauf sofort zeigte:** die gebuchte Zeile trug
+`"zeit": ""` — leer. AGENTS.md Punkt 5 verlangt fuer eine schreibende Operation
+auf einem fremden System „Quelle → Ziel, Zeit, Kennung“; das Werkzeug selbst
+versprach im Modulkopf „Name, Bytes, sha256, Zeit“. Die Uhrzeit fehlte also,
+und Quelle/Ziel standen gar nicht drin — aus der Zeile war nicht abzulesen,
+wann und von wo nach wo die Datei ging. Ursache: `--zeit` hatte die Vorgabe
+`""` und wurde nirgends gefuellt; `--ziel`/`--ordner` kannte die Buchung nicht.
+
+**Behoben** (`tools/handy/rueckweg_holen.py`):
+
+- Ohne `--zeit` wird die **Zeit jetzt** gebucht (ISO mit Zeitzone,
+  `datetime.now().astimezone()`); ein **ausdruecklich leerer** Wert wird
+  abgelehnt (Exit 2, „Es wird NICHTS geschrieben“) statt stillschweigend zur
+  Uhrzeit zu werden — dieselbe Regel wie bei `ereignisse_bauen.py --stand`.
+- Jede Buchung traegt **Quelle** (Geraetepfad) und **Ziel** (PC-Pfad) — wie das
+  Nachbar-Manifest der Uebergabe PC → Handy (`uebergabe_manifest.jsonl`), das
+  beides seit jeher fuehrt.
+
+**Belege:**
+
+- Testdatei `backend/tests/test_rueckweg_handy.py` **20 → 23 Testfunktionen**
+  (3 neue: Buchung traegt Zeit in ISO-Form + Quelle + Ziel; `--zeit` setzt den
+  Wert wortgleich; leerer `--zeit` = Exit 2 und nichts geschrieben), Lauf der
+  Datei **23 passed**.
+- **Messung am echten Geraet (nur lesend, Exit 0):** derselbe Hol-Lauf in ein
+  Probe-Ziel; die neue Zeile lautet
+  `{"bytes": 3685, "name": "geschichten.jsonl", "quelle": "/sdcard/Download/hermes_rueckweg/geschichten.jsonl", "richtung": "handy->pc", "sha256": "5f9fe04…", "zeit": "2026-10-12T21:21:42+02:00", "ziel": "…\\ziel\\geschichten.jsonl"}`
+  — die Pruefsumme ist dieselbe wie bei der ersten Kopie. Der Aufruf mit
+  leerem `--zeit` endet mit Exit 2 und legt **kein** Ziel an (gemessen).
+- **Nicht angefasst:** die erste, zeitlose Buchung in
+  `~/foto_sortierung/rueckweg_manifest.jsonl` bleibt als historische Zeile
+  stehen (nichts geloescht); sie ist die einzige ohne Zeit und durch diesen
+  Nachtrag erklaert.
+- `anlass_umbenennung.jsonl` war am Geraet nicht bereitgestellt (die Stufe
+  „Eigene Titel“ meldet weiterhin ehrlich „noch nicht angelegt“) — es gibt am
+  Geraet offenbar noch keine eigenen Anlassnamen.
+
 
 Nichts geloescht ausser der genannten eigenen Testdatei, kein Bild-/
 Gesichtsdienst, keine pCloud-Schreibzugriffe, keine Geraeteeingaenge (nur

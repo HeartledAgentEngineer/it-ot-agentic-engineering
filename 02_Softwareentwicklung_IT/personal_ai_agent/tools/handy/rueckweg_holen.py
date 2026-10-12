@@ -32,8 +32,9 @@ Verhalten:
          ``fehler`` und der Aufruf endet mit Exit 1.
       3. Jede wirklich geholte Datei bucht **eine** Zeile in das Manifest
          (``--manifest``, Standard ``~/foto_sortierung/rueckweg_manifest.jsonl``):
-         Name, Bytes, sha256, Zeit. Das Manifest ist der Beleg, was den Weg
-         genommen hat (AGENTS.md, Punkt 5: Rueckholbarkeit).
+         Name, Bytes, sha256, **Quelle -> Ziel** und **Zeit**. Das Manifest ist
+         der Beleg, was den Weg genommen hat (AGENTS.md, Punkt 5:
+         Rueckholbarkeit — Quelle, Ziel, Zeit, Kennung).
   * **Nur die Liste wird geholt.** Jede andere Datei im Geraete-Ordner wird
     als Zeile gemeldet („nicht in der Liste, wird nicht geholt\\\") und
     **nicht** angefasst — der Ordner ist ein Download-Ordner, da liegt alles
@@ -80,6 +81,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HIER))            # .../personal_ai_agent
@@ -266,14 +268,25 @@ def _hole_eine(adb: str, quelle: str, ziel: str) -> str:
 
 # ── 4. Manifest (der Beleg) ────────────────────────────────────────────────
 
-def _buchung(name: str, ziel: str, zeit: str = "") -> dict:
-    """Eine Manifest-Zeile fuer eine geholte Datei bauen (nur Zahlen + Name)."""
+def _jetzt() -> str:
+    """Die Zeit JETZT als ISO-Text mit Zeitzone (fuer das Manifest)."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _buchung(name: str, ziel: str, zeit: str = "", quelle: str = "") -> dict:
+    """Eine Manifest-Zeile fuer eine geholte Datei bauen (nur Zahlen + Name + Pfade).
+
+    Quelle und Ziel stehen mit drin (AGENTS.md, Punkt 5: „Quelle -> Ziel, Zeit,
+    Kennung“) — der Name allein liesse offen, von wo nach wo die Datei ging.
+    """
     return {
         "name": name,
         "bytes": os.path.getsize(ziel) if os.path.isfile(ziel) else None,
         "sha256": _sha256_datei(ziel),
         "zeit": zeit or "",
         "richtung": "handy->pc",
+        "quelle": quelle or "",
+        "ziel": ziel or "",
     }
 
 
@@ -363,7 +376,7 @@ def holen(adb: str, ordner: str, zielordner: str, eintraege,
 
         zaehler["geholt"] += 1
         zeilen.append(f"{name}: geholt ({_bytes(laenge)} Bytes, {zeit_geraet})")
-        buchungen.append(_buchung(name, ziel, zeit))
+        buchungen.append(_buchung(name, ziel, zeit, quelle))
 
     gebucht = _manifest_anhaengen(manifest, buchungen) if manifest else ""
     return {"zaehler": zaehler, "zeilen": zeilen, "buchungen": buchungen,
@@ -415,8 +428,9 @@ def main(argv=None) -> int:
     zerleger.add_argument("--holen", dest="holen", action="store_true",
                           help="wirklich holen; ohne diesen Schalter nur die "
                                "Dateiliste zeigen (Trockenlauf)")
-    zerleger.add_argument("--zeit", dest="zeit", default="",
-                          help="Zeitstempel fuer das Manifest (leer = keiner)")
+    zerleger.add_argument("--zeit", dest="zeit", default=None,
+                          help="Zeitstempel fuer das Manifest "
+                               "(ohne Angabe = jetzt; leer wird abgelehnt)")
     args = zerleger.parse_args(argv)
 
     ordner = _text(args.ordner)
@@ -425,6 +439,18 @@ def main(argv=None) -> int:
     if not ordner or not ziel:
         print("Fehler: --ordner und --ziel duerfen nicht leer sein.",
               file=sys.stderr)
+        return 2
+    # Ohne Angabe bucht das Manifest die Zeit JETZT (der Beleg braucht sie).
+    # Ein ausdruecklich leerer Wert wird NICHT stillschweigend zur Uhrzeit —
+    # wer nichts sagen will, laesst die Option weg.
+    if args.zeit is None:
+        zeit = _jetzt()
+    elif _text(args.zeit):
+        zeit = _text(args.zeit)
+    else:
+        print("Fehler: --zeit ist leer. Ohne Angabe wird die Zeit jetzt "
+              "gebucht; ein leerer Wert wird nicht stillschweigend zur "
+              "Uhrzeit.\nEs wird NICHTS geschrieben.", file=sys.stderr)
         return 2
     if _im_repo(ziel):
         print(f"Fehler: --ziel liegt IM Repo und ist nicht erlaubt: {ziel}\n"
@@ -460,7 +486,7 @@ def main(argv=None) -> int:
         return 0
 
     ergebnis = holen(adb, ordner, ziel, liste["eintraege"],
-                     manifest=args.manifest, zeit=args.zeit)
+                     manifest=args.manifest, zeit=zeit)
     _bericht_drucken(ergebnis, ziel)
     if ergebnis["fehler"]:
         print("Fehler: mindestens eine Datei ist gescheitert.", file=sys.stderr)

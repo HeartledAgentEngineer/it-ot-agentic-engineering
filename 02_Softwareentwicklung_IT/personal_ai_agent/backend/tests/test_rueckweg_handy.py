@@ -31,7 +31,9 @@ Die Regelgruppen:
  5. **Rueckweg + Beleg:** eine geaenderte Zieldatei wird vorher als
     ``<name>.vorher`` gesichert (alte Bytes bleiben erhalten); je geholter
     Datei steht **eine** Manifest-Zeile mit passender sha256 und dem Vermerk
-    ``handy->pc``.
+    ``handy->pc`` — dazu **Quelle, Ziel und Zeit** (AGENTS.md, Punkt 5); ohne
+    ``--zeit`` wird die Zeit JETZT gebucht, ein ausdruecklich leerer Wert wird
+    mit Exit 2 abgelehnt (nichts geschrieben).
  6. **Datenschutz/Kein Netz:** keine echten Namen in den neuen Dateien, kein
     Geheimnismuster; das Werkzeug kennt kein HTTP, kein pCloud, keinen Sockel
     und importiert nur die Standardbibliothek.
@@ -394,6 +396,58 @@ def test_regel5_manifest_bucht_je_geholter_datei_eine_zeile_mit_sha256(tmp_path)
         assert buchung["bytes"] == (ziel / name).stat().st_size
         assert buchung["sha256"] == rh._sha256_datei(str(ziel / name))
         assert len(buchung["sha256"]) == 64
+
+
+def test_regel5_buchung_traegt_zeit_quelle_und_ziel(tmp_path):
+    """AGENTS.md Punkt 5: das Manifest nennt Quelle, Ziel und ZEIT.
+
+    Gemessen am 12.10.2026 war die Zeit gebucht worden, aber LEER — die Zeile
+    sagte nicht, wann die Datei den Weg genommen hat.
+    """
+    attrappe = _attrappen_adb(tmp_path, INHALT)
+    ziel = tmp_path / "pc_ziel"
+    manifest = tmp_path / "manifest.jsonl"
+    code, aus, _ = _lauf(["--adb", attrappe, "--ziel", str(ziel),
+                          "--manifest", str(manifest), "--holen"])
+    assert code == 0, aus
+    zeilen = [z for z in manifest.read_text(encoding="utf-8").splitlines() if z]
+    assert zeilen, "keine Buchung"
+    for zeile in zeilen:
+        buchung = json.loads(zeile)
+        name = buchung["name"]
+        assert buchung["zeit"], f"Zeit leer bei {name}"
+        assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", buchung["zeit"]), \
+            f"Zeit nicht in ISO-Form: {buchung['zeit']!r}"
+        assert buchung["quelle"] == f"{ORDNER_GERAET}/{name}"
+        assert buchung["ziel"] == str(ziel / name)
+
+
+def test_regel5_zeit_option_setzt_den_wert_wortgleich(tmp_path):
+    attrappe = _attrappen_adb(tmp_path, INHALT)
+    ziel = tmp_path / "pc_ziel"
+    manifest = tmp_path / "manifest.jsonl"
+    fest = "2026-10-12T21:30:00+02:00"
+    code, aus, _ = _lauf(["--adb", attrappe, "--ziel", str(ziel),
+                          "--manifest", str(manifest), "--holen",
+                          "--zeit", fest])
+    assert code == 0, aus
+    zeilen = [z for z in manifest.read_text(encoding="utf-8").splitlines() if z]
+    assert zeilen
+    assert {json.loads(z)["zeit"] for z in zeilen} == {fest}
+
+
+def test_regel5_leere_zeit_wird_abgelehnt_und_schreibt_nichts(tmp_path):
+    """Ein LEERER --zeit-Wert wird nicht stillschweigend zur Uhrzeit."""
+    attrappe = _attrappen_adb(tmp_path, INHALT)
+    ziel = tmp_path / "pc_ziel"
+    manifest = tmp_path / "manifest.jsonl"
+    code, aus, fehler = _lauf(["--adb", attrappe, "--ziel", str(ziel),
+                               "--manifest", str(manifest), "--holen",
+                               "--zeit", "  "])
+    assert code == 2
+    assert "leer" in fehler
+    assert not manifest.exists(), "es darf nichts gebucht werden"
+    assert not (ziel / "geschichten.jsonl").exists(), "es darf nichts geholt werden"
 
 
 # ── 6. Datenschutz und kein Netz ──────────────────────────────────────────
