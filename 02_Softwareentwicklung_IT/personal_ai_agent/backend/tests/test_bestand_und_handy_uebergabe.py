@@ -1692,8 +1692,9 @@ def test_uebergabe_listen_ungleich_und_ohne_liste_sind_luecken(tmp_path):
     assert "3 Stellen (ungleich)" in text
     assert "ohne Liste 1" in text
     # Unbekannt.json liest der Dienst, sie steht auf keiner Liste -> Luecke.
-    assert ("unbekannt.json: der Dienst liest sie, sie steht aber auf keiner "
-            "Uebergabe-Liste (kommt nie ans Geraet)") in luecken
+    assert ("unbekannt.json: der Dienst liest sie, sie kommt aber auf keinem der "
+            "beiden Uebergabe-Wege ans Geraet (keine Kabel-Liste, nicht "
+            "kabellos uebergeben)") in luecken
     assert ("termux/start-vorbereiten.sh: die 3 Aufrufstellen der Uebergabe-Liste "
             "stimmen nicht ueberein") in luecken
     # Geliefert, aber kein Dienst liest sie: eine Zeile, KEINE Luecke.
@@ -1752,3 +1753,110 @@ def test_uebergabe_listen_leser_werfen_nie_und_nur_namen(tmp_path):
     block = "\n".join(z for z in zeilen if "Uebergabe-Listen" in z
                       or z.startswith(("  Dienst liest", "  Auf keiner Liste", "  Uebergeben")))
     assert str(tmp_path) not in block and "backend" not in block and ".py" not in block
+
+
+def _weg_projekt(tmp_path, *, kabel=("foto_a.json", "foto_b.json"),
+                 dienst=("foto_a.json", "foto_b.json", "nur_pcloud.jsonl")):
+    """Mini-Projekt fuer die Weg-Frage: Kabel-Liste und gelesene Dateinamen."""
+    zeile = "        --dateien " + " ".join(kabel) + " \\\\"
+    return _mini_projekt(tmp_path, script_zeilen=(zeile,), app_dateien=(tuple(dienst),))
+
+
+def test_uebergabe_listen_nennt_den_weg_je_datei(tmp_path):
+    """Zwei Wege, zwei Mengen: je Weg wird genannt, was NUR dort ankommt."""
+    projekt = _weg_projekt(tmp_path)
+    dl = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",),
+                                      uebergebene=("foto_b.json", "nur_pcloud.jsonl"))
+    assert dl["nur_kabel"] == {"foto_a.json"}
+    assert dl["nur_kabellos"] == {"nur_pcloud.jsonl"}
+    assert dl["kabellos"] == {"foto_b.json", "nur_pcloud.jsonl"}
+    assert dl["ohne_liste"] == set()
+
+    _bestand(tmp_path)
+    for name in ("foto_b.json", "nur_pcloud.jsonl"):
+        (tmp_path / name).write_text("x\n", encoding="utf-8")
+    _uebergabe_manifest(tmp_path, [
+        {"name": "foto_b.json", "quelle": "C:/geheim/weg/foto_b.json",
+         "groesse": (tmp_path / "foto_b.json").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "foto_b.json")},
+        {"name": "nur_pcloud.jsonl", "quelle": "C:/geheim/weg/nur_pcloud.jsonl",
+         "groesse": (tmp_path / "nur_pcloud.jsonl").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "nur_pcloud.jsonl")},
+    ])
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert ("  Kabelloser Weg: 2 Dateien im Manifest (Uebergabe-Liste des Kabels: 2); "
+            "nur kabelseitig 1, nur kabellos 1") in text
+    assert ("  Nur ueber das KABEL ans Geraet - ohne Kabel fehlt sie dem Dienst (1): "
+            "foto_a.json") in text
+    assert ("  Nur KABELLOS (pCloud) ans Geraet - mit Kabel fehlt sie dem Dienst (1): "
+            "nur_pcloud.jsonl") in text
+    # Ein Weg-Unterschied ist eine ZEILE, keine Luecke (welcher Weg benutzt wird,
+    # entscheidet Sebastian) — „auf keiner Liste\" bleibt die Luecke.
+    assert not [l for l in luecken if "foto_a" in l or "nur_pcloud" in l]
+    # Nur Zahlen und Dateinamen: kein Pfad, kein Inhalt.
+    assert "C:/geheim" not in text and str(tmp_path) not in text
+
+
+def test_uebergabe_listen_ohne_manifest_laesst_die_weg_frage_offen(tmp_path):
+    """Ohne gelesenes Manifest wird die Weg-Frage ehrlich ungemessen gelassen."""
+    projekt = _weg_projekt(tmp_path)
+    dl = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",))
+    assert dl["kabellos"] is None
+    assert dl["nur_kabel"] is None and dl["nur_kabellos"] is None
+
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert ("  Kabelloser Weg nicht gemessen (Uebergabe-Manifest nicht gelesen) - "
+            "welche gelesene Datei nur ueber das Kabel ankommt, bleibt offen") in text
+    assert "nur kabelseitig" not in text and "Nur ueber das KABEL" not in text
+    # Ohne Manifest bleibt nur die harte Luecke (auf keinem Weg) — und keine Weg-Zeile.
+    assert [l for l in luecken if "beiden Uebergabe-Wege" in l] == [
+        "nur_pcloud.jsonl: der Dienst liest sie, sie kommt aber auf keinem der beiden "
+        "Uebergabe-Wege ans Geraet (keine Kabel-Liste, nicht kabellos uebergeben)"]
+    assert not [l for l in luecken if "Kabelloser Weg" in l]
+
+
+def test_uebergabe_listen_nie_geliefert_bleibt_luecke_bei_gemessenem_weg(tmp_path):
+    """Auch mit gelesenem Manifest bleibt „auf keiner Liste\" eine Luecke."""
+    projekt = _weg_projekt(tmp_path, kabel=("foto_a.json",),
+                           dienst=("foto_a.json", "nur_pcloud.jsonl", "nie_geliefert.jsonl"))
+    _bestand(tmp_path)
+    for name in ("foto_a.json", "nur_pcloud.jsonl"):
+        (tmp_path / name).write_text("x\n", encoding="utf-8")
+    _uebergabe_manifest(tmp_path, [
+        {"name": "foto_a.json", "groesse": (tmp_path / "foto_a.json").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "foto_a.json")},
+        {"name": "nur_pcloud.jsonl", "groesse": (tmp_path / "nur_pcloud.jsonl").stat().st_size,
+         "pruefsumme": _sha(tmp_path / "nur_pcloud.jsonl")},
+    ])
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "Kabelloser Weg: 2 Dateien im Manifest (Uebergabe-Liste des Kabels: 1)" in text
+    assert ("nie_geliefert.jsonl: der Dienst liest sie, sie kommt aber auf keinem der "
+            "beiden Uebergabe-Wege ans Geraet (keine Kabel-Liste, nicht "
+            "kabellos uebergeben)") in luecken
+    # Die gelesene Datei kommt nur kabellos an -> Zeile, keine Luecke.
+    assert ("  Nur KABELLOS (pCloud) ans Geraet - mit Kabel fehlt sie dem Dienst (1): "
+            "nur_pcloud.jsonl") in text
+    assert not [l for l in luecken if "nur_pcloud" in l]
+
+
+def test_uebergabe_deckung_weg_bleibt_abschaltbar_und_tolerant(tmp_path):
+    """Ohne Schalter keine Pruefzeile; der Weg-Teil wirft auch bei kaputtem Manifest nie."""
+    _bestand(tmp_path)
+    projekt = _weg_projekt(tmp_path)
+    ohne = "\n".join(bp.pruefen(str(tmp_path), projekt=str(projekt))[0])
+    assert "Uebergabe-Listen" not in ohne and "Kabelloser Weg" not in ohne
+    (tmp_path / bp.STANDARD_UEBERGABE_MANIFEST).write_text("{kein json\n", encoding="utf-8")
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "Kabelloser Weg: 0 Dateien im Manifest" in text
+    # Das kaputte Manifest ist eine Luecke (nicht nachvollziehbar) — die Weg-Frage
+    # selbst schweigt still statt zu raten.
+    assert not [l for l in luecken if "Kabelloser" in l]

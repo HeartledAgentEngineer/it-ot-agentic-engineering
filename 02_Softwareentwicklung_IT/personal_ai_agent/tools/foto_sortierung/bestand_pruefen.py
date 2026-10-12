@@ -372,8 +372,13 @@ UEBERGABE_FEHLT_LOKAL = "fehlt_lokal"
 # und ohne ``|| true``) — zwei Stellen, die auseinanderlaufen koennen. Stellen
 # sie gegen die Dateinamen, die ``backend/app`` wirklich liest (AST): eine Datei,
 # die ein Dienst liest und die auf KEINER Liste steht, kaeme nie ans Geraet —
-# dieselbe Fehlerklasse wie die fehlende Bildindex-Uebergabe vom 10.10. Nur
-# Zahlen und die eigenen Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
+# dieselbe Fehlerklasse wie die fehlende Bildindex-Uebergabe vom 10.10. Seit dem
+# 10.10. gibt es ZWEI Wege: die Kabel-Liste hier und die kabellose Uebergabe
+# (pCloud-Ordner ``/Agent/uebergabe``). Der kabellose Weg hat im Baum gar keine
+# Liste — was er liefert, steht nur in den Buchungen des Uebergabe-Manifests
+# (``STANDARD_UEBERGABE_MANIFEST``); deshalb wird er von dort gelesen und je Weg
+# berichtet, was ausschliesslich dort ankommt. Nur Zahlen und die eigenen
+# Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
 STANDARD_UEBERGABE_LISTEN = ("termux/start-vorbereiten.sh", "start-termux.sh")
 # Diese Liste ist PFLICHT (der gemeinsame Startweg fuer App-Knopf und Widget).
 STANDARD_UEBERGABE_LISTE_PFLICHT = "termux/start-vorbereiten.sh"
@@ -1675,9 +1680,18 @@ def uebergabe_deckung_pruefen(wurzel: str,
     auseinanderlaufen. Geprueft wird:
 
     * je Skript die Namen und die Aufrufstellen — stimmen sie ueberein?,
-    * welche vom Dienst gelesenen Dateien auf KEINER Liste stehen und nicht in
-      ``UEBERGABE_GERAETESEITIG`` begruendet sind (sie kaemen nie ans Geraet),
+    * welche vom Dienst gelesenen Dateien auf KEINEM der beiden Wege ankommen
+      (keine Kabel-Liste, nicht kabellos uebergeben) und nicht in
+      ``UEBERGABE_GERAETESEITIG`` begruendet sind — sie kaeme nie ans Geraet,
+    * **je WEG** (Kabel-Liste gegen kabellose Uebergabe), welche gelesene Datei
+      nur auf EINEM der beiden Wege ankommt,
     * welche uebergebenen Dateien (Liste oder Manifest) KEIN Dienst liest.
+
+    Der kabellose Weg hat im Baum GAR KEINE Liste: was er liefert, ist genau
+    das, was der PC hochgeladen hat — die Namen des Uebergabe-Manifests. Wird
+    dieses Manifest nicht mitgelesen (``uebergebene is None``), bleibt die
+    Weg-Frage ehrlich **ungemessen** (``kabellos``/``nur_kabel``/``nur_kabellos``
+    = ``None``) statt als Nullwert zu erscheinen.
 
     Nur Zahlen und Dateinamen — kein Pfad, kein Inhalt.
     """
@@ -1697,12 +1711,33 @@ def uebergabe_deckung_pruefen(wurzel: str,
         })
         listen_namen |= set(stand["namen"])
     dienst = dienst_dateinamen(os.path.join(wurzel, app_ordner))
-    geraeteseitig = set(dienst) & set(UEBERGABE_GERAETESEITIG)
+    gelesen = set(dienst)
+    geraeteseitig = gelesen & set(UEBERGABE_GERAETESEITIG)
     uebergeben = {k for k in (_kennung(n) for n in (uebergebene or ())) if k}
+    # Zwei Wege, zwei Mengen: die Kabel-Liste (``listen_namen``) und der
+    # kabellose Weg (die Namen im Manifest). Eine vom Dienst gelesene Datei,
+    # die nur auf EINEM Weg steht, kommt auf dem anderen Weg NICHT ans Geraet —
+    # genau der Neben-Befund aus Journal 27 („zwei Wege, zwei Listen"), hier als
+    # dauerhafte, nachzaehlbare Zeile. Bewusst KEINE Luecke: ob ausschliesslich
+    # der Kabel- oder der kabellose Weg benutzt wird, entscheidet Sebastian —
+    # ein Befund waere sonst ein Dauer-Fehlalarm. „Auf keiner Liste\" (also auf
+    # keinem der beiden Wege) bleibt dagegen eine Luecke.
+    kabellos = None if uebergebene is None else uebergeben
+    if kabellos is None:
+        nur_kabel = nur_kabellos = None
+    else:
+        nur_kabel = (gelesen & listen_namen) - kabellos
+        nur_kabellos = (gelesen & kabellos) - listen_namen
+    # „Kommt nie ans Geraet\" heisst: auf KEINEM der beiden Wege — eine Datei,
+    # die kabellos uebergeben wurde, ist nicht „auf keiner Liste\", sie kommt
+    # eben nur ohne Kabel an.
     return {"skripte": skripte, "dienst": dienst, "listen_namen": listen_namen,
             "uebergeben": uebergeben, "geraeteseitig": geraeteseitig,
-            "ohne_liste": set(dienst) - listen_namen - set(UEBERGABE_GERAETESEITIG),
-            "ohne_leser": (listen_namen | uebergeben) - set(dienst)}
+            "kabellos": kabellos, "nur_kabel": nur_kabel,
+            "nur_kabellos": nur_kabellos,
+            "ohne_liste": (gelesen - listen_namen - set(UEBERGABE_GERAETESEITIG)
+                           - (kabellos or set())),
+            "ohne_leser": (listen_namen | uebergeben) - gelesen}
 
 
 def _projekt_wurzel() -> str:
@@ -2554,7 +2589,7 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                    f"den es nicht mehr gibt (Name zeigt ins Leere)")
         zeilen.append("")
 
-    ub_namen: Set[str] = set()
+    ub_namen: Optional[Set[str]] = None
     if uebergabe:
         ub = uebergabe_stand_lesen(basis, uebergabe)
         if not ub.get("fehlt"):
@@ -2618,8 +2653,26 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                       f"{_z(len(dl['listen_namen']))}, geraeteseitig {_z(len(dl['geraeteseitig']))}, "
                       f"ohne Liste {_z(len(dl['ohne_liste']))}")
         if dl["ohne_liste"]:
-            zeilen.append(f"  Auf keiner Liste - kaeme nie ans Geraet "
+            zeilen.append(f"  Auf keinem Weg - kaeme nie ans Geraet "
                           f"({_z(len(dl['ohne_liste']))}): {_namen_kurz(sorted(dl['ohne_liste']))}")
+        # Zwei Wege, zwei Mengen: je Weg sagen, was nur dort ankommt (Zeile,
+        # keine Luecke - welcher Weg benutzt wird, entscheidet Sebastian).
+        if dl["kabellos"] is None:
+            zeilen.append("  Kabelloser Weg nicht gemessen (Uebergabe-Manifest nicht gelesen) - "
+                          "welche gelesene Datei nur ueber das Kabel ankommt, bleibt offen")
+        else:
+            zeilen.append(f"  Kabelloser Weg: {_z(len(dl['kabellos']))} Dateien im Manifest "
+                          f"(Uebergabe-Liste des Kabels: {_z(len(dl['listen_namen']))}); "
+                          f"nur kabelseitig {_z(len(dl['nur_kabel']))}, "
+                          f"nur kabellos {_z(len(dl['nur_kabellos']))}")
+            if dl["nur_kabel"]:
+                zeilen.append(f"  Nur ueber das KABEL ans Geraet - ohne Kabel fehlt sie dem "
+                              f"Dienst ({_z(len(dl['nur_kabel']))}): "
+                              f"{_namen_kurz(sorted(dl['nur_kabel']))}")
+            if dl["nur_kabellos"]:
+                zeilen.append(f"  Nur KABELLOS (pCloud) ans Geraet - mit Kabel fehlt sie dem "
+                              f"Dienst ({_z(len(dl['nur_kabellos']))}): "
+                              f"{_namen_kurz(sorted(dl['nur_kabellos']))}")
         if dl["ohne_leser"]:
             zeilen.append(f"  Uebergeben, aber von keinem Dienst gelesen "
                           f"({_z(len(dl['ohne_leser']))}): {_namen_kurz(sorted(dl['ohne_leser']))}")
@@ -2630,8 +2683,9 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 luecken.append(f"{s['name']}: die {_z(len(s['stellen']))} Aufrufstellen der "
                                f"Uebergabe-Liste stimmen nicht ueberein")
         for name in sorted(dl["ohne_liste"]):
-            luecken.append(f"{name}: der Dienst liest sie, sie steht aber auf keiner "
-                           f"Uebergabe-Liste (kommt nie ans Geraet)")
+            luecken.append(f"{name}: der Dienst liest sie, sie kommt aber auf keinem der "
+                           f"beiden Uebergabe-Wege ans Geraet (keine Kabel-Liste, nicht "
+                           f"kabellos uebergeben)")
         zeilen.append("")
 
     if archiv is not None:
