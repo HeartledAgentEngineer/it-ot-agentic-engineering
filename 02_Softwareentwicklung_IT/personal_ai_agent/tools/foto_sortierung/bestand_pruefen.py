@@ -2362,14 +2362,25 @@ def archiv_memory_lesen(pfad: str) -> Dict[str, Any]:
     return d
 
 
-def archiv_vektordatei_stand(ordner: str) -> Dict[str, Any]:
+def archiv_vektordatei_stand(ordner: str, vektoren: Optional[int] = None) -> Dict[str, Any]:
     """Liegt die Vektordatei des alten Weges unter dem ERWARTETEN Namen?
 
-    Der alte Weg oeffnet die Vektoren ueber einen festen Dateinamen. Liegt die
-    Datei nur unter einem abweichenden Namen daneben (z. B. ein Git-Konflikt-
-    Rest), findet der alte Weg seine Vektoren nicht — die Bedeutungssuche
-    schweigt dann still. Gemeldet wird nur: da / fehlt, und wie viele Dateien
-    mit abweichendem Namen daneben liegen (kein Pfad, kein Dateiname).
+    Der alte Weg oeffnet die Vektoren ueber einen festen Dateinamen (und rechnet
+    mit 1.024 Werten je Vektor). Liegt die Datei nur unter einem abweichenden
+    Namen daneben (z. B. ein Konflikt-Rest der Ablage), findet der alte Weg
+    seine Vektoren nicht — die Bedeutungssuche schweigt dann still.
+
+    **Der Name ist ein Hinweis, die Groesse ist der Beleg** (dieselbe Trennung
+    wie bei den fehlenden Fotos, Journal 36): passt die Groesse einer daneben
+    liegenden Datei genau zur Textschicht (Groesse = Vektoren x Werte je Vektor
+    x 4 Byte), ist sie kein beliebiger Rest, sondern die Vektordatei unter
+    falschem Namen — dann ist der Ausfall eine Umbenennung, keine fehlende Datei.
+    Ohne die Zahl der Vektoren (`vektoren=None`, Datei nicht lesbar) wird das
+    NICHT behauptet: dann bleibt es bei der reinen Zaehlung (`geprueft: False`).
+
+    Gemeldet werden nur: da / fehlt, wie viele Dateien mit abweichendem Namen
+    daneben liegen, wie viele davon passen und mit wie vielen Werten je Vektor —
+    kein Pfad, kein Dateiname, kein Inhalt.
     """
     if not os.path.isdir(ordner):
         return {"ordner_fehlt": True}
@@ -2377,10 +2388,26 @@ def archiv_vektordatei_stand(ordner: str) -> Dict[str, Any]:
         return {"da": True}
     stamm = os.path.basename(ARCHIV_VEKTORDATEI).rsplit(".", 1)[0]
     try:
-        andere = [n for n in os.listdir(ordner) if stamm in n and n.endswith(".f32")]
+        andere = sorted(n for n in os.listdir(ordner)
+                        if stamm in n and n.endswith(".f32"))
     except OSError:
         andere = []
-    return {"da": False, "andere": len(andere)}
+    passende: List[int] = []
+    if vektoren:
+        for n in andere:
+            try:
+                groesse = os.path.getsize(os.path.join(ordner, n))
+            except OSError:
+                continue
+            if groesse <= 0 or groesse % vektoren:
+                continue                     # nicht durch die Zahl der Vektoren teilbar
+            werte = groesse // vektoren
+            if werte % 4:                    # float32 = 4 Byte je Wert
+                continue
+            passende.append(werte // 4)
+    return {"da": False, "andere": len(andere),
+            "geprueft": bool(vektoren), "passende": len(passende),
+            "werte_je_vektor": sorted(set(passende))}
 
 
 def _archiv_kopf(meta: Dict[str, str]) -> str:
@@ -3277,7 +3304,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                     heute=archiv_heute)
             am = archiv_memory_lesen(os.path.join(archiv, ARCHIV_MEMORY_DB))
             av = archiv_vektordatei_stand(
-                os.path.join(archiv, os.path.dirname(ARCHIV_VEKTORDATEI)))
+                os.path.join(archiv, os.path.dirname(ARCHIV_VEKTORDATEI)),
+                vektoren=am.get("chunks_mit_vektor"))
             n_roh = os.path.basename(ARCHIV_MESSAGES)
             n_index = os.path.basename(ARCHIV_INDEX_DB)
             n_memory = os.path.basename(ARCHIV_MEMORY_DB)
@@ -3384,9 +3412,23 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 if av.get("da"):
                     zeilen.append(f"  Vektordatei des Rueckfallwegs ({n_vektor}): vorhanden")
                 else:
-                    zeilen.append(f"  Vektordatei des Rueckfallwegs ({n_vektor}): fehlt"
-                                  + (f" ({_z(av.get('andere', 0))} Datei(en) mit abweichendem "
-                                     f"Namen daneben)" if av.get("andere") else ""))
+                    zusatz = ""
+                    if av.get("andere"):
+                        zusatz = (f" ({_z(av['andere'])} Datei(en) mit abweichendem Namen "
+                                  f"daneben")
+                        if av.get("geprueft"):
+                            if av.get("passende"):
+                                werte = "/".join(_z(w) for w in av.get("werte_je_vektor") or [])
+                                zusatz += (f", davon {_z(av['passende'])} passend zur Textschicht "
+                                           f"({_z(am.get('chunks_mit_vektor', 0))} Vektoren zu je "
+                                           f"{werte} Werten) - nur der NAME weicht ab, die "
+                                           f"Bedeutungssuche des Rueckfallwegs findet sie so nicht")
+                            else:
+                                zusatz += (f", keine passt zur Textschicht "
+                                           f"({_z(am.get('chunks_mit_vektor', 0))} Vektoren) - "
+                                           f"es ist keine Vektordatei dieses Weges")
+                        zusatz += ")"
+                    zeilen.append(f"  Vektordatei des Rueckfallwegs ({n_vektor}): fehlt" + zusatz)
         zeilen.append("")
 
     if bild_index:

@@ -1691,6 +1691,54 @@ def test_archiv_leser_werfen_nie(tmp_path):
     assert bp.archiv_vektordatei_stand(str(tmp_path / "gibtsnicht"))["ordner_fehlt"] is True
 
 
+def test_nachweis_prueft_ob_die_neben_datei_zur_textschicht_passt(tmp_path):
+    """Der Name ist ein Hinweis, die Groesse ist der Beleg (wie bei Journal 36).
+
+    Passt die daneben liegende Datei genau zur Textschicht (3 Vektoren x 1.024
+    Werte x 4 Byte), ist der Ausfall eine UMBENENNUNG, keine fehlende Datei —
+    und genau das steht als Zahl im Bericht: kein Dateiname, kein Pfad.
+    """
+    _bestand(tmp_path)
+    archiv = _mini_archiv(tmp_path)          # nennt die Datei absichtlich anders
+    (archiv / "db" / "memory.vektoren [conflicted].f32").write_bytes(b"\x00" * (3 * 1024 * 4))
+    av = bp.archiv_vektordatei_stand(str(archiv / "db"), vektoren=3)
+    assert av["andere"] == 1 and av["passende"] == 1 and av["werte_je_vektor"] == [1024]
+    assert av["geprueft"] is True
+    zeilen, _ = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    text = "\n".join(zeilen)
+    assert ("Vektordatei des Rueckfallwegs (memory.vektoren.f32): fehlt (1 Datei(en) mit "
+            "abweichendem Namen daneben, davon 1 passend zur Textschicht (3 Vektoren zu je "
+            "1.024 Werten) - nur der NAME weicht ab, die Bedeutungssuche des Rueckfallwegs "
+            "findet sie so nicht)") in text
+    assert "conflicted" not in text and str(tmp_path) not in text
+
+
+def test_nachweis_keine_passende_neben_datei_ist_kein_beleg(tmp_path):
+    """Eine Datei mit abweichendem Namen, die NICHT passt, wird als solche benannt."""
+    _bestand(tmp_path)
+    archiv = _mini_archiv(tmp_path)          # 16 Byte passen zu 3 Vektoren nicht
+    zeilen, _ = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    text = "\n".join(zeilen)
+    assert ("1 Datei(en) mit abweichendem Namen daneben, keine passt zur Textschicht "
+            "(3 Vektoren) - es ist keine Vektordatei dieses Weges)") in text
+    assert "passend zur Textschicht" not in text
+
+
+def test_nachweis_ohne_textschicht_behauptet_keine_passende_datei(tmp_path):
+    """Ohne die Zahl der Vektoren bleibt es bei der reinen Zaehlung — nichts geraten."""
+    _bestand(tmp_path)
+    archiv = _mini_archiv(tmp_path)
+    (archiv / "db" / "memory.vektoren [conflicted].f32").write_bytes(b"\x00" * (3 * 1024 * 4))
+    av = bp.archiv_vektordatei_stand(str(archiv / "db"))     # ohne Zahl der Vektoren
+    assert av["geprueft"] is False and av["passende"] == 0 and av["andere"] == 1
+    os.remove(str(archiv / "db" / "memory.db"))
+    zeilen, luecken = bp.pruefen(str(tmp_path), archiv=str(archiv))
+    text = "\n".join(zeilen)
+    assert "1 Datei(en) mit abweichendem Namen daneben)" in text
+    assert "passend zur Textschicht" not in text
+    assert "memory.db fehlt (Rueckfallweg der Chat-Suche ohne Text)" in luecken
+
+
 # ── 12. Uebergabe-LISTEN: was geht ueberhaupt ans Geraet ─────────────────────
 
 def _mini_projekt(tmp_path, *,
