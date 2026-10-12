@@ -1127,9 +1127,17 @@ def personen_lesen(basis: str, namen_datei: str = STANDARD_PERSONEN) -> Dict[str
     Kennungen, zu denen es in ``personen_beispiele.json`` keine Gruppe gibt (ein
     Name ohne Gesichter), und ``personen`` zaehlt VERSCHIEDENE Namen (dieselbe
     Person an mehreren Kennungen ist eine Person).
+
+    Die verwaisten Kennungen werden GENAU benannt statt nur gezaehlt: traegt
+    derselbe Name an einer ANDEREN Kennung eine lebende Gruppe
+    (``ohne_gruppe_doppelt`` — ein verwaister Eintrag, die Person ist nicht
+    verloren), oder kommt der Name sonst nirgends vor (``ohne_gruppe_ins_leere``
+    — der Name zeigt ins Leere). Ohne diese Trennung sieht ein harmloser
+    Doppel-Eintrag wie eine verlorene Person aus.
     """
     e: Dict[str, Any] = {"fehlt": True, "kaputt": False, "kennungen": 0, "personen": 0,
                          "ohne_namen": 0, "kennungen_ohne_gruppe": 0,
+                         "ohne_gruppe_doppelt": 0, "ohne_gruppe_ins_leere": 0,
                          "gleich": 0, "verschieden": 0, "ausgeschlossen": 0,
                          "profile": 0, "profile_mit_beziehung": 0, "profile_mit_notiz": 0,
                          "notizen": 0, "profile_mit_kontakt": 0,
@@ -1162,14 +1170,31 @@ def personen_lesen(basis: str, namen_datei: str = STANDARD_PERSONEN) -> Dict[str
     # Kennungen ohne Gruppe: der Name haengt an keiner Gruppe (kein Gesicht).
     beispiele = _quiz_pfad(basis, "personen_beispiele.json")
     gruppen_kennungen: Set[str] = set()
+    namen_mit_gruppe: Set[str] = set()
     if beispiele:
         bdaten, _ = _json_lesen(beispiele)
         for gruppe in (bdaten or {}).get("gruppen") or []:
-            if isinstance(gruppe, dict) and _kennung(gruppe.get("kennung")):
+            if not isinstance(gruppe, dict):
+                continue
+            if _kennung(gruppe.get("kennung")):
                 gruppen_kennungen.add(_kennung(gruppe.get("kennung")))
+            sauber = _kennung(gruppe.get("name"))
+            if sauber:
+                namen_mit_gruppe.add(sauber.casefold())
     if gruppen_kennungen:
-        e["kennungen_ohne_gruppe"] = sum(1 for k in namen if _kennung(k)
-                                         and _kennung(k) not in gruppen_kennungen)
+        verwaist = [k for k in namen if _kennung(k) and _kennung(k) not in gruppen_kennungen]
+        e["kennungen_ohne_gruppe"] = len(verwaist)
+        # Genau benennen statt nur zaehlen: derselbe Name an einer ANDEREN
+        # Kennung mit lebender Gruppe = verwaister (doppelter) Eintrag; sonst
+        # zeigt der Name ins Leere. Eine Kennung ohne Namen zaehlt dabei zu
+        # „ins Leere\" — an ihr haengt nirgends ein Gesicht.
+        for kennung in verwaist:
+            wert = namen.get(kennung)
+            sauber = wert.strip().casefold() if isinstance(wert, str) else ""
+            if sauber and sauber in namen_mit_gruppe:
+                e["ohne_gruppe_doppelt"] += 1
+            else:
+                e["ohne_gruppe_ins_leere"] += 1
 
     vorgaben_pfad = _quiz_pfad(basis, PERSONEN_VORGABEN)
     if not vorgaben_pfad:
@@ -2473,7 +2498,9 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             zeilen.append(f"Personen (Quiz): {personen}: {_z(pe['kennungen'])} Kennungen mit Namen "
                           f"= {_z(pe['personen'])} Personen"
                           + (f", {_z(pe['ohne_namen'])} ohne Namen" if pe["ohne_namen"] else "")
-                          + (f"; {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe"
+                          + (f"; {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe "
+                             f"(davon {_z(pe['ohne_gruppe_doppelt'])} mit demselben Namen an einer "
+                             f"Gruppe, {_z(pe['ohne_gruppe_ins_leere'])} ins Leere)"
                              if pe["kennungen_ohne_gruppe"] else ""))
             zeilen.append(f"  Vorgaben: gleich {_z(pe['gleich'])}, verschieden {_z(pe['verschieden'])}, "
                           f"ausgeschlossen {_z(pe['ausgeschlossen'])}")
@@ -2489,7 +2516,9 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                 zeilen.append(f"  Noch nicht angelegt: {', '.join(pe['fehlende'])}")
             if pe["kennungen_ohne_gruppe"]:
                 luecken.append(f"{personen}: {_z(pe['kennungen_ohne_gruppe'])} Kennungen ohne Gruppe "
-                               f"(Namen ohne Gesichter)")
+                               f"(Namen ohne Gesichter) - {_z(pe['ohne_gruppe_doppelt'])} davon tragen "
+                               f"denselben Namen an einer lebenden Gruppe (verwaiste Eintraege), "
+                               f"{_z(pe['ohne_gruppe_ins_leere'])} zeigen ins Leere")
         zeilen.append("")
 
     if app_uebersicht or app_dateien:

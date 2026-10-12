@@ -973,7 +973,10 @@ def test_nachweis_zeigt_keine_namen_nummern_geburtstage(tmp_path):
                      "0176", "1990-01-01"):
         assert verboten not in text
     # Der Name ohne Gruppe (Person_9000) ist ein echter Befund, kein stiller Wert.
-    assert "personen_bestaetigt.json: 1 Kennungen ohne Gruppe (Namen ohne Gesichter)" in luecken
+    verwaist = [t for t in luecken if "Kennungen ohne Gruppe" in t]
+    assert verwaist == ["personen_bestaetigt.json: 1 Kennungen ohne Gruppe (Namen ohne "
+                        "Gesichter) - 0 davon tragen denselben Namen an einer lebenden "
+                        "Gruppe (verwaiste Eintraege), 1 zeigen ins Leere"]
     # Und eine leere Namen-Datei meldet keine erfundenen Personen.
     (tmp_path / "personen_gruppen" / "personen_bestaetigt.json").write_text(
         json.dumps({"bestaetigt": {}}), encoding="utf-8")
@@ -1013,6 +1016,67 @@ def test_personen_lesen_wirft_bei_kaputter_datei_nicht(tmp_path):
     assert e3["kennungen"] == 3 and e3["personen"] == 1 and e3["ohne_namen"] == 1
     assert e3["kontakte"] == 0                      # kaputte Liste = 0, kein Wurf
     assert e3["fehlt"] is False                     # die Namen sind ja da
+
+
+# Der Befund aus Journal 23 des Nachtlaufs (2 Kennungen ohne Gruppe) war nur EINE Zahl.
+# „Kennung ohne Gruppe\" kann zwei ganz verschiedene Dinge heissen: einen
+# verwaisten Doppel-Eintrag (derselbe Name traegt an einer anderen Kennung eine
+# lebende Gruppe — die Person ist NICHT verloren) oder einen Namen, der ins
+# Leere zeigt (nirgends eine Gruppe). Ohne diese Trennung sieht der harmlose
+# Doppel-Eintrag wie eine verlorene Person aus.
+
+def _personen_verwaist(tmp_path, namen, gruppen):
+    ordner = tmp_path / "personen_gruppen"
+    ordner.mkdir(exist_ok=True)
+    (ordner / "personen_bestaetigt.json").write_text(
+        json.dumps({"bestaetigt": namen}), encoding="utf-8")
+    (ordner / "personen_beispiele.json").write_text(
+        json.dumps({"gruppen": gruppen}), encoding="utf-8")
+
+
+def test_nachweis_trennt_verwaiste_namen_von_ins_leere(tmp_path):
+    """Der Nachweis benennt die zwei Arten verwaister Kennungen, statt zu zaehlen."""
+    _personen_verwaist(
+        tmp_path,
+        {"P_1": "NAME_A", "P_2": "NAME_A",       # beide mit Gruppe
+         "P_9": "NAME_A",                        # verwaist, Name lebt an P_1/P_2
+         "P_8": "NAME_B"},                       # verwaist, Name nirgends
+        [{"kennung": "P_1", "name": "NAME_A"}, {"kennung": "P_2", "name": "NAME_A"}])
+    e = bp.personen_lesen(str(tmp_path))
+    assert e["kennungen"] == 4 and e["personen"] == 2
+    assert e["kennungen_ohne_gruppe"] == 2
+    assert e["ohne_gruppe_doppelt"] == 1 and e["ohne_gruppe_ins_leere"] == 1
+
+    zeilen, luecken = bp.pruefen(str(tmp_path))
+    text = "\n".join(zeilen)
+    assert ("; 2 Kennungen ohne Gruppe (davon 1 mit demselben Namen an einer Gruppe, "
+            "1 ins Leere)") in text
+    luecke = [t for t in luecken if "Kennungen ohne Gruppe" in t][0]
+    assert "(Namen ohne Gesichter) - 1 davon tragen denselben Namen an einer lebenden " \
+           "Gruppe (verwaiste Eintraege), 1 zeigen ins Leere" in luecke
+    # Nur Zahlen — kein Personenname, auch nicht in der neuen Zeile.
+    assert "NAME_A" not in text and "NAME_B" not in text and "NAME_A" not in luecke
+
+
+def test_nachweis_verwaiste_ohne_gruppendatei_und_ohne_namen(tmp_path):
+    """Ohne Gruppendatei bleibt es bei 0/0 (kein geratener Befund); Namenloses zaehlt ins Leere."""
+    _personen_verwaist(tmp_path, {"P_1": "NAME_A", "P_8": "NAME_B"}, [])
+    e = bp.personen_lesen(str(tmp_path))
+    assert e["kennungen_ohne_gruppe"] == 0        # ohne Gruppen gibt es nichts zu vergleichen
+    assert e["ohne_gruppe_doppelt"] == 0 and e["ohne_gruppe_ins_leere"] == 0
+    assert "Kennungen ohne Gruppe" not in "\n".join(bp.pruefen(str(tmp_path))[0])
+
+    # Eine verwaiste Kennung OHNE Namen zaehlt zu „ins Leere\" — an ihr haengt kein Gesicht.
+    _personen_verwaist(tmp_path, {"P_1": "NAME_A", "P_8": ""},
+                       [{"kennung": "P_1", "name": "NAME_A"}])
+    f = bp.personen_lesen(str(tmp_path))
+    assert f["kennungen_ohne_gruppe"] == 1 and f["ohne_namen"] == 1
+    assert f["ohne_gruppe_doppelt"] == 0 and f["ohne_gruppe_ins_leere"] == 1
+    # Gross-/Kleinschreibung darf den Doppel-Eintrag nicht verstecken.
+    _personen_verwaist(tmp_path, {"P_1": "NAME_A", "P_9": "name_a"},
+                       [{"kennung": "P_1", "name": "NAME_A"}])
+    g = bp.personen_lesen(str(tmp_path))
+    assert g["ohne_gruppe_doppelt"] == 1 and g["ohne_gruppe_ins_leere"] == 0
 
 
 # ── Fotos-Uebersicht fuer die App (N11/N13a) im Nachweis ─────────────────────
