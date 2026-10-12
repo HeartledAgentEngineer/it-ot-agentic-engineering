@@ -13,6 +13,7 @@ import contextlib
 import io
 import json
 import os
+import queue
 import sys
 import time
 import urllib.error
@@ -1952,6 +1953,81 @@ def _ist_auftragstext(text):
     return 'transkribiere diese' in text.strip()[:120].lower()
 
 
+# ── Zweitanfrage bei hängender Transkription (12.10.2026) ────────────────────
+# Sebastian: „Type Free ist ganz, ganz langsam geworden." Die Protokolle zeigen:
+# mai antwortet bis 07.10. im Median in 1,3–1,8 s, am 12.10. in 12,5 s, einzelne
+# Anfragen hingen 56, 90, 181 s — unabhängig von der Diktatlänge (24 s Audio →
+# 34 s, 145 s Audio → 12 s). Eine hängende Anfrage ist Glückssache beim Server;
+# eine zweite, gleiche Anfrage landet meist woanders. Ohne Zeitlimit wartete
+# typeFREE bis zur Voreinstellung des SDK (10 min) und rückte erst dann weiter.
+STT_ZWEIT_NACH = 4.0             # s ohne Antwort → zweite Anfrage parallel
+STT_ZWEIT_JE_AUDIOSEKUNDE = 0.03  # langes Audio braucht etwas länger (140 s → 3,8 s)
+STT_HOECHSTDAUER = 90.0          # s, danach nächstes Glied der Kette
+
+
+def zweitanfrage_nach(audio_sekunden):
+    """Wartezeit, nach der die zweite, gleiche Anfrage losgeht."""
+    return STT_ZWEIT_NACH + STT_ZWEIT_JE_AUDIOSEKUNDE * max(0.0, audio_sekunden)
+
+
+def _stt_anfrage(client, modell, puffer, vokabular, zweit_nach=None,
+                 hoechstdauer=None):
+    """Transkription über den STT-Endpunkt, mit Zweitanfrage, wenn sie hängt.
+
+    Kommt nach `zweit_nach` Sekunden keine Antwort, geht dieselbe Anfrage ein
+    zweites Mal los; die erste brauchbare Antwort gewinnt, die andere läuft ins
+    Leere. Mehrkosten nur im Langsam-Fall (eine Anfrage mehr, ~0,05 ct). Nach
+    `hoechstdauer` gibt es einen TimeoutError — die Kette rückt dann weiter.
+    """
+    puffer.seek(0)
+    daten = puffer.read()
+    dateiname = getattr(puffer, 'name', None) or 'audio.wav'
+    hoechstdauer = STT_HOECHSTDAUER if hoechstdauer is None else hoechstdauer
+    if zweit_nach is None:
+        zweit_nach = zweitanfrage_nach(len(daten) / (SAMPLE_RATE * 2))
+    begrenzt = client.with_options(timeout=hoechstdauer, max_retries=0)
+    ergebnisse = queue.Queue()
+
+    def anfrage(nummer):
+        datei = io.BytesIO(daten)
+        datei.name = dateiname
+        try:
+            antwort = begrenzt.audio.transcriptions.create(
+                model=modell, file=datei, language='de', prompt=vokabular)
+            ergebnisse.put((nummer, (antwort.text or '').strip(), None))
+        except Exception as e:
+            ergebnisse.put((nummer, None, e))
+
+    def starten(nummer):
+        threading.Thread(target=anfrage, args=(nummer,), daemon=True,
+                         name=f'stt-{nummer}').start()
+
+    begonnen = time.monotonic()
+    starten(1)
+    laufend, zweite, erster_fehler = 1, False, None
+    while True:
+        frist = hoechstdauer if zweite else min(zweit_nach, hoechstdauer)
+        try:
+            nummer, text, fehler = ergebnisse.get(
+                timeout=max(0.0, frist - (time.monotonic() - begonnen)))
+        except queue.Empty:
+            if zweite or zweit_nach >= hoechstdauer:
+                raise TimeoutError(f'keine Antwort nach {hoechstdauer:.0f} s') from None
+            log.warning('%s antwortet nach %.1f s nicht — zweite Anfrage parallel',
+                        modell, zweit_nach)
+            starten(2)
+            laufend, zweite = laufend + 1, True
+            continue
+        laufend -= 1
+        if fehler is None:
+            if nummer == 2:
+                log.info('Die zweite Anfrage war schneller')
+            return text
+        erster_fehler = erster_fehler or fehler
+        if laufend == 0:
+            raise erster_fehler
+
+
 def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
                        fach_vokabular=FACH_VOKABULAR, leer_ist_stille=False):
     """Eine Anbieterkette der Reihe nach versuchen; gibt `(text, anbieter)` zurück.
@@ -1988,10 +2064,7 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
                 text = _transkribiere_scribe(schluessel, modell, puffer,
                                              fach_vokabular, basis_url)
             else:
-                puffer.seek(0)
-                antwort = client.audio.transcriptions.create(
-                    model=modell, file=puffer, language='de', prompt=vokabular)
-                text = (antwort.text or '').strip()
+                text = _stt_anfrage(client, modell, puffer, vokabular)
             if _ist_auftragstext(text):
                 raise ValueError('Antwort war der Auftragstext selbst')
             if not text and leer_ist_stille:

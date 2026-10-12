@@ -27,7 +27,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | App-Name bei OpenRouter | `kopfzeilen_fuer` hängt an jeden OpenRouter-Client (`baue_client`) `HTTP-Referer` (Repo-Adresse, `APP_ADRESSE`), `X-OpenRouter-Title`/`X-Title` = `typeFREE` und `X-OpenRouter-App-Visibility: hidden`. Anlass (06.10.2026): Im Activity-Dashboard stand unter „Top Apps" nur „Unknown". `hidden` hält die App aus den öffentlichen Ranglisten — **wirkt laut OpenRouter-Doku nur bei der allerersten Anfrage**, die die App anlegt; danach nicht mehr änderbar. Groq/OpenAI bekommen keine Kopfzeilen |
 | Konfiguration | `windows/config.json` — gewählter Hotkey (`hotkey_index`) und Ausgabe-Wahl (`live`: true = live satzweise) |
 | Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — **259 Prüfungen** mit pytest in 21 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Tests | `windows/tests/` — **267 Prüfungen** mit pytest in 22 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Aussteuerung | `aussteuerung(daten)` + `AUSSTEUERUNG_MIN_RMS` (0,02). Jede Aufnahme schreibt „Aussteuerung: Spitze … · RMS …" ins Log; darunter warnt typeFREE. Referenzmessung: fehlerfreies deutsches Audio hatte RMS 0,088–0,095, leise aber fehlerfrei 0,062 |
 | Sprachmessung | `windows/sprachmessung.py` — Wortfehlerquote gegen bekannten Text (`wortfehlerquote`, reine Funktion; Test in `tests/test_sprachmessung.py`), optional in Happen mit Kontext. Referenzaudio samt Wortlaut in `windows/referenzaudio/`. Werkzeuge bauen ihre Clients selbst — `transkriptions_clients()` liefert außerhalb der App nur `None`, weil `main()` sie setzt |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
@@ -269,6 +269,17 @@ Deshalb zwei Sicherungen im Code:
    im Log und in der Kostenzeile („(groq)"). Auf `False` setzen, wenn strikt nur der
    gewählte Weg laufen darf. Bei eigener `kette` (Stimmvergleich, Tests) gibt es
    **keinen** Rückfall.
+3. **Zweitanfrage** (12.10.2026, `_stt_anfrage`) — gilt für alle Transkriptions-
+   Endpunkt-Wege (mai & Co.). Antwortet der Dienst nach `zweitanfrage_nach()`
+   (4 s + 0,03 s je Audiosekunde, bei 70 s also 6,1 s) nicht, geht dieselbe Anfrage
+   parallel ein zweites Mal los; die erste Antwort gewinnt. Nach `STT_HOECHSTDAUER`
+   (90 s) rückt die Kette weiter — vorher wartete das SDK bis zu 10 min und
+   wiederholte still. Anlass: mai antwortete bis 07.10. im Median in 1,3–1,8 s, am
+   12.10. in 12,5 s, einzelne Anfragen hingen 56/90/181 s, unabhängig von der
+   Diktatlänge. Echter Lauf mit 70 s Referenzaudio: viermal Zweitanfrage nötig,
+   einmal war sie schneller; bei Überlastung des ganzen Dienstes hilft sie nur
+   begrenzt (22 s / 29 s trotz zweier Anfragen). Mehrkosten nur im Langsam-Fall,
+   eine Anfrage mehr (~0,05 ct).
 
 **Entschärft am 25.09.2026 abends:** In der `eu`-Kette stehen die beiden
 Transkriptions-Endpunkt-Wege jetzt **vorn** (`mai-transcribe-1.5`, dann

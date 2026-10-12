@@ -61,6 +61,10 @@ class TranskriptionsAttrappe:
         self.audio = types.SimpleNamespace(
             transcriptions=types.SimpleNamespace(create=create))
 
+    def with_options(self, **kwargs):
+        """Zeitlimit der Zweitanfrage (12.10.2026) — die Attrappe bleibt dieselbe."""
+        return self
+
 
 class ChatAttrappe:
     """Nachbau des OpenRouter-Clients für den Audio-Chat-Weg (Voxtral)."""
