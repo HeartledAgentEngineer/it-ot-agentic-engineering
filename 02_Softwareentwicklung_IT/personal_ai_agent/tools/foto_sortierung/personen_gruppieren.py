@@ -80,6 +80,7 @@ import datetime
 import importlib.util
 import json
 import os
+import re
 import shutil
 import time
 
@@ -162,16 +163,25 @@ def bestaetigt_lesen(pfad) -> dict:
             if isinstance(v, str) and v.strip()}
 
 
-def vorgaben_lesen(pfad) -> dict:
-    """``{"gleich": [[a, b]], "verschieden": [[a, b]], "ausgeschlossen": [...]}`` lesen.
+def _name_normalisieren(name):
+    """Wie das Quiz: Steuerzeichen entfernen, Leerraum falten, leer/zu lang verwerfen."""
+    if not isinstance(name, str):
+        return None
+    sauber = re.sub(r"[\x00-\x1f\x7f]", "", name)
+    sauber = re.sub(r"\s+", " ", sauber).strip()
+    return sauber if sauber and len(sauber) <= 60 else None
 
-    ``gleich``/``verschieden`` -> Mengen von Kennungs-Paaren. ``ausgeschlossen``
-    (02.10.2026, Quiz am Handy: „dieses Gesicht ist nicht diese Person") ->
-    Menge von ``(kennung, bild_id, index)``: das Gesicht kommt nie wieder in
-    den Vorschlag mit dieser Kennung.
+
+def vorgaben_lesen(pfad) -> dict:
+    """Gleich/Verschieden, Ausschluesse und Quiz-Einzelzuordnungen lesen.
+
+    ``zugeordnet`` ist nach ``(bild_id, index)`` indiziert. Ein gueltiger
+    spaeterer Quiz-Eintrag gewinnt; ungueltige Eintraege ueberschreiben keinen
+    frueheren gueltigen Zielnamen. ``kennung`` bleibt dabei Herkunft.
     """
     daten = _json_lesen(pfad, {})
-    ergebnis = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set()}
+    ergebnis = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
+                "zugeordnet": {}}
     if not isinstance(daten, dict):
         return ergebnis
     for e in daten.get("ausgeschlossen") or []:
@@ -181,6 +191,18 @@ def vorgaben_lesen(pfad) -> dict:
                 ergebnis["ausgeschlossen"].add((e["kennung"], str(e["bild_id"]), int(e.get("index") or 0)))
             except (TypeError, ValueError):
                 continue
+    for e in daten.get("zugeordnet") or []:
+        if not isinstance(e, dict):
+            continue
+        bild_id, index = e.get("bild_id"), e.get("index")
+        quelle = e.get("kennung")
+        name = _name_normalisieren(e.get("name"))
+        if (not isinstance(bild_id, str) or not bild_id.isdigit()
+                or type(index) is not int or index < 0
+                or not isinstance(quelle, str) or not quelle.strip() or name is None):
+            continue
+        ergebnis["zugeordnet"][(bild_id, index)] = {
+            "name": name, "kennung": quelle.strip()}
     for art in ("gleich", "verschieden"):
         for paar in daten.get(art) or []:
             if (isinstance(paar, (list, tuple)) and len(paar) == 2
@@ -188,6 +210,44 @@ def vorgaben_lesen(pfad) -> dict:
                     and paar[0] != paar[1]):
                 ergebnis[art].add(tuple(sorted(paar)))
     return ergebnis
+
+
+def _einzelzuordnungen_auflosen(vorgaben, bestaetigt) -> dict:
+    """Gespeicherte Zielnamen auf bestaetigte Kennungen aufloesen.
+
+    ``kennung`` im Quiz-Eintrag bleibt Herkunft; nur ``name`` bestimmt das Ziel.
+    Bei mehreren gleichnamigen Kennungen gewinnt die bisherige Herkunft, wenn
+    sie bereits dieselbe bestaetigte Person ist, sonst die kleinste Kennung.
+    """
+    namen_je_faltung: dict[str, list[tuple[str, str]]] = {}
+    for kennung, rohname in dict(bestaetigt or {}).items():
+        name = _name_normalisieren(rohname)
+        if name:
+            namen_je_faltung.setdefault(name.casefold(), []).append((str(kennung), name))
+
+    erg: dict[tuple[str, int], dict] = {}
+    zugeordnet = (vorgaben or {}).get("zugeordnet") or {}
+    ausgeschlossen = (vorgaben or {}).get("ausgeschlossen") or set()
+    for schluessel, eintrag in zugeordnet.items():
+        if (not isinstance(schluessel, tuple) or len(schluessel) != 2
+                or not isinstance(schluessel[0], str) or type(schluessel[1]) is not int
+                or schluessel[1] < 0 or not isinstance(eintrag, dict)):
+            continue
+        name = _name_normalisieren(eintrag.get("name"))
+        quelle = eintrag.get("kennung")
+        if name is None or not isinstance(quelle, str) or not quelle.strip():
+            continue
+        kandidaten = namen_je_faltung.get(name.casefold(), [])
+        if not kandidaten:
+            raise PersonenFehler("Eine feste Zuordnung hat kein bestaetigtes Ziel.")
+        kandidaten.sort(key=lambda eintrag: eintrag[0])
+        treffer = next((e for e in kandidaten if e[0] == quelle.strip()), kandidaten[0])
+        zielkennung, zielname = treffer
+        if (zielkennung, schluessel[0], schluessel[1]) in ausgeschlossen:
+            raise PersonenFehler("Eine feste Zuordnung widerspricht einer Ausschlussregel.")
+        erg[schluessel] = {"kennung": zielkennung, "name": zielname,
+                           "herkunft": quelle.strip()}
+    return erg
 
 
 def gesichter_lesen(pfade, katalog=None, min_score=None) -> dict:
@@ -503,7 +563,8 @@ def zwillings_kandidaten(vektoren, bild_ids, label, k,
             for w, a, b in _paare_ueber(mitte, schwelle)]
 
 
-def kennungen_vergeben(mitte, altbestand, schwelle: float = _cluster.ALT_SCHWELLE):
+def kennungen_vergeben(mitte, altbestand, schwelle: float = _cluster.ALT_SCHWELLE,
+                       reserviert=None):
     """Stabile Kennungen: Gruppen (in Reihenfolge) auf frühere Mittelpunkte abbilden.
 
     Wie ``personen_cluster.gruppen_kennungen``, aber vektorisiert: jede fruehere
@@ -513,6 +574,7 @@ def kennungen_vergeben(mitte, altbestand, schwelle: float = _cluster.ALT_SCHWELL
     """
     alt = _cluster.altbestand_lesen(altbestand)
     hoechste = _cluster._naechste_nummer(sorted(e["kennung"] for e in alt))
+    reserviert = set(reserviert or ())
     ergebnis = []
     if alt and len(mitte):
         a = einheitsvektoren(np.asarray([e["mittelpunkt"] for e in alt], dtype=np.float32))
@@ -531,8 +593,11 @@ def kennungen_vergeben(mitte, altbestand, schwelle: float = _cluster.ALT_SCHWELL
                     benutzt.add(j)
                 break
         if kennung is None:
-            hoechste += 1
-            kennung = _cluster.KENNUNG_MUSTER % hoechste
+            while True:
+                hoechste += 1
+                kennung = _cluster.KENNUNG_MUSTER % hoechste
+                if kennung not in reserviert:
+                    break
         ergebnis.append({"kennung": kennung, "neu": neu, "treffer": treffer})
     return ergebnis
 
@@ -576,82 +641,126 @@ def lauf_rechnen(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     bild_ids = [g["bild_id"] for g in gesichter]
     q = np.array([g["anteil"] * g["score"] for g in gesichter], dtype=float)
     namen = dict(bestaetigt or {})
-    vorg = vorgaben or {"gleich": set(), "verschieden": set()}
+    vorg = vorgaben or {"gleich": set(), "verschieden": set(), "ausgeschlossen": set()}
+    fest = _einzelzuordnungen_auflosen(vorg, namen)
+    stellen_je_schluessel: dict[tuple[str, int], list[int]] = {}
+    for i, gesicht in enumerate(gesichter):
+        stellen_je_schluessel.setdefault(_schluessel(gesicht), []).append(i)
+    fehlend = set(fest) - set(stellen_je_schluessel)
+    if fehlend:
+        raise PersonenFehler(f"Feste Zuordnungen ohne Beleg: {len(fehlend)}.")
+    reserviert = {eintrag["kennung"] for eintrag in fest.values()}
 
-    def vorab(mitte):
+    def vorab(mittelpunkte):
         return [e["kennung"] if not e["neu"] else None
-                for e in kennungen_vergeben(mitte, altbestand)] if altbestand else [None] * len(mitte)
+                for e in kennungen_vergeben(mittelpunkte, altbestand,
+                                            reserviert=reserviert)] if altbestand else [None] * len(mittelpunkte)
 
     def verschieden(a, b):
-        if tuple(sorted((a, b))) in vorg["verschieden"]:
+        if tuple(sorted((a, b))) in vorg.get("verschieden", set()):
             return True
         return bool(namen.get(a) and namen.get(b) and namen[a] != namen[b])
 
     start = time.monotonic()
     erg = gruppieren(v, bild_ids, q, zuordnung, verschmelzen, min_groesse, runden,
-                     vorab_kennung=vorab, verschieden=verschieden, gleich=vorg["gleich"])
+                     vorab_kennung=vorab, verschieden=verschieden,
+                     gleich=vorg.get("gleich", set()))
     label, k = erg["label"], erg["k"]
-    mitte, groessen = _mittelpunkte(v, label, k)
-    kennungen = kennungen_vergeben(mitte, altbestand)
-    paare = zwillings_kandidaten(v, bild_ids, label, k, zwilling)
+    mitte, _ = _mittelpunkte(v, label, k)
+    kennungen = kennungen_vergeben(mitte, altbestand, reserviert=reserviert)
+    automatische_ids = [e["kennung"] for e in kennungen]
+    auto_info = {e["kennung"]: e for e in kennungen}
+    auto_mitte = {automatische_ids[c]: mitte[c] for c in range(k)}
 
-    je_gruppe: list[list[dict]] = [[] for _ in range(k)]
+    mitglieder: dict[str, list[int]] = {}
+    finale_kennung: list[str | None] = [None] * len(gesichter)
     regeln = vorg.get("ausgeschlossen") or set()
     ausgeschlossen = 0
-    for g, c in zip(gesichter, label.tolist()):
-        g["kennung"] = kennungen[c]["kennung"] if c >= 0 else None
-        if c >= 0 and (g["kennung"], str(g["bild_id"]), int(g.get("index") or 0)) in regeln:
-            # Nutzer-Regel: dieses Gesicht gehoert NICHT zu diesem Vorschlag.
-            g["kennung"] = None
+    zielnamen: dict[str, str] = {}
+    for eintrag in fest.values():
+        zielnamen[eintrag["kennung"]] = eintrag["name"]
+    for i, (gesicht, auto_c) in enumerate(zip(gesichter, label.tolist())):
+        automatische_kennung = automatische_ids[auto_c] if auto_c >= 0 else None
+        schluessel = _schluessel(gesicht)
+        fest_eintrag = fest.get(schluessel)
+        kennung = fest_eintrag["kennung"] if fest_eintrag else automatische_kennung
+        if (not fest_eintrag and kennung
+                and (kennung, schluessel[0], schluessel[1]) in regeln):
+            kennung = None
             ausgeschlossen += 1
-            continue
-        if c >= 0:
-            je_gruppe[c].append(g)
-    kandidaten: list[list[dict]] = [[] for _ in range(k)]
-    for p in paare:
-        for eigen, fremd in ((p["a"], p["b"]), (p["b"], p["a"])):
+        gesicht["kennung"] = kennung
+        finale_kennung[i] = kennung
+        if kennung:
+            mitglieder.setdefault(kennung, []).append(i)
+
+    gruppen_ids = [kennung for kennung in automatische_ids if mitglieder.get(kennung)]
+    gruppen_ids.extend(sorted(k for k in mitglieder if k not in auto_info))
+    gruppenindex = {kennung: i for i, kennung in enumerate(gruppen_ids)}
+    finales_label = np.full(len(gesichter), -1, dtype=np.int64)
+    for i, kennung in enumerate(finale_kennung):
+        if kennung:
+            finales_label[i] = gruppenindex[kennung]
+    paare = zwillings_kandidaten(v, bild_ids, finales_label, len(gruppen_ids), zwilling)
+    kandidaten: list[list[dict]] = [[] for _ in gruppen_ids]
+    for paar in paare:
+        for eigen, fremd in ((paar["a"], paar["b"]), (paar["b"], paar["a"])):
             if len(kandidaten[eigen]) < ZWILLING_KANDIDATEN_JE_GRUPPE:
-                kandidaten[eigen].append({"kennung": kennungen[fremd]["kennung"],
-                                          "aehnlich": p["aehnlich"],
-                                          "gemeinsame_bilder": p["gemeinsame_bilder"]})
+                kandidaten[eigen].append({
+                    "kennung": gruppen_ids[fremd], "aehnlich": paar["aehnlich"],
+                    "gemeinsame_bilder": paar["gemeinsame_bilder"]})
+
     gruppen = []
-    for c in range(k):
-        mitglieder = je_gruppe[c]
-        daten = sorted(d for d in (m.get("aufnahme") for m in mitglieder) if d)
+    altbestand_neu = []
+    groessen = []
+    for pos, kennung in enumerate(gruppen_ids):
+        stellen = mitglieder[kennung]
+        mitglieder_gesicht = [gesichter[i] for i in stellen]
+        daten = sorted(d for d in (g.get("aufnahme") for g in mitglieder_gesicht) if d)
+        auto = auto_info.get(kennung)
+        name = _name_normalisieren(namen.get(kennung)) or zielnamen.get(kennung)
         gruppen.append({
-            "kennung": kennungen[c]["kennung"],
-            "neu": kennungen[c]["neu"],
-            "name": namen.get(kennungen[c]["kennung"]),
-            "groesse": len(mitglieder),
-            "bilder": len({m["bild_id"] for m in mitglieder if not m.get("video_id")}),
-            "videos": len({m["video_id"] for m in mitglieder if m.get("video_id")}),
+            "kennung": kennung,
+            "neu": bool(auto["neu"]) if auto else False,
+            "name": name,
+            "groesse": len(stellen),
+            "bilder": len({g["bild_id"] for g in mitglieder_gesicht if not g.get("video_id")}),
+            "videos": len({g["video_id"] for g in mitglieder_gesicht if g.get("video_id")}),
             "von": daten[0][:10] if daten else None,
             "bis": daten[-1][:10] if daten else None,
-            "zwilling_kandidaten": kandidaten[c],
-            "beispiele": beispiele_waehlen(mitglieder),
+            "zwilling_kandidaten": kandidaten[pos],
+            "beispiele": beispiele_waehlen(mitglieder_gesicht),
         })
-    rauschen = int((label < 0).sum())
+        groessen.append(len(stellen))
+        if kennung in auto_mitte:
+            zentrum = auto_mitte[kennung]
+        else:
+            zentrum = np.asarray(_mittelpunkt(v[stellen]), dtype=np.float32)
+        altbestand_neu.append({"kennung": kennung,
+                               "mittelpunkt": [float(x) for x in zentrum]})
+
+    groessen.sort(reverse=True)
+    groessen_array = np.asarray(groessen, dtype=int)
+    rauschen = sum(kennung is None for kennung in finale_kennung)
     bericht = {
         "dateien": [{"datei": os.path.basename(d["pfad"]), "zeilen": d["zeilen"],
                      "ungueltig": d["ungueltig"]} for d in eingelesen["dateien"]],
         "bilder": eingelesen["bilder"], "doppelt": eingelesen["doppelt"],
         "bilder_gruppiert": eingelesen["bilder_gruppiert"],
         "je_grund": dict(sorted(eingelesen["je_grund"].items())),
-        "gesichter": len(gesichter), "gruppen": k,
+        "gesichter": len(gesichter), "gruppen": len(gruppen_ids),
         "gesichter_in_gruppen": len(gesichter) - rauschen, "rauschen": rauschen,
-        "groessen_top10": [int(x) for x in groessen[:10]],
-        "gruppen_ab_50": int((groessen >= 50).sum()) if k else 0,
-        "gruppen_ab_10": int((groessen >= 10).sum()) if k else 0,
-        "kennungen_neu": sum(1 for e in kennungen if e["neu"]),
-        "kennungen_wiederverwendet": sum(1 for e in kennungen if not e["neu"]),
+        "groessen_top10": [int(x) for x in groessen_array[:10]],
+        "gruppen_ab_50": int((groessen_array >= 50).sum()) if gruppen_ids else 0,
+        "gruppen_ab_10": int((groessen_array >= 10).sum()) if gruppen_ids else 0,
+        "kennungen_neu": sum(1 for k in gruppen_ids if auto_info.get(k, {}).get("neu", False)),
+        "kennungen_wiederverwendet": sum(1 for k in gruppen_ids
+                                          if not auto_info.get(k, {}).get("neu", False)),
         "namen_bestaetigt": sum(1 for g in gruppen if g["name"]),
         "aehnliche_paare": len(paare),
         "ausgeschlossen_nach_regel": ausgeschlossen,
         "davon_mit_gemeinsamen_bildern": sum(1 for p in paare if p["gemeinsame_bilder"]),
         "sekunden": round(time.monotonic() - start, 1),
     }
-    altbestand_neu = [{"kennung": kennungen[c]["kennung"],
-                       "mittelpunkt": [float(x) for x in mitte[c]]} for c in range(k)]
     return {"gesichter": gesichter, "gruppen": gruppen, "bericht": bericht,
             "altbestand": altbestand_neu}
 
@@ -826,29 +935,19 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
                      zuordnung: float = ZUORDNUNG_AEHNLICH,
                      min_groesse: int = MIN_GROESSE,
                      runden: int = VERFEINERN_RUNDEN) -> dict:
-    """Neue Gesichter an BESTEHENDE Gruppen haengen — ohne Neu-Rechnen.
-
-    ``alte_zeilen`` = rohe Zeilen der ``gesicht_zuordnung.jsonl``,
-    ``alt_kennungen`` = rohe Liste aus ``kennungen.json`` (beide unveraendert
-    weitergereicht), ``beispiele_alt`` = bestehende Gruppen aus
-    ``personen_beispiele.json``. Rueckgabe ``{"neu": {stelle: kennung|null},
-    "zuwachs": {kennung: [stellen]}, "gruppen_alt": [...], "gruppen_neu": [...],
-    "kennungen_neu": [{"kennung", "mittelpunkt"}], "bericht": {...}}``.
-    """
+    """Neue Gesichter andocken und gespeicherte Alt-Zuordnungen korrigieren."""
     start = time.monotonic()
     gesichter = eingelesen["gesichter"]
     v = einheitsvektoren(eingelesen["vektoren"])
     namen = dict(bestaetigt or {})
-    regeln = (vorgaben or {}).get("ausgeschlossen") or set()
+    vorg = vorgaben or {}
+    fest = _einzelzuordnungen_auflosen(vorg, namen)
 
-    # ── 1) alte Zuordnung auswerten (nur lesend; nichts wird veraendert) ──
+    # Alte Rohzeilen nur lesend auswerten; unveraenderte Zeilen bleiben bytegleich.
     vorhanden: set = set()
-    groesse_alt: dict[str, int] = {}
-    bilder_je_kennung: dict[str, set] = {}
-    fotos_je_kennung: dict[str, set] = {}
-    videos_je_kennung: dict[str, set] = {}
-    daten_je_kennung: dict[str, list] = {}
-    for roh in alte_zeilen:
+    zeilen_daten: dict[int, tuple[tuple[str, int], dict]] = {}
+    zeilen_je_schluessel: dict[tuple[str, int], list[tuple[int, dict]]] = {}
+    for position, roh in enumerate(alte_zeilen):
         try:
             eintrag = json.loads(roh)
         except ValueError:
@@ -857,10 +956,51 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
             continue
         schluessel = _schluessel(eintrag)
         vorhanden.add(schluessel)
-        kennung = eintrag.get("kennung") or None
+        zeilen_daten[position] = (schluessel, eintrag)
+        zeilen_je_schluessel.setdefault(schluessel, []).append((position, eintrag))
+
+    stellen_je_schluessel: dict[tuple[str, int], list[int]] = {}
+    for i, gesicht in enumerate(gesichter):
+        stellen_je_schluessel.setdefault(_schluessel(gesicht), []).append(i)
+    fehlend = set(fest) - (set(zeilen_je_schluessel) | set(stellen_je_schluessel))
+    if fehlend:
+        raise PersonenFehler(f"Feste Zuordnungen ohne Beleg: {len(fehlend)}.")
+
+    alt = _cluster.altbestand_lesen(alt_kennungen)
+    kennungen_alt = [e["kennung"] for e in alt]
+    kennungen_set = set(kennungen_alt)
+    if any(e["kennung"] not in kennungen_set for e in fest.values()):
+        raise PersonenFehler("Eine feste Zuordnung hat keine gueltige Zielreferenz.")
+    reserviert = {e["kennung"] for e in fest.values()}
+    m_alt = (einheitsvektoren(np.asarray([e["mittelpunkt"] for e in alt], dtype=np.float32))
+             if alt else None)
+    regeln = vorg.get("ausgeschlossen") or set()
+
+    korrigierte_altzeilen = list(alte_zeilen)
+    alte_korrekturen: dict[tuple[str, int], str] = {}
+    for schluessel, fest_eintrag in fest.items():
+        zielkennung = fest_eintrag["kennung"]
+        alte_treffer = zeilen_je_schluessel.get(schluessel, [])
+        if not alte_treffer:
+            continue
+        if any(str(e.get("kennung") or "") != zielkennung for _, e in alte_treffer):
+            alte_korrekturen[schluessel] = zielkennung
+        for position, eintrag in alte_treffer:
+            if str(eintrag.get("kennung") or "") != zielkennung:
+                korrigiert = dict(eintrag)
+                korrigiert["kennung"] = zielkennung
+                korrigierte_altzeilen[position] = json.dumps(korrigiert, ensure_ascii=False)
+
+    # Alte Kennungsstatistik nach den ausdruecklichen Korrekturen neu zaehlen.
+    groesse_alt: dict[str, int] = {}
+    bilder_je_kennung: dict[str, set] = {}
+    fotos_je_kennung: dict[str, set] = {}
+    videos_je_kennung: dict[str, set] = {}
+    daten_je_kennung: dict[str, list] = {}
+    for schluessel, eintrag in zeilen_daten.values():
+        kennung = alte_korrekturen.get(schluessel, str(eintrag.get("kennung") or ""))
         if not kennung:
             continue
-        kennung = str(kennung)
         bild = schluessel[0]
         groesse_alt[kennung] = groesse_alt.get(kennung, 0) + 1
         bilder_je_kennung.setdefault(kennung, set()).add(bild)
@@ -871,41 +1011,35 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
         if isinstance(eintrag.get("aufnahme"), str) and eintrag["aufnahme"]:
             daten_je_kennung.setdefault(kennung, []).append(eintrag["aufnahme"])
 
-    # ── 2) neue Gesichter: schon vorhandene ueberspringen (idempotent) ──
     neue = [i for i, g in enumerate(gesichter) if _schluessel(g) not in vorhanden]
     uebersprungen = len(gesichter) - len(neue)
-
-    # ── 3) andocken: aehnlichster alter Mittelpunkt ueber der Schwelle ──
-    alt = _cluster.altbestand_lesen(alt_kennungen)
-    kennungen_alt = [e["kennung"] for e in alt]
-    m_alt = (einheitsvektoren(np.asarray([e["mittelpunkt"] for e in alt], dtype=np.float32))
-             if alt else None)
     ziel: dict[int, str | None] = {}
     neu_bilder: dict[str, set] = {}
     for i in sorted(neue, key=lambda i: -(gesichter[i]["anteil"] * gesichter[i]["score"])):
         bild, index = _schluessel(gesichter[i])
-        treffer = None
-        if m_alt is not None and m_alt.shape[0]:
+        fest_eintrag = fest.get((bild, index))
+        treffer = fest_eintrag["kennung"] if fest_eintrag else None
+        if treffer is None and m_alt is not None and m_alt.shape[0]:
             s = m_alt @ v[i]
             kandidaten = np.nonzero(s >= zuordnung)[0]
             for c in kandidaten[np.argsort(-s[kandidaten], kind="stable")].tolist():
                 kennung = kennungen_alt[c]
                 if bild in bilder_je_kennung.get(kennung, ()) or bild in neu_bilder.get(kennung, ()):
-                    continue                    # cannot-link: zwei Gesichter, ein Bild
+                    continue
                 if (kennung, bild, index) in regeln:
-                    continue                    # Nutzer-Regel „nicht diese Person"
+                    continue
                 treffer = kennung
                 break
         ziel[i] = treffer
         if treffer:
             neu_bilder.setdefault(treffer, set()).add(bild)
+
     zuwachs: dict[str, list[int]] = {}
     for i, kennung in ziel.items():
         if kennung:
             zuwachs.setdefault(kennung, []).append(i)
     angedockt = sum(len(x) for x in zuwachs.values())
 
-    # ── 4) Rest untereinander gruppieren — neue Kennungen hinter der hoechsten ──
     rest = [i for i in neue if not ziel.get(i)]
     gruppen_neu: list[dict] = []
     kennungen_neu: list[dict] = []
@@ -917,8 +1051,11 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
         hoechste = _cluster._naechste_nummer(sorted(kennungen_alt))
         for c in range(erg["k"]):
             stellen = [rest[j] for j in np.nonzero(erg["label"] == c)[0].tolist()]
-            hoechste += 1
-            kennung = _cluster.KENNUNG_MUSTER % hoechste
+            while True:
+                hoechste += 1
+                kennung = _cluster.KENNUNG_MUSTER % hoechste
+                if kennung not in reserviert:
+                    break
             for i in stellen:
                 ziel[i] = kennung
             mitglieder_neu[kennung] = stellen
@@ -927,8 +1064,26 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
             gruppen_neu.append(_gruppe_bauen(kennung, [gesichter[i] for i in stellen],
                                              name=namen.get(kennung), neu=True))
 
-    # ── 5) bestehende Gruppen fortschreiben (nur Zuwachs, nichts verschieben) ──
+    # Betroffene Herkunftsbeispiele entfernen; die Zielgruppe bekommt belegte Altgesichter.
     alt_gruppen = dict(beispiele_alt or {})
+    beispiele_je_kennung: dict[str, list[dict]] = {
+        kennung: list((alt_gruppen.get(kennung) or {}).get("beispiele") or [])
+        for kennung in set(alt_gruppen) | set(kennungen_alt)
+    }
+    for schluessel, zielkennung in alte_korrekturen.items():
+        alte_treffer = zeilen_je_schluessel.get(schluessel, [])
+        if not alte_treffer:
+            continue
+        quelle = str(alte_treffer[-1][1].get("kennung") or "")
+        if quelle and quelle != zielkennung:
+            beispiele_je_kennung[quelle] = [
+                b for b in beispiele_je_kennung.get(quelle, [])
+                if _schluessel(b) != schluessel]
+        gesicht_alt = alte_treffer[-1][1]
+        if (isinstance(gesicht_alt.get("anteil"), (int, float))
+                and isinstance(gesicht_alt.get("score"), (int, float))):
+            beispiele_je_kennung.setdefault(zielkennung, []).append(gesicht_alt)
+
     reihenfolge = list(alt_gruppen) + [k for k in sorted(kennungen_alt) if k not in alt_gruppen]
     gruppen_alt: list[dict] = []
     for kennung in reihenfolge:
@@ -938,6 +1093,7 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
         daten += [g["aufnahme"] for g in zu_gesichter
                   if isinstance(g.get("aufnahme"), str) and g["aufnahme"]]
         daten.sort()
+        beispiele = beispiele_je_kennung.get(kennung, []) + zu_gesichter
         gruppen_alt.append({
             "kennung": kennung,
             "neu": bool(bekannt.get("neu", False)),
@@ -946,15 +1102,13 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
             "bilder": len(fotos_je_kennung.get(kennung, set())
                           | {str(g["bild_id"]) for g in zu_gesichter if not g.get("video_id")}),
             "videos": len(videos_je_kennung.get(kennung, set())
-                          | {str(g["video_id"]) for g in zu_gesichter if g.get("video_id")}),
+                           | {str(g["video_id"]) for g in zu_gesichter if g.get("video_id")}),
             "von": daten[0][:10] if daten else None,
             "bis": daten[-1][:10] if daten else None,
             "zwilling_kandidaten": list(bekannt.get("zwilling_kandidaten") or []),
-            "beispiele": beispiele_waehlen(
-                list(bekannt.get("beispiele") or []) + zu_gesichter),
+            "beispiele": beispiele_waehlen(beispiele),
         })
 
-    # Zwillings-Kandidaten der neuen Gruppen (nur markieren, nie zusammenlegen)
     if gruppen_neu:
         m_neu = einheitsvektoren(np.asarray([e["mittelpunkt"] for e in kennungen_neu],
                                             dtype=np.float32))
@@ -983,6 +1137,9 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
             zwillinge.sort(key=lambda k: -k["aehnlich"])
             gruppe["zwilling_kandidaten"] = zwillinge[:ZWILLING_KANDIDATEN_JE_GRUPPE]
 
+    korrigierte = sum(1 for schluessel, zielkennung in alte_korrekturen.items()
+                      if any(str(e.get("kennung") or "") != zielkennung
+                             for _, e in zeilen_je_schluessel.get(schluessel, [])))
     rauschen = sum(1 for i in neue if not ziel.get(i))
     bericht = {
         "alt_zeilen": len(alte_zeilen),
@@ -994,10 +1151,13 @@ def nachtrag_rechnen(eingelesen, alte_zeilen, alt_kennungen, beispiele_alt=None,
         "gruppen_mit_zuwachs": len(zuwachs),
         "neue_gruppen": len(gruppen_neu),
         "neue_kennungen": [e["kennung"] for e in kennungen_neu],
+        "korrigierte_altgesichter": korrigierte,
         "rauschen": rauschen,
+        "noop": not neue and korrigierte == 0,
         "sekunden": round(time.monotonic() - start, 1),
     }
     return {"neu": ziel, "gesichter": gesichter, "zuwachs": zuwachs,
+            "korrigierte_altzeilen": korrigierte_altzeilen,
             "gruppen_alt": gruppen_alt, "gruppen_neu": gruppen_neu,
             "kennungen_neu": kennungen_neu, "alt_kennungen": list(alt_kennungen or []),
             "bericht": bericht}
@@ -1022,7 +1182,7 @@ def nachtrag_schreiben(lauf, ausgabe, alte_zeilen, stand=None) -> dict:
         neu_zeilen.append(json.dumps(eintrag, ensure_ascii=False))
 
     def zuordnung(datei):
-        for roh in alte_zeilen:
+        for roh in lauf.get("korrigierte_altzeilen", alte_zeilen):
             datei.write(roh if roh.endswith("\n") else roh + "\n")
         for zeile in neu_zeilen:
             datei.write(zeile + "\n")
@@ -1052,7 +1212,8 @@ def nachtrag_bericht_text(b) -> str:
     kennungen = b["neue_kennungen"]
     return "\n".join([
         f"Alte Zuordnung: {b['alt_zeilen']} Zeilen, {b['alt_gesichter']} Gesichter, "
-        f"{b['alt_gruppen']} Kennungen (wortgleich uebernommen)",
+        f"{b['alt_gruppen']} Kennungen (alte Mittelpunkte beibehalten)",
+        f"Korrigierte alte Gesichter: {b['korrigierte_altgesichter']}",
         f"Neue Gesichter: {b['neue_gesichter']} "
         f"(schon vorhanden, uebersprungen: {b['uebersprungen']})",
         f"Angedockt an bestehende Gruppen: {b['angedockt']} Gesichter in "
@@ -1090,8 +1251,9 @@ def _nachtragen_main(args, pfade, schreiben_an) -> int:
     if not schreiben_an:
         print("Ohne --schreiben wurde NICHTS geschrieben.")
         return 0
-    if not lauf["bericht"]["neue_gesichter"]:
-        print("Nichts zu tun: alle Gesichter stehen schon in der Zuordnung "
+    if (not lauf["bericht"]["neue_gesichter"]
+            and not lauf["bericht"]["korrigierte_altgesichter"]):
+        print("Nichts zu tun: keine neuen Gesichter oder alten Korrekturen "
               "(es wurde NICHTS geschrieben).")
         return 0
     ergebnis = nachtrag_schreiben(lauf, args.ausgabe, alte_zeilen)

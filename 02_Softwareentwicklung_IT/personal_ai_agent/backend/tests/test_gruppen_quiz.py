@@ -978,3 +978,44 @@ def test_zuordnung_ueberlebt_neuen_pc_lauf_mit_anderer_kennung(basis):
     assert tim["500:0"]["kennung"] == "Person_1005" and tim["500:0"]["zugeordnet"] is True
     assert tim["501:0"]["kennung"] == "Person_1001"
     assert "501:0" not in {g["gid"] for g in gq.gesichter_person("Leon")["gesichter"]}
+
+
+def test_umbenennen_aendert_einzelzuordnungen_und_protokolliert_vorher(basis):
+    _misch_daten(basis)
+    gq.umbenennen("Leon", "Synthetic A")
+    gq.umbenennen("Tim", "Synthetic B")
+    gq.zuordnen("Synthetic A", [{"kennung": "Person_1003", "gid": "500:0"}])
+    gq.zuordnen("Synthetic B", [{"kennung": "Person_1003", "gid": "501:0"}])
+    vorgaben_pfad = basis / gq.VORGABEN_DATEINAME
+    daten = _json(vorgaben_pfad)
+    daten["unbeteiligt"] = {"behalten": True}
+    vorgaben_pfad.write_text(json.dumps(daten), encoding="utf-8")
+
+    r = gq.umbenennen("Synthetic A", "Synthetic New")
+
+    assert r["ok"]
+    zugeordnet = gq.zugeordnet_lesen()
+    assert zugeordnet["500:0"] == {"name": "Synthetic New", "kennung": "Person_1003"}
+    assert zugeordnet["501:0"] == {"name": "Synthetic B", "kennung": "Person_1003"}
+    assert _json(vorgaben_pfad)["unbeteiligt"] == {"behalten": True}
+    protokoll = gq._protokoll_lesen()[-1]
+    assert protokoll["art"] == "umbenennen"
+    assert protokoll["zugeordnet_vorher"] == [{"index": 0, "name": "Synthetic A"}]
+
+
+def test_umbenennen_zusammenfuehrung_undo_stellt_einzelzuordnung_wieder_her(basis):
+    _misch_daten(basis)
+    gq.umbenennen("Leon", "Synthetic A")
+    gq.umbenennen("Tim", "Synthetic B")
+    gq.zuordnen("Synthetic A", [{"kennung": "Person_1003", "gid": "500:0"}])
+
+    r = gq.umbenennen("Synthetic A", "Synthetic B")
+    assert r["ok"] and r["zusammengefuehrt"] is True
+    assert gq.zugeordnet_lesen()["500:0"]["name"] == "Synthetic B"
+
+    rueck = gq.rueckgaengig()
+
+    assert rueck["ok"] and rueck["zurueckgenommen"]["art"] == "umbenennen"
+    assert gq.zugeordnet_lesen()["500:0"] == {
+        "name": "Synthetic A", "kennung": "Person_1003"}
+    assert "500:0" not in {g["gid"] for g in gq.gesichter_person("Synthetic B")["gesichter"]}

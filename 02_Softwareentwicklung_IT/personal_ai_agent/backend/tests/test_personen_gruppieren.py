@@ -415,3 +415,166 @@ def test_erste_datei_gewinnt_bei_doppelter_bild_id(tmp_path):
     alt.write_text(_zeile("500", [_gesicht(rng, m)]) + "\n", encoding="utf-8")
     e = pg.gesichter_lesen([str(neu), str(alt)])
     assert e["doppelt"] == 1 and len(e["gesichter"]) == 2
+
+
+def test_einzelzuordnung_parser_nimmt_letzten_gueltigen_eintrag(tmp_path):
+    pfad = tmp_path / "personen_vorgaben.json"
+    pfad.write_text(json.dumps({"zugeordnet": [
+        {"bild_id": "710", "index": 0, "name": "Erstes Ziel",
+         "kennung": "Person_001", "aktion": "aktion-1"},
+        {"bild_id": "710", "index": 0, "name": "",
+         "kennung": "Person_001", "aktion": "aktion-2"},
+        {"bild_id": "710", "index": 0, "name": "Letztes Ziel",
+         "kennung": "Person_002", "aktion": "aktion-3"},
+        {"bild_id": "710", "index": 0, "name": None,
+         "kennung": "Person_003", "aktion": "aktion-4"},
+        {"bild_id": "710", "index": True, "name": "Ungültig",
+         "kennung": "Person_004", "aktion": "aktion-5"},
+        {"bild_id": "710", "index": -1, "name": "Ungültig",
+         "kennung": "Person_005", "aktion": "aktion-6"},
+        {"bild_id": "kaputt", "index": 0, "name": "Ungültig",
+         "kennung": "Person_006", "aktion": "aktion-7"},
+    ]}), encoding="utf-8")
+
+    vorgaben = pg.vorgaben_lesen(str(pfad))
+
+    assert vorgaben["zugeordnet"][("710", 0)] == {
+        "kennung": "Person_002", "name": "Letztes Ziel"}
+
+
+def test_einzelzuordnung_ueberstimmt_aehnlichkeit_und_herkunftsausschluss(tmp_path):
+    v, bilder, wahr, _ = _szene(personen=2, je_person=12, seed=53)
+    bilder = [str(81000 + i) for i in range(len(bilder))]
+    eingelesen = _eingelesen(v, bilder)
+    basis = pg.lauf_rechnen(eingelesen, min_groesse=3, verschmelzen=0.99)
+    index = int(np.nonzero(wahr == 0)[0][0])
+    quellkennung = basis["gesichter"][index]["kennung"]
+    zielindex = int(np.nonzero(wahr == 1)[0][0])
+    zielkennung = basis["gesichter"][zielindex]["kennung"]
+    assert quellkennung != zielkennung
+    zielname = "Synthetisches Ziel"
+    vorgaben_pfad = tmp_path / "personen_vorgaben.json"
+    vorgaben_pfad.write_text(json.dumps({
+        "zugeordnet": [{"bild_id": bilder[index], "index": 0,
+                        "name": zielname.casefold(), "kennung": quellkennung,
+                        "aktion": "synthetische-aktion"}],
+        "ausgeschlossen": [{"kennung": quellkennung,
+                             "bild_id": bilder[index], "index": 0}],
+    }), encoding="utf-8")
+    vorgaben = pg.vorgaben_lesen(str(vorgaben_pfad))
+
+    lauf = pg.lauf_rechnen(
+        eingelesen, altbestand=basis["altbestand"],
+        bestaetigt={quellkennung: "Synthetische Herkunft", zielkennung: zielname},
+        vorgaben=vorgaben, min_groesse=3, verschmelzen=0.99)
+
+    assert lauf["gesichter"][index]["kennung"] == zielkennung
+    assert lauf["bericht"]["ausgeschlossen_nach_regel"] == 0
+    assert next(g for g in lauf["gruppen"] if g["kennung"] == zielkennung)["name"] == zielname
+
+
+def test_bestaetigtes_ziel_ohne_autocluster_erhaelt_kennung_und_referenz(tmp_path):
+    v, bilder, wahr, _ = _szene(personen=2, je_person=12, seed=59)
+    quellstellen = np.nonzero(wahr == 0)[0]
+    quelle = pg.lauf_rechnen(
+        _eingelesen(v[quellstellen], [bilder[i] for i in quellstellen]),
+        min_groesse=3, verschmelzen=0.99)
+    quellkennung = quelle["gruppen"][0]["kennung"]
+    zielkennung = "Person_002"                         # bestaetigt, aber nicht im Altbestand
+    zielname = "Zielperson"
+    index = int(quellstellen[0])
+    vorgaben = {
+        "gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
+        "zugeordnet": {(bilder[index], 0): {"kennung": quellkennung, "name": zielname}},
+    }
+    bestaetigt = {quellkennung: "Herkunft", zielkennung: zielname}
+
+    lauf = pg.lauf_rechnen(
+        _eingelesen(v, bilder), altbestand=quelle["altbestand"],
+        bestaetigt=bestaetigt, vorgaben=vorgaben,
+        min_groesse=3, verschmelzen=0.99)
+
+    gruppen = {g["kennung"]: g for g in lauf["gruppen"]}
+    assert gruppen[zielkennung]["groesse"] == 1
+    assert gruppen[zielkennung]["name"] == zielname
+    assert "Person_003" in gruppen                  # Person_002 war reserviert
+    alt = {e["kennung"]: e["mittelpunkt"] for e in lauf["altbestand"]}
+    assert zielkennung in alt
+    assert np.allclose(alt[zielkennung], pg.einheitsvektoren(v[index:index + 1])[0])
+
+    ausgabe = str(tmp_path / "gruppen")
+    pg.schreiben(lauf, ausgabe, stand="2026-10-12T12:00:00")
+    gespeicherte_gruppen = json.loads((tmp_path / "gruppen" / pg.DATEI_BEISPIELE)
+                                      .read_text(encoding="utf-8"))["gruppen"]
+    gespeicherte_kennungen = json.loads((tmp_path / "gruppen" / pg.DATEI_KENNUNGEN)
+                                        .read_text(encoding="utf-8"))["kennungen"]
+    assert zielkennung in {g["kennung"] for g in gespeicherte_gruppen}
+    assert zielkennung in {e["kennung"] for e in gespeicherte_kennungen}
+
+
+def test_unaufloesbares_ziel_bricht_generisch_ab():
+    v, bilder, _, _ = _szene(personen=1, je_person=8, seed=61)
+    eingelesen = _eingelesen(v, bilder)
+    vorgaben = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
+                "zugeordnet": {("b1", 0): {"kennung": "Person_001",
+                                             "name": "Nicht bestaetigt"}}}
+
+    with pytest.raises(pg.PersonenFehler) as fehler:
+        pg.lauf_rechnen(eingelesen, bestaetigt={"Person_001": "Herkunft"},
+                        vorgaben=vorgaben, min_groesse=3)
+
+    assert "Nicht bestaetigt" not in str(fehler.value)
+    assert "b1" not in str(fehler.value)
+
+
+def test_expliziter_zielausschluss_konfligiert_mit_einzelzuordnung():
+    v, bilder, wahr, _ = _szene(personen=2, je_person=10, seed=67)
+    eingelesen = _eingelesen(v, bilder)
+    basis = pg.lauf_rechnen(eingelesen, min_groesse=3, verschmelzen=0.99)
+    index = int(np.nonzero(wahr == 0)[0][0])
+    zielindex = int(np.nonzero(wahr == 1)[0][0])
+    quelle = basis["gesichter"][index]["kennung"]
+    ziel = basis["gesichter"][zielindex]["kennung"]
+    vorgaben = {"gleich": set(), "verschieden": set(),
+                "zugeordnet": {(bilder[index], 0): {"kennung": quelle, "name": "Ziel"}},
+                "ausgeschlossen": {(ziel, bilder[index], 0)}}
+
+    with pytest.raises(pg.PersonenFehler) as fehler:
+        pg.lauf_rechnen(eingelesen, altbestand=basis["altbestand"],
+                        bestaetigt={quelle: "Herkunft", ziel: "Ziel"},
+                        vorgaben=vorgaben, min_groesse=3, verschmelzen=0.99)
+
+    assert "Ziel" not in str(fehler.value)
+    assert bilder[index] not in str(fehler.value)
+
+
+def test_gleichnamiges_ziel_behaelt_herkunft_sonst_waehlt_kleinste_kennung():
+    v, bilder, _, _ = _szene(personen=1, je_person=8, seed=73)
+    names = {"Person_010": "Ziel", "Person_002": "zIeL"}
+    key = (bilder[0], 0)
+
+    mit_herkunft = pg.lauf_rechnen(
+        _eingelesen(v, bilder), bestaetigt=names,
+        vorgaben={"zugeordnet": {key: {"kennung": "Person_010", "name": "ziel"}}},
+        min_groesse=3)
+    lexikografisch = pg.lauf_rechnen(
+        _eingelesen(v, bilder), bestaetigt=names,
+        vorgaben={"zugeordnet": {key: {"kennung": "Person_999", "name": "ZIEL"}}},
+        min_groesse=3)
+
+    assert mit_herkunft["gesichter"][0]["kennung"] == "Person_010"
+    assert lexikografisch["gesichter"][0]["kennung"] == "Person_002"
+
+
+def test_feste_vorgabe_ohne_eingelesenen_beleg_bricht_generisch_ab():
+    v, bilder, _, _ = _szene(personen=1, je_person=8, seed=71)
+    eingelesen = _eingelesen(v, bilder)
+    vorgaben = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
+                "zugeordnet": {("999999", 0): {"kennung": "Person_001", "name": "Ziel"}}}
+
+    with pytest.raises(pg.PersonenFehler) as fehler:
+        pg.lauf_rechnen(eingelesen, bestaetigt={"Person_001": "Ziel"},
+                        vorgaben=vorgaben, min_groesse=3)
+
+    assert "999999" not in str(fehler.value)
+    assert "Ziel" not in str(fehler.value)

@@ -356,3 +356,164 @@ def test_bericht_nennt_keine_pfade_oder_namen(tmp_path):
     text = pg.nachtrag_bericht_text(lauf["bericht"])
     assert "/" not in text and "\\" not in text
     assert ".jsonl" not in text
+
+
+def _einzelzuordnung_vorgaben(bild_id, index, quelle, zielname, ausgeschlossen=False):
+    return {
+        "zugeordnet": {(str(bild_id), int(index)):
+                       {"kennung": quelle, "name": zielname}},
+        "ausgeschlossen": ({(quelle, str(bild_id), int(index))}
+                           if ausgeschlossen else set()),
+    }
+
+
+def test_nachtrag_bereits_vorhandenes_gesicht_uebernimmt_ziel_ohne_neuzugang(tmp_path):
+    ausgabe, _, _ = _alte_welt(tmp_path)
+    stand = _stand(ausgabe)
+    quelle = stand[("alt_0_0", 0)]
+    ziel = stand[("alt_1_0", 0)]
+    zielname = "Synthetisches Ziel"
+    zuordnungspfad = _pfad(ausgabe, pg.DATEI_ZUORDNUNG)
+    rohzeilen = pg.zuordnung_zeilen_lesen(zuordnungspfad)
+    angepasst, unberuehrt = [], None
+    for roh in rohzeilen:
+        eintrag = json.loads(roh)
+        if (str(eintrag.get("bild_id")), int(eintrag.get("index") or 0)) == ("alt_0_0", 0):
+            eintrag["zusatzfeld"] = {"erhalten": True}
+            angepasst.append(json.dumps(eintrag, ensure_ascii=False) + "\n")
+        else:
+            angepasst.append(roh)
+            if eintrag.get("bild_id") == "alt_2_0":
+                unberuehrt = roh
+    with open(zuordnungspfad, "w", encoding="utf-8", newline="\n") as datei:
+        datei.writelines(angepasst)
+    leer = _schreiben(tmp_path / "leer.jsonl", [])
+    vorgaben = _einzelzuordnung_vorgaben("alt_0_0", 0, quelle, zielname,
+                                          ausgeschlossen=True)
+
+    lauf, alte_zeilen = _lauf(ausgabe, leer, vorgaben=vorgaben,
+                              bestaetigt={quelle: "Synthetische Herkunft", ziel: zielname})
+
+    assert lauf["bericht"]["neue_gesichter"] == 0
+    assert lauf["bericht"]["korrigierte_altgesichter"] == 1
+    gruppen = {g["kennung"]: g for g in lauf["gruppen_alt"]}
+    assert gruppen[quelle]["groesse"] == 11
+    assert gruppen[ziel]["groesse"] == 13
+    assert gruppen[ziel]["name"] == zielname
+    pg.nachtrag_schreiben(lauf, ausgabe, alte_zeilen, stand="2026-10-12T12:00:00")
+
+    neue_zeilen = pg.zuordnung_zeilen_lesen(zuordnungspfad)
+    korrigiert = next(json.loads(z) for z in neue_zeilen
+                      if json.loads(z).get("bild_id") == "alt_0_0")
+    assert korrigiert["kennung"] == ziel
+    assert korrigiert["zusatzfeld"] == {"erhalten": True}
+    assert next(z for z in neue_zeilen if json.loads(z).get("bild_id") == "alt_2_0") == unberuehrt
+    lauf2, _ = _lauf(ausgabe, leer, vorgaben=vorgaben,
+                     bestaetigt={quelle: "Synthetische Herkunft", ziel: zielname})
+    assert lauf2["bericht"]["korrigierte_altgesichter"] == 0
+    assert lauf2["bericht"]["neue_gesichter"] == 0
+    assert lauf2["bericht"]["noop"] is True
+
+
+def test_nachtrag_neues_gesicht_uebernimmt_zielname_statt_aehnlicher_herkunft(tmp_path):
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    stand = _stand(ausgabe)
+    quelle = stand[("alt_0_0", 0)]
+    ziel = stand[("alt_1_0", 0)]
+    zielname = "Synthetisches Ziel"
+    bild_id = "fb_einzelzugeordnet"
+    neu = _schreiben(tmp_path / "neu.jsonl", [
+        _zeile(bild_id, [_gesicht(rng, mitten[0])])])
+    vorgaben = _einzelzuordnung_vorgaben(bild_id, 0, quelle, zielname,
+                                          ausgeschlossen=True)
+
+    lauf, _ = _lauf(ausgabe, neu, vorgaben=vorgaben,
+                    bestaetigt={quelle: "Synthetische Herkunft", ziel: zielname})
+
+    assert lauf["neu"][0] == ziel
+    assert lauf["bericht"]["angedockt"] == 1
+    assert lauf["bericht"]["neue_gruppen"] == 0
+
+
+def test_zweimaliger_nachtrag_einzelzuordnung_haengt_keine_doppelzeilen_an_und_behaelt_ziel(tmp_path):
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    stand = _stand(ausgabe)
+    quelle = stand[("alt_0_0", 0)]
+    ziel = stand[("alt_1_0", 0)]
+    zielname = "Synthetisches Ziel"
+    bild_id = "fb_idempotent"
+    neu = _schreiben(tmp_path / "neu.jsonl", [
+        _zeile(bild_id, [_gesicht(rng, mitten[0])])])
+    vorgaben = _einzelzuordnung_vorgaben(bild_id, 0, quelle, zielname,
+                                          ausgeschlossen=True)
+    bestaetigt = {quelle: "Synthetische Herkunft", ziel: zielname}
+    lauf, alte_zeilen = _lauf(ausgabe, neu, vorgaben=vorgaben, bestaetigt=bestaetigt)
+    assert lauf["neu"][0] == ziel
+    pg.nachtrag_schreiben(lauf, ausgabe, alte_zeilen, stand="2026-10-12T12:00:00")
+
+    lauf2, alte_zeilen2 = _lauf(ausgabe, neu, vorgaben=vorgaben, bestaetigt=bestaetigt)
+    assert lauf2["bericht"]["neue_gesichter"] == 0
+    gruppen = {g["kennung"]: g for g in lauf2["gruppen_alt"]}
+    assert gruppen[ziel]["groesse"] == 13
+    assert gruppen[quelle]["groesse"] == 12
+    pg.nachtrag_schreiben(lauf2, ausgabe, alte_zeilen2, stand="2026-10-12T12:01:00")
+
+    zeilen = pg.zuordnung_zeilen_lesen(_pfad(ausgabe, pg.DATEI_ZUORDNUNG))
+    treffer = [json.loads(z) for z in zeilen
+               if json.loads(z).get("bild_id") == bild_id]
+    assert len(zeilen) == len(alte_zeilen) + 1
+    assert len(treffer) == 1
+    assert treffer[0]["kennung"] == ziel
+
+
+def test_nachtrag_unaufloesbares_ziel_bricht_generisch_ab(tmp_path):
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    quelle = _stand(ausgabe)[("alt_0_0", 0)]
+    bild_id = "fb_unaufloesbar"
+    neu = _schreiben(tmp_path / "neu.jsonl", [_zeile(bild_id, [_gesicht(rng, mitten[0])])])
+    vorgaben = _einzelzuordnung_vorgaben(bild_id, 0, quelle, "Unbekanntes Ziel")
+
+    with pytest.raises(pg.PersonenFehler) as fehler:
+        _lauf(ausgabe, neu, vorgaben=vorgaben,
+              bestaetigt={quelle: "Herkunft"})
+
+    assert "Unbekanntes Ziel" not in str(fehler.value)
+    assert bild_id not in str(fehler.value)
+
+
+def test_cli_nachtrag_schreibt_korrektur_ohne_neuzugang_und_dann_noop(tmp_path, capsys):
+    ausgabe, _, _ = _alte_welt(tmp_path)
+    zuordnungspfad = _pfad(ausgabe, pg.DATEI_ZUORDNUNG)
+    rohzeilen = pg.zuordnung_zeilen_lesen(zuordnungspfad)
+    angepasst = []
+    for roh in rohzeilen:
+        eintrag = json.loads(roh)
+        if eintrag.get("bild_id") == "alt_0_0":
+            eintrag["bild_id"] = "71000"            # Quiz-Speicherformat: numerische Bild-ID
+        angepasst.append(json.dumps(eintrag, ensure_ascii=False) + "\n")
+    with open(zuordnungspfad, "w", encoding="utf-8", newline="\n") as datei:
+        datei.writelines(angepasst)
+    stand = _stand(ausgabe)
+    quelle = stand[("71000", 0)]
+    ziel = stand[("alt_1_0", 0)]
+    leer = _schreiben(tmp_path / "leer.jsonl", [])
+    bestaetigt = tmp_path / "bestaetigt.json"
+    bestaetigt.write_text(json.dumps({"bestaetigt": {
+        quelle: "Synthetische Herkunft", ziel: "Synthetisches Ziel"}}), encoding="utf-8")
+    vorgaben = tmp_path / "vorgaben.json"
+    vorgaben.write_text(json.dumps({"zugeordnet": [{
+        "bild_id": "71000", "index": 0, "name": "Synthetisches Ziel",
+        "kennung": quelle, "aktion": "cli-synthetisch"}]}), encoding="utf-8")
+    args = ["--nachtragen", leer, "--ausgabe", ausgabe, "--bestaetigt", str(bestaetigt),
+            "--vorgaben", str(vorgaben), "--schreiben"]
+
+    assert pg.main(args) == 0
+    erste_ausgabe = capsys.readouterr().out
+    assert "Korrigierte alte Gesichter: 1" in erste_ausgabe
+    assert _stand(ausgabe)[("71000", 0)] == ziel
+    nach_korrektur = _summen(ausgabe)
+
+    assert pg.main(args) == 0
+    zweite_ausgabe = capsys.readouterr().out
+    assert "Nichts zu tun" in zweite_ausgabe
+    assert _summen(ausgabe) == nach_korrektur

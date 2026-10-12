@@ -1028,6 +1028,45 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
     return {"ok": True, "name": echter, "zugeordnet": len(neu)}
 
 
+def _zuordnungen_umbenennen(daten: Dict[str, Any], alt: str, neu: str) -> List[Dict[str, Any]]:
+    """Zielnamen exakt an den gespeicherten Einzelzuordnungen aktualisieren."""
+    roh = daten.get("zugeordnet")
+    if not isinstance(roh, list):
+        return []
+    vorher = []
+    for index, eintrag in enumerate(roh):
+        if not isinstance(eintrag, dict) or not isinstance(eintrag.get("name"), str):
+            continue
+        try:
+            name = name_saeubern(eintrag["name"])
+        except GruppenFehler:
+            continue
+        if name.casefold() == alt.casefold():
+            vorher.append({"index": index, "name": eintrag["name"]})
+            eintrag["name"] = neu
+    return vorher
+
+
+def _zuordnungen_wiederherstellen(daten: Dict[str, Any], vorher: Any, neu: str) -> bool:
+    """Nur Eintraege aus dem Umbenennungsprotokoll auf ihren alten Namen setzen."""
+    roh = daten.get("zugeordnet")
+    if not isinstance(roh, list) or not isinstance(vorher, list):
+        return False
+    geaendert = False
+    for eintrag in vorher:
+        if not isinstance(eintrag, dict):
+            continue
+        index, name = eintrag.get("index"), eintrag.get("name")
+        if (type(index) is not int or index < 0 or index >= len(roh)
+                or not isinstance(name, str)):
+            continue
+        aktuell = roh[index]
+        if isinstance(aktuell, dict) and aktuell.get("name") == neu:
+            aktuell["name"] = name
+            geaendert = True
+    return geaendert
+
+
 def _zuordnen_zuruecknehmen(letzte: Dict[str, Any]) -> None:
     """Rueckgaengig fuer ``zuordnen``: eigene Zuordnungen und eigene Ausschluesse entfernen.
     Unter ``_SCHREIBSPERRE`` rufen."""
@@ -1140,6 +1179,11 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
             for k in betroffen:
                 namen[k] = neu_s
             vorgaben = vorgaben_lesen()
+            roh_vorgaben = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+            vorgaben_daten = roh_vorgaben if isinstance(roh_vorgaben, dict) else {}
+            zugeordnet_vorher = _zuordnungen_umbenennen(vorgaben_daten, alt_s, neu_s)
+            if zugeordnet_vorher:
+                eintrag["zugeordnet_vorher"] = zugeordnet_vorher
             if andere:                     # gleicher Name = dieselbe Person (wie beim Benennen)
                 paar = _paar(betroffen[0], andere[0])
                 if paar in vorgaben["verschieden"]:
@@ -1165,8 +1209,13 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
                     prof[neu_s] = quelle
                 _atomar_schreiben(PROFILE_DATEINAME, daten)
             _bestaetigt_schreiben(namen)
-            if eintrag["paare_neu"]["gleich"] or eintrag["paare_weg"]["verschieden"]:
-                _vorgaben_schreiben(vorgaben)
+            paare_geaendert = (eintrag["paare_neu"]["gleich"] or
+                               eintrag["paare_weg"]["verschieden"])
+            if paare_geaendert:
+                vorgaben_daten["gleich"] = sorted(vorgaben["gleich"])
+                vorgaben_daten["verschieden"] = sorted(vorgaben["verschieden"])
+            if paare_geaendert or zugeordnet_vorher:
+                _atomar_schreiben(VORGABEN_DATEINAME, vorgaben_daten)
             _protokoll_anhaengen(eintrag)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -1384,6 +1433,10 @@ def rueckgaengig() -> Dict[str, Any]:
                 return weiter
             namen = bestaetigt_lesen()
             vorgaben = vorgaben_lesen()
+            roh_vorgaben = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
+            vorgaben_daten = roh_vorgaben if isinstance(roh_vorgaben, dict) else {}
+            zugeordnet_geaendert = _zuordnungen_wiederherstellen(
+                vorgaben_daten, letzte.get("zugeordnet_vorher"), str(letzte.get("neu") or ""))
             st = _stand_lesen()
             for k, vorher in (letzte.get("namen_vorher") or {}).items():
                 if vorher:
@@ -1431,9 +1484,13 @@ def rueckgaengig() -> Dict[str, Any]:
                     _atomar_schreiben(PROFILE_DATEINAME, daten)
             if letzte.get("namen_vorher"):
                 _bestaetigt_schreiben(namen)
-            if any((letzte.get("paare_neu") or {}).values()) or \
-                    any((letzte.get("paare_weg") or {}).values()):
-                _vorgaben_schreiben(vorgaben)
+            paare_geaendert = (any((letzte.get("paare_neu") or {}).values()) or
+                               any((letzte.get("paare_weg") or {}).values()))
+            if paare_geaendert:
+                vorgaben_daten["gleich"] = sorted(vorgaben["gleich"])
+                vorgaben_daten["verschieden"] = sorted(vorgaben["verschieden"])
+            if paare_geaendert or zugeordnet_geaendert:
+                _atomar_schreiben(VORGABEN_DATEINAME, vorgaben_daten)
             _atomar_schreiben(STAND_DATEINAME, st)
             _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
                                   "zeit": datetime.now().isoformat(timespec="seconds"),
