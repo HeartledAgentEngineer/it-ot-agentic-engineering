@@ -128,6 +128,17 @@ else
         --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv || true
 fi
 
+# ── 5b. Rueckweg: eigene Dateien vom Handy fuer den PC bereitstellen ────────
+# Die App erzeugt am Geraet eigene Datendateien (eigene Erzaehlungen, eigene
+# Anlassnamen) und legt sie im Termux-Heimordner ab — der ist ueber das Kabel
+# NICHT lesbar. Dieses Skript KOPIERT sie in den freigegebenen Download-Ordner;
+# der PC holt sie mit tools/handy/rueckweg_holen.py ab (Rueckweg, 12.10.2026).
+# Es wird am Geraet nichts geloescht und nichts verschoben; darf den Start NIE
+# verhindern (|| true); fehlt eine Datei, passiert nichts.
+if [ -f "$HIER/rueckweg-bereitstellen.sh" ]; then
+    bash "$HIER/rueckweg-bereitstellen.sh" || true
+fi
+
 # ── 6. Wissensdatei (memory.db) uebernehmen ─────────────────────────────────
 # sha256-Vergleich: gleich -> nichts tun; sonst zuerst sichern, dann kopieren;
 # Protokoll nach hermes_diag/wissensdatei_uebernahme.log. Kein Netz, kein
