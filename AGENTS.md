@@ -133,6 +133,80 @@ Qualität/Orchestrierung), ohne Phase-zu-Phase-Lauf. Die Kerninstrumente gelten
 
 Hat ein Projekt **keinen** Prüfbefehl, wird jede Änderung einzeln vorgelegt.
 
+## Rollen und Datenschutz im Agenten-Workflow
+
+Vom Nutzer am 10.10.2026 festgelegt. Diese Rollen ersetzen starre Vorgaben,
+nach denen Codex ausschließlich planen oder ausschließlich prüfen darf.
+
+| Aktiver Master | Planer | Planprüfung | Technischer Ausführer | Technischer Prüfer | Alles Sensible |
+|---|---|---|---|---|---|
+| Claude Code | Claude Code | Hermes (DeepSeek v4.1 Flash) **und** Codex | Claude Code; bei sensiblen Daten Hermes | Codex | ausschließlich Hermes |
+| Codex | Codex | Hermes mit DeepSeek v4.1 Flash | Hermes mit GPT-6 Luna | Hermes mit DeepSeek v4.1 Flash; Wechsel nur auf ausdrückliche Nutzeranweisung | ausschließlich Hermes |
+
+**Regel ab 12.10.2026 (Sebastian):** Claude Code ist Master, **sobald es erreichbar
+ist**. Dann gilt: erst planen, Hermes prüft den Plan, Codex prüft den Plan, danach
+führt Claude Code aus. Hat die Arbeit mit sensiblen Daten zu tun, führt Hermes aus.
+Ob etwas sensibel oder sicherheitskritisch ist, entscheidet der Master selbst und
+schreibt die Einordnung in den Plan.
+
+**Wenn Claude Code im Limit ist:** Codex ist Master (Zeile 2 der Tabelle), wie am
+Wochenende 10.–12.10.2026. Dann prüft Hermes den Plan und die technischen
+Ergebnisse mit **DeepSeek v4.1 Flash** (`deepseek/deepseek-v4.1-flash`).
+Die technische Ausführung übernimmt nach Planfreigabe eine getrennte Hermes-Sitzung
+mit GPT-6 Luna (`openai/gpt-6-luna`). Die Ergebnisprüfung übernimmt
+eine eigene Hermes-Sitzung mit DeepSeek v4.1 Flash.
+Hermes organisiert beide Rollen; Ausführer und Prüfer sind getrennte
+Modellfamilien und frische Kontexte. Keine Selbstfreigabe durch den
+Ausführerlauf. Sensible Arbeit bleibt ausschließlich bei Hermes.
+
+Keine stille Wahl eines anderen Prüfmodells und kein automatischer
+Masterwechsel: Der Nutzer bestimmt die Rollen und deren Wechsel.
+
+**Alles Sensible bleibt IMMER bei Hermes.** Das gilt unabhängig davon, wer
+Master, Planer, Ausführer oder Prüfer ist. Persönliche Texte, Lebenslaufdaten,
+Chats, Kontakte, echte Kennungen, private Pfade, Zugangsschlüssel, Bildinhalte
+sowie persönliche Beschreibungen und Vektoren verarbeitet ausschließlich
+Hermes über den vom Nutzer freigegebenen Zugang mit Retention-Ausschluss.
+Codex und Claude Code bearbeiten Code, Tests, technische Beschreibungen und
+Architektur. Eine Master- oder Prüferrolle erteilt ihnen keine zusätzliche
+Berechtigung für sensible Inhalte. Benötigte Datenprüfungen laufen bei Hermes;
+die technischen Agenten erhalten nur bereinigte Anforderungen und Belege.
+
+**Freigabe und Gegenprüfung:** Der Master erstellt den Plan. Vor der
+technischen Umsetzung prüft der zugeordnete andere Prüfer den aktuellen Plan
+kritisch und gibt den technischen Umfang frei. Erst danach führt der
+technische Ausführer in kleinen, ausdrücklich zugeordneten Änderungen aus.
+Anschließend prüft der andere Prüfer die Ergebnisse anhand eigener Belege.
+Selbstprüfung ersetzt die Gegenprüfung nicht. Freigabe, tatsächliches
+Prüfmodell, Planfassung und offene Blocker werden lokal dokumentiert.
+Keine Antwort ist keine Freigabe. Veröffentlichung und sensible Arbeit
+bleiben an die gesonderten Nutzergrenzen gebunden.
+
+## Lebenszyklus eigener Prüfchats
+
+Vom Nutzer ausdrücklich festgelegt am 10.10.2026: Feedback bleibt im Master;
+eigene Prüfchats werden nach Abschluss der zugehörigen Diskussion gelöscht.
+
+- Der Master behält das bereinigte Feedback, die Entscheidung, offene beziehungsweise
+  erledigte Befunde und notwendige Prüfbelege. Sensible Originalinhalte bleiben bei
+  Hermes und werden nicht in einen Codex-/Claude-Master übernommen.
+- Ein beendeter Modelllauf oder das erste Feedback allein ist KEIN Diskussionsabschluss.
+  Die Diskussion ist abgeschlossen, wenn alle Befunde entschieden und dokumentiert
+  sind oder der Nutzer sie ausdrücklich für abgeschlossen erklärt.
+- Erst danach entfernt der Master die Anpinnung und löscht genau die zugehörigen,
+  von diesem Workflow angelegten Prüfersitzungen anhand ihrer registrierten exakten
+  Sitzungskennungen. Der Nutzer hat diese spätere Bereinigung bereits freigegeben;
+  keine erneute Löschrückfrage bei erfüllten Voraussetzungen.
+- Master-Chats, Ausführer-Chats, fremde Sitzungen, persönliche Archive und Originaldaten
+  sind von dieser Regel AUSGESCHLOSSEN. Keine pauschale Bereinigung, kein Löschen nach
+  Titelmustern, kein Prune und kein Reparieren oder Neuaufbauen der Sitzungsdatenbank.
+- Prüfchats sind während der offenen Diskussion sichtbar und bei Bedarf angepinnt.
+  Nach deren Abschluss dürfen sie trotz vorheriger Anpinnung entfernt werden.
+- Vor dem Löschen: Feedback im Master gesichert, Diskussion geschlossen und Besitz/
+  Rolle der exakten Sitzungskennung geprüft. Ist etwas unklar, Sitzung behalten und
+  den Blocker nennen. Nach dem Löschen nur den technischen Bereinigungsnachweis
+  festhalten; keine vollständigen Prüfchat-Exporte als Ersatzkopie anlegen.
+
 ## Kontext-Hygiene
 
 Ab etwa 60 % Kontextnutzung oder am Phasenende: Zwischenstand in die
