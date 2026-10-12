@@ -1625,3 +1625,130 @@ def test_archiv_leser_werfen_nie(tmp_path):
     archiv = _mini_archiv(tmp_path)
     assert bp.archiv_vektordatei_stand(str(archiv / "db"))["andere"] == 1
     assert bp.archiv_vektordatei_stand(str(tmp_path / "gibtsnicht"))["ordner_fehlt"] is True
+
+
+# ── 12. Uebergabe-LISTEN: was geht ueberhaupt ans Geraet ─────────────────────
+
+def _mini_projekt(tmp_path, *,
+                  script_zeilen=("        --dateien foto_a.json foto_b.json \\",
+                                 "        --dateien foto_a.json foto_b.json || true"),
+                  app_dateien=(("foto_a.json", "foto_b.json", "geschichten.jsonl"),),
+                  script_name="termux/start-vorbereiten.sh"):
+    """Ein Mini-Projekt: Startskript mit --dateien-Liste(n) und backend/app."""
+    projekt = tmp_path / "projekt"
+    if script_zeilen:
+        weg = projekt / script_name
+        weg.parent.mkdir(parents=True, exist_ok=True)
+        weg.write_text("#!/bin/bash\n" + "\n".join(script_zeilen) + "\n", encoding="utf-8")
+    for nummer, namen in enumerate(app_dateien):
+        ziel = projekt / "backend" / "app" / "services"
+        ziel.mkdir(parents=True, exist_ok=True)
+        zeilen = [f'DATEI_{i} = "{n}"' for i, n in enumerate(namen)]
+        (ziel / f"dienst_{nummer}.py").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return projekt
+
+
+def test_uebergabe_listen_zaehlt_namen_und_stellen(tmp_path):
+    """Zwei Aufrufstellen derselben Liste werden gelesen und verglichen."""
+    projekt = _mini_projekt(tmp_path)
+    stand = bp.uebergabe_listen_lesen(str(projekt / "termux" / "start-vorbereiten.sh"))
+    assert stand["fehlt"] is False
+    assert stand["namen"] == {"foto_a.json", "foto_b.json"}
+    assert len(stand["stellen"]) == 2
+    assert [z for z, _ in stand["stellen"]] == [2, 3]
+
+    dl = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",))
+    skript = dl["skripte"][0]
+    assert skript["pflicht"] is True and skript["fehlt"] is False
+    assert skript["ungleich"] is False and len(skript["namen"]) == 2
+    # Beide gelesenen Dateien stehen auf der Liste, die Geraetedatei ist begruendet frei.
+    assert dl["ohne_liste"] == set()
+    assert dl["geraeteseitig"] == {"geschichten.jsonl"}
+    assert dl["ohne_leser"] == set()
+
+    # Eine stimmige Liste ist kein Befund.
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert ("Uebergabe-Listen (Deckung): termux/start-vorbereiten.sh: 2 Namen, "
+            "2 Stellen (gleich)") in text
+    assert "  Dienst liest 3 Datendateinamen; auf einer Liste 2, geraeteseitig 1, ohne Liste 0" in text
+    assert not [l for l in luecken if "Uebergabe" in l or "keiner Uebergabe-Liste" in l]
+
+
+def test_uebergabe_listen_ungleich_und_ohne_liste_sind_luecken(tmp_path):
+    """Auseinanderlaufende Stellen und eine ungelistete Datei sind Luecken."""
+    projekt = _mini_projekt(
+        tmp_path,
+        script_zeilen=("        --dateien foto_a.json \\",
+                       "        --dateien foto_a.json foto_b.json || true",
+                       "        --dateien nur_geliefert.json || true"),
+        app_dateien=(("foto_a.json", "foto_b.json", "unbekannt.json"),))
+    _bestand(tmp_path)
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "3 Stellen (ungleich)" in text
+    assert "ohne Liste 1" in text
+    # Unbekannt.json liest der Dienst, sie steht auf keiner Liste -> Luecke.
+    assert ("unbekannt.json: der Dienst liest sie, sie steht aber auf keiner "
+            "Uebergabe-Liste (kommt nie ans Geraet)") in luecken
+    assert ("termux/start-vorbereiten.sh: die 3 Aufrufstellen der Uebergabe-Liste "
+            "stimmen nicht ueberein") in luecken
+    # Geliefert, aber kein Dienst liest sie: eine Zeile, KEINE Luecke.
+    assert "Uebergeben, aber von keinem Dienst gelesen (1): nur_geliefert.json" in text
+    assert not [l for l in luecken if "nur_geliefert" in l]
+
+
+def test_uebergabe_listen_fehlend_und_abschaltbar(tmp_path):
+    """Fehlende Pflicht-Liste ist eine Luecke; ohne Schalter wird nichts geprueft."""
+    _bestand(tmp_path)
+    projekt = _mini_projekt(tmp_path, script_zeilen=(), app_dateien=())
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                uebergabe_listen=bp.STANDARD_UEBERGABE_LISTEN)
+    text = "\n".join(zeilen)
+    # Die Pflichtliste (der gemeinsame Startweg) fehlt am PC -> Luecke.
+    assert ("termux/start-vorbereiten.sh fehlt (die Uebergabe-Liste ist nicht "
+            "pruefbar)") in luecken
+    # Das alte Skript ist keine Pflicht: es steht als Zeile, nicht als Luecke.
+    assert "start-termux.sh: nicht gefunden" in text
+    assert not [l for l in luecken if "start-termux.sh" in l or "keine --dateien" in l]
+    ohne = "\n".join(bp.pruefen(str(tmp_path), projekt=str(projekt))[0])
+    assert "Uebergabe-Listen" not in ohne
+
+
+def test_uebergabe_listen_leser_werfen_nie_und_nur_namen(tmp_path):
+    """Beide Leser sind tolerant; im Bericht stehen nur Namen, kein Pfad."""
+    assert bp.uebergabe_listen_lesen(str(tmp_path / "weg.sh"))["fehlt"] is True
+    assert bp.dienst_dateinamen(str(tmp_path / "weg")) == {}
+    # Platzhalter und Endungs-Reste zaehlen nicht mit.
+    projekt = _mini_projekt(
+        tmp_path,
+        script_zeilen=('        --dateien "$DATEIEN" && echo ".csv" || true',),
+        app_dateien=(("Fantasie.json",),))
+    # Gueltiges Python mit Platzhalter, Endungs-Rest, Pfad und Leerzeichen.
+    (projekt / "backend" / "app" / "roh.py").write_text(
+        'A = "$VAR"\nB = ".csv"\nC = "backend/app/x.json"\nD = "mit leer.json"\n',
+        encoding="utf-8")
+    stand = bp.uebergabe_listen_lesen(str(projekt / "termux" / "start-vorbereiten.sh"))
+    assert stand["stellen"] == [(2, [])] and stand["namen"] == set()
+    dienst = bp.dienst_dateinamen(str(projekt / "backend" / "app"))
+    assert set(dienst) == {"Fantasie.json"}
+    assert list(dienst.values())[0].endswith(":1")
+    # __pycache__ und kaputte .py-Dateien stoeren nicht.
+    ziel = projekt / "backend" / "app" / "__pycache__"
+    ziel.mkdir(parents=True, exist_ok=True)
+    (ziel / "alt.py").write_text('X = "aus_pycache.json"\n', encoding="utf-8")
+    (projekt / "backend" / "app" / "kaputt.py").write_text("def (:\n", encoding="utf-8")
+    assert "aus_pycache.json" not in bp.dienst_dateinamen(str(projekt / "backend" / "app"))
+
+    _bestand(tmp_path)
+    zeilen, _ = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                          uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "Uebergabe-Listen (Deckung)" in text
+    # Im Bericht stehen nur Zahlen und Dateinamen — kein Pfad, keine .py-Datei.
+    block = "\n".join(z for z in zeilen if "Uebergabe-Listen" in z
+                      or z.startswith(("  Dienst liest", "  Auf keiner Liste", "  Uebergeben")))
+    assert str(tmp_path) not in block and "backend" not in block and ".py" not in block

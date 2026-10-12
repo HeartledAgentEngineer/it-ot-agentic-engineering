@@ -165,6 +165,22 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       die letzte Buchung — ein spaeterer Wechsel der Datei IM
                       pCloud-Ordner ist ohne Netzabruf nicht sichtbar. Nur Zahlen und
                       die eigenen Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
+  * Uebergabe-Listen: die ``--dateien``-Listen der Startskripte
+                      (``termux/start-vorbereiten.sh``, ``start-termux.sh``) gegen
+                      die Dateinamen gestellt, die der Dienst wirklich liest
+                      (``backend/app``, per AST — Zeichenketten, keine
+                      Kommentare). Gezaehlt werden die Namen je Liste, ob die
+                      mehrfachen Aufrufstellen derselben Liste uebereinstimmen,
+                      welche gelesenen Dateien auf KEINER Liste stehen (sie
+                      kaemen nie ans Geraet — dieselbe Fehlerklasse wie die
+                      fehlende Bildindex-Uebergabe am 10.10.) und welche
+                      uebergebenen Dateien KEIN Dienst liest (benannt, keine
+                      Luecke). Dateien, die das Geraet selbst erzeugt oder ueber
+                      einen eigenen Weg holt, stehen in einer begruendeten
+                      Ausnahmeliste (sonst waere jede Quiz-/Postfach-Datei ein
+                      Dauerfehlalarm). Ueber ``--uebergabe-listen`` steuerbar
+                      (leer = nicht pruefen; die uebrigen Pruefungen bleiben
+                      dadurch unveraendert). Nur Zahlen und Dateinamen.
   * Archiv:           das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts,
                       ueber ``--archiv`` steuerbar; Voreinstellung der Ordner
                       neben dem Projekt, ``--archiv ""`` schaltet es ab) — die
@@ -208,13 +224,15 @@ Exit-Code 0 (Bericht), 2 = Basisordner fehlt.
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 STANDARD_BASIS = os.path.join(os.path.expanduser("~"), "foto_sortierung")
 # Papas Plan traegt die Feldnamen name/ordner und fehlte hier ganz — sein
@@ -349,6 +367,49 @@ STANDARD_UEBERGABE_MANIFEST = "uebergabe_manifest.jsonl"
 UEBERGABE_GLEICH = "gleich"
 UEBERGABE_GEAENDERT = "geaendert"
 UEBERGABE_FEHLT_LOKAL = "fehlt_lokal"
+# Die Uebergabe-LISTEN (Deckung der Uebergabe-Stufe): WELCHE Dateien gehen
+# ueberhaupt ans Geraet? Die Startskripte nennen die Liste, jedes zweimal (mit
+# und ohne ``|| true``) — zwei Stellen, die auseinanderlaufen koennen. Stellen
+# sie gegen die Dateinamen, die ``backend/app`` wirklich liest (AST): eine Datei,
+# die ein Dienst liest und die auf KEINER Liste steht, kaeme nie ans Geraet —
+# dieselbe Fehlerklasse wie die fehlende Bildindex-Uebergabe vom 10.10. Nur
+# Zahlen und die eigenen Ergebnis-Dateinamen, kein Pfad, kein Inhalt.
+STANDARD_UEBERGABE_LISTEN = ("termux/start-vorbereiten.sh", "start-termux.sh")
+# Diese Liste ist PFLICHT (der gemeinsame Startweg fuer App-Knopf und Widget).
+STANDARD_UEBERGABE_LISTE_PFLICHT = "termux/start-vorbereiten.sh"
+STANDARD_DIENST_ORDNER = os.path.join("backend", "app")
+# Ein einfacher Dateiname mit einer dieser Endungen zaehlt als Datenablage.
+# Kein Pfadtrenner, kein Leerzeichen, kein Punkt am Anfang — damit fallen
+# Textbausteine wie ``".csv"`` (ein Endungs-Rest in ``chat.py``) heraus.
+DIENST_DATEI_MUSTER = re.compile(
+    r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*\.(?:json|jsonl|db|csv)$")
+# Die ``--dateien``-Zeile bis zum Zeilenende, dem Zeilenumbruch ``\`` oder ``||``.
+_LISTEN_MUSTER = re.compile(r"--dateien\s+(.+?)(?:\s*\\\s*$|\s*\|\|.*$|\s*$)")
+# Dateien, die das GERAET selbst erzeugt oder ueber einen EIGENEN Weg holt — sie
+# gehoeren nicht in die ``--dateien``-Liste. Jede Aufnahme braucht einen Grund:
+# ohne Grund gehoert die Datei auf die Liste, und ihr Fehlen dort ist ein echter
+# Befund (die Zahl „ohne Liste\" in der Pruefzeile).
+UEBERGABE_GERAETESEITIG = {
+    "archiv_index.db": "Archiv am Geraet (eigener Weg ueber /sdcard/Download)",
+    "personen_bestaetigt.json": "Quiz am Geraet (Namen werden dort bestaetigt)",
+    "personen_vorgaben.json": "Quiz am Geraet (Vorgaben gleich/verschieden/ausgeschlossen)",
+    "personen_profile.json": "Quiz am Geraet (Beziehung/Notizen)",
+    "gruppen_quiz_stand.json": "Quiz am Geraet (Stand)",
+    "gruppen_antworten.jsonl": "Quiz am Geraet (Protokoll)",
+    "quiz_fortschritt.json": "Quiz am Geraet (Fortschritt)",
+    "geschichten.jsonl": "App am Geraet (eigene Geschichten)",
+    "anlass_umbenennung.jsonl": "App am Geraet (eigene Anlassnamen)",
+    "gesichter_katalog.json": "Geraetespeicher (alter Gesichtskatalog, Notnagel)",
+    "memory_store.json": "Geraetespeicher (Wissensspeicher/chroma)",
+    "klassifikation_lernfaelle.json": "Geraetespeicher (Lernfaelle)",
+    "auftraege.json": "Postfach/Steuerung am Geraet",
+    "auftraege.jsonl": "Postfach am Geraet (hermes_inbox)",
+    "antworten.jsonl": "Postfach am Geraet (hermes_inbox)",
+    "status.jsonl": "Postfach am Geraet (Selbsttest)",
+    "conversations.json": "Verlauf am Geraet",
+    "letzte_nachricht.json": "Zustand am Geraet",
+    "ueberlauf.jsonl": "Diagnose des Geraets (Layout-Waechter)",
+}
 # Das Chat-/WhatsApp-Archiv (Schwesterordner des Projekts): die Stufe, aus der
 # JEDE Archiv-Antwort im Chat ihre Fundstellen zieht (Suchdienst
 # ``archiv_suche``, seit dem 10.10. der Standardweg; der alte Weg
@@ -1536,6 +1597,119 @@ def uebergabe_stand_lesen(basis: str,
             "unlesbar": unlesbar}
 
 
+# ── Uebergabe-LISTEN: was geht ueberhaupt ans Geraet ────────────────────────
+
+def uebergabe_listen_lesen(pfad: str) -> Dict[str, Any]:
+    """Die ``--dateien``-Liste(n) eines Startskripts lesen — **wirft nie**.
+
+    Rueckgabe: ``{"fehlt": True}`` oder ``{"fehlt": False, "stellen":
+    [(Zeile, [Name, ...]), ...], "namen": set}``. Gelesen werden nur Zeilen mit
+    ``--dateien`` und daraus die Namen mit einer der ``DIENST_ENDUNGEN``;
+    Platzhalter (``"$DATEIEN"``) zaehlen nicht mit. Nur Dateinamen — kein Pfad,
+    kein Inhalt.
+    """
+    stellen: List[Tuple[int, List[str]]] = []
+    namen: Set[str] = set()
+    if not os.path.isfile(pfad):
+        return {"fehlt": True, "stellen": stellen, "namen": namen}
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as datei:
+            for nummer, roh in enumerate(datei, 1):
+                zeile = roh.rstrip("\r\n")
+                if "--dateien" not in zeile:
+                    continue
+                treffer = _LISTEN_MUSTER.search(zeile)
+                if not treffer:
+                    stellen.append((nummer, []))
+                    continue
+                hier = [w for w in treffer.group(1).split() if DIENST_DATEI_MUSTER.match(w)]
+                stellen.append((nummer, hier))
+                namen.update(hier)
+    except OSError:
+        return {"fehlt": True, "stellen": stellen, "namen": namen}
+    return {"fehlt": False, "stellen": stellen, "namen": namen}
+
+
+def dienst_dateinamen(ordner: str) -> Dict[str, str]:
+    """Dateinamen, die der Dienst liest (per AST) — **wirft nie**.
+
+    ``ordner`` wird rekursiv nach ``*.py`` durchsucht (``__pycache__`` bleibt
+    aussen vor); je Dateiname die ERSTE Fundstelle als ``Pfad:Zeile``. Gezaehlt
+    werden nur einfache Dateinamen (kein Pfadtrenner, kein Leerzeichen, kein
+    Punkt am Anfang) mit einer der ``DIENST_ENDUNGEN`` — ein Kommentar ist kein
+    Zeichenketten-Literal und zaehlt damit nicht mit.
+    """
+    gefunden: Dict[str, str] = {}
+    if not os.path.isdir(ordner):
+        return gefunden
+    for wurzel, unterordner, dateien in os.walk(ordner):
+        unterordner[:] = [u for u in unterordner if u != "__pycache__"]
+        for name in sorted(dateien):
+            if not name.endswith(".py"):
+                continue
+            pfad = os.path.join(wurzel, name)
+            try:
+                with open(pfad, "r", encoding="utf-8", errors="replace") as datei:
+                    baum = ast.parse(datei.read())
+            except (OSError, SyntaxError, ValueError):
+                continue
+            for knoten in ast.walk(baum):
+                if not isinstance(knoten, ast.Constant) or not isinstance(knoten.value, str):
+                    continue
+                wert = knoten.value.strip()
+                if not DIENST_DATEI_MUSTER.match(wert):
+                    continue
+                gefunden.setdefault(wert, f"{os.path.relpath(pfad, ordner)}:{knoten.lineno}")
+    return gefunden
+
+
+def uebergabe_deckung_pruefen(wurzel: str,
+                             listen: Sequence[str] = STANDARD_UEBERGABE_LISTEN,
+                             app_ordner: str = STANDARD_DIENST_ORDNER,
+                             pflicht: str = STANDARD_UEBERGABE_LISTE_PFLICHT,
+                             uebergebene: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+    """Die Uebergabe-LISTEN gegen die wirklich gelesenen Dateinamen stellen (**wirft nie**).
+
+    Die Startskripte nennen die Dateien, die ans Geraet gehen — dieselbe Liste
+    steht dort mehrfach (mit und ohne ``|| true``), zwei Stellen koennen
+    auseinanderlaufen. Geprueft wird:
+
+    * je Skript die Namen und die Aufrufstellen — stimmen sie ueberein?,
+    * welche vom Dienst gelesenen Dateien auf KEINER Liste stehen und nicht in
+      ``UEBERGABE_GERAETESEITIG`` begruendet sind (sie kaemen nie ans Geraet),
+    * welche uebergebenen Dateien (Liste oder Manifest) KEIN Dienst liest.
+
+    Nur Zahlen und Dateinamen — kein Pfad, kein Inhalt.
+    """
+    skripte: List[Dict[str, Any]] = []
+    listen_namen: Set[str] = set()
+    for name in listen:
+        stand = uebergabe_listen_lesen(os.path.join(wurzel, name))
+        stellen = [(z, list(n)) for z, n in stand["stellen"]]
+        mengen = {frozenset(n) for _, n in stellen}
+        skripte.append({
+            "name": name,
+            "pflicht": os.path.normpath(name) == os.path.normpath(pflicht),
+            "fehlt": bool(stand.get("fehlt")),
+            "stellen": stellen,
+            "namen": set(stand["namen"]),
+            "ungleich": len(mengen) > 1,
+        })
+        listen_namen |= set(stand["namen"])
+    dienst = dienst_dateinamen(os.path.join(wurzel, app_ordner))
+    geraeteseitig = set(dienst) & set(UEBERGABE_GERAETESEITIG)
+    uebergeben = {k for k in (_kennung(n) for n in (uebergebene or ())) if k}
+    return {"skripte": skripte, "dienst": dienst, "listen_namen": listen_namen,
+            "uebergeben": uebergeben, "geraeteseitig": geraeteseitig,
+            "ohne_liste": set(dienst) - listen_namen - set(UEBERGABE_GERAETESEITIG),
+            "ohne_leser": (listen_namen | uebergeben) - set(dienst)}
+
+
+def _projekt_wurzel() -> str:
+    """Der Projektordner (dieses Werkzeug liegt in ``tools/foto_sortierung/``)."""
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+
 # ── Archiv (Chat/WhatsApp) ──────────────────────────────────────────────────
 
 def _ro_verbindung(pfad: str) -> sqlite3.Connection:
@@ -1910,6 +2084,8 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             geschichten: Optional[str] = STANDARD_GESCHICHTEN,
             titel: Optional[str] = STANDARD_TITEL,
             uebergabe: Optional[str] = STANDARD_UEBERGABE_MANIFEST,
+            uebergabe_listen: Optional[Sequence[str]] = None,
+            projekt: Optional[str] = None,
             archiv: Optional[str] = None,
             archiv_heute: Optional[str] = None,
             luecken_details_max: int = 20) -> Tuple[List[str], List[str]]:
@@ -1917,6 +2093,12 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
 
     ``luecken_details_max`` = wie viele fehlende Fotos der Gesamtplan mit
     Kennung und Grund benennt (0 = nur zaehlen, wie frueher).
+
+    ``uebergabe_listen`` = die Startskripte mit ``--dateien``-Liste, die gegen
+    die im Dienst gelesenen Dateinamen gestellt werden (Voreinstellung ``None``
+    = nicht pruefen; die uebrigen Pruefungen bleiben dadurch schnell und
+    unveraendert). ``projekt`` = Wurzel des Projekts (Voreinstellung: der
+    Projektordner dieses Werkzeugs).
     """
     zeilen: List[str] = ["Bestandspruefung Fotos - nur Zahlen, nur lesend", ""]
     luecken: List[str] = []
@@ -2372,8 +2554,11 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                                    f"den es nicht mehr gibt (Name zeigt ins Leere)")
         zeilen.append("")
 
+    ub_namen: Set[str] = set()
     if uebergabe:
         ub = uebergabe_stand_lesen(basis, uebergabe)
+        if not ub.get("fehlt"):
+            ub_namen = set(ub["namen"])
         if ub.get("fehlt"):
             zeilen.append(f"Uebergabe (Handy): {uebergabe} noch nicht angelegt - es wurde noch "
                           f"nichts kabellos uebergeben (uebergabe_hochladen.py)")
@@ -2412,6 +2597,41 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
             if ub["ohne_pruefsumme"]:
                 luecken.append(f"{uebergabe}: {_z(len(ub['ohne_pruefsumme']))} Buchung(en) ohne "
                                f"Pruefsumme (nur ueber die Groesse vergleichbar)")
+        zeilen.append("")
+
+    if uebergabe_listen:
+        dl = uebergabe_deckung_pruefen(projekt or _projekt_wurzel(), tuple(uebergabe_listen),
+                                       uebergebene=ub_namen)
+        teile = []
+        for s in dl["skripte"]:
+            if s["fehlt"]:
+                teile.append(f"{s['name']}: nicht gefunden")
+            elif not s["stellen"]:
+                teile.append(f"{s['name']}: keine --dateien-Liste")
+            else:
+                teile.append(f"{s['name']}: {_z(len(s['namen']))} Namen, "
+                             f"{_z(len(s['stellen']))} Stellen "
+                             f"({'ungleich' if s['ungleich'] else 'gleich'})")
+        zeilen.append("Uebergabe-Listen (Deckung): " + "; ".join(teile)
+                      if teile else "Uebergabe-Listen (Deckung): keine Liste angegeben")
+        zeilen.append(f"  Dienst liest {_z(len(dl['dienst']))} Datendateinamen; auf einer Liste "
+                      f"{_z(len(dl['listen_namen']))}, geraeteseitig {_z(len(dl['geraeteseitig']))}, "
+                      f"ohne Liste {_z(len(dl['ohne_liste']))}")
+        if dl["ohne_liste"]:
+            zeilen.append(f"  Auf keiner Liste - kaeme nie ans Geraet "
+                          f"({_z(len(dl['ohne_liste']))}): {_namen_kurz(sorted(dl['ohne_liste']))}")
+        if dl["ohne_leser"]:
+            zeilen.append(f"  Uebergeben, aber von keinem Dienst gelesen "
+                          f"({_z(len(dl['ohne_leser']))}): {_namen_kurz(sorted(dl['ohne_leser']))}")
+        for s in dl["skripte"]:
+            if s["fehlt"] and s["pflicht"]:
+                luecken.append(f"{s['name']} fehlt (die Uebergabe-Liste ist nicht pruefbar)")
+            if s["stellen"] and s["ungleich"]:
+                luecken.append(f"{s['name']}: die {_z(len(s['stellen']))} Aufrufstellen der "
+                               f"Uebergabe-Liste stimmen nicht ueberein")
+        for name in sorted(dl["ohne_liste"]):
+            luecken.append(f"{name}: der Dienst liest sie, sie steht aber auf keiner "
+                           f"Uebergabe-Liste (kommt nie ans Geraet)")
         zeilen.append("")
 
     if archiv is not None:
@@ -2644,11 +2864,17 @@ def main(argv=None) -> int:
     parser.add_argument("--luecken-details", type=int, default=20, dest="luecken_details",
                         help="wie viele fehlende Fotos mit Kennung und Grund benannt werden "
                              "(0 = nur zaehlen)")
+    parser.add_argument("--uebergabe-listen", default=",".join(STANDARD_UEBERGABE_LISTEN),
+                        dest="uebergabe_listen",
+                        help="Startskripte mit --dateien-Liste, mit Komma getrennt "
+                             "(leer lassen = nicht pruefen)")
     args = parser.parse_args(argv)
     if not os.path.isdir(args.basis):
         print(f"Ordner fehlt: {args.basis}")
         return 2
+    listen = tuple(t.strip() for t in (args.uebergabe_listen or "").split(",") if t.strip())
     zeilen, _ = pruefen(args.basis, luecken_details_max=args.luecken_details,
+                        uebergabe_listen=(listen or None),
                         archiv=(args.archiv or None),
                         archiv_heute=(args.archiv_heute or None))
     print("\n".join(zeilen))
