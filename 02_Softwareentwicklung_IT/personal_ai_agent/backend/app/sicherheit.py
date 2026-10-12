@@ -228,8 +228,12 @@ class SicherheitsMiddleware:
             await antwort(scope, receive, send)
             return
 
+        gestartet = False
+
         async def mit_koepfen(message: Message) -> None:
+            nonlocal gestartet
             if message["type"] == "http.response.start":
+                gestartet = True
                 roh = list(message.get("headers") or [])
                 vorhanden = {k.lower() for k, _ in roh}
                 for name, wert in SICHERHEITS_KOEPFE.items():
@@ -239,4 +243,14 @@ class SicherheitsMiddleware:
                 message = {**message, "headers": roh}
             await send(message)
 
-        await self.app(scope, receive, mit_koepfen)
+        try:
+            await self.app(scope, receive, mit_koepfen)
+        except Exception:
+            # Sonst beantwortet Starlettes äußere Fehlerbehandlung den Absturz
+            # mit einer 500 ohne Sicherheitskopfzeilen. Die Antwort kommt deshalb
+            # von hier; der Fehler geht weiter, damit der Server ihn loggt.
+            if not gestartet:
+                antwort = PlainTextResponse("Internal Server Error", status_code=500,
+                                            headers=SICHERHEITS_KOEPFE)
+                await antwort(scope, receive, send)
+            raise

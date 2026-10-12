@@ -166,7 +166,7 @@ Befunde B1–B4 (Plan, Fassung 5):
 
 ### Tests
 
-- **Neu `backend/tests/test_sicherheit_herkunft.py`** (25 Testfunktionen):
+- **Neu `backend/tests/test_sicherheit_herkunft.py`** (25 Testfunktionen, mit dem Nachtrag 27):
   - Herkunft: cross-site, same-site, fremde und ähnliche Origins → 403; eigene Herkunft → 200.
   - Host: fremd → 400; `localhost`, IP-Adressen und `ERLAUBTE_HOSTS` werden zur Laufzeit
     angenommen.
@@ -176,7 +176,7 @@ Befunde B1–B4 (Plan, Fassung 5):
   - Der Schlüssel steht maskiert im Meta-Feld beider Seiten und in keiner anderen Datei.
   - Wächter: Jede Datei, die `index.html`, `hermes_status.html`, `sw.js`, `app.js` und
     `manifest.json` laden, steht in der Positivliste.
-- **Neu `backend/tests/test_termux_schluessel_aus_env.py`** (7 Testfunktionen):
+- **Neu `backend/tests/test_termux_schluessel_aus_env.py`** (7 Testfunktionen, mit dem Nachtrag 8):
   - Kein Skript nutzt mehr `api/konfig`, und keines gibt den Schlüssel aus.
   - `bash -n` ist grün.
   - Das Hilfsskript wurde an erfundenen Dateien geprüft: `export`, Anführungszeichen, CRLF,
@@ -193,9 +193,35 @@ Befunde B1–B4 (Plan, Fassung 5):
 (Sicherheit, Wächter, Termux-Schlüssel, Selbsttest, Frontend) liefen vorher allein:
 236 passed.
 
+## Nachtrag: Ergebnisprüfung Codex, Runde 1
+
+Codex (App-Standardmodell, Denkstufe high, read-only, über `tools/pruefkreis/pruefkreis.py`)
+prüfte `0a480a9` und `f76bcbf` gegen Planfassung 5 und erhob zwei **EINWÄNDE**. Beide sind
+nachgemessen und behoben:
+
+1. **`termux/api-schluessel.sh` las anders als das Backend.**
+   - Das Backend nutzt python-dotenv. Dort gilt der **letzte** Eintrag, und ` # Kommentar`
+     gehört nicht zum Wert. Das Skript nahm den ersten Eintrag und behielt den Kommentar.
+   - Folge: Bei einer gültigen Einstellung hätte das Werkzeug 401 bekommen.
+   - Jetzt: letzter Eintrag; ein Kommentar nach Leerraum fällt weg; bei Anführungszeichen zählt
+     nur der Inhalt dazwischen.
+   - Neuer Test `test_helfer_liest_wie_das_backend` vergleicht das Skript in zwölf Fällen direkt
+     mit `dotenv_values`. Der alte Test, der den ersten Eintrag festschrieb, ist berichtigt.
+2. **Ein Absturz (500) kam ohne Sicherheitskopfzeilen.**
+   - Starlettes äußere Fehlerbehandlung liegt außerhalb der Middleware. Gemessen mit einer
+     abstürzenden Probe-Route: 500 ohne CSP und ohne `nosniff`.
+   - Jetzt fängt `SicherheitsMiddleware` den Fehler ab, solange noch keine Antwort begonnen hat.
+     Sie sendet die 500 selbst mit den Kopfzeilen und reicht den Fehler weiter, damit der Server
+     ihn loggt.
+   - Neue Tests `test_sicherheitskopfzeilen_auch_bei_absturz` und `test_absturz_wird_weitergereicht`.
+
+Beide Tests sind gegen den alten Stand rot (10 Fälle) und jetzt grün.
+
+**Prüfbefehl nach Runde 1:** **4106 passed, 2 skipped, Exit 0** (339,61 s), 18 Fälle mehr als 4088.
+
 ## Offen
 
-- Ergebnisprüfung durch Hermes (frische Sitzung, DeepSeek v4.1 Flash).
+- Ergebnisprüfung Runde 2 (Codex).
 - **P0.10 am Handy über Hermes, vor dem Push:**
   - Ist `HOST_BIND` gesetzt, und ist `API_KEY` gesetzt?
   - Unter welcher Adresse wird die App am PC aufgerufen? Falls über Tailscale, muss der Name

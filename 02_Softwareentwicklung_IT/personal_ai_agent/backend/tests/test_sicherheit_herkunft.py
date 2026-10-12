@@ -158,6 +158,33 @@ def test_sicherheitskopfzeilen_ueberall(client, pfad):
         assert antwort.headers.get(name) == wert, (pfad, name)
 
 
+def _absturz_app():
+    """Kleine App mit derselben Middleware und einer Route, die abstürzt."""
+    from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.routing import Route
+
+    async def absturz(_anfrage):
+        raise RuntimeError("Probe-Absturz")
+
+    return Starlette(routes=[Route("/api/absturz", absturz)],
+                     middleware=[Middleware(sicherheit.SicherheitsMiddleware)])
+
+
+def test_sicherheitskopfzeilen_auch_bei_absturz():
+    """Codex-Einwand R1: Die 500 entstand außerhalb der Middleware, ohne Kopfzeilen."""
+    antwort = TestClient(_absturz_app(), raise_server_exceptions=False).get("/api/absturz")
+    assert antwort.status_code == 500
+    for name, wert in sicherheit.SICHERHEITS_KOEPFE.items():
+        assert antwort.headers.get(name) == wert, name
+
+
+def test_absturz_wird_weitergereicht():
+    """Der Fehler wird nicht verschluckt: Er erreicht das Log des Servers."""
+    with pytest.raises(RuntimeError, match="Probe-Absturz"):
+        TestClient(_absturz_app()).get("/api/absturz")
+
+
 def test_csp_erlaubt_blob_nur_fuer_bilder_und_ton():
     for teil in sicherheit.CSP.split(";"):
         richtlinie = teil.strip().split(" ")[0]

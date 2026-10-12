@@ -8,15 +8,23 @@
 # Bewusst ohne `source`: Die übrigen Schlüssel der Datei (OpenRouter, pCloud)
 # landen so nicht in der Shell-Umgebung des Aufrufers.
 #
+# Gelesen wird wie im Backend (python-dotenv): der LETZTE Eintrag gilt, ein
+# Kommentar nach Leerraum (` # …`) gehört nicht zum Wert, bei Anführungszeichen
+# zählt nur der Inhalt dazwischen. Escapes in Anführungszeichen kennt das Skript
+# nicht (ein Schlüssel enthält keine).
+#
 # Aufruf:  api-schluessel.sh <einstellungsdatei>
 # Ausgabe: der Wert auf stdout (Exit 0) — sonst nichts und Exit 1
 #          (Datei fehlt/unlesbar, keine API_KEY-Zeile, leerer Wert).
 datei="${1:-}"
 [ -n "$datei" ] && [ -r "$datei" ] || exit 1
 
-zeile="$(grep -m1 -E '^[[:space:]]*(export[[:space:]]+)?API_KEY[[:space:]]*=' "$datei" 2>/dev/null)"
-wert="$(printf '%s' "${zeile#*=}" | tr -d '\r' \
-    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
-          -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+zeile="$(grep -E '^[[:space:]]*(export[[:space:]]+)?API_KEY[[:space:]]*=' "$datei" 2>/dev/null | tail -n 1)"
+wert="$(printf '%s' "${zeile#*=}" | tr -d '\r' | sed -e 's/^[[:space:]]*//')"
+case "$wert" in
+    \"*) wert="$(printf '%s' "$wert" | sed -n 's/^"\([^"]*\)".*/\1/p')" ;;
+    \'*) wert="$(printf '%s' "$wert" | sed -n "s/^'\([^']*\)'.*/\1/p")" ;;
+    *)   wert="$(printf '%s' "$wert" | sed -e 's/[[:space:]][[:space:]]*#.*$//' -e 's/[[:space:]]*$//')" ;;
+esac
 [ -n "$wert" ] || exit 1
 printf '%s\n' "$wert"

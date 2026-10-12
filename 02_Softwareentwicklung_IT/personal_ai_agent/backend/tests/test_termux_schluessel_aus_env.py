@@ -68,7 +68,13 @@ def test_skript_syntax(skript):
     ('export API_KEY="mit leer"\n', "mit leer"),
     ("API_KEY='einfach'\r\n", "einfach"),
     ("  API_KEY =  abc  \n", "abc"),
-    ("ANDERES=1\nAPI_KEY=erster\nAPI_KEY=zweiter\n", "erster"),
+    # Wie das Backend (python-dotenv): der letzte Eintrag gilt,
+    ("ANDERES=1\nAPI_KEY=erster\nAPI_KEY=zweiter\n", "zweiter"),
+    # ein Kommentar nach Leerraum gehört nicht zum Wert, ein # ohne Leerraum schon.
+    ("API_KEY=abc # Kommentar\n", "abc"),
+    ('API_KEY="mit leer" # k\n', "mit leer"),
+    ("API_KEY='x'#k\n", "x"),
+    ("API_KEY=abc#def\n", "abc#def"),
 ])
 def test_helfer_liest_wert(tmp_path, inhalt, erwartet):
     datei = tmp_path / "einstellungen"
@@ -76,6 +82,32 @@ def test_helfer_liest_wert(tmp_path, inhalt, erwartet):
     lauf = _helfer(datei)
     assert lauf.returncode == 0
     assert lauf.stdout == erwartet + "\n"
+
+
+@pytest.mark.parametrize("inhalt", [
+    "API_KEY=abc123\n",
+    'export API_KEY="mit leer"\n',
+    "API_KEY='einfach'\r\n",
+    "  API_KEY =  abc  \n",
+    "ANDERES=1\nAPI_KEY=erster\nAPI_KEY=zweiter\n",
+    "API_KEY=abc # Kommentar\n",
+    'API_KEY="mit leer" # k\n',
+    "API_KEY='x'#k\n",
+    "API_KEY=abc#def\n",
+    "API_KEY=erster\nAPI_KEY=\n",
+    "API_KEY=\n",
+    "# API_KEY=auskommentiert\n",
+])
+def test_helfer_liest_wie_das_backend(tmp_path, inhalt):
+    """Gegenprobe mit dem Parser, den die Settings des Backends benutzen."""
+    from dotenv import dotenv_values
+
+    datei = tmp_path / "einstellungen"
+    datei.write_bytes(inhalt.encode("utf-8"))
+    backend = dotenv_values(datei).get("API_KEY") or ""
+    lauf = _helfer(datei)
+    assert lauf.stdout.rstrip("\n") == backend
+    assert lauf.returncode == (0 if backend else 1)
 
 
 @pytest.mark.parametrize("inhalt", [
