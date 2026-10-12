@@ -102,7 +102,9 @@ def host_zerlegen(host_kopf: str) -> Optional[Tuple[str, Optional[int]]]:
         name, port_text = h.split(":")
     else:
         name = h  # ohne Port; ein nacktes IPv6-Literal prüft host_erlaubt
-    if port_text and not port_text.isdigit():
+    # Nur ASCII-Ziffern: isdigit() nimmt auch „²“ an, int() scheitert dann
+    # (Codex-Einwand R2: 500 statt 400).
+    if port_text and not (port_text.isascii() and port_text.isdigit()):
         return None
     name = name.lower().rstrip(".")
     if not name:
@@ -216,7 +218,13 @@ class SicherheitsMiddleware:
             await self.app(scope, receive, send)
             return
 
-        befund = abweisungsgrund(scope)
+        try:
+            befund = abweisungsgrund(scope)
+        except Exception:
+            # Ein unerwartet geformter Kopf darf nie zu einer 500 ohne
+            # Kopfzeilen führen: dann gilt der Host als ungültig.
+            logger.exception("Host-/Herkunftsprüfung gescheitert")
+            befund = ("host", 400)
         if befund is not None:
             grund, status = befund
             abgewiesen[grund] += 1

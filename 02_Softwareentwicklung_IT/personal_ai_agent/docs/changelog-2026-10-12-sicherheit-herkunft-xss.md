@@ -219,9 +219,33 @@ Beide Tests sind gegen den alten Stand rot (10 Fälle) und jetzt grün.
 
 **Prüfbefehl nach Runde 1:** **4106 passed, 2 skipped, Exit 0** (339,61 s), 18 Fälle mehr als 4088.
 
+## Nachtrag: Ergebnisprüfung Codex, Runde 2
+
+Codex bestätigte Einwand 1 aus Runde 1 als erledigt und Einwand 2 als teilweise erledigt. Dazu
+kamen zwei neue Einwände. Beide sind behoben:
+
+1. **Ein Port mit Nicht-ASCII-Ziffern (`localhost:²`) ergab eine 500 ohne Kopfzeilen.**
+   - Ursache: `str.isdigit()` nimmt „²“ an, `int()` scheitert danach. Die Host-Prüfung lag
+     außerhalb des Fehlerfangs.
+   - Jetzt: `host_zerlegen` akzeptiert nur ASCII-Ziffern. Zusätzlich wird jede Ausnahme in der
+     Prüfung als ungültiger Host gewertet (400 mit Kopfzeilen), nie als 500.
+   - Tests: `test_host_zerlegen` mit zwei weiteren Fällen; neuer Test
+     `test_seltsamer_port_ergibt_400_mit_kopfzeilen`. Er ruft die Middleware direkt auf, weil der
+     Testclient nur ASCII-Köpfe sendet.
+2. **Im Nachtjob landete die Warnung „kein API_KEY“ in der JSON-Ausgabe.**
+   - Ursache: `log()` schreibt auf stdout, und `api_get` wird als `$(…)` gelesen. Folge: Der Job
+     wählte keinen Auftrag aus, obwohl der Server erreichbar war.
+   - Jetzt geht die Warnung auf stderr.
+   - Neuer Test `test_nachtjob_warnung_bleibt_aus_der_json_ausgabe`: Er führt die
+     Schlüssel-Funktionen des Skripts echt aus, mit Attrappen für `curl` und `log`.
+
+Testfunktionen jetzt: `test_sicherheit_herkunft.py` 28, `test_termux_schluessel_aus_env.py` 9.
+
+**Prüfbefehl nach Runde 2:** 4110 passed, 1 failed, 2 skipped. Rot war `test_event_abgleich.py::test_lauf_legt_nichts_im_repo_an`: Er vergleicht Prüfsummen in `tools/foto_sortierung/`, und dort schrieb ein anderer Agent während des Laufs eine Zwischendatei (danach verschwunden, `bestand_pruefen.py` geändert). Einzeln: 51 passed. Der Commit entstand erst nach dem erneuten vollen Lauf im Commit-Hook, der nur bei grünem Prüfbefehl committet.
+
 ## Offen
 
-- Ergebnisprüfung Runde 2 (Codex).
+- Ergebnisprüfung Runde 3 (Codex).
 - **P0.10 am Handy über Hermes, vor dem Push:**
   - Ist `HOST_BIND` gesetzt, und ist `API_KEY` gesetzt?
   - Unter welcher Adresse wird die App am PC aufgerufen? Falls über Tailscale, muss der Name

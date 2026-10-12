@@ -52,7 +52,8 @@ _api_key() {
     APIKEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/backend/.env" 2>/dev/null)" \
         || APIKEY="$(bash "$PROJEKT/termux/api-schluessel.sh" "$PROJEKT/.env" 2>/dev/null)" \
         || APIKEY=""
-    [ -n "$APIKEY" ] || log "WARNUNG: kein API_KEY in der Einstellungsdatei - Anfragen laufen ohne Schluessel."
+    # Auf stderr: _api_key läuft in api_get, dessen stdout als JSON gelesen wird.
+    [ -n "$APIKEY" ] || log "WARNUNG: kein API_KEY in der Einstellungsdatei - Anfragen laufen ohne Schluessel." >&2
 }
 # GET /api/... -> stdout (JSON)
 api_get() {

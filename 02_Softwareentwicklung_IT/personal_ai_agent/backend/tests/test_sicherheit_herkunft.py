@@ -126,9 +126,41 @@ def test_erlaubte_hosts_wirken_zur_laufzeit(client, monkeypatch):
     ("x:y", None),
     ("[::1]x", None),
     ("", None),
+    ("localhost:²", None),     # Codex R2: isdigit() ja, int() nein
+    ("[::1]:٨٠", None),        # arabisch-indische Ziffern
 ])
 def test_host_zerlegen(roh, erwartet):
     assert sicherheit.host_zerlegen(roh) == erwartet
+
+
+def _roh_anfrage(host: bytes):
+    """Ruft die Middleware direkt auf (der Testclient sendet nur ASCII-Köpfe)."""
+    import asyncio
+
+    gesendet = []
+
+    async def innen(scope, receive, send):  # darf nie erreicht werden
+        raise AssertionError("Anfrage kam durch")
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(nachricht):
+        gesendet.append(nachricht)
+
+    scope = {"type": "http", "method": "GET", "path": "/health", "scheme": "http",
+             "headers": [(b"host", host)], "query_string": b"", "http_version": "1.1"}
+    asyncio.run(sicherheit.SicherheitsMiddleware(innen)(scope, receive, send))
+    return gesendet[0]
+
+
+@pytest.mark.parametrize("host", [b"localhost:\xb2", b"localhost:\xd9\xa8\xd9\xa0"])
+def test_seltsamer_port_ergibt_400_mit_kopfzeilen(host):
+    start = _roh_anfrage(host)
+    assert start["status"] == 400
+    koepfe = {k.decode("latin-1").lower() for k, _ in start["headers"]}
+    for name in sicherheit.SICHERHEITS_KOEPFE:
+        assert name.lower() in koepfe, name
 
 
 # ── P0.3 CORS ──────────────────────────────────────────────────────────────

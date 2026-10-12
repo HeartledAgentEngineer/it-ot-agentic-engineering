@@ -56,6 +56,29 @@ def test_skript_gibt_schluessel_nie_aus(skript):
             assert "$KEY" not in zeile and "$APIKEY" not in zeile, zeile
 
 
+def test_nachtjob_warnung_bleibt_aus_der_json_ausgabe(tmp_path):
+    """Codex R2: Die Warnung lief über stdout in die JSON-Ausgabe von api_get."""
+    text = (PROJEKT / "termux/hermes-nacht-job.sh").read_text(encoding="utf-8")
+    anfang = text.index("APIKEY=\"\"\n")
+    ende = text.index("# POST /api/...")
+    # Nur die Schlüssel-Funktionen, mit Attrappen für log, curl und den Projektordner.
+    stueck = text[anfang:ende]
+    leer = tmp_path / "projekt"
+    (leer / "termux").mkdir(parents=True)
+    shutil.copy(HELFER, leer / "termux" / "api-schluessel.sh")
+    skript = tmp_path / "probe.sh"
+    skript.write_text(
+        f'PROJEKT="{str(leer).replace(chr(92), "/")}"\n'
+        'log() { echo "[log] $*"; }\n'
+        'curl() { echo \'{"auftraege": []}\'; }\n'
+        + stueck + '\napi_get /api/auftraege\n',
+        encoding="utf-8", newline="\n")
+    lauf = subprocess.run([_bash(), str(skript).replace("\\", "/")],
+                          capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert lauf.stdout.strip() == '{"auftraege": []}'
+    assert "WARNUNG" in lauf.stderr
+
+
 @pytest.mark.parametrize("skript", SKRIPTE + ("termux/api-schluessel.sh",))
 def test_skript_syntax(skript):
     lauf = subprocess.run([_bash(), "-n", str(PROJEKT / skript).replace("\\", "/")],
