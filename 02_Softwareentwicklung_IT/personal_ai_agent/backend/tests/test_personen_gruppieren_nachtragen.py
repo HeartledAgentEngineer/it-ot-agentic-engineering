@@ -41,6 +41,17 @@ pg = _laden("personen_gruppieren")
 D = 128
 
 
+@pytest.fixture(autouse=True)
+def _kein_echtes_home(monkeypatch, tmp_path):
+    """Kein Test darf Sebastians Foto-Ordner lesen.
+
+    ``_nachtragen_main`` fragt den Standardordner, welche Vektordateien
+    vorliegen (Hinweis ``fehlende_vektoren``). In den Tests zeigt der Standard
+    deshalb auf ein leeres Ersatzverzeichnis.
+    """
+    monkeypatch.setattr(pg, "STANDARD_BASIS", str(tmp_path / "kein_home"))
+
+
 # ── erfundene Welt ───────────────────────────────────────────────────────
 
 def _mitte(rng):
@@ -517,3 +528,62 @@ def test_cli_nachtrag_schreibt_korrektur_ohne_neuzugang_und_dann_noop(tmp_path, 
     zweite_ausgabe = capsys.readouterr().out
     assert "Nichts zu tun" in zweite_ausgabe
     assert _summen(ausgabe) == nach_korrektur
+
+
+# ── Hinweis auf vorliegende, aber nicht gefahrene Vektordateien ──────────
+# Anlass (gemessen 13.10.2026): die Gesichter der Upload-Videos lagen vor,
+# waren aber nie angedockt — 7.307 Gesichter ohne Zuordnungszeile.
+
+def test_hinweis_nennt_vorliegende_datei_die_nicht_teil_des_laufs_war(tmp_path, capsys,
+                                                                     monkeypatch):
+    basis = tmp_path / "home"
+    basis.mkdir()
+    (basis / "video_vektoren_upload.jsonl").write_text("", encoding="utf-8")
+    (basis / "personen_vektoren_papa.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(pg, "STANDARD_BASIS", str(basis))
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    neu = _schreiben(tmp_path / "neu.jsonl", [_zeile("fb_0", [_gesicht(rng, mitten[0])])])
+
+    assert pg.main(["--nachtragen", neu, "--ausgabe", ausgabe]) == 0
+    text = capsys.readouterr().out
+    assert "Hinweis: 2 Vektordatei(en)" in text
+    assert "video_vektoren_upload.jsonl" in text
+    assert "personen_vektoren_papa.jsonl" in text
+    assert str(basis) not in text                      # nur Namen, keine Pfade
+
+
+def test_hinweis_schweigt_wenn_die_datei_teil_des_laufs_ist(tmp_path, capsys, monkeypatch):
+    basis = tmp_path / "home"
+    basis.mkdir()
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    datei = _schreiben(basis / "video_vektoren_upload.jsonl",
+                       [_zeile("up_0", [_gesicht(rng, mitten[0])])])
+    monkeypatch.setattr(pg, "STANDARD_BASIS", str(basis))
+
+    assert pg.main(["--nachtragen", datei, "--ausgabe", ausgabe]) == 0
+    assert "Hinweis:" not in capsys.readouterr().out
+
+
+def test_fehlende_vektoren_meldet_nur_vorhandenes_und_bleibt_reihenfolgetreu(tmp_path):
+    basis = tmp_path / "home"
+    basis.mkdir()
+    (basis / "personen_vektoren_fotobuch.jsonl").write_text("", encoding="utf-8")
+    (basis / "video_vektoren_upload.jsonl").write_text("", encoding="utf-8")
+
+    fehlen = pg.fehlende_vektoren([], basis=str(basis))
+    assert fehlen == [str(basis / "personen_vektoren_fotobuch.jsonl"),
+                      str(basis / "video_vektoren_upload.jsonl")]
+    # eine Datei, die Teil des Laufs ist, wird nicht gemeldet
+    dabei = [str(basis / "video_vektoren_upload.jsonl")]
+    assert pg.fehlende_vektoren(dabei, basis=str(basis)) == [
+        str(basis / "personen_vektoren_fotobuch.jsonl")]
+    # der Katalog ist vollstaendig und nennt keine Probe-/Altdateien
+    assert pg.STANDARD_VEKTOREN_KATALOG == (
+        "personen_vektoren_n0929_voll.jsonl",
+        "personen_vektoren_n0929_bildervideos.jsonl",
+        "personen_vektoren_papa.jsonl",
+        "personen_vektoren_gedreht_neu.jsonl",
+        "personen_vektoren_fotobuch.jsonl",
+        "video_vektoren_bildervideos.jsonl",
+        "video_vektoren_upload.jsonl",
+    )

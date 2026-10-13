@@ -67,6 +67,11 @@ Nachtragen (``--nachtragen``, 06.10.2026):
   Was nicht andockt, gruppiert sich untereinander und bekommt **neue** Kennungen
   hinter der hoechsten Nummer. Vor dem Schreiben werden die drei Dateien als
   ``*.vorher`` gesichert (Rueckweg); ein zweiter Lauf ist idempotent.
+  Seit 13.10.2026 nennt der Lauf ausserdem, welche **bekannten Vektordateien
+  vorliegen, aber nicht Teil dieses Laufs** waren (``fehlende_vektoren()``) —
+  ein Nachtrag faehrt immer nur die genannten Dateien, eine vorliegende Datei
+  ohne Lauf erreicht den Personenkatalog sonst still (gemessen: 7.307 Gesichter
+  der Upload-Videos lagen vor und waren nie angedockt).
 
     .venv/Scripts/python.exe ../tools/foto_sortierung/personen_gruppieren.py ^
         --nachtragen %USERPROFILE%/foto_sortierung/personen_vektoren_fotobuch.jsonl
@@ -114,6 +119,19 @@ STANDARD_VEKTOREN = [
     os.path.join(STANDARD_BASIS, "personen_vektoren_n0929_bildervideos.jsonl"),
     os.path.join(STANDARD_BASIS, "video_vektoren_bildervideos.jsonl"),
 ]
+# Alle bekannten Gesichts-Vektordateien im Standardordner (ohne Probe- und
+# Altdateien): Grundlage fuer ``fehlende_vektoren()`` — den Hinweis beim
+# Nachtragen. ``STANDARD_VEKTOREN`` oben ist die Liste des VOLLEN Laufs, nicht
+# die Liste dessen, was angedockt ist.
+STANDARD_VEKTOREN_KATALOG = (
+    "personen_vektoren_n0929_voll.jsonl",
+    "personen_vektoren_n0929_bildervideos.jsonl",
+    "personen_vektoren_papa.jsonl",
+    "personen_vektoren_gedreht_neu.jsonl",
+    "personen_vektoren_fotobuch.jsonl",
+    "video_vektoren_bildervideos.jsonl",
+    "video_vektoren_upload.jsonl",
+)
 STANDARD_AUSGABE = os.path.join(STANDARD_BASIS, "personen_gruppen")
 STANDARD_BESTAETIGT = os.path.join(STANDARD_BASIS, "personen_bestaetigt.json")
 STANDARD_VORGABEN = os.path.join(STANDARD_BASIS, "personen_vorgaben.json")
@@ -1225,6 +1243,26 @@ def nachtrag_bericht_text(b) -> str:
     ])
 
 
+def fehlende_vektoren(pfade, basis=None) -> list[str]:
+    """Bekannte Vektordateien, die vorliegen, aber nicht Teil DIESES Laufs sind.
+
+    Nur ein Hinweis, keine Rechnung. Warum es ihn gibt (gemessen 13.10.2026):
+    Die Gesichter der Upload-Videos (``video_vektoren_upload.jsonl``) lagen
+    vollstaendig vor, waren aber nie angedockt — 7.307 Gesichter, die den
+    Personenkatalog nie erreichten, weil niemand einen Nachtrag fuer die Datei
+    gefahren hat. Ein Nachtrag faehrt immer NUR die genannten Dateien; eine
+    vorliegende Datei ohne Lauf bleibt still. Die Reihenfolge folgt dem Katalog.
+    """
+    basis = basis or STANDARD_BASIS
+    dabei = {os.path.abspath(p) for p in (pfade or [])}
+    fehlen = []
+    for name in STANDARD_VEKTOREN_KATALOG:
+        pfad = os.path.join(basis, name)
+        if os.path.isfile(pfad) and os.path.abspath(pfad) not in dabei:
+            fehlen.append(pfad)
+    return fehlen
+
+
 def _nachtragen_main(args, pfade, schreiben_an) -> int:
     """Der ``--nachtragen``-Weg: lesen, andocken, nur mit ``--schreiben`` schreiben."""
     katalog = _cluster.katalog_lesen(args.katalog) if args.katalog else {}
@@ -1233,6 +1271,11 @@ def _nachtragen_main(args, pfade, schreiben_an) -> int:
                      else kennungen_roh) or []
     print("Personen nachtragen — " + ("Schreiben ist eingeschaltet" if schreiben_an
                                       else "Trockenlauf (es wird NICHTS geschrieben)"))
+    fehlen = fehlende_vektoren(pfade)
+    if fehlen:
+        print(f"Hinweis: {len(fehlen)} Vektordatei(en) liegen vor, waren aber nicht Teil "
+              "dieses Laufs (ihre Gesichter erreichen den Personenkatalog so nicht): "
+              + ", ".join(os.path.basename(p) for p in fehlen))
     alte_zeilen = zuordnung_zeilen_lesen(os.path.join(args.ausgabe, DATEI_ZUORDNUNG))
     if not alte_zeilen:
         raise PersonenFehler(

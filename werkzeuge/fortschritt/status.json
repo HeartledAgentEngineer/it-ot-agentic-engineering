@@ -1,7 +1,7 @@
 {
   "aufgabe": "Nachtlauf 10./11.10.2026",
   "plan": ".hermes/plans/2026-10-10_nachtlauf-papas-fotos-und-chat.md",
-  "stand": "13.10.2026 12:02:11",
+  "stand": "13.10.2026 15:31:11",
   "schritte": [
     {
       "nr": 1,
@@ -54,7 +54,7 @@
     "dateien": 6336,
     "groesse_mb": 16123.6
   },
-  "hinweis": "Alle nummerierten Schritte erledigt. Die Zahlen der Bildkette stehen jetzt GEMESSEN unter \"Kennzahlen\" (Ortsstufen, Bildindex) statt im freien Text - der Text nannte zuletzt noch 18.840 Zeilen, waehrend die Datei 25.177 hatte. Kartenstueck (OSM) fertig: 15 Gebiete. Kabellose Uebergabe (pCloud /Agent/uebergabe): acht Dateien; die zwei geaenderten (orte.jsonl und bild_orte.csv mit Papas Fotos) sind am 13.10. hochgeladen und per Pruefsumme gegengeprueft. Beide grossen Laeufe sind beendet (Zustand wird gemessen, nicht behauptet): Gesichtserkennung Papas Fotos 6.336/6.336 fertig, reiche Bildbeschreibung bei 17.428 angehalten (seit 10.10. 10:51 keine neue Zeile). Offen bleiben nur Kostenpflichtiges (8 Fotos, Videos) und Geraeteeingaenge (WhatsApp).",
+  "hinweis": "Alle nummerierten Schritte erledigt. Die Zahlen der Bildkette stehen jetzt GEMESSEN unter \"Kennzahlen\" (Ortsstufen, Bildindex) statt im freien Text - der Text nannte zuletzt noch 18.840 Zeilen, waehrend die Datei 25.177 hatte. Kartenstueck (OSM) fertig: 15 Gebiete. Kabellose Uebergabe (pCloud /Agent/uebergabe): acht Dateien; die zwei geaenderten (orte.jsonl und bild_orte.csv mit Papas Fotos) sind am 13.10. hochgeladen und per Pruefsumme gegengeprueft. Beide grossen Laeufe sind beendet (Zustand wird gemessen, nicht behauptet): Gesichtserkennung Papas Fotos 6.336/6.336 fertig, reiche Bildbeschreibung bei 17.428 angehalten (seit 10.10. 10:51 keine neue Zeile). Offen bleiben Kostenpflichtiges (8 Fotos ohne Beschreibung - praezise 6 verschiedene Bilder) und Geraeteeingaenge (WhatsApp, eigene_orte.json), dazu 2 Kennungen ohne Gruppe. Die 25 offenen Videos sind seit 13.10. durch (859/859); ihre 5.060 nie angedockten Videogesichter und 8.656 weitere aus drei Vektordateien (Upload-Videos, Neuausrichtung, Fotobuch) sind jetzt in den Gruppen (1.367 Gruppen, 30.830 Gesichter) - diese zwei Gruppendateien sind am 13.10. ebenso kabellos bereitgestellt.",
   "laufende": [
     {
       "titel": "Bildbeschreibung reich",
@@ -69,7 +69,7 @@
       "letzte_datei": "DSC_2098.JPG",
       "letzte_zeit": "10.10.2026 10:51:56",
       "zeit_quelle": "eintrag",
-      "stand_minuten": 4390.228151794275,
+      "stand_minuten": 4599.237411610286,
       "lage": "angehalten",
       "hinweis": ""
     },
@@ -86,7 +86,7 @@
       "letzte_datei": "108863620662",
       "letzte_zeit": "10.10.2026 15:15:17",
       "zeit_quelle": "datei",
-      "stand_minuten": 4126.885471073786,
+      "stand_minuten": 4335.8960921565695,
       "lage": "fertig",
       "hinweis": ""
     }
