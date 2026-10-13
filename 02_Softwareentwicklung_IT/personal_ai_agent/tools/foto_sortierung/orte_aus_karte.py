@@ -30,6 +30,15 @@ Wozu dieses Werkzeug:
      **eine Zeile je Bild**. Ohne GPS bleibt das Bild mit leeren Feldern drin
      (ehrlich statt weggelassen).
 
+     **Die Bilderliste ist eine zweite Wahrheit** (``STANDARD_VEKTOREN``): die
+     beiden Startskripte rufen ohne ``--vektoren``, also entscheidet der
+     Standard, welche Fotos ueberhaupt vorkommen — beim Umkreis der
+     Kartenauswertung **und** beim Zuordnen. Entsteht eine neue Vektordatei,
+     gehoert sie dort hinein, sonst fehlen ihre Bilder **still**. Gemessen am
+     13.10.2026: ``personen_vektoren_papa.jsonl`` fehlte im Standard, deshalb
+     enthielt ``bild_orte.csv`` keine einzige von Papas 6.336 Zeilen (729 davon
+     mit GPS).
+
 Datenschutz (Regeln des Auftrags, hier als Code):
   * **Kein Netz**: die Karten liegen lokal, es wird nichts gesendet.
   * **Keine Koordinaten in Berichten**: die Konsolenausgabe zeigt nur Zahlen
@@ -110,8 +119,17 @@ UMKREIS_ADRESSE_KM = 0.1
 FLAECHEN = ("berg", "wasser", "fluss", "wald", "schutzgebiet", "flughafen")
 UMKREIS_KM = {art: (UMKREIS_FLAECHE_KM if art in FLAECHEN else UMKREIS_PUNKT_KM) for art in LANDSCHAFT}
 UMKREIS_KM["ort"] = UMKREIS_ORT_KM
+# Die Vektordateien mit GPS — der STANDARD beider Startskripte
+# (``osm_csv_lauf.sh`` und ``osm_abschluss.sh`` rufen ohne ``--vektoren``).
+# ZWEITE WAHRHEIT: entsteht eine neue Vektordatei, gehoert sie hier hinein,
+# sonst fehlen ihre Bilder still in ``bild_orte.csv`` (und beim Umkreis der
+# Kartenauswertung). Am 13.10.2026 gemessen: Papas 6.336 Fotos (729 mit GPS)
+# fehlten vollstaendig, weil ``personen_vektoren_papa.jsonl`` erst nach dem Bau
+# dieser Liste entstand. ``personen_vektoren_fotobuch.jsonl`` bleibt bewusst
+# draussen: 839 Scans ohne GPS braechten nur leere Zeilen.
 STANDARD_VEKTOREN = [os.path.join(os.path.expanduser("~"), "foto_sortierung", n) for n in (
-    "personen_vektoren_n0929_bildervideos.jsonl", "personen_vektoren_n0929_voll.jsonl")]
+    "personen_vektoren_n0929_bildervideos.jsonl", "personen_vektoren_n0929_voll.jsonl",
+    "personen_vektoren_papa.jsonl", "personen_vektoren_gedreht_neu.jsonl")]
 STANDARD_EIGENE_ORTE = os.path.join(os.path.expanduser("~"), "foto_sortierung", "eigene_orte.json")
 EIGENER_ORT_RADIUS_M = 100
 

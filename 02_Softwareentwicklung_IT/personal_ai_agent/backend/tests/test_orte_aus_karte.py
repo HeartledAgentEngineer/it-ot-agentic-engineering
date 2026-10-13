@@ -394,3 +394,38 @@ def test_zuordnen_schreibt_waehrend_des_flugs(tmp_path):
     zeilen = {z["fileid"]: z for z in oak.csv_lesen(str(ziel))}
     assert zeilen["2"]["landmarke"] == "Während des Flugs" and zeilen["2"]["landmarke_art"] == "flug"
     assert zeilen["1"]["landmarke"] == "Gasthaus am See"
+
+
+def test_standard_vektoren_nennt_jede_datei_mit_gps():
+    """Der Standard muss jede Vektordatei mit GPS nennen (Regressionshaken).
+
+    Warum: die beiden Startskripte (``osm_csv_lauf.sh``, ``osm_abschluss.sh``)
+    rufen ohne ``--vektoren`` — es entscheidet also der Standard, welche Fotos
+    ueberhaupt vorkommen. Gemessen am 13.10.2026: ``personen_vektoren_papa.jsonl``
+    fehlte im Standard, deshalb hatte ``bild_orte.csv`` **keine einzige** von
+    Papas 6.336 Zeilen (729 davon mit GPS). Der Test haelt die Liste fest, damit
+    eine neue Datei nicht wieder still fehlt.
+
+    Gelesen wird ein FRISCHES Modul: die Test-Vorrichtung stellt
+    ``STANDARD_VEKTOREN`` in jedem Test auf einen leeren Pfad um (damit kein Test
+    Sebastians Daten liest) — hier ist aber genau der echte Standard gefragt.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "orte_aus_karte_frisch", os.path.join(WERKZEUGE, "orte_aus_karte.py"))
+    assert spec is not None and spec.loader is not None
+    frisch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(frisch)
+
+    namen = {os.path.basename(p) for p in frisch.STANDARD_VEKTOREN}
+    assert namen == {
+        "personen_vektoren_n0929_bildervideos.jsonl",
+        "personen_vektoren_n0929_voll.jsonl",
+        "personen_vektoren_papa.jsonl",
+        "personen_vektoren_gedreht_neu.jsonl",
+    }
+    # Fotobuch-Scans tragen kein GPS — 839 leere Zeilen waeren kein Gewinn.
+    assert "personen_vektoren_fotobuch.jsonl" not in namen
+    assert all(p.startswith(os.path.join(os.path.expanduser("~"), "foto_sortierung"))
+               for p in frisch.STANDARD_VEKTOREN)
