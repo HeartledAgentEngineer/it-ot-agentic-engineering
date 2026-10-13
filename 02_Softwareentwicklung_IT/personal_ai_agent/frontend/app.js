@@ -806,8 +806,13 @@ function addMessage(content, role, zeit, bildPfad, opts) {
     // Innere Spalte: Blaseninhalt über dem Zeitstempel-Label. Ohne sie lägen
     // Content und Uhrzeit im flex-row nebeneinander statt untereinander.
     // Klein, deshalb inline statt style.css (die Konvention bei Mini-Stilen).
+    // min-width:0 ist Pflicht (Befund 13.10.2026): Als Flex-Kind der Zeile
+    // hätte die Spalte sonst min-width:auto und könnte nicht schmaler werden
+    // als ihr breitester Inhalt. Eine Tabelle mit langen Spaltenköpfen (auch
+    // halb eingelaufen) machte sie breiter als den Chat und schob den
+    // Vorlese-Knopf über den rechten Rand – am Handy half nur Neustart.
     const inner = document.createElement('div');
-    inner.style.cssText = 'display:flex;flex-direction:column';
+    inner.style.cssText = 'display:flex;flex-direction:column;min-width:0';
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     if (role === 'assistant') {
