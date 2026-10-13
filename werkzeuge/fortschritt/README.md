@@ -21,4 +21,11 @@ listed under "Laufende Arbeiten"; the rest appear under "Abgeschlossen oder
 angehalten" with the reason. Without that split the board kept claiming work
 that had ended hours ago.
 
+`kennzahlen` lists small facts of the photo chain (data rows in
+`bild_orte.csv`, rows and vectors in `bild_index.db`), counted directly from
+the files (read-only, numbers only, header line subtracted so the value matches
+the audit tool). They used to sit in the free-text hint and went stale there
+silently (the text said 18.840 rows while the file had 25.177). A source that
+cannot be measured is reported as "nicht messbar" — no value is invented.
+
 Keep it cheap: `--zaehle` only reads the cloud, no model call, no images.

@@ -33,6 +33,12 @@ Aufbau (eine Wahrheit, drei Ansichten):
       unter "Laufende Arbeiten"; der Rest unter "Abgeschlossen oder
       angehalten" — sonst behauptet die Anzeige nach dem Nachtlauf dauerhaft
       Arbeit, die laengst beendet ist.
+    * ``kennzahlen``    — kleine Zahlen der Bildkette (Zeilen in
+      ``bild_orte.csv``, Bilder und Vektoren in ``bild_index.db``), direkt aus
+      den Dateien gezaehlt (nur lesend, nur Zahlen). Sie standen frueher im
+      freien Hinweistext und veralteten dort still (der Text nannte 18.840
+      Zeilen, waehrend die Datei nach dem Papa-Nachtrag 25.177 hatte). Nicht
+      messbar heisst ehrlich "nicht messbar" — es wird kein Wert erfunden.
 
 Aufruf:
     python werkzeuge/fortschritt/fortschritt.py --terminal
@@ -92,6 +98,35 @@ LAUFENDE_ARBEITEN: List[Dict[str, Any]] = [
         "einheit": "Bilder",
         "mit_kosten": False,
         "budget_usd": None,
+    },
+]
+
+
+# Kennzahlen der Bildkette — gemessen statt im Hinweistext behauptet.
+# Anlass (13.10.2026): der Hinweistext nannte „bild_orte.csv 18.840 Zeilen",
+# waehrend die Datei nach dem Papa-Nachtrag 25.177 Zeilen hatte — dieselbe
+# stille Veraltung wie bei einer zweiten Liste. Die Zahlen, die die Anzeige
+# zeigt, werden deshalb aus den Dateien gezaehlt (rein lokal, nur lesend).
+# ``art``: "zeilen" (Zeilen einer Textdatei) oder "sqlite" (Zeilen einer
+# Tabelle und davon mit gefuelltem Feld ``spalte``).
+KENNZAHLEN: List[Dict[str, Any]] = [
+    {
+        "titel": "Ortsstufen je Bild (bild_orte.csv)",
+        "art": "zeilen",
+        "pfad": FOTO_SORTIERUNG / "bild_orte.csv",
+        "einheit": "Zeilen",
+        # Die erste Zeile der Datei sind die Spaltennamen. Die Zaehlung zieht
+        # sie ab, damit hier dieselbe Zahl steht wie im Nachweis (eine Zeile je
+        # Bild) — sonst haette dieselbe Sache zwei Zahlen.
+        "kopfzeile": 1,
+    },
+    {
+        "titel": "Bildindex (bild_index.db)",
+        "art": "sqlite",
+        "pfad": FOTO_SORTIERUNG / "bild_index.db",
+        "tabelle": "bilder",
+        "spalte": "vektor",
+        "einheit": "Bilder",
     },
 ]
 
@@ -365,6 +400,109 @@ def messe_laufende_arbeiten(arbeiten: Optional[List[Dict[str, Any]]] = None) -> 
     return ergebnisse
 
 
+# ── Kennzahlen der Bildkette (gemessen, nur lesend) ───────────────────────
+
+def zeilen_zaehlen(pfad: Path) -> Optional[int]:
+    """Zeilen einer Textdatei zaehlen — ``None``, wenn nicht messbar.
+
+    Gezaehlt werden die Zeilenenden auf den rohen Bytes (billig, auch fuer
+    grosse Dateien); endet die Datei ohne Zeilenende, zaehlt die letzte Zeile
+    mit. Kein Inhalt wird gelesen oder ausgegeben.
+    """
+    try:
+        daten = Path(pfad).read_bytes()
+    except OSError:
+        return None
+    if not daten:
+        return 0
+    return daten.count(b"\n") + (0 if daten.endswith(b"\n") else 1)
+
+
+def sqlite_zaehlen(pfad: Path, tabelle: str, spalte: str = "") -> Optional[Dict[str, int]]:
+    """Zeilen einer SQLite-Tabelle zaehlen, dazu die mit gefuelltem ``spalte``.
+
+    Rein lesend (``mode=ro``, kein Schreiben, keine Sperre) und nur Zaehlungen:
+    keine Inhalte, keine Texte. Fehlt die Datei, ist sie keine Datenbank oder
+    fehlt die Tabelle, kommt ehrlich ``None`` zurueck (die Anzeige schreibt
+    dann „nicht messbar") — diese Funktion wirft nie.
+    """
+    import sqlite3
+
+    pfad = Path(pfad)
+    if not pfad.is_file():
+        return None
+    try:
+        verbindung = sqlite3.connect(f"file:{pfad}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        zeilen = verbindung.execute(f"SELECT COUNT(*) FROM {tabelle}").fetchone()[0]
+        ergebnis = {"zeilen": int(zeilen)}
+        if spalte:
+            gefuellt = verbindung.execute(
+                f"SELECT COUNT(*) FROM {tabelle} WHERE {spalte} IS NOT NULL").fetchone()[0]
+            ergebnis["mit_wert"] = int(gefuellt)
+        return ergebnis
+    except sqlite3.Error:
+        return None
+    finally:
+        verbindung.close()
+
+
+def messe_kennzahlen(kennzahlen: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Die konfigurierten Kennzahlen messen — nur Zahlen, nur lesend, wirft nie.
+
+    Je Kennzahl kommt ``{"titel", "einheit", "wert", "neben", "fehlt"}`` zurueck;
+    ``fehlt`` ist True, wenn die Quelle nicht messbar war (dann steht dort kein
+    erfundener Wert, sondern nichts).
+    """
+    ergebnisse: List[Dict[str, Any]] = []
+    for eintrag in (KENNZAHLEN if kennzahlen is None else kennzahlen):
+        titel = str(eintrag.get("titel") or "Kennzahl")
+        einheit = str(eintrag.get("einheit") or "")
+        pfad = Path(eintrag.get("pfad") or "")
+        wert: Optional[int] = None
+        neben = ""
+        art = str(eintrag.get("art") or "")
+        try:
+            if art == "zeilen":
+                wert = zeilen_zaehlen(pfad)
+                if wert is not None:
+                    # Kopfzeilen (Spaltennamen) abziehen: gezaehlt werden
+                    # Datenzeilen, sonst haette dieselbe Zahl zwei Werte.
+                    wert = max(wert - int(eintrag.get("kopfzeile") or 0), 0)
+            elif art == "sqlite":
+                zahlen = sqlite_zaehlen(pfad, str(eintrag.get("tabelle") or ""),
+                                        str(eintrag.get("spalte") or ""))
+                if zahlen:
+                    wert = zahlen["zeilen"]
+                    if "mit_wert" in zahlen:
+                        spalte = str(eintrag.get("spalte") or "")
+                        neben = f"{_zahl(zahlen['mit_wert'])} mit {spalte}"
+        except Exception:                               # noqa: BLE001 — Anzeige darf nie abstuerzen
+            wert = None
+        ergebnisse.append({
+            "titel": titel,
+            "einheit": einheit,
+            "wert": wert,
+            "neben": neben,
+            "fehlt": wert is None,
+        })
+    return ergebnisse
+
+
+def _kennzahl_text(eintrag: Dict[str, Any]) -> str:
+    """Eine Kennzahl als eine Zeile — EINE Quelle fuer Terminal und HTML."""
+    if eintrag.get("fehlt"):
+        return f"{eintrag.get('titel', 'Kennzahl')}: nicht messbar"
+    text = f"{eintrag.get('titel', 'Kennzahl')}: {_zahl(eintrag.get('wert') or 0)}"
+    if eintrag.get("einheit"):
+        text += f" {eintrag['einheit']}"
+    if eintrag.get("neben"):
+        text += f", {eintrag['neben']}"
+    return text
+
+
 # ── Anzeigen ───────────────────────────────────────────────────────────────
 
 def _zahl(wert: Any, stellen: int = 0) -> str:
@@ -473,6 +611,12 @@ def terminal(daten: Dict[str, Any]) -> str:
                     zeilen.append(f"    Zustand: {teile['zustand']}")
                 if teile["hinweis"]:
                     zeilen.append(f"    Hinweis: {teile['hinweis']}")
+    kennzahlen = daten.get("kennzahlen") or []
+    if kennzahlen:
+        zeilen.append("")
+        zeilen.append("Kennzahlen (gemessen):")
+        for eintrag in kennzahlen:
+            zeilen.append(f"  {_kennzahl_text(eintrag)}")
     zeilen.append("")
     for s in daten.get("schritte") or []:
         zeichen = {"fertig": "x", "laeuft": ">", "offen": " ", "blockiert": "!"}.get(s.get("lage"), " ")
@@ -537,6 +681,12 @@ def html(daten: Dict[str, Any]) -> str:
             continue
         lauf_html += (f'<h2 class="lauf-h">{ueberschrift}</h2>\n'
                       + "\n".join(lauf_block(e) for e in gruppe) + "\n")
+    kennzahlen = daten.get("kennzahlen") or []
+    kennzahl_html = ""
+    if kennzahlen:
+        kennzahl_html = ('<h2 class="lauf-h">Kennzahlen (gemessen)</h2>\n'
+                         + "\n".join(f'<div class="kennzahl">{escape(_kennzahl_text(e))}</div>'
+                                     for e in kennzahlen) + "\n")
     return f"""<!doctype html>
 <html lang="de">
 <head>
@@ -585,6 +735,8 @@ def html(daten: Dict[str, Any]) -> str:
   .lauf-meta .pct {{ color: var(--foreground); }}
   .lauf-hinweis {{ margin-top: 5px; font-size: 11px; color: var(--muted-foreground); }}
   .lauf-zustand {{ margin-top: 5px; font-size: 11px; color: var(--muted-foreground); }}
+  .kennzahl {{ font-size: 11.5px; color: var(--muted-foreground); padding: 2px 0;
+               font-variant-numeric: tabular-nums; }}
 </style>
 </head>
 <body>
@@ -599,6 +751,7 @@ def html(daten: Dict[str, Any]) -> str:
   <div class="leiste"><div class="fuell"></div></div>
   <div class="prozent">{anteil:.1f} % abgehakt</div>
   {lauf_html}
+  {kennzahl_html}
   <ul>
 {schritte}
   </ul>
@@ -650,6 +803,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         daten["laufende"] = messe_laufende_arbeiten()
     except Exception as fehler:                         # noqa: BLE001 — Anzeige darf nie abstuerzen
         sys.stderr.write(f"Messen der laufenden Arbeiten nicht moeglich "
+                         f"({fehler.__class__.__name__}); die alten Zahlen bleiben stehen.\n")
+
+    # Kennzahlen der Bildkette messen (ebenfalls rein lokal, nur lesend).
+    try:
+        daten["kennzahlen"] = messe_kennzahlen()
+    except Exception as fehler:                         # noqa: BLE001 — Anzeige darf nie abstuerzen
+        sys.stderr.write(f"Messen der Kennzahlen nicht moeglich "
                          f"({fehler.__class__.__name__}); die alten Zahlen bleiben stehen.\n")
 
     if args.zaehle or args.html or args.terminal:

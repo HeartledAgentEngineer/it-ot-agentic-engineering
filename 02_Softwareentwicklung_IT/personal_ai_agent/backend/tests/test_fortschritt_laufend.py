@@ -321,3 +321,104 @@ def test_anzeige_trennt_laufende_von_angehaltenen(fortschritt):
     # Auch hier gilt: keine Fremdbibliotheken, kein Netzzugriff.
     assert "http://" not in seite and "https://" not in seite
     assert "<script" not in seite
+
+
+# ---------------------------------------------------------------------------
+# Kennzahlen: gemessen statt im Hinweistext behauptet
+# ---------------------------------------------------------------------------
+
+def test_zeilen_zaehlen_zaehlt_auch_die_letzte_zeile_ohne_ende(fortschritt, tmp_path):
+    mit_ende = tmp_path / "mit.jsonl"
+    mit_ende.write_text("a\nb\nc\n", encoding="utf-8")
+    assert fortschritt.zeilen_zaehlen(mit_ende) == 3
+
+    ohne_ende = tmp_path / "ohne.jsonl"
+    ohne_ende.write_text("a\nb\nc", encoding="utf-8")
+    assert fortschritt.zeilen_zaehlen(ohne_ende) == 3        # letzte Zeile zaehlt mit
+
+    leer = tmp_path / "leer.jsonl"
+    leer.write_text("", encoding="utf-8")
+    assert fortschritt.zeilen_zaehlen(leer) == 0
+
+    # Nicht messbar heisst None — kein erfundener Wert.
+    assert fortschritt.zeilen_zaehlen(tmp_path / "gibts_nicht.csv") is None
+
+
+def test_sqlite_zaehlen_liest_nur_zahlen_und_wirft_nie(fortschritt, tmp_path):
+    import sqlite3
+    db = tmp_path / "index.db"
+    verbindung = sqlite3.connect(db)
+    verbindung.execute("CREATE TABLE bilder (fileid TEXT, beschreibung TEXT, vektor BLOB)")
+    verbindung.executemany("INSERT INTO bilder VALUES (?,?,?)",
+                           [("1", "text", b"x"), ("2", "text", None), ("3", "text", b"y")])
+    verbindung.commit()
+    verbindung.close()
+
+    zahlen = fortschritt.sqlite_zaehlen(db, "bilder", "vektor")
+    assert zahlen == {"zeilen": 3, "mit_wert": 2}
+
+    # Fehlende Datei, fehlende Tabelle und eine Datei, die keine Datenbank ist:
+    # alle drei ehrlich None statt Ausnahme.
+    assert fortschritt.sqlite_zaehlen(tmp_path / "nichts.db", "bilder", "vektor") is None
+    assert fortschritt.sqlite_zaehlen(db, "gibts_nicht", "vektor") is None
+    kaputt = tmp_path / "keine.db"
+    kaputt.write_text("kein sqlite", encoding="utf-8")
+    assert fortschritt.sqlite_zaehlen(kaputt, "bilder", "vektor") is None
+
+
+def test_messe_kennzahlen_misst_datei_und_db(fortschritt, tmp_path):
+    import sqlite3
+    csv_datei = tmp_path / "bild_orte.csv"
+    csv_datei.write_text("fileid,ort\n1,Hamburg\n2,\n", encoding="utf-8")
+    db = tmp_path / "bild_index.db"
+    verbindung = sqlite3.connect(db)
+    verbindung.execute("CREATE TABLE bilder (fileid TEXT, vektor BLOB)")
+    verbindung.executemany("INSERT INTO bilder VALUES (?,?)", [("1", b"x"), ("2", None)])
+    verbindung.commit()
+    verbindung.close()
+
+    ergebnis = fortschritt.messe_kennzahlen([
+        {"titel": "Ortsstufen", "art": "zeilen", "pfad": csv_datei, "einheit": "Zeilen",
+         "kopfzeile": 1},
+        {"titel": "Index", "art": "sqlite", "pfad": db, "tabelle": "bilder",
+         "spalte": "vektor", "einheit": "Bilder"},
+        {"titel": "Fehlt", "art": "zeilen", "pfad": tmp_path / "weg.csv", "einheit": "Zeilen"},
+    ])
+    assert [e["wert"] for e in ergebnis] == [2, 2, None]   # 3 Zeilen minus Kopfzeile
+    assert [e["fehlt"] for e in ergebnis] == [False, False, True]
+    assert ergebnis[1]["neben"] == "1 mit vektor"
+
+    # Die Kennzahl der echten Datei zieht die Kopfzeile ebenfalls ab.
+    kennzahl = fortschritt.KENNZAHLEN[0]
+    assert kennzahl.get("kopfzeile") == 1
+
+
+def test_anzeige_zeigt_kennzahlen_gemessen_und_ehrlich_leer(fortschritt):
+    daten = {"aufgabe": "Probe", "stand": "13.10.2026 12:00:00", "schritte": [],
+             "kennzahlen": [
+                 {"titel": "Ortsstufen je Bild (bild_orte.csv)", "einheit": "Zeilen",
+                  "wert": 25177, "neben": "", "fehlt": False},
+                 {"titel": "Bildindex (bild_index.db)", "einheit": "Bilder",
+                  "wert": 26241, "neben": "26.241 mit vektor", "fehlt": False},
+                 {"titel": "Fehlt", "einheit": "Zeilen", "wert": None, "neben": "",
+                  "fehlt": True},
+             ]}
+    text = fortschritt.terminal(daten)
+    assert "Kennzahlen (gemessen):" in text
+    assert "Ortsstufen je Bild (bild_orte.csv): 25.177 Zeilen" in text
+    assert "Bildindex (bild_index.db): 26.241 Bilder, 26.241 mit vektor" in text
+    assert "Fehlt: nicht messbar" in text
+
+    seite = fortschritt.html(daten)
+    assert "Kennzahlen (gemessen)" in seite
+    assert "25.177 Zeilen" in seite
+    assert "nicht messbar" in seite
+    assert "http://" not in seite and "https://" not in seite
+    assert "<script" not in seite
+
+
+def test_ohne_kennzahlen_bleibt_die_anzeige_unveraendert(fortschritt):
+    daten = {"aufgabe": "Nur Schritte", "stand": "13.10.2026 12:00:00",
+             "schritte": [{"nr": 1, "text": "Schritt eins", "lage": "fertig"}]}
+    assert "Kennzahlen" not in fortschritt.terminal(daten)
+    assert "Kennzahlen" not in fortschritt.html(daten)
