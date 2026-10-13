@@ -180,3 +180,66 @@ def test_main_meldet_start_und_fortschritt(tmp_path, capsys):
     ausgabe = capsys.readouterr().out
     assert "Start: 4 Fotos, schon geprueft 0, offen 4." in ausgabe
     assert "4 / 4 geprueft (100 %)" in ausgabe
+
+
+# ── Rand-Ausreisser (Indiz fuer einen anderen Koordinatenraum) ──────────────
+
+def test_rahmen_lesen_zaehlt_ausreisser_und_kennt_fehlende_datei(tmp_path):
+    p = _vektoren(tmp_path / "r.jsonl", [
+        {"bild_id": "9000001", "breite": 1000, "hoehe": 500,
+         "gesichter": [{"bbox": [10, 10, 100, 100]},        # drin
+                       {"bbox": [900, 400, 200, 200]}]},    # 100 px drueber
+        {"bild_id": "9000002", "breite": 1000, "hoehe": 500, "gesichter": []},
+        {"bild_id": "9000003#t=4", "breite": 1000, "hoehe": 500,
+         "gesichter": [{"bbox": [900, 400, 200, 200]}]},    # Video faellt weg
+        {"bild_id": "9000004", "gesichter": [{"bbox": [900, 400, 200, 200]}]},
+    ])
+    rahmen = op.rahmen_lesen([p, tmp_path / "fehlt.jsonl"])
+    assert rahmen == {"9000001": (1000, 500, 2, 1)}
+
+
+def test_rand_zeile_bleibt_aus_wenn_eine_gruppe_keine_rahmen_hat():
+    assert op.rand_zeilen(["9000001", "9000002"], {"9000001": 1, "9000002": 6},
+                          {"9000001": (1000, 500, 4, 0)}) == []
+    assert op.rand_zeilen(["9000001"], {"9000001": 1}, {}) == []
+
+
+def test_rand_zeile_ohne_verdacht_bei_aehnlichen_anteilen():
+    ids = ["9000001", "9000002"]
+    zeile, = op.rand_zeilen(ids, {"9000001": 1, "9000002": 6},
+                            {"9000001": (1000, 500, 100, 1),
+                             "9000002": (1000, 500, 100, 1)})
+    assert "Orientierung 1 1.00 % (1 von 100)" in zeile
+    assert "Orientierung != 1 1.00 % (1 von 100)" in zeile
+    assert "kein Hinweis auf einen anderen Koordinatenraum" in zeile
+    for kennung in ids:
+        assert kennung not in zeile
+
+
+def test_rand_zeile_meldet_verdacht_bei_deutlich_mehr_ausreissern():
+    ids = ["9000001", "9000002"]
+    zeile, = op.rand_zeilen(ids, {"9000001": 1, "9000002": 6},
+                            {"9000001": (1000, 500, 100, 0),
+                             "9000002": (1000, 500, 100, 20)})
+    assert "Orientierung 1 0.00 % (0 von 100)" in zeile
+    assert "Orientierung != 1 20.00 % (20 von 100)" in zeile
+    assert "die Gesichtsrahmen sind zu pruefen" in zeile
+    for kennung in ids:
+        assert kennung not in zeile
+
+
+def test_main_druckt_die_rand_zeile(tmp_path, capsys):
+    vektoren = _vektoren(tmp_path / "v.jsonl", [
+        {"bild_id": "1000001", "breite": 1000, "hoehe": 500,
+         "gesichter": [{"bbox": [10, 10, 100, 100]}]},
+        {"bild_id": "1000002", "breite": 1000, "hoehe": 500,
+         "gesichter": [{"bbox": [10, 10, 100, 100]}]},
+    ])
+    op.main(["--vektoren", str(vektoren), "--ausgabe", str(tmp_path / "o.jsonl"),
+             "--plan", str(tmp_path / "p.json")], kopf_holen=Holer())
+    assert op.main(["--vektoren", str(vektoren), "--ausgabe", str(tmp_path / "o.jsonl"),
+                    "--plan", str(tmp_path / "p.json"), "--schreiben"],
+                   kopf_holen=Holer()) == 0
+    ausgabe = capsys.readouterr().out
+    assert "Rand-Ausreisser" in ausgabe and "(Indiz, kein Beweis)" in ausgabe
+    assert "1000001" not in ausgabe and "1000002" not in ausgabe

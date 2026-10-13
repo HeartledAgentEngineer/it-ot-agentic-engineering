@@ -19,6 +19,14 @@ steht die EXIF-Orientierung) und schreibt:
 Die Bild-IDs kommen aus den Vektordateien (``--vektoren``, mehrere moeglich);
 Video-Standbilder (``<fileid>#t=<s>``) haben keine EXIF-Drehung und fallen weg.
 
+Der Bericht am Ende nennt zusaetzlich die **Rand-Ausreisser**: wie viele der
+Gesichtsrahmen je Gruppe (Orientierung 1 gegen Orientierung != 1) ueber den
+Bildrand hinausragen (``rahmen_lesen``/``rand_zeilen``). „Betroffen" (EXIF != 1)
+heisst **nicht** „kaputt" — nach dem Fix vom 08.10. ist die Drehung harmlos. Ein
+Rahmen ausserhalb des eigenen Bildes ist ein **Indiz** fuer einen anderen
+Koordinatenraum, kein Beweis; die Zeile warnt nur, wenn die gedrehten Bilder
+deutlich mehr Ausreisser zeigen als die uebrigen.
+
 Standard ist der **Trockenlauf** (zaehlt nur, kein Netz). ``--schreiben`` holt
 die Dateikoepfe. Die Konsole zeigt nur Zahlen – keine Bild-IDs, keine Namen,
 keine Koordinaten. Ziel im Repo -> Exit 2.
@@ -47,6 +55,10 @@ STANDARD_VEKTOREN = os.path.join(STANDARD_BASIS, "personen_vektoren.jsonl")
 STANDARD_AUSGABE = os.path.join(STANDARD_BASIS, "orientierung.jsonl")
 STANDARD_PLAN = os.path.join(STANDARD_BASIS, "gedreht_plan.json")
 KOPF_BYTES = 128 * 1024
+
+# Ab welchem Anteil der laengeren Bildkante ein Gesichtsrahmen als "ausserhalb"
+# gilt (Rand-Ausreisser-Zeile im Bericht).
+ANTEIL_GRENZE = 0.01
 
 
 class PruefFehler(Exception):
@@ -205,6 +217,85 @@ def bericht(ids, mit_gesicht, erledigt) -> list:
     return zeilen
 
 
+def rahmen_lesen(pfade) -> dict:
+    """Je Bild Bildmasse und Gesichtsrahmen, die ueber den Bildrand hinausragen.
+
+    ``bbox`` liegt laut ``backend/face_infer.py`` in absoluten Pixeln im
+    **selben** (EXIF-orientierten) Raum wie das Bild. Ein Rahmen, der um mehr als
+    ``ANTEIL_GRENZE`` der laengeren Bildkante hinausragt, ist ein **Indiz** fuer
+    einen anderen Koordinatenraum — genau das Muster der doppelten Drehung vom
+    08.10. —, aber kein Beweis.
+
+    Liefert ``{bild_id: (breite, hoehe, rahmen, ausreisser)}``. Nur Zahlen und
+    Masse, nie eine Kennung nach aussen. Bilder ohne Gesichtsrahmen und kaputte
+    Zeilen fallen weg; eine fehlende Datei bricht nichts ab (der Bericht ist
+    Beiwerk)."""
+    rahmen = {}
+    for pfad in pfade:
+        if not os.path.isfile(pfad):
+            continue
+        with open(pfad, encoding="utf-8") as datei:
+            for zeile in datei:
+                try:
+                    daten = json.loads(zeile)
+                except ValueError:
+                    continue
+                if not isinstance(daten, dict):
+                    continue
+                kennung = str(daten.get("bild_id") or "").strip()
+                breite, hoehe = daten.get("breite"), daten.get("hoehe")
+                if not kennung or "#" in kennung or not breite or not hoehe:
+                    continue
+                grenze = ANTEIL_GRENZE * max(breite, hoehe)
+                gesamt = draussen = 0
+                for gesicht in (daten.get("gesichter") or []):
+                    bbox = gesicht.get("bbox") if isinstance(gesicht, dict) else None
+                    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+                        continue
+                    gesamt += 1
+                    x, y, b, h = (float(wert) for wert in bbox[:4])
+                    if max(x + b - breite, y + h - hoehe) > grenze:
+                        draussen += 1
+                if gesamt and kennung not in rahmen:
+                    rahmen[kennung] = (breite, hoehe, gesamt, draussen)
+    return rahmen
+
+
+def rand_zeilen(ids, erledigt, rahmen, grenze: float = ANTEIL_GRENZE) -> list:
+    """Rand-Ausreisser je Gruppe (Orientierung 1 gegen Orientierung != 1).
+
+    Die Zeile erscheint **nur**, wenn beide Gruppen Gesichtsrahmen haben — ein
+    Prozentwert ohne Rahmen sagt nichts. Deutlich mehr Ausreisser in der
+    gedrehten Gruppe (ueber doppelt so viele UND ueber der Grenze) werden als
+    Verdacht benannt, sonst bleibt es beim Indiz ohne Befund. Nur Zahlen, nie
+    eine Kennung."""
+    gruppen = {1: [0, 0], "gedreht": [0, 0]}
+    for kennung in ids:
+        wert = erledigt.get(kennung)
+        if wert is None:
+            continue
+        eintrag = rahmen.get(kennung)
+        if not eintrag:
+            continue
+        ziel = gruppen[1] if wert == 1 else gruppen["gedreht"]
+        ziel[0] += eintrag[2]
+        ziel[1] += eintrag[3]
+    gerade, gedreht = gruppen[1], gruppen["gedreht"]
+    if not gerade[0] or not gedreht[0]:
+        return []
+    anteil_gerade = gerade[1] / gerade[0]
+    anteil_gedreht = gedreht[1] / gedreht[0]
+    if anteil_gedreht > grenze and anteil_gedreht > 2 * anteil_gerade:
+        urteil = ("die gedrehten Bilder zeigen deutlich mehr Ausreisser - die "
+                  "Gesichtsrahmen sind zu pruefen")
+    else:
+        urteil = "kein Hinweis auf einen anderen Koordinatenraum"
+    return [f"Rand-Ausreisser (ueber {grenze * 100:.0f} % der laengeren Bildkante): "
+            f"Orientierung 1 {anteil_gerade * 100:.2f} % ({gerade[1]} von {gerade[0]}), "
+            f"Orientierung != 1 {anteil_gedreht * 100:.2f} % "
+            f"({gedreht[1]} von {gedreht[0]}) - {urteil} (Indiz, kein Beweis)"]
+
+
 def pcloud_kopf_holer(max_bytes: int = KOPF_BYTES):
     """Echter Kopf-Holer: getfilelink, dann nur die ersten ``max_bytes`` lesen
     (Range-Kopf; liefert der Server mehr, wird nach ``max_bytes`` abgebrochen)."""
@@ -274,6 +365,8 @@ def main(argv=None, kopf_holen=None) -> int:
     print(f"Lauf: neu geprueft {zaehler.get('neu_geprueft', 0)}, "
           f"schon geprueft {zaehler.get('schon_geprueft', 0)}, Fehler {zaehler.get('fehler', 0)}")
     for zeile in bericht(ids, mit_gesicht, erledigt):
+        print(zeile)
+    for zeile in rand_zeilen(ids, erledigt, rahmen_lesen(args.vektoren)):
         print(zeile)
     print(f"Plan fuer die Neuerkennung: {anzahl_plan} Bilder -> {os.path.basename(args.plan)}")
     return 0 if not zaehler.get("fehler") else 3
