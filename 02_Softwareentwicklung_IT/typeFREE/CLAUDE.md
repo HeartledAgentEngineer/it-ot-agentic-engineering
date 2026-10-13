@@ -27,7 +27,7 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | App-Name bei OpenRouter | `kopfzeilen_fuer` hängt an jeden OpenRouter-Client (`baue_client`) `HTTP-Referer` (Repo-Adresse, `APP_ADRESSE`), `X-OpenRouter-Title`/`X-Title` = `typeFREE` und `X-OpenRouter-App-Visibility: hidden`. Anlass (06.10.2026): Im Activity-Dashboard stand unter „Top Apps" nur „Unknown". `hidden` hält die App aus den öffentlichen Ranglisten — **wirkt laut OpenRouter-Doku nur bei der allerersten Anfrage**, die die App anlegt; danach nicht mehr änderbar. Groq/OpenAI bekommen keine Kopfzeilen |
 | Konfiguration | `windows/config.json` — gewählter Hotkey (`hotkey_index`) und Ausgabe-Wahl (`live`: true = live satzweise) |
 | Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — **267 Prüfungen** mit pytest in 22 Dateien, alle gegen reine Funktionen. Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Tests | `windows/tests/` — **293 Prüfungen** mit pytest in 22 Dateien, überwiegend gegen reine Funktionen; `test_zweitanfrage.py` arbeitet mit echten Fäden, gesteuert über Ereignisse, gegen einen nachgebauten Client (kein Netz). Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Aussteuerung | `aussteuerung(daten)` + `AUSSTEUERUNG_MIN_RMS` (0,02). Jede Aufnahme schreibt „Aussteuerung: Spitze … · RMS …" ins Log; darunter warnt typeFREE. Referenzmessung: fehlerfreies deutsches Audio hatte RMS 0,088–0,095, leise aber fehlerfrei 0,062 |
 | Sprachmessung | `windows/sprachmessung.py` — Wortfehlerquote gegen bekannten Text (`wortfehlerquote`, reine Funktion; Test in `tests/test_sprachmessung.py`), optional in Happen mit Kontext. Referenzaudio samt Wortlaut in `windows/referenzaudio/`. Werkzeuge bauen ihre Clients selbst — `transkriptions_clients()` liefert außerhalb der App nur `None`, weil `main()` sie setzt |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
@@ -58,7 +58,7 @@ typeFREE/
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 160 Prüfungen in 14 Dateien
+    └── tests/                 ← 293 Prüfungen in 22 Dateien
 ```
 
 Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer erzeugt) sowie der Android-PoC
@@ -166,7 +166,7 @@ für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach ge
 
 | Wahl | Weg | Anbieter | Tempo | Kosten/h | Schlüssel |
 |------|-----|----------|-------|----------|-----------|
-| `eu` (Standard) | **Reine OpenRouter-Kette**: `mai-transcribe-1.5` → `voxtral-small-24b-2507-stt` → `voxtral-small-24b-2507` (Chat) | Microsoft und Mistral, beide über OpenRouter; ZDR des Kontos greift für alle drei | 4,8 s bei 69,7 s Audio (mai) | 0,36 $ | `OPENROUTER_API_KEY` |
+| `eu` (Standard) | **Reine OpenRouter-Kette**: `mai-transcribe-2` → `mai-transcribe-1.5` → `voxtral-small-24b-2507-stt` → `voxtral-small-24b-2507` (Chat) | Microsoft und Mistral, alle über OpenRouter; ZDR des Kontos greift für alle | 3,8 s bei 140 s Audio (mai-2, 25.09.); am 12.10. Median 11,3 s | 0,10 $ | `OPENROUTER_API_KEY` |
 | `beste` | ElevenLabs Scribe v2 + Keyterms | ElevenLabs (US) | noch nicht gemessen | 0,264 $ | `ELEVENLABS_API_KEY` |
 | `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
 
@@ -240,7 +240,8 @@ Daraus die Reihenfolge der `eu`-Kette: `mai-transcribe-2` (schnell, genau, billi
 für dieses Modell bietet OpenRouter **keinen ZDR-Endpunkt** an, das Konto lehnt es
 damit ab (derselbe Mechanismus, der die ZDR-Vorgabe durchsetzt).
 
-**Entscheidung:** `microsoft/mai-transcribe-1.5` steht an erster Stelle der
+**Entscheidung (25.09.2026 früh, später abgelöst durch `mai-transcribe-2` an erster
+Stelle, siehe Reihenfolge oben):** `microsoft/mai-transcribe-1.5` stand an erster Stelle der
 `eu`-Kette — über OpenRouter erreichbar, ZDR-konform (das Konto lehnt nicht
 konforme Endpunkte mit 404 ab; dieser liefert), und nach Benchmark wie eigener
 Messung das beste erreichbare Modell für Deutsch. Scribe v2 wäre laut Benchmark
@@ -260,30 +261,73 @@ je nach Audiolänge:
 | 24,5 s (764 KB) | 1,41–1,45 s, vollständig |
 | 60 s (2,3 MB) | **429 bei jedem Versuch** (3 Wiederholungen reichen nicht) |
 
-Deshalb zwei Sicherungen im Code:
+Deshalb drei Sicherungen im Code:
 
-1. **Wiederholung** (`CHAT_WIEDERHOLUNGEN = 3`, 1 s / 2 s Wartezeit) — fängt kurze
-   Drosselungen ab. Nur bei 429 und 5xx; ein Aufruffehler wird nicht wiederholt.
+1. **Wiederholung** (`CHAT_WIEDERHOLUNGEN = 3`, 1 s / 2 s Wartezeit) — **nur der
+   Audio-Chat-Weg** (`voxtral-chat`); fängt kurze Drosselungen ab. Nur bei 429 und
+   5xx; ein Aufruffehler wird nicht wiederholt. Die Transkriptions-Endpunkt-Wege
+   sichert stattdessen die Zweitanfrage (Punkt 3).
 2. **Rückfall** (`RUECKFALL = True`) — fällt der gewählte Weg komplett aus, läuft der
    nächste verfügbare Weg, damit kein Diktat verloren geht. Der Anbieter steht danach
    im Log und in der Kostenzeile („(groq)"). Auf `False` setzen, wenn strikt nur der
    gewählte Weg laufen darf. Bei eigener `kette` (Stimmvergleich, Tests) gibt es
    **keinen** Rückfall.
-3. **Zweitanfrage** (12.10.2026, `_stt_anfrage`) — gilt für alle Transkriptions-
-   Endpunkt-Wege (mai & Co.). Antwortet der Dienst nach `zweitanfrage_nach()`
-   (4 s + 0,03 s je Audiosekunde, bei 70 s also 6,1 s) nicht, geht dieselbe Anfrage
-   parallel ein zweites Mal los; die erste Antwort gewinnt. Nach `STT_HOECHSTDAUER`
-   (90 s) rückt die Kette weiter — vorher wartete das SDK bis zu 10 min und
-   wiederholte still. Anlass: mai antwortete bis 07.10. im Median in 1,3–1,8 s, am
-   12.10. in 12,5 s, einzelne Anfragen hingen 56/90/181 s, unabhängig von der
-   Diktatlänge. Echter Lauf mit 70 s Referenzaudio: viermal Zweitanfrage nötig,
-   einmal war sie schneller; bei Überlastung des ganzen Dienstes hilft sie nur
-   begrenzt (22 s / 29 s trotz zweier Anfragen). Mehrkosten nur im Langsam-Fall,
-   eine Anfrage mehr (~0,05 ct).
+3. **Zweitanfrage** (12.10.2026, `_stt_anfrage`) — **nur die Transkriptions-
+   Endpunkt-Wege** (`weg == 'stt'`: mai, mai-1.5, voxtral-stt, groq); Audio-Chat
+   und ElevenLabs Scribe laufen ohne sie. Dieselbe Anfrage geht parallel ein
+   zweites Mal los, wenn
+   - nach `zweitanfrage_nach()` (4 s + 0,03 s je Audiosekunde, bei 70 s also
+     6,1 s) keine Antwort da ist, oder
+   - die erste mit 429/5xx scheitert — das ersetzt die stillen SDK-Wiederholungen
+     (`max_retries=0`). Andere Fehler (z. B. 400) werden nicht wiederholt.
+
+   Höchstens zwei Anfragen. Es gewinnt die erste **brauchbare** Antwort; eine
+   leere zählt nur, wenn keine andere mehr läuft oder die Frist abläuft — dann
+   kommt sie als Stille zurück (Live). **Harte Gesamtfrist `STT_HOECHSTDAUER`
+   (90 s):** Jede Anfrage bekommt eine eigene Verbindung (`httpx.Client`), deren
+   Zeitlimit die Restzeit bis zum Fristende ist. Beim Verlassen — Gewinner, Fehler
+   oder Fristende — werden alle Verbindungen geschlossen; eine hängende Anfrage
+   bricht damit nach rund 1 s ab (gemessen gegen einen lokalen Server). Nur die
+   Restzeit allein reichte nicht: das httpx-Zeitlimit gilt je Phase (Verbinden,
+   Lesen …), nicht insgesamt. Antworten, die erst nach dem Fristende eintrafen,
+   zählen nicht. Danach `TimeoutError` mit den vorher gemeldeten Fehlern (z. B.
+   429), die Kette rückt weiter. Vorher wartete das SDK bis zu 10 min.
+
+   **Gemeinsamer SSL-Kontext** (`gemeinsamer_ssl_kontext()`, 13.10.2026): Ein
+   neuer `httpx.Client` baute je Anfrage die Zertifikatsprüfung neu auf
+   (0,8–1,4 s gemessen) und fraß so die Frist. Jetzt wird der Kontext einmal, faul
+   und fadensicher, erzeugt und an jede Verbindung gegeben; `main()` baut ihn beim
+   Start im Hintergrund vor. Die Verbindung baut der **Anfragefaden selbst** auf und
+   misst **danach** die Restzeit — ist die Frist um oder die Entscheidung schon
+   gefallen, schließt er sie und fragt nicht an. Die wartende Schleife kehrt dadurch
+   auch bei langsamem Aufbau pünktlich zum Fristende zurück. Die Eingangszeit einer
+   Antwort wird direkt bei der Rückkehr von `create()` gestempelt.
+
+   **Kosten:** Jede Zweitanfrage wird gebucht, sobald sie zum Versand freigegeben
+   ist — nicht schon beim Anstoßen (ist ihr Aufbau erst nach Fristende oder nach dem
+   Sieg der ersten fertig, wird nichts gebucht). Fällt das Schließen genau zwischen
+   Freigabe und Versand, ist sie gebucht, ohne gesendet zu sein
+   (`verbrauch_buchen(..., diktat=False)`: Betrag plus `monat_zweitanfragen`,
+   ohne Diktat und Sekunden doppelt zu zählen) — je Anfrage dieselbe Audiolänge
+   zum Preis des Anbieters, bei mai 0,17 ct/min. Gebucht wird **nur aus der App**
+   (`zweitanfrage_buchen=_zweitanfrage_buchen` beim Diktat und im Live-Modus);
+   Werkzeuge wie `sprachmessung.py` übergeben nichts und lassen `verbrauch.json`
+   unberührt. Die Buchung nutzt eine eigene Sperre (`_verbrauch_lock`), nicht
+   `lock` — den hält auch der Audio-Callback — und läuft in einem eigenen Faden
+   (`stt-buchung`), damit Sperre und Dateispeichern weder die Antwort noch das
+   Schließen am Fristende aufhalten. Ob der Anbieter eine abgebrochene
+   Anfrage berechnet, ist unbekannt; die Anzeige zeigt eher zu viel.
+
+   Anlass: mai antwortete bis 07.10. im Median in 1,3–1,8 s, am 12.10. in 12,5 s,
+   einzelne Anfragen hingen 56/90/181 s, unabhängig von der Diktatlänge. Echter
+   Lauf mit 70 s Referenzaudio: viermal Zweitanfrage nötig, einmal war sie
+   schneller; bei Überlastung des ganzen Dienstes hilft sie nur begrenzt (22 s /
+   29 s trotz zweier Anfragen). Nachgeschärft nach drei Runden Codex-Ergebnisprüfung
+   (12./13.10.2026).
 
 **Entschärft am 25.09.2026 abends:** In der `eu`-Kette stehen die beiden
-Transkriptions-Endpunkt-Wege jetzt **vorn** (`mai-transcribe-1.5`, dann
-`voxtral-small-24b-2507-stt`). Sie kennen die Drosselung des Chat-Wegs nicht:
+Transkriptions-Endpunkt-Wege jetzt **vorn** (damals `mai-transcribe-1.5`, dann
+`voxtral-small-24b-2507-stt`; heute steht `mai-transcribe-2` davor). Sie kennen die Drosselung des Chat-Wegs nicht:
 69,7 s liefen in 4,8 s durch, 139 s im Test ebenfalls. Der gedrosselte Chat-Weg
 ist nur noch das dritte Glied — er ist der einzige, der die Fachbegriffe
 mitgeben kann, soll aber nicht mehr den Ausschlag geben. Lange Diktate enden

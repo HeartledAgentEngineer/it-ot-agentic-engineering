@@ -21,6 +21,7 @@ import urllib.request
 import ctypes
 import logging
 import re
+import ssl
 import threading
 from logging.handlers import RotatingFileHandler
 
@@ -28,6 +29,8 @@ import keyboard
 import sounddevice as sd
 import soundfile as sf
 import numpy as np
+import certifi
+import httpx
 import pyperclip
 import pyautogui
 import pystray
@@ -257,6 +260,23 @@ PREISE_JE_MINUTE = {
 }
 WHISPER_PREIS_JE_MINUTE = PREISE_JE_MINUTE['groq']
 VERBRAUCH_PATH = os.path.join(_base, 'verbrauch.json')
+# Eigene Sperre für die Buchung: `lock` braucht auch der Audio-Callback, und der
+# soll nie auf das Speichern der Verbrauchsdatei warten (Codex-Prüfung 12.10.2026).
+_verbrauch_lock = threading.Lock()
+
+# Ein gemeinsamer SSL-Kontext für alle Transkriptions-Verbindungen: `httpx.Client()` baut
+# sonst je Anfrage die Zertifikatsprüfung neu auf (0,8–1,4 s gemessen) — das fraß bei der
+# Zweitanfrage die Frist. Faul beim ersten Gebrauch erzeugt, fadensicher.
+_ssl_kontext = None
+_ssl_lock = threading.Lock()
+
+
+def gemeinsamer_ssl_kontext():
+    global _ssl_kontext
+    with _ssl_lock:
+        if _ssl_kontext is None:
+            _ssl_kontext = ssl.create_default_context(cafile=certifi.where())
+        return _ssl_kontext
 
 
 def kosten_fuer(sekunden, anbieter, preise=PREISE_JE_MINUTE):
@@ -269,8 +289,14 @@ def whisper_kosten(sekunden, preis_je_minute=WHISPER_PREIS_JE_MINUTE):
     return sekunden / 60.0 * preis_je_minute
 
 
-def verbrauch_buchen(verbrauch, sekunden, monat, anbieter=None):
+def verbrauch_buchen(verbrauch, sekunden, monat, anbieter=None, diktat=True):
     """Bucht ein Diktat. Reine Funktion — gibt einen neuen Stand zurück.
+
+    `diktat=False` bucht eine Zweitanfrage (12.10.2026): nur der Betrag und der
+    Zähler `monat_zweitanfragen` — Diktatzahl und diktierte Sekunden bleiben,
+    sonst zählte die Anzeige ein Diktat doppelt. Gebucht wird beim Absenden; ob
+    der Anbieter eine abgebrochene Anfrage berechnet, ist unbekannt — die Anzeige
+    zeigt also eher zu viel als zu wenig.
 
     Der Betrag wird mit dem Preis des Anbieters gebucht, der **tatsächlich**
     transkribiert hat. Vorher rechnete die Anzeige die gesamte Monatssumme mit
@@ -288,12 +314,16 @@ def verbrauch_buchen(verbrauch, sekunden, monat, anbieter=None):
         neu['monat_diktate'] = 0
         neu['monat_betrag'] = 0.0
         neu['monat_anbieter'] = []
+        neu['monat_zweitanfragen'] = 0
     betrag = kosten_fuer(sekunden, anbieter) if anbieter else 0.0
-    neu['monat_sekunden'] = neu.get('monat_sekunden', 0.0) + sekunden
-    neu['monat_diktate'] = neu.get('monat_diktate', 0) + 1
+    if diktat:
+        neu['monat_sekunden'] = neu.get('monat_sekunden', 0.0) + sekunden
+        neu['monat_diktate'] = neu.get('monat_diktate', 0) + 1
+        neu['gesamt_sekunden'] = neu.get('gesamt_sekunden', 0.0) + sekunden
+        neu['gesamt_diktate'] = neu.get('gesamt_diktate', 0) + 1
+    else:
+        neu['monat_zweitanfragen'] = neu.get('monat_zweitanfragen', 0) + 1
     neu['monat_betrag'] = neu.get('monat_betrag', 0.0) + betrag
-    neu['gesamt_sekunden'] = neu.get('gesamt_sekunden', 0.0) + sekunden
-    neu['gesamt_diktate'] = neu.get('gesamt_diktate', 0) + 1
     neu['gesamt_betrag'] = neu.get('gesamt_betrag', 0.0) + betrag
     namen = list(neu.get('monat_anbieter') or [])
     if anbieter and anbieter not in namen:
@@ -1274,9 +1304,19 @@ def _live_glaetten(roh):
 def _live_buchen(sekunden, anbieter):
     """Bucht einen Live-Happen beim liefernden Anbieter (wie ein normales Diktat)."""
     global verbrauch
-    verbrauch = verbrauch_buchen(verbrauch, sekunden, time.strftime('%Y-%m'),
-                                 anbieter)
-    save_verbrauch(verbrauch)
+    with _verbrauch_lock:   # Zweitanfragen buchen aus demselben oder einem anderen Faden
+        verbrauch = verbrauch_buchen(verbrauch, sekunden, time.strftime('%Y-%m'),
+                                     anbieter)
+        save_verbrauch(verbrauch)
+
+
+def _zweitanfrage_buchen(sekunden, anbieter):
+    """Bucht die Kosten einer Zweitanfrage (siehe `_stt_anfrage`)."""
+    global verbrauch
+    with _verbrauch_lock:
+        verbrauch = verbrauch_buchen(verbrauch, sekunden, time.strftime('%Y-%m'),
+                                     anbieter, diktat=False)
+        save_verbrauch(verbrauch)
 
 
 VORWAERM_MODELL = 'microsoft/mai-transcribe-2'
@@ -1323,7 +1363,8 @@ def _live_transkribieren(stueck):
     buffer.seek(0)
     buffer.name = 'audio.wav'
     return transcribe_audio(buffer, transkriptions_clients(),
-                            leer_ist_stille=True)
+                            leer_ist_stille=True,
+                            zweitanfrage_buchen=_zweitanfrage_buchen)
 
 
 def _live_schreiber(session):
@@ -1971,65 +2012,160 @@ def zweitanfrage_nach(audio_sekunden):
 
 
 def _stt_anfrage(client, modell, puffer, vokabular, zweit_nach=None,
-                 hoechstdauer=None):
+                 hoechstdauer=None, bei_zweitanfrage=None):
     """Transkription über den STT-Endpunkt, mit Zweitanfrage, wenn sie hängt.
 
-    Kommt nach `zweit_nach` Sekunden keine Antwort, geht dieselbe Anfrage ein
-    zweites Mal los; die erste brauchbare Antwort gewinnt, die andere läuft ins
-    Leere. Mehrkosten nur im Langsam-Fall (eine Anfrage mehr, ~0,05 ct). Nach
-    `hoechstdauer` gibt es einen TimeoutError — die Kette rückt dann weiter.
+    Gilt nur für die Transkriptions-Endpunkt-Wege (mai & Co.); Audio-Chat und
+    Scribe haben eigene Sicherungen. Die Zweitanfrage — dieselbe Anfrage noch
+    einmal, parallel — geht los, wenn
+      - nach `zweit_nach` Sekunden keine Antwort da ist, oder
+      - die erste mit Drosselung/Serverfehler (429/5xx) scheitert: Sie ersetzt
+        dann die stillen SDK-Wiederholungen, die hier abgeschaltet sind.
+    Höchstens zwei Anfragen, und die zweite nur, solange die Frist noch läuft.
+    Es gewinnt die erste BRAUCHBARE Antwort, die vor Fristende eintraf; eine
+    leere Antwort zählt erst, wenn keine andere mehr läuft oder die Frist abläuft
+    (Live-Happen: Stille).
+
+    Harte Gesamtfrist `hoechstdauer`: Jede Anfrage läuft über eine eigene
+    Verbindung (`httpx.Client`), und beim Verlassen — Gewinner, Fehler oder
+    Fristende — werden ALLE Verbindungen geschlossen. Eine noch hängende Anfrage
+    bricht dadurch ab (lokal gemessen: etwa 1 s nach dem Schließen), statt im
+    Hintergrund weiterzulaufen. Das Zeitlimit von httpx allein reichte nicht: Es
+    gilt je Phase (Verbinden, Senden, jedes gelesene Datenstück), nicht insgesamt.
+    Die Verbindung baut der Anfragefaden selbst auf (gemeinsamer SSL-Kontext); erst
+    danach misst er die Restzeit. Ist die Frist dann um oder schon entschieden, schließt
+    er sie und fragt nicht mehr an. Die wartende Schleife hängt so nie am Aufbau.
+    Nach Fristende TimeoutError mit den vorher gemeldeten Fehlern; die Kette rückt
+    weiter.
+
+    `bei_zweitanfrage(audio_sekunden)` wird gerufen, sobald die Zweitanfrage zum
+    Versand freigegeben ist (nicht, wenn ihr Aufbau erst nach Fristende oder nach der
+    Entscheidung fertig wurde). Fällt das Schließen genau zwischen Freigabe und
+    Versand, ist sie gebucht, ohne gesendet zu sein — die Anzeige zeigt eher zu viel,
+    damit ihre Kosten in die Verbrauchsanzeige kommen. Ohne Angabe wird nichts
+    gebucht (Messwerkzeuge, Tests).
     """
     puffer.seek(0)
     daten = puffer.read()
     dateiname = getattr(puffer, 'name', None) or 'audio.wav'
+    audio_sekunden = len(daten) / (SAMPLE_RATE * 2)
     hoechstdauer = STT_HOECHSTDAUER if hoechstdauer is None else hoechstdauer
     if zweit_nach is None:
-        zweit_nach = zweitanfrage_nach(len(daten) / (SAMPLE_RATE * 2))
-    begrenzt = client.with_options(timeout=hoechstdauer, max_retries=0)
+        zweit_nach = zweitanfrage_nach(audio_sekunden)
     ergebnisse = queue.Queue()
+    begonnen = time.monotonic()
+    fristende = begonnen + hoechstdauer
+    verbindungen = []
+    verbindungs_sperre = threading.Lock()
+    beendet = False                      # gesetzt, sobald `finally` alles schließt
 
     def anfrage(nummer):
+        # Verbindung im Anfragefaden aufbauen: Der erste Aufbau des SSL-Kontexts
+        # kostet Zeit — die wartende Schleife kehrt trotzdem pünktlich zum Fristende
+        # zurück (harte Gesamtfrist, Codex 13.10.2026). Restzeit erst DANACH messen.
+        try:
+            verbindung = httpx.Client(verify=gemeinsamer_ssl_kontext())
+        except Exception as e:
+            ergebnisse.put((nummer, None, e, time.monotonic()))
+            return
+        with verbindungs_sperre:
+            rest = fristende - time.monotonic()
+            if beendet or rest <= 0:     # Frist um oder schon entschieden
+                verbindung.close()
+                return
+            verbindung.timeout = httpx.Timeout(rest)
+            verbindungen.append(verbindung)
+            if nummer == 2 and bei_zweitanfrage is not None:
+                # Gebucht wird im selben gesperrten Augenblick, in dem die Zweitanfrage
+                # zum Versand freigegeben wird — nicht schon beim Anstoßen. In eigenem
+                # Faden: Die Buchung wartet auf Sperre und Datei, das darf weder Anfrage
+                # noch Auswertung noch das Schließen aufhalten (Codex 13.10.2026).
+                threading.Thread(target=buchen, daemon=True,
+                                 name='stt-buchung').start()
         datei = io.BytesIO(daten)
         datei.name = dateiname
         try:
+            begrenzt = client.with_options(http_client=verbindung,
+                                           timeout=rest, max_retries=0)
             antwort = begrenzt.audio.transcriptions.create(
                 model=modell, file=datei, language='de', prompt=vokabular)
-            ergebnisse.put((nummer, (antwort.text or '').strip(), None))
+            eingang = time.monotonic()   # Eingang = Rückkehr von create()
+            ergebnisse.put((nummer, (antwort.text or '').strip(), None, eingang))
         except Exception as e:
-            ergebnisse.put((nummer, None, e))
+            ergebnisse.put((nummer, None, e, time.monotonic()))
 
     def starten(nummer):
-        threading.Thread(target=anfrage, args=(nummer,), daemon=True,
-                         name=f'stt-{nummer}').start()
+        """Startet Anfrage `nummer` — nur, wenn die Frist noch läuft."""
+        if fristende - time.monotonic() <= 0:
+            return False
+        threading.Thread(target=anfrage, args=(nummer,),
+                         daemon=True, name=f'stt-{nummer}').start()
+        return True
 
-    begonnen = time.monotonic()
-    starten(1)
-    laufend, zweite, erster_fehler = 1, False, None
-    while True:
-        frist = hoechstdauer if zweite else min(zweit_nach, hoechstdauer)
+    def zweite_starten(grund):
+        nonlocal laufend, zweite
+        zweite = True                    # auch wenn die Frist schon um ist: nur einmal
+        if not starten(2):
+            return
+        laufend += 1
+        log.warning('%s %s — zweite Anfrage parallel', modell, grund)
+
+    def buchen():
         try:
-            nummer, text, fehler = ergebnisse.get(
-                timeout=max(0.0, frist - (time.monotonic() - begonnen)))
-        except queue.Empty:
-            if zweite or zweit_nach >= hoechstdauer:
-                raise TimeoutError(f'keine Antwort nach {hoechstdauer:.0f} s') from None
-            log.warning('%s antwortet nach %.1f s nicht — zweite Anfrage parallel',
-                        modell, zweit_nach)
-            starten(2)
-            laufend, zweite = laufend + 1, True
-            continue
-        laufend -= 1
-        if fehler is None:
-            if nummer == 2:
-                log.info('Die zweite Anfrage war schneller')
-            return text
-        erster_fehler = erster_fehler or fehler
-        if laufend == 0:
-            raise erster_fehler
+            bei_zweitanfrage(audio_sekunden)
+        except Exception as e:
+            log.warning('Zweitanfrage nicht gebucht: %s', e)
+
+    def zeitfehler():
+        grund = f'keine Antwort nach {hoechstdauer:.0f} s'
+        if fehlerliste:
+            grund += ' (vorher: ' + '; '.join(str(f) for f in fehlerliste) + ')'
+        return TimeoutError(grund)
+
+    laufend, zweite, leer, fehlerliste = 0, False, None, []
+    try:
+        if starten(1):
+            laufend = 1
+        while laufend:
+            jetzt = time.monotonic()
+            frist = fristende if zweite else min(begonnen + zweit_nach, fristende)
+            try:
+                nummer, text, fehler, eingang = ergebnisse.get(
+                    timeout=max(0.0, frist - jetzt))
+            except queue.Empty:
+                if not zweite and time.monotonic() < fristende:
+                    zweite_starten(f'antwortet nach {zweit_nach:.1f} s nicht')
+                    continue
+                break                                      # Fristende
+            laufend -= 1
+            if eingang > fristende:
+                continue                   # zu spät eingetroffen — zählt nicht
+            if fehler is None and text and not _ist_auftragstext(text):
+                if nummer == 2:
+                    log.info('Die zweite Anfrage war schneller')
+                return text
+            if fehler is None:
+                leer = text                # leer/unbrauchbar: auf die andere warten
+            else:
+                fehlerliste.append(fehler)
+                log.warning('%s Anfrage %d gescheitert: %s', modell, nummer, fehler)
+                if not zweite and _transiente_stoerung(fehler):
+                    zweite_starten(f'meldet {getattr(fehler, "status_code", fehler)}')
+        if leer is not None:
+            return leer                    # Stille — die andere kam nicht rechtzeitig
+        if laufend == 0 and fehlerliste and time.monotonic() <= fristende:
+            raise fehlerliste[0]
+        raise zeitfehler()
+    finally:
+        with verbindungs_sperre:          # hängende Anfragen abbrechen; Nachzügler
+            beendet = True                # schließen ihre Verbindung selbst
+            for verbindung in verbindungen:
+                verbindung.close()
 
 
 def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
-                       fach_vokabular=FACH_VOKABULAR, leer_ist_stille=False):
+                       fach_vokabular=FACH_VOKABULAR, leer_ist_stille=False,
+                       zweitanfrage_buchen=None):
     """Eine Anbieterkette der Reihe nach versuchen; gibt `(text, anbieter)` zurück.
 
     Wirft erst, wenn KEIN Glied der Kette liefern konnte. `puffer` wird vor jedem
@@ -2064,7 +2200,11 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
                 text = _transkribiere_scribe(schluessel, modell, puffer,
                                              fach_vokabular, basis_url)
             else:
-                text = _stt_anfrage(client, modell, puffer, vokabular)
+                buchen = None
+                if zweitanfrage_buchen is not None:
+                    buchen = lambda s, n=name: zweitanfrage_buchen(s, n)  # noqa: E731
+                text = _stt_anfrage(client, modell, puffer, vokabular,
+                                    bei_zweitanfrage=buchen)
             if _ist_auftragstext(text):
                 raise ValueError('Antwort war der Auftragstext selbst')
             if not text and leer_ist_stille:
@@ -2083,8 +2223,12 @@ def _kette_durchlaufen(puffer, clients, kette, vokabular=WHISPER_VOKABULAR,
 
 
 def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR,
-                     leer_ist_stille=False):
+                     leer_ist_stille=False, zweitanfrage_buchen=None):
     """Transkribiert über die Anbieterkette und gibt `(text, anbieter)` zurück.
+
+    `zweitanfrage_buchen(sekunden, anbieter)` bucht Zweitanfragen; nur die App
+    übergibt es. Werkzeuge ohne geladenen Verbrauchsstand (sprachmessung.py)
+    dürfen die Verbrauchsdatei nicht überschreiben.
 
     Ohne `kette` läuft die in der config.json gewählte (Standard: EU-Weg). Fällt
     der gewählte Weg komplett aus — im Betrieb liefert Mistrals geteilter Pool bei
@@ -2097,7 +2241,8 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR,
     wahl = transkription_wahl()
     try:
         return _kette_durchlaufen(puffer, clients, kette, vokabular,
-                                  leer_ist_stille=leer_ist_stille)
+                                  leer_ist_stille=leer_ist_stille,
+                                  zweitanfrage_buchen=zweitanfrage_buchen)
     except RuntimeError as erster_fehler:
         if ausdruecklich or not RUECKFALL:
             raise
@@ -2111,7 +2256,8 @@ def transcribe_audio(puffer, clients, kette=None, vokabular=WHISPER_VOKABULAR,
             try:
                 return _kette_durchlaufen(puffer, clients,
                                           KETTEN[andere_wahl], vokabular,
-                                          leer_ist_stille=leer_ist_stille)
+                                          leer_ist_stille=leer_ist_stille,
+                                          zweitanfrage_buchen=zweitanfrage_buchen)
             except RuntimeError as zweiter_fehler:
                 raise RuntimeError(f'{erster_fehler} || {zweiter_fehler}') from None
         raise
@@ -2216,7 +2362,9 @@ def _verarbeite_audio(audio_data, erneut=False):
     begonnen = time.monotonic()
     try:
         stufe = time.monotonic()
-        raw_text, anbieter = transcribe_audio(buffer, transkriptions_clients())
+        raw_text, anbieter = transcribe_audio(
+            buffer, transkriptions_clients(),
+            zweitanfrage_buchen=_zweitanfrage_buchen)
         dauer_transkription = time.monotonic() - stufe
         log.info('Erkannt (%s): %s', anbieter, raw_text)
 
@@ -2238,9 +2386,10 @@ def _verarbeite_audio(audio_data, erneut=False):
         retry_verwerfen()     # angekommen — nichts mehr zu wiederholen
 
         # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
-        verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
-                                     anbieter)
-        save_verbrauch(verbrauch)
+        with _verbrauch_lock:
+            verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
+                                         anbieter)
+            save_verbrauch(verbrauch)
         log.info('Zeiten: %s', zeiten_text([
             (f'Transkription ({anbieter})', dauer_transkription),
             ('Glättung', dauer_glattung),
@@ -2580,6 +2729,11 @@ def main():
                                     os.environ.get('OPENROUTER_API_KEY'))
     openai_whisper_client = baue_client('https://api.openai.com/v1',
                                         os.environ.get('OPENAI_API_KEY'))
+
+    # Zertifikatsprüfung einmal im Hintergrund aufbauen (0,8–1,4 s), damit die erste
+    # Transkription diese Zeit nicht von ihrer Frist abziehen muss.
+    threading.Thread(target=gemeinsamer_ssl_kontext, name='ssl-kontext',
+                     daemon=True).start()
 
     log.info('typeFREE gestartet — Hotkey: %s (%s) · Ausgabe: %s · Transkription über: %s',
              active_hotkey['label'],

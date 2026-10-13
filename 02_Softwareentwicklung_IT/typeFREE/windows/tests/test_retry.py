@@ -65,7 +65,7 @@ def test_fehlschlag_behaelt_die_aufnahme(monkeypatch, still):
 def test_erfolg_verwirft_die_aufnahme(monkeypatch, still):
     """Was angekommen ist, muss nicht wiederholt werden."""
     monkeypatch.setattr(typefree, 'transcribe_audio',
-                        lambda puffer, clients: ('Text aus dem zweiten Versuch', 'mai'))
+                        lambda puffer, clients, **_: ('Text aus dem zweiten Versuch', 'mai'))
     typefree.aufnahme_merken(sprache(5), 'alter Fehlschlag')
     typefree._verarbeite_audio(sprache(8), erneut=True)
 
@@ -81,7 +81,7 @@ def test_erneuter_versuch_bucht_die_kosten_erneut(monkeypatch, still):
         return verbrauch
 
     monkeypatch.setattr(typefree, 'transcribe_audio',
-                        lambda puffer, clients: ('Text', 'mai'))
+                        lambda puffer, clients, **_: ('Text', 'mai'))
     monkeypatch.setattr(typefree, 'verbrauch_buchen', merke)
     typefree._verarbeite_audio(sprache(6), erneut=True)
 
