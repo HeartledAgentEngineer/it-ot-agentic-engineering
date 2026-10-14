@@ -187,6 +187,16 @@ Prüfmodell, Planfassung und offene Blocker werden lokal dokumentiert.
 Keine Antwort ist keine Freigabe. Veröffentlichung und sensible Arbeit
 bleiben an die gesonderten Nutzergrenzen gebunden.
 
+**Prüfprotokolle zeigen (Sebastian, 14.10.2026):** Sebastian ist „Human in the
+Loop" als **Beobachter, nicht als Entscheider**. Nach jeder Prüfrunde — Plan- oder
+Ergebnisprüfung, Codex oder Hermes — legt der Master das Protokoll
+(`.hermes/pruefkreis/<thema>.md`) sofort als aufklappbare Datei in den Chat
+(Claude Code: `SendUserFile`), dazu eine Zeile: Urteil und was der Master daraus
+macht. Danach geht die Arbeit ohne Warten weiter; das Zeigen ist keine Rückfrage.
+Grund: Codex-Prüfläufe sind flüchtig (`--ephemeral`) und erscheinen nicht in der
+Codex-App, Hermes-Prüfsitzungen werden nach Abschluss geschlossen — ohne das
+Protokoll im Chat sieht Sebastian nicht, was geprüft wurde.
+
 ## Lebenszyklus eigener Prüfchats
 
 Vom Nutzer ausdrücklich festgelegt am 10.10.2026: Feedback bleibt im Master;
