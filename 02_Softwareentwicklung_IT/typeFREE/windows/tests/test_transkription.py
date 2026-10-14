@@ -577,6 +577,12 @@ def test_modellkette_hat_mehrere_modelle():
     assert len(set(typefree.POLISH_MODELLE)) == len(typefree.POLISH_MODELLE)
 
 
+def test_glaettung_startet_mit_dem_schnellen_guenstigen_modell():
+    # Messung 14.10.2026: flash-lite 1,3 s Median gegen 2,8 s bei 2.5-flash.
+    assert typefree.POLISH_MODELLE[0] == 'google/gemini-2.5-flash-lite'
+    assert 'google/gemini-2.5-flash' in typefree.POLISH_MODELLE[1:]
+
+
 # ── Ausfall der Glättung wird gemeldet ────────────────────────────────────────
 
 def test_ausfaelle_zaehlen_hoch_und_erfolg_setzt_zurueck():

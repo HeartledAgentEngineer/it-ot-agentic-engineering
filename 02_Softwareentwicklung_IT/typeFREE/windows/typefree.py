@@ -1613,10 +1613,16 @@ POLISH_MAX_TOKENS = 4000
 # aus dem Programm, jede Glättung endete im 404 — und weil das nur im Log
 # stand, blieb es wochenlang unbemerkt. Deshalb jetzt mehrere Modelle und ein
 # Hinweis, wenn alle ausfallen.
+# Seit 14.10.2026 flash-lite vorn (Sebastian: schneller, auf Kosten achten).
+# Messung an vier erfundenen Diktat-Rohtexten, je 2 Läufe: flash-lite 1,3 s
+# Median (max 1,8 s), gemini-2.5-flash 2,8 s (max 5,3 s), gleich saubere
+# Ergebnisse. Preis je Mio. Tokens: flash-lite 0,10/0,40 $, 2.5-flash 0,30/2,50 $.
+# Verworfen: openai/gpt-6-luna (gleiche Preisklasse, aber 9,8 s Median, max
+# 36 s), mistral-small-2603 (429 im geteilten Pool), qwen3.5-flash (kein ZDR).
 POLISH_MODELLE = (
-    'google/gemini-2.5-flash',       # 0,8 s und gründlich (gemessen 25.09.2026)
-    'google/gemini-3.5-flash-lite',  # Ausweichweg, ähnlich schnell
-    'google/gemini-2.5-flash-lite',  # letzter Ausweichweg, günstigstes Modell
+    'google/gemini-2.5-flash-lite',  # 1,3 s, günstigstes Modell (14.10.2026)
+    'google/gemini-2.5-flash',       # Ausweichweg, gründlich, 2,8 s
+    'google/gemini-3.5-flash-lite',  # letzter Ausweichweg
 )
 
 # Live-Modus: jeder Block wird einzeln geglättet — 8–10 Aufrufe je Minute. Die
