@@ -80,7 +80,54 @@ nachgefahren:
 
 ## Offen
 
-- **V2:** Das Quiz liest die Ergebnisdatei.
+- ~~V2~~ erledigt, siehe Nachtrag unten.
 - **V3:** Marke „🎬“ im Frontend.
 - **V4:** Übergabe.
 - Echter Trockenlauf und Schreiblauf (Sebastian, Gesichter-venv).
+
+## Nachtrag V2: Das Quiz zeigt Video-Gesichter (`backend/app/services/gruppen_quiz.py`)
+
+- **Neue Leser:**
+  - `_standbilder_laden` liest die Karte über `_lesepfad`, also am PC unter `personen_gruppen/`
+    und am Handy im Basisordner.
+  - `_video_zeilen_laden` liest die Video-Zeilen der Gesichtsdatei.
+  - Beide werden über `_gemerkt` **getrennt** gemerkt, jeder an seine eigene Datei gebunden.
+    Zusammengeführt wird erst beim Aufruf (`_video_teil`). Kommt nur die Karte neu, sieht
+    das Quiz sie sofort.
+  - Fehlt die Karte oder ist sie unlesbar, ist das Ergebnis `{}`. Das Quiz läuft dann wie
+    bisher, bei Lesefehlern mit einer Warnung im Log. Kaputte Zeilen fallen einzeln weg.
+- **Gesichterliste** (`gesichter`) und **Personenansicht** (`gesichter_person`):
+  - Eine Video-Zeile mit Standbild wird ein Gesicht mit `fileid` = Standbild,
+    `bbox × skala`, `breite`/`hoehe` des Standbilds, `gid` = `<standbild>:<index>`,
+    `video: true` und `zeit_s`.
+  - `videos` zählt jetzt nur noch die Video-Gesichter **ohne** Standbild, also die nicht
+    gezeigten. Nicht darstellbare Zeilen (ohne `zeit_s` oder Rahmen) zählen dort mit.
+  - Ordnung `zeit`: Video-Gesichter ohne Datum landen hinten, wie bisher.
+- **`naechste()`:**
+  - Hat eine Gruppe weniger als 8 Foto-Beispiele, wird mit den besten Video-Gesichtern
+    aufgefüllt (`anteil × score`, je Standbild höchstens eines).
+  - Zwillinge und verbundene Vorschläge ohne Foto-Beispiel bekommen das beste Video-Gesicht
+    als Vergleichsbild.
+  - Reine Video-Gruppen zeigen damit erstmals Bilder.
+- **Einzelaktionen gesperrt:** `ausschliessen`, `ausschliessen_person` und `zuordnen` lehnen
+  Video-Gesichter mit einer klaren Meldung ab und schreiben nichts. Die Regeln brauchen eine
+  Foto-`bild_id`; die Gruppierung kennt Standbilder nicht.
+  - Benennen, „gleiche Person“ und „kenne ich nicht“ wirken weiter auf die ganze Gruppe.
+- Entfernt: `_video_gesichter_zaehlen`. Das Zählen übernimmt `_video_teil`.
+- **Unverändert** bleiben `gesichter_auf_bild`, `personen_auf_bildern`, `bilder_mit` und
+  `personen_gruppieren.py` (dort arbeitet Issue #5).
+- **Tests:** neu `backend/tests/test_gruppen_quiz_video.py`, 18 Tests, erfundene Dateien.
+  Geprüft werden:
+  - ohne Karte, mit Karte, Teilkarte;
+  - Karte nachträglich;
+  - kaputte Karte;
+  - Karte als Ordner;
+  - Karte am Handy im Basisordner;
+  - Ordnung `zeit`;
+  - Beispiele für Video-, Misch- und Fotogruppen;
+  - Zwilling nur aus Videos;
+  - Sperre der drei Einzelaktionen;
+  - Personenansicht;
+  - Foto-Aktionen laufen weiter.
+
+  `test_gruppen_quiz.py` bleibt unverändert grün.

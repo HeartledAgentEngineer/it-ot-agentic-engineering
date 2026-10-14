@@ -567,8 +567,13 @@ def naechste() -> Dict[str, Any]:
     nach_kennung = {g["kennung"]: g for g in gruppen}
 
     def erstes_beispiel(g: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        return next((b for b in (_beispiel_fuer_anzeige(x)
+        foto = next((b for b in (_beispiel_fuer_anzeige(x)
                                  for x in g.get("beispiele") or []) if b), None)
+        if foto:
+            return foto
+        # Ohne Foto-Beispiel das beste Video-Gesicht (14.10.2026, Video-Gesichter im Quiz).
+        video = _video_beispiele(g["kennung"], set(), set(), 1)
+        return video[0] if video else None
 
     # Schon entschiedene Paare (gleich ODER verschieden) nicht noch einmal
     # fragen — sonst zeichnet die Oberflaeche nach dem Klick dieselbe Frage
@@ -595,7 +600,10 @@ def naechste() -> Dict[str, Any]:
                               "beispiel": erstes_beispiel(nach_kennung[k])})
     aus = ausgeschlossen_lesen().get(gruppe["kennung"], set())
     beispiele = [b for b in (_beispiel_fuer_anzeige(x) for x in gruppe.get("beispiele") or [])
-                 if b and f"{b['fileid']}:{int(b.get('index') or 0)}" not in aus]
+                 if b and f"{b['fileid']}:{int(b.get('index') or 0)}" not in aus][:BEISPIELE_MAX]
+    # Weniger als BEISPIELE_MAX Foto-Beispiele: mit den besten Video-Gesichtern auffuellen.
+    beispiele += _video_beispiele(gruppe["kennung"], aus, {b["fileid"] for b in beispiele},
+                                  BEISPIELE_MAX - len(beispiele))
     return {
         "ok": True, "fertig": False, "offen": len(offen),
         "gruppe": {
@@ -660,19 +668,142 @@ def _gesichter_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
     return je
 
 
-def _video_gesichter_zaehlen(pfad: str) -> Dict[str, int]:
-    """{kennung: Zahl der Gesichter aus Videos}. Befund 10.10.2026: 89 Vorschlaege bestehen
-    NUR aus Video-Standbildern - die Gesamtansicht blieb dort leer ohne Erklaerung."""
-    je: Dict[str, int] = {}
+# ── Video-Gesichter ueber Standbilder (14.10.2026, Plan video-gesichter-im-quiz V2) ──
+#
+# ``tools/foto_sortierung/video_standbilder.py`` legt fuer ausgewaehlte Video-Frames ein
+# Standbild in pCloud ab und schreibt die Karte ``video_standbilder.jsonl``
+# (``bild_id`` "<vid>#t=<s>" -> ``standbild_fileid``, ``skala``, Mass). Video-Zeilen der
+# Gesichtsdatei und Karte werden GETRENNT gemerkt (je an ihre Datei gebunden) und erst
+# beim Aufruf zusammengefuehrt — kommt nur die Karte neu, sieht das Quiz sie sofort.
+# Einzelaktionen (Ausschliessen, Zuordnen) an Video-Gesichtern sind gesperrt: die
+# Regeln brauchen eine Foto-``bild_id``, die Gruppierung kennt Standbilder nicht.
+
+VIDEO_GESPERRT = ("Video-Gesichter lassen sich (noch) nicht einzeln ausschließen oder "
+                  "zuordnen – bitte die ganze Gruppe benennen.")
+
+
+def _video_zeilen_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
+    """``gesicht_zuordnung.jsonl`` -> {kennung: [Video-Zeile, ...]} (nur Video-Gesichter)."""
+    je: Dict[str, List[Dict[str, Any]]] = {}
     with open(pfad, encoding="utf-8") as datei:
         for zeile in datei:
             try:
                 z = json.loads(zeile)
             except ValueError:
                 continue
-            if isinstance(z, dict) and z.get("kennung") and z.get("video_id"):
-                je[str(z["kennung"])] = je.get(str(z["kennung"]), 0) + 1
+            if not isinstance(z, dict) or not z.get("kennung") or not z.get("video_id"):
+                continue
+            bbox = z.get("bbox")
+            try:
+                guete = float(z.get("anteil") or 0) * float(z.get("score") or 0)
+                zeit = float(z.get("zeit_s"))
+            except (TypeError, ValueError):
+                zeit = None
+            if zeit is None or not (isinstance(bbox, list) and len(bbox) == 4
+                                    and all(isinstance(w, (int, float)) for w in bbox)):
+                # Nicht darstellbar, zaehlt aber weiter als Video-Gesicht ohne Standbild.
+                je.setdefault(str(z["kennung"]), []).append({"bild_id": None})
+                continue
+            je.setdefault(str(z["kennung"]), []).append({
+                "bild_id": f"{z['video_id']}#t={zeit:.1f}", "index": int(z.get("index") or 0),
+                "bbox": bbox, "zeit_s": zeit,
+                "aufnahme": (str(z.get("aufnahme") or ""))[:10] or None, "_guete": guete})
     return je
+
+
+def _standbilder_laden(pfad: str) -> Dict[str, Dict[str, Any]]:
+    """Karte -> {"<vid>#t=<s>": {"fileid", "breite", "hoehe", "skala"}}; kaputte Zeilen fallen weg."""
+    karte: Dict[str, Dict[str, Any]] = {}
+    with open(pfad, encoding="utf-8") as datei:
+        for zeile in datei:
+            try:
+                z = json.loads(zeile)
+            except ValueError:
+                continue
+            if not isinstance(z, dict):
+                continue
+            fid, skala = z.get("standbild_fileid"), z.get("skala")
+            if not isinstance(fid, int) or isinstance(fid, bool) or fid <= 0:
+                continue
+            if not isinstance(skala, (int, float)) or not 0 < skala <= 1:
+                continue
+            try:
+                schluessel = f"{z['video_id']}#t={float(z['zeit_s']):.1f}"
+            except (KeyError, TypeError, ValueError):
+                continue
+            karte[schluessel] = {"fileid": str(fid), "breite": z.get("breite"),
+                                 "hoehe": z.get("hoehe"), "skala": float(skala)}
+    return karte
+
+
+def _video_karte() -> Dict[str, Dict[str, Any]]:
+    """Die Standbild-Karte; fehlt oder klemmt sie, ``{}`` (Quiz laeuft wie ohne Karte)."""
+    pfad = _lesepfad(VIDEO_STANDBILDER_DATEINAME)
+    if not pfad:
+        return {}
+    try:
+        return _gemerkt(pfad, _standbilder_laden)
+    except (OSError, UnicodeDecodeError) as problem:
+        logger.warning("Standbild-Karte nicht lesbar (%s) - Video-Gesichter bleiben verborgen.",
+                       problem.__class__.__name__)
+        return {}
+
+
+def _video_gesichter(zeilen: List[Dict[str, Any]], karte: Dict[str, Dict[str, Any]]
+                     ) -> Tuple[List[Dict[str, Any]], int]:
+    """(sichtbare Video-Gesichter wie Foto-Gesichter, Zahl ohne Standbild)."""
+    sichtbar, ohne = [], 0
+    for z in zeilen:
+        bild = karte.get(z["bild_id"]) if z["bild_id"] else None
+        if not bild:
+            ohne += 1
+            continue
+        skala = bild["skala"]
+        sichtbar.append({
+            "gid": f"{bild['fileid']}:{z['index']}", "fileid": bild["fileid"], "index": z["index"],
+            "bbox": [round(w * skala) for w in z["bbox"]], "breite": bild["breite"],
+            "hoehe": bild["hoehe"], "aufnahme": z["aufnahme"], "video": True,
+            "zeit_s": z["zeit_s"], "_guete": z["_guete"]})
+    return sichtbar, ohne
+
+
+def _video_teil(kennungen: Iterable[str]) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, int]]:
+    """Fuer mehrere Kennungen: ({kennung: Video-Gesichter}, {kennung: ohne Standbild}).
+    Leer, wenn die Gesichtsdatei fehlt."""
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        return {}, {}
+    zeilen = _gemerkt(pfad, _video_zeilen_laden)
+    karte = _video_karte()
+    sichtbar: Dict[str, List[Dict[str, Any]]] = {}
+    ohne: Dict[str, int] = {}
+    for k in kennungen:
+        sichtbar[k], ohne[k] = _video_gesichter(zeilen.get(k, []), karte)
+    return sichtbar, ohne
+
+
+def _video_beispiele(kennung: str, aus: set, schon: set, anzahl: int) -> List[Dict[str, Any]]:
+    """Die besten Video-Gesichter einer Gruppe als Beispiele (je Standbild hoechstens eines)."""
+    if anzahl <= 0:
+        return []
+    liste = sorted(_video_teil([kennung])[0].get(kennung, []), key=lambda g: (-g["_guete"], g["gid"]))
+    ergebnis = []
+    for g in liste:
+        if g["gid"] in aus or g["fileid"] in schon:
+            continue
+        schon.add(g["fileid"])
+        ergebnis.append({k: v for k, v in g.items() if not k.startswith("_") and k != "gid"})
+        if len(ergebnis) >= anzahl:
+            break
+    return ergebnis
+
+
+def _video_gids(kennungen: Iterable[str]) -> set:
+    try:
+        teil = _video_teil(kennungen)[0]
+    except (GruppenFehler, OSError):
+        return set()
+    return {g["gid"] for liste in teil.values() for g in liste}
 
 
 ORDNUNGEN = ("guete", "zeit")
@@ -751,10 +882,11 @@ def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
     try:
         alle = _gemerkt(pfad, _gesichter_laden).get(str(kennung), [])
         aus = ausgeschlossen_lesen().get(str(kennung), set())
-        videos = _gemerkt(pfad, _video_gesichter_zaehlen).get(str(kennung), 0)
+        video_teil, ohne = _video_teil([str(kennung)])
+        videos = ohne.get(str(kennung), 0)
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
-    sichtbar = [g for g in alle if g["gid"] not in aus]
+    sichtbar = [g for g in alle if g["gid"] not in aus] + video_teil.get(str(kennung), [])
     _ordnen(sichtbar, ordnung)
     je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
     seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
@@ -774,6 +906,8 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for g in liste):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    if set(liste) & _video_gids([str(kennung)]):
+        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
@@ -857,12 +991,17 @@ def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEI
         return {"ok": False, "fehler": str(fehler)}
     sichtbar: List[Dict[str, Any]] = []
     ausgeschlossen = 0
+    try:
+        video_teil = _video_teil(kennungen)[0]
+    except (GruppenFehler, OSError) as fehler:
+        return {"ok": False, "fehler": str(fehler)}
     for k in kennungen:
         weg = aus.get(k, set())
         ausgeschlossen += len(weg)
         # Von Hand einer ANDEREN Person zugeordnet -> gehoert nicht mehr hierher.
         sichtbar += [dict(g, kennung=k) for g in je.get(k, []) if g["gid"] not in weg
                      and (zug.get(g["gid"]) or {}).get("name", echter).casefold() == echter.casefold()]
+        sichtbar += [dict(g, kennung=k) for g in video_teil.get(k, [])]
     # Von Hand dieser Person zugeordnete Gesichter aus fremden Vorschlaegen (10.10.2026).
     schon = {g["gid"] for g in sichtbar}
     eigene = {gid: e["kennung"] for gid, e in zug.items()
@@ -905,6 +1044,8 @@ def ausschliessen_person(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for _, g in paare):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    if {g for _, g in paare} & _video_gids({k for k, _ in paare}):
+        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
@@ -981,6 +1122,8 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for _, g in paare):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
+    if {g for _, g in paare} & _video_gids({k for k, _ in paare}):
+        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
