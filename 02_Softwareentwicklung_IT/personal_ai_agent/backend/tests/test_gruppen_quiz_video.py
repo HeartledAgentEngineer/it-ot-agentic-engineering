@@ -208,3 +208,45 @@ def test_foto_aktionen_laufen_weiter(basis):
     _volle_karte(basis)
     r = gq.ausschliessen("Person_2002", ["701:0"])
     assert r["ok"] and r["ausgeschlossen"] == 1 and r["gesamt"] == 2
+
+
+# ── Ergebnispruefung R1 (14.10.2026): Codex-Befund 4, Hermes-Hinweise A und B ──
+
+@pytest.mark.parametrize("mass", [{"breite": None}, {"hoehe": 0}, {"breite": -5},
+                                  {"hoehe": "540"}, {"breite": True}])
+def test_karte_ohne_gueltiges_mass_zaehlt_als_ohne_standbild(basis, mass):
+    zeile = _karte_zeile(11, 2.0, 9001)
+    zeile.update(mass)
+    _karte(basis, [zeile, _karte_zeile(11, 4.0, 9002)])
+    r = gq.gesichter("Person_2001")
+    assert r["gesamt"] == 1 and r["gesichter"][0]["fileid"] == "9002"
+    assert r["videos"] == 2
+
+
+def test_gruppenkopf_zaehlt_videos_wie_das_raster(basis):
+    g = gq.naechste()["gruppe"]
+    assert g["kennung"] == "Person_2001" and g["videos"] == 3   # ohne Karte: alle ohne Standbild
+    gq._CACHE.clear()
+    _karte(basis, [_karte_zeile(11, 2.0, 9001)])
+    g = gq.naechste()["gruppe"]
+    assert g["videos"] == gq.gesichter("Person_2001")["videos"] == 2
+    _volle_karte(basis)
+    assert gq.naechste()["gruppe"]["videos"] == 0
+
+
+def test_gruppenkopf_ohne_gesichtsdatei_behaelt_alten_wert(basis):
+    (basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME).unlink()
+    gq._CACHE.clear()
+    assert gq.naechste()["gruppe"]["videos"] == 2
+
+
+def test_unlesbarer_score_verwirft_die_zeit_nicht(basis):
+    zeilen = [_vzeile(11, 2.0, "Person_2001"), _vzeile(11, 4.0, "Person_2001", anteil=0.5)]
+    zeilen[0]["score"] = "kaputt"
+    (basis / gq.UNTERORDNER / gq.ZUORDNUNG_DATEINAME).write_text(
+        "\n".join(json.dumps(z) for z in zeilen) + "\n", encoding="utf-8")
+    gq._CACHE.clear()
+    _karte(basis, [_karte_zeile(11, 2.0, 9001), _karte_zeile(11, 4.0, 9002)])
+    r = gq.gesichter("Person_2001")
+    assert r["gesamt"] == 2 and r["videos"] == 0
+    assert [g["fileid"] for g in r["gesichter"]] == ["9002", "9001"]   # Score 0 ans Ende

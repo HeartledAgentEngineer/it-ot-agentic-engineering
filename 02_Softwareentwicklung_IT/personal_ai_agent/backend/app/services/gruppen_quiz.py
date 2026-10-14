@@ -604,11 +604,20 @@ def naechste() -> Dict[str, Any]:
     # Weniger als BEISPIELE_MAX Foto-Beispiele: mit den besten Video-Gesichtern auffuellen.
     beispiele += _video_beispiele(gruppe["kennung"], aus, {b["fileid"] for b in beispiele},
                                   BEISPIELE_MAX - len(beispiele))
+    # Videos im Kopf wie im Raster von gesichter(): nur Video-Gesichter OHNE Standbild —
+    # die mit Standbild stehen schon unter den Beispielen. Ohne Gesichtsdatei der alte Wert.
+    videos = gruppe.get("videos")
+    try:
+        _, ohne_standbild = _video_teil([gruppe["kennung"]])
+    except (GruppenFehler, OSError):
+        ohne_standbild = {}
+    if gruppe["kennung"] in ohne_standbild:
+        videos = ohne_standbild[gruppe["kennung"]]
     return {
         "ok": True, "fertig": False, "offen": len(offen),
         "gruppe": {
             "kennung": gruppe["kennung"], "groesse": gruppe.get("groesse"),
-            "bilder": gruppe.get("bilder"), "videos": gruppe.get("videos"),
+            "bilder": gruppe.get("bilder"), "videos": videos,
             "von": gruppe.get("von"), "bis": gruppe.get("bis"),
             "war_spaeter": gruppe["kennung"] in spaeter,
             "beispiele": beispiele[:BEISPIELE_MAX], "zwillinge": zwillinge,
@@ -696,6 +705,9 @@ def _video_zeilen_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
             bbox = z.get("bbox")
             try:
                 guete = float(z.get("anteil") or 0) * float(z.get("score") or 0)
+            except (TypeError, ValueError):
+                guete = 0.0          # unlesbarer Score: nur ans Ende sortiert, nicht verworfen
+            try:
                 zeit = float(z.get("zeit_s"))
             except (TypeError, ValueError):
                 zeit = None
@@ -726,6 +738,10 @@ def _standbilder_laden(pfad: str) -> Dict[str, Dict[str, Any]]:
             if not isinstance(fid, int) or isinstance(fid, bool) or fid <= 0:
                 continue
             if not isinstance(skala, (int, float)) or not 0 < skala <= 1:
+                continue
+            # Ohne gueltiges Mass kein Ausschnitt/Rahmen: dann lieber "ohne Standbild" zaehlen.
+            if not all(isinstance(z.get(m), (int, float)) and not isinstance(z.get(m), bool)
+                       and z.get(m) > 0 for m in ("breite", "hoehe")):
                 continue
             try:
                 schluessel = f"{z['video_id']}#t={float(z['zeit_s']):.1f}"

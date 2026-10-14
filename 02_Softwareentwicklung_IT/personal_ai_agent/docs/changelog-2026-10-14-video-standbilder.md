@@ -181,3 +181,22 @@ nachgefahren:
      `~/foto_sortierung/venv_gesicht/Scripts/python.exe tools/foto_sortierung/video_standbilder.py --groessen`
   2. Schreiblauf mit `--schreiben --uebergeben`.
   3. App-Start am Handy und Sichtprüfung im Quiz.
+
+## Nachtrag: Ergebnisprüfung Runde 1 (14.10.2026)
+
+Codex (Protokoll `.hermes/pruefkreis/video-gesichter-ergebnis.md`) und Hermes
+(`docs/…-video-gesichter-ergebnispruefung-hermes.md`) gaben **EINWAND** mit sechs Punkten.
+Alle sechs sind behoben, jeder mit eigenem Test:
+
+| # | Befund | Behebung | Test |
+|---|---|---|---|
+| 1 | Die Schlussausgabe nannte den echten Pfad der Ergebnisdatei. | Ausgabe nur noch mit Platzhalter `<Ergebnisdatei>` und dem Hinweis, woher er kommt (`--ergebnis` oder `personen_gruppen/<Name>`). | `test_konsole_nennt_keinen_privaten_pfad` |
+| 2 | Der Repo-Schutz verglich `abspath` – eine Junction oder ein Symlink ins Repo kam durch. | `pruefe_ausserhalb_repo` vergleicht `os.path.realpath`. | `test_ergebnis_ueber_verknuepfung_ins_repo_wird_abgelehnt` (Junction ohne Adminrechte, sonst Symlink, sonst skip; entfernt nur die Verknüpfung) |
+| 3 | Nach einem Abbruch mitten in der Zeile klebte die nächste gültige Zeile an der halben, beide gingen verloren. | Neu `Lauf._ende_reparieren()`: endet die Datei ohne Zeilenumbruch, wird zuerst einer angehängt (mit fsync). | `test_abgebrochene_halbe_zeile_verschluckt_die_naechste_nicht`, `test_heile_datei_bekommt_keine_leerzeile` |
+| 4 | Die Karte übernahm fehlende oder ungültige `breite`/`hoehe` und zählte das Gesicht als sichtbar – ohne Ausschnitt und Rahmen. | `_standbilder_laden` verlangt `breite` und `hoehe` als Zahlen > 0 (kein bool); sonst fällt die Zeile weg und das Gesicht zählt „ohne Standbild“. | `test_karte_ohne_gueltiges_mass_zaehlt_als_ohne_standbild` (5 Fälle) |
+| 5 (Hermes A) | Der Gruppenkopf in `naechste()` zeigte `videos` roh aus `personen_beispiele.json` (alle Video-Gesichter), das Raster nur die ohne Standbild. | `naechste()` zählt wie `gesichter()`: Video-Gesichter ohne Standbild. Fehlt die Gesichtsdatei, bleibt der alte Wert. | `test_gruppenkopf_zaehlt_videos_wie_das_raster`, `test_gruppenkopf_ohne_gesichtsdatei_behaelt_alten_wert` |
+| 6 (Hermes B) | In `_video_zeilen_laden` warf ein unlesbarer Score auch eine gültige Zeit weg. | Getrennte `try`-Blöcke: unlesbarer Score = Güte 0 (sortiert ans Ende), die Zeit bleibt. | `test_unlesbarer_score_verwirft_die_zeit_nicht` |
+
+Lauf: `tests/test_video_standbilder.py`, `test_gruppen_quiz_video.py`, `test_gruppen_quiz.py`,
+`test_video_standbilder_uebergabe.py` → 144 passed, 1 skipped (cv2 nicht im Backend-venv).
+Danach Ergebnisprüfung Runde 2 durch Codex.

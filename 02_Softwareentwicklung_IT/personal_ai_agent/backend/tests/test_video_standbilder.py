@@ -303,3 +303,70 @@ def test_echte_entnahme_an_kuenstlichem_video(tmp_path):
     assert (b, h) == (320, 200) and skala == 0.5 and jpeg[:2] == b"\xff\xd8"
     bild = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     assert bild.shape[:2] == (100, 160)
+
+
+# ── Ergebnispruefung R1 (14.10.2026): Codex-Befunde 1-3 ─────────────────────
+
+def test_konsole_nennt_keinen_privaten_pfad(tmp_path, capsys):
+    ordner = tmp_path / "PRIVATORDNER_XY"
+    ordner.mkdir()
+    erg = ordner / "erg.jsonl"
+    vs.main(["--zuordnung", _zuordnung(tmp_path), "--ergebnis", str(erg), "--schreiben"],
+            dienst=ListenDienst(), uebergabe=Uebergabe(), entnehmen=_entnehmen())
+    aus = capsys.readouterr().out
+    assert "PRIVATORDNER_XY" not in aus and str(tmp_path) not in aus
+    assert "<Ergebnisdatei>" in aus
+
+
+def _verknuepfung(link, ziel):
+    """Junction (Windows, ohne Adminrechte) oder Symlink; geht beides nicht -> skip."""
+    try:
+        import _winapi
+        _winapi.CreateJunction(str(ziel), str(link))
+        return
+    except (ImportError, AttributeError, OSError):
+        pass
+    try:
+        os.symlink(str(ziel), str(link), target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("weder Junction noch Symlink moeglich")
+
+
+def test_ergebnis_ueber_verknuepfung_ins_repo_wird_abgelehnt(tmp_path):
+    link = tmp_path / "sieht_harmlos_aus"
+    _verknuepfung(link, PROJEKT)
+    try:
+        with pytest.raises(SystemExit) as e:
+            vs.main(["--zuordnung", _zuordnung(tmp_path), "--ergebnis",
+                     str(link / "erg_verknuepft.jsonl")])
+        assert e.value.code == 2
+        assert not os.path.exists(os.path.join(PROJEKT, "erg_verknuepft.jsonl"))
+    finally:
+        # Nur die Verknuepfung selbst entfernen (nie ihr Ziel), damit das Aufraeumen
+        # von tmp_path spaeter nicht ins Repo folgt.
+        if os.path.islink(str(link)):
+            os.unlink(str(link))
+        elif os.path.isdir(str(link)):
+            os.rmdir(str(link))       # Junction: rmdir loest nur den Verweis
+
+
+def test_abgebrochene_halbe_zeile_verschluckt_die_naechste_nicht(tmp_path):
+    erg = tmp_path / "erg.jsonl"
+    erg.write_text('{"bild_id": "10#t=1.0", "standbild_fileid": 5}\n{"bild_id": "10#t=2',
+                   encoding="utf-8")
+    offen = {"11": {"2.0": {"breite": 1920, "hoehe": 1080}}}
+    lauf, _, _ = _lauf(tmp_path, offen, ergebnis=str(erg))
+    lauf.ausfuehren()
+    zeilen = erg.read_text(encoding="utf-8").splitlines()
+    assert len(zeilen) == 3 and zeilen[1] == '{"bild_id": "10#t=2'
+    assert json.loads(zeilen[2])["bild_id"] == "11#t=2.0"
+    assert vs.erledigte_lesen(str(erg)).keys() >= {"10#t=1.0", "11#t=2.0"}
+
+
+def test_heile_datei_bekommt_keine_leerzeile(tmp_path):
+    erg = tmp_path / "erg.jsonl"
+    erg.write_text('{"bild_id": "10#t=1.0", "standbild_fileid": 5}\n', encoding="utf-8")
+    lauf, _, _ = _lauf(tmp_path, {"11": {"2.0": {"breite": 1920, "hoehe": 1080}}},
+                       ergebnis=str(erg))
+    lauf.ausfuehren()
+    assert "" not in erg.read_text(encoding="utf-8").splitlines()

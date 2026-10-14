@@ -259,7 +259,26 @@ class Lauf:
             os.fsync(ziel.fileno())
         self.zaehler["zeilen"] += 1
 
+    def _ende_reparieren(self) -> None:
+        """Endet die Ergebnisdatei nach einem Abbruch ohne Zeilenumbruch, erst einen anhaengen —
+        sonst klebt die naechste gueltige Zeile an der halben und beide gingen verloren."""
+        try:
+            with open(self.ergebnis, "rb") as datei:
+                datei.seek(0, os.SEEK_END)
+                if datei.tell() == 0:
+                    return
+                datei.seek(-1, os.SEEK_END)
+                letztes = datei.read(1)
+        except OSError:
+            return
+        if letztes != b"\n":
+            with open(self.ergebnis, "a", encoding="utf-8") as ziel:
+                ziel.write("\n")
+                ziel.flush()
+                os.fsync(ziel.fileno())
+
     def ausfuehren(self) -> Dict[str, int]:
+        self._ende_reparieren()
         for nr, vid in enumerate(sorted(self.offen)):
             if self.max_videos is not None and nr >= self.max_videos:
                 break
@@ -345,8 +364,9 @@ def vorhandene_lesen(dienst: Any, folderid: int) -> Dict[str, int]:
 
 
 def pruefe_ausserhalb_repo(pfad: str) -> None:
-    ziel = os.path.normcase(os.path.abspath(pfad))
-    repo = os.path.normcase(os.path.abspath(REPO))
+    # realpath: auch eine Verknuepfung (Junction/Symlink) auf einen Repo-Ordner faellt auf.
+    ziel = os.path.normcase(os.path.realpath(pfad))
+    repo = os.path.normcase(os.path.realpath(REPO))
     if ziel == repo or ziel.startswith(repo + os.sep):
         print("Ergebnisdatei liegt im Repo - abgelehnt (persoenliche Daten gehoeren nicht "
               "ins Repo).")
@@ -416,11 +436,12 @@ def main(argv: Optional[List[str]] = None, *, dienst: Any = None,
                 max_seite=args.max_seite, entnehmen=entnehmen, max_videos=args.max_videos)
     z = lauf.ausfuehren()
     print("Ergebnis: " + " · ".join(f"{k} {v}" for k, v in z.items()))
-    befehl = f"python tools/pcloud/uebergabe_hochladen.py --dateien {ergebnis}"
     if args.uebergeben:
         return int(uebergabe.main(["--dateien", ergebnis, "--schreiben"]) or 0)
-    print("Uebergabe ans Handy (erst Trockenlauf, dann mit --schreiben):")
-    print("  " + befehl)
+    # Kein Pfad auf der Konsole (Benutzername): Platzhalter statt der echten Datei.
+    print("Uebergabe ans Handy (erst Trockenlauf, dann mit --schreiben), oder gleich --uebergeben:")
+    print("  python tools/pcloud/uebergabe_hochladen.py --dateien <Ergebnisdatei>")
+    print(f"  <Ergebnisdatei> = {'--ergebnis' if args.ergebnis else 'personen_gruppen/' + dateiname_ergebnis()}")
     return 0
 
 
