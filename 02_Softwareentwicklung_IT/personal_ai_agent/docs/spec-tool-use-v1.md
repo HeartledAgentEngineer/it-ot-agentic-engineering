@@ -99,7 +99,13 @@ Module:
     und WhatsApp-Kontakte mit mindestens zwei Wörtern (`whatsapp_zuordnung.json`).
   - Namensteile aus dem Personenbestand zählen ab 2 Zeichen, volle Namen immer; Kontakte nur als
     volle Folge. Umlaute ä/ae usw., Groß-/Kleinschreibung egal, Endungen `s`, `'s`.
-  - Liste nicht lesbar (`None`) → keine Suche.
+  - Liste nicht lesbar, beschädigt **oder leer** (`None`) → keine Suche: `werkzeuge.bekannte_namen_streng()`
+    liefert `None`, sobald eine vorhandene Quelle unlesbar ist oder der Bestand insgesamt leer ist
+    (ein leerer Bestand ist von „nichts zu schützen“ nicht zu unterscheiden); `websuche_schutz.enthaelt_namen`
+    sperrt dann jede Suche (`app/services/websuche_schutz.py`).
+  - **Länge:** Vom **Modell** formulierte Suchtexte sind auf `web_suche.MAX_ANFRAGE_MODELL` = 200 Zeichen
+    begrenzt; längere werden nicht gesucht („Suchanfrage zu lang (über 200 Zeichen) – nicht gesucht“,
+    `app/services/web_suche.py`). Sebastians eigener Satz im Modus `manual` bleibt ohne diese Grenze.
   - **Freigabe** nur aus Sebastians eigener Nachricht mit Suchauftrag („Such im Internet nach
     Sebastian Fremdmann“): öffnet die Teile eines fremden vollen Namens, nie einen bekannten
     vollen Namen, nie einen bekannten Nachnamen. Modelltext gibt nie frei.

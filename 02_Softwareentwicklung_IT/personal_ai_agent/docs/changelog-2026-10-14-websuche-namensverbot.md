@@ -147,4 +147,7 @@ Hermes hat das Namensverbot parallel zu Codex eigenständig geprüft. Der Berich
    - **Folge am Handy:** Ohne Namensdateien gibt es dort keine Websuche, bis die Dateien
      ankommen.
 
-**Tests:** 6 neue oder geänderte Fälle. Die Datei `test_websuche_schutz.py` hat jetzt 97 Tests.
+**Tests:** 6 neue oder geänderte Fälle. Die Datei `test_websuche_schutz.py` hat jetzt 96 gesammelte
+Testfälle (nachgemessen am 14.10.2026: `.venv/Scripts/python -m pytest tests/test_websuche_schutz.py
+--collect-only -q` → „96 tests collected“; die frühere Angabe „97“ war um eins zu hoch angesetzt — die
+Datei trägt 47 Testfunktionen, der Rest ist parametrisiert).
