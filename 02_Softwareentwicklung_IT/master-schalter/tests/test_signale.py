@@ -125,6 +125,24 @@ def test_codex_gekuerzte_datei_wird_von_vorn_gelesen(tmp_path):
     assert signale.codex_lesen(tmp_path, jetzt=JETZT, leser=leser).stand.minute == 30
 
 
+def test_codex_neu_geschriebene_datei_zwischen_zwei_abfragen(tmp_path):
+    # Codex-Einwand R3: gekürzt UND wieder länger beschrieben, ohne Abfrage dazwischen.
+    leser = signale.CodexLeser()
+    datei = _rollout(tmp_path, "rollout-a.jsonl",
+                     ['{"type":"session_meta","payload":{"id":"alt"}}', _token_count("2026-10-14T08:00:00.000Z")],
+                     mtime=1000)
+    assert signale.codex_lesen(tmp_path, jetzt=JETZT, leser=leser).stand.hour == 8
+    groesse = datei.stat().st_size
+
+    datei.write_text("\n".join(['{"type":"session_meta","payload":{"id":"neu"}}',
+                                _token_count("2026-10-14T09:45:00.000Z")] + ['{"type":"x"}'] * 20) + "\n",
+                     encoding="utf-8")
+    os.utime(datei, (1100, 1100))
+    assert datei.stat().st_size > groesse
+
+    assert signale.codex_lesen(tmp_path, jetzt=JETZT, leser=leser).stand.minute == 45
+
+
 def test_codex_sucht_weiter_wenn_neueste_dateien_leer_sind(tmp_path):
     _rollout(tmp_path, "rollout-alt.jsonl", [_token_count("2026-10-10T10:00:00.000Z")], mtime=1000)
     _rollout(tmp_path, "rollout-neu.jsonl", ['{"type":"session_meta"}'], mtime=2000)

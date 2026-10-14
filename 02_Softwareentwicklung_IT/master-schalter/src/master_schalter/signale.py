@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 CODEX_LIMIT_ID = "codex"
+ANFANG_BYTES = 4096  # Dateianfang als Fingerabdruck: erkennt neu geschriebene Sitzungsdateien
 CLAUDE_FENSTER = (("five_hour", "5h"), ("seven_day", "Woche"))
 
 
@@ -137,6 +138,15 @@ class CodexLeser:
     def __init__(self) -> None:
         self.gelesen: dict[Path, int] = {}
         self._bester: dict[Path, tuple[datetime, dict]] = {}
+        self._anfang: dict[Path, bytes] = {}
+
+    def _anfang_unveraendert(self, datei: Path) -> bool:
+        gemerkt = self._anfang.get(datei, b"")
+        try:
+            with datei.open("rb") as f:
+                return f.read(len(gemerkt)) == gemerkt
+        except OSError:
+            return False
 
     def bester_eintrag(self, datei: Path) -> tuple[datetime, dict] | None:
         try:
@@ -144,10 +154,12 @@ class CodexLeser:
         except OSError:
             return self._bester.get(datei)
         start = self.gelesen.get(datei, 0)
-        if groesse < start:  # Datei ersetzt oder gekürzt: von vorn
+        # Gekürzt oder neu geschrieben (auch wenn sie dabei wieder länger wurde): von vorn.
+        if start and (groesse < start or not self._anfang_unveraendert(datei)):
             start = 0
             self.gelesen[datei] = 0
             self._bester.pop(datei, None)
+            self._anfang.pop(datei, None)
         if groesse > start:
             try:
                 with datei.open("rb") as f:
@@ -155,6 +167,8 @@ class CodexLeser:
                     neu = f.read(groesse - start)
             except OSError:
                 return self._bester.get(datei)
+            if start == 0:
+                self._anfang[datei] = neu[:ANFANG_BYTES]
             ende = neu.rfind(b"\n")
             if ende >= 0:
                 bester = self._bester.get(datei)

@@ -9,7 +9,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - Taskleisten-Symbol (`master_schalter.leiste`) mit zwei Balken für Claude Code und Codex,
   Tooltip, Benachrichtigung per Linksklick und Menü per Rechtsklick.
 - Kontingente lesen (`signale.py`): Codex aus den lokalen Sitzungsdateien (nur Zahlen, auch im
-  Zwischenspeicher; inkrementell, gekürzte Dateien von vorn; neuester Eintrag über alle
+  Zwischenspeicher; inkrementell; gekürzte oder neu geschriebene Dateien werden an Größe bzw.
+  geändertem Dateianfang (erste 4 KB) erkannt und von vorn gelesen; neuester Eintrag über alle
   Dateien — die Änderungszeit jeder Datei dient als Obergrenze, damit ältere Dateien gar nicht
   erst gelesen werden müssen), Claude aus der Statuszeilen-Datei.
 - Befehlszeile `masterwechsel`: `status`, `statuszeile`, `claude-kontingent`.
