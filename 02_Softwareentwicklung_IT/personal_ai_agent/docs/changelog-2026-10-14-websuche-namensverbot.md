@@ -108,3 +108,21 @@ außerdem mehr Namen geschützt als vorher.
 `tmp_path`. Auch der Katalogpfad wird dorthin umgebogen, die echten Dateien werden also nie
 gelesen. Er enthält 15 Fälle für beschädigte Personenquellen, 7 für beschädigte Kontaktfelder und
 3 für eine kaputte Kontaktdatei.
+
+## Nachtrag: Ergebnisprüfung Codex, Runde 3 (EINWAND, behoben)
+
+**Befund:** Eine vorhandene Namensdatei, die nur `null` enthält, sah aus wie eine fehlende Datei.
+Die Namensliste galt dann als gültig, die Suche blieb offen. Betroffen waren der Katalog und die
+drei Quiz-Dateien.
+
+**Behebung:** `werkzeuge._json_streng()` wertet `null` jetzt als beschädigt. Die Namensliste wird
+damit `None`, und die Suche ist gesperrt.
+
+**Tests:** 5 neue Fälle, viermal Personenquellen und einmal Kontaktdatei. Die Datei hat jetzt
+92 Tests.
+
+**Hinweise von Hermes, bewusst unverändert:**
+- Die Länge des Suchtexts ist nicht begrenzt. Plan F7 verlangt das nicht.
+- Ein leerer Bestand löst keine Meldung aus. Das ist bei fehlenden Dateien erlaubt.
+
+Die Messung der Namensliste am Handy bleibt offen.

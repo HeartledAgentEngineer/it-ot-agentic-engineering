@@ -207,6 +207,11 @@ def test_streng_leere_aber_gueltige_dateien_sind_kein_fehler(quellen):
     ("gesichter_katalog.json", {"andere": 1}),
     ("gesichter_katalog.json", {"personen": ["Ida Beispiel"]}),
     ("gesichter_katalog.json", [{"name": ["Ida"]}]),
+    # R3: eine vorhandene Datei mit dem Inhalt null ist beschädigt, nicht fehlend.
+    ("personen_bestaetigt.json", "null"),
+    ("personen_vorgaben.json", "null"),
+    ("personen_profile.json", "null"),
+    ("gesichter_katalog.json", "null"),
 ])
 def test_streng_beschaedigte_personenquelle_ergibt_none(quellen, name, inhalt):
     _datei(quellen, name, inhalt)
@@ -227,7 +232,7 @@ def test_streng_beschaedigte_kontaktfelder_ergeben_none(quellen, chat):
     assert werkzeuge.bekannte_namen_streng() is None
 
 
-@pytest.mark.parametrize("inhalt", ["{kaputt", {"chats": "x"}, ["x"]])
+@pytest.mark.parametrize("inhalt", ["{kaputt", {"chats": "x"}, ["x"], "null"])
 def test_streng_kaputte_kontaktdatei_ergibt_none(quellen, inhalt):
     _kontaktdatei(quellen, inhalt)
     assert werkzeuge.bekannte_namen_streng() is None

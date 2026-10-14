@@ -484,11 +484,17 @@ def _liste_oder_leer(wert: Any, feld: str) -> list:
 
 
 def _json_streng(pfad: Optional[str]) -> Any:
-    """Datei fehlt -> ``None``; vorhanden, aber kaputt -> wirft (json/OSError)."""
+    """Datei fehlt -> ``None``; vorhanden, aber kaputt -> wirft (json/OSError).
+
+    Eine vorhandene Datei mit dem Inhalt ``null`` wirft ebenfalls – sonst sähe sie
+    aus wie eine fehlende Datei (Codex-Ergebnisprüfung R3, 14.10.2026)."""
     if not pfad or not os.path.isfile(pfad):
         return None
     with open(pfad, encoding="utf-8") as datei:
-        return json.load(datei)
+        daten = json.load(datei)
+    if daten is None:
+        raise ValueError(f"{os.path.basename(pfad)} enthält nur null")
+    return daten
 
 
 def _text_oder_nichts(wert: Any, wo: str) -> str:
