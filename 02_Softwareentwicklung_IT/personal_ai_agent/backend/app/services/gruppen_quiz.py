@@ -61,6 +61,8 @@ ORDNER = "foto_sortierung"
 UNTERORDNER = "personen_gruppen"
 BEISPIELE_DATEINAME = "personen_beispiele.json"
 ZUORDNUNG_DATEINAME = "gesicht_zuordnung.jsonl"
+# Geschrieben von tools/foto_sortierung/video_standbilder.py (Frame -> Standbild in pCloud)
+VIDEO_STANDBILDER_DATEINAME = "video_standbilder.jsonl"
 BESTAETIGT_DATEINAME = "personen_bestaetigt.json"
 VORGABEN_DATEINAME = "personen_vorgaben.json"
 STAND_DATEINAME = "gruppen_quiz_stand.json"
