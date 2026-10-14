@@ -1,9 +1,11 @@
 # Ergebnisprüfung Websuche-Sperre, Runde 2 (Hermes) — 14.10.2026
 
 Prüfauftrag: Vorlage `.hermes/plans/2026-10-14_websuche-ergebnis-pruefung.md`.
-Gegenstand: Commit `b09c5cf` und die im Arbeitsbaum liegenden Nachbesserungen zu den zwei
-Einwänden der Codex-Ergebnisprüfung Runde 1
-(`.hermes/pruefkreis/websuche-persoenlich-ergebnis.md`).
+Gegenstand: Commit `b09c5cf` und die Nachbesserungen zu den zwei Einwänden der
+Codex-Ergebnisprüfung Runde 1 (`.hermes/pruefkreis/websuche-persoenlich-ergebnis.md`).
+Geprüft wurde die Fassung im Arbeitsbaum; sie ist während dieser Prüfung unverändert als
+Commit `3431526` festgeschrieben worden (identisch, `git status` zeigt die Dateien danach
+unverändert) — die Prüfung bezieht sich also auf genau diesen Stand.
 Rolle: Hermes als zweiter Prüfer (AGENTS.md, Abschnitt „Rollen und Datenschutz im
 Agenten-Workflow"). Es wurde nichts geändert und nichts freigegeben — nur gemessen.
 
