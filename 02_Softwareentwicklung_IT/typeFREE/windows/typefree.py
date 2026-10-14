@@ -180,6 +180,12 @@ KETTEN = {
         # mai-transcribe-1.5 0,3 % in 11,8 s und 0,36 $/h; voxtral-stt 0,3 %
         # in 18,9 s; whisper-large-v3 1,2 % in 4,5 s; der Chat-Weg läuft bei
         # langem Audio in eine 429 und ist deshalb letztes Glied.
+        # Seit 13.10.2026 steht whisper-large-v3-turbo VORN — Sebastians Wahl:
+        # Tempo vor Genauigkeit. Messung 12.10. (70 s Referenzaudio, 5 Läufe):
+        # turbo 1,8 s Median (max 3,1 s), 5,1 % Wortfehler, ~0,012 $/h; mai-2
+        # an dem Tag 11,3 s Median (max 57,7 s), 2,8 %. mai bleibt Rückfall.
+        ('turbo', 'openai/whisper-large-v3-turbo',
+         'https://openrouter.ai/api/v1', 'stt'),
         ('mai', 'microsoft/mai-transcribe-2',
          'https://openrouter.ai/api/v1', 'stt'),
         ('mai-1.5', 'microsoft/mai-transcribe-1.5',
@@ -225,13 +231,14 @@ RUECKFALL = True
 WEG_REIHENFOLGE = ('eu', 'beste', 'schnell')
 
 WEG_BESCHRIFTUNG = {
-    'eu':      'OpenRouter — bestes ZDR-Modell (mai-transcribe → Voxtral)',
+    'eu':      'OpenRouter — schnell, ZDR (Whisper turbo → mai-transcribe → Voxtral)',
     'beste':   'Beste Qualität — ElevenLabs Scribe v2',
     'schnell': 'Schnell — Groq whisper-large-v3',
 }
 SCHLUESSEL_JE_ANBIETER = {
     'voxtral':      'OPENROUTER_API_KEY',   # läuft über OpenRouter, dort Mistral
     'voxtral-chat': 'OPENROUTER_API_KEY',   # dito, Audio-Chat statt Endpunkt
+    'turbo':        'OPENROUTER_API_KEY',   # OpenAI whisper-large-v3-turbo
     'mai':          'OPENROUTER_API_KEY',   # Microsoft mai-transcribe-2
     'mai-1.5':      'OPENROUTER_API_KEY',   # Microsoft mai-transcribe-1.5
     'groq':       'GROQ_API_KEY',
@@ -254,6 +261,7 @@ PREISE_JE_MINUTE = {
     'openai':     0.006,     # whisper-1
     'voxtral':    0.0059,    # gemessen: 0,0024 $ für 24,5 s (Mistral über OpenRouter)
     'voxtral-chat': 0.0059,  # dito, Audio-Chat — gleicher Modellpreis
+    'turbo':      0.0002,    # whisper-large-v3-turbo, ~0,012 $/Stunde (OpenRouter-Preisliste)
     'mai':        0.00167,   # mai-transcribe-2, 0,10 $/Stunde (OpenRouter-Preisliste)
     'mai-1.5':    0.006,     # mai-transcribe-1.5, 0,36 $/Stunde
     'scribe':     0.0044,    # 0,22 $/Stunde + 20 % Keyterms = 0,264 $/Stunde
@@ -1319,12 +1327,12 @@ def _zweitanfrage_buchen(sekunden, anbieter):
         save_verbrauch(verbrauch)
 
 
-VORWAERM_MODELL = 'microsoft/mai-transcribe-2'
+VORWAERM_MODELL = KETTEN['eu'][0][1]   # immer das erste EU-Glied (seit 13.10.2026 turbo)
 VORWAERM_SEKUNDEN = 0.3
 
 
 def verbindung_vorwaermen(client):
-    """Weckt mai auf, bevor der erste Happen kommt.
+    """Weckt das erste Modell der EU-Kette auf, bevor der erste Happen kommt.
 
     Der erste Aufruf einer Aufnahme brauchte 2,2–3,6 s, die folgenden
     0,5–0,8 s. Gemessen 07.10.2026 in frischen Prozessen: Vorwärmen nur der
@@ -1345,7 +1353,7 @@ def verbindung_vorwaermen(client):
         begonnen = time.monotonic()
         client.with_options(timeout=10).audio.transcriptions.create(
             model=VORWAERM_MODELL, file=puffer, language='de')
-        log.info('mai vorgewärmt in %.1f s', time.monotonic() - begonnen)
+        log.info('%s vorgewärmt in %.1f s', VORWAERM_MODELL, time.monotonic() - begonnen)
         return True
     except Exception as e:
         log.info('Vorwärmen fehlgeschlagen: %s', e)
@@ -1871,7 +1879,8 @@ def transkriptions_clients():
     Glied in `_kette_durchlaufen` stillschweigend übersprungen (`clients.get(name)`
     ist `None`). `mai` und `voxtral-chat` laufen beide über OpenRouter.
     """
-    return {'voxtral': openrouter_client,     # Mistral, ausgeführt über OpenRouter
+    return {'turbo': openrouter_client,       # OpenAI whisper-large-v3-turbo
+            'voxtral': openrouter_client,     # Mistral, ausgeführt über OpenRouter
             'voxtral-chat': openrouter_client,
             'mai': openrouter_client,         # Microsoft mai-transcribe-2
             'mai-1.5': openrouter_client,     # Microsoft mai-transcribe-1.5

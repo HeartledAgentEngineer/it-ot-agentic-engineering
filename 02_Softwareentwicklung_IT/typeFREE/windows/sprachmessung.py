@@ -84,6 +84,8 @@ def eigene_clients():
     """
     typefree.load_env_file()
     return {
+        'turbo': typefree.baue_client('https://openrouter.ai/api/v1',
+                                      os.environ.get('OPENROUTER_API_KEY')),
         'voxtral': typefree.baue_client('https://openrouter.ai/api/v1',
                                         os.environ.get('OPENROUTER_API_KEY')),
         'voxtral-chat': typefree.baue_client('https://openrouter.ai/api/v1',

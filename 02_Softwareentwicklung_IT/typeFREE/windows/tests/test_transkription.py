@@ -138,18 +138,41 @@ def test_regelweg_ist_der_eu_weg():
     """Vorgabe vom 25.09.2026: nicht OpenAI, nicht Groq ohne ausdrückliche Wahl."""
     assert typefree.STANDARD_WEG == 'eu'
     assert typefree.TRANSCRIPTION_KETTE == typefree.KETTEN['eu']
-    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'mai'
+    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'turbo'
 
 
 def test_eu_weg_bleibt_bei_openrouter():
     """Sebastians Vorgabe 25.09.2026: „nur über OpenRouter" — kein fremder Anbieter
-    im Regelweg, und das beste Modell zuerst. Gemessen an 140 s natürlichem Deutsch:
-    mai-transcribe-2 mit 0,3 % Wortfehlern in 3,8 s (mai-transcribe-1.5: 0,3 % in
-    11,8 s, whisper-large-v3: 1,2 %)."""
+    im Regelweg. Seit 13.10.2026 steht das schnellste ZDR-Modell vorn (Sebastian:
+    Tempo vor Genauigkeit): whisper-large-v3-turbo 1,8 s Median an 70 s, 5,1 %
+    Wortfehler; dahinter mai-transcribe-2 als Rückfall (2,8 %, am 12.10. 11,3 s)."""
     kette = typefree.KETTEN['eu']
     assert all(adresse == 'https://openrouter.ai/api/v1' for _, _, adresse, _ in kette)
-    name, modell, _, weg = kette[0]
-    assert (name, modell, weg) == ('mai', 'microsoft/mai-transcribe-2', 'stt')
+    assert [(n, m, w) for n, m, _, w in kette[:2]] == [
+        ('turbo', 'openai/whisper-large-v3-turbo', 'stt'),
+        ('mai', 'microsoft/mai-transcribe-2', 'stt')]
+
+
+def test_jedes_glied_der_eu_kette_hat_client_schluessel_und_preis(monkeypatch):
+    """Fehlt ein Glied in der Client-Zuordnung, überspringt `_kette_durchlaufen` es
+    still; fehlt es im Messwerkzeug, bricht dessen Hauptlauf ab (Codex-Planprüfung
+    13.10.2026). Preis und Schlüssel braucht die Kostenzeile."""
+    import sprachmessung
+    monkeypatch.setattr(typefree, 'openrouter_client', object(), raising=False)
+    monkeypatch.setattr(typefree, 'load_env_file', lambda: None)
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'x')
+    app = typefree.transkriptions_clients()
+    werkzeug = sprachmessung.eigene_clients()
+    for name, *_ in typefree.KETTEN['eu']:
+        assert app.get(name) is not None, name
+        assert werkzeug.get(name) is not None, name
+        assert typefree.SCHLUESSEL_JE_ANBIETER[name] == 'OPENROUTER_API_KEY'
+        assert name in typefree.PREISE_JE_MINUTE
+
+
+def test_turbo_preis_und_vorwaermen():
+    assert typefree.PREISE_JE_MINUTE['turbo'] == pytest.approx(0.012 / 60, rel=0.01)
+    assert typefree.VORWAERM_MODELL == typefree.KETTEN['eu'][0][1]
 
 
 def test_eu_weg_hat_mehrere_wege_und_einen_mit_vokabular():
@@ -230,7 +253,7 @@ def test_der_schnelle_weg_ist_billiger_als_der_eu_weg():
 def test_verfuegbare_anbieter_haelt_die_kettenreihenfolge():
     umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == (
-        'mai', 'mai-1.5', 'voxtral', 'voxtral-chat')
+        'turbo', 'mai', 'mai-1.5', 'voxtral', 'voxtral-chat')
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['schnell']) == ('groq',)
 
 
