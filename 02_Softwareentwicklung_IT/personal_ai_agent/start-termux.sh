@@ -179,48 +179,22 @@ command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
-# Alten Agenten-Server beenden, bevor der neue startet — so kann es nie
-# zwei uvicorn-Instanzen auf demselben Port geben.
+# Alten Agenten-Server beenden, bevor der neue startet - so kann es nie
+# zwei Server-Instanzen auf demselben Port geben.
 #
-# Frueher stand hier nur `pkill -f "uvicorn app.main:app"`. Das matchte den
-# echten Prozess (python -m uvicorn ... --reload) oft nicht, der alte Server
-# blieb auf dem Port — deshalb "Address already in use" / "already processed"
-# + der neue Server (mit frischer Config) kam nie wirklich hoch. Jetzt killen
-# wir alle uvicorn-Varianten und warten, bis der Port frei ist.
+# Seit H3b (14.10.2026) steht das Beenden EINMAL in termux/backend-beenden.sh:
+# erst SIGTERM (uvicorn faehrt sauber herunter, die alte Termux-Session bleibt
+# nicht als 'durchgestrichen/Code 137' stehen), nach der Wartezeit SIGKILL, dann
+# die Pruefung, dass kein Server-Prozess (uvicorn, python -m uvicorn, serve.py)
+# mehr laeuft und die Ports $PORT und 8443 frei sind. Frueher standen die
+# pkill-Muster hier; ein Muster nur auf uvicorn haette einen alten HTTP-Server
+# oder einen serve.py-Prozess stehen lassen.
 echo "── Alter Server wird beendet ──────────────────"
-# Sanft beenden (SIGTERM), damit uvicorn sauber herunterfaehrt und die
-# alte Termux-Session nicht als 'durchgestrichen/Code 137' stehenbleibt.
-# Nur wenn der Server nach kurzer Zeit noch lebt, wird hart gekillt (-9).
-pkill -TERM -f "uvicorn app.main:app" 2>/dev/null
-pkill -TERM -f "python -m uvicorn" 2>/dev/null
-pkill -TERM -f "uvicorn" 2>/dev/null
-
-# Warten, bis er wirklich weg ist (sanft), sonst als Fallback hart beenden.
-i=0
-while [ $i -lt 10 ]; do
-    if ! (command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ":$PORT ") \
-       && ! pgrep -f "uvicorn" >/dev/null 2>&1; then
-        break
-    fi
-    i=$((i+1))
-    sleep 1
-done
-# Haengt er immer noch, bleibt nur der harte Abbruch (letzter Ausweg).
-if pgrep -f "uvicorn" >/dev/null 2>&1; then
-    echo "  sanftes Beenden fehlgeschlagen – letzter Versuch (kill -9)"
-    pkill -9 -f "uvicorn" 2>/dev/null
+if bash "$PROJEKT/termux/backend-beenden.sh"; then
+    echo "Alter Server gestoppt / Port frei."
+else
+    echo "⚠️  Alter Server liess sich nicht sauber beenden - Start wird trotzdem versucht."
 fi
-
-# Kurz warten, bis der Port wirklich frei ist (statt nur sleep 1).
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-    if command -v ss >/dev/null 2>&1; then
-        if ! ss -tln 2>/dev/null | grep -q ":$PORT "; then
-            break
-        fi
-    fi
-    sleep 1
-done
-echo "Alter Server gestoppt / Port frei."
 
 echo
 echo "── Server startet ─────────────────────────────"
@@ -352,14 +326,18 @@ fi
 # ihn weiterhin direkt.
 cd "$PROJEKT/backend" 2>/dev/null || true
 
-# Bindung aus der .env lesen (gleiches Muster wie termux/neu-start-nach-lauf.sh
-# und termux/agent-ensure.sh). Standard bleibt 0.0.0.0: ohne HOST_BIND in der
-# .env ändert sich nichts. Mit HOST_BIND=127.0.0.1 lauscht der Server nur lokal.
-HOST_BIND="0.0.0.0"
-_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
-[ -n "$_env_host" ] && HOST_BIND="$_env_host"
-
-python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --reload &
+# Gestartet wird ueber die EINZIGE Startstelle termux/backend-starten.sh (H3b).
+# Sie liest PORT und HOST_BIND aus backend/.env (HOST_BIND Standard 0.0.0.0;
+# mit 127.0.0.1 lauscht der Server nur lokal) und waehlt den Modus: mit
+# Zertifikat ``python serve.py`` (HTTPS im Heimnetz, HTTP nur lokal; ohne
+# --reload), sonst uvicorn wie bisher mit --reload. Ohne --abloesen ersetzt sich
+# das Skript durch den Server, deshalb ist $! die Server-PID fuer ``wait``.
+#
+# Umstellung HTTP -> HTTPS: Laeuft nach dem Beenden oben doch noch ein Server,
+# der nicht zum Zertifikatsstand passt, beendet tls-umstellung.sh ihn genau
+# einmal; gestartet wird gleich hier.
+bash "$PROJEKT/termux/tls-umstellung.sh" --nur-beenden || true
+bash "$PROJEKT/termux/backend-starten.sh" --reload &
 SERVER_PID=$!
 
 # Kurz warten, bis der Port wirklich antwortet (max. ~20 s), dann öffnen.

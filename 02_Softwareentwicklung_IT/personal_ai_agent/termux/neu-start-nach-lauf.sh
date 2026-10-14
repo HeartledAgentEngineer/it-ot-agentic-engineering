@@ -51,32 +51,31 @@ log "kein laufender Hermes-Lauf mehr — tausche Daemon + Server."
 # 1) Inbox-Daemon beenden (der Server startet ihn gleich frisch).
 pkill -9 -f "hermes_inbox_daemon.py" 2>/dev/null
 
-# 2) Alten Server hart stoppen.
-pkill -9 -f "uvicorn app.main:app" 2>/dev/null
-pkill -9 -f "python -m uvicorn" 2>/dev/null
-for _ in $(seq 1 20); do
-    pgrep -f "uvicorn" >/dev/null 2>&1 || break
-    sleep 0.5
-done
-sleep 1
+# 2) Alten Server stoppen - ueber die EINZIGE Stoppstelle backend-beenden.sh
+#    (H3b): kennt uvicorn, python -m uvicorn UND serve.py, wartet und prueft, dass
+#    die Ports frei sind. Der Inbox-Daemon wurde oben schon beendet.
+if ! bash "$HIER/backend-beenden.sh" >> "$LOG" 2>&1; then
+    log "⚠️  Alter Server liess sich nicht sauber beenden - Start wird trotzdem versucht."
+fi
 
 # 3) Frischen Server starten (laedt neuen Code + startet den Daemon mit).
 cd "$BACKEND" || { log "❌ backend/ nicht gefunden"; exit 1; }
 
+# Der Port wird nur fuer die Bereitschaftsabfrage unten gelesen; PORT und
+# HOST_BIND liest backend-starten.sh selbst aus derselben .env (gleiches Muster).
 PORT="8080"
 _env_port=$(grep -E "^PORT=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
 [ -n "$_env_port" ] && PORT="$_env_port"
-# Bindung aus der .env lesen. Standard bleibt 0.0.0.0 — keine Verhaltens-
-# aenderung, solange HOST_BIND nicht gesetzt ist. Das Muster ist identisch mit
-# dem in start-termux.sh und termux/agent-ensure.sh.
-HOST_BIND="0.0.0.0"
-_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
-[ -n "$_env_host" ] && HOST_BIND="$_env_host"
 
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
-setsid python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" \
-    >> "$LOG" 2>&1 < /dev/null &
+# Umstellung HTTP -> HTTPS: Laeuft nach dem Beenden doch noch ein Server, der
+# nicht zum Zertifikatsstand passt, beendet tls-umstellung.sh ihn genau einmal.
+bash "$HIER/tls-umstellung.sh" --nur-beenden >> "$LOG" 2>&1 || true
+
+# Vom Terminal geloest (setsid/nohup), ohne --reload: dieser Neustart tauscht
+# den Code bewusst nur beim Start (siehe Kopfkommentar).
+bash "$HIER/backend-starten.sh" --abloesen --log "$LOG" >> "$LOG" 2>&1
 
 # 4) Warten, bis der Server wirklich antwortet.
 bereit=0

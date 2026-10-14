@@ -80,25 +80,19 @@ _pkill_server() {
         exit 0
     fi
 
-    # 1) Alle alten uvicorn-/Server-Prozesse hart stoppen.
-    pkill -9 -f "uvicorn app.main:app" 2>/dev/null
-    pkill -9 -f "python -m uvicorn" 2>/dev/null
-    pgrep -f "uvicorn" | while read -r _pid; do
-        [ "$_pid" != "$$" ] && kill -9 "$_pid" 2>/dev/null
-    done
+    # 1) Alle alten Server-Prozesse beenden - ueber die EINZIGE Stoppstelle
+    #    termux/backend-beenden.sh (H3b): erst TERM, dann KILL, danach Pruefung,
+    #    dass nichts mehr laeuft und die Ports frei sind. Sie kennt alle drei
+    #    Prozessarten (uvicorn, python -m uvicorn, serve.py) und trifft diesen
+    #    Wrapper nie. Der Inbox-Daemon bleibt hier (Schritt 2).
+    bash "$HIER/backend-beenden.sh" || melde "⚠️  Alter Server liess sich nicht sauber beenden - Start wird trotzdem versucht."
 
     # 2) Auch den Inbox-Daemon beenden, damit er frisch (mit aktuellem Code)
     #    startet und keine veraltete Instanz/Sperre auf die Verlaufsdatei haelt.
     pkill -9 -f "hermes_inbox_daemon.py" 2>/dev/null
 
-    # 3) Warten, bis der Port WIRKLICH frei ist (nicht nur pausieren), damit
-    #    kein "address already in use" beim frischen Start hochkommt.
-    for _ in $(seq 1 15); do
-        if ! pgrep -f "uvicorn" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.5
-    done
+    # 3) Der Port ist frei, wenn backend-beenden.sh ohne Fehler zurueckkam
+    #    (sie wartet und prueft selbst). Kurze Pause fuer den Daemon-Kill.
     sleep 1
 }
 _pkill_server
@@ -129,16 +123,18 @@ echo
 
 # Im Hintergrund, damit dieses Skript weiterlaufen und danach die
 # Oberflaeche oeffnen kann. Die Ausgabe bleibt im Terminal sichtbar.
-# Bind-Adresse aus der .env: HOST_BIND (Standard 0.0.0.0 fuer Heim-WLAN/PC).
-#   HOST_BIND=0.0.0.0  (Standard) -> im Heim-WLAN erreichbar (PC-Zugriff, wie gehabt)
-#   HOST_BIND=127.0.0.1 -> NUR lokal (Hotel-Gast-WLAN: Backend + Key nicht im Netz)
-# Zu Hause braucht nichts umgestellt zu werden (Default ist 0.0.0.0).
-# Der Wert wird gezielt aus der Backend-.env gelesen (nur dieser Schlüssel,
-# keine anderen .env-Interna werden ausgegeben oder exportiert).
-HOST_BIND="0.0.0.0"
-_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
-[ -n "$_env_host" ] && HOST_BIND="$_env_host"
-python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" &
+# Gestartet wird ueber die EINZIGE Startstelle termux/backend-starten.sh (H3b):
+# Sie liest PORT und HOST_BIND aus backend/.env (HOST_BIND Standard 0.0.0.0 fuer
+# Heim-WLAN/PC, 127.0.0.1 = NUR lokal fuer fremde Netze) und waehlt den Modus -
+# mit Zertifikat ``python serve.py`` (HTTPS im Heimnetz, HTTP nur lokal), sonst
+# uvicorn wie bisher. Ohne --abloesen ersetzt sich das Skript durch den Server,
+# deshalb ist $! die Server-PID (kill -0 und wait unten funktionieren).
+#
+# Umstellung HTTP -> HTTPS: Laeuft nach dem Beenden oben doch noch ein Server
+# (ein anderer Startweg war schneller), beendet tls-umstellung.sh ihn genau
+# einmal, falls er nicht zum Zertifikatsstand passt; gestartet wird gleich hier.
+bash "$HIER/tls-umstellung.sh" --nur-beenden || true
+bash "$HIER/backend-starten.sh" &
 server=$!
 
 # Warten, bis er wirklich antwortet. Das Laden der Vektordatei dauert
@@ -173,7 +169,7 @@ _code=$?
 # schliesst eine Sitzung nur bei Code 0 oder 130 von selbst
 # (TermuxTerminalSessionActivityClient.onSessionFinished). Abgeloest = 0 melden;
 # jeder andere Code (echter Absturz) bleibt sichtbar stehen.
-if [ "$_code" = "137" ]; then
+if [ "$_code" = "137" ] || [ "$_code" = "143" ]; then   # 143 = SIGTERM von backend-beenden.sh
     echo "Server von einem neueren Widget-Start abgeloest - diese Sitzung schliesst sich."
     exit 0
 fi

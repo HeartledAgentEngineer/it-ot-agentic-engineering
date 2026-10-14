@@ -125,15 +125,15 @@ def test_beide_wege_bereiten_vor_bevor_sie_den_server_starten():
     widget = _lies(WIDGET)
     app = _lies(APP)
     assert widget.index('bash "$HIER/start-vorbereiten.sh"') < \
-        widget.index("python -m uvicorn app.main:app --host")
+        widget.index('bash "$HIER/backend-starten.sh"')
     assert app.index('bash "$PROJEKT/termux/start-vorbereiten.sh"') < \
-        app.index("nohup python -m uvicorn app.main:app")
+        app.index('bash "$PROJEKT/termux/backend-starten.sh"')
     # Der App-Weg schaltet bei laufendem Backend auf --laufend und beendet sich
     # dann OHNE Serverstart und OHNE Ruecksprung zur App; gekillt wird nie.
     assert 'if health_ok; then LAEUFT=1; else LAEUFT=0; fi' in app
     assert '_VORBEREITUNG_MODUS="--laufend"' in app
-    assert app.index("Serverstart uebersprungen") < app.index("nohup python -m uvicorn app.main:app")
-    assert app.rindex("heyagent://start") > app.index("nohup python -m uvicorn app.main:app")
+    assert app.index("Serverstart uebersprungen") < app.index('bash "$PROJEKT/termux/backend-starten.sh"')
+    assert app.rindex("heyagent://start") > app.index('bash "$PROJEKT/termux/backend-starten.sh"')
     for verboten in ("pkill", "kill -9"):
         assert verboten not in app, f"der App-Weg beendet nichts: {verboten}"
 

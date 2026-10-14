@@ -883,8 +883,8 @@ def test_waechter_uebernahme_nach_pull_vor_beiden_serverstarts_und_abgefangen():
     for befehl in aufrufe:
         assert befehl.rstrip().endswith("|| true"), "Uebernahme darf den Start nie verhindern"
     # Beide Wege rufen die gemeinsame Datei VOR ihrem Serverstart auf.
-    for name, start in (("agent-start", "python -m uvicorn app.main:app --host"),
-                        ("agent-ensure.sh", "nohup python -m uvicorn")):
+    for name, start in (("agent-start", 'bash "$HIER/backend-starten.sh"'),
+                        ("agent-ensure.sh", 'bash "$PROJEKT/termux/backend-starten.sh"')):
         weg = (REPO / "termux" / name).read_text(encoding="utf-8")
         assert "start-vorbereiten.sh" in weg, f"{name}: ruft die gemeinsame Vorbereitung"
         assert weg.index("start-vorbereiten.sh") < weg.index(start), (
@@ -906,7 +906,7 @@ def test_waechter_widget_ruft_die_gemeinsame_vorbereitung_vor_dem_serverstart():
     assert "start-vorbereiten.sh" in text
     assert text.index("_pkill_server\n") < text.index("start-vorbereiten.sh"), (
         "Widget beendet erst den alten Server, dann die Vorbereitung")
-    assert text.index("start-vorbereiten.sh") < text.index("python -m uvicorn app.main:app --host")
+    assert text.index("start-vorbereiten.sh") < text.index('bash "$HIER/backend-starten.sh"')
     assert "uebergabe_uebernehmen.py" not in text, "kein zweiter Aufruf im Widget"
 
 

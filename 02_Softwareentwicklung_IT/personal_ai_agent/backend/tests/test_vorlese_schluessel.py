@@ -141,7 +141,7 @@ def test_jeder_startweg_uebernimmt_den_vorlese_schluessel(name):
     aufruf = text.index(zeilen[0])
     assert text.index("pull --ff-only") < aufruf
     if name == "start-termux.sh":
-        assert aufruf < text.index("python -m uvicorn app.main:app")
+        assert aufruf < text.index('bash "$PROJEKT/termux/backend-starten.sh"')
 
 
 @pytest.mark.parametrize("name", sorted(GEMEINSAM_RUFER))

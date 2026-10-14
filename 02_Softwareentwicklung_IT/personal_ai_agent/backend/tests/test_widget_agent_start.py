@@ -36,7 +36,7 @@ def test_widget_richtet_app_start_selbst_ein():
     text = _lies("agent-start")
     assert "start-vorbereiten.sh" in text, "Widget ruft die gemeinsame Vorbereitung"
     pos_prep = text.index('bash "$HIER/start-vorbereiten.sh"')
-    pos_server = text.index("python -m uvicorn app.main:app --host")
+    pos_server = text.index('bash "$HIER/backend-starten.sh"')
     assert pos_prep < pos_server, "Vorbereitung vor dem Serverstart"
     prep = _lies("start-vorbereiten.sh")
     assert "hey-agent-einrichten.sh" in prep, "Widget muss die Einrichtung anstossen"
@@ -137,5 +137,5 @@ def test_wissensdatei_uebernahme_laeuft_auf_dem_widget_weg():
     pos_aufruf = prep.index('bash "$HIER/wissensdatei-uebernehmen.sh"')
     assert pos_pull < pos_aufruf, "nach dem Pull"
     pos_prep = text.index('bash "$HIER/start-vorbereiten.sh"')
-    pos_server = text.index("python -m uvicorn app.main:app --host")
+    pos_server = text.index('bash "$HIER/backend-starten.sh"')
     assert pos_prep < pos_server, "vor dem Serverstart"

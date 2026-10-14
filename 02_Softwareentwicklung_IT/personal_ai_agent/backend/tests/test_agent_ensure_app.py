@@ -36,7 +36,7 @@ def test_laufendes_backend_wird_vorbereitet_aber_nicht_neu_gestartet():
     pos_check = text.index("if health_ok; then")
     pos_prep = text.index('bash "$PROJEKT/termux/start-vorbereiten.sh"')
     pos_skip = text.index("Serverstart uebersprungen")
-    pos_start = text.index("nohup python -m uvicorn")
+    pos_start = text.index('bash "$PROJEKT/termux/backend-starten.sh"')
     assert pos_check < pos_prep < pos_skip < pos_start, (
         "Reihenfolge: Health-Check -> Vorbereitung -> (bei laufendem Backend Ende) -> Start"
     )
@@ -67,7 +67,7 @@ def test_pull_nur_vorspulen_nie_ueberschreiben():
 
 def test_wartet_auf_health_vor_ruecksprung():
     text = _text()
-    pos_start = text.index("nohup python -m uvicorn")
+    pos_start = text.index('bash "$PROJEKT/termux/backend-starten.sh"')
     pos_warten = text.index("WARTEN_S")
     pos_zurueck = text.index('-d "heyagent://start"')
     assert pos_start < pos_zurueck and pos_warten < pos_zurueck, (

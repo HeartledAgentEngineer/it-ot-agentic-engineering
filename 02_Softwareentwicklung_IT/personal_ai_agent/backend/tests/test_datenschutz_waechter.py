@@ -215,63 +215,68 @@ def test_regel_skript_erwaehnt_host_bind(skript: str):
     )
 
 
+STARTSTELLE = "termux/backend-starten.sh"
+
+
 @pytest.mark.parametrize("skript", DREI_SKRIPTE)
-def test_regel_skript_liest_host_bind_aus_der_datei(skript: str):
-    """Regel: HOST_BIND wird mit dem erprobten Muster aus der Datei gelesen."""
+def test_regel_skript_startet_ueber_die_eine_startstelle(skript: str):
+    """Regel (H3b): Seit 14.10.2026 liest nur noch ``backend-starten.sh`` HOST_BIND aus der
+    Datei und ruft den Server auf. Jedes der drei Skripte startet ausschliesslich ueber
+    sie - sonst gaebe es wieder einen Startweg ohne die Bindungsregel."""
     text = _repo_datei(skript)
+    assert "backend-starten.sh" in text, (
+        f"Regel 'HOST_BIND': {skript} startet nicht über {STARTSTELLE}."
+    )
+    codezeilen = [z for z in text.splitlines() if not z.lstrip().startswith("#")]
+    assert not any("--host" in z for z in codezeilen), (
+        f"Regel 'HOST_BIND': {skript} setzt --host selbst, statt die Startstelle entscheiden zu lassen."
+    )
+    assert not any(z.startswith("_env_host=") for z in codezeilen), (
+        f"Regel 'HOST_BIND-Muster': {skript} liest HOST_BIND selbst, die Regel steht nur in {STARTSTELLE}."
+    )
+
+
+def test_regel_startstelle_liest_host_bind_aus_der_datei():
+    """Regel: HOST_BIND wird in der einen Startstelle mit dem erprobten Muster gelesen."""
+    text = _repo_datei(STARTSTELLE)
     assert '"^HOST_BIND="' in text, (
-        f"Regel 'HOST_BIND-Muster': {skript} liest HOST_BIND nicht über "
+        f"Regel 'HOST_BIND-Muster': {STARTSTELLE} liest HOST_BIND nicht über "
         "das Muster ^HOST_BIND= aus der Einstellungsdatei."
     )
 
 
-@pytest.mark.parametrize("skript", DREI_SKRIPTE)
-def test_regel_uvicorn_bekommt_host_als_variable(skript: str):
+def test_regel_uvicorn_bekommt_host_als_variable():
     """Regel: uvicorn wird mit --host \"$HOST_BIND\" aufgerufen, nicht mit Wert."""
-    text = _repo_datei(skript)
+    text = _repo_datei(STARTSTELLE)
     assert '--host "$HOST_BIND"' in text, (
-        f"Regel 'HOST_BIND': {skript} ruft uvicorn nicht mit --host \"$HOST_BIND\" auf."
+        f"Regel 'HOST_BIND': {STARTSTELLE} ruft uvicorn nicht mit --host \"$HOST_BIND\" auf."
     )
 
 
-def test_regel_neu_start_standard_bleibt_0_0_0_0():
-    """Regel: Der Standardwert bleibt 0.0.0.0 — keine Verhaltensänderung."""
-    text = _repo_datei("termux/neu-start-nach-lauf.sh")
+def test_regel_startstelle_standard_bleibt_0_0_0_0():
+    """Regel: Der Standardwert bleibt 0.0.0.0 — keine Verhaltensänderung. Dieselbe Zeile
+    gilt jetzt für alle vier Startwege (neu-start-nach-lauf, start-termux, agent-ensure,
+    agent-start), weil sie alle über die Startstelle laufen."""
+    text = _repo_datei(STARTSTELLE)
     assert 'HOST_BIND="0.0.0.0"' in text, (
-        "Regel 'Standard': termux/neu-start-nach-lauf.sh muss den Standard "
-        "0.0.0.0 belassen."
+        f"Regel 'Standard': {STARTSTELLE} muss den Standard 0.0.0.0 belassen."
     )
+    assert "--host 0.0.0.0" not in text, "Regel 'HOST_BIND': kein hartes --host 0.0.0.0"
 
 
-def test_regel_start_termux_standard_bleibt_0_0_0_0():
-    """Regel: Auch start-termux.sh behält den Standard 0.0.0.0."""
-    text = _repo_datei("start-termux.sh")
-    assert 'HOST_BIND="0.0.0.0"' in text, (
-        "Regel 'Standard': start-termux.sh muss den Standard 0.0.0.0 behalten."
+def test_regel_muster_steht_genau_einmal_und_unveraendert():
+    """Regel: Das Lese-Muster ist dasselbe wie früher in den drei Skripten und steht jetzt
+    genau einmal (in der Startstelle) statt dreimal."""
+    # Der Dateiname wird zusammengesetzt: dieser Wächter nennt die Einstellungsdatei selbst nie
+    # (siehe test_regel_waechterdatei_liest_keine_einstellungsdatei).
+    erwartet = (
+        '_env_host=$(grep -E "^HOST_BIND=" ' + "." + "env 2>/dev/null | tail -1 | cut -d= -f2- "
+        "| cut -d'#' -f1 | tr -d '[:space:]\\r\"')"
     )
-
-
-def test_regel_agent_ensure_standard_bleibt_0_0_0_0():
-    """Regel: Auch agent-ensure.sh behält den Standard 0.0.0.0."""
-    text = _repo_datei("termux/agent-ensure.sh")
-    assert 'HOST_BIND="0.0.0.0"' in text, (
-        "Regel 'Standard': termux/agent-ensure.sh muss den Standard 0.0.0.0 behalten."
-    )
-
-
-def test_regel_muster_in_allen_drei_skripten_gleich():
-    """Regel: Das Lese-Muster ist in allen drei Skripten identisch."""
-    zeilen = {}
-    for skript in DREI_SKRIPTE:
-        for zeile in _repo_datei(skript).splitlines():
-            if zeile.startswith("_env_host="):
-                zeilen[skript] = zeile.strip()
-    assert len(zeilen) == 3, (
-        "Regel 'Muster': Nicht in allen drei Skripten ist eine _env_host-Zeile da: "
-        f"{sorted(zeilen)}."
-    )
-    assert len(set(zeilen.values())) == 1, (
-        "Regel 'Muster': Das Lese-Muster unterscheidet sich zwischen den Skripten: "
+    zeilen = [z.strip() for z in _repo_datei(STARTSTELLE).splitlines()
+              if z.startswith("_env_host=")]
+    assert zeilen == [erwartet], (
+        "Regel 'Muster': Das Lese-Muster in der Startstelle weicht vom erprobten ab: "
         f"{zeilen}."
     )
 

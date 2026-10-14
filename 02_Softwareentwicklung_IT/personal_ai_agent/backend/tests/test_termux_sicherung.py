@@ -297,7 +297,7 @@ def test_auftrag_laeuft_im_gemeinsamen_startweg_nach_pull_vor_serverstart():
     widget = WIDGET.read_text(encoding="utf-8")
     assert 'bash "$HIER/start-vorbereiten.sh" "$PROJEKT"' in widget
     assert widget.index("_pkill_server\n") < widget.index("start-vorbereiten.sh")
-    assert widget.index("start-vorbereiten.sh") < widget.index("python -m uvicorn app.main:app --host")
+    assert widget.index("start-vorbereiten.sh") < widget.index('bash "$HIER/backend-starten.sh"')
     vorbereitung = (PROJEKT / "termux" / "start-vorbereiten.sh").read_text(encoding="utf-8")
     aufruf = vorbereitung.index('bash "$HIER/sicherung-auftrag.sh" || true')
     assert vorbereitung.index("if git pull --ff-only --quiet; then") < aufruf

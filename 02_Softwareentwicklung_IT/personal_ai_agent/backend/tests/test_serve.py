@@ -78,6 +78,32 @@ def test_host_bind_aus_umgebung(monkeypatch):
     assert serve.host_bind_lesen() == "127.0.0.1"
 
 
+def test_http_port_aus_der_umgebung_https_bleibt_8443(monkeypatch, tmp_path):
+    """H3b: ``PORT`` (Handy-.env, von backend-starten.sh exportiert) bestimmt den HTTP-Zugang."""
+    monkeypatch.setenv("PORT", "9090")
+    assert serve.port_http_lesen() == 9090
+    mit_tls = serve.konfigurationen(_ordner(tmp_path, *serve.TLS_DATEIEN))
+    assert [c.port for c in mit_tls] == [9090, 8443]
+    ohne_tls = serve.konfigurationen(tmp_path / "leer", "192.0.2.1")
+    assert [(c.host, c.port) for c in ohne_tls] == [("192.0.2.1", 9090)]
+
+
+@pytest.mark.parametrize("wert", [None, "", "  ", "abc", "0", "70000", "-1", "8443"])
+def test_http_port_standard_8080_bei_fehlendem_oder_unbrauchbarem_wert(monkeypatch, tmp_path, wert):
+    if wert is None:
+        monkeypatch.delenv("PORT", raising=False)
+    else:
+        monkeypatch.setenv("PORT", wert)
+    assert serve.port_http_lesen() == 8080
+    assert serve.konfigurationen(_ordner(tmp_path, *serve.TLS_DATEIEN))[0].port == 8080
+
+
+def test_ausdrueckliche_portangabe_hat_vorrang_vor_der_umgebung(monkeypatch, tmp_path):
+    monkeypatch.setenv("PORT", "9090")
+    (config,) = serve.konfigurationen(tmp_path / "leer", port_http=7070)
+    assert config.port == 7070
+
+
 # ── Zusammenspiel (Attrappen statt uvicorn.Server) ──────────────────────────
 
 class _Server:

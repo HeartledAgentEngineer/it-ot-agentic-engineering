@@ -53,7 +53,7 @@ def test_jeder_startweg_ruft_die_uebernahme_auf(name):
     aufruf = text.index(zeilen[0])
     assert text.index("pull --ff-only") < aufruf, f"{name}: erst den neuesten Stand holen"
     if name == "start-termux.sh":
-        assert aufruf < text.index("python -m uvicorn app.main:app"), (
+        assert aufruf < text.index('bash "$PROJEKT/termux/backend-starten.sh"'), (
             f"{name}: Uebernahme vor dem Serverstart")
 
 

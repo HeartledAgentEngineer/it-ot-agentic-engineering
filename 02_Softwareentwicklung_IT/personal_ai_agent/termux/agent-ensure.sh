@@ -26,7 +26,13 @@
 #   * Der Serverstart selbst wird uebersprungen, wenn das Backend antwortet:
 #     kein Neustart, kein Ruecksprung zur App (sonst spraenge jedes manuelle
 #     Termux-Oeffnen in die App).
-#   * Nur wenn /health NICHT antwortet, startet uvicorn (nohup, wie bisher).
+#   * Nur wenn /health NICHT antwortet, startet das Backend - ueber
+#     termux/backend-starten.sh (die einzige Startstelle; abgeloest, mit --reload).
+#   * AUSNAHME Umstellung HTTP -> HTTPS (H3b): Nach der Vorbereitung prueft
+#     termux/tls-umstellung.sh, ob der laufende Modus zum Zertifikatsstand passt.
+#     Kam das Zertifikat erst jetzt, wird der alte HTTP-Server genau einmal
+#     beendet und neu gestartet. Die Pruefung steht VOR dem Ausstieg bei
+#     laufendem Server - sonst bliebe der HTTP-Server im WLAN offen.
 #
 # Log: ~/agent-ensure.log (wird bei jedem Lauf angehaengt, bei > 200 KB gekuerzt)
 
@@ -100,25 +106,40 @@ else
     sag "FEHLER: $PROJEKT/termux/start-vorbereiten.sh fehlt - es startet ohne Uebernahmen."
 fi
 
+# Umstellung HTTP -> HTTPS (H3b): VOR dem Ausstieg bei laufendem Server, nach der
+# Vorbereitung (die kann das Zertifikat gerade erst uebernommen haben). Exit 10
+# oder 4 heisst: das Skript hat den Server selbst neu gestartet (bzw. es
+# versucht und Warnung geschrieben) - dann startet unten nichts zweimal.
+UMGESTELLT=0
+if [ -f "$PROJEKT/termux/tls-umstellung.sh" ]; then
+    bash "$PROJEKT/termux/tls-umstellung.sh" --abloesen --reload --log "$LOG" >> "$LOG" 2>&1
+    _umstellung=$?
+    if [ "$_umstellung" = "10" ] || [ "$_umstellung" = "4" ]; then
+        UMGESTELLT=1
+        sag "Umstellung HTTP -> HTTPS durchgefuehrt (Ergebnis $_umstellung, Einzelheiten im Log)"
+    fi
+else
+    log "WARNUNG: $PROJEKT/termux/tls-umstellung.sh fehlt - Modus wird nicht geprueft."
+fi
+
 if [ "$LAEUFT" = "1" ]; then
-    log "Backend laeuft bereits (Port $PORT) - Vorbereitung gelaufen, Serverstart uebersprungen."
+    if [ "$UMGESTELLT" = "1" ]; then
+        log "Backend lief schon (Port $PORT) - Umstellung hat es neu gestartet, kein weiterer Serverstart."
+    else
+        log "Backend laeuft bereits (Port $PORT) - Vorbereitung gelaufen, Serverstart uebersprungen."
+    fi
     exit 0
 fi
 
-cd "$PROJEKT/backend" || { log "FEHLER: backend/ fehlt in $PROJEKT"; exit 1; }
-
-log "Backend antwortet nicht - starte uvicorn (Projekt: $PROJEKT)"
-# Bindung aus der .env lesen (gleiches Muster wie neu-start-nach-lauf.sh).
-# Standard bleibt 0.0.0.0: ohne HOST_BIND in der .env ändert sich nichts.
-# Mit HOST_BIND=127.0.0.1 lauscht der Server nur lokal (empfohlen fürs
-# Hotel-WLAN / fremde Netze) — die Entscheidung trifft die .env, nicht der Code.
-HOST_BIND="0.0.0.0"
-_env_host=$(grep -E "^HOST_BIND=" .env 2>/dev/null | tail -1 | cut -d= -f2- | cut -d'#' -f1 | tr -d '[:space:]\r"')
-[ -n "$_env_host" ] && HOST_BIND="$_env_host"
-# Gleicher Startbefehl wie start-termux.sh, aber vom Terminal geloest (nohup),
-# weil dieses Skript im Hintergrund per Intent laeuft und danach endet.
-nohup python -m uvicorn app.main:app --host "$HOST_BIND" --port "$PORT" --reload >> "$LOG" 2>&1 &
-sag "Backend startet (PID $!) ..."
+if [ "$UMGESTELLT" = "0" ]; then
+    log "Backend antwortet nicht - starte das Backend (Projekt: $PROJEKT)"
+    # Die einzige Startstelle: Modus (mit/ohne Zertifikat), PORT und HOST_BIND
+    # (aus backend/.env, Standard 0.0.0.0) entscheidet backend-starten.sh.
+    # Vom Terminal geloest, weil dieses Skript im Hintergrund per Intent laeuft
+    # und danach endet; --reload wirkt nur im Modus ohne Zertifikat.
+    bash "$PROJEKT/termux/backend-starten.sh" --abloesen --reload --log "$LOG" >> "$LOG" 2>&1
+    sag "Backend startet (siehe Log) ..."
+fi
 
 if [ "$APP_ZURUECK" = 1 ]; then
     i=0
