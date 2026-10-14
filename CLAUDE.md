@@ -5,7 +5,7 @@
 ## Claude Code
 
 - Session-Kontext: `.claude/memory/CONTEXT.md` (gitignored) bei Bedarf lesen.
-- Feature-Arbeit läuft über `/phase`. Ohne Aufruf keine Phasenlogik anwenden.
+- Der feste `/phase`-Ablauf ist abgelöst (siehe AGENTS.md, „Automatischer Durchlauf").
 - Bereichsregeln stehen in der jeweiligen Bereichs-`CLAUDE.md`. Sie laden, sobald
   eine Datei aus dem Bereich gelesen wird, und werden von `sync-rules.ps1` aus
   der zugehörigen `CLAUDE_EXTENDS.md` erzeugt.

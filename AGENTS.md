@@ -1,7 +1,7 @@
 # Workspace Agentic Engineering — Kernregeln
 
-Diese Datei gilt werkzeugübergreifend (Claude Code, Cline, Cursor, Codex).
-Sie ist die einzige Quelle der Kernregeln — Änderungen nur hier.
+Gilt werkzeugübergreifend (Claude Code, Cline, Cursor, Codex). Einzige Quelle
+der Kernregeln — Änderungen nur hier.
 
 ## Wo welche Regeln stehen
 
@@ -12,10 +12,10 @@ Sie ist die einzige Quelle der Kernregeln — Änderungen nur hier.
 | Bereich | `01_IT-OT_Integration/CLAUDE.md`, `02_Softwareentwicklung_IT/CLAUDE.md` | sobald Dateien aus dem Bereich gelesen werden |
 | Projekt | z. B. `02_Softwareentwicklung_IT/typeFREE/CLAUDE.md` | sobald Dateien des Projekts gelesen werden |
 
-**Die Bereichs- und Projekt-`CLAUDE.md` werden von `sync-rules.ps1` aus der
-jeweiligen `CLAUDE_EXTENDS.md` erzeugt.** Sie sind nicht von Hand zu
-bearbeiten — Änderungen gehen beim nächsten Lauf verloren. Stattdessen die
-zugehörige `CLAUDE_EXTENDS.md` ändern und das Skript erneut ausführen.
+**Bereichs- und Projekt-`CLAUDE.md` erzeugt `sync-rules.ps1` aus der jeweiligen
+`CLAUDE_EXTENDS.md`.** Nicht von Hand bearbeiten — Änderungen gehen beim nächsten
+Lauf verloren. Stattdessen die `CLAUDE_EXTENDS.md` ändern und das Skript erneut
+ausführen.
 
 ## Sprache
 
@@ -24,39 +24,37 @@ erklären.
 
 ## Sicherheit: Git
 
-- Autonom erlaubt: lesen, lokal ändern, lokal committen.
+- Autonom erlaubt: lesen, lokal ändern, lokal committen, Tests ausführen.
 - **Push: stehende Freigabe (Stand 15.09.2026, auf Sebastians ausdrücklichen
   Wunsch).** Ein Push nach **grünem Prüfbefehl** ist autonom erlaubt — Sebastian
   testet damit direkt am Handy, und ein Push ist jederzeit rücknehmbar
-  (`git revert` / Zurücksetzen im Remote), er zerstört also nichts.
-  Der Agent pusht **sofort nach** einer verifizierten Änderung, ohne jedes Mal
-  nachzufragen.
-- **Rückfrage bleibt Pflicht** (hier geht es um Datenverlust, nicht um
-  Bequemlichkeit) bei:
-  - **rotem/fehlendem Prüfbefehl** — es wird nicht gepusht, sondern erst repariert,
+  (`git revert` / Zurücksetzen im Remote). Der Agent pusht **sofort nach** einer
+  verifizierten Änderung, ohne jedes Mal nachzufragen.
+- **Rückfrage bleibt Pflicht** (es geht um Datenverlust) bei:
+  - **rotem/fehlendem Prüfbefehl** — nicht pushen, erst reparieren,
   - **Merge-/Rebase-Konflikten** oder divergierenden Historien,
   - **force-push / Überschreiben fremder Commits**,
-  - Änderungen an **OT-/SPS-Code** oder an **persönlichen Datenarchiven**
+  - Änderungen an **OT-/SPS-Code** oder **persönlichen Datenarchiven**
     (dort gilt weiterhin alles manuell).
-- Frühere Regel („nie autonom pushen") ist damit **abgelöst**; sie steht nur
-  noch als Historie in diesem Absatz.
+- **Autonomiegrenze:** Rückfrage außerdem bei allem, was den Rechner verlässt
+  oder ein fremdes System erreicht, außer dem erlaubten Push: Deploy, SPS,
+  Versand, Veröffentlichung.
 
 ## Synchronisation: Pull vor Agentenarbeit
 
-Bevor ein Agent an einem Repo arbeitet, holt er zu Beginn den aktuellen
-gemeinsamen Stand: `git pull` (ggf. `--ff-only`). So startet jede Sitzung vom
-selben Stand, egal ob zuvor per App wie `start-termux.sh` gepullt wurde, ein
-anderer Agent/Computer gepusht hat oder das Repo nur lokal liegt. Der Pull wird
-ausgeführt, bevor Dateien gelesen/geladen oder Commits gemacht werden. Der Agent
-prüft dabei, ob der Pull sauber durchgeht; schlägt er fehl (z. B. lokale
-Änderungen, Konflikt), wird er nicht übergangen, sondern Sebastian gefragt.
+Zu Beginn der Arbeit an einem Repo, noch bevor Dateien gelesen/geladen oder
+Commits gemacht werden, holt der Agent den gemeinsamen Stand: `git pull` (ggf.
+`--ff-only`). So startet jede Sitzung vom selben Stand, egal ob zuvor per App wie
+`start-termux.sh` gepullt wurde, ein anderer Agent/Computer gepusht hat oder das
+Repo nur lokal liegt. Schlägt der Pull fehl (z. B. lokale Änderungen, Konflikt),
+wird er nicht übergangen, sondern Sebastian gefragt.
 
 ## Sicherheit: Persönliche Datenarchive
 
 `Chats von GPT, GEMINI, Claude/` enthält vollständige Chat-Archive und
-Google-Takeout-Daten. Die Sperre in `.gitignore` für `Chats von GPT, GEMINI, Claude/` bleibt unverändert
-bestehen. Soll etwas daraus versioniert werden, wird die Datei außerhalb dieses
-Ordners neu angelegt.
+Google-Takeout-Daten. Die Sperre in `.gitignore` dafür bleibt bestehen. Soll
+etwas daraus versioniert werden, wird die Datei außerhalb dieses Ordners neu
+angelegt.
 
 ## Sicherheit: OT-Systeme
 
@@ -72,39 +70,28 @@ liefert Code-Blaupausen.
 
 ## Tüfteln erlaubt, aber strukturiert
 
-Pragmatisches Ausprobieren/Tüfteln ist ausdrücklich erlaubt — schnelle
-Experimente, die Dinge zum Laufen bringen. **Aber:** ohne gelegentliche
+Pragmatisches Ausprobieren ist ausdrücklich erlaubt. **Aber:** ohne gelegentliche
 Reflexion driftet es ins Chaos um. Deshalb:
 
-- Nach jedem größeren Ad-hoc-Arbeitsblock (viel experimentiert/gefickt)
-  kurz **innehalten**: Was wurde gebaut? Wo ist Code-Wildwuchs? Konsolidieren
-  (Squash/Refactor)? Arbeitsweise reflektieren? Das dokumentiert sich in der
-  Übergabe/Changelog.
+- Nach jedem größeren Ad-hoc-Arbeitsblock kurz **innehalten**: Was wurde gebaut?
+  Wo ist Code-Wildwuchs? Konsolidieren (Squash/Refactor)? Arbeitsweise
+  reflektieren? Das dokumentiert sich in der Übergabe/Changelog.
 - Kein dauerhaftes "Feuerwehr von Einsatz zu Einsatz": Wird ein Bereich
   unsauber (Code-Duplikat, fehlende Tests, inkonsistente Muster), wird er
   standardisiert statt weiter darauf zu schustern.
-- Verifikation ("Fertig ist, was verifiziert ist") und "Doku folgt dem Code"
-  gelten **immer** — auch bei schnellen Tüfteleien.
-
-## Autonomiegrenze
-
-Autonom: lesen, lokal ändern, lokal committen, Tests ausführen.
-Rückfrage: alles, was den Rechner verlässt oder ein fremdes System erreicht
-(Push, Deploy, SPS, Versand, Veröffentlichung).
+- "Fertig ist, was verifiziert ist" und "Doku folgt dem Code" gelten **immer** —
+  auch bei schnellen Tüfteleien.
 
 ## Dokumentation folgt dem Code
 
-Jede Änderung an Code/Tools/Konfiguration wird auch in der zugehörigen
-Dokumentation (README, docs, CHANGELOG/Änderungsprotokoll) nachgezogen und
-gemeinsam committet — sonst hinkt die Doku dem Stand hinterher. Die Dokumentation
-ist Teil der Bewerbungsmappe und muss CODEGENAU sein: sie darf nichts behaupten,
-was der Code nicht tut.
+Jede Änderung an Code/Tools/Konfiguration wird in der zugehörigen Dokumentation
+(README, docs, CHANGELOG/Änderungsprotokoll) nachgezogen und gemeinsam
+committet. Die Dokumentation ist Teil der Bewerbungsmappe und muss CODEGENAU
+sein: sie darf nichts behaupten, was der Code nicht tut.
 
-- Bei jeder signifikanten Änderung: prüfen, welches README/docs/Protokoll
-  betroffen ist → aktualisieren → mit einem gemeinsamen Commit („code + docs")
-  committen.
-- Doku nie einfach mitziehen "weil später": sie muss den NEUEN Stand beschreiben.
-- Committen (autonom erlaubt); Push bleibt wie oben bei Sebastian.
+- Bei jeder signifikanten Änderung: betroffenes README/docs/Protokoll prüfen →
+  aktualisieren → ein gemeinsamer Commit („code + docs").
+- Doku nie auf "später" verschieben: sie beschreibt den NEUEN Stand.
 
 ## Fertig ist, was verifiziert ist
 
@@ -122,22 +109,21 @@ ausgeführt. Ein früherer Lauf, die Erfolgsmeldung eines Subagenten und
 
 ## Automatischer Durchlauf
 
-Der frühere feste Phasen-Workflow (`/phase`, 8 Schritte) ist **abgelöst**:
-gearbeitet wird kontinuierlich und hybrid (Codex für Coding-Blöcke, Hermes für
-Qualität/Orchestrierung), ohne Phase-zu-Phase-Lauf. Die Kerninstrumente gelten
-**weiterhin unverändert**:
+Der feste Phasen-Workflow (`/phase`) ist **abgelöst**: gearbeitet wird
+kontinuierlich und hybrid (Codex für Coding-Blöcke, Hermes für
+Qualität/Orchestrierung). Es gelten weiterhin:
 
-1. Das Projekt hat einen Prüfbefehl mit Exit-Code („Fertig heißt verifiziert“).
-2. „code + docs“: jede Änderung wird dokumentiert und gemeinsam committet.
+1. Das Projekt hat einen Prüfbefehl mit Exit-Code.
+2. „code + docs": jede Änderung wird dokumentiert und gemeinsam committet.
 3. Es ist kein OT-/SPS-Code (dort bleibt alles manuell bei Sebastian).
 
 Hat ein Projekt **keinen** Prüfbefehl, wird jede Änderung einzeln vorgelegt.
 
 ## Rollen und Datenschutz im Agenten-Workflow
 
-Kaskaden-Matrix (Sebastian, 14.10.2026; ersetzt die Rollentabelle vom 10.10. und die
-Regeln vom 12.10.). Welche Lage gilt, richtet sich danach, welches Abo im Nutzungslimit ist
-(Anzeige: `02_Softwareentwicklung_IT/master-schalter`, Taskleisten-Symbol).
+Kaskaden-Matrix (Sebastian, 14.10.2026). Die Lage richtet sich danach, welches
+Abo im Nutzungslimit ist (Anzeige: `02_Softwareentwicklung_IT/master-schalter`,
+Taskleisten-Symbol).
 
 | Lage | Thinker (plant, prüft Ergebnisse gegen den Plan) | Reviewer (Plan- und Ergebnisprüfung) | Worker (setzt um) |
 |---|---|---|---|
@@ -163,25 +149,24 @@ Regeln vom 12.10.). Welche Lage gilt, richtet sich danach, welches Abo im Nutzun
   Die Prüferwahl nach Matrix wird im Master-Schalter nachgezogen; bis dahin steht der
   tatsächlich genutzte Prüfer im Prüfprotokoll.
 
-**Alles Sensible bleibt IMMER bei Hermes.** Das gilt unabhängig davon, wer
-Master, Planer, Ausführer oder Prüfer ist. Persönliche Texte, Lebenslaufdaten,
-Chats, Kontakte, echte Kennungen, private Pfade, Zugangsschlüssel, Bildinhalte
-sowie persönliche Beschreibungen und Vektoren verarbeitet ausschließlich
-Hermes über den vom Nutzer freigegebenen Zugang mit Retention-Ausschluss.
-Codex und Claude Code bearbeiten Code, Tests, technische Beschreibungen und
-Architektur. Eine Master- oder Prüferrolle erteilt ihnen keine zusätzliche
-Berechtigung für sensible Inhalte. Benötigte Datenprüfungen laufen bei Hermes;
-die technischen Agenten erhalten nur bereinigte Anforderungen und Belege.
+**Alles Sensible bleibt IMMER bei Hermes**, unabhängig davon, wer Master, Planer,
+Ausführer oder Prüfer ist. Persönliche Texte, Lebenslaufdaten, Chats, Kontakte,
+echte Kennungen, private Pfade, Zugangsschlüssel, Bildinhalte sowie persönliche
+Beschreibungen und Vektoren verarbeitet ausschließlich Hermes über den vom Nutzer
+freigegebenen Zugang mit Retention-Ausschluss. Codex und Claude Code bearbeiten
+Code, Tests, technische Beschreibungen und Architektur. Eine Master- oder
+Prüferrolle erteilt ihnen keine zusätzliche Berechtigung für sensible Inhalte.
+Benötigte Datenprüfungen laufen bei Hermes; die technischen Agenten erhalten nur
+bereinigte Anforderungen und Belege.
 
-**Freigabe und Gegenprüfung:** Der Master erstellt den Plan. Vor der
-technischen Umsetzung prüft der zugeordnete andere Prüfer den aktuellen Plan
-kritisch und gibt den technischen Umfang frei. Erst danach führt der
-technische Ausführer in kleinen, ausdrücklich zugeordneten Änderungen aus.
-Anschließend prüft der andere Prüfer die Ergebnisse anhand eigener Belege.
-Selbstprüfung ersetzt die Gegenprüfung nicht. Freigabe, tatsächliches
-Prüfmodell, Planfassung und offene Blocker werden lokal dokumentiert.
-Keine Antwort ist keine Freigabe. Veröffentlichung und sensible Arbeit
-bleiben an die gesonderten Nutzergrenzen gebunden.
+**Freigabe und Gegenprüfung:** Der Master erstellt den Plan. Vor der Umsetzung
+prüft der zugeordnete andere Prüfer den aktuellen Plan kritisch und gibt den
+technischen Umfang frei. Erst danach führt der Ausführer in kleinen, ausdrücklich
+zugeordneten Änderungen aus. Anschließend prüft der andere Prüfer die Ergebnisse
+anhand eigener Belege. Selbstprüfung ersetzt die Gegenprüfung nicht. Freigabe,
+tatsächliches Prüfmodell, Planfassung und offene Blocker werden lokal
+dokumentiert. Keine Antwort ist keine Freigabe. Veröffentlichung und sensible
+Arbeit bleiben an die gesonderten Nutzergrenzen gebunden.
 
 **Prüfprotokolle zeigen (Sebastian, 14.10.2026):** Sebastian ist „Human in the
 Loop" als **Beobachter, nicht als Entscheider**. Nach jeder Prüfrunde — Plan- oder
@@ -189,39 +174,38 @@ Ergebnisprüfung, Codex oder Hermes — legt der Master das Protokoll
 (`.hermes/pruefkreis/<thema>.md`) sofort als aufklappbare Datei in den Chat
 (Claude Code: `SendUserFile`), dazu eine Zeile: Urteil und was der Master daraus
 macht. Danach geht die Arbeit ohne Warten weiter; das Zeigen ist keine Rückfrage.
-Grund: Codex-Prüfläufe sind flüchtig (`--ephemeral`) und erscheinen nicht in der
-Codex-App, Hermes-Prüfsitzungen werden nach Abschluss geschlossen — ohne das
-Protokoll im Chat sieht Sebastian nicht, was geprüft wurde.
+Grund: Codex-Prüfläufe sind flüchtig (`--ephemeral`), Hermes-Prüfsitzungen werden
+nach Abschluss geschlossen — sonst sieht Sebastian nicht, was geprüft wurde.
 
 ## Lebenszyklus eigener Prüfchats
 
-Vom Nutzer ausdrücklich festgelegt am 10.10.2026: Feedback bleibt im Master;
-eigene Prüfchats werden nach Abschluss der zugehörigen Diskussion gelöscht.
+Festgelegt 10.10.2026: Feedback bleibt im Master; eigene Prüfchats werden nach
+Abschluss der zugehörigen Diskussion gelöscht.
 
-- Der Master behält das bereinigte Feedback, die Entscheidung, offene beziehungsweise
+- Der Master behält das bereinigte Feedback, die Entscheidung, offene bzw.
   erledigte Befunde und notwendige Prüfbelege. Sensible Originalinhalte bleiben bei
   Hermes und werden nicht in einen Codex-/Claude-Master übernommen.
 - Ein beendeter Modelllauf oder das erste Feedback allein ist KEIN Diskussionsabschluss.
-  Die Diskussion ist abgeschlossen, wenn alle Befunde entschieden und dokumentiert
+  Abgeschlossen ist die Diskussion, wenn alle Befunde entschieden und dokumentiert
   sind oder der Nutzer sie ausdrücklich für abgeschlossen erklärt.
 - Erst danach entfernt der Master die Anpinnung und löscht genau die zugehörigen,
   von diesem Workflow angelegten Prüfersitzungen anhand ihrer registrierten exakten
-  Sitzungskennungen. Der Nutzer hat diese spätere Bereinigung bereits freigegeben;
-  keine erneute Löschrückfrage bei erfüllten Voraussetzungen.
+  Sitzungskennungen. Der Nutzer hat diese Bereinigung bereits freigegeben; keine
+  erneute Löschrückfrage bei erfüllten Voraussetzungen.
 - Master-Chats, Ausführer-Chats, fremde Sitzungen, persönliche Archive und Originaldaten
-  sind von dieser Regel AUSGESCHLOSSEN. Keine pauschale Bereinigung, kein Löschen nach
+  sind AUSGESCHLOSSEN. Keine pauschale Bereinigung, kein Löschen nach
   Titelmustern, kein Prune und kein Reparieren oder Neuaufbauen der Sitzungsdatenbank.
 - Prüfchats sind während der offenen Diskussion sichtbar und bei Bedarf angepinnt.
-  Nach deren Abschluss dürfen sie trotz vorheriger Anpinnung entfernt werden.
-- Vor dem Löschen: Feedback im Master gesichert, Diskussion geschlossen und Besitz/
+  Nach deren Abschluss dürfen sie trotz Anpinnung entfernt werden.
+- Vor dem Löschen: Feedback im Master gesichert, Diskussion geschlossen, Besitz/
   Rolle der exakten Sitzungskennung geprüft. Ist etwas unklar, Sitzung behalten und
   den Blocker nennen. Nach dem Löschen nur den technischen Bereinigungsnachweis
   festhalten; keine vollständigen Prüfchat-Exporte als Ersatzkopie anlegen.
 
 ## Kontext-Hygiene
 
-Ab etwa 60 % Kontextnutzung oder am Phasenende: Zwischenstand in die
-Phasendatei schreiben und `/clear` vorschlagen.
+Ab etwa 60 % Kontextnutzung: Zwischenstand in die Plandatei schreiben und
+`/clear` vorschlagen.
 
 ## Dauerlauf / Nachtarbeit (autonom)
 
@@ -239,39 +223,33 @@ Fragen"). Dann gilt zusätzlich:
 4. **NIE löschen — nur kopieren und verschieben.** Gilt für alle fremden Systeme
    (pCloud, Handy, bestehende Ordner). Bei Unsicherheit: nur lesen.
 5. **Rückholbarkeit ist Pflicht.** Jede schreibende Operation auf einem fremden
-   System kommt in ein **Manifest** (Quelle → Ziel, Zeit, Kennung), damit sie
-   zurückgenommen werden kann. „Wie mache ich das rückgängig?" wird **vor** der
-   Operation beantwortet, nicht danach.
+   System kommt in ein **Manifest** (Quelle → Ziel, Zeit, Kennung). „Wie mache ich
+   das rückgängig?" wird **vor** der Operation beantwortet, nicht danach.
 6. **Idempotent bauen.** Jedes Werkzeug muss mehrfach laufen dürfen, ohne Schaden
    (vorhandenes Ziel = überspringen, nie doppelt anlegen).
 7. **Kostengrenze.** Billigste Wege zuerst (Vorschaubilder statt Originale,
-   Stapel statt Einzelaufrufe). Teure Wege (Vision über alles) werden vorher an
-   einer Stichprobe gemessen, nicht ins Blaue gefahren.
-8. **Wiederaufnahme sichern.** Bei Dauerläufen wird ein Fortsetzungspunkt
-   festgehalten (Plan + Journal), damit ein Neustart — neue Sitzung, Cron-Aufruf,
-   anderer Rechner — dort weitermacht statt von vorn.
+   Stapel statt Einzelaufrufe). Teure Wege (Vision über alles) vorher an einer
+   Stichprobe messen, nicht ins Blaue fahren.
+8. **Wiederaufnahme sichern.** Fortsetzungspunkt festhalten (Plan + Journal),
+   damit ein Neustart — neue Sitzung, Cron-Aufruf, anderer Rechner — dort
+   weitermacht statt von vorn.
 
 ### Mehrere Agenten im selben Arbeitsbaum (Kollisionsschutz)
 
-Es kann vorkommen, dass ein zweiter Agent (andere Sitzung, Cron, Handy) im
-**selben** Arbeitsbaum arbeitet. Am 27.09.2026 passiert: fremde `git add -A`-
-Arbeit hat gestagte Dateien eines anderen Agenten mitgenommen (Commit `908cf39`
-enthält fremden Code, obwohl er „fix(live_zahlen)" heißt). Dann gilt:
+Arbeitet ein zweiter Agent (andere Sitzung, Cron, Handy) im **selben**
+Arbeitsbaum, gilt:
 
 - **Nie `git add -A`, nie `git commit -a`.** Stattdessen
   **`git commit --only <Pfad> <Pfad>`** mit ausdrücklich genannten Dateien —
-  damit bleiben fremde, halbfertige Änderungen draußen.
+  so bleiben fremde, halbfertige Änderungen draußen.
 - Bei `cannot lock ref 'HEAD'` oder abgelehntem Push: **`git pull --rebase`**,
-  dann erneut committen/pushen. **Niemals** `--force` (fremde Commits bleiben).
+  dann erneut committen/pushen. **Niemals** `--force`.
 - Vor jedem Commit `git log --oneline -3` lesen: hat jemand anders gerade
   gearbeitet, erst einordnen, dann den eigenen Schritt machen.
 - Nach dem Push `git rev-list --left-right --count origin/main...HEAD` prüfen
   (`0 0` = lokal und remote gleich).
 
 ### Zwei Claude-Modi und Hermes (GitHub-Issues als gemeinsame Tafel)
-
-Festgelegt am 30.09.2026. Anlass: Eine Cloud-Sitzung und der PC-Agent haben am selben
-Abend unabhängig voneinander denselben Fehler behoben — doppelte Kosten.
 
 | | Master-Chat (Claude Code am PC) | Cloud-Sitzung (Claude Code bei Anthropic) |
 |---|---|---|
@@ -281,12 +259,9 @@ Abend unabhängig voneinander denselben Fehler behoben — doppelte Kosten.
 | Absprache | GitHub-Issues; Hermes über eigene Sitzungen | GitHub-Issues |
 | Issue-Label | `claude-pc` | `cloud` |
 
-**Agentenbus abgelöst (Sebastian, 14.10.2026):** Der Agentenbus
-(`personal_ai_agent/tools/agentbus/`) wird nicht mehr benutzt — keine Nachrichten
-oder Aufträge mehr darüber. Hermes-Arbeit läuft über eigene Hermes-Sitzungen, die
-der Master startet und nach Abschluss schließt (`tools/pruefkreis/pruefkreis.py`).
-Die Wache `HermesAgentenbusWache` ist abgeschaltet, die Bus-Haken in
-`.claude/settings.json` sind entfernt. Bus-Dateien und Protokoll bleiben als Historie.
+Der Agentenbus (`personal_ai_agent/tools/agentbus/`) wird seit 14.10.2026 nicht
+mehr benutzt; Hermes-Arbeit läuft über eigene Hermes-Sitzungen
+(`tools/pruefkreis/pruefkreis.py`), die der Master startet und schließt.
 
 - **Auf `main` pusht nur der PC** (Master-Chat oder Hermes). Nur dort laufen der
   Windows-Prüfbefehl und der Handytest per Kabel. Das Handy zieht `main` beim Start,
@@ -311,5 +286,5 @@ Die Wache `HermesAgentenbusWache` ist abgeschaltet, die Bus-Haken in
 
 ## Ablenkungen
 
-Neue Ideen während einer laufenden Phase werden als To-do notiert und nach der
-Phase aufgegriffen.
+Neue Ideen während einer laufenden Aufgabe werden als To-do notiert und nach der
+Aufgabe aufgegriffen.
