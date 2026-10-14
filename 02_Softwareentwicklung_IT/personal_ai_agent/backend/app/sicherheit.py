@@ -132,6 +132,23 @@ def cors_herkunft() -> Set[str]:
             if h.strip() and h.strip() != "*"}
 
 
+def client_ist_loopback(scope: Scope) -> bool:
+    """Kommt die Verbindung vom Gerät selbst (127.0.0.0/8, ::1)? (HTTPS-Plan H1, 14.10.2026)
+
+    Gelesen wird nur die Gegenstelle der Verbindung (``scope["client"]``), nie ein
+    Header wie ``X-Forwarded-For`` — den kann jeder Client im WLAN frei setzen.
+    Unbekannt oder kein IP-Literal gilt als NICHT Loopback.
+    """
+    client = scope.get("client")
+    host = client[0] if isinstance(client, (tuple, list)) and client else ""
+    try:
+        adresse = ipaddress.ip_address(str(host))
+    except ValueError:
+        return False
+    abgebildet = getattr(adresse, "ipv4_mapped", None)
+    return bool((abgebildet or adresse).is_loopback)
+
+
 def schluessel_einsetzen(seite: str, schluessel: Optional[str]) -> str:
     """Setzt den Schlüssel maskiert in das leere Meta-Feld der Seite ein."""
     wert = html.escape(schluessel or "", quote=True)

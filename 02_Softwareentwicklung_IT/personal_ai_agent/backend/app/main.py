@@ -18,6 +18,7 @@ from app.sicherheit import (
     FRONTEND_DATEIEN,
     SCHLUESSEL_SEITEN,
     SicherheitsMiddleware,
+    client_ist_loopback,
     cors_herkunft,
     schluessel_einsetzen,
 )
@@ -388,9 +389,11 @@ class NoCacheStaticFiles(StaticFiles):
         if name in SCHLUESSEL_SEITEN:
             if scope["method"] not in ("GET", "HEAD"):
                 raise StarletteHTTPException(status_code=405)
+            # H1 (14.10.2026): den Schlüssel bekommt nur das Gerät selbst (App-Hülle,
+            # Browser am Handy). Andere Geräte im WLAN bekommen ein leeres Meta-Feld.
+            schluessel = settings.api_key if client_ist_loopback(scope) else None
             with open(os.path.join(str(self.directory), name), encoding="utf-8") as datei:
-                antwort: Response = HTMLResponse(
-                    schluessel_einsetzen(datei.read(), settings.api_key))
+                antwort: Response = HTMLResponse(schluessel_einsetzen(datei.read(), schluessel))
         else:
             antwort = await super().get_response(name, scope)
         try:

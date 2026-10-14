@@ -34,6 +34,16 @@ def mit_schluessel(monkeypatch):
     return ATTRAPPE
 
 
+def _client_von(adresse):
+    """TestClient, dessen Verbindung von ``adresse`` kommt (``scope["client"]``).
+    Der normale TestClient meldet sich als ``testclient`` — kein Loopback."""
+    async def mit_gegenstelle(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope = dict(scope, client=(adresse, 50000))
+        await app(scope, receive, send)
+    return TestClient(mit_gegenstelle)
+
+
 # ── P0.1 Herkunft ──────────────────────────────────────────────────────────
 
 PRUEFPFADE = [("GET", "/api/health"), ("POST", "/api/auth/token"),
@@ -258,16 +268,41 @@ def test_wurzel_liefert_index(client):
 # ── P0.4 Schlüssel im HTML ─────────────────────────────────────────────────
 
 @pytest.mark.parametrize("seite", ["/", "/index.html", "/hermes_status.html"])
-def test_schluessel_steht_maskiert_im_meta_feld(client, mit_schluessel, seite):
-    text = client.get(seite).text
+@pytest.mark.parametrize("adresse", ["127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"])
+def test_schluessel_steht_maskiert_im_meta_feld(mit_schluessel, seite, adresse):
+    text = _client_von(adresse).get(seite).text
     assert ('<meta name="agent-schluessel" content="Attrappe&quot;&lt;&amp;&gt;schluessel">'
             in text)
     assert ATTRAPPE not in text
 
 
-def test_ohne_schluessel_bleibt_das_meta_feld_leer(client, monkeypatch):
+def test_ohne_schluessel_bleibt_das_meta_feld_leer(monkeypatch):
     monkeypatch.setattr(settings, "api_key", None)
-    assert '<meta name="agent-schluessel" content="">' in client.get("/").text
+    assert '<meta name="agent-schluessel" content="">' in _client_von("127.0.0.1").get("/").text
+
+
+# ── H1 (HTTPS-Plan, 14.10.2026): Schlüssel nur an das Gerät selbst ─────────
+
+@pytest.mark.parametrize("seite", ["/", "/index.html", "/hermes_status.html"])
+@pytest.mark.parametrize("adresse", ["192.168.178.20", "10.0.0.5", "172.16.1.1", "::ffff:192.168.1.2",
+                                     "fe80::1", "testclient", ""])
+def test_wlan_und_unbekannte_clients_bekommen_keinen_schluessel(mit_schluessel, seite, adresse):
+    text = _client_von(adresse).get(seite).text
+    assert '<meta name="agent-schluessel" content="">' in text
+    assert "Attrappe" not in text
+
+
+@pytest.mark.parametrize("kopf", ["X-Forwarded-For", "X-Real-IP", "Forwarded", "X-Client-IP"])
+def test_kopfzeile_kann_keinen_loopback_vortaeuschen(mit_schluessel, kopf):
+    wert = "for=127.0.0.1" if kopf == "Forwarded" else "127.0.0.1"
+    text = _client_von("192.168.178.20").get("/", headers={kopf: wert}).text
+    assert "Attrappe" not in text
+
+
+def test_ohne_gegenstelle_kein_schluessel(mit_schluessel):
+    assert sicherheit.client_ist_loopback({"type": "http"}) is False
+    assert sicherheit.client_ist_loopback({"type": "http", "client": None}) is False
+    assert sicherheit.client_ist_loopback({"type": "http", "client": ("127.0.0.1", 1)}) is True
 
 
 def test_andere_dateien_bekommen_keinen_schluessel(client, mit_schluessel):
