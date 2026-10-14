@@ -135,37 +135,33 @@ Hat ein Projekt **keinen** Prüfbefehl, wird jede Änderung einzeln vorgelegt.
 
 ## Rollen und Datenschutz im Agenten-Workflow
 
-Vom Nutzer am 10.10.2026 festgelegt. Diese Rollen ersetzen starre Vorgaben,
-nach denen Codex ausschließlich planen oder ausschließlich prüfen darf.
+Kaskaden-Matrix (Sebastian, 14.10.2026; ersetzt die Rollentabelle vom 10.10. und die
+Regeln vom 12.10.). Welche Lage gilt, richtet sich danach, welches Abo im Nutzungslimit ist
+(Anzeige: `02_Softwareentwicklung_IT/master-schalter`, Taskleisten-Symbol).
 
-| Aktiver Master | Planer | Planprüfung | Technischer Ausführer | Technischer Prüfer | Alles Sensible |
-|---|---|---|---|---|---|
-| Claude Code | Claude Code | Hermes (DeepSeek v4.1 Flash) **und** Codex | Claude Code; bei sensiblen Daten Hermes | Codex | ausschließlich Hermes |
-| Codex | Codex | Hermes mit DeepSeek v4.1 Flash | Hermes mit GPT-6 Luna | Hermes mit DeepSeek v4.1 Flash; Wechsel nur auf ausdrückliche Nutzeranweisung | ausschließlich Hermes |
+| Lage | Thinker (plant, prüft Ergebnisse gegen den Plan) | Reviewer (Plan- und Ergebnisprüfung) | Worker (setzt um) |
+|---|---|---|---|
+| 1 Beide Abos frei (0 € extra) | Claude Opus 5.5 (Claude Pro) | GPT-6 Sol (ChatGPT Plus / Codex) | GPT-6 Luna / Claude Sonnet 5.5 (Abos) |
+| 2A Claude im Limit | GPT-6 Sol (ChatGPT Plus / Codex) | DeepSeek V4.1 Flash (OpenRouter) | GPT-6 Luna (ChatGPT Plus) |
+| 2B ChatGPT im Limit | Claude Opus 5.5 (Claude Pro) | GPT-6 Luna (OpenRouter) | Claude Sonnet 5.5 (Claude Pro) / DeepSeek V4.1 Flash (OpenRouter) |
+| 3 Beide im Limit | DeepSeek V4.1 Flash (OpenRouter/Hermes) | GPT-6 Luna (OpenRouter) | DeepSeek V4.1 Flash (OpenRouter) |
 
-**Regel ab 12.10.2026 (Sebastian):** Claude Code ist Master, **sobald es erreichbar
-ist**. Dann gilt: erst planen, Hermes prüft den Plan, Codex prüft den Plan, danach
-führt Claude Code aus. Hat die Arbeit mit sensiblen Daten zu tun, führt Hermes aus.
-Ob etwas sensibel oder sicherheitskritisch ist, entscheidet der Master selbst und
-schreibt die Einordnung in den Plan.
-
-**Wenn Claude Code im Limit ist:** Codex ist Master (Zeile 2 der Tabelle), wie am
-Wochenende 10.–12.10.2026. Dann prüft Hermes den Plan und die technischen
-Ergebnisse mit **DeepSeek v4.1 Flash** (`deepseek/deepseek-v4.1-flash`).
-Die technische Ausführung übernimmt nach Planfreigabe eine getrennte Hermes-Sitzung
-mit GPT-6 Luna (`openai/gpt-6-luna`). Die Ergebnisprüfung übernimmt
-eine eigene Hermes-Sitzung mit DeepSeek v4.1 Flash.
-Hermes organisiert beide Rollen; Ausführer und Prüfer sind getrennte
-Modellfamilien und frische Kontexte. Keine Selbstfreigabe durch den
-Ausführerlauf. Sensible Arbeit bleibt ausschließlich bei Hermes.
-
-Keine stille Wahl eines anderen Prüfmodells und kein automatischer
-Masterwechsel: Der Nutzer bestimmt die Rollen und deren Wechsel.
-
-**Ersatzprüfer (Sebastian, 12.10.2026):** Ist Codex gesperrt (Nutzungslimit),
-prüft Hermes mit DeepSeek v4.1 Flash ersatzweise — es wird nicht gewartet, bis
-Codex wieder frei ist. Der Wechsel ist nicht still: Er steht im Prüfprotokoll.
-`tools/pruefkreis/pruefkreis.py` (personal_ai_agent) macht das automatisch.
+- **Thinker denkt, Worker arbeiten:** Umsetzung läuft über Subagenten bzw. Ausführer mit dem
+  günstigeren Worker-Modell, nicht auf der höchsten Stufe. Der Thinker plant und nimmt ab.
+- **Reviewer ≠ Thinker-Modellfamilie** (in jeder Lage erfüllt). Keine Selbstfreigabe durch
+  den Ausführerlauf; Ausführer und Prüfer laufen in frischen Kontexten.
+- **Kosten:** Lagen 2A, 2B und 3 nutzen OpenRouter-API — das kostet echtes Geld; Kosten
+  stehen im Prüfprotokoll.
+- **Sensibel:** Ob etwas sensibel oder sicherheitskritisch ist, entscheidet der Thinker und
+  schreibt die Einordnung in den Plan. Die Matrix gilt nur für Code; Sensibles siehe unten.
+- **Keine stille Wahl** eines Modells außerhalb der Matrix. **Kein automatischer
+  Masterwechsel:** Den Wechsel des Thinkers löst der Nutzer aus, bis eine automatische
+  Umschaltung ausdrücklich freigegeben ist.
+- **Stand der Werkzeuge (ehrlich):** `tools/pruefkreis/pruefkreis.py` (personal_ai_agent)
+  prüft heute mit Codex (App-Standardmodell) und weicht bei Codex-Sperre automatisch auf
+  Hermes mit DeepSeek V4.1 Flash aus — das entspricht noch nicht ganz Lage 2B (dort GPT-6 Luna).
+  Die Prüferwahl nach Matrix wird im Master-Schalter nachgezogen; bis dahin steht der
+  tatsächlich genutzte Prüfer im Prüfprotokoll.
 
 **Alles Sensible bleibt IMMER bei Hermes.** Das gilt unabhängig davon, wer
 Master, Planer, Ausführer oder Prüfer ist. Persönliche Texte, Lebenslaufdaten,
