@@ -82,7 +82,7 @@ nachgefahren:
 
 - ~~V2~~ erledigt, siehe Nachtrag unten.
 - ~~V3~~ erledigt, siehe Nachtrag unten.
-- **V4:** Übergabe.
+- ~~V4~~ erledigt, siehe Nachtrag unten.
 - Echter Trockenlauf und Schreiblauf (Sebastian, Gesichter-venv).
 
 ## Nachtrag V2: Das Quiz zeigt Video-Gesichter (`backend/app/services/gruppen_quiz.py`)
@@ -153,3 +153,31 @@ nachgefahren:
 - **Nicht im Browser geprüft:** Das Quiz braucht das Backend mit pCloud-Vorschaubildern, und
   das Backend am PC läuft nicht mit echten Daten. Die Sichtprüfung folgt am Handy nach dem
   Schreiblauf.
+
+## Nachtrag V4: Übergabe ans Handy
+
+- Gebaut ist das schon in V1: `--uebergeben` ruft genau den Kommandozeilen-Einstieg des
+  Hochladers auf, `uebergabe_hochladen.main(["--dateien", <ergebnis>, "--schreiben"])`.
+  Ohne `--uebergeben` gibt das Werkzeug nur diesen Befehl aus.
+- Das Handy übernimmt jede Datei aus `/Agent/uebergabe` beim Start nach `~/foto_sortierung/`
+  (`termux/pcloud-uebernehmen.sh`). Dort findet `gruppen_quiz._lesepfad` die Karte im
+  Basisordner.
+- **Neu:** `backend/tests/test_video_standbilder_uebergabe.py`, 2 Tests, offline:
+  1. **Echte Kette:** `video_standbilder.main(--schreiben --uebergeben)` läuft über das echte
+     `uebergabe_hochladen` (`planen` → `hochladen_lauf`); nur `httpx` ist eine Attrappe.
+     Belegt ist:
+     - erst wird der Standbild-Ordner angelegt, dann der Übergabeordner;
+     - das Standbild und danach die Ergebnisdatei (Byte für Byte) werden hochgeladen;
+     - die Manifestzeile ist gebucht, ohne Token.
+  2. **Sandkasten:** `termux/pcloud-uebernehmen.sh` läuft mit dem echten Standardziel
+     `$HOME/foto_sortierung` (ohne Umleitung). Die Karte liegt danach dort, und
+     `gruppen_quiz._lesepfad` sowie `_video_karte` lesen sie.
+
+## Stand nach V1–V4
+
+- Code und Tests sind fertig.
+- **Offen:**
+  1. Echter Trockenlauf am PC (Gesichter-venv, nur Zählung):
+     `~/foto_sortierung/venv_gesicht/Scripts/python.exe tools/foto_sortierung/video_standbilder.py --groessen`
+  2. Schreiblauf mit `--schreiben --uebergeben`.
+  3. App-Start am Handy und Sichtprüfung im Quiz.
