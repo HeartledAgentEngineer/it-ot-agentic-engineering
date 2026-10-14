@@ -37,6 +37,8 @@ import pystray
 from PIL import Image, ImageDraw
 from openai import OpenAI
 
+import version
+
 # Basis-Pfad für .env, Logdatei und Kostenzählung.
 # `abspath` fasst den Pfad zusammen — ohne es stand in jeder Protokollzeile und
 # jeder Fehlermeldung ein „windows\..\" mitten im Pfad.
@@ -709,11 +711,24 @@ def _hotkey_submenu():
     ))
 
 
+def versions_text():
+    """„Version 1.2.0 (85b072b)" — aus der EXE; im Quellcode „Version dev (lokal)"."""
+    return f'Version {version.VERSION} ({version.COMMIT})'
+
+
+def startmeldung(hotkey, modus, ausgabe, anbieter):
+    """Startzeile fürs Log. Sie beginnt immer mit „typeFREE gestartet" — danach sucht die
+    Kontrolle in `update_exe.cmd` (`findstr /C:"typeFREE gestartet"`)."""
+    return (f'typeFREE gestartet — {versions_text()} — Hotkey: {hotkey} ({modus}) · '
+            f'Ausgabe: {ausgabe} · Transkription über: {anbieter}')
+
+
 def _start_tray(on_ready=None):
     """Blockiert im Hauptthread, bis „Beenden" gewählt wird."""
     global tray_icon
     menu = pystray.Menu(
         pystray.MenuItem('typeFREE', None, enabled=False),
+        pystray.MenuItem(versions_text(), None, enabled=False),
         pystray.MenuItem(lambda item: f"Hotkey: {active_hotkey['label']}",
                          None, enabled=False),
         pystray.Menu.SEPARATOR,
@@ -2744,14 +2759,13 @@ def main():
     threading.Thread(target=gemeinsamer_ssl_kontext, name='ssl-kontext',
                      daemon=True).start()
 
-    log.info('typeFREE gestartet — Hotkey: %s (%s) · Ausgabe: %s · Transkription über: %s',
-             active_hotkey['label'],
-             'tippen' if hotkey_modus == 'umschalten' else 'halten',
-             'live satzweise' if live_erlaubt(live_modus, hotkey_modus)
-             else 'alles auf einmal',
-             ', '.join(verfuegbare_anbieter(os.environ,
-                                            aktive_kette(os.environ)))
-             or 'kein Anbieter!')
+    log.info('%s', startmeldung(
+        active_hotkey['label'],
+        'tippen' if hotkey_modus == 'umschalten' else 'halten',
+        'live satzweise' if live_erlaubt(live_modus, hotkey_modus)
+        else 'alles auf einmal',
+        ', '.join(verfuegbare_anbieter(os.environ, aktive_kette(os.environ)))
+        or 'kein Anbieter!'))
     keyboard.hook(on_key_event)
     keyboard.hook(_sperr_haken, suppress=True)   # Ä-Sperre während der Aufnahme
 

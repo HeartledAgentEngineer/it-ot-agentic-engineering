@@ -2,6 +2,16 @@
 # Schlankes Build-Rezept für typeFREE
 # Nur die wirklich benötigten Module – kein pandas/scipy/lxml-Ballast.
 
+# Version + Commit bei JEDEM Build frisch schreiben (CI/CD-Plan 14.10.2026): sonst rutscht
+# eine liegengebliebene windows/_version_build.py aus einem alten Build in die neue EXE.
+# Releases setzen TYPEFREE_VERSION (z. B. typefree-v1.2.0), sonst gilt "dev".
+import os
+import sys
+sys.path.insert(0, os.path.join(SPECPATH, 'ci'))
+import version_schreiben
+version_schreiben.schreiben(os.environ.get('TYPEFREE_VERSION', 'dev'),
+                            os.environ.get('TYPEFREE_COMMIT') or version_schreiben.git_commit())
+
 a = Analysis(
     ['windows\\typefree.py'],
     pathex=[],
@@ -19,6 +29,8 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageDraw',
         'openai',
+        'version',
+        '_version_build',   # vom Build erzeugt (ci/version_schreiben.py)
     ],
     hookspath=[],
     hooksconfig={},

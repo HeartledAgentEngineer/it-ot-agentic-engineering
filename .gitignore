@@ -91,6 +91,7 @@ dist/
 02_Softwareentwicklung_IT/concertify/concert_data.json
 02_Softwareentwicklung_IT/RAG-Systeme/logged_in.flag
 02_Softwareentwicklung_IT/typeFREE/test.txt
+02_Softwareentwicklung_IT/typeFREE/windows/_version_build.py
 
 # Interne Arbeitsdateien & Dev-Skripte (lokal nutzbar, nicht im Portfolio)
 02_Softwareentwicklung_IT/concertify/docs/archive/

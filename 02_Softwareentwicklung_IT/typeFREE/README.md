@@ -2,7 +2,7 @@
 
 typeFREE ist ein Diktier-Assistent, der als Hintergrundprozess auf dem Windows-Desktop läuft: Hotkey halten → sprechen → loslassen → der transkribierte und sprachlich geglättete Text landet direkt im aktiven Eingabefeld — egal ob Terminal, Browser oder Office.
 
-**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 295 automatisierte Prüfungen · **drei wählbare Transkriptionswege** (`eu` = reine OpenRouter-Kette mit `whisper-large-v3-turbo` an erster Stelle, `mai-transcribe-2` als Rückfall, `beste` = ElevenLabs Scribe v2 mit Keyterms, `schnell` = Groq whisper-large-v3) · Wiederholung bei Drosselung + Rückfall auf den nächsten verfügbaren Weg · Glättung über eine Modellkette mit Ausfallmeldung · Prompt-Verschärfung gegen Füllwörter · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
+**Status:** Produktiv im Eigeneinsatz (täglicher Diktat-Workflow) · 308 automatisierte Prüfungen · **drei wählbare Transkriptionswege** (`eu` = reine OpenRouter-Kette mit `whisper-large-v3-turbo` an erster Stelle, `mai-transcribe-2` als Rückfall, `beste` = ElevenLabs Scribe v2 mit Keyterms, `schnell` = Groq whisper-large-v3) · Wiederholung bei Drosselung + Rückfall auf den nächsten verfügbaren Weg · Glättung über eine Modellkette mit Ausfallmeldung · Prompt-Verschärfung gegen Füllwörter · Einzelinstanz-Sperre · Betriebshärtung abgeschlossen · Installer-Paket für Weitergabe · DSGVO-konforme Einrichtung.
 
 ---
 
@@ -150,18 +150,21 @@ typeFREE/
 │   ├── config.json            # Hotkey-Voreinstellung
 │   ├── autostart_admin.cmd    # Notfall-Autostart
 │   └── typeFREE.exe           # Vorgefertigte EXE
+├── ci/
+│   └── version_schreiben.py   # Version + Commit für die EXE (ruft typeFREE.spec bei jedem Build auf)
 ├── build/
 │   ├── autostart_admin.cmd
 │   ├── autostart_einrichten.ps1
 │   └── build_installer.cmd    # baut EXE und kopiert in installer/
 └── windows/
     ├── typefree.py            # Kompletter Client: Hooks, Audio, Tray, API-Pipeline
+    ├── version.py             # Version/Commit; im Quellcode „dev (lokal)", in der EXE vom Build gesetzt
     ├── requirements.txt       # Abhängigkeiten (sounddevice, keyboard, openai, …)
     ├── requirements-dev.txt   # pytest — nur für die Tests
     ├── config.json            # Persistierte Hotkey-Wahl (Standard: Alt + Ä)
     ├── einrichten.cmd         # Setup für Python-Skript-Modus (pythonw)
     ├── einrichten_exe.cmd      # Setup für EXE-Modus (Admin, Aufgabenplanung)
-    └── tests/                 # 295 automatisierte Prüfungen in 22 Dateien (pytest)
+    └── tests/                 # 308 automatisierte Prüfungen in 23 Dateien (pytest)
 ```
 
 Die Prüfungen richten sich auf reine Funktionen — Hotkey-Entscheidung, Mikrofon-Erkennung, Zeitgrenze, Anbieter- und Modellketten, Textglättung, Installations-Logik —, damit sie ohne Mikrofon, Tastatur oder Netzzugang laufen. Sie brauchen **Python 3.12** (dort liegen die Abhängigkeiten); das Projekt-venv gibt es nicht, der Aufruf ist reproduzierbar aus dem Projektverzeichnis:
@@ -232,10 +235,18 @@ Für unsichtbaren Start (kein Terminal-Fenster): `windows/einrichten.cmd` ausfü
 #### Variante B: Als EXE bauen
 
 ```powershell
-pyinstaller typeFREE.spec
+py -3.12 -m PyInstaller typeFREE.spec
 ```
 
-Die EXE liegt dann unter `dist/typeFREE/typeFREE.exe`. Anschließend:
+Das Build-Rezept schreibt bei **jedem** Build `windows/_version_build.py` frisch (über
+`ci/version_schreiben.py`, nicht versioniert): Version `dev` oder der Wert der
+Umgebungsvariable `TYPEFREE_VERSION` (z. B. `typefree-v1.2.0` → `1.2.0`) und den aktuellen
+Commit. Die EXE nennt beides in der Startzeile ihres Logs („typeFREE gestartet — Version 1.2.0
+(85b072b) — …") und unter „typeFREE" im Tray-Menü. Beim Start aus dem Quellcode steht dort
+immer „Version dev (lokal)" — die Build-Datei liest nur die EXE. So ist jederzeit sichtbar,
+welche Fassung läuft.
+
+Die EXE liegt dann unter `dist/typeFREE.exe`. Anschließend:
 
 ```powershell
 windows\einrichten_exe.cmd

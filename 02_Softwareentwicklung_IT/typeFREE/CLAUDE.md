@@ -25,9 +25,10 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook`. Jedes Diktat protokolliert Anbieter, Modell und **Zeiten je Stufe** (`zeiten_text`) |
 | API-Keys | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` aus einer `.env` neben der EXE, gelesen von `load_env_file` (eigener Leser, **kein** python-dotenv). **In der installierten Anlage gewinnt die `.env`** gegen eine gleichnamige Umgebungsvariable; beim Start aus dem Quellcode bleibt die Umgebung vorn (Terminal-Tests). Anlass der Regel (06.10.2026): `OPENROUTER_API_KEY` stand in der Windows-Umgebung auf dem Schlüssel „critic-Skill" — jedes Diktat wurde dort gebucht, der eigene Schlüssel „typeFree" blieb bei 0,00 $ |
 | App-Name bei OpenRouter | `kopfzeilen_fuer` hängt an jeden OpenRouter-Client (`baue_client`) `HTTP-Referer` (Repo-Adresse, `APP_ADRESSE`), `X-OpenRouter-Title`/`X-Title` = `typeFREE` und `X-OpenRouter-App-Visibility: hidden`. Anlass (06.10.2026): Im Activity-Dashboard stand unter „Top Apps" nur „Unknown". `hidden` hält die App aus den öffentlichen Ranglisten — **wirkt laut OpenRouter-Doku nur bei der allerersten Anfrage**, die die App anlegt; danach nicht mehr änderbar. Groq/OpenAI bekommen keine Kopfzeilen |
+| Version | `windows/version.py` (`VERSION`/`COMMIT`, im Quellcode `dev`/`lokal`); `typeFREE.spec` ruft bei jedem Build `ci/version_schreiben.py` auf (`TYPEFREE_VERSION`/`TYPEFREE_COMMIT`, sonst `dev`/git) und erzeugt `windows/_version_build.py` (gitignored, nur in der EXE gelesen — `sys.frozen`, Tag `typefree-vX.Y.Z` → `X.Y.Z`, Eingaben geprüft und per `repr` geschrieben). `startmeldung()` beginnt immer mit „typeFREE gestartet" (danach sucht `update_exe.cmd`), `versions_text()` steht oben im Tray. CI/CD-Plan: `.hermes/plans/2026-10-14_typefree-cicd.md` |
 | Konfiguration | `windows/config.json` — gewählter Hotkey (`hotkey_index`) und Ausgabe-Wahl (`live`: true = live satzweise) |
 | Kostenrechnung | `PREISE_JE_MINUTE` je Anbieter (Groq/OpenRouter $0,00185, OpenAI $0,006, Voxtral $0,0059, Scribe $0,0044) + `kosten_fuer` + `verbrauch_buchen(…, anbieter)` + `verbrauch_text` (reine Funktionen), Stand in `verbrauch.json` neben der EXE, Anzeige im Tray-Menü samt Anbieter. Der Betrag wird beim Diktat mit dem Preis des liefernden Anbieters gebucht. Nur die Transkription wird gezählt — Glättung läuft über OpenRouter |
-| Tests | `windows/tests/` — **295 Prüfungen** mit pytest in 22 Dateien, überwiegend gegen reine Funktionen; `test_zweitanfrage.py` arbeitet mit echten Fäden, gesteuert über Ereignisse, gegen einen nachgebauten Client (kein Netz). Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
+| Tests | `windows/tests/` — **308 Prüfungen** mit pytest in 23 Dateien, überwiegend gegen reine Funktionen; `test_zweitanfrage.py` arbeitet mit echten Fäden, gesteuert über Ereignisse, gegen einen nachgebauten Client (kein Netz). Aufruf: `$env:PYTHONPATH="."; py -3.12 -m pytest windows/tests -q` (die Abhängigkeiten liegen in Python 3.12) |
 | Aussteuerung | `aussteuerung(daten)` + `AUSSTEUERUNG_MIN_RMS` (0,02). Jede Aufnahme schreibt „Aussteuerung: Spitze … · RMS …" ins Log; darunter warnt typeFREE. Referenzmessung: fehlerfreies deutsches Audio hatte RMS 0,088–0,095, leise aber fehlerfrei 0,062 |
 | Sprachmessung | `windows/sprachmessung.py` — Wortfehlerquote gegen bekannten Text (`wortfehlerquote`, reine Funktion; Test in `tests/test_sprachmessung.py`), optional in Happen mit Kontext. Referenzaudio samt Wortlaut in `windows/referenzaudio/`. Werkzeuge bauen ihre Clients selbst — `transkriptions_clients()` liefert außerhalb der App nur `None`, weil `main()` sie setzt |
 | Installer | `installer/setup.cmd` — Batch-Installer mit UAC-Erhöhung, API-Key-Abfrage, Autostart, Desktop-Verknüpfung. Kernlogik in `installer/installer_lib.py` (testbar). Anleitung in `ANLEITUNG-API-KEY.html` (DSGVO in Schritt 6) |
@@ -39,6 +40,7 @@ typeFREE/
 ├── CLAUDE.md
 ├── README.md
 ├── typeFREE.spec              ← PyInstaller-Build aus dem Projekt-Root
+├── ci/version_schreiben.py    ← Version + Commit (ruft die Spec bei jedem Build auf)
 ├── installer/                 ← Installationspaket
 │   ├── setup.cmd              ← Installations-Assistent (Batch)
 │   ├── installer_lib.py       ← Installations-Logik (Python, testbar)
@@ -52,16 +54,17 @@ typeFREE/
 │   └── build_installer.cmd    ← baut EXE und kopiert in installer/
 └── windows/
     ├── typefree.py            ← Hauptscript
+    ├── version.py             ← Version/Commit (Build überschreibt per _version_build.py)
     ├── sprachmessung.py       ← Wortfehlerquote gegen bekannten Text messen
     ├── stimmvergleich.py      ← Kandidaten auf derselben Aufnahme vergleichen
     ├── referenzaudio/         ← de_referenz.wav + Wortlaut + Messstand
     ├── requirements.txt
     ├── requirements-dev.txt   ← pytest, nur für die Tests
     ├── config.json
-    └── tests/                 ← 295 Prüfungen in 22 Dateien
+    └── tests/                 ← 308 Prüfungen in 23 Dateien
 ```
 
-Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer erzeugt) sowie der Android-PoC
+Bewusst nicht versioniert: `build/`, `dist/` (EXE), `windows/_version_build.py` (vom Build erzeugt), `.env` (wird vom Installer erzeugt) sowie der Android-PoC
 (Expo/React Native Floating Widget — existiert nur lokal).
 
 ## Wichtige technische Erkenntnisse
@@ -86,7 +89,7 @@ Bewusst nicht versioniert: `build/`, `dist/` (EXE), `.env` (wird vom Installer e
 - **Totes Mikrofon erkennt man an exakter digitaler Null**, nicht an leiser Lautstärke — ein echtes Gerät liefert immer Grundrauschen
 - **Dateien nie ohne `encoding=` öffnen** — sonst Encoding-Fehler auf nicht-englischen Systemen
 - **Strukturierte Logging-Parameter statt f-Strings** — `log.warning('msg %s', var)` statt `log.warning(f'msg {var}')`
-- **Quellcode ändern reicht nicht — es muss gebaut UND installiert werden.** Die Quelle wurde am 14.08. auf ein neueres Glättungsmodell umgestellt, die installierte EXE blieb der Build vom 02.08. Das Modell wurde später abgekündigt, jede Glättung endete im 404 — und weil nur die Logdatei davon wusste, lief die App wochenlang ohne Filter. Nach jeder Änderung an `windows/typefree.py`: `py -3.12 -m PyInstaller typeFREE.spec`, dann `windows/update_exe.cmd` (Admin-Rechte, tauscht die EXE und startet neu).
+- **Quellcode ändern reicht nicht — es muss gebaut UND installiert werden.** Die Quelle wurde am 14.08. auf ein neueres Glättungsmodell umgestellt, die installierte EXE blieb der Build vom 02.08. Das Modell wurde später abgekündigt, jede Glättung endete im 404 — und weil nur die Logdatei davon wusste, lief die App wochenlang ohne Filter. Nach jeder Änderung an `windows/typefree.py`: `py -3.12 -m PyInstaller typeFREE.spec`, dann `windows/update_exe.cmd` (Admin-Rechte, tauscht die EXE und startet neu). **Seit 14.10.2026 trägt jede EXE Version und Commit** (`windows/version.py`; die Spec schreibt bei jedem Build `windows/_version_build.py` frisch, nicht versioniert, und nur die EXE liest es): Startzeile „typeFREE gestartet — Version … (Commit) — …“ und Tray-Zeile unter „typeFREE“. „dev (lokal)“ heißt: Start aus dem Quellcode.
 - **Ein abgekündigtes Modell ist ein stiller Ausfall.** Fremde Modelle verschwinden ohne Ankündigung an uns. Deshalb: Anbieter- und Modellketten statt Einzelnamen, und ein Ausfall, der länger als einen Versuch anhält, wird gemeldet (Glättung: Windows-Hinweis nach drei Ausfällen in Folge) — nicht nur geloggt.
 - **Fehlgeschlagener Upload lässt den Dateizeiger am Ende.** Der Ausweichversuch schickte sonst eine leere Datei; `transcribe_audio` setzt den Puffer vor jedem Anbieter mit `seek(0)` zurück.
 - **Der EXE-Tausch beendet die Anlage hart.** `update_exe.cmd` killt typeFREE, kopiert die neue EXE und startet neu. Der Einzelinstanz-Mutex wird erst mit dem Prozessende frei — am 25.09.2026 kam der einzelne `start`-Versuch nicht durch, die Anlage lag danach still (das Skript versucht es jetzt fünfmal und prüft das Ergebnis). Während des Einspielens **kein Diktat** laufen lassen: das Beenden mitten in der Aufnahme kostet es.
