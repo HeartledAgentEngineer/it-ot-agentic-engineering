@@ -6,6 +6,7 @@ Einziger Weg ins Internet: ``suchen(anfrage, nutzer_nachricht)``.
    ``werkzeuge.bekannte_namen_streng()``. Freigaben für fremde volle Namen kommen nur
    aus ``nutzer_nachricht`` – Sebastians eigenem Text, nie aus Modelltext.
 2. Bei einem Treffer: keine Suche, kein Netz.
+   Suchtexte des Modells sind zusätzlich auf ``MAX_ANFRAGE_MODELL`` Zeichen begrenzt.
 3. Sonst ein eigener, kontextfreier OpenRouter-Aufruf: Die EINZIGE Eingabe ist der
    geprüfte Suchtext (kein Verlauf, keine Erinnerungen, kein Systemtext), Plugin
    ``web``, ``data_collection: deny``. Die Suchmaschine formuliert ihre Anfrage
@@ -24,9 +25,16 @@ logger = logging.getLogger(__name__)
 ABGELEHNT_NAME = ("Abgelehnt: Personennamen werden nicht im Internet gesucht. Formuliere "
                   "ohne Namen (Orte und Adressen sind erlaubt) oder nutze personen_liste/"
                   "person_auskunft.")
-ABGELEHNT_LISTE = "Namensliste gerade nicht lesbar – keine Websuche."
+ABGELEHNT_LISTE = "Namensliste leer oder nicht lesbar – keine Websuche."
 STATUS_ABGELEHNT = "🔒 Suche ohne Namen – Websuche hier ausgelassen"
 MAX_ZEICHEN = 4000
+# Obergrenze für Suchtexte, die das MODELL formuliert (Hermes-Ergebnisprüfung,
+# 14.10.2026): Das Modell hat Verlauf und Erinnerungen gesehen und könnte sie
+# sonst als langen Suchtext ins Netz tragen – geprüft wird nur auf Namen.
+# Sebastians eigener Satz (Modus manual) ist davon ausgenommen.
+MAX_ANFRAGE_MODELL = 200
+ZU_LANG = ("Suchanfrage zu lang (über {grenze} Zeichen) – nicht gesucht. Formuliere kurz, "
+           "nur das Gesuchte, ohne persönliche Details.")
 
 
 @dataclass
@@ -50,11 +58,19 @@ def pruefen(anfrage: str, nutzer_nachricht: str = "") -> str:
     return ""
 
 
-def suchen(anfrage: str, nutzer_nachricht: str = "") -> Suchergebnis:
-    """Geprüfte, kontextfreie Websuche. Wirft nie."""
+def suchen(anfrage: str, nutzer_nachricht: str = "",
+           max_laenge: "int | None" = None) -> Suchergebnis:
+    """Geprüfte, kontextfreie Websuche. Wirft nie.
+
+    ``max_laenge``: Obergrenze für den Suchtext (Werkzeug-Weg: ``MAX_ANFRAGE_MODELL``).
+    Längere Anfragen gehen nicht ins Netz; das Modell bekommt einen Hinweis und kann
+    kürzer neu fragen."""
     anfrage = str(anfrage or "").strip()
     if not anfrage:
         return Suchergebnis(False, "Leere Suchanfrage.")
+    if max_laenge is not None and len(anfrage) > max_laenge:
+        logger.info("Websuche: Anfrage zu lang (%d Zeichen) - nicht gesucht", len(anfrage))
+        return Suchergebnis(False, ZU_LANG.format(grenze=max_laenge))
     try:
         grund = pruefen(anfrage, nutzer_nachricht)
     except Exception:

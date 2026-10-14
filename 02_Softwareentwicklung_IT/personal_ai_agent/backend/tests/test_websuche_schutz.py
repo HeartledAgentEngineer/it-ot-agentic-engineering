@@ -175,18 +175,24 @@ def test_streng_liest_alle_quellen(quellen):
         assert ws.enthaelt_namen(name, b), name
 
 
-def test_streng_ohne_dateien_ist_leer_aber_lesbar(quellen):
-    b = werkzeuge.bekannte_namen_streng()
-    assert b is not None and b.anzahl() == {"teile": 0, "volle": 0}
+def test_streng_ohne_dateien_sperrt(quellen):
+    """Hermes-Ergebnisprüfung: leerer Bestand = keine Websuche (nicht „nichts zu schützen")."""
+    assert werkzeuge.bekannte_namen_streng() is None
 
 
-def test_streng_leere_aber_gueltige_dateien_sind_kein_fehler(quellen):
+def test_streng_leere_aber_gueltige_dateien_sperren(quellen):
     _datei(quellen, "personen_bestaetigt.json", {"bestaetigt": {}})
     _datei(quellen, "personen_vorgaben.json", {"gleich": [], "verschieden": []})
     _datei(quellen, "personen_profile.json", {"profile": {}})
     _datei(quellen, "gesichter_katalog.json", {"personen": []})
     _kontaktdatei(quellen, {"chats": []})
-    assert werkzeuge.bekannte_namen_streng() is not None
+    assert werkzeuge.bekannte_namen_streng() is None
+
+
+def test_streng_ein_name_reicht_fuer_gueltigen_bestand(quellen):
+    _datei(quellen, "personen_bestaetigt.json", {"bestaetigt": {"P1": "Ida"}})
+    b = werkzeuge.bekannte_namen_streng()
+    assert b is not None and ws.enthaelt_namen("Wetter morgen", b) is False
 
 
 @pytest.mark.parametrize("name,inhalt", [
@@ -302,6 +308,30 @@ def test_suche_mit_namen_geht_nicht_ins_netz():
         r = web_suche.suchen("Ida Beispiel Wohnort")
     assert r.abgelehnt and not r.ok and aufrufe == []
     assert "Personennamen" in r.text
+
+
+def test_lange_modellanfrage_geht_nicht_ins_netz():
+    """Hermes-Ergebnisprüfung: Suchtexte des Modells höchstens MAX_ANFRAGE_MODELL Zeichen."""
+    aufrufe = []
+    lang = "Wetter " + "x" * web_suche.MAX_ANFRAGE_MODELL
+    with _mit(_fake_llm(aufrufe)):
+        r = web_suche.suchen(lang, max_laenge=web_suche.MAX_ANFRAGE_MODELL)
+        genau = web_suche.suchen("y" * web_suche.MAX_ANFRAGE_MODELL,
+                                 max_laenge=web_suche.MAX_ANFRAGE_MODELL)
+    assert not r.ok and not r.abgelehnt and "zu lang" in r.text
+    assert genau.ok and len(aufrufe) == 1
+
+
+def test_eigener_satz_ohne_laengengrenze():
+    aufrufe = []
+    with _mit(_fake_llm(aufrufe)):
+        r = web_suche.suchen("Wetter " + "x" * 500)
+    assert r.ok and len(aufrufe) == 1
+
+
+def test_werkzeugweg_begrenzt_die_anfrage():
+    _, _, such = _werkzeug_lauf("auto", "Wetter " + "x" * 300)
+    assert such == []
 
 
 def test_suche_bei_unlesbarer_liste_geht_nicht_ins_netz():

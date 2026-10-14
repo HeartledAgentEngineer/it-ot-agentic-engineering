@@ -563,7 +563,8 @@ def bekannte_namen_streng():
     (``_personen_namen_streng``) und volle Namen der WhatsApp-Kontakte. Anders als
     ``bekannte_namen()`` verschluckt diese
     Fassung keine Fehler: Ist eine vorhandene Quelle nicht lesbar, kommt ``None``
-    zurück – und ``None`` sperrt die Suche. Fehlende Dateien sind kein Fehler.
+    zurück – und ``None`` sperrt die Suche. Fehlende Dateien sind kein Fehler,
+    aber ein insgesamt LEERER Bestand ergibt ebenfalls ``None``.
     Ergebnis 300 s zwischengespeichert (nur im Prozess, nie auf Platte).
     """
     from app.services import websuche_schutz
@@ -574,6 +575,12 @@ def bekannte_namen_streng():
     try:
         namen = _personen_namen_streng()
         bestand = websuche_schutz.bestand_bauen(namen, _kontakt_namen())
+        if bestand.anzahl() == {"teile": 0, "volle": 0}:
+            # Hermes-Ergebnisprüfung (14.10.2026): Ein leerer Bestand ist von „nichts zu
+            # schützen" nicht zu unterscheiden – etwa am Handy, wenn die Namensdateien nie
+            # übergeben wurden. Dann lieber keine Websuche.
+            logger.warning("bekannte_namen_streng: Namensliste leer - Websuche gesperrt")
+            bestand = None
     except Exception:
         logger.warning("bekannte_namen_streng: Namensquelle nicht lesbar - Websuche gesperrt")
         bestand = None
@@ -857,7 +864,8 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         "Öffnungszeiten, Orte, Adressen, Wege, öffentliche Personen. NIE mit Namen von "
         "Personen aus Sebastians Leben - solche Anfragen werden abgelehnt; für die gibt es "
         "personen_liste und person_auskunft. Die Anfrage sieht nur den Suchtext, keinen "
-        "Gesprächskontext - formuliere ihn vollständig.",
+        "Gesprächskontext - formuliere ihn vollständig, aber kurz (höchstens 200 Zeichen) "
+        "und ohne persönliche Details.",
         _obj({"anfrage": {"type": "string", "description": "vollständiger Suchtext"}},
              ["anfrage"]),
         _web_suche_aus,

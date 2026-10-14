@@ -892,7 +892,8 @@ class LLMService:
             if not websuche_an:
                 return werkzeuge.Ergebnis("Websuche ist aus.", ok=False)
             anfrage = werkzeuge._args_lesen(argumente).get("anfrage") or ""
-            treffer = web_suche.suchen(str(anfrage), nutzer_nachricht)
+            treffer = web_suche.suchen(str(anfrage), nutzer_nachricht,
+                                       max_laenge=web_suche.MAX_ANFRAGE_MODELL)
             return werkzeuge.Ergebnis(
                 treffer.text, ok=treffer.ok, quellen=treffer.quellen,
                 status=web_suche.STATUS_ABGELEHNT if treffer.abgelehnt else "")

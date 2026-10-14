@@ -126,3 +126,25 @@ damit `None`, und die Suche ist gesperrt.
 - Ein leerer Bestand löst keine Meldung aus. Das ist bei fehlenden Dateien erlaubt.
 
 Die Messung der Namensliste am Handy bleibt offen.
+
+## Nachtrag: Ergebnisprüfung Hermes (EINWAND, beide Befunde behoben)
+
+Hermes hat das Namensverbot parallel zu Codex eigenständig geprüft. Der Bericht steht in
+`docs/changelog-2026-10-14-websuche-namensverbot-ergebnispruefung-hermes.md`.
+
+1. **Der Suchtext hatte keine Obergrenze.**
+   - Gemessen: 3.479 Zeichen persönlicher Fließtext gingen vollständig ins Netz.
+   - Behebung: Suchanfragen, die das Modell selbst formuliert (Werkzeug `web_suche`), sind auf
+     `web_suche.MAX_ANFRAGE_MODELL = 200` Zeichen begrenzt. Längere Anfragen gehen nicht ins
+     Netz, das Modell bekommt den Hinweis, kürzer zu fragen.
+   - Die Werkzeugbeschreibung verlangt jetzt ausdrücklich: kurz und ohne persönliche Details.
+   - Sebastians eigener Satz im Modus `manual` bleibt ohne Grenze.
+2. **Ein leerer Bestand galt als „nichts zu schützen“.**
+   - Fehlen alle Namensquellen, zum Beispiel am Handy, wenn die Dateien nie übergeben wurden,
+     lief jede Suche durch.
+   - Behebung: Ist der Bestand insgesamt leer, liefert `bekannte_namen_streng()` jetzt `None`.
+     Die Suche ist dann gesperrt, im Log steht „Namensliste leer“.
+   - **Folge am Handy:** Ohne Namensdateien gibt es dort keine Websuche, bis die Dateien
+     ankommen.
+
+**Tests:** 6 neue oder geänderte Fälle. Die Datei `test_websuche_schutz.py` hat jetzt 97 Tests.
