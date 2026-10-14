@@ -142,63 +142,79 @@ def test_suchauftrag_erkennung():
 
 @pytest.fixture()
 def quellen(tmp_path, monkeypatch):
+    """Alle Namensquellen in tmp_path - nie die echten Dateien."""
     monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path))
+    monkeypatch.setattr("app.services.gesichter_service.KATALOG_DATEI",
+                        tmp_path / "gesichter_katalog.json")
     werkzeuge._NAMEN_CACHE.clear()
     yield tmp_path
     werkzeuge._NAMEN_CACHE.clear()
 
 
-def _kontaktdatei(ordner, inhalt):
-    (ordner / "whatsapp_zuordnung.json").write_text(
+def _datei(ordner, name, inhalt):
+    (ordner / name).write_text(
         inhalt if isinstance(inhalt, str) else json.dumps(inhalt), encoding="utf-8")
 
 
-def test_streng_liest_quiz_und_kontakte(quellen):
+def _kontaktdatei(ordner, inhalt):
+    _datei(ordner, "whatsapp_zuordnung.json", inhalt)
+
+
+def test_streng_liest_alle_quellen(quellen):
+    _datei(quellen, "personen_bestaetigt.json", {"bestaetigt": {"P1": "Ida Beispiel"}})
+    _datei(quellen, "personen_vorgaben.json",
+           {"gleich": [], "zugeordnet": [{"bild_id": "1", "name": "Rolf Zuordner"}]})
+    _datei(quellen, "personen_profile.json", {"profile": {"Gerda Profil": {"notizen": []}}})
+    _datei(quellen, "gesichter_katalog.json", {"personen": [{"name": "Bo Testmann"}]})
     _kontaktdatei(quellen, {"chats": [
         {"telefonbuch_namen": ["Erika Fremdmann"], "whatsapp_name": "Udo Testmann",
          "teilnehmer": [{"name": "Lea Muster"}, {"name": None}]}]})
-    with mock.patch("app.services.gruppen_quiz.personen",
-                    return_value={"ok": True, "personen": [{"name": "Ida Beispiel"}]}):
-        b = werkzeuge.bekannte_namen_streng()
-    assert ws.enthaelt_namen("Ida", b)
-    for name in ("Erika Fremdmann", "Udo Testmann", "Lea Muster"):
-        assert ws.enthaelt_namen(name, b)
+    b = werkzeuge.bekannte_namen_streng()
+    for name in ("Ida", "Zuordner", "Gerda", "Bo", "Erika Fremdmann", "Udo Testmann",
+                 "Lea Muster"):
+        assert ws.enthaelt_namen(name, b), name
 
 
-def _quiz_fehlt():
-    from app.services import gruppen_quiz
-    return mock.patch("app.services.gruppen_quiz.personen",
-                      return_value={"ok": False, "fehler": gruppen_quiz.FEHLT_HINWEIS})
-
-
-def _katalog(ordner, inhalt):
-    pfad = ordner / "gesichter_katalog.json"
-    pfad.write_text(inhalt if isinstance(inhalt, str) else json.dumps(inhalt), encoding="utf-8")
-    return mock.patch("app.services.gesichter_service.KATALOG_DATEI", pfad)
-
-
-def test_streng_rueckfall_auf_alten_katalog_und_fehlende_kontaktdatei(quellen):
-    with _quiz_fehlt(), _katalog(quellen, {"personen": [{"name": "Bo Testmann"}]}):
-        b = werkzeuge.bekannte_namen_streng()
-    assert b is not None and ws.enthaelt_namen("Bo", b)
-
-
-def test_streng_ohne_quiz_und_ohne_katalog_ist_leer_aber_lesbar(quellen):
-    with _quiz_fehlt(), mock.patch("app.services.gesichter_service.KATALOG_DATEI",
-                                   quellen / "fehlt.json"):
-        b = werkzeuge.bekannte_namen_streng()
+def test_streng_ohne_dateien_ist_leer_aber_lesbar(quellen):
+    b = werkzeuge.bekannte_namen_streng()
     assert b is not None and b.anzahl() == {"teile": 0, "volle": 0}
 
 
-@pytest.mark.parametrize("inhalt", ["{kaputt", '"nur Text"', '{"andere": 1}'])
-def test_streng_kaputter_alter_katalog_ergibt_none(quellen, inhalt):
-    """Codex-Ergebnisprüfung R1/1: liste_personen() liefert bei Lesefehlern still []."""
-    with _quiz_fehlt(), _katalog(quellen, inhalt):
-        assert werkzeuge.bekannte_namen_streng() is None
+def test_streng_leere_aber_gueltige_dateien_sind_kein_fehler(quellen):
+    _datei(quellen, "personen_bestaetigt.json", {"bestaetigt": {}})
+    _datei(quellen, "personen_vorgaben.json", {"gleich": [], "verschieden": []})
+    _datei(quellen, "personen_profile.json", {"profile": {}})
+    _datei(quellen, "gesichter_katalog.json", {"personen": []})
+    _kontaktdatei(quellen, {"chats": []})
+    assert werkzeuge.bekannte_namen_streng() is not None
+
+
+@pytest.mark.parametrize("name,inhalt", [
+    # Codex-Ergebnisprüfung R2/1: das Quiz sortiert beschädigte Einträge still aus.
+    ("personen_bestaetigt.json", "{kaputt"),
+    ("personen_bestaetigt.json", {"bestaetigt": ["Ida Beispiel"]}),
+    ("personen_bestaetigt.json", {"bestaetigt": {"P1": 42}}),
+    ("personen_bestaetigt.json", {"andere": {}}),
+    ("personen_vorgaben.json", {"zugeordnet": {"name": "Ida"}}),
+    ("personen_vorgaben.json", {"zugeordnet": ["Ida"]}),
+    ("personen_vorgaben.json", {"zugeordnet": [{"name": 7}]}),
+    ("personen_vorgaben.json", ["kein Objekt"]),
+    ("personen_profile.json", {"profile": ["Ida"]}),
+    ("personen_profile.json", "{kaputt"),
+    # R1/1 und R2/2: alter Katalog kaputt, falsche Form oder beschädigte Einträge.
+    ("gesichter_katalog.json", "{kaputt"),
+    ("gesichter_katalog.json", '"nur Text"'),
+    ("gesichter_katalog.json", {"andere": 1}),
+    ("gesichter_katalog.json", {"personen": ["Ida Beispiel"]}),
+    ("gesichter_katalog.json", [{"name": ["Ida"]}]),
+])
+def test_streng_beschaedigte_personenquelle_ergibt_none(quellen, name, inhalt):
+    _datei(quellen, name, inhalt)
+    assert werkzeuge.bekannte_namen_streng() is None
 
 
 @pytest.mark.parametrize("chat", [
-    {"telefonbuch_namen": "Erika Fremdmann"},          # Text statt Liste
+    {"telefonbuch_namen": "Erika Fremdmann"},          # Text statt Liste (R1/2)
     {"telefonbuch_namen": [42]},
     {"whatsapp_name": ["Udo Testmann"]},
     {"teilnehmer": {"name": "Lea Muster"}},            # Objekt statt Liste
@@ -207,28 +223,18 @@ def test_streng_kaputter_alter_katalog_ergibt_none(quellen, inhalt):
     "kein Objekt",
 ])
 def test_streng_beschaedigte_kontaktfelder_ergeben_none(quellen, chat):
-    """Codex-Ergebnisprüfung R1/2: falscher Feldtyp sperrt, statt Buchstaben zu lesen."""
     _kontaktdatei(quellen, {"chats": [chat]})
-    with mock.patch("app.services.gruppen_quiz.personen",
-                    return_value={"ok": True, "personen": [{"name": "Ida"}]}):
-        assert werkzeuge.bekannte_namen_streng() is None
+    assert werkzeuge.bekannte_namen_streng() is None
 
 
-def test_streng_kaputte_kontaktdatei_ergibt_none(quellen):
-    _kontaktdatei(quellen, "{kaputt")
-    with mock.patch("app.services.gruppen_quiz.personen",
-                    return_value={"ok": True, "personen": [{"name": "Ida"}]}):
-        assert werkzeuge.bekannte_namen_streng() is None
-
-
-def test_streng_quiz_lesefehler_ergibt_none(quellen):
-    with mock.patch("app.services.gruppen_quiz.personen",
-                    return_value={"ok": False, "fehler": "JSON kaputt"}):
-        assert werkzeuge.bekannte_namen_streng() is None
+@pytest.mark.parametrize("inhalt", ["{kaputt", {"chats": "x"}, ["x"]])
+def test_streng_kaputte_kontaktdatei_ergibt_none(quellen, inhalt):
+    _kontaktdatei(quellen, inhalt)
+    assert werkzeuge.bekannte_namen_streng() is None
 
 
 def test_streng_wurf_ergibt_none(quellen):
-    with mock.patch("app.services.gruppen_quiz.personen", side_effect=OSError("weg")):
+    with mock.patch.object(werkzeuge, "_personen_namen_streng", side_effect=OSError("weg")):
         assert werkzeuge.bekannte_namen_streng() is None
 
 

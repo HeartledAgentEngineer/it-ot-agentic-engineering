@@ -483,50 +483,90 @@ def _liste_oder_leer(wert: Any, feld: str) -> list:
     return wert
 
 
-def _katalog_personen_streng() -> List[dict]:
-    """Alter Gesichter-Katalog, streng gelesen: Datei fehlt -> []; kaputt oder
-    unbekannte Form -> wirft. ``gesichter_service.liste_personen`` liefert bei
-    Lesefehlern still [] und taugt deshalb nicht für das Namensverbot."""
-    from app.services import gesichter_service
-
-    pfad = gesichter_service.KATALOG_DATEI
-    if not os.path.exists(pfad):
-        return []
+def _json_streng(pfad: Optional[str]) -> Any:
+    """Datei fehlt -> ``None``; vorhanden, aber kaputt -> wirft (json/OSError)."""
+    if not pfad or not os.path.isfile(pfad):
+        return None
     with open(pfad, encoding="utf-8") as datei:
-        daten = json.load(datei)
-    if isinstance(daten, dict) and isinstance(daten.get("personen"), list):
-        return daten["personen"]
-    if isinstance(daten, list):
-        return daten
-    raise ValueError("Gesichter-Katalog in unbekannter Form")
+        return json.load(datei)
+
+
+def _text_oder_nichts(wert: Any, wo: str) -> str:
+    if wert is None:
+        return ""
+    if not isinstance(wert, str):
+        raise ValueError(f"{wo}: Name ist kein Text")
+    return wert.strip()
+
+
+def _personen_namen_streng() -> List[str]:
+    """Alle Personennamen aus den Quellen des Quiz und dem alten Katalog, streng gelesen.
+
+    Liest die Dateien direkt (nicht über ``gruppen_quiz.personen()``), weil die
+    Übersicht beschädigte Einträge still aussortiert (Codex-Ergebnisprüfung R2,
+    14.10.2026). Eine fehlende Datei ist kein Fehler; eine vorhandene Datei mit
+    falscher Form oder einem Eintrag falschen Typs wirft -> Websuche gesperrt.
+    Quellen: ``personen_bestaetigt.json`` (bestaetigt), ``personen_vorgaben.json``
+    (zugeordnet), ``personen_profile.json`` (Profilnamen), ``gesichter_katalog.json``.
+    """
+    from app.services import gesichter_service, gruppen_quiz
+
+    namen: List[str] = []
+    daten = _json_streng(gruppen_quiz._schreibpfad(gruppen_quiz.BESTAETIGT_DATEINAME))
+    if daten is not None:
+        roh = daten.get("bestaetigt") if isinstance(daten, dict) else None
+        if not isinstance(roh, dict):
+            raise ValueError("personen_bestaetigt.json ohne 'bestaetigt'-Objekt")
+        namen += [_text_oder_nichts(v, "personen_bestaetigt.json") for v in roh.values()]
+
+    daten = _json_streng(gruppen_quiz._schreibpfad(gruppen_quiz.VORGABEN_DATEINAME))
+    if daten is not None:
+        if not isinstance(daten, dict):
+            raise ValueError("personen_vorgaben.json ist kein Objekt")
+        for e in _liste_oder_leer(daten.get("zugeordnet"), "zugeordnet"):
+            if not isinstance(e, dict):
+                raise ValueError("personen_vorgaben.json: Zuordnung ist kein Objekt")
+            namen.append(_text_oder_nichts(e.get("name"), "personen_vorgaben.json"))
+
+    daten = _json_streng(gruppen_quiz._schreibpfad(gruppen_quiz.PROFILE_DATEINAME))
+    if daten is not None:
+        profile = daten.get("profile") if isinstance(daten, dict) else None
+        if not isinstance(profile, dict):
+            raise ValueError("personen_profile.json ohne 'profile'-Objekt")
+        namen += list(profile.keys())
+
+    daten = _json_streng(str(gesichter_service.KATALOG_DATEI))
+    if daten is not None:
+        if isinstance(daten, dict) and isinstance(daten.get("personen"), list):
+            eintraege = daten["personen"]
+        elif isinstance(daten, list):
+            eintraege = daten
+        else:
+            raise ValueError("Gesichter-Katalog in unbekannter Form")
+        for e in eintraege:
+            if not isinstance(e, dict):
+                raise ValueError("Gesichter-Katalog: Eintrag ist kein Objekt")
+            namen.append(_text_oder_nichts(e.get("name"), "Gesichter-Katalog"))
+    return [n for n in namen if n]
 
 
 def bekannte_namen_streng():
     """Namensbestand für das Websuche-Namensverbot (``websuche_schutz.NamensBestand``).
 
-    Quellen: Personenbestand (Quiz, bei fehlendem Quiz der alte Katalog) und volle
-    Namen der WhatsApp-Kontakte. Anders als ``bekannte_namen()`` verschluckt diese
+    Quellen: alle Personennamen aus Quiz-Dateien und altem Katalog
+    (``_personen_namen_streng``) und volle Namen der WhatsApp-Kontakte. Anders als
+    ``bekannte_namen()`` verschluckt diese
     Fassung keine Fehler: Ist eine vorhandene Quelle nicht lesbar, kommt ``None``
     zurück – und ``None`` sperrt die Suche. Fehlende Dateien sind kein Fehler.
     Ergebnis 300 s zwischengespeichert (nur im Prozess, nie auf Platte).
     """
-    from app.services import gruppen_quiz, websuche_schutz
+    from app.services import websuche_schutz
 
     jetzt = time.monotonic()
     if _NAMEN_CACHE.get("bis", 0) > jetzt:
         return _NAMEN_CACHE.get("bestand")
     try:
-        quiz = gruppen_quiz.personen()
-        if quiz.get("ok"):
-            personen = quiz.get("personen") or []
-        elif quiz.get("fehler") == gruppen_quiz.FEHLT_HINWEIS:
-            personen = []
-        else:
-            raise RuntimeError("Personen-Quiz nicht lesbar")
-        if not personen:
-            personen = _katalog_personen_streng()
-        namen = [str(p.get("name")) for p in personen
-                 if isinstance(p, dict) and str(p.get("name") or "").strip()]
+        namen = _personen_namen_streng()
         bestand = websuche_schutz.bestand_bauen(namen, _kontakt_namen())
     except Exception:
         logger.warning("bekannte_namen_streng: Namensquelle nicht lesbar - Websuche gesperrt")

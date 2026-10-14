@@ -68,7 +68,7 @@ Codex hat ihn in Runde 7 freigegeben (FREI). Hermes hat ihn in Fassung 4 geprüf
 1. **Ein kaputter alter Katalog ließ die Suche offen.**
    - Ursache: `gesichter_service.liste_personen()` liefert bei einem Lesefehler still `[]`.
    - Behebung: Neu ist `werkzeuge._katalog_personen_streng()`. Fehlt die Datei, ergibt das `[]`.
-     Ist sie kaputt oder hat sie eine unbekannte Form, wirft die Funktion einen Fehler, und
+     Ist sie kaputt oder hat sie eine unbekannte Form, wirft die Funktion einen Fehler (beschädigte Einträge erst seit Runde 2), und
      `bekannte_namen_streng()` liefert `None`. Die Suche ist damit gesperrt.
 2. **Beschädigte Kontaktfelder ließen die Suche offen.**
    - Ursache: Stand bei `telefonbuch_namen` ein Text statt einer Liste, wurden einzelne Buchstaben
@@ -80,3 +80,31 @@ Codex hat ihn in Runde 7 freigegeben (FREI). Hermes hat ihn in Fassung 4 geprüf
 
 **Tests:** 11 neue Fälle in `test_websuche_schutz.py`. Der Rückfalltest liest jetzt eine echte
 Katalogdatei statt einer Attrappe. Die Datei hat damit 74 Tests.
+
+## Nachtrag: Ergebnisprüfung Codex, Runde 2 (EINWAND, behoben)
+
+**Was Codex gefunden hat.** Die Behebung aus Runde 1 war unvollständig: Zwei Quellen sortierten
+beschädigte Einträge weiterhin still aus.
+
+- `gruppen_quiz.personen()` lieferte aus `{"bestaetigt": [...]}` eine leere Liste, und zwar mit
+  `ok=True`.
+- Der alte Katalog übersprang Einträge, die kein Objekt sind.
+
+**Behebung.** Neu ist `werkzeuge._personen_namen_streng()`. Die Funktion liest die vier
+Personenquellen direkt und streng, nicht mehr über die Quiz-Übersicht:
+
+- `personen_bestaetigt.json`
+- `personen_vorgaben.json` mit dem Feld `zugeordnet`
+- `personen_profile.json`, daraus die Profilnamen
+- `gesichter_katalog.json`
+
+Eine fehlende Datei ist kein Fehler. Eine vorhandene Datei mit falscher Form oder einem Eintrag
+falschen Typs ergibt `None`, die Suche ist dann gesperrt.
+
+**Der alte Katalog zählt jetzt immer mit**, nicht mehr nur als Rückfall. Mit den Profilnamen sind
+außerdem mehr Namen geschützt als vorher.
+
+**Tests.** Der Abschnitt zu den Namensquellen arbeitet jetzt nur noch mit echten Dateien in
+`tmp_path`. Auch der Katalogpfad wird dorthin umgebogen, die echten Dateien werden also nie
+gelesen. Er enthält 15 Fälle für beschädigte Personenquellen, 7 für beschädigte Kontaktfelder und
+3 für eine kaputte Kontaktdatei.

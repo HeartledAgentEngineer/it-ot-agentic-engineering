@@ -95,7 +95,7 @@ Module:
     Ergebnis hängt als „[Websuche zu deiner Frage]“ an der Nachricht, Quellen gehen mit.
   - `auto` auf Wegen ohne Werkzeuge (`/chat`, Rückfall): keine Suche.
 - **Namensprüfung** (`app/services/websuche_schutz.py`):
-  - Bestand aus `werkzeuge.bekannte_namen_streng()`: Personen aus dem Quiz (Rückfall alter Katalog)
+  - Bestand aus `werkzeuge.bekannte_namen_streng()`: bestätigte, zugeordnete und Profilnamen aus dem Quiz, der alte Katalog
     und WhatsApp-Kontakte mit mindestens zwei Wörtern (`whatsapp_zuordnung.json`).
   - Namensteile aus dem Personenbestand zählen ab 2 Zeichen, volle Namen immer; Kontakte nur als
     volle Folge. Umlaute ä/ae usw., Groß-/Kleinschreibung egal, Endungen `s`, `'s`.
