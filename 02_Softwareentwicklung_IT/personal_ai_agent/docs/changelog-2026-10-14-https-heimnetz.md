@@ -97,3 +97,38 @@ bleibt die lokale Entwicklung ohne `.env` wie bisher.
 
 **Noch nicht wirksam:** Das Backend spricht noch kein HTTPS (H3), und ein Zertifikat fehlt
 (H4). Bis dahin antwortet `anmelden` aus dem WLAN mit 403.
+
+**Rollen (ehrlich, Kaskaden-Matrix vom 14.10.2026, 20:53):** H2 und H3a hat der Thinker
+(Claude Opus) selbst umgesetzt. Die Matrix sieht dafür einen Worker vor (Lage 2B: Claude
+Sonnet). Als sie kam, war H2 schon größtenteils fertig. Ab H3b setzt ein Sonnet-Subagent um;
+der Thinker plant und nimmt ab.
+
+## H3a: Ein Prozess, zwei Zugänge (`backend/serve.py`, 14.10.2026)
+
+- `tls_bereit(ordner)`: `server.crt`, `server.key` **und** `ca.crt` vorhanden und nicht leer.
+  Ordner `~/.agent_tls`, im Test über `AGENT_TLS_ORDNER` umleitbar.
+- Mit TLS baut `konfigurationen()` zwei `uvicorn.Config` für dasselbe `app`-Objekt:
+  - HTTP `127.0.0.1:8080` (Gerät selbst, Loopback für H1);
+  - HTTPS `0.0.0.0:8443` mit `server.crt`/`server.key` (Heimnetz, Anmelden H2).
+- Ohne TLS gibt es nur HTTP auf `HOST_BIND`, wie bisher. `HOST_BIND` kommt aus der Umgebung;
+  die `.env` lesen weiter nur die Startskripte, `serve.py` liest sie nicht.
+- **Lifespan nur einmal:** Die App hat eine `lifespan` (Start und Stopp der Hintergrundarbeit).
+  Nur der erste Zugang führt sie aus (`lifespan="on"`), der zweite nicht (`"off"`). Der zweite
+  startet erst, wenn der erste bereit ist. Kommt der erste nicht hoch, startet der zweite nie.
+  Endet ein Zugang, enden alle.
+- `proxy_headers=False` an beiden Zugängen: Adresse und Schema kommen nie aus Kopfzeilen
+  (H1 prüft die echte Gegenstelle, H2 das echte Schema). `server_header=False`.
+- `--reload` gibt es in diesem Modus nicht.
+- **Noch nicht eingebunden:** Die Startskripte rufen `serve.py` erst mit H3b auf. Bis dahin
+  ändert sich am Handy nichts.
+
+**Tests** `backend/tests/test_serve.py` (16):
+- zwei Zugänge mit allen drei Dateien;
+- je fehlende und je leere Datei nur HTTP auf `HOST_BIND`;
+- nur der TLS-Zugang lauscht im Netz;
+- `proxy_headers` aus, Lifespan `on`/`off`;
+- Ordner und `HOST_BIND` aus der Umgebung;
+- Zusammenspiel mit Attrappen (Startreihenfolge, gemeinsames Ende, erster kaputt);
+- **echter Lauf:** zwei uvicorn-Server in einem Prozess mit einer Mini-App und einem im Test
+  erzeugten Zertifikat für `127.0.0.1`. HTTP und HTTPS antworten (HTTPS geprüft gegen die
+  übergebene CA), die Lifespan läuft genau einmal.
