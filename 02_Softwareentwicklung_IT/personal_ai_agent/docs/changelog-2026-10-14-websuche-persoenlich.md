@@ -101,3 +101,25 @@ das Modell. Für die Ausnahme zählt weiterhin nur Sebastians eigener Text.
 - **Handytest:** Mit der Frage aus dem Anlass muss die 🔒-Zeile erscheinen, und es darf keine
   Fundstellen aus dem Netz geben.
 - Bereits gesendete Suchanfragen lassen sich nicht zurückholen.
+
+## Nachtrag: Codex-Ergebnisprüfung, Runde 1 (EINWAND, beide Punkte behoben)
+
+1. **Eine bloße Google-Erwähnung hob die Sperre auf.** Bei einer Nachricht wie „Ida Testmann nutzt
+   Google Drive“ blieb die Websuche an.
+   - Behoben: „Google“ zählt nur noch als Verb („google mal …“, „googel nach …“, „googeln“), siehe
+     `websuche_schutz._GOOGLE`.
+2. **Persönliche Werkzeugergebnisse wurden nicht berücksichtigt.** „Welche Personen kennst du?“
+   passiert die Eingangssperre, danach liefert `personen_liste` Namen, und die Folgerunde hatte
+   weiterhin Suchwerkzeug bzw. Suchplugin.
+   - Behoben in `llm_service._chat_stream_mit_werkzeugen`: Sobald im Verlauf ein Werkzeugergebnis
+     (`role=tool`) steht, ist die Websuche für alle weiteren Runden aus. Alle eigenen Werkzeuge sind
+     persönlich (Personen, Fotos, Archiv, Dateien, Fakten).
+
+Neue Tests in `test_websuche_schutz.py`, insgesamt jetzt 51:
+- 3 Fälle, in denen eine bloße Erwähnung von Google sperrt.
+- 3 Fälle, in denen Google als Verb ein Auftrag bleibt.
+- Für `auto` und `manual`: Die erste Runde hat noch die Websuche, die Runde nach dem
+  Werkzeugergebnis nicht mehr.
+
+Gezielter Lauf mit `test_websuche_schutz`, `test_tool_use_stream` und `test_werkzeug_schleife`:
+**69 passed**.

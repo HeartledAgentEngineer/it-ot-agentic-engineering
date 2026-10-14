@@ -92,6 +92,9 @@ Module:
     „Google mal …“), und nur ohne Sperrwort wie „nicht“, „ohne“ oder „verzichte“.
   - Im Stream erscheint dann „🔒 Websuche für diese Frage aus (persönlich)“. Das Log nennt nur den
     Grund, nie Text oder Namen.
+- **Nach dem ersten Werkzeugergebnis** ist die Websuche für alle weiteren Runden aus
+  (`llm_service._chat_stream_mit_werkzeugen`). Grund: Die eigenen Werkzeuge liefern persönliche
+  Daten, und die sähe das Suchwerkzeug bzw. Suchplugin sonst als Kontext.
 - **Weicher Riegel:** `werkzeuge.SYSTEM_HINWEIS` verbietet die Internetsuche nach Personen, Fotos
   und Erinnerungen ohne ausdrücklichen Wunsch.
 - **DSML-Filter:** Schickt DeepSeek einen Werkzeugaufruf als Text (`<｜DSML｜…`), zeigt die Schleife

@@ -890,7 +890,12 @@ class LLMService:
         schemata = werkzeuge.schemata()
 
         def erstellen(verlauf: List[Dict[str, Any]], tool_choice: Optional[str]) -> Any:
-            extra = self._extra_body(web_search, no_retention)
+            # Hat ein eigenes Werkzeug schon geliefert (Personen, Fotos, Archiv,
+            # Dateien – alles persönlich), ist die Websuche für die weiteren Runden
+            # aus: Sonst sähe das Suchwerkzeug/-plugin die Ergebnisse als Kontext
+            # (Codex-Ergebnisprüfung websuche R1, Einwand 2).
+            runde_web = "off" if any(m.get("role") == "tool" for m in verlauf) else web_search
+            extra = self._extra_body(runde_web, no_retention)
             extra["tools"] = list(extra.get("tools") or []) + schemata
             if tool_choice:
                 extra["tool_choice"] = tool_choice

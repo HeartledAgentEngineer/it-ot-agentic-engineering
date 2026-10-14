@@ -333,3 +333,59 @@ def test_chat_weg_neutrale_frage_behaelt_websuche():
                           model="deepseek/deepseek-v4-flash")
         asyncio.run(chat.chat(req))
     assert m_chat.call_args.kwargs["web_search"] == "manual"
+
+
+# --- Codex-Ergebnisprüfung R1 ----------------------------------------------
+
+@pytest.mark.parametrize("frage", [
+    "Ida Testmann nutzt Google Drive",
+    "Hat Opa ein Google-Konto?",
+    "Zeig Fotos aus Google Fotos",
+])
+def test_blosse_google_erwaehnung_ist_kein_auftrag(frage):
+    assert modus(frage)[0] == "off"
+
+
+@pytest.mark.parametrize("frage", ["Google mal Bodo Beispiel", "googel nach Opa Testmann",
+                                   "Kannst du Ida Testmann googeln?"])
+def test_google_als_verb_bleibt_auftrag(frage):
+    assert modus(frage) == ("auto", "")
+
+
+@pytest.mark.parametrize("web", ["auto", "manual"])
+def test_nach_eigenem_werkzeug_keine_websuche_mehr(web):
+    """'Welche Personen kennst du?' passiert die Eingangssperre; liefert danach
+    personen_liste Namen, darf die nächste Runde die Websuche nicht mehr haben."""
+    from types import SimpleNamespace
+
+    from app.services.llm_service import llm_service
+
+    def stueck(content=None, tool_calls=None):
+        return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+            content=content, tool_calls=tool_calls, annotations=None, reasoning_details=None))])
+
+    aufruf = SimpleNamespace(index=0, id="a1", function=SimpleNamespace(
+        name="personen_liste", arguments="{}"))
+    aufrufe = []
+
+    def create(**kw):
+        aufrufe.append(kw["extra_body"])
+        if len(aufrufe) == 1:
+            return iter([stueck(tool_calls=[aufruf])])
+        return iter([stueck("Du kennst Ida.")])
+
+    def hat_web(extra):
+        return "plugins" in extra or any(
+            t.get("type") == "openrouter:web_search" for t in extra.get("tools") or [])
+
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    with mock.patch.object(llm_service, "client", fake), \
+         mock.patch.object(type(llm_service), "is_configured", new_callable=mock.PropertyMock,
+                           return_value=True), \
+         mock.patch.object(werkzeuge, "ausfuehren",
+                           return_value=werkzeuge.Ergebnis("2 bekannte Personen: Ida Testmann")):
+        list(llm_service.chat_stream("Welche Personen kennst du?", web_search=web,
+                                     no_retention=True, werkzeuge=True))
+    assert len(aufrufe) == 2
+    assert hat_web(aufrufe[0])          # erste Runde: Eingangssperre ließ die Frage durch
+    assert not hat_web(aufrufe[1])      # nach dem Werkzeugergebnis: aus

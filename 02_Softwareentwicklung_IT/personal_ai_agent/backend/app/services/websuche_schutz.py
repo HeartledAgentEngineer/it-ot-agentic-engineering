@@ -32,7 +32,10 @@ _FAMILIE = re.compile(
 )
 _SUCHVERB = re.compile(r"\b(such|schau|guck|find|recherchier)", re.IGNORECASE)
 _NETZORT = re.compile(r"\b(im internet|im netz|im web|online)\b", re.IGNORECASE)
-_GOOGLE = re.compile(r"\bgoog(e)?l", re.IGNORECASE)
+# „Google“ nur als Verb („google mal …“, „googel nach …“, „googeln“), nicht als
+# bloße Erwähnung („nutzt Google Drive“ – Codex-Ergebnisprüfung R1, Einwand 1).
+_GOOGLE = re.compile(
+    r"\b(goog(e)?le?\s+(mal|nach|bitte|doch)\b|googel\b|goog(e)?le?n\b)", re.IGNORECASE)
 _SPERRWORT = re.compile(
     r"\b(nicht|kein\w*|ohne|nie|niemals|verzicht\w*|lass\w*|statt|außer|ausser)\b",
     re.IGNORECASE,
