@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "master-schalter"
+version = "0.1.0"
+description = "Zeigt die Nutzungskontingente von Claude Code und Codex in der Windows-Taskleiste."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+leiste = ["pystray>=0.19.5", "Pillow>=10.4"]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+masterwechsel = "master_schalter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

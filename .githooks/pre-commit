@@ -91,6 +91,17 @@ if hat_code "$P_CONCERTIFY"; then
     fi
 fi
 
+P_SCHALTER="02_Softwareentwicklung_IT/master-schalter"
+if hat_code "$P_SCHALTER"; then
+    PY="$P_SCHALTER/.venv/Scripts/python.exe"
+    if [[ -x "$PY" ]]; then
+        run_gate "master-schalter" "$P_SCHALTER" \
+            "./.venv/Scripts/python.exe -m pytest -q"
+    else
+        echo "  ⚠ master-schalter: venv fehlt ($PY) — kein Gate möglich"
+    fi
+fi
+
 if [[ "$FAILED" -ne 0 ]]; then
     echo ""
     echo "  ⛔ VERIFIER-GATE: Commit abgebrochen. Erst Tests grün machen,"

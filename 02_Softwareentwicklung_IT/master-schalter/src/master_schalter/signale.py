@@ -1,0 +1,274 @@
+"""Kontingente (Nutzungsgrenzen) von Claude Code und Codex lesen.
+
+Beide Quellen sind lokale Dateien; es wird nichts übers Netz abgefragt und
+keine Zugangsdaten gelesen.
+
+* Codex schreibt seine Kontingente in die eigenen Sitzungsdateien
+  (`~/.codex/sessions/**/rollout-*.jsonl`, Ereignis `token_count`). Daraus
+  werden ausschließlich Zahlen übernommen (Prozent, Rücksetzzeit, Zeitstempel);
+  der Rest jeder Zeile wird im Speicher verworfen.
+* Claude Code liefert die Kontingente an die Statuszeile. `claude_schreiben`
+  legt nur diese Werte in `kontingent-claude.json` ab; `claude_lesen` liest sie.
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+CODEX_LIMIT_ID = "codex"
+CLAUDE_FENSTER = (("five_hour", "5h"), ("seven_day", "Woche"))
+
+
+@dataclass(frozen=True)
+class Fenster:
+    name: str                      # "5h" oder "Woche"
+    prozent: float | None          # verbraucht, 0–100; None = unbekannt
+    reset: datetime | None         # wann das Fenster zurückgesetzt wird
+    zurueckgesetzt: bool = False   # Rücksetzzeit liegt in der Vergangenheit
+
+
+@dataclass(frozen=True)
+class Kontingent:
+    master: str                    # "Claude" oder "Codex"
+    fenster: tuple[Fenster, ...] = ()
+    stand: datetime | None = None  # wann die Werte erhoben wurden
+    fehler: str | None = None
+
+    def fenster_nach_name(self, name: str) -> Fenster | None:
+        return next((f for f in self.fenster if f.name == name), None)
+
+
+# --- Hilfen ------------------------------------------------------------------
+
+def _zahl(wert: Any) -> float | None:
+    if isinstance(wert, bool) or not isinstance(wert, (int, float)):
+        return None
+    return float(wert)
+
+
+def _epoche(wert: Any) -> datetime | None:
+    zahl = _zahl(wert)
+    if zahl is None:
+        return None
+    try:
+        return datetime.fromtimestamp(zahl, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _iso(wert: Any) -> datetime | None:
+    if not isinstance(wert, str):
+        return None
+    try:
+        zeit = datetime.fromisoformat(wert.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return zeit if zeit.tzinfo else zeit.replace(tzinfo=timezone.utc)
+
+
+def _fenster(name: str, roh: Any, prozent_feld: str, jetzt: datetime) -> Fenster:
+    if not isinstance(roh, dict):
+        return Fenster(name, None, None)
+    prozent = _zahl(roh.get(prozent_feld))
+    reset = _epoche(roh.get("resets_at"))
+    if reset is not None and reset <= jetzt:
+        return Fenster(name, 0.0, reset, zurueckgesetzt=True)
+    return Fenster(name, prozent, reset)
+
+
+def daten_ordner() -> Path:
+    eigen = os.environ.get("MASTER_SCHALTER_DATEN")
+    if eigen:
+        return Path(eigen)
+    basis = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    return Path(basis) / "master-schalter"
+
+
+# --- Codex -------------------------------------------------------------------
+
+def codex_ordner() -> Path:
+    eigen = os.environ.get("MASTER_SCHALTER_CODEX_SESSIONS")
+    return Path(eigen) if eigen else Path.home() / ".codex" / "sessions"
+
+
+def _codex_eintrag(zeile: str) -> tuple[datetime, dict] | None:
+    if '"rate_limits"' not in zeile:
+        return None
+    try:
+        obj = json.loads(zeile)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    nutzlast = obj.get("payload")
+    if not isinstance(nutzlast, dict) or nutzlast.get("type") != "token_count":
+        return None
+    grenzen = nutzlast.get("rate_limits")
+    if not isinstance(grenzen, dict) or grenzen.get("limit_id") != CODEX_LIMIT_ID:
+        return None
+    if not isinstance(grenzen.get("primary"), dict):
+        return None  # z. B. leere Einträge ohne Werte
+    zeit = _iso(obj.get("timestamp"))
+    if zeit is None:
+        return None
+    return zeit, {name: _nur_zahlen(grenzen.get(name)) for name in ("primary", "secondary")}
+
+
+def _nur_zahlen(roh: Any) -> dict | None:
+    """Aus einem Codex-Fenster nur Prozent und Rücksetzzeit behalten, alles andere verwerfen."""
+    if not isinstance(roh, dict):
+        return None
+    return {"used_percent": _zahl(roh.get("used_percent")), "resets_at": _zahl(roh.get("resets_at"))}
+
+
+class CodexLeser:
+    """Merkt sich je Sitzungsdatei Leseposition und neuesten Eintrag.
+
+    Sitzungsdateien wachsen nur am Ende und können zweistellige MB groß sein. Beim
+    ersten Mal wird eine Datei ganz gelesen, danach nur noch der angehängte Teil.
+    Eine unvollständige letzte Zeile bleibt liegen, bis sie mit Zeilenumbruch endet.
+    """
+
+    def __init__(self) -> None:
+        self.gelesen: dict[Path, int] = {}
+        self._bester: dict[Path, tuple[datetime, dict]] = {}
+
+    def bester_eintrag(self, datei: Path) -> tuple[datetime, dict] | None:
+        try:
+            groesse = datei.stat().st_size
+        except OSError:
+            return self._bester.get(datei)
+        start = self.gelesen.get(datei, 0)
+        if groesse < start:  # Datei ersetzt oder gekürzt: von vorn
+            start = 0
+            self.gelesen[datei] = 0
+            self._bester.pop(datei, None)
+        if groesse > start:
+            try:
+                with datei.open("rb") as f:
+                    f.seek(start)
+                    neu = f.read(groesse - start)
+            except OSError:
+                return self._bester.get(datei)
+            ende = neu.rfind(b"\n")
+            if ende >= 0:
+                bester = self._bester.get(datei)
+                for zeile in neu[:ende].split(b"\n"):
+                    if b'"rate_limits"' not in zeile:
+                        continue
+                    eintrag = _codex_eintrag(zeile.decode("utf-8", errors="replace"))
+                    if eintrag and (bester is None or eintrag[0] >= bester[0]):
+                        bester = eintrag
+                if bester:
+                    self._bester[datei] = bester
+                self.gelesen[datei] = start + ende + 1
+        return self._bester.get(datei)
+
+
+_STANDARD_LESER = CodexLeser()
+
+
+def codex_lesen(ordner: Path | None = None, jetzt: datetime | None = None,
+                leser: CodexLeser | None = None) -> Kontingent:
+    """Neuester gültiger Codex-Eintrag über alle Sitzungsdateien.
+
+    Die Dateien werden nach Änderungszeit absteigend gelesen. Ein Eintrag wird geschrieben,
+    bevor die Datei geändert ist; seine Zeit liegt also nie nach der Änderungszeit der Datei.
+    Sobald der beste Eintrag mindestens so neu ist wie die Änderungszeit der nächsten Datei,
+    kann keine ältere Datei mehr einen neueren Eintrag enthalten — dort endet die Suche.
+    """
+    ordner = ordner or codex_ordner()
+    jetzt = jetzt or datetime.now(timezone.utc)
+    leser = leser or _STANDARD_LESER
+    if not ordner.is_dir():
+        return Kontingent("Codex", fehler="keine Daten")
+    try:
+        dateien = sorted(((p.stat().st_mtime, p) for p in ordner.rglob("rollout-*.jsonl")), reverse=True)
+    except OSError:
+        return Kontingent("Codex", fehler="keine Daten")
+    bester: tuple[datetime, dict] | None = None
+    for mtime, datei in dateien:
+        if bester and bester[0] >= datetime.fromtimestamp(mtime, timezone.utc):
+            break
+        eintrag = leser.bester_eintrag(datei)
+        if eintrag and (bester is None or eintrag[0] > bester[0]):
+            bester = eintrag
+    if bester is None:
+        return Kontingent("Codex", fehler="keine Daten")
+    zeit, grenzen = bester
+    return Kontingent("Codex", (
+        _fenster("5h", grenzen["primary"], "used_percent", jetzt),
+        _fenster("Woche", grenzen["secondary"], "used_percent", jetzt),
+    ), stand=zeit)
+
+
+# --- Claude ------------------------------------------------------------------
+
+def claude_datei() -> Path:
+    return daten_ordner() / "kontingent-claude.json"
+
+
+def _claude_filtern(rate_limits: Any) -> dict:
+    """Nur Prozent und Rücksetzzeit der beiden Abo-Fenster übernehmen."""
+    sauber: dict = {}
+    if not isinstance(rate_limits, dict):
+        return sauber
+    for schluessel, _ in CLAUDE_FENSTER:
+        roh = rate_limits.get(schluessel)
+        if not isinstance(roh, dict):
+            continue
+        prozent = _zahl(roh.get("used_percentage"))
+        reset = _zahl(roh.get("resets_at"))
+        if prozent is None or reset is None:
+            continue
+        sauber[schluessel] = {"used_percentage": prozent, "resets_at": reset}
+    return sauber
+
+
+def _atomar_schreiben(datei: Path, inhalt: str) -> None:
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=datei.name + ".", suffix=".tmp", dir=datei.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(inhalt)
+        os.replace(tmp, datei)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def claude_schreiben(rate_limits: Any, datei: Path | None = None, jetzt: datetime | None = None) -> bool:
+    """Speichert die Claude-Kontingente; ohne gültige Werte bleibt die alte Datei stehen."""
+    sauber = _claude_filtern(rate_limits)
+    if not sauber:
+        return False
+    jetzt = jetzt or datetime.now(timezone.utc)
+    inhalt = json.dumps({"gelesen_um": jetzt.isoformat(), "rate_limits": sauber}, ensure_ascii=False)
+    _atomar_schreiben(datei or claude_datei(), inhalt)
+    return True
+
+
+def claude_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Kontingent:
+    datei = datei or claude_datei()
+    jetzt = jetzt or datetime.now(timezone.utc)
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Kontingent("Claude", fehler="keine Daten")
+    except (OSError, ValueError):
+        return Kontingent("Claude", fehler="Datei unlesbar")
+    if not isinstance(roh, dict) or not isinstance(roh.get("rate_limits"), dict):
+        return Kontingent("Claude", fehler="Datei unlesbar")
+    grenzen = roh["rate_limits"]
+    return Kontingent("Claude", tuple(
+        _fenster(name, grenzen.get(schluessel), "used_percentage", jetzt) for schluessel, name in CLAUDE_FENSTER
+    ), stand=_iso(roh.get("gelesen_um")))
+
+
+def alle_lesen(jetzt: datetime | None = None) -> list[Kontingent]:
+    return [claude_lesen(jetzt=jetzt), codex_lesen(jetzt=jetzt)]
