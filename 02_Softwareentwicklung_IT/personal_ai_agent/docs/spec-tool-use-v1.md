@@ -79,24 +79,37 @@ Module:
 - `llm_service.chat_stream(..., werkzeuge=True)` → nutzt die Schleife.
 - `router/chat.py` (Stream-Weg) — bei `werkzeuge=an` keine Vorab-Weiche.
 
-### Websuche und persönliche Fragen (seit 14.10.2026)
+### Websuche mit Namensverbot (seit 14.10.2026, ersetzt die Themensperre)
 
-- **Harte Sperre im Code:** `app/services/websuche_schutz.py`, verdrahtet in `/chat` und `/stream`
-  über `router/chat.py::_websuche_modus`.
-  - Die Websuche (`manual` und `auto`) wird `off`, sobald etwas, das das Modell sieht, persönlich
-    ist. Geprüft werden die Nachricht mit ihren Werkzeug-Zusätzen, die Nutzer-Nachrichten des
-    übertragenen Verlaufs und die Zusammenfassung.
-  - Persönlich heißt: ein Bild- oder Medienwort, ein Familienwort oder der Name einer bekannten
-    Person. Die Namen liefert `werkzeuge.bekannte_namen()` aus derselben Quelle wie `personen_liste`.
-  - Ausnahme nur bei einem Suchauftrag in der eigenen Nachricht („Such im Internet nach …“,
-    „Google mal …“), und nur ohne Sperrwort wie „nicht“, „ohne“ oder „verzichte“.
-  - Im Stream erscheint dann „🔒 Websuche für diese Frage aus (persönlich)“. Das Log nennt nur den
-    Grund, nie Text oder Namen.
-- **Nach dem ersten Werkzeugergebnis** ist die Websuche für alle weiteren Runden aus
-  (`llm_service._chat_stream_mit_werkzeugen`). Grund: Die eigenen Werkzeuge liefern persönliche
-  Daten, und die sähe das Suchwerkzeug bzw. Suchplugin sonst als Kontext.
-- **Weicher Riegel:** `werkzeuge.SYSTEM_HINWEIS` verbietet die Internetsuche nach Personen, Fotos
-  und Erinnerungen ohne ausdrücklichen Wunsch.
+- **Allgemeines, Orte und Adressen dürfen gesucht werden** (Wetter, Fahrzeit zu Oma und Opa,
+  Öffnungszeiten). Verboten sind **Personennamen aus Sebastians Leben**.
+- **Der Hauptaufruf sucht nie selbst:** `llm_service._extra_body` setzt weder das Plugin `web`
+  noch `openrouter:web_search`. Einziger Weg ins Netz ist `app/services/web_suche.py::suchen`.
+- **Kontextfrei:** `suchen(anfrage, nutzer_nachricht)` schickt einen eigenen OpenRouter-Aufruf mit
+  genau einer Nachricht (dem geprüften Suchtext), Plugin `web`, `data_collection: deny` — kein
+  Verlauf, keine Erinnerungen, kein Systemtext.
+- **Modi:**
+  - `auto` (Werkzeug-Weg): Das Modell bekommt das Werkzeug `web_suche(anfrage)`. Bei `off` und
+    `manual` fehlt es im Schema; ein erfundener Aufruf antwortet „Websuche ist aus.“
+  - `manual`: Vorab-Suche in `router/chat.py::_websuche_vorab` mit Sebastians eigenem Satz; das
+    Ergebnis hängt als „[Websuche zu deiner Frage]“ an der Nachricht, Quellen gehen mit.
+  - `auto` auf Wegen ohne Werkzeuge (`/chat`, Rückfall): keine Suche.
+- **Namensprüfung** (`app/services/websuche_schutz.py`):
+  - Bestand aus `werkzeuge.bekannte_namen_streng()`: Personen aus dem Quiz (Rückfall alter Katalog)
+    und WhatsApp-Kontakte mit mindestens zwei Wörtern (`whatsapp_zuordnung.json`).
+  - Namensteile aus dem Personenbestand zählen ab 2 Zeichen, volle Namen immer; Kontakte nur als
+    volle Folge. Umlaute ä/ae usw., Groß-/Kleinschreibung egal, Endungen `s`, `'s`.
+  - Liste nicht lesbar (`None`) → keine Suche.
+  - **Freigabe** nur aus Sebastians eigener Nachricht mit Suchauftrag („Such im Internet nach
+    Sebastian Fremdmann“): öffnet die Teile eines fremden vollen Namens, nie einen bekannten
+    vollen Namen, nie einen bekannten Nachnamen. Modelltext gibt nie frei.
+  - Bei Ablehnung: Statuszeile „🔒 …“, das Log nennt nur Zähler.
+- **Weicher Riegel:** `werkzeuge.SYSTEM_HINWEIS`: „Suche im Internet nie nach Personennamen aus
+  Sebastians Leben …“
+- **Grenzen:** Namen nur aus Archiv/Erinnerungen, Vornamen allein aus Kontakten und andere
+  Umschriften („Myller“) werden nicht erkannt; die Suchmaschine formuliert ihre Anfrage selbst
+  (sie kennt aber nur den Suchtext); eine bewusste eigene Freigabe („Such im Internet nach Ida
+  Geburtstag“) geht durch.
 - **DSML-Filter:** Schickt DeepSeek einen Werkzeugaufruf als Text (`<｜DSML｜…`), zeigt die Schleife
   ihn nicht an.
   - Kam vorher noch kein Antworttext, wirft sie `DsmlAlsText`, und `chat_stream` antwortet ohne

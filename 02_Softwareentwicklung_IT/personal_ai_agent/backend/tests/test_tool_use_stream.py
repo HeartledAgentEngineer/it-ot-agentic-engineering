@@ -134,7 +134,7 @@ def test_ohne_werkzeuge_alter_weg_unveraendert():
 
 
 def test_llm_aufruf_mit_werkzeugen_behaelt_riegel_und_websuche():
-    """Der echte Modellaufruf: Werkzeug-Schemata + Websuche in EINER tools-Liste,
+    """Der echte Modellaufruf: Werkzeug-Schemata samt web_suche in der tools-Liste,
     Datenschutz-Riegel bleibt, System-Prompt bekommt den Werkzeug-Hinweis."""
     from types import SimpleNamespace
 
@@ -159,7 +159,10 @@ def test_llm_aufruf_mit_werkzeugen_behaelt_riegel_und_websuche():
     extra = aufrufe[0]["extra_body"]
     namen = [t.get("function", {}).get("name") for t in extra["tools"]]
     assert set(werkzeuge.REGISTER) <= set(namen)
-    assert any(t.get("type") == "openrouter:web_search" for t in extra["tools"])
+    # Namensverbot (14.10.2026): kein Server-Suchwerkzeug mehr, sondern das eigene,
+    # geprüfte Werkzeug web_suche (nur bei auto).
+    assert not any(t.get("type") == "openrouter:web_search" for t in extra["tools"])
+    assert "web_suche" in namen and "plugins" not in extra
     assert extra["provider"]["data_collection"] == "deny"
     assert "tool_choice" not in extra
     assert werkzeuge.SYSTEM_HINWEIS in aufrufe[0]["messages"][0]["content"]

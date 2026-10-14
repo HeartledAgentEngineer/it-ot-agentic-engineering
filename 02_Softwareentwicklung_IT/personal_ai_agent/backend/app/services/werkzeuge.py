@@ -40,8 +40,8 @@ SYSTEM_HINWEIS = (
     "(z. B. erst dateien_suchen, dann datei_ansehen, dann archiv_suchen). Für Allgemeinwissen "
     "und Plaudern brauchst du keine Werkzeuge. Findet ein Werkzeug nichts, sag das ehrlich "
     "und erfinde keine Dateien, Fundstellen oder Personen. "
-    "Suche nie im Internet nach Personen aus Sebastians Leben, nach seinen Fotos oder "
-    "Erinnerungen, außer er verlangt das ausdrücklich - dafür sind personen_liste, "
+    "Suche im Internet nie nach Personennamen aus Sebastians Leben. Allgemeines, Orte und "
+    "Adressen darfst du mit web_suche suchen. Für Personen sind personen_liste, "
     "person_auskunft und fotos_mit_person da."
 )
 
@@ -57,6 +57,10 @@ class Ergebnis:
     # Bilder fuer das Modell: [{"data_url": "...", "pfad": "..."}]
     bilder: List[Dict[str, str]] = field(default_factory=list)
     ok: bool = True
+    # Fundstellen fuer die Oberflaeche (web_suche): [{"url": ..., "title": ...}]
+    quellen: List[Dict[str, str]] = field(default_factory=list)
+    # Statuszeile NACH der Ausfuehrung (z. B. „🔒 Suche ohne Namen …“), leer = keine.
+    status: str = ""
 
 
 @dataclass
@@ -424,6 +428,80 @@ def bekannte_namen() -> List[str]:
         return []
 
 
+_NAMEN_CACHE: Dict[str, Any] = {}
+_NAMEN_CACHE_SEKUNDEN = 300
+KONTAKT_DATEI = "whatsapp_zuordnung.json"
+
+
+def _kontakt_namen() -> List[str]:
+    """Volle Namen aus ``whatsapp_zuordnung.json`` (telefonbuch_namen, whatsapp_name,
+    teilnehmer[].name). Datei fehlt -> []. Kaputt/unlesbar -> wirft."""
+    from app.services import gruppen_quiz
+
+    pfad = gruppen_quiz._lesepfad(KONTAKT_DATEI)
+    if not pfad:
+        return []
+    with open(pfad, encoding="utf-8") as datei:
+        daten = json.load(datei)
+    chats = daten.get("chats") if isinstance(daten, dict) else None
+    if not isinstance(chats, list):
+        raise ValueError("Kontaktdatei ohne 'chats'-Liste")
+    namen: List[str] = []
+    for chat in chats:
+        if not isinstance(chat, dict):
+            continue
+        for n in chat.get("telefonbuch_namen") or []:
+            if isinstance(n, str):
+                namen.append(n)
+        if isinstance(chat.get("whatsapp_name"), str):
+            namen.append(chat["whatsapp_name"])
+        for t in chat.get("teilnehmer") or []:
+            if isinstance(t, dict) and isinstance(t.get("name"), str):
+                namen.append(t["name"])
+    return namen
+
+
+def bekannte_namen_streng():
+    """Namensbestand für das Websuche-Namensverbot (``websuche_schutz.NamensBestand``).
+
+    Quellen: Personenbestand (Quiz, bei fehlendem Quiz der alte Katalog) und volle
+    Namen der WhatsApp-Kontakte. Anders als ``bekannte_namen()`` verschluckt diese
+    Fassung keine Fehler: Ist eine vorhandene Quelle nicht lesbar, kommt ``None``
+    zurück – und ``None`` sperrt die Suche. Fehlende Dateien sind kein Fehler.
+    Ergebnis 300 s zwischengespeichert (nur im Prozess, nie auf Platte).
+    """
+    from app.services import gesichter_service, gruppen_quiz, websuche_schutz
+
+    jetzt = time.monotonic()
+    if _NAMEN_CACHE.get("bis", 0) > jetzt:
+        return _NAMEN_CACHE.get("bestand")
+    try:
+        quiz = gruppen_quiz.personen()
+        if quiz.get("ok"):
+            personen = quiz.get("personen") or []
+        elif quiz.get("fehler") == gruppen_quiz.FEHLT_HINWEIS:
+            personen = []
+        else:
+            raise RuntimeError("Personen-Quiz nicht lesbar")
+        if not personen:
+            personen = gesichter_service.liste_personen() or []
+        namen = [str(p.get("name")) for p in personen
+                 if isinstance(p, dict) and str(p.get("name") or "").strip()]
+        bestand = websuche_schutz.bestand_bauen(namen, _kontakt_namen())
+    except Exception:
+        logger.warning("bekannte_namen_streng: Namensquelle nicht lesbar - Websuche gesperrt")
+        bestand = None
+    _NAMEN_CACHE.update(bis=jetzt + _NAMEN_CACHE_SEKUNDEN, bestand=bestand)
+    return bestand
+
+
+def _web_suche_aus(args: Dict[str, Any]) -> Ergebnis:
+    """Platzhalter im Register: sucht NIE. Die echte Suche bindet
+    ``llm_service._chat_stream_mit_werkzeugen`` nur im Modus ``auto`` an
+    (mit den Freigaben aus Sebastians eigener Nachricht)."""
+    return Ergebnis("Websuche ist aus.", ok=False)
+
+
 def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
     """Bekannte Personen — aus dem Personen-Quiz (dieselbe Quelle, die das Quiz
     führt), nicht mehr aus dem alten Gesichtskatalog.
@@ -686,6 +764,18 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         _obj({"datum": {"type": "string", "description": "JJJJ-MM-TT"}}, ["datum"]),
         _wer_war_wann,
         "🔧 schaut in die Tagesbelege …",
+    ),
+    Werkzeug(
+        "web_suche",
+        "Sucht im Internet nach aktuellen oder allgemeinen Angaben: Wetter, Nachrichten, "
+        "Öffnungszeiten, Orte, Adressen, Wege, öffentliche Personen. NIE mit Namen von "
+        "Personen aus Sebastians Leben - solche Anfragen werden abgelehnt; für die gibt es "
+        "personen_liste und person_auskunft. Die Anfrage sieht nur den Suchtext, keinen "
+        "Gesprächskontext - formuliere ihn vollständig.",
+        _obj({"anfrage": {"type": "string", "description": "vollständiger Suchtext"}},
+             ["anfrage"]),
+        _web_suche_aus,
+        "🌐 sucht im Internet …",
     ),
 ]}
 

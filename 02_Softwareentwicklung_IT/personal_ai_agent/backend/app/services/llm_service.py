@@ -500,29 +500,19 @@ class LLMService:
         Die Anbieter-Einstellung muss dabei erhalten bleiben – wird sie vom
         Suchplugin überschrieben, fällt die Ausweichlogik weg.
 
-        Zwei Wege zur Websuche, die sich grundlegend unterscheiden:
-
-        - ``manual`` nutzt das Plugin. Es sucht **einmal pro Anfrage**, egal
-          worum es geht – auch bei "danke". Der Nutzer entscheidet über den
-          Schalter, wann das sinnvoll ist.
-        - ``auto`` nutzt das Server-Werkzeug. Das Modell ruft es nur auf, wenn
-          es aktuelle Angaben braucht; OpenRouter führt die Suche selbst aus.
-          Es kostet also nur bei tatsächlicher Suche.
+        Websuche (Namensverbot, 14.10.2026): Der Hauptaufruf sucht NIE selbst –
+        weder Plugin ``web`` noch Server-Werkzeug ``openrouter:web_search``. Beide
+        bildeten ihren Suchtext aus dem ganzen Kontext (Verlauf, Erinnerungen), also
+        womöglich mit Namen aus Sebastians Leben. Jede Suche läuft jetzt über
+        ``web_suche.suchen`` mit geprüftem, kontextfreiem Suchtext:
+        ``manual`` sucht vorab im Router mit Sebastians eigenem Satz, ``auto``
+        bekommt im Werkzeug-Weg das Werkzeug ``web_suche``. ``web_search`` bleibt
+        als Parameter erhalten, damit Aufrufer unverändert bleiben.
         """
         extra: Dict[str, Any] = {"provider": {"allow_fallbacks": True}}
 
         if no_retention:
             extra["provider"]["data_collection"] = "deny"
-
-        if web_search == "manual":
-            extra["plugins"] = [{"id": "web", "max_results": WEB_MAX_RESULTS}]
-        elif web_search == "auto":
-            # Bewusst über extra_body statt über den tools-Parameter des SDK:
-            # Der Typ ist OpenRouter-eigen und passt nicht in dessen Schema.
-            extra["tools"] = [{
-                "type": "openrouter:web_search",
-                "parameters": {"max_results": WEB_MAX_RESULTS},
-            }]
 
         return extra
 
@@ -795,6 +785,7 @@ class LLMService:
         files: Optional[List[Dict[str, Any]]] = None,
         summary: str = "",
         werkzeuge: bool = False,
+        nutzer_nachricht: str = "",
     ) -> Iterator[Dict[str, Any]]:
         """Wie chat(), liefert die Antwort aber Stück für Stück.
 
@@ -824,7 +815,8 @@ class LLMService:
             text_kam = False
             try:
                 for ereignis in self._chat_stream_mit_werkzeugen(
-                        [dict(m) for m in messages], model, web_search, no_retention):
+                        [dict(m) for m in messages], model, web_search, no_retention,
+                        nutzer_nachricht=nutzer_nachricht):
                     if ereignis.get("delta"):
                         text_kam = True
                     yield ereignis
@@ -877,25 +869,36 @@ class LLMService:
         model: Optional[str],
         web_search: str,
         no_retention: bool,
+        nutzer_nachricht: str = "",
     ) -> Iterator[Dict[str, Any]]:
         """Tool Use: das Modell ruft die Werkzeuge aus ``werkzeuge.REGISTER`` selbst auf.
 
-        Die Funktions-Schemata laufen ueber ``extra_body["tools"]`` - zusammen mit
-        dem OpenRouter-Werkzeug der Websuche (``auto``), das nicht ins SDK-Schema
-        passt. So bleiben Datenschutz-Riegel und Websuche wie im normalen Weg.
+        Die Funktions-Schemata laufen ueber ``extra_body["tools"]``. Websuche nur im
+        Modus ``auto`` und nur ueber das eigene Werkzeug ``web_suche``: Dessen
+        Suchtext wird vor dem Senden auf Personennamen geprueft (Namensverbot);
+        Freigaben fuer fremde volle Namen kommen nur aus ``nutzer_nachricht``
+        (Sebastians eigener Text), nie aus Modelltext.
         """
-        from app.services import werkzeug_schleife, werkzeuge
+        from app.services import web_suche, werkzeug_schleife, werkzeuge
 
         messages[0]["content"] = str(messages[0].get("content") or "") + werkzeuge.SYSTEM_HINWEIS
-        schemata = werkzeuge.schemata()
+        websuche_an = web_search == "auto"
+        schemata = [s for s in werkzeuge.schemata()
+                    if websuche_an or s.get("function", {}).get("name") != "web_suche"]
+
+        def ausfuehren(name: str, argumente: Any) -> "werkzeuge.Ergebnis":
+            if name != "web_suche":
+                return werkzeuge.ausfuehren(name, argumente)
+            if not websuche_an:
+                return werkzeuge.Ergebnis("Websuche ist aus.", ok=False)
+            anfrage = werkzeuge._args_lesen(argumente).get("anfrage") or ""
+            treffer = web_suche.suchen(str(anfrage), nutzer_nachricht)
+            return werkzeuge.Ergebnis(
+                treffer.text, ok=treffer.ok, quellen=treffer.quellen,
+                status=web_suche.STATUS_ABGELEHNT if treffer.abgelehnt else "")
 
         def erstellen(verlauf: List[Dict[str, Any]], tool_choice: Optional[str]) -> Any:
-            # Hat ein eigenes Werkzeug schon geliefert (Personen, Fotos, Archiv,
-            # Dateien – alles persönlich), ist die Websuche für die weiteren Runden
-            # aus: Sonst sähe das Suchwerkzeug/-plugin die Ergebnisse als Kontext
-            # (Codex-Ergebnisprüfung websuche R1, Einwand 2).
-            runde_web = "off" if any(m.get("role") == "tool" for m in verlauf) else web_search
-            extra = self._extra_body(runde_web, no_retention)
+            extra = self._extra_body(web_search, no_retention)
             extra["tools"] = list(extra.get("tools") or []) + schemata
             if tool_choice:
                 extra["tool_choice"] = tool_choice
@@ -908,7 +911,8 @@ class LLMService:
                 extra_body=extra,
             )
 
-        yield from werkzeug_schleife.laufe(erstellen, messages, quellen_aus=self._quellen)
+        yield from werkzeug_schleife.laufe(erstellen, messages, ausfuehren=ausfuehren,
+                                           quellen_aus=self._quellen)
 
     def chat(
         self,

@@ -525,16 +525,16 @@ async def chat(request: ChatRequest):
                                            or "claude" in modell_fuer_call)):
             modell_fuer_call = vision_modell
 
-        # Websuche-Sperre bei persönlichen Fragen (websuche_schutz): geprüft wird
-        # alles, was das Modell sieht – Nachricht samt Zusätzen, Verlauf, Zusammenfassung.
-        web_modus, _ = _websuche_modus(request, user_message_fuer_llm,
-                                       begrenzte_history, kontext_summary)
+        # Websuche (Namensverbot): manual sucht vorab mit Sebastians eigenem Satz;
+        # der Hauptaufruf sucht nie selbst (llm_service._extra_body), auto gibt es
+        # nur im Werkzeug-Weg.
+        web_notiz, web_quellen, _ = _websuche_vorab(request)
 
         reply, quellen = llm_service.chat(
-            user_message=user_message_fuer_llm,
+            user_message=user_message_fuer_llm + web_notiz,
             conversation_history=begrenzte_history,
             memories=memories,
-            web_search=web_modus,
+            web_search=request.web_search,
             model=modell_fuer_call,
             no_retention=request.no_retention,
             archiv=archiv,
@@ -570,7 +570,7 @@ async def chat(request: ChatRequest):
             conversation_id=conversation_id,
             memories_used=len(memories),
             memories_created=memories_created,
-            sources=quellen,
+            sources=web_quellen + quellen,
             archiv_used=len(archiv),
             bild_vorschau=(
                 datei_tool_bilder[0]["data_url"] if datei_tool_bilder else None
@@ -1752,27 +1752,23 @@ def _verlauf_tool(frage: str, verlauf: Optional[Dict[str, list]] = None) -> str:
     )
 
 
-def _websuche_modus(request: ChatRequest, an_modell: str, verlauf: list,
-                    zusammenfassung: str) -> tuple:
-    """Websuche-Modus nach der Sperre bei persönlichen Fragen: ``(modus, grund)``.
+def _websuche_vorab(request: ChatRequest) -> tuple:
+    """Modus ``manual`` (bei jeder Frage suchen): Vorab-Suche mit Sebastians
+    EIGENEM Satz als Suchtext – nie mit Kontext (Namensverbot, 14.10.2026).
 
-    Die Ausnahme (Suchauftrag) gilt nur für die eigene Nachricht; als persönlich
-    zählt auch, was das Modell sonst sieht: die Nachricht mit Werkzeug-Zusätzen,
-    die Nutzer-Nachrichten des übertragenen Verlaufs und die Zusammenfassung.
-    Wirft nie – im Fehlerfall ist die Websuche aus.
+    Rückgabe ``(notiz, quellen, status)``: ``notiz`` wird an die Nutzernachricht
+    gehängt, ``status`` ist nur bei Ablehnung gesetzt. Andere Modi: leer.
     """
-    modus = request.web_search
-    if modus not in ("manual", "auto"):
-        return modus, ""
-    try:
-        from app.services import websuche_schutz, werkzeuge
+    if request.web_search != "manual":
+        return "", [], ""
+    from app.services import web_suche
 
-        weitere = [an_modell] + websuche_schutz.nutzertexte(verlauf, zusammenfassung)
-        return websuche_schutz.wirksamer_modus(
-            modus, request.message, weitere, werkzeuge.bekannte_namen())
-    except Exception:
-        logger.exception("Websuche-Sperre fehlgeschlagen - Websuche aus")
-        return "off", "fehler"
+    treffer = web_suche.suchen(request.message, request.message)
+    if treffer.abgelehnt:
+        return "", [], "🔒 Websuche ohne Namen – für diese Frage aus"
+    if not treffer.ok:
+        return "", [], ""
+    return "\n\n[Websuche zu deiner Frage]\n" + treffer.text, treffer.quellen, ""
 
 
 def _hole_kontext_summary(conversation_id: str, historie: list, frage: str) -> tuple:
@@ -2154,17 +2150,21 @@ async def chat_stream(request: ChatRequest):
                     or "gpt-5" in s_modell or "sonnet" in s_modell
                     or "claude" in s_modell)):
                 s_modell = "google/gemini-2.5-flash"
-            # Websuche-Sperre bei persönlichen Fragen (wie in /chat).
-            s_web_modus, s_web_grund = _websuche_modus(request, s_user,
-                                                       s_hist_begrenzt, s_summary)
-            if s_web_grund:
-                yield _sse({"status": "🔒 Websuche für diese Frage aus (persönlich)"})
+            # Websuche (Namensverbot, wie in /chat): manual vorab mit dem eigenen
+            # Satz; auto als geprüftes Werkzeug web_suche in der Schleife.
+            s_web_notiz, s_web_quellen, s_web_status = _websuche_vorab(request)
+            if s_web_status:
+                yield _sse({"status": s_web_status})
+            if s_web_quellen:
+                quellen.extend(s_web_quellen)
+                yield _sse({"sources": s_web_quellen})
+            s_user += s_web_notiz
             try:
                 for ereignis in llm_service.chat_stream(
                     user_message=s_user,
                     conversation_history=s_hist_begrenzt,
                     memories=memories,
-                    web_search=s_web_modus,
+                    web_search=request.web_search,
                     model=s_modell,
                     no_retention=request.no_retention,
                     archiv=archiv,
@@ -2173,6 +2173,7 @@ async def chat_stream(request: ChatRequest):
                         [f.model_dump() for f in request.files] if request.files else []
                     ) + (s_werkzeug_bilder if s_werkzeug_bilder else []),
                     werkzeuge=s_werkzeuge_an,
+                    nutzer_nachricht=request.message,
                 ):
                     if ereignis.get("sources"):
                         quellen.extend(ereignis["sources"])

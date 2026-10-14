@@ -226,6 +226,13 @@ def laufe(
                         ergebnis.ok, dauer_ms, len(ergebnis.text), len(ergebnis.bilder))
             yield {"werkzeug": {"name": a["name"], "ok": ergebnis.ok, "ms": dauer_ms,
                                 "zeichen": len(ergebnis.text), "bilder": len(ergebnis.bilder)}}
+            if getattr(ergebnis, "status", ""):
+                yield {"status": ergebnis.status}
+            neue_quellen = [q for q in (getattr(ergebnis, "quellen", None) or [])
+                            if q.get("url") and q.get("url") not in gesehen]
+            if neue_quellen:
+                gesehen.update(q["url"] for q in neue_quellen)
+                yield {"sources": neue_quellen}
             messages.append({"role": "tool", "tool_call_id": a["id"], "content": ergebnis.text})
             for b in ergebnis.bilder:
                 if len(bilder) < MAX_BILDER_JE_RUNDE and b.get("data_url"):

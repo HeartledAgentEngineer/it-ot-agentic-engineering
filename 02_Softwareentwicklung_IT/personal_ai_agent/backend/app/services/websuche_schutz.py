@@ -1,77 +1,154 @@
-"""Websuche-Sperre bei persönlichen Fragen (Plan `websuche-persoenlich`, 13.10.2026).
+"""Namensverbot für die Websuche (Plan `websuche-namensverbot`, Fassung 7, 14.10.2026).
 
-Anlass: „Zeig eine Diashow mit Bildern von Opa …“ löste eine Websuche mit dem Namen
-aus. Namen aus der Familie dürfen nicht an einen fremden Suchdienst gehen, außer
-Sebastian verlangt die Suche ausdrücklich.
+Sebastians Regel: Allgemeines, Orte und Adressen dürfen im Internet gesucht werden,
+**Personennamen aus seinem Leben nie**. Öffentliche Personen, die nicht im
+Bestand sind, dürfen gesucht werden.
 
-Regel (``wirksamer_modus``):
-- Persönlich ist ein Text mit Bild-/Medienwort, Familienwort oder dem Namen einer
-  bekannten Person.
-- Geprüft wird alles, was das Modell sieht: die aktuelle Nachricht, alle
-  Nutzer-Nachrichten des übertragenen Verlaufs und die übertragene Zusammenfassung.
-  Ist etwas davon persönlich, wird die Websuche ``off``.
-- Ausnahme nur bei einem Suchauftrag in der aktuellen Nachricht (Suchverb + Ort im
-  Netz, oder „google“), und nur ohne Sperrwort („nicht“, „ohne“, „verzichte“ …).
-  Bewusst grob: Im Zweifel bleibt die Sperre.
+Bausteine:
+- ``bestand_bauen(personen, kontakte)``: Namen aus dem Personenbestand (Quiz bzw.
+  alter Katalog; jeder Teil ab 2 Zeichen zählt) und volle Namen der
+  WhatsApp-Kontakte (nur Folgen aus mindestens zwei Wörtern).
+- ``enthaelt_namen(text, bestand, freigaben)``: Trifft der Text einen Namen?
+  ``bestand is None`` (Namensliste nicht lesbar) zählt als Treffer.
+- ``freigaben(nachricht, bestand)``: Volle fremde Namen, die Sebastian in SEINER
+  Nachricht ausdrücklich suchen lässt („Such im Internet nach …“). Eine Freigabe
+  öffnet nur gemeinsame Vornamen/Einzelteile, nie einen bekannten vollen Namen.
 
-Ins Log geht nur der Grund, nie Nachrichtentext oder Namen.
+Vergleich nach Umschrift (ä→ae, ö→oe, ü→ue, ß→ss, Groß/Klein egal), Endungen
+``s``/``'s``/``’s`` am Wortende sind erlaubt. Ins Log geht nur ein Zähler, nie Text.
+
+Grenzen (bewusst, siehe Changelog): Namen, die nur in Archiv/Erinnerungen stehen,
+kennt die Liste nicht; ein Vorname allein aus einem Kontakt wird nicht erkannt;
+andere Umschriften („Myller“) auch nicht.
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-_BILD = re.compile(r"\b(foto|bild|diashow|dia-show|video|galerie|album)", re.IGNORECASE)
-_FAMILIE = re.compile(
-    r"\b(opa|oma|mama|papa|vater|mutter|bruder|schwester|onkel|tante|cousin|cousine|"
-    r"neffe|nichte|sohn|tochter|schwager|schwägerin|enkel)",
-    re.IGNORECASE,
-)
+_UMSCHRIFT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+_WORT = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)?")
+_MIN_TEIL = 2
+
 _SUCHVERB = re.compile(r"\b(such|schau|guck|find|recherchier)", re.IGNORECASE)
 _NETZORT = re.compile(r"\b(im internet|im netz|im web|online)\b", re.IGNORECASE)
-# „Google“ nur als Verb („google mal …“, „googel nach …“, „googeln“), nicht als
-# bloße Erwähnung („nutzt Google Drive“ – Codex-Ergebnisprüfung R1, Einwand 1).
+# „Google“ nur als Verb („google mal …“, „googel nach …“, „googeln“).
 _GOOGLE = re.compile(
     r"\b(goog(e)?le?\s+(mal|nach|bitte|doch)\b|googel\b|goog(e)?le?n\b)", re.IGNORECASE)
 _SPERRWORT = re.compile(
     r"\b(nicht|kein\w*|ohne|nie|niemals|verzicht\w*|lass\w*|statt|außer|ausser)\b",
     re.IGNORECASE,
 )
-# Namensteile kürzer als das zählen nicht einzeln (der volle Name zählt immer).
-_MIN_TEIL = 3
 
 
-def _namensmuster(namen: Iterable[str]) -> Optional["re.Pattern[str]"]:
-    teile: set = set()
-    for name in namen or []:
-        name = str(name or "").strip()
-        if not name:
+def norm(wort: str) -> str:
+    """Wort für den Vergleich: klein, Umschrift ä→ae usw."""
+    return str(wort or "").lower().translate(_UMSCHRIFT)
+
+
+def _woerter(text: str) -> List[str]:
+    return _WORT.findall(str(text or ""))
+
+
+def _passt(token: str, name: str) -> bool:
+    """Token (normalisiert) gleich Namensteil, auch mit Endung s / 's / ’s."""
+    if token == name:
+        return True
+    for endung in ("s", "'s", "’s"):
+        if token == name + endung:
+            return True
+    return False
+
+
+@dataclass
+class NamensBestand:
+    # Einzelteile aus dem Personenbestand (normalisiert), ab 2 Zeichen.
+    teile: Set[str] = field(default_factory=set)
+    # Volle Namen als Wortfolgen (Bestand mit >= 2 Wörtern und Kontakte).
+    volle: List[Tuple[str, ...]] = field(default_factory=list)
+    # Letzte Wörter der mehrteiligen Bestandsnamen (Nachnamen).
+    nachnamen: Set[str] = field(default_factory=set)
+
+    def anzahl(self) -> dict:
+        return {"teile": len(self.teile), "volle": len(self.volle)}
+
+
+def bestand_bauen(personen: Iterable[str], kontakte: Iterable[str] = ()) -> NamensBestand:
+    """Namensbestand aus Bestandsnamen und Kontaktnamen bauen (wirft nie)."""
+    b = NamensBestand()
+    volle: Set[Tuple[str, ...]] = set()
+    for name in personen or []:
+        if not isinstance(name, str):
             continue
-        teile.add(name)
-        for teil in name.split():
-            if len(teil) >= _MIN_TEIL:
-                teile.add(teil)
-    if not teile:
-        return None
-    alternativen = "|".join(re.escape(t) for t in sorted(teile, key=len, reverse=True))
-    return re.compile(r"(?<!\w)(" + alternativen + r")(?!\w)", re.IGNORECASE)
+        woerter = tuple(norm(w) for w in _woerter(name))
+        if not woerter:
+            continue
+        for w in woerter:
+            if len(w) >= _MIN_TEIL:
+                b.teile.add(w)
+        if len(woerter) >= 2:
+            volle.add(woerter)
+            b.nachnamen.add(woerter[-1])
+    for name in kontakte or []:
+        if not isinstance(name, str):
+            continue
+        woerter = tuple(norm(w) for w in _woerter(name))
+        if len(woerter) >= 2:
+            volle.add(woerter)
+    b.volle = sorted(volle)
+    return b
 
 
-def _grund(text: str, namen_muster: Optional["re.Pattern[str]"]) -> str:
-    """``bild``, ``familie``, ``person`` oder leer."""
-    text = str(text or "")
-    if not text:
-        return ""
-    if _BILD.search(text):
-        return "bild"
-    if _FAMILIE.search(text):
-        return "familie"
-    if namen_muster is not None and namen_muster.search(text):
-        return "person"
-    return ""
+def _folge_an(tokens: Sequence[str], start: int, folge: Tuple[str, ...]) -> bool:
+    if start + len(folge) > len(tokens):
+        return False
+    for i, teil in enumerate(folge):
+        tok = tokens[start + i]
+        if i == len(folge) - 1:
+            if not _passt(tok, teil):
+                return False
+        elif tok != teil:
+            return False
+    return True
+
+
+def _enthaelt_folge(tokens: Sequence[str], folge: Tuple[str, ...]) -> bool:
+    return any(_folge_an(tokens, i, folge) for i in range(len(tokens)))
+
+
+def enthaelt_namen(text: str, bestand: Optional[NamensBestand],
+                   freigaben_liste: Iterable[Tuple[str, ...]] = ()) -> bool:
+    """True, wenn ``text`` einen geschützten Namen enthält (oder die Liste fehlt)."""
+    if bestand is None:
+        logger.info("Websuche: Namensliste nicht lesbar - abgelehnt")
+        return True
+    try:
+        tokens = [norm(w) for w in _woerter(text)]
+        # 1) Volle Namen: immer Treffer, keine Freigabe hebt sie auf.
+        for folge in bestand.volle:
+            if _enthaelt_folge(tokens, folge):
+                logger.info("Websuche: Name abgelehnt (voll)")
+                return True
+        # 2) Einzelteile: Treffer, außer sie liegen in einer gültigen Freigabe.
+        abgedeckt: Set[int] = set()
+        for folge in freigaben_liste or []:
+            for i in range(len(tokens)):
+                if _folge_an(tokens, i, tuple(folge)):
+                    abgedeckt.update(range(i, i + len(folge)))
+        for i, tok in enumerate(tokens):
+            if i in abgedeckt:
+                continue
+            if any(_passt(tok, teil) for teil in bestand.teile):
+                logger.info("Websuche: Name abgelehnt (Teil)")
+                return True
+        return False
+    except Exception:
+        logger.exception("Websuche: Namenspruefung fehlgeschlagen - abgelehnt")
+        return True
 
 
 def ist_suchauftrag(nachricht: str) -> bool:
@@ -82,46 +159,31 @@ def ist_suchauftrag(nachricht: str) -> bool:
     return bool(_GOOGLE.search(text) or (_SUCHVERB.search(text) and _NETZORT.search(text)))
 
 
-def wirksamer_modus(
-    modus: str,
-    nachricht: str,
-    verlauf_nutzer: Iterable[str] = (),
-    bekannte_namen: Iterable[str] = (),
-) -> Tuple[str, str]:
-    """Websuche-Modus nach der Sperre: ``(modus, grund)``.
+def freigaben(nachricht: str, bestand: Optional[NamensBestand]) -> List[Tuple[str, ...]]:
+    """Volle fremde Namen, die Sebastian in seiner Nachricht ausdrücklich suchen lässt.
 
-    ``grund`` ist ``bild``/``familie``/``person`` (aktuelle Nachricht),
-    ``verlauf`` (Verlauf oder Zusammenfassung) oder leer, wenn nichts gesperrt wurde.
+    Kandidaten sind Folgen aus mindestens zwei großgeschriebenen Wörtern in einer
+    Nachricht mit Suchauftrag. Ungültig ist eine Folge, wenn sie einen bekannten
+    vollen Namen enthält, ein Wort davon ein bekannter Nachname ist oder alle Wörter
+    bekannte Teile sind. Nur aus Sebastians eigener Nachricht aufrufen, nie mit
+    Modelltext.
     """
-    if modus not in ("manual", "auto"):
-        return modus, ""
-    if ist_suchauftrag(nachricht):
-        return modus, ""
-    try:
-        muster = _namensmuster(bekannte_namen)
-    except Exception:
-        muster = None
-    grund = _grund(nachricht, muster)
-    if not grund:
-        for text in verlauf_nutzer or []:
-            if _grund(text, muster):
-                grund = "verlauf"
-                break
-    if grund:
-        logger.info("Websuche fuer diese Frage aus (Grund: %s)", grund)
-        return "off", grund
-    return modus, ""
-
-
-def nutzertexte(verlauf: Iterable[dict], zusammenfassung: str = "") -> List[str]:
-    """Nutzer-Nachrichten eines Verlaufs plus die Zusammenfassung als Textliste."""
-    texte: List[str] = []
-    for eintrag in verlauf or []:
-        if isinstance(eintrag, dict) and eintrag.get("role") == "user":
-            inhalt = eintrag.get("content")
-            if isinstance(inhalt, list):
-                inhalt = " ".join(str(t.get("text") or "") for t in inhalt if isinstance(t, dict))
-            texte.append(str(inhalt or ""))
-    if zusammenfassung:
-        texte.append(str(zusammenfassung))
-    return texte
+    if bestand is None or not ist_suchauftrag(nachricht):
+        return []
+    ergebnis: List[Tuple[str, ...]] = []
+    lauf: List[str] = []
+    for wort in _woerter(nachricht) + [""]:
+        if wort and wort[0].isupper():
+            lauf.append(wort)
+            continue
+        if len(lauf) >= 2:
+            folge = tuple(norm(w) for w in lauf)
+            gueltig = (
+                not any(_enthaelt_folge(folge, v) for v in bestand.volle)
+                and not any(_passt(w, n) for w in folge for n in bestand.nachnamen)
+                and not all(any(_passt(w, t) for t in bestand.teile) for w in folge)
+            )
+            if gueltig:
+                ergebnis.append(folge)
+        lauf = []
+    return ergebnis
