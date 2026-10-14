@@ -38,13 +38,18 @@ REPO = Path(__file__).resolve().parents[2]
 # belegen, dass diese Datei sie nirgends liest.
 ENV_NAME = ".e" + "nv"
 
-# Die vier /api-Routen, die OHNE API-Key erreichbar sein dürfen. Wird eine
+# Die sieben /api-Routen, die OHNE API-Key erreichbar sein dürfen. Wird eine
 # neue offene Route ergänzt, muss sie hier bewusst eingetragen werden — sonst
 # rot. health und auth sind dokumentiert; hello ist bewusst offen. konfig ist
 # seit P0 (12.10.2026) entfernt: Der Schlüssel steht im Meta-Feld der Startseite.
+# sitzung/anmelden/abmelden (H2, 14.10.2026): Anmelden aus dem WLAN; sie geben den
+# Schlüssel nie heraus (test_anmelden_sitzung.py), anmelden nur über HTTPS mit Bremse.
 ERWARTETE_OFFENE_ROUTEN = {
     "/api/auth/token",
     "/api/auth/check",
+    "/api/auth/sitzung",
+    "/api/auth/anmelden",
+    "/api/auth/abmelden",
     "/api/health",
     "/api/hello",
 }
@@ -118,8 +123,8 @@ def test_regel_api_routen_gesamt_mehr_als_50():
     )
 
 
-def test_regel_offene_routen_genau_die_bekannten_vier():
-    """Regel: Genau diese vier /api-Routen sind ohne Key-Schutz erlaubt."""
+def test_regel_offene_routen_genau_die_bekannten():
+    """Regel: Genau diese sieben /api-Routen sind ohne Key-Schutz erlaubt."""
     routen = _api_routen()
     offen = {p for p, namen in routen.items() if not _hat_key_schutz(namen)}
     assert offen == ERWARTETE_OFFENE_ROUTEN, (
@@ -163,7 +168,7 @@ def test_regel_keine_konfig_route_mehr():
 
 
 def test_regel_jede_geschuetzte_route_hat_key_schutz():
-    """Regel: Jede /api-Route außer den vier erlaubten trägt require_api_key."""
+    """Regel: Jede /api-Route außer den sieben erlaubten trägt require_api_key."""
     routen = _api_routen()
     ohne_schutz = {p for p in routen if p not in ERWARTETE_OFFENE_ROUTEN}
     for pfad in sorted(ohne_schutz):

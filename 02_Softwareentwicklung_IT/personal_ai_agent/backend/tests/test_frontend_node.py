@@ -28,6 +28,7 @@ TESTORDNER = FRONTEND / "tests"
 # Tests, die ihre Datei selbst finden, ignorieren das Argument.
 ZUORDNUNG = {
     "test_erzaehlen.js": "erzaehlen.js",
+    "test_anmelden.js": "anmelden.js",
     "test_gruppen_quiz.js": "gruppen_quiz.js",
     "test_wecken.js": "wecken.js",
     "test_sw_schluessel.js": "sw.js",

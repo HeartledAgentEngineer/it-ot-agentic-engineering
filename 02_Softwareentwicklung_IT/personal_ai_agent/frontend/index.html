@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261014A">
+    <link rel="stylesheet" href="style.css?v=20261014B">
 </head>
 <body>
     <div id="app">
@@ -566,6 +566,29 @@
     <!-- Kanban-Board entfernt (2026-09-02): kein sichtbares Auftragsbuch
          mehr – Sebastian nutzt den Assistenten direkt über Hermes. -->
 
+    <!-- Anmelden aus dem Heim-WLAN (HTTPS-Plan H2, 14.10.2026): erscheint nur,
+         wenn das Meta-Feld leer ist und der Server Schutz meldet (anmelden.js).
+         Benutzer „agent“ + Passwort = API-Schlüssel, Bitwarden füllt beides aus. -->
+    <section id="anmelden" class="anmelden" hidden aria-labelledby="anmelden-titel">
+        <div class="anmelden-karte">
+            <h2 id="anmelden-titel">Personal AI Agent</h2>
+            <p class="anmelden-untertitel">Anmelden aus dem Heimnetz</p>
+            <form id="anmelden-formular" method="post" action="/api/auth/anmelden" autocomplete="on">
+                <label for="anmelden-benutzer">Benutzer</label>
+                <input id="anmelden-benutzer" name="username" type="text" autocomplete="username" value="agent" readonly>
+                <label for="anmelden-passwort">Passwort</label>
+                <input id="anmelden-passwort" name="password" type="password" autocomplete="current-password" required>
+                <button id="anmelden-knopf" type="submit">Anmelden</button>
+                <p id="anmelden-meldung" class="anmelden-meldung" aria-live="polite"></p>
+            </form>
+            <p id="anmelden-nur-https" class="anmelden-hinweis" hidden>
+                Anmelden geht nur über die verschlüsselte Adresse (https://…:8443).
+                Die Anleitung steht in <code>docs/anleitung-heimnetz-https.md</code>.
+            </p>
+        </div>
+    </section>
+
+    <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261013A"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261014A"></script>

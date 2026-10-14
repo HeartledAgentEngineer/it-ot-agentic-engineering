@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 #: Alles andere (Tests, Sicherungskopien, wecken.js) bekommt 404.
 FRONTEND_DATEIEN = frozenset({
     "index.html", "hermes_status.html", "hermes_status.js",
-    "app.js", "erzaehlen.js", "gruppen_quiz.js", "pcm-recorder.js", "sw.js",
+    "anmelden.js", "app.js", "erzaehlen.js", "gruppen_quiz.js", "pcm-recorder.js", "sw.js",
     "style.css", "manifest.json", "icon-192.png", "icon-512.png",
 })
 

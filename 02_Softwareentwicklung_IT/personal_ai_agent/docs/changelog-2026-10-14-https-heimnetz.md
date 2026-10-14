@@ -36,3 +36,64 @@ kleinen ASGI-Mantel eine echte Gegenstelle:
 - Vier Täuschungs-Kopfzeilen von einem WLAN-Client: kein Schlüssel.
 - Fehlende Gegenstelle: kein Schlüssel.
 - `test_sicherheit_herkunft.py` und `test_datenschutz_waechter.py` zusammen: 197 passed.
+
+## H2: Anmelden aus dem Heim-WLAN (14.10.2026)
+
+PC und Tablet bekommen seit H1 den Schlüssel nicht mehr in die Startseite. Neu melden sie
+sich einmal an und erhalten ein Sitzungs-Cookie.
+
+**Backend** (`backend/app/router/auth.py`):
+- Benutzer `agent`, Passwort = API-Schlüssel aus der `.env`. Es gibt kein zweites
+  Geheimnis; Bitwarden speichert und füllt beides.
+- `POST /api/auth/anmelden` `{passwort}`:
+  - ohne `API_KEY` in der `.env` → 409;
+  - über HTTP → 403 (nur über HTTPS, maßgeblich ist `scope["scheme"]` der Verbindung,
+    keine Kopfzeile);
+  - Bremse: nach 5 Fehlversuchen derselben Gegenstelle in 10 Minuten → 429, auch für das
+    richtige Passwort;
+  - falsches Passwort → 401 (Vergleich in konstanter Zeit);
+  - sonst Cookie `agent_sitzung`: `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`,
+    30 Tage.
+- Der Server merkt sich nur den sha256 des Tokens, im Speicher des Prozesses (höchstens 50
+  Sitzungen, die älteste fällt zuerst weg). Nach einem Neustart des Backends ist neu
+  anmelden nötig.
+- `require_api_key` akzeptiert den Header `X-API-Key` **oder** ein gültiges Cookie.
+  Abgelaufene Sitzungen werden beim Prüfen entfernt; Cookies über 200 Zeichen werden
+  nicht gehasht.
+- `GET /api/auth/sitzung` → `{angemeldet, https, schutz}`, nie den Schlüssel.
+- `POST /api/auth/abmelden` beendet die eigene Sitzung und löscht das Cookie.
+- Die drei Routen stehen bewusst in der Wächterliste der offenen Routen
+  (`test_datenschutz_waechter.py`, jetzt sieben). Die Herkunftsprüfung gilt weiter:
+  fremder `Origin` → 403.
+
+**Oberfläche**:
+- Neu `frontend/anmelden.js`, geladen **vor** `app.js`. Bei leerem Meta-Feld fragt sie
+  `/api/auth/sitzung` ab:
+  - angemeldet oder kein Schutz → nichts;
+  - über HTTPS → Anmeldefenster mit Formular (`autocomplete="username"` mit Wert
+    `agent`, `current-password`), damit Bitwarden es erkennt;
+  - über HTTP → nur der Hinweis auf die HTTPS-Adresse, kein Passwortfeld;
+  - Abfrage gescheitert → nichts (keine Sperre durch einen Netzfehler).
+- Nach erfolgreicher Anmeldung lädt die Seite neu. `app.js` bleibt unverändert: Der Browser
+  schickt das Cookie an die eigene Adresse von selbst mit.
+- Am Handy selbst (Schlüssel im Meta-Feld) erscheint nie ein Fenster.
+- `anmelden.js` steht in `sicherheit.FRONTEND_DATEIEN`. Cache-Bump `style.css` und
+  `anmelden.js` auf `?v=20261014B`.
+
+**Abweichung vom Plan:** Ohne `API_KEY` in der `.env` sperrt die Oberfläche nicht
+(`schutz: false`), und `anmelden` antwortet 409. Der Plan setzte den Schlüssel voraus; so
+bleibt die lokale Entwicklung ohne `.env` wie bisher.
+
+**Tests:**
+- `backend/tests/test_anmelden_sitzung.py` (22): Cookie-Merkmale, nur der Hash gespeichert,
+  falsch/HTTP/ohne Schlüssel/fremder Origin, eigener HTTPS-Origin, Bremse und Ablauf der
+  Bremse, Cookie öffnet `/api`, fremdes/überlanges/abgelaufenes Cookie, Header geht weiter,
+  Sitzungsabfrage, Abmelden, Obergrenze 50, Auslieferung von `anmelden.js` und Startseite
+  ohne Schlüssel.
+- `frontend/tests/test_anmelden.js` (24 Prüfungen): `anmeldenZustand`, `anmeldenMeldung`,
+  Verdrahtung in `index.html` (Reihenfolge, Felder, versteckt).
+- Sichtprüfung in Handybreite: nur als statische Kopie mit von Hand eingesetztem Stil
+  (der Vorschaubereich lädt keine verlinkten Dateien). Echt am Gerät erst nach H3/H4.
+
+**Noch nicht wirksam:** Das Backend spricht noch kein HTTPS (H3), und ein Zertifikat fehlt
+(H4). Bis dahin antwortet `anmelden` aus dem WLAN mit 403.

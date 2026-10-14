@@ -2851,3 +2851,62 @@ button.footer-note:hover {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
+
+
+/* ── Anmelden aus dem Heim-WLAN (HTTPS-Plan H2, 14.10.2026) ─────────────── */
+#anmelden {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: radial-gradient(circle at 30% 20%, rgba(108, 99, 255, 0.18), transparent 60%),
+                rgba(15, 15, 26, 0.92);
+    backdrop-filter: blur(8px);
+    animation: anmelden-ein 0.25s ease-out;
+}
+#anmelden[hidden] { display: none; }
+body.anmelden-offen { overflow: hidden; }
+.anmelden-karte {
+    width: 100%;
+    max-width: 360px;
+    padding: 28px 24px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: linear-gradient(160deg, rgba(26, 26, 46, 0.95), rgba(22, 33, 62, 0.9));
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--accent-glow);
+}
+.anmelden-karte h2 { margin: 0 0 4px; font-size: 1.25rem; }
+.anmelden-untertitel { margin: 0 0 20px; color: var(--text-secondary); font-size: 0.9rem; }
+#anmelden-formular { display: flex; flex-direction: column; gap: 8px; }
+#anmelden-formular[hidden] { display: none; }
+#anmelden-formular label { color: var(--text-secondary); font-size: 0.85rem; }
+#anmelden-formular input {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+#anmelden-formular input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+#anmelden-benutzer { color: var(--text-muted); }
+#anmelden-knopf {
+    margin-top: 8px;
+    padding: 11px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+#anmelden-knopf:hover { background: var(--accent-hover); }
+#anmelden-knopf:active { transform: scale(0.98); }
+#anmelden-knopf:disabled { opacity: 0.6; cursor: wait; }
+.anmelden-meldung { min-height: 1.2em; margin: 4px 0 0; color: var(--error); font-size: 0.9rem; }
+.anmelden-hinweis { margin: 0; color: var(--warning); line-height: 1.5; }
+@keyframes anmelden-ein { from { opacity: 0; } to { opacity: 1; } }
