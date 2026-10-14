@@ -31,7 +31,8 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
-               'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf'];
+               'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
+               'gruppenVideoMarke'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -278,6 +279,24 @@ const vQ = html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/);
 const vS = html.match(/style\.css\?v=(\d{8}[A-Z])/);
 pruefe(vQ && vQ[1] >= '20261010A' && vS && vS[1] >= '20261010B',
     'Cache-Bump: Skript ab 20261010A, Stil ab 20261010B (Stil-Bump 10.10. für die Hintergrund-Leiste)');
+
+console.log('Video-Gesichter (14.10.2026)');
+pruefe(f.gruppenVideoMarke({ video: true, zeit_s: 4 }) === '🎬 0:04', 'Marke 0:04');
+pruefe(f.gruppenVideoMarke({ video: true, zeit_s: 125.6 }) === '🎬 2:06', 'Marke 2:06 (gerundet)');
+pruefe(f.gruppenVideoMarke({ video: true, zeit_s: 3725 }) === '🎬 1:02:05', 'Marke mit Stunden');
+pruefe(f.gruppenVideoMarke({ video: true }) === '🎬 0:00', 'ohne Zeit: 0:00');
+pruefe(f.gruppenVideoMarke({ fileid: '1', zeit_s: 4 }) === '' && f.gruppenVideoMarke(null) === '',
+    'Fotos und leere Eingaben: keine Marke');
+pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 2, gesichter: [{ video: true }, {}] }, 2).includes('🎬 Video-Gesichter nur ansehen'),
+    'Info weist auf nicht änderbare Video-Gesichter hin');
+pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 1, gesichter: [{}] }, 1).includes('nur ansehen'), 'nur Fotos: kein Video-Hinweis');
+pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 0, videos: 5 }, 0).includes('noch keine Standbilder'),
+    'reine Video-Gruppe ohne Standbilder: ehrlicher Grund');
+pruefe(/g\.video === true \? kachel\(g, false, \{ verzoegert: true \}\)/.test(src),
+    'Gesamtansicht: Video-Gesichter ohne Markier-Tipp (Backend sperrt Einzelaktionen)');
+pruefe(/m\.textContent = marke;/.test(src) && !/innerHTML = marke/.test(src), 'Marke nur per textContent');
+pruefe(/\.gruppen-video-marke\s*\{[^}]*position:\s*absolute/.test(css), 'Marke liegt über der Kachel');
+pruefe(vQ && vQ[1] >= '20261014A' && vS && vS[1] >= '20261014A', 'Cache-Bump 14.10. für Video-Marke');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

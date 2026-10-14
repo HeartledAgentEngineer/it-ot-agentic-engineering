@@ -71,6 +71,15 @@ function gesichtRahmen(beispiel) {
     };
 }
 
+/** Marke eines Video-Gesichts (14.10.2026): „🎬 0:04“ aus ``zeit_s``; Fotos → "". */
+function gruppenVideoMarke(beispiel) {
+    if (!beispiel || beispiel.video !== true) return '';
+    const t = Math.max(0, Math.round(Number(beispiel.zeit_s) || 0));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sek = t % 60;
+    const zz = (n) => (n < 10 ? '0' : '') + n;
+    return '🎬 ' + (h ? h + ':' + zz(m) : String(m)) + ':' + zz(sek);
+}
+
 /** Zeitraum einer Gruppe: „2016–2025", „2022" oder "" (ohne Daten). */
 function gruppenZeitraum(von, bis) {
     const a = (typeof von === 'string') ? von.slice(0, 4) : '';
@@ -160,14 +169,18 @@ function gruppenAlleInfo(antwort, geladen) {
     const videos = Number(antwort.videos) || 0;
     if (!antwort.gesamt && videos) {
         return '🎬 Dieser Vorschlag besteht nur aus ' + gruppenZahl(videos)
-            + ' Gesichtern aus Videos – die kann die Ansicht noch nicht zeigen.'
+            + ' Gesichtern aus Videos – für sie gibt es noch keine Standbilder.'
             + ' Bitte mit „⏭ Weiter (später)“ überspringen.';
     }
     const teile = ['Gesichter antippen, dann 🚫 ausschließen oder 👤 einer Person zuordnen.',
                    gruppenZahl(antwort.gesamt) + ' Gesichter'];
     if (geladen < antwort.gesamt) teile.push(gruppenZahl(geladen) + ' geladen');
     if (antwort.ausgeschlossen) teile.push(gruppenZahl(antwort.ausgeschlossen) + ' schon ausgeschlossen');
+    // Seit 14.10.2026 zählt ``videos`` nur noch Video-Gesichter OHNE Standbild.
     if (videos) teile.push('+ ' + gruppenZahl(videos) + ' aus Videos (nicht gezeigt)');
+    if (antwort.gesichter && antwort.gesichter.some((g) => g && g.video === true)) {
+        teile.push('🎬 Video-Gesichter nur ansehen, nicht einzeln ändern');
+    }
     if (Array.isArray(antwort.kennungen) && antwort.kennungen.length > 1) {
         teile.push('aus ' + antwort.kennungen.length + ' Vorschlägen');
     }
@@ -409,6 +422,15 @@ function gruppenNotizZeit(zeit) {
         leinwand.width = 160;
         leinwand.height = 160;
         box.appendChild(leinwand);
+        const marke = gruppenVideoMarke(beispiel);
+        if (marke) {        // Standbild aus einem Video (14.10.2026)
+            const m = document.createElement('span');
+            m.className = 'gruppen-video-marke';
+            m.textContent = marke;
+            box.appendChild(m);
+            box.title = 'Standbild aus einem Video · ' + marke.slice(3)
+                + (beispiel.aufnahme ? ' · Aufnahme ' + beispiel.aufnahme : '');
+        }
         const laden = async () => {
             const url = await vorschauLaden(kennung, '480x480');
             if (!url) { box.classList.add('leer'); return; }
@@ -530,7 +552,9 @@ function gruppenNotizZeit(zeit) {
                     alle.letztesJahr = jahr;
                 }
             }
-            raster.appendChild(kachel(g, false, {
+            // Video-Gesichter: Ausschließen/Zuordnen sperrt das Backend -> nicht markierbar,
+            // Antippen zeigt das ganze Standbild (14.10.2026).
+            raster.appendChild(g.video === true ? kachel(g, false, { verzoegert: true }) : kachel(g, false, {
                 verzoegert: true,
                 beiTipp: (box) => {
                     if (alle.markiert.has(g.gid)) { alle.markiert.delete(g.gid); box.classList.remove('markiert'); }

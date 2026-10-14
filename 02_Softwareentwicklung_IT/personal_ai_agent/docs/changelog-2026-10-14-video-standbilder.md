@@ -81,7 +81,7 @@ nachgefahren:
 ## Offen
 
 - ~~V2~~ erledigt, siehe Nachtrag unten.
-- **V3:** Marke „🎬“ im Frontend.
+- ~~V3~~ erledigt, siehe Nachtrag unten.
 - **V4:** Übergabe.
 - Echter Trockenlauf und Schreiblauf (Sebastian, Gesichter-venv).
 
@@ -131,3 +131,25 @@ nachgefahren:
   - Foto-Aktionen laufen weiter.
 
   `test_gruppen_quiz.py` bleibt unverändert grün.
+
+## Nachtrag V3: Oberfläche (`frontend/gruppen_quiz.js`, `style.css`)
+
+- **Marke an Video-Kacheln:** neue reine Funktion `gruppenVideoMarke` erzeugt aus `zeit_s`
+  die Marke „🎬 0:04“, ab einer Stunde „🎬 1:02:05“. Sie liegt unten rechts auf der Kachel
+  (`.gruppen-video-marke`, nur per `textContent`). Der Kacheltitel lautet „Standbild aus
+  einem Video · 0:04“.
+- **Gesamtansicht:** Video-Gesichter lassen sich nicht markieren, weil das Backend
+  Ausschließen und Zuordnen für sie sperrt. Antippen zeigt das ganze Standbild mit
+  Gesichtsrahmen. Die Infozeile sagt dazu „🎬 Video-Gesichter nur ansehen, nicht einzeln
+  ändern“.
+- **Meldungen:**
+  - „+ N aus Videos (nicht gezeigt)“ zählt seit V2 nur noch die Gesichter ohne Standbild.
+  - Für reine Video-Vorschläge ohne Standbild heißt der Grund jetzt „für sie gibt es noch
+    keine Standbilder“.
+- **Cache-Kennungen:** `gruppen_quiz.js?v=20261014A`, `style.css?v=20261014A`. Die feste
+  Versionsprüfung in `frontend/tests/test_foto_galerie.js` ist mitgezogen.
+- **Tests:** 12 neue Prüfungen in `frontend/tests/test_gruppen_quiz.js`. Alle 31
+  Frontend-Tests sind über `backend/tests/test_frontend_node.py` grün.
+- **Nicht im Browser geprüft:** Das Quiz braucht das Backend mit pCloud-Vorschaubildern, und
+  das Backend am PC läuft nicht mit echten Daten. Die Sichtprüfung folgt am Handy nach dem
+  Schreiblauf.
