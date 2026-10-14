@@ -138,19 +138,19 @@ def test_regelweg_ist_der_eu_weg():
     """Vorgabe vom 25.09.2026: nicht OpenAI, nicht Groq ohne ausdrückliche Wahl."""
     assert typefree.STANDARD_WEG == 'eu'
     assert typefree.TRANSCRIPTION_KETTE == typefree.KETTEN['eu']
-    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'turbo'
+    assert typefree.TRANSCRIPTION_KETTE[0][0] == 'mai-1.5'
 
 
 def test_eu_weg_bleibt_bei_openrouter():
     """Sebastians Vorgabe 25.09.2026: „nur über OpenRouter" — kein fremder Anbieter
-    im Regelweg. Seit 13.10.2026 steht das schnellste ZDR-Modell vorn (Sebastian:
-    Tempo vor Genauigkeit): whisper-large-v3-turbo 1,8 s Median an 70 s, 5,1 %
-    Wortfehler; dahinter mai-transcribe-2 als Rückfall (2,8 %, am 12.10. 11,3 s)."""
+    im Regelweg. Seit 14.10.2026 nur zwei Glieder: mai-transcribe-1.5 vorn (2,2–3,4 s,
+    1,1 % an 70 s), whisper-large-v3-turbo als Ausweich (3,0–3,8 s, 3,4–5,1 %;
+    erfand im Betrieb „Vielen Dank" in Sprechpausen)."""
     kette = typefree.KETTEN['eu']
     assert all(adresse == 'https://openrouter.ai/api/v1' for _, _, adresse, _ in kette)
-    assert [(n, m, w) for n, m, _, w in kette[:2]] == [
-        ('turbo', 'openai/whisper-large-v3-turbo', 'stt'),
-        ('mai', 'microsoft/mai-transcribe-2', 'stt')]
+    assert [(n, m, w) for n, m, _, w in kette] == [
+        ('mai-1.5', 'microsoft/mai-transcribe-1.5', 'stt'),
+        ('turbo', 'openai/whisper-large-v3-turbo', 'stt')]
 
 
 def test_jedes_glied_der_eu_kette_hat_client_schluessel_und_preis(monkeypatch):
@@ -175,13 +175,13 @@ def test_turbo_preis_und_vorwaermen():
     assert typefree.VORWAERM_MODELL == typefree.KETTEN['eu'][0][1]
 
 
-def test_eu_weg_hat_mehrere_wege_und_einen_mit_vokabular():
-    """Ein Weg allein reicht nicht: der Chat-Weg drosselt bei langem Audio (429),
-    dann muss der nächste Weg liefern, statt ein rotes Symbol zu zeigen. Und einer
-    der Wege muss die Fachbegriffe mitgeben (nur der Chat-Weg kann das)."""
+def test_eu_weg_hat_genau_einen_ausweich_und_keinen_chat_weg():
+    """14.10.2026: Jedes Glied kostet im Störfall bis zu STT_HOECHSTDAUER — fünf
+    Glieder hießen minutenlanges Warten. Ein Ausweich reicht. Der Audio-Chat-Weg
+    (voxtral) erfand in Pausen Sätze und drosselte bei langem Audio (429)."""
     kette = typefree.KETTEN['eu']
-    assert len(kette) >= 3
-    assert any(weg == 'chat' for _, _, _, weg in kette)
+    assert len(kette) == 2
+    assert all(weg == 'stt' for _, _, _, weg in kette)
 
 
 def test_schneller_weg_nutzt_den_transkriptions_endpunkt():
@@ -253,7 +253,7 @@ def test_der_schnelle_weg_ist_billiger_als_der_eu_weg():
 def test_verfuegbare_anbieter_haelt_die_kettenreihenfolge():
     umgebung = {'OPENROUTER_API_KEY': 'x', 'GROQ_API_KEY': 'y'}
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['eu']) == (
-        'turbo', 'mai', 'mai-1.5', 'voxtral', 'voxtral-chat')
+        'mai-1.5', 'turbo')
     assert typefree.verfuegbare_anbieter(umgebung, typefree.KETTEN['schnell']) == ('groq',)
 
 

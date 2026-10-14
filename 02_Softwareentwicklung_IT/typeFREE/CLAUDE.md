@@ -4,7 +4,7 @@
 
 Systemweite Voice-to-Text-App für Windows:
 - Hotkey halten (Standard `Alt + Ä`, auch per `AltGr + Ä` auslösbar; über das Tray-Untermenü „Hotkey wählen" umstellbar) → Mikrofon wird geöffnet und nimmt auf
-- Loslassen → OpenAI Whisper transkribiert → OpenRouter/Gemini glättet → Text wird per Zwischenablage (Strg+V) eingefügt
+- Loslassen → transkribiert über OpenRouter (Standard `mai-transcribe-1.5`, bei Ausfall Whisper turbo) → OpenRouter/Gemini glättet → Text wird per Zwischenablage (Strg+V) eingefügt
 - Funktioniert systemweit: Terminal, Browser, jedes Textfeld
 
 Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
@@ -13,13 +13,13 @@ Architektur, Entscheidungen und Setup: siehe [README.md](README.md).
 
 | Komponente | Technologie |
 |------------|-------------|
-| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`. **`eu` (Standard) ist die reine OpenRouter-Kette**, seit 13.10.2026 mit dem schnellsten ZDR-konformen Modell zuerst: `openai/whisper-large-v3-turbo` (1,8 s Median an 70 s, 5,1 % Wortfehler, ~0,012 $/h — Tempo vor Genauigkeit), dann `microsoft/mai-transcribe-2` (0,3 % Wortfehler an 140 s Deutsch in 3,8 s, 0,10 $/h), `microsoft/mai-transcribe-1.5` (dito, 0,36 $/h), `mistralai/voxtral-small-24b-2507-stt` (Mistral/Frankreich), `mistralai/voxtral-small-24b-2507` (Audio-Chat — der einzige Weg, der die Fachbegriffe mitgeben kann, läuft bei langem Audio aber in eine 429). Ebenfalls wählbar: `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel eines Glieds, rückt das nächste ein. Fällt der gewählte Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb 25.09.2026: Auswahl `eu`, Groq- und OpenAI-Schlüssel stillgelegt (Sicherungen `.env.bak-groq`/`.env.bak-openai`) — es geht **nur noch OpenRouter** |
+| Transkription | Drei wählbare Wege (`KETTEN` in `windows/typefree.py`), umschaltbar im Tray oder per `"transkription"` in der `config.json`. **`eu` (Standard) ist die reine OpenRouter-Kette**, seit 14.10.2026 mit nur zwei Gliedern: `microsoft/mai-transcribe-1.5` (2,2–3,4 s an 70 s, 1,1 % Wortfehler, 0,36 $/h), bei Ausfall `openai/whisper-large-v3-turbo` (3,0–3,8 s, 3,4–5,1 %, ~0,012 $/h). mai-2, voxtral-stt und der Voxtral-Audio-Chat sind aus der Kette raus (Client, Preis und Schlüssel bleiben für alte Verbrauchsstände und Messwerkzeuge). Ebenfalls wählbar: `beste` = ElevenLabs Scribe v2, `schnell` = Groq `whisper-large-v3`. Jeder Aufruf mit `language="de"` und Vokabel-Hinweis; fehlt der Schlüssel eines Glieds, rückt das nächste ein. Fällt der gewählte Weg ganz aus, läuft der andere als Rückfall weiter (`RUECKFALL`). Stand im Betrieb 25.09.2026: Auswahl `eu`, Groq- und OpenAI-Schlüssel stillgelegt (Sicherungen `.env.bak-groq`/`.env.bak-openai`) — es geht **nur noch OpenRouter** |
 | Text-Glättung | OpenRouter über eine **Modellkette** (`POLISH_MODELLE`): `google/gemini-2.5-flash` (0,8 s), `google/gemini-3.5-flash-lite`, `google/gemini-2.5-flash-lite`. Füllwörter raus, Verhaspler geglättet, **Verhörer aus dem Zusammenhang korrigiert**, **Umgangssprache unangetastet**. `max_tokens=4000` (1000 hätte ein 10-Minuten-Diktat abgeschnitten). Bei Fehler, unplausibel kurzem Ergebnis oder abgekündigtem Modell rückt das nächste Modell nach; erst dann kommt der Rohtext. Drei Ausfälle in Folge → einmaliger Windows-Hinweis |
 | Hotkey | Python-`keyboard`-Library (systemweit). Modifier über **Scancode**, nicht über den Namen — deutsches Windows meldet `STRG`/`UMSCHALT`. Zwei Betriebsarten (`hotkey_modus` in der Konfiguration, Tray „Hotkey-Modus"): **`halten`** (Standard, wie bisher) und **`umschalten`** — einmal tippen startet, nochmal tippen beendet. Nur beim Tippen liegt während des Sprechens kein Finger auf der Taste; **der Live-Modus läuft ausschließlich so** (`live_erlaubt`), sonst schaltet er selbst auf „alles auf einmal" zurück |
 | Audio | `sounddevice` + `soundfile` + `numpy` (WAV direkt im RAM); Mikrofon wird **nur während der Aufnahme** geöffnet |
 | Text einfügen | `pyperclip` + `pyautogui` (Strg+V — unterstützt Umlaute) |
 | Status | `pystray`-Tray-Icon, fünf Farben: grau/grün/orange/blau/**rot = Fehler**; kein Overlay, kein tkinter |
-| Live-Diktat (im Bau) | Text soll „im Wortfluss" erscheinen (Wunsch 25.09.2026), Umschreiben danach. **Schritte 1–5 fertig:** `stillste_stelle`/`in_happen`/`live_schnitt` schneiden Happen an Sprechpausen (erste Pause nach 1,5 s — bis 06.10.2026 3 s, das ließ den ersten Text erst nach ~5 s kommen; spätestens nach 10 s). Beim Aufnahmestart weckt `verbindung_vorwaermen` das erste EU-Modell (seit 13.10.2026 turbo, vorher mai) mit einer Mini-Transkription (0,3 s Stille, `VORWAERM_MODELL`) — der erste Block brauchte kalt 2,2–3,6 s. Gemessen 07.10.2026 in frischen Prozessen: Vorwärmen nur der Verbindung (`/key`) half nicht (erster Block danach 4,5–7,6 s), die Mini-Transkription schon (0,3–0,4 s); sie dauert selbst ~4 s und läuft deshalb im eigenen Thread. `LivePuffer` + `_live_takt` + `_live_worker` sammeln sie in `live_happen`, `_live_schreiber` transkribiert sie, **glättet jeden Block vor dem Tippen** (`_live_glaetten`: `polish_text` mit dem Ende des bisher Getippten als `kontext`, Lite-Modelle zuerst über `POLISH_MODELLE_LIVE`; scheitert die Glättung, kommt der Rohtext) und tippt ihn per `unicode_tippen` am Cursor — **Zeichen für Zeichen** (`_tippen_animiert`, `tipp_pause`: ~30 Zeichen/s, je Block höchstens `LIVE_TIPP_DAUER` = 0,8 s), weil ein Block auf einen Schlag „ruckelt" (Sebastian, 07.10.2026). Beim Loslassen hängt `_live_abschluss` nur den Rest an — **nichts wird gelöscht oder ersetzt** (bis 06.10.2026 glättete er den ganzen Text und ersetzte den Block per Rücktaste; Sebastian: „dass dann alles wieder gelöscht und ersetzt wird, gefällt mir nicht"). Hat Live nichts getippt, übernimmt die normale Verarbeitung (`_live_lief` statt `live_teile` entscheidet, damit ein noch laufender Block nicht doppelt landet). Jeder Happen wird über `_live_buchen` beim liefernden Anbieter gebucht. **Geschaltet wird im Tray** unter „Ausgabe" („Alles auf einmal" / „Live satzweise"), die Wahl steht als `"live": true` in der `config.json`; Standard ist **aus**. Plan: `.hermes/plans/live-diktat.md` |
+| Live-Diktat (im Bau) | Text soll „im Wortfluss" erscheinen (Wunsch 25.09.2026), Umschreiben danach. **Schritte 1–5 fertig:** `stillste_stelle`/`in_happen`/`live_schnitt` schneiden Happen an Sprechpausen (erste Pause nach 1,5 s — bis 06.10.2026 3 s, das ließ den ersten Text erst nach ~5 s kommen; spätestens nach 10 s). Beim Aufnahmestart weckt `verbindung_vorwaermen` das erste EU-Modell (seit 14.10.2026 mai-1.5; 13.10. turbo, vorher mai-2) mit einer Mini-Transkription (0,3 s Stille, `VORWAERM_MODELL`) — der erste Block brauchte kalt 2,2–3,6 s. Gemessen 07.10.2026 in frischen Prozessen: Vorwärmen nur der Verbindung (`/key`) half nicht (erster Block danach 4,5–7,6 s), die Mini-Transkription schon (0,3–0,4 s); sie dauert selbst ~4 s und läuft deshalb im eigenen Thread. `LivePuffer` + `_live_takt` + `_live_worker` sammeln sie in `live_happen`, `_live_schreiber` transkribiert sie, **glättet jeden Block vor dem Tippen** (`_live_glaetten`: `polish_text` mit dem Ende des bisher Getippten als `kontext`, Lite-Modelle zuerst über `POLISH_MODELLE_LIVE`; scheitert die Glättung, kommt der Rohtext) und tippt ihn per `unicode_tippen` am Cursor — **Zeichen für Zeichen** (`_tippen_animiert`, `tipp_pause`: ~30 Zeichen/s, je Block höchstens `LIVE_TIPP_DAUER` = 0,8 s), weil ein Block auf einen Schlag „ruckelt" (Sebastian, 07.10.2026). Beim Loslassen hängt `_live_abschluss` nur den Rest an — **nichts wird gelöscht oder ersetzt** (bis 06.10.2026 glättete er den ganzen Text und ersetzte den Block per Rücktaste; Sebastian: „dass dann alles wieder gelöscht und ersetzt wird, gefällt mir nicht"). Hat Live nichts getippt, übernimmt die normale Verarbeitung (`_live_lief` statt `live_teile` entscheidet, damit ein noch laufender Block nicht doppelt landet). Jeder Happen wird über `_live_buchen` beim liefernden Anbieter gebucht. **Geschaltet wird im Tray** unter „Ausgabe" („Alles auf einmal" / „Live satzweise"), die Wahl steht als `"live": true` in der `config.json`; Standard ist **aus**. Plan: `.hermes/plans/live-diktat.md` |
 | Fehlermeldung | Windows-Sprechblase über `tray_icon.notify` + rotes Icon, das rot bleibt bis zur nächsten erfolgreichen Aufnahme |
 | Erneuter Versuch | Bei einem Fehlschlag bleibt die Aufnahme im **Arbeitsspeicher** (`aufnahme_merken` → `letzte_aufnahme`) — bewusst nicht auf der Platte. Das Tray-Menü bietet „Letztes Diktat erneut versuchen (N s)" an (`_on_retry`, eigener Thread, ruft `_verarbeite_audio(…, erneut=True)`); ein Erfolg verwirft sie (`retry_verwerfen`). Grund (Sebastian, 25.09.2026): „Ich möchte nicht mehrere Minuten labern und dann ist alles weg" |
 | Logdatei | `typefree.log` neben der EXE (`RotatingFileHandler`, 3 × 512 KB) plus `sys.excepthook` und `threading.excepthook`. Jedes Diktat protokolliert Anbieter, Modell und **Zeiten je Stufe** (`zeiten_text`) |
@@ -169,7 +169,7 @@ für eine vorhandene Datei). Die Aufnahme liegt nur temporär und wird danach ge
 
 | Wahl | Weg | Anbieter | Tempo | Kosten/h | Schlüssel |
 |------|-----|----------|-------|----------|-----------|
-| `eu` (Standard) | **Reine OpenRouter-Kette**: `whisper-large-v3-turbo` → `mai-transcribe-2` → `mai-transcribe-1.5` → `voxtral-small-24b-2507-stt` → `voxtral-small-24b-2507` (Chat) | Modelle von OpenAI (Whisper turbo), Microsoft und Mistral, alle über OpenRouter; ZDR des Kontos greift für alle | turbo 2,2–3,0 s bei 70 s Audio (warm, 13.10.); mai-2 am 12.10. Median 11,3 s | ~0,012 $ (turbo) | `OPENROUTER_API_KEY` |
+| `eu` (Standard) | **Reine OpenRouter-Kette**: `mai-transcribe-1.5` → `whisper-large-v3-turbo` | Modelle von Microsoft und OpenAI, beide über OpenRouter; ZDR des Kontos greift für beide | mai-1.5 2,2–3,4 s bei 70 s Audio (14.10.) | ~0,36 $ (mai-1.5) | `OPENROUTER_API_KEY` |
 | `beste` | ElevenLabs Scribe v2 + Keyterms | ElevenLabs (US) | noch nicht gemessen | 0,264 $ | `ELEVENLABS_API_KEY` |
 | `schnell` | Groq whisper-large-v3, STT-Endpunkt | Groq (US) | 0,7–1,9 s | 0,111 $ | `GROQ_API_KEY` |
 
@@ -253,7 +253,13 @@ echtes Zero-Retention Enterprise-Kunden vorbehalten, und über OpenRouter ist es
 gar nicht erreichbar. Es bleibt deshalb nur als ausdrücklich wählbarer Weg
 bestehen, nicht als Standard.
 
-### Turbo vorn — Entscheidung 13.10.2026
+### mai-1.5 vorn, nur zwei Glieder — Entscheidung 14.10.2026
+
+**Seit 14.10.2026 nur noch zwei Glieder: `microsoft/mai-transcribe-1.5` vorn, `openai/whisper-large-v3-turbo` als Ausweich.** turbo erfand im Betrieb in Sprechpausen „Vielen Dank" (3 von 7 Diktaten am 14.10.) und brauchte 2,1–12,4 s; Sebastian: „Qualität ist sehr schlecht geworden". Messung am 14.10. (70 s Referenzaudio, je 3 Läufe): mai-1.5 2,2–3,4 s bei 1,1 % Wortfehler (leise mit zwei Pausen 1,7 %), turbo 3,0–3,8 s bei 3,4–5,1 %, mai-2 1,4–20,1 s bei 2,8 %. Weitere Glieder kosten nur im Störfall Zeit, dann aber je Glied bis zu 90 s — deshalb entfallen mai-2 (unstet), voxtral-stt (19 s) und der Audio-Chat-Weg (erfindet Sätze, drosselt). Die Glättung lässt Inhalte bewusst stehen; was das Transkriptionsmodell erfindet, kommt also durch.
+
+Umsetzung: `KETTEN['eu']` = `mai-1.5`, `turbo`; Tests in `test_transkription.py` (`test_eu_weg_bleibt_bei_openrouter`, `test_eu_weg_hat_genau_einen_ausweich_und_keinen_chat_weg`). Das Vorwärmen (nur Live) trifft jetzt mai-1.5.
+
+### Turbo vorn — Entscheidung 13.10.2026 (abgelöst am 14.10.)
 
 Sebastian: Geschwindigkeit hat Vorrang („das schnellste Modell … large-v3 turbo").
 Anlass: `mai-transcribe-2` antwortete bis 07.10. im Median in 1,3–1,8 s, am 12.10. in
@@ -288,7 +294,7 @@ von selbst) und die Reihenfolgetests in `test_transkription.py` zurückstellen
 (`test_regelweg_ist_der_eu_weg`, `test_eu_weg_bleibt_bei_openrouter`,
 `test_verfuegbare_anbieter_haelt_die_kettenreihenfolge`).
 
-### Grenzen des EU-Wegs — Messung 25.09.2026
+### Grenzen des EU-Wegs — Messung 25.09.2026 (Historie: betraf den Voxtral-Chat-Weg, seit 14.10.2026 nicht mehr in der Kette)
 
 Der EU-Weg läuft im **geteilten Anbieter-Pool** von OpenRouter. Mistral drosselt ihn
 je nach Audiolänge:
@@ -309,7 +315,7 @@ Deshalb drei Sicherungen im Code:
    nächste verfügbare Weg, damit kein Diktat verloren geht. Der Anbieter steht danach
    im Log und in der Kostenzeile („(groq)"). Auf `False` setzen, wenn strikt nur der
    gewählte Weg laufen darf. Bei eigener `kette` (Stimmvergleich, Tests) gibt es
-   **keinen** Rückfall.
+   **keinen** Rückfall. Unabhängig davon wechselt `aktive_kette()` schon **vor** dem Diktat den Weg, wenn für den gewählten gar kein Schlüssel da ist: `eu` → `schnell`, `schnell` → `eu`, `beste` → `eu` (Log: „Kein Schlüssel für Weg …“) — das schaltet `RUECKFALL = False` nicht ab.
 3. **Zweitanfrage** (12.10.2026, `_stt_anfrage`) — **nur die Transkriptions-
    Endpunkt-Wege** (`weg == 'stt'`: turbo, mai, mai-1.5, voxtral-stt, groq); Audio-Chat
    und ElevenLabs Scribe laufen ohne sie. Dieselbe Anfrage geht parallel ein
@@ -363,7 +369,7 @@ Deshalb drei Sicherungen im Code:
    29 s trotz zweier Anfragen). Nachgeschärft nach drei Runden Codex-Ergebnisprüfung
    (12./13.10.2026).
 
-**Entschärft am 25.09.2026 abends:** In der `eu`-Kette stehen die beiden
+**Entschärft am 25.09.2026 abends (Historie — seit 14.10.2026 ist der Chat-Weg ganz raus, die Kette ist `mai-1.5` → `turbo`):** In der `eu`-Kette stehen die beiden
 Transkriptions-Endpunkt-Wege jetzt **vorn** (damals `mai-transcribe-1.5`, dann
 `voxtral-small-24b-2507-stt`; heute steht `mai-transcribe-2` davor). Sie kennen die Drosselung des Chat-Wegs nicht:
 69,7 s liefen in 4,8 s durch, 139 s im Test ebenfalls. Der gedrosselte Chat-Weg
@@ -372,9 +378,11 @@ mitgeben kann, soll aber nicht mehr den Ausschlag geben. Lange Diktate enden
 dadurch nicht mehr im roten Symbol (Sebastians Beobachtung: „bei längeren
 Aufgaben vor allem rot").
 
-**Belastbarer EU-Betrieb** braucht einen eigenen Mistral-Schlüssel bei OpenRouter
-(BYOK, „Integrations" in den OpenRouter-Einstellungen) — dann gelten eigene Limits
-statt des geteilten Pools. Die Fehlermeldung nennt genau diesen Ausweg.
+**Belastbarer EU-Betrieb über Voxtral** bräuchte einen eigenen Mistral-Schlüssel bei
+OpenRouter (BYOK, „Integrations" in den OpenRouter-Einstellungen) — dann gälten eigene
+Limits statt des geteilten Pools. Seit 14.10.2026 ist Voxtral nicht mehr in der Kette;
+der Hinweis gilt nur, falls es zurückkommt. Eine Fehlermeldung mit diesem Ausweg gibt
+es im Code nicht.
 
 **Zweiter Befund:** Voxtral gab im Betrieb einmal den **Auftragstext selbst** zurück
 („Transkribiere diese deutsche Sprachaufnahme …") statt zu transkribieren; der Text
@@ -388,12 +396,9 @@ solche Antworten.
 Entschieden sind **drei wählbare Wege** (Tabelle oben), umschaltbar im Tray und in
 der `config.json`. Offen sind zwei Punkte:
 
-- **Der EU-Weg ist im Betrieb nicht belastbar**, solange er über den geteilten
-  Mistral-Pool von OpenRouter läuft: ab etwa 60 s Audio kommt bei jedem Versuch
-  ein 429 (Messung unten). Belastbar wird er mit einem **eigenen
-  Mistral-Schlüssel** bei OpenRouter (BYOK, „Integrations") — dann gelten eigene
-  Limits statt des geteilten Pools. Aus diesem Grund steht die Auswahl seit dem
-  25.09.2026 auf `schnell`.
+- ~~Der EU-Weg ist im Betrieb nicht belastbar (geteilter Mistral-Pool, 429 ab ~60 s)~~ —
+  erledigt: Die Kette läuft seit 25.09. abends über Transkriptions-Endpunkte und
+  besteht seit 14.10.2026 nur aus `mai-1.5` → `turbo`, ohne Mistral. Betrieb: Auswahl `eu`.
 - **`beste` ist noch nicht einsatzbereit**, weil kein `ELEVENLABS_API_KEY` gesetzt
   ist — das Tray-Menü zeigt „(kein Schlüssel)" und die Kette überspringt den Weg.
 
@@ -453,7 +458,7 @@ Die Glättung läuft über die Modellkette (`google/gemini-2.5-flash` und zwei A
 
 ### Installer — offener Punkt
 
-Der Installer fragt den **Groq-Schlüssel** noch nicht ab (nur OpenRouter und optional OpenAI). Für die Weitergabe an Dritte sollte er ihn aufnehmen — sonst läuft die App dort über den doppelt so langsamen Ausweichweg.
+Der Installer fragt nur OpenRouter und optional OpenAI ab. Der Standardweg `eu` braucht nur OpenRouter; den OpenAI-Schlüssel nutzt keine Kette. Groq (Weg `schnell`) und ElevenLabs (Weg `beste`) fehlen im Assistenten — wer sie will, trägt sie von Hand in die `.env` ein. Aufräumen: die OpenAI-Abfrage aus `setup.cmd`/`installer_lib.py` entfernen.
 
 ### Weitere Ideen
 

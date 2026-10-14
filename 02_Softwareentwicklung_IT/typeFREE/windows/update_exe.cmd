@@ -121,6 +121,6 @@ echo Kontrolle (Log neben der EXE):
 echo   findstr /C:"typeFREE gestartet" "%ZIEL%\typefree.log"
 echo   findstr /C:"Zeiten:"             "%ZIEL%\typefree.log"
 echo.
-echo Erwartete Zeile beim Start: "Transkription ueber: mai, voxtral, voxtral-chat"
+echo Erwartete Zeile beim Start: "Transkription ueber: mai-1.5, turbo"
 echo.
 pause

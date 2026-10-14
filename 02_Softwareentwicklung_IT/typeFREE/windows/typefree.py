@@ -185,17 +185,20 @@ KETTEN = {
         # Seit 13.10.2026 steht whisper-large-v3-turbo VORN — Sebastians Wahl:
         # Tempo vor Genauigkeit. Messung 12.10. (70 s Referenzaudio, 5 Läufe):
         # turbo 1,8 s Median (max 3,1 s), 5,1 % Wortfehler, ~0,012 $/h; mai-2
-        # an dem Tag 11,3 s Median (max 57,7 s), 2,8 %. mai bleibt Rückfall.
-        ('turbo', 'openai/whisper-large-v3-turbo',
-         'https://openrouter.ai/api/v1', 'stt'),
-        ('mai', 'microsoft/mai-transcribe-2',
-         'https://openrouter.ai/api/v1', 'stt'),
+        # an dem Tag 11,3 s Median (max 57,7 s), 2,8 %.
+        # Seit 14.10.2026 nur noch ZWEI Glieder, mai-1.5 vorn. Im Betrieb
+        # (7 Diktate) erfand turbo dreimal „Vielen Dank" in Sprechpausen und
+        # brauchte 2,1–12,4 s; Sebastian: „Qualität ist sehr schlecht geworden".
+        # Messung 14.10. (70 s Referenzaudio, je 3 Läufe): mai-1.5 2,2–3,4 s bei
+        # 1,1 % (leise + Pausen 1,7 %), turbo 3,0–3,8 s bei 3,4–5,1 %, mai-2
+        # 1,4–20,1 s. Mehr Glieder kosten nur im Störfall Zeit — dann aber je
+        # Glied bis zu STT_HOECHSTDAUER. Entfallen: mai-2 (unstet), voxtral-stt
+        # (19 s), voxtral-chat (erfindet Sätze, 429). Ihre Clients, Preise und
+        # Schlüssel bleiben stehen (alte Verbrauchsstände, Messwerkzeuge).
         ('mai-1.5', 'microsoft/mai-transcribe-1.5',
          'https://openrouter.ai/api/v1', 'stt'),
-        ('voxtral', 'mistralai/voxtral-small-24b-2507-stt',
+        ('turbo', 'openai/whisper-large-v3-turbo',
          'https://openrouter.ai/api/v1', 'stt'),
-        ('voxtral-chat', 'mistralai/voxtral-small-24b-2507',
-         'https://openrouter.ai/api/v1', 'chat'),
     ),
     'beste': (
         ('scribe', 'scribe_v2', 'https://api.elevenlabs.io/v1', 'elevenlabs'),
@@ -233,7 +236,7 @@ RUECKFALL = True
 WEG_REIHENFOLGE = ('eu', 'beste', 'schnell')
 
 WEG_BESCHRIFTUNG = {
-    'eu':      'OpenRouter — schnell, ZDR (Whisper turbo → mai-transcribe → Voxtral)',
+    'eu':      'OpenRouter, ZDR (mai-transcribe-1.5, Ausweich Whisper turbo)',
     'beste':   'Beste Qualität — ElevenLabs Scribe v2',
     'schnell': 'Schnell — Groq whisper-large-v3',
 }
@@ -1342,7 +1345,7 @@ def _zweitanfrage_buchen(sekunden, anbieter):
         save_verbrauch(verbrauch)
 
 
-VORWAERM_MODELL = KETTEN['eu'][0][1]   # immer das erste EU-Glied (seit 13.10.2026 turbo)
+VORWAERM_MODELL = KETTEN['eu'][0][1]   # immer das erste EU-Glied (seit 14.10.2026 mai-1.5)
 VORWAERM_SEKUNDEN = 0.3
 
 
