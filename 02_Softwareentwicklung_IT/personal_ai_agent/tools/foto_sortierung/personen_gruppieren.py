@@ -73,6 +73,13 @@ Nachtragen (``--nachtragen``, 06.10.2026):
   ohne Lauf erreicht den Personenkatalog sonst still (gemessen: 7.307 Gesichter
   der Upload-Videos lagen vor und waren nie angedockt).
 
+  Seit 14.10.2026 gilt ``--min-score`` **auch beim Nachtragen**: die Schwelle
+  entscheidet, welche Gesichter ueberhaupt gelesen werden. Vorher wurde der
+  Schalter auf diesem Weg still ignoriert (gemessen: ein Nachtrag ueber
+  ``personen_vektoren_n0929_voll.jsonl`` meldete mit und ohne ``--min-score 0.8``
+  dieselben 4.205 Gesichter — das sind die Funde unter 0,8, die der volle Lauf
+  vom 08.10. bewusst draussen liess). Die Voreinstellung bleibt 0,6.
+
     .venv/Scripts/python.exe ../tools/foto_sortierung/personen_gruppieren.py ^
         --nachtragen %USERPROFILE%/foto_sortierung/personen_vektoren_fotobuch.jsonl
     # Schreiben erst nach dem OK auf die Trockenlauf-Zahlen: zusaetzlich --schreiben
@@ -1283,7 +1290,10 @@ def _nachtragen_main(args, pfade, schreiben_an) -> int:
     if not alt_kennungen:
         raise PersonenFehler(
             "Keine alten Mittelpunkte (kennungen.json) — ohne sie gibt es nichts zum Andocken.")
-    eingelesen = gesichter_lesen(pfade, katalog)
+    eingelesen = gesichter_lesen(pfade, katalog, min_score=args.min_score)
+    if args.min_score is not None:
+        print(f"Mindest-Erkennungssicherheit: {float(args.min_score):.2f} "
+              f"(Voreinstellung {_cluster.MIN_SCORE:.2f})")
     lauf = nachtrag_rechnen(
         eingelesen, alte_zeilen, alt_kennungen,
         beispiele_alt=beispiele_lesen(os.path.join(args.ausgabe, DATEI_BEISPIELE)),
@@ -1326,7 +1336,8 @@ def main(argv=None) -> int:
     zerleger.add_argument("--min-groesse", type=int, default=MIN_GROESSE)
     zerleger.add_argument("--min-score", type=float, default=None,
                           help="Mindest-Erkennungssicherheit fuer die Gruppierung "
-                               "(Standard 0,6; empfohlen 0,8 seit 08.10.2026)")
+                               "(Standard 0,6; empfohlen 0,8 seit 08.10.2026) — "
+                               "gilt auch beim --nachtragen")
     zerleger.add_argument("--nachtragen", action="append", default=None,
                           help="Vektordatei(en) NUR an die bestehenden Gruppen haengen "
                                "(nichts neu rechnen; Trockenlauf ist Standard, "

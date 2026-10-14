@@ -564,6 +564,29 @@ def test_hinweis_schweigt_wenn_die_datei_teil_des_laufs_ist(tmp_path, capsys, mo
     assert "Hinweis:" not in capsys.readouterr().out
 
 
+def test_cli_nachtrag_beachtet_min_score_der_kommandozeile(tmp_path, capsys):
+    """``--min-score`` gilt auch beim Nachtragen.
+
+    Gemessen am 14.10.2026: der Schalter wurde auf dem Nachtragen-Weg still
+    ignoriert — derselbe Aufruf mit und ohne ``--min-score 0.8`` meldete
+    dieselben Gesichter. Hier steht beides: ohne Schalter zaehlt ein Fund mit
+    Score 0,70 (Voreinstellung 0,60), mit Schalter bleibt er draussen.
+    """
+    ausgabe, mitten, rng = _alte_welt(tmp_path)
+    neu = _schreiben(tmp_path / "neu.jsonl",
+                     [_zeile("fb_leise", [_gesicht(rng, mitten[0])], score=0.70)])
+
+    assert pg.main(["--nachtragen", neu, "--ausgabe", ausgabe]) == 0
+    text = capsys.readouterr().out
+    assert "Neue Gesichter: 1" in text
+    assert "Mindest-Erkennungssicherheit" not in text   # ohne Schalter keine Zeile
+
+    assert pg.main(["--nachtragen", neu, "--ausgabe", ausgabe, "--min-score", "0.8"]) == 0
+    text = capsys.readouterr().out
+    assert "Mindest-Erkennungssicherheit: 0.80" in text
+    assert "Neue Gesichter: 0" in text                  # die Schwelle greift jetzt
+
+
 def test_fehlende_vektoren_meldet_nur_vorhandenes_und_bleibt_reihenfolgetreu(tmp_path):
     basis = tmp_path / "home"
     basis.mkdir()
