@@ -206,9 +206,25 @@ def test_bericht_nennt_nur_zahlen_und_kennungen(tmp_path):
     assert "Person_001" in text
     assert "900001" not in text and "900000" not in text      # keine Bild-IDs
     assert ".jsonl" not in text                               # keine Pfade
-    assert "Nicht sicher (score < 0.9)" in text
+    assert "Sicher (score >= 0.9)" in text and "unsicher (score < 0.9)" in text
     assert "Verschiebung des Gruppenmittelpunkts" in text
     assert "Neuordnung" in text and "Lebensphasen" in text
+
+
+def test_bericht_beschriftet_die_gezaehlten_gesichter_richtig(tmp_path):
+    """Regression (14.10.2026): die Zeile zaehlte die SICHEREN Gesichter (``_sicher``), beschriftete
+    die Zahl aber als „Nicht sicher\" — 49 % standen als unsicher da, obwohl es die sicheren waren
+    (gefunden in der Planpruefung des Gruppierungs-Plans, Codex-Runde 3). Die Beschriftung muss
+    nennen, was gezaehlt wird, und beide Zahlen zusammen die Gesamtzahl ergeben."""
+    zu, ve = _kleiner_bestand(tmp_path)          # 4 x score 0.95, 2 x score 0.70
+    zuordnung, ohne = mr.zuordnung_lesen(str(zu))
+    vektoren, statistik = mr.vektoren_sammeln([str(ve)], schluessel=set(zuordnung))
+    text = "\n".join(mr.bericht(zuordnung, ohne, vektoren, statistik, gruppe_min=3,
+                                phasen_min=3, zeigen=2))
+    assert "Nicht sicher" not in text                          # die alte Fehlbeschriftung
+    assert "Sicher (score >= 0.9): 4" in text                  # gezaehlt, was draufsteht
+    assert "unsicher (score < 0.9): 2" in text
+    assert 4 + 2 == len(zuordnung)
 
 
 def test_main_laeuft_und_zaehlt(tmp_path, capsys):

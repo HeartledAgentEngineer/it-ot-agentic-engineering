@@ -440,10 +440,15 @@ def bericht(zuordnung, ohne_kennung, vektoren, statistik, *,
                   f"uebernommen {statistik['gelesen']} · andere Laenge verworfen "
                   f"{statistik['fremde_laenge']} · Masse {statistik['masse']}")
     sicher = sum(1 for s in zuordnung if _sicher(zuordnung[s], min_score))
+    unsicher = len(zuordnung) - sicher
     grob = sum(1 for s in zuordnung if not _nicht_grob(zuordnung[s], min_breite))
     rein = sum(1 for s in zuordnung if sauber(zuordnung[s], min_score, min_breite))
-    zeilen.append(f"Nicht sicher (score < {min_score}): {sicher} "
-                  f"({_prozent(sicher, len(zuordnung)).strip()}) · grob aufgeloest "
+    # Die Beschriftung muss nennen, was gezaehlt wurde: ``sicher`` zaehlt die SICHEREN Gesichter
+    # (``score >= min_score``). Bis 14.10.2026 stand hier „Nicht sicher\" ueber dieser Zahl.
+    zeilen.append(f"Sicher (score >= {min_score}): {sicher} "
+                  f"({_prozent(sicher, len(zuordnung)).strip()}) · unsicher "
+                  f"(score < {min_score}): {unsicher} "
+                  f"({_prozent(unsicher, len(zuordnung)).strip()}) · grob aufgeloest "
                   f"(Breite < {min_breite} px): {grob} "
                   f"({_prozent(grob, len(zuordnung)).strip()}) · unsicher ODER grob: "
                   f"{len(zuordnung) - rein} ({_prozent(len(zuordnung) - rein, len(zuordnung)).strip()})")

@@ -46,7 +46,7 @@ Wörtliche Messzeilen:
 
     Gesichter in Gruppen: 30830 · mit Vektor: 30830 (100 %) · ohne Vektor: 0 · ohne Kennung (nicht gezaehlt): 19452
     Vektoren: 7 Dateien gelesen (0 fehlten) · 43452 Zeilen · 0 defekt · 129945 Gesichter · uebernommen 30830 · andere Laenge verworfen 0 · Masse 128
-    Nicht sicher (score < 0.9): 15186 (49 %) · grob aufgeloest (Breite < 64 px): 7044 (23 %) · unsicher ODER grob: 16802 (54 %)
+    Sicher (score >= 0.9): 15186 (49 %) · unsicher (score < 0.9): 15644 (51 %) · grob aufgeloest (Breite < 64 px): 7044 (23 %) · unsicher ODER grob: 16802 (54 %)
 
     Gruppen: 1367 · mit mindestens 30 Gesichtern mit Vektor: 113
     Verschiebung des Gruppenmittelpunkts (Cosinus-Distanz):
@@ -72,7 +72,8 @@ Wörtliche Messzeilen:
 3. **Der harte Nebenfund: 773 der 1.367 Gruppen haben überhaupt kein sauberes Gesicht** (so viele
    Mittelpunkte fallen weg: 1.367 → 594). Diese Gruppen bestehen ganz überwiegend aus unsicheren
    oder grob aufgelösten Funden — 54 % aller zugeordneten Gesichter sind unsicher oder grob
-   (49 % unsicher, 23 % grob).
+   (49 % sicher, 51 % unsicher, 23 % grob — bis 22:5x stand hier „49 % unsicher“: das war die
+   **falsche Beschriftung** der sicheren Zahl, siehe Berichtigung unten).
 4. **5 % der sauberen Gesichter** (764 von 14.028) bekämen unter den sauberen Mittelpunkten eine
    andere Gruppe. Das ist die Zahl, die für den Wisch-Sortierer zählt: eine Bereinigung der
    Mittelpunkte würde die Zuordnung der guten Gesichter nur am Rand verschieben.
@@ -139,6 +140,34 @@ zwei brauchbaren Gesichtern).
 Tests: vier neue Fälle in `backend/tests/test_mittelpunkt_rauschen.py` (Zählung nur mit Vektor,
 Stufen-Grenzen, Reihenfolge und Gleichstand, der Bericht zeigt die Stufen und bleibt ohne
 Bildkennung/Pfad) — Datei **18 passed**.
+
+## Berichtigung (14.10.2026, 23:4x): eine Zahl war falsch beschriftet
+
+**Gefunden** in der Planprüfung zum Gruppierungs-Plan (`.hermes/pruefkreis/gruppierung-v2-plan.md`,
+Codex-Runde 3, 22:58), dort als Einwand 2 gegen `Plan:19` — der Plan hatte den Fehler aus diesem
+Dokument übernommen.
+
+**Der Fehler (gemessen, nicht vermutet):** Die Bericht-Zeile zählte über `_sicher(...)` die
+**sicheren** Gesichter (`score ≥ 0,90`), schrieb aber „Nicht sicher (score < 0,9)“ davor. Gezählt
+wurden also die sicheren Funde. Damit standen **15.186 als unsicher** da, obwohl es die sicheren
+waren; unsicher sind **15.644 (51 %)**. Die Zeile wird jetzt als
+`Sicher (score >= 0.9): … · unsicher (score < 0.9): …` ausgegeben — die Beschriftung nennt, was
+gezählt wurde, und beide Zahlen ergeben zusammen die Gesamtzahl.
+
+**Was sich ändert und was nicht:** Nur die Beschriftung und die beiden Zahlen in der ersten
+Kennzahl-Zeile. **Keine Schwelle, keine Rechnung, kein Befund** — Median 0,003, 90 % 0,224,
+größte 0,593, Neuordnung 5 %, Lebensphasen 90 % 0,010 bleiben wörtlich wie gemessen. Auch die
+Aussage „54 % unsicher oder grob“ bleibt richtig (`15.644 + 7.044 − 5.886 = 16.802`).
+
+**Beleg:** Lauf am echten Bestand vor der Änderung (`Nicht sicher … 15186 (49 %)`) und nach der
+Änderung (`Sicher … 15186 (49 %) · unsicher … 15644 (51 %)`), beide Exit 0; neuer Regressionstest
+`test_bericht_beschriftet_die_gezaehlten_gesichter_richtig` (hält fest: keine Zeile „Nicht sicher“
+mehr, „Sicher … : 4“ und „unsicher … : 2“ bei 4 sicheren + 2 unsicheren Gesichtern).
+
+**Noch offen bei den Besitzern der Texte:** dieselbe Fehlbeschriftung steht im Gruppierungs-Plan
+(`2026-10-14_gruppierung-lebensabschnitte.md:19`, Fassung 3) und in den Journal-Einträgen 57 dieses
+Nachtlaufs („49 % unsicher (15.186)“) — beide Dateien sind per `.gitignore` außerhalb des Commits
+und gehören dem Master; von hier aus nur gemeldet, nicht geändert.
 
 ## Nicht geändert
 
