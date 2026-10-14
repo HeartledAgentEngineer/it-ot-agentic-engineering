@@ -24,6 +24,20 @@ set -u
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT" || exit 1
 
+# --- Absenderkennung: keine Adressen, die ein fremdes Konto beansprucht -------
+# Hermes committet ab Werk als hermes@nousresearch.com. Diese Adresse hat ein
+# fremdes GitHub-Konto bestätigt; es erschien dadurch als Mitwirkender im
+# öffentlichen Repo (Commit 80c6d3e, entdeckt 14.10.2026).
+GESPERRTE_ABSENDER='@nousresearch\.com>'
+for KENNUNG in "$(git var GIT_AUTHOR_IDENT)" "$(git var GIT_COMMITTER_IDENT)"; do
+    if grep -qiE "$GESPERRTE_ABSENDER" <<<"$KENNUNG"; then
+        echo "  ⛔ ABSENDER GESPERRT: ${KENNUNG% * *}"
+        echo "     GitHub würde diesen Commit einem fremden Konto zuschreiben."
+        echo "     Eigene Kennung setzen: git config user.email <eigene Adresse>"
+        exit 1
+    fi
+done
+
 # --- Geänderte (staged) Dateien -----------------------------------------------
 CHANGED="$(git diff --cached --name-only --diff-filter=ACMR)"
 

@@ -118,6 +118,9 @@ git config core.hooksPath .githooks   # einmalig pro Klon!
 - Hook: `.githooks/pre-commit` — testet nur das Projekt, dessen **Code** staged
   ist; rote Tests brechen den Commit ab.
 - Notfall-Bypass: `git commit --no-verify` (nur bewusst, im Commit begründen).
+- Absendersperre (14.10.2026): Autor- oder Committer-Adresse `@nousresearch.com`
+  bricht jeden Commit ab. Das ist die Werksadresse von Hermes; ein fremdes
+  GitHub-Konto hat sie bestätigt und erschien so als Mitwirkender (Commit 80c6d3e).
 - Details + Pitfalls: Skill `verifier-gate`.
 
 ### 6.2 Grill VOR dem Bauen (nicht danach)
