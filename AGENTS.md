@@ -270,10 +270,17 @@ Abend unabhängig voneinander denselben Fehler behoben — doppelte Kosten.
 | | Master-Chat (Claude Code am PC) | Cloud-Sitzung (Claude Code bei Anthropic) |
 |---|---|---|
 | Wann | 5-Stunden-Limit des Abos frei | Limit erschöpft, PC aus oder unterwegs |
-| Sieht | PC, Agentenbus, Hermes, Handy per Kabel | nur GitHub (`.hermes/` ist per `.gitignore` gesperrt) |
+| Sieht | PC, Hermes, Handy per Kabel | nur GitHub (`.hermes/` ist per `.gitignore` gesperrt) |
 | Pusht | `main`, nach grünem Prüfbefehl | nur `claude/<thema>`, nie `main` |
-| Absprache | Agentenbus mit Hermes **und** GitHub-Issues | GitHub-Issues |
+| Absprache | GitHub-Issues; Hermes über eigene Sitzungen | GitHub-Issues |
 | Issue-Label | `claude-pc` | `cloud` |
+
+**Agentenbus abgelöst (Sebastian, 14.10.2026):** Der Agentenbus
+(`personal_ai_agent/tools/agentbus/`) wird nicht mehr benutzt — keine Nachrichten
+oder Aufträge mehr darüber. Hermes-Arbeit läuft über eigene Hermes-Sitzungen, die
+der Master startet und nach Abschluss schließt (`tools/pruefkreis/pruefkreis.py`).
+Die Wache `HermesAgentenbusWache` ist abgeschaltet, die Bus-Haken in
+`.claude/settings.json` sind entfernt. Bus-Dateien und Protokoll bleiben als Historie.
 
 - **Auf `main` pusht nur der PC** (Master-Chat oder Hermes). Nur dort laufen der
   Windows-Prüfbefehl und der Handytest per Kabel. Das Handy zieht `main` beim Start,
