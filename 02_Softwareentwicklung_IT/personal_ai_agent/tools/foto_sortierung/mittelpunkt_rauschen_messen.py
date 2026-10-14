@@ -18,6 +18,10 @@ Was gemessen wird (auf den echten Vektoren, je Gruppe):
    **andere** Gruppe als unter allen Mittelpunkten bekaemen (naechster Mittelpunkt).
 3. **Dasselbe je Aufnahmejahr** (Lebensphase) - nur fuer Gruppen, die in einem Jahr genug
    Gesichter haben.
+4. **Reihenfolge fuer den Wisch-Sortierer (Stufe 1):** wie viele **saubere** Gesichter jede
+   Gruppe hat, in Stufen (kein sauberes, 1 bis 2, 3 bis 9, 10 oder mehr) und die Gruppen
+   **schlechteste zuerst** - der Vorschlag, wonach sich der Sortierer richten soll (die Zahl
+   der brauchbaren Gesichter, nicht die Gruppengroesse).
 
 Ein **Mittelpunkt** ist der normierte Mittelwert der normierten Gesichtsvektoren (Richtung,
 nicht Laenge) - dieselbe Cosinus-Welt wie ``personen_cluster``.
@@ -66,6 +70,9 @@ MIN_BREITE = 64       # Ausschnittbreite in Pixeln; darunter ist die Nahansicht 
 GRUPPE_MIN = 30       # kleinere Gruppen werden nicht einzeln bewertet
 PHASE_MIN = 20        # Gesichter je Gruppe UND Jahr, damit eine Lebensphase zaehlt
 STUECK = 8192         # Zeilen je Rechenblock (Speicher)
+# Stufen fuer die Wisch-Sortierer-Reihenfolge: (untere Grenze, obere Grenze ohne, Name)
+SAUBER_STUFEN = ((0, 1, "kein sauberes Gesicht"), (1, 3, "1 bis 2 saubere"),
+                 (3, 10, "3 bis 9 saubere"), (10, None, "10 oder mehr saubere"))
 
 
 # ── 1. Lesen (lokal, nur lesend, kein Netz, kein Bild) ───────────────────────
@@ -327,6 +334,47 @@ def neuordnung(vektoren, gesichter_sauber, kennungen_alle, zentren_alle,
     return ergebnis
 
 
+def sauber_je_gruppe(gruppen, vektoren, *, min_score: float = MIN_SCORE,
+                     min_breite: float = MIN_BREITE) -> list:
+    """``[(kennung, saubere, gesamt), …]`` je Gruppe - nur Gesichter **mit** Vektor.
+
+    ``saubere`` = Gesichter mit ``score >= min_score`` UND Ausschnittbreite ``>= min_breite``;
+    ``gesamt`` = Gesichter der Gruppe, zu denen es einen Vektor gibt. Das ist die Zahl, die
+    fuer die Reihenfolge des Wisch-Sortierers zaehlt (nicht die Gruppengroesse).
+    """
+    ergebnis = []
+    for kennung, menge in gruppen.items():
+        gesamt = 0
+        rein = 0
+        for schluessel, gesicht in menge:
+            if schluessel not in vektoren:
+                continue
+            gesamt += 1
+            if sauber(gesicht, min_score, min_breite):
+                rein += 1
+        ergebnis.append((kennung, rein, gesamt))
+    return ergebnis
+
+
+def sauber_stufen(werte) -> list:
+    """``[(stufe, anzahl), …]`` - wie viele Gruppen in jede Stufe saubere Gesichter fallen."""
+    return [(name, sum(1 for wert in werte if wert >= unten
+                       and (oben is None or wert < oben)))
+            for unten, oben, name in SAUBER_STUFEN]
+
+
+def wisch_reihenfolge(gruppen, vektoren, *, min_score: float = MIN_SCORE,
+                      min_breite: float = MIN_BREITE) -> list:
+    """Die Gruppen fuer den Wisch-Sortierer: **schlechteste zuerst**.
+
+    Sortiert nach der Zahl der sauberen Gesichter (wenige zuerst), bei Gleichstand die groessere
+    Gruppe zuerst, dann die Kennung - damit die unsichersten Gruppen (und die ganz ohne sauberen
+    Fund) oben stehen. Reine Reihenfolge: es wird nichts geloescht, nichts verschoben.
+    """
+    return sorted(sauber_je_gruppe(gruppen, vektoren, min_score=min_score, min_breite=min_breite),
+                  key=lambda eintrag: (eintrag[1], -eintrag[2], eintrag[0]))
+
+
 def jahresphasen(zuordnung, vektoren, kennung, *, min_score: float = MIN_SCORE,
                  min_breite: float = MIN_BREITE, phasen_min: int = PHASE_MIN) -> list:
     """``[(jahr, n_alle, n_sauber, winkel)]`` je Aufnahmejahr einer Gruppe (nur ausreichende)."""
@@ -448,6 +496,19 @@ def bericht(zuordnung, ohne_kennung, vektoren, statistik, *,
         zeilen.append(f"  Verschiebung je Phase            {_verteilung([p[3] for p in phasen])}")
         for jahr, alle_n, rein_n, wert in phasen[:zeigen]:
             zeilen.append(f"      Jahr {jahr}  {wert:.3f}  ({alle_n} Gesichter, {rein_n} saubere)")
+    zeilen.append("")
+    je_gruppe = sauber_je_gruppe(gruppen, vektoren, min_score=min_score, min_breite=min_breite)
+    bewertet = [eintrag for eintrag in je_gruppe if eintrag[2] > 0]
+    ohne_vektor = len(je_gruppe) - len(bewertet)
+    zeilen.append("Wisch-Sortierer, Stufe 1 (Vorschlag: nach Zahl der sauberen Gesichter, "
+                  "schlechteste zuerst):")
+    for stufe, anzahl in sauber_stufen([eintrag[1] for eintrag in bewertet]):
+        zeilen.append(f"  {stufe:<24} {anzahl} Gruppen")
+    if ohne_vektor:
+        zeilen.append(f"  {'ohne Vektor (nicht bewertet)':<24} {ohne_vektor} Gruppen")
+    for kennung, rein_n, gesamt in wisch_reihenfolge(gruppen, vektoren, min_score=min_score,
+                                                     min_breite=min_breite)[:zeigen]:
+        zeilen.append(f"      {kennung:<13} {rein_n} saubere von {gesamt} Gesichtern")
     return zeilen
 
 

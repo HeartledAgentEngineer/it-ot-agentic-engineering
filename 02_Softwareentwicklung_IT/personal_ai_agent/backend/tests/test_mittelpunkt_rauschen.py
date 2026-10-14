@@ -229,3 +229,75 @@ def test_main_bricht_bei_fehlender_zuordnung_und_ohne_vektoren_ab(tmp_path, caps
     assert mr.main(["--zuordnung", str(zu),
                     "--vektoren", str(tmp_path / "auchnix.jsonl")]) == 2
     assert "keine der Vektordateien gefunden" in capsys.readouterr().out
+
+
+# ── 4. Wisch-Sortierer-Reihenfolge (14.10.2026) ──────────────────────────────
+
+def _stufenbestand(tmp_path, capsys=None):
+    """Drei Gruppen mit 0, 1 und 6 sauberen Gesichtern; ein Gesicht ohne Vektor."""
+    zeilen = []
+    vektoren = []
+    # Person_001: 4 Gesichter mit Vektor, keines sauber (score 0.50) + 1 ohne Vektor
+    for i in range(4):
+        zeilen.append(_zeile(f"9100{i:02d}", 0, "Person_001", score=0.50, vektor=_vektor(0)))
+        vektoren.append((f"9100{i:02d}", 0, _vektor(0)))
+    zeilen.append(_zeile("910090", 0, "Person_001", score=0.99, vektor=None))
+    # Person_002: 3 Gesichter mit Vektor, eines sauber (score 0.95)
+    for i in range(3):
+        zeilen.append(_zeile(f"9200{i:02d}", 0, "Person_002",
+                             score=0.95 if i == 0 else 0.50, vektor=_vektor(0)))
+        vektoren.append((f"9200{i:02d}", 0, _vektor(0)))
+    # Person_003: 6 Gesichter mit Vektor, alle sauber
+    for i in range(6):
+        zeilen.append(_zeile(f"9300{i:02d}", 0, "Person_003", score=0.95, vektor=_vektor(0)))
+        vektoren.append((f"9300{i:02d}", 0, _vektor(0)))
+    zu = _zuordnungsdatei(tmp_path / "z.jsonl", zeilen)
+    ve = _vektordatei(tmp_path / "v.jsonl", vektoren)
+    zuordnung, ohne = mr.zuordnung_lesen(str(zu))
+    gesammelt, statistik = mr.vektoren_sammeln([str(ve)], schluessel=set(zuordnung))
+    return zuordnung, ohne, gesammelt, statistik
+
+
+def _gruppen(zuordnung):
+    gruppen = {}
+    for schluessel, gesicht in zuordnung.items():
+        gruppen.setdefault(gesicht["kennung"], []).append((schluessel, gesicht))
+    return gruppen
+
+
+def test_sauber_je_gruppe_zaehlt_nur_gesichter_mit_vektor(tmp_path):
+    zuordnung, _, vektoren, _ = _stufenbestand(tmp_path)
+    je = {kennung: (rein, gesamt)
+          for kennung, rein, gesamt in mr.sauber_je_gruppe(_gruppen(zuordnung), vektoren)}
+    assert je["Person_001"] == (0, 4)      # das 5. Gesicht hat keinen Vektor
+    assert je["Person_002"] == (1, 3)
+    assert je["Person_003"] == (6, 6)
+
+
+def test_sauber_stufen_legt_die_gruppen_in_klassen():
+    stufen = dict(mr.sauber_stufen([0, 1, 2, 3, 9, 10, 250]))
+    assert stufen == {"kein sauberes Gesicht": 1, "1 bis 2 saubere": 2,
+                      "3 bis 9 saubere": 2, "10 oder mehr saubere": 2}
+    assert dict(mr.sauber_stufen([])) == {name: 0 for _, _, name in mr.SAUBER_STUFEN}
+
+
+def test_wisch_reihenfolge_schlechteste_zuerst(tmp_path):
+    zuordnung, _, vektoren, _ = _stufenbestand(tmp_path)
+    reihenfolge = mr.wisch_reihenfolge(_gruppen(zuordnung), vektoren)
+    assert [kennung for kennung, _, _ in reihenfolge] == ["Person_001", "Person_002", "Person_003"]
+    # bei gleicher Sauberkeit zuerst die groessere Gruppe, dann die Kennung
+    gleich = mr.wisch_reihenfolge({"Person_009": [("a", {"score": 0.5, "breite_px": 10.0})],
+                                   "Person_002": [("b", {"score": 0.5, "breite_px": 10.0})]},
+                                  {"a": _vektor(0), "b": _vektor(0)})
+    assert [kennung for kennung, _, _ in gleich] == ["Person_002", "Person_009"]
+
+
+def test_bericht_zeigt_die_wisch_stufen_und_bleibt_ohne_bildkennungen(tmp_path):
+    zuordnung, ohne, vektoren, statistik = _stufenbestand(tmp_path)
+    text = "\n".join(mr.bericht(zuordnung, ohne, vektoren, statistik, gruppe_min=1,
+                                phasen_min=1, zeigen=2))
+    assert "Wisch-Sortierer, Stufe 1" in text
+    assert "kein sauberes Gesicht" in text and "1 Gruppen" in text
+    assert "Person_001" in text
+    assert "9100" not in text and "9300" not in text      # keine Bild-IDs
+    assert ".jsonl" not in text                            # keine Pfade

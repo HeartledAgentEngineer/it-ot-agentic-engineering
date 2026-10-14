@@ -103,6 +103,43 @@ Wörtliche Messzeilen:
 - Kein Name, keine Bild-ID und kein Koordinatenwert verlässt das Werkzeug; es geht nichts an ein
   fremdes Modell.
 
+## Nachtrag (14.10.2026, 22:1x): Reihenfolge für den Wisch-Sortierer gemessen
+
+Der Vorschlag oben war eine Vermutung („773 Gruppen ohne sauberes Gesicht sind die Kandidaten") —
+jetzt ist er eine Zahl. Das Messwerkzeug hat einen vierten Abschnitt bekommen:
+
+**Stufen** (`sauber_je_gruppe`, `sauber_stufen`, `wisch_reihenfolge` in
+`mittelpunkt_rauschen_messen.py`): je Gruppe werden die **sauberen** Gesichter gezählt
+(`score >= 0,90` UND Ausschnittbreite `>= 64 px`), die Gruppen in Stufen gelegt und
+**schlechteste zuerst** sortiert (wenige saubere zuerst, bei Gleichstand die größere Gruppe zuerst,
+dann die Kennung). Weiterhin nur lesend, nur Zahlen und Kennungen.
+
+Wörtliche Messzeilen aus dem Lauf am echten Bestand (14.10.2026 22:1x, Exit 0):
+
+    Wisch-Sortierer, Stufe 1 (Vorschlag: nach Zahl der sauberen Gesichter, schlechteste zuerst):
+      kein sauberes Gesicht    773 Gruppen
+      1 bis 2 saubere          130 Gruppen
+      3 bis 9 saubere          330 Gruppen
+      10 oder mehr saubere     134 Gruppen
+          Person_1160   0 saubere von 239 Gesichtern
+          Person_1162   0 saubere von 226 Gesichtern
+          Person_092    0 saubere von 182 Gesichtern
+          Person_1159   0 saubere von 178 Gesichtern
+          Person_1529   0 saubere von 168 Gesichtern
+
+**Der Befund ist deutlicher als erwartet:** die vier Stufen summieren sich auf die 1.367 Gruppen
+(keine Gruppe ohne Vektor). **773 Gruppen (56,5 %) haben kein einziges sauberes Gesicht**, und die
+Spitze der Sortierliste sind **die größten Gruppen überhaupt** — 239, 226, 182, 178 und 168
+Gesichter, alle mit **null** sauberen Funden. Nach der Gruppengröße sortiert wäre die Reihenfolge
+zufällig richtig; nach „Zahl der sauberen Gesichter" stehen genau die hoffnungslosen Fälle oben.
+Damit ist die Reihenfolge belegt: **Stufe 1 des Wisch-Sortierers muss zuerst die 773 Gruppen ohne
+sauberen Fund abarbeiten** (773 + 130 = 903 Gruppen, also zwei Drittel aller Gruppen, mit höchstens
+zwei brauchbaren Gesichtern).
+
+Tests: vier neue Fälle in `backend/tests/test_mittelpunkt_rauschen.py` (Zählung nur mit Vektor,
+Stufen-Grenzen, Reihenfolge und Gleichstand, der Bericht zeigt die Stufen und bleibt ohne
+Bildkennung/Pfad) — Datei **18 passed**.
+
 ## Nicht geändert
 
 Keine Schwelle, keine Zuordnung, keine Vektordatei, keine Gruppendatei. `personen_cluster.py`,
