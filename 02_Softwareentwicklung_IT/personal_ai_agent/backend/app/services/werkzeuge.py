@@ -447,18 +447,58 @@ def _kontakt_namen() -> List[str]:
     if not isinstance(chats, list):
         raise ValueError("Kontaktdatei ohne 'chats'-Liste")
     namen: List[str] = []
+    # Streng (Codex-Ergebnisprüfung R1, 14.10.2026): ein Feld mit falschem Typ
+    # heißt „Datei beschädigt" und sperrt – sonst würden z. B. aus einem Text
+    # statt einer Liste einzelne Buchstaben gelesen und die Suche bliebe offen.
     for chat in chats:
         if not isinstance(chat, dict):
-            continue
-        for n in chat.get("telefonbuch_namen") or []:
-            if isinstance(n, str):
+            raise ValueError("Kontaktdatei: Chat-Eintrag ist kein Objekt")
+        for n in _liste_oder_leer(chat.get("telefonbuch_namen"), "telefonbuch_namen"):
+            if n is not None and not isinstance(n, str):
+                raise ValueError("Kontaktdatei: telefonbuch_namen enthält keinen Text")
+            if n:
                 namen.append(n)
-        if isinstance(chat.get("whatsapp_name"), str):
-            namen.append(chat["whatsapp_name"])
-        for t in chat.get("teilnehmer") or []:
-            if isinstance(t, dict) and isinstance(t.get("name"), str):
-                namen.append(t["name"])
+        wa = chat.get("whatsapp_name")
+        if wa is not None and not isinstance(wa, str):
+            raise ValueError("Kontaktdatei: whatsapp_name ist kein Text")
+        if wa:
+            namen.append(wa)
+        for t in _liste_oder_leer(chat.get("teilnehmer"), "teilnehmer"):
+            if not isinstance(t, dict):
+                raise ValueError("Kontaktdatei: Teilnehmer ist kein Objekt")
+            name = t.get("name")
+            if name is not None and not isinstance(name, str):
+                raise ValueError("Kontaktdatei: Teilnehmername ist kein Text")
+            if name:
+                namen.append(name)
     return namen
+
+
+def _liste_oder_leer(wert: Any, feld: str) -> list:
+    """``None`` -> [], Liste -> Liste, alles andere -> Fehler (Datei beschädigt)."""
+    if wert is None:
+        return []
+    if not isinstance(wert, list):
+        raise ValueError(f"Kontaktdatei: {feld} ist keine Liste")
+    return wert
+
+
+def _katalog_personen_streng() -> List[dict]:
+    """Alter Gesichter-Katalog, streng gelesen: Datei fehlt -> []; kaputt oder
+    unbekannte Form -> wirft. ``gesichter_service.liste_personen`` liefert bei
+    Lesefehlern still [] und taugt deshalb nicht für das Namensverbot."""
+    from app.services import gesichter_service
+
+    pfad = gesichter_service.KATALOG_DATEI
+    if not os.path.exists(pfad):
+        return []
+    with open(pfad, encoding="utf-8") as datei:
+        daten = json.load(datei)
+    if isinstance(daten, dict) and isinstance(daten.get("personen"), list):
+        return daten["personen"]
+    if isinstance(daten, list):
+        return daten
+    raise ValueError("Gesichter-Katalog in unbekannter Form")
 
 
 def bekannte_namen_streng():
@@ -470,7 +510,7 @@ def bekannte_namen_streng():
     zurück – und ``None`` sperrt die Suche. Fehlende Dateien sind kein Fehler.
     Ergebnis 300 s zwischengespeichert (nur im Prozess, nie auf Platte).
     """
-    from app.services import gesichter_service, gruppen_quiz, websuche_schutz
+    from app.services import gruppen_quiz, websuche_schutz
 
     jetzt = time.monotonic()
     if _NAMEN_CACHE.get("bis", 0) > jetzt:
@@ -484,7 +524,7 @@ def bekannte_namen_streng():
         else:
             raise RuntimeError("Personen-Quiz nicht lesbar")
         if not personen:
-            personen = gesichter_service.liste_personen() or []
+            personen = _katalog_personen_streng()
         namen = [str(p.get("name")) for p in personen
                  if isinstance(p, dict) and str(p.get("name") or "").strip()]
         bestand = websuche_schutz.bestand_bauen(namen, _kontakt_namen())

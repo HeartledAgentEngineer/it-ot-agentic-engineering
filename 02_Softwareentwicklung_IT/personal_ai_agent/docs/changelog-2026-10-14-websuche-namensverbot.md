@@ -62,3 +62,21 @@ Codex hat ihn in Runde 7 freigegeben (FREI). Hermes hat ihn in Fassung 4 geprüf
 - Gezielte Läufe: 140 passed. Den vollen Prüfbefehl erzwingt der Commit-Hook.
 - Messung am Handy steht noch aus: Hermes ruft `bekannte_namen_streng()` am PC und am Handy auf und
   meldet nur Zahlen.
+
+## Nachtrag: Ergebnisprüfung Codex, Runde 1 (EINWAND, behoben)
+
+1. **Ein kaputter alter Katalog ließ die Suche offen.**
+   - Ursache: `gesichter_service.liste_personen()` liefert bei einem Lesefehler still `[]`.
+   - Behebung: Neu ist `werkzeuge._katalog_personen_streng()`. Fehlt die Datei, ergibt das `[]`.
+     Ist sie kaputt oder hat sie eine unbekannte Form, wirft die Funktion einen Fehler, und
+     `bekannte_namen_streng()` liefert `None`. Die Suche ist damit gesperrt.
+2. **Beschädigte Kontaktfelder ließen die Suche offen.**
+   - Ursache: Stand bei `telefonbuch_namen` ein Text statt einer Liste, wurden einzelne Buchstaben
+     gelesen.
+   - Behebung: `_kontakt_namen()` prüft jetzt jeden Feldtyp. Eine Liste, die keine Liste ist,
+     sperrt. Dasselbe gilt für Einträge, die kein Text sind, und für Teilnehmer, die kein Objekt
+     sind.
+   - Leere Felder und `None` bleiben erlaubt.
+
+**Tests:** 11 neue Fälle in `test_websuche_schutz.py`. Der Rückfalltest liest jetzt eine echte
+Katalogdatei statt einer Attrappe. Die Datei hat damit 74 Tests.

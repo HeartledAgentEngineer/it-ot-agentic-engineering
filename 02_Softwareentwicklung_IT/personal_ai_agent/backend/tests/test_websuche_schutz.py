@@ -165,14 +165,53 @@ def test_streng_liest_quiz_und_kontakte(quellen):
         assert ws.enthaelt_namen(name, b)
 
 
-def test_streng_rueckfall_auf_alten_katalog_und_fehlende_kontaktdatei(quellen):
+def _quiz_fehlt():
     from app.services import gruppen_quiz
-    with mock.patch("app.services.gruppen_quiz.personen",
-                    return_value={"ok": False, "fehler": gruppen_quiz.FEHLT_HINWEIS}), \
-         mock.patch("app.services.gesichter_service.liste_personen",
-                    return_value=[{"name": "Bo Testmann"}]):
+    return mock.patch("app.services.gruppen_quiz.personen",
+                      return_value={"ok": False, "fehler": gruppen_quiz.FEHLT_HINWEIS})
+
+
+def _katalog(ordner, inhalt):
+    pfad = ordner / "gesichter_katalog.json"
+    pfad.write_text(inhalt if isinstance(inhalt, str) else json.dumps(inhalt), encoding="utf-8")
+    return mock.patch("app.services.gesichter_service.KATALOG_DATEI", pfad)
+
+
+def test_streng_rueckfall_auf_alten_katalog_und_fehlende_kontaktdatei(quellen):
+    with _quiz_fehlt(), _katalog(quellen, {"personen": [{"name": "Bo Testmann"}]}):
         b = werkzeuge.bekannte_namen_streng()
     assert b is not None and ws.enthaelt_namen("Bo", b)
+
+
+def test_streng_ohne_quiz_und_ohne_katalog_ist_leer_aber_lesbar(quellen):
+    with _quiz_fehlt(), mock.patch("app.services.gesichter_service.KATALOG_DATEI",
+                                   quellen / "fehlt.json"):
+        b = werkzeuge.bekannte_namen_streng()
+    assert b is not None and b.anzahl() == {"teile": 0, "volle": 0}
+
+
+@pytest.mark.parametrize("inhalt", ["{kaputt", '"nur Text"', '{"andere": 1}'])
+def test_streng_kaputter_alter_katalog_ergibt_none(quellen, inhalt):
+    """Codex-Ergebnisprüfung R1/1: liste_personen() liefert bei Lesefehlern still []."""
+    with _quiz_fehlt(), _katalog(quellen, inhalt):
+        assert werkzeuge.bekannte_namen_streng() is None
+
+
+@pytest.mark.parametrize("chat", [
+    {"telefonbuch_namen": "Erika Fremdmann"},          # Text statt Liste
+    {"telefonbuch_namen": [42]},
+    {"whatsapp_name": ["Udo Testmann"]},
+    {"teilnehmer": {"name": "Lea Muster"}},            # Objekt statt Liste
+    {"teilnehmer": ["Lea Muster"]},
+    {"teilnehmer": [{"name": 7}]},
+    "kein Objekt",
+])
+def test_streng_beschaedigte_kontaktfelder_ergeben_none(quellen, chat):
+    """Codex-Ergebnisprüfung R1/2: falscher Feldtyp sperrt, statt Buchstaben zu lesen."""
+    _kontaktdatei(quellen, {"chats": [chat]})
+    with mock.patch("app.services.gruppen_quiz.personen",
+                    return_value={"ok": True, "personen": [{"name": "Ida"}]}):
+        assert werkzeuge.bekannte_namen_streng() is None
 
 
 def test_streng_kaputte_kontaktdatei_ergibt_none(quellen):
