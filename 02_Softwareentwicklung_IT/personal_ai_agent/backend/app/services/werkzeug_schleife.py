@@ -33,6 +33,53 @@ MAX_RUNDEN = 5
 MAX_AUFRUFE_JE_RUNDE = 4
 MAX_BILDER_JE_RUNDE = 3
 
+# DeepSeeks eigenes Format fuer Werkzeugaufrufe. Kommt es als TEXT statt als
+# ``tool_calls`` (Befund 12.10.2026, Ursache nicht belegt), darf es nicht im Chat
+# erscheinen. Beide Schreibweisen: Vollbreiten-Strich (U+FF5C) und ASCII.
+DSML_MARKEN = ("<｜DSML｜", "<|DSML|")
+DSML_STATUS = "⚠️ Das Modell hat einen Werkzeugaufruf als Text geschickt – er wurde nicht ausgeführt."
+
+
+class DsmlAlsText(RuntimeError):
+    """Werkzeugaufruf kam als DSML-Text, bevor Antworttext kam (-> Rueckfall)."""
+
+
+class _DsmlFilter:
+    """Haelt Text zurueck, solange er der Anfang einer DSML-Marke sein kann.
+
+    ``geben(stueck)`` liefert den sicher anzeigbaren Text; ab der ersten Marke ist
+    ``gefunden`` wahr und es kommt nichts mehr. ``rest()`` gibt am Rundenende den
+    zurueckgehaltenen Text frei (war doch keine Marke).
+    """
+
+    def __init__(self) -> None:
+        self.puffer = ""
+        self.gefunden = False
+
+    def geben(self, stueck: str) -> str:
+        if self.gefunden:
+            return ""
+        self.puffer += stueck
+        treffer = [self.puffer.find(m) for m in DSML_MARKEN if m in self.puffer]
+        if treffer:
+            self.gefunden = True
+            ausgabe, self.puffer = self.puffer[:min(treffer)], ""
+            return ausgabe
+        # Laengstes Ende des Puffers, das Anfang einer Marke ist, zurueckhalten.
+        halten = 0
+        for marke in DSML_MARKEN:
+            for n in range(min(len(marke) - 1, len(self.puffer)), 0, -1):
+                if self.puffer.endswith(marke[:n]):
+                    halten = max(halten, n)
+                    break
+        ausgabe = self.puffer[:len(self.puffer) - halten]
+        self.puffer = self.puffer[len(self.puffer) - halten:]
+        return ausgabe
+
+    def rest(self) -> str:
+        ausgabe, self.puffer = ("" if self.gefunden else self.puffer), ""
+        return ausgabe
+
 
 def _feld(obj: Any, name: str) -> Any:
     """Feld aus SDK-Objekt oder dict lesen."""
@@ -77,12 +124,16 @@ def laufe(
     """Schleife ausfuehren; ``messages`` wird dabei fortgeschrieben."""
     gesehen: set = set()
     runde = 0
+    # Kam in DIESER Antwort (ueber alle Runden) schon Text? Entscheidet bei DSML
+    # zwischen Rueckfall (noch nichts gezeigt) und Statuszeile.
+    antwort_text_kam = False
     while True:
         # Nach max_runden Runden mit Werkzeugen: Antwort erzwingen.
         erzwingen = runde >= max_runden
         text_teile: List[str] = []
         aufrufe: Dict[int, Dict[str, str]] = {}
         denken: Dict[Any, Dict[str, Any]] = {}
+        dsml = _DsmlFilter()
 
         for chunk in erstellen(messages, "none" if erzwingen else None):
             wahl = (_feld(chunk, "choices") or [None])[0]
@@ -97,7 +148,10 @@ def laufe(
                     yield {"sources": neue}
             stueck = _feld(delta, "content")
             if stueck:
+                stueck = dsml.geben(stueck)
+            if stueck:
                 text_teile.append(stueck)
+                antwort_text_kam = True
                 yield {"delta": stueck}
             _denkteile_mischen(denken, _feld(delta, "reasoning_details"))
             for tc in _feld(delta, "tool_calls") or []:
@@ -111,6 +165,18 @@ def laufe(
                     eintrag["name"] = _feld(fn, "name")
                 if _feld(fn, "arguments"):
                     eintrag["arguments"] += _feld(fn, "arguments")
+
+        if dsml.gefunden:
+            logger.warning("DSML als Text erkannt (Runde %d) - nicht angezeigt", runde)
+            if not antwort_text_kam:
+                raise DsmlAlsText("Werkzeugaufruf kam als DSML-Text")
+            yield {"status": DSML_STATUS}
+            return
+        rest = dsml.rest()
+        if rest:
+            text_teile.append(rest)
+            antwort_text_kam = True
+            yield {"delta": rest}
 
         if erzwingen or not aufrufe:
             return

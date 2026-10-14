@@ -79,6 +79,29 @@ Module:
 - `llm_service.chat_stream(..., werkzeuge=True)` → nutzt die Schleife.
 - `router/chat.py` (Stream-Weg) — bei `werkzeuge=an` keine Vorab-Weiche.
 
+### Websuche und persönliche Fragen (seit 14.10.2026)
+
+- **Harte Sperre im Code:** `app/services/websuche_schutz.py`, verdrahtet in `/chat` und `/stream`
+  über `router/chat.py::_websuche_modus`.
+  - Die Websuche (`manual` und `auto`) wird `off`, sobald etwas, das das Modell sieht, persönlich
+    ist. Geprüft werden die Nachricht mit ihren Werkzeug-Zusätzen, die Nutzer-Nachrichten des
+    übertragenen Verlaufs und die Zusammenfassung.
+  - Persönlich heißt: ein Bild- oder Medienwort, ein Familienwort oder der Name einer bekannten
+    Person. Die Namen liefert `werkzeuge.bekannte_namen()` aus derselben Quelle wie `personen_liste`.
+  - Ausnahme nur bei einem Suchauftrag in der eigenen Nachricht („Such im Internet nach …“,
+    „Google mal …“), und nur ohne Sperrwort wie „nicht“, „ohne“ oder „verzichte“.
+  - Im Stream erscheint dann „🔒 Websuche für diese Frage aus (persönlich)“. Das Log nennt nur den
+    Grund, nie Text oder Namen.
+- **Weicher Riegel:** `werkzeuge.SYSTEM_HINWEIS` verbietet die Internetsuche nach Personen, Fotos
+  und Erinnerungen ohne ausdrücklichen Wunsch.
+- **DSML-Filter:** Schickt DeepSeek einen Werkzeugaufruf als Text (`<｜DSML｜…`), zeigt die Schleife
+  ihn nicht an.
+  - Kam vorher noch kein Antworttext, wirft sie `DsmlAlsText`, und `chat_stream` antwortet ohne
+    Werkzeuge.
+  - Kam schon Text, erscheint eine Statuszeile.
+  - Die Ursache für DSML im Text ist **nicht** geklärt; eine Messung steht aus.
+- **Grenze:** Eine Suchanfrage, die schon gesendet wurde, lässt sich nicht zurückholen.
+
 ## 6. Prüfung
 
 - Offline-Tests: Register (Schemata gültig, unbekanntes Werkzeug, kaputte Argumente, Pfad-Ausbruch),

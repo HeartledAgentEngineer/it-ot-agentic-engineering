@@ -39,7 +39,10 @@ SYSTEM_HINWEIS = (
     "davon abhängt, schlage nach, statt zu raten - auch mehrere Werkzeuge nacheinander "
     "(z. B. erst dateien_suchen, dann datei_ansehen, dann archiv_suchen). Für Allgemeinwissen "
     "und Plaudern brauchst du keine Werkzeuge. Findet ein Werkzeug nichts, sag das ehrlich "
-    "und erfinde keine Dateien, Fundstellen oder Personen."
+    "und erfinde keine Dateien, Fundstellen oder Personen. "
+    "Suche nie im Internet nach Personen aus Sebastians Leben, nach seinen Fotos oder "
+    "Erinnerungen, außer er verlangt das ausdrücklich - dafür sind personen_liste, "
+    "person_auskunft und fotos_mit_person da."
 )
 
 _BILD_ENDUNGEN = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -393,6 +396,34 @@ def _fotos_mit_person(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen(f"{len(gefunden)} Foto(s) mit {person}:\n" + "\n".join(zeilen)))
 
 
+def _bekannte_personen() -> tuple:
+    """Die eine Quelle für bekannte Personen: ``("quiz", liste)`` aus dem
+    Personen-Quiz, bei leerem Quiz ``("alt", liste)`` aus dem alten
+    Gesichtskatalog. Genutzt von ``personen_liste`` und ``bekannte_namen``
+    (Websuche-Sperre), damit beide dieselben Personen kennen."""
+    from app.services import gruppen_quiz
+
+    quiz = gruppen_quiz.personen()
+    personen = (quiz.get("personen") or []) if quiz.get("ok") else []
+    if personen:
+        return "quiz", personen
+    from app.services import gesichter_service
+
+    return "alt", gesichter_service.liste_personen() or []
+
+
+def bekannte_namen() -> List[str]:
+    """Namen aller bekannten Personen (für die Websuche-Sperre). Wirft nie:
+    Ist nichts lesbar, ist die Liste leer."""
+    try:
+        _, personen = _bekannte_personen()
+        return [str(p.get("name")).strip() for p in personen
+                if isinstance(p, dict) and str(p.get("name") or "").strip()]
+    except Exception:
+        logger.warning("bekannte_namen: Personen nicht lesbar - Liste leer")
+        return []
+
+
 def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
     """Bekannte Personen — aus dem Personen-Quiz (dieselbe Quelle, die das Quiz
     führt), nicht mehr aus dem alten Gesichtskatalog.
@@ -403,14 +434,9 @@ def _personen_liste(args: Dict[str, Any]) -> Ergebnis:
     Personen führt. Nur wenn diese Dateien fehlen, greift der alte Katalog als
     Notnagel. Bewusst nur Klartext — nie Vektoren, Miniaturen oder Pfade.
     """
-    from app.services import gruppen_quiz
-
-    quiz = gruppen_quiz.personen()
-    personen = (quiz.get("personen") or []) if quiz.get("ok") else []
-    if not personen:
-        from app.services import gesichter_service
-
-        alt = gesichter_service.liste_personen() or []
+    quelle, personen = _bekannte_personen()
+    if quelle == "alt":
+        alt = personen
         if not alt:
             return Ergebnis("Es sind noch keine Personen angelernt.")
         zeilen = []

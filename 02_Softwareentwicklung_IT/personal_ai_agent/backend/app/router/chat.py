@@ -525,11 +525,16 @@ async def chat(request: ChatRequest):
                                            or "claude" in modell_fuer_call)):
             modell_fuer_call = vision_modell
 
+        # Websuche-Sperre bei persönlichen Fragen (websuche_schutz): geprüft wird
+        # alles, was das Modell sieht – Nachricht samt Zusätzen, Verlauf, Zusammenfassung.
+        web_modus, _ = _websuche_modus(request, user_message_fuer_llm,
+                                       begrenzte_history, kontext_summary)
+
         reply, quellen = llm_service.chat(
             user_message=user_message_fuer_llm,
             conversation_history=begrenzte_history,
             memories=memories,
-            web_search=request.web_search,
+            web_search=web_modus,
             model=modell_fuer_call,
             no_retention=request.no_retention,
             archiv=archiv,
@@ -1747,6 +1752,29 @@ def _verlauf_tool(frage: str, verlauf: Optional[Dict[str, list]] = None) -> str:
     )
 
 
+def _websuche_modus(request: ChatRequest, an_modell: str, verlauf: list,
+                    zusammenfassung: str) -> tuple:
+    """Websuche-Modus nach der Sperre bei persönlichen Fragen: ``(modus, grund)``.
+
+    Die Ausnahme (Suchauftrag) gilt nur für die eigene Nachricht; als persönlich
+    zählt auch, was das Modell sonst sieht: die Nachricht mit Werkzeug-Zusätzen,
+    die Nutzer-Nachrichten des übertragenen Verlaufs und die Zusammenfassung.
+    Wirft nie – im Fehlerfall ist die Websuche aus.
+    """
+    modus = request.web_search
+    if modus not in ("manual", "auto"):
+        return modus, ""
+    try:
+        from app.services import websuche_schutz, werkzeuge
+
+        weitere = [an_modell] + websuche_schutz.nutzertexte(verlauf, zusammenfassung)
+        return websuche_schutz.wirksamer_modus(
+            modus, request.message, weitere, werkzeuge.bekannte_namen())
+    except Exception:
+        logger.exception("Websuche-Sperre fehlgeschlagen - Websuche aus")
+        return "off", "fehler"
+
+
 def _hole_kontext_summary(conversation_id: str, historie: list, frage: str) -> tuple:
     """Holt das Rolling-Summary der Conversation (+ rollt bei Bedarf neu).
 
@@ -2126,12 +2154,17 @@ async def chat_stream(request: ChatRequest):
                     or "gpt-5" in s_modell or "sonnet" in s_modell
                     or "claude" in s_modell)):
                 s_modell = "google/gemini-2.5-flash"
+            # Websuche-Sperre bei persönlichen Fragen (wie in /chat).
+            s_web_modus, s_web_grund = _websuche_modus(request, s_user,
+                                                       s_hist_begrenzt, s_summary)
+            if s_web_grund:
+                yield _sse({"status": "🔒 Websuche für diese Frage aus (persönlich)"})
             try:
                 for ereignis in llm_service.chat_stream(
                     user_message=s_user,
                     conversation_history=s_hist_begrenzt,
                     memories=memories,
-                    web_search=request.web_search,
+                    web_search=s_web_modus,
                     model=s_modell,
                     no_retention=request.no_retention,
                     archiv=archiv,
