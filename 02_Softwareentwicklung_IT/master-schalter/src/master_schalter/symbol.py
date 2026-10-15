@@ -1,4 +1,6 @@
-"""Das Bild des Taskleisten-Symbols: zwei senkrechte Balken (links Claude, rechts Codex)."""
+"""Das Bild des Taskleisten-Symbols: zwei senkrechte Balken (links Claude, rechts Codex).
+
+Ein kleiner weißer Punkt über dem Balken zeigt den aktiven Master."""
 from __future__ import annotations
 
 from PIL import Image, ImageDraw
@@ -12,7 +14,13 @@ RAHMEN = (229, 231, 235)
 WARN_AB = 80
 
 # (links, oben, rechts, unten) je Balken
-BALKEN = ((6, 4, 29, 61), (35, 4, 58, 61))
+BALKEN = ((6, 12, 29, 61), (35, 12, 58, 61))
+
+# Punkt des aktiven Masters: über dem Balken, Mittelpunkt (x = Balkenmitte, y = PUNKT_Y)
+WEISS = (255, 255, 255)
+PUNKT_Y = 6
+PUNKT_RADIUS = 4
+MASTER_BALKEN = {"claude": 0, "codex": 1}
 
 
 def balken_mitte() -> tuple[int, int]:
@@ -25,8 +33,10 @@ def _farbe(prozent: float, grundfarbe: tuple[int, int, int], schwelle: int) -> t
     return GELB if prozent >= WARN_AB else grundfarbe
 
 
-def bild(claude: float | None, codex: float | None, schwelle: int) -> Image.Image:
-    """Füllhöhe = 5-Stunden-Verbrauch; gelb ab 80 %, rot ab Schwelle; leer = unbekannt."""
+def bild(claude: float | None, codex: float | None, schwelle: int, master: str | None = None) -> Image.Image:
+    """Füllhöhe = 5-Stunden-Verbrauch; gelb ab 80 %, rot ab Schwelle; leer = unbekannt.
+
+    `master` ("claude" | "codex") setzt den weißen Punkt über den Balken des aktiven Masters."""
     b = Image.new("RGBA", (GROESSE, GROESSE), (0, 0, 0, 0))
     zeichnen = ImageDraw.Draw(b)
     for (links, oben, rechts, unten), prozent, grundfarbe in zip(BALKEN, (claude, codex), (CLAUDE, CODEX)):
@@ -39,4 +49,8 @@ def bild(claude: float | None, codex: float | None, schwelle: int) -> Image.Imag
             continue
         zeichnen.rectangle((links + 2, innen_unten - hoehe, rechts - 2, innen_unten),
                            fill=_farbe(prozent, grundfarbe, schwelle))
+    if master in MASTER_BALKEN:
+        x = balken_mitte()[MASTER_BALKEN[master]]
+        zeichnen.ellipse((x - PUNKT_RADIUS, PUNKT_Y - PUNKT_RADIUS, x + PUNKT_RADIUS, PUNKT_Y + PUNKT_RADIUS),
+                         fill=WEISS + (255,))
     return b

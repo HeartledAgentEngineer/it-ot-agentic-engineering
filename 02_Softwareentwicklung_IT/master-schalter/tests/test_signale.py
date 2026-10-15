@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import pytest
+
 from master_schalter import signale
 
 JETZT = datetime(2026, 10, 14, 18, 0, tzinfo=timezone.utc)
@@ -252,6 +254,60 @@ def test_claude_schreiben_ohne_werte_laesst_alte_datei_stehen(tmp_path):
     assert signale.claude_lesen(datei, jetzt=JETZT).fenster_nach_name("5h").prozent == 40
 
 
+@pytest.mark.parametrize("wert", [float("nan"), float("inf"), float("-inf"), 1e309, 10**1000])
+def test_zahl_lehnt_nicht_endliche_oder_nicht_umwandelbare_werte_ab(wert):
+    assert signale._zahl(wert) is None
+
+
+def test_zahl_begrenzt_zeitstempel_nicht_auf_prozentbereich():
+    assert signale._zahl(1e300) == 1e300
+
+
+@pytest.mark.parametrize("wert", [float("nan"), 1e309, -1, 100.5, True])
+def test_claude_ungueltiger_prozentwert_erhaelt_alte_datei(tmp_path, wert):
+    datei = tmp_path / "kontingent-claude.json"
+    assert signale.claude_schreiben(_rate_limits(), datei, jetzt=JETZT)
+    alt = datei.read_bytes()
+    neu = _rate_limits(fuenf=wert)
+
+    assert signale.claude_schreiben(neu, datei, jetzt=JETZT) is False
+    assert datei.read_bytes() == alt
+
+
+@pytest.mark.parametrize("fehlend", ["five_hour", "seven_day"])
+def test_claude_fehlendes_fenster_erhaelt_alte_datei(tmp_path, fehlend):
+    datei = tmp_path / "kontingent-claude.json"
+    assert signale.claude_schreiben(_rate_limits(), datei, jetzt=JETZT)
+    alt = datei.read_bytes()
+    neu = _rate_limits()
+    del neu[fehlend]
+
+    assert signale.claude_schreiben(neu, datei, jetzt=JETZT) is False
+    assert datei.read_bytes() == alt
+
+
+def test_claude_nicht_parsebarer_reset_erhaelt_alte_datei(tmp_path):
+    datei = tmp_path / "kontingent-claude.json"
+    assert signale.claude_schreiben(_rate_limits(), datei, jetzt=JETZT)
+    alt = datei.read_bytes()
+
+    assert signale.claude_schreiben(_rate_limits(reset=1e300), datei, jetzt=JETZT) is False
+    assert datei.read_bytes() == alt
+
+
+@pytest.mark.parametrize("wert", [float("nan"), float("inf"), -1, 100.5, True])
+def test_claude_ungueltiger_prozentwert_aus_datei_ergibt_keine_daten(tmp_path, wert):
+    datei = tmp_path / "kontingent-claude.json"
+    rate_limits = _rate_limits()
+    rate_limits["five_hour"]["used_percentage"] = wert
+    datei.write_text(json.dumps({"gelesen_um": JETZT.isoformat(), "rate_limits": rate_limits}), encoding="utf-8")
+
+    k = signale.claude_lesen(datei, jetzt=JETZT)
+
+    assert k.fehler == "keine Daten"
+    assert k.fenster == ()
+
+
 def test_claude_schreiben_hinterlaesst_keine_temp_datei(tmp_path):
     datei = tmp_path / "unter" / "kontingent-claude.json"
     signale.claude_schreiben(_rate_limits(), datei, jetzt=JETZT)
@@ -262,9 +318,9 @@ def test_claude_fehlende_oder_kaputte_datei(tmp_path):
     datei = tmp_path / "kontingent-claude.json"
     assert signale.claude_lesen(datei, jetzt=JETZT).fehler == "keine Daten"
     datei.write_text("{kaputt", encoding="utf-8")
-    assert signale.claude_lesen(datei, jetzt=JETZT).fehler == "Datei unlesbar"
+    assert signale.claude_lesen(datei, jetzt=JETZT).fehler == "keine Daten"
     datei.write_text("[1, 2]", encoding="utf-8")
-    assert signale.claude_lesen(datei, jetzt=JETZT).fehler == "Datei unlesbar"
+    assert signale.claude_lesen(datei, jetzt=JETZT).fehler == "keine Daten"
 
 
 def test_claude_abgelaufenes_fenster(tmp_path):

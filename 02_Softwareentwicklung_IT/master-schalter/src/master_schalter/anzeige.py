@@ -4,10 +4,18 @@ from __future__ import annotations
 import json
 from datetime import datetime, tzinfo
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .signale import Fenster, Kontingent, daten_ordner
+from . import rollen
+from .signale import Fenster, Kontingent, _atomar_schreiben, daten_ordner
+from .zustand import Zustand
+
+if TYPE_CHECKING:
+    from .wechsel import Ergebnis
 
 STANDARD_SCHWELLE = 97
+SCHWELLEN = (80, 90, 95, 97, 100)   # Auswahl im Menü „Wechsel-Schwelle"
+MASTER_NAMEN = {"claude": "Claude", "codex": "Codex"}
 WARN_AB = 80
 TOOLTIP_MAX = 127   # Windows schneidet Tooltips von Taskleisten-Symbolen bei 127 Zeichen ab
 HINWEIS_MAX = 255   # Windows-Benachrichtigungen fassen höchstens 255 Zeichen
@@ -30,8 +38,13 @@ def _prozent(k: Kontingent, name: str) -> float | None:
     return f.prozent if f else None
 
 
-def tooltip(kontingente: list[Kontingent]) -> str:
-    teile = []
+def tooltip_kopf(master: str | None, lage: str | None) -> str:
+    """Anfang des Tooltips, z. B. „M Claude L1" (Master und Lage)."""
+    return f"M {MASTER_NAMEN.get(master, '–')} L{lage or '?'}"
+
+
+def tooltip(kontingente: list[Kontingent], kopf: str | None = None) -> str:
+    teile = [kopf] if kopf else []
     for k in kontingente:
         if k.fehler:
             teile.append(f"{k.master}: {k.fehler}")
@@ -93,3 +106,86 @@ def schwelle(datei: Path | None = None) -> int:
     if isinstance(wert, bool) or not isinstance(wert, int) or not 1 <= wert <= 100:
         return STANDARD_SCHWELLE
     return wert
+
+
+def schwelle_setzen(wert: int, datei: Path | None = None) -> None:
+    """Schreibt die Schwelle (ganze Zahl 1–100) atomar; andere Felder der Datei bleiben erhalten."""
+    if isinstance(wert, bool) or not isinstance(wert, int) or not 1 <= wert <= 100:
+        raise ValueError(f"Schwelle muss eine ganze Zahl von 1 bis 100 sein, nicht {wert!r}")
+    datei = datei or einstellungen_datei()
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {}
+    if not isinstance(roh, dict):
+        roh = {}
+    roh["schwelle"] = wert
+    _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+
+
+def claude_takt_min(datei: Path | None = None) -> int:
+    """Messintervall in Minuten (1–60) aus `einstellungen.json`, sonst jede Minute."""
+    try:
+        roh = json.loads((datei or einstellungen_datei()).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 1
+    wert = roh.get("claude_takt_min") if isinstance(roh, dict) else None
+    if isinstance(wert, bool) or not isinstance(wert, int) or not 1 <= wert <= 60:
+        return 1
+    return wert
+
+
+def claude_takt_setzen(wert: int, datei: Path | None = None) -> None:
+    """Speichert das Claude-Messintervall (ganze Minuten 1–60) und erhält andere Felder."""
+    if isinstance(wert, bool) or not isinstance(wert, int) or not 1 <= wert <= 60:
+        raise ValueError("Claude-Takt muss eine ganze Zahl von 1 bis 60 sein")
+    datei = datei or einstellungen_datei()
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {}
+    if not isinstance(roh, dict):
+        roh = {}
+    roh["claude_takt_min"] = wert
+    _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+
+
+# --- Master und Lage ---------------------------------------------------------
+
+def master_menuezeile(z: Zustand, zone: tzinfo | None = None) -> str:
+    """„Master: Claude (seit 14.10. 21:50)" bzw. „Master: nicht gesetzt"."""
+    if z.master is None:
+        return "Master: nicht gesetzt"
+    zeile = f"Master: {MASTER_NAMEN[z.master]}"
+    try:
+        seit = datetime.fromisoformat(z.seit) if z.seit else None
+    except ValueError:
+        seit = None
+    return zeile + (f" (seit {_zeit(seit, zone)})" if seit else "")
+
+
+def lage_zeilen(lage: str | None, grund: str) -> list[str]:
+    """Menüzeilen zur Lage: Besetzung bei bekannter Lage, sonst „Lage ? – Grund"."""
+    b = rollen.besetzung(lage)
+    if b is None:
+        return ["Lage ?" + (f" – {grund}" if grund else "")]
+    return [f"Lage {lage}: {b.name}", f"  Thinker: {b.thinker}", f"  Reviewer: {b.reviewer}",
+            f"  Worker: {b.worker}"]
+
+
+def master_status_zeile(z: Zustand, lage: str | None, grund: str) -> str:
+    """Zeile für `masterwechsel status`: „Master: Claude · Lage 1"."""
+    name = MASTER_NAMEN.get(z.master, "nicht gesetzt")
+    return f"Master: {name} · " + (f"Lage {lage}" if lage else "Lage ?" + (f" – {grund}" if grund else ""))
+
+
+def wechsel_hinweis(ergebnis: "Ergebnis") -> str:
+    """Text der Windows-Benachrichtigung nach einem Klick auf „Master wechseln"."""
+    name = MASTER_NAMEN[ergebnis.master]
+    if ergebnis.art == "gewechselt":
+        text = f"Master jetzt {name} – Übergabe: {ergebnis.paket.name}. Im {name}-Chat lesen lassen."
+    elif ergebnis.art == "gleich":
+        text = f"Master ist schon {name}."
+    else:
+        text = f"Wechsel fehlgeschlagen: {ergebnis.meldung}"
+    return text[:HINWEIS_MAX]

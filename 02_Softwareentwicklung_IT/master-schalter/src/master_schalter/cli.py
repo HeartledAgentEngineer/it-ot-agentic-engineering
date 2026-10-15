@@ -3,6 +3,9 @@
     masterwechsel status              beide Kontingente anzeigen
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
+    masterwechsel master              aktiven Master, Lage und Besetzung anzeigen
+    masterwechsel wechsel claude|codex [--hinweis TEXT]
+                                      Master wechseln und Übergabepaket schreiben
 """
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, anzeige, signale
+from . import __version__, anzeige, claude_messen, rollen, signale, wechsel, zustand
 
 
 def _statuszeile() -> int:
@@ -47,6 +50,51 @@ def _claude_kontingent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _claude_messen() -> int:
+    try:
+        claude_messen.messen()
+    except claude_messen.MessFehler as fehler:
+        print(f"Claude-Messung fehlgeschlagen: {fehler}", file=sys.stderr)
+        return 1
+    except Exception:
+        print("Claude-Messung fehlgeschlagen.", file=sys.stderr)
+        return 1
+    print("Claude-Kontingent aktualisiert.")
+    return 0
+
+
+def _lage(kontingente: list[signale.Kontingent]) -> tuple[str | None, str]:
+    claude, codex = kontingente
+    schwelle = anzeige.schwelle()
+    return rollen.lage(claude, codex, schwelle), rollen.lage_grund(claude, codex, schwelle)
+
+
+def master_zeile() -> str:
+    """Die Zeile „Master: … · Lage …" für `status` und andere Anzeigen."""
+    lage, grund = _lage(signale.alle_lesen())
+    return anzeige.master_status_zeile(zustand.lesen(), lage, grund)
+
+
+def _master() -> int:
+    lage, grund = _lage(signale.alle_lesen())
+    print(anzeige.master_menuezeile(zustand.lesen()))
+    print("\n".join(anzeige.lage_zeilen(lage, grund)))
+    return 0
+
+
+def _wechsel(args: argparse.Namespace) -> int:
+    erg = wechsel.wechseln(args.nach, args.hinweis)
+    if erg.art == "fehler":
+        print(f"Wechsel fehlgeschlagen: {erg.meldung}", file=sys.stderr)
+        return 1
+    if erg.art == "gleich":
+        print(f"Master ist schon {anzeige.MASTER_NAMEN[erg.master]} – kein Wechsel, kein Paket.")
+        return 0
+    print(f"Master jetzt {anzeige.MASTER_NAMEN[erg.master]}.")
+    print(f"Übergabepaket: {erg.paket}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="masterwechsel", description="Befehlszeile des Master-Schalters")
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
@@ -58,6 +106,11 @@ def _parser() -> argparse.ArgumentParser:
     hand.add_argument("--woche", type=_prozent, required=True, help="Wochen-Verbrauch in Prozent")
     hand.add_argument("--reset-fuenf", type=_zeitpunkt, required=True, help="ISO-Zeitpunkt")
     hand.add_argument("--reset-woche", type=_zeitpunkt, required=True, help="ISO-Zeitpunkt")
+    unter.add_parser("claude-messen", help="Claude-Kontingent über die OAuth-API messen")
+    unter.add_parser("master", help="aktiven Master, Lage und Besetzung anzeigen")
+    w = unter.add_parser("wechsel", help="Master wechseln und Übergabepaket schreiben")
+    w.add_argument("nach", choices=zustand.MASTER, help="neuer Master")
+    w.add_argument("--hinweis", default=None, help="Hinweis an den neuen Master (nur Technik, kein Chat-Rohtext)")
     return p
 
 
@@ -72,6 +125,14 @@ def main(argv: list[str] | None = None) -> int:
         return _statuszeile()
     if args.befehl == "claude-kontingent":
         return _claude_kontingent(args)
+    if args.befehl == "claude-messen":
+        return _claude_messen()
+    if args.befehl == "master":
+        return _master()
+    if args.befehl == "wechsel":
+        return _wechsel(args)
+    if args.befehl == "status":
+        print(master_zeile())
     print("\n".join(anzeige.details(signale.alle_lesen())))
     return 0
 

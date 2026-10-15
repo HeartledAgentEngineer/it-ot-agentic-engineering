@@ -58,4 +58,27 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.1.0" in capsys.readouterr().out
+    assert "0.2.0" in capsys.readouterr().out
+
+
+def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
+    aufrufe = []
+    monkeypatch.setattr(cli.claude_messen, "messen", lambda **kw: aufrufe.append(kw) or True)
+
+    assert cli.main(["claude-messen"]) == 0
+
+    assert aufrufe == [{}]
+    assert capsys.readouterr().out.strip() == "Claude-Kontingent aktualisiert."
+
+
+def test_claude_messen_cli_zeigt_nur_sicheren_fehler(daten, monkeypatch, capsys):
+    def fehler(**kw):
+        raise cli.claude_messen.MessFehler("Claude-Anmeldung abgelaufen – Claude Code einmal starten")
+
+    monkeypatch.setattr(cli.claude_messen, "messen", fehler)
+
+    assert cli.main(["claude-messen"]) == 1
+
+    aus = capsys.readouterr()
+    assert "Claude-Anmeldung abgelaufen" in aus.err
+    assert "Traceback" not in aus.out + aus.err

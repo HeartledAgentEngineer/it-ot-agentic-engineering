@@ -1,18 +1,20 @@
 """Kontingente (Nutzungsgrenzen) von Claude Code und Codex lesen.
 
-Beide Quellen sind lokale Dateien; es wird nichts übers Netz abgefragt und
-keine Zugangsdaten gelesen.
+Codex wird aus lokalen Sitzungsdateien gelesen. `claude_messen` fragt den
+Claude-Usage-Endpunkt ab und übergibt nur geprüfte Prozentwerte und
+Rücksetzzeiten an `claude_schreiben`; `claude_lesen` bleibt Datei-Leser.
 
 * Codex schreibt seine Kontingente in die eigenen Sitzungsdateien
   (`~/.codex/sessions/**/rollout-*.jsonl`, Ereignis `token_count`). Daraus
   werden ausschließlich Zahlen übernommen (Prozent, Rücksetzzeit, Zeitstempel);
   der Rest jeder Zeile wird im Speicher verworfen.
-* Claude Code liefert die Kontingente an die Statuszeile. `claude_schreiben`
-  legt nur diese Werte in `kontingent-claude.json` ab; `claude_lesen` liest sie.
+* `claude_schreiben` legt nur Prozent und Rücksetzzeiten in
+  `kontingent-claude.json` ab; `claude_lesen` liest und prüft sie.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from dataclasses import dataclass
@@ -49,7 +51,17 @@ class Kontingent:
 def _zahl(wert: Any) -> float | None:
     if isinstance(wert, bool) or not isinstance(wert, (int, float)):
         return None
-    return float(wert)
+    try:
+        zahl = float(wert)
+    except (OverflowError, ValueError):
+        return None
+    return zahl if math.isfinite(zahl) else None
+
+
+def _prozent(wert: Any) -> float | None:
+    """Claude-Prozent zwischen 0 und 100; Zeitstempel verwenden weiter `_zahl`."""
+    zahl = _zahl(wert)
+    return zahl if zahl is not None and 0 <= zahl <= 100 else None
 
 
 def _epoche(wert: Any) -> datetime | None:
@@ -229,17 +241,17 @@ def claude_datei() -> Path:
 
 def _claude_filtern(rate_limits: Any) -> dict:
     """Nur Prozent und Rücksetzzeit der beiden Abo-Fenster übernehmen."""
-    sauber: dict = {}
     if not isinstance(rate_limits, dict):
-        return sauber
+        return {}
+    sauber: dict = {}
     for schluessel, _ in CLAUDE_FENSTER:
         roh = rate_limits.get(schluessel)
         if not isinstance(roh, dict):
-            continue
-        prozent = _zahl(roh.get("used_percentage"))
+            return {}
+        prozent = _prozent(roh.get("used_percentage"))
         reset = _zahl(roh.get("resets_at"))
-        if prozent is None or reset is None:
-            continue
+        if prozent is None or reset is None or _epoche(reset) is None:
+            return {}
         sauber[schluessel] = {"used_percentage": prozent, "resets_at": reset}
     return sauber
 
@@ -259,7 +271,7 @@ def _atomar_schreiben(datei: Path, inhalt: str) -> None:
 def claude_schreiben(rate_limits: Any, datei: Path | None = None, jetzt: datetime | None = None) -> bool:
     """Speichert die Claude-Kontingente; ohne gültige Werte bleibt die alte Datei stehen."""
     sauber = _claude_filtern(rate_limits)
-    if not sauber:
+    if len(sauber) != len(CLAUDE_FENSTER):
         return False
     jetzt = jetzt or datetime.now(timezone.utc)
     inhalt = json.dumps({"gelesen_um": jetzt.isoformat(), "rate_limits": sauber}, ensure_ascii=False)
@@ -275,12 +287,25 @@ def claude_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Ko
     except FileNotFoundError:
         return Kontingent("Claude", fehler="keine Daten")
     except (OSError, ValueError):
-        return Kontingent("Claude", fehler="Datei unlesbar")
+        return Kontingent("Claude", fehler="keine Daten")
     if not isinstance(roh, dict) or not isinstance(roh.get("rate_limits"), dict):
-        return Kontingent("Claude", fehler="Datei unlesbar")
+        return Kontingent("Claude", fehler="keine Daten")
     grenzen = roh["rate_limits"]
+    fenster = []
+    for schluessel, name in CLAUDE_FENSTER:
+        daten = grenzen.get(schluessel)
+        if not isinstance(daten, dict):
+            return Kontingent("Claude", fehler="keine Daten")
+        prozent = _prozent(daten.get("used_percentage"))
+        reset = _epoche(daten.get("resets_at"))
+        if prozent is None or reset is None:
+            return Kontingent("Claude", fehler="keine Daten")
+        if reset <= jetzt:
+            fenster.append(Fenster(name, 0.0, reset, zurueckgesetzt=True))
+        else:
+            fenster.append(Fenster(name, prozent, reset))
     return Kontingent("Claude", tuple(
-        _fenster(name, grenzen.get(schluessel), "used_percentage", jetzt) for schluessel, name in CLAUDE_FENSTER
+        fenster
     ), stand=_iso(roh.get("gelesen_um")))
 
 
