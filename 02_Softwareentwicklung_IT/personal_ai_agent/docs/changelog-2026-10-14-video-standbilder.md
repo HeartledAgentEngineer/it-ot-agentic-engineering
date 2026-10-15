@@ -200,3 +200,21 @@ Alle sechs sind behoben, jeder mit eigenem Test:
 Lauf: `tests/test_video_standbilder.py`, `test_gruppen_quiz_video.py`, `test_gruppen_quiz.py`,
 `test_video_standbilder_uebergabe.py` → 144 passed, 1 skipped (cv2 nicht im Backend-venv).
 Danach Ergebnisprüfung Runde 2 durch Codex.
+
+## Nachtrag 15.10.2026: Fortschritt und Begrenzung sichtbar
+
+Anlass: Beim großen Schreiblauf (343 Videos) zeigte die Konsole bis zum Ende nichts.
+
+- `Lauf(..., melden=...)`: Nach **jedem** fertigen Video ruft der Lauf `melden` mit einer Zeile aus
+  `fortschritt_zeile()` auf, z. B. `Video 12/343 · Standbilder 40 · Fehler 0 · noch ca. 95 min`.
+  „Fehler“ zählt `fehler` + `zu_gross`; die Restzeit ist eine einfache Hochrechnung aus der
+  bisherigen Dauer je Video und fehlt beim letzten Video. Nur Zahlen – keine Video-Kennung,
+  kein Dateiname, kein Pfad.
+- `main()` gibt die Zeilen sofort aus (`print(..., flush=True)`). `gesamt` berücksichtigt
+  `--max-videos`.
+- Trockenlauf und Schreiblauf nennen eine Begrenzung: Ist `--max-videos` kleiner als die Zahl der
+  offenen Videos, erscheint `Begrenzt mit --max-videos: dieser Lauf nimmt N davon.`
+- Tests (`backend/tests/test_video_standbilder.py`, +4): Zeilen je Video ohne Kennung, Zählung
+  von Fehlern und zu großen Videos, Restzeit, Konsolenausgabe im Schreiblauf, Hinweis auf die
+  Begrenzung nur bei gesetztem Schalter.
+- Rolle: kleine Änderung vom Thinker selbst umgesetzt (Abweichung von der Kaskaden-Matrix).
