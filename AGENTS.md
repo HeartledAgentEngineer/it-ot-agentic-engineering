@@ -246,6 +246,13 @@ Arbeitsbaum, gilt:
 - **Nie `git add -A`, nie `git commit -a`.** Stattdessen
   **`git commit --only <Pfad> <Pfad>`** mit ausdrücklich genannten Dateien —
   so bleiben fremde, halbfertige Änderungen draußen.
+- **Neue Dateien und amend (Lehre 15.10.):** `git commit --only` erfasst **keine** neuen
+  (untracked) Dateien — neue Dateien vorher mit `git add <Pfad>` vormerken, sonst entsteht ein
+  unvollständiger Commit (der Hook bleibt trotzdem grün, weil er den Arbeitsbaum testet).
+  `git commit --amend` (ohne Pfade) nimmt den **ganzen** Index mit — vorher
+  `git status --short` auf fremde `A `-Einträge prüfen; liegen fremde gestagte Dateien im Index,
+  sie mit `git rm --cached <Pfad>` aus dem eigenen Commit nehmen und danach wieder `git add`en
+  (Staging-Stand des anderen Strangs wiederherstellen).
 - Bei `cannot lock ref 'HEAD'` oder abgelehntem Push: **`git pull --rebase`**,
   dann erneut committen/pushen. **Niemals** `--force`.
 - Vor jedem Commit `git log --oneline -3` lesen: hat jemand anders gerade
