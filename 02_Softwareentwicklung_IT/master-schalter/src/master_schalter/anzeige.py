@@ -150,6 +150,28 @@ def claude_takt_setzen(wert: int, datei: Path | None = None) -> None:
     _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
 
 
+def automatik_an(datei: Path | None = None) -> bool:
+    """Automatik Claude → Codex: aus, solange `einstellungen.json` nichts anderes sagt."""
+    try:
+        roh = json.loads((datei or einstellungen_datei()).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(roh.get("automatik")) if isinstance(roh, dict) else False
+
+
+def automatik_setzen(an: bool, datei: Path | None = None) -> None:
+    """Automatik ein- oder ausschalten; andere Felder der Datei bleiben erhalten."""
+    datei = datei or einstellungen_datei()
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {}
+    if not isinstance(roh, dict):
+        roh = {}
+    roh["automatik"] = bool(an)
+    _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+
+
 # --- Master und Lage ---------------------------------------------------------
 
 def master_menuezeile(z: Zustand, zone: tzinfo | None = None) -> str:

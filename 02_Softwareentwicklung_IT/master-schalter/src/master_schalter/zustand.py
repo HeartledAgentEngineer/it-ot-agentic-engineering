@@ -1,6 +1,6 @@
 """Der Master-Zustand: wer ist Master, seit wann, welches Übergabepaket zuletzt.
 
-Die Datei `master.json` liegt im Datenordner (`%LOCALAPPDATA%/master-schalter/`), nicht im Repo.
+Die Datei `master.json` liegt im Datenordner (`%USERPROFILE%/.master-schalter/`), nicht im Repo.
 Jede Änderung läuft über `aendern(funktion)`: Die Funktion hält für den gesamten
 Lese-Änderungs-Schreib-Vorgang eine exklusive Betriebssystem-Sperre auf der dauerhaft liegenden
 Datei `master.json.lock`. Stirbt der Halter, gibt das Betriebssystem die Sperre frei – es gibt
@@ -122,3 +122,40 @@ def aendern(funktion: Callable[[Zustand], Zustand], frist: float = FRIST_SEKUNDE
         if neu != alt or not datei().exists():
             _atomar_schreiben(datei(), json.dumps(asdict(neu), ensure_ascii=False))
         return neu
+
+
+# --- Themensperre (Automatik) -------------------------------------------------
+
+def themen_sperrdatei(thema: str) -> Path:
+    """Sperrdatei eines Themas; gleicher Ordner wie der Zustand, damit die Reihenfolge gilt."""
+    return daten_ordner() / f"automatik-{thema}.lock"
+
+
+@contextmanager
+def thema_sperre(thema: str, blockierend: bool = False,
+                 frist: float = FRIST_SEKUNDEN, takt: float = TAKT_SEKUNDEN) -> Iterator[bool]:
+    """Exklusive Sperre **eines Themas**; gibt zurück, ob sie erworben wurde.
+
+    Nicht blockierend (Standard) überspringt ein belegtes Thema sofort (`False`) – so laufen
+    zwei Automatikläufe nie gleichzeitig an demselben Thema. Blockierend (Rückwechsel) wird bis
+    `frist` gewartet; danach `False`, und es darf nichts geschrieben werden. Das Betriebssystem
+    gibt die Sperre beim Prozessende frei – es gibt keine verwaiste Sperre; die Datei bleibt liegen.
+    """
+    pfad = themen_sperrdatei(thema)
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(pfad, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        ende = time.monotonic() + frist
+        while True:
+            if _versuchen(fd):
+                break
+            if not blockierend or time.monotonic() >= ende:
+                yield False
+                return
+            time.sleep(takt)
+        try:
+            yield True
+        finally:
+            _freigeben(fd)
+    finally:
+        os.close(fd)

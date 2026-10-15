@@ -87,7 +87,8 @@ def _iso(wert: Any) -> datetime | None:
 def _fenster(name: str, roh: Any, prozent_feld: str, jetzt: datetime) -> Fenster:
     if not isinstance(roh, dict):
         return Fenster(name, None, None)
-    prozent = _zahl(roh.get(prozent_feld))
+    # Gültig ist nur 0–100: negativ, über 100 oder nicht endlich heißt „unbekannt" – nie angenommene Freiheit.
+    prozent = _prozent(roh.get(prozent_feld))
     reset = _epoche(roh.get("resets_at"))
     if reset is not None and reset <= jetzt:
         return Fenster(name, 0.0, reset, zurueckgesetzt=True)
@@ -95,11 +96,18 @@ def _fenster(name: str, roh: Any, prozent_feld: str, jetzt: datetime) -> Fenster
 
 
 def daten_ordner() -> Path:
+    """Datenordner festlegen.
+
+    Liegt standardmäßig unter `%USERPROFILE%/.master-schalter/`. Bewusst **nicht** unter
+    `%LOCALAPPDATA%`: Claude- und Codex-App sind MSIX-Pakete, ihre Kindprozesse werden von
+    Windows in `AppData/Local/Packages/<App>/LocalCache/…` umgeleitet. Dort läse jeder
+    Starter einen anderen Zustand (Autostart, Codex-Start, Claude-CLI). `MASTER_SCHALTER_DATEN`
+    hat weiterhin Vorrang (Tests, Umlenkung).
+    """
     eigen = os.environ.get("MASTER_SCHALTER_DATEN")
     if eigen:
         return Path(eigen)
-    basis = os.environ.get("LOCALAPPDATA") or str(Path.home())
-    return Path(basis) / "master-schalter"
+    return Path.home() / ".master-schalter"
 
 
 # --- Codex -------------------------------------------------------------------
@@ -133,10 +141,10 @@ def _codex_eintrag(zeile: str) -> tuple[datetime, dict] | None:
 
 
 def _nur_zahlen(roh: Any) -> dict | None:
-    """Aus einem Codex-Fenster nur Prozent und Rücksetzzeit behalten, alles andere verwerfen."""
+    """Aus einem Codex-Fenster nur Prozent (0–100) und Rücksetzzeit behalten, alles andere verwerfen."""
     if not isinstance(roh, dict):
         return None
-    return {"used_percent": _zahl(roh.get("used_percent")), "resets_at": _zahl(roh.get("resets_at"))}
+    return {"used_percent": _prozent(roh.get("used_percent")), "resets_at": _zahl(roh.get("resets_at"))}
 
 
 class CodexLeser:

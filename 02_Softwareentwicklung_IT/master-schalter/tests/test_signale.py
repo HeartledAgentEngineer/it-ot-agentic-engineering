@@ -209,6 +209,36 @@ def test_codex_ordner_aus_umgebung(tmp_path, monkeypatch):
     assert signale.codex_ordner() == tmp_path
 
 
+@pytest.mark.parametrize("wert", [-5, 100.1, 150, float("nan"), float("inf"), -0.5])
+def test_codex_ungueltige_prozentwerte_gelten_als_unbekannt(tmp_path, wert):
+    """Gültig ist nur 0–100; alles andere darf nie als „frei\" durchgehen."""
+    _rollout(tmp_path, "rollout-a.jsonl", [_token_count(
+        "2026-10-14T09:00:00.000Z", primary={"used_percent": wert, "resets_at": SPAETER})], mtime=1000)
+
+    fenster = signale.codex_lesen(tmp_path, jetzt=JETZT).fenster_nach_name("5h")
+
+    assert fenster.prozent is None
+    assert fenster.reset is not None          # die Rücksetzzeit bleibt erhalten
+
+
+@pytest.mark.parametrize("wert", [0, 0.5, 100])
+def test_codex_grenzwerte_sind_gueltig(tmp_path, wert):
+    _rollout(tmp_path, "rollout-a.jsonl", [_token_count(
+        "2026-10-14T09:00:00.000Z", primary={"used_percent": wert, "resets_at": SPAETER})], mtime=1000)
+
+    assert signale.codex_lesen(tmp_path, jetzt=JETZT).fenster_nach_name("5h").prozent == float(wert)
+
+
+def test_codex_zwischenspeicher_wirft_ungueltige_prozente_weg(tmp_path):
+    leser = signale.CodexLeser()
+    datei = _rollout(tmp_path, "rollout-a.jsonl", [_token_count(
+        "2026-10-14T08:00:00.000Z", primary={"used_percent": -5, "resets_at": SPAETER})], mtime=1000)
+
+    _, grenzen = leser.bester_eintrag(datei)
+
+    assert grenzen["primary"]["used_percent"] is None
+
+
 # --- Claude ------------------------------------------------------------------
 
 def _rate_limits(fuenf=79, woche=58, reset=SPAETER) -> dict[str, Any]:
@@ -334,3 +364,17 @@ def test_claude_abgelaufenes_fenster(tmp_path):
 def test_daten_ordner_aus_umgebung(tmp_path, monkeypatch):
     monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path))
     assert signale.claude_datei() == tmp_path / "kontingent-claude.json"
+
+
+def test_daten_ordner_liegt_unter_home_nicht_unter_localappdata(monkeypatch, tmp_path):
+    """Claude und Codex sind MSIX-Pakete – `%LOCALAPPDATA%` wäre je Starter ein anderer Ordner."""
+    monkeypatch.delenv("MASTER_SCHALTER_DATEN", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata" / "Local"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "profil"))
+    monkeypatch.setattr(signale.Path, "home", classmethod(lambda cls: tmp_path / "profil"))
+
+    ordner = signale.daten_ordner()
+
+    assert ordner == tmp_path / "profil" / ".master-schalter"
+    assert str(tmp_path / "appdata") not in str(ordner)   # nicht unter LOCALAPPDATA umgeleitet
+    assert signale.claude_datei() == ordner / "kontingent-claude.json"

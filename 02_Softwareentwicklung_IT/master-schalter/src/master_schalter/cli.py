@@ -3,9 +3,17 @@
     masterwechsel status              beide Kontingente anzeigen
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
+    masterwechsel claude-messen       Claude-Kontingent über die OAuth-API messen
     masterwechsel master              aktiven Master, Lage und Besetzung anzeigen
     masterwechsel wechsel claude|codex|hermes [--hinweis TEXT]
                                       Master wechseln und Übergabepaket schreiben
+    masterwechsel paare               Paare aus Thema und Codex-Chat anzeigen
+    masterwechsel paar-setzen THEMA UUID DATEI
+                                      Paar anlegen/überschreiben (DATEI = .hermes/uebergabe/laufend/<thema>.md)
+    masterwechsel paar-aktiv THEMA an|aus
+                                      Paar für die Automatik ein- oder ausschalten
+    masterwechsel automatik-pruefen [--trocken]
+                                      Automatik Claude → Codex prüfen (trocken: nur zeigen)
 """
 from __future__ import annotations
 
@@ -14,7 +22,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import __version__, anzeige, claude_messen, rollen, signale, wechsel, zustand
+from . import (__version__, anzeige, automatik, claude_messen, paare, rollen, signale, wechsel,
+               zustand)
 
 
 def _statuszeile() -> int:
@@ -95,6 +104,48 @@ def _wechsel(args: argparse.Namespace) -> int:
     return 0
 
 
+def _paare_zeigen() -> int:
+    liste = paare.lesen()
+    if not liste:
+        print("Keine Paare angelegt.")
+        return 0
+    for p in liste:
+        print(f"{p.thema}  {'an' if p.aktiv else 'aus'}  {p.codex_thread}  {p.laufend}")
+    return 0
+
+
+def _paar_setzen(args: argparse.Namespace) -> int:
+    try:
+        paar = paare.setzen(args.thema, args.uuid, args.datei,
+                            aktiv=True if args.aktiv is None else args.aktiv)
+    except paare.PaarFehler as fehler:
+        print(f"Paar nicht gespeichert: {fehler}", file=sys.stderr)
+        return 1
+    print(f"Paar {paar.thema}: {'an' if paar.aktiv else 'aus'} · {paar.codex_thread} · {paar.laufend}")
+    return 0
+
+
+def _paar_aktiv(args: argparse.Namespace) -> int:
+    try:
+        paar = paare.aktiv_setzen(args.thema, args.zustand == "an")
+    except paare.PaarFehler as fehler:
+        print(f"Paar nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    print(f"Paar {paar.thema}: {'an' if paar.aktiv else 'aus'}")
+    return 0
+
+
+def _automatik_pruefen(args: argparse.Namespace) -> int:
+    try:
+        staende = automatik.lauf(trocken=args.trocken)
+    except Exception as fehler:  # noqa: BLE001 - die Zeile darf nie abstürzen
+        print(f"Automatikprüfung fehlgeschlagen: {fehler}", file=sys.stderr)
+        return 1
+    for stand in staende:
+        print(f"{stand.thema}: {stand.status}" if stand.thema else stand.status)
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="masterwechsel", description="Befehlszeile des Master-Schalters")
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
@@ -111,6 +162,18 @@ def _parser() -> argparse.ArgumentParser:
     w = unter.add_parser("wechsel", help="Master wechseln und Übergabepaket schreiben")
     w.add_argument("nach", choices=zustand.MASTER, help="neuer Master")
     w.add_argument("--hinweis", default=None, help="Hinweis an den neuen Master (nur Technik, kein Chat-Rohtext)")
+    unter.add_parser("paare", help="Paare aus Thema und Codex-Chat anzeigen")
+    psetzen = unter.add_parser("paar-setzen", help="Paar anlegen oder überschreiben")
+    psetzen.add_argument("thema", help="Thema (^[a-z0-9][a-z0-9-]{0,79}$)")
+    psetzen.add_argument("uuid", help="Kennung (UUID) des Codex-Chats")
+    psetzen.add_argument("datei", help="laufende Übergabe, exakt .hermes/uebergabe/laufend/<thema>.md")
+    psetzen.add_argument("--aktiv", action=argparse.BooleanOptionalAction, default=None,
+                         help="Paar sofort an- oder abschalten (Standard: an)")
+    paktiv = unter.add_parser("paar-aktiv", help="Paar für die Automatik ein- oder ausschalten")
+    paktiv.add_argument("thema", help="Thema")
+    paktiv.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
+    pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     return p
 
 
@@ -131,6 +194,14 @@ def main(argv: list[str] | None = None) -> int:
         return _master()
     if args.befehl == "wechsel":
         return _wechsel(args)
+    if args.befehl == "paare":
+        return _paare_zeigen()
+    if args.befehl == "paar-setzen":
+        return _paar_setzen(args)
+    if args.befehl == "paar-aktiv":
+        return _paar_aktiv(args)
+    if args.befehl == "automatik-pruefen":
+        return _automatik_pruefen(args)
     if args.befehl == "status":
         print(master_zeile())
     print("\n".join(anzeige.details(signale.alle_lesen())))

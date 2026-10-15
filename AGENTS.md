@@ -140,9 +140,13 @@ Taskleisten-Symbol).
   stehen im Prüfprotokoll.
 - **Sensibel:** Ob etwas sensibel oder sicherheitskritisch ist, entscheidet der Thinker und
   schreibt die Einordnung in den Plan. Die Matrix gilt nur für Code; Sensibles siehe unten.
-- **Keine stille Wahl** eines Modells außerhalb der Matrix. **Kein automatischer
-  Masterwechsel:** Den Wechsel des Thinkers löst der Nutzer aus, bis eine automatische
-  Umschaltung ausdrücklich freigegeben ist.
+- **Keine stille Wahl** eines Modells außerhalb der Matrix.
+- **Automatische Übergabe Claude → Codex: freigegeben (Sebastian 15.10.2026, v0.3.0).**
+  Gilt nur für aktivierte Themen-Paare, nur bei frischer Messung an der Schwelle, ein Vorgang je
+  Limitfenster; der Rückweg Codex → Claude bleibt manuell. Der abgebende Master hält die laufende
+  Übergabe-Datei `.hermes/uebergabe/laufend/<thema>.md` technisch aktuell (Kopfzeile
+  `Übergabebereit: ja|nein · <ISO-Zeit> · <HEAD-Kurzform>`) und prüft vor jedem neuen Schritt
+  `<thema>.master`.
 - **Stand der Werkzeuge (ehrlich):** `tools/pruefkreis/pruefkreis.py` (personal_ai_agent)
   prüft heute mit Codex (App-Standardmodell) und weicht bei Codex-Sperre automatisch auf
   Hermes mit DeepSeek V4.1 Flash aus — das entspricht noch nicht ganz Lage 2B (dort GPT-6 Luna).

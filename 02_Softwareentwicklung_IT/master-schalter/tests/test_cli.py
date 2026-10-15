@@ -58,7 +58,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.2.1" in capsys.readouterr().out
+    assert "0.3.0" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
@@ -81,4 +81,84 @@ def test_claude_messen_cli_zeigt_nur_sicheren_fehler(daten, monkeypatch, capsys)
 
     aus = capsys.readouterr()
     assert "Claude-Anmeldung abgelaufen" in aus.err
+    assert "Traceback" not in aus.out + aus.err
+
+
+# --- Paare (v0.3.0) -----------------------------------------------------------
+
+THREAD = "01a12557-3bb3-7171-a021-53e6ac879534"
+
+
+def test_paar_setzen_und_paare_zeigen(daten, capsys):
+    assert cli.main(["paar-setzen", "engineering", THREAD,
+                     ".hermes/uebergabe/laufend/engineering.md"]) == 0
+    assert "engineering" in capsys.readouterr().out
+    assert cli.paare.lesen()[0].aktiv is True
+
+    assert cli.main(["paare"]) == 0
+    aus = capsys.readouterr().out
+    assert f"engineering  an  {THREAD}  .hermes/uebergabe/laufend/engineering.md" in aus
+
+
+def test_paar_setzen_lehnt_fremden_pfad_ab(daten, capsys):
+    assert cli.main(["paar-setzen", "engineering", THREAD,
+                     ".hermes/uebergabe/laufend/anderes.md"]) == 1
+    assert "Paar nicht gespeichert" in capsys.readouterr().err
+    assert cli.paare.lesen() == []
+
+
+def test_paar_setzen_lehnt_ungueltige_kennung_ab(daten, capsys):
+    assert cli.main(["paar-setzen", "engineering", "keine-uuid",
+                     ".hermes/uebergabe/laufend/engineering.md"]) == 1
+    assert cli.paare.lesen() == []
+
+
+def test_paar_aktiv_an_und_aus(daten, capsys):
+    cli.main(["paar-setzen", "engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md"])
+    capsys.readouterr()
+    assert cli.main(["paar-aktiv", "engineering", "aus"]) == 0
+    assert cli.paare.lesen()[0].aktiv is False
+    assert cli.main(["paar-aktiv", "engineering", "an"]) == 0
+    assert cli.paare.lesen()[0].aktiv is True
+
+
+def test_paar_aktiv_unbekanntes_thema(daten, capsys):
+    assert cli.main(["paar-aktiv", "gibtsnicht", "an"]) == 1
+    assert "Paar nicht geändert" in capsys.readouterr().err
+
+
+def test_paare_ohne_eintraege(daten, capsys):
+    assert cli.main(["paare"]) == 0
+    assert "Keine Paare angelegt." in capsys.readouterr().out
+
+
+def test_automatik_pruefen_trocken_reicht_trocken_durch(daten, capsys, monkeypatch):
+    aufrufe = []
+
+    def attrappe(**kw):
+        aufrufe.append(kw)
+        return [cli.automatik.Stand("engineering", "bereit (trocken)")]
+
+    monkeypatch.setattr(cli.automatik, "lauf", attrappe)
+
+    assert cli.main(["automatik-pruefen", "--trocken"]) == 0
+
+    assert aufrufe == [{"trocken": True}]
+    assert capsys.readouterr().out.strip() == "engineering: bereit (trocken)"
+
+
+def test_automatik_pruefen_ohne_automatik(daten, capsys):
+    assert cli.main(["automatik-pruefen"]) == 0
+    assert cli.automatik.STATUS_AUS in capsys.readouterr().out
+
+
+def test_automatik_pruefen_meldet_fehler_statt_abzustuerzen(daten, capsys, monkeypatch):
+    def kaputt(**kw):
+        raise RuntimeError("unerwartet")
+
+    monkeypatch.setattr(cli.automatik, "lauf", kaputt)
+
+    assert cli.main(["automatik-pruefen"]) == 1
+    aus = capsys.readouterr()
+    assert "Automatikprüfung fehlgeschlagen" in aus.err
     assert "Traceback" not in aus.out + aus.err

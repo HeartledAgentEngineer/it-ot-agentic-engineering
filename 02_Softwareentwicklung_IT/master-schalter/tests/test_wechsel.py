@@ -104,6 +104,103 @@ def test_unbekannter_master_wird_abgelehnt(umgebung):
         wechsel.wechseln("gemini")
 
 
+# --- Themensperre und Entwertung (v0.3.0) -------------------------------------
+
+THREAD = "01a12557-3bb3-7171-a021-53e6ac879534"
+
+
+def _paar_setzen(thema="engineering", aktiv=True):
+    from master_schalter import paare
+    paare.setzen(thema, THREAD, paare.laufend_bilden(thema), aktiv=aktiv)
+
+
+def test_rueckwechsel_wartet_hoechstens_und_meldet_die_sperre(umgebung):
+    from master_schalter import paare
+    _paar_setzen()
+    zustand.aendern(lambda z: replace(z, master="codex"))
+
+    with zustand.thema_sperre("engineering") as frei:
+        assert frei is True
+        erg = wechsel.wechseln("claude", jetzt=JETZT, themen_frist=0.2)
+
+    assert erg.art == "fehler" and erg.meldung == wechsel.MELDUNG_SPERRE
+    assert zustand.lesen().master == "codex"
+    assert _pakete(umgebung) == []
+    assert paare.lesen()   # unverändert
+
+
+def test_rueckwechsel_ohne_paare_laesst_sich_nicht_aufhalten(umgebung):
+    zustand.aendern(lambda z: replace(z, master="codex"))
+    erg = wechsel.wechseln("claude", jetzt=JETZT, themen_frist=0.2)
+    assert erg.art == "gewechselt"
+
+
+def test_rueckwechsel_entwertet_offene_vorgaenge(umgebung):
+    from master_schalter import besitz, paare, vorgaenge
+    _paar_setzen()
+    zustand.aendern(lambda z: replace(z, master="codex"))
+    kennung = "engineering@4102444800"
+    laufend = paare.laufend_bilden("engineering")
+    besitz.schreiben(besitz.pfad(umgebung, laufend), f"codex {kennung} {JETZT.isoformat()}")
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(kennung, "engineering", "lauf-1",
+                                                           "gesendet", JETZT.isoformat())])
+
+    erg = wechsel.wechseln("claude", jetzt=JETZT)
+
+    assert erg.art == "gewechselt"
+    assert vorgaenge.finden(kennung).phase == "entwertet"
+    text = besitz.lesen(besitz.pfad(umgebung, laufend))
+    assert text.startswith("claude ") and f"entwertet {kennung}" in text
+
+
+def test_wechsel_zu_codex_entwertet_nichts(umgebung):
+    from master_schalter import paare, vorgaenge
+    _paar_setzen()
+    kennung = "engineering@4102444800"
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(kennung, "engineering", "lauf-1",
+                                                           "gesendet", JETZT.isoformat())])
+    wechsel.wechseln("codex", jetzt=JETZT)
+    assert vorgaenge.finden(kennung).phase == "gesendet"
+    assert paare.lesen()
+
+
+def test_rueckwechsel_gibt_auch_einen_bestaetigten_besitz_zurueck(umgebung):
+    """Sonst bliebe das Thema für die Automatik dauerhaft „von Codex übernommen"."""
+    from master_schalter import besitz, paare, vorgaenge
+    _paar_setzen()
+    zustand.aendern(lambda z: replace(z, master="codex"))
+    kennung = "engineering@4102444800"
+    laufend = paare.laufend_bilden("engineering")
+    besitz.schreiben(besitz.pfad(umgebung, laufend), f"codex {kennung} {JETZT.isoformat()}")
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(kennung, "engineering", "lauf-1",
+                                                           "bestaetigt", JETZT.isoformat())])
+
+    assert wechsel.wechseln("claude", jetzt=JETZT).art == "gewechselt"
+
+    assert vorgaenge.finden(kennung).phase == "bestaetigt"   # die Zustellung war echt
+    text = besitz.lesen(besitz.pfad(umgebung, laufend))
+    assert text.startswith("claude ") and "entwertet" not in text
+    assert zustand.lesen().master == "claude"
+
+
+def test_wechsel_haelt_die_themensperre(umgebung):
+    """Während des Wechsels ist die Themensperre belegt – eine zweite Automatik überspringt das Thema."""
+    _paar_setzen()
+    zwischenstand = {}
+    echt = wechsel.uebergabe.paket_bauen
+
+    def nachsehen(*a, **k):
+        with zustand.thema_sperre("engineering") as frei:
+            zwischenstand["frei"] = frei
+        return echt(*a, **k)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wechsel.uebergabe, "paket_bauen", nachsehen)
+        wechsel.wechseln("codex", jetzt=JETZT)
+
+    assert zwischenstand["frei"] is False
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_master_ohne_zustand(umgebung, capsys):

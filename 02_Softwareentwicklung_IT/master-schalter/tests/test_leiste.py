@@ -6,7 +6,7 @@ import pytest
 
 pystray = pytest.importorskip("pystray")
 
-from master_schalter import anzeige, leiste, signale, wechsel, zustand  # noqa: E402
+from master_schalter import anzeige, leiste, paare, signale, vorgaenge, wechsel, zustand  # noqa: E402
 
 JETZT = datetime.now(timezone.utc)
 SPAETER = JETZT + timedelta(hours=2)
@@ -312,3 +312,134 @@ def test_429_pause_wird_durch_manuelles_aktualisieren_nicht_umgangen(lst, monkey
 
     assert aktualisierungen == [60, 120, 180, 240, 300, 300]
     assert messzeiten == [300]
+
+
+# --- Automatik (v0.3.0) -------------------------------------------------------
+
+THREAD = "01a12557-3bb3-7171-a021-53e6ac879534"
+
+
+def test_menue_enthaelt_die_automatik_eintraege(lst):
+    lst.aktualisieren()
+    texte = _texte(lst._menue())
+    assert "Automatik Claude → Codex" in texte
+    assert "Chats übergeben" in texte
+    assert "Jetzt prüfen" in texte
+
+
+def test_automatik_haken_folgt_der_einstellung(lst):
+    eintrag = _eintrag(list(lst._menue()), "Automatik Claude → Codex")
+    assert eintrag.checked is False
+
+    eintrag(lst.icon)
+
+    assert anzeige.automatik_an() is True
+    assert _eintrag(list(lst._menue()), "Automatik Claude → Codex").checked is True
+
+
+def test_chat_untermenue_zeigt_je_paar_status_und_haken(lst):
+    paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
+    assert _texte(sub) == ["engineering: bereit"]
+    assert sub[0].checked is True
+
+
+def test_chat_untermenue_ohne_paare(lst):
+    sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
+    assert _texte(sub) == ["keine Paare angelegt"]
+    assert not sub[0].enabled
+
+
+def test_paar_haken_schaltet_das_paar_um(lst):
+    paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=False)
+    sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
+    sub[0](lst.icon)
+    assert paare.lesen()[0].aktiv is True
+
+
+def test_chat_untermenue_zeigt_bestaetigten_status(lst):
+    d = leiste.vorgaenge.Vorgang("engineering@1", "engineering", "l", "bestaetigt", JETZT.isoformat())
+    leiste.vorgaenge.aendern(lambda alt: [*alt, d])
+    paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
+    assert _texte(sub) == ["engineering: bestätigt"]
+
+
+def test_automatik_anfordern_ist_bei_aus_still(lst, monkeypatch):
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw))
+
+    lst._automatik_anfordern()
+
+    assert threads == []
+
+
+def test_automatik_anfordern_startet_bei_an_einen_faden(lst, monkeypatch):
+    anzeige.automatik_setzen(True)
+    threads = []
+
+    class ThreadAttrappe:
+        def __init__(self, **kw):
+            threads.append(kw)
+
+        def start(self):
+            self.gestartet = True
+
+    monkeypatch.setattr(leiste.threading, "Thread", ThreadAttrappe)
+
+    lst._automatik_anfordern()
+
+    assert threads and threads[0]["daemon"] is True
+
+
+def test_automatik_ausfuehren_legt_staende_ab(lst, monkeypatch):
+    monkeypatch.setattr(leiste.automatik, "lauf",
+                        lambda **kw: [leiste.automatik.Stand("engineering", "bereit (trocken)")])
+    monkeypatch.setattr(leiste.automatik, "bestaetigungen_pruefen", lambda *a, **kw: [])
+
+    lst._automatik_ausfuehren()
+
+    assert lst._automatik_staende_zeilen() == ["engineering: bereit (trocken)"]
+    assert "engineering: bereit (trocken)" in _texte(lst._menue())
+
+
+def test_automatik_ausfuehren_zeigt_fehler_statt_abzustuerzen(lst, monkeypatch):
+    def kaputt(**kw):
+        raise RuntimeError("unerwartet")
+
+    monkeypatch.setattr(leiste.automatik, "lauf", kaputt)
+
+    lst._automatik_ausfuehren()
+
+    assert lst._automatik_staende_zeilen() == ["Automatikprüfung fehlgeschlagen"]
+
+
+def test_takt_prueft_die_automatik_nach_erfolgreicher_messung(lst, monkeypatch):
+    class StopAttrappe:
+        def __init__(self):
+            self.n = 0
+
+        def is_set(self):
+            self.n += 1
+            return self.n > 2
+
+    class AnfrageAttrappe:
+        def wait(self, sekunden):
+            return False
+
+        def clear(self):
+            pass
+
+    angefragt = []
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    monkeypatch.setattr(lst, "_automatik_anfordern", lambda: angefragt.append(True))
+    lst._stopp = StopAttrappe()
+    lst._messung_angefordert = AnfrageAttrappe()
+    lst._messung_fehler = None
+    lst._429_aktiv = False
+    lst._messung_intervall = -1   # Intervall gilt sofort als abgelaufen
+
+    lst._takt()
+
+    assert angefragt and all(angefragt)

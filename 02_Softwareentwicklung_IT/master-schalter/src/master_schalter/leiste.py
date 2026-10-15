@@ -15,7 +15,7 @@ import time
 
 import pystray
 
-from . import anzeige, claude_messen, rollen, signale, symbol, wechsel, zustand
+from . import anzeige, automatik, claude_messen, paare, rollen, signale, symbol, vorgaenge, wechsel, zustand
 
 
 TAKT_SEKUNDEN = 60
@@ -34,6 +34,8 @@ class Leiste:
         self._429_aktiv = False
         self._messung_intervall = anzeige.claude_takt_min() * 60
         self._arbeits_thread = None
+        self._automatik_sperre = threading.Lock()
+        self._automatik_staende: list[automatik.Stand] = []
         self.icon = pystray.Icon("master-schalter", symbol.bild(None, None, anzeige.STANDARD_SCHWELLE),
                                  "Master-Schalter", menu=pystray.Menu(self._menue))
 
@@ -52,9 +54,74 @@ class Leiste:
         yield pystray.Menu.SEPARATOR
         yield pystray.MenuItem("Master wechseln", pystray.Menu(*self._master_optionen()))
         yield pystray.MenuItem("Wechsel-Schwelle", pystray.Menu(*self._schwellen_optionen()))
+        yield pystray.MenuItem("Automatik Claude → Codex", self._automatik_umschalten,
+                               checked=self._ist_automatik_an)
+        yield pystray.MenuItem("Chats übergeben", pystray.Menu(*self._paar_optionen()))
+        yield pystray.MenuItem("Jetzt prüfen", self._jetzt_pruefen_aktion)
+        for zeile in self._automatik_staende_zeilen():
+            yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
         yield pystray.MenuItem("Aktualisieren", self._aktualisieren_aktion)
         yield pystray.MenuItem("Beenden", self._beenden)
+
+    def _paar_optionen(self):
+        liste = paare.lesen()
+        vorgangsliste = vorgaenge.lesen()
+        if not liste:
+            return [pystray.MenuItem("keine Paare angelegt", None, enabled=False)]
+        return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste)}",
+                                 self._paar_umschalten_aktion(p.thema), checked=lambda item, p=p: self._ist_paar_an(p.thema))
+                for p in liste]
+
+    def _automatik_staende_zeilen(self) -> list[str]:
+        return [s.status if not s.thema else f"{s.thema}: {s.status}" for s in self._automatik_staende]
+
+    def _ist_paar_an(self, thema: str):
+        return any(p.thema == thema and p.aktiv for p in paare.lesen())
+
+    def _paar_umschalten_aktion(self, thema: str):
+        def aktion() -> None:
+            try:
+                paare.aktiv_setzen(thema, not self._ist_paar_an(thema))
+            except paare.PaarFehler as fehler:
+                self.icon.notify(f"Paar nicht geändert: {fehler}"[:anzeige.HINWEIS_MAX], "Master-Schalter")
+            self.aktualisieren()
+
+        return aktion
+
+    def _ist_automatik_an(self, item=None):
+        return anzeige.automatik_an()
+
+    def _automatik_umschalten(self) -> None:
+        anzeige.automatik_setzen(not anzeige.automatik_an())
+        self.aktualisieren()
+
+    def _jetzt_pruefen_aktion(self) -> None:
+        threading.Thread(target=self._automatik_ausfuehren, daemon=True).start()
+
+    # --- Automatik ----------------------------------------------------------
+
+    def _automatik_anfordern(self) -> None:
+        """Prüfung in eigenem Faden starten (die 30-Sekunden-Wartezeit darf den Takt nicht blockieren)."""
+        if not anzeige.automatik_an():
+            return
+        threading.Thread(target=self._automatik_ausfuehren, daemon=True).start()
+
+    def _automatik_ausfuehren(self) -> None:
+        if not self._automatik_sperre.acquire(blocking=False):
+            return
+        try:
+            try:
+                self._automatik_staende = automatik.lauf()
+                self._automatik_staende += automatik.bestaetigungen_pruefen()
+            except Exception:  # noqa: BLE001 - die Leiste darf nie wegen eines Laufs abstürzen
+                self._automatik_staende = [automatik.Stand("", "Automatikprüfung fehlgeschlagen")]
+        finally:
+            self._automatik_sperre.release()
+        try:
+            self.aktualisieren()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _master_optionen(self):
         return [pystray.MenuItem(anzeige.MASTER_NAMEN[m], self._wechsel_aktion(m),
@@ -133,6 +200,8 @@ class Leiste:
                 self._messung_ausfuehren()
                 letzte_messung = time.monotonic()
                 self.aktualisieren()
+                if self._messung_fehler is None:
+                    self._automatik_anfordern()   # Prüfung nach jeder erfolgreichen Claude-Messung
 
     def _messung_ausfuehren(self) -> None:
         if not self._messung_sperre.acquire(blocking=False):

@@ -197,3 +197,78 @@ def test_schreibfehler_wird_zu_uebergabefehler(repo, monkeypatch):
     (repo / ".hermes").write_text("ich bin eine Datei, kein Ordner", encoding="utf-8")
     with pytest.raises(uebergabe.UebergabeFehler):
         _paket(repo)
+
+
+# --- v0.3.0: minimal und plaene=False (Automatikweg) ---------------------------
+
+def _attrappe_minimal(status=" M geheim.py\n?? neu.txt\n", kurz="abc1234", anzahl="512"):
+    def git(repo, args):
+        if args[:2] == ["rev-parse", "--short"]:
+            return kurz + "\n"
+        if args[:2] == ["rev-list", "--count"]:
+            return anzahl + "\n"
+        if args[0] == "status":
+            return status
+        raise AssertionError(args)
+    return git
+
+
+def test_minimal_ohne_betreffzeilen_und_dateinamen(repo):
+    text = uebergabe.paket_bauen("claude", "codex", "H", repo=repo, jetzt=JETZT,
+                                 git=_attrappe_minimal(), plaene=False, minimal=True).read_text(encoding="utf-8")
+    assert "HEAD: abc1234 · Commits: 512" in text
+    assert "Uncommittete Pfade: 2 (nur Anzahl, keine Dateinamen)" in text
+    for verraeter in ("geheim.py", "neu.txt", "feat:", "fix:"):
+        assert verraeter not in text
+    assert "Commits (`git log" not in text
+
+
+def test_minimal_zaehlt_gesperrten_ordner_weiter(repo):
+    status = " M a.py\n?? Chats von GPT, GEMINI, Claude/Takeout/x.json\n"
+    text = uebergabe.paket_bauen("claude", "codex", None, repo=repo, jetzt=JETZT,
+                                 git=_attrappe_minimal(status=status), plaene=False,
+                                 minimal=True).read_text(encoding="utf-8")
+    assert "1 Pfad aus gesperrtem Archivordner nicht gezählt" in text
+    assert "Uncommittete Pfade: 1 " in text
+    assert "Takeout" not in text
+
+
+def test_minimal_ohne_git_wird_trotzdem_geschrieben(repo):
+    def kaputt(repo, args):
+        raise uebergabe.GitFehler("rc 128")
+
+    text = uebergabe.paket_bauen("claude", "codex", None, repo=repo, jetzt=JETZT, git=kaputt,
+                                 plaene=False, minimal=True).read_text(encoding="utf-8")
+    assert "git nicht lesbar – Git-Metadaten fehlen." in text
+
+
+def test_ohne_plaene_wird_plaene_gar_nicht_erst_aufgerufen(repo, monkeypatch):
+    def verboten(repo):
+        raise AssertionError("_plaene darf bei plaene=False nicht aufgerufen werden")
+
+    monkeypatch.setattr(uebergabe, "_plaene", verboten)
+    _plan(repo, "technisch.md", ["# Plan A", "Einordnung: technisch", GEHEIM], 1_000_000)
+    text = uebergabe.paket_bauen("claude", "codex", "H", repo=repo, jetzt=JETZT,
+                                 git=_attrappe_minimal(), plaene=False,
+                                 minimal=True).read_text(encoding="utf-8")
+    assert uebergabe.KEINE_PLANLISTE in text
+    assert "technisch.md" not in text and GEHEIM not in text
+    assert text.count(uebergabe.KEINE_PLANLISTE) == 2   # Offen und Plan
+
+
+def test_ohne_minimal_bleibt_das_bisherige_format(repo):
+    text = uebergabe.paket_bauen("claude", "codex", None, repo=repo, jetzt=JETZT,
+                                 git=_attrappe(), plaene=True, minimal=False).read_text(encoding="utf-8")
+    assert "abc1234 feat: eins" in text and " M src/a.py" in text
+    assert "Letzte Commits (`git log --oneline -5`):" in text
+    assert "Umfang: nur technische Metadaten (Commits, Dateinamen, Planpfade), kein Dateiinhalt." in text
+
+
+def test_minimal_mit_plaene_behaelt_die_planliste(repo):
+    """Beide Schalter sind unabhängig: minimal ändert nur den Stand, plaene die Planabschnitte."""
+    _plan(repo, "technisch.md", ["Einordnung: technisch"], 1_000_000)
+    text = uebergabe.paket_bauen("claude", "codex", None, repo=repo, jetzt=JETZT,
+                                 git=_attrappe_minimal(), plaene=True,
+                                 minimal=True).read_text(encoding="utf-8")
+    assert "technisch.md" in text
+    assert "Uncommittete Pfade: 2 " in text

@@ -19,6 +19,7 @@ MARKER_ZEILEN = 20
 MAX_PLAENE = 3
 MAX_STATUS = 50
 GESPERRTER_ORDNER = "Chats von GPT, GEMINI, Claude"
+KEINE_PLANLISTE = "Keine repo-weite Planliste; laufende Übergabe siehe Hinweise."
 
 Git = Callable[[Path, list[str]], str]
 
@@ -122,6 +123,34 @@ def _stand(repo: Path, git: Git) -> list[str]:
     return zeilen + [""]
 
 
+def _stand_minimal(repo: Path, git: Git, jetzt: datetime) -> list[str]:
+    """Stand **ohne** Repo-Freitext: nur Zeitpunkt, HEAD, Zählwerte – keine Betreffzeilen, keine Dateinamen."""
+    zeilen = ["## Stand", ""]
+    try:
+        kurz = git(repo, ["rev-parse", "--short", "HEAD"]).strip()
+        anzahl = git(repo, ["rev-list", "--count", "HEAD"]).strip()
+        status = [z for z in git(repo, ["status", "--short"]).splitlines() if z.strip()]
+    except (GitFehler, OSError):
+        return zeilen + ["git nicht lesbar – Git-Metadaten fehlen.", ""]
+    gesperrt = [z for z in status if GESPERRTER_ORDNER in z]
+    offen = len(status) - len(gesperrt)
+    zeilen.append(f"Zeitpunkt: {jetzt.strftime('%d.%m.%Y %H:%M:%S')}")
+    zeilen.append(f"HEAD: {kurz or '?'} · Commits: {anzahl or '?'}")
+    zeilen.append(f"Uncommittete Pfade: {offen} (nur Anzahl, keine Dateinamen)")
+    if gesperrt:
+        n = len(gesperrt)
+        zeilen.append(f"{n} Pfad{'e' if n != 1 else ''} aus gesperrtem Archivordner nicht gezählt")
+    return zeilen + [""]
+
+
+def _offen_hinweis() -> list[str]:
+    return ["## Offen", "", KEINE_PLANLISTE, ""]
+
+
+def _plan_hinweis() -> list[str]:
+    return ["## Plan", "", KEINE_PLANLISTE, ""]
+
+
 def _offen(repo: Path, technisch: list[tuple[float, Path]], uebrige: int) -> list[str]:
     zeilen = ["## Offen", "", f"Technisch eingeordnete Pläne (`{MARKER}` in den ersten {MARKER_ZEILEN} Zeilen), "
                               f"zuletzt geändert:"]
@@ -146,19 +175,39 @@ def _plan(repo: Path, technisch: list[tuple[float, Path]]) -> list[str]:
 
 
 def paket_bauen(von: str, nach: str, hinweis: str | None, repo: Path | None = None,
-                jetzt: datetime | None = None, git: Git | None = None) -> Path:
-    """Schreibt das Paket und gibt seinen Pfad zurück; ein vorhandenes Paket wird nie überschrieben."""
+                jetzt: datetime | None = None, git: Git | None = None, *,
+                plaene: bool = True, minimal: bool = False) -> Path:
+    """Schreibt das Paket und gibt seinen Pfad zurück; ein vorhandenes Paket wird nie überschrieben.
+
+    Die ersten sechs Argumente bleiben unverändert (v0.2-Aufrufe behalten ihr Verhalten). Die
+    benannten Schalter betreffen nur den Automatikweg:
+
+    * `minimal=True`: Der Abschnitt „Stand" enthält **keinen** Repo-Freitext – keine
+      Commit-Betreffzeilen, keine Dateinamen. Stattdessen Zeitpunkt, HEAD-Kurzform, Anzahl
+      Commits und die **Anzahl** uncommitteter Pfade (der Zähler für den gesperrten Ordner bleibt).
+    * `plaene=False`: `_plaene` wird **gar nicht** aufgerufen – keine Plan-Datei geöffnet oder
+      aufgelistet. „Offen" und „Plan" enthalten nur den festen Hinweis auf die laufende Übergabe.
+    """
     repo = repo or repo_wurzel()
     jetzt = jetzt or datetime.now().astimezone()
     git = git or _git
-    technisch, uebrige = _plaene(repo)
+    if plaene:
+        technisch, uebrige = _plaene(repo)
+        stand = _stand_minimal(repo, git, jetzt) if minimal else _stand(repo, git)
+        offen, plan = _offen(repo, technisch, uebrige), _plan(repo, technisch)
+        umfang = "Umfang: nur technische Metadaten (Commits, Dateinamen, Planpfade), kein Dateiinhalt."
+    else:
+        stand = _stand_minimal(repo, git, jetzt) if minimal else _stand(repo, git)
+        offen, plan = _offen_hinweis(), _plan_hinweis()
+        umfang = ("Umfang: nur Git-Metadaten (Zeitpunkt, HEAD, Zählwerte) – keine Betreffzeilen, "
+                  "keine Dateinamen, kein Dateiinhalt.")
     text = "\n".join([
         f"# Masterwechsel {von} → {nach}", "",
         f"Zeit: {jetzt.strftime('%d.%m.%Y %H:%M:%S')}",
-        "Umfang: nur technische Metadaten (Commits, Dateinamen, Planpfade), kein Dateiinhalt.", "",
-        *_stand(repo, git),
-        *_offen(repo, technisch, uebrige),
-        *_plan(repo, technisch),
+        umfang, "",
+        *stand,
+        *offen,
+        *plan,
         "## Hinweise", "", (hinweis or "").strip() or "—", "",
     ])
     ordner = repo / ".hermes" / "uebergabe"
