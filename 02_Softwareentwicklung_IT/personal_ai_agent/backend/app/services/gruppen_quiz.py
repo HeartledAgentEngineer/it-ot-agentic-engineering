@@ -891,7 +891,8 @@ def gesichter_auf_bild(fileid: Any) -> Dict[str, Any]:
 def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
               ordnung: str = "guete") -> Dict[str, Any]:
     """Alle (nicht ausgeschlossenen) Gesichter eines Vorschlags, seitenweise. Nie ein Wurf.
-    ``videos``: Gesichter aus Videos - die zeigt die Ansicht (noch) nicht."""
+    ``videos``: Gesichter aus Videos OHNE Standbild - die kann die Ansicht nicht
+    zeigen (noch kein Bild vorhanden, Stand 15.10.2026)."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}

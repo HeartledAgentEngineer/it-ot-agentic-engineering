@@ -264,8 +264,8 @@ pruefe(f.gruppenOrdnungKnopf('guete') === '📅 Nach Jahren' && f.gruppenOrdnung
     const nurVideo = f.gruppenAlleInfo({ ok: true, gesamt: 0, videos: 45 }, 0);
     pruefe(nurVideo.includes('45') && nurVideo.includes('Videos') && nurVideo.includes('Weiter (später)'),
         'nur Video-Gesichter: klare Meldung statt leerer Liste (Vorschlag 064)');
-    pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 10, videos: 3 }, 10).includes('+ 3 aus Videos (nicht gezeigt)'),
-        'gemischt: Videos werden genannt');
+    pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 10, videos: 3 }, 10).includes('+ 3 aus Videos (noch ohne Standbild)'),
+        'gemischt: Videos ohne Standbild werden mit Grund genannt');
     pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 10, videos: 0 }, 10).includes('Videos'), 'ohne Videos: kein Zusatz');
 }
 pruefe(f.gruppenRueckgaengigText({ art: 'zuordnen' }).startsWith('↩ Zuordnen zurückgenommen'), 'Rückgängig-Text Zuordnen');
@@ -296,7 +296,7 @@ pruefe(/g\.video === true \? kachel\(g, false, \{ verzoegert: true \}\)/.test(sr
     'Gesamtansicht: Video-Gesichter ohne Markier-Tipp (Backend sperrt Einzelaktionen)');
 pruefe(/m\.textContent = marke;/.test(src) && !/innerHTML = marke/.test(src), 'Marke nur per textContent');
 pruefe(/\.gruppen-video-marke\s*\{[^}]*position:\s*absolute/.test(css), 'Marke liegt über der Kachel');
-pruefe(vQ && vQ[1] >= '20261014A' && vS && vS[1] >= '20261014A', 'Cache-Bump 14.10. für Video-Marke');
+pruefe(vQ && vQ[1] >= '20261015A' && vS && vS[1] >= '20261014A', 'Cache-Bump 15.10. (Grund „noch ohne Standbild“)');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

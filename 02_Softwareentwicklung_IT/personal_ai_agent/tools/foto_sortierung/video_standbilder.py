@@ -49,6 +49,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
@@ -130,7 +131,8 @@ def auswaehlen(zeilen: Iterable[Dict[str, Any]], umfang: str = "nur_video",
 
     Rueckgabe: ``{"frames": {video_id: {zeit_text: {"breite", "hoehe"}}}, "gruppen": n,
     "gesichter": n}``. Je Gruppe die besten ``max_je_gruppe`` Video-Gesichter
-    (``anteil × score``), je Frame hoechstens eines.
+    (``anteil × score``), je Frame hoechstens eines; ``0`` = alle Gesichter der Gruppe
+    (15.10.2026, fuer die vollstaendige Anzeige im Quiz).
     """
     if umfang not in UMFAENGE:
         raise StandbildFehler(f"Unbekannter Umfang: {umfang}")
@@ -149,8 +151,10 @@ def auswaehlen(zeilen: Iterable[Dict[str, Any]], umfang: str = "nur_video",
             continue
         gruppen += 1
         gesehen: set = set()
+        # 0 (oder kleiner) = alle Gesichter der Gruppe; Standard bleibt 8 (15.10.2026).
+        grenze = max(0, int(max_je_gruppe))
         for z in sorted(je_gruppe[k], key=lambda z: (-_guete(z), str(z.get("bild_id")))):
-            if len(gesehen) >= max(1, int(max_je_gruppe)):
+            if grenze and len(gesehen) >= grenze:
                 break
             vid, zt = str(z["video_id"]), zeit_text(z["zeit_s"])
             if (vid, zt) in gesehen:
@@ -236,6 +240,17 @@ def _mass_passt(erwartet: Dict[str, Any], breite: int, hoehe: int) -> bool:
 
 # ── 3. Lauf ───────────────────────────────────────────────────────────────
 
+def fortschritt_zeile(fertig: int, gesamt: int, zaehler: Dict[str, int],
+                      sekunden: float) -> str:
+    """Eine Zeile je fertigem Video - nur Zahlen, keine Kennung, kein Pfad."""
+    zeile = (f"Video {fertig}/{gesamt} · Standbilder {zaehler['zeilen']} · "
+             f"Fehler {zaehler['fehler'] + zaehler['zu_gross']}")
+    if 0 < fertig < gesamt and sekunden > 0:
+        rest_min = sekunden / fertig * (gesamt - fertig) / 60
+        zeile += f" · noch ca. {rest_min:.0f} min"
+    return zeile
+
+
 class Lauf:
     """Ein Schreiblauf. Alle Aussenwege sind einsetzbar (Tests ohne Netz)."""
 
@@ -243,11 +258,13 @@ class Lauf:
                  vorhandene: Dict[str, int], hochladen: Callable[[str, bytes], Optional[int]],
                  ergebnis: str, max_bytes: int, max_seite: int = STANDARD_MAX_SEITE,
                  entnehmen: Callable[..., Iterable] = standbilder_entnehmen,
-                 max_videos: Optional[int] = None) -> None:
+                 max_videos: Optional[int] = None,
+                 melden: Optional[Callable[[str], None]] = None) -> None:
         self.offen, self.dienst, self.vorhandene = offen, dienst, dict(vorhandene)
         self.hochladen, self.ergebnis = hochladen, ergebnis
         self.max_bytes, self.max_seite, self.entnehmen = max_bytes, max_seite, entnehmen
         self.max_videos = max_videos
+        self.melden = melden
         self.zaehler = {"videos_geholt": 0, "zu_gross": 0, "fehler": 0, "hochgeladen": 0,
                         "wiederverwendet": 0, "mass_abweichend": 0, "nicht_lesbar": 0,
                         "zeilen": 0}
@@ -279,10 +296,17 @@ class Lauf:
 
     def ausfuehren(self) -> Dict[str, int]:
         self._ende_reparieren()
+        gesamt = len(self.offen)
+        if self.max_videos is not None:
+            gesamt = min(gesamt, max(0, self.max_videos))
+        start = time.monotonic()
         for nr, vid in enumerate(sorted(self.offen)):
-            if self.max_videos is not None and nr >= self.max_videos:
+            if nr >= gesamt:
                 break
             self._video(vid, self.offen[vid])
+            if self.melden:
+                self.melden(fortschritt_zeile(nr + 1, gesamt, self.zaehler,
+                                              time.monotonic() - start))
         return self.zaehler
 
     def _video(self, vid: str, zeiten: Dict[str, Any]) -> None:
@@ -394,7 +418,8 @@ def _argumente(argv: Optional[List[str]]) -> argparse.Namespace:
     p.add_argument("--ergebnis", default=None,
                    help="Ergebnisdatei (Standard personen_gruppen/<gemeinsamer Name>)")
     p.add_argument("--umfang", choices=UMFAENGE, default="nur_video")
-    p.add_argument("--max-je-gruppe", type=int, default=STANDARD_MAX_JE_GRUPPE)
+    p.add_argument("--max-je-gruppe", type=int, default=STANDARD_MAX_JE_GRUPPE,
+                   help="Gesichter je Gruppe; 0 = alle (Standard 8)")
     p.add_argument("--max-seite", type=int, default=STANDARD_MAX_SEITE)
     p.add_argument("--max-mb", type=int, default=STANDARD_MAX_MB)
     p.add_argument("--max-videos", type=int, default=None)
@@ -419,6 +444,8 @@ def main(argv: Optional[List[str]] = None, *, dienst: Any = None,
     print(f"Gruppen: {auswahl['gruppen']} · Gesichter gewaehlt: {auswahl['gesichter']} · "
           f"Videos: {len(auswahl['frames'])} · schon erledigt: {len(erledigt)}")
     print(f"Offen: {len(offen)} Videos, {sum(len(z) for z in offen.values())} Standbilder")
+    if args.max_videos is not None and args.max_videos < len(offen):
+        print(f"Begrenzt mit --max-videos: dieser Lauf nimmt {max(0, args.max_videos)} davon.")
     if args.groessen:
         dienst = dienst or _pcloud_dienst()
         summe, unbekannt = groessen_summe(dienst, offen)
@@ -433,7 +460,8 @@ def main(argv: Optional[List[str]] = None, *, dienst: Any = None,
     lauf = Lauf(offen, dienst=dienst, vorhandene=vorhandene_lesen(dienst, folderid),
                 hochladen=lambda name, daten: uebergabe.hochladen(name, daten, folderid),
                 ergebnis=ergebnis, max_bytes=args.max_mb * 1024 * 1024,
-                max_seite=args.max_seite, entnehmen=entnehmen, max_videos=args.max_videos)
+                max_seite=args.max_seite, entnehmen=entnehmen, max_videos=args.max_videos,
+                melden=lambda zeile: print(zeile, flush=True))
     z = lauf.ausfuehren()
     print("Ergebnis: " + " · ".join(f"{k} {v}" for k, v in z.items()))
     if args.uebergeben:

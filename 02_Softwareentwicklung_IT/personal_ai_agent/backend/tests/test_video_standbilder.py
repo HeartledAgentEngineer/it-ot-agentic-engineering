@@ -62,6 +62,15 @@ def test_ein_frame_je_gruppe_nur_einmal():
     assert a["gesichter"] == 1 and list(a["frames"]["11"]) == ["2.0"]
 
 
+def test_null_je_gruppe_nimmt_alle_frames_der_gruppe():
+    # 0 = alle (15.10.2026): Die Gesamtansicht des Quiz soll ALLE Video-Gesichter
+    # einer Gruppe zeigen; dafuer braucht es ein Standbild zu jedem Frame.
+    zeilen = [_foto("A", 5)] + [_video("A", "11", float(t)) for t in range(0, 24, 2)]
+    assert vs.auswaehlen(zeilen, "alle")["gesichter"] == 8              # Standard bleibt 8
+    voll = vs.auswaehlen(zeilen, "alle", 0)
+    assert voll["gesichter"] == 12 and len(voll["frames"]["11"]) == 12
+
+
 def test_unbekannter_umfang_wird_abgelehnt():
     with pytest.raises(vs.StandbildFehler):
         vs.auswaehlen([], "irgendwas")
@@ -370,3 +379,38 @@ def test_heile_datei_bekommt_keine_leerzeile(tmp_path):
                        ergebnis=str(erg))
     lauf.ausfuehren()
     assert "" not in erg.read_text(encoding="utf-8").splitlines()
+
+
+def test_fortschritt_je_video_nur_zahlen(tmp_path):
+    offen = {str(v): {"2.0": {"breite": 1920, "hoehe": 1080}} for v in (987654321, 987654322, 987654323)}
+    zeilen = []
+    lauf, _, _ = _lauf(tmp_path, offen, max_videos=2, melden=zeilen.append)
+    lauf.ausfuehren()
+    assert len(zeilen) == 2
+    assert zeilen[0].startswith("Video 1/2 · Standbilder 1 · Fehler 0")
+    assert zeilen[1] == "Video 2/2 · Standbilder 2 · Fehler 0"
+    assert not any("98765432" in z or "_t2.0" in z for z in zeilen)
+
+
+def test_fortschritt_zaehlt_fehler_und_zu_gross():
+    z = {"zeilen": 3, "fehler": 1, "zu_gross": 2}
+    assert vs.fortschritt_zeile(1, 4, z, 120.0) == "Video 1/4 · Standbilder 3 · Fehler 3 · noch ca. 6 min"
+    assert vs.fortschritt_zeile(4, 4, z, 120.0) == "Video 4/4 · Standbilder 3 · Fehler 3"
+
+
+def test_schreiblauf_zeigt_fortschritt_auf_der_konsole(tmp_path, capsys):
+    erg = tmp_path / "erg.jsonl"
+    vs.main(["--zuordnung", _zuordnung(tmp_path), "--ergebnis", str(erg), "--schreiben"],
+            dienst=ListenDienst(), uebergabe=Uebergabe(), entnehmen=_entnehmen())
+    aus = capsys.readouterr().out
+    assert "Video 1/2 ·" in aus and "Video 2/2 · Standbilder 3 · Fehler 0" in aus
+
+
+def test_trockenlauf_nennt_die_begrenzung(tmp_path, capsys):
+    vs.main(["--zuordnung", _zuordnung(tmp_path), "--ergebnis", str(tmp_path / "e.jsonl"),
+             "--max-videos", "1"], dienst=ListenDienst(), uebergabe=Uebergabe(),
+            entnehmen=_entnehmen())
+    assert "dieser Lauf nimmt 1 davon" in capsys.readouterr().out
+    vs.main(["--zuordnung", _zuordnung(tmp_path), "--ergebnis", str(tmp_path / "e.jsonl")],
+            dienst=ListenDienst(), uebergabe=Uebergabe(), entnehmen=_entnehmen())
+    assert "--max-videos" not in capsys.readouterr().out

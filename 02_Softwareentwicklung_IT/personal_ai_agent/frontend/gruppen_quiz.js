@@ -176,8 +176,10 @@ function gruppenAlleInfo(antwort, geladen) {
                    gruppenZahl(antwort.gesamt) + ' Gesichter'];
     if (geladen < antwort.gesamt) teile.push(gruppenZahl(geladen) + ' geladen');
     if (antwort.ausgeschlossen) teile.push(gruppenZahl(antwort.ausgeschlossen) + ' schon ausgeschlossen');
-    // Seit 14.10.2026 zählt ``videos`` nur noch Video-Gesichter OHNE Standbild.
-    if (videos) teile.push('+ ' + gruppenZahl(videos) + ' aus Videos (nicht gezeigt)');
+    // Seit 14.10.2026 zählt ``videos`` nur noch Video-Gesichter OHNE Standbild; seit
+    // 15.10.2026 nennt die Zeile den Grund („gezählt, aber nicht angezeigt“ war
+    // Sebastians Befund — die Standbilder fehlten, nicht die Anzeige).
+    if (videos) teile.push('+ ' + gruppenZahl(videos) + ' aus Videos (noch ohne Standbild)');
     if (antwort.gesichter && antwort.gesichter.some((g) => g && g.video === true)) {
         teile.push('🎬 Video-Gesichter nur ansehen, nicht einzeln ändern');
     }
