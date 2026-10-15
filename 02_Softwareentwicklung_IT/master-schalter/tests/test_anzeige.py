@@ -85,6 +85,7 @@ def test_tooltip_beginnt_mit_master_und_lage():
 def test_tooltip_kopf_ohne_master_und_lage():
     assert anzeige.tooltip_kopf(None, None) == "M – L?"
     assert anzeige.tooltip_kopf("codex", "2B") == "M Codex L2B"
+    assert anzeige.tooltip_kopf("hermes", "3") == "M Hermes L3"
 
 
 def test_tooltip_mit_kopf_bleibt_hoechstens_127_zeichen():
@@ -98,6 +99,7 @@ def test_master_menuezeile():
     assert anzeige.master_menuezeile(z, zone=UTC) == "Master: Claude (seit 14.10. 19:50)"
     assert anzeige.master_menuezeile(Zustand(None, None, None)) == "Master: nicht gesetzt"
     assert anzeige.master_menuezeile(Zustand("codex", "kaputt", None)) == "Master: Codex"
+    assert anzeige.master_menuezeile(Zustand("hermes", datetime(2026, 10, 15, 12, 25, tzinfo=UTC).isoformat(), None), zone=UTC) == "Master: Hermes (seit 15.10. 12:25)"
 
 
 def test_lage_zeilen_bekannt_nennt_besetzung():
@@ -116,6 +118,7 @@ def test_master_status_zeile():
     assert anzeige.master_status_zeile(Zustand("claude", None, None), "1", "") == "Master: Claude · Lage 1"
     assert anzeige.master_status_zeile(Zustand(None, None, None), None, "Claude keine Daten") == \
         "Master: nicht gesetzt · Lage ? – Claude keine Daten"
+    assert anzeige.master_status_zeile(Zustand("hermes", None, None), "3", "") == "Master: Hermes · Lage 3"
 
 
 def test_schwelle_setzen_roundtrip_und_andere_felder_bleiben(tmp_path):

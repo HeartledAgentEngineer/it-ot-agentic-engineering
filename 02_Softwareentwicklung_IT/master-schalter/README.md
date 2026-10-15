@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.2.0** — Masteranzeige und Wechsel per Klick.
+Stand: **v0.2.1** — Masteranzeige und Wechsel per Klick (Claude, Codex oder Hermes).
 
 ## Bedienung
 
@@ -20,7 +20,8 @@ Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe 
 Die Anzeige wird standardmäßig jede Minute aktualisiert. Die Claude-Messung läuft beim
 Start, nach „Aktualisieren" und anschließend im eingestellten Takt.
 
-Im Menü „Master wechseln" kann Claude oder Codex ausgewählt werden. Der Wechsel legt
+Im Menü „Master wechseln" kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
+Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Der Wechsel legt
 ein Markdown-Paket unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Der neue
 Master liest es, wenn Sebastian ihn darauf hinweist. v0.2 startet keinen Chat und schreibt
 in keinen Chat. Die Schwelle lässt sich im Menü „Wechsel-Schwelle" auf 80, 90, 95, 97
@@ -82,7 +83,7 @@ Das Programm bringt dafür kein eigenes Autostart-Menü und kein Einrichtungs-Sk
 die Verknüpfung wird von Windows ausgeführt. Die auf diesem Rechner eingerichtete
 Benutzer-Verknüpfung benötigt keine Administratorrechte.
 
-v0.2 enthält weiterhin keine Chat-Auswahl und keinen automatischen Masterwechsel.
+v0.2.1 ändert nur die Master-Auswahl (Hermes dazu); weiterhin keine Chat-Auswahl und kein automatischer Masterwechsel.
 
 ## Benutzen
 
@@ -147,7 +148,8 @@ committet wird.
 |---|---|
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
 | v0.1.0 | Kontingent-Anzeige beider Master |
-| **v0.2.0** | Masteranzeige, Lage und Besetzung, Wechsel per Klick, technisches Übergabepaket, Menüschwelle (dieser Stand) |
-| v0.3.0 | Hermes-Prüfsitzungen benennen, registrieren und nach Abschluss archivieren |
-| v0.3.1 | Übergabepaket um Issues und Prüfrunden ergänzen |
-| v0.4.0 | automatischer Wechsel ab Schwelle (erst nach Freigabe) |
+| **v0.2.1** | Hermes als dritter Master wählbar (Zustand, Menü, CLI; ohne Balken) — dieser Stand |
+| v0.2.0 | Masteranzeige, Lage und Besetzung, Wechsel per Klick, technisches Übergabepaket, Menüschwelle |
+| v0.3.0 | Automatische Übergabe Claude → Codex (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans) |
+| v0.3.1 | Hermes-Prüfsitzungen benennen, registrieren und nach Abschluss archivieren; Übergabepaket um Issues und Prüfrunden ergänzen |
+| v0.4.0 | Automatischer Rückweg Codex → Claude und weitere Ausbaustufen |

@@ -18,7 +18,7 @@ from typing import Callable, Iterator
 
 from .signale import _atomar_schreiben, daten_ordner
 
-MASTER = ("claude", "codex")
+MASTER = ("claude", "codex", "hermes")
 FRIST_SEKUNDEN = 5.0
 TAKT_SEKUNDEN = 0.05
 
@@ -29,7 +29,7 @@ class SperrFehler(Exception):
 
 @dataclass(frozen=True)
 class Zustand:
-    master: str | None = None      # "claude" | "codex" | None (= nicht gesetzt)
+    master: str | None = None      # "claude" | "codex" | "hermes" | None (= nicht gesetzt)
     seit: str | None = None        # ISO-Zeit des letzten Wechsels
     uebergabe: str | None = None   # Pfad des letzten Übergabepakets
 

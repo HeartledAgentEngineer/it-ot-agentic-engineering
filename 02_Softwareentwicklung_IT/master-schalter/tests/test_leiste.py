@@ -76,9 +76,9 @@ def test_master_wechseln_optionsfelder_aktiver_angehakt(lst):
     zustand.aendern(lambda z: z.__class__("codex", JETZT.isoformat(), None))
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
-    assert _texte(sub) == ["Claude", "Codex"]
+    assert _texte(sub) == ["Claude", "Codex", "Hermes"]
     assert all(i.radio for i in sub)
-    assert [i.checked for i in sub] == [False, True]
+    assert [i.checked for i in sub] == [False, True, False]
 
 
 def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkeypatch):
@@ -98,6 +98,25 @@ def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkey
     assert aufrufe == ["codex"]
     assert lst.icon.title.startswith("M Codex L")
     assert lst.icon.meldungen[-1][1] == f"Master jetzt Codex – Übergabe: {paket.name}. Im Codex-Chat lesen lassen."
+
+
+def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
+    aufrufe = []
+    paket = tmp_path / "2026-10-15_142540_masterwechsel-codex-hermes.md"
+
+    def attrappe(nach, hinweis=None, **kw):
+        aufrufe.append(nach)
+        zustand.aendern(lambda z: z.__class__(nach, JETZT.isoformat(), str(paket)))
+        return wechsel.Ergebnis("gewechselt", nach, paket, "")
+
+    monkeypatch.setattr(wechsel, "wechseln", attrappe)
+    lst.aktualisieren()
+    sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
+    _eintrag(sub, "Hermes")(lst.icon)
+
+    assert aufrufe == ["hermes"]
+    assert lst.icon.title.startswith("M Hermes L")
+    assert lst.icon.meldungen[-1][1] == f"Master jetzt Hermes – Übergabe: {paket.name}. Im Hermes-Chat lesen lassen."
 
 
 def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatch):

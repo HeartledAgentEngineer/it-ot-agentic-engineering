@@ -36,7 +36,8 @@ def _farbe(prozent: float, grundfarbe: tuple[int, int, int], schwelle: int) -> t
 def bild(claude: float | None, codex: float | None, schwelle: int, master: str | None = None) -> Image.Image:
     """Füllhöhe = 5-Stunden-Verbrauch; gelb ab 80 %, rot ab Schwelle; leer = unbekannt.
 
-    `master` ("claude" | "codex") setzt den weißen Punkt über den Balken des aktiven Masters."""
+    `master` ("claude" | "codex" | "hermes") setzt den weißen Punkt über den Balken des aktiven
+    Masters; Hermes hat keinen Balken und bekommt keinen Punkt."""
     b = Image.new("RGBA", (GROESSE, GROESSE), (0, 0, 0, 0))
     zeichnen = ImageDraw.Draw(b)
     for (links, oben, rechts, unten), prozent, grundfarbe in zip(BALKEN, (claude, codex), (CLAUDE, CODEX)):

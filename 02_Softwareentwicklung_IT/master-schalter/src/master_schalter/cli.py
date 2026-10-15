@@ -4,7 +4,7 @@
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
     masterwechsel master              aktiven Master, Lage und Besetzung anzeigen
-    masterwechsel wechsel claude|codex [--hinweis TEXT]
+    masterwechsel wechsel claude|codex|hermes [--hinweis TEXT]
                                       Master wechseln und Übergabepaket schreiben
 """
 from __future__ import annotations

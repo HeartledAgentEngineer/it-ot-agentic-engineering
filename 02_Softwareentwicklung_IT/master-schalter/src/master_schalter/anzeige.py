@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 STANDARD_SCHWELLE = 97
 SCHWELLEN = (80, 90, 95, 97, 100)   # Auswahl im Menü „Wechsel-Schwelle"
-MASTER_NAMEN = {"claude": "Claude", "codex": "Codex"}
+MASTER_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes"}
 WARN_AB = 80
 TOOLTIP_MAX = 127   # Windows schneidet Tooltips von Taskleisten-Symbolen bei 127 Zeichen ab
 HINWEIS_MAX = 255   # Windows-Benachrichtigungen fassen höchstens 255 Zeichen

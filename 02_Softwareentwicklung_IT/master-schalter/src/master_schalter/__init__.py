@@ -1,3 +1,3 @@
-"""Master-Schalter: Kontingent-Anzeige, Master-Anzeige und Masterwechsel per Klick zwischen Claude Code und Codex."""
+"""Master-Schalter: Kontingent-Anzeige, Master-Anzeige und Masterwechsel per Klick zwischen Claude Code, Codex und Hermes."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"

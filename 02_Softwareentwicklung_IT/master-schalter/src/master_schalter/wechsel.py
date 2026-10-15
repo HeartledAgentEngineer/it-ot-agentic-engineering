@@ -15,7 +15,7 @@ from . import uebergabe, zustand
 @dataclass(frozen=True)
 class Ergebnis:
     art: str                # "gewechselt" | "gleich" | "fehler"
-    master: str             # Ziel-Master ("claude" | "codex")
+    master: str             # Ziel-Master ("claude" | "codex" | "hermes")
     paket: Path | None      # nur bei "gewechselt"
     meldung: str            # Fehlertext bei "fehler", sonst leer
 

@@ -54,3 +54,7 @@ def test_ohne_master_kein_punkt():
     links, rechts = symbol.balken_mitte()
     assert not _weiss(bild, (links, symbol.PUNKT_Y)) and not _weiss(bild, (rechts, symbol.PUNKT_Y))
     assert symbol.bild(50, 50, 97, master=None).tobytes() == bild.tobytes()
+
+
+def test_hermes_hat_keinen_balken_und_keinen_punkt():
+    assert symbol.bild(50, 50, 97, master="hermes").tobytes() == symbol.bild(50, 50, 97).tobytes()

@@ -43,6 +43,14 @@ def test_dateiname_nennt_von_und_nach(umgebung):
     assert erg.paket.name == "2026-10-14_215007_masterwechsel-claude-codex.md"
 
 
+def test_wechsel_nach_hermes_schreibt_paket_und_zustand(umgebung):
+    wechsel.wechseln("claude", jetzt=JETZT)
+    erg = wechsel.wechseln("hermes", jetzt=JETZT)
+    assert erg.art == "gewechselt" and erg.master == "hermes"
+    assert erg.paket.name == "2026-10-14_215007_masterwechsel-claude-hermes.md"
+    assert zustand.lesen().master == "hermes"
+
+
 def test_erster_wechsel_ohne_vorherigen_master(umgebung):
     erg = wechsel.wechseln("claude", jetzt=JETZT)
     assert erg.paket.name == "2026-10-14_215007_masterwechsel-unbekannt-claude.md"

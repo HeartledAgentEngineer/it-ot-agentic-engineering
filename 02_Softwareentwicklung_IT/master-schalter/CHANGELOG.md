@@ -3,6 +3,17 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.2.1] – 2026-10-15
+
+### Neu
+- **Hermes als dritter, manuell wählbarer Master** (Lage 3 der Kaskaden-Matrix: Thinker = Hermes/DeepSeek).
+  `master.json` akzeptiert `"hermes"`, das Menü „Master wechseln" und `masterwechsel wechsel hermes` bieten
+  ihn an; Tooltip und Statuszeile zeigen dann „M Hermes …“. Hermes hat kein eigenes Kontingent: kein
+  Balken, kein weißer Punkt; `wechsel` legt wie gewohnt zuerst das Übergabepaket ab
+  (`…_masterwechsel-<von>-hermes.md`).
+- README-Fahrplan an die Release-Tabelle des v0.3-Plans angeglichen (Automatik = v0.3.0,
+  Hermes-Sitzungen = v0.3.1, Rückweg = v0.4.0).
+
 ## [0.2.0] – 2026-10-14
 
 ### Neu

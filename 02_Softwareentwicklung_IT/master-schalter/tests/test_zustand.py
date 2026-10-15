@@ -49,6 +49,11 @@ def test_roundtrip_ueber_aendern(daten):
     assert set(roh) == {"master", "seit", "uebergabe"}
 
 
+def test_hermes_ist_erlaubter_master(daten):
+    zustand.aendern(lambda z: replace(z, master="hermes"))
+    assert zustand.lesen().master == "hermes"
+
+
 def test_fehler_in_der_funktion_schreibt_nichts(daten):
     zustand.aendern(lambda z: replace(z, master="claude"))
 
