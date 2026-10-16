@@ -70,7 +70,7 @@ PROTOKOLL_DATEINAME = "gruppen_antworten.jsonl"
 PROFILE_DATEINAME = "personen_profile.json"
 KONTAKTE_DATEINAME = "kontakte.json"   # Telefonbuch-Auszug (tools/handy/kontakte_aufs_handy.py)
 
-ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt")
+ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt", "offen")
 MODI = ("alle", "eine", "genau")
 NAME_MAX = 60
 BEZIEHUNG_MAX = 80
@@ -543,27 +543,48 @@ def stand() -> Dict[str, Any]:
     }
 
 
-def naechste() -> Dict[str, Any]:
-    """Die groesste offene Gruppe (unbenannt, nicht 'unbekannt'); 'spaeter' erst zum Schluss."""
+def _gruppen_status(kennung: str, namen: Dict[str, str], st: Dict[str, List[str]]) -> str:
+    if kennung in namen:
+        return "benannt"
+    if kennung in st["unbekannt"]:
+        return "ausgeblendet"
+    if kennung in st["spaeter"]:
+        return "spaeter"
+    return "offen"
+
+
+def liste(status: str = "offen", seite: int = 1, je_seite: int = 24) -> Dict[str, Any]:
+    """Metadatenliste aus personen_beispiele.json, ohne Gesichtsdateien zu lesen."""
+    if (status not in ("offen", "spaeter", "benannt", "ausgeblendet")
+            or isinstance(seite, bool) or not isinstance(seite, int) or not 1 <= seite <= 10000
+            or isinstance(je_seite, bool) or not isinstance(je_seite, int) or not 1 <= je_seite <= 100):
+        return {"ok": False, "fehler": "Ungültige Listenparameter."}
     try:
         gruppen, _ = _gruppen_laden()
         namen = bestaetigt_lesen()
-        vorgaben = vorgaben_lesen()
         st = _stand_lesen()
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
-    unbekannt, spaeter = set(st["unbekannt"]), st["spaeter"]
-    offen = [g for g in gruppen if g["kennung"] not in namen and g["kennung"] not in unbekannt]
-    erst = [g for g in offen if g["kennung"] not in spaeter]
-    if erst:
-        gruppe = erst[0]
-    else:
-        reihe = {k: i for i, k in enumerate(spaeter)}
-        nach_spaeter = sorted(offen, key=lambda g: reihe.get(g["kennung"], 0))
-        gruppe = nach_spaeter[0] if nach_spaeter else None
-    if gruppe is None:
-        return {"ok": True, "fertig": True, "gruppe": None, "offen": 0,
-                "namen": namen_liste(namen)}
+    passend = [g for g in gruppen if _gruppen_status(g["kennung"], namen, st) == status]
+    passend.sort(key=lambda g: (-int(g.get("groesse") or 0), g["kennung"]))
+    gesamt = len(passend)
+    seiten = (gesamt + je_seite - 1) // je_seite
+    start = (seite - 1) * je_seite
+    sichtbare = [{
+        "kennung": g["kennung"], "groesse": g.get("groesse") or 0,
+        "bilder": g.get("bilder"), "videos": g.get("videos"),
+        "von": g.get("von"), "bis": g.get("bis"), "status": status,
+        "name": namen.get(g["kennung"]),
+    } for g in passend[start:start + je_seite]]
+    return {"ok": True, "status": status, "gruppen": sichtbare, "gesamt": gesamt,
+            "seite": seite, "seiten": seiten, "je_seite": je_seite}
+
+
+def _antwort_fuer_gruppe(gruppe: Dict[str, Any], gruppen: List[Dict[str, Any]],
+                         namen: Dict[str, str], vorgaben: Dict[str, List[List[str]]],
+                         spaeter: List[str], offen: int,
+                         status: Optional[str] = None) -> Dict[str, Any]:
+    """Gemeinsame Beispielaufbereitung für `/naechste` und direktes Detail."""
     nach_kennung = {g["kennung"]: g for g in gruppen}
 
     def erstes_beispiel(g: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -613,8 +634,8 @@ def naechste() -> Dict[str, Any]:
         ohne_standbild = {}
     if gruppe["kennung"] in ohne_standbild:
         videos = ohne_standbild[gruppe["kennung"]]
-    return {
-        "ok": True, "fertig": False, "offen": len(offen),
+    ergebnis = {
+        "ok": True, "fertig": False, "offen": offen,
         "gruppe": {
             "kennung": gruppe["kennung"], "groesse": gruppe.get("groesse"),
             "bilder": gruppe.get("bilder"), "videos": videos,
@@ -625,6 +646,52 @@ def naechste() -> Dict[str, Any]:
         },
         "namen": namen_liste(namen),
     }
+    if status is not None:
+        ergebnis["gruppe"]["status"] = status
+        ergebnis["gruppe"]["name"] = namen.get(gruppe["kennung"])
+    return ergebnis
+
+
+def naechste() -> Dict[str, Any]:
+    """Die groesste offene Gruppe (unbenannt, nicht 'unbekannt'); 'spaeter' erst zum Schluss."""
+    try:
+        gruppen, _ = _gruppen_laden()
+        namen = bestaetigt_lesen()
+        vorgaben = vorgaben_lesen()
+        st = _stand_lesen()
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    unbekannt, spaeter = set(st["unbekannt"]), st["spaeter"]
+    offen = [g for g in gruppen if g["kennung"] not in namen and g["kennung"] not in unbekannt]
+    erst = [g for g in offen if g["kennung"] not in spaeter]
+    if erst:
+        gruppe = erst[0]
+    else:
+        reihe = {k: i for i, k in enumerate(spaeter)}
+        nach_spaeter = sorted(offen, key=lambda g: reihe.get(g["kennung"], 0))
+        gruppe = nach_spaeter[0] if nach_spaeter else None
+    if gruppe is None:
+        return {"ok": True, "fertig": True, "gruppe": None, "offen": 0,
+                "namen": namen_liste(namen)}
+    return _antwort_fuer_gruppe(gruppe, gruppen, namen, vorgaben, spaeter, len(offen))
+
+
+def detail(kennung: str) -> Dict[str, Any]:
+    """Eine Gruppe gezielt öffnen, ohne ihren Status oder andere Daten zu ändern."""
+    try:
+        gruppen, _ = _gruppen_laden()
+        namen = bestaetigt_lesen()
+        vorgaben = vorgaben_lesen()
+        st = _stand_lesen()
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    gruppe = next((g for g in gruppen if g["kennung"] == kennung), None)
+    if gruppe is None:
+        return {"ok": False, "fehler": f"Gruppe {kennung!r} ist nicht (mehr) in der Gruppen-Datei."}
+    offen = sum(1 for g in gruppen
+                if g["kennung"] not in namen and g["kennung"] not in st["unbekannt"])
+    return _antwort_fuer_gruppe(gruppe, gruppen, namen, vorgaben, st["spaeter"], offen,
+                                _gruppen_status(kennung, namen, st))
 
 
 # ── Alle Gesichter eines Vorschlags + Ausschliessen (02.10.2026) ────────────
@@ -1461,6 +1528,8 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             raise GruppenFehler("Bitte die Vergleichsgruppe angeben.")
 
     namen = bestaetigt_lesen()
+    if art == "offen" and kennung in namen:
+        raise GruppenFehler("Benannte Gruppen können nicht zurück zu Offen gesetzt werden.")
     vorgaben = vorgaben_lesen()
     st = _stand_lesen()
     eintrag: Dict[str, Any] = {
@@ -1470,6 +1539,11 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         "paare_weg": {"gleich": [], "verschieden": []},
         "listen_vorher": {"spaeter": kennung in st["spaeter"],
                           "unbekannt": kennung in st["unbekannt"]},
+        # Position in der jeweiligen Liste (nur wenn enthalten): damit stellt
+        # Rueckgaengig auch die Reihenfolge wieder her. Eintraege ohne diesen
+        # Schluessel (aeltere Protokolle) wandern wie bisher ans Listenende.
+        "listen_position": {liste: st[liste].index(kennung)
+                            for liste in ("spaeter", "unbekannt") if kennung in st[liste]},
     }
 
     def name_setzen(k: str, n: str) -> None:
@@ -1537,6 +1611,9 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         if kennung not in st["unbekannt"]:
             st["unbekannt"].append(kennung)
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
+    elif art == "offen":
+        st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
+        st["unbekannt"] = [k for k in st["unbekannt"] if k != kennung]
 
     if eintrag["namen_vorher"]:
         _bestaetigt_schreiben(namen)
@@ -1613,11 +1690,19 @@ def rueckgaengig() -> Dict[str, Any]:
                     if sorted(p) not in vorgaben[art_paar]:
                         vorgaben[art_paar].append(sorted(p))
             kennung = str(letzte.get("kennung") or "")
+            positionen = letzte.get("listen_position")
+            if not isinstance(positionen, dict):
+                positionen = {}
             for liste, war in (letzte.get("listen_vorher") or {}).items():
                 if liste not in st:
                     continue
                 ohne = [k for k in st[liste] if k != kennung]
-                st[liste] = ohne + [kennung] if war else ohne
+                position = positionen.get(liste)
+                if war and isinstance(position, int) and not isinstance(position, bool) and position >= 0:
+                    ohne.insert(min(position, len(ohne)), kennung)   # alte Reihenfolge
+                    st[liste] = ohne
+                else:
+                    st[liste] = ohne + [kennung] if war else ohne
             if letzte.get("profile_vorher"):
                 daten = _profile_laden()
                 for schluessel, alt_profil in letzte["profile_vorher"].items():

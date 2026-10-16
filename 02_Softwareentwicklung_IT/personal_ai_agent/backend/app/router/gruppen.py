@@ -84,6 +84,20 @@ def naechste() -> Dict[str, Any]:
     return gruppen_quiz.naechste()
 
 
+@router.get("/liste")
+def liste(
+    status: str = Query(default="offen", pattern="^(offen|spaeter|benannt|ausgeblendet)$"),
+    seite: int = Query(default=1, ge=1, le=10000),
+    je_seite: int = Query(default=24, ge=1, le=100),
+) -> Dict[str, Any]:
+    return gruppen_quiz.liste(status, seite, je_seite)
+
+
+@router.get("/detail/{kennung}")
+def detail(kennung: str) -> Dict[str, Any]:
+    return gruppen_quiz.detail(kennung)
+
+
 @router.post("/antwort")
 def antwort(eingabe: GruppenAntwort) -> Dict[str, Any]:
     return gruppen_quiz.antworten(eingabe.kennung, eingabe.art, eingabe.name, eingabe.ziel,

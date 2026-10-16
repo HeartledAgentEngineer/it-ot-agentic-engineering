@@ -238,7 +238,7 @@ pruefe(/\/api\/gruppen\/personen'/.test(src) && /\/api\/gruppen\/person\?name=/.
     && /\/api\/gruppen\/umbenennen'/.test(src) && /\/api\/gruppen\/loesen'/.test(src), 'Benannt nutzt die vier neuen Routen');
 pruefe(/kontakt_id: String\(kontaktId\)/.test(src) && /'\/api\/gruppen\/profil', koerper/.test(src),
     'Profil speichern und Kontakt verknüpfen über /api/gruppen/profil');
-pruefe(/if \(zustand\.reiter !== 'offen'\) return;/.test(src), 'eine späte Antwort aus „Offen“ überschreibt „Benannt“ nicht');
+pruefe(/if \(!direkt && zustand\.reiter !== 'offen'\) return;/.test(src), 'eine späte Quizantwort überschreibt „Benannt“ nicht; direktes Detail darf öffnen');
 pruefe(/Wirklich lösen\? Noch einmal tippen/.test(src), 'Vorschlag lösen braucht zwei Tipps');
 pruefe(/n\.textContent = p\.name;/.test(src) && /text\.textContent = n\.text \|\| '';/.test(src)
     && !/innerHTML = [^']/.test(src), 'Namen und Erinnerungen nur per textContent');

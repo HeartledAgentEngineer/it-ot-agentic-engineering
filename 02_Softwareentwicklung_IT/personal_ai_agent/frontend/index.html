@@ -269,7 +269,11 @@
                     <button id="gruppen-reiter-benannt" class="gruppen-reiter-knopf" type="button"
                             role="tab" aria-selected="false">👤 Benannt</button>
                 </div>
+                <button id="gruppen-uebersicht" class="gruppen-knopf gruppen-uebersicht-knopf" type="button">☷ Gruppenübersicht</button>
                 <p id="gruppen-fortschritt" class="gruppen-fortschritt"></p>
+                <!-- Außerhalb der Karte: bleibt auch sichtbar, wenn das Backend nach einer
+                     Statusaktion „fertig“ meldet (Karte dann ausgeblendet). -->
+                <button id="gruppen-detail-zurueck" class="gruppen-knopf" type="button" hidden>← Zur Übersicht</button>
                 <section id="gruppen-karte" class="gruppen-karte" hidden>
                     <div class="gruppen-kopf">
                         <h3>Wer ist das?</h3>
@@ -317,6 +321,28 @@
                         <button id="gruppen-unbekannt" class="gruppen-knopf" type="button">🚫 Kenne ich nicht</button>
                         <button id="gruppen-zurueck" class="gruppen-knopf" type="button">↩ Rückgängig</button>
                     </div>
+                </section>
+                <section id="gruppen-liste-ansicht" class="gruppen-liste-ansicht" hidden>
+                    <div class="gruppen-kopf">
+                        <h3>Gruppenübersicht</h3>
+                        <button id="gruppen-liste-quiz" class="gruppen-knopf" type="button">← Zum Quiz</button>
+                    </div>
+                    <p id="gruppen-liste-meldung" class="gruppen-meta" role="status" aria-live="polite"></p>
+                    <p class="gruppen-meta">Die Liste kann sich bei Änderungen auf anderen Geräten verschieben. Aktualisiere sie bei Bedarf.</p>
+                    <div class="gruppen-liste-filter" role="group" aria-label="Gruppenstatus">
+                        <button id="gruppen-liste-status-offen" class="gruppen-reiter-knopf" type="button">Offen</button>
+                        <button id="gruppen-liste-status-spaeter" class="gruppen-reiter-knopf" type="button">Später</button>
+                        <button id="gruppen-liste-status-benannt" class="gruppen-reiter-knopf" type="button">Benannt</button>
+                        <button id="gruppen-liste-status-ausgeblendet" class="gruppen-reiter-knopf" type="button">Ausgeblendet</button>
+                    </div>
+                    <button id="gruppen-liste-aktualisieren" class="gruppen-knopf" type="button">↻ Aktualisieren</button>
+                    <div id="gruppen-liste" class="gruppen-benannt-liste gruppen-liste" role="group" aria-label="Gruppenliste"></div>
+                    <p id="gruppen-liste-seite" class="gruppen-meta"></p>
+                    <div class="gruppen-liste-seiten">
+                        <button id="gruppen-liste-vorher" class="gruppen-knopf" type="button">← Vorherige</button>
+                        <button id="gruppen-liste-weiter" class="gruppen-knopf" type="button">Weitere →</button>
+                    </div>
+                    <button id="gruppen-liste-undo" class="gruppen-knopf" type="button" hidden>↩ Reaktivieren rückgängig</button>
                 </section>
                 <section id="gruppen-alle-ansicht" class="gruppen-alle-ansicht" hidden>
                     <div class="gruppen-kopf">
@@ -591,7 +617,7 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261013A"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
-    <script src="gruppen_quiz.js?v=20261015A"></script>
+    <script src="gruppen_quiz.js?v=20261016A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

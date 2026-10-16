@@ -358,10 +358,31 @@ function gruppenNotizZeit(zeit) {
     'use strict';
 
     const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null,
-                      reiter: 'offen', personen: [], person: null };
+                      reiter: 'offen', personen: [], person: null, listeAktiv: false,
+                      listeStatus: 'offen', listeSeite: 1, listeSeiten: 0,
+                      listenSequenz: 0, detailSequenz: 0, quizSequenz: 0, detailAktiv: false,
+                      // Gemeinsamer Mechanismus gegen verspätete Antworten: ``ansichtSequenz``
+                      // zählt jeden Ansichtswechsel (nurZeigen, Alle-Gesichter-Neuaufbau, Schließen);
+                      // ``personenSequenz``/``personSequenz`` ordnen gleichartige Anfragen.
+                      ansichtSequenz: 0, personenSequenz: 0, personSequenz: 0,
+                      listeStatusGeaendert: false, listeRueckmeldung: '' };
     const DIKTAT_WARTEN_MS = 20000;
 
     function el(id) { return document.getElementById(id); }
+
+    /** Ansichtsstand beim Absenden einer Anfrage festhalten. Nach dem Warten fragt
+     *  ``ansichtVeraltet`` ab, ob inzwischen Detail, Übersicht, Person, Alle Gesichter,
+     *  Reiter oder „Schließen“ gewechselt haben – dann darf die Antwort nichts mehr an
+     *  Oberfläche oder Auswahl ändern (serverseitig ausgeführte Aktionen bleiben gültig). */
+    function ansichtMerken() {
+        return { ansicht: zustand.ansichtSequenz, detail: zustand.detailSequenz, liste: zustand.listenSequenz };
+    }
+
+    function ansichtVeraltet(ansicht) {
+        // „Schließen“ erhöht alle Zähler, ein eigener Sheet-Test ist daher unnötig.
+        return ansicht.ansicht !== zustand.ansichtSequenz || ansicht.detail !== zustand.detailSequenz
+            || ansicht.liste !== zustand.listenSequenz;
+    }
 
     /** Immer die eigene Herkunft wie in app.js; seit P0 (12.10.2026) ohne
      *  Umbiegen über localStorage. */
@@ -394,7 +415,12 @@ function gruppenNotizZeit(zeit) {
 
     async function vollbildOeffnen(fileid, gesicht) {
         if (typeof zeigeBildVollbild !== 'function') return;
+        const ansicht = ansichtMerken();
         const url = await vorschauLaden(fileid, '800x800');
+        if (ansichtVeraltet(ansicht)) {            // inzwischen andere Ansicht: Foto nicht mehr einblenden
+            if (url) { try { URL.revokeObjectURL(url); } catch (_e) { /* */ } }
+            return;
+        }
         if (!url) { melde('⚠️ Foto konnte nicht geladen werden.', false); return; }
         zustand.objektUrls.add(url);
         const gross = new Image();
@@ -528,10 +554,13 @@ function gruppenNotizZeit(zeit) {
     async function alleSeiteLaden() {
         if ((!alle.kennung && !alle.name) || alle.laedt || (alle.seiten && alle.seite >= alle.seiten)) return;
         alle.laedt = true;
+        const ansicht = ansichtMerken();
         const ziel = alle.name ? 'name=' + encodeURIComponent(alle.name) : 'kennung=' + encodeURIComponent(alle.kennung);
         const fuer = (alle.name || alle.kennung) + '|' + alle.ordnung;
         const antwort = await jsonHolen('/api/gruppen/gesichter?' + ziel
             + '&seite=' + (alle.seite + 1) + '&ordnung=' + alle.ordnung).catch(() => null);
+        // Ansicht gewechselt oder neu aufgebaut: ``laedt`` gehört jetzt dem neuen Aufruf.
+        if (ansichtVeraltet(ansicht)) return;
         alle.laedt = false;
         if ((alle.name || alle.kennung) + '|' + alle.ordnung !== fuer) return;   // geschlossen/gewechselt
         const info = el('gruppen-alle-info');
@@ -609,6 +638,7 @@ function gruppenNotizZeit(zeit) {
     /** Gesamtansicht eines Vorschlags; ``vonPerson`` = aus „Benannt“ geöffnet (Zurück führt dorthin). */
     /** Liste leeren und ab Seite 1 laden (Öffnen, Sortierung wechseln). */
     function alleVonVorn() {
+        zustand.ansichtSequenz++;          // Neuaufbau: Antworten zur alten Liste verwerfen
         Object.assign(alle, { seite: 0, seiten: 0, geladen: 0, letzte: null, letztesJahr: null, laedt: false });
         alle.markiert.clear();
         alle.kennungJeGid.clear();
@@ -644,10 +674,16 @@ function gruppenNotizZeit(zeit) {
     function alleSchliessen() {
         el('gruppen-alle-ansicht').hidden = true;
         if (alle.beobachter) { alle.beobachter.disconnect(); alle.beobachter = null; }
+        const kennung = alle.kennung;
         alle.kennung = null;
         alle.name = null;
+        alle.laedt = false;
+        zustand.ansichtSequenz++;          // laufende Gesichter-/Ausschließen-/Zuordnen-Antworten verwerfen
         // Neu laden: Beispiele ohne die gerade Ausgeschlossenen
         if (alle.vonPerson && zustand.person) personOeffnen(zustand.person.name);
+        // Gezielt aus der Übersicht geöffnet: zurück zu genau dieser Gruppe (nicht zur
+        // nächsten Quizgruppe), „Zur Übersicht“ bleibt; die Statusmarke bleibt erhalten.
+        else if (zustand.detailAktiv && kennung) gruppeDetailLaden(kennung, true);
         else laden();
     }
 
@@ -659,9 +695,229 @@ function gruppenNotizZeit(zeit) {
 
     function nurZeigen(name) {
         Object.keys(BEREICHE).forEach((k) => { const e = el(BEREICHE[k]); if (e) e.hidden = (k !== name); });
+        const liste = el('gruppen-liste-ansicht');
+        if (liste) liste.hidden = name !== 'liste';
+        // „Zur Übersicht“ steht außerhalb der Karte (bleibt auch bei „fertig“ erreichbar)
+        // und gehört nur zur Detailansicht.
+        const detailZurueck = el('gruppen-detail-zurueck');
+        if (detailZurueck) detailZurueck.hidden = !(zustand.detailAktiv && name === 'karte');
+        // Jeder Ansichtswechsel macht noch laufende Anfragen (Quiz, Speichern, Person,
+        // Ausschließen/Zuordnen, Vollbild …) für die Anzeige ungültig.
+        zustand.ansichtSequenz++;
+    }
+
+    const LISTEN_STATUS = ['offen', 'spaeter', 'benannt', 'ausgeblendet'];
+
+    function gruppenListeMelden(text, fehler) {
+        const meldung = el('gruppen-liste-meldung');
+        if (!meldung) return;
+        meldung.textContent = text || '';
+        meldung.classList.toggle('fehler', fehler === true);
+    }
+
+    function gruppenListeZeigen(antwort) {
+        const raster = el('gruppen-liste');
+        const seite = el('gruppen-liste-seite');
+        const vorher = el('gruppen-liste-vorher');
+        const weiter = el('gruppen-liste-weiter');
+        if (!raster) return;
+        raster.innerHTML = '';
+        const gruppen = antwort.gruppen || [];
+        if (!gruppen.length) {
+            const leer = document.createElement('p');
+            leer.className = 'sheet-note';
+            leer.textContent = 'In dieser Kategorie gibt es keine Gruppen.';
+            raster.appendChild(leer);
+        }
+        gruppen.forEach((g) => {
+            const zeile = document.createElement('div');
+            zeile.id = 'gruppen-liste-zeile-' + g.kennung;
+            zeile.className = 'gruppen-benannt-zeile gruppen-liste-zeile';
+            zeile.setAttribute('role', 'button');
+            zeile.setAttribute('aria-label', 'Gruppe öffnen: ' + gruppenZahl(g.groesse) + ' Gesichter');
+            zeile.tabIndex = 0;
+            const text = document.createElement('span');
+            text.className = 'gruppen-benannt-text gruppen-liste-text';
+            const zeitraum = gruppenZeitraum(g.von, g.bis);
+            text.textContent = gruppenZahl(g.groesse) + ' Gesichter'
+                + (zeitraum ? ' · ' + zeitraum : '')
+                + (g.status === 'benannt' && g.name ? ' · ' + g.name : '');
+            zeile.appendChild(text);
+            zeile.addEventListener('click', () => gruppeDetailLaden(g.kennung));
+            zeile.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') gruppeDetailLaden(g.kennung); });
+            if (g.status === 'spaeter' || g.status === 'ausgeblendet') {
+                const oeffnen = document.createElement('button');
+                oeffnen.id = 'gruppen-liste-reaktivieren-' + g.kennung;
+                oeffnen.type = 'button';
+                oeffnen.className = 'gruppen-knopf';
+                oeffnen.textContent = '↩ Zurück zu Offen';
+                oeffnen.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    gruppeReaktivieren(g.kennung, oeffnen);
+                });
+                zeile.appendChild(oeffnen);
+            }
+            raster.appendChild(zeile);
+        });
+        if (seite) seite.textContent = antwort.gesamt
+            ? 'Seite ' + antwort.seite + ' von ' + antwort.seiten + ' · ' + gruppenZahl(antwort.gesamt) + ' Gruppen'
+            : 'Keine Gruppen';
+        if (vorher) vorher.disabled = antwort.seite <= 1;
+        if (weiter) weiter.disabled = !antwort.seiten || antwort.seite >= antwort.seiten;
+        LISTEN_STATUS.forEach((status) => {
+            const knopf = el('gruppen-liste-status-' + status);
+            if (knopf) knopf.classList.toggle('aktiv', zustand.listeStatus === status);
+            if (knopf) knopf.setAttribute('aria-pressed', zustand.listeStatus === status ? 'true' : 'false');
+        });
+    }
+
+    async function gruppenListeLaden(seite) {
+        if (!zustand.listeAktiv || el('gruppen-sheet').hidden) return;
+        if (seite !== undefined) zustand.listeSeite = seite;
+        const sequenz = ++zustand.listenSequenz;
+        gruppenListeMelden('… lädt');
+        const liste = el('gruppen-liste');
+        if (liste) liste.innerHTML = '';
+        try {
+            const antwort = await jsonHolen('/api/gruppen/liste?status=' + encodeURIComponent(zustand.listeStatus)
+                + '&seite=' + zustand.listeSeite + '&je_seite=24');
+            if (sequenz !== zustand.listenSequenz || !zustand.listeAktiv || el('gruppen-sheet').hidden) return;
+            if (!antwort || antwort.ok !== true) {
+                gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Gruppenliste nicht ladbar.'), true);
+                return;
+            }
+            zustand.listeSeite = antwort.seite;
+            zustand.listeSeiten = antwort.seiten;
+            gruppenListeZeigen(antwort);
+            gruppenListeMelden(zustand.listeRueckmeldung
+                || (antwort.gruppen.length ? '' : 'In dieser Kategorie gibt es keine Gruppen.'));
+        } catch (_e) {
+            if (sequenz === zustand.listenSequenz && zustand.listeAktiv && !el('gruppen-sheet').hidden) {
+                gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+            }
+        }
+    }
+
+    /** Zur Übersicht: nach eigenen Statusaktionen ab Seite 1 (die alte Seite kann leer sein). */
+    function gruppenUebersichtOeffnen() {
+        const seite = zustand.listeStatusGeaendert ? 1 : (zustand.listeSeite || 1);
+        zustand.listeStatusGeaendert = false;
+        zustand.listeAktiv = true;
+        zustand.detailAktiv = false;
+        zustand.listenSequenz++;
+        zustand.detailSequenz++;
+        nurZeigen('liste');
+        melde('');
+        gruppenListeLaden(seite);
+    }
+
+    /** ``behalteStatus``: erneutes Laden derselben Gruppe (z. B. nach „Alle Gesichter“)
+     *  vergisst eine schon erfolgte Statusaktion nicht. */
+    async function gruppeDetailLaden(kennung, behalteStatus) {
+        const sequenz = ++zustand.detailSequenz;
+        zustand.detailAktiv = true;
+        zustand.listeAktiv = false;
+        zustand.listenSequenz++;
+        nurZeigen('karte');
+        el('gruppen-karte').hidden = true;
+        if (!behalteStatus) zustand.listeStatusGeaendert = false;
+        // Die Listenansicht ist jetzt verborgen: der Ladestatus gehört in das immer
+        // sichtbare Meldungsfeld unter den Bereichen.
+        gruppenListeMelden('');
+        melde('… lädt Gruppe');
+        try {
+            const antwort = await jsonHolen('/api/gruppen/detail/' + encodeURIComponent(kennung));
+            if (sequenz !== zustand.detailSequenz || !zustand.detailAktiv || el('gruppen-sheet').hidden) return;
+            if (!antwort || antwort.ok !== true) {
+                zustand.detailAktiv = false;
+                zustand.listeAktiv = true;
+                nurZeigen('liste');
+                melde('');
+                gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Gruppe nicht ladbar.'), true);
+                return;
+            }
+            melde('');
+            zeigen(antwort, true);
+        } catch (_e) {
+            if (sequenz === zustand.detailSequenz && zustand.detailAktiv && !el('gruppen-sheet').hidden) {
+                zustand.detailAktiv = false;
+                zustand.listeAktiv = true;
+                nurZeigen('liste');
+                melde('');
+                gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+            }
+        }
+    }
+
+    function gruppeDetailZurueck() {
+        zustand.detailAktiv = false;
+        zustand.detailSequenz++;
+        zustand.listeAktiv = true;
+        nurZeigen('liste');
+        melde('');
+        const seite = zustand.listeStatusGeaendert ? 1 : (zustand.listeSeite || 1);
+        zustand.listeStatusGeaendert = false;
+        gruppenListeLaden(seite);
+    }
+
+    async function gruppeReaktivieren(kennung, knopf) {
+        if (zustand.beschaeftigt) return;
+        zustand.beschaeftigt = true;
+        if (knopf) knopf.disabled = true;
+        try {
+            const antwort = await jsonHolen('/api/gruppen/antwort', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kennung, art: 'offen' }),
+            });
+            if (antwort && antwort.ok === true) {
+                el('gruppen-liste-undo').hidden = false;
+                zustand.listeRueckmeldung = '✓ Zurück zu Offen. Diese Aktion kann rückgängig gemacht werden.';
+                gruppenListeMelden(zustand.listeRueckmeldung);
+                zustand.listeSeite = 1;
+            } else {
+                if (knopf) knopf.disabled = false;
+                gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Reaktivieren fehlgeschlagen.'), true);
+                return;
+            }
+        } catch (_e) {
+            if (knopf) knopf.disabled = false;
+            gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+            return;
+        } finally {
+            zustand.beschaeftigt = false;
+        }
+        await gruppenListeLaden(1);
+    }
+
+    async function gruppenListeRueckgaengig() {
+        if (zustand.beschaeftigt) return;
+        zustand.beschaeftigt = true;
+        const knopf = el('gruppen-liste-undo');
+        if (knopf) knopf.disabled = true;
+        try {
+            const antwort = await jsonHolen('/api/gruppen/rueckgaengig', { method: 'POST' });
+            if (!antwort || antwort.ok !== true) {
+                gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Nichts zurückzunehmen.'), true);
+                return;
+            }
+            if (knopf) knopf.hidden = true;
+            zustand.listeRueckmeldung = '↩ Reaktivierung zurückgenommen.';
+            gruppenListeMelden(zustand.listeRueckmeldung);
+            zustand.listeSeite = 1;
+        } catch (_e) {
+            gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+        } finally {
+            zustand.beschaeftigt = false;
+            if (knopf) knopf.disabled = false;
+        }
+        await gruppenListeLaden(1);
     }
 
     function reiterSetzen(name) {
+        zustand.listeAktiv = false;
+        zustand.detailAktiv = false;
+        zustand.listenSequenz++;
+        zustand.detailSequenz++;
         zustand.reiter = name === 'benannt' ? 'benannt' : 'offen';
         [['gruppen-reiter-offen', 'offen'], ['gruppen-reiter-benannt', 'benannt']].forEach(([id, r]) => {
             const k = el(id);
@@ -682,7 +938,9 @@ function gruppenNotizZeit(zeit) {
     async function personenLaden() {
         const info = el('gruppen-benannt-info');
         if (info) info.textContent = '… lädt';
+        const nr = ++zustand.personenSequenz;
         const antwort = await jsonHolen('/api/gruppen/personen').catch(() => null);
+        if (nr !== zustand.personenSequenz) return;          // neuere Personenliste ist unterwegs
         if (!antwort || antwort.ok !== true) {
             zustand.personen = [];
             if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.');
@@ -729,9 +987,13 @@ function gruppenNotizZeit(zeit) {
         });
     }
 
-    /** Person laden und zeigen; ``leise`` = bei Fehlschlag still zur Liste (z. B. nach Rückgängig). */
+    /** Person laden und zeigen; ``leise`` = bei Fehlschlag still zur Liste (z. B. nach Rückgängig).
+     *  Rückgabe: true = gezeigt, false = Fehlschlag (Liste), null = Antwort veraltet und verworfen. */
     async function personOeffnen(name, leise) {
+        const nr = ++zustand.personSequenz;
+        const ansicht = ansichtMerken();
         const antwort = await jsonHolen('/api/gruppen/person?name=' + encodeURIComponent(name)).catch(() => null);
+        if (nr !== zustand.personSequenz || ansichtVeraltet(ansicht)) return null;
         if (!antwort || antwort.ok !== true) {
             if (!leise) melde('⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.'), false);
             zustand.person = null;
@@ -817,18 +1079,20 @@ function gruppenNotizZeit(zeit) {
     async function bearbeiten(pfad, koerper) {
         if (zustand.beschaeftigt) return null;
         zustand.beschaeftigt = true;
+        const ansicht = ansichtMerken();
         try {
             const antwort = await jsonHolen(pfad, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(koerper || {}),
             });
             if (!antwort || antwort.ok !== true) {
-                melde('⚠️ ' + ((antwort && antwort.fehler) || 'Speichern fehlgeschlagen'), false);
+                // Meldungen einer veralteten Anfrage gehören nicht in die neue Ansicht.
+                if (!ansichtVeraltet(ansicht)) melde('⚠️ ' + ((antwort && antwort.fehler) || 'Speichern fehlgeschlagen'), false);
                 return null;
             }
             return antwort;
         } catch (_e) {
-            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            if (!ansichtVeraltet(ansicht)) melde('⚠️ Keine Verbindung zum Agenten.', false);
             return null;
         } finally {
             zustand.beschaeftigt = false;
@@ -843,10 +1107,12 @@ function gruppenNotizZeit(zeit) {
             knopf.textContent = 'Wirklich lösen? Noch einmal tippen';
             return;
         }
+        const ansicht = ansichtMerken();
+        const name = zustand.person ? zustand.person.name : '';
         const antwort = await bearbeiten('/api/gruppen/loesen', { kennung: kennung });
         if (!antwort) return;
-        const name = zustand.person ? zustand.person.name : '';
-        await personOeffnen(name, true);
+        if (ansichtVeraltet(ansicht)) { personenLaden(); return; }     // Aktion gilt, Anzeige gehört woanders hin
+        if (await personOeffnen(name, true) === null) return;
         melde('✓ ' + gruppenNummer(kennung) + ' gelöst – er steht wieder unter „Offen“ (↩ Rückgängig möglich).');
     }
 
@@ -854,8 +1120,10 @@ function gruppenNotizZeit(zeit) {
         if (!zustand.person) return;
         const neu = el('gruppen-person-name').value.trim();
         if (!neu || neu === zustand.person.name) { melde('Bitte einen neuen Namen eingeben.', false); return; }
+        const ansicht = ansichtMerken();
         const antwort = await bearbeiten('/api/gruppen/umbenennen', { alt: zustand.person.name, neu: neu });
         if (!antwort) return;
+        if (ansichtVeraltet(ansicht)) { personenLaden(); return; }
         zustand.person = antwort;
         personZeigen(antwort);
         melde(antwort.zusammengefuehrt ? '✓ mit ' + antwort.name + ' zusammengeführt' : '✓ umbenannt in ' + antwort.name);
@@ -870,8 +1138,9 @@ function gruppenNotizZeit(zeit) {
         if (beziehung && beziehung !== vorher) koerper.beziehung = beziehung;
         if (notiz) koerper.notiz = notiz;
         if (!koerper.beziehung && !koerper.notiz) { melde('Nichts geändert.', false); return; }
+        const ansicht = ansichtMerken();
         const antwort = await bearbeiten('/api/gruppen/profil', koerper);
-        if (!antwort) return;
+        if (!antwort || ansichtVeraltet(ansicht) || !zustand.person) return;
         zustand.person.profil = antwort;
         personZeigen(zustand.person);
         melde('✓ Profil gespeichert' + (koerper.notiz ? ' · Erinnerung angelegt' : ''));
@@ -885,8 +1154,9 @@ function gruppenNotizZeit(zeit) {
         const box = el('gruppen-person-kontakttreffer');
         const nr = ++_kontaktNr;
         if (!frage) { box.innerHTML = ''; return; }
+        const ansicht = ansichtMerken();
         const antwort = await jsonHolen('/api/gruppen/suche?limit=8&q=' + encodeURIComponent(frage)).catch(() => null);
-        if (nr !== _kontaktNr) return;                      // nur die neueste Antwort zeigen
+        if (nr !== _kontaktNr || ansichtVeraltet(ansicht)) return;                      // nur die neueste Antwort zeigen
         box.innerHTML = '';
         const kontakte = (antwort && antwort.ok === true && antwort.kontakte) || [];
         kontakte.forEach((k) => box.appendChild(trefferZeile(k.name, gruppenTrefferInfo(k, 'kontakt'),
@@ -902,19 +1172,23 @@ function gruppenNotizZeit(zeit) {
 
     async function kontaktVerknuepfen(kontaktId) {
         if (!zustand.person) return;
+        const ansicht = ansichtMerken();
         const antwort = await bearbeiten('/api/gruppen/profil', { name: zustand.person.name, kontakt_id: String(kontaktId) });
-        if (!antwort) return;
+        if (!antwort || ansichtVeraltet(ansicht) || !zustand.person) return;
         zustand.person.profil = antwort;
         personZeigen(zustand.person);
         melde('✓ Kontakt verknüpft');
     }
 
     async function personRueckgaengig() {
+        const ansicht = ansichtMerken();
+        const aktuellerName = zustand.person && zustand.person.name;
         const antwort = await bearbeiten('/api/gruppen/rueckgaengig', {});
         if (!antwort) return;
+        if (ansichtVeraltet(ansicht)) { personenLaden(); return; }
         const z = antwort.zurueckgenommen || {};
-        const ziel = (z.art === 'umbenennen' && z.name) ? z.name : (zustand.person && zustand.person.name);
-        if (ziel) await personOeffnen(ziel, true);
+        const ziel = (z.art === 'umbenennen' && z.name) ? z.name : aktuellerName;
+        if (ziel && await personOeffnen(ziel, true) === null) return;
         melde(gruppenRueckgaengigText(z));
     }
 
@@ -931,6 +1205,8 @@ function gruppenNotizZeit(zeit) {
     async function alleAusschliessen() {
         if ((!alle.kennung && !alle.name) || !alle.markiert.size || zustand.beschaeftigt) return;
         zustand.beschaeftigt = true;
+        const ansicht = ansichtMerken();
+        const ziel = alle.name ? alle.name : 'diesem Vorschlag';
         try {
             const liste = Array.from(alle.markiert);
             const antwort = alle.name
@@ -943,33 +1219,39 @@ function gruppenNotizZeit(zeit) {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ kennung: alle.kennung, gesichter: liste }),
                 });
+            // Ansicht inzwischen gewechselt: ausgeschlossen ist ausgeschlossen (Server), aber
+            // Raster, Auswahl und Meldungen gehören jetzt zu einer anderen Gesichterliste.
+            if (ansichtVeraltet(ansicht)) return;
             if (antwort && antwort.ok === true) {
-                alleMarkierteEntfernen();
+                alleMarkierteEntfernen(liste);       // nur die gesendeten, später Markiertes bleibt
                 if (alle.letzte) {
                     alle.letzte.gesamt = antwort.gesamt;
                     alle.letzte.ausgeschlossen = (alle.letzte.ausgeschlossen || 0) + antwort.ausgeschlossen;
                     el('gruppen-alle-info').textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
                 }
                 melde('✓ ' + gruppenZahl(antwort.ausgeschlossen) + ' ausgeschlossen – sie gehören nicht mehr zu '
-                      + (alle.name ? alle.name : 'diesem Vorschlag') + ' (↩ Rückgängig in der Karte).');
+                      + ziel + ' (↩ Rückgängig in der Karte).');
                 alleKnopfAktualisieren();
                 alleEndeBeobachten();          // Liste wurde kürzer: ggf. sofort nachladen
             } else {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Ausschließen fehlgeschlagen'), false);
             }
         } catch (_e) {
-            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            if (!ansichtVeraltet(ansicht)) melde('⚠️ Keine Verbindung zum Agenten.', false);
         } finally {
             zustand.beschaeftigt = false;
         }
     }
 
-    /** Markierte Kacheln aus der Liste nehmen; gibt ihre Zahl zurück. */
-    function alleMarkierteEntfernen() {
+    /** Kacheln aus der Liste nehmen; gibt ihre Zahl zurück. Mit ``gids`` nur genau diese
+     *  (die abgeschickten), sonst alle markierten. Später Markiertes bleibt markiert. */
+    function alleMarkierteEntfernen(gids) {
         const raster = el('gruppen-alle-raster');
-        const weg = raster.querySelectorAll('.gruppen-kachel.markiert');
+        const nur = Array.isArray(gids) ? new Set(gids.map(String)) : null;
+        const weg = Array.from(raster.querySelectorAll('.gruppen-kachel')).filter((k) => (nur
+            ? nur.has(String(k.dataset && k.dataset.gid)) : k.classList.contains('markiert')));
         weg.forEach((k) => k.remove());
-        alle.markiert.clear();
+        if (nur) gids.forEach((gid) => alle.markiert.delete(gid)); else alle.markiert.clear();
         alleJahreAufraeumen();
         alle.geladen = alleKachelZahl();
         return weg.length;
@@ -1014,6 +1296,7 @@ function gruppenNotizZeit(zeit) {
     async function alleZuordnen(name) {
         if (!alle.markiert.size || zustand.beschaeftigt || typeof name !== 'string' || !name) return;
         zustand.beschaeftigt = true;
+        const ansicht = ansichtMerken();
         try {
             const liste = Array.from(alle.markiert);
             const antwort = await jsonHolen('/api/gruppen/zuordnen', {
@@ -1021,8 +1304,9 @@ function gruppenNotizZeit(zeit) {
                 body: JSON.stringify({ name,
                                        gesichter: liste.map((gid) => ({ kennung: alle.kennungJeGid.get(gid), gid })) }),
             });
+            if (ansichtVeraltet(ansicht)) return;       // siehe alleAusschliessen
             if (antwort && antwort.ok === true) {
-                const weg = alleMarkierteEntfernen();
+                const weg = alleMarkierteEntfernen(liste);
                 if (alle.letzte) {
                     alle.letzte.gesamt = Math.max(0, (Number(alle.letzte.gesamt) || 0) - weg);
                     el('gruppen-alle-info').textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
@@ -1037,7 +1321,7 @@ function gruppenNotizZeit(zeit) {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Zuordnen fehlgeschlagen'), false);
             }
         } catch (_e) {
-            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            if (!ansichtVeraltet(ansicht)) melde('⚠️ Keine Verbindung zum Agenten.', false);
         } finally {
             zustand.beschaeftigt = false;
         }
@@ -1107,11 +1391,14 @@ function gruppenNotizZeit(zeit) {
         _suchUhr = setTimeout(suchen, 150);
     }
 
-    function zeigen(antwort) {
+    function zeigen(antwort, direkt) {
         const karte = el('gruppen-karte');
         const fertig = el('gruppen-fertig');
         namenListeSetzen(antwort && antwort.namen);
-        if (zustand.reiter !== 'offen') return;          // inzwischen auf „Benannt“ gewechselt
+        if (!direkt && zustand.reiter !== 'offen') return; // inzwischen auf „Benannt“ gewechselt
+        // „Zur Übersicht“ nur in der Detailansicht – auch wenn das Backend „fertig“ meldet.
+        const detailZurueck = el('gruppen-detail-zurueck');
+        if (detailZurueck) detailZurueck.hidden = !direkt;
         if (!antwort || antwort.ok !== true) {
             zustand.gruppe = null;
             if (karte) karte.hidden = true;
@@ -1142,7 +1429,10 @@ function gruppenNotizZeit(zeit) {
         }
         const nummer = el('gruppen-nummer');
         if (nummer) nummer.textContent = gruppenNummer(g.kennung);
-        el('gruppen-meta').textContent = gruppenMeta(g) + (g.war_spaeter ? ' · zurückgestellt' : '');
+        const statusText = { spaeter: 'Später', benannt: 'Benannt', ausgeblendet: 'Ausgeblendet', offen: 'Offen' };
+        el('gruppen-meta').textContent = gruppenMeta(g)
+            + (g.war_spaeter ? ' · zurückgestellt' : '')
+            + (direkt ? ' · ' + (statusText[g.status] || 'Offen') + (g.name ? ' · ' + g.name : '') : '');
         el('gruppen-offen').textContent = gruppenZahl(antwort.offen) + ' offen';
         const kacheln = el('gruppen-kacheln');
         kacheln.innerHTML = '';
@@ -1205,8 +1495,14 @@ function gruppenNotizZeit(zeit) {
     }
 
     async function laden() {
+        const sequenz = ++zustand.quizSequenz;
+        const ansicht = ansichtMerken();
         melde('… lädt');
         const antwort = await jsonHolen('/api/gruppen/naechste').catch(() => null);
+        // Verspätete Antwort: inzwischen anderer Ansichtsstand (Detail, Übersicht, andere
+        // Ansicht, geschlossen) oder neuere Anfrage – nichts ändern, zustand.gruppe bleibt.
+        if (sequenz !== zustand.quizSequenz || ansichtVeraltet(ansicht)
+                || zustand.detailAktiv || zustand.listeAktiv) return;
         melde('');
         zeigen(antwort);
         fortschrittLaden();
@@ -1223,6 +1519,7 @@ function gruppenNotizZeit(zeit) {
             return;
         }
         const koerper = Object.assign({ kennung: zustand.gruppe.kennung, art: art }, extra || {});
+        const ansicht = ansichtMerken();
         zustand.beschaeftigt = true;
         try {
             const antwort = await jsonHolen('/api/gruppen/antwort', {
@@ -1230,36 +1527,59 @@ function gruppenNotizZeit(zeit) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(koerper),
             });
+            const veraltet = ansichtVeraltet(ansicht);
             if (antwort && antwort.ok === true) {
+                const direkt = zustand.detailAktiv;
+                if ((direkt || veraltet) && ['name', 'gleich', 'spaeter', 'unbekannt', 'offen'].includes(art)) {
+                    zustand.listeStatusGeaendert = true;
+                }
+                if (veraltet) {
+                    // Gespeichert ist gespeichert – aber die Anzeige gehört inzwischen zu
+                    // einer anderen Ansicht/Gruppe und bleibt unangetastet.
+                    fortschrittLaden();
+                    return;
+                }
                 const vorher = zustand.gruppe ? zustand.gruppe.kennung : null;
-                zeigen(antwort);
+                zeigen(antwort, direkt);
                 const jetzt = zustand.gruppe ? zustand.gruppe.kennung : null;
                 melde(gruppenAntwortText(art, antwort.gespeichert, Boolean(jetzt && jetzt !== vorher)));
                 fortschrittLaden();
-            } else {
+            } else if (!veraltet) {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Speichern fehlgeschlagen'), false);
             }
         } catch (_e) {
-            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            if (!ansichtVeraltet(ansicht)) melde('⚠️ Keine Verbindung zum Agenten.', false);
         } finally {
             zustand.beschaeftigt = false;
         }
     }
 
+
     async function rueckgaengig() {
         if (zustand.beschaeftigt) return;
+        const ansicht = ansichtMerken();
         zustand.beschaeftigt = true;
         try {
             const antwort = await jsonHolen('/api/gruppen/rueckgaengig', { method: 'POST' });
+            const veraltet = ansichtVeraltet(ansicht);
             if (antwort && antwort.ok === true) {
-                zeigen(antwort);
+                const direkt = zustand.detailAktiv;
+                if ((direkt || veraltet) && antwort.zurueckgenommen
+                        && ['name', 'gleich', 'spaeter', 'unbekannt', 'offen'].includes(antwort.zurueckgenommen.art)) {
+                    zustand.listeStatusGeaendert = true;
+                }
+                if (veraltet) {
+                    fortschrittLaden();        // zurückgenommen ist zurückgenommen, Anzeige bleibt
+                    return;
+                }
+                zeigen(antwort, direkt);
                 melde(gruppenRueckgaengigText(antwort.zurueckgenommen));
                 fortschrittLaden();
-            } else {
+            } else if (!veraltet) {
                 melde('⚠️ ' + ((antwort && antwort.fehler) || 'Nichts zurückzunehmen'), false);
             }
         } catch (_e) {
-            melde('⚠️ Keine Verbindung zum Agenten.', false);
+            if (!ansichtVeraltet(ansicht)) melde('⚠️ Keine Verbindung zum Agenten.', false);
         } finally {
             zustand.beschaeftigt = false;
         }
@@ -1286,8 +1606,10 @@ function gruppenNotizZeit(zeit) {
             return;
         }
         const stoppt = nimmtAuf();
+        const ansicht = ansichtMerken();
         if (stoppt) zustand.diktat = { wert: feld.value, bis: Date.now() + DIKTAT_WARTEN_MS };
         await starteFeldDiktat(feld, knopf);
+        if (ansichtVeraltet(ansicht)) return;       // Meldung gehört zur früheren Ansicht
         if (!stoppt && nimmtAuf()) melde('🎙 Sprich jetzt — zum Beenden noch einmal auf ⬤ tippen.');
         if (stoppt) melde('… Erinnerung wird übertragen');
     }
@@ -1314,7 +1636,10 @@ function gruppenNotizZeit(zeit) {
             info.textContent = '';
             return;
         }
+        const ansicht = ansichtMerken();
         const p = await jsonHolen('/api/gruppen/profil?name=' + encodeURIComponent(name)).catch(() => null);
+        // Nur zeigen, wenn Ansicht und eingetippter Name noch dieselben sind.
+        if (ansichtVeraltet(ansicht) || feld.value.trim() !== name) return;
         info.textContent = gruppenProfilText(p);
     }
 
@@ -1328,6 +1653,11 @@ function gruppenNotizZeit(zeit) {
     function schliessen() {
         const sheet = el('gruppen-sheet');
         if (sheet) sheet.hidden = true;
+        zustand.listeAktiv = false;
+        zustand.detailAktiv = false;
+        zustand.listenSequenz++;
+        zustand.detailSequenz++;
+        zustand.ansichtSequenz++;
         zustand.objektUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch (_e) { /* */ } });
         zustand.objektUrls.clear();
     }
@@ -1374,6 +1704,36 @@ function gruppenNotizZeit(zeit) {
         if (alleOrdnung) alleOrdnung.addEventListener('click', alleOrdnungWechseln);
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
+        const uebersicht = el('gruppen-uebersicht');
+        if (uebersicht) uebersicht.addEventListener('click', gruppenUebersichtOeffnen);
+        const detailZurueck = el('gruppen-detail-zurueck');
+        if (detailZurueck) detailZurueck.addEventListener('click', gruppeDetailZurueck);
+        const listeQuiz = el('gruppen-liste-quiz');
+        if (listeQuiz) listeQuiz.addEventListener('click', () => reiterSetzen('offen'));
+        LISTEN_STATUS.forEach((status) => {
+            const filter = el('gruppen-liste-status-' + status);
+            if (filter) filter.addEventListener('click', () => {
+                zustand.listeStatus = status;
+                zustand.listeSeite = 1;
+                zustand.listeRueckmeldung = '';
+                gruppenListeLaden(1);
+            });
+        });
+        const listeAktualisieren = el('gruppen-liste-aktualisieren');
+        if (listeAktualisieren) listeAktualisieren.addEventListener('click', () => {
+            zustand.listeRueckmeldung = '';
+            gruppenListeLaden();
+        });
+        const listeVorher = el('gruppen-liste-vorher');
+        if (listeVorher) listeVorher.addEventListener('click', () => {
+            if (!listeVorher.disabled) { zustand.listeRueckmeldung = ''; gruppenListeLaden(Math.max(1, zustand.listeSeite - 1)); }
+        });
+        const listeWeiter = el('gruppen-liste-weiter');
+        if (listeWeiter) listeWeiter.addEventListener('click', () => {
+            if (!listeWeiter.disabled) { zustand.listeRueckmeldung = ''; gruppenListeLaden(Math.min(zustand.listeSeiten, zustand.listeSeite + 1)); }
+        });
+        const listeUndo = el('gruppen-liste-undo');
+        if (listeUndo) listeUndo.addEventListener('click', gruppenListeRueckgaengig);
         // Reiter + Benannt (02.10.2026)
         const anklick = (id, fn) => { const e = el(id); if (e) e.addEventListener('click', fn); };
         anklick('gruppen-reiter-offen', () => reiterSetzen('offen'));
