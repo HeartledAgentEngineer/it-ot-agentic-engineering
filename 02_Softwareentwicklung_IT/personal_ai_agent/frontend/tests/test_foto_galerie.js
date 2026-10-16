@@ -306,9 +306,9 @@ pruefe('sw.js hat keine Sonderregel für /api/cloud/thumb', sw.indexOf('/api/clo
 console.log('\n8) Cache-Bump, Styling und Datenschutz');
 const vApp = (html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
 const vCss = (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] || '';
-pruefe('index.html lädt app.js mit ?v=20261016B', vApp === '20261016B', 'gefunden: ' + vApp);
+pruefe('index.html lädt app.js mit ?v= (Muster JJJJMMTT + Buchstabe)', /^\d{8}[A-Z]$/.test(vApp), 'gefunden: ' + vApp);
 pruefe('index.html lädt style.css mit ?v=20261016A', vCss === '20261016A', 'gefunden: ' + vCss);
-pruefe('?v= app.js ist HÖHER als vorher (20260927B)', vApp > '20260927B', 'gefunden: ' + vApp);
+pruefe('?v= app.js ist mindestens 20261016C (nicht aelter als der letzte Pflicht-Bump)', vApp >= '20261016C', 'gefunden: ' + vApp);
 pruefe('?v= style.css ist HÖHER als vorher (20260925F)', vCss > '20260925F', 'gefunden: ' + vCss);
 pruefe('kein CDN/keine externe Quelle im Frontend',
   !/<script[^>]+src="https?:/.test(html) && !/<link[^>]+href="https?:/.test(html));

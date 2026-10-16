@@ -53,10 +53,13 @@ Die bestehenden Rahmen-Roundtrip-Tests (`-k bbox`) bleiben grün.
 
 ## Grenzen
 
-- Die Oberfläche nutzt die neuen Felder noch **nicht** aus — das ist der nächste
-  Schritt (A: Anzeige ehrlich machen, `.hermes/plans/2026-10-16_rahmeneditor-detailbild.md`).
-  Bis dahin kann die Oberfläche weiterhin „aktualisiert" melden, während der
-  Vektor alt geblieben ist; die Angabe kommt aber schon jetzt in der Antwort an.
+- Die Oberfläche nutzt die neuen Felder seit demselben Tag aus (Schritt A,
+  `docs/changelog-2026-10-16-rahmen-anzeige-ehrlich.md`): der Gesichter-Weg
+  behauptet eine neue Referenz nur noch im Zweig `if (d.vektor_erneuert)` und
+  nennt sonst den Klartext aus `vektor_grund`; der Quiz-/Gruppenweg behauptet
+  keine Referenz mehr. Offen bleibt dort der **Inhalt** — der Quiz-Weg speichert
+  den erkannten statt des verschobenen Rahmens und meldet den Zustand gar nicht;
+  das ist Schritt **A3** (gesperrt, siehe Plan).
 - **Welcher** der Fälle A/B/D Sebastians Feldausfall ist, ist ohne einen
   Gerätemesswert offen. Der PC kann die Geräte-Referenzen nicht lesen
   (`gesichter_katalog.json` ist am PC nur eine leere Hülle, 16 Byte).

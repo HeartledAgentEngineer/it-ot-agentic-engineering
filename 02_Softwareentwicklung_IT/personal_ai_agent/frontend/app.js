@@ -4057,9 +4057,19 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
             body: JSON.stringify({ bbox: px, bbox_norm: norm, embedding_erneuern: true }),
         }).then(r => r.json()).then(d => {
             if (d && d.ok) {
-                zurueck('✓ gespeichert');
-                melde('✓ Rahmen in der Referenz von ' + refKontext.name +
-                      ' aktualisiert (Person unverändert, andere Referenzen bleiben).', true);
+                // Schritt A (16.10.2026): der Server meldet seit Commit 5f6ee7e ehrlich,
+                // OB die gespeicherte Referenz wirklich einen neuen Vektor traegt
+                // (vektor_erneuert) und WARUM nicht (vektor_grund). Die Anzeige behauptet
+                // deshalb nur dann eine neue Referenz, wenn das zutrifft.
+                if (d.vektor_erneuert) {
+                    zurueck('✓ gespeichert');
+                    melde('✓ Rahmen in der Referenz von ' + refKontext.name +
+                          ' aktualisiert (neuer Vektor gespeichert, andere Referenzen bleiben).', true);
+                } else {
+                    zurueck('⚠️ Vektor unverändert');
+                    melde('⚠️ Rahmen gemerkt, aber der Vektor blieb der alte: ' +
+                          (d.vektor_grund || 'kein neuer Vektor gespeichert'), false);
+                }
                 setTimeout(() => zurueck('💾 Speichern'), 1800);
                 try { if (typeof refKontext.onGespeichert === 'function') refKontext.onGespeichert(); } catch (_x) {}
             } else {
@@ -4086,7 +4096,11 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
             if (d && d.ok) {
                 zurueck('✓ gespeichert');
                 const extra = d.uebersprungen ? ' (war bereits bestätigt)' : '';
-                melde('✓ ' + person + ' übernommen' + extra + ' — Rahmen + Referenz gespeichert.', true);
+                // Schritt A (16.10.2026): dieser Weg (quiz/antwort OHNE manuell_bbox →
+                // beantworte_runde) gibt KEIN vektor_erneuert zurueck — also darf er
+                // auch keine Referenz behaupten. Ehrlich ist nur die Zuordnung.
+                melde('✓ ' + person + ' übernommen' + extra +
+                      ' — Zuordnung gespeichert; ob ein neuer Vektor entstand, meldet dieser Weg nicht.', true);
                 setTimeout(() => zurueck('💾 Speichern'), 1800);
                 // Einzelgesicht: die Runde ist damit abgeschlossen (kein erneutes
                 // Aufrollen der bereits bestätigten Zuordnung).
