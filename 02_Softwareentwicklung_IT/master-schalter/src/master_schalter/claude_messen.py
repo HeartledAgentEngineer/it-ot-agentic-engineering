@@ -58,13 +58,21 @@ def _ablaufzeit(oauth: dict[str, Any]) -> float | None:
     return ablauf
 
 
-def _fenster(antwort: Any) -> dict[str, float] | None:
+def _fenster(antwort: Any) -> dict[str, float | None] | None:
+    """Fenster prüfen; ganz ohne Verbrauch darf die Rücksetzzeit fehlen (kein Fenster aktiv)."""
     if not isinstance(antwort, dict):
         return None
     prozent = signale._prozent(antwort.get("utilization"))
+    if prozent is None:
+        return None
     reset_text = antwort.get("resets_at")
+    if reset_text is None:
+        # Live gesehen 16.10.2026: leeres Fenster → {"utilization": 0.0, "resets_at": null}.
+        if prozent != 0:
+            return None
+        return {"used_percentage": 0.0, "resets_at": None}
     reset = signale._iso(reset_text)
-    if prozent is None or reset is None:
+    if reset is None:
         return None
     try:
         ruecksetzung = reset.timestamp()
@@ -73,10 +81,10 @@ def _fenster(antwort: Any) -> dict[str, float] | None:
     return {"used_percentage": prozent, "resets_at": ruecksetzung}
 
 
-def _validierte_fenster(antwort: Any) -> dict[str, dict[str, float]] | None:
+def _validierte_fenster(antwort: Any) -> dict[str, dict[str, float | None]] | None:
     if not isinstance(antwort, dict):
         return None
-    fenster: dict[str, dict[str, float]] = {}
+    fenster: dict[str, dict[str, float | None]] = {}
     for schluessel in ("five_hour", "seven_day"):
         wert = _fenster(antwort.get(schluessel))
         if wert is None:

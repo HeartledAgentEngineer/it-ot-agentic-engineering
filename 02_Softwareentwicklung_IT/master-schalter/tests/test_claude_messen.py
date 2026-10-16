@@ -204,3 +204,43 @@ def test_redirect_http_fehler_laesst_alten_wert_unveraendert(tmp_path):
     assert str(fehler.value) == claude_messen.MESSUNG_FEHLGESCHLAGEN
     assert TOKEN not in str(fehler.value)
     assert ziel.read_bytes() == alt
+
+
+def test_leeres_fenster_ohne_resetzeit_wird_als_null_prozent_gelesen(tmp_path, monkeypatch):
+    """API-Form ab 16.10.2026: kein offenes 5h-Fenster → utilization 0.0, resets_at null."""
+    credentials = tmp_path / "credentials.json"
+    ziel = tmp_path / "kontingent-claude.json"
+    _credentials(credentials)
+    body = json.dumps({
+        "five_hour": {"utilization": 0.0, "resets_at": None},
+        "seven_day": {"utilization": 100.0, "resets_at": "2026-10-18T20:59:59+00:00"},
+    }).encode()
+    monkeypatch.setattr(claude_messen, "_transport", lambda *a, **k: Antwort(body))
+
+    assert claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT)
+
+    kontingent = signale.claude_lesen(ziel, jetzt=JETZT)
+    fuenf = kontingent.fenster_nach_name("5h")
+    assert fuenf.prozent == 0.0 and fuenf.reset is None
+    assert kontingent.fenster_nach_name("Woche").prozent == 100.0
+
+
+def test_verbrauch_ohne_resetzeit_bleibt_ungueltig(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.json"
+    ziel = tmp_path / "kontingent-claude.json"
+    _credentials(credentials)
+    signale.claude_schreiben({
+        "five_hour": {"used_percentage": 40, "resets_at": 1_900_000_000},
+        "seven_day": {"used_percentage": 50, "resets_at": 1_900_000_000},
+    }, ziel, jetzt=JETZT)
+    alt = ziel.read_bytes()
+    body = json.dumps({
+        "five_hour": {"utilization": 12.0, "resets_at": None},
+        "seven_day": {"utilization": 50.0, "resets_at": "2026-10-20T23:00:00+00:00"},
+    }).encode()
+    monkeypatch.setattr(claude_messen, "_transport", lambda *a, **k: Antwort(body))
+
+    with pytest.raises(claude_messen.MessFehler):
+        claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT)
+
+    assert ziel.read_bytes() == alt

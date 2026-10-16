@@ -378,3 +378,38 @@ def test_daten_ordner_liegt_unter_home_nicht_unter_localappdata(monkeypatch, tmp
     assert ordner == tmp_path / "profil" / ".master-schalter"
     assert str(tmp_path / "appdata") not in str(ordner)   # nicht unter LOCALAPPDATA umgeleitet
     assert signale.claude_datei() == ordner / "kontingent-claude.json"
+
+
+# --- Claude ------------------------------------------------------------------
+
+def test_claude_fenster_ohne_resetzeit_nur_bei_null_prozent(tmp_path):
+    ziel = tmp_path / "kontingent-claude.json"
+    ok = signale.claude_schreiben({
+        "five_hour": {"used_percentage": 0.0, "resets_at": None},
+        "seven_day": {"used_percentage": 40.0, "resets_at": SPAETER},
+    }, ziel, jetzt=JETZT)
+    assert ok
+
+    kontingent = signale.claude_lesen(ziel, jetzt=JETZT)
+    fuenf = kontingent.fenster_nach_name("5h")
+    assert fuenf.prozent == 0.0 and fuenf.reset is None and not fuenf.zurueckgesetzt
+
+    not_ok = signale.claude_schreiben({
+        "five_hour": {"used_percentage": 7.0, "resets_at": None},
+        "seven_day": {"used_percentage": 40.0, "resets_at": SPAETER},
+    }, ziel, jetzt=JETZT)
+    assert not not_ok
+    assert signale.claude_lesen(ziel, jetzt=JETZT).fenster_nach_name("5h").prozent == 0.0
+
+
+def test_claude_lesen_lehnt_verbrauch_ohne_resetzeit_ab(tmp_path):
+    ziel = tmp_path / "kontingent-claude.json"
+    ziel.write_text(json.dumps({
+        "gelesen_um": "2026-10-14T18:00:00+00:00",
+        "rate_limits": {
+            "five_hour": {"used_percentage": 12.0, "resets_at": None},
+            "seven_day": {"used_percentage": 40.0, "resets_at": SPAETER},
+        },
+    }), encoding="utf-8")
+    k = signale.claude_lesen(ziel, jetzt=JETZT)
+    assert k.fehler == "keine Daten" and k.fenster == ()

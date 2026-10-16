@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.3.2** — Rückgabe an Codex (manuell, mit Bestätigungsdialog), aufgeräumtes Menü; die Automatik bleibt als Modul, ist aber nicht mehr im Menü (schaltbar per CLI).
+Stand: **v0.3.3** — Rückgabe an Codex (manuell, mit Bestätigungsdialog), aufgeräumtes Menü; die Automatik bleibt als Modul, ist aber nicht mehr im Menü (schaltbar per CLI).
 
 ## Bedienung
 
@@ -157,7 +157,9 @@ gemessen und das Ergebnis lokal zwischengespeichert.
   wird zur Laufzeit aus `~/.claude/.credentials.json` gelesen, nur im Speicher verwendet und nie
   gespeichert, protokolliert oder angezeigt. Der Refresh-Token wird nicht verwendet oder erneuert.
   **Bekannte Grenze:** Der OAuth-Usage-Endpunkt ist eine inoffizielle Schnittstelle und kann sich
-  ändern. Bei abgelaufener Anmeldung bleibt der bisherige Messwert mit Stand erhalten; Claude Code
+  ändern — ab 16.10.2026 liefert er ein leeres Fenster als `utilization: 0.0, resets_at: null`; das
+  wird seit v0.3.3 als **0 %** gelesen (mit Verbrauch > 0 bleibt eine fehlende Rücksetzzeit weiter
+  ungültig). Bei abgelaufener Anmeldung bleibt der bisherige Messwert mit Stand erhalten; Claude Code
   muss einmal gestartet werden. Werte lassen sich weiterhin mit `masterwechsel claude-kontingent …`
   von Hand eintragen.
 
@@ -267,11 +269,12 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.3.2** | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
-| v0.3.3 | Prioritäten-Regel (Claude → Codex → Hermes) mit Rückfrage, wenn ein höherwertiger Master frei wird |
+| **v0.3.3** | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) — **dieser Stand** |
+| v0.3.2 | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
+| v0.3.4 | Prioritäten-Regel (Claude → Codex → Hermes) mit Rückfrage, wenn ein höherwertiger Master frei wird |
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
 | v0.1.0 | Kontingent-Anzeige beider Master |
-| **v0.3.0** | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans) — **dieser Stand**. Standardmäßig aus. |
+| **v0.3.0** | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans). Standardmäßig aus. |
 | v0.2.1 | Hermes als dritter Master wählbar (Zustand, Menü, CLI; ohne Balken) |
 | v0.2.0 | Masteranzeige, Lage und Besetzung, Wechsel per Klick, technisches Übergabepaket, Menüschwelle |
 | v0.3.1 | Hermes-Prüfsitzungen benennen, registrieren und nach Abschluss archivieren; Übergabepaket um Issues und Prüfrunden ergänzen |

@@ -676,3 +676,22 @@ def test_rueckwechsel_waehrend_des_bestaetigungsabschnitts_kommt_nicht_durch(umg
     assert zustand.lesen().master == "claude"
     assert besitz.lesen(besitz.pfad(umgebung, auftrag.laufend)).startswith("claude ")
     assert vorgaenge.finden(auftrag.id).phase == "bestaetigt"   # bestätigt bleibt bestätigt
+
+
+def test_claude_im_limit_mit_ruhendem_5h_fenster():
+    jetzt = datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)
+    claude = signale.Kontingent("Claude",
+                                (signale.Fenster("5h", 0.0, None),
+                                 signale.Fenster("Woche", 100.0, jetzt + timedelta(hours=60))),
+                                stand=jetzt - timedelta(minutes=2))
+    im_limit, ausloeser = automatik._claude_im_limit(claude, 97, jetzt)
+    assert im_limit and ausloeser is not None and ausloeser.name == "Woche"
+
+
+def test_claude_im_limit_ruhendes_fenster_allein_loest_nicht_aus():
+    jetzt = datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)
+    claude = signale.Kontingent("Claude",
+                                (signale.Fenster("5h", 0.0, None),
+                                 signale.Fenster("Woche", 30.0, jetzt + timedelta(hours=60))),
+                                stand=jetzt - timedelta(minutes=2))
+    assert automatik._claude_im_limit(claude, 97, jetzt) == (False, None)

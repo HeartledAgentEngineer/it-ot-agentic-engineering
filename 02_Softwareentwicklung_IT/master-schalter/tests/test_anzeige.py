@@ -186,3 +186,12 @@ def test_claude_takt_min_ungueltige_werte_standardisieren_und_setzen_verwerfen(t
     assert anzeige.claude_takt_min(datei) == 1
     with pytest.raises(ValueError):
         anzeige.claude_takt_setzen(wert, datei)
+
+
+def test_details_ohne_resetzeit_laesst_reset_text_weg():
+    k = Kontingent("Claude", (Fenster("5h", 0.0, None), Fenster("Woche", 40.0, RESET)), stand=STAND)
+    zeilen = anzeige.details([k], zone=UTC)
+    fuenf = next(z for z in zeilen if z.strip().startswith("5h:"))
+    woche = next(z for z in zeilen if z.strip().startswith("Woche:"))
+    assert "Reset" not in fuenf
+    assert "Reset" in woche

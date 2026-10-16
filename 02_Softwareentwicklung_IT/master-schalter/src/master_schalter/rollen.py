@@ -31,11 +31,11 @@ BESETZUNG: dict[str, Besetzung] = {
                     "GPT-6 Luna (ChatGPT Plus)"),
     "2B": Besetzung("ChatGPT im Limit",
                     "Claude Opus 5.5 (Claude Pro)",
-                    "GPT-6 Luna (OpenRouter)",
+                    "DeepSeek V4.1 Flash (OpenRouter)",
                     "Claude Sonnet 5.5 (Claude Pro) / DeepSeek V4.1 Flash (OpenRouter)"),
     "3": Besetzung("Beide im Limit",
                    "DeepSeek V4.1 Flash (OpenRouter/Hermes)",
-                   "GPT-6 Luna (OpenRouter)",
+                   "DeepSeek V4.1 Flash (OpenRouter)",
                    "DeepSeek V4.1 Flash (OpenRouter)"),
 }
 
@@ -49,7 +49,8 @@ def _bewerten(k: Kontingent, schwelle: int) -> tuple[str, list[str]]:
 
     Im Limit: ein gemessenes Fenster (Wert vorhanden, Reset nicht vorbei) liegt bei oder über der
     Schwelle. Frei: beide Fenster gemessen und darunter. Alles andere ist unbekannt –
-    ein abgelaufenes (`zurueckgesetzt`) oder fehlendes Fenster zählt nie als 0 %.
+    ein abgelaufenes (`zurueckgesetzt`) oder fehlendes Fenster zählt nie als 0 %; ein gemessenes
+    0 % ohne geplante Rücksetzzeit (Fenster nicht aktiv) zählt als frei.
     """
     if k.fehler:
         return UNBEKANNT, [f"{k.master} {k.fehler}"]
@@ -62,6 +63,10 @@ def _bewerten(k: Kontingent, schwelle: int) -> tuple[str, list[str]]:
         elif f.zurueckgesetzt:
             gruende.append(f"{k.master} {name} nach Reset noch nicht neu gemessen")
         elif f.reset is None:
+            if f.prozent == 0:
+                # Gemessene 0 % ohne geplante Rücksetzzeit (Fenster nicht aktiv, API-Form 16.10.2026):
+                # zählt als frei; nur fehlende Rücksetzzeit MIT Verbrauch bleibt unbekannt.
+                continue
             gruende.append(f"{k.master} {name} ohne gültige Rücksetzzeit")
         elif f.prozent >= schwelle:
             im_limit = True

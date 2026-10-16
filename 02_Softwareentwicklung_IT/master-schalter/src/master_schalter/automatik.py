@@ -122,10 +122,17 @@ def uebergabepunkt(pfad: Path, head: str, jetzt: datetime,
 # --- Entscheidung -------------------------------------------------------------
 
 def _gueltiges_fenster(f: signale.Fenster | None, jetzt: datetime) -> signale.Fenster | None:
-    """Das Fenster, wenn es gemessen, im Bereich 0–100, nicht zurückgesetzt und Reset in der Zukunft liegt."""
-    if f is None or f.prozent is None or f.reset is None or f.zurueckgesetzt or f.reset <= jetzt:
+    """Das Fenster, wenn es gemessen, im Bereich 0–100, nicht zurückgesetzt und Reset in der Zukunft liegt.
+
+    Ausnahme (API-Form 16.10.2026): gemessene 0 % ohne Rücksetzzeit (Fenster nicht aktiv) ist gültig.
+    """
+    if f is None or f.prozent is None or f.zurueckgesetzt:
         return None
     if not 0 <= f.prozent <= 100:   # ungültige Messung zählt als unbekannt, nie als Freiheit
+        return None
+    if f.prozent == 0 and f.reset is None:
+        return f
+    if f.reset is None or f.reset <= jetzt:
         return None
     return f
 

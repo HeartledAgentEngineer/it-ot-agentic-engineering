@@ -149,3 +149,14 @@ def test_besetzung_stimmt_mit_agents_md_ueberein():
     for lage, zellen in gefunden.items():
         b = rollen.besetzung(lage)
         assert (b.name, b.thinker, b.reviewer, b.worker) == tuple(zellen[0].split(" ", 1)[1:2] + zellen[1:]), lage
+
+
+def test_gemessenes_null_prozent_ohne_reset_zaehlt_als_frei():
+    k = Kontingent("Claude", (Fenster("5h", 0.0, None), Fenster("Woche", 30.0, SPAETER)), stand=JETZT)
+    assert rollen._bewerten(k, 97)[0] == rollen.FREI
+    assert rollen._bewerten(k, 97)[1] == []
+
+
+def test_verbrauch_ohne_resetzeit_bleibt_unbekannt():
+    k = Kontingent("Claude", (Fenster("5h", 12.0, None), Fenster("Woche", 30.0, SPAETER)), stand=JETZT)
+    assert rollen._bewerten(k, 97)[0] == rollen.UNBEKANNT

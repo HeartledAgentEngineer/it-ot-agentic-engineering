@@ -3,6 +3,23 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.3.3] – 2026-10-16
+
+### Behoben
+- **Claude-Messung versteht die neue API-Form:** Der Usage-Endpunkt liefert ein leeres 5h-Fenster
+  seit dem 16.10.2026 als `utilization: 0.0, resets_at: null`. Die Validierung in
+  `claude_messen._fenster` und `signale._claude_filtern`/`claude_lesen` akzeptiert die fehlende
+  Rücksetzzeit jetzt **nur bei 0 %** (Fenster nicht aktiv) und liest sie als „0 % / kein Reset
+  geplant"; fehlende Rücksetzzeit bei Verbrauch > 0 bleibt ungültig (alte Werte bleiben stehen).
+  Zuvor verwarf die Prüfung jede Antwort dieser Form und die Anzeige blieb stumm auf dem letzten
+  Stand. Anzeige/Tooltip überspringen den Reset-Text, wenn keine Zeit bekannt ist. Die
+  Lage-Bewertung (`rollen._bewerten`) zählt ein gemessenes 0 % ohne Rücksetzzeit als **frei**;
+  fehlende Rücksetzzeit **mit** Verbrauch bleibt weiter „unbekannt".
+
+### Geändert
+- Prüfer-/Subagenten-Rolle: `gpt-6-luna` abgelöst (Input-Preis 5x), `delegation.model` =
+  `deepseek/deepseek-v4.1-flash`.
+
 ## [0.3.2] – 2026-10-16
 
 ### Neu

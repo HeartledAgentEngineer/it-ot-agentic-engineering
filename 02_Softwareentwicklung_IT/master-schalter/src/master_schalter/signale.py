@@ -257,8 +257,17 @@ def _claude_filtern(rate_limits: Any) -> dict:
         if not isinstance(roh, dict):
             return {}
         prozent = _prozent(roh.get("used_percentage"))
-        reset = _zahl(roh.get("resets_at"))
-        if prozent is None or reset is None or _epoche(reset) is None:
+        reset_roh = roh.get("resets_at")
+        if prozent is None:
+            return {}
+        if reset_roh is None:
+            # Kein offenes Fenster: null nur bei 0 % (live 16.10.2026); mit Verbrauch bleibt es ungültig.
+            if prozent != 0:
+                return {}
+            sauber[schluessel] = {"used_percentage": 0.0, "resets_at": None}
+            continue
+        reset = _zahl(reset_roh)
+        if reset is None or _epoche(reset) is None:
             return {}
         sauber[schluessel] = {"used_percentage": prozent, "resets_at": reset}
     return sauber
@@ -305,8 +314,16 @@ def claude_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Ko
         if not isinstance(daten, dict):
             return Kontingent("Claude", fehler="keine Daten")
         prozent = _prozent(daten.get("used_percentage"))
-        reset = _epoche(daten.get("resets_at"))
-        if prozent is None or reset is None:
+        if prozent is None:
+            return Kontingent("Claude", fehler="keine Daten")
+        reset_roh = daten.get("resets_at")
+        if reset_roh is None:
+            if prozent != 0:
+                return Kontingent("Claude", fehler="keine Daten")
+            fenster.append(Fenster(name, 0.0, None))
+            continue
+        reset = _epoche(reset_roh)
+        if reset is None:
             return Kontingent("Claude", fehler="keine Daten")
         if reset <= jetzt:
             fenster.append(Fenster(name, 0.0, reset, zurueckgesetzt=True))
