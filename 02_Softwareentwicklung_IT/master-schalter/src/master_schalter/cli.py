@@ -22,7 +22,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, automatik, claude_messen, paare, rollen, rueckgabe, signale, wechsel,
+from . import (__version__, anzeige, automatik, claude_messen, modi, paare, rollen, rueckgabe, signale, wechsel,
                zustand)
 
 
@@ -97,9 +97,9 @@ def _wechsel(args: argparse.Namespace) -> int:
         print(f"Wechsel fehlgeschlagen: {erg.meldung}", file=sys.stderr)
         return 1
     if erg.art == "gleich":
-        print(f"Master ist schon {anzeige.MASTER_NAMEN[erg.master]} – kein Wechsel, kein Paket.")
+        print(f"Standard-Master ist schon {anzeige.MASTER_NAMEN[erg.master]} – kein Wechsel, kein Paket.")
         return 0
-    print(f"Master jetzt {anzeige.MASTER_NAMEN[erg.master]}.")
+    print(f"Standard-Master jetzt {anzeige.MASTER_NAMEN[erg.master]}. Geschützte Hermes-Themen bleiben unverändert.")
     print(f"Übergabepaket: {erg.paket}")
     return 0
 
@@ -111,6 +111,24 @@ def _paare_zeigen() -> int:
         return 0
     for p in liste:
         print(f"{p.thema}  {'an' if p.aktiv else 'aus'}  {p.codex_thread}  {p.laufend}")
+    return 0
+
+
+def _modus_cli(args: argparse.Namespace) -> int:
+    try:
+        if args.modus is None:
+            wert = modi.modus(args.thema)
+            sicher = modi.geschuetzt(args.thema)
+            print(f"{args.thema}: {wert}" + (" · geschützt durch Hermes-Besitz" if sicher and wert != modi.HERMES_CODEX else ""))
+            return 0
+        modi.setzen(args.thema, args.modus)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Arbeitsmodus nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    if args.modus == modi.HERMES_CODEX:
+        print(f"{args.thema}: Hermes führt – Codex nur Ausführer. Keine Sitzung gestartet.")
+    else:
+        print(f"{args.thema}: Kontingentbetrieb – Übernahme offen.")
     return 0
 
 
@@ -169,9 +187,9 @@ def _rueckgabe_cli(args: argparse.Namespace) -> int:
         print(f"Wechsel fehlgeschlagen: {erg.meldung}", file=sys.stderr)
         return 1
     if erg.art == "gewechselt":
-        print(f"Master jetzt Codex. Übergabepaket: {erg.paket}")
+        print(f"Standard-Master jetzt Codex. Geschützte Hermes-Themen bleiben unverändert. Technisches Übergabepaket: {erg.paket}")
     else:
-        print("Master ist schon Codex – kein Wechsel, kein Paket.")
+        print("Standard-Master ist schon Codex – kein Wechsel, kein Paket.")
     try:
         staende = rueckgabe.rueckgabe(themen=args.themen or None, hinweis=args.hinweis,
                                       erneut=args.erneut)
@@ -209,6 +227,9 @@ def _parser() -> argparse.ArgumentParser:
     paktiv = unter.add_parser("paar-aktiv", help="Paar für die Automatik ein- oder ausschalten")
     paktiv.add_argument("thema", help="Thema")
     paktiv.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    modus_parser = unter.add_parser("modus", help="Arbeitsmodus eines Themas anzeigen oder setzen")
+    modus_parser.add_argument("thema", help="vorhandenes Thema")
+    modus_parser.add_argument("modus", nargs="?", help="kontingent oder hermes-codex")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -244,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         return _paar_setzen(args)
     if args.befehl == "paar-aktiv":
         return _paar_aktiv(args)
+    if args.befehl == "modus":
+        return _modus_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":

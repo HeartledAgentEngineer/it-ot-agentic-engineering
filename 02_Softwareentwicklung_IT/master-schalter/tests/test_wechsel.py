@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from master_schalter import cli, uebergabe, wechsel, zustand
+from master_schalter import automatik, besitz, cli, modi, paare, uebergabe, vorgaenge, wechsel, zustand
 
 JETZT = datetime(2026, 10, 14, 21, 50, 7, tzinfo=timezone.utc)
 
@@ -153,6 +153,65 @@ def test_rueckwechsel_entwertet_offene_vorgaenge(umgebung):
     assert text.startswith("claude ") and f"entwertet {kennung}" in text
 
 
+def test_rueckwechsel_auf_claude_schont_hermes_thema_und_offenen_vorgang(umgebung):
+    thema = "personal-ai-agent"
+    laufend = paare.laufend_bilden(thema)
+    paare.setzen(thema, "00000000-0000-4000-8000-000000000001", laufend, aktiv=True)
+    modi.setzen(thema, modi.HERMES_CODEX, repo=umgebung)
+    master = besitz.pfad(umgebung, laufend)
+    before = besitz.lesen(master)
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(
+        "late-ack", thema, "run-1", "gesendet", "2026-10-16T00:00:00+00:00")])
+    zustand.aendern(lambda z: replace(z, master="codex"))
+
+    wechsel._entwerten(JETZT)
+
+    assert besitz.lesen(master) == before
+    assert vorgaenge.finden("late-ack").phase == "gesendet"
+
+
+def test_rueckwechsel_entwertet_offenen_vorgang_ohne_paar_und_altes_ack_bleibt_wirkungslos(
+    umgebung, monkeypatch
+):
+    thema = "entferntes-thema"
+    kennung = "entferntes-thema@4102444800"
+    laufend = paare.laufend_bilden(thema)
+    master = besitz.pfad(umgebung, laufend)
+    besitz.schreiben(master, f"codex {kennung} {JETZT.isoformat()}")
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(
+        kennung, thema, "lauf-1", "gesendet", JETZT.isoformat())])
+    zustand.aendern(lambda z: replace(z, master="codex"))
+
+    erg = wechsel.wechseln("claude", jetzt=JETZT)
+
+    assert erg.art == "gewechselt"
+    assert vorgaenge.finden(kennung).phase == "entwertet"
+    assert zustand.lesen().master == "claude"
+
+    paare.setzen(thema, THREAD, laufend, aktiv=True)
+    ack_aufrufe = []
+    monkeypatch.setattr(automatik.ack, "pruefen", lambda *a, **k: ack_aufrufe.append(a) or True)
+    assert automatik.bestaetigungen_pruefen(JETZT, repo=umgebung, paare_liste=paare.lesen()) == []
+    assert ack_aufrufe == []
+    assert zustand.lesen().master == "claude"
+
+
+def test_gespeicherter_hermesmodus_ohne_paar_bleibt_beim_rueckwechsel_geschuetzt(umgebung):
+    thema = "verwaistes-hermes-thema"
+    kennung = "verwaistes-hermes-thema@1"
+    modi._speichern(modi.datei(), thema, modi.HERMES_CODEX)
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(
+        kennung, thema, "lauf-1", "gesendet", JETZT.isoformat())])
+    zustand.aendern(lambda z: replace(z, master="codex"))
+
+    assert modi.geschuetzt(thema, repo=umgebung)
+    erg = wechsel.wechseln("claude", jetzt=JETZT)
+
+    assert erg.art == "gewechselt"
+    assert vorgaenge.finden(kennung).phase == "gesendet"
+    assert zustand.lesen().master == "claude"
+
+
 def test_wechsel_zu_codex_entwertet_nichts(umgebung):
     from master_schalter import paare, vorgaenge
     _paar_setzen()
@@ -208,6 +267,25 @@ def test_cli_master_ohne_zustand(umgebung, capsys):
     aus = capsys.readouterr().out
     assert "Master: nicht gesetzt" in aus
     assert "Lage ?" in aus
+
+
+def test_cli_modus_anzeigen_und_setzen(umgebung, capsys):
+    thema = "personal-ai-agent"
+    paare.setzen(thema, "00000000-0000-4000-8000-000000000001",
+                 paare.laufend_bilden(thema), aktiv=True)
+
+    assert cli.main(["modus", thema, "hermes-codex"]) == 0
+    assert "Hermes führt – Codex nur Ausführer" in capsys.readouterr().out
+    assert cli.main(["modus", thema]) == 0
+    assert f"{thema}: hermes-codex" in capsys.readouterr().out
+
+
+def test_cli_modus_unbekannter_wert_gibt_einfache_fehlermeldung_mit_exit1(umgebung, capsys):
+    assert cli.main(["modus", "personal-ai-agent", "unbekannt"]) == 1
+    aus = capsys.readouterr()
+    assert "Arbeitsmodus nicht geändert" in aus.err
+    assert "Unbekannter Arbeitsmodus" in aus.err
+    assert "usage:" not in aus.out + aus.err
 
 
 def test_cli_wechsel_und_master(umgebung, capsys):

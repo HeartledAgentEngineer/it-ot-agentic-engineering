@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.3.3** — Rückgabe an Codex (manuell, mit Bestätigungsdialog), aufgeräumtes Menü; die Automatik bleibt als Modul, ist aber nicht mehr im Menü (schaltbar per CLI).
+Stand: **v0.3.4** — Arbeitsmodus je Thema; Hermes bleibt im Personal-AI-Thema Master, nativer Codex gpt-6-luna ist ausschließlich bereinigter Code-Worker.
 
 ## Bedienung
 
@@ -25,7 +25,7 @@ Im Menü „Master wechseln" kann Claude, Codex oder Hermes ausgewählt werden (
 Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Jeder Wechsel
 fragt vorher nach (Ja/Nein, Standard **Nein**); beim Ziel **Codex** werden danach zusätzlich alle aktiven
 Themen an ihre Codex-Chats zurückgegeben (siehe „Rückgabe an Codex"). Der Wechsel legt ein Markdown-Paket
-unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Die Schwelle lässt sich im Menü „Wechsel-Schwelle"
+unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Themen mit Hermes-Schutz bleiben beim globalen Standardwechsel unberührt. Die Schwelle lässt sich im Menü „Wechsel-Schwelle"
 auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unbemannte Automatik
 (Claude im Limit → Übergabe) läuft nur, wenn sie ausdrücklich eingeschaltet ist — per
 `masterwechsel automatik an` (der frühere Menühaken ist in v0.3.2 entfallen).
@@ -103,6 +103,55 @@ Kennung und Zahlen, keinen Dateiinhalt.
 # Automatik prüfen, ohne etwas zu senden
 .\.venv\Scripts\\masterwechsel.exe automatik-pruefen --trocken
 ```
+
+## Arbeitsmodus je Thema (v0.3.4)
+
+Jedes vorhandene Themenpaar kann im Taskleistenmenü unter **Arbeitsmodus je Thema** zwischen
+**Nach Kontingent** und **Hermes führt · Codex Luna codiert** wechseln. Der CLI-Befehl
+`masterwechsel modus THEMA` zeigt den Modus; `masterwechsel modus THEMA kontingent` oder
+`masterwechsel modus THEMA hermes-codex` setzt ihn. Neue Themen beginnen mit `kontingent`.
+
+Der Hermes-Modus ist eine Rollen- und Schutzregel: Hermes bleibt Master und liest Sensibles;
+Codex gpt-6-luna erhält nur von Hermes bereinigte Code-, Test- und Architekturaufträge. Die
+Auswahl startet weder eine Hermes- noch eine Codex-Sitzung und erzeugt kein ACK. Der Modus bleibt
+auch bei freien Kontingenten bestehen. Er schützt vor Automatik, verspäteten ACKs, manueller
+Rückgabe und globalem Claude-Rückwechsel; ein Wechsel des globalen Standard-Masters ändert die
+Hermes-Themen nicht. Status und tatsächliche Zustellung/Bestätigung werden getrennt angezeigt.
+
+Beim Rückstellen auf `kontingent` werden offene alte Vorgänge entwertet. Die Besitzdatei erhält
+`claude … modus-reset …` nur als Quelle des bestehenden Kontingentwegs; damit wird kein Claude-Chat
+als gestartet behauptet. Der Status lautet **Kontingentbetrieb – Übernahme offen**. Ein Schreibfehler
+zwischen den Teilschritten bleibt geschützt und lässt sich durch erneute Moduswahl vervollständigen.
+
+### Bereinigter Codex-Code-Worker
+
+Für das Personal-AI-Thema führt Hermes weiter. Nur ein geprüft bereinigter technischer Auftrag geht
+an die installierte Codex-App-CLI mit dem Modell `gpt-6-luna` und der vorhandenen ChatGPT-Anmeldung.
+Hermes prüft vorher lokal `codex login status`, behält davon nur die Anmeldeart `chatgpt` und gibt
+niemals die rohe Statusausgabe aus. Bei fehlender ChatGPT-Anmeldung, Abo-Limit oder Fehler bleibt der
+Auftrag bei Hermes; es gibt keinen API-/OpenRouter-Fallback, keine zusätzliche Abrechnung und keinen
+Masterwechsel.
+
+```powershell
+$CodexExe = 'C:\Users\sebas\AppData\Local\OpenAI\Codex\bin\e78bad9887fa50cf\codex.exe'
+$WorkerWorktree = '<von Hermes bereitgestellter isolierter technischer Worktree>'
+$PromptFile = '<bereinigter technischer Auftrag.md>'
+$ResultFile = '<technisches Ergebnis.md>'
+Get-Content -Raw -LiteralPath $PromptFile | & $CodexExe exec --json --ignore-user-config `
+  -c model_provider=openai -c forced_login_method=chatgpt -m gpt-6-luna `
+  --sandbox workspace-write -C $WorkerWorktree --output-last-message $ResultFile -
+```
+
+Der Auftrag wird per Standardeingabe übergeben, nicht in die Befehlszeile interpoliert. Hermes
+entfernt API-Schlüsselvariablen nur aus der Kindprozess-Umgebung, protokolliert die Sitzungskennung
+und die technische Ergebnisdatei und hält den Worker-Chat für Fortsetzungen verfügbar. Echte
+Aufträge verwenden **kein** `--ephemeral`. Keine Bilder, Screenshots, Originaltexte, Zugangsdaten
+oder privaten Originalpfade in Worktree oder Auftrag legen. Der Worker darf nur bereinigten Code,
+Tests und technische Dokumente lesen. Kein Sandbox- oder Freigabe-Bypass.
+
+Der Abo-Verbindungsbeleg war ein synthetischer ACK-only-Auftrag in leerem eigenem Verzeichnis mit
+`gpt-6-luna`, bestätigter ChatGPT-Anmeldung, 90-Sekunden-Außenfrist und ohne API-Schlüsselfallback;
+er belegt die CLI-Verbindung, nicht die erfolgreiche Ausführung eines echten Worker-Auftrags.
 
 ## Rückgabe an Codex (v0.3.2)
 
@@ -235,6 +284,7 @@ Claude- und Codex-App sind MSIX-Pakete, deren Kindprozesse je Starter in
 ```
 src/master_schalter/
   zustand.py   Aktiven Master und letzten Wechsel lokal speichern; Sperren (global und je Thema)
+  modi.py      Arbeitsmodus und fail-closed Themenbesitz speichern
   rollen.py    Lage und Besetzung gemäß AGENTS.md bestimmen
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
   wechsel.py   Wechsel unter Themensperren ausführen: Paket, dann Zustand; Rückwechsel entwertet
@@ -269,9 +319,9 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.3.3** | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) — **dieser Stand** |
+| **v0.3.4** | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll — **dieser Stand** |
+| v0.3.3 | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) |
 | v0.3.2 | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
-| v0.3.4 | Prioritäten-Regel (Claude → Codex → Hermes) mit Rückfrage, wenn ein höherwertiger Master frei wird |
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
 | v0.1.0 | Kontingent-Anzeige beider Master |
 | **v0.3.0** | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans). Standardmäßig aus. |

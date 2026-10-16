@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import ack, anzeige, besitz, codex_senden, paare, rollen, signale, uebergabe, vorgaenge, zustand
+from . import ack, anzeige, besitz, codex_senden, modi, paare, rollen, signale, uebergabe, vorgaenge, zustand
 from .auftrag import Auftrag
 
 FRIST_KOPFZEILE = timedelta(hours=2)
@@ -178,7 +178,7 @@ def _warum_nichts(messung: Messung, schwelle: int, jetzt: datetime) -> str:
 
 def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an: bool,
              vorgangsliste: list[vorgaenge.Vorgang], jetzt: datetime,
-             lauf_id: str = "") -> list[Auftrag]:
+             lauf_id: str = "", modus_mapping: dict[str, str] | None = None) -> list[Auftrag]:
     """Reine Entscheidung: welche Paare jetzt übergeben werden (je Paar und Fenster höchstens einer)."""
     if not an:
         return []
@@ -193,9 +193,10 @@ def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an:
     if fuenf is None or woche is None:
         return []
     bekannt = {v.id for v in vorgangsliste}
+    modus_mapping = modus_mapping or {}
     auftraege: list[Auftrag] = []
     for paar in paare_liste:
-        if not paar.aktiv:
+        if not paar.aktiv or modus_mapping.get(paar.thema, modi.KONTINGENT) == modi.HERMES_CODEX:
             continue
         kennung = f"{paar.thema}@{int(ausloeser.reset.timestamp())}"
         if kennung in bekannt:
@@ -288,6 +289,12 @@ def _ein_thema(auftrag: Auftrag, *, repo: Path, jetzt: datetime, warte: Callable
         if not frei:
             return Stand(auftrag.thema, "übersprungen – Sperre belegt")
 
+        try:
+            if modi.geschuetzt(auftrag.thema, repo=repo, laufend=auftrag.laufend):
+                return Stand(auftrag.thema, "Hermes führt – Codex nur Ausführer")
+        except modi.ModusFehler as fehler:
+            return Stand(auftrag.thema, f"Modusstatus fehlerhaft – kein Versand ({fehler})")
+
         bereit, status = uebergabepunkt(laufend_datei, head_lesen(), jetzt)
         if not bereit:
             return Stand(auftrag.thema, status)
@@ -333,7 +340,8 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
          trocken: bool = False, paare_liste: list[paare.Paar] | None = None,
          messung: Messung | None = None, schwelle: int | None = None, an: bool | None = None,
          vorgangsliste: list[vorgaenge.Vorgang] | None = None, lauf_id: str = "",
-         frist: float = zustand.FRIST_SEKUNDEN) -> list[Stand]:
+         frist: float = zustand.FRIST_SEKUNDEN,
+         modus_mapping: dict[str, str] | None = None) -> list[Stand]:
     """Einen Automatiklauf ausführen (oder trocken nur zeigen) und je Thema einen Stand zurückgeben.
 
     `head` darf ein fester Wert oder eine Funktion sein; als Funktion wird der HEAD **vor der
@@ -348,7 +356,12 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
         messung = Messung(signale.claude_lesen(jetzt=jetzt), signale.codex_lesen(jetzt=jetzt))
     liste = paare.aktive() if paare_liste is None else paare_liste
     vorgangsliste = vorgaenge.lesen() if vorgangsliste is None else vorgangsliste
-    auftraege = faellige(liste, messung, schwelle, an, vorgangsliste, jetzt, lauf_id)
+    if modus_mapping is None:
+        try:
+            modus_mapping = modi.lesen()
+        except modi.ModusFehler as fehler:
+            return [Stand("", f"Modusstatus fehlerhaft – kein Versand ({fehler})")]
+    auftraege = faellige(liste, messung, schwelle, an, vorgangsliste, jetzt, lauf_id, modus_mapping)
     if not auftraege:
         return [Stand("", _warum_nichts(messung, schwelle, jetzt))]
     if trocken:
@@ -382,12 +395,21 @@ def bestaetigungen_pruefen(jetzt: datetime | None = None, *, ordner: Path | None
             repo = uebergabe.repo_wurzel()
         except uebergabe.UebergabeFehler:
             repo = None
+    if repo is None:
+        return []  # Ohne geprüftes Repo weder Besitzdatei lesen noch ACK annehmen.
     ergebnisse: list[Stand] = []
     for v in vorgangsliste:
         if v.phase not in ("gesendet", "unklar"):
             continue
         paar = next((p for p in liste if p.thema == v.thema), None)
         if paar is None:
+            continue
+        try:
+            if modi.geschuetzt(v.thema, repo=repo, laufend=paar.laufend):
+                ergebnisse.append(Stand(v.thema, "Hermes führt – später ACK ignoriert", "entwertet"))
+                continue
+        except modi.ModusFehler as fehler:
+            ergebnisse.append(Stand(v.thema, f"Modusstatus fehlerhaft – ACK ignoriert ({fehler})", "fehler"))
             continue
         seit = signale._iso(v.zeit)
         if seit is None or not ack.pruefen(v.id, paar.codex_thread, seit, ordner):
@@ -425,6 +447,11 @@ def _bestaetigen(v: vorgaenge.Vorgang, paar: paare.Paar, repo: Path | None) -> b
         return False
     with zustand.thema_sperre(paar.thema, blockierend=True, frist=zustand.FRIST_SEKUNDEN) as frei:
         if not frei:
+            return False
+        try:
+            if modi.geschuetzt(paar.thema, repo=repo, laufend=paar.laufend):
+                return False
+        except modi.ModusFehler:
             return False
         text = besitz.lesen(besitz.pfad(repo, paar.laufend))
         teile = text.split()

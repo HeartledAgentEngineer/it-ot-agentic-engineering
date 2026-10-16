@@ -6,6 +6,7 @@ Format: der erste Abschnitt ist der Besitzer.
   `claude <Zeit> entwertet <ID>`, `claude <Zeit> wiederaufnahme <alte-lauf-id>`)
 * `reserviert <lauf-id> <Zeit>` – die Automatik hat reserviert und prüft gleich nach
 * `codex <Vorgang-ID> <Zeit>` – Codex hat übernommen
+* `hermes <Zeit> modus <Kennung>` – Hermes ist thematischer Master
 
 Eine **fehlende** Datei gilt als `claude`. Jeder Schreiber hält die Themensperre
 (`zustand.thema_sperre`); geschrieben wird atomar (temp + replace).
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from .signale import _atomar_schreiben
 
-CLAUDE, CODEX, RESERVIERT = "claude", "codex", "reserviert"
+CLAUDE, CODEX, RESERVIERT, HERMES = "claude", "codex", "reserviert", "hermes"
 
 
 def pfad(repo: Path, laufend: str) -> Path:

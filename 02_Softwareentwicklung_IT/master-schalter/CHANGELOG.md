@@ -3,6 +3,18 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.3.4] – 2026-10-16
+
+### Neu
+- **Arbeitsmodus je Thema:** `masterwechsel modus THEMA [kontingent|hermes-codex]` und Taskleisten-Untermenü mit cachierten Radiooptionen. Hermes-Modus bleibt unabhängig von Quoten geschützt; Moduswahl startet keine Sitzung und erzeugt kein ACK.
+- **Fail-closed Themenbesitz:** Moduswechsel entwertet offene Vorgänge in definierter Reihenfolge, behandelt Teilschreibfehler idempotent und erhält Schutz über Hermes-Besitz oder gespeicherten Hermes-Modus. Automatik, verspätete ACKs, manuelle Rückgabe und globaler Claude-Rückwechsel respektieren den Schutz.
+- **Codex-Code-Worker-Regel:** README und AGENTS dokumentieren den lokal verifizierten nativen Codex-App-CLI-Aufruf mit gpt-6-luna, vorhandener ChatGPT-Anmeldung und bereinigtem technischem Auftrag; keine API-/OpenRouter-Abrechnung.
+
+### Geändert
+- Teilfehlermeldungen nennen bereits entwertete Vorgänge und den erreichten Besitz-/Modusstand; ungültige CLI-Modi liefern eine einfache Fehlermeldung mit Exit 1.
+- Taskleistenstatus trennt Standard-Master und Hermes-Themen. Menüaktionen sind nicht blockierend; Modus-/Besitz-Häkchen kommen ausschließlich aus dem Aktualisierungssnapshot.
+- Version 0.3.4 (`__init__.py`, `pyproject.toml`).
+
 ## [0.3.3] – 2026-10-16
 
 ### Behoben

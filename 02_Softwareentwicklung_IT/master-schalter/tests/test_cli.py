@@ -59,7 +59,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.3.3" in capsys.readouterr().out
+    assert "0.3.4" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):

@@ -7,7 +7,7 @@ import pytest
 
 pystray = pytest.importorskip("pystray")
 
-from master_schalter import anzeige, leiste, paare, signale, vorgaenge, wechsel, zustand  # noqa: E402
+from master_schalter import anzeige, leiste, modi, paare, signale, vorgaenge, wechsel, zustand  # noqa: E402
 
 JETZT = datetime.now(timezone.utc)
 SPAETER = JETZT + timedelta(hours=2)
@@ -76,6 +76,81 @@ def test_menue_enthaelt_untermenues(lst):
     assert "Aktualisieren" in texte and "Beenden" in texte
 
 
+def test_modusmenue_zeigt_beide_radiooptionen_und_geschuetzten_status(lst):
+    thema = "personal-ai-agent"
+    paare.setzen(thema, "00000000-0000-4000-8000-000000000001",
+                 paare.laufend_bilden(thema), aktiv=True)
+    modi.setzen(thema, modi.HERMES_CODEX)
+    lst.aktualisieren()
+    items = list(lst._menue())
+
+    assert any(i.text.startswith("Hermes führt – Codex nur Ausführer") for i in items)
+    themen = _eintrag(items, "Arbeitsmodus je Thema").submenu.items
+    optionen = _eintrag(list(themen), thema).submenu.items
+    assert _texte(optionen) == ["Nach Kontingent", "Hermes führt · Codex Luna codiert"]
+    assert all(i.radio for i in optionen)
+    assert [i.checked for i in optionen] == [False, True]
+
+
+def test_modus_radio_haken_nutzt_nur_den_snapshot(lst, monkeypatch):
+    thema = "engineering"
+    paare.setzen(thema, "00000000-0000-4000-8000-000000000001",
+                 paare.laufend_bilden(thema), aktiv=True)
+    lst.aktualisieren()
+    monkeypatch.setattr(modi, "snapshot", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Dateizugriff")))
+
+    optionen = _eintrag(list(lst._menue()), "Arbeitsmodus je Thema").submenu.items
+    radios = _eintrag(list(optionen), thema).submenu.items
+    assert radios[0].checked is True
+    assert radios[1].checked is False
+
+
+def test_modusaktion_meldet_belegte_sperre_ohne_warten(lst, monkeypatch):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def belegt(*_args, **_kwargs):
+        yield False
+
+    class Sofort:
+        def __init__(self, *, target, args, daemon):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(leiste.zustand, "thema_sperre", belegt)
+    monkeypatch.setattr(leiste.threading, "Thread", Sofort)
+    lst._modus_aktion("engineering", modi.HERMES_CODEX)()
+
+    assert lst.icon.meldungen[-1][1] == "Übergabe läuft – Modus gleich erneut wählen"
+
+
+def test_modus_snapshot_fehler_zeigt_status_und_deaktiviert_optionen(lst, monkeypatch):
+    def kaputt(*_args, **_kwargs):
+        raise modi.ModusFehler("synthetischer Lesefehler")
+
+    monkeypatch.setattr(modi, "snapshot", kaputt)
+    lst.aktualisieren()
+    items = list(lst._menue())
+
+    assert any(i.text == "Arbeitsmodus: nicht verfügbar: synthetischer Lesefehler" for i in items)
+    submenu = _eintrag(items, "Arbeitsmodus je Thema").submenu.items
+    assert len(submenu) == 1
+    assert submenu[0].text == "Modusdaten nicht lesbar"
+    assert submenu[0].enabled is False
+
+
+def test_modus_klick_schreibfehler_beendet_leiste_nicht(lst, monkeypatch):
+    def kaputt(*_args, **_kwargs):
+        raise OSError("synthetischer Schreibfehler")
+
+    monkeypatch.setattr(modi, "_setzen_gesperrt", kaputt)
+    lst._modus_hintergrund("engineering", modi.HERMES_CODEX)
+
+    assert lst.icon.meldungen[-1][1] == "Modus nicht geändert: synthetischer Schreibfehler"
+
+
 def test_master_wechseln_optionsfelder_aktiver_angehakt(lst):
     zustand.aendern(lambda z: z.__class__("codex", JETZT.isoformat(), None))
     lst.aktualisieren()
@@ -104,7 +179,7 @@ def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkey
 
     assert aufrufe == ["codex"]
     assert lst.icon.title.startswith("M Codex L")
-    assert lst.icon.meldungen[-1][1] == f"Master jetzt Codex – Übergabe: {paket.name}. Im Codex-Chat lesen lassen."
+    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
 
 
 def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
@@ -124,7 +199,7 @@ def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
 
     assert aufrufe == ["hermes"]
     assert lst.icon.title.startswith("M Hermes L")
-    assert lst.icon.meldungen[-1][1] == f"Master jetzt Hermes – Übergabe: {paket.name}. Im Hermes-Chat lesen lassen."
+    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Hermes. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
 
 
 def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatch):
@@ -388,11 +463,12 @@ def test_wechsel_bei_gleich_keine_rueckgabe(lst, monkeypatch):
 
 def test_wechsel_text_nennt_die_themen(lst):
     paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    lst.aktualisieren()
     text = lst._wechsel_text("codex")
-    assert "engineering" in text and "Übergabenachricht" in text and "ACK" in text
+    assert "engineering" in text and "Nachricht" in text and "echtes ACK" in text
     assert "Kopfzeile" in text        # Kopfzeilen-Zustand je Thema (hier: fehlt)
-    assert "bereits Master" in text and "passiert nichts weiter" in text
-    assert "--erneut" in text          # Zusage bei „schon Codex" wörtlich abgesichert
+    assert "bereits Standard-Master" in text and "kein neues Übergabepaket" in text
+    assert "--erneut" not in text      # keine erneute Übergabe bei bereits aktivem Codex
 
 
 def test_kopfzeilen_zustand_liest_bereit_nein_und_head(lst, monkeypatch):
@@ -438,6 +514,7 @@ def test_aktualisieren_hakt_uebergaben_ab(lst, monkeypatch):
 
 def test_chat_untermenue_zeigt_je_paar_status_und_haken(lst):
     paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
     assert _texte(sub) == ["engineering: bereit"]
     assert sub[0].checked is True
@@ -451,6 +528,7 @@ def test_chat_untermenue_ohne_paare(lst):
 
 def test_paar_haken_schaltet_das_paar_um(lst):
     paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=False)
+    lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
     sub[0](lst.icon)
     assert paare.lesen()[0].aktiv is True
@@ -460,6 +538,7 @@ def test_chat_untermenue_zeigt_bestaetigten_status(lst):
     d = leiste.vorgaenge.Vorgang("engineering@1", "engineering", "l", "bestaetigt", JETZT.isoformat())
     leiste.vorgaenge.aendern(lambda alt: [*alt, d])
     paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Chats übergeben").submenu.items
     assert _texte(sub) == ["engineering: bestätigt"]
 

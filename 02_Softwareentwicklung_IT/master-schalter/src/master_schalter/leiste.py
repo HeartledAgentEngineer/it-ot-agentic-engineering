@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import pystray
 
-from . import (anzeige, automatik, claude_messen, dialog, paare, rollen, rueckgabe, signale,
+from . import (anzeige, automatik, claude_messen, dialog, modi, paare, rollen, rueckgabe, signale,
                  symbol, uebergabe, vorgaenge, wechsel, zustand)
 
 
@@ -34,6 +34,10 @@ class Leiste:
     def __init__(self) -> None:
         self._kontingente: list[signale.Kontingent] = []
         self._zustand = zustand.Zustand()
+        self._paare_snapshot: list[paare.Paar] = []
+        self._vorgaenge_snapshot: list[vorgaenge.Vorgang] = []
+        self._modus_snapshot: dict[str, tuple[str, str, bool]] = {}
+        self._modus_fehler: str | None = None
         self._lage: str | None = None
         self._grund = ""
         self._stopp = threading.Event()
@@ -54,7 +58,15 @@ class Leiste:
 
     def _menue(self):
         yield pystray.MenuItem("Details", self._zeigen, default=True, visible=False)
-        yield pystray.MenuItem(anzeige.master_menuezeile(self._zustand), None, enabled=False)
+        geschuetzt = [t for t, (_, _, sicher) in self._modus_snapshot.items() if sicher]
+        kopf = ("Standard-Master (übrige Themen): " + anzeige.MASTER_NAMEN.get(self._zustand.master, "nicht gesetzt")
+                if geschuetzt else anzeige.master_menuezeile(self._zustand))
+        yield pystray.MenuItem(kopf, None, enabled=False)
+        if geschuetzt:
+            yield pystray.MenuItem("Hermes führt – Codex nur Ausführer: " + ", ".join(sorted(geschuetzt)),
+                                   None, enabled=False)
+        if self._modus_fehler:
+            yield pystray.MenuItem(f"Arbeitsmodus: {self._modus_fehler}", None, enabled=False)
         for zeile in anzeige.lage_zeilen(self._lage, self._grund):
             yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
@@ -65,6 +77,7 @@ class Leiste:
         yield pystray.Menu.SEPARATOR
         yield pystray.MenuItem("Master wechseln", pystray.Menu(*self._master_optionen()))
         yield pystray.MenuItem("Wechsel-Schwelle", pystray.Menu(*self._schwellen_optionen()))
+        yield pystray.MenuItem("Arbeitsmodus je Thema", pystray.Menu(*self._modus_themen_optionen()))
         yield pystray.MenuItem("Chats übergeben", pystray.Menu(*self._paar_optionen()))
         for zeile in self._automatik_staende_zeilen():
             yield pystray.MenuItem(zeile, None, enabled=False)
@@ -73,8 +86,8 @@ class Leiste:
         yield pystray.MenuItem("Beenden", self._beenden)
 
     def _paar_optionen(self):
-        liste = paare.lesen()
-        vorgangsliste = vorgaenge.lesen()
+        liste = self._paare_snapshot
+        vorgangsliste = self._vorgaenge_snapshot
         if not liste:
             return [pystray.MenuItem("keine Paare angelegt", None, enabled=False)]
         return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste)}",
@@ -85,7 +98,7 @@ class Leiste:
         return [s.status if not s.thema else f"{s.thema}: {s.status}" for s in self._automatik_staende]
 
     def _ist_paar_an(self, thema: str):
-        return any(p.thema == thema and p.aktiv for p in paare.lesen())
+        return any(p.thema == thema and p.aktiv for p in self._paare_snapshot)
 
     def _paar_umschalten_aktion(self, thema: str):
         def aktion() -> None:
@@ -96,6 +109,45 @@ class Leiste:
             self.aktualisieren()
 
         return aktion
+
+    def _modus_themen_optionen(self):
+        if self._modus_fehler:
+            return [pystray.MenuItem("Modusdaten nicht lesbar", None, enabled=False)]
+        if not self._paare_snapshot:
+            return [pystray.MenuItem("keine Themenpaare angelegt", None, enabled=False)]
+        return [pystray.MenuItem(p.thema, pystray.Menu(*self._modus_optionen(p.thema)))
+                for p in self._paare_snapshot]
+
+    def _modus_optionen(self, thema: str):
+        aktiviert = thema in self._modus_snapshot and self._modus_fehler is None
+        optionen = (("Nach Kontingent", modi.KONTINGENT),
+                    ("Hermes führt · Codex Luna codiert", modi.HERMES_CODEX))
+        return [pystray.MenuItem(label, self._modus_aktion(thema, wert),
+                                 checked=self._ist_modus(thema, wert), radio=True, enabled=aktiviert)
+                for label, wert in optionen]
+
+    def _ist_modus(self, thema: str, wert: str):
+        return lambda item: self._modus_snapshot.get(thema, (None, None, False))[0] == wert
+
+    def _modus_aktion(self, thema: str, wert: str):
+        def aktion(*_args) -> None:
+            threading.Thread(target=self._modus_hintergrund, args=(thema, wert), daemon=True).start()
+        return aktion
+
+    def _modus_hintergrund(self, thema: str, wert: str) -> None:
+        try:
+            with zustand.thema_sperre(thema, blockierend=False, frist=0) as frei:
+                if not frei:
+                    self.icon.notify("Übergabe läuft – Modus gleich erneut wählen", "Master-Schalter")
+                    return
+                modi._setzen_gesperrt(thema, wert)
+            self.aktualisieren()
+            self.icon.notify("Arbeitsmodus gespeichert; es wurde keine Sitzung gestartet.", "Master-Schalter")
+        except Exception as fehler:  # noqa: BLE001 - Klick-/Aktualisierungsfehler dürfen die Leiste nicht beenden
+            try:
+                self.icon.notify(f"Modus nicht geändert: {fehler}"[:anzeige.HINWEIS_MAX], "Master-Schalter")
+            except Exception:
+                _protokoll("Arbeitsmodus konnte nicht gemeldet werden")
 
     def _bestaetigung_anfordern(self) -> None:
         """Offene Übergaben abhaken – eigener Faden und eigener Riegel (kein Senden)."""
@@ -171,16 +223,20 @@ class Leiste:
     def _wechsel_text(self, master: str) -> str:
         name = anzeige.MASTER_NAMEN.get(master, master)
         if master == "codex":
-            zeilen = [f"\u2022 {p.thema}: {self._kopfzeilen_zustand(p)}"
-                      for p in paare.lesen() if p.aktiv]
-            liste = "\n".join(zeilen) if zeilen else "keine aktiven Themen"
-            return ("Wirklich Master an Codex übergeben?\n\n"
-                    "Danach wird jedes aktive Thema an seinen Codex-Chat zurückgegeben – "
-                    "es geht je eine Übergabenachricht raus:\n"
+            geschuetzt = [p.thema for p in self._paare_snapshot if p.aktiv and
+                          self._modus_snapshot.get(p.thema, (None, None, True))[2]]
+            uebergebbar = [p for p in self._paare_snapshot if p.aktiv and
+                           not self._modus_snapshot.get(p.thema, (None, None, True))[2]]
+            zeilen = [f"\u2022 {p.thema}: {self._kopfzeilen_zustand(p)}" for p in uebergebbar]
+            liste = "\n".join(zeilen) if zeilen else "keine übergebbaren Themen"
+            ausnahme = ("\nGeschützte Hermes-Themen bleiben unberührt: " + ", ".join(geschuetzt)
+                        if geschuetzt else "")
+            return ("Wirklich den Standard-Master für übrige Themen an Codex übergeben?\n\n"
+                    "Nur diese aktiven, übergebbaren Themen erhalten eine Nachricht:\n"
                     f"{liste}\n\n"
-                    "Ist Codex bereits Master, passiert nichts weiter (erneuter Versand nur per "
-                    "Kommandozeile mit --erneut).\n\n"
-                    "Die Empfänger bestätigen mit ACK.")
+                    f"{ausnahme}\n"
+                    "Ist Codex bereits Standard-Master, wird kein neues Übergabepaket erstellt.\n"
+                    "Die tatsächliche Zustellung braucht weiterhin ein echtes ACK.")
         return f"Wirklich Master an {name} umstellen?"
 
     @staticmethod
@@ -234,17 +290,29 @@ class Leiste:
         self.aktualisieren()
 
     def aktualisieren(self) -> None:
-        self._kontingente = signale.alle_lesen()
-        self._zustand = zustand.lesen()
-        schwelle = anzeige.schwelle()
-        claude, codex = self._kontingente
-        self._lage = rollen.lage(claude, codex, schwelle)
-        self._grund = rollen.lage_grund(claude, codex, schwelle)
-        fuenf = [(k.fenster_nach_name("5h")) for k in self._kontingente]
-        self.icon.icon = symbol.bild(fuenf[0].prozent if fuenf[0] else None,
-                                     fuenf[1].prozent if fuenf[1] else None, schwelle, self._zustand.master)
-        self.icon.title = anzeige.tooltip(self._kontingente, kopf=anzeige.tooltip_kopf(self._zustand.master, self._lage))
-        self.icon.update_menu()
+        try:
+            self._paare_snapshot = paare.lesen()
+            self._vorgaenge_snapshot = vorgaenge.lesen()
+            try:
+                self._modus_snapshot = modi.snapshot([p.thema for p in self._paare_snapshot])
+                self._modus_fehler = None
+            except (modi.ModusFehler, OSError) as fehler:
+                self._modus_snapshot = {}
+                self._modus_fehler = f"nicht verfügbar: {fehler}"
+            self._kontingente = signale.alle_lesen()
+            self._zustand = zustand.lesen()
+            schwelle = anzeige.schwelle()
+            claude, codex = self._kontingente
+            self._lage = rollen.lage(claude, codex, schwelle)
+            self._grund = rollen.lage_grund(claude, codex, schwelle)
+            fuenf = [(k.fenster_nach_name("5h")) for k in self._kontingente]
+            self.icon.icon = symbol.bild(fuenf[0].prozent if fuenf[0] else None,
+                                         fuenf[1].prozent if fuenf[1] else None, schwelle, self._zustand.master)
+            self.icon.title = anzeige.tooltip(
+                self._kontingente, kopf=anzeige.tooltip_kopf(self._zustand.master, self._lage))
+            self.icon.update_menu()
+        except Exception as fehler:  # noqa: BLE001 - Aktualisierung darf die Leiste nicht beenden
+            _protokoll(f"Aktualisierung fehlgeschlagen: {fehler}")
 
     def _aktualisieren_aktion(self) -> None:
         self.aktualisieren()

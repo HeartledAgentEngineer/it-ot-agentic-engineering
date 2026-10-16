@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
-from . import besitz, paare, uebergabe, vorgaenge, zustand
+from . import besitz, modi, paare, uebergabe, vorgaenge, zustand
 
 CLAUDE = "claude"
 FRIST_THEMEN_SEKUNDEN = 5.0
@@ -63,12 +63,25 @@ def _entwerten(jetzt: datetime) -> None:
         for thema in sorted({v.thema for v in vorgangsliste}):
             if thema not in laufend:
                 continue
+            try:
+                if modi.geschuetzt(thema, repo=repo, laufend=laufend[thema]):
+                    continue
+            except modi.ModusFehler:
+                continue  # unklarer Schutzstatus wird fail-closed behandelt
             offen = [v for v in vorgangsliste if v.thema == thema and v.phase in vorgaenge.OFFEN]
             text = (besitz.zeile(besitz.CLAUDE, zeit, "entwertet",
                                  max(offen, key=lambda v: v.zeit).id)
                     if offen else besitz.zeile(besitz.CLAUDE, zeit))
             besitz.schreiben(besitz.pfad(repo, laufend[thema]), text)
-    offene_ids = {v.id for v in vorgangsliste if v.phase in vorgaenge.OFFEN}
+    geschuetzte_themen: set[str] = set()
+    for thema in {v.thema for v in vorgangsliste}:
+        try:
+            if modi.geschuetzt(thema, repo=repo, laufend=laufend.get(thema)):
+                geschuetzte_themen.add(thema)
+        except modi.ModusFehler:
+            geschuetzte_themen.add(thema)
+    offene_ids = {v.id for v in vorgangsliste if v.phase in vorgaenge.OFFEN
+                  and v.thema not in geschuetzte_themen}
     if offene_ids:
         vorgaenge.aendern(lambda alt: [replace(v, phase="entwertet", zeit=zeit) if v.id in offene_ids else v
                                        for v in alt])

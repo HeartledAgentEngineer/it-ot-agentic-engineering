@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from master_schalter import automatik, besitz, codex_senden, paare, rueckgabe, vorgaenge, zustand
+from master_schalter import automatik, besitz, codex_senden, modi, paare, rueckgabe, vorgaenge, zustand
 
 THREAD = "01a12557-3bb3-7171-a021-53e6ac879534"
 THREAD2 = "01a0a68e-5041-7610-a528-38d42f66bed3"
@@ -329,6 +329,21 @@ def test_verwaiste_eigene_reservierung_ohne_erneut_laesst_den_stand_unberuehrt(u
     staende = _lauf(umgebung)
     assert "schon übernommen" in staende[0].status
     assert "reserviert alt-lauf" in _master(umgebung)       # nichts angefasst
+    assert aufrufe == []
+
+
+def test_hermes_thema_stoppt_rueckgabe_vor_handoff_lesen(umgebung, monkeypatch, transport):
+    _paar()
+    modi.setzen("engineering", modi.HERMES_CODEX, repo=umgebung)
+    _master_setzen("codex")
+    _laufend(umgebung)
+    aufrufe = transport(0)
+    monkeypatch.setattr(automatik, "kopfzeile_lesen",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+
+    staende = _lauf(umgebung, trocken=True, erneut=True)
+
+    assert staende[0].status == "Hermes führt – keine Codex-Master-Rückgabe"
     assert aufrufe == []
 
 

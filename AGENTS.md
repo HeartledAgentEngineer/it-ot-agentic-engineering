@@ -177,6 +177,38 @@ tatsächliches Prüfmodell, Planfassung und offene Blocker werden lokal
 dokumentiert. Keine Antwort ist keine Freigabe. Veröffentlichung und sensible
 Arbeit bleiben an die gesonderten Nutzergrenzen gebunden.
 
+### Personal AI: Hermes-Master und Codex-Code-Worker
+
+Im Thema `personal-ai-agent` bleibt Hermes der Master für sensible Inhalte,
+Planung und Rollenentscheidung. Codex `gpt-6-luna` aus der vorhandenen ChatGPT-
+Anmeldung darf ausschließlich bereinigten Code, Tests und technische Dokumente
+bearbeiten. Freie Codex-Quota ändert die Masterrolle nicht. Die Themenauswahl im
+Master-Schalter legt nur diese Rollenregel fest; sie startet keine Sitzung und
+erzeugt kein Empfangs-ACK.
+
+Vor dem Workerstart bestätigt Hermes lokal mit `codex login status` die Anmeldung
+`chatgpt`. Die rohe Statusausgabe bleibt lokal und wird weder protokolliert noch
+weitergegeben. Bei fehlender ChatGPT-Anmeldung, Limit oder Fehler gibt es keinen
+API-Key-, OpenRouter- oder Abrechnungs-Fallback. Der Auftrag enthält keine
+Originaltexte, Screenshots, privaten Pfade oder Zugangsdaten; der Worker arbeitet
+in einem eigens bereitgestellten technischen Worktree. Für echte Aufträge wird
+`--ephemeral` nicht verwendet, damit der Chat fortsetzbar bleibt.
+
+```powershell
+$CodexExe = 'C:\Users\sebas\AppData\Local\OpenAI\Codex\bin\e78bad9887fa50cf\codex.exe'
+$WorkerWorktree = '<isolierter technischer Worktree>'
+$PromptFile = '<bereinigter technischer Auftrag.md>'
+$ResultFile = '<technisches Ergebnis.md>'
+Get-Content -Raw -LiteralPath $PromptFile | & $CodexExe exec --json --ignore-user-config `
+  -c model_provider=openai -c forced_login_method=chatgpt -m gpt-6-luna `
+  --sandbox workspace-write -C $WorkerWorktree --output-last-message $ResultFile -
+```
+
+Der Aufruf nutzt die Codex-App-Anmeldung, nicht einen API-Schlüssel. Vorher
+entfernt Hermes mögliche API-/Provider-Schlüsselvariablen ausschließlich aus
+der Worker-Kindprozess-Umgebung. Der Auftrag darf nur den ausdrücklich
+bereinigten Projektumfang freigeben; kein Sandbox- oder Freigabe-Bypass.
+
 **Prüfprotokolle zeigen (Sebastian, 14.10.2026):** Sebastian ist „Human in the
 Loop" als **Beobachter, nicht als Entscheider**. Nach jeder Prüfrunde — Plan- oder
 Ergebnisprüfung, Codex oder Hermes — legt der Master das Protokoll

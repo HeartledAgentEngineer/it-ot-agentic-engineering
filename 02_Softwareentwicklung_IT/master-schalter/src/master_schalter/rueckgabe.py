@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import automatik, besitz, codex_senden, paare, signale, uebergabe, vorgaenge, zustand
+from . import automatik, besitz, codex_senden, modi, paare, signale, uebergabe, vorgaenge, zustand
 
 KENNUNG_PRAEFIX = "rueckgabe"
 OFFEN = ("sende", "gesendet", "unklar")
@@ -147,6 +147,11 @@ def _ein_thema(paar: paare.Paar, *, repo: Path, jetzt: datetime, hinweis: str | 
     with zustand.thema_sperre(paar.thema, blockierend=True, frist=zustand.FRIST_SEKUNDEN) as frei:
         if not frei:
             return automatik.Stand(paar.thema, "Thema gesperrt – später erneut versuchen")
+        try:
+            if modi.geschuetzt(paar.thema, repo=repo, laufend=paar.laufend):
+                return automatik.Stand(paar.thema, "Hermes führt – keine Codex-Master-Rückgabe")
+        except modi.ModusFehler as fehler:
+            return automatik.Stand(paar.thema, f"Modusstatus fehlerhaft – keine Rückgabe ({fehler})", "fehler")
         # 1) Master unter der Sperre erneut prüfen (schützt gegen parallelen Rückwechsel)
         if zustand.lesen().master != "codex":
             return automatik.Stand(paar.thema, "Master ist nicht Codex – übersprungen")

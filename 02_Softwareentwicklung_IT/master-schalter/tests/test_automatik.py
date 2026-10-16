@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from master_schalter import (automatik, besitz, codex_senden, paare, signale, uebergabe, vorgaenge,
+from master_schalter import (automatik, besitz, codex_senden, modi, paare, signale, uebergabe, vorgaenge,
                              wechsel, zustand)
 from master_schalter.auftrag import Auftrag
 
@@ -145,6 +145,12 @@ def test_inaktives_paar_wird_nie_gesendet():
 def test_ein_auftrag_je_paar():
     auftraege = _entscheiden(_messung(), paare_liste=[_paar("engineering"), _paar("weiterbildung")])
     assert [a.thema for a in auftraege] == ["engineering", "weiterbildung"]
+
+
+def test_faellige_filtert_hermes_modus_ohne_kunstauftrag():
+    auftraege = automatik.faellige([_paar()], _messung(), SCHWELLE, True, [], JETZT,
+                                   modus_mapping={"engineering": modi.HERMES_CODEX})
+    assert auftraege == []
 
 
 # --- Kopfzeile ----------------------------------------------------------------
@@ -463,6 +469,23 @@ def test_codex_im_master_bleibt_unangetastet(umgebung, transport):
     assert aufrufe == []
 
 
+def test_hermes_besitz_stoppt_automatik_vor_kopfzeilenlesen(umgebung, transport, monkeypatch):
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    master = besitz.pfad(umgebung, paar.laufend)
+    besitz.schreiben(master, besitz.zeile(besitz.HERMES, JETZT.isoformat(), "bestehend"))
+    auftrag = _entscheiden(_messung())[0]
+    monkeypatch.setattr(automatik, "uebergabepunkt",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+
+    aufrufe = transport(0)
+    stand = automatik._ein_thema(auftrag, repo=umgebung, jetzt=JETZT, warte=lambda _: None,
+                                 head_lesen=lambda: FULL_HEAD, sender=codex_senden.senden, git=_git, frist=1)
+
+    assert stand.status == "Hermes führt – Codex nur Ausführer"
+    assert aufrufe == []
+
+
 # --- Bestätigung --------------------------------------------------------------
 
 def _rollout(thread=THREAD, text=None):
@@ -515,6 +538,21 @@ def test_ack_nach_rueckwechsel_bleibt_ohne_wirkung(umgebung):
     assert automatik.bestaetigungen_pruefen(JETZT, repo=umgebung, paare_liste=[_paar()]) == []
     assert vorgaenge.finden(auftrag.id).phase == "entwertet"
     assert zustand.lesen().master is None
+
+
+def test_verspaetetes_ack_bei_hermes_modus_wird_vor_rollout_scan_ignoriert(umgebung, monkeypatch):
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    modi.setzen("engineering", modi.HERMES_CODEX, repo=umgebung)
+    auftrag = _gesendeten_vorgang(umgebung)
+    aufrufe = []
+    monkeypatch.setattr(automatik.ack, "pruefen", lambda *a, **k: aufrufe.append(a) or True)
+
+    staende = automatik.bestaetigungen_pruefen(JETZT, repo=umgebung, paare_liste=[_paar()])
+
+    assert aufrufe == []
+    assert staende[0].phase == "entwertet"
+    assert vorgaenge.finden(auftrag.id).phase == "gesendet"
 
 
 def test_status_zeile_zeigt_alle_zustaende():
