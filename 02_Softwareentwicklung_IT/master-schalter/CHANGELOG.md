@@ -3,6 +3,61 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.4.0] – 2026-10-16
+
+### Neu
+- **Rollen und Ausführermodelle je Thema (Profil v2):** `themenmodi.json` speichert je Thema
+  `master` (`kontingent|claude|codex|hermes`), `worker` (`workflow|claude|codex|hermes`) und
+  `modell` (Kennung oder `null`; „Nach Workflow“ nur ohne festes Modell, Hermes genau
+  `deepseek/deepseek-v4.1-flash`). Alle neun ausdrücklich gewählten Master-/Ausführer-Kombinationen
+  sind setzbar; Version-1-Dateien werden **nur lesend** migriert (Migration beim ersten
+  ausdrücklichen Schreibvorgang), kaputte Dateien werden strikt abgelehnt statt auf Automatik
+  zurückzufallen. Neue öffentliche API `profil`, `master_setzen`, `worker_setzen`,
+  `modell_setzen`; Worker-/Modellwechsel lassen Masterfeld und `.master`-Marke bytegleich,
+  Modellwahlen werden gegen den erfolgreich ermittelten Katalog geprüft.
+- **Dynamische Modellkataloge (`modelle.py`):** Codex meldet `models` über den reinen
+  App-CLI-Metadatenaufruf `debug models` (nur `visibility=list`); Claude Code über die lokale
+  Control-Initialisierung ohne Anmeldung und ohne Benutzerprompt (nur `value`/`displayName` der
+  eigenen passenden `control_response`). Lokaler Metadatencache (`modelle.json`), TTL 24 h,
+  Fristen 30 s je Abfrage und 65 s gesamt, feste Byte-/Zeilen-/Modellgrenzen, Single-Flight je
+  Anbieter, verlustfreies Mergen unter kurzer globaler Sperre; bei Fehlern bleibt das letzte gute
+  Ergebnis mit sichtbarem Fehlerstatus stehen. Keine Inferenz, keine API-/Fremdprovider-Schlüssel
+  im Kindprozess, Bereinigung ausschließlich des eigenen Prozessbaums
+  (`taskkill /PID <eigene PID> /T /F`, keine Namenssuche). Herkunft/Grenzen offiziell dokumentiert:
+  https://learn.chatgpt.com/docs/cli/reference und https://learn.chatgpt.com/docs/app-server ;
+  kein Kontokatalog-Versprechen.
+- **Menü „Arbeitsmodus je Thema“:** je Thema getrennte Untermenüs **Master** (`Nach Kontingent`,
+  `Claude Code`, `Codex`, `Hermes`), **Ausführer** (`Nach Workflow`, `Claude Code`, `Codex`,
+  `Hermes`) und **Ausführermodell** (gemeldete Modelle des gewählten Ausführers; bei „Nach
+  Workflow“ deaktivierter Hinweis; bei Hermes genau `DeepSeek V4.1 Flash`). Providerherkunft immer
+  sichtbar (Codex-Modelle aus dem ChatGPT-Abo, Hermes über OpenRouter kostenpflichtig), neuer
+  Menüpunkt **Modelle aktualisieren**; Menü und Häkchen ausschließlich aus dem Snapshot, Aktionen
+  im Hintergrund mit nichtblockierender Themensperre, Katalogabgleich mit Single-Flight und
+  Drossel (30 min). Gespeicherte, nicht bestätigte Modelle bleiben sichtbar und werden nie still
+  ersetzt; veraltete/fehlerhafte Kataloge werden im Menü benannt, blockieren aber nichts.
+- **CLI (bestehende Befehle unverändert):** `profil THEMA [--json]`, `master-setzen THEMA MASTER`,
+  `worker-setzen THEMA WORKER`, `modell-setzen THEMA MODELL|standard`,
+  `modelle [PROVIDER] [--aktualisieren] [--json]`. Die JSON-Ausgabe ist maschinenlesbar; Fehler
+  liefern Exit 1 und eine klare Diagnose ohne rohe Werkzeugantworten. `profil THEMA --json` ist
+  vor jedem **neuen** Workerauftrag die verbindliche Provider-/Modellvorgabe (README/AGENTS).
+
+### Geändert
+- Persönliches Themenprofil: Alter `hermes-codex`-Modus wird als `hermes/codex/gpt-6-luna`
+  gedeutet; die bisherigen Befehle `modus` und `setzen` bleiben kompatibel. Feste Masterrollen
+  bleiben vor Automatik, manueller Sammelrückgabe und alten ACKs geschützt (Paket B).
+- Version 0.4.0 (`__init__.py`, `pyproject.toml`); README auf den neuen Stand (Bedienung,
+  Rollenprofil, Katalogquellen und -grenzen, verbindliche Profilabfrage, Fahrplan).
+
+### Behoben
+- **NT-Pfadpräfix-Härtung:** Die Besitzpfadprüfung vergleicht jetzt komponentenweise und toleriert
+  `\\?\`-Präfixe (Windows-Race), während ein echter Pfad außerhalb des Repositorys weiter ein
+  Fehler bleibt.
+- **Testlast:** Der Test „ungültige Protokollantwort bei laufendem Prozess“ nutzt bewusst
+  großzügige, im Docstring begründete Zeitfenster (30 s Abfrage, 20 s Kill-Wartezeit), damit
+  unter Rechnerlast deterministisch „Antwort ungültig“ gilt – Kill-Args, Kind-tot und
+  Katalog-unverändert bleiben scharf. Der 429-Pausentest zählt ohne Rennen gegen den
+  Bestätigungsfaden.
+
 ## [0.3.4] – 2026-10-16
 
 ### Neu

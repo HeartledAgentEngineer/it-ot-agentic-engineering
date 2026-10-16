@@ -179,28 +179,37 @@ Arbeit bleiben an die gesonderten Nutzergrenzen gebunden.
 
 ### Personal AI: Hermes-Master und Codex-Code-Worker
 
-Im Thema `personal-ai-agent` bleibt Hermes der Master für sensible Inhalte,
-Planung und Rollenentscheidung. Codex `gpt-6-luna` aus der vorhandenen ChatGPT-
-Anmeldung darf ausschließlich bereinigten Code, Tests und technische Dokumente
-bearbeiten. Freie Codex-Quota ändert die Masterrolle nicht. Die Themenauswahl im
-Master-Schalter legt nur diese Rollenregel fest; sie startet keine Sitzung und
-erzeugt kein Empfangs-ACK.
+Im Thema `personal-ai-agent` bleibt Hermes der Master für sensible Inhalte, Planung und
+Rollenentscheidung, solange im Master-Schalter keine andere Rolle gewählt ist. Seit v0.4.0 sind
+**Master, Ausführer und Ausführermodell je Thema** getrennt wählbar (Profil v2,
+`masterwechsel profil THEMA [--json]`); die Wahl ist eine gespeicherte Rollen-/Ausführervorgabe —
+sie startet keine Sitzung und erzeugt kein Empfangs-ACK. Freie Codex-Quota ändert die
+Masterrolle nicht.
 
-Vor dem Workerstart bestätigt Hermes lokal mit `codex login status` die Anmeldung
-`chatgpt`. Die rohe Statusausgabe bleibt lokal und wird weder protokolliert noch
-weitergegeben. Bei fehlender ChatGPT-Anmeldung, Limit oder Fehler gibt es keinen
-API-Key-, OpenRouter- oder Abrechnungs-Fallback. Der Auftrag enthält keine
-Originaltexte, Screenshots, privaten Pfade oder Zugangsdaten; der Worker arbeitet
-in einem eigens bereitgestellten technischen Worktree. Für echte Aufträge wird
-`--ephemeral` nicht verwendet, damit der Chat fortsetzbar bleibt.
+**Vor jedem neuen Workerauftrag** liest der Master verbindlich
+`masterwechsel profil THEMA --json` und nutzt den dort genannten Anbieter samt Modell
+(`worker` = Provider, `modell` = Modellkennung; `modell_standard: true` heißt: Standard des
+Werkzeugs). Ohne diese Abfrage wird kein Worker gestartet; die Profilwahl allein behauptet
+keinen gestarteten Worker.
+
+Codex `gpt-6-luna` aus der vorhandenen ChatGPT-Anmeldung darf ausschließlich bereinigten Code,
+Tests und technische Dokumente bearbeiten. Vor dem Workerstart bestätigt Hermes lokal mit
+`codex login status` die Anmeldung `chatgpt`. Die rohe Statusausgabe bleibt lokal und wird weder
+protokolliert noch weitergegeben. Bei fehlender ChatGPT-Anmeldung, Limit oder Fehler gibt es
+keinen API-Key-, OpenRouter- oder Abrechnungs-Fallback. Der Auftrag enthält keine Originaltexte,
+Screenshots, privaten Pfade oder Zugangsdaten; der Worker arbeitet in einem eigens
+bereitgestellten technischen Worktree. Für echte Aufträge wird `--ephemeral` nicht verwendet,
+damit der Chat fortsetzbar bleibt.
 
 ```powershell
 $CodexExe = 'C:\Users\sebas\AppData\Local\OpenAI\Codex\bin\e78bad9887fa50cf\codex.exe'
 $WorkerWorktree = '<isolierter technischer Worktree>'
 $PromptFile = '<bereinigter technischer Auftrag.md>'
 $ResultFile = '<technisches Ergebnis.md>'
+# Modell aus `masterwechsel profil <thema> --json` (Feld „modell“; bei modell_standard: true gilt der Werkzeugstandard)
+$Modell = 'gpt-6-luna'
 Get-Content -Raw -LiteralPath $PromptFile | & $CodexExe exec --json --ignore-user-config `
-  -c model_provider=openai -c forced_login_method=chatgpt -m gpt-6-luna `
+  -c model_provider=openai -c forced_login_method=chatgpt -m $Modell `
   --sandbox workspace-write -C $WorkerWorktree --output-last-message $ResultFile -
 ```
 

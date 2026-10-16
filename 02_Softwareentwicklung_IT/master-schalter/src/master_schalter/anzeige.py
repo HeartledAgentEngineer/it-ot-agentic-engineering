@@ -1,12 +1,19 @@
-"""Texte für Tooltip, Menü und Benachrichtigung – reine Funktionen ohne Oberfläche."""
+"""Texte für Tooltip, Menü und Benachrichtigung – reine Funktionen ohne Oberfläche.
+
+Enthält zusätzlich die Menüeinträge der Rollenwahl je Thema (Master, Ausführer,
+Ausführermodell) und die Texte der Modellkataloge. Alle Einträge werden ausschließlich aus
+unveränderlichen Momentaufnahmen (`Rollenstand`, `Katalogstand`) gebaut – hier finden nie
+Datei-, Prozess- oder Netzzugriffe statt.
+"""
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import rollen
+from . import modi, rollen
 from .signale import Fenster, Kontingent, _atomar_schreiben, daten_ordner
 from .zustand import Zustand
 
@@ -202,7 +209,7 @@ def master_status_zeile(z: Zustand, lage: str | None, grund: str) -> str:
 
 
 def wechsel_hinweis(ergebnis: "Ergebnis") -> str:
-    """Text der Windows-Benachrichtigung nach einem Klick auf „Master wechseln"."""
+    """Text der Windows-Benachrichtigung nach einem Klick auf „Master wechseln“."""
     name = MASTER_NAMEN[ergebnis.master]
     if ergebnis.art == "gewechselt":
         text = f"Standard-Master jetzt {name}. Technisches Übergabepaket: {ergebnis.paket.name}. Geschützte Hermes-Themen bleiben unverändert."
@@ -211,3 +218,192 @@ def wechsel_hinweis(ergebnis: "Ergebnis") -> str:
     else:
         text = f"Wechsel fehlgeschlagen: {ergebnis.meldung}"
     return text[:HINWEIS_MAX]
+
+
+# --- Rollen je Thema, Ausführermodelle und Katalogstände (v0.4.0) -------------
+
+MASTER_AUSWAHL = (("Nach Kontingent", "kontingent"), ("Claude Code", "claude"),
+                  ("Codex", "codex"), ("Hermes", "hermes"))
+WORKER_AUSWAHL = (("Nach Workflow", "workflow"), ("Claude Code", "claude"),
+                  ("Codex", "codex"), ("Hermes", "hermes"))
+ROLLEN_NAMEN = {"kontingent": "Nach Kontingent", "claude": "Claude Code",
+                "codex": "Codex", "hermes": "Hermes"}
+WORKER_NAMEN = {"workflow": "Nach Workflow", **ROLLEN_NAMEN}
+HERMES_MODELL_ANZEIGE = "DeepSeek V4.1 Flash"
+STANDARD_MODELL = "Standard des Werkzeugs"
+MODELLE_AKTUALISIEREN = "Modelle aktualisieren"
+AUSFUEHRER_VORGABE = "Ausführervorgabe für den nächsten bereinigten Coding-Auftrag – startet keine Sitzung"
+HERKUNFT_ZEILE = ("Claude-Code-Modelle aus dem Claude-Abo · Codex-Modelle aus dem ChatGPT-Abo · "
+                  "Hermes über OpenRouter – kostenpflichtig")
+PROVIDER_NAMEN = {"claude": "Claude Code", "codex": "Codex", "hermes": "Hermes"}
+PROVIDER_HERKUNFT = {
+    "claude": "Claude-Code-Modelle aus dem Claude-Abo",
+    "codex": "Codex-Modelle aus dem ChatGPT-Abo",
+    "hermes": "Hermes über OpenRouter – kostenpflichtig",
+    "workflow": "Das Modell wählt der Workflow beim Auftrag",
+}
+ROLLEN_HINWEIS = "Rollenvorgabe für den nächsten bereinigten Coding-Auftrag – keine Sitzung gestartet"
+SCHUTZ_HINWEIS = "Automatik, manuelle Rückgabe und globaler Masterwechsel lassen dieses Thema aus."
+KONTINGENT_HINWEIS = "Kontingentweg offen: Automatik und manuelle Rückgabe dürfen übernehmen."
+
+
+@dataclass(frozen=True)
+class Katalogstand:
+    """Unveränderliche Momentaufnahme eines Modellkatalogs (nur Kennung/Name, Fehler, Alter)."""
+
+    provider: str = ""
+    modelle: tuple[tuple[str, str], ...] = ()   # (Kennung, Anzeigename)
+    zeit: str | None = None                     # ISO-Stand des letzten guten Ergebnisses
+    fehler: str | None = None                   # einfache Fehlerkategorie, nie Rohdaten
+    veraltet: bool = False
+
+
+@dataclass(frozen=True)
+class Rollenstand:
+    """Unveränderliche Momentaufnahme des Rollenprofils eines Themas samt Katalogständen."""
+
+    master: str = modi.KONTINGENT
+    worker: str = modi.WORKFLOW
+    modell: str | None = None
+    kataloge: tuple[Katalogstand, ...] = ()
+
+
+@dataclass(frozen=True)
+class Eintrag:
+    """Ein Menüeintrag aus der Momentaufnahme: Hinweiszeile oder wählbare Option."""
+
+    text: str
+    wert: str | None = None    # Kennung der Option (bei „Standard des Werkzeugs“ bewusst None)
+    aktiv: bool = True         # auswählbar
+    haken: bool = False        # Radio-Häkchen
+    hinweis: bool = False      # reine Hinweiszeile ohne Aktion
+
+
+def modell_anzeige(modell: str | None) -> str:
+    """Anzeigename eines Ausführermodells; `None` ist der Standard des Werkzeugs."""
+    if modell is None:
+        return STANDARD_MODELL
+    if modell == modi.HERMES_MODELL:
+        return HERMES_MODELL_ANZEIGE
+    return modell
+
+
+def _hinweis(text: str) -> Eintrag:
+    """Reine Hinweiszeile: sichtbar, aber nicht auswählbar."""
+    return Eintrag(text, hinweis=True, aktiv=False)
+
+
+def master_eintraege(stand: Rollenstand) -> list[Eintrag]:
+    """Vierfache Masterwahl je Thema; Haken aus der Momentaufnahme."""
+    return [Eintrag(text, wert, haken=wert == stand.master) for text, wert in MASTER_AUSWAHL]
+
+
+def worker_eintraege(stand: Rollenstand) -> list[Eintrag]:
+    """Ausführervorgabe (vier Provider) mit immer sichtbarer Herkunft und Vorgabehinweis."""
+    return ([_hinweis(AUSFUEHRER_VORGABE), _hinweis(HERKUNFT_ZEILE)]
+            + [Eintrag(text, wert, haken=wert == stand.worker) for text, wert in WORKER_AUSWAHL])
+
+
+def modell_eintraege(stand: Rollenstand) -> list[Eintrag]:
+    """Ausführermodell-Einträge: dynamische Katalogmodelle, Hinweise und gespeicherte Auswahl.
+
+    Regeln: „Nach Workflow“ zeigt nur einen deaktivierten Hinweis; Hermes genau das fest
+    freigegebene DeepSeek-Modell. Ein veralteter, fehlerhafter oder fehlender Katalog nennt
+    den Grund und deaktiviert neue Modellwahlen (der Standard des Werkzeugs bleibt bewusst
+    wählbar). Ein gespeichertes, nicht bestätigtes Modell bleibt sichtbar (Haken), ist aber
+    zur Neuauswahl deaktiviert – es wird nie still ersetzt.
+    """
+    if stand.worker == modi.WORKFLOW:
+        return [_hinweis("Nach Workflow – das Modell wählt der Workflow beim Auftrag")]
+    if stand.worker == "hermes":
+        zeilen = [
+            _hinweis(PROVIDER_HERKUNFT["hermes"]),
+            Eintrag(HERMES_MODELL_ANZEIGE, wert=modi.HERMES_MODELL,
+                    haken=stand.modell == modi.HERMES_MODELL),
+        ]
+        if stand.modell != modi.HERMES_MODELL:
+            zeilen.append(Eintrag(f"{stand.modell or 'kein Modell'} (gespeichert, nicht bestätigt)",
+                                  aktiv=False, haken=True))
+        return zeilen
+    katalog = next((k for k in stand.kataloge if k.provider == stand.worker), None)
+    if katalog is None:
+        modelle_im_katalog: tuple[tuple[str, str], ...] = ()
+        katalog_fehler, katalog_veraltet = None, False
+    else:
+        modelle_im_katalog = katalog.modelle
+        katalog_fehler, katalog_veraltet = katalog.fehler, katalog.veraltet
+    kennungen = tuple(kennung for kennung, _ in modelle_im_katalog)
+    brauchbar = bool(katalog_fehler is None and not katalog_veraltet and kennungen)
+    zeilen = [_hinweis(PROVIDER_HERKUNFT[stand.worker])]
+    if not kennungen:
+        zeilen.append(_hinweis(f"Kein Katalog – zuerst „{MODELLE_AKTUALISIEREN}“"))
+    else:
+        if katalog_fehler is not None:
+            zeilen.append(_hinweis(f"Katalogfehler: {katalog_fehler} – zuerst "
+                                   f"„{MODELLE_AKTUALISIEREN}“"))
+        elif katalog_veraltet:
+            zeilen.append(_hinweis(f"Katalog veraltet – zuerst „{MODELLE_AKTUALISIEREN}“"))
+        zeilen += [Eintrag(name, wert=kennung, aktiv=brauchbar, haken=kennung == stand.modell)
+                   for kennung, name in modelle_im_katalog]
+    if stand.modell is None:
+        zeilen.append(Eintrag(STANDARD_MODELL, wert=None, aktiv=True, haken=True))
+    elif stand.modell not in kennungen:
+        zeilen.append(Eintrag(f"{stand.modell} (gespeichert, nicht bestätigt)", aktiv=False, haken=True))
+    return zeilen
+
+
+def rollen_zeilen(thema: str, stand: Rollenstand, geschuetzt: bool) -> list[str]:
+    """Drei Zeilen für `masterwechsel profil THEMA`: Wahl, Quelle und Vorgabe-/Schutzart."""
+    return [
+        f"{thema}: Master {ROLLEN_NAMEN[stand.master]} · Ausführer {WORKER_NAMEN[stand.worker]} · "
+        f"Ausführermodell {modell_anzeige(stand.modell)}",
+        f"  Quelle: {PROVIDER_HERKUNFT[stand.worker]}",
+        f"  {ROLLEN_HINWEIS} · " + (SCHUTZ_HINWEIS if geschuetzt else KONTINGENT_HINWEIS),
+    ]
+
+
+def master_meldung(thema: str, master: str) -> str:
+    return f"{thema}: Master {ROLLEN_NAMEN[master]} gespeichert – keine Sitzung gestartet."
+
+
+def ausfuehrer_meldung(thema: str, worker: str, modell: str | None) -> str:
+    """Providerwechsel meldet ausdrücklich das dann gesetzte Ausführermodell."""
+    return (f"{thema}: Ausführer {WORKER_NAMEN[worker]} gespeichert – "
+            f"Ausführermodell {modell_anzeige(modell)} · keine Sitzung gestartet.")
+
+
+def modell_meldung(thema: str, modell: str | None) -> str:
+    return f"{thema}: Ausführermodell {modell_anzeige(modell)} gespeichert – keine Sitzung gestartet."
+
+
+def feste_themen_zeile(themen: list[str]) -> str:
+    """Menüzeile für Themen mit fester Masterrolle – kein Anspruch auf globale Übernahme."""
+    return "Feste Themenrollen (bleiben beim globalen Wechsel erhalten): " + ", ".join(sorted(themen))
+
+
+def katalog_zeilen(kataloge: tuple[Katalogstand, ...]) -> list[str]:
+    """Menüzeilen für Katalogprobleme; frische, leere Läufe erzeugen keine Zeile."""
+    zeilen: list[str] = []
+    for stand in kataloge:
+        name = PROVIDER_NAMEN.get(stand.provider, stand.provider)
+        if stand.fehler is not None:
+            zeilen.append(f"Modellkatalog {name}: {stand.fehler}")
+        elif stand.veraltet:
+            zeilen.append(f"Modellkatalog {name}: veraltet oder leer – {MODELLE_AKTUALISIEREN}")
+    return zeilen
+
+
+def katalog_ausgabe(stand: Katalogstand) -> list[str]:
+    """Mehrzeilige Textausgabe eines Katalogs für `masterwechsel modelle`."""
+    zeilen = [f"{PROVIDER_NAMEN.get(stand.provider, stand.provider)}: "
+              f"{PROVIDER_HERKUNFT.get(stand.provider, '')}".rstrip()]
+    if stand.fehler is not None:
+        zeilen.append(f"  Fehler: {stand.fehler}")
+    zeilen.append(f"  Stand: {stand.zeit or '–'}")
+    if stand.veraltet:
+        zeilen.append("  veraltet oder leer – mit --aktualisieren frisch abgleichen")
+    if stand.modelle:
+        zeilen += [f"  {name}  {kennung}" for kennung, name in stand.modelle]
+    else:
+        zeilen.append("  keine Modelle ermittelt")
+    return zeilen

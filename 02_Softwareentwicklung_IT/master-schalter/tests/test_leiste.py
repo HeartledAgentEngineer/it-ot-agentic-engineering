@@ -1,4 +1,5 @@
 """Tests für die Taskleisten-Oberfläche – ohne Fenster: Menüeinträge prüfen, Klicks per Attrappe auslösen."""
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -7,7 +8,7 @@ import pytest
 
 pystray = pytest.importorskip("pystray")
 
-from master_schalter import anzeige, leiste, modi, paare, signale, vorgaenge, wechsel, zustand  # noqa: E402
+from master_schalter import anzeige, leiste, modi, modelle, paare, signale, vorgaenge, wechsel, zustand  # noqa: E402
 
 JETZT = datetime.now(timezone.utc)
 SPAETER = JETZT + timedelta(hours=2)
@@ -73,10 +74,11 @@ def test_menue_enthaelt_untermenues(lst):
     lst.aktualisieren()
     texte = _texte(lst._menue())
     assert "Master wechseln" in texte and "Wechsel-Schwelle" in texte
+    assert "Arbeitsmodus je Thema" in texte and "Modelle aktualisieren" in texte
     assert "Aktualisieren" in texte and "Beenden" in texte
 
 
-def test_modusmenue_zeigt_beide_radiooptionen_und_geschuetzten_status(lst):
+def test_modusmenue_zeigt_master_ausfuehrer_und_modellgruppen(lst):
     thema = "personal-ai-agent"
     paare.setzen(thema, "00000000-0000-4000-8000-000000000001",
                  paare.laufend_bilden(thema), aktiv=True)
@@ -84,12 +86,14 @@ def test_modusmenue_zeigt_beide_radiooptionen_und_geschuetzten_status(lst):
     lst.aktualisieren()
     items = list(lst._menue())
 
-    assert any(i.text.startswith("Hermes führt – Codex nur Ausführer") for i in items)
+    assert any(i.text.startswith("Feste Themenrollen") and thema in i.text for i in items)
     themen = _eintrag(items, "Arbeitsmodus je Thema").submenu.items
-    optionen = _eintrag(list(themen), thema).submenu.items
-    assert _texte(optionen) == ["Nach Kontingent", "Hermes führt · Codex Luna codiert"]
-    assert all(i.radio for i in optionen)
-    assert [i.checked for i in optionen] == [False, True]
+    gruppen = _eintrag(list(themen), thema).submenu.items
+    assert _texte(gruppen) == ["Master", "Ausführer", "Ausführermodell"]
+    master = _eintrag(list(gruppen), "Master").submenu.items
+    assert _texte(master) == ["Nach Kontingent", "Claude Code", "Codex", "Hermes"]
+    assert all(i.radio for i in master)
+    assert [i.checked for i in master] == [False, False, False, True]      # Hermes aus dem gespeicherten Profil
 
 
 def test_modus_radio_haken_nutzt_nur_den_snapshot(lst, monkeypatch):
@@ -97,12 +101,20 @@ def test_modus_radio_haken_nutzt_nur_den_snapshot(lst, monkeypatch):
     paare.setzen(thema, "00000000-0000-4000-8000-000000000001",
                  paare.laufend_bilden(thema), aktiv=True)
     lst.aktualisieren()
-    monkeypatch.setattr(modi, "snapshot", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Dateizugriff")))
 
-    optionen = _eintrag(list(lst._menue()), "Arbeitsmodus je Thema").submenu.items
-    radios = _eintrag(list(optionen), thema).submenu.items
-    assert radios[0].checked is True
-    assert radios[1].checked is False
+    def kaputt(*_args, **_kwargs):
+        raise AssertionError("Dateizugriff")
+
+    monkeypatch.setattr(modi, "snapshot", kaputt)
+    monkeypatch.setattr(modi, "lesen", kaputt)
+    monkeypatch.setattr(leiste.modelle, "lesen", kaputt)
+
+    gruppen = _eintrag(list(_eintrag(list(lst._menue()), "Arbeitsmodus je Thema").submenu.items),
+                       thema).submenu.items
+    master = _eintrag(list(gruppen), "Master").submenu.items
+    assert [i.checked for i in master] == [True, False, False, False]      # kontingent aus dem Snapshot
+    ausfuehrer = [i for i in _eintrag(list(gruppen), "Ausführer").submenu.items if i.enabled]
+    assert [i.checked for i in ausfuehrer] == [True, False, False, False]
 
 
 def test_modusaktion_meldet_belegte_sperre_ohne_warten(lst, monkeypatch):
@@ -113,7 +125,7 @@ def test_modusaktion_meldet_belegte_sperre_ohne_warten(lst, monkeypatch):
         yield False
 
     class Sofort:
-        def __init__(self, *, target, args, daemon):
+        def __init__(self, *, target, daemon, args=()):
             self.target, self.args = target, args
 
         def start(self):
@@ -121,7 +133,7 @@ def test_modusaktion_meldet_belegte_sperre_ohne_warten(lst, monkeypatch):
 
     monkeypatch.setattr(leiste.zustand, "thema_sperre", belegt)
     monkeypatch.setattr(leiste.threading, "Thread", Sofort)
-    lst._modus_aktion("engineering", modi.HERMES_CODEX)()
+    lst._master_aktion("engineering", "hermes")()
 
     assert lst.icon.meldungen[-1][1] == "Übergabe läuft – Modus gleich erneut wählen"
 
@@ -145,8 +157,9 @@ def test_modus_klick_schreibfehler_beendet_leiste_nicht(lst, monkeypatch):
     def kaputt(*_args, **_kwargs):
         raise OSError("synthetischer Schreibfehler")
 
-    monkeypatch.setattr(modi, "_setzen_gesperrt", kaputt)
-    lst._modus_hintergrund("engineering", modi.HERMES_CODEX)
+    monkeypatch.setattr(modi, "master_setzen", kaputt)
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._master_aktion("engineering", "hermes")()
 
     assert lst.icon.meldungen[-1][1] == "Modus nicht geändert: synthetischer Schreibfehler"
 
@@ -387,6 +400,7 @@ def test_429_pause_wird_durch_manuelles_aktualisieren_nicht_umgangen(lst, monkey
     monkeypatch.setattr(leiste.time, "monotonic", lambda: zeit[0])
     monkeypatch.setattr(lst, "aktualisieren", lambda: aktualisierungen.append(zeit[0]))
     monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: messzeiten.append(zeit[0]))
+    monkeypatch.setattr(lst, "_bestaetigung_anfordern", lambda: None)   # eigener Faden – kein Rennen um die Zählung
     lst._stopp = StopAttrappe()
     lst._messung_angefordert = AnfrageAttrappe()
     lst._messung_intervall = 300
@@ -655,3 +669,270 @@ def test_takt_hakt_uebergaben_ab_wenn_automatik_aus(lst, monkeypatch):
     lst._takt()
 
     assert abgehakt and all(abgehakt)
+
+
+# --- Rollenprofile und Modellkataloge (v0.4.0) --------------------------------
+
+class _ThreadAttrappe:
+    """Fängt Fadenwünsche ab, ohne sie auszuführen – der Klick bleibt beweisbar im Klickfaden."""
+
+    def __init__(self, **kw):
+        kw["gestartet"] = False
+        self.kw = kw
+
+    def start(self):
+        self.kw["gestartet"] = True
+
+
+def _katalog_schreiben(provider, *eintraege, fehler=None, veraltet=False):
+    """Synthetischer Metadatencache – keine Prozesse, kein Netz."""
+    pfad = modelle.datei()
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        roh = json.loads(pfad.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {"version": 1, "anbieter": {}}
+    zeit = (datetime.now(timezone.utc) - timedelta(hours=25) if veraltet
+            else datetime.now(timezone.utc)).isoformat()
+    roh["anbieter"][provider] = {"zeit": zeit, "fehler": fehler,
+                                 "modelle": [{"id": kennung, "name": name} for kennung, name in eintraege]}
+    pfad.write_text(json.dumps(roh, ensure_ascii=False), encoding="utf-8")
+
+
+def _thema_vorbereiten(lst, *, master="kontingent", worker="workflow", modell=None, thema="engineering"):
+    paare.setzen(thema, THREAD, paare.laufend_bilden(thema), aktiv=True)
+    modi._speichern(modi.datei(), thema, modi.Profil(master, worker, modell))
+    lst.aktualisieren()
+
+
+def _gruppen(lst, thema):
+    return _eintrag(list(_eintrag(list(lst._menue()), "Arbeitsmodus je Thema").submenu.items),
+                    thema).submenu.items
+
+
+def _gruppe(lst, thema, name):
+    return _eintrag(list(_gruppen(lst, thema)), name).submenu.items
+
+
+@pytest.mark.parametrize("master", modi.MASTER_WERTE)
+def test_mastergruppe_hakt_genau_die_gewaehlte_rolle(lst, master):
+    _thema_vorbereiten(lst, master=master)
+    master_items = _gruppe(lst, "engineering", "Master")
+
+    assert [i.checked for i in master_items] == [wert == master for _, wert in anzeige.MASTER_AUSWAHL]
+
+
+@pytest.mark.parametrize("worker", modi.WORKER_WERTE)
+def test_ausfuehrergruppe_hakt_genau_die_gewaehlte_vorgabe(lst, worker):
+    modell = modi.HERMES_MODELL if worker == "hermes" else None
+    _thema_vorbereiten(lst, master="kontingent", worker=worker, modell=modell)
+    ausfuehrer = [i for i in _gruppe(lst, "engineering", "Ausführer") if i.enabled]
+
+    assert _texte(ausfuehrer) == ["Nach Workflow", "Claude Code", "Codex", "Hermes"]
+    assert [i.checked for i in ausfuehrer] == [wert == worker for _, wert in anzeige.WORKER_AUSWAHL]
+
+
+def test_ausfuehrergruppe_nennt_vorgabe_und_providerherkunft(lst):
+    _thema_vorbereiten(lst)
+    ausfuehrer = _gruppe(lst, "engineering", "Ausführer")
+    hinweise = [i.text for i in ausfuehrer if not i.enabled]
+
+    assert any("Ausführervorgabe" in text and "keine Sitzung" in text for text in hinweise)
+    assert any("ChatGPT-Abo" in text and "OpenRouter" in text for text in hinweise)
+
+
+def test_modellgruppe_workflow_zeigt_nur_den_deaktivierten_hinweis(lst):
+    _thema_vorbereiten(lst, worker="workflow")
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+
+    assert len(modell_items) == 1
+    assert modell_items[0].enabled is False and "Workflow" in modell_items[0].text
+
+
+def test_modellgruppe_hermes_genau_deepseek_mit_kostenhinweis(lst):
+    _thema_vorbereiten(lst, master="hermes", worker="hermes", modell=modi.HERMES_MODELL)
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+    wahl = [i for i in modell_items if i.enabled]
+
+    assert _texte(wahl) == ["DeepSeek V4.1 Flash"]
+    assert wahl[0].checked is True
+    assert any("kostenpflichtig" in i.text for i in modell_items if not i.enabled)
+
+
+def test_modellgruppe_dynamische_namen_und_gesetztes_haken(lst):
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-sol", "GPT-6 Sol"))
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-luna")
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+    wahl = [i for i in modell_items if i.enabled]
+
+    assert _texte(wahl) == ["GPT-6 Luna", "GPT-6 Sol"]
+    assert [i.checked for i in wahl] == [True, False]
+    assert any("ChatGPT-Abo" in i.text for i in modell_items if not i.enabled)
+
+
+def test_modellgruppe_fehlender_katalog_blockiert_nichts(lst):
+    _thema_vorbereiten(lst, worker="codex", modell=None)
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+
+    assert any("Modelle aktualisieren" in i.text for i in modell_items if not i.enabled)
+    standard = next(i for i in modell_items if i.text == anzeige.STANDARD_MODELL)
+    assert standard.enabled and standard.checked        # Defaultwahl bleibt bewusst verfügbar
+    assert any("Modellkatalog Codex:" in i.text for i in lst._menue())
+
+
+def test_modellgruppe_veralteter_katalog_nennt_hinweis_und_sperrt_neuauswahl(lst):
+    _katalog_schreiben("codex", ("gpt-6-alt", "GPT-6 Alt"), veraltet=True)
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-alt")
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+
+    assert any("veraltet" in i.text for i in modell_items if not i.enabled)
+    alt = next(i for i in modell_items if i.text == "GPT-6 Alt")
+    assert alt.enabled is False and alt.checked is True      # gespeicherte Auswahl bleibt sichtbar
+    assert not any(i.enabled and i.text != anzeige.STANDARD_MODELL for i in modell_items)
+
+
+def test_modellgruppe_fehlerkatalog_wird_benannt(lst):
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), fehler="Zeitüberschreitung")
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-luna")
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+
+    assert any("Zeitüberschreitung" in i.text for i in modell_items if not i.enabled)
+    assert not any(i.enabled and i.text == "GPT-6 Luna" for i in modell_items)
+    assert any("Modellkatalog Codex: Zeitüberschreitung" == i.text for i in lst._menue())
+
+
+def test_modellgruppe_alte_auswahl_nach_refresh_nicht_bestaetigt(lst):
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-sol", "GPT-6 Sol"))
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-alt")
+    modell_items = _gruppe(lst, "engineering", "Ausführermodell")
+
+    alt = next(i for i in modell_items if "gespeichert" in i.text)
+    assert alt.text == "gpt-6-alt (gespeichert, nicht bestätigt)"
+    assert alt.enabled is False and alt.checked is True      # nie still ersetzt
+    assert _texte([i for i in modell_items if i.enabled]) == ["GPT-6 Luna", "GPT-6 Sol"]
+
+
+def test_masterklick_speichert_im_hintergrund_und_meldet(lst, monkeypatch):
+    _thema_vorbereiten(lst)
+    master_items = _gruppe(lst, "engineering", "Master")
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+
+    _eintrag(list(master_items), "Hermes")(lst.icon)
+
+    assert threads and threads[0]["daemon"] is True          # nur der Faden wurde angefordert
+    assert modi.profil("engineering").master == "kontingent"  # im Klickfaden ist nichts passiert
+
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    _eintrag(list(master_items), "Hermes")(lst.icon)
+
+    assert modi.profil("engineering").master == "hermes"
+    assert lst.icon.meldungen[-1][1] == "engineering: Master Hermes gespeichert – keine Sitzung gestartet."
+
+
+def test_workerwechsel_per_menue_setzt_das_modell_auf_standard(lst, monkeypatch):
+    _katalog_schreiben("claude", ("opus", "Opus"))
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-luna")
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+
+    _eintrag(list(_gruppe(lst, "engineering", "Ausführer")), "Claude Code")(lst.icon)
+
+    profil = modi.profil("engineering")
+    assert (profil.master, profil.worker, profil.modell) == ("hermes", "claude", None)
+    assert lst.icon.meldungen[-1][1] == ("engineering: Ausführer Claude Code gespeichert – "
+                                         "Ausführermodell Standard des Werkzeugs · keine Sitzung gestartet.")
+
+
+def test_modellklick_speichert_das_gewaehlte_modell(lst, monkeypatch):
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-sol", "GPT-6 Sol"))
+    _thema_vorbereiten(lst, master="hermes", worker="codex", modell="gpt-6-luna")
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+
+    _eintrag(list(_gruppe(lst, "engineering", "Ausführermodell")), "GPT-6 Sol")(lst.icon)
+
+    assert modi.profil("engineering").modell == "gpt-6-sol"
+    assert lst.icon.meldungen[-1][1] == "engineering: Ausführermodell gpt-6-sol gespeichert – keine Sitzung gestartet."
+
+
+def test_modelle_aktualisieren_menuepunkt_ist_hintergrund_und_single_flight(lst, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(leiste.modelle, "alle_aktualisieren", lambda: aufrufe.append(True) or {})
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+
+    _eintrag(list(lst._menue()), anzeige.MODELLE_AKTUALISIEREN)(lst.icon)
+
+    assert threads and aufrufe == []                          # nichts im Menüfaden abgefragt
+
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    assert lst._modelle_sperre.acquire(blocking=False)
+    try:
+        lst._modelle_aktualisieren()                          # belegt → übersprungen
+    finally:
+        lst._modelle_sperre.release()
+    assert aufrufe == []
+    lst._modelle_aktualisieren()                              # frei → genau ein Abgleich
+    assert aufrufe == [True]
+
+
+def test_start_fordert_frischen_katalogabgleich_nur_bei_veraltetem_stand(lst, monkeypatch):
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+    _katalog_schreiben("claude", ("opus", "Opus"))
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"))
+
+    lst._start(lst.icon)
+    assert len(threads) == 1                                  # frisch: nur der Taktfaden
+
+    threads.clear()
+    lst._kataloge = None
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), veraltet=True)
+    lst._start(lst.icon)
+    assert len(threads) == 2 and all(kw["daemon"] is True for kw in threads)   # Takt + Katalogabgleich
+
+
+def test_modellabgleich_wird_gedrosselt_nicht_doppelt_angefordert(lst, monkeypatch):
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+    _katalog_schreiben("claude", ("opus", "Opus"), veraltet=True)
+    lst.aktualisieren()
+
+    lst._modellabgleich_pruefen()
+    lst._modellabgleich_pruefen()
+    lst._modelle_anfordern()                                  # Drossel greift auch hier
+
+    assert len(threads) == 1
+
+
+def test_takt_fordert_bei_veraltetem_katalog_einen_hintergrundabgleich(lst, monkeypatch):
+    class StopAttrappe:
+        def __init__(self):
+            self.n = 0
+
+        def is_set(self):
+            self.n += 1
+            return self.n > 2
+
+    class AnfrageAttrappe:
+        def wait(self, sekunden):
+            return False
+
+        def clear(self):
+            pass
+
+    _katalog_schreiben("claude", ("opus", "Opus"), veraltet=True)
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"))
+    lst.aktualisieren()
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    lst._stopp = StopAttrappe()
+    lst._messung_angefordert = AnfrageAttrappe()
+    lst._messung_fehler = None
+    lst._429_aktiv = False
+    lst._messung_intervall = 10 ** 9
+
+    lst._takt()
+
+    assert len(threads) == 1 and threads[0]["daemon"] is True

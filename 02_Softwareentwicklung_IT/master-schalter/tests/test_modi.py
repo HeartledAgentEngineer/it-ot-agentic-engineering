@@ -133,7 +133,9 @@ def test_aktivierung_nach_markenfehler_bleibt_geschuetzt_und_wiederholbar(
 def test_entwerten_fehler_laesst_eigene_zwischenmarke_stehen_und_profil_unveraendert(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Abbruch zwischen Zwischenmarke und Entwerten: Profil unberührt, Marke fail-closed, Wiederholung repariert."""
+    """Abbruch zwischen Zwischenmarke und Entwerten: Profil unberührt, eigene Zwischenmarke steht und
+    schützt fail-closed. Die Wiederholung nach diesem Abbruch führen die Aktivierungs- und
+    Absturztests anderweitig aus (u. a. test_absturz_nach_zwischenmarke_...)."""
     daten = tmp_path / "daten"
     daten.mkdir()
     monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(daten))

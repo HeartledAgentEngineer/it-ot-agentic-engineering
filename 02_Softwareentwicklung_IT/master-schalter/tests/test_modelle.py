@@ -748,10 +748,20 @@ def test_fehlgeschlagene_bereinigung_ist_sichtbarer_fehler(daten, tmp_path, monk
 @pytest.mark.skipif(os.name != "nt", reason="Windows-Bereinigung")
 def test_ungueltige_protokollantwort_bei_laufendem_prozess_bereinigt_baum(daten, tmp_path, monkeypatch):
     """Antwort besteht die Prüfung nicht, während der Prozess noch läuft: Kill-Pfad greift,
-    Fehler bleibt sichtbar, der alte Katalog bleibt unverändert."""
+    Fehler bleibt sichtbar, der alte Katalog bleibt unverändert.
+
+    Lastrobust/deterministisch: Die Zeitfenster sind absichtlich weit über jede normale Laufzeit
+    hinaus gesetzt (Abfragefrist 30 s, Kill-Wartezeit 20 s, Einsammelfrist 10 s), damit unter
+    Rechnerlast deterministisch genau der dokumentierte Ausgang „Antwort ungültig“ eintritt und
+    der Test nicht in das engere Standardfenster (5 s Bereinigung) läuft. Scharf bleiben: exakt
+    ein taskkill auf die eigene PID mit /T /F, das gestartete Kind ist danach tot, und der alte
+    Katalog samt Fehlerstatus bleibt unverändert.
+    """
     modelle.aktualisieren("claude", transport=_claude_transport(
         [{"value": "opus", "displayName": "Opus"}]), jetzt=JETZT)
 
+    monkeypatch.setattr(modelle, "BEREINIGUNG_SEKUNDEN", 20.0)
+    monkeypatch.setattr(modelle, "PIPE_SEKUNDEN", 10.0)
     pid_datei = tmp_path / "pid.txt"
     antwortet = _skript(tmp_path, "antwortet.py",
                         "import json, os, pathlib, sys, time\n"
@@ -783,7 +793,7 @@ def test_ungueltige_protokollantwort_bei_laufendem_prozess_bereinigt_baum(daten,
     def transport(liste, umgebung, eingabe, frist):
         return modelle.claude_transport([sys.executable, antwortet], dict(umgebung), eingabe, frist)
 
-    k = modelle.aktualisieren("claude", transport=transport, jetzt=JETZT, frist=10.0)
+    k = modelle.aktualisieren("claude", transport=transport, jetzt=JETZT, frist=30.0)
 
     assert k.fehler == "Antwort ungültig"
     assert [m.id for m in k.modelle] == ["opus"] and k.zeit == JETZT
@@ -794,7 +804,7 @@ def test_ungueltige_protokollantwort_bei_laufendem_prozess_bereinigt_baum(daten,
     eltern_pid, skript_pid = (int(t) for t in pid_datei.read_text(encoding="utf-8").split())
     gestartete_pid = eltern_pid if eltern_pid != os.getpid() else skript_pid
     assert gesehen == [["taskkill", "/PID", str(gestartete_pid), "/T", "/F"]]
-    assert _warte_tot(skript_pid) and (gestartete_pid == skript_pid or _warte_tot(gestartete_pid))
+    assert _warte_tot(skript_pid, 10.0) and (gestartete_pid == skript_pid or _warte_tot(gestartete_pid, 10.0))
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-Bereinigung")
