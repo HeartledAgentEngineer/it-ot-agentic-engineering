@@ -789,6 +789,18 @@ function zeigeBlaseMitText(div, contentDiv, text) {
     if (contentDiv && typeof text === 'string') contentDiv.textContent = text;
 }
 
+/** Trägt die Blase schon LESBAREN Text? (Befund Sebastian 16.10.2026)
+ *
+ *  Ein führender Zeilenumbruch oder ein Markdown-Rest wie „**" rendert nichts
+ *  Sichtbares. Wird die Antwort-Blase dann gezeigt, steht eine sichtbare, LEERE
+ *  Blase im Verlauf („darüber erscheint eine leere Blase" — während darunter die
+ *  „Denke nach…"-Bubble den Arbeitsschritt zeigt). Deshalb wird die Blase nur
+ *  gezeigt, wenn hier `true` herauskommt; sonst bleibt es unsichtbar.
+ */
+function blaseHatLesbarenText(contentDiv) {
+    return (((contentDiv && contentDiv.textContent) || '').trim()).length > 0;
+}
+
 /** Legt eine Nachrichtenblase an und gibt ihren Inhaltsbereich zurück,
  *  damit der Streaming-Weg sie nachträglich befüllen kann. */
 function addMessage(content, role, zeit, bildPfad, opts) {
@@ -2793,7 +2805,7 @@ function finishReply(contentDiv, entry, antwort, abschluss, vorleser) {
     // Fallback, Track C, Verlaufs-Nachladen). Bleibt sie leer, bleibt sie
     // verborgen — der Fortschritt steht in der unteren #loading-Bubble.
     const _blaseAussen = contentDiv.closest('.message') || contentDiv.parentElement;
-    if (_blaseAussen && (contentDiv.textContent || '').trim().length > 0) {
+    if (_blaseAussen && blaseHatLesbarenText(contentDiv)) {
         // Blase, Zeitstempel und aufgeschobene Datumspille gemeinsam zeigen —
         // eine Live-Blase startet verborgen (siehe zeigeBlaseMitText).
         zeigeBlaseMitText(_blaseAussen, null, null);
@@ -6638,7 +6650,10 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                     vorleser.neuerText();
                     // Erster echter Inhalt → die bis dahin unsichtbare Antwort-
                     // Blase einblenden (kein leerer Kasten direkt nach dem Senden).
-                    zeigeAntwortBlase();
+                    // NUR bei lesbarem Inhalt: ein führender Zeilenumbruch machte
+                    // die Blase sonst sichtbar und leer (Befund Sebastian
+                    // 16.10.2026: „darüber erscheint eine leere Blase").
+                    if (antwort.trim()) zeigeAntwortBlase();
                     // Nicht bei jedem Häppchen neu zeichnen – das Neuaufbauen
                     // der Blase würde auf dem Handy ruckeln. Der endgültige
                     // Aufbau passiert ohnehin in finishReply().
@@ -6652,6 +6667,9 @@ async function sendMessage(text, ausWarteschlange = false, blaseSchonGezeigt = f
                         letztesRendern = jetzt;
                         const untenGewesen = isAtBottom();
                         contentDiv.innerHTML = parseMarkdownPartial(antwort);
+                        // Markdown-Rest ohne sichtbaren Text (z. B. „**" oder ein
+                        // offener Code-Block) → Blase bleibt unsichtbar.
+                        if (blaseHatLesbarenText(contentDiv)) zeigeAntwortBlase();
                         if (untenGewesen) scrollToBottom(true);
                         ueberlaufPruefen(contentDiv, 'stream');
                     }
