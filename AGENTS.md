@@ -129,12 +129,13 @@ Taskleisten-Symbol).
 |---|---|---|---|
 | 1 Beide Abos frei (0 € extra) | Claude Opus 5.5 (Claude Pro) | GPT-6 Sol (ChatGPT Plus / Codex) | GPT-6 Luna / Claude Sonnet 5.5 (Abos) |
 | 2A Claude im Limit | GPT-6 Sol (ChatGPT Plus / Codex) | DeepSeek V4.1 Flash (OpenRouter) | GPT-6 Luna (ChatGPT Plus) |
-| 2B ChatGPT im Limit | Claude Opus 5.5 (Claude Pro) | GPT-6 Luna (OpenRouter) | Claude Sonnet 5.5 (Claude Pro) / DeepSeek V4.1 Flash (OpenRouter) |
-| 3 Beide im Limit | DeepSeek V4.1 Flash (OpenRouter/Hermes) | GPT-6 Luna (OpenRouter) | DeepSeek V4.1 Flash (OpenRouter) |
+| 2B ChatGPT im Limit | Claude Opus 5.5 (Claude Pro) | DeepSeek V4.1 Flash (OpenRouter) | Claude Sonnet 5.5 (Claude Pro) / DeepSeek V4.1 Flash (OpenRouter) |
+| 3 Beide im Limit | DeepSeek V4.1 Flash (OpenRouter/Hermes) | DeepSeek V4.1 Flash (OpenRouter) | DeepSeek V4.1 Flash (OpenRouter) |
 
 - **Thinker denkt, Worker arbeiten:** Umsetzung läuft über Subagenten bzw. Ausführer mit dem
   günstigeren Worker-Modell, nicht auf der höchsten Stufe. Der Thinker plant und nimmt ab.
-- **Reviewer ≠ Thinker-Modellfamilie** (in jeder Lage erfüllt). Keine Selbstfreigabe durch
+- **Reviewer ≠ Thinker-Modellfamilie** — gilt weiterhin als Regel, **abgewichen wird nur in Lage 3 (Stand 16.10.2026):** dort ist der Prüfer ebenfalls DeepSeek V4.1 Flash, seit GPT-6 Luna als Prüfer abgelöst wurde (Input-Preis 5x, Sebastians Ansage 16.10.). Ersatz durch frischen Kontext und Rollentrennung; ein schärferer externer Prüfer (z. B. V4 Pro) bleibt als Option offen.
+- Keine Selbstfreigabe durch
   den Ausführerlauf; Ausführer und Prüfer laufen in frischen Kontexten.
 - **Kosten:** Lagen 2A, 2B und 3 nutzen OpenRouter-API — das kostet echtes Geld; Kosten
   stehen im Prüfprotokoll.
