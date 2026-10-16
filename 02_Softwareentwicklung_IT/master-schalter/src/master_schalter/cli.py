@@ -22,7 +22,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, automatik, claude_messen, paare, rollen, signale, wechsel,
+from . import (__version__, anzeige, automatik, claude_messen, paare, rollen, rueckgabe, signale, wechsel,
                zustand)
 
 
@@ -146,6 +146,43 @@ def _automatik_pruefen(args: argparse.Namespace) -> int:
     return 0
 
 
+def _automatik_cli(args: argparse.Namespace) -> int:
+    anzeige.automatik_setzen(args.zustand == "an")
+    print(f"Automatik: {args.zustand}")
+    return 0
+
+
+def _rueckgabe_cli(args: argparse.Namespace) -> int:
+    if not args.ja:
+        try:
+            staende = rueckgabe.rueckgabe(themen=args.themen or None, hinweis=args.hinweis,
+                                          trocken=True, erneut=args.erneut)
+        except rueckgabe.RueckgabeFehler as fehler:
+            print(f"Rückgabe nicht möglich: {fehler}", file=sys.stderr)
+            return 1
+        for stand in staende:
+            print(f"{stand.thema}: {stand.status}" if stand.thema else stand.status)
+        print("Trockenlauf – nichts gesendet (mit --ja wird wirklich übergeben).")
+        return 0
+    erg = wechsel.wechseln("codex", args.hinweis)
+    if erg.art == "fehler":
+        print(f"Wechsel fehlgeschlagen: {erg.meldung}", file=sys.stderr)
+        return 1
+    if erg.art == "gewechselt":
+        print(f"Master jetzt Codex. Übergabepaket: {erg.paket}")
+    else:
+        print("Master ist schon Codex – kein Wechsel, kein Paket.")
+    try:
+        staende = rueckgabe.rueckgabe(themen=args.themen or None, hinweis=args.hinweis,
+                                      erneut=args.erneut)
+    except rueckgabe.RueckgabeFehler as fehler:
+        print(f"Rückgabe nicht möglich: {fehler}", file=sys.stderr)
+        return 1
+    for stand in staende:
+        print(f"{stand.thema}: {stand.status}" if stand.thema else stand.status)
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="masterwechsel", description="Befehlszeile des Master-Schalters")
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
@@ -174,6 +211,13 @@ def _parser() -> argparse.ArgumentParser:
     paktiv.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
+    auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
+    auto.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    rueck = unter.add_parser("rueckgabe", help="Themen an Codex zurückgeben (ohne --ja nur Trockenlauf)")
+    rueck.add_argument("themen", nargs="*", help="Themen (Standard: alle aktiven)")
+    rueck.add_argument("--ja", action="store_true", help="wirklich wechseln und die Übergaben senden")
+    rueck.add_argument("--erneut", action="store_true", help="auch senden, wenn bereits übergeben")
+    rueck.add_argument("--hinweis", default=None, help="kurzer Zusatz für die Übergabenachricht")
     return p
 
 
@@ -202,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
         return _paar_aktiv(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
+    if args.befehl == "automatik":
+        return _automatik_cli(args)
+    if args.befehl == "rueckgabe":
+        return _rueckgabe_cli(args)
     if args.befehl == "status":
         print(master_zeile())
     print("\n".join(anzeige.details(signale.alle_lesen())))

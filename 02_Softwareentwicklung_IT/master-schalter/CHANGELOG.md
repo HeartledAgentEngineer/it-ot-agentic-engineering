@@ -3,6 +3,32 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.3.2] – 2026-10-16
+
+### Neu
+- **Rückgabe an Codex** (`rueckgabe.py`, `dialog.py`): Bestätigungsdialog vor jedem Wechsel im Menü
+  (Standard **Nein**); nach bestätigtem Wechsel auf Codex erhält jedes aktive Paar eine
+  Übergabenachricht in seinen Codex-Chat (Verweis auf die laufende Übergabedatei, Grenzen-Kurzliste,
+  `ACK <Kennung>`-Bitte). CLI `rueckgabe [THEMA …] [--ja] [--erneut] [--hinweis]`; ohne `--ja` nur
+  Trockenlauf (schreibt und sendet nichts).
+- **Kennungen** `rueckgabe-<thema>-<yyyymmddHHMMSS>-<4Hex>` (fester Aufbau, präfixfrei — der
+  `ACK`-Vergleich bleibt eindeutig); `lauf_id` = Kennung; `--erneut` erzeugt immer eine frische Kennung.
+- **Kopfzeilen-Übernahme:** Nur der bestätigte manuelle Weg zieht die Kopfzeile auf `ja · jetzt · HEAD`
+  (die Nachricht nennt es); „nein"/fehlend/ungültig bleibt fail-closed und schreibfrei. Der Vorzustand
+  steht dauerhaft in der Reservierungszeile (`… vorzustand codex <alte-id>`); die Waisen-Auflösung
+  stellt ihn exakt wieder her (mit Tests) — ein spätes ACK bleibt möglich.
+- **Abbruch-/Fehlerregeln:** Jeder Abbruch nach der Reservierung und vor dem Transportstart stellt den
+  Vorzustand exakt wieder her (nie eine Waise); Fehler nach Prozessstart bleiben `unklar`, die
+  Codex-Besitzmarke steht dann weiter. Eine aktive fremde Reservierung wird nie übernommen.
+- **Startfestigkeit:** abgekoppelter Starter `leiste_starten.cmd` mit Doppelstart-Schutz und Protokoll,
+  Messfehler mit Zeitstempel in `leiste.log`, Autostart-Verknüpfung (siehe README „Start und Autostart").
+
+### Geändert
+- **Menü aufgeräumt:** „Automatik Claude → Codex"-Haken entfällt (Modul bleibt, schaltbar per
+  `masterwechsel automatik an|aus`); „Jetzt prüfen" ging in „Aktualisieren" auf (frisch messen,
+  Zustände lesen und offene Übergaben abhaken — auch bei ausgeschalteter Automatik).
+- Version 0.3.2 (`__init__.py`, `pyproject.toml`).
+
 ## [0.3.0] – 2026-10-15
 
 ### Neu

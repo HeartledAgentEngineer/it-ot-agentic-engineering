@@ -1,10 +1,11 @@
 """Tests für die Befehlszeile `masterwechsel`."""
 import io
 import json
+from pathlib import Path
 
 import pytest
 
-from master_schalter import cli, signale
+from master_schalter import anzeige, automatik, cli, signale
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.3.0" in capsys.readouterr().out
+    assert "0.3.2" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
@@ -162,3 +163,40 @@ def test_automatik_pruefen_meldet_fehler_statt_abzustuerzen(daten, capsys, monke
     aus = capsys.readouterr()
     assert "Automatikprüfung fehlgeschlagen" in aus.err
     assert "Traceback" not in aus.out + aus.err
+
+
+def test_rueckgabe_ohne_ja_trockenlauf_ohne_wechsel(daten, monkeypatch, capsys):
+    gerufen = {}
+
+    def fake(trocken=False, **kw):
+        gerufen["trocken"] = trocken
+        return [automatik.Stand("engineering", "Trockenlauf: würde senden")]
+
+    monkeypatch.setattr(cli.rueckgabe, "rueckgabe", fake)
+    wechsel_aufrufe = []
+    monkeypatch.setattr(cli.wechsel, "wechseln", lambda *a, **k: wechsel_aufrufe.append(a))
+    assert cli.main(["rueckgabe"]) == 0
+    aus = capsys.readouterr().out
+    assert gerufen.get("trocken") is True and wechsel_aufrufe == []
+    assert "Trockenlauf" in aus
+
+
+def test_rueckgabe_mit_ja_wechselt_und_sendet(daten, monkeypatch, capsys):
+    class E:
+        art, master, paket, meldung = "gewechselt", "codex", Path("paket.md"), ""
+
+    monkeypatch.setattr(cli.wechsel, "wechseln", lambda *a, **k: E())
+    gerufen = []
+    monkeypatch.setattr(cli.rueckgabe, "rueckgabe",
+                        lambda **k: gerufen.append(k) or [automatik.Stand("engineering", "gesendet")])
+    assert cli.main(["rueckgabe", "--ja", "engineering"]) == 0
+    assert gerufen and gerufen[0]["themen"] == ["engineering"]
+    assert "gesendet" in capsys.readouterr().out
+
+
+def test_automatik_an_aus_cli(daten, capsys):
+    assert cli.main(["automatik", "an"]) == 0
+    assert anzeige.automatik_an() is True
+    assert cli.main(["automatik", "aus"]) == 0
+    assert anzeige.automatik_an() is False
+    assert "an" in capsys.readouterr().out

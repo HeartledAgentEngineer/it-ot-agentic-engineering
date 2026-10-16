@@ -1,4 +1,5 @@
 """Tests für die Taskleisten-Oberfläche – ohne Fenster: Menüeinträge prüfen, Klicks per Attrappe auslösen."""
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -39,6 +40,9 @@ class _Icon:
 @pytest.fixture
 def lst(tmp_path, monkeypatch):
     monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path / "daten"))
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.setenv("MASTER_SCHALTER_REPO", str(repo))
     monkeypatch.setattr(signale, "alle_lesen",
                         lambda jetzt=None: [_kontingent("Claude", 62, 80), _kontingent("Codex", 1, 32)])
     monkeypatch.setattr(leiste.pystray, "Icon", lambda *args, **kwargs: _Icon())
@@ -91,6 +95,9 @@ def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkey
         return wechsel.Ergebnis("gewechselt", nach, paket, "")
 
     monkeypatch.setattr(wechsel, "wechseln", attrappe)
+    monkeypatch.setattr(leiste.rueckgabe, "rueckgabe", lambda **k: [])
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._dialog = lambda titel, text: True
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
     _eintrag(sub, "Codex")(lst.icon)   # MenuItem.__call__ führt die Aktion aus
@@ -110,6 +117,7 @@ def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
         return wechsel.Ergebnis("gewechselt", nach, paket, "")
 
     monkeypatch.setattr(wechsel, "wechseln", attrappe)
+    lst._dialog = lambda titel, text: True
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
     _eintrag(sub, "Hermes")(lst.icon)
@@ -124,6 +132,7 @@ def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatc
         raise RuntimeError("unerwartet")
 
     monkeypatch.setattr(wechsel, "wechseln", kaputt)
+    lst._dialog = lambda titel, text: True
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
     _eintrag(sub, "Claude")(lst.icon)
@@ -319,22 +328,112 @@ def test_429_pause_wird_durch_manuelles_aktualisieren_nicht_umgangen(lst, monkey
 THREAD = "01a12557-3bb3-7171-a021-53e6ac879534"
 
 
-def test_menue_enthaelt_die_automatik_eintraege(lst):
+def test_menue_ohne_automatik_haken_und_jetzt_pruefen(lst):
+    """v0.3.2: der Automatik-Haken entfällt; „Jetzt prüfen" ging in „Aktualisieren" auf."""
     lst.aktualisieren()
     texte = _texte(lst._menue())
-    assert "Automatik Claude → Codex" in texte
+    assert "Automatik Claude → Codex" not in texte
+    assert "Jetzt prüfen" not in texte
     assert "Chats übergeben" in texte
-    assert "Jetzt prüfen" in texte
+    assert "Aktualisieren" in texte
 
 
-def test_automatik_haken_folgt_der_einstellung(lst):
-    eintrag = _eintrag(list(lst._menue()), "Automatik Claude → Codex")
-    assert eintrag.checked is False
+class _Sofort:
+    """Attrappe statt echtem Faden: führt das Ziel beim Start sofort aus."""
 
-    eintrag(lst.icon)
+    def __init__(self, target=None, daemon=None):
+        self._ziel = target
 
-    assert anzeige.automatik_an() is True
-    assert _eintrag(list(lst._menue()), "Automatik Claude → Codex").checked is True
+    def start(self):
+        self._ziel()
+
+    def is_alive(self):
+        return False
+
+
+def test_wechsel_fragt_und_bricht_bei_nein_ab(lst, monkeypatch):
+    gerufen = []
+    monkeypatch.setattr(leiste.wechsel, "wechseln", lambda *a, **k: gerufen.append(a))
+    lst._dialog = lambda titel, text: False
+    lst._wechseln("codex")
+    assert gerufen == [] and lst.icon.meldungen == []
+
+
+def test_wechsel_ja_wechselt_und_stoesst_die_rueckgabe_an(lst, monkeypatch):
+    class E:
+        art, master, paket, meldung = "gewechselt", "codex", None, ""
+
+    monkeypatch.setattr(leiste.wechsel, "wechseln", lambda *a, **k: E())
+    gerufen = []
+    monkeypatch.setattr(leiste.rueckgabe, "rueckgabe", lambda **k: gerufen.append(True) or [])
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._dialog = lambda titel, text: True
+    lst._wechseln("codex")
+    assert gerufen == [True]
+    assert len(lst.icon.meldungen) == 1
+
+
+def test_wechsel_bei_gleich_keine_rueckgabe(lst, monkeypatch):
+    class E:
+        art, master, paket, meldung = "gleich", "codex", None, ""
+
+    monkeypatch.setattr(leiste.wechsel, "wechseln", lambda *a, **k: E())
+    gerufen = []
+    monkeypatch.setattr(leiste.rueckgabe, "rueckgabe", lambda **k: gerufen.append(True) or [])
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._dialog = lambda titel, text: True
+    lst._wechseln("codex")
+    assert gerufen == []
+
+
+def test_wechsel_text_nennt_die_themen(lst):
+    paare.setzen("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", aktiv=True)
+    text = lst._wechsel_text("codex")
+    assert "engineering" in text and "Übergabenachricht" in text and "ACK" in text
+    assert "Kopfzeile" in text        # Kopfzeilen-Zustand je Thema (hier: fehlt)
+    assert "bereits Master" in text and "passiert nichts weiter" in text
+    assert "--erneut" in text          # Zusage bei „schon Codex" wörtlich abgesichert
+
+
+def test_kopfzeilen_zustand_liest_bereit_nein_und_head(lst, monkeypatch):
+    import os
+    repo = Path(os.environ["MASTER_SCHALTER_REPO"])
+    datei = repo / ".hermes" / "uebergabe" / "laufend" / "engineering.md"
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    paar = paare.Paar("engineering", THREAD, ".hermes/uebergabe/laufend/engineering.md", True)
+    monkeypatch.setattr(leiste.automatik, "kopf_hash",
+                        lambda repo, git=None: "abcdef1234567890")
+    datei.write_text(
+        f"Übergabebereit: ja · {datetime.now(timezone.utc).isoformat()} · abcdef1\n",
+        encoding="utf-8")
+    assert lst._kopfzeilen_zustand(paar) == "bereit"
+    datei.write_text(
+        f"Übergabebereit: ja · {datetime.now(timezone.utc).isoformat()} · 9999999999\n",
+        encoding="utf-8")
+    assert lst._kopfzeilen_zustand(paar) == "Stand veraltet – wird beim Senden gezogen"
+    datei.write_text("Übergabebereit: nein · 2026-10-16T04:00:00+00:00 · abcdef1\n",
+                     encoding="utf-8")
+    assert lst._kopfzeilen_zustand(paar) == "steht auf nein"
+
+
+def test_messfehler_werden_mit_zeitstempel_protokolliert(lst, monkeypatch, capsys):
+    def kaputt(**kw):
+        raise RuntimeError("kaputt")
+
+    monkeypatch.setattr(leiste.claude_messen, "messen", kaputt)
+    lst._messung_ausfuehren()
+    fehler = capsys.readouterr().err
+    assert "Claude-Messung konnte nicht gelesen werden" in fehler
+    assert re.search(r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\]", fehler)
+
+
+def test_aktualisieren_hakt_uebergaben_ab(lst, monkeypatch):
+    gerufen = []
+    monkeypatch.setattr(leiste.automatik, "bestaetigungen_pruefen",
+                        lambda **k: gerufen.append(True) or [])
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._aktualisieren_aktion()
+    assert gerufen == [True]
 
 
 def test_chat_untermenue_zeigt_je_paar_status_und_haken(lst):
@@ -431,6 +530,7 @@ def test_takt_prueft_die_automatik_nach_erfolgreicher_messung(lst, monkeypatch):
             pass
 
     angefragt = []
+    anzeige.automatik_setzen(True)
     monkeypatch.setattr(lst, "aktualisieren", lambda: None)
     monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
     monkeypatch.setattr(lst, "_automatik_anfordern", lambda: angefragt.append(True))
@@ -443,3 +543,36 @@ def test_takt_prueft_die_automatik_nach_erfolgreicher_messung(lst, monkeypatch):
     lst._takt()
 
     assert angefragt and all(angefragt)
+
+
+def test_takt_hakt_uebergaben_ab_wenn_automatik_aus(lst, monkeypatch):
+    """v0.3.2: ohne Automatik läuft nach der Messung nur die Bestätigungsprüfung."""
+    class StopAttrappe:
+        def __init__(self):
+            self.n = 0
+
+        def is_set(self):
+            self.n += 1
+            return self.n > 2
+
+    class AnfrageAttrappe:
+        def wait(self, sekunden):
+            return False
+
+        def clear(self):
+            pass
+
+    abgehakt = []
+    anzeige.automatik_setzen(False)
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    monkeypatch.setattr(lst, "_bestaetigung_anfordern", lambda: abgehakt.append(True))
+    lst._stopp = StopAttrappe()
+    lst._messung_angefordert = AnfrageAttrappe()
+    lst._messung_fehler = None
+    lst._429_aktiv = False
+    lst._messung_intervall = -1
+
+    lst._takt()
+
+    assert abgehakt and all(abgehakt)

@@ -254,7 +254,12 @@ def _reservierung_aufloesen(master: Path, jetzt: datetime) -> str:
                  for v in vorgaenge.lesen())
     if dauert:
         return text   # möglicher Versand: nie automatisch freigeben
-    neu = besitz.zeile(besitz.CLAUDE, jetzt.isoformat(), "wiederaufnahme", alte)
+    # v0.3.2: Vorzustand aus der Reservierungszeile (`… vorzustand codex <alte-id>`) exakt
+    # wiederherstellen; ohne Zusatz gilt das Bestandsverhalten (claude … wiederaufnahme).
+    if "vorzustand" in teile:
+        neu = " ".join(teile[teile.index("vorzustand") + 1:])   # wörtlicher Vorzustand
+    else:
+        neu = besitz.zeile(besitz.CLAUDE, jetzt.isoformat(), "wiederaufnahme", alte)
     besitz.vergleiche_und_schreibe(master, text, neu)
     return besitz.lesen(master)
 

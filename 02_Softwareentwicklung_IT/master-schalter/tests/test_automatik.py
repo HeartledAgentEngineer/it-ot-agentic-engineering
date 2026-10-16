@@ -364,6 +364,27 @@ def test_reservierungsaufloesung_ist_ein_vergleich_und_setzen(umgebung):
     assert automatik._reservierung_aufloesen(master, JETZT) == "codex fremd@1 2026-10-15T11:00:00+00:00"
 
 
+def test_reservierungsaufloesung_mit_vorzustand_codex_stellt_exakt_her(umgebung):
+    """v0.3.2: `… vorzustand codex <alte-id>` wird exakt wiederhergestellt (spätes ACK bleibt möglich)."""
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, ".hermes/uebergabe/laufend/engineering.md")
+    besitz.schreiben(master,
+                     f"reserviert rueckgabe-engineering-20261016040000-ab12 {JETZT.isoformat()} "
+                     "vorzustand codex alt@1 2026-10-15T10:00:00+00:00")
+
+    assert automatik._reservierung_aufloesen(master, JETZT) == "codex alt@1 2026-10-15T10:00:00+00:00"
+
+
+def test_reservierungsaufloesung_mit_vorzustand_claude_bleibt_wiederaufnahme(umgebung):
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, ".hermes/uebergabe/laufend/engineering.md")
+    besitz.schreiben(master,
+                     f"reserviert rueckgabe-engineering-20261016040000-ab12 {JETZT.isoformat()} "
+                     "vorzustand claude 2026-10-15T09:00:00+00:00")
+
+    assert automatik._reservierung_aufloesen(master, JETZT) == "claude 2026-10-15T09:00:00+00:00"
+
+
 def test_reservierung_mit_vorhandenem_vorgang_wird_nicht_freigegeben(umgebung, transport):
     aufrufe = transport(0)
     _laufend(umgebung)

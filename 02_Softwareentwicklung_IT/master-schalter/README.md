@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.3.0** — Automatische Übergabe Claude → Codex für eingeschaltete Paare (die Automatik ist standardmäßig aus).
+Stand: **v0.3.2** — Rückgabe an Codex (manuell, mit Bestätigungsdialog), aufgeräumtes Menü; die Automatik bleibt als Modul, ist aber nicht mehr im Menü (schaltbar per CLI).
 
 ## Bedienung
 
@@ -13,25 +13,28 @@ Stand: **v0.3.0** — Automatische Übergabe Claude → Codex für eingeschaltet
 |---|---|
 | Mauszeiger auf das Symbol | eine Zeile mit Master, Lage und Kontingenten |
 | Linksklick | Windows-Benachrichtigung mit beiden Mastern und Stand-Zeit |
-| Rechtsklick | Menü mit Master, Lage, Besetzung, Wechsel, Schwelle, Automatik, Übergabe-Chats, Kontingenten, Aktualisieren und Beenden |
+| Rechtsklick | Menü mit Master, Lage, Besetzung, „Master wechseln" (mit Rückfrage), Wechsel-Schwelle, „Chats übergeben", Aktualisieren und Beenden |
 
 Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe zeigt den
 5-Stunden-Verbrauch: Grundfarbe bis 79 %, gelb ab 80 %, rot ab der Schwelle (Standard 97 %).
 Die Anzeige wird standardmäßig jede Minute aktualisiert. Die Claude-Messung läuft beim
-Start, nach „Aktualisieren" und anschließend im eingestellten Takt.
+Start, nach „Aktualisieren" und anschließend im eingestellten Takt; dabei werden offene Übergaben
+abgehakt (auch wenn die Automatik aus ist).
 
 Im Menü „Master wechseln" kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
-Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Der Wechsel legt
-ein Markdown-Paket unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Der neue
-Master liest es, wenn Sebastian ihn darauf hinweist. v0.2 startet keinen Chat und schreibt
-in keinen Chat. Die Schwelle lässt sich im Menü „Wechsel-Schwelle" auf 80, 90, 95, 97
-oder 100 % setzen. Sie steuert die Lage und die rote Anzeige; automatisch gewechselt
-wird nur, wenn die Automatik ausdrücklich eingeschaltet ist (siehe unten).
+Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Jeder Wechsel
+fragt vorher nach (Ja/Nein, Standard **Nein**); beim Ziel **Codex** werden danach zusätzlich alle aktiven
+Themen an ihre Codex-Chats zurückgegeben (siehe „Rückgabe an Codex"). Der Wechsel legt ein Markdown-Paket
+unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Die Schwelle lässt sich im Menü „Wechsel-Schwelle"
+auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unbemannte Automatik
+(Claude im Limit → Übergabe) läuft nur, wenn sie ausdrücklich eingeschaltet ist — per
+`masterwechsel automatik an` (der frühere Menühaken ist in v0.3.2 entfallen).
 
 ## Automatische Übergabe Claude → Codex (v0.3.0)
 
 Die Automatik ist **standardmäßig aus** (`einstellungen.json`, Feld `automatik`). Eingeschaltet
-wird sie im Menüpunkt „Automatik Claude → Codex" (Häkchen) oder in der Datei selbst. Sie greift
+wird sie per `masterwechsel automatik an` (bis v0.3.0 ein Menühaken; in v0.3.2 entfallen, weil die
+Rückgabe das Bedürfnis abdeckt) oder in der Datei selbst. Sie greift
 nur für **eingeschaltete Paare** und nur, wenn Claude im Limit **und** Codex frisch gemessen frei
 ist.
 
@@ -101,6 +104,36 @@ Kennung und Zahlen, keinen Dateiinhalt.
 .\.venv\Scripts\\masterwechsel.exe automatik-pruefen --trocken
 ```
 
+## Rückgabe an Codex (v0.3.2)
+
+Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell und bestätigt:
+
+- **Im Menü:** „Master wechseln" → Codex → Bestätigungsdialog (nennt die aktiven Themen; Standard
+  Nein). Nach dem Ja wechselt der Master und jedes aktive Thema bekommt eine Übergabenachricht in
+  seinen Codex-Chat (Verweis auf die laufende Übergabedatei, Grenzen-Kurzliste, `ACK`-Bitte).
+- **Per CLI:** `masterwechsel rueckgabe` zeigt ohne `--ja` nur, was passieren würde (Trockenlauf);
+  mit `--ja` wird gewechselt und gesendet; `--erneut` erzwingt einen neuen Versand, auch wenn
+  bereits übergeben wurde.
+- **Regeln je Thema (fail-closed):** „Übergabebereit: nein" oder fehlende/ungültige Kopfzeile →
+  nichts wird geschrieben oder gesendet. Bei „ja" wird die Kopfzeile beim bestätigten Senden auf
+  den aktuellen HEAD und die aktuelle Zeit gezogen (die Nachricht nennt es); die strenge Prüfung
+  der Automatik bleibt unverändert.
+- **Besitz und ACK:** Die Reservierungszeile merkt den Vorzustand dauerhaft; jeder Abbruch vor dem
+  Transportstart stellt ihn exakt wieder her (nie bleibt eine Waise). Eine aktive fremde
+  Reservierung wird nie übernommen. Nach dem Versand zeigt das Menü „gesendet"; der Codex-Chat
+  bestätigt mit `ACK <Kennung>`; „Aktualisieren" (und jede Messung) hakt das ab → „bestätigt".
+
+## Start und Autostart (Taskleiste)
+
+- Start ohne Konsole: `.venv\Scripts\pythonw.exe -m master_schalter.leiste`
+- Abgekoppelter Starter (empfohlen; überlebt Terminal-Sitzungen, mit Protokoll und
+  Doppelstart-Schutz): `%USERPROFILE%\.master-schalter\leiste_starten.cmd`.
+  Protokolle: `leiste.log` (Fehler, u. a. Messfehler mit Zeitstempel) und `leiste-ausgabe.log`.
+- Autostart: Verknüpfung im Startmenü-Startup-Ordner (`Master-Schalter-Leiste.lnk`) startet genau
+  eine Leiste bei jeder Anmeldung.
+- Nach tiefem Energiesparen kann das Taskleisten-Symbol verschwinden — Doppelklick auf den Starter
+  genügt; die Erholung per Aufwach-Aufgabe ist als nächster Schritt vorgesehen.
+
 ## Woher die Zahlen kommen
 
 Codex wird aus lokalen Sitzungsdateien gelesen. Claude wird über den OAuth-Usage-Endpunkt
@@ -158,7 +191,7 @@ Das Programm bringt dafür kein eigenes Autostart-Menü und kein Einrichtungs-Sk
 die Verknüpfung wird von Windows ausgeführt. Die auf diesem Rechner eingerichtete
 Benutzer-Verknüpfung benötigt keine Administratorrechte.
 
-v0.3.0 ergänzt die automatische Übergabe; die Automatik bleibt standardmäßig aus, bis sie im Menü eingeschaltet wird.
+v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmäßig aus, bis sie per `masterwechsel automatik an` eingeschaltet wird (der frühere Menühaken ist in v0.3.2 entfallen).
 
 ## Benutzen
 
@@ -234,6 +267,8 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
+| **v0.3.2** | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
+| v0.3.3 | Prioritäten-Regel (Claude → Codex → Hermes) mit Rückfrage, wenn ein höherwertiger Master frei wird |
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
 | v0.1.0 | Kontingent-Anzeige beider Master |
 | **v0.3.0** | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans) — **dieser Stand**. Standardmäßig aus. |
