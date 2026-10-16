@@ -2931,3 +2931,24 @@ body.anmelden-offen { overflow: hidden; }
 .anmelden-meldung { min-height: 1.2em; margin: 4px 0 0; color: var(--error); font-size: 0.9rem; }
 .anmelden-hinweis { margin: 0; color: var(--warning); line-height: 1.5; }
 @keyframes anmelden-ein { from { opacity: 0; } to { opacity: 1; } }
+
+/* =========================================================================
+   Kachelgroesse in breiten Ansichten (S3, 16.10.2026) — Befund Sebastian:
+   „Fuer Tablet oder PC sind die Kacheln viel, viel zu gross." Das
+   Gruppenblatt liegt NICHT in #app (max-width: 800px) und fuellt das Fenster;
+   mit vier festen Spalten waren die Gesichts-Kacheln bei 1400 px rund 337 px
+   breit (im echten Browser gemessen), bei 380 px 82,5 px.
+   Ab 1000 px Fensterbreite daher ein Raster mit fester Mindestbreite statt
+   fester Spaltenzahl: mehr Spalten, kleinere Kacheln (gemessen 8 Spalten zu
+   165,75 px bei 1400 px, 6 zu 156,33 px bei 1000 px).
+   Unter 1000 px — Handy (380 px) und Tablet (768 px) — bleibt alles wie
+   bisher: vier Spalten, gleiche Kachelbreite. Der Block steht bewusst am
+   Dateiende, weil .gruppen-alle-raster weiter oben vier Spalten setzt und
+   hier ueberschrieben werden muss.
+   ========================================================================= */
+@media (min-width: 1000px) {
+    .gruppen-kacheln,
+    .gruppen-alle-raster {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+}
