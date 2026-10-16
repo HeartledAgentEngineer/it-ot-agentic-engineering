@@ -10,7 +10,8 @@ vorhandene Kennung (egal in welcher Phase) wird nie erneut gesendet.
 1. Kopfzeile der laufenden Übergabe prüfen (`Übergabebereit: ja`, Zeit ≤ 2 h, HEAD-Kurzform als
    exakter Präfix der aktuellen HEAD). Sonst kein Vorgang, Status „wartet auf Übergabepunkt".
 2. Eine verwaiste eigene Reservierung (`reserviert <lauf-id> <Zeit>`, zu der **kein** dauerhafter
-   Vorgang existiert) wird zurückgesetzt – der Vorgänger war vor dem Versand beendet.
+   Vorgang existiert) wird zurückgesetzt – der Vorgänger war vor dem Versand beendet. Eine eigene
+   Modus-Zwischenmarke (`reserviert modus <thema> <ziel> <Zeit>`) wird niemals so gedeutet.
 3. Reservieren (`reserviert <lauf-id> <Zeit>`), 30 s warten, **danach** Kopfzeile erneut lesen:
    nur wenn weiterhin `ja`, HEAD passend und der Kopfzeilen-Zeitstempel **älter als die
    Reservierung** ist, wird gesendet. Sonst zurück auf `claude <Zeit>`, kein Vorgang.
@@ -28,6 +29,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
+from collections.abc import Mapping
 
 from . import ack, anzeige, besitz, codex_senden, modi, paare, rollen, signale, uebergabe, vorgaenge, zustand
 from .auftrag import Auftrag
@@ -178,7 +180,8 @@ def _warum_nichts(messung: Messung, schwelle: int, jetzt: datetime) -> str:
 
 def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an: bool,
              vorgangsliste: list[vorgaenge.Vorgang], jetzt: datetime,
-             lauf_id: str = "", modus_mapping: dict[str, str] | None = None) -> list[Auftrag]:
+             lauf_id: str = "",
+             modus_mapping: Mapping[str, modi.Profil | str] | None = None) -> list[Auftrag]:
     """Reine Entscheidung: welche Paare jetzt übergeben werden (je Paar und Fenster höchstens einer)."""
     if not an:
         return []
@@ -196,7 +199,9 @@ def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an:
     modus_mapping = modus_mapping or {}
     auftraege: list[Auftrag] = []
     for paar in paare_liste:
-        if not paar.aktiv or modus_mapping.get(paar.thema, modi.KONTINGENT) == modi.HERMES_CODEX:
+        # Jede feste Masterrolle bleibt ausgenommen – die Workerauswahl ändert daran nichts.
+        if (not paar.aktiv
+                or modi.als_profil(modus_mapping.get(paar.thema, modi.KONTINGENT)).master != modi.KONTINGENT):
             continue
         kennung = f"{paar.thema}@{int(ausloeser.reset.timestamp())}"
         if kennung in bekannt:
@@ -251,9 +256,21 @@ def _neue_lauf_id() -> str:
     return uuid.uuid4().hex
 
 
-def _reservierung_aufloesen(master: Path, jetzt: datetime) -> str:
-    """Eine verwaiste eigene Reservierung freigeben, wenn für ihre Lauf-ID kein Vorgang existiert."""
+def _thema_aus_master(master: Path) -> str:
+    """Thema aus dem Dateinamen `<thema>.master`; sonst leer (nie ein gültiges Thema)."""
+    name = master.name
+    return name[: -len(".master")] if name.endswith(".master") else ""
+
+
+def _reservierung_aufloesen(master: Path, jetzt: datetime, thema: str | None = None) -> str:
+    """Eine verwaiste eigene Reservierung freigeben, wenn für ihre Lauf-ID kein Vorgang existiert.
+
+    Eine eigene Modus-Zwischenmarke (`reserviert modus …`) bleibt **unangetastet**: sie ist keine
+    Übergabe-Reservierung und wird hier nie wiederaufgenommen (F2 Punkt 2).
+    """
     text = besitz.lesen(master)
+    if modi.ist_zwischenmarke(text, thema if thema is not None else _thema_aus_master(master)):
+        return text
     teile = text.split()
     if not teile or teile[0] != besitz.RESERVIERT or len(teile) < 2:
         return text
@@ -290,16 +307,17 @@ def _ein_thema(auftrag: Auftrag, *, repo: Path, jetzt: datetime, warte: Callable
             return Stand(auftrag.thema, "übersprungen – Sperre belegt")
 
         try:
-            if modi.geschuetzt(auftrag.thema, repo=repo, laufend=auftrag.laufend):
-                return Stand(auftrag.thema, "Hermes führt – Codex nur Ausführer")
+            fuehrt = modi.fuehrt(auftrag.thema, repo=repo, laufend=auftrag.laufend)
         except modi.ModusFehler as fehler:
             return Stand(auftrag.thema, f"Modusstatus fehlerhaft – kein Versand ({fehler})")
+        if fuehrt is not None:
+            return Stand(auftrag.thema, f"{fuehrt} führt – Codex nur Ausführer")
 
         bereit, status = uebergabepunkt(laufend_datei, head_lesen(), jetzt)
         if not bereit:
             return Stand(auftrag.thema, status)
 
-        text = _reservierung_aufloesen(master, jetzt)
+        text = _reservierung_aufloesen(master, jetzt, thema=auftrag.thema)
         if besitz.besitzer(text) == besitz.RESERVIERT:
             return Stand(auftrag.thema, STATUS_RESERVIERT)
         if besitz.besitzer(text) != besitz.CLAUDE:
@@ -341,7 +359,7 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
          messung: Messung | None = None, schwelle: int | None = None, an: bool | None = None,
          vorgangsliste: list[vorgaenge.Vorgang] | None = None, lauf_id: str = "",
          frist: float = zustand.FRIST_SEKUNDEN,
-         modus_mapping: dict[str, str] | None = None) -> list[Stand]:
+         modus_mapping: Mapping[str, modi.Profil | str] | None = None) -> list[Stand]:
     """Einen Automatiklauf ausführen (oder trocken nur zeigen) und je Thema einen Stand zurückgeben.
 
     `head` darf ein fester Wert oder eine Funktion sein; als Funktion wird der HEAD **vor der
@@ -405,11 +423,12 @@ def bestaetigungen_pruefen(jetzt: datetime | None = None, *, ordner: Path | None
         if paar is None:
             continue
         try:
-            if modi.geschuetzt(v.thema, repo=repo, laufend=paar.laufend):
-                ergebnisse.append(Stand(v.thema, "Hermes führt – später ACK ignoriert", "entwertet"))
-                continue
+            fuehrt = modi.fuehrt(v.thema, repo=repo, laufend=paar.laufend)
         except modi.ModusFehler as fehler:
             ergebnisse.append(Stand(v.thema, f"Modusstatus fehlerhaft – ACK ignoriert ({fehler})", "fehler"))
+            continue
+        if fuehrt is not None:
+            ergebnisse.append(Stand(v.thema, f"{fuehrt} führt – später ACK ignoriert", "entwertet"))
             continue
         seit = signale._iso(v.zeit)
         if seit is None or not ack.pruefen(v.id, paar.codex_thread, seit, ordner):
