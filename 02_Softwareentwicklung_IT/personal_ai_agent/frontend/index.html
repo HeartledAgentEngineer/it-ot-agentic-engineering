@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261016B">
+    <link rel="stylesheet" href="style.css?v=20261016C">
 </head>
 <body>
     <div id="app">
@@ -376,9 +376,13 @@
                 </section>
                 <!-- Benannt: Liste der Personen (eine Person = alle Vorschläge mit demselben Namen). -->
                 <section id="gruppen-benannt-ansicht" class="gruppen-benannt-ansicht" hidden>
-                    <div class="gruppen-eingabe">
+                    <div class="gruppen-eingabe gruppen-benannt-filter-zeile">
                         <input id="gruppen-benannt-filter" type="search" maxlength="60" autocomplete="off"
                                placeholder="Person suchen …" aria-label="Benannte Person suchen">
+                        <select id="gruppen-benannt-gruppe" aria-label="Nach einer Gesichtsgruppe filtern">
+                            <option value="">Alle Gruppen</option>
+                        </select>
+                        <button id="gruppen-benannt-filter-zuruecksetzen" class="gruppen-knopf" type="button">Filter zurücksetzen</button>
                     </div>
                     <p id="gruppen-benannt-info" class="gruppen-meta"></p>
                     <div id="gruppen-benannt-liste" class="gruppen-benannt-liste" role="list"></div>
@@ -626,7 +630,7 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261016D"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
-    <script src="gruppen_quiz.js?v=20261016A"></script>
+    <script src="gruppen_quiz.js?v=20261016B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

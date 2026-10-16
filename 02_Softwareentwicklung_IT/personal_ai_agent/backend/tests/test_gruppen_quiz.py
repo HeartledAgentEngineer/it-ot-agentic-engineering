@@ -589,6 +589,28 @@ def test_personen_liste_ohne_namen_und_ohne_datei(basis, tmp_path, monkeypatch):
     assert gq.personen()["ok"] is False
 
 
+def test_personen_liste_nennt_ihre_gruppen_ohne_bilddaten(basis):
+    """Gruppenfilter in „Benannt“: je Person nur Kennung, Groesse, Zeitraum — keine Bilder."""
+    _benannt(basis)
+    leon = gq.personen()["personen"][0]
+    assert [g["kennung"] for g in leon["gruppen"]] == ["Person_1001", "Person_1002"]
+    assert [g["groesse"] for g in leon["gruppen"]] == [120, 40]          # groesste zuerst
+    assert leon["gruppen"][0] == {"kennung": "Person_1001", "groesse": 120,
+                                  "von": "2015-01-01", "bis": "2025-09-01"}
+    assert set(leon["gruppen"][0]) == {"kennung", "groesse", "von", "bis"}
+    assert gq.personen()["personen"][1]["gruppen"] == [
+        {"kennung": "Person_1004", "groesse": 5, "von": None, "bis": None}]
+
+
+def test_personen_gruppen_metadaten_zaehlen_ausgeschlossene_ab(basis):
+    _benannt(basis)
+    _gesichter_datei(basis)
+    gq.ausschliessen("Person_1001", ["100:0"])
+    leon = gq.personen()["personen"][0]
+    assert leon["gruppen"][0]["groesse"] == 119
+    assert leon["gesichter"] == 119 + 40
+
+
 def test_person_zeigt_vorschlaege_und_profil(basis):
     _benannt(basis)
     r = gq.person("leon")                                   # Gross/Klein egal

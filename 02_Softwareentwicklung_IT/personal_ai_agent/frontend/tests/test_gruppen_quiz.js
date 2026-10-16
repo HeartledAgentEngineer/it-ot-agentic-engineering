@@ -29,6 +29,7 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
+               'gruppenPersonGruppen', 'gruppenPersonPasstGruppe', 'gruppenAuswahlText', 'gruppenAuswahlEintraege',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
                'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
@@ -216,6 +217,27 @@ pruefe(!f.gruppenPersonPasst('Leon Müller', 'eon') && f.gruppenPersonPasst('Tim
 pruefe(f.gruppenPersonInfo({ gesichter: 1234, vorschlaege: 2, beziehung: 'Bruder', erinnerungen: 1, kontakt: true })
     === '1.234 Gesichter · 2 Vorschläge · Bruder · 1 Erinnerung · 📇', 'Listenzeile einer Person');
 pruefe(f.gruppenPersonInfo({ gesichter: 5, vorschlaege: 1 }) === '5 Gesichter', 'Listenzeile ohne Profil');
+console.log('Gruppenfilter in „Benannt“ (16.10.2026)');
+pruefe(f.gruppenPersonGruppen({ gruppen: [{ kennung: 'Person_1001' }] }).length === 1
+    && f.gruppenPersonGruppen({ gruppen: 1 }).length === 0 && f.gruppenPersonGruppen(null).length === 0,
+    'Gruppen einer Person sind immer eine Liste (auch bei fehlendem Feld)');
+pruefe(f.gruppenPersonPasstGruppe({ gruppen: [{ kennung: 'Person_1001' }] }, 'Person_1001')
+    && !f.gruppenPersonPasstGruppe({ gruppen: [{ kennung: 'Person_1001' }] }, 'Person_1002')
+    && f.gruppenPersonPasstGruppe({}, '') && f.gruppenPersonPasstGruppe(null, ''),
+    'Gruppenfilter: Treffer, kein Treffer, leer = alle');
+{
+    const auswahl = f.gruppenAuswahlEintraege([
+        { gruppen: [{ kennung: 'Person_1002', groesse: 4 },
+                    { kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' }] },
+        { gruppen: [{ kennung: 'Person_1002', groesse: 4 }, { kennung: 'Person_1004', groesse: 5 }] }]);
+    pruefe(auswahl.length === 3 && auswahl.map((g) => g.kennung).join(',')
+        === 'Person_1001,Person_1004,Person_1002', 'Auswahlliste: ohne Doppelte, größte zuerst');
+    pruefe(f.gruppenAuswahlText(auswahl[0]) === 'Vorschlag 1001 · 120 Gesichter · 2015–2025'
+        && f.gruppenAuswahlText({ kennung: 'Person_1004', groesse: 5 }) === 'Vorschlag 1004 · 5 Gesichter',
+        'Auswahlzeile einer Gruppe');
+    pruefe(f.gruppenAuswahlEintraege(null).length === 0 && f.gruppenAuswahlEintraege([{}]).length === 0,
+        'ohne Personengruppen bleibt die Auswahl leer');
+}
 pruefe(f.gruppenVorschlagKopf({ kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' })
     === 'Vorschlag 1001 · 120 Gesichter · 2015–2025', 'Kopf eines Vorschlags');
 pruefe(f.gruppenKontaktText({ id: '13', name: 'Tim B.', nummern: ['+49170', '040'], geburtstag: '--08-02' })
@@ -226,6 +248,7 @@ pruefe(f.gruppenRueckgaengigText({ art: 'umbenennen' }) === '↩ Umbenennen zur�
     && f.gruppenRueckgaengigText(null) === '↩ letzte Antwort zurückgenommen', 'Rückmeldung nach Rückgängig je Art');
 pruefe(f.gruppenNotizZeit('2026-10-02T11:45:00') === '02.10.2026' && f.gruppenNotizZeit('') === '', 'Datum einer Erinnerung');
 ['gruppen-reiter-offen', 'gruppen-reiter-benannt', 'gruppen-benannt-ansicht', 'gruppen-benannt-filter',
+ 'gruppen-benannt-gruppe', 'gruppen-benannt-filter-zuruecksetzen',
  'gruppen-benannt-info', 'gruppen-benannt-liste', 'gruppen-person', 'gruppen-person-titel', 'gruppen-person-zurueck',
  'gruppen-person-meta', 'gruppen-person-vorschlaege', 'gruppen-person-name', 'gruppen-person-umbenennen',
  'gruppen-person-beziehung', 'gruppen-person-notiz', 'gruppen-person-mikro', 'gruppen-person-speichern',

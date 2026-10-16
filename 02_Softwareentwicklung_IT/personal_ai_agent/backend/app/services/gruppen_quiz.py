@@ -1323,6 +1323,25 @@ def _anzeige_beispiele(gruppe: Dict[str, Any], aus: set) -> List[Dict[str, Any]]
             if b and f"{b['fileid']}:{int(b.get('index') or 0)}" not in aus][:BEISPIELE_MAX]
 
 
+def _personen_gruppen(kennungen: List[str], nach_kennung: Dict[str, Any],
+                      aus: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Nur Gruppenmetadaten je Person (Kennung, Groesse, Zeitraum) — keine Bilddaten.
+
+    Grundlage fuer den Gruppenfilter in der Ansicht „Benannt“: die Oberflaeche baut
+    daraus die Auswahlliste und ordnet jede Person ihren Gesichtsgruppen zu.
+    """
+    eintraege = []
+    for k in kennungen:
+        gruppe = nach_kennung.get(k)
+        if not gruppe:
+            continue
+        eintraege.append({"kennung": k,
+                          "groesse": max(0, int(gruppe.get("groesse") or 0) - len(aus.get(k, ()))),
+                          "von": gruppe.get("von"), "bis": gruppe.get("bis")})
+    eintraege.sort(key=lambda e: (-e["groesse"], e["kennung"]))
+    return eintraege
+
+
 def personen() -> Dict[str, Any]:
     """Alle benannten Personen: Vorschlaege, Gesichter, Beziehung, Kontakt, Beispiel. Nie ein Wurf."""
     try:
@@ -1356,6 +1375,7 @@ def personen() -> Dict[str, Any]:
         liste.append({"name": e["name"], "vorschlaege": len(e["kennungen"]), "gesichter": e["gesichter"],
                       "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt")),
                       "erinnerungen": sum(1 for x in p.get("notizen") or [] if not x.get("zurueckgenommen")),
+                      "gruppen": _personen_gruppen(e["kennungen"], nach_kennung, aus),
                       "beispiel": beispiele[0] if beispiele else None})
     liste.sort(key=lambda e: (-e["gesichter"], e["name"].casefold()))
     return {"ok": True, "personen": liste}

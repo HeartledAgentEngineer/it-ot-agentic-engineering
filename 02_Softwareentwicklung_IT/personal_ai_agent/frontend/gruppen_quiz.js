@@ -313,6 +313,46 @@ function gruppenPersonInfo(p) {
     return teile.join(' · ');
 }
 
+// ── Gruppenfilter in „Benannt“ (16.10.2026) ─────────────────────────────────
+//
+// Wunsch Sebastian: die Filterauswahl der Gruppenansicht auch in „Benannt“,
+// ohne die Ansicht umzubauen. Der Server liefert dafür je Person nur
+// Gruppenmetadaten (``kennung``, ``groesse``, ``von``, ``bis``) — keine Bilder.
+
+/** Gesichtsgruppen einer Person aus /api/gruppen/personen (immer eine Liste). */
+function gruppenPersonGruppen(p) {
+    return Array.isArray(p && p.gruppen) ? p.gruppen.filter((g) => g && g.kennung) : [];
+}
+
+/** Passt die gewählte Gesichtsgruppe? Leer = alle Personen. */
+function gruppenPersonPasstGruppe(p, gruppe) {
+    if (!gruppe) return true;
+    return gruppenPersonGruppen(p).some((g) => g.kennung === gruppe);
+}
+
+/** Auswahlzeile einer Gruppe: „Vorschlag 1001 · 120 Gesichter · 2015–2025“. */
+function gruppenAuswahlText(g) {
+    if (!g) return '';
+    const teile = [];
+    const nummer = gruppenNummer(g.kennung);
+    teile.push(nummer || String(g.kennung));
+    teile.push(gruppenZahl(g.groesse) + ' Gesichter');
+    const zr = gruppenZeitraum(g.von, g.bis);
+    if (zr) teile.push(zr);
+    return teile.join(' · ');
+}
+
+/** Alle Gesichtsgruppen der geladenen Personen: ohne Doppelte, größte zuerst. */
+function gruppenAuswahlEintraege(personen) {
+    const nach = new Map();
+    (Array.isArray(personen) ? personen : []).forEach((p) => gruppenPersonGruppen(p).forEach((g) => {
+        const alt = nach.get(g.kennung);
+        if (!alt || (Number(g.groesse) || 0) > (Number(alt.groesse) || 0)) nach.set(g.kennung, g);
+    }));
+    return Array.from(nach.values()).sort((a, b) => (Number(b.groesse) || 0) - (Number(a.groesse) || 0)
+        || String(a.kennung).localeCompare(String(b.kennung)));
+}
+
 /** Kopf eines Vorschlags in der Personenansicht. */
 function gruppenVorschlagKopf(v) {
     if (!v) return '';
@@ -359,6 +399,7 @@ function gruppenNotizZeit(zeit) {
 
     const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null,
                       reiter: 'offen', personen: [], person: null, listeAktiv: false,
+                      personenGruppe: '',
                       listeStatus: 'offen', listeSeite: 1, listeSeiten: 0,
                       listenSequenz: 0, detailSequenz: 0, quizSequenz: 0, detailAktiv: false,
                       // Gemeinsamer Mechanismus gegen verspätete Antworten: ``ansichtSequenz``
@@ -944,11 +985,35 @@ function gruppenNotizZeit(zeit) {
         if (!antwort || antwort.ok !== true) {
             zustand.personen = [];
             if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.');
+            gruppenAuswahlFuellen();
             personenZeigen();
             return;
         }
         zustand.personen = antwort.personen || [];
+        gruppenAuswahlFuellen();
         personenZeigen();
+    }
+
+    /** Auswahlfeld „Gruppe“ füllen: alle Gesichtsgruppen der geladenen Personen.
+     *  Die gewählte Gruppe bleibt stehen, solange es sie noch gibt; sonst Filter aus. */
+    function gruppenAuswahlFuellen() {
+        const feld = el('gruppen-benannt-gruppe');
+        if (!feld) return;
+        const eintraege = gruppenAuswahlEintraege(zustand.personen);
+        const gewaehlt = eintraege.some((g) => g.kennung === zustand.personenGruppe) ? zustand.personenGruppe : '';
+        feld.innerHTML = '';
+        const alle = document.createElement('option');
+        alle.value = '';
+        alle.textContent = 'Alle Gruppen';
+        feld.appendChild(alle);
+        eintraege.forEach((g) => {
+            const option = document.createElement('option');
+            option.value = g.kennung;
+            option.textContent = gruppenAuswahlText(g);
+            feld.appendChild(option);
+        });
+        feld.value = gewaehlt;
+        zustand.personenGruppe = gewaehlt;
     }
 
     function personenZeigen() {
@@ -957,11 +1022,15 @@ function gruppenNotizZeit(zeit) {
         if (!liste) return;
         liste.innerHTML = '';
         const frage = (el('gruppen-benannt-filter') || {}).value || '';
-        const passend = zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage));
+        const gruppe = zustand.personenGruppe || '';
+        const passend = zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage)
+            && gruppenPersonPasstGruppe(p, gruppe));
         if (info) {
+            const zusatz = gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '';
             info.textContent = !zustand.personen.length
                 ? 'Noch niemand benannt – im Reiter „Offen“ geht es los.'
-                : gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen')
+                : (passend.length ? gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen') + zusatz
+                    : (gruppe || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
                   + ' · antippen zum Ansehen und Bearbeiten';
         }
         passend.forEach((p) => {
@@ -1745,6 +1814,20 @@ function gruppenNotizZeit(zeit) {
         anklick('gruppen-person-rueckgaengig', personRueckgaengig);
         const filter = el('gruppen-benannt-filter');
         if (filter) filter.addEventListener('input', personenZeigen);
+        const gruppeFeld = el('gruppen-benannt-gruppe');
+        if (gruppeFeld) gruppeFeld.addEventListener('change', () => {
+            zustand.personenGruppe = gruppeFeld.value || '';
+            personenZeigen();
+        });
+        const filterZurueck = el('gruppen-benannt-filter-zuruecksetzen');
+        if (filterZurueck) filterZurueck.addEventListener('click', () => {
+            // Beide Filter zusammen leeren (Suche UND Gruppe) — Wunsch aus dem Auftrag.
+            if (filter) filter.value = '';
+            zustand.personenGruppe = '';
+            if (gruppeFeld) gruppeFeld.value = '';
+            personenZeigen();
+            if (filter) filter.focus();
+        });
         const kontaktFeld = el('gruppen-person-kontaktsuche');
         if (kontaktFeld) {
             kontaktFeld.addEventListener('input', () => {

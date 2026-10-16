@@ -15,7 +15,9 @@
                                   (Erzaehlen, 07.10.2026: benennen / „ist nicht X“)
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
   POST /api/gruppen/person/ausschliessen {name, gesichter: [{kennung, gid}]} (07.10.2026)
-  GET  /api/gruppen/personen      benannte Personen (Liste)
+  GET  /api/gruppen/personen      benannte Personen (Liste), je Person ``gruppen``:
+                                  Gruppenmetadaten (kennung, groesse, von, bis)
+                                  fuer den Gruppenfilter in „Benannt“ (16.10.2026)
   GET  /api/gruppen/person        ?name=Leon -> Vorschlaege + Profil
   POST /api/gruppen/umbenennen    {alt, neu} (gleicher Name = zusammenfuehren)
   POST /api/gruppen/loesen        {kennung} -> Vorschlag wieder offen

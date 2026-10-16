@@ -2952,3 +2952,34 @@ body.anmelden-offen { overflow: hidden; }
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     }
 }
+
+/* =========================================================================
+   Gruppenfilter in „Benannt“ (S5, 16.10.2026) — Wunsch Sebastian: die
+   Filterauswahl der Gruppenansicht auch in „Benannt“, ohne die Ansicht
+   umzubauen. Die Zeile traegt Suche, Gruppenauswahl und Zuruecksetzen;
+   auf schmalen Anzeigen bricht sie um, statt zu quetschen.
+   ========================================================================= */
+.gruppen-benannt-filter-zeile {
+    flex-wrap: wrap;
+}
+
+.gruppen-benannt-filter-zeile input[type="search"],
+.gruppen-benannt-filter-zeile select {
+    flex: 1 1 170px;
+    min-width: 0;
+}
+
+.gruppen-benannt-filter-zeile select {
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: inherit;
+    font-size: 1rem;
+}
+
+.gruppen-benannt-filter-zeile select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
