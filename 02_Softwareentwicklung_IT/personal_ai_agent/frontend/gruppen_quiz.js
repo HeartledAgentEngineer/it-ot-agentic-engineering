@@ -528,17 +528,15 @@ function gruppenNotizZeit(zeit) {
         } else {
             laden();
         }
-        if (typeof opt.beiTipp === 'function' && opt.ohneLupe) {
-            box.addEventListener('click', () => opt.beiTipp(box));
+        // Seit S4 (16.10.2026) gibt es keine Vergrößerungs-Symbole mehr auf den
+        // Kacheln: der kurze Klick öffnet das Bild, der lange Druck startet die
+        // Auswahl (siehe ``alleKachelVerdrahten``). ``ohneKlick`` heißt, dass der
+        // Aufrufer Klick UND Langdruck selbst verdrahtet — dann darf hier kein
+        // zweiter Klick-Handler entstehen (er würde die Auswahl sofort umschalten).
+        if (opt.ohneKlick) {
+            // nichts: die Verdrahtung übernimmt der Aufrufer
         } else if (typeof opt.beiTipp === 'function') {
             box.addEventListener('click', () => opt.beiTipp(box));
-            const lupe = document.createElement('span');
-            lupe.className = 'gruppen-lupe';
-            lupe.setAttribute('role', 'button');
-            lupe.setAttribute('aria-label', 'Ganzes Foto ansehen');
-            lupe.textContent = '⤢';
-            lupe.addEventListener('click', (ev) => { ev.stopPropagation(); vollbildOeffnen(kennung, rahmen); });
-            box.appendChild(lupe);
         } else {
             box.addEventListener('click', () => vollbildOeffnen(kennung, rahmen));
         }
@@ -556,7 +554,10 @@ function gruppenNotizZeit(zeit) {
     // Die Sortierung bleibt für die Sitzung gewählt, auch beim nächsten Vorschlag.
     const alle = { kennung: null, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
                    markiert: new Set(), kennungJeGid: new Map(), laedt: false, beobachter: null,
-                   ordnung: 'guete', letztesJahr: null };
+                   ordnung: 'guete', letztesJahr: null,
+                   // S4 (16.10.2026): läuft ein Auswahlmodus, schalten kurze Klicks um,
+                   // sonst öffnen sie das Bild (die Vergrößerungs-Symbole entfallen).
+                   auswahlModus: false };
 
     function alleKnopfAktualisieren() {
         const k = el('gruppen-alle-ausschliessen');
@@ -592,6 +593,110 @@ function gruppenNotizZeit(zeit) {
         alle.letztesJahr = koepfe.length ? koepfe[koepfe.length - 1].textContent : null;
     }
 
+    // ── Auswahlmodus der Gesichterliste (S4, 16.10.2026) ─────────────────
+    // Auftrag „Kachelbedienung": langer Druck (~500 ms) startet den Modus und wählt
+    // diese Kachel; solange er läuft, schaltet jeder kurze Klick um; außerhalb öffnet
+    // ein kurzer Klick das Bild — deshalb entfallen die Vergrößerungs-Symbole auf den
+    // Kacheln. Bewegung ab 8 px (Scrollen/Ziehen), ``pointercancel`` und
+    // ``lostpointercapture`` brechen den Timer ab, damit vertikales Scrollen und der
+    // Browser-Langdruck nicht in die Auswahl laufen. Video-Gesichter bleiben
+    // unverdrahtet: der Server lehnt Ausschließen/Zuordnen für sie ab (VIDEO_GESPERRT),
+    // sie öffnen weiterhin per kurzem Klick.
+    const AUSWAHL_LANGDRUCK_MS = 500;
+    const AUSWAHL_BEWEGUNG_PX = 8;
+
+    function alleAuswahlSichtbarMachen() {
+        const raster = el('gruppen-alle-raster');
+        if (raster) raster.classList.toggle('auswahl-aktiv', alle.auswahlModus);
+        const ende = el('gruppen-alle-auswahl-ende');
+        if (ende) ende.hidden = !alle.auswahlModus;
+    }
+
+    function alleAuswahlModusSetzen(an) {
+        alle.auswahlModus = Boolean(an);
+        alleAuswahlSichtbarMachen();
+        alleKnopfAktualisieren();
+    }
+
+    function alleKachelMarkeSetzen(box, gid, an) {
+        if (!box || !gid) return;
+        if (an) { alle.markiert.add(gid); box.classList.add('markiert'); }
+        else { alle.markiert.delete(gid); box.classList.remove('markiert'); }
+        box.dataset.gid = gid;
+        box.setAttribute('aria-pressed', an ? 'true' : 'false');
+    }
+
+    /** Auswahl beenden: alle Markierungen weg, kurze Klicks öffnen wieder Bilder. */
+    function alleAuswahlBeenden() {
+        const raster = el('gruppen-alle-raster');
+        if (raster) {
+            Array.from(raster.querySelectorAll('.gruppen-kachel')).forEach((k) => {
+                alleKachelMarkeSetzen(k, k.dataset.gid, false);
+            });
+        }
+        alle.markiert.clear();
+        alleAuswahlModusSetzen(false);
+    }
+
+    /** Kurzer Klick: im Auswahlmodus umschalten, sonst das Bild öffnen. */
+    function alleKachelKlick(box, g) {
+        if (alle.auswahlModus) {
+            alleKachelMarkeSetzen(box, g.gid, !alle.markiert.has(g.gid));
+            if (alle.markiert.size === 0) alleAuswahlModusSetzen(false);   // letzte Kachel abgewählt
+            else alleKnopfAktualisieren();
+            return;
+        }
+        vollbildOeffnen(gesichtKennung(g), gesichtRahmen(g));
+    }
+
+    /** Pointer-Verdrahtung einer Kachel: kurzer Klick öffnet, Halten (500 ms) wählt aus. */
+    function alleKachelVerdrahten(box, g) {
+        let timer = null;
+        let gedrueckt = false;
+        let langdruck = false;
+        let startX = 0;
+        let startY = 0;
+        const halten = () => {
+            if (!gedrueckt || langdruck) return;
+            langdruck = true;
+            alleAuswahlModusSetzen(true);
+            alleKachelMarkeSetzen(box, g.gid, true);
+            alleKnopfAktualisieren();     // „Ausschließen“/„Zuordnen“ gehören zur Auswahl
+        };
+        const abbrechen = () => {
+            gedrueckt = false;
+            if (timer) { clearTimeout(timer); timer = null; }
+        };
+        box.setAttribute('aria-pressed', 'false');
+        box.addEventListener('pointerdown', (ev) => {
+            if (ev && ev.pointerType === 'mouse' && ev.button !== 0) return;   // rechte/ mittlere Taste
+            gedrueckt = true;
+            langdruck = false;
+            startX = ev ? ev.clientX : 0;
+            startY = ev ? ev.clientY : 0;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => { timer = null; halten(); }, AUSWAHL_LANGDRUCK_MS);
+        });
+        box.addEventListener('pointermove', (ev) => {
+            if (!gedrueckt || !ev) return;
+            if (Math.abs(ev.clientX - startX) > AUSWAHL_BEWEGUNG_PX
+                || Math.abs(ev.clientY - startY) > AUSWAHL_BEWEGUNG_PX) abbrechen();   // Scrollen/Ziehen
+        });
+        box.addEventListener('pointerup', abbrechen);
+        box.addEventListener('pointercancel', abbrechen);
+        box.addEventListener('lostpointercapture', abbrechen);
+        // Der Browser-Langdruck öffnet sonst sein Kontextmenü über der Auswahl.
+        box.addEventListener('contextmenu', (ev) => { if (langdruck && ev) ev.preventDefault(); });
+        box.addEventListener('click', (ev) => {
+            if (langdruck) {          // synthetischer Klick nach dem langen Druck
+                langdruck = false;
+                if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+                return;
+            }
+            alleKachelKlick(box, g);
+        });
+    }
+
     async function alleSeiteLaden() {
         if ((!alle.kennung && !alle.name) || alle.laedt || (alle.seiten && alle.seite >= alle.seiten)) return;
         alle.laedt = true;
@@ -624,17 +729,13 @@ function gruppenNotizZeit(zeit) {
                     alle.letztesJahr = jahr;
                 }
             }
-            // Video-Gesichter: Ausschließen/Zuordnen sperrt das Backend -> nicht markierbar,
-            // Antippen zeigt das ganze Standbild (14.10.2026).
-            raster.appendChild(g.video === true ? kachel(g, false, { verzoegert: true }) : kachel(g, false, {
-                verzoegert: true,
-                beiTipp: (box) => {
-                    if (alle.markiert.has(g.gid)) { alle.markiert.delete(g.gid); box.classList.remove('markiert'); }
-                    else { alle.markiert.add(g.gid); box.classList.add('markiert'); }
-                    box.dataset.gid = g.gid;
-                    alleKnopfAktualisieren();
-                },
-            }));
+            // Video-Gesichter: Ausschließen/Zuordnen sperrt das Backend -> nicht auswählbar
+            // (S4: unverdrahtet, Antippen zeigt das Standbild). Alle anderen Kacheln
+            // bekommen die Verdrahtung „kurzer Klick öffnet / Halten wählt aus".
+            raster.appendChild(kachel(g, false, g.video === true
+                ? { verzoegert: true }
+                : { verzoegert: true, ohneKlick: true }));
+            if (g.video !== true) alleKachelVerdrahten(raster.lastChild, g);
             raster.lastChild.dataset.gid = g.gid;
             if (g.zugeordnet) {
                 raster.lastChild.classList.add('zugeordnet');
@@ -687,6 +788,7 @@ function gruppenNotizZeit(zeit) {
         if (raster) raster.innerHTML = '';
         const info = el('gruppen-alle-info');
         if (info) info.textContent = '';
+        alleAuswahlModusSetzen(false);     // S4: jede neu geladene Liste beginnt ohne Auswahlmodus
         alleKnopfAktualisieren();
         alleSeiteLaden();
     }
@@ -715,6 +817,7 @@ function gruppenNotizZeit(zeit) {
     function alleSchliessen() {
         el('gruppen-alle-ansicht').hidden = true;
         if (alle.beobachter) { alle.beobachter.disconnect(); alle.beobachter = null; }
+        alleAuswahlModusSetzen(false);    // S4: Ansicht verlassen beendet den Auswahlmodus
         const kennung = alle.kennung;
         alle.kennung = null;
         alle.name = null;
@@ -1038,7 +1141,7 @@ function gruppenNotizZeit(zeit) {
             zeile.className = 'gruppen-benannt-zeile';
             zeile.setAttribute('role', 'listitem');
             zeile.tabIndex = 0;
-            if (p.beispiel) zeile.appendChild(kachel(p.beispiel, true, { verzoegert: true, ohneLupe: true, beiTipp: () => {} }));
+            if (p.beispiel) zeile.appendChild(kachel(p.beispiel, true, { verzoegert: true, beiTipp: () => {} }));
             const text = document.createElement('div');
             text.className = 'gruppen-benannt-text';
             const n = document.createElement('span');
@@ -1771,6 +1874,8 @@ function gruppenNotizZeit(zeit) {
         if (alleZu) alleZu.addEventListener('click', alleNamenZeigen);
         const alleOrdnung = el('gruppen-alle-ordnung');
         if (alleOrdnung) alleOrdnung.addEventListener('click', alleOrdnungWechseln);
+        const alleAuswahlEnde = el('gruppen-alle-auswahl-ende');
+        if (alleAuswahlEnde) alleAuswahlEnde.addEventListener('click', alleAuswahlBeenden);
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
         const uebersicht = el('gruppen-uebersicht');

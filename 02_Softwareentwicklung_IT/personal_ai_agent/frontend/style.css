@@ -2638,22 +2638,6 @@ button.footer-note:hover {
     background: rgba(200, 40, 40, 0.45);
 }
 
-.gruppen-lupe {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    z-index: 1;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.55);
-}
-
 .gruppen-alle-leiste {
     position: sticky;
     bottom: 0;
@@ -2688,6 +2672,11 @@ button.footer-note:hover {
 .gruppen-alle-werkzeuge {
     display: flex;
     justify-content: flex-end;
+    /* S4 (16.10.2026): die Werkzeugzeile trägt seit dem Auswahlmodus zwei Knöpfe
+       („Nach Jahren“, „Auswahl beenden“) — auf schmalen Anzeigen bricht sie um,
+       statt aus dem Blatt zu laufen. */
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 /* Zeitblöcke: Jahreskopf über die ganze Rasterbreite. */

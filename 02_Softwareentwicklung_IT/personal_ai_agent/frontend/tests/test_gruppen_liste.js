@@ -588,15 +588,31 @@ function gesichtKachel(app, gid) {
     return app.el('gruppen-alle-raster').children.find((k) => k.dataset.gid === gid);
 }
 
-/** A: Detail → Alle Gesichter, zwei Gesichter markieren, Aktion absenden (hängt);
- *  danach über die Übersicht B → Alle Gesichter öffnen und dort b1 markieren. */
+/** Seit S4 (16.10.2026) startet der lange Druck (~500 ms) den Auswahlmodus; vorher
+ *  hat ein kurzer Klick markiert. ``pointerup`` kommt nach dem Timer, damit der
+ *  Stand dem echten Ablauf entspricht (Halten -> loslassen). */
+async function langdruck(kachel) {
+    const zeiger = (art) => (kachel.listeners.get(art) || []).forEach((fn) => fn({
+        target: kachel, clientX: 0, clientY: 0, button: 0, pointerType: 'touch',
+        preventDefault() {}, stopPropagation() {},
+    }));
+    zeiger('pointerdown');
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    zeiger('pointerup');
+}
+
+/** A: Detail → Alle Gesichter, langer Druck auf a1 + kurzer Klick auf a2,
+ *  Aktion absenden (hängt); danach über die Übersicht B → Alle Gesichter öffnen
+ *  und dort b1 per langem Druck wählen. */
 async function aktionFuerAUndAnsichtVonB(app, aktionKnopf) {
     await app.el('gruppen-btn').click(); await settle();
     await app.el('gruppen-uebersicht').click(); await settle();
     await app.el('gruppen-liste-zeile-G-1').click(); await settle();
     await app.el('gruppen-alle').click(); await settle();
-    await gesichtKachel(app, 'a1').click();
-    await gesichtKachel(app, 'a2').click();
+    await langdruck(gesichtKachel(app, 'a1'));                             // S4: hält -> Auswahl an
+    assert.ok(gesichtKachel(app, 'a1').classList.contains('markiert'));
+    await gesichtKachel(app, 'a2').click();                                // kurzer Klick schaltet zu
+    assert.ok(gesichtKachel(app, 'a2').classList.contains('markiert'));
     if (aktionKnopf === 'gruppen-alle-zuordnen') {
         await app.el('gruppen-alle-zuordnen').click();                 // Namensknöpfe
         const chips = app.el('gruppen-alle-namen').children.filter((c) => c.tagName === 'BUTTON');
@@ -612,7 +628,8 @@ async function aktionFuerAUndAnsichtVonB(app, aktionKnopf) {
     await app.el('gruppen-liste-zeile-G-2').click(); await settle();
     await app.el('gruppen-alle').click(); await settle();
     assert.ok(gesichtKachel(app, 'b1'));
-    await gesichtKachel(app, 'b1').click();
+    // Neue Liste: der Auswahlmodus ist aus, also wieder langer Druck statt Klick.
+    await langdruck(gesichtKachel(app, 'b1'));
     assert.ok(gesichtKachel(app, 'b1').classList.contains('markiert'));
 }
 
@@ -692,7 +709,7 @@ async function markingsAddedDuringExcludeSurvive() {
     await app.el('gruppen-uebersicht').click(); await settle();
     await app.el('gruppen-liste-zeile-G-1').click(); await settle();
     await app.el('gruppen-alle').click(); await settle();
-    await gesichtKachel(app, 'a1').click();
+    await langdruck(gesichtKachel(app, 'a1'));                              // S4: Auswahl per langem Druck
     app.el('gruppen-alle-ausschliessen').click(); await settle();           // sendet nur a1
     await gesichtKachel(app, 'a2').click();                                  // währenddessen markiert
     aufloesen(); await settle();

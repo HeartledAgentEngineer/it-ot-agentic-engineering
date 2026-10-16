@@ -164,7 +164,7 @@ pruefe(/<button id="gruppen-btn" class="icon-btn"/.test(html), 'Knopf 👥 in de
  'gruppen-speichern', 'gruppen-spaeter', 'gruppen-unbekannt', 'gruppen-zurueck',
  'gruppen-zurueck-fertig', 'gruppen-meldung', 'gruppen-fortschritt',
  'gruppen-nummer', 'gruppen-verbunden', 'gruppen-notiz-mikro',
- 'gruppen-alle-zuordnen', 'gruppen-alle-namen', 'gruppen-alle-ordnung'].forEach((id) => {
+ 'gruppen-alle-zuordnen', 'gruppen-alle-namen', 'gruppen-alle-ordnung', 'gruppen-alle-auswahl-ende'].forEach((id) => {
     pruefe(html.indexOf('id="' + id + '"') !== -1 && src.indexOf("'" + id + "'") !== -1,
         '#' + id + ' im HTML und im Skript');
 });
@@ -315,8 +315,10 @@ pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 2, gesichter: [{ video: true }, {}]
 pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 1, gesichter: [{}] }, 1).includes('nur ansehen'), 'nur Fotos: kein Video-Hinweis');
 pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 0, videos: 5 }, 0).includes('noch keine Standbilder'),
     'reine Video-Gruppe ohne Standbilder: ehrlicher Grund');
-pruefe(/g\.video === true \? kachel\(g, false, \{ verzoegert: true \}\)/.test(src),
-    'Gesamtansicht: Video-Gesichter ohne Markier-Tipp (Backend sperrt Einzelaktionen)');
+pruefe(/g\.video === true\s*\? \{ verzoegert: true \}/.test(src),
+    'Gesamtansicht: Video-Gesicht ohne Klick-Verdrahtung (Backend sperrt Einzelaktionen)');
+pruefe(/if \(g\.video !== true\) alleKachelVerdrahten\(raster\.lastChild, g\);/.test(src),
+    'Gesamtansicht: nur Gesichter ohne Video bekommen die Auswahl-Verdrahtung (S4)');
 pruefe(/m\.textContent = marke;/.test(src) && !/innerHTML = marke/.test(src), 'Marke nur per textContent');
 pruefe(/\.gruppen-video-marke\s*\{[^}]*position:\s*absolute/.test(css), 'Marke liegt über der Kachel');
 pruefe(vQ && vQ[1] >= '20261015A' && vS && vS[1] >= '20261014A', 'Cache-Bump 15.10. (Grund „noch ohne Standbild“)');
