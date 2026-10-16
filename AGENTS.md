@@ -134,7 +134,11 @@ Taskleisten-Symbol).
 
 - **Thinker denkt, Worker arbeiten:** Umsetzung läuft über Subagenten bzw. Ausführer mit dem
   günstigeren Worker-Modell, nicht auf der höchsten Stufe. Der Thinker plant und nimmt ab.
-- **Reviewer ≠ Thinker-Modellfamilie** — gilt weiterhin als Regel, **abgewichen wird nur in Lage 3 (Stand 16.10.2026):** dort ist der Prüfer ebenfalls DeepSeek V4.1 Flash, seit GPT-6 Luna als Prüfer abgelöst wurde (Input-Preis 5x, Sebastians Ansage 16.10.). Ersatz durch frischen Kontext und Rollentrennung; ein schärferer externer Prüfer (z. B. V4 Pro) bleibt als Option offen.
+- **Reviewer ≠ Thinker-Modellfamilie** — gilt in den Lagen 1, 2A und 2B (dort steht der Prüfer
+  ohnehin auf dem anderen Abo bzw. in der Matrix). **Solo-Regel (Sebastian, 16.10.2026): Ist Hermes
+  solo (Lage 3, beide Abos im Limit), wird keine zweite Modellfamilie fürs Prüfen angesetzt** —
+  Prüfer und Ausführer laufen beide auf DeepSeek V4.1 Flash; die Trennung leisten frischer Kontext
+  und Rollentrennung. (GPT-6 Luna als Prüfer ist abgelöst: Input-Preis 5x.)
 - Keine Selbstfreigabe durch
   den Ausführerlauf; Ausführer und Prüfer laufen in frischen Kontexten.
 - **Kosten:** Lagen 2A, 2B und 3 nutzen OpenRouter-API — das kostet echtes Geld; Kosten
