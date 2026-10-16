@@ -121,11 +121,80 @@ def test_localhost_und_ip_literale_gehen_durch(client, host):
     assert client.get("/health", headers={"Host": host}).status_code == 200
 
 
+@pytest.mark.parametrize("host", [
+    "100.64.0.0", "100.97.77.126:8080", "100.127.255.255",
+    "[::ffff:100.97.77.126]:8080",
+])
+def test_tailscale_ip_hosts_gehen_durch(client, host):
+    assert client.get("/health", headers={"Host": host}).status_code == 200
+
+
+@pytest.mark.parametrize("host", ["8.8.8.8", "1.1.1.1"])
+def test_oeffentliche_ip_hosts_werden_abgewiesen(client, host):
+    assert client.get("/health", headers={"Host": host}).status_code == 400
+
+
 def test_erlaubte_hosts_wirken_zur_laufzeit(client, monkeypatch):
     name = "mein-handy.tail-attrappe.ts.net"
     assert client.get("/health", headers={"Host": name}).status_code == 400
     monkeypatch.setattr(settings, "erlaubte_hosts", f"testserver, {name.upper()}.")
     assert client.get("/health", headers={"Host": f"{name}:8080"}).status_code == 200
+
+
+def test_tailscale_fqdn_unter_explizit_configurierter_tailnet_domain(client, monkeypatch):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "*.tail-attrappe.ts.net")
+    assert client.get("/health", headers={
+        "Host": "motorola-edge-50.tail-attrappe.ts.net:8080",
+    }).status_code == 200
+
+
+def test_tailscale_kurzname_wird_exakt_freigegeben(client, monkeypatch):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "motorola-edge-50")
+    assert client.get("/health", headers={"Host": "motorola-edge-50:8080"}).status_code == 200
+    assert client.get("/health", headers={"Host": "anderes-handy"}).status_code == 400
+
+
+@pytest.mark.parametrize("host", [
+    "anderes-tailnet.ts.net",
+    "tablet.tail-attrappe.ts.net.evil.example",
+    "tablet.ts.net",
+])
+def test_tailnet_wildcard_erlaubt_keine_fremde_domain_oder_domainwurzel(
+        client, monkeypatch, host):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "*.tail-attrappe.ts.net")
+    assert client.get("/health", headers={"Host": host}).status_code == 400
+
+
+def test_allgemeiner_ts_net_wildcard_ist_gesperrt(client, monkeypatch):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "*.ts.net")
+    assert client.get("/health", headers={
+        "Host": "motorola-edge-50.tail-attrappe.ts.net",
+    }).status_code == 400
+
+
+def test_leere_hostkonfiguration_erlaubt_keinen_hostnamen(client, monkeypatch):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "")
+    antwort = client.get("/health", headers={"Host": "motorola-edge-50"})
+    assert antwort.status_code == 400
+
+
+def test_fremder_host_erhaelt_erlaeuterung_im_body_und_log(client, caplog, monkeypatch):
+    monkeypatch.setattr(settings, "erlaubte_hosts", "")
+    with caplog.at_level("WARNING", logger="app.sicherheit"):
+        antwort = client.get("/health", headers={"Host": "boese.example"})
+    assert antwort.status_code == 400
+    assert "boese.example" in antwort.text
+    assert "ERLAUBTE_HOSTS" in antwort.text
+    assert "100.64.0.0/10" in antwort.text
+    assert "boese.example" in caplog.text
+    assert antwort.headers["content-type"].startswith("text/plain")
+
+
+def test_host_anzeige_haelt_steuerzeichen_aus_der_antwort_heraus():
+    anzeige = sicherheit._host_anzeige("boese.example\r\nX-Injected: true")
+    assert "boese.example" in anzeige
+    assert "\\r\\n" in anzeige
+    assert "\r" not in anzeige and "\n" not in anzeige
 
 
 @pytest.mark.parametrize("roh,erwartet", [

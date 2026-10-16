@@ -362,8 +362,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24h
     # Zugriff von außen (P0, 12.10.2026, app/sicherheit.py).
-    # Weitere Host-Namen außer localhost und IP-Adressen, Komma-Liste — z. B.
-    # der Tailscale-Name des Handys. Andere Namen bekommen 400 (DNS-Rebinding).
+    # Zusatznamen für die Host-Prüfung (Komma-Liste), Standard leer:
+    # exakte Geräte-Aliase oder *.<konkrete-tailnet-domain>.ts.net. Ein
+    # pauschales *.ts.net ist gesperrt; fremde Hostnamen erhalten 400.
+    # Zusätzlich erlaubt: Loopback, private Heimnetz-IP und Tailscales
+    # 100.64.0.0/10. Öffentliche IP-Hosts bleiben gesperrt.
     erlaubte_hosts: str = ""
     # Fremde Seiten, die die API lesen dürfen (Komma-Liste, ohne *, ohne
     # Zugangsdaten). Leer = CORS aus; die Oberfläche kommt vom selben Server.

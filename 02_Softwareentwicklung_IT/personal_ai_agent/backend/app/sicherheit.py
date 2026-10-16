@@ -8,9 +8,10 @@ Anfrage oder den Host-Namen (DNS-Rebinding).
 
 Diese Middleware erledigt drei Dinge für JEDE Antwort:
 
-1. **Host-Prüfung (alle Pfade):** Erlaubt sind ``localhost``, jedes IP-Literal
-   und die Namen aus ``ERLAUBTE_HOSTS``. Alles andere bekommt 400. Ein
-   DNS-Rebinding braucht einen Domainnamen; mit einer IP-Adresse geht es nicht.
+1. **Host-Prüfung (alle Pfade):** Erlaubt sind ``localhost``/Loopback, private
+   Heimnetz-IP-Adressen, ``100.64.0.0/10`` und ausdrücklich konfigurierte Namen
+   aus ``ERLAUBTE_HOSTS``. Öffentliche IP-Adressen und andere Namen bekommen 400.
+   Ein DNS-Rebinding braucht einen Domainnamen; beliebige Namen bleiben gesperrt.
 2. **Herkunftsprüfung (Programmrouten):** Für ``/api/…`` sowie ``/health``,
    ``/ping`` und ``/status`` gibt es 403 bei ``Sec-Fetch-Site: cross-site`` oder
    ``same-site`` und bei einem fremden ``Origin``. Anfragen ohne diese Köpfe
@@ -75,6 +76,14 @@ SICHERHEITS_KOEPFE: Dict[str, str] = {
 
 _STANDARD_PORT = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 
+#: Die Tailscale-Adresse wird explizit aufgeführt: 100.64.0.0/10 ist
+#: „Shared Address Space“ und nicht in jeder Python-Version ``is_private``.
+_TAILSCALE_NETZ = ipaddress.ip_network("100.64.0.0/10")
+_LOKALE_NETZE = tuple(ipaddress.ip_network(netz) for netz in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+    "169.254.0.0/16", "fc00::/7", "fe80::/10",
+))
+
 #: Abweisungen je Grund seit dem Start; ``/api/selbsttest`` zeigt sie an.
 abgewiesen: Counter = Counter()
 
@@ -120,9 +129,35 @@ def _einstellung(name: str) -> str:
 
 
 def erlaubte_hosts() -> Set[str]:
-    """Zusätzliche Namen aus ``ERLAUBTE_HOSTS`` (Komma-Liste)."""
+    """Zusätzliche, exakt erlaubte Namen aus ``ERLAUBTE_HOSTS`` (Komma-Liste)."""
     roh = _einstellung("erlaubte_hosts")
-    return {n.strip().lower().rstrip(".") for n in roh.split(",") if n.strip()}
+    return {
+        n.strip().lower().rstrip(".")
+        for n in roh.split(",")
+        if n.strip() and not n.strip().startswith("*.")
+    }
+
+
+def erlaubte_tailnet_domaenen() -> Set[str]:
+    """Explizit eingetragene Tailnet-Suffixe ``*.<tailnet>.ts.net``."""
+    roh = _einstellung("erlaubte_hosts")
+    suffixe: Set[str] = set()
+    for eintrag in roh.split(","):
+        muster = eintrag.strip().lower().rstrip(".")
+        if not muster.startswith("*."):
+            continue
+        suffix = muster[2:]
+        labels = suffix.split(".")
+        # Nie ``*.ts.net`` freigeben: Das würde alle Tailscale-Tailnets erfassen.
+        # Die konkrete Tailnet-Domain muss ausdrücklich konfiguriert sein.
+        if (len(labels) < 3 or labels[-2:] != ["ts", "net"]
+                or any(not label or len(label) > 63 or not label.isascii()
+                       or not label[0].isalnum() or not label[-1].isalnum()
+                       or not label.replace("-", "").isalnum()
+                       for label in labels)):
+            continue
+        suffixe.add(suffix)
+    return suffixe
 
 
 def cors_herkunft() -> Set[str]:
@@ -157,17 +192,35 @@ def schluessel_einsetzen(seite: str, schluessel: Optional[str]) -> str:
 
 
 def host_erlaubt(name: Optional[str]) -> bool:
-    """``localhost``, IP-Literale und ``ERLAUBTE_HOSTS`` sind erlaubt."""
+    """Loopback, lokale Netze, Tailscale und ausdrücklich erlaubte Namen prüfen."""
     if not name:
         return False
     if name == "localhost":
         return True
     try:
-        ipaddress.ip_address(name)
-        return True
+        adresse = ipaddress.ip_address(name)
     except ValueError:
-        pass
-    return name in erlaubte_hosts()
+        adresse = None
+    if adresse is not None:
+        # Private Heimnetz-Adressen bleiben für HTTPS erreichbar; dazu kommt
+        # ausdrücklich Tailscales Shared Address Space. Beliebige öffentliche
+        # IP-Hosts werden nicht benötigt und daher abgewiesen.
+        adresse = getattr(adresse, "ipv4_mapped", None) or adresse
+        try:
+            return (
+                adresse.is_loopback
+                or (adresse.version == 4 and adresse in _TAILSCALE_NETZ)
+                or any(adresse.version == netz.version and adresse in netz
+                       for netz in _LOKALE_NETZE)
+            )
+        except (TypeError, ValueError):
+            return False
+    if name in erlaubte_hosts():
+        return True
+    # Hostnamen bleiben eine Positivliste: kurze Alias-Namen müssen exakt
+    # genannt sein; ein Wildcard gilt nur für eine konkret eingetragene
+    # ``*.<tailnet>.ts.net``-Domain, niemals für fremde DNS-Namen.
+    return any(name.endswith("." + suffix) for suffix in erlaubte_tailnet_domaenen())
 
 
 def origin_ist_eigen(origin: str, schema: str, host_kopf: str) -> bool:
@@ -197,6 +250,30 @@ def origin_ist_eigen(origin: str, schema: str, host_kopf: str) -> bool:
 def ist_geprueft(pfad: str) -> bool:
     """Gilt die Herkunftsprüfung für diesen Pfad?"""
     return pfad in GEPRUEFTE_PFADE or pfad.startswith("/api/")
+
+
+def _hostkopf(scope: Scope) -> str:
+    """Liest den letzten Host-Kopf wie ``abweisungsgrund`` ihn bewertet."""
+    host = ""
+    for schluessel, wert in scope.get("headers") or []:
+        try:
+            if schluessel.decode("latin-1").lower() == "host":
+                host = wert.decode("latin-1")
+        except (AttributeError, UnicodeError):
+            continue
+    return host
+
+
+def _host_anzeige(host_kopf: str) -> str:
+    """Begrenzt Steuerzeichen/Länge, bevor ein ungeprüfter Host angezeigt wird."""
+    roh = (host_kopf or "").strip()
+    if not roh:
+        return "(leer)"
+    if any(not zeichen.isprintable() for zeichen in roh):
+        roh = repr(roh)
+    if len(roh) > 253:
+        roh = roh[:253] + "…"
+    return roh
 
 
 def abweisungsgrund(scope: Scope) -> Optional[Tuple[str, int]]:
@@ -245,10 +322,21 @@ class SicherheitsMiddleware:
         if befund is not None:
             grund, status = befund
             abgewiesen[grund] += 1
-            # Nur Grund, Methode und Pfad – nie Kopfwerte.
-            logger.warning("Anfrage abgewiesen (%s): %s %s", grund,
-                           scope.get("method"), scope.get("path"))
-            antwort = PlainTextResponse("Abgewiesen.", status_code=status,
+            if grund == "host":
+                host = _host_anzeige(_hostkopf(scope))
+                logger.warning("Anfrage abgewiesen (Host=%r): %s %s", host,
+                               scope.get("method"), scope.get("path"))
+                inhalt = (
+                    f"Abgewiesen.\nAbgelehnter Host: {host}\n"
+                    "Erlaubt: localhost/Loopback, private Heimnetz-IP, "
+                    "Tailscale-IP 100.64.0.0/10 und Namen aus ERLAUBTE_HOSTS "
+                    "in backend/.env."
+                )
+            else:
+                logger.warning("Anfrage abgewiesen (%s): %s %s", grund,
+                               scope.get("method"), scope.get("path"))
+                inhalt = "Abgewiesen."
+            antwort = PlainTextResponse(inhalt, status_code=status,
                                         headers=SICHERHEITS_KOEPFE)
             await antwort(scope, receive, send)
             return
