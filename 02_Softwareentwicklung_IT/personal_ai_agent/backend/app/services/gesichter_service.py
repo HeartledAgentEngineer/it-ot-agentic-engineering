@@ -479,7 +479,12 @@ def referenz_bbox_aktualisieren(name: str, ref_id: str, bbox,
     Erwartet: die Referenz wird ueber ihre STABILE `ref_id` gefunden, ihr
     Embedding (aus dem neuen Ausschnitt) und ihre bbox ersetzt. Alle ANDEREN
     Referenzen derselben Person bleiben unangetastet, die Person bleibt dieselbe
-    (keine Dublette). Liefert {ok, name, ref_id, verbleibend}.
+    (keine Dublette). Liefert {ok, name, ref_id, verbleibend, vektor_erneuert}.
+
+    `vektor_erneuert` ist die Wahrheit aus der SPEICHERUNG: es ist nur dann True,
+    wenn der Vektor der gespeicherten Referenz in diesem Aufruf wirklich ersetzt
+    wurde (Punkt 0 vom 16.10.2026 — vorher meldete der Aufruf auch dann ok, wenn
+    der alte Vektor stehen blieb).
     """
     ziel = ((name or "").strip().lower(), (ref_id or "").strip())
     if not all(ziel):
@@ -501,7 +506,8 @@ def referenz_bbox_aktualisieren(name: str, ref_id: str, bbox,
         # alte/abgeleitete ID geschickt hat.
         rid = _ref_id_von(refs[idx])
         neu = dict(refs[idx])
-        if embedding:
+        vektor_erneuert = bool(embedding)
+        if vektor_erneuert:
             neu["embedding"] = embedding
         neu["bbox"] = [float(v) for v in bbox]
         if bbox_norm:
@@ -513,7 +519,10 @@ def referenz_bbox_aktualisieren(name: str, ref_id: str, bbox,
         _speichern(personen)
         return {"ok": True, "name": p.get("name"), "ref_id": rid,
                 "verbleibend": len(refs), "bbox": neu["bbox"],
-                "bbox_norm": neu.get("bbox_norm") or []}
+                "bbox_norm": neu.get("bbox_norm") or [],
+                # Punkt 0: nur True, wenn die GESPEICHERTE Referenz wirklich
+                # einen neuen Vektor traegt (nicht nur "Aufruf hat geklappt").
+                "vektor_erneuert": vektor_erneuert}
 
 
 def person_entfernen(name: str) -> bool:

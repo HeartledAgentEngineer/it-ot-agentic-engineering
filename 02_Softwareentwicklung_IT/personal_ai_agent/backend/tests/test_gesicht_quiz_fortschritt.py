@@ -318,3 +318,130 @@ def test_router_loeschen_entfernt_referenz(bild):
     r = router.referenz_loeschen("Anna", ziel["ref_id"])
     assert r["ok"] is True and r["verbleibend"] == 1
     assert gesichter_service.person_finden("Anna") is not None   # Person bleibt
+
+
+# ---------------------------------------------------------------------------
+# (4) Punkt 0 (16.10.2026): „vektor_erneuert" ehrlich melden
+#     Der Befundlauf hat drei Wege belegt, auf denen der Aufruf ok meldete,
+#     waehrend der ALTE Vektor gueltig blieb: A (Engine antwortet nicht),
+#     B (Ausschnitt-Einbettung scheitert), D (Referenz ohne Bildpfad).
+# ---------------------------------------------------------------------------
+
+def _roh_vektoren(name):
+    """Vektoren der Referenzen, wie sie in der GESPEICHERTEN Datei stehen."""
+    with open(gesichter_service.KATALOG_DATEI, "r", encoding="utf-8") as f:
+        roh = json.load(f)
+    for p in roh.get("personen", []):
+        if (p.get("name") or "").strip().lower() == name.strip().lower():
+            return [r.get("embedding") for r in (p.get("referenzen") or [])]
+    return []
+
+
+def _body(router):
+    return router.ReferenzBboxBody(bbox=[12.0, 24.0, 34.0, 44.0],
+                                   bbox_norm=[0.12, 0.12, 0.34, 0.22])
+
+
+def test_bbox_fall_c_normalfall_meldet_und_schreibt_neuen_vektor(bild, monkeypatch):
+    """Fall C: neuer Vektor wird gemeldet UND liegt danach in der Katalogdatei."""
+    from app.router import gesichter as router
+    _person_mit_zwei_referenzen(bild)
+    assert [1.0, 0.0, 0.0] in _roh_vektoren("Anna")        # Ausgangsstand
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+    monkeypatch.setattr(face_service, "verfuegbar", lambda: True)
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox",
+                        lambda pfad, bbox: [0.4, 0.4, 0.2])
+
+    r = router.referenz_bbox_aendern("Anna", ziel["ref_id"], _body(router))
+    assert r["ok"] is True
+    assert r["vektor_erneuert"] is True
+    assert r["vektor_grund"] == ""
+    # Wirkungsnachweis: die GESPEICHERTE Datei traegt den neuen Vektor, der
+    # alte ist weg (nicht nur "Aufruf hat geklappt").
+    vektoren = _roh_vektoren("Anna")
+    assert [0.4, 0.4, 0.2] in vektoren
+    assert [1.0, 0.0, 0.0] not in vektoren
+
+
+def test_bbox_fall_a_engine_antwortet_nicht(bild, monkeypatch):
+    """Fall A: ohne Engine bleibt der alte Vektor — der Server sagt das auch."""
+    from app.router import gesichter as router
+    _person_mit_zwei_referenzen(bild)
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+    monkeypatch.setattr(face_service, "verfuegbar", lambda: False)
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox",
+                        lambda *a, **k: pytest.fail("ohne Engine darf nicht eingebettet werden"))
+
+    r = router.referenz_bbox_aendern("Anna", ziel["ref_id"], _body(router))
+    assert r["ok"] is True                     # Rahmen selbst wurde gespeichert
+    assert r["vektor_erneuert"] is False
+    assert "Engine" in r["vektor_grund"]
+    assert [1.0, 0.0, 0.0] in _roh_vektoren("Anna")        # alter Vektor bleibt
+
+
+def test_bbox_fall_b_einbettung_scheitert(bild, monkeypatch):
+    """Fall B: Engine da, liefert aber keinen Vektor -> ehrlicher Grund."""
+    from app.router import gesichter as router
+    _person_mit_zwei_referenzen(bild)
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+    monkeypatch.setattr(face_service, "verfuegbar", lambda: True)
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox", lambda pfad, bbox: None)
+
+    r = router.referenz_bbox_aendern("Anna", ziel["ref_id"], _body(router))
+    assert r["ok"] is True
+    assert r["vektor_erneuert"] is False
+    assert "Einbettung" in r["vektor_grund"]
+    assert [1.0, 0.0, 0.0] in _roh_vektoren("Anna")
+
+
+def test_bbox_fall_d_referenz_ohne_bildpfad(bild, monkeypatch):
+    """Fall D: ohne Bildpfad ist kein Ausschnitt einbettbar — Grund statt Behauptung."""
+    from app.router import gesichter as router
+    gesichter_service.person_speichern(
+        name="Bea",
+        referenzen=[{"embedding": [0.1, 0.2, 0.3], "jahr": 2021, "bbox": list(BBOX)}],
+    )
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+    monkeypatch.setattr(face_service, "verfuegbar", lambda: True)
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox",
+                        lambda *a, **k: pytest.fail("ohne Bildpfad darf nicht eingebettet werden"))
+
+    r = router.referenz_bbox_aendern("Bea", ziel["ref_id"], _body(router))
+    assert r["ok"] is True
+    assert r["vektor_erneuert"] is False
+    assert "Bildpfad" in r["vektor_grund"]
+    assert [0.1, 0.2, 0.3] in _roh_vektoren("Bea")
+
+
+def test_bbox_ohne_vektorwunsch_meldet_keinen_neuen_vektor(bild, monkeypatch):
+    """Gegenprobe: `embedding_erneuern=False` schreibt keinen Vektor und sagt es."""
+    from app.router import gesichter as router
+    _person_mit_zwei_referenzen(bild)
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+    monkeypatch.setattr(face_service, "verfuegbar", lambda: True)
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox",
+                        lambda *a, **k: pytest.fail("ohne Wunsch darf nicht eingebettet werden"))
+
+    body = router.ReferenzBboxBody(bbox=[12.0, 24.0, 34.0, 44.0],
+                                   embedding_erneuern=False)
+    r = router.referenz_bbox_aendern("Anna", ziel["ref_id"], body)
+    assert r["vektor_erneuert"] is False
+    assert "nicht angefordert" in r["vektor_grund"]
+    assert [1.0, 0.0, 0.0] in _roh_vektoren("Anna")
+
+
+def test_bbox_service_meldet_vektor_erneuert_aus_der_speicherung(bild):
+    """Auch der Service allein sagt die Wahrheit (ohne Router)."""
+    _person_mit_zwei_referenzen(bild)
+    ziel = gesichter_service.referenzen_auflisten()["personen"][0]["referenzen"][0]
+
+    ohne = gesichter_service.referenz_bbox_aktualisieren(
+        "Anna", ziel["ref_id"], [12.0, 24.0, 34.0, 44.0])
+    assert ohne["ok"] is True and ohne["vektor_erneuert"] is False
+    assert [1.0, 0.0, 0.0] in _roh_vektoren("Anna")
+
+    mit = gesichter_service.referenz_bbox_aktualisieren(
+        "Anna", ziel["ref_id"], [12.0, 24.0, 34.0, 44.0],
+        embedding=[0.7, 0.1, 0.2])
+    assert mit["ok"] is True and mit["vektor_erneuert"] is True
+    assert [0.7, 0.1, 0.2] in _roh_vektoren("Anna")

@@ -183,17 +183,39 @@ def referenz_bbox_aendern(name: str, ref_id: str, body: ReferenzBboxBody):
         raise HTTPException(status_code=404, detail="Referenz nicht gefunden")
 
     embedding = None
-    if body.embedding_erneuern:
+    vektor_grund = ""
+    if not body.embedding_erneuern:
+        vektor_grund = "Vektor-Aktualisierung nicht angefordert"
+    else:
         from app.services import face_service
         bild_pfad = ziel.get("bild_pfad") or ""
-        if bild_pfad and face_service.verfuegbar():
+        if not bild_pfad:
+            # Fehlerfall D des Befundlaufs: Referenz ohne Bildpfad — der
+            # Ausschnitt laesst sich nicht einbetten, der alte Vektor bleibt.
+            vektor_grund = ("Referenz hat keinen Bildpfad — der Ausschnitt kann "
+                            "nicht neu eingebettet werden")
+        elif not face_service.verfuegbar():
+            # Fehlerfall A des Befundlaufs.
+            vektor_grund = "Gesichts-Engine (Debian) antwortet nicht"
+        else:
             embedding = face_service.embedding_fuer_bbox(bild_pfad, body.bbox)
+            if not embedding:
+                # Fehlerfall B des Befundlaufs.
+                vektor_grund = ("Ausschnitt-Einbettung fehlgeschlagen — die "
+                                "Engine lieferte keinen Vektor")
 
     res = gesichter_service.referenz_bbox_aktualisieren(
         name, ref_id, body.bbox, embedding=embedding,
         bbox_norm=body.bbox_norm or None)
     if not res.get("ok"):
         raise HTTPException(status_code=404, detail=res.get("fehler", "nicht gefunden"))
+    # Punkt 0 (16.10.2026): der Server behauptet nur dann einen neuen Vektor,
+    # wenn die GESPEICHERTE Referenz ihn wirklich traegt. Sonst steht der ehrliche
+    # Grund dabei, damit die Oberflaeche nicht "gespeichert" meldet, waehrend der
+    # alte Vektor gueltig bleibt.
+    res["vektor_erneuert"] = bool(res.get("vektor_erneuert"))
+    res["vektor_grund"] = "" if res["vektor_erneuert"] else (
+        vektor_grund or "kein neuer Vektor gespeichert")
     return res
 
 
