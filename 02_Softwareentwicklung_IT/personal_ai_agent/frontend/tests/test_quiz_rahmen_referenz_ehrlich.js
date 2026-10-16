@@ -39,8 +39,14 @@ function extractFn(name) {
 const WEG_A_BEHAUPTUNG = "'✓ Rahmen in der Referenz von '";
 const WEG_A_ZUSTAND = 'if (d.vektor_erneuert)';
 const WEG_A_GRUND = 'd.vektor_grund';
-const WEG_B_NEU = '— Zuordnung gespeichert; ob ein neuer Vektor entstand, meldet dieser Weg nicht.';
-const WEG_B_ALT = '— Rahmen + Referenz gespeichert.';
+const WEG_B_ALT = '— Zuordnung gespeichert; ob ein neuer Vektor entstand, meldet dieser Weg nicht.';
+// A3 (16.10.2026): der Quiz-Weg meldet jetzt selbst, OB eine Referenz entstand und
+// WOZU die Koordinaten gehoeren. Behauptet wird sie nur beim GESENDETEN Rahmen.
+const WEG_B_ZUSTAND = "d.referenz_geschrieben && d.rahmen_gespeichert === 'gesendet'";
+const WEG_B_BEHAUPTUNG = 'der verschobene Rahmen liegt als Referenz im Datenbestand.';
+const WEG_B_RUECKFALL = 'else if (d.referenz_geschrieben)';
+const WEG_B_KEINE = '— KEINE neue Referenz: ';
+const WEG_B_ALT2 = '— Rahmen + Referenz gespeichert.';
 
 let fails = 0;
 const ck = (name, ist, soll) => {
@@ -65,14 +71,20 @@ function pruefeRahmenMeldungen(fnBody) {
     fehler.push('Gesichter-Weg: Behauptung steht nicht hinter dem Zustand (koennte vorher behaupten)');
   }
 
-  // Gruppen-/Quiz-Weg: keine Referenz-Behauptung mehr.
-  if (fnBody.indexOf(WEG_B_ALT) !== -1) fehler.push('Gruppen-Weg behauptet weiter "Rahmen + Referenz gespeichert"');
+  // Gruppen-/Quiz-Weg: keine Referenz-Behauptung ohne geschriebene Referenz.
+  if (fnBody.indexOf(WEG_B_ALT2) !== -1) fehler.push('Gruppen-Weg behauptet weiter "Rahmen + Referenz gespeichert"');
   if (/Referenz gespeichert/.test(fnBody)) fehler.push('Gruppen-Weg: Zeichenkette "Referenz gespeichert" noch im Code');
-  if (fnBody.indexOf(WEG_B_NEU) === -1) fehler.push('Gruppen-Weg: neue ehrliche Meldung fehlt');
+  if (fnBody.indexOf(WEG_B_ALT) !== -1) fehler.push('Gruppen-Weg: A-Formulierung ("meldet dieser Weg nicht") noch im Code');
+  if (fnBody.indexOf(WEG_B_ZUSTAND) === -1) fehler.push('Gruppen-Weg: Zustand aus A3 (' + WEG_B_ZUSTAND + ') fehlt');
+  if (fnBody.indexOf(WEG_B_RUECKFALL) === -1) fehler.push('Gruppen-Weg: Rueckfall-Zweig (erkannter Rahmen) fehlt');
+  if (fnBody.indexOf(WEG_B_KEINE) === -1) fehler.push('Gruppen-Weg: ehrlicher "KEINE neue Referenz"-Zweig fehlt');
 
-  // Gegenprobe im Text: in der Quiz-Meldung darf das Wort "Referenz" nicht vorkommen.
-  const quizMeldung = (fnBody.match(/melde\('[^']*Zuordnung gespeichert[^']*'/) || [''])[0];
-  if (/Referenz/.test(quizMeldung)) fehler.push('Gruppen-Weg: Meldung nennt weiter eine Referenz');
+  // Die Behauptung MUSS HINTER dem A3-Zustand stehen (nur im gesendeten Zweig).
+  const posZustandB = fnBody.indexOf(WEG_B_ZUSTAND);
+  const posBehauptungB = fnBody.indexOf(WEG_B_BEHAUPTUNG);
+  if (!(posZustandB >= 0 && posBehauptungB > posZustandB)) {
+    fehler.push('Gruppen-Weg: Behauptung steht nicht hinter dem A3-Zustand');
+  }
 
   return fehler;
 }
@@ -88,8 +100,9 @@ console.log('\nA) Gesichter-Weg: Referenz nur, wenn der Vektor wirklich neu ist'
 console.log('\nB) Gruppen-/Quiz-Weg: ehrliche Meldung, kein Referenz-Versprechen');
 {
   const body = extractFn('speichereEditorRahmen') || '';
-  ck('die alte Meldung ist weg', body.indexOf(WEG_B_ALT), -1);
-  ck('die neue Meldung ist da', body.indexOf(WEG_B_NEU) !== -1, true);
+  ck('die A-Formulierung ist weg', body.indexOf(WEG_B_ALT), -1);
+  ck('der A3-Zustand ist da', body.indexOf(WEG_B_ZUSTAND) !== -1, true);
+  ck('ehrlicher Zweig ohne Referenz ist da', body.indexOf(WEG_B_KEINE) !== -1, true);
 }
 
 console.log('\nC) Gegenprobe: die ALTE Fassung faellt durch dieselben Pruefungen');
@@ -103,6 +116,7 @@ console.log('\nC) Gegenprobe: die ALTE Fassung faellt durch dieselben Pruefungen
   const fehler = pruefeRahmenMeldungen(alt);
   ck('alte Fassung wird beanstandet (Zahl > 0)', fehler.length > 0, true);
   ck('alte Fassung: Zustand aus A0 fehlt', fehler.some((f) => f.indexOf('Zustand aus A0') !== -1), true);
+  ck('alte Fassung: Zustand aus A3 fehlt', fehler.some((f) => f.indexOf('Zustand aus A3') !== -1), true);
   ck('alte Fassung: Referenz-Behauptung im Gruppen-Weg erkannt',
      fehler.some((f) => f.indexOf('behauptet weiter') !== -1 || f.indexOf('"Referenz gespeichert"') !== -1), true);
 }

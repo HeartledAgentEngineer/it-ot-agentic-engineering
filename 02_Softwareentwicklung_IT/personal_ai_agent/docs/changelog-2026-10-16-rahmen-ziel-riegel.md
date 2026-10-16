@@ -97,3 +97,15 @@ verlangt jetzt „nicht älter als `20261016D`“.
   Begründung, mit der A gelandet ist. Strenger Buchstabe und Absicht des Plans
   bleiben damit gewahrt (keine Selbstfreigabe, keine Substanzänderung).
 - Am PC nicht abnehmbar: die Wirkung im Feld zeigt sich erst am Gerät (Handy-Modus).
+
+## Nachtrag 16.10.2026, 13:2x — A3 ist gebaut, der erste Grenzen-Punkt entfällt
+
+**A3** ist umgesetzt, getestet und committet: `beantworte_runde` speichert jetzt
+den **gesendeten** Rahmen mit einem Vektor für **genau diesen** Ausschnitt und
+meldet `referenz_geschrieben`, `rahmen_gespeichert` (`gesendet`/`erkannt`) sowie
+`grund`; die Oberfläche behauptet eine Referenz nur noch bei `gesendet` und nennt
+sonst den ehrlichen Grund. Einzelheiten, Belege und Prüfläufe:
+`changelog-2026-10-16-gesendeter-rahmen.md`. Der Plan ist seit 16.10. **13:18 als
+Fassung 13 freigegeben** (Urteil FREI, Protokoll
+`.hermes/pruefkreis/rahmeneditor-detailbild-plan-fassung13.md`) — die
+Fassung-7-Angabe oben ist historisch.

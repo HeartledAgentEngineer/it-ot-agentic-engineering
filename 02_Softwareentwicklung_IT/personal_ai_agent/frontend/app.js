@@ -4159,11 +4159,23 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
             if (d && d.ok) {
                 zurueck('✓ gespeichert');
                 const extra = d.uebersprungen ? ' (war bereits bestätigt)' : '';
-                // Schritt A (16.10.2026): dieser Weg (quiz/antwort OHNE manuell_bbox →
-                // beantworte_runde) gibt KEIN vektor_erneuert zurueck — also darf er
-                // auch keine Referenz behaupten. Ehrlich ist nur die Zuordnung.
-                melde('✓ ' + person + ' übernommen' + extra +
-                      ' — Zuordnung gespeichert; ob ein neuer Vektor entstand, meldet dieser Weg nicht.', true);
+                // Schritt A3 (16.10.2026): dieser Weg (quiz/antwort OHNE manuell_bbox →
+                // beantworte_runde) meldet jetzt selbst, OB eine Referenz entstand
+                // (referenz_geschrieben) und WOZU die gespeicherten Koordinaten gehören
+                // (rahmen_gespeichert: 'gesendet' = Nutzer-Rahmen, 'erkannt' = Detektor).
+                // Eine Referenz wird nur beim GESENDETEN Rahmen behauptet.
+                if (d.referenz_geschrieben && d.rahmen_gespeichert === 'gesendet') {
+                    melde('✓ ' + person + ' übernommen' + extra +
+                          ' — der verschobene Rahmen liegt als Referenz im Datenbestand.', true);
+                } else if (d.referenz_geschrieben) {
+                    melde('✓ ' + person + ' übernommen' + extra +
+                          ' — Referenz mit dem ERKANNTEN Rahmen (' +
+                          (d.grund || 'gesendeter Rahmen nicht einbettbar') + ').', true);
+                } else {
+                    melde('✓ ' + person + ' übernommen' + extra +
+                          ' — KEINE neue Referenz: ' +
+                          (d.grund || 'kein neuer Vektor gespeichert'), false);
+                }
                 setTimeout(() => zurueck('💾 Speichern'), 1800);
                 // Einzelgesicht: die Runde ist damit abgeschlossen (kein erneutes
                 // Aufrollen der bereits bestätigten Zuordnung).

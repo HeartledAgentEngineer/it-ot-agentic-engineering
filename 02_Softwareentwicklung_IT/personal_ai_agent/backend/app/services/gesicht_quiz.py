@@ -693,31 +693,51 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
                 "bereits_bestaetigt": True, "uebersprungen": True,
                 "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
                 "hinzugefuegt": False, "jahr": None,
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "Region bereits bestaetigt - keine neue Referenz",
                 "bereits_bestaetigt_namen": list(_bestaetigte_gesichter(bild_pfad))}
 
-    # Erkennung robust (ein Wiederholungsversuch) — die Detektion ist auf
-    # Termux wechselhaft; ein leerer Lauf liess die Antwort sonst sporadisch
-    # fehlschlagen und das Bild NICHT als gesehen markieren (Quiz begann von vorn).
-    gesichter = _gesichter_robust(bild_pfad)
-    dom = _gesicht_zu_bbox(gesichter, bbox) if gesichter else None
-    if dom and dom.get("embedding"):
-        neue_emb = dom["embedding"]
-        neue_bbox = dom.get("bbox") or []
-    else:
-        # Fallback: GENAU den (ggf. korrigierten) Rahmen einbetten, den der
-        # Nutzer bestaetigt hat — statt die Antwort zu verwerfen.
-        if not (bbox and len(bbox) >= 4):
-            return {"ok": False, "fehler": "kein Gesicht im Bild erkannt"}
-        if not face_service.verfuegbar():
-            return {"ok": False, "fehler": "Face-Engine nicht verfuegbar"}
-        emb_fallback = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
-        if not emb_fallback:
-            return {"ok": False, "fehler": "kein brauchbares Gesicht"}
-        neue_emb = emb_fallback
-        neue_bbox = [float(v) for v in bbox]
+    # A3 (16.10.2026, Planfassung 13 freigegeben): Der GESENDETE Rahmen GEWINNT.
+    # Gespeichert wird die Box, die der Nutzer bestaetigt hat, und der Vektor
+    # wird fuer GENAU diesen Ausschnitt gerechnet (embed_crop). Vorher uebernahm
+    # der Normalzweig Rahmen UND Vektor des Detektors — dann stand Sebastians
+    # verschobene Position nicht im Datenbestand ("Position ist nicht im
+    # Datenbestand"), obwohl die Antwort ok meldete.
+    gesendet = bool(bbox and len(bbox) >= 4)
+    neue_emb = None
+    neue_bbox = []
+    rahmen_gespeichert = None
+    if gesendet and face_service.verfuegbar():
+        neue_emb = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
+        if neue_emb:
+            neue_bbox = [float(v) for v in bbox]
+            rahmen_gespeichert = "gesendet"
+    if neue_emb is None:
+        # Erkennung robust (ein Wiederholungsversuch) — die Detektion ist auf
+        # Termux wechselhaft; ein leerer Lauf liess die Antwort sonst sporadisch
+        # fehlschlagen und das Bild NICHT als gesehen markieren (Quiz begann von vorn).
+        gesichter = _gesichter_robust(bild_pfad)
+        dom = _gesicht_zu_bbox(gesichter, bbox) if gesichter else None
+        if dom and dom.get("embedding"):
+            neue_emb = dom["embedding"]
+            neue_bbox = dom.get("bbox") or []
+            rahmen_gespeichert = "erkannt"
+        elif gesendet:
+            if not face_service.verfuegbar():
+                return {"ok": False, "fehler": "Face-Engine nicht verfuegbar",
+                        "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                        "grund": "Face-Engine nicht verfuegbar"}
+            return {"ok": False, "fehler": "kein brauchbares Gesicht",
+                    "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                    "grund": "Ausschnitt-Einbettung lieferte keinen Vektor"}
+        else:
+            return {"ok": False, "fehler": "kein Gesicht im Bild erkannt",
+                    "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                    "grund": "kein Gesicht im Bild erkannt"}
 
     neu = False
     hinzugefuegt = True
+    referenz_geschrieben = True
     vorhanden = None
     for p in gesichter_service.liste_personen():
         if (p.get("name") or "").strip().lower() == name.lower():
@@ -763,6 +783,7 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
         zu_alt = min((face_service._cosinus_distanz(neue_emb, r) for r in refs_emb if r),
                      default=None)
         hinzugefuegt = zu_alt is None or zu_alt > 0.05
+        referenz_geschrieben = bool(hinzugefuegt)
         if hinzugefuegt:
             bestehende = bestehende + [neue_ref]
             gesichter_service.person_speichern(**basis, referenzen=bestehende)
@@ -804,8 +825,22 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
     except Exception:
         pass
 
+    # A3: ehrlicher Grund, wenn KEINE neue Referenz entstanden ist bzw. wenn der
+    # gesendete Rahmen nicht einbettbar war und der Detektor-Rahmen als Rueckfall
+    # gespeichert wurde. Die Oberflaeche behauptet eine Referenz nur bei
+    # referenz_geschrieben + rahmen_gespeichert == "gesendet".
+    if not referenz_geschrieben:
+        grund = "Cosinus-Distanz unter 0,05 - keine neue Referenz"
+    elif rahmen_gespeichert == "erkannt" and gesendet:
+        grund = "Ausschnitt-Einbettung nicht moeglich - Detektor-Rahmen als Rueckfall"
+    else:
+        grund = ""
+
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen,
             "jahr": jahr, "hinzugefuegt": hinzugefuegt,
+            "referenz_geschrieben": referenz_geschrieben,
+            "rahmen_gespeichert": rahmen_gespeichert,
+            "grund": grund,
             "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad))}
 
 
@@ -826,13 +861,21 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
     beziehung = (beziehung or "").strip()
     beschreibung = (beschreibung or "").strip()
     if not name:
-        return {"ok": False, "fehler": "keine Person angegeben"}
+        return {"ok": False, "fehler": "keine Person angegeben",
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "keine Person angegeben"}
     if not bild_pfad or not os.path.exists(bild_pfad):
-        return {"ok": False, "fehler": "Bild nicht gefunden"}
+        return {"ok": False, "fehler": "Bild nicht gefunden",
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "Bild nicht gefunden"}
     if not bbox or len(bbox) < 4:
-        return {"ok": False, "fehler": "kein Rahmen (bbox) angegeben"}
+        return {"ok": False, "fehler": "kein Rahmen (bbox) angegeben",
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "kein Rahmen (bbox) angegeben"}
     if not face_service.verfuegbar():
-        return {"ok": False, "fehler": "Face-Engine nicht verfügbar"}
+        return {"ok": False, "fehler": "Face-Engine nicht verfügbar",
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "Face-Engine nicht verfügbar"}
 
     # Dieselbe Region fuer dieselbe Person schon bestaetigt -> nicht erneut
     # einlernen (idempotent, Fix 2026-09-15).
@@ -846,12 +889,16 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         return {"ok": True, "person": name, "ist_neu": False,
                 "bereits_bestaetigt": True, "uebersprungen": True,
                 "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
-                "jahr": None}
+                "jahr": None,
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "Region bereits bestaetigt - keine neue Referenz"}
 
     emb = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
     if not emb:
         return {"ok": False,
-                "fehler": "im markierten Ausschnitt wurde kein Gesicht erkannt"}
+                "fehler": "im markierten Ausschnitt wurde kein Gesicht erkannt",
+                "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "grund": "Ausschnitt-Einbettung lieferte keinen Vektor"}
 
     neu = False
     vorhanden = None
@@ -869,6 +916,7 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
     neue_ref = {"embedding": emb, "jahr": jahr, "bild_pfad": bild_pfad,
                 "bbox": [float(v) for v in bbox],
                 "bbox_norm": _bbox_zu_norm(bbox, bild_pfad)}
+    referenz_geschrieben = True
     if vorhanden is None:
         gesichter_service.person_speichern(name=name, rolle=rolle,
                                            beziehung=beziehung, beschreibung=beschreibung,
@@ -895,6 +943,8 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         if zu_alt is None or zu_alt > 0.05:
             bestehende = bestehende + [neue_ref]
             gesichter_service.person_speichern(**basis, referenzen=bestehende)
+        else:
+            referenz_geschrieben = False
         referenzen = len(bestehende)
 
     try:
@@ -926,6 +976,10 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
 
     return {"ok": True, "person": name, "ist_neu": neu, "referenzen": referenzen,
             "jahr": jahr, "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad)),
+            "referenz_geschrieben": referenz_geschrieben,
+            "rahmen_gespeichert": "gesendet" if referenz_geschrieben else None,
+            "grund": "" if referenz_geschrieben else
+                     "Cosinus-Distanz unter 0,05 - keine neue Referenz",
             "bereits_bestaetigt_regionen": _bestaetigte_regionen(bild_pfad)}
 
 

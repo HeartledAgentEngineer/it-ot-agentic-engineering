@@ -76,8 +76,13 @@ def erkennung(monkeypatch):
             {"bbox": list(BBOX2), "score": 0.8, "embedding": [0.0, 1.0, 0.0]},
         ],
     )
-    monkeypatch.setattr(face_service, "embedding_fuer_bbox",
-                        lambda pfad, bbox: [0.9, 0.1, 0.0])
+    # Ausschnitt-Einbettung: liefert wie in echt fuer VERSCHIEDENE Rahmen
+    # verschiedene Vektoren. Seit A3 (16.10.) ist dieser Weg der primaere, sobald
+    # ein Rahmen mitgesendet wird — vorher gewann immer der Detektor-Vektor.
+    def _emb_fuer_bbox(pfad, bbox):
+        return [0.9, 0.1, 0.0] if list(bbox) == list(BBOX) else [0.1, 0.9, 0.0]
+
+    monkeypatch.setattr(face_service, "embedding_fuer_bbox", _emb_fuer_bbox)
     yield
 
 

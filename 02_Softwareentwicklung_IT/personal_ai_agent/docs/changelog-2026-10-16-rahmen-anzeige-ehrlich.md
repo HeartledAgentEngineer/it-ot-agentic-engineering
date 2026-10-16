@@ -88,3 +88,16 @@ entsteht nur bei passendem Ziel, und ohne Ziel wird gar nichts gesendet. Der in
 der ersten Fassung dieses Dokuments genannte Fehler (Quiz-Weg speichert den
 **erkannten** statt den **verschobenen** Rahmen) bleibt offen und gehört zu
 **A3**.
+
+## Nachtrag 16.10.2026, 13:2x — A3 ist gebaut; zwei Sätze oben gelten so nicht mehr
+
+- **„dieser Weg gibt kein `vektor_erneuert` zurück und kann die Frage gar nicht
+  beantworten"** gilt nicht mehr: `beantworte_runde` meldet seit A3
+  `referenz_geschrieben`, `rahmen_gespeichert` (`gesendet`/`erkannt`) und `grund`
+  — und der Quiz-Weg speichert den **gesendeten** Rahmen (nicht mehr den des
+  Detektors). Die Meldung lautet „✓ … übernommen … — der verschobene Rahmen liegt
+  als Referenz im Datenbestand."
+- **„behebt nicht, dass der Quiz-/Gruppenweg den erkannten statt den verschobenen
+  Rahmen speichert"** ist damit erledigt (A3).
+- Einzelheiten, Belege und Prüfläufe: `changelog-2026-10-16-gesendeter-rahmen.md`.
+  Cache-Bump seit A3: `?v=20261016E`.
