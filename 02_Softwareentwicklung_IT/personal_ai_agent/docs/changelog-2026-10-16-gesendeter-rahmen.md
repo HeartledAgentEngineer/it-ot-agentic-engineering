@@ -42,6 +42,7 @@ Detektor-Rahmen.
   | `referenz_geschrieben` | `true` nur, wenn in diesem Aufruf wirklich eine Referenz geschrieben wurde (Wahrheit aus der Speicherung) |
   | `rahmen_gespeichert` | `"gesendet"` (Nutzer-Rahmen) · `"erkannt"` (Detektor-Rahmen) · `null` (keine Referenz) |
   | `grund` | Klartext, wenn **keine** Referenz entstand oder ein Rückfall nötig war |
+  | `cosinus_distanz` | **Nachtrag 16.10. (Schritt B):** Distanz des neuen Vektors zur nächsten vorhandenen Referenz derselben Person, auf 4 Stellen gerundet; `null`, wenn nicht verglichen wurde (erste Referenz, Frühausstieg, Fehler) |
 
   Gründe, die vorher „still" waren: Region bereits bestätigt (Frühausstieg),
   Cosinus-Distanz unter 0,05, Face-Engine nicht verfügbar, Ausschnitt-Einbettung
@@ -87,3 +88,6 @@ Detektor-Rahmen.
 - Die Schritte **B–I** des Plans (Rahmen neu vektorisieren, Mehrfachbearbeitung,
   PC-Weg, Rahmen von Hand, Bedienfeld überall, Ziel-Personen-Menü, Umbenennen,
   Neuerkennung) sind weiterhin **nicht** gebaut.
+  **Nachtrag 16.10.:** **Schritt B** ist inzwischen gebaut (die Cosinus-Distanz
+  steht im Antwort-Protokoll, siehe `changelog-2026-10-16-rahmen-distanz-protokoll.md`)
+  — offen sind **C–I**.

@@ -694,6 +694,8 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
                 "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
                 "hinzugefuegt": False, "jahr": None,
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                # Schritt B: kein Vergleich gerechnet (Fruehausstieg vor der Erkennung)
+                "cosinus_distanz": None,
                 "grund": "Region bereits bestaetigt - keine neue Referenz",
                 "bereits_bestaetigt_namen": list(_bestaetigte_gesichter(bild_pfad))}
 
@@ -726,18 +728,25 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
             if not face_service.verfuegbar():
                 return {"ok": False, "fehler": "Face-Engine nicht verfuegbar",
                         "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                        "cosinus_distanz": None,
                         "grund": "Face-Engine nicht verfuegbar"}
             return {"ok": False, "fehler": "kein brauchbares Gesicht",
                     "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                    "cosinus_distanz": None,
                     "grund": "Ausschnitt-Einbettung lieferte keinen Vektor"}
         else:
             return {"ok": False, "fehler": "kein Gesicht im Bild erkannt",
                     "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                    "cosinus_distanz": None,
                     "grund": "kein Gesicht im Bild erkannt"}
 
     neu = False
     hinzugefuegt = True
     referenz_geschrieben = True
+    # Schritt B (16.10.2026): die Cosinus-Distanz zum naechsten vorhandenen
+    # Referenz-Vektor wird mitgemeldet (Protokoll statt Behauptung) — None,
+    # wenn es keinen Vergleich gab (neue Person, Fruehausstieg, Fehler).
+    zu_alt = None
     vorhanden = None
     for p in gesichter_service.liste_personen():
         if (p.get("name") or "").strip().lower() == name.lower():
@@ -840,6 +849,7 @@ def beantworte_runde(bild_pfad: str, person: str, ist_neu: bool, rolle: str = ""
             "jahr": jahr, "hinzugefuegt": hinzugefuegt,
             "referenz_geschrieben": referenz_geschrieben,
             "rahmen_gespeichert": rahmen_gespeichert,
+            "cosinus_distanz": (round(zu_alt, 4) if zu_alt is not None else None),
             "grund": grund,
             "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad))}
 
@@ -863,18 +873,22 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
     if not name:
         return {"ok": False, "fehler": "keine Person angegeben",
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "keine Person angegeben"}
     if not bild_pfad or not os.path.exists(bild_pfad):
         return {"ok": False, "fehler": "Bild nicht gefunden",
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "Bild nicht gefunden"}
     if not bbox or len(bbox) < 4:
         return {"ok": False, "fehler": "kein Rahmen (bbox) angegeben",
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "kein Rahmen (bbox) angegeben"}
     if not face_service.verfuegbar():
         return {"ok": False, "fehler": "Face-Engine nicht verfügbar",
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "Face-Engine nicht verfügbar"}
 
     # Dieselbe Region fuer dieselbe Person schon bestaetigt -> nicht erneut
@@ -891,6 +905,7 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
                 "referenzen": len(gesichter_service._refs_of(vorhanden_jetzt)) if vorhanden_jetzt else 0,
                 "jahr": None,
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "Region bereits bestaetigt - keine neue Referenz"}
 
     emb = face_service.embedding_fuer_bbox(os.path.abspath(bild_pfad), bbox)
@@ -898,6 +913,7 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
         return {"ok": False,
                 "fehler": "im markierten Ausschnitt wurde kein Gesicht erkannt",
                 "referenz_geschrieben": False, "rahmen_gespeichert": None,
+                "cosinus_distanz": None,
                 "grund": "Ausschnitt-Einbettung lieferte keinen Vektor"}
 
     neu = False
@@ -917,6 +933,7 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
                 "bbox": [float(v) for v in bbox],
                 "bbox_norm": _bbox_zu_norm(bbox, bild_pfad)}
     referenz_geschrieben = True
+    zu_alt = None   # Schritt B: Cosinus-Distanz zum naechsten Referenz-Vektor
     if vorhanden is None:
         gesichter_service.person_speichern(name=name, rolle=rolle,
                                            beziehung=beziehung, beschreibung=beschreibung,
@@ -978,6 +995,7 @@ def ergaenze_person_mit_bbox(bild_pfad: str, person: str, ist_neu: bool,
             "jahr": jahr, "bereits_bestaetigt": list(_bestaetigte_gesichter(bild_pfad)),
             "referenz_geschrieben": referenz_geschrieben,
             "rahmen_gespeichert": "gesendet" if referenz_geschrieben else None,
+            "cosinus_distanz": (round(zu_alt, 4) if zu_alt is not None else None),
             "grund": "" if referenz_geschrieben else
                      "Cosinus-Distanz unter 0,05 - keine neue Referenz",
             "bereits_bestaetigt_regionen": _bestaetigte_regionen(bild_pfad)}
