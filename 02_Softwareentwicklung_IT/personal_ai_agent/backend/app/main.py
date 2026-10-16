@@ -45,6 +45,7 @@ from app.router import (
     gruppen,
     diagnose,
     laeuft,
+    system_update,
 )
 
 # Configure logging
@@ -259,6 +260,10 @@ app.include_router(diagnose.router, dependencies=[Depends(auth.require_api_key)]
 # Rein lesend, fehlertolerant: fehlende Quellen ergeben eine leere Liste.
 # Die Oberflaeche pollt die Route fuer die dauerhafte Leiste oben.
 app.include_router(laeuft.router, dependencies=[Depends(auth.require_api_key)])
+# Update und Neustart (2026-10-16): nur über HTTPS und nach derselben
+# API-Key-/Sitzungs-Abhängigkeit wie die übrigen /api-Routen. Der Endpunkt
+# startet sein fest verdrahtetes Termux-Skript erst nach dem Senden der Antwort.
+app.include_router(system_update.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

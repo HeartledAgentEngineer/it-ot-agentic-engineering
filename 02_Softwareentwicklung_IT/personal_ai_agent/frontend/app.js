@@ -174,6 +174,8 @@ const dom = {
     selbsttestText: document.getElementById('selbsttest-text'),
     selbsttestHint: document.getElementById('selbsttest-hint'),
     selbsttestReload: document.getElementById('selbsttest-reload'),
+    systemUpdateBtn: document.getElementById('system-update-btn'),
+    systemUpdateStatus: document.getElementById('system-update-status'),
     webBtn: document.getElementById('web-btn'),
     statusIndicator: document.getElementById('status-indicator'),
     statusText: document.querySelector('.status-text'),
@@ -7598,6 +7600,37 @@ window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
     if (dom.selbsttestSheet) {
         dom.selbsttestSheet.addEventListener('click', (e) => {
             if (e.target === dom.selbsttestSheet) schliesseSelbsttestBlatt();
+        });
+    }
+    if (dom.systemUpdateBtn) {
+        dom.systemUpdateBtn.addEventListener('click', async () => {
+            const meldung = 'Stand wird geholt, Server startet neu — die Seite ist gleich wieder da.';
+            const status = dom.systemUpdateStatus;
+            dom.systemUpdateBtn.disabled = true;
+            if (status) {
+                status.hidden = false;
+                status.textContent = meldung;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/api/system/update`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                });
+                const daten = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (status) status.textContent = 'Update/Neustart nicht gestartet: '
+                        + (daten.detail || `HTTP ${res.status}`);
+                    dom.systemUpdateBtn.disabled = false;
+                    return;
+                }
+                if (status) status.textContent = daten.message || meldung;
+                // Bei Annahme bleibt der Knopf gesperrt, damit kein zweiter Pull startet.
+            } catch (_fehler) {
+                if (status) status.textContent =
+                    'Keine Antwort vom Server. Prüfe später, ob er wieder erreichbar ist.';
+                dom.systemUpdateBtn.disabled = false;
+            }
         });
     }
 // Tippen auf den abgedunkelten Hintergrund schließt – auf dem Handy die
