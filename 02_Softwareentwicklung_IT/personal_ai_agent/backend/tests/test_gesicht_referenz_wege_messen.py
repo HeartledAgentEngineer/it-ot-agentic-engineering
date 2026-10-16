@@ -63,8 +63,10 @@ def test_gesichter_weg_erzeugt_eine_referenz(mess):
     assert "POST /api/gesichter/quiz/antwort" in text
     assert "gesicht_quiz.py:667" in text                      # beantworte_runde
     # Der Hinweistext der App ist eine echte Code-Stelle, keine Erfindung.
-    assert "als Referenz dieser Person" in (PROJEKT / "frontend" / "app.js").read_text(encoding="utf-8")
-    assert "als Referenz dieser Person" in QUELLE.read_text(encoding="utf-8")
+    # Seit Schritt A2 (16.10.2026) nennt der Hinweis zuerst den Grund und dann
+    # den Weg zur Person; der Anker wurde am 16.10. nachgezogen.
+    assert "dann speichert 💾 den Rahmen." in (PROJEKT / "frontend" / "app.js").read_text(encoding="utf-8")
+    assert "dann speichert 💾 den Rahmen." in QUELLE.read_text(encoding="utf-8")
 
 
 def test_gruppen_weg_traegt_keinen_vektor(mess):

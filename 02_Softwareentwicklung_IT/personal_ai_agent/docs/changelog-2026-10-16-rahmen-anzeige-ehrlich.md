@@ -76,3 +76,15 @@ Bump sähe Sebastian am Handy die alte Datei).
   Koordinaten) — beide weiterhin gesperrt, siehe Plan.
 - Am PC nicht abnehmbar: die Wirkung im Feld zeigt sich erst am Gerät
   (Handy-Modus), weil die Geräte-Referenzen am PC nur eine leere Hülle sind.
+
+## Nachtrag 16.10.2026, 10:5x — Schritt A2 ist gebaut
+
+Der Satz „A2 bleibt gesperrt“ oben gilt nicht mehr: **A2** („kein Speichern ohne
+Ziel“) ist umgesetzt, getestet, committet und gepusht — eigenes Dokument
+`changelog-2026-10-16-rahmen-ziel-riegel.md`, Test
+`frontend/tests/test_quiz_rahmen_ziel.js`, Cache-Bump auf `?v=20261016D`. Dieser
+Schritt ändert **nur** die Oberfläche (`frontend/app.js`): der Speichern-Knopf
+entsteht nur bei passendem Ziel, und ohne Ziel wird gar nichts gesendet. Der in
+der ersten Fassung dieses Dokuments genannte Fehler (Quiz-Weg speichert den
+**erkannten** statt den **verschobenen** Rahmen) bleibt offen und gehört zu
+**A3**.

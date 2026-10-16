@@ -3305,7 +3305,7 @@ function erzeugeGesichtCrop(dataUrl, bbox, maxPx) {
 }
 
 // Fuegt der Quiz-Karte den grossen, transienten Gesichts-Ausschnitt hinzu.
-function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx) {
+function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx, pfad) {
     const box = document.createElement('div');
     box.style.cssText = 'text-align:center;margin:6px 0';
     const lbl = document.createElement('div');
@@ -3317,7 +3317,7 @@ function zeigeGesichtCropIn(container, dataUrl, bbox, maxPx) {
     box.appendChild(lbl);
     box.appendChild(cimg);
     if (container) container.appendChild(box);
-    macheBildAntippbar(cimg);  // Tipp auf Ausschnitt -> Vollbild
+    macheBildAntippbar(cimg, [], { bildPfad: pfad || '' });  // Tipp auf Ausschnitt -> Vollbild
     erzeugeGesichtCrop(dataUrl, bbox, maxPx || 240).then(u => { if (u) cimg.src = u; });
     return box;
 }
@@ -3565,6 +3565,8 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
         _quizEditor.bbox_norm_live = neu;
         _quizEditor.px_rest = rest;
     }
+    _quizEditor.bildPfad = (optionen.bildPfad
+        || (imgEl && imgEl.dataset ? imgEl.dataset.bildPfad : '') || '');
     _quizEditor.src = src;
     const ov = document.createElement('div');
     _quizVollbild = ov;
@@ -4003,15 +4005,28 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 });
                 leiste.appendChild(drehBtn);
                 if (_quizEditor.dreh) { try { big.style.transform = 'rotate(' + (_quizEditor.dreh * 90) + 'deg)'; } catch (_e) {} }
-                const speichernBtn = document.createElement('div');
-                speichernBtn.textContent = '💾 Speichern';
-                speichernBtn.title = 'Rahmen übernehmen';
-                speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
-                speichernBtn.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    speichereEditorRahmen(sel, iw, ih, speichernBtn);
-                });
-                leiste.appendChild(speichernBtn);
+                // Schritt A2 (16.10.2026): KEIN Speichern ohne Ziel. Der Knopf
+                // entsteht nur, wenn Person UND Bildzeile zum offenen Editor
+                // passen (oder eine Referenz nachbearbeitet wird); fehlt das
+                // Ziel, steht hier ein ehrlicher Hinweis statt eines Knopfes,
+                // der nichts bewirken kann.
+                const speicherZiel = editorSpeicherZiel(_quizEditor);
+                if (speicherZiel.ok) {
+                    const speichernBtn = document.createElement('div');
+                    speichernBtn.textContent = '💾 Speichern';
+                    speichernBtn.title = 'Rahmen übernehmen';
+                    speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
+                    speichernBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        speichereEditorRahmen(sel, iw, ih, speichernBtn);
+                    });
+                    leiste.appendChild(speichernBtn);
+                } else {
+                    const speicherHinweis = document.createElement('div');
+                    speicherHinweis.textContent = '💾 ' + speicherZiel.grund;
+                    speicherHinweis.style.cssText = 'padding:8px 14px;border-radius:20px;background:#241d1d;border:1px dashed #8a6a6a;color:#dbb;font-size:0.78rem;max-width:62vw';
+                    leiste.appendChild(speicherHinweis);
+                }
             });
         }
     } catch (_) {}
@@ -4030,6 +4045,51 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
 //      erneut durch alle Gesichter (Befund Sebastian).
 //  (c) Ohne Person/Kontext: ehrlicher Hinweis — der Rahmen bleibt erhalten
 //      (nichts geht verloren, es wird nur nichts gespeichert).
+//
+// Schritt A2 (16.10.2026): "kein Speichern ohne Ziel" (Befund Fehler 2 —
+// Rahmen verschieben, speichern, Position ist nicht im Datenbestand).
+// Grund fuer den Riegel: die beiden Zielwerte _aktuelleQuizPerson /
+// _aktuellerQuizPfad gehoeren zu EINER Quizrunde. Bleibt einer davon stehen,
+// waehrend ein anderes Bild offen ist, landete der Rahmen am falschen Bild.
+// Darum muss das Ziel zum OFFENEN Editor passen (Bildzeile wie im Editor).
+function pfadKennung(p) {
+    // Vergleichsform eines Bildpfades: ohne Leerzeichen, ohne ?v=…/Anhang.
+    return String(p == null ? '' : p).trim().split('#')[0].split('?')[0];
+}
+
+function dateiAnzeigeName(p) {
+    const k = pfadKennung(p);
+    const teile = k.split('/');
+    return teile[teile.length - 1] || k;
+}
+
+// Passt das gespeicherte Ziel (Person + Bildzeile) zu DIESEM Editor?
+function editorSpeicherZiel(e) {
+    const ed = e || _quizEditor || {};
+    const ctx = ed.refKontext || null;
+    if (ctx && ctx.name && ctx.ref_id) {
+        return { ok: true, weg: 'referenz', person: ctx.name, pfad: '', grund: '' };
+    }
+    const person = String(_aktuelleQuizPerson || '').trim();
+    const pfad = pfadKennung(_aktuellerQuizPfad);
+    const bild = pfadKennung(ed.bildPfad);
+    if (person && pfad && bild && pfad === bild) {
+        return { ok: true, weg: 'quiz', person: person, pfad: pfad, grund: '' };
+    }
+    let grund;
+    if (!bild) {
+        grund = 'Kein Speicherziel: dieses Bild gehoert zu keiner offenen Quizrunde.';
+    } else if (!person) {
+        grund = 'Kein Speicherziel: noch keine Person fuer dieses Bild gewaehlt.';
+    } else if (!pfad) {
+        grund = 'Kein Speicherziel: zu diesem Bild liegt kein Bildpfad vor.';
+    } else {
+        grund = 'Kein Speicherziel: die gewaehlte Person gehoert zu einem anderen Bild (' +
+                dateiAnzeigeName(pfad) + ').';
+    }
+    return { ok: false, weg: 'quiz', person: person, pfad: pfad, bild: bild, grund: grund };
+}
+
 function speichereEditorRahmen(sel, iw, ih, btn) {
     const e = _quizEditor || {};
     const melde = (typeof e.melde === 'function') ? e.melde : function () {};
@@ -4046,8 +4106,11 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
     const px = bboxPixelVonNorm(norm, iw, ih);
     const ctx = e.refKontext || null;
     const refKontext = (ctx && ctx.name && ctx.ref_id) ? ctx : null;
-    const person = (refKontext ? refKontext.name : (_aktuelleQuizPerson || '')).trim();
-    const pPfad = (_aktuellerQuizPfad || '').trim();
+    // Schritt A2: das Ziel wird NICHT mehr ungeprueft aus den globalen Werten
+    // genommen — es muss zum offenen Bild passen (sonst kein Sendeversuch).
+    const ziel = editorSpeicherZiel(e);
+    const person = ziel.ok ? ziel.person : '';
+    const pPfad = ziel.ok ? ziel.pfad : '';
 
     if (refKontext) {
         zurueck('… speichere');
@@ -4116,10 +4179,11 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
         return;
     }
 
-    // Ohne zugeordnete Person kann keine Referenz entstehen (ehrlich).
-    zurueck('⚠️ erst Ja/Person wählen');
-    melde('⚠️ Erst „Ja, das ist …" oder eine Person wählen — dann speichert 💾 ' +
-          'den Rahmen als Referenz dieser Person.', false);
+    // Ohne passendes Ziel wird NICHTS gesendet (Schritt A2, Fehler 2) — der
+    // Rahmen bleibt erhalten, die Meldung nennt den ehrlichen Grund.
+    zurueck('⚠️ kein Ziel');
+    melde('⚠️ Nicht gespeichert. ' + (ziel.grund || 'Kein Speicherziel fuer dieses Bild.') +
+          ' Erst „Ja, das ist …" oder eine Person wählen — dann speichert 💾 den Rahmen.', false);
     setTimeout(() => zurueck('💾 Speichern'), 2400);
 }
 
@@ -4127,6 +4191,16 @@ function schliesseBildVollbild() {
     if (_quizVollbild) {
         try { _quizVollbild.remove(); } catch (e) {}
         _quizVollbild = null;
+    }
+    // Schritt A2 (16.10.2026, Auflage 2): die Zielwerte leben nur fuer das Bild,
+    // zu dem sie gehoeren. Gehoeren sie zu einem ANDEREN Bild als dem eben
+    // geschlossenen Editor, werden sie hier verworfen — sonst bliebe der Riegel
+    // umgehbar. (Bei demselben Bild bleiben sie stehen: sonst muesste der Nutzer
+    // die Person erneut bestaetigen, nur weil er den Editor einmal geschlossen hat.)
+    const zuBild = pfadKennung((_quizEditor && _quizEditor.bildPfad) || '');
+    if (!zuBild || zuBild !== pfadKennung(_aktuellerQuizPfad)) {
+        _aktuelleQuizPerson = '';
+        _aktuellerQuizPfad = '';
     }
 }
 
@@ -4178,7 +4252,11 @@ async function naechstesBildAusVollbild() {
     //     als Vollbild anzeigen (Callback von naechsteQuizRunde).
     naechsteQuizRunde((imgNeu, gesichterNeu) => {
         if (imgNeu && imgNeu.src) {
-            try { zeigeBildVollbild(imgNeu, gesichterNeu || []); } catch (_e) {}
+            // Schritt A2: die neue Runde bringt einen neuen Bildpfad mit — nur
+            // damit darf in diesem Editor gespeichert werden.
+            const neuerPfad = (_quizGesehen && _quizGesehen.length)
+                ? _quizGesehen[_quizGesehen.length - 1] : '';
+            try { zeigeBildVollbild(imgNeu, gesichterNeu || [], { bildPfad: neuerPfad }); } catch (_e) {}
         }
     });
 }
@@ -5078,7 +5156,7 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     img.src = dataUrl;
     img.alt = 'Quiz-Bild';
     img.style.cssText = 'display:block;width:100%;height:auto;border-radius:10px';
-    macheBildAntippbar(img, gesichter || []);   // Tipp -> Vollbild (Person wirklich erkennen)
+    macheBildAntippbar(img, gesichter || [], { bildPfad: pfad });   // Tipp -> Vollbild (Person wirklich erkennen)
     imgWrap.appendChild(img);
     karte.appendChild(imgWrap);
 
@@ -5096,7 +5174,7 @@ function zeigeQuizKarte(pfad, name, dataUrl, optionen, vermutung, anzahl, erkann
     } else if (anzahlGes === 1 && gesichter && gesichter.length) {
         markiereGesichtImBild(img, gesichter, 0);
         try { img.addEventListener('load', () => markiereGesichtImBild(img, gesichter, 0)); } catch (_) {}
-        zeigeGesichtCropIn(karte, dataUrl, gesichter[0].bbox, 240);
+        zeigeGesichtCropIn(karte, dataUrl, gesichter[0].bbox, 240, pfad);
     } else {
         // 0 erkannte Gesichter: KEIN Ja/Nein mehr (Wunsch Sebastian 2026-09-14).
         // Nur das Bild zeigen + Bildunterschrift "keine bekannte Person erkannt",

@@ -121,7 +121,10 @@ console.log('\nE) Referenz-Nachbearbeitung (Katalog -> Referenz -> Bild -> speic
   inFn('Editor kennt den Referenz-Kontext', 'zeigeBildVollbild', 'optionen.refKontext');
   inFn('Referenz-Editor startet ohne Alt-Rahmen', 'zeigeBildVollbild', 'refKontext: optionen.refKontext,');
   inFn('Kein "Naechstes Bild" bei der Referenz', 'zeigeBildVollbild', '&& !_quizEditor.refKontext');
-  inFn('ehrlicher Hinweis ohne Person/Ziel', 'speichereEditorRahmen', 'erst Ja/Person wählen');
+  // Schritt A2 (16.10.2026): der Hinweis ohne Ziel wurde geschaerft — er nennt
+  // jetzt den Grund ("Nicht gespeichert. …") statt nur "erst Ja/Person wählen".
+  inFn('ehrlicher Hinweis ohne Person/Ziel', 'speichereEditorRahmen', 'Nicht gespeichert. ');
+  inFn('Hinweis nennt den Weg zur Person', 'speichereEditorRahmen', 'oder eine Person wählen');
 }
 
 console.log('\nF) Abbrechen-Knopf (Spec-Schritt 9)');

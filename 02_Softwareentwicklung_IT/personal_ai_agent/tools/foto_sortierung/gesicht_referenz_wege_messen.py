@@ -8,7 +8,9 @@ vermutet)" — offen waren nach dem ersten Messlauf (``gesicht_wege_messen.py``)
 * **Abschnitt 3:** „Ein Abschnitt im Plan beantwortet, ob das Handy
   Gesichtsvektoren selbst rechnen kann — mit Beleg (Datei:Zeile oder Messung)."
 * **Abschnitt 4.1:** der Widerspruch „als Referenz dieser Person" (Hinweistext
-  in der App) gegen den Befund, Benennen erzeuge keinen Referenzvektor.
+  in der App, damals) gegen den Befund, Benennen erzeuge keinen Referenzvektor.
+  *Nachtrag 16.10.2026:* der Hinweis lautet seit Schritt A2 „… oder eine Person
+  wählen — dann speichert 💾 den Rahmen."; der Anker unten ist nachgezogen.
 
 **Dieses Werkzeug misst beides am echten Code und an den echten Dateien.** Es
 liest nur Text (Code) und zaehlt in den lokalen Benennungs-Dateien; es
@@ -169,7 +171,7 @@ def vektor_rechner_bericht(belege: dict) -> list:
 # ── Teil 2: die Speicherwege im Detailbild ─────────────────────────────────
 
 SPEICHER_STELLEN = (
-    (FRONTEND, r"'den Rahmen als Referenz dieser Person\.'", "Hinweistext der App (Speichern)"),
+    (FRONTEND, r"oder eine Person wählen — dann speichert 💾 den Rahmen\.", "Hinweistext der App (Speichern, seit A2 mit Grund)"),
     (FRONTEND, r"function speichereEditorRahmen\(", "Speicherfunktion des Detailbildes"),
     (FRONTEND, r"function quizBeantwortenSilent\(", "stiller Antwortweg des Editors"),
     (FRONTEND, r"gesichter/quiz/antwort", "Endpunkt-Aufruf aus dem Editor"),
