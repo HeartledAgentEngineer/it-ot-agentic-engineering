@@ -188,16 +188,47 @@ wurden genau die neun T2-Dateien.
   unverändert bleiben, sonst behält ein Browser die alte Datei. `frontend/index.html`
   steht deshalb auf `20261016A`; die Prüfung `vQ[1] >= '20261015A'` bleibt gültig —
   sie prüft auf „mindestens“, nicht auf Gleichheit.
-- **Befund 1 der Ergebnisprüfung verschoben, nicht behoben.** Für
-  `.gruppen-liste-filter`, `.gruppen-liste-ansicht`, `.gruppen-liste-seiten` und
-  `.gruppen-uebersicht-knopf` fehlen Regeln in `style.css`; die Wirkung ist rein
-  optisch, und der Plan stellte die Regeln optional. Kleinster Korrekturweg für
-  die nächste Sitzung: den `.gruppen-reiter`-Selektor um `.gruppen-liste-filter`
-  erweitern und `style.css` im selben Schritt mit einem neuen Cache-Schlüssel
-  versehen.
+- **Befund 1 der Ergebnisprüfung war zunächst verschoben, am 16.10.2026 nachgetragen.**
+  Für `.gruppen-liste-filter`, `.gruppen-liste-ansicht`, `.gruppen-liste-seiten` und
+  `.gruppen-uebersicht-knopf` fehlten Regeln in `style.css`; die Wirkung ist rein
+  optisch, und der Plan stellte die Regeln optional. Der kleinste Korrekturweg stand
+  hier: den `.gruppen-reiter`-Selektor um `.gruppen-liste-filter` erweitern und
+  `style.css` im selben Schritt mit einem neuen Cache-Schlüssel versehen. Genau das
+  ist umgesetzt — Einzelheiten im Abschnitt „Befund 1 nachgetragen“ am Ende.
 - **Befund 2 angenommen.** Der Schlüssel `20261015A` statt der Planformulierung
   `20261014B` ist durch `20261016A` überholt.
 - **Nachweis.** Voller Prüfbefehl im Arbeitsbaum selbst ausgeführt:
   `backend/.venv/Scripts/python -m pytest tests/ -q` ergibt **4666 passed,
   3 skipped, Exit 0** (648 s; Protokolldatei außerhalb des Repos). Keine Abnahme
   mit Originaldaten, keine Abnahme am Handy.
+
+## Befund 1 nachgetragen (16.10.2026)
+
+Die fehlenden Regeln sind ergänzt — codegenau steht jetzt in `frontend/style.css`:
+
+- `.gruppen-reiter, .gruppen-liste-filter { … }` — **ein** gemeinsamer Selektor statt
+  einer zweiten Kopie (die Statusfilter der Liste sind dieselben Knöpfe
+  `.gruppen-reiter-knopf`, nur in einem anderen Behälter).
+- `.gruppen-liste-ansicht[hidden] { display: none; }` — **notwendig, nicht kosmetisch:**
+  die Ansicht wird in `gruppen_quiz.js` über das `hidden`-Attribut ein- und ausgeblendet;
+  ein `display: flex` ohne diese Zeile hätte `hidden` ausgehebelt und die Liste dauerhaft
+  sichtbar gemacht.
+- `.gruppen-liste-ansicht { display: flex; flex-direction: column; gap: 10px; }` —
+  dieselbe Spaltenform wie `.gruppen-benannt-ansicht`, weil die Ansicht Geschwister
+  der Quiz-Karte ist.
+- `.gruppen-uebersicht-knopf { width: 100%; margin-top: 2px; }` und
+  `.gruppen-liste-seiten { display: flex; gap: 8px; }` samt
+  `.gruppen-liste-seiten .gruppen-knopf { flex: 1 1 45%; min-width: 0; }` —
+  „Vorherige"/„Weitere" stehen nebeneinander wie in `.gruppen-alle-leiste`.
+
+**Cache-Schlüssel:** `frontend/index.html` lädt `style.css?v=20261016A` (vorher
+`20261014B`). Der genaue Schlüssel ist in `frontend/tests/test_foto_galerie.js`
+mitgezogen (`vCss === '20261016A'`), die übrigen Prüfungen bleiben „mindestens“-Vergleiche.
+
+**Regressionstest:** `frontend/tests/test_gruppen_liste.js` prüft die sechs Regeln und
+den Cache-Schlüssel (`ansichtIstGestyltUndBleibtVersteckbar`). Gegenprobe ausgeführt:
+mit entferntem Regelblock werden die Prüfungen rot — der Test greift also wirklich.
+
+**Ehrliche Grenze:** geprüft ist der Quelltext. Ob die Liste am Handy gut *aussieht*,
+sagt erst ein Blick auf dem Gerät; die Wirkung ist rein optisch, Verhalten ändert sich
+nicht (der `[hidden]`-Riegel hält das Ausblenden sogar ausdrücklich fest).

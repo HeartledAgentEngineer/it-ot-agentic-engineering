@@ -9,6 +9,7 @@ const sourcePath = process.argv[2] && process.argv[2].endsWith('gruppen_quiz.js'
     ? process.argv[2] : path.join(__dirname, '..', 'gruppen_quiz.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
 
 class Element {
     constructor(tag = 'div', id = '') {
@@ -523,6 +524,29 @@ async function detailLoadingIsVisibleAndErrorToo() {
     }
 }
 
+// ── Befund 1 der Ergebnisprüfung (16.10.2026) ─────────────────────────────
+/**
+ * Die Ansicht bringt eigene Klassen mit (T2). Fehlten ihre Regeln in style.css, klebte die
+ * Liste unformatiert unter dem Quiz — und `display: flex` hebelte das `hidden`-Attribut aus,
+ * mit dem die Ansicht ein- und ausgeblendet wird. Genau das wird hier festgehalten.
+ */
+function ansichtIstGestyltUndBleibtVersteckbar() {
+    assert.ok(/\.gruppen-reiter,\s*\.gruppen-liste-filter\s*\{/.test(css),
+        'gruppen-liste-filter hat keine Regel (gemeinsamer Selektor mit .gruppen-reiter fehlt)');
+    assert.ok(/\.gruppen-liste-ansicht\[hidden\]\s*\{\s*display:\s*none/.test(css),
+        'gruppen-liste-ansicht[hidden] wird nicht ausgeblendet');
+    assert.ok(/\.gruppen-liste-ansicht\s*\{[^}]*display:\s*flex/.test(css),
+        'gruppen-liste-ansicht hat keine Spaltenform');
+    assert.ok(/\.gruppen-liste-seiten\s*\{[^}]*display:\s*flex/.test(css),
+        'gruppen-liste-seiten hat keine Regel');
+    assert.ok(/\.gruppen-liste-seiten\s+\.gruppen-knopf\s*\{/.test(css),
+        'die Seiten-Knöpfe bekommen keine Breite');
+    assert.ok(/\.gruppen-uebersicht-knopf\s*\{/.test(css),
+        'gruppen-uebersicht-knopf hat keine Regel');
+    const vCss = (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] || '';
+    assert.ok(vCss >= '20261016A', 'style.css-Cache-Schlüssel zu alt: ' + vCss);
+}
+
 // ── Ergebnisprüfung Runde 3 – Behebungen ─────────────────────────────────
 
 /** Attrappe mit Gruppen 1 und 2, Personen (Anna), Gesichterlisten und steuerbaren Antworten. */
@@ -684,7 +708,7 @@ process.on('exit', () => {
 });
 (async () => {
     // Alle Prüfungen laufen; jede Verletzung wird einzeln gemeldet (Exit 1).
-    const pruefungen = [lateQuizAnswerDoesNotOverwriteDetail, lateQuizAnswerAfterFilterChangeAndCloseIsIgnored,
+    const pruefungen = [ansichtIstGestyltUndBleibtVersteckbar, lateQuizAnswerDoesNotOverwriteDetail, lateQuizAnswerAfterFilterChangeAndCloseIsIgnored,
         allFacesBackReturnsToTargetedGroup, returnToOverviewAfterStatusActionEvenWhenFertig,
         lateSaveAnswerDoesNotReplaceOtherDetail, lateUndoAnswerDoesNotReplaceOtherDetail,
         detailLoadingIsVisibleAndErrorToo, latePersonAnswerDoesNotHideGroupDetail,

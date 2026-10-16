@@ -2736,7 +2736,8 @@ button.footer-note:hover {
 
 /* Reiter „Offen“ / „Benannt“ + Person bearbeiten (02.10.2026, Wunsch Sebastian:
    schon benannte Personen wieder aufrufen und bearbeiten wie ein Dokument). */
-.gruppen-reiter {
+.gruppen-reiter,
+.gruppen-liste-filter {
     display: flex;
     gap: 4px;
     padding: 4px;
@@ -2763,6 +2764,26 @@ button.footer-note:hover {
     color: #fff;
     font-weight: 600;
 }
+
+/* Gruppenübersicht/-liste (T2 am 16.10.2026 in `main` übernommen). Die Ansicht
+   bringt eigene Klassen mit; ohne Regeln klebte sie unformatiert unter dem Quiz.
+   Nachgetragen als Befund 1 der Ergebnisprüfung — die Ansicht steht als
+   Geschwister der Quiz-Karte, deshalb dieselbe Spaltenform wie .gruppen-benannt-ansicht.
+   Achtung: `display: flex` überschreibt das `hidden`-Attribut, deshalb die
+   [hidden]-Zeile — die Ansicht wird per `hidden` ein- und ausgeblendet. */
+.gruppen-liste-ansicht[hidden] { display: none; }
+
+.gruppen-liste-ansicht {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.gruppen-uebersicht-knopf { width: 100%; margin-top: 2px; }
+
+.gruppen-liste-seiten { display: flex; gap: 8px; }
+
+.gruppen-liste-seiten .gruppen-knopf { flex: 1 1 45%; min-width: 0; }
 
 .gruppen-benannt-ansicht[hidden],
 .gruppen-person[hidden] { display: none; }
