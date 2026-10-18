@@ -3023,6 +3023,103 @@ body.anmelden-offen { overflow: hidden; }
     color: #ff9a9a;
 }
 
+#server-protokoll-btn {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 2px 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+/* =========================================================================
+   Server-Bereich (18.10.2026, To-do Punkt 16) — Wunsch Sebastian:
+   „Früher war es so, dass in Termux der Server gesteuert wurde und ich den
+   Verlauf sehen konnte … Das ist nicht mehr möglich."
+   Zeigt die letzten Zeilen des Server-Protokolls, dazu die Angaben aus
+   /api/health und die Knöpfe „Aktualisieren" / „Neu starten".
+   Bewusst FLACH im Fluss (kein Kasten über dem Chat — Punkt 9) und
+   zugeklappt (`hidden`), damit der Chat den Platz behält. Das Protokoll
+   selbst ist ein <pre> mit eigenem Rollbereich, damit lange Zeilen den Chat
+   nicht auseinanderschieben.
+   ========================================= */
+
+.server-protokoll {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 20px 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.server-protokoll-kopf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+#server-protokoll-stand {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.server-protokoll-knoepfe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.server-protokoll-knoepfe button {
+    padding: 3px 10px;
+    min-height: 28px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.server-protokoll-knoepfe button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+#server-protokoll-zeilen {
+    margin: 0;
+    max-height: 40vh;
+    overflow: auto;
+    padding: 6px 8px;
+    background: #14142a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 420px) {
+    .server-protokoll-knoepfe {
+        margin-left: 0;
+    }
+}
+
 /* =========================================================================
    Personenauswahl als alphabetische Liste (S8, 18.10.2026) — Wunsch Sebastian
    (To-do Punkt 10): „eine Liste mit Suchzeile, scrollbar und alphabetisch

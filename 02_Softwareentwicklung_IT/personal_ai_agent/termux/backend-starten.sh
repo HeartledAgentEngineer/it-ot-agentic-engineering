@@ -51,6 +51,17 @@ skript="$0"
 HIER="$(cd "$(dirname "$skript")" && pwd)"
 BACKEND="$(cd "$HIER/../backend" 2>/dev/null && pwd)"
 
+# ── Server-Protokoll (To-do Punkt 16, 18.10.2026) ───────────────────────────
+# Der Server laeuft abgekoppelt; seine Ausgaben waren dadurch nirgends sichtbar.
+# Wo die Protokolldatei liegt, steht in EINER Stelle
+# (termux/server-protokoll.sh) — hier wird sie eingebunden und der Pfad
+# exportiert, damit JEDER Startweg (Widget, App, Terminal) denselben Wert
+# erbt und der Server (backend/app/services/protokoll.py) dorthin schreibt.
+# Fehlt die Datei, laeuft alles wie bisher — nur ohne Protokoll.
+if [ -f "$HIER/server-protokoll.sh" ]; then
+    . "$HIER/server-protokoll.sh"
+fi
+
 RELOAD=0
 LOG=""
 ABLOESEN=0

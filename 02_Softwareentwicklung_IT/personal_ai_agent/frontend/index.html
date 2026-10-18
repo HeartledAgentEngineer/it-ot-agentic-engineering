@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261018C">
+    <link rel="stylesheet" href="style.css?v=20261018D">
 </head>
 <body>
     <div id="app">
@@ -102,7 +102,34 @@
              role="status" aria-live="polite">
             <span id="server-punkt" class="server-punkt" aria-hidden="true"></span>
             <span id="server-zustand-text">Server wird geprüft …</span>
+            <button id="server-protokoll-btn" type="button" aria-expanded="false"
+                    title="Server-Protokoll anzeigen">Protokoll</button>
         </div>
+
+        <!-- Server-Bereich (18.10.2026, Wunsch Sebastian, To-do Punkt 16):
+             "Früher war es so, dass in Termux der Server gesteuert wurde und
+             ich den Verlauf sehen konnte — die Prompts, eine Liste mit
+             Verbindungen, so ein Log. Das ist nicht mehr möglich." Ursache:
+             der Server läuft abgekoppelt im Hintergrund, seine Ausgaben landeten
+             nirgends. Jetzt schreibt er in ein Protokoll (agent-server.log,
+             Startweg: termux/server-protokoll.sh); hier stehen die letzten
+             Zeilen, dazu die Angaben aus /api/health und die Knöpfe
+             "Aktualisieren" und "Neu starten" — Termux wird nicht mehr gebraucht.
+             Bewusst FLACH im Fluss (kein Kasten über dem Chat, Punkt 9) und
+             zugeklappt, damit der Chat den Platz behält. -->
+        <section id="server-protokoll" class="server-protokoll" hidden
+                 aria-label="Server-Protokoll">
+            <div class="server-protokoll-kopf">
+                <span id="server-protokoll-stand">Protokoll wird geladen …</span>
+                <span class="server-protokoll-knoepfe">
+                    <button id="server-protokoll-aktualisieren" type="button">Aktualisieren</button>
+                    <button id="server-protokoll-neustart" type="button">Neu starten</button>
+                </span>
+            </div>
+            <pre id="server-protokoll-zeilen" tabindex="0"></pre>
+            <p id="server-protokoll-status" class="sheet-note" role="status"
+               aria-live="polite" hidden></p>
+        </section>
 
         <!-- Streaming-Geschwindigkeit-Menue (ueber dem Chat, Zahnrad oben rechts) -->
         <div id="stream-menu" class="stream-menu" hidden>
@@ -661,7 +688,7 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261018M"></script>
+    <script src="app.js?v=20261018N"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261018F"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

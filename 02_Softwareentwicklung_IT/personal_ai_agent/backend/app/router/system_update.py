@@ -1,14 +1,21 @@
-"""Sicheres Update und Backend-Neustart aus der Oberfläche."""
+"""Sicheres Update und Backend-Neustart aus der Oberfläche.
+
+Dazu das **Server-Protokoll** (To-do Punkt 16, 18.10.2026): der abgekoppelt
+laufende Server schreibt seine Ausgaben in eine Datei, die die Oberfläche
+liest. Beide Wege schützen sich gleich — vom Gerät selbst (Loopback) immer,
+von fremden Geräten nur über HTTPS.
+"""
 from __future__ import annotations
 
 import logging
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
 from app.router import auth
 from app.sicherheit import client_ist_loopback
+from app.services import protokoll as server_protokoll
 
 logger = logging.getLogger(__name__)
 
@@ -60,3 +67,31 @@ async def update_starten(request: Request, background_tasks: BackgroundTasks):
     # Der Prozess selbst wird zusätzlich mit start_new_session abgekoppelt.
     background_tasks.add_task(_update_abgekoppelt_starten)
     return {"ok": True, "message": UPDATE_MELDUNG}
+
+
+@router.get("/protokoll")
+async def protokoll_holen(
+    request: Request,
+    zeilen: int = Query(server_protokoll.STANDARD_ZEILEN, ge=1,
+                        le=server_protokoll.MAX_ZEILEN,
+                        description="Wie viele der letzten Protokollzeilen geliefert werden."),
+):
+    """Die letzten Zeilen des Server-Protokolls für die Oberfläche (nur lesend).
+
+    Schutz wie beim Update: **das Gerät selbst (Loopback) darf immer** — die
+    Bedienung findet am Handy statt, dort läuft der Server. Für **fremde**
+    Geräte (LAN, Tailscale) bleibt die Sperre: nur über HTTPS.
+
+    Geliefert werden ausschließlich Zahlen und die Protokollzeilen des Servers
+    (Status, Zugriffe, Fehler). Die Datei ist dieselbe, die der Server selbst
+    schreibt (``AGENT_SERVER_PROTOKOLL``, gesetzt vom Startweg). Ist sie nicht
+    vorhanden oder nicht eingeschaltet, sagt die Antwort das ehrlich — es wird
+    nichts erfunden und nichts angelegt.
+    """
+    vom_geraet_selbst = client_ist_loopback(request.scope)
+    if not vom_geraet_selbst and not auth._ist_https(request):
+        raise HTTPException(status_code=403,
+                            detail="Das Server-Protokoll ist von fremden Geräten nur über HTTPS abrufbar.")
+
+    stand = server_protokoll.protokoll_lesen(zeilen)
+    return {"ok": True, **stand}

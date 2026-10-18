@@ -10305,6 +10305,139 @@ function serverZustandText(daten) {
     });
 })();
 
+// ── Server-Protokoll (18.10.2026, To-do Punkt 16) ────────────────────────────
+// Wunsch Sebastian: „Früher war es so, dass in Termux der Server gesteuert
+// wurde und ich den Verlauf sehen konnte — die Prompts, eine Liste mit
+// Verbindungen, so ein Log. Das ist nicht mehr möglich." Ursache: der Server
+// läuft abgekoppelt, seine Ausgaben landeten nirgends. Jetzt schreibt er in ein
+// Protokoll (Startweg: termux/server-protokoll.sh → AGENT_SERVER_PROTOKOLL);
+// hier stehen die letzten Zeilen, dazu die Angaben aus /api/health und die
+// Knöpfe „Aktualisieren" und „Neu starten". Zugeklappt, damit der Chat Platz
+// behält; geladen wird nur, solange der Bereich offen ist.
+// Die reinen Funktionen sind ohne DOM testbar
+// (frontend/tests/test_server_protokoll.js). Geschrieben wird mit textContent
+// (nie innerHTML) — Protokollzeilen sind Fremdtext.
+const SERVER_PROTOKOLL_TAKT_MS = 5000;
+const SERVER_PROTOKOLL_ZEILEN = 200;
+const SERVER_PROTOKOLL_NEUSTART_MELDUNG =
+    'Stand wird geholt, Server startet neu — die Seite ist gleich wieder da.';
+
+/** Kopfzeile des Bereichs: Datei, Größe, Zahl der Zeilen — ehrlich, ohne Schmuck. */
+function serverProtokollStand(antwort) {
+    if (!antwort || typeof antwort !== 'object' || antwort.ok !== true) {
+        return 'Protokoll nicht abrufbar.';
+    }
+    const teile = [];
+    if (typeof antwort.pfad === 'string' && antwort.pfad) teile.push(antwort.pfad);
+    if (typeof antwort.groesse === 'number' && Number.isFinite(antwort.groesse) && antwort.groesse >= 0) {
+        const kb = antwort.groesse / 1024;
+        teile.push(kb.toFixed(1).replace('.', ',') + ' kB');
+    }
+    const anzahl = Array.isArray(antwort.zeilen) ? antwort.zeilen.length : 0;
+    teile.push(anzahl === 1 ? '1 Zeile' : anzahl + ' Zeilen');
+    if (antwort.gekappt) teile.push('nur das Dateiende gelesen');
+    if (antwort.eingeschaltet === false) teile.push('in diesem Start nicht eingeschaltet');
+    if (typeof antwort.hinweis === 'string' && antwort.hinweis) teile.push(antwort.hinweis);
+    return teile.join(' · ') || 'Keine Angaben zum Protokoll.';
+}
+
+/** Die anzuzeigenden Zeilen; ohne Inhalt steht der ehrliche Grund da. */
+function serverProtokollZeilenText(antwort) {
+    if (!antwort || typeof antwort !== 'object' || antwort.ok !== true) {
+        return ['Protokoll nicht abrufbar.'];
+    }
+    const zeilen = Array.isArray(antwort.zeilen)
+        ? antwort.zeilen.filter((z) => typeof z === 'string' && z.trim() !== '')
+        : [];
+    if (zeilen.length) return zeilen;
+    if (typeof antwort.hinweis === 'string' && antwort.hinweis) return [antwort.hinweis];
+    return ['Das Protokoll ist leer — der Server hat noch nichts geschrieben.'];
+}
+
+(function () {
+    const bereich = document.getElementById('server-protokoll');
+    const knopf = document.getElementById('server-protokoll-btn');
+    if (!bereich || !knopf) return;
+    const zeilenEl = document.getElementById('server-protokoll-zeilen');
+    const standEl = document.getElementById('server-protokoll-stand');
+    const statusEl = document.getElementById('server-protokoll-status');
+    const aktualisierenBtn = document.getElementById('server-protokoll-aktualisieren');
+    const neustartBtn = document.getElementById('server-protokoll-neustart');
+    let takt = null;
+
+    function zeichnen(daten) {
+        if (standEl) standEl.textContent = serverProtokollStand(daten);
+        if (zeilenEl) {
+            zeilenEl.textContent = serverProtokollZeilenText(daten).join('\n');
+            zeilenEl.scrollTop = zeilenEl.scrollHeight;
+        }
+    }
+
+    async function laden() {
+        try {
+            const res = await fetch(
+                `${API_BASE}/api/system/protokoll?zeilen=${SERVER_PROTOKOLL_ZEILEN}`,
+                { credentials: 'same-origin', cache: 'no-store' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            zeichnen(await res.json());
+        } catch (_) {
+            zeichnen(null);
+        }
+    }
+
+    function taktStarten() {
+        if (!takt) takt = setInterval(laden, SERVER_PROTOKOLL_TAKT_MS);
+    }
+
+    function taktStoppen() {
+        if (takt) { clearInterval(takt); takt = null; }
+    }
+
+    function umschalten(offen) {
+        bereich.hidden = !offen;
+        knopf.setAttribute('aria-expanded', offen ? 'true' : 'false');
+        if (offen) { laden(); taktStarten(); } else { taktStoppen(); }
+    }
+
+    async function neuStarten() {
+        if (!neustartBtn) return;
+        neustartBtn.disabled = true;
+        if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.textContent = SERVER_PROTOKOLL_NEUSTART_MELDUNG;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/api/system/update`, {
+                method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+            const daten = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (statusEl) {
+                    statusEl.textContent = 'Neustart nicht gestartet: '
+                        + (daten.detail || ('HTTP ' + res.status));
+                }
+                neustartBtn.disabled = false;
+                return;
+            }
+            if (statusEl) statusEl.textContent = daten.message || SERVER_PROTOKOLL_NEUSTART_MELDUNG;
+            // Bei Annahme bleibt der Knopf gesperrt: sonst startet ein zweiter
+            // Pull/Neustart, während der erste noch läuft.
+        } catch (_) {
+            if (statusEl) {
+                statusEl.textContent = 'Keine Antwort vom Server. '
+                    + 'Später nachsehen, ob er wieder erreichbar ist.';
+            }
+            neustartBtn.disabled = false;
+        }
+    }
+
+    knopf.addEventListener('click', () => umschalten(bereich.hidden));
+    if (aktualisierenBtn) aktualisierenBtn.addEventListener('click', laden);
+    if (neustartBtn) neustartBtn.addEventListener('click', neuStarten);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && !bereich.hidden) laden();
+    });
+})();
+
 // =========================================
 // (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
 //  Assistenten direkt über Hermes, kein sichtbares Auftragskonzept mehr.)

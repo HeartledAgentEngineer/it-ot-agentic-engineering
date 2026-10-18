@@ -76,6 +76,16 @@ async def lifespan(app: FastAPI):
     logger.info("Personal AI Agent – Starting up...")
     logger.info("=" * 50)
 
+    # Server-Protokoll (To-do Punkt 16): schreibt die Serverausgaben mit
+    # Zeitstempel in EINE Datei, die die Oberflaeche anzeigt
+    # (GET /api/system/protokoll). Ohne gesetzten Pfad (Startweg ohne
+    # Protokoll) passiert hier nichts — kein Schreibzugriff, keine Datei.
+    from app.services import protokoll as server_protokoll
+
+    protokoll_pfad = server_protokoll.einrichten()
+    if protokoll_pfad:
+        logger.info("Serverausgaben werden protokolliert: %s", protokoll_pfad)
+
     # Initialize memory store
     try:
         chroma_client.connect()
