@@ -387,6 +387,33 @@ function gruppenPersonPasstGruppe(p, gruppe) {
     return gruppenPersonGruppen(p).some((g) => g.kennung === gruppe);
 }
 
+// ── Filter „mit/ohne Erinnerung" (S8-Rest, 18.10.2026) ─────────────────────
+//
+// Wunsch Sebastian (To-do Punkt 10): „Filter mit/ohne Erinnerung". „Erinnerung"
+// ist eine aufgenommene Sprachnotiz im Profil der benannten Person — der Server
+// zaehlt sie in ``erinnerungen`` schon mit (zurueckgenommene Notizen zaehlen
+// nicht, genau wie in ``gruppen_quiz.personen()``).
+
+/** Gewählte Erinnerung als Klartext (leer = kein Filter). */
+function gruppenErinnerungWahl(wahl) {
+    const wert = String(wahl || '');
+    return wert === 'mit' || wert === 'ohne' ? wert : '';
+}
+
+/** Passt die Person zur Auswahl „mit"/„ohne" Erinnerung? Leer = alle. */
+function gruppenPersonPasstErinnerung(p, wahl) {
+    const wert = gruppenErinnerungWahl(wahl);
+    if (!wert) return true;
+    const hat = (Number(p && p.erinnerungen) || 0) > 0;
+    return wert === 'mit' ? hat : !hat;
+}
+
+/** Beschriftung des Filters fuer die Infozeile („mit Erinnerung"). */
+function gruppenErinnerungText(wahl) {
+    const wert = gruppenErinnerungWahl(wahl);
+    return wert ? wert + ' Erinnerung' : '';
+}
+
 /** Auswahlzeile einer Gruppe: „Vorschlag 1001 · 120 Gesichter · 2015–2025“. */
 function gruppenAuswahlText(g) {
     if (!g) return '';
@@ -456,7 +483,7 @@ function gruppenNotizZeit(zeit) {
 
     const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null,
                       reiter: 'offen', personen: [], person: null, listeAktiv: false,
-                      personenGruppe: '',
+                      personenGruppe: '', personenErinnerung: '',
                       listeStatus: 'offen', listeSeite: 1, listeSeiten: 0,
                       listenSequenz: 0, detailSequenz: 0, quizSequenz: 0, detailAktiv: false,
                       // Gemeinsamer Mechanismus gegen verspätete Antworten: ``ansichtSequenz``
@@ -1216,16 +1243,19 @@ function gruppenNotizZeit(zeit) {
         liste.innerHTML = '';
         const frage = (el('gruppen-benannt-filter') || {}).value || '';
         const gruppe = zustand.personenGruppe || '';
+        const erinnerung = gruppenErinnerungWahl(zustand.personenErinnerung);
         // S8: alphabetisch (die Server-Reihenfolge bleibt im Zustand unberuehrt).
         const passend = gruppenPersonenSortiert(zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage)
-            && gruppenPersonPasstGruppe(p, gruppe)));
+            && gruppenPersonPasstGruppe(p, gruppe)
+            && gruppenPersonPasstErinnerung(p, erinnerung)));
         sprungleisteZeigen(passend);
         if (info) {
-            const zusatz = gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '';
+            const zusatz = (gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '')
+                + (erinnerung ? ' · ' + gruppenErinnerungText(erinnerung) : '');
             info.textContent = !zustand.personen.length
                 ? 'Noch niemand benannt – im Reiter „Offen“ geht es los.'
                 : (passend.length ? gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen') + zusatz
-                    : (gruppe || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
+                    : (gruppe || erinnerung || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
                   + ' · alphabetisch · antippen zum Ansehen und Bearbeiten';
         }
         const gesehen = {};
@@ -2023,12 +2053,19 @@ function gruppenNotizZeit(zeit) {
             zustand.personenGruppe = gruppeFeld.value || '';
             personenZeigen();
         });
+        const erinnerungFeld = el('gruppen-benannt-erinnerung');
+        if (erinnerungFeld) erinnerungFeld.addEventListener('change', () => {
+            zustand.personenErinnerung = gruppenErinnerungWahl(erinnerungFeld.value);
+            personenZeigen();
+        });
         const filterZurueck = el('gruppen-benannt-filter-zuruecksetzen');
         if (filterZurueck) filterZurueck.addEventListener('click', () => {
-            // Beide Filter zusammen leeren (Suche UND Gruppe) — Wunsch aus dem Auftrag.
+            // Alle Filter zusammen leeren (Suche, Gruppe UND Erinnerung) — Wunsch aus dem Auftrag.
             if (filter) filter.value = '';
             zustand.personenGruppe = '';
             if (gruppeFeld) gruppeFeld.value = '';
+            zustand.personenErinnerung = '';
+            if (erinnerungFeld) erinnerungFeld.value = '';
             personenZeigen();
             if (filter) filter.focus();
         });

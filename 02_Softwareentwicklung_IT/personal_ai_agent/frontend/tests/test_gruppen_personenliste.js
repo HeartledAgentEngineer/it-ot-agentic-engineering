@@ -128,6 +128,15 @@ function zeilenTexte(app) {
     return app.el('gruppen-benannt-liste').children.map((z) => z.textContent);
 }
 
+/** Nur die Namen der angezeigten Zeilen, in Listen-Reihenfolge. */
+function namen(app) {
+    return app.el('gruppen-benannt-liste').children.map((z) => {
+        const text = z.children.find((c) => c.classList && c.classList.contains('gruppen-benannt-text'));
+        const name = text && text.children.find((c) => c.classList && c.classList.contains('gruppen-treffer-name'));
+        return name ? name.textContent : '';
+    });
+}
+
 function springe(app, marke) {
     const knopf = app.el('gruppen-benannt-sprung').children.find((k) => k.textContent === marke);
     assert.ok(knopf, 'keine Sprungmarke ' + marke);
@@ -243,6 +252,69 @@ async function suchzeileFiltertUndSortiertNeu() {
     assert.deepEqual(zeilenTexte(app).map((t) => (t.match(/Anna|Bea|Tim/) || [''])[0]), ['Anna', 'Bea', 'Tim']);
 }
 
+async function erinnerungsFilterTrenntUndZuruecksetzenLeert() {
+    // S8-Rest (18.10.2026): „Erinnerung" ist eine aufgenommene Sprachnotiz im
+    // Profil. Der Server liefert die Zahl (``erinnerungen``); gefiltert wird in
+    // der Liste. Fehlt das Feld ganz, gilt die Person als „ohne Erinnerung".
+    const block = (html.match(/<select id="gruppen-benannt-erinnerung"[\s\S]*?<\/select>/) || [])[0] || '';
+    assert.ok(block, 'das Auswahlfeld „Erinnerung" fehlt im HTML');
+    assert.ok(/<option value="">/.test(block), 'die Auswahl „alle" fehlt');
+    assert.ok(/<option value="mit">/.test(block), 'die Auswahl „mit" fehlt');
+    assert.ok(/<option value="ohne">/.test(block), 'die Auswahl „ohne" fehlt');
+    assert.ok(/aria-label="[^"]*Erinnerung[^"]*"/.test(block), 'die Auswahl hat keine Beschriftung');
+
+    const app = personenApp([person('Anna', { erinnerungen: 2 }), person('Bea', { erinnerungen: 0 }),
+        person('Cem', { erinnerungen: 1 }), person('Dana')]);
+    await listeOeffnen(app);
+    assert.equal(zeilenTexte(app).length, 4, 'ohne Filter stehen alle Personen da');
+    const feld = app.el('gruppen-benannt-erinnerung');
+    const suche = app.el('gruppen-benannt-filter');
+    const wechsle = (wert) => {
+        feld.value = wert;
+        (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    };
+
+    wechsle('ohne');
+    assert.deepEqual(namen(app), ['Bea', 'Dana'], 'ohne Erinnerung: ' + namen(app).join());
+    let info = app.el('gruppen-benannt-info').textContent;
+    assert.ok(info.includes('2 Personen') && info.includes('ohne Erinnerung'), 'Infozeile: ' + info);
+
+    wechsle('mit');
+    assert.deepEqual(namen(app), ['Anna', 'Cem'], 'mit Erinnerung: ' + namen(app).join());
+    info = app.el('gruppen-benannt-info').textContent;
+    assert.ok(info.includes('2 Personen') && info.includes('mit Erinnerung'), 'Infozeile: ' + info);
+
+    // Suche und Erinnerungsfilter wirken zusammen (UND).
+    suche.value = 'an';
+    (suche.listeners.get('input') || []).forEach((fn) => fn({ target: suche }));
+    assert.deepEqual(namen(app), ['Anna'], 'Suche und Erinnerungsfilter zusammen');
+
+    // „Filter zurücksetzen" leert Suche, Gruppe UND Erinnerung.
+    await app.el('gruppen-benannt-filter-zuruecksetzen').click();
+    assert.equal(feld.value, '', 'der Erinnerungsfilter bleibt stehen');
+    assert.equal(suche.value, '', 'die Suchzeile bleibt stehen');
+    assert.equal(app.el('gruppen-benannt-gruppe').value, '');
+    assert.equal(zeilenTexte(app).length, 4, 'nach dem Zurücksetzen fehlen Personen');
+    assert.equal(app.el('gruppen-benannt-info').textContent.includes('Erinnerung'), false,
+        'die Infozeile nennt weiter einen Erinnerungsfilter');
+}
+
+async function erinnerungsFilterOhneTreffer() {
+    const app = personenApp([person('Anna', { erinnerungen: 3 }), person('Bea')]);
+    await listeOeffnen(app);
+    const feld = app.el('gruppen-benannt-erinnerung');
+    feld.value = 'ohne';
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    assert.deepEqual(namen(app), ['Bea']);
+    feld.value = 'mit';
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    assert.deepEqual(namen(app), ['Anna']);
+    // Unsinnige Werte filtern nicht (ehrlich: „alle").
+    feld.value = 'vielleicht';
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    assert.equal(zeilenTexte(app).length, 2, 'unbekannter Wert filtert weg');
+}
+
 let beendet = false;
 process.on('exit', () => {
     if (!beendet) { console.error('FEHLER: Prüfung wurde nicht beendet (hängende Anfrage?)'); process.exitCode = 1; }
@@ -250,7 +322,8 @@ process.on('exit', () => {
 (async () => {
     const pruefungen = [alphabetischSortiertMitUmlauten, nurBenannteAnsichtWirdGerollt,
         sprungmarkenNurVorhandeneUndZumZiel, einBuchstabeOhneLeiste,
-        vorschlaegeStehenNichtMehrInDerZeile, suchzeileFiltertUndSortiertNeu];
+        vorschlaegeStehenNichtMehrInDerZeile, suchzeileFiltertUndSortiertNeu,
+        erinnerungsFilterTrenntUndZuruecksetzenLeert, erinnerungsFilterOhneTreffer];
     let rot = 0;
     for (const pruefung of pruefungen) {
         try { await pruefung(); } catch (error) {
@@ -262,5 +335,6 @@ process.on('exit', () => {
     if (rot) { process.exitCode = 1; return; }
     console.log('Personenauswahl: alphabetisch sortiert (Umlaute aufgeloest, Ziffern am Ende), '
         + 'Sprungmarken nur fuer vorhandene Buchstaben mit Markierung und Rollen, '
-        + 'Vorschlags-Zahl aus der Zeile entfernt, Suchzeile und Gruppenfilter unveraendert grün');
+        + 'Vorschlags-Zahl aus der Zeile entfernt, Filter mit/ohne Erinnerung, '
+        + 'Suchzeile und Gruppenfilter unveraendert grün');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

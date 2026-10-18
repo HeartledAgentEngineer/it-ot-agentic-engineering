@@ -397,6 +397,13 @@
                         <select id="gruppen-benannt-gruppe" aria-label="Nach einer Gesichtsgruppe filtern">
                             <option value="">Alle Gruppen</option>
                         </select>
+                        <!-- Filter „mit/ohne Erinnerung" (S8-Rest, 18.10.2026): eine Erinnerung ist
+                             eine aufgenommene Sprachnotiz im Profil der benannten Person. -->
+                        <select id="gruppen-benannt-erinnerung" aria-label="Nach vorhandener Erinnerung filtern">
+                            <option value="">Alle Erinnerungen</option>
+                            <option value="mit">Mit Erinnerung</option>
+                            <option value="ohne">Ohne Erinnerung</option>
+                        </select>
                         <button id="gruppen-benannt-filter-zuruecksetzen" class="gruppen-knopf" type="button">Filter zurücksetzen</button>
                     </div>
                     <!-- Sprungleiste der Personenauswahl (S8, 18.10.2026): alphabetisch
@@ -649,7 +656,7 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261018L"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
-    <script src="gruppen_quiz.js?v=20261018B"></script>
+    <script src="gruppen_quiz.js?v=20261018C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

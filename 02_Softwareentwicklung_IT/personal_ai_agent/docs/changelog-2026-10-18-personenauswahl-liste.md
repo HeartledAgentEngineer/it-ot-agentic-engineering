@@ -71,9 +71,11 @@ Sprungmarken sind bewusst so geschnitten, dass sie ohne Änderung übertragbar s
 
 ## Ehrliche Grenzen
 
-- Der **Filter „mit/ohne Erinnerung"**, das **Durcharbeiten der Personen ohne Erinnerung** und das
-  **Wischen** zur nächsten/vorherigen Person sind **noch nicht gebaut** — sie gehören zum selben
-  Punkt 10 und werden als eigene, kleine Schritte nachgeholt (jeder mit eigenem Prüfbefehl).
+- Der **Filter „mit/ohne Erinnerung"** ist inzwischen gebaut (eigener kleiner Schritt, siehe
+  `docs/changelog-2026-10-18-erinnerungsfilter.md`). **Noch nicht gebaut** sind das
+  **Durcharbeiten der Personen ohne Erinnerung** (Sprachnotiz je Person) und das **Wischen** zur
+  nächsten/vorherigen Person — sie gehören zum selben Punkt 10 und werden als eigene, kleine
+  Schritte nachgeholt (jeder mit eigenem Prüfbefehl).
 - **Nicht geprüft:** die Bedienung mit dem Finger am echten Gerät (Sprungmarken, Rollbereich) —
   das bleibt Sebastians Abnahme am Handy.
 - Die Ansicht-Entscheidung ist die des Nachtlaufs (keine Rückfrage möglich) und oben begründet;
