@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.sicherheit import client_ist_loopback
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,14 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None)) -> bool:
 # - "/api/health": Liveness-/Health-Check, darf nicht durch Auth blockieren
 # - "/api/auth":   Login-Endpunkt (tauscht Key gegen JWT aus) muss offen sein
 OPEN_API_PFIXE = ("/api/health", "/api/auth")
+
+#: Zusätzlich ohne Schlüssel/Sitzung erreichbar — aber NUR vom Gerät selbst
+#: (Loopback, Gegenstelle der Verbindung in 127.0.0.0/8 oder ::1). Grund
+#: (Sebastian, 16.10.2026): Er bedient den Server am Handy über HTTP ohne
+#: Anmeldung; der Update-/Neustart-Knopf war damit tot. Der Schutz nach außen
+#: bleibt das Tailscale-Netz plus HTTPS für fremde Geräte, und fremde Clients
+#: bekommen hier weiterhin 401.
+LOOPBACK_FREI_PFIXE = ("/api/system/",)
 
 
 # ── Sitzungen für PC und Tablet im Heim-WLAN (HTTPS-Plan H2, 14.10.2026) ──────
@@ -174,6 +183,8 @@ async def require_api_key(request: "Request") -> None:
     # bleiben ohne Key erreichbar (nur HTML/JS/CSS, keine Daten).
     pfad = request.url.path
     if pfad.startswith(OPEN_API_PFIXE):
+        return
+    if pfad.startswith(LOOPBACK_FREI_PFIXE) and client_ist_loopback(request.scope):
         return
     key = request.headers.get("x-api-key")
     if _schluessel_passt(key) or sitzung_gueltig(request):

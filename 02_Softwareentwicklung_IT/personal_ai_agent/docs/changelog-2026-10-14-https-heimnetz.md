@@ -59,7 +59,11 @@ sich einmal an und erhalten ein Sitzungs-Cookie.
   anmelden nötig.
 - `require_api_key` akzeptiert den Header `X-API-Key` **oder** ein gültiges Cookie.
   Abgelaufene Sitzungen werden beim Prüfen entfernt; Cookies über 200 Zeichen werden
-  nicht gehasht.
+  nicht gehasht. **Nachtrag 18.10.2026:** Für den Pfad `/api/system/`
+  (Update/Neustart) entfällt die Abhängigkeit, wenn die Anfrage **vom Gerät
+  selbst** kommt (Loopback) — siehe
+  `docs/changelog-2026-10-18-update-knopf-vom-geraet.md`. Für alle anderen
+  `/api`-Pfade gilt die Prüfung unverändert, auch für Loopback.
 - `GET /api/auth/sitzung` → `{angemeldet, https, schutz}`, nie den Schlüssel.
 - `POST /api/auth/abmelden` beendet die eigene Sitzung und löscht das Cookie.
 - Die drei Routen stehen bewusst in der Wächterliste der offenen Routen

@@ -22,6 +22,22 @@ API_KEY = "Attrappe-Update-Schluessel-0815"
 UPDATE_MELDUNG = "Stand wird geholt, Server startet neu — die Seite ist gleich wieder da."
 
 
+def _von_herkunft(herkunft: str):
+    """ASGI-Hülle: setzt die Gegenstelle der Verbindung auf ``herkunft``.
+
+    Der ``TestClient`` meldet sonst überall ``("testclient", 50000)`` — damit
+    ließe sich die Loopback-Regel („vom Gerät selbst") nicht nachstellen.
+    Überschrieben wird nur ``scope["client"]``, genau die Größe, die auch
+    ``sicherheit.client_ist_loopback`` liest (keine Header).
+    """
+    async def app_mit_client(scope, receive, send):
+        neuer_scope = dict(scope)
+        neuer_scope["client"] = (herkunft, 45321)
+        await app(neuer_scope, receive, send)
+
+    return app_mit_client
+
+
 @pytest.fixture(autouse=True)
 def _auth_zustand_sauber():
     auth._SITZUNGEN.clear()
@@ -93,16 +109,83 @@ def test_update_verlangt_anmeldung_und_https(monkeypatch):
 
 
 def test_update_bleibt_ohne_api_key_konfiguration_gesperrt(monkeypatch):
+    """Ohne API_KEY bleibt nur noch die HTTPS-Sperre für FREMDE Geräte.
+
+    Die frühere 503-Sperre („erst API_KEY einrichten") ist entfallen — sie war
+    für Sebastian der zweite tote Weg zum Update-Knopf. Belegt wird beides:
+    fremd über HTTPS läuft (202), fremd über HTTP bleibt gesperrt (403).
+    """
     monkeypatch.setattr(settings, "api_key", None)
     aufrufe = []
-    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: aufrufe.append((a, k)))
 
-    antwort = TestClient(app, base_url="https://testserver").post(
+    def fake_popen(argumente, **optionen):
+        aufrufe.append((argumente, optionen))
+        return SimpleNamespace(pid=4321)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    ueber_https = TestClient(app, base_url="https://testserver").post(
+        "/api/system/update"
+    )
+    ueber_http = TestClient(app, base_url="http://testserver").post(
         "/api/system/update"
     )
 
-    assert antwort.status_code == 503
-    assert aufrufe == []
+    assert ueber_https.status_code == 202
+    assert ueber_http.status_code == 403
+    assert len(aufrufe) == 1        # nur der HTTPS-Aufruf hat das Skript gestartet
+
+
+def test_update_geht_vom_geraet_selbst_immer(monkeypatch):
+    """Loopback darf IMMER: ohne HTTPS UND trotz eingerichtetem API_KEY ohne Anmeldung.
+
+    Genau das war der Befund (Sebastian, 16.10.2026): die App am Handy spricht
+    den Server über HTTP an, ein API_KEY war gesetzt, der Knopf war tot.
+    """
+    monkeypatch.setattr(settings, "api_key", API_KEY)
+    aufrufe = []
+
+    def fake_popen(argumente, **optionen):
+        aufrufe.append((argumente, optionen))
+        return SimpleNamespace(pid=4321)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    client = TestClient(_von_herkunft("127.0.0.1"), base_url="http://testserver")
+    antwort = client.post("/api/system/update")      # kein Key, kein Cookie, kein HTTPS
+
+    assert antwort.status_code == 202
+    assert antwort.json() == {"ok": True, "message": UPDATE_MELDUNG}
+    assert len(aufrufe) == 1
+    assert aufrufe[0][0] == ["bash", str(SCRIPT)]
+
+
+def test_update_geht_vom_geraet_selbst_auch_ueber_ipv6(monkeypatch):
+    """Dasselbe für IPv6-Loopback (::1) — ohne API_KEY-Konfiguration."""
+    monkeypatch.setattr(settings, "api_key", None)
+    aufrufe = []
+
+    def fake_popen(argumente, **optionen):
+        aufrufe.append((argumente, optionen))
+        return SimpleNamespace(pid=4321)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    antwort = TestClient(_von_herkunft("::1"), base_url="http://testserver").post(
+        "/api/system/update"
+    )
+
+    assert antwort.status_code == 202
+    assert len(aufrufe) == 1
+
+
+def test_loopback_oeffnet_nur_den_update_weg(monkeypatch):
+    """Gegenprobe: die Loopback-Ausnahme gilt NUR für /api/system/ — nicht für alle Daten."""
+    monkeypatch.setattr(settings, "api_key", API_KEY)
+    client = TestClient(_von_herkunft("127.0.0.1"), base_url="http://testserver")
+
+    assert client.get("/api/gruppen/personen").status_code == 401
+    assert client.get("/api/health").status_code == 200
 
 
 def test_update_akzeptiert_das_gueltige_sitzungscookie(monkeypatch):

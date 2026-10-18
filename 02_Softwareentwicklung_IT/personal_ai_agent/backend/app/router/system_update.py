@@ -7,8 +7,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
-from app.config import settings
 from app.router import auth
+from app.sicherheit import client_ist_loopback
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +39,19 @@ def _update_abgekoppelt_starten() -> None:
 
 @router.post("/update", status_code=202)
 async def update_starten(request: Request, background_tasks: BackgroundTasks):
-    """Nur angemeldet und über HTTPS: Update-Skript nach der Antwort starten."""
-    if not auth._ist_https(request):
-        raise HTTPException(status_code=403, detail="Update/Neustart ist nur über HTTPS möglich.")
-    if not settings.api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Update/Neustart ist gesperrt, solange API_KEY nicht eingerichtet ist.",
-        )
+    """Update-Skript nach der Antwort starten.
+
+    **Das Gerät selbst (Loopback: 127.0.0.0/8, ::1) darf immer** — über HTTP
+    oder HTTPS und unabhängig davon, ob ein ``API_KEY`` eingerichtet ist
+    (Sebastian, 16.10.2026: der Knopf war am Handy sonst dauerhaft tot, weil
+    seine App den lokalen Server über HTTP anspricht und er keine Anmeldung
+    will). Für **fremde** Geräte (LAN, Tailscale) bleibt die Sperre: nur über
+    HTTPS. Der Schutz nach außen ist das Netz plus die Verschlüsselung — nicht
+    ein Schlüssel im lokalen Weg.
+    """
+    vom_geraet_selbst = client_ist_loopback(request.scope)
+    if not vom_geraet_selbst and not auth._ist_https(request):
+        raise HTTPException(status_code=403, detail="Update/Neustart ist von fremden Geräten nur über HTTPS möglich.")
     if not UPDATE_SKRIPT.is_file():
         logger.error("Update/Neustart-Skript fehlt: %s", UPDATE_SKRIPT)
         raise HTTPException(status_code=503, detail="Update-Skript fehlt; Server bleibt unverändert.")
