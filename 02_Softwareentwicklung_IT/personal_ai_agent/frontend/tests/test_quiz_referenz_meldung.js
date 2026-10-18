@@ -31,7 +31,7 @@ function pruefe(bed, text) {
     if (bed) { console.log('  ✓ ' + text); } else { console.log('  ✗ ' + text); fehler++; }
 }
 
-const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'editorSpeicherZiel',
+const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'rahmenPersonWahl', 'editorSpeicherZiel',
                'speichereEditorRahmen', 'schliesseBildVollbild'];
 const quelle = NAMEN.map((n) => funktionAusschneiden(src, n)).join('\n');
 

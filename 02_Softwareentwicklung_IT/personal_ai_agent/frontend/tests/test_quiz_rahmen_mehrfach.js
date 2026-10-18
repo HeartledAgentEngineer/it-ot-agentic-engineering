@@ -39,7 +39,7 @@ function pruefe(bed, text) {
     if (bed) { console.log('  ✓ ' + text); } else { console.log('  ✗ ' + text); fehler++; }
 }
 
-const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'editorSpeicherZiel', 'rahmenIndizes',
+const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'rahmenPersonWahl', 'editorSpeicherZiel', 'rahmenIndizes',
                'speichereAlleRahmen', 'speichereEditorRahmen'];
 const quelle = NAMEN.map((n) => funktionAusschneiden(src, n)).join('\n');
 
@@ -170,7 +170,7 @@ const DREI = [[0.10, 0.10, 0.20, 0.20], [0.40, 0.40, 0.20, 0.20], [0.70, 0.10, 0
 
     console.log('\nF) Verdrahtung im Quelltext');
     {
-        const bau = src.slice(src.indexOf('const speicherZiel = editorSpeicherZiel(_quizEditor);'),
+        const bau = src.slice(src.indexOf('const speicherZiel = editorSpeicherZiel(_quizEditor, sel);'),
                               src.indexOf('leiste.appendChild(speicherHinweis);'));
         pruefe(/rahmenIndizes\(_quizEditor\)\.length/.test(bau), 'die Leiste zaehlt die Rahmen');
         pruefe(/if \(rahmenZahl >= 2\)/.test(bau), '"alle speichern" nur bei mindestens zwei Rahmen');

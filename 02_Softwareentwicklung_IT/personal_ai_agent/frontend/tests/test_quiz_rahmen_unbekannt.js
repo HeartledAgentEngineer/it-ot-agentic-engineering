@@ -55,7 +55,7 @@ const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'bboxRegionSchluessel', 'bboxN
                'unbekannteRahmenLaden', 'unbekannteRahmenSchreiben',
                'unbekannteRahmenMerken', 'unbekannteRahmenVergessen',
                'rahmenListeVerschmelzen', 'rahmenUnbekanntAnhaengen',
-               'rahmenIndizes', 'editorSpeicherZiel', 'speichereEditorRahmen'];
+               'rahmenIndizes', 'rahmenPersonWahl', 'editorSpeicherZiel', 'speichereEditorRahmen'];
 const quelle = NAMEN.map((n) => funktionAusschneiden(src, n)).join('\n');
 
 // Sandkasten: die echten Funktionen laufen gegen Attrappen der Nachbarn.
@@ -244,7 +244,11 @@ const UNBEKANNT = [0.55, 0.15, 0.18, 0.22];            // von Hand gezogen
         pruefe(/if \(!_quizEditor\.refKontext\) \{/.test(src)
                && /if \(!_quizEditor\.refKontext\) \{[\s\S]{0,200}const unbekanntPfad/.test(src),
                'in der Referenz-Nachbearbeitung werden keine fremden Rahmen angehaengt');
-        pruefe(/app\.js\?v=20261018I/.test(html), 'der Cache-Schluessel in index.html ist hochgezogen (I)');
+        // Schritt G (18.10.2026): die Nummer als Muster + Mindeststand pruefen —
+        // ein fest verdrahteter Buchstabe wurde bei jedem legitimen Bump rot.
+        const vApp = (html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
+        pruefe(/^\d{8}[A-Z]$/.test(vApp) && vApp >= '20261018I',
+               'der Cache-Schluessel in index.html ist hochgezogen (mindestens 20261018I), gefunden: ' + vApp);
     }
 
     console.log('');

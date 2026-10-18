@@ -36,7 +36,7 @@ function pruefe(bed, text) {
     if (bed) { console.log('  ✓ ' + text); } else { console.log('  ✗ ' + text); fehler++; }
 }
 
-const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'editorSpeicherZiel',
+const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'rahmenPersonWahl', 'editorSpeicherZiel',
                'speichereEditorRahmen', 'schliesseBildVollbild'];
 const quelle = NAMEN.map((n) => funktionAusschneiden(src, n)).join('\n');
 
@@ -163,7 +163,7 @@ console.log('\nG) Auflage 2 — die Zielwerte leben nur fuer ihr Bild');
 
 console.log('\nH) Verdrahtung im Quelltext (Knopf nur mit Ziel)');
 {
-    const bau = src.slice(src.indexOf('const speicherZiel = editorSpeicherZiel(_quizEditor);'),
+    const bau = src.slice(src.indexOf('const speicherZiel = editorSpeicherZiel(_quizEditor, sel);'),
                           src.indexOf('leiste.appendChild(speicherHinweis);'));
     pruefe(bau.length > 0, 'Werkzeugleiste fragt editorSpeicherZiel');
     pruefe(/if \(speicherZiel\.ok\)/.test(bau), 'Speichern-Knopf nur im Zweig speicherZiel.ok');
@@ -171,8 +171,8 @@ console.log('\nH) Verdrahtung im Quelltext (Knopf nur mit Ziel)');
            'Knopf entsteht erst NACH der Pruefung');
     pruefe(/speicherHinweis\.textContent = '💾 ' \+ speicherZiel\.grund/.test(bau),
            'sonst steht der ehrliche Grund in der Leiste');
-    pruefe(/editorSpeicherZiel\(e\)/.test(funktionAusschneiden(src, 'speichereEditorRahmen')),
-           'auch der Schreibweg selbst prueft das Ziel (doppelter Riegel)');
+    pruefe(/editorSpeicherZiel\(e, idx\)/.test(funktionAusschneiden(src, 'speichereEditorRahmen')),
+           'auch der Schreibweg selbst prueft das Ziel (doppelter Riegel) — Schritt G: fuer DIESEN Rahmen');
     pruefe(/bildPfad: pfad/.test(src), 'Quiz-Bild gibt seinen Bildpfad an den Editor mit');
     pruefe(/bildPfad: neuerPfad/.test(src), 'Vollbild-Durchlauf gibt den neuen Bildpfad mit');
     const vApp = (html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] || '';

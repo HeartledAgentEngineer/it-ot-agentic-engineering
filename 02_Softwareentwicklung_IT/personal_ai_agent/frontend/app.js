@@ -3782,6 +3782,10 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 _quizEditor.px_rest = [];
                 var sel = -1;
                 var rahmenEls = [];
+                // Schritt G (18.10.2026): das Ziel-Personen-Menue zeigt immer die
+                // Person des AUSGEWAEHLTEN Rahmens. Es wird erst beim Bau der
+                // Werkzeugleiste gesetzt; bis dahin ist der Aufruf wirkungslos.
+                var personWahlMalen = function () {};
                 // Schritt E (18.10.2026): ein Rahmen-Element entsteht jetzt an
                 // EINER Stelle — beim Oeffnen fuer ALLE Rahmen (auch die von Hand
                 // gezogenen HINTER der Serverliste) und beim Zeichnen fuer den
@@ -3867,13 +3871,19 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
                         // Schritt E: Rahmen ohne Person sind gestrichelt und
                         // tragen die Marke "unbekannt" (nicht als Gesicht erfunden).
-                        var unb = rahmenUnbekannt((_quizEditor.personen || [])[i]);
+                        var rohPerson = (_quizEditor.personen || [])[i];
+                        var eigenName = (rohPerson == null) ? '' : String(rohPerson).trim();
+                        var unb = rahmenUnbekannt(rohPerson);
                         el.style.borderStyle = unb ? 'dashed' : 'solid';
                         var nm = null;
                         try { nm = el.querySelector('.vollbild-rahmen-name'); } catch (_e) {}
                         if (nm) {
-                            nm.style.display = unb ? 'block' : 'none';
-                            if (unb) nm.textContent = rahmenPersonText((_quizEditor.personen || [])[i]);
+                            // Schritt G: ein Rahmen mit EIGENER Person traegt deren
+                            // Namen sichtbar — sonst waere nicht zu erkennen,
+                            // welcher Rahmen welche Person bekommt.
+                            nm.style.display = (unb || eigenName) ? 'block' : 'none';
+                            if (unb) nm.textContent = rahmenPersonText(rohPerson);
+                            else if (eigenName) nm.textContent = eigenName;
                         }
                     }
                     editorSyncLegacy();
@@ -3916,7 +3926,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     }
                 }
                 // zeigt Griffe beim Auswählen / versteckt bei keiner Auswahl
-                function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); }
+                function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); personWahlMalen(); }
                 // Ausschnitt-Vorschau des ausgewählten Rahmens (aus der
                 // NORMALISIERTEN bbox gerechnet — zoom-/drehungsunabhaengig).
                 function ausschnittAnzeigen() {
@@ -4176,13 +4186,60 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     });
                     leiste.appendChild(rahmenBtn);
                 }
+                // Schritt G (18.10.2026): Ziel-Personen-Menue JE RAHMEN
+                // (Auftragspunkt 2, "Auswahlliste statt nur 'ist nicht <Name>'"
+                // und die Zuordnung fuer von Hand gezogene Rahmen aus Schritt E).
+                // Gilt nicht in der Referenz-Nachbearbeitung: dort gehoert der
+                // Rahmen zu EINER bekannten Referenz.
+                if (!_quizEditor.refKontext) {
+                    const personWahl = document.createElement('select');
+                    personWahl.className = 'vollbild-person-wahl';
+                    personWahl.title = 'Person fuer den AUSGEWAEHLTEN Rahmen setzen (gilt nur fuer diesen Rahmen)';
+                    personWahl.style.cssText = 'padding:8px 10px;border-radius:20px;background:#2a2a2a;color:#eee;border:1px solid #555;font-size:0.82rem;max-width:44vw;cursor:pointer';
+                    personWahlMalen = function () {
+                        try {
+                            var wahl = rahmenPersonWahl(_quizEditor, sel);
+                            var namen = rahmenPersonMenueListe(quizKatalogNamen(), wahl);
+                            personWahl.textContent = '';
+                            var leer = document.createElement('option');
+                            leer.value = '';
+                            leer.textContent = '👤 Person für diesen Rahmen …';
+                            personWahl.appendChild(leer);
+                            for (var n = 0; n < namen.length; n++) {
+                                var op = document.createElement('option');
+                                op.value = namen[n];
+                                op.textContent = namen[n];
+                                personWahl.appendChild(op);
+                            }
+                            personWahl.value = wahl;
+                            personWahl.disabled = (sel < 0);
+                        } catch (_e) {}
+                    };
+                    personWahl.addEventListener('change', function (ev) {
+                        ev.stopPropagation();
+                        var wert = rahmenPersonSetzen(_quizEditor, sel, personWahl.value);
+                        if (wert) {
+                            meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + wert +
+                                        ' (nur dieser Rahmen; 💾 Speichern uebernimmt ihn).', true);
+                        } else {
+                            meldeEditor('Rahmen ' + (sel + 1) + ' bleibt „unbekannt" — beim Speichern wird er nicht zugeordnet.', false);
+                        }
+                        resync(); personWahlMalen();
+                    });
+                    leiste.appendChild(personWahl);
+                    personWahlMalen();
+                    // Der Katalog kommt aus dem Netz: trifft er spaeter ein, wird
+                    // die Liste nachgefuellt — nie still leer (Ladefehler nennt
+                    // quizKatalogFehlerText() im Suchfeld des Quiz).
+                    ladeQuizKatalogNamen().then(function () { try { personWahlMalen(); } catch (_e) {} });
+                }
                 if (_quizEditor.dreh) { try { big.style.transform = 'rotate(' + (_quizEditor.dreh * 90) + 'deg)'; } catch (_e) {} }
                 // Schritt A2 (16.10.2026): KEIN Speichern ohne Ziel. Der Knopf
                 // entsteht nur, wenn Person UND Bildzeile zum offenen Editor
                 // passen (oder eine Referenz nachbearbeitet wird); fehlt das
                 // Ziel, steht hier ein ehrlicher Hinweis statt eines Knopfes,
                 // der nichts bewirken kann.
-                const speicherZiel = editorSpeicherZiel(_quizEditor);
+                const speicherZiel = editorSpeicherZiel(_quizEditor, sel);
                 if (speicherZiel.ok) {
                     const speichernBtn = document.createElement('div');
                     speichernBtn.textContent = '💾 Speichern';
@@ -4251,14 +4308,65 @@ function dateiAnzeigeName(p) {
     return teile[teile.length - 1] || k;
 }
 
+// ---------------------------------------------------------------------------
+// Schritt G (18.10.2026): Zielperson JE RAHMEN. Bis hierher galt im ganzen
+// Bild EINE globale Zielperson (_aktuelleQuizPerson) — auf einem Foto mit
+// mehreren Personen liess sich damit nur eine zuordnen. Ab jetzt kann jeder
+// Rahmen seine eigene Person tragen (_quizEditor.personen[idx], Menue in der
+// Werkzeugleiste). Rueckwaertsvertraeglich: ist fuer den Rahmen NICHTS gesetzt,
+// gilt weiter die globale Zielperson.
+// ---------------------------------------------------------------------------
+
+/** Person, die fuer DIESEN Rahmen gilt: der eigene Eintrag, sonst die globale
+ *  Zielperson. `''` heisst ausdruecklich "unbekannt" (Schritt E) und faellt
+ *  NICHT auf die globale Person zurueck — dieser Fall wird im Speicherweg
+ *  ohnehin abgelehnt. */
+function rahmenPersonWahl(e, idx) {
+    const ed = e || _quizEditor || {};
+    const liste = ed.personen || [];
+    const i = (typeof idx === 'number' && idx >= 0) ? idx : 0;
+    const eigen = (liste[i] == null) ? '' : String(liste[i]).trim();
+    if (eigen) return eigen;
+    return String(_aktuelleQuizPerson || '').trim();
+}
+
+/** Setzt die Person fuer EINEN Rahmen. Rueckgabe: der uebernommene Wert
+ *  ('' = nichts gesetzt, z. B. weil es den Rahmen nicht gibt). Aendert die
+ *  globale Zielperson NICHT. */
+function rahmenPersonSetzen(e, idx, person) {
+    const ed = e || _quizEditor || {};
+    const i = (typeof idx === 'number' && idx >= 0) ? idx : -1;
+    const r = (ed.bbox_norm_live || [])[i];
+    if (!(i >= 0 && r && r.length >= 4)) return '';
+    if (!Array.isArray(ed.personen)) ed.personen = [];
+    const wert = String(person == null ? '' : person).trim();
+    ed.personen[i] = wert;
+    return wert;
+}
+
+/** Eintraege des Ziel-Personen-Menues: der aktuell gesetzte Wert zuerst, dann
+ *  der Katalog — jeder Name genau einmal, keine Leerzeilen. */
+function rahmenPersonMenueListe(katalogNamen, aktuell) {
+    const raus = [];
+    const dazu = (n) => {
+        const s = String(n == null ? '' : n).trim();
+        if (s && raus.indexOf(s) === -1) raus.push(s);
+    };
+    dazu(aktuell);
+    (katalogNamen || []).forEach(dazu);
+    return raus;
+}
+
 // Passt das gespeicherte Ziel (Person + Bildzeile) zu DIESEM Editor?
-function editorSpeicherZiel(e) {
+// Schritt G: `idx` nennt den Rahmen — ohne Angabe gilt Rahmen 0 (und damit
+// wie bisher die globale Zielperson, wenn kein eigener Eintrag existiert).
+function editorSpeicherZiel(e, idx) {
     const ed = e || _quizEditor || {};
     const ctx = ed.refKontext || null;
     if (ctx && ctx.name && ctx.ref_id) {
         return { ok: true, weg: 'referenz', person: ctx.name, pfad: '', grund: '' };
     }
-    const person = String(_aktuelleQuizPerson || '').trim();
+    const person = rahmenPersonWahl(ed, idx);
     const pfad = pfadKennung(_aktuellerQuizPfad);
     const bild = pfadKennung(ed.bildPfad);
     if (person && pfad && bild && pfad === bild) {
@@ -4482,7 +4590,9 @@ function speichereEditorRahmen(sel, iw, ih, btn, stillSammeln) {
     const refKontext = (ctx && ctx.name && ctx.ref_id) ? ctx : null;
     // Schritt A2: das Ziel wird NICHT mehr ungeprueft aus den globalen Werten
     // genommen — es muss zum offenen Bild passen (sonst kein Sendeversuch).
-    const ziel = editorSpeicherZiel(e);
+    // Schritt G: die Person kommt aus DIESEM Rahmen (eigener Eintrag, sonst die
+    // globale Zielperson) — `idx` wird deshalb mitgegeben.
+    const ziel = editorSpeicherZiel(e, idx);
     const person = ziel.ok ? ziel.person : '';
     const pPfad = ziel.ok ? ziel.pfad : '';
 
