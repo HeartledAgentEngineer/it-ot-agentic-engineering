@@ -99,6 +99,44 @@ def test_gelesen_vermerk_ueberlebt_weiteren_send(bus):
     assert [m["text"] for m in bus.read(d, "claude")] == ["zwei"]
 
 
+def test_kennung_bleibt_eindeutig_bei_gleicher_millisekunde(bus, monkeypatch):
+    """Gefundener Fehler 18.10.2026 (flakiger Nachbartest).
+
+    Die Kennung war `m<int(time.time()*1000)>` — zwei Nachrichten in DERSELBEN
+    Millisekunde bekamen damit dieselbe Kennung, und der Lese-Vermerk der ersten
+    markierte die zweite als gelesen. Der Nachbartest
+    `test_gelesen_vermerk_ueberlebt_weiteren_send` fiel dadurch unter Last rot
+    und allein gruen. Mit eingefrorener Uhr wird das jetzt DETERMINISTISCH
+    geprueft: die Kennungen muessen verschieden sein, und die zweite Nachricht
+    muss ungelesen bleiben.
+    """
+    monkeypatch.setattr(bus.time, "time", lambda: 1750000000.123)   # eingefrorene Uhr
+    d = bus.bus_dir()
+    bus.init(d)
+    erste = bus.send(d, "hermes", "claude", "task", "eins")
+    zweite = bus.send(d, "hermes", "claude", "task", "zwei")
+    assert erste["id"] != zweite["id"], "zwei Nachrichten brauchen zwei Kennungen"
+    assert [m["id"] for m in bus.read(d, "claude")] == [erste["id"], zweite["id"]]
+    assert bus.read(d, "claude") == [], "nach dem Lesen ist nichts mehr offen"
+    # Der Kern des Fehlers: eine DRITTE Nachricht in derselben Millisekunde darf
+    # der Lese-Vermerk der ersten beiden nicht mitnehmen.
+    dritte = bus.send(d, "hermes", "claude", "task", "drei")
+    assert len({erste["id"], zweite["id"], dritte["id"]}) == 3
+    assert [m["text"] for m in bus.read(d, "claude")] == ["drei"]
+    # GEGENPROBE — der gefundene Fehler selbst, ueber denselben Weg: mit der
+    # alten Regel (nur Millisekunde) verschluckt der Lese-Vermerk die zweite
+    # Nachricht. Der Test waere ohne diesen Nachweis nicht scharf.
+    monkeypatch.setattr(bus, "_neue_kennung", lambda dd: f"m{int(bus.time.time() * 1000)}")
+    k = d / "kollision"
+    bus.init(k)
+    bus.send(k, "hermes", "claude", "task", "alt-eins")
+    bus.read(k, "claude")
+    bus.send(k, "hermes", "claude", "task", "alt-zwei")
+    assert bus.read(k, "claude") == [], (
+        "alte Regel: die zweite Nachricht gilt faelschlich schon als gelesen"
+    )
+
+
 def test_read_laesst_nachrichtenlog_unveraendert(bus):
     # messages.jsonl bleibt rein anhaengend: ein paralleler send darf nie
     # durch ein Neuschreiben beim Lesen verloren gehen.

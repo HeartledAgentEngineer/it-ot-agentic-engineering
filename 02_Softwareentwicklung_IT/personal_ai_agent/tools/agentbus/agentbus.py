@@ -64,12 +64,46 @@ def init(d: Path) -> list[str]:
     return made
 
 
+def _neue_kennung(d: Path) -> str:
+    """Eindeutige Nachrichten-Kennung.
+
+    `m<int(time.time()*1000)>` allein ist NICHT eindeutig: zwei Nachrichten in
+    derselben Millisekunde bekamen dieselbe Kennung, und der Lese-Vermerk der
+    ersten markierte damit auch die zweite als gelesen. Gefunden am 18.10.2026
+    als flakiger Test `test_gelesen_vermerk_ueberlebt_weiteren_send` (allein
+    gruen, unter Last rot). Die Basis bleibt die Millisekunde — bei Kollision
+    kommt ein Zaehler dahinter, geprueft gegen die bereits geschriebenen
+    Kennungen; damit ist die Kennung deterministisch und trotzdem eindeutig.
+    """
+    basis = f"m{int(time.time() * 1000)}"
+    vorhanden = set()
+    p = d / "messages.jsonl"
+    if p.exists():
+        try:
+            with open(p, encoding="utf-8") as fh:
+                for zeile in fh:
+                    zeile = zeile.strip()
+                    if not zeile:
+                        continue
+                    try:
+                        vorhanden.add(json.loads(zeile).get("id"))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            vorhanden = set()
+    kennung, zaehler = basis, 0
+    while kennung in vorhanden:
+        zaehler += 1
+        kennung = f"{basis}-{zaehler}"
+    return kennung
+
+
 def send(d: Path, von: str, an: str, typ: str, text: str,
          step: str = "", paths: str = "") -> dict:
     if typ not in TYPES:
         raise SystemExit(f"unbekannter Typ: {typ} (erlaubt: {', '.join(TYPES)})")
     msg = {
-        "id": f"m{int(time.time() * 1000)}",
+        "id": _neue_kennung(d),
         "zeit": _now(),
         "von": von,
         "an": an,
