@@ -2972,3 +2972,45 @@ body.anmelden-offen { overflow: hidden; }
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-glow);
 }
+
+/* =========================================
+   Server-Zustand (18.10.2026, To-do Punkt 12)
+   Kleine, dauerhaft sichtbare Anzeige unter der Hintergrund-Leiste.
+   Bewusst im Fluss (kein Kasten ueber dem Chat) und schmal; der
+   farbige Punkt traegt den Zustand, der Text nennt ihn im Klartext.
+   ========================================= */
+
+.server-zustand {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.server-punkt {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+
+#server-zustand-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.server-zustand[data-zustand="ok"] .server-punkt { background: #57c46a; }
+.server-zustand[data-zustand="kein-modell"] .server-punkt { background: #ffb86b; }
+.server-zustand[data-zustand="weg"] .server-punkt { background: #e05555; }
+
+.server-zustand[data-zustand="weg"] #server-zustand-text {
+    color: #ff9a9a;
+}

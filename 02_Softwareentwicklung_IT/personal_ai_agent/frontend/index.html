@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261016D">
+    <link rel="stylesheet" href="style.css?v=20261018A">
 </head>
 <body>
     <div id="app">
@@ -88,6 +88,20 @@
                 <span id="hintergrund-text">Keine Hintergrundarbeit</span>
             </button>
             <div id="hintergrund-einzelheiten" hidden></div>
+        </div>
+
+        <!-- Server-Zustand (18.10.2026, Wunsch Sebastian, To-do Punkt 12):
+             dauerhaft sichtbare, kleine Anzeige am oberen Rand. Quelle:
+             GET /api/health, regelmaessig erneuert (app.js). Zeigt Server
+             (laeuft / nicht erreichbar), Modell (bereit / nicht geladen),
+             Zahl der Erinnerungen und den Stand. Bewusst FLACH im Fluss —
+             kein Kasten ueber dem Chat (siehe Punkt 9) — und ohne
+             Haekchen-/Statussymbole: der farbige Punkt traegt den Zustand,
+             der Text sagt ihn im Klartext. -->
+        <div id="server-zustand" class="server-zustand" data-zustand="unbekannt"
+             role="status" aria-live="polite">
+            <span id="server-punkt" class="server-punkt" aria-hidden="true"></span>
+            <span id="server-zustand-text">Server wird geprüft …</span>
         </div>
 
         <!-- Streaming-Geschwindigkeit-Menue (ueber dem Chat, Zahnrad oben rechts) -->
@@ -629,7 +643,7 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261018J"></script>
+    <script src="app.js?v=20261018K"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261016C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

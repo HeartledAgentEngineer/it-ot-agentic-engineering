@@ -9973,6 +9973,69 @@ function hintergrundEinzelheitenText(daten) {
     });
 })();
 
+// ── Server-Zustand (18.10.2026, To-do Punkt 12) ─────────────────────────────
+// Kleine, dauerhaft sichtbare Anzeige am oberen Rand (index.html
+// #server-zustand): laeuft der Server, ist das Modell geladen, wie viele
+// Erinnerungen gibt es, welcher Stand laeuft. Quelle: GET /api/health
+// (backend/app/main.py, ausdruecklich von der Anmeldung ausgenommen).
+// Befund Sebastian: "Kann ich gar nicht mehr ueberpruefen, ob der Server
+// laeuft." Bewusst FLACH im Fluss — kein Kasten ueber dem Chat (Punkt 9) —
+// und ohne Haekchen-/Statussymbole: der Punkt traegt den Zustand, der Text
+// sagt ihn im Klartext. Die reinen Funktionen sind ohne DOM testbar
+// (frontend/tests/test_server_zustand.js).
+const SERVER_ZUSTAND_TAKT_MS = 5000;
+
+/** Zustand des Punktes: 'ok' (Server laeuft, Modell bereit), 'kein-modell'
+ *  (Server laeuft, Modell nicht geladen), 'weg' (keine brauchbare Antwort). */
+function serverZustandPunkt(daten) {
+    if (!daten || typeof daten !== 'object' || daten.status !== 'ok') return 'weg';
+    return daten.llm_configured ? 'ok' : 'kein-modell';
+}
+
+/** Klartext-Zeile: Server, Modell, Erinnerungen, Stand — ohne Symbole. */
+function serverZustandText(daten) {
+    if (!daten || typeof daten !== 'object' || daten.status !== 'ok') {
+        return 'Server nicht erreichbar';
+    }
+    const teile = ['Server läuft',
+        daten.llm_configured ? 'Modell bereit' : 'Modell nicht geladen'];
+    const roh = daten.memory_count;
+    if (typeof roh === 'number' && Number.isFinite(roh) && roh >= 0) {
+        teile.push(roh + (roh === 1 ? ' Erinnerung' : ' Erinnerungen'));
+    }
+    if (daten.version) teile.push('Stand ' + String(daten.version));
+    return teile.join(' · ');
+}
+
+(function () {
+    const kasten = document.getElementById('server-zustand');
+    if (!kasten) return;
+    const textEl = document.getElementById('server-zustand-text');
+
+    function zeichnen(daten) {
+        kasten.setAttribute('data-zustand', serverZustandPunkt(daten));
+        if (textEl) textEl.textContent = serverZustandText(daten);
+    }
+
+    async function laden() {
+        try {
+            const res = await fetch(`${API_BASE}/api/health`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            zeichnen(await res.json());
+        } catch (_) {
+            // Server weg oder Antwort unbrauchbar: ehrlich zeigen statt alte
+            // Angaben stehen zu lassen. Der naechste Takt versucht es wieder.
+            zeichnen(null);
+        }
+    }
+
+    laden();
+    setInterval(laden, SERVER_ZUSTAND_TAKT_MS);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) laden();
+    });
+})();
+
 // =========================================
 // (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
 //  Assistenten direkt über Hermes, kein sichtbares Auftragskonzept mehr.)
