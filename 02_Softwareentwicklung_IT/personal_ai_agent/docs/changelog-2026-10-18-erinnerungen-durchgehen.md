@@ -71,7 +71,8 @@ Diktat läuft über das vorhandene `starteFeldDiktat`), gespeichert wird sie als
 - **Nicht geprüft:** die Bedienung mit dem Finger am echten Gerät (Knopf drücken, Blättern,
   Aufnahme) — das bleibt Sebastians Abnahme am Handy. Der Browser-Beleg zeigt nur die Geometrie.
 - **Offen** bleibt aus Punkt 10 das **Wischen** zur nächsten/vorherigen Person (eigener kleiner
-  Schritt; am PC wären Pfeiltasten die Entsprechung).
+  Schritt; am PC wären Pfeiltasten die Entsprechung). — **ERLEDIGT 18.10.2026, 13:3x–14:1x
+  (Hermes-Cron, Schritt S8-Rest 3):** `docs/changelog-2026-10-18-person-wischen.md`.
 - Der Knopf bietet **keinen** Ringlauf an; wer die letzte Person erreicht hat, geht über die Liste
   weiter. Der Filter wertet den **Inhalt** der Notiz nicht aus.
 - Kein Backend-Eingriff, kein Bild, kein Vision-/pCloud-Aufruf, keine Geräteeingriffe, nichts

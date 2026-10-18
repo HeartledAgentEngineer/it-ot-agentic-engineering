@@ -469,6 +469,82 @@ function gruppenWeiterText(rest) {
     return n > 0 ? 'Nächste ohne Erinnerung (' + n + ') →' : '';
 }
 
+// ── Wischen zur naechsten/vorherigen Person (S8-Rest 3, 18.10.2026) ──
+//
+// Wunsch Sebastian (To-do Punkt 10): „Ist man auf einer Person, soll man mit
+// Wischen nach links/rechts zur naechsten bzw. vorherigen Person wechseln
+// koennen … Gilt fuer Handy/Tablet; am PC zusaetzlich sinnvoll: Pfeiltasten
+// links/rechts.“ Gewischt wird in der ANGEZEIGTEN Reihe (gesetzte Filter plus
+// alphabetische Sortierung) — der Weiter-Knopf bleibt fuer die Reihe „ohne
+// Erinnerung“ zustaendig, das Wischen blaettert die ganze Ansicht.
+
+/** So weit muss der Finger wandern, damit es ein Wisch ist — und kein Tippen. */
+const WISCH_MINDEST_PX = 60;
+/** Waagerecht muss so viel weiter sein als senkrecht, sonst ist es Rollen. */
+const WISCH_UEBERGEWICHT = 1.5;
+
+/** Richtung eines Wischs: 'weiter' (Finger nach links), 'zurueck' (nach rechts)
+ *  oder '' (zu kurz bzw. eher senkrecht = die Seite rollen). */
+function gruppenWischRichtung(startX, startY, endX, endY) {
+    const dx = Number(endX) - Number(startX);
+    const dy = Number(endY) - Number(startY);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return '';
+    if (Math.abs(dx) < WISCH_MINDEST_PX) return '';
+    if (Math.abs(dx) < Math.abs(dy) * WISCH_UEBERGEWICHT) return '';
+    return dx < 0 ? 'weiter' : 'zurueck';
+}
+
+/** Die Namen einer Ansicht in Anzeige-Reihenfolge (schon gefiltert/sortiert). */
+function gruppenReiheNamen(personen) {
+    return (Array.isArray(personen) ? personen : [])
+        .map((p) => p && p.name)
+        .filter((name) => !!name);
+}
+
+/** Nachbar in der Reihe: 'weiter' = die naechste, 'zurueck' = die vorherige
+ *  Person. Leer, wenn es keine gibt (Anfang bzw. Ende) — bewusst KEIN Ringlauf,
+ *  sonst landete man beim Wischen wieder bei den schon durchgearbeiteten
+ *  Personen. Steht ``name`` nicht in der Reihe, beginnt 'weiter' vorne und
+ *  'zurueck' hinten (dieselbe Regel wie beim Weiter-Knopf). */
+function gruppenNachbarName(personen, name, richtung) {
+    const reihe = gruppenReiheNamen(personen);
+    if (!reihe.length) return '';
+    const pos = reihe.indexOf(name);
+    if (richtung === 'zurueck') return pos === -1 ? reihe[reihe.length - 1] : (reihe[pos - 1] || '');
+    return pos === -1 ? reihe[0] : (reihe[pos + 1] || '');
+}
+
+/** Ehrlicher Hinweis am Rand der Reihe — kein stiller Nichtvorgang. */
+function gruppenWischHinweis(richtung) {
+    return richtung === 'zurueck'
+        ? 'Das ist die erste Person in dieser Ansicht.'
+        : 'Das ist die letzte Person in dieser Ansicht.';
+}
+
+/** Beginnt der Wisch in einem Bedienfeld? Dort gehoert der Finger dem Feld
+ *  (Tippen, Markieren, Rollen), nicht dem Blaettern. Kacheln sind ebenfalls
+ *  ausgenommen: sie kennen den langen Druck zum Markieren. */
+function gruppenWischGesperrt(ziel) {
+    let knoten = ziel;
+    let tiefe = 0;
+    while (knoten && tiefe < 8) {
+        const tag = String(knoten.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return true;
+        if (knoten.classList && typeof knoten.classList.contains === 'function'
+            && knoten.classList.contains('gruppen-kachel')) return true;
+        knoten = knoten.parentNode;
+        tiefe += 1;
+    }
+    return false;
+}
+
+/** Gehoert diese Taste zum Blaettern? Rechts = weiter, links = zurueck. */
+function gruppenWischTaste(key) {
+    if (key === 'ArrowRight') return 'weiter';
+    if (key === 'ArrowLeft') return 'zurueck';
+    return '';
+}
+
 /** Auswahlzeile einer Gruppe: „Vorschlag 1001 · 120 Gesichter · 2015–2025“. */
 function gruppenAuswahlText(g) {
     if (!g) return '';
@@ -1467,6 +1543,19 @@ function gruppenNotizZeit(zeit) {
         if (await personOeffnen(naechste, true) === null) return;
     }
 
+    /** Mit Wischen (oder den Pfeiltasten) zur naechsten/vorherigen Person
+     *  (S8-Rest 3, 18.10.2026). ``richtung`` = 'weiter' | 'zurueck'. */
+    async function personWischen(richtung) {
+        if (!zustand.person) return;
+        const naechste = gruppenNachbarName(personenGefiltert(), zustand.person.name, richtung);
+        if (!naechste) {
+            melde(gruppenWischHinweis(richtung), false);
+            return;
+        }
+        if (await personOeffnen(naechste, true) === null) return;
+        melde(richtung === 'zurueck' ? '← vorherige Person' : 'naechste Person →', true);
+    }
+
     /** POST an eine Bearbeiten-Route; sperrt Doppel-Tipps. */
     async function bearbeiten(pfad, koerper) {
         if (zustand.beschaeftigt) return null;
@@ -2134,6 +2223,34 @@ function gruppenNotizZeit(zeit) {
         anklick('gruppen-reiter-benannt', () => reiterSetzen('benannt'));
         anklick('gruppen-person-zurueck', () => { zustand.person = null; nurZeigen('benannt'); personenLaden(); });
         anklick('gruppen-person-weiter', personWeiter);
+        // Wischen zur naechsten/vorherigen Person (S8-Rest 3, 18.10.2026):
+        // am Geraet ueber den Finger, am PC ueber die Pfeiltasten.
+        const personBereich = el('gruppen-person');
+        if (personBereich) {
+            let wischStart = null;
+            const wischAbbrechen = () => { wischStart = null; };
+            personBereich.addEventListener('pointerdown', (ev) => {
+                if (!zustand.person || gruppenWischGesperrt(ev && ev.target)) { wischStart = null; return; }
+                if (ev && ev.pointerType === 'mouse' && ev.button !== 0) { wischStart = null; return; }
+                wischStart = { x: ev ? ev.clientX : 0, y: ev ? ev.clientY : 0 };
+            });
+            personBereich.addEventListener('pointerup', (ev) => {
+                const start = wischStart;
+                wischStart = null;
+                if (!start || !ev) return;
+                const richtung = gruppenWischRichtung(start.x, start.y, ev.clientX, ev.clientY);
+                if (richtung) personWischen(richtung);
+            });
+            personBereich.addEventListener('pointercancel', wischAbbrechen);
+            personBereich.addEventListener('pointerleave', wischAbbrechen);
+        }
+        document.addEventListener('keydown', (ev) => {
+            if (!zustand.person || gruppenWischGesperrt(ev && ev.target)) return;
+            const richtung = gruppenWischTaste(ev && ev.key);
+            if (!richtung) return;
+            if (ev.preventDefault) ev.preventDefault();
+            personWischen(richtung);
+        });
         anklick('gruppen-person-umbenennen', umbenennen);
         anklick('gruppen-person-speichern', profilSpeichern);
         anklick('gruppen-person-mikro', personDiktat);
