@@ -3608,6 +3608,12 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     } catch (_e) {}
     _quizEditor.bildPfad = (optionen.bildPfad
         || (imgEl && imgEl.dataset ? imgEl.dataset.bildPfad : '') || '');
+    // Schritt F (18.10.2026): die Gesichtsliste des offenen Bildes merken — die
+    // Personen-Leiste nennt daraus je Rahmen die bestaetigte Person. Ohne
+    // Server-Rahmen bleibt eine frueher gemerkte Liste stehen (die Rahmen
+    // bleiben ja auch stehen); sonst ist sie ausdruecklich leer.
+    if (gesichter && gesichter.length) _quizEditor.gesichter = gesichter;
+    else if (!Array.isArray(_quizEditor.gesichter)) _quizEditor.gesichter = [];
     _quizEditor.src = src;
     const ov = document.createElement('div');
     _quizVollbild = ov;
@@ -3786,6 +3792,10 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 // Person des AUSGEWAEHLTEN Rahmens. Es wird erst beim Bau der
                 // Werkzeugleiste gesetzt; bis dahin ist der Aufruf wirkungslos.
                 var personWahlMalen = function () {};
+                // Schritt F (18.10.2026): die Personen-Leiste des Detailbilds.
+                // Sie wird — wie das Ziel-Personen-Menue — erst beim Bau der
+                // Werkzeugleiste gesetzt; bis dahin ist der Aufruf wirkungslos.
+                var personenLeisteMalen = function () {};
                 // Schritt E (18.10.2026): ein Rahmen-Element entsteht jetzt an
                 // EINER Stelle — beim Oeffnen fuer ALLE Rahmen (auch die von Hand
                 // gezogenen HINTER der Serverliste) und beim Zeichnen fuer den
@@ -3926,7 +3936,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     }
                 }
                 // zeigt Griffe beim Auswählen / versteckt bei keiner Auswahl
-                function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); personWahlMalen(); }
+                function zeigeAuswahlGriffe() { baueGriffe(sel); ausschnittAnzeigen(); personWahlMalen(); personenLeisteMalen(); }
                 // Ausschnitt-Vorschau des ausgewählten Rahmens (aus der
                 // NORMALISIERTEN bbox gerechnet — zoom-/drehungsunabhaengig).
                 function ausschnittAnzeigen() {
@@ -4233,6 +4243,56 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     // quizKatalogFehlerText() im Suchfeld des Quiz).
                     ladeQuizKatalogNamen().then(function () { try { personWahlMalen(); } catch (_e) {} });
                 }
+                // Schritt F (18.10.2026): die PERSONEN-LEISTE — "unten die
+                // Personen durchklicken, der zugehoerige Rahmen wird im Bild
+                // gezeigt" (Auftragspunkt 5). Sie haengt als absolut gesetztes
+                // Kind AN der Werkzeugleiste (`bottom:100%`), damit sie in jeder
+                // Fensterhoehe genau darueber liegt — eine feste Pixelhoehe war
+                // falsch: die Werkzeugleiste ist 69 px hoch, die Leiste sass
+                // damit 19 px IN ihr (im echten Browser gemessen, 18.10.2026).
+                // Sie stoert die Knopfreihe nicht (ausserhalb des Flusses), darf
+                // umbrechen und bleibt ohne bekannte Person ganz weg.
+                if (!_quizEditor.refKontext) {
+                    const personenLeiste = document.createElement('div');
+                    personenLeiste.className = 'vollbild-personen-leiste';
+                    personenLeiste.style.cssText = 'position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:8px;z-index:99999;display:none;gap:8px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:24px;padding:5px 10px;box-shadow:0 3px 12px rgba(0,0,0,.6);max-width:92vw;flex-wrap:wrap;justify-content:center';
+                    personenLeisteMalen = function () {
+                        try {
+                            const eintraege = rahmenPersonenLeiste(_quizEditor,
+                                _quizEditor.gesichter || [], _quizEditor.bildPfad || '');
+                            personenLeiste.textContent = '';
+                            if (!eintraege.length) { personenLeiste.style.display = 'none'; return; }
+                            const marke = document.createElement('span');
+                            marke.textContent = '👤';
+                            marke.style.cssText = 'font-size:0.8rem;opacity:.8';
+                            personenLeiste.appendChild(marke);
+                            for (let n = 0; n < eintraege.length; n++) {
+                                const eintrag = eintraege[n];
+                                const aktiv = (eintrag.idx === sel);
+                                const b = document.createElement('button');
+                                b.type = 'button';
+                                b.className = 'vollbild-personen-knopf';
+                                b.dataset.rahmen = String(eintrag.idx);
+                                b.textContent = eintrag.person;
+                                b.setAttribute('aria-pressed', aktiv ? 'true' : 'false');
+                                b.style.cssText = 'padding:6px 12px;border-radius:18px;font-size:0.82rem;font-weight:700;cursor:pointer;white-space:nowrap;'
+                                    + (aktiv ? 'background:#2a5338;border:1px solid #4f4;color:#9f9'
+                                             : 'background:#2a2a2a;border:1px solid #555;color:#eee');
+                                b.addEventListener('click', function (ev) {
+                                    ev.stopPropagation();
+                                    const idx = rahmenWahlAusLeiste(_quizEditor,
+                                        _quizEditor.gesichter || [], _quizEditor.bildPfad || '', eintrag.person);
+                                    if (idx < 0) return;
+                                    sel = idx; resync(); zeigeAuswahlGriffe();
+                                });
+                                personenLeiste.appendChild(b);
+                            }
+                            personenLeiste.style.display = 'flex';
+                        } catch (_e) {}
+                    };
+                    leiste.appendChild(personenLeiste);
+                    personenLeisteMalen();
+                }
                 if (_quizEditor.dreh) { try { big.style.transform = 'rotate(' + (_quizEditor.dreh * 90) + 'deg)'; } catch (_e) {} }
                 // Schritt A2 (16.10.2026): KEIN Speichern ohne Ziel. Der Knopf
                 // entsteht nur, wenn Person UND Bildzeile zum offenen Editor
@@ -4423,6 +4483,51 @@ function rahmenPersonText(person) {
 /** Ausdruecklich als unbekannt markiert? (`undefined` = keine Aussage.) */
 function rahmenUnbekannt(person) {
     return person === '';
+}
+
+// ---------------------------------------------------------------------------
+// Schritt F (18.10.2026): Personen-Leiste des Detailbilds (Auftragspunkt 5).
+// Der Auftrag verlangt, dass man "unten die Personen durchklicken" kann und
+// der zugehoerige Rahmen im Bild hervorgehoben wird. Die Leiste nennt JE
+// RAHMEN die bekannte Person: zuerst der eigene Eintrag (Schritt G), sonst die
+// fuer diese Region bestaetigten Namen (`gesichter[idx].bestaetigt`, wie in der
+// Quiz-Suche). Ein Rahmen, der ausdruecklich "unbekannt" ist ('' aus Schritt E),
+// bekommt bewusst KEINEN Eintrag — hier wird nichts erfunden. Die globale
+// Zielperson zaehlt NICHT: sie gilt fuer das ganze Bild und wuerde jedem Rahmen
+// denselben Namen anhaengen.
+// Rueckgabe: [{ idx, person }] in Rahmen-Reihenfolge, jede Person einmal
+// (der erste Rahmen gewinnt — ein Klick kann nur EINEN Rahmen zeigen).
+// ---------------------------------------------------------------------------
+function rahmenPersonenLeiste(e, gesichter, pfad) {
+    const ed = e || _quizEditor || {};
+    const raus = [];
+    const gesehen = {};
+    rahmenIndizes(ed).forEach(function (i) {
+        const eigen = (ed.personen || [])[i];
+        let person = (eigen == null) ? '' : String(eigen).trim();
+        if (!person && !rahmenUnbekannt(eigen)) {
+            const namen = quizNamenFuerRegion(gesichter || [], i, pfad);
+            person = namen.length ? String(namen[0]).trim() : '';
+        }
+        const schluessel = person.toLowerCase();
+        if (!person || gesehen[schluessel]) return;
+        gesehen[schluessel] = true;
+        raus.push({ idx: i, person: person });
+    });
+    return raus;
+}
+
+/** Schritt F: Rahmen-Index zu einer angeklickten Person aus der Leiste.
+ *  Rueckgabe: Index (>= 0) oder -1 (Person steht nicht in der Leiste — dann
+ *  wird nichts ausgewaehlt, statt den falschen Rahmen zu zeigen). */
+function rahmenWahlAusLeiste(e, gesichter, pfad, person) {
+    const ziel = String(person == null ? '' : person).trim().toLowerCase();
+    if (!ziel) return -1;
+    const leiste = rahmenPersonenLeiste(e, gesichter, pfad);
+    for (let i = 0; i < leiste.length; i++) {
+        if (leiste[i].person.toLowerCase() === ziel) return leiste[i].idx;
+    }
+    return -1;
 }
 
 /** Lokaler Speicher der "unbekannt"-Rahmen: {pfadKennung: [[x,y,w,h], ...]}. */
