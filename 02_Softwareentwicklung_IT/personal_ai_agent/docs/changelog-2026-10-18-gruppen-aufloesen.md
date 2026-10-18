@@ -81,8 +81,11 @@ Cache: `gruppen_quiz.js?v=20261018F`, `style.css?v=20261018C`.
   überbreites Element, Dokument 380 = Fenster 380**; 496 px und 1400 px → eine Zeile (50 px), alles
   im Fenster. Die Auflösen-/Zurück-Knöpfe einer Zeile messen bei 380 px 55 px Höhe (bedienbar), bei
   496/1400 px 40 px.
-- **Volles Tor** über den Commit-Haken: siehe Commit-Zeile im Bericht (Baseline 4743 + 15 neue
-  Backend-Tests).
+- **Volles Tor** über den Commit-Haken: **4758 passed, 3 skipped, Exit 0** in 521,61 s
+  (Baseline 4743 + die 15 neuen Backend-Tests). Ehrlich dazu: der **erste** Torlauf war rot —
+  `tests/test_wache_auftrag.py::test_mit_erledigt_meldung_kein_ersatz` scheiterte zeitabhängig
+  unter Last („keine Abschlussmeldung von Hermes"). Gegenprobe: dieselbe Datei allein **20 passed**
+  in 1,65 s; der zweite Lauf desselben Umfangs war grün. Kein `--no-verify`.
 
 ## Ehrliche Grenzen
 
