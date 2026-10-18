@@ -71,9 +71,11 @@ damit auf ein Ergebnis, das nie kam.
   „⏳ wartet", wenn ein Auftrag offen ist — er zeigt jetzt aber die **ehrliche** Statuszeile darin
   („⚠️ Liegt bereit — gerade arbeitet niemand daran.") und verschwindet nach seiner
   Frischegrenze (30 Minuten ohne neue Meldung) von selbst. Das Umbenennen der Balken-Beschriftung
-  („⏳ liegt bereit" statt „⏳ wartet") bleibt als eigener Teilschritt offen: `frontend/app.js` ist
-  in diesem Durchlauf von einem **zweiten Lauf** belegt (Schritt C, Mehrfachbearbeitung) — zwei
-  Schreiber in derselben Datei sind unzulässig. Grund steht im Journal des Dauerlaufs.
+  war in diesem Durchlauf gesperrt (`frontend/app.js` war von einem **zweiten Lauf** belegt, Schritt
+  C, Mehrfachbearbeitung — zwei Schreiber in derselben Datei sind unzulässig; Grund im Journal des
+  Dauerlaufs) und ist inzwischen **nachgeholt**: der Balken nennt den Zustand direkt
+  (`hermesLiveIndikator`, „⏳ liegt bereit" statt „wartet") — Beleg:
+  `docs/changelog-2026-10-18-live-status-klarer-text.md`.
 - **Der Weg „selbst antworten" ist nicht gebaut.** Die To-do-Liste ließ beides zu („selbst
   antworten **oder** klare Meldung"); gewählt wurde die klare Meldung, weil sie deterministisch,
   sofort und kostenfrei belegbar ist. Der Hinweis im Text nennt den Ausweg (Frage ohne Werkzeuge).

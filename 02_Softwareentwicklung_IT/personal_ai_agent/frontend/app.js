@@ -9338,6 +9338,20 @@ function hermesLiveJobWaehlen(jobs, jetztMs, ausgeblendet, maxAlterMs) {
     return kandidaten.reduce((a, b) => (aktivMs(b) > aktivMs(a) ? b : a));
 }
 
+// REINE Beschriftung des Live-Balkens (S7b, 18.10.2026).
+// Befund Sebastian: Der Balken stand ewig auf „wartet" und behauptete damit
+// eine Bearbeitung, die es nicht gab. Der Zustand des Auftrags sagt die
+// Wahrheit, also nennt die Beschriftung genau ihn: 'laeuft' = es arbeitet
+// gerade jemand daran, 'offen' = die Aufgabe liegt bereit und gerade arbeitet
+// niemand. Unbekannte Zustände werden NICHT als "arbeitet" ausgegeben.
+// Ohne DOM testbar (frontend/tests/test_live_status_indikator.js).
+function hermesLiveIndikator(status) {
+    if (status === 'laeuft') return '⚡ arbeitet';
+    if (status === 'fertig') return '✅ fertig';
+    if (status === 'fehler') return '❌ fehler';
+    return '⏳ liegt bereit';
+}
+
 (function() {
     const container = document.getElementById('hermes-live-status');
     const msgDiv = document.getElementById('hermes-live-msg');
@@ -9387,7 +9401,7 @@ function hermesLiveJobWaehlen(jobs, jetztMs, ausgeblendet, maxAlterMs) {
             const status = job.status;
 
             container.style.display = 'block';
-            indicator.textContent = status === 'laeuft' ? '⚡ arbeitet' : '⏳ wartet';
+            indicator.textContent = hermesLiveIndikator(status);
 
             if (id !== letzteId || meldungen.length > letzteAnzahl) {
                 if (id !== letzteId) {
@@ -9416,7 +9430,7 @@ function hermesLiveJobWaehlen(jobs, jetztMs, ausgeblendet, maxAlterMs) {
             }
 
             if (status === 'fertig' || status === 'fehler') {
-                indicator.textContent = status === 'fertig' ? '✅ fertig' : '❌ fehler';
+                indicator.textContent = hermesLiveIndikator(status);
                 setTimeout(() => { container.style.display = 'none'; }, 30000);
             }
         } catch(_) { /* Server kurz weg */ _setzeHermesAussen(false); }
