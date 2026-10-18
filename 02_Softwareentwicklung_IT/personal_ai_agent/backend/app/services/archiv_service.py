@@ -32,10 +32,12 @@ Sicherheit:
     nicht aber der gefundene Inhalt.
 """
 
+import calendar
 import logging
 import os
 import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -60,6 +62,55 @@ STOPWORTE = {
 MIN_LAENGE = 3
 
 
+def _letzter_sonntag(jahr: int, monat: int) -> "datetime":
+    """Der letzte Sonntag eines Monats — Grundlage der EU-Sommerzeit-Regel."""
+    tag = calendar.monthrange(jahr, monat)[1]
+    while datetime(jahr, monat, tag).weekday() != 6:
+        tag -= 1
+    return datetime(jahr, monat, tag)
+
+
+def ortszeit_versatz(utc: datetime) -> int:
+    """Stunden Versatz der Ortszeit (Europe/Berlin) fuer eine UTC-Zeit.
+
+    Bewusst **ohne** ``zoneinfo``/``tzdata``: im Backend ist kein
+    Zeitzonenpaket installiert, und Zeitstempel vor 1970 (Google-Kalender ab
+    1940) lassen sich auf Windows auch mit ``astimezone()`` nicht umrechnen
+    (gemessen: ``OSError: [Errno 22]``). Die EU-Regel ist stabil: Sommerzeit
+    vom letzten Sonntag im Maerz 01:00 UTC bis zum letzten Sonntag im
+    Oktober 01:00 UTC.
+    """
+    start = _letzter_sonntag(utc.year, 3).replace(hour=1)
+    ende = _letzter_sonntag(utc.year, 10).replace(hour=1)
+    return 2 if start <= utc.replace(tzinfo=None) < ende else 1
+
+
+def ortstag(zeitstempel: Optional[str]) -> str:
+    """Den **Tag in Ortszeit** aus einem ISO-Zeitstempel (UTC) nennen.
+
+    Warum (am echten Index gemessen, 18.10.2026): ``beginn``/``ende`` stehen in
+    UTC. Zitiert wurde bisher der UTC-Tag — ein Gespraech nach Mitternacht
+    Ortszeit bekam damit den **Vortag** als Datum. Gemessen: 3.230 von 52.679
+    Abschnitten (6,13 %) liegen auf einem anderen Orts- als UTC-Tag, und zwar
+    ausschliesslich in den UTC-Stunden 22 und 23 (ChatGPT 9,6 %, Claude-Code
+    14,5 %, Claude-AI 5,8 %, Gemini 8,4 %, WhatsApp 1,6 %). Sebastian liest die
+    Zitate in Ortszeit — also nennt das Zitat den Ortstag.
+
+    Unlesbare oder leere Werte geben ``""`` zurueck (nie eine Ausnahme); fuer
+    Daten vor 1970 greift dieselbe Regel.
+    """
+    roh = (zeitstempel or "").strip()
+    if not roh:
+        return ""
+    try:
+        d = datetime.fromisoformat(roh)
+    except ValueError:
+        return roh[:10]
+    if d.tzinfo is not None:
+        d = d.astimezone(timezone.utc).replace(tzinfo=None)
+    return (d + timedelta(hours=ortszeit_versatz(d))).date().isoformat()
+
+
 def zeitraum_kurz(beginn: Optional[str], ende: Optional[str]) -> str:
     """Den Tag eines Abschnitts nennen — und ehrlich die Spanne, wenn er mehrere Tage umfasst.
 
@@ -72,9 +123,12 @@ def zeitraum_kurz(beginn: Optional[str], ende: Optional[str]) -> str:
     WhatsApp-Chunks umfassen mehr als einen Tag; der weiteste reicht vom
     11.02. bis 13.06.2025. Deshalb: gleicher Tag → ein Datum, sonst die Spanne.
     Fehlt ``ende`` (aeltere Aufrufer, Attrappen), bleibt es beim Einzeldatum.
+
+    Dazu seit 18.10.2026: beide Tage werden in **Ortszeit** genannt (``ortstag``),
+    sonst steht bei einem Gespraech nach Mitternacht der Vortag im Zitat.
     """
-    b = (beginn or "")[:10]
-    e = (ende or "")[:10]
+    b = ortstag(beginn)
+    e = ortstag(ende)
     if not b:
         return ""
     if not e or e == b:

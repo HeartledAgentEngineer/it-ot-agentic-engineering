@@ -61,12 +61,14 @@ Sicherheit
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import os
 import re
 import sqlite3
 import unicodedata
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
@@ -241,18 +243,51 @@ def nachricht_ids(chunk_zeile: sqlite3.Row) -> List[int]:
     return [int(x) for x in roh if isinstance(x, (int, float, str)) and str(x).lstrip("-").isdigit()]
 
 
+def _letzter_sonntag(jahr: int, monat: int):
+    """Der letzte Sonntag eines Monats — Grundlage der EU-Sommerzeit-Regel."""
+    tag = calendar.monthrange(jahr, monat)[1]
+    while datetime(jahr, monat, tag).weekday() != 6:
+        tag -= 1
+    return datetime(jahr, monat, tag)
+
+
+def _ortstag(zeitstempel: Optional[str]) -> str:
+    """Den Tag in Ortszeit (Europe/Berlin) aus einem UTC-ISO-Zeitstempel.
+
+    Gleiche Regel wie ``archiv_service.ortstag`` — hier bewusst als eigener
+    kleiner Helfer, weil dieses Modul ohne den Dienst auskommen muss. Ohne die
+    Umrechnung nennt ein Zitat fuer ein Gespraech nach Mitternacht Ortszeit den
+    Vortag (am echten Index gemessen: 6,13 % der Abschnitte, alle in den
+    UTC-Stunden 22/23).
+    """
+    roh = (zeitstempel or "").strip()
+    if not roh:
+        return ""
+    try:
+        d = datetime.fromisoformat(roh)
+    except ValueError:
+        return roh[:10]
+    if d.tzinfo is not None:
+        d = d.astimezone(timezone.utc).replace(tzinfo=None)
+    start = _letzter_sonntag(d.year, 3).replace(hour=1)
+    ende = _letzter_sonntag(d.year, 10).replace(hour=1)
+    versatz = 2 if start <= d < ende else 1
+    return (d + timedelta(hours=versatz)).date().isoformat()
+
+
 def _datum_kurz(wert: Optional[str], ende: Optional[str] = None) -> Optional[str]:
     """ISO-Zeitstempel auf den Tag kuerzen — Chroniken brauchen keine Uhrzeit.
 
     Umfasst ein Abschnitt mehrere Tage, kommt die **Spanne** zurueck statt eines
-    einzelnen (dann falschen) Tages. Gleiche Logik wie
-    ``archiv_service.zeitraum_kurz`` — hier bewusst als eigener kleiner Helfer,
-    weil dieses Modul ohne den Dienst auskommen muss.
+    einzelnen (dann falschen) Tages. Der Tag wird in **Ortszeit** genannt
+    (``_ortstag``). Gleiche Logik wie ``archiv_service.zeitraum_kurz`` — hier
+    bewusst als eigener kleiner Helfer, weil dieses Modul ohne den Dienst
+    auskommen muss.
     """
-    beginn = (wert or "")[:10]
+    beginn = _ortstag(wert)
     if not beginn:
         return None
-    spaet = (ende or "")[:10]
+    spaet = _ortstag(ende)
     if spaet and spaet != beginn:
         return f"{beginn}–{spaet}"
     return beginn

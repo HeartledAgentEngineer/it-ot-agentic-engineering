@@ -91,6 +91,17 @@ falsche Spur.
   `backend/app/services/werkzeuge.py` — Zitat mit Tag oder Spanne.
 * `backend/tests/test_archiv_datum_und_status.py` — neu.
 
+## Nachtrag 18.10.2026 — der Tag des Zitats ist jetzt der Ortstag
+
+Der erste Teil dieser Beschwerde war der **falsche Tag** (nur `beginn[:10]`,
+UTC). Behoben war damals die Spanne; offen blieb, dass ein Gespräch nach
+Mitternacht Ortszeit als **Vortag** zitiert wurde (UTC-Stunden 22/23, am echten
+Index gemessen 3.230 von 52.679 Abschnitten = 6,13 %). `zeitraum_kurz` und
+`_datum_kurz` rechnen seit 18.10.2026 beide Enden auf den **Ortstag** um
+(`archiv_service.ortstag`, EU-Sommerzeit-Regel ohne `tzdata`). Belege und
+Messwerte: `docs/changelog-2026-10-18-archiv-ortstag.md`,
+`backend/tests/test_archiv_ortstag.py`.
+
 ## Ehrlich offen
 
 * Die zweite Haelfte der Beschwerde — „kein Gespraechsfluss, die Verweise

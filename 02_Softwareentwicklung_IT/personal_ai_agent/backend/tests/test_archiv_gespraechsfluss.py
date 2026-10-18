@@ -83,7 +83,7 @@ def test_prompt_baustein_traegt_die_fluss_anweisung():
     assert "keine Strichliste" in text
     # Der Anker bleibt, damit der Prompt weiterhin auffindbar ist.
     assert "AUS DEINEN FRÜHEREN GESPRÄCHEN" in text
-    assert "[claude-ai, 2026-02-11–2026-06-13]" in text
+    assert "[claude-ai, 2026-02-11–2026-06-14]" in text
 
 
 # ── Weg 3: Erwähnungs-Notiz (archiv_suche.erwaehnungs_text) ───────────────

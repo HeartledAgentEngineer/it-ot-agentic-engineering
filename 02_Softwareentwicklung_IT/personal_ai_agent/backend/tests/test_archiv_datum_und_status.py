@@ -12,6 +12,12 @@ Gemessen am echten Index (447 MB, nur lesend):
       Zitat einen falschen Tag. Betroffen sind 98 der 30.447 Chat-Chunks und
       9.165 von 21.788 WhatsApp-Chunks; der weiteste reicht vom 11.02. bis
       13.06.2025. Deshalb: gleicher Tag → ein Datum, sonst die Spanne.
+      **Nachtrag 18.10.2026:** beide Tage werden in **Ortszeit** genannt; die
+      Stempel stehen in UTC, ein Gespraech nach Mitternacht Ortszeit bekam
+      vorher den Vortag. Deshalb steht in der Spanne hier ``2026-06-14``
+      (UTC 2026-06-13T23:54:23 → Ortszeit 00:54). Messung und Belege in
+      ``tests/test_archiv_ortstag.py`` und
+      ``docs/changelog-2026-10-18-archiv-ortstag.md``.
   (b) ``archiv_service.status()`` las die Nachrichtentabelle ``messages`` — der
       echte Index heisst ``nachrichten`` (Schema in ``archiv_suche``). Folge:
       „no such table: messages", der Zustand meldete sich als **nicht
@@ -104,7 +110,7 @@ def test_zeitraum_kurz_gleicher_tag_bleibt_ein_datum():
 def test_zeitraum_kurz_mehrere_tage_werden_zur_spanne():
     """Der Kern des Befunds: kein falscher Einzeltag mehr."""
     assert zeitraum_kurz("2026-02-11T21:19:51+00:00", "2026-06-13T23:54:23+00:00") == \
-        "2026-02-11–2026-06-13"
+        "2026-02-11–2026-06-14"
 
 
 def test_zeitraum_kurz_ohne_ende_bleibt_beim_einzeldatum():
@@ -119,7 +125,7 @@ def test_archiv_suche_rechnet_denselben_weg():
     """Der zweite Suchweg (Chronik) darf dasselbe Datum nennen — sonst zwei Wahrheiten."""
     assert _datum_kurz("2026-03-12T10:00:00+00:00", "2026-03-12T10:04:00+00:00") == "2026-03-12"
     assert _datum_kurz("2026-02-11T21:19:51+00:00", "2026-06-13T23:54:23+00:00") == \
-        "2026-02-11–2026-06-13"
+        "2026-02-11–2026-06-14"
     assert _datum_kurz("2026-02-11T21:19:51+00:00") == "2026-02-11"
     assert _datum_kurz(None) is None
 
@@ -145,7 +151,7 @@ def test_zitat_in_der_chat_notiz_nennt_die_spanne(monkeypatch):
 
     ausgabe = _archiv_tool("Was weiss ich ueber EasyBank aus dem Archiv?", service=_FakeArchiv())
     assert "[chatgpt, 2026-03-12]" in ausgabe
-    assert "[claude-ai, 2026-02-11–2026-06-13]" in ausgabe
+    assert "[claude-ai, 2026-02-11–2026-06-14]" in ausgabe
 
 
 def test_zitat_ohne_ende_bleibt_einzeldatum(monkeypatch):
@@ -173,7 +179,7 @@ def test_prompt_fundstelle_nennt_die_spanne():
          "beginn": "2026-02-11T21:19:51+00:00", "ende": "2026-06-13T23:54:23+00:00",
          "title": "TwinCAT Projekt"},
     ])
-    assert "[claude-ai, 2026-02-11–2026-06-13]" in text
+    assert "[claude-ai, 2026-02-11–2026-06-14]" in text
 
 
 # ── (b) Der Zustand des Wissensspeichers ───────────────────────────────────
