@@ -2762,6 +2762,14 @@ button.footer-note:hover {
    [hidden]-Zeile — die Ansicht wird per `hidden` ein- und ausgeblendet. */
 .gruppen-liste-ansicht[hidden] { display: none; }
 
+/* To-do Punkt 14 (18.10.2026): der Statusfilter der Gruppenliste hat jetzt fünf
+   Knöpfe (Offen · Später · Benannt · Aufgelöst · Ausgeblendet). Gemessen im
+   echten Browser: bei 380 px Breite lag „Ausgeblendet" außerhalb des Fensters.
+   Deshalb umbrechen und eine Mindestbreite, damit die Knöpfe bedienbar bleiben. */
+.gruppen-liste-filter { flex-wrap: wrap; }
+
+.gruppen-liste-filter .gruppen-reiter-knopf { min-width: 84px; }
+
 .gruppen-liste-ansicht {
     display: flex;
     flex-direction: column;

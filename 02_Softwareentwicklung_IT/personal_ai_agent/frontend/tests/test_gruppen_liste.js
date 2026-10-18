@@ -770,6 +770,60 @@ async function personenGruppenFilterInBenannt() {
     assert.equal(feld.value, 'Person_1004');
 }
 
+async function aufloesenRuntime() {
+    // To-do Punkt 14 (18.10.2026): „Auflösen" nimmt nur den Gruppeneintrag aus der
+    // Liste — erst zaehlt der Server (Trockenlauf), dann schreibt er. Der Umkehrweg
+    // steht als „Zurück in die Liste" an der aufgelösten Zeile.
+    const calls = [];
+    const app = harness(async (url, options = {}) => {
+        const parsed = new URL(url);
+        const path = parsed.pathname + parsed.search;
+        calls.push({ path, options });
+        if (path === '/api/gruppen/naechste') return response({ ok: true, fertig: false, offen: 1,
+            gruppe: { ...gruppe('G-offen'), war_spaeter: false }, namen: [] });
+        if (path === '/api/gruppen/stand') return response({ ok: true, gruppen: 2, benannt: 2, gesichter: 14 });
+        if (path.startsWith('/api/gruppen/suche')) return response({ ok: true, treffer: [] });
+        if (parsed.pathname === '/api/gruppen/liste') {
+            const status = parsed.searchParams.get('status');
+            const zeilen = status === 'benannt' ? [gruppe('G-benannt', 'benannt')]
+                : status === 'aufgeloest' ? [gruppe('G-aufgeloest', 'aufgeloest')] : [];
+            return response({ ok: true, status, gruppen: zeilen, gesamt: zeilen.length,
+                seite: 1, seiten: 1, je_seite: 24 });
+        }
+        if (path === '/api/gruppen/aufloesen') {
+            const koerper = JSON.parse(options.body);
+            return response({ ok: true, kennung: koerper.kennung, name: 'Testname', gesichter: 7,
+                gruppen: koerper.trocken ? 1 : 0, schon_aufgeloest: false, trocken: koerper.trocken,
+                aufgeloest: 1 });
+        }
+        if (path === '/api/gruppen/antwort') return response({ ok: true, gespeichert: { art: 'offen' } });
+        throw new Error('Unerwarteter Request: ' + path);
+    });
+    await app.el('gruppen-btn').click(); await settle();
+    await app.el('gruppen-uebersicht').click(); await settle();
+    assert.equal(app.el('gruppen-liste').children[0].textContent,
+        'In dieser Kategorie gibt es keine Gruppen.');       // Offen: nichts zu tun
+    await app.el('gruppen-liste-status-benannt').click(); await settle();
+    assert.ok(app.el('gruppen-liste-aufloesen-G-benannt'), 'Auflösen-Knopf fehlt');
+    await app.el('gruppen-liste-aufloesen-G-benannt').click(); await settle();
+    const rufe = calls.filter((c) => c.path === '/api/gruppen/aufloesen')
+        .map((c) => JSON.parse(c.options.body));
+    assert.deepEqual(rufe, [{ kennung: 'G-benannt', trocken: true },
+                            { kennung: 'G-benannt', trocken: false }], 'erst zählen, dann schreiben');
+    assert.ok(app.el('gruppen-liste-meldung').textContent
+        .includes('7 Gesichter bleiben Testname zugeordnet'));
+    assert.equal(app.el('gruppen-liste-undo').hidden, false);
+    assert.ok(calls.some((c) => c.path === '/api/gruppen/liste?status=benannt&seite=1&je_seite=24'));
+
+    await app.el('gruppen-liste-status-aufgeloest').click(); await settle();
+    const zurueck = app.el('gruppen-liste-reaktivieren-G-aufgeloest');
+    assert.equal(zurueck.textContent, '↩ Zurück in die Liste');
+    await zurueck.click(); await settle();
+    const schreib = calls.filter((c) => c.path === '/api/gruppen/antwort').pop();
+    assert.equal(JSON.parse(schreib.options.body).art, 'offen');
+    assert.ok(app.el('gruppen-liste-meldung').textContent.includes('Wieder in der Gruppenliste'));
+}
+
 let beendet = false;
 process.on('exit', () => {
     // Eine nie beendete Prüfung (hängendes Promise) darf nicht still als Erfolg zählen.
@@ -784,7 +838,7 @@ process.on('exit', () => {
         lateExcludeAnswerDoesNotTouchOtherFaceList, lateAssignAnswerDoesNotTouchOtherFaceList,
         markingsAddedDuringExcludeSurvive, personenGruppenFilterInBenannt,
         overviewRuntime, paginationRuntime, staleResponseAfterFilterAndClose, staleDetailAfterClose,
-        failedDetailDoesNotShowPreviousGroup];
+        failedDetailDoesNotShowPreviousGroup, aufloesenRuntime];
     let rot = 0;
     for (const pruefung of pruefungen) {
         try { await pruefung(); } catch (error) {

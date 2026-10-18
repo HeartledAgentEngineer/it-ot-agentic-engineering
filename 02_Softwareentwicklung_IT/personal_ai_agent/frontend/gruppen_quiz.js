@@ -1063,7 +1063,7 @@ function gruppenNotizZeit(zeit) {
         zustand.ansichtSequenz++;
     }
 
-    const LISTEN_STATUS = ['offen', 'spaeter', 'benannt', 'ausgeblendet'];
+    const LISTEN_STATUS = ['offen', 'spaeter', 'benannt', 'aufgeloest', 'ausgeblendet'];
 
     function gruppenListeMelden(text, fehler) {
         const meldung = el('gruppen-liste-meldung');
@@ -1102,15 +1102,30 @@ function gruppenNotizZeit(zeit) {
             zeile.appendChild(text);
             zeile.addEventListener('click', () => gruppeDetailLaden(g.kennung));
             zeile.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') gruppeDetailLaden(g.kennung); });
-            if (g.status === 'spaeter' || g.status === 'ausgeblendet') {
+            if (g.status === 'benannt') {
+                // Gruppe aufloesen (To-do Punkt 14): nur der Gruppeneintrag
+                // verschwindet, die Gesichter bleiben der Person zugeordnet.
+                const aufloesen = document.createElement('button');
+                aufloesen.id = 'gruppen-liste-aufloesen-' + g.kennung;
+                aufloesen.type = 'button';
+                aufloesen.className = 'gruppen-knopf';
+                aufloesen.textContent = '✂ Auflösen';
+                aufloesen.title = 'Gruppe aus der Liste nehmen – die Gesichter bleiben der Person zugeordnet';
+                aufloesen.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    gruppeAufloesen(g.kennung, aufloesen);
+                });
+                zeile.appendChild(aufloesen);
+            }
+            if (g.status === 'spaeter' || g.status === 'ausgeblendet' || g.status === 'aufgeloest') {
                 const oeffnen = document.createElement('button');
                 oeffnen.id = 'gruppen-liste-reaktivieren-' + g.kennung;
                 oeffnen.type = 'button';
                 oeffnen.className = 'gruppen-knopf';
-                oeffnen.textContent = '↩ Zurück zu Offen';
+                oeffnen.textContent = g.status === 'aufgeloest' ? '↩ Zurück in die Liste' : '↩ Zurück zu Offen';
                 oeffnen.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    gruppeReaktivieren(g.kennung, oeffnen);
+                    gruppeReaktivieren(g.kennung, oeffnen, g.status);
                 });
                 zeile.appendChild(oeffnen);
             }
@@ -1217,7 +1232,7 @@ function gruppenNotizZeit(zeit) {
         gruppenListeLaden(seite);
     }
 
-    async function gruppeReaktivieren(kennung, knopf) {
+    async function gruppeReaktivieren(kennung, knopf, status) {
         if (zustand.beschaeftigt) return;
         zustand.beschaeftigt = true;
         if (knopf) knopf.disabled = true;
@@ -1228,12 +1243,60 @@ function gruppenNotizZeit(zeit) {
             });
             if (antwort && antwort.ok === true) {
                 el('gruppen-liste-undo').hidden = false;
-                zustand.listeRueckmeldung = '✓ Zurück zu Offen. Diese Aktion kann rückgängig gemacht werden.';
+                // Eine aufgeloeste, zugeordnete Gruppe kommt damit in die Liste
+                // zurueck (To-do Punkt 14) — die Gesichter bleiben der Person.
+                zustand.listeRueckmeldung = (status === 'aufgeloest'
+                    ? '✓ Wieder in der Gruppenliste. Diese Aktion kann rückgängig gemacht werden.'
+                    : '✓ Zurück zu Offen. Diese Aktion kann rückgängig gemacht werden.');
                 gruppenListeMelden(zustand.listeRueckmeldung);
                 zustand.listeSeite = 1;
             } else {
                 if (knopf) knopf.disabled = false;
                 gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Reaktivieren fehlgeschlagen.'), true);
+                return;
+            }
+        } catch (_e) {
+            if (knopf) knopf.disabled = false;
+            gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+            return;
+        } finally {
+            zustand.beschaeftigt = false;
+        }
+        await gruppenListeLaden(1);
+    }
+
+    /** Gruppe aufloesen (To-do Punkt 14, 18.10.2026): erst zaehlen (Trockenlauf am
+     *  Server), dann schreiben. Es verschwindet NUR der Gruppeneintrag — Bilder,
+     *  Gesichter und Zuordnungen bleiben unveraendert; die Gesichter bleiben der
+     *  Person zugeordnet. Rueckgaengig ueber „Löschen"/„↩" der Liste oder den Knopf
+     *  „Zurück in die Liste". */
+    async function gruppeAufloesen(kennung, knopf) {
+        if (zustand.beschaeftigt) return;
+        zustand.beschaeftigt = true;
+        if (knopf) knopf.disabled = true;
+        const sende = (trocken) => jsonHolen('/api/gruppen/aufloesen', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kennung, trocken }),
+        });
+        try {
+            const vorher = await sende(true);          // Trockenlauf: nur zaehlen
+            if (!vorher || vorher.ok !== true) {
+                if (knopf) knopf.disabled = false;
+                gruppenListeMelden('⚠️ ' + ((vorher && vorher.fehler) || 'Auflösen nicht möglich.'), true);
+                return;
+            }
+            const antwort = vorher.schon_aufgeloest ? vorher : await sende(false);
+            if (antwort && antwort.ok === true) {
+                el('gruppen-liste-undo').hidden = false;
+                zustand.listeRueckmeldung = '✓ Gruppe aufgelöst – ' + gruppenZahl(antwort.gesichter)
+                    + ' Gesichter bleiben ' + (antwort.name ? antwort.name : 'der Person')
+                    + ' zugeordnet. Bilder und Zuordnungen sind unverändert;'
+                    + ' die Aktion kann rückgängig gemacht werden.';
+                gruppenListeMelden(zustand.listeRueckmeldung);
+                zustand.listeSeite = 1;
+            } else {
+                if (knopf) knopf.disabled = false;
+                gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Auflösen fehlgeschlagen.'), true);
                 return;
             }
         } catch (_e) {

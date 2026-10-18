@@ -21,6 +21,10 @@
   GET  /api/gruppen/person        ?name=Leon -> Vorschlaege + Profil
   POST /api/gruppen/umbenennen    {alt, neu} (gleicher Name = zusammenfuehren)
   POST /api/gruppen/loesen        {kennung} -> Vorschlag wieder offen
+  POST /api/gruppen/aufloesen     {kennung, trocken?} -> zugeordnete Gruppe aus der
+                                  Gruppenliste nehmen (To-do Punkt 14). ``trocken=true``
+                                  zaehlt nur (Gruppe, Person, Gesichter) und schreibt
+                                  nichts. Bilder/Zuordnungen bleiben unberuehrt.
 
 Immer HTTP 200 mit ``ok`` und deutschem ``fehler``-Text (wie fotos/erzaehlen) —
 die Oberflaeche zeigt den Text an, statt an einem Statuscode zu scheitern.
@@ -68,6 +72,12 @@ class LoesenEingabe(BaseModel):
     kennung: str
 
 
+class AufloesenEingabe(BaseModel):
+    """Gruppe aufloesen (To-do Punkt 14, 18.10.2026); ``trocken`` = nur zaehlen."""
+    kennung: str
+    trocken: bool = False
+
+
 class ProfilEingabe(BaseModel):
     name: str
     beziehung: Optional[str] = None
@@ -88,7 +98,7 @@ def naechste() -> Dict[str, Any]:
 
 @router.get("/liste")
 def liste(
-    status: str = Query(default="offen", pattern="^(offen|spaeter|benannt|ausgeblendet)$"),
+    status: str = Query(default="offen", pattern="^(offen|spaeter|benannt|ausgeblendet|aufgeloest)$"),
     seite: int = Query(default=1, ge=1, le=10000),
     je_seite: int = Query(default=24, ge=1, le=100),
 ) -> Dict[str, Any]:
@@ -192,3 +202,8 @@ def umbenennen(eingabe: UmbenennenEingabe) -> Dict[str, Any]:
 @router.post("/loesen")
 def loesen(eingabe: LoesenEingabe) -> Dict[str, Any]:
     return gruppen_quiz.loesen(eingabe.kennung)
+
+
+@router.post("/aufloesen")
+def aufloesen(eingabe: AufloesenEingabe) -> Dict[str, Any]:
+    return gruppen_quiz.aufloesen(eingabe.kennung, eingabe.trocken)

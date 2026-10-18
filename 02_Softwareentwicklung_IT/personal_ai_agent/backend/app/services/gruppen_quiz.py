@@ -21,6 +21,13 @@ Antworten (``ARTEN``):
   * ``verschieden`` — eine andere Person als Gruppe ``ziel``.
   * ``spaeter``     — jetzt nicht; kommt wieder, wenn alles andere erledigt ist.
   * ``unbekannt``   — kenne ich nicht / fremde Menge; wird nicht mehr gefragt.
+  * ``aufloesen``   — die einer Person zugeordnete Gruppe aus der Gruppenliste
+                      nehmen (To-do Punkt 14, 18.10.2026): die Kennung kommt in
+                      die Stand-Liste ``aufgeloest`` — Bilder, Gesichter und
+                      Zuordnungen bleiben unveraendert, die Gesichter bleiben
+                      der Person zugeordnet. Automatisch passiert das beim
+                      Benennen mit (``name``/``gleich``), damit eine zugeordnete
+                      Gruppe nicht als Gruppeneintrag stehen bleibt.
   ``rueckgaengig()`` nimmt die letzte Antwort zurueck (Fehltipp am Handy).
 
 Ablage — genau die Formate, die ``personen_gruppieren.py`` liest
@@ -28,7 +35,8 @@ Ablage — genau die Formate, die ``personen_gruppieren.py`` liest
 Namen und Vorgaben uebernimmt:
   * ``personen_bestaetigt.json`` ``{"bestaetigt": {"Person_1003": "Name"}}``
   * ``personen_vorgaben.json``   ``{"gleich": [[a, b]], "verschieden": [[a, b]]}``
-  * ``gruppen_quiz_stand.json``  ``{"spaeter": [...], "unbekannt": [...]}``
+  * ``gruppen_quiz_stand.json``  ``{"spaeter": [...], "unbekannt": [...],
+                                 "aufgeloest": [...]}``
   * ``gruppen_antworten.jsonl``  Protokoll, nur anhaengend (Grundlage fuer
                                  Rueckgaengig und Nachvollziehbarkeit).
 Vor jedem Schreiben wird die alte Fassung als ``*.vorher`` gesichert; geschrieben
@@ -70,7 +78,11 @@ PROTOKOLL_DATEINAME = "gruppen_antworten.jsonl"
 PROFILE_DATEINAME = "personen_profile.json"
 KONTAKTE_DATEINAME = "kontakte.json"   # Telefonbuch-Auszug (tools/handy/kontakte_aufs_handy.py)
 
-ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt", "offen")
+ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt", "offen", "aufloesen")
+# Stand-Listen in ``gruppen_quiz_stand.json``: ``aufgeloest`` = einer Person
+# zugeordnete Gruppe, die nicht mehr als Gruppeneintrag in der Liste steht
+# (To-do Punkt 14). Es wird nur die Mitgliedschaft vermerkt — nichts geloescht.
+STAND_LISTEN = ("spaeter", "unbekannt", "aufgeloest")
 MODI = ("alle", "eine", "genau")
 NAME_MAX = 60
 BEZIEHUNG_MAX = 80
@@ -201,7 +213,7 @@ def vorgaben_lesen() -> Dict[str, List[List[str]]]:
 
 def _stand_lesen() -> Dict[str, List[str]]:
     daten = _json_lesen(_schreibpfad(STAND_DATEINAME), {})
-    stand = {"spaeter": [], "unbekannt": []}
+    stand: Dict[str, List[str]] = {liste: [] for liste in STAND_LISTEN}
     if isinstance(daten, dict):
         for liste in stand:
             stand[liste] = [k for k in daten.get(liste) or [] if isinstance(k, str) and k]
@@ -529,6 +541,7 @@ def stand() -> Dict[str, Any]:
     except GruppenFehler as fehler:
         return {"ok": False, "vorhanden": False, "fehler": str(fehler)}
     kennungen = {g["kennung"] for g in gruppen}
+    aufgeloest = {k for k in kennungen if k in set(st["aufgeloest"])}
     benannt = sum(1 for k in kennungen if k in namen)
     unbekannt = sum(1 for k in kennungen if k in set(st["unbekannt"]) and k not in namen)
     spaeter = sum(1 for k in kennungen if k in set(st["spaeter"]) and k not in namen)
@@ -537,6 +550,10 @@ def stand() -> Dict[str, Any]:
         "ok": True, "vorhanden": True, "stand": zeitstempel,
         "gruppen": len(gruppen), "benannt": benannt, "unbekannt": unbekannt,
         "spaeter": spaeter, "offen": len(gruppen) - benannt - unbekannt,
+        # Untermenge von „benannt": zugeordnete Gruppen, die nicht mehr als
+        # Gruppeneintrag in der Liste stehen (To-do Punkt 14). „benannt" bleibt
+        # die volle Zahl — die Person behaelt ihre Gesichter.
+        "aufgeloest": len(aufgeloest),
         "gesichter": sum(int(g.get("groesse") or 0) for g in gruppen),
         "gesichter_benannt": gesichter_benannt,
         "namen": namen_liste(namen),
@@ -544,6 +561,8 @@ def stand() -> Dict[str, Any]:
 
 
 def _gruppen_status(kennung: str, namen: Dict[str, str], st: Dict[str, List[str]]) -> str:
+    if kennung in st["aufgeloest"]:
+        return "aufgeloest"
     if kennung in namen:
         return "benannt"
     if kennung in st["unbekannt"]:
@@ -555,7 +574,7 @@ def _gruppen_status(kennung: str, namen: Dict[str, str], st: Dict[str, List[str]
 
 def liste(status: str = "offen", seite: int = 1, je_seite: int = 24) -> Dict[str, Any]:
     """Metadatenliste aus personen_beispiele.json, ohne Gesichtsdateien zu lesen."""
-    if (status not in ("offen", "spaeter", "benannt", "ausgeblendet")
+    if (status not in ("offen", "spaeter", "benannt", "ausgeblendet", "aufgeloest")
             or isinstance(seite, bool) or not isinstance(seite, int) or not 1 <= seite <= 10000
             or isinstance(je_seite, bool) or not isinstance(je_seite, int) or not 1 <= je_seite <= 100):
         return {"ok": False, "fehler": "Ungültige Listenparameter."}
@@ -1522,6 +1541,54 @@ def loesen(kennung: str) -> Dict[str, Any]:
     return {"ok": True, "kennung": kennung, "name": name}
 
 
+def aufloesen(kennung: str, trocken: bool = False) -> Dict[str, Any]:
+    """Eine zugeordnete Gruppe aus der Gruppenliste nehmen (To-do Punkt 14). Nie ein Wurf.
+
+    „Auflösen" entfernt **nur den Gruppeneintrag**: die Kennung kommt in die
+    Stand-Liste ``aufgeloest`` (genau wie ``spaeter``/``unbekannt``). Bilder,
+    Gesichter und Zuordnungen bleiben unveraendert — die Gesichter bleiben der
+    Person zugeordnet. Rueckholbar mit :func:`rueckgaengig` oder ``art="offen"``.
+
+    ``trocken=True`` zaehlt nur (Gruppe, Person, Gesichter) und schreibt nichts —
+    die Oberflaeche zeigt die Zahl vor dem Schreiben. Erlaubt ist das nur fuer
+    Gruppen, die schon einer Person zugeordnet sind.
+    """
+    try:
+        sauber = str(kennung or "").strip()
+        if not sauber:
+            raise GruppenFehler("Bitte eine Gruppe angeben.")
+        gruppen, _ = _gruppen_laden()
+        namen = bestaetigt_lesen()
+        st = _stand_lesen()
+        nach_kennung = {g["kennung"]: g for g in gruppen}
+        gruppe = nach_kennung.get(sauber)
+        if gruppe is None:
+            raise GruppenFehler("Diese Gruppe gibt es nicht (mehr).")
+        name = namen.get(sauber)
+        if not name:
+            raise GruppenFehler("Nur einer Person zugeordnete Gruppen lassen sich auflösen.")
+        aus = ausgeschlossen_lesen().get(sauber, set())
+        gesichter = max(0, int(gruppe.get("groesse") or 0) - len(aus))
+        schon = sauber in st["aufgeloest"]
+        bericht: Dict[str, Any] = {
+            "ok": True, "kennung": sauber, "name": name, "gesichter": gesichter,
+            "gruppen": 0 if schon else 1, "schon_aufgeloest": schon,
+            "trocken": bool(trocken),
+        }
+        if trocken or schon:            # nichts zu tun: nichts schreiben (idempotent)
+            return bericht
+        with _SCHREIBSPERRE:
+            eintrag = _antwort_anwenden(sauber, "aufloesen", None, None)
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler)}
+    except OSError as fehler:
+        logger.error("Aufloesen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    bericht["aufgeloest"] = len(eintrag.get("aufgeloest") or [])
+    logger.info("Gruppen-Quiz: Gruppe %s aufgeloest (%s Gesichter bleiben %s zugeordnet)",
+                sauber, gesichter, name)
+    return bericht
+
 # ── Antworten ────────────────────────────────────────────────────────────────
 
 def antworten(kennung: str, art: str, name: Optional[str] = None,
@@ -1565,22 +1632,21 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             raise GruppenFehler("Bitte die Vergleichsgruppe angeben.")
 
     namen = bestaetigt_lesen()
-    if art == "offen" and kennung in namen:
-        raise GruppenFehler("Benannte Gruppen können nicht zurück zu Offen gesetzt werden.")
     vorgaben = vorgaben_lesen()
     st = _stand_lesen()
+    if art == "offen" and kennung in namen and kennung not in st["aufgeloest"]:
+        raise GruppenFehler("Benannte Gruppen können nicht zurück zu Offen gesetzt werden.")
     eintrag: Dict[str, Any] = {
         "id": uuid.uuid4().hex[:12], "zeit": datetime.now().isoformat(timespec="seconds"),
         "kennung": kennung, "art": art, "ziel": ziel,
         "namen_vorher": {}, "paare_neu": {"gleich": [], "verschieden": []},
         "paare_weg": {"gleich": [], "verschieden": []},
-        "listen_vorher": {"spaeter": kennung in st["spaeter"],
-                          "unbekannt": kennung in st["unbekannt"]},
+        "listen_vorher": {liste: kennung in st[liste] for liste in STAND_LISTEN},
         # Position in der jeweiligen Liste (nur wenn enthalten): damit stellt
         # Rueckgaengig auch die Reihenfolge wieder her. Eintraege ohne diesen
         # Schluessel (aeltere Protokolle) wandern wie bisher ans Listenende.
         "listen_position": {liste: st[liste].index(kennung)
-                            for liste in ("spaeter", "unbekannt") if kennung in st[liste]},
+                            for liste in STAND_LISTEN if kennung in st[liste]},
     }
 
     def name_setzen(k: str, n: str) -> None:
@@ -1642,6 +1708,14 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
                     name_setzen(k, bekannt)
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
         st["unbekannt"] = [k for k in st["unbekannt"] if k != kennung]
+        # Automatisch aufloesen (Sebastian, 16.10.2026: „Die Gruppen sind nicht
+        # wichtig nach der Zuordnung."): jede Gruppe, die diese Antwort benannt
+        # hat, verschwindet aus der Gruppenliste — die Gesichter bleiben der
+        # Person zugeordnet. Nur die Mitgliedschaft wird vermerkt, nichts geloescht.
+        for k in sorted(eintrag["namen_vorher"]):
+            if k not in st["aufgeloest"]:
+                st["aufgeloest"].append(k)
+        eintrag["aufgeloest"] = sorted(eintrag["namen_vorher"])
     elif art == "spaeter":
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung] + [kennung]
     elif art == "unbekannt":
@@ -1649,8 +1723,19 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             st["unbekannt"].append(kennung)
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
     elif art == "offen":
+        # Reaktivieren: zurueck in die Gruppenliste — bei einer aufgeloesten,
+        # zugeordneten Gruppe ist genau das der Umkehrweg (die Gesichter bleiben).
         st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
         st["unbekannt"] = [k for k in st["unbekannt"] if k != kennung]
+        st["aufgeloest"] = [k for k in st["aufgeloest"] if k != kennung]
+    elif art == "aufloesen":
+        if kennung not in namen:
+            raise GruppenFehler("Nur einer Person zugeordnete Gruppen lassen sich auflösen.")
+        if kennung not in st["aufgeloest"]:
+            st["aufgeloest"].append(kennung)
+        st["spaeter"] = [k for k in st["spaeter"] if k != kennung]
+        st["unbekannt"] = [k for k in st["unbekannt"] if k != kennung]
+        eintrag["aufgeloest"] = [kennung]
 
     if eintrag["namen_vorher"]:
         _bestaetigt_schreiben(namen)

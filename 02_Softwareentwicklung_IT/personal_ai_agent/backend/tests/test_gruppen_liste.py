@@ -197,13 +197,13 @@ def test_wiederholtes_reaktivieren_verliert_beim_undo_keinen_status(basis):
     assert gq.antworten("G-spaeter", "offen")["ok"] is True
     assert gq.antworten("G-spaeter", "offen")["ok"] is True
     assert json.loads((basis / gq.STAND_DATEINAME).read_text(encoding="utf-8")) == {
-        "spaeter": [], "unbekannt": []}
+        "spaeter": [], "unbekannt": [], "aufgeloest": []}
     gq.rueckgaengig()
     assert json.loads((basis / gq.STAND_DATEINAME).read_text(encoding="utf-8")) == {
-        "spaeter": [], "unbekannt": []}
+        "spaeter": [], "unbekannt": [], "aufgeloest": []}
     gq.rueckgaengig()
     assert json.loads((basis / gq.STAND_DATEINAME).read_text(encoding="utf-8")) == {
-        "spaeter": ["G-spaeter"], "unbekannt": []}
+        "spaeter": ["G-spaeter"], "unbekannt": [], "aufgeloest": []}
     assert (vorgaben.read_bytes(), bestaetigt.read_bytes()) == vorher
 
 
@@ -248,7 +248,7 @@ def _stand_lesen(basis):
 @pytest.mark.parametrize("liste", ["spaeter", "unbekannt"])
 def test_undo_nach_offen_stellt_reihenfolge_der_liste_wieder_her(basis, liste):
     _gruppen_schreiben(basis, [_gruppe("G-a", 3), _gruppe("G-b", 2), _gruppe("G-c", 1)])
-    start = {"spaeter": [], "unbekannt": []}
+    start = {"spaeter": [], "unbekannt": [], "aufgeloest": []}
     start[liste] = ["G-a", "G-b", "G-c"]
     _json_schreiben(basis, gq.STAND_DATEINAME, start)
 
@@ -262,10 +262,11 @@ def test_undo_nach_offen_stellt_reihenfolge_der_liste_wieder_her(basis, liste):
 
 def test_undo_nach_offen_stellt_beide_listen_in_ihrer_reihenfolge_wieder_her(basis):
     _gruppen_schreiben(basis, [_gruppe("G-a", 3), _gruppe("G-b", 2), _gruppe("G-c", 1)])
-    start = {"spaeter": ["G-b", "G-a"], "unbekannt": ["G-b", "G-c"]}
+    start = {"spaeter": ["G-b", "G-a"], "unbekannt": ["G-b", "G-c"], "aufgeloest": []}
     _json_schreiben(basis, gq.STAND_DATEINAME, start)
     assert gq.antworten("G-b", "offen")["ok"] is True
-    assert _stand_lesen(basis) == {"spaeter": ["G-a"], "unbekannt": ["G-c"]}
+    assert _stand_lesen(basis) == {"spaeter": ["G-a"], "unbekannt": ["G-c"],
+                                   "aufgeloest": []}
     assert gq.rueckgaengig()["ok"] is True
     assert _stand_lesen(basis) == start
 
@@ -282,4 +283,5 @@ def test_undo_alteintrag_ohne_position_haengt_wie_bisher_ans_ende(basis):
     (basis / gq.PROTOKOLL_DATEINAME).write_text(json.dumps(alt) + "\n", encoding="utf-8")
     _json_schreiben(basis, gq.STAND_DATEINAME, {"spaeter": ["G-b"], "unbekannt": []})
     assert gq.rueckgaengig()["ok"] is True
-    assert _stand_lesen(basis) == {"spaeter": ["G-b", "G-a"], "unbekannt": []}
+    assert _stand_lesen(basis) == {"spaeter": ["G-b", "G-a"], "unbekannt": [],
+                                   "aufgeloest": []}
