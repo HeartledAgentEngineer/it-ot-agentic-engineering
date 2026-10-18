@@ -61,7 +61,15 @@ console.log('\nB) Normalisierte Ankerung (0..1) ueberall');
   inFn('gelber Rahmen rechnet aus Pixeln nur als Fallback', 'markiereGesichtImBild', 'bboxNormVonPixeln(b, iw, ih)');
   inFnRe('gelber Rahmen nutzt bboxAnzeigeRahmen (gedeckelt)', 'markiereGesichtImBild', /bboxAnzeigeRahmen\(norm\)/);
   inFn('Editor fuehrt bbox_norm_live als Wahrheit', 'zeigeBildVollbild', 'bbox_norm_live');
-  inFn('Editor seedet aus bbox_norm', 'zeigeBildVollbild', 'bboxNormClampen(g.bbox_norm)');
+  // Schritt E (18.10.2026): das Seeden aus `bbox_norm` ist in die pruefbare
+  // Verschmelzung `rahmenListeVerschmelzen` gezogen (vorher inline im Editor).
+  // Geprueft wird deshalb BEIDES: der Editor ruft sie auf, und die Regel selbst
+  // steht in ihr — zusammen dieselbe Zusicherung wie vorher, nur an der Stelle,
+  // an der der Code sie heute traegt.
+  inFn('Editor nutzt die Verschmelzung der Rahmen', 'zeigeBildVollbild',
+       'rahmenListeVerschmelzen(gesichter, vorNorm)');
+  inFn('die Verschmelzung seedet aus bbox_norm', 'rahmenListeVerschmelzen',
+       'bboxNormClampen(g.bbox_norm)');
   inFn('Pixel-Reste werden nach dem Laden umgerechnet', 'zeigeBildVollbild', 'bboxNormClampen(bboxNormVonPixeln(pr, iw, ih))');
   inFn('anderes Bild -> keine alten Rahmen', 'zeigeBildVollbild', 'const gleichesBild = (_quizEditor.src === src)');
   inFn('Zeichnen speichert normalisiert', 'zeigeEinzeichnen', 'bboxNormVonPixeln([orig.x, orig.y, orig.w, orig.h], iwN, ihN)');

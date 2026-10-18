@@ -3563,20 +3563,49 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
         // Grundregel: Rahmen gehören zum Bild (Fix 2026-09-15).
         const gleichesBild = (_quizEditor.src === src);
         const vorNorm = gleichesBild ? (_quizEditor.bbox_norm_live || []) : [];
-        const neu = [], rest = [];
-        for (let i = 0; i < gesichter.length; i++) {
-            if (i < vorNorm.length && vorNorm[i] === null) { neu.push(null); rest.push(null); continue; }  // geloescht bleibt geloescht
-            if (i < vorNorm.length && Array.isArray(vorNorm[i]) && vorNorm[i].length >= 4) { neu.push(vorNorm[i]); rest.push(null); continue; }  // live-Aenderung
-            const g = gesichter[i] || {};
-            const n = (g.bbox_norm && g.bbox_norm.length >= 4) ? bboxNormClampen(g.bbox_norm) : null;
-            neu.push(n);
-            // Nur Pixel-bbox vorhanden? Dann erst nach dem Laden umrechnen
-            // (dann ist die NATIV-Groesse des angezeigten Bildes bekannt).
-            rest.push((!n && g.bbox && g.bbox.length >= 4) ? g.bbox.slice() : null);
-        }
-        _quizEditor.bbox_norm_live = neu;
-        _quizEditor.px_rest = rest;
+        // Schritt E (18.10.2026): die Verschmelzung ist jetzt eine eigene,
+        // pruefbare Funktion. NEU ist nur, dass Rahmen HINTER der Serverliste
+        // (von Hand gezogen, ohne Server-Eintrag) beim erneuten Oeffnen
+        // DESSELBEN Bildes erhalten bleiben — vorher fiel alles ab
+        // `gesichter.length` weg (belegt in
+        // docs/changelog-2026-10-18-handrahmen-verwerfpfade.md).
+        const gemischt = rahmenListeVerschmelzen(gesichter, vorNorm);
+        _quizEditor.bbox_norm_live = gemischt.neu;
+        _quizEditor.px_rest = gemischt.rest;
+    } else if (_quizEditor.src && _quizEditor.src !== src) {
+        // Schritt E: ohne Server-Rahmen UND mit einem ANDEREN Bild als zuletzt
+        // duerfen keine alten Rahmen stehenbleiben (sie gehoeren zum alten Bild).
+        _quizEditor.bbox_norm_live = [];
+        _quizEditor.px_rest = [];
     }
+    // Schritt E (18.10.2026): gemerkte "unbekannt"-Rahmen DIESES Bildes
+    // anhaengen — sie kommen aus dem lokalen Browserspeicher, nicht vom Server.
+    // Idempotent: dieselbe Region (auf 1 % gerundet) wird nicht doppelt gehaengt.
+    // NICHT in der Referenz-Nachbearbeitung: dort gilt "genau DIESE Referenz,
+    // sonst nichts" (siehe oben) — fremde Rahmen haetten dort nichts zu suchen.
+    try {
+        if (!_quizEditor.refKontext) {
+            const unbekanntPfad = (optionen.bildPfad
+                || (imgEl && imgEl.dataset ? imgEl.dataset.bildPfad : '') || '');
+            const gemerkt = unbekannteRahmenLaden(unbekanntPfad);
+            for (let j = 0; j < gemerkt.length; j++) {
+                const schl = bboxRegionSchluessel(gemerkt[j]);
+                let schonDa = false;
+                for (let k = 0; k < (_quizEditor.bbox_norm_live || []).length; k++) {
+                    const n = _quizEditor.bbox_norm_live[k];
+                    if (n && n.length >= 4 && bboxRegionSchluessel(n) === schl) { schonDa = true; break; }
+                }
+                if (schonDa) continue;
+                if (!Array.isArray(_quizEditor.bbox_norm_live)) _quizEditor.bbox_norm_live = [];
+                if (!Array.isArray(_quizEditor.px_rest)) _quizEditor.px_rest = [];
+                _quizEditor.bbox_norm_live.push(bboxNormClampen(gemerkt[j]));
+                _quizEditor.px_rest.push(null);
+                const ix = _quizEditor.bbox_norm_live.length - 1;
+                if (!Array.isArray(_quizEditor.personen)) _quizEditor.personen = [];
+                _quizEditor.personen[ix] = '';   // ausdruecklich "unbekannt"
+            }
+        }
+    } catch (_e) {}
     _quizEditor.bildPfad = (optionen.bildPfad
         || (imgEl && imgEl.dataset ? imgEl.dataset.bildPfad : '') || '');
     _quizEditor.src = src;
@@ -3753,7 +3782,11 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 _quizEditor.px_rest = [];
                 var sel = -1;
                 var rahmenEls = [];
-                for (var i = 0; i < gesichter.length; i++) {
+                // Schritt E (18.10.2026): ein Rahmen-Element entsteht jetzt an
+                // EINER Stelle — beim Oeffnen fuer ALLE Rahmen (auch die von Hand
+                // gezogenen HINTER der Serverliste) und beim Zeichnen fuer den
+                // neuen Rahmen. Rahmen ohne Person tragen die Marke "unbekannt".
+                function rahmenElement(i) {
                     var re = document.createElement('div');
                     re.setAttribute('data-frei', String(i));
                     re.style.cssText = 'position:absolute;border:2px solid #ff6;z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none';
@@ -3764,18 +3797,37 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     marke.className = 'vollbild-rahmen-marke';
                     marke.style.cssText = 'position:absolute;bottom:100%;right:-2px;margin-bottom:4px;width:22px;height:22px;border-radius:50%;background:#d33;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer';
                     marke.textContent = '✕';
+                    // Schritt E: Namens-Marke eines Rahmens (nur bei "unbekannt" sichtbar).
+                    var namensMarke = document.createElement('div');
+                    namensMarke.className = 'vollbild-rahmen-name';
+                    namensMarke.style.cssText = 'position:absolute;top:100%;left:-2px;margin-top:3px;padding:1px 6px;border-radius:8px;background:#3a2a1f;border:1px solid #8a6a3a;color:#fd9;font-size:11px;white-space:nowrap;display:none';
+                    namensMarke.textContent = 'unbekannt';
                     (function(ix){
                         marke.addEventListener('click', function(ev){
                             ev.stopPropagation();
                             snapshotVorAenderung();   // Undo vor dem Löschen
+                            // Schritt E: ein UNBEKANNTER Rahmen wird auch aus dem
+                            // lokalen Speicher genommen — sonst kaeme er beim
+                            // naechsten Oeffnen dieses Bildes wieder.
+                            try {
+                                var alt = (_quizEditor.bbox_norm_live || [])[ix];
+                                if (alt && alt.length >= 4 && rahmenUnbekannt((_quizEditor.personen || [])[ix])) {
+                                    unbekannteRahmenVergessen(_quizEditor.bildPfad, alt);
+                                }
+                            } catch (_e) {}
                             _quizEditor.bbox_norm_live[ix] = null;
                             resync();
                             if (sel === ix) { sel = -1; zeigeAuswahlGriffe(); }  // Auswahl freigeben
                         });
                     })(i);
                     re.appendChild(marke);
+                    re.appendChild(namensMarke);
                     bildBox.appendChild(re);
                     rahmenEls.push(re);
+                    return re;
+                }
+                for (var i = 0; i < ((_quizEditor.bbox_norm_live || []).length); i++) {
+                    rahmenElement(i);
                 }
                 // bildBox wird exakt auf die GERICHTETE Bildgroesse des `big`-Bilds
                 // gelegt (getBoundingClientRect); die Rahmen werden aus der
@@ -3813,6 +3865,16 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         el.style.width = (pxAnz[2] * skw) + 'px';
                         el.style.height = (pxAnz[3] * skh) + 'px';
                         el.style.borderColor = (i === sel) ? '#4f4' : '#ff6';
+                        // Schritt E: Rahmen ohne Person sind gestrichelt und
+                        // tragen die Marke "unbekannt" (nicht als Gesicht erfunden).
+                        var unb = rahmenUnbekannt((_quizEditor.personen || [])[i]);
+                        el.style.borderStyle = unb ? 'dashed' : 'solid';
+                        var nm = null;
+                        try { nm = el.querySelector('.vollbild-rahmen-name'); } catch (_e) {}
+                        if (nm) {
+                            nm.style.display = unb ? 'block' : 'none';
+                            if (unb) nm.textContent = rahmenPersonText((_quizEditor.personen || [])[i]);
+                        }
                     }
                     editorSyncLegacy();
                 }
@@ -3910,46 +3972,129 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     return (karte[n] && karte[n][name]) || name;
                 }
                 // Auswahl + Verschieben (am Rahmenkoerper) + Groesse (an Griffen)
-                for (var i2 = 0; i2 < rahmenEls.length; i2++) {
-                    rahmenEls[i2].addEventListener('pointerdown', (function(idx){
-                        return function(ev){
-                            sel = idx; resync(); zeigeAuswahlGriffe();
-                            snapshotVorAenderung();   // Undo-Snapshot vor Verschieben
-                            var reEl = rahmenEls[idx];
-                            var startX = ev.clientX, startY = ev.clientY;
-                            var startNorm = (_quizEditor.bbox_norm_live[idx] || []).slice();
-                            if (startNorm.length < 4) return;
-                            try { reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId); } catch (_e) {}
-                            var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
-                            var masse = anzeigeMasse(iw, ih, dreh);
-                            var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
-                            var bewegen = function(mev){
-                                try { mev.preventDefault(); } catch (_e) {}
-                                if (zeiger.size > 1) return;   // zwei Finger = zoomen, nicht ziehen
-                                var dxAnz = (mev.clientX - startX) / ((skw || 1) * zoom.s);
-                                var dyAnz = (mev.clientY - startY) / ((skh || 1) * zoom.s);
-                                // Zieh-Delta aus dem gedrehten Anzeigeraum zurueck
-                                var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
-                                var px = bboxPixelVonNorm(startNorm, iw, ih);
-                                // bboxVerschieben klemmt per bboxClampen -> der
-                                // Rahmen bleibt immer vollstaendig im Bild.
-                                var neu = bboxVerschieben(px, dOrg[0], dOrg[1], iw, ih);
-                                _quizEditor.bbox_norm_live[idx] = bboxNormClampen(bboxNormVonPixeln(neu, iw, ih));
-                                resync(); zeigeAuswahlGriffe();
-                            };
-                            var loslassen = function(){
-                                try { reEl.releasePointerCapture && reEl.releasePointerCapture(ev.pointerId); } catch(_e){}
-                                wrap.removeEventListener('pointermove', bewegen);
-                                wrap.removeEventListener('pointerup', loslassen);
-                                wrap.removeEventListener('pointercancel', loslassen);
-                                wrap.removeEventListener('lostpointercapture', loslassen);
-                            };
-                            wrap.addEventListener('pointermove', bewegen);
-                            wrap.addEventListener('pointerup', loslassen);
-                            wrap.addEventListener('pointercancel', loslassen);
-                            wrap.addEventListener('lostpointercapture', loslassen);
+                // Schritt E: das Anhaengen des Zieh-Verhaltens ist eine eigene
+                // Funktion, damit ein SPAETER gezeichneter Rahmen genauso
+                // verschiebbar ist wie die beim Oeffnen gebauten.
+                function rahmenZiehbar(reEl, idx) {
+                    reEl.addEventListener('pointerdown', function(ev){
+                        sel = idx; resync(); zeigeAuswahlGriffe();
+                        snapshotVorAenderung();   // Undo-Snapshot vor Verschieben
+                        var startX = ev.clientX, startY = ev.clientY;
+                        var startNorm = (_quizEditor.bbox_norm_live[idx] || []).slice();
+                        if (startNorm.length < 4) return;
+                        try { reEl.setPointerCapture && reEl.setPointerCapture(ev.pointerId); } catch (_e) {}
+                        var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                        var masse = anzeigeMasse(iw, ih, dreh);
+                        var skw = letzteBigW / (masse[0] || 1), skh = letzteBigH / (masse[1] || 1);
+                        var bewegen = function(mev){
+                            try { mev.preventDefault(); } catch (_e) {}
+                            if (zeiger.size > 1) return;   // zwei Finger = zoomen, nicht ziehen
+                            var dxAnz = (mev.clientX - startX) / ((skw || 1) * zoom.s);
+                            var dyAnz = (mev.clientY - startY) / ((skh || 1) * zoom.s);
+                            // Zieh-Delta aus dem gedrehten Anzeigeraum zurueck
+                            var dOrg = bboxDeltaDrehen(dxAnz, dyAnz, dreh);
+                            var px = bboxPixelVonNorm(startNorm, iw, ih);
+                            // bboxVerschieben klemmt per bboxClampen -> der
+                            // Rahmen bleibt immer vollstaendig im Bild.
+                            var neu = bboxVerschieben(px, dOrg[0], dOrg[1], iw, ih);
+                            _quizEditor.bbox_norm_live[idx] = bboxNormClampen(bboxNormVonPixeln(neu, iw, ih));
+                            resync(); zeigeAuswahlGriffe();
                         };
-                    })(i2));
+                        var loslassen = function(){
+                            try { reEl.releasePointerCapture && reEl.releasePointerCapture(ev.pointerId); } catch(_e){}
+                            wrap.removeEventListener('pointermove', bewegen);
+                            wrap.removeEventListener('pointerup', loslassen);
+                            wrap.removeEventListener('pointercancel', loslassen);
+                            wrap.removeEventListener('lostpointercapture', loslassen);
+                        };
+                        wrap.addEventListener('pointermove', bewegen);
+                        wrap.addEventListener('pointerup', loslassen);
+                        wrap.addEventListener('pointercancel', loslassen);
+                        wrap.addEventListener('lostpointercapture', loslassen);
+                    });
+                }
+                for (var i2 = 0; i2 < rahmenEls.length; i2++) {
+                    rahmenZiehbar(rahmenEls[i2], i2);
+                }
+                // Schritt E (18.10.2026): Rahmen von Hand aufziehen (Auftragspunkt
+                // 2b). Nur OHNE Anzeige-Drehung — sonst sitzt der gezeichnete
+                // Rahmen schief, und ein falsch sitzender Rahmen waere schlimmer
+                // als keiner. Der neue Rahmen hat KEINE Person ("unbekannt") und
+                // schreibt deshalb nichts an den Server; zugeordnet wird er
+                // spaeter ueber das Ziel-Personen-Menue (Schritt G).
+                function rahmenZeichnenStarten() {
+                    var dreh = ((_quizEditor.dreh % 4) + 4) % 4;
+                    if (dreh !== 0) {
+                        meldeEditor('Zum Zeichnen erst die Anzeige-Drehung mit ⟳ zuruecksetzen (sonst sitzt der Rahmen schief).', false);
+                        return false;
+                    }
+                    if (!letzteBigW || !letzteBigH) {
+                        meldeEditor('Bild noch nicht bereit — kurz warten, dann erneut „＋ Rahmen".', false);
+                        return false;
+                    }
+                    var zeichenFeld = document.createElement('div');
+                    zeichenFeld.className = 'vollbild-zeichenfeld';
+                    zeichenFeld.style.cssText = 'position:absolute;inset:0;z-index:8;background:rgba(255,255,0,0.05);cursor:crosshair;touch-action:none';
+                    var kaestchen = document.createElement('div');
+                    kaestchen.style.cssText = 'position:absolute;border:2px dashed #ff6;background:rgba(255,255,0,0.10);pointer-events:none;box-sizing:border-box';
+                    zeichenFeld.appendChild(kaestchen);
+                    bildBox.appendChild(zeichenFeld);
+                    var zeichnet = false, sx = 0, sy = 0;
+                    var ort = function (cx, cy) {
+                        var r = bildBox.getBoundingClientRect();
+                        return { x: cx - r.left, y: cy - r.top };
+                    };
+                    var spanne = function (a, b) { return [Math.min(a, b), Math.abs(a - b)]; };
+                    zeichenFeld.addEventListener('pointerdown', function (ev) {
+                        var p = ort(ev.clientX, ev.clientY);
+                        zeichnet = true; sx = p.x; sy = p.y;
+                        kaestchen.style.left = sx + 'px'; kaestchen.style.top = sy + 'px';
+                        kaestchen.style.width = '0px'; kaestchen.style.height = '0px';
+                        try { ev.preventDefault(); } catch (_e) {}
+                        try { ev.stopPropagation(); } catch (_e) {}
+                    });
+                    zeichenFeld.addEventListener('pointermove', function (ev) {
+                        if (!zeichnet) return;
+                        var p = ort(ev.clientX, ev.clientY);
+                        var xw = spanne(sx, p.x), yh = spanne(sy, p.y);
+                        kaestchen.style.left = xw[0] + 'px'; kaestchen.style.top = yh[0] + 'px';
+                        kaestchen.style.width = xw[1] + 'px'; kaestchen.style.height = yh[1] + 'px';
+                    });
+                    var fertigMit = function () {
+                        if (!zeichnet) return;
+                        zeichnet = false;
+                        var x = parseFloat(kaestchen.style.left) || 0, y = parseFloat(kaestchen.style.top) || 0;
+                        var w = parseFloat(kaestchen.style.width) || 0, h = parseFloat(kaestchen.style.height) || 0;
+                        try { zeichenFeld.remove(); } catch (_e) {}
+                        if (w < 8 || h < 8) {
+                            meldeEditor('Rahmen zu klein — mit dem Finger ein groesseres Rechteck um die Person ziehen.', false);
+                            return;
+                        }
+                        rahmenAusZeichenfeld(x, y, w, h);
+                    };
+                    zeichenFeld.addEventListener('pointerup', fertigMit);
+                    zeichenFeld.addEventListener('pointercancel', fertigMit);
+                    meldeEditor('👆 Rahmen aufziehen: mit dem Finger ein Rechteck um die Person ziehen.', true);
+                    return true;
+                }
+                // Uebernimmt das gezeichnete Rechteck (Anzeige-Pixel) als Rahmen
+                // OHNE Person in den Editor — inklusive Anzeige, Auswahl und
+                // lokalem Merken. Rueckgabe: Index des neuen Rahmens.
+                function rahmenAusZeichenfeld(x, y, w, h) {
+                    var bw = letzteBigW || 0, bh = letzteBigH || 0;
+                    if (!bw || !bh) return -1;
+                    var norm = [x / bw, y / bh, w / bw, h / bh];
+                    var idx = rahmenUnbekanntAnhaengen(_quizEditor, _quizEditor.bildPfad, norm);
+                    if (idx < 0) { meldeEditor('Rahmen konnte nicht angelegt werden.', false); return -1; }
+                    rahmenElement(idx);
+                    rahmenZiehbar(rahmenEls[idx], idx);
+                    sel = idx;
+                    resync(); zeigeAuswahlGriffe();
+                    var anzahl = rahmenIndizes(_quizEditor).length;
+                    meldeEditor('Rahmen ' + (idx + 1) + ' gezogen — als „unbekannt" angezeigt und fuer dieses Bild gemerkt (' +
+                                anzahl + ' Rahmen auf dem Bild). Die Zuordnung kommt mit dem Ziel-Personen-Menue; gespeichert wird ' +
+                                'ein unbekannter Rahmen nicht.', true);
+                    return idx;
                 }
                 // Griff-Drag: Groesse ziehen (bboxSkalieren klemmt am Bildrand)
                 bildBox.addEventListener('pointerdown', (ev) => {
@@ -4016,6 +4161,21 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     meldeEditor('⟳ Anzeige gedreht (' + (_quizEditor.dreh * 90) + '°) — Rahmen sitzen weiter auf den Gesichtern.', true);
                 });
                 leiste.appendChild(drehBtn);
+                // Schritt E (18.10.2026): "＋ Rahmen" — einen Rahmen von Hand
+                // aufziehen, wenn die Erkennung nichts (oder zu wenig) findet.
+                // Nicht in der Referenz-Nachbearbeitung: dort gehoert der Rahmen
+                // zu EINER bekannten Referenz, nicht zu einer neuen Person.
+                if (!_quizEditor.refKontext) {
+                    const rahmenBtn = document.createElement('div');
+                    rahmenBtn.textContent = '＋ Rahmen';
+                    rahmenBtn.title = 'Rahmen von Hand aufziehen (startet als „unbekannt")';
+                    rahmenBtn.style.cssText = 'padding:10px 14px;border-radius:22px;background:#2a2a2a;color:#fd9;font-weight:700;font-size:0.85rem;cursor:pointer;border:1px dashed #8a6a3a;white-space:nowrap';
+                    rahmenBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        rahmenZeichnenStarten();
+                    });
+                    leiste.appendChild(rahmenBtn);
+                }
                 if (_quizEditor.dreh) { try { big.style.transform = 'rotate(' + (_quizEditor.dreh * 90) + 'deg)'; } catch (_e) {} }
                 // Schritt A2 (16.10.2026): KEIN Speichern ohne Ziel. Der Knopf
                 // entsteht nur, wenn Person UND Bildzeile zum offenen Editor
@@ -4132,6 +4292,119 @@ function rahmenIndizes(e) {
     return raus;
 }
 
+// ---------------------------------------------------------------------------
+// Schritt E (18.10.2026): Rahmen von Hand aufziehen — der Rahmen startet als
+// "unbekannt" und wird NICHT als Referenz geschrieben (kein Vektor, keine
+// Person). Belegt ist der Verwerf-Pfad in
+// docs/changelog-2026-10-18-handrahmen-verwerfpfade.md:
+//  * `baueBildEditor` baute die Rahmenliste frueher AUSSCHLIESSLICH ueber die
+//    Serverliste (`gesichter`) auf — ein Rahmen ohne Server-Eintrag fiel beim
+//    naechsten Oeffnen weg. Genau das verhindert `rahmenListeVerschmelzen`.
+//  * `_fortschritt_roh_speichern` (Backend) haelt Bestaetigungen nur fuer die
+//    letzten 500 Bilder — ein unbekannter Rahmen haengt deshalb NICHT am
+//    Server-Fortschritt, sondern am lokalen Browserspeicher (ehrliche Grenze:
+//    ein geleerter Browserspeicher nimmt ihn mit).
+// ---------------------------------------------------------------------------
+
+/** Anzeigetext der Person eines Rahmens: ohne Person heisst er "unbekannt". */
+function rahmenPersonText(person) {
+    const p = String(person == null ? '' : person).trim();
+    return p || 'unbekannt';
+}
+
+/** Ausdruecklich als unbekannt markiert? (`undefined` = keine Aussage.) */
+function rahmenUnbekannt(person) {
+    return person === '';
+}
+
+/** Lokaler Speicher der "unbekannt"-Rahmen: {pfadKennung: [[x,y,w,h], ...]}. */
+function unbekannteRahmenLaden(pfad) {
+    try {
+        const k = pfadKennung(pfad);
+        if (!k) return [];
+        const roh = JSON.parse(localStorage.getItem('quiz_rahmen_unbekannt') || '{}');
+        const liste = (roh && roh[k]) || [];
+        if (!Array.isArray(liste)) return [];
+        return liste.filter((n) => Array.isArray(n) && n.length >= 4).map((n) => n.slice(0, 4));
+    } catch (_e) { return []; }
+}
+
+function unbekannteRahmenSchreiben(pfad, liste) {
+    try {
+        const k = pfadKennung(pfad);
+        if (!k) return false;
+        const roh = JSON.parse(localStorage.getItem('quiz_rahmen_unbekannt') || '{}');
+        const daten = (roh && typeof roh === 'object') ? roh : {};
+        if (liste && liste.length) daten[k] = liste; else delete daten[k];
+        localStorage.setItem('quiz_rahmen_unbekannt', JSON.stringify(daten));
+        return true;
+    } catch (_e) { return false; }
+}
+
+/** Merkt EINEN unbekannten Rahmen (idempotent: dieselbe Region nur einmal). */
+function unbekannteRahmenMerken(pfad, norm) {
+    if (!Array.isArray(norm) || norm.length < 4) return false;
+    const liste = unbekannteRahmenLaden(pfad);
+    const schl = bboxRegionSchluessel(norm);
+    if (!liste.some((n) => bboxRegionSchluessel(n) === schl)) liste.push(norm.slice(0, 4));
+    return unbekannteRahmenSchreiben(pfad, liste);
+}
+
+/** Nimmt einen unbekannten Rahmen wieder zurueck (Loeschen im Editor). */
+function unbekannteRahmenVergessen(pfad, norm) {
+    if (!Array.isArray(norm) || norm.length < 4) return false;
+    const schl = bboxRegionSchluessel(norm);
+    const liste = unbekannteRahmenLaden(pfad).filter((n) => bboxRegionSchluessel(n) !== schl);
+    return unbekannteRahmenSchreiben(pfad, liste);
+}
+
+/**
+ * Verschmilzt die Server-Rahmen mit dem bisherigen Live-Stand des Editors.
+ * Regeln unveraendert wie vorher (geloescht bleibt geloescht, Live-Aenderung
+ * gewinnt, Rahmen ohne `bbox_norm` kommen als Pixel-Rest zurueck) — NEU: die
+ * Rahmen HINTER der Serverliste (von Hand gezogen) ueberleben das erneute
+ * Oeffnen DESSELBEN Bildes. Der Aufrufer uebergibt `vorNorm = []`, sobald ein
+ * anderes Bild offen ist — dann faellt nichts faelschlich mit.
+ */
+function rahmenListeVerschmelzen(gesichter, vorNorm) {
+    const ges = Array.isArray(gesichter) ? gesichter : [];
+    const vor = Array.isArray(vorNorm) ? vorNorm : [];
+    const neu = [], rest = [];
+    for (let i = 0; i < ges.length; i++) {
+        if (i < vor.length && vor[i] === null) { neu.push(null); rest.push(null); continue; }  // geloescht bleibt geloescht
+        if (i < vor.length && Array.isArray(vor[i]) && vor[i].length >= 4) { neu.push(vor[i]); rest.push(null); continue; }  // live-Aenderung
+        const g = ges[i] || {};
+        const n = (g.bbox_norm && g.bbox_norm.length >= 4) ? bboxNormClampen(g.bbox_norm) : null;
+        neu.push(n);
+        rest.push((!n && g.bbox && g.bbox.length >= 4) ? g.bbox.slice() : null);
+    }
+    for (let i = ges.length; i < vor.length; i++) {
+        neu.push(vor[i] === undefined ? null : vor[i]);
+        rest.push(null);
+    }
+    return { neu: neu, rest: rest };
+}
+
+/**
+ * Haengt einen von Hand gezogenen Rahmen OHNE Person an den Editor an und merkt
+ * ihn lokal. Rueckgabe: Index des neuen Rahmens (-1 = nichts angehaengt).
+ * Bewusst NICHT hier: ein Server-Schreibvorgang — ohne Person gibt es keine
+ * Referenz (und keinen Vektor), also auch keinen Schreibweg.
+ */
+function rahmenUnbekanntAnhaengen(e, pfad, norm) {
+    const ed = e || _quizEditor;
+    if (!ed || !Array.isArray(norm) || norm.length < 4) return -1;
+    const sauber = bboxNormClampen(norm);
+    if (!sauber) return -1;
+    if (!Array.isArray(ed.bbox_norm_live)) ed.bbox_norm_live = [];
+    if (!Array.isArray(ed.personen)) ed.personen = [];
+    ed.bbox_norm_live.push(sauber);
+    const idx = ed.bbox_norm_live.length - 1;
+    ed.personen[idx] = '';                      // ausdruecklich "unbekannt"
+    unbekannteRahmenMerken(pfad || ed.bildPfad || '', sauber);
+    return idx;
+}
+
 // Schritt C: nacheinander JE RAHMEN ein Ergebnis. Gibt selbst nichts auf, wenn
 // ein Rahmen scheitert — der naechste laeuft weiter, und KEIN Rahmen verliert
 // seine Markierung (die Rahmen werden hier nie aus dem Editor entfernt; die
@@ -4190,6 +4463,17 @@ function speichereEditorRahmen(sel, iw, ih, btn, stillSammeln) {
     if (!norm || !iw || !ih) {
         melde('⚠️ Kein Rahmen ausgewählt — erst einen Kasten antippen.', false);
         return Promise.resolve({ ok: false, idx: idx, grund: 'kein Rahmen ausgewaehlt' });
+    }
+    // Schritt E (18.10.2026): ein Rahmen OHNE Person ("unbekannt") wird NICHT
+    // gespeichert — sonst landete er bei der GLOBALEN Zielperson des Bildes und
+    // waere eine falsche Zuordnung. Zugeordnet wird er ueber Schritt G.
+    // Bewusst als EIN Vergleich im Weg selbst (kein Aufruf einer weiteren
+    // Funktion): die Testhaernisse schneiden nur die aufgerufenen Funktionen
+    // heraus, ein zusaetzlicher Aufruf wuerde sie ohne Grund brechen.
+    if (((e.personen || [])[idx]) === '') {
+        melde('⚠️ Rahmen ' + (idx + 1) + ': unbekannt — keine Person zugeordnet, deshalb nichts gespeichert.', false);
+        return Promise.resolve({ ok: false, idx: idx, grund: 'unbekannt',
+                                 fehler: 'Rahmen ohne Person (unbekannt)' });
     }
     // ABSOLUTE Pixel im ANGEZEIGTEN Bildraum (was das Backend fuer den
     // Gesichts-Ausschnitt braucht) + normalisierte Ankerung (Anzeige/Drehung).

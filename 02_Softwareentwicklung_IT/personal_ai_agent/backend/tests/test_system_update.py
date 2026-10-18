@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -225,4 +226,13 @@ def test_frontend_hat_update_knopf_rueckmeldung_und_neuen_cache_stand():
     assert 'id="system-update-status"' in index
     assert "/api/system/update" in app_js
     assert UPDATE_MELDUNG in app_js
-    assert 'app.js?v=20261016' in index
+    # Der Cache-Schluessel muss beim Frontend-Schritt hochgezogen werden (der
+    # Update-Knopf darf kein altes app.js ausliefern) — geprueft wird deshalb
+    # "vorhanden UND mindestens der Stand 20261016", nicht ein fester Wert:
+    # ein fest verdrahteter Wert wurde bei jeder Erhoehung rot (Befund
+    # 18.10.2026, Cache-Schritt auf 20261018I bei Schritt E des Rahmeneditors).
+    treffer = re.search(r"app\.js\?v=(\d{8}[A-Z]?)", index)
+    assert treffer, "index.html laedt app.js ohne Cache-Schluessel"
+    assert treffer.group(1) >= "20261016", (
+        f"Cache-Schluessel zu alt: {treffer.group(1)} — beim Frontend-Schritt hochziehen"
+    )
