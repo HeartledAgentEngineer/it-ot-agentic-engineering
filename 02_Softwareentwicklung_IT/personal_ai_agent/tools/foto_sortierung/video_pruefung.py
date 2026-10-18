@@ -214,6 +214,10 @@ def wiederholungen(je_video: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         "videos": len(je_video_zahlen),
         "videos_mit_wiederholung": sum(
             1 for v in je_video_zahlen.values() if v["personen_mehrfach"] > 0),
+        "videos_mit_einer_bildstelle": sum(
+            1 for v in je_video_zahlen.values() if v["bildstellen"] == 1),
+        "videos_ueber_zehn_personen": sum(
+            1 for v in je_video_zahlen.values() if v["personen"] > 10),
         "personen_mehrfach_summe": gesamt_mehrfach,
         "doppel_je_bildstelle": doppel_bildstellen,
         "hoechste_wiederholung": hoechste,
@@ -421,6 +425,8 @@ def bericht(e: Dict[str, Any]) -> str:
         f"  Personen mehrfach (Summe):       {w['personen_mehrfach_summe']}",
         f"  hoechste Wiederholung:           {w['hoechste_wiederholung']} Bildstellen",
         f"  Doppelerkennung je Bildstelle:   {w['doppel_je_bildstelle']}",
+        f"  Videos mit nur 1 Bildstelle:     {w['videos_mit_einer_bildstelle']}",
+        f"  Videos mit mehr als 10 Personen: {w['videos_ueber_zehn_personen']}",
     ]
     if "probe" in e:
         p = e["probe"]

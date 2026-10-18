@@ -117,6 +117,8 @@ def test_wiederholung_zaehlt_person_auf_mehreren_bildstellen():
     assert w["je_video"]["111"]["mit_person"] == 3
     assert w["je_video"]["111"]["personen"] == 2
     assert w["verteilung"] == {0: 1, 1: 1}
+    assert w["videos_mit_einer_bildstelle"] == 1     # Video 222
+    assert w["videos_ueber_zehn_personen"] == 0
 
 
 def test_dieselbe_person_zweimal_auf_einer_bildstelle_wird_gezaehlt():

@@ -64,7 +64,7 @@ Doppelerkennung je Bildstelle:   0
   zusammen sind das **1.091** solche Personen-Videos.
 - Verteilung (Wiederholungen je Video → Videos):
   `0:609 · 1:164 · 2:71 · 3:37 · 4:21 · 5:26 · 6:9 · 7:9 · 8:5 · 9:6 · 10:4 · 11–16:9 · 22/26/29/49:je 1`
-- **Höchstwert:** eine Person auf **57** Bildstellen (ein längeres Video), **116** Videos haben
+- **Höchstwert:** eine Person auf **57** Bildstellen (ein längeres Video), **121** Videos haben
   mehr als 10 Personen. 257 Videos haben nur **eine** Bildstelle mit Gesicht — dort gibt es
   folgerichtig keine Wiederholung.
 - **Doppelerkennung im selben Einzelbild: 0.** Dieselbe Person wurde auf keinem Frame zweimal
