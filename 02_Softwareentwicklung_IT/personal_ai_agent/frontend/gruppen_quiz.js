@@ -304,15 +304,70 @@ function gruppenPersonPasst(name, frage) {
         .some((f) => namensWorte.some((w) => w.indexOf(f) === 0)));
 }
 
-/** Zweite Zeile in der Liste „Benannt“. */
+/** Zweite Zeile in der Liste „Benannt“.
+ *
+ *  S8 (18.10.2026): Die Zahl der Vorschläge steht NICHT mehr hier. Befund
+ *  Sebastian: „Die Vorschläge sind nur die zugeordneten Gruppen und sollen
+ *  dort nicht stehen." Was bleibt, sind Angaben zur Person selbst. */
 function gruppenPersonInfo(p) {
     if (!p) return '';
     const teile = [gruppenZahl(p.gesichter) + ' Gesichter'];
-    if (p.vorschlaege > 1) teile.push(p.vorschlaege + ' Vorschläge');
     if (p.beziehung) teile.push(p.beziehung);
     if (p.erinnerungen) teile.push(p.erinnerungen + (p.erinnerungen === 1 ? ' Erinnerung' : ' Erinnerungen'));
     if (p.kontakt) teile.push('📇');
     return teile.join(' · ');
+}
+
+// ── Personenauswahl als alphabetische Liste (S8, 18.10.2026) ────────────────
+//
+// Wunsch Sebastian (To-do Punkt 10): „Statt der jetzigen Ansicht eine Liste mit
+// Suchzeile, scrollbar und alphabetisch sortiert (mit Buchstaben-Sprungmarken)."
+// Die Zeilen waren schon eine Liste samt Suchzeile; es fehlten die Reihenfolge
+// und die Sprungmarken. Sortiert wird nach dem Namen mit aufgeloesten Umlauten
+// („Öztürk" also unter O), Eintraege ohne Buchstaben am Anfang (Ziffern, Zeichen)
+// stehen am Ende unter „#".
+
+/** Sortierschluessel eines Namens: Umlaute aufgeloest, Grossbuchstaben.
+ *  Eintraege, die nicht mit A–Z beginnen, bekommen den groessten Schluessel
+ *  und stehen damit hinten (passend zur Sprungmarke „#"). */
+function gruppenSortierName(name) {
+    const roh = String(name == null ? '' : name)
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+        .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+        .replace(/ß/g, 'ss')
+        .toUpperCase()
+        .trim();
+    return (/^[A-Z]/.test(roh) ? '' : '\uffff') + roh;
+}
+
+/** Sprungmarke eines Namens: A–Z, sonst „#". */
+function gruppenSprungBuchstabe(name) {
+    const treffer = /^([A-Z])/.exec(gruppenSortierName(name));
+    return treffer ? treffer[1] : '#';
+}
+
+/** Personen alphabetisch sortiert. Es wird kopiert — die Reihenfolge der
+ *  Server-Antwort bleibt unberuehrt, gleiche Schluessel behalten ihre Ordnung. */
+function gruppenPersonenSortiert(personen) {
+    return (Array.isArray(personen) ? personen.slice() : [])
+        .sort((a, b) => {
+            const ka = gruppenSortierName(a && a.name);
+            const kb = gruppenSortierName(b && b.name);
+            if (ka === kb) return 0;
+            return ka < kb ? -1 : 1;
+        });
+}
+
+/** Marken der Sprungleiste: nur vorhandene Buchstaben, A–Z, „#" zuletzt. */
+function gruppenSprungmarken(personen) {
+    const da = [];
+    (Array.isArray(personen) ? personen : []).forEach((p) => {
+        const b = gruppenSprungBuchstabe(p && p.name);
+        if (da.indexOf(b) === -1) da.push(b);
+    });
+    const raus = da.filter((b) => b !== '#').sort();
+    if (da.indexOf('#') !== -1) raus.push('#');
+    return raus;
 }
 
 // ── Gruppenfilter in „Benannt“ (16.10.2026) ─────────────────────────────────
@@ -1119,6 +1174,41 @@ function gruppenNotizZeit(zeit) {
         zustand.personenGruppe = gewaehlt;
     }
 
+    /** Sprungleiste der Personenauswahl neu aufbauen (S8, 18.10.2026).
+     *  Nur bei mehr als einem Buchstaben — bei einer Handvoll Namen waere die
+     *  Leiste nur Laerm. */
+    function sprungleisteZeigen(personen) {
+        const leiste = el('gruppen-benannt-sprung');
+        if (!leiste) return;
+        leiste.innerHTML = '';
+        const marken = gruppenSprungmarken(personen);
+        leiste.hidden = marken.length < 2;
+        marken.forEach((b) => {
+            const knopf = document.createElement('button');
+            knopf.type = 'button';
+            knopf.className = 'gruppen-sprung-knopf';
+            knopf.textContent = b;
+            knopf.setAttribute('aria-label', b === '#'
+                ? 'Zu Personen mit Ziffer oder Zeichen springen'
+                : 'Zu Personen mit ' + b + ' springen');
+            knopf.addEventListener('click', () => sprungZu(b));
+            leiste.appendChild(knopf);
+        });
+    }
+
+    /** Zum ersten Eintrag dieses Buchstabens: markieren und (wenn moeglich)
+     *  dorthin rollen. Ohne Roll-Moeglichkeit bleibt wenigstens die Marke. */
+    function sprungZu(buchstabe) {
+        const liste = el('gruppen-benannt-liste');
+        if (!liste) return;
+        const zeilen = Array.prototype.slice.call(liste.children);
+        zeilen.forEach((z) => { if (z.classList) z.classList.remove('gruppen-sprung-ziel'); });
+        const ziel = zeilen.find((z) => z.attributes && z.attributes['data-sprung'] === buchstabe);
+        if (!ziel) return;
+        if (ziel.classList) ziel.classList.add('gruppen-sprung-ziel');
+        if (typeof ziel.scrollIntoView === 'function') ziel.scrollIntoView({ block: 'start' });
+    }
+
     function personenZeigen() {
         const liste = el('gruppen-benannt-liste');
         const info = el('gruppen-benannt-info');
@@ -1126,21 +1216,30 @@ function gruppenNotizZeit(zeit) {
         liste.innerHTML = '';
         const frage = (el('gruppen-benannt-filter') || {}).value || '';
         const gruppe = zustand.personenGruppe || '';
-        const passend = zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage)
-            && gruppenPersonPasstGruppe(p, gruppe));
+        // S8: alphabetisch (die Server-Reihenfolge bleibt im Zustand unberuehrt).
+        const passend = gruppenPersonenSortiert(zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage)
+            && gruppenPersonPasstGruppe(p, gruppe)));
+        sprungleisteZeigen(passend);
         if (info) {
             const zusatz = gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '';
             info.textContent = !zustand.personen.length
                 ? 'Noch niemand benannt – im Reiter „Offen“ geht es los.'
                 : (passend.length ? gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen') + zusatz
                     : (gruppe || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
-                  + ' · antippen zum Ansehen und Bearbeiten';
+                  + ' · alphabetisch · antippen zum Ansehen und Bearbeiten';
         }
+        const gesehen = {};
         passend.forEach((p) => {
             const zeile = document.createElement('div');
             zeile.className = 'gruppen-benannt-zeile';
             zeile.setAttribute('role', 'listitem');
             zeile.tabIndex = 0;
+            // Erster Eintrag je Buchstabe = Sprungziel der Leiste.
+            const buchstabe = gruppenSprungBuchstabe(p.name);
+            if (!gesehen[buchstabe]) {
+                gesehen[buchstabe] = true;
+                zeile.setAttribute('data-sprung', buchstabe);
+            }
             if (p.beispiel) zeile.appendChild(kachel(p.beispiel, true, { verzoegert: true, beiTipp: () => {} }));
             const text = document.createElement('div');
             text.className = 'gruppen-benannt-text';

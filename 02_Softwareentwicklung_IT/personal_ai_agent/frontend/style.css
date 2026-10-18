@@ -3014,3 +3014,54 @@ body.anmelden-offen { overflow: hidden; }
 .server-zustand[data-zustand="weg"] #server-zustand-text {
     color: #ff9a9a;
 }
+
+/* =========================================================================
+   Personenauswahl als alphabetische Liste (S8, 18.10.2026) — Wunsch Sebastian
+   (To-do Punkt 10): „eine Liste mit Suchzeile, scrollbar und alphabetisch
+   sortiert (mit Buchstaben-Sprungmarken)". Die Zeilen waren schon eine Liste
+   samt Suchzeile; neu sind der eigene Rollbereich, die Reihenfolge und die
+   Sprungleiste darueber.
+   Bewusst NUR im Reiter „Benannt" (.gruppen-benannt-ansicht): die
+   Gruppenuebersicht traegt dieselbe Klassenkette (gruppen-benannt-liste
+   gruppen-liste) und bleibt wie sie ist.
+   ========================================================================= */
+.gruppen-benannt-ansicht .gruppen-benannt-liste {
+    max-height: 60vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+}
+
+.gruppen-sprung {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.gruppen-sprung[hidden] { display: none; }
+
+.gruppen-sprung-knopf {
+    min-width: 30px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.gruppen-sprung-knopf:hover,
+.gruppen-sprung-knopf:focus-visible {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    outline: none;
+}
+
+/* Der angesprungene Eintrag wird kurz hervorgehoben — sonst ist nicht zu
+   sehen, wohin der Sprung gefuehrt hat (er wird nur markiert, nie gewaehlt). */
+.gruppen-benannt-zeile.gruppen-sprung-ziel {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}

@@ -30,6 +30,7 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
                'gruppenPersonGruppen', 'gruppenPersonPasstGruppe', 'gruppenAuswahlText', 'gruppenAuswahlEintraege',
+               'gruppenSortierName', 'gruppenSprungBuchstabe', 'gruppenPersonenSortiert', 'gruppenSprungmarken',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
                'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
@@ -215,8 +216,32 @@ pruefe(f.gruppenPersonPasst('Leon Müller', 'mue') && f.gruppenPersonPasst('Leon
 pruefe(!f.gruppenPersonPasst('Leon Müller', 'eon') && f.gruppenPersonPasst('Tim', '') && f.gruppenPersonPasst('Tim', '  '),
     'Filter: Wortmitte passt nicht, leer passt immer');
 pruefe(f.gruppenPersonInfo({ gesichter: 1234, vorschlaege: 2, beziehung: 'Bruder', erinnerungen: 1, kontakt: true })
-    === '1.234 Gesichter · 2 Vorschläge · Bruder · 1 Erinnerung · 📇', 'Listenzeile einer Person');
+    === '1.234 Gesichter · Bruder · 1 Erinnerung · 📇', 'Listenzeile einer Person (S8: ohne Vorschlags-Zahl)');
 pruefe(f.gruppenPersonInfo({ gesichter: 5, vorschlaege: 1 }) === '5 Gesichter', 'Listenzeile ohne Profil');
+pruefe(f.gruppenPersonInfo({ gesichter: 5, vorschlaege: 9 }).indexOf('Vorschläge') === -1,
+    'die Vorschläge sind die zugeordneten Gruppen und stehen nicht mehr in der Zeile');
+console.log('Personenauswahl alphabetisch (S8, 18.10.2026)');
+pruefe(f.gruppenSortierName('Öztürk') === 'OEZTUERK' && f.gruppenSortierName('müller') === 'MUELLER'
+    && f.gruppenSortierName('Straße') === 'STRASSE', 'Sortierschlüssel löst Umlaute und ß auf');
+pruefe(f.gruppenSortierName('9er') > f.gruppenSortierName('Zoe'),
+    'Ziffern und Zeichen stehen hinter den Buchstaben (Sprungmarke „#“)');
+pruefe(f.gruppenSprungBuchstabe('anna') === 'A' && f.gruppenSprungBuchstabe('Özkan') === 'O'
+    && f.gruppenSprungBuchstabe('9er') === '#' && f.gruppenSprungBuchstabe('') === '#',
+    'Sprungmarke: erster Buchstabe, sonst „#“');
+{
+    const roh = [{ name: 'Tim' }, { name: 'anna' }, { name: 'Özkan' }];
+    const sortiert = f.gruppenPersonenSortiert(roh).map((p) => p.name);
+    pruefe(sortiert.join('|') === 'anna|Özkan|Tim', 'sortiert alphabetisch mit Umlauten: ' + sortiert.join('|'));
+    pruefe(sortiert.indexOf(roh[0].name) === 2 && roh.map((p) => p.name).join('|') === 'Tim|anna|Özkan',
+        'die übergebene Liste bleibt unberührt');
+    pruefe(f.gruppenPersonenSortiert(null).length === 0 && f.gruppenPersonenSortiert('x').length === 0,
+        'ohne Liste kein Wurf');
+    pruefe(f.gruppenSprungmarken([{ name: 'Tim' }, { name: 'anna' }, { name: 'Özkan' }, { name: '9er' }]).join('')
+        === 'AOT#', 'Sprungmarken: nur vorhandene Buchstaben, A–Z, „#“ zuletzt');
+    pruefe(f.gruppenSprungmarken([{ name: 'Anna' }, { name: 'Anton' }]).join('') === 'A',
+        'ein Buchstabe bleibt eine Marke');
+    pruefe(f.gruppenSprungmarken([]).length === 0, 'ohne Personen keine Marken');
+}
 console.log('Gruppenfilter in „Benannt“ (16.10.2026)');
 pruefe(f.gruppenPersonGruppen({ gruppen: [{ kennung: 'Person_1001' }] }).length === 1
     && f.gruppenPersonGruppen({ gruppen: 1 }).length === 0 && f.gruppenPersonGruppen(null).length === 0,
