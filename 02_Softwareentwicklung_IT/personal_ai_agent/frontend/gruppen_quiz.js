@@ -414,6 +414,61 @@ function gruppenErinnerungText(wahl) {
     return wert ? wert + ' Erinnerung' : '';
 }
 
+// ── Personen ohne Erinnerung nacheinander durchgehen (S8-Rest 2, 18.10.2026) ──
+//
+// Wunsch Sebastian (To-do Punkt 10): „dass ich eine Liste habe, die noch keine
+// Erinnerung haben, und dann nach und nach diese durchgehen kann und eine
+// Sprachnotiz aufnehmen kann, als Erinnerung innerhalb des benannten
+// Personenprofils." Die Liste und der Filter stehen; hier kommt der Weg von
+// einer Person zur naechsten: die Aufnahme selbst gibt es im Profil schon (🎙).
+
+/** Die Personen einer Ansicht in Anzeige-Reihenfolge: Suchzeile, Gruppenauswahl
+ *  und Erinnerungsfilter wirken zusammen (UND), sortiert wird alphabetisch —
+ *  genau die Regel, nach der die Liste gezeichnet wird. */
+function gruppenPersonenGefiltert(personen, frage, gruppe, erinnerung) {
+    return gruppenPersonenSortiert((Array.isArray(personen) ? personen : [])
+        .filter((p) => gruppenPersonPasst(p && p.name, frage)
+            && gruppenPersonPasstGruppe(p, gruppe)
+            && gruppenPersonPasstErinnerung(p, erinnerung)));
+}
+
+/** Namen der Personen ohne Erinnerung, in Anzeige-Reihenfolge. */
+function gruppenReiheOhneErinnerung(personen) {
+    return (Array.isArray(personen) ? personen : [])
+        .filter((p) => gruppenPersonPasstErinnerung(p, 'ohne'))
+        .map((p) => p && p.name)
+        .filter((name) => !!name);
+}
+
+/** Personen ohne Erinnerung, die NACH ``name`` noch kommen (ohne Ringlauf) —
+ *  genau die, die der Weiter-Knopf der Reihe nach anbietet. Steht ``name`` nicht
+ *  in der Reihe, ist es die ganze Reihe. */
+function gruppenRestOhneErinnerung(personen, name) {
+    const reihe = gruppenReiheOhneErinnerung(personen);
+    const pos = reihe.indexOf(name);
+    return pos === -1 ? reihe.slice() : reihe.slice(pos + 1);
+}
+
+/** Naechste Person ohne Erinnerung NACH ``name`` — leer, wenn es keine mehr gibt.
+ *
+ *  ``name`` selbst zaehlt nicht mit: nach dem Speichern einer Erinnerung traegt
+ *  die geladene Liste die neue Zahl erst nach dem Neuladen, der Knopf soll aber
+ *  sofort weiterfuehren. Steht ``name`` gar nicht in der Reihe (Person hat schon
+ *  eine Erinnerung), beginnt der Weg bei der ersten Person ohne Erinnerung.
+ *  Bewusst KEIN Ringlauf: sonst landete man wieder bei Personen, die man in
+ *  dieser Runde schon durch hat. */
+function gruppenNaechsteOhneErinnerung(personen, name) {
+    const rest = gruppenRestOhneErinnerung(personen, name);
+    return rest.length ? rest[0] : '';
+}
+
+/** Beschriftung des Weiter-Knopfes; leer, wenn es nichts mehr zu gehen gibt.
+ *  ``rest`` = Zahl der Personen ohne Erinnerung OHNE die gerade offene. */
+function gruppenWeiterText(rest) {
+    const n = Number(rest) || 0;
+    return n > 0 ? 'Nächste ohne Erinnerung (' + n + ') →' : '';
+}
+
 /** Auswahlzeile einer Gruppe: „Vorschlag 1001 · 120 Gesichter · 2015–2025“. */
 function gruppenAuswahlText(g) {
     if (!g) return '';
@@ -1236,6 +1291,14 @@ function gruppenNotizZeit(zeit) {
         if (typeof ziel.scrollIntoView === 'function') ziel.scrollIntoView({ block: 'start' });
     }
 
+    /** Die Personen der Liste in Anzeige-Reihenfolge (Suchzeile, Gruppenauswahl,
+     *  Erinnerungsfilter zusammen) — EINE Regel fuer Liste und Weiter-Weg. */
+    function personenGefiltert() {
+        return gruppenPersonenGefiltert(zustand.personen,
+            (el('gruppen-benannt-filter') || {}).value || '',
+            zustand.personenGruppe || '', zustand.personenErinnerung || '');
+    }
+
     function personenZeigen() {
         const liste = el('gruppen-benannt-liste');
         const info = el('gruppen-benannt-info');
@@ -1245,9 +1308,7 @@ function gruppenNotizZeit(zeit) {
         const gruppe = zustand.personenGruppe || '';
         const erinnerung = gruppenErinnerungWahl(zustand.personenErinnerung);
         // S8: alphabetisch (die Server-Reihenfolge bleibt im Zustand unberuehrt).
-        const passend = gruppenPersonenSortiert(zustand.personen.filter((p) => gruppenPersonPasst(p.name, frage)
-            && gruppenPersonPasstGruppe(p, gruppe)
-            && gruppenPersonPasstErinnerung(p, erinnerung)));
+        const passend = personenGefiltert();
         sprungleisteZeigen(passend);
         if (info) {
             const zusatz = (gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '')
@@ -1374,6 +1435,36 @@ function gruppenNotizZeit(zeit) {
         el('gruppen-person-kontakt').textContent = gruppenKontaktText(profil.kontakt);
         el('gruppen-person-kontaktsuche').value = '';
         el('gruppen-person-kontakttreffer').innerHTML = '';
+        weiterKnopfZeigen();
+    }
+
+    /** Knopf „Nächste ohne Erinnerung" (S8-Rest 2, 18.10.2026): nur zeigen, wenn
+     *  es in DIESER Ansicht wirklich noch eine Person ohne Erinnerung gibt. */
+    function weiterKnopfZeigen() {
+        const knopf = el('gruppen-person-weiter');
+        if (!knopf) return;
+        const name = zustand.person && zustand.person.name;
+        const gefiltert = personenGefiltert();
+        const naechste = gruppenNaechsteOhneErinnerung(gefiltert, name);
+        const rest = gruppenRestOhneErinnerung(gefiltert, name).length;
+        const text = gruppenWeiterText(rest);
+        knopf.hidden = !naechste || !text;
+        knopf.textContent = text || 'Nächste ohne Erinnerung →';
+        knopf.setAttribute('aria-label', naechste
+            ? (text || 'Nächste ohne Erinnerung') + ' — weiter zu ' + naechste
+            : 'Nächste ohne Erinnerung');
+    }
+
+    /** Zur naechsten Person ohne Erinnerung (Weg ueber den Knopf im Profil). */
+    async function personWeiter() {
+        const name = zustand.person && zustand.person.name;
+        const naechste = gruppenNaechsteOhneErinnerung(personenGefiltert(), name);
+        if (!naechste) {
+            melde('Keine weitere Person ohne Erinnerung in dieser Ansicht.', false);
+            weiterKnopfZeigen();
+            return;
+        }
+        if (await personOeffnen(naechste, true) === null) return;
     }
 
     /** POST an eine Bearbeiten-Route; sperrt Doppel-Tipps. */
@@ -2042,6 +2133,7 @@ function gruppenNotizZeit(zeit) {
         anklick('gruppen-reiter-offen', () => reiterSetzen('offen'));
         anklick('gruppen-reiter-benannt', () => reiterSetzen('benannt'));
         anklick('gruppen-person-zurueck', () => { zustand.person = null; nurZeigen('benannt'); personenLaden(); });
+        anklick('gruppen-person-weiter', personWeiter);
         anklick('gruppen-person-umbenennen', umbenennen);
         anklick('gruppen-person-speichern', profilSpeichern);
         anklick('gruppen-person-mikro', personDiktat);

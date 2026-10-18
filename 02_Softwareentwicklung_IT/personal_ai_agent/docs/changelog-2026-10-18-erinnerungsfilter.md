@@ -59,9 +59,10 @@ Backend-Eingriff, keine neue Route, kein neues Feld — und die Zählregel bleib
 
 - **Nicht geprüft:** die Bedienung mit dem Finger am echten Gerät (Auswahlfeld öffnen, Liste
   danach) — das bleibt Sebastians Abnahme am Handy.
-- **Weiter offen** aus Punkt 10 und je ein eigener kleiner Schritt: das **Durcharbeiten der
-  Personen ohne Erinnerung** (aus der Liste heraus nacheinander eine **Sprachnotiz aufnehmen**,
-  die im Profil landet) und das **Wischen** zur nächsten/vorherigen Person.
+- **Weiter offen** aus Punkt 10: das **Wischen** zur nächsten/vorherigen Person (eigener kleiner
+  Schritt). Das **Durcharbeiten der Personen ohne Erinnerung** ist seit demselben Tag gebaut —
+  siehe `docs/changelog-2026-10-18-erinnerungen-durchgehen.md` (Knopf „Nächste ohne Erinnerung
+  (N) →" im Personenprofil, kein Ringlauf).
 - Der Filter sagt **nur**, ob eine Sprachnotiz da ist — er wertet ihren Inhalt nicht aus.
 - Kein Bild, kein Vision-Aufruf, keine echten Personennamen (nur erfundene wie „Anna"), keine
   Geräteeingriffe, nichts gelöscht, kein Backend-Eingriff. **Kosten 0 USD.**

@@ -96,7 +96,7 @@ function harness(fetchImpl) {
         setTimeout, clearTimeout, console, Date, Map, Set, Promise, encodeURIComponent,
     };
     vm.runInNewContext(source, sandbox, { filename: sourcePath });
-    return { elements, el: (id) => document.getElementById(id) };
+    return { elements, el: (id) => document.getElementById(id), sandbox };
 }
 
 async function settle() {
@@ -299,6 +299,117 @@ async function erinnerungsFilterTrenntUndZuruecksetzenLeert() {
         'die Infozeile nennt weiter einen Erinnerungsfilter');
 }
 
+// ── S8-Rest 2 (18.10.2026): Personen ohne Erinnerung nacheinander durchgehen ──
+// Der Knopf im Profil fuehrt zur naechsten Person ohne Erinnerung — innerhalb
+// der gerade gesetzten Filter. Er darf nur da sein, wenn es wirklich eine gibt.
+
+/** Attrappe mit Personenliste UND Personenprofil (mit Aufzeichnung der Anfragen). */
+function personenAppMitProfil(personen, protokoll) {
+    return harness(async (url) => {
+        const u = new URL(url);
+        const pfad = u.pathname + u.search;
+        if (protokoll) protokoll.push(pfad);
+        if (u.pathname === '/api/gruppen/person') {
+            const name = u.searchParams.get('name');
+            const eintrag = personen.find((p) => p.name === name);
+            if (!eintrag) return response({ ok: false, fehler: 'unbekannt' });
+            return response({ ok: true, name: eintrag.name, vorschlaege: [], gruppen: [],
+                profil: { beziehung: '', notizen: [] } });
+        }
+        if (pfad === '/api/gruppen/naechste') return response({ ok: true, fertig: false, offen: 3, namen: [],
+            gruppe: { kennung: 'G-quiz', groesse: 5, bilder: 5, videos: 0, von: null, bis: null,
+                status: 'offen', name: null, beispiele: [], zwillinge: [], verbunden: [] } });
+        if (pfad === '/api/gruppen/stand' || pfad.startsWith('/api/gruppen/suche')) return response({ ok: true, treffer: [] });
+        if (pfad === '/api/gruppen/personen') return response({ ok: true, personen });
+        throw new Error('Unerwarteter Request: ' + pfad);
+    });
+}
+
+function weiterKnopf(app) { return app.el('gruppen-person-weiter'); }
+
+async function personAusListeOeffnen(app, name) {
+    const zeile = app.el('gruppen-benannt-liste').children.find((z) => z.textContent.includes(name));
+    assert.ok(zeile, 'keine Zeile fuer ' + name);
+    await zeile.click();
+    await settle();
+}
+
+async function erinnerungenNacheinanderDurchgehen() {
+    const block = (html.match(/<button id="gruppen-person-weiter"[\s\S]*?<\/button>/) || [])[0] || '';
+    assert.ok(block, 'der Weiter-Knopf fehlt im HTML (das Durcharbeiten ist nicht erreichbar)');
+    assert.ok(/\shidden/.test(block), 'der Weiter-Knopf steht von Anfang an sichtbar da');
+    assert.equal(/class="gruppen-knopf"/.test(block), true, 'der Weiter-Knopf hat keinen Knopf-Stil');
+    const vQuiz = (html.match(/gruppen_quiz\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
+    assert.ok(vQuiz >= '20261018D', 'gruppen_quiz.js-Cache-Schluessel zu alt: ' + vQuiz);
+
+    const protokoll = [];
+    const app = personenAppMitProfil([person('Anna', { erinnerungen: 2 }), person('Bea'),
+        person('Cem'), person('Dana')], protokoll);
+    await listeOeffnen(app);
+    // Die Arbeitsliste: nur Personen ohne Erinnerung.
+    const feld = app.el('gruppen-benannt-erinnerung');
+    feld.value = 'ohne';
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    assert.deepEqual(namen(app), ['Bea', 'Cem', 'Dana']);
+
+    // Bei einer Person OHNE Erinnerung: der Knopf nennt den Rest ohne sie.
+    await personAusListeOeffnen(app, 'Bea');
+    assert.equal(app.el('gruppen-person-titel').textContent, 'Bea');
+    let knopf = weiterKnopf(app);
+    assert.equal(knopf.hidden, false, 'der Weiter-Knopf fehlt bei „Bea\"');
+    assert.ok(knopf.textContent.includes('(2)'), 'Rest nicht genannt: ' + knopf.textContent);
+    assert.ok(String(knopf.attributes['aria-label'] || '').includes('Cem'), 'Ziel nicht angekuendigt');
+
+    // Weiter zum naechsten — und genau der wird geladen.
+    protokoll.length = 0;
+    await knopf.click();
+    await settle();
+    assert.deepEqual(protokoll.filter((p) => p.startsWith('/api/gruppen/person')), ['/api/gruppen/person?name=Cem']);
+    assert.equal(app.el('gruppen-person-titel').textContent, 'Cem');
+    assert.ok(weiterKnopf(app).textContent.includes('(1)'), 'Rest nach dem Wechsel: ' + weiterKnopf(app).textContent);
+
+    // Die letzte Person ohne Erinnerung: kein Weiter mehr, kein Ringlauf.
+    await weiterKnopf(app).click();
+    await settle();
+    assert.equal(app.el('gruppen-person-titel').textContent, 'Dana');
+    assert.equal(weiterKnopf(app).hidden, true, 'bei der letzten Person steht der Weiter-Knopf noch da');
+
+    // Bei einer Person MIT Erinnerung beginnt der Weg bei der ersten ohne.
+    await app.el('gruppen-person-zurueck').click();
+    await settle();
+    feld.value = '';
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+    await personAusListeOeffnen(app, 'Anna');
+    knopf = weiterKnopf(app);
+    assert.equal(knopf.hidden, false, 'bei „Anna\" fehlt der Weg zur ersten Person ohne Erinnerung');
+    assert.ok(knopf.textContent.includes('(3)'), 'Rest bei „Anna\": ' + knopf.textContent);
+
+    // Der Weg folgt den gesetzten Filtern: mit Suche „d\" gibt es kein Weiter.
+    await app.el('gruppen-person-zurueck').click();
+    await settle();
+    const suche = app.el('gruppen-benannt-filter');
+    suche.value = 'd';
+    (suche.listeners.get('input') || []).forEach((fn) => fn({ target: suche }));
+    assert.deepEqual(namen(app), ['Dana']);
+    await personAusListeOeffnen(app, 'Dana');
+    assert.equal(weiterKnopf(app).hidden, true, 'der Weiter-Knopf ignoriert die Suchzeile');
+
+    // Und die reine Regel selbst: kein Ringlauf, unbekannter Name beginnt vorne.
+    const rein = app.sandbox;
+    const reihe = [person('Bea'), person('Cem'), person('Dana'), person('Anna', { erinnerungen: 1 })];
+    assert.equal(rein.gruppenNaechsteOhneErinnerung(reihe, 'Bea'), 'Cem');
+    assert.equal(rein.gruppenNaechsteOhneErinnerung(reihe, 'Dana'), '', 'es gibt einen Ringlauf');
+    assert.equal(rein.gruppenNaechsteOhneErinnerung(reihe, 'Anna'), 'Bea');
+    assert.equal(rein.gruppenNaechsteOhneErinnerung([person('Anna', { erinnerungen: 1 })], 'Anna'), '');
+    assert.deepEqual(rein.gruppenReiheOhneErinnerung(reihe), ['Bea', 'Cem', 'Dana']);
+    assert.deepEqual(rein.gruppenRestOhneErinnerung(reihe, 'Bea'), ['Cem', 'Dana']);
+    assert.deepEqual(rein.gruppenRestOhneErinnerung(reihe, 'Dana'), []);
+    assert.deepEqual(rein.gruppenRestOhneErinnerung(reihe, 'Anna'), ['Bea', 'Cem', 'Dana'],
+        'ohne Position in der Reihe zaehlt die ganze Reihe');
+    assert.equal(rein.gruppenWeiterText(0), '', 'ohne Rest steht eine Beschriftung da');
+    assert.ok(rein.gruppenWeiterText(3).includes('(3)'));
+}
+
 async function erinnerungsFilterOhneTreffer() {
     const app = personenApp([person('Anna', { erinnerungen: 3 }), person('Bea')]);
     await listeOeffnen(app);
@@ -323,6 +434,7 @@ process.on('exit', () => {
     const pruefungen = [alphabetischSortiertMitUmlauten, nurBenannteAnsichtWirdGerollt,
         sprungmarkenNurVorhandeneUndZumZiel, einBuchstabeOhneLeiste,
         vorschlaegeStehenNichtMehrInDerZeile, suchzeileFiltertUndSortiertNeu,
+        erinnerungenNacheinanderDurchgehen,
         erinnerungsFilterTrenntUndZuruecksetzenLeert, erinnerungsFilterOhneTreffer];
     let rot = 0;
     for (const pruefung of pruefungen) {
@@ -336,5 +448,6 @@ process.on('exit', () => {
     console.log('Personenauswahl: alphabetisch sortiert (Umlaute aufgeloest, Ziffern am Ende), '
         + 'Sprungmarken nur fuer vorhandene Buchstaben mit Markierung und Rollen, '
         + 'Vorschlags-Zahl aus der Zeile entfernt, Filter mit/ohne Erinnerung, '
+        + 'Weiter-Knopf fuehrt der Reihe nach zu den Personen ohne Erinnerung, '
         + 'Suchzeile und Gruppenfilter unveraendert grün');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
