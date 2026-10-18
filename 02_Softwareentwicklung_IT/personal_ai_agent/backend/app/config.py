@@ -295,6 +295,15 @@ class Settings(BaseSettings):
     # Auftrag, an dem noch gearbeitet wird.
     auftrag_timeout_minuten: int = 30
 
+    # Sitzungen aus dem Heim-WLAN (HTTPS-Plan H2, 14.10.2026). Sie lagen
+    # bisher nur im Speicher des Prozesses und waren nach jedem Neustart weg -
+    # der Server startet aber oft neu (App-Knopf, Update-Knopf, Dauerlauf),
+    # also musste sich jedes Geraet jedes Mal neu anmelden, obwohl die Sitzung
+    # 30 Tage gelten soll. Diese Datei haelt die Sitzungen ueber den Neustart:
+    # **nur** den sha256-Wert des Cookies samt Ablauf, nie das Cookie selbst.
+    # Sie ist eine Laufzeitdatei dieses Rechners und per .gitignore draussen.
+    sitzungen_datei: str = str(BASE_DIR / ".sitzungen.json")
+
     # PC-Hermes (Track A): Der lokale Hermes-API-Server auf dem PC, den das
     # Handy-Backend bei erkannter Programmieraufgabe direkt anspricht, wenn
     # der PC im selben WLAN erreichbar ist. Ist er das nicht, faellt die

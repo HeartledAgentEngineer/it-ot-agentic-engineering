@@ -19,3 +19,20 @@ def _testserver_als_host_erlauben(monkeypatch):
     monkeypatch.setattr(
         settings, "erlaubte_hosts", ",".join(n for n in (bisher, "testserver") if n)
     )
+
+
+@pytest.fixture(autouse=True)
+def _sitzungen_nie_neben_das_projekt(tmp_path, monkeypatch):
+    """Die Sitzungs-Ablage (To-do Punkt 13) zeigt in Tests in einen tmp-Ordner.
+
+    Ohne diese Vorrichtung schriebe jeder Anmelde-Test in die echte Datei neben
+    dem Projekt (`.sitzungen.json`) - und die Testdateien schoeben sich
+    gegenseitig Sitzungen unter, weil sie den Speicher leeren, die Ablage aber
+    bestehen bliebe. Der Lade-Merker wird mit zurueckgesetzt, damit jeder Test
+    wieder wie ein frischer Prozess startet.
+    """
+    from app.config import settings as _settings
+    from app.router import auth
+
+    monkeypatch.setattr(_settings, "sitzungen_datei", str(tmp_path / ".sitzungen.json"))
+    monkeypatch.setattr(auth, "_SITZUNGEN_GELADEN", None)

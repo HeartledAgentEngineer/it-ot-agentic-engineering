@@ -54,9 +54,13 @@ sich einmal an und erhalten ein Sitzungs-Cookie.
   - falsches Passwort → 401 (Vergleich in konstanter Zeit);
   - sonst Cookie `agent_sitzung`: `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`,
     30 Tage.
-- Der Server merkt sich nur den sha256 des Tokens, im Speicher des Prozesses (höchstens 50
-  Sitzungen, die älteste fällt zuerst weg). Nach einem Neustart des Backends ist neu
-  anmelden nötig.
+- Der Server merkt sich nur den sha256 des Tokens (höchstens 50 Sitzungen, die älteste
+  fällt zuerst weg). **Nachtrag 18.10.2026:** Die Sitzungen liegen zusätzlich in
+  `settings.sitzungen_datei` (Vorgabe `.sitzungen.json` neben dem Projekt, per
+  `.gitignore` draußen) — nur die sha256-Werte samt Ablauf, nie das Cookie selbst.
+  Damit **überlebt die Anmeldung den Neustart** des Servers; vorher (nur Speicher,
+  wie hier ursprünglich beschrieben) war nach jedem Neustart neu anmelden nötig.
+  Siehe `docs/changelog-2026-10-18-sitzung-ueberlebt-neustart.md`.
 - `require_api_key` akzeptiert den Header `X-API-Key` **oder** ein gültiges Cookie.
   Abgelaufene Sitzungen werden beim Prüfen entfernt; Cookies über 200 Zeichen werden
   nicht gehasht. **Nachtrag 18.10.2026:** Für den Pfad `/api/system/`

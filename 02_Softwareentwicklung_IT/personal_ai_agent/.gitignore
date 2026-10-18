@@ -42,6 +42,13 @@ gesichter_katalog.abofix-*
 quiz_fortschritt.json
 quiz_fortschritt.bak-*
 
+# Sitzungs-Ablage (To-do Punkt 13, 18.10.2026): haelt die Anmeldung ueber den
+# Server-Neustart. Darin stehen nur die sha256-Werte der Sitzungs-Cookies samt
+# Ablauf (nie das Cookie selbst) - trotzdem eine Laufzeitdatei dieses Rechners
+# und damit nichts fuers oeffentliche Repo.
+.sitzungen.json
+.sitzungen.json.tmp
+
 # Persoenlicher Teil des System-Prompts: Profil, Geraete, Haltung.
 # Das Repo ist oeffentlich - das hier geht niemanden etwas an, der sich
 # den Code ansieht. Vorlage: backend/system_prompt.local.example.md
