@@ -119,3 +119,35 @@ Der Weg ist nicht nur gebaut, er ist gelaufen — und dabei fiel eine Lücke auf
   am Handy greift die flache Übergabe (dort gibt es keinen Unterordner).
 - Am Handy ist nichts weiter zu tun: beim nächsten App-Knopf-/Widget-Start läuft
   Schritt 6b und holt die acht Dateien.
+
+## Nachtrag 18.10.2026 (Dauerlauf-Nachtlauf): eine Datei war seit drei Tagen veraltet
+
+Der Nachweis (`tools/foto_sortierung/bestand_pruefen.py`) hat die Lücke selbst
+gemeldet, nicht ein Verdacht: „uebergabe_manifest.jsonl: 1 Datei(en) seit der
+letzten Uebergabe geaendert - das Geraet holt beim naechsten Start die alte
+Fassung: **video_standbilder.jsonl**".
+
+- **Gemessen:** lokal 698.993 B, sha256 `b025ce90…`, Änderungszeit 15.10.2026
+  16:21. Im Manifest stand die Buchung vom 15.10. 15:44 mit 538.291 B und
+  `ca889760…` — die Datei wurde also **37 Minuten nach dem Hochladen** noch
+  einmal geändert und ging danach nie wieder hoch. Drei Tage lang hätte das Gerät
+  beim nächsten Start die alte Standbilder-Liste bekommen.
+- **Gefahren, wie vorgesehen:** erst Trockenlauf („würde hochgeladen (698.993
+  Bytes, sha256 b025ce906588)"), dann `--schreiben`; Ziel `/Agent/uebergabe`,
+  also nur unter `/Agent/` (Werkzeugregel), kein Löschen, Datei-Kennung
+  `109325867292` unverändert (die vorhandene Datei wurde ersetzt, nicht doppelt
+  angelegt). Neue Manifest-Zeile: 2026-10-18T21:45:12+02:00.
+- **Von außen nachgeprüft (nur lesend, `listfolder` gegen die pCloud):** der
+  Ordner enthält **9** Einträge; `video_standbilder.jsonl` steht dort jetzt mit
+  **698.993 B**, geändert **18.10.2026 19:45:12 UTC** (= 21:45:12 Ortszeit) —
+  gleich der lokalen Fassung.
+- **Wirkung im Nachweis, erneut selbst ausgeführt:** „19 Buchungen, 9
+  verschiedene Dateien (gleich 9, **geaendert 0**, am PC fehlt 0)" — die
+  Ergebnisliste fiel damit von **16 auf 15 Lücken**; die verbleibenden 15 sind
+  die bekannten kosten-/gerätegebundenen Punkte und die Liste der Dateien, die
+  auf keinem der beiden Übergabe-Wege ans Gerät gehen (eigene Entscheidung,
+  nicht hier).
+- **Grenzen:** die 15 Dateien ohne Übergabe-Weg (Pläne, Vektordateien) sind
+  **nicht** angefasst; am Gerät selbst wurde nichts geprüft (kein Kabel,
+  kein Eingriff) — geholt wird die Datei beim nächsten Start dort.
+  Nichts gelöscht, kein Bild/Vision-Aufruf, keine Kosten (0 USD).
