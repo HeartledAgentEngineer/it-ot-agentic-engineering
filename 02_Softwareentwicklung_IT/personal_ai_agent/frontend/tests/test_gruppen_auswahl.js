@@ -294,15 +294,33 @@ async function bewegungBrichtDenTimerAb() {
     assert.equal(k2.classList.contains('markiert'), false, 'pointercancel bricht den Timer nicht ab');
 }
 
-async function videoGesichtBleibtBeimOeffnen() {
+async function videoGesichtWirdMarkierbar() {
     const a = app();
     await alleOeffnen(a);
     const k9 = kachel(a, 'a9');
     assert.ok(k9, 'Video-Kachel fehlt');
-    assert.equal((k9.listeners.get('pointerdown') || []).length, 0,
-        'Video-Kachel ist verdrahtet, obwohl der Server Ausschließen/Zuordnen ablehnt');
+    // S2 (18.10.2026): das Standbild hat dieselbe Verdrahtung wie ein Foto.
+    assert.ok((k9.listeners.get('pointerdown') || []).length,
+        'Video-Kachel ist nicht verdrahtet — sie lässt sich nicht markieren');
     await halten(k9);
-    assert.equal(k9.classList.contains('markiert'), false, 'Video-Gesicht wurde ausgewählt');
+    assert.ok(k9.classList.contains('markiert'), 'langer Druck markiert das Video-Standbild nicht');
+    assert.equal(vollbildAbrufe(a).length, 0, 'langer Druck hat das Standbild geöffnet');
+    assert.equal(a.el('gruppen-alle-ausschliessen').disabled, false);
+
+    await a.el('gruppen-alle-ausschliessen').click(); await settle();
+    const sendung = a.calls.filter((c) => c.path === '/api/gruppen/ausschliessen').pop();
+    assert.ok(sendung, 'Ausschließen wurde nicht abgeschickt');
+    const koerper = JSON.parse(sendung.options.body);
+    assert.deepEqual(koerper.gesichter, ['a9'], 'die Video-Kennung ging nicht an den Server');
+    assert.equal(koerper.kennung, 'G-1');
+}
+
+async function videoGesichtOeffnetAusserhalbDerAuswahl() {
+    const a = app();
+    await alleOeffnen(a);
+    const k9 = kachel(a, 'a9');
+    await k9.click();                                  // ohne Auswahlmodus
+    assert.equal(k9.classList.contains('markiert'), false, 'kurzer Klick hat markiert statt geöffnet');
     assert.equal(vollbildAbrufe(a).length, 1, 'Video-Standbild öffnet nicht per kurzem Klick');
 }
 
@@ -329,7 +347,8 @@ async function main() {
     await letzteKachelAbgewaehltBeendetModus();
     await auswahlBeendenKnopf();
     await bewegungBrichtDenTimerAb();
-    await videoGesichtBleibtBeimOeffnen();
+    await videoGesichtWirdMarkierbar();
+    await videoGesichtOeffnetAusserhalbDerAuswahl();
     await neueListeBeginntOhneModus();
     console.log('test_gruppen_auswahl.js: alle Prüfungen grün');
 }

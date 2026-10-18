@@ -67,14 +67,12 @@ Ausschließen/Zuordnen für sie ab) und öffneten per kurzem Klick.
 
 ## Ehrliche Grenzen
 
-- **Video-Gesichter bleiben nicht auswählbar** (weiterhin nur per kurzem Klick zu öffnen).
-  Das ist Absicht und steht so in der geprüften Auftragsfassung 2: die Serverfunktionen
-  `ausschliessen`/`zuordnen` lehnen Video-Kennungen mit `VIDEO_GESPERRT` ab
-  (`backend/app/services/gruppen_quiz.py:993/1132/1210`), weil deren Kennungen nicht in der
-  Zuordnungsdatei stehen — eine Markierung würde dort also nichts bewirken. Sebastians Wunsch
-  „Bilder aus Videos markierbar" (To-do Punkt 11, Schritt S2) braucht deshalb zuerst einen
-  eigenen Schreib-/Auswertungsweg für Video-Kennungen (offener Schritt, nicht Teil dieses
-  Commits).
+- **Video-Gesichter waren in diesem Commit nicht auswählbar** (nur per kurzem Klick zu öffnen).
+  Das war der Stand dieses Commits: die Serverfunktionen `ausschliessen`/`zuordnen` lehnten
+  Video-Kennungen mit `VIDEO_GESPERRT` ab (`backend/app/services/gruppen_quiz.py:993/1132/1210`).
+  **Überholt am 18.10.2026 (Schritt S2, Commit siehe Journal des Dauerlaufs):** der eigene
+  Schreibweg für Video-Kennungen steht, Video-Standbilder sind markierbar. Beleg:
+  `docs/changelog-2026-10-18-video-standbilder-markierbar.md`.
 - **Gemessen wurde gerendert, nicht getippt:** die Laufzeitprüfung fährt die echten Handler,
   die Rendermessung prüft die Werkzeugzeile und das Raster; eine Finger-Bedienung auf einem
   echten Touchgerät ist in diesem Durchlauf **nicht** erfolgt.

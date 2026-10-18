@@ -141,7 +141,9 @@ nachgefahren:
 - **Gesamtansicht:** Video-Gesichter lassen sich nicht markieren, weil das Backend
   Ausschließen und Zuordnen für sie sperrt. Antippen zeigt das ganze Standbild mit
   Gesichtsrahmen. Die Infozeile sagt dazu „🎬 Video-Gesichter nur ansehen, nicht einzeln
-  ändern“.
+  ändern“. **Überholt am 18.10.2026 (Schritt S2):** Video-Standbilder sind markierbar, die
+  Infozeile heißt „🎬 Video-Standbilder lassen sich genauso markieren" — Beleg
+  `docs/changelog-2026-10-18-video-standbilder-markierbar.md`.
 - **Meldungen:**
   - „+ N aus Videos (nicht gezeigt)“ zählt seit V2 nur noch die Gesichter ohne Standbild.
   - Für reine Video-Vorschläge ohne Standbild heißt der Grund jetzt „für sie gibt es noch

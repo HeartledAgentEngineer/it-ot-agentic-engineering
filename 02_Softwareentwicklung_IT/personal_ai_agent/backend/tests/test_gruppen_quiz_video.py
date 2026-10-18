@@ -182,19 +182,80 @@ def test_ausgeschlossene_video_beispiele_fehlen_nicht_versehentlich(basis):
 
 
 @pytest.mark.parametrize("aufruf", [
-    lambda: gq.ausschliessen("Person_2001", ["9001:0"]),
-    lambda: gq.zuordnen("Leon", [{"kennung": "Person_2001", "gid": "9001:0"}]),
-    lambda: gq.ausschliessen_person("Leon", [{"kennung": "Person_2001", "gid": "9001:0"}]),
+    lambda: gq.ausschliessen("Person_2002", ["9001:0"]),          # fremder Vorschlag
+    lambda: gq.ausschliessen("Person_2002", ["9999:0"]),          # kein Gesicht dieser Gruppe
 ])
-def test_einzelaktionen_an_video_gesichtern_gesperrt(basis, aufruf):
+def test_video_gesicht_fremder_vorschlag_wird_abgelehnt(basis, aufruf):
+    """Die Prüfung „gehört das Gesicht zu diesem Vorschlag?" gilt auch für Standbilder."""
+    _volle_karte(basis)
+    vorher = _vorgaben_text(basis)
+    r = aufruf()
+    assert r["ok"] is False and "gehört nicht" in r["fehler"]
+    assert _vorgaben_text(basis) == vorher
+
+
+def _vorgaben_text(basis):
+    pfad = basis / gq.VORGABEN_DATEINAME
+    return pfad.read_text(encoding="utf-8") if pfad.exists() else None
+
+
+def test_video_gesicht_ausschliessen_wirkt_sofort_und_als_regel(basis):
+    """S2 (18.10.2026): ein Standbild lässt sich einzeln markieren wie ein Foto."""
+    _volle_karte(basis)
+    r = gq.ausschliessen("Person_2001", ["9001:0"])
+    assert r["ok"] and r["ausgeschlossen"] == 1 and r["gesamt"] == 2
+    gids = {g["gid"] for g in gq.gesichter("Person_2001")["gesichter"]}
+    assert "9001:0" not in gids and gids == {"9002:0", "9003:0"}
+    # In der Datei steht das Standbild als ``bild_id`` — dieselbe Form wie bei Fotos.
+    assert gq.ausgeschlossen_lesen()["Person_2001"] == {"9001:0"}
+    eintrag = json.loads(_vorgaben_text(basis) or "{}")["ausgeschlossen"][0]
+    assert eintrag == {"kennung": "Person_2001", "bild_id": "9001", "index": 0}
+    # Ein zweites Mal ist nichts neu (idempotent).
+    assert gq.ausschliessen("Person_2001", ["9001:0"])["ausgeschlossen"] == 0
+
+
+def test_video_gesicht_ausschluss_rueckgaengig_und_beispiel_wieder_da(basis):
+    _volle_karte(basis)
+    assert "9001" in [b["fileid"] for b in gq.naechste()["gruppe"]["beispiele"]]
+    gq.ausschliessen("Person_2001", ["9001:0"])
+    assert "9001" not in [b["fileid"] for b in gq.naechste()["gruppe"]["beispiele"]]
+    r = gq.rueckgaengig()
+    assert r["ok"] and r["zurueckgenommen"] == {"kennung": "Person_2001",
+                                                "art": "ausschliessen", "gesichter": 1}
+    assert gq.gesichter("Person_2001")["gesamt"] == 3
+    assert gq.ausgeschlossen_lesen() == {}
+
+
+def test_video_gesicht_ueber_die_person_ausschliessen(basis):
     _volle_karte(basis)
     gq.antworten("Person_2002", "name", "Leon")
     gq.antworten("Person_2001", "name", "Leon")
-    vorgaben = basis / gq.VORGABEN_DATEINAME
-    vorher = vorgaben.read_text(encoding="utf-8") if vorgaben.exists() else None
-    r = aufruf()
-    assert r["ok"] is False and "Video" in r["fehler"]
-    assert (vorgaben.read_text(encoding="utf-8") if vorgaben.exists() else None) == vorher
+    r = gq.ausschliessen_person("Leon", [{"kennung": "Person_2001", "gid": "9001:0"}])
+    assert r["ok"] and r["ausgeschlossen"] == 1
+    assert {g["gid"] for g in gq.gesichter_person("Leon")["gesichter"]}.isdisjoint({"9001:0"})
+
+
+def test_video_gesicht_zuordnen_und_in_der_personenansicht(basis):
+    _volle_karte(basis)
+    gq.antworten("Person_2002", "name", "Leon")          # Zielperson
+    r = gq.zuordnen("Leon", [{"kennung": "Person_2001", "gid": "9001:0"}])
+    assert r["ok"] and r["zugeordnet"] == 1
+    assert "9001:0" not in {g["gid"] for g in gq.gesichter("Person_2001")["gesichter"]}
+    person = gq.gesichter_person("Leon")
+    dazu = [g for g in person["gesichter"] if g["gid"] == "9001:0"]
+    assert len(dazu) == 1 and dazu[0]["video"] is True and dazu[0]["zugeordnet"] is True
+    z = gq.rueckgaengig()
+    assert z["ok"] and z["zurueckgenommen"]["art"] == "zuordnen"
+    assert "9001:0" in {g["gid"] for g in gq.gesichter("Person_2001")["gesichter"]}
+
+
+def test_video_ausschluss_laesst_fotos_unberuehrt(basis):
+    """Eine Video-Regel darf kein Foto treffen (Standbild-Kennung ≠ Foto-Kennung)."""
+    _volle_karte(basis)
+    gq.ausschliessen("Person_2002", ["9004:0"])
+    r = gq.gesichter("Person_2002")
+    assert r["gesamt"] == 2 and {g["gid"] for g in r["gesichter"]} == {"700:0", "701:0"}
+
 
 
 def test_person_ansicht_zeigt_video_gesichter(basis):

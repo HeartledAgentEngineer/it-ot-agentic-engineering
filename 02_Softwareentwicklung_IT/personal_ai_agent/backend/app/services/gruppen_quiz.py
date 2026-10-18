@@ -751,11 +751,13 @@ def _gesichter_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
 # (``bild_id`` "<vid>#t=<s>" -> ``standbild_fileid``, ``skala``, Mass). Video-Zeilen der
 # Gesichtsdatei und Karte werden GETRENNT gemerkt (je an ihre Datei gebunden) und erst
 # beim Aufruf zusammengefuehrt — kommt nur die Karte neu, sieht das Quiz sie sofort.
-# Einzelaktionen (Ausschliessen, Zuordnen) an Video-Gesichtern sind gesperrt: die
-# Regeln brauchen eine Foto-``bild_id``, die Gruppierung kennt Standbilder nicht.
-
-VIDEO_GESPERRT = ("Video-Gesichter lassen sich (noch) nicht einzeln ausschließen oder "
-                  "zuordnen – bitte die ganze Gruppe benennen.")
+# Seit 18.10.2026 (S2, Sebastians Befund „Bilder aus Videos lassen sich nicht markieren")
+# sind Einzelaktionen auch fuer Video-Gesichter erlaubt: ihre ``gid`` ist
+# "<standbild_fileid>:<index>", also dieselbe Form wie bei Fotos. Traegt die Regel das
+# Standbild als ``bild_id``, liest :func:`ausgeschlossen_lesen` genau diese ``gid``
+# zurueck — Ausschliessen und Zuordnen wirken damit sofort in Liste, Belegen und
+# Personenansicht. Der Gruppierlauf am PC kennt Standbilder weiterhin nicht (er trennt
+# Video- und Fotozeilen), dort bleibt eine Video-Regel ohne Wirkung.
 
 
 def _video_zeilen_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -881,12 +883,16 @@ def _video_beispiele(kennung: str, aus: set, schon: set, anzahl: int) -> List[Di
     return ergebnis
 
 
-def _video_gids(kennungen: Iterable[str]) -> set:
+def _video_gids_je_kennung(kennungen: Iterable[str]) -> Dict[str, set]:
+    """{kennung: {Video-``gid``, …}} — leere Mengen, wenn Gesichtsdatei oder Karte fehlen.
+
+    Die Prüfung „gehört das Gesicht zu diesem Vorschlag?" muss auch Video-Gesichter
+    kennen: ihre ``gid`` ist "<standbild_fileid>:<index>" (S2, 18.10.2026)."""
     try:
         teil = _video_teil(kennungen)[0]
     except (GruppenFehler, OSError):
-        return set()
-    return {g["gid"] for liste in teil.values() for g in liste}
+        return {}
+    return {k: {g["gid"] for g in liste} for k, liste in teil.items()}
 
 
 ORDNUNGEN = ("guete", "zeit")
@@ -970,7 +976,9 @@ def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
         videos = ohne.get(str(kennung), 0)
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
-    sichtbar = [g for g in alle if g["gid"] not in aus] + video_teil.get(str(kennung), [])
+    sichtbar = ([g for g in alle if g["gid"] not in aus]
+                # Video-Gesichter tragen dieselbe Regel-Form (S2, 18.10.2026).
+                + [g for g in video_teil.get(str(kennung), []) if g["gid"] not in aus])
     _ordnen(sichtbar, ordnung)
     je_seite = max(1, min(int(je_seite or GESICHTER_JE_SEITE), 200))
     seiten = max(1, (len(sichtbar) + je_seite - 1) // je_seite)
@@ -990,14 +998,15 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for g in liste):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
-    if set(liste) & _video_gids([str(kennung)]):
-        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
     try:
         with _SCHREIBSPERRE:
             vorhanden = {g["gid"] for g in _gemerkt(pfad, _gesichter_laden).get(str(kennung), [])}
+            # Video-Gesichter gehören zur selben Liste (S2, 18.10.2026): ihre gid ist
+            # "<standbild_fileid>:<index>" und wird als Regel genauso gespeichert.
+            vorhanden |= _video_gids_je_kennung([str(kennung)]).get(str(kennung), set())
             fremd = [g for g in liste if g not in vorhanden]
             if fremd:
                 raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
@@ -1075,8 +1084,11 @@ def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEI
         return {"ok": False, "fehler": str(fehler)}
     sichtbar: List[Dict[str, Any]] = []
     ausgeschlossen = 0
+    # Auch die Kennungen fremder Zuordnungen mitladen (S2, 18.10.2026): ein von Hand
+    # zugeordnetes Video-Standbild soll in der Personenansicht erscheinen.
+    fremde = sorted({str(e.get("kennung") or "") for e in zug.values()} - set(kennungen) - {""})
     try:
-        video_teil = _video_teil(kennungen)[0]
+        video_teil = _video_teil(list(kennungen) + fremde)[0]
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     for k in kennungen:
@@ -1085,20 +1097,26 @@ def gesichter_person(name: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEI
         # Von Hand einer ANDEREN Person zugeordnet -> gehoert nicht mehr hierher.
         sichtbar += [dict(g, kennung=k) for g in je.get(k, []) if g["gid"] not in weg
                      and (zug.get(g["gid"]) or {}).get("name", echter).casefold() == echter.casefold()]
-        sichtbar += [dict(g, kennung=k) for g in video_teil.get(k, [])]
+        sichtbar += [dict(g, kennung=k) for g in video_teil.get(k, []) if g["gid"] not in weg
+                     and (zug.get(g["gid"]) or {}).get("name", echter).casefold() == echter.casefold()]
     # Von Hand dieser Person zugeordnete Gesichter aus fremden Vorschlaegen (10.10.2026).
     schon = {g["gid"] for g in sichtbar}
     eigene = {gid: e["kennung"] for gid, e in zug.items()
               if e["name"].casefold() == echter.casefold() and gid not in schon}
+    # Foto- UND Video-Gesichter je Kennung (S2, 18.10.2026): auch ein von Hand
+    # zugeordnetes Standbild muss in der Personenansicht auftauchen.
+    def _alle_je_kennung(k: str) -> List[Dict[str, Any]]:
+        return je.get(k, []) + video_teil.get(k, [])
+
     fehlend = set(eigene)
     for k in set(eigene.values()):
-        for g in je.get(k, []):
+        for g in _alle_je_kennung(k):
             if eigene.get(g["gid"]) == k:
                 sichtbar.append(dict(g, kennung=k, zugeordnet=True))
                 fehlend.discard(g["gid"])
     if fehlend:     # nach einem neuen PC-Lauf liegt das Gesicht oft unter einer anderen Kennung
-        for k, liste in je.items():
-            for g in liste:
+        for k in list(je) + [x for x in video_teil if x not in je]:
+            for g in _alle_je_kennung(k):
                 if g["gid"] in fehlend:
                     sichtbar.append(dict(g, kennung=k, zugeordnet=True))
                     fehlend.discard(g["gid"])
@@ -1128,8 +1146,6 @@ def ausschliessen_person(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for _, g in paare):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
-    if {g for _, g in paare} & _video_gids({k for k, _ in paare}):
-        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
@@ -1139,7 +1155,9 @@ def ausschliessen_person(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
             return {"ok": False, "fehler": "Keine benannte Person mit diesem Namen."}
         with _SCHREIBSPERRE:
             je = _gemerkt(pfad, _gesichter_laden)
-            vorhanden = {k: {g["gid"] for g in je.get(k, [])} for k in kennungen}
+            video = _video_gids_je_kennung(kennungen)
+            vorhanden = {k: {g["gid"] for g in je.get(k, [])} | video.get(k, set())
+                         for k in kennungen}
             for k, g in paare:
                 if k not in vorhanden:
                     raise GruppenFehler("Gesicht gehört nicht zu dieser Person.")
@@ -1206,8 +1224,6 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
         return {"ok": False, "fehler": f"Höchstens {AUSSCHLUSS_MAX} Gesichter auf einmal."}
     if not all(_GID.match(g) for _, g in paare):
         return {"ok": False, "fehler": "Ungültige Gesichts-Kennung."}
-    if {g for _, g in paare} & _video_gids({k for k, _ in paare}):
-        return {"ok": False, "fehler": VIDEO_GESPERRT}
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         return {"ok": False, "fehler": FEHLT_HINWEIS}
@@ -1218,8 +1234,9 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
                                            "Vorschlag mit diesem Namen benennen."}
         with _SCHREIBSPERRE:
             je = _gemerkt(pfad, _gesichter_laden)
+            video = _video_gids_je_kennung(sorted({k for k, _ in paare} | set(kennungen)))
             for k, g in paare:
-                if g not in {x["gid"] for x in je.get(k, [])}:
+                if g not in ({x["gid"] for x in je.get(k, [])} | video.get(k, set())):
                     raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
             aus = ausgeschlossen_lesen()
             zug = zugeordnet_lesen()

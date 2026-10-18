@@ -181,7 +181,9 @@ function gruppenAlleInfo(antwort, geladen) {
     // Sebastians Befund — die Standbilder fehlten, nicht die Anzeige).
     if (videos) teile.push('+ ' + gruppenZahl(videos) + ' aus Videos (noch ohne Standbild)');
     if (antwort.gesichter && antwort.gesichter.some((g) => g && g.video === true)) {
-        teile.push('🎬 Video-Gesichter nur ansehen, nicht einzeln ändern');
+        // S2 (18.10.2026): Video-Standbilder sind seit dem Schreibweg im Backend
+        // markierbar — der frühere Hinweis „nur ansehen“ gilt nicht mehr.
+        teile.push('🎬 Video-Standbilder lassen sich genauso markieren');
     }
     if (Array.isArray(antwort.kennungen) && antwort.kennungen.length > 1) {
         teile.push('aus ' + antwort.kennungen.length + ' Vorschlägen');
@@ -599,9 +601,9 @@ function gruppenNotizZeit(zeit) {
     // ein kurzer Klick das Bild — deshalb entfallen die Vergrößerungs-Symbole auf den
     // Kacheln. Bewegung ab 8 px (Scrollen/Ziehen), ``pointercancel`` und
     // ``lostpointercapture`` brechen den Timer ab, damit vertikales Scrollen und der
-    // Browser-Langdruck nicht in die Auswahl laufen. Video-Gesichter bleiben
-    // unverdrahtet: der Server lehnt Ausschließen/Zuordnen für sie ab (VIDEO_GESPERRT),
-    // sie öffnen weiterhin per kurzem Klick.
+    // Browser-Langdruck nicht in die Auswahl laufen. Video-Standbilder laufen seit
+    // S2 (18.10.2026) mit: das Backend speichert ihre Regel über das Standbild, ein
+    // langer Druck wählt sie also genauso aus wie ein Foto.
     const AUSWAHL_LANGDRUCK_MS = 500;
     const AUSWAHL_BEWEGUNG_PX = 8;
 
@@ -729,13 +731,11 @@ function gruppenNotizZeit(zeit) {
                     alle.letztesJahr = jahr;
                 }
             }
-            // Video-Gesichter: Ausschließen/Zuordnen sperrt das Backend -> nicht auswählbar
-            // (S4: unverdrahtet, Antippen zeigt das Standbild). Alle anderen Kacheln
-            // bekommen die Verdrahtung „kurzer Klick öffnet / Halten wählt aus".
-            raster.appendChild(kachel(g, false, g.video === true
-                ? { verzoegert: true }
-                : { verzoegert: true, ohneKlick: true }));
-            if (g.video !== true) alleKachelVerdrahten(raster.lastChild, g);
+            // Seit S2 (18.10.2026) sind auch Video-Standbilder auswählbar: der Server
+            // nimmt ihre Kennung an (Schreibweg über das Standbild). Alle Kacheln
+            // bekommen „kurzer Klick öffnet / Halten wählt aus".
+            raster.appendChild(kachel(g, false, { verzoegert: true, ohneKlick: true }));
+            alleKachelVerdrahten(raster.lastChild, g);
             raster.lastChild.dataset.gid = g.gid;
             if (g.zugeordnet) {
                 raster.lastChild.classList.add('zugeordnet');

@@ -310,15 +310,15 @@ pruefe(f.gruppenVideoMarke({ video: true, zeit_s: 3725 }) === '🎬 1:02:05', 'M
 pruefe(f.gruppenVideoMarke({ video: true }) === '🎬 0:00', 'ohne Zeit: 0:00');
 pruefe(f.gruppenVideoMarke({ fileid: '1', zeit_s: 4 }) === '' && f.gruppenVideoMarke(null) === '',
     'Fotos und leere Eingaben: keine Marke');
-pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 2, gesichter: [{ video: true }, {}] }, 2).includes('🎬 Video-Gesichter nur ansehen'),
-    'Info weist auf nicht änderbare Video-Gesichter hin');
-pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 1, gesichter: [{}] }, 1).includes('nur ansehen'), 'nur Fotos: kein Video-Hinweis');
+pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 2, gesichter: [{ video: true }, {}] }, 2).includes('lassen sich genauso markieren'),
+    'Info nennt die Video-Standbilder als markierbar (S2)');
+pruefe(!f.gruppenAlleInfo({ ok: true, gesamt: 1, gesichter: [{}] }, 1).includes('🎬 Video-Standbilder'), 'nur Fotos: kein Video-Hinweis');
 pruefe(f.gruppenAlleInfo({ ok: true, gesamt: 0, videos: 5 }, 0).includes('noch keine Standbilder'),
     'reine Video-Gruppe ohne Standbilder: ehrlicher Grund');
-pruefe(/g\.video === true\s*\? \{ verzoegert: true \}/.test(src),
-    'Gesamtansicht: Video-Gesicht ohne Klick-Verdrahtung (Backend sperrt Einzelaktionen)');
-pruefe(/if \(g\.video !== true\) alleKachelVerdrahten\(raster\.lastChild, g\);/.test(src),
-    'Gesamtansicht: nur Gesichter ohne Video bekommen die Auswahl-Verdrahtung (S4)');
+pruefe(/raster\.appendChild\(kachel\(g, false, \{ verzoegert: true, ohneKlick: true \}\)\);/.test(src),
+    'Gesamtansicht: Kachel-Aufbau einheitlich (S2: Video-Standbilder laufen mit)');
+pruefe(/alleKachelVerdrahten\(raster\.lastChild, g\);/.test(src) && !/g\.video !== true\) alleKachelVerdrahten/.test(src),
+    'Gesamtansicht: jedes Gesicht bekommt die Auswahl-Verdrahtung (S2)');
 pruefe(/m\.textContent = marke;/.test(src) && !/innerHTML = marke/.test(src), 'Marke nur per textContent');
 pruefe(/\.gruppen-video-marke\s*\{[^}]*position:\s*absolute/.test(css), 'Marke liegt über der Kachel');
 pruefe(vQ && vQ[1] >= '20261015A' && vS && vS[1] >= '20261014A', 'Cache-Bump 15.10. (Grund „noch ohne Standbild“)');
