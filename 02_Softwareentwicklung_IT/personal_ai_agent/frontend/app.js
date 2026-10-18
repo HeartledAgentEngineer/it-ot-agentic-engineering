@@ -3768,7 +3768,14 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     // Werkzeugleiste (unter dem Nächstes-Bild-Knopf): ↩ Undo, ⟳ Drehen,
     // 💾 Speichern. Jede Aktion arbeitet auf der NORMALISIERTEN bbox.
     const leiste = document.createElement('div');
-    leiste.style.cssText = 'position:fixed;bottom:74px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+    // Schritt I (18.10.2026): die Werkzeugleiste darf UMBRECHEN (flex-wrap) und
+    // hoechstens 96 % der Fensterbreite belegen. Befund aus der Messung: mit den
+    // Knoepfen aus Schritt E/G/F/I war die Leiste bei 380 px Fenster 664 px breit
+    // (links −142) — die aeusseren Knoepfe waren nicht erreichbar (vor diesem
+    // Schritt schon 511 px / links −66). Bei breiten Fenstern ändert sich nichts
+    // (eine Zeile), auf dem Handy stehen die Knoepfe jetzt in mehreren Zeilen
+    // mittig im Bild.
+    leiste.style.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;z-index:99999;display:flex;flex-wrap:wrap;justify-content:center;row-gap:6px;max-width:96vw;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
     ov.appendChild(leiste);
     try {
         if (gesichter && gesichter.length) {
@@ -4116,6 +4123,60 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                                 'ein unbekannter Rahmen nicht.', true);
                     return idx;
                 }
+                // Schritt I (18.10.2026): "Erkennung fuer dieses EINE Bild neu
+                // starten" (Auftragspunkt 3, auch uebersehene Gesichter finden).
+                // Der Server kann das schon (`POST /api/gesichter/quiz/analysiere`
+                // laeuft ueber `face_service.embeddings_fuer_pfad`, ganzes Bild) —
+                // es fehlte der Knopf und die verschmelzende Regel.
+                // Ehrlich: Ist die Engine nicht gelaufen (`engine_verfuegbar:false`),
+                // aendert der Aufruf NICHTS und sagt das auch — 0 Gesichter waeren
+                // sonst als "keine Gesichter" missverstanden worden.
+                // Rueckgabe: Zahl der Neufunde, -1 = nichts geaendert.
+                async function erkenneDiesesBildNeu() {
+                    var pfad = _quizEditor.bildPfad || '';
+                    if (!pfad) { meldeEditor('🔍 Ohne Bildpfad laesst sich die Erkennung nicht neu starten.', false); return -1; }
+                    var vorher = rahmenIndizes(_quizEditor).length;
+                    var antwort = null;
+                    try {
+                        var ar = await fetch(API_BASE + '/api/gesichter/quiz/analysiere', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ bild_pfad: pfad }),
+                        });
+                        antwort = await ar.json();
+                    } catch (_e) {
+                        meldeEditor('🔍 Erkennung nicht erreichbar — die ' + vorher + ' Rahmen bleiben unveraendert.', false);
+                        return -1;
+                    }
+                    if (!antwort || antwort.engine_verfuegbar === false) {
+                        meldeEditor('🔍 Die Gesichts-Engine hat nicht geantwortet — die ' + vorher +
+                                    ' Rahmen bleiben unveraendert (keine Aussage ueber Gesichter).', false);
+                        return -1;
+                    }
+                    snapshotVorAenderung();
+                    var gemischt = rahmenNeuErkennen(antwort.gesichter || [],
+                        _quizEditor.bbox_norm_live || [], _quizEditor.personen || []);
+                    _quizEditor.bbox_norm_live = gemischt.bbox_norm_live;
+                    _quizEditor.personen = gemischt.personen;
+                    // Groessen-Reste (px) gehoeren zu einer ANDEREN Liste — nach dem
+                    // Zusammenfuehren waeren sie falsch zugeordnet.
+                    _quizEditor.px_rest = [];
+                    if (antwort.gesichter && antwort.gesichter.length) _quizEditor.gesichter = antwort.gesichter;
+                    for (var k = rahmenEls.length; k < _quizEditor.bbox_norm_live.length; k++) {
+                        rahmenZiehbar(rahmenElement(k), k);
+                    }
+                    resync(); zeigeAuswahlGriffe();
+                    var nachher = rahmenIndizes(_quizEditor).length;
+                    if (!gemischt.neu) {
+                        meldeEditor('🔍 Erkennung neu gelaufen: ' + (antwort.anzahl_gesichter || 0) +
+                                    ' Gesicht(er) gefunden — alle ' + vorher + ' Rahmen bleiben unveraendert.', true);
+                    } else {
+                        meldeEditor('🔍 Erkennung neu gelaufen: ' + gemischt.neu + ' neue(s) Gesicht(er) dazu (' +
+                                    nachher + ' Rahmen jetzt) — die ' + vorher + ' vorhandenen bleiben unveraendert. ' +
+                                    'Die Neufunde stehen als „unbekannt"; die Person setzt das Menue.', true);
+                    }
+                    return gemischt.neu;
+                }
                 // Griff-Drag: Groesse ziehen (bboxSkalieren klemmt am Bildrand)
                 bildBox.addEventListener('pointerdown', (ev) => {
                     var g = ev.target;
@@ -4195,6 +4256,23 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         rahmenZeichnenStarten();
                     });
                     leiste.appendChild(rahmenBtn);
+                }
+                // Schritt I (18.10.2026): "🔍 Neu erkennen" — die Erkennung fuer
+                // GENAU dieses Bild noch einmal laufen lassen (Brille, Profil,
+                // schlechtes Licht: YuNet uebersieht manchmal ein Gesicht).
+                // Nicht in der Referenz-Nachbearbeitung: dort gehoert der Rahmen
+                // zu EINER bekannten Referenz, nicht zu einem neuen Gesicht.
+                if (!_quizEditor.refKontext) {
+                    const erkennBtn = document.createElement('div');
+                    erkennBtn.className = 'vollbild-neu-erkennen';
+                    erkennBtn.textContent = '🔍 Neu erkennen';
+                    erkennBtn.title = 'Erkennung fuer dieses Bild neu laufen lassen (vorhandene Rahmen bleiben unveraendert)';
+                    erkennBtn.style.cssText = 'padding:10px 14px;border-radius:22px;background:#2a2a2a;color:#9fd;font-weight:700;font-size:0.85rem;cursor:pointer;border:1px solid #4a8a7a;white-space:nowrap';
+                    erkennBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        erkenneDiesesBildNeu();
+                    });
+                    leiste.appendChild(erkennBtn);
                 }
                 // Schritt G (18.10.2026): Ziel-Personen-Menue JE RAHMEN
                 // (Auftragspunkt 2, "Auswahlliste statt nur 'ist nicht <Name>'"
@@ -4596,6 +4674,92 @@ function rahmenListeVerschmelzen(gesichter, vorNorm) {
         rest.push(null);
     }
     return { neu: neu, rest: rest };
+}
+
+// ---------------------------------------------------------------------------
+// Schritt I (18.10.2026): "Erkennung fuer dieses EINE Bild neu starten".
+// Die frische Erkennung darf vorhandene Korrekturen NICHT ueberschreiben.
+// Deshalb wird ueber die UEBERDECKUNG der Rahmen zusammen gefuehrt, nicht ueber
+// die Listenposition: `rahmenListeVerschmelzen` nimmt `vor[i]` nach Position —
+// liefert die Engine die Gesichter in vertauschter Reihenfolge, wanderte die
+// Person damit auf einen fremden Rahmen (Befund 3 der Plan-Pruefung, Fassung 9
+// und 10 des Rahmeneditor-Plans). Hier gilt: gleiche Region = gleiches Gesicht
+// = Rahmen und Person bleiben WERTGLEICH; alles, was die Engine zusaetzlich
+// findet, kommt als neuer Rahmen OHNE Person ("unbekannt") dazu. Es wird nie
+// geloescht und nie etwas erfunden.
+// ---------------------------------------------------------------------------
+
+/** Schnittflaeche geteilt durch Vereinigungsflaeche zweier normalisierter
+ *  Rahmen ([x, y, w, h], 0..1). 0 bei fehlenden oder unbrauchbaren Werten. */
+function bboxUeberdeckung(a, b) {
+    if (!a || !b || a.length < 4 || b.length < 4) return 0;
+    const ax1 = Number(a[0]), ay1 = Number(a[1]);
+    const ax2 = ax1 + Number(a[2]), ay2 = ay1 + Number(a[3]);
+    const bx1 = Number(b[0]), by1 = Number(b[1]);
+    const bx2 = bx1 + Number(b[2]), by2 = by1 + Number(b[3]);
+    const zahlen = [ax1, ay1, ax2, ay2, bx1, by1, bx2, by2];
+    for (let i = 0; i < zahlen.length; i++) {
+        if (!isFinite(zahlen[i])) return 0;
+    }
+    const sx = Math.min(ax2, bx2) - Math.max(ax1, bx1);
+    const sy = Math.min(ay2, by2) - Math.max(ay1, by1);
+    if (sx <= 0 || sy <= 0) return 0;
+    const schnitt = sx * sy;
+    const vereinigung = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - schnitt;
+    if (vereinigung <= 0) return 0;
+    return schnitt / vereinigung;
+}
+
+/**
+ * Fuehrt eine frische Erkennung mit den Rahmen im Editor zusammen.
+ *
+ * `gesichter`   = Antwort von `POST /api/gesichter/quiz/analysiere` (je Gesicht
+ *                 `bbox_norm`, optional `bbox`).
+ * `altNorm`     = `_quizEditor.bbox_norm_live` (die Wahrheit im Editor).
+ * `altPersonen` = `_quizEditor.personen` ('' = ausdruecklich "unbekannt").
+ *
+ * Rueckgabe `{ bbox_norm_live, personen, behalten, neu }`:
+ *  * vorhandene Rahmen bleiben an ihrem Platz und WERTGLEICH (Koordinaten und
+ *    Person) — auch bei vertauschter Erkennungsreihenfolge,
+ *  * `behalten` = Zahl der vorhandenen Rahmen, die die Engine bestaetigt hat,
+ *  * `neu` = Zahl der zusaetzlich gefundenen Gesichter (ohne Person angehaengt).
+ * Eine leere oder unbrauchbare Erkennung aendert NICHTS (kein Rahmen faellt weg).
+ */
+function rahmenNeuErkennen(gesichter, altNorm, altPersonen, minUeberdeckung) {
+    const ges = Array.isArray(gesichter) ? gesichter : [];
+    const alt = Array.isArray(altNorm) ? altNorm : [];
+    const per = Array.isArray(altPersonen) ? altPersonen : [];
+    const schwelle = (typeof minUeberdeckung === 'number') ? minUeberdeckung : 0.5;
+    const neu = alt.slice();
+    const personen = per.slice();
+    const belegt = [];
+    for (let i = 0; i < neu.length; i++) belegt.push(false);
+    let behalten = 0, neue = 0;
+    for (let g = 0; g < ges.length; g++) {
+        const eintrag = ges[g] || {};
+        const roh = (eintrag.bbox_norm && eintrag.bbox_norm.length >= 4)
+            ? bboxNormClampen(eintrag.bbox_norm) : null;
+        if (!roh) continue;   // ohne Rahmen keine Aussage (kein Erfinden)
+        let treffer = -1, beste = 0;
+        for (let i = 0; i < neu.length; i++) {
+            if (belegt[i] || !neu[i] || neu[i].length < 4) continue;
+            // Gleiche 1-%-Region ist dasselbe Gesicht, egal wie weit die
+            // Koordinaten inzwischen verschoben wurden.
+            const gleicheRegion = (bboxRegionSchluessel(roh) === bboxRegionSchluessel(neu[i]));
+            const mass = gleicheRegion ? 1 : bboxUeberdeckung(roh, neu[i]);
+            if (mass > beste) { beste = mass; treffer = i; }
+        }
+        if (treffer >= 0 && beste >= schwelle) {
+            belegt[treffer] = true;
+            behalten++;
+            continue;         // Rahmen UND Person bleiben, wie sie waren
+        }
+        neu.push(roh);
+        personen.push('');    // Neufund = ausdruecklich "unbekannt"
+        belegt.push(true);
+        neue++;
+    }
+    return { bbox_norm_live: neu, personen: personen, behalten: behalten, neu: neue };
 }
 
 /**
