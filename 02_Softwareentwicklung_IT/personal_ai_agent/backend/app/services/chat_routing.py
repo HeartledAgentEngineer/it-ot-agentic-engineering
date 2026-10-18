@@ -22,12 +22,61 @@ from app.services.hermes_local import arbeits_start_zeile
 logger = logging.getLogger(__name__)
 
 
-def statusmeldung_wartet(eintrag_id: str) -> None:
-    """Kurze 'wartet auf Bearbeitung'-Meldung für das Frontend-Tracking."""
+def statusmeldung_bereit(eintrag_id: str, grund: str) -> None:
+    """Ehrliche Statuszeile, wenn die Aufgabe niemanden hat (S7).
+
+    Ersetzt die frühere Meldung „⏳ Hermes wurde benachrichtigt – wartet auf
+    Bearbeitung" (Sebastian, 16.10.2026): sie behauptete einen Lauf, den es
+    nicht gab — weder PC-Hermes noch lokaler Hermes waren da, und der Nutzer
+    wartete auf ein Ergebnis, das nie kam. Die neue Zeile nennt den Grund und
+    was als Nächstes passiert.
+    """
     from app.services.auftrag_service import auftrag_service
     auftrag_service.statusmeldung_hinzufuegen(
-        eintrag_id, "⏳ **Hermes wurde benachrichtigt** – wartet auf Bearbeitung..."
+        eintrag_id,
+        f"⚠️ **Liegt bereit — gerade arbeitet niemand daran.** {grund} "
+        "Sie wird abgearbeitet, sobald wieder ein Hermes erreichbar ist.",
     )
+
+
+def bereit_reply_text(message: str, wartegrund: str) -> str:
+    """Antwort, wenn die erkannte Aufgabe gerade NIEMANDEN hat (S7).
+
+    EINE Quelle für beide Wege (`/api/chat` über `route_auftrag`, `/api/chat/stream`
+    direkt) — sonst laufen die beiden Kopien auseinander, wie es bei dieser
+    Meldung schon passiert war. Der Text behauptet keinen Lauf und nennt den
+    sofortigen Ausweg.
+    """
+    return (
+        "🧩 **Hermes-Aufgabe erkannt — sie liegt bereit, aber gerade arbeitet "
+        "niemand daran.**\n\n"
+        "➡️ **Vorgemerkt für:** Hermes\n\n"
+        f"⚠️ **Grund:** {wartegrund}\n\n"
+        f"📋 **Aufgabe:** {message[:150]}…\n\n"
+        "Sie steht in der Warteliste und wird abgearbeitet, sobald wieder ein "
+        "Hermes erreichbar ist (PC oder dieses Gerät). Sofort weiter kommst du "
+        "ohne Werkzeug: stell dieselbe Frage direkt („antworte ohne Werkzeuge“) "
+        "— dann beantworte ich sie hier selbst.\n"
+    )
+
+
+def kein_helfer_text(pc_grund: str, lokal_verfuegbar: bool) -> str:
+    """Klartext, warum eine erkannte Aufgabe gerade NIEMANDEN hat (S7).
+
+    Reine Funktion, wirft nie und enthält keine Zugangsdaten: `pc_grund` kommt
+    aus dem Gateway (`hermes_gateway.letzter_fehler`) und ist ein Klartext-
+    Grund, kein Schlüssel. Ist Track A übersprungen worden (Umlenk-Ziel
+    „handy"), bleibt `pc_grund` leer — dann wird der PC nicht behauptet.
+    """
+    teile = []
+    if lokal_verfuegbar:
+        teile.append("der lokale Hermes ist nicht gestartet")
+    else:
+        teile.append("auf diesem Gerät ist der lokale Hermes nicht einsatzbereit")
+    grund = (pc_grund or "").strip()
+    if grund:
+        teile.append(f"der PC-Hermes ist nicht erreichbar ({grund})")
+    return "; ".join(teile) + "."
 
 
 def ziel_etikett(ziel: str) -> str:
@@ -107,6 +156,9 @@ def route_auftrag(
 
     # 1) PC-Hermes (Track A) — exklusiv: läuft er, ist Schluss (nie beides).
     # Bei explizitem Umlenk-Ziel "handy" wird Track A übersprungen.
+    # `pc_grund` bleibt außerhalb des Zweigs gültig: Track B nennt den ehrlichen
+    # Grund (S7). Wurde Track A übersprungen, wird der PC NICHT behauptet.
+    pc_grund = ""
     if ziel == "handy":
         logger.info("Umlenk-Ziel 'handy': Track A (PC) uebersprungen, direkt lokal")
     else:
@@ -122,7 +174,8 @@ def route_auftrag(
         logger.info("PC-Hermes uebersprungen (%s) - weiter zu Handy/Buch", pc_grund)
 
     # 2) Lokaler Hermes (Track C) — NUR weil Track A fehlschlug.
-    if hermes_local_ist_verfuegbar():
+    lokal_verfuegbar = hermes_local_ist_verfuegbar()
+    if lokal_verfuegbar:
         conv_id = get_or_create_conversation(None)
         eintrag = starte_lokale_hermes(
             herm_aufgabe,
@@ -149,15 +202,15 @@ def route_auftrag(
 
     # 3) Auftragsbuch (Track B) — interne Warteschlange; in der Nutzer-Ansicht
     #    wird es nur noch als "Hermes" gezeigt, nie als Auftragsbuch/Nummer.
+    #    S7 (16.10.2026): Hier stand früher „Hermes wurde benachrichtigt –
+    #    wartet auf Bearbeitung" und „Hermes nimmt sich der Aufgabe an", obwohl
+    #    NICHTS lief (Termux-Paket defekt, PC aus). Der Nutzer wartete auf ein
+    #    Ergebnis, das nie kommt. Jetzt steht der ehrliche Grund sofort im Chat
+    #    und in der Statuszeile — und der Weg, sofort weiterzukommen.
+    wartegrund = kein_helfer_text(pc_grund, lokal_verfuegbar)
     eintrag = anlegen_im_buch(herm_aufgabe, begruendung, kategorie, komplexitaet)
-    statusmeldung_wartet(eintrag["id"])
-    reply_text = (
-        "🧩 **Hermes-Aufgabe erkannt – wird übernommen.**\n\n"
-        "➡️ **Weitergeleitet an:** Hermes\n\n"
-        f"📋 **Aufgabe:** {message[:150]}…\n\n"
-        "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
-        "erscheint es hier.\n"
-    )
+    statusmeldung_bereit(eintrag["id"], wartegrund)
+    reply_text = bereit_reply_text(message, wartegrund)
     conv_id = get_or_create_conversation(None)
     finish_exchange(conv_id, message, reply_text)
     verknuepfe_chat(eintrag["id"], conv_id)

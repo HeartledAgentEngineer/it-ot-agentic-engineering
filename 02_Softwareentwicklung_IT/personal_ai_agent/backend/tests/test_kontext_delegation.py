@@ -36,13 +36,13 @@ def test_kontext_wird_an_buch_weitergegeben():
     def fake_anlegen(auftrag, hinweis=None, kategorie=None, komplexitaet=None):
         called["auftrag"] = auftrag
         return {"id": "abc12345"}
-    def fake_status(_id):
+    def fake_status(_id, _grund):
         pass
 
     with mock.patch.object(chat_routing, "hermes_gateway") as gw, \
          mock.patch("app.services.chat_routing.hermes_local_ist_verfuegbar", return_value=False), \
          mock.patch.object(chat_routing, "anlegen_im_buch", side_effect=fake_anlegen), \
-         mock.patch.object(chat_routing, "statusmeldung_wartet", side_effect=fake_status), \
+         mock.patch.object(chat_routing, "statusmeldung_bereit", side_effect=fake_status), \
          mock.patch.object(chat_routing, "verknuepfe_chat", return_value=None):
         gw.sende_auftrag.return_value = None
         r = chat_routing.route_auftrag(

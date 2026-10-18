@@ -2007,19 +2007,30 @@ async def chat_stream(request: ChatRequest):
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
 
+        # S7 (18.10.2026): Hier stand dieselbe Behauptung wie im Nicht-Stream-Weg
+        # („wird übernommen" / „Hermes nimmt sich der Aufgabe an"), obwohl
+        # weder PC-Hermes noch lokaler Hermes liefen. Der Text und die
+        # Statuszeile kommen jetzt aus EINER Quelle in `chat_routing` — zwei
+        # Kopien derselben Meldung waren schon einmal auseinandergelaufen.
+        from app.services.chat_routing import (
+            bereit_reply_text,
+            kein_helfer_text,
+            statusmeldung_bereit,
+        )
+
+        if _nur_lokal:
+            _pc_grund = ""
+        else:
+            _pc_grund = getattr(hermes_gateway, "letzter_fehler", "") or "PC nicht erreichbar"
+        _wartegrund = kein_helfer_text(_pc_grund, False)
         eintrag = auftrag_service.anlegen(
             herm_aufgabe,
             hinweis=f"Automatische Erkennung: {begruendung}",
             kategorie=kategorie,
             komplexitaet=komplexitaet,
         )
-        reply_text = (
-            "🧩 **Hermes-Aufgabe erkannt – wird übernommen.**\n\n"
-            "➡️ **Weitergeleitet an:** Hermes\n\n"
-            f"📋 **Aufgabe:** {request.message[:150]}…\n\n"
-            "Hermes nimmt sich der Aufgabe an. Sobald ein Ergebnis vorliegt, "
-            "erscheint es hier.\n"
-        )
+        statusmeldung_bereit(eintrag["id"], _wartegrund)
+        reply_text = bereit_reply_text(request.message, _wartegrund)
         conversation_id = _get_or_create_conversation(request.conversation_id)
         _finish_exchange(conversation_id, request.message, reply_text)
         # Auftrag an das Gespraech binden, damit Hermes-Live-Meldungen

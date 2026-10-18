@@ -43,7 +43,7 @@ def _rufe(ziel=None, pc_antwort="PC-Ergebnis", lokal_da=True):
                            return_value=lokal_da), \
          mock.patch.object(chat_routing, "anlegen_im_buch",
                            return_value={"id": "buch-1"}), \
-         mock.patch.object(chat_routing, "statusmeldung_wartet",
+         mock.patch.object(chat_routing, "statusmeldung_bereit",
                            lambda *a, **k: None), \
          mock.patch.object(chat_routing, "verknuepfe_chat",
                            lambda *a, **k: None):

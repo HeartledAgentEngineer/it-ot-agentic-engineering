@@ -17,7 +17,7 @@ from app.services.hermes_gateway import hermes_gateway as hg_instanz  # noqa: E4
 def _klare_mocks():
     """Isoliert die Buch-Helfer (anlegen_im_buch etc.)."""
     with mock.patch.object(routing, "anlegen_im_buch", return_value={"id": "eintrag-abc"}), \
-         mock.patch.object(routing, "statusmeldung_wartet"), \
+         mock.patch.object(routing, "statusmeldung_bereit"), \
          mock.patch.object(routing, "verknuepfe_chat"):
         yield
 
@@ -59,11 +59,19 @@ def test_track_c_lokal_verfuegbar():
 
 
 def test_track_b_buch_fallback():
-    """PC + lokal nicht da → art='buch', ziel='buch'."""
+    """PC + lokal nicht da → art='buch', ziel='buch'.
+
+    S7 (18.10.2026): Die Antwort behauptet NICHT mehr, die Aufgabe werde
+    übernommen — sie nennt den ehrlichen Grund (kein Hermes erreichbar) und
+    den sofortigen Ausweg. Genau das war Sebastians Befund: „wartet auf
+    Bearbeitung", während nichts lief.
+    """
     r = _route(pc_antwort=None, lokal_verfuegbar=False)
     assert r["art"] == "buch"
-    assert "wird übernommen" in r["reply"]
     assert r["ziel"] == "buch"
+    assert "niemand daran" in r["reply"]
+    assert "wird übernommen" not in r["reply"]
+    assert "benachrichtigt" not in r["reply"]
 
 
 def test_track_c_antwort_nennt_ziel_handy():
@@ -75,8 +83,13 @@ def test_track_c_antwort_nennt_ziel_handy():
 def test_track_b_antwort_ohne_auftragsbuch():
     """Track B: In der Nutzer-Antwort taucht weder 'Auftragsbuch' noch
     'wird bearbeitet' auf – das sichtbare Auftragskonzept ist entfernt
-    (nur noch 'Hermes' als Ziel)."""
+    (nur noch 'Hermes' als Ziel).
+
+    S7 (18.10.2026): Statt „Weitergeleitet an" steht jetzt „Vorgemerkt für" —
+    „weitergeleitet" behauptete einen Empfänger, der nichts tut.
+    """
     r = _route(pc_antwort=None, lokal_verfuegbar=False)
-    assert "Weitergeleitet an:" in r["reply"] and "Hermes" in r["reply"]
+    assert "Vorgemerkt für:" in r["reply"] and "Hermes" in r["reply"]
+    assert "Weitergeleitet an:" not in r["reply"]
     assert "Auftragsbuch" not in r["reply"]
     assert "wird bearbeitet" not in r["reply"]
