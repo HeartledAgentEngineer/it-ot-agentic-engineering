@@ -4033,6 +4033,22 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         speichereEditorRahmen(sel, iw, ih, speichernBtn);
                     });
                     leiste.appendChild(speichernBtn);
+                    // Schritt C (Mehrfachbearbeitung, 18.10.2026): liegen MEHRERE
+                    // Rahmen auf dem Bild, gibt es daneben "alle speichern" —
+                    // nacheinander, je Rahmen eine eigene Meldung. Bei einem
+                    // einzigen Rahmen ist der Knopf ueberfluessig (derselbe Weg).
+                    const rahmenZahl = rahmenIndizes(_quizEditor).length;
+                    if (rahmenZahl >= 2) {
+                        const alleBtn = document.createElement('div');
+                        alleBtn.textContent = '💾 alle ' + rahmenZahl;
+                        alleBtn.title = 'Alle ' + rahmenZahl + ' Rahmen nacheinander speichern';
+                        alleBtn.style.cssText = 'padding:10px 16px;border-radius:22px;background:#1f2a3a;border:1px solid #4a7cc7;color:#bcd9ff;font-weight:700;font-size:0.88rem;cursor:pointer';
+                        alleBtn.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            speichereAlleRahmen(iw, ih, alleBtn);
+                        });
+                        leiste.appendChild(alleBtn);
+                    }
                 } else {
                     const speicherHinweis = document.createElement('div');
                     speicherHinweis.textContent = '💾 ' + speicherZiel.grund;
@@ -4102,16 +4118,78 @@ function editorSpeicherZiel(e) {
     return { ok: false, weg: 'quiz', person: person, pfad: pfad, bild: bild, grund: grund };
 }
 
-function speichereEditorRahmen(sel, iw, ih, btn) {
+// Schritt C (Mehrfachbearbeitung, 18.10.2026): welche Rahmen sind speicherbar?
+// Gezaehlt wird nur, was wirklich einen vollstaendigen Rahmen traegt — leere
+// Plaetze in `bbox_norm_live` (Luecken aus der Erkennung) sind keine Rahmen.
+function rahmenIndizes(e) {
+    const ed = e || _quizEditor || {};
+    const liste = ed.bbox_norm_live || [];
+    const raus = [];
+    for (let i = 0; i < liste.length; i++) {
+        const n = liste[i];
+        if (n && n.length >= 4) raus.push(i);
+    }
+    return raus;
+}
+
+// Schritt C: nacheinander JE RAHMEN ein Ergebnis. Gibt selbst nichts auf, wenn
+// ein Rahmen scheitert — der naechste laeuft weiter, und KEIN Rahmen verliert
+// seine Markierung (die Rahmen werden hier nie aus dem Editor entfernt; die
+// Person-Markierung setzt der Einzelweg VOR dem Senden).
+async function speichereAlleRahmen(iw, ih, btn) {
     const e = _quizEditor || {};
     const melde = (typeof e.melde === 'function') ? e.melde : function () {};
+    const zurueck = (text) => { try { if (btn) btn.textContent = text; } catch (_x) {} };
+    const indizes = rahmenIndizes(e);
+    if (!indizes.length) {
+        melde('⚠️ Kein Rahmen vorhanden — erst einen Kasten aufziehen oder antippen.', false);
+        return { gesamt: 0, gut: 0, ergebnisse: [] };
+    }
+    zurueck('… 0/' + indizes.length);
+    const ergebnisse = [];
+    for (const i of indizes) {
+        // Der Einzelweg meldet waehrend der Mehrfachbearbeitung NICHT selbst —
+        // sein Text wird eingesammelt und in EINER Meldung je Rahmen ausgegeben
+        // (sonst waere jeder Rahmen zweimal zu lesen).
+        const gesammelt = [];
+        let r;
+        try {
+            r = await speichereEditorRahmen(i, iw, ih, null, (t) => gesammelt.push(String(t == null ? '' : t)));
+        } catch (err) {
+            r = { ok: false, idx: i, fehler: (err && err.message) || 'unbekannter Fehler' };
+        }
+        if (!r || typeof r !== 'object') r = { ok: false, idx: i, fehler: 'kein Ergebnis' };
+        const nr = r.idx == null ? i : r.idx;
+        const gut = r.ok === true;
+        const det = gesammelt.filter(Boolean).join(' ');
+        ergebnisse.push({ idx: nr, ok: gut, fehler: r.fehler || '', grund: r.grund || '',
+                          meldung: det });
+        // JE RAHMEN genau eine Meldung (Nummer 1-basiert, wie in der Oberflaeche).
+        melde('Rahmen ' + (nr + 1) + ' von ' + indizes.length + ': ' +
+              (gut ? 'gespeichert' + (det ? ' — ' + det : '')
+                   : 'NICHT gespeichert — ' + (det || r.fehler || r.grund || 'ohne Ergebnis')), gut);
+        zurueck('… ' + ergebnisse.length + '/' + indizes.length);
+    }
+    const gut = ergebnisse.filter((x) => x.ok).length;
+    melde(gut + ' von ' + indizes.length + ' Rahmen gespeichert' +
+          (gut === indizes.length ? '.' : ' — die Einzelmeldungen stehen oben.'), gut === indizes.length);
+    zurueck('💾 Speichern');
+    return { gesamt: indizes.length, gut: gut, ergebnisse: ergebnisse };
+}
+
+function speichereEditorRahmen(sel, iw, ih, btn, stillSammeln) {
+    const e = _quizEditor || {};
+    const meldeDirekt = (typeof e.melde === 'function') ? e.melde : function () {};
+    // Schritt C: waehrend der Mehrfachbearbeitung sammelt der Aufrufer den Text
+    // ein (eine Meldung je Rahmen statt zwei).
+    const melde = (typeof stillSammeln === 'function') ? stillSammeln : meldeDirekt;
     const zurueck = (text) => { try { if (btn) btn.textContent = text; } catch (_x) {} };
     const idx = (typeof sel === 'number' && sel >= 0) ? sel : 0;
     const normRoh = (e.bbox_norm_live || [])[idx];
     const norm = (normRoh && normRoh.length >= 4) ? bboxNormClampen(normRoh) : null;
     if (!norm || !iw || !ih) {
         melde('⚠️ Kein Rahmen ausgewählt — erst einen Kasten antippen.', false);
-        return;
+        return Promise.resolve({ ok: false, idx: idx, grund: 'kein Rahmen ausgewaehlt' });
     }
     // ABSOLUTE Pixel im ANGEZEIGTEN Bildraum (was das Backend fuer den
     // Gesichts-Ausschnitt braucht) + normalisierte Ankerung (Anzeige/Drehung).
@@ -4126,7 +4204,7 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
 
     if (refKontext) {
         zurueck('… speichere');
-        fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(refKontext.name)}/${encodeURIComponent(refKontext.ref_id)}/bbox`, {
+        return fetch(`${API_BASE}/api/gesichter/referenzen/${encodeURIComponent(refKontext.name)}/${encodeURIComponent(refKontext.ref_id)}/bbox`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ bbox: px, bbox_norm: norm, embedding_erneuern: true }),
@@ -4147,17 +4225,23 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
                 }
                 setTimeout(() => zurueck('💾 Speichern'), 1800);
                 try { if (typeof refKontext.onGespeichert === 'function') refKontext.onGespeichert(); } catch (_x) {}
-            } else {
-                zurueck('⚠️ Fehler');
-                melde('⚠️ ' + ((d && d.fehler) || 'Referenz konnte nicht gespeichert werden'), false);
-                setTimeout(() => zurueck('💾 Speichern'), 2200);
+                // Schritt C: ehrliches Ergebnis auch hier — der Rahmen ist GEMERKT,
+                // aber ohne neuen Vektor ist das kein voller Erfolg (ok = false).
+                return { ok: d.vektor_erneuert === true, idx: idx, weg: 'referenz',
+                         grund: d.vektor_erneuert ? '' : (d.vektor_grund || 'Vektor blieb der alte') };
             }
+            zurueck('⚠️ Fehler');
+            melde('⚠️ ' + ((d && d.fehler) || 'Referenz konnte nicht gespeichert werden'), false);
+            setTimeout(() => zurueck('💾 Speichern'), 2200);
+            return { ok: false, idx: idx, weg: 'referenz',
+                     fehler: (d && d.fehler) || 'Referenz konnte nicht gespeichert werden' };
         }).catch(err => {
             zurueck('⚠️ Fehler');
             melde('⚠️ Referenz speichern fehlgeschlagen: ' + (err && err.message), false);
             setTimeout(() => zurueck('💾 Speichern'), 2200);
+            return { ok: false, idx: idx, weg: 'referenz',
+                     fehler: (err && err.message) || 'Referenz speichern fehlgeschlagen' };
         });
-        return;
     }
 
     if (person && pPfad) {
@@ -4167,7 +4251,7 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
         merkeBestaetigt(pPfad, region, person);
         try { if (!e.personen) e.personen = []; e.personen[idx] = person; } catch (_x) {}
         zurueck('… speichere');
-        quizBeantwortenSilent(pPfad, person, false, '', '', '', px).then(d => {
+        return quizBeantwortenSilent(pPfad, person, false, '', '', '', px).then(d => {
             if (d && d.ok) {
                 zurueck('✓ gespeichert');
                 const extra = d.uebersprungen ? ' (war bereits bestätigt)' : '';
@@ -4194,13 +4278,27 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
                 if ((e.bbox_norm_live || []).filter(b => b && b.length >= 4).length === 1 && _letzteQuizKarte) {
                     try { macheQuizFertig(_letzteQuizKarte, person, true, (_quizVollbild && _quizVollbild.querySelector('img')) ? _quizVollbild.querySelector('img').src : ''); } catch (_x) {}
                 }
-            } else {
-                zurueck('⚠️ Fehler');
-                melde('⚠️ ' + ((d && d.fehler) || 'Speichern fehlgeschlagen'), false);
-                setTimeout(() => zurueck('💾 Speichern'), 2200);
+                // Schritt C: Ergebnis JE RAHMEN — ob eine Referenz entstand, ist
+                // Teil des Ergebnisses (der Rahmen ist auch ohne Referenz als
+                // bestaetigt gemerkt, deshalb bleibt ok hier true).
+                return { ok: true, idx: idx, weg: 'quiz', person: person,
+                         referenz: d.referenz_geschrieben === true,
+                         grund: d.grund || '' };
             }
+            zurueck('⚠️ Fehler');
+            melde('⚠️ ' + ((d && d.fehler) || 'Speichern fehlgeschlagen'), false);
+            setTimeout(() => zurueck('💾 Speichern'), 2200);
+            return { ok: false, idx: idx, weg: 'quiz',
+                     fehler: (d && d.fehler) || 'Speichern fehlgeschlagen' };
+        }).catch(err => {
+            // Schritt C: ein gerissener Netzweg darf die Mehrfachbearbeitung NICHT
+            // abreissen lassen — er wird zum Ergebnis DIESES Rahmens.
+            zurueck('⚠️ Fehler');
+            melde('⚠️ Speichern fehlgeschlagen: ' + ((err && err.message) || 'unbekannter Fehler'), false);
+            setTimeout(() => zurueck('💾 Speichern'), 2200);
+            return { ok: false, idx: idx, weg: 'quiz',
+                     fehler: (err && err.message) || 'Speichern fehlgeschlagen' };
         });
-        return;
     }
 
     // Ohne passendes Ziel wird NICHTS gesendet (Schritt A2, Fehler 2) — der
@@ -4209,6 +4307,8 @@ function speichereEditorRahmen(sel, iw, ih, btn) {
     melde('⚠️ Nicht gespeichert. ' + (ziel.grund || 'Kein Speicherziel fuer dieses Bild.') +
           ' Erst „Ja, das ist …" oder eine Person wählen — dann speichert 💾 den Rahmen.', false);
     setTimeout(() => zurueck('💾 Speichern'), 2400);
+    return Promise.resolve({ ok: false, idx: idx, weg: 'quiz',
+                             grund: ziel.grund || 'Kein Speicherziel fuer dieses Bild.' });
 }
 
 function schliesseBildVollbild() {
