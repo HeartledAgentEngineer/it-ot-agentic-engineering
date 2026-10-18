@@ -52,8 +52,13 @@ echten Funktionen aus** (Sandkasten mit Attrappen der Nachbarn) und zählt die S
 - `backend/.venv/Scripts/python -m pytest tests/test_frontend_node.py -q` → **40 passed**
   (alle 39 Frontend-Tests + Wächter), Exit 0.
 - Voller Prüfbefehl über den Commit-Haken (`cd backend && .venv/Scripts/python -m pytest
-  tests/ -q`): Ergebnis und Exit-Code stehen im Tor-Protokoll dieses Commits
-  (`.hermes/logs/commit-sC-mehrfach.log`).
+  tests/ -q`) → **4713 passed, 3 skipped, Exit 0** in 454,21 s („✔ personal_ai_agent:
+  Prüfbefehl grün"), Protokoll `.hermes/logs/commit-sC-mehrfach-2.log`. Ein erster
+  Haken-Lauf war rot — **nicht** wegen dieser Änderung: ein **paralleler** Lauf arbeitete
+  gleichzeitig an Schritt S7 im Chat-Weiterleitungsweg (`backend/app/services/chat_routing.py`)
+  und ließ dort zehn Tests rot, während sein Schreibvorgang lief. Kein `--no-verify`, kein
+  Umgehen: erst nach seinem Commit (`84840f6`) war der Baum grün, dann lief dieser Commit
+  durch.
 
 **Ehrlich dazu**
 
