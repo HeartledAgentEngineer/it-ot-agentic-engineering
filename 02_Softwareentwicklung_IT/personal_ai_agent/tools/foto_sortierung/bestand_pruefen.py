@@ -494,7 +494,8 @@ STANDARD_RUECKWEG_MANIFEST = "rueckweg_manifest.jsonl"
 # ``test_rueckweg_liste_spiegelt_das_holwerkzeug`` liest die Konstante per AST
 # aus dem Hol-Werkzeug und haelt beide Mengen zusammen — sonst meldete die
 # Pruefzeile Buchungen als „ausserhalb der Liste\", die laengst dazugehoeren.
-STANDARD_RUECKWEG_NAMEN = ("geschichten.jsonl", "anlass_umbenennung.jsonl")
+STANDARD_RUECKWEG_NAMEN = ("geschichten.jsonl", "anlass_umbenennung.jsonl",
+                           "personen_bestaetigt.json", "personen_vorgaben.json")
 # Suffix der Sicherung, die das Hol-Werkzeug vor dem Ersetzen einer vorhandenen
 # Zieldatei beiseitelegt (``<name>.vorher``) — liegt sie da, wurde eine aeltere
 # Fassung ersetzt und der Rueckweg ist offen.

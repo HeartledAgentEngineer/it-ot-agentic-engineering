@@ -124,6 +124,19 @@ Gruppierung v2 (``--verfahren v2``, 15.10.2026; Standard bleibt v1):
     an den frisch gerechneten Snapshot-hash der Grundlage, die Parameter und ein
     Urteil gebunden; jede Verletzung oder eine Sperrzahl > 0 endet mit **Exit 3**,
     ohne dass eine Datei angelegt wird. ``--trocken`` hat weiter Vorrang.
+  * **G0/G1 vor jedem Rechnen (Auflage 2):** ``personen_bestaetigt.json`` und
+    ``personen_vorgaben.json`` sind **Pflicht** — fehlt eine, endet v2 mit
+    **Exit 2**, ohne zu rechnen und ohne zu schreiben (eine fehlende Regeldatei
+    ist kein leerer Bestand). Dazu wird ein **Vollstaendigkeitsnachweis** gegen
+    den Geraetestand des Handys gefuehrt (`--geraetestand`, Standard
+    ``~/foto_sortierung/geraetestand.json``): je Pflichtquelle muessen **sha256**
+    und die **durchgezaehlten Eintraege** stimmen und der Stand zum Bestand
+    passen. Jede Abweichung endet mit Exit 2; ohne vollstaendigen Nachweis
+    rechnet v2 nur als **Trockenmessung** mit ``--ohne-geraetenachweis`` (ein
+    Schreiben mit diesem Schalter wird mit Exit 2 abgelehnt). Ist die
+    Grundwahrheit ``vorlaeufig`` oder ``veraltet`` (``gruppierung_bewerten``),
+    ist ``--schreiben`` mit **Exit 3** gesperrt — auch fuer den
+    Kandidatenordner; eine Trockenmessung bleibt erlaubt.
   * ``--bewerten``: gibt zusaetzlich den Vergleich der bestehenden Zuordnung
     (vorher) mit diesem Lauf (nachher) aus - ``gruppierung_bewerten.py``,
     nur Zahlen, schreibt nichts.
@@ -197,6 +210,15 @@ STANDARD_AUSGABE = os.path.join(STANDARD_BASIS, "personen_gruppen")
 STANDARD_KANDIDAT = os.path.join(STANDARD_BASIS, "kandidat_v2")
 STANDARD_BESTAETIGT = os.path.join(STANDARD_BASIS, "personen_bestaetigt.json")
 STANDARD_VORGABEN = os.path.join(STANDARD_BASIS, "personen_vorgaben.json")
+# Der Geraetestand (G0, Auflage 2): das Handy schreibt ihn zu seinen
+# Pflichtquellen (``termux/rueckweg-bereitstellen.sh``), das PC-Werkzeug holt
+# ihn per Kabel (``tools/handy/rueckweg_holen.py``) und prueft ihn hier.
+STANDARD_GERAETESTAND = os.path.join(STANDARD_BASIS, "geraetestand.json")
+
+# G0 (Auflage 2): Diese zwei Dateien sind PFLICHT. Fehlt eine, wird bei
+# ``--verfahren v2`` nicht gerechnet und nicht geschrieben — eine fehlende
+# Regeldatei ist kein "leerer Bestand", sondern eine unbekannte Grundlage.
+PFLICHTQUELLEN = ("personen_bestaetigt.json", "personen_vorgaben.json")
 
 DATEI_ZUORDNUNG = "gesicht_zuordnung.jsonl"
 DATEI_BEISPIELE = "personen_beispiele.json"
@@ -221,9 +243,16 @@ BLOCK = 1024                                        # Gesichter je Rechenblock
 
 # ── Lesen ────────────────────────────────────────────────────────────────
 
-def _json_lesen(pfad, standard):
-    """JSON lesen — fehlende Datei = ``standard``, kaputte Datei = Fehler."""
+def _json_lesen(pfad, standard, pflicht=False, was="Datei"):
+    """JSON lesen — fehlende Datei = ``standard``, kaputte Datei = Fehler.
+
+    ``pflicht=True`` (G0, Auflage 2): eine **fehlende** Datei ist dann kein
+    leerer Bestand, sondern ein ``PersonenFehler``. Nur der Name der Datei steht
+    im Text, nie ein Pfad.
+    """
     if not pfad or not os.path.isfile(pfad):
+        if pflicht:
+            raise PersonenFehler(f"Pflichtquelle fehlt: {was}")
         return standard
     try:
         with open(pfad, encoding="utf-8") as datei:
@@ -233,9 +262,12 @@ def _json_lesen(pfad, standard):
             f"Datei nicht lesbar ({problem.__class__.__name__}): {pfad}") from None
 
 
-def bestaetigt_lesen(pfad) -> dict:
-    """``{"bestaetigt": {"Person_001": "Name"}}`` -> ``{kennung: name}``."""
-    daten = _json_lesen(pfad, {})
+def bestaetigt_lesen(pfad, pflicht=False) -> dict:
+    """``{"bestaetigt": {"Person_001": "Name"}}`` -> ``{kennung: name}``.
+
+    ``pflicht=True`` (G0): fehlt die Datei, kommt ein ``PersonenFehler``.
+    """
+    daten = _json_lesen(pfad, {}, pflicht, PFLICHTQUELLEN[0])
     roh = daten.get("bestaetigt") if isinstance(daten, dict) else None
     if not isinstance(roh, dict):
         return {}
@@ -252,14 +284,16 @@ def _name_normalisieren(name):
     return sauber if sauber and len(sauber) <= 60 else None
 
 
-def vorgaben_lesen(pfad) -> dict:
+def vorgaben_lesen(pfad, pflicht=False) -> dict:
     """Gleich/Verschieden, Ausschluesse und Quiz-Einzelzuordnungen lesen.
 
     ``zugeordnet`` ist nach ``(bild_id, index)`` indiziert. Ein gueltiger
     spaeterer Quiz-Eintrag gewinnt; ungueltige Eintraege ueberschreiben keinen
     frueheren gueltigen Zielnamen. ``kennung`` bleibt dabei Herkunft.
+    ``pflicht=True`` (G0, Auflage 2): fehlt die Datei, kommt ein
+    ``PersonenFehler`` statt eines leeren Bestands.
     """
-    daten = _json_lesen(pfad, {})
+    daten = _json_lesen(pfad, {}, pflicht, PFLICHTQUELLEN[1])
     ergebnis = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
                 "zugeordnet": {}}
     if not isinstance(daten, dict):
@@ -1509,6 +1543,224 @@ def eingabe_hash(pfade, bestaetigt_pfad, vorgaben_pfad, kennungen_pfad, zuordnun
     return pruefer.hexdigest()
 
 
+# ── G0: Pflichtquellen und Vollstaendigkeitsnachweis (Auflage 2) ──────────
+#
+# Warum das hier steht: eine fehlende Regeldatei war bisher ein LEERER Bestand,
+# und eine halb uebertragene Datei fiel niemandem auf. Beides ist jetzt
+# fail-closed: fehlt eine Pflichtquelle, wird nicht gerechnet und nicht
+# geschrieben; weicht der Geraetestand ab, ebenso (Exit 2).
+
+# Toleranz beim Stand-Vergleich (Sekunden): Handy- und PC-Uhr laufen nicht
+# sekundengenau gleich; erst ein DEUTLICH aelterer Geraetestand gilt als
+# "unpassender Stand".
+STAND_TOLERANZ = 120
+
+
+def _sha256_datei(pfad) -> str:
+    """Die sha256 einer Datei blockweise lesen (nur lesend); fehlt: ``""``."""
+    try:
+        pruefer = hashlib.sha256()
+        with open(pfad, "rb") as datei:
+            for stueck in iter(lambda: datei.read(1 << 20), b""):
+                pruefer.update(stueck)
+        return pruefer.hexdigest()
+    except OSError:
+        return ""
+
+
+def _zaehler_bestaetigt(daten) -> dict:
+    """Die durchgezaehlten Eintraege einer ``personen_bestaetigt.json``.
+
+    Dieselben zwei Zahlen rechnet das Handy in ``geraetestand.json`` aus
+    (``termux/rueckweg-bereitstellen.sh``, Abschnitt „Geraetestand"): benannte
+    Kennungen (Schluessel) und Namen (nicht leere Textwerte). Es sind **nur
+    Zahlen** — kein Name verlaesst diese Funktion.
+    """
+    roh = daten.get("bestaetigt") if isinstance(daten, dict) else None
+    if not isinstance(roh, dict):
+        return {"benannte_kennungen": 0, "namen": 0}
+    namen = sum(1 for wert in roh.values() if isinstance(wert, str) and wert.strip())
+    return {"benannte_kennungen": len(roh), "namen": namen}
+
+
+def _zaehler_vorgaben(daten) -> dict:
+    """Die durchgezaehlten Eintraege einer ``personen_vorgaben.json`` (nur Zahlen)."""
+    ergebnis = {}
+    for feld, schluessel in (("gleich", "gleich"), ("verschieden", "verschieden"),
+                             ("ausgeschlossen", "ausgeschlossen"), ("fest", "zugeordnet")):
+        wert = daten.get(schluessel) if isinstance(daten, dict) else None
+        ergebnis[feld] = len(wert) if isinstance(wert, (list, tuple, set, dict)) else 0
+    return ergebnis
+
+
+def geraetestand_lesen(pfad) -> dict | None:
+    """Den Geraetestand des Handys lesen (G0). Fehlt er: ``None``.
+
+    Fehlt die Datei, gilt der Nachweis als **nicht erbracht** (kein Geraet am
+    Kabel). Ist sie vorhanden, aber unlesbar oder kein Objekt, ist das ein
+    ``PersonenFehler`` — ein behaupteter Nachweis darf nicht als "kein Geraet"
+    durchgehen (fail-closed).
+    """
+    if not pfad or not os.path.isfile(pfad):
+        return None
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError) as problem:
+        raise PersonenFehler(
+            f"Geraetestand nicht lesbar ({problem.__class__.__name__}).") from None
+    if not isinstance(daten, dict):
+        raise PersonenFehler("Geraetestand enthaelt kein Objekt.")
+    return daten
+
+
+def _zeitpunkt(wert):
+    """Einen ISO-Zeitstempel des Geraetestands in Sekunden lesen (sonst ``None``)."""
+    text = str(wert or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z") or text.endswith("z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def entscheidungen_pruefen(bestaetigt_pfad, vorgaben_pfad, geraetestand,
+                           stand_zuordnung=None) -> dict:
+    """Vollstaendigkeitsnachweis der Entscheidungen (G0, Auflage 2). Nur Zahlen.
+
+    Je Pflichtquelle wird die **sha256** und die **durchgezaehlte Menge** der
+    PC-Datei gegen die Angaben des Geraetestands gehalten; dazu der Stand des
+    Geraets gegen den Stand der bestehenden Zuordnung. Rueckgabe::
+
+        {"erbracht": bool,       # Nachweis liegt vollstaendig vor UND passt
+         "abweichung": bool,     # eine gemessene Abweichung (Exit 2)
+         "gruende": [str, ...],  # nur Dateinamen und Zahlen
+         "zeilen": [str, ...]}   # Klartextzeile fuer den Bericht
+
+    ``erbracht=False, abweichung=False`` heisst: es liegt (noch) kein
+    vollstaendiger Nachweis vor — das erlaubt nur eine Trockenmessung, nie ein
+    Schreiben. ``abweichung=True`` heisst: gemessen und falsch (Exit 2).
+    """
+    dateien = geraetestand.get("dateien") if isinstance(geraetestand, dict) else None
+    if not isinstance(dateien, dict):
+        return {"erbracht": False, "abweichung": False, "gruende": [],
+                "zeilen": ["Geraetenachweis nicht erbracht: es liegt kein "
+                           "Geraetestand vor."]}
+
+    gruende: list = []
+    unvollstaendig: list = []
+    for name, pfad, zaehler_fn in (
+            (PFLICHTQUELLEN[0], bestaetigt_pfad, _zaehler_bestaetigt),
+            (PFLICHTQUELLEN[1], vorgaben_pfad, _zaehler_vorgaben)):
+        # Gesucht wird erst unter dem Namen, den die verglichene PC-Datei
+        # traegt (so passt auch ein umbenannter Pfad), dann unter dem
+        # Standardnamen des Geraets. Beides ist eindeutig — es wird nichts
+        # geraten, was nicht im Geraetestand steht.
+        eintrag = dateien.get(os.path.basename(str(pfad or "")))
+        if not isinstance(eintrag, dict):
+            eintrag = dateien.get(name)
+        if not isinstance(eintrag, dict):
+            unvollstaendig.append(name)
+            continue
+        if not pfad or not os.path.isfile(pfad):
+            gruende.append(f"Grundlage fehlt: {name}")
+            continue
+        if str(eintrag.get("sha256") or "") != _sha256_datei(pfad):
+            gruende.append(f"sha256 weicht ab ({name})")
+        if isinstance(eintrag.get("bytes"), int) and os.path.getsize(pfad) != eintrag["bytes"]:
+            gruende.append(f"Bytezahl weicht ab ({name})")
+        soll = eintrag.get("zaehler")
+        if not isinstance(soll, dict):
+            unvollstaendig.append(name + " (ohne Zaehlung)")
+            continue
+        ist = zaehler_fn(_json_lesen(pfad, {}))
+        felder = set(soll) | set(ist)
+        abweichend = [f for f in sorted(felder) if soll.get(f) != ist.get(f)]
+        if abweichend:
+            gruende.append(f"Zahl weicht ab ({name}: {len(abweichend)} von "
+                           f"{len(felder)} Feldern)")
+
+    stand_text = geraetestand.get("stand")
+    stand_geraet = _zeitpunkt(stand_text)
+    if stand_text and stand_geraet is None:
+        gruende.append("Geraetestand nicht lesbar (Stand)")
+    elif (stand_geraet is not None and stand_zuordnung is not None
+            and stand_geraet < stand_zuordnung - STAND_TOLERANZ):
+        gruende.append("Geraetestand aelter als die Zuordnung")
+
+    if gruende:
+        return {"erbracht": False, "abweichung": True, "gruende": gruende,
+                "zeilen": ["Geraetenachweis ABWEICHUNG (" + str(len(gruende))
+                           + " Befund(e)): " + "; ".join(gruende)]}
+    if unvollstaendig:
+        return {"erbracht": False, "abweichung": False, "gruende": [],
+                "zeilen": ["Geraetenachweis nicht erbracht: der Geraetestand "
+                           f"nennt {len(unvollstaendig)} Pflichtquelle(n) nicht "
+                           "oder ohne Zaehlung."]}
+    return {"erbracht": True, "abweichung": False, "gruende": [],
+            "zeilen": ["Geraetenachweis erbracht: sha256 und Zaehlung beider "
+                       "Pflichtquellen stimmen, Stand passt."]}
+
+
+def g0_pruefen(args, schreiben_an) -> dict:
+    """G0 (Pflichtquellen + Nachweis) und G1 (Zustand) VOR jedem Rechnen.
+
+    Auflage 2 der Plan-Fassung 5.3. Rueckgabe ``{"code": int|None, "bestaetigt":
+    ..., "vorgaben": ...}``: ein ``code`` ungleich ``None`` ist der Exit-Code
+    des Aufrufs (es wurde dann **nichts** gerechnet und **nichts** geschrieben);
+    bei ``None`` sind die gelesenen Entscheidungen mit dabei. Der Text nennt nur
+    Dateinamen und Zahlen.
+    """
+    bestaetigt = bestaetigt_lesen(args.bestaetigt, pflicht=True)
+    vorgaben = vorgaben_lesen(args.vorgaben, pflicht=True)
+    zuordnung_pfad = os.path.join(args.ausgabe, DATEI_ZUORDNUNG)
+    stand_zuordnung = _nachbar("gruppierung_bewerten")._stand(zuordnung_pfad)
+
+    pruefung = entscheidungen_pruefen(args.bestaetigt, args.vorgaben,
+                                      geraetestand_lesen(args.geraetestand),
+                                      stand_zuordnung)
+    for zeile in pruefung["zeilen"]:
+        print(zeile)
+    if pruefung["abweichung"]:
+        print("Der Geraetenachweis weicht ab — es wurde nichts gerechnet und "
+              "nichts geschrieben (Exit 2).")
+        return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+    if not pruefung["erbracht"]:
+        if not args.ohne_geraetenachweis:
+            print("Ohne Geraetenachweis rechnet v2 nur mit --ohne-geraetenachweis "
+                  "(Trockenmessung) — es wurde nichts gerechnet und nichts "
+                  "geschrieben (Exit 2).")
+            return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        if schreiben_an:
+            print("--ohne-geraetenachweis erlaubt nur eine Trockenmessung, kein "
+                  "Schreiben — es wurde nichts gerechnet und nichts geschrieben "
+                  "(Exit 2).")
+            return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        print("Warnung: Trockenmessung ohne Geraetenachweis — es wird nichts "
+              "geschrieben.")
+
+    gb = _nachbar("gruppierung_bewerten")
+    zustand = gb.grundwahrheit(bestaetigt, vorgaben, gb._stand(args.bestaetigt),
+                               gb._stand(args.vorgaben), stand_zuordnung)
+    if zustand["vorlaeufig"] or zustand["veraltet"]:
+        lage = ("vorlaeufig" if zustand["vorlaeufig"] else "veraltet")
+        zahlen = (f"Namen {zustand['namen']}, Regeln {zustand['regeln_gesamt']}")
+        if schreiben_an:
+            print(f"Die Grundwahrheit ist {lage} ({zahlen}) — --schreiben ist "
+                  "gesperrt (Exit 3, Auflage 2). Es wurde nichts gerechnet und "
+                  "nichts geschrieben.")
+            return {"code": 3, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        print(f"Warnung: die Grundwahrheit ist {lage} ({zahlen}) — ein Schreiben "
+              "waere gesperrt. Eine Trockenmessung ist erlaubt.")
+    else:
+        print(f"Grundwahrheit in Ordnung (Namen {zustand['namen']}, "
+              f"Regeln {zustand['regeln_gesamt']}).")
+    return {"code": None, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+
+
 def freigabe_lesen(pfad) -> dict:
     """Die Freigabedatei lesen; fehlend/kaputt/kein Objekt -> ``PersonenFehler``."""
     if not pfad or not os.path.isfile(pfad):
@@ -2112,6 +2364,12 @@ def main(argv=None) -> int:
     zerleger.add_argument("--freigabe", default=None,
                           help="Freigabedatei (JSON) fuer --verfahren v2 --schreiben "
                                "(Auflage 6); ohne sie wird nichts geschrieben")
+    zerleger.add_argument("--geraetestand", default=STANDARD_GERAETESTAND,
+                          help="Geraetestand des Handys (JSON, G0/Auflage 2) — "
+                               "Pflicht fuer jedes Schreiben mit v2")
+    zerleger.add_argument("--ohne-geraetenachweis", action="store_true",
+                          help="v2 ohne Geraetestand rechnen — nur fuer eine "
+                               "TROCKENMESSUNG (schreibt nie etwas; Auflage 2)")
     zerleger.add_argument("--katalog", default=None, help="Personen-Katalog (optional)")
     zerleger.add_argument("--bestaetigt", default=STANDARD_BESTAETIGT)
     zerleger.add_argument("--vorgaben", default=STANDARD_VORGABEN)
@@ -2141,6 +2399,11 @@ def main(argv=None) -> int:
     nachtragen = list(args.nachtragen or [])
     pfade = args.vektoren or [p for p in STANDARD_VEKTOREN if os.path.isfile(p)]
     schreiben_an = bool(args.schreiben) and not bool(args.trocken)
+    # Argument-Widerspruch zuerst (vor G0): --nachtragen kennt nur v1.
+    if nachtragen and (args.verfahren != "v1" or args.bewerten):
+        print("Fehler: --nachtragen kennt nur das Verfahren v1 und keine "
+              "--bewerten-Ausgabe.")
+        return 2
     if args.verfahren == "v2":
         try:
             pruefe_ausserhalb_repo(args.ausgabe_kandidat)
@@ -2154,11 +2417,20 @@ def main(argv=None) -> int:
                   "--freigabe <datei.json>. Es wurde nichts gerechnet und nichts "
                   "geschrieben.")
             return 3
+        # G0/G1 (Auflage 2) VOR jedem Rechnen: Pflichtquellen, Geraetenachweis,
+        # Zustand der Grundwahrheit. Die Reihenfolge ist bewusst: erst das
+        # Schreib-Tor der Auflage 6 (Exit 3 ohne --freigabe), dann die Grundlage.
+        try:
+            g0 = g0_pruefen(args, schreiben_an)
+        except PersonenFehler as problem:
+            print(f"Fehler: {problem}")
+            print("Es wurde nichts gerechnet und nichts geschrieben (Exit 2).")
+            return 2
+        if g0["code"] is not None:
+            return g0["code"]
+        bestaetigt_v2, vorgaben_v2 = g0["bestaetigt"], g0["vorgaben"]
     try:
         if nachtragen:
-            if args.verfahren != "v1" or args.bewerten:
-                raise PersonenFehler(
-                    "--nachtragen kennt nur das Verfahren v1 und keine --bewerten-Ausgabe.")
             return _nachtragen_main(args, nachtragen, schreiben_an)
         if not pfade:
             raise PersonenFehler("Keine Vektordatei gefunden (Standardpfade fehlen).")
@@ -2170,8 +2442,12 @@ def main(argv=None) -> int:
         if args.min_score is not None:
             print(f"Mindest-Erkennungssicherheit: {args.min_score:.2f}")
         eingelesen = gesichter_lesen(pfade, katalog, min_score=args.min_score)
-        bestaetigt = bestaetigt_lesen(args.bestaetigt)
-        vorgaben = vorgaben_lesen(args.vorgaben)
+        if args.verfahren == "v2":
+            # Schon oben mit ``pflicht=True`` gelesen (G0) — hier nichts erneut.
+            bestaetigt, vorgaben = bestaetigt_v2, vorgaben_v2
+        else:
+            bestaetigt = bestaetigt_lesen(args.bestaetigt)
+            vorgaben = vorgaben_lesen(args.vorgaben)
         if args.verfahren == "v2":
             lauf = lauf_rechnen_v2(
                 eingelesen, altbestand=altbestand, bestaetigt=bestaetigt, vorgaben=vorgaben,

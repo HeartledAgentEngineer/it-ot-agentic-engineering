@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -529,10 +530,62 @@ def _vektordatei(tmp_path, personen=2, je=8, seed=41):
     return datei
 
 
+def _pflichtdateien(tmp_path):
+    """Die zwei PFLICHTDATEIEN (G0, Auflage 2) mit erfundenen Inhalten anlegen.
+
+    Keine Namen, aber 50 Ausschlussregeln auf erfundene Kennungen/Bild-IDs
+    (die auf kein Gesicht zeigen): damit ist die Grundwahrheit nach
+    ``MIN_REGELN`` nicht "vorlaeufig" (G1) und der Schreibweg pruefbar.
+    """
+    b = tmp_path / "personen_bestaetigt.json"
+    if not b.exists():
+        b.write_text(json.dumps({"bestaetigt": {}}), encoding="utf-8")
+    v = tmp_path / "personen_vorgaben.json"
+    if not v.exists():
+        v.write_text(json.dumps({
+            "gleich": [], "verschieden": [], "zugeordnet": [],
+            "ausgeschlossen": [{"kennung": f"Person_{i:03d}", "bild_id": str(900000 + i),
+                                "index": 0} for i in range(50)]}), encoding="utf-8")
+    return b, v
+
+
+def _stand(tmp_path, pfade):
+    """Einen Geraetestand bauen (unabhaengig: hashlib + eigene Zaehlung)."""
+    import hashlib
+    import time
+    eintraege = {}
+    for pfad in pfade:
+        pfad = Path(pfad)
+        roh = pfad.read_bytes()
+        daten = json.loads(roh.decode("utf-8"))
+        if pfad.name.endswith("bestaetigt.json"):
+            roh_eintraege = daten.get("bestaetigt") or {}
+            zaehler = {"benannte_kennungen": len(roh_eintraege),
+                       "namen": sum(1 for w in roh_eintraege.values()
+                                    if isinstance(w, str) and w.strip())}
+        else:
+            zaehler = {"gleich": len(daten.get("gleich") or []),
+                       "verschieden": len(daten.get("verschieden") or []),
+                       "ausgeschlossen": len(daten.get("ausgeschlossen") or []),
+                       "fest": len(daten.get("zugeordnet") or [])}
+        eintraege[pfad.name] = {"bytes": len(roh),
+                                "sha256": hashlib.sha256(roh).hexdigest(),
+                                "zaehler": zaehler}
+    ziel = tmp_path / "geraetestand.json"
+    ziel.write_text(json.dumps({
+        "stand": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "quelle": "handy", "pflicht": list(pg.PFLICHTQUELLEN),
+        "dateien": eintraege}), encoding="utf-8")
+    return ziel
+
+
 def _grund(tmp_path, datei, aus):
-    leer = str(tmp_path / "keine.json")
-    return ["--vektoren", str(datei), "--ausgabe", str(aus), "--bestaetigt", leer,
-            "--vorgaben", leer]
+    """Argumente fuer den v1-Standardweg; fuer v2 kommt ``--ohne-geraetenachweis``
+    dazu (eine Trockenmessung ohne Geraet, Auflage 2)."""
+    b, v = _pflichtdateien(tmp_path)
+    return ["--vektoren", str(datei), "--ausgabe", str(aus), "--bestaetigt", str(b),
+            "--vorgaben", str(v), "--geraetestand", str(tmp_path / "kein_stand.json"),
+            "--ohne-geraetenachweis"]
 
 
 def _freigabe(tmp_path, datei, aus, bestaetigt, vorgaben, name="freigabe_v2.json"):
@@ -562,14 +615,16 @@ def _schreiben_args(tmp_path, datei, aus, bestaetigt=None, vorgaben=None,
     """``--verfahren v2 --schreiben --produktiv`` samt frischer gueltiger Freigabe.
 
     Der produktive Ordner ist der einzige Weg, auf dem v2 in ``--ausgabe``
-    schreibt (Auflage 1); der Kandidatenordner wird separat geprueft.
+    schreibt (Auflage 1); der Kandidatenordner wird separat geprueft. Dazu der
+    Geraetestand (G0/Auflage 2) — ohne ihn rechnet v2 nur als Trockenmessung.
     """
-    leer = str(tmp_path / "keine.json")
-    b = str(bestaetigt) if bestaetigt else leer
-    v = str(vorgaben) if vorgaben else leer
-    freigabe = _freigabe(tmp_path, datei, aus, b, v, name=name)
+    b, v = _pflichtdateien(tmp_path)
+    b = Path(bestaetigt) if bestaetigt else b
+    v = Path(vorgaben) if vorgaben else v
+    freigabe = _freigabe(tmp_path, datei, aus, str(b), str(v), name=name)
+    stand = _stand(tmp_path, [b, v])
     return ["--verfahren", "v2", "--schreiben", "--produktiv", "--freigabe", freigabe,
-            "--bestaetigt", b, "--vorgaben", v]
+            "--bestaetigt", str(b), "--vorgaben", str(v), "--geraetestand", str(stand)]
 
 
 def test_standard_bleibt_v1(tmp_path, capsys):
@@ -586,11 +641,13 @@ def test_standard_bleibt_v1(tmp_path, capsys):
 def test_v2_trockenlauf_schreibt_nichts(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus = tmp_path / "gruppen"
-    assert pg.main(_grund(tmp_path, datei, aus) + ["--verfahren", "v2"]) == 0
+    grund = _grund(tmp_path, datei, aus) + ["--verfahren", "v2"]
+    vorher = sorted(os.listdir(tmp_path))                    # inkl. der Pflichtdateien (G0)
+    assert pg.main(grund) == 0
     ausgabe = capsys.readouterr().out
     assert "Verfahren v2" in ausgabe and "NICHTS geschrieben" in ausgabe
     assert not aus.exists()
-    assert sorted(os.listdir(tmp_path)) == ["v.jsonl"]      # nichts angelegt
+    assert sorted(os.listdir(tmp_path)) == vorher             # nichts angelegt
 
 
 def test_v2_trocken_hat_vorrang_vor_schreiben(tmp_path):
@@ -620,7 +677,13 @@ def test_v2_schreibt_dieselbe_form_plus_phasen_ohne_vektoren(tmp_path):
 
 
 def test_v2_zwei_schreiblaeufe_zwei_getrennte_sicherungen(tmp_path, monkeypatch, capsys):
-    """Die Sicherung vor v2 laeuft ueber den Zeitstempel-Weg (nicht ``_vorher_sichern``)."""
+    """Die Sicherung vor v2 laeuft ueber den Zeitstempel-Weg (nicht ``_vorher_sichern``).
+
+    Vor jedem Lauf werden die Entscheidungen "frisch vom Handy geholt" (neue
+    Aenderungszeit): sonst gilt die Grundwahrheit nach dem ersten Lauf als
+    **veraltet** (aelter als die Zuordnung) und G1 sperrt das Schreiben — genau
+    so, wie es die Auflage 2 verlangt.
+    """
     zeiten = iter(datetime.datetime(2026, 10, 15, 12, 0, s) for s in range(10, 60))
 
     class Uhr(datetime.datetime):
@@ -632,15 +695,20 @@ def test_v2_zwei_schreiblaeufe_zwei_getrennte_sicherungen(tmp_path, monkeypatch,
     datei = _vektordatei(tmp_path)
     aus = tmp_path / "gruppen"
     basis = _grund(tmp_path, datei, aus)
+    b, v = _pflichtdateien(tmp_path)
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus,
                                            name="freigabe_1.json")) == 0
     assert not list(aus.glob("*.vorher_*"))                   # erster Lauf: nichts zu sichern
     stand1 = {n: (aus / n).read_bytes() for n in
               (pg.DATEI_ZUORDNUNG, pg.DATEI_BEISPIELE, pg.DATEI_KENNUNGEN)}
     capsys.readouterr()
+    os.utime(b, None)
+    os.utime(v, None)
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus,
                                            name="freigabe_2.json")) == 0
     stand2 = {n: (aus / n).read_bytes() for n in stand1}
+    os.utime(b, None)
+    os.utime(v, None)
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus,
                                            name="freigabe_3.json")) == 0
     for name in stand1:
@@ -712,8 +780,11 @@ def test_zweiter_v2_lauf_nach_dem_benennen_behaelt_die_benannte_kennung(tmp_path
                                            name="freigabe_1.json")) == 0
     erst = json.loads((aus / pg.DATEI_BEISPIELE).read_text(encoding="utf-8"))["gruppen"]
     kennung = erst[0]["kennung"]
-    namen = tmp_path / "namen.json"
+    namen = tmp_path / "personen_bestaetigt.json"
     namen.write_text(json.dumps({"bestaetigt": {kennung: "Person A"}}), encoding="utf-8")
+    _, v = _pflichtdateien(tmp_path)
+    os.utime(namen, None)
+    os.utime(v, None)                       # die Entscheidungen kommen frisch vom Handy
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus, bestaetigt=namen,
                                            name="freigabe_2.json")) == 0
     zweit = {g["kennung"]: g for g in

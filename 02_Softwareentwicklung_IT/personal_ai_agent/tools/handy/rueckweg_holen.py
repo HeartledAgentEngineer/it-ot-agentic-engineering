@@ -14,7 +14,12 @@ Warum dieses Werkzeug:
   in den **freigegebenen** Ordner ``/sdcard/Download/hermes_rueckweg``
   (kopieren, nie verschieben) — dieses Werkzeug holt sie von dort ab und legt
   sie an ihren PC-Platz, wo der Nachweis (``bestand_pruefen.py``, Abschnitte
-  „Eigene Geschichten\\\" / „Eigene Titel\\\") und der Dienst sie erwarten.
+  „Eigene Geschichten" / „Eigene Titel") und der Dienst sie erwarten.
+  Seit 20.10.2026 gehoert dazu auch ``geraetestand.json`` (G0, Auflage 2): der
+  Nachweis des Geraets zu den zwei Pflichtdateien
+  (``personen_bestaetigt.json``/``personen_vorgaben.json``) — sha256, Bytes und
+  die durchgezaehlten Eintraege. Ohne ihn rechnet ``personen_gruppieren.py
+  --verfahren v2`` nur als Trockenmessung.
 
 Verhalten:
   * **Trockenlauf ist der Standard.** Ohne ``--holen`` wird nur die Dateiliste
@@ -23,12 +28,20 @@ Verhalten:
     nicht vorhanden\\\") und Exit 0 (Trockenlauf) bzw. Exit 1 (mit ``--holen``).
   * Mit ``--holen`` wird je **regulaerer** Datei aus der **Liste**
     (``ERLAUBTE_NAMEN``) geholt:
-      1. Ziel vorhanden und **gleiche Groesse** wie am Geraet -> ``uebersprungen``.
+      1. Ziel vorhanden und **gleicher Inhalt** wie am Geraet (gleiche sha256:
+         ``adb shell sha256sum`` gegen ``hashlib`` der PC-Datei) ->
+         ``uebersprungen``. Die Groesse allein reicht nicht: ein geaenderter
+         Name oder eine geaenderte Zuordnung kann genau so lang sein wie die
+         alte Fassung (Gruppierung v2, G0). Liefert das Geraet keine
+         Pruefsumme (kein ``sha256sum``, Fehler, unlesbare Ausgabe), wird die
+         Datei **immer geholt** - lieber einmal zu viel als eine geaenderte
+         Datei uebersprungen.
       2. Sonst: eine vorhandene Zieldatei wird **zuerst** als ``<name>.vorher``
          gesichert (Rueckweg), dann per ``adb pull`` in eine temp-Datei IM
          Zielordner geladen und danach per ``os.replace`` an ihren Platz
          gesetzt — es entsteht nie eine halbe Zieldatei. Die Groesse der Kopie
-         wird gegen die Anzeige des Geraets gehalten; Ungleichheit zaehlt
+         wird gegen die Anzeige des Geraets gehalten (und, wenn das Geraet eine
+         Pruefsumme geliefert hat, auch die sha256); Ungleichheit zaehlt
          ``fehler`` und der Aufruf endet mit Exit 1.
       3. Jede wirklich geholte Datei bucht **eine** Zeile in das Manifest
          (``--manifest``, Standard ``~/foto_sortierung/rueckweg_manifest.jsonl``):
@@ -96,10 +109,36 @@ STANDARD_ADB = "adb"
 
 # Die Dateien, die den Rueckweg nehmen duerfen: das sind die von der APP AM
 # GERÄT erzeugten Datendateien, die der PC fuer den Nachweis und den Dienst
-# braucht. Die Liste steht WORTGLEICH auch in termux/rueckweg-bereitstellen.sh
-# (RUECKWEG_NAMEN) — ein Waechter-Test haelt beide Mengen zusammen, damit sie
-# nicht auseinanderlaufen.
-ERLAUBTE_NAMEN = ("geschichten.jsonl", "anlass_umbenennung.jsonl")
+# braucht. Die KOPIERTEN Namen stehen WORTGLEICH auch in
+# termux/rueckweg-bereitstellen.sh (RUECKWEG_NAMEN), der dort ERZEUGTE
+# Geraetestand in RUECKWEG_ERZEUGT — ein Waechter-Test haelt beide Mengen
+# zusammen, damit sie nicht auseinanderlaufen.
+#
+# ``personen_bestaetigt.json`` und ``personen_vorgaben.json`` sind die eigene
+# Namensarbeit am Handy (Quiz: Namen, "gleich"/"verschieden", ausgeschlossene
+# und fest zugeordnete Gesichter); ``personen_gruppieren.py`` liest sie am PC
+# aus ``~/foto_sortierung/`` (Gruppierung v2, G0). Ihr Inhalt wird wie bei den
+# anderen nie ausgegeben.
+#
+# ``geraetestand.json`` ist der **Nachweis des Geraets** zu genau diesen zwei
+# Pflichtdateien (Bytes, sha256, durchgezaehlte Eintraege, Zeitpunkt). Er wird
+# NICHT kopiert, sondern am Handy erzeugt; der PC (``personen_gruppieren.py``,
+# ``entscheidungen_pruefen``) haelt damit seine Kopie gegen die des Geraets.
+# Ohne ihn rechnet v2 nur als Trockenmessung.
+GERAETESTAND = "geraetestand.json"
+ERLAUBTE_NAMEN = ("geschichten.jsonl", "anlass_umbenennung.jsonl",
+                  "personen_bestaetigt.json", "personen_vorgaben.json")
+
+# ZUSAETZLICH geholt wird der Geraetestand (G0/Auflage 2): der Nachweis des
+# Geraets zu den zwei Pflichtdateien (Bytes, sha256, durchgezaehlte Eintraege),
+# erzeugt von ``termux/rueckweg-bereitstellen.sh``. Er ist **kein Datenbestand**
+# und wird deshalb NICHT ins Manifest gebucht — das Manifest belegt geholte
+# DATEN (Quelle -> Ziel, Zeit, Kennung) und speist die Rueckweg-Pruefzeile in
+# ``bestand_pruefen.py``, deren Liste (``STANDARD_RUECKWEG_NAMEN``) dieselbe ist
+# wie ``ERLAUBTE_NAMEN`` hier. Eine Buchung ohne jene Liste erschiene dort als
+# Buchung "ausserhalb der Liste"; die Nachweisdatei steht deshalb als eigene
+# Zeile im Bericht.
+GEHOLT_NAMEN = ERLAUBTE_NAMEN + (GERAETESTAND,)
 
 # Endung der eigenen temp-Datei beim atomaren Laden (wird nie dauerhaft).
 TEMP_SUFFIX = ".teil"
@@ -154,6 +193,29 @@ def _sha256_datei(pfad: str) -> str:
         return ""
 
 
+def _geraete_sha256(adb: str, pfad: str) -> str:
+    """Die sha256 einer Geraetedatei per ``adb shell sha256sum`` (nur lesend).
+
+    Gibt die 64 Hex-Zeichen zurueck - oder ``""``, wenn das Geraet keine
+    Pruefsumme liefert (Programm fehlt, Fehlercode, unlesbare Ausgabe, adb
+    nicht startbar). ``""`` heisst fuer den Aufrufer: nicht vergleichbar, also
+    holen.
+    """
+    try:
+        ergebnis = _adb_aufruf(adb, ["shell", "sha256sum", pfad])
+    except OSError:
+        return ""
+    if ergebnis.returncode != 0:
+        return ""
+    erste = (ergebnis.stdout or "").split()
+    if not erste:
+        return ""
+    summe = erste[0].strip().lower()
+    if len(summe) != 64 or any(z not in "0123456789abcdef" for z in summe):
+        return ""
+    return summe
+
+
 # ── 1. Lesen: die Dateiliste des Geraets ───────────────────────────────────
 
 def dateiliste(adb: str, ordner: str) -> dict:
@@ -200,7 +262,7 @@ def dateiliste(adb: str, ordner: str) -> dict:
 
 # ── 2. Auswahl: nur die Liste ──────────────────────────────────────────────
 
-def auswahl(eintraege, erlaubte=ERLAUBTE_NAMEN) -> dict:
+def auswahl(eintraege, erlaubte=GEHOLT_NAMEN) -> dict:
     """Aus der Geraeteliste die erlaubten von den uebrigen trennen.
 
     Rueckgabe ``{"erlaubt": [...], "ignoriert": [...]}``. ``ignoriert`` sind die
@@ -326,12 +388,13 @@ def holen(adb: str, ordner: str, zielordner: str, eintraege,
          "manifest": "<Pfad oder ''>",
          "fehler":  bool}
 
-    Ablauf je Datei siehe Modulkopf (gleiche Groesse -> ``uebersprungen``;
-    sonst Sicherung als ``.vorher``, temp-Datei, ``os.replace``, Groessenprobe,
-    Buchung). Alles, was nicht in der Liste steht, zaehlt ``ignoriert`` und
+    Ablauf je Datei siehe Modulkopf (gleicher Inhalt per sha256 ->
+    ``uebersprungen``; sonst Sicherung als ``.vorher``, temp-Datei,
+    ``os.replace``, Groessen- und Pruefsummenprobe, Buchung). Alles, was nicht in der Liste steht, zaehlt ``ignoriert`` und
     bleibt unangetastet.
     """
-    zaehler = {"geholt": 0, "uebersprungen": 0, "ignoriert": 0, "fehler": 0}
+    zaehler = {"geholt": 0, "uebersprungen": 0, "ignoriert": 0, "fehler": 0,
+               "nachweis": 0}
     zeilen: list = []
     buchungen: list = []
     fehler = False
@@ -347,14 +410,15 @@ def holen(adb: str, ordner: str, zielordner: str, eintraege,
         groesse_geraet = eintrag.get("groesse")
         zeit_geraet = eintrag.get("zeit") or "-"
         ziel = os.path.join(zielordner, name)
-        if (os.path.isfile(ziel) and isinstance(groesse_geraet, int)
-                and os.path.getsize(ziel) == groesse_geraet):
+        quelle = f"{ordner}/{name}"
+        summe_geraet = _geraete_sha256(adb, quelle)
+        if (summe_geraet and os.path.isfile(ziel)
+                and _sha256_datei(ziel) == summe_geraet):
             zaehler["uebersprungen"] += 1
-            zeilen.append(f"{name}: uebersprungen (gleiche Groesse "
-                          f"{_bytes(groesse_geraet)} Bytes, {zeit_geraet})")
+            zeilen.append(f"{name}: uebersprungen (gleicher Inhalt, "
+                          f"{_bytes(os.path.getsize(ziel))} Bytes, {zeit_geraet})")
             continue
 
-        quelle = f"{ordner}/{name}"
         try:
             if os.path.exists(ziel):
                 _sichere_vorher(ziel)             # Rueckweg zuerst
@@ -373,8 +437,21 @@ def holen(adb: str, ordner: str, zielordner: str, eintraege,
             zeilen.append(f"{name}: FEHLER Groesse weicht ab (Geraet "
                           f"{_bytes(groesse_geraet)}, Kopie {_bytes(laenge)} Bytes)")
             continue
+        if summe_geraet and _sha256_datei(ziel) != summe_geraet:
+            zaehler["fehler"] += 1
+            fehler = True
+            zeilen.append(f"{name}: FEHLER Pruefsumme der Kopie weicht von "
+                          f"der des Geraets ab")
+            continue
 
         zaehler["geholt"] += 1
+        if name == GERAETESTAND:
+            # Nachweisdatei (G0): geholt und gemeldet, aber NICHT gebucht —
+            # sie ersetzt keinen Datenbestand.
+            zaehler["nachweis"] += 1
+            zeilen.append(f"{name}: geholt ({_bytes(laenge)} Bytes, {zeit_geraet}) "
+                          "- Nachweis des Geraets, wird nicht ins Manifest gebucht")
+            continue
         zeilen.append(f"{name}: geholt ({_bytes(laenge)} Bytes, {zeit_geraet})")
         buchungen.append(_buchung(name, ziel, zeit, quelle))
 
@@ -390,7 +467,8 @@ def _bericht_drucken(ergebnis: dict, zielordner: str) -> None:
     for zeile in ergebnis["zeilen"]:
         print("  " + zeile)
     z = ergebnis["zaehler"]
-    print(f"Zusammenfassung: geholt {z['geholt']} - uebersprungen "
+    print(f"Zusammenfassung: geholt {z['geholt']} (davon Nachweis "
+          f"{z.get('nachweis', 0)}) - uebersprungen "
           f"{z['uebersprungen']} - nicht in der Liste {z['ignoriert']} - "
           f"Fehler {z['fehler']}")
     print(f"Ziel: {zielordner}")

@@ -99,3 +99,17 @@ nach Freigabe und nur in den Kandidatenordner.
   angefasst, keine echten Personendaten, kein Netz, keine Geräteeingriffe.
 - Offen bleibt: ob die strengere Gründung die Schutzkennzahl „ohne Kennung“ hält, entscheidet der
   echte v1↔v2-Messlauf (Plan-Schritt 9) — bis dahin v1-Standard und kein Schreiben ohne Freigabe.
+
+## Nachtrag 20.10.2026 — Auflage 2 ist gebaut (G0/G1)
+
+Der in diesem Dokument angekündigte nächste Schritt (Auflage 2: Pflichtquellen,
+Vollständigkeitsnachweis gegen den Gerätestand des Handys, Handy-Stufe mit Exit ungleich 0, und
+`vorlaeufig`/`veraltet` sperren das Schreiben) ist gebaut — Dokument
+`docs/changelog-2026-10-20-gruppierung-v2-g0-g1.md`. Zwei Folgen für **diesen** Stand:
+
+* `--verfahren v2 --schreiben` braucht jetzt **zusätzlich** einen gültigen Gerätestand
+  (`--geraetestand`, Standard `~/foto_sortierung/geraetestand.json`) **und** eine Grundwahrheit, die
+  nicht `vorlaeufig`/`veraltet` ist. Ohne Nachweis rechnet v2 nur noch als **Trockenmessung**
+  (`--ohne-geraetenachweis`); mit `--schreiben` wird dieser Schalter abgelehnt.
+* Die Reihenfolge der Tore in `main()` ist festgelegt und im G0/G1-Dokument belegt: erst das
+  Schreib-Tor der Auflage 6 (Exit 3 ohne `--freigabe`), dann G0 (Exit 2), dann G1 (Exit 3).

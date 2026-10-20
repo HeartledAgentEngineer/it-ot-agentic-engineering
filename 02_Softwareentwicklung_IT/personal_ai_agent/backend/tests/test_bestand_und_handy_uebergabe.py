@@ -2105,7 +2105,9 @@ def test_rueckweg_liste_spiegelt_das_holwerkzeug():
     ist kein Zeichenketten-Literal).
     """
     import ast
-    assert bp.STANDARD_RUECKWEG_NAMEN == ("geschichten.jsonl", "anlass_umbenennung.jsonl")
+    assert bp.STANDARD_RUECKWEG_NAMEN == (
+        "geschichten.jsonl", "anlass_umbenennung.jsonl",
+        "personen_bestaetigt.json", "personen_vorgaben.json")
     quelle = os.path.join(PROJEKT, "tools", "handy", "rueckweg_holen.py")
     with open(quelle, encoding="utf-8") as datei:
         baum = ast.parse(datei.read())
@@ -2221,7 +2223,7 @@ def test_nachweis_zeigt_geraeteseitige_dateien_ohne_rueckweg(tmp_path):
     _rueckweg_manifest(tmp_path, [_buchung(tmp_path, "geschichten.jsonl")])
     zeilen, luecken = bp.pruefen(str(tmp_path))
     text = "\n".join(zeilen)
-    assert ("  Geraeteseitige Dateien: 19 bekannt, 2 mit Rueckweg, 17 ohne: "
+    assert ("  Geraeteseitige Dateien: 19 bekannt, 4 mit Rueckweg, 15 ohne: "
             "antworten.jsonl, archiv_index.db") in text
     assert not [l for l in luecken if "Rueckweg" in l]
 
