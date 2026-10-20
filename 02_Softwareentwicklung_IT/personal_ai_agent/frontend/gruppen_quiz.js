@@ -1058,6 +1058,10 @@ function gruppenNotizZeit(zeit) {
         // und gehört nur zur Detailansicht.
         const detailZurueck = el('gruppen-detail-zurueck');
         if (detailZurueck) detailZurueck.hidden = !(zustand.detailAktiv && name === 'karte');
+        // „Gruppenübersicht“ ist nur eine Unterkategorie von „Offen“ (Sebastian 20.10.2026):
+        // im Reiter „Benannt“ und in der Übersicht selbst ausgeblendet.
+        const uebersicht = el('gruppen-uebersicht');
+        if (uebersicht) uebersicht.hidden = zustand.reiter === 'benannt' || name === 'liste';
         // Jeder Ansichtswechsel macht noch laufende Anfragen (Quiz, Speichern, Person,
         // Ausschließen/Zuordnen, Vollbild …) für die Anzeige ungültig.
         zustand.ansichtSequenz++;

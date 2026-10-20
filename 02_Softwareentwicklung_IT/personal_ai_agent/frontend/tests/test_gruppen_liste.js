@@ -824,6 +824,33 @@ async function aufloesenRuntime() {
     assert.ok(app.el('gruppen-liste-meldung').textContent.includes('Wieder in der Gruppenliste'));
 }
 
+async function uebersichtKnopfNurInOffen() {
+    // Sebastian 20.10.2026: „Gruppenübersicht nur als Unterkategorie bei Offen“.
+    // Sichtbar im Reiter Offen (Quiz, Detail, fertig, Alle Gesichter), versteckt im
+    // Reiter Benannt und in der Übersicht selbst.
+    const calls = [];
+    const app = pruefApp({ calls, naechste: quizGruppe, antwort: () => ({ ok: true }) });
+    const knopf = () => app.el('gruppen-uebersicht').hidden;
+    await app.el('gruppen-btn').click(); await settle();
+    assert.equal(knopf(), false, 'Offen: Quiz-Karte');
+    await app.el('gruppen-reiter-benannt').click(); await settle();
+    assert.equal(knopf(), true, 'Reiter Benannt');
+    await app.el('gruppen-reiter-offen').click(); await settle();
+    assert.equal(knopf(), false, 'zurück in Offen');
+    await app.el('gruppen-uebersicht').click(); await settle();
+    assert.equal(app.el('gruppen-liste-ansicht').hidden, false);
+    assert.equal(knopf(), true, 'Übersicht offen');
+    await app.el('gruppen-liste-zeile-G-detail').click(); await settle();
+    assert.equal(knopf(), false, 'Detail einer Gruppe');
+    await app.el('gruppen-detail-zurueck').click(); await settle();
+    assert.equal(knopf(), true, 'wieder in der Übersicht');
+    await app.el('gruppen-liste-quiz').click(); await settle();
+    assert.equal(app.el('gruppen-liste-ansicht').hidden, true);
+    assert.equal(knopf(), false, 'zurück zum Quiz');
+    await app.el('gruppen-alle').click(); await settle();
+    assert.equal(knopf(), false, 'Alle Gesichter in Offen');
+}
+
 let beendet = false;
 process.on('exit', () => {
     // Eine nie beendete Prüfung (hängendes Promise) darf nicht still als Erfolg zählen.
@@ -838,7 +865,7 @@ process.on('exit', () => {
         lateExcludeAnswerDoesNotTouchOtherFaceList, lateAssignAnswerDoesNotTouchOtherFaceList,
         markingsAddedDuringExcludeSurvive, personenGruppenFilterInBenannt,
         overviewRuntime, paginationRuntime, staleResponseAfterFilterAndClose, staleDetailAfterClose,
-        failedDetailDoesNotShowPreviousGroup, aufloesenRuntime];
+        failedDetailDoesNotShowPreviousGroup, aufloesenRuntime, uebersichtKnopfNurInOffen];
     let rot = 0;
     for (const pruefung of pruefungen) {
         try { await pruefung(); } catch (error) {
