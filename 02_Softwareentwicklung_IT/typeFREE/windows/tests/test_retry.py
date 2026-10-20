@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import typefree
+import zwischenablage
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +23,10 @@ def sauber():
 @pytest.fixture
 def still(monkeypatch):
     """Tray, Zwischenablage und Buchhaltung ruhigstellen."""
-    monkeypatch.setattr(typefree, 'pyperclip', type('P', (), {'copy': staticmethod(lambda t: None)}))
+    monkeypatch.setattr(typefree, 'zwischenablage_einfuegen',
+                        lambda text: zwischenablage.Ergebnis(
+                            geschrieben=True, snapshot=zwischenablage.Snapshot(), nummer=1))
+    monkeypatch.setattr(typefree, 'zwischenablage_zurueck', lambda snapshot, nummer: True)
     monkeypatch.setattr(typefree, 'pyautogui', type('G', (), {'hotkey': staticmethod(lambda *a: None)}))
     monkeypatch.setattr(typefree, 'save_verbrauch', lambda *a, **k: None)
     monkeypatch.setattr(typefree, '_status_transcribing', lambda: None)

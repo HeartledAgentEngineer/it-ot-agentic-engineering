@@ -22,7 +22,6 @@ a = Analysis(
         'sounddevice',
         'soundfile',
         'numpy',
-        'pyperclip',
         'pyautogui',
         'pystray',
         'PIL',

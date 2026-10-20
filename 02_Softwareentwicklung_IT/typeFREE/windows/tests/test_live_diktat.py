@@ -212,7 +212,8 @@ def test_einfuegen_merkt_sich_den_text(monkeypatch):
     """Nach dem Einfügen ist bekannt, was im Dokument steht (für den Abschluss)."""
     getippt, kopiert, gedrueckt = [], [], []
     monkeypatch.setattr(typefree, '_tippen_animiert', getippt.append)
-    monkeypatch.setattr(typefree.pyperclip, 'copy', kopiert.append)
+    # Die Zwischenablage-Naht darf im Live-Modus nie gerufen werden.
+    monkeypatch.setattr(typefree, 'zwischenablage_einfuegen', kopiert.append)
     monkeypatch.setattr(typefree.pyautogui, 'hotkey',
                         lambda *tasten: gedrueckt.append(tasten))
     monkeypatch.setattr(typefree, '_fenster_titel', lambda: 'Editor')

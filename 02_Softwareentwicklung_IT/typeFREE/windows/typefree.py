@@ -32,7 +32,6 @@ import soundfile as sf
 import numpy as np
 import certifi
 import httpx
-import pyperclip
 import pyautogui
 import pystray
 from PIL import Image, ImageDraw
@@ -41,6 +40,7 @@ from openai import OpenAI
 import halluzination
 import ton_aus
 import version
+import zwischenablage
 
 # Basis-Pfad für .env, Logdatei und Kostenzählung.
 # `abspath` fasst den Pfad zusammen — ohne es stand in jeder Protokollzeile und
@@ -511,6 +511,22 @@ def save_ton_aus_config(an):
     _config_schreiben(conf)
 
 
+def load_zwischenablage_zurueck_config():
+    """Soll die Zwischenablage nach dem Einfügen zurückkommen? Standard: ja.
+
+    Wie bei `ton_aus`: ein unlesbarer Wert oder eine kaputte Datei lassen den
+    Schutz an — das ist das Erwartete, und der Schalter hat keinen Tray-Eintrag.
+    """
+    return bool(_config_lesen().get('zwischenablage_zurueck', True))
+
+
+def save_zwischenablage_zurueck_config(an):
+    """Merkt sich den Schalter, ohne andere Einstellungen zu überschreiben."""
+    conf = _config_lesen()
+    conf['zwischenablage_zurueck'] = bool(an)
+    _config_schreiben(conf)
+
+
 def ton_merker_pfad():
     """Merker-Datei neben der config.json: „typeFREE hat diesen Ton stummgeschaltet"."""
     return os.path.join(os.path.dirname(CONFIG_PATH), 'ton_aus_aktiv.json')
@@ -640,6 +656,31 @@ def _on_retry(icon, item):
     _status_transcribing()
     threading.Thread(target=_verarbeite_audio, args=(daten, True),
                      daemon=True).start()
+
+def diktat_kopierbar():
+    """Ist ein letztes Diktat da, das „Letztes Diktat kopieren" liefern kann?"""
+    with _letztes_diktat_lock:
+        return bool(letztes_diktat)
+
+
+def _on_diktat_kopieren(icon=None, item=None):
+    """Tray: das letzte Diktat privat (ohne Verlauf/Cloud) in die Zwischenablage.
+
+    Ersatz dafür, dass das Diktat nach dem Einfügen nicht mehr in der
+    Zwischenablage bleibt. Ohne Wiederherstellung — es soll dort liegen bleiben.
+    """
+    with _letztes_diktat_lock:
+        text = letztes_diktat
+    if not text:
+        return
+    try:
+        zwischenablage_kopieren(text)
+        log.info('Letztes Diktat in die Zwischenablage kopiert (%d Zeichen)', len(text))
+    except Exception as e:
+        log.exception('Letztes Diktat konnte nicht kopiert werden')
+        report_error('Das letzte Diktat konnte nicht in die Zwischenablage '
+                     'kopiert werden: %s' % e)
+
 
 def _select_hotkey(index):
     """Baut den Menü-Handler für einen Eintrag der Auswahlliste."""
@@ -800,6 +841,8 @@ def _start_tray(on_ready=None):
         pystray.MenuItem('Ton aus beim Diktat', _schalte_ton_aus,
                          checked=lambda item: ton_aus_an),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem('Letztes Diktat kopieren', _on_diktat_kopieren,
+                         enabled=lambda item: diktat_kopierbar()),
         pystray.MenuItem(lambda item: retry_text(), _on_retry,
                          enabled=lambda item: retry_bereit()),
         pystray.MenuItem('Beenden', _on_quit),
@@ -2539,6 +2582,83 @@ def _diktat_buchen(dauer, anbieter):
         save_verbrauch(verbrauch)
 
 
+# ── Einfügen über die geschützte Zwischenablage (Scheibe 2, 20.10.2026) ──────
+# Austauschbare Nähte (wie `unicode_tippen`): typefree ruft die Zwischenablage
+# NUR über diese Namen. Die Tests ersetzen sie (conftest sperrt die echten).
+zwischenablage_einfuegen = zwischenablage.sichern_und_schreiben
+zwischenablage_zurueck = zwischenablage.wiederherstellen
+zwischenablage_kopieren = zwischenablage.privat_kopieren
+
+# Wie lange Strg+V Zeit hat, den Text zu lesen, bevor der alte Inhalt zurückkommt.
+ZWISCHENABLAGE_RUECKGABE_SEKUNDEN = 1.5
+zwischenablage_zurueck_an = True    # Schalter aus config.json; Standard an
+
+# Das letzte Diktat, nur im Arbeitsspeicher (nie auf der Platte, nie im Log).
+letztes_diktat = None
+_letztes_diktat_lock = threading.Lock()
+
+
+def _letztes_diktat_merken(text):
+    global letztes_diktat
+    with _letztes_diktat_lock:
+        letztes_diktat = text
+
+
+def _ohne_umbrueche(text):
+    """Zeilenumbrüche → Leerzeichen: ein getipptes Enter könnte in Chat oder
+    Terminal absenden."""
+    return ' '.join(zeile.strip() for zeile in text.splitlines() if zeile.strip())
+
+
+def _rueckgabe_starten(snapshot, nummer):
+    """Stellt die Zwischenablage nach `ZWISCHENABLAGE_RUECKGABE_SEKUNDEN` in einem
+    eigenen Daemon-Faden zurück. Fehler dort werden nur geloggt.
+
+    Die Naht wird hier gebunden, nicht erst im Faden: so greift ein später
+    zurückgesetztes Test-Monkeypatch nicht auf die echte Funktion durch.
+    """
+    zurueck = zwischenablage_zurueck
+
+    def lauf():
+        try:
+            time.sleep(ZWISCHENABLAGE_RUECKGABE_SEKUNDEN)
+            wieder = zurueck(snapshot, nummer)
+            log.info('Zwischenablage zurückgestellt: %s',
+                     'ja' if wieder else 'nein (inzwischen geändert)')
+        except Exception:
+            log.exception('Zwischenablage konnte nicht zurückgestellt werden')
+
+    threading.Thread(target=lauf, name='zwischenablage-zurueck',
+                     daemon=True).start()
+
+
+def _text_einfuegen(text):
+    """Fügt `text` ein: geschützt über die Zwischenablage, sonst direkt getippt.
+
+    Geschrieben → Strg+V und (Schalter an) Rückgabe des alten Inhalts. Nicht
+    geschrieben (Inhalt nicht vollständig sicherbar, Schreibfehler) → direkt per
+    `unicode_tippen`, die Zwischenablage bleibt unangetastet. Scheitert auch das,
+    geht die Ausnahme nach oben (Fehlerweg von `_verarbeite_audio`).
+    """
+    try:
+        ergebnis = zwischenablage_einfuegen(text)
+    except Exception:
+        log.exception('Zwischenablage-Zugriff schlug fehl')
+        ergebnis = None
+    if ergebnis is not None and ergebnis.geschrieben:
+        try:
+            time.sleep(0.3)
+            pyautogui.hotkey('ctrl', 'v')
+        finally:
+            # Auch wenn Strg+V wirft: der alte Inhalt kommt zurück (Codex R1/4).
+            if zwischenablage_zurueck_an:
+                _rueckgabe_starten(ergebnis.snapshot, ergebnis.nummer)
+        return
+    log.info('Zwischenablage nicht sicherbar — tippe direkt (%s)',
+             ergebnis.grund if ergebnis is not None else 'Fehler')
+    unicode_tippen(_ohne_umbrueche(text))
+
+
 def _verarbeite_audio(audio_data, erneut=False):
     """Transkribieren, glätten, einfügen — auch für einen erneuten Versuch.
 
@@ -2592,9 +2712,10 @@ def _verarbeite_audio(audio_data, erneut=False):
         if ausfall_melden(_glattung_ausfaelle):
             _melde_glattung_ausfall()
 
-        pyperclip.copy(final_text)
-        time.sleep(0.3)
-        pyautogui.hotkey('ctrl', 'v')
+        # Erst merken, dann einfügen: scheitert das Einfügen, bleibt der Text
+        # über „Letztes Diktat kopieren" erreichbar — nie still verloren.
+        _letztes_diktat_merken(final_text)
+        _text_einfuegen(final_text)
         _status_idle()        # nur im Erfolgsfall zurück auf grau
         retry_verwerfen()     # angekommen — nichts mehr zu wiederholen
 
@@ -2905,7 +3026,7 @@ def _meldung_zeigen(titel, text):
 
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus, hotkey_modus, ton_aus_an
+    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus, hotkey_modus, ton_aus_an, zwischenablage_zurueck_an
 
     load_env_file()
     setup_logging()
@@ -2930,6 +3051,7 @@ def main():
     hotkey_modus = load_hotkey_modus()
     live_modus = load_live_config()
     ton_aus_an = load_ton_aus_config()
+    zwischenablage_zurueck_an = load_zwischenablage_zurueck_config()
     verbrauch = load_verbrauch()
     ton_einrichten()
 
