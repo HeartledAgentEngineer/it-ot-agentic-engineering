@@ -416,3 +416,80 @@ def test_inaktives_paar_wird_gemeldet_aber_nicht_gesendet(umgebung, transport):
     _laufend(umgebung)
     staende = _lauf(umgebung)
     assert "aus" in staende[0].status and aufrufe == []
+
+
+# --- F2: Masterübergabe und Worker-Vorgabe sind getrennte Vorgänge (Paket B) ---
+
+@pytest.mark.parametrize("worker,modell", [("claude", None), ("codex", None),
+                                           ("hermes", modi.HERMES_MODELL)])
+def test_workerauswahl_erhaelt_zulaessige_codex_masterrueckgabe(umgebung, transport, worker, modell):
+    """Die Ausführervorgabe ändert nichts an der Masterrückgabe an Codex."""
+    aufrufe = transport(0)
+    _master_setzen()
+    _paar()
+    modi.worker_setzen("engineering", worker, repo=umgebung)
+    _laufend(umgebung)
+    profil_vorher = modi.datei().read_bytes()
+
+    staende = _lauf(umgebung)
+
+    assert staende[0].phase == "gesendet" and len(aufrufe) == 1
+    assert aufrufe[0][1] == "queue"                       # Mastertransport, kein Workerprozess
+    assert modi.profil("engineering") == modi.Profil("kontingent", worker, modell)
+    assert modi.datei().read_bytes() == profil_vorher     # Workerkonfiguration unverändert
+
+
+@pytest.mark.parametrize("master", ["claude", "codex", "hermes"])
+def test_fester_master_stoppt_die_sammelrueckgabe(umgebung, transport, master):
+    aufrufe = transport(0)
+    _master_setzen()
+    _paar()
+    modi.master_setzen("engineering", master, repo=umgebung)
+    _laufend(umgebung)
+
+    staende = _lauf(umgebung)
+
+    assert aufrufe == [] and vorgaenge.lesen() == []
+    assert "führt – keine Codex-Master-Rückgabe" in staende[0].status
+
+
+# --- F2 Punkt 2: eigene Modus-Zwischenmarke stoppt die Rückgabe fail-closed ---
+
+def test_eigene_zwischenmarke_stoppt_die_rueckgabe_vor_handoff_lesen(umgebung, transport, monkeypatch):
+    aufrufe = transport(0)
+    _master_setzen()
+    _paar()
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, LAUFEND)
+    marke = modi.zwischenmarke("engineering", "codex", JETZT.isoformat())
+    besitz.schreiben(master, marke)
+    monkeypatch.setattr(automatik, "kopfzeile_lesen",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+
+    staende = _lauf(umgebung, erneut=True)
+
+    assert aufrufe == [] and vorgaenge.lesen() == []
+    assert staende[0].status == "Modusumschaltung führt – keine Codex-Master-Rückgabe"
+    assert besitz.lesen(master) == marke                  # bytegleich
+    assert "wiederaufnahme" not in besitz.lesen(master)
+
+
+def test_direkte_absicherung_stoppt_ohne_zentrale_schutzpruefung(umgebung, transport, monkeypatch):
+    """Auch wenn die zentrale Schutzprüfung nichts meldet, bricht die Rückgabe an der Marke ab."""
+    aufrufe = transport(0)
+    _master_setzen()
+    _paar()
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, LAUFEND)
+    marke = modi.zwischenmarke("engineering", "claude", JETZT.isoformat())
+    besitz.schreiben(master, marke)
+    monkeypatch.setattr(rueckgabe.modi, "fuehrt", lambda *a, **k: None)
+    monkeypatch.setattr(automatik, "kopfzeile_lesen",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+
+    staende = _lauf(umgebung, erneut=True)
+
+    assert aufrufe == [] and vorgaenge.lesen() == []
+    assert "Modusumschaltung unvollständig" in staende[0].status
+    assert besitz.lesen(master) == marke                  # bytegleich, keine Reservierung
+    assert "wiederaufnahme" not in besitz.lesen(master)

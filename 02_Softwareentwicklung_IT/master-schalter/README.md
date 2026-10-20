@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.3.5** — bestätigter Menüwechsel läuft außerhalb des Traycallbacks; parallele Wechsel werden unterdrückt. Die native Ja/Nein-Bedienung auf dem Desktop ist damit noch nicht nachgewiesen.
+Stand: **v0.4.0** — Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
@@ -13,7 +13,7 @@ Stand: **v0.3.5** — bestätigter Menüwechsel läuft außerhalb des Traycallba
 |---|---|
 | Mauszeiger auf das Symbol | eine Zeile mit Master, Lage und Kontingenten |
 | Linksklick | Windows-Benachrichtigung mit beiden Mastern und Stand-Zeit |
-| Rechtsklick | Menü mit Master, Lage, Besetzung, „Master wechseln" (mit Rückfrage), Wechsel-Schwelle, „Chats übergeben", Aktualisieren und Beenden |
+| Rechtsklick | Menü mit Master, Lage, Besetzung, „Master wechseln" (mit Rückfrage), Wechsel-Schwelle, „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell), „Modelle aktualisieren", „Chats übergeben", Aktualisieren und Beenden |
 
 Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe zeigt den
 5-Stunden-Verbrauch: Grundfarbe bis 79 %, gelb ab 80 %, rot ab der Schwelle (Standard 97 %).
@@ -104,19 +104,95 @@ Kennung und Zahlen, keinen Dateiinhalt.
 .\.venv\Scripts\\masterwechsel.exe automatik-pruefen --trocken
 ```
 
-## Arbeitsmodus je Thema (v0.3.4)
+## Arbeitsmodus je Thema (v0.4.0)
 
-Jedes vorhandene Themenpaar kann im Taskleistenmenü unter **Arbeitsmodus je Thema** zwischen
-**Nach Kontingent** und **Hermes führt · Codex Luna codiert** wechseln. Der CLI-Befehl
-`masterwechsel modus THEMA` zeigt den Modus; `masterwechsel modus THEMA kontingent` oder
-`masterwechsel modus THEMA hermes-codex` setzt ihn. Neue Themen beginnen mit `kontingent`.
+Jedes vorhandene Themenpaar hat ein Rollenprofil (Version 2, `~/.master-schalter/themenmodi.json`):
+**Master** (`kontingent`, `claude`, `codex`, `hermes`), **Ausführer** (`workflow`, `claude`,
+`codex`, `hermes`) und **Ausführermodell** (Kennung oder `Standard des Werkzeugs`; „Nach
+Workflow“ erlaubt kein festes Modell, Hermes genau `deepseek/deepseek-v4.1-flash`). Im
+Taskleistenmenü steht dafür unter **Arbeitsmodus je Thema** je Thema ein Untermenü
+**Master**, **Ausführer** und **Ausführermodell**; die Optionen sind exakt `Nach Kontingent`/
+`Claude Code`/`Codex`/`Hermes` bzw. `Nach Workflow`/`Claude Code`/`Codex`/`Hermes`. Damit sind
+alle neun ausdrücklich gewählten Master-/Ausführer-Kombinationen möglich; `kontingent`/`workflow`
+ist die Automatik. Alte v1-Dateien werden nur lesend als v2-Profil gedeutet (Migration erst beim
+ersten ausdrücklichen Schreibvorgang); eine kaputte Datei fällt **nicht** still auf Automatik zurück.
 
-Der Hermes-Modus ist eine Rollen- und Schutzregel: Hermes bleibt Master und liest Sensibles;
-Codex gpt-6-luna erhält nur von Hermes bereinigte Code-, Test- und Architekturaufträge. Die
-Auswahl startet weder eine Hermes- noch eine Codex-Sitzung und erzeugt kein ACK. Der Modus bleibt
-auch bei freien Kontingenten bestehen. Er schützt vor Automatik, verspäteten ACKs, manueller
-Rückgabe und globalem Claude-Rückwechsel; ein Wechsel des globalen Standard-Masters ändert die
-Hermes-Themen nicht. Status und tatsächliche Zustellung/Bestätigung werden getrennt angezeigt.
+Die Providerherkunft steht im Menü immer dabei: Claude Code aus dem Claude-Abo, Codex aus dem
+ChatGPT-Abo, **Hermes über OpenRouter – kostenpflichtig**. Ein Providerwechsel des Ausführers
+setzt das Modell ausdrücklich auf den Standard des Werkzeugs zurück und meldet das; ein
+gespeichertes Modell wird nie still ersetzt.
+
+Die Wahl ist eine **Rollen-/Ausführervorgabe**: Sie startet keine Sitzung, versendet keinen
+Auftrag und erzeugt kein Empfangs-ACK. Menü und Häkchen kommen ausschließlich aus dem
+Aktualisierungs-Snapshot; im Menüklick-/checked-Faden findet keine Datei-, Prozess- oder
+Netzabfrage statt. Rollenänderungen laufen im Hintergrund mit nichtblockierender Themensperre;
+Fehler werden gemeldet, blockieren aber weder Leiste noch andere Themen.
+
+### Ausführermodell und Modellkataloge
+
+Das Ausführermodell wird aus dem regulären Modellangebot der installierten Werkzeuge ermittelt
+(Metadatencache `~/.master-schalter/modelle.json`, TTL 24 h, Hintergrundabgleich bei Leistenstart
+und bei abgelaufenem Katalog, zusätzlicher Menüpunkt **Modelle aktualisieren**, Single-Flight):
+
+- **Codex** meldet `models` (`slug`/`display_name`/`visibility`) über den reinen
+  App-CLI-Metadatenaufruf `codex … debug models` (ohne Prompt, ohne Inferenz); übernommen werden
+  nur Einträge mit `visibility=list`. Offizielle Quellen:
+  <https://learn.chatgpt.com/docs/cli/reference> und <https://learn.chatgpt.com/docs/app-server>.
+  Codex-Modelle laufen über das vorhandene ChatGPT-Abo.
+- **Claude Code** meldet die Modelle über die lokale Control-Initialisierung **ohne Anmeldung und
+  ohne Benutzerprompt**; übernommen werden ausschließlich `value`/`displayName` der eigenen
+  passenden `control_response` (leerer `CLAUDE_CONFIG_DIR`, keine Sitzungs-, Konto- oder
+  Rohantwortdaten im Cache). Claude-Modelle laufen über das Claude-Abo.
+- **Hermes** nutzt fest `DeepSeek V4.1 Flash` über OpenRouter – **kostenpflichtig** (API-Kosten
+  stehen im Prüfprotokoll); es gibt keinen automatischen Modellwechsel.
+
+Grenzen (ehrlich, ohne Kontokatalog-Versprechen): Beide Kataloge sind **Werkzeugkataloge**, keine
+Garantie einer freien Quote oder Kontoberechtigung. Der Claude-Katalog ist die begrenzte lokale
+Werkzeugliste; die Grenze gegenüber personalisierten Bootstrap-/Cache-Erweiterungen bleibt offen.
+Jede Abfrage ist zeitbegrenzt (30 s je Werkzeug, 65 s gesamt) mit festen Byte-/Zeilen-/
+Modellgrenzen; eine Überschreitung ist ein Fehler statt einer abgeschnittenen Erfolgsliste.
+Kindprozesse laufen ohne API-/Fremdprovider-Schlüssel, und bei Zeitüberschreitung/Abbruch wird nur
+der selbst gestartete Prozessbaum beendet (`taskkill /PID <eigene PID> /T /F`, keine Suche nach
+Programmnamen).
+
+Fehler blockieren nichts: Ein fehlender, veralteter oder fehlerhafter Katalog wird im Menü
+benannt; **neue** Modellwahlen daraus werden abgelehnt (CLI: `Modell nicht gesetzt`, Exit 1), die
+gespeicherte Auswahl bleibt als „gespeichert, nicht bestätigt“ sichtbar und unverändert.
+`Standard des Werkzeugs` bleibt bewusst wählbar. Nach einem erfolgreichen Abgleich gelingt
+dieselbe Auswahl wieder.
+
+### Abfrage vor jedem neuen Workerauftrag (verbindlich)
+
+Vor jedem **neuen** bereinigten Workerauftrag liest der Master die verbindliche Vorgabe exakt so:
+
+```powershell
+.\.venv\Scripts\masterwechsel.exe profil <thema> --json
+```
+
+und startet den Worker mit dem dort genannten Anbieter samt Modell (Feld `worker` + `modell`;
+Beispiel Codex: `-m <modell>`; heißt es `modell_standard: true`, gilt der Standard des
+Werkzeugs). Die Profilwahl allein behauptet keinen gestarteten Worker; es gibt keinen
+API-/OpenRouter-Fallback für den Codex-Worker.
+
+Die Befehle im Überblick:
+
+```powershell
+.\.venv\Scripts\masterwechsel.exe profil THEMA [--json]
+.\.venv\Scripts\masterwechsel.exe master-setzen THEMA kontingent|claude|codex|hermes
+.\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes
+.\.venv\Scripts\masterwechsel.exe modell-setzen THEMA MODELL|standard
+.\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
+```
+
+`modelle` zeigt ohne `--aktualisieren` nur den lokalen Cache (Exit 0, Fehlerkategorien stehen
+in der Ausgabe); mit `--aktualisieren` wird frisch abgeglichen und ein nicht erfolgreich
+ermittelter Katalog liefert Exit 1 mit klarer Diagnose. Alle Fehlertexte sind einfache eigene
+Kategorien – niemals rohe Antworten der Werkzeuge.
+
+Der frühere Hermes-Modus ist als Profil enthalten: `master=hermes`, `worker=codex`,
+`modell=gpt-6-luna` (Legacy-Migration). Er bleibt eine Rollen- und Schutzregel: Hermes bleibt
+Master und liest Sensibles; Codex erhält nur von Hermes bereinigte Code-, Test- und
+Architekturaufträge. Status und tatsächliche Zustellung/Bestätigung werden getrennt angezeigt.
 
 Beim Rückstellen auf `kontingent` werden offene alte Vorgänge entwertet. Die Besitzdatei erhält
 `claude … modus-reset …` nur als Quelle des bestehenden Kontingentwegs; damit wird kein Claude-Chat
@@ -125,20 +201,22 @@ zwischen den Teilschritten bleibt geschützt und lässt sich durch erneute Modus
 
 ### Bereinigter Codex-Code-Worker
 
-Für das Personal-AI-Thema führt Hermes weiter. Nur ein geprüft bereinigter technischer Auftrag geht
-an die installierte Codex-App-CLI mit dem Modell `gpt-6-luna` und der vorhandenen ChatGPT-Anmeldung.
-Hermes prüft vorher lokal `codex login status`, behält davon nur die Anmeldeart `chatgpt` und gibt
-niemals die rohe Statusausgabe aus. Bei fehlender ChatGPT-Anmeldung, Abo-Limit oder Fehler bleibt der
-Auftrag bei Hermes; es gibt keinen API-/OpenRouter-Fallback, keine zusätzliche Abrechnung und keinen
-Masterwechsel.
+Für das Personal-AI-Thema führt Hermes weiter. Nur ein geprüft bereinigter technischer Auftrag
+geht an die installierte Codex-App-CLI mit dem **im Profil gewählten Modell** (Vorgabe:
+`gpt-6-luna`) und der vorhandenen ChatGPT-Anmeldung. Hermes prüft vorher lokal `codex login
+status`, behält davon nur die Anmeldeart `chatgpt` und gibt niemals die rohe Statusausgabe aus.
+Bei fehlender ChatGPT-Anmeldung, Abo-Limit oder Fehler bleibt der Auftrag bei Hermes; es gibt
+keinen API-/OpenRouter-Fallback, keine zusätzliche Abrechnung und keinen Masterwechsel.
 
 ```powershell
 $CodexExe = 'C:\Users\sebas\AppData\Local\OpenAI\Codex\bin\e78bad9887fa50cf\codex.exe'
 $WorkerWorktree = '<von Hermes bereitgestellter isolierter technischer Worktree>'
 $PromptFile = '<bereinigter technischer Auftrag.md>'
 $ResultFile = '<technisches Ergebnis.md>'
+# Modell aus `masterwechsel profil <thema> --json` (Feld „modell“; bei modell_standard: true gilt der Werkzeugstandard)
+$Modell = 'gpt-6-luna'
 Get-Content -Raw -LiteralPath $PromptFile | & $CodexExe exec --json --ignore-user-config `
-  -c model_provider=openai -c forced_login_method=chatgpt -m gpt-6-luna `
+  -c model_provider=openai -c forced_login_method=chatgpt -m $Modell `
   --sandbox workspace-write -C $WorkerWorktree --output-last-message $ResultFile -
 ```
 
@@ -264,6 +342,17 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 
 # Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
 .\.venv\Scripts\masterwechsel.exe claude-kontingent --fuenf 90 --woche 70 --reset-fuenf 2026-10-14T18:40:00Z --reset-woche 2026-10-18T21:00:00Z
+
+# Rollenvorgabe eines Themas lesen (verbindlich vor jedem neuen Workerauftrag)
+.\.venv\Scripts\masterwechsel.exe profil engineering --json
+
+# Ausführer samt Modell vorgeben
+.\.venv\Scripts\masterwechsel.exe worker-setzen engineering codex
+.\.venv\Scripts\masterwechsel.exe modell-setzen engineering gpt-6-luna
+
+# Modellkataloge anzeigen und frisch abgleichen
+.\.venv\Scripts\masterwechsel.exe modelle
+.\.venv\Scripts\masterwechsel.exe modelle codex --aktualisieren
 ```
 
 Einstellungen: `~/.master-schalter/einstellungen.json`, z. B.
@@ -284,7 +373,8 @@ Claude- und Codex-App sind MSIX-Pakete, deren Kindprozesse je Starter in
 ```
 src/master_schalter/
   zustand.py   Aktiven Master und letzten Wechsel lokal speichern; Sperren (global und je Thema)
-  modi.py      Arbeitsmodus und fail-closed Themenbesitz speichern
+  modi.py      Rollenprofile v2 je Thema (Master, Ausführer, Modell) und fail-closed Themenbesitz
+  modelle.py   Modellkataloge der installierten Werkzeuge lesen/abgleichen (lokaler Metadatencache)
   rollen.py    Lage und Besetzung gemäß AGENTS.md bestimmen
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
   wechsel.py   Wechsel unter Themensperren ausführen: Paket, dann Zustand; Rückwechsel entwertet
@@ -319,14 +409,15 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.3.5** | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt — **dieser Stand** |
+| **v0.4.0** | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung — **dieser Stand** |
+| v0.3.5 | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt |
 | v0.3.4 | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll |
 | v0.3.3 | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) |
 | v0.3.2 | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
 | v0.1.0 | Kontingent-Anzeige beider Master |
-| **v0.3.0** | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans). Standardmäßig aus. |
+| v0.3.0 | Automatische Übergabe Claude → Codex: Paare, sicherer Übergabepunkt, Handschlag, Sperren, ACK, Datenschutz-Paket (Sebastians Freigabe 15.10.; Abschnitt „v0.3.0 im Detail" des Plans). Standardmäßig aus. |
 | v0.2.1 | Hermes als dritter Master wählbar (Zustand, Menü, CLI; ohne Balken) |
 | v0.2.0 | Masteranzeige, Lage und Besetzung, Wechsel per Klick, technisches Übergabepaket, Menüschwelle |
 | v0.3.1 | Hermes-Prüfsitzungen benennen, registrieren und nach Abschluss archivieren; Übergabepaket um Issues und Prüfrunden ergänzen |
-| v0.4.0 | Automatischer Rückweg Codex → Claude und weitere Ausbaustufen |
+| danach | Automatischer Rückweg Codex → Claude und weitere Ausbaustufen |

@@ -733,3 +733,121 @@ def test_claude_im_limit_ruhendes_fenster_allein_loest_nicht_aus():
                                  signale.Fenster("Woche", 30.0, jetzt + timedelta(hours=60))),
                                 stand=jetzt - timedelta(minutes=2))
     assert automatik._claude_im_limit(claude, 97, jetzt) == (False, None)
+
+
+# --- F2: Masterübergabe und Worker-Vorgabe sind getrennte Vorgänge (Paket B) ---
+
+@pytest.mark.parametrize("worker,modell", [("claude", None), ("codex", None),
+                                           ("hermes", modi.HERMES_MODELL)])
+def test_workerauswahl_unterbindet_keine_codex_masteruebergabe(umgebung, transport, worker, modell):
+    """master=kontingent mit jedem expliziten Workerprovider erhält die zulässige Codex-Masterübergabe."""
+    aufrufe = transport(0)
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    modi.worker_setzen("engineering", worker, repo=umgebung)
+    _laufend(umgebung)
+    profil_vorher = modi.datei().read_bytes()
+
+    staende = _lauf(umgebung)
+
+    assert [s.status for s in staende] == ["gesendet"]
+    assert len(aufrufe) == 1
+    assert aufrufe[0][1] == "queue"                       # genau der Mastertransport – kein Workerstart
+    assert modi.profil("engineering") == modi.Profil("kontingent", worker, modell)
+    assert modi.datei().read_bytes() == profil_vorher     # Workerkonfiguration unverändert
+
+
+@pytest.mark.parametrize("master", ["claude", "codex", "hermes"])
+def test_fester_master_erhaelt_weiterhin_keinen_mastertransport(umgebung, transport, master):
+    aufrufe = transport(0)
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    modi.master_setzen("engineering", master, repo=umgebung)
+    _laufend(umgebung)
+
+    staende = _lauf(umgebung)
+
+    assert aufrufe == [] and vorgaenge.lesen() == []
+    assert staende[0].status == "kein fälliges Paar"
+    assert modi.geschuetzt("engineering", repo=umgebung)
+
+
+@pytest.mark.parametrize("master,name", [("claude", "Claude"), ("codex", "Codex"), ("hermes", "Hermes")])
+def test_feste_masterrolle_stoppt_vor_dem_handoff_lesen(umgebung, transport, monkeypatch, master, name):
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    modi.master_setzen("engineering", master, repo=umgebung)
+    auftrag = _entscheiden(_messung())[0]
+    monkeypatch.setattr(automatik, "uebergabepunkt",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+    aufrufe = transport(0)
+
+    stand = automatik._ein_thema(auftrag, repo=umgebung, jetzt=JETZT, warte=lambda _: None,
+                                 head_lesen=lambda: FULL_HEAD, sender=codex_senden.senden,
+                                 git=_git, frist=1)
+
+    assert stand.status == f"{name} führt – Codex nur Ausführer"
+    assert aufrufe == []
+
+
+@pytest.mark.parametrize("master,name", [("claude", "Claude"), ("codex", "Codex"), ("hermes", "Hermes")])
+def test_feste_masterrolle_entwertet_spaete_acks(umgebung, monkeypatch, master, name):
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    modi.master_setzen("engineering", master, repo=umgebung)
+    auftrag = _gesendeten_vorgang(umgebung)
+    _rollout()
+    ack_aufrufe = []
+    monkeypatch.setattr(automatik.ack, "pruefen", lambda *a, **k: ack_aufrufe.append(a) or True)
+
+    staende = automatik.bestaetigungen_pruefen(JETZT, repo=umgebung, paare_liste=[_paar()])
+
+    assert ack_aufrufe == []
+    assert staende[0].status == f"{name} führt – später ACK ignoriert"
+    assert staende[0].phase == "entwertet"
+    assert vorgaenge.finden(auftrag.id).phase == "gesendet"   # fail-closed: nichts bestätigt
+
+
+# --- F2 Punkt 2: eigene Modus-Zwischenmarke vor jeder Deutung stoppen ----------
+
+def test_aufloeser_laesst_eigene_zwischenmarke_bytegleich(umgebung):
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, ".hermes/uebergabe/laufend/engineering.md")
+    marke = modi.zwischenmarke("engineering", "hermes", JETZT.isoformat())
+    besitz.schreiben(master, marke)
+
+    assert automatik._reservierung_aufloesen(master, JETZT, thema="engineering") == marke
+    assert besitz.lesen(master) == marke                      # bytegleich, kein wiederaufnahme
+    assert automatik._reservierung_aufloesen(master, JETZT) == marke   # Thema aus dem Dateinamen
+    assert besitz.lesen(master) == marke
+
+
+def test_fremdmarke_mit_falschem_thema_bleibt_normale_reservierung(umgebung):
+    """Nur die eigene Marke mit *gleichem* Thema ist geschützt; sonst gilt die bisherige Behandlung."""
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, ".hermes/uebergabe/laufend/engineering.md")
+    fremd = f"reserviert modus anderes-thema hermes {JETZT.isoformat()}"
+    besitz.schreiben(master, fremd)
+
+    assert automatik._reservierung_aufloesen(master, JETZT) == \
+        f"claude {JETZT.isoformat()} wiederaufnahme modus"
+
+
+def test_automatik_stoppt_an_eigener_zwischenmarke_ohne_versand(umgebung, transport, monkeypatch):
+    aufrufe = transport(0)
+    paar = _paar()
+    paare.setzen(paar.thema, paar.codex_thread, paar.laufend, aktiv=True)
+    _laufend(umgebung)
+    master = besitz.pfad(umgebung, paar.laufend)
+    marke = modi.zwischenmarke("engineering", "codex", JETZT.isoformat())
+    besitz.schreiben(master, marke)
+    monkeypatch.setattr(automatik, "kopfzeile_lesen",
+                        lambda *_: (_ for _ in ()).throw(AssertionError("Handoff wurde gelesen")))
+
+    staende = _lauf(umgebung)
+
+    assert aufrufe == [] and vorgaenge.lesen() == []
+    assert staende[0].status == "Modusumschaltung führt – Codex nur Ausführer"
+    assert besitz.lesen(master) == marke                      # bytegleich
+    assert "wiederaufnahme" not in besitz.lesen(master)
+    assert "Reservierung" not in besitz.lesen(master)

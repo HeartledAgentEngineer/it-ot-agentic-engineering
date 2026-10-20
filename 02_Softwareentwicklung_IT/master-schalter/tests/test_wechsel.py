@@ -170,6 +170,24 @@ def test_rueckwechsel_auf_claude_schont_hermes_thema_und_offenen_vorgang(umgebun
     assert vorgaenge.finden("late-ack").phase == "gesendet"
 
 
+def test_rueckwechsel_schont_eigene_modusmarke_und_offenen_vorgang(umgebung):
+    """F2 Punkt 2: die eigene Zwischenmarke wird im Sammelrückgabeweg nie zurückgesetzt."""
+    thema = "personal-ai-agent"
+    laufend = paare.laufend_bilden(thema)
+    paare.setzen(thema, "00000000-0000-4000-8000-000000000001", laufend, aktiv=True)
+    master = besitz.pfad(umgebung, laufend)
+    marke = modi.zwischenmarke(thema, "claude", JETZT.isoformat())
+    besitz.schreiben(master, marke)
+    vorgaenge.aendern(lambda alt: [*alt, vorgaenge.Vorgang(
+        "late-ack", thema, "run-1", "gesendet", "2026-10-16T00:00:00+00:00")])
+    zustand.aendern(lambda z: replace(z, master="codex"))
+
+    wechsel._entwerten(JETZT)
+
+    assert besitz.lesen(master) == marke                     # bytegleich, keine Rücksetzung
+    assert vorgaenge.finden("late-ack").phase == "gesendet"  # fail-closed: bleibt offen
+
+
 def test_rueckwechsel_entwertet_offenen_vorgang_ohne_paar_und_altes_ack_bleibt_wirkungslos(
     umgebung, monkeypatch
 ):

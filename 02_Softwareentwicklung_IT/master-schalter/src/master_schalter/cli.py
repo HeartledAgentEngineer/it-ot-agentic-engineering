@@ -14,6 +14,18 @@
                                       Paar für die Automatik ein- oder ausschalten
     masterwechsel automatik-pruefen [--trocken]
                                       Automatik Claude → Codex prüfen (trocken: nur zeigen)
+    masterwechsel profil THEMA [--json]
+                                      Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
+    masterwechsel master-setzen THEMA MASTER
+                                      Masterrolle eines Themas setzen (kontingent|claude|codex|hermes)
+    masterwechsel worker-setzen THEMA WORKER
+                                      Ausführervorgabe setzen (workflow|claude|codex|hermes)
+    masterwechsel modell-setzen THEMA MODELL
+                                      Ausführermodell setzen ("standard" = Standard des Werkzeugs)
+    masterwechsel modelle [PROVIDER] [--aktualisieren] [--json]
+                                      Modellkataloge der Werkzeuge anzeigen oder abgleichen
+
+Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
 from __future__ import annotations
 
@@ -22,8 +34,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, automatik, claude_messen, modi, paare, rollen, rueckgabe, signale, wechsel,
-               zustand)
+from . import (__version__, anzeige, automatik, claude_messen, modi, modelle, paare, rollen, rueckgabe,
+               signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -132,6 +144,114 @@ def _modus_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- Rollenprofile, Ausführermodelle und Modellkataloge (v0.4.0) ---------------
+
+STANDARD_SCHLUESSELWORT = "standard"
+
+
+def _profil_cli(args: argparse.Namespace) -> int:
+    """Rollenprofil eines Themas lesen – die verbindliche Abfrage vor jedem neuen Workerauftrag."""
+    try:
+        wert = modi.profil(args.thema)
+        sicher = modi.geschuetzt(args.thema)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Profil nicht lesbar: {fehler}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({"thema": args.thema, "master": wert.master, "worker": wert.worker,
+                          "modell": wert.modell, "modell_standard": wert.modell is None,
+                          "geschuetzt": sicher}, ensure_ascii=False))
+        return 0
+    stand = anzeige.Rollenstand(wert.master, wert.worker, wert.modell)
+    print("\n".join(anzeige.rollen_zeilen(args.thema, stand, sicher)))
+    return 0
+
+
+def _master_setzen_cli(args: argparse.Namespace) -> int:
+    if args.master not in modi.MASTER_WERTE:
+        print(f"Master nicht gesetzt: unbekannte Masterrolle {args.master!r} "
+              f"(erlaubt: {', '.join(modi.MASTER_WERTE)})", file=sys.stderr)
+        return 1
+    try:
+        modi.master_setzen(args.thema, args.master)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Master nicht gesetzt: {fehler}", file=sys.stderr)
+        return 1
+    print(anzeige.master_meldung(args.thema, args.master))
+    return 0
+
+
+def _worker_setzen_cli(args: argparse.Namespace) -> int:
+    if args.worker not in modi.WORKER_WERTE:
+        print(f"Ausführer nicht gesetzt: unbekannter Provider {args.worker!r} "
+              f"(erlaubt: {', '.join(modi.WORKER_WERTE)})", file=sys.stderr)
+        return 1
+    try:
+        profil = modi.worker_setzen(args.thema, args.worker)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Ausführer nicht gesetzt: {fehler}", file=sys.stderr)
+        return 1
+    print(anzeige.ausfuehrer_meldung(args.thema, args.worker, profil.modell))
+    return 0
+
+
+def _modell_setzen_cli(args: argparse.Namespace) -> int:
+    modell = None if args.modell == STANDARD_SCHLUESSELWORT else args.modell
+    try:
+        profil = modi.modell_setzen(args.thema, modell)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Modell nicht gesetzt: {fehler}", file=sys.stderr)
+        return 1
+    print(anzeige.modell_meldung(args.thema, profil.modell))
+    return 0
+
+
+def _katalogstand(katalog: modelle.Katalog) -> anzeige.Katalogstand:
+    return anzeige.Katalogstand(katalog.provider, tuple((m.id, m.name) for m in katalog.modelle),
+                                katalog.zeit.isoformat() if katalog.zeit else None,
+                                katalog.fehler, katalog.veraltet)
+
+
+def _katalog_json(katalog: modelle.Katalog) -> dict:
+    return {"provider": katalog.provider,
+            "modelle": [{"id": m.id, "name": m.name} for m in katalog.modelle],
+            "zeit": katalog.zeit.isoformat() if katalog.zeit else None,
+            "fehler": katalog.fehler, "veraltet": katalog.veraltet}
+
+
+def _modelle_cli(args: argparse.Namespace) -> int:
+    """Kataloge anzeigen oder frisch abgleichen; im Abgleichfall meldet ein Fehler Exit 1."""
+    provider = args.provider
+    if provider is not None and provider not in modelle.PROVIDER:
+        print(f"Unbekannter Modellprovider: {provider!r} (bekannt: {', '.join(modelle.PROVIDER)})",
+              file=sys.stderr)
+        return 1
+    try:
+        if args.aktualisieren:
+            if provider is None:
+                ergebnis = modelle.alle_aktualisieren()
+                kataloge = [ergebnis[name] for name in modelle.PROVIDER]
+            else:
+                kataloge = [modelle.aktualisieren(provider)]
+        else:
+            kataloge = [modelle.lesen(name) for name in ((provider,) if provider else modelle.PROVIDER)]
+    except (modelle.KatalogFehler, OSError) as fehler:
+        print(f"Modelle nicht gelesen: {fehler}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps([_katalog_json(k) for k in kataloge], ensure_ascii=False))
+    else:
+        print("\n".join("\n".join(anzeige.katalog_ausgabe(_katalogstand(k))) for k in kataloge))
+    if args.aktualisieren:
+        gescheitert = [k for k in kataloge if k.fehler is not None or k.veraltet]
+        for k in gescheitert:
+            print(f"Modellkatalog nicht ermittelt: {anzeige.PROVIDER_NAMEN.get(k.provider, k.provider)}"
+                  f" – {k.fehler or 'veraltet oder leer'}", file=sys.stderr)
+        if gescheitert:
+            return 1
+    return 0
+
+
 def _paar_setzen(args: argparse.Namespace) -> int:
     try:
         paar = paare.setzen(args.thema, args.uuid, args.datei,
@@ -230,6 +350,23 @@ def _parser() -> argparse.ArgumentParser:
     modus_parser = unter.add_parser("modus", help="Arbeitsmodus eines Themas anzeigen oder setzen")
     modus_parser.add_argument("thema", help="vorhandenes Thema")
     modus_parser.add_argument("modus", nargs="?", help="kontingent oder hermes-codex")
+    profil_parser = unter.add_parser("profil", help="Rollenprofil eines Themas anzeigen (Master, Ausführer, Modell)")
+    profil_parser.add_argument("thema", help="vorhandenes Thema")
+    profil_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    master_setzen = unter.add_parser("master-setzen", help="Masterrolle eines Themas setzen")
+    master_setzen.add_argument("thema", help="vorhandenes Thema")
+    master_setzen.add_argument("master", help="kontingent, claude, codex oder hermes")
+    worker_setzen = unter.add_parser("worker-setzen", help="Ausführervorgabe eines Themas setzen")
+    worker_setzen.add_argument("thema", help="vorhandenes Thema")
+    worker_setzen.add_argument("worker", help="workflow, claude, codex oder hermes")
+    modell_setzen = unter.add_parser("modell-setzen", help="Ausführermodell eines Themas setzen")
+    modell_setzen.add_argument("thema", help="vorhandenes Thema")
+    modell_setzen.add_argument("modell", help="Modellkennung aus dem Katalog oder \"standard\"")
+    modelle_parser = unter.add_parser("modelle", help="Modellkataloge der Werkzeuge anzeigen oder abgleichen")
+    modelle_parser.add_argument("provider", nargs="?", help="claude oder codex (Standard: beide)")
+    modelle_parser.add_argument("--aktualisieren", action="store_true",
+                                help="Kataloge frisch abgleichen (Kindprozess der Werkzeuge, keine Inferenz)")
+    modelle_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -267,6 +404,16 @@ def main(argv: list[str] | None = None) -> int:
         return _paar_aktiv(args)
     if args.befehl == "modus":
         return _modus_cli(args)
+    if args.befehl == "profil":
+        return _profil_cli(args)
+    if args.befehl == "master-setzen":
+        return _master_setzen_cli(args)
+    if args.befehl == "worker-setzen":
+        return _worker_setzen_cli(args)
+    if args.befehl == "modell-setzen":
+        return _modell_setzen_cli(args)
+    if args.befehl == "modelle":
+        return _modelle_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":

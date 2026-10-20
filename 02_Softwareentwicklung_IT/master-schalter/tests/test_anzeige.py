@@ -195,3 +195,164 @@ def test_details_ohne_resetzeit_laesst_reset_text_weg():
     woche = next(z for z in zeilen if z.strip().startswith("Woche:"))
     assert "Reset" not in fuenf
     assert "Reset" in woche
+
+
+# --- Rollen je Thema, Menüeinträge und Katalogstände (v0.4.0) ------------------
+
+from master_schalter import modi  # noqa: E402
+from master_schalter.anzeige import Katalogstand, Rollenstand  # noqa: E402
+
+
+def _stand(master="kontingent", worker="workflow", modell=None, kataloge=()):
+    return Rollenstand(master, worker, modell, tuple(kataloge))
+
+
+def _katalog(provider="codex", *eintraege, fehler=None, veraltet=False):
+    return Katalogstand(provider, tuple((kennung, name) for kennung, name in eintraege),
+                        None, fehler, veraltet)
+
+
+def test_rollenauswahl_entspricht_den_planlabels():
+    assert anzeige.MASTER_AUSWAHL == (("Nach Kontingent", "kontingent"), ("Claude Code", "claude"),
+                                      ("Codex", "codex"), ("Hermes", "hermes"))
+    assert anzeige.WORKER_AUSWAHL == (("Nach Workflow", "workflow"), ("Claude Code", "claude"),
+                                      ("Codex", "codex"), ("Hermes", "hermes"))
+    assert anzeige.MODELLE_AKTUALISIEREN == "Modelle aktualisieren"
+    assert anzeige.STANDARD_MODELL == "Standard des Werkzeugs"
+
+
+@pytest.mark.parametrize("master", ["kontingent", "claude", "codex", "hermes"])
+def test_master_eintraege_haken_genau_eine_wahl(master):
+    eintraege = anzeige.master_eintraege(_stand(master=master))
+
+    assert [e.text for e in eintraege] == ["Nach Kontingent", "Claude Code", "Codex", "Hermes"]
+    assert all(e.aktiv and not e.hinweis for e in eintraege)
+    assert [e.wert for e in eintraege if e.haken] == [master]
+
+
+@pytest.mark.parametrize("worker", ["workflow", "claude", "codex", "hermes"])
+def test_worker_eintraege_haken_genau_eine_wahl_und_zeigen_die_vorgabe(worker):
+    eintraege = anzeige.worker_eintraege(_stand(worker=worker))
+    wahl = [e for e in eintraege if e.aktiv]
+
+    assert [e.text for e in wahl] == ["Nach Workflow", "Claude Code", "Codex", "Hermes"]
+    assert [e.wert for e in wahl if e.haken] == [worker]
+    hinweise = [e.text for e in eintraege if e.hinweis]
+    assert any("Ausführervorgabe" in text for text in hinweise)     # ausdrücklich Vorgabe, keine Sitzung
+    assert any("OpenRouter" in text and "kostenpflichtig" in text for text in hinweise)  # Provider immer sichtbar
+
+
+def test_modell_eintraege_workflow_nur_deaktivierter_hinweis():
+    eintraege = anzeige.modell_eintraege(_stand(worker="workflow"))
+
+    assert len(eintraege) == 1
+    assert eintraege[0].hinweis and not eintraege[0].aktiv and "Workflow" in eintraege[0].text
+
+
+def test_modell_eintraege_hermes_genau_die_feste_kennung():
+    eintraege = anzeige.modell_eintraege(_stand(worker="hermes", modell=modi.HERMES_MODELL))
+    wahl = [e for e in eintraege if e.aktiv]
+
+    assert [e.text for e in wahl] == ["DeepSeek V4.1 Flash"]
+    assert wahl[0].wert == modi.HERMES_MODELL and wahl[0].haken
+    assert any("OpenRouter" in e.text and "kostenpflichtig" in e.text for e in eintraege if e.hinweis)
+
+
+def test_modell_eintraege_dynamische_namen_und_gesetztes_haken():
+    eintraege = anzeige.modell_eintraege(_stand(
+        worker="codex", modell="gpt-6-luna",
+        kataloge=[_katalog("codex", ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-sol", "GPT-6 Sol"))]))
+
+    assert [e.text for e in eintraege if e.aktiv] == ["GPT-6 Luna", "GPT-6 Sol"]
+    assert [e.wert for e in eintraege if e.haken] == ["gpt-6-luna"]
+    assert not any(e.text == anzeige.STANDARD_MODELL for e in eintraege)   # gespeichertes Modell steht
+
+
+def test_modell_eintraege_standard_ist_bewusst_waehlbar():
+    eintraege = anzeige.modell_eintraege(_stand(
+        worker="claude", modell=None, kataloge=[_katalog("claude", ("opus", "Opus"))]))
+    standard = next(e for e in eintraege if e.text == anzeige.STANDARD_MODELL)
+
+    assert standard.aktiv and standard.wert is None and standard.haken
+    assert [e.wert for e in eintraege if e.aktiv] == ["opus", None]
+
+
+def test_modell_eintraege_veralteter_katalog_sperrt_die_neuauswahl():
+    eintraege = anzeige.modell_eintraege(_stand(
+        worker="codex", modell="gpt-6-luna",
+        kataloge=[_katalog("codex", ("gpt-6-luna", "GPT-6 Luna"), veraltet=True)]))
+
+    assert any("veraltet" in e.text for e in eintraege if e.hinweis)
+    assert not any(e.aktiv for e in eintraege if e.wert is not None)
+
+
+def test_modell_eintraege_katalogfehler_wird_genannt():
+    eintraege = anzeige.modell_eintraege(_stand(
+        worker="codex", kataloge=[_katalog("codex", ("gpt-6-luna", "GPT-6 Luna"),
+                                           fehler="Zeitüberschreitung")]))
+
+    assert any("Zeitüberschreitung" in e.text for e in eintraege if e.hinweis)
+    assert not any(e.aktiv for e in eintraege if e.wert is not None)
+
+
+def test_modell_eintraege_fehlender_katalog_nennt_modelle_aktualisieren():
+    eintraege = anzeige.modell_eintraege(_stand(worker="codex"))
+
+    assert any(anzeige.MODELLE_AKTUALISIEREN in e.text for e in eintraege if e.hinweis)
+    assert not any(e.aktiv and e.wert is not None for e in eintraege)
+
+
+def test_modell_eintraege_gespeichertes_nicht_bestaetigtes_modell_nach_refresh():
+    eintraege = anzeige.modell_eintraege(_stand(
+        worker="codex", modell="gpt-6-alt",
+        kataloge=[_katalog("codex", ("gpt-6-luna", "GPT-6 Luna"))]))
+    alt = next(e for e in eintraege if "gespeichert" in e.text)
+
+    assert alt.text == "gpt-6-alt (gespeichert, nicht bestätigt)"
+    assert not alt.aktiv and alt.haken                       # sichtbar, zur Neuauswahl deaktiviert
+    assert [e.wert for e in eintraege if e.aktiv] == ["gpt-6-luna"]   # nie still ersetzt
+
+
+def test_rollen_zeilen_meldungen_und_schutzhinweis():
+    zeilen = anzeige.rollen_zeilen("engineering",
+                                   _stand(master="claude", worker="codex", modell="gpt-6-luna"), True)
+
+    assert zeilen[0] == "engineering: Master Claude Code · Ausführer Codex · Ausführermodell gpt-6-luna"
+    assert "ChatGPT-Abo" in zeilen[1]
+    assert "keine Sitzung gestartet" in zeilen[2] and "lassen dieses Thema aus" in zeilen[2]
+
+
+def test_rollen_zeilen_ohne_schutz_nennen_den_kontingentweg():
+    zeilen = anzeige.rollen_zeilen("engineering", _stand(), False)
+    assert "Kontingentweg offen" in zeilen[2]
+
+
+def test_rollen_meldungen_sind_codegenau():
+    assert anzeige.master_meldung("engineering", "hermes") == \
+        "engineering: Master Hermes gespeichert – keine Sitzung gestartet."
+    assert anzeige.ausfuehrer_meldung("engineering", "claude", None) == \
+        "engineering: Ausführer Claude Code gespeichert – Ausführermodell Standard des Werkzeugs · keine Sitzung gestartet."
+    assert anzeige.modell_meldung("engineering", modi.HERMES_MODELL) == \
+        "engineering: Ausführermodell DeepSeek V4.1 Flash gespeichert – keine Sitzung gestartet."
+
+
+def test_katalog_zeilen_nennen_nur_fehler_und_veraltetes():
+    assert anzeige.katalog_zeilen([_katalog("codex", ("a", "A"))]) == []
+    assert anzeige.katalog_zeilen([_katalog("codex", fehler="Zeitüberschreitung")]) == \
+        ["Modellkatalog Codex: Zeitüberschreitung"]
+    assert anzeige.katalog_zeilen(
+        [_katalog("claude", ("opus", "Opus"), veraltet=True)]) == \
+        ["Modellkatalog Claude Code: veraltet oder leer – " + anzeige.MODELLE_AKTUALISIEREN]
+
+
+def test_katalog_ausgabe_fuer_die_cli():
+    stand = Katalogstand("codex", (("gpt-6-luna", "GPT-6 Luna"),),
+                         "2026-10-16T12:00:00+00:00", None, False)
+    zeilen = anzeige.katalog_ausgabe(stand)
+
+    assert zeilen[0] == "Codex: Codex-Modelle aus dem ChatGPT-Abo"
+    assert any("Stand: 2026-10-16T12:00:00+00:00" in zeile for zeile in zeilen)
+    assert any(zeile.strip() == "GPT-6 Luna  gpt-6-luna" for zeile in zeilen)
+
+    leer = anzeige.katalog_ausgabe(Katalogstand("claude"))
+    assert any("keine Modelle ermittelt" in zeile for zeile in leer)

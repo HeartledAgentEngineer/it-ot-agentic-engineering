@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from master_schalter import anzeige, automatik, cli, signale
+from master_schalter import anzeige, automatik, cli, modi, modelle, paare, signale
 
 
 @pytest.fixture
@@ -13,6 +13,33 @@ def daten(tmp_path, monkeypatch):
     monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path / "daten"))
     monkeypatch.setenv("MASTER_SCHALTER_CODEX_SESSIONS", str(tmp_path / "codex"))
     return tmp_path / "daten"
+
+
+@pytest.fixture
+def rollen(tmp_path, monkeypatch):
+    """Synthetisches Thema mit Paar und Repository – keine echten Prozesse, kein Netz."""
+    monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path / "daten"))
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    monkeypatch.setenv("MASTER_SCHALTER_REPO", str(repo))
+    paare.setzen("engineering", "01a12557-3bb3-7171-a021-53e6ac879534",
+                 paare.laufend_bilden("engineering"), aktiv=True)
+    return tmp_path
+
+
+def _katalog_schreiben(provider, *eintraege, fehler=None, veraltet=False):
+    from datetime import datetime, timedelta, timezone
+    pfad = modelle.datei()
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        roh = json.loads(pfad.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {"version": 1, "anbieter": {}}
+    zeit = (datetime.now(timezone.utc) - timedelta(hours=25) if veraltet
+            else datetime.now(timezone.utc)).isoformat()
+    roh["anbieter"][provider] = {"zeit": zeit, "fehler": fehler,
+                                 "modelle": [{"id": kennung, "name": name} for kennung, name in eintraege]}
+    pfad.write_text(json.dumps(roh, ensure_ascii=False), encoding="utf-8")
 
 
 def test_statuszeile_speichert_und_zeigt(daten, monkeypatch, capsys):
@@ -59,7 +86,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.3.5" in capsys.readouterr().out
+    assert "0.4.0" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
@@ -200,3 +227,153 @@ def test_automatik_an_aus_cli(daten, capsys):
     assert cli.main(["automatik", "aus"]) == 0
     assert anzeige.automatik_an() is False
     assert "an" in capsys.readouterr().out
+
+
+# --- Rollenprofile, Ausführermodelle und Katalog-CLI (v0.4.0) ------------------
+
+
+def test_profil_zeigt_master_ausfuehrer_und_modell(rollen, capsys):
+    assert cli.main(["master-setzen", "engineering", "hermes"]) == 0
+    assert cli.main(["worker-setzen", "engineering", "codex"]) == 0
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"))
+    assert cli.main(["modell-setzen", "engineering", "gpt-6-luna"]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["profil", "engineering"]) == 0
+
+    aus = capsys.readouterr().out
+    assert "engineering: Master Hermes · Ausführer Codex · Ausführermodell gpt-6-luna" in aus
+    assert "ChatGPT-Abo" in aus and "keine Sitzung gestartet" in aus
+
+
+def test_profil_json_ist_maschinenlesbar(rollen, capsys):
+    assert cli.main(["worker-setzen", "engineering", "hermes"]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["profil", "engineering", "--json"]) == 0
+
+    daten = json.loads(capsys.readouterr().out)
+    assert daten == {"thema": "engineering", "master": "kontingent", "worker": "hermes",
+                     "modell": modi.HERMES_MODELL, "modell_standard": False, "geschuetzt": False}
+
+
+def test_profil_json_standardmodell_und_schutz(rollen, capsys):
+    cli.main(["worker-setzen", "engineering", "codex"])
+    cli.main(["master-setzen", "engineering", "claude"])
+    capsys.readouterr()
+
+    assert cli.main(["profil", "engineering", "--json"]) == 0
+
+    daten = json.loads(capsys.readouterr().out)
+    assert (daten["master"], daten["worker"]) == ("claude", "codex")
+    assert daten["modell"] is None and daten["modell_standard"] is True
+    assert daten["geschuetzt"] is True
+
+
+def test_master_setzen_cli_fehler_exit1_ohne_nebenwirkung(rollen, capsys):
+    assert cli.main(["master-setzen", "engineering", "gemini"]) == 1
+    aus = capsys.readouterr()
+    assert "Master nicht gesetzt" in aus.err and "Traceback" not in aus.err
+    assert modi.profil("engineering") == modi.Profil()
+    assert cli.main(["master-setzen", "gibtsnicht", "hermes"]) == 1
+    assert "Master nicht gesetzt" in capsys.readouterr().err
+
+
+def test_worker_setzen_cli_meldet_standard_modell(rollen, capsys):
+    cli.main(["master-setzen", "engineering", "hermes"])
+    capsys.readouterr()
+
+    assert cli.main(["worker-setzen", "engineering", "codex"]) == 0
+
+    aus = capsys.readouterr().out
+    assert "Ausführer Codex gespeichert" in aus and "Standard des Werkzeugs" in aus
+    assert modi.profil("engineering") == modi.Profil("hermes", "codex", None)
+
+
+def test_worker_setzen_cli_lehnt_unbekanntes_ab(rollen, capsys):
+    assert cli.main(["worker-setzen", "engineering", "opus"]) == 1
+    assert "Ausführer nicht gesetzt" in capsys.readouterr().err
+    assert modi.profil("engineering") == modi.Profil()
+    assert cli.main(["worker-setzen", "engineering", "workflow"]) == 0
+
+
+def test_modell_setzen_cli_hermes_nur_die_feste_kennung(rollen, capsys):
+    cli.main(["worker-setzen", "engineering", "hermes"])
+    capsys.readouterr()
+
+    assert cli.main(["modell-setzen", "engineering", "standard"]) == 1
+    assert modi.HERMES_MODELL in capsys.readouterr().err
+    assert cli.main(["modell-setzen", "engineering", modi.HERMES_MODELL]) == 0
+    assert modi.profil("engineering").modell == modi.HERMES_MODELL
+
+
+def test_modell_setzen_cli_veralteter_katalog_exit1_und_danach_gelingt(rollen, capsys):
+    cli.main(["worker-setzen", "engineering", "codex"])
+    capsys.readouterr()
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), veraltet=True)
+    vorher = modi.datei().read_bytes()
+
+    assert cli.main(["modell-setzen", "engineering", "gpt-6-luna"]) == 1
+    assert "veraltet" in capsys.readouterr().err
+    assert modi.datei().read_bytes() == vorher
+
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"))
+    assert cli.main(["modell-setzen", "engineering", "gpt-6-luna"]) == 0
+    assert modi.profil("engineering").modell == "gpt-6-luna"
+
+
+def test_profil_unlesbare_modusdatei_exit1(rollen, capsys):
+    modi.datei().parent.mkdir(parents=True, exist_ok=True)
+    modi.datei().write_text("{kaputt", encoding="utf-8")
+
+    assert cli.main(["profil", "engineering"]) == 1
+    assert "Profil nicht lesbar" in capsys.readouterr().err
+
+
+def test_modelle_zeigt_kataloge_und_json(rollen, capsys):
+    _katalog_schreiben("codex", ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-sol", "GPT-6 Sol"))
+
+    assert cli.main(["modelle", "codex"]) == 0
+    aus = capsys.readouterr().out
+    assert "GPT-6 Luna  gpt-6-luna" in aus and "ChatGPT-Abo" in aus
+
+    assert cli.main(["modelle", "codex", "--json"]) == 0
+    daten = json.loads(capsys.readouterr().out)
+    assert daten[0]["provider"] == "codex" and daten[0]["fehler"] is None
+    assert daten[0]["modelle"] == [{"id": "gpt-6-luna", "name": "GPT-6 Luna"},
+                                   {"id": "gpt-6-sol", "name": "GPT-6 Sol"}]
+
+    assert cli.main(["modelle"]) == 0
+    aus = capsys.readouterr().out
+    assert "Codex" in aus and "Claude Code" in aus
+
+
+def test_modelle_unbekannter_provider_exit1(rollen, capsys):
+    assert cli.main(["modelle", "gemini"]) == 1
+    assert "Unbekannter Modellprovider" in capsys.readouterr().err
+
+
+def test_modelle_aktualisieren_ohne_prozess_und_fehler_exit1(rollen, monkeypatch, capsys):
+    gerufen = []
+    monkeypatch.setattr(cli.modelle, "alle_aktualisieren",
+                        lambda: gerufen.append("alle") or {"claude": modelle.Katalog("claude"),
+                                                           "codex": modelle.Katalog("codex")})
+
+    assert cli.main(["modelle", "--aktualisieren"]) == 0
+    assert gerufen == ["alle"]
+    assert "Codex" in capsys.readouterr().out
+
+    monkeypatch.setattr(cli.modelle, "aktualisieren",
+                        lambda provider: gerufen.append(provider) or
+                        modelle.Katalog(provider, fehler="Zeitüberschreitung"))
+    assert cli.main(["modelle", "codex", "--aktualisieren"]) == 1
+    aus = capsys.readouterr()
+    assert gerufen == ["alle", "codex"]
+    assert "Modellkatalog nicht ermittelt" in aus.err and "Zeitüberschreitung" in aus.err
+
+
+def test_modelle_json_bei_leerem_cache_exit0(rollen, capsys):
+    assert cli.main(["modelle", "--json"]) == 0
+    daten = json.loads(capsys.readouterr().out)
+    assert [eintrag["provider"] for eintrag in daten] == ["claude", "codex"]
+    assert all(eintrag["modelle"] == [] and eintrag["veraltet"] is True for eintrag in daten)

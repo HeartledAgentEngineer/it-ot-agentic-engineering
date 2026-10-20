@@ -4,13 +4,15 @@ Manuell ausgelöst (Bestätigungsdialog im Menü oder `masterwechsel rueckgabe -
 jeweils unter der OS-Themensperre:
 
 1. Master erneut prüfen (nicht Codex ⇒ überspringen; schützt gegen einen parallelen Rückwechsel).
-2. Kopfzeile **lesend** prüfen (`nein`/fehlend/ungültig ⇒ überspringen, schreibfrei).
-3. Besitz reservieren (`reserviert <id> <Zeit> vorzustand <alte-marke>`, compare-and-write) – der
+2. Eigene Modus-Zwischenmarke (`reserviert modus <thema> <ziel> <Zeit>`) fail-closed stoppen –
+   keine Deutung als Reservierung, kein Handoff-Lesen, kein Vorgang, kein Versand.
+3. Kopfzeile **lesend** prüfen (`nein`/fehlend/ungültig ⇒ überspringen, schreibfrei).
+4. Besitz reservieren (`reserviert <id> <Zeit> vorzustand <alte-marke>`, compare-and-write) – der
    Vorzustand liegt damit **dauerhaft** in der Reservierungszeile.
-4. Kopfzeile auf `ja · jetzt · HEAD` ziehen (nur aus `ja`; die strenge Automatik-Prüfung bleibt
+5. Kopfzeile auf `ja · jetzt · HEAD` ziehen (nur aus `ja`; die strenge Automatik-Prüfung bleibt
    unverändert – nur dieser bestätigte manuelle Weg darf ziehen).
-5. Vorgang write-ahead Phase `sende` anlegen (id = lauf_id = `rueckgabe-<thema>-<yyyymmddHHMMSS>-<4Hex>`).
-6. Besitzmarke `codex <id>` setzen, Nachricht senden (`codex.exe queue --thread …`).
+6. Vorgang write-ahead Phase `sende` anlegen (id = lauf_id = `rueckgabe-<thema>-<yyyymmddHHMMSS>-<4Hex>`).
+7. Besitzmarke `codex <id>` setzen, Nachricht senden (`codex.exe queue --thread …`).
 
 Jeder Abbruch vor dem Transportstart stellt den gemerkten Vorzustand exakt wieder her (compare-and-
 write gegen den jeweils eigenen Stand; nie bleibt eine Waise zurück). Fehler NACH Prozessstart
@@ -148,14 +150,19 @@ def _ein_thema(paar: paare.Paar, *, repo: Path, jetzt: datetime, hinweis: str | 
         if not frei:
             return automatik.Stand(paar.thema, "Thema gesperrt – später erneut versuchen")
         try:
-            if modi.geschuetzt(paar.thema, repo=repo, laufend=paar.laufend):
-                return automatik.Stand(paar.thema, "Hermes führt – keine Codex-Master-Rückgabe")
+            fuehrt = modi.fuehrt(paar.thema, repo=repo, laufend=paar.laufend)
         except modi.ModusFehler as fehler:
             return automatik.Stand(paar.thema, f"Modusstatus fehlerhaft – keine Rückgabe ({fehler})", "fehler")
+        if fuehrt is not None:
+            return automatik.Stand(paar.thema, f"{fuehrt} führt – keine Codex-Master-Rückgabe")
         # 1) Master unter der Sperre erneut prüfen (schützt gegen parallelen Rückwechsel)
         if zustand.lesen().master != "codex":
             return automatik.Stand(paar.thema, "Master ist nicht Codex – übersprungen")
-        # 2) Kopfzeile LESEND prüfen – schreibfrei bei nein/fehlt/ungültig
+        # 2) Eigene Modus-Zwischenmarke VOR jeder reserviert/lauf-id-Deutung fail-closed stoppen.
+        if modi.ist_zwischenmarke(besitz.lesen(master_pfad), paar.thema):
+            return automatik.Stand(paar.thema, "Modusumschaltung unvollständig – eigene "
+                                               "Zwischenmarke steht; nichts gesendet", "modus")
+        # 3) Kopfzeile LESEND prüfen – schreibfrei bei nein/fehlt/ungültig
         kopf = automatik.kopfzeile_lesen(laufend_datei)
         if kopf is None:
             return automatik.Stand(paar.thema, "Übergabestand fehlt/ungültig – Kopfzeile bewusst "
