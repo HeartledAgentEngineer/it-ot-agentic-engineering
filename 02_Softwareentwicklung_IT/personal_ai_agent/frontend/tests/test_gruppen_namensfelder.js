@@ -107,7 +107,9 @@ console.log('Verdrahtung index.html / style.css / gruppen_quiz.js');
      'gruppen-person-namensfelder-hinweis'].forEach((id) => {
         pruefe(html.indexOf('id="' + id + '"') !== -1, 'Feld im HTML: ' + id);
     });
-    pruefe(html.indexOf('gruppen_quiz.js?v=20261020C') !== -1,
+    // Mindestens der Stand dieser Änderung (spätere Änderungen zählen weiter hoch).
+    const version = (html.match(/gruppen_quiz\.js\?v=(\d{8}[A-Z])/) || [])[1] || '';
+    pruefe(version >= '20261020C',
         'Versionsstand hochgezählt (Browser holt die neue Datei)');
     pruefe(css.indexOf('.gruppen-namensfelder') !== -1, 'Stil für die Felderzeile vorhanden');
     pruefe(src.indexOf('gruppenNamensfelderKoerper(profil,') !== -1,

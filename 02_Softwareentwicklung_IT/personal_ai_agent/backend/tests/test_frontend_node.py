@@ -36,6 +36,7 @@ ZUORDNUNG = {
     "test_gruppen_namensfelder_ui.js": "gruppen_quiz.js",
     "test_gruppen_personenliste.js": "gruppen_quiz.js",
     "test_gruppen_wischen.js": "gruppen_quiz.js",
+    "test_gruppen_zeitgrenze.js": "gruppen_quiz.js",
     "test_wecken.js": "wecken.js",
     "test_sw_schluessel.js": "sw.js",
 }
