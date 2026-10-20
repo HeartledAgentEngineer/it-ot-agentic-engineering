@@ -163,24 +163,26 @@ class Settings(BaseSettings):
     # Kommagetrennte Modell-IDs.
     allowed_models_fallback: str = "deepseek/deepseek-v4.1-flash,deepseek/deepseek-v4-flash-0731,deepseek/deepseek-v4-flash"
 
-# Schnellauswahl in der Oberfläche, nach Preis gestaffelt. Alle vier am
-        # 11.08.2026 gegen /models/user geprüft. Wer hier nicht mehr nutzbar ist,
-        # wird ausgegraut statt still entfernt – sonst merkt man Änderungen nicht.
-        #   gpt-5-nano          sparsam
-        #   deepseek-0731-v4    Alltag (günstigster V4 Flash, Favorit Sebastian)
-        #   deepseek-v4-flash   Alltag, 1 Mio Kontext
-        #   deepseek-v4-pro     mehr Substanz
-        #   claude-sonnet-5     stark
-        # Preise stehen bewusst nicht hier: /models/user liefert die des jeweils
-        # routbaren Anbieters, die von den Katalogpreisen abweichen (V4 Flash
-        # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
+    # Schnellauswahl in der Oberfläche: **drei Stufen** statt sechs Einträge
+    # (Sebastian, 20.10.2026: „verschlanken"). Wer hier nicht mehr nutzbar ist,
+    # wird ausgegraut statt still entfernt – sonst merkt man Änderungen nicht.
+    #   deepseek-v4.1-flash  sparsam und Alltag (das eingestellte Modell oben)
+    #   deepseek-v4-pro      mehr Substanz, gleicher Anbieter
+    #   claude-sonnet-5      stark, anderer Anbieter
+    # Alle drei standen schon vorher in dieser Liste: es ist **keine** neue
+    # Modellwahl, es fällt nur der Doppelgänger weg. Was hier nicht steht,
+    # bleibt über „Alle Modelle" wählbar.
+    # Weggefallen am 20.10.2026: gpt-5-nano, deepseek-v4-flash,
+    # deepseek-v4-flash-0731 — drei Knöpfe für dieselbe Spar-Aufgabe, deren
+    # Preise um Faktor 8 auseinanderlagen (gemessen, Tafel im Changelog).
+    # Preise stehen bewusst nicht hier: /models/user liefert die des jeweils
+    # routbaren Anbieters, die von den Katalogpreisen abweichen (V4 Flash
+    # etwa 0,068/0,168 statt 0,14/0,28 $/Mio). Die Oberfläche zeigt sie live.
+    # Messung und Begründung: docs/changelog-2026-10-20-modell-favoriten-schlank.md
     favorite_models: List[str] = [
-    "openai/gpt-5-nano",
-    "deepseek/deepseek-v4.1-flash",
-    "deepseek/deepseek-v4-flash-0731",
-    "deepseek/deepseek-v4-flash",
-    "deepseek/deepseek-v4-pro",
-    "anthropic/claude-sonnet-5",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-pro",
+        "anthropic/claude-sonnet-5",
     ]
 
     # Wie lange die Modell-Liste im Speicher gecacht bleibt (Sekunden).
