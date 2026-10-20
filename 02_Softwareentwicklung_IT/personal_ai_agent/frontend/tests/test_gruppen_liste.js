@@ -719,57 +719,6 @@ async function markingsAddedDuringExcludeSurvive() {
     assert.equal(app.el('gruppen-alle-ausschliessen').disabled, false);
 }
 
-/** Gruppenfilter in „Benannt“ (S5, 16.10.2026): Gruppenauswahl, UND mit der
- *  Namenssuche, „Filter zurücksetzen“ leert beide — und die Liste bleibt stabil. */
-async function personenGruppenFilterInBenannt() {
-    const app = harness(async (url) => {
-        const path = new URL(url).pathname + new URL(url).search;
-        if (path === '/api/gruppen/naechste') return quizGruppe();
-        if (path === '/api/gruppen/stand' || path.startsWith('/api/gruppen/suche')) return response({ ok: true, treffer: [] });
-        if (path === '/api/gruppen/personen') return response({ ok: true, personen: [
-            { name: 'Anna', vorschlaege: 2, gesichter: 130, beispiel: null, gruppen: [
-                { kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' },
-                { kennung: 'Person_1002', groesse: 10, von: null, bis: null }] },
-            { name: 'Tim', vorschlaege: 1, gesichter: 5, beispiel: null, gruppen: [
-                { kennung: 'Person_1004', groesse: 5, von: null, bis: null }] }] });
-        throw new Error('Unerwarteter Request: ' + path);
-    });
-    const waehlen = (kennung) => {
-        const feld = app.el('gruppen-benannt-gruppe');
-        feld.value = kennung;
-        (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
-    };
-    await app.el('gruppen-btn').click(); await settle();
-    await app.el('gruppen-reiter-benannt').click(); await settle();
-    const liste = app.el('gruppen-benannt-liste');
-    const feld = app.el('gruppen-benannt-gruppe');
-    assert.equal(liste.children.length, 2, 'ohne Filter: beide Personen');
-    assert.equal(feld.children.length, 4, 'Auswahl: „Alle Gruppen“ + die drei Gruppen beider Personen');
-    assert.equal(feld.children[0].textContent, 'Alle Gruppen');
-    assert.equal(feld.children[1].textContent, 'Vorschlag 1001 · 120 Gesichter · 2015–2025');
-    waehlen('Person_1001');
-    assert.equal(liste.children.length, 1, 'nur die Person mit dieser Gruppe');
-    assert.ok(liste.children[0].textContent.includes('Anna'));
-    assert.ok(app.el('gruppen-benannt-info').textContent.includes('Vorschlag 1001'));
-    app.el('gruppen-benannt-filter').value = 'Tim';                  // Suche UND Gruppe
-    waehlen('Person_1001');
-    assert.equal(liste.children.length, 0);
-    assert.ok(app.el('gruppen-benannt-info').textContent.includes('Keine Person passt'));
-    await app.el('gruppen-benannt-filter-zuruecksetzen').click();
-    assert.equal(app.el('gruppen-benannt-filter').value, '');
-    assert.equal(feld.value, '');
-    assert.equal(liste.children.length, 2, 'Zurücksetzen zeigt wieder alle');
-    assert.ok(!app.el('gruppen-benannt-info').textContent.includes('Gruppe'));
-    waehlen('Person_1004');
-    assert.equal(liste.children.length, 1);
-    assert.ok(liste.children[0].textContent.includes('Tim'));
-    // Ansichtswechsel: die Personenliste wird frisch geladen, der Filter bleibt gültig.
-    await app.el('gruppen-reiter-offen').click(); await settle();
-    await app.el('gruppen-reiter-benannt').click(); await settle();
-    assert.equal(liste.children.length, 1, 'gewählte Gruppe überlebt das Neuladen');
-    assert.equal(feld.value, 'Person_1004');
-}
-
 async function aufloesenRuntime() {
     // To-do Punkt 14 (18.10.2026): „Auflösen" nimmt nur den Gruppeneintrag aus der
     // Liste — erst zaehlt der Server (Trockenlauf), dann schreibt er. Der Umkehrweg
@@ -863,7 +812,7 @@ process.on('exit', () => {
         lateSaveAnswerDoesNotReplaceOtherDetail, lateUndoAnswerDoesNotReplaceOtherDetail,
         detailLoadingIsVisibleAndErrorToo, latePersonAnswerDoesNotHideGroupDetail,
         lateExcludeAnswerDoesNotTouchOtherFaceList, lateAssignAnswerDoesNotTouchOtherFaceList,
-        markingsAddedDuringExcludeSurvive, personenGruppenFilterInBenannt,
+        markingsAddedDuringExcludeSurvive,
         overviewRuntime, paginationRuntime, staleResponseAfterFilterAndClose, staleDetailAfterClose,
         failedDetailDoesNotShowPreviousGroup, aufloesenRuntime, uebersichtKnopfNurInOffen];
     let rot = 0;
@@ -875,5 +824,5 @@ process.on('exit', () => {
     }
     beendet = true;
     if (rot) { process.exitCode = 1; return; }
-    console.log('Gruppenübersicht Runtime: Filter, Seiten, Detail, Zurück, Reaktivieren, verspätete Antworten, Alle-Gesichter-Zurück und Rückkehr nach Statusaktion, verspätete Speicher-/Rückgängig-Antworten und sichtbarer Detail-Ladestatus, verspätete Personen-/Ausschließen-/Zuordnen-Antworten grün, Gruppenfilter in „Benannt“ (Gruppenauswahl, UND mit der Suche, Zurücksetzen) grün');
+    console.log('Gruppenübersicht Runtime: Filter, Seiten, Detail, Zurück, Reaktivieren, verspätete Antworten, Alle-Gesichter-Zurück und Rückkehr nach Statusaktion, verspätete Speicher-/Rückgängig-Antworten und sichtbarer Detail-Ladestatus, verspätete Personen-/Ausschließen-/Zuordnen-Antworten grün');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

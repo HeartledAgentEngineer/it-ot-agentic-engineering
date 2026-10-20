@@ -1,6 +1,7 @@
 // Runtime-Vertrag für die Personenauswahl als alphabetische Liste (S8, 18.10.2026,
 // To-do Punkt 10): sortiert, Suchzeile, Sprungmarken — und die Vorschlags-Zahl
-// steht nicht mehr in der Zeile. Die echten UI-Handler laufen in einer kleinen
+// steht nicht mehr in der Zeile. Seit 20.10.2026: kein Gruppenfilter mehr, dafür
+// die Sortierung „Alphabetisch“ / „Meiste Fotos zuerst“. Die echten UI-Handler laufen in einer kleinen
 // DOM-Umgebung; nur HTTP-Antworten sind kontrollierte Attrappen.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -289,11 +290,10 @@ async function erinnerungsFilterTrenntUndZuruecksetzenLeert() {
     (suche.listeners.get('input') || []).forEach((fn) => fn({ target: suche }));
     assert.deepEqual(namen(app), ['Anna'], 'Suche und Erinnerungsfilter zusammen');
 
-    // „Filter zurücksetzen" leert Suche, Gruppe UND Erinnerung.
+    // „Filter zurücksetzen" leert Suche UND Erinnerung.
     await app.el('gruppen-benannt-filter-zuruecksetzen').click();
     assert.equal(feld.value, '', 'der Erinnerungsfilter bleibt stehen');
     assert.equal(suche.value, '', 'die Suchzeile bleibt stehen');
-    assert.equal(app.el('gruppen-benannt-gruppe').value, '');
     assert.equal(zeilenTexte(app).length, 4, 'nach dem Zurücksetzen fehlen Personen');
     assert.equal(app.el('gruppen-benannt-info').textContent.includes('Erinnerung'), false,
         'die Infozeile nennt weiter einen Erinnerungsfilter');
@@ -426,6 +426,148 @@ async function erinnerungsFilterOhneTreffer() {
     assert.equal(zeilenTexte(app).length, 2, 'unbekannter Wert filtert weg');
 }
 
+// ── Sortierung „Alphabetisch“ / „Meiste Fotos zuerst“ (20.10.2026) ──────────
+
+function sortierungWaehlen(app, wert) {
+    const feld = app.el('gruppen-benannt-sortierung');
+    feld.value = wert;
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+}
+
+function erinnerungWaehlen(app, wert) {
+    const feld = app.el('gruppen-benannt-erinnerung');
+    feld.value = wert;
+    (feld.listeners.get('change') || []).forEach((fn) => fn({ target: feld }));
+}
+
+function suchen(app, text) {
+    const feld = app.el('gruppen-benannt-filter');
+    feld.value = text;
+    (feld.listeners.get('input') || []).forEach((fn) => fn({ target: feld }));
+}
+
+function sortierungImHtml() {
+    // Der Gruppenfilter ist weg, an seiner Stelle steht die Sortierung (kein Filter).
+    assert.equal(html.includes('gruppen-benannt-gruppe'), false, 'der Gruppenfilter steht noch im HTML');
+    assert.equal(source.includes('gruppen-benannt-gruppe'), false, 'der Gruppenfilter steht noch im Skript');
+    assert.equal(html.includes('<option value="">Alle Gruppen</option>'), false,
+        'die Auswahl „Alle Gruppen“ steht noch im HTML');
+    const block = (html.match(/<select id="gruppen-benannt-sortierung"[\s\S]*?<\/select>/) || [])[0] || '';
+    assert.ok(block, 'das Auswahlfeld für die Sortierung fehlt im HTML');
+    assert.ok(/aria-label="Sortierung der Personenliste"/.test(block), 'die Auswahl hat nicht die erwartete Beschriftung');
+    assert.ok(/<option value="">Alphabetisch<\/option>/.test(block), 'die Auswahl „Alphabetisch“ fehlt');
+    assert.ok(/<option value="meiste">Meiste Fotos zuerst<\/option>/.test(block), 'die Auswahl „Meiste Fotos zuerst“ fehlt');
+    assert.ok(html.includes('id="gruppen-benannt-erinnerung"'), 'der Erinnerungsfilter muss bleiben');
+    assert.ok(html.includes('id="gruppen-benannt-filter"'), 'die Personensuche muss bleiben');
+    assert.ok(html.indexOf('id="gruppen-benannt-sortierung"') < html.indexOf('id="gruppen-benannt-erinnerung"'),
+        'die Sortierung steht nicht an der Stelle des Gruppenfilters');
+    const vQuiz = (html.match(/gruppen_quiz\.js\?v=([0-9A-Z]+)/) || [])[1] || '';
+    assert.ok(vQuiz >= '20261020B', 'gruppen_quiz.js-Cache-Schluessel zu alt: ' + vQuiz);
+}
+
+async function sortierungMeisteFotosZuerst() {
+    // Server liefert ungeordnet; „gesichter“ = Zahl der erkannten Gesichter.
+    const app = personenApp([person('Cem', { gesichter: 10 }), person('Anna', { gesichter: 120 }),
+        person('Bea', { gesichter: 10 }), person('Dana', { gesichter: 300 }), person('Emil')]);
+    await listeOeffnen(app);
+    assert.deepEqual(namen(app), ['Anna', 'Bea', 'Cem', 'Dana', 'Emil'].map((n) => n), 'Standard ist alphabetisch');
+    assert.equal(app.el('gruppen-benannt-sortierung').value, '', 'Standard der Auswahl ist „Alphabetisch“');
+    assert.equal(app.el('gruppen-benannt-sprung').hidden, false, 'alphabetisch zeigt die Sprungleiste');
+
+    sortierungWaehlen(app, 'meiste');
+    // 300, 120, dann Gleichstand (10) alphabetisch: Bea vor Cem, dann Emil (5).
+    assert.deepEqual(namen(app), ['Dana', 'Anna', 'Bea', 'Cem', 'Emil'], 'meiste Fotos: ' + namen(app).join());
+    const info = app.el('gruppen-benannt-info').textContent;
+    assert.ok(info.includes('meiste Fotos zuerst') && !info.includes('alphabetisch'), 'Infozeile: ' + info);
+    const leiste = app.el('gruppen-benannt-sprung');
+    assert.equal(leiste.hidden, true, 'bei „Meiste Fotos“ bleibt die Sprungleiste weg');
+    assert.equal(leiste.children.length, 0, 'es stehen noch Sprungmarken da');
+    const liste = app.el('gruppen-benannt-liste');
+    assert.equal(liste.children.some((z) => z.attributes && z.attributes['data-sprung']), false,
+        'die Zeilen tragen noch Sprungmarken');
+
+    sortierungWaehlen(app, '');
+    assert.deepEqual(namen(app), ['Anna', 'Bea', 'Cem', 'Dana', 'Emil'], 'zurück zu alphabetisch');
+    assert.ok(app.el('gruppen-benannt-info').textContent.includes('alphabetisch'));
+    assert.equal(app.el('gruppen-benannt-sprung').hidden, false, 'die Sprungleiste kommt zurück');
+    assert.ok(liste.children.some((z) => z.attributes && z.attributes['data-sprung']), 'Sprungmarken fehlen wieder');
+    // Unsinniger Wert = alphabetisch.
+    sortierungWaehlen(app, 'zufall');
+    assert.deepEqual(namen(app), ['Anna', 'Bea', 'Cem', 'Dana', 'Emil']);
+}
+
+async function filterUndSortierungWirkenZusammen() {
+    const app = personenApp([person('Anna', { gesichter: 50, erinnerungen: 1 }), person('Bea', { gesichter: 200 }),
+        person('Cem', { gesichter: 80 }), person('Dana', { gesichter: 90, erinnerungen: 2 }),
+        person('Dario', { gesichter: 10 })]);
+    await listeOeffnen(app);
+    sortierungWaehlen(app, 'meiste');
+    assert.deepEqual(namen(app), ['Bea', 'Dana', 'Cem', 'Anna', 'Dario']);
+    // Erinnerungsfilter + Sortierung.
+    erinnerungWaehlen(app, 'ohne');
+    assert.deepEqual(namen(app), ['Bea', 'Cem', 'Dario'], 'ohne Erinnerung, meiste zuerst');
+    // Suche + Erinnerungsfilter + Sortierung.
+    erinnerungWaehlen(app, '');
+    suchen(app, 'da');
+    assert.deepEqual(namen(app), ['Dana', 'Dario'], 'Suche „da“, meiste zuerst');
+    erinnerungWaehlen(app, 'mit');
+    assert.deepEqual(namen(app), ['Dana']);
+    // Alphabetisch wirkt mit denselben Filtern.
+    erinnerungWaehlen(app, '');
+    sortierungWaehlen(app, '');
+    assert.deepEqual(namen(app), ['Dana', 'Dario'], 'Suche „da“, alphabetisch');
+}
+
+async function zuruecksetzenLaesstDieSortierungStehen() {
+    const app = personenApp([person('Anna', { gesichter: 5 }), person('Bea', { gesichter: 50, erinnerungen: 1 }),
+        person('Cem', { gesichter: 20 })]);
+    await listeOeffnen(app);
+    sortierungWaehlen(app, 'meiste');
+    erinnerungWaehlen(app, 'ohne');
+    suchen(app, 'c');
+    assert.deepEqual(namen(app), ['Cem']);
+    await app.el('gruppen-benannt-filter-zuruecksetzen').click();
+    assert.equal(app.el('gruppen-benannt-filter').value, '', 'die Suche bleibt stehen');
+    assert.equal(app.el('gruppen-benannt-erinnerung').value, '', 'der Erinnerungsfilter bleibt stehen');
+    assert.equal(app.el('gruppen-benannt-sortierung').value, 'meiste', 'das Zurücksetzen hat die Sortierung verstellt');
+    assert.deepEqual(namen(app), ['Bea', 'Cem', 'Anna'], 'Sortierung gilt nach dem Zurücksetzen weiter');
+    assert.equal(app.el('gruppen-benannt-sprung').hidden, true);
+    // Auch nach dem Neuladen der Liste (Ansichtswechsel) bleibt die Wahl.
+    await app.el('gruppen-reiter-offen').click(); await settle();
+    await app.el('gruppen-reiter-benannt').click(); await settle();
+    assert.deepEqual(namen(app), ['Bea', 'Cem', 'Anna'], 'die Sortierung überlebt das Neuladen');
+}
+
+function reineSortierung() {
+    const rein = personenApp([]).sandbox;
+    const roh = [{ name: 'Cem', gesichter: 10 }, { name: 'Anna', gesichter: 120 }, { name: 'Bea', gesichter: 10 },
+        { name: 'Öde', gesichter: '30' }, { name: 'Zoe' }, { name: 'Max', gesichter: 'viele' },
+        { name: 'Neg', gesichter: -4 }, { name: 'Leer', gesichter: null }];
+    const vorher = roh.map((p) => p.name).join('|');
+    const meiste = rein.gruppenPersonenSortiert(roh, 'meiste').map((p) => p.name);
+    // 120, 30, 10 (Bea vor Cem), dann alle ohne gültige Zahl (= 0) alphabetisch.
+    assert.deepEqual(meiste, ['Anna', 'Öde', 'Bea', 'Cem', 'Leer', 'Max', 'Neg', 'Zoe'], meiste.join());
+    assert.equal(roh.map((p) => p.name).join('|'), vorher, 'die Eingabeliste wurde verändert');
+    assert.notEqual(rein.gruppenPersonenSortiert(roh, 'meiste'), roh, 'es wird dieselbe Liste zurückgegeben');
+    const alpha = rein.gruppenPersonenSortiert(roh).map((p) => p.name);
+    assert.deepEqual(alpha, ['Anna', 'Bea', 'Cem', 'Leer', 'Max', 'Neg', 'Öde', 'Zoe'], alpha.join());
+    assert.deepEqual(rein.gruppenPersonenSortiert(roh, '').map((p) => p.name), alpha);
+    assert.deepEqual(rein.gruppenPersonenSortiert(roh, 'unsinn').map((p) => p.name), alpha, 'unbekannte Art = alphabetisch');
+    assert.equal(rein.gruppenPersonenSortiert(null, 'meiste').length, 0);
+    assert.equal(rein.gruppenPersonenSortiert('x', 'meiste').length, 0);
+    assert.equal(rein.gruppenGesichterZahl({ gesichter: 7 }), 7);
+    assert.equal(rein.gruppenGesichterZahl({ gesichter: 'x' }), 0);
+    assert.equal(rein.gruppenGesichterZahl(null), 0);
+    // Zusammen mit den Filtern: dieselbe Regel für Liste, Weiter-Weg und Wischen.
+    const gefiltert = rein.gruppenPersonenGefiltert(roh, 'c', '', 'meiste').map((p) => p.name);
+    assert.deepEqual(gefiltert, ['Cem']);
+    const ohne = rein.gruppenPersonenGefiltert([{ name: 'Anna', gesichter: 5, erinnerungen: 1 },
+        { name: 'Bea', gesichter: 9 }, { name: 'Cem', gesichter: 20 }], '', 'ohne', 'meiste').map((p) => p.name);
+    assert.deepEqual(ohne, ['Cem', 'Bea']);
+    assert.deepEqual(rein.gruppenPersonenGefiltert([{ name: 'Bea', gesichter: 9 }, { name: 'Anna', gesichter: 5 }],
+        '', '', '').map((p) => p.name), ['Anna', 'Bea'], 'ohne Sortierart alphabetisch');
+}
+
 let beendet = false;
 process.on('exit', () => {
     if (!beendet) { console.error('FEHLER: Prüfung wurde nicht beendet (hängende Anfrage?)'); process.exitCode = 1; }
@@ -435,7 +577,9 @@ process.on('exit', () => {
         sprungmarkenNurVorhandeneUndZumZiel, einBuchstabeOhneLeiste,
         vorschlaegeStehenNichtMehrInDerZeile, suchzeileFiltertUndSortiertNeu,
         erinnerungenNacheinanderDurchgehen,
-        erinnerungsFilterTrenntUndZuruecksetzenLeert, erinnerungsFilterOhneTreffer];
+        erinnerungsFilterTrenntUndZuruecksetzenLeert, erinnerungsFilterOhneTreffer,
+        sortierungImHtml, sortierungMeisteFotosZuerst, filterUndSortierungWirkenZusammen,
+        zuruecksetzenLaesstDieSortierungStehen, reineSortierung];
     let rot = 0;
     for (const pruefung of pruefungen) {
         try { await pruefung(); } catch (error) {
@@ -449,5 +593,6 @@ process.on('exit', () => {
         + 'Sprungmarken nur fuer vorhandene Buchstaben mit Markierung und Rollen, '
         + 'Vorschlags-Zahl aus der Zeile entfernt, Filter mit/ohne Erinnerung, '
         + 'Weiter-Knopf fuehrt der Reihe nach zu den Personen ohne Erinnerung, '
-        + 'Suchzeile und Gruppenfilter unveraendert grün');
+        + 'kein Gruppenfilter mehr, Sortierung alphabetisch / meiste Fotos zuerst '
+        + '(Gleichstand alphabetisch, Sprungleiste nur alphabetisch, Zurücksetzen lässt sie stehen) grün');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

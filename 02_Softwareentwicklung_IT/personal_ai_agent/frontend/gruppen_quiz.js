@@ -346,11 +346,36 @@ function gruppenSprungBuchstabe(name) {
     return treffer ? treffer[1] : '#';
 }
 
-/** Personen alphabetisch sortiert. Es wird kopiert — die Reihenfolge der
- *  Server-Antwort bleibt unberuehrt, gleiche Schluessel behalten ihre Ordnung. */
-function gruppenPersonenSortiert(personen) {
+// ── Sortierung der Personenliste: alphabetisch oder meiste Fotos (20.10.2026) ──
+//
+// Wunsch Sebastian: „… eine Sortierung haben … alphabetisch, aber auch mit den
+// meisten Bildern.“ „Meiste Fotos“ ist die Zahl der Gesichter, auf denen die
+// Person erkannt ist (``gesichter`` je Person vom Server) — nicht die Zahl
+// verschiedener Bilddateien.
+
+/** Gewählte Sortierart als Klartext: ``meiste`` oder leer (= alphabetisch). */
+function gruppenSortierArt(art) {
+    return String(art || '') === 'meiste' ? 'meiste' : '';
+}
+
+/** Zahl der erkannten Gesichter einer Person; fehlend oder ungültig = 0. */
+function gruppenGesichterZahl(p) {
+    const n = Number(p && p.gesichter);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Personen sortiert: ``art`` leer = alphabetisch, ``meiste`` = die meisten
+ *  Gesichter zuerst, bei Gleichstand alphabetisch (dieselbe Namensregel).
+ *  Es wird kopiert — die Reihenfolge der Server-Antwort bleibt unberuehrt,
+ *  gleiche Schluessel behalten ihre Ordnung. */
+function gruppenPersonenSortiert(personen, art) {
+    const nachZahl = gruppenSortierArt(art) === 'meiste';
     return (Array.isArray(personen) ? personen.slice() : [])
         .sort((a, b) => {
+            if (nachZahl) {
+                const d = gruppenGesichterZahl(b) - gruppenGesichterZahl(a);
+                if (d) return d;
+            }
             const ka = gruppenSortierName(a && a.name);
             const kb = gruppenSortierName(b && b.name);
             if (ka === kb) return 0;
@@ -368,23 +393,6 @@ function gruppenSprungmarken(personen) {
     const raus = da.filter((b) => b !== '#').sort();
     if (da.indexOf('#') !== -1) raus.push('#');
     return raus;
-}
-
-// ── Gruppenfilter in „Benannt“ (16.10.2026) ─────────────────────────────────
-//
-// Wunsch Sebastian: die Filterauswahl der Gruppenansicht auch in „Benannt“,
-// ohne die Ansicht umzubauen. Der Server liefert dafür je Person nur
-// Gruppenmetadaten (``kennung``, ``groesse``, ``von``, ``bis``) — keine Bilder.
-
-/** Gesichtsgruppen einer Person aus /api/gruppen/personen (immer eine Liste). */
-function gruppenPersonGruppen(p) {
-    return Array.isArray(p && p.gruppen) ? p.gruppen.filter((g) => g && g.kennung) : [];
-}
-
-/** Passt die gewählte Gesichtsgruppe? Leer = alle Personen. */
-function gruppenPersonPasstGruppe(p, gruppe) {
-    if (!gruppe) return true;
-    return gruppenPersonGruppen(p).some((g) => g.kennung === gruppe);
 }
 
 // ── Filter „mit/ohne Erinnerung" (S8-Rest, 18.10.2026) ─────────────────────
@@ -422,14 +430,14 @@ function gruppenErinnerungText(wahl) {
 // Personenprofils." Die Liste und der Filter stehen; hier kommt der Weg von
 // einer Person zur naechsten: die Aufnahme selbst gibt es im Profil schon (🎙).
 
-/** Die Personen einer Ansicht in Anzeige-Reihenfolge: Suchzeile, Gruppenauswahl
- *  und Erinnerungsfilter wirken zusammen (UND), sortiert wird alphabetisch —
- *  genau die Regel, nach der die Liste gezeichnet wird. */
-function gruppenPersonenGefiltert(personen, frage, gruppe, erinnerung) {
+/** Die Personen einer Ansicht in Anzeige-Reihenfolge: Suchzeile und
+ *  Erinnerungsfilter wirken zusammen (UND), ``sortierung`` (leer = alphabetisch,
+ *  ``meiste`` = meiste Fotos zuerst) bestimmt die Reihenfolge — genau die Regel,
+ *  nach der die Liste gezeichnet wird (auch Weiter-Weg und Wischen). */
+function gruppenPersonenGefiltert(personen, frage, erinnerung, sortierung) {
     return gruppenPersonenSortiert((Array.isArray(personen) ? personen : [])
         .filter((p) => gruppenPersonPasst(p && p.name, frage)
-            && gruppenPersonPasstGruppe(p, gruppe)
-            && gruppenPersonPasstErinnerung(p, erinnerung)));
+            && gruppenPersonPasstErinnerung(p, erinnerung)), sortierung);
 }
 
 /** Namen der Personen ohne Erinnerung, in Anzeige-Reihenfolge. */
@@ -475,7 +483,7 @@ function gruppenWeiterText(rest) {
 // Wischen nach links/rechts zur naechsten bzw. vorherigen Person wechseln
 // koennen … Gilt fuer Handy/Tablet; am PC zusaetzlich sinnvoll: Pfeiltasten
 // links/rechts.“ Gewischt wird in der ANGEZEIGTEN Reihe (gesetzte Filter plus
-// alphabetische Sortierung) — der Weiter-Knopf bleibt fuer die Reihe „ohne
+// gewaehlte Sortierung: alphabetisch oder meiste Fotos zuerst) — der Weiter-Knopf bleibt fuer die Reihe „ohne
 // Erinnerung“ zustaendig, das Wischen blaettert die ganze Ansicht.
 
 /** So weit muss der Finger wandern, damit es ein Wisch ist — und kein Tippen. */
@@ -545,29 +553,6 @@ function gruppenWischTaste(key) {
     return '';
 }
 
-/** Auswahlzeile einer Gruppe: „Vorschlag 1001 · 120 Gesichter · 2015–2025“. */
-function gruppenAuswahlText(g) {
-    if (!g) return '';
-    const teile = [];
-    const nummer = gruppenNummer(g.kennung);
-    teile.push(nummer || String(g.kennung));
-    teile.push(gruppenZahl(g.groesse) + ' Gesichter');
-    const zr = gruppenZeitraum(g.von, g.bis);
-    if (zr) teile.push(zr);
-    return teile.join(' · ');
-}
-
-/** Alle Gesichtsgruppen der geladenen Personen: ohne Doppelte, größte zuerst. */
-function gruppenAuswahlEintraege(personen) {
-    const nach = new Map();
-    (Array.isArray(personen) ? personen : []).forEach((p) => gruppenPersonGruppen(p).forEach((g) => {
-        const alt = nach.get(g.kennung);
-        if (!alt || (Number(g.groesse) || 0) > (Number(alt.groesse) || 0)) nach.set(g.kennung, g);
-    }));
-    return Array.from(nach.values()).sort((a, b) => (Number(b.groesse) || 0) - (Number(a.groesse) || 0)
-        || String(a.kennung).localeCompare(String(b.kennung)));
-}
-
 /** Kopf eines Vorschlags in der Personenansicht. */
 function gruppenVorschlagKopf(v) {
     if (!v) return '';
@@ -614,7 +599,7 @@ function gruppenNotizZeit(zeit) {
 
     const zustand = { gruppe: null, beschaeftigt: false, objektUrls: new Set(), namen: [], diktat: null,
                       reiter: 'offen', personen: [], person: null, listeAktiv: false,
-                      personenGruppe: '', personenErinnerung: '',
+                      personenErinnerung: '', personenSortierung: '',
                       listeStatus: 'offen', listeSeite: 1, listeSeiten: 0,
                       listenSequenz: 0, detailSequenz: 0, quizSequenz: 0, detailAktiv: false,
                       // Gemeinsamer Mechanismus gegen verspätete Antworten: ``ansichtSequenz``
@@ -1368,35 +1353,11 @@ function gruppenNotizZeit(zeit) {
         if (!antwort || antwort.ok !== true) {
             zustand.personen = [];
             if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.');
-            gruppenAuswahlFuellen();
             personenZeigen();
             return;
         }
         zustand.personen = antwort.personen || [];
-        gruppenAuswahlFuellen();
         personenZeigen();
-    }
-
-    /** Auswahlfeld „Gruppe“ füllen: alle Gesichtsgruppen der geladenen Personen.
-     *  Die gewählte Gruppe bleibt stehen, solange es sie noch gibt; sonst Filter aus. */
-    function gruppenAuswahlFuellen() {
-        const feld = el('gruppen-benannt-gruppe');
-        if (!feld) return;
-        const eintraege = gruppenAuswahlEintraege(zustand.personen);
-        const gewaehlt = eintraege.some((g) => g.kennung === zustand.personenGruppe) ? zustand.personenGruppe : '';
-        feld.innerHTML = '';
-        const alle = document.createElement('option');
-        alle.value = '';
-        alle.textContent = 'Alle Gruppen';
-        feld.appendChild(alle);
-        eintraege.forEach((g) => {
-            const option = document.createElement('option');
-            option.value = g.kennung;
-            option.textContent = gruppenAuswahlText(g);
-            feld.appendChild(option);
-        });
-        feld.value = gewaehlt;
-        zustand.personenGruppe = gewaehlt;
     }
 
     /** Sprungleiste der Personenauswahl neu aufbauen (S8, 18.10.2026).
@@ -1434,12 +1395,13 @@ function gruppenNotizZeit(zeit) {
         if (typeof ziel.scrollIntoView === 'function') ziel.scrollIntoView({ block: 'start' });
     }
 
-    /** Die Personen der Liste in Anzeige-Reihenfolge (Suchzeile, Gruppenauswahl,
-     *  Erinnerungsfilter zusammen) — EINE Regel fuer Liste und Weiter-Weg. */
+    /** Die Personen der Liste in Anzeige-Reihenfolge (Suchzeile und
+     *  Erinnerungsfilter zusammen, dazu die gewaehlte Sortierung) — EINE Regel
+     *  fuer Liste, Weiter-Weg und Wischen. */
     function personenGefiltert() {
         return gruppenPersonenGefiltert(zustand.personen,
             (el('gruppen-benannt-filter') || {}).value || '',
-            zustand.personenGruppe || '', zustand.personenErinnerung || '');
+            zustand.personenErinnerung || '', zustand.personenSortierung || '');
     }
 
     function personenZeigen() {
@@ -1448,19 +1410,22 @@ function gruppenNotizZeit(zeit) {
         if (!liste) return;
         liste.innerHTML = '';
         const frage = (el('gruppen-benannt-filter') || {}).value || '';
-        const gruppe = zustand.personenGruppe || '';
         const erinnerung = gruppenErinnerungWahl(zustand.personenErinnerung);
-        // S8: alphabetisch (die Server-Reihenfolge bleibt im Zustand unberuehrt).
+        const nachZahl = gruppenSortierArt(zustand.personenSortierung) === 'meiste';
+        // Alphabetisch oder meiste Fotos zuerst (die Server-Reihenfolge bleibt im
+        // Zustand unberuehrt).
         const passend = personenGefiltert();
-        sprungleisteZeigen(passend);
+        // Sprungleiste A–Z nur bei alphabetischer Reihenfolge: nach Foto-Zahl
+        // sortiert stuenden die Buchstaben durcheinander.
+        sprungleisteZeigen(nachZahl ? [] : passend);
         if (info) {
-            const zusatz = (gruppe ? ' · ' + (gruppenNummer(gruppe) || String(gruppe)) : '')
-                + (erinnerung ? ' · ' + gruppenErinnerungText(erinnerung) : '');
+            const zusatz = erinnerung ? ' · ' + gruppenErinnerungText(erinnerung) : '';
             info.textContent = !zustand.personen.length
                 ? 'Noch niemand benannt – im Reiter „Offen“ geht es los.'
                 : (passend.length ? gruppenZahl(passend.length) + (passend.length === 1 ? ' Person' : ' Personen') + zusatz
-                    : (gruppe || erinnerung || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
-                  + ' · alphabetisch · antippen zum Ansehen und Bearbeiten';
+                    : (erinnerung || frage.trim() ? 'Keine Person passt zu diesem Filter.' : 'Keine Person'))
+                  + (nachZahl ? ' · meiste Fotos zuerst' : ' · alphabetisch')
+                  + ' · antippen zum Ansehen und Bearbeiten';
         }
         const gesehen = {};
         passend.forEach((p) => {
@@ -1468,11 +1433,13 @@ function gruppenNotizZeit(zeit) {
             zeile.className = 'gruppen-benannt-zeile';
             zeile.setAttribute('role', 'listitem');
             zeile.tabIndex = 0;
-            // Erster Eintrag je Buchstabe = Sprungziel der Leiste.
-            const buchstabe = gruppenSprungBuchstabe(p.name);
-            if (!gesehen[buchstabe]) {
-                gesehen[buchstabe] = true;
-                zeile.setAttribute('data-sprung', buchstabe);
+            // Erster Eintrag je Buchstabe = Sprungziel der Leiste (nur alphabetisch).
+            if (!nachZahl) {
+                const buchstabe = gruppenSprungBuchstabe(p.name);
+                if (!gesehen[buchstabe]) {
+                    gesehen[buchstabe] = true;
+                    zeile.setAttribute('data-sprung', buchstabe);
+                }
             }
             if (p.beispiel) zeile.appendChild(kachel(p.beispiel, true, { verzoegert: true, beiTipp: () => {} }));
             const text = document.createElement('div');
@@ -2324,9 +2291,9 @@ function gruppenNotizZeit(zeit) {
         anklick('gruppen-person-rueckgaengig', personRueckgaengig);
         const filter = el('gruppen-benannt-filter');
         if (filter) filter.addEventListener('input', personenZeigen);
-        const gruppeFeld = el('gruppen-benannt-gruppe');
-        if (gruppeFeld) gruppeFeld.addEventListener('change', () => {
-            zustand.personenGruppe = gruppeFeld.value || '';
+        const sortierFeld = el('gruppen-benannt-sortierung');
+        if (sortierFeld) sortierFeld.addEventListener('change', () => {
+            zustand.personenSortierung = gruppenSortierArt(sortierFeld.value);
             personenZeigen();
         });
         const erinnerungFeld = el('gruppen-benannt-erinnerung');
@@ -2336,10 +2303,9 @@ function gruppenNotizZeit(zeit) {
         });
         const filterZurueck = el('gruppen-benannt-filter-zuruecksetzen');
         if (filterZurueck) filterZurueck.addEventListener('click', () => {
-            // Alle Filter zusammen leeren (Suche, Gruppe UND Erinnerung) — Wunsch aus dem Auftrag.
+            // Beide Filter zusammen leeren (Suche UND Erinnerung). Die Sortierung
+            // ist kein Filter und bleibt stehen (20.10.2026).
             if (filter) filter.value = '';
-            zustand.personenGruppe = '';
-            if (gruppeFeld) gruppeFeld.value = '';
             zustand.personenErinnerung = '';
             if (erinnerungFeld) erinnerungFeld.value = '';
             personenZeigen();

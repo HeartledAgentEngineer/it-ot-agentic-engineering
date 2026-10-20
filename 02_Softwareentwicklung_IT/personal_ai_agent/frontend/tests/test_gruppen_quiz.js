@@ -29,8 +29,9 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenNummer', 'gruppenVerbundenText', 'gruppenAntwortText',
                'gruppenGeburtstagText', 'gruppenTrefferInfo', 'gruppenAlleInfo', 'gruppenAusschlussKnopf', 'gruppenDiktatOffen',
                'gruppenSuchformen', 'gruppenPersonPasst', 'gruppenPersonInfo', 'gruppenVorschlagKopf',
-               'gruppenPersonGruppen', 'gruppenPersonPasstGruppe', 'gruppenAuswahlText', 'gruppenAuswahlEintraege',
-               'gruppenSortierName', 'gruppenSprungBuchstabe', 'gruppenPersonenSortiert', 'gruppenSprungmarken',
+               'gruppenSortierName', 'gruppenSprungBuchstabe', 'gruppenSortierArt', 'gruppenGesichterZahl',
+               'gruppenPersonenSortiert', 'gruppenSprungmarken', 'gruppenErinnerungWahl',
+               'gruppenPersonPasstErinnerung', 'gruppenPersonenGefiltert',
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
                'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
@@ -242,26 +243,29 @@ pruefe(f.gruppenSprungBuchstabe('anna') === 'A' && f.gruppenSprungBuchstabe('Öz
         'ein Buchstabe bleibt eine Marke');
     pruefe(f.gruppenSprungmarken([]).length === 0, 'ohne Personen keine Marken');
 }
-console.log('Gruppenfilter in „Benannt“ (16.10.2026)');
-pruefe(f.gruppenPersonGruppen({ gruppen: [{ kennung: 'Person_1001' }] }).length === 1
-    && f.gruppenPersonGruppen({ gruppen: 1 }).length === 0 && f.gruppenPersonGruppen(null).length === 0,
-    'Gruppen einer Person sind immer eine Liste (auch bei fehlendem Feld)');
-pruefe(f.gruppenPersonPasstGruppe({ gruppen: [{ kennung: 'Person_1001' }] }, 'Person_1001')
-    && !f.gruppenPersonPasstGruppe({ gruppen: [{ kennung: 'Person_1001' }] }, 'Person_1002')
-    && f.gruppenPersonPasstGruppe({}, '') && f.gruppenPersonPasstGruppe(null, ''),
-    'Gruppenfilter: Treffer, kein Treffer, leer = alle');
+console.log('Sortierung der Personenliste (20.10.2026)');
 {
-    const auswahl = f.gruppenAuswahlEintraege([
-        { gruppen: [{ kennung: 'Person_1002', groesse: 4 },
-                    { kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' }] },
-        { gruppen: [{ kennung: 'Person_1002', groesse: 4 }, { kennung: 'Person_1004', groesse: 5 }] }]);
-    pruefe(auswahl.length === 3 && auswahl.map((g) => g.kennung).join(',')
-        === 'Person_1001,Person_1004,Person_1002', 'Auswahlliste: ohne Doppelte, größte zuerst');
-    pruefe(f.gruppenAuswahlText(auswahl[0]) === 'Vorschlag 1001 · 120 Gesichter · 2015–2025'
-        && f.gruppenAuswahlText({ kennung: 'Person_1004', groesse: 5 }) === 'Vorschlag 1004 · 5 Gesichter',
-        'Auswahlzeile einer Gruppe');
-    pruefe(f.gruppenAuswahlEintraege(null).length === 0 && f.gruppenAuswahlEintraege([{}]).length === 0,
-        'ohne Personengruppen bleibt die Auswahl leer');
+    const roh = [{ name: 'Cem', gesichter: 10 }, { name: 'Anna', gesichter: 120 }, { name: 'Bea', gesichter: 10 },
+                 { name: 'Zoe' }, { name: 'Max', gesichter: 'viele' }];
+    const meiste = f.gruppenPersonenSortiert(roh, 'meiste').map((p) => p.name).join('|');
+    pruefe(meiste === 'Anna|Bea|Cem|Max|Zoe',
+        'meiste Fotos zuerst, Gleichstand alphabetisch, fehlende/ungültige Zahl = 0: ' + meiste);
+    pruefe(roh.map((p) => p.name).join('|') === 'Cem|Anna|Bea|Zoe|Max', 'die Eingabeliste bleibt unberührt');
+    pruefe(f.gruppenPersonenSortiert(roh).map((p) => p.name).join('|') === 'Anna|Bea|Cem|Max|Zoe'
+        && f.gruppenPersonenSortiert(roh, 'unsinn').map((p) => p.name).join('|') === 'Anna|Bea|Cem|Max|Zoe',
+        'ohne oder mit unbekannter Art alphabetisch');
+    pruefe(f.gruppenSortierArt('meiste') === 'meiste' && f.gruppenSortierArt('x') === '' && f.gruppenSortierArt(null) === '',
+        'Sortierart: nur „meiste“ oder leer');
+    pruefe(f.gruppenGesichterZahl({ gesichter: 7 }) === 7 && f.gruppenGesichterZahl({ gesichter: -1 }) === 0
+        && f.gruppenGesichterZahl({}) === 0 && f.gruppenGesichterZahl(null) === 0, 'Gesichterzahl mit Rückfall 0');
+    const personen = [{ name: 'Anna', gesichter: 5, erinnerungen: 1 }, { name: 'Bea', gesichter: 9 },
+                      { name: 'Cem', gesichter: 20 }, { name: 'Dana', gesichter: 9 }];
+    pruefe(f.gruppenPersonenGefiltert(personen, '', '', 'meiste').map((p) => p.name).join('|') === 'Cem|Bea|Dana|Anna',
+        'Filter leer + meiste: Reihenfolge nach Fotos');
+    pruefe(f.gruppenPersonenGefiltert(personen, '', 'ohne', 'meiste').map((p) => p.name).join('|') === 'Cem|Bea|Dana',
+        'Erinnerungsfilter und Sortierung wirken zusammen');
+    pruefe(f.gruppenPersonenGefiltert(personen, 'd', 'ohne', '').map((p) => p.name).join('|') === 'Dana',
+        'Suche, Erinnerungsfilter und alphabetisch wirken zusammen');
 }
 pruefe(f.gruppenVorschlagKopf({ kennung: 'Person_1001', groesse: 120, von: '2015-01-01', bis: '2025-09-01' })
     === 'Vorschlag 1001 · 120 Gesichter · 2015–2025', 'Kopf eines Vorschlags');
@@ -273,7 +277,7 @@ pruefe(f.gruppenRueckgaengigText({ art: 'umbenennen' }) === '↩ Umbenennen zur�
     && f.gruppenRueckgaengigText(null) === '↩ letzte Antwort zurückgenommen', 'Rückmeldung nach Rückgängig je Art');
 pruefe(f.gruppenNotizZeit('2026-10-02T11:45:00') === '02.10.2026' && f.gruppenNotizZeit('') === '', 'Datum einer Erinnerung');
 ['gruppen-reiter-offen', 'gruppen-reiter-benannt', 'gruppen-benannt-ansicht', 'gruppen-benannt-filter',
- 'gruppen-benannt-gruppe', 'gruppen-benannt-filter-zuruecksetzen',
+ 'gruppen-benannt-sortierung', 'gruppen-benannt-erinnerung', 'gruppen-benannt-filter-zuruecksetzen',
  'gruppen-benannt-info', 'gruppen-benannt-liste', 'gruppen-person', 'gruppen-person-titel', 'gruppen-person-zurueck',
  'gruppen-person-meta', 'gruppen-person-vorschlaege', 'gruppen-person-name', 'gruppen-person-umbenennen',
  'gruppen-person-beziehung', 'gruppen-person-notiz', 'gruppen-person-mikro', 'gruppen-person-speichern',

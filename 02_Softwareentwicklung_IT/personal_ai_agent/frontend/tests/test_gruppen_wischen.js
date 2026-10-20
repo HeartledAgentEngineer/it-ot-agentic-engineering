@@ -330,6 +330,33 @@ async function pfeiltastenWechselnDiePerson() {
     assert.equal(s.gruppenWischTaste('Enter'), '');
 }
 
+async function wischenFolgtDerSortierung() {
+    // 20.10.2026: Sortierung „Meiste Fotos zuerst“ — Wischen und Weiter-Reihe
+    // folgen der angezeigten Reihenfolge, nicht dem Alphabet.
+    const protokoll = [];
+    const app = personenAppMitProfil([person('Anna', { gesichter: 10 }), person('Bea', { gesichter: 300 }),
+        person('Cem', { gesichter: 50 })], protokoll);
+    await listeOeffnen(app);
+    const feld = app.el('gruppen-benannt-sortierung');
+    feld.value = 'meiste';
+    feld.feuern('change');
+    assert.deepEqual(app.el('gruppen-benannt-liste').children.map((z) => (z.textContent.match(/Anna|Bea|Cem/) || [''])[0]),
+        ['Bea', 'Cem', 'Anna']);
+    await personAusListeOeffnen(app, 'Cem');
+    assert.equal(app.el('gruppen-person-titel').textContent, 'Cem');
+    protokoll.length = 0;
+    await wischen(app, -90);                                   // weiter = nach Cem kommt Anna
+    assert.deepEqual(protokoll.filter((p) => p.startsWith('/api/gruppen/person')), ['/api/gruppen/person?name=Anna'],
+        'Wisch nach links folgt nicht der Sortierung');
+    protokoll.length = 0;
+    await wischen(app, 90); await wischen(app, 90);            // zurück: Cem, dann Bea
+    assert.equal(app.el('gruppen-person-titel').textContent, 'Bea');
+    protokoll.length = 0;
+    await wischen(app, 90);
+    assert.equal(protokoll.filter((p) => p.startsWith('/api/gruppen/person')).length, 0, 'vor der ersten Person gibt es keinen Ringlauf');
+    assert.ok(meldung(app).includes('erste Person'));
+}
+
 async function reineRegelNachbar() {
     const app = personenAppMitProfil([person('Anna')]);
     const s = app.sandbox;
@@ -346,6 +373,9 @@ async function reineRegelNachbar() {
     // Die Reihenfolge kommt aus der Anzeige (alphabetisch, Umlaute aufgeloest).
     const gefiltert = s.gruppenPersonenGefiltert([person('Zoe'), person('Änne'), person('Bea')], '', '', '');
     assert.deepEqual(s.gruppenReiheNamen(gefiltert), ['Änne', 'Bea', 'Zoe']);
+    const nachFotos = s.gruppenPersonenGefiltert([person('Zoe', { gesichter: 9 }), person('Änne', { gesichter: 2 }),
+        person('Bea', { gesichter: 9 })], '', '', 'meiste');
+    assert.deepEqual(s.gruppenReiheNamen(nachFotos), ['Bea', 'Zoe', 'Änne']);
     assert.equal(s.gruppenNachbarName(gefiltert, 'Änne', 'weiter'), 'Bea');
     assert.ok(s.gruppenWischHinweis('weiter').includes('letzte'));
     assert.ok(s.gruppenWischHinweis('zurueck').includes('erste'));
@@ -358,7 +388,7 @@ process.on('exit', () => {
 (async () => {
     const pruefungen = [wischenBlaettertInDerAngezeigtenReihe, raenderUndKeinRinglauf,
         kurzeUndSenkrechteBewegungBlaettertNicht, felderBehaltenDenFinger,
-        pfeiltastenWechselnDiePerson, reineRegelNachbar];
+        pfeiltastenWechselnDiePerson, wischenFolgtDerSortierung, reineRegelNachbar];
     let rot = 0;
     for (const pruefung of pruefungen) {
         try { await pruefung(); } catch (error) {

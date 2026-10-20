@@ -453,8 +453,11 @@
                     <div class="gruppen-eingabe gruppen-benannt-filter-zeile">
                         <input id="gruppen-benannt-filter" type="search" maxlength="60" autocomplete="off"
                                placeholder="Person suchen …" aria-label="Benannte Person suchen">
-                        <select id="gruppen-benannt-gruppe" aria-label="Nach einer Gesichtsgruppe filtern">
-                            <option value="">Alle Gruppen</option>
+                        <!-- Sortierung der Personenliste (20.10.2026): alphabetisch oder die
+                             meisten Fotos (= erkannte Gesichter) zuerst. Kein Filter. -->
+                        <select id="gruppen-benannt-sortierung" aria-label="Sortierung der Personenliste">
+                            <option value="">Alphabetisch</option>
+                            <option value="meiste">Meiste Fotos zuerst</option>
                         </select>
                         <!-- Filter „mit/ohne Erinnerung" (S8-Rest, 18.10.2026): eine Erinnerung ist
                              eine aufgenommene Sprachnotiz im Profil der benannten Person. -->
@@ -718,7 +721,7 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261020A"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
-    <script src="gruppen_quiz.js?v=20261020A"></script>
+    <script src="gruppen_quiz.js?v=20261020B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN
