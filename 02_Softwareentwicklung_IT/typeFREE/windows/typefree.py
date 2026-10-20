@@ -38,6 +38,7 @@ import pystray
 from PIL import Image, ImageDraw
 from openai import OpenAI
 
+import halluzination
 import ton_aus
 import version
 
@@ -151,6 +152,11 @@ _stream       = None    # sounddevice.InputStream — nur während der Aufnahme
 # ── Audio-Einstellungen ──────────────────────────────────────────────────────
 SAMPLE_RATE = 16000
 CHANNELS    = 1
+# Kürzere Aufnahmen werden gar nicht erst gesendet: ein versehentlicher Tipp auf
+# den Hotkey enthält keine Sprache, würde aber einen Diktat-Aufruf kosten — und
+# das Modell erfände dazu gern etwas („Danke."). Ausnahme: im Live-Modus startet
+# beim Aufnahmebeginn weiterhin die Vorwärm-Mini-Transkription.
+MINDEST_AUFNAHME_SEKUNDEN = 0.3
 
 # ── Anbieterketten für die Transkription ─────────────────────────────────────
 # Reihenfolge = Reihenfolge der Versuche. Ein Eintrag ist:
@@ -1062,9 +1068,11 @@ hotkey_modus = 'halten'       # 'halten' (Standard) oder 'umschalten'; aus confi
 live_happen = []              # fertige Happen (numpy-Felder), nur im Arbeitsspeicher
 live_teile = []               # was schon im Dokument steht: {'text', 'roh', 'fenster', 'zeit'}
 live_geschnitten = 0.0        # Sekunden Audio, die bereits als Happen vorliegen
-live_beschaeftigt = False     # der Schreiber transkribiert gerade einen Happen
+live_in_arbeit = 0            # abgeholte, noch nicht fertig verarbeitete Happen
 _live_lief = False            # lief Live in DIESER Aufnahme? (Tray-Wechsel mittendrin)
 live_ausstehend = ''          # zurückgehaltenes Satzzeichen des letzten Blocks
+live_verworfen = 0            # Happen, die der Halluzinationsfilter verworfen hat
+live_fehler = False           # ein Happen ist mit Ausnahme gescheitert
 
 
 class LivePuffer:
@@ -1129,10 +1137,19 @@ def _live_takt(puffer, gesehen, bloecke):
     return gesehen, puffer.naechster_happen()
 
 
-def live_abholen():
-    """Fertige Happen nehmen und die Liste leeren — thread-sicher."""
+def live_abholen(in_arbeit=False):
+    """Fertige Happen nehmen und die Liste leeren — thread-sicher.
+
+    Mit `in_arbeit` zählt derselbe Lock-Abschnitt sie als „in Arbeit": Es gibt
+    keinen Augenblick, in dem ein Happen weder in `live_happen` noch gezählt ist.
+    (Bis 20.10.2026 meldete der Schreiber „beschäftigt" erst je Happen — dazwischen
+    sah `_live_warte_auf_schreiber` fälschlich „fertig"; Codex-Ergebnisprüfung R3.)
+    """
+    global live_in_arbeit
     with lock:
         fertig, live_happen[:] = list(live_happen), []
+        if in_arbeit:
+            live_in_arbeit += len(fertig)
     return fertig
 
 
@@ -1154,6 +1171,14 @@ def _live_worker(session):
         gesehen, happen = _live_takt(puffer, gesehen, bloecke)
         if happen is not None and happen.size:
             with lock:
+                # Erneut prüfen, im selben Abschnitt wie das Ablegen: Ist die
+                # Aufnahme inzwischen beendet, wartet der Abschluss womöglich
+                # schon nicht mehr auf den Schreiber — der Schnitt bliebe liegen.
+                # Ohne Ablegen bleibt `live_geschnitten` stehen, und der Abschluss
+                # transkribiert diesen Teil als Rest (Codex-Ergebnisprüfung R4).
+                if not is_recording or session != _session:
+                    log.info('Live: letzter Schnitt kam nach dem Ende — bleibt im Rest')
+                    return
                 live_happen.append(happen)
                 live_geschnitten = puffer.geschnitten / SAMPLE_RATE
             log.info('Live: Happen geschnitten — %.1f s, %.1f s Rest',
@@ -1305,6 +1330,18 @@ def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None,
     text, anbieter = transkribieren(stueck)
     if not text or not text.strip():
         log.info('Live-Happen ohne Text (%s) — nichts eingefügt', anbieter)
+        return None
+    # Erfundenes (Abspann, Floskel aus der Stille) wird nicht getippt — aber
+    # gebucht: der Happen wurde transkribiert und kostet. Kein Text im Log.
+    text = halluzination.abspann_entfernen(text)
+    if not text or halluzination.ist_erfunden(
+            text, halluzination.stimm_sekunden(stueck, SAMPLE_RATE)):
+        log.info('Live-Happen verworfen (erfunden, %s) — nichts eingefügt', anbieter)
+        global live_verworfen
+        with lock:
+            live_verworfen += 1
+        if buchen is not None:
+            buchen(stueck.shape[0] / SAMPLE_RATE, anbieter)
         return None
     global live_ausstehend
     geglaettet = glaetten(text) if glaetten is not None else None
@@ -1484,26 +1521,33 @@ def _live_schreiber(session):
     Läuft, solange die Aufnahme läuft, und arbeitet danach die Warteschlange
     leer — kein geschnittener Happen darf liegen bleiben.
     """
-    global live_beschaeftigt
+    global live_in_arbeit
 
     while True:
         time.sleep(LIVE_TAKT_SEKUNDEN / 2)
         with lock:
             weiter = is_recording and session == _session
-        for stueck in live_abholen():
-            with lock:
-                live_beschaeftigt = True
+        for stueck in live_abholen(in_arbeit=True):
             try:
                 _live_stueck_verarbeiten(stueck, _live_transkribieren,
                                          _live_text_einfuegen, _live_buchen,
                                          glaetten=_live_glaetten)
             except Exception:
                 log.exception('Live-Happen fehlgeschlagen')
+                _live_fehler_merken()
             finally:
                 with lock:
-                    live_beschaeftigt = False
+                    live_in_arbeit = max(0, live_in_arbeit - 1)
         if not weiter and not live_happen:
             return
+
+
+def _live_fehler_merken():
+    """Ein Happen ist gescheitert: Der Abschluss darf dann nicht annehmen, alles
+    sei bewusst verworfen worden — die normale Verarbeitung muss übernehmen."""
+    global live_fehler
+    with lock:
+        live_fehler = True
 
 
 def _live_warte_auf_schreiber(hoechstens=30.0):
@@ -1515,7 +1559,7 @@ def _live_warte_auf_schreiber(hoechstens=30.0):
     ende = time.monotonic() + hoechstens
     while time.monotonic() < ende:
         with lock:
-            if not live_happen and not live_beschaeftigt:
+            if not live_happen and not live_in_arbeit:
                 return True
         time.sleep(0.1)
     log.warning('Live-Schreiber war nach %.0f s nicht fertig', hoechstens)
@@ -1533,7 +1577,7 @@ def _live_abschluss(audio_data):
     Gibt True zurück, wenn Live-Text getippt wurde. Sonst False: Dann übernimmt
     die normale Verarbeitung, damit kein Diktat verloren geht.
     """
-    _live_warte_auf_schreiber()
+    schreiber_fertig = _live_warte_auf_schreiber()
 
     rest = audio_data[int(live_geschnitten * SAMPLE_RATE):]
     if rest.size:
@@ -1543,12 +1587,25 @@ def _live_abschluss(audio_data):
                                      glaetten=_live_glaetten)
         except Exception:
             log.exception('Live-Rest fehlgeschlagen')
+            _live_fehler_merken()
 
     with lock:
         teile = list(live_teile)
         ausstehend = live_ausstehend
+        verworfen = live_verworfen
+        fehler = live_fehler
     _status_idle()
     if not teile:
+        if verworfen and not fehler and schreiber_fertig:
+            # Alles Gehörte war erfunden — bewusst verworfen, nicht gescheitert.
+            # Nur wenn der Schreiber wirklich fertig ist: Ein noch hängender
+            # Happen könnte später scheitern (Codex-Ergebnisprüfung R2).
+            # Die ganze Aufnahme noch einmal zu senden, kostete doppelt und
+            # ließe die Floskel über die längere Aufnahme womöglich durch.
+            log.info('Live: %d Happen verworfen (erfunden), nichts getippt — '
+                     'kein zweiter Versuch', verworfen)
+            retry_verwerfen()
+            return True
         return False
     # Das zurückgehaltene Satzzeichen des letzten Blocks — und ein Leerzeichen,
     # damit man direkt weiterschreiben oder -diktieren kann.
@@ -1644,6 +1701,7 @@ def audio_callback(indata, frames, time_info, status):
 def start_recording():
     global is_recording, audio_frames, _last_data_at, _last_signal_at, _session
     global _mods_freigegeben, live_geschnitten, _live_lief, live_ausstehend
+    global live_verworfen, live_fehler
     _mods_freigegeben = False
     _live_lief = False
     live_ausstehend = ''
@@ -1655,6 +1713,8 @@ def start_recording():
         live_happen.clear()          # keine Happen aus der vorigen Aufnahme behalten
         live_teile.clear()           # und keinen eingefügten Block der vorigen
         live_geschnitten = 0.0
+        live_verworfen = 0
+        live_fehler = False
         _last_data_at   = jetzt
         _last_signal_at = jetzt
         _session += 1
@@ -2433,12 +2493,18 @@ def stop_and_transcribe():
     _ton_zurueck_melden(sitzung)   # Ton sofort zurück, nicht erst nach der Transkription
     _status_transcribing()
     dauer = recorded_seconds(frames)
-    log.info('Sende %.1f s Audio an die Transkription', dauer)
 
     if not frames:
         _status_idle()
         log.warning('Keine Audiodaten — Taste länger halten')
         return
+
+    if dauer < MINDEST_AUFNAHME_SEKUNDEN:
+        _status_idle()
+        log.info('Aufnahme zu kurz (%.2f s) — nichts gesendet', dauer)
+        return
+
+    log.info('Sende %.1f s Audio an die Transkription', dauer)
 
     audio_data = np.concatenate(frames, axis=0)
 
@@ -2461,6 +2527,16 @@ def stop_and_transcribe():
             return
 
     _verarbeite_audio(audio_data)
+
+
+def _diktat_buchen(dauer, anbieter):
+    """Bucht ein Diktat beim liefernden Anbieter — für den Erfolgs- und den
+    Verwerfpfad von `_verarbeite_audio` (die Transkription kostet in beiden)."""
+    global verbrauch
+    with _verbrauch_lock:
+        verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
+                                     anbieter)
+        save_verbrauch(verbrauch)
 
 
 def _verarbeite_audio(audio_data, erneut=False):
@@ -2488,6 +2564,21 @@ def _verarbeite_audio(audio_data, erneut=False):
             buffer, transkriptions_clients(),
             zweitanfrage_buchen=_zweitanfrage_buchen)
         dauer_transkription = time.monotonic() - stufe
+
+        # Erfundenes (Abspann, Floskel aus der Stille) kommt nie ins Dokument.
+        # Der Abspann am Ende wird abgeschnitten; bleibt nichts übrig oder ist
+        # der ganze Rest erfunden, wird verworfen. Gebucht wird trotzdem: die
+        # Transkription lief und kostet. Kein Diktattext im Log.
+        raw_text = halluzination.abspann_entfernen(raw_text or '')
+        stimm = halluzination.stimm_sekunden(audio_data, SAMPLE_RATE)
+        if not raw_text.strip() or halluzination.ist_erfunden(raw_text, stimm):
+            log.info('Diktat verworfen (erfunden oder leer, %.1f s Stimme) — '
+                     'nichts eingefügt', stimm)
+            _diktat_buchen(dauer, anbieter)
+            _status_idle()
+            retry_verwerfen()
+            return
+
         log.info('Erkannt (%s): %s', anbieter, raw_text)
 
         _status_polishing()
@@ -2508,10 +2599,7 @@ def _verarbeite_audio(audio_data, erneut=False):
         retry_verwerfen()     # angekommen — nichts mehr zu wiederholen
 
         # Erst jetzt buchen: bezahlt wird nur, was auch angekommen ist.
-        with _verbrauch_lock:
-            verbrauch = verbrauch_buchen(verbrauch, dauer, time.strftime('%Y-%m'),
-                                         anbieter)
-            save_verbrauch(verbrauch)
+        _diktat_buchen(dauer, anbieter)
         log.info('Zeiten: %s', zeiten_text([
             (f'Transkription ({anbieter})', dauer_transkription),
             ('Glättung', dauer_glattung),
