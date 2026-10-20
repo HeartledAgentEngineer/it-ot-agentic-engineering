@@ -8,6 +8,7 @@ Nutzung:
 Beenden: Rechtsklick auf Systemtray-Icon → Beenden
 """
 
+import atexit
 import base64
 import contextlib
 import io
@@ -37,6 +38,7 @@ import pystray
 from PIL import Image, ImageDraw
 from openai import OpenAI
 
+import ton_aus
 import version
 
 # Basis-Pfad für .env, Logdatei und Kostenzählung.
@@ -142,6 +144,7 @@ is_recording  = False
 audio_frames  = []
 lock          = threading.Lock()
 tray_icon     = None
+ton           = None    # TonSperre — wird in main() angelegt (Ton aus beim Diktat)
 verbrauch     = {}      # Whisper-Kosten, wird in main() aus der Datei geladen
 _stream       = None    # sounddevice.InputStream — nur während der Aufnahme
 
@@ -486,6 +489,27 @@ def save_live_config(an):
     _config_schreiben(conf)
 
 
+def load_ton_aus_config():
+    """Soll der Ton während der Aufnahme stumm sein? Standard: ja.
+
+    Ein unlesbarer Wert oder eine kaputte Datei lassen die Funktion an — sie
+    ist harmlos (der Ton kommt nach der Aufnahme zurück) und das Erwartete.
+    """
+    return bool(_config_lesen().get('ton_aus', True))
+
+
+def save_ton_aus_config(an):
+    """Merkt sich den Schalter, ohne andere Einstellungen zu überschreiben."""
+    conf = _config_lesen()
+    conf['ton_aus'] = bool(an)
+    _config_schreiben(conf)
+
+
+def ton_merker_pfad():
+    """Merker-Datei neben der config.json: „typeFREE hat diesen Ton stummgeschaltet"."""
+    return os.path.join(os.path.dirname(CONFIG_PATH), 'ton_aus_aktiv.json')
+
+
 def load_hotkey_config():
     """Lädt die gespeicherte Hotkey-Wahl, Standard: Alt + Ä."""
     return HOTKEY_OPTIONS[_config_lesen().get('hotkey_index', DEFAULT_HOTKEY_INDEX)]
@@ -594,6 +618,7 @@ def _on_quit(icon, item):
     """Beendet ordentlich: Mikrofon freigeben, Icon stoppen, main() läuft aus."""
     log.info('Beenden über Tray-Menü')
     _close_stream()
+    _ton_beenden()
     icon.stop()
 
 
@@ -648,6 +673,18 @@ def _select_live(an):
         log.info('Ausgabe umgestellt auf: %s',
                  'live satzweise' if live_modus else 'alles auf einmal')
     return wechseln
+
+
+def _schalte_ton_aus(icon=None, item=None):
+    """Tray-Häkchen „Ton aus beim Diktat".
+
+    Der Schalter verhindert nur neues Stummschalten; eine laufende
+    Stummschaltung wird beim Aufnahmeende trotzdem zurückgestellt.
+    """
+    global ton_aus_an
+    ton_aus_an = not ton_aus_an
+    save_ton_aus_config(ton_aus_an)
+    log.info('Ton aus beim Diktat: %s', 'an' if ton_aus_an else 'aus')
 
 
 def _ausgabe_submenu():
@@ -754,6 +791,8 @@ def _start_tray(on_ready=None):
                                                        if live_modus
                                                        else 'alles auf einmal'),
                          None, enabled=False),
+        pystray.MenuItem('Ton aus beim Diktat', _schalte_ton_aus,
+                         checked=lambda item: ton_aus_an),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: retry_text(), _on_retry,
                          enabled=lambda item: retry_bereit()),
@@ -783,6 +822,52 @@ def _status_transcribing():
 
 def _status_polishing():
     _set_tray_icon(ICON_POLISHING, 'typeFREE — glättet ...')
+
+
+# ── Ton aus während der Aufnahme ──────────────────────────────────────────────
+ton_aus_an = True     # Schalter aus config.json bzw. Tray; Standard an
+
+
+def _ton_aus_melden(sitzung):
+    """Aufnahme läuft: Ton stumm (nur bei gesetztem Schalter, nie bei Neu-Verbinden).
+
+    Fehler hier dürfen das Diktat nie berühren — die Aufnahme läuft schon.
+    """
+    if ton is None or not ton_aus_an:
+        return
+    try:
+        ton.aus(sitzung)
+    except Exception:
+        log.exception('Ton-aus: Meldung "aus" fehlgeschlagen')
+
+
+def _ton_zurueck_melden(sitzung):
+    """Aufnahme beendet: Ton zurück. Unabhängig vom Schalter — der Merker entscheidet."""
+    if ton is None:
+        return
+    try:
+        ton.zurueck(sitzung)
+    except Exception:
+        log.exception('Ton-aus: Meldung "zurück" fehlgeschlagen')
+
+
+def _ton_beenden():
+    """Beim Beenden: Ton in jedem Fall zurück und kurz abwarten, bis es geschehen ist."""
+    if ton is None:
+        return
+    try:
+        ton.zurueck_alles()
+        ton.warten(2.0)
+    except Exception:
+        log.exception('Ton-aus: Zurückstellen beim Beenden fehlgeschlagen')
+
+
+def ton_einrichten():
+    """Legt die Sperre an und räumt Rückstände eines harten Abbruchs auf (aus main())."""
+    global ton
+    ton = ton_aus.TonSperre(ton_aus.windows_backend, ton_merker_pfad())
+    ton.rueckstand_aufraeumen()
+    atexit.register(_ton_beenden)   # auch wenn das Beenden nicht über das Tray-Menü kommt
 
 
 # ── Mikrofon-Überwachung ──────────────────────────────────────────────────────
@@ -1528,6 +1613,7 @@ def _watch_recording(session):
                     return
                 is_recording = False
             _close_stream()
+            _ton_zurueck_melden(session)
             report_error('Mikrofon liefert keine Daten. Bitte Gerät in den '
                          'Windows-Einstellungen prüfen.')
             return
@@ -1582,6 +1668,7 @@ def start_recording():
         return
 
     is_recording = True
+    _ton_aus_melden(session)
     _status_recording()
     threading.Thread(target=_watch_recording, args=(session,),
                      name='watchdog', daemon=True).start()
@@ -2340,8 +2427,10 @@ def stop_and_transcribe():
                             # und das Loslassen fast gleichzeitig zuschlagen
         is_recording = False
         frames = list(audio_frames)
+        sitzung = _session   # im selben Abschnitt wie is_recording: gehört zu DIESER Aufnahme
 
     _close_stream()          # Mikrofon SOFORT freigeben, vor dem Netzaufruf
+    _ton_zurueck_melden(sitzung)   # Ton sofort zurück, nicht erst nach der Transkription
     _status_transcribing()
     dauer = recorded_seconds(frames)
     log.info('Sende %.1f s Audio an die Transkription', dauer)
@@ -2728,7 +2817,7 @@ def _meldung_zeigen(titel, text):
 
 # ── Hauptprogramm ─────────────────────────────────────────────────────────────
 def main():
-    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus, hotkey_modus
+    global active_hotkey, groq_client, openai_whisper_client, openrouter_client, verbrauch, live_modus, hotkey_modus, ton_aus_an
 
     load_env_file()
     setup_logging()
@@ -2752,7 +2841,9 @@ def main():
     active_hotkey = load_hotkey_config()
     hotkey_modus = load_hotkey_modus()
     live_modus = load_live_config()
+    ton_aus_an = load_ton_aus_config()
     verbrauch = load_verbrauch()
+    ton_einrichten()
 
     # Alle Anbieter der Kette bauen, deren Schlüssel in der .env steht. Fehlt
     # ein Schlüssel, bleibt der Client None und wird übersprungen.

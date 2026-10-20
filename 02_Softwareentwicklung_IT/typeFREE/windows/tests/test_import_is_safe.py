@@ -12,3 +12,8 @@ def test_import_liest_keine_konfiguration():
 
 def test_import_oeffnet_kein_mikrofon():
     assert typefree._stream is None
+
+
+def test_import_legt_keine_ton_sperre_an():
+    """Die Sperre (Arbeitsfaden, Ton) entsteht erst in main()."""
+    assert typefree.ton is None
