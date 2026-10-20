@@ -92,6 +92,7 @@ BILDER_LIMIT_MAX = 500
 SUCHE_LIMIT_MAX = 50
 GESICHTER_JE_SEITE = 48
 AUSSCHLUSS_MAX = 200
+SPITZNAMEN_MAX = 10        # je Person, nur Anzeige/Suche (20.10.2026)
 
 FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
                  "tools/foto_sortierung/personen_gruppieren.py --schreiben laufen "
@@ -339,6 +340,119 @@ def namen_liste(namen: Dict[str, str]) -> List[str]:
     return sorted(gesehen.values(), key=str.casefold)
 
 
+# ── Namensfelder: Vorname / Nachname aus dem Namen ableiten (20.10.2026) ────
+#
+# Wunsch Sebastian (20.10.2026): Personenbuch mit Vorname / Nachname /
+# Spitznamen. Der NAME bleibt die Kennung (keine Umbenennung, keine Migration);
+# die Felder werden beim LESEN abgeleitet — dabei wird NICHTS geschrieben — und
+# von Hand gesetzte Felder im Profil haben Vorrang. Die Ableitung ist eine reine
+# Funktion (keine Datei, kein Netz, kein Wurf).
+
+# Namenszusaetze: alles ab dem ersten davon gehoert zum Nachnamen.
+NAMENS_ZUSAETZE = frozenset({
+    "von", "van", "de", "del", "della", "den", "der", "des", "di", "da", "dos",
+    "das", "la", "le", "ten", "ter", "zu", "zur", "zum", "am", "im", "in",
+    "of", "mac", "mc", "bin", "bint", "ben", "ap", "o",
+})
+
+# Anreden/Rollen: kein Vorname und kein Nachname (Zusatz), solange das
+# Familiensignal nicht dagegen spricht.
+NAMENS_ROLLEN = frozenset({
+    "oma", "opa", "onkel", "tante", "papa", "mama", "vati", "muti", "vater",
+    "mutter", "bruder", "schwester", "cousin", "cousine", "neffe", "nichte",
+    "enkel", "enkelin", "schwager", "schwaegerin", "kollege", "kollegin",
+    "chef", "chefin", "freund", "freundin", "kumpel", "nachbar", "nachbarin",
+    "mitarbeiter", "mitarbeiterin", "kind", "sohn", "tochter", "patenonkel",
+    "patentante", "schatz",
+})
+
+_ZIFFERN_ENDE = re.compile(r"\d+$")
+_KUERZEL_ENDE = re.compile(r"^[A-ZÄÖÜ]\.[a-zäöü]?$")
+_KLAMMER_ENDE = re.compile(r"\s*\(([^()]*)\)\s*$")
+
+
+def _namens_wort(wort: str) -> str:
+    """Wort ohne Ziffern und Randzeichen, klein — nur zum Vergleichen."""
+    if not isinstance(wort, str):
+        return ""
+    return re.sub(r"\d+$", "", wort).strip(" .,'-’").casefold()
+
+
+def _namens_teile(name: str) -> List[str]:
+    """Woerter eines Namens ohne Klammerzusatz (der ist kein Nachname)."""
+    return [w for w in re.split(r"\s+", _KLAMMER_ENDE.sub("", name).strip()) if w]
+
+
+def familienwoerter(alle_namen: Iterable[Any], ohne: str = "") -> set:
+    """Letzte Woerter mehrteiliger Namen im Bestand = vermutete Nachnamen.
+
+    Dieselbe Naherung wie ``websuche_schutz.bestand_bauen`` (dort ab Zeile 93),
+    hier fuer die Anzeige. ``ohne`` laesst einen Namen aus, damit er sich nicht
+    selbst stuetzt. Wirft nie.
+    """
+    menge = set()
+    for n in alle_namen or ():
+        if not isinstance(n, str) or (ohne and n.casefold() == ohne.casefold()):
+            continue
+        teile = _namens_teile(n)
+        if len(teile) >= 2:
+            wort = _namens_wort(teile[-1])
+            if len(wort) >= 2:
+                menge.add(wort)
+    return menge
+
+
+def name_zerlegen(name: Any, alle_namen: Iterable[Any] = ()) -> Dict[str, str]:
+    """Vorname/Nachname aus einem Namen ableiten (reine Funktion, wirft nie).
+
+    Reihenfolge der Regeln (Sebastian 20.10.2026: „automatisch trennen, wenn
+    Nachname vorhanden\"); die erste passende gewinnt:
+
+    1. Ein Namenszusatz (von, van, den, de la …) macht alles ab dort zum
+       Nachnamen („Jan van den Berg\"). Steht er am Ende, gibt es keinen.
+    2. Ein Kuerzel am Ende („M.\") ist der Nachname; am Anfang ist dasselbe
+       Kuerzel ein Vorname-Kuerzel („M. Beispiel\").
+    3. Ein Rollenwort am Anfang (Oma, Kollege …) oder Ziffern am Ende des
+       letzten Wortes sind KEIN Nachname — es sei denn, genau dieses Wort steht
+       bei einer anderen mehrteiligen Person auch am Ende (Familiensignal).
+    4. Sonst ist das letzte Wort bei mindestens zwei Woertern der Nachname; ein
+       einzelnes Wort ist der Vorname (bzw. Nachname, wenn das Familiensignal
+       ihn stuetzt).
+
+    Ohne Nachname bleibt der ganze Name (samt Klammerzusatz) im Feld
+    ``vorname`` — es wird nichts behauptet, was der Name nicht hergibt.
+    """
+    try:
+        vollname = name_saeubern(name)
+    except GruppenFehler:
+        return {"vorname": "", "nachname": ""}
+    woerter = _namens_teile(vollname)
+    if not woerter:
+        return {"vorname": "", "nachname": ""}
+    familien = familienwoerter(alle_namen, ohne=name if isinstance(name, str) else "")
+    letztes = _namens_wort(woerter[-1])
+    stuetzt = bool(letztes) and letztes in familien
+    for i, wort in enumerate(woerter):                     # Regel 1
+        if _namens_wort(wort) not in NAMENS_ZUSAETZE:
+            continue
+        if i == 0:
+            return {"vorname": "", "nachname": " ".join(woerter)}
+        if i < len(woerter) - 1:
+            return {"vorname": " ".join(woerter[:i]), "nachname": " ".join(woerter[i:])}
+        return {"vorname": vollname, "nachname": ""}        # Zusatz steht am Ende
+    if len(woerter) >= 2 and _KUERZEL_ENDE.match(woerter[-1]):    # Regel 2
+        return {"vorname": " ".join(woerter[:-1]), "nachname": woerter[-1]}
+    blockiert = (bool(_ZIFFERN_ENDE.search(woerter[-1]))
+                 or _namens_wort(woerter[0]) in NAMENS_ROLLEN)
+    if len(woerter) == 1:                                  # Regel 3/4
+        if stuetzt and _namens_wort(woerter[0]) not in NAMENS_ROLLEN:
+            return {"vorname": "", "nachname": woerter[0]}
+        return {"vorname": vollname, "nachname": ""}
+    if blockiert and not stuetzt:
+        return {"vorname": vollname, "nachname": ""}
+    return {"vorname": " ".join(woerter[:-1]), "nachname": woerter[-1]}
+
+
 # ── Profile: Beziehung + Erinnerungen je Person (01.10.2026) ────────────────
 #
 # Wunsch Sebastian: beim Benennen gleich ein Profil anlegen und zur Person
@@ -378,6 +492,33 @@ def _profil_schluessel(profile: Dict[str, Any], name: str) -> str:
     return next((k for k in profile if k.casefold() == name.casefold()), name)
 
 
+def _namensfelder(eintrag: Any, name: str, alle_namen: Iterable[Any] = ()) -> Dict[str, Any]:
+    """Vorname / Nachname / Spitznamen einer Person fuer Anzeige und Suche.
+
+    Von Hand im Profil gesetzte Felder haben Vorrang; fehlen sie, werden sie aus
+    dem Namen ABGELEITET (siehe ``name_zerlegen``). Es wird dabei NICHTS
+    geschrieben, und der Name bleibt unveraendert die Kennung. Wirft nie.
+    """
+    eintrag = eintrag if isinstance(eintrag, dict) else {}
+    abgeleitet = name_zerlegen(name, alle_namen)
+    gesetzt_vorname = eintrag.get("vorname")
+    gesetzt_nachname = eintrag.get("nachname")
+    vorname = str(gesetzt_vorname).strip() if isinstance(gesetzt_vorname, str) else ""
+    nachname = str(gesetzt_nachname).strip() if isinstance(gesetzt_nachname, str) else ""
+    roh = eintrag.get("spitznamen")
+    spitznamen = []
+    if isinstance(roh, list):
+        for s in roh:
+            if isinstance(s, str) and s.strip():
+                spitznamen.append(s.strip())
+            if len(spitznamen) >= SPITZNAMEN_MAX:
+                break
+    return {"vorname": vorname or abgeleitet["vorname"],
+            "nachname": nachname or abgeleitet["nachname"],
+            "spitznamen": spitznamen,
+            "namensfelder_quelle": "profil" if (vorname or nachname) else "abgeleitet"}
+
+
 def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: str,
                       kennung: Optional[str], quelle: str,
                       kontakt: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -410,8 +551,13 @@ def profil(name: str) -> Dict[str, Any]:
     schluessel = _profil_schluessel(daten["profile"], sauber)
     p = daten["profile"].get(schluessel) or {}
     notizen = [n for n in p.get("notizen") or [] if not n.get("zurueckgenommen")]
+    try:
+        weitere = list(bestaetigt_lesen().values())
+    except GruppenFehler:
+        weitere = []
     return {"ok": True, "name": schluessel, "beziehung": p.get("beziehung") or "",
-            "notizen": notizen, "kontakt": p.get("kontakt")}
+            "notizen": notizen, "kontakt": p.get("kontakt"),
+            **_namensfelder(p, schluessel, weitere)}
 
 
 def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional[str] = None,
@@ -1403,6 +1549,7 @@ def personen() -> Dict[str, Any]:
         if e is not None and z["kennung"] not in e["kennungen"]:
             e["gesichter"] += 1
     liste = []
+    alle_namen = [x["name"] for x in je_name.values()]
     for e in je_name.values():
         p = profile.get(_profil_schluessel(profile, e["name"])) or {}
         vorhanden = [nach_kennung[k] for k in e["kennungen"] if k in nach_kennung]
@@ -1412,7 +1559,8 @@ def personen() -> Dict[str, Any]:
                       "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt")),
                       "erinnerungen": sum(1 for x in p.get("notizen") or [] if not x.get("zurueckgenommen")),
                       "gruppen": _personen_gruppen(e["kennungen"], nach_kennung, aus),
-                      "beispiel": beispiele[0] if beispiele else None})
+                      "beispiel": beispiele[0] if beispiele else None,
+                      **_namensfelder(p, e["name"], alle_namen)})
     liste.sort(key=lambda e: (-e["gesichter"], e["name"].casefold()))
     return {"ok": True, "personen": liste}
 
