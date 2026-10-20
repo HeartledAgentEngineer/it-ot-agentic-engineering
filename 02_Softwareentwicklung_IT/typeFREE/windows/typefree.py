@@ -37,6 +37,7 @@ import pystray
 from PIL import Image, ImageDraw
 from openai import OpenAI
 
+import ersetzungen
 import halluzination
 import ton_aus
 import version
@@ -532,6 +533,11 @@ def ton_merker_pfad():
     return os.path.join(os.path.dirname(CONFIG_PATH), 'ton_aus_aktiv.json')
 
 
+def ersetzungen_pfad():
+    """Regeldatei der festen Ersetzungen, neben der config.json."""
+    return os.path.join(os.path.dirname(CONFIG_PATH), 'ersetzungen.txt')
+
+
 def load_hotkey_config():
     """Lädt die gespeicherte Hotkey-Wahl, Standard: Alt + Ä."""
     return HOTKEY_OPTIONS[_config_lesen().get('hotkey_index', DEFAULT_HOTKEY_INDEX)]
@@ -680,6 +686,18 @@ def _on_diktat_kopieren(icon=None, item=None):
         log.exception('Letztes Diktat konnte nicht kopiert werden')
         report_error('Das letzte Diktat konnte nicht in die Zwischenablage '
                      'kopiert werden: %s' % e)
+
+
+def _on_ersetzungen_bearbeiten(icon=None, item=None):
+    """Tray: legt `ersetzungen.txt` mit Beispielen an (falls sie fehlt) und öffnet sie."""
+    try:
+        pfad = ersetzungen_pfad()
+        ersetzungen.anlegen_falls_fehlt(pfad)
+        datei_oeffnen(pfad)
+    except Exception as e:
+        log.exception('Ersetzungen konnten nicht geöffnet werden')
+        report_error('Die Datei mit den Ersetzungen konnte nicht geöffnet '
+                     'werden: %s' % e)
 
 
 def _select_hotkey(index):
@@ -841,6 +859,7 @@ def _start_tray(on_ready=None):
         pystray.MenuItem('Ton aus beim Diktat', _schalte_ton_aus,
                          checked=lambda item: ton_aus_an),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem('Ersetzungen bearbeiten …', _on_ersetzungen_bearbeiten),
         pystray.MenuItem('Letztes Diktat kopieren', _on_diktat_kopieren,
                          enabled=lambda item: diktat_kopierbar()),
         pystray.MenuItem(lambda item: retry_text(), _on_retry,
@@ -1396,7 +1415,19 @@ def _live_stueck_verarbeiten(stueck, transkribieren, einfuegen, buchen=None,
     # (vielleicht wird gerade in einen angefangenen Satz hinein diktiert).
     inhalt = (geglaettet or text) if erster else anfang_angleichen(
         text, geglaettet or text, weiter)
+    vor_ersetzen = inhalt
+    inhalt = ersetzen(inhalt)            # feste Ersetzungen; `text` bleibt roh
     kern, zeichen = block_aufteilen(inhalt)
+    if not kern.strip() and block_aufteilen(vor_ersetzen)[0].strip():
+        # Eine Lösch-Regel hat den ganzen Block entfernt: bewusst verworfen wie
+        # Erfundenes — gebucht und gezählt, damit der Abschluss die Aufnahme
+        # nicht noch einmal sendet (Codex-Ergebnisprüfung Scheibe 3, R1).
+        log.info('Live-Happen nach den Ersetzungen leer (%s) — nichts eingefügt', anbieter)
+        with lock:
+            live_verworfen += 1
+        if buchen is not None:
+            buchen(stueck.shape[0] / SAMPLE_RATE, anbieter)
+        return None
     if not kern.strip():
         log.info('Live-Happen nur Satzzeichen (%r) — nichts eingefügt', inhalt)
         return None
@@ -2593,6 +2624,41 @@ zwischenablage_kopieren = zwischenablage.privat_kopieren
 ZWISCHENABLAGE_RUECKGABE_SEKUNDEN = 1.5
 zwischenablage_zurueck_an = True    # Schalter aus config.json; Standard an
 
+# ── Feste Ersetzungen (Scheibe 3, 20.10.2026) ────────────────────────────────
+# `datei_oeffnen` ist eine austauschbare Naht (conftest sperrt sie): ein Test darf
+# nie wirklich einen Editor starten.
+datei_oeffnen = os.startfile
+_ersetzungen = None          # Lader, beim ersten Diktat angelegt; Tests ersetzen ihn
+_ersetzungen_lock = threading.Lock()
+
+
+def _ersetzungen_holen():
+    global _ersetzungen
+    with _ersetzungen_lock:
+        if _ersetzungen is None:
+            _ersetzungen = ersetzungen.Ersetzungen(ersetzungen_pfad())
+        return _ersetzungen
+
+
+def ersetzen(text):
+    """Wendet die festen Ersetzungen an; bei jedem Fehler bleibt der Text, wie er ist.
+
+    Ein Diktat darf nie an einer kaputten Regeldatei scheitern. Das Log nennt nur
+    die Anzahl der Treffer, nie Text oder Regelwörter.
+    """
+    try:
+        neu, treffer = _ersetzungen_holen().anwenden(text)
+    except Exception as e:
+        # Nur der Fehlertyp: die Meldung einer Ausnahme kann Diktattext tragen
+        # (Codex-Ergebnisprüfung Scheibe 3, R1).
+        log.warning('Ersetzungen fehlgeschlagen (%s) — Text bleibt unverändert',
+                    type(e).__name__)
+        return text
+    if treffer:
+        log.info('Ersetzungen: %d Treffer', treffer)
+    return neu
+
+
 # Das letzte Diktat, nur im Arbeitsspeicher (nie auf der Platte, nie im Log).
 letztes_diktat = None
 _letztes_diktat_lock = threading.Lock()
@@ -2706,6 +2772,15 @@ def _verarbeite_audio(audio_data, erneut=False):
         polished = polish_text(raw_text)
         dauer_glattung = time.monotonic() - stufe
         final_text = polished if polished else raw_text
+        final_text = ersetzen(final_text)
+        if not final_text.strip():
+            # Eine Lösch-Regel hat alles entfernt (z. B. nur „äh"): nichts
+            # Leeres einfügen. Gebucht wird wie beim Verwerfen — die Anfrage lief.
+            log.info('Diktat nach den Ersetzungen leer — nichts eingefügt')
+            _diktat_buchen(dauer, anbieter)
+            _status_idle()
+            retry_verwerfen()
+            return
         log.info('Geglättet: %s', final_text)
 
         _glattung_ausfaelle = ausfall_zaehlen(_glattung_ausfaelle, bool(polished))
