@@ -50,6 +50,7 @@ class Leiste:
         self._automatik_sperre = threading.Lock()
         self._automatik_staende: list[automatik.Stand] = []
         self._bestaetigung_sperre = threading.Lock()
+        self._wechsel_sperre = threading.Lock()
         self._dialog = dialog.frage
         self.icon = pystray.Icon("master-schalter", symbol.bild(None, None, anzeige.STANDARD_SCHWELLE),
                                  "Master-Schalter", menu=pystray.Menu(self._menue))
@@ -210,7 +211,13 @@ class Leiste:
 
     def _wechsel_aktion(self, master: str):
         def aktion() -> None:
-            self._wechseln(master)
+            if not self._wechsel_sperre.acquire(blocking=False):
+                return
+            try:
+                threading.Thread(target=self._wechsel_gesperrt, args=(master,), daemon=True).start()
+            except Exception as fehler:  # noqa: BLE001 - auch Konstruktion und Start freigebbar halten
+                self._wechsel_sperre.release()
+                self._wechsel_melden(f"Wechsel konnte nicht gestartet werden: {fehler}"[:anzeige.HINWEIS_MAX])
         return aktion
 
     def _schwellen_aktion(self, wert: int):
@@ -261,18 +268,37 @@ class Leiste:
         return "Stand veraltet – wird beim Senden gezogen"
 
     def _wechseln(self, master: str) -> None:
-        if not self._dialog("Master-Schalter", self._wechsel_text(master)):
+        if not self._wechsel_sperre.acquire(blocking=False):
             return
-        ergebnis = None
+        self._wechsel_gesperrt(master)
+
+    def _wechsel_gesperrt(self, master: str) -> None:
         try:
-            ergebnis = wechsel.wechseln(master)
-            text = anzeige.wechsel_hinweis(ergebnis)
-        except Exception as fehler:  # noqa: BLE001 - die Leiste darf nie wegen eines Klicks abstürzen
-            text = f"Wechsel fehlgeschlagen: {fehler}"[:anzeige.HINWEIS_MAX]
-        self.aktualisieren()
-        self.icon.notify(text, "Master-Schalter")
-        if ergebnis is not None and ergebnis.art == "gewechselt" and master == "codex":
-            threading.Thread(target=self._rueckgabe_ausfuehren, daemon=True).start()
+            try:
+                bestaetigt = self._dialog("Master-Schalter", self._wechsel_text(master))
+            except Exception as fehler:  # noqa: BLE001 - Dialogfehler sichtbar machen und geschlossen bleiben
+                self._wechsel_melden(f"Bestätigung fehlgeschlagen: {fehler}"[:anzeige.HINWEIS_MAX])
+                return
+            if not bestaetigt:
+                return
+            ergebnis = None
+            try:
+                ergebnis = wechsel.wechseln(master)
+                text = anzeige.wechsel_hinweis(ergebnis)
+            except Exception as fehler:  # noqa: BLE001 - die Leiste darf nie wegen eines Klicks abstürzen
+                text = f"Wechsel fehlgeschlagen: {fehler}"[:anzeige.HINWEIS_MAX]
+            self.aktualisieren()
+            self._wechsel_melden(text, "Master-Schalter")
+            if ergebnis is not None and ergebnis.art == "gewechselt" and master == "codex":
+                threading.Thread(target=self._rueckgabe_ausfuehren, daemon=True).start()
+        finally:
+            self._wechsel_sperre.release()
+
+    def _wechsel_melden(self, text: str, titel: str = "Master-Schalter") -> None:
+        try:
+            self.icon.notify(text, titel)
+        except Exception:  # noqa: BLE001 - Meldefehler dürfen die Sperrfreigabe nicht verhindern
+            _protokoll("Wechselmeldung konnte nicht angezeigt werden")
 
     def _rueckgabe_ausfuehren(self) -> None:
         try:

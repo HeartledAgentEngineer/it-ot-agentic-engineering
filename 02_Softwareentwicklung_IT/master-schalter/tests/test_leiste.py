@@ -192,6 +192,7 @@ def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
         return wechsel.Ergebnis("gewechselt", nach, paket, "")
 
     monkeypatch.setattr(wechsel, "wechseln", attrappe)
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
     lst._dialog = lambda titel, text: True
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
@@ -207,6 +208,7 @@ def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatc
         raise RuntimeError("unerwartet")
 
     monkeypatch.setattr(wechsel, "wechseln", kaputt)
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
     lst._dialog = lambda titel, text: True
     lst.aktualisieren()
     sub = _eintrag(list(lst._menue()), "Master wechseln").submenu.items
@@ -416,14 +418,212 @@ def test_menue_ohne_automatik_haken_und_jetzt_pruefen(lst):
 class _Sofort:
     """Attrappe statt echtem Faden: führt das Ziel beim Start sofort aus."""
 
-    def __init__(self, target=None, daemon=None):
+    def __init__(self, target=None, args=(), daemon=None):
         self._ziel = target
+        self._args = args
 
     def start(self):
-        self._ziel()
+        self._ziel(*self._args)
 
     def is_alive(self):
         return False
+
+
+_ECHTER_THREAD = leiste.threading.Thread
+
+
+class _ThreadSammler:
+    """Startet echte Fäden und hält sie für begrenztes Aufräumen fest."""
+
+    threads = []
+
+    def __init__(self, *, target, args=(), daemon=None):
+        self._thread = _ECHTER_THREAD(target=target, args=args, daemon=daemon)
+        self.threads.append(self)
+
+    def start(self):
+        self._thread.start()
+
+    def join(self, timeout=2):
+        self._thread.join(timeout)
+
+    def is_alive(self):
+        return self._thread.is_alive()
+
+    @classmethod
+    def aufraeumen(cls):
+        for thread in cls.threads:
+            thread.join(2)
+        assert all(not thread.is_alive() for thread in cls.threads)
+        cls.threads.clear()
+
+
+def test_menueaktion_kehren_zurueck_waehrend_dialog_wartet(lst, monkeypatch):
+    _ThreadSammler.threads.clear()
+    monkeypatch.setattr(leiste.threading, "Thread", _ThreadSammler)
+    dialog_betreten = leiste.threading.Event()
+    dialog_freigeben = leiste.threading.Event()
+    rueckkehr = leiste.threading.Event()
+
+    def dialog(*_args):
+        dialog_betreten.set()
+        dialog_freigeben.wait(2)
+        return False
+
+    lst._dialog = dialog
+    aktion = lst._wechsel_aktion("codex")
+    aufrufer = _ECHTER_THREAD(target=lambda: (aktion(), rueckkehr.set()), daemon=True)
+    aufrufer.start()
+    try:
+        assert rueckkehr.wait(2)
+        assert dialog_betreten.wait(2)
+        assert len(_ThreadSammler.threads) == 1
+    finally:
+        dialog_freigeben.set()
+        aufrufer.join(2)
+        _ThreadSammler.aufraeumen()
+    assert not aufrufer.is_alive()
+
+
+def test_belegte_sperre_unterdrueckt_gleichzeitige_und_direkte_aufrufe(lst, monkeypatch):
+    _ThreadSammler.threads.clear()
+    monkeypatch.setattr(leiste.threading, "Thread", _ThreadSammler)
+    dialog_betreten = leiste.threading.Event()
+    dialog_freigeben = leiste.threading.Event()
+    dialogaufrufe = []
+
+    def dialog(*_args):
+        dialogaufrufe.append(True)
+        dialog_betreten.set()
+        dialog_freigeben.wait(2)
+        return False
+
+    lst._dialog = dialog
+    aktion = lst._wechsel_aktion("codex")
+    aktion()
+    try:
+        assert dialog_betreten.wait(2)
+        aktion()
+        lst._wechseln("hermes")
+        assert dialogaufrufe == [True]
+        assert len(_ThreadSammler.threads) == 1
+    finally:
+        dialog_freigeben.set()
+        _ThreadSammler.aufraeumen()
+
+
+def test_reentrante_menue_und_direktaufrufe_werden_uebersprungen(lst, monkeypatch):
+    _ThreadSammler.threads.clear()
+    monkeypatch.setattr(leiste.threading, "Thread", _ThreadSammler)
+    dialogaufrufe = []
+    aktion = lst._wechsel_aktion("codex")
+
+    def dialog(*_args):
+        dialogaufrufe.append(True)
+        if len(dialogaufrufe) == 1:
+            aktion()
+            lst._wechseln("hermes")
+        return False
+
+    lst._dialog = dialog
+    try:
+        aktion()
+        _ThreadSammler.aufraeumen()
+        assert dialogaufrufe == [True]
+        assert len(_ThreadSammler.threads) == 0
+    finally:
+        _ThreadSammler.aufraeumen()
+
+
+def test_nein_und_dialogfehler_geben_sperre_fuer_neuen_versuch_frei(lst, monkeypatch):
+    wechselaufrufe = []
+    monkeypatch.setattr(leiste.wechsel, "wechseln", lambda *a, **k: wechselaufrufe.append(a))
+    lst._dialog = lambda *_args: False
+    lst._wechseln("codex")
+    assert wechselaufrufe == []
+    assert lst.icon.meldungen == []
+
+    def dialogfehler(*_args):
+        raise RuntimeError("Dialogfehler")
+
+    lst._dialog = dialogfehler
+    lst._wechseln("codex")
+    assert "Bestätigung fehlgeschlagen" in lst.icon.meldungen[-1][1]
+
+    lst._dialog = lambda *_args: False
+    lst._wechseln("codex")
+    assert wechselaufrufe == []
+    assert len(lst.icon.meldungen) == 1
+
+
+def test_ja_wechselt_genau_einmal_und_startet_codex_rueckgabe(lst, monkeypatch):
+    class E:
+        art, master, paket, meldung = "gewechselt", "codex", None, ""
+
+    wechselaufrufe = []
+    rueckgaben = []
+    monkeypatch.setattr(leiste.wechsel, "wechseln", lambda *a, **k: wechselaufrufe.append(a) or E())
+    monkeypatch.setattr(leiste.rueckgabe, "rueckgabe", lambda **k: rueckgaben.append(True) or [])
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    lst._dialog = lambda *_args: True
+
+    lst._wechseln("codex")
+
+    assert wechselaufrufe == [("codex",)]
+    assert rueckgaben == [True]
+    assert len(lst.icon.meldungen) == 1
+
+
+@pytest.mark.parametrize("fehlerphase", ["konstruktion", "start"])
+def test_threadfehler_meldet_sich_gibt_sperre_frei_und_erlaubt_neuen_versuch(
+        lst, monkeypatch, fehlerphase):
+    class ThreadFehler:
+        def __init__(self, **_kwargs):
+            if fehlerphase == "konstruktion":
+                raise RuntimeError("Threadfehler")
+
+        def start(self):
+            raise RuntimeError("Threadfehler")
+
+    monkeypatch.setattr(leiste.threading, "Thread", ThreadFehler)
+    lst._dialog = lambda *_args: False
+    aktion = lst._wechsel_aktion("codex")
+    aktion()
+    assert "Threadfehler" in lst.icon.meldungen[-1][1]
+
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    dialogaufrufe = []
+    lst._dialog = lambda *_args: dialogaufrufe.append(True) or False
+    aktion()
+    assert dialogaufrufe == [True]
+
+
+def test_notifyfehler_verhindert_sperrfreigabe_nicht(lst, monkeypatch):
+    dialogaufrufe = []
+    lst._dialog = lambda *_args: dialogaufrufe.append(True) or (_ for _ in ()).throw(
+        RuntimeError("Dialogfehler"))
+    monkeypatch.setattr(lst.icon, "notify", lambda *_args: (_ for _ in ()).throw(RuntimeError("Notifyfehler")))
+
+    lst._wechseln("codex")
+    lst._wechseln("codex")
+
+    assert dialogaufrufe == [True, True]
+
+
+def test_dialog_flags_und_ergebnis_werden_fail_closed_ausgewertet(lst, monkeypatch):
+    from types import SimpleNamespace
+    from master_schalter import dialog
+
+    ergebnisse = []
+    monkeypatch.setattr(dialog.ctypes, "windll", SimpleNamespace(user32=SimpleNamespace(
+        MessageBoxW=lambda *args: ergebnisse.pop(0))), raising=False)
+    ergebnisse.extend([dialog.IDYES, 7, 0])
+
+    assert dialog.frage("Titel", "Text") is True
+    assert dialog.frage("Titel", "Text") is False
+    assert dialog.frage("Titel", "Text") is False
+
+
 
 
 def test_wechsel_fragt_und_bricht_bei_nein_ab(lst, monkeypatch):

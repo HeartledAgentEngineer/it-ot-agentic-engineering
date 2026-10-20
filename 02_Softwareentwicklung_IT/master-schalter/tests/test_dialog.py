@@ -14,3 +14,23 @@ def test_flags_sind_fail_closed():
 def test_frage_ist_aufrufbar_und_nie_teil_der_tests():
     """Der echte Dialog wird in Tests nie geöffnet – nur die Funktion wird verdrahtet."""
     assert callable(dialog.frage)
+
+
+def test_frage_akzeptiert_nur_idyes_und_belaesst_nein_als_standard(monkeypatch):
+    from types import SimpleNamespace
+
+    aufrufe = []
+    ergebnisse = iter([dialog.IDYES, 7, 0])
+
+    def message_box(*args):
+        aufrufe.append(args)
+        return next(ergebnisse)
+
+    monkeypatch.setattr(dialog.ctypes, "windll", SimpleNamespace(
+        user32=SimpleNamespace(MessageBoxW=message_box)), raising=False)
+
+    assert dialog.frage("Titel", "Text") is True
+    assert dialog.frage("Titel", "Text") is False
+    assert dialog.frage("Titel", "Text") is False
+    assert all(args[3] & dialog.MB_DEFBUTTON2 for args in aufrufe)
+    assert all(args[3] & dialog.MB_YESNO for args in aufrufe)

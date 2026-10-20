@@ -3,6 +3,16 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.3.5] – 2026-10-20
+
+### Behoben
+- Der Menücallback reserviert die Wechselsperre vor dem Start eines Hintergrundfadens, damit ein wartender Bestätigungsdialog den Traycallback nicht festhält. Direkte Wechselaufrufe nutzen dieselbe Sperre; parallele und reentrante Aufrufe werden übersprungen.
+- Dialog- und Threadstartfehler melden sich sichtbar und geben die Sperre frei. Ein Dialogabbruch wechselt nichts; nur Ja führt den bisherigen Wechsel und bei Codex die bestehende Rückgabe aus.
+- Tests prüfen Dialogflags und Ablauf mit Attrappen. Eine Bedienbarkeit des nativen Dialogs auf dem Desktop ist damit nicht nachgewiesen.
+
+### Geändert
+- Version 0.3.5 (`__init__.py`, `pyproject.toml`).
+
 ## [0.3.4] – 2026-10-16
 
 ### Neu

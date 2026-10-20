@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.3.4** — Arbeitsmodus je Thema; Hermes bleibt im Personal-AI-Thema Master, nativer Codex gpt-6-luna ist ausschließlich bereinigter Code-Worker.
+Stand: **v0.3.5** — bestätigter Menüwechsel läuft außerhalb des Traycallbacks; parallele Wechsel werden unterdrückt. Die native Ja/Nein-Bedienung auf dem Desktop ist damit noch nicht nachgewiesen.
 
 ## Bedienung
 
@@ -319,7 +319,8 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.3.4** | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll — **dieser Stand** |
+| **v0.3.5** | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt — **dieser Stand** |
+| v0.3.4 | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll |
 | v0.3.3 | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) |
 | v0.3.2 | Rückgabe an Codex (manuell, mit Bestätigungsdialog), Menü aufgeräumt (Automatik-Haken entfällt, „Jetzt prüfen" in „Aktualisieren"), Startfestigkeit |
 | v0.1.1 | Kontingentwerte nach Reset, Messalter und Anzeigegrenzen korrigieren |
