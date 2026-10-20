@@ -28,6 +28,24 @@
 #      Protokoll und lassen den Start normal weiterlaufen.
 #   5. Kein Netz, kein Cloud-Abruf, keine Zugangsdaten. Nur lokale
 #      Dateioperationen (cp, mv, sha256sum, stat, Protokoll).
+#   6. Schnellpruefung mit Pruefstempel (20.10.2026): Anlass war, dass dieses
+#      Skript bei JEDEM Oeffnen der App (Start-Vorbereitung) volle sha256 ueber
+#      die 230 MB grosse Quelle UND das Ziel rechnete, auch ohne Aenderung -
+#      das lastete das Handy aus (App: "wird geladen ..."/"Server nicht
+#      erreichbar"). Jetzt: Nach erfolgreichem Vergleich ("gleich") und nach
+#      erfolgreicher Uebernahme steht neben dem Ziel <ziel>.pruefstempel
+#      (Quellpfad, Groesse + mtime von Quelle und Ziel, sha256; Hilfsdatei
+#      termux/pruefstempel.sh). Stimmen beim naechsten Lauf Groesse und mtime
+#      beider Dateien exakt UND ist der Stempel juenger als
+#      PRUEFSTEMPEL_MAX_ALTER_S (Standard 86400 s = 1 Tag), wird KEINE
+#      Pruefsumme gerechnet: Protokollzeile "uebersprungen (Groesse und Zeit
+#      unveraendert seit letzter Pruefung, keine Pruefsumme)", Exit 0. Jede
+#      Unklarheit (Stempel fehlt/kaputt/zu alt, stat scheitert) = volle
+#      Pruefung wie bisher; alle Schutzregeln (Sicherung vor Kopie, .teil +
+#      Pruefsumme, nie loeschen) gelten unveraendert. Umgehung:
+#      PRUEFSTEMPEL_AUS=1 (immer volle Pruefung). Grenze: Gleiche Groesse und
+#      gleiche mtime-Sekunde bei anderem Inhalt faellt bis zur Tagesgrenze
+#      nicht auf. Stempel schreiben ist best effort und bricht nie ab.
 #
 # Aufruf:  bash termux/wissensdatei-uebernehmen.sh
 #   Ueberschreibbar (fuer Tests/andere Ablagen; auf dem Handy nicht noetig):
@@ -40,6 +58,17 @@
 #       sichert zusaetzlich mit "|| true" ab).
 
 set -u
+
+HIER="$(cd "$(dirname "$0")" && pwd)"
+# Pruefstempel-Hilfsfunktionen (Schnellpruefung). Fehlt die Hilfsdatei, gibt es
+# nur Ersatzfunktionen: nie Schnellpruefung, immer volle Pruefung wie bisher.
+if [ -f "$HIER/pruefstempel.sh" ]; then
+    . "$HIER/pruefstempel.sh"
+fi
+if ! command -v stempel_passt >/dev/null 2>&1; then
+    stempel_passt() { return 1; }
+    stempel_schreiben() { return 0; }
+fi
 
 QUELLE="${WISSENSDATEI_QUELLE:-}"
 ZIEL="${WISSENSDATEI_ZIEL:-$HOME/memory.db}"
@@ -103,6 +132,14 @@ if [ ! -f "$QUELLE" ]; then
     exit 0
 fi
 
+# ── 1b. Schnellpruefung: Groesse + Zeit unveraendert seit letzter Pruefung? ──
+# Dann keine Pruefsumme (230 MB x 2 bei jedem App-Start war zu schwer).
+STEMPEL="$ZIEL.pruefstempel"
+if stempel_passt "$STEMPEL" "$QUELLE" "$ZIEL"; then
+    protokoll "WISSENSDATEI uebersprungen (Groesse und Zeit unveraendert seit letzter Pruefung, keine Pruefsumme): quelle=$QUELLE ziel=$ZIEL"
+    exit 0
+fi
+
 # ── 2. Pruefsumme der Quelle (das harte Kriterium) ──────────────────────────
 S="$(sha256_von "$QUELLE")"
 if [ -z "$S" ]; then
@@ -126,6 +163,7 @@ fi
 # ── 4. Gleich? -> nichts tun; nur die Beleg-Zeile ins Protokoll ─────────────
 if [ -n "$ZZ" ] && [ "$ZZ" = "$S" ]; then
     protokoll "WISSENSDATEI uebersprungen (Pruefsumme gleich, nichts kopiert): quelle=$QUELLE groesse=$NG sha256=$S ziel=$ZIEL groesse=$NZ sha256=$ZZ"
+    stempel_schreiben "$STEMPEL" "$QUELLE" "$ZIEL" "$S"
     exit 0
 fi
 
@@ -177,6 +215,8 @@ fi
 NG2="$(groesse_von "$ZIEL")"
 ZZ2="$(sha256_von "$ZIEL")"
 protokoll "WISSENSDATEI uebernommen (kopiert): quelle=$QUELLE groesse=$NG sha256=$S ziel=$ZIEL groesse=$NG2 sha256=$ZZ2 sicherung=${SICHERUNG:-keine}"
+# Stempel mit den Werten NACH dem Kopieren (Ziel hat jetzt neue Groesse/mtime).
+stempel_schreiben "$STEMPEL" "$QUELLE" "$ZIEL" "$ZZ2"
 echo "Wissensdatei uebernommen: $QUELLE -> $ZIEL (${NG2} B)"
 if [ -n "$SICHERUNG" ]; then
     echo "  vorherige Fassung gesichert: $SICHERUNG"

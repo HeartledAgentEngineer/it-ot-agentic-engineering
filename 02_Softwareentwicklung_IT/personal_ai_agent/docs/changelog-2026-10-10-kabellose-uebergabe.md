@@ -151,3 +151,5 @@ Fassung: **video_standbilder.jsonl**".
   **nicht** angefasst; am Gerät selbst wurde nichts geprüft (kein Kabel,
   kein Eingriff) — geholt wird die Datei beim nächsten Start dort.
   Nichts gelöscht, kein Bild/Vision-Aufruf, keine Kosten (0 USD).
+
+- **Nachtrag 20.10.2026:** `pcloud-uebernehmen.sh` nutzt je Datei eine Schnellprüfung mit Prüfstempel (`termux/pruefstempel.sh`) statt bei jedem Start volle Prüfsummen zu rechnen, siehe `changelog-2026-10-20-pruefstempel-start.md`.

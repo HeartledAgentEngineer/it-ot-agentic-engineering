@@ -32,6 +32,25 @@
 #   4. Fehlertolerant: fehlender Token, kein Netz, leere Liste, nicht lesbare
 #      Pruefsumme und misslungene Kopien schreiben eine klare Zeile und lassen
 #      den Start normal weiterlaufen.
+#   5. Schnellpruefung mit Pruefstempel (20.10.2026, wie bei
+#      termux/wissensdatei-uebernehmen.sh): Anlass war, dass bei JEDEM Oeffnen
+#      der App fuer jede Datei volle sha256 ueber Quelle UND Ziel gerechnet
+#      wurde, auch ohne Aenderung - das lastete das Handy aus. Jetzt steht nach
+#      erfolgreichem Vergleich ("gleich") und nach erfolgreicher Uebernahme neben
+#      jedem Ziel <ziel>.pruefstempel (Hilfsdatei termux/pruefstempel.sh).
+#      Stimmen beim naechsten Lauf Groesse und mtime von Quelle UND Ziel exakt
+#      und ist der Stempel juenger als PRUEFSTEMPEL_MAX_ALTER_S (Standard 86400 s),
+#      wird fuer diese Datei KEINE Pruefsumme gerechnet (Protokollzeile
+#      "PCLOUD-Uebergabe <NAME> uebersprungen (Groesse und Zeit unveraendert seit
+#      letzter Pruefung, keine Pruefsumme)"). Jede Unklarheit = volle Pruefung
+#      wie bisher; Sicherung/.teil/Pruefsumme-Schutz unveraendert. Umgehung:
+#      PRUEFSTEMPEL_AUS=1. Hinweis: Der Netz-Teil (Schritt 1) legt die Staging-
+#      Dateien bei jedem Lauf NEU an (neue mtime der Quelle); dann passt der
+#      volle Stempel nicht, aber die Pruefsumme des unveraenderten ZIELS wird
+#      aus dem Stempel wiederverwendet (stempel_ziel_sha: Ziel-Groesse + mtime
+#      + Alter muessen passen), es wird nur die (kleinere) Quelle gerechnet.
+#      Grenze: gleiche Groesse + gleiche mtime-Sekunde bei anderem Inhalt faellt
+#      bis zur Tagesgrenze nicht auf.
 #
 # Aufruf:  bash termux/pcloud-uebernehmen.sh [projektordner]
 #   Ueberschreibbar (fuer Tests/andere Ablagen; auf dem Handy nicht noetig):
@@ -50,6 +69,17 @@ set -u
 
 HIER="$(cd "$(dirname "$0")" && pwd)"
 PROJEKT="${1:-$(cd "$HIER/.." && pwd)}"
+
+# Pruefstempel-Hilfsfunktionen (Schnellpruefung). Fehlt die Hilfsdatei, gibt es
+# nur Ersatzfunktionen: nie Schnellpruefung, immer volle Pruefung wie bisher.
+if [ -f "$HIER/pruefstempel.sh" ]; then
+    . "$HIER/pruefstempel.sh"
+fi
+if ! command -v stempel_passt >/dev/null 2>&1; then
+    stempel_passt() { return 1; }
+    stempel_ziel_sha() { return 1; }
+    stempel_schreiben() { return 0; }
+fi
 
 STAGING="${PCLOUD_UEBERGABE_STAGING:-$HOME/.cache/pcloud_uebergabe}"
 ZIEL_ORDNER="${PCLOUD_UEBERGABE_ZIEL:-$HOME/foto_sortierung}"
@@ -136,6 +166,15 @@ while IFS= read -r NAME || [ -n "$NAME" ]; do
         continue
     fi
 
+    # Schnellpruefung: Groesse + Zeit von Quelle und Ziel unveraendert seit der
+    # letzten Pruefung -> keine Pruefsumme.
+    STEMPEL="$ZIEL.pruefstempel"
+    if stempel_passt "$STEMPEL" "$QUELLE" "$ZIEL"; then
+        protokoll "PCLOUD-Uebergabe $NAME uebersprungen (Groesse und Zeit unveraendert seit letzter Pruefung, keine Pruefsumme): quelle=$QUELLE ziel=$ZIEL"
+        uebersprungen=$((uebersprungen+1))
+        continue
+    fi
+
     S="$(sha256_von "$QUELLE")"
     if [ -z "$S" ]; then
         protokoll "PCLOUD-Uebergabe FEHLER: Pruefsumme der Quelle nicht lesbar: $QUELLE - $NAME uebersprungen."
@@ -143,9 +182,15 @@ while IFS= read -r NAME || [ -n "$NAME" ]; do
     fi
     NG="$(groesse_von "$QUELLE")"
 
-    ZZ=""; NZ=""
+    ZZ=""; NZ=""; ZZ_AUS_STEMPEL=0
     if [ -f "$ZIEL" ]; then
-        ZZ="$(sha256_von "$ZIEL")"
+        # Ziel unveraendert (Groesse + mtime + Stempelalter) -> gestempelte
+        # Pruefsumme wiederverwenden statt das Ziel erneut zu lesen.
+        # Der Stempel wird dann NICHT erneuert: sein Alter bleibt die Uhr fuer
+        # die naechste volle Pruefung (sonst wuerde er nie ablaufen).
+        ZZ_AUS_STEMPEL=1
+        ZZ="$(stempel_ziel_sha "$STEMPEL" "$ZIEL")" || ZZ=""
+        if [ -z "$ZZ" ]; then ZZ_AUS_STEMPEL=0; ZZ="$(sha256_von "$ZIEL")"; fi
         if [ -z "$ZZ" ]; then
             protokoll "PCLOUD-Uebergabe FEHLER: Pruefsumme des Ziels nicht lesbar: $ZIEL - $NAME uebersprungen."
             fehler=$((fehler+1)); continue
@@ -156,6 +201,7 @@ while IFS= read -r NAME || [ -n "$NAME" ]; do
     # Gleiche Pruefsumme -> nichts tun (idempotent).
     if [ -n "$ZZ" ] && [ "$ZZ" = "$S" ]; then
         protokoll "PCLOUD-Uebergabe $NAME uebersprungen (Pruefsumme gleich, nichts kopiert): quelle=$QUELLE groesse=$NG sha256=$S ziel=$ZIEL groesse=$NZ sha256=$ZZ"
+        [ "$ZZ_AUS_STEMPEL" = "1" ] || stempel_schreiben "$STEMPEL" "$QUELLE" "$ZIEL" "$S"
         uebersprungen=$((uebersprungen+1))
         continue
     fi
@@ -200,6 +246,8 @@ while IFS= read -r NAME || [ -n "$NAME" ]; do
     NG2="$(groesse_von "$ZIEL")"
     ZZ2="$(sha256_von "$ZIEL")"
     protokoll "PCLOUD-Uebergabe $NAME uebernommen (kopiert): quelle=$QUELLE groesse=$NG sha256=$S ziel=$ZIEL groesse=$NG2 sha256=$ZZ2 sicherung=${SICHERUNG:-keine}"
+    # Stempel mit den Werten NACH dem Kopieren.
+    stempel_schreiben "$STEMPEL" "$QUELLE" "$ZIEL" "$ZZ2"
     echo "  uebernommen: $NAME (${NG2} B)"
     [ -n "$SICHERUNG" ] && echo "    vorherige Fassung gesichert: $SICHERUNG"
     uebernommen=$((uebernommen+1))

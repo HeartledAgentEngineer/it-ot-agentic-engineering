@@ -94,3 +94,5 @@ und die `archiv_index.db`-Übernahme (andere Datei, bleibt wie sie ist).
 - **Ehrlich offen:** Der erste echte Widget-Tipp am Handy steht aus — erst danach ist
   der Übernahme-Eintrag im `hermes_diag`-Protokoll am Gerät belegbar. Vom PC wurde
   nichts ans Gerät geschickt; am Gerät wurde nichts geändert.
+
+- **Nachtrag 20.10.2026:** Schnellprüfung mit Prüfstempel (`termux/pruefstempel.sh`): bei unveränderter Größe und Zeit rechnet das Skript keine Prüfsumme mehr, siehe `changelog-2026-10-20-pruefstempel-start.md`.
