@@ -3120,6 +3120,115 @@ body.anmelden-offen { overflow: hidden; }
     }
 }
 
+#datenstand-btn {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+/* =========================================================================
+   Datenstand der Fotoquellen (18.10.2026, gesamtplan T0)
+   „Fotoquellen wirklich bis zum Handy nachweisen" — eine Statuszeile je
+   Quelle: entpackt → Bildindex → Gesichtserkennung → Gruppenbestand → auf
+   diesem Handy. Gemessen wird auf DIESEM Gerät (rund 250 MB Dateien), ein
+   Stand gilt für eine Weile, „Neu messen" misst frisch.
+   Nur Zahlen und Klartext, keine Symbole. Bewusst FLACH im Fluss (kein Kasten
+   über dem Chat — Punkt 9) und zugeklappt (`hidden`); die Liste rollt selbst
+   (max-height 40vh), damit lange Zeilen den Chat nicht auseinanderschieben.
+   ========================================= */
+
+.datenstand {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 20px 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.datenstand-kopf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+#datenstand-stand {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.datenstand-knoepfe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.datenstand-knoepfe button {
+    padding: 3px 10px;
+    min-height: 28px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.datenstand-knoepfe button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+#datenstand-liste {
+    max-height: 40vh;
+    overflow: auto;
+    padding: 6px 8px;
+    background: #14142a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    line-height: 1.5;
+    min-width: 0;
+}
+
+.datenstand-zeile {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.datenstand-quelle {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+
+.datenstand-quelle:first-child {
+    margin-top: 0;
+}
+
+.datenstand-wert {
+    color: var(--text-secondary);
+}
+
+@media (max-width: 420px) {
+    .datenstand-knoepfe {
+        margin-left: 0;
+    }
+}
+
 /* =========================================================================
    Personenauswahl als alphabetische Liste (S8, 18.10.2026) — Wunsch Sebastian
    (To-do Punkt 10): „eine Liste mit Suchzeile, scrollbar und alphabetisch

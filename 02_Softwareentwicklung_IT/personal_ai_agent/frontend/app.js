@@ -10438,6 +10438,142 @@ function serverProtokollZeilenText(antwort) {
     });
 })();
 
+// ── Datenstand der Fotoquellen (18.10.2026, gesamtplan T0) ───────────────────
+// Auftrag: „Fotoquellen wirklich bis zum Handy nachweisen" — Ergebnis für
+// Sebastian ist eine Statuszeile je Quelle: entpackt → Bildindex →
+// Gesichtserkennung → Gruppenbestand → auf diesem Handy. Gemessen wird vom
+// Server auf DIESEM Gerät (/api/datenstand/fotoquellen →
+// app/services/import_status.py); ein voller Lauf liest rund 250 MB, deshalb
+// gilt ein Stand für eine Weile und „Neu messen" misst ausdrücklich frisch.
+// Nur Zahlen und Klartext, keine Symbole; geschrieben wird mit
+// textContent/createElement (nie innerHTML). Die reinen Funktionen sind ohne
+// DOM testbar (frontend/tests/test_datenstand.js).
+const DATENSTAND_QUELLEN_NAMEN = {
+    fotos: 'Fotos',
+    bilder_und_videos: 'Bilder und Videos',
+    papas_album: 'Papas Album',
+    neuausrichtung: 'Neuausrichtung',
+    fotobuch: 'Fotobuch',
+};
+
+/** Eine Zahl für die Anzeige — ein fehlender Messwert heißt „nicht gemessen". */
+function datenstandZahl(wert) {
+    if (typeof wert !== 'number' || !Number.isFinite(wert)) return 'nicht gemessen';
+    return wert.toLocaleString('de-DE');
+}
+
+/** Kopfzeile: Stand, Dauer und woher der Wert kommt — ehrlich, ohne Schmuck. */
+function datenstandStand(antwort) {
+    if (!antwort || typeof antwort !== 'object' || antwort.ok !== true) {
+        return 'Datenstand nicht abrufbar.';
+    }
+    const teile = [];
+    if (typeof antwort.gelesen_am === 'string' && antwort.gelesen_am) {
+        teile.push('Stand ' + antwort.gelesen_am.replace('T', ' ').slice(0, 16));
+    }
+    if (typeof antwort.dauer_sekunden === 'number' && Number.isFinite(antwort.dauer_sekunden)) {
+        teile.push('Messung ' + antwort.dauer_sekunden.toFixed(1).replace('.', ',') + ' s');
+    }
+    teile.push(antwort.aus_cache ? 'aus dem Speicher' : 'gerade frisch gemessen');
+    if (typeof antwort.hinweis === 'string' && antwort.hinweis) teile.push(antwort.hinweis);
+    return teile.join(' · ');
+}
+
+/** Die anzuzeigenden Zeilen, je Quelle vier: Name und drei Zahlenzeilen. */
+function datenstandZeilen(antwort) {
+    if (!antwort || typeof antwort !== 'object' || antwort.ok !== true) {
+        return ['Datenstand nicht abrufbar.'];
+    }
+    const quellen = Array.isArray(antwort.quellen) ? antwort.quellen : [];
+    if (!quellen.length) return ['Keine Quelle gemeldet.'];
+    const zeilen = [];
+    quellen.forEach((q) => {
+        const quelle = (q && typeof q === 'object') ? q : {};
+        const typ = typeof quelle.quelle_typ === 'string' ? quelle.quelle_typ : '';
+        zeilen.push(DATENSTAND_QUELLEN_NAMEN[typ] || typ || 'Unbenannte Quelle');
+        zeilen.push('  im Plan ' + datenstandZahl(quelle.bilder_im_plan)
+            + ' · im Bildindex ' + datenstandZahl(quelle.bilder_im_index)
+            + ' · mit Gesichtslauf ' + datenstandZahl(quelle.bilder_mit_gesichtslauf));
+        zeilen.push('  erkannte Gesichter ' + datenstandZahl(quelle.erkannte_gesichter)
+            + ' · im Gruppenbestand ' + datenstandZahl(quelle.gesichter_im_gruppenbestand));
+        zeilen.push('  auf diesem Gerät geprüft: '
+            + (quelle.handy_stand_geprueft === true ? 'ja' : 'nein'));
+    });
+    const gruppen = antwort.gruppenbestand;
+    if (gruppen && typeof gruppen === 'object') {
+        zeilen.push('Gruppenbestand: ' + datenstandZahl(gruppen.gruppen) + ' Gruppen · '
+            + datenstandZahl(gruppen.benannt) + ' benannt · '
+            + datenstandZahl(gruppen.gesichter) + ' Gesichter');
+    }
+    const fehlend = Array.isArray(antwort.fehlende_werte)
+        ? antwort.fehlende_werte.filter((w) => typeof w === 'string' && w.trim() !== '')
+        : [];
+    if (fehlend.length) {
+        zeilen.push('Nicht gemessen: ' + fehlend.length
+            + (fehlend.length === 1 ? ' Wert' : ' Werte') + ' — ' + fehlend.slice(0, 6).join(', ')
+            + (fehlend.length > 6 ? ' …' : ''));
+    }
+    return zeilen;
+}
+
+(function () {
+    const bereich = document.getElementById('datenstand');
+    const knopf = document.getElementById('datenstand-btn');
+    if (!bereich || !knopf) return;
+    const standEl = document.getElementById('datenstand-stand');
+    const listeEl = document.getElementById('datenstand-liste');
+    const statusEl = document.getElementById('datenstand-status');
+    const neuBtn = document.getElementById('datenstand-neu');
+
+    function zeichnen(daten) {
+        if (standEl) standEl.textContent = datenstandStand(daten);
+        if (!listeEl) return;
+        listeEl.replaceChildren();
+        datenstandZeilen(daten).forEach((zeile) => {
+            const div = document.createElement('div');
+            div.textContent = zeile;
+            div.className = 'datenstand-zeile'
+                + (zeile.startsWith('  ') ? ' datenstand-wert' : ' datenstand-quelle');
+            listeEl.appendChild(div);
+        });
+    }
+
+    async function laden(frisch) {
+        if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.textContent = frisch
+                ? 'Wird frisch gemessen — eine volle Messung kann dauern.'
+                : 'Wird geladen …';
+        }
+        if (neuBtn) neuBtn.disabled = true;
+        try {
+            const res = await fetch(
+                `${API_BASE}/api/datenstand/fotoquellen${frisch ? '?neu=true' : ''}`,
+                { credentials: 'same-origin', cache: 'no-store' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            zeichnen(await res.json());
+            if (statusEl) statusEl.hidden = true;
+        } catch (_) {
+            zeichnen(null);
+            if (statusEl) {
+                statusEl.hidden = false;
+                statusEl.textContent = 'Keine Antwort vom Server.';
+            }
+        } finally {
+            if (neuBtn) neuBtn.disabled = false;
+        }
+    }
+
+    function umschalten(offen) {
+        bereich.hidden = !offen;
+        knopf.setAttribute('aria-expanded', offen ? 'true' : 'false');
+        if (offen) laden(false);
+    }
+
+    knopf.addEventListener('click', () => umschalten(bereich.hidden));
+    if (neuBtn) neuBtn.addEventListener('click', () => laden(true));
+})();
+
 // =========================================
 // (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
 //  Assistenten direkt über Hermes, kein sichtbares Auftragskonzept mehr.)

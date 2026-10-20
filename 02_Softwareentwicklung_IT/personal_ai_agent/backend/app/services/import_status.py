@@ -32,6 +32,8 @@ import json
 import logging
 import os
 import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -381,3 +383,92 @@ def status(basis: str = STANDARD_BASIS,
         "fehlende_werte": fehlende,
         "hinweis": HINWEIS,
     }
+
+
+# ── Zwischenspeicher für die Anzeige in der App ──────────────────────────────
+# Auftrag: derselbe Gesamtplan, Abschnitt T0 („Fotoquellen wirklich bis zum
+# Handy nachweisen"), Ergebnis für den Nutzer: **unter „Datenstand" eine
+# Statuszeile pro Quelle**. Der Bericht selbst ist fertig — es fehlte der Weg in
+# die Oberfläche.
+#
+# Warum ein Speicher davor: eine volle Messung liest die Plan- und
+# Vektordateien (auf dem Gerät zusammen rund 250 MB) und braucht dafür
+# Sekunden bis Minuten. Eine Anzeige, die beim Öffnen misst, würde das Gerät
+# blockieren und bei jedem Neuladen erneut messen. Deshalb gilt EIN gemessener
+# Stand je Basis für eine Weile (``STANDARD_CACHE_SEKUNDEN``); auf Wunsch misst
+# ``neu=True`` frisch. Der gespeicherte Wert ist derselbe Bericht, den
+# :func:`status` liefert — es kommt nichts hinzu und nichts weg.
+STANDARD_CACHE_SEKUNDEN = 600.0
+_CACHE: Dict[str, Any] = {"schluessel": None, "bericht": None,
+                          "zeitpunkt": 0.0, "dauer_sekunden": None}
+_SPERRE = threading.Lock()
+
+
+def cache_leeren() -> None:
+    """Den Zwischenspeicher verwerfen (für Tests und nach einem Datenwechsel)."""
+    with _SPERRE:
+        _CACHE.update(schluessel=None, bericht=None, zeitpunkt=0.0,
+                      dauer_sekunden=None)
+
+
+def _cache_schluessel(basis: str, quellen: Any, index_datei: Optional[str],
+                      zuordnung_datei: Optional[str],
+                      handy_geprueft: Optional[bool]) -> Tuple[Any, ...]:
+    """Was einen Stand kennzeichnet: Basis, Quellenliste und die festen Dateien."""
+    kennung = tuple((typ, tuple(plan), tuple(vektoren)) for typ, plan, vektoren in quellen)
+    return (os.path.abspath(basis), kennung, index_datei, zuordnung_datei,
+            handy_geprueft)
+
+
+def status_gecacht(basis: str = STANDARD_BASIS, *,
+                   ttl_sekunden: float = STANDARD_CACHE_SEKUNDEN,
+                   neu: bool = False,
+                   quellen: Sequence[Tuple[str, Sequence[str], Sequence[str]]] = QUELLEN,
+                   index_datei: Optional[str] = None,
+                   zuordnung_datei: Optional[str] = None,
+                   handy_geprueft: Optional[bool] = None,
+                   zeitpunkt: Optional[datetime] = None) -> Dict[str, Any]:
+    """:func:`status` mit Zwischenspeicher — **wirft nie** wegen des Speichers.
+
+    Rückgabe: ``{"bericht": …, "aus_cache": bool, "dauer_sekunden": float,
+    "gemessen_sekunden": float}``.
+
+    * ``aus_cache`` sagt, ob dieser Aufruf wirklich gemessen hat (``False``)
+      oder den gespeicherten Stand geliefert hat (``True``).
+    * ``dauer_sekunden`` ist die Dauer der Messung, die zu diesem Stand geführt
+      hat — auch dann, wenn gerade aus dem Speicher geliefert wird.
+    * ``gemessen_sekunden`` ist die Dauer DIESES Aufrufs.
+    * ``neu=True`` misst immer frisch; ``ttl_sekunden <= 0`` schaltet den
+      Speicher ab (jeder Aufruf misst). Ist eine frühere Messung gescheitert,
+      wird nichts gespeichert — der nächste Aufruf versucht es erneut.
+    """
+    schluessel = _cache_schluessel(basis, quellen, index_datei, zuordnung_datei,
+                                   handy_geprueft)
+    beginn = time.monotonic()
+    if not neu and ttl_sekunden > 0:
+        with _SPERRE:
+            gespeichert = _CACHE["bericht"]
+            passt = _CACHE["schluessel"] == schluessel
+            frisch = (time.monotonic() - float(_CACHE["zeitpunkt"])) < ttl_sekunden
+            dauer = _bericht_dauer(_CACHE["dauer_sekunden"])
+        if gespeichert is not None and passt and frisch:
+            return {"bericht": gespeichert, "aus_cache": True,
+                    "dauer_sekunden": dauer,
+                    "gemessen_sekunden": time.monotonic() - beginn}
+
+    bericht = status(basis=basis, quellen=quellen, index_datei=index_datei,
+                     zuordnung_datei=zuordnung_datei,
+                     handy_geprueft=handy_geprueft, zeitpunkt=zeitpunkt)
+    gemessen = time.monotonic() - beginn
+    with _SPERRE:
+        _CACHE.update(schluessel=schluessel, bericht=bericht,
+                      zeitpunkt=time.monotonic(), dauer_sekunden=gemessen)
+    return {"bericht": bericht, "aus_cache": False,
+            "dauer_sekunden": gemessen, "gemessen_sekunden": gemessen}
+
+
+def _bericht_dauer(wert: Any) -> Optional[float]:
+    """Eine gespeicherte Messdauer als Zahl — ``None`` bleibt ``None``."""
+    if isinstance(wert, (int, float)) and not isinstance(wert, bool):
+        return float(wert)
+    return None

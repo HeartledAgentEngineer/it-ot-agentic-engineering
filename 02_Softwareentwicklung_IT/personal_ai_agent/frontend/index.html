@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261018D">
+    <link rel="stylesheet" href="style.css?v=20261018E">
 </head>
 <body>
     <div id="app">
@@ -104,7 +104,30 @@
             <span id="server-zustand-text">Server wird geprüft …</span>
             <button id="server-protokoll-btn" type="button" aria-expanded="false"
                     title="Server-Protokoll anzeigen">Protokoll</button>
+            <button id="datenstand-btn" type="button" aria-expanded="false"
+                    title="Datenstand der Fotoquellen anzeigen">Datenstand</button>
         </div>
+
+        <!-- Datenstand der Fotoquellen (18.10.2026, gesamtplan T0): „Fotoquellen
+             wirklich bis zum Handy nachweisen". Ergebnis für den Nutzer ist eine
+             Statuszeile je Quelle: entpackt → Bildindex → Gesichtserkennung →
+             Gruppenbestand → auf diesem Handy. Gemessen wird vom Server auf
+             DIESEM Gerät (app/services/import_status.py), ein Stand gilt für
+             eine Weile (rund 250 MB Dateien), „Neu messen" misst frisch.
+             Nur Zahlen und Klartext, keine Symbole. Bewusst FLACH im Fluss
+             (kein Kasten über dem Chat, Punkt 9) und zugeklappt. -->
+        <section id="datenstand" class="datenstand" hidden
+                 aria-label="Datenstand der Fotoquellen">
+            <div class="datenstand-kopf">
+                <span id="datenstand-stand">Datenstand wird geladen …</span>
+                <span class="datenstand-knoepfe">
+                    <button id="datenstand-neu" type="button">Neu messen</button>
+                </span>
+            </div>
+            <div id="datenstand-liste" tabindex="0"></div>
+            <p id="datenstand-status" class="sheet-note" role="status"
+               aria-live="polite" hidden></p>
+        </section>
 
         <!-- Server-Bereich (18.10.2026, Wunsch Sebastian, To-do Punkt 16):
              "Früher war es so, dass in Termux der Server gesteuert wurde und
@@ -688,7 +711,7 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261018N"></script>
+    <script src="app.js?v=20261018O"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261018F"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

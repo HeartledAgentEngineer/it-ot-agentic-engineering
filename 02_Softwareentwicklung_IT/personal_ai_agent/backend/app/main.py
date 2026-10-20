@@ -46,6 +46,7 @@ from app.router import (
     diagnose,
     laeuft,
     system_update,
+    datenstand,
 )
 
 # Configure logging
@@ -274,6 +275,12 @@ app.include_router(laeuft.router, dependencies=[Depends(auth.require_api_key)])
 # API-Key-/Sitzungs-Abhängigkeit wie die übrigen /api-Routen. Der Endpunkt
 # startet sein fest verdrahtetes Termux-Skript erst nach dem Senden der Antwort.
 app.include_router(system_update.router, dependencies=[Depends(auth.require_api_key)])
+# Datenstand (2026-10-18, To-do/gesamtplan T0): „liegt eine Fotoquelle wirklich
+# auf DIESEM Gerät?" — der fertige datensparsame Quellenstatus
+# (app/services/import_status.py) wird hier für die Oberfläche lesbar. Rein
+# lesend, mit Zwischenspeicher (eine volle Messung liest rund 250 MB), Schutz
+# wie beim Protokoll (Loopback immer, fremd nur HTTPS).
+app.include_router(datenstand.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.
