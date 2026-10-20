@@ -4,12 +4,19 @@ import json
 import logging
 import uuid
 import os
+import tempfile
+from contextlib import contextmanager
+from copy import deepcopy
 import numpy as np
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class MemoryStoreError(RuntimeError):
+    """Speicherfehler ohne private Dateipfade oder Erinnerungsinhalte."""
 
 
 class SimpleMemoryStore:
@@ -26,20 +33,36 @@ class SimpleMemoryStore:
         self._loaded = False
 
     def connect(self) -> None:
-        """Load or create the memory file."""
-        os.makedirs(self.persist_dir, exist_ok=True)
-        if os.path.exists(self.store_path):
+        """Lädt einen gültigen Bestand; defekte Dateien niemals still leeren."""
+        self._loaded = False
+        try:
+            os.makedirs(self.persist_dir, exist_ok=True)
             try:
                 with open(self.store_path, "r", encoding="utf-8") as f:
-                    self._memories = json.load(f)
-                logger.info("Memory store loaded: %d items", len(self._memories))
-            except Exception as e:
-                logger.warning("Could not load memory store, starting fresh: %s", e)
-                self._memories = []
-        else:
-            self._memories = []
-            logger.info("Memory store created (empty)")
+                    memories = json.load(f)
+            except FileNotFoundError:
+                memories = []
+            if not isinstance(memories, list):
+                raise ValueError("Ungültige Speicherstruktur")
+            ids = set()
+            for memory in memories:
+                if (
+                    not isinstance(memory, dict)
+                    or not isinstance(memory.get("id"), str)
+                    or not memory["id"]
+                    or memory["id"] in ids
+                    or not isinstance(memory.get("content"), str)
+                ):
+                    raise ValueError("Ungültiger Speichereintrag")
+                ids.add(memory["id"])
+        except Exception as error:
+            logger.warning("Memory store could not be loaded (%s)", type(error).__name__)
+            raise MemoryStoreError(
+                "Gedächtnis konnte nicht sicher geladen werden. Vorhandene Daten bleiben unverändert."
+            ) from None
+        self._memories = memories
         self._loaded = True
+        logger.info("Memory store loaded: %d items", len(memories))
 
     def count(self) -> int:
         """Number of stored items."""
@@ -86,8 +109,8 @@ class SimpleMemoryStore:
             entry["ereignis_datum"] = ereignis_datum
         if wiederkehrend:
             entry["wiederkehrend"] = True
-        self._memories.append(entry)
-        self._persist()
+        with self._aenderung():
+            self._memories.append(entry)
         logger.debug("Added memory: %s... (id=%s)", content[:50], memory_id)
         return memory_id
 
@@ -168,11 +191,11 @@ class SimpleMemoryStore:
             self.connect()
         for m in self._memories:
             if m["id"] == memory_id:
-                for schluessel, wert in felder.items():
-                    if schluessel == "id":
-                        continue
-                    m[schluessel] = wert
-                self._persist()
+                with self._aenderung():
+                    for schluessel, wert in felder.items():
+                        if schluessel == "id":
+                            continue
+                        m[schluessel] = wert
                 return True
         return False
 
@@ -202,8 +225,8 @@ class SimpleMemoryStore:
             self.connect()
         for m in self._memories:
             if m["id"] == memory_id:
-                m["embedding"] = embedding
-                self._persist()
+                with self._aenderung():
+                    m["embedding"] = embedding
                 return True
         return False
 
@@ -211,24 +234,66 @@ class SimpleMemoryStore:
         """Remove a memory by ID."""
         if not self._loaded:
             self.connect()
-        before = len(self._memories)
-        self._memories = [m for m in self._memories if m["id"] != memory_id]
-        if len(self._memories) < before:
-            self._persist()
+        if any(m["id"] == memory_id for m in self._memories):
+            with self._aenderung():
+                self._memories = [m for m in self._memories if m["id"] != memory_id]
             return True
         return False
 
     def clear_all(self) -> None:
         """Delete all memories."""
-        self._memories = []
-        self._persist()
+        if not self._loaded:
+            self.connect()
+        with self._aenderung():
+            self._memories = []
         logger.info("Memory store cleared")
 
+    @contextmanager
+    def _aenderung(self):
+        """Keine neue RAM-Fassung behalten, wenn das Speichern scheitert.
+
+        Kein Lock für parallele Instanzen/Prozesse: Mehrschreiberschutz ist
+        ein eigener Schritt vor automatischen Verwaltungswerkzeugen.
+        """
+        vorher = deepcopy(self._memories)
+        try:
+            yield
+            self._persist()
+        except BaseException:
+            self._memories = vorher
+            raise
+
     def _persist(self) -> None:
-        """Write memory store to disk."""
-        os.makedirs(self.persist_dir, exist_ok=True)
-        with open(self.store_path, "w", encoding="utf-8") as f:
-            json.dump(self._memories, f, indent=2, ensure_ascii=False)
+        """Ersetzt erst nach vollständigem Schreiben die bestehende Datei."""
+        temp_path = None
+        try:
+            os.makedirs(self.persist_dir, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", delete=False,
+                dir=os.path.dirname(os.path.abspath(self.store_path)),
+                prefix=".memory-store-", suffix=".tmp",
+            ) as f:
+                temp_path = f.name
+                json.dump(self._memories, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, self.store_path)
+            temp_path = None
+        except Exception as error:
+            logger.warning("Memory store could not be saved (%s)", type(error).__name__)
+            raise MemoryStoreError(
+                "Gedächtnis konnte nicht gespeichert werden. Die Änderung wurde nicht übernommen."
+            ) from None
+        finally:
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    raise MemoryStoreError(
+                        "Speichern fehlgeschlagen; die temporäre Speicherdatei konnte nicht entfernt werden."
+                    ) from None
 
 
 # Singleton – same name as before, so imports stay compatible

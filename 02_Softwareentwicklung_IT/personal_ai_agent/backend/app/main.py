@@ -22,7 +22,7 @@ from app.sicherheit import (
     cors_herkunft,
     schluessel_einsetzen,
 )
-from app.db.chroma_client import chroma_client
+from app.db.chroma_client import MemoryStoreError, chroma_client
 from app.router import (
     chat,
     memory,
@@ -305,11 +305,20 @@ async def health_check():
 
     lan_ip = _lan_ip()
 
+    memory_status = {"memory_available": True}
+    try:
+        memory_status["memory_count"] = chroma_client.count()
+    except MemoryStoreError:
+        # Erreichbarkeit des Servers ist nicht Verfügbarkeit des Gedächtnisses.
+        # Unbekannte Anzahl weglassen: weder einen leeren Bestand vortäuschen
+        # noch in bestehenden Oberflächen „null Erinnerungen“ anzeigen.
+        memory_status["memory_available"] = False
+
     return {
         "status": "ok",
         "version": "0.1.0",
         "llm_configured": llm_service.is_configured,
-        "memory_count": chroma_client.count(),
+        **memory_status,
         # Damit man vom PC aus zugreifen kann, ohne den Server zu beenden.
         "lan_ip": lan_ip,
         "lan_url": f"http://{lan_ip}:{settings.port}" if lan_ip else None,
