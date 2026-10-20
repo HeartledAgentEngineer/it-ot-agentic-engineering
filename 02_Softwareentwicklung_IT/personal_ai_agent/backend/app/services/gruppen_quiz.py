@@ -93,6 +93,8 @@ SUCHE_LIMIT_MAX = 50
 GESICHTER_JE_SEITE = 48
 AUSSCHLUSS_MAX = 200
 SPITZNAMEN_MAX = 10        # je Person, nur Anzeige/Suche (20.10.2026)
+NAMENSFELD_MAX = 40        # Vorname / Nachname von Hand (20.10.2026)
+SPITZNAME_MAX = 30         # ein einzelner Spitzname (20.10.2026)
 
 FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
                  "tools/foto_sortierung/personen_gruppieren.py --schreiben laufen "
@@ -492,6 +494,43 @@ def _profil_schluessel(profile: Dict[str, Any], name: str) -> str:
     return next((k for k in profile if k.casefold() == name.casefold()), name)
 
 
+def namensfelder_saeubern(vorname: Any = None, nachname: Any = None,
+                          spitznamen: Any = None) -> Dict[str, Any]:
+    """Von Hand gesetzte Namensfelder pruefen (20.10.2026, Namensfelder Schritt 2).
+
+    Nur die uebergebenen Felder kommen zurueck (``None`` = nicht angefasst).
+    Eine **leere** Eingabe bedeutet „Felder leeren": das Handfeld wird entfernt
+    und die Ableitung greift wieder. Spitznamen duerfen als Liste oder als
+    komma-getrennter Text kommen, doppelte fallen weg (Gross/Klein egal).
+    Wirft ``GruppenFehler`` bei unbrauchbarer Eingabe — es wird nie etwas
+    geschrieben, die Pruefung laeuft vor dem Schreiben.
+    """
+    felder: Dict[str, Any] = {}
+    if vorname is not None:
+        felder["vorname"] = text_saeubern(vorname, NAMENSFELD_MAX)
+    if nachname is not None:
+        felder["nachname"] = text_saeubern(nachname, NAMENSFELD_MAX)
+    if spitznamen is not None:
+        roh = ([t for t in spitznamen.split(",")] if isinstance(spitznamen, str)
+               else list(spitznamen) if isinstance(spitznamen, (list, tuple)) else None)
+        if roh is None:
+            raise GruppenFehler("Spitznamen bitte als Liste oder mit Komma getrennt.")
+        sauber: List[str] = []
+        gesehen = set()
+        for s in roh:
+            if not isinstance(s, str):
+                raise GruppenFehler("Ungültige Eingabe.")
+            wert = text_saeubern(s, SPITZNAME_MAX)
+            if not wert or wert.casefold() in gesehen:
+                continue
+            gesehen.add(wert.casefold())
+            sauber.append(wert)
+        if len(sauber) > SPITZNAMEN_MAX:
+            raise GruppenFehler(f"Höchstens {SPITZNAMEN_MAX} Spitznamen je Person.")
+        felder["spitznamen"] = sauber
+    return felder
+
+
 def _namensfelder(eintrag: Any, name: str, alle_namen: Iterable[Any] = ()) -> Dict[str, Any]:
     """Vorname / Nachname / Spitznamen einer Person fuer Anzeige und Suche.
 
@@ -521,7 +560,8 @@ def _namensfelder(eintrag: Any, name: str, alle_namen: Iterable[Any] = ()) -> Di
 
 def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: str,
                       kennung: Optional[str], quelle: str,
-                      kontakt: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                      kontakt: Optional[Dict[str, Any]] = None,
+                      felder: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     profile = daten["profile"]
     schluessel = _profil_schluessel(profile, name)
     eintrag = profile.setdefault(schluessel, {"beziehung": "", "notizen": []})
@@ -533,6 +573,16 @@ def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: s
     if kontakt and kontakt != eintrag.get("kontakt"):
         aenderung["kontakt_vorher"] = eintrag.get("kontakt")
         eintrag["kontakt"] = kontakt
+    # Namensfelder von Hand (20.10.2026): leer = Handfeld weg, Ableitung greift wieder.
+    # Vorher-Stand wird je Feld mitgeschrieben, damit Rueckgaengig genau zurueckstellt.
+    for feld, wert in (felder or {}).items():
+        if eintrag.get(feld) == wert:
+            continue
+        aenderung.setdefault("felder_vorher", {})[feld] = eintrag.get(feld)
+        if wert in ("", []):
+            eintrag.pop(feld, None)
+        else:
+            eintrag[feld] = wert
     if notiz:
         nid = uuid.uuid4().hex[:12]
         eintrag["notizen"].append({"id": nid, "zeit": datetime.now().isoformat(timespec="seconds"),
@@ -562,9 +612,12 @@ def profil(name: str) -> Dict[str, Any]:
 
 def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional[str] = None,
                      kennung: Optional[str] = None,
-                     kontakt_id: Optional[str] = None) -> Dict[str, Any]:
-    """Beziehung setzen, Erinnerung anhaengen und/oder Kontakt verknuepfen (auch ohne
-    Quiz, z. B. aus „Benannt"). Steht im Protokoll, Rueckgaengig nimmt es zurueck. Nie ein Wurf."""
+                     kontakt_id: Optional[str] = None,
+                     vorname: Optional[str] = None, nachname: Optional[str] = None,
+                     spitznamen: Optional[Any] = None) -> Dict[str, Any]:
+    """Beziehung setzen, Erinnerung anhaengen, Kontakt verknuepfen und/oder die
+    Namensfelder von Hand setzen (auch ohne Quiz, z. B. aus „Benannt"). Steht im
+    Protokoll, Rueckgaengig nimmt es zurueck. Nie ein Wurf."""
     try:
         sauber = name_saeubern(name)
         b = text_saeubern(beziehung, BEZIEHUNG_MAX)
@@ -574,12 +627,13 @@ def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional
             kontakt = _kontakte_laden().get(str(kontakt_id).strip())
             if not kontakt:
                 raise GruppenFehler("Kontakt nicht (mehr) im Telefonbuch-Auszug.")
-        if not b and not n and not kontakt:
-            raise GruppenFehler("Bitte eine Beziehung oder eine Erinnerung eingeben.")
+        felder = namensfelder_saeubern(vorname, nachname, spitznamen)
+        if not b and not n and not kontakt and not felder:
+            raise GruppenFehler("Bitte eine Beziehung, eine Erinnerung oder einen Namen eingeben.")
         with _SCHREIBSPERRE:
             daten = _profile_laden()
             aenderung = _profil_ergaenzen(daten, sauber, b, n, kennung, "profil",
-                                          dict(kontakt) if kontakt else None)
+                                          dict(kontakt) if kontakt else None, felder)
             _atomar_schreiben(PROFILE_DATEINAME, daten)
             _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
                                   "zeit": datetime.now().isoformat(timespec="seconds"),
@@ -656,8 +710,16 @@ def suche(q: str, limit: int = 12) -> Dict[str, Any]:
     limit = max(1, min(int(limit or 12), SUCHE_LIMIT_MAX))
     frage = (q or "").strip()
     alle = namen_liste(namen)
+
+    def durchsuchbar(n: str) -> str:
+        """Name plus die Namensfelder — damit findet die Suche auch Vorname,
+        Nachname und Spitznamen, nicht nur den Namen selbst (20.10.2026)."""
+        p = profile.get(_profil_schluessel(profile, n)) or {}
+        f = _namensfelder(p, n)
+        return " ".join([n, f["vorname"], f["nachname"], *f["spitznamen"]])
+
     if frage:
-        personen = [n for n in alle if passt_wortanfang(n, frage)][:limit]
+        personen = [n for n in alle if passt_wortanfang(durchsuchbar(n), frage)][:limit]
         treffer = sorted((k for k in kontakte.values() if passt_wortanfang(k["name"], frage)),
                          key=lambda k: (k["name"].casefold(), k["id"]))[:limit]
     else:
@@ -667,7 +729,8 @@ def suche(q: str, limit: int = 12) -> Dict[str, Any]:
 
     def person(n: str) -> Dict[str, Any]:
         p = profile.get(_profil_schluessel(profile, n)) or {}
-        return {"name": n, "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt"))}
+        return {"name": n, "beziehung": p.get("beziehung") or "", "kontakt": bool(p.get("kontakt")),
+                **_namensfelder(p, n)}
 
     return {"ok": True, "frage": frage, "kontakte_vorhanden": bool(kontakte),
             "personen": [person(n) for n in personen],
@@ -1638,6 +1701,22 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
                     ziel["notizen"] = (ziel.get("notizen") or []) + (quelle.get("notizen") or [])
                     if not ziel.get("kontakt") and quelle.get("kontakt"):
                         ziel["kontakt"] = quelle["kontakt"]
+                    # Namensfelder von Hand (20.10.2026, Auflage aus der Gegenpruefung):
+                    # sie muessen mitwandern, sonst geht eine Handeingabe beim
+                    # Zusammenfuehren verloren. Das Ziel behaelt Vorrang, Spitznamen
+                    # werden vereinigt. Der Rueckweg ist ein vollstaendiger
+                    # Schnappschuss (profile_vorher) und stellt alles wieder her.
+                    for feld in ("vorname", "nachname"):
+                        if not ziel.get(feld) and quelle.get(feld):
+                            ziel[feld] = quelle[feld]
+                    spitz = [str(s) for s in ziel.get("spitznamen") or [] if isinstance(s, str)]
+                    gesehen = {s.casefold() for s in spitz}
+                    for s in quelle.get("spitznamen") or []:
+                        if isinstance(s, str) and s.casefold() not in gesehen:
+                            gesehen.add(s.casefold())
+                            spitz.append(s)
+                    if spitz:
+                        ziel["spitznamen"] = spitz[:SPITZNAMEN_MAX]
                 else:
                     prof[neu_s] = quelle
                 _atomar_schreiben(PROFILE_DATEINAME, daten)
@@ -1995,6 +2074,13 @@ def rueckgaengig() -> Dict[str, Any]:
                             p["kontakt"] = pr["kontakt_vorher"]
                         else:
                             p.pop("kontakt", None)
+                    # Namensfelder von Hand (20.10.2026): genauen Vorher-Stand
+                    # wiederherstellen, fehlende Schluessel wieder entfernen.
+                    for feld, wert in (pr.get("felder_vorher") or {}).items():
+                        if wert is None:
+                            p.pop(feld, None)
+                        else:
+                            p[feld] = wert
                     for notiz_eintrag in p.get("notizen") or []:
                         if notiz_eintrag.get("id") == pr.get("notiz_id"):
                             notiz_eintrag["zurueckgenommen"] = True

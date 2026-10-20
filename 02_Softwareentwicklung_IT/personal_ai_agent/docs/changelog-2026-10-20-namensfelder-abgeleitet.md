@@ -88,6 +88,7 @@ In `backend/app/services/gruppen_quiz.py`:
   Hand gesetzt erst dann gespeichert, wenn `profil_ergaenzen` samt
   `Rückgängig`-Weg und Zusammenführen sie mitzieht (Befund 2 der Prüfung).
   Solange nichts geschrieben wird, kann dabei auch nichts verloren gehen.
+  → **Schritt 2 ist gebaut:** `docs/changelog-2026-10-20-namensfelder-schreibweg.md`.
 - **Die Oberfläche** (drei Eingabefelder, Suche über Vorname/Nachname/
   Spitznamen) wartet auf den **Zusammenschluss des laufenden Fremdstrangs** —
   sie trifft dieselbe Datei.

@@ -6,7 +6,10 @@
   POST /api/gruppen/rueckgaengig  letzte Antwort zuruecknehmen
   GET  /api/gruppen/bilder        ?namen=Leon,Tim&modus=alle|eine|genau&limit=100
   GET  /api/gruppen/profil        ?name=Leon -> Beziehung + Erinnerungen
-  POST /api/gruppen/profil        {name, beziehung?, notiz?, kennung?} -> anhaengen
+  POST /api/gruppen/profil        {name, beziehung?, notiz?, kennung?, kontakt_id?,
+                                  vorname?, nachname?, spitznamen?} -> anhaengen/setzen
+                                  (Namensfelder 20.10.2026: nur uebergebene Felder,
+                                  leer = Handfeld entfernen)
   GET  /api/gruppen/suche         ?q=Le&limit=12 -> benannte Personen, dann Kontakte
   GET  /api/gruppen/gesichter     ?kennung=Person_1001&seite=1 -> alle Gesichter, je 48
                                   ?name=Leon&seite=1 -> alle Gesichter der Person ueber alle
@@ -79,11 +82,16 @@ class AufloesenEingabe(BaseModel):
 
 
 class ProfilEingabe(BaseModel):
+    """Profil erweitern. Namensfelder (20.10.2026): nur die uebergebenen Felder
+    aendern sich (``None`` = nicht angefasst), leer = Handfeld entfernen."""
     name: str
     beziehung: Optional[str] = None
     notiz: Optional[str] = None
     kennung: Optional[str] = None
     kontakt_id: Optional[str] = None
+    vorname: Optional[str] = None
+    nachname: Optional[str] = None
+    spitznamen: Optional[List[str]] = None
 
 
 @router.get("/stand")
@@ -138,7 +146,8 @@ def profil(name: str = Query(..., min_length=1, max_length=60)) -> Dict[str, Any
 @router.post("/profil")
 def profil_ergaenzen(eingabe: ProfilEingabe) -> Dict[str, Any]:
     return gruppen_quiz.profil_ergaenzen(eingabe.name, eingabe.beziehung, eingabe.notiz,
-                                         eingabe.kennung, eingabe.kontakt_id)
+                                         eingabe.kennung, eingabe.kontakt_id,
+                                         eingabe.vorname, eingabe.nachname, eingabe.spitznamen)
 
 
 @router.get("/suche")
