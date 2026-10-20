@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261020A">
+    <link rel="stylesheet" href="style.css?v=20261020B">
 </head>
 <body>
     <div id="app">
@@ -495,6 +495,16 @@
                     <p class="gruppen-meta">Gibt es den neuen Namen schon, werden beide Personen zusammengeführt.</p>
                     <h4 class="gruppen-abschnitt">Profil</h4>
                     <div class="gruppen-profil">
+                        <div class="gruppen-namensfelder">
+                            <input id="gruppen-person-vorname" type="text" maxlength="40" autocomplete="off"
+                                   placeholder="Vorname" aria-label="Vorname">
+                            <input id="gruppen-person-nachname" type="text" maxlength="40" autocomplete="off"
+                                   placeholder="Nachname" aria-label="Nachname">
+                            <input id="gruppen-person-spitznamen" type="text" maxlength="300" autocomplete="off"
+                                   placeholder="Spitznamen, mit Komma getrennt (z. B. Mausi, Anni)"
+                                   aria-label="Spitznamen">
+                        </div>
+                        <p id="gruppen-person-namensfelder-hinweis" class="gruppen-meta"></p>
                         <input id="gruppen-person-beziehung" type="text" maxlength="80" autocomplete="off"
                                placeholder="Wer ist das für dich? (z. B. Bruder, Schulfreund)">
                         <div class="gruppen-notiz-zeile">
@@ -721,7 +731,7 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261020A"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
-    <script src="gruppen_quiz.js?v=20261020B"></script>
+    <script src="gruppen_quiz.js?v=20261020C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

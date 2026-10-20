@@ -2589,6 +2589,23 @@ button.footer-note:hover {
     gap: 8px;
 }
 
+/* Namensfelder im Profil (20.10.2026, Schritt 3): Vorname und Nachname
+   nebeneinander, die Spitznamen-Zeile über die volle Breite. Am Handy (< 480 px)
+   stehen alle drei untereinander. */
+.gruppen-namensfelder {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.gruppen-namensfelder input:last-child {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 480px) {
+    .gruppen-namensfelder { grid-template-columns: 1fr; }
+}
+
 .gruppen-profil input,
 .gruppen-profil textarea {
     width: 100%;

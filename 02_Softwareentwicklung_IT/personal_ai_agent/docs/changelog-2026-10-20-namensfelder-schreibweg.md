@@ -65,6 +65,7 @@ durch. Der Kopfkommentar der Datei ist nachgezogen.
 - **Keine Oberfläche.** Die drei Eingabefelder und die sichtbare Suche sind
   Schritt 3 (Schritt 3 trifft `frontend/gruppen_quiz.js`; der frühere
   Fremdstrang dort ist als `9b6d879` in main, damit ist die Datei frei).
+  → **Schritt 3 ist gebaut:** `docs/changelog-2026-10-20-namensfelder-oberflaeche.md`.
 - **Keine Migration, keine Umbenennung.** Der Name bleibt die Kennung; die
   Felder sind Zusatz. Alte Profile ohne Felder bleiben unverändert lesbar.
 - **Die Ableitung bleibt eine Näherung.** Ohne Familienbezug wird weiterhin kein

@@ -284,6 +284,65 @@ function gruppenProfilText(p) {
     return teile.length ? 'Bekannt: ' + teile.join(' · ') : '';
 }
 
+// ── Namensfelder: Vorname / Nachname / Spitznamen (20.10.2026, Schritt 3) ────
+//
+// Das Backend fuehrt je Person Vorname, Nachname und Spitznamen
+// (``backend/app/services/gruppen_quiz.py``, ``name_zerlegen`` / ``_namensfelder``):
+// von Hand gesetzte Felder haben Vorrang, fehlende werden aus dem Namen abgeleitet.
+// Die Oberflaeche zeigt sie im Profil und schickt beim Speichern nur wirklich
+// Geaendertes — ein leeres Feld bedeutet „von Hand entfernen, Ableitung gilt wieder".
+
+/** Spitznamen aus dem Eingabefeld: mit Komma getrennt, getrimmt, ohne Dubletten.
+ *  Die Reihenfolge der Eingabe bleibt erhalten (klein/gross gilt als derselbe). */
+function gruppenSpitznamenListe(text) {
+    const raus = [];
+    String(text == null ? '' : text).split(',').forEach((teil) => {
+        const wort = teil.trim().replace(/\s+/g, ' ');
+        if (!wort) return;
+        if (raus.some((x) => x.toLowerCase() === wort.toLowerCase())) return;
+        raus.push(wort);
+    });
+    return raus;
+}
+
+/** Zu viele Spitznamen? Das Backend lässt höchstens 10 je Person zu
+ *  (``SPITZNAMEN_MAX``) und lehnt mehr mit einer Meldung ab. */
+function gruppenSpitznamenZuviele(liste) {
+    return (Array.isArray(liste) ? liste.length : 0) > 10;
+}
+
+/** Nur die wirklich geänderten Namensfelder. Verglichen wird mit dem, was das
+ *  Profil gerade zeigt (auch abgeleitet) — unverändert heißt: nicht mitschicken. */
+function gruppenNamensfelderKoerper(profil, vorname, nachname, spitznamen) {
+    const p = profil || {};
+    const koerper = {};
+    const v = String(vorname == null ? '' : vorname).trim();
+    const n = String(nachname == null ? '' : nachname).trim();
+    if (v !== String(p.vorname || '').trim()) koerper.vorname = v;
+    if (n !== String(p.nachname || '').trim()) koerper.nachname = n;
+    const neu = gruppenSpitznamenListe(spitznamen);
+    const alt = (Array.isArray(p.spitznamen) ? p.spitznamen : []).map((s) => String(s));
+    if (neu.join(',') !== alt.join(',')) koerper.spitznamen = neu;
+    return koerper;
+}
+
+/** Ehrlicher Hinweis, woher die Namensfelder kommen (leer = nichts zu sagen). */
+function gruppenNamensfelderHinweis(profil) {
+    const quelle = profil && profil.namensfelder_quelle;
+    if (quelle === 'profil') return 'Von Hand gesetzt – leeren heißt: wieder aus dem Namen ableiten.';
+    if (quelle === 'abgeleitet') return 'Aus dem Namen abgeleitet – tippen überschreibt.';
+    return '';
+}
+
+/** Passt eine Person zur Suchzeile? Geprüft werden Name, Vorname, Nachname und
+ *  Spitznamen — so findet die Suche auch „Mausi" statt nur den vollen Namen. */
+function gruppenPersonPasstNamensfelder(p, frage) {
+    if (!p) return false;
+    if (gruppenPersonPasst(p.name, frage)) return true;
+    const felder = [p.vorname, p.nachname].concat(Array.isArray(p.spitznamen) ? p.spitznamen : []);
+    return felder.some((wort) => !!wort && gruppenPersonPasst(wort, frage));
+}
+
 // ── Benannte Personen wieder aufrufen (02.10.2026) ─────────────────────────
 
 /** Suchformen eines Textes: klein, „ä→ae“ und ohne Akzente („ä→a“) — wie im Backend. */
@@ -436,7 +495,7 @@ function gruppenErinnerungText(wahl) {
  *  nach der die Liste gezeichnet wird (auch Weiter-Weg und Wischen). */
 function gruppenPersonenGefiltert(personen, frage, erinnerung, sortierung) {
     return gruppenPersonenSortiert((Array.isArray(personen) ? personen : [])
-        .filter((p) => gruppenPersonPasst(p && p.name, frage)
+        .filter((p) => gruppenPersonPasstNamensfelder(p, frage)
             && gruppenPersonPasstErinnerung(p, erinnerung)), sortierung);
 }
 
@@ -1526,6 +1585,7 @@ function gruppenNotizZeit(zeit) {
         });
         const profil = p.profil || {};
         el('gruppen-person-name').value = p.name;
+        namensfelderZeigen(profil);
         el('gruppen-person-beziehung').value = profil.beziehung || '';
         el('gruppen-person-notiz').value = '';
         const notizen = el('gruppen-person-notizen');
@@ -1644,15 +1704,39 @@ function gruppenNotizZeit(zeit) {
         melde(antwort.zusammengefuehrt ? '✓ mit ' + antwort.name + ' zusammengeführt' : '✓ umbenannt in ' + antwort.name);
     }
 
+    /** Namensfelder im Profil anzeigen (20.10.2026, Schritt 3). Fehlt ein Feld
+     *  im HTML, passiert nichts — die Ansicht bleibt dann wie vorher. */
+    function namensfelderZeigen(profil) {
+        const p = profil || {};
+        const setzen = (id, wert) => { const f = el(id); if (f) f.value = wert; };
+        setzen('gruppen-person-vorname', p.vorname || '');
+        setzen('gruppen-person-nachname', p.nachname || '');
+        setzen('gruppen-person-spitznamen', (Array.isArray(p.spitznamen) ? p.spitznamen : []).join(', '));
+        const hinweis = el('gruppen-person-namensfelder-hinweis');
+        if (hinweis) hinweis.textContent = gruppenNamensfelderHinweis(p);
+    }
+
     async function profilSpeichern() {
         if (!zustand.person) return;
-        const vorher = (zustand.person.profil || {}).beziehung || '';
+        const profil = zustand.person.profil || {};
+        const vorher = profil.beziehung || '';
         const beziehung = el('gruppen-person-beziehung').value.trim();
         const notiz = el('gruppen-person-notiz').value.trim();
+        const spitzFeld = el('gruppen-person-spitznamen');
+        const namensfelder = gruppenNamensfelderKoerper(profil,
+            el('gruppen-person-vorname') ? el('gruppen-person-vorname').value : profil.vorname,
+            el('gruppen-person-nachname') ? el('gruppen-person-nachname').value : profil.nachname,
+            spitzFeld ? spitzFeld.value : (profil.spitznamen || []).join(', '));
+        if (namensfelder.spitznamen && gruppenSpitznamenZuviele(namensfelder.spitznamen)) {
+            melde('Höchstens 10 Spitznamen je Person.', false);
+            return;
+        }
         const koerper = { name: zustand.person.name };
         if (beziehung && beziehung !== vorher) koerper.beziehung = beziehung;
         if (notiz) koerper.notiz = notiz;
-        if (!koerper.beziehung && !koerper.notiz) { melde('Nichts geändert.', false); return; }
+        const felder = Object.keys(namensfelder).length;
+        Object.assign(koerper, namensfelder);
+        if (!koerper.beziehung && !koerper.notiz && !felder) { melde('Nichts geändert.', false); return; }
         const ansicht = ansichtMerken();
         const antwort = await bearbeiten('/api/gruppen/profil', koerper);
         if (!antwort || ansichtVeraltet(ansicht) || !zustand.person) return;
