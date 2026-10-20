@@ -132,7 +132,8 @@ pruefe(css.includes('max-height: 40vh'), 'die Liste rollt selbst (Chat behält d
 pruefe(/app\.js\?v=\d/.test(html) && /style\.css\?v=\d/.test(html),
     'beide Dateien tragen einen Cache-Schlüssel');
 
-// Der Bereich steht flach im Fluss — kein Kasten über dem Chat (Befund Punkt 9).
+// Der Bereich liegt im Fluss des Checks-Fensters (seit 20.10.2026), nicht als
+// Überlagerung über dem Chat (Befund Punkt 9).
 const blockHtml = html.slice(html.indexOf('id="datenstand"'));
 pruefe(blockHtml.slice(0, 400).includes('hidden'), 'der Bereich ist zugeklappt (hidden)');
 pruefe(!/position:\s*(fixed|absolute)/.test(css.slice(css.indexOf('.datenstand {'))),

@@ -1067,6 +1067,46 @@ const SYMBOL_SENDEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
 const SYMBOL_ABBRECHEN = '<svg viewBox="0 0 24 24" width="24" height="24">'
     + '<path fill="currentColor" d="M7 7h10v10H7z"/></svg>';
 
+// ── Roboter-Symbol im Kopf = Serverzustand (20.10.2026, Wunsch Sebastian:
+// "Server läuft ins Symbol integrieren") ─────────────────────────────────────
+// Drei Zustaende wie serverZustandPunkt(): 'ok' (Roboter, Server laeuft, Modell
+// bereit), 'kein-modell' (Roboter mit orangem Ton, Modell nicht geladen), 'weg'
+// (schlafend + grau, Server nicht erreichbar). Zwei Quellen schreiben ins
+// Symbol: der 5-s-Takt auf /api/health (Server-Zustand, laeuft auch bei
+// geschlossenem Checks-Fenster) und setOnline() (Chat-Health/Senden). Damit sie
+// sich nicht widersprechen, merkt sich der Takt den letzten Detailzustand.
+let letzterServerDetail = 'ok';
+
+/** REIN (ohne DOM): Aussehen des Roboter-Symbols je Zustand. */
+function agentGesichtFuer(zustand) {
+    if (zustand === 'weg') {
+        return { zeichen: '😴', klasse: 'agent-face-weg', titel: 'Server nicht erreichbar' };
+    }
+    if (zustand === 'kein-modell') {
+        return { zeichen: '🤖', klasse: 'agent-face-kein-modell',
+            titel: 'Server läuft · Modell nicht geladen' };
+    }
+    return { zeichen: '🤖', klasse: 'agent-face-ok', titel: 'Server läuft · Modell bereit' };
+}
+
+/** REIN: Zustand fuer setOnline(online) — online zeigt 'kein-modell', falls das
+ *  der letzte Detailzustand aus dem Health-Takt war, sonst 'ok'. */
+function agentZustandFuerOnline(online, letzterDetail) {
+    if (!online) return 'weg';
+    return letzterDetail === 'kein-modell' ? 'kein-modell' : 'ok';
+}
+
+/** Zeichnet das Roboter-Symbol (kleine DOM-Funktion, nutzt agentGesichtFuer). */
+function zeichneAgentGesicht(zustand) {
+    const face = document.getElementById('agent-face');
+    if (!face) return;
+    const g = agentGesichtFuer(zustand);
+    face.textContent = g.zeichen;
+    face.className = g.klasse;
+    face.style.filter = '';
+    face.title = g.titel;
+}
+
 function setOnline(online) {
     state.isOnline = online;
     // Status-Punkt/-Text sind entfernt (Agent-Gesicht zeigt den Status).
@@ -1075,13 +1115,8 @@ function setOnline(online) {
         dom.statusIndicator.className = `status ${online ? 'online' : 'offline'}`;
         dom.statusText.textContent = online ? 'Online' : 'Offline';
     }
-    // Agent-Gesicht: lächelt/grün bei online, schläft/grau bei offline.
-    const face = document.getElementById('agent-face');
-    if (face) {
-        face.textContent = online ? '🤖' : '😴';
-        face.style.filter = online ? '' : 'grayscale(0.9)';
-        face.title = online ? 'Agent ist online' : 'Agent ist offline';
-    }
+    // Agent-Gesicht (Roboter-Symbol): Serverzustand, siehe agentGesichtFuer().
+    zeichneAgentGesicht(agentZustandFuerOnline(online, letzterServerDetail));
 }
 
 /**
@@ -8477,9 +8512,21 @@ window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
             if (e.target === dom.memorySheet) schliesseGedaechtnisBlatt();
         });
     }
-    // Selbsttest-Blatt: öffnen über den Knopf in der Kopfzeile, schließen über
+    // Checks-Blatt (ehem. Selbsttest): öffnen über den Knopf in der Kopfzeile, schließen über
     // ×, Hintergrund oder Esc, aktualisieren über den Knopf im Blatt.
     if (dom.selbsttestBtn) dom.selbsttestBtn.addEventListener('click', oeffneSelbsttestBlatt);
+    // Roboter-Symbol (20.10.2026): zeigt den Serverzustand und oeffnet dasselbe
+    // Checks-Fenster — per Antippen, Enter oder Leertaste.
+    const agentGesicht = document.getElementById('agent-face');
+    if (agentGesicht) {
+        agentGesicht.addEventListener('click', oeffneSelbsttestBlatt);
+        agentGesicht.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                oeffneSelbsttestBlatt();
+            }
+        });
+    }
     if (dom.selbsttestClose) dom.selbsttestClose.addEventListener('click', schliesseSelbsttestBlatt);
     if (dom.selbsttestReload) dom.selbsttestReload.addEventListener('click', ladeSelbsttest);
     if (dom.selbsttestSheet) {
@@ -10105,8 +10152,10 @@ function hermesLiveIndikator(status) {
 })();
 
 // ── Hintergrund-Leiste (10.10.2026) ─────────────────────────────────────────
-// Dauerhafte Statuszeile am oberen Rand (index.html #hintergrund-leiste):
-// zeigt jederzeit, welche Hintergrundarbeit laeuft — Name, seit wann,
+// Statuszeile (index.html #hintergrund-leiste), seit 20.10.2026 (Wunsch
+// Sebastian: "alles unter Checks im Menue verstecken") im Fenster "Checks"
+// (#selbsttest-sheet) statt am oberen Rand; der Takt laeuft auch bei
+// geschlossenem Fenster weiter. Zeigt, welche Hintergrundarbeit laeuft — Name, seit wann,
 // antippbar fuer Einzelheiten; ohne Arbeit "Keine Hintergrundarbeit".
 // Quelle: GET /api/laeuft (backend/app/router/laeuft.py; angemeldete
 // Backend-Arbeiten, laufende Auftraege, Protokolldateien). Deutsch, ohne
@@ -10243,13 +10292,15 @@ function hintergrundEinzelheitenText(daten) {
 })();
 
 // ── Server-Zustand (18.10.2026, To-do Punkt 12) ─────────────────────────────
-// Kleine, dauerhaft sichtbare Anzeige am oberen Rand (index.html
-// #server-zustand): laeuft der Server, ist das Modell geladen, wie viele
-// Erinnerungen gibt es, welcher Stand laeuft. Quelle: GET /api/health
+// Kleine Anzeige (index.html #server-zustand), seit 20.10.2026 (Wunsch
+// Sebastian) im Fenster "Checks" (#selbsttest-sheet); der Zustand steckt
+// zusaetzlich im Roboter-Symbol im Kopf (#agent-face, zeichneAgentGesicht).
+// Der Takt laeuft auch bei geschlossenem Fenster weiter. Zeigt: laeuft der
+// Server, ist das Modell geladen, wie viele Erinnerungen gibt es, welcher
+// Stand laeuft. Quelle: GET /api/health
 // (backend/app/main.py, ausdruecklich von der Anmeldung ausgenommen).
 // Befund Sebastian: "Kann ich gar nicht mehr ueberpruefen, ob der Server
-// laeuft." Bewusst FLACH im Fluss — kein Kasten ueber dem Chat (Punkt 9) —
-// und ohne Haekchen-/Statussymbole: der Punkt traegt den Zustand, der Text
+// laeuft." Ohne Haekchen-/Statussymbole: der Punkt traegt den Zustand, der Text
 // sagt ihn im Klartext. Die reinen Funktionen sind ohne DOM testbar
 // (frontend/tests/test_server_zustand.js).
 const SERVER_ZUSTAND_TAKT_MS = 5000;
@@ -10282,8 +10333,13 @@ function serverZustandText(daten) {
     const textEl = document.getElementById('server-zustand-text');
 
     function zeichnen(daten) {
-        kasten.setAttribute('data-zustand', serverZustandPunkt(daten));
+        const zustand = serverZustandPunkt(daten);
+        kasten.setAttribute('data-zustand', zustand);
         if (textEl) textEl.textContent = serverZustandText(daten);
+        // Roboter-Symbol im Kopf (20.10.2026): derselbe Zustand, auch bei
+        // geschlossenem Checks-Fenster; letzten Detailzustand fuer setOnline merken.
+        letzterServerDetail = zustand;
+        zeichneAgentGesicht(zustand);
     }
 
     async function laden() {

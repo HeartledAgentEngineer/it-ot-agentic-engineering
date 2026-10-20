@@ -15,14 +15,14 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261018E">
+    <link rel="stylesheet" href="style.css?v=20261020A">
 </head>
 <body>
     <div id="app">
         <!-- Header -->
         <header id="header">
             <div class="header-content">
-                <h1 class="app-title"><span id="agent-face" title="Verbindungsstatus">🤖</span> Agent</h1>
+                <h1 class="app-title"><span id="agent-face" role="button" tabindex="0" title="Server läuft · Modell bereit">🤖</span> Agent</h1>
                 <span id="chat-modus-badge" class="chat-modus" title="Wem du gerade schreibst"
                       style="font-size:0;padding:0;border:none;background:transparent;color:#fff"> </span>
                 <span id="agent-tut-zeile" class="agent-tut" style="display:none;font-size:0.78rem;color:#9a9"></span>
@@ -47,8 +47,8 @@
                      Erinnerungen, Sprachmodelle, Serverzeit. Nötig, weil
                      Sebastian unterwegs kein ADB hat und nur sieht, was die
                      App selbst zeigt. -->
-                <button id="selbsttest-btn" class="icon-btn" title="Selbsttest – Zustand des Systems"
-                        aria-label="Selbsttest anzeigen">
+                <button id="selbsttest-btn" class="icon-btn" title="Checks – Zustand des Systems"
+                        aria-label="Checks anzeigen">
                     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                         <path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-5-5 1.41-1.41L10 15.17l7.59-7.59L19 9l-9 9z"/>
                     </svg>
@@ -74,85 +74,6 @@
             </div>
         </header>
         <p id="system-update-status" class="sheet-note" role="status" aria-live="polite" hidden></p>
-
-        <!-- Hintergrund-Leiste (10.10.2026, Wunsch Sebastian: "muss jederzeit
-             ersichtlich sein, welche Hintergrundprozesse laufen"): dauerhafte
-             Statuszeile am oberen Rand. Zeigt Name und Dauer der laufenden
-             Hintergrundarbeit, antippbar fuer Einzelheiten (Zustand, Start,
-             Fortschritt, letzte Zeile); ohne Arbeit "Keine Hintergrundarbeit".
-             Quelle: GET /api/laeuft, regelmaessig selbst erneuert (app.js).
-             Deutsch, bewusst ohne Symbole. -->
-        <div id="hintergrund-leiste" class="hintergrund-leiste" data-zustand="ruhe">
-            <button id="hintergrund-kopf" type="button" aria-expanded="false"
-                    title="Einzelheiten anzeigen">
-                <span id="hintergrund-text">Keine Hintergrundarbeit</span>
-            </button>
-            <div id="hintergrund-einzelheiten" hidden></div>
-        </div>
-
-        <!-- Server-Zustand (18.10.2026, Wunsch Sebastian, To-do Punkt 12):
-             dauerhaft sichtbare, kleine Anzeige am oberen Rand. Quelle:
-             GET /api/health, regelmaessig erneuert (app.js). Zeigt Server
-             (laeuft / nicht erreichbar), Modell (bereit / nicht geladen),
-             Zahl der Erinnerungen und den Stand. Bewusst FLACH im Fluss —
-             kein Kasten ueber dem Chat (siehe Punkt 9) — und ohne
-             Haekchen-/Statussymbole: der farbige Punkt traegt den Zustand,
-             der Text sagt ihn im Klartext. -->
-        <div id="server-zustand" class="server-zustand" data-zustand="unbekannt"
-             role="status" aria-live="polite">
-            <span id="server-punkt" class="server-punkt" aria-hidden="true"></span>
-            <span id="server-zustand-text">Server wird geprüft …</span>
-            <button id="server-protokoll-btn" type="button" aria-expanded="false"
-                    title="Server-Protokoll anzeigen">Protokoll</button>
-            <button id="datenstand-btn" type="button" aria-expanded="false"
-                    title="Datenstand der Fotoquellen anzeigen">Datenstand</button>
-        </div>
-
-        <!-- Datenstand der Fotoquellen (18.10.2026, gesamtplan T0): „Fotoquellen
-             wirklich bis zum Handy nachweisen". Ergebnis für den Nutzer ist eine
-             Statuszeile je Quelle: entpackt → Bildindex → Gesichtserkennung →
-             Gruppenbestand → auf diesem Handy. Gemessen wird vom Server auf
-             DIESEM Gerät (app/services/import_status.py), ein Stand gilt für
-             eine Weile (rund 250 MB Dateien), „Neu messen" misst frisch.
-             Nur Zahlen und Klartext, keine Symbole. Bewusst FLACH im Fluss
-             (kein Kasten über dem Chat, Punkt 9) und zugeklappt. -->
-        <section id="datenstand" class="datenstand" hidden
-                 aria-label="Datenstand der Fotoquellen">
-            <div class="datenstand-kopf">
-                <span id="datenstand-stand">Datenstand wird geladen …</span>
-                <span class="datenstand-knoepfe">
-                    <button id="datenstand-neu" type="button">Neu messen</button>
-                </span>
-            </div>
-            <div id="datenstand-liste" tabindex="0"></div>
-            <p id="datenstand-status" class="sheet-note" role="status"
-               aria-live="polite" hidden></p>
-        </section>
-
-        <!-- Server-Bereich (18.10.2026, Wunsch Sebastian, To-do Punkt 16):
-             "Früher war es so, dass in Termux der Server gesteuert wurde und
-             ich den Verlauf sehen konnte — die Prompts, eine Liste mit
-             Verbindungen, so ein Log. Das ist nicht mehr möglich." Ursache:
-             der Server läuft abgekoppelt im Hintergrund, seine Ausgaben landeten
-             nirgends. Jetzt schreibt er in ein Protokoll (agent-server.log,
-             Startweg: termux/server-protokoll.sh); hier stehen die letzten
-             Zeilen, dazu die Angaben aus /api/health und die Knöpfe
-             "Aktualisieren" und "Neu starten" — Termux wird nicht mehr gebraucht.
-             Bewusst FLACH im Fluss (kein Kasten über dem Chat, Punkt 9) und
-             zugeklappt, damit der Chat den Platz behält. -->
-        <section id="server-protokoll" class="server-protokoll" hidden
-                 aria-label="Server-Protokoll">
-            <div class="server-protokoll-kopf">
-                <span id="server-protokoll-stand">Protokoll wird geladen …</span>
-                <span class="server-protokoll-knoepfe">
-                    <button id="server-protokoll-aktualisieren" type="button">Aktualisieren</button>
-                    <button id="server-protokoll-neustart" type="button">Neu starten</button>
-                </span>
-            </div>
-            <pre id="server-protokoll-zeilen" tabindex="0"></pre>
-            <p id="server-protokoll-status" class="sheet-note" role="status"
-               aria-live="polite" hidden></p>
-        </section>
 
         <!-- Streaming-Geschwindigkeit-Menue (ueber dem Chat, Zahnrad oben rechts) -->
         <div id="stream-menu" class="stream-menu" hidden>
@@ -306,18 +227,102 @@
         </div>
     </div>
 
-    <!-- Selbsttest: der Zustand des Systems als Klartext-Zeilen (✓/⚠/✗), damit
-         er sich ohne Kabel ablesen und als Bildschirmfoto teilen lässt. Reine
-         Anzeige — lädt beim Öffnen und nur auf Knopfdruck, KEIN Auto-Polling. -->
+    <!-- Checks (bis 20.10.2026 "Selbsttest"; IDs unveraendert): der Zustand des
+         Systems als Klartext-Zeilen (✓/⚠/✗), damit er sich ohne Kabel ablesen
+         und als Bildschirmfoto teilen lässt. Geoeffnet ueber den Haken-Knopf
+         oder das Roboter-Symbol im Kopf. Seit 20.10.2026 (Wunsch Sebastian)
+         stehen hier auch Server-Zustand, Hintergrund-Leiste, Datenstand und
+         Server-Protokoll (vorher dauerhaft am oberen Rand). Der Selbsttest-Text
+         selbst laedt beim Oeffnen und nur auf Knopfdruck, KEIN Auto-Polling;
+         die Takte von Server-Zustand/Hintergrund-Leiste laufen auch bei
+         geschlossenem Fenster weiter (sie speisen das Roboter-Symbol). -->
     <div id="selbsttest-sheet" hidden>
-        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Selbsttest">
+        <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="Checks">
             <div class="sheet-head">
-                <h2>Selbsttest</h2>
+                <h2>Checks</h2>
                 <button id="selbsttest-reload" class="sheet-refresh" type="button"
                         title="Erneut prüfen" aria-label="Erneut prüfen">Aktualisieren</button>
                 <button id="selbsttest-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
             </div>
             <div class="sheet-list">
+                <!-- Server-Zustand (18.10.2026, Wunsch Sebastian, To-do Punkt 12):
+                     kleine Anzeige. Seit 20.10.2026 (Wunsch Sebastian) im Fenster
+                     "Checks" (Roboter-Symbol oben antippen); der Punkt-Zustand steckt
+                     zusaetzlich im Roboter-Symbol im Kopf. Quelle:
+                     GET /api/health, regelmaessig erneuert (app.js). Zeigt Server
+                     (laeuft / nicht erreichbar), Modell (bereit / nicht geladen),
+                     Zahl der Erinnerungen und den Stand. Ohne
+                     Haekchen-/Statussymbole: der farbige Punkt traegt den Zustand,
+                     der Text sagt ihn im Klartext. -->
+                <div id="server-zustand" class="server-zustand" data-zustand="unbekannt"
+                     role="status" aria-live="polite">
+                    <span id="server-punkt" class="server-punkt" aria-hidden="true"></span>
+                    <span id="server-zustand-text">Server wird geprüft …</span>
+                    <button id="server-protokoll-btn" type="button" aria-expanded="false"
+                            title="Server-Protokoll anzeigen">Protokoll</button>
+                    <button id="datenstand-btn" type="button" aria-expanded="false"
+                            title="Datenstand der Fotoquellen anzeigen">Datenstand</button>
+                </div>
+                <!-- Hintergrund-Leiste (10.10.2026, Wunsch Sebastian: "muss jederzeit
+                     ersichtlich sein, welche Hintergrundprozesse laufen"): Statuszeile,
+                     seit 20.10.2026 (Wunsch Sebastian: "alles unter Checks im Menue
+                     verstecken") im Fenster "Checks" statt am oberen Rand. Zeigt Name
+                     und Dauer der laufenden Hintergrundarbeit, antippbar fuer
+                     Einzelheiten (Zustand, Start,
+                     Fortschritt, letzte Zeile); ohne Arbeit "Keine Hintergrundarbeit".
+                     Quelle: GET /api/laeuft, regelmaessig selbst erneuert (app.js).
+                     Deutsch, bewusst ohne Symbole. -->
+                <div id="hintergrund-leiste" class="hintergrund-leiste" data-zustand="ruhe">
+                    <button id="hintergrund-kopf" type="button" aria-expanded="false"
+                            title="Einzelheiten anzeigen">
+                        <span id="hintergrund-text">Keine Hintergrundarbeit</span>
+                    </button>
+                    <div id="hintergrund-einzelheiten" hidden></div>
+                </div>
+                <!-- Datenstand der Fotoquellen (18.10.2026, gesamtplan T0): „Fotoquellen
+                     wirklich bis zum Handy nachweisen". Ergebnis für den Nutzer ist eine
+                     Statuszeile je Quelle: entpackt → Bildindex → Gesichtserkennung →
+                     Gruppenbestand → auf diesem Handy. Gemessen wird vom Server auf
+                     DIESEM Gerät (app/services/import_status.py), ein Stand gilt für
+                     eine Weile (rund 250 MB Dateien), „Neu messen" misst frisch.
+                     Nur Zahlen und Klartext, keine Symbole. Seit 20.10.2026 im Fenster
+                     "Checks" (Wunsch Sebastian), zugeklappt. -->
+                <section id="datenstand" class="datenstand" hidden
+                         aria-label="Datenstand der Fotoquellen">
+                    <div class="datenstand-kopf">
+                        <span id="datenstand-stand">Datenstand wird geladen …</span>
+                        <span class="datenstand-knoepfe">
+                            <button id="datenstand-neu" type="button">Neu messen</button>
+                        </span>
+                    </div>
+                    <div id="datenstand-liste" tabindex="0"></div>
+                    <p id="datenstand-status" class="sheet-note" role="status"
+                       aria-live="polite" hidden></p>
+                </section>
+                <!-- Server-Bereich (18.10.2026, Wunsch Sebastian, To-do Punkt 16):
+                     "Früher war es so, dass in Termux der Server gesteuert wurde und
+                     ich den Verlauf sehen konnte — die Prompts, eine Liste mit
+                     Verbindungen, so ein Log. Das ist nicht mehr möglich." Ursache:
+                     der Server läuft abgekoppelt im Hintergrund, seine Ausgaben landeten
+                     nirgends. Jetzt schreibt er in ein Protokoll (agent-server.log,
+                     Startweg: termux/server-protokoll.sh); hier stehen die letzten
+                     Zeilen, dazu die Angaben aus /api/health und die Knöpfe
+                     "Aktualisieren" und "Neu starten" — Termux wird nicht mehr gebraucht.
+                     Seit 20.10.2026 (Wunsch Sebastian) im Fenster "Checks", zugeklappt,
+                     damit der Chat oben den Platz behält. -->
+                <section id="server-protokoll" class="server-protokoll" hidden
+                         aria-label="Server-Protokoll">
+                    <div class="server-protokoll-kopf">
+                        <span id="server-protokoll-stand">Protokoll wird geladen …</span>
+                        <span class="server-protokoll-knoepfe">
+                            <button id="server-protokoll-aktualisieren" type="button">Aktualisieren</button>
+                            <button id="server-protokoll-neustart" type="button">Neu starten</button>
+                        </span>
+                    </div>
+                    <pre id="server-protokoll-zeilen" tabindex="0"></pre>
+                    <p id="server-protokoll-status" class="sheet-note" role="status"
+                       aria-live="polite" hidden></p>
+                </section>
                 <pre id="selbsttest-text" class="selbsttest-text">Prüfe …</pre>
             </div>
             <p id="selbsttest-hint" class="sheet-note"></p>
@@ -711,7 +716,7 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261018O"></script>
+    <script src="app.js?v=20261020A"></script>
     <script src="erzaehlen.js?v=20261012A"></script>
     <script src="gruppen_quiz.js?v=20261020A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

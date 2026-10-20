@@ -1,8 +1,10 @@
-// Hintergrund-Leiste (10.10.2026): dauerhafte Statuszeile am oberen Rand.
+// Hintergrund-Leiste (10.10.2026): Statuszeile; seit 20.10.2026 (Wunsch
+// Sebastian) im Fenster "Checks" (#selbsttest-sheet) statt am oberen Rand.
+// Der Abruf-Takt läuft auch bei geschlossenem Fenster weiter.
 //
 // Befund (Sebastian): Gestern lief 20-30 Minuten eine Bildanalyse, im Chat
 // war nichts davon zu sehen — "muss jederzeit ersichtlich sein, welche
-// Hintergrundprozesse laufen". Die Leiste zeigt dauerhaft "Es läuft: <Name>
+// Hintergrundprozesse laufen". Die Leiste zeigt "Es läuft: <Name>
 // seit <Dauer>" (Quelle GET /api/laeuft), antippbar fuer Einzelheiten; ohne
 // Arbeit "Keine Hintergrundarbeit". Deutsch, ohne Haekchen-/Statussymbole.
 //

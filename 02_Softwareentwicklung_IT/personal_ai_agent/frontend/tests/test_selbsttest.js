@@ -213,6 +213,10 @@ pruefe('index.html hat den Selbsttest-Knopf in der Kopfzeile',
 pruefe('index.html hat das Selbsttest-Blatt mit Textfeld und Aktualisieren',
   /id="selbsttest-sheet"/.test(html) && /id="selbsttest-text"/.test(html)
   && /id="selbsttest-reload"/.test(html) && /Aktualisieren/.test(html));
+pruefe('Server-Zustand, Hintergrund-Leiste, Datenstand und Protokoll liegen im Checks-Blatt (20.10.2026)',
+  ['server-zustand', 'hintergrund-leiste', 'datenstand', 'server-protokoll'].every(
+    id => html.indexOf('id="' + id + '"') > html.indexOf('id="selbsttest-sheet"')
+      && html.indexOf('id="' + id + '"') < html.indexOf('id="selbsttest-text"')));
 pruefe('der Knopf öffnet das Blatt', /dom\.selbsttestBtn\.addEventListener\('click', oeffneSelbsttestBlatt\)/.test(src));
 pruefe('das Blatt holt GET /api/selbsttest', /fetch\(`\$\{API_BASE\}\/api\/selbsttest`\)/.test(src));
 pruefe('Anzeige läuft über selbsttestText(daten)', /zeigeSelbsttest\(selbsttestText\(daten\)\)/.test(src));

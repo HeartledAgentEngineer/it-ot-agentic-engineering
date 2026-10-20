@@ -133,9 +133,11 @@ body {
 
 /* =========================================
    Hintergrund-Leiste (10.10.2026)
-   Dauerhafte Statuszeile am oberen Rand: zeigt jederzeit, welche
-   Hintergrundarbeit laeuft (Quelle: GET /api/laeuft). Antippen zeigt
-   Einzelheiten. Deutsch, bewusst ohne Symbole.
+   Statuszeile: zeigt, welche Hintergrundarbeit laeuft (Quelle: GET
+   /api/laeuft). Antippen zeigt Einzelheiten. Deutsch, bewusst ohne
+   Symbole. Seit 20.10.2026 (Wunsch Sebastian) im Fenster "Checks"
+   (#selbsttest-sheet) statt am oberen Rand; Feinschliff dort siehe
+   Abschnitt "Checks-Fenster" weiter unten.
    ========================================= */
 
 .hintergrund-leiste {
@@ -2983,9 +2985,10 @@ body.anmelden-offen { overflow: hidden; }
 
 /* =========================================
    Server-Zustand (18.10.2026, To-do Punkt 12)
-   Kleine, dauerhaft sichtbare Anzeige unter der Hintergrund-Leiste.
-   Bewusst im Fluss (kein Kasten ueber dem Chat) und schmal; der
-   farbige Punkt traegt den Zustand, der Text nennt ihn im Klartext.
+   Kleine Anzeige; seit 20.10.2026 (Wunsch Sebastian) im Fenster "Checks"
+   (#selbsttest-sheet). Der farbige Punkt traegt den Zustand, der Text
+   nennt ihn im Klartext; derselbe Zustand steckt im Roboter-Symbol im Kopf
+   (#agent-face, siehe unten).
    ========================================= */
 
 .server-zustand {
@@ -3042,10 +3045,9 @@ body.anmelden-offen { overflow: hidden; }
    Verlauf sehen konnte … Das ist nicht mehr möglich."
    Zeigt die letzten Zeilen des Server-Protokolls, dazu die Angaben aus
    /api/health und die Knöpfe „Aktualisieren" / „Neu starten".
-   Bewusst FLACH im Fluss (kein Kasten über dem Chat — Punkt 9) und
-   zugeklappt (`hidden`), damit der Chat den Platz behält. Das Protokoll
-   selbst ist ein <pre> mit eigenem Rollbereich, damit lange Zeilen den Chat
-   nicht auseinanderschieben.
+   Seit 20.10.2026 (Wunsch Sebastian) im Fenster "Checks" statt am oberen
+   Rand; zugeklappt (`hidden`). Das Protokoll selbst ist ein <pre> mit
+   eigenem Rollbereich, damit lange Zeilen das Fenster nicht aufblasen.
    ========================================= */
 
 .server-protokoll {
@@ -3138,9 +3140,10 @@ body.anmelden-offen { overflow: hidden; }
    Quelle: entpackt → Bildindex → Gesichtserkennung → Gruppenbestand → auf
    diesem Handy. Gemessen wird auf DIESEM Gerät (rund 250 MB Dateien), ein
    Stand gilt für eine Weile, „Neu messen" misst frisch.
-   Nur Zahlen und Klartext, keine Symbole. Bewusst FLACH im Fluss (kein Kasten
-   über dem Chat — Punkt 9) und zugeklappt (`hidden`); die Liste rollt selbst
-   (max-height 40vh), damit lange Zeilen den Chat nicht auseinanderschieben.
+   Nur Zahlen und Klartext, keine Symbole. Seit 20.10.2026 (Wunsch Sebastian)
+   im Fenster "Checks" statt am oberen Rand, zugeklappt (`hidden`); die Liste
+   rollt selbst (max-height 40vh), damit lange Zeilen das Fenster nicht
+   aufblasen.
    ========================================= */
 
 .datenstand {
@@ -3227,6 +3230,80 @@ body.anmelden-offen { overflow: hidden; }
     .datenstand-knoepfe {
         margin-left: 0;
     }
+}
+
+/* =========================================================================
+   Checks-Fenster (20.10.2026, Wunsch Sebastian: "alles unter Checks im Menue
+   verstecken", "Rest wegmachen") — Server-Zustand, Hintergrund-Leiste,
+   Datenstand und Server-Protokoll stehen im Fenster #selbsttest-sheet
+   (.sheet-list) statt dauerhaft ueber dem Chat. Hier nur der Feinschliff fuer
+   den neuen Ort: volle Breite, Abstand untereinander, eigener Rahmen.
+   Datenstand-Liste und Protokoll rollen schon selbst (max-height 40vh).
+   ========================================= */
+
+#selbsttest-sheet .server-zustand,
+#selbsttest-sheet .hintergrund-leiste,
+#selbsttest-sheet .datenstand,
+#selbsttest-sheet .server-protokoll {
+    width: 100%;
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    box-sizing: border-box;
+}
+
+#selbsttest-sheet .server-zustand {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+}
+
+#selbsttest-sheet #hintergrund-kopf {
+    padding: 8px 12px;
+}
+
+#selbsttest-sheet #hintergrund-einzelheiten {
+    padding: 6px 12px 10px;
+}
+
+#selbsttest-sheet .datenstand,
+#selbsttest-sheet .server-protokoll {
+    padding: 8px 12px 10px;
+}
+
+/* [hidden] verliert gegen "display: flex" der Klassen — ohne diese Regel
+   waeren beide Bereiche trotz hidden-Attribut sichtbar. */
+.datenstand[hidden],
+.server-protokoll[hidden] {
+    display: none;
+}
+
+#selbsttest-sheet #datenstand-liste,
+#selbsttest-sheet #server-protokoll-zeilen {
+    max-height: 40vh;
+    overflow: auto;
+}
+
+/* Roboter-Symbol im Kopf (#agent-face) = Serverzustand (20.10.2026): antippbar,
+   oeffnet das Checks-Fenster. 'ok' ohne Filter, 'kein-modell' mit dezentem
+   orangem Ton (kein neues Emoji), 'weg' schlafend und grau (wie bisher).
+   Klassen setzt app.js (agentGesichtFuer / zeichneAgentGesicht). */
+#agent-face {
+    cursor: pointer;
+}
+
+#agent-face.agent-face-kein-modell {
+    filter: sepia(1) saturate(3.5) hue-rotate(-12deg);
+}
+
+#agent-face.agent-face-weg {
+    filter: grayscale(0.9);
+}
+
+#agent-face:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
 /* =========================================================================

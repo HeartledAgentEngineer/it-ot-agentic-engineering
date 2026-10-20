@@ -97,7 +97,7 @@ for (const text of [stand(antwortOk), stand(null), ...zeilen(antwortOk), ...zeil
 
 console.log('Server-Protokoll: Verdrahtung');
 pruefe(html.includes('id="server-protokoll"'), 'index.html hat den Bereich');
-pruefe(html.includes('id="server-protokoll-btn"'), 'index.html hat den Knopf im Zustandsstreifen');
+pruefe(html.includes('id="server-protokoll-btn"'), 'index.html hat den Knopf in der Server-Zustandszeile (im Checks-Fenster)');
 pruefe(html.includes('id="server-protokoll-aktualisieren"'), 'Knopf "Aktualisieren" vorhanden');
 pruefe(html.includes('id="server-protokoll-neustart"'), 'Knopf "Neu starten" vorhanden');
 pruefe(/id="server-protokoll"[^>]*hidden/.test(html), 'Bereich ist zugeklappt (hidden)');
