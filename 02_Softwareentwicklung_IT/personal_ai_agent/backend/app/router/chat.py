@@ -18,6 +18,7 @@ from app.services.archiv_standard import StandardArchiv
 from app.services.auftrag_service import auftrag_service
 from app.services.auftrags_erkennung import ist_auftrag
 from app.services.faehigkeiten import stoesst_an_grenze
+from app.services.modell_router import MODELL_VISION
 from app.services.hermes_gateway import hermes_gateway
 from app.services.hermes_local import (
     ist_verfuegbar as hermes_local_ist_verfuegbar,
@@ -509,7 +510,7 @@ async def chat(request: ChatRequest):
         # reines Text-Modell (z. B. DeepSeek Flash) kann das Bild nicht sehen
         # und antwortet "kein Zugriff". Dann nehmen wir automatisch Gemini
         # Flash (günstig + bildfähig), falls der Nutzer kein anderes wählte.
-        vision_modell = "google/gemini-2.5-flash"
+        vision_modell = MODELL_VISION  # zentral im Modell-Router (21.10.2026)
         modell_fuer_call = request.model or ""
         # Vision-Routing: Ein mitgeschicktes Bild (UPLOAD oder Dateisuche;
         # `bild_aktiv`) braucht ein VISION-faehiges Modell — ein reines
@@ -2160,7 +2161,7 @@ async def chat_stream(request: ChatRequest):
                     "gemini" in s_modell or "gpt-4o" in s_modell
                     or "gpt-5" in s_modell or "sonnet" in s_modell
                     or "claude" in s_modell)):
-                s_modell = "google/gemini-2.5-flash"
+                s_modell = MODELL_VISION
             # Websuche (Namensverbot, wie in /chat): manual vorab mit dem eigenen
             # Satz; auto als geprüftes Werkzeug web_suche in der Schleife.
             s_web_notiz, s_web_quellen, s_web_status = _websuche_vorab(request)
