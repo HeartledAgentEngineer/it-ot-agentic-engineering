@@ -657,6 +657,22 @@ def test_claude_programm_findet_natives_programm(daten, monkeypatch, tmp_path):
     assert gesehen and list(gesehen[0][0][:2]) == [str(programm), "--bare"]
 
 
+def test_claude_programm_alte_cli_js_ohne_node_faellt_auf_nativ_zurueck(monkeypatch, tmp_path):
+    """Liegt noch ein altes cli.js herum, aber kein Node, gilt das native Programm (Prüfung v0.4.1 R1)."""
+    monkeypatch.delenv("MASTER_SCHALTER_CLAUDE_CLI", raising=False)
+    monkeypatch.delenv("MASTER_SCHALTER_NODE", raising=False)
+    monkeypatch.setattr(modelle.shutil, "which", lambda name: None)
+    monkeypatch.setattr(modelle.Path, "home", classmethod(lambda cls: tmp_path / "heim-leer"))
+    appdata = tmp_path / "AppData" / "Roaming"
+    monkeypatch.setenv("APPDATA", str(appdata))
+    paket = appdata / "npm" / "node_modules" / "@anthropic-ai" / "claude-code"
+    (paket / "bin").mkdir(parents=True)
+    (paket / "cli.js").write_text("x", encoding="utf-8")
+    (paket / "bin" / "claude.exe").write_text("x", encoding="utf-8")
+
+    assert modelle.claude_programm() == (str(paket / "bin" / "claude.exe"),)
+
+
 def test_claude_programm_findet_nativ_im_heimordner(monkeypatch, tmp_path):
     monkeypatch.delenv("MASTER_SCHALTER_CLAUDE_CLI", raising=False)
     monkeypatch.delenv("MASTER_SCHALTER_NODE", raising=False)

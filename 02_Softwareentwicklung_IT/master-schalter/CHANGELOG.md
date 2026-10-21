@@ -11,6 +11,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   `(node, cli.js)` **oder** `(claude.exe,)` (Suche zusätzlich in `%APPDATA%/npm/node_modules/@anthropic-ai/claude-code/bin/`
   und `~/.local/bin/`); vorher meldete der Katalog „Programm nicht gefunden". Echter Abruf am 21.10.
   mit 2.1.304: 5 Modelle.
+  Liegt noch ein altes `cli.js` herum, aber kein Node, geht die Suche zum nativen Programm weiter.
 - **Tests unabhängig von der Installation:** Die Fixture `daten` setzt feste Attrappenpfade für
   `MASTER_SCHALTER_CLAUDE_CLI`/`MASTER_SCHALTER_NODE`; 8 Tests hingen zuvor davon ab, dass auf dem
   Rechner ein `cli.js` liegt. Zwei neue Tests für das native Programm.

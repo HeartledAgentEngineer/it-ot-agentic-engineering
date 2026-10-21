@@ -363,10 +363,10 @@ def claude_programm() -> tuple[str, ...] | None:
     if eigen:
         node = _node_programm()
         return (node, eigen) if node else None
+    node = _node_programm()
     for cli in _claude_kandidaten():
-        if cli.is_file():
-            node = _node_programm()
-            return (node, str(cli)) if node else None
+        if cli.is_file() and node:
+            return (node, str(cli))
     for programm in _claude_nativ_kandidaten():
         if programm.is_file():
             return (str(programm),)
