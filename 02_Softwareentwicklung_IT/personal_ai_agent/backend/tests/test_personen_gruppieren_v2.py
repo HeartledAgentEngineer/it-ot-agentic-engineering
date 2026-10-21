@@ -305,9 +305,12 @@ def test_gleich_vereint_und_der_name_bleibt_erhalten():
     assert lauf["gruppen"][0]["name"] == "Person A" and lauf["gruppen"][0]["groesse"] == 28
     assert lauf["bericht"]["v2"]["durch_gleich_vereint"] == 1
     # Nichts wurde geloescht: beide Namenseintraege bestehen, der Mittelpunkt der
-    # zweiten Kennung bleibt im Altbestand.
+    # zweiten Kennung bleibt im Altbestand. Plan-Fassung 5.3, Auflage 3: die
+    # weggemergte Kennung steht in der Aliasmenge der Gruppe und zaehlt deshalb
+    # NICHT als verloren (vorher 1) - ein gleich-Merge ist Sebastians Entscheidung.
     assert namen == {"Person_001": "Person A", "Person_002": "Person A"}
-    assert lauf["bericht"]["v2"]["benannte_ohne_gruppe"] == 1
+    assert lauf["bericht"]["v2"]["benannte_ohne_gruppe"] == 0
+    assert lauf["gruppen"][0]["aliase"] == ["Person_001", "Person_002"]
 
 
 def test_verschiedene_namen_werden_auch_mit_gleich_nie_vereint():
