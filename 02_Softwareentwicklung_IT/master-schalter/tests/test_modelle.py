@@ -26,6 +26,9 @@ KENNUNG = "master-schalter-testkennung"
 def daten(tmp_path, monkeypatch):
     ordner = tmp_path / "daten"
     monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(ordner))
+    # Unabhängig von der echten Installation: feste Attrappen-Pfade (Transporte sind ohnehin Attrappen).
+    monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_CLI", "C:/werkzeug/fake-cli.js")
+    monkeypatch.setenv("MASTER_SCHALTER_NODE", "C:/werkzeug/fake-node.exe")
     return ordner
 
 
@@ -633,6 +636,36 @@ def test_claude_programm_findet_npm_layout(monkeypatch, tmp_path):
     monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_CLI", str(tmp_path / "eigene.js"))
     monkeypatch.setenv("MASTER_SCHALTER_NODE", str(tmp_path / "eigener_node.exe"))
     assert modelle.claude_programm() == (str(tmp_path / "eigener_node.exe"), str(tmp_path / "eigene.js"))
+
+
+def test_claude_programm_findet_natives_programm(daten, monkeypatch, tmp_path):
+    """npm-Paket ohne cli.js (ab 2.1.3xx): das native bin/claude.exe wird direkt aufgerufen."""
+    monkeypatch.delenv("MASTER_SCHALTER_CLAUDE_CLI", raising=False)
+    monkeypatch.delenv("MASTER_SCHALTER_NODE", raising=False)
+    appdata = tmp_path / "AppData" / "Roaming"
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(modelle.Path, "home", classmethod(lambda cls: tmp_path / "heim-leer"))
+    programm = appdata / "npm" / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    programm.parent.mkdir(parents=True)
+    programm.write_text("x", encoding="utf-8")
+    gesehen = []
+
+    modelle.aktualisieren("claude", transport=_claude_transport([{"value": "opus", "displayName": "Opus"}],
+                                                                 gesehen=gesehen), jetzt=JETZT)
+
+    assert modelle.claude_programm() == (str(programm),)
+    assert gesehen and list(gesehen[0][0][:2]) == [str(programm), "--bare"]
+
+
+def test_claude_programm_findet_nativ_im_heimordner(monkeypatch, tmp_path):
+    monkeypatch.delenv("MASTER_SCHALTER_CLAUDE_CLI", raising=False)
+    monkeypatch.delenv("MASTER_SCHALTER_NODE", raising=False)
+    monkeypatch.setattr(modelle.Path, "home", classmethod(lambda cls: tmp_path / "heim-leer"))
+    heim_nativ = tmp_path / "heim-leer" / ".local" / "bin" / "claude.exe"
+    heim_nativ.parent.mkdir(parents=True)
+    heim_nativ.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata-leer"))
+    assert modelle.claude_programm() == (str(heim_nativ),)
 
 
 # --- Windows-Bereinigung: eigener Prozessbaum, nie Namenssuche ----------------

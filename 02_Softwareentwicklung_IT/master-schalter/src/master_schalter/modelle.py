@@ -329,6 +329,16 @@ def _claude_kandidaten() -> tuple[Path, ...]:
     return tuple(kandidaten)
 
 
+def _claude_nativ_kandidaten() -> tuple[Path, ...]:
+    """Natives Programm: npm-Pakete ab 2.1.3xx enthalten kein `cli.js` mehr, sondern `bin/claude.exe`."""
+    kandidaten = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        kandidaten.append(Path(appdata) / "npm" / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe")
+    kandidaten.append(Path.home() / ".local" / "bin" / "claude.exe")
+    return tuple(kandidaten)
+
+
 def _node_programm() -> str | None:
     eigen = os.environ.get("MASTER_SCHALTER_NODE")
     if eigen:
@@ -341,8 +351,10 @@ def _node_programm() -> str | None:
     return shutil.which("node")
 
 
-def claude_programm() -> tuple[str, str] | None:
-    """(node, cli.js) der installierten Claude-Code-CLI – Node direkt, ohne .cmd-/Shellwrapper.
+def claude_programm() -> tuple[str, ...] | None:
+    """Aufrufpräfix der installierten Claude-Code-CLI – ohne .cmd-/Shellwrapper.
+
+    `(node, cli.js)` für ältere npm-Pakete, `(claude.exe,)` für das native Programm.
 
     `MASTER_SCHALTER_CLAUDE_CLI` (und `MASTER_SCHALTER_NODE`) haben als explizite technische
     Umgebungsoption Vorrang; sonst werden bekannte installierte Pfade geprüft.
@@ -355,6 +367,9 @@ def claude_programm() -> tuple[str, str] | None:
         if cli.is_file():
             node = _node_programm()
             return (node, str(cli)) if node else None
+    for programm in _claude_nativ_kandidaten():
+        if programm.is_file():
+            return (str(programm),)
     return None
 
 
@@ -375,11 +390,10 @@ def _aufruf_codex() -> Aufruf:
 
 
 def _aufruf_claude() -> Aufruf:
-    paar = claude_programm()
-    if paar is None:
+    praefix = claude_programm()
+    if praefix is None:
         raise ProgrammFehlt("Claude-Code-CLI wurde nicht gefunden")
-    node, cli = paar
-    liste = (node, cli, "--bare", "--print", "--input-format", "stream-json", "--output-format", "stream-json",
+    liste = (*praefix, "--bare", "--print", "--input-format", "stream-json", "--output-format", "stream-json",
              "--verbose", "--no-session-persistence", "--disable-slash-commands", "--tools", "",
              "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}')
     kennung = f"master-schalter-{uuid.uuid4().hex}"

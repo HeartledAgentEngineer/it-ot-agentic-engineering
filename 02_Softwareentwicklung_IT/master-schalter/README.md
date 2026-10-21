@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.4.0** — Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.4.1** — Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
@@ -142,7 +142,9 @@ und bei abgelaufenem Katalog, zusätzlicher Menüpunkt **Modelle aktualisieren**
 - **Claude Code** meldet die Modelle über die lokale Control-Initialisierung **ohne Anmeldung und
   ohne Benutzerprompt**; übernommen werden ausschließlich `value`/`displayName` der eigenen
   passenden `control_response` (leerer `CLAUDE_CONFIG_DIR`, keine Sitzungs-, Konto- oder
-  Rohantwortdaten im Cache). Claude-Modelle laufen über das Claude-Abo.
+  Rohantwortdaten im Cache). Aufgerufen wird direkt `node cli.js` (ältere npm-Pakete) oder das native
+  `bin/claude.exe` (npm ab 2.1.3xx, auch `~/.local/bin/claude.exe`), nie ein `.cmd`-Wrapper.
+  Claude-Modelle laufen über das Claude-Abo.
 - **Hermes** nutzt fest `DeepSeek V4.1 Flash` über OpenRouter – **kostenpflichtig** (API-Kosten
   stehen im Prüfprotokoll); es gibt keinen automatischen Modellwechsel.
 
@@ -409,7 +411,8 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.4.0** | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung — **dieser Stand** |
+| **v0.4.1** | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version — **dieser Stand** |
+| v0.4.0 | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung |
 | v0.3.5 | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt |
 | v0.3.4 | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll |
 | v0.3.3 | Claude-Messung versteht die neue API-Form (leeres Fenster `0.0/null` → 0 %); Prüfer-Rolle ohne Luna (Input-Preis 5x) |

@@ -3,6 +3,21 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.4.1] – 2026-10-21
+
+### Behoben
+- **Claude-Modellkatalog nach Claude-Code-Update:** Das npm-Paket ab 2.1.3xx enthält kein `cli.js`
+  mehr, sondern das native `bin/claude.exe`. `claude_programm()` liefert jetzt das Aufrufpräfix
+  `(node, cli.js)` **oder** `(claude.exe,)` (Suche zusätzlich in `%APPDATA%/npm/node_modules/@anthropic-ai/claude-code/bin/`
+  und `~/.local/bin/`); vorher meldete der Katalog „Programm nicht gefunden". Echter Abruf am 21.10.
+  mit 2.1.304: 5 Modelle.
+- **Tests unabhängig von der Installation:** Die Fixture `daten` setzt feste Attrappenpfade für
+  `MASTER_SCHALTER_CLAUDE_CLI`/`MASTER_SCHALTER_NODE`; 8 Tests hingen zuvor davon ab, dass auf dem
+  Rechner ein `cli.js` liegt. Zwei neue Tests für das native Programm.
+
+### Geändert
+- Version 0.4.1 (`__init__.py`, `pyproject.toml`).
+
 ## [0.4.0] – 2026-10-20
 
 Gebaut 16.10. auf Branch `v0.4.0-rollen-modelle`, am 20.10. mit 0.3.5 zusammengeführt;
