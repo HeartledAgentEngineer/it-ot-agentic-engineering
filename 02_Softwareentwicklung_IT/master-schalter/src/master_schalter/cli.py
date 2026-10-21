@@ -24,6 +24,8 @@
                                       Ausführermodell setzen ("standard" = Standard des Werkzeugs)
     masterwechsel modelle [PROVIDER] [--aktualisieren] [--json]
                                       Modellkataloge der Werkzeuge anzeigen oder abgleichen
+    masterwechsel quittieren VORGANG neu|abgabe
+                                      Übernahme (neu) bzw. Abgabe (abgabe) eines Assistentenvorgangs bestätigen
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -34,8 +36,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, automatik, claude_messen, modi, modelle, paare, rollen, rueckgabe,
-               signale, wechsel, zustand)
+from . import (__version__, anzeige, assistent_vorgaenge, automatik, claude_messen, modi, modelle, paare,
+               rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -252,6 +254,20 @@ def _modelle_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _quittieren_cli(args: argparse.Namespace) -> int:
+    """Quittung eines Zielchats (`neu`) bzw. des alten Chats (`abgabe`) – nur bei gültiger Marke."""
+    try:
+        vorgang = assistent_vorgaenge.quittieren(args.vorgang, args.art)
+    except (assistent_vorgaenge.AssistentFehler, OSError) as fehler:
+        print(f"Nicht quittiert: {fehler}", file=sys.stderr)
+        return 1
+    if args.art == "neu":
+        print(f"Übernahme von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
+    else:
+        print(f"Abgabe von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
+    return 0
+
+
 def _paar_setzen(args: argparse.Namespace) -> int:
     try:
         paar = paare.setzen(args.thema, args.uuid, args.datei,
@@ -367,6 +383,9 @@ def _parser() -> argparse.ArgumentParser:
     modelle_parser.add_argument("--aktualisieren", action="store_true",
                                 help="Kataloge frisch abgleichen (Kindprozess der Werkzeuge, keine Inferenz)")
     modelle_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    quittieren = unter.add_parser("quittieren", help="Übernahme oder Abgabe eines Wechselvorgangs bestätigen")
+    quittieren.add_argument("vorgang", help="Vorgangskennung aus der Postfachnachricht")
+    quittieren.add_argument("art", choices=assistent_vorgaenge.ARTEN, help="neu (Übernahme) oder abgabe")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -414,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
         return _modell_setzen_cli(args)
     if args.befehl == "modelle":
         return _modelle_cli(args)
+    if args.befehl == "quittieren":
+        return _quittieren_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":

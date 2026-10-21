@@ -48,6 +48,7 @@ MASTER_WERTE = ("kontingent", "claude", "codex", "hermes")
 WORKER_WERTE = ("workflow", "claude", "codex", "hermes")
 WORKFLOW = "workflow"
 ZIEL_ROLLEN = ("claude", "codex", "hermes")
+VORGANG_ID_MUSTER = re.compile(r"[A-Za-z0-9_-]{1,80}")   # Vorgangs- und Sitzungskennungen des Assistenten
 HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
 VERSION = 2
 VERSION_ALT = 1
@@ -356,18 +357,34 @@ def _besitz_meldung(ziel: Profil, owner: str) -> str:
     return f"{ANZEIGE[_ZIEL_ROLLE[ziel.master]]}-Besitzmarke nicht gespeichert"
 
 
+def vorgang_id_pruefen(vorgang_id: object) -> str:
+    """Kennung nur nach Muster (`re.fullmatch`, kein abschließendes LF) – sonst ModusFehler."""
+    if not isinstance(vorgang_id, str) or VORGANG_ID_MUSTER.fullmatch(vorgang_id) is None:
+        raise ModusFehler(f"Vorgangskennung unzulässig (erlaubt: {VORGANG_ID_MUSTER.pattern}): {vorgang_id!r}")
+    return vorgang_id
+
+
 def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
-                         repo: Path | None) -> Profil:
+                         repo: Path | None, vorgang_id: str | None = None) -> Profil:
     """Einen echten Masterwechsel unter der bereits gehaltenen Themensperre vollziehen.
 
     Reihenfolge: eigene Zwischenmarke → offene Mastervorgänge entwerten → Profil speichern →
     Zielbesitz schreiben. Jeder Teilfehler nennt den erreichten Zustand; die Wiederholung
     derselben Wahl erkennt die eigene Zwischenmarke und vervollständigt sicher.
+
+    Mit `vorgang_id` (Wechselassistent) schreibt der einzige abschließende Zielschreibvorgang
+    direkt `<rolle> <zeit> assistent <thema> <vorgang-id>` – auch wenn die Zielrolle schon
+    besitzt. Es gibt also nie eine fertige Modusmarke ohne Vorgangs-ID. Ohne `vorgang_id`
+    bleibt das Verhalten exakt wie in v0.4.0.
     """
     try:
         paare.thema_pruefen(thema)
     except paare.PaarFehler as fehler:
         raise ModusFehler(str(fehler)) from fehler
+    if vorgang_id is not None:
+        vorgang_id_pruefen(vorgang_id)
+        if ziel.master not in ZIEL_ROLLEN:
+            raise ModusFehler(f"Übergabe braucht eine Zielrolle (claude|codex|hermes), nicht {ziel.master!r}")
     pfad = datei_pfad or datei()
     alt = _lesen(pfad).get(thema, Profil())
     # Vor jeder Nebenwirkung: Thema, Paar, Repository-Pfade und fremde Reservierung prüfen.
@@ -381,7 +398,11 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
         if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.HERMES):
             raise ModusFehler("Besitzstatus ist unbekannt; Arbeitsmodus wurde nicht geändert")
     ziel_rolle = _ZIEL_ROLLE[ziel.master]
-    if alt == ziel and owner in _ERWARTETE_BESITZER[ziel.master] and not eigene_marke:
+    if vorgang_id is not None:
+        if (alt == ziel and not eigene_marke
+                and besitz.assistent_marke(text) == (ziel_rolle, thema, vorgang_id)):
+            return alt     # derselbe Vorgang ist schon fertig übergeben: keine zweite Marke
+    elif alt == ziel and owner in _ERWARTETE_BESITZER[ziel.master] and not eigene_marke:
         return alt     # konsistente gleiche Masterwahl: keine Nebenwirkung, Marke bleibt bytegleich
 
     zeit = datetime.now(timezone.utc).isoformat()
@@ -408,7 +429,9 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
             raise ModusFehler("Umschaltung unvollständig – Modus erneut wählen: offene Vorgänge "
                               f"entwertet; eigene Modusmarke steht, Modusdatei nicht aktualisiert "
                               f"(vorheriges Profil {alt}) ({fehler})") from fehler
-    if owner == ziel_rolle and not eigene_marke:
+    if vorgang_id is not None:
+        neu = besitz.assistent_zeile(ziel_rolle, zeit, thema, vorgang_id)
+    elif owner == ziel_rolle and not eigene_marke:
         neu = text      # bestehende echte Ziel-Mastermarke wörtlich erhalten
     else:
         neu = _ziel_marke(ziel, zeit, thema)
@@ -476,6 +499,22 @@ def master_setzen(thema: str, master: str, datei_pfad: Path | None = None, *,
         return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo)
 
     return _unter_sperre(thema, arbeit)
+
+
+def master_uebergeben_gesperrt(thema: str, master: str, *, vorgang_id: str,
+                               datei_pfad: Path | None = None, repo: Path | None = None) -> Profil:
+    """Masterrolle für den Wechselassistenten setzen – **die Themensperre muss der Aufrufer halten**.
+
+    Wie `master_setzen` (Worker und Modell bleiben erhalten, offene Mastervorgänge werden
+    entwertet), nimmt die Sperre aber nicht selbst. Die Zielmarke trägt die Vorgangs-ID
+    (`<rolle> <zeit> assistent <thema> <vorgang-id>`); nur Zielrollen claude|codex|hermes.
+    """
+    if not isinstance(master, str) or master not in ZIEL_ROLLEN:
+        raise ModusFehler(f"Unbekannte Zielrolle: {master!r} (erlaubt: {', '.join(ZIEL_ROLLEN)})")
+    vorgang_id_pruefen(vorgang_id)
+    pfad = datei_pfad or datei()
+    alt = _lesen(pfad).get(thema, Profil())
+    return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo, vorgang_id=vorgang_id)
 
 
 def worker_setzen(thema: str, worker: str, datei_pfad: Path | None = None, *,

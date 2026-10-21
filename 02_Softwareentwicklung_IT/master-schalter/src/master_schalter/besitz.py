@@ -7,6 +7,8 @@ Format: der erste Abschnitt ist der Besitzer.
 * `reserviert <lauf-id> <Zeit>` – die Automatik hat reserviert und prüft gleich nach
 * `codex <Vorgang-ID> <Zeit>` – Codex hat übernommen
 * `hermes <Zeit> modus <Kennung>` – Hermes ist thematischer Master
+* `<Rolle> <Zeit> assistent <Thema> <Vorgang-ID>` – der Wechselassistent hat übergeben; die
+  Vorgangs-ID macht jeden älteren Postfachauftrag ungültig, sobald ein späterer Wechsel die Marke überschreibt
 
 Eine **fehlende** Datei gilt als `claude`. Jeder Schreiber hält die Themensperre
 (`zustand.thema_sperre`); geschrieben wird atomar (temp + replace).
@@ -15,9 +17,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .signale import _atomar_schreiben
+from .signale import _atomar_schreiben, _iso
 
 CLAUDE, CODEX, RESERVIERT, HERMES = "claude", "codex", "reserviert", "hermes"
+ASSISTENT = "assistent"
 
 
 def pfad(repo: Path, laufend: str) -> Path:
@@ -50,6 +53,19 @@ def ist(text: str, wer: str) -> bool:
 
 def zeile(wer: str, zeit: str, *rest: str) -> str:
     return " ".join([wer, zeit, *rest])
+
+
+def assistent_zeile(wer: str, zeit: str, thema: str, vorgang_id: str) -> str:
+    """Marke des Wechselassistenten: `<Rolle> <Zeit> assistent <Thema> <Vorgang-ID>`."""
+    return zeile(wer, zeit, ASSISTENT, thema, vorgang_id)
+
+
+def assistent_marke(text: str) -> tuple[str, str, str] | None:
+    """`(Rolle, Thema, Vorgang-ID)` einer Assistentenmarke in strengem Format, sonst `None`."""
+    teile = text.split()
+    if len(teile) != 5 or teile[2] != ASSISTENT or _iso(teile[1]) is None:
+        return None
+    return teile[0], teile[3], teile[4]
 
 
 def schreiben(datei: Path, text: str) -> None:

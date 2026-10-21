@@ -377,3 +377,52 @@ def test_modelle_json_bei_leerem_cache_exit0(rollen, capsys):
     daten = json.loads(capsys.readouterr().out)
     assert [eintrag["provider"] for eintrag in daten] == ["claude", "codex"]
     assert all(eintrag["modelle"] == [] and eintrag["veraltet"] is True for eintrag in daten)
+
+
+# --- quittieren (Wechselassistent, G4/G5) ---------------------------------------
+
+def _assistent_vorgang(vorgang_id="v-1", ziel="hermes"):
+    """Vorgang vermerken und Rolle setzen – wie der Assistent (Themensperre gehalten)."""
+    from datetime import datetime, timezone
+
+    from master_schalter import assistent_vorgaenge, zustand
+    assistent_vorgaenge.aendern(lambda alt: [*alt, assistent_vorgaenge.Vorgang(
+        vorgang_id, "engineering", ziel, "claude", "rolle_gesetzt", datetime.now(timezone.utc).isoformat(),
+        {"master": "kontingent", "worker": "workflow", "modell": None}, "")])
+    with zustand.thema_sperre("engineering", blockierend=True, frist=1.0):
+        modi.master_uebergeben_gesperrt("engineering", ziel, vorgang_id=vorgang_id)
+    return assistent_vorgaenge
+
+
+def test_quittieren_neu_bestaetigt_den_vorgang(rollen, capsys):
+    av = _assistent_vorgang()
+    assert cli.main(["quittieren", "v-1", "neu"]) == 0
+    assert "quittiert" in capsys.readouterr().out
+    assert av.finden("v-1").phase == "bestaetigt"
+
+
+def test_quittieren_abgabe_setzt_die_abgabeflagge(rollen, capsys):
+    av = _assistent_vorgang()
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 0
+    assert av.finden("v-1").abgabe_bestaetigt is True
+    assert av.finden("v-1").phase == "rolle_gesetzt"
+
+
+def test_quittieren_bei_veralteter_marke_exit1_ohne_aenderung(rollen, capsys):
+    av = _assistent_vorgang()
+    modi.master_setzen("engineering", "codex")                      # späterer Wechsel überschreibt die Marke
+    vorher = av.datei().read_text(encoding="utf-8")
+
+    for art in ("neu", "abgabe"):
+        assert cli.main(["quittieren", "v-1", art]) == 1
+        assert "veraltet" in capsys.readouterr().err
+
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_quittieren_unbekannter_vorgang_oder_schlechte_eingabe(rollen, capsys):
+    assert cli.main(["quittieren", "v-9", "neu"]) == 1
+    assert "unbekannt" in capsys.readouterr().err
+    assert cli.main(["quittieren", "../x", "neu"]) == 1
+    assert cli.main(["quittieren", "v-1", "beides"]) == 2           # argparse lehnt die Art ab
+
