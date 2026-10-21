@@ -124,6 +124,19 @@ Gruppierung v2 (``--verfahren v2``, 15.10.2026; Standard bleibt v1):
     an den frisch gerechneten Snapshot-hash der Grundlage, die Parameter und ein
     Urteil gebunden; jede Verletzung oder eine Sperrzahl > 0 endet mit **Exit 3**,
     ohne dass eine Datei angelegt wird. ``--trocken`` hat weiter Vorrang.
+  * **G0/G1 vor jedem Rechnen (Auflage 2):** ``personen_bestaetigt.json`` und
+    ``personen_vorgaben.json`` sind **Pflicht** — fehlt eine, endet v2 mit
+    **Exit 2**, ohne zu rechnen und ohne zu schreiben (eine fehlende Regeldatei
+    ist kein leerer Bestand). Dazu wird ein **Vollstaendigkeitsnachweis** gegen
+    den Geraetestand des Handys gefuehrt (`--geraetestand`, Standard
+    ``~/foto_sortierung/geraetestand.json``): je Pflichtquelle muessen **sha256**
+    und die **durchgezaehlten Eintraege** stimmen und der Stand zum Bestand
+    passen. Jede Abweichung endet mit Exit 2; ohne vollstaendigen Nachweis
+    rechnet v2 nur als **Trockenmessung** mit ``--ohne-geraetenachweis`` (ein
+    Schreiben mit diesem Schalter wird mit Exit 2 abgelehnt). Ist die
+    Grundwahrheit ``vorlaeufig`` oder ``veraltet`` (``gruppierung_bewerten``),
+    ist ``--schreiben`` mit **Exit 3** gesperrt — auch fuer den
+    Kandidatenordner; eine Trockenmessung bleibt erlaubt.
   * ``--bewerten``: gibt zusaetzlich den Vergleich der bestehenden Zuordnung
     (vorher) mit diesem Lauf (nachher) aus - ``gruppierung_bewerten.py``,
     nur Zahlen, schreibt nichts.
@@ -197,10 +210,20 @@ STANDARD_AUSGABE = os.path.join(STANDARD_BASIS, "personen_gruppen")
 STANDARD_KANDIDAT = os.path.join(STANDARD_BASIS, "kandidat_v2")
 STANDARD_BESTAETIGT = os.path.join(STANDARD_BASIS, "personen_bestaetigt.json")
 STANDARD_VORGABEN = os.path.join(STANDARD_BASIS, "personen_vorgaben.json")
+# Der Geraetestand (G0, Auflage 2): das Handy schreibt ihn zu seinen
+# Pflichtquellen (``termux/rueckweg-bereitstellen.sh``), das PC-Werkzeug holt
+# ihn per Kabel (``tools/handy/rueckweg_holen.py``) und prueft ihn hier.
+STANDARD_GERAETESTAND = os.path.join(STANDARD_BASIS, "geraetestand.json")
+
+# G0 (Auflage 2): Diese zwei Dateien sind PFLICHT. Fehlt eine, wird bei
+# ``--verfahren v2`` nicht gerechnet und nicht geschrieben — eine fehlende
+# Regeldatei ist kein "leerer Bestand", sondern eine unbekannte Grundlage.
+PFLICHTQUELLEN = ("personen_bestaetigt.json", "personen_vorgaben.json")
 
 DATEI_ZUORDNUNG = "gesicht_zuordnung.jsonl"
 DATEI_BEISPIELE = "personen_beispiele.json"
 DATEI_KENNUNGEN = _cluster.KENNUNGEN_DATEI          # "kennungen.json"
+DATEI_ALIASE = "aliasmengen.json"                   # nur v2, nur mit echtem Schreiben
 
 # Cosinus-Aehnlichkeit Gesicht -> Gruppenmittelpunkt. Abgeleitet aus der
 # bestehenden Cluster-Grenze (Distanz 0,45 = Aehnlichkeit 0,55), damit beide
@@ -221,9 +244,16 @@ BLOCK = 1024                                        # Gesichter je Rechenblock
 
 # ── Lesen ────────────────────────────────────────────────────────────────
 
-def _json_lesen(pfad, standard):
-    """JSON lesen — fehlende Datei = ``standard``, kaputte Datei = Fehler."""
+def _json_lesen(pfad, standard, pflicht=False, was="Datei"):
+    """JSON lesen — fehlende Datei = ``standard``, kaputte Datei = Fehler.
+
+    ``pflicht=True`` (G0, Auflage 2): eine **fehlende** Datei ist dann kein
+    leerer Bestand, sondern ein ``PersonenFehler``. Nur der Name der Datei steht
+    im Text, nie ein Pfad.
+    """
     if not pfad or not os.path.isfile(pfad):
+        if pflicht:
+            raise PersonenFehler(f"Pflichtquelle fehlt: {was}")
         return standard
     try:
         with open(pfad, encoding="utf-8") as datei:
@@ -233,9 +263,12 @@ def _json_lesen(pfad, standard):
             f"Datei nicht lesbar ({problem.__class__.__name__}): {pfad}") from None
 
 
-def bestaetigt_lesen(pfad) -> dict:
-    """``{"bestaetigt": {"Person_001": "Name"}}`` -> ``{kennung: name}``."""
-    daten = _json_lesen(pfad, {})
+def bestaetigt_lesen(pfad, pflicht=False) -> dict:
+    """``{"bestaetigt": {"Person_001": "Name"}}`` -> ``{kennung: name}``.
+
+    ``pflicht=True`` (G0): fehlt die Datei, kommt ein ``PersonenFehler``.
+    """
+    daten = _json_lesen(pfad, {}, pflicht, PFLICHTQUELLEN[0])
     roh = daten.get("bestaetigt") if isinstance(daten, dict) else None
     if not isinstance(roh, dict):
         return {}
@@ -252,14 +285,16 @@ def _name_normalisieren(name):
     return sauber if sauber and len(sauber) <= 60 else None
 
 
-def vorgaben_lesen(pfad) -> dict:
+def vorgaben_lesen(pfad, pflicht=False) -> dict:
     """Gleich/Verschieden, Ausschluesse und Quiz-Einzelzuordnungen lesen.
 
     ``zugeordnet`` ist nach ``(bild_id, index)`` indiziert. Ein gueltiger
     spaeterer Quiz-Eintrag gewinnt; ungueltige Eintraege ueberschreiben keinen
     frueheren gueltigen Zielnamen. ``kennung`` bleibt dabei Herkunft.
+    ``pflicht=True`` (G0, Auflage 2): fehlt die Datei, kommt ein
+    ``PersonenFehler`` statt eines leeren Bestands.
     """
-    daten = _json_lesen(pfad, {})
+    daten = _json_lesen(pfad, {}, pflicht, PFLICHTQUELLEN[1])
     ergebnis = {"gleich": set(), "verschieden": set(), "ausgeschlossen": set(),
                 "zugeordnet": {}}
     if not isinstance(daten, dict):
@@ -569,6 +604,44 @@ def _paare_ueber(mitte, schwelle) -> list[tuple[float, int, int]]:
     return paare
 
 
+def _gleich_klassen(gleich) -> list:
+    """Die gleich-Paare als transitive Huelle: sortierte Liste sortierter Kennungslisten.
+
+    Union-Find ueber ALLE Kennungen der Paare (auch solche ohne Gruppe). Aus A=B und
+    B=C wird die Klasse ``[A, B, C]``. Die Reihenfolge der Paare spielt keine Rolle.
+    """
+    eltern: dict[str, str] = {}
+
+    def wurzel(x):
+        eltern.setdefault(x, x)
+        while eltern[x] != x:
+            eltern[x] = eltern[eltern[x]]
+            x = eltern[x]
+        return x
+
+    for a, b in gleich or ():
+        ra, rb = wurzel(a), wurzel(b)
+        if ra != rb:
+            eltern[max(ra, rb)] = min(ra, rb)
+    klassen: dict[str, list] = {}
+    for kennung in eltern:
+        klassen.setdefault(wurzel(kennung), []).append(kennung)
+    return sorted(sorted(mitglieder) for mitglieder in klassen.values())
+
+
+def _klasse_hat_konflikt(klasse, verschieden) -> bool:
+    """Widerspricht sich die gleich-Klasse selbst? (Auflage 3, Nachbesserung 2)
+
+    Ja, sobald IRGENDEIN Paar ihrer Kennungen ``verschieden`` ist - ob als
+    gespeicherte verschieden-Regel oder, wie die Funktion ``verschieden`` des
+    Laufs es mitbringt, wegen zweier verschiedener Namen. Das gilt fuer alle
+    Mitglieder, auch fuer Kennungen ohne Gruppe.
+    """
+    if not verschieden:
+        return False
+    return any(verschieden(x, y) for i, x in enumerate(klasse) for y in klasse[i + 1:])
+
+
 def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich=None,
                   benannt=None):
     """Schritt 3 (geteilt von v1 und v2): Gruppen per Union-Find vereinen.
@@ -579,7 +652,9 @@ def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich
     Kennungen zutrifft. Zuerst werden die ``gleich``-Paare vereint - die
     ausdrueckliche Entscheidung "dieselbe Person" -, danach die Aehnlichkeitspaare.
     **Dies ist der einzige Weg, auf dem ``gleich`` wirkt** (v1 und v2 rufen diese
-    Funktion).
+    Funktion). v1 (``benannt=None``) vereint ``gleich`` weiterhin paarweise und
+    unveraendert (nur wenn beide Kennungen eines Paares eine Gruppe haben); die
+    transitive Klassenbildung und die Konfliktpruefung je Klasse gelten nur in v2.
 
     ``benannt`` (nur v2): je Gruppe die Menge der bestaetigt benannten Kennungen.
     Mit ``benannt`` vereinen Aehnlichkeitspaare nie eine Gruppe, die eine benannte
@@ -590,7 +665,12 @@ def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich
 
     Rueckgabe ``(label, info)``: ``label`` traegt je Gesicht die Wurzel-Gruppe
     (``-1`` bleibt), ``info`` enthaelt ``gleich_vereint`` (Zahl der durch ``gleich``
-    vereinten Gruppen), ``vorschlag_wurzeln`` und ``benannt_je_wurzel``.
+    vereinten Gruppen), ``vorschlag_wurzeln``, ``benannt_je_wurzel`` und
+    ``alias_je_wurzel``: je Wurzel, in der mindestens zwei Gruppen vereint wurden,
+    die **volle** sortierte Liste aller beteiligten alten Kennungen (Aliasmenge,
+    Auflage 3). Sie liegt transitiv im Union-Find (A=B, B=C ergibt eine Menge) und
+    geht hier nicht verloren - die Verdichtung auf eine Kennung geschieht erst
+    danach (``gruppieren_v2``).
     """
     bilder = _bilder_je_gruppe(bild, label, k)
     eltern = list(range(k))
@@ -605,6 +685,7 @@ def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich
                            for c in range(k)}
     benannt_je_wurzel = {c: (set(benannt[c]) if benannt is not None else set())
                          for c in range(k)}
+    gruppen_je_wurzel = {c: 1 for c in range(k)}
 
     def darf(a, b) -> bool:
         if bilder[a] & bilder[b]:
@@ -625,18 +706,43 @@ def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich
         bilder[gross] |= bilder[klein]
         kennungen_je_wurzel[gross] |= kennungen_je_wurzel[klein]
         benannt_je_wurzel[gross] |= benannt_je_wurzel[klein]
+        gruppen_je_wurzel[gross] += gruppen_je_wurzel[klein]
         return True
 
     gleich_vereint = 0
+    gleich_klassen_mit_konflikt = 0
     if gleich:
         nach_kennung: dict[str, int] = {}
         for c, kenn in enumerate(kennung_vorab):
             if kenn and kenn not in nach_kennung:
                 nach_kennung[kenn] = c
-        for a, b in sorted(gleich):
-            if a in nach_kennung and b in nach_kennung:
-                if vereinen(nach_kennung[a], nach_kennung[b]):
-                    gleich_vereint += 1
+        if benannt is None:
+            # v1: der alte Paar-Weg, unveraendert (v1 verhaelt sich wie vor
+            # Aufloesung der Aliasmengen). Vereint wird nur, wenn BEIDE Kennungen
+            # eines gleich-Paares eine Gruppe haben; eine Kette ueber eine Kennung
+            # ohne Gruppe verbindet nichts, und die Reihenfolge der Paare zaehlt.
+            for a, b in sorted(gleich):
+                if a in nach_kennung and b in nach_kennung:
+                    if vereinen(nach_kennung[a], nach_kennung[b]):
+                        gleich_vereint += 1
+        else:
+            # v2: Transitive Huelle ueber ALLE Kennungen der gleich-Paare, auch
+            # ueber Kennungen ohne Gruppe: aus A=B und B=C wird die Klasse
+            # {A, B, C}, selbst wenn B kein Gesicht hat. Vereint werden alle
+            # Gruppen einer Klasse mit der ersten. Enthaelt eine Klasse INTERN
+            # einen Konflikt (verschieden-Paar oder verschiedene Namen, auch bei
+            # gesichtslosen Kennungen), wird in ihr NICHTS vereint - keine
+            # Teilvereinigung, damit das Ergebnis nicht von der Reihenfolge
+            # abhaengt. Gemeinsame Bilder (cannot-link) prueft `vereinen` wie
+            # bisher je Gruppenpaar.
+            for klasse_ in _gleich_klassen(gleich):
+                if _klasse_hat_konflikt(klasse_, verschieden):
+                    gleich_klassen_mit_konflikt += 1
+                    continue
+                gruppen_klasse = [nach_kennung[m] for m in klasse_ if m in nach_kennung]
+                for andere in gruppen_klasse[1:]:
+                    if vereinen(gruppen_klasse[0], andere):
+                        gleich_vereint += 1
     for _, a, b in paare:
         if benannt is not None and (benannt_je_wurzel[wurzel(a)] or benannt_je_wurzel[wurzel(b)]):
             continue                      # benannte Kennungen verschmelzen nur ueber "gleich"
@@ -652,8 +758,12 @@ def _verschmelzen(label, k, bild, paare, kennung_vorab, verschieden=None, gleich
             if a_benannt != b_benannt and darf(ra, rb):
                 vorschlag_wurzeln.add(rb if a_benannt else ra)
     neu = np.array([wurzel(int(c)) if c >= 0 else -1 for c in label], dtype=np.int64)
+    alias_je_wurzel = {w: sorted(kennungen_je_wurzel[w]) for w in range(k)
+                       if wurzel(w) == w and gruppen_je_wurzel[w] > 1
+                       and kennungen_je_wurzel[w]}
     return neu, {"gleich_vereint": gleich_vereint, "vorschlag_wurzeln": vorschlag_wurzeln,
-                 "benannt_je_wurzel": benannt_je_wurzel}
+                 "benannt_je_wurzel": benannt_je_wurzel, "alias_je_wurzel": alias_je_wurzel,
+                 "gleich_klassen_mit_konflikt": gleich_klassen_mit_konflikt}
 
 
 def _aussortieren(label, k, min_groesse, behalten_immer=()):
@@ -841,7 +951,8 @@ def lauf_rechnen(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
 
 
 def _lauf_abschluss(eingelesen, label, kennungen, auto_mitte, fest, namen, vorg, zwilling,
-                    start, gruppen_zusatz=None, altbestand_zusatz=None, bericht_zusatz=None):
+                    start, gruppen_zusatz=None, altbestand_zusatz=None, bericht_zusatz=None,
+                    aliasmengen=None):
     """Der gemeinsame Schluss von v1 und v2: Kennungen auf die Gesichter legen.
 
     ``label`` ist je Gesicht die automatische Gruppe ``0..k-1`` (``-1`` = ohne),
@@ -854,6 +965,12 @@ def _lauf_abschluss(eingelesen, label, kennungen, auto_mitte, fest, namen, vorg,
     Felder je Gruppe), ``altbestand_zusatz`` (Altbestand-Eintraege, die erhalten
     bleiben, auch wenn ihre Gruppe leer ist) und ``bericht_zusatz`` (Zahlen unter
     ``bericht["v2"]``).
+
+    ``aliasmengen`` (nur v2, ``{kennung: [kennungen]}``, Auflage 3): eine feste
+    Zuordnung auf eine weggemergte Kennung landet in der vereinten Gruppe (keine
+    Restgruppe), ein Ausschluss auf **jede** Kennung der Menge sperrt das Gesicht
+    aus der Gruppe, und jede Gruppe traegt ihr Feld ``aliase``. Ohne
+    ``aliasmengen`` (v1) bleibt alles wie zuvor.
     """
     gesichter = eingelesen["gesichter"]
     v = eingelesen["vektoren"]
@@ -866,15 +983,27 @@ def _lauf_abschluss(eingelesen, label, kennungen, auto_mitte, fest, namen, vorg,
     regeln = vorg.get("ausgeschlossen") or set()
     ausgeschlossen = 0
     zielnamen: dict[str, str] = {}
+    alias_menge: dict[str, list] = {}        # Mitglied -> volle Menge (nur v2)
+    alias_ziel: dict[str, str] = {}          # Mitglied -> Kennung der vereinten Gruppe
+    for schluessel_, menge in (aliasmengen or {}).items():
+        for mitglied in menge:
+            alias_menge[mitglied] = menge
+            alias_ziel[mitglied] = schluessel_
     for eintrag in fest.values():
-        zielnamen[eintrag["kennung"]] = eintrag["name"]
+        zielnamen[alias_ziel.get(eintrag["kennung"], eintrag["kennung"])] = eintrag["name"]
+
+    def gesperrt(kennung, schluessel_) -> bool:
+        """Sperrt eine Ausschluss-Regel das Gesicht aus dieser Kennung (oder ihrer Aliasmenge)?"""
+        return any((a, schluessel_[0], schluessel_[1]) in regeln
+                   for a in alias_menge.get(kennung, (kennung,)))
+
     for i, (gesicht, auto_c) in enumerate(zip(gesichter, label.tolist())):
         automatische_kennung = automatische_ids[auto_c] if auto_c >= 0 else None
         schluessel = _schluessel(gesicht)
         fest_eintrag = fest.get(schluessel)
-        kennung = fest_eintrag["kennung"] if fest_eintrag else automatische_kennung
-        if (not fest_eintrag and kennung
-                and (kennung, schluessel[0], schluessel[1]) in regeln):
+        kennung = (alias_ziel.get(fest_eintrag["kennung"], fest_eintrag["kennung"])
+                   if fest_eintrag else automatische_kennung)
+        if not fest_eintrag and kennung and gesperrt(kennung, schluessel):
             kennung = None
             ausgeschlossen += 1
         gesicht["kennung"] = kennung
@@ -919,6 +1048,8 @@ def _lauf_abschluss(eingelesen, label, kennungen, auto_mitte, fest, namen, vorg,
             "zwilling_kandidaten": kandidaten[pos],
             "beispiele": beispiele_waehlen(mitglieder_gesicht),
         })
+        if aliasmengen is not None:
+            gruppen[-1]["aliase"] = list(aliasmengen.get(kennung, []))
         if gruppen_zusatz:
             gruppen[-1].update(gruppen_zusatz(kennung, stellen))
         groessen.append(len(stellen))
@@ -1094,12 +1225,20 @@ def gruppieren_v2(vektoren, bild_ids, qualitaet, jahre, kern, vorbilder=None, fi
     Rueckgabe: ``label`` (``(n,)``, ``-1`` = nicht im Kern gruppiert), ``k``,
     ``benannt`` (je Gruppe die Kennung des Vorbilds oder ``None``; bei durch
     ``gleich`` vereinten benannten Gruppen die kleinste), ``phasen`` (je Gruppe)
-    und ``info`` (Zahlen fuer den Bericht).
+    und ``info`` (Zahlen fuer den Bericht). ``info["aliasmengen"]`` ist
+    ``{kennung: sortierte Liste}`` fuer **jede** Gruppe, in der Kennungen vereint
+    wurden. Bei benannten Gruppen ist der Schluessel ``benannt[c]``; bei unbenannten
+    der vorlaeufige Schluessel "kleinste beteiligte Kennung", denn die endgueltige
+    steht erst nach der Kennungsvergabe in ``lauf_rechnen_v2`` fest (dort wird die
+    endgueltige Menge samt gesichtsloser gleich-Kennungen gebildet).
+    ``info["alias_je_gruppe"]`` ist dieselbe Menge je Gruppe ``c`` (leer = nichts
+    vereint).
     """
     v = einheitsvektoren(vektoren)
     n = v.shape[0]
     info = {"vorbild_gruppen": 0, "vorbild_gesichter": 0, "vorbild_verloren": 0,
-            "gleich_vereint": 0, "aehneln_benannten": 0, "gruppen_vor_rauschen": 0}
+            "gleich_vereint": 0, "aehneln_benannten": 0, "gruppen_vor_rauschen": 0,
+            "aliasmengen": {}, "alias_je_gruppe": []}
     leer = {"label": np.full(n, -1, dtype=np.int64), "k": 0, "benannt": [],
             "phasen": [], "info": info}
     bild = list(bild_ids)
@@ -1176,6 +1315,17 @@ def gruppieren_v2(vektoren, bild_ids, qualitaet, jahre, kern, vorbilder=None, fi
             benannt[neu_nummer] = min(kennungen)
     info["aehneln_benannten"] = len({nummer[w] for w in verschmolzen["vorschlag_wurzeln"]
                                      if w in nummer})
+    alias_je_gruppe: list = [[] for _ in range(k2)]
+    for wurzel_, neu_nummer in nummer.items():
+        liste = verschmolzen["alias_je_wurzel"].get(wurzel_)
+        if liste:
+            alias_je_gruppe[neu_nummer] = list(liste)
+            if benannt[neu_nummer]:
+                info["aliasmengen"][benannt[neu_nummer]] = sorted(
+                    set(liste) | {benannt[neu_nummer]})
+            else:                            # unbenannt: vorlaeufiger Schluessel = kleinste Kennung
+                info["aliasmengen"][min(liste)] = sorted(liste)
+    info["alias_je_gruppe"] = alias_je_gruppe
     phasen_neu = _phasen_der_gruppen(vs, js, label, k2)
     voll = np.full(n, -1, dtype=np.int64)
     voll[idx] = label
@@ -1201,8 +1351,20 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     Zuordnung (``alte_zuordnung_lesen``); daraus kommen die Vorbilder der
     benannten Kennungen. Ohne sie bilden nur die festen Zuordnungen Vorbilder.
     Rueckgabe wie ``lauf_rechnen``, zusaetzlich ``verfahren: "v2"`` und
-    ``bericht["v2"]``; jede Gruppe traegt ``phasen`` (ohne Vektoren).
+    ``bericht["v2"]``; jede Gruppe traegt ``phasen`` (ohne Vektoren) und ``aliase``.
+
+    **Aliasmengen (Auflage 3):** ``lauf["aliasmengen"]`` ist ``{kennung: [alle
+    beteiligten Kennungen]}`` fuer jede Gruppe, in der Kennungen vereint wurden
+    (``gleich``), samt den Kennungen, die per ``gleich`` zu einer Gruppe gehoeren,
+    aber kein einziges Gesicht haben. Sie werden im Lauf gebildet und im Speicher
+    weitergereicht (``bewertung_text``); geschrieben wird erst in ``schreiben``.
+    Die drei Sperrzahlen und die Wechsel rechnen ueber die Aliasmenge
+    (``gruppierung_bewerten._gleiche_gruppe``), Ausschluesse gelten fuer jede
+    Kennung der Menge. Eine benannte Kennung eines ``gleich``-Paars ohne sauberes
+    Gesicht gruendet ihre Gruppe aus dem besten verfuegbaren, auch unsicheren Gesicht
+    (``gleich_unsicheres_vorbild``); hat sie gar keines, zaehlt ``gleich_ohne_vorbild``.
     """
+    gb = _nachbar("gruppierung_bewerten")
     gesichter = eingelesen["gesichter"]
     v = eingelesen["vektoren"]
     n = len(gesichter)
@@ -1230,6 +1392,11 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     if widerspruch:
         raise PersonenFehler(f"Regelkonflikte: {len(widerspruch)} Paare sind gleich "
                              f"UND verschieden.")
+    # Ausschluesse je Gesicht: (bild_id, index) -> Menge der Kennungen, aus denen es
+    # ausgeschlossen ist (Auflage 3: gilt fuer die ganze Aliasmenge der Gruppe).
+    regel_gesicht: dict = {}
+    for regel_kennung, regel_bild, regel_index in regeln:
+        regel_gesicht.setdefault((regel_bild, regel_index), set()).add(regel_kennung)
 
     # Altbestand: benannte Kennungen bleiben unberuehrt, unbenannte Gruppen
     # finden nur UNBENANNTE alte Kennungen; Nummern werden nie wiederverwendet.
@@ -1239,6 +1406,43 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     reserviert = ({e["kennung"] for e in alt} | benannte
                   | {e["kennung"] for e in fest.values()})
 
+    # 0. `gleich` ohne sauberen Kern (Auflage 3): eine benannte Kennung in einem
+    # gleich-Paar, die kein sauberes Gesicht hat, gruendet ihre Gruppe trotzdem -
+    # aus ihrem besten verfuegbaren (auch unsicheren) Gesicht. Dieses eine Gesicht
+    # zaehlt nur fuer das Gruppieren als Kern (`kern_g`); die Berichtszahlen
+    # `gesichter_sauber` usw. bleiben an `kern`. Hat die Kennung gar kein Gesicht,
+    # wird nur gezaehlt - der Name bleibt in personen_bestaetigt.json stehen.
+    gleich_huelle_roh: dict[str, set] = {}
+    for paar in gleich_paare:
+        gleich_huelle_roh.setdefault(paar[0], set()).update(paar)
+    gleich_huelle = gb.aliase_huelle(gleich_huelle_roh)
+    gleich_kennungen = set(gleich_huelle) & benannte
+    fest_stellen_vorab = {i for schluessel in fest for i in stellen_je_schluessel[schluessel]}
+    kandidaten_je_kennung: dict[str, list[int]] = {}
+    for schluessel, eintrag in fest.items():
+        if eintrag["kennung"] in gleich_kennungen:
+            kandidaten_je_kennung.setdefault(eintrag["kennung"], []).extend(
+                stellen_je_schluessel[schluessel])
+    for i, gesicht in enumerate(gesichter):
+        if i in fest_stellen_vorab:
+            continue
+        schl = _schluessel(gesicht)
+        alte = (alte_zuordnung or {}).get(schl)
+        if alte in gleich_kennungen and alte not in regel_gesicht.get(schl, ()):
+            kandidaten_je_kennung.setdefault(alte, []).append(i)
+    kern_g = kern.copy()
+    gleich_unsicheres_vorbild = 0
+    gleich_ohne_vorbild_kennungen: set = set()
+    for kennung_g in sorted(gleich_kennungen):
+        stellen_g = kandidaten_je_kennung.get(kennung_g, [])
+        if any(kern[i] for i in stellen_g):
+            continue
+        if stellen_g:
+            kern_g[max(stellen_g, key=lambda i: (float(q[i]), -i))] = True
+            gleich_unsicheres_vorbild += 1
+        else:
+            gleich_ohne_vorbild_kennungen.add(kennung_g)
+
     # 1. Vorbilder aus festen Zuordnungen und der bestehenden Zuordnung.
     fest_stellen: set = set()
     vorbilder: dict[str, list[int]] = {}
@@ -1246,7 +1450,7 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     for schluessel, eintrag in fest.items():
         for i in stellen_je_schluessel[schluessel]:
             fest_stellen.add(i)
-            if kern[i]:
+            if kern_g[i]:
                 vorbilder.setdefault(eintrag["kennung"], []).append(i)
                 fixiert.add(i)
     # Regel B (Auflage 1, Plan-Fassung 5.3): JEDES Gesicht mit alter BENANNTER
@@ -1267,7 +1471,7 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         if (alte, schl[0], schl[1]) in regeln:
             ausgeschlossen_fest.add(i)       # Ausnahme 2: bleibt draussen
             continue
-        if kern[i]:
+        if kern_g[i]:
             vorbilder.setdefault(alte, []).append(i)
             fixiert.add(i)                   # auch aus der alten Zuordnung fixiert
         else:
@@ -1286,12 +1490,12 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         return bool(namen.get(a) and namen.get(b) and namen[a] != namen[b])
 
     start = time.monotonic()
-    erg = gruppieren_v2(v, bild_ids, q, jahre, kern, vorbilder=vorbilder, fixiert=fixiert,
+    erg = gruppieren_v2(v, bild_ids, q, jahre, kern_g, vorbilder=vorbilder, fixiert=fixiert,
                         zuordnung=zuordnung, verschmelzen=verschmelzen,
                         min_groesse=min_groesse, runden=runden, vorab_kennung=vorab,
                         verschieden=verschieden, gleich=vorg.get("gleich", set()))
     label, k = erg["label"].copy(), erg["k"]
-    kern_gruppiert = int((label >= 0).sum())
+    kern_gruppiert = int(((label >= 0) & kern).sum())
 
     # 5. Kennungen: benannte behalten ihre, unbenannte werden stabil vergeben.
     mitte, _ = _mittelpunkte(v, label, k)
@@ -1307,6 +1511,56 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         kennungen[c] = eintrag
     ids = [e["kennung"] for e in kennungen]
     auto_mitte = {ids[c]: mitte[c] for c in range(k)}
+
+    # Aliasmengen (Auflage 3): je Gruppe, in der Kennungen vereint wurden, die volle
+    # Menge aller beteiligten alten Kennungen samt der endgueltigen. Dazu die
+    # benannten Kennungen eines gleich-Paars OHNE jedes Gesicht: sie haben keine
+    # Gruppe, gehoeren nach Sebastians Entscheidung aber zur Gruppe ihres Partners
+    # und stehen deshalb in dessen Menge (der Name bleibt in personen_bestaetigt.json).
+    aliasmengen: dict[str, list] = {}
+    for c in range(k):
+        menge = set(erg["info"]["alias_je_gruppe"][c])
+        if menge:
+            menge.add(ids[c])
+            if len(menge) > 1:
+                aliasmengen[ids[c]] = sorted(menge)
+    # gleich-Klassen mit innerem Konflikt (verschieden-Paar oder verschiedene Namen):
+    # in ihnen wurde nichts vereint (`_verschmelzen`); ihre gesichtslosen Kennungen
+    # bekommen weder Gruppe noch Aliasmenge und zaehlen als "ohne Gruppe" (Sperre).
+    konflikt_klassen = [kl for kl in _gleich_klassen(gleich_paare)
+                        if _klasse_hat_konflikt(kl, verschieden)]
+    konflikt_kennungen = {kennung for kl in konflikt_klassen for kennung in kl}
+    for kennung_g in sorted(gleich_ohne_vorbild_kennungen - konflikt_kennungen):
+        partner = set(gleich_huelle[kennung_g]) - {kennung_g}
+        treffer = [c for c in range(k)
+                   if (set(aliasmengen.get(ids[c], ())) | {ids[c]}) & partner]
+        if len(treffer) == 1:                # eindeutig; sonst bleibt sie "ohne Gruppe"
+            c = treffer[0]
+            aliasmengen[ids[c]] = sorted(set(aliasmengen.get(ids[c], ())) | {ids[c], kennung_g})
+    huelle = gb.aliase_huelle(aliasmengen)
+    # Kennung (auch eine weggemergte) -> Gruppe; Grundlage fuer Andocken und Regel B.
+    gruppe_je_kennung = {kenn: c for c, kenn in enumerate(ids)}
+    for schluessel_, menge in aliasmengen.items():
+        for mitglied in menge:
+            gruppe_je_kennung.setdefault(mitglied, gruppe_je_kennung[schluessel_])
+
+    # Regelkonflikt (Auflage 3, fail-closed): ein Ausschluss auf eine ANDERE Kennung
+    # der Aliasmenge trifft ein Gesicht, das zugleich Vorbild dieser vereinten
+    # Gruppe ist (feste Zuordnung oder benanntes Gesicht der alten Zuordnung). Die
+    # Regel auf die eigene Kennung des Vorbilds bleibt die bekannte Ausnahme
+    # (Ausschluss bzw. feste Zuordnung gewinnt). Kein stiller Sieger: Exit 2, nur Zahl.
+    vorbild_paare = {(kenn, i) for kenn, stellen in vorbilder.items() for i in stellen}
+    vorbild_paare |= {(eintrag["kennung"], i) for schluessel, eintrag in fest.items()
+                      for i in stellen_je_schluessel[schluessel]}
+    konflikte = 0
+    for kenn, i in vorbild_paare:
+        menge = huelle.get(kenn)
+        if menge and any(r in menge and r != kenn
+                         for r in regel_gesicht.get(_schluessel(gesichter[i]), ())):
+            konflikte += 1
+    if konflikte:
+        raise PersonenFehler(f"Regelkonflikte: {konflikte} Ausschluesse treffen ein "
+                             f"Vorbild der vereinten Gruppe.")
 
     # 4. Andocken: alle Gesichter ausserhalb der Kern-Gruppen — AUSSER den nach
     # Regel B geschuetzten und den ausgeschlossenen (Ausnahme 2): sie koennen nie
@@ -1325,12 +1579,9 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
                                 for kenn in ids]
         verboten = None
         if regeln:
-            regel_je_gesicht: dict = {}
-            for kenn, regel_bild, regel_index in regeln:
-                regel_je_gesicht.setdefault((regel_bild, regel_index), set()).add(kenn)
-            gruppe_je_kennung = {kenn: c for c, kenn in enumerate(ids)}
+            # Eine Regel auf JEDE Kennung der Aliasmenge sperrt die Gruppe (Auflage 3).
             verboten = [{gruppe_je_kennung[kenn]
-                         for kenn in regel_je_gesicht.get(_schluessel(gesichter[i]), ())
+                         for kenn in regel_gesicht.get(_schluessel(gesichter[i]), ())
                          if kenn in gruppe_je_kennung}
                         for i in kandidaten]
         andock = _phasen.andocken(
@@ -1346,12 +1597,12 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
     # alte benannte Kennung zurueck. Gibt es die Kennung nicht als Gruppe, ist das
     # ein fail-closed-Konflikt — es wird nur die Zahl genannt.
     if geschuetzt:
-        fehlende_ziele = sorted({kennung for kennung in geschuetzt.values()} - set(ids))
+        fehlende_ziele = sorted({kennung for kennung in geschuetzt.values()}
+                                - set(gruppe_je_kennung))
         if fehlende_ziele:
             raise PersonenFehler(
                 f"Regel-B-Konflikte: {len(fehlende_ziele)} benannte Kennungen haben "
                 f"keine Gruppe, halten aber geschuetzte Gesichter.")
-        gruppe_je_kennung = {kennung: c for c, kennung in enumerate(ids)}
         for stelle, kennung in geschuetzt.items():
             label[stelle] = gruppe_je_kennung[kennung]
 
@@ -1370,6 +1621,10 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         "kern_gruppiert": kern_gruppiert,
         "kern_ohne_gruppe": int(kern.sum()) - kern_gruppiert,
         "durch_gleich_vereint": erg["info"]["gleich_vereint"],
+        "gleich_unsicheres_vorbild": gleich_unsicheres_vorbild,
+        "gleich_ohne_vorbild": len(gleich_ohne_vorbild_kennungen),
+        "gleich_klassen_mit_konflikt": len(konflikt_klassen),
+        "aliasmengen": len(aliasmengen),
         "aehneln_benannten": erg["info"]["aehneln_benannten"],
         "angedockt": zaehler["angedockt"],
         "nicht_angedockt": {k_: z for k_, z in zaehler.items() if k_ != "angedockt"},
@@ -1379,9 +1634,17 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         eingelesen, label, kennungen, auto_mitte, fest, namen, vorg, zwilling, start,
         gruppen_zusatz=gruppen_zusatz,
         altbestand_zusatz=[e for e in alt if e["kennung"] in benannte],
-        bericht_zusatz=bericht_zusatz)
+        bericht_zusatz=bericht_zusatz, aliasmengen=aliasmengen)
     mit_gruppe = {g["kennung"] for g in ergebnis["gruppen"]}
-    ohne_gruppe = len(benannte - mit_gruppe)
+    # Aliasfaehig (Auflage 3, Befund R6-1): eine benannte Kennung ist ERHALTEN, wenn
+    # sie selbst Kennung einer Gruppe ist oder in der Aliasmenge einer Gruppe steht;
+    # ein gleich-Merge zweier benannter Kennungen laesst die weggemergte also nicht
+    # als "verloren" erscheinen. "Leere benannte Gruppe" zaehlt nur, wenn weder die
+    # Kennung noch eine Kennung ihrer Aliasmenge in einer Gruppe mit mindestens einem
+    # Gesicht steht - `ergebnis["gruppen"]` enthaelt nur Gruppen mit Gesicht, also
+    # ist es dieselbe Rechnung.
+    benannte_erhalten = {b for b in benannte if gb.kennung_erhalten(b, mit_gruppe, huelle)}
+    ohne_gruppe = len(benannte) - len(benannte_erhalten)
     # Zaehlregel (Auflage 1, Befund R8-1): jede Aenderung der Gruppenzugehoerigkeit
     # eines benannten Gesichts wird als GENEHMIGT (feste Einzelzuordnung = Ausnahme 1
     # oder Ausschluss = Ausnahme 2) oder als UNERLAUBT gezaehlt. Nur "unerlaubt"
@@ -1395,11 +1658,12 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         if alte not in benannte:
             continue
         neu = gesicht.get("kennung")
-        if neu == alte:
-            continue
-        if schl in fest and fest[schl]["kennung"] != alte:
+        if gb._gleiche_gruppe(alte, neu, huelle):
+            continue                         # dieselbe Gruppe (auch per Aliasmenge)
+        if schl in fest and not gb._gleiche_gruppe(fest[schl]["kennung"], alte, huelle):
             wechsel_genehmigt += 1
-        elif neu is None and (alte, schl[0], schl[1]) in regeln:
+        elif neu is None and (regel_gesicht.get(schl, set())
+                              & set(huelle.get(alte, (alte,)))):
             ausschluss_genehmigt += 1
         else:
             wechsel_unerlaubt += 1
@@ -1410,12 +1674,12 @@ def lauf_rechnen_v2(eingelesen, altbestand=None, bestaetigt=None, vorgaben=None,
         "wechsel_unerlaubt": wechsel_unerlaubt,
         "ausschluss_genehmigt": ausschluss_genehmigt,
         "benannte_ohne_gruppe": ohne_gruppe,
-        # Ohne Aliasmenge (Plan-Schritt 3) sind beide Zahlen gleich; die
-        # aliasfaehige Fassung folgt dort.
+        "benannte_erhalten": len(benannte_erhalten),
         "leere_benannte_gruppe": ohne_gruppe,
         "regel_konflikte": 0,
     })
     ergebnis["verfahren"] = "v2"
+    ergebnis["aliasmengen"] = aliasmengen
     ergebnis["sperrzahlen"] = {
         "benannte_ohne_gruppe": ohne_gruppe,
         "leere_benannte_gruppe": ohne_gruppe,
@@ -1445,6 +1709,12 @@ def bericht_text_v2(b) -> str:
         f"keine passende Phase {nicht['keine_passende_phase']}, unter Schwelle "
         f"{nicht['unter_schwelle']}, zu knapp {nicht['zu_knapp']}, gleiches Bild "
         f"{nicht['gleiches_bild']}",
+        f"Aliasmengen (per gleich vereinte Kennungen): {z.get('aliasmengen', 0)} Gruppen; "
+        f"benannte Kennungen erhalten: {z.get('benannte_erhalten', 0)}; "
+        f"gleich ohne Vorbild: {z.get('gleich_ohne_vorbild', 0)}, "
+        f"aus unsicherem Gesicht gegruendet: {z.get('gleich_unsicheres_vorbild', 0)}; "
+        f"gleich-Klassen mit Konflikt: {z.get('gleich_klassen_mit_konflikt', 0)} "
+        f"(darin wird nichts vereint)",
         f"Benannte Kennungen ohne Gruppe (Mittelpunkt bleibt im Altbestand): "
         f"{z['benannte_ohne_gruppe']}",
         f"Regel B: {z['regel_b_geschuetzt']} unsichere Gesichter halten ihre benannte "
@@ -1509,6 +1779,224 @@ def eingabe_hash(pfade, bestaetigt_pfad, vorgaben_pfad, kennungen_pfad, zuordnun
     return pruefer.hexdigest()
 
 
+# ── G0: Pflichtquellen und Vollstaendigkeitsnachweis (Auflage 2) ──────────
+#
+# Warum das hier steht: eine fehlende Regeldatei war bisher ein LEERER Bestand,
+# und eine halb uebertragene Datei fiel niemandem auf. Beides ist jetzt
+# fail-closed: fehlt eine Pflichtquelle, wird nicht gerechnet und nicht
+# geschrieben; weicht der Geraetestand ab, ebenso (Exit 2).
+
+# Toleranz beim Stand-Vergleich (Sekunden): Handy- und PC-Uhr laufen nicht
+# sekundengenau gleich; erst ein DEUTLICH aelterer Geraetestand gilt als
+# "unpassender Stand".
+STAND_TOLERANZ = 120
+
+
+def _sha256_datei(pfad) -> str:
+    """Die sha256 einer Datei blockweise lesen (nur lesend); fehlt: ``""``."""
+    try:
+        pruefer = hashlib.sha256()
+        with open(pfad, "rb") as datei:
+            for stueck in iter(lambda: datei.read(1 << 20), b""):
+                pruefer.update(stueck)
+        return pruefer.hexdigest()
+    except OSError:
+        return ""
+
+
+def _zaehler_bestaetigt(daten) -> dict:
+    """Die durchgezaehlten Eintraege einer ``personen_bestaetigt.json``.
+
+    Dieselben zwei Zahlen rechnet das Handy in ``geraetestand.json`` aus
+    (``termux/rueckweg-bereitstellen.sh``, Abschnitt „Geraetestand"): benannte
+    Kennungen (Schluessel) und Namen (nicht leere Textwerte). Es sind **nur
+    Zahlen** — kein Name verlaesst diese Funktion.
+    """
+    roh = daten.get("bestaetigt") if isinstance(daten, dict) else None
+    if not isinstance(roh, dict):
+        return {"benannte_kennungen": 0, "namen": 0}
+    namen = sum(1 for wert in roh.values() if isinstance(wert, str) and wert.strip())
+    return {"benannte_kennungen": len(roh), "namen": namen}
+
+
+def _zaehler_vorgaben(daten) -> dict:
+    """Die durchgezaehlten Eintraege einer ``personen_vorgaben.json`` (nur Zahlen)."""
+    ergebnis = {}
+    for feld, schluessel in (("gleich", "gleich"), ("verschieden", "verschieden"),
+                             ("ausgeschlossen", "ausgeschlossen"), ("fest", "zugeordnet")):
+        wert = daten.get(schluessel) if isinstance(daten, dict) else None
+        ergebnis[feld] = len(wert) if isinstance(wert, (list, tuple, set, dict)) else 0
+    return ergebnis
+
+
+def geraetestand_lesen(pfad) -> dict | None:
+    """Den Geraetestand des Handys lesen (G0). Fehlt er: ``None``.
+
+    Fehlt die Datei, gilt der Nachweis als **nicht erbracht** (kein Geraet am
+    Kabel). Ist sie vorhanden, aber unlesbar oder kein Objekt, ist das ein
+    ``PersonenFehler`` — ein behaupteter Nachweis darf nicht als "kein Geraet"
+    durchgehen (fail-closed).
+    """
+    if not pfad or not os.path.isfile(pfad):
+        return None
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError) as problem:
+        raise PersonenFehler(
+            f"Geraetestand nicht lesbar ({problem.__class__.__name__}).") from None
+    if not isinstance(daten, dict):
+        raise PersonenFehler("Geraetestand enthaelt kein Objekt.")
+    return daten
+
+
+def _zeitpunkt(wert):
+    """Einen ISO-Zeitstempel des Geraetestands in Sekunden lesen (sonst ``None``)."""
+    text = str(wert or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z") or text.endswith("z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def entscheidungen_pruefen(bestaetigt_pfad, vorgaben_pfad, geraetestand,
+                           stand_zuordnung=None) -> dict:
+    """Vollstaendigkeitsnachweis der Entscheidungen (G0, Auflage 2). Nur Zahlen.
+
+    Je Pflichtquelle wird die **sha256** und die **durchgezaehlte Menge** der
+    PC-Datei gegen die Angaben des Geraetestands gehalten; dazu der Stand des
+    Geraets gegen den Stand der bestehenden Zuordnung. Rueckgabe::
+
+        {"erbracht": bool,       # Nachweis liegt vollstaendig vor UND passt
+         "abweichung": bool,     # eine gemessene Abweichung (Exit 2)
+         "gruende": [str, ...],  # nur Dateinamen und Zahlen
+         "zeilen": [str, ...]}   # Klartextzeile fuer den Bericht
+
+    ``erbracht=False, abweichung=False`` heisst: es liegt (noch) kein
+    vollstaendiger Nachweis vor — das erlaubt nur eine Trockenmessung, nie ein
+    Schreiben. ``abweichung=True`` heisst: gemessen und falsch (Exit 2).
+    """
+    dateien = geraetestand.get("dateien") if isinstance(geraetestand, dict) else None
+    if not isinstance(dateien, dict):
+        return {"erbracht": False, "abweichung": False, "gruende": [],
+                "zeilen": ["Geraetenachweis nicht erbracht: es liegt kein "
+                           "Geraetestand vor."]}
+
+    gruende: list = []
+    unvollstaendig: list = []
+    for name, pfad, zaehler_fn in (
+            (PFLICHTQUELLEN[0], bestaetigt_pfad, _zaehler_bestaetigt),
+            (PFLICHTQUELLEN[1], vorgaben_pfad, _zaehler_vorgaben)):
+        # Gesucht wird erst unter dem Namen, den die verglichene PC-Datei
+        # traegt (so passt auch ein umbenannter Pfad), dann unter dem
+        # Standardnamen des Geraets. Beides ist eindeutig — es wird nichts
+        # geraten, was nicht im Geraetestand steht.
+        eintrag = dateien.get(os.path.basename(str(pfad or "")))
+        if not isinstance(eintrag, dict):
+            eintrag = dateien.get(name)
+        if not isinstance(eintrag, dict):
+            unvollstaendig.append(name)
+            continue
+        if not pfad or not os.path.isfile(pfad):
+            gruende.append(f"Grundlage fehlt: {name}")
+            continue
+        if str(eintrag.get("sha256") or "") != _sha256_datei(pfad):
+            gruende.append(f"sha256 weicht ab ({name})")
+        if isinstance(eintrag.get("bytes"), int) and os.path.getsize(pfad) != eintrag["bytes"]:
+            gruende.append(f"Bytezahl weicht ab ({name})")
+        soll = eintrag.get("zaehler")
+        if not isinstance(soll, dict):
+            unvollstaendig.append(name + " (ohne Zaehlung)")
+            continue
+        ist = zaehler_fn(_json_lesen(pfad, {}))
+        felder = set(soll) | set(ist)
+        abweichend = [f for f in sorted(felder) if soll.get(f) != ist.get(f)]
+        if abweichend:
+            gruende.append(f"Zahl weicht ab ({name}: {len(abweichend)} von "
+                           f"{len(felder)} Feldern)")
+
+    stand_text = geraetestand.get("stand")
+    stand_geraet = _zeitpunkt(stand_text)
+    if stand_text and stand_geraet is None:
+        gruende.append("Geraetestand nicht lesbar (Stand)")
+    elif (stand_geraet is not None and stand_zuordnung is not None
+            and stand_geraet < stand_zuordnung - STAND_TOLERANZ):
+        gruende.append("Geraetestand aelter als die Zuordnung")
+
+    if gruende:
+        return {"erbracht": False, "abweichung": True, "gruende": gruende,
+                "zeilen": ["Geraetenachweis ABWEICHUNG (" + str(len(gruende))
+                           + " Befund(e)): " + "; ".join(gruende)]}
+    if unvollstaendig:
+        return {"erbracht": False, "abweichung": False, "gruende": [],
+                "zeilen": ["Geraetenachweis nicht erbracht: der Geraetestand "
+                           f"nennt {len(unvollstaendig)} Pflichtquelle(n) nicht "
+                           "oder ohne Zaehlung."]}
+    return {"erbracht": True, "abweichung": False, "gruende": [],
+            "zeilen": ["Geraetenachweis erbracht: sha256 und Zaehlung beider "
+                       "Pflichtquellen stimmen, Stand passt."]}
+
+
+def g0_pruefen(args, schreiben_an) -> dict:
+    """G0 (Pflichtquellen + Nachweis) und G1 (Zustand) VOR jedem Rechnen.
+
+    Auflage 2 der Plan-Fassung 5.3. Rueckgabe ``{"code": int|None, "bestaetigt":
+    ..., "vorgaben": ...}``: ein ``code`` ungleich ``None`` ist der Exit-Code
+    des Aufrufs (es wurde dann **nichts** gerechnet und **nichts** geschrieben);
+    bei ``None`` sind die gelesenen Entscheidungen mit dabei. Der Text nennt nur
+    Dateinamen und Zahlen.
+    """
+    bestaetigt = bestaetigt_lesen(args.bestaetigt, pflicht=True)
+    vorgaben = vorgaben_lesen(args.vorgaben, pflicht=True)
+    zuordnung_pfad = os.path.join(args.ausgabe, DATEI_ZUORDNUNG)
+    stand_zuordnung = _nachbar("gruppierung_bewerten")._stand(zuordnung_pfad)
+
+    pruefung = entscheidungen_pruefen(args.bestaetigt, args.vorgaben,
+                                      geraetestand_lesen(args.geraetestand),
+                                      stand_zuordnung)
+    for zeile in pruefung["zeilen"]:
+        print(zeile)
+    if pruefung["abweichung"]:
+        print("Der Geraetenachweis weicht ab — es wurde nichts gerechnet und "
+              "nichts geschrieben (Exit 2).")
+        return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+    if not pruefung["erbracht"]:
+        if not args.ohne_geraetenachweis:
+            print("Ohne Geraetenachweis rechnet v2 nur mit --ohne-geraetenachweis "
+                  "(Trockenmessung) — es wurde nichts gerechnet und nichts "
+                  "geschrieben (Exit 2).")
+            return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        if schreiben_an:
+            print("--ohne-geraetenachweis erlaubt nur eine Trockenmessung, kein "
+                  "Schreiben — es wurde nichts gerechnet und nichts geschrieben "
+                  "(Exit 2).")
+            return {"code": 2, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        print("Warnung: Trockenmessung ohne Geraetenachweis — es wird nichts "
+              "geschrieben.")
+
+    gb = _nachbar("gruppierung_bewerten")
+    zustand = gb.grundwahrheit(bestaetigt, vorgaben, gb._stand(args.bestaetigt),
+                               gb._stand(args.vorgaben), stand_zuordnung)
+    if zustand["vorlaeufig"] or zustand["veraltet"]:
+        lage = ("vorlaeufig" if zustand["vorlaeufig"] else "veraltet")
+        zahlen = (f"Namen {zustand['namen']}, Regeln {zustand['regeln_gesamt']}")
+        if schreiben_an:
+            print(f"Die Grundwahrheit ist {lage} ({zahlen}) — --schreiben ist "
+                  "gesperrt (Exit 3, Auflage 2). Es wurde nichts gerechnet und "
+                  "nichts geschrieben.")
+            return {"code": 3, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+        print(f"Warnung: die Grundwahrheit ist {lage} ({zahlen}) — ein Schreiben "
+              "waere gesperrt. Eine Trockenmessung ist erlaubt.")
+    else:
+        print(f"Grundwahrheit in Ordnung (Namen {zustand['namen']}, "
+              f"Regeln {zustand['regeln_gesamt']}).")
+    return {"code": None, "bestaetigt": bestaetigt, "vorgaben": vorgaben}
+
+
 def freigabe_lesen(pfad) -> dict:
     """Die Freigabedatei lesen; fehlend/kaputt/kein Objekt -> ``PersonenFehler``."""
     if not pfad or not os.path.isfile(pfad):
@@ -1560,7 +2048,12 @@ FELDER_ZUORDNUNG = ("bild_id", "index", "kennung", "bbox", "breite", "hoehe",
 
 
 def schreiben(lauf, ausgabe, stand=None) -> list[str]:
-    """Die drei Dateien schreiben (atomar, ausserhalb des Repos)."""
+    """Die drei Dateien schreiben (atomar, ausserhalb des Repos).
+
+    Bei v2 kommt eine vierte dazu: ``aliasmengen.json`` (flach, ``{kennung:
+    [kennungen]}``, Auflage 3) - sie entsteht **nur hier**, also nur mit echtem
+    Schreiben; im Trockenlauf liegen die Mengen allein im Speicher.
+    """
     pruefe_ausserhalb_repo(ausgabe)
     stand = stand or datetime.datetime.now().isoformat(timespec="seconds")
 
@@ -1581,9 +2074,17 @@ def schreiben(lauf, ausgabe, stand=None) -> list[str]:
                   ensure_ascii=False)
         datei.write("\n")
 
-    return [_atomar(os.path.join(ausgabe, DATEI_ZUORDNUNG), zuordnung),
-            _atomar(os.path.join(ausgabe, DATEI_BEISPIELE), beispiele),
-            _atomar(os.path.join(ausgabe, DATEI_KENNUNGEN), kennungen)]
+    def aliasmengen(datei):
+        json.dump(lauf.get("aliasmengen") or {}, datei, ensure_ascii=False, indent=1,
+                  sort_keys=True)
+        datei.write("\n")
+
+    pfade = [_atomar(os.path.join(ausgabe, DATEI_ZUORDNUNG), zuordnung),
+             _atomar(os.path.join(ausgabe, DATEI_BEISPIELE), beispiele),
+             _atomar(os.path.join(ausgabe, DATEI_KENNUNGEN), kennungen)]
+    if lauf.get("verfahren") == "v2":
+        pfade.append(_atomar(os.path.join(ausgabe, DATEI_ALIASE), aliasmengen))
+    return pfade
 
 
 def bericht_text(b) -> str:
@@ -1616,17 +2117,26 @@ def bewertung_text(lauf, ausgabe, bestaetigt, vorgaben, bestaetigt_pfad, vorgabe
     ``vorher`` ist die bestehende Zuordnung im Ausgabeordner, ``nachher`` dieser
     Lauf (im Speicher, nichts wird geschrieben). Gibt es noch keine bestehende
     Zuordnung, wird nur dieser Lauf bewertet. Der Bericht enthaelt nur Zahlen.
+
+    Hat der Lauf Aliasmengen (v2: ``lauf["aliasmengen"]``, Auflage 3), rechnet die
+    Bewertung **aliasaequivalent** - direkt aus dem Speicher, auch im Trockenlauf
+    und ohne Datei; der Bericht nennt das in einer Hinweiszeile. Ein v1-Lauf kennt
+    keine Aliasmengen und bekommt den Bericht wie vor Schritt 3 (ohne Hinweiszeile).
     """
     gb = _nachbar("gruppierung_bewerten")
     nachher = gb.zuordnung_aus_zeilen(
         [{k: g.get(k) for k in FELDER_ZUORDNUNG} for g in lauf["gesichter"]])[0]
     alt_pfad = os.path.join(ausgabe, DATEI_ZUORDNUNG)
     stand_b, stand_v = gb._stand(bestaetigt_pfad), gb._stand(vorgaben_pfad)
+    aliase = lauf.get("aliasmengen")
+    hinweis = "aliasmengen" in lauf          # nur v2-Laeufe tragen das Feld
     if os.path.isfile(alt_pfad):
         vorher = gb.zuordnung_lesen(alt_pfad)[0]
         return gb.vergleich_bericht(vorher, nachher, bestaetigt, vorgaben, stand_b,
-                                    stand_v, gb._stand(alt_pfad))
-    return gb.einzel_bericht(nachher, bestaetigt, vorgaben, stand_b, stand_v, None)
+                                    stand_v, gb._stand(alt_pfad), aliase,
+                                    alias_hinweis=hinweis)
+    return gb.einzel_bericht(nachher, bestaetigt, vorgaben, stand_b, stand_v, None, aliase,
+                             alias_hinweis=hinweis)
 
 
 # ── Nachtragen (neue Gesichter an bestehende Gruppen haengen) ────────────
@@ -1715,14 +2225,17 @@ def _vorher_sichern(ausgabe) -> list[str]:
     return ergebnis
 
 
-def _stempel_sichern(ausgabe, stempel=None) -> list[str]:
+def _stempel_sichern(ausgabe, stempel=None, mit_aliasen: bool = False) -> list[str]:
     """Vor einem vollen Neugruppieren die drei Dateien als ``*.vorher_<stempel>``
     kopieren (09.10.2026). Bis dahin sicherte nur ``--nachtragen``; ein voller
     Lauf ersetzte die Gruppen ohne Rueckweg. Der Zeitstempel haelt jede Fassung
-    getrennt; eine vorhandene Sicherung wird nie ueberschrieben."""
+    getrennt; eine vorhandene Sicherung wird nie ueberschrieben. Nur der
+    v2-Schreibweg (``mit_aliasen=True``) sichert eine vorhandene
+    ``aliasmengen.json`` mit; v1 sichert wie vor Schritt 3 genau drei Dateien."""
     stempel = stempel or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     ergebnis: list[str] = []
-    for name in (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN):
+    namen = (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN)
+    for name in namen + ((DATEI_ALIASE,) if mit_aliasen else ()):
         quelle = os.path.join(ausgabe, name)
         ziel = f"{quelle}.vorher_{stempel}"
         if os.path.isfile(quelle) and not os.path.exists(ziel):
@@ -2112,6 +2625,12 @@ def main(argv=None) -> int:
     zerleger.add_argument("--freigabe", default=None,
                           help="Freigabedatei (JSON) fuer --verfahren v2 --schreiben "
                                "(Auflage 6); ohne sie wird nichts geschrieben")
+    zerleger.add_argument("--geraetestand", default=STANDARD_GERAETESTAND,
+                          help="Geraetestand des Handys (JSON, G0/Auflage 2) — "
+                               "Pflicht fuer jedes Schreiben mit v2")
+    zerleger.add_argument("--ohne-geraetenachweis", action="store_true",
+                          help="v2 ohne Geraetestand rechnen — nur fuer eine "
+                               "TROCKENMESSUNG (schreibt nie etwas; Auflage 2)")
     zerleger.add_argument("--katalog", default=None, help="Personen-Katalog (optional)")
     zerleger.add_argument("--bestaetigt", default=STANDARD_BESTAETIGT)
     zerleger.add_argument("--vorgaben", default=STANDARD_VORGABEN)
@@ -2141,6 +2660,11 @@ def main(argv=None) -> int:
     nachtragen = list(args.nachtragen or [])
     pfade = args.vektoren or [p for p in STANDARD_VEKTOREN if os.path.isfile(p)]
     schreiben_an = bool(args.schreiben) and not bool(args.trocken)
+    # Argument-Widerspruch zuerst (vor G0): --nachtragen kennt nur v1.
+    if nachtragen and (args.verfahren != "v1" or args.bewerten):
+        print("Fehler: --nachtragen kennt nur das Verfahren v1 und keine "
+              "--bewerten-Ausgabe.")
+        return 2
     if args.verfahren == "v2":
         try:
             pruefe_ausserhalb_repo(args.ausgabe_kandidat)
@@ -2154,11 +2678,20 @@ def main(argv=None) -> int:
                   "--freigabe <datei.json>. Es wurde nichts gerechnet und nichts "
                   "geschrieben.")
             return 3
+        # G0/G1 (Auflage 2) VOR jedem Rechnen: Pflichtquellen, Geraetenachweis,
+        # Zustand der Grundwahrheit. Die Reihenfolge ist bewusst: erst das
+        # Schreib-Tor der Auflage 6 (Exit 3 ohne --freigabe), dann die Grundlage.
+        try:
+            g0 = g0_pruefen(args, schreiben_an)
+        except PersonenFehler as problem:
+            print(f"Fehler: {problem}")
+            print("Es wurde nichts gerechnet und nichts geschrieben (Exit 2).")
+            return 2
+        if g0["code"] is not None:
+            return g0["code"]
+        bestaetigt_v2, vorgaben_v2 = g0["bestaetigt"], g0["vorgaben"]
     try:
         if nachtragen:
-            if args.verfahren != "v1" or args.bewerten:
-                raise PersonenFehler(
-                    "--nachtragen kennt nur das Verfahren v1 und keine --bewerten-Ausgabe.")
             return _nachtragen_main(args, nachtragen, schreiben_an)
         if not pfade:
             raise PersonenFehler("Keine Vektordatei gefunden (Standardpfade fehlen).")
@@ -2170,8 +2703,12 @@ def main(argv=None) -> int:
         if args.min_score is not None:
             print(f"Mindest-Erkennungssicherheit: {args.min_score:.2f}")
         eingelesen = gesichter_lesen(pfade, katalog, min_score=args.min_score)
-        bestaetigt = bestaetigt_lesen(args.bestaetigt)
-        vorgaben = vorgaben_lesen(args.vorgaben)
+        if args.verfahren == "v2":
+            # Schon oben mit ``pflicht=True`` gelesen (G0) — hier nichts erneut.
+            bestaetigt, vorgaben = bestaetigt_v2, vorgaben_v2
+        else:
+            bestaetigt = bestaetigt_lesen(args.bestaetigt)
+            vorgaben = vorgaben_lesen(args.vorgaben)
         if args.verfahren == "v2":
             lauf = lauf_rechnen_v2(
                 eingelesen, altbestand=altbestand, bestaetigt=bestaetigt, vorgaben=vorgaben,
@@ -2206,7 +2743,7 @@ def main(argv=None) -> int:
                 print("Ziel: " + ("PRODUKTIVER Ordner (--produktiv)" if args.produktiv
                                   else "Kandidatenordner"))
                 pruefe_ausserhalb_repo(ziel)
-                for pfad in _stempel_sichern(ziel):
+                for pfad in _stempel_sichern(ziel, mit_aliasen=True):
                     print(f"gesichert: {os.path.basename(pfad)}")
                 for pfad in schreiben(lauf, ziel):
                     print(f"geschrieben: {os.path.basename(pfad)}")

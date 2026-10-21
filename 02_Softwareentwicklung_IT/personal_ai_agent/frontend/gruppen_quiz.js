@@ -690,9 +690,76 @@ function gruppenNotizZeit(zeit) {
         return location.origin;
     }
 
-    async function jsonHolen(pfad, optionen) {
-        const res = await fetch(`${apiBase()}${pfad}`, optionen || {});
-        return res.json().catch(() => ({ ok: false, fehler: 'Antwort nicht lesbar' }));
+    /** Zeitgrenze für LESENDE Abrufe (GET). Ohne sie bleibt eine Ansicht bei
+     *  „… lädt“ stehen, wenn der Server nicht antwortet (Sebastian 20.10.2026). */
+    const GRUPPEN_ABRUF_ZEITGRENZE_MS = 20000;
+    const FEHLER_KEINE_VERBINDUNG = 'Keine Verbindung zum Agenten.';
+
+    /** Verbindungsproblem (Zeitgrenze oder Netzfehler) – anders als eine Fehlerantwort
+     *  des Servers lohnt hier ein „Erneut versuchen“. */
+    function istVerbindungsfehler(antwort) {
+        return !!(antwort && antwort.ok === false && (antwort.zeitueberschreitung || antwort.netzfehler));
+    }
+
+    /** Liefert IMMER ein Objekt, wirft nie: Server-Antwort, ``{ ok: false, fehler }``
+     *  bei Netzfehler (``netzfehler: true``) oder bei Zeitüberschreitung
+     *  (``zeitueberschreitung: true``).
+     *
+     *  Nur GET bekommt eine Zeitgrenze. Schreibende Abrufe (POST usw.) laufen bewusst
+     *  ohne: Ein Abbruch nach der Zeitgrenze könnte eine inzwischen tatsächlich erfolgte
+     *  Speicherung verdecken – die Anzeige meldete „fehlgeschlagen“, der Nutzer tippt
+     *  nochmal und es wird doppelt gespeichert. ``zeitgrenzeMs`` ist nur für Tests. */
+    async function jsonHolen(pfad, optionen, zeitgrenzeMs) {
+        const opt = optionen || {};
+        const lesend = !opt.method || String(opt.method).toUpperCase() === 'GET';
+        const grenze = zeitgrenzeMs === undefined ? GRUPPEN_ABRUF_ZEITGRENZE_MS : zeitgrenzeMs;
+        let init = opt;
+        let abbruch = null;
+        let uhr = null;
+        let abgelaufen = false;
+        let wartenAufGrenze = null;
+        const zeitFehler = {
+            ok: false, zeitueberschreitung: true,
+            fehler: 'Server antwortet nicht (nach ' + Math.round(grenze / 1000) + ' s) – bitte erneut versuchen.',
+        };
+        if (lesend && grenze > 0 && typeof setTimeout === 'function') {
+            if (typeof AbortController === 'function') {
+                abbruch = new AbortController();
+                init = Object.assign({}, opt, { signal: abbruch.signal });
+            }
+            wartenAufGrenze = new Promise((resolve) => {
+                uhr = setTimeout(() => {
+                    abgelaufen = true;
+                    if (abbruch) { try { abbruch.abort(); } catch (_e) { /* egal */ } }
+                    resolve(zeitFehler);
+                }, grenze);
+            });
+        }
+        const anfrage = (async () => {
+            const res = await fetch(`${apiBase()}${pfad}`, init);
+            return res.json().catch(() => ({ ok: false, fehler: 'Antwort nicht lesbar' }));
+        })();
+        try {
+            return wartenAufGrenze ? await Promise.race([anfrage, wartenAufGrenze]) : await anfrage;
+        } catch (_e) {
+            return abgelaufen ? zeitFehler : { ok: false, netzfehler: true, fehler: FEHLER_KEINE_VERBINDUNG };
+        } finally {
+            if (uhr !== null) clearTimeout(uhr);
+        }
+    }
+
+    /** „Erneut versuchen“-Knopf an eine Meldung hängen (nach dem Setzen des Meldetextes
+     *  aufrufen – ``textContent`` räumt ihn bei der nächsten Meldung wieder weg). */
+    function erneutKnopfAnhaengen(meldung, id, aktion) {
+        if (!meldung) return;
+        const knopf = document.createElement('button');
+        knopf.id = id;
+        knopf.type = 'button';
+        knopf.className = 'gruppen-knopf gruppen-erneut';
+        knopf.textContent = 'Erneut versuchen';
+        knopf.addEventListener('click', () => { aktion(); });
+        meldung.appendChild(document.createElement('br'));
+        meldung.appendChild(knopf);
     }
 
     function melde(text, gut) {
@@ -1204,6 +1271,7 @@ function gruppenNotizZeit(zeit) {
             if (sequenz !== zustand.listenSequenz || !zustand.listeAktiv || el('gruppen-sheet').hidden) return;
             if (!antwort || antwort.ok !== true) {
                 gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Gruppenliste nicht ladbar.'), true);
+                if (istVerbindungsfehler(antwort)) listeErneutKnopf();
                 return;
             }
             zustand.listeSeite = antwort.seite;
@@ -1213,9 +1281,14 @@ function gruppenNotizZeit(zeit) {
                 || (antwort.gruppen.length ? '' : 'In dieser Kategorie gibt es keine Gruppen.'));
         } catch (_e) {
             if (sequenz === zustand.listenSequenz && zustand.listeAktiv && !el('gruppen-sheet').hidden) {
-                gruppenListeMelden('⚠️ Keine Verbindung zum Agenten.', true);
+                gruppenListeMelden('⚠️ ' + FEHLER_KEINE_VERBINDUNG, true);
+                listeErneutKnopf();
             }
         }
+    }
+
+    function listeErneutKnopf() {
+        erneutKnopfAnhaengen(el('gruppen-liste-meldung'), 'gruppen-liste-erneut', () => gruppenListeLaden());
     }
 
     /** Zur Übersicht: nach eigenen Statusaktionen ab Seite 1 (die alte Seite kann leer sein). */
@@ -1411,8 +1484,13 @@ function gruppenNotizZeit(zeit) {
         if (nr !== zustand.personenSequenz) return;          // neuere Personenliste ist unterwegs
         if (!antwort || antwort.ok !== true) {
             zustand.personen = [];
-            if (info) info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || 'Keine Verbindung zum Agenten.');
-            personenZeigen();
+            personenZeigen();                                // setzt die Info neu – Fehler danach schreiben
+            if (info) {
+                info.textContent = '⚠️ ' + ((antwort && antwort.fehler) || FEHLER_KEINE_VERBINDUNG);
+                if (!antwort || istVerbindungsfehler(antwort)) {
+                    erneutKnopfAnhaengen(info, 'gruppen-benannt-erneut', () => personenLaden());
+                }
+            }
             return;
         }
         zustand.personen = antwort.personen || [];

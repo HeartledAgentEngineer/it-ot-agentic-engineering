@@ -39,13 +39,25 @@ Kennzahlen je Zuordnung:
 
 Vergleichsmodus: ``--vorher A --nachher B`` druckt beide Spalten nebeneinander.
 
+**Aliasmengen (Auflage 3, 21.10.2026):** Eine Vereinigung per ``gleich`` macht aus
+zwei Kennungen eine Gruppe. Ohne Zusatzangabe rechnet das Werkzeug **kennungsgenau**:
+ein Gesicht, das von ``Person_002`` nach ``Person_001`` wechselt, zaehlt als Wechsel,
+auch wenn der Nutzer beide per ``gleich`` zusammengelegt hat - der Bericht sagt das in
+einer Hinweiszeile. Mit ``--aliase <aliasmengen.json>`` (Form
+``{"<kennung>": ["<kennung>", ...]}``, geschrieben von ``personen_gruppieren.py``
+neben die Kandidaten) gelten alle Kennungen einer Menge - transitiv, auch ueber
+Ketten A=B, B=C - als **dieselbe** Gruppe (``_gleiche_gruppe``). Bei
+``personen_gruppieren.py --bewerten`` reicht der Lauf die Mengen direkt aus dem
+Speicher durch; eine Datei braucht es dafuer nicht.
+
 Aufruf (aus dem Ordner ``backend``)::
 
     .venv/Scripts/python.exe ../tools/foto_sortierung/gruppierung_bewerten.py
     .venv/Scripts/python.exe ../tools/foto_sortierung/gruppierung_bewerten.py ^
-        --vorher A/gesicht_zuordnung.jsonl --nachher B/gesicht_zuordnung.jsonl
+        --vorher A/gesicht_zuordnung.jsonl --nachher B/gesicht_zuordnung.jsonl ^
+        --aliase B/aliasmengen.json
 
-Exit 0 = Bericht gedruckt, 2 = Eingabe fehlt oder ist nicht lesbar.
+Exit 0 = Bericht gedruckt, 2 = Eingabe (auch ``--aliase``) fehlt oder ist nicht lesbar.
 """
 
 from __future__ import annotations
@@ -86,6 +98,109 @@ STANDARD_VORGABEN = os.path.join(STANDARD_BASIS, "personen_vorgaben.json")
 # gilt sie als ausreichend; fehlen beide, steht der Bericht unter "vorlaeufig".
 MIN_NAMEN = 10
 MIN_REGELN = 50
+
+
+# ── Aliasmengen (transitive Huelle) ────────────────────────────────────────
+
+def aliase_huelle(aliasmengen) -> dict:
+    """Aliasmengen -> ``{kennung: frozenset(alle Kennungen derselben Gruppe)}``.
+
+    ``aliasmengen`` ist ``{kennung: [kennung, ...]}`` (so schreibt es
+    ``personen_gruppieren.py``; der Schluessel gehoert immer zur Menge). Mengen,
+    die eine Kennung teilen, werden **transitiv** vereint (Union-Find): aus
+    ``{A, B}`` und ``{B, C}`` wird ``{A, B, C}`` - kein Paarvergleich. ``None``
+    oder leer ergibt ``{}`` (keine Aliasangabe). Eine schon fertige Huelle
+    (Werte sind ``frozenset``) laesst sich erneut uebergeben.
+    """
+    eltern: dict = {}
+
+    def wurzel(x):
+        while eltern[x] != x:
+            eltern[x] = eltern[eltern[x]]
+            x = eltern[x]
+        return x
+
+    for kennung, menge in (aliasmengen or {}).items():
+        teile = {str(kennung)} | {str(m) for m in (menge or ())}
+        for k in teile:
+            eltern.setdefault(k, k)
+        erste = next(iter(sorted(teile)))
+        for k in teile:
+            a, b = wurzel(erste), wurzel(k)
+            if a != b:
+                eltern[max(a, b)] = min(a, b)
+    gruppen: dict = {}
+    for k in eltern:
+        gruppen.setdefault(wurzel(k), set()).add(k)
+    return {k: frozenset(gruppen[wurzel(k)]) for k in eltern}
+
+
+def _gleiche_gruppe(a, b, huelle=None) -> bool:
+    """Sind die Kennungen ``a`` und ``b`` dieselbe Gruppe? (EINE Quelle fuer alle Zahlen.)
+
+    Dieselbe Kennung ist immer dieselbe Gruppe; ``None`` (ohne Kennung) ist nie
+    eine Gruppe. Mit ``huelle`` (``aliase_huelle``) gelten alle Kennungen einer
+    Aliasmenge als dieselbe Gruppe - transitiv. Ohne ``huelle`` bleibt es
+    kennungsgenau. Diese Funktion benutzen die Bewertung hier UND die drei
+    Sperrzahlen in ``personen_gruppieren.lauf_rechnen_v2`` (kein zweiter Vergleich).
+    """
+    if a is None or b is None:
+        return False
+    if a == b:
+        return True
+    menge = (huelle or {}).get(a)
+    return menge is not None and b in menge
+
+
+def kennung_erhalten(kennung, gruppen_kennungen, huelle=None) -> bool:
+    """Lebt die Kennung in einer der Gruppen weiter - als Kennung oder per Aliasmenge?
+
+    ``gruppen_kennungen`` sind die Kennungen der vorhandenen Gruppen (mit
+    mindestens einem Gesicht). Eine Kennung ist **erhalten**, wenn sie selbst eine
+    Gruppe ist oder ``_gleiche_gruppe`` sie mit einer Gruppenkennung gleichsetzt.
+    Grundlage der Sperrzahlen "benannte Kennung ohne Gruppe" und "leere benannte
+    Gruppe" (Auflage 3) - dieselbe Gleichsetzung wie bei den Wechseln.
+    """
+    kandidaten = {kennung} | set((huelle or {}).get(kennung, ()))
+    return any(g in gruppen_kennungen and _gleiche_gruppe(kennung, g, huelle)
+               for g in kandidaten)
+
+
+def aliase_lesen(pfad: str) -> dict:
+    """``aliasmengen.json`` lesen: ``{kennung: [kennung, ...]}``; sonst ``ValueError``.
+
+    Fehlende Datei, kaputtes JSON oder falsche Form -> ``ValueError`` ohne Pfad
+    im Text (der Aufrufer meldet nur "nicht lesbar").
+    """
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        raise ValueError("Aliasdatei nicht lesbar.") from None
+    if not isinstance(daten, dict):
+        raise ValueError("Aliasdatei hat nicht die Form {kennung: [kennungen]}.")
+    ergebnis: dict = {}
+    for kennung, menge in daten.items():
+        if (not isinstance(kennung, str) or not isinstance(menge, list)
+                or not all(isinstance(m, str) for m in menge)):
+            raise ValueError("Aliasdatei hat nicht die Form {kennung: [kennungen]}.")
+        ergebnis[kennung] = list(menge)
+    return ergebnis
+
+
+def _huelle_von(aliase):
+    """Aliasangabe (Wörterbuch, fertige Huelle oder ``None``) -> Huelle oder ``None``."""
+    if aliase is None:
+        return None
+    return aliase_huelle(aliase)
+
+
+def _vertreter(huelle, kennung):
+    """Eine feste Vertreter-Kennung je Aliasmenge (die kleinste); sonst die Kennung selbst."""
+    if kennung is None:
+        return None
+    menge = (huelle or {}).get(kennung)
+    return min(menge) if menge else kennung
 
 
 # ── Lesen ────────────────────────────────────────────────────────────────
@@ -197,14 +312,40 @@ def wahrheit_bauen(vorgaben: dict, bestaetigt: dict, vorher=None) -> dict:
 
 # ── Bewerten (rein) ────────────────────────────────────────────────────────
 
+def _namen_mit_aliasen(namen_je_kennung: dict, huelle) -> dict:
+    """Namen je Kennung; eine Aliaskennung ohne eigenen Namen erbt den eindeutigen der Menge.
+
+    Nach einer ``gleich``-Vereinigung heisst die Gruppe nach einer der Kennungen;
+    traegt sie keinen Namen, ein Mitglied der Menge aber doch (und alle genannten
+    Namen sind gleich), gilt dieser Name auch fuer die Gruppe. Widersprechen sich
+    die Namen, bleibt es kennungsgenau.
+    """
+    if not huelle:
+        return namen_je_kennung
+    erg = dict(namen_je_kennung)
+    for kennung, menge in huelle.items():
+        if kennung in erg:
+            continue
+        namen = {namen_je_kennung[m] for m in menge if m in namen_je_kennung}
+        if len(namen) == 1:
+            erg[kennung] = next(iter(namen))
+    return erg
+
+
 def bewerten(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
-             wahrheit: dict | None = None, vorher: dict | None = None) -> dict:
+             wahrheit: dict | None = None, vorher: dict | None = None,
+             aliase: dict | None = None) -> dict:
     """Alle Kennzahlen einer Zuordnung. ``vorher`` schaltet die Vergleichs-Zahlen zu.
 
     ``zuordnung`` / ``vorher``: ``{(bild_id, index): (kennung|None, sauber)}``.
+    ``aliase`` (``{kennung: [kennungen]}``) macht den Vergleich aliasaequivalent
+    (``_gleiche_gruppe``): ausgeschlossene Gesichter, ``verschieden``-Paare und
+    Namen folgen der Aliasmenge. Ohne ``aliase`` rechnet die Funktion kennungsgenau.
     """
+    huelle = _huelle_von(aliase)
     namen_je_kennung = {k: _name_falten(n) for k, n in (bestaetigt or {}).items()
                         if _name_falten(n)}
+    namen_je_kennung = _namen_mit_aliasen(namen_je_kennung, huelle)
     wahrheit = wahrheit if wahrheit is not None else wahrheit_bauen(vorgaben, bestaetigt)
 
     # Gruppen: Kennung -> [Gesichter, saubere Gesichter]
@@ -230,6 +371,13 @@ def bewerten(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
     for n in gruppen_je_name.values():
         streuung["eine" if n == 1 else "zwei" if n == 2 else "drei_oder_mehr"] += 1
     alle_namen = set(namen_je_kennung.values())
+    kennungen_da = set(gruppen)
+
+    def vorhanden(kennung) -> bool:
+        """Gibt es die Kennung als Gruppe - oder lebt sie in einer Aliasmenge weiter?"""
+        if kennung in kennungen_da:
+            return True
+        return any(m in kennungen_da for m in (huelle or {}).get(kennung, ()))
 
     in_benannten = sum(g[0] for k, g in gruppen.items() if k in namen_je_kennung)
 
@@ -254,14 +402,15 @@ def bewerten(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
     # Regelbruch: ausgeschlossen
     ausg = (vorgaben or {}).get("ausgeschlossen") or set()
     bruch_ausg = sum(1 for (k, bild, idx) in ausg
-                     if zuordnung.get((str(bild), int(idx)), (None, False))[0] == k)
+                     if _gleiche_gruppe(
+                         k, zuordnung.get((str(bild), int(idx)), (None, False))[0], huelle))
 
     # Regelbruch: verschieden
     verschieden = (vorgaben or {}).get("verschieden") or set()
     verschieden_vereint = None
     kennung_fehlt = 0
     for a, b in verschieden:
-        if a not in gruppen or b not in gruppen:
+        if not vorhanden(a) or not vorhanden(b):
             kennung_fehlt += 1
     if vorher is not None:
         je_kennung_vorher: dict = {}
@@ -270,9 +419,11 @@ def bewerten(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
                 je_kennung_vorher.setdefault(k, []).append(schluessel)
         verschieden_vereint = 0
         for a, b in verschieden:
-            nach_a = {zuordnung[s][0] for s in je_kennung_vorher.get(a, ())
+            nach_a = {_vertreter(huelle, zuordnung[s][0])
+                      for s in je_kennung_vorher.get(a, ())
                       if s in zuordnung and zuordnung[s][0]}
-            nach_b = {zuordnung[s][0] for s in je_kennung_vorher.get(b, ())
+            nach_b = {_vertreter(huelle, zuordnung[s][0])
+                      for s in je_kennung_vorher.get(b, ())
                       if s in zuordnung and zuordnung[s][0]}
             if nach_a & nach_b:
                 verschieden_vereint += 1
@@ -298,13 +449,16 @@ def bewerten(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
     return erg
 
 
-def wechsel(vorher: dict, nachher: dict) -> dict:
+def wechsel(vorher: dict, nachher: dict, aliase: dict | None = None) -> dict:
     """Was geschieht mit den **sauberen** Gesichtern zwischen zwei Zuordnungen?
 
     Gezaehlt wird ueber Gesichter, die in BEIDEN Zuordnungen vorkommen und in der
     Vorher-Zuordnung sauber sind. Kennungen werden als dieselbe Gruppe gelesen,
-    wenn sie gleich heissen (die Kennungen sind ueber ``kennungen.json`` stabil).
+    wenn sie gleich heissen (die Kennungen sind ueber ``kennungen.json`` stabil) -
+    mit ``aliase`` zusaetzlich, wenn sie in derselben Aliasmenge stehen
+    (``_gleiche_gruppe``, transitiv).
     """
+    huelle = _huelle_von(aliase)
     erg = {"saubere_in_beiden": 0, "gleiche_gruppe": 0, "gruppe_gewechselt": 0,
            "kennung_verloren": 0, "kennung_gewonnen": 0, "bleibt_ohne": 0,
            "nur_vorher": 0, "nur_nachher": 0}
@@ -317,7 +471,8 @@ def wechsel(vorher: dict, nachher: dict) -> dict:
         erg["saubere_in_beiden"] += 1
         neu = nachher[schluessel][0]
         if alt and neu:
-            erg["gleiche_gruppe" if alt == neu else "gruppe_gewechselt"] += 1
+            erg["gleiche_gruppe" if _gleiche_gruppe(alt, neu, huelle)
+                else "gruppe_gewechselt"] += 1
         elif alt and not neu:
             erg["kennung_verloren"] += 1
         elif neu and not alt:
@@ -401,10 +556,29 @@ def _spalten(e: dict, w: dict | None = None) -> list:
     return zeilen
 
 
+def alias_zeile(aliase) -> str:
+    """Die Hinweiszeile zum Vergleich: kennungsgenau oder aliasaequivalent (nur Zahlen)."""
+    if aliase is None:
+        return ("Aliasmengen: keine angegeben - Kennungen werden kennungsgenau "
+                "verglichen (eine per gleich zusammengefuehrte Kennung zaehlt als Wechsel).")
+    huelle = aliase_huelle(aliase)
+    mengen = {menge for menge in huelle.values() if len(menge) > 1}
+    return (f"Aliasmengen: {len(mengen)} Gruppen mit {sum(len(m) for m in mengen)} "
+            f"Kennungen - Kennungen derselben Menge gelten als dieselbe Gruppe.")
+
+
 def bericht_text(kopf: dict, nachher: dict, vorher: dict | None = None,
-                 wechsel_zahlen: dict | None = None) -> str:
-    """Der ganze Bericht. Mit ``vorher`` zwei Spalten nebeneinander."""
+                 wechsel_zahlen: dict | None = None, aliase=None,
+                 alias_hinweis: bool = True) -> str:
+    """Der ganze Bericht. Mit ``vorher`` zwei Spalten nebeneinander.
+
+    ``aliase`` (oder ``None`` = kennungsgenau) steht nur als Hinweiszeile im Kopf;
+    gerechnet wurde in ``bewerten`` / ``wechsel``. ``alias_hinweis=False`` laesst
+    die Zeile weg - fuer v1-Laeufe, deren Bericht wie vor Schritt 3 bleiben muss.
+    """
     zeilen = kopf_text(kopf)
+    if alias_hinweis:
+        zeilen.append(alias_zeile(aliase))
     zeilen.append("")
     if vorher is None:
         for bez, wert in _spalten(nachher):
@@ -438,25 +612,32 @@ def bericht_text(kopf: dict, nachher: dict, vorher: dict | None = None,
 
 def vergleich_bericht(vorher: dict, nachher: dict, bestaetigt: dict, vorgaben: dict,
                       stand_bestaetigt=None, stand_vorgaben=None,
-                      stand_zuordnung=None) -> str:
-    """Bericht vorher gegen nachher - gemeinsame Grundwahrheit (siehe Moduldoku)."""
+                      stand_zuordnung=None, aliase: dict | None = None,
+                      alias_hinweis: bool = True) -> str:
+    """Bericht vorher gegen nachher - gemeinsame Grundwahrheit (siehe Moduldoku).
+
+    ``aliase`` macht den Vergleich aliasaequivalent; ohne bleibt er kennungsgenau
+    und die Hinweiszeile sagt das.
+    """
     wahrheit = wahrheit_bauen(vorgaben, bestaetigt, vorher=vorher)
     kopf = grundwahrheit(bestaetigt, vorgaben, stand_bestaetigt, stand_vorgaben,
                          stand_zuordnung)
     return bericht_text(
         kopf,
-        bewerten(nachher, bestaetigt, vorgaben, wahrheit, vorher=vorher),
-        bewerten(vorher, bestaetigt, vorgaben, wahrheit, vorher=vorher),
-        wechsel(vorher, nachher))
+        bewerten(nachher, bestaetigt, vorgaben, wahrheit, vorher=vorher, aliase=aliase),
+        bewerten(vorher, bestaetigt, vorgaben, wahrheit, vorher=vorher, aliase=aliase),
+        wechsel(vorher, nachher, aliase), aliase=aliase, alias_hinweis=alias_hinweis)
 
 
 def einzel_bericht(zuordnung: dict, bestaetigt: dict, vorgaben: dict,
                    stand_bestaetigt=None, stand_vorgaben=None,
-                   stand_zuordnung=None) -> str:
+                   stand_zuordnung=None, aliase: dict | None = None,
+                   alias_hinweis: bool = True) -> str:
     """Bericht einer einzelnen Zuordnung."""
     kopf = grundwahrheit(bestaetigt, vorgaben, stand_bestaetigt, stand_vorgaben,
                          stand_zuordnung)
-    return bericht_text(kopf, bewerten(zuordnung, bestaetigt, vorgaben))
+    return bericht_text(kopf, bewerten(zuordnung, bestaetigt, vorgaben, aliase=aliase),
+                        aliase=aliase, alias_hinweis=alias_hinweis)
 
 
 # ── Kommandozeile ──────────────────────────────────────────────────────────
@@ -477,6 +658,10 @@ def main(argv=None) -> int:
     zerleger.add_argument("--nachher", default=None, help="Zuordnung zum Vergleich")
     zerleger.add_argument("--bestaetigt", default=STANDARD_BESTAETIGT)
     zerleger.add_argument("--vorgaben", default=STANDARD_VORGABEN)
+    zerleger.add_argument("--aliase", default=None,
+                          help="aliasmengen.json (Auflage 3): per gleich vereinte Kennungen "
+                               "gelten als dieselbe Gruppe; ohne die Datei wird "
+                               "kennungsgenau verglichen")
     args = zerleger.parse_args(argv)
 
     if bool(args.vorher) != bool(args.nachher):
@@ -487,15 +672,16 @@ def main(argv=None) -> int:
         bestaetigt = pg.bestaetigt_lesen(args.bestaetigt)
         vorgaben = pg.vorgaben_lesen(args.vorgaben)
         stand_b, stand_v = _stand(args.bestaetigt), _stand(args.vorgaben)
+        aliase = aliase_lesen(args.aliase) if args.aliase else None
         if args.vorher:
             vorher = _lesen_oder_abbruch(args.vorher)
             nachher = _lesen_oder_abbruch(args.nachher)
             text = vergleich_bericht(vorher, nachher, bestaetigt, vorgaben, stand_b,
-                                     stand_v, _stand(args.vorher))
+                                     stand_v, _stand(args.vorher), aliase)
         else:
             zuordnung = _lesen_oder_abbruch(args.zuordnung)
             text = einzel_bericht(zuordnung, bestaetigt, vorgaben, stand_b, stand_v,
-                                  _stand(args.zuordnung))
+                                  _stand(args.zuordnung), aliase)
     except (OSError, ValueError, pg.PersonenFehler) as problem:
         print(f"Fehler: {problem.__class__.__name__}: Eingabe fehlt oder ist nicht "
               f"lesbar.", file=sys.stderr)

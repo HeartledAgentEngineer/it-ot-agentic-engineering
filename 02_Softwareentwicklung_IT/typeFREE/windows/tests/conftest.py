@@ -35,3 +35,46 @@ def kein_echter_ton(monkeypatch):
     import ton_aus
 
     monkeypatch.setattr(ton_aus, 'windows_backend', lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def keine_echte_zwischenablage(monkeypatch):
+    """Kein Test darf die echte Windows-Zwischenablage anfassen.
+
+    Eine echte Probe würde Sebastians kopierten Inhalt überschreiben. Gesperrt
+    sind alle drei Nähte in `typefree` UND die Fabrik der echten Win32-Schicht
+    in `zwischenablage` (so erreicht auch ein Test, der die Naht vergisst, die
+    Zwischenablage nicht). Ein Test, der den Ablauf prüfen will, ersetzt die
+    Nähte selbst (monkeypatch gewinnt); die Zwischenablage-Logik selbst läuft
+    gegen eine Fake-API (`test_zwischenablage.py`).
+    """
+    import typefree
+    import zwischenablage
+
+    def verboten(*args, **kwargs):
+        raise AssertionError('Test wollte die echte Zwischenablage anfassen — '
+                             'vorher abfangen')
+
+    for name in ('zwischenablage_einfuegen', 'zwischenablage_zurueck',
+                 'zwischenablage_kopieren'):
+        monkeypatch.setattr(typefree, name, verboten)
+    monkeypatch.setattr(zwischenablage, 'standard_api', verboten)
+
+
+@pytest.fixture(autouse=True)
+def keine_echten_ersetzungen(monkeypatch, tmp_path):
+    """Kein Test liest Sebastians echte `ersetzungen.txt` oder startet einen Editor.
+
+    Der Lader zeigt auf eine nicht vorhandene Datei in `tmp_path` (= keine Regeln),
+    `datei_oeffnen` (sonst `os.startfile`) ist gesperrt. Ein Test, der Regeln oder
+    das Öffnen prüfen will, ersetzt beides selbst (monkeypatch gewinnt).
+    """
+    import ersetzungen
+    import typefree
+
+    def verboten(*args, **kwargs):
+        raise AssertionError('Test wollte echt eine Datei öffnen — vorher abfangen')
+
+    monkeypatch.setattr(typefree, '_ersetzungen',
+                        ersetzungen.Ersetzungen(str(tmp_path / 'keine_ersetzungen.txt')))
+    monkeypatch.setattr(typefree, 'datei_oeffnen', verboten)

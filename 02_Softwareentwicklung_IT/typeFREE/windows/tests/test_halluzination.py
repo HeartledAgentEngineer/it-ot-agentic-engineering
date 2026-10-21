@@ -10,6 +10,7 @@ import pytest
 
 import halluzination
 import typefree
+import zwischenablage
 
 RATE = 16000
 
@@ -157,8 +158,13 @@ def stand(monkeypatch):
     """Ruhiggestellte Umgebung mit Aufzeichnung dessen, was passieren würde."""
     s = {'kopiert': [], 'hotkeys': [], 'gebucht': [], 'polish': [], 'transkribiert': []}
     monkeypatch.setattr(typefree.time, 'sleep', lambda sek: None)
-    monkeypatch.setattr(typefree, 'pyperclip',
-                        type('P', (), {'copy': staticmethod(s['kopiert'].append)}))
+    # Die Zwischenablage-Naht zeichnet den Text auf (statt der alten Zwischenablage-Kopie).
+    def einfuegen(text):
+        s['kopiert'].append(text)
+        return zwischenablage.Ergebnis(geschrieben=True,
+                                       snapshot=zwischenablage.Snapshot(), nummer=1)
+    monkeypatch.setattr(typefree, 'zwischenablage_einfuegen', einfuegen)
+    monkeypatch.setattr(typefree, 'zwischenablage_zurueck', lambda snapshot, nummer: True)
     monkeypatch.setattr(typefree, 'pyautogui',
                         type('G', (), {'hotkey': staticmethod(lambda *a: s['hotkeys'].append(a))}))
     monkeypatch.setattr(typefree, 'save_verbrauch', lambda *a, **k: None)

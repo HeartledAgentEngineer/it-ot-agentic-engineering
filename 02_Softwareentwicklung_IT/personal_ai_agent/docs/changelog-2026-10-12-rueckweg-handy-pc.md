@@ -181,3 +181,18 @@ wann und von wo nach wo die Datei ging. Ursache: `--zeit` hatte die Vorgabe
 Nichts geloescht ausser der genannten eigenen Testdatei, kein Bild-/
 Gesichtsdienst, keine pCloud-Schreibzugriffe, keine Geraeteeingaenge (nur
 `ls`/`pull`, lesend), keine kostenpflichtigen Massenlaeufe.
+
+## Nachtrag 15.10.2026 (Gruppierung v2, G0): Inhalt statt Größe, vier Namen
+
+Die obige Beschreibung „gleiche Groesse = uebersprungen“ gilt **nicht mehr**:
+
+- **Gerät (`termux/rueckweg-bereitstellen.sh`):** übersprungen wird nur bei gleichem **Inhalt**
+  (`gleicher_inhalt()`: `cmp -s`, sonst `sha256sum`, sonst immer kopieren). Eine geänderte Datei mit
+  zufällig gleicher Größe wird so nicht mehr übersehen.
+- **PC (`tools/handy/rueckweg_holen.py`):** übersprungen wird nur bei gleicher **sha256** (vom Gerät per
+  `adb shell sha256sum`); ohne Gerätesumme wird immer geholt; nach dem `pull` prüft eine Prüfsummenprobe die Kopie.
+- **Liste:** zusätzlich `personen_bestaetigt.json` und `personen_vorgaben.json` (die Namensarbeit am Handy);
+  die Liste steht weiterhin wortgleich in Shell (`RUECKWEG_NAMEN`) und Python (`ERLAUBTE_NAMEN`).
+  Die Spiegel-Liste des Nachweises (`STANDARD_RUECKWEG_NAMEN` in `tools/foto_sortierung/bestand_pruefen.py`)
+  wurde auf dieselben vier Namen mitgezogen; die Prüfzeile meldet nun „19 bekannt, 4 mit Rueckweg, 15 ohne“.
+- Tests und Begründung: `docs/changelog-2026-10-14-gruppierung-v2.md`, Abschnitt G0.

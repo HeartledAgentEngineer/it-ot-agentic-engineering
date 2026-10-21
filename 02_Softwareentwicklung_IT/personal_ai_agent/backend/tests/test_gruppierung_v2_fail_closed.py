@@ -21,10 +21,13 @@ Aufruf:
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
 import sys
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -299,11 +302,74 @@ class _Args:
             setattr(self, name, wert)
 
 
-def _grund(tmp_path, datei, aus, kandidat, bestaetigt=None, zusatz=()):
-    leer = str(tmp_path / "keine.json")
-    return ["--vektoren", str(datei), "--ausgabe", str(aus), "--ausgabe-kandidat",
-            str(kandidat), "--bestaetigt", bestaetigt or leer, "--vorgaben", leer,
-            "--verfahren", "v2", *zusatz]
+def _dateien(tmp_path):
+    """Die zwei PFLICHTDATEIEN (G0) mit erfundenen Inhalten anlegen.
+
+    ``personen_bestaetigt.json`` ohne Namen, ``personen_vorgaben.json`` mit 50
+    Ausschlussregeln (erfundene Kennungen/Bild-IDs, die auf kein Gesicht
+    zeigen): damit ist die Grundwahrheit nach ``MIN_REGELN`` nicht mehr
+    "vorlaeufig" (G1) und der Schreibweg pruefbar. Die Dateinamen sind fest —
+    ein zweiter Aufruf liefert dieselben Pfade.
+    """
+    b = tmp_path / "personen_bestaetigt.json"
+    if not b.exists():
+        b.write_text(json.dumps({"bestaetigt": {}}), encoding="utf-8")
+    v = tmp_path / "personen_vorgaben.json"
+    if not v.exists():
+        v.write_text(json.dumps({
+            "gleich": [], "verschieden": [], "zugeordnet": [],
+            "ausgeschlossen": [{"kennung": f"Person_{i:03d}", "bild_id": str(900000 + i),
+                                "index": 0} for i in range(50)]}), encoding="utf-8")
+    return b, v
+
+
+def _stand(tmp_path, bestaetigt, vorgaben):
+    """Einen Geraetestand bauen (unabhaengig: hashlib + eigene Zaehlung)."""
+    eintraege = {}
+    for pfad in (bestaetigt, vorgaben):
+        roh = pfad.read_bytes()
+        daten = json.loads(roh.decode("utf-8"))
+        if pfad.name.endswith("bestaetigt.json"):
+            roh_eintraege = daten.get("bestaetigt") or {}
+            zaehler = {"benannte_kennungen": len(roh_eintraege),
+                       "namen": sum(1 for w in roh_eintraege.values()
+                                    if isinstance(w, str) and w.strip())}
+        else:
+            zaehler = {"gleich": len(daten.get("gleich") or []),
+                       "verschieden": len(daten.get("verschieden") or []),
+                       "ausgeschlossen": len(daten.get("ausgeschlossen") or []),
+                       "fest": len(daten.get("zugeordnet") or [])}
+        eintraege[pfad.name] = {"bytes": len(roh),
+                                "sha256": hashlib.sha256(roh).hexdigest(),
+                                "zaehler": zaehler}
+    ziel = tmp_path / "geraetestand.json"
+    ziel.write_text(json.dumps({
+        "stand": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "quelle": "handy", "pflicht": list(pg.PFLICHTQUELLEN),
+        "dateien": eintraege}), encoding="utf-8")
+    return ziel
+
+
+def _grund(tmp_path, datei, aus, kandidat, bestaetigt=None, zusatz=(),
+           mit_nachweis=False):
+    """Argumente fuer v2 — mit G0/G1 (Auflage 2) sauber vorbereitet.
+
+    Ohne ``mit_nachweis`` laeuft der Aufruf als **Trockenmessung**
+    (``--ohne-geraetenachweis``); mit ``mit_nachweis`` bekommt er einen
+    vollstaendigen Geraetestand zu den beiden Pflichtdateien.
+    """
+    b, v = _dateien(tmp_path)
+    if bestaetigt is not None:
+        b = Path(bestaetigt)
+    grund = ["--vektoren", str(datei), "--ausgabe", str(aus), "--ausgabe-kandidat",
+             str(kandidat), "--bestaetigt", str(b), "--vorgaben", str(v),
+             "--verfahren", "v2"]
+    if mit_nachweis:
+        grund += ["--geraetestand", str(_stand(tmp_path, b, v))]
+    else:
+        grund += ["--geraetestand", str(tmp_path / "kein_stand.json"),
+                  "--ohne-geraetenachweis"]
+    return grund + list(zusatz)
 
 
 def _freigabe(tmp_path, pfade, bestaetigt, vorgaben, aus, parameter=None, urteil="pass",
@@ -350,9 +416,10 @@ def test_gueltige_freigabe_schreibt_nur_in_den_kandidatenordner(tmp_path, capsys
     alt = aus / pg.DATEI_ZUORDNUNG
     alt.write_text("{\"alt\": true}\n", encoding="utf-8")            # produktiver Stand
     vorher = alt.read_bytes()
-    freigabe = _freigabe(tmp_path, [str(datei)], str(tmp_path / "keine.json"),
-                         str(tmp_path / "keine.json"), aus)
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", freigabe])
+    b, v = _dateien(tmp_path)
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus)
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           freigabe], mit_nachweis=True)
     assert pg.main(grund) == 0
     ausgabe = capsys.readouterr().out
     assert "Freigabe gueltig" in ausgabe and "Ziel: Kandidatenordner" in ausgabe
@@ -364,10 +431,12 @@ def test_gueltige_freigabe_schreibt_nur_in_den_kandidatenordner(tmp_path, capsys
 def test_produktiv_mit_freigabe_und_schalter_schreibt_in_den_produktivordner(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    freigabe = _freigabe(tmp_path, [str(datei)], str(tmp_path / "keine.json"),
-                         str(tmp_path / "keine.json"), aus, name="produktiv.json")
+    b, v = _dateien(tmp_path)
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus,
+                         name="produktiv.json")
     grund = _grund(tmp_path, datei, aus, kandidat,
-                   zusatz=["--schreiben", "--produktiv", "--freigabe", freigabe])
+                   zusatz=["--schreiben", "--produktiv", "--freigabe", freigabe],
+                   mit_nachweis=True)
     assert pg.main(grund) == 0
     assert "Ziel: PRODUKTIVER Ordner" in capsys.readouterr().out
     assert (aus / pg.DATEI_ZUORDNUNG).is_file()
@@ -377,10 +446,11 @@ def test_produktiv_mit_freigabe_und_schalter_schreibt_in_den_produktivordner(tmp
 def test_freigabe_mit_falschem_snapshot_hash_wird_abgelehnt(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    leer = str(tmp_path / "keine.json")
-    freigabe = _freigabe(tmp_path, [str(datei)], leer, leer, aus,
+    b, v = _dateien(tmp_path)
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus,
                          hash_ist="0" * 64)
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", freigabe])
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           freigabe], mit_nachweis=True)
     assert pg.main(grund) == 3
     assert "Snapshot-hash" in capsys.readouterr().out
     assert not kandidat.exists()
@@ -389,15 +459,16 @@ def test_freigabe_mit_falschem_snapshot_hash_wird_abgelehnt(tmp_path, capsys):
 def test_freigabe_mit_anderen_parametern_wird_abgelehnt(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    leer = str(tmp_path / "keine.json")
+    b, v = _dateien(tmp_path)
     parameter = pg.parameter_stand(_Args())                    # wie der Lauf rechnet
     andere = pg.parameter_stand(_Args(min_groesse=99))         # was in der Datei steht
-    hash_ist = pg.eingabe_hash([str(datei)], leer, leer,
+    hash_ist = pg.eingabe_hash([str(datei)], str(b), str(v),
                                os.path.join(str(aus), pg.DATEI_KENNUNGEN),
                                os.path.join(str(aus), pg.DATEI_ZUORDNUNG), parameter)
-    freigabe = _freigabe(tmp_path, [str(datei)], leer, leer, aus, parameter=andere,
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus, parameter=andere,
                          hash_ist=hash_ist)
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", freigabe])
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           freigabe], mit_nachweis=True)
     assert pg.main(grund) == 3
     assert "Parameter passen nicht" in capsys.readouterr().out
     assert not kandidat.exists()
@@ -406,9 +477,10 @@ def test_freigabe_mit_anderen_parametern_wird_abgelehnt(tmp_path, capsys):
 def test_freigabe_mit_urteil_einwand_wird_abgelehnt(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    leer = str(tmp_path / "keine.json")
-    freigabe = _freigabe(tmp_path, [str(datei)], leer, leer, aus, urteil="EINWAND")
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", freigabe])
+    b, v = _dateien(tmp_path)
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus, urteil="EINWAND")
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           freigabe], mit_nachweis=True)
     assert pg.main(grund) == 3
     assert "Urteil" in capsys.readouterr().out
     assert not kandidat.exists()
@@ -417,11 +489,12 @@ def test_freigabe_mit_urteil_einwand_wird_abgelehnt(tmp_path, capsys):
 def test_freigabe_mit_verletzter_sperrzahl_wird_abgelehnt(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    leer = str(tmp_path / "keine.json")
+    b, v = _dateien(tmp_path)
     werte = {feld: 0 for feld in pg.SPERRZAHLEN}
     werte["wechsel_unerlaubt"] = 3
-    freigabe = _freigabe(tmp_path, [str(datei)], leer, leer, aus, werte=werte)
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", freigabe])
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus, werte=werte)
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           freigabe], mit_nachweis=True)
     assert pg.main(grund) == 3
     assert "wechsel_unerlaubt" in capsys.readouterr().out
     assert not kandidat.exists()
@@ -430,14 +503,12 @@ def test_freigabe_mit_verletzter_sperrzahl_wird_abgelehnt(tmp_path, capsys):
 def test_lauf_mit_eigener_sperrzahl_blockiert_die_freigabe(tmp_path, capsys):
     """Eine benannte Kennung ohne Gesicht: die Zahl des LAUFS sperrt, nicht nur die Datei."""
     datei = _vektordatei(tmp_path)
-    bestaetigt = tmp_path / "bestaetigt.json"
-    bestaetigt.write_text(json.dumps({"bestaetigt": {"Person_777": "Person G"}}),
-                          encoding="utf-8")
+    b, v = _dateien(tmp_path)
+    b.write_text(json.dumps({"bestaetigt": {"Person_777": "Person G"}}), encoding="utf-8")
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
-    leer = str(tmp_path / "keine.json")
-    freigabe = _freigabe(tmp_path, [str(datei)], str(bestaetigt), leer, aus)   # werte alle 0
-    grund = _grund(tmp_path, datei, aus, kandidat, bestaetigt=str(bestaetigt),
-                   zusatz=["--schreiben", "--freigabe", freigabe])
+    freigabe = _freigabe(tmp_path, [str(datei)], str(b), str(v), aus)      # werte alle 0
+    grund = _grund(tmp_path, datei, aus, kandidat,
+                   zusatz=["--schreiben", "--freigabe", freigabe], mit_nachweis=True)
     assert pg.main(grund) == 3
     ausgabe = capsys.readouterr().out
     assert "Sperrzahl benannte_ohne_gruppe dieses Laufs ist nicht 0" in ausgabe
@@ -448,7 +519,8 @@ def test_fehlende_freigabedatei_ist_ein_fehler(tmp_path, capsys):
     datei = _vektordatei(tmp_path)
     aus, kandidat = tmp_path / "gruppen", tmp_path / "kandidat"
     fehlt = str(tmp_path / "gibtesnicht.json")
-    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe", fehlt])
+    grund = _grund(tmp_path, datei, aus, kandidat, zusatz=["--schreiben", "--freigabe",
+                                                           fehlt], mit_nachweis=True)
     assert pg.main(grund) == 2
     assert "Freigabedatei" in capsys.readouterr().out
     assert not kandidat.exists()
