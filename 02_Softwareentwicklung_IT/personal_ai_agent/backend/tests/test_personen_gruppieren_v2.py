@@ -680,7 +680,11 @@ def test_v2_schreibt_dieselbe_form_plus_phasen_ohne_vektoren(tmp_path):
 
 
 def test_v2_zwei_schreiblaeufe_zwei_getrennte_sicherungen(tmp_path, monkeypatch, capsys):
-    """Die Sicherung vor v2 laeuft ueber den Zeitstempel-Weg (nicht ``_vorher_sichern``).
+    """Die Sicherung vor v2 liegt je Lauf in einem eigenen ``.v2_<stempel>/vorher/``-Ordner.
+
+    Seit Schritt 4 (Auflage 4, Fassung 4) gibt es fuer v2 keine ``*.vorher_<stempel>``-
+    Dateien mehr: jeder Lauf legt einen Bereitstellungsordner an, dessen ``vorher/`` den
+    Ausgangsstand haelt (v1 behaelt ``_stempel_sichern``).
 
     Vor jedem Lauf werden die Entscheidungen "frisch vom Handy geholt" (neue
     Aenderungszeit): sonst gilt die Grundwahrheit nach dem ersten Lauf als
@@ -701,7 +705,9 @@ def test_v2_zwei_schreiblaeufe_zwei_getrennte_sicherungen(tmp_path, monkeypatch,
     b, v = _pflichtdateien(tmp_path)
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus,
                                            name="freigabe_1.json")) == 0
-    assert not list(aus.glob("*.vorher_*"))                   # erster Lauf: nichts zu sichern
+    assert not list(aus.glob("*.vorher_*"))                   # v2 kennt diese Namen nicht mehr
+    erster = sorted(aus.glob(".v2_*"))
+    assert len(erster) == 1 and not list(erster[0].joinpath("vorher").iterdir())  # nichts zu sichern
     stand1 = {n: (aus / n).read_bytes() for n in
               (pg.DATEI_ZUORDNUNG, pg.DATEI_BEISPIELE, pg.DATEI_KENNUNGEN)}
     capsys.readouterr()
@@ -714,11 +720,13 @@ def test_v2_zwei_schreiblaeufe_zwei_getrennte_sicherungen(tmp_path, monkeypatch,
     os.utime(v, None)
     assert pg.main(basis + _schreiben_args(tmp_path, datei, aus,
                                            name="freigabe_3.json")) == 0
+    assert not list(aus.glob("*.vorher_*"))
+    ordner = sorted(aus.glob(".v2_*"))
+    assert len(ordner) == 3 and all(o.name.endswith(".fertig") for o in ordner)
     for name in stand1:
-        sicherungen = sorted(aus.glob(name + ".vorher_*"))
-        assert len(sicherungen) == 2                          # zwei getrennte Sicherungen
-        assert sicherungen[0].read_bytes() == stand1[name]
-        assert sicherungen[1].read_bytes() == stand2[name]
+        # Lauf 2 sichert den Stand nach Lauf 1, Lauf 3 den Stand nach Lauf 2.
+        assert (ordner[1] / "vorher" / name).read_bytes() == stand1[name]
+        assert (ordner[2] / "vorher" / name).read_bytes() == stand2[name]
 
 
 def test_nachtragen_kennt_nur_v1(tmp_path, capsys):
@@ -774,8 +782,12 @@ def test_v2_ausgabe_geht_durch_die_lesefunktionen_des_quiz(tmp_path, monkeypatch
     gq._CACHE.clear()
 
 
-def test_zweiter_v2_lauf_nach_dem_benennen_behaelt_die_benannte_kennung(tmp_path):
+def test_zweiter_v2_lauf_nach_dem_benennen_behaelt_die_benannte_kennung(tmp_path, monkeypatch):
     """Roundtrip: v2 schreibt, der Nutzer benennt, v2 laeuft erneut - Kennung und Name bleiben."""
+    # Zwei Laeufe in derselben Sekunde ergaeben keinen juengeren Stempel (Auflage 4):
+    # die Uhr laeuft hier kuenstlich weiter.
+    stempel = iter(f"20261015_1200{s:02d}" for s in range(10, 60))
+    monkeypatch.setattr(pg, "_stempel_neu", lambda: next(stempel))
     datei = _vektordatei(tmp_path, personen=2, je=10)
     aus = tmp_path / "gruppen"
     basis = _grund(tmp_path, datei, aus)

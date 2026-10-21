@@ -137,6 +137,24 @@ Gruppierung v2 (``--verfahren v2``, 15.10.2026; Standard bleibt v1):
     Grundwahrheit ``vorlaeufig`` oder ``veraltet`` (``gruppierung_bewerten``),
     ist ``--schreiben`` mit **Exit 3** gesperrt — auch fuer den
     Kandidatenordner; eine Trockenmessung bleibt erlaubt.
+  * **Sicherung, transaktionales Schreiben, Rueckrollen (Auflage 4, Fassung 4):**
+    Der v2-Schreibweg (``v2_schreiben``) legt je Lauf im Zielordner einen
+    Bereitstellungsordner ``.v2_<stempel>/`` an: ``vorher/`` (Kopien des
+    Ausgangsstands, sha256 gegen die Quelle geprueft), ``neu/``, ``stand.json``
+    (vier Dateien: Zuordnung, Beispiele, Kennungen, ``aliasmengen.json``, je mit
+    ``vorher_sha256``/``neu_sha256``), Richtungsmarke und ``fortschritt/``. Erst
+    danach werden die Zieldateien einzeln ersetzt (tmp-Kopie, ``os.replace``);
+    am Ende heisst der Ordner ``.v2_<stempel>.fertig`` und eine Zeile in
+    ``--manifest`` (Standard ``~/foto_sortierung/sicherungen_manifest.jsonl``)
+    protokolliert den Lauf. Ein Abbruch an beliebiger Stelle ist erkennbar und
+    vollendbar: ``--weiter`` spielt ein, was noch aussteht;
+    ``--rueckrollen <stempel>`` stellt alle vier Dateien aus ``vorher/`` wieder her
+    (nur der juengste nicht zurueckgerollte Stand). Beide Wege sind eigenstaendig
+    (keine Eingabedateien, keine Freigabe) und schliessen sich mit ``--schreiben``
+    gegenseitig aus. Eine veraenderte Zieldatei, manipulierte Sicherung oder fremde
+    Zwischenkopie ("FREMD") endet mit **Exit 2**, ohne etwas zu aendern. **Nichts wird
+    je geloescht** - Rueckrollen verschiebt (``<name>.verworfen_<stempel>``). v1
+    (``_stempel_sichern`` + ``schreiben``) bleibt unveraendert.
   * ``--bewerten``: gibt zusaetzlich den Vergleich der bestehenden Zuordnung
     (vorher) mit diesem Lauf (nachher) aus - ``gruppierung_bewerten.py``,
     nur Zahlen, schreibt nichts.
@@ -2229,9 +2247,11 @@ def _stempel_sichern(ausgabe, stempel=None, mit_aliasen: bool = False) -> list[s
     """Vor einem vollen Neugruppieren die drei Dateien als ``*.vorher_<stempel>``
     kopieren (09.10.2026). Bis dahin sicherte nur ``--nachtragen``; ein voller
     Lauf ersetzte die Gruppen ohne Rueckweg. Der Zeitstempel haelt jede Fassung
-    getrennt; eine vorhandene Sicherung wird nie ueberschrieben. Nur der
-    v2-Schreibweg (``mit_aliasen=True``) sichert eine vorhandene
-    ``aliasmengen.json`` mit; v1 sichert wie vor Schritt 3 genau drei Dateien."""
+    getrennt; eine vorhandene Sicherung wird nie ueberschrieben. Nur
+    ``mit_aliasen=True`` sichert eine vorhandene ``aliasmengen.json`` mit; v1
+    sichert wie vor Schritt 3 genau drei Dateien. Der v2-Schreibweg ruft diese
+    Funktion seit Schritt 4 nicht mehr auf (er sichert in ``.v2_<stempel>/vorher/``,
+    siehe ``v2_schreiben``)."""
     stempel = stempel or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     ergebnis: list[str] = []
     namen = (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN)
@@ -2606,6 +2626,789 @@ def _nachtragen_main(args, pfade, schreiben_an) -> int:
     return 0
 
 
+# ── v2: Sicherungen, transaktionales Schreiben, Rueckrollen (Auflage 4) ──────
+#
+# Nur der v2-Schreibweg nutzt diesen Block. ``schreiben`` und
+# ``_stempel_sichern`` (v1) bleiben in Signatur und Verhalten unveraendert.
+# Statt ``*.vorher_<stempel>`` und ``ROLLEN.json`` gibt es je Lauf einen
+# Bereitstellungsordner ``.v2_<stempel>/`` im Zielordner (Fassung 4 der Auflage):
+#
+#   vorher/<name>           Kopie des Ausgangsstands (sha256 gegen die Quelle geprueft)
+#   neu/<name>              die neuen Dateien (sha256 in stand.json)
+#   stand.json              {stempel, dateien:[{name, vorher_sha256|null, neu_sha256}]}
+#   EINSPIELEN/RUECKROLLEN  Richtungsmarke
+#   fortschritt/<name>.beginn|.eingespielt|.rueck_beginn|.zurueckgerollt
+#
+# Endungen des Ordners: ``.fertig``, ``.zurueckgerollt``, ``.unfertig``. Nichts
+# wird je geloescht: Rueckrollen und Aufraeumen VERSCHIEBEN
+# (``<name>.verworfen_<stempel>``, ``<name>.tmp_<stempel>.verworfen``). Der Zustand
+# jeder Datei wird allein aus den Hashes (plus den Marken) abgeleitet; ein Abbruch
+# an beliebiger Stelle ist daher mit ``--weiter`` oder ``--rueckrollen <stempel>``
+# vollendbar. Jede Abweichung ("FREMD") endet mit Exit 2, ohne etwas zu aendern.
+
+V2_DATEIEN = (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN, DATEI_ALIASE)
+V2_PFLICHT = (DATEI_ZUORDNUNG, DATEI_BEISPIELE, DATEI_KENNUNGEN)
+V2_PRAEFIX = ".v2_"
+STANDARD_MANIFEST = os.path.join(STANDARD_BASIS, "sicherungen_manifest.jsonl")
+MANIFEST_UMGEBUNG = "GRUPPIERUNG_MANIFEST"   # nur fuer Tests: leitet den Standardpfad um
+
+_STEMPEL_MUSTER = re.compile(r"^[0-9A-Za-z_]+$")
+_ORDNER_MUSTER = re.compile(r"^\.v2_([0-9A-Za-z_]+)(?:\.(fertig|zurueckgerollt|unfertig))?$")
+_HASH_MUSTER = re.compile(r"^[0-9a-f]{64}$")
+_ENDUNG_ART = {"fertig": "FERTIG", "zurueckgerollt": "ZURUECKGEROLLT",
+               "unfertig": "VERSCHOBEN"}
+
+
+class TransaktionsFehler(PersonenFehler):
+    """Ein v2-Schreib-, Weiter- oder Rueckrollweg bricht ab (Exit 2)."""
+
+
+def _standard_manifest() -> str:
+    """Der Standardpfad des Manifests; ``GRUPPIERUNG_MANIFEST`` leitet ihn um (Tests)."""
+    return os.environ.get(MANIFEST_UMGEBUNG) or STANDARD_MANIFEST
+
+
+def _stempel_neu() -> str:
+    return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+# Die vier Naehte fuer Abbruchtests (per monkeypatch beim n-ten Aufruf werfen).
+
+def _ersetzen(quelle, ziel):
+    """``os.replace`` - der eigentliche Austausch einer Zieldatei."""
+    os.replace(quelle, ziel)
+
+
+def _teil_schreiben(quelle, teil):
+    """Die Teilkopie schreiben: Streaming-Kopie, flush+fsync, Zeiten uebernehmen.
+
+    Naht fuer Abbruchtests (Abbruch MITTEN in der Kopie hinterlaesst ``<teil>``)."""
+    with open(quelle, "rb") as ein, open(teil, "wb") as aus:
+        shutil.copyfileobj(ein, aus)
+        aus.flush()
+        os.fsync(aus.fileno())
+    shutil.copystat(quelle, teil)
+
+
+def _teil_beiseite(teil):
+    """Eine vorhandene Teilkopie (Rest eines Abbruchs) nach ``<teil>.verworfen_<k>``
+    verschieben (erstes freies ``k``) - nie loeschen, nie ueberschreiben."""
+    if not os.path.lexists(teil):
+        return
+    k = 1
+    while os.path.lexists(f"{teil}.verworfen_{k}"):
+        k += 1
+    os.replace(teil, f"{teil}.verworfen_{k}")
+
+
+def _kopieren(quelle, ziel, soll=None):
+    """Kopie auf einen freien Namen - nie auf einen belegten.
+
+    Ohne ``soll``: ``copy2``. Mit ``soll`` (erwartete sha256): die Kopie entsteht zuerst
+    als ``<ziel>.teil`` (ein Rest eines frueheren Abbruchs wandert vorher nach
+    ``<ziel>.teil.verworfen_<k>``), wird gegen ``soll`` geprueft und erst dann per
+    ``os.replace`` zu ``<ziel>``. So hat ``<ziel>`` nie einen unvollstaendigen Inhalt;
+    bei Abweichung bleibt die Teilkopie liegen und es wird abgebrochen.
+    """
+    if os.path.lexists(ziel):
+        raise TransaktionsFehler("Ein Kopierziel ist bereits belegt - abgebrochen.")
+    if soll is None:
+        shutil.copy2(quelle, ziel)
+        return
+    teil = ziel + ".teil"
+    _teil_beiseite(teil)
+    _teil_schreiben(quelle, teil)
+    if _datei_lage(teil) != soll:
+        raise TransaktionsFehler("Die Teilkopie stimmt nicht mit der Quelle ueberein - "
+                                 "abgebrochen (die Teilkopie bleibt liegen).")
+    if os.path.lexists(ziel):
+        raise TransaktionsFehler("Ein Kopierziel ist bereits belegt - abgebrochen.")
+    os.replace(teil, ziel)
+
+
+def _umbenennen(quelle, ziel):
+    """Verschieben per ``os.replace`` - nie auf einen belegten Namen."""
+    if os.path.lexists(ziel):
+        raise TransaktionsFehler("Ein Verschiebeziel ist bereits belegt - abgebrochen.")
+    os.replace(quelle, ziel)
+
+
+def _marke_schreiben(pfad, inhalt="ok\n"):
+    """Marke oder ``stand.json`` atomar schreiben: tmp, flush+fsync, ``os.replace``."""
+    os.makedirs(os.path.dirname(os.path.abspath(pfad)), exist_ok=True)
+    temp = pfad + ".tmp"
+    with open(temp, "w", encoding="utf-8", newline="\n") as datei:
+        datei.write(inhalt)
+        datei.flush()
+        os.fsync(datei.fileno())
+    os.replace(temp, pfad)
+
+
+def _datei_lage(pfad):
+    """``None`` = nichts dort; sonst die sha256 einer regulaeren Datei.
+
+    Ein Verzeichnis, ein Link oder eine unlesbare Datei ergibt ``"?"`` - das ist
+    nie gleich einem Hash und damit immer FREMD.
+    """
+    if not os.path.lexists(pfad):
+        return None
+    if os.path.islink(pfad) or not os.path.isfile(pfad):
+        return "?"
+    return _sha256_datei(pfad) or "?"
+
+
+def _frei(pfad, was):
+    if os.path.lexists(pfad):
+        raise TransaktionsFehler(f"{was} ist bereits belegt - nichts geaendert.")
+
+
+def _ordnerpfad(ziel, stempel, endung=None):
+    return os.path.join(ziel, V2_PRAEFIX + stempel + (f".{endung}" if endung else ""))
+
+
+def _dateinamen(ziel, name, stempel):
+    z = os.path.join(ziel, name)
+    return {"ziel": z, "tmp": f"{z}.tmp_{stempel}",
+            "tmp_verw": f"{z}.tmp_{stempel}.verworfen", "verw": f"{z}.verworfen_{stempel}"}
+
+
+def _marke_pfad(ordner, name, art):
+    return os.path.join(ordner, "fortschritt", f"{name}.{art}")
+
+
+def _hat_marke(ordner, name, art):
+    return os.path.isfile(_marke_pfad(ordner, name, art))
+
+
+def _ziel_schluessel(ziel):
+    return os.path.normcase(os.path.realpath(ziel))
+
+
+def v2_zustand(ziel) -> list[dict]:
+    """Alle ``.v2_*``-Eintraege des Zielordners einordnen (aufsteigend nach Stempel).
+
+    Art: ``UNFERTIG`` (Ordner ohne ``stand.json``), ``BEREIT`` (mit ``stand.json``,
+    ohne Endung), ``FERTIG``, ``ZURUECKGEROLLT``, ``VERSCHOBEN`` (``.unfertig``).
+    Ein Eintrag, den das Namensmuster nicht kennt, ist kein Ordner oder teilt
+    sich den Stempel mit einem anderen: dann Fehler (Exit 2) statt Raten.
+    """
+    if not os.path.isdir(ziel):
+        return []
+    eintraege, gesehen = [], set()
+    for name in sorted(os.listdir(ziel)):
+        if not name.startswith(V2_PRAEFIX):
+            continue
+        pfad = os.path.join(ziel, name)
+        treffer = _ORDNER_MUSTER.match(name)
+        if not treffer or os.path.islink(pfad) or not os.path.isdir(pfad):
+            raise TransaktionsFehler("Im Zielordner liegt ein unbekannter Eintrag mit dem "
+                                     "Namensanfang .v2_ - bitte pruefen. Nichts geaendert.")
+        stempel, endung = treffer.group(1), treffer.group(2)
+        if stempel in gesehen:
+            raise TransaktionsFehler("Mehrere Ordner tragen denselben Stempel - bitte "
+                                     "pruefen. Nichts geaendert.")
+        gesehen.add(stempel)
+        if endung:
+            art = _ENDUNG_ART[endung]
+        else:
+            art = "BEREIT" if os.path.isfile(os.path.join(pfad, "stand.json")) else "UNFERTIG"
+        eintraege.append({"stempel": stempel, "art": art, "pfad": pfad})
+    eintraege.sort(key=lambda e: e["stempel"])
+    return eintraege
+
+
+def _gesamtvorpruefung(ziel) -> list[dict]:
+    """Der gemeinsame Teil der Gesamtvorpruefung jedes Wegs (vor jeder Aenderung)."""
+    eintraege = v2_zustand(ziel)
+    if sum(1 for e in eintraege if e["art"] == "BEREIT") > 1:
+        raise TransaktionsFehler("Mehr als ein halbfertiger Stand liegt vor - bitte pruefen. "
+                                 "Nichts geaendert.")
+    for e in eintraege:
+        if e["art"] == "UNFERTIG":
+            _frei(e["pfad"] + ".unfertig", "Das Verschiebeziel eines UNFERTIG-Ordners")
+    return eintraege
+
+
+def _hinweis_unfertig(stempel):
+    print(f"UNFERTIG {stempel}: Ziele unverändert, der nächste schreibende Lauf räumt ihn weg")
+
+
+def _stand_lesen(ordner, stempel) -> list[dict]:
+    """``stand.json`` lesen und streng pruefen; Rueckgabe in der Reihenfolge ``V2_DATEIEN``."""
+    try:
+        with open(os.path.join(ordner, "stand.json"), encoding="utf-8") as datei:
+            daten = json.load(datei)
+    except (OSError, ValueError):
+        raise TransaktionsFehler("stand.json ist nicht lesbar - nichts geaendert.") from None
+    if not isinstance(daten, dict) or daten.get("stempel") != stempel \
+            or not isinstance(daten.get("dateien"), list):
+        raise TransaktionsFehler("stand.json ist ungueltig - nichts geaendert.")
+    je_name = {}
+    for eintrag in daten["dateien"]:
+        if not isinstance(eintrag, dict) or eintrag.get("name") not in V2_DATEIEN \
+                or eintrag["name"] in je_name:
+            raise TransaktionsFehler("stand.json ist ungueltig - nichts geaendert.")
+        vorher, neu = eintrag.get("vorher_sha256"), eintrag.get("neu_sha256")
+        if not (vorher is None or (isinstance(vorher, str) and _HASH_MUSTER.match(vorher))) \
+                or not (isinstance(neu, str) and _HASH_MUSTER.match(neu)):
+            raise TransaktionsFehler("stand.json ist ungueltig - nichts geaendert.")
+        je_name[eintrag["name"]] = {"name": eintrag["name"], "vorher_sha256": vorher,
+                                    "neu_sha256": neu}
+    if set(je_name) != set(V2_DATEIEN):
+        raise TransaktionsFehler("stand.json ist unvollstaendig - nichts geaendert.")
+    return [je_name[n] for n in V2_DATEIEN]
+
+
+def _ordner_pruefen(ordner, stempel) -> list[dict]:
+    """Vollpruefung des Ordners: ``stand.json`` gueltig, jede ``vorher/``- und ``neu/``-Datei
+    mit ihrem Hash. Prueft KEINE Zieldatei."""
+    stand = _stand_lesen(ordner, stempel)
+    for d in stand:
+        vorher = os.path.join(ordner, "vorher", d["name"])
+        if d["vorher_sha256"] is None:
+            if os.path.lexists(vorher):
+                raise TransaktionsFehler("Der Ordner vorher/ enthaelt eine Datei, die es "
+                                         "laut stand.json nicht geben darf - nichts geaendert.")
+        elif _datei_lage(vorher) != d["vorher_sha256"]:
+            raise TransaktionsFehler("Eine Datei in vorher/ stimmt nicht mit stand.json "
+                                     "ueberein - nichts geaendert.")
+        if _datei_lage(os.path.join(ordner, "neu", d["name"])) != d["neu_sha256"]:
+            raise TransaktionsFehler("Eine Datei in neu/ stimmt nicht mit stand.json "
+                                     "ueberein - nichts geaendert.")
+    return stand
+
+
+def _lage_einspielen(ziel, ordner, stempel, d):
+    """Zustand einer Datei beim Einspielen (Abschnitt 6) -> ``(lage, aktion_oder_grund)``.
+
+    ``lage``: ``gleich`` (vorher == neu: immer erledigt), ``erledigt`` (Ziel auf
+    neu), ``offen`` (steht noch aus) oder ``fremd``.
+    """
+    vorher, neu = d["vorher_sha256"], d["neu_sha256"]
+    if vorher == neu:
+        return "gleich", ""
+    p = _dateinamen(ziel, d["name"], stempel)
+    z, tmp = _datei_lage(p["ziel"]), _datei_lage(p["tmp"])
+    if _datei_lage(p["verw"]) is not None or _datei_lage(p["tmp_verw"]) is not None:
+        return "fremd", "ein Rueckroll-Name ist belegt"
+    if tmp is not None and tmp != neu:
+        return "fremd", "fremde Zwischenkopie"
+    beginn, eingespielt = (_hat_marke(ordner, d["name"], a) for a in ("beginn", "eingespielt"))
+    if z is None:
+        if vorher is not None:
+            return "fremd", "Zieldatei fehlt"
+        if eingespielt:
+            return "fremd", "Zieldatei nach dem Einspielen entfernt"
+        if not beginn or tmp == neu:
+            return "offen", "ausstehend"
+        return "fremd", "Zwischenkopie fehlt"
+    if z == neu:
+        return ("fremd", "unerwartete Zwischenkopie") if tmp is not None else ("erledigt", "")
+    if vorher is not None and z == vorher:
+        return "offen", "ausstehend"
+    return "fremd", "Zieldatei veraendert"
+
+
+def _lage_rueckrollen(ziel, ordner, stempel, d):
+    """Zustand einer Datei beim Rueckrollen (Abschnitt 6) -> ``(lage, aktion_oder_grund)``.
+
+    ``offen`` traegt die Aktion: ``kopieren`` (Rueckroll-tmp aus ``vorher/`` bauen),
+    ``uebernehmen`` (eigene Rueckroll-tmp), ``tmp_verwerfen`` (Einspiel-tmp nach
+    ``.tmp.verworfen``), ``ziel_verwerfen`` (Ziel nach ``.verworfen_<stempel>``).
+    """
+    vorher, neu = d["vorher_sha256"], d["neu_sha256"]
+    if vorher == neu:
+        return "gleich", ""
+    p = _dateinamen(ziel, d["name"], stempel)
+    z, tmp = _datei_lage(p["ziel"]), _datei_lage(p["tmp"])
+    tmp_verw, verw = _datei_lage(p["tmp_verw"]), _datei_lage(p["verw"])
+    rueck, beginn = (_hat_marke(ordner, d["name"], a) for a in ("rueck_beginn", "beginn"))
+    if vorher is not None:
+        if verw is not None:
+            return "fremd", "ein Verwerf-Name ist belegt"
+        if z is None:
+            return "fremd", "Zieldatei fehlt"
+        if z == neu:
+            if tmp_verw is not None:
+                return "fremd", "ein Verwerf-Name ist belegt"
+            if tmp is None:
+                return "offen", "kopieren"
+            return ("offen", "uebernehmen") if tmp == vorher else ("fremd", "fremde Zwischenkopie")
+        if z == vorher:
+            if tmp is not None:
+                if tmp == neu and tmp_verw is None:
+                    return "offen", "tmp_verwerfen"
+                return "fremd", "fremde Zwischenkopie"
+            if tmp_verw is not None:
+                return ("erledigt", "") if (tmp_verw == neu and rueck) \
+                    else ("fremd", "fremde verworfene Zwischenkopie")
+            return "erledigt", ""
+        return "fremd", "Zieldatei veraendert"
+    # vorher == null
+    if tmp is not None and tmp != neu:
+        return "fremd", "fremde Zwischenkopie"
+    if z is not None:
+        if z != neu:
+            return "fremd", "Zieldatei veraendert"
+        if tmp is not None or tmp_verw is not None or verw is not None:
+            return "fremd", "ein Verwerf-Name ist belegt"
+        return "offen", "ziel_verwerfen"
+    if verw is not None:
+        ok = verw == neu and tmp is None and tmp_verw is None
+        return ("erledigt", "") if ok else ("fremd", "fremde verworfene Datei")
+    if tmp_verw is not None:
+        ok = tmp_verw == neu and rueck and tmp is None
+        return ("erledigt", "") if ok else ("fremd", "fremde verworfene Zwischenkopie")
+    if tmp is not None:
+        return "offen", "tmp_verwerfen"
+    if not beginn:
+        return "erledigt", ""
+    return "fremd", "Zieldatei fehlt"
+
+
+def _lagen_pruefen(ziel, ordner, stempel, stand, richtung):
+    """Alle vier Dateien einordnen; eine FREMDE Datei bricht ab (Exit 2, nichts geaendert)."""
+    funktion = _lage_einspielen if richtung == "ein" else _lage_rueckrollen
+    ergebnis = []
+    for d in stand:
+        lage, aktion = funktion(ziel, ordner, stempel, d)
+        if lage == "fremd":
+            raise TransaktionsFehler(f"Die Datei {d['name']} ist fremd ({aktion}) - "
+                                     "nichts geaendert.")
+        ergebnis.append((d, lage, aktion))
+    return ergebnis
+
+
+# ── Manifest (nur Protokoll) ────────────────────────────────────────────────
+
+def _dateien_norm(dateien):
+    return sorted(((d["name"], d["vorher_sha256"] or "", d["neu_sha256"]) for d in dateien),
+                  key=lambda e: e[0])
+
+
+def _manifest_zeile_gueltig(z) -> bool:
+    """Streng: genau die Felder ``art``/``stempel``/``ziel``/``zeit``/``dateien``; genau vier
+    Dateieintraege mit genau den Feldern ``name``/``vorher_sha256``/``neu_sha256``, jeder der
+    vier Namen genau einmal; ``vorher_sha256`` ``None`` oder ein Hash, ``neu_sha256`` ein Hash."""
+    try:
+        if not isinstance(z, dict) or set(z) != {"art", "stempel", "ziel", "zeit", "dateien"}:
+            return False
+        if z["art"] not in ("eingespielt", "zurueckgerollt"):
+            return False
+        if not isinstance(z["stempel"], str) or not _STEMPEL_MUSTER.match(z["stempel"]):
+            return False
+        for feld in ("ziel", "zeit"):
+            if not isinstance(z[feld], str) or not z[feld]:
+                return False
+        dateien = z["dateien"]
+        if not isinstance(dateien, list) or len(dateien) != len(V2_DATEIEN):
+            return False
+        namen = []
+        for e in dateien:
+            if not isinstance(e, dict) or set(e) != {"name", "vorher_sha256", "neu_sha256"}:
+                return False
+            if not isinstance(e["name"], str):
+                return False
+            vorher, neu = e["vorher_sha256"], e["neu_sha256"]
+            if not (vorher is None or (isinstance(vorher, str) and _HASH_MUSTER.match(vorher))):
+                return False
+            if not (isinstance(neu, str) and _HASH_MUSTER.match(neu)):
+                return False
+            namen.append(e["name"])
+        return sorted(namen) == sorted(V2_DATEIEN)
+    except Exception:
+        return False
+
+
+class _Manifest:
+    """Das Protokoll ``sicherungen_manifest.jsonl`` - Protokoll, nie Voraussetzung."""
+
+    def __init__(self, pfad):
+        self.pfad = pfad
+        self._gewarnt = False
+
+    def lesen(self):
+        """``(gueltige Zeilen, Zahl ungueltiger Zeilen)``; Warnzeile einmal je Lauf."""
+        zeilen, ungueltig, hinweis = [], 0, ""
+        try:
+            with open(self.pfad, "rb") as datei:
+                roh = datei.read()
+        except FileNotFoundError:
+            roh, hinweis = b"", "Manifest nicht vorhanden - es wird beim Eintragen angelegt."
+        except OSError:
+            roh, hinweis = b"", "Manifest nicht lesbar - der Weg laeuft trotzdem."
+        for zeile in roh.split(b"\n"):
+            if not zeile.strip():
+                continue
+            try:
+                daten = json.loads(zeile.decode("utf-8"))
+                gueltig = _manifest_zeile_gueltig(daten)
+            except Exception:                 # lesen wirft nie: kaputte Zeile = ungueltig
+                daten, gueltig = None, False
+            if gueltig:
+                zeilen.append(daten)
+            else:
+                ungueltig += 1
+        if ungueltig and not hinweis:
+            hinweis = (f"{ungueltig} Manifestzeile(n) unvollstaendig oder unlesbar, "
+                       "ignoriert.")
+        if hinweis and not self._gewarnt:
+            print(f"Warnung: {hinweis}")
+            self._gewarnt = True
+        return zeilen, ungueltig
+
+    def hat(self, art, ziel, stempel, stand) -> bool:
+        """Gibt es eine gueltige Zeile mit gleichem ``art``, ``ziel`` und ``stempel``,
+        die zu ``stand.json`` des Stempels passt?"""
+        try:
+            schluessel = _ziel_schluessel(ziel)
+            norm = _dateien_norm(stand)
+            for z in self.lesen()[0]:
+                if z["art"] == art and z["stempel"] == stempel and z["ziel"] == schluessel \
+                        and _dateien_norm(z["dateien"]) == norm:
+                    return True
+        except Exception:                     # nie eine Ausnahme: im Zweifel "nicht vorhanden"
+            return False
+        return False
+
+    def anhaengen(self, art, ziel, stempel, stand) -> bool:
+        """Eine Zeile anhaengen; fehlt das Zeilenende der Vorgaengerin, zuerst eines."""
+        self.lesen()                                  # nur fuer die Warnzeile (fehlt/kaputt)
+        try:
+            zeile = {"art": art, "stempel": stempel, "ziel": _ziel_schluessel(ziel),
+                     "zeit": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "dateien": [{"name": d["name"], "vorher_sha256": d["vorher_sha256"],
+                                  "neu_sha256": d["neu_sha256"]} for d in stand]}
+            text = json.dumps(zeile, ensure_ascii=False) + "\n"
+        except Exception:
+            print("Warnung: Die Manifestzeile konnte nicht gebildet werden "
+                  "(der Weg ist trotzdem vollendet; --weiter bzw. --rueckrollen tragen sie nach).")
+            return False
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.pfad)), exist_ok=True)
+            vorspann = b""
+            if os.path.isfile(self.pfad) and os.path.getsize(self.pfad) > 0:
+                with open(self.pfad, "rb") as datei:
+                    datei.seek(-1, os.SEEK_END)
+                    if datei.read(1) != b"\n":
+                        vorspann = b"\n"
+            with open(self.pfad, "ab") as datei:
+                datei.write(vorspann + text.encode("utf-8"))
+                datei.flush()
+                os.fsync(datei.fileno())
+        except OSError:
+            print("Warnung: Die Manifestzeile konnte nicht geschrieben werden "
+                  "(der Weg ist trotzdem vollendet; --weiter bzw. --rueckrollen tragen sie nach).")
+            return False
+        return True
+
+
+# ── Einspielen ──────────────────────────────────────────────────────────────
+
+def _einspielen_datei(ziel, ordner, stempel, d):
+    """Schritte 5.3 (a)-(d) fuer EINE Datei, ab dem belegten Stand fortgesetzt."""
+    name = d["name"]
+    p = _dateinamen(ziel, name, stempel)
+    if _datei_lage(p["tmp"]) is None:                                  # (a)
+        _kopieren(os.path.join(ordner, "neu", name), p["tmp"], soll=d["neu_sha256"])
+        if _datei_lage(p["tmp"]) != d["neu_sha256"]:
+            raise TransaktionsFehler("Die Zwischenkopie stimmt nicht mit neu/ ueberein - "
+                                     "abgebrochen (--rueckrollen stellt den Ausgangsstand her).")
+    if not _hat_marke(ordner, name, "beginn"):                         # (b)
+        _marke_schreiben(_marke_pfad(ordner, name, "beginn"))
+    _ersetzen(p["tmp"], p["ziel"])                                     # (c)
+    _marke_schreiben(_marke_pfad(ordner, name, "eingespielt"))         # (d)
+
+
+def _einspielen_ordner(ziel, ordner, stempel, stand) -> int:
+    """Den Ordner einspielen (Schritt 5.3); Rueckgabe: Zahl ersetzter Dateien.
+
+    Die Lagepruefung davor ist die zweite Pruefung unmittelbar vor dem ersten
+    ``os.replace`` (auch fuer ``--weiter``).
+    """
+    lagen = _lagen_pruefen(ziel, ordner, stempel, stand, "ein")
+    marke = os.path.join(ordner, "EINSPIELEN")
+    if not os.path.isfile(marke):
+        _marke_schreiben(marke)
+    ersetzt = 0
+    for d, lage, _aktion in lagen:
+        if lage == "gleich":
+            continue
+        if lage == "erledigt":                    # fehlende Marken nachtragen
+            for art in ("beginn", "eingespielt"):
+                if not _hat_marke(ordner, d["name"], art):
+                    _marke_schreiben(_marke_pfad(ordner, d["name"], art))
+            continue
+        _einspielen_datei(ziel, ordner, stempel, d)
+        ersetzt += 1
+    return ersetzt
+
+
+def _fertig_machen(ziel, ordner, stempel, stand, manifest):
+    """Schritt 5.4: Ordner nach ``.fertig`` und die Manifestzeile ``eingespielt``."""
+    fertig = _ordnerpfad(ziel, stempel, "fertig")
+    _umbenennen(ordner, fertig)
+    manifest.anhaengen("eingespielt", ziel, stempel, stand)
+
+
+def _befehl_text(ziel_ist_produktiv, stempel):
+    wahl = "--ausgabe <ordner> --produktiv" if ziel_ist_produktiv else "--ausgabe-kandidat <ordner>"
+    return f"personen_gruppieren.py {wahl} --rueckrollen {stempel}"
+
+
+def _vorpruefen_schreiben(ziel, stempel):
+    """Gesamtvorpruefung des schreibenden Laufs; wirft bei jeder Abweichung."""
+    eintraege = _gesamtvorpruefung(ziel)
+    bereit = [e for e in eintraege if e["art"] == "BEREIT"]
+    if bereit:
+        raise TransaktionsFehler(
+            f"Ein halbfertiger Stand ({bereit[0]['stempel']}) liegt vor: --weiter vollendet ihn, "
+            f"--rueckrollen {bereit[0]['stempel']} stellt den Ausgangsstand her. Nichts geaendert.")
+    if not _STEMPEL_MUSTER.match(stempel or ""):
+        raise TransaktionsFehler("Der Stempel ist ungueltig - nichts geaendert.")
+    if eintraege and stempel <= eintraege[-1]["stempel"]:
+        raise TransaktionsFehler("Der neue Stempel ist nicht juenger als alle vorhandenen "
+                                 "Staende - nichts geaendert.")
+    for endung in (None, "fertig", "zurueckgerollt", "unfertig"):
+        _frei(_ordnerpfad(ziel, stempel, endung), "Ein Ordnername dieses Stempels")
+    for name in V2_DATEIEN:
+        p = _dateinamen(ziel, name, stempel)
+        for art in ("tmp", "tmp_verw", "verw"):
+            _frei(p[art], "Ein Zwischenname dieses Stempels")
+        _frei(p["tmp"] + ".teil", "Ein Zwischenname dieses Stempels")
+        if os.path.lexists(p["ziel"]) and _datei_lage(p["ziel"]) == "?":
+            raise TransaktionsFehler("Eine Zieldatei ist keine regulaere Datei - "
+                                     "nichts geaendert.")
+    vorhanden = [n for n in V2_PFLICHT if os.path.lexists(os.path.join(ziel, n))]
+    if vorhanden and len(vorhanden) != len(V2_PFLICHT):
+        raise TransaktionsFehler(
+            f"Nur {len(vorhanden)} von {len(V2_PFLICHT)} Pflichtdateien liegen im Zielordner - "
+            "unklarer Ausgangsstand, nichts geaendert.")
+    return [e for e in eintraege if e["art"] == "UNFERTIG"]
+
+
+def _bereitstellen(lauf, ziel, stempel, stand_zeit):
+    """Schritt 5.2: ``vorher/`` kopieren (Hashes gegen die Quelle), ``neu/``, zuletzt ``stand.json``."""
+    ordner = _ordnerpfad(ziel, stempel)
+    os.makedirs(os.path.join(ordner, "vorher"))
+    gesichert, vorher_sha = [], {}
+    for name in V2_DATEIEN:
+        quelle = os.path.join(ziel, name)
+        sha = _datei_lage(quelle)
+        if sha is None:
+            vorher_sha[name] = None
+            continue
+        kopie = os.path.join(ordner, "vorher", name)
+        _kopieren(quelle, kopie)
+        if _datei_lage(kopie) != sha:
+            raise TransaktionsFehler("Eine Sicherung weicht von ihrer Quelle ab - abgebrochen "
+                                     "(der Ordner bleibt UNFERTIG, die Ziele sind unveraendert).")
+        vorher_sha[name] = sha
+        gesichert.append(name)
+    neu_ordner = os.path.join(ordner, "neu")
+    geschrieben = schreiben(lauf, neu_ordner, stand_zeit)
+    if len(geschrieben) != len(V2_DATEIEN):
+        raise TransaktionsFehler("Das Verfahren liefert nicht alle vier Dateien - abgebrochen.")
+    stand = [{"name": n, "vorher_sha256": vorher_sha[n],
+              "neu_sha256": _datei_lage(os.path.join(neu_ordner, n))} for n in V2_DATEIEN]
+    _marke_schreiben(os.path.join(ordner, "stand.json"),
+                     json.dumps({"stempel": stempel, "dateien": stand}, ensure_ascii=False,
+                                indent=1) + "\n")
+    return ordner, stand, gesichert
+
+
+def _zweite_pruefung(ziel, ordner, stempel):
+    """Schritt 5.2b unmittelbar vor ``EINSPIELEN``: alle Ziele gegen ``vorher_sha256``
+    (fehlend bei ``null``), dazu jede ``vorher/``- und ``neu/``-Datei gegen ``stand.json``."""
+    stand = _ordner_pruefen(ordner, stempel)
+    for d in stand:
+        if _datei_lage(os.path.join(ziel, d["name"])) != d["vorher_sha256"]:
+            raise TransaktionsFehler(
+                f"Die Zieldatei {d['name']} hat sich seit der Bereitstellung geaendert - "
+                "keine Zieldatei geaendert, der Stand bleibt BEREIT (ohne EINSPIELEN). "
+                "Aenderung zuruecknehmen, dann --rueckrollen oder --weiter.")
+    return stand
+
+
+def v2_schreiben(lauf, ziel, manifest, stempel=None, stand=None, produktiv=False) -> int:
+    """Der schreibende v2-Lauf (Schritte 5.1-5.5); Rueckgabe: Exit-Code (0 oder 2)."""
+    pruefe_ausserhalb_repo(ziel)
+    stempel = stempel or _stempel_neu()
+    stand_zeit = stand or datetime.datetime.now().isoformat(timespec="seconds")
+    protokoll = _Manifest(manifest)
+    try:
+        unfertige = _vorpruefen_schreiben(ziel, stempel)
+        for e in unfertige:                           # erst nach bestandener Vorpruefung
+            _umbenennen(e["pfad"], e["pfad"] + ".unfertig")
+        ordner, stand_dateien, gesichert = _bereitstellen(lauf, ziel, stempel, stand_zeit)
+        _zweite_pruefung(ziel, ordner, stempel)
+        ersetzt = _einspielen_ordner(ziel, ordner, stempel, stand_dateien)
+        _fertig_machen(ziel, ordner, stempel, stand_dateien, protokoll)
+    except TransaktionsFehler as problem:
+        print(f"Fehler: {problem}")
+        return 2
+    if unfertige:
+        print(f"{len(unfertige)} UNFERTIG-Ordner aus einem frueheren Abbruch nach .unfertig "
+              "verschoben (die Ziele waren unveraendert).")
+    for name in gesichert:
+        print(f"gesichert: {name}")
+    for d in stand_dateien:
+        if d["vorher_sha256"] != d["neu_sha256"]:
+            print(f"geschrieben: {d['name']}")
+    print(f"Gesichert: {len(gesichert)} Datei(en); eingespielt: {ersetzt} von "
+          f"{len(stand_dateien)} (unveraenderte zaehlen als erledigt).")
+    print("Zum Zurueckrollen: " + _befehl_text(produktiv, stempel))
+    return 0
+
+
+# ── --weiter ────────────────────────────────────────────────────────────────
+
+def v2_weiter(ziel, manifest) -> int:
+    """``--weiter``: einen halbfertigen Stand vollenden, fehlende Manifestzeilen
+    ``eingespielt`` nachtragen. Ohne Eingabedateien, ohne Freigabe; wiederholbar."""
+    protokoll = _Manifest(manifest)
+    getan = 0
+    try:
+        eintraege = _gesamtvorpruefung(ziel)
+        for e in eintraege:
+            if e["art"] == "UNFERTIG":
+                _hinweis_unfertig(e["stempel"])
+        bereit = next((e for e in eintraege if e["art"] == "BEREIT"), None)
+        if bereit is not None:
+            ordner, stempel = bereit["pfad"], bereit["stempel"]
+            if os.path.isfile(os.path.join(ordner, "RUECKROLLEN")):
+                raise TransaktionsFehler(
+                    f"Der Stand {stempel} wird zurueckgerollt: --rueckrollen {stempel} "
+                    "vollendet das Zurueckrollen. Nichts geaendert.")
+            stand = _ordner_pruefen(ordner, stempel)
+            _lagen_pruefen(ziel, ordner, stempel, stand, "ein")
+            _frei(_ordnerpfad(ziel, stempel, "fertig"), "Der Name .fertig dieses Stempels")
+        fertige = []
+        for e in eintraege:
+            if e["art"] == "FERTIG":
+                stand = _ordner_pruefen(e["pfad"], e["stempel"])
+                if not protokoll.hat("eingespielt", ziel, e["stempel"], stand):
+                    fertige.append((e["stempel"], stand))
+        # ab hier wird geaendert
+        if bereit is not None:
+            stand = _ordner_pruefen(ordner, stempel)
+            ersetzt = _einspielen_ordner(ziel, ordner, stempel, stand)
+            _fertig_machen(ziel, ordner, stempel, stand, protokoll)
+            print(f"Stand vollendet: {ersetzt} Datei(en) eingespielt.")
+            getan += 1
+        for stempel_alt, stand_alt in fertige:
+            protokoll.anhaengen("eingespielt", ziel, stempel_alt, stand_alt)
+            print("Warnung: Zielzustand ungeprüft (Nachtrag nur Protokoll)")
+            print("Manifestzeile eingespielt nachgetragen.")
+            getan += 1
+    except TransaktionsFehler as problem:
+        print(f"Fehler: {problem}")
+        return 2
+    if not getan:
+        print("Nichts zu tun.")
+    return 0
+
+
+# ── --rueckrollen ───────────────────────────────────────────────────────────
+
+def _rueckrollen_datei(ziel, ordner, stempel, d, aktion):
+    """Schritt 8 fuer EINE offene Datei, ab dem belegten Stand fortgesetzt."""
+    name = d["name"]
+    p = _dateinamen(ziel, name, stempel)
+    if aktion in ("kopieren", "uebernehmen"):
+        if aktion == "kopieren":
+            _kopieren(os.path.join(ordner, "vorher", name), p["tmp"], soll=d["vorher_sha256"])
+            if _datei_lage(p["tmp"]) != d["vorher_sha256"]:
+                raise TransaktionsFehler("Die Rueckroll-Kopie stimmt nicht mit vorher/ ueberein "
+                                         "- abgebrochen (erneut --rueckrollen).")
+        if not _hat_marke(ordner, name, "rueck_beginn"):
+            _marke_schreiben(_marke_pfad(ordner, name, "rueck_beginn"))
+        _ersetzen(p["tmp"], p["ziel"])
+    else:
+        if not _hat_marke(ordner, name, "rueck_beginn"):
+            _marke_schreiben(_marke_pfad(ordner, name, "rueck_beginn"))
+        if aktion == "tmp_verwerfen":
+            _umbenennen(p["tmp"], p["tmp_verw"])
+        else:                                          # ziel_verwerfen
+            _umbenennen(p["ziel"], p["verw"])
+    _marke_schreiben(_marke_pfad(ordner, name, "zurueckgerollt"))
+
+
+def v2_rueckrollen(ziel, stempel, manifest) -> int:
+    """``--rueckrollen <stempel>``: alle vier Dateien auf den Ausgangsstand dieses
+    Stempels zurueck (nur der juengste nicht zurueckgerollte Stand). Verschiebt, loescht nie."""
+    protokoll = _Manifest(manifest)
+    try:
+        if not _STEMPEL_MUSTER.match(stempel or ""):
+            raise TransaktionsFehler("Der Stempel ist ungueltig - nichts geaendert.")
+        eintraege = _gesamtvorpruefung(ziel)
+        gewaehlt = next((e for e in eintraege if e["stempel"] == stempel), None)
+        if gewaehlt is None:
+            raise TransaktionsFehler("Zu diesem Stempel gibt es keinen Stand - nichts geaendert.")
+        art, ordner = gewaehlt["art"], gewaehlt["pfad"]
+        if art in ("UNFERTIG", "VERSCHOBEN"):
+            if art == "UNFERTIG":
+                _hinweis_unfertig(stempel)
+            else:
+                print(f"UNFERTIG {stempel}: bereits nach .unfertig verschoben, Ziele unverändert")
+            return 2
+        if art == "ZURUECKGEROLLT":
+            stand = _ordner_pruefen(ordner, stempel)
+            if protokoll.hat("zurueckgerollt", ziel, stempel, stand):
+                raise TransaktionsFehler("Dieser Stand ist schon zurueckgerollt - "
+                                         "nichts geaendert.")
+            protokoll.anhaengen("zurueckgerollt", ziel, stempel, stand)
+            print("Warnung: Zielzustand ungeprüft (Nachtrag nur Protokoll)")
+            print("Manifestzeile zurueckgerollt nachgetragen.")
+            return 0
+        offene = [e for e in eintraege if e["art"] in ("BEREIT", "FERTIG")]
+        if not offene or offene[-1]["stempel"] != stempel:
+            raise TransaktionsFehler("Nur der juengste nicht zurueckgerollte Stand kann "
+                                     "zurueckgerollt werden - nichts geaendert.")
+        stand = _ordner_pruefen(ordner, stempel)
+        lagen = _lagen_pruefen(ziel, ordner, stempel, stand, "rueck")
+        _frei(_ordnerpfad(ziel, stempel, "zurueckgerollt"),
+              "Der Name .zurueckgerollt dieses Stempels")
+        # ab hier wird geaendert
+        marke = os.path.join(ordner, "RUECKROLLEN")
+        if not os.path.isfile(marke):
+            _marke_schreiben(marke)
+        zurueck = 0
+        for d, lage, aktion in lagen:
+            if lage == "offen":
+                _rueckrollen_datei(ziel, ordner, stempel, d, aktion)
+                zurueck += 1
+            elif lage == "erledigt" and _hat_marke(ordner, d["name"], "rueck_beginn") \
+                    and not _hat_marke(ordner, d["name"], "zurueckgerollt"):
+                _marke_schreiben(_marke_pfad(ordner, d["name"], "zurueckgerollt"))
+        _umbenennen(ordner, _ordnerpfad(ziel, stempel, "zurueckgerollt"))
+        protokoll.anhaengen("zurueckgerollt", ziel, stempel, stand)
+    except TransaktionsFehler as problem:
+        print(f"Fehler: {problem}")
+        return 2
+    print(f"Zurueckgerollt: {zurueck} Datei(en) auf den Ausgangsstand.")
+    return 0
+
+
+def _wartung_main(args) -> int:
+    """``--weiter`` / ``--rueckrollen``: eigenstaendig, ohne Eingabedateien und Freigabe."""
+    if args.trocken or args.nachtragen or args.bewerten:
+        print("Fehler: --weiter und --rueckrollen sind eigenstaendig und nicht mit "
+              "--trocken, --nachtragen oder --bewerten kombinierbar.")
+        return 2
+    ziel = args.ausgabe if args.produktiv else args.ausgabe_kandidat
+    try:
+        pruefe_ausserhalb_repo(ziel)
+    except SystemExit:
+        return 2
+    except PersonenFehler as problem:
+        print(f"Fehler: {problem}")
+        return 2
+    if args.weiter:
+        return v2_weiter(ziel, args.manifest)
+    return v2_rueckrollen(ziel, args.rueckrollen, args.manifest)
+
+
 def main(argv=None) -> int:
     zerleger = argparse.ArgumentParser(
         description="Gruppiert alle Gesichter zu Personen (Mittelpunkt-Verfahren, "
@@ -2653,10 +3456,26 @@ def main(argv=None) -> int:
                           help="zusaetzlich die Bewertung an den eigenen Entscheidungen "
                                "ausgeben: bestehende Zuordnung gegen diesen Lauf, nur Zahlen")
     zerleger.add_argument("--trocken", action="store_true", help="nichts schreiben (Vorrang)")
-    zerleger.add_argument("--schreiben", action="store_true", help="wirklich schreiben")
+    # --schreiben, --weiter und --rueckrollen schliessen sich gegenseitig aus (Auflage 4).
+    wege = zerleger.add_mutually_exclusive_group()
+    wege.add_argument("--schreiben", action="store_true", help="wirklich schreiben")
+    wege.add_argument("--weiter", action="store_true",
+                      help="v2: einen halbfertigen Stand vollenden und fehlende Manifestzeilen "
+                           "nachtragen (eigenstaendig: keine Eingabedateien, keine Freigabe); "
+                           "Ziel wie beim Schreiben: --ausgabe-kandidat oder --ausgabe "
+                           "--produktiv")
+    wege.add_argument("--rueckrollen", default=None, metavar="STEMPEL",
+                      help="v2: alle vier Dateien aus den Sicherungen dieses Stempels "
+                           "wiederherstellen (nur der juengste nicht zurueckgerollte Stand; "
+                           "verschiebt, loescht nie; eigenstaendig wie --weiter)")
+    zerleger.add_argument("--manifest", default=_standard_manifest(),
+                          help="Protokoll der eingespielten/zurueckgerollten Staende (JSONL; "
+                               "Standard ~/foto_sortierung/sicherungen_manifest.jsonl)")
     args = zerleger.parse_args(argv)
 
     pruefe_ausserhalb_repo(args.ausgabe)
+    if args.weiter or args.rueckrollen is not None:
+        return _wartung_main(args)
     nachtragen = list(args.nachtragen or [])
     pfade = args.vektoren or [p for p in STANDARD_VEKTOREN if os.path.isfile(p)]
     schreiben_an = bool(args.schreiben) and not bool(args.trocken)
@@ -2743,10 +3562,7 @@ def main(argv=None) -> int:
                 print("Ziel: " + ("PRODUKTIVER Ordner (--produktiv)" if args.produktiv
                                   else "Kandidatenordner"))
                 pruefe_ausserhalb_repo(ziel)
-                for pfad in _stempel_sichern(ziel, mit_aliasen=True):
-                    print(f"gesichert: {os.path.basename(pfad)}")
-                for pfad in schreiben(lauf, ziel):
-                    print(f"geschrieben: {os.path.basename(pfad)}")
+                return v2_schreiben(lauf, ziel, args.manifest, produktiv=args.produktiv)
             else:
                 pruefe_ausserhalb_repo(args.ausgabe)
                 for pfad in _stempel_sichern(args.ausgabe):

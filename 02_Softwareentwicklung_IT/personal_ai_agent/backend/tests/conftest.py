@@ -36,3 +36,17 @@ def _sitzungen_nie_neben_das_projekt(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_settings, "sitzungen_datei", str(tmp_path / ".sitzungen.json"))
     monkeypatch.setattr(auth, "_SITZUNGEN_GELADEN", None)
+
+
+@pytest.fixture(autouse=True)
+def _gruppierung_manifest_nie_ins_heimverzeichnis(tmp_path_factory, monkeypatch):
+    """Das Manifest des v2-Schreibwegs (Gruppierung v2, Auflage 4) zeigt in Tests in einen tmp-Ordner.
+
+    ``personen_gruppieren.py --verfahren v2 --schreiben`` haengt je Ereignis eine Zeile an
+    ``~/foto_sortierung/sicherungen_manifest.jsonl``. Ein Test, der den Schreibweg ueber
+    ``main()`` faehrt und keinen ``--manifest`` uebergibt, darf nie das echte Protokoll
+    beruehren. Der eigene Ordner (nicht ``tmp_path``) haelt die Ordnerlisten der Tests frei.
+    """
+    monkeypatch.setenv(
+        "GRUPPIERUNG_MANIFEST",
+        str(tmp_path_factory.mktemp("manifest_standard") / "sicherungen_manifest.jsonl"))
