@@ -185,7 +185,47 @@ def test_rolle_gesetzt_ohne_sende_bleibt_nachholbar_ohne_automatismus(umgebung):
     assert av.finden("v-1").phase == "rolle_gesetzt"
 
 
-@pytest.mark.parametrize("phase", ["gesendet", "im_postfach", "fehler", "unklar", "im_chat",
+def test_abgabe_sende_ohne_ergebnis_wird_abgabe_unklar_und_es_wird_nie_gesendet(umgebung, monkeypatch):
+    umgebung.vorbereiten("v-1")
+    av.abgabe_beginnen("v-1")
+    seit = av.finden("v-1").abgabe_seit
+
+    def verboten(*args, **kwargs):
+        raise AssertionError("Wiederaufnahme darf nie senden")
+
+    monkeypatch.setattr(subprocess, "run", verboten)
+    monkeypatch.setattr(subprocess, "Popen", verboten)
+
+    erg = _wiederaufnehmen(umgebung)
+
+    assert [(e.id, e.status) for e in erg] == [("v-1", "unklar")]
+    vorgang = av.finden("v-1")
+    assert vorgang.phase == "abgabe_unklar" and vorgang.abgabe_seit == seit      # Frist läuft weiter
+    assert vorgang.fehler == "Absturz während der Abgabe-Zustellung – nicht automatisch erneut gesendet"
+    assert [(e.id, e.status) for e in _wiederaufnehmen(umgebung)] == [("v-1", "abgabe_offen")]
+
+
+@pytest.mark.parametrize("phase", ["abgabe_angefragt", "abgabe_unklar"])
+def test_offene_abgabe_bleibt_stehen_status_abgabe_offen(umgebung, phase):
+    umgebung.vorbereiten("v-1", phase=phase)
+    av.aktualisieren("v-1", abgabe_seit="2026-10-21T09:00:00+00:00")
+
+    erg = _wiederaufnehmen(umgebung)
+
+    assert [(e.id, e.status) for e in erg] == [("v-1", "abgabe_offen")]
+    assert erg[0].hinweis == "Abgabe offen – Frist läuft seit 2026-10-21T09:00:00+00:00"
+    assert av.finden("v-1").phase == phase
+
+
+@pytest.mark.parametrize("phase", ["abgegeben", "abgabe_uebersprungen"])
+def test_erledigte_abgabe_ohne_rolle_ist_nachholbar(umgebung, phase):
+    umgebung.vorbereiten("v-1", phase=phase)
+    erg = _wiederaufnehmen(umgebung)
+    assert [(e.id, e.status) for e in erg] == [("v-1", "nachholbar")]
+    assert av.finden("v-1").phase == phase
+
+
+@pytest.mark.parametrize("phase", ["abgabe_fehler", "gesendet", "im_postfach", "fehler", "unklar", "im_chat",
                                    "bestaetigt", "verworfen"])
 def test_andere_phasen_werden_nicht_angefasst(umgebung, phase):
     umgebung.vorbereiten("v-1", phase=phase)
@@ -220,10 +260,45 @@ def test_quittieren_neu_setzt_bestaetigt(umgebung):
     assert av.finden("v-1").phase == "bestaetigt"
 
 
-def test_quittieren_abgabe_setzt_nur_die_abgabeflagge(umgebung):
-    _uebergeben(umgebung)
+@pytest.mark.parametrize("phase", ["abgabe_sende", "abgabe_angefragt", "abgabe_unklar"])
+def test_quittieren_abgabe_ist_in_jeder_offenen_abgabephase_gueltig(umgebung, phase):
+    umgebung.marke_setzen("claude 2026-10-20T10:00:00+00:00")
+    umgebung.vorbereiten("v-1", phase=phase)                         # Marke gehört noch dem alten Master
+    av.aktualisieren("v-1", fehler="alter Hinweis")
+
     erg = av.quittieren("v-1", "abgabe", umgebung.repo)
-    assert erg.abgabe_bestaetigt is True and erg.phase == "vorbereitet"
+
+    assert erg.phase == "abgegeben" and erg.abgabe == "abgegeben" and erg.fehler is None
+    assert av.finden("v-1") == erg
+
+
+@pytest.mark.parametrize("phase", ["vorbereitet", "abgegeben", "abgabe_uebersprungen", "abgabe_fehler",
+                                   "rolle_gesetzt"])
+def test_quittieren_abgabe_in_anderen_phasen_wird_abgelehnt(umgebung, phase):
+    umgebung.vorbereiten("v-1", phase=phase)
+    vorher = av.datei().read_text(encoding="utf-8")
+
+    with pytest.raises(av.AssistentFehler, match="Abgabe ist nicht offen"):
+        av.quittieren("v-1", "abgabe", umgebung.repo)
+
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_quittieren_abgabe_bei_geaenderter_marke_wird_abgelehnt(umgebung):
+    umgebung.marke_setzen("claude 2026-10-20T10:00:00+00:00")
+    umgebung.vorbereiten("v-1", phase="abgabe_angefragt")
+    umgebung.marke_setzen("codex v-9 2026-10-20T11:00:00+00:00")     # später anders gesetzt
+    vorher = av.datei().read_text(encoding="utf-8")
+
+    with pytest.raises(av.AssistentFehler, match="Marke hat sich geändert"):
+        av.quittieren("v-1", "abgabe", umgebung.repo)
+
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_quittieren_abgabe_gilt_auch_bei_fehlender_markendatei(umgebung):
+    umgebung.vorbereiten("v-1", phase="abgabe_angefragt")            # Vorzustand: Datei fehlte = ""
+    assert av.quittieren("v-1", "abgabe", umgebung.repo).phase == "abgegeben"
 
 
 def test_quittung_bei_veralteter_marke_wird_abgelehnt(umgebung):
@@ -231,9 +306,10 @@ def test_quittung_bei_veralteter_marke_wird_abgelehnt(umgebung):
     modi.master_setzen(THEMA, "codex", repo=umgebung.repo)         # späterer Wechsel überschreibt die Marke
     vorher = av.datei().read_text(encoding="utf-8")
 
-    for art in ("neu", "abgabe"):
-        with pytest.raises(av.AssistentFehler, match="veraltet"):
-            av.quittieren("v-1", art, umgebung.repo)
+    with pytest.raises(av.AssistentFehler, match="veraltet"):
+        av.quittieren("v-1", "neu", umgebung.repo)
+    with pytest.raises(av.AssistentFehler, match="nicht offen"):    # Phase rolle_gesetzt: keine Abgabe mehr
+        av.quittieren("v-1", "abgabe", umgebung.repo)
 
     assert av.datei().read_text(encoding="utf-8") == vorher
 
@@ -243,7 +319,6 @@ def test_quittung_neu_verlangt_die_zielrolle_in_der_marke(umgebung):
     umgebung.marke_setzen(f"claude 2026-10-20T10:00:00+00:00 assistent {THEMA} v-1")
     with pytest.raises(av.AssistentFehler, match="erwartet wurde hermes"):
         av.quittieren("v-1", "neu", umgebung.repo)
-    assert av.quittieren("v-1", "abgabe", umgebung.repo).abgabe_bestaetigt is True
 
 
 def test_quittung_fuer_unbekannten_oder_verworfenen_vorgang_und_schlechte_eingaben(umgebung):
@@ -264,3 +339,95 @@ def test_a_b_a_alte_quittung_ist_ungueltig(umgebung):
     with pytest.raises(av.AssistentFehler, match="veraltet"):
         av.quittieren("v-1", "neu", umgebung.repo)
     assert av.quittieren("v-2", "neu", umgebung.repo).phase == "bestaetigt"
+
+
+# --- Phasenwechsel und Abgabe-Helfer (G8) ---------------------------------------------
+
+def test_phase_wechseln_greift_nur_aus_einer_der_vonphasen(umgebung):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1"), _vorgang("v-2")])
+
+    erg = av.phase_wechseln("v-1", ("vorbereitet", "sende"), "gesendet", fehler="x")
+    assert erg.phase == "gesendet" and erg.fehler == "x" and erg.zeit != _vorgang().zeit
+    assert av.finden("v-2") == _vorgang("v-2")                      # andere Vorgänge unberührt
+
+    vorher = av.datei().read_text(encoding="utf-8")
+    nicht = av.phase_wechseln("v-1", ("vorbereitet",), "verworfen", fehler="y")
+    assert nicht.phase == "gesendet" and nicht.fehler == "x"        # unverändert zurückgegeben
+    assert av.datei().read_text(encoding="utf-8") == vorher
+    assert av.phase_wechseln("gibtsnicht", ("vorbereitet",), "sende") is None
+
+
+def test_phase_wechseln_lehnt_unbekannte_zielphase_ab(umgebung):
+    av.aendern(lambda alt: [*alt, _vorgang()])
+    with pytest.raises(av.AssistentFehler):
+        av.phase_wechseln("v-1", ("vorbereitet",), "erfunden")
+
+
+def test_abgabe_beginnen_setzt_phase_und_fristbeginn_nur_aus_vorbereitet(umgebung):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1"), _vorgang("v-2", phase="rolle_gesetzt")])
+
+    erg = av.abgabe_beginnen("v-1")
+    assert erg.phase == "abgabe_sende" and erg.abgabe_seit is not None
+    assert av.abgabe_beginnen("v-1").abgabe_seit == erg.abgabe_seit  # zweiter Aufruf ändert nichts
+    assert av.abgabe_beginnen("v-2").phase == "rolle_gesetzt"
+    assert av.finden("v-2").abgabe_seit is None
+
+
+@pytest.mark.parametrize("ergebnis", ["abgabe_angefragt", "abgabe_fehler", "abgabe_unklar"])
+def test_abgabe_ergebnis_nur_aus_abgabe_sende(umgebung, ergebnis):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1", phase="abgabe_sende"), _vorgang("v-2")])
+    assert av.abgabe_ergebnis("v-1", ergebnis).phase == ergebnis
+    assert av.abgabe_ergebnis("v-2", ergebnis).phase == "vorbereitet"
+
+
+def test_abgabe_ergebnis_nach_quittung_laesst_abgegeben_stehen(umgebung):
+    umgebung.vorbereiten("v-1")
+    av.abgabe_beginnen("v-1")
+    av.quittieren("v-1", "abgabe", umgebung.repo)                    # Quittung vor dem Transportergebnis
+
+    erg = av.abgabe_ergebnis("v-1", "abgabe_angefragt")
+
+    assert erg.phase == "abgegeben" and erg.abgabe == "abgegeben"
+
+
+def test_abgabe_ergebnis_mit_ungueltigem_wert_wirft(umgebung):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1", phase="abgabe_sende")])
+    for falsch in ("abgegeben", "sende", "", "erfunden"):
+        with pytest.raises(av.AssistentFehler):
+            av.abgabe_ergebnis("v-1", falsch)
+    assert av.finden("v-1").phase == "abgabe_sende"
+
+
+@pytest.mark.parametrize("phase", ["vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar"])
+def test_abgabe_ueberspringen_aus_vorbereitet_und_offenen_phasen(umgebung, phase):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1", phase=phase)])
+
+    erg = av.abgabe_ueberspringen("v-1", "10-Minuten-Frist abgelaufen")
+
+    assert erg.phase == "abgabe_uebersprungen" and erg.abgabe == "uebersprungen"
+    assert erg.fehler == "10-Minuten-Frist abgelaufen"
+
+
+@pytest.mark.parametrize("phase", ["abgegeben", "abgabe_fehler", "rolle_gesetzt", "verworfen"])
+def test_abgabe_ueberspringen_aus_anderen_phasen_aendert_nichts(umgebung, phase):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1", phase=phase)])
+    assert av.abgabe_ueberspringen("v-1", "egal") == _vorgang("v-1", phase=phase)
+
+
+def test_abgabefelder_werden_tolerant_gelesen_und_ueberleben_spaetere_phasen(umgebung):
+    gut = {"id": "v-gut", "thema": THEMA, "ziel": "hermes", "von": "claude", "phase": "rolle_gesetzt",
+           "zeit": "z", "vorzustand_profil": {}, "vorzustand_marke": "", "abgabe": "abgegeben",
+           "abgabe_seit": "2026-10-21T09:00:00+00:00", "abgabe_zugestellt": "2026-10-21T09:01:00+00:00"}
+    kaputt = {**gut, "id": "v-kaputt", "abgabe": "vielleicht", "abgabe_seit": 5, "abgabe_zugestellt": ["x"]}
+    alt = {k: v for k, v in gut.items() if not k.startswith("abgabe")}
+    av.datei().write_text(json.dumps([gut, kaputt, {**alt, "id": "v-alt", "abgabe_bestaetigt": True}]),
+                          encoding="utf-8")
+
+    vorgaenge = {v.id: v for v in av.lesen()}
+
+    assert (vorgaenge["v-gut"].abgabe, vorgaenge["v-gut"].abgabe_seit, vorgaenge["v-gut"].abgabe_zugestellt) == (
+        "abgegeben", "2026-10-21T09:00:00+00:00", "2026-10-21T09:01:00+00:00")
+    assert (vorgaenge["v-kaputt"].abgabe, vorgaenge["v-kaputt"].abgabe_seit,
+            vorgaenge["v-kaputt"].abgabe_zugestellt) == (None, None, None)
+    assert vorgaenge["v-alt"].abgabe is None                          # altes Feld wird nicht mehr gedeutet
+    assert av.aktualisieren("v-gut", phase="sende").abgabe == "abgegeben"

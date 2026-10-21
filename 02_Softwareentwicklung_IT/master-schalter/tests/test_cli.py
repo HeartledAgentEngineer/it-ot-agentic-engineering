@@ -381,16 +381,20 @@ def test_modelle_json_bei_leerem_cache_exit0(rollen, capsys):
 
 # --- quittieren (Wechselassistent, G4/G5) ---------------------------------------
 
-def _assistent_vorgang(vorgang_id="v-1", ziel="hermes"):
-    """Vorgang vermerken und Rolle setzen – wie der Assistent (Themensperre gehalten)."""
+def _assistent_vorgang(vorgang_id="v-1", ziel="hermes", phase="rolle_gesetzt", rolle_setzen=True):
+    """Vorgang vermerken und (optional) Rolle setzen – wie der Assistent (Themensperre gehalten).
+
+    Ohne `rolle_setzen` bleibt die Marke unberührt (= Vorzustand, wie während der Abgabe).
+    """
     from datetime import datetime, timezone
 
     from master_schalter import assistent_vorgaenge, zustand
     assistent_vorgaenge.aendern(lambda alt: [*alt, assistent_vorgaenge.Vorgang(
-        vorgang_id, "engineering", ziel, "claude", "rolle_gesetzt", datetime.now(timezone.utc).isoformat(),
+        vorgang_id, "engineering", ziel, "claude", phase, datetime.now(timezone.utc).isoformat(),
         {"master": "kontingent", "worker": "workflow", "modell": None}, "")])
-    with zustand.thema_sperre("engineering", blockierend=True, frist=1.0):
-        modi.master_uebergeben_gesperrt("engineering", ziel, vorgang_id=vorgang_id)
+    if rolle_setzen:
+        with zustand.thema_sperre("engineering", blockierend=True, frist=1.0):
+            modi.master_uebergeben_gesperrt("engineering", ziel, vorgang_id=vorgang_id)
     return assistent_vorgaenge
 
 
@@ -401,22 +405,35 @@ def test_quittieren_neu_bestaetigt_den_vorgang(rollen, capsys):
     assert av.finden("v-1").phase == "bestaetigt"
 
 
-def test_quittieren_abgabe_setzt_die_abgabeflagge(rollen, capsys):
-    av = _assistent_vorgang()
+def test_quittieren_abgabe_setzt_abgegeben_solange_die_marke_dem_alten_master_gehoert(rollen, capsys):
+    av = _assistent_vorgang(phase="abgabe_angefragt", rolle_setzen=False)
     assert cli.main(["quittieren", "v-1", "abgabe"]) == 0
-    assert av.finden("v-1").abgabe_bestaetigt is True
-    assert av.finden("v-1").phase == "rolle_gesetzt"
+    assert "Abgabe von engineering quittiert" in capsys.readouterr().out
+    assert av.finden("v-1").phase == "abgegeben" and av.finden("v-1").abgabe == "abgegeben"
+
+
+def test_quittieren_abgabe_ausserhalb_der_abgabephase_exit1(rollen, capsys):
+    av = _assistent_vorgang()                                       # Phase rolle_gesetzt
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 1
+    assert "Abgabe ist nicht offen" in capsys.readouterr().err
+    assert av.finden("v-1").phase == "rolle_gesetzt" and av.finden("v-1").abgabe is None
 
 
 def test_quittieren_bei_veralteter_marke_exit1_ohne_aenderung(rollen, capsys):
     av = _assistent_vorgang()
     modi.master_setzen("engineering", "codex")                      # späterer Wechsel überschreibt die Marke
     vorher = av.datei().read_text(encoding="utf-8")
+    assert cli.main(["quittieren", "v-1", "neu"]) == 1
+    assert "veraltet" in capsys.readouterr().err
+    assert av.datei().read_text(encoding="utf-8") == vorher
 
-    for art in ("neu", "abgabe"):
-        assert cli.main(["quittieren", "v-1", art]) == 1
-        assert "veraltet" in capsys.readouterr().err
 
+def test_quittieren_abgabe_bei_geaenderter_marke_exit1_ohne_aenderung(rollen, capsys):
+    av = _assistent_vorgang(phase="abgabe_angefragt", rolle_setzen=False)
+    modi.master_setzen("engineering", "codex")                      # Marke weicht vom Vorzustand ab
+    vorher = av.datei().read_text(encoding="utf-8")
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 1
+    assert "veraltet" in capsys.readouterr().err
     assert av.datei().read_text(encoding="utf-8") == vorher
 
 

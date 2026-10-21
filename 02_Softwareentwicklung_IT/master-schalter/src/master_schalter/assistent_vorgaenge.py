@@ -6,19 +6,35 @@ und `status_zeile` deuten sie nie. Der Vorgang wird dauerhaft vermerkt, **bevor*
 geschieht (Write-ahead) – samt Vorzustand (Profil und wörtlicher Markentext), damit eine
 Wiederaufnahme nach einem Absturz weiß, was schon passiert ist.
 
-Phasen:
-* `vorbereitet`   – vermerkt, vor jeder Nebenwirkung (Vorzustand liegt dabei)
-* `rolle_gesetzt` – Profil und Marke `… assistent <thema> <vorgang-id>` stehen
-* `sende`         – vermerkt, **bevor** der Transport startet (Absturz hier = unklar, nie neu senden)
-* `gesendet`      – Transport nachweislich abgeschickt (Codex-Queue)
-* `im_postfach`   – Postfachdatei liegt bereit (Claude/Hermes), noch nicht abgeholt
-* `fehler`        – Transport nachweislich nicht gestartet
-* `unklar`        – Ergebnis des Transports unbekannt
-* `im_chat`       – der Zielchat hat die Nachricht abgeholt (noch keine Übernahme!)
-* `bestaetigt`    – der Zielchat hat mit `masterwechsel quittieren <id> neu` übernommen
-* `verworfen`     – nichts geschehen bzw. durch einen späteren Wechsel überholt
+Reihenfolge eines Vorgangs (G8): erst gibt der **alte** Master ab, dann wird die Rolle gesetzt,
+dann wird dem neuen Master zugestellt. Während der Abgabe gehört die Besitzmarke noch dem alten
+Master – sie trägt dann **keine** Vorgangs-ID dieses Assistenten.
 
-Die Abgabe des alten Masters wird getrennt über `abgabe_bestaetigt` festgehalten.
+Phasen:
+* `vorbereitet`         – vermerkt, vor jeder Nebenwirkung (Vorzustand liegt dabei)
+* `abgabe_sende`        – vermerkt, **bevor** der Abgabe-Auftrag an den alten Master geht
+  (`abgabe_seit` = Beginn der Frist; Absturz hier = unklar, nie neu senden)
+* `abgabe_angefragt`    – Abgabe-Auftrag nachweislich abgeschickt bzw. im Postfach, Quittung offen
+* `abgabe_unklar`       – Ergebnis des Abgabe-Transports unbekannt, Quittung weiter möglich
+* `abgabe_fehler`       – Abgabe-Transport nachweislich nicht gestartet
+* `abgegeben`           – der alte Master hat mit `masterwechsel quittieren <id> abgabe` abgegeben
+* `abgabe_uebersprungen` – Abgabe nicht abgewartet (Grund in `fehler`); der alte Master bekommt
+  stattdessen eine Info
+* `rolle_gesetzt`       – Profil und Marke `… assistent <thema> <vorgang-id>` stehen
+* `sende`               – vermerkt, **bevor** der Transport startet (Absturz hier = unklar, nie neu senden)
+* `gesendet`            – Transport nachweislich abgeschickt (Codex-Queue)
+* `im_postfach`         – Postfachdatei liegt bereit (Claude/Hermes), noch nicht abgeholt
+* `fehler`              – Transport nachweislich nicht gestartet
+* `unklar`              – Ergebnis des Transports unbekannt
+* `im_chat`             – der Zielchat hat die Nachricht abgeholt (noch keine Übernahme!)
+* `bestaetigt`          – der Zielchat hat mit `masterwechsel quittieren <id> neu` übernommen
+* `verworfen`           – nichts geschehen bzw. durch einen späteren Wechsel überholt
+
+Die Abgabe des alten Masters steht zusätzlich im Feld `abgabe` (`abgegeben` | `uebersprungen`) und
+bleibt nach den späteren Phasen erhalten. `abgabe_seit` ist die Zeit von `abgabe_sende` (Grundlage
+der Frist), `abgabe_zugestellt` die Zeit, zu der der alte Chat Auftrag bzw. Info abgeholt hat.
+Phasenwechsel, die nur aus bestimmten Phasen heraus gelten sollen, macht `phase_wechseln`
+(Vergleich-und-Setzen unter der Dateisperre).
 
 Alle Schreibvorgänge laufen über `aendern(funktion)`: die dateiweite (globale) Sperre umschließt
 Lesen–Ändern–Schreiben, danach wird atomar ersetzt. Sperrreihenfolge: **Themensperre vor
@@ -36,10 +52,14 @@ from typing import Callable
 from . import besitz, modi, paare, zustand
 from .signale import _atomar_schreiben, daten_ordner
 
-PHASEN = ("vorbereitet", "rolle_gesetzt", "sende", "gesendet", "im_postfach", "fehler", "unklar",
+PHASEN = ("vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar", "abgabe_fehler", "abgegeben",
+          "abgabe_uebersprungen", "rolle_gesetzt", "sende", "gesendet", "im_postfach", "fehler", "unklar",
           "im_chat", "bestaetigt", "verworfen")
+ABGABE_OFFEN = ("abgabe_sende", "abgabe_angefragt", "abgabe_unklar")   # Abgabe-Quittung des alten Masters möglich
 ENDGUELTIG = ("bestaetigt", "verworfen")          # danach ändert sich am Vorgang nichts mehr
-ARTEN = ("neu", "abgabe")                          # Nachrichtenart bzw. Quittungsart
+ARTEN = ("neu", "abgabe")                          # Quittungsarten (Nachrichtenarten: `postfach.NACHRICHTEN`)
+ABGABE_WERTE = ("abgegeben", "uebersprungen")      # mögliche Werte des Feldes `abgabe`
+ABGABE_ERGEBNISSE = ("abgabe_angefragt", "abgabe_fehler", "abgabe_unklar")
 THEMENSPERRE_FRIST = 1.0
 
 
@@ -58,7 +78,9 @@ class Vorgang:
     vorzustand_profil: dict   # {"master": …, "worker": …, "modell": …} vor dem Wechsel
     vorzustand_marke: str     # wörtlicher Markentext vor dem Wechsel ("" = Datei fehlte)
     fehler: str | None = None
-    abgabe_bestaetigt: bool = False
+    abgabe: str | None = None             # "abgegeben" | "uebersprungen"; bleibt nach späteren Phasen erhalten
+    abgabe_seit: str | None = None        # ISO-Zeit von `abgabe_sende` (Beginn der 10-Minuten-Frist)
+    abgabe_zugestellt: str | None = None  # ISO-Zeit der Abholung von Abgabe-Auftrag bzw. -Info
 
 
 @dataclass(frozen=True)
@@ -66,7 +88,7 @@ class Wiederaufnahme:
     """Ergebnis der Wiederaufnahme für einen Vorgang."""
     id: str
     thema: str
-    status: str               # verworfen | reparatur | rolle_gesetzt | nachholbar | unklar | nicht_pruefbar
+    status: str               # verworfen | reparatur | rolle_gesetzt | nachholbar | unklar | abgabe_offen | nicht_pruefbar
     hinweis: str
 
 
@@ -102,9 +124,13 @@ def _vorgang(roh: object) -> Vorgang | None:
         return None
     if not isinstance(profil, dict) or not isinstance(marke, str):
         return None
-    fehler, abgabe = roh.get("fehler"), roh.get("abgabe_bestaetigt", False)
+    fehler, abgabe = roh.get("fehler"), roh.get("abgabe")
+    seit, zugestellt = roh.get("abgabe_seit"), roh.get("abgabe_zugestellt")
     return Vorgang(ident, thema, ziel, von, phase, zeit, dict(profil), marke,
-                   fehler if isinstance(fehler, str) else None, abgabe is True)
+                   fehler if isinstance(fehler, str) else None,
+                   abgabe if abgabe in ABGABE_WERTE else None,
+                   seit if isinstance(seit, str) else None,
+                   zugestellt if isinstance(zugestellt, str) else None)
 
 
 def lesen(datei_pfad: Path | None = None) -> list[Vorgang]:
@@ -150,6 +176,52 @@ def aktualisieren(vorgang_id: str, datei_pfad: Path | None = None, **felder: obj
     return finden(vorgang_id, datei_pfad)
 
 
+def phase_wechseln(vorgang_id: str, von: tuple[str, ...], nach: str, datei_pfad: Path | None = None,
+                   **felder: object) -> Vorgang | None:
+    """Vergleich-und-Setzen: ändert nur, wenn die aktuelle Phase in `von` liegt (Zeit wird neu gesetzt).
+
+    Prüfung und Änderung liegen unter derselben Dateisperre; ein Wettlauf überschreibt so keine
+    weiterreichende Phase. Gibt den Vorgang **nach** dem Schritt zurück – auch unverändert, wenn die
+    Phase nicht in `von` lag –, `None`, wenn er nicht existiert.
+    """
+    if nach not in PHASEN:
+        raise AssistentFehler(f"Unbekannte Phase: {nach!r}")
+    jetzt = datetime.now(timezone.utc).isoformat()
+
+    def wechsle(alt: list[Vorgang]) -> list[Vorgang]:
+        return [replace(v, phase=nach, zeit=jetzt, **felder)  # type: ignore[arg-type]
+                if v.id == vorgang_id and v.phase in von else v for v in alt]
+
+    neu = aendern(wechsle, datei_pfad=datei_pfad)
+    return next((v for v in neu if v.id == vorgang_id), None)
+
+
+def abgabe_beginnen(vorgang_id: str, datei_pfad: Path | None = None) -> Vorgang | None:
+    """`vorbereitet` → `abgabe_sende`; `abgabe_seit` = jetzt (Beginn der Frist). Vermerk **vor** dem Senden."""
+    return phase_wechseln(vorgang_id, ("vorbereitet",), "abgabe_sende", datei_pfad,
+                          abgabe_seit=datetime.now(timezone.utc).isoformat())
+
+
+def abgabe_ergebnis(vorgang_id: str, ergebnis: str, datei_pfad: Path | None = None) -> Vorgang | None:
+    """Transportergebnis der Abgabe festhalten – nur aus `abgabe_sende`.
+
+    `ergebnis` ∈ `abgabe_angefragt` | `abgabe_fehler` | `abgabe_unklar`. Hat der alte Master schon
+    quittiert (`abgegeben`) oder ging der Vorgang anders weiter, bleibt die Phase unverändert.
+    """
+    if ergebnis not in ABGABE_ERGEBNISSE:
+        raise AssistentFehler(f"Unbekanntes Abgabe-Ergebnis: {ergebnis!r} (erlaubt: {', '.join(ABGABE_ERGEBNISSE)})")
+    return phase_wechseln(vorgang_id, ("abgabe_sende",), ergebnis, datei_pfad)
+
+
+def abgabe_ueberspringen(vorgang_id: str, grund: str, datei_pfad: Path | None = None) -> Vorgang | None:
+    """Abgabe nicht abwarten: aus `vorbereitet` oder einer offenen Abgabephase → `abgabe_uebersprungen`.
+
+    Setzt `abgabe="uebersprungen"` und vermerkt den Grund in `fehler`.
+    """
+    return phase_wechseln(vorgang_id, ("vorbereitet", *ABGABE_OFFEN), "abgabe_uebersprungen", datei_pfad,
+                          abgabe="uebersprungen", fehler=grund)
+
+
 # --- Marke prüfen (G5) -----------------------------------------------------------
 
 def marke_pruefen(thema: str, vorgang_id: str, *, rolle: str | None = None,
@@ -177,8 +249,12 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
                datei_pfad: Path | None = None) -> Vorgang:
     """Ausdrückliche Quittung des Zielchats (`neu`) bzw. des alten Chats (`abgabe`).
 
-    Prüft G5 gegen die aktuelle Marke (bei `neu` zusätzlich: Besitzer = Zielrolle) unter der
-    Themensperre; eine veraltete Marke lehnt ab, ohne etwas zu ändern.
+    Beides läuft unter der Themensperre; eine veraltete Marke lehnt ab, ohne etwas zu ändern.
+    * `neu`: G5 – die Marke muss genau diesen Vorgang tragen und dem Ziel gehören → `bestaetigt`.
+    * `abgabe`: gültig nur in einer Phase aus `ABGABE_OFFEN` (auch `abgabe_sende`, also schon vor dem
+      Transportergebnis) und solange der aktuelle Markentext (gestrippt) dem Vorzustand des Vorgangs
+      entspricht – die Marke gehört während der Abgabe noch dem alten Master und trägt keine
+      Vorgangs-ID. Dann → `abgegeben`, Feld `abgabe="abgegeben"`.
     """
     if art not in ARTEN:
         raise AssistentFehler(f"Unbekannte Quittungsart: {art!r} (erlaubt: {', '.join(ARTEN)})")
@@ -196,19 +272,31 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
             aktuell = finden(vorgang_id, datei_pfad)
             if aktuell is None or aktuell.phase == "verworfen":
                 raise AssistentFehler(f"Vorgang {vorgang_id} wurde verworfen – keine Quittung möglich")
-            grund = marke_pruefen(aktuell.thema, vorgang_id,
-                                  rolle=aktuell.ziel if art == "neu" else None, repo=repo)
-            if grund is not None:
-                raise AssistentFehler(f"Quittung abgelehnt, Vorgang ist veraltet: {grund}")
             if art == "neu":
+                grund = marke_pruefen(aktuell.thema, vorgang_id, rolle=aktuell.ziel, repo=repo)
+                if grund is not None:
+                    raise AssistentFehler(f"Quittung abgelehnt, Vorgang ist veraltet: {grund}")
                 neu = aktualisieren(vorgang_id, datei_pfad, phase="bestaetigt", fehler=None)
             else:
-                neu = aktualisieren(vorgang_id, datei_pfad, abgabe_bestaetigt=True)
+                neu = _abgabe_quittieren(aktuell, repo, datei_pfad)
             if neu is None:
                 raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
             return neu
     except (modi.ModusFehler, zustand.SperrFehler) as fehler:
         raise AssistentFehler(str(fehler)) from fehler
+
+
+def _abgabe_quittieren(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> Vorgang | None:
+    """Abgabe-Quittung unter gehaltener Themensperre prüfen und `abgegeben` setzen (sonst `AssistentFehler`)."""
+    if vorgang.phase not in ABGABE_OFFEN:
+        raise AssistentFehler(f"Quittung abgelehnt: Abgabe ist nicht offen (Phase {vorgang.phase})")
+    _, master_datei = modi._paar_pruefen(vorgang.thema, repo)
+    if modi._besitz_text_lesen(master_datei) != vorgang.vorzustand_marke.strip():
+        raise AssistentFehler("Quittung abgelehnt, Vorgang ist veraltet: Marke hat sich geändert")
+    neu = phase_wechseln(vorgang.id, ABGABE_OFFEN, "abgegeben", datei_pfad, abgabe="abgegeben", fehler=None)
+    if neu is not None and neu.phase != "abgegeben":
+        raise AssistentFehler(f"Quittung abgelehnt: Abgabe ist nicht mehr offen (Phase {neu.phase})")
+    return neu
 
 
 # --- Wiederaufnahme (G2) ----------------------------------------------------------
@@ -223,10 +311,15 @@ def wiederaufnehmen(repo: Path | None = None, datei_pfad: Path | None = None) ->
     * `vorbereitet` + fremd veränderte Marke → `verworfen`
     * `rolle_gesetzt` ohne `sende` → bleibt, Status `nachholbar` (kein Automatismus)
     * `sende` ohne Ergebnis → `unklar` (nie automatisch neu senden)
+    * `abgabe_sende` ohne Ergebnis → `abgabe_unklar` (Status `unklar`, nie neu senden; `abgabe_seit`
+      bleibt, die Frist läuft weiter)
+    * `abgabe_angefragt` / `abgabe_unklar` → Phase bleibt, Status `abgabe_offen` (Frist läuft seit `abgabe_seit`)
+    * `abgegeben` / `abgabe_uebersprungen` → Phase bleibt, Status `nachholbar` (Rolle noch nicht gesetzt)
     """
     ergebnisse: list[Wiederaufnahme] = []
     for vorgang in lesen(datei_pfad):
-        if vorgang.phase not in ("vorbereitet", "rolle_gesetzt", "sende"):
+        if vorgang.phase not in ("vorbereitet", *ABGABE_OFFEN, "abgegeben", "abgabe_uebersprungen",
+                                 "rolle_gesetzt", "sende"):
             continue
         try:
             with zustand.thema_sperre(vorgang.thema, blockierend=True, frist=THEMENSPERRE_FRIST) as frei:
@@ -250,6 +343,18 @@ def _einordnen(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> 
                       fehler="Absturz während der Zustellung – Ergebnis unklar, nicht automatisch erneut gesendet")
         return Wiederaufnahme(aktuell.id, aktuell.thema, "unklar",
                               "Zustellung unklar – bewusst nicht erneut gesendet")
+    if aktuell.phase == "abgabe_sende":
+        fehler = "Absturz während der Abgabe-Zustellung – nicht automatisch erneut gesendet"
+        neu = phase_wechseln(aktuell.id, ("abgabe_sende",), "abgabe_unklar", datei_pfad, fehler=fehler)
+        if neu is None or neu.phase == "abgabe_unklar":
+            return Wiederaufnahme(aktuell.id, aktuell.thema, "unklar",
+                                  "Abgabe-Zustellung unklar – bewusst nicht erneut gesendet")
+        aktuell = neu             # inzwischen weiter (z. B. quittiert): unten neu einordnen
+    if aktuell.phase in ("abgabe_angefragt", "abgabe_unklar"):
+        return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
+                              f"Abgabe offen – Frist läuft seit {aktuell.abgabe_seit}")
+    if aktuell.phase in ("abgegeben", "abgabe_uebersprungen"):
+        return Wiederaufnahme(aktuell.id, aktuell.thema, "nachholbar", "Abgabe erledigt, Rolle noch nicht gesetzt")
     if aktuell.phase == "rolle_gesetzt":
         return Wiederaufnahme(aktuell.id, aktuell.thema, "nachholbar", "Rolle gesetzt, Zustellung nachholbar")
     if aktuell.phase != "vorbereitet":
