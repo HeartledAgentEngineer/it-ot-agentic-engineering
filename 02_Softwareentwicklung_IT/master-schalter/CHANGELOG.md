@@ -3,6 +3,71 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.5.0] – unveröffentlicht
+
+Wechselassistent, Baustein P4 (Ablauf und Zustellung). Gebaut auf Branch `v0.5.0-wechselassistent`.
+
+### Neu
+- **`assistent.py`:** `uebergeben(thema, ziel, von_chat, nach_chat)` legt den Vorgang an
+  (Write-ahead mit Vorzustand), schickt dem alten Chat den Abgabe-Auftrag und ruft einmal
+  `fortsetzen` auf. `fortsetzen(vorgang)` ist der idempotente Takt: 10-Minuten-Frist
+  (`ABGABE_FRIST`) mit Info an den alten Chat (nur der Gewinner des Überspringens sendet), Rolle
+  setzen unter der Themensperre (Marke ≠ Vorzustand → `verworfen`, „Stand geändert“), danach die
+  Nachricht an den neuen Chat (`sende` vor dem Transport). Zustellung an Codex über `codex.exe
+  queue`, an Claude/Hermes über das Postfach; Transporte laufen nie unter Themen- oder Dateisperre.
+  Doppelklick-Schutz (belegte Sperre, laufender Vorgang); eine übersprungene Abgabe ergibt einen
+  Zusatzsatz im Text an den neuen Master.
+- **Chat-Referenzen:** `ChatRef(werkzeug, kennung)`; `Vorgang` bekommt die optionalen Felder
+  `von_chat` und `nach_chat` (alte Dateien ohne diese Felder lesen weiter). Kennungen stehen nur in
+  `assistent.json`.
+- **`protokoll.py`:** `protokoll.jsonl` (G10) mit den Entscheidungen des Ablaufs, ohne Kennungen,
+  Titel oder Inhalte; `lesen(limit)` für das spätere Fenster.
+- **CLI:** `uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]` und
+  `fortsetzen [VORGANG]`; beide geben nur Vorgangs-ID, Thema und Phase aus.
+- `assistent_vorgaenge.phase_gewinnen` meldet zusätzlich, ob der aufrufende Prozess den Phasenwechsel
+  gemacht hat; `postfach.text()` baut die festen Nachrichtentexte (auch für die Codex-Queue).
+
+### Geändert
+- `abgabe_ueberspringen` gilt jetzt auch aus `abgabe_fehler` (Frist nach nicht gestartetem Transport).
+- **Blockade neuer Wechsel:** nur noch in den Phasen `av.WECHSEL_BLOCKIEREND` (Rolle noch nicht gesetzt
+  oder `sende`); ab `rolle_gesetzt` blockiert ein Vorgang nicht mehr.
+- **Überholt:** nach erfolgreichem Rollensetzen werden die anderen Vorgänge desselben Themas in den
+  Phasen `av.UEBERHOLBAR` (`rolle_gesetzt`, `gesendet`, `im_postfach`, `im_chat`, `unklar`, `fehler`)
+  mit einem `av.aendern`-Schritt auf `verworfen` / „überholt“ gesetzt, mit Protokolleintrag.
+- **Protokoll ohne Fremdtexte:** Fehler beim Fortsetzen, Rollensetzen und Markenprüfen nennen nur die
+  Fehlerklasse (Ursache an `__cause__`); der Verwerfungsgrund bei überholter Marke ist ein fester Text.
+- `wiederaufnehmen`: `abgabe_fehler` erscheint als Status `abgabe_offen` mit Fristhinweis.
+- **Zustellung unter der Themensperre (Ergebnisprüfung R1):** Markenprüfung und `rolle_gesetzt → sende`
+  laufen gemeinsam unter `thema_sperre` (blockierend, kurze Frist; belegt = nichts tun, nächster Takt);
+  der Transport bleibt außerhalb jeder Sperre. `_rolle_setzen` wartet, solange ein anderer Vorgang
+  desselben Themas in `sende` steht.
+- **Abgabe-Info erst nach dem Rollenwechsel:** die Frist setzt nur noch `abgabe_uebersprungen`; die Info
+  an den alten Chat geht erst raus, wenn `_rolle_setzen` den Wechsel nach `rolle_gesetzt` gewonnen hat
+  (nur bei übersprungener Abgabe mit `von_chat`; Codex außerhalb jeder Sperre). Bei Absturz dazwischen
+  geht sie verloren, nie nachgesendet.
+- **Restfenster vor dem Transport (R2):** `_zustellen` prüft die Marke direkt vor dem Senden (außerhalb der
+  Sperre) noch einmal; passt sie nicht, `sende → verworfen` (Protokoll `neu_entfallen`), nichts gesendet
+  (nicht lesbar: `fehler`). Ein Restfenster bleibt grundsätzlich – die Gültigkeit erzwingt die Quittung (G5).
+  `postfach.TEXT_NEU` ergänzt: „Schlägt die Quittung fehl, beginne keinen Schritt – die Nachricht gilt dann
+  nicht mehr.“
+- **Abgabe-Info nach Rückwechsel (R2):** vor dem Senden wird geprüft, dass der Vorgang nicht `verworfen` ist
+  und die Marke noch genau diesen Wechsel trägt; sonst Protokoll `info_entfallen`. `TEXT_ABGABE_INFO`
+  ergänzt: „Maßgeblich ist die Besitzmarke; prüfe im Zweifel `masterwechsel profil {thema}`.“
+- **Bereinigte Ausnahmen (R2):** Jede Ausnahme, die `uebergeben` oder `fortsetzen` verlässt, ist ein
+  bereinigter `AssistentFehler` (auch aus `abgabe_ergebnis` und den Aufrufen nach dem Anlegen); bleibt dabei
+  `abgabe_sende` stehen, macht `wiederaufnehmen` daraus `abgabe_unklar`.
+- **Fehlermeldungen ohne Pfade:** Hilfsfunktion für alle `AssistentFehler` aus fremden Ausnahmen; mit
+  `OSError` in der Kette steht nur ein fester Text mit Fehlerklasse (`SperrFehler`: „Sperre gerade
+  belegt“). Fremde Ausnahmetexte werden nie übernommen (nur Fehlerklasse); „Thema unbekannt“ prüft `uebergeben` selbst (Prüfung R3/R4); ungeprüfte Eingaben (Thema, Vorgangs-ID)
+  und `OSError`-Texte werden in Meldungen und CLI nie wiederholt (R6).
+  `uebergeben ZIEL` und `quittieren ART` ohne argparse-`choices` (kein Echo der Eingabe); `quittieren` meldet
+  Vorgangs-ID-Fehler, veraltete Marke und Datei-/Sperrfehler nur mit festem Text bzw. Fehlerklasse (R7).
+  `modi.py` unverändert.
+
+### Noch nicht gebaut
+- Ruhenachweis (G8b, Statusregister P3/P6), Empfang im Claude-/Hermes-Chat (P3a/P6), Fenster und
+  Takt in der Leiste (P5).
+
 ## [0.4.1] – 2026-10-21
 
 ### Behoben

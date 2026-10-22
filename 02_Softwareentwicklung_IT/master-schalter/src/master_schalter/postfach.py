@@ -32,6 +32,10 @@ geändert, war ein zweiter Abholer schneller und sie wird nicht noch einmal zur�
 Gültigkeitsprüfung und Zustellen/Verwerfen laufen je Datei unter der Themensperre (vor der Dateisperre
 von `aendern`); ist sie belegt, bleibt die Datei liegen.
 
+Den Text baut `text(art, …)` aus festen Satzbausteinen – auch für die Codex-Queue. Bei `neu` hängt er
+den Zusatzsatz `ZUSATZ_ABGABE_FEHLTE` an, wenn der Vorgang `abgabe == "uebersprungen"` trägt; beim
+Abholen wird das aus dem Vorgang abgeleitet (die Datei bekommt kein neues Inhaltsfeld).
+
 Abholung ist **keine** Übernahme: `neu` setzt den Vorgang nur auf `im_chat`; die Übernahme bestätigt
 der Zielchat selbst mit `masterwechsel quittieren`. Abgabe-Auftrag und -Info ändern die Phase **nie**,
 sie setzen nur `abgabe_zugestellt`.
@@ -54,13 +58,17 @@ ERLEDIGT, VERWORFEN = "erledigt", "verworfen"
 ZUSTELLEN, LIEGEN, VERWERFEN = "zustellen", "liegen", "verwerfen"      # Ausgänge der Gültigkeitsprüfung
 
 TEXT_NEU = ("Du führst jetzt das Thema {thema}. Lies zuerst {laufend}, "
-            "dann führe `masterwechsel quittieren {vorgang} neu` aus.")
+            "dann führe `masterwechsel quittieren {vorgang} neu` aus. "
+            "Schlägt die Quittung fehl, beginne keinen Schritt – die Nachricht gilt dann nicht mehr.")
 TEXT_ABGABE_AUFTRAG = ("Du gibst das Thema {thema} ab. Schließe den laufenden Schritt sauber ab, "
                        "aktualisiere {laufend} (Kopfzeile `Übergabebereit: ja`), beginne keinen neuen Schritt "
                        "und führe `masterwechsel quittieren {vorgang} abgabe` aus.")
 TEXT_ABGABE_INFO = ("Du führst das Thema {thema} nicht mehr (Vorgang {vorgang}). Beginne dort keinen "
-                    "neuen Schritt; die Übergabe übernimmt der neue Master.")
+                    "neuen Schritt; die Übergabe übernimmt der neue Master. "
+                    "Maßgeblich ist die Besitzmarke; prüfe im Zweifel `masterwechsel profil {thema}`.")
 TEXTE = {"neu": TEXT_NEU, "abgabe_auftrag": TEXT_ABGABE_AUFTRAG, "abgabe_info": TEXT_ABGABE_INFO}
+ZUSATZ_ABGABE_FEHLTE = ("Die Abgabe des alten Masters fehlte – prüfe zuerst `git status` und die Kopfzeile "
+                        "der laufenden Übergabe.")
 
 
 class PostfachFehler(Exception):
@@ -185,9 +193,23 @@ def _verwerfen(datei: Path, roh: object, grund: str) -> None:
     datei.unlink(missing_ok=True)
 
 
+def text(art: str, thema: str, laufend: str, vorgang_id: str, abgabe_uebersprungen: bool = False) -> str:
+    """Fester Nachrichtentext einer Art (auch für die Codex-Queue). Nie eine Chat-Kennung darin.
+
+    Bei der Art `neu` hängt `abgabe_uebersprungen=True` den Zusatzsatz `ZUSATZ_ABGABE_FEHLTE` an: der alte
+    Master hat nicht abgegeben, der neue soll zuerst den Stand prüfen.
+    """
+    satz = TEXTE[art].format(thema=thema, laufend=laufend, vorgang=vorgang_id)
+    return f"{satz} {ZUSATZ_ABGABE_FEHLTE}" if art == "neu" and abgabe_uebersprungen else satz
+
+
 def _text(inhalt: dict[str, str]) -> str:
-    return TEXTE[inhalt["rolle"]].format(thema=inhalt["thema"], laufend=inhalt["laufend"],
-                                         vorgang=inhalt["vorgang"])
+    """Text zur Datei; den Zusatz bei übersprungener Abgabe leitet er aus dem Vorgang ab (kein Inhaltsfeld, G6)."""
+    uebersprungen = False
+    if inhalt["rolle"] == "neu":
+        vorgang = assistent_vorgaenge.finden(inhalt["vorgang"])
+        uebersprungen = vorgang is not None and vorgang.abgabe == "uebersprungen"
+    return text(inhalt["rolle"], inhalt["thema"], inhalt["laufend"], inhalt["vorgang"], uebersprungen)
 
 
 def abholen(ziel: str, kennung: str, repo: Path | None = None) -> list[Nachricht]:

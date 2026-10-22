@@ -440,9 +440,114 @@ def test_quittieren_abgabe_bei_geaenderter_marke_exit1_ohne_aenderung(rollen, ca
 def test_quittieren_unbekannter_vorgang_oder_schlechte_eingabe(rollen, capsys):
     assert cli.main(["quittieren", "v-9", "neu"]) == 1
     assert "unbekannt" in capsys.readouterr().err
-    assert cli.main(["quittieren", "../x", "neu"]) == 1
-    assert cli.main(["quittieren", "v-1", "beides"]) == 2           # argparse lehnt die Art ab
+    assert cli.main(["quittieren", "../PRIVAT_4711", "neu"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Vorgangskennung unzulässig" in fehler
+    assert cli.main(["quittieren", "v-1", "../PRIVAT_4711"]) == 1    # P4 R7: Art ohne argparse-Echo
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Unbekannte Quittungsart" in fehler
 
+
+
+# --- uebergeben / fortsetzen (Wechselassistent, P4) -------------------------------------------
+
+KENNUNG_ALT = "GEHEIM-ALT-4711"
+KENNUNG_NEU = "GEHEIM-NEU-0815"
+
+
+@pytest.fixture
+def codex_attrappe(rollen, monkeypatch):
+    """`codex.exe` wird nie gestartet: Programmpfad und Transport sind Attrappen."""
+    from master_schalter import codex_senden
+    aufrufe = []
+    monkeypatch.setenv("MASTER_SCHALTER_CODEX", str(rollen / "codex-attrappe.exe"))
+    monkeypatch.setattr(codex_senden, "_transport", lambda liste, timeout: aufrufe.append(list(liste)) or 0)
+    return aufrufe
+
+
+def test_uebergeben_ohne_alten_chat_gibt_nur_id_und_phase_aus(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    assert cli.main(["uebergeben", "engineering", "codex", "--nach", f"codex:{KENNUNG_NEU}"]) == 0
+
+    ausgabe = capsys.readouterr()
+    vorgang = av.lesen()[0]
+    assert ausgabe.out.strip() == f"Vorgang {vorgang.id}: gesendet" and ausgabe.err == ""
+    assert KENNUNG_NEU not in ausgabe.out and len(codex_attrappe) == 1
+    assert vorgang.nach_chat == {"werkzeug": "codex", "kennung": KENNUNG_NEU}
+
+
+def test_uebergeben_mit_altem_chat_wartet_auf_die_abgabe(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    assert cli.main(["uebergeben", "engineering", "codex", "--von", f"claude:{KENNUNG_ALT}",
+                     "--nach", f"codex:{KENNUNG_NEU}"]) == 0
+
+    vorgang = av.lesen()[0]
+    assert capsys.readouterr().out.strip() == f"Vorgang {vorgang.id}: abgabe_angefragt"
+    assert codex_attrappe == []                                   # der Abgabe-Auftrag an Claude liegt im Postfach
+
+
+def test_uebergeben_fehler_exit1_ohne_kennung_in_der_ausgabe(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    for argumente in (["--von", f"codex:{KENNUNG_ALT}"],                  # Besitzer ist Claude
+                      ["--von", f"gemini:{KENNUNG_ALT}"],                 # unbekanntes Werkzeug
+                      ["--von", f"claude:../{KENNUNG_ALT}"],              # unzulässige Kennung
+                      ["--von", KENNUNG_ALT],                             # kein Doppelpunkt
+                      ["--nach", f"claude:{KENNUNG_NEU}"]):               # Werkzeug passt nicht zum Ziel
+        assert cli.main(["uebergeben", "engineering", "codex", *argumente]) == 1
+        ausgabe = capsys.readouterr()
+        assert ausgabe.out == "" and "Nicht übergeben" in ausgabe.err
+        assert KENNUNG_ALT not in ausgabe.err and KENNUNG_NEU not in ausgabe.err
+    assert av.lesen() == [] and codex_attrappe == []
+
+
+def test_uebergeben_unbekanntes_ziel_wird_ohne_echo_abgelehnt(rollen, capsys):
+    assert cli.main(["uebergeben", "engineering", "kontingent"]) == 1
+    assert "Zielrolle unzulässig" in capsys.readouterr().err
+    assert cli.main(["uebergeben", "engineering", "../PRIVAT_4711"]) == 1      # R7/1: Eingabe nie wiederholen
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Zielrolle unzulässig" in fehler
+    assert cli.main(["uebergeben", "gibtsnicht", "codex"]) == 1
+
+
+def test_fortsetzen_ohne_id_zeigt_alle_offenen_vorgaenge(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    cli.main(["uebergeben", "engineering", "codex", "--von", f"claude:{KENNUNG_ALT}", "--nach", f"codex:{KENNUNG_NEU}"])
+    vorgang = av.lesen()[0]
+    capsys.readouterr()
+
+    assert cli.main(["fortsetzen"]) == 0
+    assert capsys.readouterr().out.strip() == f"{vorgang.id}  engineering  abgabe_angefragt"
+
+    av.quittieren(vorgang.id, "abgabe")                               # der alte Chat gibt ab
+    assert cli.main(["fortsetzen", vorgang.id]) == 0
+    ausgabe = capsys.readouterr().out
+    assert ausgabe.strip() == f"{vorgang.id}  engineering  gesendet"
+    assert KENNUNG_ALT not in ausgabe and KENNUNG_NEU not in ausgabe and len(codex_attrappe) == 1
+
+    av.quittieren(vorgang.id, "neu")                                  # bestaetigt = endgültig
+    assert cli.main(["fortsetzen"]) == 0
+    assert capsys.readouterr().out == "" and len(codex_attrappe) == 1
+
+
+def test_fortsetzen_unbekannter_vorgang_exit1(rollen, capsys):
+    assert cli.main(["fortsetzen", "v-gibtsnicht"]) == 1
+    assert "unbekannt" in capsys.readouterr().err
+    assert cli.main(["fortsetzen"]) == 0                              # nichts offen: still, Exit 0
+    assert capsys.readouterr().out == ""
+
+
+def test_cli_wiederholt_ungepruefte_eingaben_nicht(rollen, capsys):
+    # R6/1: weder die Vorgangs-ID noch das Thema darf als Rohtext (z. B. ein Pfad) zurückkommen.
+    assert cli.main(["fortsetzen", "../PRIVAT_4711"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "ungültige Kennung" in fehler
+    assert cli.main(["uebergeben", "../PRIVAT_4711", "codex"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Thema unzulässig" in fehler
 
 
 # --- Chatliste (v0.5.0) ----------------------------------------------------------------------

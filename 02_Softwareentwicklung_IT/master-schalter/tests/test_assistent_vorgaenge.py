@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -225,7 +226,7 @@ def test_erledigte_abgabe_ohne_rolle_ist_nachholbar(umgebung, phase):
     assert av.finden("v-1").phase == phase
 
 
-@pytest.mark.parametrize("phase", ["abgabe_fehler", "gesendet", "im_postfach", "fehler", "unklar", "im_chat",
+@pytest.mark.parametrize("phase", ["gesendet", "im_postfach", "fehler", "unklar", "im_chat",
                                    "bestaetigt", "verworfen"])
 def test_andere_phasen_werden_nicht_angefasst(umgebung, phase):
     umgebung.vorbereiten("v-1", phase=phase)
@@ -317,8 +318,10 @@ def test_quittung_bei_veralteter_marke_wird_abgelehnt(umgebung):
 def test_quittung_neu_verlangt_die_zielrolle_in_der_marke(umgebung):
     umgebung.vorbereiten("v-1", ziel="hermes")
     umgebung.marke_setzen(f"claude 2026-10-20T10:00:00+00:00 assistent {THEMA} v-1")
-    with pytest.raises(av.AssistentFehler, match="erwartet wurde hermes"):
+    with pytest.raises(av.AssistentFehler, match="Marke gehört nicht mehr zu diesem Vorgang") as info:
         av.quittieren("v-1", "neu", umgebung.repo)
+    assert "claude" not in str(info.value)          # fester Text, kein Markeninhalt (P4 R7)
+    assert av.finden("v-1").phase != "bestaetigt"
 
 
 def test_quittung_fuer_unbekannten_oder_verworfenen_vorgang_und_schlechte_eingaben(umgebung):
@@ -398,7 +401,8 @@ def test_abgabe_ergebnis_mit_ungueltigem_wert_wirft(umgebung):
     assert av.finden("v-1").phase == "abgabe_sende"
 
 
-@pytest.mark.parametrize("phase", ["vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar"])
+@pytest.mark.parametrize("phase", ["vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar",
+                                   "abgabe_fehler"])
 def test_abgabe_ueberspringen_aus_vorbereitet_und_offenen_phasen(umgebung, phase):
     av.aendern(lambda alt: [*alt, _vorgang("v-1", phase=phase)])
 
@@ -408,7 +412,7 @@ def test_abgabe_ueberspringen_aus_vorbereitet_und_offenen_phasen(umgebung, phase
     assert erg.fehler == "10-Minuten-Frist abgelaufen"
 
 
-@pytest.mark.parametrize("phase", ["abgegeben", "abgabe_fehler", "rolle_gesetzt", "verworfen"])
+@pytest.mark.parametrize("phase", ["abgegeben", "rolle_gesetzt", "verworfen"])
 def test_abgabe_ueberspringen_aus_anderen_phasen_aendert_nichts(umgebung, phase):
     av.aendern(lambda alt: [*alt, _vorgang("v-1", phase=phase)])
     assert av.abgabe_ueberspringen("v-1", "egal") == _vorgang("v-1", phase=phase)
@@ -431,3 +435,61 @@ def test_abgabefelder_werden_tolerant_gelesen_und_ueberleben_spaetere_phasen(umg
             vorgaenge["v-kaputt"].abgabe_zugestellt) == (None, None, None)
     assert vorgaenge["v-alt"].abgabe is None                          # altes Feld wird nicht mehr gedeutet
     assert av.aktualisieren("v-gut", phase="sende").abgabe == "abgegeben"
+
+
+# --- Chat-Referenzen und Wettlauf-Meldung (P4) ------------------------------------------
+
+def test_alte_dateien_ohne_chatfelder_lesen_weiter(umgebung):
+    alt = {"id": "v-alt", "thema": THEMA, "ziel": "hermes", "von": "claude", "phase": "vorbereitet",
+           "zeit": "z", "vorzustand_profil": {}, "vorzustand_marke": ""}
+    av.datei().write_text(json.dumps([alt]), encoding="utf-8")
+    vorgang = av.finden("v-alt")
+    assert vorgang.von_chat is None and vorgang.nach_chat is None
+
+
+def test_chatfelder_ueberleben_den_roundtrip(umgebung):
+    ref = {"werkzeug": "codex", "kennung": "abc-123_X"}
+    av.aendern(lambda alt: [*alt, replace(_vorgang("v-1"), von_chat=ref, nach_chat={"werkzeug": "claude", "kennung": "k2"})])
+    vorgang = av.finden("v-1")
+    assert vorgang.von_chat == ref and vorgang.nach_chat == {"werkzeug": "claude", "kennung": "k2"}
+
+
+@pytest.mark.parametrize("falsch", [
+    "text", {"werkzeug": "codex"}, {"werkzeug": "gemini", "kennung": "k"}, {"werkzeug": "codex", "kennung": "../x"},
+    {"werkzeug": "codex", "kennung": "k\n"}, {"werkzeug": "codex", "kennung": "k", "extra": 1},
+    {"werkzeug": "codex", "kennung": "k" * 81}, {"werkzeug": 1, "kennung": "k"}])
+def test_ungueltige_chatreferenzen_werden_zu_none(umgebung, falsch):
+    roh = {"id": "v-1", "thema": THEMA, "ziel": "hermes", "von": "claude", "phase": "vorbereitet", "zeit": "z",
+           "vorzustand_profil": {}, "vorzustand_marke": "", "von_chat": falsch, "nach_chat": falsch}
+    av.datei().write_text(json.dumps([roh]), encoding="utf-8")
+    vorgang = av.finden("v-1")
+    assert vorgang is not None and vorgang.von_chat is None and vorgang.nach_chat is None
+
+
+def test_phase_gewinnen_meldet_nur_dem_gewinner_den_wechsel(umgebung):
+    av.aendern(lambda alt: [*alt, _vorgang("v-1", phase="rolle_gesetzt")])
+    erst, gewonnen1 = av.phase_gewinnen("v-1", ("rolle_gesetzt",), "sende")
+    zweit, gewonnen2 = av.phase_gewinnen("v-1", ("rolle_gesetzt",), "sende")
+    assert (erst.phase, gewonnen1) == ("sende", True)
+    assert (zweit.phase, gewonnen2) == ("sende", False)
+    assert av.phase_gewinnen("gibtsnicht", ("sende",), "unklar") == (None, False)
+    with pytest.raises(av.AssistentFehler):
+        av.phase_gewinnen("v-1", ("sende",), "erfunden")
+
+
+def test_abgabe_fehler_ist_abgabe_offen_mit_fristhinweis_und_bleibt_unveraendert(umgebung):
+    umgebung.vorbereiten("v-1", phase="abgabe_fehler")
+    av.aktualisieren("v-1", abgabe_seit="2026-10-22T10:00:00+00:00")
+    vorher = av.datei().read_text(encoding="utf-8")
+
+    erg = _wiederaufnehmen(umgebung)
+
+    assert [(e.id, e.status) for e in erg] == [("v-1", "abgabe_offen")]
+    assert "Frist läuft seit 2026-10-22T10:00:00+00:00" in erg[0].hinweis and "übersprungen" in erg[0].hinweis
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_wechsel_blockierend_und_ueberholbar_ueberschneiden_sich_nicht(umgebung):
+    assert not set(av.WECHSEL_BLOCKIEREND) & set(av.UEBERHOLBAR)
+    assert set(av.WECHSEL_BLOCKIEREND) == {"vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar",
+                                           "abgabe_fehler", "abgegeben", "abgabe_uebersprungen", "sende"}

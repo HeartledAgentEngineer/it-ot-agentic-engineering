@@ -252,6 +252,114 @@ Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell u
   Reservierung wird nie übernommen. Nach dem Versand zeigt das Menü „gesendet"; der Codex-Chat
   bestätigt mit `ACK <Kennung>`; „Aktualisieren" (und jede Messung) hakt das ab → „bestätigt".
 
+## Wechselassistent (v0.5.0, in Arbeit)
+
+Der Klickwechsel „Thema X: alter Chat → neuer Chat“ soll ohne Tippen ablaufen. Heute gibt es den
+Ablauf als Code und als Befehle (`uebergeben`, `fortsetzen`, `quittieren`); die Oberfläche (Fenster,
+Chat-Auswahl, Takt in der Leiste) und der Empfang im Claude-/Hermes-Chat sind noch nicht gebaut.
+
+- **Reihenfolge (G8):** erst gibt der **alte** Master ab, dann wird die Rolle gesetzt, dann bekommt der
+  **neue** Master seine Nachricht. Phasen in `assistent.json` (getrennt von `vorgaenge.json`):
+  `vorbereitet` → `abgabe_sende` → `abgabe_angefragt` (`abgabe_unklar` / `abgabe_fehler`) →
+  `abgegeben` oder `abgabe_uebersprungen` → `rolle_gesetzt` → `sende` → `gesendet` (Codex) bzw.
+  `im_postfach` (Claude/Hermes) bzw. `fehler` / `unklar` → `im_chat` → `bestaetigt`; außerdem
+  `verworfen`. Jede Phase, vor der etwas gesendet wird, steht **vorher** auf der Platte
+  (Write-ahead); ein Absturz dazwischen gilt als „unklar“, es wird nie automatisch neu gesendet.
+- **Chat-Referenz:** `WERKZEUG:KENNUNG` mit Werkzeug `claude`, `codex` oder `hermes` und einer
+  Kennung aus `A–Z a–z 0–9 _ -` (1–80 Zeichen). Die Kennungen stehen **nur** in `assistent.json`
+  (Felder `von_chat`, `nach_chat`) – nie in Nachrichtentexten, im Protokoll oder in Befehlsausgaben.
+  Der alte Chat muss zum aktuellen Besitzer der Marke passen, der neue zur Zielrolle; sonst lehnt
+  `uebergeben` ab, ohne etwas zu ändern.
+- **Zustellwege:** Codex bekommt die Nachricht über `codex.exe queue --thread <Kennung> --message
+  <Text>` (Argumentliste, keine Shell, 60 s). Nur ein belegtes Nicht-Starten (Programm nicht
+  gefunden, Startfehler) ist `abgabe_fehler` bzw. `fehler`; Rückgabewert ≠ 0, Zeitüberschreitung oder
+  jede andere Ausnahme ist `abgabe_unklar` bzw. `unklar`. Claude und Hermes bekommen eine kleine Datei
+  im Postfach (`postfach/<ziel>/<kennung>/<vorgang>_<art>.json`). **Ehrlich:** Es gibt noch keinen Weg,
+  auf dem ein Claude-/Hermes-Chat das Postfach abholt und quittiert (kommt mit P3a/P6) – die Dateien
+  liegen bis dahin bereit. Transporte laufen nie unter der Themen- oder Dateisperre; so kann Codex
+  nach `masterwechsel quittieren <id> abgabe` schon quittieren, bevor der Rückgabewert da ist (die
+  Phase bleibt dann `abgegeben`).
+- **Frist:** Hat der alte Master nach 10 Minuten (`ABGABE_FRIST`, ab `abgabe_sende`) nicht
+  quittiert – auch nach `abgabe_fehler` –, wird die Abgabe übersprungen (`abgabe_uebersprungen`,
+  Grund „Frist abgelaufen“). Die Frist setzt nur die Phase und sendet nichts. Die Info „Du führst das
+  Thema nicht mehr“ geht an den alten Chat erst, nachdem das Rollensetzen den Wechsel nach
+  `rolle_gesetzt` **gewonnen** hat, und nur bei übersprungener Abgabe mit gesetztem alten Chat; ein
+  Codex-Transport läuft außerhalb jeder Sperre, die Postfach-Info kurz unter der Themensperre.
+  Unmittelbar vor dem Senden wird geprüft, dass der Vorgang nicht `verworfen` ist und die Marke noch
+  genau diesen Wechsel trägt (`<Ziel> … assistent <Thema> <Vorgang>`); nach einem schnellen Rückwechsel
+  entfällt die Info (Protokoll `info_entfallen`, Codex und Postfach). Der Infotext ergänzt: „Maßgeblich ist
+  die Besitzmarke; prüfe im Zweifel `masterwechsel profil <Thema>`.“ (`profil` zeigt die gespeicherte
+  Masterrolle des Themas, die zusammen mit der Marke gesetzt wird – nicht den Markentext selbst.)
+  Scheitert das Rollensetzen oder ist die Sperre belegt, bleibt die Info aus. Stürzt das Programm
+  zwischen `rolle_gesetzt` und der Info ab, geht sie verloren (sie wird nie nachgesendet); ein Fehler
+  beim Senden steht nur im Protokoll. Ohne alten Chat wird sofort
+  übersprungen („kein alter Chat gewählt“). Der neue Master bekommt dann zusätzlich den Satz, dass
+  die Abgabe fehlte und er zuerst `git status` und die Kopfzeile der laufenden Übergabe prüfen soll
+  (im Postfach wird er beim Abholen aus dem Vorgang abgeleitet, die Datei bekommt kein neues Feld).
+  Das Überspringen per Ruhenachweis (G8b) kommt erst mit dem Statusregister (P3/P6).
+- **Stand geändert:** Vor dem Rollensetzen muss der Markentext noch dem Vorzustand des Vorgangs
+  entsprechen; hat jemand zwischendurch gewechselt, wird der Vorgang `verworfen` („Stand geändert“),
+  ohne zuzustellen. Gleiches gilt, wenn nach dem Rollensetzen ein späterer Wechsel die Marke
+  überschreibt. Die Marke des Wechsels lautet `<Rolle> <Zeit> assistent <Thema> <Vorgang-ID>`.
+  Markenprüfung und der Gewinn von `sende` laufen gemeinsam unter der Themensperre (blockierend, kurze
+  Frist; ist sie belegt, tut der Takt nichts und versucht es später erneut), damit ein zweiter Wechsel
+  nicht dazwischen seine Marke schreiben kann und kein veralteter Übernahmeauftrag rausgeht. Der Transport
+  läuft danach außerhalb jeder Sperre; direkt davor wird die Marke außerhalb der Sperre **noch einmal**
+  geprüft – passt sie nicht mehr, wird nichts gesendet und der Vorgang aus `sende` auf `verworfen` gesetzt
+  (Protokoll `neu_entfallen`; ist die Marke nicht lesbar, endet er auf `fehler`).
+  **Restfenster, ehrlich:** Ein Transport unter der Sperre bleibt verboten (G8d), und auch nach dem Senden
+  kann jemand wechseln. Zwischen dieser letzten Prüfung und dem Start des Transports bleibt deshalb ein
+  kleines Fenster; die Gültigkeit erzwingt die Quittung (`masterwechsel quittieren <id> neu` prüft die
+  Marke, G5) bzw. die Besitzmarke selbst. Darum sagt der Text an den neuen Master: „Schlägt die Quittung
+  fehl, beginne keinen Schritt – die Nachricht gilt dann nicht mehr.“ (Codex und Postfach). Solange ein **anderer** Vorgang desselben Themas in `sende` steht,
+  setzt `fortsetzen` die Rolle nicht; die Nachricht des alten Vorgangs geht erst vollständig raus (bleibt er
+  nach einem Absturz in `sende` hängen, macht `wiederaufnehmen` daraus `unklar`).
+- **Doppelklick-Schutz und „überholt“:** `uebergeben` nimmt die Themensperre nicht blockierend; ist sie
+  belegt, meldet es „Thema gerade belegt“. Ein neuer Wechsel desselben Themas wird nur abgelehnt
+  („Wechsel läuft bereits“), solange ein Vorgang die Rolle noch nicht gesetzt hat oder gerade sendet
+  (`av.WECHSEL_BLOCKIEREND`: `vorbereitet`, `abgabe_sende`, `abgabe_angefragt`, `abgabe_unklar`,
+  `abgabe_fehler`, `abgegeben`, `abgabe_uebersprungen`, `sende`). Die Abgabephasen lösen sich nach
+  spätestens 10 Minuten über die Frist; ein nach Absturz hängendes `sende` macht `wiederaufnehmen`
+  zu `unklar`. Ab `rolle_gesetzt` blockiert ein Vorgang nicht mehr: setzt ein späterer Wechsel
+  erfolgreich seine Rolle, werden alle anderen Vorgänge des Themas in `rolle_gesetzt`, `gesendet`,
+  `im_postfach`, `im_chat`, `unklar` und `fehler` in einem Schritt unter der Themensperre auf
+  `verworfen` mit Grund „überholt“ gesetzt (Protokolleintrag je Vorgang); ihre Postfachdateien liefert
+  `postfach.abholen` danach nicht mehr aus.
+- **Wiederaufnahme:** `assistent_vorgaenge.wiederaufnehmen` zeigt `abgabe_fehler` als `abgabe_offen`
+  (Hinweis: Frist läuft, danach wird übersprungen); es sendet nie.
+- **Befehle:**
+  - `masterwechsel uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]` – legt
+    den Vorgang an, schickt den Abgabe-Auftrag und ruft einmal `fortsetzen` auf; gibt nur Vorgangs-ID
+    und Phase aus. Ohne `--von` wird die Abgabe übersprungen, ohne `--nach` nur die Rolle gesetzt.
+  - `masterwechsel fortsetzen [VORGANG]` – der idempotente Takt (Frist prüfen, Rolle setzen, zustellen);
+    ohne ID für alle nicht endgültigen Vorgänge, je Zeile ID, Thema und Phase. Mehrfaches Aufrufen
+    sendet nie doppelt (Vergleich-und-Setzen der Phase; wer verliert, sendet nicht). Das Aufrufen im
+    Takt der Leiste fehlt noch.
+  - `masterwechsel quittieren VORGANG neu|abgabe` – Quittung des Zielchats bzw. des alten Chats.
+- **Protokoll (G10):** `protokoll.jsonl` im Datenordner, je Entscheidung eine Zeile mit Zeit, Vorgang,
+  Thema, Entscheidung und Grund: angelegt, Abgabe-Zustellweg und -Ergebnis, Abgabe übersprungen,
+  Info gesendet/fehlgeschlagen, Rolle gesetzt, verworfen, Zustellweg und Ergebnis der Nachricht an
+  den neuen Master. Keine Kennungen, Titel oder Inhalte; Schreibfehler werden geschluckt. Auch
+  Ausnahmetexte kommen nicht hinein (sie können Pfade enthalten): bei Fehlern im Ablauf steht nur die
+  Fehlerklasse, und die `AssistentFehler` aus Rollensetzen und Markenprüfung nennen ebenfalls nur die
+  Fehlerklasse (die Ursache hängt an `__cause__`). Der Verwerfungsgrund bei überholter Marke ist ein fester Text.
+- **Fehlermeldungen ohne Pfade:** Alle `AssistentFehler` in `assistent.py`, die aus einer fremden Ausnahme
+  entstehen, laufen über eine Hilfsfunktion. Steckt ein `OSError` in der Ausnahmekette (`__cause__` /
+  `__context__`), lautet der Text fest „Besitz- oder Datendatei nicht lesbar (<Fehlerklasse>)“, bei einem
+  `SperrFehler` „Sperre gerade belegt (SperrFehler)“. Ohne `OSError`-Ursache steht nur die Fehlerklasse
+  (z. B. „Wechsel nicht gestartet (ModusFehler)“) – fremde Ausnahmetexte werden **nie** übernommen. Lesbare
+  Prüftexte wie „Thema unbekannt (kein vorhandenes Paar): <thema>“ erzeugt `uebergeben` selbst, bevor fremder Code läuft.
+  Ungeprüfte Eingaben (Thema, Vorgangs-ID) werden nie wiederholt: Meldungen nennen nur das erlaubte Muster,
+  `fortsetzen` in der CLI zeigt eine ungültige ID als „ungültige Kennung“; ein `OSError` erscheint in der CLI
+  nur mit seiner Klasse. Dasselbe gilt für `quittieren` (dessen Ausgabe im quittierenden Chat landet): die
+  Ablehnung einer veralteten Quittung nennt nur „Marke gehört nicht mehr zu diesem Vorgang“. `ZIEL` und `ART`
+  prüft das Programm selbst (keine argparse-Auswahlliste, die die Eingabe wiederholen würde).
+  `modi.py` ist unverändert, seine Texte (mit Pfad) erreichen weder die CLI noch das Protokoll.
+  Das gilt für **jede** Ausnahme, die `uebergeben` oder `fortsetzen` verlässt: nach dem Anlegen ist der ganze
+  Ablauf (Abgabe-Transport, `abgabe_ergebnis`, Protokoll- und Vorgangsaufrufe) umschlossen und liefert nur
+  einen bereinigten `AssistentFehler`. Scheitert dabei `abgabe_ergebnis`, bleibt die Phase `abgabe_sende`
+  stehen – richtig so: `wiederaufnehmen` macht daraus `abgabe_unklar`, es wird nie neu gesendet.
+
 ## Chatliste (v0.5.0, in Arbeit)
 
 Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex und Hermes
@@ -389,6 +497,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Modellkataloge anzeigen und frisch abgleichen
 .\.venv\Scripts\masterwechsel.exe modelle
 .\.venv\Scripts\masterwechsel.exe modelle codex --aktualisieren
+
+# Wechselassistent: Thema vom alten an den neuen Chat übergeben, dann weiterführen
+.\.venv\Scripts\masterwechsel.exe uebergeben engineering codex --von claude:<Kennung> --nach codex:<Kennung>
+.\.venv\Scripts\masterwechsel.exe fortsetzen
 ```
 
 Einstellungen: `~/.master-schalter/einstellungen.json`, z. B.
@@ -415,6 +527,10 @@ src/master_schalter/
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
   wechsel.py   Wechsel unter Themensperren ausführen: Paket, dann Zustand; Rückwechsel entwertet
   paare.py     Paare aus Thema, Codex-Chat und laufender Übergabedatei
+  assistent.py Wechselassistent: übergeben und fortsetzen (Abgabe, Frist, Rolle, Zustellung)
+  assistent_vorgaenge.py  Vorgänge des Assistenten (`assistent.json`), Phasen, Quittung, Wiederaufnahme
+  postfach.py  Postfach für Claude-/Hermes-Chats und feste Nachrichtentexte
+  protokoll.py Entscheidungsprotokoll `protokoll.jsonl` (ohne Kennungen)
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)

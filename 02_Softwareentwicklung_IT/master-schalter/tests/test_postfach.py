@@ -160,7 +160,8 @@ def test_gueltige_neu_nachricht_wird_zugestellt_der_vorgang_ist_im_chat_aber_nic
 
     assert len(erg) == 1 and erg[0].rolle == "neu" and erg[0].vorgang == "v-1"
     assert erg[0].text == (f"Du führst jetzt das Thema {THEMA}. Lies zuerst {LAUFEND}, "
-                           "dann führe `masterwechsel quittieren v-1 neu` aus.")
+                           "dann führe `masterwechsel quittieren v-1 neu` aus. "
+                           "Schlägt die Quittung fehl, beginne keinen Schritt – die Nachricht gilt dann nicht mehr.")
     assert av.finden("v-1").phase == "im_chat"                        # Abholung ≠ Übernahme
     assert _dateien(umgebung) == []
     assert (postfach.ordner("hermes", "neu-sitzung") / "erledigt" / "v-1_neu.json").exists()
@@ -366,7 +367,8 @@ def test_abgabe_info_wird_zugestellt_ohne_die_phase_zu_aendern(umgebung):
 
     assert [(n.vorgang, n.rolle) for n in erg] == [("v-1", "abgabe_info")]
     assert erg[0].text == (f"Du führst das Thema {THEMA} nicht mehr (Vorgang v-1). Beginne dort keinen "
-                           "neuen Schritt; die Übergabe übernimmt der neue Master.")
+                           "neuen Schritt; die Übergabe übernimmt der neue Master. "
+                           f"Maßgeblich ist die Besitzmarke; prüfe im Zweifel `masterwechsel profil {THEMA}`.")
     vorgang = av.finden("v-1")
     assert vorgang.phase == "abgabe_uebersprungen" and vorgang.abgabe_zugestellt is not None
 

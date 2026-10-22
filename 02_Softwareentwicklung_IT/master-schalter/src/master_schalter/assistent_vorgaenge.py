@@ -31,7 +31,9 @@ Phasen:
 * `verworfen`           – nichts geschehen bzw. durch einen späteren Wechsel überholt
 
 Die Abgabe des alten Masters steht zusätzlich im Feld `abgabe` (`abgegeben` | `uebersprungen`) und
-bleibt nach den späteren Phasen erhalten. `abgabe_seit` ist die Zeit von `abgabe_sende` (Grundlage
+bleibt nach den späteren Phasen erhalten. `von_chat` / `nach_chat` (`{"werkzeug": …, "kennung": …}` oder
+`None`) nennen den alten und den neuen Chat; die Kennungen stehen **nur** in dieser lokalen Datei (G9) –
+nie in Nachrichtentexten, im Protokoll oder in Ausgaben. Alte Dateien ohne diese Felder lesen weiter. `abgabe_seit` ist die Zeit von `abgabe_sende` (Grundlage
 der Frist), `abgabe_zugestellt` die Zeit, zu der der alte Chat Auftrag bzw. Info abgeholt hat.
 Phasenwechsel, die nur aus bestimmten Phasen heraus gelten sollen, macht `phase_wechseln`
 (Vergleich-und-Setzen unter der Dateisperre).
@@ -56,6 +58,13 @@ PHASEN = ("vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar", "a
           "abgabe_uebersprungen", "rolle_gesetzt", "sende", "gesendet", "im_postfach", "fehler", "unklar",
           "im_chat", "bestaetigt", "verworfen")
 ABGABE_OFFEN = ("abgabe_sende", "abgabe_angefragt", "abgabe_unklar")   # Abgabe-Quittung des alten Masters möglich
+ABGABE_FRISTBAR = (*ABGABE_OFFEN, "abgabe_fehler")        # hier läuft die 10-Minuten-Frist (abgabe_fehler: keine Quittung)
+ABGABE_UEBERSPRINGBAR = ("vorbereitet", *ABGABE_FRISTBAR)  # Phasen, aus denen die Abgabe übersprungen werden darf
+# Solange die Rolle noch nicht gesetzt ist oder gerade gesendet wird, blockiert ein Vorgang einen neuen Wechsel
+# desselben Themas. Ab `rolle_gesetzt` überschreibt jeder spätere Wechsel die Marke (G3) und macht ihn ungültig.
+WECHSEL_BLOCKIEREND = (*ABGABE_UEBERSPRINGBAR, "abgegeben", "abgabe_uebersprungen", "sende")
+# Phasen, die ein späterer, erfolgreich gesetzter Wechsel desselben Themas als „überholt“ verwirft.
+UEBERHOLBAR = ("rolle_gesetzt", "gesendet", "im_postfach", "im_chat", "unklar", "fehler")
 ENDGUELTIG = ("bestaetigt", "verworfen")          # danach ändert sich am Vorgang nichts mehr
 ARTEN = ("neu", "abgabe")                          # Quittungsarten (Nachrichtenarten: `postfach.NACHRICHTEN`)
 ABGABE_WERTE = ("abgegeben", "uebersprungen")      # mögliche Werte des Feldes `abgabe`
@@ -81,6 +90,8 @@ class Vorgang:
     abgabe: str | None = None             # "abgegeben" | "uebersprungen"; bleibt nach späteren Phasen erhalten
     abgabe_seit: str | None = None        # ISO-Zeit von `abgabe_sende` (Beginn der 10-Minuten-Frist)
     abgabe_zugestellt: str | None = None  # ISO-Zeit der Abholung von Abgabe-Auftrag bzw. -Info
+    von_chat: dict | None = None          # {"werkzeug": …, "kennung": …} des alten Chats (nur lokal, G9)
+    nach_chat: dict | None = None         # {"werkzeug": …, "kennung": …} des neuen Chats (nur lokal, G9)
 
 
 @dataclass(frozen=True)
@@ -100,6 +111,18 @@ def neue_id(jetzt: datetime | None = None) -> str:
     """Eindeutige Vorgangs-ID nach Muster `^[A-Za-z0-9_-]{1,80}$`: Zeit plus Zufallsanteil."""
     zeit = (jetzt or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     return f"{zeit}-{secrets.token_hex(4)}"
+
+
+def chat_dict(roh: object) -> dict | None:
+    """Chat-Referenz streng prüfen: genau `werkzeug` (claude|codex|hermes) und `kennung` nach G6-Muster, sonst `None`."""
+    if not isinstance(roh, dict) or set(roh) != {"werkzeug", "kennung"}:
+        return None
+    werkzeug, kennung = roh["werkzeug"], roh["kennung"]
+    if not isinstance(werkzeug, str) or werkzeug not in modi.ZIEL_ROLLEN:
+        return None
+    if not isinstance(kennung, str) or modi.VORGANG_ID_MUSTER.fullmatch(kennung) is None:
+        return None
+    return {"werkzeug": werkzeug, "kennung": kennung}
 
 
 def _vorgang(roh: object) -> Vorgang | None:
@@ -130,7 +153,8 @@ def _vorgang(roh: object) -> Vorgang | None:
                    fehler if isinstance(fehler, str) else None,
                    abgabe if abgabe in ABGABE_WERTE else None,
                    seit if isinstance(seit, str) else None,
-                   zugestellt if isinstance(zugestellt, str) else None)
+                   zugestellt if isinstance(zugestellt, str) else None,
+                   chat_dict(roh.get("von_chat")), chat_dict(roh.get("nach_chat")))
 
 
 def lesen(datei_pfad: Path | None = None) -> list[Vorgang]:
@@ -176,6 +200,34 @@ def aktualisieren(vorgang_id: str, datei_pfad: Path | None = None, **felder: obj
     return finden(vorgang_id, datei_pfad)
 
 
+def phase_gewinnen(vorgang_id: str, von: tuple[str, ...], nach: str, datei_pfad: Path | None = None,
+                   **felder: object) -> tuple[Vorgang | None, bool]:
+    """Wie `phase_wechseln`, meldet aber zusätzlich, ob **dieser** Aufruf den Wechsel gemacht hat.
+
+    Rückgabe `(Vorgang nach dem Schritt oder None, gewonnen)`. `gewonnen` ist nur dann wahr, wenn die
+    Phase unter der Dateisperre tatsächlich in `von` lag und von diesem Aufruf gesetzt wurde. Nur wer
+    gewinnt, darf die zum Wechsel gehörende Nebenwirkung (Senden) auslösen – ein zweiter Prozess, der
+    zeitgleich denselben Wechsel versucht, verliert und sendet nichts.
+    """
+    if nach not in PHASEN:
+        raise AssistentFehler(f"Unbekannte Phase: {nach!r}")
+    jetzt = datetime.now(timezone.utc).isoformat()
+    gewonnen: list[bool] = []
+
+    def wechsle(alt: list[Vorgang]) -> list[Vorgang]:
+        neu: list[Vorgang] = []
+        for v in alt:
+            if v.id == vorgang_id and v.phase in von:
+                gewonnen.append(True)
+                neu.append(replace(v, phase=nach, zeit=jetzt, **felder))  # type: ignore[arg-type]
+            else:
+                neu.append(v)
+        return neu
+
+    liste = aendern(wechsle, datei_pfad=datei_pfad)
+    return next((v for v in liste if v.id == vorgang_id), None), bool(gewonnen)
+
+
 def phase_wechseln(vorgang_id: str, von: tuple[str, ...], nach: str, datei_pfad: Path | None = None,
                    **felder: object) -> Vorgang | None:
     """Vergleich-und-Setzen: ändert nur, wenn die aktuelle Phase in `von` liegt (Zeit wird neu gesetzt).
@@ -184,16 +236,7 @@ def phase_wechseln(vorgang_id: str, von: tuple[str, ...], nach: str, datei_pfad:
     weiterreichende Phase. Gibt den Vorgang **nach** dem Schritt zurück – auch unverändert, wenn die
     Phase nicht in `von` lag –, `None`, wenn er nicht existiert.
     """
-    if nach not in PHASEN:
-        raise AssistentFehler(f"Unbekannte Phase: {nach!r}")
-    jetzt = datetime.now(timezone.utc).isoformat()
-
-    def wechsle(alt: list[Vorgang]) -> list[Vorgang]:
-        return [replace(v, phase=nach, zeit=jetzt, **felder)  # type: ignore[arg-type]
-                if v.id == vorgang_id and v.phase in von else v for v in alt]
-
-    neu = aendern(wechsle, datei_pfad=datei_pfad)
-    return next((v for v in neu if v.id == vorgang_id), None)
+    return phase_gewinnen(vorgang_id, von, nach, datei_pfad, **felder)[0]
 
 
 def abgabe_beginnen(vorgang_id: str, datei_pfad: Path | None = None) -> Vorgang | None:
@@ -214,11 +257,11 @@ def abgabe_ergebnis(vorgang_id: str, ergebnis: str, datei_pfad: Path | None = No
 
 
 def abgabe_ueberspringen(vorgang_id: str, grund: str, datei_pfad: Path | None = None) -> Vorgang | None:
-    """Abgabe nicht abwarten: aus `vorbereitet` oder einer offenen Abgabephase → `abgabe_uebersprungen`.
+    """Abgabe nicht abwarten: aus `vorbereitet`, einer offenen Abgabephase oder `abgabe_fehler` → `abgabe_uebersprungen`.
 
     Setzt `abgabe="uebersprungen"` und vermerkt den Grund in `fehler`.
     """
-    return phase_wechseln(vorgang_id, ("vorbereitet", *ABGABE_OFFEN), "abgabe_uebersprungen", datei_pfad,
+    return phase_wechseln(vorgang_id, ABGABE_UEBERSPRINGBAR, "abgabe_uebersprungen", datei_pfad,
                           abgabe="uebersprungen", fehler=grund)
 
 
@@ -257,11 +300,13 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
       Vorgangs-ID. Dann → `abgegeben`, Feld `abgabe="abgegeben"`.
     """
     if art not in ARTEN:
-        raise AssistentFehler(f"Unbekannte Quittungsart: {art!r} (erlaubt: {', '.join(ARTEN)})")
+        # Ungeprüfte Eingaben und fremde Texte (Pfade, Markeninhalt) nie wiederholen – die Ausgabe landet
+        # im quittierenden Chat (Prüfung P4 R7).
+        raise AssistentFehler(f"Unbekannte Quittungsart (erlaubt: {', '.join(ARTEN)})")
     try:
         modi.vorgang_id_pruefen(vorgang_id)
     except modi.ModusFehler as fehler:
-        raise AssistentFehler(str(fehler)) from fehler
+        raise AssistentFehler(f"Vorgangskennung unzulässig (erlaubt: {modi.VORGANG_ID_MUSTER.pattern})") from fehler
     vorgang = finden(vorgang_id, datei_pfad)
     if vorgang is None:
         raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
@@ -275,15 +320,16 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
             if art == "neu":
                 grund = marke_pruefen(aktuell.thema, vorgang_id, rolle=aktuell.ziel, repo=repo)
                 if grund is not None:
-                    raise AssistentFehler(f"Quittung abgelehnt, Vorgang ist veraltet: {grund}")
+                    raise AssistentFehler("Quittung abgelehnt, Vorgang ist veraltet: Marke gehört nicht mehr "
+                                          "zu diesem Vorgang")
                 neu = aktualisieren(vorgang_id, datei_pfad, phase="bestaetigt", fehler=None)
             else:
                 neu = _abgabe_quittieren(aktuell, repo, datei_pfad)
             if neu is None:
                 raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
             return neu
-    except (modi.ModusFehler, zustand.SperrFehler) as fehler:
-        raise AssistentFehler(str(fehler)) from fehler
+    except (modi.ModusFehler, zustand.SperrFehler, OSError) as fehler:
+        raise AssistentFehler(f"Quittung gerade nicht möglich ({type(fehler).__name__})") from fehler
 
 
 def _abgabe_quittieren(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> Vorgang | None:
@@ -314,11 +360,12 @@ def wiederaufnehmen(repo: Path | None = None, datei_pfad: Path | None = None) ->
     * `abgabe_sende` ohne Ergebnis → `abgabe_unklar` (Status `unklar`, nie neu senden; `abgabe_seit`
       bleibt, die Frist läuft weiter)
     * `abgabe_angefragt` / `abgabe_unklar` → Phase bleibt, Status `abgabe_offen` (Frist läuft seit `abgabe_seit`)
+    * `abgabe_fehler` → Phase bleibt, Status `abgabe_offen` (Transport nicht gestartet; nach der Frist wird übersprungen)
     * `abgegeben` / `abgabe_uebersprungen` → Phase bleibt, Status `nachholbar` (Rolle noch nicht gesetzt)
     """
     ergebnisse: list[Wiederaufnahme] = []
     for vorgang in lesen(datei_pfad):
-        if vorgang.phase not in ("vorbereitet", *ABGABE_OFFEN, "abgegeben", "abgabe_uebersprungen",
+        if vorgang.phase not in ("vorbereitet", *ABGABE_OFFEN, "abgabe_fehler", "abgegeben", "abgabe_uebersprungen",
                                  "rolle_gesetzt", "sende"):
             continue
         try:
@@ -350,6 +397,10 @@ def _einordnen(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> 
             return Wiederaufnahme(aktuell.id, aktuell.thema, "unklar",
                                   "Abgabe-Zustellung unklar – bewusst nicht erneut gesendet")
         aktuell = neu             # inzwischen weiter (z. B. quittiert): unten neu einordnen
+    if aktuell.phase == "abgabe_fehler":
+        return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
+                              f"Abgabe-Transport nicht gestartet – Frist läuft seit {aktuell.abgabe_seit or aktuell.zeit}, "
+                              "danach wird die Abgabe übersprungen")
     if aktuell.phase in ("abgabe_angefragt", "abgabe_unklar"):
         return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
                               f"Abgabe offen – Frist läuft seit {aktuell.abgabe_seit}")

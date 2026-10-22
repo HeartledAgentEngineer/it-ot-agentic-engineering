@@ -26,6 +26,10 @@
                                       Modellkataloge der Werkzeuge anzeigen oder abgleichen
     masterwechsel quittieren VORGANG neu|abgabe
                                       Übernahme (neu) bzw. Abgabe (abgabe) eines Assistentenvorgangs bestätigen
+    masterwechsel uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]
+                                      Wechselassistent: Thema vom alten an den neuen Master übergeben
+    masterwechsel fortsetzen [VORGANG]
+                                      Wechselvorgänge weiterführen (Frist, Rolle setzen, zustellen)
     masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
@@ -37,7 +41,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, assistent_vorgaenge, automatik, chat_register, chat_zuordnung, claude_messen,
+from . import (__version__, anzeige, assistent, assistent_vorgaenge, automatik, chat_register, chat_zuordnung, claude_messen,
                modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
@@ -259,14 +263,70 @@ def _quittieren_cli(args: argparse.Namespace) -> int:
     """Quittung eines Zielchats (`neu`) bzw. des alten Chats (`abgabe`) – nur bei gültiger Marke."""
     try:
         vorgang = assistent_vorgaenge.quittieren(args.vorgang, args.art)
-    except (assistent_vorgaenge.AssistentFehler, OSError) as fehler:
+    except assistent_vorgaenge.AssistentFehler as fehler:   # Texte ohne Eingabe-Echo und ohne Pfade
         print(f"Nicht quittiert: {fehler}", file=sys.stderr)
+        return 1
+    except OSError as fehler:
+        print(f"Nicht quittiert: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
         return 1
     if args.art == "neu":
         print(f"Übernahme von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
     else:
         print(f"Abgabe von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
     return 0
+
+
+def _chat_ref(text: str | None) -> assistent.ChatRef | None:
+    """`WERKZEUG:KENNUNG` → Chat-Referenz. Die Fehlermeldungen nennen die Eingabe nie (sie enthält die Kennung)."""
+    if text is None:
+        return None
+    werkzeug, trenner, kennung = text.partition(":")
+    if not trenner:
+        raise assistent_vorgaenge.AssistentFehler("Chat-Angabe muss WERKZEUG:KENNUNG lauten")
+    return assistent.ChatRef(werkzeug, kennung)
+
+
+def _uebergeben_cli(args: argparse.Namespace) -> int:
+    """Wechsel starten. Ausgabe nur Vorgangs-ID und Phase – nie eine Chat-Kennung."""
+    try:
+        vorgang = assistent.uebergeben(args.thema, args.ziel, von_chat=_chat_ref(args.von),
+                                       nach_chat=_chat_ref(args.nach))
+    except assistent_vorgaenge.AssistentFehler as fehler:   # Texte sind bereinigt (assistent._assistentfehler)
+        print(f"Nicht übergeben: {fehler}", file=sys.stderr)
+        return 1
+    except OSError as fehler:                                # Rohtext kann Pfade enthalten: nur die Klasse
+        print(f"Nicht übergeben: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    print(f"Vorgang {vorgang.id}: {vorgang.phase}")
+    return 0
+
+
+def _fortsetzen_cli(args: argparse.Namespace) -> int:
+    """Einen oder alle nicht endgültigen Vorgänge weiterführen; je Vorgang ID, Thema und Phase."""
+    if args.vorgang is not None:
+        ids = [args.vorgang]
+    else:
+        try:
+            ids = [v.id for v in assistent_vorgaenge.lesen() if v.phase not in assistent_vorgaenge.ENDGUELTIG]
+        except OSError as fehler:
+            print(f"Vorgänge nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+            return 1
+    fehlgeschlagen = False
+    for ident in ids:
+        # Die ID nur nennen, wenn sie dem Muster entspricht – eine ungeprüfte Eingabe nie wiederholen (R6/1).
+        gezeigt = ident if modi.VORGANG_ID_MUSTER.fullmatch(ident) else "ungültige Kennung"
+        try:
+            vorgang = assistent.fortsetzen(ident)
+        except assistent_vorgaenge.AssistentFehler as fehler:
+            print(f"Nicht fortgesetzt ({gezeigt}): {fehler}", file=sys.stderr)
+            fehlgeschlagen = True
+            continue
+        except OSError as fehler:
+            print(f"Nicht fortgesetzt ({gezeigt}): Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+            fehlgeschlagen = True
+            continue
+        print(f"{vorgang.id}  {vorgang.thema}  {vorgang.phase}")
+    return 1 if fehlgeschlagen else 0
 
 
 def _chats_cli(args: argparse.Namespace) -> int:
@@ -403,7 +463,19 @@ def _parser() -> argparse.ArgumentParser:
     modelle_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
     quittieren = unter.add_parser("quittieren", help="Übernahme oder Abgabe eines Wechselvorgangs bestätigen")
     quittieren.add_argument("vorgang", help="Vorgangskennung aus der Postfachnachricht")
-    quittieren.add_argument("art", choices=assistent_vorgaenge.ARTEN, help="neu (Übernahme) oder abgabe")
+    quittieren.add_argument("art", metavar="ART", help="neu (Übernahme) oder abgabe")   # ohne choices: kein Echo
+    uebergeben = unter.add_parser("uebergeben", help="Wechselassistent: Thema an einen neuen Master übergeben")
+    uebergeben.add_argument("thema", help="vorhandenes Thema")
+    # Ohne `choices`: argparse würde eine ungültige Eingabe wörtlich wiederholen (R7/1); `assistent.uebergeben`
+    # prüft die Zielrolle selbst und nennt nur die erlaubten Werte.
+    uebergeben.add_argument("ziel", metavar="ZIEL", help=f"neue Masterrolle ({'|'.join(modi.ZIEL_ROLLEN)})")
+    uebergeben.add_argument("--von", default=None, metavar="WERKZEUG:KENNUNG",
+                            help="alter Chat (ohne Angabe wird die Abgabe übersprungen)")
+    uebergeben.add_argument("--nach", default=None, metavar="WERKZEUG:KENNUNG",
+                            help="neuer Chat (ohne Angabe wird nur die Rolle gesetzt)")
+    fortsetzen = unter.add_parser("fortsetzen", help="Wechselvorgänge weiterführen (idempotent)")
+    fortsetzen.add_argument("vorgang", nargs="?", default=None,
+                            help="Vorgangskennung (Standard: alle nicht endgültigen Vorgänge)")
     chats = unter.add_parser("chats", help="zuletzt benutzte Chats (24 h) und ihre Projekt-Vorschläge")
     chats.add_argument("--liste", action="store_true",
                        help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
@@ -458,6 +530,10 @@ def main(argv: list[str] | None = None) -> int:
         return _chats_cli(args)
     if args.befehl == "quittieren":
         return _quittieren_cli(args)
+    if args.befehl == "uebergeben":
+        return _uebergeben_cli(args)
+    if args.befehl == "fortsetzen":
+        return _fortsetzen_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":
