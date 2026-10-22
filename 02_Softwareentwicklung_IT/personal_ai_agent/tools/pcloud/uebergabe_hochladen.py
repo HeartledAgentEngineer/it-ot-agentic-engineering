@@ -318,6 +318,252 @@ def hochladen(
     return None
 
 
+# ── Ergaenzungen fuer die WhatsApp-Bilder (21.10.2026, Plan W1) ───────────
+#
+# Nur HINZUGEFUEGT — ``hochladen()``, ``_api_get()`` und alles darueber bleibt
+# unveraendert. Neu sind (a) eine zweite, NUR LESENDE Positivliste samt Aufruf,
+# (b) die Lese-Funktionen ``stat_datei``, ``pruefsumme_cloud``, ``ordner_auflisten``,
+# ``userinfo_pruefen`` und (c) ``hochladen_ohne_ueberschreiben``, das serverseitig
+# nie eine vorhandene Datei ersetzt (``renameifexists=1``).
+
+# Nur lesende pCloud-Methoden dieser Ergaenzung. Schreibwege bleiben allein
+# ``ERLAUBTE_METHODEN`` (oben).
+ERLAUBTE_LESE_METHODEN = ("stat", "checksumfile", "listfolder", "userinfo")
+
+# pCloud-Fehlercodes "Ordner/Datei existiert nicht" (2002, 2005, 2009).
+NICHT_GEFUNDEN_CODES = (2002, 2005, 2009)
+
+# Die einzigen Fehlerarten dieser Ergaenzung. Fremdtext der pCloud (Fehlermeldungen
+# koennen Datei- oder Ordnernamen enthalten) wird NIE in einer Ausnahme gespeichert.
+ARTEN = ("netz", "http", "json", "abgelehnt", "nicht_gefunden", "antwort", "konfig", "aufruf")
+
+
+def _art_text(art: str, code: Any = None) -> str:
+    """Fehlerart aus der festen Liste, plus optional ein gepruefter ganzzahliger Code."""
+    if art not in ARTEN:
+        art = "abgelehnt"
+    if isinstance(code, int) and not isinstance(code, bool) and 0 <= code <= 99999:
+        return f"{art} {code}"
+    return art
+
+
+class PCloudFehler(UebergabeFehler):
+    """pCloud-Fehler mit fester ``art`` (``ARTEN`` + optional Code, z. B. "http 503").
+
+    Die Meldung ist ein fester Text aus der ``art``. Weder Fehlertexte der pCloud
+    noch Token, Host, Pfade oder Namen landen in der Ausnahme.
+    """
+
+    def __init__(self, art: str = "abgelehnt", code: Any = None) -> None:
+        self.art = _art_text(art, code)
+        super().__init__(f"pCloud-Fehler ({self.art}).")
+
+
+class PCloudNichtGefunden(PCloudFehler):
+    """Die Datei oder der Ordner existiert in der pCloud nicht (Code 2002/2005/2009)."""
+
+
+def _zugang_lesen(token: Optional[str], host: Optional[str]) -> "tuple[str, str]":
+    """Token und Host ueber die Altcode-Leser holen — jeder Fehler wird zu ``konfig``.
+
+    ``_werte_aus_env_datei`` faengt nur ``OSError``; ein ``UnicodeDecodeError`` (ungueltiges
+    UTF-8 in der .env) koennte sonst den Dateiinhalt samt Token in den ``args`` tragen.
+    """
+    geheimnis = ziel_host = ""
+    konfigfehler = False
+    try:
+        geheimnis = _token_aus_quellen(token)
+        ziel_host = _host_aus_quellen(host)
+    except Exception:
+        konfigfehler = True           # nur ein Merkmal; geworfen wird ausserhalb des except
+    if konfigfehler or not geheimnis:
+        raise PCloudFehler("konfig")
+    return geheimnis, ziel_host
+
+
+def _api_lesen(
+    methode: str,
+    felder: Dict[str, Any],
+    *,
+    token: Optional[str] = None,
+    host: Optional[str] = None,
+    timeout: float = TIMEOUT_STANDARD,
+) -> Dict[str, Any]:
+    """Genau EIN lesender pCloud-GET-Aufruf — mit eigener Positivliste."""
+    if methode not in ERLAUBTE_LESE_METHODEN:
+        raise PCloudFehler("aufruf")
+    geheimnis, ziel_host = _zugang_lesen(token, host)
+    parameter = {name: wert for name, wert in felder.items() if wert is not None}
+    parameter["auth"] = geheimnis
+    url = f"https://{ziel_host}/{methode}"
+    antwort = None
+    netzfehler = jsonfehler = False
+    try:
+        antwort = httpx.get(url, params=parameter, timeout=timeout)
+    except Exception:
+        netzfehler = True             # nur ein Merkmal; geworfen wird ausserhalb des except
+    if netzfehler:
+        raise PCloudFehler("netz")
+    if antwort.status_code != 200:
+        raise PCloudFehler("http", antwort.status_code)
+    daten = None
+    try:
+        daten = antwort.json()
+    except Exception:
+        jsonfehler = True
+    if jsonfehler:
+        raise PCloudFehler("json")
+    if not isinstance(daten, dict):
+        raise PCloudFehler("antwort")
+    code = daten.get("result")
+    if isinstance(code, bool) or code != 0:
+        if code in NICHT_GEFUNDEN_CODES and isinstance(code, int) and not isinstance(code, bool):
+            raise PCloudNichtGefunden("nicht_gefunden", code)
+        raise PCloudFehler("abgelehnt", code)
+    return daten
+
+
+def userinfo_pruefen(
+    *, token: Optional[str] = None, host: Optional[str] = None, timeout: float = TIMEOUT_STANDARD
+) -> bool:
+    """Die eine lesende Abfrage ``userinfo``: True bei ``result 0``, sonst Fehler."""
+    _api_lesen("userinfo", {}, token=token, host=host, timeout=timeout)
+    return True
+
+
+def stat_datei(
+    fileid: int, *, token: Optional[str] = None, host: Optional[str] = None,
+    timeout: float = TIMEOUT_STANDARD,
+) -> Dict[str, Any]:
+    """``stat`` einer Datei per ``fileid``: die Metadaten (Name, ``parentfolderid`` ...).
+
+    Fehlt die Datei in der pCloud, kommt ``PCloudNichtGefunden``.
+    """
+    if not isinstance(fileid, int) or isinstance(fileid, bool):
+        raise PCloudFehler("aufruf")
+    daten = _api_lesen("stat", {"fileid": fileid}, token=token, host=host, timeout=timeout)
+    meta = daten.get("metadata")
+    if not isinstance(meta, dict):
+        raise PCloudFehler("antwort")
+    return meta
+
+
+def pruefsumme_cloud(
+    fileid: int, *, token: Optional[str] = None, host: Optional[str] = None,
+    timeout: float = TIMEOUT_STANDARD,
+) -> str:
+    """Die sha256-Pruefsumme einer Cloud-Datei (``checksumfile``; EU liefert sha256)."""
+    if not isinstance(fileid, int) or isinstance(fileid, bool):
+        raise PCloudFehler("aufruf")
+    daten = _api_lesen("checksumfile", {"fileid": fileid}, token=token, host=host,
+                       timeout=timeout)
+    wert = daten.get("sha256")
+    if (not isinstance(wert, str) or len(wert) != 64
+            or any(c not in "0123456789abcdefABCDEF" for c in wert)):
+        raise PCloudFehler("antwort")
+    return wert.lower()
+
+
+def ordner_auflisten(
+    *, folderid: Optional[int] = None, pfad: Optional[str] = None,
+    token: Optional[str] = None, host: Optional[str] = None, timeout: float = TIMEOUT_STANDARD,
+) -> Optional[List[Dict[str, Any]]]:
+    """Den Inhalt eines Ordners lesen (``listfolder``), per ``folderid`` ODER Pfad.
+
+    Liefert die Eintraege (Dateien und Unterordner) oder ``None``, wenn der Ordner
+    nicht existiert. Ein Pfad muss unter ``/Agent/`` liegen (wie beim Schreiben).
+    Legt nie etwas an.
+    """
+    if (folderid is None) == (pfad is None):
+        raise PCloudFehler("aufruf")
+    if pfad is not None:
+        felder: Dict[str, Any] = {}
+        pfadfehler = False
+        try:
+            felder = {"path": ziel_pfad_pruefen(pfad)}
+        except UebergabeFehler:
+            pfadfehler = True
+        if pfadfehler:
+            raise PCloudFehler("aufruf")                # ohne den Pfad im Fehlertext
+    elif isinstance(folderid, int) and not isinstance(folderid, bool):
+        felder = {"folderid": folderid}
+    else:
+        raise PCloudFehler("aufruf")
+    try:
+        daten = _api_lesen("listfolder", felder, token=token, host=host, timeout=timeout)
+    except PCloudNichtGefunden:
+        return None
+    meta = daten.get("metadata") if isinstance(daten.get("metadata"), dict) else {}
+    inhalt = meta.get("contents")
+    return [e for e in inhalt if isinstance(e, dict)] if isinstance(inhalt, list) else []
+
+
+def hochladen_ohne_ueberschreiben(
+    name: str,
+    daten: bytes,
+    folderid: int,
+    *,
+    token: Optional[str] = None,
+    host: Optional[str] = None,
+    timeout: float = TIMEOUT_HOCHLADEN,
+    senden: Any = None,
+) -> "tuple[Optional[int], str]":
+    """Eine Datei hochladen, ohne je eine vorhandene zu ersetzen.
+
+    Wie ``hochladen()``, aber mit ``renameifexists=1`` (pCloud benennt bei einem
+    Namenskonflikt serverseitig um, statt zu ersetzen) und ``nopartial=1``.
+    Rueckgabe ``(fileid, name_in_cloud)``; ``fileid`` ist ``None``, wenn pCloud
+    keine liefert. ``name_in_cloud`` ist der von pCloud gemeldete Name, sonst der
+    gesendete. ``senden`` ist ``httpx.post``-kompatibel (Tests).
+    """
+    name = str(name or "").strip()
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        raise PCloudFehler("aufruf")
+    if not isinstance(daten, (bytes, bytearray)) or not daten:
+        raise PCloudFehler("aufruf")
+    geheimnis, ziel_host = _zugang_lesen(token, host)
+    if senden is None:
+        senden = httpx.post
+    antwort = None
+    netzfehler = jsonfehler = False
+    try:
+        antwort = senden(
+            f"https://{ziel_host}/uploadfile",
+            params={"auth": geheimnis, "folderid": int(folderid), "nopartial": 1,
+                    "renameifexists": 1},
+            files={"file": (name, bytes(daten), "application/octet-stream")},
+            timeout=timeout,
+        )
+    except Exception:
+        netzfehler = True             # nur ein Merkmal; geworfen wird ausserhalb des except
+    if netzfehler:
+        raise PCloudFehler("netz")
+    status = getattr(antwort, "status_code", 200)
+    if status != 200:
+        raise PCloudFehler("http", status)
+    ergebnis = None
+    try:
+        ergebnis = antwort.json()
+    except Exception:
+        jsonfehler = True
+    if jsonfehler:
+        raise PCloudFehler("json")
+    if not isinstance(ergebnis, dict):
+        raise PCloudFehler("antwort")
+    if isinstance(ergebnis.get("result"), bool) or ergebnis.get("result") != 0:
+        raise PCloudFehler("abgelehnt", ergebnis.get("result"))
+    meta = ergebnis.get("metadata") or []
+    name_cloud = name
+    if meta and isinstance(meta[0], dict) and isinstance(meta[0].get("name"), str):
+        name_cloud = meta[0]["name"]
+    ids = ergebnis.get("fileids") or []
+    if ids and isinstance(ids[0], int) and not isinstance(ids[0], bool):
+        return ids[0], name_cloud
+    if meta and isinstance(meta[0], dict) and isinstance(meta[0].get("fileid"), int):
+        return meta[0]["fileid"], name_cloud
+    return None, name_cloud
+
+
 # ── Manifest (ausserhalb des Repos, nur anhaengen) ────────────────────────
 
 def manifest_datei(pfad: Optional[str] = None) -> Path:
