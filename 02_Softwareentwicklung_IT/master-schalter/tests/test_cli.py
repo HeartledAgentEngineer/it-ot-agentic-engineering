@@ -443,3 +443,46 @@ def test_quittieren_unbekannter_vorgang_oder_schlechte_eingabe(rollen, capsys):
     assert cli.main(["quittieren", "../x", "neu"]) == 1
     assert cli.main(["quittieren", "v-1", "beides"]) == 2           # argparse lehnt die Art ab
 
+
+
+# --- Chatliste (v0.5.0) ----------------------------------------------------------------------
+
+def _chat_attrappe(tmp_path, monkeypatch):
+    """Eine Desktop-Attrappe mit eindeutigem Titel – keine echte Quelle."""
+    from datetime import datetime, timedelta, timezone
+    wurzel = tmp_path / "desktop-attrappe"
+    ordner = wurzel / "konto" / "claude-code-sessions"
+    ordner.mkdir(parents=True)
+    zeit = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp() * 1000)
+    (ordner / "local_x.json").write_text(json.dumps(
+        {"cliSessionId": "abcdef12-0000-4000-8000-000000000000", "title": "GEHEIMTITEL",
+         "cwd": "C:/GEHEIMORDNER", "lastActivityAt": zeit}), encoding="utf-8")
+    monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_DESKTOP", str(wurzel))
+
+
+def test_chats_ohne_liste_nennt_nur_zaehlwerte(daten, tmp_path, monkeypatch, capsys):
+    _chat_attrappe(tmp_path, monkeypatch)
+    assert cli.main(["chats"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "claude-desktop: ok, 1 Chat" in ausgabe
+    assert "claude-cli: fehlt" in ausgabe and "codex: fehlt" in ausgabe and "hermes: fehlt" in ausgabe
+    assert "zugeordnet: 0, ohne Projekt: 1" in ausgabe
+    for verboten in ("GEHEIMTITEL", "GEHEIMORDNER", "abcdef12", "000000000000"):
+        assert verboten not in ausgabe
+
+
+def test_chats_liste_zeigt_titel_und_gekuerzte_kennung(daten, tmp_path, monkeypatch, capsys):
+    _chat_attrappe(tmp_path, monkeypatch)
+    assert cli.main(["chats", "--liste"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "GEHEIMTITEL" in ausgabe
+    assert "abcdef12" in ausgabe and "abcdef12-0000" not in ausgabe
+    assert "- (unbekannt)" in ausgabe
+    assert "GEHEIMORDNER" not in ausgabe
+
+
+def test_chats_ohne_quellen_ist_exit_0(daten, capsys):
+    assert cli.main(["chats"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "claude-desktop: fehlt" in ausgabe
+    assert "zugeordnet: 0, ohne Projekt: 0" in ausgabe

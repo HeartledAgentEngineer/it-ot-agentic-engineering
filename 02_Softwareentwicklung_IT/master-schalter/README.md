@@ -252,6 +252,40 @@ Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell u
   Reservierung wird nie übernommen. Nach dem Versand zeigt das Menü „gesendet"; der Codex-Chat
   bestätigt mit `ACK <Kennung>`; „Aktualisieren" (und jede Messung) hakt das ab → „bestätigt".
 
+## Chatliste (v0.5.0, in Arbeit)
+
+Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex und Hermes
+und schlägt jedem ein Projekt (Thema) vor. Die Chat-Auswahl im Fenster ist noch nicht gebaut; heute
+gibt es das Register und den Befehl `chats`.
+
+- **Quellen** (je einzeln fehlertolerant; Pfade über Umgebungsvariablen umlenkbar):
+  `claude-desktop` (`%LOCALAPPDATA%/Claude-Data/*/claude-code-sessions/**/local_*.json`, höchstens
+  256 KB je Datei), `claude-cli` (`~/.claude/projects/*/<uuid>.jsonl`, nur direkte Kinder; Zeit =
+  Dateiänderung; ergänzt nur Kennungen, die `claude-desktop` nicht liefert), `codex`
+  (`~/.codex/state_5.sqlite`, Tabelle `threads`) und `hermes` (`$HERMES_HOME/state.db` bzw.
+  `%LOCALAPPDATA%/hermes/state.db`, Tabelle `sessions`; nur Quellen `cli`, `desktop`, `telegram`,
+  `api_server`). Bei Codex zählen nur Sebastians Chats (`thread_source = user`), keine automatischen
+  Prüf- oder Subagenten-Threads. Eine in Claude Desktop archivierte Sitzung kommt auch über
+  `claude-cli` nicht zurück; Desktop-Sitzungen ohne `cliSessionId` erscheinen nicht (sie können
+  noch keine Nachricht über den Claude-Hook empfangen). Zeiten mehr als 5 Minuten in der Zukunft
+  werden verworfen. Status je Quelle: `ok`, `fehlt`, `gesperrt`, `schema unbekannt`,
+  `nicht lesbar: <Fehlerart>` (nie mit Pfad oder Ausnahmetext).
+- **Nur Metadaten, nur lesend:** Kennung, Titel, Arbeitsordner und Zeit der letzten Nutzung.
+  Nachrichten werden nicht gelesen (bei den `jsonl`-Dateien wird nur geparst, was `"custom-title"`
+  oder `"ai-title"` enthält; die Tabelle `messages` wird nie abgefragt). SQLite-Dateien werden
+  ausschließlich mit `mode=ro` und ausdrücklicher Spaltenliste geöffnet; passt das Schema nicht,
+  meldet die Quelle „schema unbekannt“. Titel, Ordner und Kennungen werden nur lokal gelesen und
+  nicht an Modelle weitergegeben; Nachrichten an Chats enthalten sie nicht.
+- **Vorschlag:** `projekte.json` (je Thema Ordnerpräfixe und Stichwörter) und `zuordnung.json`
+  (von Sebastian bestätigt, nur Claude- und Hermes-Chats) liegen im Datenordner. Rangfolge:
+  bestätigt bzw. Paar (Codex), längstes Ordnerpräfix (ganze Pfadsegmente), Stichwort im Titel (nur
+  wenn genau ein Projekt passt). Für Codex-Chats ist das Paar die Bestätigung: Bestätigen setzt das
+  Paar des Themas (`aktiv` bleibt) und schreibt nichts in `zuordnung.json`.
+- **Befehl:** `masterwechsel chats` druckt nur Quellenstatus und Zählwerte (keine Titel, Ordner oder
+  Kennungen – auch für Agenten aufrufbar). `masterwechsel chats --liste` zeigt zusätzlich je Chat
+  Werkzeug, die ersten 8 Zeichen der Kennung, Zeit, Vorschlag mit Grund und den Titel – nur für
+  Sebastian, denn es zeigt persönliche Titel.
+
 ## Start und Autostart (Taskleiste)
 
 - Start ohne Konsole: `.venv\Scripts\pythonw.exe -m master_schalter.leiste`
@@ -381,6 +415,8 @@ src/master_schalter/
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
   wechsel.py   Wechsel unter Themensperren ausführen: Paket, dann Zustand; Rückwechsel entwertet
   paare.py     Paare aus Thema, Codex-Chat und laufender Übergabedatei
+  chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
+  chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)
   besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex)
   automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre

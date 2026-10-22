@@ -26,6 +26,7 @@
                                       Modellkataloge der Werkzeuge anzeigen oder abgleichen
     masterwechsel quittieren VORGANG neu|abgabe
                                       Übernahme (neu) bzw. Abgabe (abgabe) eines Assistentenvorgangs bestätigen
+    masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -36,8 +37,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, assistent_vorgaenge, automatik, claude_messen, modi, modelle, paare,
-               rollen, rueckgabe, signale, wechsel, zustand)
+from . import (__version__, anzeige, assistent_vorgaenge, automatik, chat_register, chat_zuordnung, claude_messen,
+               modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -268,6 +269,23 @@ def _quittieren_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _chats_cli(args: argparse.Namespace) -> int:
+    """Chatliste (nur Metadaten, nur lesend). Ohne `--liste` nur Zählwerte: keine Titel, Ordner, Kennungen."""
+    ergebnis, zeilen = chat_zuordnung.uebersicht_mit_quellen()
+    for quelle in chat_register.QUELLEN:
+        status = ergebnis.quellen.get(quelle, "fehlt")
+        anzahl = sum(1 for chat in ergebnis.chats if chat.quelle == quelle)
+        print(f"{quelle}: {status}, {anzahl} {'Chat' if anzahl == 1 else 'Chats'}" if status == "ok"
+              else f"{quelle}: {status}")
+    zugeordnet = sum(1 for _, thema, _ in zeilen if thema is not None)
+    print(f"zugeordnet: {zugeordnet}, ohne Projekt: {len(zeilen) - zugeordnet}")
+    if args.liste:
+        for chat, thema, grund in zeilen:
+            zeit = chat.zuletzt.astimezone().strftime("%Y-%m-%d %H:%M")
+            print(f"{chat.werkzeug}  {chat.kennung[:8]}  {zeit}  {thema or '-'} ({grund})  {chat.titel}")
+    return 0
+
+
 def _paar_setzen(args: argparse.Namespace) -> int:
     try:
         paar = paare.setzen(args.thema, args.uuid, args.datei,
@@ -386,6 +404,9 @@ def _parser() -> argparse.ArgumentParser:
     quittieren = unter.add_parser("quittieren", help="Übernahme oder Abgabe eines Wechselvorgangs bestätigen")
     quittieren.add_argument("vorgang", help="Vorgangskennung aus der Postfachnachricht")
     quittieren.add_argument("art", choices=assistent_vorgaenge.ARTEN, help="neu (Übernahme) oder abgabe")
+    chats = unter.add_parser("chats", help="zuletzt benutzte Chats (24 h) und ihre Projekt-Vorschläge")
+    chats.add_argument("--liste", action="store_true",
+                       help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -433,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
         return _modell_setzen_cli(args)
     if args.befehl == "modelle":
         return _modelle_cli(args)
+    if args.befehl == "chats":
+        return _chats_cli(args)
     if args.befehl == "quittieren":
         return _quittieren_cli(args)
     if args.befehl == "automatik-pruefen":
