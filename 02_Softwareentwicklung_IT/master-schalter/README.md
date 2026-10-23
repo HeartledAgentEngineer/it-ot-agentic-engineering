@@ -274,9 +274,9 @@ Chat-Auswahl, Takt in der Leiste) und der Empfang im Claude-/Hermes-Chat sind no
   <Text>` (Argumentliste, keine Shell, 60 s). Nur ein belegtes Nicht-Starten (Programm nicht
   gefunden, Startfehler) ist `abgabe_fehler` bzw. `fehler`; Rückgabewert ≠ 0, Zeitüberschreitung oder
   jede andere Ausnahme ist `abgabe_unklar` bzw. `unklar`. Claude und Hermes bekommen eine kleine Datei
-  im Postfach (`postfach/<ziel>/<kennung>/<vorgang>_<art>.json`). **Ehrlich:** Es gibt noch keinen Weg,
-  auf dem ein Claude-/Hermes-Chat das Postfach abholt und quittiert (kommt mit P3a/P6) – die Dateien
-  liegen bis dahin bereit. Transporte laufen nie unter der Themen- oder Dateisperre; so kann Codex
+  im Postfach (`postfach/<ziel>/<kennung>/<vorgang>_<art>.json`). **Ehrlich:** Ein Claude-Chat kann das
+  Postfach über den Hook abholen (siehe „Claude-Empfang“), der aber noch nicht eingetragen ist; für
+  Hermes gibt es noch keinen Weg (kommt mit P6) – die Dateien liegen bis dahin bereit. Transporte laufen nie unter der Themen- oder Dateisperre; so kann Codex
   nach `masterwechsel quittieren <id> abgabe` schon quittieren, bevor der Rückgabewert da ist (die
   Phase bleibt dann `abgegeben`).
 - **Frist:** Hat der alte Master nach 10 Minuten (`ABGABE_FRIST`, ab `abgabe_sende`) nicht
@@ -359,6 +359,89 @@ Chat-Auswahl, Takt in der Leiste) und der Empfang im Claude-/Hermes-Chat sind no
   Ablauf (Abgabe-Transport, `abgabe_ergebnis`, Protokoll- und Vorgangsaufrufe) umschlossen und liefert nur
   einen bereinigten `AssistentFehler`. Scheitert dabei `abgabe_ergebnis`, bleibt die Phase `abgabe_sende`
   stehen – richtig so: `wiederaufnehmen` macht daraus `abgabe_unklar`, es wird nie neu gesendet.
+
+## Claude-Empfang (Hook, v0.5.0)
+
+`python -m master_schalter.claude_hook` ist ein Command-Hook für Claude Code. Claude Code gibt das Ereignis als
+JSON auf stdin; das Modul liest höchstens 1 MB und wertet nur `hook_event_name` und `session_id` aus.
+
+- **`UserPromptSubmit` und `PostToolUse`:** meldet den Status `arbeitet` und holt mit
+  `postfach.vormerken("claude", session_id)` die Nachrichten dieser Sitzung vor (Übernahme-Auftrag `neu`,
+  Abgabe-Auftrag, Abgabe-Info – mit den Gültigkeitsregeln aus dem Abschnitt Wechselassistent). Gibt es
+  Nachrichten, schreibt der Hook genau ein JSON auf stdout:
+  `{"hookSpecificOutput": {"hookEventName": "<Ereignis>", "additionalContext": "<Text>"}}`. Der Text besteht
+  aus der festen Einleitung „Nachricht des Master-Schalters:“ und den festen Postfachtexten, je Zeile einer.
+  Er enthält nur Thema, Vorgangs-ID und den repo-relativen Pfad der laufenden Übergabe – nie die
+  Sitzungskennung oder einen absoluten Pfad. Ohne Nachricht gibt es **keine** Ausgabe.
+- **`Stop`:** setzt nur den Status `ruht`. Der Hook blockiert nie; es gibt kein `decision: block`.
+- **Andere Ereignisse:** nichts.
+- **Ausgabe vor Zustellung:** Das Postfach kennt zwei Schritte. `postfach.vormerken` prüft wie bisher
+  (verwerfen, liegen lassen, zustellen), verschiebt aber nichts. Der Hook schreibt und leert seine Ausgabe
+  und ruft **erst danach** `postfach.bestaetigen` auf: Es liest jede Datei unter der Themensperre erneut
+  (geänderte oder fehlende Dateien werden übergangen) und trifft dieselbe Entscheidung wie früher `abholen`
+  noch einmal: zustellen (nach `erledigt/`, Zustellung vermerken), verwerfen (nach `verworfen/` mit Grund)
+  oder liegen lassen. Gültigkeitsprüfung und Zustellung sind so wieder ein Schritt unter der Themensperre
+  (G5). **Grenze:** Wird eine Nachricht erst nach der Ausgabe ungültig (Master gewechselt), steht sie schon
+  im Chat; der Vorgang wird aber nicht `im_chat`, und die Quittung schlägt fehl – der Text sagt für diesen
+  Fall „Schlägt die Quittung fehl, beginne keinen Schritt“. Scheitert die Ausgabe oder stürzt der Hook dazwischen ab, liegt die
+  Datei weiter bereit und die Nachricht kommt beim nächsten Ereignis **noch einmal** – gewollt: lieber doppelt
+  als verloren. Gültig bleibt sie nur über die Quittung (`masterwechsel quittieren`, G5). Zwei gleichzeitige
+  Hooks können dieselbe Datei vormerken (beide geben dann aus); bestätigen kann sie nur einer.
+  `postfach.abholen` ist weiterhin `vormerken` + `bestaetigen` in einem Zug.
+- **Abholen ist keine Übernahme:** `neu` setzt den Vorgang auf `im_chat`; übernommen ist erst, was der Chat
+  mit `masterwechsel quittieren <id> neu` bestätigt.
+- **Statusregister (K2):** `<datenordner>/status/claude-<kennung>.json` mit `zustand` (`arbeitet` | `ruht`),
+  `zeit` (ISO, UTC) und `ereignis`; atomar geschrieben. `arbeitet` wird nur geschrieben, wenn der Zustand
+  vorher ein anderer war oder die gespeicherte Zeit mindestens 60 s zurückliegt (Schutz vor Schreiblast bei
+  vielen `PostToolUse`); `ruht` immer. `status.lesen(werkzeug, kennung)` liefert `(zustand, zeit)` oder `None`
+  für „unbekannt“ (Datei fehlt oder ist kaputt) – für den späteren Ruhenachweis (G8b), der heute noch nicht
+  gebaut ist.
+- **Fehlerverhalten (K3):** kaputtes JSON, fehlende oder unzulässige `session_id` (Muster `A–Z a–z 0–9 _ -`,
+  1–80 Zeichen), belegte Sperre, `OSError`, Importfehler oder jede andere Ausnahme enden mit Exit 0, ohne
+  Ausgabe und ohne Ausgabe auf stderr; der Chat wird nie blockiert. Das Prozessende ist hart
+  (`os._exit(0)` nach einem letzten `flush`): scheiterte ein `flush()` an geschlossenem stdout, würde der
+  Interpreter beim normalen Beenden erneut leeren und mit Meldung auf stderr und Exit 120 enden. Auf
+  Modulebene importiert `claude_hook`
+  nur die Standardbibliothek; `modi`, `status` und `postfach` werden innerhalb des Fehlerschutzes geladen
+  (`master_schalter/__init__.py` enthält nur Docstring und `__version__`). Fehlt allein das Statusregister,
+  wird trotzdem zugestellt. Eine belegte Sperre lässt die Nachricht liegen, sie kommt beim nächsten Ereignis.
+  Existiert der Postfachordner der Sitzung nicht, wird nichts weiter gelesen. Das Repo bestimmt wie sonst
+  `MASTER_SCHALTER_REPO` bzw. der Ordner, in dem das Paket liegt (das `cwd` des Ereignisses wird nicht benutzt).
+- **Laufzeit-Obergrenze:** Der Hook wartet auf Sperren (Themensperre, Dateisperre von `assistent.json`) nur
+  `SPERRFRIST` = 0,3 s (ohne diese Angabe gelten die bisherigen 1 s bzw. 5 s). Dazu gibt es Zeitbudgets: das
+  Vormerken fasst nach `VORMERK_BUDGET` = 0,6 s keine weitere Datei mehr an, das Bestätigen nach
+  `BESTAETIGEN_BUDGET` = 0,4 s ebenfalls nicht (eigenes Budget, damit Ausgegebenes möglichst bestätigt wird).
+  Nicht angefasste Dateien bleiben liegen und kommen beim nächsten Ereignis. Eine einzelne Datei kann ein
+  Budget um höchstens die Sperrfristen überschreiten. `postfach.vormerken`, `bestaetigen` und `abholen`
+  nehmen dafür die optionalen Parameter `frist` (Sekunden je Sperre) und `bis` (Zeitpunkt nach
+  `time.monotonic()`); ohne Angabe bleibt das bisherige Verhalten. Ist beim Bestätigen die Dateisperre
+  belegt, ist die Ausgabe schon erfolgt, die Datei bleibt aber liegen und die Nachricht kommt noch einmal.
+- **Laufzeit:** gemessen etwa 0,8 bis 1,0 s je Aufruf als eigener Prozess (Windows, venv-Python); davon rund
+  0,28 s das Importieren des Moduls samt `modi`. Ziel unter 2 s.
+
+**Ehrlich: Der Hook ist noch nicht eingetragen.** Bis jemand ihn in eine `settings.json` einträgt, holt kein
+Claude-Chat das Postfach ab, und es wird kein Status geschrieben. Der Eintrag erfolgt bewusst erst nach
+ausdrücklichem OK. Beispiel (nur Doku; Pfad des venv-Pythons anpassen):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command",
+                  "command": "\"C:/Pfad/zu/master-schalter/.venv/Scripts/python.exe\" -m master_schalter.claude_hook"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "*",
+       "hooks": [{"type": "command",
+                  "command": "\"C:/Pfad/zu/master-schalter/.venv/Scripts/python.exe\" -m master_schalter.claude_hook"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command",
+                  "command": "\"C:/Pfad/zu/master-schalter/.venv/Scripts/python.exe\" -m master_schalter.claude_hook"}]}
+    ]
+  }
+}
+```
 
 ## Chatliste (v0.5.0, in Arbeit)
 
@@ -531,6 +614,8 @@ src/master_schalter/
   assistent_vorgaenge.py  Vorgänge des Assistenten (`assistent.json`), Phasen, Quittung, Wiederaufnahme
   postfach.py  Postfach für Claude-/Hermes-Chats und feste Nachrichtentexte
   protokoll.py Entscheidungsprotokoll `protokoll.jsonl` (ohne Kennungen)
+  claude_hook.py  Command-Hook für Claude Code: Postfach abholen, Status melden (noch nicht eingetragen)
+  status.py    Statusregister `status/<werkzeug>-<kennung>.json` (`arbeitet` | `ruht`)
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)

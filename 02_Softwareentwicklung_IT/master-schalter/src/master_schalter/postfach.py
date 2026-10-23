@@ -36,6 +36,22 @@ Den Text baut `text(art, …)` aus festen Satzbausteinen – auch für die Codex
 den Zusatzsatz `ZUSATZ_ABGABE_FEHLTE` an, wenn der Vorgang `abgabe == "uebersprungen"` trägt; beim
 Abholen wird das aus dem Vorgang abgeleitet (die Datei bekommt kein neues Inhaltsfeld).
 
+Zwei Schritte (Ausgabe vor Zustellung): `vormerken` prüft wie bisher (verwerfen / liegen lassen / zustellen), liefert
+für jede zuzustellende Datei eine `Vorgemerkt` und verschiebt **nichts**; `bestaetigen` liest die Datei unter der
+Themensperre erneut (geändert oder fehlend: übergangen), trifft **dieselbe Entscheidung wie früher `abholen`**
+neu (`_entscheiden`: zustellen = nach `erledigt/` und Vorgang vermerken, verwerfen = nach `verworfen/` mit Grund,
+liegen lassen) – Gültigkeitsprüfung und Zustellung sind so wieder ein zusammenhängender Schritt unter der
+Themensperre (G5: wechselt zwischen Vormerken und Bestätigen der Master, wird der Vorgang nicht `im_chat`).
+Hat ein Aufrufer die Nachricht schon ausgegeben, bevor sie ungültig wurde, steht sie zwar im Chat; die Quittung
+(G5) schlägt dann fehl, und der Text sagt für diesen Fall „beginne keinen Schritt“. `abholen` = `vormerken` + `bestaetigen` (Verhalten unverändert). Ein Aufrufer, der die Nachricht
+erst ausgeben muss (der Claude-Hook), ruft `bestaetigen` nur nach erfolgreicher Ausgabe auf: scheitert die Ausgabe
+oder stürzt er dazwischen ab, liegt die Datei weiter bereit und die Nachricht kommt beim nächsten Mal noch einmal –
+lieber doppelt als verloren; gültig bleibt sie nur über die Quittung (G5). Zwei gleichzeitige Aufrufer können
+dieselbe Datei vormerken; bestätigen kann sie nur einer.
+Optional begrenzen `frist` (Sekunden je Sperre: Themensperre und Dateisperre in `aendern`; Standard wie bisher) und
+`bis` (Zeitpunkt nach `time.monotonic()`; danach wird keine weitere Datei angefasst) die Laufzeit. Eine belegte
+Sperre lässt die Datei liegen und ist kein Fehler.
+
 Abholung ist **keine** Übernahme: `neu` setzt den Vorgang nur auf `im_chat`; die Übernahme bestätigt
 der Zielchat selbst mit `masterwechsel quittieren`. Abgabe-Auftrag und -Info ändern die Phase **nie**,
 sie setzen nur `abgabe_zugestellt`.
@@ -43,6 +59,7 @@ sie setzen nur `abgabe_zugestellt`.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +99,17 @@ class Nachricht:
     rolle: str                # Art: "neu" | "abgabe_auftrag" | "abgabe_info"
     laufend: str
     text: str                 # fester Satzbaustein für den Chat
+
+
+@dataclass(frozen=True)
+class Vorgemerkt:
+    """Zuzustellende Nachricht samt Bezug (Datei und gelesener Rohinhalt) für `bestaetigen`."""
+    nachricht: Nachricht
+    datei: Path
+    roh: object
+    inhalt: dict[str, str]
+    ziel: str = ""                      # Postfachziel (Rolle), für die erneute Entscheidung in `bestaetigen`
+    repo: Path | None = None
 
 
 def wurzel() -> Path:
@@ -212,20 +240,29 @@ def _text(inhalt: dict[str, str]) -> str:
     return text(inhalt["rolle"], inhalt["thema"], inhalt["laufend"], inhalt["vorgang"], uebersprungen)
 
 
-def abholen(ziel: str, kennung: str, repo: Path | None = None) -> list[Nachricht]:
-    """Alle gültigen Nachrichten einer Sitzung abholen; endgültig ungültige wandern nach `verworfen/`.
+def _abgelaufen(bis: float | None) -> bool:
+    return bis is not None and time.monotonic() >= bis
+
+
+def vormerken(ziel: str, kennung: str, repo: Path | None = None, *, frist: float | None = None,
+              bis: float | None = None) -> list[Vorgemerkt]:
+    """Schritt 1 der Abholung: alle zuzustellenden Nachrichten einer Sitzung vormerken, ohne etwas zu verschieben.
 
     Nur der Ordner dieser Kennung wird gelesen, nur Dateien `<vorgang-id>_<art>.json`. Je Datei
-    entscheidet `_entscheiden` unter der Themensperre zwischen zustellen, liegen lassen und verwerfen.
-    Zugestellt wird nach `erledigt/` (Abbruch dazwischen = Nachricht kommt beim nächsten Mal erneut).
-    `neu` setzt den Vorgang auf `im_chat`; `abgabe_auftrag`/`abgabe_info` ändern die Phase nie, sie
-    setzen nur `abgabe_zugestellt`. Nicht lesbare Marke oder belegte Themensperre: Datei bleibt liegen.
+    entscheidet `_entscheiden` unter der Themensperre zwischen zustellen, liegen lassen und verwerfen;
+    endgültig ungültige Dateien wandern wie bisher nach `verworfen/`. Zuzustellende Dateien bleiben liegen
+    und der Vorgang unverändert – das erledigt erst `bestaetigen`. Nicht lesbare Marke oder belegte
+    Themensperre (`frist`, Standard `THEMENSPERRE_FRIST`): Datei bleibt liegen. Ist `bis` erreicht, wird keine
+    weitere Datei angefasst.
     """
     pfad = ordner(ziel, kennung)
     if not pfad.is_dir():
         return []
-    nachrichten: list[Nachricht] = []
+    sperrfrist = assistent_vorgaenge.THEMENSPERRE_FRIST if frist is None else frist
+    vorgemerkt: list[Vorgemerkt] = []
     for datei in sorted(pfad.glob("*.json")):
+        if _abgelaufen(bis):
+            break
         if not datei.is_file() or _zerlegen(datei.stem) is None:
             continue
         roh, grund = _lesen(datei)
@@ -233,8 +270,7 @@ def abholen(ziel: str, kennung: str, repo: Path | None = None) -> list[Nachricht
         if inhalt is None:
             _verwerfen(datei, roh, grund or "ungültig")
             continue
-        with zustand.thema_sperre(inhalt["thema"], blockierend=True,
-                                  frist=assistent_vorgaenge.THEMENSPERRE_FRIST) as frei:
+        with zustand.thema_sperre(inhalt["thema"], blockierend=True, frist=sperrfrist) as frei:
             if not frei:
                 continue          # Thema belegt: später erneut versuchen
             if _lesen(datei) != (roh, None):
@@ -248,11 +284,62 @@ def abholen(ziel: str, kennung: str, repo: Path | None = None) -> list[Nachricht
             if ausgang == VERWERFEN:
                 _verwerfen(datei, roh, grund or "ungültig")
                 continue
-            if not _zustellen(datei, inhalt):
+            nachricht = Nachricht(inhalt["vorgang"], inhalt["thema"], inhalt["rolle"],
+                                  inhalt["laufend"], _text(inhalt))
+        vorgemerkt.append(Vorgemerkt(nachricht, datei, roh, inhalt, ziel, repo))
+    return vorgemerkt
+
+
+def bestaetigen(vorgemerkt: list[Vorgemerkt], *, frist: float | None = None,
+                bis: float | None = None) -> list[Nachricht]:
+    """Schritt 2 der Abholung: vorgemerkte Dateien zustellen (nach `erledigt/`, Vorgang vermerken).
+
+    Je Datei unter der Themensperre erneut lesen: fehlt sie oder hat sie sich geändert, wird sie übergangen.
+    Sonst entscheidet `_entscheiden` neu (wie früher `abholen`, G5/G8): zustellen, verwerfen (`verworfen/` mit
+    Grund) oder liegen lassen; nur zugestellte Nachrichten werden zurückgegeben. Wurde die Nachricht schon
+    ausgegeben und ist inzwischen ungültig, steht sie im Chat, der Vorgang wird aber nicht `im_chat`; die
+    Quittung (G5) schlägt fehl, der Text sagt dazu „beginne keinen Schritt“. Belegte Themen- oder Dateisperre (`frist`) und erreichtes
+    `bis` lassen die Datei liegen (kein Fehler; sie kommt beim nächsten Mal wieder). Zurückgegeben werden die
+    tatsächlich zugestellten Nachrichten. `neu` setzt den Vorgang auf `im_chat`; `abgabe_auftrag`/`abgabe_info`
+    ändern die Phase nie, sie setzen nur `abgabe_zugestellt`.
+    """
+    sperrfrist = assistent_vorgaenge.THEMENSPERRE_FRIST if frist is None else frist
+    zugestellt: list[Nachricht] = []
+    for eintrag in vorgemerkt:
+        if _abgelaufen(bis):
+            break
+        with zustand.thema_sperre(eintrag.inhalt["thema"], blockierend=True, frist=sperrfrist) as frei:
+            if not frei:
                 continue
-        nachrichten.append(Nachricht(inhalt["vorgang"], inhalt["thema"], inhalt["rolle"],
-                                     inhalt["laufend"], _text(inhalt)))
-    return nachrichten
+            if _lesen(eintrag.datei) != (eintrag.roh, None):
+                continue          # geändert oder schon von einem zweiten Abholer verschoben
+            try:
+                ausgang, grund = _entscheiden(eintrag.ziel, eintrag.inhalt, eintrag.repo)
+            except modi.ModusFehler:
+                continue          # Besitzstatus nicht lesbar: weder zustellen noch verwerfen
+            if ausgang == LIEGEN:
+                continue
+            if ausgang == VERWERFEN:
+                _verwerfen(eintrag.datei, eintrag.roh, grund or "ungültig")
+                continue
+            try:
+                fertig = _zustellen(eintrag.datei, eintrag.inhalt, frist)
+            except zustand.SperrFehler:
+                continue          # Dateisperre belegt: liegen lassen
+        if fertig:
+            zugestellt.append(eintrag.nachricht)
+    return zugestellt
+
+
+def abholen(ziel: str, kennung: str, repo: Path | None = None, *, frist: float | None = None,
+            bis: float | None = None) -> list[Nachricht]:
+    """Alle gültigen Nachrichten einer Sitzung abholen: `vormerken` und sofort `bestaetigen`.
+
+    Endgültig ungültige Dateien wandern nach `verworfen/`, zugestellt wird nach `erledigt/` (Abbruch
+    dazwischen = Nachricht kommt beim nächsten Mal erneut). Wer erst ausgeben muss, nimmt die zwei Schritte
+    einzeln. `frist` und `bis` wie bei `vormerken`.
+    """
+    return bestaetigen(vormerken(ziel, kennung, repo, frist=frist, bis=bis), frist=frist, bis=bis)
 
 
 def _markentext(thema: str, repo: Path | None) -> str:
@@ -303,7 +390,7 @@ def _entscheiden(ziel: str, inhalt: dict[str, str], repo: Path | None) -> tuple[
     return ZUSTELLEN, None
 
 
-def _zustellen(datei: Path, inhalt: dict[str, str]) -> bool:
+def _zustellen(datei: Path, inhalt: dict[str, str], frist: float | None = None) -> bool:
     """Zustellung vermerken (Themensperre gehalten) und die Datei nach `erledigt/` verschieben.
 
     `False`, wenn die Datei beim Verschieben schon fehlte – dann wird die Nachricht nicht zurückgegeben.
@@ -318,7 +405,10 @@ def _zustellen(datei: Path, inhalt: dict[str, str]) -> bool:
                     else v for v in alt]
         return [replace(v, abgabe_zugestellt=zeit, zeit=zeit) if v.id == inhalt["vorgang"] else v for v in alt]
 
-    assistent_vorgaenge.aendern(vermerken)
+    if frist is None:
+        assistent_vorgaenge.aendern(vermerken)
+    else:
+        assistent_vorgaenge.aendern(vermerken, frist=frist)
     ziel = datei.parent / ERLEDIGT / datei.name
     ziel.parent.mkdir(parents=True, exist_ok=True)
     try:

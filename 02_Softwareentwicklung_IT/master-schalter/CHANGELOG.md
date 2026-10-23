@@ -5,7 +5,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.5.0] – unveröffentlicht
 
-Wechselassistent, Baustein P4 (Ablauf und Zustellung). Gebaut auf Branch `v0.5.0-wechselassistent`.
+Wechselassistent, Bausteine P4 (Ablauf und Zustellung) und P3a (Claude-Empfang per Hook). Gebaut auf Branch
+`v0.5.0-wechselassistent`.
 
 ### Neu
 - **`assistent.py`:** `uebergeben(thema, ziel, von_chat, nach_chat)` legt den Vorgang an
@@ -24,6 +25,31 @@ Wechselassistent, Baustein P4 (Ablauf und Zustellung). Gebaut auf Branch `v0.5.0
   Titel oder Inhalte; `lesen(limit)` für das spätere Fenster.
 - **CLI:** `uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]` und
   `fortsetzen [VORGANG]`; beide geben nur Vorgangs-ID, Thema und Phase aus.
+- **Claude-Empfang per Hook (P3a):** `claude_hook.py`, aufrufbar als `python -m master_schalter.claude_hook`.
+  `UserPromptSubmit` und `PostToolUse` melden `arbeitet` und merken mit `postfach.vormerken("claude",
+  session_id)` Nachrichten vor; gibt es welche, steht genau ein JSON `hookSpecificOutput` mit
+  `additionalContext` (feste Einleitung plus feste Postfachtexte) auf stdout, sonst keine Ausgabe. `Stop`
+  setzt nur `ruht` und blockiert nie (kein `decision: block`). Jeder Fehler (kaputtes JSON, unzulässige
+  Sitzungskennung, belegte Sperre, `OSError`, Importfehler) endet mit Exit 0 ohne Ausgabe; auf Modulebene
+  steht nur die Standardbibliothek, stdin wird auf 1 MB begrenzt, nur `hook_event_name` und `session_id`
+  werden ausgewertet. **Der Hook ist noch nicht in eine `settings.json` eingetragen.**
+- **Ausgabe vor Zustellung (Postfach):** `postfach.abholen` besteht jetzt aus `vormerken` (prüft wie bisher,
+  verschiebt nichts, liefert `Vorgemerkt`) und `bestaetigen` (liest unter der Themensperre erneut, übergeht
+  geänderte Dateien und trifft mit `_entscheiden` wieder dieselbe Entscheidung wie früher `abholen`:
+  zustellen, verwerfen mit Grund oder liegen lassen – wechselt der Master dazwischen, wird der Vorgang
+  nicht `im_chat`; wurde die Nachricht schon ausgegeben, steht sie im Chat und die Quittung scheitert, der
+  Text sagt dazu „beginne keinen Schritt“). Der Hook bestätigt erst nach erfolgreicher Ausgabe; scheitert sie, bleibt die
+  Nachricht liegen und kommt beim nächsten Ereignis erneut (lieber doppelt als verloren, gültig nur über die
+  Quittung, G5). `abholen` verhält sich unverändert. Das Prozessende des Hooks ist hart (`os._exit(0)` nach
+  letztem `flush`), damit geschlossenes stdout nicht mit stderr-Meldung und Exit 120 endet.
+- **Laufzeit-Obergrenze:** `vormerken`, `bestaetigen` und `abholen` haben die optionalen Parameter `frist`
+  (Sperrfrist für Themensperre und `aendern`) und `bis` (Zeitbudget als `time.monotonic()`-Zeitpunkt; danach
+  wird keine weitere Datei angefasst); eine belegte Sperre lässt die Datei liegen. Der Hook nutzt 0,3 s
+  Sperrfrist, 0,6 s Budget zum Vormerken und 0,4 s zum Bestätigen.
+- **Statusregister (K2):** `status.py` mit `status/<werkzeug>-<kennung>.json` (`zustand`, `zeit`,
+  `ereignis`), atomar geschrieben; `arbeitet` höchstens einmal je 60 s, solange der Zustand gleich bleibt;
+  `lesen(werkzeug, kennung)` liefert `(zustand, zeit)` oder `None` (= unbekannt) für den späteren
+  Ruhenachweis.
 - `assistent_vorgaenge.phase_gewinnen` meldet zusätzlich, ob der aufrufende Prozess den Phasenwechsel
   gemacht hat; `postfach.text()` baut die festen Nachrichtentexte (auch für die Codex-Queue).
 
@@ -65,8 +91,8 @@ Wechselassistent, Baustein P4 (Ablauf und Zustellung). Gebaut auf Branch `v0.5.0
   `modi.py` unverändert.
 
 ### Noch nicht gebaut
-- Ruhenachweis (G8b, Statusregister P3/P6), Empfang im Claude-/Hermes-Chat (P3a/P6), Fenster und
-  Takt in der Leiste (P5).
+- Ruhenachweis (G8b, liest das Statusregister, P7a), Hook-Eintrag in `settings.json`, Empfang im
+  Hermes-Chat (P6), Fenster und Takt in der Leiste (P5).
 
 ## [0.4.1] – 2026-10-21
 
