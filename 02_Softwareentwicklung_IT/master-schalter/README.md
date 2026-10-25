@@ -40,7 +40,9 @@ Alles Folgende gilt für den Entwicklungsstand auf Branch `v0.5.0-wechselassiste
 deaktivierte Zeile „Wechsel <thema>: <Phase>" (z. B. „wartet auf Abgabe", „liegt im Postfach"); dann
 „Aktualisieren", „Einstellungen ▸" und „Beenden". Unter **Einstellungen ▸** liegen, in dieser Reihenfolge:
 „Wechsel-Schwelle", „Modelle aktualisieren" (mit den Katalogzeilen), „Automatik je Thema" (bisher „Chats
-übergeben", gleiche Funktion: Paar je Thema für die Automatik ein-/ausschalten), „Arbeitsmodus je Thema" und
+übergeben", gleiche Funktion: Paar je Thema für die Automatik ein-/ausschalten), „Automatik-Weg" (zwei
+Auswahlpunkte: „Alter Weg (direkt an Codex)" und „Über Wechselassistent", Standard alt; siehe „Automatische Übergabe"),
+„Arbeitsmodus je Thema" und
 „Standard-Master (übrige Themen)" (bisher „Master wechseln", gleiche Funktion samt Rückfrage). Das Menü liest
 nur Momentaufnahmen; der Fensterstart läuft in einem eigenen Faden (`pythonw.exe` neben dem laufenden Python,
 sonst dieses Python; `PYTHONPATH` zeigt auf das Paket).
@@ -175,6 +177,39 @@ Kennung und Zahlen, keinen Dateiinhalt.
 # Automatik prüfen, ohne etwas zu senden
 .\.venv\Scripts\\masterwechsel.exe automatik-pruefen --trocken
 ```
+
+### Zwei Wege für den Versand (v0.5.0, K7)
+
+Entscheidung (`faellige`: Automatik an, Claude frisch im Limit, Codex gemessen frei, Paar aktiv, feste Masterrolle
+ausgenommen) und alle Schutzschritte (Modus `kontingent`, Kopfzeile `ja` mit passendem HEAD, Reservierung, 30 s
+Wartezeit, erneute Prüfung, Reservierung noch die eigene) sind für beide Wege **gleich**. Nur der letzte Schritt
+unterscheidet sich; gewählt wird er mit der Einstellung `automatik_weg` in `einstellungen.json`:
+
+| Weg | Wirkung |
+|---|---|
+| `alt` (**Standard**; auch bei unbekanntem oder kaputtem Wert) | wie bisher: `codex_senden.senden` schreibt den Vorgang in `vorgaenge.json`, stellt per `codex.exe queue` zu, Bestätigung über `ACK <kennung>` |
+| `assistent` | `assistent.uebergeben(thema, "codex", von_chat=None, nach_chat=<Paar-Chat>)`: ein Wechselvorgang in `assistent.json` wie bei einem Klickwechsel (Fenster, Protokoll, Windows-Hinweise, Quittung); den Vorgang führt danach der 10-s-Takt der Leiste weiter |
+
+Beim Weg `assistent` gilt zusätzlich: Die Kennung `<thema>@<Rücksetzzeit>` wird **vor** dem Aufruf dauerhaft in
+`~/.master-schalter/automatik_ausgeloest.json` vermerkt – es gibt höchstens einen Versuch je Paar und Limitfenster,
+auch wenn der Assistent danach scheitert (`faellige` behandelt vermerkte Kennungen wie bekannte Vorgänge, für beide
+Wege). Lässt sich der Vermerk nicht schreiben, wird nichts ausgelöst und die Reservierung zurückgegeben. Die
+Reservierung geht vor dem Aufruf zurück auf `claude <Zeit>` (Vorzustand für den Assistenten). Der Aufruf geschieht
+**nach** dem Verlassen der Themensperre (der Assistent nimmt sie selbst). Es gibt keinen alten Chat, weil Claude im
+Limit nicht antworten kann; der Übergabepunkt ist die geprüfte Kopfzeile. Fehler des Assistenten erscheinen mit
+festem Text („Wechsel nicht gestartet (<Fehlerklasse>)"), nie mit fremdem Text; das Protokoll erhält „Automatik
+ausgelöst" bzw. „Automatik: Wechsel nicht gestartet" (ohne Kennungen außer der Vorgangs-ID). Menü und Statuszeile
+nennen den Weg („bereit · über Wechselassistent"). Offene Vorgänge des alten Weges prüft weiter
+`bestaetigungen_pruefen`; neue Wechselvorgänge sind davon nicht betroffen.
+
+```powershell
+# Weg anzeigen oder setzen (ohne Argument: anzeigen)
+.\.venv\Scripts\masterwechsel.exe automatik-weg
+.\.venv\Scripts\masterwechsel.exe automatik-weg assistent
+.\.venv\Scripts\masterwechsel.exe automatik-weg alt
+```
+
+Im Menü: „Einstellungen ▸ Automatik-Weg". Der Weg wechselt nur per Klick bzw. Befehl.
 
 ## Arbeitsmodus je Thema (v0.4.0)
 
@@ -664,9 +699,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 ```
 
 Einstellungen: `~/.master-schalter/einstellungen.json`, z. B.
-`{"schwelle": 90, "claude_takt_min": 5, "automatik": false}`. Die Schwelle liegt bei 1–100 (im
+`{"schwelle": 90, "claude_takt_min": 5, "automatik": false, "automatik_weg": "alt"}`. Die Schwelle liegt bei 1–100 (im
 Taskleistenmenü 80, 90, 95, 97 oder 100; Standard 97), der Messungstakt bei 1–60 Minuten
-(Standard 1), die Automatik ist ein Wahrheitswert (Standard aus). Die Paare liegen unter
+(Standard 1), die Automatik ist ein Wahrheitswert (Standard aus), der Automatik-Weg ist `alt` oder `assistent`
+(Standard `alt`). Die Paare liegen unter
 `~/.master-schalter/paare.json`, die Vorgänge unter `~/.master-schalter/vorgaenge.json`.
 Für Tests lassen sich die Ordner per Umgebungsvariable umlenken:
 `MASTER_SCHALTER_DATEN`, `MASTER_SCHALTER_CODEX_SESSIONS`, `MASTER_SCHALTER_REPO`,
@@ -699,7 +735,7 @@ src/master_schalter/
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)
   besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex)
-  automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre
+  automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre; Weg alt oder assistent
   codex_senden.py  Paket bauen und den Auftrag an `codex.exe queue` übergeben
   ack.py       Bestätigung des Zielchats aus den Rollout-Dateien lesen
   signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern

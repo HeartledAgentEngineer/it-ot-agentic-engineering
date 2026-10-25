@@ -9,6 +9,18 @@ Wechselassistent, Bausteine P4 (Ablauf und Zustellung), P3a (Claude-Empfang per 
 Einstellungen, Takt). Gebaut auf Branch `v0.5.0-wechselassistent`.
 
 ### Neu
+- **Automatik über den Wechselassistenten (P8, K7):** Einstellung `automatik_weg` (`alt`|`assistent`, Standard
+  `alt`; unbekannt oder kaputt gilt als `alt`) mit `anzeige.automatik_weg()` / `automatik_weg_setzen()`.
+  `automatik.lauf(weg=…)`: Entscheidung und alle Schutzschritte bleiben unverändert; beim Weg `assistent` wird
+  die Kennung `<thema>@<reset>` zuerst dauerhaft in `automatik_ausgeloest.json` vermerkt (höchstens ein Versuch je
+  Paar und Limitfenster, `faellige(…, ausgeloest=…)` behandelt sie wie bekannte Vorgänge), die Reservierung geht
+  auf `claude <Zeit>` zurück und **nach dem Verlassen der Themensperre** übergibt `assistent.uebergeben(thema,
+  "codex", von_chat=None, nach_chat=<Paar-Chat>)`. Ergebnis als `Stand` (Phase des neuen Vorgangs, bei Fehler
+  fester Text „Wechsel nicht gestartet (<Klasse>)"), Protokolleinträge `automatik_ausgeloest` /
+  `automatik_nicht_gestartet` (mit Klartext im Fenster). Der alte Weg bleibt unverändert und parallel schaltbar.
+  Leiste: „Einstellungen ▸ Automatik-Weg" (zwei Radiopunkte, Haken aus der Momentaufnahme); Menü- und Statuszeilen
+  nennen bei `assistent` „· über Wechselassistent". CLI: `masterwechsel automatik-weg [alt|assistent]` (ohne
+  Argument: anzeigen; ungültige Eingabe wird nicht wiederholt).
 - **Wechselfenster (P7a, E7):** `fenster.py` (tkinter, Standardbibliothek) mit den Bereichen Themen, „Übergabe
   starten“ (Thema, Ziel, Von-Chat, Nach-Chat, Bestätigung per Ja/Nein mit Standard Nein), Vorgänge (Phase in
   Klartext, Zustellhinweis nach E8, „Jetzt weiter“, „Abbrechen“, „Text kopieren“ für Hermes) und Protokoll in

@@ -591,3 +591,29 @@ def test_chats_ohne_quellen_ist_exit_0(daten, capsys):
     ausgabe = capsys.readouterr().out
     assert "claude-desktop: fehlt" in ausgabe
     assert "zugeordnet: 0, ohne Projekt: 0" in ausgabe
+
+
+# --- automatik-weg (P8, K7) -------------------------------------------------------------------
+
+def test_automatik_weg_ohne_argument_zeigt_den_standard(daten, capsys):
+    assert cli.main(["automatik-weg"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: alt"
+
+
+def test_automatik_weg_setzen_und_anzeigen(daten, capsys):
+    assert cli.main(["automatik-weg", "assistent"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: assistent"
+    assert anzeige.automatik_weg() == "assistent"
+    assert cli.main(["automatik-weg"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: assistent"
+    assert cli.main(["automatik-weg", "alt"]) == 0
+    assert anzeige.automatik_weg() == "alt"
+
+
+@pytest.mark.parametrize("eingabe", ["geheim-123", "ASSISTENT", "C:/geheim/pfad", ""])
+def test_automatik_weg_ungueltig_exit1_ohne_echo(daten, capsys, eingabe):
+    assert cli.main(["automatik-weg", eingabe]) == 1
+    ausgabe = capsys.readouterr()
+    assert "geheim" not in ausgabe.out + ausgabe.err and (not eingabe or eingabe not in ausgabe.out + ausgabe.err)
+    assert "alt oder assistent" in ausgabe.err
+    assert anzeige.automatik_weg() == "alt"

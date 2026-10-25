@@ -14,6 +14,8 @@
                                       Paar für die Automatik ein- oder ausschalten
     masterwechsel automatik-pruefen [--trocken]
                                       Automatik Claude → Codex prüfen (trocken: nur zeigen)
+    masterwechsel automatik-weg [alt|assistent]
+                                      Weg der Limit-Automatik anzeigen oder setzen (Standard alt)
     masterwechsel profil THEMA [--json]
                                       Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
     masterwechsel master-setzen THEMA MASTER
@@ -391,6 +393,23 @@ def _automatik_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _automatik_weg_cli(args: argparse.Namespace) -> int:
+    """Weg der Automatik anzeigen oder setzen. Ein ungültiger Wert wird nie wiederholt (ohne `choices`, R7/1)."""
+    if args.weg is None:
+        print(f"Automatik-Weg: {anzeige.automatik_weg()}")
+        return 0
+    try:
+        anzeige.automatik_weg_setzen(args.weg)
+    except ValueError:
+        print(f"Automatik-Weg nicht geändert: erlaubt sind {' oder '.join(anzeige.AUTOMATIK_WEGE)}", file=sys.stderr)
+        return 1
+    except OSError as fehler:
+        print(f"Automatik-Weg nicht gespeichert: Datei nicht schreibbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    print(f"Automatik-Weg: {args.weg}")
+    return 0
+
+
 def _rueckgabe_cli(args: argparse.Namespace) -> int:
     if not args.ja:
         try:
@@ -491,6 +510,10 @@ def _parser() -> argparse.ArgumentParser:
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
     auto.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    weg = unter.add_parser("automatik-weg", help="Weg der Limit-Automatik anzeigen oder setzen")
+    # Ohne `choices`: argparse würde eine ungültige Eingabe wörtlich wiederholen (R7/1).
+    weg.add_argument("weg", nargs="?", default=None, metavar="WEG",
+                     help=f"{'|'.join(anzeige.AUTOMATIK_WEGE)} (ohne Angabe: anzeigen)")
     rueck = unter.add_parser("rueckgabe", help="Themen an Codex zurückgeben (ohne --ja nur Trockenlauf)")
     rueck.add_argument("themen", nargs="*", help="Themen (Standard: alle aktiven)")
     rueck.add_argument("--ja", action="store_true", help="wirklich wechseln und die Übergaben senden")
@@ -548,6 +571,8 @@ def main(argv: list[str] | None = None) -> int:
         return _automatik_pruefen(args)
     if args.befehl == "automatik":
         return _automatik_cli(args)
+    if args.befehl == "automatik-weg":
+        return _automatik_weg_cli(args)
     if args.befehl == "rueckgabe":
         return _rueckgabe_cli(args)
     if args.befehl == "status":

@@ -179,6 +179,39 @@ def automatik_setzen(an: bool, datei: Path | None = None) -> None:
     _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
 
 
+WEG_ALT = "alt"
+WEG_ASSISTENT = "assistent"
+AUTOMATIK_WEGE = (WEG_ALT, WEG_ASSISTENT)
+STANDARD_WEG = WEG_ALT
+WEG_NAMEN = {WEG_ALT: "Alter Weg (direkt an Codex)", WEG_ASSISTENT: "Über Wechselassistent"}
+WEG_AUSWAHL = tuple((WEG_NAMEN[w], w) for w in AUTOMATIK_WEGE)
+
+
+def automatik_weg(datei: Path | None = None) -> str:
+    """Weg der Limit-Automatik: `"alt"` (direkt an Codex) oder `"assistent"`; alles Unbekannte ergibt `"alt"`."""
+    try:
+        roh = json.loads((datei or einstellungen_datei()).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return STANDARD_WEG
+    wert = roh.get("automatik_weg") if isinstance(roh, dict) else None
+    return wert if isinstance(wert, str) and wert in AUTOMATIK_WEGE else STANDARD_WEG
+
+
+def automatik_weg_setzen(wert: str, datei: Path | None = None) -> None:
+    """Weg atomar speichern; andere Felder bleiben erhalten. Ein ungültiger Wert wird nie wiederholt."""
+    if not isinstance(wert, str) or wert not in AUTOMATIK_WEGE:
+        raise ValueError(f"Automatik-Weg muss einer von {', '.join(AUTOMATIK_WEGE)} sein")
+    datei = datei or einstellungen_datei()
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        roh = {}
+    if not isinstance(roh, dict):
+        roh = {}
+    roh["automatik_weg"] = wert
+    _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+
+
 # --- Master und Lage ---------------------------------------------------------
 
 def master_menuezeile(z: Zustand, zone: tzinfo | None = None) -> str:

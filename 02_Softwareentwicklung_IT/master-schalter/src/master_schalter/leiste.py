@@ -6,7 +6,7 @@
   (öffnet das Wechselfenster als eigenen Prozess), je offenem Wechsel eine deaktivierte Zeile „Wechsel
   <thema>: <Phase>", „Aktualisieren" (misst frisch und hakt offene Übergaben ab), „Einstellungen ▸" und „Beenden".
   Unter „Einstellungen": „Wechsel-Schwelle", „Modelle aktualisieren" (mit Katalogzeilen), „Automatik je Thema"
-  (früher „Chats übergeben"), „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell) und
+  (früher „Chats übergeben"), „Automatik-Weg" (alter Weg oder Wechselassistent, Standard alt), „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell) und
   „Standard-Master (übrige Themen)" (früher „Master wechseln"; Bestätigungsdialog, Ziel Codex stößt die
   Rückgabe an die Codex-Chats an).
 * Ein weißer Punkt über einem Balken zeigt den aktiven Master.
@@ -76,6 +76,7 @@ class Leiste:
         self._rollen_snapshot: dict[str, anzeige.Rollenstand] = {}
         self._kataloge: tuple[anzeige.Katalogstand, ...] | None = None
         self._modus_fehler: str | None = None
+        self._automatik_weg = anzeige.STANDARD_WEG   # Momentaufnahme für Haken und Menüzeilen
         self._lage: str | None = None
         self._grund = ""
         self._stopp = threading.Event()
@@ -135,6 +136,7 @@ class Leiste:
             optionen.append(pystray.MenuItem(zeile, None, enabled=False))
         optionen.append(pystray.MenuItem(anzeige.MODELLE_AKTUALISIEREN, self._modelle_aktualisieren_aktion))
         optionen.append(pystray.MenuItem("Automatik je Thema", pystray.Menu(*self._paar_optionen())))
+        optionen.append(pystray.MenuItem("Automatik-Weg", pystray.Menu(*self._weg_optionen())))
         optionen.append(pystray.MenuItem("Arbeitsmodus je Thema", pystray.Menu(*self._modus_themen_optionen())))
         optionen.append(pystray.MenuItem("Standard-Master (übrige Themen)", pystray.Menu(*self._master_optionen())))
         return optionen
@@ -174,9 +176,24 @@ class Leiste:
         vorgangsliste = self._vorgaenge_snapshot
         if not liste:
             return [pystray.MenuItem("keine Paare angelegt", None, enabled=False)]
-        return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste)}",
+        return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste, weg=self._automatik_weg)}",
                                  self._paar_umschalten_aktion(p.thema), checked=lambda item, p=p: self._ist_paar_an(p.thema))
                 for p in liste]
+
+    def _weg_optionen(self):
+        """Zwei Auswahlpunkte (Radio) aus der Momentaufnahme; gewechselt wird nur per Klick."""
+        return [pystray.MenuItem(text, self._weg_aktion(wert),
+                                 checked=lambda item, wert=wert: self._automatik_weg == wert, radio=True)
+                for text, wert in anzeige.WEG_AUSWAHL]
+
+    def _weg_aktion(self, wert: str):
+        def aktion(*_args) -> None:
+            try:
+                anzeige.automatik_weg_setzen(wert)
+            except (OSError, ValueError) as fehler:
+                self.icon.notify(f"Automatik-Weg nicht gespeichert ({type(fehler).__name__})", "Master-Schalter")
+            self.aktualisieren()
+        return aktion
 
     def _automatik_staende_zeilen(self) -> list[str]:
         return [s.status if not s.thema else f"{s.thema}: {s.status}" for s in self._automatik_staende]
@@ -450,6 +467,7 @@ class Leiste:
             self._vorgaenge_snapshot = vorgaenge.lesen()
             self._wechsel_snapshot = assistent_vorgaenge.lesen()
             self._kataloge = self._kataloge_lesen()
+            self._automatik_weg = anzeige.automatik_weg()
             try:
                 self._modus_snapshot = modi.snapshot([p.thema for p in self._paare_snapshot])
                 profile = modi.lesen()

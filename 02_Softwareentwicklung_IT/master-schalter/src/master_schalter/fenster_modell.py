@@ -331,6 +331,11 @@ def _satz(entscheidung: str, grund: object) -> str:
     if entscheidung == "neu_ergebnis":
         return _NEU_ERGEBNIS.get(grund, "Zustellung: Ergebnis festgehalten") if isinstance(grund, str) \
             else "Zustellung: Ergebnis festgehalten"
+    if entscheidung == "automatik_ausgeloest":
+        return "Automatik hat den Wechsel zu Codex über den Wechselassistenten ausgelöst"
+    if entscheidung == "automatik_nicht_gestartet":
+        klasse = grund if isinstance(grund, str) and grund.isidentifier() else "Fehler"
+        return f"Automatik: Wechsel nicht gestartet ({klasse})"
     if entscheidung == "fortsetzen_fehlgeschlagen":
         klasse = grund if isinstance(grund, str) and grund.isidentifier() else "Fehler"
         return f"Fortsetzen fehlgeschlagen ({klasse}) – der nächste Takt versucht es erneut"

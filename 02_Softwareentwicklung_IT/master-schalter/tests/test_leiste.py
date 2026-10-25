@@ -1523,3 +1523,61 @@ def test_start_startet_messtakt_und_assistententakt_je_einmal(lst, monkeypatch):
     ziele = [kw["target"] for kw in threads]
     assert lst._takt in ziele and lst._assistent_takt in ziele
     assert all(kw["daemon"] is True for kw in threads)
+
+
+# --- Automatik-Weg (P8, K7) -----------------------------------------------------------------
+
+def test_automatik_weg_untermenue_zwei_radiopunkte_standard_alt(lst):
+    lst.aktualisieren()
+    unter = _texte(_einstellungen(lst))
+    assert "Automatik-Weg" in unter and unter.index("Automatik-Weg") == unter.index("Automatik je Thema") + 1
+    sub = _eintrag(_einstellungen(lst), "Automatik-Weg").submenu.items
+    assert _texte(sub) == ["Alter Weg (direkt an Codex)", "Über Wechselassistent"]
+    assert all(i.radio for i in sub)
+    assert [i.checked for i in sub] == [True, False]
+
+
+def test_klick_auf_automatik_weg_speichert_und_hakt_um(lst):
+    lst.aktualisieren()
+    sub = _eintrag(_einstellungen(lst), "Automatik-Weg").submenu.items
+    _eintrag(sub, "Über Wechselassistent")(lst.icon)
+    assert anzeige.automatik_weg() == "assistent"
+    sub = _eintrag(_einstellungen(lst), "Automatik-Weg").submenu.items
+    assert [i.checked for i in sub] == [False, True]
+    _eintrag(sub, "Alter Weg (direkt an Codex)")(lst.icon)
+    assert anzeige.automatik_weg() == "alt"
+    assert lst.icon.menue_neu >= 3
+
+
+def test_automatik_weg_haken_nutzt_nur_die_momentaufnahme(lst, monkeypatch):
+    lst.aktualisieren()
+    sub = _eintrag(_einstellungen(lst), "Automatik-Weg").submenu.items
+
+    def verboten(*a, **k):
+        raise AssertionError("Dateizugriff im checked-Rückruf")
+
+    monkeypatch.setattr(anzeige, "automatik_weg", verboten)
+    assert [i.checked for i in sub] == [True, False]
+
+
+def test_automatik_weg_speicherfehler_meldet_nur_die_klasse(lst, monkeypatch):
+    def kaputt(wert):
+        raise PermissionError("C:/geheim/pfad")
+
+    monkeypatch.setattr(anzeige, "automatik_weg_setzen", kaputt)
+    lst.aktualisieren()
+    sub = _eintrag(_einstellungen(lst), "Automatik-Weg").submenu.items
+    _eintrag(sub, "Über Wechselassistent")(lst.icon)
+    assert lst.icon.meldungen == [("Master-Schalter", "Automatik-Weg nicht gespeichert (PermissionError)")]
+
+
+def test_paarmenue_nennt_den_weg_bei_assistent(lst):
+    paare.setzen("engineering", "00000000-0000-4000-8000-000000000001",
+                 paare.laufend_bilden("engineering"), aktiv=True)
+    lst.aktualisieren()
+    zeilen = _texte(_eintrag(_einstellungen(lst), "Automatik je Thema").submenu.items)
+    assert zeilen == ["engineering: bereit"]
+    anzeige.automatik_weg_setzen("assistent")
+    lst.aktualisieren()
+    zeilen = _texte(_eintrag(_einstellungen(lst), "Automatik je Thema").submenu.items)
+    assert zeilen == ["engineering: bereit · über Wechselassistent"]
