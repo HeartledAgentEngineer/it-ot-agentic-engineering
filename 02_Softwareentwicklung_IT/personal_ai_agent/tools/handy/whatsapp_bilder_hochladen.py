@@ -39,6 +39,14 @@ Rueckweg: Von W1 erzeugt sind nur Dateien mit eigener Kennung im Namen und dem
 Zustand ``hochgeladen`` (``entfernbare_fileids``); ``unklar`` und ``unklar_begonnen``
 werden nie zum Entfernen freigegeben. Dieses Werkzeug entfernt selbst nichts.
 
+Zielordner (Ebene fuer Ebene):
+    ``<ziel>/<empfangen|gesendet>/<JJJJ>``. Die pCloud legt mit ``createfolderifnotexists``
+    nur die LETZTE Ebene an (fehlt ein Elternordner: Fehler 2002). Deshalb wird jede Ebene
+    von der ersten zulaessigen (direkt unter ``/Agent/``) bis zum Jahresordner einzeln geholt
+    oder angelegt, je Ebene einmal je Lauf. Annahme: ``/Agent`` existiert bereits. Scheitert
+    eine Ebene, zaehlt der Lauf genau einen Fehler, laedt nichts mehr hoch, liest keine
+    weiteren Bilder und meldet ``abgebrochen: Zielordner nicht anlegbar`` (Exit 1).
+
 Unlesbare letzte Manifestzeile:
     Ist die LETZTE Manifestzeile unlesbar und ohne Zeilenumbruch, bricht jeder Lauf (auch
     der Trockenlauf) mit Exit 3 ab: Schreibabbruch und Beschaedigung sind am Inhalt nicht
@@ -584,6 +592,7 @@ class Lauf:
         self.manifest = ManifestSchreiber(manifest_pfad, ug._jetzt_iso, stand)
         self.versuche = versuche_aufbauen(stand.zeilen)
         self.gestoppt = False                      # Manifest nicht schreibbar -> kein Upload mehr
+        self.ordner_abbruch = False                # Zielordner nicht anlegbar -> kein Upload mehr
         self.verwerfen_angefordert = False         # --letzte-zeile-verwerfen gesetzt
         self.verworfen_zeile: Optional[int] = None  # Zeilennummer, wenn die Option wirkte
         self.z: Counter = Counter()
@@ -703,7 +712,7 @@ class Lauf:
 
     # -- Je Datei -------------------------------------------------------------
     def verarbeiten(self, eintrag: Any) -> None:
-        if self.gestoppt:
+        if self.gestoppt or self.ordner_abbruch:
             return
         try:
             self._verarbeiten(eintrag)
@@ -755,9 +764,23 @@ class Lauf:
         self._hochladen(e, rel, sha, daten, mtime)
 
     def _ordner_id(self, pfad: str) -> int:
+        """Zielordner Ebene fuer Ebene holen/anlegen (je Ebene einmal je Lauf).
+
+        Die echte pCloud legt mit ``createfolderifnotexists`` nur die LETZTE Ebene an;
+        fehlt ein Elternordner, lehnt sie mit 2002 ab. Deshalb von der ersten
+        zulaessigen Ebene (direkt unter ``/Agent/``) bis zum Zielordner. Annahme:
+        ``/Agent`` selbst existiert (der Altcode darf es nicht anlegen); fehlt es, scheitert
+        die erste Ebene mit 2002 und der Lauf bricht ab.
+        """
         if pfad not in self.ordner_ids:
             self._nur_schreibend()
-            self.ordner_ids[pfad] = ordner_holen_sicher(self.ug, pfad, **self._kw)
+            teile = pfad.strip("/").split("/")
+            erste = len(self.ug.ERLAUBTE_WURZEL.strip("/").split("/")) + 1
+            ebenen = ["/" + "/".join(teile[:n]) for n in range(min(erste, len(teile)), len(teile) + 1)]
+            for ebene in ebenen:
+                if ebene not in self.ordner_ids:
+                    self.ordner_ids[ebene] = ordner_holen_sicher(self.ug, ebene, **self._kw)
+            self.ordner_ids[pfad] = self.ordner_ids[ebenen[-1]]
         return self.ordner_ids[pfad]
 
     def _hochladen(self, e: Any, rel: str, sha: str, daten: bytes, mtime: int) -> None:
@@ -771,7 +794,12 @@ class Lauf:
             self.vormerk.add(zielpfad)
             return
 
-        ordner_id = self._ordner_id(zielpfad)
+        try:
+            ordner_id = self._ordner_id(zielpfad)
+        except Exception as problem:                  # Zielordner nicht anlegbar: einmal zaehlen, Schluss
+            self.ordner_abbruch = True
+            self.fehler(problem)
+            return
         stamm, endung = os.path.splitext(e.name)
         endung = endung.lower()
         kennung = cloud_name = None
@@ -868,6 +896,8 @@ def _zeilen(lauf: Lauf, gefunden: Dict[str, int], schreiben: bool) -> List[str]:
         zeilen.append(f"zielordner_vorhanden {n(z['zielordner_vorhanden'])} · "
                       f"zielordner_neu {n(z['zielordner_neu'])} · "
                       f"zurueckgestellt {n(z['zurueckgestellt'])}")
+    if lauf.ordner_abbruch:
+        zeilen.append("abgebrochen: Zielordner nicht anlegbar, keine weiteren Uploads.")
     if lauf.gestoppt:
         zeilen.append("Lauf gestoppt: Manifest nicht schreibbar, keine weiteren Uploads.")
     if lauf.verwerfen_angefordert and lauf.verworfen_zeile is not None:
@@ -962,7 +992,7 @@ def _lauf(args: Any) -> int:
         lauf.letzte_zeile_verwerfen(bool(args.letzte_zeile_verwerfen), stand)
         lauf.wiederaufnahme()
         for eintrag in bilder:
-            if lauf.gestoppt:
+            if lauf.gestoppt or lauf.ordner_abbruch:
                 break
             lauf.verarbeiten(eintrag)
         if not args.schreiben:

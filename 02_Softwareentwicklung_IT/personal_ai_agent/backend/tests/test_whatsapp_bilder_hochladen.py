@@ -184,7 +184,14 @@ class PCloudAttrappe:
                                  "error": f"Log in required {p.get('auth')}"})
             return _Antwort({"result": 0, "userid": 7})
         if methode == "createfolderifnotexists":
-            fid = self.ordner_anlegen(p["path"])
+            # Wie die echte pCloud: nur die LETZTE Ebene wird angelegt; fehlt der
+            # Elternordner, kommt 2002 (Befund 23.10.2026, echter Lauf am Handy).
+            pfad = "/" + p["path"].strip("/")
+            eltern = pfad.rsplit("/", 1)[0] or "/"
+            if eltern not in self.ordner_id:
+                return _Antwort({"result": 2002,
+                                 "error": "A component of parent directory does not exist."})
+            fid = self.ordner_anlegen(pfad)
             return _Antwort({"result": 0, "metadata": {
                 "folderid": fid, "isfolder": True, "path": p["path"]}})
         if methode == "listfolder":
@@ -330,6 +337,9 @@ def _welt(tmp_path, monkeypatch, module, voll):
     monkeypatch.setattr(module.ug, "ENV_DATEI", tmp_path / "keine.env")
     monkeypatch.setenv("PCLOUD_TOKEN", TOKEN)
     att = PCloudAttrappe().installieren(monkeypatch)
+    # Ausgangszustand: nur "/" und "/Agent" (Annahme des Werkzeugs: /Agent existiert);
+    # alles darunter muss das Werkzeug Ebene fuer Ebene selbst anlegen.
+    att.ordner_anlegen("/Agent")
     wurzel = baue_medien(tmp_path, voll=voll)
     ablage = tmp_path / "fs"                      # existiert absichtlich noch nicht
     welt = SimpleNamespace(
@@ -368,7 +378,7 @@ def test_trockenlauf_schreibt_nirgends(welt, capsys):
     z = kennzahlen(capsys.readouterr().out)
     assert z["neu"] == 5 and z["erledigt"] == 0
     assert welt.att.schreibend == 0                      # kein Ordner, kein Upload
-    assert set(welt.att.ordner_id) == {"/"}              # nichts angelegt
+    assert set(welt.att.ordner_id) == {"/", "/Agent"}    # nichts angelegt (nur der Ausgangszustand)
     assert not welt.sperre.exists() and not welt.manifest.exists()
     assert not welt.ablage.exists()                      # nicht einmal der Ordner
     assert z["zielordner_neu"] == 4 and z["zielordner_vorhanden"] == 0
@@ -1444,7 +1454,7 @@ def test_ordnerweg_zaehlt_die_fehlerart_mit_code(welt, capsys):
     welt.att.antwort_override["createfolderifnotexists"] = _Antwort(
         {"result": 2000, "error": "Datei Anna-Zaunstein-Krankenhaus.jpg " + TOKEN})
     assert welt.lauf("--schreiben") == 1
-    assert "Fehlerarten: abgelehnt 2000 x5" in capsys.readouterr().out
+    assert "Fehlerarten: abgelehnt 2000 x1" in capsys.readouterr().out   # Abbruch nach dem ersten
 
 
 @pytest.mark.parametrize("antwort,status", HOSTILE_ORDNER_ANTWORTEN)
@@ -1964,6 +1974,7 @@ ALTCODE_ZUORDNUNG = {
         "pruefsumme_cloud": "test_lauf_mit_hostiler_pcloud_antwort_gibt_nichts_preis",
         "ordner_auflisten": "test_ordner_auflisten_ungueltiger_pfad_traegt_keinen_kontext",
         "ziel_pfad_pruefen": "test_ziel_huelle_direkt_wirft_nur_feste_ausnahme",
+        "ERLAUBTE_WURZEL": "test_ziel_samt_zwischenordnern_fehlt_upload_gelingt",
         "_im_repo": "test_im_repo_huelle_direkt_wirft_nur_feste_ausnahme",
         "hochladen_ohne_ueberschreiben":
             "test_upload_netz_und_jsonfehler_tragen_weder_ursache_noch_kontext",
@@ -2978,3 +2989,83 @@ def test_w1_sent_fehlt_ganz_bleibt_exit_0(eine, capsys):
     assert eine.lauf("--schreiben") == 0
     assert "(empfangen 1, gesendet 0)" in capsys.readouterr().out
     assert eine.att.aufrufe["uploadfile"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 23. Ordnerkette: pCloud legt nur die LETZTE Ebene an (Befund 23.10.2026)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _ordner_aufrufe(att) -> list:
+    return [p["path"] for m, p in att.parameter if m == "createfolderifnotexists"]
+
+
+def test_attrappe_legt_wie_die_echte_pcloud_nur_die_letzte_ebene_an(welt):
+    antwort = httpx.get("https://eapi.pcloud.com/createfolderifnotexists",
+                        params={"path": f"{ZIEL}/empfangen/2020", "auth": "t"})
+    assert antwort.json()["result"] == 2002                 # Eltern fehlen
+    assert set(welt.att.ordner_id) == {"/", "/Agent"}
+
+
+def test_ziel_samt_zwischenordnern_fehlt_upload_gelingt(welt, capsys):
+    assert welt.lauf("--schreiben") == 0
+    z = kennzahlen(capsys.readouterr().out)
+    assert z["hochgeladen"] == 5 and z["fehler"] == 0
+    erwartet = [ZIEL, f"{ZIEL}/empfangen", f"{ZIEL}/empfangen/2019", f"{ZIEL}/empfangen/2020",
+                f"{ZIEL}/empfangen/2021", f"{ZIEL}/gesendet", f"{ZIEL}/gesendet/2022"]
+    aufrufe = _ordner_aufrufe(welt.att)
+    assert sorted(aufrufe) == erwartet                      # jede Ebene genau einmal
+    assert (aufrufe.index(ZIEL) < aufrufe.index(f"{ZIEL}/empfangen")
+            < aufrufe.index(f"{ZIEL}/empfangen/2020"))      # von oben nach unten
+    assert welt.att.aufrufe["uploadfile"] == 5
+
+
+def test_vorhandene_ordner_werden_nicht_doppelt_angelegt(welt, capsys):
+    ids = {pfad: welt.att.ordner_anlegen(pfad)
+           for pfad in (ZIEL, f"{ZIEL}/empfangen", f"{ZIEL}/empfangen/2020")}
+    vorher = len(welt.att.ordner_id)
+    assert welt.lauf("--schreiben") == 0
+    capsys.readouterr()
+    for pfad, fid in ids.items():                           # gleiche Kennungen, kein Zweitordner
+        assert welt.att.ordner_id[pfad] == fid
+    assert len(welt.att.ordner_id) == vorher + 4            # 2019, 2021, gesendet, gesendet/2022
+    # zweiter Lauf: alles erledigt, es wird weder Ordner angelegt noch hochgeladen
+    aufrufe = welt.att.aufrufe["createfolderifnotexists"]
+    ordner = dict(welt.att.ordner_id)
+    assert welt.lauf("--schreiben") == 0
+    assert welt.att.aufrufe["createfolderifnotexists"] == aufrufe
+    assert welt.att.ordner_id == ordner and welt.att.aufrufe["uploadfile"] == 5
+
+
+@pytest.mark.parametrize("agent_fehlt", [False, True])
+def test_ordnerfehler_bricht_nach_dem_ersten_ab(welt, module, monkeypatch, capsys, agent_fehlt):
+    if agent_fehlt:                                         # erste Ebene scheitert wirklich mit 2002
+        fid = welt.att.ordner_id.pop("/Agent")
+        del welt.att.ordner_pfad[fid]
+    else:                                                   # beliebige Ablehnung des Ordneraufrufs
+        welt.att.antwort_override["createfolderifnotexists"] = _Antwort(
+            {"result": 2003, "error": "Datei Anna-Zaunstein-Krankenhaus.jpg " + TOKEN})
+    gelesen = []
+    echt = module.wa.hashlib.sha256
+    monkeypatch.setattr(module.wa, "hashlib", SimpleNamespace(
+        sha256=lambda daten: gelesen.append(1) or echt(daten)))
+    assert welt.lauf("--schreiben") == 1
+    aus = capsys.readouterr()
+    text = aus.out + aus.err
+    z = kennzahlen(aus.out)
+    assert z["fehler"] == 1 and z["hochgeladen"] == 0
+    assert "Fehlerarten: abgelehnt " + ("2002" if agent_fehlt else "2003") + " x1" in text
+    assert "abgebrochen: Zielordner nicht anlegbar" in text
+    assert welt.att.aufrufe["createfolderifnotexists"] == 1 and welt.att.aufrufe["uploadfile"] == 0
+    assert len(gelesen) == 1                                # keine weitere Datei gelesen/gehasht
+    assert manifest_zeilen(welt.manifest) == []             # keine Vorab-Zeile ohne Ordner
+    for wort in SENSIBEL + (TOKEN, "parent directory", "Datei "):
+        assert wort not in text
+    assert not welt.sperre.exists()
+
+
+def test_trockenlauf_ruft_weiter_keine_schreibende_methode_auf(welt, capsys):
+    assert welt.lauf() == 0
+    assert "abgebrochen" not in capsys.readouterr().out
+    assert welt.att.schreibend == 0
+    assert welt.att.aufrufe["createfolderifnotexists"] == 0 and welt.att.aufrufe["uploadfile"] == 0
+    assert set(welt.att.ordner_id) == {"/", "/Agent"}
