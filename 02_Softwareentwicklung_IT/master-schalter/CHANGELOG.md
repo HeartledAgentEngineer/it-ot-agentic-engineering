@@ -3,6 +3,139 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [0.5.0] – 2026-10-25
+
+Wechselassistent, Bausteine P1/P2 (Vorgänge, Chatliste), P4 (Ablauf und Zustellung), P3a (Claude-Empfang per Hook),
+P7a (Menü, Fenster, Einstellungen, Takt) und P8/K7 (Automatik wahlweise über den Assistenten). Gebaut auf Branch
+`v0.5.0-wechselassistent`, auf `main` zusammengeführt. Noch offen: neue Sitzungen starten (S0b/S0c/P5),
+Hermes-Empfang (P6), Kontingent-Wächter (P3b).
+
+### Neu
+- **Automatik über den Wechselassistenten (P8, K7):** Einstellung `automatik_weg` (`alt`|`assistent`, Standard
+  `alt`; unbekannt oder kaputt gilt als `alt`) mit `anzeige.automatik_weg()` / `automatik_weg_setzen()`.
+  `automatik.lauf(weg=…)`: Entscheidung und alle Schutzschritte bleiben unverändert; beim Weg `assistent` wird
+  die Kennung `<thema>@<reset>` zuerst dauerhaft in `automatik_ausgeloest.json` vermerkt (höchstens ein Versuch je
+  Paar und Limitfenster, `faellige(…, ausgeloest=…)` behandelt sie wie bekannte Vorgänge), die Reservierung geht
+  auf `claude <Zeit>` zurück und **nach dem Verlassen der Themensperre** übergibt `assistent.uebergeben(thema,
+  "codex", von_chat=None, nach_chat=<Paar-Chat>)`. Ergebnis als `Stand` (Phase des neuen Vorgangs, bei Fehler
+  fester Text „Wechsel nicht gestartet (<Klasse>)"), Protokolleinträge `automatik_ausgeloest` /
+  `automatik_nicht_gestartet` (mit Klartext im Fenster). Der alte Weg bleibt unverändert und parallel schaltbar.
+  Leiste: „Einstellungen ▸ Automatik-Weg" (zwei Radiopunkte, Haken aus der Momentaufnahme); Menü- und Statuszeilen
+  nennen bei `assistent` „· über Wechselassistent". CLI: `masterwechsel automatik-weg [alt|assistent]` (ohne
+  Argument: anzeigen; ungültige Eingabe wird nicht wiederholt).
+- **Wechselfenster (P7a, E7):** `fenster.py` (tkinter, Standardbibliothek) mit den Bereichen Themen, „Übergabe
+  starten“ (Thema, Ziel, Von-Chat, Nach-Chat, Bestätigung per Ja/Nein mit Standard Nein), Vorgänge (Phase in
+  Klartext, Zustellhinweis nach E8, „Jetzt weiter“, „Abbrechen“, „Text kopieren“ für Hermes) und Protokoll in
+  Klartext. Start: `python -m master_schalter.fenster` oder `masterwechsel fenster`. Nur eine Instanz
+  (`zustand.instanz_sperre("fenster")`, Sperrdatei `fenster.lock`); eine zweite beendet sich still. Alle 3 s
+  liest ein Hintergrund-Thread neu, Aktionen laufen ebenfalls im Hintergrund, die Oberfläche bleibt im Tk-Thread.
+  Ohne Vorschlag für das Thema bleiben die Chat-Felder leer, „Übergeben“ verlangt eine ausdrückliche Wahl.
+  Ein abweichender Codex-Chat wird nach dem Anlegen als Paar gemerkt (`chat_zuordnung.bestaetigen`).
+- **`fenster_modell.py`:** Ansichtsmodell ohne Oberfläche (Momentaufnahme `aufnehmen`, `chat_optionen`,
+  `zustellhinweis`, `protokoll_klartext`, `hinweis_fuer`, die Aktionen `uebergabe_ausfuehren`/`weiter`/`abbrechen`);
+  jede Quelle einzeln fehlertolerant, Fehlertexte nur Klassennamen oder feste Sätze.
+- **`assistent_vorgaenge.abbrechen(id)`:** Abbruch von Hand nur vor `rolle_gesetzt` (`ABBRECHBAR` = die
+  blockierenden Phasen ohne `sende`), unter der Themensperre, Vergleich-und-Setzen nach `verworfen`, Grund
+  „von Hand abgebrochen“, Protokolleintrag; spätere Phasen werden abgelehnt, ohne etwas zu ändern.
+- **Takt des Wechselassistenten in der Leiste:** eigener Faden alle 10 s (`ASSISTENT_TAKT_SEKUNDEN`), unabhängig
+  vom 60-s-Messtakt, ruft `assistent.fortsetzen` für jeden offenen Vorgang; Fehler nur mit Klasse im Log, kein
+  Absturz; Menü wird bei Phasenwechsel neu gebaut. Beim Start einmal `wiederaufnehmen()` (Log nur mit Zählern).
+- **Windows-Hinweise:** je Vorgang und Ereignis genau einmal (Merker im Speicher): Abgabe länger als 2 min
+  offen (mit Fristende), „Rolle jetzt bei <Ziel>“, „<Ziel> hat übernommen ✓“, „Wechsel braucht Blick ins Fenster“
+  (`fehler`/`unklar`/`verworfen`, nicht bei Abbruch von Hand). Vorgänge, die länger als 15 min nicht geändert
+  wurden, melden nichts.
+- **`zustand.instanz_sperre(name)`:** nicht blockierende Einzelinstanz-Sperre im Datenordner.
+- **`assistent.py`:** `uebergeben(thema, ziel, von_chat, nach_chat)` legt den Vorgang an
+  (Write-ahead mit Vorzustand), schickt dem alten Chat den Abgabe-Auftrag und ruft einmal
+  `fortsetzen` auf. `fortsetzen(vorgang)` ist der idempotente Takt: 10-Minuten-Frist
+  (`ABGABE_FRIST`) mit Info an den alten Chat (nur der Gewinner des Überspringens sendet), Rolle
+  setzen unter der Themensperre (Marke ≠ Vorzustand → `verworfen`, „Stand geändert“), danach die
+  Nachricht an den neuen Chat (`sende` vor dem Transport). Zustellung an Codex über `codex.exe
+  queue`, an Claude/Hermes über das Postfach; Transporte laufen nie unter Themen- oder Dateisperre.
+  Doppelklick-Schutz (belegte Sperre, laufender Vorgang); eine übersprungene Abgabe ergibt einen
+  Zusatzsatz im Text an den neuen Master.
+- **Chat-Referenzen:** `ChatRef(werkzeug, kennung)`; `Vorgang` bekommt die optionalen Felder
+  `von_chat` und `nach_chat` (alte Dateien ohne diese Felder lesen weiter). Kennungen stehen nur in
+  `assistent.json`.
+- **`protokoll.py`:** `protokoll.jsonl` (G10) mit den Entscheidungen des Ablaufs, ohne Kennungen,
+  Titel oder Inhalte; `lesen(limit)` für das spätere Fenster.
+- **CLI:** `uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]` und
+  `fortsetzen [VORGANG]`; beide geben nur Vorgangs-ID, Thema und Phase aus.
+- **Claude-Empfang per Hook (P3a):** `claude_hook.py`, aufrufbar als `python -m master_schalter.claude_hook`.
+  `UserPromptSubmit` und `PostToolUse` melden `arbeitet` und merken mit `postfach.vormerken("claude",
+  session_id)` Nachrichten vor; gibt es welche, steht genau ein JSON `hookSpecificOutput` mit
+  `additionalContext` (feste Einleitung plus feste Postfachtexte) auf stdout, sonst keine Ausgabe. `Stop`
+  setzt nur `ruht` und blockiert nie (kein `decision: block`). Jeder Fehler (kaputtes JSON, unzulässige
+  Sitzungskennung, belegte Sperre, `OSError`, Importfehler) endet mit Exit 0 ohne Ausgabe; auf Modulebene
+  steht nur die Standardbibliothek, stdin wird auf 1 MB begrenzt, nur `hook_event_name` und `session_id`
+  werden ausgewertet. **Der Hook ist noch nicht in eine `settings.json` eingetragen.**
+- **Ausgabe vor Zustellung (Postfach):** `postfach.abholen` besteht jetzt aus `vormerken` (prüft wie bisher,
+  verschiebt nichts, liefert `Vorgemerkt`) und `bestaetigen` (liest unter der Themensperre erneut, übergeht
+  geänderte Dateien und trifft mit `_entscheiden` wieder dieselbe Entscheidung wie früher `abholen`:
+  zustellen, verwerfen mit Grund oder liegen lassen – wechselt der Master dazwischen, wird der Vorgang
+  nicht `im_chat`; wurde die Nachricht schon ausgegeben, steht sie im Chat und die Quittung scheitert, der
+  Text sagt dazu „beginne keinen Schritt“). Der Hook bestätigt erst nach erfolgreicher Ausgabe; scheitert sie, bleibt die
+  Nachricht liegen und kommt beim nächsten Ereignis erneut (lieber doppelt als verloren, gültig nur über die
+  Quittung, G5). `abholen` verhält sich unverändert. Das Prozessende des Hooks ist hart (`os._exit(0)` nach
+  letztem `flush`), damit geschlossenes stdout nicht mit stderr-Meldung und Exit 120 endet.
+- **Laufzeit-Obergrenze:** `vormerken`, `bestaetigen` und `abholen` haben die optionalen Parameter `frist`
+  (Sperrfrist für Themensperre und `aendern`) und `bis` (Zeitbudget als `time.monotonic()`-Zeitpunkt; danach
+  wird keine weitere Datei angefasst); eine belegte Sperre lässt die Datei liegen. Der Hook nutzt 0,3 s
+  Sperrfrist, 0,6 s Budget zum Vormerken und 0,4 s zum Bestätigen.
+- **Statusregister (K2):** `status.py` mit `status/<werkzeug>-<kennung>.json` (`zustand`, `zeit`,
+  `ereignis`), atomar geschrieben; `arbeitet` höchstens einmal je 60 s, solange der Zustand gleich bleibt;
+  `lesen(werkzeug, kennung)` liefert `(zustand, zeit)` oder `None` (= unbekannt) für den späteren
+  Ruhenachweis.
+- `assistent_vorgaenge.phase_gewinnen` meldet zusätzlich, ob der aufrufende Prozess den Phasenwechsel
+  gemacht hat; `postfach.text()` baut die festen Nachrichtentexte (auch für die Codex-Queue).
+
+### Geändert
+- **Menü nach Plan E9:** oben „Übergabe starten …“, Zeilen offener Wechsel, „Aktualisieren“, „Einstellungen ▸“,
+  „Beenden“. Unter „Einstellungen ▸“: „Wechsel-Schwelle“, „Modelle aktualisieren“ (mit Katalogzeilen),
+  „Automatik je Thema“ (bisher „Chats übergeben“), „Arbeitsmodus je Thema“, „Standard-Master (übrige Themen)“
+  (bisher „Master wechseln“). Das Verhalten dieser Punkte ist unverändert; die Statuszeilen der Automatik bleiben
+  oben. Die bestehenden Tests wurden auf die neuen Stellen umgestellt (nichts abgeschwächt); die Zahl der beim
+  Start angeforderten Fäden steigt um den Takt des Assistenten.
+- `abgabe_ueberspringen` gilt jetzt auch aus `abgabe_fehler` (Frist nach nicht gestartetem Transport).
+- **Blockade neuer Wechsel:** nur noch in den Phasen `av.WECHSEL_BLOCKIEREND` (Rolle noch nicht gesetzt
+  oder `sende`); ab `rolle_gesetzt` blockiert ein Vorgang nicht mehr.
+- **Überholt:** nach erfolgreichem Rollensetzen werden die anderen Vorgänge desselben Themas in den
+  Phasen `av.UEBERHOLBAR` (`rolle_gesetzt`, `gesendet`, `im_postfach`, `im_chat`, `unklar`, `fehler`)
+  mit einem `av.aendern`-Schritt auf `verworfen` / „überholt“ gesetzt, mit Protokolleintrag.
+- **Protokoll ohne Fremdtexte:** Fehler beim Fortsetzen, Rollensetzen und Markenprüfen nennen nur die
+  Fehlerklasse (Ursache an `__cause__`); der Verwerfungsgrund bei überholter Marke ist ein fester Text.
+- `wiederaufnehmen`: `abgabe_fehler` erscheint als Status `abgabe_offen` mit Fristhinweis.
+- **Zustellung unter der Themensperre (Ergebnisprüfung R1):** Markenprüfung und `rolle_gesetzt → sende`
+  laufen gemeinsam unter `thema_sperre` (blockierend, kurze Frist; belegt = nichts tun, nächster Takt);
+  der Transport bleibt außerhalb jeder Sperre. `_rolle_setzen` wartet, solange ein anderer Vorgang
+  desselben Themas in `sende` steht.
+- **Abgabe-Info erst nach dem Rollenwechsel:** die Frist setzt nur noch `abgabe_uebersprungen`; die Info
+  an den alten Chat geht erst raus, wenn `_rolle_setzen` den Wechsel nach `rolle_gesetzt` gewonnen hat
+  (nur bei übersprungener Abgabe mit `von_chat`; Codex außerhalb jeder Sperre). Bei Absturz dazwischen
+  geht sie verloren, nie nachgesendet.
+- **Restfenster vor dem Transport (R2):** `_zustellen` prüft die Marke direkt vor dem Senden (außerhalb der
+  Sperre) noch einmal; passt sie nicht, `sende → verworfen` (Protokoll `neu_entfallen`), nichts gesendet
+  (nicht lesbar: `fehler`). Ein Restfenster bleibt grundsätzlich – die Gültigkeit erzwingt die Quittung (G5).
+  `postfach.TEXT_NEU` ergänzt: „Schlägt die Quittung fehl, beginne keinen Schritt – die Nachricht gilt dann
+  nicht mehr.“
+- **Abgabe-Info nach Rückwechsel (R2):** vor dem Senden wird geprüft, dass der Vorgang nicht `verworfen` ist
+  und die Marke noch genau diesen Wechsel trägt; sonst Protokoll `info_entfallen`. `TEXT_ABGABE_INFO`
+  ergänzt: „Maßgeblich ist die Besitzmarke; prüfe im Zweifel `masterwechsel profil {thema}`.“
+- **Bereinigte Ausnahmen (R2):** Jede Ausnahme, die `uebergeben` oder `fortsetzen` verlässt, ist ein
+  bereinigter `AssistentFehler` (auch aus `abgabe_ergebnis` und den Aufrufen nach dem Anlegen); bleibt dabei
+  `abgabe_sende` stehen, macht `wiederaufnehmen` daraus `abgabe_unklar`.
+- **Fehlermeldungen ohne Pfade:** Hilfsfunktion für alle `AssistentFehler` aus fremden Ausnahmen; mit
+  `OSError` in der Kette steht nur ein fester Text mit Fehlerklasse (`SperrFehler`: „Sperre gerade
+  belegt“). Fremde Ausnahmetexte werden nie übernommen (nur Fehlerklasse); „Thema unbekannt“ prüft `uebergeben` selbst (Prüfung R3/R4); ungeprüfte Eingaben (Thema, Vorgangs-ID)
+  und `OSError`-Texte werden in Meldungen und CLI nie wiederholt (R6).
+  `uebergeben ZIEL` und `quittieren ART` ohne argparse-`choices` (kein Echo der Eingabe); `quittieren` meldet
+  Vorgangs-ID-Fehler, veraltete Marke und Datei-/Sperrfehler nur mit festem Text bzw. Fehlerklasse (R7).
+  `modi.py` unverändert.
+
+### Noch nicht gebaut
+- Ruhenachweis (G8b, liest das Statusregister), Hook-Eintrag in `settings.json`, Empfang im Hermes-Chat (P6;
+  bis dahin „Text kopieren“ im Fenster), Starten neuer Sitzungen (S0b/S0c/P5).
+
 ## [0.4.1] – 2026-10-21
 
 ### Behoben

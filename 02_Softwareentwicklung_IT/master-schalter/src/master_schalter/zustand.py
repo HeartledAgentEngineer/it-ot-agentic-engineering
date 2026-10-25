@@ -159,3 +159,28 @@ def thema_sperre(thema: str, blockierend: bool = False,
             _freigeben(fd)
     finally:
         os.close(fd)
+
+
+# --- Einzelinstanz (Fenster) ---------------------------------------------------
+
+@contextmanager
+def instanz_sperre(name: str) -> Iterator[bool]:
+    """Nicht blockierende Sperre für **eine** laufende Instanz (`<name>.lock` im Datenordner).
+
+    Gibt `True` zurück, wenn diese Instanz die Sperre hält, `False`, wenn schon eine andere läuft. Wie bei
+    der Themensperre gibt das Betriebssystem sie beim Prozessende frei; die Datei bleibt liegen. `name` kommt
+    nur aus dem Programm (feste Namen wie `fenster`), nie aus einer Eingabe.
+    """
+    pfad = daten_ordner() / f"{name}.lock"
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(pfad, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        if not _versuchen(fd):
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            _freigeben(fd)
+    finally:
+        os.close(fd)

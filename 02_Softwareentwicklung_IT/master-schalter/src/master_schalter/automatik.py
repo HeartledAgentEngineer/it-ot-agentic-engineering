@@ -19,9 +19,20 @@ vorhandene Kennung (egal in welcher Phase) wird nie erneut gesendet.
    trägt; sonst Abbruch ohne Vorgang.
 
 Die **globale** Zustandssperre wird nie während der 30-Sekunden-Wartezeit gehalten.
+
+**Zwei Wege für den Versand** (Einstellung `automatik_weg`, Standard `alt`; K7 „bis zum Nachweis parallel“):
+
+* `alt`: `sender` (`codex_senden.senden`) schreibt den Vorgang in `vorgaenge.json` und stellt zu.
+* `assistent`: nach **allen** Schutzschritten wird die Kennung `<thema>@<reset>` zuerst dauerhaft in
+  `automatik_ausgeloest.json` vermerkt (höchstens ein Versuch je Paar und Limitfenster, auch wenn der
+  Assistent danach scheitert), die Reservierung geht zurück auf `claude <Zeit>` (Vorzustand für den
+  Assistenten) und – **außerhalb der Themensperre** – übernimmt `assistent.uebergeben` (ohne alten Chat,
+  Claude kann im Limit nicht antworten). So sind automatische Wechsel genauso sichtbar wie Klickwechsel
+  (Fenster, Protokoll, Hinweise, Quittung). Den Vorgang führt danach der 10-s-Takt der Leiste weiter.
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 import uuid
@@ -29,9 +40,10 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
-from . import ack, anzeige, besitz, codex_senden, modi, paare, rollen, signale, uebergabe, vorgaenge, zustand
+from . import (ack, anzeige, assistent, besitz, codex_senden, modi, paare, protokoll, rollen, signale, uebergabe,
+               vorgaenge, zustand)
 from .auftrag import Auftrag
 
 FRIST_KOPFZEILE = timedelta(hours=2)
@@ -121,6 +133,42 @@ def uebergabepunkt(pfad: Path, head: str, jetzt: datetime,
     return True, ""
 
 
+# --- Ausgelöste Kennungen (Weg „assistent“) -------------------------------------
+
+def ausgeloest_datei() -> Path:
+    return signale.daten_ordner() / "automatik_ausgeloest.json"
+
+
+def _ausgeloest_roh(datei: Path) -> dict[str, str]:
+    """Kennung -> Zeit des Vermerks; fehlende, kaputte oder fremd geformte Datei ergibt leer."""
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    kennungen = roh.get("kennungen") if isinstance(roh, dict) else None
+    if not isinstance(kennungen, dict):
+        return {}
+    return {k: v for k, v in kennungen.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def ausgeloest_lesen(datei: Path | None = None) -> frozenset[str]:
+    """Alle bereits ausgelösten Kennungen `<thema>@<reset>` (nur lesen, wirft nie)."""
+    return frozenset(_ausgeloest_roh(datei or ausgeloest_datei()))
+
+
+def ausgeloest_vermerken(kennung: str, jetzt: datetime, datei: Path | None = None) -> None:
+    """Kennung dauerhaft und atomar vermerken (kurz unter der globalen Zustandssperre).
+
+    Wirft `OSError`/`zustand.SperrFehler`, wenn der Vermerk nicht sicher steht – dann wird nichts ausgelöst.
+    """
+    datei = datei or ausgeloest_datei()
+    with zustand.sperre():
+        kennungen = _ausgeloest_roh(datei)
+        kennungen[kennung] = jetzt.isoformat()
+        signale._atomar_schreiben(datei, json.dumps({"version": 1, "kennungen": kennungen},
+                                                    ensure_ascii=False, indent=2))
+
+
 # --- Entscheidung -------------------------------------------------------------
 
 def _gueltiges_fenster(f: signale.Fenster | None, jetzt: datetime) -> signale.Fenster | None:
@@ -181,8 +229,12 @@ def _warum_nichts(messung: Messung, schwelle: int, jetzt: datetime) -> str:
 def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an: bool,
              vorgangsliste: list[vorgaenge.Vorgang], jetzt: datetime,
              lauf_id: str = "",
-             modus_mapping: Mapping[str, modi.Profil | str] | None = None) -> list[Auftrag]:
-    """Reine Entscheidung: welche Paare jetzt übergeben werden (je Paar und Fenster höchstens einer)."""
+             modus_mapping: Mapping[str, modi.Profil | str] | None = None,
+             ausgeloest: Collection[str] = ()) -> list[Auftrag]:
+    """Reine Entscheidung: welche Paare jetzt übergeben werden (je Paar und Fenster höchstens einer).
+
+    `ausgeloest` sind Kennungen, die der Weg „assistent“ schon vermerkt hat; sie zählen wie bekannte Vorgänge.
+    """
     if not an:
         return []
     im_limit, ausloeser = _claude_im_limit(messung.claude, schwelle, jetzt)
@@ -195,7 +247,7 @@ def faellige(paare_liste: list[paare.Paar], messung: Messung, schwelle: int, an:
     woche = _gueltiges_fenster(messung.claude.fenster_nach_name("Woche"), jetzt)
     if fuenf is None or woche is None:
         return []
-    bekannt = {v.id for v in vorgangsliste}
+    bekannt = {v.id for v in vorgangsliste} | set(ausgeloest)
     modus_mapping = modus_mapping or {}
     auftraege: list[Auftrag] = []
     for paar in paare_liste:
@@ -224,9 +276,20 @@ def _letzter(vorgangsliste: list[vorgaenge.Vorgang], thema: str) -> vorgaenge.Vo
     return max(eigene, key=lambda v: v.zeit) if eigene else None
 
 
+WEG_HINWEIS = "über Wechselassistent"
+
+
 def status_zeile(paar: paare.Paar, vorgangsliste: list[vorgaenge.Vorgang],
-                 jetzt: datetime | None = None) -> str:
-    """Status eines Paares für das Menü: `bereit` / `gesendet 12:03` / `bestätigt` / `Fehler` / `unklar`."""
+                 jetzt: datetime | None = None, weg: str = anzeige.WEG_ALT) -> str:
+    """Status eines Paares für das Menü: `bereit` / `gesendet 12:03` / `bestätigt` / `Fehler` / `unklar`.
+
+    Beim Weg „assistent“ nennt die Zeile ihn („… · über Wechselassistent“); die Vorgänge selbst zeigt das Fenster.
+    """
+    status = _status_alt(paar, vorgangsliste, jetzt)
+    return f"{status} · {WEG_HINWEIS}" if weg == anzeige.WEG_ASSISTENT else status
+
+
+def _status_alt(paar: paare.Paar, vorgangsliste: list[vorgaenge.Vorgang], jetzt: datetime | None) -> str:
     v = _letzter(vorgangsliste, paar.thema)
     if v is None or v.phase in ("entwertet", "fehler"):
         return "Fehler" if v is not None and v.phase == "fehler" else "bereit"
@@ -242,9 +305,9 @@ def status_zeile(paar: paare.Paar, vorgangsliste: list[vorgaenge.Vorgang],
 
 
 def menue_zeilen(paare_liste: list[paare.Paar], vorgangsliste: list[vorgaenge.Vorgang],
-                 jetzt: datetime | None = None) -> list[str]:
+                 jetzt: datetime | None = None, weg: str = anzeige.WEG_ALT) -> list[str]:
     """Eine Zeile je Paar mit Status; unklare Zustellungen werden ausdrücklich benannt."""
-    zeilen = [f"{p.thema}: {status_zeile(p, vorgangsliste, jetzt)}" for p in paare_liste]
+    zeilen = [f"{p.thema}: {status_zeile(p, vorgangsliste, jetzt, weg)}" for p in paare_liste]
     if any(v.phase in ("sende", "unklar") for v in vorgangsliste):
         zeilen.append(STATUS_UNKLAR)
     return zeilen
@@ -299,9 +362,11 @@ def _head_lesen(repo: Path, git, head: str | Callable[[], str] | None) -> Callab
 
 
 def _ein_thema(auftrag: Auftrag, *, repo: Path, jetzt: datetime, warte: Callable[[float], None],
-               head_lesen: Callable[[], str], sender, git, frist: float) -> Stand:
+               head_lesen: Callable[[], str], sender, git, frist: float,
+               weg: str = anzeige.WEG_ALT, uebergeber=None) -> Stand:
     master = besitz.pfad(repo, auftrag.laufend)
     laufend_datei = repo / auftrag.laufend
+    ausloesen: Auftrag | None = None   # nur beim Weg „assistent“: nach dem Verlassen der Themensperre übergeben
     with zustand.thema_sperre(auftrag.thema, frist=frist) as frei:
         if not frei:
             return Stand(auftrag.thema, "übersprungen – Sperre belegt")
@@ -339,17 +404,50 @@ def _ein_thema(auftrag: Auftrag, *, repo: Path, jetzt: datetime, warte: Callable
         if besitz.lesen(master) != reservierung:
             return Stand(auftrag.thema, "Reservierung ersetzt – kein Versand")
 
-        try:
-            ergebnis = sender(a, repo, master, reservierung, jetzt, git=git)
-        except Exception as fehler:  # noqa: BLE001 - Absturz nach „sende“ bleibt unklar, kein zweiter Versand
-            return Stand(auftrag.thema, f"{STATUS_UNKLAR} ({fehler})", "sende")
-        if ergebnis.phase == "gesendet":
-            return Stand(auftrag.thema, "gesendet", "gesendet")
-        if ergebnis.phase == "unklar":
-            return Stand(auftrag.thema, STATUS_UNKLAR, "unklar")
-        if ergebnis.phase == "doppelt":
-            return Stand(auftrag.thema, "Vorgang existiert bereits", "sende")
-        return Stand(auftrag.thema, f"Fehler: {ergebnis.meldung}", "fehler")
+        if weg == anzeige.WEG_ASSISTENT:
+            zurueck = besitz.zeile(besitz.CLAUDE, jetzt.isoformat())
+            try:
+                # Zuerst dauerhaft vermerken: höchstens ein Versuch je Paar und Limitfenster.
+                ausgeloest_vermerken(a.id, jetzt)
+            except (OSError, ValueError, zustand.SperrFehler):
+                besitz.vergleiche_und_schreibe(master, reservierung, zurueck)   # nichts ausgelöst: Reservierung frei
+                return Stand(auftrag.thema, "Vermerk nicht möglich – kein Wechsel", "fehler")
+            # Vorzustand für den Assistenten: die Reservierung geht zurück auf `claude <Zeit>`.
+            if not besitz.vergleiche_und_schreibe(master, reservierung, zurueck):
+                return Stand(auftrag.thema, "Reservierung ersetzt – kein Versand")
+            ausloesen = a
+        else:
+            try:
+                ergebnis = sender(a, repo, master, reservierung, jetzt, git=git)
+            except Exception as fehler:  # noqa: BLE001 - Absturz nach „sende“ bleibt unklar, kein zweiter Versand
+                return Stand(auftrag.thema, f"{STATUS_UNKLAR} ({fehler})", "sende")
+            if ergebnis.phase == "gesendet":
+                return Stand(auftrag.thema, "gesendet", "gesendet")
+            if ergebnis.phase == "unklar":
+                return Stand(auftrag.thema, STATUS_UNKLAR, "unklar")
+            if ergebnis.phase == "doppelt":
+                return Stand(auftrag.thema, "Vorgang existiert bereits", "sende")
+            return Stand(auftrag.thema, f"Fehler: {ergebnis.meldung}", "fehler")
+
+    # Hier ist die Themensperre frei: `assistent.uebergeben` nimmt sie selbst (nicht blockierend) und sendet
+    # den Codex-Transport nie unter einer Sperre.
+    if ausloesen is None:   # nicht erreichbar (jeder andere Pfad kehrt oben zurück); fail-closed
+        return Stand(auftrag.thema, "kein Versand")
+    return _assistent_ausloesen(ausloesen, repo, uebergeber or assistent.uebergeben)
+
+
+def _assistent_ausloesen(a: Auftrag, repo: Path, uebergeber) -> Stand:
+    """Übergabe über den Wechselassistenten (ohne alten Chat); jeder Fehler wird zu einem festen Text."""
+    try:
+        nach = assistent.ChatRef("codex", a.codex_thread)
+        vorgang = uebergeber(a.thema, "codex", von_chat=None, nach_chat=nach, repo=repo)
+    except Exception as fehler:  # noqa: BLE001 - nie fremder Text (kann Pfade/Kennungen enthalten), nur die Klasse
+        klasse = type(fehler.__cause__ or fehler).__name__
+        protokoll.schreiben("", a.thema, "automatik_nicht_gestartet", klasse)
+        return Stand(a.thema, f"Wechsel nicht gestartet ({klasse})", "fehler")
+    protokoll.schreiben(vorgang.id, a.thema, "automatik_ausgeloest", "wechselassistent")
+    from .fenster_modell import phase_kurz   # spät: fenster_modell importiert dieses Modul
+    return Stand(a.thema, f"Wechselassistent: {phase_kurz(vorgang.phase)}", vorgang.phase)
 
 
 def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None,
@@ -359,11 +457,14 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
          messung: Messung | None = None, schwelle: int | None = None, an: bool | None = None,
          vorgangsliste: list[vorgaenge.Vorgang] | None = None, lauf_id: str = "",
          frist: float = zustand.FRIST_SEKUNDEN,
-         modus_mapping: Mapping[str, modi.Profil | str] | None = None) -> list[Stand]:
+         modus_mapping: Mapping[str, modi.Profil | str] | None = None,
+         weg: str | None = None, uebergeber=None) -> list[Stand]:
     """Einen Automatiklauf ausführen (oder trocken nur zeigen) und je Thema einen Stand zurückgeben.
 
     `head` darf ein fester Wert oder eine Funktion sein; als Funktion wird der HEAD **vor der
     Reservierung und noch einmal nach der Wartezeit** frisch ermittelt (Standard: `git rev-parse HEAD`).
+    `weg` (`alt`|`assistent`, Standard aus `einstellungen.json`, Unbekanntes gilt als `alt`) wählt den Versandweg;
+    `uebergeber` ersetzt `assistent.uebergeben` (nur für Tests).
     """
     jetzt = jetzt or datetime.now(timezone.utc)
     schwelle = anzeige.schwelle() if schwelle is None else schwelle
@@ -379,7 +480,11 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
             modus_mapping = modi.lesen()
         except modi.ModusFehler as fehler:
             return [Stand("", f"Modusstatus fehlerhaft – kein Versand ({fehler})")]
-    auftraege = faellige(liste, messung, schwelle, an, vorgangsliste, jetzt, lauf_id, modus_mapping)
+    weg = anzeige.automatik_weg() if weg is None else weg
+    if weg not in anzeige.AUTOMATIK_WEGE:
+        weg = anzeige.WEG_ALT
+    auftraege = faellige(liste, messung, schwelle, an, vorgangsliste, jetzt, lauf_id, modus_mapping,
+                         ausgeloest=ausgeloest_lesen())
     if not auftraege:
         return [Stand("", _warum_nichts(messung, schwelle, jetzt))]
     if trocken:
@@ -388,7 +493,7 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None, sender=None
     head_lesen = _head_lesen(repo, git, head)
     warte = warte or time.sleep
     return [_ein_thema(a, repo=repo, jetzt=jetzt, warte=warte, head_lesen=head_lesen,
-                       sender=sender or codex_senden.senden, git=git, frist=frist)
+                       sender=sender or codex_senden.senden, git=git, frist=frist, weg=weg, uebergeber=uebergeber)
             for a in auftraege]
 
 

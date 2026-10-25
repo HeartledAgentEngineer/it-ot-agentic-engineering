@@ -14,6 +14,8 @@
                                       Paar für die Automatik ein- oder ausschalten
     masterwechsel automatik-pruefen [--trocken]
                                       Automatik Claude → Codex prüfen (trocken: nur zeigen)
+    masterwechsel automatik-weg [alt|assistent]
+                                      Weg der Limit-Automatik anzeigen oder setzen (Standard alt)
     masterwechsel profil THEMA [--json]
                                       Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
     masterwechsel master-setzen THEMA MASTER
@@ -24,6 +26,14 @@
                                       Ausführermodell setzen ("standard" = Standard des Werkzeugs)
     masterwechsel modelle [PROVIDER] [--aktualisieren] [--json]
                                       Modellkataloge der Werkzeuge anzeigen oder abgleichen
+    masterwechsel quittieren VORGANG neu|abgabe
+                                      Übernahme (neu) bzw. Abgabe (abgabe) eines Assistentenvorgangs bestätigen
+    masterwechsel uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]
+                                      Wechselassistent: Thema vom alten an den neuen Master übergeben
+    masterwechsel fortsetzen [VORGANG]
+                                      Wechselvorgänge weiterführen (Frist, Rolle setzen, zustellen)
+    masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
+    masterwechsel fenster             Wechselfenster öffnen (Themen, Übergabe starten, Vorgänge, Protokoll; nur eine Instanz)
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -34,8 +44,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, automatik, claude_messen, modi, modelle, paare, rollen, rueckgabe,
-               signale, wechsel, zustand)
+from . import (__version__, anzeige, assistent, assistent_vorgaenge, automatik, chat_register, chat_zuordnung, claude_messen,
+               modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -252,6 +262,99 @@ def _modelle_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _quittieren_cli(args: argparse.Namespace) -> int:
+    """Quittung eines Zielchats (`neu`) bzw. des alten Chats (`abgabe`) – nur bei gültiger Marke."""
+    try:
+        vorgang = assistent_vorgaenge.quittieren(args.vorgang, args.art)
+    except assistent_vorgaenge.AssistentFehler as fehler:   # Texte ohne Eingabe-Echo und ohne Pfade
+        print(f"Nicht quittiert: {fehler}", file=sys.stderr)
+        return 1
+    except OSError as fehler:
+        print(f"Nicht quittiert: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    if args.art == "neu":
+        print(f"Übernahme von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
+    else:
+        print(f"Abgabe von {vorgang.thema} quittiert (Vorgang {vorgang.id}).")
+    return 0
+
+
+def _chat_ref(text: str | None) -> assistent.ChatRef | None:
+    """`WERKZEUG:KENNUNG` → Chat-Referenz. Die Fehlermeldungen nennen die Eingabe nie (sie enthält die Kennung)."""
+    if text is None:
+        return None
+    werkzeug, trenner, kennung = text.partition(":")
+    if not trenner:
+        raise assistent_vorgaenge.AssistentFehler("Chat-Angabe muss WERKZEUG:KENNUNG lauten")
+    return assistent.ChatRef(werkzeug, kennung)
+
+
+def _uebergeben_cli(args: argparse.Namespace) -> int:
+    """Wechsel starten. Ausgabe nur Vorgangs-ID und Phase – nie eine Chat-Kennung."""
+    try:
+        vorgang = assistent.uebergeben(args.thema, args.ziel, von_chat=_chat_ref(args.von),
+                                       nach_chat=_chat_ref(args.nach))
+    except assistent_vorgaenge.AssistentFehler as fehler:   # Texte sind bereinigt (assistent._assistentfehler)
+        print(f"Nicht übergeben: {fehler}", file=sys.stderr)
+        return 1
+    except OSError as fehler:                                # Rohtext kann Pfade enthalten: nur die Klasse
+        print(f"Nicht übergeben: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    print(f"Vorgang {vorgang.id}: {vorgang.phase}")
+    return 0
+
+
+def _fortsetzen_cli(args: argparse.Namespace) -> int:
+    """Einen oder alle nicht endgültigen Vorgänge weiterführen; je Vorgang ID, Thema und Phase."""
+    if args.vorgang is not None:
+        ids = [args.vorgang]
+    else:
+        try:
+            ids = [v.id for v in assistent_vorgaenge.lesen() if v.phase not in assistent_vorgaenge.ENDGUELTIG]
+        except OSError as fehler:
+            print(f"Vorgänge nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+            return 1
+    fehlgeschlagen = False
+    for ident in ids:
+        # Die ID nur nennen, wenn sie dem Muster entspricht – eine ungeprüfte Eingabe nie wiederholen (R6/1).
+        gezeigt = ident if modi.VORGANG_ID_MUSTER.fullmatch(ident) else "ungültige Kennung"
+        try:
+            vorgang = assistent.fortsetzen(ident)
+        except assistent_vorgaenge.AssistentFehler as fehler:
+            print(f"Nicht fortgesetzt ({gezeigt}): {fehler}", file=sys.stderr)
+            fehlgeschlagen = True
+            continue
+        except OSError as fehler:
+            print(f"Nicht fortgesetzt ({gezeigt}): Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+            fehlgeschlagen = True
+            continue
+        print(f"{vorgang.id}  {vorgang.thema}  {vorgang.phase}")
+    return 1 if fehlgeschlagen else 0
+
+
+def _fenster_cli() -> int:
+    """Wechselfenster öffnen; `tkinter` wird erst hier geladen (die übrigen Befehle brauchen es nicht)."""
+    from . import fenster
+    return fenster.main()
+
+
+def _chats_cli(args: argparse.Namespace) -> int:
+    """Chatliste (nur Metadaten, nur lesend). Ohne `--liste` nur Zählwerte: keine Titel, Ordner, Kennungen."""
+    ergebnis, zeilen = chat_zuordnung.uebersicht_mit_quellen()
+    for quelle in chat_register.QUELLEN:
+        status = ergebnis.quellen.get(quelle, "fehlt")
+        anzahl = sum(1 for chat in ergebnis.chats if chat.quelle == quelle)
+        print(f"{quelle}: {status}, {anzahl} {'Chat' if anzahl == 1 else 'Chats'}" if status == "ok"
+              else f"{quelle}: {status}")
+    zugeordnet = sum(1 for _, thema, _ in zeilen if thema is not None)
+    print(f"zugeordnet: {zugeordnet}, ohne Projekt: {len(zeilen) - zugeordnet}")
+    if args.liste:
+        for chat, thema, grund in zeilen:
+            zeit = chat.zuletzt.astimezone().strftime("%Y-%m-%d %H:%M")
+            print(f"{chat.werkzeug}  {chat.kennung[:8]}  {zeit}  {thema or '-'} ({grund})  {chat.titel}")
+    return 0
+
+
 def _paar_setzen(args: argparse.Namespace) -> int:
     try:
         paar = paare.setzen(args.thema, args.uuid, args.datei,
@@ -287,6 +390,23 @@ def _automatik_pruefen(args: argparse.Namespace) -> int:
 def _automatik_cli(args: argparse.Namespace) -> int:
     anzeige.automatik_setzen(args.zustand == "an")
     print(f"Automatik: {args.zustand}")
+    return 0
+
+
+def _automatik_weg_cli(args: argparse.Namespace) -> int:
+    """Weg der Automatik anzeigen oder setzen. Ein ungültiger Wert wird nie wiederholt (ohne `choices`, R7/1)."""
+    if args.weg is None:
+        print(f"Automatik-Weg: {anzeige.automatik_weg()}")
+        return 0
+    try:
+        anzeige.automatik_weg_setzen(args.weg)
+    except ValueError:
+        print(f"Automatik-Weg nicht geändert: erlaubt sind {' oder '.join(anzeige.AUTOMATIK_WEGE)}", file=sys.stderr)
+        return 1
+    except OSError as fehler:
+        print(f"Automatik-Weg nicht gespeichert: Datei nicht schreibbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    print(f"Automatik-Weg: {args.weg}")
     return 0
 
 
@@ -367,10 +487,33 @@ def _parser() -> argparse.ArgumentParser:
     modelle_parser.add_argument("--aktualisieren", action="store_true",
                                 help="Kataloge frisch abgleichen (Kindprozess der Werkzeuge, keine Inferenz)")
     modelle_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    quittieren = unter.add_parser("quittieren", help="Übernahme oder Abgabe eines Wechselvorgangs bestätigen")
+    quittieren.add_argument("vorgang", help="Vorgangskennung aus der Postfachnachricht")
+    quittieren.add_argument("art", metavar="ART", help="neu (Übernahme) oder abgabe")   # ohne choices: kein Echo
+    uebergeben = unter.add_parser("uebergeben", help="Wechselassistent: Thema an einen neuen Master übergeben")
+    uebergeben.add_argument("thema", help="vorhandenes Thema")
+    # Ohne `choices`: argparse würde eine ungültige Eingabe wörtlich wiederholen (R7/1); `assistent.uebergeben`
+    # prüft die Zielrolle selbst und nennt nur die erlaubten Werte.
+    uebergeben.add_argument("ziel", metavar="ZIEL", help=f"neue Masterrolle ({'|'.join(modi.ZIEL_ROLLEN)})")
+    uebergeben.add_argument("--von", default=None, metavar="WERKZEUG:KENNUNG",
+                            help="alter Chat (ohne Angabe wird die Abgabe übersprungen)")
+    uebergeben.add_argument("--nach", default=None, metavar="WERKZEUG:KENNUNG",
+                            help="neuer Chat (ohne Angabe wird nur die Rolle gesetzt)")
+    fortsetzen = unter.add_parser("fortsetzen", help="Wechselvorgänge weiterführen (idempotent)")
+    fortsetzen.add_argument("vorgang", nargs="?", default=None,
+                            help="Vorgangskennung (Standard: alle nicht endgültigen Vorgänge)")
+    chats = unter.add_parser("chats", help="zuletzt benutzte Chats (24 h) und ihre Projekt-Vorschläge")
+    chats.add_argument("--liste", action="store_true",
+                       help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
+    unter.add_parser("fenster", help="Wechselfenster öffnen (nur eine Instanz)")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
     auto.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    weg = unter.add_parser("automatik-weg", help="Weg der Limit-Automatik anzeigen oder setzen")
+    # Ohne `choices`: argparse würde eine ungültige Eingabe wörtlich wiederholen (R7/1).
+    weg.add_argument("weg", nargs="?", default=None, metavar="WEG",
+                     help=f"{'|'.join(anzeige.AUTOMATIK_WEGE)} (ohne Angabe: anzeigen)")
     rueck = unter.add_parser("rueckgabe", help="Themen an Codex zurückgeben (ohne --ja nur Trockenlauf)")
     rueck.add_argument("themen", nargs="*", help="Themen (Standard: alle aktiven)")
     rueck.add_argument("--ja", action="store_true", help="wirklich wechseln und die Übergaben senden")
@@ -414,10 +557,22 @@ def main(argv: list[str] | None = None) -> int:
         return _modell_setzen_cli(args)
     if args.befehl == "modelle":
         return _modelle_cli(args)
+    if args.befehl == "chats":
+        return _chats_cli(args)
+    if args.befehl == "fenster":
+        return _fenster_cli()
+    if args.befehl == "quittieren":
+        return _quittieren_cli(args)
+    if args.befehl == "uebergeben":
+        return _uebergeben_cli(args)
+    if args.befehl == "fortsetzen":
+        return _fortsetzen_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":
         return _automatik_cli(args)
+    if args.befehl == "automatik-weg":
+        return _automatik_weg_cli(args)
     if args.befehl == "rueckgabe":
         return _rueckgabe_cli(args)
     if args.befehl == "status":

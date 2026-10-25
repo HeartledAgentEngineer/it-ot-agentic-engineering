@@ -2,40 +2,67 @@
 
 * Mauszeiger darüber: kurze Zeile, beginnt mit dem Master („M Claude L1 | …").
 * Linksklick: Benachrichtigung mit allen Werten, Rücksetzzeit und Stand.
- * Rechtsklick: Menü mit Master, Lage, Kontingenten, „Master wechseln" (Bestätigungsdialog;
-   Ziel Codex stößt die Rückgabe an die Codex-Chats an), „Wechsel-Schwelle", „Chats übergeben",
-   „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell), „Modelle aktualisieren",
-   „Aktualisieren" (misst frisch und hakt offene Übergaben ab) und „Beenden".
+* Rechtsklick: Menü nach Plan E9. Oben die Stand-Zeilen (Master, Lage, Kontingente), „Übergabe starten …"
+  (öffnet das Wechselfenster als eigenen Prozess), je offenem Wechsel eine deaktivierte Zeile „Wechsel
+  <thema>: <Phase>", „Aktualisieren" (misst frisch und hakt offene Übergaben ab), „Einstellungen ▸" und „Beenden".
+  Unter „Einstellungen": „Wechsel-Schwelle", „Modelle aktualisieren" (mit Katalogzeilen), „Automatik je Thema"
+  (früher „Chats übergeben"), „Automatik-Weg" (alter Weg oder Wechselassistent, Standard alt), „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell) und
+  „Standard-Master (übrige Themen)" (früher „Master wechseln"; Bestätigungsdialog, Ziel Codex stößt die
+  Rückgabe an die Codex-Chats an).
 * Ein weißer Punkt über einem Balken zeigt den aktiven Master.
 
 Menü und checked/label-Rückrufe arbeiten ausschließlich aus unveränderlichen Momentaufnahmen
 (`aktualisieren()`); im Menüklick- oder checked-Faden findet nie eine Datei-, Prozess- oder
-Netzabfrage statt. Rollenänderungen laufen im Hintergrund mit nichtblockierender Themensperre;
-der Modellkatalog wird im Hintergrund mit Single-Flight-Riegel abgeglichen.
+Netzabfrage statt (auch der Fensterstart läuft in einem eigenen Faden). Rollenänderungen laufen im
+Hintergrund mit nichtblockierender Themensperre; der Modellkatalog wird im Hintergrund mit
+Single-Flight-Riegel abgeglichen.
+
+**Takt des Wechselassistenten:** ein eigener leichter Faden (`ASSISTENT_TAKT_SEKUNDEN` = 10 s), unabhängig vom
+60-s-Messtakt, ruft für jeden nicht endgültigen Vorgang `assistent.fortsetzen(id)`. Ein Fehler wird nur mit
+seiner Klasse protokolliert und beendet nichts. Danach wird das Menü neu gebaut, wenn sich eine Phase geändert
+hat, und es erscheinen Windows-Hinweise – je Vorgang und Ereignis genau einmal (Merker nur im Speicher; ältere
+Vorgänge als `fenster_modell.HINWEIS_ALTER` melden nichts). Beim Start ordnet `wiederaufnehmen()` Absturzreste einmal ein
+(Ergebnis nur als Zähler im Log).
 
 Start ohne Konsolenfenster: `.venv\\Scripts\\pythonw.exe -m master_schalter.leiste`
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 import pystray
 
-from . import (anzeige, automatik, claude_messen, dialog, modi, modelle, paare, rollen, rueckgabe,
-               signale, symbol, uebergabe, vorgaenge, wechsel, zustand)
+from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_messen, dialog, fenster_modell, modi,
+               modelle, paare, rollen, rueckgabe, signale, symbol, uebergabe, vorgaenge, wechsel, zustand)
 
 
 TAKT_SEKUNDEN = 60
+ASSISTENT_TAKT_SEKUNDEN = 10   # Wechselassistent: fortsetzen für jeden offenen Vorgang
 MODELLE_TAKT_SEKUNDEN = 1800   # automatischer Katalogabgleich höchstens alle 30 Minuten
+# Ein Hinweis zu einem höheren Ereignis macht die niedrigeren desselben Vorgangs überflüssig.
+HINWEIS_VERDRAENGT = {"uebernommen": ("rolle",)}
 
 
 def _protokoll(text: str) -> None:
     """Messfehler mit Zeitstempel ins Protokoll (stderr → `leiste.log` des Starters)."""
     print(f"[{datetime.now().isoformat(timespec='seconds')}] {text}", file=sys.stderr, flush=True)
+
+
+def fenster_befehl() -> list[str]:
+    """Befehl, der das Wechselfenster als eigenen Prozess startet: `pythonw.exe` neben `sys.executable`, sonst dieses Python."""
+    programm = Path(sys.executable)
+    ohne_konsole = programm.with_name("pythonw.exe")
+    if ohne_konsole.is_file():
+        programm = ohne_konsole
+    return [str(programm), "-m", "master_schalter.fenster"]
 
 
 class Leiste:
@@ -44,10 +71,12 @@ class Leiste:
         self._zustand = zustand.Zustand()
         self._paare_snapshot: list[paare.Paar] = []
         self._vorgaenge_snapshot: list[vorgaenge.Vorgang] = []
+        self._wechsel_snapshot: list[assistent_vorgaenge.Vorgang] = []   # Vorgänge des Wechselassistenten
         self._modus_snapshot: dict[str, tuple[str, str, bool]] = {}
         self._rollen_snapshot: dict[str, anzeige.Rollenstand] = {}
         self._kataloge: tuple[anzeige.Katalogstand, ...] | None = None
         self._modus_fehler: str | None = None
+        self._automatik_weg = anzeige.STANDARD_WEG   # Momentaufnahme für Haken und Menüzeilen
         self._lage: str | None = None
         self._grund = ""
         self._stopp = threading.Event()
@@ -57,6 +86,9 @@ class Leiste:
         self._429_aktiv = False
         self._messung_intervall = anzeige.claude_takt_min() * 60
         self._arbeits_thread = None
+        self._assistent_thread = None
+        self._assistent_sperre = threading.Lock()
+        self._hinweis_gemeldet: set[tuple[str, str]] = set()   # (Vorgang, Ereignis) – nur im Speicher
         self._automatik_sperre = threading.Lock()
         self._automatik_staende: list[automatik.Stand] = []
         self._bestaetigung_sperre = threading.Lock()
@@ -86,28 +118,82 @@ class Leiste:
             yield pystray.MenuItem(zeile, None, enabled=False)
         if self._messung_fehler:
             yield pystray.MenuItem(f"Claude-Messung: {self._messung_fehler}", None, enabled=False)
-        yield pystray.Menu.SEPARATOR
-        yield pystray.MenuItem("Master wechseln", pystray.Menu(*self._master_optionen()))
-        yield pystray.MenuItem("Wechsel-Schwelle", pystray.Menu(*self._schwellen_optionen()))
-        yield pystray.MenuItem("Arbeitsmodus je Thema", pystray.Menu(*self._modus_themen_optionen()))
-        for zeile in anzeige.katalog_zeilen(self._kataloge or ()):
-            yield pystray.MenuItem(zeile, None, enabled=False)
-        yield pystray.MenuItem(anzeige.MODELLE_AKTUALISIEREN, self._modelle_aktualisieren_aktion)
-        yield pystray.MenuItem("Chats übergeben", pystray.Menu(*self._paar_optionen()))
         for zeile in self._automatik_staende_zeilen():
             yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
+        yield pystray.MenuItem("Übergabe starten …", self._fenster_aktion)
+        for zeile in self._wechsel_zeilen():
+            yield pystray.MenuItem(zeile, None, enabled=False)
+        yield pystray.Menu.SEPARATOR
         yield pystray.MenuItem("Aktualisieren", self._aktualisieren_aktion)
+        yield pystray.MenuItem("Einstellungen ▸", pystray.Menu(*self._einstellungen_optionen()))
         yield pystray.MenuItem("Beenden", self._beenden)
+
+    def _einstellungen_optionen(self):
+        """Untermenü „Einstellungen": alle bisherigen Einstellpunkte, in ihrem Verhalten unverändert."""
+        optionen = [pystray.MenuItem("Wechsel-Schwelle", pystray.Menu(*self._schwellen_optionen()))]
+        for zeile in anzeige.katalog_zeilen(self._kataloge or ()):
+            optionen.append(pystray.MenuItem(zeile, None, enabled=False))
+        optionen.append(pystray.MenuItem(anzeige.MODELLE_AKTUALISIEREN, self._modelle_aktualisieren_aktion))
+        optionen.append(pystray.MenuItem("Automatik je Thema", pystray.Menu(*self._paar_optionen())))
+        optionen.append(pystray.MenuItem("Automatik-Weg", pystray.Menu(*self._weg_optionen())))
+        optionen.append(pystray.MenuItem("Arbeitsmodus je Thema", pystray.Menu(*self._modus_themen_optionen())))
+        optionen.append(pystray.MenuItem("Standard-Master (übrige Themen)", pystray.Menu(*self._master_optionen())))
+        return optionen
+
+    def _wechsel_zeilen(self) -> list[str]:
+        """Eine Zeile je offenem Wechsel – aus der Momentaufnahme, ohne Dateizugriff."""
+        return [f"Wechsel {v.thema}: {fenster_modell.phase_kurz(v.phase)}"
+                for v in self._wechsel_snapshot if fenster_modell.offen(v)]
+
+    # --- Wechselfenster -------------------------------------------------------------
+
+    def _fenster_aktion(self, *_args) -> None:
+        """Menüklick: das Fenster in einem eigenen Faden starten (kein Prozessstart im Klickfaden)."""
+        threading.Thread(target=self._fenster_oeffnen, daemon=True).start()
+
+    def _fenster_oeffnen(self) -> None:
+        """Fenster als eigener Prozess; eine zweite Instanz beendet sich selbst (Sperre `fenster.lock`)."""
+        paket = str(Path(__file__).resolve().parent.parent)
+        umgebung = dict(os.environ)
+        umgebung["PYTHONPATH"] = paket + (os.pathsep + umgebung["PYTHONPATH"] if umgebung.get("PYTHONPATH") else "")
+        try:
+            subprocess.Popen(fenster_befehl(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, close_fds=True, env=umgebung,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception as fehler:  # noqa: BLE001 - ein Startfehler darf die Leiste nicht beenden
+            _protokoll(f"Wechselfenster konnte nicht gestartet werden ({type(fehler).__name__})")
+            self._melden("Wechselfenster konnte nicht gestartet werden")
+
+    def _melden(self, text: str) -> None:
+        try:
+            self.icon.notify(text[:anzeige.HINWEIS_MAX], "Master-Schalter")
+        except Exception:  # noqa: BLE001 - Meldefehler dürfen nichts umwerfen
+            _protokoll("Hinweis konnte nicht angezeigt werden")
 
     def _paar_optionen(self):
         liste = self._paare_snapshot
         vorgangsliste = self._vorgaenge_snapshot
         if not liste:
             return [pystray.MenuItem("keine Paare angelegt", None, enabled=False)]
-        return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste)}",
+        return [pystray.MenuItem(f"{p.thema}: {automatik.status_zeile(p, vorgangsliste, weg=self._automatik_weg)}",
                                  self._paar_umschalten_aktion(p.thema), checked=lambda item, p=p: self._ist_paar_an(p.thema))
                 for p in liste]
+
+    def _weg_optionen(self):
+        """Zwei Auswahlpunkte (Radio) aus der Momentaufnahme; gewechselt wird nur per Klick."""
+        return [pystray.MenuItem(text, self._weg_aktion(wert),
+                                 checked=lambda item, wert=wert: self._automatik_weg == wert, radio=True)
+                for text, wert in anzeige.WEG_AUSWAHL]
+
+    def _weg_aktion(self, wert: str):
+        def aktion(*_args) -> None:
+            try:
+                anzeige.automatik_weg_setzen(wert)
+            except (OSError, ValueError) as fehler:
+                self.icon.notify(f"Automatik-Weg nicht gespeichert ({type(fehler).__name__})", "Master-Schalter")
+            self.aktualisieren()
+        return aktion
 
     def _automatik_staende_zeilen(self) -> list[str]:
         return [s.status if not s.thema else f"{s.thema}: {s.status}" for s in self._automatik_staende]
@@ -379,7 +465,9 @@ class Leiste:
         try:
             self._paare_snapshot = paare.lesen()
             self._vorgaenge_snapshot = vorgaenge.lesen()
+            self._wechsel_snapshot = assistent_vorgaenge.lesen()
             self._kataloge = self._kataloge_lesen()
+            self._automatik_weg = anzeige.automatik_weg()
             try:
                 self._modus_snapshot = modi.snapshot([p.thema for p in self._paare_snapshot])
                 profile = modi.lesen()
@@ -488,6 +576,76 @@ class Leiste:
                         self._bestaetigung_anfordern()   # offene Übergaben abhaken – auch ohne Automatik
             self._modellabgleich_pruefen()   # abgelaufener Modellkatalog wird im Hintergrund erneuert
 
+    # --- Takt des Wechselassistenten --------------------------------------------------
+
+    def _assistent_takt(self) -> None:
+        """Eigener leichter Faden: alle `ASSISTENT_TAKT_SEKUNDEN` jeden offenen Vorgang einen Schritt weiter."""
+        while not self._stopp.is_set():
+            if self._stopp.wait(ASSISTENT_TAKT_SEKUNDEN):
+                break
+            self._assistent_schritt()
+
+    def _assistent_schritt(self, jetzt: datetime | None = None) -> None:
+        """Ein Durchlauf: `fortsetzen` je offenem Vorgang, Menü bei Phasenwechsel, Hinweise. Wirft nie."""
+        if not self._assistent_sperre.acquire(blocking=False):
+            return
+        try:
+            jetzt = jetzt or datetime.now(timezone.utc)
+            try:
+                offene = [v for v in assistent_vorgaenge.lesen() if v.phase not in assistent_vorgaenge.ENDGUELTIG]
+            except Exception as fehler:  # noqa: BLE001
+                _protokoll(f"Wechselvorgänge nicht lesbar ({type(fehler).__name__})")
+                return
+            for vorgang in offene:
+                try:
+                    assistent.fortsetzen(vorgang.id)
+                except Exception as fehler:  # noqa: BLE001 - nur die Fehlerklasse, nie Text oder Kennung
+                    _protokoll(f"Wechselvorgang nicht fortgesetzt ({type(fehler).__name__})")
+            try:
+                aktuell = assistent_vorgaenge.lesen()
+            except Exception as fehler:  # noqa: BLE001
+                _protokoll(f"Wechselvorgänge nicht lesbar ({type(fehler).__name__})")
+                return
+            self._hinweise_pruefen(aktuell, jetzt)
+            if [(v.id, v.phase) for v in aktuell] != [(v.id, v.phase) for v in self._wechsel_snapshot]:
+                self._wechsel_snapshot = aktuell
+                try:
+                    self.icon.update_menu()
+                except Exception:  # noqa: BLE001
+                    _protokoll("Menü konnte nicht aktualisiert werden")
+        finally:
+            self._assistent_sperre.release()
+
+    def _hinweise_pruefen(self, liste: list[assistent_vorgaenge.Vorgang], jetzt: datetime) -> None:
+        """Windows-Hinweise: je Vorgang und Ereignis genau einmal (Merker nur im Speicher)."""
+        for vorgang in liste:
+            try:
+                treffer = fenster_modell.hinweis_fuer(vorgang, jetzt)
+            except Exception as fehler:  # noqa: BLE001
+                _protokoll(f"Hinweis nicht ermittelbar ({type(fehler).__name__})")
+                continue
+            if treffer is None:
+                continue
+            ereignis, text = treffer
+            if (vorgang.id, ereignis) in self._hinweis_gemeldet:
+                continue
+            self._hinweis_gemeldet.add((vorgang.id, ereignis))
+            for niedriger in HINWEIS_VERDRAENGT.get(ereignis, ()):
+                self._hinweis_gemeldet.add((vorgang.id, niedriger))
+            self._melden(text)
+
+    def _wiederaufnahme_beim_start(self) -> None:
+        """Absturzreste einmal ordnen; im Log nur Zähler je Status – keine Kennungen, keine Hinweistexte."""
+        try:
+            ergebnisse = assistent_vorgaenge.wiederaufnehmen()
+        except Exception as fehler:  # noqa: BLE001
+            _protokoll(f"Wiederaufnahme der Wechselvorgänge fehlgeschlagen ({type(fehler).__name__})")
+            return
+        if ergebnisse:
+            zaehler = Counter(e.status for e in ergebnisse)
+            _protokoll("Wiederaufnahme der Wechselvorgänge: "
+                       + ", ".join(f"{status} {anzahl}" for status, anzahl in sorted(zaehler.items())))
+
     def _messung_ausfuehren(self) -> None:
         if not self._messung_sperre.acquire(blocking=False):
             return
@@ -518,11 +676,15 @@ class Leiste:
 
     def _start(self, icon) -> None:
         icon.visible = True
+        self._wiederaufnahme_beim_start()
         self.aktualisieren()
         self._messung_angefordert.set()
         if self._arbeits_thread is None or not getattr(self._arbeits_thread, "is_alive", lambda: False)():
             self._arbeits_thread = threading.Thread(target=self._takt, daemon=True)
             self._arbeits_thread.start()
+        if self._assistent_thread is None or not getattr(self._assistent_thread, "is_alive", lambda: False)():
+            self._assistent_thread = threading.Thread(target=self._assistent_takt, daemon=True)
+            self._assistent_thread.start()
         self._modellabgleich_pruefen()   # fehlende/veraltete Modellkataloge gleich im Hintergrund holen
 
     def run(self) -> None:

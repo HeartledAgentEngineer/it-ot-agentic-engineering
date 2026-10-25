@@ -86,7 +86,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.4.1" in capsys.readouterr().out
+    assert "0.5.0" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
@@ -377,3 +377,243 @@ def test_modelle_json_bei_leerem_cache_exit0(rollen, capsys):
     daten = json.loads(capsys.readouterr().out)
     assert [eintrag["provider"] for eintrag in daten] == ["claude", "codex"]
     assert all(eintrag["modelle"] == [] and eintrag["veraltet"] is True for eintrag in daten)
+
+
+# --- quittieren (Wechselassistent, G4/G5) ---------------------------------------
+
+def _assistent_vorgang(vorgang_id="v-1", ziel="hermes", phase="rolle_gesetzt", rolle_setzen=True):
+    """Vorgang vermerken und (optional) Rolle setzen – wie der Assistent (Themensperre gehalten).
+
+    Ohne `rolle_setzen` bleibt die Marke unberührt (= Vorzustand, wie während der Abgabe).
+    """
+    from datetime import datetime, timezone
+
+    from master_schalter import assistent_vorgaenge, zustand
+    assistent_vorgaenge.aendern(lambda alt: [*alt, assistent_vorgaenge.Vorgang(
+        vorgang_id, "engineering", ziel, "claude", phase, datetime.now(timezone.utc).isoformat(),
+        {"master": "kontingent", "worker": "workflow", "modell": None}, "")])
+    if rolle_setzen:
+        with zustand.thema_sperre("engineering", blockierend=True, frist=1.0):
+            modi.master_uebergeben_gesperrt("engineering", ziel, vorgang_id=vorgang_id)
+    return assistent_vorgaenge
+
+
+def test_quittieren_neu_bestaetigt_den_vorgang(rollen, capsys):
+    av = _assistent_vorgang()
+    assert cli.main(["quittieren", "v-1", "neu"]) == 0
+    assert "quittiert" in capsys.readouterr().out
+    assert av.finden("v-1").phase == "bestaetigt"
+
+
+def test_quittieren_abgabe_setzt_abgegeben_solange_die_marke_dem_alten_master_gehoert(rollen, capsys):
+    av = _assistent_vorgang(phase="abgabe_angefragt", rolle_setzen=False)
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 0
+    assert "Abgabe von engineering quittiert" in capsys.readouterr().out
+    assert av.finden("v-1").phase == "abgegeben" and av.finden("v-1").abgabe == "abgegeben"
+
+
+def test_quittieren_abgabe_ausserhalb_der_abgabephase_exit1(rollen, capsys):
+    av = _assistent_vorgang()                                       # Phase rolle_gesetzt
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 1
+    assert "Abgabe ist nicht offen" in capsys.readouterr().err
+    assert av.finden("v-1").phase == "rolle_gesetzt" and av.finden("v-1").abgabe is None
+
+
+def test_quittieren_bei_veralteter_marke_exit1_ohne_aenderung(rollen, capsys):
+    av = _assistent_vorgang()
+    modi.master_setzen("engineering", "codex")                      # späterer Wechsel überschreibt die Marke
+    vorher = av.datei().read_text(encoding="utf-8")
+    assert cli.main(["quittieren", "v-1", "neu"]) == 1
+    assert "veraltet" in capsys.readouterr().err
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_quittieren_abgabe_bei_geaenderter_marke_exit1_ohne_aenderung(rollen, capsys):
+    av = _assistent_vorgang(phase="abgabe_angefragt", rolle_setzen=False)
+    modi.master_setzen("engineering", "codex")                      # Marke weicht vom Vorzustand ab
+    vorher = av.datei().read_text(encoding="utf-8")
+    assert cli.main(["quittieren", "v-1", "abgabe"]) == 1
+    assert "veraltet" in capsys.readouterr().err
+    assert av.datei().read_text(encoding="utf-8") == vorher
+
+
+def test_quittieren_unbekannter_vorgang_oder_schlechte_eingabe(rollen, capsys):
+    assert cli.main(["quittieren", "v-9", "neu"]) == 1
+    assert "unbekannt" in capsys.readouterr().err
+    assert cli.main(["quittieren", "../PRIVAT_4711", "neu"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Vorgangskennung unzulässig" in fehler
+    assert cli.main(["quittieren", "v-1", "../PRIVAT_4711"]) == 1    # P4 R7: Art ohne argparse-Echo
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Unbekannte Quittungsart" in fehler
+
+
+
+# --- uebergeben / fortsetzen (Wechselassistent, P4) -------------------------------------------
+
+KENNUNG_ALT = "GEHEIM-ALT-4711"
+KENNUNG_NEU = "GEHEIM-NEU-0815"
+
+
+@pytest.fixture
+def codex_attrappe(rollen, monkeypatch):
+    """`codex.exe` wird nie gestartet: Programmpfad und Transport sind Attrappen."""
+    from master_schalter import codex_senden
+    aufrufe = []
+    monkeypatch.setenv("MASTER_SCHALTER_CODEX", str(rollen / "codex-attrappe.exe"))
+    monkeypatch.setattr(codex_senden, "_transport", lambda liste, timeout: aufrufe.append(list(liste)) or 0)
+    return aufrufe
+
+
+def test_uebergeben_ohne_alten_chat_gibt_nur_id_und_phase_aus(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    assert cli.main(["uebergeben", "engineering", "codex", "--nach", f"codex:{KENNUNG_NEU}"]) == 0
+
+    ausgabe = capsys.readouterr()
+    vorgang = av.lesen()[0]
+    assert ausgabe.out.strip() == f"Vorgang {vorgang.id}: gesendet" and ausgabe.err == ""
+    assert KENNUNG_NEU not in ausgabe.out and len(codex_attrappe) == 1
+    assert vorgang.nach_chat == {"werkzeug": "codex", "kennung": KENNUNG_NEU}
+
+
+def test_uebergeben_mit_altem_chat_wartet_auf_die_abgabe(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    assert cli.main(["uebergeben", "engineering", "codex", "--von", f"claude:{KENNUNG_ALT}",
+                     "--nach", f"codex:{KENNUNG_NEU}"]) == 0
+
+    vorgang = av.lesen()[0]
+    assert capsys.readouterr().out.strip() == f"Vorgang {vorgang.id}: abgabe_angefragt"
+    assert codex_attrappe == []                                   # der Abgabe-Auftrag an Claude liegt im Postfach
+
+
+def test_uebergeben_fehler_exit1_ohne_kennung_in_der_ausgabe(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    for argumente in (["--von", f"codex:{KENNUNG_ALT}"],                  # Besitzer ist Claude
+                      ["--von", f"gemini:{KENNUNG_ALT}"],                 # unbekanntes Werkzeug
+                      ["--von", f"claude:../{KENNUNG_ALT}"],              # unzulässige Kennung
+                      ["--von", KENNUNG_ALT],                             # kein Doppelpunkt
+                      ["--nach", f"claude:{KENNUNG_NEU}"]):               # Werkzeug passt nicht zum Ziel
+        assert cli.main(["uebergeben", "engineering", "codex", *argumente]) == 1
+        ausgabe = capsys.readouterr()
+        assert ausgabe.out == "" and "Nicht übergeben" in ausgabe.err
+        assert KENNUNG_ALT not in ausgabe.err and KENNUNG_NEU not in ausgabe.err
+    assert av.lesen() == [] and codex_attrappe == []
+
+
+def test_uebergeben_unbekanntes_ziel_wird_ohne_echo_abgelehnt(rollen, capsys):
+    assert cli.main(["uebergeben", "engineering", "kontingent"]) == 1
+    assert "Zielrolle unzulässig" in capsys.readouterr().err
+    assert cli.main(["uebergeben", "engineering", "../PRIVAT_4711"]) == 1      # R7/1: Eingabe nie wiederholen
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Zielrolle unzulässig" in fehler
+    assert cli.main(["uebergeben", "gibtsnicht", "codex"]) == 1
+
+
+def test_fortsetzen_ohne_id_zeigt_alle_offenen_vorgaenge(rollen, codex_attrappe, capsys):
+    from master_schalter import assistent_vorgaenge as av
+
+    cli.main(["uebergeben", "engineering", "codex", "--von", f"claude:{KENNUNG_ALT}", "--nach", f"codex:{KENNUNG_NEU}"])
+    vorgang = av.lesen()[0]
+    capsys.readouterr()
+
+    assert cli.main(["fortsetzen"]) == 0
+    assert capsys.readouterr().out.strip() == f"{vorgang.id}  engineering  abgabe_angefragt"
+
+    av.quittieren(vorgang.id, "abgabe")                               # der alte Chat gibt ab
+    assert cli.main(["fortsetzen", vorgang.id]) == 0
+    ausgabe = capsys.readouterr().out
+    assert ausgabe.strip() == f"{vorgang.id}  engineering  gesendet"
+    assert KENNUNG_ALT not in ausgabe and KENNUNG_NEU not in ausgabe and len(codex_attrappe) == 1
+
+    av.quittieren(vorgang.id, "neu")                                  # bestaetigt = endgültig
+    assert cli.main(["fortsetzen"]) == 0
+    assert capsys.readouterr().out == "" and len(codex_attrappe) == 1
+
+
+def test_fortsetzen_unbekannter_vorgang_exit1(rollen, capsys):
+    assert cli.main(["fortsetzen", "v-gibtsnicht"]) == 1
+    assert "unbekannt" in capsys.readouterr().err
+    assert cli.main(["fortsetzen"]) == 0                              # nichts offen: still, Exit 0
+    assert capsys.readouterr().out == ""
+
+
+def test_cli_wiederholt_ungepruefte_eingaben_nicht(rollen, capsys):
+    # R6/1: weder die Vorgangs-ID noch das Thema darf als Rohtext (z. B. ein Pfad) zurückkommen.
+    assert cli.main(["fortsetzen", "../PRIVAT_4711"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "ungültige Kennung" in fehler
+    assert cli.main(["uebergeben", "../PRIVAT_4711", "codex"]) == 1
+    fehler = capsys.readouterr().err
+    assert "PRIVAT_4711" not in fehler and "Thema unzulässig" in fehler
+
+
+# --- Chatliste (v0.5.0) ----------------------------------------------------------------------
+
+def _chat_attrappe(tmp_path, monkeypatch):
+    """Eine Desktop-Attrappe mit eindeutigem Titel – keine echte Quelle."""
+    from datetime import datetime, timedelta, timezone
+    wurzel = tmp_path / "desktop-attrappe"
+    ordner = wurzel / "konto" / "claude-code-sessions"
+    ordner.mkdir(parents=True)
+    zeit = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp() * 1000)
+    (ordner / "local_x.json").write_text(json.dumps(
+        {"cliSessionId": "abcdef12-0000-4000-8000-000000000000", "title": "GEHEIMTITEL",
+         "cwd": "C:/GEHEIMORDNER", "lastActivityAt": zeit}), encoding="utf-8")
+    monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_DESKTOP", str(wurzel))
+
+
+def test_chats_ohne_liste_nennt_nur_zaehlwerte(daten, tmp_path, monkeypatch, capsys):
+    _chat_attrappe(tmp_path, monkeypatch)
+    assert cli.main(["chats"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "claude-desktop: ok, 1 Chat" in ausgabe
+    assert "claude-cli: fehlt" in ausgabe and "codex: fehlt" in ausgabe and "hermes: fehlt" in ausgabe
+    assert "zugeordnet: 0, ohne Projekt: 1" in ausgabe
+    for verboten in ("GEHEIMTITEL", "GEHEIMORDNER", "abcdef12", "000000000000"):
+        assert verboten not in ausgabe
+
+
+def test_chats_liste_zeigt_titel_und_gekuerzte_kennung(daten, tmp_path, monkeypatch, capsys):
+    _chat_attrappe(tmp_path, monkeypatch)
+    assert cli.main(["chats", "--liste"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "GEHEIMTITEL" in ausgabe
+    assert "abcdef12" in ausgabe and "abcdef12-0000" not in ausgabe
+    assert "- (unbekannt)" in ausgabe
+    assert "GEHEIMORDNER" not in ausgabe
+
+
+def test_chats_ohne_quellen_ist_exit_0(daten, capsys):
+    assert cli.main(["chats"]) == 0
+    ausgabe = capsys.readouterr().out
+    assert "claude-desktop: fehlt" in ausgabe
+    assert "zugeordnet: 0, ohne Projekt: 0" in ausgabe
+
+
+# --- automatik-weg (P8, K7) -------------------------------------------------------------------
+
+def test_automatik_weg_ohne_argument_zeigt_den_standard(daten, capsys):
+    assert cli.main(["automatik-weg"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: alt"
+
+
+def test_automatik_weg_setzen_und_anzeigen(daten, capsys):
+    assert cli.main(["automatik-weg", "assistent"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: assistent"
+    assert anzeige.automatik_weg() == "assistent"
+    assert cli.main(["automatik-weg"]) == 0
+    assert capsys.readouterr().out.strip() == "Automatik-Weg: assistent"
+    assert cli.main(["automatik-weg", "alt"]) == 0
+    assert anzeige.automatik_weg() == "alt"
+
+
+@pytest.mark.parametrize("eingabe", ["geheim-123", "ASSISTENT", "C:/geheim/pfad", ""])
+def test_automatik_weg_ungueltig_exit1_ohne_echo(daten, capsys, eingabe):
+    assert cli.main(["automatik-weg", eingabe]) == 1
+    ausgabe = capsys.readouterr()
+    assert "geheim" not in ausgabe.out + ausgabe.err and (not eingabe or eingabe not in ausgabe.out + ausgabe.err)
+    assert "alt oder assistent" in ausgabe.err
+    assert anzeige.automatik_weg() == "alt"
