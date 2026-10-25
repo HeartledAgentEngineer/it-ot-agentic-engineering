@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import besitz, modi, paare, zustand
+from . import besitz, modi, paare, protokoll, zustand
 from .signale import _atomar_schreiben, daten_ordner
 
 PHASEN = ("vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar", "abgabe_fehler", "abgegeben",
@@ -66,6 +66,11 @@ WECHSEL_BLOCKIEREND = (*ABGABE_UEBERSPRINGBAR, "abgegeben", "abgabe_uebersprunge
 # Phasen, die ein späterer, erfolgreich gesetzter Wechsel desselben Themas als „überholt“ verwirft.
 UEBERHOLBAR = ("rolle_gesetzt", "gesendet", "im_postfach", "im_chat", "unklar", "fehler")
 ENDGUELTIG = ("bestaetigt", "verworfen")          # danach ändert sich am Vorgang nichts mehr
+# Von Hand abbrechbar nur, solange die Rolle noch nicht gesetzt ist (ab `rolle_gesetzt` gilt die Marke und
+# nur ein späterer Wechsel macht den Vorgang ungültig). `sende` gehört nicht dazu: es steht schon nach dem Rollensetzen.
+ABBRECHBAR = (*ABGABE_UEBERSPRINGBAR, "abgegeben", "abgabe_uebersprungen")
+ABBRUCH_GRUND = "von Hand abgebrochen"
+GRUND_MAX = 200                                    # längere Gründe zeigt das Fenster gekürzt
 ARTEN = ("neu", "abgabe")                          # Quittungsarten (Nachrichtenarten: `postfach.NACHRICHTEN`)
 ABGABE_WERTE = ("abgegeben", "uebersprungen")      # mögliche Werte des Feldes `abgabe`
 ABGABE_ERGEBNISSE = ("abgabe_angefragt", "abgabe_fehler", "abgabe_unklar")
@@ -343,6 +348,38 @@ def _abgabe_quittieren(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | N
     if neu is not None and neu.phase != "abgegeben":
         raise AssistentFehler(f"Quittung abgelehnt: Abgabe ist nicht mehr offen (Phase {neu.phase})")
     return neu
+
+
+def abbrechen(vorgang_id: str, datei_pfad: Path | None = None) -> Vorgang:
+    """Einen Vorgang von Hand abbrechen (Fenster, Knopf „Abbrechen“) – nur **vor** `rolle_gesetzt`.
+
+    Läuft unter der Themensperre (blockierend, kurze Frist): so kann `assistent.fortsetzen` nicht gleichzeitig
+    die Rolle setzen und danach von diesem Abbruch überholt werden. Der Wechsel ist Vergleich-und-Setzen aus
+    `ABBRECHBAR` nach `verworfen` mit dem Grund `ABBRUCH_GRUND`; liegende Postfachdateien werden dadurch nach
+    G5 beim Abholen verworfen. Ein Protokolleintrag hält den Abbruch fest. Ist die Phase schon weiter oder
+    der Vorgang schon endgültig, wirft die Funktion `AssistentFehler` und ändert nichts. Die Meldungen nennen
+    nur feste Wörter und Phasennamen – nie eine Kennung außer der geprüften Vorgangs-ID.
+    """
+    try:
+        modi.vorgang_id_pruefen(vorgang_id)
+    except modi.ModusFehler as fehler:
+        raise AssistentFehler(f"Vorgangskennung unzulässig (erlaubt: {modi.VORGANG_ID_MUSTER.pattern})") from fehler
+    vorgang = finden(vorgang_id, datei_pfad)
+    if vorgang is None:
+        raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
+    try:
+        with zustand.thema_sperre(vorgang.thema, blockierend=True, frist=THEMENSPERRE_FRIST) as frei:
+            if not frei:
+                raise AssistentFehler("Übergabe läuft gerade – gleich erneut abbrechen")
+            neu, gewonnen = phase_gewinnen(vorgang_id, ABBRECHBAR, "verworfen", datei_pfad, fehler=ABBRUCH_GRUND)
+            if neu is None:
+                raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
+            if not gewonnen:
+                raise AssistentFehler(f"Abbrechen nicht mehr möglich (Phase {neu.phase})")
+            protokoll.schreiben(neu.id, neu.thema, "verworfen", ABBRUCH_GRUND)
+            return neu
+    except (zustand.SperrFehler, OSError) as fehler:
+        raise AssistentFehler(f"Abbrechen gerade nicht möglich ({type(fehler).__name__})") from fehler
 
 
 # --- Wiederaufnahme (G2) ----------------------------------------------------------

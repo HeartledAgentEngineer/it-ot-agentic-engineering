@@ -493,3 +493,88 @@ def test_wechsel_blockierend_und_ueberholbar_ueberschneiden_sich_nicht(umgebung)
     assert not set(av.WECHSEL_BLOCKIEREND) & set(av.UEBERHOLBAR)
     assert set(av.WECHSEL_BLOCKIEREND) == {"vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar",
                                            "abgabe_fehler", "abgegeben", "abgabe_uebersprungen", "sende"}
+
+
+# --- Abbrechen von Hand (Fenster, P7a) ------------------------------------------------
+
+@pytest.mark.parametrize("phase", ["vorbereitet", "abgabe_sende", "abgabe_angefragt", "abgabe_unklar",
+                                   "abgabe_fehler", "abgegeben", "abgabe_uebersprungen"])
+def test_abbrechen_verwirft_vor_rolle_gesetzt_und_protokolliert(umgebung, phase):
+    from master_schalter import protokoll
+    umgebung.vorbereiten("v-1", phase=phase)
+    umgebung.vorbereiten("v-2", phase=phase)
+
+    erg = av.abbrechen("v-1")
+
+    assert erg.phase == "verworfen" and erg.fehler == av.ABBRUCH_GRUND == "von Hand abgebrochen"
+    assert av.finden("v-1").phase == "verworfen"
+    assert av.finden("v-2").phase == phase                       # andere Vorgänge bleiben unberührt
+    eintrag = protokoll.lesen()[-1]
+    assert (eintrag["vorgang"], eintrag["thema"], eintrag["entscheidung"], eintrag["grund"]) == \
+        ("v-1", THEMA, "verworfen", "von Hand abgebrochen")
+
+
+def test_abbrechbare_phasen_sind_genau_die_blockierenden_vor_rolle_gesetzt():
+    assert set(av.ABBRECHBAR) == set(av.WECHSEL_BLOCKIEREND) - {"sende"}
+    assert not set(av.ABBRECHBAR) & set(av.UEBERHOLBAR)
+    assert not set(av.ABBRECHBAR) & set(av.ENDGUELTIG)
+
+
+@pytest.mark.parametrize("phase", ["rolle_gesetzt", "sende", "gesendet", "im_postfach", "im_chat", "fehler",
+                                   "unklar", "bestaetigt", "verworfen"])
+def test_abbrechen_ab_rolle_gesetzt_lehnt_ab_und_aendert_nichts(umgebung, phase):
+    from master_schalter import protokoll
+    umgebung.vorbereiten("v-1", phase=phase)
+    vorher = av.datei().read_text(encoding="utf-8")
+
+    with pytest.raises(av.AssistentFehler, match="nicht mehr möglich"):
+        av.abbrechen("v-1")
+
+    assert av.datei().read_text(encoding="utf-8") == vorher
+    assert protokoll.lesen() == []
+
+
+def test_abbrechen_unbekannt_und_ungueltige_kennung_ohne_echo(umgebung):
+    with pytest.raises(av.AssistentFehler, match="Vorgang unbekannt"):
+        av.abbrechen("v-9")
+    with pytest.raises(av.AssistentFehler) as ausnahme:
+        av.abbrechen("../PRIVAT_4711")
+    assert "PRIVAT_4711" not in str(ausnahme.value) and "Vorgangskennung unzulässig" in str(ausnahme.value)
+
+
+def test_abbrechen_ist_vergleich_und_setzen_gegen_einen_schnelleren_takt(umgebung, monkeypatch):
+    """Ist der Vorgang beim Abbrechen schon weiter (anderer Takt gewann), ändert der Abbruch nichts."""
+    umgebung.vorbereiten("v-1", phase="abgegeben")
+    echt = av.phase_gewinnen
+
+    def zu_spaet(vorgang_id, von, nach, *args, **felder):
+        av.aktualisieren(vorgang_id, phase="rolle_gesetzt")      # der Takt war schneller
+        return echt(vorgang_id, von, nach, *args, **felder)
+
+    monkeypatch.setattr(av, "phase_gewinnen", zu_spaet)
+
+    with pytest.raises(av.AssistentFehler, match="Phase rolle_gesetzt"):
+        av.abbrechen("v-1")
+    assert av.finden("v-1").phase == "rolle_gesetzt"
+
+
+def test_abbrechen_bei_belegter_themensperre_meldet_ohne_aenderung(umgebung):
+    from master_schalter import zustand
+    umgebung.vorbereiten("v-1", phase="abgabe_angefragt")
+    with zustand.thema_sperre(THEMA, blockierend=True, frist=1.0) as frei:
+        assert frei
+        with pytest.raises(av.AssistentFehler, match="gleich erneut"):
+            av.abbrechen("v-1")
+    assert av.finden("v-1").phase == "abgabe_angefragt"
+
+
+def test_abgebrochener_vorgang_wird_von_fortsetzen_nicht_mehr_angefasst(umgebung):
+    from master_schalter import assistent
+    umgebung.marke_setzen("claude 2026-10-20T10:00:00+00:00")
+    umgebung.vorbereiten("v-1", phase="abgegeben")
+    av.abbrechen("v-1")
+
+    erg = assistent.fortsetzen("v-1", repo=umgebung.repo)
+
+    assert erg.phase == "verworfen"
+    assert umgebung.marke() == "claude 2026-10-20T10:00:00+00:00"   # Rolle und Marke nicht gesetzt

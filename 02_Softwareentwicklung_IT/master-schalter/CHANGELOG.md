@@ -5,10 +5,32 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.5.0] – unveröffentlicht
 
-Wechselassistent, Bausteine P4 (Ablauf und Zustellung) und P3a (Claude-Empfang per Hook). Gebaut auf Branch
-`v0.5.0-wechselassistent`.
+Wechselassistent, Bausteine P4 (Ablauf und Zustellung), P3a (Claude-Empfang per Hook) und P7a (Menü, Fenster,
+Einstellungen, Takt). Gebaut auf Branch `v0.5.0-wechselassistent`.
 
 ### Neu
+- **Wechselfenster (P7a, E7):** `fenster.py` (tkinter, Standardbibliothek) mit den Bereichen Themen, „Übergabe
+  starten“ (Thema, Ziel, Von-Chat, Nach-Chat, Bestätigung per Ja/Nein mit Standard Nein), Vorgänge (Phase in
+  Klartext, Zustellhinweis nach E8, „Jetzt weiter“, „Abbrechen“, „Text kopieren“ für Hermes) und Protokoll in
+  Klartext. Start: `python -m master_schalter.fenster` oder `masterwechsel fenster`. Nur eine Instanz
+  (`zustand.instanz_sperre("fenster")`, Sperrdatei `fenster.lock`); eine zweite beendet sich still. Alle 3 s
+  liest ein Hintergrund-Thread neu, Aktionen laufen ebenfalls im Hintergrund, die Oberfläche bleibt im Tk-Thread.
+  Ohne Vorschlag für das Thema bleiben die Chat-Felder leer, „Übergeben“ verlangt eine ausdrückliche Wahl.
+  Ein abweichender Codex-Chat wird nach dem Anlegen als Paar gemerkt (`chat_zuordnung.bestaetigen`).
+- **`fenster_modell.py`:** Ansichtsmodell ohne Oberfläche (Momentaufnahme `aufnehmen`, `chat_optionen`,
+  `zustellhinweis`, `protokoll_klartext`, `hinweis_fuer`, die Aktionen `uebergabe_ausfuehren`/`weiter`/`abbrechen`);
+  jede Quelle einzeln fehlertolerant, Fehlertexte nur Klassennamen oder feste Sätze.
+- **`assistent_vorgaenge.abbrechen(id)`:** Abbruch von Hand nur vor `rolle_gesetzt` (`ABBRECHBAR` = die
+  blockierenden Phasen ohne `sende`), unter der Themensperre, Vergleich-und-Setzen nach `verworfen`, Grund
+  „von Hand abgebrochen“, Protokolleintrag; spätere Phasen werden abgelehnt, ohne etwas zu ändern.
+- **Takt des Wechselassistenten in der Leiste:** eigener Faden alle 10 s (`ASSISTENT_TAKT_SEKUNDEN`), unabhängig
+  vom 60-s-Messtakt, ruft `assistent.fortsetzen` für jeden offenen Vorgang; Fehler nur mit Klasse im Log, kein
+  Absturz; Menü wird bei Phasenwechsel neu gebaut. Beim Start einmal `wiederaufnehmen()` (Log nur mit Zählern).
+- **Windows-Hinweise:** je Vorgang und Ereignis genau einmal (Merker im Speicher): Abgabe länger als 2 min
+  offen (mit Fristende), „Rolle jetzt bei <Ziel>“, „<Ziel> hat übernommen ✓“, „Wechsel braucht Blick ins Fenster“
+  (`fehler`/`unklar`/`verworfen`, nicht bei Abbruch von Hand). Vorgänge, die länger als 15 min nicht geändert
+  wurden, melden nichts.
+- **`zustand.instanz_sperre(name)`:** nicht blockierende Einzelinstanz-Sperre im Datenordner.
 - **`assistent.py`:** `uebergeben(thema, ziel, von_chat, nach_chat)` legt den Vorgang an
   (Write-ahead mit Vorzustand), schickt dem alten Chat den Abgabe-Auftrag und ruft einmal
   `fortsetzen` auf. `fortsetzen(vorgang)` ist der idempotente Takt: 10-Minuten-Frist
@@ -54,6 +76,12 @@ Wechselassistent, Bausteine P4 (Ablauf und Zustellung) und P3a (Claude-Empfang p
   gemacht hat; `postfach.text()` baut die festen Nachrichtentexte (auch für die Codex-Queue).
 
 ### Geändert
+- **Menü nach Plan E9:** oben „Übergabe starten …“, Zeilen offener Wechsel, „Aktualisieren“, „Einstellungen ▸“,
+  „Beenden“. Unter „Einstellungen ▸“: „Wechsel-Schwelle“, „Modelle aktualisieren“ (mit Katalogzeilen),
+  „Automatik je Thema“ (bisher „Chats übergeben“), „Arbeitsmodus je Thema“, „Standard-Master (übrige Themen)“
+  (bisher „Master wechseln“). Das Verhalten dieser Punkte ist unverändert; die Statuszeilen der Automatik bleiben
+  oben. Die bestehenden Tests wurden auf die neuen Stellen umgestellt (nichts abgeschwächt); die Zahl der beim
+  Start angeforderten Fäden steigt um den Takt des Assistenten.
 - `abgabe_ueberspringen` gilt jetzt auch aus `abgabe_fehler` (Frist nach nicht gestartetem Transport).
 - **Blockade neuer Wechsel:** nur noch in den Phasen `av.WECHSEL_BLOCKIEREND` (Rolle noch nicht gesetzt
   oder `sende`); ab `rolle_gesetzt` blockiert ein Vorgang nicht mehr.
@@ -91,8 +119,8 @@ Wechselassistent, Bausteine P4 (Ablauf und Zustellung) und P3a (Claude-Empfang p
   `modi.py` unverändert.
 
 ### Noch nicht gebaut
-- Ruhenachweis (G8b, liest das Statusregister, P7a), Hook-Eintrag in `settings.json`, Empfang im
-  Hermes-Chat (P6), Fenster und Takt in der Leiste (P5).
+- Ruhenachweis (G8b, liest das Statusregister), Hook-Eintrag in `settings.json`, Empfang im Hermes-Chat (P6;
+  bis dahin „Text kopieren“ im Fenster), Starten neuer Sitzungen (S0b/S0c/P5).
 
 ## [0.4.1] – 2026-10-21
 

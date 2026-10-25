@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.4.1** — Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.4.1** (veröffentlicht); in Arbeit ist **v0.5.0** mit dem Wechselassistenten samt Fenster (Abschnitt „Bedienung (v0.5.0)“) — Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
@@ -13,7 +13,7 @@ Stand: **v0.4.1** — Claude-Katalog findet das native `claude.exe` (npm-Paket a
 |---|---|
 | Mauszeiger auf das Symbol | eine Zeile mit Master, Lage und Kontingenten |
 | Linksklick | Windows-Benachrichtigung mit beiden Mastern und Stand-Zeit |
-| Rechtsklick | Menü mit Master, Lage, Besetzung, „Master wechseln" (mit Rückfrage), Wechsel-Schwelle, „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell), „Modelle aktualisieren", „Chats übergeben", Aktualisieren und Beenden |
+| Rechtsklick | Menü (seit v0.5.0 nach Plan E9): Stand-Zeilen (Master, Lage, Kontingente), „Übergabe starten …", Zeilen offener Wechsel, „Aktualisieren", „Einstellungen ▸" und „Beenden". Die bisherigen Einstellpunkte liegen unter „Einstellungen ▸" (siehe „Bedienung (v0.5.0)“) |
 
 Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe zeigt den
 5-Stunden-Verbrauch: Grundfarbe bis 79 %, gelb ab 80 %, rot ab der Schwelle (Standard 97 %).
@@ -21,14 +21,86 @@ Die Anzeige wird standardmäßig jede Minute aktualisiert. Die Claude-Messung l�
 Start, nach „Aktualisieren" und anschließend im eingestellten Takt; dabei werden offene Übergaben
 abgehakt (auch wenn die Automatik aus ist).
 
-Im Menü „Master wechseln" kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
+Im Menü „Einstellungen ▸ Standard-Master (übrige Themen)" (bis v0.4.1: „Master wechseln") kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
 Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Jeder Wechsel
 fragt vorher nach (Ja/Nein, Standard **Nein**); beim Ziel **Codex** werden danach zusätzlich alle aktiven
 Themen an ihre Codex-Chats zurückgegeben (siehe „Rückgabe an Codex"). Der Wechsel legt ein Markdown-Paket
-unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Themen mit Hermes-Schutz bleiben beim globalen Standardwechsel unberührt. Die Schwelle lässt sich im Menü „Wechsel-Schwelle"
+unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Themen mit Hermes-Schutz bleiben beim globalen Standardwechsel unberührt. Die Schwelle lässt sich im Menü „Einstellungen ▸ Wechsel-Schwelle"
 auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unbemannte Automatik
 (Claude im Limit → Übergabe) läuft nur, wenn sie ausdrücklich eingeschaltet ist — per
 `masterwechsel automatik an` (der frühere Menühaken ist in v0.3.2 entfallen).
+
+## Bedienung (v0.5.0)
+
+Der Wechsel „Thema X: alter Chat → neuer Chat" läuft über **ein Menü, ein Fenster und einen Takt in der Leiste**.
+Alles Folgende gilt für den Entwicklungsstand auf Branch `v0.5.0-wechselassistent` (noch nicht veröffentlicht).
+
+**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen wie bisher (Master, Lage, Kontingente). Darunter:
+„Übergabe starten …" öffnet das Wechselfenster als eigenen Prozess; je offenem Wechsel steht eine
+deaktivierte Zeile „Wechsel <thema>: <Phase>" (z. B. „wartet auf Abgabe", „liegt im Postfach"); dann
+„Aktualisieren", „Einstellungen ▸" und „Beenden". Unter **Einstellungen ▸** liegen, in dieser Reihenfolge:
+„Wechsel-Schwelle", „Modelle aktualisieren" (mit den Katalogzeilen), „Automatik je Thema" (bisher „Chats
+übergeben", gleiche Funktion: Paar je Thema für die Automatik ein-/ausschalten), „Arbeitsmodus je Thema" und
+„Standard-Master (übrige Themen)" (bisher „Master wechseln", gleiche Funktion samt Rückfrage). Das Menü liest
+nur Momentaufnahmen; der Fensterstart läuft in einem eigenen Faden (`pythonw.exe` neben dem laufenden Python,
+sonst dieses Python; `PYTHONPATH` zeigt auf das Paket).
+
+**Fenster** (`python -m master_schalter.fenster`, `pythonw.exe -m master_schalter.fenster` oder
+`masterwechsel fenster`). Es läuft **nur einmal**: eine zweite Instanz (Sperrdatei `fenster.lock` im Datenordner)
+beendet sich still mit Exit 0 und holt das erste nicht nach vorn. Es liest alle 3 Sekunden im Hintergrund-Thread
+neu (die Oberfläche bleibt im Tk-Thread; Tk ist in der Standardbibliothek). Vier Bereiche:
+
+1. **Themen:** Thema · Ist-Master (Besitzer der Marke) · Kopfzeile `ja`/`nein` mit Alter · Automatik an/aus.
+2. **Übergabe starten:** Thema, Ziel (Claude/Codex/Hermes), **Von-Chat** (Chats des aktuellen Masters) und
+   **Nach-Chat** (Chats des Ziels), je als `Titel · zuletzt hh:mm · arbeitet/ruht/unbekannt`, zuletzt aktive
+   zuerst; dazu die Einträge „ohne alten Chat (Abgabe überspringen)" und „ohne (nur Rolle setzen)". Vorbelegt wird
+   der jüngste Chat, dessen Vorschlag (`chat_zuordnung`) auf das Thema lautet. **Ohne Vorschlag bleibt das Feld
+   bewusst leer**: der Knopf „Übergeben" verlangt dann eine ausdrückliche Wahl (auch für „ohne …"), damit die
+   Abgabe nicht versehentlich übersprungen wird. Eine bewusste Wahl bleibt beim Aktualisieren erhalten. „Übergeben"
+   zeigt die Zusammenfassung in einer Zeile und fragt per Ja/Nein-Dialog (Standard **Nein**); erst nach dem Ja läuft
+   `assistent.uebergeben` im Hintergrund, Fehler erscheinen bereinigt im Fenster. Wird ein **Codex-Chat** gewählt,
+   der vom Vorschlag abweicht, wird er nach dem Anlegen als Paar des Themas gemerkt
+   (`chat_zuordnung.bestaetigen`; so lernt der Vorschlag; Claude-/Hermes-Chats werden nicht gemerkt).
+3. **Vorgänge:** alle offenen und die letzten 10 abgeschlossenen, mit Phase in Klartext und einem **ehrlichen
+   Zustellhinweis (E8)** – nie „zugestellt" ohne Beleg:
+   Codex + `gesendet` → „Codex: zugestellt (Queue)"; Claude + `im_postfach` → „liegt im Postfach, kommt mit der
+   nächsten Eingabe/dem nächsten Werkzeugschritt in diesem Chat"; Hermes + `im_postfach` → „noch kein automatischer
+   Empfang – Text unten kopieren und im Hermes-Chat einfügen" (Knopf **Text kopieren**, der Text steht im Feld
+   darunter); offene Abgabe → „wartet auf Abgabe des alten Chats (Frist läuft noch m:ss)", ist Hermes der alte Chat,
+   mit dem Zusatz zum manuellen Kopieren des Abgabe-Auftrags; `im_chat` → „Quittung offen"; `bestaetigt` →
+   „übernommen ✓"; `verworfen`/`fehler`/`unklar` → der Grund. Knöpfe: **Jetzt weiter** (ein Takt für diesen Vorgang,
+   `assistent.fortsetzen`) und **Abbrechen** (nur **vor** `rolle_gesetzt`, mit Rückfrage; setzt den Vorgang auf
+   `verworfen` / „von Hand abgebrochen", Vergleich-und-Setzen unter der Themensperre, mit Protokolleintrag;
+   Rolle und Marke bleiben unberührt, liegende Postfachdateien werden nach G5 ungültig).
+4. **Protokoll:** die letzten 50 Einträge, neueste oben, aus einer Tabelle in Klartext übersetzt – ohne Vorgangs-ID,
+   Kennung, Titel oder freien Text.
+
+Chat-Titel, Ordner und Kennungen erscheinen **nur in diesem lokalen Fenster** (G9), nie in Nachrichten, im
+Protokoll, in Logs oder Windows-Hinweisen.
+
+**Takt in der Leiste.** Ein eigener leichter Faden (alle 10 Sekunden, `leiste.ASSISTENT_TAKT_SEKUNDEN`), unabhängig
+vom 60-Sekunden-Messtakt, ruft `assistent.fortsetzen` für jeden nicht endgültigen Vorgang (Frist, Rolle setzen,
+zustellen; mehrfaches Aufrufen sendet nie doppelt). Fehler stehen nur mit ihrer Klasse im Log und beenden nichts.
+Ändert sich eine Phase (auch durch ein anderes Programm), wird das Menü neu gebaut. Beim Start der Leiste ordnet
+`assistent_vorgaenge.wiederaufnehmen()` Absturzreste einmal ein; im Log stehen nur Zähler je Status.
+
+**Windows-Hinweise** (je Vorgang und Ereignis genau einmal; der Merker liegt nur im Speicher, nach einem Neustart
+der Leiste kann ein Hinweis also noch einmal kommen – Vorgänge, deren letzte Änderung länger als 15 Minuten
+zurückliegt, melden nichts mehr): „<thema>: alter Chat hat noch nicht abgegeben – bitte kurz anstoßen (Frist bis
+hh:mm)" (Abgabe länger als 2 Minuten offen), „<thema>: Rolle jetzt bei <Ziel>", „<thema>: <Ziel> hat übernommen ✓"
+und „<thema>: Wechsel braucht Blick ins Fenster" bei `fehler`, `unklar` oder `verworfen` (ein von Hand
+abgebrochener Vorgang meldet nichts). Ein „übernommen" macht das „Rolle jetzt bei …" desselben Vorgangs überflüssig.
+
+**Was heute noch nicht geht (ehrlich):**
+- **Hermes** hat noch **keinen automatischen Empfang** (P6): Nachrichten an Hermes liegen im Postfach und müssen
+  über „Text kopieren" von Hand in den Hermes-Chat eingefügt werden; die Quittung (`masterwechsel quittieren`)
+  macht der Hermes-Chat selbst.
+- **Neue Sitzungen werden nicht gestartet.** Der Assistent übergibt nur an **vorhandene** Chats; das Anlegen neuer
+  Claude-/Codex-/Hermes-Sitzungen (S0b/S0c/P5) ist offen.
+- Der Claude-Hook ist noch nicht in eine `settings.json` eingetragen (siehe „Claude-Empfang"); bis dahin kommt auch
+  eine Postfachnachricht an Claude nicht im Chat an.
+- Der Ruhenachweis (G8b) ist noch nicht gebaut: der „Status" der Chats (`arbeitet`/`ruht`/`unbekannt`) ist nur eine
+  Anzeige und steuert keine Entscheidung; ohne Statusdatei steht „unbekannt", nie „ruht".
 
 ## Automatische Übergabe Claude → Codex (v0.3.0)
 
@@ -90,7 +162,7 @@ weiterhin genau `codex <kennung>` enthält und der Vorgang noch `gesendet`/`unkl
 keine Bestätigung (fail-closed). Ein Rückwechsel kann eine Bestätigung also weder überholen noch
 danach überschrieben werden: er läuft entweder komplett davor oder komplett danach.
 Ohne Bestätigung nach 15 Minuten zeigt das Menü „keine Bestätigung"; erneut gesendet wird nicht.
-Der **Rückweg bleibt manuell** („Master wechseln → Claude"): er entwertet offene Vorgänge
+Der **Rückweg bleibt manuell** („Einstellungen ▸ Standard-Master → Claude"): er entwertet offene Vorgänge
 (`claude <Zeit> entwertet <ID>`), gibt die Besitzmarke jedes Themas wieder an Claude zurück und
 stellt den globalen Master um; ein danach eintreffendes ACK ändert nichts mehr.
 
@@ -237,7 +309,7 @@ er belegt die CLI-Verbindung, nicht die erfolgreiche Ausführung eines echten Wo
 
 Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell und bestätigt:
 
-- **Im Menü:** „Master wechseln" → Codex → Bestätigungsdialog (nennt die aktiven Themen; Standard
+- **Im Menü:** „Einstellungen ▸ Standard-Master (übrige Themen)" → Codex → Bestätigungsdialog (nennt die aktiven Themen; Standard
   Nein). Nach dem Ja wechselt der Master und jedes aktive Thema bekommt eine Übergabenachricht in
   seinen Codex-Chat (Verweis auf die laufende Übergabedatei, Grenzen-Kurzliste, `ACK`-Bitte).
 - **Per CLI:** `masterwechsel rueckgabe` zeigt ohne `--ja` nur, was passieren würde (Trockenlauf);
@@ -254,9 +326,9 @@ Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell u
 
 ## Wechselassistent (v0.5.0, in Arbeit)
 
-Der Klickwechsel „Thema X: alter Chat → neuer Chat“ soll ohne Tippen ablaufen. Heute gibt es den
-Ablauf als Code und als Befehle (`uebergeben`, `fortsetzen`, `quittieren`); die Oberfläche (Fenster,
-Chat-Auswahl, Takt in der Leiste) und der Empfang im Claude-/Hermes-Chat sind noch nicht gebaut.
+Der Klickwechsel „Thema X: alter Chat → neuer Chat“ läuft ohne Tippen. Es gibt den Ablauf als Code und als
+Befehle (`uebergeben`, `fortsetzen`, `quittieren`), das Fenster und den Takt in der Leiste (siehe „Bedienung
+(v0.5.0)“). Der Empfang im Hermes-Chat (P6) ist noch nicht gebaut, der im Claude-Chat nur als Hook ohne Eintrag.
 
 - **Reihenfolge (G8):** erst gibt der **alte** Master ab, dann wird die Rolle gesetzt, dann bekommt der
   **neue** Master seine Nachricht. Phasen in `assistent.json` (getrennt von `vorgaenge.json`):
@@ -333,9 +405,11 @@ Chat-Auswahl, Takt in der Leiste) und der Empfang im Claude-/Hermes-Chat sind no
     und Phase aus. Ohne `--von` wird die Abgabe übersprungen, ohne `--nach` nur die Rolle gesetzt.
   - `masterwechsel fortsetzen [VORGANG]` – der idempotente Takt (Frist prüfen, Rolle setzen, zustellen);
     ohne ID für alle nicht endgültigen Vorgänge, je Zeile ID, Thema und Phase. Mehrfaches Aufrufen
-    sendet nie doppelt (Vergleich-und-Setzen der Phase; wer verliert, sendet nicht). Das Aufrufen im
-    Takt der Leiste fehlt noch.
+    sendet nie doppelt (Vergleich-und-Setzen der Phase; wer verliert, sendet nicht). Die Leiste ruft es alle
+    10 Sekunden für jeden offenen Vorgang.
   - `masterwechsel quittieren VORGANG neu|abgabe` – Quittung des Zielchats bzw. des alten Chats.
+  - `masterwechsel fenster` – das Wechselfenster öffnen (nur eine Instanz).
+  - Abbrechen von Hand gibt es als Knopf im Fenster (`assistent_vorgaenge.abbrechen`), nicht als Befehl.
 - **Protokoll (G10):** `protokoll.jsonl` im Datenordner, je Entscheidung eine Zeile mit Zeit, Vorgang,
   Thema, Entscheidung und Grund: angelegt, Abgabe-Zustellweg und -Ergebnis, Abgabe übersprungen,
   Info gesendet/fehlgeschlagen, Rolle gesetzt, verworfen, Zustellweg und Ergebnis der Nachricht an
@@ -446,8 +520,8 @@ ausdrücklichem OK. Beispiel (nur Doku; Pfad des venv-Pythons anpassen):
 ## Chatliste (v0.5.0, in Arbeit)
 
 Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex und Hermes
-und schlägt jedem ein Projekt (Thema) vor. Die Chat-Auswahl im Fenster ist noch nicht gebaut; heute
-gibt es das Register und den Befehl `chats`.
+und schlägt jedem ein Projekt (Thema) vor. Das Fenster nutzt das Register für die Auswahl von Von- und
+Nach-Chat; außerdem gibt es den Befehl `chats`.
 
 - **Quellen** (je einzeln fehlertolerant; Pfade über Umgebungsvariablen umlenkbar):
   `claude-desktop` (`%LOCALAPPDATA%/Claude-Data/*/claude-code-sessions/**/local_*.json`, höchstens
@@ -584,6 +658,9 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Wechselassistent: Thema vom alten an den neuen Chat übergeben, dann weiterführen
 .\.venv\Scripts\masterwechsel.exe uebergeben engineering codex --von claude:<Kennung> --nach codex:<Kennung>
 .\.venv\Scripts\masterwechsel.exe fortsetzen
+
+# Wechselfenster öffnen (Themen, Übergabe starten, Vorgänge, Protokoll)
+.\.venv\Scripts\masterwechsel.exe fenster
 ```
 
 Einstellungen: `~/.master-schalter/einstellungen.json`, z. B.
@@ -610,6 +687,8 @@ src/master_schalter/
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
   wechsel.py   Wechsel unter Themensperren ausführen: Paket, dann Zustand; Rückwechsel entwertet
   paare.py     Paare aus Thema, Codex-Chat und laufender Übergabedatei
+  fenster.py   Wechselfenster (tkinter, nur eine Instanz) – nur Oberfläche
+  fenster_modell.py  Ansichtsmodell des Fensters: Momentaufnahme, Chat-Auswahl, Zustellhinweise, Klartext, Aktionen
   assistent.py Wechselassistent: übergeben und fortsetzen (Abgabe, Frist, Rolle, Zustellung)
   assistent_vorgaenge.py  Vorgänge des Assistenten (`assistent.json`), Phasen, Quittung, Wiederaufnahme
   postfach.py  Postfach für Claude-/Hermes-Chats und feste Nachrichtentexte
@@ -633,7 +712,8 @@ tests/         pytest, nur synthetische Dateien
 ```
 
 Der Kern (`signale`, `anzeige`, `paare`, `vorgaenge`, `besitz`, `automatik`, `codex_senden`,
-`ack`, `cli`) nutzt nur die Standardbibliothek; `pystray` und `Pillow` braucht nur die Oberfläche.
+`ack`, `cli`, `fenster_modell`) nutzt nur die Standardbibliothek; das Fenster braucht zusätzlich `tkinter`
+(Teil der Python-Installation), `pystray` und `Pillow` braucht nur die Taskleiste.
 
 ## Prüfbefehl
 
@@ -648,7 +728,8 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| **v0.4.1** | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version — **dieser Stand** |
+| v0.5.0 (in Arbeit) | Wechselassistent: Ablauf, Postfach, Claude-Hook, Chatliste, Wechselfenster, Menü nach E9, Takt und Windows-Hinweise (Branch `v0.5.0-wechselassistent`) |
+| **v0.4.1** | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version — **veröffentlichter Stand** |
 | v0.4.0 | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung |
 | v0.3.5 | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt |
 | v0.3.4 | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll |

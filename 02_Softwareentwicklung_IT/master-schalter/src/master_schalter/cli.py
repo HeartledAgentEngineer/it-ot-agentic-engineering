@@ -31,6 +31,7 @@
     masterwechsel fortsetzen [VORGANG]
                                       Wechselvorgänge weiterführen (Frist, Rolle setzen, zustellen)
     masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
+    masterwechsel fenster             Wechselfenster öffnen (Themen, Übergabe starten, Vorgänge, Protokoll; nur eine Instanz)
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -329,6 +330,12 @@ def _fortsetzen_cli(args: argparse.Namespace) -> int:
     return 1 if fehlgeschlagen else 0
 
 
+def _fenster_cli() -> int:
+    """Wechselfenster öffnen; `tkinter` wird erst hier geladen (die übrigen Befehle brauchen es nicht)."""
+    from . import fenster
+    return fenster.main()
+
+
 def _chats_cli(args: argparse.Namespace) -> int:
     """Chatliste (nur Metadaten, nur lesend). Ohne `--liste` nur Zählwerte: keine Titel, Ordner, Kennungen."""
     ergebnis, zeilen = chat_zuordnung.uebersicht_mit_quellen()
@@ -479,6 +486,7 @@ def _parser() -> argparse.ArgumentParser:
     chats = unter.add_parser("chats", help="zuletzt benutzte Chats (24 h) und ihre Projekt-Vorschläge")
     chats.add_argument("--liste", action="store_true",
                        help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
+    unter.add_parser("fenster", help="Wechselfenster öffnen (nur eine Instanz)")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -528,6 +536,8 @@ def main(argv: list[str] | None = None) -> int:
         return _modelle_cli(args)
     if args.befehl == "chats":
         return _chats_cli(args)
+    if args.befehl == "fenster":
+        return _fenster_cli()
     if args.befehl == "quittieren":
         return _quittieren_cli(args)
     if args.befehl == "uebergeben":
