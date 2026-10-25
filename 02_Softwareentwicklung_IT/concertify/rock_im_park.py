@@ -9,6 +9,7 @@ Strategy:
 
 import os
 import re
+from datetime import date
 
 import requests
 from bs4 import BeautifulSoup
@@ -55,11 +56,15 @@ _HEADERS = {
 }
 
 
-def scrape_lineup(url: str | None = None) -> list[str]:
+def scrape_lineup(url: str | None = None, year: int | None = None) -> list[str]:
     """
-    Returns the Rock im Park 2026 lineup.
-    Scrapes the official website first, then supplements via Tavily if available.
+    Returns the Rock im Park lineup for ``year`` (default: current year).
+
+    The website scrape itself is year-agnostic (it reads the live lineup page),
+    ``year`` only steers the Tavily/Serper supplement queries.
     """
+    if year is None:
+        year = date.today().year
     target = url or os.getenv("ROCK_IM_PARK_LINEUP_URL", _DEFAULT_URL)
     print(f"  Scraping Rock im Park lineup from: {target}")
 
@@ -91,7 +96,7 @@ def scrape_lineup(url: str | None = None) -> list[str]:
     tavily_key = _load_api_key("TAVILY_API_KEY")
     tavily_extra: list[str] = []
     if tavily_key:
-        tavily_extra = _tavily_lineup(tavily_key)
+        tavily_extra = _tavily_lineup(tavily_key, year)
         new_count = sum(1 for a in tavily_extra if a not in scraped)
         if new_count:
             print(f"  >> {new_count} additional artists via Tavily web search")
@@ -100,7 +105,7 @@ def scrape_lineup(url: str | None = None) -> list[str]:
     serper_key = _load_api_key("SERPER_API_KEY")
     serper_extra: list[str] = []
     if serper_key:
-        serper_extra = _serper_lineup(serper_key)
+        serper_extra = _serper_lineup(serper_key, year)
         already = set(scraped) | set(tavily_extra)
         new_count = sum(1 for a in serper_extra if a not in already)
         if new_count:
@@ -123,13 +128,13 @@ def _load_api_key(name: str) -> str:
         return ""
 
 
-def _serper_lineup(api_key: str) -> list[str]:
-    """Search Serper (Google) for Rock im Park 2026 artists. Drop-in alternative to Tavily."""
+def _serper_lineup(api_key: str, year: int) -> list[str]:
+    """Search Serper (Google) for Rock im Park artists. Drop-in alternative to Tavily."""
     queries = [
-        "Rock im Park 2026 lineup all artists complete",
-        "Rock im Park 2026 lineup alle Kuenstler",
-        "Rock im Park 2026 Freitag Samstag Sonntag lineup",
-        "Rock im Park 2026 Linkin Park Volbeat Sabaton Iron Maiden lineup",
+        f"Rock im Park {year} lineup all artists complete",
+        f"Rock im Park {year} lineup alle Kuenstler",
+        f"Rock im Park {year} Freitag Samstag Sonntag lineup",
+        f"Rock im Park {year} lineup bands bestaetigt headliner",
     ]
     _skip_domains = ("setlist.fm",)  # jambase kept - actually gives good day-breakdowns for RiP
     found: list[str] = []
@@ -157,13 +162,13 @@ def _serper_lineup(api_key: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def _tavily_lineup(api_key: str) -> list[str]:
-    """Search Tavily for Rock im Park 2026 artists not found by scraping."""
+def _tavily_lineup(api_key: str, year: int) -> list[str]:
+    """Search Tavily for Rock im Park artists not found by scraping."""
     queries = [
-        "Rock im Park 2026 lineup alle Kuenstler vollstaendig",
-        "Rock im Park 2026 full lineup artists list",
-        "Rock im Park 2026 Bands Nuernberg Zeppelinfeld complete",
-        "Rock im Park 2026 Hollywood Undead Limp Bizkit h-blockx lineup",
+        f"Rock im Park {year} lineup alle Kuenstler vollstaendig",
+        f"Rock im Park {year} full lineup artists list",
+        f"Rock im Park {year} Bands Nuernberg Zeppelinfeld complete",
+        f"Rock im Park {year} lineup bands confirmed headliner",
     ]
     _skip_domains = ("montreux", "jambase", "setlist.fm")
     found: list[str] = []
@@ -220,20 +225,24 @@ def _fallback_extract(soup: BeautifulSoup) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def scrape_timetable(artists: list[str], api_key: str = "") -> dict[str, dict]:
+def scrape_timetable(artists: list[str], api_key: str = "", year: int | None = None) -> dict[str, dict]:
     """
     Returns {artist_name: {day, stage, start, end}} for matched artists.
     Tries /spielplan scrape first, then Tavily general timetable,
     then per-artist targeted queries for any still-missing artists.
+
+    ``year`` steuert die Tavily-Suchen (default: aktuelles Jahr).
     """
-    text = _get_timetable_text(api_key)
+    if year is None:
+        year = date.today().year
+    text = _get_timetable_text(api_key, year)
     result = _extract_schedule(text, artists) if text else {}
 
     # Per-artist fallback for any still-missing artists
     if api_key:
         missing = [a for a in artists if a not in result]
         for artist in missing:
-            slot = _tavily_artist_slot(artist, api_key)
+            slot = _tavily_artist_slot(artist, api_key, year)
             if slot:
                 result[artist] = slot
 
@@ -241,11 +250,11 @@ def scrape_timetable(artists: list[str], api_key: str = "") -> dict[str, dict]:
     return result
 
 
-def _tavily_artist_slot(artist: str, api_key: str) -> dict | None:
+def _tavily_artist_slot(artist: str, api_key: str, year: int) -> dict | None:
     """Targeted Tavily search for a single artist's Rock im Park slot."""
     queries = [
-        f'"{artist}" "Rock im Park" 2026 Freitag Samstag Sonntag Spielplan Buehne',
-        f'"{artist}" "Rock im Park" 2026 Utopia Mandora Orbit timetable day stage',
+        f'"{artist}" "Rock im Park" {year} Freitag Samstag Sonntag Spielplan Buehne',
+        f'"{artist}" "Rock im Park" {year} Utopia Mandora Orbit timetable day stage',
     ]
     for q in queries:
         try:
@@ -290,7 +299,7 @@ def _tavily_artist_slot(artist: str, api_key: str) -> dict | None:
     return None
 
 
-def _get_timetable_text(api_key: str) -> str:
+def _get_timetable_text(api_key: str, year: int) -> str:
     """Fetch timetable text: official page first, then tagesweise Tavily-Suchen."""
     for url in [
         "https://www.rock-im-park.com/spielplan",
@@ -317,8 +326,8 @@ def _get_timetable_text(api_key: str) -> str:
     for day_de in ["Freitag", "Samstag", "Sonntag"]:
         combined += f"\n\n{day_de}\n\n"
         day_queries = [
-            f"Rock im Park 2026 {day_de} Spielplan Timetable Zeiten Lineup Buehne",
-            f"Rock im Park 2026 {day_de} schedule lineup artists stages time",
+            f"Rock im Park {year} {day_de} Spielplan Timetable Zeiten Lineup Buehne",
+            f"Rock im Park {year} {day_de} schedule lineup artists stages time",
         ]
         for q in day_queries:
             try:

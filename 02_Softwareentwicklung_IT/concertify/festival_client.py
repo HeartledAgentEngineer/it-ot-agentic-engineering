@@ -13,8 +13,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Hamburg",
         "url": "https://elbriot.de/lineup/",
         "tavily_queries": [
-            "Elbriot Festival 2026 lineup Hamburg Bands",
-            "Elbriot 2026 lineup alle Kuenstler Hamburg",
+            "Elbriot Festival {year} lineup Hamburg Bands",
+            "Elbriot {year} lineup alle Kuenstler Hamburg",
         ],
     },
     "Impericon Festival": {
@@ -22,8 +22,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Leipzig / Hamburg / weitere",
         "url": "https://impericon.com/de/festival.html",
         "tavily_queries": [
-            "Impericon Festival 2026 lineup bands confirmed",
-            "Impericon Festival 2026 alle Kuenstler Lineup",
+            "Impericon Festival {year} lineup bands confirmed",
+            "Impericon Festival {year} alle Kuenstler Lineup",
         ],
     },
     "Hellfest": {
@@ -31,8 +31,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Clisson, France",
         "url": "https://www.hellfest.fr/lineup/",
         "tavily_queries": [
-            "Hellfest 2026 lineup artists complete list",
-            "Hellfest Open Air 2026 bands confirmed",
+            "Hellfest {year} lineup artists complete list",
+            "Hellfest Open Air {year} bands confirmed",
         ],
     },
     "Copenhell": {
@@ -40,8 +40,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Copenhagen, Denmark",
         "url": "https://copenhell.dk/lineup/",
         "tavily_queries": [
-            "Copenhell 2026 lineup artists complete",
-            "Copenhell Festival 2026 bands confirmed",
+            "Copenhell {year} lineup artists complete",
+            "Copenhell Festival {year} bands confirmed",
         ],
     },
     "Rock im Park": {
@@ -49,8 +49,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Nürnberg",
         "url": "https://www.rock-im-park.com/lineup",
         "tavily_queries": [
-            "Rock im Park 2026 lineup alle Künstler vollständig",
-            "Rock im Park 2026 full lineup artists list",
+            "Rock im Park {year} lineup alle Künstler vollständig",
+            "Rock im Park {year} full lineup artists list",
         ],
     },
     "Rock am Ring": {
@@ -58,8 +58,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Nürburg",
         "url": "https://www.rock-am-ring.com/lineup",
         "tavily_queries": [
-            "Rock am Ring 2026 lineup alle Künstler vollständig",
-            "Rock am Ring 2026 full lineup artists list",
+            "Rock am Ring {year} lineup alle Künstler vollständig",
+            "Rock am Ring {year} full lineup artists list",
         ],
     },
     "Hurricane": {
@@ -67,8 +67,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Scheeßel",
         "url": "https://www.hurricane.de/lineup",
         "tavily_queries": [
-            "Hurricane Festival 2026 lineup alle Künstler",
-            "Hurricane Festival 2026 full lineup artists",
+            "Hurricane Festival {year} lineup alle Künstler",
+            "Hurricane Festival {year} full lineup artists",
         ],
     },
     "Southside": {
@@ -76,8 +76,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Neuhausen ob Eck",
         "url": "https://www.southside.de/lineup",
         "tavily_queries": [
-            "Southside Festival 2026 lineup alle Künstler",
-            "Southside Festival 2026 full lineup artists",
+            "Southside Festival {year} lineup alle Künstler",
+            "Southside Festival {year} full lineup artists",
         ],
     },
     "Wacken": {
@@ -85,8 +85,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Wacken",
         "url": "https://www.wacken.com/de/wacken/lineup/",
         "tavily_queries": [
-            "Wacken Open Air 2026 lineup alle Bands vollständig",
-            "W:O:A 2026 full lineup bands list",
+            "Wacken Open Air {year} lineup alle Bands vollständig",
+            "W:O:A {year} full lineup bands list",
         ],
     },
     "Download DE": {
@@ -94,8 +94,8 @@ KNOWN_FESTIVALS: dict[str, dict] = {
         "city": "Nürnberg",
         "url": "https://downloadfestival.de/lineup",
         "tavily_queries": [
-            "Download Festival Deutschland 2026 lineup Künstler",
-            "Download Festival Germany 2026 full lineup",
+            "Download Festival Deutschland {year} lineup Künstler",
+            "Download Festival Germany {year} full lineup",
         ],
     },
 }
@@ -116,17 +116,24 @@ _NOISE_PREFIX = (
 )
 
 
-def get_lineup(festival_name: str, tavily_key: str) -> list[str]:
+def get_lineup(festival_name: str, tavily_key: str, year: int | None = None) -> list[str]:
     """
     Returns a list of artist names for the given festival via Tavily.
     Falls back to scraping the official URL if available.
+
+    ``year`` steuert das gesuchte Festival-Jahr (aus dem UI-Zeitraum). Fehlt es,
+    gilt das aktuelle Jahr — so bleiben Altaufrufe ohne Jahr lauffaehig.
     """
+    if year is None:
+        from datetime import date
+        year = date.today().year
+
     info = KNOWN_FESTIVALS.get(festival_name)
     if not info:
         # Fallback fuer unbekannte Festivals: generische Tavily-Suche
         queries = [
-            f"{festival_name} 2026 lineup artists list",
-            f"{festival_name} 2026 bands confirmed full lineup",
+            f"{festival_name} {year} lineup artists list",
+            f"{festival_name} {year} bands confirmed full lineup",
         ]
         return _tavily_lineup(festival_name, queries, tavily_key)
 
@@ -134,11 +141,12 @@ def get_lineup(festival_name: str, tavily_key: str) -> list[str]:
     if festival_name == "Rock im Park":
         try:
             from rock_im_park import scrape_lineup
-            return scrape_lineup(url=info["url"])
+            return scrape_lineup(url=info["url"], year=year)
         except Exception:
             pass
 
-    return _tavily_lineup(festival_name, info["tavily_queries"], tavily_key)
+    queries = [q.format(year=year) for q in info["tavily_queries"]]
+    return _tavily_lineup(festival_name, queries, tavily_key)
 
 
 def _tavily_lineup(festival_name: str, queries: list[str], api_key: str) -> list[str]:

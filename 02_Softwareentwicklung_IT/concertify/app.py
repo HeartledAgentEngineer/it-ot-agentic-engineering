@@ -480,9 +480,13 @@ def quick_refresh():
         if not dates:
             continue
         artists.append({"name": name, "source": "Hamburg", "date": dates[0], "extra_dates": len(dates) - 1})
-    for name in rip_new:
-        if name not in hamburg_new and "2026-06-05" >= today:
-            artists.append({"name": name, "source": "Rock im Park", "date": "2026-06-05", "extra_dates": 0})
+    for name, info in rip_new.items():
+        if name in hamburg_new:
+            continue
+        rdates = sorted(d for d in info.get("dates", []) if d[:10] >= today)
+        if not rdates:
+            continue
+        artists.append({"name": name, "source": "Rock im Park", "date": rdates[0], "extra_dates": len(rdates) - 1})
     artists.sort(key=lambda a: a["date"])
     return jsonify({"artists": artists, "last_updated": today, "followed_count": len(followed_names), "display_name": spotify_display_name})
 
@@ -507,7 +511,10 @@ def artists_json():
         artists.append({"name": name, "source": "Hamburg", "date": dates[0], "extra_dates": len(dates) - 1})
     for name, info in rip.items():
         if name not in hamburg:
-            fest_date = info.get("dates", ["2026-06-05"])[0]
+            rdates = info.get("dates", [])
+            if not rdates:
+                continue
+            fest_date = rdates[0]
             if fest_date[:10] < today:
                 continue
             artists.append({
@@ -669,13 +676,20 @@ def search_festival_stages():
     if not tavily_key:
         return jsonify({"ok": False, "error": "Kein TAVILY_API_KEY"})
 
+    from festival_jahr import jahr_aus_daten
+    rip_year = jahr_aus_daten(rip)
+
     try:
         from rock_im_park import scrape_timetable
-        timetable = scrape_timetable(missing, tavily_key)
+        timetable = scrape_timetable(missing, tavily_key, rip_year)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-    _RIP_DATE_MAP = {"Freitag": "2026-06-05", "Samstag": "2026-06-06", "Sonntag": "2026-06-07"}
+    _RIP_DATE_MAP = {
+        "Freitag": f"{rip_year}-06-05",
+        "Samstag": f"{rip_year}-06-06",
+        "Sonntag": f"{rip_year}-06-07",
+    }
     updated = 0
     for name, slot in timetable.items():
         if name in rip:

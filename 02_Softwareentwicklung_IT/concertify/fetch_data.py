@@ -31,6 +31,8 @@ def main() -> None:
     ]
     date_from = os.getenv("DATE_FILTER_FROM", "").strip() or today
     date_to   = os.getenv("DATE_FILTER_TO", "").strip() or "9999-12-31"
+    from festival_jahr import ziel_jahr, festival_datum
+    target_year = ziel_jahr(date_from, date_to)
     print(f"\n  Staedte: {', '.join(concert_cities)}  |  Festivals: {', '.join(active_festivals) or '(keine)'}", flush=True)
 
     # ── Spotify: gefolgte Künstler ──────────────────────────────────
@@ -219,7 +221,7 @@ def main() -> None:
         from matcher import match_artists
         for fest_name in active_festivals:
             fest_info = KNOWN_FESTIVALS.get(fest_name, {})
-            fest_date = fest_info.get("date", "2026-06-05")
+            fest_date = festival_datum(fest_info.get("date", "06-05"), target_year)
             fest_city = fest_info.get("city", fest_name)
             fest_venue = f"{fest_name}, {fest_city}"
             # Festival liegt ausserhalb des gewaehlten Zeitraums
@@ -228,7 +230,7 @@ def main() -> None:
                 continue
             print(f"  Lineup holen: {fest_name} …", flush=True)
             try:
-                lineup = get_lineup(fest_name, tavily_key or "")
+                lineup = get_lineup(fest_name, tavily_key or "", target_year)
                 if not lineup:
                     print(f"  !! Kein Lineup gefunden fuer {fest_name}", flush=True)
                     continue
@@ -241,7 +243,7 @@ def main() -> None:
                     try:
                         from rock_im_park import scrape_timetable
                         print("  Timetable-Daten holen ...", flush=True)
-                        timetable = scrape_timetable(list(matches.keys()), tavily_key or "")
+                        timetable = scrape_timetable(list(matches.keys()), tavily_key or "", target_year)
                     except Exception as te:
                         print(f"  !! Timetable: {te}", flush=True)
 
