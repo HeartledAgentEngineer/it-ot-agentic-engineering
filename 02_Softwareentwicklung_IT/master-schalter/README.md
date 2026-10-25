@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.4.1** (veröffentlicht); in Arbeit ist **v0.5.0** mit dem Wechselassistenten samt Fenster (Abschnitt „Bedienung (v0.5.0)“) — Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
@@ -99,8 +99,9 @@ abgebrochener Vorgang meldet nichts). Ein „übernommen" macht das „Rolle jet
   macht der Hermes-Chat selbst.
 - **Neue Sitzungen werden nicht gestartet.** Der Assistent übergibt nur an **vorhandene** Chats; das Anlegen neuer
   Claude-/Codex-/Hermes-Sitzungen (S0b/S0c/P5) ist offen.
-- Der Claude-Hook ist noch nicht in eine `settings.json` eingetragen (siehe „Claude-Empfang"); bis dahin kommt auch
-  eine Postfachnachricht an Claude nicht im Chat an.
+- Der Claude-Hook ist nur auf Sebastians PC in `.claude/settings.local.json` des Workspaces eingetragen (gitignored,
+  siehe „Claude-Empfang"); andere Rechner und Claude-Chats außerhalb des Workspaces holen das Postfach nicht ab.
+  Ein echter Empfang Ende-zu-Ende ist noch nicht nachgewiesen.
 - Der Ruhenachweis (G8b) ist noch nicht gebaut: der „Status" der Chats (`arbeitet`/`ruht`/`unbekannt`) ist nur eine
   Anzeige und steuert keine Entscheidung; ohne Statusdatei steht „unbekannt", nie „ruht".
 
@@ -382,7 +383,7 @@ Befehle (`uebergeben`, `fortsetzen`, `quittieren`), das Fenster und den Takt in 
   gefunden, Startfehler) ist `abgabe_fehler` bzw. `fehler`; Rückgabewert ≠ 0, Zeitüberschreitung oder
   jede andere Ausnahme ist `abgabe_unklar` bzw. `unklar`. Claude und Hermes bekommen eine kleine Datei
   im Postfach (`postfach/<ziel>/<kennung>/<vorgang>_<art>.json`). **Ehrlich:** Ein Claude-Chat kann das
-  Postfach über den Hook abholen (siehe „Claude-Empfang“), der aber noch nicht eingetragen ist; für
+  Postfach über den Hook abholen (siehe „Claude-Empfang“; eingetragen nur auf Sebastians PC); für
   Hermes gibt es noch keinen Weg (kommt mit P6) – die Dateien liegen bis dahin bereit. Transporte laufen nie unter der Themen- oder Dateisperre; so kann Codex
   nach `masterwechsel quittieren <id> abgabe` schon quittieren, bevor der Rückgabewert da ist (die
   Phase bleibt dann `abgegeben`).
@@ -528,9 +529,10 @@ JSON auf stdin; das Modul liest höchstens 1 MB und wertet nur `hook_event_name`
 - **Laufzeit:** gemessen etwa 0,8 bis 1,0 s je Aufruf als eigener Prozess (Windows, venv-Python); davon rund
   0,28 s das Importieren des Moduls samt `modi`. Ziel unter 2 s.
 
-**Ehrlich: Der Hook ist noch nicht eingetragen.** Bis jemand ihn in eine `settings.json` einträgt, holt kein
-Claude-Chat das Postfach ab, und es wird kein Status geschrieben. Der Eintrag erfolgt bewusst erst nach
-ausdrücklichem OK. Beispiel (nur Doku; Pfad des venv-Pythons anpassen):
+**Stand des Eintrags (ehrlich):** Seit 25.10.2026 ist der Hook nach Sebastians OK auf seinem PC in
+`.claude/settings.local.json` des Workspaces eingetragen (gitignored, gilt nur dort). Ohne Eintrag holt kein
+Claude-Chat das Postfach ab, und es wird kein Status geschrieben. Ein echter Empfang Ende-zu-Ende ist noch nicht
+nachgewiesen. Beispiel (Pfad des venv-Pythons anpassen):
 
 ```json
 {
@@ -729,7 +731,7 @@ src/master_schalter/
   assistent_vorgaenge.py  Vorgänge des Assistenten (`assistent.json`), Phasen, Quittung, Wiederaufnahme
   postfach.py  Postfach für Claude-/Hermes-Chats und feste Nachrichtentexte
   protokoll.py Entscheidungsprotokoll `protokoll.jsonl` (ohne Kennungen)
-  claude_hook.py  Command-Hook für Claude Code: Postfach abholen, Status melden (noch nicht eingetragen)
+  claude_hook.py  Command-Hook für Claude Code: Postfach abholen, Status melden
   status.py    Statusregister `status/<werkzeug>-<kennung>.json` (`arbeitet` | `ruht`)
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
@@ -764,8 +766,8 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
-| v0.5.0 (in Arbeit) | Wechselassistent: Ablauf, Postfach, Claude-Hook, Chatliste, Wechselfenster, Menü nach E9, Takt und Windows-Hinweise (Branch `v0.5.0-wechselassistent`) |
-| **v0.4.1** | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version — **veröffentlichter Stand** |
+| **v0.5.0** | Wechselassistent: Ablauf, Postfach, Claude-Hook, Chatliste, Wechselfenster, Menü nach E9, Takt und Windows-Hinweise, Automatik wahlweise über den Assistenten — **veröffentlichter Stand** |
+| v0.4.1 | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version |
 | v0.4.0 | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung |
 | v0.3.5 | Menüwechsel außerhalb des Traycallbacks; parallele und direkte Wechsel werden während Dialog und Wechsel unterdrückt |
 | v0.3.4 | Arbeitsmodus je Thema, Hermes-Schutz, natives Codex-gpt-6-luna-Code-Worker-Protokoll |

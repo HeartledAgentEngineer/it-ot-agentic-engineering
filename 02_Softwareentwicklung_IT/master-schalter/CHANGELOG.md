@@ -3,10 +3,12 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
-## [0.5.0] – unveröffentlicht
+## [0.5.0] – 2026-10-25
 
-Wechselassistent, Bausteine P4 (Ablauf und Zustellung), P3a (Claude-Empfang per Hook) und P7a (Menü, Fenster,
-Einstellungen, Takt). Gebaut auf Branch `v0.5.0-wechselassistent`.
+Wechselassistent, Bausteine P1/P2 (Vorgänge, Chatliste), P4 (Ablauf und Zustellung), P3a (Claude-Empfang per Hook),
+P7a (Menü, Fenster, Einstellungen, Takt) und P8/K7 (Automatik wahlweise über den Assistenten). Gebaut auf Branch
+`v0.5.0-wechselassistent`, auf `main` zusammengeführt. Noch offen: neue Sitzungen starten (S0b/S0c/P5),
+Hermes-Empfang (P6), Kontingent-Wächter (P3b).
 
 ### Neu
 - **Automatik über den Wechselassistenten (P8, K7):** Einstellung `automatik_weg` (`alt`|`assistent`, Standard
