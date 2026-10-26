@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -13,16 +14,21 @@ from . import signale
 URL = "https://api.anthropic.com/api/oauth/usage"
 BETA = "oauth-2025-04-20"
 TIMEOUT_SEKUNDEN = 10
-ANMELDUNG_ABGELAUFEN = "Claude-Anmeldung abgelaufen – Claude Code einmal starten"
+ANMELDUNG_FEHLT = "Claude-Anmeldung fehlt – Claude Code auth login --claudeai ausführen"
+ANMELDUNG_DEFEKT = "Lokaler Claude-Messzugang ist defekt – Claude Code auth login --claudeai ausführen"
+ANMELDUNG_ABGELAUFEN = ("Claude-Messzugang abgelaufen – Claude Code auth login --claudeai ausführen; "
+                         "Desktop-Anmeldung damit nicht bewertet")
+ANMELDUNG_ABGELEHNT = "Claude-Server hat den Messzugang abgelehnt – Claude Code auth login --claudeai ausführen"
 MESSUNG_FEHLGESCHLAGEN = "Claude-Kontingent konnte nicht gelesen werden"
 
 
 class MessFehler(Exception):
     """Sichere, nutzerseitige Fehlermeldung ohne HTTP- oder Zugangsdaten."""
 
-    def __init__(self, meldung: str, status: int | None = None):
+    def __init__(self, meldung: str, status: int | None = None, kategorie: str = "messung"):
         super().__init__(meldung)
         self.status = status
+        self.kategorie = kategorie
 
 
 class _KeineWeiterleitung(urllib.request.HTTPRedirectHandler):
@@ -42,8 +48,13 @@ def _standard_credentials_datei() -> Path:
     return Path.home() / ".claude" / ".credentials.json"
 
 
+def _konfigurierte_credentials_datei() -> Path:
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(config_dir) / ".credentials.json" if config_dir else _standard_credentials_datei()
+
+
 def credentials_datei() -> Path:
-    return _standard_credentials_datei()
+    return _konfigurierte_credentials_datei()
 
 
 def _ablaufzeit(oauth: dict[str, Any]) -> float | None:
@@ -96,19 +107,25 @@ def _validierte_fenster(antwort: Any) -> dict[str, dict[str, float | None]] | No
 def messen(credentials_datei: Path | None = None, ziel: Path | None = None,
            jetzt: datetime | None = None, transport=None) -> bool:
     """Liest den Access-Token nur im Speicher, prüft beide Fenster und speichert sie atomar."""
+    pfad = credentials_datei if credentials_datei is not None else _konfigurierte_credentials_datei()
     try:
-        pfad = credentials_datei if credentials_datei is not None else _standard_credentials_datei()
-        roh = json.loads(pfad.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        raise MessFehler(ANMELDUNG_ABGELAUFEN) from None
+        text = pfad.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise MessFehler(ANMELDUNG_FEHLT, kategorie="anmeldung_fehlt") from None
+    except (OSError, UnicodeError):
+        raise MessFehler(ANMELDUNG_DEFEKT, kategorie="anmeldung_defekt") from None
+    try:
+        roh = json.loads(text)
+    except (TypeError, ValueError):
+        raise MessFehler(ANMELDUNG_DEFEKT, kategorie="anmeldung_defekt") from None
     oauth = roh.get("claudeAiOauth") if isinstance(roh, dict) else None
     token = oauth.get("accessToken") if isinstance(oauth, dict) else None
     ablauf = _ablaufzeit(oauth) if isinstance(oauth, dict) else None
     if not isinstance(token, str) or not token or ablauf is None:
-        raise MessFehler(ANMELDUNG_ABGELAUFEN)
+        raise MessFehler(ANMELDUNG_DEFEKT, kategorie="anmeldung_defekt")
     jetzt_ts = (jetzt or datetime.now(timezone.utc)).timestamp()
     if ablauf <= jetzt_ts:
-        raise MessFehler(ANMELDUNG_ABGELAUFEN)
+        raise MessFehler(ANMELDUNG_ABGELAUFEN, kategorie="anmeldung_abgelaufen")
 
     try:
         anfrage = urllib.request.Request(
@@ -122,7 +139,7 @@ def messen(credentials_datei: Path | None = None, ziel: Path | None = None,
             daten = json.loads(antwort.read())
     except urllib.error.HTTPError as fehler:
         if fehler.code == 401:
-            raise MessFehler(ANMELDUNG_ABGELAUFEN, 401) from None
+            raise MessFehler(ANMELDUNG_ABGELEHNT, 401, "anmeldung_abgelehnt") from None
         raise MessFehler(MESSUNG_FEHLGESCHLAGEN, fehler.code) from None
     except MessFehler:
         raise

@@ -1,6 +1,7 @@
 """Tests für die Taskleisten-Oberfläche – ohne Fenster: Menüeinträge prüfen, Klicks per Attrappe auslösen."""
 import json
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -880,6 +881,245 @@ def test_takt_hakt_uebergaben_ab_wenn_automatik_aus(lst, monkeypatch):
     lst._takt()
 
     assert abgehakt and all(abgehakt)
+
+
+def test_takt_prueft_automatik_auch_nach_messfehler(lst, monkeypatch):
+    class StopAttrappe:
+        def __init__(self):
+            self.n = 0
+
+        def is_set(self):
+            self.n += 1
+            return self.n > 2
+
+    class AnfrageAttrappe:
+        def wait(self, sekunden):
+            return False
+
+        def clear(self):
+            pass
+
+    angefragt = []
+    anzeige.automatik_setzen(True)
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren",
+                        lambda: setattr(lst, "_messung_fehler", "synthetisch abgelaufener Polltoken"))
+    monkeypatch.setattr(lst, "_automatik_anfordern", lambda: angefragt.append(True))
+    lst._stopp = StopAttrappe()
+    lst._messung_angefordert = AnfrageAttrappe()
+    lst._messung_fehler = None
+    lst._429_aktiv = False
+    lst._messung_intervall = -1
+
+    lst._takt()
+
+    assert angefragt == [True]
+
+
+def test_claude_login_doppelklick_startet_nur_einen_thread(lst, monkeypatch):
+    threads = []
+
+    class ThreadAttrappe:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            threads.append(self)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(leiste.threading, "Thread", ThreadAttrappe)
+    action = _eintrag(list(lst._menue()), "Anmelden bei Claude …")
+
+    action(lst.icon)
+    action(lst.icon)
+
+    assert len(threads) == 1
+    assert lst.icon.meldungen[-1][1] == "Claude-Anmeldung läuft bereits"
+
+
+def test_claude_login_threadstartfehler_gibt_riegel_frei(lst, monkeypatch):
+    versuche = []
+
+    class ThreadAttrappe:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            versuche.append(True)
+            if len(versuche) == 1:
+                raise RuntimeError("synthetischer Threadfehler")
+
+    monkeypatch.setattr(leiste.threading, "Thread", ThreadAttrappe)
+    action = _eintrag(list(lst._menue()), "Anmelden bei Claude …")
+
+    action(lst.icon)
+    action(lst.icon)
+
+    assert versuche == [True, True]
+    assert lst.icon.meldungen[-1][1] == "Claude-Anmeldung konnte nicht gestartet werden"
+
+
+def test_claude_login_popenfehler_meldet_nicht_geoeffnet(lst, monkeypatch):
+    def popen_fehler(*args, **kwargs):
+        raise OSError("synthetischer privater Detailtext")
+
+    class SofortThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(leiste.claude_anmeldung.modelle, "claude_programm", lambda: ["claude-synthetic"])
+    monkeypatch.setattr(leiste.claude_anmeldung.os, "name", "nt")
+    monkeypatch.setattr(leiste.claude_anmeldung.subprocess, "Popen", popen_fehler)
+    monkeypatch.setattr(leiste.threading, "Thread", SofortThread)
+
+    _eintrag(list(lst._menue()), "Anmelden bei Claude …")(lst.icon)
+
+    meldungen = [text for _, text in lst.icon.meldungen]
+    assert meldungen == ["Claude-Anmeldung fehlgeschlagen (OSError)"]
+    assert "privater Detailtext" not in meldungen[0]
+    assert lst._anmeldung_aktiv is False
+
+
+def test_claude_login_nichtnull_exit_ist_abbruch_ohne_messanforderung(lst, monkeypatch):
+    class Prozess:
+        def wait(self, timeout):
+            assert timeout == 600
+            return 7
+
+        def poll(self):
+            return 7
+
+    class SofortThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(leiste.claude_anmeldung, "login_starten", lambda: Prozess())
+    monkeypatch.setattr(leiste.threading, "Thread", SofortThread)
+
+    _eintrag(list(lst._menue()), "Anmelden bei Claude …")(lst.icon)
+
+    meldungen = [text for _, text in lst.icon.meldungen]
+    assert meldungen[-1] == "Claude-Anmeldung abgebrochen"
+    assert lst._messung_angefordert.is_set() is False
+    assert lst._anmeldung_prozess is None
+
+
+def test_claude_login_nach_beendetem_prozess_erneut_startbar(lst, monkeypatch):
+    codes = iter((7, 0))
+    starts = []
+
+    class Prozess:
+        def __init__(self, code):
+            self.code = code
+
+        def wait(self, timeout):
+            return self.code
+
+        def poll(self):
+            return self.code
+
+    class SofortThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    def login_starten():
+        code = next(codes)
+        starts.append(code)
+        return Prozess(code)
+
+    monkeypatch.setattr(leiste.claude_anmeldung, "login_starten", login_starten)
+    monkeypatch.setattr(leiste.threading, "Thread", SofortThread)
+    action = _eintrag(list(lst._menue()), "Anmelden bei Claude …")
+
+    action(lst.icon)
+    action(lst.icon)
+
+    assert starts == [7, 0]
+    assert lst._messung_angefordert.is_set()
+
+
+def test_claude_login_meldet_offenes_konsolenfenster_vor_dem_warten(lst, monkeypatch):
+    gemeldet = "Claude-Anmeldung geöffnet – bitte im Browser abschließen."
+
+    class Prozess:
+        def wait(self, timeout):
+            assert lst.icon.meldungen[-1][1] == gemeldet
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(leiste.claude_anmeldung, "login_starten", lambda: Prozess())
+
+    lst._claude_anmelden()
+
+    assert lst.icon.meldungen[0][1] == gemeldet
+
+
+def test_claude_login_erfolg_nach_429_fordert_messung_an_und_laesst_folgetakt_frei(lst, monkeypatch):
+    class Prozess:
+        pid = 987
+
+        def wait(self, timeout):
+            assert timeout == 600
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(leiste.claude_anmeldung, "login_starten", lambda: Prozess())
+    lst._429_aktiv = True
+    lst._messung_intervall = 300
+
+    lst._claude_anmelden()
+
+    assert lst._429_aktiv is False
+    assert lst._messung_intervall == anzeige.claude_takt_min() * 60
+    assert lst._messung_angefordert.is_set()
+    assert lst.icon.meldungen[-1][1] == "Claude-Login beendet; neue Messung angefordert"
+
+
+def test_claude_login_timeout_bei_taskkillfehler_belaesst_prozessriegel(lst, monkeypatch):
+    class Prozess:
+        pid = 987
+
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired("synthetisch", timeout)
+
+        def poll(self):
+            return None
+
+    prozess = Prozess()
+    starts = []
+    threads = []
+
+    class ThreadAttrappe:
+        def __init__(self, **kwargs):
+            threads.append(self)
+
+        def start(self):
+            starts.append(True)
+
+    monkeypatch.setattr(leiste.claude_anmeldung, "login_starten", lambda: prozess)
+    monkeypatch.setattr(leiste.claude_anmeldung, "prozessbaum_beenden",
+                        lambda p: (_ for _ in ()).throw(OSError("synthetisch taskkill")))
+    monkeypatch.setattr(leiste.threading, "Thread", ThreadAttrappe)
+
+    lst._claude_anmelden()
+    lst._claude_anmelden_aktion()
+
+    assert lst._anmeldung_prozess is prozess
+    assert starts == []
+    assert lst.icon.meldungen[-1][1] == "Claude-Anmeldung läuft bereits"
 
 
 # --- Rollenprofile und Modellkataloge (v0.4.0) --------------------------------

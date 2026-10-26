@@ -52,6 +52,60 @@ def _credentials(pfad, expires_at=1_900_000_000_000):
     }}), encoding="utf-8")
 
 
+def test_credentials_datei_nutzt_config_dir_oder_standard(tmp_path, monkeypatch):
+    konfig = tmp_path / "eigene-konfiguration"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(konfig))
+    assert claude_messen.credentials_datei() == konfig / ".credentials.json"
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "")
+    monkeypatch.setattr(claude_messen, "_standard_credentials_datei",
+                        lambda: tmp_path / "home" / ".claude" / ".credentials.json")
+    assert claude_messen.credentials_datei() == tmp_path / "home" / ".claude" / ".credentials.json"
+
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    assert claude_messen.credentials_datei() == tmp_path / "home" / ".claude" / ".credentials.json"
+
+
+@pytest.mark.parametrize("inhalt, kategorie", [
+    (None, "anmeldung_fehlt"),
+    ("kaputt", "anmeldung_defekt"),
+    ({"claudeAiOauth": {"accessToken": TOKEN, "expiresAt": 1}}, "anmeldung_abgelaufen"),
+])
+def test_authfehler_sind_unterschieden_und_erneuern_keinen_cache(tmp_path, inhalt, kategorie):
+    credentials = tmp_path / "synthetisch" / ".credentials.json"
+    if inhalt is not None:
+        credentials.parent.mkdir(parents=True, exist_ok=True)
+        credentials.write_text(inhalt if isinstance(inhalt, str) else json.dumps(inhalt), encoding="utf-8")
+    ziel = tmp_path / "kontingent-claude.json"
+    signale.claude_schreiben({
+        "five_hour": {"used_percentage": 40, "resets_at": 1_900_000_000},
+        "seven_day": {"used_percentage": 50, "resets_at": 1_900_000_000},
+    }, ziel, jetzt=JETZT)
+    alt = ziel.read_bytes()
+
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT)
+
+    assert fehler.value.kategorie == kategorie
+    assert ziel.read_bytes() == alt
+    assert TOKEN not in str(fehler.value)
+    assert "Claude Code" in str(fehler.value) and "auth login --claudeai" in str(fehler.value)
+    assert "Desktop" not in str(fehler.value) or "nicht" in str(fehler.value)
+
+
+def test_server_401_ist_abgelehnte_anmeldung_mit_sicherem_text(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.json"
+    _credentials(credentials)
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, jetzt=JETZT,
+                             transport=lambda *a, **k: (_ for _ in ()).throw(
+                                 HTTPError("https://example.invalid", 401, TOKEN, None, None)))
+
+    assert fehler.value.kategorie == "anmeldung_abgelehnt"
+    assert fehler.value.status == 401
+    assert TOKEN not in str(fehler.value)
+
+
 def test_messen_ruft_usage_api_ab_und_speichert_nur_validierte_fenster(tmp_path, monkeypatch):
     credentials = tmp_path / ".claude" / ".credentials.json"
     ziel = tmp_path / "kontingent-claude.json"
@@ -120,7 +174,7 @@ def test_abgelaufener_token_macht_keinen_netzaufruf_und_gibt_keinen_token_preis(
         claude_messen.messen(credentials_datei=credentials, jetzt=JETZT)
 
     assert aufrufe == []
-    assert str(fehler.value) == "Claude-Anmeldung abgelaufen – Claude Code einmal starten"
+    assert str(fehler.value) == claude_messen.ANMELDUNG_ABGELAUFEN
     assert TOKEN not in str(fehler.value)
 
 
@@ -146,7 +200,7 @@ def test_http_fehler_bleibt_generisch_und_enthaelt_keinen_token(tmp_path, monkey
     assert "Traceback" not in str(fehler.value)
     assert ziel.read_bytes() == alt
     if status == 401:
-        assert str(fehler.value) == "Claude-Anmeldung abgelaufen – Claude Code einmal starten"
+        assert str(fehler.value) == claude_messen.ANMELDUNG_ABGELEHNT
     if status == 429:
         assert fehler.value.status == 429
 

@@ -1,6 +1,6 @@
 """Tests für Tooltip, Menü- und Hinweistexte sowie die Einstellungen."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -39,6 +39,14 @@ def test_details_mit_reset_und_stand():
         "  Woche: 58 % · Reset 14.10. 18:40",
         "  Stand: 14.10. 16:05",
     ]
+
+
+def test_details_kennzeichnet_zu_alte_kontingentstaende_als_veraltet():
+    zeilen = anzeige.details([_k("Claude", 79, 58)], zone=UTC,
+                             max_alter=timedelta(minutes=10),
+                             jetzt=datetime(2026, 10, 14, 17, 0, tzinfo=UTC))
+
+    assert "  Stand: 14.10. 16:05 (veraltet)" in zeilen
 
 
 def test_details_zurueckgesetzt_und_fehler():

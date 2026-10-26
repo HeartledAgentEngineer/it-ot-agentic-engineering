@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -68,15 +68,19 @@ def _fenster_zeile(f: Fenster, zone: tzinfo | None) -> str:
     return zeile + (f" · Reset {_zeit(f.reset, zone)}" if f.reset else "")
 
 
-def details(kontingente: list[Kontingent], zone: tzinfo | None = None) -> list[str]:
+def details(kontingente: list[Kontingent], zone: tzinfo | None = None, *,
+            max_alter: timedelta | None = None, jetzt: datetime | None = None) -> list[str]:
     zeilen: list[str] = []
+    jetzt = jetzt or datetime.now(timezone.utc)
     for k in kontingente:
         zeilen.append(k.master)
         if k.fehler:
             zeilen.append(f"  {k.fehler}")
             continue
         zeilen += [_fenster_zeile(f, zone) for f in k.fenster]
-        zeilen.append(f"  Stand: {_zeit(k.stand, zone)}")
+        veraltet = (max_alter is not None and k.stand is not None
+                    and not timedelta(0) <= jetzt - k.stand <= max_alter)
+        zeilen.append(f"  Stand: {_zeit(k.stand, zone)}" + (" (veraltet)" if veraltet else ""))
     return zeilen
 
 

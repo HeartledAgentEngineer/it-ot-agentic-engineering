@@ -3,6 +3,21 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Neu
+- **Claude-Anmeldung:** Taskleistenaktion öffnet unter Windows `claude auth login --claudeai` in einer eigenen
+  interaktiven Konsole. Exit 0 fordert nur eine neue Messung an; deren tatsächlicher Erfolg bleibt der Beleg
+  für lesbare Kontingentwerte. `CLAUDE_CONFIG_DIR` wird geteilt; leer oder ungesetzt nutzt `~/.claude`.
+
+### Geändert
+- **Claude-Messfehler:** fehlender, defekter, abgelaufener und vom Server abgelehnter lokaler Messzugang haben
+  getrennte sichere Meldungen; 429 bleibt als Statuscode erhalten. Ein Messfehler erneuert nie den Cachestand.
+- **Native Kontingente:** eine fehlgeschlagene OAuth-Abfrage verhindert die bestehende Automatikprüfung nicht;
+  deren eigene Frische- und Sicherheitsgates bleiben wirksam. Alte Kontingentstände sind im Menü als veraltet markiert.
+- **Grenzen:** kein eigener Token-Refresh und keine Aussage über Claude-Desktop-Anmeldung oder Aboablauf. Der
+  Autostart bleibt ein separates offenes Thema.
+
 ## [0.5.0] – 2026-10-25
 
 Wechselassistent, Bausteine P1/P2 (Vorgänge, Chatliste), P4 (Ablauf und Zustellung), P3a (Claude-Empfang per Hook),

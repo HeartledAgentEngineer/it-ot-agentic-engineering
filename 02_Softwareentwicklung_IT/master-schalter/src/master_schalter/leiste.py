@@ -34,13 +34,13 @@ import sys
 import threading
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
 import pystray
 
-from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_messen, dialog, fenster_modell, modi,
+from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_anmeldung, claude_messen, dialog, fenster_modell, modi,
                modelle, paare, rollen, rueckgabe, signale, symbol, uebergabe, vorgaenge, wechsel, zustand)
 
 
@@ -85,6 +85,9 @@ class Leiste:
         self._messung_fehler: str | None = None
         self._429_aktiv = False
         self._messung_intervall = anzeige.claude_takt_min() * 60
+        self._anmeldung_sperre = threading.Lock()
+        self._anmeldung_aktiv = False
+        self._anmeldung_prozess = None
         self._arbeits_thread = None
         self._assistent_thread = None
         self._assistent_sperre = threading.Lock()
@@ -114,13 +117,14 @@ class Leiste:
         for zeile in anzeige.lage_zeilen(self._lage, self._grund):
             yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
-        for zeile in anzeige.details(self._kontingente):
+        for zeile in anzeige.details(self._kontingente, max_alter=timedelta(minutes=10)):
             yield pystray.MenuItem(zeile, None, enabled=False)
         if self._messung_fehler:
             yield pystray.MenuItem(f"Claude-Messung: {self._messung_fehler}", None, enabled=False)
         for zeile in self._automatik_staende_zeilen():
             yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
+        yield pystray.MenuItem("Anmelden bei Claude …", self._claude_anmelden_aktion)
         yield pystray.MenuItem("Übergabe starten …", self._fenster_aktion)
         for zeile in self._wechsel_zeilen():
             yield pystray.MenuItem(zeile, None, enabled=False)
@@ -551,6 +555,78 @@ class Leiste:
         self._messung_angefordert.set()
         self._bestaetigung_anfordern()
 
+    def _claude_anmelden_aktion(self, *_args) -> None:
+        """Menüklick: höchstens einen sichtbaren Loginprozess im Hintergrund starten."""
+        with self._anmeldung_sperre:
+            prozess = self._anmeldung_prozess
+            if prozess is not None:
+                try:
+                    if prozess.poll() is None:
+                        prozess_laeuft = True
+                    else:
+                        self._anmeldung_prozess = None
+                        prozess_laeuft = False
+                except Exception:
+                    prozess_laeuft = True
+            else:
+                prozess_laeuft = False
+            if self._anmeldung_aktiv or prozess_laeuft:
+                bereits = True
+            else:
+                bereits = False
+                self._anmeldung_aktiv = True
+        if bereits:
+            self._melden("Claude-Anmeldung läuft bereits")
+            return
+        try:
+            threading.Thread(target=self._claude_anmelden, daemon=True).start()
+        except Exception as fehler:  # noqa: BLE001 - Freigabe auch bei Threadstartfehler
+            with self._anmeldung_sperre:
+                self._anmeldung_aktiv = False
+            _protokoll(f"Claude-Anmeldung konnte nicht gestartet werden ({type(fehler).__name__})")
+            self._melden("Claude-Anmeldung konnte nicht gestartet werden")
+
+    def _claude_anmelden(self) -> None:
+        """Startet und wartet ausschließlich auf den eigenen interaktiven Loginprozess."""
+        prozess = None
+        try:
+            prozess = claude_anmeldung.login_starten()
+            with self._anmeldung_sperre:
+                self._anmeldung_prozess = prozess
+            self._melden("Claude-Anmeldung geöffnet – bitte im Browser abschließen.")
+            try:
+                code = prozess.wait(timeout=600)
+            except subprocess.TimeoutExpired:
+                try:
+                    claude_anmeldung.prozessbaum_beenden(prozess)
+                except Exception as fehler:  # noqa: BLE001 - Prozessreferenz bleibt als Startriegel
+                    _protokoll(f"Claude-Anmeldung konnte nicht beendet werden ({type(fehler).__name__})")
+                    self._melden("Claude-Anmeldung Zeitlimit erreicht; Prozess läuft noch")
+                else:
+                    self._melden("Claude-Anmeldung nach zehn Minuten beendet")
+                return
+            if code == 0:
+                self._429_aktiv = False
+                self._messung_intervall = anzeige.claude_takt_min() * 60
+                self._messung_angefordert.set()
+                self._melden("Claude-Login beendet; neue Messung angefordert")
+            else:
+                self._melden("Claude-Anmeldung abgebrochen")
+        except claude_anmeldung.Anmeldefehler as fehler:
+            self._melden(str(fehler))
+        except Exception as fehler:  # noqa: BLE001 - keine CLI-Ausgaben oder Details protokollieren
+            _protokoll(f"Claude-Anmeldung fehlgeschlagen ({type(fehler).__name__})")
+            self._melden(f"Claude-Anmeldung fehlgeschlagen ({type(fehler).__name__})")
+        finally:
+            with self._anmeldung_sperre:
+                self._anmeldung_aktiv = False
+                if prozess is not None:
+                    try:
+                        if prozess.poll() is not None:
+                            self._anmeldung_prozess = None
+                    except Exception:
+                        pass  # Unklarer Prozesszustand sperrt vorsichtshalber einen zweiten Login.
+
     def _zeigen(self) -> None:
         self.aktualisieren()
         self.icon.notify(anzeige.hinweis(self._kontingente), "Kontingente")
@@ -569,11 +645,10 @@ class Leiste:
                 self._messung_ausfuehren()
                 letzte_messung = time.monotonic()
                 self.aktualisieren()
-                if self._messung_fehler is None:
-                    if anzeige.automatik_an():
-                        self._automatik_anfordern()   # Prüfung nach jeder erfolgreichen Claude-Messung
-                    else:
-                        self._bestaetigung_anfordern()   # offene Übergaben abhaken – auch ohne Automatik
+                if anzeige.automatik_an():
+                    self._automatik_anfordern()   # eigene Frischegates prüfen auch native Statusline-Werte
+                elif self._messung_fehler is None:
+                    self._bestaetigung_anfordern()   # offene Übergaben nach erfolgreicher Messung abhaken
             self._modellabgleich_pruefen()   # abgelaufener Modellkatalog wird im Hintergrund erneuert
 
     # --- Takt des Wechselassistenten --------------------------------------------------

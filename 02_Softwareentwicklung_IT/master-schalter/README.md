@@ -700,6 +700,20 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 .\.venv\Scripts\masterwechsel.exe fenster
 ```
 
+Bei abgelaufenem oder vom Server abgelehntem lokalem Claude-Messzugang kann im Taskleistenmenü
+**Anmelden bei Claude …** gewählt werden. Unter Windows öffnet das die offizielle Claude-Code-Anmeldung
+(`claude auth login --claudeai`) in einem eigenen Konsolenfenster. Nach erfolgreichem Prozessende wird nur
+eine neue Messung angefordert; erst deren tatsächlicher Erfolg bestätigt, dass die Kontingentwerte wieder
+gelesen werden können. Der lokale Access-Token-Fehler sagt nichts darüber aus, ob Claude Desktop abgemeldet
+ist oder das Abo abgelaufen ist. Ein automatischer Token-Refresh wird nicht behauptet. Ist
+`CLAUDE_CONFIG_DIR` nicht gesetzt oder leer, gilt der Standardordner `~/.claude`; andernfalls wird dieser
+Konfigurationsordner sowohl für Messung als auch CLI-Anmeldung verwendet.
+
+Frische Claude-Werte aus der unabhängigen nativen Statuszeile bleiben bei einem Fehler der OAuth-Messung
+nutzbar; zu alte Stände werden im Menü als **veraltet** markiert. Die bestehende Frischeprüfung der Automatik
+bleibt maßgeblich. Die Windows-Autostart-Einrichtung ist von diesem Loginweg unabhängig und bleibt ein eigener
+offener Punkt.
+
 Einstellungen: `~/.master-schalter/einstellungen.json`, z. B.
 `{"schwelle": 90, "claude_takt_min": 5, "automatik": false, "automatik_weg": "alt"}`. Die Schwelle liegt bei 1–100 (im
 Taskleistenmenü 80, 90, 95, 97 oder 100; Standard 97), der Messungstakt bei 1–60 Minuten
