@@ -24,6 +24,8 @@
 #      (im Widget-Weg ist der Server beendet; beim App-Druck auf einen
 #      laufenden Server wird bewusst nicht aus dem laufenden Betrieb gesichert)
 #   9. Postfach-Daemon sicherstellen (Skript hermes_inbox_daemon.py)
+#  10. Tagesimport im Hintergrund (tools/handy/tageslauf.py --wenn-faellig) -
+#      tut nichts, solange der Schalter in ~/foto_sortierung/tageslauf.json aus ist
 #
 # Aufruf:
 #   bash termux/start-vorbereiten.sh [--laufend] [Projektordner]
@@ -181,6 +183,16 @@ if [ -f "$PROJEKT/backend/$_daemon_skript" ]; then
     else
         echo "Inbox-Daemon laeuft bereits."
     fi
+fi
+
+# ── 10. Tagesimport (Hintergrund, nie blockierend) ──────────────────────────
+# Einmal am Tag holt tools/handy/tageslauf.py die lokalen Quellen nach (WhatsApp-
+# Bilder in die pCloud, Kamera zaehlen, Erinnerungen). Standard ist AUS: ohne
+# Schalter in ~/foto_sortierung/tageslauf.json schreibt das Werkzeug nichts.
+# Es laeuft entkoppelt (nohup, Ausgabe nach /dev/null; das Protokoll fuehrt es
+# selbst in hermes_diag/tageslauf.log) und darf den Start NIE verhindern.
+if [ -f "$PROJEKT/tools/handy/tageslauf.py" ]; then
+    ( cd "$PROJEKT" && nohup python -B tools/handy/tageslauf.py --wenn-faellig --log-ordner "$PROTO_DATEN" >/dev/null 2>&1 & ) || true
 fi
 
 exit 0
