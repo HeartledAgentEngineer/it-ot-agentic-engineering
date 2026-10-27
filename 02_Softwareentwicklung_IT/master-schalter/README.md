@@ -295,6 +295,15 @@ Die Befehle im Überblick:
 .\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
 ```
 
+`profil` (Textform) und `master-setzen` zeigen zusätzlich den **Prüfer** nach der Regel von `pruefkreis.py`
+(siehe `kurz`): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
+schreibt die Marke mit, der Prüfer wechselt also sofort (Master Codex ⇒ „Prüfer Hermes (Master Codex)“). Bei
+„Nach Kontingent“ folgt der Prüfer dem jeweiligen Besitzer; weicht eine feste Vorgabe vom Besitz ab, nennt eine
+zweite Zeile den Prüfer nach der Übergabe. `profil --json` bleibt unverändert. **Grenze:** Der Sofortwechsel gilt
+für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` die
+Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe sagt das dann mit
+„Hinweis: Aufruf aus einem Git-Worktree …“.
+
 `modelle` zeigt ohne `--aktualisieren` nur den lokalen Cache (Exit 0, Fehlerkategorien stehen
 in der Ausgabe); mit `--aktualisieren` wird frisch abgeglichen und ein nicht erfolgreich
 ermittelter Katalog liefert Exit 1 mit klarer Diagnose. Alle Fehlertexte sind einfache eigene
@@ -618,8 +627,9 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   eines Fensters im Limit mit Uhrzeit und Restzeit („22:36 (in 24 min)“). Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.
 - **Wartet worauf:** noch keine Statusquelle; die Zeile sagt das ausdrücklich.
 
-Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreibt `kurz` UTF-8, damit
-Umlaute in Remote-Sitzungen lesbar ankommen. Die übrigen Befehle sind unverändert.
+Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `kurz` und alle
+anderen Befehle (stdout und stderr, schon vor dem Einlesen der Argumente, also auch `--help`) UTF-8, damit Umlaute in Remote-Sitzungen und über `/master-status`
+lesbar ankommen; einzige Ausnahme ist `statuszeile` (Anzeige der Claude-Code-Statuszeile, bewusst unverändert).
 
 ## Chatliste (v0.5.0, in Arbeit)
 

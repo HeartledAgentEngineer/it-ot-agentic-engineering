@@ -127,6 +127,29 @@ def pruefer_text(master: str | None) -> str:
     return "Prüfer ? (pruefkreis braucht --master)"
 
 
+def pruefer_vorschau(thema: str, vorgabe: str) -> list[str]:
+    """Zwei Zeilen für `master-setzen`/`profil`: wer heute prüft und wer nach der Übergabe an `vorgabe` prüft.
+
+    Nur lesend; maßgeblich ist wie bei `pruefkreis` der Besitz (`<thema>.master`), nicht die gespeicherte Vorgabe.
+    """
+    try:
+        lokal = uebergabe.repo_wurzel()
+        repo = uebergabe.haupt_wurzel(lokal)
+        ordner = besitz.pfad(repo, paare.laufend_bilden(thema)).parent
+    except (uebergabe.UebergabeFehler, paare.PaarFehler):
+        return ["  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
+    jetzt = pruefkreis_master(ordner, thema)
+    zeilen = [f"  Jetzt: {pruefer_text(jetzt)}"]
+    if repo != lokal:   # die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum
+        zeilen.append("  Hinweis: Aufruf aus einem Git-Worktree – master-setzen schreibt die Besitzmarke dort, "
+                      "pruefkreis liest den Hauptarbeitsbaum")
+    if vorgabe == modi.KONTINGENT:
+        zeilen.append("  Nach Kontingent: Prüfer folgt dem Besitzer (Master Codex ⇒ Hermes, sonst Codex)")
+    elif vorgabe != jetzt:
+        zeilen.append(f"  Sobald {WERKZEUG_NAMEN.get(vorgabe, vorgabe)} den Besitz hat: {pruefer_text(vorgabe)}")
+    return zeilen
+
+
 def _thema_zeile(t: Thema, automatik_global: bool) -> str:
     p = t.profil
     master = "nach Kontingent" if p.master == modi.KONTINGENT else WERKZEUG_NAMEN.get(p.master, p.master)

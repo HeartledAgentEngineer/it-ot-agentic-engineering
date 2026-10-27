@@ -6,6 +6,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Geändert
+- CLI: Über Pipes schreiben jetzt alle Befehle außer `statuszeile` UTF-8 auf stdout und stderr, auch Hilfe und Argumentfehler (vorher nur
+  `kurz`); `profil`/`master-setzen` kamen über `/master-status` mit verstümmelten Umlauten an.
+- `master-setzen` und `profil` (Text) zeigen den Prüfer: „Jetzt: Prüfer …“ nach der pruefkreis-Regel,
+  bei „Nach Kontingent“ den Hinweis „Prüfer folgt dem Besitzer“ (`kurz.pruefer_vorschau`); JSON unverändert.
 - `kurz`: Jede Themenzeile nennt den Prüfer – dieselbe Regel wie `pruefkreis.py` (Prüfer ≠ Master-Familie):
   Master wie `pruefkreis` ihn liest (`<name>.master`, auch übergeordnetes Thema): Codex ⇒ „Prüfer Hermes (Master
   Codex)“, Claude/Hermes ⇒ „Prüfer Codex“, fehlende/unlesbare Datei ⇒ „Prüfer ? (pruefkreis braucht --master)“.
