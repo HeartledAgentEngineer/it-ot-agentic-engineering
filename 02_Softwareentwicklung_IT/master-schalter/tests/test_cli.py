@@ -86,7 +86,7 @@ def test_version(capsys):
     with pytest.raises(SystemExit) as ende:
         cli.main(["--version"])
     assert ende.value.code == 0
-    assert "0.5.0" in capsys.readouterr().out
+    assert "0.5.1" in capsys.readouterr().out
 
 
 def test_claude_messen_cli_ruft_adapter_auf(daten, monkeypatch, capsys):
@@ -617,3 +617,31 @@ def test_automatik_weg_ungueltig_exit1_ohne_echo(daten, capsys, eingabe):
     assert "geheim" not in ausgabe.out + ausgabe.err and (not eingabe or eingabe not in ausgabe.out + ausgabe.err)
     assert "alt oder assistent" in ausgabe.err
     assert anzeige.automatik_weg() == "alt"
+
+
+# --- codex-messen (v0.5.1) -----------------------------------------------------------------
+
+def test_codex_messen_cli_meldet_erfolg(daten, monkeypatch, capsys):
+    monkeypatch.setattr(cli.codex_messen, "messen", lambda: signale.Kontingent("Codex"))
+
+    assert cli.main(["codex-messen"]) == 0
+    assert capsys.readouterr().out.strip() == "Codex-Kontingent aktualisiert."
+
+
+def test_codex_messen_cli_zeigt_nur_den_festen_fehlertext(daten, monkeypatch, capsys):
+    text = "Codex-Messung fehlgeschlagen (Zeitüberschreitung)"
+    monkeypatch.setattr(cli.codex_messen, "messen", lambda: signale.Kontingent("Codex", fehler=text))
+
+    assert cli.main(["codex-messen"]) == 1
+    ausgabe = capsys.readouterr()
+    assert ausgabe.err.strip() == text and ausgabe.out == ""
+
+
+def test_codex_messen_cli_faengt_unerwartete_ausnahmen(daten, monkeypatch, capsys):
+    def kaputt():
+        raise RuntimeError("geheim")
+
+    monkeypatch.setattr(cli.codex_messen, "messen", kaputt)
+
+    assert cli.main(["codex-messen"]) == 1
+    assert "geheim" not in capsys.readouterr().err

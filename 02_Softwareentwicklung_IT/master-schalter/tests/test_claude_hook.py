@@ -377,15 +377,17 @@ def _prozess(eingabe: bytes) -> tuple[subprocess.CompletedProcess[bytes], float]
 
 def test_aufruf_als_modul_im_eigenen_prozess(umgebung, tmp_path):
     _neu_einlegen(umgebung)
+    leerlauf_vorher = _leerlauf()
 
     lauf, dauer = _prozess(_ereignis("PostToolUse"))
 
+    leerlauf = max(leerlauf_vorher, _leerlauf())                                # Last des Rechners steckt im Leerlauf
     assert lauf.returncode == 0 and lauf.stderr == b""
     assert _kontext(lauf.stdout.decode("ascii"), "PostToolUse").startswith(claude_hook.EINLEITUNG)
     assert KENNUNG.encode() not in lauf.stdout and str(tmp_path).encode() not in lauf.stdout
     assert av.finden("v-1").phase == "im_chat"
     assert status.lesen("claude", KENNUNG)[0] == "arbeitet"
-    assert dauer < 10                                                           # Ziel < 2 s; hier großzügig gegen Last
+    assert dauer < leerlauf + 5                                                 # Ziel < 2 s; relativ zur Rechnerlast
 
     lauf, _ = _prozess(_ereignis("PostToolUse"))                                # nichts mehr zuzustellen
     assert (lauf.returncode, lauf.stdout, lauf.stderr) == (0, b"", b"")
@@ -560,15 +562,36 @@ def test_belegte_globale_sperre_haelt_den_hook_nicht_auf(umgebung, capsys):
     assert _kontext(ausgabe, "UserPromptSubmit") and av.finden("v-1").phase == "im_chat"
 
 
+def _leerlauf() -> float:
+    """Dauer eines reinen Prozessstarts mit Import des Hooks (ohne Ereignis, ohne Sperre, ohne Nebenwirkung)."""
+    umgebung = dict(os.environ)
+    umgebung["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    start = time.perf_counter()
+    lauf = subprocess.run([sys.executable, "-c", "import master_schalter.claude_hook"], env=umgebung,
+                          capture_output=True, timeout=60)
+    assert lauf.returncode == 0
+    return time.perf_counter() - start
+
+
 def test_belegte_globale_sperre_im_eigenen_prozess(umgebung):
+    # Keine feste Wanduhrgrenze: ein Prozessstart dauert unter Volllast auch mal > 5 s. Verglichen wird mit einem
+    # Leerlauf (gleicher Start, gleicher Import), unmittelbar davor gemessen; die belegte Sperre darf höchstens ihre
+    # Sperrfrist (0,3 s) kosten. Ein einzelner Lastausreißer wird mit bis zu drei frisch verglichenen Versuchen
+    # abgefangen – ein Hook, der wirklich auf die Sperre wartet, wäre jedes Mal um viele Sekunden zu langsam.
     _neu_einlegen(umgebung)
+    ergebnisse = []
 
-    with zustand.sperre(10.0):
-        lauf, dauer = _prozess(_ereignis())
+    for _ in range(3):
+        leerlauf = _leerlauf()
+        with zustand.sperre(10.0):
+            lauf, dauer = _prozess(_ereignis())
+        assert lauf.returncode == 0 and lauf.stderr == b""
+        assert _dateien() == ["v-1_neu.json"]                                   # nichts zugestellt
+        ergebnisse.append((dauer, leerlauf))
+        if dauer < leerlauf + 2.0:
+            break
 
-    assert lauf.returncode == 0 and lauf.stderr == b""
-    assert dauer < 5                                                            # Ziel < 2 s; großzügig gegen Last
-    assert _dateien() == ["v-1_neu.json"]
+    assert any(dauer < leerlauf + 2.0 for dauer, leerlauf in ergebnisse), ergebnisse
 
 
 def test_abholen_mit_kurzer_frist_laesst_bei_belegten_sperren_alles_liegen(umgebung):

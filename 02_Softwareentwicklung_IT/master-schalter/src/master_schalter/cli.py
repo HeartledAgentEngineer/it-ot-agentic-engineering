@@ -4,6 +4,7 @@
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
     masterwechsel claude-messen       Claude-Kontingent über die OAuth-API messen
+    masterwechsel codex-messen        Codex-Kontingent aktiv messen (kein Tokenverbrauch)
     masterwechsel master              aktiven Master, Lage und Besetzung anzeigen
     masterwechsel wechsel claude|codex|hermes [--hinweis TEXT]
                                       Master wechseln und Übergabepaket schreiben
@@ -48,7 +49,7 @@ import sys
 from datetime import datetime, timezone
 
 from . import (__version__, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
-               claude_messen, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
+               claude_messen, codex_messen, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -94,6 +95,19 @@ def _claude_messen() -> int:
         print("Claude-Messung fehlgeschlagen.", file=sys.stderr)
         return 1
     print("Claude-Kontingent aktualisiert.")
+    return 0
+
+
+def _codex_messen() -> int:
+    try:
+        kontingent = codex_messen.messen()
+    except Exception:  # noqa: BLE001 - `messen` wirft nie; trotzdem nie Ausnahmetext ausgeben
+        print("Codex-Messung fehlgeschlagen.", file=sys.stderr)
+        return 1
+    if kontingent.fehler:
+        print(kontingent.fehler, file=sys.stderr)   # fester Text mit Fehlerklasse
+        return 1
+    print("Codex-Kontingent aktualisiert.")
     return 0
 
 
@@ -486,6 +500,7 @@ def _parser() -> argparse.ArgumentParser:
     hand.add_argument("--reset-fuenf", type=_zeitpunkt, required=True, help="ISO-Zeitpunkt")
     hand.add_argument("--reset-woche", type=_zeitpunkt, required=True, help="ISO-Zeitpunkt")
     unter.add_parser("claude-messen", help="Claude-Kontingent über die OAuth-API messen")
+    unter.add_parser("codex-messen", help="Codex-Kontingent aktiv messen (kein Tokenverbrauch)")
     unter.add_parser("master", help="aktiven Master, Lage und Besetzung anzeigen")
     w = unter.add_parser("wechsel", help="Master wechseln und Übergabepaket schreiben")
     w.add_argument("nach", choices=zustand.MASTER, help="neuer Master")
@@ -574,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
         return _claude_kontingent(args)
     if args.befehl == "claude-messen":
         return _claude_messen()
+    if args.befehl == "codex-messen":
+        return _codex_messen()
     if args.befehl == "master":
         return _master()
     if args.befehl == "wechsel":

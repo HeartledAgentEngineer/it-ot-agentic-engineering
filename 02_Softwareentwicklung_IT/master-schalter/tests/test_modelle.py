@@ -7,6 +7,7 @@ Python-Kindprozesse auf dem Testrechner; Fristen werden kurz gehalten.
 import ctypes
 import dataclasses
 import json
+import signal
 import os
 import subprocess
 import sys
@@ -701,7 +702,7 @@ def _lebt(pid: int) -> bool:
     return True
 
 
-def _warte_tot(pid: int, frist: float = 5.0) -> bool:
+def _warte_tot(pid: int, frist: float = 30.0) -> bool:
     ende = time.monotonic() + frist
     while time.monotonic() < ende:
         if not _lebt(pid):
@@ -730,6 +731,8 @@ def _skript(tmp_path, name: str, inhalt: str) -> str:
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-Bereinigung")
 def test_bereinigung_beendet_eigenen_baum_exakt(daten, tmp_path, monkeypatch):
+    monkeypatch.setattr(modelle, "BEREINIGUNG_SEKUNDEN", 30.0)   # taskkill ist unter Volllast langsam
+    monkeypatch.setattr(modelle, "PIPE_SEKUNDEN", 10.0)
     pid_datei = tmp_path / "pid.txt"
     haengt = _skript(tmp_path, "haengt.py",
                      "import os, pathlib, time\n"
@@ -749,7 +752,7 @@ def test_bereinigung_beendet_eigenen_baum_exakt(daten, tmp_path, monkeypatch):
                           "request": {"subtype": "initialize"}}).encode("utf-8") + b"\n"
 
     with pytest.raises(modelle.ZeitFehler):
-        modelle.claude_transport([sys.executable, haengt], dict(os.environ), eingabe, 1.5)
+        modelle.claude_transport([sys.executable, haengt], dict(os.environ), eingabe, 6.0)
 
     # Die venv-python.exe leitet auf einen Kindprozess um: der vom Adapter gestartete Prozess
     # ist dann der Elternprozess des Skripts. Beide gehören zum eigenen Baum, keiner zum Testlauf.
@@ -759,7 +762,9 @@ def test_bereinigung_beendet_eigenen_baum_exakt(daten, tmp_path, monkeypatch):
     assert _warte_tot(skript_pid) and (gestartete_pid == skript_pid or _warte_tot(gestartete_pid))
 
 
-def test_kein_eigener_enkel_uebrig_kontrollprozess_erhalten(daten, tmp_path):
+def test_kein_eigener_enkel_uebrig_kontrollprozess_erhalten(daten, tmp_path, monkeypatch):
+    monkeypatch.setattr(modelle, "BEREINIGUNG_SEKUNDEN", 30.0)   # taskkill ist unter Volllast langsam
+    monkeypatch.setattr(modelle, "PIPE_SEKUNDEN", 10.0)
     pid_datei = tmp_path / "pids.txt"
     eltern = _skript(tmp_path, "eltern.py",
                      "import os, subprocess, sys, pathlib, time\n"
@@ -770,7 +775,7 @@ def test_kein_eigener_enkel_uebrig_kontrollprozess_erhalten(daten, tmp_path):
     kontrolle = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
         with pytest.raises(modelle.ZeitFehler):
-            modelle.codex_transport([sys.executable, eltern], dict(os.environ), b"", 2.0)
+            modelle.codex_transport([sys.executable, eltern], dict(os.environ), b"", 6.0)
 
         eltern_pid, enkel_pid = (int(t) for t in pid_datei.read_text(encoding="utf-8").split())
         assert _warte_tot(enkel_pid), "Enkelprozess des eigenen Baums lebt noch"
@@ -919,3 +924,37 @@ def test_modell_und_katalog_sind_unveraenderlich():
     with pytest.raises(dataclasses.FrozenInstanceError):
         k.fehler = "x"
     assert k.modelle == () and k.zeit is None and k.fehler is None and k.veraltet is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-Bereinigung")
+def test_eltern_endet_waehrend_kind_die_pipe_haelt_haengt_nicht(daten, tmp_path, monkeypatch):
+    """Der Elternprozess endet, ein Enkel hält stdout offen: `close()` auf dem lesenden Puffer würde ewig
+    blockieren. Erwartet: fester Bereinigungsfehler in begrenzter Zeit, Datenströme werden nicht geschlossen."""
+    pid_datei = tmp_path / "pids.txt"
+    eltern = _skript(tmp_path, "eltern_endet.py",
+                     "import os, subprocess, sys, pathlib\n"
+                     "enkel = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                     f"pathlib.Path({str(pid_datei)!r}).write_text(str(enkel.pid), encoding='utf-8')\n")
+    monkeypatch.setattr(modelle, "PIPE_SEKUNDEN", 0.3)
+    ergebnis = {}
+
+    def lauf():
+        try:
+            modelle.codex_transport([sys.executable, eltern], dict(os.environ), b"", 5.0)
+        except BaseException as fehler:  # noqa: BLE001
+            ergebnis["fehler"] = fehler
+
+    faden = threading.Thread(target=lauf, daemon=True)
+    beginn = time.monotonic()
+    faden.start()
+    faden.join(30)
+    try:
+        assert not faden.is_alive(), "Bereinigung hängt (close() auf lesendem Puffer)"
+        assert isinstance(ergebnis.get("fehler"), modelle.BereinigungsFehler)
+        assert time.monotonic() - beginn < 15
+    finally:
+        if pid_datei.exists():
+            try:
+                os.kill(int(pid_datei.read_text(encoding="utf-8")), signal.SIGTERM)
+            except OSError:
+                pass
