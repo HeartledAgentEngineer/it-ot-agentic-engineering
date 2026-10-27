@@ -207,6 +207,24 @@ pruefe('ohne Quelle bleibt die Zeile gültig (nur Stand)',
   fotosZeileOhneQuelle === '✓ Fotos: 2127 Anlässe · 2088 Events · 9430 Dateien · 11 Jahre (Stand 2026-09-27T22:30:00+02:00)');
 pruefe('ohne Quelle steht kein „null" im Text', !/null/.test(fotosOhneQuelleText));
 
+console.log('\n3b) Tagesimport-Zeile (C3, 26.10.2026)');
+const ohneTl = selbsttestText(gesund);
+pruefe('ohne Feld "tageslauf" entfällt die Zeile', ohneTl.indexOf('Tagesimport') === -1);
+const tlZeile = (tl) => selbsttestText(Object.assign({}, gesund, { tageslauf: tl }))
+  .split('\n').filter(z => z.indexOf('Tagesimport') >= 0)[0];
+pruefe('aus (Standard) -> ✓ Tagesimport: aus',
+  tlZeile({ an: false, einstellungen_lesbar: true, error: null }) === '✓ Tagesimport: aus');
+pruefe('an, heute gelaufen, Exit 0 -> ✓',
+  tlZeile({ an: true, heute_gelaufen: true, letzter_lauf: '2026-10-26', letzter_exit: 0,
+    kamera_gesetzt: true, bericht_veraltet: false, error: null })
+  === '✓ Tagesimport: an · heute gelaufen · letzter Lauf 2026-10-26 (Exit 0)');
+pruefe('an, noch nicht gelaufen, ohne Kamera-Ordner -> ⚠',
+  tlZeile({ an: true, heute_gelaufen: false, letzter_lauf: null, letzter_exit: null,
+    kamera_gesetzt: false, error: null })
+  === '⚠ Tagesimport: an · heute noch nicht gelaufen · Kamera-Ordner nicht eingerichtet');
+pruefe('Fehlertext -> ⚠', tlZeile({ an: null, error: 'Tagesimport nicht prüfbar (X)' })
+  === '⚠ Tagesimport: Tagesimport nicht prüfbar (X)');
+
 console.log('\n4) Blatt in der Oberfläche (Knopf, Blatt, Laden, KEIN Auto-Polling)');
 pruefe('index.html hat den Selbsttest-Knopf in der Kopfzeile',
   /id="selbsttest-btn"/.test(html) && html.indexOf('id="selbsttest-btn"') < html.indexOf('id="chat-sheet"'));

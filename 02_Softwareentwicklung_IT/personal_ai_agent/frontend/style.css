@@ -3373,3 +3373,102 @@ body.anmelden-offen { overflow: hidden; }
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-glow);
 }
+
+/* =========================================================================
+   Tagesimport im Checks-Fenster (26.10.2026, Schritt C3)
+   Schalter, Kamera-Ordner, letzter Bericht je Baustein, Gemini-Erinnerung.
+   Dunkles Bestandsdesign wie Datenstand/Protokoll; grosse Tippflaechen fuers
+   Handy (mindestens 44 px). Nicht zugeklappt: der Schalter soll sofort da sein.
+   ========================================= */
+
+.tageslauf-block {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 8px 12px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.tageslauf-kopf {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+#tageslauf-text {
+    margin: 0;
+    max-height: 40vh;
+    overflow: auto;
+    padding: 6px 8px;
+    background: #14142a;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+}
+
+.tageslauf-ordner-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tageslauf-ordner-zeile label {
+    flex: 1 0 100%;
+    color: var(--text-secondary);
+}
+
+#tageslauf-ordner {
+    flex: 1 1 12rem;
+    min-width: 0;
+    min-height: 44px;
+    padding: 6px 10px;
+    box-sizing: border-box;
+    background: #14142a;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.8rem;
+}
+
+.tageslauf-block button {
+    min-height: 44px;
+    padding: 6px 14px;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.tageslauf-block button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+#selbsttest-sheet .tageslauf-block {
+    width: 100%;
+    margin: 0 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    box-sizing: border-box;
+}

@@ -118,7 +118,7 @@ const iSheetEnde = html.indexOf('id="selbsttest-text"');
 const iKopfEnde = html.indexOf('</header>');
 const iChat = html.indexOf('id="chat-container"');
 pruefe(iSheet !== -1 && iSheetEnde > iSheet, 'Checks-Fenster (#selbsttest-sheet) mit Textfeld vorhanden');
-const reihenfolge = ['server-zustand', 'hintergrund-leiste', 'datenstand', 'server-protokoll'];
+const reihenfolge = ['server-zustand', 'hintergrund-leiste', 'datenstand', 'server-protokoll', 'tageslauf-block'];
 let letzte = iSheet;
 reihenfolge.forEach((id) => {
     const i = html.indexOf('id="' + id + '"');
@@ -132,7 +132,8 @@ const vorChat = html.slice(0, iChat);
 pruefe(vorChat.indexOf('id="server-zustand"') === -1
     && vorChat.indexOf('id="hintergrund-leiste"') === -1
     && vorChat.indexOf('id="datenstand"') === -1
-    && vorChat.indexOf('id="server-protokoll"') === -1,
+    && vorChat.indexOf('id="server-protokoll"') === -1
+    && vorChat.indexOf('id="tageslauf-block"') === -1,
     'vor dem Chat steht keiner der vier Blöcke mehr');
 pruefe(/<h2>Checks<\/h2>/.test(html) && !/<h2>Selbsttest<\/h2>/.test(html),
     'Fenster-Überschrift heißt "Checks"');
@@ -213,10 +214,10 @@ pruefe(/#selbsttest-sheet \.server-zustand,[\s\S]*?#selbsttest-sheet \.server-pr
     'die vier Blöcke haben im Fenster volle Breite');
 pruefe(/\.datenstand\[hidden\],\s*\.server-protokoll\[hidden\] \{\s*display: none/.test(css),
     'hidden wird bei Datenstand/Protokoll nicht von display:flex überstimmt');
-pruefe(/app\.js\?v=20261020A/.test(html)
+pruefe(/app\.js\?v=20261026A/.test(html)
     && /style\.css\?v=([0-9A-Z]+)/.test(html)
-    && (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] >= '20261020A',
-    'Cache-Schlüssel app.js 20261020A, style.css mindestens 20261020A');
+    && (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] >= '20261026A',
+    'Cache-Schlüssel app.js 20261026A, style.css mindestens 20261026A');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) fehlgeschlagen.`); process.exit(1); }
 console.log('\nAlle Prüfungen bestanden.');

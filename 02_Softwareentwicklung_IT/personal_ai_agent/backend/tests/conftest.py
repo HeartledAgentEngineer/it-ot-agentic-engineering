@@ -50,3 +50,14 @@ def _gruppierung_manifest_nie_ins_heimverzeichnis(tmp_path_factory, monkeypatch)
     monkeypatch.setenv(
         "GRUPPIERUNG_MANIFEST",
         str(tmp_path_factory.mktemp("manifest_standard") / "sicherungen_manifest.jsonl"))
+
+
+@pytest.fixture(autouse=True)
+def _tageslauf_daten_nie_ins_heimverzeichnis(tmp_path_factory, monkeypatch):
+    """Der Datenordner des Tagesimports (C3) zeigt in Tests in einen leeren tmp-Ordner.
+
+    ``/api/tageslauf`` und der Selbsttest-Block lesen sonst ``~/foto_sortierung`` (echte
+    Schalterdatei, Bericht, Stand). Tests, die den Dienst pruefen, setzen ``TAGESLAUF_DATEN``
+    selbst neu.
+    """
+    monkeypatch.setenv("TAGESLAUF_DATEN", str(tmp_path_factory.mktemp("tageslauf_standard")))

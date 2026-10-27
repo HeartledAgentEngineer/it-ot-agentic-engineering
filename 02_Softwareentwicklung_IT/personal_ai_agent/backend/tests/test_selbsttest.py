@@ -41,6 +41,8 @@ PFAD = "/api/selbsttest"
 PFLICHT_FELDER = {"commit", "index", "daemon", "letzte_antwort",
                   "gedaechtnis", "sprache", "uhrzeit", "pcloud", "fotos",
                   "beziehungen",
+                  # C3 (26.10.2026): Stand des Tagesimports.
+                  "tageslauf",
                   # P0 (12.10.2026): abgewiesene fremde Anfragen je Grund.
                   "abgewiesen"}
 

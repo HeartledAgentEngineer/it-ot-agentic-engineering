@@ -85,7 +85,7 @@ Abgedeckt: Schalter aus (drei Modi, fehlende/explizite/unlesbare Einstellungen, 
 
 - Sebastian schaltet ein (`tageslauf.json` mit `"an": true`).
 - Kamera-Ordner eintragen (`kamera_ordner`).
-- C3: Anzeige und Schalter im Checks-Fenster der App folgt (Bericht liegt dafür in `tageslauf_bericht.json`).
+- C3 ist erledigt (26.10.2026): Anzeige und Schalter im Checks-Fenster der App, Beschreibung in `changelog-2026-10-26-tagesimport-c3.md`. Eintragen von `kamera_ordner` und Einschalten gehen jetzt auch dort; die Schalterdatei von Hand zu ändern ist nicht mehr nötig.
 - Der erste echte Lauf am Handy (C4) ist nicht verifiziert.
 - Nach einem harten W1-Abbruch (Zeitgrenze) räumt der Tageslauf die W1-Sperre nicht selbst ab; das bleibt ein Handgriff (Zeile „W1-Sperre/Manifest prüfen“).
 - Kamera: Der Plan sah einen Eintrag in eine Aufgabenliste für den PC-Gesichterlauf vor. Eine solche Aufgabenliste gibt es im Projekt nicht; gebaut ist nur die Zählung. Der Gesichterlauf über neue Kamerabilder bleibt ein eigener Schritt am PC.

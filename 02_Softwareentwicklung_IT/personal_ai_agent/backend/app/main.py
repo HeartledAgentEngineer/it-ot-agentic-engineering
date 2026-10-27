@@ -47,6 +47,7 @@ from app.router import (
     laeuft,
     system_update,
     datenstand,
+    tageslauf,
 )
 
 # Configure logging
@@ -281,6 +282,10 @@ app.include_router(system_update.router, dependencies=[Depends(auth.require_api_
 # lesend, mit Zwischenspeicher (eine volle Messung liest rund 250 MB), Schutz
 # wie beim Protokoll (Loopback immer, fremd nur HTTPS).
 app.include_router(datenstand.router, dependencies=[Depends(auth.require_api_key)])
+# Tagesimport (2026-10-26, C3): Stand und Schalter des taeglichen Handy-Imports im
+# Checks-Fenster. Liest/schreibt nur die kleine Schalterdatei tageslauf.json (Datenordner
+# TAGESLAUF_DATEN, sonst ~/foto_sortierung); Bericht und Stand des Werkzeugs nur lesend.
+app.include_router(tageslauf.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

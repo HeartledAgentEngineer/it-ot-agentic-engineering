@@ -632,6 +632,38 @@ def _beziehungen_info() -> Dict[str, Any]:
         }
 
 
+# ── Block: Tagesimport ───────────────────────────────────────────────────────
+
+def _tageslauf_info() -> Dict[str, Any]:
+    """Zustand des Tagesimports (C3) — nur Schalter, Tag und Zahlen, kein Pfad.
+
+    Nutzt denselben Dienst wie ``/api/tageslauf`` (``services/tageslauf_status.py``).
+    Diese Funktion wirft nie — bei einem unerwarteten Fehler kommt ein ``error``-Text.
+    """
+    try:
+        from app.services import tageslauf_status
+
+        s = tageslauf_status.status()
+        bericht = s.get("bericht") or {}
+        return {
+            "an": bool(s.get("an")),
+            "einstellungen_lesbar": bool(s.get("einstellungen_lesbar")),
+            "kamera_gesetzt": bool((s.get("kamera_ordner") or {}).get("gesetzt")),
+            "heute_gelaufen": bool(s.get("heute_gelaufen")),
+            "letzter_lauf": bericht.get("datum"),
+            "letzter_exit": bericht.get("exit"),
+            "bericht_veraltet": bool(s.get("bericht_veraltet")),
+            "gemini_faellig": bool((s.get("gemini") or {}).get("faellig")),
+            "error": None,
+        }
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Selbsttest: Tagesimport nicht prüfbar: %s", type(e).__name__)
+        return {"an": None, "einstellungen_lesbar": None, "kamera_gesetzt": None,
+                "heute_gelaufen": None, "letzter_lauf": None, "letzter_exit": None,
+                "bericht_veraltet": None, "gemini_faellig": None,
+                "error": f"Tagesimport nicht prüfbar ({type(e).__name__})"}
+
+
 # ── Block: Abgewiesene Anfragen ──────────────────────────────────────────────
 
 def _abgewiesen_info() -> Dict[str, int]:
@@ -678,6 +710,10 @@ def selbsttest() -> Dict[str, Any]:
                         "stand": None, "aussagen": None, "personen_kennungen": None,
                         "namen_bestaetigt": None, "kontakte": None, "datum_von": None,
                         "datum_bis": None, "error": "nicht geprüft"},
+        "tageslauf": {"an": None, "einstellungen_lesbar": None, "kamera_gesetzt": None,
+                      "heute_gelaufen": None, "letzter_lauf": None, "letzter_exit": None,
+                      "bericht_veraltet": None, "gemini_faellig": None,
+                      "error": "nicht geprüft"},
         "abgewiesen": {},
     }
 
@@ -694,6 +730,7 @@ def selbsttest() -> Dict[str, Any]:
         ("pcloud", _pcloud_info),
         ("fotos", _fotos_info),
         ("beziehungen", _beziehungen_info),
+        ("tageslauf", _tageslauf_info),
         ("abgewiesen", _abgewiesen_info),
     ):
         try:

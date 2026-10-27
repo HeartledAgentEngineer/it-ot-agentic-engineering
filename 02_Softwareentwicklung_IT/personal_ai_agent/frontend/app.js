@@ -9980,6 +9980,24 @@ function selbsttestText(daten) {
             : '✓ Abgewiesen seit Start: keine');
     }
 
+    // Tagesimport (C3): Schalter, letzter Lauf. Fehlt das Feld (aelteres Backend), entfaellt die Zeile.
+    const tl = d.tageslauf;
+    if (tl && typeof tl === 'object') {
+        if (t(tl.error)) {
+            zeilen.push('⚠ Tagesimport: ' + t(tl.error));
+        } else if (tl.an !== true) {
+            zeilen.push('✓ Tagesimport: aus' + (tl.einstellungen_lesbar === false ? ' (Einstellungen nicht lesbar)' : ''));
+        } else {
+            const tlTeile = ['an'];
+            tlTeile.push(tl.heute_gelaufen === true ? 'heute gelaufen' : 'heute noch nicht gelaufen');
+            if (t(tl.letzter_lauf)) tlTeile.push('letzter Lauf ' + t(tl.letzter_lauf)
+                + (tl.letzter_exit !== null && tl.letzter_exit !== undefined ? ' (Exit ' + t(tl.letzter_exit) + ')' : ''));
+            if (tl.kamera_gesetzt !== true) tlTeile.push('Kamera-Ordner nicht eingerichtet');
+            const tlGut = tl.heute_gelaufen === true && tl.letzter_exit === 0 && tl.bericht_veraltet !== true;
+            zeilen.push((tlGut ? '✓ ' : '⚠ ') + 'Tagesimport: ' + tlTeile.join(' · '));
+        }
+    }
+
     return zeilen.join('\n');
 }
 
@@ -9990,6 +10008,7 @@ function zeigeSelbsttest(klartext) {
 
 /** Holt GET /api/selbsttest und zeigt ihn als Klartext. Nur auf Knopfdruck/beim Öffnen. */
 async function ladeSelbsttest() {
+    ladeTageslauf();
     if (!dom.selbsttestText) return;
     dom.selbsttestText.textContent = 'Prüfe …';
     if (dom.selbsttestHint) {
@@ -10629,6 +10648,184 @@ function datenstandZeilen(antwort) {
     knopf.addEventListener('click', () => umschalten(bereich.hidden));
     if (neuBtn) neuBtn.addEventListener('click', () => laden(true));
 })();
+
+// =========================================================================
+// Tagesimport im Checks-Fenster (26.10.2026, Schritt C3)
+// Das Werkzeug tools/handy/tageslauf.py holt einmal am Tag alles Lokale nach
+// (Standard AUS). Hier: Stand anzeigen, ein- und ausschalten, Kamera-Ordner
+// setzen, "Gemini-Export heute erledigt". Quelle: GET /api/tageslauf, Schreiben
+// ueber POST /api/tageslauf/einstellungen. Klartext ohne Symbole, Anzeige nur per
+// textContent. Der reine Teil (bis zur Marke unten) ist ohne DOM testbar:
+// frontend/tests/test_tageslauf_anzeige.js.
+// =========================================================================
+
+/** Kurznamen der Bausteine; der Gemini-Baustein des Berichts entfaellt in der
+ *  Anzeige, weil die Gemini-Zeile vom aktuellen Stand kommt (nicht vom letzten Lauf). */
+const TAGESLAUF_BAUSTEIN_NAMEN = { gemini: 'Gemini' };
+
+/** REINE Umwandlung Antwort von GET /api/tageslauf -> Klartext (Zeilen mit \n). */
+function tageslaufText(daten) {
+    if (!daten || typeof daten !== 'object' || daten.ok !== true) {
+        return 'Tagesimport nicht abrufbar.';
+    }
+    const zeilen = [];
+    const lesbar = daten.einstellungen_lesbar !== false;
+    zeilen.push('Tagesimport: ' + (daten.an === true ? 'an' : 'aus')
+        + (lesbar ? '' : ' (Einstellungen nicht lesbar)'));
+    const ordner = (daten.kamera_ordner && typeof daten.kamera_ordner === 'object') ? daten.kamera_ordner : {};
+    zeilen.push('Kamera-Ordner: ' + (ordner.gesetzt === true && typeof ordner.wert === 'string' && ordner.wert
+        ? ordner.wert : 'nicht eingerichtet'));
+    if (daten.an === true) {
+        zeilen.push('Heute: ' + (daten.heute_gelaufen === true ? 'schon gelaufen' : 'noch nicht gelaufen'));
+    }
+    const bericht = (daten.bericht && typeof daten.bericht === 'object') ? daten.bericht : null;
+    if (!bericht) {
+        zeilen.push('Letzter Lauf: noch keiner');
+    } else {
+        let kopf = 'Letzter Lauf: ' + (typeof bericht.datum === 'string' && bericht.datum ? bericht.datum : 'Datum unbekannt');
+        if (daten.bericht_veraltet === true) kopf += ' (nicht von heute)';
+        if (typeof bericht.exit === 'number') kopf += bericht.exit === 0 ? ' · in Ordnung' : ' · Exit ' + bericht.exit;
+        zeilen.push(kopf);
+        const liste = Array.isArray(bericht.bausteine) ? bericht.bausteine : [];
+        liste.forEach((b) => {
+            if (!b || typeof b !== 'object') return;
+            if (b.name === 'gemini') return;
+            const text = (typeof b.text === 'string' && b.text) ? b.text : (typeof b.name === 'string' ? b.name : '');
+            if (text) zeilen.push('  ' + text);
+        });
+    }
+    const gemini = (daten.gemini && typeof daten.gemini === 'object') ? daten.gemini : {};
+    if (gemini.faellig === false && typeof gemini.tage_seit_export === 'number') {
+        zeilen.push(TAGESLAUF_BAUSTEIN_NAMEN.gemini + ': letzter Export vor ' + gemini.tage_seit_export
+            + (gemini.tage_seit_export === 1 ? ' Tag' : ' Tagen'));
+    } else {
+        zeilen.push(TAGESLAUF_BAUSTEIN_NAMEN.gemini + ': Takeout-Export fällig (alle 2 Monate)');
+    }
+    return zeilen.join('\n');
+}
+
+/** REINE Beschriftung des Schalter-Knopfs. */
+function tageslaufSchalterText(daten) {
+    return (daten && typeof daten === 'object' && daten.an === true)
+        ? 'Tagesimport ausschalten' : 'Tagesimport einschalten';
+}
+
+/** REINE Rueckmeldung nach erfolgreichem Speichern (`was` = gesendetes Feld). */
+function tageslaufGespeichertText(was, daten) {
+    const d = (daten && typeof daten === 'object') ? daten : null;
+    if (d && was === 'an') return 'Gespeichert: Tagesimport ist jetzt ' + (d.an === true ? 'an.' : 'aus.');
+    if (d && was === 'kamera_ordner' && d.kamera_ordner && typeof d.kamera_ordner.wert === 'string') {
+        return 'Gespeichert: Kamera-Ordner ' + d.kamera_ordner.wert;
+    }
+    if (d && was === 'gemini_export_heute') return 'Gespeichert: Gemini-Export für heute eingetragen.';
+    return 'Gespeichert.';
+}
+
+/** REINE Fehlermeldung (`detail` = Text des Servers, falls vorhanden). */
+function tageslaufFehlerText(status, detail) {
+    if (typeof detail === 'string' && detail.trim()) {
+        return detail.indexOf('Nicht gespeichert') === 0 ? detail : 'Nicht gespeichert: ' + detail;
+    }
+    if (typeof status === 'number') return 'Nicht gespeichert (HTTP ' + status + ').';
+    return 'Nicht gespeichert: keine Antwort vom Server.';
+}
+
+// ── Tageslauf: Anzeige und Bedienung (nicht rein: DOM und Netz) ────────────
+
+let _tageslaufDaten = null;
+let _tageslaufBeschaeftigt = false;
+
+function _tageslaufEl(id) { return document.getElementById(id); }
+
+function zeigeTageslauf(daten) {
+    _tageslaufDaten = daten;
+    const text = _tageslaufEl('tageslauf-text');
+    const stand = _tageslaufEl('tageslauf-stand');
+    const schalter = _tageslaufEl('tageslauf-schalter');
+    const ordner = _tageslaufEl('tageslauf-ordner');
+    if (text) text.textContent = tageslaufText(daten);
+    if (stand) stand.textContent = (daten && daten.ok === true && typeof daten.heute === 'string')
+        ? 'Stand vom ' + daten.heute : 'Tagesimport';
+    if (schalter) schalter.textContent = tageslaufSchalterText(daten);
+    // Ein Wert, den Sebastian gerade tippt, wird nie ueberschrieben.
+    if (ordner && document.activeElement !== ordner && daten && daten.ok === true && daten.kamera_ordner) {
+        ordner.value = typeof daten.kamera_ordner.wert === 'string' ? daten.kamera_ordner.wert : '';
+    }
+}
+
+function _tageslaufMeldung(text) {
+    const el = _tageslaufEl('tageslauf-status');
+    if (!el) return;
+    el.textContent = text;
+    el.hidden = !text;
+}
+
+function _tageslaufSperren(gesperrt) {
+    _tageslaufBeschaeftigt = gesperrt;
+    ['tageslauf-schalter', 'tageslauf-ordner-speichern', 'tageslauf-gemini'].forEach((id) => {
+        const el = _tageslaufEl(id);
+        if (el) el.disabled = gesperrt;
+    });
+}
+
+/** Holt GET /api/tageslauf. Beim Oeffnen und Aktualisieren des Checks-Fensters, kein Polling. */
+async function ladeTageslauf() {
+    if (!_tageslaufEl('tageslauf-block') || _tageslaufBeschaeftigt) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/tageslauf`, { credentials: 'same-origin', cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        zeigeTageslauf(await res.json());
+    } catch (_) {
+        zeigeTageslauf(null);
+        _tageslaufMeldung('Tagesimport: keine Antwort vom Server.');
+    }
+}
+
+/** Sendet ein Feld an POST /api/tageslauf/einstellungen und meldet das Ergebnis klar zurueck. */
+async function speichereTageslauf(was, koerper) {
+    if (_tageslaufBeschaeftigt) return;
+    _tageslaufSperren(true);
+    _tageslaufMeldung('Wird gespeichert …');
+    try {
+        const res = await fetch(`${API_BASE}/api/tageslauf/einstellungen`, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(koerper),
+        });
+        const antwort = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            _tageslaufMeldung(tageslaufFehlerText(res.status, antwort && antwort.detail));
+            return;
+        }
+        zeigeTageslauf(antwort);
+        _tageslaufMeldung(tageslaufGespeichertText(was, antwort));
+    } catch (_) {
+        _tageslaufMeldung(tageslaufFehlerText(undefined, undefined));
+    } finally {
+        _tageslaufSperren(false);
+    }
+}
+
+(function () {
+    const schalter = _tageslaufEl('tageslauf-schalter');
+    const speichern = _tageslaufEl('tageslauf-ordner-speichern');
+    const gemini = _tageslaufEl('tageslauf-gemini');
+    const ordner = _tageslaufEl('tageslauf-ordner');
+    if (schalter) schalter.addEventListener('click', () => {
+        const an = !(_tageslaufDaten && _tageslaufDaten.an === true);
+        speichereTageslauf('an', { an: an });
+    });
+    if (speichern && ordner) speichern.addEventListener('click', () => {
+        speichereTageslauf('kamera_ordner', { kamera_ordner: ordner.value });
+    });
+    if (ordner && speichern) ordner.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); speichern.click(); }
+    });
+    if (gemini) gemini.addEventListener('click', () => {
+        speichereTageslauf('gemini_export_heute', { gemini_export_heute: true });
+    });
+})();
+// ── Ende Tageslauf
 
 // =========================================
 // (Kanban-Board/Auftragsbuch-Anzeige entfernt – Sebastian nutzt den
