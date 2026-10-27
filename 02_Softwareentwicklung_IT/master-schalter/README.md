@@ -584,6 +584,9 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
   `ERGEBNIS: LÄUFT (Auftrag <id>)` an; die letzte Zeile am Ende ist `ERGEBNIS: FERTIG` oder `ERGEBNIS: BLOCKIERT`.
 - **Schutz vor doppelter Ausführung:** Existiert die Ergebnisdatei dieses Auftrags schon, wird der Auftrag nicht erneut zugestellt,
   sondern mit Vermerk „Ergebnis vorhanden – bereits angenommen“ nach `erledigt/` verschoben.
+- **Nachweis (27.10.2026):** Echter Auftrag per `claude-auftrag` an eine laufende Claude-Sitzung, Zustellung beim
+  nächsten `PostToolUse`, Ergebnisdatei mit `ERGEBNIS: FERTIG`, Auftrag danach unter `erledigt/`. Die Zustellung bei
+  `Stop` ist nur durch Tests belegt, noch nicht live. Der Hook-Eintrag zeigt seit 27.10. auf den Hauptstand.
 - **Grenze:** Ruht die Sitzung zwischen zwei Antworten, kommt der Auftrag erst beim nächsten Ereignis an (z. B. der
   nächsten Nachricht von Sebastian). Ruhende Desktop-Sitzungen kann der Hook nicht wecken; dafür bleibt ein frischer
   `claude -p`-Lauf.
