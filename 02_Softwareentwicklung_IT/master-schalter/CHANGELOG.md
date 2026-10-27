@@ -11,6 +11,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   Besitzer, Ausführer und wirksame Automatik (aktives Paar + Master „kontingent“ + globale Automatik),
   die drei jüngsten Sitzungen (veraltetes „arbeitet“ markiert), den nächsten Reset im Limit und
   ausdrücklich „Wartet worauf: noch keine Statusquelle“. Nur lesend; über Pipes UTF-8.
+- `kurz` zeigt je Sitzung das Thema, wenn die Zuordnung Chat → Thema bestätigt ist (`zuordnung.json`);
+  sonst „Thema nicht zugeordnet“. Keine Vermutung aus Titel oder Ordner.
 - Tests `tests/test_kurz.py` (12), u. a. Rest statt Verbrauch, Automatik-Bedingung, unlesbarer Besitz,
   nur-lesend-Nachweis und UTF-8 über eine Pipe (ohne die Umstellung rot).
 

@@ -90,10 +90,14 @@ def test_sitzungen_hoechstens_drei_gekuerzt_und_veraltetes_arbeitet_markiert():
                  for i in range(5)]
     sitzungen.append(kurz.Sitzung("claude", "altaltaltalt", status.ARBEITET, JETZT - timedelta(hours=11)))
     zeilen = [z for z in _zeilen(sitzungen=sitzungen) if z.startswith("Sitzung ")]
-    assert zeilen == ["Sitzung Claude 0abcdefg · arbeitet · 20:00", "Sitzung Claude 1abcdefg · arbeitet · 19:50",
-                      "Sitzung Claude 2abcdefg · arbeitet · 19:40"]
+    ohne = "Thema nicht zugeordnet"
+    assert zeilen == [f"Sitzung Claude 0abcdefg · {ohne} · arbeitet · 20:00",
+                      f"Sitzung Claude 1abcdefg · {ohne} · arbeitet · 19:50",
+                      f"Sitzung Claude 2abcdefg · {ohne} · arbeitet · 19:40"]
     alt = _zeilen(sitzungen=[sitzungen[-1]])
-    assert "Sitzung Claude altaltal · arbeitet? (veraltet) · 09:00" in alt
+    assert f"Sitzung Claude altaltal · {ohne} · arbeitet? (veraltet) · 09:00" in alt
+    mit = _zeilen(sitzungen=[kurz.Sitzung("claude", "abcdefghij", status.RUHT, JETZT, "portfolio")])
+    assert "Sitzung Claude abcdefgh · portfolio · ruht · 20:00" in mit
 
 
 def test_zeilenzahl_und_ehrliche_wartezeile():
@@ -115,7 +119,9 @@ def _umgebung(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("MASTER_SCHALTER_REPO", str(repo))
     paare.setzen("thema-a", THREAD, paare.laufend_bilden("thema-a"), aktiv=True)
     besitz.schreiben(besitz.pfad(repo, paare.laufend_bilden("thema-a")), "hermes 2026-10-27T20:00:00+00:00 modus x")
-    status.schreiben("claude", "sitzung-1", status.RUHT, "Stop")
+    status.schreiben("claude", "eins-sitzung", status.RUHT, "Stop")
+    status.schreiben("claude", "zwei-sitzung", status.RUHT, "Stop")
+    (daten / "zuordnung.json").write_text('{"claude:eins-sitzung": "thema-a"}', encoding="utf-8")
     return repo
 
 
@@ -123,7 +129,8 @@ def test_sammeln_liest_echte_quellen_ohne_uuid(tmp_path, monkeypatch):
     _umgebung(tmp_path, monkeypatch)
     text = "\n".join(kurz.sammeln())
     assert "thema-a: Master nach Kontingent (Besitz hermes)" in text
-    assert "Sitzung Claude sitzung-" in text
+    assert "Sitzung Claude eins-sit · thema-a · ruht" in text
+    assert "Sitzung Claude zwei-sit · Thema nicht zugeordnet · ruht" in text
     assert THREAD not in text and str(tmp_path) not in text
 
 
