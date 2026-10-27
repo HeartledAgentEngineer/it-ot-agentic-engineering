@@ -34,6 +34,9 @@
                                       Wechselvorgänge weiterführen (Frist, Rolle setzen, zustellen)
     masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
     masterwechsel fenster             Wechselfenster öffnen (Themen, Übergabe starten, Vorgänge, Protokoll; nur eine Instanz)
+    masterwechsel claude-auftrag --sitzung KENNUNG --thema THEMA --datei .hermes/….md [--von codex|hermes]
+                                      Auftrag an eine Claude-Code-Sitzung ablegen (Zustellung per Hook, auch bei Stop)
+    masterwechsel claude-sitzungen    Claude-Sitzungen aus dem Statusregister (Kennung, Zustand, letzte Meldung)
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -44,8 +47,8 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, assistent, assistent_vorgaenge, automatik, chat_register, chat_zuordnung, claude_messen,
-               modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
+from . import (__version__, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
+               claude_messen, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -441,6 +444,36 @@ def _rueckgabe_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _claude_auftrag_cli(args: argparse.Namespace) -> int:
+    try:
+        basis = auftraege.basis()
+        auftrag_id, _ = auftraege.einlegen(args.sitzung, args.thema, args.datei, basis, von=args.von)
+        datei = auftraege.datei_pruefen(args.datei, basis)
+    except Exception as fehler:  # noqa: BLE001 - klare Diagnose statt Absturz
+        print(f"Auftrag nicht abgelegt: {fehler}", file=sys.stderr)
+        return 2
+    print(f"Auftrag {auftrag_id} abgelegt · Zustellung beim nächsten Ereignis der Sitzung")
+    print(f"Ergebnis: {basis / auftraege.ergebnis_pfad(datei, auftrag_id)}")
+    return 0
+
+
+def _claude_sitzungen_cli(_args: argparse.Namespace) -> int:
+    from . import status
+
+    zeilen = []
+    for pfad in sorted(status.ordner().glob("claude-*.json")) if status.ordner().is_dir() else []:
+        kennung = pfad.stem.removeprefix("claude-")
+        stand = status.lesen("claude", kennung)
+        if stand is not None:
+            zeilen.append((stand[1], kennung, stand[0]))
+    if not zeilen:
+        print("Keine Claude-Sitzung im Statusregister (Hook nicht eingetragen oder noch kein Ereignis).")
+        return 0
+    for zeit, kennung, zustand_ in sorted(zeilen, reverse=True):
+        print(f"{kennung} · {zustand_} · {zeit.astimezone().strftime('%d.%m. %H:%M')}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="masterwechsel", description="Befehlszeile des Master-Schalters")
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
@@ -506,6 +539,12 @@ def _parser() -> argparse.ArgumentParser:
     chats.add_argument("--liste", action="store_true",
                        help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
     unter.add_parser("fenster", help="Wechselfenster öffnen (nur eine Instanz)")
+    auftrag = unter.add_parser("claude-auftrag", help="Auftrag an eine Claude-Code-Sitzung ablegen")
+    auftrag.add_argument("--sitzung", required=True, help="Sitzungskennung (siehe claude-sitzungen)")
+    auftrag.add_argument("--thema", required=True, help="technisches Thema")
+    auftrag.add_argument("--datei", required=True, help="Auftragsdatei, repo-relativ unter .hermes/, Endung .md")
+    auftrag.add_argument("--von", choices=auftraege.VON, default="codex", help="Absender (Standard codex)")
+    unter.add_parser("claude-sitzungen", help="Claude-Sitzungen aus dem Statusregister anzeigen")
     pruefen = unter.add_parser("automatik-pruefen", help="Automatik Claude → Codex prüfen")
     pruefen.add_argument("--trocken", action="store_true", help="nur zeigen, nichts senden")
     auto = unter.add_parser("automatik", help="Automatik Claude → Codex ein- oder ausschalten")
@@ -575,6 +614,10 @@ def main(argv: list[str] | None = None) -> int:
         return _automatik_weg_cli(args)
     if args.befehl == "rueckgabe":
         return _rueckgabe_cli(args)
+    if args.befehl == "claude-auftrag":
+        return _claude_auftrag_cli(args)
+    if args.befehl == "claude-sitzungen":
+        return _claude_sitzungen_cli(args)
     if args.befehl == "status":
         print(master_zeile())
     print("\n".join(anzeige.details(signale.alle_lesen())))

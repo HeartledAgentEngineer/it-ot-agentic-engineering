@@ -6,6 +6,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Neu
+- **Aufträge an Claude (v0.5.1):** `masterwechsel claude-auftrag` legt einen Auftrag für eine Claude-Code-Sitzung
+  ab (Verweis auf eine `.hermes/`-Datei, gemeinsame Dateibasis im Hauptarbeitsbaum); `masterwechsel
+  claude-sitzungen` zeigt die Sitzungen aus dem Statusregister. Der Claude-Hook stellt Aufträge bei
+  `UserPromptSubmit`/`PostToolUse` und – neu – bei `Stop` per `decision: block` zu (nicht bei aktivem
+  `stop_hook_active`). Eine vorhandene Ergebnisdatei desselben Auftrags (`…-ergebnis-<id>.md`) verhindert die erneute Zustellung. Wechselnachrichten des
+  Postfachs bleiben unverändert.
 - **Claude-Anmeldung:** Taskleistenaktion öffnet unter Windows `claude auth login --claudeai` in einer eigenen
   interaktiven Konsole. Exit 0 fordert nur eine neue Messung an; deren tatsächlicher Erfolg bleibt der Beleg
   für lesbare Kontingentwerte. `CLAUDE_CONFIG_DIR` wird geteilt; leer oder ungesetzt nutzt `~/.claude`.
