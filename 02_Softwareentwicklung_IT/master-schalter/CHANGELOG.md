@@ -6,6 +6,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Geändert
+- `kurz`: Jede Limitzeile sagt ausdrücklich „… % übrig“ und nennt die Zeit bis zum Reset („Reset in 3 h 33 min,
+  01:39“); Überschrift „Kontingent übrig:“, „Als Nächstes“ mit „(in …)“. Anlass: „67 %“ wurde als Verbrauch gelesen.
 - Leiste: Eine gescheiterte Claude-Messung steht mit Fehlerart und ggf. HTTP-Code im Log, z. B.
   `Claude-Messung fehlgeschlagen: … [http, HTTP 503]`, `[netz]`, `[antwort]`, `[speichern]` oder eine der
   Anmeldearten `[anmeldung_…]` (vorher nur der
@@ -20,7 +22,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   ausdrücklich „Wartet worauf: noch keine Statusquelle“. Nur lesend; über Pipes UTF-8.
 - `kurz` zeigt je Sitzung das Thema, wenn die Zuordnung Chat → Thema bestätigt ist (`zuordnung.json`);
   sonst „Thema nicht zugeordnet“. Keine Vermutung aus Titel oder Ordner.
-- Tests `tests/test_kurz.py` (12), u. a. Rest statt Verbrauch, Automatik-Bedingung, unlesbarer Besitz,
+- Tests `tests/test_kurz.py` (13), u. a. Rest statt Verbrauch, Automatik-Bedingung, unlesbarer Besitz,
   nur-lesend-Nachweis und UTF-8 über eine Pipe (ohne die Umstellung rot).
 
 ## [0.5.1] – 2026-10-27
