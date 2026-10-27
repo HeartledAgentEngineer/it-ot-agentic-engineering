@@ -8,6 +8,9 @@ Rücksetzzeiten an `claude_schreiben`; `claude_lesen` bleibt Datei-Leser.
   (`~/.codex/sessions/**/rollout-*.jsonl`, Ereignis `token_count`). Daraus
   werden ausschließlich Zahlen übernommen (Prozent, Rücksetzzeit, Zeitstempel);
   der Rest jeder Zeile wird im Speicher verworfen.
+* `codex_messen` fragt Codex aktiv ab (ohne Tokenverbrauch) und übergibt nur geprüfte Prozentwerte und
+  Rücksetzzeiten an `codex_schreiben` (`codex-kontingent.json`); `codex_lesen` nimmt den neueren Stand
+  aus Sitzungsdateien und aktiver Messung.
 * `claude_schreiben` legt nur Prozent und Rücksetzzeiten in
   `kontingent-claude.json` ab; `claude_lesen` liest und prüft sie.
 """
@@ -18,13 +21,15 @@ import math
 import os
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 CODEX_LIMIT_ID = "codex"
 ANFANG_BYTES = 4096  # Dateianfang als Fingerabdruck: erkennt neu geschriebene Sitzungsdateien
 CLAUDE_FENSTER = (("five_hour", "5h"), ("seven_day", "Woche"))
+CODEX_FENSTER = ("5h", "Woche")
+MESSUNG_ZUKUNFT = timedelta(minutes=1)  # Messzeit weiter in der Zukunft gilt nicht als „neuer“
 
 
 @dataclass(frozen=True)
@@ -207,8 +212,7 @@ class CodexLeser:
 _STANDARD_LESER = CodexLeser()
 
 
-def codex_lesen(ordner: Path | None = None, jetzt: datetime | None = None,
-                leser: CodexLeser | None = None) -> Kontingent:
+def _codex_sitzungen(ordner: Path | None, jetzt: datetime, leser: CodexLeser | None) -> Kontingent:
     """Neuester gültiger Codex-Eintrag über alle Sitzungsdateien.
 
     Die Dateien werden nach Änderungszeit absteigend gelesen. Ein Eintrag wird geschrieben,
@@ -217,7 +221,6 @@ def codex_lesen(ordner: Path | None = None, jetzt: datetime | None = None,
     kann keine ältere Datei mehr einen neueren Eintrag enthalten — dort endet die Suche.
     """
     ordner = ordner or codex_ordner()
-    jetzt = jetzt or datetime.now(timezone.utc)
     leser = leser or _STANDARD_LESER
     if not ordner.is_dir():
         return Kontingent("Codex", fehler="keine Daten")
@@ -239,6 +242,83 @@ def codex_lesen(ordner: Path | None = None, jetzt: datetime | None = None,
         _fenster("5h", grenzen["primary"], "used_percent", jetzt),
         _fenster("Woche", grenzen["secondary"], "used_percent", jetzt),
     ), stand=zeit)
+
+
+def codex_datei() -> Path:
+    return daten_ordner() / "codex-kontingent.json"
+
+
+def _codex_filtern(fenster: Any) -> dict:
+    """Nur Prozent (0–100) und Rücksetzzeit beider Fenster übernehmen; sonst leer (= ungültig)."""
+    if not isinstance(fenster, dict):
+        return {}
+    sauber: dict = {}
+    for name in CODEX_FENSTER:
+        roh = fenster.get(name)
+        if not isinstance(roh, dict):
+            return {}
+        prozent = _prozent(roh.get("used_percent"))
+        if prozent is None:
+            return {}
+        reset_roh = roh.get("resets_at")
+        if reset_roh is None:
+            # Kein offenes Fenster: ohne Rücksetzzeit gilt nur 0 %; mit Verbrauch bleibt es ungültig.
+            if prozent != 0:
+                return {}
+            sauber[name] = {"used_percent": 0.0, "resets_at": None}
+            continue
+        reset = _zahl(reset_roh)
+        if reset is None or _epoche(reset) is None:
+            return {}
+        sauber[name] = {"used_percent": prozent, "resets_at": reset}
+    return sauber
+
+
+def codex_schreiben(fenster: Any, datei: Path | None = None, jetzt: datetime | None = None) -> bool:
+    """Speichert die aktiv gemessenen Codex-Kontingente; ohne gültige Werte bleibt die alte Datei stehen."""
+    sauber = _codex_filtern(fenster)
+    if len(sauber) != len(CODEX_FENSTER):
+        return False
+    jetzt = jetzt or datetime.now(timezone.utc)
+    inhalt = json.dumps({"version": 1, "gelesen_um": jetzt.isoformat(), "fenster": sauber}, ensure_ascii=False)
+    _atomar_schreiben(datei or codex_datei(), inhalt)
+    return True
+
+
+def codex_messung_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Kontingent | None:
+    """Aktive Codex-Messung aus der Messdatei; `None`, wenn sie fehlt oder nicht gültig ist."""
+    datei = datei or codex_datei()
+    jetzt = jetzt or datetime.now(timezone.utc)
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(roh, dict):
+        return None
+    stand = _iso(roh.get("gelesen_um"))
+    sauber = _codex_filtern(roh.get("fenster"))
+    if stand is None or len(sauber) != len(CODEX_FENSTER):
+        return None
+    return Kontingent("Codex", tuple(_fenster(name, sauber[name], "used_percent", jetzt)
+                                     for name in CODEX_FENSTER), stand=stand)
+
+
+def codex_lesen(ordner: Path | None = None, jetzt: datetime | None = None,
+                leser: CodexLeser | None = None, messdatei: Path | None = None) -> Kontingent:
+    """Der neuere Codex-Stand aus Sitzungsdateien und aktiver Messung.
+
+    Die Sitzungsdateien sind nur frisch, solange Codex arbeitet; die aktive Messung (`codex_messen`)
+    deckt auch die Ruhezeiten ab. Ohne gültige Messdatei bleibt es beim Stand aus den Sitzungsdateien.
+    Eine Messung mit Zeit deutlich in der Zukunft wird nie bevorzugt.
+    """
+    jetzt = jetzt or datetime.now(timezone.utc)
+    sitzungen = _codex_sitzungen(ordner, jetzt, leser)
+    messung = codex_messung_lesen(messdatei, jetzt)
+    if messung is None or messung.stand is None or messung.stand > jetzt + MESSUNG_ZUKUNFT:
+        return sitzungen
+    if sitzungen.fehler or sitzungen.stand is None or messung.stand > sitzungen.stand:
+        return messung
+    return sitzungen
 
 
 # --- Claude ------------------------------------------------------------------

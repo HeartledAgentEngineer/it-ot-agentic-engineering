@@ -67,3 +67,15 @@ def _keine_echten_chatquellen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("MASTER_SCHALTER_CODEX_STATE", str(leer / "codex.sqlite"))
     monkeypatch.setenv("MASTER_SCHALTER_HERMES_STATE", str(leer / "hermes.db"))
     monkeypatch.delenv("HERMES_HOME", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _kein_echtes_codex_und_keine_echten_daten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kein Test startet je ein echtes `codex.exe` oder liest den echten Datenordner (`~/.master-schalter`)
+    bzw. die echten Codex-Sitzungen (`~/.codex`).
+
+    Beides zeigt auf Nichtvorhandenes unter `tmp_path`; Tests, die etwas Eigenes brauchen, setzen es selbst neu.
+    """
+    monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path / "keine-echten-daten"))
+    monkeypatch.setenv("MASTER_SCHALTER_CODEX", str(tmp_path / "kein-codex" / "codex.exe"))
+    monkeypatch.setenv("MASTER_SCHALTER_CODEX_SESSIONS", str(tmp_path / "keine-codex-sitzungen"))

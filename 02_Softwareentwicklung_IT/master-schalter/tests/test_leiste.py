@@ -1821,3 +1821,218 @@ def test_paarmenue_nennt_den_weg_bei_assistent(lst):
     lst.aktualisieren()
     zeilen = _texte(_eintrag(_einstellungen(lst), "Automatik je Thema").submenu.items)
     assert zeilen == ["engineering: bereit · über Wechselassistent"]
+
+
+# --- Aktive Codex-Messung (v0.5.1, P9) -----------------------------------------------------------
+
+class _StopNachN:
+    """Lässt `iterationen` Durchläufe von `_takt` zu (je Durchlauf wird `is_set` zweimal gefragt)."""
+
+    def __init__(self, iterationen):
+        self.n = 0
+        self.grenze = 2 * iterationen
+
+    def is_set(self):
+        self.n += 1
+        return self.n > self.grenze
+
+
+class _KeineAnforderung:
+    def wait(self, sekunden):
+        return False
+
+    def clear(self):
+        pass
+
+
+def _kontingent_ergebnis(fehler=None):
+    return signale.Kontingent("Codex", fehler=fehler)
+
+
+def test_codex_konstanten_laut_plan():
+    assert leiste.CODEX_TAKT_SEKUNDEN == 300 and leiste.CODEX_VOR_ALTER_SEKUNDEN == 120
+
+
+def test_codex_messen_ausfuehren_protokolliert_nur_die_feste_fehlerklasse(lst, monkeypatch, capsys):
+    monkeypatch.setattr(leiste.codex_messen, "messen",
+                        lambda: _kontingent_ergebnis("Codex-Messung fehlgeschlagen (Zeitüberschreitung)"))
+
+    lst._codex_messen_ausfuehren()
+
+    assert "Codex-Messung fehlgeschlagen (Zeitüberschreitung)" in capsys.readouterr().err
+    assert lst._codex_letzte is not None
+    assert lst._codex_sperre.acquire(blocking=False)      # Sperre wieder frei
+    lst._codex_sperre.release()
+
+
+def test_codex_messen_ausfuehren_stuerzt_bei_ausnahme_nicht_ab_und_zeigt_nur_die_klasse(lst, monkeypatch, capsys):
+    def kaputt():
+        raise RuntimeError("geheimer-text")
+
+    monkeypatch.setattr(leiste.codex_messen, "messen", kaputt)
+
+    lst._codex_messen_ausfuehren()
+
+    fehler = capsys.readouterr().err
+    assert "Codex-Messung fehlgeschlagen (RuntimeError)" in fehler and "geheimer-text" not in fehler
+    assert lst._codex_sperre.acquire(blocking=False)
+    lst._codex_sperre.release()
+
+
+def test_codex_messung_laeuft_nie_parallel(lst, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: aufrufe.append(True) or _kontingent_ergebnis())
+    assert lst._codex_sperre.acquire(blocking=False)
+    try:
+        lst._codex_messen_ausfuehren()
+    finally:
+        lst._codex_sperre.release()
+
+    assert aufrufe == []
+
+
+def test_takt_misst_codex_hoechstens_alle_300_sekunden(lst, monkeypatch):
+    zeit = [0.0]
+    messungen = []
+
+    class Anfrage:
+        def wait(self, sekunden):
+            zeit[0] += 60
+            return False
+
+        def clear(self):
+            pass
+
+    monkeypatch.setattr(leiste.time, "monotonic", lambda: zeit[0])
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    monkeypatch.setattr(lst, "_bestaetigung_anfordern", lambda: None)
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(zeit[0]) or _kontingent_ergebnis())
+    lst._stopp = _StopNachN(11)
+    lst._messung_angefordert = Anfrage()
+    lst._messung_intervall = 10 ** 9
+
+    lst._takt()
+
+    # Erste Messung im ersten Takt (60 s), danach frühestens 300 s später.
+    assert messungen == [60.0, 360.0, 660.0]
+
+
+def test_takt_messfehler_beendet_den_takt_nicht(lst, monkeypatch):
+    aktualisierungen = []
+    monkeypatch.setattr(lst, "aktualisieren", lambda: aktualisierungen.append(True))
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    monkeypatch.setattr(lst, "_bestaetigung_anfordern", lambda: None)
+    monkeypatch.setattr(leiste.codex_messen, "messen",
+                        lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    lst._stopp = _StopNachN(2)
+    lst._messung_angefordert = _KeineAnforderung()
+    lst._messung_intervall = 10 ** 9
+
+    lst._takt()
+
+    assert len(aktualisierungen) == 2     # beide Takte liefen weiter
+
+
+def _claude_im_limit_schreiben(prozent_fuenf=95.0):
+    jetzt = datetime.now(timezone.utc)
+    assert signale.claude_schreiben({
+        "five_hour": {"used_percentage": prozent_fuenf, "resets_at": (jetzt + timedelta(hours=2)).timestamp()},
+        "seven_day": {"used_percentage": 10.0, "resets_at": (jetzt + timedelta(days=3)).timestamp()},
+    }, jetzt=jetzt)
+
+
+def _codex_stand_schreiben(alter_sekunden):
+    jetzt = datetime.now(timezone.utc)
+    assert signale.codex_schreiben({
+        "5h": {"used_percent": 5.0, "resets_at": (jetzt + timedelta(hours=2)).timestamp()},
+        "Woche": {"used_percent": 5.0, "resets_at": (jetzt + timedelta(days=3)).timestamp()},
+    }, jetzt=jetzt - timedelta(seconds=alter_sekunden))
+
+
+def test_vor_automatik_misst_bei_claude_ueber_schwelle_und_altem_codex_stand(lst, monkeypatch):
+    anzeige.schwelle_setzen(80)
+    _claude_im_limit_schreiben(95.0)
+    _codex_stand_schreiben(500)
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == [True]
+
+
+def test_vor_automatik_ohne_codex_datei_misst_ebenfalls(lst, monkeypatch):
+    anzeige.schwelle_setzen(80)
+    _claude_im_limit_schreiben(95.0)
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == [True]
+
+
+def test_vor_automatik_misst_nicht_bei_frischem_codex_stand(lst, monkeypatch):
+    anzeige.schwelle_setzen(80)
+    _claude_im_limit_schreiben(95.0)
+    _codex_stand_schreiben(60)
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == []
+
+
+def test_vor_automatik_misst_nicht_wenn_claude_unter_der_schwelle_ist(lst, monkeypatch):
+    anzeige.schwelle_setzen(80)
+    _claude_im_limit_schreiben(40.0)
+    _codex_stand_schreiben(500)
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == []
+
+
+def test_vor_automatik_misst_nicht_ohne_claude_messung(lst, monkeypatch):
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == []
+
+
+def test_vor_automatik_lesefehler_wirft_nicht(lst, monkeypatch, capsys):
+    def kaputt(**kw):
+        raise OSError("geheimer-pfad")
+
+    monkeypatch.setattr(leiste.signale, "claude_lesen", kaputt)
+    messungen = []
+    monkeypatch.setattr(leiste.codex_messen, "messen", lambda: messungen.append(True) or _kontingent_ergebnis())
+
+    lst._codex_vor_automatik()
+
+    assert messungen == [] and "geheimer-pfad" not in capsys.readouterr().err
+
+
+def test_takt_misst_codex_vor_der_automatikpruefung(lst, monkeypatch):
+    reihenfolge = []
+    anzeige.automatik_setzen(True)
+    monkeypatch.setattr(lst, "aktualisieren", lambda: None)
+    monkeypatch.setattr(lst, "_messung_ausfuehren", lambda: None)
+    monkeypatch.setattr(lst, "_codex_takt_pruefen", lambda: None)
+    monkeypatch.setattr(lst, "_codex_vor_automatik", lambda: reihenfolge.append("codex"))
+    monkeypatch.setattr(lst, "_automatik_anfordern", lambda: reihenfolge.append("automatik"))
+    lst._stopp = _StopNachN(2)
+    lst._messung_angefordert = _KeineAnforderung()
+    lst._messung_fehler = None
+    lst._429_aktiv = False
+    lst._messung_intervall = -1
+
+    lst._takt()
+
+    assert reihenfolge[:2] == ["codex", "automatik"]

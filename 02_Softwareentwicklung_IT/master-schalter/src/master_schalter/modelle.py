@@ -509,16 +509,15 @@ def _bereinigen(prozess: subprocess.Popen, threads: tuple[threading.Thread, ...]
         thread.join(min(PIPE_SEKUNDEN, max(0.0, ende - time.monotonic())))
     if all(not thread.is_alive() for thread in threads):
         return
-    for strom in (prozess.stdout, prozess.stderr, prozess.stdin):
-        if strom is not None:
-            try:
-                strom.close()
-            except (OSError, ValueError):
-                pass
-    for thread in threads:
-        thread.join(min(PIPE_SEKUNDEN, max(0.0, ende - time.monotonic())))
-    if any(thread.is_alive() for thread in threads):
-        raise BereinigungsFehler("Datenströme des Prozesses ließen sich nicht schließen")
+    # Ein Lesefaden hält die Lesesperre des gepufferten stdout/stderr; `close()` darauf würde bis zum Ende des
+    # Lesens blockieren (z. B. wenn ein Kindprozess die Pipe nach dem Ende des Elternprozesses offen hält).
+    # Deshalb werden die lesenden Ströme hier nie geschlossen: der Daemon-Faden bleibt liegen, der Fehler ist sichtbar.
+    if prozess.stdin is not None:
+        try:
+            prozess.stdin.close()
+        except (OSError, ValueError):
+            pass
+    raise BereinigungsFehler("Datenströme des Prozesses ließen sich nicht schließen")
 
 
 def _lauf(liste: list[str], umgebung: dict[str, str], eingabe: bytes, frist: float,

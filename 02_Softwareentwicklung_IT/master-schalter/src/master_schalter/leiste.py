@@ -17,6 +17,12 @@ Netzabfrage statt (auch der Fensterstart läuft in einem eigenen Faden). Rollen�
 Hintergrund mit nichtblockierender Themensperre; der Modellkatalog wird im Hintergrund mit
 Single-Flight-Riegel abgeglichen.
 
+**Codex-Messung:** Codex-Sitzungsdateien sind nur frisch, solange Codex arbeitet. Deshalb misst der Takt Codex
+aktiv (`codex_messen`, kein Tokenverbrauch) – höchstens alle `CODEX_TAKT_SEKUNDEN` (300 s) – und zusätzlich vor
+der Automatikprüfung, wenn die frische Claude-Messung die Schwelle erreicht und der Codex-Stand älter als
+`CODEX_VOR_ALTER_SEKUNDEN` (120 s) ist. Das läuft im Messfaden (nie im Menü-/Klickfaden); Fehler erscheinen nur
+mit ihrer Fehlerklasse im Log.
+
 **Takt des Wechselassistenten:** ein eigener leichter Faden (`ASSISTENT_TAKT_SEKUNDEN` = 10 s), unabhängig vom
 60-s-Messtakt, ruft für jeden nicht endgültigen Vorgang `assistent.fortsetzen(id)`. Ein Fehler wird nur mit
 seiner Klasse protokolliert und beendet nichts. Danach wird das Menü neu gebaut, wenn sich eine Phase geändert
@@ -40,13 +46,15 @@ from typing import Callable
 
 import pystray
 
-from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_anmeldung, claude_messen, dialog, fenster_modell, modi,
+from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_anmeldung, claude_messen, codex_messen, dialog, fenster_modell, modi,
                modelle, paare, rollen, rueckgabe, signale, symbol, uebergabe, vorgaenge, wechsel, zustand)
 
 
 TAKT_SEKUNDEN = 60
 ASSISTENT_TAKT_SEKUNDEN = 10   # Wechselassistent: fortsetzen für jeden offenen Vorgang
 MODELLE_TAKT_SEKUNDEN = 1800   # automatischer Katalogabgleich höchstens alle 30 Minuten
+CODEX_TAKT_SEKUNDEN = 300      # aktive Codex-Messung (`codex_messen`) im Messtakt höchstens alle 5 Minuten
+CODEX_VOR_ALTER_SEKUNDEN = 120  # vor der Automatik: Codex-Stand älter als das → vorher frisch messen
 # Ein Hinweis zu einem höheren Ereignis macht die niedrigeren desselben Vorgangs überflüssig.
 HINWEIS_VERDRAENGT = {"uebernommen": ("rolle",)}
 
@@ -88,6 +96,8 @@ class Leiste:
         self._anmeldung_sperre = threading.Lock()
         self._anmeldung_aktiv = False
         self._anmeldung_prozess = None
+        self._codex_sperre = threading.Lock()
+        self._codex_letzte: float | None = None   # monotone Zeit des letzten Codex-Messversuchs
         self._arbeits_thread = None
         self._assistent_thread = None
         self._assistent_sperre = threading.Lock()
@@ -639,6 +649,7 @@ class Leiste:
                 break
             if angefordert:
                 self._messung_angefordert.clear()
+            self._codex_takt_pruefen()
             self.aktualisieren()
             intervall_abgelaufen = time.monotonic() - letzte_messung >= self._messung_intervall
             if (angefordert and not self._429_aktiv) or intervall_abgelaufen:
@@ -646,10 +657,52 @@ class Leiste:
                 letzte_messung = time.monotonic()
                 self.aktualisieren()
                 if anzeige.automatik_an():
+                    if self._messung_fehler is None:
+                        self._codex_vor_automatik()   # Codex ggf. frisch messen, bevor die Automatik ihn liest
                     self._automatik_anfordern()   # eigene Frischegates prüfen auch native Statusline-Werte
                 elif self._messung_fehler is None:
                     self._bestaetigung_anfordern()   # offene Übergaben nach erfolgreicher Messung abhaken
             self._modellabgleich_pruefen()   # abgelaufener Modellkatalog wird im Hintergrund erneuert
+
+    # --- Aktive Codex-Messung -----------------------------------------------------------
+
+    def _codex_takt_pruefen(self) -> None:
+        """Im Messtakt: Codex höchstens alle `CODEX_TAKT_SEKUNDEN` messen. Wirft nie."""
+        letzte = self._codex_letzte
+        if letzte is not None and time.monotonic() - letzte < CODEX_TAKT_SEKUNDEN:
+            return
+        self._codex_messen_ausfuehren()
+
+    def _codex_vor_automatik(self) -> None:
+        """Vor der Automatik: bei frischer Claude-Messung ≥ Schwelle und altem Codex-Stand erst frisch messen."""
+        try:
+            jetzt = datetime.now(timezone.utc)
+            im_limit, _ = automatik._claude_im_limit(signale.claude_lesen(jetzt=jetzt), anzeige.schwelle(), jetzt)
+            if not im_limit:
+                return
+            stand = signale.codex_lesen(jetzt=jetzt).stand
+            if stand is not None and timedelta(0) <= jetzt - stand <= timedelta(seconds=CODEX_VOR_ALTER_SEKUNDEN):
+                return
+        except Exception as fehler:  # noqa: BLE001 - die Vorprüfung darf den Takt nie beenden
+            _protokoll(f"Codex-Vormessung nicht geprüft ({type(fehler).__name__})")
+            return
+        self._codex_messen_ausfuehren()
+
+    def _codex_messen_ausfuehren(self) -> None:
+        """Eine Codex-Messung; läuft nie parallel zu sich selbst. Im Log nur die feste Fehlerklasse."""
+        if not self._codex_sperre.acquire(blocking=False):
+            return
+        try:
+            self._codex_letzte = time.monotonic()
+            try:
+                kontingent = codex_messen.messen()
+            except Exception as fehler:  # noqa: BLE001 - nur die Fehlerklasse, nie Text
+                _protokoll(f"Codex-Messung fehlgeschlagen ({type(fehler).__name__})")
+                return
+            if kontingent.fehler:
+                _protokoll(kontingent.fehler)
+        finally:
+            self._codex_sperre.release()
 
     # --- Takt des Wechselassistenten --------------------------------------------------
 

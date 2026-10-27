@@ -5,7 +5,7 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.5.1** (Entwicklungsstand): Codex-Kontingent wird aktiv gemessen (Abschnitt „Woher die Zahlen kommen“, `masterwechsel codex-messen`). Darunter **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
@@ -19,7 +19,8 @@ Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe 
 5-Stunden-Verbrauch: Grundfarbe bis 79 %, gelb ab 80 %, rot ab der Schwelle (Standard 97 %).
 Die Anzeige wird standardmäßig jede Minute aktualisiert. Die Claude-Messung läuft beim
 Start, nach „Aktualisieren" und anschließend im eingestellten Takt; dabei werden offene Übergaben
-abgehakt (auch wenn die Automatik aus ist).
+abgehakt (auch wenn die Automatik aus ist). Codex wird im selben Messtakt aktiv gemessen (höchstens alle
+5 Minuten, kein Tokenverbrauch; siehe „Woher die Zahlen kommen“).
 
 Im Menü „Einstellungen ▸ Standard-Master (übrige Themen)" (bis v0.4.1: „Master wechseln") kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
 Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Jeder Wechsel
@@ -638,8 +639,8 @@ Nach-Chat; außerdem gibt es den Befehl `chats`.
 
 ## Woher die Zahlen kommen
 
-Codex wird aus lokalen Sitzungsdateien gelesen. Claude wird über den OAuth-Usage-Endpunkt
-gemessen und das Ergebnis lokal zwischengespeichert.
+Codex wird aus lokalen Sitzungsdateien gelesen und (seit v0.5.1) zusätzlich aktiv gemessen. Claude wird
+über den OAuth-Usage-Endpunkt gemessen und das Ergebnis lokal zwischengespeichert.
 
 - **Codex** schreibt seine Kontingente in die eigenen Sitzungsdateien
   `~/.codex/sessions/**/rollout-*.jsonl` (Ereignis `token_count`, `limit_id: "codex"`).
@@ -650,6 +651,31 @@ gemessen und das Ergebnis lokal zwischengespeichert.
   Rücksetzzeit vorbei ist, wird im Kontingentmenü als „zurückgesetzt" angezeigt. Bis ein
   neuer Messwert vorliegt, zeigen Tooltip und Balken weiterhin 0 %; das ist ein bekannter
   Fehler. Die Lage wertet das Fenster als unbekannt und nennt den Grund.
+- **Codex, aktive Messung (v0.5.1)**: Sitzungsdateien sind nur frisch, solange Codex arbeitet. Arbeitet
+  Claude und Codex ruht, wäre die Messung veraltet und die Automatik (verlangt eine Codex-Messung
+  von höchstens 10 Minuten) würde nie auslösen. Deshalb startet `masterwechsel codex-messen` (und der
+  Takt der Taskleiste) `codex.exe app-server` (Argumentliste ohne Shell, ohne Konsolenfenster, stderr
+  verworfen, Umgebung ohne API-/Token-Schlüssel, Arbeitsordner ein leerer Ordner), schickt `initialize`,
+  die Benachrichtigung `initialized` und `account/rateLimits/read` (Zeile je Nachricht, Frist 20 s) und
+  beendet den Prozess samt allen Nachkommen **immer** wieder: unter Windows über ein Jobobjekt (greift auch, wenn der
+  Elternprozess zuerst endet; `taskkill /T` fände die Kinder dann nicht mehr), sonst `taskkill /PID <eigene PID> /T /F`
+  bzw. die eigene Prozessgruppe. Die Bereinigung ist hart zeitbegrenzt (Gnadenfrist 0,5 s + 5 s Kill-Wartezeit + 3 s
+  Einsammeln des Lesefadens); `stdout` wird nie geschlossen, solange der Lesefaden liest (das würde unbegrenzt blockieren) —
+  scheitert die Bereinigung, meldet die Messung „Bereinigung fehlgeschlagen“, statt zu hängen. Das kostet keine Tokens.
+  Die beiden Fenster werden nach `windowDurationMins` zugeordnet (300 → „5h“, 10080 → „Woche“), nicht nach
+  Position; Fenster mit anderer Dauer werden ignoriert (ein Ausweichdatensatz `rateLimitsByLimitId["codex"]` muss selbst
+  zu `codex` gehören), fehlt eines der beiden oder liegt `usedPercent`
+  außerhalb 0–100, ist die Messung ein Fehler und die vorhandene Datei bleibt unverändert. Gespeichert
+  werden **nur** Prozent, Rücksetzzeit und Messzeit in `~/.master-schalter/codex-kontingent.json`
+  — keine Kontofelder (Plan, Credits, Namen); Fehlertexte sind feste Texte mit Fehlerklasse
+  („Codex-Messung fehlgeschlagen (Zeitüberschreitung)“), nie Text aus der Antwort. Der Takt misst höchstens
+  alle 300 s und zusätzlich vor der Automatikprüfung, wenn die frische Claude-Messung die Schwelle
+  erreicht und der Codex-Stand älter als 120 s ist; die Messung läuft im Messfaden, nie im Menüfaden.
+  `signale.codex_lesen` nimmt den **neueren** Stand aus Sitzungsdateien und aktiver Messung (eine Messzeit
+  mehr als eine Minute in der Zukunft wird ignoriert).
+  **Bekannte Grenze:** Das Protokoll von `codex.exe app-server` ist eine Schnittstelle der Codex-App und kann
+  sich ändern; ein Fehlschlag zeigt sich nur im Log (`leiste.log`) und dadurch, dass der Codex-Stand nicht
+  frisch wird.
 - **Claude Code**: `masterwechsel claude-messen` fragt
   `https://api.anthropic.com/api/oauth/usage` ab und speichert nur die beiden geprüften
   Prozentwerte und Rücksetzzeiten in `~/.master-schalter/kontingent-claude.json`.
@@ -708,6 +734,9 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 
 # Claude-Kontingent über die OAuth-API messen
 .\.venv\Scripts\masterwechsel.exe claude-messen
+
+# Codex-Kontingent aktiv messen (kein Tokenverbrauch)
+.\.venv\Scripts\masterwechsel.exe codex-messen
 
 # aktiven Master, Lage und Rollen anzeigen
 .\.venv\Scripts\masterwechsel.exe master
@@ -794,6 +823,7 @@ src/master_schalter/
   ack.py       Bestätigung des Zielchats aus den Rollout-Dateien lesen
   signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
+  codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
   anzeige.py   Texte für Tooltip, Menü, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow)
   leiste.py    Taskleisten-Symbol (pystray) — nur Oberfläche
@@ -818,6 +848,7 @@ committet wird.
 
 | Version | Inhalt |
 |---|---|
+| v0.5.1 | Codex-Kontingent wird aktiv gemessen (`codex_messen`, CLI `codex-messen`, Takt der Leiste alle 5 Minuten und vor der Automatikprüfung); `codex_lesen` nimmt den neueren Stand aus Sitzungsdateien und Messung — Entwicklungsstand |
 | **v0.5.0** | Wechselassistent: Ablauf, Postfach, Claude-Hook, Chatliste, Wechselfenster, Menü nach E9, Takt und Windows-Hinweise, Automatik wahlweise über den Assistenten — **veröffentlichter Stand** |
 | v0.4.1 | Claude-Katalog mit nativem `claude.exe`; Tests unabhängig von der installierten Claude-Version |
 | v0.4.0 | Rollen und Ausführermodelle je Thema (Profil v2), dynamische Modellkataloge von Claude Code und Codex, Menü mit Master-/Ausführer-/Modellwahl und „Modelle aktualisieren", CLI `profil`/`master-setzen`/`worker-setzen`/`modell-setzen`/`modelle`, sichere Prozessbaumbereinigung, NT-Pfadpräfix-Härtung |

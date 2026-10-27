@@ -3,7 +3,9 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
-## [Unreleased]
+## [0.5.1] – 2026-10-27
+
+Aufträge an Claude, Claude-Anmeldung und P9 (Codex-Kontingent aktiv messen).
 
 ### Neu
 - **Aufträge an Claude (v0.5.1):** `masterwechsel claude-auftrag` legt einen Auftrag für eine Claude-Code-Sitzung
@@ -23,6 +25,58 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   deren eigene Frische- und Sicherheitsgates bleiben wirksam. Alte Kontingentstände sind im Menü als veraltet markiert.
 - **Grenzen:** kein eigener Token-Refresh und keine Aussage über Claude-Desktop-Anmeldung oder Aboablauf. Der
   Autostart bleibt ein separates offenes Thema.
+
+### Behoben
+- **Automatik löste praktisch nie aus:** `automatik._codex_frei` verlangt eine Codex-Messung von höchstens
+  10 Minuten, `signale.codex_lesen` las aber nur Sitzungsdateien (`rollout-*.jsonl`), die nur frisch sind, solange
+  Codex arbeitet. Arbeitet Claude und Codex ruht, war die Messung veraltet.
+
+### Neu (P9 Codex-Messung)
+- `codex_messen.messen(programm=None, frist=20.0, jetzt=None)`: startet `codex.exe app-server` (Argumentliste,
+  keine Shell, `stderr` verworfen, unter Windows ohne Konsolenfenster, Umgebung ohne API-/Token-Schlüssel),
+  führt `initialize`, `initialized`, `account/rateLimits/read` aus und beendet den Prozess immer (Bereinigung
+  aus `modelle`). Fenster werden nach `windowDurationMins` zugeordnet (300 → 5h, 10080 → Woche), `usedPercent`
+  außerhalb 0–100 ist ein Fehler. Gespeichert werden nur Prozent, Rücksetzzeit und Messzeit
+  (`codex-kontingent.json`, atomar), keine Kontofelder. Fehler: `Kontingent("Codex", fehler=…)` mit festem
+  Text und Fehlerklasse, nie Text aus der Antwort.
+- `signale.codex_schreiben` / `codex_messung_lesen` / `codex_datei`; `signale.codex_lesen` nimmt den neueren
+  Stand aus Sitzungsdateien und aktiver Messung (Verhalten ohne Messdatei unverändert).
+- CLI `masterwechsel codex-messen` („Codex-Kontingent aktualisiert.“ bzw. fester Fehlertext, Exit 1).
+- Leiste: Codex wird im 60-s-Messtakt höchstens alle `CODEX_TAKT_SEKUNDEN` = 300 gemessen und zusätzlich vor
+  `_automatik_anfordern`, wenn die frische Claude-Messung ≥ Schwelle ist und der Codex-Stand älter als
+  `CODEX_VOR_ALTER_SEKUNDEN` = 120 s ist. Läuft im Messfaden; Fehler nur mit Fehlerklasse im Log.
+
+### Behoben (Nachbesserung P9, Runde 1)
+- **Bereinigung konnte unbegrenzt hängen:** `close()` auf dem gepufferten `stdout` blockiert, solange der Lesefaden
+  darin liest (z. B. wenn der Kill nicht wirkte oder ein Kindprozess die Pipe nach dem Ende des Elternprozesses offen
+  hielt). `codex_messen` schließt `stdout` nun nie, solange der Lesefaden lebt, und hat eine harte Zeitgrenze
+  (Gnadenfrist + Kill-Wartezeit + Einsammelfrist); bei Scheitern der feste Fehler „Bereinigung fehlgeschlagen“.
+  Dieselbe Absicherung in `modelle._bereinigen` (Modellkataloge): keine Strom-Schließung bei lebendem Lesefaden,
+  stattdessen der bestehende `BereinigungsFehler`.
+- Prozessbaum wird unter Windows über ein Jobobjekt beendet (Prozess angehalten gestartet, zugewiesen, fortgesetzt;
+  `KILL_ON_JOB_CLOSE`), auch wenn der Elternprozess zuerst endet. `taskkill /T` findet Kinder eines schon beendeten
+  Elternprozesses nicht. Rückfall ohne Job: `taskkill`/Prozessgruppe.
+- Scheitert der Start des Lesefadens, wird der gestartete Prozess trotzdem beendet.
+- Ein Ausweichdatensatz `rateLimitsByLimitId["codex"]` mit fremder `limitId` (z. B. `premium`) gilt nie als Codex-Messung.
+
+### Behoben (Nachbesserung P9, Runde 2 – Prüfer Hermes)
+- **Angehaltener Prozess konnte als Waise bleiben:** Scheiterte `OpenProcess` für den angehalten gestarteten Prozess,
+  blieb das (leere) Jobobjekt aktiv; die Bereinigung beendete nur den Job und übersprang `taskkill`, der nie
+  fortgesetzte Prozess lief weiter. Jetzt wird der Job in diesem Fall geschlossen, damit der Rückfall
+  `taskkill /T /F` greift. Regressionstest `test_scheitert_openprocess_wird_der_angehaltene_prozess_trotzdem_beendet`
+  (ohne die Korrektur rot).
+
+### Tests (Nachbesserung)
+- Test `test_claude_hook.py::test_belegte_globale_sperre_im_eigenen_prozess` vergleicht mit einem Leerlauf-Prozessstart
+  (`dauer < leerlauf + 2 s`, bis zu drei frisch verglichene Versuche gegen Lastausreißer) statt mit fester
+  Wanduhrzeit (war unter Volllast rot).
+- Neue Tests: Bereinigung ohne wirkenden Kill, Elternprozess endet vor dem Enkel, Rückfall ohne Job, Fadenstart scheitert,
+  fremde `limitId` im Ausweichdatensatz, Lesefaden-Hänger in `modelle`.
+
+### Tests (P9)
+- `tests/test_codex_messen.py` (Attrappenprogramm als Python-Skript, nie ein echtes `codex.exe`), Ergänzungen in
+  `test_leiste.py` und `test_cli.py`. `tests/conftest.py`: automatische Absicherung, dass kein Test ein echtes
+  `codex.exe` startet oder `~/.master-schalter` bzw. `~/.codex` liest.
 
 ## [0.5.0] – 2026-10-25
 
