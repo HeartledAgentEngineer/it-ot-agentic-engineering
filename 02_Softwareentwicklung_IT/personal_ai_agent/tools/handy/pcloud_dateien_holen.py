@@ -50,6 +50,11 @@ TIMEOUT_DOWNLOAD = 300.0
 # Nur diese zwei Methoden spricht dieses Werkzeug an — beide nur lesend.
 ERLAUBTE_METHODEN = ("listfolder", "getfilelink")
 
+# Handy-eigene Dateien (Bild-Editor B1, 26.10.2026): werden nie aus der Uebergabe geholt, sonst
+# ueberschriebe eine PC-/Cloud-Fassung die Handy-Fassung. Gleicher Name wie
+# ``gruppen_quiz.KORREKTUREN_DATEINAME``; ``tools/pcloud/uebergabe_hochladen.py`` lehnt ihn ab.
+HANDY_EIGENE_NAMEN = ("bild_korrekturen.json",)
+
 ENV_DATEI = Path(__file__).resolve().parents[2] / "backend" / ".env"
 
 
@@ -203,6 +208,9 @@ def holen(
     fehler: List[str] = []
     for eintrag in dateien:
         name, fileid = eintrag["name"], eintrag["fileid"]
+        if name in HANDY_EIGENE_NAMEN:
+            melden(f"  {name}: übersprungen: handy-eigen")
+            continue
         try:
             link = _api("getfilelink", {"fileid": fileid}, token=geheimnis, host=ziel_host)
             rohdaten = _lade_bytes(link, geheimnis)

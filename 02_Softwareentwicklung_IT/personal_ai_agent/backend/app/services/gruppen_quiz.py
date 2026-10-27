@@ -46,6 +46,13 @@ Register: ``bilder_mit(namen, modus)`` beantwortet „Bilder mit Leon und/oder
 Tim" ueber ``gesicht_zuordnung.jsonl`` + die bestaetigten Namen — am Handy, ohne
 Rueckweg zum PC.
 
+Bild-Editor (B1, 26.10.2026): ``bild_korrekturen.json`` (nur Handy) haelt je Bild verschobene
+Rahmen, Hand-Gesichter (Index >= 1000, vom Server vergeben), handy-eigene Namen und
+entfernte Gesichter. ``gesichter_auf_bild``, ``bilder_mit``, ``bild_kennungen_person`` und
+``personen_auf_bildern`` lesen dieselbe zusammengefuehrte Sicht (``_bild_sicht``);
+``bild_rahmen`` schreibt sie (Protokollart ``bild_rahmen``, Rueckgaengig je ``aktion``).
+In ``personen_vorgaben.json`` landet davon nur, was ``zuordnen``/``ausschliessen`` ohnehin schreiben.
+
 Ort: ``~/foto_sortierung`` (uebersteuerbar mit ``GRUPPEN_QUIZ_BASIS``). Gelesen
 wird zuerst ``personen_gruppen/<datei>`` (so schreibt der PC), sonst
 ``<datei>`` direkt im Ordner (so legt die Uebergabe am Handy sie ab).
@@ -53,6 +60,7 @@ Keine Vektoren, kein Netz, kein Modellaufruf — nur lokale Dateien.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -77,6 +85,12 @@ STAND_DATEINAME = "gruppen_quiz_stand.json"
 PROTOKOLL_DATEINAME = "gruppen_antworten.jsonl"
 PROFILE_DATEINAME = "personen_profile.json"
 KONTAKTE_DATEINAME = "kontakte.json"   # Telefonbuch-Auszug (tools/handy/kontakte_aufs_handy.py)
+# Handy-eigen (Bild-Editor B1, 26.10.2026): wird nie aus pCloud/PC uebernommen und nie hochgeladen
+# (Sperrliste in tools/handy/pcloud_dateien_holen.py und tools/pcloud/uebergabe_hochladen.py).
+KORREKTUREN_DATEINAME = "bild_korrekturen.json"
+BILD_RAHMEN_MAX = 30       # Aenderungen je POST /api/gruppen/bild-rahmen
+HAND_INDEX_AB = 1000       # Index >= 1000 = Hand-Gesicht (vergibt nur der Server)
+BBOX_MIN = 0.01            # kleinster Rahmen: 1 % von Breite/Hoehe
 
 ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt", "offen", "aufloesen")
 # Stand-Listen in ``gruppen_quiz_stand.json``: ``aufgeloest`` = einer Person
@@ -934,6 +948,16 @@ def detail(kennung: str) -> Dict[str, Any]:
 _GID = re.compile(r"^\d+:\d+$")
 
 
+def _eintrag_gid(eintrag: Any) -> Optional[str]:
+    """``"bild_id:index"`` eines Regel-Eintrags (ausgeschlossen/zugeordnet) oder ``None``."""
+    if not isinstance(eintrag, dict) or not str(eintrag.get("bild_id") or "").isdigit():
+        return None
+    try:
+        return f"{eintrag['bild_id']}:{int(eintrag.get('index') or 0)}"
+    except (TypeError, ValueError):
+        return None
+
+
 def ausgeschlossen_lesen() -> Dict[str, set]:
     """{kennung: {"bild_id:index", ...}} aus personen_vorgaben.json."""
     daten = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
@@ -1156,36 +1180,215 @@ def _gesichter_je_bild_laden(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
     return je
 
 
-def gesichter_auf_bild(fileid: Any) -> Dict[str, Any]:
-    """Die Gesichter eines Fotos fuers Erzaehlen (07.10.2026, #11b). Nie ein Wurf.
+# ── Bild-Korrekturen und zusammengefuehrte Gesichtssicht (Bild-Editor B1, 26.10.2026) ──
+#
+# Zusammenfassung: ``bild_korrekturen.json`` (nur Handy, NICHT im PC-Ordner, nie in
+# ``personen_vorgaben.json``) haelt je Bild (fileid)
+#   {"rahmen": {"<index>": {"bbox_norm": [x, y, w, h] | null, "quelle": "hand" | "erkennung",
+#                           "name": "…" | null, ["breite", "hoehe"]}},
+#    "entfernt": ["<index>", …]}
+# Index < 1000 = erkanntes Gesicht aus ``gesicht_zuordnung.jsonl`` (verschobener Rahmen
+# und/oder handy-eigener Name; ``entfernt`` blendet es aus), Index >= 1000 = Hand-Gesicht
+# (vergibt nur der Server). ``bbox_norm`` ist normiert (0..1, links/oben/Breite/Hoehe); bei
+# einem erkannten Gesicht nur mit Namen darf es ``null`` sein (Rahmen bleibt der erkannte).
+# EINE Sicht (``_bild_sicht``) liest alles zusammen — ``bild-gesichter``, „Bilder mit X“
+# und das Erzaehlen (``personen_auf_bildern``) nutzen genau diese Funktion.
 
-    Je Gesicht ``gid`` (bild_id:index), ``kennung``, ``name`` (bestaetigt oder
-    ``None``), ``bbox`` mit ``breite``/``hoehe`` (Ausschnitt im Browser).
-    Ausgeschlossene Gesichter und als „kenne ich nicht" markierte Gruppen fehlen
-    — wie bei :func:`personen_auf_bildern`. Reihenfolge: von links nach rechts.
+def _positiv(wert: Any) -> Optional[float]:
+    """Zahl > 0 (kein Wahrheitswert, kein NaN/unendlich), sonst ``None``."""
+    if isinstance(wert, bool) or not isinstance(wert, (int, float)):
+        return None
+    return wert if wert == wert and 0 < wert < float("inf") else None
+
+
+def _bbox_norm(wert: Any) -> Optional[List[float]]:
+    """``[x, y, w, h]`` normiert und gueltig, sonst ``None``.
+
+    Regel: Zahlen (kein Wahrheitswert, kein NaN/unendlich), links/oben >= 0, Breite und
+    Hoehe mindestens ``BBOX_MIN`` (1 %), das Rechteck liegt im Bild (Summe <= 1).
+    """
+    if not isinstance(wert, (list, tuple)) or len(wert) != 4:
+        return None
+    zahlen: List[float] = []
+    for w in wert:
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or w != w or abs(w) == float("inf"):
+            return None
+        zahlen.append(float(w))
+    x, y, b, h = zahlen
+    if x < 0 or y < 0 or b < BBOX_MIN or h < BBOX_MIN or x + b > 1 + 1e-9 or y + h > 1 + 1e-9:
+        return None
+    return [round(w, 6) for w in zahlen]
+
+
+def _korrektur_name(wert: Any) -> Optional[str]:
+    return wert.strip() if isinstance(wert, str) and wert.strip() else None
+
+
+def _korrekturen_roh() -> Dict[str, Any]:
+    """Der Inhalt von ``bild_korrekturen.json`` (nur ``basis()``, nie ``personen_gruppen/``)."""
+    roh = _json_lesen(_schreibpfad(KORREKTUREN_DATEINAME), {})
+    daten = dict(roh) if isinstance(roh, dict) else {}
+    bilder = daten.get("bilder")
+    daten["version"] = 1
+    daten["bilder"] = dict(bilder) if isinstance(bilder, dict) else {}
+    return daten
+
+
+def _korrekturen_lesen() -> Dict[str, Dict[str, Any]]:
+    """{fileid: {"rahmen": {index(int): {bbox_norm, quelle, name, breite, hoehe}},
+    "entfernt": {index(int), …}}} — tolerant: Kaputtes wird uebergangen, nie geraten."""
+    ergebnis: Dict[str, Dict[str, Any]] = {}
+    for fileid, e in _korrekturen_roh()["bilder"].items():
+        if not (isinstance(fileid, str) and fileid.isdigit() and isinstance(e, dict)):
+            continue
+        rahmen: Dict[int, Dict[str, Any]] = {}
+        roh_rahmen = e.get("rahmen")
+        for schluessel, r in (roh_rahmen.items() if isinstance(roh_rahmen, dict) else ()):
+            if not (isinstance(schluessel, str) and schluessel.isdigit() and isinstance(r, dict)):
+                continue
+            index = int(schluessel)
+            rahmen[index] = {
+                "bbox_norm": _bbox_norm(r.get("bbox_norm")),
+                "quelle": "hand" if index >= HAND_INDEX_AB else "erkennung",
+                "name": _korrektur_name(r.get("name")),
+                "breite": _positiv(r.get("breite")), "hoehe": _positiv(r.get("hoehe"))}
+        roh_entfernt = e.get("entfernt")
+        entfernt = {int(i) for i in (roh_entfernt if isinstance(roh_entfernt, list) else [])
+                    if isinstance(i, (str, int)) and not isinstance(i, bool) and str(i).isdigit()}
+        if rahmen or entfernt:
+            ergebnis[fileid] = {"rahmen": rahmen, "entfernt": entfernt}
+    return ergebnis
+
+
+def _pixel_aus_norm(norm: List[float], breite: float, hoehe: float) -> List[int]:
+    return [round(norm[0] * breite), round(norm[1] * hoehe),
+            round(norm[2] * breite), round(norm[3] * hoehe)]
+
+
+def _norm_aus_pixel(bbox: Any, breite: Any, hoehe: Any) -> Optional[List[float]]:
+    b, h = _positiv(breite), _positiv(hoehe)
+    if not (b and h and isinstance(bbox, list) and len(bbox) == 4):
+        return None
+    if any(isinstance(w, bool) or not isinstance(w, (int, float)) or w != w for w in bbox):
+        return None
+    return [round(bbox[0] / b, 6), round(bbox[1] / h, 6), round(bbox[2] / b, 6), round(bbox[3] / h, 6)]
+
+
+def _sicht_quellen(korr: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Alles, was die Gesichtssicht braucht — gelesen, nichts geschrieben.
+    Wirft ``GruppenFehler`` (fehlende Gruppen-Datei, unlesbare Datei) oder ``OSError``."""
+    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
+    if not pfad:
+        raise GruppenFehler(FEHLT_HINWEIS)
+    return {"je_bild": _gemerkt(pfad, _gesichter_je_bild_laden), "namen": bestaetigt_lesen(),
+            "aus": ausgeschlossen_lesen(), "zug": zugeordnet_lesen(),
+            "fremd": set(_stand_lesen()["unbekannt"]),
+            "korr": _korrekturen_lesen() if korr is None else korr}
+
+
+def _bild_sicht(fileid: str, q: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Die Gesichter eines Fotos, zusammengefuehrt (links nach rechts).
+
+    Erkannte Gesichter wie bisher (Ausgeschlossene und „kenne ich nicht“ fehlen, von Hand
+    Zugeordnete bleiben), dazu die Korrekturen: ``entfernt`` blendet aus, ein verschobener
+    Rahmen ersetzt den erkannten, Hand-Gesichter kommen dazu. Name: handy-eigen vor
+    Einzelzuordnung vor Gruppenname. Die alten Felder (``gid``, ``index``, ``kennung``,
+    ``bbox``, ``breite``, ``hoehe``, ``name``) bleiben; neu: ``bbox_norm``, ``name_quelle``
+    (``gruppe`` | ``zuordnung`` | ``handy``), ``quelle`` (``erkennung`` | ``hand``).
+    """
+    je_bild, namen, aus, zug, fremd = q["je_bild"], q["namen"], q["aus"], q["zug"], q["fremd"]
+    korr = q["korr"].get(fileid) or {"rahmen": {}, "entfernt": set()}
+    rahmen, entfernt = korr["rahmen"], korr["entfernt"]
+    alle = je_bild.get(fileid, [])
+    erkannt = [g for g in alle
+               if g["gid"] in zug or (g["gid"] not in aus.get(g["kennung"], set())
+                                      and g["kennung"] not in fremd)]
+    masse = next(((_positiv(g.get("breite")), _positiv(g.get("hoehe"))) for g in alle
+                  if _positiv(g.get("breite")) and _positiv(g.get("hoehe"))), (None, None))
+    sicht: List[Dict[str, Any]] = []
+    for g in erkannt:
+        if g["index"] in entfernt:
+            continue
+        r = rahmen.get(g["index"]) or {}
+        breite, hoehe = _positiv(g.get("breite")), _positiv(g.get("hoehe"))
+        bbox = g["bbox"]
+        bbox_norm = r.get("bbox_norm")
+        if bbox_norm:
+            if breite and hoehe:
+                bbox = _pixel_aus_norm(bbox_norm, breite, hoehe)
+        else:
+            bbox_norm = _norm_aus_pixel(bbox, g.get("breite"), g.get("hoehe"))
+        if r.get("name"):
+            name, quelle = r["name"], "handy"
+        elif g["gid"] in zug:
+            name, quelle = zug[g["gid"]]["name"], "zuordnung"
+        elif namen.get(g["kennung"]):
+            name, quelle = namen[g["kennung"]], "gruppe"
+        else:
+            name, quelle = None, None
+        sicht.append(dict(g, bbox=bbox, name=name, bbox_norm=bbox_norm, name_quelle=quelle,
+                          quelle="erkennung"))
+    for index in sorted(i for i in rahmen if i >= HAND_INDEX_AB):
+        r = rahmen[index]
+        if not r["bbox_norm"]:
+            continue
+        breite, hoehe = r.get("breite") or masse[0], r.get("hoehe") or masse[1]
+        sicht.append({
+            "gid": f"{fileid}:{index}", "index": index, "kennung": None,
+            "bbox": _pixel_aus_norm(r["bbox_norm"], breite, hoehe) if breite and hoehe else None,
+            "breite": breite, "hoehe": hoehe, "name": r["name"], "bbox_norm": r["bbox_norm"],
+            "name_quelle": "handy" if r["name"] else None, "quelle": "hand"})
+
+    def links(g: Dict[str, Any]) -> float:
+        if g["bbox_norm"]:
+            return g["bbox_norm"][0]
+        x = g["bbox"][0] if isinstance(g.get("bbox"), list) and g["bbox"] else 0
+        return x if isinstance(x, (int, float)) else 0
+
+    sicht.sort(key=lambda g: (links(g), g["index"]))
+    return sicht
+
+
+def _sicht_namen(fileid: str, q: Dict[str, Any]) -> Tuple[Dict[str, str], List[str]]:
+    """Wer ist auf dem Bild? Aus derselben Sicht wie ``bild-gesichter``.
+
+    Rueckgabe: ({name.casefold(): name}, sortierte Kennungen unbenannter Gesichter);
+    ein unbenanntes Hand-Gesicht steht als ``hand:<gid>``. Einzelzuordnungen, deren
+    Gesicht es in der Erkennung nicht mehr gibt, zaehlen wie bisher mit.
+    """
+    benannt: Dict[str, str] = {}
+    unbenannt: set = set()
+    for g in _bild_sicht(fileid, q):
+        if g["name"]:
+            benannt.setdefault(g["name"].casefold(), g["name"])
+        else:
+            unbenannt.add(g["kennung"] or f"hand:{g['gid']}")
+    bekannt = {g["gid"] for g in q["je_bild"].get(fileid, [])}
+    for gid, e in q["zug"].items():
+        if gid.split(":")[0] == fileid and gid not in bekannt:
+            benannt.setdefault(e["name"].casefold(), e["name"])
+    return benannt, sorted(unbenannt)
+
+
+def gesichter_auf_bild(fileid: Any) -> Dict[str, Any]:
+    """Die Gesichter eines Fotos fuers Erzaehlen und den Bild-Editor. Nie ein Wurf.
+
+    Je Gesicht ``gid`` (bild_id:index), ``kennung`` (``None`` bei Hand-Gesichtern), ``name``
+    (bestaetigt, zugeordnet, handy-eigen oder ``None``), ``bbox`` mit ``breite``/``hoehe``
+    (Ausschnitt im Browser) — dazu seit 26.10.2026 ``bbox_norm``, ``name_quelle`` und
+    ``quelle`` (rein additiv, siehe :func:`_bild_sicht`). Ausgeschlossene Gesichter und als
+    „kenne ich nicht" markierte Gruppen fehlen. Reihenfolge: von links nach rechts.
     Benennen und „ist nicht X" laufen ueber die vorhandenen Wege
-    (:func:`antworten`, :func:`ausschliessen`) — mit Protokoll und Rueckgaengig.
+    (:func:`antworten`, :func:`ausschliessen`), Rahmen und Namen ueber :func:`bild_rahmen`
+    — mit Protokoll und Rueckgaengig.
     """
     s = str(fileid).strip() if fileid is not None else ""
     if not s.isdigit():
         return {"ok": False, "fehler": "Ungültige Bildkennung."}
-    pfad = _lesepfad(ZUORDNUNG_DATEINAME)
-    if not pfad:
-        return {"ok": False, "fehler": FEHLT_HINWEIS}
     try:
-        je_bild = _gemerkt(pfad, _gesichter_je_bild_laden)
-        namen = bestaetigt_lesen()
-        aus = ausgeschlossen_lesen()
-        zug = zugeordnet_lesen()
-        fremd = set(_stand_lesen()["unbekannt"])
+        gesichter = _bild_sicht(s, _sicht_quellen())
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
-    # Von Hand zugeordnete Gesichter zeigen den zugeordneten Namen (10.10.2026).
-    gesichter = [dict(g, name=zug[g["gid"]]["name"]) if g["gid"] in zug
-                 else dict(g, name=namen.get(g["kennung"])) for g in je_bild.get(s, [])
-                 if g["gid"] in zug or (g["gid"] not in aus.get(g["kennung"], set())
-                                        and g["kennung"] not in fremd)]
-    gesichter.sort(key=lambda g: (g["bbox"][0] if isinstance(g["bbox"][0], (int, float)) else 0, g["index"]))
     return {"ok": True, "fileid": s, "gesichter": gesichter}
 
 
@@ -1217,8 +1420,15 @@ def gesichter(kennung: str, seite: int = 1, je_seite: int = GESICHTER_JE_SEITE,
             "gesichter": [{k: v for k, v in g.items() if not k.startswith("_")} for g in teil]}
 
 
-def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
-    """Gesichter aus einem Vorschlag nehmen (Regel fuer den naechsten Gruppierlauf). Nie ein Wurf."""
+def ausschliessen(kennung: str, gids: Iterable[str], *, aufheben: bool = False,
+                  _extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Gesichter aus einem Vorschlag nehmen (Regel fuer den naechsten Gruppierlauf). Nie ein Wurf.
+
+    ``aufheben=True`` (Entfernen im Bild-Editor, B1): zuerst alle festen Zuordnungen dieser
+    Gesichter aufheben (sonst widerspricht der neue Ausschluss einer festen Zuordnung und der
+    PC-Leser bricht ab); sie stehen als ``vorher_zugeordnet`` im Protokoll, Rueckgaengig stellt
+    sie wieder her. ``_extra`` kommt ins Protokoll (z. B. die gemeinsame ``aktion``).
+    """
     liste = [str(g).strip() for g in (gids or [])]
     if not liste:
         return {"ok": False, "fehler": "Bitte mindestens ein Gesicht antippen."}
@@ -1238,24 +1448,35 @@ def ausschliessen(kennung: str, gids: Iterable[str]) -> Dict[str, Any]:
             fremd = [g for g in liste if g not in vorhanden]
             if fremd:
                 raise GruppenFehler("Gesicht gehört nicht (mehr) zu diesem Vorschlag.")
-            neu = _ausschluss_schreiben([(str(kennung), g) for g in liste])
+            aufgehoben: List[Any] = []
+            neu = _ausschluss_schreiben([(str(kennung), g) for g in liste], _extra,
+                                        liste if aufheben else None, aufgehoben)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
     except OSError as fehler:
         logger.error("Ausschliessen fehlgeschlagen: %s", fehler)
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
     rest = gesichter(kennung, 1)
-    return {"ok": True, "kennung": kennung, "ausgeschlossen": len(neu),
-            "gesamt": rest.get("gesamt", 0)}
+    antwort = {"ok": True, "kennung": kennung, "ausgeschlossen": len(neu),
+               "gesamt": rest.get("gesamt", 0)}
+    if aufheben:
+        antwort["zuordnungen_aufgehoben"] = len(aufgehoben)
+    return antwort
 
 
-def _ausschluss_schreiben(paare: List[Tuple[str, str]], extra: Optional[Dict[str, Any]] = None
-                          ) -> List[Tuple[str, str]]:
+def _ausschluss_schreiben(paare: List[Tuple[str, str]], extra: Optional[Dict[str, Any]] = None,
+                          aufheben: Optional[List[str]] = None,
+                          aufgehoben_aus: Optional[List[Any]] = None) -> List[Tuple[str, str]]:
     """Paare ``(kennung, "bild_id:index")`` als Nutzer-Regel eintragen. Unter ``_SCHREIBSPERRE`` rufen.
 
     Schon ausgeschlossene Paare zaehlen nicht; geschrieben wird nur, wenn etwas neu ist — dann
     EIN Protokolleintrag (``kennung`` + ``gesichter`` wie bisher; betrifft er mehrere Vorschlaege,
     zusaetzlich ``je_kennung``, damit Rueckgaengig alles in einem Schritt zuruecknimmt).
+
+    ``aufheben`` (B1, 26.10.2026): Gesichter (``"bild_id:index"``), deren feste Zuordnungen
+    (``zugeordnet``) in DERSELBEN Schreibung zuerst aufgehoben werden; die entfernten Eintraege
+    stehen als ``vorher_zugeordnet`` im Protokoll (und in ``aufgehoben_aus``). Das gilt auch, wenn
+    der Ausschluss selbst nicht neu ist.
     """
     roh = _json_lesen(_schreibpfad(VORGABEN_DATEINAME), {})
     daten = roh if isinstance(roh, dict) else {}
@@ -1266,16 +1487,28 @@ def _ausschluss_schreiben(paare: List[Tuple[str, str]], extra: Optional[Dict[str
         bid, idx = g.split(":")
         eintraege.append({"kennung": k, "bild_id": bid, "index": int(idx)})
     daten["ausgeschlossen"] = eintraege
-    if neu:
+    vorher_zugeordnet: List[Any] = []
+    if aufheben and isinstance(daten.get("zugeordnet"), list):
+        gids = set(aufheben)
+        behalten = []
+        for e in daten["zugeordnet"]:
+            (vorher_zugeordnet if _eintrag_gid(e) in gids else behalten).append(e)
+        if vorher_zugeordnet:
+            daten["zugeordnet"] = behalten
+    if aufgehoben_aus is not None:
+        aufgehoben_aus.extend(vorher_zugeordnet)
+    if neu or vorher_zugeordnet:
         je_kennung: Dict[str, List[str]] = {}
         for k, g in neu:
             je_kennung.setdefault(k, []).append(g)
         eintrag: Dict[str, Any] = {"id": uuid.uuid4().hex[:12],
                                    "zeit": datetime.now().isoformat(timespec="seconds"),
-                                   "art": "ausschliessen", "kennung": neu[0][0],
+                                   "art": "ausschliessen", "kennung": (neu or list(paare))[0][0],
                                    "gesichter": [g for _, g in neu]}
         if len(je_kennung) > 1:
             eintrag["je_kennung"] = je_kennung
+        if vorher_zugeordnet:
+            eintrag["vorher_zugeordnet"] = vorher_zugeordnet
         eintrag.update(extra or {})
         _atomar_schreiben(VORGABEN_DATEINAME, daten)
         _protokoll_anhaengen(eintrag)
@@ -1435,12 +1668,19 @@ def _zugeordnet_je_bild(zug: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, s
     return je
 
 
-def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
+def zuordnen(name: str, eintraege: Iterable[Any], *,
+             _extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Markierte Gesichter fest einer benannten Person zuordnen. Nie ein Wurf.
 
     ``eintraege`` = ``[{"kennung": "Person_1113", "gid": "123:0"}, …]`` - jedes Gesicht
     muss zu seiner Kennung gehoeren (wie beim Ausschliessen). Die Person muss schon
     benannt sein (mindestens ein Vorschlag mit diesem Namen). Ein Protokolleintrag.
+
+    Seit B1 (26.10.2026) hebt die Zuordnung Ausschluesse dieser Gesichter gegen das NEUE Ziel
+    (jeder Vorschlag der Person) auf — sonst stuenden Zuordnung und Ausschluss gegen dasselbe Ziel
+    nebeneinander (A -> B -> A) und der PC-Leser braeche mit ``PersonenFehler`` ab. Die aufgehobenen
+    Eintraege stehen als ``ausschluesse_aufgehoben`` im Protokoll, Rueckgaengig stellt sie wieder her.
+    ``_extra`` kommt ins Protokoll (z. B. die gemeinsame ``aktion`` eines ``bild-rahmen``-Aufrufs).
     """
     paare: List[Tuple[str, str]] = []
     for e in eintraege or []:
@@ -1480,6 +1720,12 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
             aus_liste: List[Any] = aus_roh if isinstance(aus_roh, list) else []
             zug_liste: List[Any] = zug_roh if isinstance(zug_roh, list) else []
             aus_neu = [(k, g) for k, g in neu if k not in kennungen and g not in aus.get(k, set())]
+            aufgehoben = [[k2, g] for g in dict.fromkeys(g for _, g in neu)
+                          for k2 in kennungen if g in aus.get(k2, set())]
+            if aufgehoben:
+                weg_aus = {(k2, g) for k2, g in aufgehoben}
+                aus_liste[:] = [e for e in aus_liste
+                                if not (isinstance(e, dict) and (str(e.get("kennung")), _eintrag_gid(e)) in weg_aus)]
             for k, g in aus_neu:
                 bid, idx = g.split(":")
                 aus_liste.append({"kennung": k, "bild_id": bid, "index": int(idx)})
@@ -1490,10 +1736,14 @@ def zuordnen(name: str, eintraege: Iterable[Any]) -> Dict[str, Any]:
             daten["ausgeschlossen"] = aus_liste
             daten["zugeordnet"] = zug_liste
             _atomar_schreiben(VORGABEN_DATEINAME, daten)
-            _protokoll_anhaengen({"id": aktion, "zeit": datetime.now().isoformat(timespec="seconds"),
-                                  "art": "zuordnen", "name": echter, "kennung": neu[0][0],
-                                  "gesichter": [g for _, g in neu],
-                                  "ausgeschlossen_neu": [[k, g] for k, g in aus_neu]})
+            protokoll = {"id": aktion, "zeit": datetime.now().isoformat(timespec="seconds"),
+                         "art": "zuordnen", "name": echter, "kennung": neu[0][0],
+                         "gesichter": [g for _, g in neu],
+                         "ausgeschlossen_neu": [[k, g] for k, g in aus_neu]}
+            if aufgehoben:
+                protokoll["ausschluesse_aufgehoben"] = aufgehoben
+            protokoll.update(_extra or {})
+            _protokoll_anhaengen(protokoll)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
     except OSError as fehler:
@@ -1554,7 +1804,257 @@ def _zuordnen_zuruecknehmen(letzte: Dict[str, Any]) -> None:
         e for e in daten.get("ausgeschlossen") or []
         if not (isinstance(e, dict) and (str(e.get("kennung")),
                 f"{e.get('bild_id')}:{int(e.get('index') or 0)}") in weg)]
+    # B1: Ausschluesse, die diese Zuordnung gegen ihr Ziel aufgehoben hatte, kommen zurueck.
+    for k, g in letzte.get("ausschluesse_aufgehoben") or []:
+        if isinstance(g, str) and _GID.match(g):
+            bid, idx = g.split(":")
+            alt = {"kennung": str(k), "bild_id": bid, "index": int(idx)}
+            if alt not in daten["ausgeschlossen"]:
+                daten["ausgeschlossen"].append(alt)
     _atomar_schreiben(VORGABEN_DATEINAME, daten)
+
+
+# ── Aenderungen an einem Bild: POST /api/gruppen/bild-rahmen (B1, 26.10.2026) ──
+#
+# Ablauf (Plan Fassung 8): (1) ALLES pruefen, bei einem Fehler wird nichts geschrieben;
+# (2) ``bild_korrekturen.json`` atomar schreiben + Protokollart ``bild_rahmen`` mit dem
+# vorherigen Eintrag NUR dieser fileid (``vorher``); (3) danach die Anteile fuer die
+# PC-Gruppierung ueber die vorhandenen Wege ``zuordnen`` / ``ausschliessen`` (mit
+# eigenen Protokolleintraegen). Alle Eintraege eines Aufrufs tragen dieselbe ``aktion``;
+# ein Rueckgaengig nimmt den ganzen Aufruf zurueck. Scheitert (3), bleibt (2) gespeichert
+# und die Antwort sagt genau, was nicht uebernommen wurde.
+
+_AENDERUNG_FELDER = ("gid", "neu", "bbox_norm", "entfernen", "name", "breite", "hoehe")
+_MASS_MAX = 100000
+
+
+def _aenderung_pruefen(nr: int, a: Any, fileid: str, sicht: Dict[str, Dict[str, Any]],
+                       entfernt: set) -> Dict[str, Any]:
+    """Eine Aenderung pruefen und normalisieren. Wirft ``GruppenFehler`` mit deutschem Text."""
+    wo = f"Änderung {nr}: "
+    if not isinstance(a, dict):
+        raise GruppenFehler(wo + "Kein gültiger Eintrag.")
+    unbekannt = sorted(str(k) for k in a if k not in _AENDERUNG_FELDER)
+    if unbekannt:
+        raise GruppenFehler(wo + f"Unbekanntes Feld ({', '.join(unbekannt)}).")
+    for feld in ("neu", "entfernen"):
+        if feld in a and not isinstance(a[feld], bool):
+            raise GruppenFehler(wo + f"„{feld}“ muss wahr oder falsch sein.")
+    neu, entfernen = a.get("neu") is True, a.get("entfernen") is True
+    bbox_norm = None
+    if "bbox_norm" in a:
+        bbox_norm = _bbox_norm(a["bbox_norm"])
+        if bbox_norm is None:
+            raise GruppenFehler(wo + "Der Rahmen liegt nicht im Bild oder ist kleiner als 1 %.")
+    name = None
+    if "name" in a:
+        try:
+            name = name_saeubern(a["name"])
+        except GruppenFehler as fehler:
+            raise GruppenFehler(wo + str(fehler)) from None
+    masse: Dict[str, int] = {}
+    for feld in ("breite", "hoehe"):
+        if feld in a:
+            w = a[feld]
+            if isinstance(w, bool) or not isinstance(w, int) or not 1 <= w <= _MASS_MAX:
+                raise GruppenFehler(wo + f"„{feld}“ muss eine ganze Zahl von 1 bis {_MASS_MAX} sein.")
+            masse[feld] = w
+    ergebnis: Dict[str, Any] = {"nr": nr, "neu": neu, "gid": None, "index": None, "entfernen": entfernen,
+                                "bbox_norm": bbox_norm, "hat_name": "name" in a, "name": name, **masse}
+    if neu:
+        if "gid" in a:
+            raise GruppenFehler(wo + "Neue Gesichter bekommen ihre Kennung vom Server.")
+        if entfernen:
+            raise GruppenFehler(wo + "Ein neues Gesicht lässt sich nicht gleichzeitig entfernen.")
+        if bbox_norm is None:
+            raise GruppenFehler(wo + "Ein neues Gesicht braucht einen Rahmen.")
+        return ergebnis
+    gid = a.get("gid")
+    if not isinstance(gid, str) or not _GID.match(gid):
+        raise GruppenFehler(wo + "Ungültige Gesichts-Kennung.")
+    bild, index_text = gid.split(":")
+    if bild != fileid:
+        raise GruppenFehler(wo + "Das Gesicht gehört zu einem anderen Bild.")
+    index = int(index_text)
+    if index in entfernt and gid not in sicht:
+        raise GruppenFehler(wo + "Das Gesicht ist schon entfernt.")
+    if gid not in sicht:
+        raise GruppenFehler(wo + ("Hand-Gesichter vergibt nur der Server." if index >= HAND_INDEX_AB
+                                  else "Dieses Gesicht gibt es auf dem Bild nicht."))
+    if entfernen and (bbox_norm is not None or name is not None):
+        raise GruppenFehler(wo + "Entfernen geht nicht zusammen mit Rahmen oder Namen.")
+    if not (entfernen or bbox_norm is not None or name is not None):
+        raise GruppenFehler(wo + "Keine Änderung angegeben.")
+    ergebnis.update(gid=gid, index=index)
+    return ergebnis
+
+
+def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
+                        roh_bild: Any) -> Dict[str, Any]:
+    """Alles pruefen und den NEUEN Eintrag der fileid sowie die Gruppen-Anteile berechnen.
+    Schreibt nichts. Wirft ``GruppenFehler``."""
+    sicht = {g["gid"]: g for g in _bild_sicht(fileid, q)}
+    entfernt_bisher = (q["korr"].get(fileid) or {"entfernt": set()})["entfernt"]
+    geprueft: List[Dict[str, Any]] = []
+    gesehen: set = set()
+    for nr, a in enumerate(aenderungen, 1):
+        p = _aenderung_pruefen(nr, a, fileid, sicht, entfernt_bisher)
+        if p["gid"] is not None:
+            if p["gid"] in gesehen:
+                raise GruppenFehler(f"Änderung {nr}: Das Gesicht {p['gid']} kommt doppelt vor.")
+            gesehen.add(p["gid"])
+        geprueft.append(p)
+
+    bild = copy.deepcopy(roh_bild) if isinstance(roh_bild, dict) else {}
+    rahmen = bild.get("rahmen") if isinstance(bild.get("rahmen"), dict) else {}
+    rahmen = {str(k): dict(v) for k, v in rahmen.items() if isinstance(v, dict)}
+    entfernt = [str(i) for i in (bild.get("entfernt") if isinstance(bild.get("entfernt"), list) else [])]
+    naechster = max([int(k) for k in rahmen if k.isdigit() and int(k) >= HAND_INDEX_AB]
+                    + [HAND_INDEX_AB - 1]) + 1
+    zuordnen_je_name: Dict[str, List[Dict[str, str]]] = {}
+    ausschliessen_je_kennung: Dict[str, List[str]] = {}
+    neue_gids: List[str] = []
+    for p in geprueft:
+        if p["neu"]:
+            eintrag: Dict[str, Any] = {"bbox_norm": p["bbox_norm"], "quelle": "hand", "name": p["name"]}
+            eintrag.update({k: p[k] for k in ("breite", "hoehe") if k in p})
+            rahmen[str(naechster)] = eintrag
+            neue_gids.append(f"{fileid}:{naechster}")
+            naechster += 1
+            continue
+        schluessel, g = str(p["index"]), sicht[p["gid"]]
+        if p["index"] >= HAND_INDEX_AB:                        # Hand-Gesicht
+            if p["entfernen"]:
+                rahmen.pop(schluessel, None)
+                continue
+            eintrag = rahmen.get(schluessel)
+            if not isinstance(eintrag, dict):                  # Index >= 1000 ohne Hand-Eintrag
+                raise GruppenFehler("Dieses Gesicht gibt es auf dem Bild nicht.")
+            if p["bbox_norm"] is not None:
+                eintrag["bbox_norm"] = p["bbox_norm"]
+            if p["hat_name"]:
+                eintrag["name"] = p["name"]
+            eintrag.update({k: p[k] for k in ("breite", "hoehe") if k in p})
+            continue
+        if p["entfernen"]:                                      # erkanntes Gesicht entfernen
+            rahmen.pop(schluessel, None)
+            if schluessel not in entfernt:
+                entfernt.append(schluessel)
+            ausschliessen_je_kennung.setdefault(g["kennung"], []).append(p["gid"])
+            continue
+        eintrag = rahmen.get(schluessel) or {"bbox_norm": None, "quelle": "erkennung", "name": None}
+        eintrag["quelle"] = "erkennung"
+        if p["bbox_norm"] is not None:
+            eintrag["bbox_norm"] = p["bbox_norm"]
+        if p["hat_name"]:
+            echter, kennungen = _person_kennungen(p["name"])
+            if kennungen:         # schon benannte Person: feste Einzelzuordnung (erreicht den PC)
+                zuordnen_je_name.setdefault(echter, []).append({"kennung": g["kennung"], "gid": p["gid"]})
+                eintrag["name"] = None
+            else:                 # neue Person: nur am Handy, nicht fuer die Gruppierung
+                eintrag["name"] = p["name"]
+        if eintrag.get("bbox_norm") is None and not eintrag.get("name"):
+            rahmen.pop(schluessel, None)
+        else:
+            rahmen[schluessel] = eintrag
+    neu_bild: Optional[Dict[str, Any]] = dict(bild)              # fremde Schluessel bleiben erhalten
+    neu_bild["rahmen"] = dict(sorted(rahmen.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0))
+    neu_bild["entfernt"] = sorted(dict.fromkeys(entfernt), key=lambda i: int(i) if i.isdigit() else 0)
+    if not neu_bild["rahmen"] and not neu_bild["entfernt"] and set(neu_bild) <= {"rahmen", "entfernt"}:
+        neu_bild = None
+    return {"bild": neu_bild, "neue_gids": neue_gids, "zuordnen": zuordnen_je_name,
+            "ausschliessen": ausschliessen_je_kennung}
+
+
+def _bild_rahmen_zuruecknehmen(letzte: Dict[str, Any]) -> None:
+    """Rueckgaengig fuer ``bild_rahmen``: den Eintrag dieser fileid auf ``vorher`` setzen.
+    Andere Bilder bleiben unberuehrt. Unter ``_SCHREIBSPERRE`` rufen."""
+    fileid = str(letzte.get("fileid") or "")
+    if not fileid.isdigit():
+        raise GruppenFehler("Eintrag ohne gültige Bildkennung.")
+    daten = _korrekturen_roh()
+    vorher = letzte.get("vorher")
+    if isinstance(vorher, dict):
+        daten["bilder"][fileid] = vorher
+    else:
+        daten["bilder"].pop(fileid, None)
+    _atomar_schreiben(KORREKTUREN_DATEINAME, daten)
+
+
+def bild_rahmen(fileid: Any, aenderungen: Any) -> Dict[str, Any]:
+    """Aenderungen an den Gesichtern EINES Bildes speichern (Rahmen, Namen, neue/entfernte
+    Gesichter). ``aenderungen``: hoechstens ``BILD_RAHMEN_MAX`` Eintraege
+    ``{gid, bbox_norm?, entfernen?, name?}`` oder ``{neu: true, bbox_norm, name?}``. Nie ein Wurf.
+
+    Antwort: ``ok`` (alles uebernommen), ``teilweise`` (ein Teil gespeichert, ein anderer nicht),
+    ``geschrieben``, ``aktion``, ``neu`` (vom Server vergebene gids), ``teile`` (je Teil
+    ``ok``/``fehler``), ``fehler`` (Klartext), ``gesichter`` (die neue Sicht).
+    """
+    s = str(fileid).strip() if isinstance(fileid, (str, int)) and not isinstance(fileid, bool) else ""
+    if not s.isdigit():
+        return {"ok": False, "fehler": "Ungültige Bildkennung.", "geschrieben": False}
+    if not isinstance(aenderungen, list) or not aenderungen:
+        return {"ok": False, "fehler": "Bitte mindestens eine Änderung angeben.", "geschrieben": False}
+    if len(aenderungen) > BILD_RAHMEN_MAX:
+        return {"ok": False, "fehler": f"Höchstens {BILD_RAHMEN_MAX} Änderungen auf einmal.",
+                "geschrieben": False}
+    aktion = uuid.uuid4().hex[:12]
+    try:
+        with _SCHREIBSPERRE:
+            q = _sicht_quellen()
+            vorher = _korrekturen_roh()["bilder"].get(s)
+            plan = _bild_rahmen_planen(s, aenderungen, q, vorher)             # (1) nur pruefen
+            korrigiert = plan["bild"] != vorher
+            if korrigiert:                                                     # (2) schreiben
+                daten = _korrekturen_roh()
+                if plan["bild"] is None:
+                    daten["bilder"].pop(s, None)
+                else:
+                    daten["bilder"][s] = plan["bild"]
+                _atomar_schreiben(KORREKTUREN_DATEINAME, daten)
+                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                      "zeit": datetime.now().isoformat(timespec="seconds"),
+                                      "art": "bild_rahmen", "aktion": aktion, "fileid": s,
+                                      "vorher": copy.deepcopy(vorher), "aenderungen": len(aenderungen)})
+    except GruppenFehler as fehler:
+        return {"ok": False, "fehler": str(fehler), "geschrieben": False}
+    except OSError as fehler:
+        logger.error("Bild-Rahmen fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__}).",
+                "geschrieben": False}
+    teile: List[Dict[str, Any]] = [{"teil": "korrekturen", "ok": True, "geaendert": korrigiert}]
+    nicht_uebernommen: List[str] = []
+    for name, eintraege in plan["zuordnen"].items():                           # (3) PC-Anteile
+        res = zuordnen(name, eintraege, _extra={"aktion": aktion})
+        ok = res.get("ok") is not False
+        teil: Dict[str, Any] = {"teil": "zuordnen", "name": name, "ok": ok,
+                                "gesichter": [e["gid"] for e in eintraege],
+                                "geaendert": ok and int(res.get("zugeordnet") or 0) > 0}
+        if not ok:
+            teil["fehler"] = res.get("fehler") or "Unbekannter Fehler."
+            nicht_uebernommen.append(f"Zuordnung zu „{name}“ ({teil['fehler']})")
+        teile.append(teil)
+    for kennung, gids in plan["ausschliessen"].items():
+        res = ausschliessen(kennung, gids, aufheben=True, _extra={"aktion": aktion})
+        ok = res.get("ok") is not False
+        teil = {"teil": "ausschliessen", "kennung": kennung, "ok": ok, "gesichter": gids,
+                "geaendert": ok and (int(res.get("ausgeschlossen") or 0) > 0
+                                     or int(res.get("zuordnungen_aufgehoben") or 0) > 0)}
+        if not ok:
+            teil["fehler"] = res.get("fehler") or "Unbekannter Fehler."
+            nicht_uebernommen.append(f"Entfernen aus dem Vorschlag {kennung} ({teil['fehler']})")
+        teile.append(teil)
+    alle_ok = all(t["ok"] for t in teile)
+    geschrieben = any(t["ok"] and t.get("geaendert") for t in teile)
+    antwort: Dict[str, Any] = {"ok": alle_ok, "teilweise": (not alle_ok) and geschrieben,
+                               "geschrieben": geschrieben, "fileid": s, "aktion": aktion,
+                               "neu": plan["neue_gids"], "teile": teile}
+    if nicht_uebernommen:
+        antwort["fehler"] = ("Nicht alles gespeichert – wurde nicht übernommen: "
+                             + "; ".join(nicht_uebernommen) + ".")
+    sicht = gesichter_auf_bild(s)
+    antwort["gesichter"] = sicht.get("gesichter", []) if sicht.get("ok") else []
+    return antwort
 
 
 # ── Benannte Personen wieder oeffnen und bearbeiten (02.10.2026) ────────────
@@ -1975,18 +2475,68 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
     return eintrag
 
 
+ZURUECKNEHMBAR = ARTEN + ("ausschliessen", "zuordnen", "umbenennen", "loesen", "profil", "bild_rahmen")
+
+
+def _offene_eintraege() -> List[Dict[str, Any]]:
+    """Protokolleintraege, die sich zuruecknehmen lassen und noch nicht zurueckgenommen sind (alt -> neu)."""
+    eintraege = _protokoll_lesen()
+    erledigt = {e.get("bezug") for e in eintraege if e.get("art") == "rueckgaengig"}
+    return [e for e in eintraege if e.get("art") in ZURUECKNEHMBAR and e.get("id") not in erledigt]
+
+
 def rueckgaengig() -> Dict[str, Any]:
-    """Die letzte (noch nicht zurueckgenommene) Antwort zuruecknehmen."""
+    """Die letzte (noch nicht zurueckgenommene) Antwort zuruecknehmen.
+
+    Gehoert der letzte offene Eintrag zu einem ``bild-rahmen``-Aufruf (gleiche ``aktion``),
+    nimmt EIN Rueckgaengig alle offenen Eintraege dieser ``aktion`` in umgekehrter Reihenfolge
+    zurueck (zuerst ``zuordnen``/``ausschliessen``, zuletzt ``bild_rahmen``) — kein halber Zustand.
+    """
     try:
         with _SCHREIBSPERRE:
-            eintraege = _protokoll_lesen()
-            erledigt = {e.get("bezug") for e in eintraege if e.get("art") == "rueckgaengig"}
-            offen = [e for e in eintraege
-                     if e.get("art") in ARTEN + ("ausschliessen", "zuordnen", "umbenennen", "loesen", "profil")
-                     and e.get("id") not in erledigt]
+            offen = _offene_eintraege()
             if not offen:
                 return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen."}
             letzte = offen[-1]
+            aktion = letzte.get("aktion")
+            ids = ([e.get("id") for e in reversed(offen) if e.get("aktion") == aktion]
+                   if isinstance(aktion, str) and aktion else [letzte.get("id")])
+    except OSError as fehler:
+        logger.error("Gruppen-Quiz: Rueckgaengig fehlgeschlagen: %s", fehler)
+        return {"ok": False, "fehler": f"Zurücknehmen fehlgeschlagen ({fehler.__class__.__name__})."}
+    ergebnis: Dict[str, Any] = {}
+    erstes: Any = None
+    for zid in ids:
+        ergebnis = _rueckgaengig_eintrag(zid)
+        if ergebnis.pop("_fehler", False):
+            if erstes is not None:
+                ergebnis["teilweise"] = True
+                ergebnis["fehler"] = "Nur teilweise zurückgenommen: " + str(ergebnis.get("fehler") or "")
+            return ergebnis
+        if erstes is None:
+            erstes = ergebnis.get("zurueckgenommen")
+    if len(ids) > 1 and isinstance(erstes, dict):
+        ergebnis["zurueckgenommen"] = dict(erstes, eintraege=len(ids), aktion=aktion)
+    return ergebnis
+
+
+def _rueckgaengig_eintrag(ziel_id: Any) -> Dict[str, Any]:
+    """Genau EINEN offenen Protokolleintrag zuruecknehmen (``rueckgaengig`` ruft es je Eintrag)."""
+    try:
+        with _SCHREIBSPERRE:
+            letzte = next((e for e in _offene_eintraege() if e.get("id") == ziel_id), None)
+            if letzte is None:
+                return {"ok": False, "fehler": "Es gibt nichts zurückzunehmen.", "_fehler": True}
+            if letzte.get("art") == "bild_rahmen":
+                _bild_rahmen_zuruecknehmen(letzte)
+                _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
+                                      "zeit": datetime.now().isoformat(timespec="seconds"),
+                                      "art": "rueckgaengig", "bezug": letzte.get("id"),
+                                      "kennung": letzte.get("kennung")})
+                weiter = naechste()
+                weiter["zurueckgenommen"] = {"kennung": letzte.get("kennung"), "art": "bild_rahmen",
+                                             "fileid": letzte.get("fileid")}
+                return weiter
             if letzte.get("art") == "zuordnen":
                 _zuordnen_zuruecknehmen(letzte)
                 _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
@@ -2010,6 +2560,12 @@ def rueckgaengig() -> Dict[str, Any]:
                     e for e in daten.get("ausgeschlossen") or []
                     if not (isinstance(e, dict) and (str(e.get("kennung")),
                             f"{e.get('bild_id')}:{int(e.get('index') or 0)}") in weg)]
+                # B1: feste Zuordnungen, die das Entfernen aufgehoben hatte, kommen zurueck.
+                wieder = [e for e in letzte.get("vorher_zugeordnet") or [] if isinstance(e, dict)]
+                if wieder:
+                    zug_liste = daten.get("zugeordnet") if isinstance(daten.get("zugeordnet"), list) else []
+                    zug_liste.extend(e for e in wieder if e not in zug_liste)
+                    daten["zugeordnet"] = zug_liste
                 _atomar_schreiben(VORGABEN_DATEINAME, daten)
                 _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
                                       "zeit": datetime.now().isoformat(timespec="seconds"),
@@ -2100,10 +2656,11 @@ def rueckgaengig() -> Dict[str, Any]:
                                   "art": "rueckgaengig", "bezug": letzte.get("id"),
                                   "kennung": kennung})
     except GruppenFehler as fehler:
-        return {"ok": False, "fehler": str(fehler)}
+        return {"ok": False, "fehler": str(fehler), "_fehler": True}
     except OSError as fehler:
         logger.error("Gruppen-Quiz: Rueckgaengig fehlgeschlagen: %s", fehler)
-        return {"ok": False, "fehler": f"Zurücknehmen fehlgeschlagen ({fehler.__class__.__name__})."}
+        return {"ok": False, "fehler": f"Zurücknehmen fehlgeschlagen ({fehler.__class__.__name__})."
+                , "_fehler": True}
     weiter = naechste()
     weiter["zurueckgenommen"] = {"kennung": kennung, "art": letzte.get("art")}
     if letzte.get("alt"):                   # Umbenennen: dorthin zurueck, wo die Person jetzt heisst
@@ -2136,6 +2693,19 @@ def _zuordnung_laden(pfad: str) -> Dict[str, Dict[str, Any]]:
     return medien
 
 
+def _handy_namen(korr: Dict[str, Dict[str, Any]]) -> set:
+    """Alle handy-eigenen Namen (casefold) aus den Bild-Korrekturen."""
+    return {r["name"].casefold() for e in korr.values() for r in e["rahmen"].values() if r["name"]}
+
+
+def _medien_mit_korrekturen(medien: Dict[str, Dict[str, Any]], korr: Dict[str, Dict[str, Any]]):
+    """Die Medien des Registers plus Bilder, die nur Korrekturen kennen (reines Hand-Gesicht)."""
+    yield from medien.items()
+    for fileid in korr:
+        if fileid not in medien:
+            yield fileid, {"kennungen": set(), "aufnahme": None, "art": "bild"}
+
+
 def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> Dict[str, Any]:
     """Fotos/Videos mit diesen Personen. ``modus``: alle | eine | genau. Nie ein Wurf.
 
@@ -2156,16 +2726,22 @@ def bilder_mit(namen: Iterable[str], modus: str = "alle", limit: int = 100) -> D
         medien = _gemerkt(pfad, _zuordnung_laden)
         aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
         zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
+        korr = _korrekturen_lesen()
+        q = _sicht_quellen(korr) if korr else {}
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     person_von: Dict[str, str] = {k: n.casefold() for k, n in bestaetigt.items()}
     gesucht = {n.casefold() for n in gefragt}
-    unbekannt = sorted(n for n in gefragt if n.casefold() not in set(person_von.values()))
+    bekannt = set(person_von.values()) | _handy_namen(korr)
+    unbekannt = sorted(n for n in gefragt if n.casefold() not in bekannt)
     treffer = []
-    for schluessel, m in medien.items():
-        personen = {person_von[k] for k in m["kennungen"]
-                    if k in person_von and (k, schluessel) not in aus_paare}
-        personen |= set(zug_bild.get(schluessel, {}))       # von Hand zugeordnet
+    for schluessel, m in _medien_mit_korrekturen(medien, korr):
+        if schluessel in korr:                              # Bild mit Korrekturen: zusammengefuehrte Sicht
+            personen = set(_sicht_namen(schluessel, q)[0])
+        else:
+            personen = {person_von[k] for k in m["kennungen"]
+                        if k in person_von and (k, schluessel) not in aus_paare}
+            personen |= set(zug_bild.get(schluessel, {}))   # von Hand zugeordnet
         if modus == "alle":
             passt = gesucht <= personen
         elif modus == "eine":
@@ -2204,17 +2780,22 @@ def bild_kennungen_person(name: str) -> Dict[str, Any]:
         medien = _gemerkt(pfad, _zuordnung_laden)
         aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
         zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
+        korr = _korrekturen_lesen()
+        q = _sicht_quellen(korr) if korr else {}
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     person_von: Dict[str, str] = {k: n.casefold() for k, n in bestaetigt.items()}
     gesucht = person.casefold()
-    if gesucht not in set(person_von.values()):
+    if gesucht not in set(person_von.values()) | _handy_namen(korr):
         return {"ok": True, "name": person, "kennungen": [], "unbekannt": True}
     kennungen: List[int] = []
-    for schluessel, m in medien.items():
-        personen = {person_von[k] for k in m["kennungen"]
-                    if k in person_von and (k, schluessel) not in aus_paare}
-        personen |= set(zug_bild.get(schluessel, {}))
+    for schluessel, m in _medien_mit_korrekturen(medien, korr):
+        if schluessel in korr:                              # Bild mit Korrekturen: zusammengefuehrte Sicht
+            personen = set(_sicht_namen(schluessel, q)[0])
+        else:
+            personen = {person_von[k] for k in m["kennungen"]
+                        if k in person_von and (k, schluessel) not in aus_paare}
+            personen |= set(zug_bild.get(schluessel, {}))
         if gesucht in personen and schluessel.isdigit():
             kennungen.append(int(schluessel))
     kennungen.sort(reverse=True)
@@ -2248,6 +2829,8 @@ def personen_auf_bildern(fileids: Any) -> Dict[str, Any]:
         aus_paare = {(k, gid.split(":")[0]) for k, gids in ausgeschlossen_lesen().items() for gid in gids}
         zug_bild = _zugeordnet_je_bild(zugeordnet_lesen())
         fremd = set(_stand_lesen()["unbekannt"])
+        korr = _korrekturen_lesen()
+        q = _sicht_quellen(korr) if korr else {}
     except (GruppenFehler, OSError) as fehler:
         return {"ok": False, "fehler": str(fehler)}
     bilder: Dict[str, Dict[str, Any]] = {}
@@ -2256,19 +2839,22 @@ def personen_auf_bildern(fileids: Any) -> Dict[str, Any]:
     bilder_ohne_namen = 0
     for fileid in gefragt:
         m = medien.get(fileid)
-        if not m:
+        if fileid in korr:                  # Bild mit Korrekturen: dieselbe Sicht wie bild-gesichter
+            benannt, unbenannt = _sicht_namen(fileid, q)
+        elif not m:
             continue
-        benannt: Dict[str, str] = {}
-        unbenannt: List[str] = []
-        for k in sorted(m["kennungen"]):
-            if (k, fileid) in aus_paare or k in fremd:
-                continue
-            if k in namen:
-                benannt.setdefault(namen[k].casefold(), namen[k])
-            else:
-                unbenannt.append(k)
-        for schl, n in zug_bild.get(fileid, {}).items():      # von Hand zugeordnet
-            benannt.setdefault(schl, n)
+        else:
+            benannt = {}
+            unbenannt = []
+            for k in sorted(m["kennungen"]):
+                if (k, fileid) in aus_paare or k in fremd:
+                    continue
+                if k in namen:
+                    benannt.setdefault(namen[k].casefold(), namen[k])
+                else:
+                    unbenannt.append(k)
+            for schl, n in zug_bild.get(fileid, {}).items():      # von Hand zugeordnet
+                benannt.setdefault(schl, n)
         if not benannt and not unbenannt:
             continue
         liste = sorted(benannt.values(), key=str.casefold)

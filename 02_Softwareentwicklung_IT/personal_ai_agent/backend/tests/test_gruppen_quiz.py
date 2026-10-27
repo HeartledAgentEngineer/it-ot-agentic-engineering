@@ -829,8 +829,15 @@ def test_gesichter_auf_bild_links_nach_rechts_mit_namen(basis):
     assert r["ok"] and r["fileid"] == "700"
     assert [(g["kennung"], g["name"]) for g in r["gesichter"]] == [
         ("Person_1003", None), ("Person_1004", None), ("Person_1001", "Leon")]
-    assert r["gesichter"][0] == {"gid": "700:1", "index": 1, "kennung": "Person_1003",
-                                 "bbox": [100, 60, 70, 80], "breite": 1000, "hoehe": 750, "name": None}
+    # Die alten Felder bleiben unveraendert (Bild-Editor B1: die Antwort ist rein additiv) ...
+    alt = {"gid": "700:1", "index": 1, "kennung": "Person_1003",
+           "bbox": [100, 60, 70, 80], "breite": 1000, "hoehe": 750, "name": None}
+    assert {k: r["gesichter"][0][k] for k in alt} == alt
+    # ... neu hinzu kommen nur bbox_norm, name_quelle und quelle.
+    assert set(r["gesichter"][0]) - set(alt) == {"bbox_norm", "name_quelle", "quelle"}
+    assert r["gesichter"][0]["bbox_norm"] == [0.1, 0.08, 0.07, 0.106667]
+    assert r["gesichter"][0]["quelle"] == "erkennung" and r["gesichter"][0]["name_quelle"] is None
+    assert r["gesichter"][2]["name_quelle"] == "gruppe"                  # „Leon" kommt aus der Gruppe
     assert gq.gesichter_auf_bild("701")["gesichter"] == []              # ohne Rahmen: nichts
     assert gq.gesichter_auf_bild("abc")["ok"] is False
 

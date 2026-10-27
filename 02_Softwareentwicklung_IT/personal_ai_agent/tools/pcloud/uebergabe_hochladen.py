@@ -82,6 +82,12 @@ UMGEBUNG_MANIFEST = "PCLOUD_UEBERGABE_MANIFEST"
 # weiterer Schreibweg dabei, waere die Rueckhol-Zusage gebrochen.
 ERLAUBTE_METHODEN = ("createfolderifnotexists", "uploadfile")
 
+# Handy-eigene Dateien (Bild-Editor B1, 26.10.2026): entstehen NUR am Handy und gehen nie
+# zwischen PC und Handy hin und her. Ein Upload wuerde sie ueber die Uebergabe wieder aufs
+# Handy bringen und dort die Handy-Fassung ueberschreiben. Gleicher Name wie
+# ``gruppen_quiz.KORREKTUREN_DATEINAME`` und ``tools/handy/pcloud_dateien_holen.py``.
+HANDY_EIGENE_NAMEN = ("bild_korrekturen.json",)
+
 # Zustand einer Datei im Plan.
 ZUSTAND_NEU = "neu"
 ZUSTAND_GLEICH = "gleich"
@@ -280,6 +286,8 @@ def hochladen(
     name = str(name or "").strip()
     if not name or "/" in name or "\\" in name or name in (".", ".."):
         raise UebergabeFehler(f"Ungueltiger Dateiname: {name!r}")
+    if name in HANDY_EIGENE_NAMEN:
+        raise UebergabeFehler(f"{name} ist handy-eigen und wird nie hochgeladen.")
     if not isinstance(daten, (bytes, bytearray)) or not daten:
         raise UebergabeFehler("Keine Daten zum Hochladen.")
     geheimnis = _token_aus_quellen(token)
@@ -519,6 +527,8 @@ def hochladen_ohne_ueberschreiben(
     name = str(name or "").strip()
     if not name or "/" in name or "\\" in name or name in (".", ".."):
         raise PCloudFehler("aufruf")
+    if name in HANDY_EIGENE_NAMEN:
+        raise PCloudFehler("aufruf")
     if not isinstance(daten, (bytes, bytearray)) or not daten:
         raise PCloudFehler("aufruf")
     geheimnis, ziel_host = _zugang_lesen(token, host)
@@ -662,6 +672,10 @@ def dateien_sammeln(dateien: Optional[List[str]] = None,
             pfad = os.path.join(basis, name)
             if os.path.isfile(pfad):
                 gesammelt.append(pfad)
+    for pfad in gesammelt:
+        if os.path.basename(pfad) in HANDY_EIGENE_NAMEN:
+            raise UebergabeFehler(
+                f"{os.path.basename(pfad)} ist handy-eigen und wird nie hochgeladen.")
     # Duplikate entfernen, Reihenfolge erhalten.
     gesehen: set = set()
     ergebnis: List[str] = []

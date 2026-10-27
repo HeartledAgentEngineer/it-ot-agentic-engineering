@@ -183,6 +183,15 @@ function erzaehlGesichtMeldung(art, name) {
     return '';
 }
 
+/** REINE Funktion (Bild-Editor B1, 26.10.2026): Hinweistext für ein Hand-Gesicht
+ *  (``quelle`` „hand", Index >= 1000, ohne Vorschlagskennung). Solche Gesichter kennt der
+ *  Gruppen-Weg nicht – die Knöpfe senden dafür NICHTS an /api/gruppen/antwort oder
+ *  /api/gruppen/ausschliessen. Erkannte Gesichter (und ältere Antworten ohne ``quelle``) -> ''. */
+function erzaehlGesichtHandHinweis(gesicht) {
+    if (!gesicht || typeof gesicht !== 'object' || gesicht.quelle !== 'hand') return '';
+    return 'Hand-Gesicht – Bearbeitung im Bild-Editor.';
+}
+
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
@@ -1026,6 +1035,9 @@ function erzaehlAllesText(teile) {
     async function gesichtSpeichern(art, vorschlag) {
         const g = zustand.gesichtAuswahl;
         if (!g || zustand.gesichtBeschaeftigt) return;
+        // Hand-Gesichter (B1) haben keinen Vorschlag: keine Gruppenaktion, nur ein ehrlicher Hinweis.
+        const handHinweis = erzaehlGesichtHandHinweis(g);
+        if (handHinweis) { gesichtMelden(handHinweis, false); return; }
         let pfad, koerper, name = g.name || '';
         if (art === 'name') {
             const feld = el('erzaehl-gesicht-name');

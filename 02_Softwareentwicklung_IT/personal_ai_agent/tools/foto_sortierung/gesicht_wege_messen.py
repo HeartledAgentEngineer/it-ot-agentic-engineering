@@ -215,6 +215,10 @@ def einstellungen_bericht(einstellungen: dict) -> list:
 
 # ── Teil 2: Anzeige im Detailbild (aus dem echten Code) ─────────────────────
 
+# Funktionen, in deren Rumpf die Filterzeilen der Detailbild-Auswahl stehen.
+FILTER_FUNKTIONEN = (r"^def gesichter_auf_bild", r"^def _sicht_quellen", r"^def _bild_sicht")
+
+
 def anzeige_orte(router: Path = ROUTER_GRUPPEN, service: Path = SERVICE_QUIZ,
                  frontend: Path = FRONTEND) -> list:
     """Die tragenden Code-Stellen der Anzeige, je (Datei, Zeile, Text)."""
@@ -231,9 +235,13 @@ def anzeige_orte(router: Path = ROUTER_GRUPPEN, service: Path = SERVICE_QUIZ,
         for nummer, text in code_zeilen(pfad, muster):
             stellen.append((os.path.relpath(pfad, PROJEKT).replace(os.sep, "/"), nummer,
                             re.sub(r"\s+", " ", text.strip())[:80], was))
-    # Die Filter gelten in der Funktion, die die Kaestchen eines Bildes auswaehlt
-    # (nicht im ganzen Modul) — deshalb hier auf ihren Rumpf begrenzt.
-    rumpf = funktions_bereich(service, r"^def gesichter_auf_bild")
+    # Die Filter gelten in den Funktionen, die die Kaestchen eines Bildes auswaehlen
+    # (nicht im ganzen Modul) — deshalb hier auf ihre Rumpfe begrenzt. Seit dem Bild-Editor
+    # (B1, 26.10.2026) liegt die Auswahl in ``_bild_sicht`` (gemeinsame zusammengefuehrte Sicht
+    # fuer bild-gesichter, "Bilder mit X" und Erzaehlen), ihre Quellen in ``_sicht_quellen``.
+    rumpf = []
+    for start in FILTER_FUNKTIONEN:
+        rumpf.extend(funktions_bereich(service, start))
     for muster, was in (
         (r"ausgeschlossen_lesen\(\)|_stand_lesen\(\)", "gelesene Filterquellen"),
         (r"not in fremd|not in aus", "Filterzeile: verbirgt ausgeschlossene und "

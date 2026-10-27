@@ -93,14 +93,15 @@ def test_anzeige_orte_finden_filterzeile_und_einzelrahmen():
 
 
 def test_filterzeile_steht_wirklich_in_der_auswahlfunktion():
-    """Die gefundene Zeile muss im Rumpf von gesichter_auf_bild liegen — sonst
-    waere es ein Treffer aus einer anderen Funktion (Pruefung gegen den Code)."""
+    """Die gefundene Zeile muss im Rumpf der Auswahlfunktionen liegen (``gesichter_auf_bild``,
+    seit B1 ``_bild_sicht`` und ``_sicht_quellen``) — sonst waere es ein Treffer aus einer
+    anderen Funktion (Pruefung gegen den Code)."""
     stellen = gwm.anzeige_orte()
     zeilen = {nummer for datei, nummer, _t, was in stellen
               if was.startswith("Filterzeile") and datei.endswith("gruppen_quiz.py")}
     assert zeilen, "keine Filterzeile gefunden"
-    rumpf = {nummer for nummer, _t in gwm.funktions_bereich(
-        gwm.SERVICE_QUIZ, r"^def gesichter_auf_bild")}
+    rumpf = {nummer for start in gwm.FILTER_FUNKTIONEN
+             for nummer, _t in gwm.funktions_bereich(gwm.SERVICE_QUIZ, start)}
     assert zeilen <= rumpf
 
 

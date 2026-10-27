@@ -16,6 +16,10 @@
                                   Vorschlaege, je Gesicht seine kennung (07.10.2026)
   GET  /api/gruppen/bild-gesichter ?fileid=123 -> Gesichter eines Fotos mit Name/Rahmen
                                   (Erzaehlen, 07.10.2026: benennen / „ist nicht X“)
+  POST /api/gruppen/bild-rahmen   {fileid, aenderungen: [...]} -> Rahmen/Namen/neue und entfernte
+                                  Gesichter EINES Bildes speichern (Bild-Editor B1, 26.10.2026;
+                                  hoechstens 30 Aenderungen, erst alles pruefen, bei Fehler nichts
+                                  schreiben; Daten: handy-eigene ``bild_korrekturen.json``)
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
   POST /api/gruppen/person/ausschliessen {name, gesichter: [{kennung, gid}]} (07.10.2026)
   GET  /api/gruppen/personen      benannte Personen (Liste), je Person ``gruppen``:
@@ -64,6 +68,15 @@ class PersonAusschlussEingabe(BaseModel):
     """Ausschließen in der Gesamtansicht einer Person (07.10.2026): je Gesicht seine Kennung."""
     name: str
     gesichter: List[Dict[str, str]]
+
+
+class BildRahmenEingabe(BaseModel):
+    """Bild-Editor (B1, 26.10.2026): Aenderungen an den Gesichtern eines Bildes.
+
+    ``Any``/``List[Any]`` mit Absicht: Form und Grenzen prueft ``gruppen_quiz.bild_rahmen``
+    und antwortet immer mit HTTP 200 + ``ok`` + deutschem ``fehler`` (wie die anderen Routen)."""
+    fileid: Any
+    aenderungen: List[Any]
 
 
 class UmbenennenEingabe(BaseModel):
@@ -174,6 +187,12 @@ def gesichter(kennung: Optional[str] = Query(default=None, min_length=1, max_len
 def bild_gesichter(fileid: str = Query(..., min_length=1, max_length=20)) -> Dict[str, Any]:
     """Die Gesichter eines Fotos (Erzählen, 07.10.2026) — Benennen/Ausschließen über die vorhandenen Routen."""
     return gruppen_quiz.gesichter_auf_bild(fileid)
+
+
+@router.post("/bild-rahmen")
+def bild_rahmen(eingabe: BildRahmenEingabe) -> Dict[str, Any]:
+    """Rahmen verschieben, Hand-Gesichter anlegen, Namen setzen, Gesichter entfernen (Bild-Editor B1)."""
+    return gruppen_quiz.bild_rahmen(eingabe.fileid, eingabe.aenderungen)
 
 
 @router.post("/ausschliessen")
