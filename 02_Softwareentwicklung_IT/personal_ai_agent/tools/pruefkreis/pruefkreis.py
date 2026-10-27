@@ -23,7 +23,11 @@ Sandbox der App und kennt ``gpt-6.1-sol`` nicht (gemessen 12.10.2026).
 Aufruf::
 
     python pruefkreis.py pruefen --vorlage <datei> --thema <kennung>
-        [--pruefer codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900]
+        [--pruefer codex|hermes] [--master claude|codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900]
+
+``--master`` nennt den Master des geprueften Themas. Codex prueft nie die Arbeit eines Codex-Masters
+(AGENTS.md: Pruefer aus einer anderen Modellfamilie als der Master): ohne ``--pruefer`` wird dann Hermes
+gewaehlt, ``--pruefer codex`` wird abgelehnt.
 
 Exit-Code: 0 = FREI, 1 = EINWAND, 2 = Fehler (Lauf, Urteilszeile, Aufruf).
 """
@@ -78,13 +82,22 @@ def hermes_programm() -> str | None:
     return shutil.which("hermes")
 
 
-def pruefer_waehlen(pruefer: str | None, sensibel: bool) -> str:
+MASTER_WERTE = ("claude", "codex", "hermes")
+
+
+def pruefer_waehlen(pruefer: str | None, sensibel: bool, master: str | None = None) -> str:
+    if master not in (None, *MASTER_WERTE):
+        raise PruefkreisFehler(f"Unbekannter Master: {master}")
     if sensibel:
         if pruefer == "codex":
             raise PruefkreisFehler("Sensible Inhalte prueft ausschliesslich Hermes (AGENTS.md) - Codex verweigert.")
         return "hermes"
     if pruefer not in (None, "codex", "hermes"):
         raise PruefkreisFehler(f"Unbekannter Pruefer: {pruefer}")
+    if master == "codex":
+        if pruefer == "codex":
+            raise PruefkreisFehler("Codex prueft nicht die Arbeit eines Codex-Masters (AGENTS.md: andere Modellfamilie).")
+        return "hermes"
     return pruefer or "codex"
 
 
@@ -215,12 +228,12 @@ def protokoll_block(ergebnis: dict) -> str:
 
 def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool = False,
             gruendlich: bool = False, zeitgrenze: float = ZEITGRENZE_STANDARD,
-            planfassung: str | None = None) -> dict:
+            planfassung: str | None = None, master: str | None = None) -> dict:
     if not THEMA_MUSTER.match(thema):
         raise PruefkreisFehler("Thema nur aus a-z, 0-9 und Bindestrich (wird Dateiname).")
     if not (REPO / vorlage).is_file() and not Path(vorlage).is_file():
         raise PruefkreisFehler(f"Vorlage nicht gefunden: {vorlage}")
-    wer = pruefer_waehlen(pruefer, sensibel)
+    wer = pruefer_waehlen(pruefer, sensibel, master)
     programm = codex_programm() if wer == "codex" else hermes_programm()
     if not programm:
         raise PruefkreisFehler(f"Programm fuer {wer} nicht gefunden.")
@@ -228,7 +241,7 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
     auftrag = auftrag_text(vorlage, runde, sensibel)
 
     lauf = _lauf(wer, programm, auftrag, gruendlich, zeitgrenze)
-    ersatz = ""
+    ersatz = "Hermes statt Codex - Master ist Codex (keine Pruefung durch dieselbe Modellfamilie)"         if master == "codex" and not sensibel and pruefer is None else ""
     if wer == "codex" and codex_gesperrt(lauf["exitcode"], lauf["stderr"]):
         ersatz = f"Hermes statt Codex - Codex gesperrt ({fehlerzeile(lauf['stderr'])})"
         hermes = hermes_programm()
@@ -283,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--vorlage", required=True)
     p.add_argument("--thema", required=True)
     p.add_argument("--pruefer", choices=("codex", "hermes"))
+    p.add_argument("--master", choices=MASTER_WERTE, help="Master des Themas; Codex prueft nie einen Codex-Master")
     p.add_argument("--sensibel", action="store_true")
     p.add_argument("--gruendlich", action="store_true", help=f"Codex mit {CODEX_GRUENDLICH_MODELL}")
     p.add_argument("--zeitgrenze", type=float, default=ZEITGRENZE_STANDARD)
@@ -290,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         ergebnis = pruefen(args.vorlage, args.thema, args.pruefer, args.sensibel, args.gruendlich, args.zeitgrenze,
-                           args.planfassung)
+                           args.planfassung, args.master)
     except PruefkreisFehler as fehler:
         print(f"FEHLER: {fehler}", file=sys.stderr)
         return 2

@@ -276,3 +276,31 @@ def test_codex_programm_nimmt_das_neueste(tmp_path, monkeypatch):
         datei.write_text("x")
         os.utime(datei, (zeit, zeit))
     assert _lade().codex_programm() == str(neu)
+
+
+def test_codex_master_wird_von_hermes_geprueft(pk, vorlage, monkeypatch):
+    _attrappe(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "probe", master="codex")
+    assert erg["pruefer"] == "hermes" and pk.aufrufe[0][0] == "hermes-attrappe"
+    assert "Master ist Codex" in erg["ersatz"]
+    assert "Master ist Codex" in Path(erg["protokoll"]).read_text(encoding="utf-8")
+
+
+def test_codex_master_lehnt_codex_als_pruefer_ab(pk, vorlage, monkeypatch):
+    _attrappe(pk, monkeypatch)
+    with pytest.raises(pk.PruefkreisFehler, match="Codex-Masters"):
+        pk.pruefen(vorlage, "probe", pruefer="codex", master="codex")
+    assert pk.aufrufe == []
+    assert pk.main(["pruefen", "--vorlage", vorlage, "--thema", "probe", "--pruefer", "codex", "--master", "codex"]) == 2
+
+
+@pytest.mark.parametrize("master", [None, "claude", "hermes"])
+def test_anderer_master_behaelt_codex_als_standard(pk, vorlage, monkeypatch, master):
+    _attrappe(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "probe", master=master)
+    assert erg["pruefer"] == "codex" and erg["ersatz"] == ""
+
+
+def test_unbekannter_master_ist_fehler(pk, vorlage):
+    with pytest.raises(pk.PruefkreisFehler, match="Unbekannter Master"):
+        pk.pruefen(vorlage, "probe", master="gpt")
