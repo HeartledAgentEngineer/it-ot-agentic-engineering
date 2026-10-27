@@ -85,8 +85,12 @@ def verfuegbar() -> bool:
     return _verfuegbar_cache
 
 
-def _infer(payload: dict) -> dict:
-    """Fuehrt einen Inferenz-Aufruf im Debian-Subprozess aus und liefert dict."""
+def _infer(payload: dict, timeout_s: Optional[float] = None) -> dict:
+    """Fuehrt einen Inferenz-Aufruf im Debian-Subprozess aus und liefert dict.
+
+    ``timeout_s``: Zeitgrenze in Sekunden; ``None`` = ``_INFER_TIMEOUT_S`` (30 s) wie fuer
+    alle bisherigen Aufrufer. Die Bild-Editor-Erkennung (``bild_erkennen``) nutzt 45 s.
+    """
     if not verfuegbar():
         return {"ok": False, "fehler": "face-engine nicht verfuegbar"}
     try:
@@ -95,7 +99,7 @@ def _infer(payload: dict) -> dict:
             input=json.dumps(payload, ensure_ascii=False),
             capture_output=True,
             text=True,
-            timeout=_INFER_TIMEOUT_S,
+            timeout=_INFER_TIMEOUT_S if timeout_s is None else timeout_s,
         )
         out = (r.stdout or "").strip()
         # Nur die letzte JSON-Zeile nehmen (proot-Warnungen koennen vorn stehen).

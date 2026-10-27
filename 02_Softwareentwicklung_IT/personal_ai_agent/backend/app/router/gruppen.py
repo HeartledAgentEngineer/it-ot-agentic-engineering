@@ -20,6 +20,12 @@
                                   Gesichter EINES Bildes speichern (Bild-Editor B1, 26.10.2026;
                                   hoechstens 30 Aenderungen, erst alles pruefen, bei Fehler nichts
                                   schreiben; Daten: handy-eigene ``bild_korrekturen.json``)
+  POST /api/gruppen/bild-erkennen {fileid} -> Gesichter eines Bildes neu erkennen (Bild-Editor B2,
+                                  27.10.2026): Rahmen (``bbox_norm``), je Rahmen ``bekannt`` (IoU >= 0,5
+                                  mit einem vorhandenen Gesicht, samt ``gid``) oder ``neu`` und
+                                  Namensvorschlaege (Name + Abstand). Speichert nichts. Fehler mit
+                                  echtem HTTP-Status (400/413/422/502/503/504) und ``ok: false``,
+                                  ``grund``, deutschem ``fehler`` (Ausnahme von der Regel unten)
   POST /api/gruppen/ausschliessen {kennung, gesichter: ["bild_id:index"]}
   POST /api/gruppen/person/ausschliessen {name, gesichter: [{kennung, gid}]} (07.10.2026)
   GET  /api/gruppen/personen      benannte Personen (Liste), je Person ``gruppen``:
@@ -35,6 +41,7 @@
 
 Immer HTTP 200 mit ``ok`` und deutschem ``fehler``-Text (wie fotos/erzaehlen) —
 die Oberflaeche zeigt den Text an, statt an einem Statuscode zu scheitern.
+Einzige Ausnahme: ``bild-erkennen`` (Netz + Erkennung) meldet Fehler mit passendem HTTP-Status.
 Die Logik steht in ``app/services/gruppen_quiz.py``.
 """
 from __future__ import annotations
@@ -42,8 +49,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.services import bild_erkennen as bild_erkennen_dienst
 from app.services import gruppen_quiz
 
 router = APIRouter(prefix="/api/gruppen", tags=["gruppen"])
@@ -77,6 +86,13 @@ class BildRahmenEingabe(BaseModel):
     und antwortet immer mit HTTP 200 + ``ok`` + deutschem ``fehler`` (wie die anderen Routen)."""
     fileid: Any
     aenderungen: List[Any]
+
+
+class BildErkennenEingabe(BaseModel):
+    """Bild-Editor (B2, 27.10.2026): ``fileid`` mit Absicht ``Any`` — die Pruefung (positive ganze
+    Zahl) macht ``bild_erkennen.bild_erkennen`` und antwortet mit HTTP 400 statt 422; nur ein
+    FEHLENDES Feld lehnt FastAPI selbst mit 422 ab."""
+    fileid: Any
 
 
 class UmbenennenEingabe(BaseModel):
@@ -193,6 +209,19 @@ def bild_gesichter(fileid: str = Query(..., min_length=1, max_length=20)) -> Dic
 def bild_rahmen(eingabe: BildRahmenEingabe) -> Dict[str, Any]:
     """Rahmen verschieben, Hand-Gesichter anlegen, Namen setzen, Gesichter entfernen (Bild-Editor B1)."""
     return gruppen_quiz.bild_rahmen(eingabe.fileid, eingabe.aenderungen)
+
+
+@router.post("/bild-erkennen")
+def bild_erkennen(eingabe: BildErkennenEingabe) -> Any:
+    """Gesichter eines Bildes neu erkennen (Bild-Editor B2) — speichert nichts.
+
+    Erfolg: HTTP 200 mit ``ok: true``. Fehler: ``ok: false``, ``grund``, ``fehler`` mit dem Status aus
+    ``bild_erkennen.STATUS_JE_GRUND`` (unbekannter Grund: 500)."""
+    ergebnis = bild_erkennen_dienst.bild_erkennen(eingabe.fileid)
+    if ergebnis.get("ok"):
+        return ergebnis
+    return JSONResponse(status_code=bild_erkennen_dienst.STATUS_JE_GRUND.get(ergebnis.get("grund"), 500),
+                        content=ergebnis)
 
 
 @router.post("/ausschliessen")
