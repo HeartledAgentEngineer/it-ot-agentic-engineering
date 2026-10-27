@@ -782,7 +782,9 @@ class Leiste:
                 claude_messen.messen()
             except claude_messen.MessFehler as fehler:
                 self._messung_fehler = str(fehler)
-                _protokoll(f"Claude-Messung fehlgeschlagen: {fehler}")
+                # Fehlerart und HTTP-Code (nie Antwort- oder Zugangsdaten), damit Ausfälle später erklärbar sind
+                code = f", HTTP {fehler.status}" if fehler.status else ""
+                _protokoll(f"Claude-Messung fehlgeschlagen: {fehler} [{fehler.kategorie}{code}]")
                 if fehler.status == 429:
                     self._429_aktiv = True
                 self._messung_intervall = 300 if self._429_aktiv else anzeige.claude_takt_min() * 60
