@@ -25,6 +25,10 @@ def pk(tmp_path, monkeypatch):
     monkeypatch.setenv("PRUEFKREIS_DIR", str(tmp_path / "protokoll"))
     monkeypatch.setenv("PRUEFKREIS_CODEX", "codex-attrappe")
     monkeypatch.setenv("PRUEFKREIS_HERMES", "hermes-attrappe")
+    monkeypatch.setenv("PRUEFKREIS_BESITZ_DIR", str(tmp_path / "besitz"))
+    # Standardthema "probe" gehoert Claude - ohne bekannten Master bricht pruefen ab.
+    (tmp_path / "besitz").mkdir()
+    (tmp_path / "besitz" / "probe.master").write_text("claude 2026-10-27T00:00:00+00:00 modus probe", encoding="utf-8")
     mod = _lade()
     mod.aufrufe = []
     return mod
@@ -304,3 +308,89 @@ def test_anderer_master_behaelt_codex_als_standard(pk, vorlage, monkeypatch, mas
 def test_unbekannter_master_ist_fehler(pk, vorlage):
     with pytest.raises(pk.PruefkreisFehler, match="Unbekannter Master"):
         pk.pruefen(vorlage, "probe", master="gpt")
+
+
+def _besitz(tmp_path, name, inhalt):
+    ordner = tmp_path / "besitz"
+    ordner.mkdir(exist_ok=True)
+    (ordner / f"{name}.master").write_text(inhalt, encoding="utf-8")
+
+
+def test_master_aus_besitzdatei_codex_wird_von_hermes_geprueft(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "master-schalter", "codex 2026-10-27T19:48:37+00:00 modus master-schalter\n")
+    erg = pk.pruefen(vorlage, "master-schalter-kurz")
+    assert erg["pruefer"] == "hermes" and erg["master"] == "codex"
+    text = Path(erg["protokoll"]).read_text(encoding="utf-8")
+    assert "Master: codex (master-schalter.master)" in text and "Master ist Codex" in text
+
+
+def test_besitzdatei_codex_lehnt_codex_als_pruefer_ab(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "codex 2026-10-27T19:48:37+00:00 modus probe")
+    with pytest.raises(pk.PruefkreisFehler, match="Codex-Masters"):
+        pk.pruefen(vorlage, "probe", pruefer="codex")
+    assert pk.aufrufe == []
+
+
+def test_laengster_passender_name_gewinnt(pk, tmp_path):
+    _besitz(tmp_path, "master", "claude x modus master")
+    _besitz(tmp_path, "master-schalter", "codex x modus master-schalter")
+    assert pk.master_ermitteln("master-schalter-kurz-r2", None) == ("codex", "master-schalter.master")
+    assert pk.master_ermitteln("master-anderes", None) == ("claude", "master.master")
+
+
+def test_name_passt_nur_an_bindestrich_grenze(pk, tmp_path):
+    _besitz(tmp_path, "master-schalter", "codex x modus master-schalter")
+    assert pk.master_ermitteln("master-schalterx", None) == (None, "unbekannt (keine Besitzdatei)")
+
+
+def test_leere_besitzdatei_heisst_claude(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "portfolio-optimierung", "")
+    erg = pk.pruefen(vorlage, "portfolio-optimierung")
+    assert erg["master"] == "claude" and erg["pruefer"] == "codex" and erg["ersatz"] == ""
+
+
+def test_unbekannter_besitzer_bricht_ab(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "gpt x modus probe")
+    with pytest.raises(pk.PruefkreisFehler, match="nennt keinen bekannten Master.*--master"):
+        pk.pruefen(vorlage, "probe")
+    assert pk.aufrufe == []
+
+
+def test_ohne_besitzdatei_bricht_ab_bis_master_angegeben(pk, vorlage, monkeypatch):
+    _attrappe(pk, monkeypatch)
+    assert pk.main(["pruefen", "--vorlage", vorlage, "--thema", "ohne-datei"]) == 2
+    assert pk.aufrufe == []
+    erg = pk.pruefen(vorlage, "ohne-datei", master="claude")
+    assert erg["pruefer"] == "codex"
+    assert "Master: claude (angegeben)" in Path(erg["protokoll"]).read_text(encoding="utf-8")
+
+
+def test_sensibel_braucht_keinen_master(pk, vorlage, monkeypatch):
+    _attrappe(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "ohne-datei", sensibel=True)
+    assert erg["pruefer"] == "hermes" and erg["master"] is None
+
+
+def test_haupt_repo_aus_worktree(tmp_path):
+    pk = _lade()
+    haupt = tmp_path / "haupt"
+    (haupt / ".git" / "worktrees" / "w").mkdir(parents=True)
+    (haupt / ".git" / "worktrees" / "w" / "commondir").write_text("../..\n", encoding="utf-8")
+    baum = tmp_path / "baum"
+    baum.mkdir()
+    (baum / ".git").write_text(f"gitdir: {haupt / '.git' / 'worktrees' / 'w'}\n", encoding="utf-8")
+    assert pk.haupt_repo(baum) == haupt.resolve()
+    assert pk.haupt_repo(haupt) == haupt
+    (baum / ".git").write_text("kaputt", encoding="utf-8")
+    assert pk.haupt_repo(baum) == baum
+
+
+def test_ausdruecklicher_master_geht_vor_besitzdatei(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "codex x modus probe")
+    erg = pk.pruefen(vorlage, "probe", master="claude")
+    assert erg["pruefer"] == "codex" and erg["master_quelle"] == "angegeben"

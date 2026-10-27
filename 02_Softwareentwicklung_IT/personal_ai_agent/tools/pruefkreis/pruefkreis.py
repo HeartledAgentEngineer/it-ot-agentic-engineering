@@ -27,7 +27,13 @@ Aufruf::
 
 ``--master`` nennt den Master des geprueften Themas. Codex prueft nie die Arbeit eines Codex-Masters
 (AGENTS.md: Pruefer aus einer anderen Modellfamilie als der Master): ohne ``--pruefer`` wird dann Hermes
-gewaehlt, ``--pruefer codex`` wird abgelehnt.
+gewaehlt, ``--pruefer codex`` wird abgelehnt. Fehlt ``--master``, liest das Werkzeug den Besitzer aus der
+Besitzdatei des Master-Schalters ``.hermes/uebergabe/laufend/<name>.master``; ``<name>`` ist das Thema selbst
+oder der laengste Anfang des Themas vor einem Bindestrich (``master-schalter-kurz`` -> ``master-schalter``).
+Leere Datei = claude (wie ``besitz.py``). Unlesbar, unbekannter Besitzer oder keine Datei => Abbruch (Exit 2),
+bis ``--master`` angegeben ist - sonst koennte Codex unbemerkt einen Codex-Master pruefen. Ausnahme ``--sensibel``
+(Hermes ohnehin). Aus einem Git-Worktree heraus gelten Besitzdateien und Protokolle des Hauptarbeitsbaums.
+Die Quelle steht im Protokoll.
 
 Exit-Code: 0 = FREI, 1 = EINWAND, 2 = Fehler (Lauf, Urteilszeile, Aufruf).
 """
@@ -59,8 +65,33 @@ class PruefkreisFehler(Exception):
     """Aufruf ist nicht zulaessig (z. B. sensibel + Codex, fehlende Vorlage)."""
 
 
+def haupt_repo(repo: Path = REPO) -> Path:
+    """Hauptarbeitsbaum: in einem Git-Worktree ist ``.git`` eine Datei, die ueber ``commondir`` dorthin zeigt.
+
+    ``.hermes/`` ist gitignored und liegt nur im Hauptarbeitsbaum - Besitz und Protokolle gelten dort.
+    """
+    verweis = repo / ".git"
+    if not verweis.is_file():
+        return repo
+    try:
+        zeile = verweis.read_text(encoding="utf-8").strip()
+        if not zeile.startswith("gitdir:"):
+            return repo
+        gitdir = Path(zeile[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = repo / gitdir
+        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return repo
+    return common.parent if common.name == ".git" else repo
+
+
 def protokoll_ordner() -> Path:
-    return Path(os.environ.get("PRUEFKREIS_DIR") or REPO / ".hermes" / "pruefkreis")
+    return Path(os.environ.get("PRUEFKREIS_DIR") or haupt_repo() / ".hermes" / "pruefkreis")
+
+
+def besitz_ordner() -> Path:
+    return Path(os.environ.get("PRUEFKREIS_BESITZ_DIR") or haupt_repo() / ".hermes" / "uebergabe" / "laufend")
 
 
 def codex_programm() -> str | None:
@@ -99,6 +130,27 @@ def pruefer_waehlen(pruefer: str | None, sensibel: bool, master: str | None = No
             raise PruefkreisFehler("Codex prueft nicht die Arbeit eines Codex-Masters (AGENTS.md: andere Modellfamilie).")
         return "hermes"
     return pruefer or "codex"
+
+
+def master_ermitteln(thema: str, angegeben: str | None) -> tuple[str | None, str]:
+    """Master und Quelle fuers Protokoll: ausdruecklich angegeben, sonst aus der Besitzdatei des Schalters."""
+    if angegeben is not None:
+        return angegeben, "angegeben"
+    teile = thema.split("-")
+    for laenge in range(len(teile), 0, -1):
+        name = "-".join(teile[:laenge])
+        datei = besitz_ordner() / f"{name}.master"
+        if not datei.is_file():
+            continue
+        try:
+            text = datei.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            return None, f"unbekannt ({name}.master unlesbar)"
+        besitzer = text.split()[0] if text else "claude"
+        if besitzer not in MASTER_WERTE:
+            return None, f"unbekannt ({name}.master nennt keinen bekannten Master)"
+        return besitzer, f"{name}.master"
+    return None, "unbekannt (keine Besitzdatei)"
 
 
 def urteil_lesen(text: str) -> str | None:
@@ -214,6 +266,8 @@ def protokoll_block(ergebnis: dict) -> str:
             f" · Vorlage `{ergebnis['vorlage']}`")
     zeilen = [kopf, "", f"**Status: {ergebnis['status'].upper()}**",
               f"Modell: {ergebnis.get('modell', '?')} · Planfassung: {ergebnis.get('planfassung', '?')}"]
+    if ergebnis.get("master_quelle"):
+        zeilen.append(f"Master: {ergebnis.get('master') or '?'} ({ergebnis['master_quelle']})")
     if ergebnis.get("ersatz"):
         zeilen.append(f"Ersatzpruefer: {ergebnis['ersatz']}")
     if ergebnis.get("grund"):
@@ -233,6 +287,10 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
         raise PruefkreisFehler("Thema nur aus a-z, 0-9 und Bindestrich (wird Dateiname).")
     if not (REPO / vorlage).is_file() and not Path(vorlage).is_file():
         raise PruefkreisFehler(f"Vorlage nicht gefunden: {vorlage}")
+    master, master_quelle = master_ermitteln(thema, master)
+    if master is None and not sensibel:
+        raise PruefkreisFehler(f"Master {master_quelle} - bitte --master claude|codex|hermes angeben "
+                               "(sonst koennte Codex einen Codex-Master pruefen).")
     wer = pruefer_waehlen(pruefer, sensibel, master)
     programm = codex_programm() if wer == "codex" else hermes_programm()
     if not programm:
@@ -277,7 +335,8 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
 
     ergebnis = {"runde": runde, "zeit": time.strftime("%Y-%m-%d %H:%M"), "pruefer": wer, "vorlage": vorlage,
                 "modell": modell_fuer(wer, gruendlich), "planfassung": planfassung_lesen(vorlage, planfassung),
-                "status": status, "grund": grund, "ersatz": ersatz, "dauer_s": dauer, "ausgabe": ausgabe, **nutzung}
+                "status": status, "grund": grund, "ersatz": ersatz, "master": master,
+                "master_quelle": master_quelle, "dauer_s": dauer, "ausgabe": ausgabe, **nutzung}
     ordner = protokoll_ordner()
     ordner.mkdir(parents=True, exist_ok=True)
     datei = ordner / f"{thema}.md"
@@ -296,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--vorlage", required=True)
     p.add_argument("--thema", required=True)
     p.add_argument("--pruefer", choices=("codex", "hermes"))
-    p.add_argument("--master", choices=MASTER_WERTE, help="Master des Themas; Codex prueft nie einen Codex-Master")
+    p.add_argument("--master", choices=MASTER_WERTE, help="Master des Themas (sonst aus der Besitzdatei); Codex prueft nie einen Codex-Master")
     p.add_argument("--sensibel", action="store_true")
     p.add_argument("--gruendlich", action="store_true", help=f"Codex mit {CODEX_GRUENDLICH_MODELL}")
     p.add_argument("--zeitgrenze", type=float, default=ZEITGRENZE_STANDARD)
