@@ -604,7 +604,8 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 - **Themen:** Master-Vorgabe, Besitzer aus `<thema>.master` (fehlend = claude, Lesefehler = unbekannt),
   Ausführer mit Modell und ob die Automatik das Thema wirklich anfasst. „Auto an“ gilt nur bei aktivem Paar,
   Master-Vorgabe „nach Kontingent“ und eingeschalteter globaler Automatik, wie in `automatik.py`.
-- **Sitzungen:** die drei jüngsten Einträge des Statusregisters, Kennung auf 8 Zeichen gekürzt. Ein
+- **Sitzungen:** die drei jüngsten Einträge des Statusregisters, Kennung auf 8 Zeichen gekürzt, mit Thema aus
+  einer von Sebastian bestätigten Zuordnung (`zuordnung.json`, siehe Chatliste), sonst „Thema nicht zugeordnet“. Ein
   „arbeitet“, das älter als 30 Minuten ist, erscheint als „arbeitet? (veraltet)“.
 - **Als Nächstes:** zuerst „neu messen“, wenn ein Fenster zurückgesetzt ist, sonst der früheste Reset
   eines Fensters im Limit. Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.

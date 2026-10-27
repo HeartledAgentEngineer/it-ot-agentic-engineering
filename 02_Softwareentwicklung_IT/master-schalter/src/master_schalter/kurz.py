@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 
-from . import anzeige, besitz, modi, paare, rollen, signale, status, uebergabe
+from . import anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe
 from .signale import Fenster, Kontingent
 
 MAX_SITZUNGEN = 3
@@ -38,6 +38,7 @@ class Sitzung:
     kennung: str
     zustand: str
     zeit: datetime
+    thema: str | None = None    # nur aus einer von Sebastian bestätigten Zuordnung (`zuordnung.json`)
 
 
 def _uhr(wert: datetime, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -100,7 +101,8 @@ def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
     zustand = s.zustand
     if zustand == status.ARBEITET and jetzt - s.zeit > ARBEITET_FRISCH:
         zustand = "arbeitet? (veraltet)"
-    return (f"Sitzung {WERKZEUG_NAMEN.get(s.werkzeug, s.werkzeug)} {s.kennung[:KENNUNG_KURZ]}"
+    thema = f" · {s.thema}" if s.thema else " · Thema nicht zugeordnet"
+    return (f"Sitzung {WERKZEUG_NAMEN.get(s.werkzeug, s.werkzeug)} {s.kennung[:KENNUNG_KURZ]}{thema}"
             f" · {zustand} · {_uhr(s.zeit, jetzt, zone)}")
 
 
@@ -171,12 +173,13 @@ def _sitzungen() -> list[Sitzung]:
     ordner = status.ordner()
     if not ordner.is_dir():
         return []
+    zuordnung = chat_zuordnung.zuordnung_lesen()   # fehlt/kaputt ergibt {} – dann „Thema nicht zugeordnet“
     gefunden = []
     for pfad in ordner.glob("*.json"):
         werkzeug, _, kennung = pfad.stem.partition("-")
         stand = status.lesen(werkzeug, kennung)
         if stand is not None:
-            gefunden.append(Sitzung(werkzeug, kennung, stand[0], stand[1]))
+            gefunden.append(Sitzung(werkzeug, kennung, stand[0], stand[1], zuordnung.get(f"{werkzeug}:{kennung}")))
     return gefunden
 
 
