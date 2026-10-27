@@ -7,7 +7,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from master_schalter import besitz, cli, kurz, modi, paare, status
+import pytest
+
+from master_schalter import besitz, cli, kurz, modi, paare, status, uebergabe
 from master_schalter.signale import Fenster, Kontingent
 
 UTC = timezone.utc
@@ -30,7 +32,7 @@ def _zeilen(kontingente=None, themen=(), sitzungen=(), automatik=True, schwelle=
 
 def _thema(name: str = "t1", master: str = "kontingent", worker: str = "workflow", modell: str | None = None,
            besitzer: str | None = "claude", aktiv: bool | None = True) -> kurz.Thema:
-    return kurz.Thema(name, modi.Profil(master, worker, modell), besitzer, aktiv)
+    return kurz.Thema(name, modi.Profil(master, worker, modell), besitzer, aktiv, besitzer)
 
 
 def test_rest_statt_verbrauch():
@@ -72,17 +74,17 @@ def test_lage_bekannt_zeigt_matrix_ohne_klammern():
 def test_automatik_wirksam_nur_mit_kontingent_master_aktivem_paar_und_global_an():
     themen = [_thema("a"), _thema("b", master="hermes"), _thema("c", aktiv=False), _thema("d", aktiv=None)]
     text = "\n".join(_zeilen(themen=themen))
-    assert "a: Master nach Kontingent (Besitz claude) · Ausführer Workflow · Auto an" in text
-    assert "b: Master Hermes (Besitz claude) · Ausführer Workflow · Auto aus (fester Master)" in text
-    assert "c: Master nach Kontingent (Besitz claude) · Ausführer Workflow · Auto aus" in text
-    assert "d: Master nach Kontingent (Besitz claude) · Ausführer Workflow · kein Paar" in text
+    assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto an" in text
+    assert "b: Master Hermes (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus (fester Master)" in text
+    assert "c: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in text
+    assert "d: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · kein Paar" in text
     aus = "\n".join(_zeilen(themen=[_thema("a")], automatik=False))
-    assert "a: Master nach Kontingent (Besitz claude) · Ausführer Workflow · Auto aus" in aus
+    assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in aus
 
 
 def test_unbekannter_besitz_und_modell():
     text = "\n".join(_zeilen(themen=[_thema(worker="codex", modell="gpt-6-luna", besitzer=None)]))
-    assert "t1: Master nach Kontingent (Besitz unbekannt) · Ausführer Codex gpt-6-luna · Auto an" in text
+    assert "t1: Master nach Kontingent (Besitz unbekannt) · Prüfer ? (pruefkreis braucht --master) · Ausführer Codex gpt-6-luna · Auto an" in text
 
 
 def test_als_naechstes_waehlt_fruehesten_reset_im_limit():
@@ -141,6 +143,16 @@ def test_sammeln_liest_echte_quellen_ohne_uuid(tmp_path, monkeypatch):
     assert THREAD not in text and str(tmp_path) not in text
 
 
+def test_sammeln_prueferzeile_mit_und_ohne_besitzdatei(tmp_path, monkeypatch):
+    _umgebung(tmp_path, monkeypatch)
+    paare.setzen("thema-b", "00000000-0000-4000-8000-0000000000c3", paare.laufend_bilden("thema-b"), aktiv=True)
+    paare.setzen("thema-a-teil", "00000000-0000-4000-8000-0000000000d4", paare.laufend_bilden("thema-a-teil"), aktiv=True)
+    text = "\n".join(kurz.sammeln())
+    assert "thema-a: Master nach Kontingent (Besitz hermes) · Prüfer Codex ·" in text
+    assert "thema-b: Master nach Kontingent (Besitz claude) · Prüfer ? (pruefkreis braucht --master)" in text
+    assert "thema-a-teil: Master nach Kontingent (Besitz claude) · Prüfer Codex ·" in text   # erbt thema-a (hermes)
+
+
 def test_sammeln_liest_nur(tmp_path, monkeypatch):
     repo = _umgebung(tmp_path, monkeypatch)
     vorher = sorted((p, p.stat().st_mtime_ns) for p in tmp_path.rglob("*") if p.is_file())
@@ -159,3 +171,48 @@ def test_cli_kurz_schreibt_utf8_ueber_pipe(tmp_path, monkeypatch):
     assert lauf.returncode == 0, lauf.stderr
     text = lauf.stdout.decode("utf-8")      # kein UnicodeDecodeError
     assert "Als Nächstes:" in text and "Ausführer" in text
+
+
+@pytest.mark.parametrize("besitzer, erwartet", [
+    ("codex", "Prüfer Hermes (Master Codex)"),
+    ("claude", "Prüfer Codex"),
+    ("hermes", "Prüfer Codex"),
+    (None, "Prüfer ? (pruefkreis braucht --master)"),
+])
+def test_pruefer_folgt_dem_besitzer_wie_pruefkreis(besitzer, erwartet):
+    assert kurz.pruefer_text(besitzer) == erwartet
+
+
+def test_pruefkreis_master_gleiche_namensregel_wie_pruefkreis(tmp_path):
+    (tmp_path / "master-schalter.master").write_text("codex x modus master-schalter", encoding="utf-8")
+    (tmp_path / "leer.master").write_text("", encoding="utf-8")
+    (tmp_path / "fremd.master").write_text("gpt x", encoding="utf-8")
+    assert kurz.pruefkreis_master(tmp_path, "master-schalter-kurz") == "codex"   # übergeordnetes Thema
+    assert kurz.pruefkreis_master(tmp_path, "master-schalterx") is None          # nur an Bindestrichgrenze
+    assert kurz.pruefkreis_master(tmp_path, "leer") == "claude"
+    assert kurz.pruefkreis_master(tmp_path, "fremd") is None
+    assert kurz.pruefkreis_master(tmp_path, "gibtsnicht") is None
+
+
+def test_haupt_wurzel_aus_worktree(tmp_path):
+    haupt = tmp_path / "haupt"
+    (haupt / ".git" / "worktrees" / "w").mkdir(parents=True)
+    (haupt / ".git" / "worktrees" / "w" / "commondir").write_text("../..", encoding="utf-8")
+    baum = tmp_path / "baum"
+    baum.mkdir()
+    (baum / ".git").write_text(f"gitdir: {haupt / '.git' / 'worktrees' / 'w'}", encoding="utf-8")
+    assert uebergabe.haupt_wurzel(baum) == haupt.resolve()
+    assert uebergabe.haupt_wurzel(haupt) == haupt
+    (baum / ".git").write_text("kaputt", encoding="utf-8")
+    assert uebergabe.haupt_wurzel(baum) == baum
+
+
+def test_sammeln_aus_worktree_liest_besitz_im_hauptbaum(tmp_path, monkeypatch):
+    repo = _umgebung(tmp_path, monkeypatch)
+    (repo / ".git").rmdir()
+    (tmp_path / "haupt" / ".git" / "worktrees" / "w").mkdir(parents=True)
+    (tmp_path / "haupt" / ".git" / "worktrees" / "w" / "commondir").write_text("../..", encoding="utf-8")
+    (repo / ".git").write_text(f"gitdir: {tmp_path / 'haupt' / '.git' / 'worktrees' / 'w'}", encoding="utf-8")
+    besitz.schreiben(besitz.pfad(tmp_path / "haupt", paare.laufend_bilden("thema-a")), "codex 2026-10-28T00:00:00+00:00 modus x")
+    text = "\n".join(kurz.sammeln())
+    assert "thema-a: Master nach Kontingent (Besitz codex) · Prüfer Hermes (Master Codex)" in text
