@@ -592,6 +592,27 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
   nächsten Nachricht von Sebastian). Ruhende Desktop-Sitzungen kann der Hook nicht wecken; dafür bleibt ein frischer
   `claude -p`-Lauf.
 
+## Kurzübersicht für den Chat (unveröffentlicht)
+
+`masterwechsel kurz` gibt in wenigen Zeilen ohne Tabellen aus, was man beim Steuern über eine
+Remote-Sitzung sehen will. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
+Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
+
+- **Rest:** je Abo und Fenster der *Rest* (100 − Verbrauch), Reset und Messzeit. Ein Fenster nach Reset
+  ohne neue Messung heißt „neu, nicht gemessen“, ein Messfehler „unbekannt (…)“.
+- **Matrix:** Lage und Besetzung aus `rollen.BESETZUNG` (Planer/Prüfer/Ausführer), nur bei bekannter Lage.
+- **Themen:** Master-Vorgabe, Besitzer aus `<thema>.master` (fehlend = claude, Lesefehler = unbekannt),
+  Ausführer mit Modell und ob die Automatik das Thema wirklich anfasst. „Auto an“ gilt nur bei aktivem Paar,
+  Master-Vorgabe „nach Kontingent“ und eingeschalteter globaler Automatik, wie in `automatik.py`.
+- **Sitzungen:** die drei jüngsten Einträge des Statusregisters, Kennung auf 8 Zeichen gekürzt. Ein
+  „arbeitet“, das älter als 30 Minuten ist, erscheint als „arbeitet? (veraltet)“.
+- **Als Nächstes:** zuerst „neu messen“, wenn ein Fenster zurückgesetzt ist, sonst der früheste Reset
+  eines Fensters im Limit. Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.
+- **Wartet worauf:** noch keine Statusquelle; die Zeile sagt das ausdrücklich.
+
+Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreibt `kurz` UTF-8, damit
+Umlaute in Remote-Sitzungen lesbar ankommen. Die übrigen Befehle sind unverändert.
+
 ## Chatliste (v0.5.0, in Arbeit)
 
 Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex und Hermes
@@ -732,6 +753,9 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # beide Kontingente in der Konsole
 .\.venv\Scripts\masterwechsel.exe status
 
+# Kurzübersicht für den Chat (Remote-Sitzung): Rest-Limits, Lage, Themen, Sitzungen – nur lesend
+.\.venv\Scripts\masterwechsel.exe kurz
+
 # Claude-Kontingent über die OAuth-API messen
 .\.venv\Scripts\masterwechsel.exe claude-messen
 
@@ -824,6 +848,7 @@ src/master_schalter/
   signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
+  kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend
   anzeige.py   Texte für Tooltip, Menü, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow)
   leiste.py    Taskleisten-Symbol (pystray) — nur Oberfläche

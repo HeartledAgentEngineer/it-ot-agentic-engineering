@@ -3,6 +3,17 @@
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach
 [SemVer](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Neu
+- `masterwechsel kurz` (`kurz.py`): Kurzübersicht für den Chat bei Steuerung über Remote-Sitzungen. Zeigt
+  Rest-Limits mit Reset und Messzeit, Matrixlage mit Planer/Prüfer/Ausführer, je Thema Master-Vorgabe,
+  Besitzer, Ausführer und wirksame Automatik (aktives Paar + Master „kontingent“ + globale Automatik),
+  die drei jüngsten Sitzungen (veraltetes „arbeitet“ markiert), den nächsten Reset im Limit und
+  ausdrücklich „Wartet worauf: noch keine Statusquelle“. Nur lesend; über Pipes UTF-8.
+- Tests `tests/test_kurz.py` (12), u. a. Rest statt Verbrauch, Automatik-Bedingung, unlesbarer Besitz,
+  nur-lesend-Nachweis und UTF-8 über eine Pipe (ohne die Umstellung rot).
+
 ## [0.5.1] – 2026-10-27
 
 Aufträge an Claude, Claude-Anmeldung und P9 (Codex-Kontingent aktiv messen).
