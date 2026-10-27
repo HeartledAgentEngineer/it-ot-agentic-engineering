@@ -37,7 +37,14 @@ def test_rest_statt_verbrauch():
     assert kurz.rest(76) == 24
     assert kurz.rest(130) == 0 and kurz.rest(-5) == 100
     text = "\n".join(_zeilen([_k("Claude", 76, 51), _k("Codex", 10, 20)]))
-    assert "Claude: 5h 24 % (Reset 22:00) · Woche 49 %" in text
+    assert "Claude: 5h 24 % übrig (Reset in 2 h 0 min, 22:00) · Woche 49 % übrig (Reset in 3 T 0 h, 30.10. 20:00)" in text
+
+
+def test_restzeit_kurz():
+    assert kurz.dauer(timedelta(minutes=38, seconds=59)) == "38 min"
+    assert kurz.dauer(timedelta(hours=3, minutes=40)) == "3 h 40 min"
+    assert kurz.dauer(timedelta(days=4, hours=23, minutes=5)) == "4 T 23 h"
+    assert kurz.dauer(timedelta(seconds=-5)) == "0 min"
 
 
 def test_fenster_nach_reset_und_messfehler_sind_unbekannt():
@@ -81,7 +88,7 @@ def test_unbekannter_besitz_und_modell():
 def test_als_naechstes_waehlt_fruehesten_reset_im_limit():
     kontingente = [_k("Claude", 99, 20, reset_fuenf=JETZT + timedelta(hours=3)),
                    _k("Codex", 100, 20, reset_fuenf=JETZT + timedelta(hours=1))]
-    assert "Als Nächstes: 21:00 Codex 5h wieder frei (Reset, danach neu messen)" in _zeilen(kontingente)
+    assert "Als Nächstes: 21:00 (in 1 h 0 min) Codex 5h wieder frei (Reset, danach neu messen)" in _zeilen(kontingente)
     assert "Als Nächstes: kein Limitwechsel absehbar" in _zeilen()
 
 
@@ -104,7 +111,7 @@ def test_zeilenzahl_und_ehrliche_wartezeile():
     themen = [_thema(f"t{i}") for i in range(6)]
     sitzungen = [kurz.Sitzung("claude", f"s{i}", status.RUHT, JETZT) for i in range(3)]
     zeilen = _zeilen(themen=themen, sitzungen=sitzungen)
-    # Kopf, „Rest:“, 2 Limits, Matrix, „Themen:“, 6 Themen, 3 Sitzungen, Als Nächstes, Wartet = 17
+    # Kopf, „Kontingent übrig:“, 2 Limits, Matrix, „Themen:“, 6 Themen, 3 Sitzungen, Als Nächstes, Wartet = 17
     assert len(zeilen) == 17
     assert zeilen[-1] == kurz.WARTET == "Wartet worauf: noch keine Statusquelle"
     assert "Sitzungen: keine gemeldet" in _zeilen()

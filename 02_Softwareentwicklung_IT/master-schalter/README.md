@@ -598,7 +598,8 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
 Remote-Sitzung sehen will. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
 Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 
-- **Rest:** je Abo und Fenster der *Rest* (100 − Verbrauch), Reset und Messzeit. Ein Fenster nach Reset
+- **Kontingent übrig:** je Abo und Fenster, was *übrig* ist (100 − Verbrauch, „… % übrig“), die Zeit bis zum Reset
+  („Reset in 3 h 33 min, 01:39“) und die Messzeit. Ein Fenster nach Reset
   ohne neue Messung heißt „neu, nicht gemessen“, ein Messfehler „unbekannt (…)“.
 - **Matrix:** Lage und Besetzung aus `rollen.BESETZUNG` (Planer/Prüfer/Ausführer), nur bei bekannter Lage.
 - **Themen:** Master-Vorgabe, Besitzer aus `<thema>.master` (fehlend = claude, Lesefehler = unbekannt),
@@ -608,7 +609,7 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   einer von Sebastian bestätigten Zuordnung (`zuordnung.json`, siehe Chatliste), sonst „Thema nicht zugeordnet“. Ein
   „arbeitet“, das älter als 30 Minuten ist, erscheint als „arbeitet? (veraltet)“.
 - **Als Nächstes:** zuerst „neu messen“, wenn ein Fenster zurückgesetzt ist, sonst der früheste Reset
-  eines Fensters im Limit. Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.
+  eines Fensters im Limit mit Uhrzeit und Restzeit („22:36 (in 24 min)“). Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.
 - **Wartet worauf:** noch keine Statusquelle; die Zeile sagt das ausdrücklich.
 
 Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreibt `kurz` UTF-8, damit

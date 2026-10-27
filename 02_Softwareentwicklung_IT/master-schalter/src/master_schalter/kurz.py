@@ -52,13 +52,25 @@ def rest(prozent: float) -> int:
     return round(max(0.0, min(100.0, 100.0 - prozent)))
 
 
+def dauer(spanne: timedelta) -> str:
+    """Restzeit kurz: „38 min“, „3 h 40 min“, „4 T 23 h“ (abgerundet auf Minuten)."""
+    minuten = max(0, int(spanne.total_seconds() // 60))
+    tage, rest_min = divmod(minuten, 24 * 60)
+    stunden, minuten = divmod(rest_min, 60)
+    if tage:
+        return f"{tage} T {stunden} h"
+    return f"{stunden} h {minuten} min" if stunden else f"{minuten} min"
+
+
 def _fenster_text(f: Fenster | None, name: str, jetzt: datetime, zone: tzinfo | None) -> str:
     if f is None or f.prozent is None:
         return f"{name} unbekannt"
     if f.zurueckgesetzt:
         return f"{name} neu, nicht gemessen"
-    text = f"{name} {rest(f.prozent)} %"
-    return text + (f" (Reset {_uhr(f.reset, jetzt, zone)})" if f.reset else "")
+    text = f"{name} {rest(f.prozent)} % übrig"
+    if f.reset is None:
+        return text
+    return text + f" (Reset in {dauer(f.reset - jetzt)}, {_uhr(f.reset, jetzt, zone)})"
 
 
 def _limit_zeile(k: Kontingent, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -115,7 +127,8 @@ def _naechstes(kontingente: list[Kontingent], schwelle: int, jetzt: datetime, zo
     if not kandidaten:
         return "Als Nächstes: kein Limitwechsel absehbar"
     reset, master, name = min(kandidaten)
-    return f"Als Nächstes: {_uhr(reset, jetzt, zone)} {master} {name} wieder frei (Reset, danach neu messen)"
+    return (f"Als Nächstes: {_uhr(reset, jetzt, zone)} (in {dauer(reset - jetzt)}) {master} {name} wieder frei"
+            " (Reset, danach neu messen)")
 
 
 def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[Sitzung], *,
@@ -127,7 +140,7 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
     grund = rollen.lage_grund(claude, codex, schwelle)
     kopf = (f"Master-Schalter · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
             f" · Automatik {'an' if automatik_global else 'aus'}")
-    aus = [kopf, "Rest:"]
+    aus = [kopf, "Kontingent übrig:"]
     aus += [_limit_zeile(k, jetzt, zone) for k in kontingente]
     aus.append(_rollen_zeile(lage, grund))
     aus.append("Themen:" if themen else "Themen: keine")
