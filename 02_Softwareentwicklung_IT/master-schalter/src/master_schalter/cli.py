@@ -1,6 +1,7 @@
 """Befehlszeile `masterwechsel`.
 
     masterwechsel status              beide Kontingente anzeigen
+    masterwechsel kurz                Kurzübersicht für den Chat (Rest-Limits, Lage, Themen, Sitzungen; nur lesend)
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
     masterwechsel claude-messen       Claude-Kontingent über die OAuth-API messen
@@ -49,7 +50,7 @@ import sys
 from datetime import datetime, timezone
 
 from . import (__version__, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
-               claude_messen, codex_messen, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
+               claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -108,6 +109,22 @@ def _codex_messen() -> int:
         print(kontingent.fehler, file=sys.stderr)   # fester Text mit Fehlerklasse
         return 1
     print("Codex-Kontingent aktualisiert.")
+    return 0
+
+
+def _utf8_ausgabe() -> None:
+    """Über Pipes (Remote-Sitzungen, Agenten) UTF-8 schreiben, damit Umlaute lesbar ankommen."""
+    try:
+        umstellen = getattr(sys.stdout, "reconfigure", None)
+        if umstellen is not None and not sys.stdout.isatty():
+            umstellen(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
+def _kurz_cli() -> int:
+    _utf8_ausgabe()
+    print("\n".join(kurz.sammeln()))
     return 0
 
 
@@ -493,6 +510,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
     unter = p.add_subparsers(dest="befehl", required=True)
     unter.add_parser("status", help="beide Kontingente anzeigen")
+    unter.add_parser("kurz", help="Kurzübersicht für den Chat (nur lesend)")
     unter.add_parser("statuszeile", help="Statuszeilen-Befehl für Claude Code")
     hand = unter.add_parser("claude-kontingent", help="Claude-Werte von Hand eintragen")
     hand.add_argument("--fuenf", type=_prozent, required=True, help="5-Stunden-Verbrauch in Prozent")
@@ -585,6 +603,8 @@ def main(argv: list[str] | None = None) -> int:
         raise
     if args.befehl == "statuszeile":
         return _statuszeile()
+    if args.befehl == "kurz":
+        return _kurz_cli()
     if args.befehl == "claude-kontingent":
         return _claude_kontingent(args)
     if args.befehl == "claude-messen":
