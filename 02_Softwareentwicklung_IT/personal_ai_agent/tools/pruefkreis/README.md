@@ -42,7 +42,17 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
 - **Kein Prüfer aus der Familie des Masters** (AGENTS.md, Sebastian 27.10.2026): `--master` nennt den Master
   des geprüften Themas. Bei `--master codex` prüft ohne `--pruefer` Hermes (Protokoll: `Ersatzpruefer: Hermes statt
   Codex - Master ist Codex …`); `--pruefer codex --master codex` wird mit Exit 2 abgelehnt, ohne dass ein Prüfer
-  startet. Ohne `--master` bleibt alles wie bisher (Standard Codex). Den Master gibt der aufrufende Agent an.
+  startet. Ohne `--master` liest das Werkzeug den Besitzer aus der Besitzdatei des Master-Schalters
+  `.hermes/uebergabe/laufend/<name>.master` (Umgebungsvariable `PRUEFKREIS_BESITZ_DIR` für Tests). `<name>` ist das
+  Thema selbst oder der längste Anfang vor einem Bindestrich: `--thema master-schalter-kurz` nimmt
+  `master-schalter.master`, `master-schalterx` nimmt sie nicht. Leere Datei = `claude` (wie `besitz.py` im Schalter).
+  Unlesbare Datei, unbekannter Besitzer oder keine Datei ⇒ **Abbruch mit Exit 2**, ohne dass ein Prüfer startet,
+  bis `--master` angegeben ist (sonst könnte Codex unbemerkt einen Codex-Master prüfen; Codex-Einwand R1,
+  27.10.2026). Ausnahme `--sensibel`: dort prüft ohnehin Hermes. Aus einem Git-Worktree heraus gelten
+  Besitzdateien und Protokolle des **Hauptarbeitsbaums** (`.hermes/` ist gitignored und liegt nur dort; aufgelöst
+  über `.git` → `gitdir` → `commondir`, ohne Git-Aufruf). Das Protokoll nennt in jeder Runde die Quelle, z. B.
+  `Master: codex (master-schalter.master)`; ein ausdrückliches `--master` steht als `(angegeben)` darin und geht
+  der Datei vor.
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 
