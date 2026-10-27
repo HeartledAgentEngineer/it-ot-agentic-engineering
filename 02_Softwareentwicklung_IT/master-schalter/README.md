@@ -364,7 +364,8 @@ Der abgebende Master übergibt einzelne Themen an ihren Codex-Chat — manuell u
 
 Der Klickwechsel „Thema X: alter Chat → neuer Chat“ läuft ohne Tippen. Es gibt den Ablauf als Code und als
 Befehle (`uebergeben`, `fortsetzen`, `quittieren`), das Fenster und den Takt in der Leiste (siehe „Bedienung
-(v0.5.0)“). Der Empfang im Hermes-Chat (P6) ist noch nicht gebaut, der im Claude-Chat nur als Hook ohne Eintrag.
+(v0.5.0)“). Der Empfang im Hermes-Chat (P6) ist noch nicht gebaut; der im Claude-Chat läuft als Hook (Eintrag siehe
+„Claude-Empfang“).
 
 - **Reihenfolge (G8):** erst gibt der **alte** Master ab, dann wird die Rolle gesetzt, dann bekommt der
   **neue** Master seine Nachricht. Phasen in `assistent.json` (getrennt von `vorgaenge.json`):
@@ -473,7 +474,8 @@ Befehle (`uebergeben`, `fortsetzen`, `quittieren`), das Fenster und den Takt in 
 ## Claude-Empfang (Hook, v0.5.0)
 
 `python -m master_schalter.claude_hook` ist ein Command-Hook für Claude Code. Claude Code gibt das Ereignis als
-JSON auf stdin; das Modul liest höchstens 1 MB und wertet nur `hook_event_name` und `session_id` aus.
+JSON auf stdin; das Modul liest höchstens 1 MB und wertet nur `hook_event_name`, `session_id` und
+`stop_hook_active` aus.
 
 - **`UserPromptSubmit` und `PostToolUse`:** meldet den Status `arbeitet` und holt mit
   `postfach.vormerken("claude", session_id)` die Nachrichten dieser Sitzung vor (Übernahme-Auftrag `neu`,
@@ -483,7 +485,10 @@ JSON auf stdin; das Modul liest höchstens 1 MB und wertet nur `hook_event_name`
   aus der festen Einleitung „Nachricht des Master-Schalters:“ und den festen Postfachtexten, je Zeile einer.
   Er enthält nur Thema, Vorgangs-ID und den repo-relativen Pfad der laufenden Übergabe – nie die
   Sitzungskennung oder einen absoluten Pfad. Ohne Nachricht gibt es **keine** Ausgabe.
-- **`Stop`:** setzt nur den Status `ruht`. Der Hook blockiert nie; es gibt kein `decision: block`.
+- **`Stop`:** setzt den Status `ruht`; Wechselnachrichten des Postfachs werden bei `Stop` nie zugestellt.
+  Ausnahme seit v0.5.1: Liegt ein **Auftrag** vor (Abschnitt „Aufträge an Claude“) und ist `stop_hook_active`
+  nicht `true`, gibt der Hook `{"decision": "block", "reason": "<Text>"}` aus – Claude arbeitet dann sofort
+  weiter, statt bis zur nächsten Nutzernachricht zu ruhen; der Status bleibt `arbeitet`.
 - **Andere Ereignisse:** nichts.
 - **Ausgabe vor Zustellung:** Das Postfach kennt zwei Schritte. `postfach.vormerken` prüft wie bisher
   (verwerfen, liegen lassen, zustellen), verschiebt aber nichts. Der Hook schreibt und leert seine Ausgabe
@@ -553,6 +558,35 @@ nachgewiesen. Beispiel (Pfad des venv-Pythons anpassen):
   }
 }
 ```
+
+## Aufträge an Claude (v0.5.1, unveröffentlicht)
+
+Ein Master (Codex oder Hermes) beauftragt eine laufende Claude-Code-Sitzung, z. B. als Prüfer. Das Postfach des
+Wechselassistenten kennt nur feste Wechselnachrichten; Aufträge laufen deshalb getrennt über `auftraege.py` und
+ändern weder Besitz noch Profil.
+
+```text
+masterwechsel claude-sitzungen
+masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes/<…>.md [--von codex|hermes]
+```
+
+- **Auftrag als Datei:** Der Inhalt steht in einer Markdown-Datei unter `.hermes/` (repo-relativ, muss existieren,
+  kein `..`, kein absoluter Pfad; auch nach dem Auflösen von Verknüpfungen innerhalb von `.hermes/` und des Repos). Ins Postfach `<datenordner>/auftraege/claude/<kennung>/<id>.json` kommt nur
+  `{auftrag, thema, von, datei, zeit}` (höchstens 4 KB, atomar, idempotent je ID).
+- **Gemeinsame Dateibasis:** Pfade gelten im Hauptarbeitsbaum des Repos: `MASTER_SCHALTER_REPO`, sonst der
+  Elternordner von `git rev-parse --git-common-dir`. Ein Aufruf aus einem Worktree findet so dasselbe `.hermes/`.
+  `claude-auftrag` nennt den absoluten Pfad der Ergebnisdatei.
+- **Zustellung:** über den Claude-Hook bei `UserPromptSubmit`/`PostToolUse` (Zusatzkontext) und bei `Stop`
+  (`decision: block`, außer `stop_hook_active` ist `true`). Erst ausgeben, dann nach `erledigt/` verschieben;
+  ungültige Dateien wandern mit Grund nach `verworfen/`. Ein Fehler bei den Aufträgen verhindert die
+  Postfachzustellung nicht.
+- **Ergebnis:** `<auftrag ohne .md>-ergebnis-<auftrag-id>.md` neben dem Auftrag, je Auftrag eine eigene Datei. Claude legt sie als **ersten** Schritt mit
+  `ERGEBNIS: LÄUFT (Auftrag <id>)` an; die letzte Zeile am Ende ist `ERGEBNIS: FERTIG` oder `ERGEBNIS: BLOCKIERT`.
+- **Schutz vor doppelter Ausführung:** Existiert die Ergebnisdatei dieses Auftrags schon, wird der Auftrag nicht erneut zugestellt,
+  sondern mit Vermerk „Ergebnis vorhanden – bereits angenommen“ nach `erledigt/` verschoben.
+- **Grenze:** Ruht die Sitzung zwischen zwei Antworten, kommt der Auftrag erst beim nächsten Ereignis an (z. B. der
+  nächsten Nachricht von Sebastian). Ruhende Desktop-Sitzungen kann der Hook nicht wecken; dafür bleibt ein frischer
+  `claude -p`-Lauf.
 
 ## Chatliste (v0.5.0, in Arbeit)
 
@@ -745,7 +779,8 @@ src/master_schalter/
   assistent_vorgaenge.py  Vorgänge des Assistenten (`assistent.json`), Phasen, Quittung, Wiederaufnahme
   postfach.py  Postfach für Claude-/Hermes-Chats und feste Nachrichtentexte
   protokoll.py Entscheidungsprotokoll `protokoll.jsonl` (ohne Kennungen)
-  claude_hook.py  Command-Hook für Claude Code: Postfach abholen, Status melden
+  claude_hook.py  Command-Hook für Claude Code: Postfach und Aufträge abholen, Status melden
+  auftraege.py Aufträge eines Masters an eine Claude-Sitzung (Verweis auf eine `.hermes/`-Datei)
   status.py    Statusregister `status/<werkzeug>-<kennung>.json` (`arbeitet` | `ruht`)
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
