@@ -135,25 +135,27 @@ def messen(credentials_datei: Path | None = None, ziel: Path | None = None,
         )
         with (transport or _transport)(anfrage, timeout=TIMEOUT_SEKUNDEN) as antwort:
             if getattr(antwort, "status", 200) != 200:
-                raise MessFehler(MESSUNG_FEHLGESCHLAGEN, getattr(antwort, "status", None))
+                raise MessFehler(MESSUNG_FEHLGESCHLAGEN, getattr(antwort, "status", None), "http")
             daten = json.loads(antwort.read())
     except urllib.error.HTTPError as fehler:
         if fehler.code == 401:
             raise MessFehler(ANMELDUNG_ABGELEHNT, 401, "anmeldung_abgelehnt") from None
-        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, fehler.code) from None
+        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, fehler.code, "http") from None
     except MessFehler:
         raise
+    except ValueError:
+        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, kategorie="antwort") from None   # kein gültiges JSON
     except Exception:
-        raise MessFehler(MESSUNG_FEHLGESCHLAGEN) from None
+        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, kategorie="netz") from None     # Verbindung, Zeitüberschreitung
 
     rate_limits = _validierte_fenster(daten)
     if rate_limits is None:
-        raise MessFehler(MESSUNG_FEHLGESCHLAGEN)
+        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, kategorie="antwort")
     try:
         if not signale.claude_schreiben(rate_limits, ziel, jetzt=jetzt):
-            raise MessFehler(MESSUNG_FEHLGESCHLAGEN)
+            raise MessFehler(MESSUNG_FEHLGESCHLAGEN, kategorie="speichern")
     except MessFehler:
         raise
     except Exception:
-        raise MessFehler(MESSUNG_FEHLGESCHLAGEN) from None
+        raise MessFehler(MESSUNG_FEHLGESCHLAGEN, kategorie="speichern") from None
     return True

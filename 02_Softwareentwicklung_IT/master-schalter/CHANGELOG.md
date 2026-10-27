@@ -5,6 +5,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Geändert
+- Leiste: Eine gescheiterte Claude-Messung steht mit Fehlerart und ggf. HTTP-Code im Log, z. B.
+  `Claude-Messung fehlgeschlagen: … [http, HTTP 503]`, `[netz]`, `[antwort]`, `[speichern]` oder eine der
+  Anmeldearten `[anmeldung_…]` (vorher nur der
+  allgemeine Text; die Ausfälle vom 27.10. 12:11–12:53 ließen sich so nicht mehr erklären). Keine Antwort- oder
+  Zugangsdaten im Log; der Anzeigetext im Menü bleibt unverändert.
+
 ### Neu
 - `masterwechsel kurz` (`kurz.py`): Kurzübersicht für den Chat bei Steuerung über Remote-Sitzungen. Zeigt
   Rest-Limits mit Reset und Messzeit, Matrixlage mit Planer/Prüfer/Ausführer, je Thema Master-Vorgabe,

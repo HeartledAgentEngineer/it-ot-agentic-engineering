@@ -653,7 +653,7 @@ Nach-Chat; außerdem gibt es den Befehl `chats`.
 - Start ohne Konsole: `.venv\Scripts\pythonw.exe -m master_schalter.leiste`
 - Abgekoppelter Starter (empfohlen; überlebt Terminal-Sitzungen, mit Protokoll und
   Doppelstart-Schutz): `%USERPROFILE%\.master-schalter\leiste_starten.cmd`.
-  Protokolle: `leiste.log` (Fehler, u. a. Messfehler mit Zeitstempel) und `leiste-ausgabe.log`.
+  Protokolle: `leiste.log` (Fehler, u. a. Messfehler mit Zeitstempel; bei Claude mit Fehlerart `http`/`netz`/`antwort`/`speichern` bzw. `anmeldung_fehlt`/`anmeldung_defekt`/`anmeldung_abgelaufen`/`anmeldung_abgelehnt` und ggf. HTTP-Code) und `leiste-ausgabe.log`.
 - Autostart: Verknüpfung im Startmenü-Startup-Ordner (`Master-Schalter-Leiste.lnk`) startet genau
   eine Leiste bei jeder Anmeldung.
 - Nach tiefem Energiesparen kann das Taskleisten-Symbol verschwinden — Doppelklick auf den Starter

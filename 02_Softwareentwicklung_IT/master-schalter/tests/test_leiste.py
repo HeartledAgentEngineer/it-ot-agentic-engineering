@@ -729,6 +729,17 @@ def test_messfehler_werden_mit_zeitstempel_protokolliert(lst, monkeypatch, capsy
     assert re.search(r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\]", fehler)
 
 
+@pytest.mark.parametrize("status, kategorie, erwartet", [
+    (503, "http", "[http, HTTP 503]"), (None, "netz", "[netz]"), (None, "antwort", "[antwort]")])
+def test_messfehler_protokolliert_fehlerart_und_http_code(lst, monkeypatch, capsys, status, kategorie, erwartet):
+    def scheitert(**kw):
+        raise leiste.claude_messen.MessFehler("Claude-Kontingent konnte nicht gelesen werden", status, kategorie)
+
+    monkeypatch.setattr(leiste.claude_messen, "messen", scheitert)
+    lst._messung_ausfuehren()
+    assert f"Claude-Messung fehlgeschlagen: Claude-Kontingent konnte nicht gelesen werden {erwartet}"         in capsys.readouterr().err
+
+
 def test_aktualisieren_hakt_uebergaben_ab(lst, monkeypatch):
     gerufen = []
     monkeypatch.setattr(leiste.automatik, "bestaetigungen_pruefen",

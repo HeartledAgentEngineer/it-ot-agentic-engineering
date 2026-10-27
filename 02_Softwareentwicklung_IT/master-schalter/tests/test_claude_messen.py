@@ -203,6 +203,8 @@ def test_http_fehler_bleibt_generisch_und_enthaelt_keinen_token(tmp_path, monkey
         assert str(fehler.value) == claude_messen.ANMELDUNG_ABGELEHNT
     if status == 429:
         assert fehler.value.status == 429
+    if status != 401:
+        assert fehler.value.kategorie == "http" and fehler.value.status == status
 
 
 @pytest.mark.parametrize("netzfehler", [URLError(TOKEN), TimeoutError(TOKEN)])
@@ -222,8 +224,55 @@ def test_netzfehler_und_timeout_werden_sicher_gekuerzt(tmp_path, monkeypatch, ne
         claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT)
 
     assert str(fehler.value) == claude_messen.MESSUNG_FEHLGESCHLAGEN
+    assert fehler.value.kategorie == "netz" and fehler.value.status is None
     assert TOKEN not in str(fehler.value)
     assert ziel.read_bytes() == alt
+
+
+def test_kaputte_antwort_hat_die_fehlerart_antwort(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.json"
+    _credentials(credentials)
+
+    class Antwort:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"kein json"
+
+    monkeypatch.setattr(claude_messen, "_transport", lambda *a, **k: Antwort())
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, ziel=tmp_path / "k.json", jetzt=JETZT)
+    assert fehler.value.kategorie == "antwort" and str(fehler.value) == claude_messen.MESSUNG_FEHLGESCHLAGEN
+
+
+def test_scheitert_das_speichern_hat_die_fehlerart_speichern(tmp_path, monkeypatch):
+    credentials = tmp_path / "credentials.json"
+    _credentials(credentials)
+
+    class Antwort:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"five_hour": {"utilization": 40, "resets_at": "2030-01-01T00:00:00+00:00"},'                    b' "seven_day": {"utilization": 50, "resets_at": "2030-01-01T00:00:00+00:00"}}'
+
+    monkeypatch.setattr(claude_messen, "_transport", lambda *a, **k: Antwort())
+    monkeypatch.setattr(claude_messen, "_validierte_fenster", lambda daten: {"five_hour": {}, "seven_day": {}})
+    monkeypatch.setattr(claude_messen.signale, "claude_schreiben", lambda *a, **k: False)
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, ziel=tmp_path / "k.json", jetzt=JETZT)
+    assert fehler.value.kategorie == "speichern"
 
 
 def test_eigener_redirect_handler_blockiert_jedes_weiterleitungsziel():
