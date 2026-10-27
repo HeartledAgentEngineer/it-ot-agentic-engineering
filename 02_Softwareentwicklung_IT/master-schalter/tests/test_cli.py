@@ -1,11 +1,14 @@
 """Tests für die Befehlszeile `masterwechsel`."""
 import io
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from master_schalter import anzeige, automatik, cli, modi, modelle, paare, signale
+from master_schalter import anzeige, automatik, besitz, cli, kurz, modi, modelle, paare, signale
 
 
 @pytest.fixture
@@ -645,3 +648,80 @@ def test_codex_messen_cli_faengt_unerwartete_ausnahmen(daten, monkeypatch, capsy
 
     assert cli.main(["codex-messen"]) == 1
     assert "geheim" not in capsys.readouterr().err
+
+
+# --- Prüfer-Vorschau bei master-setzen und profil (27./28.10.2026) ------------
+
+
+def _besitz_setzen(tmp_path, wer):
+    besitz.schreiben(besitz.pfad(tmp_path / "repo", paare.laufend_bilden("engineering")),
+                     f"{wer} 2026-10-28T00:00:00+00:00 modus engineering")
+
+
+def test_master_setzen_zeigt_den_neuen_pruefer_sofort(rollen, capsys):
+    # Ein fester Master schreibt die `.master`-Marke mit – pruefkreis sieht den Wechsel sofort.
+    _besitz_setzen(rollen, "claude")
+    assert cli.main(["master-setzen", "engineering", "codex"]) == 0
+    aus = capsys.readouterr().out
+    assert "Jetzt: Prüfer Hermes (Master Codex)" in aus and "Sobald" not in aus
+
+
+def test_vorschau_wenn_vorgabe_und_besitz_abweichen(rollen):
+    _besitz_setzen(rollen, "claude")
+    assert kurz.pruefer_vorschau("engineering", "codex") == [
+        "  Jetzt: Prüfer Codex", "  Sobald Codex den Besitz hat: Prüfer Hermes (Master Codex)"]
+
+
+def test_master_setzen_ohne_wechsel_keine_zweite_zeile(rollen, capsys):
+    _besitz_setzen(rollen, "claude")
+    assert cli.main(["master-setzen", "engineering", "claude"]) == 0
+    aus = capsys.readouterr().out
+    assert "Jetzt: Prüfer Codex" in aus and "Sobald" not in aus
+
+
+def test_profil_zeigt_pruefer_nach_kontingent_und_ohne_besitzdatei(rollen, capsys):
+    assert cli.main(["profil", "engineering"]) == 0
+    aus = capsys.readouterr().out
+    assert "Jetzt: Prüfer ? (pruefkreis braucht --master)" in aus
+    assert "Nach Kontingent: Prüfer folgt dem Besitzer" in aus
+
+
+@pytest.mark.parametrize("befehl, fehlerweg", [(["profil", "engineering"], False),
+                                               (["worker-setzen", "engineering", "gemini"], True)])
+def test_cli_schreibt_utf8_ueber_pipe_auch_ausserhalb_von_kurz(rollen, befehl, fehlerweg):
+    quelle = Path(cli.__file__).resolve().parents[1]
+    lauf = subprocess.run([sys.executable, "-c",
+                           f"import sys; from master_schalter import cli; sys.exit(cli.main({befehl!r}))"],
+                          capture_output=True, timeout=60, cwd=str(quelle),
+                          env={**os.environ, "PYTHONIOENCODING": "", "PYTHONUTF8": "0"})
+    text = (lauf.stderr if fehlerweg else lauf.stdout).decode("utf-8")   # kein UnicodeDecodeError
+    assert ("Ausführer nicht gesetzt" if fehlerweg else "Jetzt: Prüfer") in text
+
+
+def test_cli_hilfe_ueber_pipe_ist_utf8():
+    # Die Hilfe enthält „→“ – unter cp1252 bräche sie ohne Umstellung vor dem Parsen ab.
+    quelle = Path(cli.__file__).resolve().parents[1]
+    lauf = subprocess.run([sys.executable, "-c",
+                           "import sys; from master_schalter import cli; sys.exit(cli.main(['--help']))"],
+                          capture_output=True, timeout=60, cwd=str(quelle),
+                          env={**os.environ, "PYTHONIOENCODING": "", "PYTHONUTF8": "0"})
+    assert lauf.returncode == 0, lauf.stderr
+    assert "→" in lauf.stdout.decode("utf-8")
+
+
+def test_vorschau_warnt_bei_aufruf_aus_worktree(tmp_path, monkeypatch):
+    haupt = tmp_path / "haupt"
+    (haupt / ".git" / "worktrees" / "w").mkdir(parents=True)
+    (haupt / ".git" / "worktrees" / "w" / "commondir").write_text("../..", encoding="utf-8")
+    baum = tmp_path / "baum"
+    baum.mkdir()
+    (baum / ".git").write_text(f"gitdir: {haupt / '.git' / 'worktrees' / 'w'}", encoding="utf-8")
+    monkeypatch.setenv("MASTER_SCHALTER_REPO", str(baum))
+    besitz.schreiben(besitz.pfad(haupt, paare.laufend_bilden("engineering")), "codex 2026-10-28T00:00:00+00:00 modus x")
+    zeilen = kurz.pruefer_vorschau("engineering", "codex")
+    assert zeilen[0] == "  Jetzt: Prüfer Hermes (Master Codex)"
+    assert any("Git-Worktree" in z for z in zeilen)
+
+
+def test_vorschau_ohne_worktree_ohne_hinweis(rollen):
+    assert not any("Git-Worktree" in z for z in kurz.pruefer_vorschau("engineering", "claude"))

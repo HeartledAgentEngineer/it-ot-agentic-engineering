@@ -113,17 +113,17 @@ def _codex_messen() -> int:
 
 
 def _utf8_ausgabe() -> None:
-    """Über Pipes (Remote-Sitzungen, Agenten) UTF-8 schreiben, damit Umlaute lesbar ankommen."""
-    try:
-        umstellen = getattr(sys.stdout, "reconfigure", None)
-        if umstellen is not None and not sys.stdout.isatty():
-            umstellen(encoding="utf-8")
-    except (AttributeError, ValueError, OSError):
-        pass
+    """Über Pipes (Remote-Sitzungen, Agenten) UTF-8 schreiben, damit Umlaute lesbar ankommen (stdout und stderr)."""
+    for strom in (sys.stdout, sys.stderr):
+        try:
+            umstellen = getattr(strom, "reconfigure", None)
+            if umstellen is not None and not strom.isatty():
+                umstellen(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
 
 
 def _kurz_cli() -> int:
-    _utf8_ausgabe()
     print("\n".join(kurz.sammeln()))
     return 0
 
@@ -208,6 +208,7 @@ def _profil_cli(args: argparse.Namespace) -> int:
         return 0
     stand = anzeige.Rollenstand(wert.master, wert.worker, wert.modell)
     print("\n".join(anzeige.rollen_zeilen(args.thema, stand, sicher)))
+    print("\n".join(kurz.pruefer_vorschau(args.thema, wert.master)))
     return 0
 
 
@@ -222,6 +223,7 @@ def _master_setzen_cli(args: argparse.Namespace) -> int:
         print(f"Master nicht gesetzt: {fehler}", file=sys.stderr)
         return 1
     print(anzeige.master_meldung(args.thema, args.master))
+    print("\n".join(kurz.pruefer_vorschau(args.thema, args.master)))
     return 0
 
 
@@ -595,6 +597,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Vor dem Parsen, damit auch Hilfe und Argumentfehler über Pipes (Remote-Chat, `/master-status`) lesbar
+    # ankommen; nur die Claude-Code-Statuszeile bleibt bewusst unverändert.
+    if (sys.argv[1:] if argv is None else argv)[:1] != ["statuszeile"]:
+        _utf8_ausgabe()
     try:
         args = _parser().parse_args(argv)
     except SystemExit as ende:
