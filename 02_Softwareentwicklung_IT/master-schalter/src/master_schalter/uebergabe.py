@@ -54,6 +54,28 @@ def repo_wurzel(quelle: Path | None = None) -> Path:
     raise UebergabeFehler("Repo nicht gefunden (kein Elternordner mit .git, MASTER_SCHALTER_REPO nicht gesetzt)")
 
 
+def haupt_wurzel(repo: Path) -> Path:
+    """Hauptarbeitsbaum zu `repo`: in einem Git-Worktree ist `.git` eine Datei, die über `commondir` dorthin zeigt.
+
+    `.hermes/` ist gitignored und liegt nur im Hauptarbeitsbaum. Gleiche Auflösung wie `pruefkreis.haupt_repo`
+    (ohne Git-Aufruf); bei jedem Lesefehler bleibt es bei `repo`. Nur lesend genutzt (`kurz`).
+    """
+    verweis = repo / ".git"
+    if not verweis.is_file():
+        return repo
+    try:
+        zeile = verweis.read_text(encoding="utf-8").strip()
+        if not zeile.startswith("gitdir:"):
+            return repo
+        gitdir = Path(zeile[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = repo / gitdir
+        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return repo
+    return common.parent if common.name == ".git" else repo
+
+
 def _git(repo: Path, args: list[str]) -> str:
     try:
         lauf = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=repo, capture_output=True,

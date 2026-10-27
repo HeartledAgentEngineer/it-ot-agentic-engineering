@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
+from pathlib import Path
 
 from . import anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe
 from .signale import Fenster, Kontingent
@@ -21,6 +22,7 @@ MAX_SITZUNGEN = 3
 KENNUNG_KURZ = 8
 ARBEITET_FRISCH = timedelta(minutes=30)   # älteres „arbeitet“ = Sitzung vermutlich ohne Stop beendet
 WARTET = "Wartet worauf: noch keine Statusquelle"
+MASTER_WERTE = ("claude", "codex", "hermes")   # wie `pruefkreis.py`
 WERKZEUG_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes", "workflow": "Workflow"}
 
 
@@ -30,6 +32,7 @@ class Thema:
     profil: modi.Profil
     besitzer: str | None        # None = unbekannt
     paar_aktiv: bool | None     # None = kein Paar
+    pruefkreis_master: str | None = None   # was `pruefkreis.py` als Master liest; None = pruefkreis bricht ab
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,36 @@ def _rollen_zeile(lage: str | None, grund: str) -> str:
             f" · Ausführer {_ohne_klammern(besetzung.worker)}")
 
 
+def pruefkreis_master(laufend_ordner: Path, thema: str) -> str | None:
+    """Master, den `pruefkreis.py` (`master_ermitteln`) für dieses Thema liest – None heißt: pruefkreis bricht ab.
+
+    Gleiche Regel: `<name>.master` mit `<name>` = Thema oder längster Anfang vor einem Bindestrich; leere Datei =
+    claude; unlesbar oder unbekanntes erstes Wort = None. Anders als die Besitzanzeige (`modi`) gilt eine fehlende
+    Datei hier nicht als claude.
+    """
+    teile = thema.split("-")
+    for laenge in range(len(teile), 0, -1):
+        datei = laufend_ordner / f"{'-'.join(teile[:laenge])}.master"
+        if not datei.is_file():
+            continue
+        try:
+            text = datei.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            return None
+        wer = text.split()[0] if text else "claude"
+        return wer if wer in MASTER_WERTE else None
+    return None
+
+
+def pruefer_text(master: str | None) -> str:
+    """Wer prüft – dieselbe Regel wie `pruefkreis.py` (Prüfer ≠ Master-Familie); `master` wie `pruefkreis_master`."""
+    if master == "codex":
+        return "Prüfer Hermes (Master Codex)"
+    if master in ("claude", "hermes"):
+        return "Prüfer Codex"
+    return "Prüfer ? (pruefkreis braucht --master)"
+
+
 def _thema_zeile(t: Thema, automatik_global: bool) -> str:
     p = t.profil
     master = "nach Kontingent" if p.master == modi.KONTINGENT else WERKZEUG_NAMEN.get(p.master, p.master)
@@ -106,7 +139,7 @@ def _thema_zeile(t: Thema, automatik_global: bool) -> str:
         auto = "Auto aus (fester Master)"
     else:
         auto = "Auto an" if (t.paar_aktiv and automatik_global) else "Auto aus"
-    return f"  {t.name}: Master {master} ({besitz_text}) · Ausführer {ausfuehrer} · {auto}"
+    return f"  {t.name}: Master {master} ({besitz_text}) · {pruefer_text(t.pruefkreis_master)} · Ausführer {ausfuehrer} · {auto}"
 
 
 def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -164,7 +197,7 @@ def _themen() -> tuple[list[Thema], list[str]]:
         hinweise.append("Hinweis: Themenprofile unlesbar")
     paar_liste = {p.thema: p for p in paare.lesen()}
     try:
-        repo = uebergabe.repo_wurzel()
+        repo = uebergabe.haupt_wurzel(uebergabe.repo_wurzel())   # aus einem Worktree: Besitz liegt im Hauptbaum
     except uebergabe.UebergabeFehler:
         repo = None
         hinweise.append("Hinweis: Repo nicht gefunden – Besitz unbekannt")
@@ -177,8 +210,11 @@ def _themen() -> tuple[list[Thema], list[str]]:
                 besitzer = modi._besitzer_lesen(besitz.pfad(repo, paar.laufend))
             except modi.ModusFehler:
                 besitzer = None
+        # pruefkreis sucht immer im festen Übergabeordner, unabhängig vom Paar.
+        pk_master = None if repo is None else pruefkreis_master(
+            besitz.pfad(repo, paare.laufend_bilden(name)).parent, name)
         themen.append(Thema(name, profile.get(name, modi.Profil()), besitzer,
-                            None if paar is None else paar.aktiv))
+                            None if paar is None else paar.aktiv, pk_master))
     return themen, hinweise
 
 

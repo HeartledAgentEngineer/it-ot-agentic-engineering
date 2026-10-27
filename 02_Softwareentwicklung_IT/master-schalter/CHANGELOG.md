@@ -6,6 +6,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Geändert
+- `kurz`: Jede Themenzeile nennt den Prüfer – dieselbe Regel wie `pruefkreis.py` (Prüfer ≠ Master-Familie):
+  Master wie `pruefkreis` ihn liest (`<name>.master`, auch übergeordnetes Thema): Codex ⇒ „Prüfer Hermes (Master
+  Codex)“, Claude/Hermes ⇒ „Prüfer Codex“, fehlende/unlesbare Datei ⇒ „Prüfer ? (pruefkreis braucht --master)“.
+  Aus einem Git-Worktree liest `kurz` die Besitzdateien im Hauptarbeitsbaum (neu `uebergabe.haupt_wurzel`).
 - `kurz`: Jede Limitzeile sagt ausdrücklich „… % übrig“ und nennt die Zeit bis zum Reset („Reset in 3 h 33 min,
   01:39“); Überschrift „Kontingent übrig:“, „Als Nächstes“ mit „(in …)“. Anlass: „67 %“ wurde als Verbrauch gelesen.
 - Leiste: Eine gescheiterte Claude-Messung steht mit Fehlerart und ggf. HTTP-Code im Log, z. B.

@@ -603,6 +603,12 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   ohne neue Messung heißt „neu, nicht gemessen“, ein Messfehler „unbekannt (…)“.
 - **Matrix:** Lage und Besetzung aus `rollen.BESETZUNG` (Planer/Prüfer/Ausführer), nur bei bekannter Lage.
 - **Themen:** Master-Vorgabe, Besitzer aus `<thema>.master` (fehlend = claude, Lesefehler = unbekannt),
+  **Prüfer** nach derselben Regel wie `pruefkreis.py`: Master laut `<name>.master` (Thema oder längster Anfang vor
+  einem Bindestrich, leere Datei = claude) – Codex ⇒ „Prüfer Hermes (Master Codex)“, Claude/Hermes ⇒ „Prüfer
+  Codex“. **Fehlt** die Datei oder ist sie unlesbar/unbekannt ⇒ „Prüfer ? (pruefkreis braucht --master)“, denn
+  pruefkreis bricht dann ab – auch wenn die Besitzanzeige davor beim Rückfall „fehlend = claude“ bleibt.
+  Aus einem Git-Worktree heraus liest `kurz` Besitzdateien im **Hauptarbeitsbaum** (`uebergabe.haupt_wurzel`,
+  `.git` → `gitdir` → `commondir`, wie `pruefkreis`); die schreibenden Teile behalten `repo_wurzel`.
   Ausführer mit Modell und ob die Automatik das Thema wirklich anfasst. „Auto an“ gilt nur bei aktivem Paar,
   Master-Vorgabe „nach Kontingent“ und eingeschalteter globaler Automatik, wie in `automatik.py`.
 - **Sitzungen:** die drei jüngsten Einträge des Statusregisters, Kennung auf 8 Zeichen gekürzt, mit Thema aus
