@@ -13,7 +13,7 @@ Rollen: Abschnitt „Rollen und Datenschutz im Agenten-Workflow“ in `AGENTS.md
 
 ```bash
 python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung> \
-    [--pruefer codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900] [--planfassung N]
+    [--pruefer codex|hermes] [--master claude|codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900] [--planfassung N]
 ```
 
 | Exit | Bedeutung |
@@ -39,6 +39,10 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
   vermerkt `Ersatzpruefer: Hermes statt Codex - Codex gesperrt (<Meldung>)`,
   das Urteil kommt dann von Hermes. Andere Codex-Fehler und die Zeitgrenze
   lösen keinen Ersatz aus; ohne Hermes-Programm bleibt es bei `fehler`.
+- **Kein Prüfer aus der Familie des Masters** (AGENTS.md, Sebastian 27.10.2026): `--master` nennt den Master
+  des geprüften Themas. Bei `--master codex` prüft ohne `--pruefer` Hermes (Protokoll: `Ersatzpruefer: Hermes statt
+  Codex - Master ist Codex …`); `--pruefer codex --master codex` wird mit Exit 2 abgelehnt, ohne dass ein Prüfer
+  startet. Ohne `--master` bleibt alles wie bisher (Standard Codex). Den Master gibt der aufrufende Agent an.
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 
