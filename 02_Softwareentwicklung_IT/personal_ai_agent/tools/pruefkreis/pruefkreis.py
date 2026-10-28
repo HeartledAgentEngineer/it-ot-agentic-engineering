@@ -356,7 +356,10 @@ def wartet_melden(name: str, text: str) -> str | None:
     tmp = None
     try:
         datei.parent.mkdir(parents=True, exist_ok=True)
-        inhalt = json.dumps({"text": text, "zeit": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
+        # "pid": Prozesskennung dieses Pruefprozesses - der Master-Schalter erkennt damit eine verwaiste Meldung
+        # (Prozess nach Absturz/Abbruch weg, Datei blieb liegen); das Format sonst unveraendert.
+        inhalt = json.dumps({"text": text, "zeit": datetime.now(timezone.utc).isoformat(), "pid": os.getpid()},
+                            ensure_ascii=False)
         fd, tmp = tempfile.mkstemp(prefix=f"{name}.", suffix=".tmp", dir=datei.parent)   # je Aufruf neu (O_EXCL)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(inhalt)

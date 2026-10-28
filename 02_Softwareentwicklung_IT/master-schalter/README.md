@@ -735,6 +735,15 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   Dateien werden übersprungen, nie geraten. `warte THEMA --fertig` entfernt die Meldung (idempotent). **Nur eine
   technische Kurzangabe** („Freigabe Vibe-Modus“, „Codex-Prüfung R2“) – keine Inhalte, Namen oder Pfade; der Code
   begrenzt nur Form und Länge.
+  **Verwaiste Meldung:** Die Meldung von `pruefkreis` („Prüfung R<n> läuft“) enthält zusätzlich `"pid"` (Prozess der
+  Prüfung; `warte` schreibt keine pid, alte Dateien ohne pid bleiben gültig, eine kaputte pid – Text, negativ, 0, zu groß –
+  wird ignoriert). Ist der Prozess beendet, hängt die Zeile in Master-Status und Übersicht
+  „(verwaist – Prozess beendet; `warte THEMA --fertig` räumt auf)“ an. `wartet.lebt(pid)`: Windows über
+  `OpenProcess`/`GetExitCodeProcess` (Fehler 87 ⇒ beendet, Zugriff verweigert oder anderer Fehler ⇒ unbekannt,
+  Exit-Code ≠ 259 ⇒ beendet), sonst `os.kill(pid, 0)`; „unbekannt“ zeigt die Zeile normal. Unter Windows gilt die Meldung
+  auch als verwaist, wenn der Prozess **nach** der Meldung gestartet wurde (`GetProcessTimes`, 5 s Toleranz; die pid wurde
+  dann wiederverwendet); unbekannte Startzeit zählt nur als „lebt“. Es wird **nie automatisch gelöscht** – das bleibt
+  `warte THEMA --fertig` bzw. `pruefkreis` selbst.
 - **Gemerkt:** steht eine Merkdatei des Sammelbefehls `alle` (siehe unten), zusätzlich
   „Gemerkt für „alle zurueck“: <thema> <rolle>, …“; eine ungültige Merkdatei nur als Hinweis.
 - **Messfehler:** scheitert die Claude- oder Codex-Messung, steht direkt unter den Limitzeilen

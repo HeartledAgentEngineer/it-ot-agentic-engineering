@@ -65,7 +65,9 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
   aus einer je Aufruf neuen Temp-Datei atomar per hartem Link, der nie überschreibt; ohne Link-Unterstützung entfällt die Meldung). Am Ende
   (auch bei Abbruch) entfernt es die Datei nur, wenn sie noch genau den eigenen Text trägt; eine fremde oder
   inzwischen geänderte Meldung bleibt. Mit ausdrücklichem `--master` entfällt die Meldung. Fehler dabei werden
-  verschluckt, die Prüfung läuft immer.
+  verschluckt, die Prüfung läuft immer. Die Datei enthält zusätzlich `"pid"` (Prozesskennung des Prüfprozesses):
+  Bleibt sie nach einem Absturz liegen, zeigt der Master-Schalter sie als „verwaist – Prozess beendet“ an (nur
+  Anzeige; entfernt wird sie von Hand mit `masterwechsel warte <name> --fertig`).
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 

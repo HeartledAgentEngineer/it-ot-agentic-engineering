@@ -607,3 +607,19 @@ def test_verschachtelte_wartemeldung_ueberschreibt_die_erste_nie(pk, monkeypatch
     assert innen == ["B"]
     assert json.loads(_wartet(tmp_path).read_text(encoding="utf-8"))["text"] == "B"
     assert [p.name for p in _wartet(tmp_path).parent.iterdir()] == ["probe.json"]
+
+
+def test_wartemeldung_enthaelt_die_pid_des_pruefprozesses_und_raeumt_weiter_auf(pk, vorlage, monkeypatch, tmp_path):
+    _besitz(tmp_path, "master-schalter", "claude x modus master-schalter")
+    gesehen = []
+
+    def starte(befehl, zeitgrenze):
+        gesehen.append(json.loads(_wartet(tmp_path, "master-schalter").read_text(encoding="utf-8")))
+        Path(befehl[befehl.index("-o") + 1]).write_text("ok\nURTEIL: FREI", encoding="utf-8")
+        return 0, "", ""
+    monkeypatch.setattr(pk, "starte", starte)
+    pk.pruefen(vorlage, "master-schalter-kurz")
+    assert len(gesehen) == 1
+    assert gesehen[0]["pid"] == pk.os.getpid()
+    assert sorted(gesehen[0]) == ["pid", "text", "zeit"]          # Format sonst unveraendert
+    assert not _wartet(tmp_path, "master-schalter").exists()       # Aufraeumen wie bisher

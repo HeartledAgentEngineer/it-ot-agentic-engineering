@@ -6,6 +6,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- Verwaiste „Prüfung läuft“-Meldung erkennen: `pruefkreis.wartet_melden` schreibt zusätzlich `"pid"`; `wartet.Meldung` hat
+  `pid` (optional, kaputte Werte ⇒ keine pid), neu `wartet.lebt` (Windows: `OpenProcess`/`GetExitCodeProcess`, 87 ⇒ beendet,
+  5/anderes ⇒ unbekannt; sonst `os.kill(pid, 0)`), `startzeit` (Windows `GetProcessTimes`) und `verwaist` (beendet oder
+  nach der Meldung gestartet). Master-Status und Übersicht hängen „(verwaist – Prozess beendet; `warte THEMA --fertig`
+  räumt auf)“ an; es wird nichts automatisch gelöscht. Tests: `test_wartet.py`, `test_pruefkreis.py`.
 - Messzugang erneuert sich einmal selbst: Endet `claude_messen.messen` mit `anmeldung_abgelaufen` (Parameter
   `erneuern=True`), startet `claude_anmeldung.erneuern` genau einmal `claude auth status` (ohne Konsole, Ausgabe nach
   `DEVNULL`, 30 s Frist, Prozessbaum-Ende bei Timeout, wirft nie) und `messen` liest genau einmal neu. Gedrosselt auf einen
