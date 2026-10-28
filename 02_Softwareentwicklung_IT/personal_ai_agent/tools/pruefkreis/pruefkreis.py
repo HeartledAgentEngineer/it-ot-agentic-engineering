@@ -35,6 +35,10 @@ bis ``--master`` angegeben ist - sonst koennte Codex unbemerkt einen Codex-Maste
 (Hermes ohnehin). Aus einem Git-Worktree heraus gelten Besitzdateien und Protokolle des Hauptarbeitsbaums.
 Die Quelle steht im Protokoll.
 
+Ohne ``--pruefer`` liest das Werkzeug ausserdem die Codex-Messung des Master-Schalters
+(``codex-kontingent.json``): steht Codex laut frischer Messung (<= 15 min) bei 100 % mit kuenftigem Reset,
+prueft gleich Hermes - ohne Codex-Fehlversuch. Unbekannte/alte Messung => wie bisher.
+
 Exit-Code: 0 = FREI, 1 = EINWAND, 2 = Fehler (Lauf, Urteilszeile, Aufruf).
 """
 from __future__ import annotations
@@ -48,12 +52,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
 CODEX_GRUENDLICH_MODELL = "gpt-6-astra"
 ZEITGRENZE_STANDARD = 900
+MESSUNG_FRISCH_SEKUNDEN = 15 * 60   # aeltere Codex-Messung zaehlt nicht (Leiste misst alle 5 min)
 URTEIL_MUSTER = re.compile(r"^URTEIL:\s*(FREI|EINWAND)\s*$")
 THEMA_MUSTER = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 FASSUNG_MUSTER = re.compile(r"Fassung\s*(\d+)", re.IGNORECASE)
@@ -222,6 +228,57 @@ def _nutzung_lesen(datei: Path) -> dict:
     return {"sitzung": daten.get("session_id"), "kosten_usd": daten.get("estimated_cost_usd")}
 
 
+def kontingent_datei() -> Path:
+    """Codex-Messung des Master-Schalters (`masterwechsel codex-messen`, Leiste alle 5 min)."""
+    basis = os.environ.get("MASTER_SCHALTER_DATEN") or str(Path.home() / ".master-schalter")
+    return Path(basis) / "codex-kontingent.json"
+
+
+def codex_im_limit(jetzt: float | None = None) -> str | None:
+    """Grund, wenn Codex laut FRISCHER Messung im Limit ist - sonst None (unbekannt/alt/kaputt = wie bisher).
+
+    Frisch heisst hoechstens ``MESSUNG_FRISCH_SEKUNDEN`` alt; im Limit heisst ein Fenster bei 100 % mit Reset in der
+    Zukunft. Gueltig ist eine Messung nur nach denselben Regeln wie ``signale._codex_filtern`` im Master-Schalter
+    (beide Fenster, 0-100 %, darstellbarer Reset, ``resets_at: null`` nur bei 0 %). Gelesen werden nur ``gelesen_um``
+    und je Fenster ``used_percent``/``resets_at``.
+    """
+    jetzt = time.time() if jetzt is None else jetzt
+    try:
+        roh = json.loads(kontingent_datei().read_text(encoding="utf-8"))
+        stand = datetime.fromisoformat(roh["gelesen_um"].replace("Z", "+00:00"))   # wie `signale._iso`
+        gelesen = (stand if stand.tzinfo else stand.replace(tzinfo=timezone.utc)).timestamp()
+        fenster = roh["fenster"]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not isinstance(fenster, dict) or not 0 <= jetzt - gelesen <= MESSUNG_FRISCH_SEKUNDEN:
+        return None
+    # Erst BEIDE Fenster prüfen (wie `_codex_filtern` im Master-Schalter): ein kaputtes Fenster macht die ganze
+    # Messung ungültig, auch wenn das andere schon ein Limit zeigt.
+    gueltig = []
+    for name in ("5h", "Woche"):
+        werte = fenster.get(name)
+        if not isinstance(werte, dict):
+            return None
+        prozent, reset = werte.get("used_percent"), werte.get("resets_at")
+        if not isinstance(prozent, (int, float)) or isinstance(prozent, bool) or not 0 <= prozent <= 100:
+            return None
+        if reset is None:   # kein offenes Fenster: gültig nur mit 0 % (wie `_codex_filtern`), nie ein Limit
+            if prozent != 0:
+                return None
+            continue
+        if not isinstance(reset, (int, float)) or isinstance(reset, bool):
+            return None
+        try:   # nicht darstellbare Zeit (z. B. 1e100, inf) = kaputte Messung
+            bis = time.strftime("%d.%m. %H:%M", time.localtime(reset))
+        except (OverflowError, OSError, ValueError):
+            return None
+        gueltig.append((name, prozent, reset, bis))
+    for name, prozent, reset, bis in gueltig:
+        if prozent == 100 and reset > jetzt:
+            return f"Codex {name} 100 % laut Messung {time.strftime('%H:%M', time.localtime(gelesen))}, Reset {bis}"
+    return None
+
+
 def codex_gesperrt(exitcode: int, stderr: str) -> bool:
     """Codex endete wegen Limit/Kontingent - dann springt Hermes ein, statt zu warten."""
     return exitcode not in (0, -1) and bool(GESPERRT_MUSTER.search(stderr or ""))
@@ -292,6 +349,12 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
         raise PruefkreisFehler(f"Master {master_quelle} - bitte --master claude|codex|hermes angeben "
                                "(sonst koennte Codex einen Codex-Master pruefen).")
     wer = pruefer_waehlen(pruefer, sensibel, master)
+    ersatz = ("Hermes statt Codex - Master ist Codex (keine Pruefung durch dieselbe Modellfamilie)"
+              if master == "codex" and not sensibel and pruefer is None else "")
+    limit = codex_im_limit() if wer == "codex" and pruefer is None else None
+    if limit:   # gemessen im Limit: gleich Hermes statt erst eines Codex-Fehlversuchs
+        wer, gruendlich = "hermes", False
+        ersatz = f"Hermes statt Codex - {limit} (kein Fehlversuch)"
     programm = codex_programm() if wer == "codex" else hermes_programm()
     if not programm:
         raise PruefkreisFehler(f"Programm fuer {wer} nicht gefunden.")
@@ -299,7 +362,6 @@ def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool
     auftrag = auftrag_text(vorlage, runde, sensibel)
 
     lauf = _lauf(wer, programm, auftrag, gruendlich, zeitgrenze)
-    ersatz = "Hermes statt Codex - Master ist Codex (keine Pruefung durch dieselbe Modellfamilie)"         if master == "codex" and not sensibel and pruefer is None else ""
     if wer == "codex" and codex_gesperrt(lauf["exitcode"], lauf["stderr"]):
         ersatz = f"Hermes statt Codex - Codex gesperrt ({fehlerzeile(lauf['stderr'])})"
         hermes = hermes_programm()
