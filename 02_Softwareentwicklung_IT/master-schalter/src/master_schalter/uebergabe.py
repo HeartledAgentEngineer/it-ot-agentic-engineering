@@ -58,7 +58,7 @@ def haupt_wurzel(repo: Path) -> Path:
     """Hauptarbeitsbaum zu `repo`: in einem Git-Worktree ist `.git` eine Datei, die über `commondir` dorthin zeigt.
 
     `.hermes/` ist gitignored und liegt nur im Hauptarbeitsbaum. Gleiche Auflösung wie `pruefkreis.haupt_repo`
-    (ohne Git-Aufruf); bei jedem Lesefehler bleibt es bei `repo`. Nur lesend genutzt (`kurz`).
+    (ohne Git-Aufruf); bei jedem Lesefehler bleibt es bei `repo`. Nur lesend genutzt (Master-Status).
     """
     verweis = repo / ".git"
     if not verweis.is_file():

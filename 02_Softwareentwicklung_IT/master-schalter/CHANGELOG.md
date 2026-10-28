@@ -5,7 +5,40 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Arbeitsweise je Thema (`protokoll` Standard | `vibe`): neues Modul `arbeitsweise.py`, Datei `arbeitsweise.json`
+  (`{"version": 1, "themen": {thema: "vibe"}}`, streng gelesen, atomar geschrieben, nicht im Profilformat
+  `themenmodi.json`). CLI `masterwechsel vibe THEMA an|aus` (nur von Hand; `modi.vibe_setzen` unter der Themensperre;
+  Thema muss existieren; idempotent; nennt die Regel). `profil --json` ergänzt `arbeitsweise` und bei Vibe `vibe_regel`
+  (bisherige Felder unverändert), `profil` (Text) zeigt dasselbe. Der Master-Status endet die Themenzeile bei Vibe auf
+  „· VIBE“ (ungültige Datei: „· Arbeitsweise ?“ plus Hinweis). Übersichtsfenster: Spalte „Arbeitsweise“ und Umschalter
+  mit Rückfrage (`uebersicht_modell.arbeitsweise_aktion`).
+- Vorrang Vibe vor der Workerwahl: Vibe nur mit Ausführer Claude. `vibe an` und jedes Schreiben eines Profils mit anderem
+  Ausführer bei Vibe werden abgelehnt (zentral in `modi._speichern` und vor der ersten Besitzmarke in
+  `modi._umschalten_gesperrt`, damit auch `modus THEMA hermes-codex`, `master-setzen`, `alle` und der Wechselassistent
+  geschützt sind). Ist `arbeitsweise.json` nicht lesbar, werden Profile mit anderem Ausführer als Claude fail-closed
+  nicht geschrieben.
+- Bei Vibe nennen Master-Status, Übersicht, `profil` und `master-setzen` „Prüfer Master-Kurzprüfung (Vibe, keine
+  Codex-/Hermes-Gegenprüfung)“ statt des pruefkreis-Prüfers; der Worktree-Hinweis der Prüfer-Vorschau entfällt für Themen
+  ohne Paar, weil diese immer im Hauptbaum schreiben (Codex-Ergebnisprüfung R1).
+
+- `masterwechsel thema-anlegen THEMA [--master …]`: Thema ohne Codex-Paar (Profil plus Besitzdatei im Hauptarbeitsbaum,
+  `modi.thema_anlegen`, `besitz.exklusiv_schreiben`); Reihenfolge Profil → Besitzdatei exklusiv, Wiederaufnahme einer halben
+  Anlage („ergänzt“), Überschreibschutz für vorhandene Besitzdateien, Hauptbaum-Pflicht auch aus einem Git-Worktree.
+- `modi._paar_pruefen(ohne_paar=True)`: Themen ohne Paar mit Profil gelten in `master_setzen`/`master_setzen_wenn` (damit
+  `alle`), `worker_setzen`, `modell_setzen`, `fuehrt`/`geschuetzt` und `snapshot`; ihr Besitzpfad liegt immer im
+  Hauptarbeitsbaum. Wechselassistent, Postfach, Automatik, `master_uebergeben_gesperrt` und `modus THEMA …` verlangen
+  weiter ein Paar. Folge: `alle kontingent|zurueck` stellt jetzt auch Themen ohne Paar um (vorher „offen: Thema unbekannt“).
+
 ### Geändert
+- Der Master-Status zeigt Themen ohne Paar mit „· ohne Codex-Paar“ (vorher „kein Paar“) und liest ihren Besitz aus der
+  Besitzdatei im Hauptarbeitsbaum (vorher „Besitz unbekannt“).
+- Master-Status statt `kurz`: `masterwechsel status` gibt jetzt die Übersicht aus, die bisher `kurz` lieferte (Verbrauch, Lage,
+  Matrix, Themen, Sitzungen, Wartet worauf); die alte Zwei-Zeilen-Ausgabe (nur beide Kontingente, `cli.master_zeile`) entfällt.
+  `kurz` bleibt als stiller Alias mit gleicher Ausgabe (nicht mehr in der Hilfe). Kopfzeile jetzt „Master-Status · HH:MM · Lage …
+  · Hauptschalter Automatik an|aus“ (vorher „Master-Schalter · … · Automatik an“). `warte` meldet „steht im Master-Status“.
+  Das Modul `kurz.py` behält seinen Namen (intern). Der lokale Chat-Befehl `/master-status` (gitignoriert, `.claude/commands`)
+  liegt außerhalb dieses Pakets.
 - Symbol und Menü zeigen keinen globalen Master mehr: der weiße Punkt über dem Balken entfällt (`symbol.bild` ohne
   Parameter `master`; `symbol._farbe` heißt jetzt `symbol.farbe`). Der Tooltip lautet „Lage X · Claude n % ·
   Codex n % verbraucht“ (`anzeige.tooltip_symbol`, 5-Stunden-Fenster) statt „M <Name> L<Lage> | …“, der Menükopf nennt

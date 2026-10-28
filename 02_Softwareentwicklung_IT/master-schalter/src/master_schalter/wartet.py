@@ -1,4 +1,4 @@
-"""„Wartet worauf“ je Thema: kurze technische Meldung, die `kurz` anzeigt (`masterwechsel warte`).
+"""„Wartet worauf“ je Thema: kurze technische Meldung, die der Master-Status anzeigt (`masterwechsel warte`).
 
 Layout: `<datenordner>/wartet/<thema>.json` mit `{"text": <eine Zeile, höchstens 120 Zeichen>, "zeit": <ISO UTC>}`.
 Das Thema wird mit `paare.thema_pruefen` geprüft; der Dateiname entsteht nur daraus. Geschrieben wird atomar.

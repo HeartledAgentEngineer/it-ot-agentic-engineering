@@ -1,4 +1,4 @@
-"""Kurzübersicht für den Chat (`masterwechsel kurz`): Limits, Lage, Themen, Sitzungen in wenigen Zeilen.
+"""Master-Status für den Chat (`masterwechsel status`, Alias `kurz`): Limits, Lage, Themen, Sitzungen in wenigen Zeilen.
 
 Gedacht für die Steuerung über Remote-Sitzungen, in denen das Taskleistensymbol nicht sichtbar ist. Der
 Befehl **liest nur**: er misst nicht, schreibt nichts und startet nichts. `zeilen` ist eine reine Funktion
@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
-from . import alle, anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
+from . import alle, anzeige, arbeitsweise, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
 from .signale import Fenster, Kontingent
 
 MAX_SITZUNGEN = 3
@@ -36,6 +36,7 @@ class Thema:
     besitzer: str | None        # None = unbekannt
     paar_aktiv: bool | None     # None = kein Paar
     pruefkreis_master: str | None = None   # was `pruefkreis.py` als Master liest; None = pruefkreis bricht ab
+    arbeitsweise: str = "protokoll"   # protokoll | vibe | ? (Datei ungültig)
 
 
 @dataclass(frozen=True)
@@ -128,22 +129,40 @@ def pruefer_text(master: str | None) -> str:
     return "Prüfer ? (pruefkreis braucht --master)"
 
 
-def pruefer_vorschau(thema: str, vorgabe: str) -> list[str]:
+VIBE_PRUEFER = "Prüfer Master-Kurzprüfung (Vibe, keine Codex-/Hermes-Gegenprüfung)"
+
+
+def _ohne_paar_mit_profil(thema: str) -> bool:
+    """Thema ohne Codex-Paar, aber mit Profil – dessen Schreibwege nutzen immer den Hauptarbeitsbaum (`modi`)."""
+    try:
+        return not any(p.thema == thema for p in paare.lesen()) and thema in modi.lesen()
+    except (modi.ModusFehler, paare.PaarFehler, OSError, ValueError):
+        return False
+
+
+def pruefer_vorschau(thema: str, vorgabe: str, weise: str = arbeitsweise.PROTOKOLL) -> list[str]:
     """Zwei Zeilen für `master-setzen`/`profil`: wer heute prüft und wer nach der Übergabe an `vorgabe` prüft.
 
     Nur lesend; maßgeblich ist wie bei `pruefkreis` der Besitz (`<thema>.master`), nicht die gespeicherte Vorgabe.
+    Bei Arbeitsweise Vibe gibt es keine Codex-/Hermes-Gegenprüfung: dann steht dort die Master-Kurzprüfung (ohne
+    Übergabezeile); der Worktree-Hinweis zum Schreibort gilt unabhängig davon.
     """
+    vibe = weise == arbeitsweise.VIBE
     try:
         lokal = uebergabe.repo_wurzel()
         repo = uebergabe.haupt_wurzel(lokal)
         ordner = besitz.pfad(repo, paare.laufend_bilden(thema)).parent
     except (uebergabe.UebergabeFehler, paare.PaarFehler):
-        return ["  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
+        return [f"  Jetzt: {VIBE_PRUEFER}" if vibe else "  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
     jetzt = pruefkreis_master(ordner, thema)
-    zeilen = [f"  Jetzt: {pruefer_text(jetzt)}"]
-    if repo != lokal:   # die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum
+    zeilen = [f"  Jetzt: {VIBE_PRUEFER if vibe else pruefer_text(jetzt)}"]
+    # Themen mit Paar: die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum.
+    # Themen ohne Paar (mit Profil) schreiben immer im Hauptbaum – dort stimmt die Vorschau, kein Hinweis.
+    if repo != lokal and not _ohne_paar_mit_profil(thema):
         zeilen.append("  Hinweis: Aufruf aus einem Git-Worktree – master-setzen schreibt die Besitzmarke dort, "
                       "pruefkreis liest den Hauptarbeitsbaum")
+    if vibe:
+        return zeilen
     if vorgabe == modi.KONTINGENT:
         zeilen.append("  Nach Kontingent: Prüfer folgt dem Besitzer (Master Codex ⇒ Hermes, sonst Codex)")
     elif vorgabe != jetzt:
@@ -159,17 +178,24 @@ def thema_felder(t: Thema, automatik_global: bool) -> tuple[str, str, str, str, 
     ausfuehrer = WERKZEUG_NAMEN.get(p.worker, p.worker) + (f" {p.modell}" if p.modell else "")
     # Wie `automatik.py`: nur ein aktives Paar mit Master-Vorgabe „kontingent“ bei globaler Automatik.
     if t.paar_aktiv is None:
-        auto = "kein Paar"
+        auto = "ohne Codex-Paar"
     elif p.master != modi.KONTINGENT:
         auto = "Auto aus (fester Master)"
     else:
         auto = "Auto an" if (t.paar_aktiv and automatik_global) else "Auto aus"
-    return master, besitz_text, pruefer_text(t.pruefkreis_master), ausfuehrer, auto
+    pruefer = VIBE_PRUEFER if t.arbeitsweise == arbeitsweise.VIBE else pruefer_text(t.pruefkreis_master)
+    return master, besitz_text, pruefer, ausfuehrer, auto
+
+
+def arbeitsweise_zusatz(wert: str) -> str:
+    """Zusatz am Ende der Themenzeile: „ · VIBE“; bei Protokoll nichts, bei ungültiger Datei „ · Arbeitsweise ?“."""
+    return {arbeitsweise.VIBE: " · VIBE", arbeitsweise.UNBEKANNT: " · Arbeitsweise ?"}.get(wert, "")
 
 
 def _thema_zeile(t: Thema, automatik_global: bool) -> str:
     master, besitz_text, pruefer, ausfuehrer, auto = thema_felder(t, automatik_global)
-    return f"  {t.name}: Master {master} ({besitz_text}) · {pruefer} · Ausführer {ausfuehrer} · {auto}"
+    return (f"  {t.name}: Master {master} ({besitz_text}) · {pruefer} · Ausführer {ausfuehrer} · {auto}"
+            + arbeitsweise_zusatz(t.arbeitsweise))
 
 
 def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -214,12 +240,12 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
            schwelle: int, automatik_global: bool, jetzt: datetime, zone: tzinfo | None = None,
            hinweise: tuple[str, ...] = (), wartet_auf: tuple[wartet.Meldung, ...] = (),
            messfehler: dict[str, signale.Messfehler] | None = None) -> list[str]:
-    """Die Kurzübersicht als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
+    """Der Master-Status als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
     claude, codex = kontingente
     lage = rollen.lage(claude, codex, schwelle)
     grund = rollen.lage_grund(claude, codex, schwelle)
-    kopf = (f"Master-Schalter · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
-            f" · Automatik {'an' if automatik_global else 'aus'}")
+    kopf = (f"Master-Status · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
+            f" · Hauptschalter Automatik {'an' if automatik_global else 'aus'}")
     aus = [kopf, "Kontingent verbraucht:"]
     aus += [_limit_zeile(k, jetzt, zone) for k in kontingente]
     aus += messfehler_zeilen(messfehler or {}, jetzt, zone)
@@ -256,6 +282,11 @@ def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]
         profile = {}
         hinweise.append("Hinweis: Themenprofile unlesbar")
     paar_liste = {p.thema: p for p in paare.lesen()}
+    try:
+        weisen, weisen_defekt = arbeitsweise.lesen(), False
+    except arbeitsweise.ArbeitsweiseFehler:
+        weisen, weisen_defekt = {}, True
+        hinweise.append("Hinweis: Arbeitsweise-Datei ungültig – Arbeitsweise unbekannt (?)")
     if repo is _OFFEN:
         repo = repo_bestimmen()   # aus einem Worktree: Besitz liegt im Hauptbaum
     if repo is None:
@@ -264,16 +295,18 @@ def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]
     for name in sorted(set(profile) | set(paar_liste)):
         paar = paar_liste.get(name)
         besitzer = None
-        if paar is not None and repo is not None:
+        if repo is not None:   # auch ein Thema ohne Codex-Paar hat seine Besitzdatei im Hauptarbeitsbaum
+            laufend = paar.laufend if paar is not None else paare.laufend_bilden(name)
             try:   # fehlende Datei = claude, Lesefehler = unbekannt (wie die fail-closed Prüfung in `modi`)
-                besitzer = modi._besitzer_lesen(besitz.pfad(repo, paar.laufend))
+                besitzer = modi._besitzer_lesen(besitz.pfad(repo, laufend))
             except modi.ModusFehler:
                 besitzer = None
         # pruefkreis sucht immer im festen Übergabeordner, unabhängig vom Paar.
         pk_master = None if repo is None else pruefkreis_master(
             besitz.pfad(repo, paare.laufend_bilden(name)).parent, name)
+        weise = arbeitsweise.UNBEKANNT if weisen_defekt else weisen.get(name, arbeitsweise.PROTOKOLL)
         themen.append(Thema(name, profile.get(name, modi.Profil()), besitzer,
-                            None if paar is None else paar.aktiv, pk_master))
+                            None if paar is None else paar.aktiv, pk_master, weise))
     return themen, hinweise
 
 
@@ -308,7 +341,7 @@ def _gemerkt_hinweis() -> list[str]:
 
 
 def sammeln(jetzt: datetime | None = None, zone: tzinfo | None = None) -> list[str]:
-    """Alle Quellen lesen (nichts schreiben, nichts messen) und die Kurzübersicht bauen."""
+    """Alle Quellen lesen (nichts schreiben, nichts messen) und den Master-Status bauen."""
     jetzt = jetzt or datetime.now(timezone.utc)
     themen, hinweise = _themen()
     hinweise = _gemerkt_hinweis() + hinweise

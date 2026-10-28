@@ -39,20 +39,21 @@ auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unb
 Ein Linksklick auf das Symbol öffnet `uebersicht.py` als eigenen Prozess (`pythonw.exe -m master_schalter.uebersicht`;
 auch von Hand startbar). Es läuft **nur einmal** (Sperre `uebersicht.lock`); eine zweite Instanz beendet sich still mit
 Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufnehmen`, dieselben Bausteine wie
-`masterwechsel kurz`; nie Dateizugriff im Tk-Thread) und misst selbst nichts. Inhalt:
+`masterwechsel status`; nie Dateizugriff im Tk-Thread) und misst selbst nichts. Inhalt:
 
 - **Kopf:** Uhrzeit, Lage und der Hauptschalter **Automatik** (an/aus) als Umschaltknopf; vor dem Umschalten fragt ein
   Ja/Nein-Dialog (Standard **Nein**).
 - **Kontingent:** je Abo und Fenster (5h, Woche) ein Fortschrittsbalken „n % verbraucht“ (0–100), Reset-Zeit und
   Messzeit. Farbe wie im Symbol (aus dem ungerundeten Messwert): Grundfarbe, gelb ab 80 %, rot ab der Schwelle. Eine scheiternde Messung steht mit
   Grund darunter („Claude-Messung scheitert seit HH:MM (letzter Versuch HH:MM): …“, aus `messfehler.json`).
-- **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Auto. Thema wählen, dann im Aufklappmenü
-  „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage setzt
-  `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung).
+- **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Arbeitsweise · Auto. Thema wählen, dann im
+  Aufklappmenü „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage
+  setzt `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung). Das Menü „Arbeitsweise“ (Protokoll / Vibe)
+  schaltet nach Rückfrage `modi.vibe_setzen`; Vibe wird vorab abgelehnt, wenn der Ausführer nicht Claude ist.
 - **Knöpfe:** „Alle nach Kontingent“ und „Alle wie vorher“ (`alle.auf_kontingent` / `alle.zurueck`, mit Rückfrage,
   der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
   (sofort neu lesen).
-- **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie `kurz`: Kennung gekürzt, keine Chat-Titel, keine Pfade).
+- **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie im Master-Status: Kennung gekürzt, keine Chat-Titel, keine Pfade).
 - **Lesefehler:** scheitert eine Aktualisierung, zeigt das Fenster keine alten Werte weiter: alle Balken „unbekannt“,
   darunter „keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)“, „Automatik: unbekannt“; Automatik- und
   Schreibknöpfe sind gesperrt, bis eine Aufnahme wieder gelingt.
@@ -327,17 +328,21 @@ Die Befehle im Überblick:
 .\.venv\Scripts\masterwechsel.exe master-setzen THEMA kontingent|claude|codex|hermes
 .\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes
 .\.venv\Scripts\masterwechsel.exe modell-setzen THEMA MODELL|standard
+.\.venv\Scripts\masterwechsel.exe vibe THEMA an|aus
+.\.venv\Scripts\masterwechsel.exe thema-anlegen THEMA [--master claude|codex|hermes|kontingent]
 .\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
 ```
 
 `profil` (Textform) und `master-setzen` zeigen zusätzlich den **Prüfer** nach der Regel von `pruefkreis.py`
-(siehe `kurz`): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
+(siehe Master-Status): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
 schreibt die Marke mit, der Prüfer wechselt also sofort (Master Codex ⇒ „Prüfer Hermes (Master Codex)“). Bei
 „Nach Kontingent“ folgt der Prüfer dem jeweiligen Besitzer; weicht eine feste Vorgabe vom Besitz ab, nennt eine
-zweite Zeile den Prüfer nach der Übergabe. `profil --json` bleibt unverändert. **Grenze:** Der Sofortwechsel gilt
-für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` die
-Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe sagt das dann mit
-„Hinweis: Aufruf aus einem Git-Worktree …“.
+zweite Zeile den Prüfer nach der Übergabe. `profil --json` behält alle bisherigen Felder unverändert; neu kommen die
+Felder der Arbeitsweise dazu (siehe unten). **Grenze:** Der Sofortwechsel gilt
+für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` bei
+Themen **mit** Codex-Paar die Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe
+sagt das dann mit „Hinweis: Aufruf aus einem Git-Worktree …“. Themen **ohne** Paar schreiben immer im Hauptbaum (siehe
+`thema-anlegen`); dort entfällt der Hinweis.
 
 `modelle` zeigt ohne `--aktualisieren` nur den lokalen Cache (Exit 0, Fehlerkategorien stehen
 in der Ausgabe); mit `--aktualisieren` wird frisch abgeglichen und ein nicht erfolgreich
@@ -353,6 +358,68 @@ Beim Rückstellen auf `kontingent` werden offene alte Vorgänge entwertet. Die B
 `claude … modus-reset …` nur als Quelle des bestehenden Kontingentwegs; damit wird kein Claude-Chat
 als gestartet behauptet. Der Status lautet **Kontingentbetrieb – Übernahme offen**. Ein Schreibfehler
 zwischen den Teilschritten bleibt geschützt und lässt sich durch erneute Moduswahl vervollständigen.
+
+### Arbeitsweise je Thema: `protokoll` oder `vibe` (unveröffentlicht)
+
+Jedes Thema hat eine Arbeitsweise. Standard ist `protokoll` (der bisherige Ablauf mit Gegenprüfung). `vibe` schaltet
+Sebastian für ein Thema **von Hand** ein; die Regel dazu gehört in den Schalter, nicht in `AGENTS.md`.
+
+- **Datei:** `<datenordner>/arbeitsweise.json` = `{"version": 1, "themen": {"<thema>": "vibe"}}`. Ein fehlendes Thema (oder
+  eine fehlende Datei) heißt `protokoll`. Die Datei gehört bewusst **nicht** zum strengen Profilformat `themenmodi.json`;
+  Profil-Leser und -Sperren bleiben unberührt. Gelesen wird streng: kaputtes JSON, unbekannte Version, Schlüssel oder
+  Werte ergeben einen Fehler beim Setzen und die Anzeige „?“ (nie ein Absturz); eine ungültige Datei wird nie
+  überschrieben. Schreiben ist atomar unter der kurzen globalen Sperre. `aus` entfernt den Eintrag.
+- **Nur von Hand:** `masterwechsel vibe THEMA an|aus` (und die Spalte „Arbeitsweise“ im Übersichtsfenster, mit
+  Ja/Nein-Rückfrage). Kein Automatikpfad (`automatik`, `alle`, Wechselassistent) schreibt die Datei. Das Thema muss
+  existieren (Profil oder Paar); jeder Fehler lässt die Datei unverändert; wiederholtes Setzen ist idempotent.
+- **Regel (`vibe_regel`):** Claude-Subagent baut (Modell laut Profil; bei `modell_standard` wählt der Master Sonnet oder
+  Haiku); der Master gibt den Auftrag und nimmt per Kurzprüfung ab (Diff lesen, Prüfbefehl selbst ausführen); keine
+  Codex-/Hermes-Gegenprüfung; Prüfbefehl Pflicht vor Commit und Push; Sensibles nur Hermes; kein OT/SPS-Code; kein
+  force-push, kein Löschen. Ein festes Claude-Modell im Profil gilt; die Regel schreibt kein Modell vor. `vibe an` gibt
+  die Regel aus.
+- **Prüferangabe bei Vibe:** Master-Status, Übersichtsfenster, `profil` und `master-setzen` nennen dann „Prüfer
+  Master-Kurzprüfung (Vibe, keine Codex-/Hermes-Gegenprüfung)“ statt des pruefkreis-Prüfers.
+- **`profil THEMA --json`:** bekommt zusätzlich `"arbeitsweise": "protokoll"|"vibe"` (bei ungültiger Datei `"?"`) und bei
+  `vibe` `"vibe_regel"`; die bisherigen Felder bleiben unverändert und stehen vorn. `profil THEMA` (Text) zeigt
+  „Arbeitsweise: …“ und bei Vibe die Regel. Vor jedem Workerauftrag gilt: `arbeitsweise` aus dem Profil beachten.
+- **Vorrang Vibe vor der Workerwahl:** Vibe gibt es nur mit `worker=claude`, damit Profil und Regel nie widersprechen.
+  `vibe THEMA an` bei anderem Ausführer ⇒ Fehler „Vibe braucht Ausführer Claude – erst `worker-setzen THEMA claude`“.
+  Umgekehrt lehnt jedes Schreiben eines Profils mit anderem Ausführer bei `vibe` ab („erst `vibe THEMA aus`“), ohne
+  Profil oder Besitzdatei zu ändern. Die Prüfung sitzt zentral im einzigen Profilschreiber `modi._speichern` und – vor
+  der ersten Besitzmarke – in `modi._umschalten_gesperrt`; damit gilt sie für `worker-setzen`, `modell-setzen`,
+  `master-setzen`, `modus THEMA hermes-codex|kontingent` (Legacy-Profil mit Ausführer codex/workflow), `alle` und den
+  Wechselassistenten. `vibe` selbst läuft unter der Themensperre und liest das Profil dazu frisch. **Grenze
+  (fail-closed):** Ist `arbeitsweise.json` nicht lesbar, ist unbekannt, ob Vibe gilt – dann werden Profile mit anderem
+  Ausführer als Claude nicht geschrieben (die Meldung nennt den Grund), bis die Datei repariert ist.
+- **Anzeige:** Die Themenzeile im Master-Status endet bei Vibe auf „· VIBE“ (bei Protokoll nichts, bei ungültiger Datei
+  „· Arbeitsweise ?“ plus Hinweis). Das Übersichtsfenster hat die Spalte „Arbeitsweise“ und neben dem Master-Menü einen
+  Umschalter (Protokoll/Vibe, mit Rückfrage; gesperrt in „nur Anzeige“).
+
+### Thema ohne Codex-Paar (`thema-anlegen`, unveröffentlicht)
+
+Nicht jedes Thema braucht einen Codex-Chat. `masterwechsel thema-anlegen THEMA [--master claude|codex|hermes|kontingent]`
+(Standard `claude`) legt ein Thema **ohne Paar** an: das Profil (`themenmodi.json`, Master = `--master`, Ausführer
+Workflow) und die Besitzdatei `.hermes/uebergabe/laufend/<THEMA>.master` im **Hauptarbeitsbaum** (gleicher Ort wie bei
+`pruefkreis`, auch aus einem Git-Worktree heraus). Der Besitz steht bei der Anlage immer auf `claude <ISO-Zeit> modus
+<THEMA>` (der anlegende Master); die Vorgabe `--master` steht im Profil. Alles läuft unter der Themensperre:
+
+- Profil und Besitzdatei fehlen ⇒ erst das Profil, dann die Besitzdatei **exklusiv** (`O_EXCL`, nie überschrieben) ⇒
+  „angelegt“. Zwei gleichzeitige Anlagen ergeben genau eine Besitzdatei; die andere meldet „existiert schon“.
+- Profil da, Besitzdatei fehlt, kein Paar (halbe Anlage nach einem Abbruch, auch ältere Themen wie `weiterbildung`) ⇒ die
+  Besitzdatei wird ergänzt („Besitzdatei ergänzt“); weicht `--master` vom gespeicherten Master ab, Fehler und nichts geändert.
+- Besitzdatei da (auch leer) ohne Profil und ohne Paar ⇒ Fehler „existiert ohne Profil“; fremder oder alter Stand wird nie
+  überschrieben. Profil **und** Besitzdatei da, oder ein Paar vorhanden ⇒ Fehler „existiert schon“.
+- Ist der Hauptarbeitsbaum nicht auffindbar (`.git` ist eine Datei und die `commondir`-Auflösung scheitert), lehnt der
+  Befehl vor jeder Nebenwirkung ab („Hauptarbeitsbaum nicht gefunden“).
+
+**Themen ohne Paar in den Schreibwegen:** `modi._paar_pruefen(..., ohne_paar=True)` lässt ein Thema ohne Paar gelten, wenn es
+ein Profil hat (frisch gelesen); der Besitzpfad ist dann immer der im Hauptarbeitsbaum, nie eine Worktree-Kopie. Das gilt
+für `master-setzen` (auch über `master_setzen_wenn`, also `alle`), `worker-setzen`, `modell-setzen` sowie die
+Schutzprüfung (`fuehrt`/`geschuetzt`) und `snapshot`. `worker-setzen` und `modell-setzen` prüfen nur den Besitzpfad und
+lassen alle Besitzdateien bytegleich. Ohne Profil und ohne Paar bleibt es bei „Thema unbekannt“ (Tippfehlerschutz). **Weiter
+ein Paar verlangen:** Wechselassistent, Postfach, Automatik, `master_uebergeben_gesperrt` und der Legacy-Setter
+`modus THEMA …`. Themen **mit** Paar behalten Verhalten und Besitzpfad (bewusst unverändert, eigener Schritt). Der
+Master-Status zeigt solche Themen mit „· ohne Codex-Paar“ (statt früher „kein Paar“) und liest ihren Besitz im Hauptbaum.
 
 ### Bereinigter Codex-Code-Worker
 
@@ -636,10 +703,12 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
   nächsten Nachricht von Sebastian). Ruhende Desktop-Sitzungen kann der Hook nicht wecken; dafür bleibt ein frischer
   `claude -p`-Lauf.
 
-## Kurzübersicht für den Chat (unveröffentlicht)
+## Master-Status für den Chat (unveröffentlicht)
 
-`masterwechsel kurz` gibt in wenigen Zeilen ohne Tabellen aus, was man beim Steuern über eine
-Remote-Sitzung sehen will. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
+`masterwechsel status` (Chat-Befehl `/master-status`) gibt in wenigen Zeilen ohne Tabellen aus, was man beim Steuern über eine
+Remote-Sitzung sehen will. Die Kopfzeile lautet „Master-Status · HH:MM · Lage … · Hauptschalter Automatik an|aus“. Der frühere Befehl `kurz`
+bleibt als **stiller Alias** mit gleicher Ausgabe (in der Hilfe nicht mehr aufgeführt); die bisherige Zwei-Zeilen-Ausgabe von `status`
+(beide Kontingente) entfällt, sie steckt in der Übersicht. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
 Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 
 - **Kontingent verbraucht:** je Abo und Fenster der *Verbrauch* („… % verbraucht“, auf 0–100 begrenzt), die Zeit bis zum Reset
@@ -651,7 +720,7 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   einem Bindestrich, leere Datei = claude) – Codex ⇒ „Prüfer Hermes (Master Codex)“, Claude/Hermes ⇒ „Prüfer
   Codex“. **Fehlt** die Datei oder ist sie unlesbar/unbekannt ⇒ „Prüfer ? (pruefkreis braucht --master)“, denn
   pruefkreis bricht dann ab – auch wenn die Besitzanzeige davor beim Rückfall „fehlend = claude“ bleibt.
-  Aus einem Git-Worktree heraus liest `kurz` Besitzdateien im **Hauptarbeitsbaum** (`uebergabe.haupt_wurzel`,
+  Aus einem Git-Worktree heraus liest der Master-Status Besitzdateien im **Hauptarbeitsbaum** (`uebergabe.haupt_wurzel`,
   `.git` → `gitdir` → `commondir`, wie `pruefkreis`); die schreibenden Teile behalten `repo_wurzel`.
   Ausführer mit Modell und ob die Automatik das Thema wirklich anfasst. „Auto an“ gilt nur bei aktivem Paar,
   Master-Vorgabe „nach Kontingent“ und eingeschalteter globaler Automatik, wie in `automatik.py`.
@@ -696,7 +765,7 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 - Der globale Hauptschalter `automatik an|aus` ist davon getrennt. Wie `master-setzen` schreibt der Befehl den
   Besitz im Repo, in dem er läuft – echte Läufe aus dem Hauptarbeitsbaum, nicht aus einem Git-Worktree.
 
-Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `kurz` und alle
+Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `status` (und `kurz`) und alle
 anderen Befehle (stdout und stderr, schon vor dem Einlesen der Argumente, also auch `--help`) UTF-8, damit Umlaute in Remote-Sitzungen und über `/master-status`
 lesbar ankommen; einzige Ausnahme ist `statuszeile` (Anzeige der Claude-Code-Statuszeile, bewusst unverändert).
 
@@ -837,13 +906,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Taskleisten-Symbol ohne Konsolenfenster starten
 .\.venv\Scripts\pythonw.exe -m master_schalter.leiste
 
-# beide Kontingente in der Konsole
+# Master-Status (Konsole oder Remote-Sitzung): Verbrauch, Lage, Themen, Sitzungen – nur lesend
 .\.venv\Scripts\masterwechsel.exe status
 
-# Kurzübersicht für den Chat (Remote-Sitzung): Verbrauch, Lage, Themen, Sitzungen – nur lesend
-.\.venv\Scripts\masterwechsel.exe kurz
-
-# „Wartet worauf“ melden (erscheint in kurz) und wieder entfernen
+# „Wartet worauf“ melden (erscheint im Master-Status) und wieder entfernen
 .\.venv\Scripts\masterwechsel.exe warte master-schalter Freigabe Vibe-Modus
 .\.venv\Scripts\masterwechsel.exe warte master-schalter --fertig
 
@@ -865,6 +931,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 
 # Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
 .\.venv\Scripts\masterwechsel.exe claude-kontingent --fuenf 90 --woche 70 --reset-fuenf 2026-10-14T18:40:00Z --reset-woche 2026-10-18T21:00:00Z
+
+# Arbeitsweise Vibe eines Themas ein- oder ausschalten (nur von Hand; braucht Ausführer Claude)
+.\.venv\Scripts\masterwechsel.exe vibe engineering an
+.\.venv\Scripts\masterwechsel.exe vibe engineering aus
 
 # Rollenvorgabe eines Themas lesen (verbindlich vor jedem neuen Workerauftrag)
 .\.venv\Scripts\masterwechsel.exe profil engineering --json
@@ -919,6 +989,7 @@ Claude- und Codex-App sind MSIX-Pakete, deren Kindprozesse je Starter in
 src/master_schalter/
   zustand.py   Aktiven Master und letzten Wechsel lokal speichern; Sperren (global und je Thema)
   modi.py      Rollenprofile v2 je Thema (Master, Ausführer, Modell) und fail-closed Themenbesitz
+  arbeitsweise.py  Arbeitsweise je Thema (`protokoll`|`vibe`, `arbeitsweise.json`), nur von Hand geschrieben
   modelle.py   Modellkataloge der installierten Werkzeuge lesen/abgleichen (lokaler Metadatencache)
   rollen.py    Lage und Besetzung gemäß AGENTS.md bestimmen
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)
@@ -936,17 +1007,17 @@ src/master_schalter/
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)
-  besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex)
+  besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex); `exklusiv_schreiben` legt sie ohne Überschreiben an
   automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre; Weg alt oder assistent
   codex_senden.py  Paket bauen und den Auftrag an `codex.exe queue` übergeben
   ack.py       Bestätigung des Zielchats aus den Rollout-Dateien lesen
   signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern; Messfehler-Status `messfehler.json`
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
-  kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend; Bausteine auch für die Übersicht
+  kurz.py      Master-Status für den Chat (`masterwechsel status`, Alias `kurz`), nur lesend; Bausteine auch für die Übersicht
   uebersicht.py  Übersichtsfenster (tkinter, nur eine Instanz, Linksklick) – nur Oberfläche
   uebersicht_modell.py  Modell der Übersicht ohne Tk: Aufnahme, Repo-Ort, Aktionen mit Rückfragetext
-  wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt von `kurz`
+  wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt im Master-Status
   alle.py      Sammelbefehl `masterwechsel alle kontingent|zurueck` (Merkdatei, Hermes ausgelassen)
   anzeige.py   Texte für Tooltip („Lage … · Claude n % · Codex n % verbraucht“), Menükopf, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow; Statusfarbe auch für die Übersicht)

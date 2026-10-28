@@ -364,7 +364,7 @@ def test_kurz_sammeln_mit_kaputter_statusdatei_stuerzt_nicht_ab(daten, tmp_path,
     monkeypatch.setenv("MASTER_SCHALTER_REPO", str(repo))
     _datei(daten).write_text("{kaputt", encoding="utf-8")
     text = "\n".join(kurz.sammeln())
-    assert "Master-Schalter" in text and "scheitert" not in text
+    assert "Master-Status" in text and "scheitert" not in text
 
 
 def test_kurz_sammeln_zeigt_eintrag_nach_60_minuten_weiter(daten, tmp_path, monkeypatch):

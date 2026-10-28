@@ -111,15 +111,15 @@ def _balken(abo, fuenf, woche, **kw):
                   "gemessen 08:55", kw.get("fehler"), kw.get("messfehler"))
 
 
-def _thema(name="thema-a", master="kontingent"):
-    return um.ThemaZeile(name, "nach Kontingent", "claude", "Codex", "Workflow", "Auto an", master)
+def _thema(name="thema-a", master="kontingent", arbeitsweise="protokoll", worker="workflow"):
+    return um.ThemaZeile(name, "nach Kontingent", "claude", "Codex", "Workflow", "Auto an", master, arbeitsweise, worker)
 
 
 def _snap(*, schreiben=True, messfehler=None, hinweise=()):
     return um.Uebersicht(
         zeit="09:00", lage="1", lage_text="Lage 1", automatik=False, schwelle=97,
         abos=(_balken("Claude", 62, 85, messfehler=messfehler), _balken("Codex", 1, 32)),
-        themen=(_thema(), _thema("thema-b", "claude")),
+        themen=(_thema(), _thema("thema-b", "claude", "vibe", "claude")),
         wartet=("Wartet worauf: thema-a: auf Freigabe (seit 08:00)",), sitzungen=("Sitzung Claude eins-sit · ruht · 08:50",),
         hinweise=tuple(hinweise), repo=None, schreiben=schreiben,
         schreib_hinweis="" if schreiben else um.NUR_ANZEIGE)
@@ -176,7 +176,8 @@ def test_schicht_zeigt_kopf_balken_themen_und_listen(wurzel):
     assert f._abo_info[1][1].get() == ""
     assert f.themen_baum.get_children() == ("thema-a", "thema-b")
     assert tuple(f.themen_baum.item("thema-a", "values")) == (
-        "thema-a", "nach Kontingent", "claude", "Codex", "Workflow", "Auto an")
+        "thema-a", "nach Kontingent", "claude", "Codex", "Workflow", "Protokoll", "Auto an")
+    assert tuple(f.themen_baum.item("thema-b", "values"))[5] == "Vibe"
     assert [f.unten_liste.get(i) for i in range(f.unten_liste.size())] == [
         "Wartet worauf: thema-a: auf Freigabe (seit 08:00)", "Sitzung Claude eins-sit · ruht · 08:50"]
     assert f.hinweis_var.get() == "Gemerkt: …"
@@ -335,3 +336,59 @@ def test_lesefehler_loescht_alte_balken_und_sperrt_die_automatik(wurzel):
 
     f.snapshot_anwenden(_snap())                                    # nächste gute Aufnahme stellt alles wieder her
     assert float(f._balken[0][1]["value"]) == 62 and str(f.automatik_knopf["state"]) == "normal"
+
+
+def test_arbeitsweise_auswahl_folgt_dem_gewaehlten_thema(wurzel):
+    f, _ = _fenster(wurzel)
+    assert f.arbeitsweise_var.get() == "" and str(f.arbeitsweise_box["state"]) == "disabled"
+    _themen_wahl(f, "thema-b")
+    assert f.arbeitsweise_var.get() == "Vibe" and str(f.arbeitsweise_box["state"]) == "readonly"
+    assert tuple(f.arbeitsweise_box["values"]) == ("Protokoll", "Vibe")
+    _themen_wahl(f, "thema-a")
+    assert f.arbeitsweise_var.get() == "Protokoll"
+
+
+def test_arbeitsweise_nur_anzeige_sperrt_den_umschalter(wurzel):
+    f, _ = _fenster(wurzel, _snap(schreiben=False))
+    _themen_wahl(f, "thema-b")
+    assert str(f.arbeitsweise_box["state"]) == "disabled"
+
+
+def test_arbeitsweise_wechsel_fragt_und_bei_nein_wird_nichts_gestartet(wurzel, monkeypatch):
+    aufrufe = []
+    f, aktionen = _fenster(wurzel, aktionen=Aktionen(antwort=False))
+    monkeypatch.setattr(um, "arbeitsweise_aktion", lambda snap, thema, wert: um.Aktion(
+        "Arbeitsweise setzen", f"Frage {thema} {wert}", lambda: aufrufe.append("lauf") or um.Ergebnis(True, "x")))
+    _themen_wahl(f, "thema-a")
+    f.arbeitsweise_box.current(1)                                   # Vibe
+    f.arbeitsweise_klick()
+
+    assert aktionen.fragen == ["Frage thema-a vibe"]
+    assert aufrufe == [] and f._beschaeftigt is False
+    assert f.status_var.get().startswith("Nicht geändert")
+    assert f.arbeitsweise_var.get() == "Protokoll"                   # springt zurück
+
+
+def test_arbeitsweise_wechsel_bei_ja_laeuft_im_hintergrund_und_meldet(wurzel, monkeypatch):
+    aufrufe = []
+    f, aktionen = _fenster(wurzel)
+    monkeypatch.setattr(um, "arbeitsweise_aktion", lambda snap, thema, wert: um.Aktion(
+        "Arbeitsweise setzen", "Frage", lambda: aufrufe.append((thema, wert)) or um.Ergebnis(True, "thema-a: Arbeitsweise Vibe gespeichert")))
+    _themen_wahl(f, "thema-a")
+    f.arbeitsweise_box.current(1)
+    f.arbeitsweise_klick()
+    assert f._beschaeftigt is True
+    _warten(f)
+
+    assert aufrufe == [("thema-a", "vibe")] and f._beschaeftigt is False
+    assert f.status_var.get() == "thema-a: Arbeitsweise Vibe gespeichert"
+
+
+def test_arbeitsweise_abgelehnt_zeigt_status_ohne_rueckfrage(wurzel):
+    f, aktionen = _fenster(wurzel)                                   # thema-a: Ausführer Workflow
+    _themen_wahl(f, "thema-a")
+    f.arbeitsweise_box.current(1)
+    f.arbeitsweise_klick()
+    assert aktionen.fragen == []
+    assert f.status_var.get().startswith("Fehler: Vibe braucht Ausführer Claude")
+    assert f.arbeitsweise_var.get() == "Protokoll"

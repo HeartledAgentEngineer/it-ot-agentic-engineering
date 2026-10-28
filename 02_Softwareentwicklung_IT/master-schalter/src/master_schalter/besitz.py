@@ -15,6 +15,7 @@ Eine **fehlende** Datei gilt als `claude`. Jeder Schreiber hält die Themensperr
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .signale import _atomar_schreiben, _iso
@@ -71,6 +72,26 @@ def assistent_marke(text: str) -> tuple[str, str, str] | None:
 def schreiben(datei: Path, text: str) -> None:
     datei.parent.mkdir(parents=True, exist_ok=True)
     _atomar_schreiben(datei, text)
+
+
+def exklusiv_schreiben(datei: Path, text: str) -> bool:
+    """Datei nur anlegen, wenn es sie noch nicht gibt (`O_EXCL`): `True` = angelegt, `False` = existierte schon.
+
+    Eine vorhandene Datei – auch eine leere – wird nie überschrieben. Scheitert das Schreiben nach dem Anlegen, wird die
+    eben selbst angelegte Datei wieder entfernt.
+    """
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(datei, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    except FileExistsError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+    except BaseException:
+        datei.unlink(missing_ok=True)     # nur die eben selbst angelegte Datei
+        raise
+    return True
 
 
 def vergleiche_und_schreibe(datei: Path, erwartet: str, neu: str) -> bool:
