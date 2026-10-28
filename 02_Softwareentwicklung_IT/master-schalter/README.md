@@ -776,7 +776,7 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # beide Kontingente in der Konsole
 .\.venv\Scripts\masterwechsel.exe status
 
-# Kurzübersicht für den Chat (Remote-Sitzung): Rest-Limits, Lage, Themen, Sitzungen – nur lesend
+# Kurzübersicht für den Chat (Remote-Sitzung): Verbrauch, Lage, Themen, Sitzungen – nur lesend
 .\.venv\Scripts\masterwechsel.exe kurz
 
 # „Wartet worauf“ melden (erscheint in kurz) und wieder entfernen
