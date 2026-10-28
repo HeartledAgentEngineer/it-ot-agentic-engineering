@@ -2,11 +2,20 @@
 
 **Stand:** 28.10.2026, 12:20 Uhr
 **Repo:** `workspace agentic engineering`, Branch `main`
-**HEAD:** `20dbb87` (fix(concertify): /apply_import_to_mix definiert today vor der Nutzung)
-**Prüfbefehl:** `cd backend && .venv/Scripts/python.exe -m pytest tests/ -q`
-**Prüfstand:** in dieser Sitzung **nicht ausgeführt**. Zuletzt dokumentierter Stand
-laut Bereichs-`CLAUDE.md`: 2935 grün, Exit 0 (29.09.2026). Vor dem nächsten
-Commit erst frisch laufen lassen — Aussagen über Fertigstellung nur mit Beleg.
+**HEAD:** `649a163` (docs(personal-ai-agent): Uebergabeprotokoll 28.10.2026)
+**Basis darunter:** `20dbb87` (fix(concertify)) — dieser Commit ist noch **nicht**
+gepusht, stammt aus einer anderen Sitzung und gehört nicht zu diesem Protokoll.
+**Prüfbefehl:** `cd backend && .venv/Scripts/python.exe ../tools/gate/tor.py --wartezeit 600`
+(Gate mit Sperre — mehrere Agenten teilen sich diesen Arbeitsbaum, zwei
+gleichzeitige Läufe machen das Tor fälschlich rot.)
+**Prüfstand, gemessen in dieser Sitzung (28.10.2026):**
+**6018 passed, 3 skipped, 5 warnings, Exit 0** — Laufzeit **6007 Sekunden
+(1:40:07)**.
+Die Zahl 2935 grün, die in der Bereichs-`CLAUDE.md` vom 29.09.2026 steht, ist
+veraltet. Das Projekt ist seither stark gewachsen.
+**Praxis-Hinweis:** Ein voller Prüflauf dauert rund 1 ¾ Stunden. Wer den
+Prüfbefehl „nur mal kurz" startet, blockiert damit das Commit-Tor für andere
+Agenten. Deshalb läuft er über `tor.py`, nicht direkt über pytest.
 
 ---
 
@@ -194,7 +203,9 @@ rote Commits ab.
 
 ## 7. Nächster Schritt, in dieser Reihenfolge
 
-1. Prüfbefehl frisch laufen lassen — Basislinie vor jeder Änderung.
+1. Prüfbefehl frisch laufen lassen — Basislinie vor jeder Änderung. Dauert rund
+   1 ¾ Stunden und läuft über `tor.py` (Sperre), nicht direkt über pytest.
+   Gemessener Stand 28.10.2026: 6018 passed, 3 skipped, Exit 0.
 2. Entscheidungen einsammeln: Schwelle für den Marker „Privat", Umfang des
    Rücklaufs, Zustimmung zur Messung an 100 Kacheln.
 3. Messung der Stichprobe, Zahlen berichten, danach über den Umfang entscheiden.
