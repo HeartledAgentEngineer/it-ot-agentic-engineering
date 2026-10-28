@@ -6,6 +6,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- Hauptschalter Automatik im Leistenmenü (unter Themenzahl und Lage): „Hauptschalter Automatik: an“ mit Haken. Asymmetrisch
+  sicher: Klick bei „an“ schaltet sofort aus (`anzeige.automatik_setzen(False)`, Menü wird aktualisiert); bei „aus“ steht
+  „… aus – einschalten in der Übersicht …“ und der Klick öffnet nur die Übersicht (Ja/Nein-Rückfrage, Standard Nein) – das
+  Menü ruft `automatik_setzen` nie mit `True` auf. Maßgeblich ist der frisch gelesene Zustand. Schreibfehler ⇒ Menüzeile
+  „Automatik nicht geändert (<Klasse>)“ bis zur nächsten Aktualisierung, kein Absturz. Tests: `test_leiste.py`.
 - Verwaiste „Prüfung läuft“-Meldung erkennen: `pruefkreis.wartet_melden` schreibt zusätzlich `"pid"`; `wartet.Meldung` hat
   `pid` (optional, kaputte Werte ⇒ keine pid), neu `wartet.lebt` (Windows: `OpenProcess`/`GetExitCodeProcess`, 87 ⇒ beendet,
   5/anderes ⇒ unbekannt; sonst `os.kill(pid, 0)`), `startzeit` (Windows `GetProcessTimes`) und `verwaist` (beendet oder

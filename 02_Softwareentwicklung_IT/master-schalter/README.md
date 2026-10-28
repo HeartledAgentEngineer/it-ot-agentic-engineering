@@ -72,7 +72,14 @@ gesperrt und es steht „Hauptarbeitsbaum nicht gefunden – nur Anzeige“ da. 
 Der Wechsel „Thema X: alter Chat → neuer Chat" läuft über **ein Menü, ein Fenster und einen Takt in der Leiste**.
 Alles Folgende gilt für den Entwicklungsstand auf Branch `v0.5.0-wechselassistent` (noch nicht veröffentlicht).
 
-**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen (Themenzahl je Masterart, Lage, Kontingente). Darunter:
+**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen (Themenzahl je Masterart, Lage) und direkt darunter der
+**Hauptschalter Automatik** (Entwicklungsstand): „Hauptschalter Automatik: an“ mit Haken. **Asymmetrisch sicher:** Ein Klick bei
+„an“ schaltet die Automatik sofort **aus** (`einstellungen.json`, sichere Richtung; Menü und Symbol werden aktualisiert).
+Bei „aus“ steht dort „Hauptschalter Automatik: aus – einschalten in der Übersicht …“; der Klick schaltet **nie direkt ein**,
+sondern öffnet die Übersicht, wo die Ja/Nein-Rückfrage (Standard Nein) das Einschalten übernimmt. Maßgeblich ist beim
+Klick der frisch gelesene Zustand, nicht die Momentaufnahme des Menüs. Scheitert das Schreiben, erscheint darunter die
+deaktivierte Zeile „Automatik nicht geändert (<Fehlerklasse>)“ (nur die Klasse, bis zur nächsten Aktualisierung); die
+Leiste stürzt nicht ab. Dann die Kontingente und die Stand-Zeilen. Darunter:
 „Übersicht …“ (= Linksklick) öffnet das Übersichtsfenster; „Übergabe starten …" öffnet das Wechselfenster als eigenen Prozess; je offenem Wechsel steht eine
 deaktivierte Zeile „Wechsel <thema>: <Phase>" (z. B. „wartet auf Abgabe", „liegt im Postfach"); dann
 „Aktualisieren", „Einstellungen ▸" und „Beenden". Unter **Einstellungen ▸** liegen, in dieser Reihenfolge:
@@ -146,7 +153,8 @@ abgebrochener Vorgang meldet nichts). Ein „übernommen" macht das „Rolle jet
 
 Die Automatik ist **standardmäßig aus** (`einstellungen.json`, Feld `automatik`). Eingeschaltet
 wird sie per `masterwechsel automatik an` (bis v0.3.0 ein Menühaken; in v0.3.2 entfallen, weil die
-Rückgabe das Bedürfnis abdeckt) oder in der Datei selbst. Sie greift
+Rückgabe das Bedürfnis abdeckt; im Entwicklungsstand gibt es im Menü wieder einen **Hauptschalter, der aber nur ausschaltet** –
+Einschalten geht über die Übersicht, siehe „Bedienung“) oder in der Datei selbst. Sie greift
 nur für **eingeschaltete Paare** und nur, wenn Claude im Limit **und** Codex frisch gemessen frei
 ist.
 
