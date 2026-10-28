@@ -336,12 +336,13 @@ def test_cli_wechsel_unbekannter_master_rc2(umgebung, capsys):
     assert cli.main(["wechsel", "gemini"]) == 2
 
 
-def test_cli_status_hat_masterzeile(umgebung, capsys):
+def test_cli_status_hat_kopfzeile_statt_masterzeile(umgebung, capsys):
     cli.main(["wechsel", "claude"])
     capsys.readouterr()
     assert cli.main(["status"]) == 0
     zeilen = capsys.readouterr().out.splitlines()
-    assert any(z.startswith("Master: Claude · Lage ") for z in zeilen)
+    assert zeilen[0].startswith("Master-Status · ") and " · Lage " in zeilen[0]
+    assert not any(z.startswith("Master: ") for z in zeilen)   # die alte Zwei-Zeilen-Ausgabe entfällt
 
 
 def test_cli_master_zeigt_besetzung_bei_bekannter_lage(umgebung, capsys):

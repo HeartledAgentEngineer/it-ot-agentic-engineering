@@ -1,4 +1,4 @@
-"""Übersichtsfenster des Master-Schalters: dieselben Daten wie `masterwechsel kurz`, aufgeräumt und mit Klick-Aktionen.
+"""Übersichtsfenster des Master-Schalters: dieselben Daten wie `masterwechsel status`, aufgeräumt und mit Klick-Aktionen.
 
 Start: `python -m master_schalter.uebersicht` (ohne Konsole: `pythonw.exe -m master_schalter.uebersicht`); die Leiste
 öffnet es per Linksklick auf das Taskleistensymbol als eigenen Prozess.

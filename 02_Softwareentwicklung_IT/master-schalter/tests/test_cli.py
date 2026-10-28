@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -83,6 +84,41 @@ def test_status_zeigt_beide(daten, capsys):
     assert cli.main(["status"]) == 0
     aus = capsys.readouterr().out
     assert "Claude" in aus and "Codex" in aus and "keine Daten" in aus
+
+
+def test_status_ist_der_master_status_der_kurzuebersicht(daten, capsys):
+    assert cli.main(["status"]) == 0
+    zeilen = capsys.readouterr().out.splitlines()
+    assert re.fullmatch(r"Master-Status · \d\d:\d\d · Lage \S+ · Hauptschalter Automatik (an|aus)", zeilen[0])
+    assert "Kontingent verbraucht:" in zeilen and not any(z.startswith("Master-Schalter ·") for z in zeilen)
+
+
+def test_status_gibt_genau_die_zeilen_von_kurz_sammeln_aus(daten, monkeypatch, capsys):
+    monkeypatch.setattr(kurz, "sammeln", lambda: ["Master-Status · 09:00 · Lage 1 · Hauptschalter Automatik aus", "Themen: keine"])
+    assert cli.main(["status"]) == 0
+    assert capsys.readouterr().out == "Master-Status · 09:00 · Lage 1 · Hauptschalter Automatik aus\nThemen: keine\n"
+
+
+def test_kurz_ist_stiller_alias_von_status(daten, monkeypatch, capsys):
+    monkeypatch.setattr(kurz, "sammeln", lambda: ["Master-Status · 09:00 · Lage 2B · Hauptschalter Automatik an", "Themen: keine"])
+    assert cli.main(["status"]) == 0
+    status_aus = capsys.readouterr().out
+    assert cli.main(["kurz"]) == 0
+    assert capsys.readouterr().out == status_aus
+    hilfe = cli._parser().format_help().lower()
+    assert "kurz" not in hilfe and "master-status" in hilfe   # in der Hilfe nicht mehr beworben
+
+
+@pytest.mark.parametrize("befehl", ["status", "kurz"])
+def test_status_und_kurz_schreiben_utf8_ueber_pipe(rollen, befehl):
+    quelle = Path(cli.__file__).resolve().parents[1]
+    lauf = subprocess.run([sys.executable, "-c",
+                           f"import sys; from master_schalter import cli; sys.exit(cli.main([{befehl!r}]))"],
+                          capture_output=True, timeout=60, cwd=str(quelle),
+                          env={**os.environ, "PYTHONIOENCODING": "", "PYTHONUTF8": "0"})
+    assert lauf.returncode == 0, lauf.stderr
+    text = lauf.stdout.decode("utf-8")      # kein UnicodeDecodeError
+    assert text.startswith("Master-Status · ") and "Als Nächstes:" in text
 
 
 def test_version(capsys):

@@ -1,4 +1,4 @@
-"""Tests für `masterwechsel kurz` (Kurzübersicht für den Chat)."""
+"""Tests für den Master-Status (`masterwechsel status`, stiller Alias `kurz`)."""
 from __future__ import annotations
 
 import os
@@ -58,7 +58,7 @@ def test_fenster_nach_reset_und_messfehler_sind_unbekannt():
 
 def test_lage_unbekannt_zeigt_keine_besetzung():
     zeilen = _zeilen([_k("Claude", 0.0, 20, zurueck=True), _k("Codex", 10, 20)])
-    assert zeilen[0].endswith("Lage ? · Automatik an")
+    assert zeilen[0].endswith("Lage ? · Hauptschalter Automatik an")
     matrix = next(z for z in zeilen if z.startswith("Matrix:"))
     assert matrix.startswith("Matrix: Lage unbekannt – Claude 5h nach Reset")
     assert "Planer" not in matrix
@@ -66,7 +66,7 @@ def test_lage_unbekannt_zeigt_keine_besetzung():
 
 def test_lage_bekannt_zeigt_matrix_ohne_klammern():
     zeilen = _zeilen([_k("Claude", 10, 20), _k("Codex", 99, 20)])
-    assert zeilen[0].startswith("Master-Schalter · 20:00 · Lage 2B")
+    assert zeilen[0].startswith("Master-Status · 20:00 · Lage 2B")
     assert ("Matrix: Planer Claude Opus 5.5 · Prüfer DeepSeek V4.1 Flash · "
             "Ausführer Claude Sonnet 5.5 / DeepSeek V4.1 Flash") in zeilen
 
@@ -216,3 +216,10 @@ def test_sammeln_aus_worktree_liest_besitz_im_hauptbaum(tmp_path, monkeypatch):
     besitz.schreiben(besitz.pfad(tmp_path / "haupt", paare.laufend_bilden("thema-a")), "codex 2026-10-28T00:00:00+00:00 modus x")
     text = "\n".join(kurz.sammeln())
     assert "thema-a: Master nach Kontingent (Besitz codex) · Prüfer Hermes (Master Codex)" in text
+
+
+def test_kopfzeile_nennt_master_status_und_hauptschalter():
+    an, aus = _zeilen(automatik=True)[0], _zeilen(automatik=False)[0]
+    assert an.startswith("Master-Status · 20:00 · Lage ")
+    assert an.endswith("· Hauptschalter Automatik an") and aus.endswith("· Hauptschalter Automatik aus")
+    assert "Master-Schalter" not in an

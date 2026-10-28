@@ -1,13 +1,13 @@
 """Datenmodell und Aktionen des Übersichtsfensters (`uebersicht.py`) – ohne Tk, ohne Bildschirm.
 
-`aufnehmen()` liest alle Quellen **nur lesend** (dieselben Bausteine wie `masterwechsel kurz`: Kontingente,
+`aufnehmen()` liest alle Quellen **nur lesend** (dieselben Bausteine wie `masterwechsel status`: Kontingente,
 Themenprofile, Besitz, Wartet-worauf, Sitzungen, Messfehler-Status) und liefert eine unveränderliche
 Momentaufnahme `Uebersicht`. Die Aktionen (Master je Thema, „Alle nach Kontingent“, „Alle wie vorher“, Automatik,
 „Übergabe starten“) sind `Aktion`en mit Rückfragetext und einer Ausführfunktion; das Fenster fragt (`dialog.frage`)
 und führt nur bei „Ja“ aus.
 
 **Ein Repo-Ort für Lesen und Schreiben:** `aufnehmen()` bestimmt je Aufnahme genau einmal
-`repo = uebergabe.haupt_wurzel(uebergabe.repo_wurzel())` (wie `kurz`), liest damit den Besitz und merkt es in der
+`repo = uebergabe.haupt_wurzel(uebergabe.repo_wurzel())` (wie der Master-Status), liest damit den Besitz und merkt es in der
 Momentaufnahme. Jede Schreibaktion nutzt **genau dieses** `repo` (`modi.master_setzen(..., repo=repo)`,
 `alle.auf_kontingent(repo=repo)`, `alle.zurueck(repo=repo)`) – nie ein Aufruf ohne `repo`. Geschrieben wird nur,
 wenn `repo/.git` ein **Ordner** ist (echter Hauptarbeitsbaum). Ist das Repo nicht bestimmbar oder ist `.git` eine
@@ -15,7 +15,7 @@ Datei (die Auflösung über `commondir` ist gescheitert und hat still die Arbeit
 Schreibaktionen gesperrt („Hauptarbeitsbaum nicht gefunden – nur Anzeige“). Die Prüfung läuft bei der Aufnahme und
 noch einmal unmittelbar vor dem Schreiben.
 
-Nichts Sensibles in der Anzeige: keine Chat-Titel, keine Codex-Chat-Kennungen, keine Pfade (außer wie in `kurz`).
+Nichts Sensibles in der Anzeige: keine Chat-Titel, keine Codex-Chat-Kennungen, keine Pfade (außer wie im Master-Status).
 """
 from __future__ import annotations
 

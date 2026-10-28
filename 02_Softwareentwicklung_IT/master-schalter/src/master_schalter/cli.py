@@ -1,7 +1,6 @@
 """Befehlszeile `masterwechsel`.
 
-    masterwechsel status              beide Kontingente anzeigen
-    masterwechsel kurz                Kurzübersicht für den Chat (Verbrauch, Lage, Themen, Sitzungen; nur lesend)
+    masterwechsel status              Master-Status: Verbrauch, Lage, Themen, Sitzungen (nur lesend; `kurz` ist ein stiller Alias)
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
     masterwechsel claude-messen       Claude-Kontingent über die OAuth-API messen
@@ -39,7 +38,7 @@
     masterwechsel claude-auftrag --sitzung KENNUNG --thema THEMA --datei .hermes/….md [--von codex|hermes]
                                       Auftrag an eine Claude-Code-Sitzung ablegen (Zustellung per Hook, auch bei Stop)
     masterwechsel claude-sitzungen    Claude-Sitzungen aus dem Statusregister (Kennung, Zustand, letzte Meldung)
-    masterwechsel warte THEMA TEXT…   „Wartet worauf“ für `kurz` melden (eine Zeile, technisch, ≤ 120 Zeichen)
+    masterwechsel warte THEMA TEXT…   „Wartet worauf“ für den Master-Status melden (eine Zeile, technisch, ≤ 120 Zeichen)
     masterwechsel warte THEMA --fertig
                                       Wartemeldung des Themas entfernen
     masterwechsel alle kontingent     alle Themen (außer Hermes) nach Kontingent; feste Rollen vorher merken
@@ -129,7 +128,8 @@ def _utf8_ausgabe() -> None:
             pass
 
 
-def _kurz_cli() -> int:
+def _status_cli() -> int:
+    """Master-Status: die Übersicht von `kurz.sammeln()` (nur lesend)."""
     print("\n".join(kurz.sammeln()))
     return 0
 
@@ -147,7 +147,7 @@ def _warte_cli(args: argparse.Namespace) -> int:
     except (wartet.WartetFehler, OSError) as fehler:
         print(f"Nicht geändert: {fehler}", file=sys.stderr)
         return 1
-    print(f"{meldung.thema}: wartet auf „{meldung.text}“ – steht in `kurz`.")
+    print(f"{meldung.thema}: wartet auf „{meldung.text}“ – steht im Master-Status.")
     return 0
 
 
@@ -170,12 +170,6 @@ def _lage(kontingente: list[signale.Kontingent]) -> tuple[str | None, str]:
     claude, codex = kontingente
     schwelle = anzeige.schwelle()
     return rollen.lage(claude, codex, schwelle), rollen.lage_grund(claude, codex, schwelle)
-
-
-def master_zeile() -> str:
-    """Die Zeile „Master: … · Lage …" für `status` und andere Anzeigen."""
-    lage, grund = _lage(signale.alle_lesen())
-    return anzeige.master_status_zeile(zustand.lesen(), lage, grund)
 
 
 def _master() -> int:
@@ -549,8 +543,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="masterwechsel", description="Befehlszeile des Master-Schalters")
     p.add_argument("--version", action="version", version=f"master-schalter {__version__}")
     unter = p.add_subparsers(dest="befehl", required=True)
-    unter.add_parser("status", help="beide Kontingente anzeigen")
-    unter.add_parser("kurz", help="Kurzübersicht für den Chat (nur lesend)")
+    unter.add_parser("status", help="Master-Status: Verbrauch, Lage, Themen, Sitzungen (nur lesend)")
     warte = unter.add_parser("warte", help="„Wartet worauf“ eines Themas melden oder entfernen")
     warte.add_argument("thema")
     warte.add_argument("text", nargs="*", help="eine technische Kurzangabe, z. B. Freigabe Vibe-Modus")
@@ -643,8 +636,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     # Vor dem Parsen, damit auch Hilfe und Argumentfehler über Pipes (Remote-Chat, `/master-status`) lesbar
     # ankommen; nur die Claude-Code-Statuszeile bleibt bewusst unverändert.
-    if (sys.argv[1:] if argv is None else argv)[:1] != ["statuszeile"]:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] != ["statuszeile"]:
         _utf8_ausgabe()
+    if argv[:1] == ["kurz"]:   # stiller Alias: gleiche Ausgabe wie `status`, in der Hilfe nicht mehr beworben
+        argv[0] = "status"
     try:
         args = _parser().parse_args(argv)
     except SystemExit as ende:
@@ -653,8 +649,6 @@ def main(argv: list[str] | None = None) -> int:
         raise
     if args.befehl == "statuszeile":
         return _statuszeile()
-    if args.befehl == "kurz":
-        return _kurz_cli()
     if args.befehl == "warte":
         return _warte_cli(args)
     if args.befehl == "alle":
@@ -709,10 +703,7 @@ def main(argv: list[str] | None = None) -> int:
         return _claude_auftrag_cli(args)
     if args.befehl == "claude-sitzungen":
         return _claude_sitzungen_cli(args)
-    if args.befehl == "status":
-        print(master_zeile())
-    print("\n".join(anzeige.details(signale.alle_lesen())))
-    return 0
+    return _status_cli()
 
 
 if __name__ == "__main__":

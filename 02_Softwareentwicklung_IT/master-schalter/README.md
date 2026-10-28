@@ -39,7 +39,7 @@ auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unb
 Ein Linksklick auf das Symbol öffnet `uebersicht.py` als eigenen Prozess (`pythonw.exe -m master_schalter.uebersicht`;
 auch von Hand startbar). Es läuft **nur einmal** (Sperre `uebersicht.lock`); eine zweite Instanz beendet sich still mit
 Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufnehmen`, dieselben Bausteine wie
-`masterwechsel kurz`; nie Dateizugriff im Tk-Thread) und misst selbst nichts. Inhalt:
+`masterwechsel status`; nie Dateizugriff im Tk-Thread) und misst selbst nichts. Inhalt:
 
 - **Kopf:** Uhrzeit, Lage und der Hauptschalter **Automatik** (an/aus) als Umschaltknopf; vor dem Umschalten fragt ein
   Ja/Nein-Dialog (Standard **Nein**).
@@ -52,7 +52,7 @@ Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufne
 - **Knöpfe:** „Alle nach Kontingent“ und „Alle wie vorher“ (`alle.auf_kontingent` / `alle.zurueck`, mit Rückfrage,
   der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
   (sofort neu lesen).
-- **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie `kurz`: Kennung gekürzt, keine Chat-Titel, keine Pfade).
+- **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie im Master-Status: Kennung gekürzt, keine Chat-Titel, keine Pfade).
 - **Lesefehler:** scheitert eine Aktualisierung, zeigt das Fenster keine alten Werte weiter: alle Balken „unbekannt“,
   darunter „keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)“, „Automatik: unbekannt“; Automatik- und
   Schreibknöpfe sind gesperrt, bis eine Aufnahme wieder gelingt.
@@ -331,7 +331,7 @@ Die Befehle im Überblick:
 ```
 
 `profil` (Textform) und `master-setzen` zeigen zusätzlich den **Prüfer** nach der Regel von `pruefkreis.py`
-(siehe `kurz`): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
+(siehe Master-Status): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
 schreibt die Marke mit, der Prüfer wechselt also sofort (Master Codex ⇒ „Prüfer Hermes (Master Codex)“). Bei
 „Nach Kontingent“ folgt der Prüfer dem jeweiligen Besitzer; weicht eine feste Vorgabe vom Besitz ab, nennt eine
 zweite Zeile den Prüfer nach der Übergabe. `profil --json` bleibt unverändert. **Grenze:** Der Sofortwechsel gilt
@@ -636,10 +636,12 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
   nächsten Nachricht von Sebastian). Ruhende Desktop-Sitzungen kann der Hook nicht wecken; dafür bleibt ein frischer
   `claude -p`-Lauf.
 
-## Kurzübersicht für den Chat (unveröffentlicht)
+## Master-Status für den Chat (unveröffentlicht)
 
-`masterwechsel kurz` gibt in wenigen Zeilen ohne Tabellen aus, was man beim Steuern über eine
-Remote-Sitzung sehen will. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
+`masterwechsel status` (Chat-Befehl `/master-status`) gibt in wenigen Zeilen ohne Tabellen aus, was man beim Steuern über eine
+Remote-Sitzung sehen will. Die Kopfzeile lautet „Master-Status · HH:MM · Lage … · Hauptschalter Automatik an|aus“. Der frühere Befehl `kurz`
+bleibt als **stiller Alias** mit gleicher Ausgabe (in der Hilfe nicht mehr aufgeführt); die bisherige Zwei-Zeilen-Ausgabe von `status`
+(beide Kontingente) entfällt, sie steckt in der Übersicht. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
 Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 
 - **Kontingent verbraucht:** je Abo und Fenster der *Verbrauch* („… % verbraucht“, auf 0–100 begrenzt), die Zeit bis zum Reset
@@ -651,7 +653,7 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   einem Bindestrich, leere Datei = claude) – Codex ⇒ „Prüfer Hermes (Master Codex)“, Claude/Hermes ⇒ „Prüfer
   Codex“. **Fehlt** die Datei oder ist sie unlesbar/unbekannt ⇒ „Prüfer ? (pruefkreis braucht --master)“, denn
   pruefkreis bricht dann ab – auch wenn die Besitzanzeige davor beim Rückfall „fehlend = claude“ bleibt.
-  Aus einem Git-Worktree heraus liest `kurz` Besitzdateien im **Hauptarbeitsbaum** (`uebergabe.haupt_wurzel`,
+  Aus einem Git-Worktree heraus liest der Master-Status Besitzdateien im **Hauptarbeitsbaum** (`uebergabe.haupt_wurzel`,
   `.git` → `gitdir` → `commondir`, wie `pruefkreis`); die schreibenden Teile behalten `repo_wurzel`.
   Ausführer mit Modell und ob die Automatik das Thema wirklich anfasst. „Auto an“ gilt nur bei aktivem Paar,
   Master-Vorgabe „nach Kontingent“ und eingeschalteter globaler Automatik, wie in `automatik.py`.
@@ -696,7 +698,7 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 - Der globale Hauptschalter `automatik an|aus` ist davon getrennt. Wie `master-setzen` schreibt der Befehl den
   Besitz im Repo, in dem er läuft – echte Läufe aus dem Hauptarbeitsbaum, nicht aus einem Git-Worktree.
 
-Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `kurz` und alle
+Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `status` (und `kurz`) und alle
 anderen Befehle (stdout und stderr, schon vor dem Einlesen der Argumente, also auch `--help`) UTF-8, damit Umlaute in Remote-Sitzungen und über `/master-status`
 lesbar ankommen; einzige Ausnahme ist `statuszeile` (Anzeige der Claude-Code-Statuszeile, bewusst unverändert).
 
@@ -837,13 +839,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Taskleisten-Symbol ohne Konsolenfenster starten
 .\.venv\Scripts\pythonw.exe -m master_schalter.leiste
 
-# beide Kontingente in der Konsole
+# Master-Status (Konsole oder Remote-Sitzung): Verbrauch, Lage, Themen, Sitzungen – nur lesend
 .\.venv\Scripts\masterwechsel.exe status
 
-# Kurzübersicht für den Chat (Remote-Sitzung): Verbrauch, Lage, Themen, Sitzungen – nur lesend
-.\.venv\Scripts\masterwechsel.exe kurz
-
-# „Wartet worauf“ melden (erscheint in kurz) und wieder entfernen
+# „Wartet worauf“ melden (erscheint im Master-Status) und wieder entfernen
 .\.venv\Scripts\masterwechsel.exe warte master-schalter Freigabe Vibe-Modus
 .\.venv\Scripts\masterwechsel.exe warte master-schalter --fertig
 
@@ -943,10 +942,10 @@ src/master_schalter/
   signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern; Messfehler-Status `messfehler.json`
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
-  kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend; Bausteine auch für die Übersicht
+  kurz.py      Master-Status für den Chat (`masterwechsel status`, Alias `kurz`), nur lesend; Bausteine auch für die Übersicht
   uebersicht.py  Übersichtsfenster (tkinter, nur eine Instanz, Linksklick) – nur Oberfläche
   uebersicht_modell.py  Modell der Übersicht ohne Tk: Aufnahme, Repo-Ort, Aktionen mit Rückfragetext
-  wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt von `kurz`
+  wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt im Master-Status
   alle.py      Sammelbefehl `masterwechsel alle kontingent|zurueck` (Merkdatei, Hermes ausgelassen)
   anzeige.py   Texte für Tooltip („Lage … · Claude n % · Codex n % verbraucht“), Menükopf, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow; Statusfarbe auch für die Übersicht)

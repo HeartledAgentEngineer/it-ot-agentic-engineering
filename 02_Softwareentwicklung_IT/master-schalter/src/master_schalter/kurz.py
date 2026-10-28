@@ -1,4 +1,4 @@
-"""Kurzübersicht für den Chat (`masterwechsel kurz`): Limits, Lage, Themen, Sitzungen in wenigen Zeilen.
+"""Master-Status für den Chat (`masterwechsel status`, Alias `kurz`): Limits, Lage, Themen, Sitzungen in wenigen Zeilen.
 
 Gedacht für die Steuerung über Remote-Sitzungen, in denen das Taskleistensymbol nicht sichtbar ist. Der
 Befehl **liest nur**: er misst nicht, schreibt nichts und startet nichts. `zeilen` ist eine reine Funktion
@@ -214,12 +214,12 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
            schwelle: int, automatik_global: bool, jetzt: datetime, zone: tzinfo | None = None,
            hinweise: tuple[str, ...] = (), wartet_auf: tuple[wartet.Meldung, ...] = (),
            messfehler: dict[str, signale.Messfehler] | None = None) -> list[str]:
-    """Die Kurzübersicht als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
+    """Der Master-Status als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
     claude, codex = kontingente
     lage = rollen.lage(claude, codex, schwelle)
     grund = rollen.lage_grund(claude, codex, schwelle)
-    kopf = (f"Master-Schalter · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
-            f" · Automatik {'an' if automatik_global else 'aus'}")
+    kopf = (f"Master-Status · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
+            f" · Hauptschalter Automatik {'an' if automatik_global else 'aus'}")
     aus = [kopf, "Kontingent verbraucht:"]
     aus += [_limit_zeile(k, jetzt, zone) for k in kontingente]
     aus += messfehler_zeilen(messfehler or {}, jetzt, zone)
@@ -308,7 +308,7 @@ def _gemerkt_hinweis() -> list[str]:
 
 
 def sammeln(jetzt: datetime | None = None, zone: tzinfo | None = None) -> list[str]:
-    """Alle Quellen lesen (nichts schreiben, nichts messen) und die Kurzübersicht bauen."""
+    """Alle Quellen lesen (nichts schreiben, nichts messen) und den Master-Status bauen."""
     jetzt = jetzt or datetime.now(timezone.utc)
     themen, hinweise = _themen()
     hinweise = _gemerkt_hinweis() + hinweise

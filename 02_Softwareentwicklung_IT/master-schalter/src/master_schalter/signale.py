@@ -15,7 +15,7 @@ Rücksetzzeiten an `claude_schreiben`; `claude_lesen` bleibt Datei-Leser.
   `kontingent-claude.json` ab; `claude_lesen` liest und prüft sie.
 * Scheiternde Messungen hinterlassen einen Eintrag in `messfehler.json` (`messfehler_setzen`/`_loeschen`,
   aufgerufen von `claude_messen.messen` und `codex_messen.messen`): feste Fehlerkategorie und fester Text,
-  nie Rohdaten. `messfehler_lesen` zeigt ihn an (`kurz`, Übersicht).
+  nie Rohdaten. `messfehler_lesen` zeigt ihn an (Master-Status, Übersicht).
 """
 from __future__ import annotations
 

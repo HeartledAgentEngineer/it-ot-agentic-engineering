@@ -6,6 +6,12 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Geändert
+- Master-Status statt `kurz`: `masterwechsel status` gibt jetzt die Übersicht aus, die bisher `kurz` lieferte (Verbrauch, Lage,
+  Matrix, Themen, Sitzungen, Wartet worauf); die alte Zwei-Zeilen-Ausgabe (nur beide Kontingente, `cli.master_zeile`) entfällt.
+  `kurz` bleibt als stiller Alias mit gleicher Ausgabe (nicht mehr in der Hilfe). Kopfzeile jetzt „Master-Status · HH:MM · Lage …
+  · Hauptschalter Automatik an|aus“ (vorher „Master-Schalter · … · Automatik an“). `warte` meldet „steht im Master-Status“.
+  Das Modul `kurz.py` behält seinen Namen (intern). Der lokale Chat-Befehl `/master-status` (gitignoriert, `.claude/commands`)
+  liegt außerhalb dieses Pakets.
 - Symbol und Menü zeigen keinen globalen Master mehr: der weiße Punkt über dem Balken entfällt (`symbol.bild` ohne
   Parameter `master`; `symbol._farbe` heißt jetzt `symbol.farbe`). Der Tooltip lautet „Lage X · Claude n % ·
   Codex n % verbraucht“ (`anzeige.tooltip_symbol`, 5-Stunden-Fenster) statt „M <Name> L<Lage> | …“, der Menükopf nennt
