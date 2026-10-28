@@ -1943,6 +1943,7 @@ def apply_import_to_mix():
 
     added_hamburg = 0
     added_rip     = 0
+    today         = _date.today().isoformat()
 
     for artist_name, info in artists_in.items():
         if not artist_name or not isinstance(info, dict):
