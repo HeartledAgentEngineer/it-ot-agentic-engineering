@@ -59,6 +59,8 @@ MODELLE_TAKT_SEKUNDEN = 1800   # automatischer Katalogabgleich höchstens alle 3
 CODEX_TAKT_SEKUNDEN = 300      # aktive Codex-Messung (`codex_messen`) im Messtakt höchstens alle 5 Minuten
 CODEX_VOR_ALTER_SEKUNDEN = 120  # vor der Automatik: Codex-Stand älter als das → vorher frisch messen
 FENSTER_NAMEN = {"fenster": "Wechselfenster", "uebersicht": "Übersicht"}
+HAUPTSCHALTER_AN = "Hauptschalter Automatik: an"
+HAUPTSCHALTER_AUS = "Hauptschalter Automatik: aus – einschalten in der Übersicht …"
 # Ein Hinweis zu einem höheren Ereignis macht die niedrigeren desselben Vorgangs überflüssig.
 HINWEIS_VERDRAENGT = {"uebernommen": ("rolle",)}
 
@@ -86,6 +88,8 @@ class Leiste:
         self._modus_fehler: str | None = None
         self._themen_master: list[str] = []   # Masterrolle je Thema (Momentaufnahme für die Menükopfzeile)
         self._automatik_weg = anzeige.STANDARD_WEG   # Momentaufnahme für Haken und Menüzeilen
+        self._automatik_global = False   # Momentaufnahme des Hauptschalters (einstellungen.json, Feld `automatik`)
+        self._automatik_fehler: str | None = None   # „Automatik nicht geändert (<Klasse>)“ bis zur nächsten Aktualisierung
         self._lage: str | None = None
         self._grund = ""
         self._stopp = threading.Event()
@@ -124,6 +128,9 @@ class Leiste:
             yield pystray.MenuItem(f"Arbeitsmodus: {self._modus_fehler}", None, enabled=False)
         for zeile in anzeige.lage_zeilen(self._lage, self._grund):
             yield pystray.MenuItem(zeile, None, enabled=False)
+        yield self._hauptschalter_eintrag()
+        if self._automatik_fehler:
+            yield pystray.MenuItem(self._automatik_fehler, None, enabled=False)
         yield pystray.Menu.SEPARATOR
         for zeile in anzeige.details(self._kontingente, max_alter=timedelta(minutes=10)):
             yield pystray.MenuItem(zeile, None, enabled=False)
@@ -141,6 +148,40 @@ class Leiste:
         yield pystray.MenuItem("Aktualisieren", self._aktualisieren_aktion)
         yield pystray.MenuItem("Einstellungen ▸", pystray.Menu(*self._einstellungen_optionen()))
         yield pystray.MenuItem("Beenden", self._beenden)
+
+    def _hauptschalter_eintrag(self):
+        """Hauptschalter Automatik oben im Menü (Momentaufnahme): „an“ mit Haken, „aus“ ohne Haken und mit Hinweis."""
+        an = self._automatik_global
+        text = HAUPTSCHALTER_AN if an else HAUPTSCHALTER_AUS
+        return pystray.MenuItem(text, self._hauptschalter_aktion, checked=lambda item, an=an: an)
+
+    def _hauptschalter_aktion(self, *_args) -> None:
+        """Asymmetrisch sicher: bei „an“ schaltet der Klick sofort **aus** (sichere Richtung); bei „aus“ schaltet er
+        nie direkt ein, sondern öffnet die Übersicht (dort Ja/Nein-Rückfrage, Standard Nein).
+
+        Maßgeblich ist der frisch gelesene Zustand, nicht die Momentaufnahme des Menüs. Ein Schreibfehler wird zur
+        Menüzeile „Automatik nicht geändert (<Klasse>)“ (nur die Fehlerklasse), nie zum Absturz.
+        """
+        try:
+            an = anzeige.automatik_an()
+        except Exception:  # noqa: BLE001 - nicht lesbar heißt wie sonst auch: aus
+            an = False
+        if not an:
+            self._uebersicht_aktion()
+            return
+        fehler = None
+        try:
+            anzeige.automatik_setzen(False)
+        except Exception as ausnahme:  # noqa: BLE001 - Schreibfehler dürfen die Leiste nicht beenden
+            fehler = f"Automatik nicht geändert ({type(ausnahme).__name__})"
+            _protokoll(fehler)
+        self.aktualisieren()
+        if fehler:
+            self._automatik_fehler = fehler
+            try:
+                self.icon.update_menu()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _einstellungen_optionen(self):
         """Untermenü „Einstellungen": alle bisherigen Einstellpunkte, in ihrem Verhalten unverändert."""
@@ -481,6 +522,8 @@ class Leiste:
             self._wechsel_snapshot = assistent_vorgaenge.lesen()
             self._kataloge = self._kataloge_lesen()
             self._automatik_weg = anzeige.automatik_weg()
+            self._automatik_global = anzeige.automatik_an()
+            self._automatik_fehler = None
             try:
                 self._modus_snapshot = modi.snapshot([p.thema for p in self._paare_snapshot])
                 profile = modi.lesen()

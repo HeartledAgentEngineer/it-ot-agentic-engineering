@@ -6,6 +6,25 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- Hauptschalter Automatik im Leistenmenü (unter Themenzahl und Lage): „Hauptschalter Automatik: an“ mit Haken. Asymmetrisch
+  sicher: Klick bei „an“ schaltet sofort aus (`anzeige.automatik_setzen(False)`, Menü wird aktualisiert); bei „aus“ steht
+  „… aus – einschalten in der Übersicht …“ und der Klick öffnet nur die Übersicht (Ja/Nein-Rückfrage, Standard Nein) – das
+  Menü ruft `automatik_setzen` nie mit `True` auf. Maßgeblich ist der frisch gelesene Zustand. Schreibfehler ⇒ Menüzeile
+  „Automatik nicht geändert (<Klasse>)“ bis zur nächsten Aktualisierung, kein Absturz. Tests: `test_leiste.py`.
+- Verwaiste „Prüfung läuft“-Meldung erkennen: `pruefkreis.wartet_melden` schreibt zusätzlich `"pid"`; `wartet.Meldung` hat
+  `pid` (optional, kaputte Werte ⇒ keine pid), neu `wartet.lebt` (Windows: `OpenProcess`/`GetExitCodeProcess`, 87 ⇒ beendet,
+  5/anderes ⇒ unbekannt; sonst `os.kill(pid, 0)`), `startzeit` (Windows `GetProcessTimes`) und `verwaist` (beendet oder
+  nach der Meldung gestartet). Master-Status und Übersicht hängen „(verwaist – Prozess beendet; `warte THEMA --fertig`
+  räumt auf)“ an; es wird nichts automatisch gelöscht. Tests: `test_wartet.py`, `test_pruefkreis.py`.
+- Messzugang erneuert sich einmal selbst: Endet `claude_messen.messen` mit `anmeldung_abgelaufen` (Parameter
+  `erneuern=True`), startet `claude_anmeldung.erneuern` genau einmal `claude auth status` (ohne Konsole, Ausgabe nach
+  `DEVNULL`, 30 s Frist, Prozessbaum-Ende bei Timeout, wirft nie) und `messen` liest genau einmal neu. Gedrosselt auf einen
+  Versuch je 30 min über alle Prozesse: Sperre `claude-erneuerung.lock`, Zeitstempel `claude-erneuerung.json` wird vor dem
+  Start geschrieben, nicht schreibbar ⇒ kein Versuch (fail-closed), kaputt oder mehr als 30 min in der Zukunft ⇒ gilt
+  als alt; die Uhrzeit wird erst unter der Sperre genommen, `taskkill` startet ohne Konsolenfenster (Codex-R1). Bleibt der Zugang
+  abgelaufen: „Claude-Messzugang abgelaufen – automatische Erneuerung um HH:MM ohne Erfolg; …“. Wirksamkeit nicht belegt
+  (README nennt die Erkennung). Tests: `test_claude_messen.py`, `test_claude_anmeldung.py` (u. a. zwei echte Unterprozesse);
+  `conftest.py` ersetzt `claude_messen.cli_erneuern` automatisch, damit kein Test die echte CLI startet.
 - Arbeitsweise je Thema (`protokoll` Standard | `vibe`): neues Modul `arbeitsweise.py`, Datei `arbeitsweise.json`
   (`{"version": 1, "themen": {thema: "vibe"}}`, streng gelesen, atomar geschrieben, nicht im Profilformat
   `themenmodi.json`). CLI `masterwechsel vibe THEMA an|aus` (nur von Hand; `modi.vibe_setzen` unter der Themensperre;

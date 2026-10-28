@@ -2107,3 +2107,127 @@ def test_takt_misst_codex_vor_der_automatikpruefung(lst, monkeypatch):
     lst._takt()
 
     assert reihenfolge[:2] == ["codex", "automatik"]
+
+
+# --- Hauptschalter Automatik im Menü (asymmetrisch sicher: aus sofort, ein nur über die Übersicht) ----------------
+
+def _hauptschalter(lst):
+    return next(i for i in lst._menue() if i.text.startswith("Hauptschalter Automatik"))
+
+
+def _setzaufrufe(monkeypatch):
+    """Zeichnet jeden `automatik_setzen`-Aufruf auf (und führt ihn echt aus)."""
+    aufrufe = []
+    echt = anzeige.automatik_setzen
+
+    def setzen(an, *args, **kwargs):
+        aufrufe.append(an)
+        return echt(an, *args, **kwargs)
+
+    monkeypatch.setattr(anzeige, "automatik_setzen", setzen)
+    return aufrufe
+
+
+def test_hauptschalter_steht_oben_unter_dem_kopf_mit_haken_bei_an(lst):
+    anzeige.automatik_setzen(True)
+    lst.aktualisieren()
+    items = list(lst._menue())
+    texte = _texte(items)
+    stelle = texte.index("Hauptschalter Automatik: an")
+    assert items[stelle].checked is True and items[stelle].enabled
+    assert texte[0].startswith("Themen:") and any(t.startswith("Lage") for t in texte[:stelle])
+    assert stelle < texte.index("Übersicht …") and stelle < texte.index("Einstellungen ▸")
+    assert items[stelle + 1] is pystray.Menu.SEPARATOR      # letzte Zeile des Kopfblocks
+
+
+def test_hauptschalter_bei_aus_ohne_haken_und_mit_hinweis_auf_die_uebersicht(lst):
+    anzeige.automatik_setzen(False)
+    lst.aktualisieren()
+    eintrag = _hauptschalter(lst)
+    assert eintrag.text == "Hauptschalter Automatik: aus – einschalten in der Übersicht …"
+    assert eintrag.checked is False
+
+
+def test_klick_bei_an_schaltet_sofort_aus_und_aktualisiert_menue(lst, monkeypatch):
+    anzeige.automatik_setzen(True)
+    lst.aktualisieren()
+    aufrufe = _setzaufrufe(monkeypatch)
+    uebersichten = []
+    monkeypatch.setattr(lst, "_uebersicht_aktion", lambda *a: uebersichten.append(True))
+    vorher = lst.icon.menue_neu
+
+    _hauptschalter(lst)(lst.icon)
+
+    assert aufrufe == [False] and uebersichten == []
+    assert anzeige.automatik_an() is False
+    assert lst.icon.menue_neu > vorher
+    assert _hauptschalter(lst).text.startswith("Hauptschalter Automatik: aus")
+    assert _hauptschalter(lst).checked is False
+
+
+def test_klick_bei_aus_schaltet_nie_ein_sondern_oeffnet_die_uebersicht(lst, monkeypatch):
+    anzeige.automatik_setzen(False)
+    lst.aktualisieren()
+    aufrufe = _setzaufrufe(monkeypatch)
+    uebersichten = []
+    monkeypatch.setattr(lst, "_uebersicht_aktion", lambda *a: uebersichten.append(True))
+
+    _hauptschalter(lst)(lst.icon)
+
+    assert aufrufe == [] and uebersichten == [True]
+    assert anzeige.automatik_an() is False
+
+
+@pytest.mark.parametrize("zustand_an", [True, False])
+def test_menue_ruft_automatik_setzen_nie_mit_true_auf(lst, monkeypatch, zustand_an):
+    anzeige.automatik_setzen(zustand_an)
+    lst.aktualisieren()
+    aufrufe = _setzaufrufe(monkeypatch)
+    monkeypatch.setattr(lst, "_uebersicht_aktion", lambda *a: None)
+
+    for _ in range(3):
+        _hauptschalter(lst)(lst.icon)
+
+    assert True not in aufrufe
+    assert anzeige.automatik_an() is False
+
+
+def test_klick_nutzt_den_frisch_gelesenen_zustand_nicht_die_momentaufnahme(lst, monkeypatch):
+    aufrufe = _setzaufrufe(monkeypatch)
+    uebersichten = []
+    monkeypatch.setattr(lst, "_uebersicht_aktion", lambda *a: uebersichten.append(True))
+    # Momentaufnahme „aus“, Datei sagt inzwischen „an“ ⇒ sicher ausschalten
+    anzeige.automatik_setzen(True)
+    lst._automatik_global = False
+    aufrufe.clear()
+    lst._hauptschalter_aktion()
+    assert aufrufe == [False] and uebersichten == []
+    # Momentaufnahme „an“, Datei sagt „aus“ ⇒ keine Schreibaktion, Übersicht öffnen
+    lst._automatik_global = True
+    aufrufe.clear()
+    lst._hauptschalter_aktion()
+    assert aufrufe == [] and uebersichten == [True]
+
+
+def test_schreibfehler_wird_menuezeile_ohne_absturz_und_zustand_bleibt(lst, monkeypatch):
+    anzeige.automatik_setzen(True)
+    lst.aktualisieren()
+    geheim = "geheimer-pfad-und-text"
+
+    def kaputt(an, *args, **kwargs):
+        raise PermissionError(geheim)
+
+    monkeypatch.setattr(anzeige, "automatik_setzen", kaputt)
+
+    _hauptschalter(lst)(lst.icon)             # wirft nicht
+
+    texte = _texte(lst._menue())
+    assert "Automatik nicht geändert (PermissionError)" in texte
+    assert not any(geheim in t for t in texte)
+    zeile = _eintrag(list(lst._menue()), "Automatik nicht geändert (PermissionError)")
+    assert not zeile.enabled
+    assert texte.index(zeile.text) == texte.index("Hauptschalter Automatik: an") + 1
+    assert anzeige.automatik_an() is True      # nichts geändert
+
+    lst.aktualisieren()                         # die Zeile gilt bis zur nächsten Aktualisierung
+    assert not any(t.startswith("Automatik nicht geändert") for t in _texte(lst._menue()))

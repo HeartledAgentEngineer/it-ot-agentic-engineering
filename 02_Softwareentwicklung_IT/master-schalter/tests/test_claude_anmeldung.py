@@ -101,3 +101,118 @@ def test_taskkill_fehler_fuehrt_trotzdem_ein_begrenztes_warten_aus(monkeypatch):
         claude_anmeldung.prozessbaum_beenden(Prozess())
 
     assert calls == [("wait", 5)]
+
+
+# --- erneuern: `claude auth status` ohne Konsole, ohne Ausgabe, wirft nie ----------------------------------------
+
+class _ErneuernProzess:
+    pid = 777
+
+    def __init__(self, code=0, timeout=False):
+        self.code, self.timeout, self.wait_aufrufe = code, timeout, []
+
+    def wait(self, timeout=None):
+        self.wait_aufrufe.append(timeout)
+        if self.timeout:
+            raise subprocess.TimeoutExpired("synthetisch", timeout)
+        return self.code
+
+    def kill(self):
+        self.wait_aufrufe.append("kill")
+
+
+def _popen_fuer(monkeypatch, prozess):
+    aufrufe = []
+
+    def fake_popen(args, **kwargs):
+        aufrufe.append((args, kwargs))
+        return prozess
+
+    monkeypatch.setattr(claude_anmeldung.subprocess, "Popen", fake_popen)
+    return aufrufe
+
+
+@pytest.mark.parametrize("code, erwartet", [(0, True), (1, False)])
+def test_erneuern_startet_auth_status_ohne_konsole_und_ohne_ausgabe(monkeypatch, code, erwartet):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: ("C:/synthetisch/claude.exe",))
+    prozess = _ErneuernProzess(code)
+    aufrufe = _popen_fuer(monkeypatch, prozess)
+
+    assert claude_anmeldung.erneuern({"PATH": "synthetisch", "CLAUDE_CONFIG_DIR": ""}) is erwartet
+
+    args, kwargs = aufrufe[0]
+    assert args == ["C:/synthetisch/claude.exe", "auth", "status"]
+    assert kwargs["stdin"] == kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+    assert kwargs["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    assert not kwargs["creationflags"] & getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    assert "CLAUDE_CONFIG_DIR" not in kwargs["env"] and kwargs["env"]["PATH"] == "synthetisch"
+    assert prozess.wait_aufrufe == [30]          # Frist 30 s, keine Ausgabe gelesen (kein communicate)
+
+
+def test_erneuern_nutzt_die_uebergebene_frist(monkeypatch):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: ("claude",))
+    prozess = _ErneuernProzess(0)
+    _popen_fuer(monkeypatch, prozess)
+
+    assert claude_anmeldung.erneuern(frist=7)
+
+    assert prozess.wait_aufrufe == [7]
+
+
+def test_erneuern_beendet_bei_timeout_den_prozessbaum_und_meldet_false(monkeypatch):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: ("claude",))
+    prozess = _ErneuernProzess(timeout=True)
+    _popen_fuer(monkeypatch, prozess)
+    beendet = []
+    monkeypatch.setattr(claude_anmeldung, "prozessbaum_beenden", beendet.append)
+
+    assert claude_anmeldung.erneuern(frist=1) is False
+
+    assert beendet == [prozess]
+
+
+def test_erneuern_bei_timeout_und_fehler_beim_beenden_kill_und_wirft_nicht(monkeypatch):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: ("claude",))
+    prozess = _ErneuernProzess(timeout=True)
+    _popen_fuer(monkeypatch, prozess)
+
+    def kaputt(_prozess):
+        raise OSError("synthetisch")
+
+    monkeypatch.setattr(claude_anmeldung, "prozessbaum_beenden", kaputt)
+
+    assert claude_anmeldung.erneuern(frist=1) is False
+    assert "kill" in prozess.wait_aufrufe
+
+
+def test_erneuern_ohne_cli_startet_nichts(monkeypatch):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: None)
+    aufrufe = _popen_fuer(monkeypatch, _ErneuernProzess())
+
+    assert claude_anmeldung.erneuern() is False
+    assert aufrufe == []
+
+
+def test_erneuern_wirft_nie(monkeypatch):
+    monkeypatch.setattr(modelle, "claude_programm", lambda: ("claude",))
+    monkeypatch.setattr(claude_anmeldung.subprocess, "Popen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("synthetisch")))
+
+    assert claude_anmeldung.erneuern() is False
+
+    def kaputtes_programm():
+        raise RuntimeError("synthetisch")
+
+    monkeypatch.setattr(modelle, "claude_programm", kaputtes_programm)
+    assert claude_anmeldung.erneuern() is False
+
+
+def test_taskkill_startet_ohne_konsolenfenster(monkeypatch):
+    """Ergebnisprüfung R1-2: auch das Beenden nach dem Zeitlimit öffnet nie ein Konsolenfenster."""
+    prozess = type("Prozess", (), {"pid": 321, "wait": lambda self, timeout: None})()
+    calls = []
+    monkeypatch.setattr(claude_anmeldung.os, "name", "nt")
+    monkeypatch.setattr(claude_anmeldung.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(claude_anmeldung.subprocess, "run", lambda args, **kw: calls.append(kw))
+    claude_anmeldung.prozessbaum_beenden(prozess)
+    assert calls[0]["creationflags"] == 0x08000000

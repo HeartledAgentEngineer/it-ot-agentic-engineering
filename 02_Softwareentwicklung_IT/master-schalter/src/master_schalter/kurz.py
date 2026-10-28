@@ -209,7 +209,9 @@ def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
 
 def _wartet_zeile(m: wartet.Meldung, jetzt: datetime, zone: tzinfo | None) -> str:
     veraltet = " (veraltet?)" if jetzt - m.zeit > WARTET_VERALTET else ""
-    return f"Wartet worauf: {m.thema}: {m.text} (seit {_uhr(m.zeit, jetzt, zone)}){veraltet}"
+    # Meldung mit pid, deren Prozess beendet ist: nur Anzeige, gelöscht wird nie automatisch (`warte … --fertig` von Hand).
+    verwaist = f" (verwaist – Prozess beendet; `warte {m.thema} --fertig` räumt auf)" if wartet.verwaist(m) else ""
+    return f"Wartet worauf: {m.thema}: {m.text} (seit {_uhr(m.zeit, jetzt, zone)}){veraltet}{verwaist}"
 
 
 def messfehler_zeile(name: str, eintrag: signale.Messfehler, jetzt: datetime, zone: tzinfo | None) -> str:

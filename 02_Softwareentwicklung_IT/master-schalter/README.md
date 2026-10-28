@@ -72,7 +72,14 @@ gesperrt und es steht „Hauptarbeitsbaum nicht gefunden – nur Anzeige“ da. 
 Der Wechsel „Thema X: alter Chat → neuer Chat" läuft über **ein Menü, ein Fenster und einen Takt in der Leiste**.
 Alles Folgende gilt für den Entwicklungsstand auf Branch `v0.5.0-wechselassistent` (noch nicht veröffentlicht).
 
-**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen (Themenzahl je Masterart, Lage, Kontingente). Darunter:
+**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen (Themenzahl je Masterart, Lage) und direkt darunter der
+**Hauptschalter Automatik** (Entwicklungsstand): „Hauptschalter Automatik: an“ mit Haken. **Asymmetrisch sicher:** Ein Klick bei
+„an“ schaltet die Automatik sofort **aus** (`einstellungen.json`, sichere Richtung; Menü und Symbol werden aktualisiert).
+Bei „aus“ steht dort „Hauptschalter Automatik: aus – einschalten in der Übersicht …“; der Klick schaltet **nie direkt ein**,
+sondern öffnet die Übersicht, wo die Ja/Nein-Rückfrage (Standard Nein) das Einschalten übernimmt. Maßgeblich ist beim
+Klick der frisch gelesene Zustand, nicht die Momentaufnahme des Menüs. Scheitert das Schreiben, erscheint darunter die
+deaktivierte Zeile „Automatik nicht geändert (<Fehlerklasse>)“ (nur die Klasse, bis zur nächsten Aktualisierung); die
+Leiste stürzt nicht ab. Dann die Kontingente und die Stand-Zeilen. Darunter:
 „Übersicht …“ (= Linksklick) öffnet das Übersichtsfenster; „Übergabe starten …" öffnet das Wechselfenster als eigenen Prozess; je offenem Wechsel steht eine
 deaktivierte Zeile „Wechsel <thema>: <Phase>" (z. B. „wartet auf Abgabe", „liegt im Postfach"); dann
 „Aktualisieren", „Einstellungen ▸" und „Beenden". Unter **Einstellungen ▸** liegen, in dieser Reihenfolge:
@@ -146,7 +153,8 @@ abgebrochener Vorgang meldet nichts). Ein „übernommen" macht das „Rolle jet
 
 Die Automatik ist **standardmäßig aus** (`einstellungen.json`, Feld `automatik`). Eingeschaltet
 wird sie per `masterwechsel automatik an` (bis v0.3.0 ein Menühaken; in v0.3.2 entfallen, weil die
-Rückgabe das Bedürfnis abdeckt) oder in der Datei selbst. Sie greift
+Rückgabe das Bedürfnis abdeckt; im Entwicklungsstand gibt es im Menü wieder einen **Hauptschalter, der aber nur ausschaltet** –
+Einschalten geht über die Übersicht, siehe „Bedienung“) oder in der Datei selbst. Sie greift
 nur für **eingeschaltete Paare** und nur, wenn Claude im Limit **und** Codex frisch gemessen frei
 ist.
 
@@ -735,6 +743,15 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   Dateien werden übersprungen, nie geraten. `warte THEMA --fertig` entfernt die Meldung (idempotent). **Nur eine
   technische Kurzangabe** („Freigabe Vibe-Modus“, „Codex-Prüfung R2“) – keine Inhalte, Namen oder Pfade; der Code
   begrenzt nur Form und Länge.
+  **Verwaiste Meldung:** Die Meldung von `pruefkreis` („Prüfung R<n> läuft“) enthält zusätzlich `"pid"` (Prozess der
+  Prüfung; `warte` schreibt keine pid, alte Dateien ohne pid bleiben gültig, eine kaputte pid – Text, negativ, 0, zu groß –
+  wird ignoriert). Ist der Prozess beendet, hängt die Zeile in Master-Status und Übersicht
+  „(verwaist – Prozess beendet; `warte THEMA --fertig` räumt auf)“ an. `wartet.lebt(pid)`: Windows über
+  `OpenProcess`/`GetExitCodeProcess` (Fehler 87 ⇒ beendet, Zugriff verweigert oder anderer Fehler ⇒ unbekannt,
+  Exit-Code ≠ 259 ⇒ beendet), sonst `os.kill(pid, 0)`; „unbekannt“ zeigt die Zeile normal. Unter Windows gilt die Meldung
+  auch als verwaist, wenn der Prozess **nach** der Meldung gestartet wurde (`GetProcessTimes`, 5 s Toleranz; die pid wurde
+  dann wiederverwendet); unbekannte Startzeit zählt nur als „lebt“. Es wird **nie automatisch gelöscht** – das bleibt
+  `warte THEMA --fertig` bzw. `pruefkreis` selbst.
 - **Gemerkt:** steht eine Merkdatei des Sammelbefehls `alle` (siehe unten), zusätzlich
   „Gemerkt für „alle zurueck“: <thema> <rolle>, …“; eine ungültige Merkdatei nur als Hinweis.
 - **Messfehler:** scheitert die Claude- oder Codex-Messung, steht direkt unter den Limitzeilen
@@ -864,9 +881,26 @@ Codex wird aus lokalen Sitzungsdateien gelesen und (seit v0.5.1) zusätzlich akt
   **Bekannte Grenze:** Der OAuth-Usage-Endpunkt ist eine inoffizielle Schnittstelle und kann sich
   ändern — ab 16.10.2026 liefert er ein leeres Fenster als `utilization: 0.0, resets_at: null`; das
   wird seit v0.3.3 als **0 %** gelesen (mit Verbrauch > 0 bleibt eine fehlende Rücksetzzeit weiter
-  ungültig). Bei abgelaufener Anmeldung bleibt der bisherige Messwert mit Stand erhalten; Claude Code
-  muss einmal gestartet werden. Werte lassen sich weiterhin mit `masterwechsel claude-kontingent …`
-  von Hand eintragen.
+  ungültig). Bei abgelaufener Anmeldung bleibt der bisherige Messwert mit Stand erhalten. Werte lassen
+  sich weiterhin mit `masterwechsel claude-kontingent …` von Hand eintragen.
+  **Selbsterneuerung bei abgelaufenem Zugang (Entwicklungsstand):** Endet eine Messung mit
+  `anmeldung_abgelaufen`, startet `claude_messen.messen` (also jeder Messweg: Leiste, `claude-messen`,
+  Automatik) `claude auth status` (`claude_anmeldung.erneuern`: ohne Konsole, Ein-/Ausgabe nach `DEVNULL`,
+  nichts wird gelesen oder protokolliert, nach 30 s wird der Prozessbaum beendet – auch `taskkill` ohne
+  Konsolenfenster –, wirft nie) und liest danach
+  genau einmal neu. Das geschieht höchstens **einmal je 30 Minuten über alle Prozesse**: nicht blockierende
+  Sperre `<datenordner>/claude-erneuerung.lock` (belegt ⇒ kein Versuch), Zeitstempel
+  `<datenordner>/claude-erneuerung.json` (näher als 30 min an der Uhrzeit, davor oder danach ⇒ kein Versuch; die
+  Uhrzeit wird erst unter der Sperre genommen); der neue Zeitstempel wird **vor** dem Start geschrieben, lässt er sich
+  nicht schreiben, gibt es keinen Versuch. Eine kaputte Datei oder ein Zeitstempel mehr als 30 min in der Zukunft
+  (falsche Uhr) gilt als alt. Andere Fehlerarten (fehlt, defekt, abgelehnt, HTTP, Netz) lösen nie
+  eine Erneuerung aus. Bleibt der Zugang abgelaufen, steht in `messfehler.json` bzw. im Master-Status „Claude-Messzugang
+  abgelaufen – automatische Erneuerung um HH:MM ohne Erfolg; Claude Code auth login --claudeai ausführen“.
+  **Nicht belegt:** Ob `claude auth status` den OAuth-Token wirklich erneuert, ist eine Vermutung (am 28.10.2026
+  scheiterte die Messung von 00:03 bis 02:40 mit `anmeldung_abgelaufen` und lief nach einem CLI-Aufruf wieder).
+  Beim nächsten Ablauf erkennt man die Wirkung so: bleibt `messfehler.json` ohne Claude-Eintrag, hat die
+  Erneuerung gewirkt; steht dort „ohne Erfolg“, hilft nur `claude auth login --claudeai` von Hand. Der
+  Refresh-Token selbst wird von master-schalter weiterhin nicht gelesen.
 
 ## Einrichten
 
@@ -960,7 +994,8 @@ Bei abgelaufenem oder vom Server abgelehntem lokalem Claude-Messzugang kann im T
 (`claude auth login --claudeai`) in einem eigenen Konsolenfenster. Nach erfolgreichem Prozessende wird nur
 eine neue Messung angefordert; erst deren tatsächlicher Erfolg bestätigt, dass die Kontingentwerte wieder
 gelesen werden können. Der lokale Access-Token-Fehler sagt nichts darüber aus, ob Claude Desktop abgemeldet
-ist oder das Abo abgelaufen ist. Ein automatischer Token-Refresh wird nicht behauptet. Ist
+ist oder das Abo abgelaufen ist. Die Selbsterneuerung (siehe „Claude Code“ oben) ist ein Versuch ohne belegte Wirkung; der
+interaktive Login bleibt der sichere Weg. Ist
 `CLAUDE_CONFIG_DIR` nicht gesetzt oder leer, gilt der Standardordner `~/.claude`; andernfalls wird dieser
 Konfigurationsordner sowohl für Messung als auch CLI-Anmeldung verwendet.
 
