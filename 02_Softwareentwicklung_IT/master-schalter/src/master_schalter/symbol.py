@@ -1,6 +1,6 @@
 """Das Bild des Taskleisten-Symbols: zwei senkrechte Balken (links Claude, rechts Codex).
 
-Ein kleiner weißer Punkt über dem Balken zeigt den aktiven Master."""
+Es zeigt nur den 5-Stunden-Verbrauch; einen globalen Master gibt es im Symbol nicht mehr."""
 from __future__ import annotations
 
 from PIL import Image, ImageDraw
@@ -16,28 +16,20 @@ WARN_AB = 80
 # (links, oben, rechts, unten) je Balken
 BALKEN = ((6, 12, 29, 61), (35, 12, 58, 61))
 
-# Punkt des aktiven Masters: über dem Balken, Mittelpunkt (x = Balkenmitte, y = PUNKT_Y)
-WEISS = (255, 255, 255)
-PUNKT_Y = 6
-PUNKT_RADIUS = 4
-MASTER_BALKEN = {"claude": 0, "codex": 1}
-
 
 def balken_mitte() -> tuple[int, int]:
     return tuple((l + r) // 2 for l, _, r, _ in BALKEN)  # type: ignore[return-value]
 
 
-def _farbe(prozent: float, grundfarbe: tuple[int, int, int], schwelle: int) -> tuple[int, int, int]:
+def farbe(prozent: float, grundfarbe: tuple[int, int, int], schwelle: int) -> tuple[int, int, int]:
+    """Statusfarbe eines Verbrauchs: Grundfarbe, gelb ab 80 %, rot ab Schwelle (auch für die Übersicht)."""
     if prozent >= schwelle:
         return ROT
     return GELB if prozent >= WARN_AB else grundfarbe
 
 
-def bild(claude: float | None, codex: float | None, schwelle: int, master: str | None = None) -> Image.Image:
-    """Füllhöhe = 5-Stunden-Verbrauch; gelb ab 80 %, rot ab Schwelle; leer = unbekannt.
-
-    `master` ("claude" | "codex" | "hermes") setzt den weißen Punkt über den Balken des aktiven
-    Masters; Hermes hat keinen Balken und bekommt keinen Punkt."""
+def bild(claude: float | None, codex: float | None, schwelle: int) -> Image.Image:
+    """Füllhöhe = 5-Stunden-Verbrauch; gelb ab 80 %, rot ab Schwelle; leer = unbekannt."""
     b = Image.new("RGBA", (GROESSE, GROESSE), (0, 0, 0, 0))
     zeichnen = ImageDraw.Draw(b)
     for (links, oben, rechts, unten), prozent, grundfarbe in zip(BALKEN, (claude, codex), (CLAUDE, CODEX)):
@@ -49,9 +41,5 @@ def bild(claude: float | None, codex: float | None, schwelle: int, master: str |
         if hoehe <= 0:
             continue
         zeichnen.rectangle((links + 2, innen_unten - hoehe, rechts - 2, innen_unten),
-                           fill=_farbe(prozent, grundfarbe, schwelle))
-    if master in MASTER_BALKEN:
-        x = balken_mitte()[MASTER_BALKEN[master]]
-        zeichnen.ellipse((x - PUNKT_RADIUS, PUNKT_Y - PUNKT_RADIUS, x + PUNKT_RADIUS, PUNKT_Y + PUNKT_RADIUS),
-                         fill=WEISS + (255,))
+                           fill=farbe(prozent, grundfarbe, schwelle))
     return b

@@ -1,15 +1,17 @@
-"""Taskleisten-Symbol: zeigt aktiven Master, Lage und die Kontingente von Claude Code und Codex.
+"""Taskleisten-Symbol: zeigt Lage und die Kontingente von Claude Code und Codex.
 
-* Mauszeiger darüber: kurze Zeile, beginnt mit dem Master („M Claude L1 | …").
-* Linksklick: Benachrichtigung mit allen Werten, Rücksetzzeit und Stand.
-* Rechtsklick: Menü nach Plan E9. Oben die Stand-Zeilen (Master, Lage, Kontingente), „Übergabe starten …"
+* Mauszeiger darüber: kurze Zeile „Lage 1 · Claude 62 % · Codex 1 % verbraucht" (5-Stunden-Fenster).
+* Linksklick (Menüeintrag „Übersicht …" mit `default=True`): öffnet das Übersichtsfenster
+  (`uebersicht.py`) als eigenen Prozess; eine zweite Instanz beendet sich still.
+* Rechtsklick: Menü nach Plan E9. Oben die Stand-Zeilen (Themenzahl je Masterart, Lage, Kontingente),
+  „Übersicht …", „Übergabe starten …"
   (öffnet das Wechselfenster als eigenen Prozess), je offenem Wechsel eine deaktivierte Zeile „Wechsel
   <thema>: <Phase>", „Aktualisieren" (misst frisch und hakt offene Übergaben ab), „Einstellungen ▸" und „Beenden".
   Unter „Einstellungen": „Wechsel-Schwelle", „Modelle aktualisieren" (mit Katalogzeilen), „Automatik je Thema"
   (früher „Chats übergeben"), „Automatik-Weg" (alter Weg oder Wechselassistent, Standard alt), „Arbeitsmodus je Thema" (je Thema Master, Ausführer, Ausführermodell) und
   „Standard-Master (übrige Themen)" (früher „Master wechseln"; Bestätigungsdialog, Ziel Codex stößt die
   Rückgabe an die Codex-Chats an).
-* Ein weißer Punkt über einem Balken zeigt den aktiven Master.
+* Das Symbol zeigt nur die beiden 5-Stunden-Balken; einen globalen Master zeigt es nicht mehr an.
 
 Menü und checked/label-Rückrufe arbeiten ausschließlich aus unveränderlichen Momentaufnahmen
 (`aktualisieren()`); im Menüklick- oder checked-Faden findet nie eine Datei-, Prozess- oder
@@ -47,7 +49,8 @@ from typing import Callable
 import pystray
 
 from . import (anzeige, assistent, assistent_vorgaenge, automatik, claude_anmeldung, claude_messen, codex_messen, dialog, fenster_modell, modi,
-               modelle, paare, rollen, rueckgabe, signale, symbol, uebergabe, vorgaenge, wechsel, zustand)
+               modelle, paare, rollen, rueckgabe, signale, symbol, uebergabe, uebersicht_modell, vorgaenge, wechsel,
+               zustand)
 
 
 TAKT_SEKUNDEN = 60
@@ -55,6 +58,7 @@ ASSISTENT_TAKT_SEKUNDEN = 10   # Wechselassistent: fortsetzen für jeden offenen
 MODELLE_TAKT_SEKUNDEN = 1800   # automatischer Katalogabgleich höchstens alle 30 Minuten
 CODEX_TAKT_SEKUNDEN = 300      # aktive Codex-Messung (`codex_messen`) im Messtakt höchstens alle 5 Minuten
 CODEX_VOR_ALTER_SEKUNDEN = 120  # vor der Automatik: Codex-Stand älter als das → vorher frisch messen
+FENSTER_NAMEN = {"fenster": "Wechselfenster", "uebersicht": "Übersicht"}
 # Ein Hinweis zu einem höheren Ereignis macht die niedrigeren desselben Vorgangs überflüssig.
 HINWEIS_VERDRAENGT = {"uebernommen": ("rolle",)}
 
@@ -64,13 +68,9 @@ def _protokoll(text: str) -> None:
     print(f"[{datetime.now().isoformat(timespec='seconds')}] {text}", file=sys.stderr, flush=True)
 
 
-def fenster_befehl() -> list[str]:
-    """Befehl, der das Wechselfenster als eigenen Prozess startet: `pythonw.exe` neben `sys.executable`, sonst dieses Python."""
-    programm = Path(sys.executable)
-    ohne_konsole = programm.with_name("pythonw.exe")
-    if ohne_konsole.is_file():
-        programm = ohne_konsole
-    return [str(programm), "-m", "master_schalter.fenster"]
+def fenster_befehl(modul: str = "fenster") -> list[str]:
+    """Befehl, der ein Fenster (`fenster` = Wechselfenster, `uebersicht`) als eigenen Prozess startet."""
+    return uebersicht_modell.modul_befehl(modul)
 
 
 class Leiste:
@@ -84,6 +84,7 @@ class Leiste:
         self._rollen_snapshot: dict[str, anzeige.Rollenstand] = {}
         self._kataloge: tuple[anzeige.Katalogstand, ...] | None = None
         self._modus_fehler: str | None = None
+        self._themen_master: list[str] = []   # Masterrolle je Thema (Momentaufnahme für die Menükopfzeile)
         self._automatik_weg = anzeige.STANDARD_WEG   # Momentaufnahme für Haken und Menüzeilen
         self._lage: str | None = None
         self._grund = ""
@@ -115,11 +116,8 @@ class Leiste:
     # --- Menü ---------------------------------------------------------------
 
     def _menue(self):
-        yield pystray.MenuItem("Details", self._zeigen, default=True, visible=False)
         geschuetzt = [t for t, (_, _, sicher) in self._modus_snapshot.items() if sicher]
-        kopf = ("Standard-Master (übrige Themen): " + anzeige.MASTER_NAMEN.get(self._zustand.master, "nicht gesetzt")
-                if geschuetzt else anzeige.master_menuezeile(self._zustand))
-        yield pystray.MenuItem(kopf, None, enabled=False)
+        yield pystray.MenuItem(anzeige.themen_zeile(self._themen_master), None, enabled=False)
         if geschuetzt:
             yield pystray.MenuItem(anzeige.feste_themen_zeile(geschuetzt), None, enabled=False)
         if self._modus_fehler:
@@ -134,6 +132,7 @@ class Leiste:
         for zeile in self._automatik_staende_zeilen():
             yield pystray.MenuItem(zeile, None, enabled=False)
         yield pystray.Menu.SEPARATOR
+        yield pystray.MenuItem("Übersicht …", self._uebersicht_aktion, default=True)   # Linksklick
         yield pystray.MenuItem("Anmelden bei Claude …", self._claude_anmelden_aktion)
         yield pystray.MenuItem("Übergabe starten …", self._fenster_aktion)
         for zeile in self._wechsel_zeilen():
@@ -166,18 +165,18 @@ class Leiste:
         """Menüklick: das Fenster in einem eigenen Faden starten (kein Prozessstart im Klickfaden)."""
         threading.Thread(target=self._fenster_oeffnen, daemon=True).start()
 
-    def _fenster_oeffnen(self) -> None:
-        """Fenster als eigener Prozess; eine zweite Instanz beendet sich selbst (Sperre `fenster.lock`)."""
-        paket = str(Path(__file__).resolve().parent.parent)
-        umgebung = dict(os.environ)
-        umgebung["PYTHONPATH"] = paket + (os.pathsep + umgebung["PYTHONPATH"] if umgebung.get("PYTHONPATH") else "")
+    def _uebersicht_aktion(self, *_args) -> None:
+        """Linksklick bzw. Menüpunkt „Übersicht …“: das Übersichtsfenster in einem eigenen Faden starten."""
+        threading.Thread(target=self._fenster_oeffnen, args=("uebersicht",), daemon=True).start()
+
+    def _fenster_oeffnen(self, modul: str = "fenster") -> None:
+        """Fenster als eigener Prozess; eine zweite Instanz beendet sich selbst (Sperre `<modul>.lock`)."""
+        name = FENSTER_NAMEN.get(modul, modul)
         try:
-            subprocess.Popen(fenster_befehl(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True, env=umgebung,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            uebersicht_modell.modul_starten(modul)
         except Exception as fehler:  # noqa: BLE001 - ein Startfehler darf die Leiste nicht beenden
-            _protokoll(f"Wechselfenster konnte nicht gestartet werden ({type(fehler).__name__})")
-            self._melden("Wechselfenster konnte nicht gestartet werden")
+            _protokoll(f"{name} konnte nicht gestartet werden ({type(fehler).__name__})")
+            self._melden(f"{name} konnte nicht gestartet werden")
 
     def _melden(self, text: str) -> None:
         try:
@@ -490,10 +489,13 @@ class Leiste:
                     wert = profile.get(p.thema, modi.Profil())
                     self._rollen_snapshot[p.thema] = anzeige.Rollenstand(
                         wert.master, wert.worker, wert.modell, self._kataloge or ())
+                self._themen_master = [profile.get(name, modi.Profil()).master
+                                       for name in sorted(set(profile) | {p.thema for p in self._paare_snapshot})]
                 self._modus_fehler = None
             except (modi.ModusFehler, OSError) as fehler:
                 self._modus_snapshot = {}
                 self._rollen_snapshot = {}
+                self._themen_master = []
                 self._modus_fehler = f"nicht verfügbar: {fehler}"
             self._kontingente = signale.alle_lesen()
             self._zustand = zustand.lesen()
@@ -503,9 +505,8 @@ class Leiste:
             self._grund = rollen.lage_grund(claude, codex, schwelle)
             fuenf = [(k.fenster_nach_name("5h")) for k in self._kontingente]
             self.icon.icon = symbol.bild(fuenf[0].prozent if fuenf[0] else None,
-                                         fuenf[1].prozent if fuenf[1] else None, schwelle, self._zustand.master)
-            self.icon.title = anzeige.tooltip(
-                self._kontingente, kopf=anzeige.tooltip_kopf(self._zustand.master, self._lage))
+                                         fuenf[1].prozent if fuenf[1] else None, schwelle)
+            self.icon.title = anzeige.tooltip_symbol(self._lage, self._kontingente)
             self.icon.update_menu()
         except Exception as fehler:  # noqa: BLE001 - Aktualisierung darf die Leiste nicht beenden
             _protokoll(f"Aktualisierung fehlgeschlagen: {fehler}")
@@ -636,10 +637,6 @@ class Leiste:
                             self._anmeldung_prozess = None
                     except Exception:
                         pass  # Unklarer Prozesszustand sperrt vorsichtshalber einen zweiten Login.
-
-    def _zeigen(self) -> None:
-        self.aktualisieren()
-        self.icon.notify(anzeige.hinweis(self._kontingente), "Kontingente")
 
     def _takt(self) -> None:
         letzte_messung = time.monotonic()

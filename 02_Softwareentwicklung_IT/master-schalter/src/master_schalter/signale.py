@@ -13,6 +13,9 @@ Rücksetzzeiten an `claude_schreiben`; `claude_lesen` bleibt Datei-Leser.
   aus Sitzungsdateien und aktiver Messung.
 * `claude_schreiben` legt nur Prozent und Rücksetzzeiten in
   `kontingent-claude.json` ab; `claude_lesen` liest und prüft sie.
+* Scheiternde Messungen hinterlassen einen Eintrag in `messfehler.json` (`messfehler_setzen`/`_loeschen`,
+  aufgerufen von `claude_messen.messen` und `codex_messen.messen`): feste Fehlerkategorie und fester Text,
+  nie Rohdaten. `messfehler_lesen` zeigt ihn an (`kurz`, Übersicht).
 """
 from __future__ import annotations
 
@@ -412,6 +415,95 @@ def claude_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Ko
     return Kontingent("Claude", tuple(
         fenster
     ), stand=_iso(roh.get("gelesen_um")))
+
+
+# --- Messfehler-Status (`messfehler.json`) ------------------------------------
+
+MESSFEHLER_QUELLEN = ("claude", "codex")
+MESSFEHLER_TEXT_MAX = 200
+
+
+@dataclass(frozen=True)
+class Messfehler:
+    """Seit wann die Messung einer Quelle ununterbrochen scheitert und woran (fester Text, keine Rohdaten)."""
+
+    quelle: str            # "claude" | "codex"
+    kategorie: str
+    text: str
+    seit: datetime         # erster Fehler der laufenden Serie
+    zuletzt: datetime      # letzter fehlgeschlagener Versuch
+
+
+def messfehler_datei() -> Path:
+    return daten_ordner() / "messfehler.json"
+
+
+def _messfehler_roh(datei: Path) -> dict[str, Any]:
+    """Der Rohinhalt als Wörterbuch; fehlt die Datei oder ist sie kaputt, ist es leer."""
+    try:
+        roh = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return roh if isinstance(roh, dict) else {}
+
+
+def _messfehler_eintrag(quelle: str, roh: Any) -> Messfehler | None:
+    """Ein gültiger Eintrag oder `None`: alle vier Felder müssen stimmen, Zeiten müssen lesbar sein."""
+    if not isinstance(roh, dict):
+        return None
+    kategorie, text = roh.get("kategorie"), roh.get("text")
+    seit, zuletzt = _iso(roh.get("seit")), _iso(roh.get("zuletzt"))
+    if not isinstance(kategorie, str) or not isinstance(text, str) or not text.strip():
+        return None
+    if seit is None or zuletzt is None:
+        return None
+    text = " ".join(text.split())[:MESSFEHLER_TEXT_MAX]    # eine Zeile, begrenzt
+    return Messfehler(quelle, kategorie[:60], text, seit, zuletzt)
+
+
+def messfehler_lesen(datei: Path | None = None) -> dict[str, Messfehler]:
+    """Alle gültigen Einträge je Quelle. Keine Verfallsgrenze: ein Eintrag gilt, bis die Messung gelingt.
+
+    Eine fehlende oder kaputte Datei ergibt ein leeres Ergebnis, ein einzelner kaputter Eintrag wird übergangen.
+    """
+    roh = _messfehler_roh(datei or messfehler_datei())
+    gueltig = {}
+    for quelle in MESSFEHLER_QUELLEN:
+        eintrag = _messfehler_eintrag(quelle, roh.get(quelle))
+        if eintrag is not None:
+            gueltig[quelle] = eintrag
+    return gueltig
+
+
+def messfehler_setzen(quelle: str, kategorie: str, text: str, jetzt: datetime | None = None,
+                      datei: Path | None = None) -> None:
+    """Fehler der Quelle atomar eintragen; `seit` bleibt beim ersten Fehler der Serie, `zuletzt` wird jetzt.
+
+    Wirft nie: scheitert das Schreiben, bleibt die Messung davon unberührt (der Status ist nur Anzeige).
+    """
+    try:
+        datei = datei or messfehler_datei()
+        jetzt = jetzt or datetime.now(timezone.utc)
+        roh = _messfehler_roh(datei)
+        alt = _messfehler_eintrag(quelle, roh.get(quelle))
+        roh[quelle] = {"kategorie": kategorie, "text": text,
+                       "seit": (alt.seit if alt else jetzt).isoformat(), "zuletzt": jetzt.isoformat()}
+        _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+    except Exception:  # noqa: BLE001 - der Statusdatei-Fehler ändert nie das Messergebnis
+        pass
+
+
+def messfehler_loeschen(quelle: str, datei: Path | None = None) -> None:
+    """Eintrag der Quelle nach gelungener Messung entfernen; ohne Eintrag wird nichts geschrieben. Wirft nie."""
+    try:
+        datei = datei or messfehler_datei()
+        roh = _messfehler_roh(datei)
+        if quelle not in roh:
+            return
+        del roh[quelle]
+        _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def alle_lesen(jetzt: datetime | None = None) -> list[Kontingent]:

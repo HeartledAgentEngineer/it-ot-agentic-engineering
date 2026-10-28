@@ -419,7 +419,21 @@ def messen(programm: str | None = None, frist: float = FRIST_SEKUNDEN,
 
     Gibt das gemessene `Kontingent` zurück; jeder Fehler wird zu `Kontingent("Codex", fehler=<fester Text>)`
     – die Funktion wirft nie. Bei einem Fehler bleibt eine vorhandene Messdatei unverändert.
+
+    Der Messfehler-Status in `messfehler.json` wird hier nachgeführt (Quelle „codex“): Fehler ⇒ Eintrag mit
+    Fehlerklasse und festem Text, Erfolg ⇒ Eintrag weg. Das gilt für jeden Aufrufer; Schreibfehler der
+    Statusdatei werden verschluckt.
     """
+    kontingent, klasse = _messen(programm, frist, jetzt)
+    if kontingent.fehler is not None:
+        signale.messfehler_setzen("codex", klasse or "unbekannt", kontingent.fehler, jetzt=jetzt)
+    else:
+        signale.messfehler_loeschen("codex")
+    return kontingent
+
+
+def _messen(programm: str | None, frist: float, jetzt: datetime | None) -> tuple[signale.Kontingent, str | None]:
+    """Die eigentliche Messung: (Kontingent, Fehlerklasse oder None). Wirft nie."""
     try:
         programm = programm or codex_senden.programm()
         if not programm:
@@ -435,8 +449,9 @@ def messen(programm: str | None = None, frist: float = FRIST_SEKUNDEN,
         messung = signale.codex_messung_lesen(jetzt=stand)
         if messung is None:
             raise MessFehler(SPEICHERN)
-        return messung
+        return messung, None
     except MessFehler as fehler:
-        return signale.Kontingent("Codex", fehler=fehlertext(fehler.klasse))
+        return signale.Kontingent("Codex", fehler=fehlertext(fehler.klasse)), fehler.klasse
     except Exception as fehler:  # noqa: BLE001 - nie fremder Text, nur der Klassenname
-        return signale.Kontingent("Codex", fehler=fehlertext(type(fehler).__name__))
+        klasse = type(fehler).__name__
+        return signale.Kontingent("Codex", fehler=fehlertext(klasse)), klasse

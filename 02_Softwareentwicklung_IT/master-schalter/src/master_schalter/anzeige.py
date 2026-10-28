@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from . import modi, rollen
 from .signale import Fenster, Kontingent, _atomar_schreiben, daten_ordner
@@ -45,12 +45,37 @@ def _prozent(k: Kontingent, name: str) -> float | None:
     return f.prozent if f else None
 
 
-def tooltip_kopf(master: str | None, lage: str | None) -> str:
-    """Anfang des Tooltips, z. B. „M Claude L1" (Master und Lage)."""
-    return f"M {MASTER_NAMEN.get(master, '–')} L{lage or '?'}"
+def verbraucht(prozent: float) -> int:
+    """Verbrauch eines Fensters, auf 0–100 begrenzt: 130 ergibt 100, -5 ergibt 0."""
+    return round(max(0.0, min(100.0, prozent)))
+
+
+def _tooltip_wert(k: Kontingent) -> str:
+    """5-Stunden-Verbrauch eines Abos für den Tooltip: „62 %“, „neu“ (Fenster zurückgesetzt) oder „?“."""
+    f = None if k.fehler else k.fenster_nach_name("5h")
+    if f is None or f.prozent is None:
+        return "?"
+    return "neu" if f.zurueckgesetzt else f"{verbraucht(f.prozent)} %"
+
+
+def tooltip_symbol(lage: str | None, kontingente: list[Kontingent]) -> str:
+    """Tooltip des Taskleisten-Symbols: „Lage 1 · Claude 62 % · Codex 1 % verbraucht“ (5-Stunden-Fenster, höchstens 127 Zeichen)."""
+    werte = " · ".join(f"{k.master} {_tooltip_wert(k)}" for k in kontingente)
+    text = f"Lage {lage or '?'} · {werte} verbraucht"
+    return text if len(text) <= TOOLTIP_MAX else text[: TOOLTIP_MAX - 1] + "…"
+
+
+def themen_zeile(master_je_thema: Iterable[str]) -> str:
+    """Menükopf: Zahl der Themen je Masterart, z. B. „Themen: 3 fest · 2 nach Kontingent“."""
+    masters = list(master_je_thema)
+    if not masters:
+        return "Themen: keine"
+    nach_kontingent = sum(1 for m in masters if m == modi.KONTINGENT)
+    return f"Themen: {len(masters) - nach_kontingent} fest · {nach_kontingent} nach Kontingent"
 
 
 def tooltip(kontingente: list[Kontingent], kopf: str | None = None) -> str:
+    """Kurzzeile für `masterwechsel status`: je Abo 5h und Woche (optional mit Kopf), höchstens 127 Zeichen."""
     teile = [kopf] if kopf else []
     for k in kontingente:
         if k.fehler:
