@@ -526,3 +526,84 @@ def test_messzeit_mit_z_oder_ohne_zone_gilt_als_utc(pk, tmp_path, form):
     roh["gelesen_um"] = utc + "Z" if form == "z" else utc
     datei.write_text(json.dumps(roh), encoding="utf-8")
     assert "Codex 5h 100 %" in (pk.codex_im_limit() or "")
+
+
+# --- „Wartet worauf“ während eines Prüflaufs (28.10.2026) ----------------------
+
+
+def _wartet(tmp_path, name="probe"):
+    return tmp_path / "schalter" / "wartet" / f"{name}.json"
+
+
+def test_laufende_pruefung_steht_als_wartemeldung_und_verschwindet(pk, vorlage, monkeypatch, tmp_path):
+    _besitz(tmp_path, "master-schalter", "claude x modus master-schalter")
+    gesehen = []
+
+    def starte(befehl, zeitgrenze):
+        gesehen.append(json.loads(_wartet(tmp_path, "master-schalter").read_text(encoding="utf-8"))["text"])
+        Path(befehl[befehl.index("-o") + 1]).write_text("ok\nURTEIL: FREI", encoding="utf-8")
+        return 0, "", ""
+    monkeypatch.setattr(pk, "starte", starte)
+    pk.pruefen(vorlage, "master-schalter-kurz")
+    assert gesehen == ["Prüfung R1 läuft (pruefkreis, master-schalter-kurz)"]
+    assert not _wartet(tmp_path, "master-schalter").exists()
+
+
+def test_fremde_wartemeldung_bleibt_unberuehrt(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _wartet(tmp_path).parent.mkdir(parents=True)
+    _wartet(tmp_path).write_text('{"text": "Freigabe Vibe-Modus", "zeit": "2026-10-28T00:00:00+00:00"}', encoding="utf-8")
+    pk.pruefen(vorlage, "probe")
+    assert json.loads(_wartet(tmp_path).read_text(encoding="utf-8"))["text"] == "Freigabe Vibe-Modus"
+
+
+def test_waehrend_des_laufs_geaenderte_meldung_bleibt(pk, vorlage, monkeypatch, tmp_path):
+    def starte(befehl, zeitgrenze):
+        _wartet(tmp_path).write_text('{"text": "Sebastian: Rueckfrage", "zeit": "2026-10-28T00:00:00+00:00"}',
+                                     encoding="utf-8")
+        Path(befehl[befehl.index("-o") + 1]).write_text("URTEIL: FREI", encoding="utf-8")
+        return 0, "", ""
+    monkeypatch.setattr(pk, "starte", starte)
+    pk.pruefen(vorlage, "probe")
+    assert json.loads(_wartet(tmp_path).read_text(encoding="utf-8"))["text"] == "Sebastian: Rueckfrage"
+
+
+def test_wartemeldung_wird_auch_bei_abbruch_entfernt(pk, vorlage, monkeypatch, tmp_path):
+    monkeypatch.setattr(pk, "codex_programm", lambda: None)
+    with pytest.raises(pk.PruefkreisFehler):
+        pk.pruefen(vorlage, "probe")
+    assert not _wartet(tmp_path).exists()
+
+
+def test_ausdruecklicher_master_ohne_wartemeldung(pk, vorlage, monkeypatch, tmp_path):
+    def starte(befehl, zeitgrenze):
+        assert not (tmp_path / "schalter" / "wartet").exists()
+        Path(befehl[befehl.index("-o") + 1]).write_text("URTEIL: FREI", encoding="utf-8")
+        return 0, "", ""
+    monkeypatch.setattr(pk, "starte", starte)
+    assert pk.pruefen(vorlage, "probe", master="claude")["status"] == "frei"
+
+
+def test_wartemeldung_ohne_harte_links_laeuft_weiter_und_hinterlaesst_nichts(pk, vorlage, monkeypatch, tmp_path):
+    def kein_link(quelle, ziel):
+        raise OSError("keine harten Links")
+    monkeypatch.setattr(pk.os, "link", kein_link)
+    _attrappe(pk, monkeypatch)
+    assert pk.pruefen(vorlage, "probe")["status"] == "frei"
+    assert list((tmp_path / "schalter" / "wartet").iterdir()) == []
+
+
+def test_verschachtelte_wartemeldung_ueberschreibt_die_erste_nie(pk, monkeypatch, tmp_path):
+    echter_link = pk.os.link
+    innen = []
+
+    def link(quelle, ziel):
+        if not innen:   # ein zweiter Aufruf fuer dasselbe Thema kommt dem ersten zuvor
+            innen.append(None)
+            innen[0] = pk.wartet_melden("probe", "B")
+        echter_link(quelle, ziel)
+    monkeypatch.setattr(pk.os, "link", link)
+    assert pk.wartet_melden("probe", "A") is None
+    assert innen == ["B"]
+    assert json.loads(_wartet(tmp_path).read_text(encoding="utf-8"))["text"] == "B"
+    assert [p.name for p in _wartet(tmp_path).parent.iterdir()] == ["probe.json"]

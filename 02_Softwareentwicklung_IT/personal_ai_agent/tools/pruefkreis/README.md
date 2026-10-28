@@ -59,6 +59,13 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
   Zukunft steht, prüft sofort Hermes; Protokoll: `Ersatzpruefer: Hermes statt Codex - Codex 5h 100 % laut Messung
   HH:MM, Reset … (kein Fehlversuch)`. Fehlende, alte oder kaputte Messung (z. B. Prozent außerhalb 0–100, nicht darstellbarer Reset) ⇒ wie bisher Codex mit Ersatz bei
   Sperre. `--pruefer codex` versucht Codex weiterhin ausdrücklich.
+- **Laufende Prüfung als „Wartet worauf“** (Master-Schalter `kurz`): Gehört das Thema zu einer Besitzdatei
+  (`<name>.master`), schreibt das Werkzeug für die Dauer des Laufs `wartet/<name>.json` im Datenordner des
+  Schalters mit „Prüfung R<n> läuft (pruefkreis, <thema>)“ – **nur wenn dort noch keine Meldung steht** (angelegt
+  aus einer je Aufruf neuen Temp-Datei atomar per hartem Link, der nie überschreibt; ohne Link-Unterstützung entfällt die Meldung). Am Ende
+  (auch bei Abbruch) entfernt es die Datei nur, wenn sie noch genau den eigenen Text trägt; eine fremde oder
+  inzwischen geänderte Meldung bleibt. Mit ausdrücklichem `--master` entfällt die Meldung. Fehler dabei werden
+  verschluckt, die Prüfung läuft immer.
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 
