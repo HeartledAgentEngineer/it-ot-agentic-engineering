@@ -42,6 +42,8 @@
     masterwechsel warte THEMA TEXT…   „Wartet worauf“ für `kurz` melden (eine Zeile, technisch, ≤ 120 Zeichen)
     masterwechsel warte THEMA --fertig
                                       Wartemeldung des Themas entfernen
+    masterwechsel alle kontingent     alle Themen (außer Hermes) nach Kontingent; feste Rollen vorher merken
+    masterwechsel alle zurueck        gemerkte feste Rollen wiederherstellen (Exit 1 = offen, 2 = Merkdatei ungültig)
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -52,7 +54,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
+from . import (__version__, alle, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
                claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wartet, wechsel,
                zustand)
 
@@ -147,6 +149,21 @@ def _warte_cli(args: argparse.Namespace) -> int:
         return 1
     print(f"{meldung.thema}: wartet auf „{meldung.text}“ – steht in `kurz`.")
     return 0
+
+
+def _alle_cli(args: argparse.Namespace) -> int:
+    try:
+        bericht = alle.auf_kontingent() if args.richtung == "kontingent" else alle.zurueck()
+    except alle.MerkFehler as fehler:
+        print(f"Nicht geändert: {fehler}", file=sys.stderr)
+        return 2
+    except alle.AlleFehler as fehler:
+        print(f"Nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    print("\n".join(bericht.zeilen) if bericht.zeilen else "Keine Themen.")
+    if bericht.offen:
+        print(f"{bericht.offen} Thema/Themen offen – Befehl später erneut ausführen.", file=sys.stderr)
+    return 1 if bericht.offen else 0
 
 
 def _lage(kontingente: list[signale.Kontingent]) -> tuple[str | None, str]:
@@ -538,6 +555,8 @@ def _parser() -> argparse.ArgumentParser:
     warte.add_argument("thema")
     warte.add_argument("text", nargs="*", help="eine technische Kurzangabe, z. B. Freigabe Vibe-Modus")
     warte.add_argument("--fertig", action="store_true", help="Meldung entfernen")
+    sammel = unter.add_parser("alle", help="alle Themen nach Kontingent bzw. zurück auf die gemerkten Rollen")
+    sammel.add_argument("richtung", choices=("kontingent", "zurueck"))
     unter.add_parser("statuszeile", help="Statuszeilen-Befehl für Claude Code")
     hand = unter.add_parser("claude-kontingent", help="Claude-Werte von Hand eintragen")
     hand.add_argument("--fuenf", type=_prozent, required=True, help="5-Stunden-Verbrauch in Prozent")
@@ -638,6 +657,8 @@ def main(argv: list[str] | None = None) -> int:
         return _kurz_cli()
     if args.befehl == "warte":
         return _warte_cli(args)
+    if args.befehl == "alle":
+        return _alle_cli(args)
     if args.befehl == "claude-kontingent":
         return _claude_kontingent(args)
     if args.befehl == "claude-messen":

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
-from . import anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
+from . import alle, anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
 from .signale import Fenster, Kontingent
 
 MAX_SITZUNGEN = 3
@@ -261,10 +261,27 @@ def _sitzungen() -> list[Sitzung]:
     return gefunden
 
 
+def gemerkt_zeile(merk: dict[str, str] | None) -> str | None:
+    """Merkstand des Sammelbefehls `alle` (nur Themen und Rollen); `None`, wenn nichts gemerkt ist."""
+    if not merk:
+        return None
+    liste = ", ".join(f"{thema} {rolle}" for thema, rolle in sorted(merk.items()))
+    return f"Gemerkt für „alle zurueck“: {liste}"
+
+
+def _gemerkt_hinweis() -> list[str]:
+    try:
+        zeile = gemerkt_zeile(alle.gemerkt())
+    except alle.MerkFehler:
+        return ["Gemerkt: Merkdatei ungültig – `masterwechsel alle zurueck` nennt den Grund"]
+    return [zeile] if zeile else []
+
+
 def sammeln(jetzt: datetime | None = None, zone: tzinfo | None = None) -> list[str]:
     """Alle Quellen lesen (nichts schreiben, nichts messen) und die Kurzübersicht bauen."""
     jetzt = jetzt or datetime.now(timezone.utc)
     themen, hinweise = _themen()
+    hinweise = _gemerkt_hinweis() + hinweise
     return zeilen(signale.alle_lesen(jetzt=jetzt), themen, _sitzungen(), schwelle=anzeige.schwelle(),
                   automatik_global=anzeige.automatik_an(), jetzt=jetzt, zone=zone, hinweise=tuple(hinweise),
                   wartet_auf=tuple(wartet.alle_lesen()))

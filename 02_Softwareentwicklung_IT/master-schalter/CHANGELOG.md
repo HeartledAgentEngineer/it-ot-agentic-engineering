@@ -24,6 +24,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   Zugangsdaten im Log; der Anzeigetext im Menü bleibt unverändert.
 
 ### Neu
+- `masterwechsel alle kontingent|zurueck` (`alle.py`): alle Themen auf einmal nach Kontingent und zurück auf die
+  vorher gemerkten festen Rollen (Merkdatei `alle-vorher.json`, nach Abschluss archiviert statt gelöscht). Hermes
+  (Master, Besitz, abgebrochener Wechsel) bleibt unberührt. Neu in `modi`: `master_setzen_wenn` – Prüfung, Merken
+  und Umschalten unter derselben Themensperre. `kurz` zeigt den Merkstand. Plan in vier Fassungen von Codex geprüft.
 - `masterwechsel warte THEMA TEXT…` / `warte THEMA --fertig` (`wartet.py`): „Wartet worauf“ je Thema;
   `kurz` zeigt die Meldungen (älteste zuerst, „seit“, > 24 h „(veraltet?)“) statt der festen Zeile
   „noch keine Statusquelle“; ohne Meldung „Wartet worauf: nichts gemeldet“.
