@@ -115,7 +115,7 @@ def test_zeilenzahl_und_ehrliche_wartezeile():
     zeilen = _zeilen(themen=themen, sitzungen=sitzungen)
     # Kopf, „Kontingent übrig:“, 2 Limits, Matrix, „Themen:“, 6 Themen, 3 Sitzungen, Als Nächstes, Wartet = 17
     assert len(zeilen) == 17
-    assert zeilen[-1] == kurz.WARTET == "Wartet worauf: noch keine Statusquelle"
+    assert zeilen[-1] == kurz.WARTET == "Wartet worauf: nichts gemeldet"
     assert "Sitzungen: keine gemeldet" in _zeilen()
 
 

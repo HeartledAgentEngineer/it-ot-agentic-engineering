@@ -625,7 +625,12 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   „arbeitet“, das älter als 30 Minuten ist, erscheint als „arbeitet? (veraltet)“.
 - **Als Nächstes:** zuerst „neu messen“, wenn ein Fenster zurückgesetzt ist, sonst der früheste Reset
   eines Fensters im Limit mit Uhrzeit und Restzeit („22:36 (in 24 min)“). Ein Reset ist keine Zusage, dass dann weitergearbeitet wird.
-- **Wartet worauf:** noch keine Statusquelle; die Zeile sagt das ausdrücklich.
+- **Wartet worauf:** je Thema die Meldung aus `masterwechsel warte THEMA TEXT…` (älteste zuerst, mit „seit“;
+  älter als 24 h ⇒ „(veraltet?)“), sonst „Wartet worauf: nichts gemeldet“. Ablage `<datenordner>/wartet/<thema>.json`,
+  eine Zeile, höchstens 120 Zeichen (Steuerzeichen und Zeilenumbrüche werden Leerzeichen); kaputte oder zu große
+  Dateien werden übersprungen, nie geraten. `warte THEMA --fertig` entfernt die Meldung (idempotent). **Nur eine
+  technische Kurzangabe** („Freigabe Vibe-Modus“, „Codex-Prüfung R2“) – keine Inhalte, Namen oder Pfade; der Code
+  begrenzt nur Form und Länge.
 
 Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `kurz` und alle
 anderen Befehle (stdout und stderr, schon vor dem Einlesen der Argumente, also auch `--help`) UTF-8, damit Umlaute in Remote-Sitzungen und über `/master-status`
@@ -774,6 +779,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Kurzübersicht für den Chat (Remote-Sitzung): Rest-Limits, Lage, Themen, Sitzungen – nur lesend
 .\.venv\Scripts\masterwechsel.exe kurz
 
+# „Wartet worauf“ melden (erscheint in kurz) und wieder entfernen
+.\.venv\Scripts\masterwechsel.exe warte master-schalter Freigabe Vibe-Modus
+.\.venv\Scripts\masterwechsel.exe warte master-schalter --fertig
+
 # Claude-Kontingent über die OAuth-API messen
 .\.venv\Scripts\masterwechsel.exe claude-messen
 
@@ -867,6 +876,7 @@ src/master_schalter/
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
   kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend
+  wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt von `kurz`
   anzeige.py   Texte für Tooltip, Menü, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow)
   leiste.py    Taskleisten-Symbol (pystray) — nur Oberfläche

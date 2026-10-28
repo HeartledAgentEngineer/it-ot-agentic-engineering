@@ -15,13 +15,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
-from . import anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe
+from . import anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
 from .signale import Fenster, Kontingent
 
 MAX_SITZUNGEN = 3
 KENNUNG_KURZ = 8
 ARBEITET_FRISCH = timedelta(minutes=30)   # älteres „arbeitet“ = Sitzung vermutlich ohne Stop beendet
-WARTET = "Wartet worauf: noch keine Statusquelle"
+WARTET = "Wartet worauf: nichts gemeldet"
+WARTET_VERALTET = timedelta(hours=24)   # ältere Meldung: vermutlich vergessen, `warte THEMA --fertig`
 MASTER_WERTE = ("claude", "codex", "hermes")   # wie `pruefkreis.py`
 WERKZEUG_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes", "workflow": "Workflow"}
 
@@ -174,6 +175,11 @@ def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
             f" · {zustand} · {_uhr(s.zeit, jetzt, zone)}")
 
 
+def _wartet_zeile(m: wartet.Meldung, jetzt: datetime, zone: tzinfo | None) -> str:
+    veraltet = " (veraltet?)" if jetzt - m.zeit > WARTET_VERALTET else ""
+    return f"Wartet worauf: {m.thema}: {m.text} (seit {_uhr(m.zeit, jetzt, zone)}){veraltet}"
+
+
 def _naechstes(kontingente: list[Kontingent], schwelle: int, jetzt: datetime, zone: tzinfo | None) -> str:
     neu = [k.master for k in kontingente if not k.fehler and any(f.zurueckgesetzt for f in k.fenster)]
     if neu:
@@ -189,7 +195,7 @@ def _naechstes(kontingente: list[Kontingent], schwelle: int, jetzt: datetime, zo
 
 def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[Sitzung], *,
            schwelle: int, automatik_global: bool, jetzt: datetime, zone: tzinfo | None = None,
-           hinweise: tuple[str, ...] = ()) -> list[str]:
+           hinweise: tuple[str, ...] = (), wartet_auf: tuple[wartet.Meldung, ...] = ()) -> list[str]:
     """Die Kurzübersicht als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
     claude, codex = kontingente
     lage = rollen.lage(claude, codex, schwelle)
@@ -204,7 +210,7 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
     neueste = sorted(sitzungen, key=lambda s: s.zeit, reverse=True)[:MAX_SITZUNGEN]
     aus += [_sitzung_zeile(s, jetzt, zone) for s in neueste] or ["Sitzungen: keine gemeldet"]
     aus.append(_naechstes(kontingente, schwelle, jetzt, zone))
-    aus.append(WARTET)
+    aus += [_wartet_zeile(m, jetzt, zone) for m in sorted(wartet_auf, key=lambda m: m.zeit)] or [WARTET]
     aus += list(hinweise)
     return aus
 
@@ -260,4 +266,5 @@ def sammeln(jetzt: datetime | None = None, zone: tzinfo | None = None) -> list[s
     jetzt = jetzt or datetime.now(timezone.utc)
     themen, hinweise = _themen()
     return zeilen(signale.alle_lesen(jetzt=jetzt), themen, _sitzungen(), schwelle=anzeige.schwelle(),
-                  automatik_global=anzeige.automatik_an(), jetzt=jetzt, zone=zone, hinweise=tuple(hinweise))
+                  automatik_global=anzeige.automatik_an(), jetzt=jetzt, zone=zone, hinweise=tuple(hinweise),
+                  wartet_auf=tuple(wartet.alle_lesen()))
