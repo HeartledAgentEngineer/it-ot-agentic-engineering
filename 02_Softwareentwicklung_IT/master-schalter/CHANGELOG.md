@@ -6,6 +6,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- Messzugang erneuert sich einmal selbst: Endet `claude_messen.messen` mit `anmeldung_abgelaufen` (Parameter
+  `erneuern=True`), startet `claude_anmeldung.erneuern` genau einmal `claude auth status` (ohne Konsole, Ausgabe nach
+  `DEVNULL`, 30 s Frist, Prozessbaum-Ende bei Timeout, wirft nie) und `messen` liest genau einmal neu. Gedrosselt auf einen
+  Versuch je 30 min über alle Prozesse: Sperre `claude-erneuerung.lock`, Zeitstempel `claude-erneuerung.json` wird vor dem
+  Start geschrieben, nicht schreibbar ⇒ kein Versuch (fail-closed), kaputt/zukünftig ⇒ gilt als alt. Bleibt der Zugang
+  abgelaufen: „Claude-Messzugang abgelaufen – automatische Erneuerung um HH:MM ohne Erfolg; …“. Wirksamkeit nicht belegt
+  (README nennt die Erkennung). Tests: `test_claude_messen.py`, `test_claude_anmeldung.py` (u. a. zwei echte Unterprozesse);
+  `conftest.py` ersetzt `claude_messen.cli_erneuern` automatisch, damit kein Test die echte CLI startet.
 - Arbeitsweise je Thema (`protokoll` Standard | `vibe`): neues Modul `arbeitsweise.py`, Datei `arbeitsweise.json`
   (`{"version": 1, "themen": {thema: "vibe"}}`, streng gelesen, atomar geschrieben, nicht im Profilformat
   `themenmodi.json`). CLI `masterwechsel vibe THEMA an|aus` (nur von Hand; `modi.vibe_setzen` unter der Themensperre;

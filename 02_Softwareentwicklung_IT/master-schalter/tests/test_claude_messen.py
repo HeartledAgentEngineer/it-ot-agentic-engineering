@@ -1,13 +1,18 @@
 """Synthetische Tests für die Claude-Usage-API ohne echten Zugang und Netzwerk."""
 import io
 import json
-from datetime import datetime, timezone
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import pytest
 
-from master_schalter import claude_messen, signale
+from master_schalter import claude_messen, signale, zustand
 
 
 JETZT = datetime(2026, 10, 14, 22, 0, tzinfo=timezone.utc)
@@ -171,7 +176,7 @@ def test_abgelaufener_token_macht_keinen_netzaufruf_und_gibt_keinen_token_preis(
     monkeypatch.setattr(claude_messen, "_transport", lambda *a, **k: aufrufe.append(a))
 
     with pytest.raises(claude_messen.MessFehler) as fehler:
-        claude_messen.messen(credentials_datei=credentials, jetzt=JETZT)
+        claude_messen.messen(credentials_datei=credentials, jetzt=JETZT, erneuern=False)
 
     assert aufrufe == []
     assert str(fehler.value) == claude_messen.ANMELDUNG_ABGELAUFEN
@@ -347,3 +352,267 @@ def test_verbrauch_ohne_resetzeit_bleibt_ungueltig(tmp_path, monkeypatch):
         claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT)
 
     assert ziel.read_bytes() == alt
+
+
+# --- Selbsterneuerung des abgelaufenen Messzugangs (gedrosselt, prozessübergreifend) ---------------------------
+
+ABGELAUFEN = 1   # expiresAt in Unix-Millisekunden: längst vorbei
+
+
+class _Messungen:
+    """Zählt die Aufrufe von `_messen` (erster Versuch plus höchstens ein zweiter)."""
+
+    def __init__(self, monkeypatch):
+        self.anzahl = 0
+        echt = claude_messen._messen
+
+        def zaehlend(*args, **kwargs):
+            self.anzahl += 1
+            return echt(*args, **kwargs)
+
+        monkeypatch.setattr(claude_messen, "_messen", zaehlend)
+
+
+def _abgelaufene_credentials(tmp_path):
+    pfad = tmp_path / "credentials.json"
+    _credentials(pfad, expires_at=ABGELAUFEN)
+    return pfad
+
+
+def _erneuernde_cli(credentials, erneuerungen):
+    """Fälschung von `claude auth status`: zählt und schreibt gültige Credentials, als hätte die CLI erneuert."""
+
+    def erneuern(*args, **kwargs):
+        erneuerungen.append(1)
+        _credentials(credentials)
+        return True
+
+    return erneuern
+
+
+def _messen_erwartet_fehler(credentials, jetzt=JETZT):
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, ziel=credentials.parent / "k.json", jetzt=jetzt,
+                             transport=lambda *a, **k: Antwort(_antwort()))
+    return fehler.value
+
+
+def test_abgelaufen_erneuert_genau_einmal_und_liest_genau_einmal_neu(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    ziel = tmp_path / "k.json"
+    messungen = _Messungen(monkeypatch)
+    monkeypatch.setattr(claude_messen, "cli_erneuern", _erneuernde_cli(credentials, erneuerungen))
+
+    assert claude_messen.messen(credentials_datei=credentials, ziel=ziel, jetzt=JETZT,
+                                transport=lambda *a, **k: Antwort(_antwort()))
+
+    assert len(erneuerungen) == 1
+    assert messungen.anzahl == 2
+    assert signale.claude_lesen(ziel, jetzt=JETZT).fenster_nach_name("5h").prozent == 81.5
+    assert "claude" not in signale.messfehler_lesen()
+
+
+def test_weiterhin_abgelaufen_nennt_ohne_erfolg_und_die_uhrzeit(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    messungen = _Messungen(monkeypatch)
+
+    fehler = _messen_erwartet_fehler(credentials)
+
+    uhrzeit = JETZT.astimezone().strftime("%H:%M")
+    erwartet = (f"Claude-Messzugang abgelaufen – automatische Erneuerung um {uhrzeit} ohne Erfolg; "
+                "Claude Code auth login --claudeai ausführen")
+    assert str(fehler) == erwartet and fehler.kategorie == "anmeldung_abgelaufen"
+    assert len(erneuerungen) == 1 and messungen.anzahl == 2
+    eintrag = signale.messfehler_lesen()["claude"]
+    assert eintrag.kategorie == "anmeldung_abgelaufen" and eintrag.text == erwartet
+    assert TOKEN not in str(fehler)
+
+
+def test_drossel_zweiter_fehler_binnen_30_minuten_erneuert_nicht_noch_einmal(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    messungen = _Messungen(monkeypatch)
+    _messen_erwartet_fehler(credentials, JETZT)
+    assert len(erneuerungen) == 1 and messungen.anzahl == 2
+
+    spaeter = _messen_erwartet_fehler(credentials, JETZT + timedelta(minutes=29))
+
+    assert len(erneuerungen) == 1          # gedrosselt
+    assert messungen.anzahl == 3           # nur der erste Versuch, kein zweiter ohne Erneuerung
+    assert JETZT.astimezone().strftime("%H:%M") in str(spaeter) and "ohne Erfolg" in str(spaeter)
+
+    _messen_erwartet_fehler(credentials, JETZT + timedelta(minutes=31))
+    assert len(erneuerungen) == 2          # Drossel abgelaufen
+
+
+def test_zeitstempel_wird_vor_dem_start_der_erneuerung_geschrieben(tmp_path, monkeypatch):
+    credentials = _abgelaufene_credentials(tmp_path)
+    gesehen = []
+
+    def erneuern(*args, **kwargs):
+        gesehen.append(json.loads(claude_messen._erneuerung_datei().read_text(encoding="utf-8")))
+        return False
+
+    monkeypatch.setattr(claude_messen, "cli_erneuern", erneuern)
+
+    _messen_erwartet_fehler(credentials)
+
+    assert gesehen == [{"zeit": JETZT.isoformat()}]
+
+
+def test_belegte_sperre_bedeutet_kein_erneuern(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    messungen = _Messungen(monkeypatch)
+
+    with zustand.instanz_sperre(claude_messen.ERNEUERUNG_NAME) as frei:
+        assert frei
+        fehler = _messen_erwartet_fehler(credentials)
+
+    assert erneuerungen == [] and messungen.anzahl == 1
+    assert fehler.kategorie == "anmeldung_abgelaufen"
+    assert str(fehler) == claude_messen.ANMELDUNG_ABGELAUFEN     # kein Versuch bekannt ⇒ fester Grundtext
+    assert not claude_messen._erneuerung_datei().exists()
+
+
+def test_nicht_schreibbare_reservierung_bedeutet_kein_erneuern_bei_jeder_messung(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    messungen = _Messungen(monkeypatch)
+    # Ein Ordner an der Stelle des Zeitstempels: lesbar als „alt“, aber nicht atomar überschreibbar.
+    claude_messen._erneuerung_datei().mkdir(parents=True)
+
+    for minuten in (0, 5, 45, 90):
+        fehler = _messen_erwartet_fehler(credentials, JETZT + timedelta(minutes=minuten))
+        assert fehler.kategorie == "anmeldung_abgelaufen"
+
+    assert erneuerungen == []
+    assert messungen.anzahl == 4          # nur die ersten Versuche, nie ein zweiter
+
+
+def test_kaputte_zeitstempeldatei_gilt_als_alt_danach_wirkt_die_drossel(tmp_path, monkeypatch, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    claude_messen._erneuerung_datei().parent.mkdir(parents=True, exist_ok=True)
+    claude_messen._erneuerung_datei().write_text("kein json {", encoding="utf-8")
+
+    _messen_erwartet_fehler(credentials)
+    assert len(erneuerungen) == 1
+    assert json.loads(claude_messen._erneuerung_datei().read_text(encoding="utf-8")) == {"zeit": JETZT.isoformat()}
+
+    _messen_erwartet_fehler(credentials, JETZT + timedelta(minutes=1))
+    assert len(erneuerungen) == 1
+
+
+def test_zeitstempel_in_der_zukunft_sperrt_die_erneuerung_nicht_dauerhaft(tmp_path, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+    claude_messen._erneuerung_datei().parent.mkdir(parents=True, exist_ok=True)
+    claude_messen._erneuerung_datei().write_text(
+        json.dumps({"zeit": (JETZT + timedelta(days=400)).isoformat()}), encoding="utf-8")
+
+    _messen_erwartet_fehler(credentials)
+
+    assert len(erneuerungen) == 1
+
+
+@pytest.mark.parametrize("inhalt, transport_fehler, kategorie", [
+    (None, None, "anmeldung_fehlt"),
+    ("kaputt", None, "anmeldung_defekt"),
+    ("gueltig", HTTPError("https://example.invalid", 401, "x", None, None), "anmeldung_abgelehnt"),
+    ("gueltig", HTTPError("https://example.invalid", 500, "x", None, None), "http"),
+    ("gueltig", URLError("netz"), "netz"),
+])
+def test_andere_fehlerarten_erneuern_nie(tmp_path, monkeypatch, erneuerungen, inhalt, transport_fehler, kategorie):
+    credentials = tmp_path / "credentials.json"
+    if inhalt == "kaputt":
+        credentials.write_text("kein json", encoding="utf-8")
+    elif inhalt == "gueltig":
+        _credentials(credentials)
+    messungen = _Messungen(monkeypatch)
+
+    def transport(*args, **kwargs):
+        raise transport_fehler
+
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, ziel=tmp_path / "k.json", jetzt=JETZT,
+                             transport=transport)
+
+    assert fehler.value.kategorie == kategorie
+    assert erneuerungen == [] and messungen.anzahl == 1
+    assert not claude_messen._erneuerung_datei().exists()
+
+
+def test_ohne_erneuern_wird_nicht_erneuert(tmp_path, erneuerungen):
+    credentials = _abgelaufene_credentials(tmp_path)
+
+    with pytest.raises(claude_messen.MessFehler) as fehler:
+        claude_messen.messen(credentials_datei=credentials, jetzt=JETZT, erneuern=False)
+
+    assert str(fehler.value) == claude_messen.ANMELDUNG_ABGELAUFEN
+    assert erneuerungen == []
+
+
+def test_erneuerung_die_wirft_stoert_die_messung_nicht(tmp_path, monkeypatch):
+    credentials = _abgelaufene_credentials(tmp_path)
+
+    def kaputt(*args, **kwargs):
+        raise RuntimeError(TOKEN)
+
+    monkeypatch.setattr(claude_messen, "cli_erneuern", kaputt)
+
+    fehler = _messen_erwartet_fehler(credentials)
+
+    assert fehler.kategorie == "anmeldung_abgelaufen" and TOKEN not in str(fehler)
+
+
+_PARALLEL_SKRIPT = """
+import sys, time
+from pathlib import Path
+from master_schalter import claude_messen
+
+zaehler, credentials, start = sys.argv[1:4]
+
+
+def erneuern(*args, **kwargs):
+    with open(zaehler, "a", encoding="utf-8") as datei:
+        datei.write("x\\n")
+    time.sleep(1.0)      # lange genug, damit der andere Prozess die Sperre belegt findet
+    return False
+
+
+claude_messen.cli_erneuern = erneuern
+while time.time() < float(start):
+    time.sleep(0.005)
+try:
+    claude_messen.messen(credentials_datei=Path(credentials))
+except claude_messen.MessFehler:
+    pass
+"""
+
+
+def test_zwei_prozesse_gleichzeitig_erneuern_genau_einmal(tmp_path):
+    credentials = _abgelaufene_credentials(tmp_path)
+    zaehler = tmp_path / "erneuerungen.txt"
+    daten = tmp_path / "parallel-daten"
+    umgebung = {**os.environ, "MASTER_SCHALTER_DATEN": str(daten),
+                "PYTHONPATH": str(Path(claude_messen.__file__).resolve().parent.parent)}
+    start = time.time() + 1.5
+    prozesse = [subprocess.Popen([sys.executable, "-c", _PARALLEL_SKRIPT, str(zaehler), str(credentials), str(start)],
+                                 env=umgebung, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                for _ in range(2)]
+    for prozess in prozesse:
+        _, stderr = prozess.communicate(timeout=60)
+        assert prozess.returncode == 0, stderr.decode("utf-8", "replace")
+
+    assert zaehler.read_text(encoding="utf-8").splitlines() == ["x"]
+
+
+def test_alle_messwege_laufen_durch_messen_cli_erneuert_beim_abgelaufenen_zugang(tmp_path, monkeypatch, erneuerungen,
+                                                                                  capsys):
+    """`claude-messen` ruft ohne Umweg `claude_messen.messen()`: abgelaufener Zugang ⇒ ein Erneuerungsversuch."""
+    from master_schalter import cli
+
+    konfig = tmp_path / "claude-konfiguration"
+    _credentials(konfig / ".credentials.json", expires_at=ABGELAUFEN)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(konfig))
+
+    assert cli.main(["claude-messen"]) == 1
+
+    assert len(erneuerungen) == 1
+    assert "ohne Erfolg" in capsys.readouterr().err

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from master_schalter import assistent_vorgaenge, besitz, modi, paare, zustand
+from master_schalter import assistent_vorgaenge, besitz, claude_messen, modi, paare, zustand
 
 THEMA = "engineering"
 THREAD = "00000000-0000-4000-8000-0000000000a1"
@@ -67,6 +67,23 @@ def _keine_echten_chatquellen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("MASTER_SCHALTER_CODEX_STATE", str(leer / "codex.sqlite"))
     monkeypatch.setenv("MASTER_SCHALTER_HERMES_STATE", str(leer / "hermes.db"))
     monkeypatch.delenv("HERMES_HOME", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def erneuerungen(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Kein Test startet je ein echtes `claude auth status`: die Erneuerung der Messung ist ein Zähler (ohne Erfolg).
+
+    Jeder Aufruf hängt etwas an die Liste; Tests, die die Erneuerung selbst prüfen, rufen `claude_anmeldung.erneuern`
+    direkt oder setzen `claude_messen.cli_erneuern` neu.
+    """
+    aufrufe: list[int] = []
+
+    def zaehlen(*_args, **_kwargs) -> bool:
+        aufrufe.append(1)
+        return False
+
+    monkeypatch.setattr(claude_messen, "cli_erneuern", zaehlen)
+    return aufrufe
 
 
 @pytest.fixture(autouse=True)
