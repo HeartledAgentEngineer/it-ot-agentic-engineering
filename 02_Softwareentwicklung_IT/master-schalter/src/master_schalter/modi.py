@@ -27,6 +27,11 @@ speichern, zuletzt den Zielbesitz schreiben. Die Zwischenmarke schützt auch fes
 Claude-Besitz vor einem Profilspeicher-Fehler, wird in allen Versand-/ACK-/Rückgabewegen
 fail-closed behandelt und nie als Übergabe-Reservierung gedeutet. Worker- und Modell-Setter
 lassen Masterfeld und `.master`-Marke exakt unverändert.
+
+Arbeitsweise `vibe` (Datei `arbeitsweise.json`, Modul `arbeitsweise`) gibt es nur mit Ausführer Claude. Die Prüfung
+(`_vibe_pruefen`) sitzt zentral im einzigen Profilschreiber `_speichern` und – vor der ersten Besitzmarke – in
+`_umschalten_gesperrt`; ein Profil mit anderem Ausführer wird bei `vibe` abgelehnt, ohne Profil oder Besitzdatei zu
+ändern. `vibe_setzen` schaltet die Arbeitsweise (nur von Hand) und lehnt jeden anderen Ausführer als Claude ab.
 """
 from __future__ import annotations
 
@@ -38,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypeVar
 
-from . import besitz, modelle, paare, uebergabe, vorgaenge, zustand
+from . import arbeitsweise, besitz, modelle, paare, uebergabe, vorgaenge, zustand
 from .signale import _atomar_schreiben, _iso, daten_ordner
 
 KONTINGENT = "kontingent"
@@ -325,6 +330,7 @@ def _speichern(datei_pfad: Path, thema: str, profil_wert: Profil | str) -> None:
         ziel = LEGACY[ziel]
     if not isinstance(ziel, Profil):
         raise ModusFehler("Arbeitsprofil ist ungeeignet")
+    _vibe_pruefen(thema, ziel, arbeitsweise.neben(datei_pfad))
     with zustand.sperre(GLOBALE_FRIST):
         aktuell = _lesen(datei_pfad)
         aktuell[thema] = ziel
@@ -333,6 +339,23 @@ def _speichern(datei_pfad: Path, thema: str, profil_wert: Profil | str) -> None:
              "themen": {t: {"master": p.master, "worker": p.worker, "modell": p.modell}
                         for t, p in aktuell.items()}},
             ensure_ascii=False, indent=2))
+
+
+def _vibe_pruefen(thema: str, ziel: Profil, vibe_pfad: Path) -> None:
+    """Vorrangregel: Vibe gibt es nur mit Ausführer Claude – vor jeder Nebenwirkung des Profilschreibens.
+
+    Nur ein Profil mit anderem Ausführer wird geprüft. Ist die Arbeitsweise-Datei dann nicht lesbar, ist unbekannt, ob
+    Vibe gilt: Das Profil bleibt fail-closed unverändert (die Meldung nennt den Grund).
+    """
+    if ziel.worker == "claude":
+        return
+    try:
+        weise = arbeitsweise.arbeitsweise(thema, vibe_pfad)
+    except arbeitsweise.ArbeitsweiseFehler as fehler:
+        raise ModusFehler(f"Arbeitsweise von {thema!r} nicht prüfbar ({fehler}); Profil wurde nicht geändert") from fehler
+    if weise == arbeitsweise.VIBE:
+        raise ModusFehler(f"{thema!r} steht auf Vibe und braucht Ausführer Claude – erst `masterwechsel vibe {thema} "
+                          "aus`; Profil wurde nicht geändert")
 
 
 def _offene_entwerten(thema: str, zeit: str) -> None:
@@ -388,6 +411,7 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
             raise ModusFehler(f"Übergabe braucht eine Zielrolle (claude|codex|hermes), nicht {ziel.master!r}")
     pfad = datei_pfad or datei()
     alt = _lesen(pfad).get(thema, Profil())
+    _vibe_pruefen(thema, ziel, arbeitsweise.neben(pfad))    # vor der ersten Besitzmarke
     # Vor jeder Nebenwirkung: Thema, Paar, Repository-Pfade und fremde Reservierung prüfen.
     _, master_datei = _paar_pruefen(thema, repo)
     text = _besitz_text_lesen(master_datei)
@@ -463,6 +487,28 @@ def _unter_sperre(thema: str, arbeit: Callable[[], _E]) -> _E:
 
 
 # --- Öffentliche Setter ---------------------------------------------------------
+
+def vibe_setzen(thema: str, an: bool, datei_pfad: Path | None = None) -> bool:
+    """Arbeitsweise Vibe ein- oder ausschalten (nur von Hand); `True`, wenn sich etwas geändert hat.
+
+    Unter der Themensperre, das Profil wird dazu frisch gelesen. Das Thema muss existieren (Profil oder Paar). `an`
+    braucht Ausführer Claude (Vorrang vor der Workerwahl); bei jedem Fehler bleibt die Datei unverändert.
+    """
+    def arbeit() -> bool:
+        pfad = datei_pfad or datei()
+        profile = _lesen(pfad)
+        if thema not in profile and not any(p.thema == thema for p in paare.lesen()):
+            raise ModusFehler(f"Thema unbekannt (weder Profil noch Paar): {thema}")
+        if an and profile.get(thema, Profil()).worker != "claude":
+            raise ModusFehler("Vibe braucht Ausführer Claude – erst `masterwechsel worker-setzen "
+                              f"{thema} claude`")
+        try:
+            return arbeitsweise.setzen(thema, an, arbeitsweise.neben(pfad))
+        except arbeitsweise.ArbeitsweiseFehler as fehler:
+            raise ModusFehler(str(fehler)) from fehler
+
+    return _unter_sperre(thema, arbeit)
+
 
 def _setzen_gesperrt(thema: str, wert: str, datei_pfad: Path | None = None, *,
                      repo: Path | None = None) -> None:

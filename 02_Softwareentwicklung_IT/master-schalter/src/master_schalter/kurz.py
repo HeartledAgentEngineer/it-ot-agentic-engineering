@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
-from . import alle, anzeige, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
+from . import alle, anzeige, arbeitsweise, besitz, chat_zuordnung, modi, paare, rollen, signale, status, uebergabe, wartet
 from .signale import Fenster, Kontingent
 
 MAX_SITZUNGEN = 3
@@ -36,6 +36,7 @@ class Thema:
     besitzer: str | None        # None = unbekannt
     paar_aktiv: bool | None     # None = kein Paar
     pruefkreis_master: str | None = None   # was `pruefkreis.py` als Master liest; None = pruefkreis bricht ab
+    arbeitsweise: str = "protokoll"   # protokoll | vibe | ? (Datei ungültig)
 
 
 @dataclass(frozen=True)
@@ -167,9 +168,15 @@ def thema_felder(t: Thema, automatik_global: bool) -> tuple[str, str, str, str, 
     return master, besitz_text, pruefer_text(t.pruefkreis_master), ausfuehrer, auto
 
 
+def arbeitsweise_zusatz(wert: str) -> str:
+    """Zusatz am Ende der Themenzeile: „ · VIBE“; bei Protokoll nichts, bei ungültiger Datei „ · Arbeitsweise ?“."""
+    return {arbeitsweise.VIBE: " · VIBE", arbeitsweise.UNBEKANNT: " · Arbeitsweise ?"}.get(wert, "")
+
+
 def _thema_zeile(t: Thema, automatik_global: bool) -> str:
     master, besitz_text, pruefer, ausfuehrer, auto = thema_felder(t, automatik_global)
-    return f"  {t.name}: Master {master} ({besitz_text}) · {pruefer} · Ausführer {ausfuehrer} · {auto}"
+    return (f"  {t.name}: Master {master} ({besitz_text}) · {pruefer} · Ausführer {ausfuehrer} · {auto}"
+            + arbeitsweise_zusatz(t.arbeitsweise))
 
 
 def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -256,6 +263,11 @@ def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]
         profile = {}
         hinweise.append("Hinweis: Themenprofile unlesbar")
     paar_liste = {p.thema: p for p in paare.lesen()}
+    try:
+        weisen, weisen_defekt = arbeitsweise.lesen(), False
+    except arbeitsweise.ArbeitsweiseFehler:
+        weisen, weisen_defekt = {}, True
+        hinweise.append("Hinweis: Arbeitsweise-Datei ungültig – Arbeitsweise unbekannt (?)")
     if repo is _OFFEN:
         repo = repo_bestimmen()   # aus einem Worktree: Besitz liegt im Hauptbaum
     if repo is None:
@@ -272,8 +284,9 @@ def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]
         # pruefkreis sucht immer im festen Übergabeordner, unabhängig vom Paar.
         pk_master = None if repo is None else pruefkreis_master(
             besitz.pfad(repo, paare.laufend_bilden(name)).parent, name)
+        weise = arbeitsweise.UNBEKANNT if weisen_defekt else weisen.get(name, arbeitsweise.PROTOKOLL)
         themen.append(Thema(name, profile.get(name, modi.Profil()), besitzer,
-                            None if paar is None else paar.aktiv, pk_master))
+                            None if paar is None else paar.aktiv, pk_master, weise))
     return themen, hinweise
 
 

@@ -27,12 +27,14 @@ from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Callable
 
-from . import alle, anzeige, kurz, modi, rollen, signale, symbol, wartet
+from . import alle, anzeige, arbeitsweise, kurz, modi, rollen, signale, symbol, wartet
 from .signale import Fenster, Kontingent
 
 NUR_ANZEIGE = "Hauptarbeitsbaum nicht gefunden – nur Anzeige"
 MASTER_WERTE = tuple(wert for _, wert in anzeige.MASTER_AUSWAHL)   # kontingent, claude, codex, hermes
 MASTER_TEXTE = dict(anzeige.ROLLEN_NAMEN)
+ARBEITSWEISE_WERTE = arbeitsweise.WERTE             # protokoll, vibe
+ARBEITSWEISE_TEXTE = arbeitsweise.ANZEIGE           # Protokoll, Vibe, ? (Datei ungültig)
 GRAU = "#9ca3af"          # Balkenfarbe bei unbekanntem Verbrauch
 TEXT_MAX = 400            # Meldungen aus Ausnahmen werden begrenzt
 
@@ -72,6 +74,8 @@ class ThemaZeile:
     ausfuehrer: str
     auto: str
     master_wert: str         # Masterrolle des Profils: kontingent | claude | codex | hermes
+    arbeitsweise: str = arbeitsweise.PROTOKOLL   # protokoll | vibe | ? (Datei ungültig)
+    worker_wert: str = modi.WORKFLOW             # Ausführer des Profils: workflow | claude | codex | hermes
 
 
 @dataclass(frozen=True)
@@ -176,7 +180,7 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
 def _thema_zeile(t: kurz.Thema, automatik: bool) -> ThemaZeile:
     master, besitz_text, pruefer, ausfuehrer, auto = kurz.thema_felder(t, automatik)
     return ThemaZeile(t.name, master, besitz_text.removeprefix("Besitz "), pruefer.removeprefix("Prüfer "),
-                      ausfuehrer, auto, t.profil.master)
+                      ausfuehrer, auto, t.profil.master, t.arbeitsweise, t.profil.worker)
 
 
 def abo_meldungen(abo: Abo) -> list[str]:
@@ -229,6 +233,46 @@ def master_aktion(snap: Uebersicht, thema: str, wert: str) -> Aktion:
         return Ergebnis(True, anzeige.master_meldung(thema, wert))
 
     return Aktion("Master setzen", frage, lauf)
+
+
+def arbeitsweise_aktion(snap: Uebersicht, thema: str, wert: str) -> Aktion:
+    """Arbeitsweise eines Themas auf `wert` (protokoll | vibe) stellen (`modi.vibe_setzen`, nur von Hand).
+
+    Vibe braucht Ausführer Claude und eine lesbare Arbeitsweise-Datei; beides wird hier vorab abgelehnt (die Prüfung
+    in `modi` gilt trotzdem noch einmal unter der Themensperre). Geschrieben wird nur der Datenordner, aber wie alle
+    Änderungen nur, wenn die Aufnahme einen echten Hauptarbeitsbaum fand (sonst „nur Anzeige“).
+    """
+    if not snap.schreiben:
+        raise AktionAbgelehnt(NUR_ANZEIGE)
+    zeile = next((t for t in snap.themen if t.thema == thema), None)
+    if zeile is None:
+        raise AktionAbgelehnt(f"Thema {thema!r} ist nicht bekannt")
+    if wert not in ARBEITSWEISE_WERTE:
+        raise AktionAbgelehnt(f"Unbekannte Arbeitsweise: {wert!r}")
+    if zeile.arbeitsweise == arbeitsweise.UNBEKANNT:
+        raise AktionAbgelehnt(f"{thema}: Arbeitsweise unbekannt (arbeitsweise.json ungültig) – nichts geändert")
+    if wert == zeile.arbeitsweise:
+        raise AktionAbgelehnt(f"{thema}: Arbeitsweise ist schon {ARBEITSWEISE_TEXTE[wert]}")
+    if wert == arbeitsweise.VIBE and zeile.worker_wert != "claude":
+        raise AktionAbgelehnt("Vibe braucht Ausführer Claude – erst `masterwechsel worker-setzen "
+                              f"{thema} claude`")
+    if wert == arbeitsweise.VIBE:
+        frage = (f"Arbeitsweise des Themas „{thema}“ auf Vibe stellen?\n\nDann gilt: {arbeitsweise.VIBE_REGEL}.\n\n"
+                 "Es wird keine Sitzung gestartet.")
+    else:
+        frage = (f"Arbeitsweise des Themas „{thema}“ von Vibe auf Protokoll zurückstellen?\n\n"
+                 "Die Vibe-Regel entfällt; es wird keine Sitzung gestartet.")
+
+    def lauf() -> Ergebnis:
+        if snap.repo is not None and not schreibbar(snap.repo):    # unmittelbar vor dem Schreiben noch einmal
+            return Ergebnis(False, NUR_ANZEIGE)
+        try:
+            modi.vibe_setzen(thema, wert == arbeitsweise.VIBE)
+        except Exception as fehler:  # noqa: BLE001 - jeder Fehler wird gemeldet, nichts bricht das Fenster
+            return Ergebnis(False, f"{thema}: nicht geändert – {_begrenzt(fehler)}")
+        return Ergebnis(True, f"{thema}: Arbeitsweise {ARBEITSWEISE_TEXTE[wert]} gespeichert – keine Sitzung gestartet.")
+
+    return Aktion("Arbeitsweise setzen", frage, lauf)
 
 
 def _bericht_ergebnis(bericht: alle.Bericht, ueberschrift: str) -> Ergebnis:

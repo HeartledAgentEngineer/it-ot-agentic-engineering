@@ -5,6 +5,20 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Arbeitsweise je Thema (`protokoll` Standard | `vibe`): neues Modul `arbeitsweise.py`, Datei `arbeitsweise.json`
+  (`{"version": 1, "themen": {thema: "vibe"}}`, streng gelesen, atomar geschrieben, nicht im Profilformat
+  `themenmodi.json`). CLI `masterwechsel vibe THEMA an|aus` (nur von Hand; `modi.vibe_setzen` unter der Themensperre;
+  Thema muss existieren; idempotent; nennt die Regel). `profil --json` ergänzt `arbeitsweise` und bei Vibe `vibe_regel`
+  (bisherige Felder unverändert), `profil` (Text) zeigt dasselbe. Der Master-Status endet die Themenzeile bei Vibe auf
+  „· VIBE“ (ungültige Datei: „· Arbeitsweise ?“ plus Hinweis). Übersichtsfenster: Spalte „Arbeitsweise“ und Umschalter
+  mit Rückfrage (`uebersicht_modell.arbeitsweise_aktion`).
+- Vorrang Vibe vor der Workerwahl: Vibe nur mit Ausführer Claude. `vibe an` und jedes Schreiben eines Profils mit anderem
+  Ausführer bei Vibe werden abgelehnt (zentral in `modi._speichern` und vor der ersten Besitzmarke in
+  `modi._umschalten_gesperrt`, damit auch `modus THEMA hermes-codex`, `master-setzen`, `alle` und der Wechselassistent
+  geschützt sind). Ist `arbeitsweise.json` nicht lesbar, werden Profile mit anderem Ausführer als Claude fail-closed
+  nicht geschrieben.
+
 ### Geändert
 - Master-Status statt `kurz`: `masterwechsel status` gibt jetzt die Übersicht aus, die bisher `kurz` lieferte (Verbrauch, Lage,
   Matrix, Themen, Sitzungen, Wartet worauf); die alte Zwei-Zeilen-Ausgabe (nur beide Kontingente, `cli.master_zeile`) entfällt.

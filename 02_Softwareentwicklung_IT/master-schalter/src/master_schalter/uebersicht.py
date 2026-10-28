@@ -10,7 +10,7 @@ Start: `python -m master_schalter.uebersicht` (ohne Konsole: `pythonw.exe -m mas
   eine Warteschlange an den Tk-Thread. Dasselbe gilt für alle Aktionen: nie Dateizugriff oder Wartezeit im
   Tk-Thread, nie Tk-Aufruf aus einem anderen Thread.
 * **Dünne Oberfläche:** Daten, Repo-Prüfung, Rückfragetexte und Aktionen liegen in `uebersicht_modell.py` und sind dort
-  ohne Bildschirm getestet. Jede Änderung (Master je Thema, „Alle nach Kontingent“, „Alle wie vorher“, Automatik)
+  ohne Bildschirm getestet. Jede Änderung (Master und Arbeitsweise je Thema, „Alle nach Kontingent“, „Alle wie vorher“, Automatik)
   fragt vorher per Ja/Nein-Dialog (`dialog.frage`, Standard **Nein**); bei „Nein“ wird nichts geändert.
 * **Nur Anzeige:** Findet die Aufnahme keinen echten Hauptarbeitsbaum, sind die Schreibknöpfe gesperrt.
 """
@@ -33,8 +33,10 @@ TITEL = "Master-Schalter – Übersicht"
 RINNE = "#e5e7eb"         # Balkenhintergrund
 FEHLERFARBE = "#b91c1c"
 MASTER_ANZEIGE = tuple(um.MASTER_TEXTE[wert] for wert in um.MASTER_WERTE)   # in der Reihenfolge von MASTER_WERTE
+ARBEITSWEISE_ANZEIGE = tuple(um.ARBEITSWEISE_TEXTE[wert] for wert in um.ARBEITSWEISE_WERTE)   # Protokoll, Vibe
 SPALTEN = (("thema", "Thema", 150, False), ("master", "Master", 110, False), ("besitz", "Besitz", 120, False),
-           ("pruefer", "Prüfer", 190, False), ("ausfuehrer", "Ausführer", 150, False), ("auto", "Auto", 150, True))
+           ("pruefer", "Prüfer", 190, False), ("ausfuehrer", "Ausführer", 150, False),
+           ("arbeitsweise", "Arbeitsweise", 100, False), ("auto", "Auto", 150, True))
 
 
 class Fenster:
@@ -133,12 +135,18 @@ class Fenster:
         wahl = ttk.Frame(themen)
         wahl.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 6))
         self.wahl_var, self.master_var = tk.StringVar(value="Thema in der Tabelle wählen"), tk.StringVar()
+        self.arbeitsweise_var = tk.StringVar()
         ttk.Label(wahl, textvariable=self.wahl_var).pack(side="left")
         ttk.Label(wahl, text="  Master:").pack(side="left")
         self.master_box = ttk.Combobox(wahl, textvariable=self.master_var, state="disabled",
                                        values=list(MASTER_ANZEIGE), width=18)
         self.master_box.pack(side="left", padx=6)
         self.master_box.bind("<<ComboboxSelected>>", lambda _e: self.master_klick())
+        ttk.Label(wahl, text="  Arbeitsweise:").pack(side="left")
+        self.arbeitsweise_box = ttk.Combobox(wahl, textvariable=self.arbeitsweise_var, state="disabled",
+                                             values=list(ARBEITSWEISE_ANZEIGE), width=12)
+        self.arbeitsweise_box.pack(side="left", padx=6)
+        self.arbeitsweise_box.bind("<<ComboboxSelected>>", lambda _e: self.arbeitsweise_klick())
 
         # 4. Knöpfe
         knoepfe = ttk.Frame(wurzel)
@@ -262,7 +270,8 @@ class Fenster:
                     text.set(balken.text)
                     reset.set(balken.reset)
         self._tabelle("themen", self.themen_baum,
-                      [(t.thema, t.thema, t.master, t.besitz, t.pruefer, t.ausfuehrer, t.auto) for t in snap.themen])
+                      [(t.thema, t.thema, t.master, t.besitz, t.pruefer, t.ausfuehrer,
+                        um.ARBEITSWEISE_TEXTE.get(t.arbeitsweise, t.arbeitsweise), t.auto) for t in snap.themen])
         zeilen = list(snap.wartet) or [kurz.WARTET]
         zeilen += list(snap.sitzungen) or ["Sitzungen: keine gemeldet"]
         if self._staende.get("unten") != zeilen:
@@ -302,14 +311,16 @@ class Fenster:
         return next((t for t in self._snap.themen if t.thema == auswahl[0]), None)
 
     def _auswahl_geaendert(self) -> None:
-        """Aufklappmenü auf den gespeicherten Master des gewählten Themas stellen."""
+        """Aufklappmenüs auf den gespeicherten Master und die Arbeitsweise des gewählten Themas stellen."""
         zeile = self._gewaehltes_thema()
         if zeile is None:
             self.wahl_var.set("Thema in der Tabelle wählen")
             self.master_var.set("")
+            self.arbeitsweise_var.set("")
         else:
             self.wahl_var.set(f"Thema {zeile.thema}")
             self.master_var.set(um.MASTER_TEXTE.get(zeile.master_wert, zeile.master_wert))
+            self.arbeitsweise_var.set(um.ARBEITSWEISE_TEXTE.get(zeile.arbeitsweise, zeile.arbeitsweise))
         self._knoepfe_aktualisieren()
 
     def master_klick(self) -> None:
@@ -320,6 +331,21 @@ class Fenster:
             return
         try:
             aktion = um.master_aktion(self._snap, zeile.thema, um.MASTER_WERTE[index])
+        except um.AktionAbgelehnt as fehler:
+            self._status(str(fehler), fehler=True)
+            self._auswahl_geaendert()
+            return
+        self._ausfuehren(aktion)
+        self._auswahl_geaendert()          # bei „Nein“ springt das Aufklappmenü auf den alten Wert zurück
+
+    def arbeitsweise_klick(self) -> None:
+        zeile = self._gewaehltes_thema()
+        index = self.arbeitsweise_box.current()
+        if zeile is None or self._snap is None or not 0 <= index < len(um.ARBEITSWEISE_WERTE):
+            self._auswahl_geaendert()
+            return
+        try:
+            aktion = um.arbeitsweise_aktion(self._snap, zeile.thema, um.ARBEITSWEISE_WERTE[index])
         except um.AktionAbgelehnt as fehler:
             self._status(str(fehler), fehler=True)
             self._auswahl_geaendert()
@@ -392,7 +418,9 @@ class Fenster:
         self.uebergabe_knopf.configure(state=zustand_von(frei))
         self.automatik_knopf.configure(state=zustand_von(frei and self._snap is not None
                                                          and self._snap.automatik is not None))
-        self.master_box.configure(state="readonly" if frei and schreiben and self._gewaehltes_thema() else "disabled")
+        wahl_frei = frei and schreiben and self._gewaehltes_thema() is not None
+        self.master_box.configure(state="readonly" if wahl_frei else "disabled")
+        self.arbeitsweise_box.configure(state="readonly" if wahl_frei else "disabled")
 
 
 def main() -> int:

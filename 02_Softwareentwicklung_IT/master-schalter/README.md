@@ -46,9 +46,10 @@ Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufne
 - **Kontingent:** je Abo und Fenster (5h, Woche) ein Fortschrittsbalken „n % verbraucht“ (0–100), Reset-Zeit und
   Messzeit. Farbe wie im Symbol (aus dem ungerundeten Messwert): Grundfarbe, gelb ab 80 %, rot ab der Schwelle. Eine scheiternde Messung steht mit
   Grund darunter („Claude-Messung scheitert seit HH:MM (letzter Versuch HH:MM): …“, aus `messfehler.json`).
-- **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Auto. Thema wählen, dann im Aufklappmenü
-  „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage setzt
-  `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung).
+- **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Arbeitsweise · Auto. Thema wählen, dann im
+  Aufklappmenü „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage
+  setzt `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung). Das Menü „Arbeitsweise“ (Protokoll / Vibe)
+  schaltet nach Rückfrage `modi.vibe_setzen`; Vibe wird vorab abgelehnt, wenn der Ausführer nicht Claude ist.
 - **Knöpfe:** „Alle nach Kontingent“ und „Alle wie vorher“ (`alle.auf_kontingent` / `alle.zurueck`, mit Rückfrage,
   der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
   (sofort neu lesen).
@@ -327,6 +328,7 @@ Die Befehle im Überblick:
 .\.venv\Scripts\masterwechsel.exe master-setzen THEMA kontingent|claude|codex|hermes
 .\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes
 .\.venv\Scripts\masterwechsel.exe modell-setzen THEMA MODELL|standard
+.\.venv\Scripts\masterwechsel.exe vibe THEMA an|aus
 .\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
 ```
 
@@ -334,7 +336,8 @@ Die Befehle im Überblick:
 (siehe Master-Status): „Jetzt: Prüfer …“ aus dem Besitz (`<thema>.master` im Hauptarbeitsbaum). Ein fester Master
 schreibt die Marke mit, der Prüfer wechselt also sofort (Master Codex ⇒ „Prüfer Hermes (Master Codex)“). Bei
 „Nach Kontingent“ folgt der Prüfer dem jeweiligen Besitzer; weicht eine feste Vorgabe vom Besitz ab, nennt eine
-zweite Zeile den Prüfer nach der Übergabe. `profil --json` bleibt unverändert. **Grenze:** Der Sofortwechsel gilt
+zweite Zeile den Prüfer nach der Übergabe. `profil --json` behält alle bisherigen Felder unverändert; neu kommen die
+Felder der Arbeitsweise dazu (siehe unten). **Grenze:** Der Sofortwechsel gilt
 für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` die
 Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe sagt das dann mit
 „Hinweis: Aufruf aus einem Git-Worktree …“.
@@ -353,6 +356,40 @@ Beim Rückstellen auf `kontingent` werden offene alte Vorgänge entwertet. Die B
 `claude … modus-reset …` nur als Quelle des bestehenden Kontingentwegs; damit wird kein Claude-Chat
 als gestartet behauptet. Der Status lautet **Kontingentbetrieb – Übernahme offen**. Ein Schreibfehler
 zwischen den Teilschritten bleibt geschützt und lässt sich durch erneute Moduswahl vervollständigen.
+
+### Arbeitsweise je Thema: `protokoll` oder `vibe` (unveröffentlicht)
+
+Jedes Thema hat eine Arbeitsweise. Standard ist `protokoll` (der bisherige Ablauf mit Gegenprüfung). `vibe` schaltet
+Sebastian für ein Thema **von Hand** ein; die Regel dazu gehört in den Schalter, nicht in `AGENTS.md`.
+
+- **Datei:** `<datenordner>/arbeitsweise.json` = `{"version": 1, "themen": {"<thema>": "vibe"}}`. Ein fehlendes Thema (oder
+  eine fehlende Datei) heißt `protokoll`. Die Datei gehört bewusst **nicht** zum strengen Profilformat `themenmodi.json`;
+  Profil-Leser und -Sperren bleiben unberührt. Gelesen wird streng: kaputtes JSON, unbekannte Version, Schlüssel oder
+  Werte ergeben einen Fehler beim Setzen und die Anzeige „?“ (nie ein Absturz); eine ungültige Datei wird nie
+  überschrieben. Schreiben ist atomar unter der kurzen globalen Sperre. `aus` entfernt den Eintrag.
+- **Nur von Hand:** `masterwechsel vibe THEMA an|aus` (und die Spalte „Arbeitsweise“ im Übersichtsfenster, mit
+  Ja/Nein-Rückfrage). Kein Automatikpfad (`automatik`, `alle`, Wechselassistent) schreibt die Datei. Das Thema muss
+  existieren (Profil oder Paar); jeder Fehler lässt die Datei unverändert; wiederholtes Setzen ist idempotent.
+- **Regel (`vibe_regel`):** Claude-Subagent baut (Modell laut Profil; bei `modell_standard` wählt der Master Sonnet oder
+  Haiku); der Master gibt den Auftrag und nimmt per Kurzprüfung ab (Diff lesen, Prüfbefehl selbst ausführen); keine
+  Codex-/Hermes-Gegenprüfung; Prüfbefehl Pflicht vor Commit und Push; Sensibles nur Hermes; kein OT/SPS-Code; kein
+  force-push, kein Löschen. Ein festes Claude-Modell im Profil gilt; die Regel schreibt kein Modell vor. `vibe an` gibt
+  die Regel aus.
+- **`profil THEMA --json`:** bekommt zusätzlich `"arbeitsweise": "protokoll"|"vibe"` (bei ungültiger Datei `"?"`) und bei
+  `vibe` `"vibe_regel"`; die bisherigen Felder bleiben unverändert und stehen vorn. `profil THEMA` (Text) zeigt
+  „Arbeitsweise: …“ und bei Vibe die Regel. Vor jedem Workerauftrag gilt: `arbeitsweise` aus dem Profil beachten.
+- **Vorrang Vibe vor der Workerwahl:** Vibe gibt es nur mit `worker=claude`, damit Profil und Regel nie widersprechen.
+  `vibe THEMA an` bei anderem Ausführer ⇒ Fehler „Vibe braucht Ausführer Claude – erst `worker-setzen THEMA claude`“.
+  Umgekehrt lehnt jedes Schreiben eines Profils mit anderem Ausführer bei `vibe` ab („erst `vibe THEMA aus`“), ohne
+  Profil oder Besitzdatei zu ändern. Die Prüfung sitzt zentral im einzigen Profilschreiber `modi._speichern` und – vor
+  der ersten Besitzmarke – in `modi._umschalten_gesperrt`; damit gilt sie für `worker-setzen`, `modell-setzen`,
+  `master-setzen`, `modus THEMA hermes-codex|kontingent` (Legacy-Profil mit Ausführer codex/workflow), `alle` und den
+  Wechselassistenten. `vibe` selbst läuft unter der Themensperre und liest das Profil dazu frisch. **Grenze
+  (fail-closed):** Ist `arbeitsweise.json` nicht lesbar, ist unbekannt, ob Vibe gilt – dann werden Profile mit anderem
+  Ausführer als Claude nicht geschrieben (die Meldung nennt den Grund), bis die Datei repariert ist.
+- **Anzeige:** Die Themenzeile im Master-Status endet bei Vibe auf „· VIBE“ (bei Protokoll nichts, bei ungültiger Datei
+  „· Arbeitsweise ?“ plus Hinweis). Das Übersichtsfenster hat die Spalte „Arbeitsweise“ und neben dem Master-Menü einen
+  Umschalter (Protokoll/Vibe, mit Rückfrage; gesperrt in „nur Anzeige“).
 
 ### Bereinigter Codex-Code-Worker
 
@@ -865,6 +902,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 # Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
 .\.venv\Scripts\masterwechsel.exe claude-kontingent --fuenf 90 --woche 70 --reset-fuenf 2026-10-14T18:40:00Z --reset-woche 2026-10-18T21:00:00Z
 
+# Arbeitsweise Vibe eines Themas ein- oder ausschalten (nur von Hand; braucht Ausführer Claude)
+.\.venv\Scripts\masterwechsel.exe vibe engineering an
+.\.venv\Scripts\masterwechsel.exe vibe engineering aus
+
 # Rollenvorgabe eines Themas lesen (verbindlich vor jedem neuen Workerauftrag)
 .\.venv\Scripts\masterwechsel.exe profil engineering --json
 
@@ -918,6 +959,7 @@ Claude- und Codex-App sind MSIX-Pakete, deren Kindprozesse je Starter in
 src/master_schalter/
   zustand.py   Aktiven Master und letzten Wechsel lokal speichern; Sperren (global und je Thema)
   modi.py      Rollenprofile v2 je Thema (Master, Ausführer, Modell) und fail-closed Themenbesitz
+  arbeitsweise.py  Arbeitsweise je Thema (`protokoll`|`vibe`, `arbeitsweise.json`), nur von Hand geschrieben
   modelle.py   Modellkataloge der installierten Werkzeuge lesen/abgleichen (lokaler Metadatencache)
   rollen.py    Lage und Besetzung gemäß AGENTS.md bestimmen
   uebergabe.py Technische Metadaten als Übergabepaket schreiben (auch minimal, ohne Pläne)

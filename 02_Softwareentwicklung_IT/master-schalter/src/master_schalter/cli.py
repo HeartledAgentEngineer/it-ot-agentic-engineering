@@ -19,6 +19,7 @@
                                       Weg der Limit-Automatik anzeigen oder setzen (Standard alt)
     masterwechsel profil THEMA [--json]
                                       Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
+    masterwechsel vibe THEMA an|aus   Arbeitsweise Vibe für ein Thema ein-/ausschalten (nur von Hand; braucht Ausführer Claude)
     masterwechsel master-setzen THEMA MASTER
                                       Masterrolle eines Themas setzen (kontingent|claude|codex|hermes)
     masterwechsel worker-setzen THEMA WORKER
@@ -53,7 +54,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import (__version__, alle, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
+from . import (__version__, alle, anzeige, arbeitsweise, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
                claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wartet, wechsel,
                zustand)
 
@@ -233,14 +234,36 @@ def _profil_cli(args: argparse.Namespace) -> int:
     except (modi.ModusFehler, OSError) as fehler:
         print(f"Profil nicht lesbar: {fehler}", file=sys.stderr)
         return 1
+    weise = arbeitsweise.anzeige_wert(args.thema)
     if args.json:
-        print(json.dumps({"thema": args.thema, "master": wert.master, "worker": wert.worker,
-                          "modell": wert.modell, "modell_standard": wert.modell is None,
-                          "geschuetzt": sicher}, ensure_ascii=False))
+        daten = {"thema": args.thema, "master": wert.master, "worker": wert.worker,
+                 "modell": wert.modell, "modell_standard": wert.modell is None,
+                 "geschuetzt": sicher, "arbeitsweise": weise}
+        if weise == arbeitsweise.VIBE:
+            daten["vibe_regel"] = arbeitsweise.VIBE_REGEL
+        print(json.dumps(daten, ensure_ascii=False))
         return 0
     stand = anzeige.Rollenstand(wert.master, wert.worker, wert.modell)
     print("\n".join(anzeige.rollen_zeilen(args.thema, stand, sicher)))
+    print("\n".join(arbeitsweise.profil_zeilen(weise)))
     print("\n".join(kurz.pruefer_vorschau(args.thema, wert.master)))
+    return 0
+
+
+def _vibe_cli(args: argparse.Namespace) -> int:
+    """Arbeitsweise Vibe je Thema – nur von Hand; Fehler lassen die Datei unverändert."""
+    an = args.zustand == "an"
+    try:
+        geaendert = modi.vibe_setzen(args.thema, an)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Arbeitsweise nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    zusatz = "" if geaendert else " (unverändert)"
+    if an:
+        print(f"{args.thema}: Arbeitsweise Vibe{zusatz}.")
+        print(f"  Vibe-Regel: {arbeitsweise.VIBE_REGEL}")
+    else:
+        print(f"{args.thema}: Arbeitsweise Protokoll{zusatz} – keine Vibe-Regel.")
     return 0
 
 
@@ -578,6 +601,9 @@ def _parser() -> argparse.ArgumentParser:
     profil_parser = unter.add_parser("profil", help="Rollenprofil eines Themas anzeigen (Master, Ausführer, Modell)")
     profil_parser.add_argument("thema", help="vorhandenes Thema")
     profil_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    vibe = unter.add_parser("vibe", help="Arbeitsweise Vibe eines Themas ein- oder ausschalten (nur von Hand)")
+    vibe.add_argument("thema", help="vorhandenes Thema")
+    vibe.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
     master_setzen = unter.add_parser("master-setzen", help="Masterrolle eines Themas setzen")
     master_setzen.add_argument("thema", help="vorhandenes Thema")
     master_setzen.add_argument("master", help="kontingent, claude, codex oder hermes")
@@ -673,6 +699,8 @@ def main(argv: list[str] | None = None) -> int:
         return _modus_cli(args)
     if args.befehl == "profil":
         return _profil_cli(args)
+    if args.befehl == "vibe":
+        return _vibe_cli(args)
     if args.befehl == "master-setzen":
         return _master_setzen_cli(args)
     if args.befehl == "worker-setzen":

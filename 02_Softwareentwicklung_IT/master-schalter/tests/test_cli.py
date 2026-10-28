@@ -293,7 +293,8 @@ def test_profil_json_ist_maschinenlesbar(rollen, capsys):
 
     daten = json.loads(capsys.readouterr().out)
     assert daten == {"thema": "engineering", "master": "kontingent", "worker": "hermes",
-                     "modell": modi.HERMES_MODELL, "modell_standard": False, "geschuetzt": False}
+                     "modell": modi.HERMES_MODELL, "modell_standard": False, "geschuetzt": False,
+                     "arbeitsweise": "protokoll"}
 
 
 def test_profil_json_standardmodell_und_schutz(rollen, capsys):
