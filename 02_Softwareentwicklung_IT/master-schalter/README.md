@@ -44,7 +44,7 @@ Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufne
 - **Kopf:** Uhrzeit, Lage und der Hauptschalter **Automatik** (an/aus) als Umschaltknopf; vor dem Umschalten fragt ein
   Ja/Nein-Dialog (Standard **Nein**).
 - **Kontingent:** je Abo und Fenster (5h, Woche) ein Fortschrittsbalken „n % verbraucht“ (0–100), Reset-Zeit und
-  Messzeit. Farbe wie im Symbol: Grundfarbe, gelb ab 80 %, rot ab der Schwelle. Eine scheiternde Messung steht mit
+  Messzeit. Farbe wie im Symbol (aus dem ungerundeten Messwert): Grundfarbe, gelb ab 80 %, rot ab der Schwelle. Eine scheiternde Messung steht mit
   Grund darunter („Claude-Messung scheitert seit HH:MM (letzter Versuch HH:MM): …“, aus `messfehler.json`).
 - **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Auto. Thema wählen, dann im Aufklappmenü
   „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage setzt
@@ -53,6 +53,9 @@ Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufne
   der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
   (sofort neu lesen).
 - **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie `kurz`: Kennung gekürzt, keine Chat-Titel, keine Pfade).
+- **Lesefehler:** scheitert eine Aktualisierung, zeigt das Fenster keine alten Werte weiter: alle Balken „unbekannt“,
+  darunter „keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)“, „Automatik: unbekannt“; Automatik- und
+  Schreibknöpfe sind gesperrt, bis eine Aufnahme wieder gelingt.
 
 **Ein Repo-Ort für Lesen und Schreiben:** Je Aktualisierung wird genau einmal
 `uebergabe.haupt_wurzel(uebergabe.repo_wurzel())` bestimmt; mit genau diesem `repo` werden Besitz gelesen und alle
@@ -673,6 +676,8 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   Erfolg ⇒ Eintrag derselben Quelle weg. Der Text ist der feste Fehlertext, nie Rohdaten oder Token. Es gibt **keine
   Verfallsgrenze**: ein Eintrag gilt, bis eine Messung derselben Quelle gelingt. Kann die Statusdatei nicht
   geschrieben werden, bleiben Messergebnis und Ausnahme unverändert; eine kaputte Datei zeigt einfach nichts an.
+  Lesen-Ändern-Schreiben läuft unter der Sperre `messfehler.json.lock`, damit zwei Messwege (z. B. Leiste und CLI)
+  sich nicht gegenseitig einen alten Stand zurückschreiben; bleibt sie 5 s belegt, entfällt dieses eine Update.
 
 ### Alle Themen auf einmal (`masterwechsel alle`, unveröffentlicht)
 

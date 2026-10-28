@@ -45,7 +45,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - Messfehler-Status `messfehler.json` im Datenordner (`signale.messfehler_setzen/_loeschen/_lesen`): Fehler ⇒ Eintrag
   mit Kategorie, festem Text, `seit` (bleibt in der Serie) und `zuletzt`; Erfolg ⇒ Eintrag der Quelle weg; keine
   Verfallsgrenze; Schreibfehler werden verschluckt. `kurz` und die Übersicht zeigen „Claude-Messung scheitert seit
-  HH:MM (letzter Versuch HH:MM): …“.
+  HH:MM (letzter Versuch HH:MM): …“. Lesen-Ändern-Schreiben unter der Sperre `messfehler.json.lock` (Codex-R1).
+- Übersicht nach Codex-Ergebnisprüfung R1: nach einem Lesefehler stehen keine alten Balken mehr (alle „unbekannt“,
+  Hinweis „keine aktuellen Messdaten“), Automatik ist „unbekannt“ und nicht umschaltbar; die Balkenfarbe kommt aus
+  dem ungerundeten Wert wie beim Symbol (96,6 % bei Schwelle 97 bleibt gelb).
 - `masterwechsel alle kontingent|zurueck` (`alle.py`): alle Themen auf einmal nach Kontingent und zurück auf die
   vorher gemerkten festen Rollen (Merkdatei `alle-vorher.json`, nach Abschluss archiviert statt gelöscht). Hermes
   (Master, Besitz, abgebrochener Wechsel) bleibt unberührt. Neu in `modi`: `master_setzen_wenn` – Prüfung, Merken

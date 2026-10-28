@@ -23,10 +23,12 @@ import json
 import math
 import os
 import tempfile
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 CODEX_LIMIT_ID = "codex"
 ANFANG_BYTES = 4096  # Dateianfang als Fingerabdruck: erkennt neu geschriebene Sitzungsdateien
@@ -475,6 +477,31 @@ def messfehler_lesen(datei: Path | None = None) -> dict[str, Messfehler]:
     return gueltig
 
 
+@contextmanager
+def _messfehler_sperre(datei: Path, frist: float = 5.0, takt: float = 0.05) -> Iterator[None]:
+    """Exklusive Sperre `<datei>.lock` um Lesen-Ändern-Schreiben, damit sich Messwege nicht gegenseitig überschreiben.
+
+    Bleibt sie `frist` Sekunden belegt, wird eine Ausnahme geworfen und das Update entfällt (der Aufrufer
+    verschluckt sie; die nächste Messung derselben Quelle setzt den Eintrag wieder richtig).
+    """
+    from .zustand import _freigeben, _versuchen   # spät: zustand importiert signale
+    pfad = datei.with_name(datei.name + ".lock")
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(pfad, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        ende = time.monotonic() + frist
+        while not _versuchen(fd):
+            if time.monotonic() >= ende:
+                raise TimeoutError(f"Sperre auf {pfad.name} blieb {frist:g} s belegt")
+            time.sleep(takt)
+        try:
+            yield
+        finally:
+            _freigeben(fd)
+    finally:
+        os.close(fd)
+
+
 def messfehler_setzen(quelle: str, kategorie: str, text: str, jetzt: datetime | None = None,
                       datei: Path | None = None) -> None:
     """Fehler der Quelle atomar eintragen; `seit` bleibt beim ersten Fehler der Serie, `zuletzt` wird jetzt.
@@ -484,11 +511,12 @@ def messfehler_setzen(quelle: str, kategorie: str, text: str, jetzt: datetime | 
     try:
         datei = datei or messfehler_datei()
         jetzt = jetzt or datetime.now(timezone.utc)
-        roh = _messfehler_roh(datei)
-        alt = _messfehler_eintrag(quelle, roh.get(quelle))
-        roh[quelle] = {"kategorie": kategorie, "text": text,
-                       "seit": (alt.seit if alt else jetzt).isoformat(), "zuletzt": jetzt.isoformat()}
-        _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+        with _messfehler_sperre(datei):
+            roh = _messfehler_roh(datei)
+            alt = _messfehler_eintrag(quelle, roh.get(quelle))
+            roh[quelle] = {"kategorie": kategorie, "text": text,
+                           "seit": (alt.seit if alt else jetzt).isoformat(), "zuletzt": jetzt.isoformat()}
+            _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
     except Exception:  # noqa: BLE001 - der Statusdatei-Fehler ändert nie das Messergebnis
         pass
 
@@ -497,11 +525,12 @@ def messfehler_loeschen(quelle: str, datei: Path | None = None) -> None:
     """Eintrag der Quelle nach gelungener Messung entfernen; ohne Eintrag wird nichts geschrieben. Wirft nie."""
     try:
         datei = datei or messfehler_datei()
-        roh = _messfehler_roh(datei)
-        if quelle not in roh:
-            return
-        del roh[quelle]
-        _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
+        with _messfehler_sperre(datei):
+            roh = _messfehler_roh(datei)
+            if quelle not in roh:
+                return
+            del roh[quelle]
+            _atomar_schreiben(datei, json.dumps(roh, ensure_ascii=False, indent=2))
     except Exception:  # noqa: BLE001
         pass
 

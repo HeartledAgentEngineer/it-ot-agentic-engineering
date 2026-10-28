@@ -235,17 +235,32 @@ class Fenster:
     def snapshot_anwenden(self, snap: um.Uebersicht) -> None:
         self._snap = snap
         self.kopf_var.set(f"Master-Schalter · {snap.zeit} · {snap.lage_text}")
-        self.automatik_var.set(f"Automatik: {'an' if snap.automatik else 'aus'}")
-        self.automatik_knopf.configure(text="Automatik ausschalten …" if snap.automatik else "Automatik einschalten …")
-        for index, abo in enumerate(snap.abos):
-            info, fehler = self._abo_info[index]
-            info.set(abo.gemessen)
-            fehler.set("\n".join(um.abo_meldungen(abo)))
-            for k, balken in enumerate(abo.balken):
+        if snap.automatik is None:
+            self.automatik_var.set("Automatik: unbekannt")
+            self.automatik_knopf.configure(text="Automatik umschalten …")
+        else:
+            self.automatik_var.set(f"Automatik: {'an' if snap.automatik else 'aus'}")
+            self.automatik_knopf.configure(text="Automatik ausschalten …" if snap.automatik else "Automatik einschalten …")
+        for index, (info, fehler) in enumerate(self._abo_info):
+            abo = snap.abos[index] if index < len(snap.abos) else None
+            if abo is None:
+                # Lesen gescheitert: alte Werte nicht stehen lassen, sondern ausdrücklich „unbekannt“ zeigen
+                info.set("")
+                fehler.set("keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)")
+            else:
+                info.set(abo.gemessen)
+                fehler.set("\n".join(um.abo_meldungen(abo)))
+            for k in range(2):
                 _, leiste, text, reset = self._balken[index * 2 + k]
-                leiste.configure(value=balken.prozent, style=self._stil_fuer(balken.farbe))
-                text.set(balken.text)
-                reset.set(balken.reset)
+                balken = abo.balken[k] if abo is not None and k < len(abo.balken) else None
+                if balken is None:
+                    leiste.configure(value=0, style=self._stil_fuer(um.GRAU))
+                    text.set("unbekannt")
+                    reset.set("")
+                else:
+                    leiste.configure(value=balken.prozent, style=self._stil_fuer(balken.farbe))
+                    text.set(balken.text)
+                    reset.set(balken.reset)
         self._tabelle("themen", self.themen_baum,
                       [(t.thema, t.thema, t.master, t.besitz, t.pruefer, t.ausfuehrer, t.auto) for t in snap.themen])
         zeilen = list(snap.wartet) or [kurz.WARTET]
@@ -351,7 +366,12 @@ class Fenster:
     def automatik_klick(self) -> None:
         if self._snap is None:
             return
-        self._ausfuehren(um.automatik_aktion(self._snap))
+        try:
+            aktion = um.automatik_aktion(self._snap)
+        except um.AktionAbgelehnt as fehler:
+            self._status(str(fehler), fehler=True)
+            return
+        self._ausfuehren(aktion)
 
     def uebergabe_klick(self) -> None:
         if self._beschaeftigt:
@@ -370,7 +390,8 @@ class Fenster:
         self.kontingent_knopf.configure(state=zustand_von(frei and schreiben))
         self.zurueck_knopf.configure(state=zustand_von(frei and schreiben))
         self.uebergabe_knopf.configure(state=zustand_von(frei))
-        self.automatik_knopf.configure(state=zustand_von(frei and self._snap is not None))
+        self.automatik_knopf.configure(state=zustand_von(frei and self._snap is not None
+                                                         and self._snap.automatik is not None))
         self.master_box.configure(state="readonly" if frei and schreiben and self._gewaehltes_thema() else "disabled")
 
 

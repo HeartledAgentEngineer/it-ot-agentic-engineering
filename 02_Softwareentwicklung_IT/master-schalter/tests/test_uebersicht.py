@@ -319,3 +319,19 @@ def test_beschaeftigt_sperrt_knoepfe_und_zweite_aktion(wurzel):
     f.automatik_klick()
     assert aktionen.fragen == [] and "warten" in f.status_var.get()
 
+
+def test_lesefehler_loescht_alte_balken_und_sperrt_die_automatik(wurzel):
+    f, aktionen = _fenster(wurzel)
+    assert float(f._balken[0][1]["value"]) == 62
+    f.snapshot_anwenden(um.leer("Aktualisierung fehlgeschlagen (OSError)"))
+
+    assert all(float(leiste["value"]) == 0 and text.get() == "unbekannt" and reset.get() == ""
+               for _, leiste, text, reset in f._balken)
+    assert all(info.get() == "" and "Aktualisierung fehlgeschlagen" in fehler.get() for info, fehler in f._abo_info)
+    assert f.automatik_var.get() == "Automatik: unbekannt"
+    assert str(f.automatik_knopf["state"]) == "disabled"
+    f.automatik_klick()
+    assert aktionen.fragen == [] and "unbekannt" in f.status_var.get()
+
+    f.snapshot_anwenden(_snap())                                    # nächste gute Aufnahme stellt alles wieder her
+    assert float(f._balken[0][1]["value"]) == 62 and str(f.automatik_knopf["state"]) == "normal"

@@ -374,3 +374,39 @@ def test_kurz_sammeln_zeigt_eintrag_nach_60_minuten_weiter(daten, tmp_path, monk
     vor_zwei_stunden = datetime.now(UTC) - timedelta(hours=2)
     signale.messfehler_setzen("claude", "netz", "Claude-Kontingent konnte nicht gelesen werden", jetzt=vor_zwei_stunden)
     assert "Claude-Messung scheitert seit" in "\n".join(kurz.sammeln())
+
+
+# --- Sperre um Lesen-Ändern-Schreiben (R1-Befund 1) ------------------------------------------------------
+
+def test_loeschen_wartet_auf_die_sperre_und_ueberschreibt_keinen_fremden_stand(daten):
+    """Hält ein Messweg die Sperre, wartet der andere; danach sieht er den neuen Stand und schreibt nichts Altes zurück."""
+    import threading
+    signale.messfehler_setzen("claude", "netz", "alt", jetzt=T0)
+    signale.messfehler_setzen("codex", "netz", "codex", jetzt=T0)
+    fertig = threading.Event()
+
+    def codex_erfolg():
+        signale.messfehler_loeschen("codex")
+        fertig.set()
+
+    with signale._messfehler_sperre(_datei(daten)):
+        faden = threading.Thread(target=codex_erfolg)
+        faden.start()
+        assert not fertig.wait(0.3)                                  # blockiert, solange die Sperre gehalten wird
+        roh = _roh(daten)
+        del roh["claude"]                                            # Claude-Erfolg „unter der Sperre“
+        _datei(daten).write_text(json.dumps(roh), encoding="utf-8")
+    faden.join(5)
+    assert fertig.is_set()
+    assert _roh(daten) == {}                                         # der erledigte Claude-Fehler kehrt nicht zurück
+
+
+def test_belegte_sperre_laesst_das_update_aus_ohne_ausnahme(daten, monkeypatch):
+    signale.messfehler_setzen("claude", "netz", "alt", jetzt=T0)
+    vorher = _datei(daten).read_bytes()
+    original = signale._messfehler_sperre
+    monkeypatch.setattr(signale, "_messfehler_sperre", lambda datei: original(datei, frist=0.1))
+    with original(_datei(daten)):
+        signale.messfehler_setzen("claude", "http", "neu", jetzt=T0 + timedelta(minutes=1))   # wirft nicht
+        signale.messfehler_loeschen("claude")
+    assert _datei(daten).read_bytes() == vorher

@@ -79,7 +79,7 @@ class Uebersicht:
     zeit: str
     lage: str | None
     lage_text: str
-    automatik: bool
+    automatik: bool | None   # None = unbekannt (Lesen gescheitert) ⇒ Umschalten gesperrt
     schwelle: int
     abos: tuple[Abo, ...]
     themen: tuple[ThemaZeile, ...]
@@ -132,7 +132,7 @@ def _balken(abo: str, name: str, f: Fenster | None, grundfarbe: tuple[int, int, 
                       f"zurückgesetzt {kurz._uhr(f.reset, jetzt, zone)}" if f.reset else "", True)
     prozent = kurz.verbraucht(f.prozent)
     reset = f"Reset in {kurz.dauer(f.reset - jetzt)} ({kurz._uhr(f.reset, jetzt, zone)})" if f.reset else ""
-    return Balken(abo, name, prozent, f"{prozent} % verbraucht", _hex(symbol.farbe(prozent, grundfarbe, schwelle)),
+    return Balken(abo, name, prozent, f"{prozent} % verbraucht", _hex(symbol.farbe(f.prozent, grundfarbe, schwelle)),
                   reset, True)
 
 
@@ -188,7 +188,7 @@ def abo_meldungen(abo: Abo) -> list[str]:
 def leer(hinweis: str, jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebersicht:
     """Notfall-Aufnahme, wenn das Lesen scheitert: nichts anzeigen, nichts schreiben lassen."""
     jetzt = jetzt or datetime.now(timezone.utc)
-    return Uebersicht(zeit=kurz._uhr(jetzt, jetzt, zone), lage=None, lage_text="Lage ?", automatik=False,
+    return Uebersicht(zeit=kurz._uhr(jetzt, jetzt, zone), lage=None, lage_text="Lage ?", automatik=None,
                       schwelle=anzeige.STANDARD_SCHWELLE, abos=(), themen=(), wartet=(), sitzungen=(),
                       hinweise=(hinweis,), repo=None, schreiben=False, schreib_hinweis=NUR_ANZEIGE)
 
@@ -265,7 +265,12 @@ def alle_aktion(snap: Uebersicht, richtung: str) -> Aktion:
 
 
 def automatik_aktion(snap: Uebersicht) -> Aktion:
-    """Hauptschalter Automatik umschalten (Datei `einstellungen.json`, kein Repo-Zugriff)."""
+    """Hauptschalter Automatik umschalten (Datei `einstellungen.json`, kein Repo-Zugriff).
+
+    Ist der Zustand unbekannt (`automatik is None`), wird nichts angeboten: `AktionAbgelehnt`.
+    """
+    if snap.automatik is None:
+        raise AktionAbgelehnt("Automatikzustand unbekannt – erst neu laden.")
     neu = not snap.automatik
     if neu:
         frage = ("Automatik einschalten?\n\nDann dürfen aktive Themen-Paare mit Master „nach Kontingent“ beim "

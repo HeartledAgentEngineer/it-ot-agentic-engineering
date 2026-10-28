@@ -320,3 +320,21 @@ def test_uebergabe_starten_fehler_nennt_nur_die_klasse(monkeypatch):
     monkeypatch.setattr(um.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError("C:/geheim/python.exe")))
     ergebnis = um.uebergabe_starten()
     assert not ergebnis.ok and "OSError" in ergebnis.text and "geheim" not in ergebnis.text
+
+
+# --- R1-Befunde 2 und 3 ---------------------------------------------------------------------------------------
+
+def test_leer_kennt_den_automatikzustand_nicht_und_bietet_kein_umschalten(umgebung):
+    snap = um.leer("Aktualisierung fehlgeschlagen (OSError)", JETZT, UTC)
+    assert snap.automatik is None and snap.abos == ()
+    with pytest.raises(um.AktionAbgelehnt, match="unbekannt"):
+        um.automatik_aktion(snap)
+
+
+@pytest.mark.parametrize("wert", [96.6, 79.6])
+def test_balkenfarbe_kommt_aus_dem_ungerundeten_wert_wie_beim_symbol(umgebung, monkeypatch, wert):
+    monkeypatch.setattr(signale, "alle_lesen", lambda jetzt=None: [_k("Claude", wert, 1), _k("Codex", 1, 2)])
+    balken = um.aufnehmen(JETZT, UTC).abos[0].balken[0]
+    erwartet = "#{:02x}{:02x}{:02x}".format(*symbol.farbe(wert, symbol.CLAUDE, anzeige.schwelle()))
+    assert balken.prozent == round(wert) and balken.farbe == erwartet
+    assert balken.farbe != "#{:02x}{:02x}{:02x}".format(*symbol.farbe(round(wert), symbol.CLAUDE, anzeige.schwelle()))
