@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from master_schalter import (alle, assistent, assistent_vorgaenge, automatik, besitz, cli, kurz, modi, paare, postfach,
-                             signale)
+from master_schalter import (alle, arbeitsweise, assistent, assistent_vorgaenge, automatik, besitz, cli, kurz, modi, paare,
+                             postfach, signale)
 
 THEMA = "neues-thema"
 PAAR_THEMA = "mit-paar"
@@ -335,3 +335,12 @@ def test_vorschau_aus_worktree_mit_hinweis_bei_thema_mit_paar(env):
     paare.setzen(PAAR_THEMA, THREAD, paare.laufend_bilden(PAAR_THEMA), aktiv=True)
     _worktree(env)
     assert any("Git-Worktree" in z for z in kurz.pruefer_vorschau(PAAR_THEMA, "codex"))
+
+
+def test_vorschau_bei_vibe_mit_paar_aus_worktree_behaelt_den_hinweis(env):
+    """Prüfertext (Vibe) und Worktree-Warnung sind unabhängig: Vibe darf die Warnung nicht verschlucken (R2)."""
+    paare.setzen(PAAR_THEMA, THREAD, paare.laufend_bilden(PAAR_THEMA), aktiv=True)
+    _worktree(env)
+    zeilen = kurz.pruefer_vorschau(PAAR_THEMA, "codex", arbeitsweise.VIBE)
+    assert zeilen[0] == f"  Jetzt: {kurz.VIBE_PRUEFER}"
+    assert any("Git-Worktree" in z for z in zeilen) and not any("Sobald" in z for z in zeilen)

@@ -144,23 +144,25 @@ def pruefer_vorschau(thema: str, vorgabe: str, weise: str = arbeitsweise.PROTOKO
     """Zwei Zeilen für `master-setzen`/`profil`: wer heute prüft und wer nach der Übergabe an `vorgabe` prüft.
 
     Nur lesend; maßgeblich ist wie bei `pruefkreis` der Besitz (`<thema>.master`), nicht die gespeicherte Vorgabe.
-    Bei Arbeitsweise Vibe gibt es keine Codex-/Hermes-Gegenprüfung: dann nur eine Zeile mit der Master-Kurzprüfung.
+    Bei Arbeitsweise Vibe gibt es keine Codex-/Hermes-Gegenprüfung: dann steht dort die Master-Kurzprüfung (ohne
+    Übergabezeile); der Worktree-Hinweis zum Schreibort gilt unabhängig davon.
     """
-    if weise == arbeitsweise.VIBE:
-        return [f"  Jetzt: {VIBE_PRUEFER}"]
+    vibe = weise == arbeitsweise.VIBE
     try:
         lokal = uebergabe.repo_wurzel()
         repo = uebergabe.haupt_wurzel(lokal)
         ordner = besitz.pfad(repo, paare.laufend_bilden(thema)).parent
     except (uebergabe.UebergabeFehler, paare.PaarFehler):
-        return ["  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
+        return [f"  Jetzt: {VIBE_PRUEFER}" if vibe else "  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
     jetzt = pruefkreis_master(ordner, thema)
-    zeilen = [f"  Jetzt: {pruefer_text(jetzt)}"]
+    zeilen = [f"  Jetzt: {VIBE_PRUEFER if vibe else pruefer_text(jetzt)}"]
     # Themen mit Paar: die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum.
     # Themen ohne Paar (mit Profil) schreiben immer im Hauptbaum – dort stimmt die Vorschau, kein Hinweis.
     if repo != lokal and not _ohne_paar_mit_profil(thema):
         zeilen.append("  Hinweis: Aufruf aus einem Git-Worktree – master-setzen schreibt die Besitzmarke dort, "
                       "pruefkreis liest den Hauptarbeitsbaum")
+    if vibe:
+        return zeilen
     if vorgabe == modi.KONTINGENT:
         zeilen.append("  Nach Kontingent: Prüfer folgt dem Besitzer (Master Codex ⇒ Hermes, sonst Codex)")
     elif vorgabe != jetzt:
