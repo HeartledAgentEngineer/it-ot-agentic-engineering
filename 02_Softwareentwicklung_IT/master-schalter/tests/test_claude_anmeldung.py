@@ -205,3 +205,14 @@ def test_erneuern_wirft_nie(monkeypatch):
 
     monkeypatch.setattr(modelle, "claude_programm", kaputtes_programm)
     assert claude_anmeldung.erneuern() is False
+
+
+def test_taskkill_startet_ohne_konsolenfenster(monkeypatch):
+    """Ergebnisprüfung R1-2: auch das Beenden nach dem Zeitlimit öffnet nie ein Konsolenfenster."""
+    prozess = type("Prozess", (), {"pid": 321, "wait": lambda self, timeout: None})()
+    calls = []
+    monkeypatch.setattr(claude_anmeldung.os, "name", "nt")
+    monkeypatch.setattr(claude_anmeldung.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(claude_anmeldung.subprocess, "run", lambda args, **kw: calls.append(kw))
+    claude_anmeldung.prozessbaum_beenden(prozess)
+    assert calls[0]["creationflags"] == 0x08000000

@@ -20,7 +20,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   `erneuern=True`), startet `claude_anmeldung.erneuern` genau einmal `claude auth status` (ohne Konsole, Ausgabe nach
   `DEVNULL`, 30 s Frist, Prozessbaum-Ende bei Timeout, wirft nie) und `messen` liest genau einmal neu. Gedrosselt auf einen
   Versuch je 30 min über alle Prozesse: Sperre `claude-erneuerung.lock`, Zeitstempel `claude-erneuerung.json` wird vor dem
-  Start geschrieben, nicht schreibbar ⇒ kein Versuch (fail-closed), kaputt/zukünftig ⇒ gilt als alt. Bleibt der Zugang
+  Start geschrieben, nicht schreibbar ⇒ kein Versuch (fail-closed), kaputt oder mehr als 30 min in der Zukunft ⇒ gilt
+  als alt; die Uhrzeit wird erst unter der Sperre genommen, `taskkill` startet ohne Konsolenfenster (Codex-R1). Bleibt der Zugang
   abgelaufen: „Claude-Messzugang abgelaufen – automatische Erneuerung um HH:MM ohne Erfolg; …“. Wirksamkeit nicht belegt
   (README nennt die Erkennung). Tests: `test_claude_messen.py`, `test_claude_anmeldung.py` (u. a. zwei echte Unterprozesse);
   `conftest.py` ersetzt `claude_messen.cli_erneuern` automatisch, damit kein Test die echte CLI startet.

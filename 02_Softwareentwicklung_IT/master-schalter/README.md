@@ -886,12 +886,14 @@ Codex wird aus lokalen Sitzungsdateien gelesen und (seit v0.5.1) zusätzlich akt
   **Selbsterneuerung bei abgelaufenem Zugang (Entwicklungsstand):** Endet eine Messung mit
   `anmeldung_abgelaufen`, startet `claude_messen.messen` (also jeder Messweg: Leiste, `claude-messen`,
   Automatik) `claude auth status` (`claude_anmeldung.erneuern`: ohne Konsole, Ein-/Ausgabe nach `DEVNULL`,
-  nichts wird gelesen oder protokolliert, nach 30 s wird der Prozessbaum beendet, wirft nie) und liest danach
+  nichts wird gelesen oder protokolliert, nach 30 s wird der Prozessbaum beendet – auch `taskkill` ohne
+  Konsolenfenster –, wirft nie) und liest danach
   genau einmal neu. Das geschieht höchstens **einmal je 30 Minuten über alle Prozesse**: nicht blockierende
   Sperre `<datenordner>/claude-erneuerung.lock` (belegt ⇒ kein Versuch), Zeitstempel
-  `<datenordner>/claude-erneuerung.json` (jünger als 30 min ⇒ kein Versuch); der neue Zeitstempel wird **vor**
-  dem Start geschrieben, lässt er sich nicht schreiben, gibt es keinen Versuch. Eine kaputte Datei oder ein
-  Zeitstempel in der Zukunft gilt als alt. Andere Fehlerarten (fehlt, defekt, abgelehnt, HTTP, Netz) lösen nie
+  `<datenordner>/claude-erneuerung.json` (näher als 30 min an der Uhrzeit, davor oder danach ⇒ kein Versuch; die
+  Uhrzeit wird erst unter der Sperre genommen); der neue Zeitstempel wird **vor** dem Start geschrieben, lässt er sich
+  nicht schreiben, gibt es keinen Versuch. Eine kaputte Datei oder ein Zeitstempel mehr als 30 min in der Zukunft
+  (falsche Uhr) gilt als alt. Andere Fehlerarten (fehlt, defekt, abgelehnt, HTTP, Netz) lösen nie
   eine Erneuerung aus. Bleibt der Zugang abgelaufen, steht in `messfehler.json` bzw. im Master-Status „Claude-Messzugang
   abgelaufen – automatische Erneuerung um HH:MM ohne Erfolg; Claude Code auth login --claudeai ausführen“.
   **Nicht belegt:** Ob `claude auth status` den OAuth-Token wirklich erneuert, ist eine Vermutung (am 28.10.2026

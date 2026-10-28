@@ -125,21 +125,24 @@ def _erneuerung_zeit() -> datetime | None:
     return zeit if zeit.tzinfo else zeit.replace(tzinfo=timezone.utc)
 
 
-def _erneuerung_versuchen(jetzt: datetime) -> datetime | None:
+def _erneuerung_versuchen(jetzt: datetime | None = None) -> datetime | None:
     """Erneuert den Messzugang höchstens einmal je `ERNEUERUNG_ABSTAND` über alle Prozesse; wirft nie.
 
     Ablauf unter der nicht blockierenden Sperre `claude-erneuerung.lock` (belegt ⇒ ein anderer Prozess erneuert
-    gerade ⇒ kein Versuch): Zeitstempel lesen (jünger als der Abstand ⇒ kein Versuch), den neuen Zeitstempel
-    **vor** dem Start atomar schreiben (Reservierung; scheitert das, gibt es keinen Versuch – ohne speicherbare
-    Reservierung keine Erneuerung), erst dann `cli_erneuern()`. Ein Zeitstempel in der Zukunft gilt als alt, damit
-    eine falsche Uhr die Erneuerung nicht dauerhaft sperrt. Rückgabe: Zeitpunkt des Versuchs oder `None`.
+    gerade ⇒ kein Versuch): die Uhrzeit **erst unter der Sperre** nehmen (ohne Vorgabe frisch), Zeitstempel lesen
+    (näher als der Abstand – davor **oder** danach – ⇒ kein Versuch), den neuen Zeitstempel **vor** dem Start atomar
+    schreiben (Reservierung; scheitert das, gibt es keinen Versuch – ohne speicherbare Reservierung keine Erneuerung),
+    erst dann `cli_erneuern()`. Ein Zeitstempel weiter als der Abstand in der Zukunft gilt als alt, damit eine falsche
+    Uhr die Erneuerung nicht dauerhaft sperrt; ein knapp späterer (Reservierung eines anderen Prozesses, der zwischen
+    Messung und Sperre lief) sperrt. Rückgabe: Zeitpunkt des Versuchs oder `None`.
     """
     try:
         with zustand.instanz_sperre(ERNEUERUNG_NAME) as frei:
             if not frei:
                 return None
+            jetzt = jetzt or datetime.now(timezone.utc)
             letzte = _erneuerung_zeit()
-            if letzte is not None and letzte <= jetzt and jetzt - letzte < ERNEUERUNG_ABSTAND:
+            if letzte is not None and abs(jetzt - letzte) < ERNEUERUNG_ABSTAND:
                 return None
             try:
                 signale._atomar_schreiben(_erneuerung_datei(), json.dumps({"zeit": jetzt.isoformat()}))
@@ -164,8 +167,7 @@ def _mit_erneuerung(abgelaufen: MessFehler, credentials_datei: Path | None, ziel
     Ohne Versuch (Drossel, belegte Sperre, nicht speicherbare Reservierung) bleibt es beim Fehler; liegt der letzte
     Versuch vor, nennt der Text seine Uhrzeit.
     """
-    zeit = jetzt or datetime.now(timezone.utc)
-    versucht = _erneuerung_versuchen(zeit)
+    versucht = _erneuerung_versuchen(jetzt)   # Uhrzeit erst unter der Sperre (ohne Vorgabe frisch)
     if versucht is None:
         letzte = _erneuerung_zeit()
         if letzte is None:

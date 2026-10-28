@@ -81,6 +81,7 @@ def prozessbaum_beenden(prozess) -> None:
         subprocess.run(
             ["taskkill", "/PID", str(prozess.pid), "/T", "/F"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),   # nie ein Konsolenfenster (Leiste ohne Konsole)
         )
     finally:
         prozess.wait(timeout=5)

@@ -616,3 +616,43 @@ def test_alle_messwege_laufen_durch_messen_cli_erneuert_beim_abgelaufenen_zugang
 
     assert len(erneuerungen) == 1
     assert "ohne Erfolg" in capsys.readouterr().err
+
+
+# --- Ergebnisprüfung R1-1: Uhrzeit erst unter der Sperre, knapp spätere Reservierung sperrt --------------------------
+
+def test_spaetere_reservierung_eines_anderen_prozesses_sperrt_den_frueheren(tmp_path, erneuerungen):
+    """A hat seine Zeit vor B genommen; B hat inzwischen reserviert ⇒ A erneuert nicht (kein zweiter Versuch)."""
+    claude_messen._erneuerung_datei().parent.mkdir(parents=True, exist_ok=True)
+    claude_messen._erneuerung_datei().write_text(
+        json.dumps({"zeit": (JETZT + timedelta(minutes=1)).isoformat()}), encoding="utf-8")   # B, nach A's Uhrzeit
+
+    assert claude_messen._erneuerung_versuchen(JETZT) is None
+    assert erneuerungen == []
+
+
+def test_ohne_vorgabe_wird_die_uhrzeit_erst_unter_der_sperre_genommen(tmp_path, erneuerungen, monkeypatch):
+    reihenfolge = []
+    echte_sperre = claude_messen.zustand.instanz_sperre
+
+    class Uhr(claude_messen.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            reihenfolge.append("uhr")
+            return JETZT
+
+    def sperre(name):
+        reihenfolge.append("sperre")
+        return echte_sperre(name)
+
+    monkeypatch.setattr(claude_messen, "datetime", Uhr)
+    monkeypatch.setattr(claude_messen.zustand, "instanz_sperre", sperre)
+    assert claude_messen._erneuerung_versuchen() == JETZT
+    assert reihenfolge[:2] == ["sperre", "uhr"] and len(erneuerungen) == 1
+
+
+@pytest.mark.parametrize("abstand, erwartet", [(timedelta(minutes=29), 0), (timedelta(minutes=31), 1)])
+def test_zeitstempel_knapp_in_der_zukunft_sperrt_weit_in_der_zukunft_nicht(tmp_path, erneuerungen, abstand, erwartet):
+    claude_messen._erneuerung_datei().parent.mkdir(parents=True, exist_ok=True)
+    claude_messen._erneuerung_datei().write_text(json.dumps({"zeit": (JETZT + abstand).isoformat()}), encoding="utf-8")
+    claude_messen._erneuerung_versuchen(JETZT)
+    assert len(erneuerungen) == erwartet
