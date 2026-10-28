@@ -36,7 +36,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeVar
 
 from . import besitz, modelle, paare, uebergabe, vorgaenge, zustand
 from .signale import _atomar_schreiben, _iso, daten_ordner
@@ -53,6 +53,7 @@ HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
 VERSION = 2
 VERSION_ALT = 1
 GLOBALE_FRIST = 1.0
+_E = TypeVar("_E")
 ANZEIGE = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes"}
 
 
@@ -447,7 +448,7 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
     return ziel
 
 
-def _unter_sperre(thema: str, arbeit: Callable[[], Profil]) -> Profil:
+def _unter_sperre(thema: str, arbeit: Callable[[], _E]) -> _E:
     try:
         paare.thema_pruefen(thema)
     except paare.PaarFehler as fehler:
@@ -496,6 +497,35 @@ def master_setzen(thema: str, master: str, datei_pfad: Path | None = None, *,
     def arbeit() -> Profil:
         pfad = datei_pfad or datei()
         alt = _lesen(pfad).get(thema, Profil())
+        return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo)
+
+    return _unter_sperre(thema, arbeit)
+
+
+def master_setzen_wenn(thema: str, master: str, pruefung: Callable[[Profil, str, str | None], bool],
+                       datei_pfad: Path | None = None, *, repo: Path | None = None) -> Profil | None:
+    """Masterrolle nur setzen, wenn `pruefung` den frisch gelesenen Zustand erlaubt (Sammelbefehl `alle`).
+
+    Unter derselben Themensperre wie `master_setzen` werden Profil und Besitzdatei (fail-closed) gelesen und
+    `pruefung(alt, besitzer, zwischenziel)` aufgerufen; `zwischenziel` ist die Zielrolle einer eigenen
+    Modus-Zwischenmarke, sonst `None`. `False` ⇒ `None`, nichts geschrieben. Eine Ausnahme aus `pruefung`
+    ⇒ `ModusFehler`, nichts umgeschaltet. `True` ⇒ derselbe Wechsel wie `master_setzen`.
+    """
+    if not isinstance(master, str) or master not in MASTER_WERTE:
+        raise ModusFehler(f"Unbekannte Masterrolle: {master!r}")
+
+    def arbeit() -> Profil | None:
+        pfad = datei_pfad or datei()
+        alt = _lesen(pfad).get(thema, Profil())
+        _, master_datei = _paar_pruefen(thema, repo)
+        text = _besitz_text_lesen(master_datei)
+        zwischenziel = text.split()[3] if ist_zwischenmarke(text, thema) else None
+        try:
+            erlaubt = pruefung(alt, besitz.besitzer(text), zwischenziel)
+        except Exception as fehler:   # bewusst breit: jede Panne in Prüfung/Merken verhindert das Umschalten
+            raise ModusFehler(f"Vorprüfung gescheitert; Arbeitsmodus wurde nicht geändert ({fehler})") from fehler
+        if not erlaubt:
+            return None
         return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo)
 
     return _unter_sperre(thema, arbeit)

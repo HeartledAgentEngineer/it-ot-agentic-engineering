@@ -787,3 +787,74 @@ def test_echter_pfad_ausserhalb_bleibt_modusfehler(
 
     assert modi.lesen() == {}
 
+
+
+# --- master_setzen_wenn (Sammelbefehl `alle`, 28.10.2026) ---------------------------------
+
+def test_setzen_wenn_erlaubt_schaltet_um_und_reicht_zustand_durch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    modi.master_setzen(THEMA, "codex", repo=repo)
+    gesehen = []
+
+    def pruefung(alt: modi.Profil, besitzer: str, zwischenziel: str | None) -> bool:
+        gesehen.append((alt.master, besitzer, zwischenziel))
+        return True
+
+    assert modi.master_setzen_wenn(THEMA, "kontingent", pruefung, repo=repo) == modi.Profil()
+    assert gesehen == [("codex", besitz.CODEX, None)]
+    assert modi.profil(THEMA).master == modi.KONTINGENT
+
+
+def test_setzen_wenn_abgelehnt_laesst_profil_und_marke_bytegleich(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    modi.master_setzen(THEMA, "hermes", repo=repo)
+    vorher_marke = _master_datei(repo).read_bytes()
+    vorher_profil = modi.datei().read_bytes()
+    assert modi.master_setzen_wenn(THEMA, "kontingent", lambda *_: False, repo=repo) is None
+    assert _master_datei(repo).read_bytes() == vorher_marke
+    assert modi.datei().read_bytes() == vorher_profil
+
+
+def test_setzen_wenn_meldet_eigene_zwischenmarke_als_zwischenziel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    _master_datei(repo).parent.mkdir(parents=True, exist_ok=True)
+    marke = modi.zwischenmarke(THEMA, "hermes", "2026-10-28T00:00:00+00:00")
+    besitz.schreiben(_master_datei(repo), marke)
+    gesehen = []
+    modi.master_setzen_wenn(THEMA, "kontingent", lambda a, b, z: gesehen.append((b, z)) or False, repo=repo)
+    assert gesehen == [(besitz.RESERVIERT, "hermes")]
+    assert besitz.lesen(_master_datei(repo)).strip() == marke
+
+
+def test_setzen_wenn_ausnahme_in_pruefung_schaltet_nicht_um(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    modi.master_setzen(THEMA, "claude", repo=repo)
+
+    def kaputt(*_: object) -> bool:
+        raise OSError("Merkdatei nicht schreibbar")
+
+    with pytest.raises(modi.ModusFehler, match="Vorprüfung gescheitert"):
+        modi.master_setzen_wenn(THEMA, "kontingent", kaputt, repo=repo)
+    assert modi.profil(THEMA).master == "claude"
+    assert besitz.besitzer(besitz.lesen(_master_datei(repo))) == besitz.CLAUDE
+
+
+def test_setzen_wenn_belegte_sperre_ruft_pruefung_nicht_auf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    from master_schalter import zustand
+    aufgerufen = []
+    with zustand.thema_sperre(THEMA) as frei:
+        assert frei
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            job = executor.submit(modi.master_setzen_wenn, THEMA, "claude",
+                                  lambda *_: aufgerufen.append(1) or True, repo=repo)
+            with pytest.raises(modi.ModusFehler, match="erneut wählen"):
+                job.result(timeout=10)
+    assert aufgerufen == []
+    assert modi.profil(THEMA).master == modi.KONTINGENT
+
+
+def test_setzen_wenn_unbekannte_rolle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = _umgebung(tmp_path, monkeypatch)
+    with pytest.raises(modi.ModusFehler, match="Unbekannte Masterrolle"):
+        modi.master_setzen_wenn(THEMA, "chef", lambda *_: True, repo=repo)

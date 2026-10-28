@@ -631,6 +631,25 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   Dateien werden übersprungen, nie geraten. `warte THEMA --fertig` entfernt die Meldung (idempotent). **Nur eine
   technische Kurzangabe** („Freigabe Vibe-Modus“, „Codex-Prüfung R2“) – keine Inhalte, Namen oder Pfade; der Code
   begrenzt nur Form und Länge.
+- **Gemerkt:** steht eine Merkdatei des Sammelbefehls `alle` (siehe unten), zusätzlich
+  „Gemerkt für „alle zurueck“: <thema> <rolle>, …“; eine ungültige Merkdatei nur als Hinweis.
+
+### Alle Themen auf einmal (`masterwechsel alle`, unveröffentlicht)
+
+- `alle kontingent` stellt jedes Thema auf „Master nach Kontingent“. Vorher merkt es sich jede feste Rolle
+  (`claude`/`codex`) in `<datenordner>/alle-vorher.json` – unter der Themensperre und für genau den Zustand, der
+  umgeschaltet wird (`modi.master_setzen_wenn`). Ein Eintrag wird nur durch eine feste Rolle ersetzt, nie durch
+  „kontingent“; ein zweiter Aufruf verliert nichts.
+- `alle zurueck` stellt die gemerkten Rollen wieder her, solange das Thema noch auf Kontingent oder schon auf der
+  gemerkten Rolle steht (halbfertige Wechsel werden abgeschlossen). Eine inzwischen von Hand gesetzte andere Rolle
+  bleibt. Sind alle Einträge erledigt, wird die Merkdatei nach `alle-vorher.<zeitstempel>.json` **verschoben**, nie
+  gelöscht; offene Einträge bleiben für einen erneuten Aufruf stehen.
+- **Hermes bleibt immer unberührt:** Hermes-Master, Hermes-Besitz und ein abgebrochener Wechsel zu Hermes (eigene
+  Zwischenmarke mit Ziel Hermes). Eine Zwischenmarke mit fremdem Ziel wird nie fortgesetzt („offen“).
+- Beide Richtungen laufen unter der Sperre `alle` (zweiter gleichzeitiger Aufruf ⇒ „läuft schon“, nichts geändert).
+  Exit 0 = alles erledigt, 1 = ein Thema offen oder Sperre belegt, 2 = Merkdatei ungültig (nichts geändert).
+- Der globale Hauptschalter `automatik an|aus` ist davon getrennt. Wie `master-setzen` schreibt der Befehl den
+  Besitz im Repo, in dem er läuft – echte Läufe aus dem Hauptarbeitsbaum, nicht aus einem Git-Worktree.
 
 Codex-Chat-Kennungen, Chattitel und Pfade erscheinen nicht. Über Pipes schreiben `kurz` und alle
 anderen Befehle (stdout und stderr, schon vor dem Einlesen der Argumente, also auch `--help`) UTF-8, damit Umlaute in Remote-Sitzungen und über `/master-status`
@@ -783,6 +802,10 @@ v0.3.0 führte die automatische Übergabe ein; die Automatik bleibt standardmä�
 .\.venv\Scripts\masterwechsel.exe warte master-schalter Freigabe Vibe-Modus
 .\.venv\Scripts\masterwechsel.exe warte master-schalter --fertig
 
+# alle Themen (außer Hermes) nach Kontingent und wieder zurück auf die gemerkten Rollen
+.\.venv\Scripts\masterwechsel.exe alle kontingent
+.\.venv\Scripts\masterwechsel.exe alle zurueck
+
 # Claude-Kontingent über die OAuth-API messen
 .\.venv\Scripts\masterwechsel.exe claude-messen
 
@@ -877,6 +900,7 @@ src/master_schalter/
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
   kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend
   wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt von `kurz`
+  alle.py      Sammelbefehl `masterwechsel alle kontingent|zurueck` (Merkdatei, Hermes ausgelassen)
   anzeige.py   Texte für Tooltip, Menü, Benachrichtigung; Schwelle und Automatikschalter
   symbol.py    Bild des Symbols (zwei Balken, Pillow)
   leiste.py    Taskleisten-Symbol (pystray) — nur Oberfläche
