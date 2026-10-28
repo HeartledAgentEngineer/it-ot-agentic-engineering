@@ -39,6 +39,9 @@ Ohne ``--pruefer`` liest das Werkzeug ausserdem die Codex-Messung des Master-Sch
 (``codex-kontingent.json``): steht Codex laut frischer Messung (<= 15 min) bei 100 % mit kuenftigem Reset,
 prueft gleich Hermes - ohne Codex-Fehlversuch. Unbekannte/alte Messung => wie bisher.
 
+Waehrend eines Laufs steht "Pruefung R<n> laeuft" als Wartemeldung des Master-Schalters
+(``wartet/<name>.json``), nur wenn keine andere Meldung da ist; am Ende wird nur die eigene entfernt.
+
 Exit-Code: 0 = FREI, 1 = EINWAND, 2 = Fehler (Lauf, Urteilszeile, Aufruf).
 """
 from __future__ import annotations
@@ -337,9 +340,68 @@ def protokoll_block(ergebnis: dict) -> str:
     return "\n".join(zeilen)
 
 
+def wartet_datei(name: str) -> Path:
+    """„Wartet worauf“-Datei des Master-Schalters (`masterwechsel warte`, angezeigt von `kurz`)."""
+    basis = os.environ.get("MASTER_SCHALTER_DATEN") or str(Path.home() / ".master-schalter")
+    return Path(basis) / "wartet" / f"{name}.json"
+
+
+def wartet_melden(name: str, text: str) -> str | None:
+    """Meldung setzen, wenn keine da ist; liefert den eigenen Text oder None (fremde Meldung / Fehler).
+
+    Eine vorhandene Meldung (von Sebastian oder einem Agenten) wird nie überschrieben. Fehler werden
+    verschluckt - die Prüfung läuft immer weiter.
+    """
+    datei = wartet_datei(name)
+    tmp = None
+    try:
+        datei.parent.mkdir(parents=True, exist_ok=True)
+        inhalt = json.dumps({"text": text, "zeit": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
+        fd, tmp = tempfile.mkstemp(prefix=f"{name}.", suffix=".tmp", dir=datei.parent)   # je Aufruf neu (O_EXCL)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(inhalt)
+        os.link(tmp, datei)   # atomar und nur, wenn das Ziel fehlt (FileExistsError) - nie überschreiben
+    except OSError:
+        return None
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return text
+
+
+def wartet_aufraeumen(name: str, eigen: str | None) -> None:
+    """Nur die eigene Meldung entfernen (gleicher Text); eine inzwischen geänderte bleibt stehen."""
+    if not eigen:
+        return
+    datei = wartet_datei(name)
+    try:
+        if json.loads(datei.read_text(encoding="utf-8")).get("text") == eigen:
+            datei.unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
 def pruefen(vorlage: str, thema: str, pruefer: str | None = None, sensibel: bool = False,
             gruendlich: bool = False, zeitgrenze: float = ZEITGRENZE_STANDARD,
             planfassung: str | None = None, master: str | None = None) -> dict:
+    """Prüflauf mit „Wartet worauf“-Meldung für das Thema der Besitzdatei (nur wenn keine andere da ist)."""
+    name = None
+    if THEMA_MUSTER.match(thema):
+        quelle = master_ermitteln(thema, master)[1]
+        name = quelle[: -len(".master")] if quelle.endswith(".master") else None   # nur ein Schalter-Thema
+    eigen = wartet_melden(name, f"Prüfung R{naechste_runde(thema)} läuft (pruefkreis, {thema})") if name else None
+    try:
+        return _pruefen(vorlage, thema, pruefer, sensibel, gruendlich, zeitgrenze, planfassung, master)
+    finally:
+        if name:
+            wartet_aufraeumen(name, eigen)
+
+
+def _pruefen(vorlage: str, thema: str, pruefer: str | None, sensibel: bool, gruendlich: bool,
+             zeitgrenze: float, planfassung: str | None, master: str | None) -> dict:
     if not THEMA_MUSTER.match(thema):
         raise PruefkreisFehler("Thema nur aus a-z, 0-9 und Bindestrich (wird Dateiname).")
     if not (REPO / vorlage).is_file() and not Path(vorlage).is_file():
