@@ -35,11 +35,11 @@ def _thema(name: str = "t1", master: str = "kontingent", worker: str = "workflow
     return kurz.Thema(name, modi.Profil(master, worker, modell), besitzer, aktiv, besitzer)
 
 
-def test_rest_statt_verbrauch():
-    assert kurz.rest(76) == 24
-    assert kurz.rest(130) == 0 and kurz.rest(-5) == 100
+def test_verbrauch_statt_rest():
+    assert kurz.verbraucht(76) == 76
+    assert kurz.verbraucht(130) == 100 and kurz.verbraucht(-5) == 0
     text = "\n".join(_zeilen([_k("Claude", 76, 51), _k("Codex", 10, 20)]))
-    assert "Claude: 5h 24 % übrig (Reset in 2 h 0 min, 22:00) · Woche 49 % übrig (Reset in 3 T 0 h, 30.10. 20:00)" in text
+    assert "Claude: 5h 76 % verbraucht (Reset in 2 h 0 min, 22:00) · Woche 51 % verbraucht (Reset in 3 T 0 h, 30.10. 20:00)" in text
 
 
 def test_restzeit_kurz():
@@ -113,7 +113,7 @@ def test_zeilenzahl_und_ehrliche_wartezeile():
     themen = [_thema(f"t{i}") for i in range(6)]
     sitzungen = [kurz.Sitzung("claude", f"s{i}", status.RUHT, JETZT) for i in range(3)]
     zeilen = _zeilen(themen=themen, sitzungen=sitzungen)
-    # Kopf, „Kontingent übrig:“, 2 Limits, Matrix, „Themen:“, 6 Themen, 3 Sitzungen, Als Nächstes, Wartet = 17
+    # Kopf, „Kontingent verbraucht:“, 2 Limits, Matrix, „Themen:“, 6 Themen, 3 Sitzungen, Als Nächstes, Wartet = 17
     assert len(zeilen) == 17
     assert zeilen[-1] == kurz.WARTET == "Wartet worauf: nichts gemeldet"
     assert "Sitzungen: keine gemeldet" in _zeilen()

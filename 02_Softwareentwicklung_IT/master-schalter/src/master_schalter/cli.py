@@ -1,7 +1,7 @@
 """Befehlszeile `masterwechsel`.
 
     masterwechsel status              beide Kontingente anzeigen
-    masterwechsel kurz                Kurzübersicht für den Chat (Rest-Limits, Lage, Themen, Sitzungen; nur lesend)
+    masterwechsel kurz                Kurzübersicht für den Chat (Verbrauch, Lage, Themen, Sitzungen; nur lesend)
     masterwechsel statuszeile         Statuszeilen-Befehl für Claude Code (liest JSON von stdin)
     masterwechsel claude-kontingent   Claude-Werte von Hand eintragen (Ersatzweg ohne Statuszeile)
     masterwechsel claude-messen       Claude-Kontingent über die OAuth-API messen
