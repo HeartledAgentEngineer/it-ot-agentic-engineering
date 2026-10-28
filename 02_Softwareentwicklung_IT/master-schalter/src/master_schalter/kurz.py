@@ -4,7 +4,7 @@ Gedacht für die Steuerung über Remote-Sitzungen, in denen das Taskleistensymbo
 Befehl **liest nur**: er misst nicht, schreibt nichts und startet nichts. `zeilen` ist eine reine Funktion
 (alle Eingaben als Parameter), `sammeln` liest die Quellen.
 
-Limits erscheinen als **Rest** (100 − Verbrauch, auf 0–100 begrenzt), nie als Verbrauch. Was die Quelle
+Limits erscheinen als **Verbrauch** („… % verbraucht“, auf 0–100 begrenzt), nie als Rest. Was die Quelle
 nicht weiß, steht als „unbekannt“ bzw. „neu, nicht gemessen“ da. Codex-Chat-Kennungen, Chattitel und Pfade
 werden nicht ausgegeben; Sitzungskennungen nur gekürzt.
 """
@@ -51,9 +51,9 @@ def _uhr(wert: datetime, jetzt: datetime, zone: tzinfo | None) -> str:
     return lokal.strftime("%H:%M" if gleicher_tag else "%d.%m. %H:%M")
 
 
-def rest(prozent: float) -> int:
-    """Rest eines Fensters aus dem Verbrauch: 76 % verbraucht ergibt 24 % Rest."""
-    return round(max(0.0, min(100.0, 100.0 - prozent)))
+def verbraucht(prozent: float) -> int:
+    """Verbrauch eines Fensters, auf 0–100 begrenzt: 130 ergibt 100, -5 ergibt 0."""
+    return round(max(0.0, min(100.0, prozent)))
 
 
 def dauer(spanne: timedelta) -> str:
@@ -71,7 +71,7 @@ def _fenster_text(f: Fenster | None, name: str, jetzt: datetime, zone: tzinfo | 
         return f"{name} unbekannt"
     if f.zurueckgesetzt:
         return f"{name} neu, nicht gemessen"
-    text = f"{name} {rest(f.prozent)} % übrig"
+    text = f"{name} {verbraucht(f.prozent)} % verbraucht"
     if f.reset is None:
         return text
     return text + f" (Reset in {dauer(f.reset - jetzt)}, {_uhr(f.reset, jetzt, zone)})"
@@ -202,7 +202,7 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
     grund = rollen.lage_grund(claude, codex, schwelle)
     kopf = (f"Master-Schalter · {_uhr(jetzt, jetzt, zone)} · Lage {lage or '?'}"
             f" · Automatik {'an' if automatik_global else 'aus'}")
-    aus = [kopf, "Kontingent übrig:"]
+    aus = [kopf, "Kontingent verbraucht:"]
     aus += [_limit_zeile(k, jetzt, zone) for k in kontingente]
     aus.append(_rollen_zeile(lage, grund))
     aus.append("Themen:" if themen else "Themen: keine")

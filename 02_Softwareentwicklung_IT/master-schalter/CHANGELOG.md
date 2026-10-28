@@ -14,8 +14,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   Master wie `pruefkreis` ihn liest (`<name>.master`, auch übergeordnetes Thema): Codex ⇒ „Prüfer Hermes (Master
   Codex)“, Claude/Hermes ⇒ „Prüfer Codex“, fehlende/unlesbare Datei ⇒ „Prüfer ? (pruefkreis braucht --master)“.
   Aus einem Git-Worktree liest `kurz` die Besitzdateien im Hauptarbeitsbaum (neu `uebergabe.haupt_wurzel`).
-- `kurz`: Jede Limitzeile sagt ausdrücklich „… % übrig“ und nennt die Zeit bis zum Reset („Reset in 3 h 33 min,
-  01:39“); Überschrift „Kontingent übrig:“, „Als Nächstes“ mit „(in …)“. Anlass: „67 %“ wurde als Verbrauch gelesen.
+- `kurz`: Jede Limitzeile sagt ausdrücklich „… % verbraucht“ und nennt die Zeit bis zum Reset („Reset in 3 h 33 min,
+  01:39“); Überschrift „Kontingent verbraucht:“, „Als Nächstes“ mit „(in …)“. Anlass: „67 %“ war mehrdeutig;
+  zuerst „… % übrig“, auf Sebastians Wunsch (28.10.) nur noch der Verbrauch (`kurz.verbraucht` statt `kurz.rest`).
 - Leiste: Eine gescheiterte Claude-Messung steht mit Fehlerart und ggf. HTTP-Code im Log, z. B.
   `Claude-Messung fehlgeschlagen: … [http, HTTP 503]`, `[netz]`, `[antwort]`, `[speichern]` oder eine der
   Anmeldearten `[anmeldung_…]` (vorher nur der

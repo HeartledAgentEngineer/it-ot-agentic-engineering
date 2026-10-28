@@ -607,7 +607,7 @@ masterwechsel claude-auftrag --sitzung <kennung> --thema <thema> --datei .hermes
 Remote-Sitzung sehen will. Der Agent führt den Befehl aus und reicht die Ausgabe wörtlich in den Chat weiter.
 Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
 
-- **Kontingent übrig:** je Abo und Fenster, was *übrig* ist (100 − Verbrauch, „… % übrig“), die Zeit bis zum Reset
+- **Kontingent verbraucht:** je Abo und Fenster der *Verbrauch* („… % verbraucht“, auf 0–100 begrenzt), die Zeit bis zum Reset
   („Reset in 3 h 33 min, 01:39“) und die Messzeit. Ein Fenster nach Reset
   ohne neue Messung heißt „neu, nicht gemessen“, ein Messfehler „unbekannt (…)“.
 - **Matrix:** Lage und Besetzung aus `rollen.BESETZUNG` (Planer/Prüfer/Ausführer), nur bei bekannter Lage.
