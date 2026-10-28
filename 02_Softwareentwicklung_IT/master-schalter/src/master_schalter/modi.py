@@ -32,6 +32,10 @@ Arbeitsweise `vibe` (Datei `arbeitsweise.json`, Modul `arbeitsweise`) gibt es nu
 (`_vibe_pruefen`) sitzt zentral im einzigen Profilschreiber `_speichern` und – vor der ersten Besitzmarke – in
 `_umschalten_gesperrt`; ein Profil mit anderem Ausführer wird bei `vibe` abgelehnt, ohne Profil oder Besitzdatei zu
 ändern. `vibe_setzen` schaltet die Arbeitsweise (nur von Hand) und lehnt jeden anderen Ausführer als Claude ab.
+
+Themen ohne Codex-Paar: `thema_anlegen` legt Profil und Besitzdatei an; `_paar_pruefen(ohne_paar=True)` lässt solche Themen
+(mit Profil) in den Schreibwegen `master_setzen*`, `worker_setzen`, `modell_setzen`, `fuehrt`/`geschuetzt` und `snapshot`
+gelten – ihr Besitzpfad liegt immer im Hauptarbeitsbaum. Wechselassistent und Postfach verlangen weiter ein Paar.
 """
 from __future__ import annotations
 
@@ -218,18 +222,46 @@ def _enthalten(master: Path, wurzel: Path) -> bool:
     return len(b) <= len(a) and a[: len(b)] == b
 
 
+def _hauptbaum(repo: Path | None) -> Path:
+    """Hauptarbeitsbaum zu `repo` (ohne Angabe: zur Repo-Wurzel) – nur ein echter, dessen `.git` ein **Ordner** ist.
+
+    In einem Git-Worktree zeigt `.git` als Datei über `commondir` auf den Hauptbaum; scheitert diese Auflösung, bliebe
+    still die Arbeitskopie übrig – dann wird abgelehnt (gleiche Lehre wie beim Übersichtsfenster).
+    """
+    try:
+        wurzel = uebergabe.haupt_wurzel(Path(repo).resolve() if repo is not None else uebergabe.repo_wurzel())
+    except uebergabe.UebergabeFehler as fehler:
+        raise ModusFehler(str(fehler)) from fehler
+    if not wurzel.is_dir() or not (wurzel / ".git").is_dir():
+        raise ModusFehler("Hauptarbeitsbaum nicht gefunden")
+    return wurzel
+
+
 def _paar_pruefen(thema: str, repo: Path | None, *, laufend: str | None = None,
-                  erforderlich: bool = True) -> tuple[paare.Paar | None, Path | None]:
+                  erforderlich: bool = True, ohne_paar: bool = False,
+                  datei_pfad: Path | None = None) -> tuple[paare.Paar | None, Path | None]:
+    """Paar und Besitzpfad eines Themas prüfen.
+
+    Mit `ohne_paar=True` gilt auch ein Thema **ohne** Paar, das ein Profil hat (frisch aus `datei_pfad or datei()`): sein
+    Besitzpfad ist `paare.laufend_bilden(thema)` und liegt **immer im Hauptarbeitsbaum** (`_hauptbaum`), nie in einer
+    Worktree-Kopie. Ohne Paar und ohne Profil bleibt es bei „Thema unbekannt“ (Tippfehlerschutz). Themen mit Paar
+    behalten Verhalten und Besitzpfad.
+    """
     try:
         paare.thema_pruefen(thema)
     except paare.PaarFehler as fehler:
         raise ModusFehler(str(fehler)) from fehler
     paar = next((p for p in paare.lesen() if p.thema == thema), None)
+    hauptbaum = False
+    if paar is None and laufend is None and ohne_paar and thema in _lesen(datei_pfad):
+        laufend, hauptbaum = paare.laufend_bilden(thema), True
     if paar is None and laufend is None and erforderlich:
         raise ModusFehler(f"Thema unbekannt (kein vorhandenes Paar): {thema}")
     if paar is None and laufend is None:
         return None, None
-    if repo is None:
+    if hauptbaum:
+        wurzel = _hauptbaum(repo)
+    elif repo is None:
         try:
             wurzel = uebergabe.repo_wurzel()
         except uebergabe.UebergabeFehler as fehler:
@@ -276,7 +308,8 @@ def fuehrt(thema: str, *, repo: Path | None = None, datei_pfad: Path | None = No
     wert = profil(thema, datei_pfad)
     if wert.master != KONTINGENT:
         return ANZEIGE[wert.master]
-    paar, master_datei = _paar_pruefen(thema, repo, laufend=laufend, erforderlich=False)
+    paar, master_datei = _paar_pruefen(thema, repo, laufend=laufend, erforderlich=False,
+                                       ohne_paar=True, datei_pfad=datei_pfad)
     if paar is None and master_datei is None:
         return None
     text = _besitz_text_lesen(master_datei)
@@ -304,7 +337,7 @@ def snapshot(themen: list[str], *, repo: Path | None = None,
     result: dict[str, tuple[str, str, bool]] = {}
     for thema in themen:
         wert = mapping.get(thema, Profil())
-        _, master_datei = _paar_pruefen(thema, wurzel)
+        _, master_datei = _paar_pruefen(thema, wurzel, ohne_paar=True, datei_pfad=datei_pfad)
         text = _besitz_text_lesen(master_datei)
         owner = besitz.besitzer(text)
         if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.RESERVIERT, besitz.HERMES):
@@ -389,7 +422,7 @@ def vorgang_id_pruefen(vorgang_id: object) -> str:
 
 
 def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
-                         repo: Path | None, vorgang_id: str | None = None) -> Profil:
+                         repo: Path | None, vorgang_id: str | None = None, ohne_paar: bool = False) -> Profil:
     """Einen echten Masterwechsel unter der bereits gehaltenen Themensperre vollziehen.
 
     Reihenfolge: eigene Zwischenmarke → offene Mastervorgänge entwerten → Profil speichern →
@@ -400,6 +433,9 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
     direkt `<rolle> <zeit> assistent <thema> <vorgang-id>` – auch wenn die Zielrolle schon
     besitzt. Es gibt also nie eine fertige Modusmarke ohne Vorgangs-ID. Ohne `vorgang_id`
     bleibt das Verhalten exakt wie in v0.4.0.
+
+    Mit `ohne_paar=True` (`master_setzen`, `master_setzen_wenn`) gilt auch ein Thema ohne Paar mit Profil; sein
+    Besitz liegt dann im Hauptarbeitsbaum (`_paar_pruefen`). Der Wechselassistent verlangt weiter ein Paar.
     """
     try:
         paare.thema_pruefen(thema)
@@ -413,7 +449,7 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
     alt = _lesen(pfad).get(thema, Profil())
     _vibe_pruefen(thema, ziel, arbeitsweise.neben(pfad))    # vor der ersten Besitzmarke
     # Vor jeder Nebenwirkung: Thema, Paar, Repository-Pfade und fremde Reservierung prüfen.
-    _, master_datei = _paar_pruefen(thema, repo)
+    _, master_datei = _paar_pruefen(thema, repo, ohne_paar=ohne_paar, datei_pfad=pfad)
     text = _besitz_text_lesen(master_datei)
     eigene_marke = ist_zwischenmarke(text, thema)
     owner = besitz.besitzer(text)
@@ -488,6 +524,60 @@ def _unter_sperre(thema: str, arbeit: Callable[[], _E]) -> _E:
 
 # --- Öffentliche Setter ---------------------------------------------------------
 
+def thema_anlegen(thema: str, master: str = "claude", datei_pfad: Path | None = None, *,
+                  repo: Path | None = None) -> str:
+    """Ein Thema **ohne Codex-Paar** anlegen: Profil plus Besitzdatei im Hauptarbeitsbaum; `angelegt` oder `ergänzt`.
+
+    Unter der Themensperre, in dieser Reihenfolge (jeder Fehler nennt den erreichten Zustand):
+
+    * Profil und Besitzdatei fehlen ⇒ erst das Profil (Master = `master`, Ausführer Workflow) schreiben, dann die
+      Besitzdatei **exklusiv** anlegen (`claude <Zeit> modus <thema>`; nie überschreiben) ⇒ `angelegt`.
+    * Profil da, Besitzdatei fehlt, kein Paar (halbe Anlage, auch ein älteres Thema wie `weiterbildung`) ⇒ nur die
+      Besitzdatei ergänzen ⇒ `ergänzt`; weicht `master` vom Profil ab ⇒ Fehler, nichts geändert.
+    * Besitzdatei da (auch leer) ohne Profil und ohne Paar ⇒ Fehler, fremder Stand wird nie überschrieben.
+    * Profil und Besitzdatei da, oder ein Paar existiert ⇒ Fehler „existiert schon“, nichts geändert.
+
+    Der Besitzpfad liegt immer im Hauptarbeitsbaum (`_hauptbaum`), sonst `ModusFehler` vor jeder Nebenwirkung.
+    """
+    if not isinstance(master, str) or master not in MASTER_WERTE:
+        raise ModusFehler(f"Unbekannte Masterrolle: {master!r}")
+
+    def arbeit() -> str:
+        pfad = datei_pfad or datei()
+        wurzel = _hauptbaum(repo)
+        besitz_datei = besitz.pfad(wurzel, paare.laufend_bilden(thema))
+        if not _enthalten(besitz_datei.resolve(), wurzel.resolve()):
+            raise ModusFehler("Besitzpfad liegt außerhalb des geprüften Repositorys")
+        profile = _lesen(pfad)
+        if any(p.thema == thema for p in paare.lesen()):
+            raise ModusFehler(f"Thema {thema!r} existiert schon (Codex-Paar vorhanden) – nichts geändert")
+        hat_besitz = besitz_datei.exists()
+        marke = besitz.zeile(besitz.CLAUDE, datetime.now(timezone.utc).isoformat(), "modus", thema)
+        if thema in profile and hat_besitz:
+            raise ModusFehler(f"Thema {thema!r} existiert schon – nichts geändert")
+        if thema not in profile and hat_besitz:
+            raise ModusFehler(f"Besitzdatei von {thema!r} existiert ohne Profil – nichts geändert")
+        if thema in profile:
+            if profile[thema].master != master:
+                raise ModusFehler(f"Thema {thema!r} hat schon ein Profil mit Master {profile[thema].master!r}, nicht "
+                                  f"{master!r} – nichts geändert")
+            ergebnis = "ergänzt"
+        else:
+            _speichern(pfad, thema, Profil(master=master))
+            ergebnis = "angelegt"
+        try:
+            angelegt = besitz.exklusiv_schreiben(besitz_datei, marke)
+        except OSError as fehler:
+            raise ModusFehler(f"Profil gespeichert, Besitzdatei nicht geschrieben – Befehl wiederholen ergänzt sie "
+                              f"({type(fehler).__name__})") from fehler
+        if not angelegt:
+            raise ModusFehler("Besitzdatei existiert inzwischen schon (gleichzeitig angelegt) – nicht überschrieben; "
+                              "Profil ist gespeichert")
+        return ergebnis
+
+    return _unter_sperre(thema, arbeit)
+
+
 def vibe_setzen(thema: str, an: bool, datei_pfad: Path | None = None) -> bool:
     """Arbeitsweise Vibe ein- oder ausschalten (nur von Hand); `True`, wenn sich etwas geändert hat.
 
@@ -543,7 +633,7 @@ def master_setzen(thema: str, master: str, datei_pfad: Path | None = None, *,
     def arbeit() -> Profil:
         pfad = datei_pfad or datei()
         alt = _lesen(pfad).get(thema, Profil())
-        return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo)
+        return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo, ohne_paar=True)
 
     return _unter_sperre(thema, arbeit)
 
@@ -563,7 +653,7 @@ def master_setzen_wenn(thema: str, master: str, pruefung: Callable[[Profil, str,
     def arbeit() -> Profil | None:
         pfad = datei_pfad or datei()
         alt = _lesen(pfad).get(thema, Profil())
-        _, master_datei = _paar_pruefen(thema, repo)
+        _, master_datei = _paar_pruefen(thema, repo, ohne_paar=True, datei_pfad=pfad)
         text = _besitz_text_lesen(master_datei)
         zwischenziel = text.split()[3] if ist_zwischenmarke(text, thema) else None
         try:
@@ -572,7 +662,7 @@ def master_setzen_wenn(thema: str, master: str, pruefung: Callable[[Profil, str,
             raise ModusFehler(f"Vorprüfung gescheitert; Arbeitsmodus wurde nicht geändert ({fehler})") from fehler
         if not erlaubt:
             return None
-        return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo)
+        return _umschalten_gesperrt(thema, replace(alt, master=master), pfad, repo=repo, ohne_paar=True)
 
     return _unter_sperre(thema, arbeit)
 
@@ -606,7 +696,7 @@ def worker_setzen(thema: str, worker: str, datei_pfad: Path | None = None, *,
     def arbeit() -> Profil:
         pfad = datei_pfad or datei()
         alt = _lesen(pfad).get(thema, Profil())
-        _paar_pruefen(thema, repo)
+        _paar_pruefen(thema, repo, ohne_paar=True, datei_pfad=pfad)
         if worker == alt.worker:
             return alt
         neu = replace(alt, worker=worker,
@@ -650,7 +740,7 @@ def modell_setzen(thema: str, modell: str | None, datei_pfad: Path | None = None
     def arbeit() -> Profil:
         pfad = datei_pfad or datei()
         alt = _lesen(pfad).get(thema, Profil())
-        _paar_pruefen(thema, repo)
+        _paar_pruefen(thema, repo, ohne_paar=True, datei_pfad=pfad)
         if alt.worker == WORKFLOW:
             if geprueft is not None:
                 raise ModusFehler("„Nach Workflow“ erlaubt kein festes Modell")

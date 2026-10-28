@@ -20,6 +20,8 @@
     masterwechsel profil THEMA [--json]
                                       Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
     masterwechsel vibe THEMA an|aus   Arbeitsweise Vibe für ein Thema ein-/ausschalten (nur von Hand; braucht Ausführer Claude)
+    masterwechsel thema-anlegen THEMA [--master claude|codex|hermes|kontingent]
+                                      Thema ohne Codex-Paar anlegen (Profil + Besitzdatei im Hauptarbeitsbaum; Standard claude)
     masterwechsel master-setzen THEMA MASTER
                                       Masterrolle eines Themas setzen (kontingent|claude|codex|hermes)
     masterwechsel worker-setzen THEMA WORKER
@@ -264,6 +266,23 @@ def _vibe_cli(args: argparse.Namespace) -> int:
         print(f"  Vibe-Regel: {arbeitsweise.VIBE_REGEL}")
     else:
         print(f"{args.thema}: Arbeitsweise Protokoll{zusatz} – keine Vibe-Regel.")
+    return 0
+
+
+def _thema_anlegen_cli(args: argparse.Namespace) -> int:
+    """Thema ohne Codex-Paar anlegen (oder die halbe Anlage ergänzen); jeder Fehler lässt alles unverändert."""
+    if args.master not in modi.MASTER_WERTE:
+        print(f"Thema nicht angelegt: unbekannte Masterrolle {args.master!r} "
+              f"(erlaubt: {', '.join(modi.MASTER_WERTE)})", file=sys.stderr)
+        return 1
+    try:
+        ergebnis = modi.thema_anlegen(args.thema, args.master)
+    except (modi.ModusFehler, OSError) as fehler:
+        print(f"Thema nicht angelegt: {fehler}", file=sys.stderr)
+        return 1
+    wort = "Besitzdatei ergänzt" if ergebnis == "ergänzt" else "angelegt"
+    print(f"{args.thema}: {wort} – Master {anzeige.ROLLEN_NAMEN[args.master]}, ohne Codex-Paar; "
+          "Profil und Besitzdatei (im Hauptarbeitsbaum) stehen. Keine Sitzung gestartet.")
     return 0
 
 
@@ -601,6 +620,9 @@ def _parser() -> argparse.ArgumentParser:
     profil_parser = unter.add_parser("profil", help="Rollenprofil eines Themas anzeigen (Master, Ausführer, Modell)")
     profil_parser.add_argument("thema", help="vorhandenes Thema")
     profil_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    anlegen = unter.add_parser("thema-anlegen", help="Thema ohne Codex-Paar anlegen (Profil + Besitzdatei)")
+    anlegen.add_argument("thema", help="neues Thema (^[a-z0-9][a-z0-9-]{0,79}$)")
+    anlegen.add_argument("--master", default="claude", help="kontingent, claude, codex oder hermes (Standard claude)")
     vibe = unter.add_parser("vibe", help="Arbeitsweise Vibe eines Themas ein- oder ausschalten (nur von Hand)")
     vibe.add_argument("thema", help="vorhandenes Thema")
     vibe.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
@@ -701,6 +723,8 @@ def main(argv: list[str] | None = None) -> int:
         return _profil_cli(args)
     if args.befehl == "vibe":
         return _vibe_cli(args)
+    if args.befehl == "thema-anlegen":
+        return _thema_anlegen_cli(args)
     if args.befehl == "master-setzen":
         return _master_setzen_cli(args)
     if args.befehl == "worker-setzen":

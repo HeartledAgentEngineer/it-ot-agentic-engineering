@@ -77,7 +77,7 @@ def test_automatik_wirksam_nur_mit_kontingent_master_aktivem_paar_und_global_an(
     assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto an" in text
     assert "b: Master Hermes (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus (fester Master)" in text
     assert "c: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in text
-    assert "d: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · kein Paar" in text
+    assert "d: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · ohne Codex-Paar" in text
     aus = "\n".join(_zeilen(themen=[_thema("a")], automatik=False))
     assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in aus
 

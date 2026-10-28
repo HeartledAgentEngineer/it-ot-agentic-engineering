@@ -160,7 +160,7 @@ def thema_felder(t: Thema, automatik_global: bool) -> tuple[str, str, str, str, 
     ausfuehrer = WERKZEUG_NAMEN.get(p.worker, p.worker) + (f" {p.modell}" if p.modell else "")
     # Wie `automatik.py`: nur ein aktives Paar mit Master-Vorgabe „kontingent“ bei globaler Automatik.
     if t.paar_aktiv is None:
-        auto = "kein Paar"
+        auto = "ohne Codex-Paar"
     elif p.master != modi.KONTINGENT:
         auto = "Auto aus (fester Master)"
     else:
@@ -276,9 +276,10 @@ def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]
     for name in sorted(set(profile) | set(paar_liste)):
         paar = paar_liste.get(name)
         besitzer = None
-        if paar is not None and repo is not None:
+        if repo is not None:   # auch ein Thema ohne Codex-Paar hat seine Besitzdatei im Hauptarbeitsbaum
+            laufend = paar.laufend if paar is not None else paare.laufend_bilden(name)
             try:   # fehlende Datei = claude, Lesefehler = unbekannt (wie die fail-closed Prüfung in `modi`)
-                besitzer = modi._besitzer_lesen(besitz.pfad(repo, paar.laufend))
+                besitzer = modi._besitzer_lesen(besitz.pfad(repo, laufend))
             except modi.ModusFehler:
                 besitzer = None
         # pruefkreis sucht immer im festen Übergabeordner, unabhängig vom Paar.

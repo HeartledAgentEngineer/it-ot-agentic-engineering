@@ -19,7 +19,17 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   geschützt sind). Ist `arbeitsweise.json` nicht lesbar, werden Profile mit anderem Ausführer als Claude fail-closed
   nicht geschrieben.
 
+- `masterwechsel thema-anlegen THEMA [--master …]`: Thema ohne Codex-Paar (Profil plus Besitzdatei im Hauptarbeitsbaum,
+  `modi.thema_anlegen`, `besitz.exklusiv_schreiben`); Reihenfolge Profil → Besitzdatei exklusiv, Wiederaufnahme einer halben
+  Anlage („ergänzt“), Überschreibschutz für vorhandene Besitzdateien, Hauptbaum-Pflicht auch aus einem Git-Worktree.
+- `modi._paar_pruefen(ohne_paar=True)`: Themen ohne Paar mit Profil gelten in `master_setzen`/`master_setzen_wenn` (damit
+  `alle`), `worker_setzen`, `modell_setzen`, `fuehrt`/`geschuetzt` und `snapshot`; ihr Besitzpfad liegt immer im
+  Hauptarbeitsbaum. Wechselassistent, Postfach, Automatik, `master_uebergeben_gesperrt` und `modus THEMA …` verlangen
+  weiter ein Paar. Folge: `alle kontingent|zurueck` stellt jetzt auch Themen ohne Paar um (vorher „offen: Thema unbekannt“).
+
 ### Geändert
+- Der Master-Status zeigt Themen ohne Paar mit „· ohne Codex-Paar“ (vorher „kein Paar“) und liest ihren Besitz aus der
+  Besitzdatei im Hauptarbeitsbaum (vorher „Besitz unbekannt“).
 - Master-Status statt `kurz`: `masterwechsel status` gibt jetzt die Übersicht aus, die bisher `kurz` lieferte (Verbrauch, Lage,
   Matrix, Themen, Sitzungen, Wartet worauf); die alte Zwei-Zeilen-Ausgabe (nur beide Kontingente, `cli.master_zeile`) entfällt.
   `kurz` bleibt als stiller Alias mit gleicher Ausgabe (nicht mehr in der Hilfe). Kopfzeile jetzt „Master-Status · HH:MM · Lage …

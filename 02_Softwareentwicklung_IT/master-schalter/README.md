@@ -329,6 +329,7 @@ Die Befehle im Überblick:
 .\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes
 .\.venv\Scripts\masterwechsel.exe modell-setzen THEMA MODELL|standard
 .\.venv\Scripts\masterwechsel.exe vibe THEMA an|aus
+.\.venv\Scripts\masterwechsel.exe thema-anlegen THEMA [--master claude|codex|hermes|kontingent]
 .\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
 ```
 
@@ -390,6 +391,32 @@ Sebastian für ein Thema **von Hand** ein; die Regel dazu gehört in den Schalte
 - **Anzeige:** Die Themenzeile im Master-Status endet bei Vibe auf „· VIBE“ (bei Protokoll nichts, bei ungültiger Datei
   „· Arbeitsweise ?“ plus Hinweis). Das Übersichtsfenster hat die Spalte „Arbeitsweise“ und neben dem Master-Menü einen
   Umschalter (Protokoll/Vibe, mit Rückfrage; gesperrt in „nur Anzeige“).
+
+### Thema ohne Codex-Paar (`thema-anlegen`, unveröffentlicht)
+
+Nicht jedes Thema braucht einen Codex-Chat. `masterwechsel thema-anlegen THEMA [--master claude|codex|hermes|kontingent]`
+(Standard `claude`) legt ein Thema **ohne Paar** an: das Profil (`themenmodi.json`, Master = `--master`, Ausführer
+Workflow) und die Besitzdatei `.hermes/uebergabe/laufend/<THEMA>.master` im **Hauptarbeitsbaum** (gleicher Ort wie bei
+`pruefkreis`, auch aus einem Git-Worktree heraus). Der Besitz steht bei der Anlage immer auf `claude <ISO-Zeit> modus
+<THEMA>` (der anlegende Master); die Vorgabe `--master` steht im Profil. Alles läuft unter der Themensperre:
+
+- Profil und Besitzdatei fehlen ⇒ erst das Profil, dann die Besitzdatei **exklusiv** (`O_EXCL`, nie überschrieben) ⇒
+  „angelegt“. Zwei gleichzeitige Anlagen ergeben genau eine Besitzdatei; die andere meldet „existiert schon“.
+- Profil da, Besitzdatei fehlt, kein Paar (halbe Anlage nach einem Abbruch, auch ältere Themen wie `weiterbildung`) ⇒ die
+  Besitzdatei wird ergänzt („Besitzdatei ergänzt“); weicht `--master` vom gespeicherten Master ab, Fehler und nichts geändert.
+- Besitzdatei da (auch leer) ohne Profil und ohne Paar ⇒ Fehler „existiert ohne Profil“; fremder oder alter Stand wird nie
+  überschrieben. Profil **und** Besitzdatei da, oder ein Paar vorhanden ⇒ Fehler „existiert schon“.
+- Ist der Hauptarbeitsbaum nicht auffindbar (`.git` ist eine Datei und die `commondir`-Auflösung scheitert), lehnt der
+  Befehl vor jeder Nebenwirkung ab („Hauptarbeitsbaum nicht gefunden“).
+
+**Themen ohne Paar in den Schreibwegen:** `modi._paar_pruefen(..., ohne_paar=True)` lässt ein Thema ohne Paar gelten, wenn es
+ein Profil hat (frisch gelesen); der Besitzpfad ist dann immer der im Hauptarbeitsbaum, nie eine Worktree-Kopie. Das gilt
+für `master-setzen` (auch über `master_setzen_wenn`, also `alle`), `worker-setzen`, `modell-setzen` sowie die
+Schutzprüfung (`fuehrt`/`geschuetzt`) und `snapshot`. `worker-setzen` und `modell-setzen` prüfen nur den Besitzpfad und
+lassen alle Besitzdateien bytegleich. Ohne Profil und ohne Paar bleibt es bei „Thema unbekannt“ (Tippfehlerschutz). **Weiter
+ein Paar verlangen:** Wechselassistent, Postfach, Automatik, `master_uebergeben_gesperrt` und der Legacy-Setter
+`modus THEMA …`. Themen **mit** Paar behalten Verhalten und Besitzpfad (bewusst unverändert, eigener Schritt). Der
+Master-Status zeigt solche Themen mit „· ohne Codex-Paar“ (statt früher „kein Paar“) und liest ihren Besitz im Hauptbaum.
 
 ### Bereinigter Codex-Code-Worker
 
@@ -977,7 +1004,7 @@ src/master_schalter/
   chat_register.py   Zuletzt benutzte Chats (nur Metadaten, nur lesend) aus Claude Code, Codex, Hermes
   chat_zuordnung.py  Projekte, bestätigte Zuordnung und Projekt-Vorschläge je Chat
   vorgaenge.py Vorgänge je Paar und Limitfenster (Phase, Kennung, Lauf-Kennung)
-  besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex)
+  besitz.py    Besitzmarkierung `<thema>.master` (claude / reserviert / codex); `exklusiv_schreiben` legt sie ohne Überschreiben an
   automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre; Weg alt oder assistent
   codex_senden.py  Paket bauen und den Auftrag an `codex.exe queue` übergeben
   ack.py       Bestätigung des Zielchats aus den Rollout-Dateien lesen
