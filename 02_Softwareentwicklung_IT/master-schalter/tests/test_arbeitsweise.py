@@ -167,7 +167,9 @@ def test_themenzeile_zeigt_vibe_nur_bei_vibe(umgebung, capsys):
     assert "VIBE" not in ohne and "Arbeitsweise" not in ohne
     _vibe_an(capsys)
     mit = [z for z in kurz.sammeln() if z.startswith(f"  {THEMA}:")][0]
-    assert mit == ohne.replace("Ausführer Workflow", "Ausführer Claude") + " · VIBE"
+    erwartet = ohne.replace("Ausführer Workflow", "Ausführer Claude").replace(
+        "Prüfer ? (pruefkreis braucht --master)", kurz.VIBE_PRUEFER) + " · VIBE"     # Vibe: keine Gegenprüfung
+    assert mit == erwartet
 
 
 @pytest.mark.parametrize("weise, ende", [("protokoll", "· Auto an"), ("vibe", "· Auto an · VIBE"),
@@ -352,3 +354,28 @@ def test_aktion_meldet_fehler_aus_modi_statt_abzustuerzen(umgebung, snap, capsys
     ergebnis = aktion.ausfuehren()
     assert not ergebnis.ok and "nicht geändert" in ergebnis.text and "Vibe braucht Ausführer Claude" in ergebnis.text
     assert not _datei().exists()
+
+
+# --- Ergebnisprüfung R1-1: bei Vibe keine Codex-/Hermes-Prüferangabe ------------------------------------------------
+
+def test_vibe_zeigt_master_kurzpruefung_statt_codex_pruefer(umgebung, capsys):
+    _vibe_an(capsys)
+    zeile = next(z for z in kurz.sammeln() if z.startswith(f"  {THEMA}:"))
+    assert kurz.VIBE_PRUEFER in zeile and "Prüfer Codex" not in zeile and "Prüfer Hermes" not in zeile
+
+    assert cli.main(["profil", THEMA]) == 0
+    aus = capsys.readouterr().out
+    assert kurz.VIBE_PRUEFER in aus and "Prüfer Codex" not in aus and "Prüfer Hermes" not in aus
+
+    assert cli.main(["master-setzen", THEMA, "codex"]) == 0
+    aus = capsys.readouterr().out
+    assert kurz.VIBE_PRUEFER in aus and "Sobald" not in aus
+
+    zeile = next(t for t in um.aufnehmen().themen if t.thema == THEMA)
+    assert zeile.pruefer.startswith("Master-Kurzprüfung")
+
+
+def test_protokoll_zeigt_weiter_den_pruefkreis_pruefer(umgebung, capsys):
+    assert cli.main(["profil", THEMA]) == 0
+    aus = capsys.readouterr().out
+    assert kurz.VIBE_PRUEFER not in aus and "Jetzt: Prüfer" in aus

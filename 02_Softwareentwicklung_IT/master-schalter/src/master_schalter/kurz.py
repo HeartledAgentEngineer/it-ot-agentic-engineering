@@ -129,11 +129,25 @@ def pruefer_text(master: str | None) -> str:
     return "Prüfer ? (pruefkreis braucht --master)"
 
 
-def pruefer_vorschau(thema: str, vorgabe: str) -> list[str]:
+VIBE_PRUEFER = "Prüfer Master-Kurzprüfung (Vibe, keine Codex-/Hermes-Gegenprüfung)"
+
+
+def _ohne_paar_mit_profil(thema: str) -> bool:
+    """Thema ohne Codex-Paar, aber mit Profil – dessen Schreibwege nutzen immer den Hauptarbeitsbaum (`modi`)."""
+    try:
+        return not any(p.thema == thema for p in paare.lesen()) and thema in modi.lesen()
+    except (modi.ModusFehler, paare.PaarFehler, OSError, ValueError):
+        return False
+
+
+def pruefer_vorschau(thema: str, vorgabe: str, weise: str = arbeitsweise.PROTOKOLL) -> list[str]:
     """Zwei Zeilen für `master-setzen`/`profil`: wer heute prüft und wer nach der Übergabe an `vorgabe` prüft.
 
     Nur lesend; maßgeblich ist wie bei `pruefkreis` der Besitz (`<thema>.master`), nicht die gespeicherte Vorgabe.
+    Bei Arbeitsweise Vibe gibt es keine Codex-/Hermes-Gegenprüfung: dann nur eine Zeile mit der Master-Kurzprüfung.
     """
+    if weise == arbeitsweise.VIBE:
+        return [f"  Jetzt: {VIBE_PRUEFER}"]
     try:
         lokal = uebergabe.repo_wurzel()
         repo = uebergabe.haupt_wurzel(lokal)
@@ -142,7 +156,9 @@ def pruefer_vorschau(thema: str, vorgabe: str) -> list[str]:
         return ["  Prüfer: unbekannt (Repo oder Thema nicht lesbar)"]
     jetzt = pruefkreis_master(ordner, thema)
     zeilen = [f"  Jetzt: {pruefer_text(jetzt)}"]
-    if repo != lokal:   # die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum
+    # Themen mit Paar: die Schreibwege (`modi`) nutzen `repo_wurzel` – aus einem Worktree also nicht den Hauptbaum.
+    # Themen ohne Paar (mit Profil) schreiben immer im Hauptbaum – dort stimmt die Vorschau, kein Hinweis.
+    if repo != lokal and not _ohne_paar_mit_profil(thema):
         zeilen.append("  Hinweis: Aufruf aus einem Git-Worktree – master-setzen schreibt die Besitzmarke dort, "
                       "pruefkreis liest den Hauptarbeitsbaum")
     if vorgabe == modi.KONTINGENT:
@@ -165,7 +181,8 @@ def thema_felder(t: Thema, automatik_global: bool) -> tuple[str, str, str, str, 
         auto = "Auto aus (fester Master)"
     else:
         auto = "Auto an" if (t.paar_aktiv and automatik_global) else "Auto aus"
-    return master, besitz_text, pruefer_text(t.pruefkreis_master), ausfuehrer, auto
+    pruefer = VIBE_PRUEFER if t.arbeitsweise == arbeitsweise.VIBE else pruefer_text(t.pruefkreis_master)
+    return master, besitz_text, pruefer, ausfuehrer, auto
 
 
 def arbeitsweise_zusatz(wert: str) -> str:

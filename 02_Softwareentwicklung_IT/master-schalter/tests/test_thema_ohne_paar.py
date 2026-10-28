@@ -317,3 +317,21 @@ def test_status_zeigt_themen_ohne_paar(env, monkeypatch, capsys):
     assert cli.main(["thema-anlegen", THEMA]) == 0
     zeile = next(z for z in kurz.sammeln() if z.startswith(f"  {THEMA}:"))
     assert zeile.startswith(f"  {THEMA}: Master Claude (Besitz claude) · ") and zeile.endswith("· ohne Codex-Paar")
+
+
+# --- Ergebnisprüfung R1-2: Vorschau nennt für Themen ohne Paar keinen Worktree-Schreibweg -----------------------------
+
+def test_vorschau_aus_worktree_ohne_hinweis_bei_thema_ohne_paar(env, capsys):
+    assert cli.main(["thema-anlegen", THEMA]) == 0
+    _worktree(env)
+    capsys.readouterr()
+    assert not any("Git-Worktree" in z for z in kurz.pruefer_vorschau(THEMA, "codex"))
+    assert cli.main(["master-setzen", THEMA, "codex"]) == 0
+    assert "Git-Worktree" not in capsys.readouterr().out
+    assert _besitz(env.haupt).read_text(encoding="utf-8").startswith("codex ")      # geschrieben im Hauptbaum
+
+
+def test_vorschau_aus_worktree_mit_hinweis_bei_thema_mit_paar(env):
+    paare.setzen(PAAR_THEMA, THREAD, paare.laufend_bilden(PAAR_THEMA), aktiv=True)
+    _worktree(env)
+    assert any("Git-Worktree" in z for z in kurz.pruefer_vorschau(PAAR_THEMA, "codex"))

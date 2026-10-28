@@ -18,6 +18,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   `modi._umschalten_gesperrt`, damit auch `modus THEMA hermes-codex`, `master-setzen`, `alle` und der Wechselassistent
   geschützt sind). Ist `arbeitsweise.json` nicht lesbar, werden Profile mit anderem Ausführer als Claude fail-closed
   nicht geschrieben.
+- Bei Vibe nennen Master-Status, Übersicht, `profil` und `master-setzen` „Prüfer Master-Kurzprüfung (Vibe, keine
+  Codex-/Hermes-Gegenprüfung)“ statt des pruefkreis-Prüfers; der Worktree-Hinweis der Prüfer-Vorschau entfällt für Themen
+  ohne Paar, weil diese immer im Hauptbaum schreiben (Codex-Ergebnisprüfung R1).
 
 - `masterwechsel thema-anlegen THEMA [--master …]`: Thema ohne Codex-Paar (Profil plus Besitzdatei im Hauptarbeitsbaum,
   `modi.thema_anlegen`, `besitz.exklusiv_schreiben`); Reihenfolge Profil → Besitzdatei exklusiv, Wiederaufnahme einer halben

@@ -339,9 +339,10 @@ schreibt die Marke mit, der Prüfer wechselt also sofort (Master Codex ⇒ „Pr
 „Nach Kontingent“ folgt der Prüfer dem jeweiligen Besitzer; weicht eine feste Vorgabe vom Besitz ab, nennt eine
 zweite Zeile den Prüfer nach der Übergabe. `profil --json` behält alle bisherigen Felder unverändert; neu kommen die
 Felder der Arbeitsweise dazu (siehe unten). **Grenze:** Der Sofortwechsel gilt
-für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` die
-Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe sagt das dann mit
-„Hinweis: Aufruf aus einem Git-Worktree …“.
+für Aufrufe aus dem Hauptarbeitsbaum (so läuft die Leiste). Aus einem Git-Worktree schreibt `master-setzen` bei
+Themen **mit** Codex-Paar die Marke in den Worktree, die Vorschau und `pruefkreis` lesen aber den Hauptbaum – die Ausgabe
+sagt das dann mit „Hinweis: Aufruf aus einem Git-Worktree …“. Themen **ohne** Paar schreiben immer im Hauptbaum (siehe
+`thema-anlegen`); dort entfällt der Hinweis.
 
 `modelle` zeigt ohne `--aktualisieren` nur den lokalen Cache (Exit 0, Fehlerkategorien stehen
 in der Ausgabe); mit `--aktualisieren` wird frisch abgeglichen und ein nicht erfolgreich
@@ -376,6 +377,8 @@ Sebastian für ein Thema **von Hand** ein; die Regel dazu gehört in den Schalte
   Codex-/Hermes-Gegenprüfung; Prüfbefehl Pflicht vor Commit und Push; Sensibles nur Hermes; kein OT/SPS-Code; kein
   force-push, kein Löschen. Ein festes Claude-Modell im Profil gilt; die Regel schreibt kein Modell vor. `vibe an` gibt
   die Regel aus.
+- **Prüferangabe bei Vibe:** Master-Status, Übersichtsfenster, `profil` und `master-setzen` nennen dann „Prüfer
+  Master-Kurzprüfung (Vibe, keine Codex-/Hermes-Gegenprüfung)“ statt des pruefkreis-Prüfers.
 - **`profil THEMA --json`:** bekommt zusätzlich `"arbeitsweise": "protokoll"|"vibe"` (bei ungültiger Datei `"?"`) und bei
   `vibe` `"vibe_regel"`; die bisherigen Felder bleiben unverändert und stehen vorn. `profil THEMA` (Text) zeigt
   „Arbeitsweise: …“ und bei Vibe die Regel. Vor jedem Workerauftrag gilt: `arbeitsweise` aus dem Profil beachten.

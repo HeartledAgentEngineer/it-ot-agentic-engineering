@@ -248,7 +248,7 @@ def _profil_cli(args: argparse.Namespace) -> int:
     stand = anzeige.Rollenstand(wert.master, wert.worker, wert.modell)
     print("\n".join(anzeige.rollen_zeilen(args.thema, stand, sicher)))
     print("\n".join(arbeitsweise.profil_zeilen(weise)))
-    print("\n".join(kurz.pruefer_vorschau(args.thema, wert.master)))
+    print("\n".join(kurz.pruefer_vorschau(args.thema, wert.master, weise)))
     return 0
 
 
@@ -297,7 +297,7 @@ def _master_setzen_cli(args: argparse.Namespace) -> int:
         print(f"Master nicht gesetzt: {fehler}", file=sys.stderr)
         return 1
     print(anzeige.master_meldung(args.thema, args.master))
-    print("\n".join(kurz.pruefer_vorschau(args.thema, args.master)))
+    print("\n".join(kurz.pruefer_vorschau(args.thema, args.master, arbeitsweise.anzeige_wert(args.thema))))
     return 0
 
 
