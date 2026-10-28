@@ -53,6 +53,12 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
   über `.git` → `gitdir` → `commondir`, ohne Git-Aufruf). Das Protokoll nennt in jeder Runde die Quelle, z. B.
   `Master: codex (master-schalter.master)`; ein ausdrückliches `--master` steht als `(angegeben)` darin und geht
   der Datei vor.
+- **Codex laut Messung im Limit ⇒ gleich Hermes** (kein Fehlversuch): Ohne `--pruefer` liest das Werkzeug die
+  Codex-Messung des Master-Schalters (`~/.master-schalter/codex-kontingent.json`, `MASTER_SCHALTER_DATEN` hat
+  Vorrang). Nur wenn sie höchstens 15 min alt ist und ein Fenster (5h oder Woche) bei 100 % (gültig sind nur 0–100) mit Reset in der
+  Zukunft steht, prüft sofort Hermes; Protokoll: `Ersatzpruefer: Hermes statt Codex - Codex 5h 100 % laut Messung
+  HH:MM, Reset … (kein Fehlversuch)`. Fehlende, alte oder kaputte Messung (z. B. Prozent außerhalb 0–100, nicht darstellbarer Reset) ⇒ wie bisher Codex mit Ersatz bei
+  Sperre. `--pruefer codex` versucht Codex weiterhin ausdrücklich.
 - **Thema** wird zum Dateinamen und darf nur `a-z`, `0-9` und `-` enthalten
   (höchstens 80 Zeichen).
 

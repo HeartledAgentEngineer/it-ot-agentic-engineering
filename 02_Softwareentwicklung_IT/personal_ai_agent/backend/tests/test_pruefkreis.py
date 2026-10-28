@@ -6,6 +6,9 @@ Prueferwahl, Urteilszeile, Fehlerfaelle, Protokoll und die Sperre fuer
 sensible Inhalte.
 """
 import importlib.util
+import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -26,6 +29,7 @@ def pk(tmp_path, monkeypatch):
     monkeypatch.setenv("PRUEFKREIS_CODEX", "codex-attrappe")
     monkeypatch.setenv("PRUEFKREIS_HERMES", "hermes-attrappe")
     monkeypatch.setenv("PRUEFKREIS_BESITZ_DIR", str(tmp_path / "besitz"))
+    monkeypatch.setenv("MASTER_SCHALTER_DATEN", str(tmp_path / "schalter"))   # nie die echte Codex-Messung
     # Standardthema "probe" gehoert Claude - ohne bekannten Master bricht pruefen ab.
     (tmp_path / "besitz").mkdir()
     (tmp_path / "besitz" / "probe.master").write_text("claude 2026-10-27T00:00:00+00:00 modus probe", encoding="utf-8")
@@ -394,3 +398,131 @@ def test_ausdruecklicher_master_geht_vor_besitzdatei(pk, vorlage, monkeypatch, t
     _besitz(tmp_path, "probe", "codex x modus probe")
     erg = pk.pruefen(vorlage, "probe", master="claude")
     assert erg["pruefer"] == "codex" and erg["master_quelle"] == "angegeben"
+
+
+def _messung(tmp_path, prozent, *, alter_s=60, reset_in_s=3600, fenster="5h"):
+    jetzt = time.time()
+    werte = {"5h": {"used_percent": 10.0, "resets_at": jetzt + 7200},
+             "Woche": {"used_percent": 20.0, "resets_at": jetzt + 86400}}
+    werte[fenster] = {"used_percent": prozent, "resets_at": jetzt + reset_in_s}
+    ordner = tmp_path / "schalter"
+    ordner.mkdir(exist_ok=True)
+    gelesen = datetime.fromtimestamp(jetzt - alter_s, timezone.utc).isoformat()
+    (ordner / "codex-kontingent.json").write_text(json.dumps({"version": 1, "gelesen_um": gelesen, "fenster": werte}),
+                                                  encoding="utf-8")
+
+
+@pytest.mark.parametrize("fenster", ["5h", "Woche"])
+def test_gemessenes_limit_nimmt_gleich_hermes(pk, vorlage, monkeypatch, tmp_path, fenster):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0, fenster=fenster)
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "hermes" and [b[0] for b in pk.aufrufe] == ["hermes-attrappe"]
+    assert f"Codex {fenster} 100 %" in erg["ersatz"] and "kein Fehlversuch" in erg["ersatz"]
+    assert "kein Fehlversuch" in Path(erg["protokoll"]).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("prozent, alter_s, reset_in_s", [
+    (99.0, 60, 3600),       # knapp unter dem Limit
+    (100.0, 20 * 60, 3600),  # Messung zu alt
+    (100.0, 60, -60),        # Reset schon vorbei
+])
+def test_ohne_frisches_limit_bleibt_codex(pk, vorlage, monkeypatch, tmp_path, prozent, alter_s, reset_in_s):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, prozent, alter_s=alter_s, reset_in_s=reset_in_s)
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "codex" and erg["ersatz"] == ""
+
+
+def test_kaputte_oder_fehlende_messung_bleibt_codex(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    assert pk.codex_im_limit() is None
+    (tmp_path / "schalter").mkdir()
+    (tmp_path / "schalter" / "codex-kontingent.json").write_text("{kaputt", encoding="utf-8")
+    assert pk.codex_im_limit() is None
+    assert pk.pruefen(vorlage, "probe")["pruefer"] == "codex"
+
+
+def test_ausdruecklich_codex_versucht_trotz_messung(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0)
+    erg = pk.pruefen(vorlage, "probe", pruefer="codex")
+    assert erg["pruefer"] == "codex" and pk.aufrufe[0][0] == "codex-attrappe"
+
+
+def test_codex_master_bleibt_beim_familienvermerk(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0)
+    erg = pk.pruefen(vorlage, "probe", master="codex")
+    assert erg["pruefer"] == "hermes" and "Master ist Codex" in erg["ersatz"]
+
+
+@pytest.mark.parametrize("reset", [1e100, float("inf")])
+def test_nicht_darstellbarer_reset_faellt_auf_codex_zurueck(pk, vorlage, monkeypatch, tmp_path, reset):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0)
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    roh["fenster"]["5h"]["resets_at"] = reset
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert pk.codex_im_limit() is None
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "codex" and erg["ersatz"] == ""
+
+
+@pytest.mark.parametrize("prozent", [10 ** 400, 100.5, -1, float("nan"), True])
+def test_ungueltiger_prozentwert_faellt_auf_codex_zurueck(pk, vorlage, monkeypatch, tmp_path, prozent):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0)
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    roh["fenster"]["5h"]["used_percent"] = prozent
+    roh["fenster"]["Woche"]["used_percent"] = 20.0
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert pk.codex_im_limit() is None
+    assert pk.pruefen(vorlage, "probe")["pruefer"] == "codex"
+
+
+@pytest.mark.parametrize("feld, wert", [("used_percent", 100.5), ("used_percent", None), ("resets_at", 1e100),
+                                         ("resets_at", "morgen"), ("resets_at", None)])   # None bei 20 % = kaputt
+def test_kaputtes_zweites_fenster_macht_die_ganze_messung_ungueltig(pk, vorlage, monkeypatch, tmp_path, feld, wert):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0, fenster="5h")          # erstes Fenster zeigt ein gültiges Limit
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    roh["fenster"]["Woche"][feld] = wert
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert pk.codex_im_limit() is None
+    assert pk.pruefen(vorlage, "probe")["pruefer"] == "codex"
+
+
+def test_fehlendes_fenster_macht_die_messung_ungueltig(pk, tmp_path):
+    _messung(tmp_path, 100.0)
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    del roh["fenster"]["Woche"]
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert pk.codex_im_limit() is None
+
+
+def test_leeres_fenster_ohne_reset_ist_gueltig_und_das_andere_zaehlt(pk, vorlage, monkeypatch, tmp_path):
+    # Wie der Master-Schalter: 0 % ohne Rücksetzzeit ist ein gültiges, nicht offenes Fenster.
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100.0, fenster="Woche")
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    roh["fenster"]["5h"] = {"used_percent": 0, "resets_at": None}
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert "Codex Woche 100 %" in (pk.codex_im_limit() or "")
+    assert pk.pruefen(vorlage, "probe")["pruefer"] == "hermes"
+
+
+@pytest.mark.parametrize("form", ["z", "ohne_zone"])
+def test_messzeit_mit_z_oder_ohne_zone_gilt_als_utc(pk, tmp_path, form):
+    _messung(tmp_path, 100.0)
+    datei = tmp_path / "schalter" / "codex-kontingent.json"
+    roh = json.loads(datei.read_text(encoding="utf-8"))
+    utc = datetime.fromtimestamp(time.time() - 60, timezone.utc).replace(tzinfo=None).isoformat()
+    roh["gelesen_um"] = utc + "Z" if form == "z" else utc
+    datei.write_text(json.dumps(roh), encoding="utf-8")
+    assert "Codex 5h 100 %" in (pk.codex_im_limit() or "")
