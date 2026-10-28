@@ -39,6 +39,9 @@
     masterwechsel claude-auftrag --sitzung KENNUNG --thema THEMA --datei .hermes/….md [--von codex|hermes]
                                       Auftrag an eine Claude-Code-Sitzung ablegen (Zustellung per Hook, auch bei Stop)
     masterwechsel claude-sitzungen    Claude-Sitzungen aus dem Statusregister (Kennung, Zustand, letzte Meldung)
+    masterwechsel warte THEMA TEXT…   „Wartet worauf“ für `kurz` melden (eine Zeile, technisch, ≤ 120 Zeichen)
+    masterwechsel warte THEMA --fertig
+                                      Wartemeldung des Themas entfernen
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
 """
@@ -50,7 +53,8 @@ import sys
 from datetime import datetime, timezone
 
 from . import (__version__, anzeige, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
-               claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wechsel, zustand)
+               claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wartet, wechsel,
+               zustand)
 
 
 def _statuszeile() -> int:
@@ -125,6 +129,23 @@ def _utf8_ausgabe() -> None:
 
 def _kurz_cli() -> int:
     print("\n".join(kurz.sammeln()))
+    return 0
+
+
+def _warte_cli(args: argparse.Namespace) -> int:
+    try:
+        if args.fertig:
+            if args.text:
+                print("Nicht geändert: --fertig nimmt keinen Text", file=sys.stderr)
+                return 1
+            weg = wartet.loeschen(args.thema)
+            print(f"{args.thema}: Wartemeldung entfernt." if weg else f"{args.thema}: keine Wartemeldung vorhanden.")
+            return 0
+        meldung = wartet.setzen(args.thema, " ".join(args.text))
+    except (wartet.WartetFehler, OSError) as fehler:
+        print(f"Nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    print(f"{meldung.thema}: wartet auf „{meldung.text}“ – steht in `kurz`.")
     return 0
 
 
@@ -513,6 +534,10 @@ def _parser() -> argparse.ArgumentParser:
     unter = p.add_subparsers(dest="befehl", required=True)
     unter.add_parser("status", help="beide Kontingente anzeigen")
     unter.add_parser("kurz", help="Kurzübersicht für den Chat (nur lesend)")
+    warte = unter.add_parser("warte", help="„Wartet worauf“ eines Themas melden oder entfernen")
+    warte.add_argument("thema")
+    warte.add_argument("text", nargs="*", help="eine technische Kurzangabe, z. B. Freigabe Vibe-Modus")
+    warte.add_argument("--fertig", action="store_true", help="Meldung entfernen")
     unter.add_parser("statuszeile", help="Statuszeilen-Befehl für Claude Code")
     hand = unter.add_parser("claude-kontingent", help="Claude-Werte von Hand eintragen")
     hand.add_argument("--fuenf", type=_prozent, required=True, help="5-Stunden-Verbrauch in Prozent")
@@ -611,6 +636,8 @@ def main(argv: list[str] | None = None) -> int:
         return _statuszeile()
     if args.befehl == "kurz":
         return _kurz_cli()
+    if args.befehl == "warte":
+        return _warte_cli(args)
     if args.befehl == "claude-kontingent":
         return _claude_kontingent(args)
     if args.befehl == "claude-messen":

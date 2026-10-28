@@ -23,6 +23,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   Zugangsdaten im Log; der Anzeigetext im Menü bleibt unverändert.
 
 ### Neu
+- `masterwechsel warte THEMA TEXT…` / `warte THEMA --fertig` (`wartet.py`): „Wartet worauf“ je Thema;
+  `kurz` zeigt die Meldungen (älteste zuerst, „seit“, > 24 h „(veraltet?)“) statt der festen Zeile
+  „noch keine Statusquelle“; ohne Meldung „Wartet worauf: nichts gemeldet“.
 - `masterwechsel kurz` (`kurz.py`): Kurzübersicht für den Chat bei Steuerung über Remote-Sitzungen. Zeigt
   Rest-Limits mit Reset und Messzeit, Matrixlage mit Planer/Prüfer/Ausführer, je Thema Master-Vorgabe,
   Besitzer, Ausführer und wirksame Automatik (aktives Paar + Master „kontingent“ + globale Automatik),
