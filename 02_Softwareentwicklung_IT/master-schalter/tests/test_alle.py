@@ -257,6 +257,17 @@ def test_cli_alle_exitcodes(tmp_path, monkeypatch, capsys):
     assert "läuft schon" in capsys.readouterr().err
 
 
+def test_merkdatei_mit_kaputter_kodierung_ist_ungueltig_statt_absturz(tmp_path, monkeypatch, capsys):
+    from master_schalter import cli, kurz
+    repo = _umgebung(tmp_path, monkeypatch, themen=(A,))
+    monkeypatch.setenv("MASTER_SCHALTER_REPO", str(repo))
+    alle.merkdatei().write_bytes(b'{"version": 1, "themen": {"thema-a": "\xff"}}')
+    with pytest.raises(alle.MerkFehler, match="unlesbar"):
+        alle.gemerkt()
+    assert cli.main(["alle", "zurueck"]) == 2
+    assert "Gemerkt: Merkdatei ungültig – `masterwechsel alle zurueck` nennt den Grund" in kurz.sammeln()
+
+
 def test_kurz_gemerkt_zeile():
     from master_schalter import kurz
     assert kurz.gemerkt_zeile(None) is None and kurz.gemerkt_zeile({}) is None

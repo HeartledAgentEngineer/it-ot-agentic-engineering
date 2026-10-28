@@ -58,8 +58,8 @@ def gemerkt(pfad: Path | None = None) -> dict[str, str] | None:
         text = pfad.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    except OSError as fehler:
-        raise MerkFehler(f"Merkdatei unlesbar ({fehler})") from fehler
+    except (OSError, UnicodeError) as fehler:
+        raise MerkFehler(f"Merkdatei unlesbar ({type(fehler).__name__})") from fehler
     try:
         roh = json.loads(text)
     except ValueError as fehler:
