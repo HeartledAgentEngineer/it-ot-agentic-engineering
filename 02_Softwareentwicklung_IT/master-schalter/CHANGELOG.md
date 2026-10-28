@@ -6,6 +6,17 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Geändert
+- Symbol und Menü zeigen keinen globalen Master mehr: der weiße Punkt über dem Balken entfällt (`symbol.bild` ohne
+  Parameter `master`; `symbol._farbe` heißt jetzt `symbol.farbe`). Der Tooltip lautet „Lage X · Claude n % ·
+  Codex n % verbraucht“ (`anzeige.tooltip_symbol`, 5-Stunden-Fenster) statt „M <Name> L<Lage> | …“, der Menükopf nennt
+  die Zahl der Themen je Masterart („Themen: 3 fest · 2 nach Kontingent“, `anzeige.themen_zeile`) statt „Master: …
+  seit …“. `masterwechsel status`/`master` und `master.json` bleiben unverändert.
+- Leiste: Linksklick (Menüeintrag „Übersicht …“ mit `default=True`) öffnet das Übersichtsfenster als eigenen Prozess
+  statt der Benachrichtigung; `fenster_befehl(modul)` kennt `fenster` und `uebersicht`, der Prozessstart steckt in
+  `uebersicht_modell.modul_starten`.
+- `claude_messen.messen` und `codex_messen.messen` führen den Messfehler-Status nach (Wrapper um die bisherige
+  Messung `_messen`); Verhalten, Rückgabe und Ausnahmen bleiben gleich. `kurz` kennt `thema_felder`, `repo_bestimmen`
+  und nimmt in `_themen` ein vorgegebenes Repo an; `kurz.verbraucht` ist jetzt `anzeige.verbraucht`.
 - CLI: Über Pipes schreiben jetzt alle Befehle außer `statuszeile` UTF-8 auf stdout und stderr, auch Hilfe und Argumentfehler (vorher nur
   `kurz`); `profil`/`master-setzen` kamen über `/master-status` mit verstümmelten Umlauten an.
 - `master-setzen` und `profil` (Text) zeigen den Prüfer: „Jetzt: Prüfer …“ nach der pruefkreis-Regel,
@@ -24,6 +35,20 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   Zugangsdaten im Log; der Anzeigetext im Menü bleibt unverändert.
 
 ### Neu
+- Übersichtsfenster (`uebersicht.py`, Modell `uebersicht_modell.py`): Kopf mit Uhrzeit, Lage und Hauptschalter
+  Automatik, Kontingent als Fortschrittsbalken („n % verbraucht“, Statusfarbe wie das Symbol), Themen-Tabelle mit
+  Master-Auswahl, „Alle nach Kontingent“ / „Alle wie vorher“ (Bericht im Textfeld), „Übergabe starten …“,
+  „Aktualisieren“, unten „Wartet worauf“ und Sitzungen. Jede Änderung fragt vorher (Ja/Nein, Standard Nein). Eine
+  Instanz (`uebersicht.lock`), Aktualisierung alle 5 s im Hintergrund-Thread. Lesen und Schreiben nutzen dasselbe
+  `repo` (Hauptarbeitsbaum); Schreiben nur, wenn `repo/.git` ein Ordner ist, sonst „Hauptarbeitsbaum nicht gefunden –
+  nur Anzeige“. Plan in vier Fassungen von Codex geprüft.
+- Messfehler-Status `messfehler.json` im Datenordner (`signale.messfehler_setzen/_loeschen/_lesen`): Fehler ⇒ Eintrag
+  mit Kategorie, festem Text, `seit` (bleibt in der Serie) und `zuletzt`; Erfolg ⇒ Eintrag der Quelle weg; keine
+  Verfallsgrenze; Schreibfehler werden verschluckt. `kurz` und die Übersicht zeigen „Claude-Messung scheitert seit
+  HH:MM (letzter Versuch HH:MM): …“. Lesen-Ändern-Schreiben unter der Sperre `messfehler.json.lock` (Codex-R1).
+- Übersicht nach Codex-Ergebnisprüfung R1: nach einem Lesefehler stehen keine alten Balken mehr (alle „unbekannt“,
+  Hinweis „keine aktuellen Messdaten“), Automatik ist „unbekannt“ und nicht umschaltbar; die Balkenfarbe kommt aus
+  dem ungerundeten Wert wie beim Symbol (96,6 % bei Schwelle 97 bleibt gelb).
 - `masterwechsel alle kontingent|zurueck` (`alle.py`): alle Themen auf einmal nach Kontingent und zurück auf die
   vorher gemerkten festen Rollen (Merkdatei `alle-vorher.json`, nach Abschluss archiviert statt gelöscht). Hermes
   (Master, Besitz, abgebrochener Wechsel) bleibt unberührt. Neu in `modi`: `master_setzen_wenn` – Prüfung, Merken

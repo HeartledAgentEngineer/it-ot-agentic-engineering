@@ -84,22 +84,32 @@ def test_schwelle_standard_und_datei(tmp_path):
 from master_schalter.zustand import Zustand  # noqa: E402
 
 
-def test_tooltip_beginnt_mit_master_und_lage():
-    text = anzeige.tooltip([_k("Claude", 62, 80), _k("Codex", 1.0, 32.0)], kopf=anzeige.tooltip_kopf("claude", "1"))
-    assert text == "M Claude L1 | Claude 5h 62% · Wo 80% | Codex 5h 1% · Wo 32%"
-    assert len(text) <= 127
+def test_tooltip_symbol_nennt_lage_und_verbrauch_beider_abos():
+    text = anzeige.tooltip_symbol("1", [_k("Claude", 62, 80), _k("Codex", 1.0, 32.0)])
+    assert text == "Lage 1 · Claude 62 % · Codex 1 % verbraucht"
+    assert "M Claude" not in text and "Master" not in text
 
 
-def test_tooltip_kopf_ohne_master_und_lage():
-    assert anzeige.tooltip_kopf(None, None) == "M – L?"
-    assert anzeige.tooltip_kopf("codex", "2B") == "M Codex L2B"
-    assert anzeige.tooltip_kopf("hermes", "3") == "M Hermes L3"
+def test_tooltip_symbol_begrenzt_verbrauch_und_kennt_unbekanntes():
+    assert anzeige.tooltip_symbol("2B", [_k("Claude", 130, 1), _k("Codex", -5, 1)]) ==         "Lage 2B · Claude 100 % · Codex 0 % verbraucht"
+    ohne = anzeige.tooltip_symbol(None, [Kontingent("Claude", fehler="keine Daten"), _k("Codex", None, 3)])
+    assert ohne == "Lage ? · Claude ? · Codex ? verbraucht"
 
 
-def test_tooltip_mit_kopf_bleibt_hoechstens_127_zeichen():
-    lang = Kontingent("Claude", fehler="x" * 300)
-    text = anzeige.tooltip([lang, lang], kopf=anzeige.tooltip_kopf("claude", "3"))
-    assert len(text) <= 127 and text.startswith("M Claude L3 | ")
+def test_tooltip_symbol_zeigt_zurueckgesetztes_fenster_als_neu():
+    k = Kontingent("Claude", (Fenster("5h", 90, datetime(2026, 10, 14, 10, 0, tzinfo=UTC), zurueckgesetzt=True),))
+    assert anzeige.tooltip_symbol("1", [k, _k("Codex", 5, 5)]) == "Lage 1 · Claude neu · Codex 5 % verbraucht"
+
+
+def test_tooltip_symbol_bleibt_hoechstens_127_zeichen():
+    lang = Kontingent("Claude" + "x" * 300)
+    assert len(anzeige.tooltip_symbol("3", [lang, lang])) <= 127
+
+
+def test_themen_zeile_zaehlt_je_masterart():
+    assert anzeige.themen_zeile(["claude", "codex", "hermes", "kontingent", "kontingent"]) ==         "Themen: 3 fest · 2 nach Kontingent"
+    assert anzeige.themen_zeile(["kontingent"]) == "Themen: 0 fest · 1 nach Kontingent"
+    assert anzeige.themen_zeile([]) == "Themen: keine"
 
 
 def test_master_menuezeile():

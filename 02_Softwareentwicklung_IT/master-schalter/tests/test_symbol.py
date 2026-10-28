@@ -33,28 +33,23 @@ def test_unbekannt_zeigt_leeren_balken():
     assert _gefuellt(bild, rechts) == 0
 
 
-def _weiss(bild, xy):
-    return bild.getpixel(xy) == (255, 255, 255, 255)
+def test_symbol_kennt_keinen_master_punkt_mehr():
+    import inspect
+
+    assert "master" not in inspect.signature(symbol.bild).parameters
+    assert not any(name in vars(symbol) for name in ("WEISS", "PUNKT_Y", "PUNKT_RADIUS", "MASTER_BALKEN"))
 
 
-def test_punkt_ueber_dem_balken_des_aktiven_masters():
-    links, rechts = symbol.balken_mitte()
-    claude = symbol.bild(50, 50, 97, master="claude")
-    assert _weiss(claude, (links, symbol.PUNKT_Y)) and not _weiss(claude, (rechts, symbol.PUNKT_Y))
-    codex = symbol.bild(50, 50, 97, master="codex")
-    assert _weiss(codex, (rechts, symbol.PUNKT_Y)) and not _weiss(codex, (links, symbol.PUNKT_Y))
-
-
-def test_punkt_liegt_oberhalb_der_balken():
-    assert symbol.PUNKT_Y + symbol.PUNKT_RADIUS < min(b[1] for b in symbol.BALKEN)
-
-
-def test_ohne_master_kein_punkt():
+def test_oberhalb_der_balken_bleibt_alles_transparent():
+    """Ohne Punkt: über den Balken (y < 12) ist kein einziges Pixel gezeichnet."""
     bild = symbol.bild(50, 50, 97)
-    links, rechts = symbol.balken_mitte()
-    assert not _weiss(bild, (links, symbol.PUNKT_Y)) and not _weiss(bild, (rechts, symbol.PUNKT_Y))
-    assert symbol.bild(50, 50, 97, master=None).tobytes() == bild.tobytes()
+    obere_kante = min(b[1] for b in symbol.BALKEN)
+    assert all(bild.getpixel((x, y))[3] == 0 for y in range(obere_kante) for x in range(symbol.GROESSE))
 
 
-def test_hermes_hat_keinen_balken_und_keinen_punkt():
-    assert symbol.bild(50, 50, 97, master="hermes").tobytes() == symbol.bild(50, 50, 97).tobytes()
+def test_statusfarbe_grundfarbe_gelb_rot():
+    assert symbol.farbe(10, symbol.CLAUDE, 97) == symbol.CLAUDE
+    assert symbol.farbe(79.9, symbol.CODEX, 97) == symbol.CODEX
+    assert symbol.farbe(80, symbol.CLAUDE, 97) == symbol.GELB
+    assert symbol.farbe(96, symbol.CLAUDE, 97) == symbol.GELB
+    assert symbol.farbe(97, symbol.CLAUDE, 97) == symbol.ROT

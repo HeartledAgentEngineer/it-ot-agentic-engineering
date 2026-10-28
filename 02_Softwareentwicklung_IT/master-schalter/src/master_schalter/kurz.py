@@ -7,6 +7,8 @@ Befehl **liest nur**: er misst nicht, schreibt nichts und startet nichts. `zeile
 Limits erscheinen als **Verbrauch** („… % verbraucht“, auf 0–100 begrenzt), nie als Rest. Was die Quelle
 nicht weiß, steht als „unbekannt“ bzw. „neu, nicht gemessen“ da. Codex-Chat-Kennungen, Chattitel und Pfade
 werden nicht ausgegeben; Sitzungskennungen nur gekürzt.
+Scheiternde Messungen stehen mit Grund unter den Limitzeilen (`messfehler.json`, ohne Verfallsgrenze). Die Bausteine
+(`thema_felder`, `messfehler_zeilen`, `_themen`, `_sitzungen`) nutzt auch das Übersichtsfenster.
 """
 from __future__ import annotations
 
@@ -51,9 +53,7 @@ def _uhr(wert: datetime, jetzt: datetime, zone: tzinfo | None) -> str:
     return lokal.strftime("%H:%M" if gleicher_tag else "%d.%m. %H:%M")
 
 
-def verbraucht(prozent: float) -> int:
-    """Verbrauch eines Fensters, auf 0–100 begrenzt: 130 ergibt 100, -5 ergibt 0."""
-    return round(max(0.0, min(100.0, prozent)))
+verbraucht = anzeige.verbraucht   # Verbrauch eines Fensters, auf 0–100 begrenzt (gleiche Regel wie der Symbol-Tooltip)
 
 
 def dauer(spanne: timedelta) -> str:
@@ -151,7 +151,8 @@ def pruefer_vorschau(thema: str, vorgabe: str) -> list[str]:
     return zeilen
 
 
-def _thema_zeile(t: Thema, automatik_global: bool) -> str:
+def thema_felder(t: Thema, automatik_global: bool) -> tuple[str, str, str, str, str]:
+    """Die fünf Angaben einer Themenzeile: (Master, Besitz, Prüfer, Ausführer, Auto) – auch für die Übersicht."""
     p = t.profil
     master = "nach Kontingent" if p.master == modi.KONTINGENT else WERKZEUG_NAMEN.get(p.master, p.master)
     besitz_text = f"Besitz {t.besitzer}" if t.besitzer else "Besitz unbekannt"
@@ -163,7 +164,12 @@ def _thema_zeile(t: Thema, automatik_global: bool) -> str:
         auto = "Auto aus (fester Master)"
     else:
         auto = "Auto an" if (t.paar_aktiv and automatik_global) else "Auto aus"
-    return f"  {t.name}: Master {master} ({besitz_text}) · {pruefer_text(t.pruefkreis_master)} · Ausführer {ausfuehrer} · {auto}"
+    return master, besitz_text, pruefer_text(t.pruefkreis_master), ausfuehrer, auto
+
+
+def _thema_zeile(t: Thema, automatik_global: bool) -> str:
+    master, besitz_text, pruefer, ausfuehrer, auto = thema_felder(t, automatik_global)
+    return f"  {t.name}: Master {master} ({besitz_text}) · {pruefer} · Ausführer {ausfuehrer} · {auto}"
 
 
 def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -178,6 +184,17 @@ def _sitzung_zeile(s: Sitzung, jetzt: datetime, zone: tzinfo | None) -> str:
 def _wartet_zeile(m: wartet.Meldung, jetzt: datetime, zone: tzinfo | None) -> str:
     veraltet = " (veraltet?)" if jetzt - m.zeit > WARTET_VERALTET else ""
     return f"Wartet worauf: {m.thema}: {m.text} (seit {_uhr(m.zeit, jetzt, zone)}){veraltet}"
+
+
+def messfehler_zeile(name: str, eintrag: signale.Messfehler, jetzt: datetime, zone: tzinfo | None) -> str:
+    """„Claude-Messung scheitert seit 09:12 (letzter Versuch 09:42): <fester Text>“ – ohne Verfallsgrenze."""
+    return (f"{name}-Messung scheitert seit {_uhr(eintrag.seit, jetzt, zone)}"
+            f" (letzter Versuch {_uhr(eintrag.zuletzt, jetzt, zone)}): {eintrag.text}")
+
+
+def messfehler_zeilen(messfehler: dict[str, signale.Messfehler], jetzt: datetime, zone: tzinfo | None) -> list[str]:
+    return [messfehler_zeile(name, messfehler[quelle], jetzt, zone)
+            for quelle, name in (("claude", "Claude"), ("codex", "Codex")) if quelle in messfehler]
 
 
 def _naechstes(kontingente: list[Kontingent], schwelle: int, jetzt: datetime, zone: tzinfo | None) -> str:
@@ -195,7 +212,8 @@ def _naechstes(kontingente: list[Kontingent], schwelle: int, jetzt: datetime, zo
 
 def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[Sitzung], *,
            schwelle: int, automatik_global: bool, jetzt: datetime, zone: tzinfo | None = None,
-           hinweise: tuple[str, ...] = (), wartet_auf: tuple[wartet.Meldung, ...] = ()) -> list[str]:
+           hinweise: tuple[str, ...] = (), wartet_auf: tuple[wartet.Meldung, ...] = (),
+           messfehler: dict[str, signale.Messfehler] | None = None) -> list[str]:
     """Die Kurzübersicht als Textzeilen (ohne Tabellen, für schmale Bildschirme)."""
     claude, codex = kontingente
     lage = rollen.lage(claude, codex, schwelle)
@@ -204,6 +222,7 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
             f" · Automatik {'an' if automatik_global else 'aus'}")
     aus = [kopf, "Kontingent verbraucht:"]
     aus += [_limit_zeile(k, jetzt, zone) for k in kontingente]
+    aus += messfehler_zeilen(messfehler or {}, jetzt, zone)
     aus.append(_rollen_zeile(lage, grund))
     aus.append("Themen:" if themen else "Themen: keine")
     aus += [_thema_zeile(t, automatik_global) for t in sorted(themen, key=lambda t: t.name)]
@@ -217,7 +236,19 @@ def zeilen(kontingente: list[Kontingent], themen: list[Thema], sitzungen: list[S
 
 # --- Quellen lesen -----------------------------------------------------------
 
-def _themen() -> tuple[list[Thema], list[str]]:
+_OFFEN = object()   # „Repo noch nicht bestimmt“ (None heißt: nicht gefunden)
+
+
+def repo_bestimmen() -> Path | None:
+    """Hauptarbeitsbaum (aus einem Worktree über `commondir`); `None`, wenn das Repo nicht zu finden ist."""
+    try:
+        return uebergabe.haupt_wurzel(uebergabe.repo_wurzel())
+    except uebergabe.UebergabeFehler:
+        return None
+
+
+def _themen(repo: Path | None | object = _OFFEN) -> tuple[list[Thema], list[str]]:
+    """Themen mit Besitz; `repo` kann der Aufrufer vorgeben (die Übersicht liest und schreibt am selben Ort)."""
     hinweise: list[str] = []
     try:
         profile = modi.lesen()
@@ -225,10 +256,9 @@ def _themen() -> tuple[list[Thema], list[str]]:
         profile = {}
         hinweise.append("Hinweis: Themenprofile unlesbar")
     paar_liste = {p.thema: p for p in paare.lesen()}
-    try:
-        repo = uebergabe.haupt_wurzel(uebergabe.repo_wurzel())   # aus einem Worktree: Besitz liegt im Hauptbaum
-    except uebergabe.UebergabeFehler:
-        repo = None
+    if repo is _OFFEN:
+        repo = repo_bestimmen()   # aus einem Worktree: Besitz liegt im Hauptbaum
+    if repo is None:
         hinweise.append("Hinweis: Repo nicht gefunden – Besitz unbekannt")
     themen = []
     for name in sorted(set(profile) | set(paar_liste)):
@@ -284,4 +314,4 @@ def sammeln(jetzt: datetime | None = None, zone: tzinfo | None = None) -> list[s
     hinweise = _gemerkt_hinweis() + hinweise
     return zeilen(signale.alle_lesen(jetzt=jetzt), themen, _sitzungen(), schwelle=anzeige.schwelle(),
                   automatik_global=anzeige.automatik_an(), jetzt=jetzt, zone=zone, hinweise=tuple(hinweise),
-                  wartet_auf=tuple(wartet.alle_lesen()))
+                  wartet_auf=tuple(wartet.alle_lesen()), messfehler=signale.messfehler_lesen())

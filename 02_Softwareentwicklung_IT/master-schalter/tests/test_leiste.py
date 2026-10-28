@@ -65,12 +65,13 @@ def _einstellungen(lst):
     return list(_eintrag(list(lst._menue()), "Einstellungen ▸").submenu.items)
 
 
-def test_menue_beginnt_mit_master_und_lage(lst):
+def test_menue_beginnt_mit_themenzahl_und_lage(lst):
     zustand.aendern(lambda z: z.__class__("claude", JETZT.isoformat(), None))
     lst.aktualisieren()
     items = [i for i in lst._menue() if i.visible]
     texte = _texte(items)
-    assert texte[0].startswith("Master: Claude (seit ")
+    assert texte[0] == "Themen: keine"
+    assert not any(t.startswith("Master: ") for t in texte)           # kein globaler Master mehr im Menükopf
     assert texte[1].startswith("Lage 1")
     assert any("Thinker" in t for t in texte[1:5])
     assert not items[0].enabled
@@ -203,7 +204,7 @@ def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkey
     _eintrag(sub, "Codex")(lst.icon)   # MenuItem.__call__ führt die Aktion aus
 
     assert aufrufe == ["codex"]
-    assert lst.icon.title.startswith("M Codex L")
+    assert lst.icon.title.startswith("Lage ") and "Master" not in lst.icon.title and "M Codex" not in lst.icon.title
     assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
 
 
@@ -224,7 +225,7 @@ def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
     _eintrag(sub, "Hermes")(lst.icon)
 
     assert aufrufe == ["hermes"]
-    assert lst.icon.title.startswith("M Hermes L")
+    assert lst.icon.title.startswith("Lage ") and "Master" not in lst.icon.title and "M Hermes" not in lst.icon.title
     assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Hermes. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
 
 
@@ -241,26 +242,40 @@ def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatc
     assert lst.icon.meldungen[-1][1].startswith("Wechsel fehlgeschlagen")
 
 
-def test_tooltip_beginnt_mit_master_und_hat_hoechstens_127_zeichen(lst):
+def test_tooltip_nennt_lage_und_verbrauch_und_hat_hoechstens_127_zeichen(lst):
     zustand.aendern(lambda z: z.__class__("claude", JETZT.isoformat(), None))
     lst.aktualisieren()
-    assert lst.icon.title.startswith("M Claude L1 | Claude 5h 62%")
+    assert lst.icon.title == "Lage 1 · Claude 62 % · Codex 1 % verbraucht"
     assert len(lst.icon.title) <= 127
 
 
-def test_symbol_bekommt_aktiven_master(lst, monkeypatch):
-    gesehen = {}
+def test_symbol_bekommt_nur_die_beiden_fuenf_stunden_werte(lst, monkeypatch):
+    gesehen = []
     from master_schalter import symbol
     original = symbol.bild
 
-    def spion(claude, codex, schwelle, master=None):
-        gesehen["master"] = master
-        return original(claude, codex, schwelle, master)
+    def spion(*args, **kwargs):
+        gesehen.append((args, kwargs))
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(symbol, "bild", spion)
-    zustand.aendern(lambda z: z.__class__("codex", JETZT.isoformat(), None))
+    zustand.aendern(lambda z: z.__class__("codex", JETZT.isoformat(), None))     # der globale Master ändert nichts
     lst.aktualisieren()
-    assert gesehen["master"] == "codex"
+    assert gesehen == [((62, 1, 97), {})]
+
+
+def test_menue_kopf_zaehlt_themen_je_masterart(lst):
+    for nr, (thema, master) in enumerate((("alpha", "claude"), ("beta", "hermes"), ("gamma", "kontingent")), 1):
+        paare.setzen(thema, f"00000000-0000-4000-8000-00000000000{nr}", paare.laufend_bilden(thema), aktiv=True)
+        modi.master_setzen(thema, master)
+    lst.aktualisieren()
+    assert _texte(lst._menue())[0] == "Themen: 2 fest · 1 nach Kontingent"
+
+
+def test_linksklick_eintrag_ist_sichtbar_und_heisst_uebersicht(lst):
+    standard = [i for i in lst._menue() if getattr(i, "default", False)]
+    assert len(standard) == 1 and standard[0].text == "Übersicht …" and standard[0].visible
+    assert not any(i.text == "Details" for i in lst._menue())
 
 
 def test_schwelle_untermenue_fuenf_optionen_aktive_angehakt(lst):
@@ -1529,6 +1544,51 @@ def test_fensterstart_fehler_beendet_die_leiste_nicht(lst, monkeypatch, capsys):
     assert lst.icon.meldungen[-1][1] == "Wechselfenster konnte nicht gestartet werden"
     log = capsys.readouterr().err
     assert "Wechselfenster konnte nicht gestartet werden (OSError)" in log and "geheimer Pfad" not in log
+
+
+# --- Übersicht öffnen (Linksklick) -----------------------------------------------------------
+
+def test_fenster_befehl_kennt_das_uebersichtsmodul(tmp_path, monkeypatch):
+    monkeypatch.setattr(leiste.sys, "executable", str(tmp_path / "python.exe"))
+    assert leiste.fenster_befehl("uebersicht") == [str(tmp_path / "python.exe"), "-m", "master_schalter.uebersicht"]
+
+
+def test_linksklick_oeffnet_die_uebersicht_als_eigenen_prozess_im_eigenen_faden(lst, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(leiste.subprocess, "Popen", lambda befehl, **kw: aufrufe.append((befehl, kw)))
+    threads = []
+    monkeypatch.setattr(leiste.threading, "Thread", lambda **kw: threads.append(kw) or _ThreadAttrappe(**kw))
+    standard = next(i for i in lst._menue() if getattr(i, "default", False))
+
+    standard(lst.icon)                       # Linksklick = Standardeintrag
+
+    assert aufrufe == [] and threads and threads[0]["daemon"] is True          # im Klickfaden startet nichts
+    assert lst.icon.meldungen == []                                             # keine Benachrichtigung mehr
+
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+    standard(lst.icon)
+
+    assert len(aufrufe) == 1
+    befehl, kw = aufrufe[0]
+    assert befehl == leiste.fenster_befehl("uebersicht") and befehl[-2:] == ["-m", "master_schalter.uebersicht"]
+    assert kw["stdin"] is kw["stdout"] is kw["stderr"] is leiste.subprocess.DEVNULL
+    paket = str(Path(leiste.__file__).resolve().parent.parent)
+    assert kw["env"]["PYTHONPATH"].split(leiste.os.pathsep)[0] == paket
+    assert lst.icon.meldungen == []
+
+
+def test_uebersichtsstart_fehler_beendet_die_leiste_nicht(lst, monkeypatch, capsys):
+    def kaputt(*_a, **_k):
+        raise OSError("C:/Users/sebas/geheimer Pfad/python.exe fehlt")
+
+    monkeypatch.setattr(leiste.subprocess, "Popen", kaputt)
+    monkeypatch.setattr(leiste.threading, "Thread", _Sofort)
+
+    _eintrag(list(lst._menue()), "Übersicht …")(lst.icon)
+
+    assert lst.icon.meldungen[-1][1] == "Übersicht konnte nicht gestartet werden"
+    log = capsys.readouterr().err
+    assert "Übersicht konnte nicht gestartet werden (OSError)" in log and "geheimer Pfad" not in log
 
 
 # --- Takt des Wechselassistenten --------------------------------------------------------------

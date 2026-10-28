@@ -5,25 +5,28 @@ Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code**
 aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
 technisches Übergabepaket bereit.
 
-Stand: **v0.5.1** (Entwicklungsstand): Codex-Kontingent wird aktiv gemessen (Abschnitt „Woher die Zahlen kommen“, `masterwechsel codex-messen`). Darunter **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.5.1** (Entwicklungsstand; Linksklick öffnet das Übersichtsfenster, das Symbol zeigt keinen globalen Master mehr): Codex-Kontingent wird aktiv gemessen (Abschnitt „Woher die Zahlen kommen“, `masterwechsel codex-messen`). Darunter **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
 
 ## Bedienung
 
 | Bedienung | Ergebnis |
 |---|---|
-| Mauszeiger auf das Symbol | eine Zeile mit Master, Lage und Kontingenten |
-| Linksklick | Windows-Benachrichtigung mit beiden Mastern und Stand-Zeit |
-| Rechtsklick | Menü (seit v0.5.0 nach Plan E9): Stand-Zeilen (Master, Lage, Kontingente), „Übergabe starten …", Zeilen offener Wechsel, „Aktualisieren", „Einstellungen ▸" und „Beenden". Die bisherigen Einstellpunkte liegen unter „Einstellungen ▸" (siehe „Bedienung (v0.5.0)“) |
+| Mauszeiger auf das Symbol | eine Zeile „Lage 1 · Claude 62 % · Codex 1 % verbraucht" (5-Stunden-Fenster; unbekannt = „?“, zurückgesetzt = „neu“) |
+| Linksklick | öffnet die **Übersicht** (eigener Prozess, siehe „Übersichtsfenster“); er löst den Menüeintrag „Übersicht …“ aus. Die frühere Windows-Benachrichtigung entfällt |
+| Rechtsklick | Menü (seit v0.5.0 nach Plan E9): Stand-Zeilen (Themenzahl je Masterart, Lage, Kontingente), „Übersicht …", „Anmelden bei Claude …", „Übergabe starten …", Zeilen offener Wechsel, „Aktualisieren", „Einstellungen ▸" und „Beenden". Die bisherigen Einstellpunkte liegen unter „Einstellungen ▸" (siehe „Bedienung (v0.5.0)“) |
 
 Das Symbol besteht aus zwei Balken (links Claude, rechts Codex). Die Füllhöhe zeigt den
 5-Stunden-Verbrauch: Grundfarbe bis 79 %, gelb ab 80 %, rot ab der Schwelle (Standard 97 %).
+Einen globalen Master zeigt das Symbol nicht mehr (früher ein weißer Punkt über dem Balken); der Menükopf
+nennt stattdessen die Zahl der Themen je Masterart („Themen: 3 fest · 2 nach Kontingent“, „fest“ = Master Claude,
+Codex oder Hermes, sonst „nach Kontingent“). `masterwechsel status`/`master` und `master.json` bleiben unverändert.
 Die Anzeige wird standardmäßig jede Minute aktualisiert. Die Claude-Messung läuft beim
 Start, nach „Aktualisieren" und anschließend im eingestellten Takt; dabei werden offene Übergaben
 abgehakt (auch wenn die Automatik aus ist). Codex wird im selben Messtakt aktiv gemessen (höchstens alle
 5 Minuten, kein Tokenverbrauch; siehe „Woher die Zahlen kommen“).
 
 Im Menü „Einstellungen ▸ Standard-Master (übrige Themen)" (bis v0.4.1: „Master wechseln") kann Claude, Codex oder Hermes ausgewählt werden (Hermes = Lage 3 der
-Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken und kein weißer Punkt). Jeder Wechsel
+Kaskaden-Matrix; kein eigenes Abo-Kontingent, deshalb kein Balken). Jeder Wechsel
 fragt vorher nach (Ja/Nein, Standard **Nein**); beim Ziel **Codex** werden danach zusätzlich alle aktiven
 Themen an ihre Codex-Chats zurückgegeben (siehe „Rückgabe an Codex"). Der Wechsel legt ein Markdown-Paket
 unter .hermes/uebergabe/ ab und zeigt den Paketnamen an. Themen mit Hermes-Schutz bleiben beim globalen Standardwechsel unberührt. Die Schwelle lässt sich im Menü „Einstellungen ▸ Wechsel-Schwelle"
@@ -31,13 +34,45 @@ auf 80, 90, 95, 97 oder 100 % setzen; sie steuert Lage und rote Anzeige. Die unb
 (Claude im Limit → Übergabe) läuft nur, wenn sie ausdrücklich eingeschaltet ist — per
 `masterwechsel automatik an` (der frühere Menühaken ist in v0.3.2 entfallen).
 
+## Übersichtsfenster (Linksklick)
+
+Ein Linksklick auf das Symbol öffnet `uebersicht.py` als eigenen Prozess (`pythonw.exe -m master_schalter.uebersicht`;
+auch von Hand startbar). Es läuft **nur einmal** (Sperre `uebersicht.lock`); eine zweite Instanz beendet sich still mit
+Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufnehmen`, dieselben Bausteine wie
+`masterwechsel kurz`; nie Dateizugriff im Tk-Thread) und misst selbst nichts. Inhalt:
+
+- **Kopf:** Uhrzeit, Lage und der Hauptschalter **Automatik** (an/aus) als Umschaltknopf; vor dem Umschalten fragt ein
+  Ja/Nein-Dialog (Standard **Nein**).
+- **Kontingent:** je Abo und Fenster (5h, Woche) ein Fortschrittsbalken „n % verbraucht“ (0–100), Reset-Zeit und
+  Messzeit. Farbe wie im Symbol (aus dem ungerundeten Messwert): Grundfarbe, gelb ab 80 %, rot ab der Schwelle. Eine scheiternde Messung steht mit
+  Grund darunter („Claude-Messung scheitert seit HH:MM (letzter Versuch HH:MM): …“, aus `messfehler.json`).
+- **Themen:** Tabelle Thema · Master · Besitz · Prüfer · Ausführer · Auto. Thema wählen, dann im Aufklappmenü
+  „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage setzt
+  `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung).
+- **Knöpfe:** „Alle nach Kontingent“ und „Alle wie vorher“ (`alle.auf_kontingent` / `alle.zurueck`, mit Rückfrage,
+  der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
+  (sofort neu lesen).
+- **Unten:** „Wartet worauf“ und die jüngsten Sitzungen (wie `kurz`: Kennung gekürzt, keine Chat-Titel, keine Pfade).
+- **Lesefehler:** scheitert eine Aktualisierung, zeigt das Fenster keine alten Werte weiter: alle Balken „unbekannt“,
+  darunter „keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)“, „Automatik: unbekannt“; Automatik- und
+  Schreibknöpfe sind gesperrt, bis eine Aufnahme wieder gelingt.
+
+**Ein Repo-Ort für Lesen und Schreiben:** Je Aktualisierung wird genau einmal
+`uebergabe.haupt_wurzel(uebergabe.repo_wurzel())` bestimmt; mit genau diesem `repo` werden Besitz gelesen und alle
+Änderungen geschrieben (`modi.master_setzen(..., repo=repo)`, `alle.auf_kontingent(repo=repo)`, `alle.zurueck(repo=repo)`).
+Aus einem Git-Worktree gestartet, treffen Anzeige und Änderung also den Hauptarbeitsbaum. Geschrieben wird nur, wenn
+`repo/.git` ein **Ordner** ist (die Prüfung läuft bei der Aufnahme und unmittelbar vor dem Schreiben). Ist das Repo
+nicht bestimmbar oder die Auflösung über `commondir` gescheitert (dann ist `.git` eine Datei), sind die Schreibknöpfe
+gesperrt und es steht „Hauptarbeitsbaum nicht gefunden – nur Anzeige“ da. Der Automatik-Schalter schreibt nur
+`einstellungen.json` im Datenordner und ist davon nicht betroffen.
+
 ## Bedienung (v0.5.0)
 
 Der Wechsel „Thema X: alter Chat → neuer Chat" läuft über **ein Menü, ein Fenster und einen Takt in der Leiste**.
 Alles Folgende gilt für den Entwicklungsstand auf Branch `v0.5.0-wechselassistent` (noch nicht veröffentlicht).
 
-**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen wie bisher (Master, Lage, Kontingente). Darunter:
-„Übergabe starten …" öffnet das Wechselfenster als eigenen Prozess; je offenem Wechsel steht eine
+**Menü (Rechtsklick, Plan E9).** Oben die Stand-Zeilen (Themenzahl je Masterart, Lage, Kontingente). Darunter:
+„Übersicht …“ (= Linksklick) öffnet das Übersichtsfenster; „Übergabe starten …" öffnet das Wechselfenster als eigenen Prozess; je offenem Wechsel steht eine
 deaktivierte Zeile „Wechsel <thema>: <Phase>" (z. B. „wartet auf Abgabe", „liegt im Postfach"); dann
 „Aktualisieren", „Einstellungen ▸" und „Beenden". Unter **Einstellungen ▸** liegen, in dieser Reihenfolge:
 „Wechsel-Schwelle", „Modelle aktualisieren" (mit den Katalogzeilen), „Automatik je Thema" (bisher „Chats
@@ -633,6 +668,16 @@ Der Befehl liest nur: Er misst nicht, schreibt nichts und startet nichts.
   begrenzt nur Form und Länge.
 - **Gemerkt:** steht eine Merkdatei des Sammelbefehls `alle` (siehe unten), zusätzlich
   „Gemerkt für „alle zurueck“: <thema> <rolle>, …“; eine ungültige Merkdatei nur als Hinweis.
+- **Messfehler:** scheitert die Claude- oder Codex-Messung, steht direkt unter den Limitzeilen
+  „Claude-Messung scheitert seit HH:MM (letzter Versuch HH:MM): <fester Text>“. Quelle ist `<datenordner>/messfehler.json`
+  (`{"claude"|"codex": {"kategorie", "text", "seit", "zuletzt"}}`). Geschrieben wird in den zentralen Messfunktionen
+  `claude_messen.messen` und `codex_messen.messen` selbst – also für jeden Messweg (Leiste, `claude-messen`,
+  `codex-messen`, Automatik): Fehler ⇒ Eintrag der Quelle (`seit` bleibt beim ersten Fehler der Serie, `zuletzt` = jetzt),
+  Erfolg ⇒ Eintrag derselben Quelle weg. Der Text ist der feste Fehlertext, nie Rohdaten oder Token. Es gibt **keine
+  Verfallsgrenze**: ein Eintrag gilt, bis eine Messung derselben Quelle gelingt. Kann die Statusdatei nicht
+  geschrieben werden, bleiben Messergebnis und Ausnahme unverändert; eine kaputte Datei zeigt einfach nichts an.
+  Lesen-Ändern-Schreiben läuft unter der Sperre `messfehler.json.lock`, damit zwei Messwege (z. B. Leiste und CLI)
+  sich nicht gegenseitig einen alten Stand zurückschreiben; bleibt sie 5 s belegt, entfällt dieses eine Update.
 
 ### Alle Themen auf einmal (`masterwechsel alle`, unveröffentlicht)
 
@@ -895,21 +940,23 @@ src/master_schalter/
   automatik.py Entscheidung (faellige) und Ablauf der Automatik unter der Themensperre; Weg alt oder assistent
   codex_senden.py  Paket bauen und den Auftrag an `codex.exe queue` übergeben
   ack.py       Bestätigung des Zielchats aus den Rollout-Dateien lesen
-  signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern
+  signale.py   Kontingente lesen und Claude-Messwerte sicher lokal speichern; Messfehler-Status `messfehler.json`
   claude_messen.py  Claude OAuth-Usage messen und Werte validieren
   codex_messen.py   Codex aktiv messen (`codex.exe app-server`, Prozent und Rücksetzzeit; Prozess immer beendet)
-  kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend
+  kurz.py      Kurzübersicht für den Chat (`masterwechsel kurz`), nur lesend; Bausteine auch für die Übersicht
+  uebersicht.py  Übersichtsfenster (tkinter, nur eine Instanz, Linksklick) – nur Oberfläche
+  uebersicht_modell.py  Modell der Übersicht ohne Tk: Aufnahme, Repo-Ort, Aktionen mit Rückfragetext
   wartet.py    „Wartet worauf“ je Thema (`masterwechsel warte`), angezeigt von `kurz`
   alle.py      Sammelbefehl `masterwechsel alle kontingent|zurueck` (Merkdatei, Hermes ausgelassen)
-  anzeige.py   Texte für Tooltip, Menü, Benachrichtigung; Schwelle und Automatikschalter
-  symbol.py    Bild des Symbols (zwei Balken, Pillow)
+  anzeige.py   Texte für Tooltip („Lage … · Claude n % · Codex n % verbraucht“), Menükopf, Benachrichtigung; Schwelle und Automatikschalter
+  symbol.py    Bild des Symbols (zwei Balken, Pillow; Statusfarbe auch für die Übersicht)
   leiste.py    Taskleisten-Symbol (pystray) — nur Oberfläche
   cli.py       Befehlszeile `masterwechsel`
 tests/         pytest, nur synthetische Dateien
 ```
 
 Der Kern (`signale`, `anzeige`, `paare`, `vorgaenge`, `besitz`, `automatik`, `codex_senden`,
-`ack`, `cli`, `fenster_modell`) nutzt nur die Standardbibliothek; das Fenster braucht zusätzlich `tkinter`
+`ack`, `cli`, `fenster_modell`) nutzt nur die Standardbibliothek; die Fenster (`fenster`, `uebersicht`) brauchen zusätzlich `tkinter`
 (Teil der Python-Installation), `pystray` und `Pillow` braucht nur die Taskleiste.
 
 ## Prüfbefehl

@@ -106,6 +106,25 @@ def _validierte_fenster(antwort: Any) -> dict[str, dict[str, float | None]] | No
 
 def messen(credentials_datei: Path | None = None, ziel: Path | None = None,
            jetzt: datetime | None = None, transport=None) -> bool:
+    """Misst (siehe `_messen`) und führt den Messfehler-Status in `messfehler.json` nach.
+
+    Scheitert die Messung, wird der Eintrag der Quelle „claude“ gesetzt (Kategorie und fester Text der
+    `MessFehler`, nie Rohdaten); gelingt sie, entfällt er. Das gilt für jeden Aufrufer (Leiste, CLI, Automatik).
+    Fehler beim Schreiben der Statusdatei werden verschluckt; Ergebnis und Ausnahme bleiben unverändert.
+    """
+    try:
+        ergebnis = _messen(credentials_datei, ziel, jetzt, transport)
+    except MessFehler as fehler:
+        signale.messfehler_setzen("claude", fehler.kategorie, str(fehler), jetzt=jetzt)
+        raise
+    except Exception:
+        signale.messfehler_setzen("claude", "unerwartet", MESSUNG_FEHLGESCHLAGEN, jetzt=jetzt)
+        raise
+    signale.messfehler_loeschen("claude")
+    return ergebnis
+
+
+def _messen(credentials_datei: Path | None, ziel: Path | None, jetzt: datetime | None, transport) -> bool:
     """Liest den Access-Token nur im Speicher, prüft beide Fenster und speichert sie atomar."""
     pfad = credentials_datei if credentials_datei is not None else _konfigurierte_credentials_datei()
     try:
