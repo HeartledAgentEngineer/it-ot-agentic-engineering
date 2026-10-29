@@ -286,7 +286,7 @@ def alle_aktion(snap: Uebersicht, richtung: str) -> Aktion:
     if richtung == "kontingent":
         titel, ueberschrift = "Alle nach Kontingent", "Alle Themen nach Kontingent"
         frage = ("Alle Themen auf „nach Kontingent“ stellen?\n\nFeste Rollen (Claude, Codex) werden vorher "
-                 "gemerkt; Hermes-Themen bleiben unberührt.")
+                 "gemerkt; von Hermes oder Antigravity gehaltene Themen bleiben unberührt.")
         funktion = alle.auf_kontingent
     elif richtung == "zurueck":
         titel, ueberschrift = "Alle wie vorher", "Gemerkte Rollen wiederhergestellt"

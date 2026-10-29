@@ -436,7 +436,7 @@ class Leiste:
                            not self._modus_snapshot.get(p.thema, (None, None, True))[2]]
             zeilen = [f"\u2022 {p.thema}: {self._kopfzeilen_zustand(p)}" for p in uebergebbar]
             liste = "\n".join(zeilen) if zeilen else "keine übergebbaren Themen"
-            ausnahme = ("\nGeschützte Hermes-Themen bleiben unberührt: " + ", ".join(geschuetzt)
+            ausnahme = ("\nGeschützte Themen (Hermes/Antigravity) bleiben unberührt: " + ", ".join(geschuetzt)
                         if geschuetzt else "")
             return ("Wirklich den Standard-Master für übrige Themen an Codex übergeben?\n\n"
                     "Nur diese aktiven, übergebbaren Themen erhalten eine Nachricht:\n"

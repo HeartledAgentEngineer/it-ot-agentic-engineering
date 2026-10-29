@@ -274,7 +274,7 @@ def wechsel_hinweis(ergebnis: "Ergebnis") -> str:
     """Text der Windows-Benachrichtigung nach einem Klick auf „Master wechseln“."""
     name = MASTER_NAMEN[ergebnis.master]
     if ergebnis.art == "gewechselt":
-        text = f"Standard-Master jetzt {name}. Technisches Übergabepaket: {ergebnis.paket.name}. Geschützte Hermes-Themen bleiben unverändert."
+        text = f"Standard-Master jetzt {name}. Technisches Übergabepaket: {ergebnis.paket.name}. Geschützte Themen (Hermes/Antigravity) bleiben unverändert."
     elif ergebnis.art == "gleich":
         text = f"Standard-Master ist schon {name}."
     else:

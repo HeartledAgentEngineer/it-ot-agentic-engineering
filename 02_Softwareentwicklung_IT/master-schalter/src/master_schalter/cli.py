@@ -190,7 +190,7 @@ def _wechsel(args: argparse.Namespace) -> int:
     if erg.art == "gleich":
         print(f"Standard-Master ist schon {anzeige.MASTER_NAMEN[erg.master]} – kein Wechsel, kein Paket.")
         return 0
-    print(f"Standard-Master jetzt {anzeige.MASTER_NAMEN[erg.master]}. Geschützte Hermes-Themen bleiben unverändert.")
+    print(f"Standard-Master jetzt {anzeige.MASTER_NAMEN[erg.master]}. Geschützte Themen (Hermes/Antigravity) bleiben unverändert.")
     print(f"Übergabepaket: {erg.paket}")
     return 0
 
@@ -537,7 +537,7 @@ def _rueckgabe_cli(args: argparse.Namespace) -> int:
         print(f"Wechsel fehlgeschlagen: {erg.meldung}", file=sys.stderr)
         return 1
     if erg.art == "gewechselt":
-        print(f"Standard-Master jetzt Codex. Geschützte Hermes-Themen bleiben unverändert. Technisches Übergabepaket: {erg.paket}")
+        print(f"Standard-Master jetzt Codex. Geschützte Themen (Hermes/Antigravity) bleiben unverändert. Technisches Übergabepaket: {erg.paket}")
     else:
         print("Standard-Master ist schon Codex – kein Wechsel, kein Paket.")
     try:

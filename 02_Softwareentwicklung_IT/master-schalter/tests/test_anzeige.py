@@ -179,7 +179,7 @@ def test_wechsel_hinweis_texte(tmp_path):
     from master_schalter.wechsel import Ergebnis
     paket = tmp_path / "2026-10-14_215007_masterwechsel-claude-codex.md"
     text = anzeige.wechsel_hinweis(Ergebnis("gewechselt", "codex", paket, ""))
-    assert text == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
+    assert text == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Themen (Hermes/Antigravity) bleiben unverändert."
     assert anzeige.wechsel_hinweis(Ergebnis("gleich", "codex", None, "")) == "Standard-Master ist schon Codex."
     assert anzeige.wechsel_hinweis(Ergebnis("fehler", "codex", None, "Sperre belegt")) == \
         "Wechsel fehlgeschlagen: Sperre belegt"

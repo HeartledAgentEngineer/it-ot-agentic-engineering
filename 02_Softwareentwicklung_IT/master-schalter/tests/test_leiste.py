@@ -205,7 +205,7 @@ def test_klick_auf_master_wechselt_aktualisiert_und_meldet(lst, tmp_path, monkey
 
     assert aufrufe == ["codex"]
     assert lst.icon.title.startswith("Lage ") and "Master" not in lst.icon.title and "M Codex" not in lst.icon.title
-    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
+    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Codex. Technisches Übergabepaket: {paket.name}. Geschützte Themen (Hermes/Antigravity) bleiben unverändert."
 
 
 def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
@@ -226,7 +226,7 @@ def test_klick_auf_hermes_wechselt(lst, tmp_path, monkeypatch):
 
     assert aufrufe == ["hermes"]
     assert lst.icon.title.startswith("Lage ") and "Master" not in lst.icon.title and "M Hermes" not in lst.icon.title
-    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Hermes. Technisches Übergabepaket: {paket.name}. Geschützte Hermes-Themen bleiben unverändert."
+    assert lst.icon.meldungen[-1][1] == f"Standard-Master jetzt Hermes. Technisches Übergabepaket: {paket.name}. Geschützte Themen (Hermes/Antigravity) bleiben unverändert."
 
 
 def test_fehlschlag_beim_wechsel_zeigt_meldung_und_stuerzt_nicht(lst, monkeypatch):
