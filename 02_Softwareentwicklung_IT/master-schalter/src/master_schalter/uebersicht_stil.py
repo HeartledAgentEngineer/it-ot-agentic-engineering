@@ -20,9 +20,12 @@ TEXT = "#ececec"
 TEXT_GEDAEMPFT = "#a3a3a0"
 AKZENT_CLAUDE = "#d97757"
 AKZENT_CODEX = "#10a37f"
+AKZENT_GEMINI = "#4285f4"
+AKZENT_PRIMAR = "#3b82f6"      # Modernes Developer-Blau statt grellem Rot
 WARNUNG = "#eab308"
 FEHLER = "#ef4444"
-AUF_AKZENT = "#1f1e1d"        # Schrift auf Akzentflächen
+AUF_AKZENT = "#ffffff"        # Schrift auf Akzentflächen
+AUF_PRIMAR = "#ffffff"        # Schrift auf Primär-Akzentflächen
 GRAU = "#9ca3af"              # Balken bei unbekanntem Verbrauch
 
 # --- Schrift ----------------------------------------------------------------------------------------------------
@@ -63,8 +66,8 @@ BALKEN_BASIS = "Horizontal.TProgressbar"
 STILE: dict[str, str] = {
     KARTE: FLAECHE, KOPF: FLAECHE, LABEL: GRUND, LABEL_GEDAEMPFT: GRUND, LABEL_FEHLER: GRUND, KARTE_LABEL: FLAECHE,
     KARTE_GEDAEMPFT: FLAECHE, KARTE_TITEL: FLAECHE, KARTE_FEHLER: FLAECHE, KARTE_WARNUNG: FLAECHE,
-    KARTE_GUT: FLAECHE, TITEL: FLAECHE, PILLE: AKZENT_CLAUDE, PILLE_UNBEKANNT: FLAECHE2, KNOPF: FLAECHE2, KNOPF_KLEIN: FLAECHE2,
-    KNOPF_AKZENT: AKZENT_CLAUDE,
+    KARTE_GUT: FLAECHE, TITEL: FLAECHE, PILLE: AKZENT_PRIMAR, PILLE_UNBEKANNT: FLAECHE2, KNOPF: FLAECHE2, KNOPF_KLEIN: FLAECHE2,
+    KNOPF_AKZENT: AKZENT_PRIMAR,
 }
 
 
@@ -105,8 +108,8 @@ def anwenden(wurzel, stil: ttk.Style | None = None) -> tuple[ttk.Style, str]:
     wurzel.configure(background=GRUND)
     wurzel.option_add("*TCombobox*Listbox.background", FLAECHE2)
     wurzel.option_add("*TCombobox*Listbox.foreground", TEXT)
-    wurzel.option_add("*TCombobox*Listbox.selectBackground", AKZENT_CLAUDE)
-    wurzel.option_add("*TCombobox*Listbox.selectForeground", AUF_AKZENT)
+    wurzel.option_add("*TCombobox*Listbox.selectBackground", AKZENT_PRIMAR)
+    wurzel.option_add("*TCombobox*Listbox.selectForeground", AUF_PRIMAR)
     wurzel.option_add("*TCombobox*Listbox.font", normal)
 
     stil.configure(".", background=GRUND, foreground=TEXT, font=normal, bordercolor=LINIE, focuscolor=GRUND,
@@ -125,7 +128,7 @@ def anwenden(wurzel, stil: ttk.Style | None = None) -> tuple[ttk.Style, str]:
     stil.configure(KARTE_WARNUNG, background=FLAECHE, foreground=WARNUNG, font=klein)
     stil.configure(KARTE_GUT, background=FLAECHE, foreground=AKZENT_CODEX, font=klein)
     stil.configure(TITEL, background=FLAECHE, foreground=TEXT, font=gross)
-    stil.configure(PILLE, background=AKZENT_CLAUDE, foreground=AUF_AKZENT, font=fett, padding=(10, 2))
+    stil.configure(PILLE, background=AKZENT_PRIMAR, foreground=AUF_PRIMAR, font=fett, padding=(10, 2))
     stil.configure(PILLE_UNBEKANNT, background=FLAECHE2, foreground=TEXT_GEDAEMPFT, font=fett, padding=(10, 2))
 
     flach = dict(relief="flat", borderwidth=0, focusthickness=0, focuscolor=FLAECHE2)
@@ -135,16 +138,17 @@ def anwenden(wurzel, stil: ttk.Style | None = None) -> tuple[ttk.Style, str]:
     stil.configure(KNOPF_KLEIN, background=FLAECHE2, foreground=TEXT, padding=(10, 4), font=klein, **flach)
     stil.map(KNOPF_KLEIN, background=[("disabled", FLAECHE), ("pressed", LINIE), ("active", LINIE)],
              foreground=[("disabled", TEXT_GEDAEMPFT)])
-    stil.configure(KNOPF_AKZENT, background=AKZENT_CLAUDE, foreground=AUF_AKZENT, padding=(14, 7), font=fett, **flach)
-    stil.map(KNOPF_AKZENT, background=[("disabled", FLAECHE2), ("pressed", "#c4664a"), ("active", "#e38a6c")],
+    stil.configure(KNOPF_AKZENT, background=AKZENT_PRIMAR, foreground=AUF_PRIMAR, padding=(14, 7), font=fett, **flach)
+    stil.map(KNOPF_AKZENT, background=[("disabled", FLAECHE2), ("pressed", "#1d4ed8"), ("active", "#60a5fa")],
              foreground=[("disabled", TEXT_GEDAEMPFT)])
 
     stil.configure(KOMBI, fieldbackground=FLAECHE2, background=FLAECHE2, foreground=TEXT, arrowcolor=TEXT,
-                   bordercolor=FLAECHE2, lightcolor=FLAECHE2, darkcolor=FLAECHE2, padding=(8, 5),
-                   selectbackground=FLAECHE2, selectforeground=TEXT)
-    stil.map(KOMBI, fieldbackground=[("readonly", FLAECHE2), ("disabled", FLAECHE)],
-             foreground=[("disabled", TEXT_GEDAEMPFT)], arrowcolor=[("disabled", TEXT_GEDAEMPFT)],
-             selectbackground=[("readonly", FLAECHE2)], selectforeground=[("readonly", TEXT)])
+                   bordercolor=LINIE, lightcolor=FLAECHE2, darkcolor=FLAECHE2, padding=(6, 3),
+                   selectbackground=AKZENT_PRIMAR, selectforeground=AUF_PRIMAR)
+    stil.map(KOMBI, fieldbackground=[("readonly", FLAECHE2), ("disabled", FLAECHE), ("active", FLAECHE2)],
+             foreground=[("readonly", TEXT), ("disabled", TEXT_GEDAEMPFT)],
+             arrowcolor=[("readonly", TEXT), ("disabled", TEXT_GEDAEMPFT)],
+             selectbackground=[("readonly", AKZENT_PRIMAR)], selectforeground=[("readonly", AUF_PRIMAR)])
 
     stil.configure(TABELLE, background=FLAECHE, fieldbackground=FLAECHE, foreground=TEXT, rowheight=ZEILENHOEHE,
                    borderwidth=0, relief="flat", font=normal)

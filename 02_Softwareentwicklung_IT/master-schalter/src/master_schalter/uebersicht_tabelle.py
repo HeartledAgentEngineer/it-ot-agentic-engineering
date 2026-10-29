@@ -6,13 +6,14 @@ from tkinter import ttk
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import anzeige, uebersicht_modell as um
+from . import anzeige, uebersicht_modell as um, uebersicht_stil as st
 from .uebersicht_entwurf import EntwurfsVerwaltung
 
 FELDER = ("master", "pruefer", "ausfuehrer", "modell", "arbeitsweise", "auto")
-SPALTEN = (("thema", "Thema", 160), ("master", "Master", 150), ("besitz", "Besitz", 170),
-           ("pruefer", "Prüfer", 180), ("ausfuehrer", "Ausführer", 150), ("modell", "Modell", 170),
-           ("arbeitsweise", "Arbeitsweise", 130), ("auto", "Auto-Freigabe", 190))
+SPALTEN = (("thema", "Thema", 150), ("master", "Master", 140), ("besitz", "Besitz", 120),
+           ("pruefer", "Prüfer", 150), ("ausfuehrer", "Ausführer", 140), ("modell", "Modell", 160),
+           ("arbeitsweise", "Arbeitsweise", 120), ("auto", "Auto-Freigabe", 130),
+           ("aktion", "Aktion", 140))
 
 
 @dataclass
@@ -23,14 +24,17 @@ class ThemaZeilenWidgets:
     details: ttk.Label | None = None
     werte: dict[str, tuple[str | bool | None, ...]] = field(default_factory=dict)
     modell_liste: um.ModellListe | None = None
+    aktion_knopf: ttk.Button | None = None
 
 
 class ThemenTabelle(ttk.Frame):
     """Canvas-Tabelle; Eingaben geben immer Themenkennung, Feld und fachlichen Wert zurück."""
 
-    def __init__(self, master: tk.Misc, *, aendern: Callable[[str, str, str | bool | None], None], **kwargs) -> None:
+    def __init__(self, master: tk.Misc, *, aendern: Callable[[str, str, str | bool | None], None],
+                 uebergabe_anfordern: Callable[[str, str, str], None] | None = None, **kwargs) -> None:
         super().__init__(master, **kwargs)
         self._aendern = aendern
+        self._uebergabe_anfordern = uebergabe_anfordern
         self.zeilen: dict[str, ThemaZeilenWidgets] = {}
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -97,10 +101,13 @@ class ThemenTabelle(ttk.Frame):
                 ttk.Label(frame, text=zeile.thema, anchor="w", wraplength=150).grid(row=0, column=0, sticky="ew")
                 ttk.Label(frame, text=zeile.besitz, anchor="w", wraplength=160).grid(row=0, column=2, sticky="ew")
                 for col, feld in ((1, "master"), (3, "pruefer"), (4, "ausfuehrer"), (5, "modell"), (6, "arbeitsweise"), (7, "auto")):
-                    box = ttk.Combobox(frame, state="disabled", width=max(10, SPALTEN[col][2] // 10))
+                    box = ttk.Combobox(frame, style=st.KOMBI, state="disabled", width=max(10, SPALTEN[col][2] // 10))
                     box.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
                     box.bind("<<ComboboxSelected>>", lambda event, k=feld, r=row: self._auswahl(r, k, event.widget))
                     row.felder[feld] = box
+                btn = ttk.Button(frame, text="—", style=st.KNOPF_KLEIN, state="disabled")
+                btn.grid(row=0, column=8, sticky="ew", padx=2, pady=2)
+                row.aktion_knopf = btn
                 row.details = ttk.Label(frame, anchor="w", wraplength=1100)
                 row.details.grid(row=1, column=1, columnspan=7, sticky="ew", padx=4)
                 self.zeilen[zeile.thema] = row
@@ -124,12 +131,16 @@ class ThemenTabelle(ttk.Frame):
                 warnungen.append("Wechsel läuft – wartet auf Abschluss")
             if not getattr(snap, "wechsel_pruefbar", False):
                 warnungen.append("Wechselstatus nicht prüfbar – Auswahl gesperrt")
-            gespeichert = (f"Gespeichert: Master {um.MASTER_TEXTE.get(zeile.master_wert, zeile.master_wert)} · "
-                           f"Prüfer {um.PRUEFER_TEXTE.get(zeile.pruefer_wert, zeile.pruefer_wert)} · "
-                           f"Ausführer {um.AUSFUEHRER_TEXTE.get(zeile.worker_wert, zeile.worker_wert)}")
-            row.details.configure(text=(f"{gespeichert}  |  Tatsächlich: Master {zeile.master} · Prüfer {zeile.pruefer} · "
-                                        f"Ausführer {zeile.ausfuehrer}   {self._auto_text(zeile)}"
-                                        + ("   ⚠ " + " · ".join(warnungen) if warnungen else "")))
+            auto_info = self._auto_text(zeile)
+            details_text = f"{auto_info}" + ("   ⚠ " + " · ".join(warnungen) if warnungen else "")
+            row.details.configure(text=details_text)
+            # Im modernen Frontend: kein 2-zeiliger Fließtext mehr unter den Zeilen.
+            # Nur bei echten Warnungen (wie Wechsel läuft) dezent einblenden, sonst unsichtbar.
+            row.details.configure(text=details_text, style=st.KARTE_WARNUNG if warnungen else st.KARTE_GEDAEMPFT)
+            if warnungen:
+                row.details.grid()
+            else:
+                row.details.grid_remove()
             for feld in FELDER:
                 texte, werte, aktuell, gesperrt = einstellungen[feld]
                 box = row.felder[feld]
@@ -145,6 +156,15 @@ class ThemenTabelle(ttk.Frame):
                            and not thema_wechselt and not beschaeftigt and not gesperrt)
                 if not offen or tuple(box.cget("values")) == texte:
                     box.configure(state="readonly" if erlaubt else "disabled")
+            if row.aktion_knopf is not None:
+                master_neu = gewuenscht.master_wert
+                master_alt = zeile.master_wert
+                if master_neu != master_alt and snap.schreiben and not beschaeftigt and not thema_wechselt:
+                    row.aktion_knopf.configure(
+                        text="Übergabe …", state="normal", style=st.KNOPF_AKZENT,
+                        command=lambda t=zeile.thema, a=master_alt, n=master_neu: self._uebergabe_klick(t, a, n))
+                else:
+                    row.aktion_knopf.configure(text="—", state="disabled", style=st.KNOPF_KLEIN, command=lambda: None)
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _auswahl(self, row: ThemaZeilenWidgets, feld: str, box: ttk.Combobox) -> None:
@@ -156,3 +176,7 @@ class ThemenTabelle(ttk.Frame):
             return
         wert = werte[index]
         self._aendern(row.thema, feld, wert)
+
+    def _uebergabe_klick(self, thema: str, alt: str, neu: str) -> None:
+        if self._uebergabe_anfordern:
+            self._uebergabe_anfordern(thema, alt, neu)

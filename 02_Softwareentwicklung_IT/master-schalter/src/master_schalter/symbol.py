@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 GROESSE = 64
 CLAUDE = (217, 119, 87)
 CODEX = (16, 163, 127)
+GEMINI = (66, 133, 244)
 GELB = (234, 179, 8)
 ROT = (220, 38, 38)
 RAHMEN = (229, 231, 235)

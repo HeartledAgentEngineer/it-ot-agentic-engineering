@@ -34,6 +34,7 @@ CODEX_LIMIT_ID = "codex"
 ANFANG_BYTES = 4096  # Dateianfang als Fingerabdruck: erkennt neu geschriebene Sitzungsdateien
 CLAUDE_FENSTER = (("five_hour", "5h"), ("seven_day", "Woche"))
 CODEX_FENSTER = ("5h", "Woche")
+GEMINI_FENSTER = ("5h", "Woche")
 MESSUNG_ZUKUNFT = timedelta(minutes=1)  # Messzeit weiter in der Zukunft gilt nicht als „neuer“
 
 
@@ -418,6 +419,47 @@ def claude_lesen(datei: Path | None = None, jetzt: datetime | None = None) -> Ko
         fenster
     ), stand=_iso(roh.get("gelesen_um")))
 
+
+
+
+# --- Gemini / Antigravity ----------------------------------------------------
+
+def gemini_datei() -> Path:
+    return daten_ordner() / "gemini-kontingent.json"
+
+
+def gemini_schreiben(sauber: dict, jetzt: datetime | None = None, datei: Path | None = None) -> bool:
+    jetzt = jetzt or datetime.now(timezone.utc)
+    inhalt = json.dumps({"version": 1, "gelesen_um": jetzt.isoformat(), "fenster": sauber}, ensure_ascii=False)
+    _atomar_schreiben(datei or gemini_datei(), inhalt)
+    return True
+
+
+def gemini_lesen(ordner: Path | None = None, jetzt: datetime | None = None, messdatei: Path | None = None) -> Kontingent:
+    messdatei = messdatei or gemini_datei()
+    jetzt = jetzt or datetime.now(timezone.utc)
+    try:
+        roh = json.loads(messdatei.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        server_datei = daten_ordner() / "agy-server.json"
+        if server_datei.exists():
+            return Kontingent("Gemini", (Fenster("5h", 0.0, None), Fenster("Woche", 0.0, None)), stand=jetzt)
+        return Kontingent("Gemini", fehler="keine Daten")
+    except (OSError, ValueError):
+        return Kontingent("Gemini", fehler="keine Daten")
+    if not isinstance(roh, dict) or not isinstance(roh.get("fenster"), dict):
+        return Kontingent("Gemini", fehler="keine Daten")
+    fenster_daten = roh["fenster"]
+    fenster = []
+    for name in GEMINI_FENSTER:
+        daten = fenster_daten.get(name)
+        if isinstance(daten, dict):
+            prozent = _prozent(daten.get("used_percent"))
+            reset = _epoche(daten.get("resets_at"))
+            fenster.append(Fenster(name, prozent if prozent is not None else 0.0, reset))
+        else:
+            fenster.append(Fenster(name, 0.0, None))
+    return Kontingent("Gemini", tuple(fenster), stand=_iso(roh.get("gelesen_um")) or jetzt)
 
 # --- Messfehler-Status (`messfehler.json`) ------------------------------------
 

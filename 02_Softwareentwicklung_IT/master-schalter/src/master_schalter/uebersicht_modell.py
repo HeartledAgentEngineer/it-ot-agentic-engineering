@@ -206,12 +206,19 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
     kontingente = signale.alle_lesen(jetzt=jetzt)
     schwelle = anzeige.schwelle()
     automatik = anzeige.automatik_an()
-    claude, codex = kontingente
+    claude, codex = kontingente[0], kontingente[1]
     lage = rollen.lage(claude, codex, schwelle)
     grund = rollen.lage_grund(claude, codex, schwelle)
     messfehler = signale.messfehler_lesen()
+    try:
+        gemini = signale.gemini_lesen(jetzt=jetzt)
+        alle_k = [*kontingente, gemini]
+        farben = (symbol.CLAUDE, symbol.CODEX, symbol.GEMINI)
+    except Exception:
+        alle_k = kontingente
+        farben = (symbol.CLAUDE, symbol.CODEX)
     abos = tuple(_abo(k, farbe, schwelle, messfehler, jetzt, zone)
-                 for k, farbe in zip(kontingente, (symbol.CLAUDE, symbol.CODEX)))
+                 for k, farbe in zip(alle_k, farben))
     zeilen = tuple(_thema_zeile(t, automatik, lage) for t in sorted(themen, key=lambda t: t.name))
     kataloge = tuple(_katalog_ansicht(anbieter, jetzt) for anbieter in modelle.PROVIDER)
     neueste = sorted(kurz._sitzungen(), key=lambda s: s.zeit, reverse=True)[:kurz.MAX_SITZUNGEN]
@@ -661,3 +668,14 @@ def uebergabe_starten() -> Ergebnis:
     except Exception as fehler:  # noqa: BLE001
         return Ergebnis(False, f"Wechselfenster konnte nicht gestartet werden ({type(fehler).__name__})")
     return Ergebnis(True, "Wechselfenster wird geöffnet.")
+
+
+def thema_anlegen(thema: str, master: str = "kontingent", pruefer: str = "automatisch",
+                  worker: str = "workflow", vibe: bool = False, repo: Path | None = None) -> None:
+    """Ein neues Thema mit Workflow-Vorgaben sauber anlegen."""
+    paare.thema_pruefen(thema)
+    paare.setzen(thema, thema, paare.laufend_bilden(thema), aktiv=True)
+    modi.master_setzen(thema, master, repo=repo)
+    modi.worker_setzen(thema, worker, repo=repo)
+    modi.vibe_setzen(thema, vibe, repo=repo)
+    pruefer_wahl.setzen(thema, pruefer)

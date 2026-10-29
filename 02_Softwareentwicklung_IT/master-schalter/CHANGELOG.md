@@ -6,6 +6,18 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Frontend-Redesign & Entrümpelung der Themenzeilen**:
+  * Dropdowns im Dark-Theme mit hohem Kontrast (`Dunkel.TCombobox` mit dunklem Grund und weißer Schrift).
+  * Zweizeiliger Detail-Fließtext unter jeder Zeile entfernt: Themenzeilen sind nun kompakt und einzeilig.
+  * Farbenspiel modernisiert: Grelle Rostrot-Töne durch modernes Developer-Blau (`AKZENT_PRIMAR = "#3b82f6"`) ersetzt.
+  * Veraltete Knöpfe unten (*Alle nach Kontingent*, *Alle wie vorher*, *Übergabe starten …*) und störende untere Boxen entfernt; die Tabelle nutzt nun die volle Fensterhöhe.
+- **Direkte Übergabe pro Zeile & Pop-up-Dialog**:
+  * Neue Spalte *Aktion*: Bei geändertem Master erscheint der Knopf *Übergabe …*.
+  * Klick öffnet ein modales Pop-up mit den Optionen *„Jetzt aktuellen Master unterbrechen“* (Sofortübernahme) und *„In Warteschlange geben“* (`abgabe_modus="warten"`).
+- **Gemini / Antigravity Kontingentanzeige**:
+  * Dritte Karte für Gemini / Antigravity im Kontingentbereich (`signale.gemini_lesen`, `AKZENT_GEMINI = "#4285f4"`).
+- **Neues Thema anlegen & Workflow-Vorgaben**:
+  * Knopf *+ Thema anlegen …* in der Entwurfsleiste mit Dialog für automatische Workflow-Vorgaben und Master-Rotation.
 - **Automatische Übergabe Codex → Antigravity bei Codex-Limit** (neu `agy_automatik.py`): erreicht Codex bei
   frischer Messung (≤ 10 min) im 5h- oder Wochenfenster die Schwelle und ist Claude nicht frei, gehen alle aktiven
   Paare, deren Besitzmarke `codex` trägt und deren Profil-Master `kontingent` oder `codex` ist, an `agy`. Fehlt in

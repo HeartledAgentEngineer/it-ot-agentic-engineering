@@ -57,7 +57,7 @@ def _worktree(tmp_path, monkeypatch, *, commondir_ok=True):
 def test_balkenwerte_sind_0_bis_100_mit_text_und_statusfarbe(umgebung, monkeypatch):
     monkeypatch.setattr(signale, "alle_lesen", lambda jetzt=None: [_k("Claude", 130, -5), _k("Codex", 85, 20)])
     snap = um.aufnehmen(JETZT, UTC)
-    claude, codex = snap.abos
+    claude, codex = snap.abos[:2]
     assert [b.prozent for b in claude.balken] == [100, 0]
     assert [b.text for b in claude.balken] == ["100 % verbraucht", "0 % verbraucht"]
     assert claude.balken[0].farbe == "#dc2626"                                 # rot ab Schwelle (97)
