@@ -50,6 +50,14 @@ hat_code() {  # $1 = Projekt-Pfad-Prefix
 FAILED=0
 
 # --- Prüfläufe je Projekt (Quelle: 02_Softwareentwicklung_IT/CLAUDE_EXTENDS.md) -
+
+# Keine Git-Interna in die Prüfläufe vererben: `git commit --only <Pfad>` (von AGENTS.md für die
+# Parallelarbeit vorgeschrieben) setzt GIT_INDEX_FILE auf einen Ersatz-Index. Vererbt ihn ein Test,
+# der ein eigenes Repo anlegt, scheitert dessen `git commit` mit „invalid object … / Error building
+# trees" — und das Tor wäre fälschlich rot (belegt am 29.10.2026, tests/test_auftraege.py).
+# `CHANGED` ist oben bereits berechnet und bleibt davon unberührt.
+unset GIT_INDEX_FILE
+
 run_gate() {  # $1 = Anzeigename, $2 = Verzeichnis, $3 = Befehl
     local name="$1" dir="$2" cmd="$3"
     echo "  ▶ $name: $cmd"
