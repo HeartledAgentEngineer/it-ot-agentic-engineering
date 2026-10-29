@@ -53,17 +53,17 @@ from .signale import _atomar_schreiben, _iso, daten_ordner
 KONTINGENT = "kontingent"
 HERMES_CODEX = "hermes-codex"
 WERTE = (KONTINGENT, HERMES_CODEX)                       # Legacy-Werte von CLI und Menü
-MASTER_WERTE = ("kontingent", "claude", "codex", "hermes")
-WORKER_WERTE = ("workflow", "claude", "codex", "hermes")
+MASTER_WERTE = ("kontingent", "claude", "codex", "hermes", "agy")
+WORKER_WERTE = ("workflow", "claude", "codex", "hermes", "agy")
 WORKFLOW = "workflow"
-ZIEL_ROLLEN = ("claude", "codex", "hermes")
+ZIEL_ROLLEN = ("claude", "codex", "hermes", "agy")
 VORGANG_ID_MUSTER = re.compile(r"[A-Za-z0-9_-]{1,80}")   # Vorgangs- und Sitzungskennungen des Assistenten
 HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
 VERSION = 2
 VERSION_ALT = 1
 GLOBALE_FRIST = 1.0
 _E = TypeVar("_E")
-ANZEIGE = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes"}
+ANZEIGE = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes", "agy": "Antigravity"}
 
 
 class ModusFehler(Exception):
@@ -83,12 +83,13 @@ LEGACY: dict[str, Profil] = {
     HERMES_CODEX: Profil("hermes", "codex", "gpt-6-luna"),
 }
 _ZIEL_ROLLE = {KONTINGENT: besitz.CLAUDE, "claude": besitz.CLAUDE,
-               "codex": besitz.CODEX, "hermes": besitz.HERMES}
+               "codex": besitz.CODEX, "hermes": besitz.HERMES, "agy": besitz.AGY}
 _ERWARTETE_BESITZER = {
     KONTINGENT: (besitz.CLAUDE, besitz.CODEX),   # eine laufende Codex-Übernahme bleibt gültig
     "claude": (besitz.CLAUDE,),
     "codex": (besitz.CODEX,),
     "hermes": (besitz.HERMES,),
+    "agy": (besitz.AGY,),
 }
 
 
@@ -124,6 +125,8 @@ def _profil_pruefen(thema: str, roh: object) -> Profil:
         raise ModusFehler(f"„Nach Workflow“ erlaubt kein festes Modell für {thema!r}")
     if worker == "hermes" and modell != HERMES_MODELL:
         raise ModusFehler(f"Hermes nutzt genau {HERMES_MODELL!r}; {thema!r} nennt {modell!r}")
+    if worker == "agy" and modell is not None:
+        raise ModusFehler(f"Antigravity nutzt den Standard des Werkzeugs; {thema!r} nennt {modell!r}")
     return Profil(master, worker, modell)
 
 
@@ -340,7 +343,7 @@ def snapshot(themen: list[str], *, repo: Path | None = None,
         _, master_datei = _paar_pruefen(thema, wurzel, ohne_paar=True, datei_pfad=datei_pfad)
         text = _besitz_text_lesen(master_datei)
         owner = besitz.besitzer(text)
-        if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.RESERVIERT, besitz.HERMES):
+        if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.RESERVIERT, besitz.HERMES, besitz.AGY):
             raise ModusFehler(f"Besitzstatus von {thema!r} ist unbekannt")
         sicher = (wert.master != KONTINGENT or owner == besitz.HERMES
                   or ist_zwischenmarke(text, thema))
@@ -456,7 +459,7 @@ def _umschalten_gesperrt(thema: str, ziel: Profil, datei_pfad: Path | None, *,
     if not eigene_marke:
         if owner == besitz.RESERVIERT:
             raise ModusFehler("Thema ist gerade fremd reserviert; Arbeitsmodus wurde nicht geändert")
-        if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.HERMES):
+        if owner not in (besitz.CLAUDE, besitz.CODEX, besitz.HERMES, besitz.AGY):
             raise ModusFehler("Besitzstatus ist unbekannt; Arbeitsmodus wurde nicht geändert")
     ziel_rolle = _ZIEL_ROLLE[ziel.master]
     if vorgang_id is not None:

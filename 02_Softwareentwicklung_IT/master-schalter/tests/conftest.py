@@ -60,12 +60,13 @@ def umgebung(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Umgebung:
 
 @pytest.fixture(autouse=True)
 def _keine_echten_chatquellen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Das Chat-Register liest in KEINEM Test echte Quellen: alle vier Pfade zeigen auf Nichtvorhandenes."""
+    """Das Chat-Register liest in KEINEM Test echte Quellen: alle fünf Pfade zeigen auf Nichtvorhandenes."""
     leer = tmp_path / "keine-chatquellen"
     monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_DESKTOP", str(leer / "claude-data"))
     monkeypatch.setenv("MASTER_SCHALTER_CLAUDE_PROJEKTE", str(leer / "claude-projects"))
     monkeypatch.setenv("MASTER_SCHALTER_CODEX_STATE", str(leer / "codex.sqlite"))
     monkeypatch.setenv("MASTER_SCHALTER_HERMES_STATE", str(leer / "hermes.db"))
+    monkeypatch.setenv("MASTER_SCHALTER_AGY_HEIM", str(leer / "gemini"))
     monkeypatch.delenv("HERMES_HOME", raising=False)
 
 

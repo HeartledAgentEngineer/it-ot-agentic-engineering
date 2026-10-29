@@ -67,7 +67,7 @@ from pathlib import Path
 from . import assistent_vorgaenge, besitz, modi, paare, zustand
 from .signale import _atomar_schreiben, daten_ordner
 
-ZIELE = ("claude", "hermes")
+ZIELE = ("claude", "hermes", "agy")
 NACHRICHTEN = ("neu", "abgabe_auftrag", "abgabe_info")   # Werte des Inhaltsfeldes `rolle`
 MAX_BYTES = 4096
 FELDER = {"vorgang", "thema", "rolle", "laufend", "zeit"}

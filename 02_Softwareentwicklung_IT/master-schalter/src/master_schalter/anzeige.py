@@ -285,11 +285,11 @@ def wechsel_hinweis(ergebnis: "Ergebnis") -> str:
 # --- Rollen je Thema, Ausführermodelle und Katalogstände (v0.4.0) -------------
 
 MASTER_AUSWAHL = (("Nach Kontingent", "kontingent"), ("Claude Code", "claude"),
-                  ("Codex", "codex"), ("Hermes", "hermes"))
+                  ("Codex", "codex"), ("Hermes", "hermes"), ("Antigravity", "agy"))
 WORKER_AUSWAHL = (("Nach Workflow", "workflow"), ("Claude Code", "claude"),
-                  ("Codex", "codex"), ("Hermes", "hermes"))
+                  ("Codex", "codex"), ("Hermes", "hermes"), ("Antigravity", "agy"))
 ROLLEN_NAMEN = {"kontingent": "Nach Kontingent", "claude": "Claude Code",
-                "codex": "Codex", "hermes": "Hermes"}
+                "codex": "Codex", "hermes": "Hermes", "agy": "Antigravity"}
 WORKER_NAMEN = {"workflow": "Nach Workflow", **ROLLEN_NAMEN}
 HERMES_MODELL_ANZEIGE = "DeepSeek V4.1 Flash"
 STANDARD_MODELL = "Standard des Werkzeugs"
@@ -297,11 +297,12 @@ MODELLE_AKTUALISIEREN = "Modelle aktualisieren"
 AUSFUEHRER_VORGABE = "Ausführervorgabe für den nächsten bereinigten Coding-Auftrag – startet keine Sitzung"
 HERKUNFT_ZEILE = ("Claude-Code-Modelle aus dem Claude-Abo · Codex-Modelle aus dem ChatGPT-Abo · "
                   "Hermes über OpenRouter – kostenpflichtig")
-PROVIDER_NAMEN = {"claude": "Claude Code", "codex": "Codex", "hermes": "Hermes"}
+PROVIDER_NAMEN = {"claude": "Claude Code", "codex": "Codex", "hermes": "Hermes", "agy": "Antigravity"}
 PROVIDER_HERKUNFT = {
     "claude": "Claude-Code-Modelle aus dem Claude-Abo",
     "codex": "Codex-Modelle aus dem ChatGPT-Abo",
     "hermes": "Hermes über OpenRouter – kostenpflichtig",
+    "agy": "Antigravity-Modelle aus dem Google-Abo (AI Pro) – ohne Zusatzkosten",
     "workflow": "Das Modell wählt der Workflow beim Auftrag",
 }
 ROLLEN_HINWEIS = "Rollenvorgabe für den nächsten bereinigten Coding-Auftrag – keine Sitzung gestartet"

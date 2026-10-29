@@ -27,6 +27,10 @@ from .signale import _atomar_schreiben, daten_ordner
 
 FESTE = ("claude", "codex")
 HERMES = "hermes"
+# Rollen, deren Besitz ein Sammelbefehl nicht überschreibt: `hermes` hält sensible Arbeit, `agy` eine
+# ausdrücklich übergebene Antigravity-Sitzung.
+GESCHUETZT = ("hermes", "agy")
+GESCHUETZT_NAMEN = {"hermes": "Hermes", "agy": "Antigravity"}
 
 
 class AlleFehler(Exception):
@@ -83,8 +87,12 @@ def _merken(pfad: Path, themen: dict[str, str]) -> None:
                                         "themen": dict(sorted(themen.items()))}, ensure_ascii=False))
 
 
-def _ist_hermes(alt: modi.Profil, besitzer: str, zwischenziel: str | None) -> bool:
-    return alt.master == HERMES or besitzer == besitz.HERMES or zwischenziel == HERMES
+def _geschuetzte_rolle(alt: modi.Profil, besitzer: str, zwischenziel: str | None) -> str | None:
+    """Name der geschützten Rolle, die dieses Thema gerade hält – sonst `None`."""
+    for wert in (alt.master, besitzer, zwischenziel):
+        if wert in GESCHUETZT:
+            return GESCHUETZT_NAMEN[wert]
+    return None
 
 
 def auf_kontingent(repo: Path | None = None) -> Bericht:
@@ -101,8 +109,9 @@ def auf_kontingent(repo: Path | None = None) -> Bericht:
 
             def pruefung(alt: modi.Profil, besitzer: str, zwischenziel: str | None) -> bool:
                 nonlocal offen
-                if _ist_hermes(alt, besitzer, zwischenziel):
-                    text.append("ausgelassen (Hermes)")
+                geschuetzt = _geschuetzte_rolle(alt, besitzer, zwischenziel)
+                if geschuetzt is not None:
+                    text.append(f"ausgelassen ({geschuetzt})")
                     return False
                 if zwischenziel is not None and zwischenziel != besitz.CLAUDE:
                     offen = True
@@ -150,9 +159,10 @@ def zurueck(repo: Path | None = None) -> Bericht:
 
             def pruefung(alt: modi.Profil, besitzer: str, zwischenziel: str | None) -> bool:
                 nonlocal offen
-                if besitzer == besitz.HERMES or zwischenziel == HERMES:
+                geschuetzt = _geschuetzte_rolle(alt, besitzer, zwischenziel)
+                if geschuetzt is not None:
                     offen = True
-                    text.append("offen: Hermes hält Besitz – nichts überschrieben")
+                    text.append(f"offen: {geschuetzt} hält Besitz – nichts überschrieben")
                     return False
                 if zwischenziel is not None and zwischenziel != ziel:
                     offen = True

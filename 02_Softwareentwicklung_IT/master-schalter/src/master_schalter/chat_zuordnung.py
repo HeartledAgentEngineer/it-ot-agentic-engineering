@@ -28,7 +28,7 @@ from . import chat_register, paare, zustand
 from .chat_register import Chat
 from .signale import _atomar_schreiben, daten_ordner
 
-WERKZEUGE = ("claude", "codex", "hermes")
+WERKZEUGE = ("claude", "codex", "hermes", "agy")
 ORDNER_MAX = 500
 STICHWORT_MAX = 80
 LISTE_MAX = 50

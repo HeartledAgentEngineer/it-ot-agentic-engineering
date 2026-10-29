@@ -6,6 +6,30 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Antigravity (agy) als vierte Themenrolle** (v0.6.0): `modi.MASTER_WERTE`, `WORKER_WERTE`, `ZIEL_ROLLEN`,
+  `anzeige.MASTER_AUSWAHL`/`WORKER_AUSWAHL`, `kurz.MASTER_WERTE`, `chat_zuordnung.WERKZEUGE`, `postfach.ZIELE` und
+  `status.WERKZEUGE` kennen `agy`; `besitz.AGY` ist die neue Besitzmarke. Zwei Stellen prüften den Besitz gegen
+  eine feste Liste und wären sonst **rot** geworden: `modi._umschalten_gesperrt` (Übernahme bei Besitz `agy`) und
+  `modi.geschuetzt`/`master_setzen_wenn`. Sammelbefehle (`alle kontingent`/`zurueck`) lassen wie bei Hermes auch
+  eine Antigravity-Rolle stehen (`alle.GESCHUETZT`, Meldung `ausgelassen (Antigravity)`). Die Prüfer-Vorschau
+  (`kurz.pruefer_text`) behandelt Antigravity als eigene Modellfamilie; Prüfer bleibt Codex.
+  Tests: `test_modi.py`, `test_anzeige.py`, `test_leiste.py`, `test_uebersicht.py`, `test_alle.py`.
+- **Chat-Register kennt Antigravity** (Quelle `agy`): liest `~/.gemini/<Ausprägung>/conversation_summaries.db`
+  (`antigravity`, `antigravity-cli`, `antigravity-ide`), Tabelle `conversation_summaries`, ausschließlich die
+  Spalten `conversation_id`, `title`, `last_modified_time`, `workspace_uris` (Reihenfolge, Arbeitsordner als
+  Windows-Pfad aus `file://`-Adressen). Inhalts-Spalten werden nie angefasst (G9). Status wie bei den anderen
+  Quellen: `ok`, `fehlt`, `schema unbekannt`, `nicht lesbar: <Klasse>`; eine unlesbare Ausprägung verdrängt eine
+  lesbare nicht. Die Testumgebung (`conftest.py`) lenkt die Quelle automatisch auf Nichtvorhandenes um – kein Test
+  liest echte Antigravity-Daten. Umgebungsvariable: `MASTER_SCHALTER_AGY_HEIM`. Tests: `test_chat_register.py`.
+- **Antigravity-Empfang per Hook** (neu `agy_hook.py`, `python -m master_schalter.agy_hook EREIGNIS`): der
+  Ereignisname kommt aus `sys.argv` (Antigravity legt ihn nicht auf stdin), gelesen werden nur `conversationId`
+  und `invocationNum`. `SessionStart`/`PreInvocation`/`PostInvocation` melden `arbeitet` und spielen Postfach- und
+  Auftragstexte als `injectSteps[].systemMessage.systemMessage` ein; `Stop` meldet `ruht` und antwortet bei
+  vorliegender Nachricht `{"decision": "continue", "reason": …}`, sonst `{}` – **erst danach** wird bestätigt
+  (Datei nach `erledigt/`). Weil Antigravity kein `stop_hook_active` kennt, zählt eine Schleifenbremse die
+  Fortsetzungen je Gespräch (`AGY_STOP_MAX` 3, `agy-stop.json` im Datenordner, Rückstellung bei
+  `invocationNum == 0`, Verfall nach 1 h); ohne sie liefe der Agent endlos. Jeder Fehler endet mit Rückgabe 0 ohne
+  Ausgabe. Belegprobe: `<Arbeitsbereich>/.agents/hooks.json`. Tests: `test_agy_hook.py` (37).
 - Hauptschalter Automatik im Leistenmenü (unter Themenzahl und Lage): „Hauptschalter Automatik: an“ mit Haken. Asymmetrisch
   sicher: Klick bei „an“ schaltet sofort aus (`anzeige.automatik_setzen(False)`, Menü wird aktualisiert); bei „aus“ steht
   „… aus – einschalten in der Übersicht …“ und der Klick öffnet nur die Übersicht (Ja/Nein-Rückfrage, Standard Nein) – das

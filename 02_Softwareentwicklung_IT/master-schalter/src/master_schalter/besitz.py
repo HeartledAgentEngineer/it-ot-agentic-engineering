@@ -7,6 +7,7 @@ Format: der erste Abschnitt ist der Besitzer.
 * `reserviert <lauf-id> <Zeit>` – die Automatik hat reserviert und prüft gleich nach
 * `codex <Vorgang-ID> <Zeit>` – Codex hat übernommen
 * `hermes <Zeit> modus <Kennung>` – Hermes ist thematischer Master
+* `agy <Zeit> modus <Kennung>` – Antigravity (Gemini) ist thematischer Master
 * `<Rolle> <Zeit> assistent <Thema> <Vorgang-ID>` – der Wechselassistent hat übergeben; die
   Vorgangs-ID macht jeden älteren Postfachauftrag ungültig, sobald ein späterer Wechsel die Marke überschreibt
 
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from .signale import _atomar_schreiben, _iso
 
-CLAUDE, CODEX, RESERVIERT, HERMES = "claude", "codex", "reserviert", "hermes"
+CLAUDE, CODEX, RESERVIERT, HERMES, AGY = "claude", "codex", "reserviert", "hermes", "agy"
 ASSISTENT = "assistent"
 
 

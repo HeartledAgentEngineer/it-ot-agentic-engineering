@@ -13,6 +13,10 @@ sonst nichts. Nachrichteninhalte werden nie gelesen. Vier Quellen, jede einzeln 
   `thread_source`, zählen nur Chats von Sebastian (`user`); automatische Prüf-Threads
   (`guardian_review`), Subagenten und von Agenten angelegte Threads bleiben draußen.
 * `hermes`: SQLite-Datei, Tabelle `sessions`, ausdrückliche Spaltenliste (nie die Tabelle `messages`).
+* `agy`: SQLite-Übersichtsdatei je Ausprägung von Antigravity (`antigravity`, `antigravity-cli`,
+  `antigravity-ide`) unter `~/.gemini/<Ausprägung>/conversation_summaries.db`, Tabelle
+  `conversation_summaries`, ausdrückliche Spaltenliste (nie `preview`, `raw_summary`, `user_body`
+  oder `agent_body`).
 
 SQLite-Dateien werden ausschließlich schreibgeschützt (`mode=ro`) geöffnet; vor der Abfrage prüft
 `PRAGMA table_info`, ob die erwarteten Spalten vorhanden sind (sonst Status „schema unbekannt“).
@@ -39,26 +43,30 @@ UUID_DATEINAME = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A
 TITEL_MAX = 200
 DESKTOP_DATEI_MAX_BYTES = 256 * 1024
 HERMES_QUELLEN = ("cli", "desktop", "telegram", "api_server")
-QUELLEN = ("claude-desktop", "claude-cli", "codex", "hermes")
+QUELLEN = ("claude-desktop", "claude-cli", "codex", "hermes", "agy")
 ZUKUNFT_TOLERANZ = timedelta(minutes=5)
 
 ENV_CLAUDE_DESKTOP = "MASTER_SCHALTER_CLAUDE_DESKTOP"
 ENV_CLAUDE_PROJEKTE = "MASTER_SCHALTER_CLAUDE_PROJEKTE"
 ENV_CODEX_STATE = "MASTER_SCHALTER_CODEX_STATE"
 ENV_HERMES_STATE = "MASTER_SCHALTER_HERMES_STATE"
+ENV_AGY_HEIM = "MASTER_SCHALTER_AGY_HEIM"
 
 CODEX_PFLICHT = ("id", "cwd", "title", "updated_at_ms", "archived")
 HERMES_PFLICHT = ("id", "source", "title", "cwd", "started_at")
+# Die drei Ausprägungen von Antigravity legen ihre Übersicht je in einem eigenen Ordner ab.
+AGY_AUSPRAEGUNGEN = ("antigravity", "antigravity-cli", "antigravity-ide")
+AGY_PFLICHT = ("conversation_id", "title", "last_modified_time", "workspace_uris")
 
 
 @dataclass(frozen=True)
 class Chat:
-    werkzeug: str        # "claude" | "codex" | "hermes"
-    kennung: str         # Claude: CLI-Sitzungs-UUID; Codex: Thread-ID; Hermes: Sitzungs-ID
+    werkzeug: str        # "claude" | "codex" | "hermes" | "agy"
+    kennung: str         # Claude: CLI-Sitzungs-UUID; Codex: Thread-ID; Hermes: Sitzungs-ID; agy: Konversations-UUID
     titel: str           # "" wenn unbekannt; auf 200 Zeichen gekürzt
     ordner: str          # Arbeitsordner (cwd), "" wenn unbekannt
     zuletzt: datetime    # UTC, letzte Nutzung
-    quelle: str          # "claude-desktop" | "claude-cli" | "codex" | "hermes"
+    quelle: str          # "claude-desktop" | "claude-cli" | "codex" | "hermes" | "agy"
 
 
 @dataclass(frozen=True)
@@ -308,6 +316,91 @@ def _hermes(grenze: datetime) -> tuple[list[Chat], str]:
     return chats, "ok"
 
 
+# --- Antigravity (agy) -------------------------------------------------------------
+
+def _agy_heim() -> Path:
+    return _umgebung(ENV_AGY_HEIM) or Path.home() / ".gemini"
+
+
+def _agy_ordner(wert: object) -> str:
+    """Ersten Arbeitsordner aus `workspace_uris` (JSON-Array mit `file://`-Adressen) als Windows-Pfad.
+
+    Alles Unbrauchbare (kein JSON, keine Dateiadresse) ergibt `""` – das Register darf daran nie scheitern.
+    """
+    if not isinstance(wert, str):
+        return ""
+    try:
+        adressen = json.loads(wert)
+    except ValueError:
+        return ""
+    if not isinstance(adressen, list):
+        return ""
+    for adresse in adressen:
+        if not isinstance(adresse, str) or not adresse.startswith("file:"):
+            continue
+        pfad = urllib.parse.unquote(adresse[len("file:"):]).lstrip("/")
+        pfad = re.sub(r"^([A-Za-z]):", lambda treffer: treffer.group(1).upper() + ":", pfad)
+        return _ordner(pfad.replace("/", "\\"))
+    return ""
+
+
+def _agy_zeit(wert: object) -> datetime | None:
+    """ISO-Zeitstempel der Antigravity-Übersicht als UTC; ein naiver Wert gilt als UTC, Unsinn als `None`."""
+    if not isinstance(wert, str):
+        return None
+    try:
+        zeit = datetime.fromisoformat(wert.strip())
+    except ValueError:
+        return None
+    return zeit if zeit.tzinfo else zeit.replace(tzinfo=timezone.utc)
+
+
+def _agy(grenze: datetime) -> tuple[list[Chat], str]:
+    """Antigravity-Sitzungen aus der Übersichtsdatenbank jeder Ausprägung (App, CLI, IDE).
+
+    Gelesen werden ausschließlich Kennung, Titel, Änderungszeit und Arbeitsordner. Die Spalten mit
+    Inhalten (`preview`, `raw_summary`, `user_body`, `agent_body`) werden nicht angefasst (Regel G9).
+    Gefiltert wird in Python, weil die Übersicht den Zeitstempel als Text in eigener Schreibweise
+    ablegt – ein Textvergleich in SQL wäre bei anderem Trenner falsch.
+    """
+    heim = _agy_heim()
+    chats: dict[str, Chat] = {}
+    vorhanden = gelesen = schema_falsch = 0
+    letzter: BaseException | None = None
+    for name in AGY_AUSPRAEGUNGEN:
+        pfad = heim / name / "conversation_summaries.db"
+        if not pfad.is_file():
+            continue
+        vorhanden += 1
+        try:
+            with contextlib.closing(_sqlite_oeffnen(pfad)) as verbindung:
+                if not set(AGY_PFLICHT) <= _spalten(verbindung, "conversation_summaries"):
+                    schema_falsch += 1
+                    continue
+                zeilen = verbindung.execute(
+                    "SELECT conversation_id, title, last_modified_time, workspace_uris "
+                    "FROM conversation_summaries").fetchall()
+        except (sqlite3.Error, OSError, ValueError) as fehler:
+            letzter = fehler
+            continue
+        gelesen += 1
+        for kennung, titel, zeit, arbeit in zeilen:
+            kennung, zeit = _kennung(kennung), _agy_zeit(zeit)
+            if kennung is None or zeit is None or zeit < grenze:
+                continue
+            chat = Chat("agy", kennung, _text(titel), _agy_ordner(arbeit), zeit, "agy")
+            bisher = chats.get(kennung)
+            if bisher is None or chat.zuletzt > bisher.zuletzt:
+                chats[kennung] = chat
+    if not vorhanden:
+        return [], "fehlt"
+    if not gelesen:
+        if schema_falsch == vorhanden:
+            return [], "schema unbekannt"
+        return [], _grund(letzter) if letzter else "nicht lesbar"
+    return list(chats.values()), "ok"
+
+
 # --- Zusammenführen -----------------------------------------------------------------
 
 def _sicher(quelle: Callable[[datetime], tuple[list[Chat], str]],
@@ -335,7 +428,8 @@ def lesen(jetzt: datetime | None = None, fenster: timedelta = timedelta(hours=24
     gesammelt: dict[tuple[str, str], Chat] = {}
     archiviert: set[str] = set()
     for name, funktion in (("claude-desktop", lambda g: _claude_desktop(g, archiviert)),
-                           ("claude-cli", _claude_cli), ("codex", _codex), ("hermes", _hermes)):
+                           ("claude-cli", _claude_cli), ("codex", _codex),
+                           ("hermes", _hermes), ("agy", _agy)):
         chats, status = _sicher(funktion, grenze)
         quellen[name] = status
         for chat in chats:

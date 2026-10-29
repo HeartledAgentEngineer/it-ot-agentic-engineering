@@ -18,7 +18,7 @@ from typing import Callable, Iterator
 
 from .signale import _atomar_schreiben, daten_ordner
 
-MASTER = ("claude", "codex", "hermes")
+MASTER = ("claude", "codex", "hermes")     # globaler Master; `agy` ist bewusst nur eine Themenrolle
 FRIST_SEKUNDEN = 5.0
 TAKT_SEKUNDEN = 0.05
 

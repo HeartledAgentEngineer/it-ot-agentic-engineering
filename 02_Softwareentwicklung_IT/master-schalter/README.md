@@ -333,11 +333,11 @@ Die Befehle im Überblick:
 
 ```powershell
 .\.venv\Scripts\masterwechsel.exe profil THEMA [--json]
-.\.venv\Scripts\masterwechsel.exe master-setzen THEMA kontingent|claude|codex|hermes
-.\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes
+.\.venv\Scripts\masterwechsel.exe master-setzen THEMA kontingent|claude|codex|hermes|agy
+.\.venv\Scripts\masterwechsel.exe worker-setzen THEMA workflow|claude|codex|hermes|agy
 .\.venv\Scripts\masterwechsel.exe modell-setzen THEMA MODELL|standard
 .\.venv\Scripts\masterwechsel.exe vibe THEMA an|aus
-.\.venv\Scripts\masterwechsel.exe thema-anlegen THEMA [--master claude|codex|hermes|kontingent]
+.\.venv\Scripts\masterwechsel.exe thema-anlegen THEMA [--master claude|codex|hermes|agy|kontingent]
 .\.venv\Scripts\masterwechsel.exe modelle [claude|codex] [--aktualisieren] [--json]
 ```
 
@@ -679,6 +679,52 @@ nachgewiesen. Beispiel (Pfad des venv-Pythons anpassen):
 }
 ```
 
+## Antigravity-Empfang (Hook, v0.6.0)
+
+Antigravity (Kürzel `agy`) ist eine vollwertige Themenrolle: `master-setzen THEMA agy`,
+`worker-setzen THEMA agy`, `uebergeben THEMA agy --nach agy:<conversation-id>`. Empfangen wird über Hooks;
+die Datei liegt im Arbeitsbereich als `.agents/hooks.json` (global wäre `~/.gemini/config/hooks.json`).
+**Den Ereignisnamen liefert Antigravity nicht auf stdin** – er steht als Argument im `command`, deshalb gibt es
+je Ereignis einen eigenen Eintrag:
+
+```json
+{
+  "master-schalter": {
+    "enabled": true,
+    "PreInvocation": [
+      {"type": "command",
+       "command": "\"C:/Pfad/zu/master-schalter/.venv/Scripts/python.exe\" -m master_schalter.agy_hook PreInvocation",
+       "timeout": 30}
+    ],
+    "Stop": [
+      {"type": "command",
+       "command": "\"C:/Pfad/zu/master-schalter/.venv/Scripts/python.exe\" -m master_schalter.agy_hook Stop",
+       "timeout": 30}
+    ]
+  }
+}
+```
+
+- **Ereignisse:** `SessionStart`, `PreInvocation` und `PostInvocation` melden den Status `arbeitet` und holen
+  Nachrichten ab – erst die Wechselnachrichten des Postfachs, dann die Aufträge. Liegen welche vor, steht auf
+  stdout genau `{"injectSteps": [{"systemMessage": {"systemMessage": <Text>}}]}`; ohne Nachricht gibt es **keine**
+  Ausgabe. `Stop` meldet `ruht`; liegt etwas vor und ist die Bremse frei,
+  `{"decision": "continue", "reason": <Text>}` – Antigravity arbeitet dann sofort weiter. Sonst steht `{}`.
+- **Schleifenbremse:** Antigravity kennt kein `stop_hook_active`; `continue` setzt den Agenten **immer** wieder in
+  Gang. Deshalb zählt der Hook die Fortsetzungen je Gespräch (`AGY_STOP_MAX`, Vorgabe 3, Zähler in
+  `agy-stop.json` im Datenordner) und setzt bei `invocationNum == 0` – dem Beginn eines neuen Auftrags – zurück.
+  Ein Zähler, der älter als eine Stunde ist, zählt nicht mehr. Ohne Bremse drehte sich die Schleife endlos;
+  sie ist Teil des Vertrags, nicht Beiwerk.
+- **Robustheit wie beim Claude-Hook (K3):** jeder Fehler – kaputtes JSON, unbekannter Ereignisname, unzulässige
+  Kennung, belegte Sperre, jede Ausnahme – endet mit Rückgabe 0 ohne Ausgabe; auf stderr steht nichts. Zugestellt
+  (Datei nach `erledigt/`) wird erst **nach** der Ausgabe; scheitert sie, kommt die Nachricht beim nächsten
+  Ereignis erneut.
+- **Grenzen (ehrlich):** Aufträge (`auftraege.py`, `claude-auftrag`) richten sich weiterhin nur an Claude – ein
+  Antigravity-Chat empfängt Wechselnachrichten, keine Aufträge. Und es gibt **kein** Kontingent-Signal für
+  Antigravity: Google stellt keinen Prozent-Endpunkt wie Claude und keine Messdatei wie Codex bereit. Deshalb
+  steht Antigravity in keiner Zeile der Kaskaden-Matrix; die Rolle wird je Thema ausdrücklich gesetzt.
+  Der globale Standard-Master (`wechsel`) kennt `agy` ebenfalls nicht – sie ist eine Themenrolle.
+
 ## Aufträge an Claude (v0.5.1, unveröffentlicht)
 
 Ein Master (Codex oder Hermes) beauftragt eine laufende Claude-Code-Sitzung, z. B. als Prüfer. Das Postfach des
@@ -788,8 +834,8 @@ lesbar ankommen; einzige Ausnahme ist `statuszeile` (Anzeige der Claude-Code-Sta
 
 ## Chatliste (v0.5.0, in Arbeit)
 
-Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex und Hermes
-und schlägt jedem ein Projekt (Thema) vor. Das Fenster nutzt das Register für die Auswahl von Von- und
+Das Programm kennt die in den letzten 24 Stunden benutzten Chats von Claude Code, Codex, Hermes und
+Antigravity und schlägt jedem ein Projekt (Thema) vor. Das Fenster nutzt das Register für die Auswahl von Von- und
 Nach-Chat; außerdem gibt es den Befehl `chats`.
 
 - **Quellen** (je einzeln fehlertolerant; Pfade über Umgebungsvariablen umlenkbar):
@@ -798,7 +844,13 @@ Nach-Chat; außerdem gibt es den Befehl `chats`.
   Dateiänderung; ergänzt nur Kennungen, die `claude-desktop` nicht liefert), `codex`
   (`~/.codex/state_5.sqlite`, Tabelle `threads`) und `hermes` (`$HERMES_HOME/state.db` bzw.
   `%LOCALAPPDATA%/hermes/state.db`, Tabelle `sessions`; nur Quellen `cli`, `desktop`, `telegram`,
-  `api_server`). Bei Codex zählen nur Sebastians Chats (`thread_source = user`), keine automatischen
+  `api_server`), und `agy` (`~/.gemini/<Ausprägung>/conversation_summaries.db` für die Ausprägungen
+  `antigravity`, `antigravity-cli` und `antigravity-ide`, Tabelle `conversation_summaries`; aus den
+  Spalten `conversation_id`, `title`, `last_modified_time` und `workspace_uris` – die Spalten mit
+  Inhalten, etwa `preview`, `raw_summary`, `user_body` und `agent_body`, werden nie angefasst). Bei
+  Antigravity wird in Python gefiltert, weil die Übersicht die Zeit als Text in eigener Schreibweise
+  ablegt; eine Folge ohne gültigen ISO-Zeitstempel wird übersprungen, ein Zeitstempel ohne Zone gilt
+  als UTC. Bei Codex zählen nur Sebastians Chats (`thread_source = user`), keine automatischen
   Prüf- oder Subagenten-Threads. Eine in Claude Desktop archivierte Sitzung kommt auch über
   `claude-cli` nicht zurück; Desktop-Sitzungen ohne `cliSessionId` erscheinen nicht (sie können
   noch keine Nachricht über den Claude-Hook empfangen). Zeiten mehr als 5 Minuten in der Zukunft

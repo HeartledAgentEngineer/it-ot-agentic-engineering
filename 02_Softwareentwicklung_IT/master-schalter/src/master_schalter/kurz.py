@@ -25,8 +25,9 @@ KENNUNG_KURZ = 8
 ARBEITET_FRISCH = timedelta(minutes=30)   # älteres „arbeitet“ = Sitzung vermutlich ohne Stop beendet
 WARTET = "Wartet worauf: nichts gemeldet"
 WARTET_VERALTET = timedelta(hours=24)   # ältere Meldung: vermutlich vergessen, `warte THEMA --fertig`
-MASTER_WERTE = ("claude", "codex", "hermes")   # wie `pruefkreis.py`
-WERKZEUG_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes", "workflow": "Workflow"}
+MASTER_WERTE = ("claude", "codex", "hermes", "agy")   # wie `pruefkreis.py`
+WERKZEUG_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes",
+                  "agy": "Antigravity", "workflow": "Workflow"}
 
 
 @dataclass(frozen=True)
@@ -124,7 +125,7 @@ def pruefer_text(master: str | None) -> str:
     """Wer prüft – dieselbe Regel wie `pruefkreis.py` (Prüfer ≠ Master-Familie); `master` wie `pruefkreis_master`."""
     if master == "codex":
         return "Prüfer Hermes (Master Codex)"
-    if master in ("claude", "hermes"):
+    if master in ("claude", "hermes", "agy"):
         return "Prüfer Codex"
     return "Prüfer ? (pruefkreis braucht --master)"
 

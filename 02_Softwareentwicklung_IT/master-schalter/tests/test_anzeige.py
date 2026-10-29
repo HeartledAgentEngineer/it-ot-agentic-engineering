@@ -232,28 +232,28 @@ def _katalog(provider="codex", *eintraege, fehler=None, veraltet=False):
 
 def test_rollenauswahl_entspricht_den_planlabels():
     assert anzeige.MASTER_AUSWAHL == (("Nach Kontingent", "kontingent"), ("Claude Code", "claude"),
-                                      ("Codex", "codex"), ("Hermes", "hermes"))
+                                      ("Codex", "codex"), ("Hermes", "hermes"), ("Antigravity", "agy"))
     assert anzeige.WORKER_AUSWAHL == (("Nach Workflow", "workflow"), ("Claude Code", "claude"),
-                                      ("Codex", "codex"), ("Hermes", "hermes"))
+                                      ("Codex", "codex"), ("Hermes", "hermes"), ("Antigravity", "agy"))
     assert anzeige.MODELLE_AKTUALISIEREN == "Modelle aktualisieren"
     assert anzeige.STANDARD_MODELL == "Standard des Werkzeugs"
 
 
-@pytest.mark.parametrize("master", ["kontingent", "claude", "codex", "hermes"])
+@pytest.mark.parametrize("master", ["kontingent", "claude", "codex", "hermes", "agy"])
 def test_master_eintraege_haken_genau_eine_wahl(master):
     eintraege = anzeige.master_eintraege(_stand(master=master))
 
-    assert [e.text for e in eintraege] == ["Nach Kontingent", "Claude Code", "Codex", "Hermes"]
+    assert [e.text for e in eintraege] == ["Nach Kontingent", "Claude Code", "Codex", "Hermes", "Antigravity"]
     assert all(e.aktiv and not e.hinweis for e in eintraege)
     assert [e.wert for e in eintraege if e.haken] == [master]
 
 
-@pytest.mark.parametrize("worker", ["workflow", "claude", "codex", "hermes"])
+@pytest.mark.parametrize("worker", ["workflow", "claude", "codex", "hermes", "agy"])
 def test_worker_eintraege_haken_genau_eine_wahl_und_zeigen_die_vorgabe(worker):
     eintraege = anzeige.worker_eintraege(_stand(worker=worker))
     wahl = [e for e in eintraege if e.aktiv]
 
-    assert [e.text for e in wahl] == ["Nach Workflow", "Claude Code", "Codex", "Hermes"]
+    assert [e.text for e in wahl] == ["Nach Workflow", "Claude Code", "Codex", "Hermes", "Antigravity"]
     assert [e.wert for e in wahl if e.haken] == [worker]
     hinweise = [e.text for e in eintraege if e.hinweis]
     assert any("Ausführervorgabe" in text for text in hinweise)     # ausdrücklich Vorgabe, keine Sitzung

@@ -108,7 +108,8 @@ def hermes_db(pfad: Path, zeilen: list[tuple], erweitert: bool = True, spalten: 
 def test_alle_quellen_fehlen_ergibt_leeres_register():
     erg = chat_register.lesen(JETZT)
     assert erg.chats == ()
-    assert erg.quellen == {"claude-desktop": "fehlt", "claude-cli": "fehlt", "codex": "fehlt", "hermes": "fehlt"}
+    assert erg.quellen == {"claude-desktop": "fehlt", "claude-cli": "fehlt", "codex": "fehlt",
+                           "hermes": "fehlt", "agy": "fehlt"}
 
 
 def test_naive_zeit_wird_als_utc_gelesen(desktop):
@@ -454,6 +455,117 @@ def test_hermes_home_bestimmt_standardpfad(tmp_path, monkeypatch):
 
 
 # --- Zusammenspiel ----------------------------------------------------------------------------
+
+# --- Antigravity (agy) -------------------------------------------------------------------------
+
+@pytest.fixture
+def agy_heim(tmp_path, monkeypatch) -> Path:
+    heim = tmp_path / "gemini"
+    monkeypatch.setenv("MASTER_SCHALTER_AGY_HEIM", str(heim))
+    return heim
+
+
+ARBEIT = '["file:///c:/Users/sebas/Desktop/workspace%20agentic%20engineering"]'
+
+
+def _agy_db(heim: Path, auspraegung: str, zeilen: list[tuple], spalten: str | None = None) -> None:
+    ordner = heim / auspraegung
+    ordner.mkdir(parents=True, exist_ok=True)
+    with closing(ECHT_SQLITE_CONNECT(ordner / "conversation_summaries.db")) as db:
+        db.execute(spalten or "CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, "
+                              "last_modified_time TEXT, workspace_uris TEXT)")
+        if zeilen:
+            db.executemany("INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)", zeilen)
+        db.commit()
+
+
+def _agy_zeile(kennung: str = UUID_A, titel: str = "Master Schalter", zeit: datetime | None = None,
+               arbeit: str = ARBEIT) -> tuple:
+    """Zeile wie Antigravity sie schreibt: Zeit als ISO-Text mit Leerzeichen statt `T`."""
+    zeit = zeit or _vor(hours=1)
+    return (kennung, titel, zeit.astimezone(timezone.utc).isoformat(sep=" "), arbeit)
+
+
+def test_agy_findet_titel_zeit_und_arbeitsordner(agy_heim):
+    _agy_db(agy_heim, "antigravity", [_agy_zeile()])
+    erg = chat_register.lesen(JETZT)
+
+    assert erg.quellen["agy"] == "ok"
+    (chat,) = erg.chats
+    assert chat.werkzeug == "agy" and chat.quelle == "agy"
+    assert chat.kennung == UUID_A
+    assert chat.titel == "Master Schalter"
+    assert chat.ordner == "C:\\Users\\sebas\\Desktop\\workspace agentic engineering"
+    assert chat.zuletzt == _vor(hours=1)
+
+
+def test_agy_liest_app_cli_und_ide_zusammen(agy_heim):
+    _agy_db(agy_heim, "antigravity", [_agy_zeile(UUID_A)])
+    _agy_db(agy_heim, "antigravity-cli", [_agy_zeile(UUID_B, zeit=_vor(hours=2))])
+    _agy_db(agy_heim, "antigravity-ide", [_agy_zeile(UUID_C, zeit=_vor(hours=3))])
+    erg = chat_register.lesen(JETZT)
+
+    assert erg.quellen["agy"] == "ok"
+    assert [c.kennung for c in erg.chats] == [UUID_A, UUID_B, UUID_C]
+
+
+def test_agy_ueberspringt_alte_und_unbrauchbare_zeiten(agy_heim):
+    _agy_db(agy_heim, "antigravity", [
+        _agy_zeile(UUID_A, zeit=_vor(days=3)),                       # älter als das Fenster
+        _agy_zeile(UUID_B, zeit=_vor(hours=1)),
+        (UUID_C, "kaputt", "gestern", ARBEIT),                       # kein ISO-Zeitstempel
+        ("../boese", "pfad", _vor(hours=1).isoformat(), ARBEIT),     # unzulässige Kennung
+        ("44444444-4444-4444-8444-444444444444", "ohne Zone",
+         _vor(hours=2).replace(tzinfo=None).isoformat(sep=" "), ARBEIT),   # naiv = UTC
+    ])
+    assert [c.kennung for c in chat_register.lesen(JETZT).chats] == [UUID_B, "44444444-4444-4444-8444-444444444444"]
+
+
+def test_agy_unbrauchbare_arbeitsordner_ergeben_leer(agy_heim):
+    _agy_db(agy_heim, "antigravity", [
+        (UUID_A, "kein json", _vor(hours=1).isoformat(), "kein json"),
+        (UUID_B, "kein feld", _vor(hours=2).isoformat(), '"file:///c:/x"'),
+        (UUID_C, "leer", _vor(hours=3).isoformat(), "[]"),
+    ])
+    ordner = {c.kennung: c.ordner for c in chat_register.lesen(JETZT).chats}
+    assert ordner == {UUID_A: "", UUID_B: "", UUID_C: ""}
+
+
+def test_agy_falsches_schema_ist_schema_unbekannt(agy_heim):
+    _agy_db(agy_heim, "antigravity", [], spalten="CREATE TABLE andere (x TEXT)")
+    erg = chat_register.lesen(JETZT)
+    assert erg.quellen["agy"] == "schema unbekannt"
+    assert erg.chats == ()
+
+
+def test_agy_kaputte_datei_ist_nicht_lesbar(agy_heim):
+    ordner = agy_heim / "antigravity"
+    ordner.mkdir(parents=True)
+    (ordner / "conversation_summaries.db").write_bytes(b"das ist keine sqlite-datei" * 100)
+    erg = chat_register.lesen(JETZT)
+    assert erg.quellen["agy"].startswith("nicht lesbar: ")
+    assert erg.chats == ()
+
+
+def test_agy_fehlende_uebersicht_ist_fehlt(agy_heim):
+    assert chat_register.lesen(JETZT).quellen["agy"] == "fehlt"
+
+
+def test_agy_vorhandene_quelle_traegt_eine_kaputte_mit(agy_heim):
+    """Eine unlesbare Ausprägung darf die lesbare nicht verdrängen."""
+    _agy_db(agy_heim, "antigravity", [_agy_zeile()])
+    kaputt = agy_heim / "antigravity-cli"
+    kaputt.mkdir(parents=True)
+    (kaputt / "conversation_summaries.db").write_bytes(b"kaputt" * 200)
+    erg = chat_register.lesen(JETZT)
+    assert erg.quellen["agy"] == "ok"
+    assert [c.kennung for c in erg.chats] == [UUID_A]
+
+
+def test_agy_legt_fehlende_datenbank_nicht_an(agy_heim):
+    chat_register.lesen(JETZT)
+    assert not (agy_heim / "antigravity" / "conversation_summaries.db").exists()
+
 
 def test_sortierung_neueste_zuerst_und_eine_kaputte_quelle_stoppt_die_anderen_nicht(
         desktop, projekte, codex_pfad, hermes_pfad):

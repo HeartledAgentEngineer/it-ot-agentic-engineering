@@ -24,7 +24,7 @@ from .signale import _atomar_schreiben, daten_ordner
 
 ARBEITET, RUHT = "arbeitet", "ruht"
 ZUSTAENDE = (ARBEITET, RUHT)
-WERKZEUGE = ("claude", "hermes", "codex")
+WERKZEUGE = ("claude", "hermes", "codex", "agy")
 DROSSEL_SEKUNDEN = 60.0
 MAX_BYTES = 1024
 

@@ -104,9 +104,9 @@ def test_modusmenue_zeigt_master_ausfuehrer_und_modellgruppen(lst):
     gruppen = _eintrag(list(themen), thema).submenu.items
     assert _texte(gruppen) == ["Master", "Ausführer", "Ausführermodell"]
     master = _eintrag(list(gruppen), "Master").submenu.items
-    assert _texte(master) == ["Nach Kontingent", "Claude Code", "Codex", "Hermes"]
+    assert _texte(master) == ["Nach Kontingent", "Claude Code", "Codex", "Hermes", "Antigravity"]
     assert all(i.radio for i in master)
-    assert [i.checked for i in master] == [False, False, False, True]      # Hermes aus dem gespeicherten Profil
+    assert [i.checked for i in master] == [False, False, False, True, False]      # Hermes aus dem gespeicherten Profil
 
 
 def test_modus_radio_haken_nutzt_nur_den_snapshot(lst, monkeypatch):
@@ -125,9 +125,9 @@ def test_modus_radio_haken_nutzt_nur_den_snapshot(lst, monkeypatch):
     gruppen = _eintrag(list(_eintrag(_einstellungen(lst), "Arbeitsmodus je Thema").submenu.items),
                        thema).submenu.items
     master = _eintrag(list(gruppen), "Master").submenu.items
-    assert [i.checked for i in master] == [True, False, False, False]      # kontingent aus dem Snapshot
+    assert [i.checked for i in master] == [True, False, False, False, False]      # kontingent aus dem Snapshot
     ausfuehrer = [i for i in _eintrag(list(gruppen), "Ausführer").submenu.items if i.enabled]
-    assert [i.checked for i in ausfuehrer] == [True, False, False, False]
+    assert [i.checked for i in ausfuehrer] == [True, False, False, False, False]
 
 
 def test_modusaktion_meldet_belegte_sperre_ohne_warten(lst, monkeypatch):
@@ -1205,7 +1205,7 @@ def test_ausfuehrergruppe_hakt_genau_die_gewaehlte_vorgabe(lst, worker):
     _thema_vorbereiten(lst, master="kontingent", worker=worker, modell=modell)
     ausfuehrer = [i for i in _gruppe(lst, "engineering", "Ausführer") if i.enabled]
 
-    assert _texte(ausfuehrer) == ["Nach Workflow", "Claude Code", "Codex", "Hermes"]
+    assert _texte(ausfuehrer) == ["Nach Workflow", "Claude Code", "Codex", "Hermes", "Antigravity"]
     assert [i.checked for i in ausfuehrer] == [wert == worker for _, wert in anzeige.WORKER_AUSWAHL]
 
 

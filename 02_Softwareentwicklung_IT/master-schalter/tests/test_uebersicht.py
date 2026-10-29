@@ -194,7 +194,7 @@ def test_master_auswahl_folgt_dem_gewaehlten_thema(wurzel):
     assert f.master_var.get() == "" and str(f.master_box["state"]) == "disabled"
     _themen_wahl(f, "thema-b")
     assert f.master_var.get() == "Claude Code" and str(f.master_box["state"]) == "readonly"
-    assert tuple(f.master_box["values"]) == ("Nach Kontingent", "Claude Code", "Codex", "Hermes")
+    assert tuple(f.master_box["values"]) == ("Nach Kontingent", "Claude Code", "Codex", "Hermes", "Antigravity")
 
 
 def test_nur_anzeige_sperrt_schreibknoepfe_und_zeigt_den_hinweis(wurzel):
