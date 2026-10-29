@@ -53,10 +53,10 @@ Pfade sind relativ zum Projektverzeichnis.
 
 | Projekt | Prüfbefehl (aus dem Projektverzeichnis) | Stand |
 |---|---|---|
-| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **2935 grün**, Exit 0 (29.09.2026) |
+| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **3142 grün, 1 skipped**, Exit 0 (29.09.2026) |
 | `concertify` | `.venv/Scripts/python.exe -m pytest tests -q` | **180 grün**, Exit 0 (15.09.2026) |
 | `master-schalter` | `.venv/Scripts/python.exe -m pytest -q` | **37 grün**, Exit 0 (14.10.2026) |
-| `typeFREE` | ⚠️ **blockiert** — kein `.venv` im Repo, globales Python hat `keyboard` nicht → 12 Collection-Errors. Reaktivierung: venv anlegen + `requirements` installieren | offen (15.09.2026) |
+| `typeFREE` | `PYTHONPATH=. py -3.12 -m pytest windows/tests -q` | **654 grün**, Exit 0 (29.10.2026) |
 | `RAG-Systeme` | **fehlt.** Nur `test_embeddings.py` als Einzelskript, keine Testsuite | — |
 | `document_automation` | **fehlt.** Keine Tests vorhanden | — |
 | `eichhoernchen_spiel` | **entfällt.** Einzelne HTML-Datei, Rapid-Prototyping-Demo | — |
@@ -67,10 +67,10 @@ kein Projektfehler, sondern ein Aufruf-Fehler.
 
 **Was daraus folgt:**
 
-* Projekte **mit** grünem Prüfbefehl (`personal_ai_agent`, `concertify`) dürfen
+* Projekte **mit** grünem Prüfbefehl (`personal_ai_agent`, `concertify`, `master-schalter`, `typeFREE`) dürfen
   im Hybrid-Workflow autonom weiterarbeiten: Änderung → Prüfbefehl (Exit 0) →
   „code + docs" in einem Commit.
-* Projekte **ohne** funktionierenden Prüfbefehl (`typeFREE`, `RAG-Systeme`,
+* Projekte **ohne** funktionierenden Prüfbefehl (`RAG-Systeme`,
   `document_automation`) bleiben an der kurzen Leine: jede Änderung wird
   einzeln vorgelegt. Kein Durchlauf ohne maschinelles Gate.
 * Fehlt einem Projekt der Prüfbefehl, wird das benannt — nicht ersetzt durch

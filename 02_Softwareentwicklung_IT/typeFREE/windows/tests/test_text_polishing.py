@@ -124,6 +124,46 @@ def test_anweisung_verlangt_verhoerer_korrektur_und_slang_schonung(monkeypatch):
     assert 'umgangssprache' in anweisung
 
 
+def test_system_prompt_vertrag_fuer_textglaettung(monkeypatch):
+    """Prüft Regeln am tatsächlich an den Client übergebenen System-Prompt."""
+    attrappe = groq_attrappe(antwort=ROHTEXT)
+    monkeypatch.setattr(typefree, 'openrouter_client', attrappe)
+    typefree.polish_text(ROHTEXT)
+
+    anweisung = attrappe.aufrufe[0]['messages'][0]['content']
+    assert 'Fülllaute' in anweisung
+    assert 'bedeutungslose' in anweisung
+    assert 'besprochen' in anweisung
+    assert 'abgebrochene Wörter' in anweisung
+    assert 'Satzteilwiederholungen' in anweisung
+    assert 'Betonung' in anweisung
+    assert 'Negation' in anweisung
+    assert 'Im Zweifel bleibt das Original' in anweisung
+    assert 'in allen Schreibweisen' in anweisung
+    assert 'zitiert oder besprochen' in anweisung
+    assert 'Fachbegriff, Abkürzung oder Eigenname' in anweisung
+    assert "'Das ist ein ÄHM' als Bezeichnung" in anweisung
+
+
+def test_system_prompt_vertrag_enthaelt_konkrete_beispiele(monkeypatch):
+    """Beispiele begrenzen die Glättung, ohne echte Sprachqualität zu testen."""
+    attrappe = groq_attrappe(antwort=ROHTEXT)
+    monkeypatch.setattr(typefree, 'openrouter_client', attrappe)
+    typefree.polish_text(ROHTEXT)
+
+    anweisung = attrappe.aufrufe[0]['messages'][0]['content']
+    for beispiel in (
+        "'Ich, ähm, starte den Test.' → 'Ich starte den Test.'",
+        "'Das Wort ähm ist ein Fülllaut.' bleibt erhalten",
+        "'Bitte die Kon-, die Konfiguration laden.' → 'Bitte die Konfiguration laden.'",
+        "'Wir wir prüfen das, wir prüfen das morgen.' → 'Wir prüfen das morgen.'",
+        "'Das ist sehr, sehr wichtig.' bleibt",
+        "'Das ist nicht unmöglich.' bleibt",
+        "'ne' und 'quasi' bleiben, wenn sie Bedeutung tragen",
+    ):
+        assert beispiel in anweisung
+
+
 def test_token_grenze_reicht_fuer_ein_langes_diktat(monkeypatch):
     """Zehn Minuten Sprache sind grob 1500 Wörter — 1000 Tokens genügen nicht."""
     attrappe = groq_attrappe(antwort=ROHTEXT)
