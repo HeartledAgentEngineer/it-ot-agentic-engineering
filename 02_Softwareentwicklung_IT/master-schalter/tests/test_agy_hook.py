@@ -277,11 +277,17 @@ def test_scheitert_die_ausgabe_bleibt_die_nachricht_liegen(umgebung, capsys):
 
 # --- Aufruf als Modul (echter Prozess) ---------------------------------------------------
 
+def _test_umgebung():
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    return env
+
+
 def test_aufruf_als_modul_mit_umgebung_im_eigenen_prozess(umgebung, tmp_path):
     """Antigravity ruft `python -m master_schalter.agy_hook EREIGNIS` auf: Rückgabe 0, Ausgabe auf stdout."""
     _neu_einlegen(umgebung)
     lauf = subprocess.run([sys.executable, "-m", "master_schalter.agy_hook", "PreInvocation"],
-                          input=_ereignis(), capture_output=True, env=os.environ, timeout=60)
+                          input=_ereignis(), capture_output=True, env=_test_umgebung(), timeout=60)
     assert lauf.returncode == 0
     assert lauf.stderr == b""
     assert json.loads(lauf.stdout.decode("utf-8"))["injectSteps"]
@@ -289,5 +295,5 @@ def test_aufruf_als_modul_mit_umgebung_im_eigenen_prozess(umgebung, tmp_path):
 
 def test_aufruf_als_modul_ohne_ereignisname_ergibt_exit_0(umgebung):
     lauf = subprocess.run([sys.executable, "-m", "master_schalter.agy_hook"],
-                          input=b"kein json", capture_output=True, timeout=60)
+                          input=b"kein json", capture_output=True, env=_test_umgebung(), timeout=60)
     assert lauf.returncode == 0 and lauf.stdout == b"" and lauf.stderr == b""

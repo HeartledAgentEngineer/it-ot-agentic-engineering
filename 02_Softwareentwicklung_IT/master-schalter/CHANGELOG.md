@@ -14,8 +14,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   bestätigt die Zuordnung. Danach wird `<thema>@codex:<reset>` in `automatik_ausgeloest.json` vermerkt (höchstens ein
   Versuch je Thema und Codex-Limitfenster; bei gescheiterter Chat-Anlage wird **nicht** vermerkt, der nächste Takt
   versucht es erneut) und `assistent.uebergeben(thema, "agy", von_chat=None, nach_chat=agy:<kennung>)` gestartet.
-  Themen mit offenem Wechselvorgang oder Modus-Zwischenmarke bleiben unberührt. Die Leiste ruft den Lauf im
-  Automatiktakt nach `automatik.lauf()` auf (nur bei Hauptschalter an). Tests: `test_agy_automatik.py`.
+  Themen mit laufendem/blockierendem Wechselvorgang (`WECHSEL_BLOCKIEREND`) oder Modus-Zwischenmarke bleiben unberührt.
+  Die Leiste ruft den Lauf im Automatiktakt nach `automatik.lauf()` auf (nur bei Hauptschalter an).
+  Tests: `test_agy_automatik.py`.
 - **Antigravity-Transport `agy_senden.py`**: `nachricht_senden` (`agentapi send-message`) weckt nach dem Einlegen der
   Übernahmenachricht ins Postfach zusätzlich das Ziel-Gespräch (`assistent._zustellen`, nur ohne Test-Transport; das
   Postfach bleibt der maßgebliche Weg, die Quittung erzwingt die Gültigkeit). Weil `leiste.py` außerhalb des

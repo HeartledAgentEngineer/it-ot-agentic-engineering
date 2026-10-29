@@ -125,7 +125,7 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None,
         except modi.ModusFehler as fehler:
             return [automatik.Stand("", f"Modusstatus fehlerhaft – kein Versand ({fehler})", "fehler")]
     try:
-        offene_themen = {v.thema for v in av.lesen_geprueft() if v.phase not in av.ENDGUELTIG}
+        offene_themen = {v.thema for v in av.lesen_geprueft() if v.phase in av.WECHSEL_BLOCKIEREND}
     except av.AssistentFehler:
         return [automatik.Stand("", "Wechselregister nicht prüfbar – keine Antigravity-Übergabe", "fehler")]
     bereits = automatik.ausgeloest_lesen() if ausgeloest is None else frozenset(ausgeloest)
@@ -136,7 +136,7 @@ def lauf(jetzt: datetime | None = None, *, repo: Path | None = None,
     if not faellige:
         return []
     if trocken:
-        return [automatik.Stand(p.thema, "bereit (Codex-Limit → Antigravity)", k) for p, k in faellige]
+        return [automatik.Stand(p.thema, "bereit (Codex-Limit -> Antigravity)", k) for p, k in faellige]
 
     anlegen = chat_anlegen or agy_senden.neues_gespraech
     uebergeben_fn = uebergeber or assistent.uebergeben
