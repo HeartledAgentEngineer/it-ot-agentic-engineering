@@ -316,7 +316,7 @@ def test_status_zeigt_themen_ohne_paar(env, monkeypatch, capsys):
                                                                     signale.Kontingent("Codex", fehler="x")])
     assert cli.main(["thema-anlegen", THEMA]) == 0
     zeile = next(z for z in kurz.sammeln() if z.startswith(f"  {THEMA}:"))
-    assert zeile.startswith(f"  {THEMA}: Master Claude (Besitz claude) · ") and zeile.endswith("· ohne Codex-Paar")
+    assert zeile.startswith(f"  {THEMA}: Master Claude (fest) · Besitz claude · ") and zeile.endswith("· ohne Codex-Paar")
 
 
 # --- Ergebnisprüfung R1-2: Vorschau nennt für Themen ohne Paar keinen Worktree-Schreibweg -----------------------------

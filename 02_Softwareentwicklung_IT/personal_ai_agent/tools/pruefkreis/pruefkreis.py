@@ -9,7 +9,7 @@ Plan und Pruefjournal: ``.hermes/plans/2026-10-12_hermes-auftraege-statt-bus.md`
 (Schritt 1). Rollen: Abschnitt "Rollen und Datenschutz" in ``AGENTS.md``.
 
 Regeln, die hier fest eingebaut sind:
-* ``--sensibel`` => Pruefer ist IMMER Hermes; Codex wird verweigert.
+* ``--sensibel`` => Pruefer ist IMMER Hermes; Codex wird verweigert (geht jeder Prueferwahl vor).
 * Der Pruefer muss als letzte Zeile ``URTEIL: FREI`` oder ``URTEIL: EINWAND``
   schreiben. Fehlt sie, scheitert der Lauf oder laeuft er in die Zeitgrenze,
   ist der Status ``fehler`` - nie ``frei``.
@@ -23,7 +23,7 @@ Sandbox der App und kennt ``gpt-6.1-sol`` nicht (gemessen 12.10.2026).
 Aufruf::
 
     python pruefkreis.py pruefen --vorlage <datei> --thema <kennung>
-        [--pruefer codex|hermes] [--master claude|codex|hermes] [--sensibel] [--gruendlich] [--zeitgrenze 900]
+        [--pruefer codex|hermes] [--master claude|codex|hermes|agy] [--sensibel] [--gruendlich] [--zeitgrenze 900]
 
 ``--master`` nennt den Master des geprueften Themas. Codex prueft nie die Arbeit eines Codex-Masters
 (AGENTS.md: Pruefer aus einer anderen Modellfamilie als der Master): ohne ``--pruefer`` wird dann Hermes
@@ -34,6 +34,13 @@ Leere Datei = claude (wie ``besitz.py``). Unlesbar, unbekannter Besitzer oder ke
 bis ``--master`` angegeben ist - sonst koennte Codex unbemerkt einen Codex-Master pruefen. Ausnahme ``--sensibel``
 (Hermes ohnehin). Aus einem Git-Worktree heraus gelten Besitzdateien und Protokolle des Hauptarbeitsbaums.
 Die Quelle steht im Protokoll.
+
+Ohne ``--pruefer`` und ohne ``--sensibel`` liest das Werkzeug ausserdem die Prueferwahl des Themas aus
+``pruefer.json`` des Master-Schalters (``masterwechsel pruefer-setzen``; Datenordner ``MASTER_SCHALTER_DATEN`` oder
+``~/.master-schalter``; Name wie bei der Besitzdatei: Thema oder laengster Anfang vor einem Bindestrich). Eine Wahl gilt
+**frei**, auch fuer die Familie des Masters (Sebastian, 28.10.2026); das Protokoll vermerkt dann ``Prueferwahl: ...``
+und bei gleicher Familie, dass das von AGENTS.md abweicht. Gesperrtes Codex weicht weiter auf Hermes aus. Unlesbare oder
+ungueltige Datei => Regel plus Vermerk. Ein unklarer Besitz bricht weiter ab (auch mit Wahl).
 
 Ohne ``--pruefer`` liest das Werkzeug ausserdem die Codex-Messung des Master-Schalters
 (``codex-kontingent.json``): steht Codex laut frischer Messung (<= 15 min) bei 100 % mit kuenftigem Reset,
@@ -122,18 +129,63 @@ def hermes_programm() -> str | None:
     return shutil.which("hermes")
 
 
-MASTER_WERTE = ("claude", "codex", "hermes")
+MASTER_WERTE = ("claude", "codex", "hermes", "agy")
 
 
-def pruefer_waehlen(pruefer: str | None, sensibel: bool, master: str | None = None) -> str:
+WAHL_WERTE = ("codex", "hermes")
+
+
+def pruefer_datei() -> Path:
+    """Prueferwahl je Thema des Master-Schalters (`masterwechsel pruefer-setzen`, `pruefer.json`)."""
+    basis = os.environ.get("MASTER_SCHALTER_DATEN") or str(Path.home() / ".master-schalter")
+    return Path(basis) / "pruefer.json"
+
+
+def pruefer_wahl_lesen(thema: str) -> tuple[str | None, str]:
+    """Gewaehlter Pruefer des Themas und Vermerk fuers Protokoll: ``(wahl, quelle)``.
+
+    ``(None, "")`` = keine Wahl (Datei fehlt oder das Thema steht nicht darin) => Regel. ``(None, <Vermerk>)`` = Datei
+    unlesbar oder ungueltig => Regel plus Vermerk. Gelesen wird so streng wie im Master-Schalter (``pruefer_wahl.py``):
+    genau ``version`` 1 und ``themen``, Themennamen ``a-z0-9-``, Werte nur ``codex``/``hermes``. Der Name wird wie bei der
+    Besitzdatei abgeglichen: das Thema selbst oder der laengste Anfang vor einem Bindestrich.
+    """
+    pfad = pruefer_datei()
+    try:
+        roh = json.loads(pfad.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, ""
+    except (OSError, ValueError):
+        return None, f"{pfad.name} unlesbar - Regel angewandt"
+    themen = roh.get("themen") if isinstance(roh, dict) else None
+    if (not isinstance(roh, dict) or set(roh) != {"version", "themen"} or roh["version"] != 1
+            or not isinstance(themen, dict)
+            or any(not isinstance(k, str) or not THEMA_MUSTER.fullmatch(k) or v not in WAHL_WERTE
+                   for k, v in themen.items())):
+        return None, f"{pfad.name} ungueltig - Regel angewandt"
+    teile = thema.split("-")
+    for laenge in range(len(teile), 0, -1):
+        name = "-".join(teile[:laenge])
+        if name in themen:
+            return themen[name], f"{pfad.name}, Thema {name}"
+    return None, ""
+
+
+def pruefer_waehlen(pruefer: str | None, sensibel: bool, master: str | None = None,
+                    wahl: str | None = None) -> str:
+    """Pruefer: ``--sensibel`` => Hermes; ``--pruefer`` gilt vor der Wahl; dann die Wahl des Themas (frei, auch aus der
+    Familie des Masters); sonst die Regel (Pruefer != Familie des Masters)."""
     if master not in (None, *MASTER_WERTE):
         raise PruefkreisFehler(f"Unbekannter Master: {master}")
+    if wahl not in (None, *WAHL_WERTE):
+        raise PruefkreisFehler(f"Unbekannte Prueferwahl: {wahl}")
     if sensibel:
         if pruefer == "codex":
             raise PruefkreisFehler("Sensible Inhalte prueft ausschliesslich Hermes (AGENTS.md) - Codex verweigert.")
         return "hermes"
     if pruefer not in (None, "codex", "hermes"):
         raise PruefkreisFehler(f"Unbekannter Pruefer: {pruefer}")
+    if pruefer is None and wahl is not None:
+        return wahl
     if master == "codex":
         if pruefer == "codex":
             raise PruefkreisFehler("Codex prueft nicht die Arbeit eines Codex-Masters (AGENTS.md: andere Modellfamilie).")
@@ -328,6 +380,8 @@ def protokoll_block(ergebnis: dict) -> str:
               f"Modell: {ergebnis.get('modell', '?')} · Planfassung: {ergebnis.get('planfassung', '?')}"]
     if ergebnis.get("master_quelle"):
         zeilen.append(f"Master: {ergebnis.get('master') or '?'} ({ergebnis['master_quelle']})")
+    if ergebnis.get("pruefer_vermerk"):
+        zeilen.append(f"Prueferwahl: {ergebnis['pruefer_vermerk']}")
     if ergebnis.get("ersatz"):
         zeilen.append(f"Ersatzpruefer: {ergebnis['ersatz']}")
     if ergebnis.get("grund"):
@@ -413,9 +467,11 @@ def _pruefen(vorlage: str, thema: str, pruefer: str | None, sensibel: bool, grue
     if master is None and not sensibel:
         raise PruefkreisFehler(f"Master {master_quelle} - bitte --master claude|codex|hermes angeben "
                                "(sonst koennte Codex einen Codex-Master pruefen).")
-    wer = pruefer_waehlen(pruefer, sensibel, master)
+    # Die Wahl des Themas zaehlt nur ohne --pruefer und ohne --sensibel (beides geht vor).
+    wahl, wahl_quelle = pruefer_wahl_lesen(thema) if pruefer is None and not sensibel else (None, "")
+    wer = pruefer_waehlen(pruefer, sensibel, master, wahl)
     ersatz = ("Hermes statt Codex - Master ist Codex (keine Pruefung durch dieselbe Modellfamilie)"
-              if master == "codex" and not sensibel and pruefer is None else "")
+              if master == "codex" and not sensibel and pruefer is None and wahl is None else "")
     limit = codex_im_limit() if wer == "codex" and pruefer is None else None
     if limit:   # gemessen im Limit: gleich Hermes statt erst eines Codex-Fehlversuchs
         wer, gruendlich = "hermes", False
@@ -460,9 +516,17 @@ def _pruefen(vorlage: str, thema: str, pruefer: str | None, sensibel: bool, grue
     else:
         ausgabe = text
 
+    vermerk = ""
+    if wahl is not None:
+        vermerk = f"{wahl} ({wahl_quelle})"
+        if wer == wahl == master:
+            vermerk += (" - Pruefer aus derselben Familie wie der Master - Sebastians Wahl, "
+                        "weicht von AGENTS.md ab")
+    elif wahl_quelle:   # Datei unlesbar/ungueltig: Regel angewandt, aber sichtbar vermerkt
+        vermerk = wahl_quelle
     ergebnis = {"runde": runde, "zeit": time.strftime("%Y-%m-%d %H:%M"), "pruefer": wer, "vorlage": vorlage,
                 "modell": modell_fuer(wer, gruendlich), "planfassung": planfassung_lesen(vorlage, planfassung),
-                "status": status, "grund": grund, "ersatz": ersatz, "master": master,
+                "status": status, "grund": grund, "ersatz": ersatz, "pruefer_vermerk": vermerk, "master": master,
                 "master_quelle": master_quelle, "dauer_s": dauer, "ausgabe": ausgabe, **nutzung}
     ordner = protokoll_ordner()
     ordner.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""Übersichtsfenster des Master-Schalters: dieselben Daten wie `masterwechsel status`, aufgeräumt und mit Klick-Aktionen.
+"""Übersichtsfenster des Master-Schalters mit lokaler Themenvorauswahl.
 
 Start: `python -m master_schalter.uebersicht` (ohne Konsole: `pythonw.exe -m master_schalter.uebersicht`); die Leiste
 öffnet es per Linksklick auf das Taskleistensymbol als eigenen Prozess.
@@ -9,10 +9,12 @@ Start: `python -m master_schalter.uebersicht` (ohne Konsole: `pythonw.exe -m mas
 * **Aktualisierung alle 5 s:** `uebersicht_modell.aufnehmen()` läuft im Hintergrund-Thread, das Ergebnis geht über
   eine Warteschlange an den Tk-Thread. Dasselbe gilt für alle Aktionen: nie Dateizugriff oder Wartezeit im
   Tk-Thread, nie Tk-Aufruf aus einem anderen Thread.
-* **Dünne Oberfläche:** Daten, Repo-Prüfung, Rückfragetexte und Aktionen liegen in `uebersicht_modell.py` und sind dort
-  ohne Bildschirm getestet. Jede Änderung (Master und Arbeitsweise je Thema, „Alle nach Kontingent“, „Alle wie vorher“, Automatik)
-  fragt vorher per Ja/Nein-Dialog (`dialog.frage`, Standard **Nein**); bei „Nein“ wird nichts geändert.
+* **Themenvorauswahl:** sechs Dropdowns pro Themenzeile ändern nur den zentralen lokalen Entwurf. „Änderungen prüfen …“ zeigt
+  Werte und Konflikte; „Zurücksetzen“ verwirft sie. Die produktive Übernahme bleibt bis zur sicheren Übergabeanbindung gesperrt.
+* **Hintergrundaktionen:** Sammelwechsel und der Hauptschalter Automatik verwenden weiterhin geprüfte Aktionen aus
+  `uebersicht_modell.py`; vor diesen tatsächlichen Aktionen fragt `dialog.frage` mit Standard **Nein**.
 * **Nur Anzeige:** Findet die Aufnahme keinen echten Hauptarbeitsbaum, sind die Schreibknöpfe gesperrt.
+* **Aussehen:** dunkel, flach, Farben und Stile an einer Stelle (`uebersicht_stil.py`, nur Bordmittel).
 """
 from __future__ import annotations
 
@@ -25,20 +27,14 @@ from typing import Callable
 
 from . import dialog, kurz, zustand
 from . import uebersicht_modell as um
+from . import uebersicht_stil as st
+from .uebersicht_entwurf import EntwurfsVerwaltung, EntwurfFehler
+from .uebersicht_tabelle import ThemenTabelle
 
 INSTANZ = "uebersicht"
 TAKT_MS = 5000            # alle 5 s frisch lesen
 ABFRAGE_MS = 150          # Warteschlange des Hintergrund-Threads leeren
 TITEL = "Master-Schalter – Übersicht"
-RINNE = "#e5e7eb"         # Balkenhintergrund
-FEHLERFARBE = "#b91c1c"
-MASTER_ANZEIGE = tuple(um.MASTER_TEXTE[wert] for wert in um.MASTER_WERTE)   # in der Reihenfolge von MASTER_WERTE
-ARBEITSWEISE_ANZEIGE = tuple(um.ARBEITSWEISE_TEXTE[wert] for wert in um.ARBEITSWEISE_WERTE)   # Protokoll, Vibe
-SPALTEN = (("thema", "Thema", 150, False), ("master", "Master", 110, False), ("besitz", "Besitz", 120, False),
-           ("pruefer", "Prüfer", 190, False), ("ausfuehrer", "Ausführer", 150, False),
-           ("arbeitsweise", "Arbeitsweise", 100, False), ("auto", "Auto", 150, True))
-
-
 class Fenster:
     def __init__(self, root: tk.Tk, *, laden: Callable[[], um.Uebersicht] = um.aufnehmen,
                  frage: Callable[[str, str], bool] = dialog.frage,
@@ -49,6 +45,7 @@ class Fenster:
         self._takt_ms = takt_ms
         self._queue: queue.Queue = queue.Queue()
         self._snap: um.Uebersicht | None = None
+        self._entwuerfe = EntwurfsVerwaltung()
         self._laedt = False
         self._beschaeftigt = False
         self._staende: dict[str, object] = {}
@@ -61,128 +58,140 @@ class Fenster:
 
     # --- Aufbau -------------------------------------------------------------------
 
+    def _karte(self, eltern: tk.Misc, titel: str | None = None) -> ttk.Frame:
+        """Eine Karte (hellere Fläche). Mit Titel steht dieser in Zeile 0, der Inhalt beginnt in Zeile 1."""
+        karte = ttk.Frame(eltern, style=st.KARTE, padding=st.ABSTAND)
+        karte.columnconfigure(0, weight=1)
+        if titel:
+            ttk.Label(karte, text=titel, style=st.KARTE_TITEL).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        return karte
+
     def _bauen(self) -> None:
         wurzel = self.root
         wurzel.title(TITEL)
-        wurzel.geometry("980x800")
-        wurzel.minsize(820, 640)
+        wurzel.geometry("1240x900")
+        wurzel.minsize(1000, 700)
+        self._stil, self._schrift = st.anwenden(wurzel)
+        feld = dict(background=st.FLAECHE, foreground=st.TEXT, relief="flat", highlightthickness=0,
+                    font=(self._schrift, 10))
         wurzel.columnconfigure(0, weight=1)
-        wurzel.rowconfigure(2, weight=3)
-        wurzel.rowconfigure(4, weight=1)
-        wurzel.rowconfigure(5, weight=1)
-        self._stil = ttk.Style(wurzel)
-        try:
-            self._stil.theme_use("clam")   # nur dieses Thema erlaubt eigene Balkenfarben
-        except tk.TclError:
-            pass
+        rand = st.ABSTAND_GROSS
+        wurzel.rowconfigure(2, weight=1)
 
-        # 1. Kopf
-        kopf = ttk.Frame(wurzel)
-        kopf.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
-        kopf.columnconfigure(0, weight=1)
-        self.kopf_var = tk.StringVar(value="Master-Schalter")
-        ttk.Label(kopf, textvariable=self.kopf_var, font=("Segoe UI", 13, "bold")).grid(row=0, column=0, sticky="w")
+        # 1. Kopf: Titel · Uhrzeit · Lage-Pille · … · Hauptschalter Automatik · Aktualisieren
+        kopf = ttk.Frame(wurzel, style=st.KOPF, padding=(st.ABSTAND, 10))
+        kopf.grid(row=0, column=0, sticky="ew", padx=rand, pady=(rand, 6))
+        kopf.columnconfigure(3, weight=1)
+        ttk.Label(kopf, text="Master-Schalter", style=st.TITEL).grid(row=0, column=0, sticky="w")
+        self.zeit_var, self.lage_var, self.lage_grund_var = tk.StringVar(), tk.StringVar(value="Lage ?"), tk.StringVar()
+        ttk.Label(kopf, textvariable=self.zeit_var, style=st.KARTE_GEDAEMPFT).grid(row=0, column=1, padx=(12, 8))
+        self.lage_pille = ttk.Label(kopf, textvariable=self.lage_var, style=st.PILLE_UNBEKANNT)
+        self.lage_pille.grid(row=0, column=2, padx=(0, 8))
         self.automatik_var = tk.StringVar(value="Automatik: …")
-        ttk.Label(kopf, textvariable=self.automatik_var).grid(row=0, column=1, sticky="e", padx=(8, 8))
-        self.automatik_knopf = ttk.Button(kopf, text="Automatik umschalten", command=self.automatik_klick)
-        self.automatik_knopf.grid(row=0, column=2, sticky="e")
+        ttk.Label(kopf, textvariable=self.automatik_var, style=st.KARTE_LABEL).grid(row=0, column=4, padx=(8, 8))
+        self.automatik_knopf = ttk.Button(kopf, text="Automatik umschalten", style=st.KNOPF, command=self.automatik_klick)
+        self.automatik_knopf.grid(row=0, column=5, padx=(0, 8))
+        self.aktualisieren_knopf = ttk.Button(kopf, text="↻ Aktualisieren", style=st.KNOPF_KLEIN,
+                                              command=self.laden_anstossen)
+        self.aktualisieren_knopf.grid(row=0, column=6)
+        ttk.Label(kopf, textvariable=self.lage_grund_var, style=st.KARTE_GEDAEMPFT, wraplength=1100,
+                  justify="left").grid(row=1, column=0, columnspan=7, sticky="w")
 
-        # 2. Kontingent
-        kont = ttk.LabelFrame(wurzel, text="Kontingent (verbraucht)")
-        kont.grid(row=1, column=0, sticky="ew", padx=10, pady=4)
-        kont.columnconfigure(2, weight=1)
+        # 2. Kontingent: je Abo eine Karte
+        kont = ttk.Frame(wurzel)
+        kont.grid(row=1, column=0, sticky="ew", padx=rand, pady=6)
         self._balken: list[tuple[ttk.Label, ttk.Progressbar, tk.StringVar, tk.StringVar]] = []
         self._abo_info: list[tuple[tk.StringVar, tk.StringVar]] = []   # (gemessen-Zeile, Fehlertext) je Abo
-        zeile = 0
-        for abo in ("Claude", "Codex"):
-            ttk.Label(kont, text=abo, font=("Segoe UI", 10, "bold")).grid(row=zeile, column=0, sticky="w",
-                                                                           padx=(8, 4), pady=(6, 0))
+        for spalte, (abo, farbe) in enumerate((("Claude", st.AKZENT_CLAUDE), ("Codex", st.AKZENT_CODEX))):
+            kont.columnconfigure(spalte, weight=1, uniform="abo")
+            karte = self._karte(kont)
+            karte.grid(row=0, column=spalte, sticky="nsew", padx=(0, 6) if spalte == 0 else (6, 0))
+            karte.columnconfigure(0, weight=0)
+            karte.columnconfigure(1, weight=1)
+            ttk.Label(karte, text=f"●  {abo}", style=st.KARTE_TITEL, foreground=farbe).grid(row=0, column=0, sticky="w")
             info = tk.StringVar()
-            ttk.Label(kont, textvariable=info, foreground="#666666").grid(row=zeile, column=1, columnspan=3,
-                                                                          sticky="w", padx=4, pady=(6, 0))
-            zeile += 1
+            ttk.Label(karte, textvariable=info, style=st.KARTE_GEDAEMPFT).grid(row=0, column=1, columnspan=2, sticky="e")
+            zeile = 1
             for fenster in ("5h", "Woche"):
-                name = ttk.Label(kont, text=fenster, width=6)
-                name.grid(row=zeile, column=0, sticky="w", padx=(24, 4), pady=1)
-                balken = ttk.Progressbar(kont, orient="horizontal", mode="determinate", maximum=100, length=320)
-                balken.grid(row=zeile, column=1, columnspan=2, sticky="ew", padx=4, pady=1)
+                name = ttk.Label(karte, text=fenster, width=6, style=st.KARTE_LABEL)
+                name.grid(row=zeile, column=0, sticky="w", pady=(8, 0))
+                balken = ttk.Progressbar(karte, orient="horizontal", mode="determinate", maximum=100, length=200,
+                                         style=self._stil_fuer(st.GRAU))
+                balken.grid(row=zeile, column=1, sticky="ew", padx=8, pady=(8, 0))
                 text, reset = tk.StringVar(), tk.StringVar()
-                ttk.Label(kont, textvariable=text, width=22).grid(row=zeile, column=3, sticky="w", padx=4)
-                ttk.Label(kont, textvariable=reset).grid(row=zeile, column=4, sticky="w", padx=4)
+                ttk.Label(karte, textvariable=text, width=19, style=st.KARTE_LABEL).grid(row=zeile, column=2, sticky="w",
+                                                                                         pady=(8, 0))
+                ttk.Label(karte, textvariable=reset, style=st.KARTE_GEDAEMPFT).grid(row=zeile + 1, column=1, columnspan=2,
+                                                                                    sticky="w", padx=8)
                 self._balken.append((name, balken, text, reset))
-                zeile += 1
+                zeile += 2
             fehler = tk.StringVar()
-            ttk.Label(kont, textvariable=fehler, foreground=FEHLERFARBE, wraplength=900, justify="left").grid(
-                row=zeile, column=0, columnspan=5, sticky="w", padx=(24, 4), pady=(0, 2))
+            ttk.Label(karte, textvariable=fehler, style=st.KARTE_FEHLER, wraplength=480, justify="left").grid(
+                row=zeile, column=0, columnspan=3, sticky="w", pady=(6, 0))
             self._abo_info.append((info, fehler))
-            zeile += 1
 
-        # 3. Themen
-        themen = ttk.LabelFrame(wurzel, text="Themen")
-        themen.grid(row=2, column=0, sticky="nsew", padx=10, pady=4)
+        # 3. Themen und Bericht/Sitzungen: Höhe über die Trennkante verteilbar
+        paned = ttk.Panedwindow(wurzel, orient="vertical")
+        paned.grid(row=2, column=0, sticky="nsew", padx=rand, pady=6)
+        themen = self._karte(paned, "Themen – Einstellungen direkt in jeder Zeile")
+        themen.rowconfigure(2, weight=1)
         themen.columnconfigure(0, weight=1)
-        themen.rowconfigure(0, weight=1)
-        self.themen_baum = ttk.Treeview(themen, columns=[s[0] for s in SPALTEN], show="headings", height=7,
-                                        selectmode="browse")
-        for spalte, titel, breite, strecken in SPALTEN:
-            self.themen_baum.heading(spalte, text=titel)
-            self.themen_baum.column(spalte, width=breite, stretch=strecken)
-        self.themen_baum.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        regler = ttk.Scrollbar(themen, orient="vertical", command=self.themen_baum.yview)
-        regler.grid(row=0, column=1, sticky="ns", pady=4)
-        self.themen_baum.configure(yscrollcommand=regler.set)
-        self.themen_baum.bind("<<TreeviewSelect>>", lambda _e: self._auswahl_geaendert())
-        wahl = ttk.Frame(themen)
-        wahl.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 6))
-        self.wahl_var, self.master_var = tk.StringVar(value="Thema in der Tabelle wählen"), tk.StringVar()
-        self.arbeitsweise_var = tk.StringVar()
-        ttk.Label(wahl, textvariable=self.wahl_var).pack(side="left")
-        ttk.Label(wahl, text="  Master:").pack(side="left")
-        self.master_box = ttk.Combobox(wahl, textvariable=self.master_var, state="disabled",
-                                       values=list(MASTER_ANZEIGE), width=18)
-        self.master_box.pack(side="left", padx=6)
-        self.master_box.bind("<<ComboboxSelected>>", lambda _e: self.master_klick())
-        ttk.Label(wahl, text="  Arbeitsweise:").pack(side="left")
-        self.arbeitsweise_box = ttk.Combobox(wahl, textvariable=self.arbeitsweise_var, state="disabled",
-                                             values=list(ARBEITSWEISE_ANZEIGE), width=12)
-        self.arbeitsweise_box.pack(side="left", padx=6)
-        self.arbeitsweise_box.bind("<<ComboboxSelected>>", lambda _e: self.arbeitsweise_klick())
+        entwurf_leiste = ttk.Frame(themen)
+        entwurf_leiste.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.entwurf_anzahl_var = tk.StringVar(value="Keine offenen Entwürfe")
+        ttk.Label(entwurf_leiste, textvariable=self.entwurf_anzahl_var, style=st.KARTE_LABEL).pack(side="left", padx=(0, 10))
+        self.entwurf_pruefen_knopf = ttk.Button(entwurf_leiste, text="Änderungen prüfen …", style=st.KNOPF,
+                                                 command=self.entwurf_pruefen)
+        self.entwurf_pruefen_knopf.pack(side="left", padx=(0, 6))
+        self.entwurf_zuruecksetzen_knopf = ttk.Button(entwurf_leiste, text="Zurücksetzen", style=st.KNOPF,
+                                                      command=self.entwurf_zuruecksetzen)
+        self.entwurf_zuruecksetzen_knopf.pack(side="left", padx=(0, 10))
+        self.entwurf_uebernehmen_knopf = ttk.Button(entwurf_leiste, text="Übernehmen …",
+                                                     state="disabled", style=st.KNOPF,
+                                                     command=self.entwurf_uebernehmen)
+        self.entwurf_uebernehmen_knopf.pack(side="left")
+        self.themen_tabelle = ThemenTabelle(themen, aendern=self._themenwert_aendern)
+        self.themen_tabelle.grid(row=2, column=0, sticky="nsew")
+        paned.add(themen, weight=4)
+        unten_pane = ttk.Frame(paned)
+        unten_pane.columnconfigure(0, weight=1)
+        unten_pane.rowconfigure(1, weight=1)
+        paned.add(unten_pane, weight=2)
 
         # 4. Knöpfe
-        knoepfe = ttk.Frame(wurzel)
-        knoepfe.grid(row=3, column=0, sticky="ew", padx=10, pady=4)
-        self.kontingent_knopf = ttk.Button(knoepfe, text="Alle nach Kontingent",
+        knoepfe = ttk.Frame(unten_pane)
+        knoepfe.grid(row=0, column=0, sticky="ew", pady=(4, 6))
+        self.kontingent_knopf = ttk.Button(knoepfe, text="Alle nach Kontingent", style=st.KNOPF_AKZENT,
                                            command=lambda: self.alle_klick("kontingent"))
-        self.zurueck_knopf = ttk.Button(knoepfe, text="Alle wie vorher", command=lambda: self.alle_klick("zurueck"))
-        self.uebergabe_knopf = ttk.Button(knoepfe, text="Übergabe starten …", command=self.uebergabe_klick)
-        self.aktualisieren_knopf = ttk.Button(knoepfe, text="Aktualisieren", command=self.laden_anstossen)
-        for knopf in (self.kontingent_knopf, self.zurueck_knopf, self.uebergabe_knopf, self.aktualisieren_knopf):
-            knopf.pack(side="left", padx=(0, 6))
+        self.zurueck_knopf = ttk.Button(knoepfe, text="Alle wie vorher", style=st.KNOPF,
+                                        command=lambda: self.alle_klick("zurueck"))
+        self.uebergabe_knopf = ttk.Button(knoepfe, text="Übergabe starten …", style=st.KNOPF, command=self.uebergabe_klick)
+        for knopf in (self.kontingent_knopf, self.zurueck_knopf, self.uebergabe_knopf):
+            knopf.pack(side="left", padx=(0, 8))
         self.sperre_var = tk.StringVar()
-        ttk.Label(knoepfe, textvariable=self.sperre_var, foreground=FEHLERFARBE).pack(side="left", padx=8)
+        ttk.Label(knoepfe, textvariable=self.sperre_var, style=st.LABEL_FEHLER).pack(side="left", padx=8)
 
         # 5. Bericht
-        bericht = ttk.LabelFrame(wurzel, text="Bericht der letzten Sammelaktion")
-        bericht.grid(row=4, column=0, sticky="nsew", padx=10, pady=4)
-        bericht.columnconfigure(0, weight=1)
-        bericht.rowconfigure(0, weight=1)
-        self.bericht_feld = tk.Text(bericht, height=5, wrap="word", state="disabled")
-        self.bericht_feld.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        bericht = self._karte(unten_pane, "Bericht der letzten Sammelaktion")
+        bericht.grid(row=1, column=0, sticky="nsew", pady=(0, 4))
+        bericht.rowconfigure(1, weight=1)
+        self.bericht_feld = tk.Text(bericht, height=4, wrap="word", state="disabled", **feld)
+        self.bericht_feld.grid(row=1, column=0, sticky="nsew")
 
         # 6. Wartet worauf + Sitzungen
-        unten = ttk.LabelFrame(wurzel, text="Wartet worauf · Sitzungen")
-        unten.grid(row=5, column=0, sticky="nsew", padx=10, pady=4)
-        unten.columnconfigure(0, weight=1)
-        unten.rowconfigure(0, weight=1)
-        self.unten_liste = tk.Listbox(unten, height=5, activestyle="none")
-        self.unten_liste.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        unten = self._karte(unten_pane, "Wartet worauf · Sitzungen")
+        unten.grid(row=2, column=0, sticky="nsew", pady=(4, 0))
+        unten.rowconfigure(1, weight=1)
+        self.unten_liste = tk.Listbox(unten, height=4, activestyle="none", selectbackground=st.FLAECHE2,
+                                      selectforeground=st.TEXT, **feld)
+        self.unten_liste.grid(row=1, column=0, sticky="nsew")
 
         # Fuß
         self.status_var, self.hinweis_var = tk.StringVar(), tk.StringVar()
-        ttk.Label(wurzel, textvariable=self.status_var, wraplength=940, justify="left").grid(
-            row=6, column=0, sticky="ew", padx=12, pady=(2, 0))
-        ttk.Label(wurzel, textvariable=self.hinweis_var, wraplength=940, justify="left",
-                  foreground="#666666").grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ttk.Label(wurzel, textvariable=self.status_var, wraplength=1180, justify="left", style=st.LABEL).grid(
+            row=7, column=0, sticky="ew", padx=rand + 2, pady=(4, 0))
+        ttk.Label(wurzel, textvariable=self.hinweis_var, wraplength=1180, justify="left",
+                  style=st.LABEL_GEDAEMPFT).grid(row=8, column=0, sticky="ew", padx=rand + 2, pady=(0, rand))
         self._knoepfe_aktualisieren()
 
     # --- Hintergrund-Lesen -------------------------------------------------------------
@@ -231,24 +240,27 @@ class Fenster:
         self.status_var.set(("Fehler: " if fehler else "") + text)
 
     def _stil_fuer(self, farbe: str) -> str:
-        """Ein ttk-Stil je Balkenfarbe (nur nach Bedarf angelegt)."""
+        """Ein ttk-Stil je Balkenfarbe (nur nach Bedarf angelegt): schmal, flach, ohne 3D-Rand."""
         name = self._stile.get(farbe)
         if name is None:
-            name = f"F{farbe.lstrip('#')}.Horizontal.TProgressbar"
-            self._stil.configure(name, background=farbe, troughcolor=RINNE, bordercolor=RINNE,
-                                 lightcolor=farbe, darkcolor=farbe)
+            name = st.balken_stil(self._stil, farbe)
             self._stile[farbe] = name
         return name
 
     def snapshot_anwenden(self, snap: um.Uebersicht) -> None:
         self._snap = snap
-        self.kopf_var.set(f"Master-Schalter · {snap.zeit} · {snap.lage_text}")
+        self.zeit_var.set(snap.zeit)
+        lage_kurz, _, grund = snap.lage_text.partition(" – ")
+        self.lage_var.set(lage_kurz)
+        self.lage_grund_var.set(grund)
+        self.lage_pille.configure(style=st.PILLE if snap.lage else st.PILLE_UNBEKANNT)
         if snap.automatik is None:
             self.automatik_var.set("Automatik: unbekannt")
-            self.automatik_knopf.configure(text="Automatik umschalten …")
+            self.automatik_knopf.configure(text="Automatik umschalten …", style=st.KNOPF)
         else:
             self.automatik_var.set(f"Automatik: {'an' if snap.automatik else 'aus'}")
-            self.automatik_knopf.configure(text="Automatik ausschalten …" if snap.automatik else "Automatik einschalten …")
+            self.automatik_knopf.configure(text="Automatik ausschalten …" if snap.automatik else "Automatik einschalten …",
+                                           style=st.KNOPF_AKZENT if snap.automatik else st.KNOPF)
         for index, (info, fehler) in enumerate(self._abo_info):
             abo = snap.abos[index] if index < len(snap.abos) else None
             if abo is None:
@@ -269,9 +281,8 @@ class Fenster:
                     leiste.configure(value=balken.prozent, style=self._stil_fuer(balken.farbe))
                     text.set(balken.text)
                     reset.set(balken.reset)
-        self._tabelle("themen", self.themen_baum,
-                      [(t.thema, t.thema, t.master, t.besitz, t.pruefer, t.ausfuehrer,
-                        um.ARBEITSWEISE_TEXTE.get(t.arbeitsweise, t.arbeitsweise), t.auto) for t in snap.themen])
+        self._entwuerfe.aktualisieren(snap)
+        self.themen_tabelle.aktualisieren(snap, entwuerfe=self._entwuerfe, beschaeftigt=self._beschaeftigt)
         zeilen = list(snap.wartet) or [kurz.WARTET]
         zeilen += list(snap.sitzungen) or ["Sitzungen: keine gemeldet"]
         if self._staende.get("unten") != zeilen:
@@ -281,20 +292,8 @@ class Fenster:
                 self.unten_liste.insert("end", z)
         self.sperre_var.set(snap.schreib_hinweis)
         self.hinweis_var.set(" · ".join(snap.hinweise))
-        self._auswahl_geaendert()
+        self._entwurf_anzahl_aktualisieren()
         self._knoepfe_aktualisieren()
-
-    def _tabelle(self, name: str, baum: ttk.Treeview, zeilen: list[tuple]) -> None:
-        """Nur neu schreiben, wenn sich der Inhalt geändert hat (kein Flackern, Auswahl bleibt)."""
-        if self._staende.get(name) == zeilen:
-            return
-        self._staende[name] = zeilen
-        auswahl = baum.selection()
-        baum.delete(*baum.get_children())
-        for kennung, *werte in zeilen:
-            baum.insert("", "end", iid=kennung, values=werte)
-        if auswahl and baum.exists(auswahl[0]):
-            baum.selection_set(auswahl[0])
 
     def _bericht_setzen(self, text: str) -> None:
         self.bericht_feld.configure(state="normal")
@@ -302,56 +301,97 @@ class Fenster:
         self.bericht_feld.insert("1.0", text)
         self.bericht_feld.configure(state="disabled")
 
-    # --- Themenauswahl und Master -----------------------------------------------------------------
+    # --- Themenauswahl und Auswahllisten ------------------------------------------------------------
 
-    def _gewaehltes_thema(self) -> um.ThemaZeile | None:
-        auswahl = self.themen_baum.selection()
-        if not auswahl or self._snap is None:
-            return None
-        return next((t for t in self._snap.themen if t.thema == auswahl[0]), None)
-
-    def _auswahl_geaendert(self) -> None:
-        """Aufklappmenüs auf den gespeicherten Master und die Arbeitsweise des gewählten Themas stellen."""
-        zeile = self._gewaehltes_thema()
-        if zeile is None:
-            self.wahl_var.set("Thema in der Tabelle wählen")
-            self.master_var.set("")
-            self.arbeitsweise_var.set("")
+    def _themenwert_aendern(self, thema: str, feld: str, wert: str | bool | None) -> None:
+        if self._snap is None or self._beschaeftigt:
+            return
+        try:
+            self._entwuerfe.waehlen(thema, feld, wert)
+        except EntwurfFehler as fehler:
+            self._status(str(fehler), fehler=True)
+            erfolgreich = False
         else:
-            self.wahl_var.set(f"Thema {zeile.thema}")
-            self.master_var.set(um.MASTER_TEXTE.get(zeile.master_wert, zeile.master_wert))
-            self.arbeitsweise_var.set(um.ARBEITSWEISE_TEXTE.get(zeile.arbeitsweise, zeile.arbeitsweise))
-        self._knoepfe_aktualisieren()
+            erfolgreich = True
+        self.themen_tabelle.aktualisieren(self._snap, entwuerfe=self._entwuerfe,
+                                          beschaeftigt=self._beschaeftigt)
+        self._entwurf_anzahl_aktualisieren()
+        if erfolgreich:
+            self._status(f"Entwurf für {thema} ({feld}) vorgemerkt – noch nicht übernommen.")
 
-    def master_klick(self) -> None:
-        zeile = self._gewaehltes_thema()
-        index = self.master_box.current()
-        if zeile is None or self._snap is None or not 0 <= index < len(um.MASTER_WERTE):
-            self._auswahl_geaendert()
+    def _entwurf_anzahl_aktualisieren(self) -> None:
+        aenderungen = self._entwuerfe.aenderungen()
+        anzahl = len(aenderungen)
+        self.entwurf_anzahl_var.set("Keine offenen Entwürfe" if anzahl == 0
+                                    else f"{anzahl} offene Änderung{'en' if anzahl != 1 else ''}")
+        zustand = "normal" if anzahl and not self._beschaeftigt else "disabled"
+        self.entwurf_pruefen_knopf.configure(state=zustand)
+        self.entwurf_zuruecksetzen_knopf.configure(state=zustand)
+        uebernehmbar = (
+            anzahl > 0
+            and not self._beschaeftigt
+            and self._snap is not None
+            and self._snap.schreiben
+            and self._snap.repo is not None
+            and getattr(self._snap, "wechsel_pruefbar", False)
+            and not any(a.konflikt or a.hinweis or a.thema in getattr(self._snap, "wechsel_themen", ())
+                        for a in aenderungen)
+        )
+        self.entwurf_uebernehmen_knopf.configure(
+            state="normal" if uebernehmbar else "disabled",
+            style=st.KNOPF_AKZENT if uebernehmbar else st.KNOPF,
+        )
+
+    def entwurf_uebernehmen(self) -> None:
+        if self._snap is None:
             return
         try:
-            aktion = um.master_aktion(self._snap, zeile.thema, um.MASTER_WERTE[index])
+            aktion = um.entwurf_uebernehmen_aktion(
+                self._snap, self._entwuerfe.aenderungen(),
+                nach_thema=self._entwuerfe.zuruecksetzen,
+            )
         except um.AktionAbgelehnt as fehler:
             self._status(str(fehler), fehler=True)
-            self._auswahl_geaendert()
             return
         self._ausfuehren(aktion)
-        self._auswahl_geaendert()          # bei „Nein“ springt das Aufklappmenü auf den alten Wert zurück
 
-    def arbeitsweise_klick(self) -> None:
-        zeile = self._gewaehltes_thema()
-        index = self.arbeitsweise_box.current()
-        if zeile is None or self._snap is None or not 0 <= index < len(um.ARBEITSWEISE_WERTE):
-            self._auswahl_geaendert()
+    def entwurf_zuruecksetzen(self) -> None:
+        self._entwuerfe.zuruecksetzen()
+        if self._snap is not None:
+            self.themen_tabelle.aktualisieren(self._snap, entwuerfe=self._entwuerfe,
+                                              beschaeftigt=self._beschaeftigt)
+        self._entwurf_anzahl_aktualisieren()
+        self._status("Lokale Entwürfe zurückgesetzt – gespeicherte Einstellungen unverändert.")
+
+    def entwurf_pruefen(self) -> None:
+        """Änderungen zeigen. Es gibt absichtlich noch keinen produktiven Übernahmeweg."""
+        aenderungen = self._entwuerfe.aenderungen()
+        if not aenderungen:
+            self._status("Keine offenen Entwürfe.")
             return
-        try:
-            aktion = um.arbeitsweise_aktion(self._snap, zeile.thema, um.ARBEITSWEISE_WERTE[index])
-        except um.AktionAbgelehnt as fehler:
-            self._status(str(fehler), fehler=True)
-            self._auswahl_geaendert()
-            return
-        self._ausfuehren(aktion)
-        self._auswahl_geaendert()          # bei „Nein“ springt das Aufklappmenü auf den alten Wert zurück
+        fenster = tk.Toplevel(self.root)
+        fenster.title("Änderungen prüfen")
+        fenster.transient(self.root)
+        fenster.minsize(600, 360)
+        rahmen = ttk.Frame(fenster, padding=12)
+        rahmen.pack(fill="both", expand=True)
+        ttk.Label(rahmen, text="Vorgemerkte Änderungen – noch nichts gespeichert",
+                  style=st.KARTE_TITEL).pack(anchor="w", pady=(0, 8))
+        textfeld = tk.Text(rahmen, wrap="word", state="normal", height=14)
+        textfeld.pack(fill="both", expand=True)
+        for a in aenderungen:
+            zeile = f"{a.thema} · {a.feld}: {a.alt!r} → {a.neu!r}"
+            if a.konflikt:
+                zeile += "\n  Konflikt: " + (a.hinweis or "Thema geändert oder entfernt")
+            elif a.hinweis:
+                zeile += "\n  Hinweis: " + a.hinweis
+            textfeld.insert("end", zeile + "\n\n")
+        textfeld.configure(state="disabled")
+        unten = ttk.Frame(rahmen)
+        unten.pack(fill="x", pady=(8, 0))
+        ttk.Button(unten, text="Schließen", style=st.KNOPF, command=fenster.destroy).pack(side="right")
+        ttk.Label(unten, text="Sichere Übernahme noch nicht angebunden", style=st.KARTE_GEDAEMPFT).pack(side="left")
+        self.root.wait_window(fenster)
 
     # --- Aktionen -----------------------------------------------------------------------------------
 
@@ -418,9 +458,10 @@ class Fenster:
         self.uebergabe_knopf.configure(state=zustand_von(frei))
         self.automatik_knopf.configure(state=zustand_von(frei and self._snap is not None
                                                          and self._snap.automatik is not None))
-        wahl_frei = frei and schreiben and self._gewaehltes_thema() is not None
-        self.master_box.configure(state="readonly" if wahl_frei else "disabled")
-        self.arbeitsweise_box.configure(state="readonly" if wahl_frei else "disabled")
+        if self._snap is not None:
+            self.themen_tabelle.aktualisieren(self._snap, entwuerfe=self._entwuerfe,
+                                              beschaeftigt=not frei or not schreiben)
+            self._entwurf_anzahl_aktualisieren()
 
 
 def main() -> int:

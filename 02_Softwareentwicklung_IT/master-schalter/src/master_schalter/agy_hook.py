@@ -179,8 +179,9 @@ def verarbeiten(eingabe: bytes, ereignis: str, jetzt: datetime | None = None,
 def _status(kennung: str, ereignis: str, jetzt: datetime | None, stand: str) -> None:
     """Status melden; ein Statusfehler darf die Zustellung nicht verhindern."""
     try:
-        from . import status
+        from . import agy_senden, status
 
+        agy_senden.umgebung_merken()
         status.schreiben(WERKZEUG, kennung, getattr(status, stand.upper()), ereignis, jetzt)
     except Exception:             # noqa: BLE001
         pass

@@ -1,10 +1,11 @@
 """Datenmodell und Aktionen des Übersichtsfensters (`uebersicht.py`) – ohne Tk, ohne Bildschirm.
 
 `aufnehmen()` liest alle Quellen **nur lesend** (dieselben Bausteine wie `masterwechsel status`: Kontingente,
-Themenprofile, Besitz, Wartet-worauf, Sitzungen, Messfehler-Status) und liefert eine unveränderliche
-Momentaufnahme `Uebersicht`. Die Aktionen (Master je Thema, „Alle nach Kontingent“, „Alle wie vorher“, Automatik,
-„Übergabe starten“) sind `Aktion`en mit Rückfragetext und einer Ausführfunktion; das Fenster fragt (`dialog.frage`)
-und führt nur bei „Ja“ aus.
+Themenprofile, Besitz, Wartet-worauf, Sitzungen, Messfehler-Status, Modellkataloge) und liefert eine unveränderliche
+Momentaufnahme `Uebersicht`. Die Aktionen (Master, Prüfer, Ausführer, Modell, Arbeitsweise und Auto-Freigabe je Thema,
+„Alle nach Kontingent“, „Alle wie vorher“, Hauptschalter Automatik, „Übergabe starten“) sind `Aktion`en mit Rückfragetext
+und einer Ausführfunktion; das Fenster fragt (`dialog.frage`) und führt nur bei „Ja“ aus. `modell_liste` baut die
+Modellauswahl je Ausführer streng nach `modi.modell_setzen`.
 
 **Ein Repo-Ort für Lesen und Schreiben:** `aufnehmen()` bestimmt je Aufnahme genau einmal
 `repo = uebergabe.haupt_wurzel(uebergabe.repo_wurzel())` (wie der Master-Status), liest damit den Besitz und merkt es in der
@@ -27,7 +28,8 @@ from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Callable
 
-from . import alle, anzeige, arbeitsweise, kurz, modi, rollen, signale, symbol, wartet
+from . import (alle, anzeige, arbeitsweise, assistent_vorgaenge as wechsel_vorgaenge, kurz, modelle, modi, paare,
+               pruefer_wahl, rollen, rollen_anzeige, signale, symbol, wartet)
 from .signale import Fenster, Kontingent
 
 NUR_ANZEIGE = "Hauptarbeitsbaum nicht gefunden – nur Anzeige"
@@ -35,6 +37,15 @@ MASTER_WERTE = tuple(wert for _, wert in anzeige.MASTER_AUSWAHL)   # kontingent,
 MASTER_TEXTE = dict(anzeige.ROLLEN_NAMEN)
 ARBEITSWEISE_WERTE = arbeitsweise.WERTE             # protokoll, vibe
 ARBEITSWEISE_TEXTE = arbeitsweise.ANZEIGE           # Protokoll, Vibe, ? (Datei ungültig)
+PRUEFER_WERTE = pruefer_wahl.WERTE                  # automatisch, codex, hermes
+PRUEFER_TEXTE = pruefer_wahl.ANZEIGE                # Automatisch, Codex, Hermes, ? (Datei ungültig)
+AUSFUEHRER_WERTE = modi.WORKER_WERTE                # workflow, claude, codex, hermes
+AUSFUEHRER_TEXTE = {"workflow": "Workflow", "claude": "Claude", "codex": "Codex", "hermes": "Hermes", "agy": "Antigravity"}
+AUTO_WERTE = (True, False)
+AUTO_TEXTE = {True: "An", False: "Aus"}
+STANDARD_MODELL = "Standard"
+MODELL_GESPERRT_WORKFLOW = "— (nach Matrix aufgelöst)"
+KATALOG_NICHT_GEPRUEFT = "Modellkatalog nicht geprüft"
 GRAU = "#9ca3af"          # Balkenfarbe bei unbekanntem Verbrauch
 TEXT_MAX = 400            # Meldungen aus Ausnahmen werden begrenzt
 
@@ -76,6 +87,31 @@ class ThemaZeile:
     master_wert: str         # Masterrolle des Profils: kontingent | claude | codex | hermes
     arbeitsweise: str = arbeitsweise.PROTOKOLL   # protokoll | vibe | ? (Datei ungültig)
     worker_wert: str = modi.WORKFLOW             # Ausführer des Profils: workflow | claude | codex | hermes
+    pruefer_wert: str = pruefer_wahl.AUTOMATISCH   # Prüferwahl: automatisch | codex | hermes | ? (Datei ungültig)
+    pruefer_warnung: bool = False                # Prüfer aus derselben Familie wie der Master (gelber Hinweis)
+    auto_zustand: str = anzeige.AUTO_OHNE_PAAR   # wirksam | wartet | aus | ohne | ? (siehe `anzeige.auto_zustand`)
+    paar_aktiv: bool | None = None               # gespeicherte Paarfreigabe; None = kein Codex-Paar
+    modell_wert: str | None = None               # gespeichertes Ausführermodell des Profils (None = Standard)
+    pk_master: str | None = None                 # Master, den `pruefkreis` liest; None = Besitz unklar
+
+
+@dataclass(frozen=True)
+class KatalogAnsicht:
+    """Modellkatalog eines Anbieters (`claude` | `codex`) für die Modellliste – gelesen bei der Aufnahme, nie im Tk-Thread."""
+
+    anbieter: str
+    geprueft: bool                           # erfolgreich ermittelt und nicht veraltet (wie `modi._katalog_pruefen`)
+    modelle: tuple[tuple[str, str], ...] = ()    # (Kennung, Anzeigename)
+
+
+@dataclass(frozen=True)
+class ModellListe:
+    """Auswahl der Modellliste für ein Thema: (Anzeige, Wert) mit Wert `None` = Standard des Werkzeugs."""
+
+    eintraege: tuple[tuple[str, str | None], ...]
+    aktuell: str                             # Anzeigetext des gespeicherten Modells
+    gesperrt: bool
+    hinweis: str = ""
 
 
 @dataclass(frozen=True)
@@ -93,6 +129,9 @@ class Uebersicht:
     repo: Path | None        # der eine Ort für Lesen und Schreiben dieser Aufnahme
     schreiben: bool          # Schreibaktionen erlaubt (`repo/.git` ist ein Ordner)
     schreib_hinweis: str     # leer oder `NUR_ANZEIGE`
+    kataloge: tuple[KatalogAnsicht, ...] = ()   # Modellkataloge claude/codex für die Modellliste
+    wechsel_themen: tuple[str, ...] = ()
+    wechsel_pruefbar: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,6 +195,14 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
     repo = kurz.repo_bestimmen()
     themen, hinweise = kurz._themen(repo)
     hinweise = kurz._gemerkt_hinweis() + hinweise
+    wechsel_pruefbar = False
+    wechsel_themen: tuple[str, ...] = ()
+    try:
+        wechsel = wechsel_vorgaenge.lesen_geprueft()
+        wechsel_themen = tuple(sorted({v.thema for v in wechsel if v.phase in wechsel_vorgaenge.WECHSEL_BLOCKIEREND}))
+        wechsel_pruefbar = True
+    except wechsel_vorgaenge.AssistentFehler:
+        hinweise.append("Wechselregister nicht prüfbar – Themenvorauswahl gesperrt.")
     kontingente = signale.alle_lesen(jetzt=jetzt)
     schwelle = anzeige.schwelle()
     automatik = anzeige.automatik_an()
@@ -165,7 +212,8 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
     messfehler = signale.messfehler_lesen()
     abos = tuple(_abo(k, farbe, schwelle, messfehler, jetzt, zone)
                  for k, farbe in zip(kontingente, (symbol.CLAUDE, symbol.CODEX)))
-    zeilen = tuple(_thema_zeile(t, automatik) for t in sorted(themen, key=lambda t: t.name))
+    zeilen = tuple(_thema_zeile(t, automatik, lage) for t in sorted(themen, key=lambda t: t.name))
+    kataloge = tuple(_katalog_ansicht(anbieter, jetzt) for anbieter in modelle.PROVIDER)
     neueste = sorted(kurz._sitzungen(), key=lambda s: s.zeit, reverse=True)[:kurz.MAX_SITZUNGEN]
     erlaubt = schreibbar(repo)
     return Uebersicht(
@@ -174,13 +222,56 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
         automatik=automatik, schwelle=schwelle, abos=abos, themen=zeilen,
         wartet=tuple(kurz._wartet_zeile(m, jetzt, zone) for m in sorted(wartet.alle_lesen(), key=lambda m: m.zeit)),
         sitzungen=tuple(kurz._sitzung_zeile(s, jetzt, zone) for s in neueste),
-        hinweise=tuple(hinweise), repo=repo, schreiben=erlaubt, schreib_hinweis="" if erlaubt else NUR_ANZEIGE)
+        hinweise=tuple(hinweise), repo=repo, schreiben=erlaubt, schreib_hinweis="" if erlaubt else NUR_ANZEIGE,
+        kataloge=kataloge, wechsel_themen=wechsel_themen, wechsel_pruefbar=wechsel_pruefbar)
 
 
-def _thema_zeile(t: kurz.Thema, automatik: bool) -> ThemaZeile:
-    master, besitz_text, pruefer, ausfuehrer, auto = kurz.thema_felder(t, automatik)
+def _katalog_ansicht(anbieter: str, jetzt: datetime) -> KatalogAnsicht:
+    """Katalog nur lesen (nie abfragen); „geprüft“ wie `modi._katalog_pruefen`: ermittelt, ohne Fehler, nicht veraltet."""
+    try:
+        katalog = modelle.lesen(anbieter, jetzt=jetzt)
+    except Exception:  # noqa: BLE001 - ein defekter Cache macht die Liste nur „nicht geprüft“
+        return KatalogAnsicht(anbieter, False)
+    if not isinstance(katalog, modelle.Katalog) or katalog.fehler is not None or katalog.veraltet:
+        return KatalogAnsicht(anbieter, False)
+    return KatalogAnsicht(anbieter, True, tuple((m.id, m.name or m.id) for m in katalog.modelle))
+
+
+def _thema_zeile(t: kurz.Thema, automatik: bool, lage: str | None = None) -> ThemaZeile:
+    master, besitz_text, pruefer, ausfuehrer, auto = kurz.thema_felder(t, automatik, lage)
     return ThemaZeile(t.name, master, besitz_text.removeprefix("Besitz "), pruefer.removeprefix("Prüfer "),
-                      ausfuehrer, auto, t.profil.master, t.arbeitsweise, t.profil.worker)
+                      ausfuehrer, auto, t.profil.master, t.arbeitsweise, t.profil.worker, t.pruefer_wahl,
+                      rollen_anzeige.gleiche_familie(t.pruefkreis_master, t.pruefer_wahl, t.arbeitsweise),
+                      anzeige.auto_zustand(automatik, t.paar_aktiv, t.profil.master)[0], t.paar_aktiv,
+                      t.profil.modell, t.pruefkreis_master)
+
+
+def modell_liste(zeile: ThemaZeile, kataloge: tuple[KatalogAnsicht, ...]) -> ModellListe:
+    """Modellliste des Ausführers – streng nach `modi.modell_setzen` und `modelle.PROVIDER`.
+
+    * Claude/Codex: „Standard“ (= `None`) plus die Modelle des geprüften Katalogs; ist der Katalog veraltet, fehlerhaft
+      oder fehlt, nur „Standard“ und das gespeicherte Modell (eine feste Wahl würde `modi` ohnehin ablehnen) mit dem
+      Hinweis „Modellkatalog nicht geprüft“.
+    * Hermes: gesperrt, zeigt fest `modi.HERMES_MODELL` (kein „Standard“; `worker_setzen` setzt die Kennung selbst).
+    * Workflow: gesperrt, kein festes Modell.
+    """
+    if zeile.worker_wert == modi.WORKFLOW:
+        return ModellListe((), MODELL_GESPERRT_WORKFLOW, True)
+    if zeile.worker_wert == "hermes":
+        return ModellListe(((rollen_anzeige.HERMES_ANZEIGE, modi.HERMES_MODELL),), rollen_anzeige.HERMES_ANZEIGE, True)
+    if zeile.worker_wert == "agy":
+        return ModellListe(((STANDARD_MODELL, None),), STANDARD_MODELL, True)
+    if zeile.worker_wert not in modelle.PROVIDER:
+        return ModellListe((), "?", True)
+    katalog = next((k for k in kataloge if k.anbieter == zeile.worker_wert), None)
+    eintraege: list[tuple[str, str | None]] = [(STANDARD_MODELL, None)]
+    geprueft = katalog is not None and katalog.geprueft
+    if geprueft:
+        eintraege += [(name, kennung) for kennung, name in katalog.modelle]
+    if zeile.modell_wert is not None and all(wert != zeile.modell_wert for _, wert in eintraege):
+        eintraege.append((zeile.modell_wert, zeile.modell_wert))          # gespeichert, aber (noch) nicht im Katalog
+    aktuell = next((text for text, wert in eintraege if wert == zeile.modell_wert), STANDARD_MODELL)
+    return ModellListe(tuple(eintraege), aktuell, False, "" if geprueft else KATALOG_NICHT_GEPRUEFT)
 
 
 def abo_meldungen(abo: Abo) -> list[str]:
@@ -275,6 +366,150 @@ def arbeitsweise_aktion(snap: Uebersicht, thema: str, wert: str) -> Aktion:
     return Aktion("Arbeitsweise setzen", frage, lauf)
 
 
+def _thema_zeile_finden(snap: Uebersicht, thema: str) -> ThemaZeile:
+    zeile = next((t for t in snap.themen if t.thema == thema), None)
+    if zeile is None:
+        raise AktionAbgelehnt(f"Thema {thema!r} ist nicht bekannt")
+    return zeile
+
+
+def pruefer_aktion(snap: Uebersicht, thema: str, wert: str) -> Aktion:
+    """Prüfer eines Themas wählen (`pruefer_wahl.setzen`, nur von Hand): automatisch | codex | hermes.
+
+    Gilt für `pruefkreis` ohne `--pruefer`/`--sensibel`, auch für die Familie des Masters. Eine ungültige
+    `pruefer.json` wird vorab abgelehnt (sie würde ohnehin nie überschrieben).
+    """
+    if not snap.schreiben:
+        raise AktionAbgelehnt(NUR_ANZEIGE)
+    zeile = _thema_zeile_finden(snap, thema)
+    if wert not in PRUEFER_WERTE:
+        raise AktionAbgelehnt(f"Unbekannter Prüfer: {wert!r}")
+    if zeile.pruefer_wert == pruefer_wahl.UNBEKANNT:
+        raise AktionAbgelehnt(f"{thema}: Prüferwahl unbekannt (pruefer.json ungültig) – nichts geändert")
+    if wert == zeile.pruefer_wert:
+        raise AktionAbgelehnt(f"{thema}: Prüfer ist schon {PRUEFER_TEXTE[wert]}")
+    if wert == pruefer_wahl.AUTOMATISCH:
+        frage = (f"Prüfer des Themas „{thema}“ auf „Automatisch“ stellen?\n\nDann gilt wieder die Regel von pruefkreis "
+                 "(Prüfer aus einer anderen Modellfamilie als der Master).\n\nEs wird keine Sitzung gestartet.")
+    else:
+        frage = (f"Prüfer des Themas „{thema}“ von {PRUEFER_TEXTE[zeile.pruefer_wert]} auf {PRUEFER_TEXTE[wert]} stellen?"
+                 f"\n\npruefkreis nutzt künftig {PRUEFER_TEXTE[wert]} für dieses Thema – auch wenn er zur Familie des "
+                 "Masters gehört. `--sensibel` prüft weiter immer Hermes, ein ausdrückliches `--pruefer` geht vor.")
+        if rollen_anzeige.gleiche_familie(zeile.pk_master, wert, zeile.arbeitsweise):
+            frage += "\n\nAchtung: gleiche Familie wie der Master – das weicht von AGENTS.md ab (Ihre Wahl)."
+        frage += "\n\nEs wird keine Sitzung gestartet."
+
+    def lauf() -> Ergebnis:
+        try:
+            pruefer_wahl.setzen(thema, wert)
+        except Exception as fehler:  # noqa: BLE001 - jeder Fehler wird gemeldet, nichts bricht das Fenster
+            return Ergebnis(False, f"{thema}: nicht geändert – {_begrenzt(fehler)}")
+        return Ergebnis(True, f"{thema}: Prüfer {PRUEFER_TEXTE[wert]} gespeichert – keine Sitzung gestartet.")
+
+    return Aktion("Prüfer wählen", frage, lauf)
+
+
+def ausfuehrer_aktion(snap: Uebersicht, thema: str, wert: str) -> Aktion:
+    """Ausführer eines Themas setzen (`modi.worker_setzen(thema, wert, repo=<Repo der Aufnahme>)`).
+
+    Ein Wechsel setzt das Modell zurück (Standard des Werkzeugs, bei Hermes die feste Kennung, bei Workflow keins) –
+    die Rückfrage nennt das. Verstöße gegen die Vibe-Regel meldet `modi` als Fehler im Ergebnis.
+    """
+    repo = _schreiben_pruefen(snap)
+    zeile = _thema_zeile_finden(snap, thema)
+    if wert not in AUSFUEHRER_WERTE:
+        raise AktionAbgelehnt(f"Unbekannter Ausführer: {wert!r}")
+    if wert == zeile.worker_wert:
+        raise AktionAbgelehnt(f"{thema}: Ausführer ist schon {AUSFUEHRER_TEXTE[wert]}")
+    bisher = zeile.modell_wert or STANDARD_MODELL
+    if wert == "hermes":
+        modell_satz = f"Das Modell wird auf die feste Kennung {rollen_anzeige.HERMES_ANZEIGE} gesetzt (bisher: {bisher})."
+    elif wert == modi.WORKFLOW:
+        modell_satz = "Das Modell wird zurückgesetzt – bei Workflow gibt es kein festes Modell (nach Matrix aufgelöst)."
+    else:
+        modell_satz = f"Das Modell wird auf „{STANDARD_MODELL}“ des Werkzeugs zurückgesetzt (bisher: {bisher})."
+    frage = (f"Ausführer des Themas „{thema}“ von {AUSFUEHRER_TEXTE.get(zeile.worker_wert, zeile.worker_wert)} auf "
+             f"{AUSFUEHRER_TEXTE[wert]} stellen?\n\n{modell_satz}\n\nGespeichert wird die Ausführervorgabe für den "
+             "nächsten bereinigten Coding-Auftrag; es wird keine Sitzung gestartet.")
+
+    def lauf() -> Ergebnis:
+        if not schreibbar(repo):
+            return Ergebnis(False, NUR_ANZEIGE)
+        try:
+            profil = modi.worker_setzen(thema, wert, repo=repo)
+        except Exception as fehler:  # noqa: BLE001
+            return Ergebnis(False, f"{thema}: nicht geändert – {_begrenzt(fehler)}")
+        return Ergebnis(True, anzeige.ausfuehrer_meldung(thema, wert, getattr(profil, "modell", None)))
+
+    return Aktion("Ausführer setzen", frage, lauf)
+
+
+def modell_aktion(snap: Uebersicht, thema: str, modell: str | None) -> Aktion:
+    """Ausführermodell setzen (`modi.modell_setzen(thema, modell, repo=<Repo der Aufnahme>)`); `None` = Standard.
+
+    Nur für Claude/Codex mit einem Wert aus der Modellliste (`modell_liste`); Hermes und Workflow haben kein wählbares Modell.
+    """
+    repo = _schreiben_pruefen(snap)
+    zeile = _thema_zeile_finden(snap, thema)
+    if zeile.worker_wert not in modelle.PROVIDER:
+        raise AktionAbgelehnt(f"{thema}: Ausführer {AUSFUEHRER_TEXTE.get(zeile.worker_wert, zeile.worker_wert)} "
+                              "hat kein wählbares Modell")
+    liste = modell_liste(zeile, snap.kataloge)
+    if modell not in [wert for _, wert in liste.eintraege]:
+        raise AktionAbgelehnt(f"{thema}: Modell steht nicht im geprüften Katalog – nichts geändert")
+    if modell == zeile.modell_wert:
+        raise AktionAbgelehnt(f"{thema}: Modell ist schon {liste.aktuell}")
+    neu = next(text for text, wert in liste.eintraege if wert == modell)
+    frage = (f"Ausführermodell des Themas „{thema}“ von {liste.aktuell} auf {neu} stellen?\n\nGespeichert wird die "
+             "Vorgabe für den nächsten bereinigten Coding-Auftrag; es wird keine Sitzung gestartet.")
+
+    def lauf() -> Ergebnis:
+        if not schreibbar(repo):
+            return Ergebnis(False, NUR_ANZEIGE)
+        try:
+            profil = modi.modell_setzen(thema, modell, repo=repo)
+        except Exception as fehler:  # noqa: BLE001
+            return Ergebnis(False, f"{thema}: nicht geändert – {_begrenzt(fehler)}")
+        return Ergebnis(True, anzeige.ausfuehrer_meldung(thema, zeile.worker_wert, getattr(profil, "modell", modell)))
+
+    return Aktion("Modell setzen", frage, lauf)
+
+
+def auto_aktion(snap: Uebersicht, thema: str, an: bool) -> Aktion:
+    """Auto-Freigabe des Paares ändern (`paare.aktiv_setzen`) – **nur** die Paarfreigabe.
+
+    Der Hauptschalter Automatik (`automatik_aktion`) bleibt ein eigener Knopf und wird hier nie berührt
+    (`anzeige.automatik_setzen` wird nie aufgerufen). Ohne Codex-Paar gibt es nichts zu schalten.
+    """
+    if not snap.schreiben:
+        raise AktionAbgelehnt(NUR_ANZEIGE)
+    zeile = _thema_zeile_finden(snap, thema)
+    if zeile.paar_aktiv is None:
+        raise AktionAbgelehnt(f"{thema}: ohne Codex-Paar – keine Auto-Freigabe möglich")
+    if an not in AUTO_WERTE:
+        raise AktionAbgelehnt(f"Unbekannte Auto-Freigabe: {an!r}")
+    if an == zeile.paar_aktiv:
+        raise AktionAbgelehnt(f"{thema}: Auto-Freigabe ist schon {AUTO_TEXTE[an]}")
+    if an:
+        frage = (f"Auto-Freigabe des Themas „{thema}“ einschalten?\n\nGespeichert wird nur die Freigabe des Paares. Sie "
+                 "wirkt erst, wenn der Hauptschalter Automatik an ist und der Master „nach Kontingent“ gilt; der "
+                 "Hauptschalter bleibt unverändert.")
+    else:
+        frage = (f"Auto-Freigabe des Themas „{thema}“ ausschalten?\n\nDie Automatik fasst dieses Thema dann nicht mehr an; "
+                 "der Hauptschalter bleibt unverändert.")
+    master, schalter = zeile.master_wert, snap.automatik
+
+    def lauf() -> Ergebnis:
+        try:
+            paare.aktiv_setzen(thema, an)
+        except Exception as fehler:  # noqa: BLE001
+            return Ergebnis(False, f"{thema}: nicht geändert – {_begrenzt(fehler)}")
+        return Ergebnis(True, f"{thema}: Auto-Freigabe {AUTO_TEXTE[an]} gespeichert – "
+                              f"{anzeige.auto_zustand(schalter, an, master)[1]}.")
+
+    return Aktion("Auto-Freigabe", frage, lauf)
+
+
 def _bericht_ergebnis(bericht: alle.Bericht, ueberschrift: str) -> Ergebnis:
     text = ueberschrift + (f" – {bericht.offen} offen" if bericht.offen else "")
     return Ergebnis(bericht.offen == 0, text, "\n".join(bericht.zeilen))
@@ -286,7 +521,7 @@ def alle_aktion(snap: Uebersicht, richtung: str) -> Aktion:
     if richtung == "kontingent":
         titel, ueberschrift = "Alle nach Kontingent", "Alle Themen nach Kontingent"
         frage = ("Alle Themen auf „nach Kontingent“ stellen?\n\nFeste Rollen (Claude, Codex) werden vorher "
-                 "gemerkt; von Hermes oder Antigravity gehaltene Themen bleiben unberührt.")
+                 "gemerkt; Hermes-Themen bleiben unberührt.")
         funktion = alle.auf_kontingent
     elif richtung == "zurueck":
         titel, ueberschrift = "Alle wie vorher", "Gemerkte Rollen wiederhergestellt"
@@ -330,6 +565,71 @@ def automatik_aktion(snap: Uebersicht) -> Aktion:
         return Ergebnis(True, f"Automatik {'an' if neu else 'aus'}.")
 
     return Aktion("Automatik", frage, lauf)
+
+
+def entwurf_uebernehmen_aktion(snap: Uebersicht, aenderungen: tuple,
+                               nach_thema: Callable[[str], None] | None = None) -> Aktion:
+    """Geprüfte Entwurfsänderungen je Thema sicher anwenden."""
+    repo = _schreiben_pruefen(snap)
+    if not getattr(snap, "wechsel_pruefbar", False):
+        raise AktionAbgelehnt("Wechselstatus nicht prüfbar – Übernahme gesperrt")
+    if not aenderungen:
+        raise AktionAbgelehnt("Keine offenen Entwürfe")
+    for a in aenderungen:
+        if a.konflikt or a.hinweis:
+            raise AktionAbgelehnt(a.hinweis or f"{a.thema}: Konflikt bei {a.feld}")
+        if a.thema in getattr(snap, "wechsel_themen", ()):
+            raise AktionAbgelehnt(f"Wechsel läuft – Übernahme gesperrt: {a.thema}")
+    themen_reihenfolge: list[str] = []
+    je_thema: dict[str, dict[str, object]] = {}
+    vorschau: list[str] = []
+    for a in aenderungen:
+        if a.thema not in je_thema:
+            themen_reihenfolge.append(a.thema)
+            je_thema[a.thema] = {}
+        je_thema[a.thema][a.feld] = a.neu
+        vorschau.append(f"• {a.thema} · {a.feld}: {a.alt!r} → {a.neu!r}")
+    frage = ("Vorgemerkte Änderungen jetzt übernehmen?\n\n"
+             + "\n".join(vorschau)
+             + "\n\nEs wird keine Sitzung gestartet.")
+
+    def lauf() -> Ergebnis:
+        if not schreibbar(repo):
+            return Ergebnis(False, NUR_ANZEIGE)
+        berichte: list[str] = []
+        fehler_anzahl = 0
+        for thema in themen_reihenfolge:
+            werte = je_thema[thema]
+            try:
+                if werte.get("arbeitsweise") == arbeitsweise.PROTOKOLL:
+                    modi.vibe_setzen(thema, False)
+                if "master" in werte:
+                    modi.master_setzen(thema, str(werte["master"]), repo=repo)
+                if "pruefer" in werte:
+                    pruefer_wahl.setzen(thema, str(werte["pruefer"]))
+                if "ausfuehrer" in werte:
+                    modi.worker_setzen(thema, str(werte["ausfuehrer"]), repo=repo)
+                if "modell" in werte:
+                    modell_neu = werte["modell"]
+                    if "ausfuehrer" not in werte or (modell_neu is not None and modell_neu != modi.HERMES_MODELL):
+                        modi.modell_setzen(thema, None if modell_neu is None else str(modell_neu), repo=repo)
+                if werte.get("arbeitsweise") == arbeitsweise.VIBE:
+                    modi.vibe_setzen(thema, True)
+                if "auto" in werte:
+                    paare.aktiv_setzen(thema, bool(werte["auto"]))
+            except Exception as fehler:  # noqa: BLE001
+                fehler_anzahl += 1
+                berichte.append(f"{thema}: Fehler – {_begrenzt(fehler)}")
+            else:
+                berichte.append(f"{thema}: übernommen ({', '.join(werte)})")
+                if nach_thema is not None:
+                    nach_thema(thema)
+        ok = fehler_anzahl == 0
+        titel = (f"{len(themen_reihenfolge)} Thema/Themen übernommen."
+                 if ok else f"Übernahme mit {fehler_anzahl} Fehler(n).")
+        return Ergebnis(ok, titel, "\n".join(berichte))
+
+    return Aktion("Entwürfe übernehmen", frage, lauf)
 
 
 # --- Fenster als eigener Prozess starten ---------------------------------------------------------------------

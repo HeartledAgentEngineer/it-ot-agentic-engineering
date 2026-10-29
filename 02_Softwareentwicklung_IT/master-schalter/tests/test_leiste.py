@@ -1656,7 +1656,7 @@ def test_fehler_im_takt_laesst_die_leiste_leben_und_protokolliert_nur_die_klasse
 
 
 def test_unlesbare_vorgangsdatei_im_takt_wirft_nicht(lst, monkeypatch, capsys):
-    monkeypatch.setattr(av, "lesen", lambda *a, **k: (_ for _ in ()).throw(OSError("C:/geheim")))
+    monkeypatch.setattr(av, "lesen_geprueft", lambda *a, **k: (_ for _ in ()).throw(OSError("C:/geheim")))
     lst._assistent_schritt()
     log = capsys.readouterr().err
     assert "Wechselvorgänge nicht lesbar (OSError)" in log and "geheim" not in log

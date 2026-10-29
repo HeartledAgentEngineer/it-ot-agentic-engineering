@@ -7,6 +7,7 @@ Tk-Tests übersprungen.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -14,7 +15,8 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from master_schalter import uebersicht, zustand  # noqa: E402
-from master_schalter import uebersicht_modell as um  # noqa: E402
+from master_schalter import uebersicht_modell as um
+from master_schalter import uebersicht_stil as st  # noqa: E402
 
 JETZT = datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc)
 
@@ -116,13 +118,16 @@ def _thema(name="thema-a", master="kontingent", arbeitsweise="protokoll", worker
 
 
 def _snap(*, schreiben=True, messfehler=None, hinweise=()):
-    return um.Uebersicht(
+    snap = um.Uebersicht(
         zeit="09:00", lage="1", lage_text="Lage 1", automatik=False, schwelle=97,
         abos=(_balken("Claude", 62, 85, messfehler=messfehler), _balken("Codex", 1, 32)),
         themen=(_thema(), _thema("thema-b", "claude", "vibe", "claude")),
         wartet=("Wartet worauf: thema-a: auf Freigabe (seit 08:00)",), sitzungen=("Sitzung Claude eins-sit · ruht · 08:50",),
         hinweise=tuple(hinweise), repo=None, schreiben=schreiben,
         schreib_hinweis="" if schreiben else um.NUR_ANZEIGE)
+    object.__setattr__(snap, "wechsel_themen", ())
+    object.__setattr__(snap, "wechsel_pruefbar", True)
+    return snap
 
 
 class Aktionen:
@@ -156,15 +161,14 @@ def _warten(f):
 
 
 def _themen_wahl(f, name):
-    f.themen_baum.selection_set(name)
-    f._auswahl_geaendert()
+    return f.themen_tabelle.zeilen[name]
 
 
 def test_schicht_zeigt_kopf_balken_themen_und_listen(wurzel):
     f, _ = _fenster(wurzel, _snap(messfehler="Claude-Messung scheitert seit 07:12 (letzter Versuch 07:42): X",
                                   hinweise=("Gemerkt: …",)))
 
-    assert f.kopf_var.get() == "Master-Schalter · 09:00 · Lage 1"
+    assert f.zeit_var.get() == "09:00" and f.lage_var.get() == "Lage 1" and f.lage_grund_var.get() == ""
     assert f.automatik_var.get() == "Automatik: aus"
     assert str(f.automatik_knopf["text"]).startswith("Automatik einschalten")
     claude_5h = f._balken[0]
@@ -174,10 +178,9 @@ def test_schicht_zeigt_kopf_balken_themen_und_listen(wurzel):
     assert f._abo_info[0][0].get() == "gemessen 08:55"
     assert f._abo_info[0][1].get() == "Claude-Messung scheitert seit 07:12 (letzter Versuch 07:42): X"
     assert f._abo_info[1][1].get() == ""
-    assert f.themen_baum.get_children() == ("thema-a", "thema-b")
-    assert tuple(f.themen_baum.item("thema-a", "values")) == (
-        "thema-a", "nach Kontingent", "claude", "Codex", "Workflow", "Protokoll", "Auto an")
-    assert tuple(f.themen_baum.item("thema-b", "values"))[5] == "Vibe"
+    assert set(f.themen_tabelle.zeilen) == {"thema-a", "thema-b"}
+    assert f.themen_tabelle.zeilen["thema-a"].felder["master"].get() == "Nach Kontingent"
+    assert f.themen_tabelle.zeilen["thema-b"].felder["arbeitsweise"].get() == "Vibe"
     assert [f.unten_liste.get(i) for i in range(f.unten_liste.size())] == [
         "Wartet worauf: thema-a: auf Freigabe (seit 08:00)", "Sitzung Claude eins-sit · ruht · 08:50"]
     assert f.hinweis_var.get() == "Gemerkt: …"
@@ -191,10 +194,9 @@ def test_balkenfarben_haengen_am_stil(wurzel):
 
 def test_master_auswahl_folgt_dem_gewaehlten_thema(wurzel):
     f, _ = _fenster(wurzel)
-    assert f.master_var.get() == "" and str(f.master_box["state"]) == "disabled"
-    _themen_wahl(f, "thema-b")
-    assert f.master_var.get() == "Claude Code" and str(f.master_box["state"]) == "readonly"
-    assert tuple(f.master_box["values"]) == ("Nach Kontingent", "Claude Code", "Codex", "Hermes", "Antigravity")
+    box = _themen_wahl(f, "thema-b").felder["master"]
+    assert box.get() == "Claude Code" and str(box["state"]) == "readonly"
+    assert tuple(box["values"]) == ("Nach Kontingent", "Claude Code", "Codex", "Hermes", "Antigravity")
 
 
 def test_nur_anzeige_sperrt_schreibknoepfe_und_zeigt_den_hinweis(wurzel):
@@ -202,38 +204,36 @@ def test_nur_anzeige_sperrt_schreibknoepfe_und_zeigt_den_hinweis(wurzel):
     _themen_wahl(f, "thema-a")
     assert f.sperre_var.get() == um.NUR_ANZEIGE == "Hauptarbeitsbaum nicht gefunden – nur Anzeige"
     assert str(f.kontingent_knopf["state"]) == "disabled" and str(f.zurueck_knopf["state"]) == "disabled"
-    assert str(f.master_box["state"]) == "disabled"
+    assert all(str(box["state"]) == "disabled" for box in f.themen_tabelle.zeilen["thema-a"].felder.values())
     assert str(f.uebergabe_knopf["state"]) == "normal" and str(f.aktualisieren_knopf["state"]) == "normal"
 
 
-def test_master_wechsel_fragt_und_bei_nein_wird_nichts_gestartet(wurzel, monkeypatch):
+def test_master_auswahl_erstellt_nur_lokalen_entwurf(wurzel, monkeypatch):
     aufrufe = []
     f, aktionen = _fenster(wurzel, aktionen=Aktionen(antwort=False))
     monkeypatch.setattr(um, "master_aktion", lambda snap, thema, wert: um.Aktion(
         "Master setzen", f"Frage {thema} {wert}", lambda: aufrufe.append("lauf") or um.Ergebnis(True, "x")))
     _themen_wahl(f, "thema-a")
-    f.master_box.current(2)                                        # Codex
-    f.master_klick()
+    box = _themen_wahl(f, "thema-a").felder["master"]
+    box.current(2)
+    box.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert aktionen.fragen == [] and aufrufe == [] and f._beschaeftigt is False
+    assert [(a.thema, a.feld, a.neu) for a in f._entwuerfe.aenderungen()] == [("thema-a", "master", "codex")]
 
-    assert aktionen.fragen == ["Frage thema-a codex"]
-    assert aufrufe == [] and f._beschaeftigt is False
-    assert f.status_var.get().startswith("Nicht geändert")
-    assert f.master_var.get() == "Nach Kontingent"                  # springt zurück
 
-
-def test_master_wechsel_bei_ja_laeuft_im_hintergrund_und_meldet(wurzel, monkeypatch):
+def test_masterauswahl_ruft_keine_hintergrundaktion_auf(wurzel, monkeypatch):
     aufrufe = []
     f, aktionen = _fenster(wurzel)
     monkeypatch.setattr(um, "master_aktion", lambda snap, thema, wert: um.Aktion(
         "Master setzen", "Frage", lambda: aufrufe.append((thema, wert)) or um.Ergebnis(True, "thema-a: Master Codex gespeichert")))
     _themen_wahl(f, "thema-a")
-    f.master_box.current(2)
-    f.master_klick()
-    assert f._beschaeftigt is True
-    _warten(f)
-
-    assert aufrufe == [("thema-a", "codex")] and f._beschaeftigt is False
-    assert f.status_var.get() == "thema-a: Master Codex gespeichert"
+    box = _themen_wahl(f, "thema-a").felder["master"]
+    box.current(2)
+    box.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert aufrufe == [] and f._beschaeftigt is False
+    assert f._entwuerfe.zeile("thema-a").master_wert == "codex"
 
 
 def test_abgelehnte_aktion_zeigt_status_ohne_rueckfrage(wurzel):
@@ -281,6 +281,18 @@ def test_uebergabe_knopf_oeffnet_wechselfenster_ohne_rueckfrage(wurzel):
     _warten(f)
     assert aktionen.uebergaben == 1 and aktionen.fragen == []
     assert f.status_var.get() == "Wechselfenster wird geöffnet."
+
+
+def test_aktualisieren_knopf_sitzt_klein_in_der_kopfzeile_neben_dem_hauptschalter(wurzel):
+    f, _ = _fenster(wurzel)
+    kopf = f.automatik_knopf.master
+    assert f.aktualisieren_knopf.master is kopf
+    assert str(f.aktualisieren_knopf["text"]) == "↻ Aktualisieren"
+    assert str(f.aktualisieren_knopf["style"]) == st.KNOPF_KLEIN
+    info, auto = f.aktualisieren_knopf.grid_info(), f.automatik_knopf.grid_info()
+    assert info["row"] == auto["row"] == 0 and int(info["column"]) > int(auto["column"])      # oben rechts, nach dem Hauptschalter
+    unten = {str(w) for w in f.uebergabe_knopf.master.winfo_children()}
+    assert str(f.aktualisieren_knopf) not in unten                                            # nicht mehr in der Knopfreihe
 
 
 def test_aktualisieren_liest_im_hintergrund_neu(wurzel):
@@ -340,55 +352,157 @@ def test_lesefehler_loescht_alte_balken_und_sperrt_die_automatik(wurzel):
 
 def test_arbeitsweise_auswahl_folgt_dem_gewaehlten_thema(wurzel):
     f, _ = _fenster(wurzel)
-    assert f.arbeitsweise_var.get() == "" and str(f.arbeitsweise_box["state"]) == "disabled"
-    _themen_wahl(f, "thema-b")
-    assert f.arbeitsweise_var.get() == "Vibe" and str(f.arbeitsweise_box["state"]) == "readonly"
-    assert tuple(f.arbeitsweise_box["values"]) == ("Protokoll", "Vibe")
-    _themen_wahl(f, "thema-a")
-    assert f.arbeitsweise_var.get() == "Protokoll"
+    row = _themen_wahl(f, "thema-b")
+    box = row.felder["arbeitsweise"]
+    assert box.get() == "Vibe" and str(box["state"]) == "readonly"
+    assert tuple(box["values"]) == ("Protokoll", "Vibe")
 
 
 def test_arbeitsweise_nur_anzeige_sperrt_den_umschalter(wurzel):
     f, _ = _fenster(wurzel, _snap(schreiben=False))
-    _themen_wahl(f, "thema-b")
-    assert str(f.arbeitsweise_box["state"]) == "disabled"
+    assert str(_themen_wahl(f, "thema-b").felder["arbeitsweise"]["state"]) == "disabled"
 
 
-def test_arbeitsweise_wechsel_fragt_und_bei_nein_wird_nichts_gestartet(wurzel, monkeypatch):
+def test_arbeitsweise_auswahl_bleibt_lokal_und_startet_keine_aktion(wurzel, monkeypatch):
     aufrufe = []
     f, aktionen = _fenster(wurzel, aktionen=Aktionen(antwort=False))
     monkeypatch.setattr(um, "arbeitsweise_aktion", lambda snap, thema, wert: um.Aktion(
         "Arbeitsweise setzen", f"Frage {thema} {wert}", lambda: aufrufe.append("lauf") or um.Ergebnis(True, "x")))
     _themen_wahl(f, "thema-a")
-    f.arbeitsweise_box.current(1)                                   # Vibe
-    f.arbeitsweise_klick()
+    box = _themen_wahl(f, "thema-a").felder["arbeitsweise"]
+    box.current(1)
+    box.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert aktionen.fragen == [] and aufrufe == [] and f._beschaeftigt is False
+    assert f._entwuerfe.zeile("thema-a").arbeitsweise == "vibe"
 
-    assert aktionen.fragen == ["Frage thema-a vibe"]
-    assert aufrufe == [] and f._beschaeftigt is False
-    assert f.status_var.get().startswith("Nicht geändert")
-    assert f.arbeitsweise_var.get() == "Protokoll"                   # springt zurück
 
-
-def test_arbeitsweise_wechsel_bei_ja_laeuft_im_hintergrund_und_meldet(wurzel, monkeypatch):
+def test_arbeitsweise_auswahl_bestaetigt_nicht_unmittelbar(wurzel, monkeypatch):
     aufrufe = []
     f, aktionen = _fenster(wurzel)
     monkeypatch.setattr(um, "arbeitsweise_aktion", lambda snap, thema, wert: um.Aktion(
         "Arbeitsweise setzen", "Frage", lambda: aufrufe.append((thema, wert)) or um.Ergebnis(True, "thema-a: Arbeitsweise Vibe gespeichert")))
     _themen_wahl(f, "thema-a")
-    f.arbeitsweise_box.current(1)
-    f.arbeitsweise_klick()
-    assert f._beschaeftigt is True
-    _warten(f)
-
-    assert aufrufe == [("thema-a", "vibe")] and f._beschaeftigt is False
-    assert f.status_var.get() == "thema-a: Arbeitsweise Vibe gespeichert"
+    box = _themen_wahl(f, "thema-a").felder["arbeitsweise"]
+    box.current(1)
+    box.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert aufrufe == [] and f._beschaeftigt is False
+    assert f._entwuerfe.zeile("thema-a").arbeitsweise == "vibe"
 
 
 def test_arbeitsweise_abgelehnt_zeigt_status_ohne_rueckfrage(wurzel):
     f, aktionen = _fenster(wurzel)                                   # thema-a: Ausführer Workflow
-    _themen_wahl(f, "thema-a")
-    f.arbeitsweise_box.current(1)
-    f.arbeitsweise_klick()
-    assert aktionen.fragen == []
-    assert f.status_var.get().startswith("Fehler: Vibe braucht Ausführer Claude")
-    assert f.arbeitsweise_var.get() == "Protokoll"
+    row = _themen_wahl(f, "thema-a")
+    assert row.felder["ausfuehrer"].get() == "Workflow"
+    assert row.felder["arbeitsweise"].get() == "Protokoll"
+
+
+# --- Auswahllisten Prüfer, Ausführer, Modell, Auto (Stufe 4) ------------------------------------------------
+
+def _thema_voll(name="thema-a", **kw):
+    felder = dict(thema=name, master="nach Kontingent", besitz="claude", pruefer="Codex · App-Standard",
+                  ausfuehrer="Claude · Sonnet 5.5", auto="Auto an (wirksam)", master_wert="kontingent",
+                  worker_wert="claude", auto_zustand="wirksam", paar_aktiv=True)
+    felder.update(kw)
+    return um.ThemaZeile(**felder)
+
+
+def _snap_mit(*themen, kataloge=(), automatik=True):
+    return replace(_snap(), themen=tuple(themen), kataloge=tuple(kataloge), automatik=automatik)
+
+
+def test_listen_zeigen_gespeicherte_werte_des_gewaehlten_themas(wurzel):
+    snap = _snap_mit(_thema_voll(pruefer_wert="hermes", modell_wert=None),
+                     kataloge=(um.KatalogAnsicht("claude", True, (("claude-x", "Claude X"),)),))
+    f, _ = _fenster(wurzel, snap)
+    row = _themen_wahl(f, "thema-a")
+    assert row.felder["pruefer"].get() == "Hermes" and str(row.felder["pruefer"]["state"]) == "readonly"
+    assert tuple(row.felder["pruefer"]["values"]) == ("Automatisch", "Codex", "Hermes")
+    assert row.felder["ausfuehrer"].get() == "Claude" and tuple(row.felder["ausfuehrer"]["values"]) == (
+        "Workflow", "Claude", "Codex", "Hermes", "Antigravity")
+    assert um.STANDARD_MODELL in tuple(row.felder["modell"]["values"])
+    assert row.felder["auto"].get() == "An" and tuple(row.felder["auto"]["values"]) == ("An", "Aus")
+
+
+def test_modell_ist_bei_workflow_und_hermes_gesperrt_und_ohne_katalog_mit_hinweis(wurzel):
+    snap = _snap_mit(_thema_voll("a", worker_wert="workflow"), _thema_voll("b", worker_wert="hermes"),
+                     _thema_voll("c", worker_wert="codex"))
+    f, _ = _fenster(wurzel, snap)
+    assert str(_themen_wahl(f, "a").felder["modell"]["state"]) == "disabled"
+    assert str(_themen_wahl(f, "b").felder["modell"]["state"]) == "disabled"
+    c = _themen_wahl(f, "c").felder["modell"]
+    assert str(c["state"]) == "readonly" and tuple(c["values"]) == (um.STANDARD_MODELL,)
+
+
+def test_auto_liste_ist_ohne_paar_gesperrt_und_zeigt_den_wirksamen_zustand(wurzel):
+    snap = _snap_mit(_thema_voll("mit"), _thema_voll("ohne", paar_aktiv=None, auto="kein Codex-Paar",
+                                                      auto_zustand="ohne"),
+                     _thema_voll("wartet", auto="Freigabe an, wirkt nicht", auto_zustand="wartet", master_wert="claude"))
+    f, _ = _fenster(wurzel, snap)
+    assert str(_themen_wahl(f, "ohne").felder["auto"]["state"]) == "disabled"
+    mit = _themen_wahl(f, "mit")
+    assert "● Auto an (wirksam)" in mit.details.cget("text")
+    wartet = _themen_wahl(f, "wartet")
+    assert "Freigabe an, wirkt nicht" in wartet.details.cget("text")
+
+
+def test_pruefer_familienhinweis_erscheint_nur_bei_gleicher_familie(wurzel):
+    snap = _snap_mit(_thema_voll("a", pruefer_warnung=True), _thema_voll("b"))
+    f, _ = _fenster(wurzel, snap)
+    assert "Achtung: gleiche Prüferfamilie" in _themen_wahl(f, "a").details.cget("text")
+    assert "gleiche Prüferfamilie" not in _themen_wahl(f, "b").details.cget("text")
+
+
+def test_listen_gesperrt_bei_nur_anzeige(wurzel):
+    snap = replace(_snap_mit(_thema_voll()), schreiben=False, schreib_hinweis=um.NUR_ANZEIGE)
+    f, _ = _fenster(wurzel, snap)
+    for box in _themen_wahl(f, "thema-a").felder.values():
+        assert str(box["state"]) == "disabled"
+
+
+@pytest.mark.parametrize("box, klick, aktion, index, erwartet", [
+    ("pruefer_box", "pruefer_klick", "pruefer_aktion", 2, "hermes"),
+    ("ausfuehrer_box", "ausfuehrer_klick", "ausfuehrer_aktion", 2, "codex"),
+    ("auto_box", "auto_klick", "auto_aktion", 1, False),
+])
+def test_listenwahl_bleibt_lokaler_entwurf_ohne_mutator(wurzel, monkeypatch, box, klick, aktion, index, erwartet):
+    aufrufe = []
+    monkeypatch.setattr(um, aktion, lambda snap, thema, wert: um.Aktion(
+        "X", f"Frage {thema} {wert}", lambda: aufrufe.append((thema, wert)) or um.Ergebnis(True, "gespeichert")))
+    f, aktionen = _fenster(wurzel, _snap_mit(_thema_voll(pruefer_wert="automatisch")), Aktionen(True))
+    cell = _themen_wahl(f, "thema-a").felder[box.removesuffix("_box")]
+    cell.current(index)
+    cell.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert aktionen.fragen == [] and aufrufe == [] and f._beschaeftigt is False
+    assert f._entwuerfe.aenderungen()[0].neu == erwartet
+
+
+def test_modellwahl_vormerkt_katalogkennung_ohne_mutator(wurzel, monkeypatch):
+    gesehen = []
+    monkeypatch.setattr(um, "modell_aktion", lambda snap, thema, modell: gesehen.append((thema, modell)) or um.Aktion(
+        "M", "Frage", lambda: um.Ergebnis(True, "ok")))
+    snap = _snap_mit(_thema_voll(), kataloge=(um.KatalogAnsicht("claude", True, (("claude-x", "Claude X"),)),))
+    f, _ = _fenster(wurzel, snap)
+    cell = _themen_wahl(f, "thema-a").felder["modell"]
+    cell.current(1)
+    cell.event_generate("<<ComboboxSelected>>")
+    wurzel.update_idletasks()
+    assert gesehen == []
+    assert f._entwuerfe.zeile("thema-a").modell_wert == "claude-x"
+
+
+def test_unzulaessiger_modellentwurf_wird_abgelehnt_und_erhaelt_anderen_entwurf(wurzel):
+    snap = _snap_mit(
+        _thema_voll(modell_wert="claude-x"),
+        kataloge=(um.KatalogAnsicht("claude", True, (("claude-x", "Claude X"),)),),
+    )
+    f, _ = _fenster(wurzel, snap)
+    f._themenwert_aendern("thema-a", "master", "hermes")
+    f._themenwert_aendern("thema-a", "modell", "nicht-im-katalog")
+
+    assert f._entwuerfe.zeile("thema-a").master_wert == "hermes"
+    assert f._entwuerfe.zeile("thema-a").modell_wert == "claude-x"
+    assert f._snap.themen[0].modell_wert == "claude-x"
+    assert "Modell muss im aktuell geprüften Claude-Katalog stehen" in f.status_var.get()

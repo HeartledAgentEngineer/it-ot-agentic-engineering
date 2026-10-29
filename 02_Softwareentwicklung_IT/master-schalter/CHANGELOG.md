@@ -6,6 +6,31 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Automatische Übergabe Codex → Antigravity bei Codex-Limit** (neu `agy_automatik.py`): erreicht Codex bei
+  frischer Messung (≤ 10 min) im 5h- oder Wochenfenster die Schwelle und ist Claude nicht frei, gehen alle aktiven
+  Paare, deren Besitzmarke `codex` trägt und deren Profil-Master `kontingent` oder `codex` ist, an `agy`. Fehlt in
+  `zuordnung.json` ein bestätigtes `agy:<kennung>` für das Thema, legt `agy_senden.neues_gespraech` über
+  `language_server.exe agentapi new-conversation --title="Thema: <thema>"` ein neues Antigravity-Gespräch an und
+  bestätigt die Zuordnung. Danach wird `<thema>@codex:<reset>` in `automatik_ausgeloest.json` vermerkt (höchstens ein
+  Versuch je Thema und Codex-Limitfenster; bei gescheiterter Chat-Anlage wird **nicht** vermerkt, der nächste Takt
+  versucht es erneut) und `assistent.uebergeben(thema, "agy", von_chat=None, nach_chat=agy:<kennung>)` gestartet.
+  Themen mit offenem Wechselvorgang oder Modus-Zwischenmarke bleiben unberührt. Die Leiste ruft den Lauf im
+  Automatiktakt nach `automatik.lauf()` auf (nur bei Hauptschalter an). Tests: `test_agy_automatik.py`.
+- **Antigravity-Transport `agy_senden.py`**: `nachricht_senden` (`agentapi send-message`) weckt nach dem Einlegen der
+  Übernahmenachricht ins Postfach zusätzlich das Ziel-Gespräch (`assistent._zustellen`, nur ohne Test-Transport; das
+  Postfach bleibt der maßgebliche Weg, die Quittung erzwingt die Gültigkeit). Weil `leiste.py` außerhalb des
+  Antigravity-Prozessbaums läuft, speichern `agy_hook` und `masterwechsel postfach agy …` die lokalen
+  Verbindungsvariablen (`ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`, `ANTIGRAVITY_AGENTAPI_EXE`, …) in
+  `agy-server.json` im Datenordner; sie werden nie ausgegeben oder protokolliert. Aufruf immer als Argumentliste
+  ohne Shell (kein `agentapi.bat`).
+- **Übersicht: „Übernehmen …“ ist angebunden** (`uebersicht_modell.entwurf_uebernehmen_aktion`,
+  `uebersicht.Fenster.entwurf_uebernehmen`): aktiv nur bei offenen Entwürfen ohne Konflikt/Hinweis, schreibbarer
+  Aufnahme und prüfbarem Wechselstatus; die Rückfrage listet jede Änderung, die Übernahme läuft im Hintergrund je
+  Thema (`modi.master_setzen`, `pruefer_wahl.setzen`, `modi.worker_setzen`, `modi.modell_setzen`, `modi.vibe_setzen`,
+  `paare.aktiv_setzen`); erfolgreich übernommene Themen verlieren ihren Entwurf, der Bericht nennt je Thema Erfolg
+  oder Fehler.
+- **Ausführer Antigravity in der Modellspalte**: `modell_liste` zeigt fest „Standard“ (gesperrt), der Entwurf lehnt
+  eine Modellwahl mit „Antigravity verwendet den Standard des Werkzeugs“ ab.
 - **Antigravity (agy) als vierte Themenrolle** (v0.6.0): `modi.MASTER_WERTE`, `WORKER_WERTE`, `ZIEL_ROLLEN`,
   `anzeige.MASTER_AUSWAHL`/`WORKER_AUSWAHL`, `kurz.MASTER_WERTE`, `chat_zuordnung.WERKZEUGE`, `postfach.ZIELE` und
   `status.WERKZEUGE` kennen `agy`; `besitz.AGY` ist die neue Besitzmarke. Zwei Stellen prüften den Besitz gegen

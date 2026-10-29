@@ -42,6 +42,33 @@ def _grund(ziel, kennung, name):
     return json.loads(pfad.read_text("utf-8"))["grund"]
 
 
+def test_wartender_abgabeauftrag_enthaelt_erneuerungshinweis():
+    auftrag = postfach.text("abgabe_auftrag", THEMA, LAUFEND, "v-1", abgabe_modus="warten")
+    assert "für diesen Abgabeauftrag neu aktualisieren" in auftrag
+    assert "Kein automatisches Übergehen" in auftrag
+
+
+def test_beschaedigtes_register_laesst_postfachdatei_beim_vormerken_liegen(umgebung):
+    _neu_einlegen(umgebung, "v-1")
+    datei = postfach.ordner("hermes", "neu-sitzung") / "v-1_neu.json"
+    original = datei.read_bytes()
+    av.datei().write_text("{kaputt", encoding="utf-8")
+
+    assert postfach.vormerken("hermes", "neu-sitzung") == []
+    assert datei.read_bytes() == original
+
+
+def test_beschaedigtes_register_nach_vormerken_bestaetigt_nicht(umgebung):
+    _neu_einlegen(umgebung, "v-1")
+    datei = postfach.ordner("hermes", "neu-sitzung") / "v-1_neu.json"
+    original = datei.read_bytes()
+    vorgemerkt = postfach.vormerken("hermes", "neu-sitzung")
+    av.datei().write_text("{kaputt", encoding="utf-8")
+
+    assert postfach.bestaetigen(vorgemerkt) == []
+    assert datei.read_bytes() == original
+
+
 # --- Einlegen ---------------------------------------------------------------------
 
 def test_einlegen_schreibt_nur_die_erlaubten_felder_unter_der_festen_wurzel(umgebung):

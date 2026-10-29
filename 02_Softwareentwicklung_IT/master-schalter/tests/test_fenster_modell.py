@@ -313,7 +313,7 @@ def test_aufnehmen_wirft_nie_und_meldet_nur_fehlerklassen(umgebung, monkeypatch)
         raise OSError("C:/Users/sebas/geheimer Pfad/Titel")
 
     monkeypatch.setattr(chat_zuordnung, "uebersicht_mit_quellen", kaputt)
-    monkeypatch.setattr(fm.av, "lesen", kaputt)
+    monkeypatch.setattr(fm.av, "lesen_geprueft", kaputt)
     monkeypatch.setattr(fm.protokoll, "lesen", kaputt)
     monkeypatch.setattr(fm.paare, "lesen", kaputt)
 

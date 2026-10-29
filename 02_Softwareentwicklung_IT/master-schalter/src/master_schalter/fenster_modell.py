@@ -158,6 +158,8 @@ def kann_abbrechen(vorgang: av.Vorgang) -> bool:
 
 def frist_rest(vorgang: av.Vorgang, jetzt: datetime) -> timedelta | None:
     """Rest der Abgabefrist (kann negativ sein); `None`, wenn die Zeit nicht lesbar ist."""
+    if vorgang.abgabe_modus == "warten":
+        return None
     beginn = _zeit(vorgang.abgabe_seit or vorgang.zeit)
     if beginn is None:
         return None
@@ -170,6 +172,8 @@ def _minuten_sekunden(rest: timedelta) -> str:
 
 
 def frist_ende(vorgang: av.Vorgang) -> datetime | None:
+    if vorgang.abgabe_modus == "warten":
+        return None
     beginn = _zeit(vorgang.abgabe_seit or vorgang.zeit)
     return None if beginn is None else beginn + assistent.ABGABE_FRIST
 
@@ -180,6 +184,8 @@ def zustellhinweis(vorgang: av.Vorgang, jetzt: datetime | None = None) -> str:
     phase, nach = vorgang.phase, vorgang.nach_chat
     ziel = _name(vorgang.ziel)
     if phase in av.ABGABE_OFFEN or phase == "abgabe_fehler":
+        if vorgang.abgabe_modus == "warten":
+            return "Abgabe offen – wartet auf geprüfte Abgabe, kein automatisches Übergehen"
         rest = frist_rest(vorgang, jetzt)
         if rest is None:
             frist = "Frist läuft"
@@ -204,6 +210,8 @@ def zustellhinweis(vorgang: av.Vorgang, jetzt: datetime | None = None) -> str:
         return "Codex: zugestellt (Queue)"
     if phase == "im_postfach" and vorgang.ziel == "claude":
         return "Claude: liegt im Postfach, kommt mit der nächsten Eingabe/dem nächsten Werkzeugschritt in diesem Chat"
+    if phase == "im_postfach" and vorgang.ziel == "agy":
+        return "Antigravity: liegt im Postfach (`masterwechsel postfach agy <kennung>` oder Hook beim nächsten Schritt)"
     if phase == "im_postfach" and vorgang.ziel == "hermes":
         return "Hermes: noch kein automatischer Empfang – Text unten kopieren und im Hermes-Chat einfügen"
     if phase == "rolle_gesetzt" and nach is None:
@@ -220,16 +228,16 @@ def zustellhinweis(vorgang: av.Vorgang, jetzt: datetime | None = None) -> str:
 
 
 def nachrichtentext(vorgang: av.Vorgang) -> str | None:
-    """Text zum Kopieren für Hermes (noch kein automatischer Empfang); sonst `None`.
+    """Text zum Kopieren für Hermes/Antigravity im Postfach; sonst `None`.
 
     Hermes als Ziel nach dem Postfach (`im_postfach`) bekommt die Übernahme-Nachricht; ist Hermes der alte
     Chat und die Abgabe offen, den Abgabe-Auftrag. Es sind feste Satzbausteine – keine Kennung, kein Titel.
     """
     try:
         laufend = paare.laufend_bilden(vorgang.thema)
-        if vorgang.phase == "im_postfach" and vorgang.ziel == "hermes":
+        if vorgang.phase == "im_postfach" and vorgang.ziel in ("hermes", "agy"):
             return postfach.text("neu", vorgang.thema, laufend, vorgang.id, vorgang.abgabe == "uebersprungen")
-        if vorgang.phase in av.ABGABE_OFFEN and (vorgang.von_chat or {}).get("werkzeug") == "hermes":
+        if vorgang.phase in av.ABGABE_OFFEN and (vorgang.von_chat or {}).get("werkzeug") in ("hermes", "agy"):
             return postfach.text("abgabe_auftrag", vorgang.thema, laufend, vorgang.id)
     except (paare.PaarFehler, KeyError):
         return None
@@ -280,7 +288,9 @@ def hinweis_fuer(vorgang: av.Vorgang, jetzt: datetime) -> tuple[str, str] | None
     if geaendert is None or _aware(jetzt) - geaendert > HINWEIS_ALTER:
         return None
     thema, ziel = vorgang.thema, _name(vorgang.ziel)
-    if vorgang.phase in av.ABGABE_OFFEN:
+    if vorgang.phase in av.ABGABE_OFFEN or vorgang.phase == "abgabe_fehler":
+        if vorgang.abgabe_modus == "warten":
+            return "abgabe_offen", f"{thema}: Abgabe offen – wartet auf geprüfte Abgabe, kein automatisches Übergehen"
         beginn = _zeit(vorgang.abgabe_seit or vorgang.zeit)
         ende = frist_ende(vorgang)
         if beginn is None or ende is None or _aware(jetzt) - beginn < HINWEIS_ABGABE_NACH:
@@ -363,7 +373,7 @@ def protokoll_zeilen(eintraege: Sequence[dict], jetzt: datetime | None = None) -
 class ThemaZeile:
     thema: str
     master: str          # Anzeigename des Besitzers der Marke
-    master_rolle: str | None   # claude | codex | hermes, sonst None (reserviert/unbekannt)
+    master_rolle: str | None   # claude | codex | hermes | agy, sonst None (reserviert/unbekannt)
     kopf: str            # „ja · vor 5 min“ / „nein · vor 2 h“ / „fehlt“
     automatik: bool
 
@@ -464,7 +474,7 @@ def aufnehmen(jetzt: datetime | None = None) -> Momentaufnahme:
     hinweise += h
     zeilen: list[VorgangZeile] = []
     try:
-        zeilen = vorgang_zeilen(av.lesen(), jetzt)
+        zeilen = vorgang_zeilen(av.lesen_geprueft(), jetzt)
     except Exception as fehler:  # noqa: BLE001
         hinweise.append(f"Vorgänge nicht lesbar ({type(fehler).__name__})")
     log: list[str] = []
@@ -511,7 +521,7 @@ def chat_optionen(chats: Sequence[ChatInfo], werkzeug: str | None, thema: str | 
 class Auswahl:
     thema: str | None
     ziel: str | None
-    von_master: str | None       # Rolle des Besitzers der Marke (nur claude/codex/hermes)
+    von_master: str | None       # Rolle des Besitzers der Marke (nur claude/codex/hermes/agy)
     von: ChatEintrag | None      # None = noch nichts gewählt
     nach: ChatEintrag | None
 
@@ -521,7 +531,7 @@ def auswahl_pruefen(auswahl: Auswahl) -> str | None:
     if not auswahl.thema:
         return "Bitte ein Thema wählen."
     if auswahl.ziel not in modi.ZIEL_ROLLEN:
-        return "Bitte ein Ziel wählen (Claude, Codex oder Hermes)."
+        return "Bitte ein Ziel wählen (Claude, Codex, Hermes oder Antigravity)."
     if auswahl.von_master is None:
         return "Das Thema ist gerade nicht übergebbar (Besitz unklar oder Umschaltung läuft)."
     if auswahl.von is None:

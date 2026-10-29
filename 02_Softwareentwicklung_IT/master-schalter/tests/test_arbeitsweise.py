@@ -167,13 +167,12 @@ def test_themenzeile_zeigt_vibe_nur_bei_vibe(umgebung, capsys):
     assert "VIBE" not in ohne and "Arbeitsweise" not in ohne
     _vibe_an(capsys)
     mit = [z for z in kurz.sammeln() if z.startswith(f"  {THEMA}:")][0]
-    erwartet = ohne.replace("Ausführer Workflow", "Ausführer Claude").replace(
-        "Prüfer ? (pruefkreis braucht --master)", kurz.VIBE_PRUEFER) + " · VIBE"     # Vibe: keine Gegenprüfung
-    assert mit == erwartet
+    assert mit.startswith(ohne.split(" · Prüfer ")[0] + " · " + kurz.VIBE_PRUEFER + " · Ausführer Claude · Standard (Vibe: Sonnet oder Haiku) · ")
+    assert mit.endswith(" · VIBE")                                                    # Vibe: keine Gegenprüfung
 
 
-@pytest.mark.parametrize("weise, ende", [("protokoll", "· Auto an"), ("vibe", "· Auto an · VIBE"),
-                                          ("?", "· Auto an · Arbeitsweise ?")])
+@pytest.mark.parametrize("weise, ende", [("protokoll", "· Auto an (wirksam)"), ("vibe", "· Auto an (wirksam) · VIBE"),
+                                          ("?", "· Auto an (wirksam) · Arbeitsweise ?")])
 def test_themenzeile_der_reinen_funktion(weise, ende):
     jetzt = datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc)
     thema = kurz.Thema("t1", modi.Profil("kontingent", "claude", None), "claude", True, "claude", weise)

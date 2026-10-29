@@ -23,7 +23,7 @@ Phasen:
 * `rolle_gesetzt`       – Profil und Marke `… assistent <thema> <vorgang-id>` stehen
 * `sende`               – vermerkt, **bevor** der Transport startet (Absturz hier = unklar, nie neu senden)
 * `gesendet`            – Transport nachweislich abgeschickt (Codex-Queue)
-* `im_postfach`         – Postfachdatei liegt bereit (Claude/Hermes), noch nicht abgeholt
+* `im_postfach`         – Postfachdatei liegt bereit (Claude/Hermes/Antigravity), noch nicht abgeholt
 * `fehler`              – Transport nachweislich nicht gestartet
 * `unklar`              – Ergebnis des Transports unbekannt
 * `im_chat`             – der Zielchat hat die Nachricht abgeholt (noch keine Übernahme!)
@@ -97,6 +97,9 @@ class Vorgang:
     abgabe_zugestellt: str | None = None  # ISO-Zeit der Abholung von Abgabe-Auftrag bzw. -Info
     von_chat: dict | None = None          # {"werkzeug": …, "kennung": …} des alten Chats (nur lokal, G9)
     nach_chat: dict | None = None         # {"werkzeug": …, "kennung": …} des neuen Chats (nur lokal, G9)
+    ablauf_version: int = 1
+    abgabe_modus: str = "frist"
+    abgabe_nachweis: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -119,7 +122,7 @@ def neue_id(jetzt: datetime | None = None) -> str:
 
 
 def chat_dict(roh: object) -> dict | None:
-    """Chat-Referenz streng prüfen: genau `werkzeug` (claude|codex|hermes) und `kennung` nach G6-Muster, sonst `None`."""
+    """Chat-Referenz streng prüfen: genau `werkzeug` (claude|codex|hermes|agy) und `kennung` nach G6-Muster, sonst `None`."""
     if not isinstance(roh, dict) or set(roh) != {"werkzeug", "kennung"}:
         return None
     werkzeug, kennung = roh["werkzeug"], roh["kennung"]
@@ -152,14 +155,53 @@ def _vorgang(roh: object) -> Vorgang | None:
         return None
     if not isinstance(profil, dict) or not isinstance(marke, str):
         return None
+    legacy = ("ablauf_version" not in roh and "abgabe_modus" not in roh
+              and "abgabe_nachweis" not in roh)
+    if legacy:
+        version, modus = 0, "frist"
+    else:
+        version, modus = roh.get("ablauf_version"), roh.get("abgabe_modus")
+        if (type(version) is not int or version not in (0, 1) or not isinstance(modus, str)
+                or modus not in ("frist", "warten") or (version == 0 and modus != "frist")):
+            return None
+    nachweis = roh.get("abgabe_nachweis")
+    if version == 0 and nachweis is not None:
+        return None
+    if nachweis is not None:
+        if (not isinstance(nachweis, dict) or set(nachweis) != {"head", "kopfzeit", "datei_sha256", "geprueft_zeit"}
+                or not all(isinstance(nachweis.get(k), str) and nachweis[k] for k in nachweis)
+                or not isinstance(nachweis.get("head"), str)
+                or not 40 <= len(nachweis["head"]) <= 64
+                or any(c not in "0123456789abcdefABCDEF" for c in nachweis["head"])
+                or len(nachweis["datei_sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in nachweis["datei_sha256"])):
+            return None
+        try:
+            datetime.fromisoformat(nachweis["kopfzeit"].replace("Z", "+00:00"))
+            datetime.fromisoformat(nachweis["geprueft_zeit"].replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    elif "abgabe_nachweis" in roh and roh["abgabe_nachweis"] is not None:
+        return None
     fehler, abgabe = roh.get("fehler"), roh.get("abgabe")
     seit, zugestellt = roh.get("abgabe_seit"), roh.get("abgabe_zugestellt")
+    if "fehler" in roh and fehler is not None and not isinstance(fehler, str):
+        return None
+    if "abgabe" in roh and abgabe is not None and abgabe not in ABGABE_WERTE:
+        return None
+    if "abgabe_seit" in roh and seit is not None and not isinstance(seit, str):
+        return None
+    if "abgabe_zugestellt" in roh and zugestellt is not None and not isinstance(zugestellt, str):
+        return None
+    for feld in ("von_chat", "nach_chat"):
+        if feld in roh and roh[feld] is not None and chat_dict(roh[feld]) is None:
+            return None
     return Vorgang(ident, thema, ziel, von, phase, zeit, dict(profil), marke,
                    fehler if isinstance(fehler, str) else None,
                    abgabe if abgabe in ABGABE_WERTE else None,
                    seit if isinstance(seit, str) else None,
                    zugestellt if isinstance(zugestellt, str) else None,
-                   chat_dict(roh.get("von_chat")), chat_dict(roh.get("nach_chat")))
+                   chat_dict(roh.get("von_chat")), chat_dict(roh.get("nach_chat")), version, modus, nachweis)
 
 
 def lesen(datei_pfad: Path | None = None) -> list[Vorgang]:
@@ -174,6 +216,75 @@ def lesen(datei_pfad: Path | None = None) -> list[Vorgang]:
     return sorted(vorgaenge, key=lambda v: v.id)
 
 
+def lesen_geprueft(datei_pfad: Path | None = None) -> list[Vorgang]:
+    """Vorgänge streng lesen: nur eine fehlende Datei ist ein gültig leerer Bestand.
+
+    Anders als `lesen` wird ein beschädigter Bestand nicht still verkürzt. Er kann sonst eine
+    laufende Übergabe verbergen und eine neue Auswahl fälschlich freigeben.
+    """
+    pfad = datei_pfad or datei()
+    try:
+        roh = json.loads(pfad.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError, UnicodeError) as fehler:
+        raise AssistentFehler("Wechselregister ist nicht lesbar oder beschädigt") from fehler
+    if not isinstance(roh, list):
+        raise AssistentFehler("Wechselregister hat kein gültiges Listenformat")
+
+    vorgaenge: list[Vorgang] = []
+    ids: set[str] = set()
+    for position, eintrag in enumerate(roh, start=1):
+        vorgang = _vorgang(eintrag)
+        if vorgang is None:
+            raise AssistentFehler(f"Wechselregister enthält einen ungültigen Vorgang an Position {position}")
+        if vorgang.id in ids:
+            raise AssistentFehler(f"Wechselregister enthält eine doppelte Vorgangskennung an Position {position}")
+        ids.add(vorgang.id)
+        vorgaenge.append(vorgang)
+    return sorted(vorgaenge, key=lambda v: v.id)
+
+
+@dataclass(frozen=True)
+class RegisterDiagnose:
+    status: str
+    sha256: str | None
+    ungueltige_positionen: tuple[int, ...] = ()
+    doppelte_positionen: tuple[int, ...] = ()
+
+
+def register_diagnose(datei_pfad: Path | None = None) -> RegisterDiagnose:
+    """Nicht schreibende, inhaltsfreie Diagnose für das lokale Assistentenregister."""
+    pfad = datei_pfad or datei()
+    try:
+        daten = pfad.read_bytes()
+    except FileNotFoundError:
+        return RegisterDiagnose("fehlend", None)
+    except OSError:
+        return RegisterDiagnose("beschädigt", None)
+    import hashlib
+    fingerprint = hashlib.sha256(daten).hexdigest()
+    try:
+        roh = json.loads(daten.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        return RegisterDiagnose("beschädigt", fingerprint)
+    if not isinstance(roh, list):
+        return RegisterDiagnose("beschädigt", fingerprint)
+    ungültig: list[int] = []
+    doppelt: list[int] = []
+    ids: set[str] = set()
+    for position, eintrag in enumerate(roh, start=1):
+        vorgang = _vorgang(eintrag)
+        if vorgang is None:
+            ungültig.append(position)
+        elif vorgang.id in ids:
+            doppelt.append(position)
+        else:
+            ids.add(vorgang.id)
+    return RegisterDiagnose("beschädigt" if ungültig or doppelt else "lesbar", fingerprint,
+                            tuple(ungültig), tuple(doppelt))
+
+
 def aendern(funktion: Callable[[list[Vorgang]], list[Vorgang]], frist: float = zustand.FRIST_SEKUNDEN,
             datei_pfad: Path | None = None) -> list[Vorgang]:
     """Liste lesen, `funktion` darauf anwenden, atomar zurückschreiben – unter der dateiweiten Sperre.
@@ -182,7 +293,7 @@ def aendern(funktion: Callable[[list[Vorgang]], list[Vorgang]], frist: float = z
     gleichzeitig ändern, verlieren so keinen Eintrag. Wirft die Funktion, bleibt die Datei unberührt.
     """
     with zustand.sperre(frist):
-        alt = lesen(datei_pfad)
+        alt = lesen_geprueft(datei_pfad)
         neu = funktion(alt)
         pfad = datei_pfad or datei()
         if neu != alt or not pfad.exists():
@@ -191,7 +302,7 @@ def aendern(funktion: Callable[[list[Vorgang]], list[Vorgang]], frist: float = z
 
 
 def finden(vorgang_id: str, datei_pfad: Path | None = None) -> Vorgang | None:
-    return next((v for v in lesen(datei_pfad) if v.id == vorgang_id), None)
+    return next((v for v in lesen_geprueft(datei_pfad) if v.id == vorgang_id), None)
 
 
 def aktualisieren(vorgang_id: str, datei_pfad: Path | None = None, **felder: object) -> Vorgang | None:
@@ -262,12 +373,27 @@ def abgabe_ergebnis(vorgang_id: str, ergebnis: str, datei_pfad: Path | None = No
 
 
 def abgabe_ueberspringen(vorgang_id: str, grund: str, datei_pfad: Path | None = None) -> Vorgang | None:
-    """Abgabe nicht abwarten: aus `vorbereitet`, einer offenen Abgabephase oder `abgabe_fehler` → `abgabe_uebersprungen`.
+    """Legacy-Abgabe nicht abwarten; `warten` wird im gesperrten Callback sicher abgelehnt.
 
     Setzt `abgabe="uebersprungen"` und vermerkt den Grund in `fehler`.
     """
-    return phase_wechseln(vorgang_id, ABGABE_UEBERSPRINGBAR, "abgabe_uebersprungen", datei_pfad,
-                          abgabe="uebersprungen", fehler=grund)
+    ausgang: list[Vorgang] = []
+
+    def aendere(alt: list[Vorgang]) -> list[Vorgang]:
+        neu: list[Vorgang] = []
+        for v in alt:
+            if v.id == vorgang_id:
+                if v.abgabe_modus == "warten":
+                    raise AssistentFehler("Abgabe wird geprüft abgewartet und kann nicht übersprungen werden")
+                if v.phase in ABGABE_UEBERSPRINGBAR:
+                    v = replace(v, phase="abgabe_uebersprungen", zeit=datetime.now(timezone.utc).isoformat(),
+                                abgabe="uebersprungen", fehler=grund)
+                    ausgang.append(v)
+            neu.append(v)
+        return neu
+
+    aendern(aendere, datei_pfad=datei_pfad)
+    return ausgang[0] if ausgang else finden(vorgang_id, datei_pfad)
 
 
 # --- Marke prüfen (G5) -----------------------------------------------------------
@@ -294,7 +420,8 @@ def marke_pruefen(thema: str, vorgang_id: str, *, rolle: str | None = None,
 
 
 def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
-               datei_pfad: Path | None = None) -> Vorgang:
+               datei_pfad: Path | None = None, *, jetzt: datetime | None = None,
+               git: Callable[[Path, list[str]], str] | None = None) -> Vorgang:
     """Ausdrückliche Quittung des Zielchats (`neu`) bzw. des alten Chats (`abgabe`).
 
     Beides läuft unter der Themensperre; eine veraltete Marke lehnt ab, ohne etwas zu ändern.
@@ -329,7 +456,7 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
                                           "zu diesem Vorgang")
                 neu = aktualisieren(vorgang_id, datei_pfad, phase="bestaetigt", fehler=None)
             else:
-                neu = _abgabe_quittieren(aktuell, repo, datei_pfad)
+                neu = _abgabe_quittieren(aktuell, repo, datei_pfad, jetzt or datetime.now(timezone.utc), git)
             if neu is None:
                 raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
             return neu
@@ -337,16 +464,48 @@ def quittieren(vorgang_id: str, art: str, repo: Path | None = None,
         raise AssistentFehler(f"Quittung gerade nicht möglich ({type(fehler).__name__})") from fehler
 
 
-def _abgabe_quittieren(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> Vorgang | None:
+def _abgabe_quittieren(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None, jetzt: datetime,
+                       git: Callable[[Path, list[str]], str] | None = None) -> Vorgang | None:
     """Abgabe-Quittung unter gehaltener Themensperre prüfen und `abgegeben` setzen (sonst `AssistentFehler`)."""
-    if vorgang.phase not in ABGABE_OFFEN:
+    nachbeleg = vorgang.abgabe_modus == "warten" and vorgang.phase == "abgegeben"
+    if vorgang.phase not in ABGABE_OFFEN and not nachbeleg:
         raise AssistentFehler(f"Quittung abgelehnt: Abgabe ist nicht offen (Phase {vorgang.phase})")
     _, master_datei = modi._paar_pruefen(vorgang.thema, repo)
     if modi._besitz_text_lesen(master_datei) != vorgang.vorzustand_marke.strip():
         raise AssistentFehler("Quittung abgelehnt, Vorgang ist veraltet: Marke hat sich geändert")
-    neu = phase_wechseln(vorgang.id, ABGABE_OFFEN, "abgegeben", datei_pfad, abgabe="abgegeben", fehler=None)
+    felder: dict[str, object] = {"abgabe": "abgegeben", "fehler": None}
+    if vorgang.abgabe_modus == "warten":
+        try:
+            from .abgabe_nachweis import pruefen
+            felder["abgabe_nachweis"] = pruefen(vorgang.thema, vorgang, repo, jetzt, git=git).als_dict()
+        except Exception as fehler:
+            protokoll.schreiben(vorgang.id, vorgang.thema, "abgabe_pruefung_abgelehnt", "Nachweis ungültig")
+            raise AssistentFehler("Abgabe nicht bestätigt: geprüfter Übergabekopf fehlt oder ist ungültig") from fehler
+    if nachbeleg:
+        ausgang: list[Vorgang] = []
+        zeit = datetime.now(timezone.utc).isoformat()
+
+        def erneuern(alt: list[Vorgang]) -> list[Vorgang]:
+            neu_liste = []
+            for aktuell in alt:
+                if aktuell.id == vorgang.id and aktuell.phase == "abgegeben" and aktuell.abgabe_modus == "warten":
+                    neu = replace(aktuell, abgabe_nachweis=felder["abgabe_nachweis"], fehler=None, zeit=zeit)
+                    ausgang.append(neu)
+                    neu_liste.append(neu)
+                else:
+                    neu_liste.append(aktuell)
+            return neu_liste
+
+        aendern(erneuern, datei_pfad=datei_pfad)
+        if not ausgang:
+            raise AssistentFehler("Abgabequittung konnte nicht erneuert werden")
+        protokoll.schreiben(vorgang.id, vorgang.thema, "abgabe_nachweis_erneuert", "geprüft")
+        return ausgang[0]
+    neu, gewonnen = phase_gewinnen(vorgang.id, ABGABE_OFFEN, "abgegeben", datei_pfad, **felder)
     if neu is not None and neu.phase != "abgegeben":
         raise AssistentFehler(f"Quittung abgelehnt: Abgabe ist nicht mehr offen (Phase {neu.phase})")
+    if gewonnen and vorgang.abgabe_modus == "warten":
+        protokoll.schreiben(vorgang.id, vorgang.thema, "abgabe_geprueft", "Nachweis gültig")
     return neu
 
 
@@ -401,7 +560,7 @@ def wiederaufnehmen(repo: Path | None = None, datei_pfad: Path | None = None) ->
     * `abgegeben` / `abgabe_uebersprungen` → Phase bleibt, Status `nachholbar` (Rolle noch nicht gesetzt)
     """
     ergebnisse: list[Wiederaufnahme] = []
-    for vorgang in lesen(datei_pfad):
+    for vorgang in lesen_geprueft(datei_pfad):
         if vorgang.phase not in ("vorbereitet", *ABGABE_OFFEN, "abgabe_fehler", "abgegeben", "abgabe_uebersprungen",
                                  "rolle_gesetzt", "sende"):
             continue
@@ -412,8 +571,9 @@ def wiederaufnehmen(repo: Path | None = None, datei_pfad: Path | None = None) ->
                                                      "Thema ist gerade belegt – später erneut prüfen"))
                     continue
                 ergebnisse.append(_einordnen(vorgang, repo, datei_pfad))
-        except (modi.ModusFehler, zustand.SperrFehler, OSError) as fehler:
-            ergebnisse.append(Wiederaufnahme(vorgang.id, vorgang.thema, "nicht_pruefbar", str(fehler)))
+        except (AssistentFehler, modi.ModusFehler, zustand.SperrFehler, OSError):
+            ergebnisse.append(Wiederaufnahme(vorgang.id, vorgang.thema, "nicht_pruefbar",
+                                             "Register oder Vorgang nicht prüfbar; keine automatische Änderung"))
     return ergebnisse
 
 
@@ -434,10 +594,16 @@ def _einordnen(vorgang: Vorgang, repo: Path | None, datei_pfad: Path | None) -> 
             return Wiederaufnahme(aktuell.id, aktuell.thema, "unklar",
                                   "Abgabe-Zustellung unklar – bewusst nicht erneut gesendet")
         aktuell = neu             # inzwischen weiter (z. B. quittiert): unten neu einordnen
+    if aktuell.phase == "abgabe_fehler" and aktuell.abgabe_modus == "warten":
+        return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
+                              "Abgabe offen – wartet auf geprüfte Abgabe, kein automatisches Übergehen")
     if aktuell.phase == "abgabe_fehler":
         return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
                               f"Abgabe-Transport nicht gestartet – Frist läuft seit {aktuell.abgabe_seit or aktuell.zeit}, "
                               "danach wird die Abgabe übersprungen")
+    if aktuell.phase in ("abgabe_angefragt", "abgabe_unklar") and aktuell.abgabe_modus == "warten":
+        return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
+                              "Abgabe offen – wartet auf geprüfte Abgabe, kein automatisches Übergehen")
     if aktuell.phase in ("abgabe_angefragt", "abgabe_unklar"):
         return Wiederaufnahme(aktuell.id, aktuell.thema, "abgabe_offen",
                               f"Abgabe offen – Frist läuft seit {aktuell.abgabe_seit}")

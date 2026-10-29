@@ -385,6 +385,13 @@ class Leiste:
         try:
             try:
                 self._automatik_staende = automatik.lauf()
+                try:
+                    from . import agy_automatik
+                    agy_staende = agy_automatik.lauf()
+                    if agy_staende:
+                        self._automatik_staende += agy_staende
+                except Exception:  # noqa: BLE001
+                    pass
                 self._automatik_staende += automatik.bestaetigungen_pruefen()
             except Exception:  # noqa: BLE001 - die Leiste darf nie wegen eines Laufs abstürzen
                 self._automatik_staende = [automatik.Stand("", "Automatikprüfung fehlgeschlagen")]
@@ -519,7 +526,10 @@ class Leiste:
         try:
             self._paare_snapshot = paare.lesen()
             self._vorgaenge_snapshot = vorgaenge.lesen()
-            self._wechsel_snapshot = assistent_vorgaenge.lesen()
+            try:
+                self._wechsel_snapshot = assistent_vorgaenge.lesen_geprueft()
+            except assistent_vorgaenge.AssistentFehler:
+                _protokoll("Wechselregister nicht prüfbar; vorhandene Anzeige bleibt unverändert")
             self._kataloge = self._kataloge_lesen()
             self._automatik_weg = anzeige.automatik_weg()
             self._automatik_global = anzeige.automatik_an()
@@ -760,7 +770,7 @@ class Leiste:
         try:
             jetzt = jetzt or datetime.now(timezone.utc)
             try:
-                offene = [v for v in assistent_vorgaenge.lesen() if v.phase not in assistent_vorgaenge.ENDGUELTIG]
+                offene = [v for v in assistent_vorgaenge.lesen_geprueft() if v.phase not in assistent_vorgaenge.ENDGUELTIG]
             except Exception as fehler:  # noqa: BLE001
                 _protokoll(f"Wechselvorgänge nicht lesbar ({type(fehler).__name__})")
                 return
@@ -770,7 +780,7 @@ class Leiste:
                 except Exception as fehler:  # noqa: BLE001 - nur die Fehlerklasse, nie Text oder Kennung
                     _protokoll(f"Wechselvorgang nicht fortgesetzt ({type(fehler).__name__})")
             try:
-                aktuell = assistent_vorgaenge.lesen()
+                aktuell = assistent_vorgaenge.lesen_geprueft()
             except Exception as fehler:  # noqa: BLE001
                 _protokoll(f"Wechselvorgänge nicht lesbar ({type(fehler).__name__})")
                 return

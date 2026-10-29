@@ -20,22 +20,26 @@
     masterwechsel profil THEMA [--json]
                                       Rollenprofil lesen (Master, Ausführer, Modell) – vor jedem Workerauftrag
     masterwechsel vibe THEMA an|aus   Arbeitsweise Vibe für ein Thema ein-/ausschalten (nur von Hand; braucht Ausführer Claude)
-    masterwechsel thema-anlegen THEMA [--master claude|codex|hermes|kontingent]
+    masterwechsel pruefer-setzen THEMA automatisch|codex|hermes
+                                      Prüfer für ein Thema wählen (nur von Hand; automatisch = Regel von pruefkreis)
+    masterwechsel thema-anlegen THEMA [--master claude|codex|hermes|agy|kontingent]
                                       Thema ohne Codex-Paar anlegen (Profil + Besitzdatei im Hauptarbeitsbaum; Standard claude)
     masterwechsel master-setzen THEMA MASTER
-                                      Masterrolle eines Themas setzen (kontingent|claude|codex|hermes)
+                                      Masterrolle eines Themas setzen (kontingent|claude|codex|hermes|agy)
     masterwechsel worker-setzen THEMA WORKER
-                                      Ausführervorgabe setzen (workflow|claude|codex|hermes)
+                                      Ausführervorgabe setzen (workflow|claude|codex|hermes|agy)
     masterwechsel modell-setzen THEMA MODELL
                                       Ausführermodell setzen ("standard" = Standard des Werkzeugs)
     masterwechsel modelle [PROVIDER] [--aktualisieren] [--json]
                                       Modellkataloge der Werkzeuge anzeigen oder abgleichen
     masterwechsel quittieren VORGANG neu|abgabe
                                       Übernahme (neu) bzw. Abgabe (abgabe) eines Assistentenvorgangs bestätigen
-    masterwechsel uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG]
+    masterwechsel uebergeben THEMA ZIEL [--von WERKZEUG:KENNUNG] [--nach WERKZEUG:KENNUNG] [--warten]
                                       Wechselassistent: Thema vom alten an den neuen Master übergeben
     masterwechsel fortsetzen [VORGANG]
                                       Wechselvorgänge weiterführen (Frist, Rolle setzen, zustellen)
+    masterwechsel postfach WERKZEUG KENNUNG
+                                      Postfach einer Sitzung (claude|hermes|agy) abholen und Status melden
     masterwechsel chats [--liste]     zuletzt benutzte Chats (24 h): ohne --liste nur Zählwerte und Quellenstatus
     masterwechsel fenster             Wechselfenster öffnen (Themen, Übergabe starten, Vorgänge, Protokoll; nur eine Instanz)
     masterwechsel claude-auftrag --sitzung KENNUNG --thema THEMA --datei .hermes/….md [--von codex|hermes]
@@ -44,7 +48,7 @@
     masterwechsel warte THEMA TEXT…   „Wartet worauf“ für den Master-Status melden (eine Zeile, technisch, ≤ 120 Zeichen)
     masterwechsel warte THEMA --fertig
                                       Wartemeldung des Themas entfernen
-    masterwechsel alle kontingent     alle Themen (außer Hermes) nach Kontingent; feste Rollen vorher merken
+    masterwechsel alle kontingent     alle Themen (außer Hermes/Antigravity) nach Kontingent; feste Rollen vorher merken
     masterwechsel alle zurueck        gemerkte feste Rollen wiederherstellen (Exit 1 = offen, 2 = Merkdatei ungültig)
 
 Fehler werden mit Exit 1 und einer klaren Diagnose gemeldet – ohne rohe Antworten der Werkzeuge.
@@ -57,8 +61,8 @@ import sys
 from datetime import datetime, timezone
 
 from . import (__version__, alle, anzeige, arbeitsweise, assistent, assistent_vorgaenge, auftraege, automatik, chat_register, chat_zuordnung,
-               claude_messen, codex_messen, kurz, modi, modelle, paare, rollen, rueckgabe, signale, wartet, wechsel,
-               zustand)
+               claude_messen, codex_messen, kurz, modi, modelle, paare, postfach, pruefer_wahl, rollen, rueckgabe, signale, status, wartet,
+               wechsel, zustand)
 
 
 def _statuszeile() -> int:
@@ -269,6 +273,22 @@ def _vibe_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pruefer_setzen_cli(args: argparse.Namespace) -> int:
+    """Prüfer je Thema – nur von Hand; Fehler lassen die Datei unverändert."""
+    try:
+        geaendert = pruefer_wahl.setzen(args.thema, args.pruefer)
+    except (pruefer_wahl.PrueferWahlFehler, OSError) as fehler:
+        print(f"Prüfer nicht geändert: {fehler}", file=sys.stderr)
+        return 1
+    zusatz = "" if geaendert else " (unverändert)"
+    if args.pruefer == pruefer_wahl.AUTOMATISCH:
+        print(f"{args.thema}: Prüfer automatisch{zusatz} – pruefkreis nutzt die Regel (Prüfer ≠ Familie des Masters).")
+    else:
+        print(f"{args.thema}: Prüfer {pruefer_wahl.ANZEIGE[args.pruefer]}{zusatz} – gilt für `pruefkreis` ohne --pruefer, "
+              "auch für die Familie des Masters; `--sensibel` (immer Hermes) und `--pruefer` gehen vor.")
+    return 0
+
+
 def _thema_anlegen_cli(args: argparse.Namespace) -> int:
     """Thema ohne Codex-Paar anlegen (oder die halbe Anlage ergänzen); jeder Fehler lässt alles unverändert."""
     if args.master not in modi.MASTER_WERTE:
@@ -402,8 +422,13 @@ def _chat_ref(text: str | None) -> assistent.ChatRef | None:
 def _uebergeben_cli(args: argparse.Namespace) -> int:
     """Wechsel starten. Ausgabe nur Vorgangs-ID und Phase – nie eine Chat-Kennung."""
     try:
-        vorgang = assistent.uebergeben(args.thema, args.ziel, von_chat=_chat_ref(args.von),
-                                       nach_chat=_chat_ref(args.nach))
+        vorgang = assistent.uebergeben(
+            args.thema,
+            args.ziel,
+            von_chat=_chat_ref(args.von),
+            nach_chat=_chat_ref(args.nach),
+            abgabe_modus="warten" if getattr(args, "warten", False) else "frist",
+        )
     except assistent_vorgaenge.AssistentFehler as fehler:   # Texte sind bereinigt (assistent._assistentfehler)
         print(f"Nicht übergeben: {fehler}", file=sys.stderr)
         return 1
@@ -411,6 +436,31 @@ def _uebergeben_cli(args: argparse.Namespace) -> int:
         print(f"Nicht übergeben: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
         return 1
     print(f"Vorgang {vorgang.id}: {vorgang.phase}")
+    return 0
+
+
+def _postfach_cli(args: argparse.Namespace) -> int:
+    """Postfach einer Sitzung (`claude|hermes|agy`) abholen und Sitzung als aktiv melden."""
+    try:
+        nachrichten = postfach.abholen(args.werkzeug, args.kennung)
+    except postfach.PostfachFehler as fehler:
+        print(f"Postfach nicht abgeholt: {fehler}", file=sys.stderr)
+        return 1
+    except OSError as fehler:
+        print(f"Postfach nicht abgeholt: Datei nicht lesbar ({type(fehler).__name__})", file=sys.stderr)
+        return 1
+    try:
+        if args.werkzeug == "agy":
+            from . import agy_senden
+            agy_senden.umgebung_merken()
+        status.schreiben(args.werkzeug, args.kennung, status.ARBEITET)
+    except Exception:  # noqa: BLE001 - Statusmeldung hält die Abholung nicht auf
+        pass
+    if not nachrichten:
+        print("Postfach leer.")
+        return 0
+    for n in nachrichten:
+        print(n.text)
     return 0
 
 
@@ -565,8 +615,6 @@ def _claude_auftrag_cli(args: argparse.Namespace) -> int:
 
 
 def _claude_sitzungen_cli(_args: argparse.Namespace) -> int:
-    from . import status
-
     zeilen = []
     for pfad in sorted(status.ordner().glob("claude-*.json")) if status.ordner().is_dir() else []:
         kennung = pfad.stem.removeprefix("claude-")
@@ -622,16 +670,20 @@ def _parser() -> argparse.ArgumentParser:
     profil_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
     anlegen = unter.add_parser("thema-anlegen", help="Thema ohne Codex-Paar anlegen (Profil + Besitzdatei)")
     anlegen.add_argument("thema", help="neues Thema (^[a-z0-9][a-z0-9-]{0,79}$)")
-    anlegen.add_argument("--master", default="claude", help="kontingent, claude, codex oder hermes (Standard claude)")
+    anlegen.add_argument("--master", default="claude", help="kontingent, claude, codex, hermes oder agy (Standard claude)")
     vibe = unter.add_parser("vibe", help="Arbeitsweise Vibe eines Themas ein- oder ausschalten (nur von Hand)")
     vibe.add_argument("thema", help="vorhandenes Thema")
     vibe.add_argument("zustand", choices=("an", "aus"), help="an oder aus")
+    pruefer_parser = unter.add_parser("pruefer-setzen", help="Prüfer eines Themas wählen (nur von Hand)")
+    pruefer_parser.add_argument("thema", help="vorhandenes Thema")
+    # Ohne `choices`: argparse würde eine ungültige Eingabe wörtlich wiederholen (R7/1); `pruefer_wahl.setzen` nennt die erlaubten Werte.
+    pruefer_parser.add_argument("pruefer", metavar="PRUEFER", help=f"{'|'.join(pruefer_wahl.WERTE)}")
     master_setzen = unter.add_parser("master-setzen", help="Masterrolle eines Themas setzen")
     master_setzen.add_argument("thema", help="vorhandenes Thema")
-    master_setzen.add_argument("master", help="kontingent, claude, codex oder hermes")
+    master_setzen.add_argument("master", help="kontingent, claude, codex, hermes oder agy")
     worker_setzen = unter.add_parser("worker-setzen", help="Ausführervorgabe eines Themas setzen")
     worker_setzen.add_argument("thema", help="vorhandenes Thema")
-    worker_setzen.add_argument("worker", help="workflow, claude, codex oder hermes")
+    worker_setzen.add_argument("worker", help="workflow, claude, codex, hermes oder agy")
     modell_setzen = unter.add_parser("modell-setzen", help="Ausführermodell eines Themas setzen")
     modell_setzen.add_argument("thema", help="vorhandenes Thema")
     modell_setzen.add_argument("modell", help="Modellkennung aus dem Katalog oder \"standard\"")
@@ -652,9 +704,14 @@ def _parser() -> argparse.ArgumentParser:
                             help="alter Chat (ohne Angabe wird die Abgabe übersprungen)")
     uebergeben.add_argument("--nach", default=None, metavar="WERKZEUG:KENNUNG",
                             help="neuer Chat (ohne Angabe wird nur die Rolle gesetzt)")
+    uebergeben.add_argument("--warten", action="store_true",
+                            help="geprüfte Abgabe des alten Chats abwarten (kein automatisches Übergehen)")
     fortsetzen = unter.add_parser("fortsetzen", help="Wechselvorgänge weiterführen (idempotent)")
     fortsetzen.add_argument("vorgang", nargs="?", default=None,
                             help="Vorgangskennung (Standard: alle nicht endgültigen Vorgänge)")
+    postfach_parser = unter.add_parser("postfach", help="Postfach einer Sitzung abholen und Sitzung als aktiv melden")
+    postfach_parser.add_argument("werkzeug", metavar="WERKZEUG", help=f"{'|'.join(postfach.ZIELE)}")
+    postfach_parser.add_argument("kennung", metavar="KENNUNG", help="Sitzungskennung")
     chats = unter.add_parser("chats", help="zuletzt benutzte Chats (24 h) und ihre Projekt-Vorschläge")
     chats.add_argument("--liste", action="store_true",
                        help="nur für Sebastian; zeigt persönliche Titel (Kennungen gekürzt, Vorschlag und Grund)")
@@ -723,6 +780,8 @@ def main(argv: list[str] | None = None) -> int:
         return _profil_cli(args)
     if args.befehl == "vibe":
         return _vibe_cli(args)
+    if args.befehl == "pruefer-setzen":
+        return _pruefer_setzen_cli(args)
     if args.befehl == "thema-anlegen":
         return _thema_anlegen_cli(args)
     if args.befehl == "master-setzen":
@@ -743,6 +802,8 @@ def main(argv: list[str] | None = None) -> int:
         return _uebergeben_cli(args)
     if args.befehl == "fortsetzen":
         return _fortsetzen_cli(args)
+    if args.befehl == "postfach":
+        return _postfach_cli(args)
     if args.befehl == "automatik-pruefen":
         return _automatik_pruefen(args)
     if args.befehl == "automatik":

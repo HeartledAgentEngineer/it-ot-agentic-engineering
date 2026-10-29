@@ -424,16 +424,20 @@ def test_abgabefelder_werden_tolerant_gelesen_und_ueberleben_spaetere_phasen(umg
            "abgabe_seit": "2026-10-21T09:00:00+00:00", "abgabe_zugestellt": "2026-10-21T09:01:00+00:00"}
     kaputt = {**gut, "id": "v-kaputt", "abgabe": "vielleicht", "abgabe_seit": 5, "abgabe_zugestellt": ["x"]}
     alt = {k: v for k, v in gut.items() if not k.startswith("abgabe")}
-    av.datei().write_text(json.dumps([gut, kaputt, {**alt, "id": "v-alt", "abgabe_bestaetigt": True}]),
-                          encoding="utf-8")
+    register = [gut, kaputt, {**alt, "id": "v-alt", "abgabe_bestaetigt": True}]
+    av.datei().write_text(json.dumps(register), encoding="utf-8")
 
     vorgaenge = {v.id: v for v in av.lesen()}
 
     assert (vorgaenge["v-gut"].abgabe, vorgaenge["v-gut"].abgabe_seit, vorgaenge["v-gut"].abgabe_zugestellt) == (
         "abgegeben", "2026-10-21T09:00:00+00:00", "2026-10-21T09:01:00+00:00")
-    assert (vorgaenge["v-kaputt"].abgabe, vorgaenge["v-kaputt"].abgabe_seit,
-            vorgaenge["v-kaputt"].abgabe_zugestellt) == (None, None, None)
+    assert "v-kaputt" not in vorgaenge
     assert vorgaenge["v-alt"].abgabe is None                          # altes Feld wird nicht mehr gedeutet
+    vor_mutation = av.datei().read_bytes()
+    with pytest.raises(av.AssistentFehler):
+        av.aktualisieren("v-gut", phase="sende")
+    assert av.datei().read_bytes() == vor_mutation
+    av.datei().write_text(json.dumps([gut, {**alt, "id": "v-alt", "abgabe_bestaetigt": True}]), encoding="utf-8")
     assert av.aktualisieren("v-gut", phase="sende").abgabe == "abgegeben"
 
 
@@ -458,12 +462,12 @@ def test_chatfelder_ueberleben_den_roundtrip(umgebung):
     "text", {"werkzeug": "codex"}, {"werkzeug": "gemini", "kennung": "k"}, {"werkzeug": "codex", "kennung": "../x"},
     {"werkzeug": "codex", "kennung": "k\n"}, {"werkzeug": "codex", "kennung": "k", "extra": 1},
     {"werkzeug": "codex", "kennung": "k" * 81}, {"werkzeug": 1, "kennung": "k"}])
-def test_ungueltige_chatreferenzen_werden_zu_none(umgebung, falsch):
+def test_ungueltige_chatreferenzen_blockieren_strenge_leser(umgebung, falsch):
     roh = {"id": "v-1", "thema": THEMA, "ziel": "hermes", "von": "claude", "phase": "vorbereitet", "zeit": "z",
            "vorzustand_profil": {}, "vorzustand_marke": "", "von_chat": falsch, "nach_chat": falsch}
     av.datei().write_text(json.dumps([roh]), encoding="utf-8")
-    vorgang = av.finden("v-1")
-    assert vorgang is not None and vorgang.von_chat is None and vorgang.nach_chat is None
+    with pytest.raises(av.AssistentFehler):
+        av.finden("v-1")
 
 
 def test_phase_gewinnen_meldet_nur_dem_gewinner_den_wechsel(umgebung):

@@ -216,8 +216,8 @@ def test_codex_bestaetigung_setzt_das_paar_unter_der_sperre(monkeypatch):
 
     monkeypatch.setattr(zustand, "sperre", zaehlend)
     tiefen: list[int] = []
-    echt_setzen = paare.setzen
-    monkeypatch.setattr(paare, "setzen", lambda *a, **k: (tiefen.append(len(sperren)), echt_setzen(*a, **k))[1])
+    echt_setzen = paare._setzen_gesperrt
+    monkeypatch.setattr(paare, "_setzen_gesperrt", lambda *a, **k: (tiefen.append(len(sperren)), echt_setzen(*a, **k))[1])
     chat_zuordnung.bestaetigen("codex", UUID_A, "engineering")
     assert tiefen == [1]
 
@@ -226,7 +226,7 @@ def test_codex_bestaetigung_schreibt_nichts_wenn_das_paar_scheitert(monkeypatch)
     def scheitert(*args, **kwargs):
         raise paare.PaarFehler("Attrappe")
 
-    monkeypatch.setattr(paare, "setzen", scheitert)
+    monkeypatch.setattr(paare, "_setzen_gesperrt", scheitert)
     with pytest.raises(ZuordnungFehler):
         chat_zuordnung.bestaetigen("codex", UUID_A, "engineering")
     assert chat_zuordnung.zuordnung_lesen() == {}

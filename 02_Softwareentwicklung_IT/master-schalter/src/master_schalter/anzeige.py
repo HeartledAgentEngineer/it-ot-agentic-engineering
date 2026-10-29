@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 STANDARD_SCHWELLE = 97
 SCHWELLEN = (80, 90, 95, 97, 100)   # Auswahl im Menü „Wechsel-Schwelle"
-MASTER_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes"}
+MASTER_NAMEN = {"claude": "Claude", "codex": "Codex", "hermes": "Hermes", "agy": "Antigravity"}
 WARN_AB = 80
 TOOLTIP_MAX = 127   # Windows schneidet Tooltips von Taskleisten-Symbolen bei 127 Zeichen ab
 HINWEIS_MAX = 255   # Windows-Benachrichtigungen fassen höchstens 255 Zeichen
@@ -195,6 +195,37 @@ def automatik_an(datei: Path | None = None) -> bool:
     return bool(roh.get("automatik")) if isinstance(roh, dict) else False
 
 
+AUTO_WIRKSAM, AUTO_WARTET, AUTO_AUS, AUTO_OHNE_PAAR, AUTO_UNBEKANNT = "wirksam", "wartet", "aus", "ohne", "?"
+
+
+def auto_paar_zaehlt(paar_aktiv: bool, master: str) -> bool:
+    """Die Paar-Bedingung der Automatik: aktives Paar UND Master-Vorgabe „kontingent“.
+
+    Eine Stelle für `automatik.faellige` und die Anzeige (`auto_zustand`) – jede feste Masterrolle bleibt ausgenommen.
+    """
+    return bool(paar_aktiv) and master == modi.KONTINGENT
+
+
+def auto_zustand(hauptschalter: bool | None, paar_aktiv: bool | None, master: str) -> tuple[str, str]:
+    """Gespeicherte Freigabe ≠ wirksamer Zustand: (Zustand, Text) für die Anzeige.
+
+    Wirksam nur bei Hauptschalter an **und** Paar aktiv **und** Master `kontingent` (Bedingung wie `automatik.faellige`,
+    dort zusätzlich Limit und Messung). `paar_aktiv=None` = kein Codex-Paar; `hauptschalter=None` = unbekannt.
+    """
+    if paar_aktiv is None:
+        return AUTO_OHNE_PAAR, "ohne Codex-Paar"
+    if not paar_aktiv:
+        return AUTO_AUS, "Freigabe aus"
+    if hauptschalter is None:
+        return AUTO_UNBEKANNT, "Freigabe an – Hauptschalter unbekannt (?)"
+    if hauptschalter and auto_paar_zaehlt(True, master):
+        return AUTO_WIRKSAM, "Auto an (wirksam)"
+    gruende = [] if hauptschalter else ["Hauptschalter aus"]
+    if not auto_paar_zaehlt(True, master):
+        gruende.append(f"fester Master {MASTER_NAMEN.get(master, master.capitalize())}")
+    return AUTO_WARTET, "Freigabe an – wirkt nicht: " + ", ".join(gruende)
+
+
 def automatik_setzen(an: bool, datei: Path | None = None) -> None:
     """Automatik ein- oder ausschalten; andere Felder der Datei bleiben erhalten."""
     datei = datei or einstellungen_datei()
@@ -357,12 +388,12 @@ def _hinweis(text: str) -> Eintrag:
 
 
 def master_eintraege(stand: Rollenstand) -> list[Eintrag]:
-    """Vierfache Masterwahl je Thema; Haken aus der Momentaufnahme."""
+    """Masterwahl je Thema; Haken aus der Momentaufnahme."""
     return [Eintrag(text, wert, haken=wert == stand.master) for text, wert in MASTER_AUSWAHL]
 
 
 def worker_eintraege(stand: Rollenstand) -> list[Eintrag]:
-    """Ausführervorgabe (vier Provider) mit immer sichtbarer Herkunft und Vorgabehinweis."""
+    """Ausführervorgabe mit immer sichtbarer Herkunft und Vorgabehinweis."""
     return ([_hinweis(AUSFUEHRER_VORGABE), _hinweis(HERKUNFT_ZEILE)]
             + [Eintrag(text, wert, haken=wert == stand.worker) for text, wert in WORKER_AUSWAHL])
 

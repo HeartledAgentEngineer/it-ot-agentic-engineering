@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from master_schalter import alle, anzeige, besitz, modi, paare, signale, symbol
+from master_schalter import assistent_vorgaenge as av
 from master_schalter import uebersicht_modell as um
 from master_schalter.signale import Fenster, Kontingent
 
@@ -97,9 +98,39 @@ def test_kopf_lage_automatik_und_themenzeilen(umgebung):
     assert snap.zeit == "09:00" and snap.lage == "1" and snap.lage_text == "Lage 1" and snap.automatik is True
     zeile = snap.themen[0]
     assert (zeile.thema, zeile.master, zeile.besitz, zeile.pruefer, zeile.auto) == (
-        THEMA, "nach Kontingent", "claude", "Codex", "Auto an")
+        THEMA, "Claude · Opus 5.5 (nach Kontingent)", "claude", "Codex · App-Standard", "Auto an (wirksam)")
     assert zeile.master_wert == "kontingent"
     assert snap.schreiben and snap.schreib_hinweis == ""
+
+
+def test_aufnahme_zeigt_nur_eindeutige_themen_mit_blockierendem_wechsel(umgebung):
+    vorgaenge = [
+        av.Vorgang("v-1", THEMA, "hermes", "codex", "abgabe_angefragt", "z", {}, ""),
+        av.Vorgang("v-2", THEMA, "hermes", "codex", "sende", "z", {}, ""),
+        av.Vorgang("v-3", "thema-b", "hermes", "codex", "im_chat", "z", {}, ""),
+        av.Vorgang("v-4", "thema-c", "hermes", "codex", "bestaetigt", "z", {}, ""),
+    ]
+    av.aendern(lambda _alt: vorgaenge)
+
+    snap = um.aufnehmen(JETZT, UTC)
+
+    assert snap.wechsel_themen == (THEMA,)
+    assert snap.wechsel_pruefbar is True
+    assert len(snap.themen) == 1
+
+
+def test_aufnahme_behaelt_rest_bei_nicht_pruefbarem_wechselregister(umgebung, monkeypatch):
+    def kaputt(*_args, **_kwargs):
+        raise av.AssistentFehler("Register unlesbar")
+
+    monkeypatch.setattr(av, "lesen_geprueft", kaputt, raising=False)
+
+    snap = um.aufnehmen(JETZT, UTC)
+
+    assert len(snap.themen) == 1
+    assert snap.wechsel_themen == ()
+    assert snap.wechsel_pruefbar is False
+    assert any("Wechselregister" in hinweis for hinweis in snap.hinweise)
 
 
 def test_messfehler_steht_beim_abo(umgebung):

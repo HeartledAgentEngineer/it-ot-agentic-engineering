@@ -623,3 +623,133 @@ def test_wartemeldung_enthaelt_die_pid_des_pruefprozesses_und_raeumt_weiter_auf(
     assert gesehen[0]["pid"] == pk.os.getpid()
     assert sorted(gesehen[0]) == ["pid", "text", "zeit"]          # Format sonst unveraendert
     assert not _wartet(tmp_path, "master-schalter").exists()       # Aufraeumen wie bisher
+
+# --- Prueferwahl je Thema (Master-Schalter, Stufe 4, 28.10.2026) ---------------------------------------------------------
+
+def _wahl(tmp_path, themen=None, roh=None):
+    """`pruefer.json` im (per MASTER_SCHALTER_DATEN umgeleiteten) Datenordner des Schalters schreiben."""
+    ordner = tmp_path / "schalter"
+    ordner.mkdir(exist_ok=True)
+    (ordner / "pruefer.json").write_text(
+        roh if roh is not None else json.dumps({"version": 1, "themen": themen}), encoding="utf-8")
+
+
+def _protokoll(erg):
+    return Path(erg["protokoll"]).read_text(encoding="utf-8")
+
+
+def test_ohne_wahldatei_bleibt_alles_wie_bisher(pk, vorlage, monkeypatch):
+    _attrappe(pk, monkeypatch)
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "codex" and erg["pruefer_vermerk"] == "" and "Prueferwahl" not in _protokoll(erg)
+
+
+def test_gewaehlter_pruefer_gilt_auch_in_der_familie_des_masters(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "codex 2026-10-27T19:48:37+00:00 modus probe")
+    _wahl(tmp_path, {"probe": "codex"})
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "codex" and pk.aufrufe[0][0] == "codex-attrappe" and erg["ersatz"] == ""
+    text = _protokoll(erg)
+    assert "Prueferwahl: codex (pruefer.json, Thema probe) - Pruefer aus derselben Familie wie der Master" in text
+    assert "Sebastians Wahl, weicht von AGENTS.md ab" in text
+
+
+def test_gewaehlter_hermes_bei_hermes_master_vermerkt_dieselbe_familie(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "hermes 2026-10-27T19:48:37+00:00 modus probe")
+    _wahl(tmp_path, {"probe": "hermes"})
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "hermes" and "derselben Familie wie der Master" in _protokoll(erg)
+
+
+def test_wahl_aus_anderer_familie_vermerkt_nur_die_wahl(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _wahl(tmp_path, {"probe": "hermes"})                       # Master claude
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "hermes" and erg["pruefer_vermerk"] == "hermes (pruefer.json, Thema probe)"
+    assert "Prueferwahl: hermes (pruefer.json, Thema probe)" in _protokoll(erg)
+    assert "derselben Familie" not in _protokoll(erg) and erg["ersatz"] == ""
+
+
+def test_sensibel_schlaegt_jede_wahl(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _wahl(tmp_path, {"probe": "codex"})
+    erg = pk.pruefen(vorlage, "probe", sensibel=True)
+    assert erg["pruefer"] == "hermes" and pk.aufrufe[0][0] == "hermes-attrappe" and erg["pruefer_vermerk"] == ""
+    with pytest.raises(pk.PruefkreisFehler, match="ausschliesslich Hermes"):
+        pk.pruefen(vorlage, "probe", pruefer="codex", sensibel=True)
+
+
+def test_kommandozeilen_pruefer_schlaegt_die_wahl(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _wahl(tmp_path, {"probe": "hermes"})
+    erg = pk.pruefen(vorlage, "probe", pruefer="codex")
+    assert erg["pruefer"] == "codex" and erg["pruefer_vermerk"] == ""
+    _wahl(tmp_path, {"probe": "codex"})
+    erg = pk.pruefen(vorlage, "probe", pruefer="hermes")
+    assert erg["pruefer"] == "hermes" and erg["pruefer_vermerk"] == ""
+    # die Familienregel gilt fuer ein ausdrueckliches --pruefer weiterhin
+    with pytest.raises(pk.PruefkreisFehler, match="Codex-Masters"):
+        pk.pruefen(vorlage, "probe", pruefer="codex", master="codex")
+
+
+def test_gewaehltes_codex_gesperrt_weicht_auf_hermes_aus(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe_codex_gesperrt(pk, monkeypatch)
+    _wahl(tmp_path, {"probe": "codex"})
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "hermes" and "Codex gesperrt" in erg["ersatz"]
+    assert "Prueferwahl: codex (pruefer.json, Thema probe)" in _protokoll(erg)
+
+
+def test_gewaehltes_codex_im_gemessenen_limit_geht_gleich_auf_hermes(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _messung(tmp_path, 100)
+    _wahl(tmp_path, {"probe": "codex"})
+    erg = pk.pruefen(vorlage, "probe")
+    assert erg["pruefer"] == "hermes" and "laut Messung" in erg["ersatz"] and len(pk.aufrufe) == 1
+
+
+def test_unlesbare_oder_ungueltige_datei_nutzt_die_regel_mit_vermerk(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _besitz(tmp_path, "probe", "codex 2026-10-27T19:48:37+00:00 modus probe")
+    for roh in ("{kaputt", "[]", '{"version": 2, "themen": {}}', '{"version": 1, "themen": {"probe": "gpt"}}',
+                '{"version": 1, "themen": {"probe": "codex"}, "x": 1}', '{"version": 1, "themen": {"Ungueltig!": "codex"}}'):
+        _wahl(tmp_path, roh=roh)
+        erg = pk.pruefen(vorlage, "probe")
+        assert erg["pruefer"] == "hermes" and "Master ist Codex" in erg["ersatz"]      # Regel
+        assert "Prueferwahl: pruefer.json" in _protokoll(erg) and "Regel angewandt" in erg["pruefer_vermerk"]
+
+
+def test_nicht_utf8_datei_ist_unlesbar(pk, tmp_path):
+    (tmp_path / "schalter").mkdir()
+    (tmp_path / "schalter" / "pruefer.json").write_bytes(bytes([0xFF, 0xFE, 0x00]))
+    assert pk.pruefer_wahl_lesen("probe") == (None, "pruefer.json unlesbar - Regel angewandt")
+
+
+def test_wahl_wird_wie_die_besitzdatei_nach_dem_laengsten_namen_gesucht(pk, tmp_path):
+    _wahl(tmp_path, {"master": "codex", "master-schalter": "hermes"})
+    assert pk.pruefer_wahl_lesen("master-schalter-kurz-r2") == ("hermes", "pruefer.json, Thema master-schalter")
+    assert pk.pruefer_wahl_lesen("master-anderes") == ("codex", "pruefer.json, Thema master")
+    assert pk.pruefer_wahl_lesen("masterx") == (None, "")              # nur an der Bindestrichgrenze
+    assert pk.pruefer_wahl_lesen("ganz-anders") == (None, "")
+
+
+def test_wahl_ersetzt_keinen_unklaren_besitz(pk, vorlage, monkeypatch, tmp_path):
+    _attrappe(pk, monkeypatch)
+    _wahl(tmp_path, {"ohne-datei": "hermes"})
+    with pytest.raises(pk.PruefkreisFehler, match="keine Besitzdatei.*--master"):
+        pk.pruefen(vorlage, "ohne-datei")
+    _besitz(tmp_path, "ohne-datei", "reserviert modus ohne-datei codex 2026-10-28T00:00:00+00:00")
+    with pytest.raises(pk.PruefkreisFehler, match="nennt keinen bekannten Master"):
+        pk.pruefen(vorlage, "ohne-datei")
+    assert pk.aufrufe == []
+    assert pk.pruefen(vorlage, "ohne-datei", master="claude")["pruefer"] == "hermes"     # mit --master geht es
+
+
+def test_wahl_ohne_pruefer_waehlen_parameter_bleibt_kompatibel(pk):
+    assert pk.pruefer_waehlen(None, False, "codex") == "hermes"
+    assert pk.pruefer_waehlen(None, False, "codex", "codex") == "codex"
+    assert pk.pruefer_waehlen("hermes", False, "claude", "codex") == "hermes"
+    with pytest.raises(pk.PruefkreisFehler, match="Unbekannte Prueferwahl"):
+        pk.pruefer_waehlen(None, False, "claude", "gpt")

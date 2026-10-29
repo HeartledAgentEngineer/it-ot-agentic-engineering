@@ -13,8 +13,8 @@ gleich, nur ganze Pfadsegmente; bei Gleichstand verschiedener Themen kein Treffe
 als ganzes Wort im Titel (case-insensitiv) – nur, wenn genau ein Projekt passt.
 
 Datenschutz (Regel G9): Titel und Ordner werden nur lokal ausgewertet und nie weitergegeben.
-Gesperrt wird mit der Sperre des Zustands (`zustand.sperre`); `paare.setzen` sperrt nicht selbst
-und läuft bei Codex-Chats unter dieser Sperre.
+Gesperrt wird mit der Sperre des Zustands (`zustand.sperre`); `paare._setzen_gesperrt` setzt diese Sperre
+voraus und läuft bei Codex-Chats unter ihr, ohne eine zweite Sperre anzufordern.
 """
 from __future__ import annotations
 
@@ -178,7 +178,7 @@ def bestaetigen(chat_werkzeug: str, kennung: str, thema: str) -> str:
     with zustand.sperre():
         if chat_werkzeug == "codex":
             try:
-                paare.setzen(thema, kennung, paare.laufend_bilden(thema))
+                paare._setzen_gesperrt(thema, kennung, paare.laufend_bilden(thema))
             except paare.PaarFehler as fehler:
                 raise ZuordnungFehler(f"Paar nicht gesetzt: {fehler}") from None
             return schluessel

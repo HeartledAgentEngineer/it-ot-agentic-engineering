@@ -74,17 +74,20 @@ def test_lage_bekannt_zeigt_matrix_ohne_klammern():
 def test_automatik_wirksam_nur_mit_kontingent_master_aktivem_paar_und_global_an():
     themen = [_thema("a"), _thema("b", master="hermes"), _thema("c", aktiv=False), _thema("d", aktiv=None)]
     text = "\n".join(_zeilen(themen=themen))
-    assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto an" in text
-    assert "b: Master Hermes (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus (fester Master)" in text
-    assert "c: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in text
-    assert "d: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · ohne Codex-Paar" in text
+    assert "a: Master Claude · Opus 5.5 (nach Kontingent) · Besitz claude · Prüfer Codex · App-Standard · Ausführer Workflow → GPT-6 Luna / Claude Sonnet 5.5 · Auto an (wirksam)" in text
+    assert ("b: Master Hermes · DeepSeek V4.1 Flash · Besitz Claude · Prüfer Codex · App-Standard · Ausführer Workflow → GPT-6 Luna / Claude Sonnet 5.5"
+            " · Freigabe an – wirkt nicht: fester Master Hermes") in text
+    assert "c: Master Claude · Opus 5.5 (nach Kontingent) · Besitz claude · Prüfer Codex · App-Standard · Ausführer Workflow → GPT-6 Luna / Claude Sonnet 5.5 · Freigabe aus" in text
+    assert "d: Master Claude · Opus 5.5 (nach Kontingent) · Besitz claude · Prüfer Codex · App-Standard · Ausführer Workflow → GPT-6 Luna / Claude Sonnet 5.5 · ohne Codex-Paar" in text
     aus = "\n".join(_zeilen(themen=[_thema("a")], automatik=False))
-    assert "a: Master nach Kontingent (Besitz claude) · Prüfer Codex · Ausführer Workflow · Auto aus" in aus
+    assert ("a: Master Claude · Opus 5.5 (nach Kontingent) · Besitz claude · Prüfer Codex · App-Standard · Ausführer Workflow → GPT-6 Luna / Claude Sonnet 5.5"
+            " · Freigabe an – wirkt nicht: Hauptschalter aus") in aus
 
 
 def test_unbekannter_besitz_und_modell():
     text = "\n".join(_zeilen(themen=[_thema(worker="codex", modell="gpt-6-luna", besitzer=None)]))
-    assert "t1: Master nach Kontingent (Besitz unbekannt) · Prüfer ? (pruefkreis braucht --master) · Ausführer Codex gpt-6-luna · Auto an" in text
+    assert ("t1: Master Claude · Opus 5.5 (nach Kontingent) · Besitz unbekannt · Prüfer ? (Besitz unklar – pruefkreis bricht ohne --master ab)"
+            " · Ausführer Codex · gpt-6-luna · Auto an (wirksam)") in text
 
 
 def test_als_naechstes_waehlt_fruehesten_reset_im_limit():
@@ -137,7 +140,7 @@ def _umgebung(tmp_path: Path, monkeypatch) -> Path:
 def test_sammeln_liest_echte_quellen_ohne_uuid(tmp_path, monkeypatch):
     _umgebung(tmp_path, monkeypatch)
     text = "\n".join(kurz.sammeln())
-    assert "thema-a: Master nach Kontingent (Besitz hermes)" in text
+    assert "thema-a: Master nach Kontingent · Lage ? · Besitz Hermes" in text
     assert "Sitzung Claude eins-sit · thema-a · ruht" in text
     assert "Sitzung Claude zwei-sit · Thema nicht zugeordnet · ruht" in text
     assert THREAD not in text and str(tmp_path) not in text
@@ -148,9 +151,9 @@ def test_sammeln_prueferzeile_mit_und_ohne_besitzdatei(tmp_path, monkeypatch):
     paare.setzen("thema-b", "00000000-0000-4000-8000-0000000000c3", paare.laufend_bilden("thema-b"), aktiv=True)
     paare.setzen("thema-a-teil", "00000000-0000-4000-8000-0000000000d4", paare.laufend_bilden("thema-a-teil"), aktiv=True)
     text = "\n".join(kurz.sammeln())
-    assert "thema-a: Master nach Kontingent (Besitz hermes) · Prüfer Codex ·" in text
-    assert "thema-b: Master nach Kontingent (Besitz claude) · Prüfer ? (pruefkreis braucht --master)" in text
-    assert "thema-a-teil: Master nach Kontingent (Besitz claude) · Prüfer Codex ·" in text   # erbt thema-a (hermes)
+    assert "thema-a: Master nach Kontingent · Lage ? · Besitz Hermes · Prüfer Codex · App-Standard ·" in text
+    assert "thema-b: Master nach Kontingent · Lage ? · Besitz Claude · Prüfer ? (Besitz unklar – pruefkreis bricht ohne --master ab)" in text
+    assert "thema-a-teil: Master nach Kontingent · Lage ? · Besitz Claude · Prüfer Codex · App-Standard ·" in text   # erbt thema-a (hermes)
 
 
 def test_sammeln_liest_nur(tmp_path, monkeypatch):
@@ -215,7 +218,7 @@ def test_sammeln_aus_worktree_liest_besitz_im_hauptbaum(tmp_path, monkeypatch):
     (repo / ".git").write_text(f"gitdir: {tmp_path / 'haupt' / '.git' / 'worktrees' / 'w'}", encoding="utf-8")
     besitz.schreiben(besitz.pfad(tmp_path / "haupt", paare.laufend_bilden("thema-a")), "codex 2026-10-28T00:00:00+00:00 modus x")
     text = "\n".join(kurz.sammeln())
-    assert "thema-a: Master nach Kontingent (Besitz codex) · Prüfer Hermes (Master Codex)" in text
+    assert "thema-a: Master nach Kontingent · Lage ? · Besitz Codex · Prüfer Hermes · DeepSeek V4.1 Flash ·" in text
 
 
 def test_kopfzeile_nennt_master_status_und_hauptschalter():

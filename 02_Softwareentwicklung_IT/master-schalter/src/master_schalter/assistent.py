@@ -17,7 +17,7 @@ Regeln, die den Ablauf tragen:
   auf der Platte (`phase_gewinnen`); wer den Wechsel verliert, sendet nicht. Ein Absturz dazwischen heißt
   „unklar" – es wird **nie** automatisch neu gesendet.
 * **Zustellwege:** Codex über `codex.exe queue --thread <Kennung> --message <Text>` (Argumentliste, keine
-  Shell); Claude und Hermes über das Postfach (`postfach.einlegen`). Der Text besteht aus festen
+  Shell); Claude, Hermes und Antigravity über das Postfach (`postfach.einlegen`). Der Text besteht aus festen
   Satzbausteinen (`postfach.TEXTE`) – keine Chat-Kennung, kein Titel, kein Dateiinhalt.
 * **Kennungen** der Chats liegen nur in `assistent.json` (lokal, G9); Protokoll (`protokoll.py`),
   Meldungen und CLI-Ausgaben nennen sie nie.
@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 from . import assistent_vorgaenge as av
 from . import besitz, codex_senden, modi, paare, postfach, protokoll, zustand
@@ -50,7 +51,7 @@ __all__ = ["ABGABE_FRIST", "AssistentFehler", "ChatRef", "fortsetzen", "uebergeb
 
 @dataclass(frozen=True)
 class ChatRef:
-    """Ein Chat: Werkzeug (`claude|codex|hermes`) und Kennung nach G6-Muster `^[A-Za-z0-9_-]{1,80}$`.
+    """Ein Chat: Werkzeug (`claude|codex|hermes|agy`) und Kennung nach G6-Muster `^[A-Za-z0-9_-]{1,80}$`.
 
     Die Fehlermeldungen nennen die Kennung nie.
     """
@@ -161,7 +162,8 @@ def _frist_abgelaufen(vorgang: av.Vorgang, jetzt: datetime) -> bool:
 
 def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_chat: ChatRef | None = None,
                repo: Path | None = None, jetzt: datetime | None = None,
-               transport: Transport | None = None) -> av.Vorgang:
+               transport: Transport | None = None, abgabe_modus: str = "frist",
+               git: Callable[[Path, list[str]], str] | None = None) -> av.Vorgang:
     """Einen Wechsel starten: Vorgang anlegen, dem alten Chat den Abgabe-Auftrag schicken, einmal fortsetzen.
 
     Alle Prüfungen laufen vor jeder Nebenwirkung; ein Fehler (`AssistentFehler`) ändert nichts.
@@ -169,6 +171,10 @@ def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_c
     bleibt der Vorgang nach dem Rollensetzen auf `rolle_gesetzt` (Zustellung später nachholbar).
     """
     jetzt = jetzt or datetime.now(timezone.utc)
+    if abgabe_modus not in ("frist", "warten"):
+        raise AssistentFehler("Abgabemodus unzulässig")
+    if abgabe_modus == "warten" and (von_chat is None or nach_chat is None):
+        raise AssistentFehler("Geprüftes Abwarten benötigt alten und neuen Chat")
     try:
         paare.thema_pruefen(thema)
     except paare.PaarFehler as fehler:   # die ungeprüfte Eingabe nie wiederholen (R6/1)
@@ -193,7 +199,7 @@ def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_c
         with zustand.thema_sperre(thema) as frei:         # nicht blockierend: belegt = sofort melden
             if not frei:
                 raise AssistentFehler("Thema gerade belegt")
-            vorgang = _anlegen(thema, ziel, von_chat, nach_chat, repo, jetzt)
+            vorgang = _anlegen(thema, ziel, von_chat, nach_chat, repo, jetzt, abgabe_modus)
     except (modi.ModusFehler, zustand.SperrFehler, OSError) as fehler:
         raise _assistentfehler(fehler, vorspann="Wechsel nicht gestartet") from fehler
 
@@ -207,7 +213,7 @@ def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_c
         else:
             _abgabe_senden(vorgang, von_chat, laufend, transport)
         try:
-            return fortsetzen(vorgang.id, repo=repo, jetzt=jetzt, transport=transport)
+            return fortsetzen(vorgang.id, repo=repo, jetzt=jetzt, transport=transport, git=git)
         except AssistentFehler as fehler:
             # Der Vorgang steht; `masterwechsel fortsetzen` zeigt den Fehler erneut und macht weiter.
             # Nur die Fehlerklasse ins Protokoll: Ausnahmetexte können Pfade enthalten.
@@ -221,9 +227,9 @@ def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_c
 
 
 def _anlegen(thema: str, ziel: str, von_chat: ChatRef | None, nach_chat: ChatRef | None,
-             repo: Path | None, jetzt: datetime) -> av.Vorgang:
+             repo: Path | None, jetzt: datetime, abgabe_modus: str = "frist") -> av.Vorgang:
     """Unter gehaltener Themensperre: prüfen, `vorbereitet` mit Vorzustand anlegen, Abgabe beginnen/überspringen."""
-    if any(v.thema == thema and _laeuft(v) for v in av.lesen()):
+    if any(v.thema == thema and _laeuft(v) for v in av.lesen_geprueft()):
         raise AssistentFehler("Wechsel läuft bereits")
     profil = modi.profil(thema)
     text = _markentext(thema, repo)
@@ -238,7 +244,8 @@ def _anlegen(thema: str, ziel: str, von_chat: ChatRef | None, nach_chat: ChatRef
         av.neue_id(jetzt), thema, ziel, alt, "vorbereitet", jetzt.isoformat(),
         {"master": profil.master, "worker": profil.worker, "modell": profil.modell}, text,
         von_chat=None if von_chat is None else von_chat.als_dict(),
-        nach_chat=None if nach_chat is None else nach_chat.als_dict())
+        nach_chat=None if nach_chat is None else nach_chat.als_dict(),
+        abgabe_modus=abgabe_modus)
     av.aendern(lambda liste: [*liste, vorgang])
     protokoll.schreiben(vorgang.id, thema, "angelegt", f"{alt} -> {ziel}")
     if von_chat is None:
@@ -252,7 +259,8 @@ def _abgabe_senden(vorgang: av.Vorgang, ref: ChatRef, laufend: str, transport: T
     """Abgabe-Auftrag an den alten Chat (Phase ist bereits `abgabe_sende`), Ergebnis über `abgabe_ergebnis`."""
     protokoll.schreiben(vorgang.id, vorgang.thema, "abgabe_zustellweg", ref.werkzeug)
     if ref.werkzeug == "codex":
-        text = postfach.text("abgabe_auftrag", vorgang.thema, laufend, vorgang.id)
+        text = postfach.text("abgabe_auftrag", vorgang.thema, laufend, vorgang.id,
+                             abgabe_modus=vorgang.abgabe_modus)
         ergebnis = ABGABE_WEG[_codex_senden(ref.kennung, text, transport)]
     else:
         ok = _postfach_legen(ref, vorgang.id, vorgang.thema, "abgabe_auftrag")
@@ -264,15 +272,16 @@ def _abgabe_senden(vorgang: av.Vorgang, ref: ChatRef, laufend: str, transport: T
 # --- Einstieg 2: fortsetzen (idempotenter Takt) ---------------------------------------
 
 def fortsetzen(vorgang_id: str, *, repo: Path | None = None, jetzt: datetime | None = None,
-               transport: Transport | None = None) -> av.Vorgang:
+               transport: Transport | None = None,
+               git: Callable[[Path, list[str]], str] | None = None) -> av.Vorgang:
     """Einen Vorgang so weit bringen, wie es jetzt sicher geht; mehrfaches Aufrufen sendet nie doppelt.
 
     1. Frist: offene Abgabe älter als `ABGABE_FRIST` → übersprungen; der Gewinner dieses Wechsels
-       schickt dem alten Chat die Info (ein Fehler dabei hält nichts auf).
+        schickt dem alten Chat die Info (ein Fehler dabei hält nichts auf).
     2. Abgabe erledigt (`abgegeben`/`abgabe_uebersprungen`): Marke noch wie im Vorzustand → Rolle setzen,
-       sonst `verworfen` („Stand geändert").
+        sonst `verworfen` („Stand geändert").
     3. `rolle_gesetzt` mit neuem Chat: `sende` (Write-ahead) → Zustellung → `gesendet` | `im_postfach` |
-       `fehler` | `unklar`. Ohne neuen Chat bleibt es bei `rolle_gesetzt`.
+        `fehler` | `unklar`. Ohne neuen Chat bleibt es bei `rolle_gesetzt`.
 
     Alle anderen Phasen bleiben unverändert. Unbekannte ID: `AssistentFehler`.
     """
@@ -285,8 +294,9 @@ def fortsetzen(vorgang_id: str, *, repo: Path | None = None, jetzt: datetime | N
         vorgang = av.finden(vorgang_id)
         if vorgang is None:
             raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
-        for schritt in (_frist, _rolle_setzen, _zustellen):
-            vorgang = schritt(vorgang, repo=repo, jetzt=jetzt, transport=transport)
+        vorgang = _frist(vorgang, repo=repo, jetzt=jetzt, transport=transport)
+        vorgang = _rolle_setzen(vorgang, repo=repo, jetzt=jetzt, transport=transport, git=git)
+        vorgang = _zustellen(vorgang, repo=repo, jetzt=jetzt, transport=transport)
     except AssistentFehler:
         raise
     except Exception as fehler:  # noqa: BLE001
@@ -300,7 +310,7 @@ def _frist(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime, transport
     """Frist abgelaufen -> nur die Phase `abgabe_uebersprungen`. Die Info an den alten Chat geht **nicht** hier raus,
     sondern erst, wenn `_rolle_setzen` die Rolle wirklich gesetzt hat (sonst hörte der alte Master "du führst nicht
     mehr", obwohl er noch Master ist)."""
-    if vorgang.phase not in av.ABGABE_FRISTBAR or not _frist_abgelaufen(vorgang, jetzt):
+    if vorgang.abgabe_modus != "frist" or vorgang.phase not in av.ABGABE_FRISTBAR or not _frist_abgelaufen(vorgang, jetzt):
         return vorgang
     neu, gewonnen = av.phase_gewinnen(vorgang.id, av.ABGABE_FRISTBAR, "abgabe_uebersprungen",
                                       abgabe="uebersprungen", fehler="Frist abgelaufen")
@@ -351,7 +361,7 @@ def _info_senden(vorgang: av.Vorgang, ref: ChatRef, transport: Transport | None,
 
 
 def _rolle_setzen(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime,
-                  transport: Transport | None) -> av.Vorgang:
+                  transport: Transport | None, git: Callable[[Path, list[str]], str] | None = None) -> av.Vorgang:
     if vorgang.phase not in _NACH_ABGABE:
         return vorgang
     info_an: ChatRef | None = None
@@ -362,12 +372,28 @@ def _rolle_setzen(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime,
             aktuell = av.finden(vorgang.id)
             if aktuell is None or aktuell.phase not in _NACH_ABGABE:
                 return aktuell or vorgang
-            if any(v.thema == aktuell.thema and v.id != aktuell.id and v.phase == "sende" for v in av.lesen()):
+            if any(v.thema == aktuell.thema and v.id != aktuell.id and v.phase == "sende" for v in av.lesen_geprueft()):
                 return aktuell          # die Nachricht eines anderen Vorgangs geht gerade raus: Marke nicht wechseln
             text = _markentext(aktuell.thema, repo)
             schon_gesetzt = besitz.assistent_marke(text) == (aktuell.ziel, aktuell.thema, aktuell.id)
             eigene_zwischenmarke = (modi.ist_zwischenmarke(text, aktuell.thema)
                                     and text.split()[3] == aktuell.ziel)
+            if aktuell.abgabe_modus == "warten" and aktuell.phase == "abgabe_uebersprungen" and not schon_gesetzt:
+                return aktuell
+            if aktuell.abgabe_modus == "warten" and not schon_gesetzt:
+                from .abgabe_nachweis import NachweisFehler, passt, pruefen
+                try:
+                    nachweis = pruefen(aktuell.thema, aktuell, repo, jetzt, git=git)
+                    if not passt(aktuell, nachweis):
+                        raise NachweisFehler("Nachweis stimmt nicht mehr mit dem aktuellen Übergabestand überein")
+                except Exception as fehler:
+                    grund = "Abgabe offen – geprüfter Übergabestand hat sich geändert oder ist nicht prüfbar"
+                    if aktuell.fehler != grund:
+                        def fehler_setzen(alt: list[av.Vorgang]) -> list[av.Vorgang]:
+                            return [replace(v, fehler=grund) if v.id == aktuell.id and v.phase == "abgegeben" and v.fehler != grund else v for v in alt]
+                        av.aendern(fehler_setzen)
+                        protokoll.schreiben(aktuell.id, aktuell.thema, "abgabe_pruefung_offen", "Stand erneut prüfen")
+                    return replace(aktuell, fehler=grund)
             if not schon_gesetzt and not eigene_zwischenmarke and text != aktuell.vorzustand_marke.strip():
                 neu, gewonnen = av.phase_gewinnen(aktuell.id, _NACH_ABGABE, "verworfen", fehler="Stand geändert")
                 if gewonnen:
@@ -463,6 +489,12 @@ def _zustellen(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime,
         erg = _codex_senden(ref.kennung, text, transport)
     else:
         erg = "ok" if _postfach_legen(ref, vorgang.id, vorgang.thema, "neu") else "fehler"
+        if erg == "ok" and ref.werkzeug == "agy" and transport is None:
+            try:
+                from . import agy_senden
+                agy_senden.nachricht_senden(ref.kennung, text, titel=f"Master-Schalter: {vorgang.thema}")
+            except Exception:  # noqa: BLE001 - Postfach liegt bereits sicher bereit
+                pass
     phase = "im_postfach" if erg == "ok" and ref.werkzeug != "codex" else NEU_WEG[erg]
     felder = {} if erg == "ok" else {"fehler": NEU_FEHLER[erg]}   # sonst bleibt ein früherer Grund (z. B. übersprungene Abgabe)
     # Vergleich-und-Setzen nur aus `sende`: hat der neue Chat schon quittiert/abgeholt, bleibt dessen Phase.

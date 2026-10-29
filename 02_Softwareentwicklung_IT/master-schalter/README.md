@@ -725,6 +725,36 @@ je Ereignis einen eigenen Eintrag:
   steht Antigravity in keiner Zeile der Kaskaden-Matrix; die Rolle wird je Thema ausdrücklich gesetzt.
   Der globale Standard-Master (`wechsel`) kennt `agy` ebenfalls nicht – sie ist eine Themenrolle.
 
+### Automatische Übergabe Codex → Antigravity bei Codex-Limit
+
+Läuft die Leiste mit eingeschaltetem Hauptschalter Automatik, prüft `agy_automatik.lauf()` im Automatiktakt
+zusätzlich das **Codex-Kontingent**. Fällig sind Themen, wenn
+
+- die Codex-Messung frisch ist (≤ 10 min) und das 5h- **oder** Wochenfenster die Schwelle erreicht,
+- Claude nicht frei ist (im Limit oder ohne frische freie Messung),
+- das Paar aktiv ist, die Besitzmarke `<thema>.master` den Besitzer `codex` trägt und der Profil-Master
+  `kontingent` oder `codex` ist,
+- kein Wechselvorgang des Themas offen ist und keine Modus-Zwischenmarke liegt.
+
+Je fälligem Thema:
+
+1. Gibt es in `zuordnung.json` schon ein bestätigtes `agy:<kennung>` für das Thema, wird dieses Gespräch genutzt.
+   Sonst legt `agy_senden.neues_gespraech` mit `language_server.exe agentapi new-conversation
+   --title="Thema: <thema>" <Startauftrag>` ein neues Antigravity-Gespräch an und bestätigt die Zuordnung.
+2. Die Kennung `<thema>@codex:<reset>` wird in `automatik_ausgeloest.json` vermerkt – höchstens ein Versuch je
+   Thema und Codex-Limitfenster. Scheitert schon die Chat-Anlage, wird nichts vermerkt; der nächste Takt versucht
+   es erneut.
+3. `assistent.uebergeben(thema, "agy", nach_chat=agy:<kennung>)` setzt die Rolle; die Übernahmenachricht liegt im
+   Postfach (maßgeblich) und wird zusätzlich per `agentapi send-message` an das Gespräch geschickt, damit es
+   aufwacht. Gültig wird der Wechsel erst mit `masterwechsel quittieren <vorgang> neu`.
+
+`agentapi` braucht die Verbindungsdaten des laufenden Antigravity-Servers. Da die Leiste außerhalb des
+Antigravity-Prozessbaums läuft, speichern der Hook und `masterwechsel postfach agy …` diese lokalen Variablen in
+`agy-server.json` im Datenordner. Sie werden nie ausgegeben oder protokolliert; der Aufruf läuft immer als
+Argumentliste ohne Shell. **Grenze (ehrlich):** Ist Antigravity seit dem letzten Hook-/Postfach-Aufruf neu
+gestartet, sind die gespeicherten Daten veraltet – dann scheitert die Chat-Anlage, es wird nichts vermerkt, und
+der Wechsel läuft beim nächsten Takt nach einem neuen Hook-Aufruf.
+
 ## Aufträge an Claude (v0.5.1, unveröffentlicht)
 
 Ein Master (Codex oder Hermes) beauftragt eine laufende Claude-Code-Sitzung, z. B. als Prüfer. Das Postfach des

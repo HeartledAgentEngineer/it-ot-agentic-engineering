@@ -1,6 +1,6 @@
-"""Postfach des Wechselassistenten: eine kleine Datei je Nachricht an einen Claude-/Hermes-Chat.
+"""Postfach des Wechselassistenten: eine kleine Datei je Nachricht an einen Claude-/Hermes-/Antigravity-Chat.
 
-Layout: `<datenordner>/postfach/<ziel>/<kennung>/<vorgang-id>_<art>.json` mit `ziel` ∈ claude|hermes
+Layout: `<datenordner>/postfach/<ziel>/<kennung>/<vorgang-id>_<art>.json` mit `ziel` ∈ claude|hermes|agy
 (Codex bekommt seine Nachricht über die Thread-Queue) und `art` ∈ `NACHRICHTEN`:
 * `neu`            – Übernahme-Auftrag an den neuen Master
 * `abgabe_auftrag` – Abgabe-Auftrag an den alten Master (er soll abschließen und quittieren)
@@ -80,6 +80,7 @@ TEXT_NEU = ("Du führst jetzt das Thema {thema}. Lies zuerst {laufend}, "
 TEXT_ABGABE_AUFTRAG = ("Du gibst das Thema {thema} ab. Schließe den laufenden Schritt sauber ab, "
                        "aktualisiere {laufend} (Kopfzeile `Übergabebereit: ja`), beginne keinen neuen Schritt "
                        "und führe `masterwechsel quittieren {vorgang} abgabe` aus.")
+TEXT_ABGABE_WARTEN = " Übergabekopf für diesen Abgabeauftrag neu aktualisieren; danach quittieren. Kein automatisches Übergehen."
 TEXT_ABGABE_INFO = ("Du führst das Thema {thema} nicht mehr (Vorgang {vorgang}). Beginne dort keinen "
                     "neuen Schritt; die Übergabe übernimmt der neue Master. "
                     "Maßgeblich ist die Besitzmarke; prüfe im Zweifel `masterwechsel profil {thema}`.")
@@ -221,23 +222,32 @@ def _verwerfen(datei: Path, roh: object, grund: str) -> None:
     datei.unlink(missing_ok=True)
 
 
-def text(art: str, thema: str, laufend: str, vorgang_id: str, abgabe_uebersprungen: bool = False) -> str:
+def text(art: str, thema: str, laufend: str, vorgang_id: str, abgabe_uebersprungen: bool = False,
+         abgabe_modus: str = "frist") -> str:
     """Fester Nachrichtentext einer Art (auch für die Codex-Queue). Nie eine Chat-Kennung darin.
 
     Bei der Art `neu` hängt `abgabe_uebersprungen=True` den Zusatzsatz `ZUSATZ_ABGABE_FEHLTE` an: der alte
     Master hat nicht abgegeben, der neue soll zuerst den Stand prüfen.
     """
     satz = TEXTE[art].format(thema=thema, laufend=laufend, vorgang=vorgang_id)
-    return f"{satz} {ZUSATZ_ABGABE_FEHLTE}" if art == "neu" and abgabe_uebersprungen else satz
+    if art == "neu" and abgabe_uebersprungen:
+        return f"{satz} {ZUSATZ_ABGABE_FEHLTE}"
+    if art == "abgabe_auftrag" and abgabe_modus == "warten":
+        return satz + TEXT_ABGABE_WARTEN
+    return satz
 
 
 def _text(inhalt: dict[str, str]) -> str:
     """Text zur Datei; den Zusatz bei übersprungener Abgabe leitet er aus dem Vorgang ab (kein Inhaltsfeld, G6)."""
-    uebersprungen = False
-    if inhalt["rolle"] == "neu":
+    try:
         vorgang = assistent_vorgaenge.finden(inhalt["vorgang"])
-        uebersprungen = vorgang is not None and vorgang.abgabe == "uebersprungen"
-    return text(inhalt["rolle"], inhalt["thema"], inhalt["laufend"], inhalt["vorgang"], uebersprungen)
+    except assistent_vorgaenge.AssistentFehler as fehler:
+        raise PostfachFehler("Wechselregister nicht prüfbar; Nachricht bleibt im Postfach") from fehler
+    if vorgang is None:
+        raise PostfachFehler("Vorgang nicht prüfbar; Nachricht bleibt im Postfach")
+    uebersprungen = inhalt["rolle"] == "neu" and vorgang.abgabe == "uebersprungen"
+    return text(inhalt["rolle"], inhalt["thema"], inhalt["laufend"], inhalt["vorgang"], uebersprungen,
+                abgabe_modus=vorgang.abgabe_modus)
 
 
 def _abgelaufen(bis: float | None) -> bool:
@@ -277,15 +287,18 @@ def vormerken(ziel: str, kennung: str, repo: Path | None = None, *, frist: float
                 continue          # ein zweiter Abholer war schneller (oder die Datei wurde ersetzt)
             try:
                 ausgang, grund = _entscheiden(ziel, inhalt, repo)
-            except modi.ModusFehler:
+            except (modi.ModusFehler, assistent_vorgaenge.AssistentFehler):
                 continue          # Besitzstatus nicht lesbar: weder zustellen noch verwerfen
             if ausgang == LIEGEN:
                 continue
             if ausgang == VERWERFEN:
                 _verwerfen(datei, roh, grund or "ungültig")
                 continue
-            nachricht = Nachricht(inhalt["vorgang"], inhalt["thema"], inhalt["rolle"],
-                                  inhalt["laufend"], _text(inhalt))
+            try:
+                nachricht = Nachricht(inhalt["vorgang"], inhalt["thema"], inhalt["rolle"],
+                                      inhalt["laufend"], _text(inhalt))
+            except PostfachFehler:
+                continue
         vorgemerkt.append(Vorgemerkt(nachricht, datei, roh, inhalt, ziel, repo))
     return vorgemerkt
 
@@ -315,7 +328,7 @@ def bestaetigen(vorgemerkt: list[Vorgemerkt], *, frist: float | None = None,
                 continue          # geändert oder schon von einem zweiten Abholer verschoben
             try:
                 ausgang, grund = _entscheiden(eintrag.ziel, eintrag.inhalt, eintrag.repo)
-            except modi.ModusFehler:
+            except (modi.ModusFehler, assistent_vorgaenge.AssistentFehler, PostfachFehler):
                 continue          # Besitzstatus nicht lesbar: weder zustellen noch verwerfen
             if ausgang == LIEGEN:
                 continue
@@ -353,7 +366,10 @@ def _entscheiden(ziel: str, inhalt: dict[str, str], repo: Path | None) -> tuple[
 
     Verworfen wird nur bei endgültiger Ungültigkeit, im Zweifel bleibt die Datei liegen.
     """
-    vorgang = assistent_vorgaenge.finden(inhalt["vorgang"])
+    try:
+        vorgang = assistent_vorgaenge.finden(inhalt["vorgang"])
+    except assistent_vorgaenge.AssistentFehler:
+        return LIEGEN, None
     if vorgang is None:
         return LIEGEN, None       # der Vermerk kann noch nachkommen
     if vorgang.thema != inhalt["thema"]:
