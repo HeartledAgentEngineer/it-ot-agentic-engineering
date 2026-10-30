@@ -646,18 +646,32 @@ def alle_limits_lesen(jetzt: datetime | None = None) -> list[AnbieterLimit]:
 
     # 3. Gemini / Antigravity
     gm = gemini_lesen(jetzt=jetzt)
+    argon_info = "Aktiv (lokaler Agentenschutz; nicht extern messbar)"
+    try:
+        roh_gm = json.loads(gemini_datei().read_text(encoding="utf-8"))
+        a_data = roh_gm.get("fenster", {}).get("argon", {})
+        if isinstance(a_data, dict):
+            stat = a_data.get("status", "")
+            prz = a_data.get("used_percent")
+            if prz is not None and prz >= 100:
+                argon_info = f"100 % verbraucht ({stat})" if stat else "100 % verbraucht (Wochenlimit)"
+            elif stat:
+                argon_info = stat
+    except Exception:
+        pass
+
     ergebnis.append(AnbieterLimit(
         anbieter="Gemini",
         titel="Google Antigravity & Gemini",
         fenster=gm.fenster,
         details={
             "Plattform": "Google Antigravity & Gemini API",
-            "Argon-Limit": "Aktiv (lokaler Agentenschutz; nicht extern messbar)",
+            "Argon-Limit": argon_info,
+            "Gemini 3.8 Flash": "Aktiv (Master & Worker)",
             "Claude Opus 5.5": "Verfuegbar (Integrative Maschine Master)",
-            "Gemini 3.8 Flash": "Verfuegbar (Worker & Standard-Master)",
-            "Gemini 2.5 Pro": "Verfuegbar (Deep Reasoning)",
-            "5h-Fenster": f"{int(gm.fenster[0].prozent or 0)} % verbraucht (nicht extern messbar)" if len(gm.fenster) > 0 else "nicht messbar",
-            "Wochen-Fenster": f"{int(gm.fenster[1].prozent or 0)} % verbraucht (nicht extern messbar)" if len(gm.fenster) > 1 else "nicht messbar",
+            "Gemini 2.5 Pro": "Eingeschraenkt / Aeltere Generation",
+            "5h-Fenster": f"{int(gm.fenster[0].prozent or 0)} % verbraucht" if len(gm.fenster) > 0 else "nicht messbar",
+            "Wochen-Fenster": f"{int(gm.fenster[1].prozent or 0)} % verbraucht" if len(gm.fenster) > 1 else "nicht messbar",
         },
         fehler=gm.fehler,
         stand=gm.stand,

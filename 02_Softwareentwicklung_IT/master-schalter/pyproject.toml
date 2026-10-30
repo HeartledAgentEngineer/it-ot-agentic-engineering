@@ -16,6 +16,12 @@ dev = ["pytest>=8.3"]
 
 [project.scripts]
 masterwechsel = "master_schalter.cli:main"
+master-schalter = "master_schalter.uebersicht:main"
+master-leiste = "master_schalter.leiste:main"
+
+[project.gui-scripts]
+master-schalter-gui = "master_schalter.uebersicht:main"
+master-leiste-gui = "master_schalter.leiste:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

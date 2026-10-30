@@ -277,7 +277,17 @@ class Fenster:
             else:
                 info_text = abo.gemessen
                 if abo.name == "Gemini" and abo.gemessen and "Argon" not in info_text:
-                    info_text = f"{abo.gemessen} · Argon: OK"
+                    try:
+                        import json
+                        from . import signale
+                        g_dat = json.loads(signale.gemini_datei().read_text(encoding="utf-8"))
+                        a_dat = g_dat.get("fenster", {}).get("argon", {})
+                        if a_dat.get("used_percent", 0) >= 100 or "limit" in a_dat.get("status", "").lower():
+                            info_text = f"{abo.gemessen} · Argon: Limit (100 %)"
+                        else:
+                            info_text = f"{abo.gemessen} · Argon: OK"
+                    except Exception:
+                        info_text = f"{abo.gemessen} · Argon: OK"
                 info.set(info_text)
                 fehler.set("\n".join(um.abo_meldungen(abo)))
             for k in range(2):

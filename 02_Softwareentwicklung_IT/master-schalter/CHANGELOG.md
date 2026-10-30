@@ -10,6 +10,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
+- **Windows Executables & Autostart (`pyproject.toml`, Autostart / `shell:startup`)**:
+  * Eigenständige Windows-Executables unter `.venv/Scripts/`: `master-schalter-gui.exe` (Übersicht ohne Konsolenfenster), `master-leiste-gui.exe` (Taskleisten-Tray ohne Konsolenfenster), `master-schalter.exe`, `master-leiste.exe` und `masterwechsel.exe`.
+  * Autostart-Verknüpfungen für Windows Login (`shell:startup`): `Master-Schalter.lnk` startet direkt die `master-schalter-gui.exe` und `Master-Schalter-Leiste.lnk` die `master-leiste-gui.exe`.
+  * Entkoppeltes Skript `leiste_starten.cmd` auf Ausführung der `master-leiste-gui.exe` angepasst mit Prozess-Doppelstartschutz.
+- **Dynamische Argon- & Gemini-Limit-Anzeige (`signale.py`, `uebersicht.py`)**:
+  * Kontingentkarte liest den aktuellen Argon-Status dynamisch aus `gemini-kontingent.json` und zeigt `Argon: Limit (100 %)` bei verbrauchtem Kontingent bzw. `Argon: OK`.
+  * Detailanzeige im Limit-Monitor unterscheidet präzise zwischen `Argon-Limit`, `Gemini 3.8 Flash (Master & Worker)` und `Gemini 2.5 Pro (Eingeschränkt / Ältere Generation)`.
 - **Themen-Workflow & Master-Rotation konfigurierbar (`matrix_konfiguration.py`, `uebersicht.py`, `chat_discovery.py`)**:
   * Master-Rotationen (`Antigravity ➔ Hermes ➔ Codex`, `Integrative Maschine (Claude Opus 5.5 ➔ Argon ➔ Gemini 3.8 Flash)`, `Codex ➔ Antigravity ➔ Hermes`, `Hermes ➔ Antigravity ➔ Codex`, `Claude ➔ Codex ➔ Antigravity`, `Standard`) pro Thema frei einstell- und speicherbar (`mk.themen_einstellungen_schreiben`).
   * Neuer Konfigurationsbereich *Themen-Workflow & Master-Rotation* im Matrix-Dialog integriert: Beliebiges Thema auswählen, Rotation/Preset anpassen und mit einem Klick sichern.
