@@ -3824,6 +3824,18 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     // mittig im Bild.
     leiste.style.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;z-index:99999;display:flex;flex-wrap:wrap;justify-content:center;row-gap:6px;max-width:96vw;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
     ov.appendChild(leiste);
+
+    // KI-Bildbeschreibung anzeigen (Wunsch Sebastian 30.10.2026)
+    const descText = (optionen && optionen.beschreibung)
+        || (imgEl && imgEl.dataset && imgEl.dataset.beschreibung)
+        || '';
+    if (descText && descText.trim()) {
+        const descBox = document.createElement('div');
+        descBox.className = 'vollbild-beschreibung';
+        descBox.style.cssText = 'position:fixed;bottom:135px;left:50%;transform:translateX(-50%);max-width:92vw;background:rgba(15,25,20,0.88);color:#dcdcdc;font-size:0.82rem;line-height:1.35;padding:8px 14px;border-radius:12px;border:1px solid #2e8b57;backdrop-filter:blur(4px);pointer-events:none;z-index:99998;text-align:center;box-shadow:0 3px 12px rgba(0,0,0,0.7)';
+        descBox.textContent = descText.trim();
+        ov.appendChild(descBox);
+    }
     try {
         if ((gesichter && gesichter.length) || _quizEditor.fileid) {
             big.addEventListener('load', () => {

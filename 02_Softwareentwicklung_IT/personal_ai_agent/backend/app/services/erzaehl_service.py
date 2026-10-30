@@ -535,6 +535,28 @@ def beschreibungen_pfad() -> str:
     return os.path.join(os.path.dirname(ereignisse_pfad()), BESCHREIBUNGEN_DATEINAME)
 
 
+def life_archive_pfad() -> str:
+    """``life_archive.db`` neben ``ereignisse.jsonl`` (wandert in Tests mit)."""
+    return os.path.join(os.path.dirname(ereignisse_pfad()), "life_archive.db")
+
+
+def _beschreibungen_sqlite_lesen(pfad: str) -> Dict[int, str]:
+    """{fileid: beschreibung} aus SQLite life_archive.db (bevorzugt beschreibung_reich)."""
+    import sqlite3
+    ergebnis: Dict[int, str] = {}
+    try:
+        with sqlite3.connect(f"file:{pfad}?mode=ro", uri=True) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT fileid, beschreibung, beschreibung_reich FROM photos")
+            for fid, b_basis, b_reich in cursor.fetchall():
+                text = (b_reich if b_reich and b_reich.strip() else b_basis) or ""
+                if text.strip():
+                    ergebnis[int(fid)] = " ".join(text.split())[:BESCHREIBUNG_MAX_LAENGE]
+    except Exception as e:
+        logger.warning("Bild-Beschreibungen aus SQLite nicht lesbar (%s): %s", pfad, e)
+    return ergebnis
+
+
 def bild_orte_pfad() -> str:
     """``bild_orte.csv`` (tools/foto_sortierung/orte_aus_karte.py --zuordnen) neben ``ereignisse.jsonl``."""
     return os.path.join(os.path.dirname(ereignisse_pfad()), BILD_ORTE_DATEINAME)
@@ -606,7 +628,12 @@ def bilder_info(kennung: str) -> Optional[Dict[str, Any]]:
     ereignis = _ereignis_finden(kennung)
     if ereignis is None:
         return None
-    beschreibungen = _zwischengespeichert(beschreibungen_pfad(), _beschreibungen_lesen)
+    db_pfad = life_archive_pfad()
+    jsonl_pfad = beschreibungen_pfad()
+    if os.path.isfile(db_pfad):
+        beschreibungen = _zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen)
+    else:
+        beschreibungen = _zwischengespeichert(jsonl_pfad, _beschreibungen_lesen)
     orte = _zwischengespeichert(bild_orte_pfad(), _bild_orte_lesen)
     bilder: Dict[str, Dict[str, Any]] = {}
     zaehler: Dict[str, int] = {}
@@ -624,7 +651,7 @@ def bilder_info(kennung: str) -> Optional[Dict[str, Any]]:
         "orte": [name for name, _ in haeufigste],
         "mit_beschreibung": sum(1 for b in bilder.values() if b["beschreibung"]),
         "mit_ort": sum(1 for b in bilder.values() if b["ort"]),
-        "beschreibungen_vorhanden": os.path.isfile(beschreibungen_pfad()),
+        "beschreibungen_vorhanden": os.path.isfile(jsonl_pfad) or os.path.isfile(db_pfad),
         "orte_vorhanden": os.path.isfile(bild_orte_pfad()),
     }
 

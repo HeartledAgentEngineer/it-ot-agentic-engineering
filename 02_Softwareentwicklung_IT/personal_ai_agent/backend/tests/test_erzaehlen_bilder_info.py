@@ -144,3 +144,29 @@ def test_sender_mit_eigener_dateiliste(tmp_path):
     assert code == 2 and "personen_gruppieren" not in zeilen[0]   # Hinweis nur für die Gruppen-Dateien
     assert gh.senden(str(tmp_path), "/sdcard/Download", adb, wirklich=False, dateien=["../geheim"])[0] == 2
     assert gh.main(["--basis", str(tmp_path), "--dateien", "bild_orte.csv"]) == 0       # Trockenlauf
+
+
+def test_bilder_info_aus_life_archive_db(tmp_path, monkeypatch):
+    import sqlite3
+    _umgebung(tmp_path, monkeypatch, mit_dateien=False)
+    db_pfad = tmp_path / "life_archive.db"
+    with sqlite3.connect(db_pfad) as conn:
+        conn.execute("""
+        CREATE TABLE photos (
+            fileid INTEGER PRIMARY KEY,
+            beschreibung TEXT,
+            beschreibung_reich TEXT
+        )
+        """)
+        conn.execute("""
+        INSERT INTO photos (fileid, beschreibung, beschreibung_reich)
+        VALUES (1, 'Basis-Text', 'Reiche Beschreibung am Strand'),
+               (2, 'Nur Basis', NULL),
+               (3, '', '')
+        """)
+    info = erzaehl_service.bilder_info("E-1")
+    assert info is not None
+    assert info["beschreibungen_vorhanden"] is True
+    assert info["bilder"]["1"]["beschreibung"] == "Reiche Beschreibung am Strand"
+    assert info["bilder"]["2"]["beschreibung"] == "Nur Basis"
+    assert "3" not in info["bilder"]

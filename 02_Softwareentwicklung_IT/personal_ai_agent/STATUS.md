@@ -1,6 +1,6 @@
 # Personal AI Agent — Status Core Pipeline Setup
 
-Stand: 2026-10-30 20:37
+Stand: 2026-10-30 22:27
 
 ## Fortschritt
 
@@ -27,5 +27,15 @@ Stand: 2026-10-30 20:37
   - Sicherheit: Erzwingt zwingend `provider: {"data_collection": "deny", "zdr": True, "allow_fallbacks": True}`
   - End-to-End: `chat_shielded()` maskiert vor dem Senden und dekodiert eintreffende Antworten
 
+- [x] **Schritt 5: Bildbeschreibungen im UI & SQLite-Anbindung im Erzählen-Dienst**
+  - Status: Erfolgreich abgeschlossen (2026-10-30 22:25)
+  - Beleg: `pytest tests/test_erzaehlen_bilder_info.py` -> 6 passed, Exit 0
+  - Backend: `erzaehl_service.py` liest Beschreibungen aus `life_archive.db` (bevorzugt `beschreibung_reich`) mit Fallback auf `bild_beschreibungen.jsonl`.
+  - Frontend:
+    - Kachel-Raster (`erzaehlen.js` + `style.css`): Zeigt KI-Bildbeschreibungen/-Zusammenfassungen direkt unter jeder Kachel im Anlass-Raster (3-Zeilen-Clamp, Tooltip).
+    - Einzelansicht (`index.html`): Bildbeschreibung direkt unter dem Foto-Zähler prominent platziert.
+    - Vollbild / Vergrößerung (`app.js`): `zeigeBildVollbild` zeigt KI-Bildbeschreibung in einem dezenten Overlay unter dem Bild.
+  - Termux: `termux/start-vorbereiten.sh` nimmt `life_archive.db` automatisch in den Datenübertragungs-Pfad auf.
+
 ---
-**Gesamtbeleg:** `pytest tests/test_local_rag.py tests/test_life_archive.py tests/test_pii_shield.py tests/test_openrouter_client.py` -> **16 passed in 8.19s, Exit 0**.
+**Gesamtbeleg:** `python -m pytest 02_Softwareentwicklung_IT/personal_ai_agent/backend/tests/test_local_rag.py 02_Softwareentwicklung_IT/personal_ai_agent/backend/tests/test_life_archive.py 02_Softwareentwicklung_IT/personal_ai_agent/backend/tests/test_pii_shield.py 02_Softwareentwicklung_IT/personal_ai_agent/backend/tests/test_openrouter_client.py 02_Softwareentwicklung_IT/personal_ai_agent/backend/tests/test_erzaehlen_bilder_info.py -q -o "pythonpath=02_Softwareentwicklung_IT/personal_ai_agent/backend"` -> **22 passed in 9.08s, Exit 0**.

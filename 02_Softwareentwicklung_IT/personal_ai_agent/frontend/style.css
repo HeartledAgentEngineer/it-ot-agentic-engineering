@@ -1775,27 +1775,38 @@ button.footer-note:hover {
 
 .erzaehl-raster {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
     margin-top: 10px;
 }
 
 .erzaehl-kachel {
     position: relative;
-    aspect-ratio: 1 / 1;
+    display: flex;
+    flex-direction: column;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-primary);
     overflow: hidden;
     cursor: pointer;
+    text-align: left;
     transition: border-color 0.15s, transform 0.15s;
 }
 
 .erzaehl-kachel:hover { border-color: var(--accent); }
 .erzaehl-kachel:active { transform: scale(0.97); }
 
-.erzaehl-kachel img {
+.erzaehl-kachel-bild {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.2));
+}
+
+.erzaehl-kachel-bild img,
+.erzaehl-kachel > img {
     display: block;
     width: 100%;
     height: 100%;
@@ -1813,6 +1824,25 @@ button.footer-note:hover {
     background: rgba(0, 0, 0, 0.65);
     color: var(--accent);
     font-size: 0.7rem;
+    z-index: 2;
+}
+
+.erzaehl-kachel-untertitel {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    color: var(--text-muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word;
+    min-height: 2.8em;
+}
+
+.erzaehl-kachel-untertitel:empty {
+    display: none;
 }
 
 /* Eigener Titel (06.10.2026): ✏️ öffnet das Eingabefeld. */

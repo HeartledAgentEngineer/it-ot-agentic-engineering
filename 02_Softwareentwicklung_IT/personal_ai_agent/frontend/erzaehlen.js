@@ -896,6 +896,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
         if (zustand.aktuellesEreignis !== kennung) return;   // inzwischen gewechselt
         zustand.bilderInfo = (daten && daten.ok === true && daten.info) ? daten.info : null;
         bildInfoAnzeigen();
+        kachelBeschreibungenAktualisieren();
     }
 
     function bildInfoAnzeigen() {
@@ -918,6 +919,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
         if (ortZeile) ortZeile.hidden = !ort;
         if (beschreibung) { beschreibung.textContent = text; beschreibung.hidden = !text; }
         if (block) block.hidden = !(ort || text);
+        const bildGross = el('erzaehl-bild');
+        if (bildGross) {
+            bildGross.dataset.beschreibung = text || '';
+        }
     }
 
     // ---- Gesichter im Einzelbild benennen (#11b, 07.10.2026) ----------------
@@ -1249,6 +1254,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
     function kachelLaden(kachel) {
         const lauf = zustand.rasterLauf;
         const fileid = kachel.getAttribute('data-datei');
+        const bildBox = kachel.querySelector('.erzaehl-kachel-bild') || kachel;
         kachelSchlange.push(async () => {
             if (lauf !== zustand.rasterLauf) return;
             const url = await objektUrlHolen(bildUrl(fileid, KACHEL_GROESSE));
@@ -1261,7 +1267,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
             const bild = document.createElement('img');
             bild.alt = '';
             bild.src = url;
-            kachel.insertBefore(bild, kachel.firstChild);
+            bildBox.insertBefore(bild, bildBox.firstChild);
         });
         kachelSchlangeAbarbeiten();
     }
@@ -1279,10 +1285,18 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
             kachel.setAttribute('role', 'listitem');
             kachel.setAttribute('data-datei', String(kennung));
             kachel.setAttribute('aria-label', `Bild ${i + 1} von ${dateien.length} öffnen`);
+            const bildBox = document.createElement('div');
+            bildBox.className = 'erzaehl-kachel-bild';
             const marker = document.createElement('span');
             marker.className = 'erzaehl-kachel-marker';
             marker.hidden = true;
-            kachel.appendChild(marker);
+            bildBox.appendChild(marker);
+            kachel.appendChild(bildBox);
+
+            const untertitel = document.createElement('div');
+            untertitel.className = 'erzaehl-kachel-untertitel';
+            kachel.appendChild(untertitel);
+
             kachel.addEventListener('click', () => bildOeffnen(i));
             raster.appendChild(kachel);
             return kachel;
@@ -1301,6 +1315,31 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
             kacheln.forEach(kachelLaden);
         }
         kachelMarkerAktualisieren();
+        kachelBeschreibungenAktualisieren();
+    }
+
+    function kachelBeschreibungenAktualisieren() {
+        const raster = el('erzaehl-raster');
+        if (!raster || !zustand.bilderInfo || !zustand.bilderInfo.bilder) return;
+        const bilder = zustand.bilderInfo.bilder;
+        raster.querySelectorAll('.erzaehl-kachel').forEach((kachel) => {
+            const fid = kachel.getAttribute('data-datei');
+            const eintrag = bilder[String(fid)];
+            const textEl = kachel.querySelector('.erzaehl-kachel-untertitel');
+            if (!textEl) return;
+            const beschreibung = (eintrag && typeof eintrag.beschreibung === 'string') ? eintrag.beschreibung.trim() : '';
+            if (beschreibung) {
+                textEl.textContent = beschreibung;
+                textEl.title = beschreibung;
+            } else if (eintrag && eintrag.ort) {
+                const ort = erzaehlOrtText(eintrag.ort);
+                textEl.textContent = ort ? '📍 ' + ort : '';
+                textEl.title = ort ? 'Ort: ' + ort : '';
+            } else {
+                textEl.textContent = '';
+                textEl.title = '';
+            }
+        });
     }
 
     function kachelMarkerAktualisieren() {
@@ -1454,7 +1493,22 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
             editorBtn.onclick = (ev) => {
                 ev.stopPropagation();
                 if (typeof zeigeBildVollbild === 'function' && bild) {
-                    zeigeBildVollbild(bild, zustand.gesichter || [], { fileid: dateiKennung });
+                    zeigeBildVollbild(bild, zustand.gesichter || [], {
+                        fileid: dateiKennung,
+                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || ''
+                    });
+                }
+            };
+        }
+        if (bild) {
+            bild.style.cursor = 'pointer';
+            bild.onclick = (ev) => {
+                ev.stopPropagation();
+                if (typeof zeigeBildVollbild === 'function') {
+                    zeigeBildVollbild(bild, zustand.gesichter || [], {
+                        fileid: dateiKennung,
+                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || ''
+                    });
                 }
             };
         }
