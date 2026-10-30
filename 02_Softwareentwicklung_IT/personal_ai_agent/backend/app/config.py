@@ -378,7 +378,7 @@ class Settings(BaseSettings):
     # pauschales *.ts.net ist gesperrt; fremde Hostnamen erhalten 400.
     # Zusätzlich erlaubt: Loopback, private Heimnetz-IP und Tailscales
     # 100.64.0.0/10. Öffentliche IP-Hosts bleiben gesperrt.
-    erlaubte_hosts: str = ""
+    erlaubte_hosts: str = "*.tailba05b5.ts.net,myagent"
     # Fremde Seiten, die die API lesen dürfen (Komma-Liste, ohne *, ohne
     # Zugangsdaten). Leer = CORS aus; die Oberfläche kommt vom selben Server.
     cors_herkunft: str = ""
