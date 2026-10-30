@@ -10,6 +10,15 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
+- **Workflow- & Matrix-Profile mit Presets (`matrix_konfiguration.py`, `uebersicht.py`)**:
+  * Vollständig konfigurierte Matrix mit Vorlagen:
+    - `Standard (AGENTS.md)` (Kaskade Claude Opus -> GPT-6 Sol -> DeepSeek)
+    - `Integrative Maschine (Claude Opus 5.5)` (Claude Opus 5.5 führt als Master, Gemini 3.8 Flash als Worker)
+    - `Antigravity & Argon (Google AI)` (Argon als Master wenn verfügbar, Gemini 3.8 Flash als Worker)
+    - `Gemini 3.8 Flash Fokus` (Gemini 3.8 Flash als Master und Worker)
+    - `DeepSeek Notlauf (Budget)`
+  * Tabellarische Zuordnung mit Dropdowns für jede Lage (Lage 1, 2A, 2B, 3) über alle 3 Rollen: Thinker (Master), Reviewer (Prüfer), Worker (Ausführer).
+  * Antigravity-Rolle und bevorzugtes Modell frei konfigurierbar und persistent gespeichert.
 - **Multi-Plattform Limit-Monitor & Detailanzeige (`limits_dialog_oeffnen`, `alle_limits_lesen`)**:
   * Neuer Button `📊 Limits & Verbräuche …` in der Kopfleiste.
   * Zeigt aufgeschlüsselte Kontingente, Rolling-Windows und Modellstatus aller 4 Plattformen:

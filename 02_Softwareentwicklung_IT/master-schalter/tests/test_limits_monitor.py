@@ -35,7 +35,7 @@ def test_alle_limits_lesen_enthaelt_alle_vier_anbieter():
     gemini = next(l for l in limits if l.anbieter == "Gemini")
     assert "Argon-Limit" in gemini.details
     assert "Gemini 2.5 Pro" in gemini.details
-    assert "Gemini 2.5 Flash" in gemini.details
+    assert "Gemini 3.8 Flash" in gemini.details
 
 
 def test_limits_dialog_laesst_sich_oeffnen(wurzel):

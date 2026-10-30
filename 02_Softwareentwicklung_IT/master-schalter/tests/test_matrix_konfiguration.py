@@ -28,3 +28,20 @@ def test_matrix_schreiben_und_lesen_roundtrip(tmp_path):
     assert gelesen["lage_1"]["pruefer"] == "DeepSeek"
     # Ungenannte Lagen werden aus den Defaults ergänzt:
     assert "lage_3" in gelesen
+
+
+def test_presets_enthalten_integrative_maschine_und_argon(tmp_path):
+    datei = tmp_path / "matrix-preset-test.json"
+    assert "Integrative Maschine (Claude Opus 5.5)" in mk.PRESETS
+    assert "Antigravity & Argon (Google AI)" in mk.PRESETS
+    assert "Gemini 3.8 Flash Fokus" in mk.PRESETS
+
+    # Preset Integrative Maschine anwenden
+    daten = mk.preset_anwenden("Integrative Maschine (Claude Opus 5.5)", datei=datei)
+    assert daten["preset"] == "Integrative Maschine (Claude Opus 5.5)"
+    assert daten["lage_1"]["master"] == "Claude Opus 5.5"
+    assert daten["lage_1"]["worker"] == "Gemini 3.8 Flash"
+
+    # Preset Argon anwenden
+    daten_argon = mk.preset_anwenden("Antigravity & Argon (Google AI)", datei=datei)
+    assert daten_argon["lage_1"]["master"] == "Argon (Antigravity)"

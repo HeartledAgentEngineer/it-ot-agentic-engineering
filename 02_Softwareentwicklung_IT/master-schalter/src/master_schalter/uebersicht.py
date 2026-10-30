@@ -640,7 +640,7 @@ class Fenster:
         ttk.Button(knopfreihe, text="Schließen", style=st.KNOPF_AKZENT, command=top.destroy).pack(side="right")
 
     def matrix_konfigurieren_dialog(self) -> None:
-        """Konfigurationsdialog für die Workflow- und Kaskaden-Matrix (Nach Kontingent)."""
+        """Konfigurationsdialog fuer die Workflow- und Kaskaden-Matrix (Nach Kontingent)."""
         from . import matrix_konfiguration as mk
         cfg = mk.matrix_lesen()
 
@@ -649,16 +649,31 @@ class Fenster:
         top.configure(background=st.GRUND)
         top.transient(self.root)
         top.resizable(True, True)
-        top.geometry("680x540")
+        top.geometry("820x640")
         top.grab_set()
 
         frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="Kaskaden-Matrix nach Nutzungslimit (AGENTS.md)", style=st.TITEL).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
-        ttk.Label(frame, text="Lage", style=st.KARTE_TITEL).grid(row=1, column=0, sticky="w", padx=4, pady=4)
-        ttk.Label(frame, text="Thinker (Master)", style=st.KARTE_TITEL).grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(frame, text="Reviewer (Prüfer)", style=st.KARTE_TITEL).grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(frame, text="Kaskaden-Matrix & Workflow-Profile (AGENTS.md)", style=st.TITEL).grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        # 1. Preset-Auswahl oben
+        ttk.Label(frame, text="Matrix-Vorlage / Preset:", style=st.KARTE_TITEL).grid(row=1, column=0, sticky="w", padx=4, pady=6)
+        preset_namen = list(mk.PRESETS.keys()) + ["Benutzerdefiniert"]
+        aktuelles_preset = cfg.get("preset", mk.DEFAULT_PRESET_NAME)
+        if aktuelles_preset not in preset_namen:
+            aktuelles_preset = "Benutzerdefiniert"
+        preset_var = tk.StringVar(value=aktuelles_preset)
+        preset_box = ttk.Combobox(frame, textvariable=preset_var, style=st.KOMBI, state="readonly",
+                                  values=preset_namen, width=32)
+        preset_box.grid(row=1, column=1, columnspan=2, sticky="w", padx=4, pady=6)
+
+        # Tabellen-Ueberschriften
+        ttk.Label(frame, text="Lage", style=st.KARTE_TITEL).grid(row=2, column=0, sticky="w", padx=4, pady=6)
+        ttk.Label(frame, text="Thinker (Master)", style=st.KARTE_TITEL).grid(row=2, column=1, sticky="w", padx=4, pady=6)
+        ttk.Label(frame, text="Reviewer (Pruefer)", style=st.KARTE_TITEL).grid(row=2, column=2, sticky="w", padx=4, pady=6)
+        ttk.Label(frame, text="Worker (Ausfuehrer)", style=st.KARTE_TITEL).grid(row=2, column=3, sticky="w", padx=4, pady=6)
 
         lagen_keys = [("lage_1", "Lage 1 (Beide Abos frei)"),
                       ("lage_2a", "Lage 2A (Claude im Limit)"),
@@ -666,49 +681,97 @@ class Fenster:
                       ("lage_3", "Lage 3 (Beide im Limit)")]
 
         widgets = {}
-        for r, (lkey, lname) in enumerate(lagen_keys, start=2):
+        for r, (lkey, lname) in enumerate(lagen_keys, start=3):
             l_cfg = cfg.get(lkey, {})
             ttk.Label(frame, text=lname, style=st.KARTE_LABEL).grid(row=r, column=0, sticky="w", padx=4, pady=4)
-            m_var = tk.StringVar(value=l_cfg.get("master", ""))
-            m_entry = ttk.Entry(frame, textvariable=m_var, width=24)
-            m_entry.grid(row=r, column=1, sticky="ew", padx=4, pady=4)
-            p_var = tk.StringVar(value=l_cfg.get("pruefer", ""))
-            p_entry = ttk.Entry(frame, textvariable=p_var, width=24)
-            p_entry.grid(row=r, column=2, sticky="ew", padx=4, pady=4)
-            widgets[lkey] = (m_var, p_var)
+
+            # Master Combobox
+            m_var = tk.StringVar(value=l_cfg.get("master", "Claude Opus 5.5"))
+            m_box = ttk.Combobox(frame, textvariable=m_var, style=st.KOMBI, state="readonly",
+                                 values=mk.VERFUEGBARE_MASTER, width=22)
+            m_box.grid(row=r, column=1, sticky="ew", padx=4, pady=4)
+
+            # Pruefer Combobox
+            p_var = tk.StringVar(value=l_cfg.get("pruefer", "GPT-6 Sol"))
+            p_box = ttk.Combobox(frame, textvariable=p_var, style=st.KOMBI, state="readonly",
+                                 values=mk.VERFUEGBARE_PRUEFER, width=22)
+            p_box.grid(row=r, column=2, sticky="ew", padx=4, pady=4)
+
+            # Worker Combobox
+            w_var = tk.StringVar(value=l_cfg.get("worker", "GPT-6 Luna"))
+            w_box = ttk.Combobox(frame, textvariable=w_var, style=st.KOMBI, state="readonly",
+                                 values=mk.VERFUEGBARE_WORKER, width=22)
+            w_box.grid(row=r, column=3, sticky="ew", padx=4, pady=4)
+
+            def _markiere_benutzerdefiniert(*_):
+                preset_var.set("Benutzerdefiniert")
+
+            m_box.bind("<<ComboboxSelected>>", _markiere_benutzerdefiniert)
+            p_box.bind("<<ComboboxSelected>>", _markiere_benutzerdefiniert)
+            w_box.bind("<<ComboboxSelected>>", _markiere_benutzerdefiniert)
+
+            widgets[lkey] = (m_var, p_var, w_var)
+
+        def _preset_gewaehlt(event=None):
+            gewaehlt = preset_var.get()
+            if gewaehlt in mk.PRESETS:
+                p_data = mk.PRESETS[gewaehlt]
+                for lkey in ("lage_1", "lage_2a", "lage_2b", "lage_3"):
+                    if lkey in p_data and lkey in widgets:
+                        m_v, p_v, w_v = widgets[lkey]
+                        m_v.set(p_data[lkey].get("master", m_v.get()))
+                        p_v.set(p_data[lkey].get("pruefer", p_v.get()))
+                        w_v.set(p_data[lkey].get("worker", w_v.get()))
+                if "antigravity" in p_data:
+                    agy_var.set(p_data["antigravity"].get("rolle", agy_var.get()))
+                    agy_mod_var.set(p_data["antigravity"].get("modell", agy_mod_var.get()))
+
+        preset_box.bind("<<ComboboxSelected>>", _preset_gewaehlt)
 
         # Gemini / Antigravity Einstellungen
-        ttk.Label(frame, text="Gemini / Antigravity Rolle:", style=st.KARTE_TITEL).grid(row=7, column=0, sticky="w", padx=4, pady=(16, 4))
+        ttk.Label(frame, text="Gemini / Antigravity Rolle:", style=st.KARTE_TITEL).grid(
+            row=8, column=0, sticky="w", padx=4, pady=(16, 4))
         agy_var = tk.StringVar(value=cfg.get("antigravity", {}).get("rolle", "Master / Thinker"))
         agy_box = ttk.Combobox(frame, textvariable=agy_var, style=st.KOMBI, state="readonly",
-                               values=("Master / Thinker", "Reviewer / Prüfer", "Worker / Ausführer"))
-        agy_box.grid(row=7, column=1, columnspan=2, sticky="ew", padx=4, pady=(16, 4))
+                               values=("Master / Thinker", "Reviewer / Pruefer", "Worker / Ausfuehrer"), width=22)
+        agy_box.grid(row=8, column=1, sticky="w", padx=4, pady=(16, 4))
+
+        ttk.Label(frame, text="Bevorzugtes Antigravity-Modell:", style=st.KARTE_TITEL).grid(
+            row=8, column=2, sticky="w", padx=4, pady=(16, 4))
+        agy_mod_var = tk.StringVar(value=cfg.get("antigravity", {}).get("bevorzugtes_modell", "Claude Opus 5.5"))
+        agy_mod_box = ttk.Combobox(frame, textvariable=agy_mod_var, style=st.KOMBI, state="readonly",
+                                   values=("Claude Opus 5.5", "Argon (Antigravity)", "Gemini 3.8 Flash", "DeepSeek V4.1 Flash"), width=22)
+        agy_mod_box.grid(row=8, column=3, sticky="w", padx=4, pady=(16, 4))
 
         knopfreihe = ttk.Frame(frame, style=st.KARTE)
-        knopfreihe.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(16, 0))
+        knopfreihe.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(20, 0))
 
         def speichern():
-            for lkey, (m_v, p_v) in widgets.items():
+            for lkey, (m_v, p_v, w_v) in widgets.items():
                 if lkey not in cfg:
                     cfg[lkey] = {}
                 cfg[lkey]["master"] = m_v.get().strip()
                 cfg[lkey]["pruefer"] = p_v.get().strip()
+                cfg[lkey]["worker"] = w_v.get().strip()
             if "antigravity" not in cfg:
                 cfg["antigravity"] = {}
             cfg["antigravity"]["rolle"] = agy_var.get()
+            cfg["antigravity"]["bevorzugtes_modell"] = agy_mod_var.get()
+            cfg["preset"] = preset_var.get()
             mk.matrix_schreiben(cfg)
             top.destroy()
             self._status("Matrix-Konfiguration erfolgreich gespeichert.")
 
         def standard():
             cfg.clear()
-            cfg.update(mk.DEFAULT_MATRIX)
+            cfg.update(json.loads(json.dumps(mk.DEFAULT_MATRIX)))
             mk.matrix_schreiben(cfg)
-            top.destroy()
-            self._status("Matrix-Konfiguration auf Standard zurückgesetzt.")
+            preset_var.set(mk.DEFAULT_PRESET_NAME)
+            _preset_gewaehlt()
+            self._status("Matrix-Konfiguration auf Standard zurueckgesetzt.")
 
-        ttk.Button(knopfreihe, text="Speichern", style=st.KNOPF_AKZENT, command=speichern).pack(side="left", padx=(0, 8))
-        ttk.Button(knopfreihe, text="Standard wiederherstellen", style=st.KNOPF, command=standard).pack(side="left", padx=(0, 8))
+        ttk.Button(knopfreihe, text="Speichern & Anwenden", style=st.KNOPF_AKZENT, command=speichern).pack(side="left", padx=(0, 8))
+        ttk.Button(knopfreihe, text="Standard (AGENTS.md)", style=st.KNOPF, command=standard).pack(side="left", padx=(0, 8))
         ttk.Button(knopfreihe, text="Abbrechen", style=st.KNOPF, command=top.destroy).pack(side="right")
 
     def uebergabe_dialog_oeffnen(self, thema: str, alt_master: str, neu_master: str) -> None:
