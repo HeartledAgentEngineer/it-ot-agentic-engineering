@@ -10,6 +10,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
+- **Themen-Workflow & Master-Rotation konfigurierbar (`matrix_konfiguration.py`, `uebersicht.py`, `chat_discovery.py`)**:
+  * Master-Rotationen (`Antigravity ➔ Hermes ➔ Codex`, `Integrative Maschine (Claude Opus 5.5 ➔ Argon ➔ Gemini 3.8 Flash)`, `Codex ➔ Antigravity ➔ Hermes`, `Hermes ➔ Antigravity ➔ Codex`, `Claude ➔ Codex ➔ Antigravity`, `Standard`) pro Thema frei einstell- und speicherbar (`mk.themen_einstellungen_schreiben`).
+  * Neuer Konfigurationsbereich *Themen-Workflow & Master-Rotation* im Matrix-Dialog integriert: Beliebiges Thema auswählen, Rotation/Preset anpassen und mit einem Klick sichern.
+  * *Neues Thema anlegen* belegt Prüfer, Ausführer und Master-Rotation automatisch gemäß dem gewählten oder erkannten Erst-Master vor und speichert die Konfiguration.
+  * Chat-Erkennung (`chat_discovery.py`) um Claude-Code-Erkennung erweitert (`claude_chats_finden`): Prüft alle Institutionen (Antigravity, Codex, Claude) auf neue Chats, sofern sie nicht im Kontingent-Limit liegen.
 - **Workflow- & Matrix-Profile mit Presets (`matrix_konfiguration.py`, `uebersicht.py`)**:
   * Vollständig konfigurierte Matrix mit Vorlagen:
     - `Standard (AGENTS.md)` (Kaskade Claude Opus -> GPT-6 Sol -> DeepSeek)

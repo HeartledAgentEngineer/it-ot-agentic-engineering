@@ -101,23 +101,53 @@ def codex_chats_finden(ordner: Path | None = None) -> list[ChatVorschlag]:
     return vorschlaege
 
 
+def claude_chats_finden(status_ordner: Path | None = None) -> list[ChatVorschlag]:
+    ordner = status_ordner or (signale.daten_ordner() / "status")
+    if not ordner.exists():
+        return []
+    vorschlaege: list[ChatVorschlag] = []
+    try:
+        dateien = sorted(ordner.glob("claude-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:10]
+        for datei in dateien:
+            kennung = datei.stem.removeprefix("claude-")
+            slug = thema_bereinigen(kennung)
+            mtime = datetime.fromtimestamp(datei.stat().st_mtime, tz=timezone.utc).isoformat()[:19]
+            vorschlaege.append(ChatVorschlag(
+                thema=slug,
+                titel=f"Claude-Session {kennung[:8]}",
+                quelle="Claude",
+                sitzung_id=kennung,
+                zeit=mtime,
+            ))
+    except OSError:
+        pass
+    return vorschlaege
+
+
 def neue_themen_vorschlaege(bestehende_themen: set[str],
                             db_datei: Path | None = None,
-                            codex_ordner: Path | None = None) -> list[ChatVorschlag]:
-    """Sucht neue Chats, prüft Kontingente und filtert bereits registrierte Themen aus."""
+                            codex_ordner: Path | None = None,
+                            status_ordner: Path | None = None) -> list[ChatVorschlag]:
+    """Sucht neue Chats aller Institutionen (Antigravity, Codex, Claude), prüft Kontingente und filtert bereits registrierte Themen aus."""
     kandidaten: list[ChatVorschlag] = []
     
-    # Antigravity Chats prüfen
+    # Antigravity Chats prüfen (wenn nicht im Limit)
     gemini_kont = signale.gemini_lesen()
     gemini_frei = not gemini_kont.fehler and all(f.prozent < 100 for f in gemini_kont.fenster)
     if gemini_frei or not gemini_kont.fenster:
         kandidaten.extend(antigravity_chats_finden(db_datei))
 
-    # Codex Chats prüfen
+    # Codex Chats prüfen (wenn nicht im Limit)
     codex_kont = signale.codex_lesen()
     codex_frei = not codex_kont.fehler and all(f.prozent < 100 for f in codex_kont.fenster)
     if codex_frei or not codex_kont.fenster:
         kandidaten.extend(codex_chats_finden(codex_ordner))
+
+    # Claude Chats prüfen (wenn nicht im Limit)
+    claude_kont = signale.claude_lesen()
+    claude_frei = not claude_kont.fehler and all(f.prozent < 100 for f in claude_kont.fenster)
+    if claude_frei or not claude_kont.fenster:
+        kandidaten.extend(claude_chats_finden(status_ordner))
 
     # Filtern: Nur neue Themen, die noch nicht in den bestehenden Themen vorkommen
     ergebnis: list[ChatVorschlag] = []

@@ -45,3 +45,24 @@ def test_presets_enthalten_integrative_maschine_und_argon(tmp_path):
     # Preset Argon anwenden
     daten_argon = mk.preset_anwenden("Antigravity & Argon (Google AI)", datei=datei)
     assert daten_argon["lage_1"]["master"] == "Argon (Antigravity)"
+
+
+def test_themen_rotation_lesen_und_schreiben(tmp_path):
+    datei = tmp_path / "matrix-themen-test.json"
+    assert "Antigravity ➔ Hermes ➔ Codex" in mk.VERFUEGBARE_ROTATIONEN
+    assert "Integrative Maschine (Claude Opus 5.5 ➔ Argon ➔ Gemini 3.8 Flash)" in mk.VERFUEGBARE_ROTATIONEN
+
+    # Standard lesen wenn noch nichts hinterlegt
+    default_einst = mk.themen_einstellungen_lesen("neues-projekt", datei=datei)
+    assert default_einst["rotation"] == "Antigravity ➔ Hermes ➔ Codex"
+
+    # Spezifische Rotation für das Thema schreiben
+    assert mk.themen_einstellungen_schreiben("neues-projekt", {
+        "rotation": "Claude ➔ Codex ➔ Antigravity",
+        "erst_master": "Claude",
+    }, datei=datei)
+
+    gelesen = mk.themen_einstellungen_lesen("neues-projekt", datei=datei)
+    assert gelesen["rotation"] == "Claude ➔ Codex ➔ Antigravity"
+    assert gelesen["erst_master"] == "Claude"
+

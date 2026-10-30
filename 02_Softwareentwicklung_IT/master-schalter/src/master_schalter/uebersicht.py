@@ -516,14 +516,11 @@ class Fenster:
         zeile_nr += 1
 
         # Master-Rotation
+        from . import matrix_konfiguration as mk
         ttk.Label(frame, text="Master-Rotation:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         rotation_var = tk.StringVar(value="Antigravity ➔ Hermes ➔ Codex")
         rot_box = ttk.Combobox(frame, textvariable=rotation_var, style=st.KOMBI, state="readonly",
-                               values=("Antigravity ➔ Hermes ➔ Codex",
-                                       "Codex ➔ Antigravity ➔ Hermes",
-                                       "Hermes ➔ Antigravity ➔ Codex",
-                                       "Claude ➔ Codex ➔ Antigravity",
-                                       "Standard (nach globalem Kontingent)"))
+                               values=mk.VERFUEGBARE_ROTATIONEN)
         rot_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
         zeile_nr += 1
 
@@ -542,6 +539,27 @@ class Fenster:
                                 values=("Workflow", "Antigravity", "Codex", "Hermes", "Claude"))
         ausf_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
         zeile_nr += 1
+
+        def _master_angepasst(event=None):
+            m = master_var.get()
+            if m == "Antigravity":
+                rotation_var.set("Antigravity ➔ Hermes ➔ Codex")
+                pruefer_var.set("Automatisch")
+                ausf_var.set("Workflow")
+            elif m == "Codex":
+                rotation_var.set("Codex ➔ Antigravity ➔ Hermes")
+                pruefer_var.set("Automatisch")
+                ausf_var.set("Workflow")
+            elif m == "Claude":
+                rotation_var.set("Claude ➔ Codex ➔ Antigravity")
+                pruefer_var.set("Automatisch")
+                ausf_var.set("Workflow")
+            elif m == "Hermes":
+                rotation_var.set("Hermes ➔ Antigravity ➔ Codex")
+                pruefer_var.set("Codex")
+                ausf_var.set("Workflow")
+
+        master_box.bind("<<ComboboxSelected>>", _master_angepasst)
 
         # Arbeitsweise
         ttk.Label(frame, text="Arbeitsweise:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
@@ -579,6 +597,11 @@ class Fenster:
 
             try:
                 um.thema_anlegen(thema, master=m_wert, pruefer=p_wert, worker=w_wert, vibe=vibe_wert)
+                from . import matrix_konfiguration as mk
+                mk.themen_einstellungen_schreiben(thema, {
+                    "rotation": rotation_var.get(),
+                    "erst_master": master_var.get(),
+                })
             except Exception as e:
                 fehler_var.set(f"Fehler beim Anlegen ({type(e).__name__})")
                 return
@@ -649,7 +672,7 @@ class Fenster:
         top.configure(background=st.GRUND)
         top.transient(self.root)
         top.resizable(True, True)
-        top.geometry("820x640")
+        top.geometry("860x720")
         top.grab_set()
 
         frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
@@ -743,8 +766,41 @@ class Fenster:
                                    values=("Claude Opus 5.5", "Argon (Antigravity)", "Gemini 3.8 Flash", "DeepSeek V4.1 Flash"), width=22)
         agy_mod_box.grid(row=8, column=3, sticky="w", padx=4, pady=(16, 4))
 
+        # Themen-Workflow & Master-Rotation
+        ttk.Label(frame, text="Themen-Workflow & Master-Rotation:", style=st.KARTE_TITEL).grid(
+            row=9, column=0, sticky="w", padx=4, pady=(16, 4))
+
+        themen_namen = [t.thema for t in getattr(self._snap, "themen", ())] if hasattr(self, "_snap") and self._snap else []
+        if not themen_namen:
+            themen_namen = ["master-schalter", "personal-ai-agent", "typefree"]
+        th_sel_var = tk.StringVar(value=themen_namen[0])
+        th_sel_box = ttk.Combobox(frame, textvariable=th_sel_var, style=st.KOMBI, state="readonly",
+                                  values=themen_namen, width=22)
+        th_sel_box.grid(row=9, column=1, sticky="w", padx=4, pady=(16, 4))
+
+        th_rot_var = tk.StringVar(value="Antigravity ➔ Hermes ➔ Codex")
+        th_rot_box = ttk.Combobox(frame, textvariable=th_rot_var, style=st.KOMBI, state="readonly",
+                                  values=mk.VERFUEGBARE_ROTATIONEN, width=28)
+        th_rot_box.grid(row=9, column=2, sticky="ew", padx=4, pady=(16, 4))
+
+        def _thema_rot_laden(event=None):
+            th = th_sel_var.get()
+            th_cfg = mk.themen_einstellungen_lesen(th)
+            th_rot_var.set(th_cfg.get("rotation", "Antigravity ➔ Hermes ➔ Codex"))
+
+        th_sel_box.bind("<<ComboboxSelected>>", _thema_rot_laden)
+        _thema_rot_laden()
+
+        def _thema_rot_speichern():
+            th = th_sel_var.get()
+            mk.themen_einstellungen_schreiben(th, {"rotation": th_rot_var.get()})
+            self._status(f"Master-Rotation für {th} gespeichert: {th_rot_var.get()}")
+
+        ttk.Button(frame, text="Für Thema setzen", style=st.KNOPF_KLEIN, command=_thema_rot_speichern).grid(
+            row=9, column=3, sticky="w", padx=4, pady=(16, 4))
+
         knopfreihe = ttk.Frame(frame, style=st.KARTE)
-        knopfreihe.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(20, 0))
+        knopfreihe.grid(row=10, column=0, columnspan=4, sticky="ew", pady=(20, 0))
 
         def speichern():
             for lkey, (m_v, p_v, w_v) in widgets.items():

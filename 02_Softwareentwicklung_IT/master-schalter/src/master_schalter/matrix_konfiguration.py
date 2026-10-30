@@ -32,6 +32,15 @@ VERFUEGBARE_WORKER = (
     "Argon (Antigravity)",
 )
 
+VERFUEGBARE_ROTATIONEN = (
+    "Antigravity ➔ Hermes ➔ Codex",
+    "Integrative Maschine (Claude Opus 5.5 ➔ Argon ➔ Gemini 3.8 Flash)",
+    "Codex ➔ Antigravity ➔ Hermes",
+    "Hermes ➔ Antigravity ➔ Codex",
+    "Claude ➔ Codex ➔ Antigravity",
+    "Standard (nach globalem Kontingent)",
+)
+
 PRESETS: dict[str, dict[str, Any]] = {
     "Standard (AGENTS.md)": {
         "lage_1": {"master": "Claude Opus 5.5", "pruefer": "GPT-6 Sol", "worker": "GPT-6 Luna"},
@@ -165,3 +174,26 @@ def preset_anwenden(preset_name: str, datei: Path | None = None) -> dict[str, An
         daten["antigravity"].update(preset["antigravity"])
     matrix_schreiben(daten, datei=datei)
     return daten
+
+
+def themen_einstellungen_lesen(thema: str, datei: Path | None = None) -> dict[str, Any]:
+    """Liest themenspezifische Matrix- und Workflow-Rotationseinstellungen."""
+    matrix = matrix_lesen(datei)
+    themen = matrix.get("themen", {})
+    return themen.get(thema, {
+        "rotation": "Antigravity ➔ Hermes ➔ Codex",
+        "preset": matrix.get("preset", DEFAULT_PRESET_NAME),
+    })
+
+
+def themen_einstellungen_schreiben(thema: str, daten: dict[str, Any], datei: Path | None = None) -> bool:
+    """Schreibt themenspezifische Workflow-Rotationseinstellungen."""
+    datei = datei or matrix_datei()
+    matrix = matrix_lesen(datei)
+    if "themen" not in matrix or not isinstance(matrix["themen"], dict):
+        matrix["themen"] = {}
+    if thema not in matrix["themen"] or not isinstance(matrix["themen"][thema], dict):
+        matrix["themen"][thema] = {}
+    matrix["themen"][thema].update(daten)
+    return matrix_schreiben(matrix, datei=datei)
+

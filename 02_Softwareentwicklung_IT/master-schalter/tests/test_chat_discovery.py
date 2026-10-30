@@ -51,3 +51,19 @@ def test_neue_themen_vorschlaege_filtert_bestehende_themen(tmp_path):
     vorschlaege = cd.neue_themen_vorschlaege(bestehend, db_datei=db_datei, codex_ordner=tmp_path / "leer")
     assert len(vorschlaege) == 1
     assert vorschlaege[0].thema == "ganz-neu"
+
+
+def test_claude_chats_finden_aus_status_ordner(tmp_path):
+    status_ordner = tmp_path / "status"
+    status_ordner.mkdir()
+    (status_ordner / "claude-sess-alpha.json").write_text('{"zustand": "ruht"}', encoding="utf-8")
+    (status_ordner / "claude-sess-beta.json").write_text('{"zustand": "arbeitet"}', encoding="utf-8")
+    (status_ordner / "codex-sess-gamma.json").write_text('{"zustand": "ruht"}', encoding="utf-8")
+
+    chats = cd.claude_chats_finden(status_ordner=status_ordner)
+    assert len(chats) == 2
+    themen = {c.thema for c in chats}
+    assert "sess-alpha" in themen
+    assert "sess-beta" in themen
+    assert all(c.quelle == "Claude" for c in chats)
+
