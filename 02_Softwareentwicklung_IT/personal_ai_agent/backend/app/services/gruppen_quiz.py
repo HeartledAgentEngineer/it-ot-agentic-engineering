@@ -888,6 +888,11 @@ def _antwort_fuer_gruppe(gruppe: Dict[str, Any], gruppen: List[Dict[str, Any]],
         },
         "namen": namen_liste(namen),
     }
+    if not namen.get(gruppe["kennung"]):
+        from app.services import lebensabschnitte_service
+        v_abschnitt = lebensabschnitte_service.vorschlag_fuer_offene_gruppe(gruppe)
+        if v_abschnitt:
+            ergebnis["gruppe"]["lebensabschnitt_vorschlag"] = v_abschnitt
     if status is not None:
         ergebnis["gruppe"]["status"] = status
         ergebnis["gruppe"]["name"] = namen.get(gruppe["kennung"])
@@ -2150,7 +2155,19 @@ def person(name: str) -> Dict[str, Any]:
                             "beispiele": _anzeige_beispiele(g, aus.get(k, set()))})
     vorschlaege.sort(key=lambda v: (-v["groesse"], v["kennung"]))
     echter_name = namen[kennungen[0]]
-    return {"ok": True, "name": echter_name, "vorschlaege": vorschlaege, "profil": profil(echter_name)}
+    prof = profil(echter_name)
+    from app.services import lebensabschnitte_service
+    abschnitte = lebensabschnitte_service.lebensabschnitte_fuer_person(
+        echter_name, vorschlaege=vorschlaege, profil_daten=prof
+    )
+    return {
+        "ok": True,
+        "name": echter_name,
+        "vorschlaege": vorschlaege,
+        "profil": prof,
+        "lebensabschnitte": abschnitte.get("phasen", []),
+        "lebensabschnitte_aussage": abschnitte.get("aussage", ""),
+    }
 
 
 def umbenennen(alt: str, neu: str) -> Dict[str, Any]:

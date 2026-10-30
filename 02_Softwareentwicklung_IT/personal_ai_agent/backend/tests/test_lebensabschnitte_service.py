@@ -1,0 +1,201 @@
+"""Wächtertests für Lebensabschnitte und belegbare Aussagen (On-Device)."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import pytest
+
+from app.services import lebensabschnitte_service as ls
+from app.services import gruppen_quiz as gq
+
+
+def test_jahr_aus_gueltige_werte():
+    assert ls.jahr_aus("2011-08-02") == 2011
+    assert ls.jahr_aus("2019") == 2019
+    assert ls.jahr_aus(1998) == 1998
+    assert ls.jahr_aus("2026-10-30T13:00:00") == 2026
+
+
+def test_jahr_aus_ungueltige_werte():
+    assert ls.jahr_aus(None) is None
+    assert ls.jahr_aus("") is None
+    assert ls.jahr_aus("kein-datum") is None
+    assert ls.jahr_aus(1850) is None
+    assert ls.jahr_aus(2250) is None
+
+
+def test_alter_in_jahr():
+    assert ls.alter_in_jahr("1998-04-14", 2018) == 20
+    assert ls.alter_in_jahr(1998, 2026) == 28
+    assert ls.alter_in_jahr(None, 2020) is None
+    assert ls.alter_in_jahr("2020-01-01", 2010) is None
+
+
+def test_phasen_bilden_jahre():
+    # Zusammenhängend
+    assert ls.phasen_bilden_jahre([2011, 2012, 2013]) == [(2011, 2013)]
+    # Mit Lücke > 2 Jahre
+    assert ls.phasen_bilden_jahre([2011, 2012, 2016, 2017]) == [(2011, 2012), (2016, 2017)]
+    # Einzeljahr
+    assert ls.phasen_bilden_jahre([2019]) == [(2019, 2019)]
+    # Leer / Duplikate / Unsortiert
+    assert ls.phasen_bilden_jahre([]) == []
+    assert ls.phasen_bilden_jahre([2015, 2011, 2011, 2015]) == [(2011, 2011), (2015, 2015)]
+
+
+def test_lebensabschnitte_fuer_person_mit_beispielen(tmp_path: Path):
+    vorschlaege = [
+        {
+            "kennung": "Person_100",
+            "groesse": 5,
+            "von": "2011-05-01",
+            "bis": "2012-08-01",
+            "beispiele": [
+                {"fileid": "f1", "aufnahme": "2011-05-01"},
+                {"fileid": "f2", "aufnahme": "2012-08-01"},
+            ],
+        },
+        {
+            "kennung": "Person_101",
+            "groesse": 3,
+            "von": "2018-03-15",
+            "bis": "2019-11-20",
+            "beispiele": [
+                {"fileid": "f3", "aufnahme": "2018-03-15"},
+                {"fileid": "f4", "aufnahme": "2019-11-20"},
+            ],
+        },
+    ]
+    profil = {
+        "kontakt": {"geburtstag": "2000-01-01"},
+        "beziehung": "Freund",
+    }
+
+    res = ls.lebensabschnitte_fuer_person(
+        "Albrecht", vorschlaege=vorschlaege, profil_daten=profil, basis_pfad=str(tmp_path)
+    )
+
+    assert res["ok"] is True
+    assert res["name"] == "Albrecht"
+    assert res["anzahl_phasen"] == 2
+    assert res["gesamt_gesichter"] == 8
+    assert res["von_jahr"] == 2011
+    assert res["bis_jahr"] == 2019
+
+    p1, p2 = res["phasen"]
+    assert p1["von_jahr"] == 2011 and p1["bis_jahr"] == 2012
+    assert p1["titel"] == "2011 – 2012"
+    assert "ca. 11–12 Jahre" in (p1["alters_hinweis"] or "")
+    assert "2011 bis 2012" in p1["aussage"]
+
+    assert p2["von_jahr"] == 2018 and p2["bis_jahr"] == 2019
+    assert p2["titel"] == "2018 – 2019"
+    assert "ca. 18–19 Jahre" in (p2["alters_hinweis"] or "")
+
+    assert "Insgesamt 8 Fotos in 2 Lebensabschnitten von 2011 bis 2019." in res["aussage"]
+
+
+def test_lebensabschnitte_begleiter_aus_beziehungen(tmp_path: Path):
+    beziehungen_datei = tmp_path / "beziehungen.jsonl"
+    zeilen = [
+        {
+            "datum": "2011-06-15",
+            "personen": [
+                {"kennung": "Person_100", "name": "Albrecht"},
+                {"kennung": "Person_200", "name": "Caro"},
+                {"kennung": "Person_300", "name": "Sebastian"},
+            ],
+        },
+        {
+            "datum": "2011-07-20",
+            "personen": [
+                {"kennung": "Person_100", "name": "Albrecht"},
+                {"kennung": "Person_200", "name": "Caro"},
+            ],
+        },
+        {
+            "datum": "2018-09-01",
+            "personen": [
+                {"kennung": "Person_101", "name": "Albrecht"},
+                {"kennung": "Person_400", "name": "Tim"},
+            ],
+        },
+    ]
+    with open(beziehungen_datei, "w", encoding="utf-8") as f:
+        for z in zeilen:
+            f.write(json.dumps(z) + "\n")
+
+    begleiter_2011 = ls.begleiter_aus_beziehungen("Albrecht", 2011, 2012, basis_pfad=str(tmp_path))
+    assert "Caro" in begleiter_2011
+    assert "Sebastian" in begleiter_2011
+
+    begleiter_2018 = ls.begleiter_aus_beziehungen("Albrecht", 2018, 2019, basis_pfad=str(tmp_path))
+    assert begleiter_2018 == ["Tim"]
+
+
+def test_vorschlag_fuer_offene_gruppe(tmp_path: Path):
+    offene_gruppe = {
+        "kennung": "Gruppe_999",
+        "von": "2011-08-10",
+        "bis": "2011-08-10",
+        "groesse": 2,
+    }
+    katalog = {
+        "Albrecht": [
+            {
+                "von": "2011-01-01",
+                "bis": "2013-12-31",
+                "groesse": 10,
+                "beispiele": [{"aufnahme": "2011-05-01"}],
+            }
+        ]
+    }
+
+    vorschlag = ls.vorschlag_fuer_offene_gruppe(offene_gruppe, katalog=katalog, basis_pfad=str(tmp_path))
+    assert vorschlag is not None
+    assert vorschlag["name"] == "Albrecht"
+    assert "2011" in vorschlag["titel"]
+    assert "Albrecht" in vorschlag["grund"]
+
+
+def test_person_ohne_angaben_liefert_robuste_struktur():
+    res = ls.lebensabschnitte_fuer_person("Unbekannt", vorschlaege=[], profil_daten={})
+    assert res["ok"] is True
+    assert res["phasen"] == []
+    assert res["anzahl_phasen"] == 0
+    assert "0" in str(res["gesamt_gesichter"])
+
+
+def test_gruppen_quiz_person_enthaelt_lebensabschnitte(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path))
+
+    # Minimale Dateien anlegen
+    bestaetigt = {"Person_10": "Testperson"}
+    (tmp_path / gq.BESTAETIGT_DATEINAME).write_text(json.dumps({"bestaetigt": bestaetigt}), encoding="utf-8")
+    (tmp_path / gq.VORGABEN_DATEINAME).write_text(json.dumps({"gleich": [], "verschieden": []}), encoding="utf-8")
+    (tmp_path / gq.STAND_DATEINAME).write_text(json.dumps({"spaeter": [], "unbekannt": [], "aufgeloest": []}), encoding="utf-8")
+    (tmp_path / gq.BEISPIELE_DATEINAME).write_text(
+        json.dumps({
+            "gruppen": [
+                {
+                    "kennung": "Person_10",
+                    "groesse": 4,
+                    "von": "2015-06-01",
+                    "bis": "2015-06-01",
+                    "beispiele": [{"fileid": "111", "aufnahme": "2015-06-01"}],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    gq._CACHE.clear()
+    antwort = gq.person("Testperson")
+
+    assert antwort["ok"] is True
+    assert antwort["name"] == "Testperson"
+    assert "lebensabschnitte" in antwort
+    assert len(antwort["lebensabschnitte"]) == 1
+    assert antwort["lebensabschnitte"][0]["titel"] == "2015"
+    assert "lebensabschnitte_aussage" in antwort
+    assert "2015" in antwort["lebensabschnitte_aussage"]
