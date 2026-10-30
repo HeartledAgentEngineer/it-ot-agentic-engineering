@@ -52,6 +52,22 @@ function gesichtKennung(beispiel) {
     return (id != null && id !== '') ? id : null;
 }
 
+/** Kennung des Gesichts in der Bild-Sicht des Servers (``gid`` = "<fileid>:<index>"),
+ *  sonst "" (Personenvorschläge tragen keine). Bild-Editor B4 (27.10.2026). */
+function gesichtGid(beispiel) {
+    if (!beispiel || beispiel.gid == null) return '';
+    return String(beispiel.gid);
+}
+
+/** Darf der Editor dieses Foto mit den Cloud-Routen bearbeiten? Nur echte Fotos mit
+ *  rein numerischer Kennung — Video-Standbilder (``video``) und Kennungen wie
+ *  "12#t=3" bleiben reine Ansicht. Bild-Editor B4 (27.10.2026). */
+function gesichtBearbeitbar(kennung, beispiel) {
+    if (kennung == null || kennung === '' || typeof kennung === 'boolean') return false;
+    if (beispiel && beispiel.video === true) return false;
+    return /^[0-9]{1,20}$/.test(String(kennung).trim());
+}
+
 /** Rahmen des referenzierten Gesichts für die Gesamtansicht (normiert 0..1).
  *  bbox = [x, y, w, h] in Originalpixeln (breite x hoehe); gerechnet wird mit
  *  bbox_norm, damit Zoom und Drehung den Rahmen am Gesicht lassen. Fehlen die
@@ -780,7 +796,7 @@ function gruppenNotizZeit(zeit) {
         }
     }
 
-    async function vollbildOeffnen(fileid, gesicht) {
+    async function vollbildOeffnen(fileid, gesicht, beispiel) {
         if (typeof zeigeBildVollbild !== 'function') return;
         const ansicht = ansichtMerken();
         const url = await vorschauLaden(fileid, '800x800');
@@ -796,6 +812,25 @@ function gruppenNotizZeit(zeit) {
         // gehört (Sebastian 06.10.2026): auf Gruppenfotos ist sonst nicht zu
         // erkennen, ob das richtige Gesicht zugeordnet wurde. Ohne brauchbare
         // Daten wird nichts markiert.
+        // Bild-Editor B4 (27.10.2026): bei einem echten Foto holt der Editor die Gesichter des
+        // Bildes vom Server (bild-gesichter) und speichert Korrekturen ueber bild-rahmen; das
+        // Gruppengesicht bleibt markiert. Video-Standbilder und unlesbare Antworten bleiben
+        // reine Ansicht (mit ehrlicher Meldung bei einem Fehler).
+        if (gesichtBearbeitbar(fileid, beispiel)) {
+            let daten = null;
+            try {
+                const r = await fetch(`${apiBase()}/api/gruppen/bild-gesichter?fileid=${encodeURIComponent(String(fileid).trim())}`);
+                daten = await r.json();
+            } catch (_e) { daten = null; }
+            if (ansichtVeraltet(ansicht)) return;
+            if (daten && daten.ok === true && Array.isArray(daten.gesichter)) {
+                const markiere = gesicht ? { gid: gesichtGid(beispiel), bbox_norm: gesicht.bbox_norm } : null;
+                zeigeBildVollbild(gross, daten.gesichter, { fileid: String(fileid).trim(), markiere: markiere });
+                return;
+            }
+            melde('⚠️ ' + ((daten && typeof daten.fehler === 'string' && daten.fehler)
+                ? daten.fehler : 'Die Gesichter dieses Bildes sind nicht ladbar') + ' — nur Ansicht.', false);
+        }
         zeigeBildVollbild(gross, gesicht ? [gesicht] : []);
     }
 
@@ -864,7 +899,7 @@ function gruppenNotizZeit(zeit) {
         } else if (typeof opt.beiTipp === 'function') {
             box.addEventListener('click', () => opt.beiTipp(box));
         } else {
-            box.addEventListener('click', () => vollbildOeffnen(kennung, rahmen));
+            box.addEventListener('click', () => vollbildOeffnen(kennung, rahmen, beispiel));
         }
         return box;
     }
@@ -972,7 +1007,7 @@ function gruppenNotizZeit(zeit) {
             else alleKnopfAktualisieren();
             return;
         }
-        vollbildOeffnen(gesichtKennung(g), gesichtRahmen(g));
+        vollbildOeffnen(gesichtKennung(g), gesichtRahmen(g), g);
     }
 
     /** Pointer-Verdrahtung einer Kachel: kurzer Klick öffnet, Halten (500 ms) wählt aus. */

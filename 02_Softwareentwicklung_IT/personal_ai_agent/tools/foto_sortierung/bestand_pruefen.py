@@ -188,7 +188,14 @@ Was verglichen wird (je Sortierplan, Fotos und Videos getrennt):
                       Luecke). Dateien, die das Geraet selbst erzeugt oder ueber
                       einen eigenen Weg holt, stehen in einer begruendeten
                       Ausnahmeliste (sonst waere jede Quiz-/Postfach-Datei ein
-                      Dauerfehlalarm). Ueber ``--uebergabe-listen`` steuerbar
+                      Dauerfehlalarm). Ebenso getrennt gefuehrt sind die
+                      **ausgelieferten Frontend-Dateien**: der Scanner findet
+                      ihren Namen in der Positivliste des Servers
+                      (``sicherheit.FRONTEND_DATEIEN``, per AST gelesen), sie
+                      kommen aber mit dem CODE ans Geraet und sind kein
+                      Datenbestand (gemessen 12.10.: ``manifest.json`` stand
+                      sonst als Luecke da). Zahl und Namen stehen als eigene
+                      Zeile, KEINE Luecke. Ueber ``--uebergabe-listen`` steuerbar
                       (leer = nicht pruefen; die uebrigen Pruefungen bleiben
                       dadurch unveraendert). Nur Zahlen und Dateinamen.
   * Rueckweg (Handy -> PC): ``rueckweg_manifest.jsonl`` — das Gegenstueck zur
@@ -472,6 +479,20 @@ UEBERGABE_GERAETESEITIG = {
     "letzte_nachricht.json": "Zustand am Geraet",
     "ueberlauf.jsonl": "Diagnose des Geraets (Layout-Waechter)",
 }
+# Dateien, die der Server aus dem FRONTEND-Ordner AUSLIEFERT. Sie kommen mit dem
+# CODE ans Geraet (das Backend laeuft dort im Projektordner und zieht den Stand
+# per ``git pull``) — ein Uebergabe-Weg ist fuer sie weder noetig noch gedacht.
+# Der AST-Scanner findet ihren Namen trotzdem: ``backend/app/sicherheit.py``
+# traegt die Positivliste der ausgelieferten Dateien als Zeichenketten
+# (``FRONTEND_DATEIEN``), und ``manifest.json`` faellt dabei unter das
+# Datendatei-Muster (``.json``). Gemessen am 12.10.: der Nachweis meldete sie
+# deshalb als Luecke „der Dienst liest sie, sie kommt aber auf keinem der beiden
+# Uebergabe-Wege ans Geraet" — obwohl sie eine ausgelieferte Web-Datei ist und
+# gar kein Datenbestand. Die Menge wird NICHT hier gepflegt, sondern per AST aus
+# der einen Quelle (``FRONTEND_DATEIEN``) gelesen: eine zweite Liste wuerde
+# still veralten, sobald dort eine Datei dazukommt.
+STANDARD_FRONTEND_QUELLE = (os.path.join("backend", "app", "sicherheit.py"),
+                            "FRONTEND_DATEIEN")
 # Der RUECKWEG Handy -> PC: die Dateien, die die APP AM GERAET erzeugt
 # (``geschichten.jsonl`` = eigene Erzaehlungen, ``anlass_umbenennung.jsonl`` =
 # eigene Anlassnamen), liegen im Termux-Heimordner — der ist ueber das Kabel
@@ -1994,6 +2015,50 @@ def uebergabe_listen_lesen(pfad: str) -> Dict[str, Any]:
     return {"fehlt": False, "stellen": stellen, "namen": namen}
 
 
+def frontend_dienst_liste(pfad: str, konstante: str = "FRONTEND_DATEIEN") -> Set[str]:
+    """Die Positivliste der ausgelieferten Frontend-Dateien lesen (per AST) — **wirft nie**.
+
+    Gelesen wird eine Zuweisung ``konstante = {...}`` (auch ``frozenset({...})``,
+    Tupel oder Liste) mit einfachen Dateinamen und einer der
+    ``DIENST_ENDUNGEN``. Fehlt die Datei, die Konstante oder ist sie kaputt,
+    kommt eine **leere** Menge zurueck — dann bleibt es beim alten Verhalten
+    (jeder gelesene Name zaehlt), es wird nichts stillschweigend freigestellt.
+    Nur Dateinamen, kein Pfad, kein Inhalt.
+    """
+    namen: Set[str] = set()
+    if not os.path.isfile(pfad):
+        return namen
+    try:
+        with open(pfad, "r", encoding="utf-8", errors="replace") as datei:
+            baum = ast.parse(datei.read())
+    except (OSError, SyntaxError, ValueError):
+        return namen
+    for knoten in ast.walk(baum):
+        if not isinstance(knoten, ast.Assign):
+            continue
+        if not any(isinstance(z, ast.Name) and z.id == konstante
+                   for z in knoten.targets):
+            continue
+        wert = knoten.value
+        if isinstance(wert, ast.Call):  # frozenset({...}) / tuple([...]) / list(...)
+            wert = wert.args[0] if wert.args else None
+        if wert is None:
+            continue
+        if isinstance(wert, (ast.Set, ast.List, ast.Tuple)):
+            elemente = wert.elts
+        elif isinstance(wert, ast.Constant) and isinstance(wert.value, str):
+            elemente = [wert]
+        else:
+            continue
+        for element in elemente:
+            if not isinstance(element, ast.Constant) or not isinstance(element.value, str):
+                continue
+            klein = element.value.strip()
+            if DIENST_DATEI_MUSTER.match(klein):
+                namen.add(klein)
+    return namen
+
+
 def dienst_dateinamen(ordner: str) -> Dict[str, str]:
     """Dateinamen, die der Dienst liest (per AST) — **wirft nie**.
 
@@ -2031,7 +2096,8 @@ def uebergabe_deckung_pruefen(wurzel: str,
                              listen: Sequence[str] = STANDARD_UEBERGABE_LISTEN,
                              app_ordner: str = STANDARD_DIENST_ORDNER,
                              pflicht: str = STANDARD_UEBERGABE_LISTE_PFLICHT,
-                             uebergebene: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+                             uebergebene: Optional[Iterable[str]] = None,
+                             frontend: Optional[Tuple[str, str]] = STANDARD_FRONTEND_QUELLE) -> Dict[str, Any]:
     """Die Uebergabe-LISTEN gegen die wirklich gelesenen Dateinamen stellen (**wirft nie**).
 
     Die Startskripte nennen die Dateien, die ans Geraet gehen — dieselbe Liste
@@ -2045,6 +2111,14 @@ def uebergabe_deckung_pruefen(wurzel: str,
     * **je WEG** (Kabel-Liste gegen kabellose Uebergabe), welche gelesene Datei
       nur auf EINEM der beiden Wege ankommt,
     * welche uebergebenen Dateien (Liste oder Manifest) KEIN Dienst liest.
+
+    ``frontend`` = (Datei, Konstantenname) der ausgelieferten Frontend-Dateien
+    (Standard ``sicherheit.FRONTEND_DATEIEN``). Diese Namen liest der AST-Scanner
+    zwar aus dem Dienst, sie sind aber **keine Datenspeicher**: sie kommen mit
+    dem Code ans Geraet und stehen deshalb weder auf einer Liste noch im
+    Manifest — sie werden als eigene Menge ``ausgeliefert`` gefuehrt (Namen und
+    Zahl, KEINE Luecke) und aus ``ohne_liste`` herausgehalten. Ohne Angabe
+    (``None``) bleibt es beim alten Verhalten: jeder gelesene Name zaehlt.
 
     Der kabellose Weg hat im Baum GAR KEINE Liste: was er liefert, ist genau
     das, was der PC hochgeladen hat — die Namen des Uebergabe-Manifests. Wird
@@ -2072,6 +2146,12 @@ def uebergabe_deckung_pruefen(wurzel: str,
     dienst = dienst_dateinamen(os.path.join(wurzel, app_ordner))
     gelesen = set(dienst)
     geraeteseitig = gelesen & set(UEBERGABE_GERAETESEITIG)
+    # Ausgelieferte Frontend-Dateien: der Scanner findet ihren Namen in der
+    # Positivliste des Servers, sie sind aber kein Datenbestand. Ohne Quelle
+    # (``frontend=None``) oder ohne die Konstante bleibt die Menge leer — dann
+    # zaehlt jeder gelesene Name wie bisher (nichts wird still freigestellt).
+    ausgeliefert = (frontend_dienst_liste(os.path.join(wurzel, frontend[0]), frontend[1])
+                    & gelesen) if frontend else set()
     uebergeben = {k for k in (_kennung(n) for n in (uebergebene or ())) if k}
     # Zwei Wege, zwei Mengen: die Kabel-Liste (``listen_namen``) und der
     # kabellose Weg (die Namen im Manifest). Eine vom Dienst gelesene Datei,
@@ -2092,10 +2172,11 @@ def uebergabe_deckung_pruefen(wurzel: str,
     # eben nur ohne Kabel an.
     return {"skripte": skripte, "dienst": dienst, "listen_namen": listen_namen,
             "uebergeben": uebergeben, "geraeteseitig": geraeteseitig,
+            "ausgeliefert": ausgeliefert,
             "kabellos": kabellos, "nur_kabel": nur_kabel,
             "nur_kabellos": nur_kabellos,
             "ohne_liste": (gelesen - listen_namen - set(UEBERGABE_GERAETESEITIG)
-                           - (kabellos or set())),
+                           - ausgeliefert - (kabellos or set())),
             "ohne_leser": (listen_namen | uebergeben) - gelesen}
 
 
@@ -3216,7 +3297,16 @@ def pruefen(basis: str, plaene=STANDARD_PLAENE, foto_vektoren=STANDARD_FOTO_VEKT
                       if teile else "Uebergabe-Listen (Deckung): keine Liste angegeben")
         zeilen.append(f"  Dienst liest {_z(len(dl['dienst']))} Datendateinamen; auf einer Liste "
                       f"{_z(len(dl['listen_namen']))}, geraeteseitig {_z(len(dl['geraeteseitig']))}, "
+                      f"ausgeliefert {_z(len(dl['ausgeliefert']))}, "
                       f"ohne Liste {_z(len(dl['ohne_liste']))}")
+        # Ausgelieferte Frontend-Dateien: der Scanner findet ihren Namen, sie
+        # kommen aber mit dem Code ans Geraet (kein Uebergabe-Weg noetig) — eine
+        # ZEILE, keine Luecke. Benannt, damit die Zahl nicht still entsteht.
+        if dl["ausgeliefert"]:
+            zeilen.append(f"  Vom Server ausgeliefert (kommen mit dem Code, kein "
+                          f"Datenbestand - kein Uebergabe-Weg noetig) "
+                          f"({_z(len(dl['ausgeliefert']))}): "
+                          f"{_namen_kurz(sorted(dl['ausgeliefert']))}")
         if dl["ohne_liste"]:
             zeilen.append(f"  Auf keinem Weg - kaeme nie ans Geraet "
                           f"({_z(len(dl['ohne_liste']))}): {_namen_kurz(sorted(dl['ohne_liste']))}")

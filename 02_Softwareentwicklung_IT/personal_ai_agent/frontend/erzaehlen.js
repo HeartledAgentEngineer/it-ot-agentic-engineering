@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Erzähl-Diashow (Auftrag E8a, 28.09.2026)
  * -----------------------------------------
  * Sebastian wählt ein Ereignis und sieht zuerst ALLE Bilder als Raster
@@ -295,6 +295,27 @@ function erzaehlAllesText(teile) {
         .trim();
 }
 
+/** REINE Funktion: Prüft ob ein Bild als privat / sensibel maskiert werden soll.
+ *  Schützt intime Fotos vor direktem Erscheinen beim Blättern (#18, 30.10.2026). */
+function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet) {
+    if (!fileid) return false;
+    const fid = String(fileid).trim();
+    if (privSet && typeof privSet.has === 'function' && privSet.has(fid)) return true;
+    if (detail && typeof detail === 'object') {
+        if (detail.privat === true) return true;
+        const titel = String(detail.titel || detail.titel_automatisch || '');
+        const kat = String(detail.kategorie || '');
+        if (/privat|intim|sensibel/i.test(titel) || /privat|intim|sensibel/i.test(kat)) return true;
+    }
+    if (bildInfo && typeof bildInfo === 'object' && bildInfo.bilder && bildInfo.bilder[fid]) {
+        const b = bildInfo.bilder[fid];
+        if (b.privat === true) return true;
+        const beschr = String(b.beschreibung || '');
+        if (/nackt|intim|penis|aktfoto|erotik/i.test(beschr)) return true;
+    }
+    return false;
+}
+
 // =========================================================================
 // Verdrahtung (DOM). Läuft nur im Browser — Node-Tests schneiden oben
 // stehende Funktionen wörtlich aus und lassen den Rest unangetastet.
@@ -336,7 +357,26 @@ function erzaehlAllesText(teile) {
         ereignisGesamt: 0,         // alle Anlässe laut Server (für „Anlass 5 von 2.127")
         anlassWechsel: false,      // Sperre: ein Anlass-Wechsel zur Zeit
         entwurfJeAnlass: new Map(), // halbfertiger Text je Anlass — Wischen verliert nichts
+        aufgedeckteBilder: new Set(), // für diese Sitzung manuell aufgedeckte Privatbilder
     };
+
+    function erzaehlPrivateBilderLaden() {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                const raw = localStorage.getItem('personal_ai_private_bilder');
+                if (raw) return new Set(JSON.parse(raw));
+            }
+        } catch (_e) {}
+        return new Set();
+    }
+
+    function erzaehlBildPrivatSpeichern(set) {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('personal_ai_private_bilder', JSON.stringify(Array.from(set)));
+            }
+        } catch (_e) {}
+    }
 
     function el(id) { return document.getElementById(id); }
 
@@ -1386,6 +1426,69 @@ function erzaehlAllesText(teile) {
             if (platzhalter) platzhalter.hidden = true;
         }
 
+        // --- Bild-Editor B5 & Selektiver Privat-Schutz ---
+        const dateiKennung = String(kennung);
+        const privSet = erzaehlPrivateBilderLaden();
+        const privat = erzaehlBildIstPrivat(dateiKennung, zustand.bilderInfo, meinDetail, privSet);
+        const sperreEl = el('erzaehl-privat-sperre');
+        const toggleBtn = el('erzaehl-privat-toggle');
+        const editorBtn = el('erzaehl-bild-editor-btn');
+
+        if (toggleBtn) {
+            toggleBtn.classList.toggle('privat-aktiv', privat);
+            toggleBtn.textContent = privat ? '🔒 Privat (aktiv)' : '🔓 Nicht privat';
+            toggleBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                const set = erzaehlPrivateBilderLaden();
+                if (set.has(dateiKennung)) {
+                    set.delete(dateiKennung);
+                } else {
+                    set.add(dateiKennung);
+                }
+                erzaehlBildPrivatSpeichern(set);
+                bildZeigen();
+            };
+        }
+
+        if (editorBtn) {
+            editorBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                if (typeof zeigeBildVollbild === 'function' && bild) {
+                    zeigeBildVollbild(bild, zustand.gesichter || [], { fileid: dateiKennung });
+                }
+            };
+        }
+
+        if (privat && !zustand.aufgedeckteBilder.has(dateiKennung)) {
+            if (bild) bild.classList.add('erzaehl-privat-verdeckt');
+            if (sperreEl) {
+                sperreEl.hidden = false;
+                sperreEl.onclick = (ev) => {
+                    ev.stopPropagation();
+                    zustand.aufgedeckteBilder.add(dateiKennung);
+                    if (bild) bild.classList.remove('erzaehl-privat-verdeckt');
+                    sperreEl.hidden = true;
+                };
+            }
+        } else {
+            if (bild) bild.classList.remove('erzaehl-privat-verdeckt');
+            if (sperreEl) sperreEl.hidden = true;
+        }
+
+        if (bild) {
+            bild.onclick = (ev) => {
+                if (privat && !zustand.aufgedeckteBilder.has(dateiKennung)) {
+                    ev.stopPropagation();
+                    zustand.aufgedeckteBilder.add(dateiKennung);
+                    if (bild) bild.classList.remove('erzaehl-privat-verdeckt');
+                    if (sperreEl) sperreEl.hidden = true;
+                    return;
+                }
+                if (typeof zeigeBildVollbild === 'function') {
+                    zeigeBildVollbild(bild, zustand.gesichter || [], { fileid: dateiKennung });
+                }
+            };
+        }
         geschichtenAnzeigen();
         gesichterLaden();
         void zurueckBtn; // nur Referenz, damit Linter den Namen nicht als unbenutzt meldet

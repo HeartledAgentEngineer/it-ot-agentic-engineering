@@ -214,10 +214,10 @@ pruefe(/#selbsttest-sheet \.server-zustand,[\s\S]*?#selbsttest-sheet \.server-pr
     'die vier Blöcke haben im Fenster volle Breite');
 pruefe(/\.datenstand\[hidden\],\s*\.server-protokoll\[hidden\] \{\s*display: none/.test(css),
     'hidden wird bei Datenstand/Protokoll nicht von display:flex überstimmt');
-pruefe(/app\.js\?v=20261026A/.test(html)
+pruefe((html.match(/app\.js\?v=([0-9A-Z]+)/) || [])[1] >= '20261026A'
     && /style\.css\?v=([0-9A-Z]+)/.test(html)
     && (html.match(/style\.css\?v=([0-9A-Z]+)/) || [])[1] >= '20261026A',
-    'Cache-Schlüssel app.js 20261026A, style.css mindestens 20261026A');
+    'Cache-Schlüssel app.js mindestens 20261026A, style.css mindestens 20261026A');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) fehlgeschlagen.`); process.exit(1); }
 console.log('\nAlle Prüfungen bestanden.');

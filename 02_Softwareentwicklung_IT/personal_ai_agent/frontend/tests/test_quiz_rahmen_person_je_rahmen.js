@@ -178,7 +178,7 @@ console.log('\nG) Verdrahtung im Quelltext');
            'das Menue setzt die Person fuer den AUSGEWAEHLTEN Rahmen');
     pruefe(/const speicherZiel = editorSpeicherZiel\(_quizEditor, sel\);/.test(src),
            'die Werkzeugleiste fragt das Ziel fuer den ausgewaehlten Rahmen');
-    pruefe(/if \(!_quizEditor\.refKontext\) \{\n {20}const personWahl/.test(src),
+    pruefe(/if \(!_quizEditor\.refKontext\) \{\r?\n {20}const personWahl/.test(src),
            'in der Referenz-Nachbearbeitung gibt es kein Personen-Menue');
     pruefe(/nm\.style\.display = \(unb \|\| eigenName\)/.test(src),
            'ein Rahmen mit eigener Person zeigt deren Namen an');

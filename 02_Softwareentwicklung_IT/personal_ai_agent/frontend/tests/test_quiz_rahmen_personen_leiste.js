@@ -146,7 +146,7 @@ console.log('\n8) Quelltext-Waechter (Verdrahtung + Cache-Schluessel)');
     const bau = src.slice(src.indexOf('// Schritt F (18.10.2026): die PERSONEN-LEISTE'),
                           src.indexOf('if (_quizEditor.dreh) { try { big.style.transform'));
     pruefe(bau.length > 0, 'der Leisten-Block steht in der Werkzeugleiste');
-    pruefe(/if \(!_quizEditor\.refKontext\) \{\n {20}const personenLeiste/.test(src),
+    pruefe(/if \(!_quizEditor\.refKontext\) \{\r?\n {20}const personenLeiste/.test(src),
         'die Leiste entsteht nur ausserhalb der Referenz-Nachbearbeitung');
     pruefe(/vollbild-personen-leiste/.test(bau), 'die Leiste hat eine eigene Kennung');
     pruefe(/sel = idx; resync\(\); zeigeAuswahlGriffe\(\);/.test(bau),

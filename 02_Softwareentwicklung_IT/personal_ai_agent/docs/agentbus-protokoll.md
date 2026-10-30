@@ -30,12 +30,31 @@ Typen: `task` · `tip` · `frage` · `erledigt` · `blockiert` · `pruefung`
 
 ## Rollen (verbindlich)
 
-| Rolle | Wer | Regel |
-|---|---|---|
-| **Planer** | Hermes (hat den Gesamtstand + Daten) | schreibt `task`-Nachrichten mit Schritt, Pfaden, Prüfkriterium |
-| **Arbeiter Code** | Claude Code | nur Code/Tests/Doku, **keine persönlichen Daten** |
-| **Arbeiter Daten** | Hermes + OpenRouter (ZDR) | Chats, Fotos, Kontakte, Gesichter |
-| **Prüfer** | **immer der andere** als der Arbeiter | `verify` — Selbstprüfung ist gesperrt |
+Die einzige Quelle der aktuellen Rollen ist der Abschnitt
+**„Rollen und Datenschutz im Agenten-Workflow“ in der Workspace-`AGENTS.md`**.
+Die Rollen sind vom aktiven Master abhängig, nicht dauerhaft einem Werkzeug
+zugeordnet:
+
+| Aktiver Master | Planer und technischer Ausführer | Technischer Prüfer | Ausführer für alles Sensible |
+|---|---|---|---|
+| Claude Code | Claude Code plant; Hermes mit GPT-6 Luna führt aus | Codex | ausschließlich Hermes |
+| Codex | Codex plant; Hermes mit GPT-6 Luna führt aus | Hermes mit DeepSeek v4.1 Flash; Wechsel nur auf ausdrückliche Nutzeranweisung | ausschließlich Hermes |
+
+**Alles Sensible bleibt immer bei Hermes**, unabhängig von der Master- und
+Prüferrolle. Code, Tests, technische Beschreibungen und Architektur darf der
+technische Ausführer bearbeiten. Persönliche Texte, Chats, Kontakte,
+Bildinhalte, persönliche Beschreibungen und Vektoren, echte Kennungen,
+private Pfade und Zugangsschlüssel verarbeitet ausschließlich Hermes über
+den vom Nutzer freigegebenen Zugang mit Retention-Ausschluss.
+
+Der zugeordnete andere Prüfer übernimmt die kritische Planprüfung und die
+Gegenprüfung der Umsetzung. Vor der technischen Umsetzung muss die Freigabe
+der aktuellen Planfassung vorliegen. Selbstprüfung ersetzt das nicht.
+Das tatsächlich verwendete Prüfmodell, die Planfassung und offene Blocker
+werden festgehalten. Kein stiller Modellwechsel, keine automatische Änderung
+der Masterrolle und keine Freigabe durch bloßes Ausbleiben einer Antwort.
+Die aktuellen Nutzerfestlegungen in `AGENTS.md` haben Vorrang vor älteren
+festen Zuordnungen in Beschreibungen, Hooks oder Übergaben.
 
 ## Ablauf für jeden Schritt
 

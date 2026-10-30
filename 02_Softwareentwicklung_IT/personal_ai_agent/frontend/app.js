@@ -3650,6 +3650,18 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     if (gesichter && gesichter.length) _quizEditor.gesichter = gesichter;
     else if (!Array.isArray(_quizEditor.gesichter)) _quizEditor.gesichter = [];
     _quizEditor.src = src;
+    // Bild-Editor B4 (27.10.2026): mit gueltiger {fileid} arbeitet der Editor im Cloud-Weg — Rahmen,
+    // Namen und Gruppen-Gesicht kommen aus bild-gesichter. Ohne fileid bleibt alles beim Alten;
+    // der Rest vom letzten Bild wird bei jedem Oeffnen zurueckgesetzt.
+    _quizEditor.fileid = '';
+    _quizEditor.cloudSpeichert = false;
+    _quizEditor.cloudErkennt = false;
+    _quizEditor.cloudNeuAufbauen = null;
+    _quizEditor.vorschlaege = [];
+    if (!_quizEditor.refKontext && optionen.fileid != null && cloudFileidGueltig(optionen.fileid)) {
+        _quizEditor.fileid = String(optionen.fileid).trim();
+        bildEditorCloudZustand(_quizEditor, gesichter, optionen.markiere);
+    }
     const ov = document.createElement('div');
     _quizVollbild = ov;
     // PULL-TO-REFRESH-SPERRE (Befund Sebastian 2026-09-15: "beim Runterziehen
@@ -3709,7 +3721,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
         const r = bildBox.getBoundingClientRect();
         return [r.left + r.width / 2 - zoom.tx, r.top + r.height / 2 - zoom.ty];
     }
-    const aufRahmen = (el) => !!(el && el.closest && el.closest('[data-frei],[data-griff]'));
+    const aufRahmen = (el) => !!(el && el.closest && el.closest('[data-frei],[data-griff],[data-vorschlag]'));
     const fingerMitte = (p) => [(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2];
     const fingerAbstand = (p) => Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
     try {
@@ -3793,7 +3805,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     // Referenz-Nachbearbeitung. Beim Klick wird eine evtl. noch offene Frage des
     // aktuellen Bildes als 'uebersprungen' persistiert und die naechste Runde
     // geladen; das neue Bild oeffnet sich danach direkt wieder als Vollbild.
-    if (_quizAktiv && _quizGesehen && _quizGesehen.length && !_quizEditor.refKontext) {
+    if (_quizAktiv && _quizGesehen && _quizGesehen.length && !_quizEditor.refKontext && !_quizEditor.fileid) {
         const weiterBtn = document.createElement('div');
         weiterBtn.style.cssText = 'position:fixed;left:auto;right:auto;width:auto;bottom:18px;z-index:99999;text-align:center;padding:12px 26px;border-radius:30px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.95rem;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.6);left:50%;transform:translateX(-50%)';
         weiterBtn.textContent = 'Nächstes Bild ➡️';
@@ -3813,7 +3825,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     leiste.style.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;z-index:99999;display:flex;flex-wrap:wrap;justify-content:center;row-gap:6px;max-width:96vw;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
     ov.appendChild(leiste);
     try {
-        if (gesichter && gesichter.length) {
+        if ((gesichter && gesichter.length) || _quizEditor.fileid) {
             big.addEventListener('load', () => {
                 var iw = big.naturalWidth || 0, ih = big.naturalHeight || 0;
                 if (!iw || !ih) return;
@@ -3828,8 +3840,10 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     }
                 }
                 _quizEditor.px_rest = [];
-                var sel = -1;
+                var sel = (_quizEditor.fileid && _quizEditor.startAuswahl >= 0) ? _quizEditor.startAuswahl : -1;
                 var rahmenEls = [];
+                var vorschlagEls = [];     // Bild-Editor B4: gestrichelte Vorschlaege ("Neu erkennen", Cloud-Weg)
+                var neuePersonZeigen = function () {};
                 // Schritt G (18.10.2026): das Ziel-Personen-Menue zeigt immer die
                 // Person des AUSGEWAEHLTEN Rahmens. Es wird erst beim Bau der
                 // Werkzeugleiste gesetzt; bis dahin ist der Aufruf wirkungslos.
@@ -3937,6 +3951,18 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             if (unb) nm.textContent = rahmenPersonText(rohPerson);
                             else if (eigenName) nm.textContent = eigenName;
                         }
+                    }
+                    // Bild-Editor B4: Vorschlaege liegen im selben Bildraum und drehen mit.
+                    for (var vi = 0; vi < vorschlagEls.length; vi++) {
+                        var vNorm = ((_quizEditor.vorschlaege || [])[vi] || {}).bbox_norm;
+                        var vEl = vorschlagEls[vi];
+                        if (!vNorm || vNorm.length < 4) { vEl.style.display = 'none'; continue; }
+                        var vPx = bboxPixelVonNorm(bboxNormRotieren(vNorm, iw, ih, dreh), masse[0], masse[1]);
+                        vEl.style.display = 'block';
+                        vEl.style.left = (vPx[0] * skw) + 'px';
+                        vEl.style.top = (vPx[1] * skh) + 'px';
+                        vEl.style.width = (vPx[2] * skw) + 'px';
+                        vEl.style.height = (vPx[3] * skh) + 'px';
                     }
                     editorSyncLegacy();
                 }
@@ -4078,6 +4104,41 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 for (var i2 = 0; i2 < rahmenEls.length; i2++) {
                     rahmenZiehbar(rahmenEls[i2], i2);
                 }
+                // Bild-Editor B4 (27.10.2026): Vorschlaege der Neu-Erkennung malen/uebernehmen und die
+                // Rahmen nach dem Neuladen (nach 💾) neu aufbauen. Nur im Cloud-Weg benutzt.
+                function cloudVorschlaegeMalen() {
+                    vorschlagEls.forEach(function (x) { try { x.remove(); } catch (_e) {} });
+                    vorschlagEls = [];
+                    (_quizEditor.vorschlaege || []).forEach(function (v, vi) {
+                        var vel = cloudVorschlagElement(v, function () { cloudVorschlagUebernehmen(vi); });
+                        bildBox.appendChild(vel);
+                        vorschlagEls.push(vel);
+                    });
+                    resync();
+                }
+                function cloudVorschlagUebernehmen(vi) {
+                    snapshotVorAenderung();   // Undo vor dem Uebernehmen
+                    var neu = bildEditorCloudVorschlagUebernehmen(_quizEditor, vi);
+                    if (neu < 0) return;
+                    if (!rahmenEls[neu]) { rahmenZiehbar(rahmenElement(neu), neu); }
+                    sel = neu;
+                    cloudVorschlaegeMalen();
+                    zeigeAuswahlGriffe();
+                    meldeEditor('Vorschlag übernommen als Rahmen ' + (neu + 1) + ' — Person im Menü wählen, dann 💾 Speichern.', true);
+                }
+                function cloudNeuAufbauen() {
+                    rahmenEls.forEach(function (x) { try { x.remove(); } catch (_e) {} });
+                    rahmenEls.length = 0;
+                    for (var ci = 0; ci < (_quizEditor.bbox_norm_live || []).length; ci++) {
+                        rahmenZiehbar(rahmenElement(ci), ci);
+                    }
+                    var startSel = (_quizEditor.startAuswahl >= 0 && _quizEditor.startAuswahl < (_quizEditor.bbox_norm_live || []).length)
+                        ? _quizEditor.startAuswahl : -1;
+                    sel = (sel >= 0 && sel < (_quizEditor.bbox_norm_live || []).length) ? sel : startSel;
+                    cloudVorschlaegeMalen();
+                    zeigeAuswahlGriffe();
+                }
+                _quizEditor.cloudNeuAufbauen = cloudNeuAufbauen;
                 // Schritt E (18.10.2026): Rahmen von Hand aufziehen (Auftragspunkt
                 // 2b). Nur OHNE Anzeige-Drehung — sonst sitzt der gezeichnete
                 // Rahmen schief, und ein falsch sitzender Rahmen waere schlimmer
@@ -4153,6 +4214,11 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     sel = idx;
                     resync(); zeigeAuswahlGriffe();
                     var anzahl = rahmenIndizes(_quizEditor).length;
+                    if (_quizEditor.fileid) {
+                        meldeEditor('Rahmen ' + (idx + 1) + ' gezogen — 💾 Speichern legt ihn als neues Gesicht an; die Person wählst du im Menü (' +
+                                    anzahl + ' Rahmen auf dem Bild).', true);
+                        return idx;
+                    }
                     meldeEditor('Rahmen ' + (idx + 1) + ' gezogen — als „unbekannt" angezeigt und fuer dieses Bild gemerkt (' +
                                 anzahl + ' Rahmen auf dem Bild). Die Zuordnung kommt mit dem Ziel-Personen-Menue; gespeichert wird ' +
                                 'ein unbekannter Rahmen nicht.', true);
@@ -4167,7 +4233,23 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 // aendert der Aufruf NICHTS und sagt das auch — 0 Gesichter waeren
                 // sonst als "keine Gesichter" missverstanden worden.
                 // Rueckgabe: Zahl der Neufunde, -1 = nichts geaendert.
+                // Bild-Editor B4: im Cloud-Weg ruft "Neu erkennen" bild-erkennen; Neufunde erscheinen
+                // gestrichelt als Vorschlag, bis sie angetippt werden. Rueckgabe: Zahl der Vorschlaege.
+                async function erkenneBildCloudNeu() {
+                    var fid = _quizEditor.fileid;
+                    if (_quizEditor.cloudErkennt) { meldeEditor('🔍 Die Erkennung läuft noch …', true); return -1; }
+                    _quizEditor.cloudErkennt = true;
+                    meldeEditor('🔍 Erkennung läuft … (bis zu 45 Sekunden)', true);
+                    var antwort = null;
+                    try { antwort = await cloudErkennenAbrufen(fid); } finally { _quizEditor.cloudErkennt = false; }
+                    if (_quizEditor.fileid !== fid) return -1;     // inzwischen ein anderes Bild
+                    var m = bildEditorCloudErkennung(_quizEditor, antwort);
+                    cloudVorschlaegeMalen();
+                    meldeEditor(m.text, m.ok);
+                    return m.neu;
+                }
                 async function erkenneDiesesBildNeu() {
+                    if (_quizEditor.fileid) { return erkenneBildCloudNeu(); }
                     var pfad = _quizEditor.bildPfad || '';
                     if (!pfad) { meldeEditor('🔍 Ohne Bildpfad laesst sich die Erkennung nicht neu starten.', false); return -1; }
                     var vorher = rahmenIndizes(_quizEditor).length;
@@ -4321,8 +4403,13 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     personWahl.style.cssText = 'padding:8px 10px;border-radius:20px;background:#2a2a2a;color:#eee;border:1px solid #555;font-size:0.82rem;max-width:44vw;cursor:pointer';
                     personWahlMalen = function () {
                         try {
-                            var wahl = rahmenPersonWahl(_quizEditor, sel);
-                            var namen = rahmenPersonMenueListe(quizKatalogNamen(), wahl);
+                            // Bild-Editor B4: im Cloud-Weg gilt nur der eigene Eintrag des Rahmens (keine
+                            // globale Quiz-Zielperson) und die Namen kommen aus dem Gruppen-Quiz.
+                            var wahl = _quizEditor.fileid
+                                ? String(((_quizEditor.personen || [])[sel]) == null ? '' : _quizEditor.personen[sel]).trim()
+                                : rahmenPersonWahl(_quizEditor, sel);
+                            var namen = rahmenPersonMenueListe(
+                                _quizEditor.fileid ? cloudPersonenNamen(_quizEditor, sel) : quizKatalogNamen(), wahl);
                             personWahl.textContent = '';
                             var leer = document.createElement('option');
                             leer.value = '';
@@ -4334,12 +4421,23 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                                 op.textContent = namen[n];
                                 personWahl.appendChild(op);
                             }
+                            if (_quizEditor.fileid) {
+                                var opNeu = document.createElement('option');
+                                opNeu.value = '__neue_person__';
+                                opNeu.textContent = cloudNeuePersonOptionText();
+                                personWahl.appendChild(opNeu);
+                            }
                             personWahl.value = wahl;
                             personWahl.disabled = (sel < 0);
                         } catch (_e) {}
                     };
                     personWahl.addEventListener('change', function (ev) {
                         ev.stopPropagation();
+                        if (_quizEditor.fileid && personWahl.value === '__neue_person__') {
+                            neuePersonZeigen(true);
+                            personWahlMalen();
+                            return;
+                        }
                         var wert = rahmenPersonSetzen(_quizEditor, sel, personWahl.value);
                         if (wert) {
                             meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + wert +
@@ -4351,6 +4449,44 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     });
                     leiste.appendChild(personWahl);
                     personWahlMalen();
+                    // Bild-Editor B4: "Neue Person …" — Namenseingabe in der umbrechenden Werkzeugleiste.
+                    if (_quizEditor.fileid) {
+                        const neuePersonFeld = document.createElement('input');
+                        neuePersonFeld.className = 'vollbild-neue-person';
+                        neuePersonFeld.type = 'text';
+                        neuePersonFeld.maxLength = 60;
+                        neuePersonFeld.placeholder = 'Name der neuen Person (nur am Handy)';
+                        neuePersonFeld.style.cssText = 'display:none;padding:8px 12px;border-radius:20px;background:#1b1b1b;color:#eee;border:1px solid #8a6a3a;font-size:0.85rem;max-width:56vw;min-width:0;box-sizing:border-box';
+                        const neuePersonOk = document.createElement('div');
+                        neuePersonOk.className = 'vollbild-neue-person-ok';
+                        neuePersonOk.textContent = 'OK';
+                        neuePersonOk.style.cssText = 'display:none;padding:8px 16px;border-radius:20px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.85rem;cursor:pointer;max-width:30vw';
+                        neuePersonZeigen = function (an) {
+                            neuePersonFeld.style.display = an ? 'inline-block' : 'none';
+                            neuePersonOk.style.display = an ? 'inline-block' : 'none';
+                            if (an) { try { neuePersonFeld.focus(); } catch (_e) {} }
+                        };
+                        const neuePersonUebernehmen = function () {
+                            const name = String(neuePersonFeld.value || '').trim();
+                            if (!name) { meldeEditor('Bitte einen Namen eingeben.', false); return; }
+                            if (sel < 0) { meldeEditor('Erst einen Rahmen antippen, dann den Namen setzen.', false); return; }
+                            const hinweis = cloudNameHinweis(_quizEditor, name);
+                            rahmenPersonSetzen(_quizEditor, sel, name);
+                            neuePersonFeld.value = '';
+                            neuePersonZeigen(false);
+                            meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + name + (hinweis ? ' (' + hinweis + ')' : '') +
+                                        ' — 💾 Speichern übernimmt ihn.', true);
+                            resync(); zeigeAuswahlGriffe();
+                        };
+                        neuePersonOk.addEventListener('click', function (ev) { ev.stopPropagation(); neuePersonUebernehmen(); });
+                        neuePersonFeld.addEventListener('keydown', function (ev) {
+                            ev.stopPropagation();
+                            if (ev.key === 'Enter') { try { ev.preventDefault(); } catch (_e) {} neuePersonUebernehmen(); }
+                        });
+                        leiste.appendChild(neuePersonFeld);
+                        leiste.appendChild(neuePersonOk);
+                        ladeCloudPersonenNamen().then(function () { try { personWahlMalen(); } catch (_e) {} });
+                    }
                     // Der Katalog kommt aus dem Netz: trifft er spaeter ein, wird
                     // die Liste nachgefuellt — nie still leer (Ladefehler nennt
                     // quizKatalogFehlerText() im Suchfeld des Quiz).
@@ -4420,6 +4556,8 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     speichernBtn.style.cssText = 'padding:10px 20px;border-radius:22px;background:#1f3a2a;border:1px solid #2e8b57;color:#9f9;font-weight:700;font-size:0.9rem;cursor:pointer';
                     speichernBtn.addEventListener('click', (ev) => {
                         ev.stopPropagation();
+                        // Bild-Editor B4: im Cloud-Weg schickt EIN 💾 alle Aenderungen gesammelt.
+                        if (speicherZiel.weg === 'cloud') { speichereBildCloud(speichernBtn); return; }
                         speichereEditorRahmen(sel, iw, ih, speichernBtn);
                     });
                     leiste.appendChild(speichernBtn);
@@ -4427,7 +4565,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     // Rahmen auf dem Bild, gibt es daneben "alle speichern" —
                     // nacheinander, je Rahmen eine eigene Meldung. Bei einem
                     // einzigen Rahmen ist der Knopf ueberfluessig (derselbe Weg).
-                    const rahmenZahl = rahmenIndizes(_quizEditor).length;
+                    const rahmenZahl = (speicherZiel.weg === 'cloud') ? 0 : rahmenIndizes(_quizEditor).length;
                     if (rahmenZahl >= 2) {
                         const alleBtn = document.createElement('div');
                         alleBtn.textContent = '💾 alle ' + rahmenZahl;
@@ -4444,6 +4582,14 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     speicherHinweis.textContent = '💾 ' + speicherZiel.grund;
                     speicherHinweis.style.cssText = 'padding:8px 14px;border-radius:20px;background:#241d1d;border:1px dashed #8a6a6a;color:#dbb;font-size:0.78rem;max-width:62vw';
                     leiste.appendChild(speicherHinweis);
+                }
+                // Bild-Editor B4: das Gruppen-Gesicht beim Oeffnen markiert halten; ohne erkannte Gesichter
+                // sagen, was geht.
+                if (_quizEditor.fileid) {
+                    if (sel >= 0) { zeigeAuswahlGriffe(); }
+                    else if (!rahmenIndizes(_quizEditor).length) {
+                        meldeEditor('Auf diesem Bild ist kein Gesicht gespeichert — mit „＋ Rahmen" eins aufziehen oder „🔍 Neu erkennen".', true);
+                    }
                 }
             });
         }
@@ -4539,6 +4685,16 @@ function editorSpeicherZiel(e, idx) {
     if (ctx && ctx.name && ctx.ref_id) {
         return { ok: true, weg: 'referenz', person: ctx.name, pfad: '', grund: '' };
     }
+    // Bild-Editor B4 (27.10.2026): mit fileid speichert der Editor ueber die Bild-Routen des
+    // Gruppen-Quiz (bild-rahmen). Bewusst inline (kein weiterer Funktionsaufruf).
+    if (ed.fileid) {
+        const fid = String(ed.fileid).trim();
+        if (/^[0-9]{1,20}$/.test(fid)) {
+            return { ok: true, weg: 'cloud', fileid: fid, person: '', pfad: '', grund: '' };
+        }
+        return { ok: false, weg: 'cloud', fileid: fid, person: '', pfad: '',
+                 grund: 'Kein Speicherziel: ungueltige Bildkennung.' };
+    }
     const person = rahmenPersonWahl(ed, idx);
     const pfad = pfadKennung(_aktuellerQuizPfad);
     const bild = pfadKennung(ed.bildPfad);
@@ -4572,6 +4728,381 @@ function rahmenIndizes(e) {
     }
     return raus;
 }
+
+// ── Bild-Editor B4 (27.10.2026): Editor Cloud-Weg ───────────────────────────
+// Mit `zeigeBildVollbild(img, gesichter, {fileid, markiere})` speichert der Editor
+// nicht ueber Handy-Quiz oder Katalog-Referenz, sondern ueber die Bild-Routen des
+// Gruppen-Quiz (fileid = Kennung in der pCloud):
+//   GET  /api/gruppen/bild-gesichter?fileid=   die Gesichter des Bildes (Quelle der Wahrheit)
+//   POST /api/gruppen/bild-rahmen              ALLE Aenderungen gesammelt (hoechstens 30)
+//   POST /api/gruppen/bild-erkennen            Erkennung neu laufen lassen (speichert nichts)
+// Zustand je Rahmen (gleicher Index wie `bbox_norm_live`): `gids[i]` (Kennung des Servers,
+// '' = neues Gesicht), `basis[i]` ({bbox_norm, name} wie vom Server geladen, null = neu),
+// `personen[i]` (aktueller Name, '' = ohne). Aus dem Unterschied zur Basis entsteht der
+// Sendebody; unveraenderte Gesichter werden nicht geschickt. Ohne fileid wird nichts
+// davon benutzt — Quiz-Weg und Referenz-Weg bleiben, wie sie waren. Alle Werte, die in
+// die Oberflaeche kommen (Namen, Meldungen), gehen nur per textContent hinein.
+
+/** Gueltige Bildkennung: nur Ziffern (die Routen verlangen sie so). */
+function cloudFileidGueltig(fileid) {
+    if (fileid == null || typeof fileid === 'boolean') return false;
+    return /^[0-9]{1,20}$/.test(String(fileid).trim());
+}
+
+/** Rahmen so, wie ihn der Server annimmt: im Bild, mindestens 1 % breit/hoch, 6 Stellen. */
+function cloudBboxFuerServer(norm) {
+    if (!Array.isArray(norm) || norm.length < 4) return null;
+    const w = norm.slice(0, 4).map(Number);
+    if (!w.every(function (v) { return isFinite(v); })) return null;
+    const r6 = function (v) { return Math.round(v * 1e6) / 1e6; };
+    const rest = function (p) { return Math.floor((1 - p) * 1e6) / 1e6; };
+    const x = r6(Math.max(0, Math.min(w[0], 0.98)));
+    const y = r6(Math.max(0, Math.min(w[1], 0.98)));
+    const b = Math.min(r6(Math.max(0.01, w[2])), rest(x));
+    const h = Math.min(r6(Math.max(0.01, w[3])), rest(y));
+    return [x, y, b, h];
+}
+
+/** Index des Gesichts, das beim Oeffnen markiert sein soll (gid zuerst, sonst beste Deckung >= 0,5). */
+function cloudStartAuswahl(gesichter, markiere) {
+    if (!markiere || !Array.isArray(gesichter)) return -1;
+    if (markiere.gid != null && markiere.gid !== '') {
+        for (let i = 0; i < gesichter.length; i++) {
+            if (gesichter[i] && String(gesichter[i].gid) === String(markiere.gid)) return i;
+        }
+    }
+    let beste = 0.5, treffer = -1;
+    if (Array.isArray(markiere.bbox_norm)) {
+        for (let i = 0; i < gesichter.length; i++) {
+            const mass = bboxUeberdeckung(markiere.bbox_norm, gesichter[i] && gesichter[i].bbox_norm);
+            if (mass >= beste) { beste = mass; treffer = i; }
+        }
+    }
+    return treffer;
+}
+
+/** Baut den Editorzustand aus der Gesichtsliste des Servers (ersetzt alles Bisherige).
+ *  Gesichter ohne brauchbaren Rahmen werden uebersprungen. Rueckgabe: Zahl der Rahmen. */
+function bildEditorCloudZustand(e, gesichter, markiere) {
+    const liste = Array.isArray(gesichter) ? gesichter : [];
+    const rahmen = [], personen = [], gids = [], basis = [], faces = [];
+    for (let i = 0; i < liste.length; i++) {
+        const g = liste[i];
+        if (!g || !Array.isArray(g.bbox_norm) || g.bbox_norm.length < 4) continue;
+        const roh = g.bbox_norm.slice(0, 4).map(Number);
+        if (!roh.every(function (v) { return isFinite(v); })) continue;
+        const n = bboxNormClampen(roh);
+        const name = (g.name == null) ? '' : String(g.name).trim();
+        rahmen.push(n);
+        personen.push(name);
+        gids.push(g.gid == null ? '' : String(g.gid));
+        basis.push({ bbox_norm: n.slice(), name: name });
+        faces.push(g);
+    }
+    e.bbox_norm_live = rahmen;
+    e.personen = personen;
+    e.gids = gids;
+    e.basis = basis;
+    e.gesichter = faces;
+    e.px_rest = [];
+    e.undo = [];
+    e.vorschlaege = [];
+    e.namensvorschlaege = [];
+    e.startAuswahl = cloudStartAuswahl(faces, markiere);
+    return rahmen.length;
+}
+
+/** Was hat sich gegenueber der Basis geaendert? -> {aenderungen, zuViele, max}.
+ *  verschoben -> {gid, bbox_norm}; geloescht -> {gid, entfernen:true}; neuer Name -> {gid, name};
+ *  neuer Rahmen -> {neu:true, bbox_norm, name?}. Unveraenderte Gesichter fehlen. */
+function bildEditorCloudAenderungen(e) {
+    const ed = e || {};
+    const live = ed.bbox_norm_live || [];
+    const aend = [];
+    for (let i = 0; i < live.length; i++) {
+        const b = (ed.basis || [])[i];
+        const cur = live[i];
+        const gueltig = !!(cur && cur.length >= 4);
+        const roh = (ed.personen || [])[i];
+        const name = (roh == null) ? '' : String(roh).trim();
+        if (b) {
+            const gid = String((ed.gids || [])[i] || '');
+            if (!gid) continue;
+            if (!gueltig) { aend.push({ gid: gid, entfernen: true }); continue; }
+            const a = { gid: gid };
+            const jetzt = cloudBboxFuerServer(cur);
+            const vorher = cloudBboxFuerServer(b.bbox_norm);
+            let gleichRahmen = !!(jetzt && vorher);
+            for (let k = 0; gleichRahmen && k < 4; k++) {
+                if (Math.abs(jetzt[k] - vorher[k]) > 0.00001) gleichRahmen = false;
+            }
+            if (jetzt && !gleichRahmen) a.bbox_norm = jetzt;
+            if (name && name !== b.name) a.name = name;
+            if (a.bbox_norm || a.name) aend.push(a);
+        } else if (gueltig) {
+            const rahmen = cloudBboxFuerServer(cur);
+            if (!rahmen) continue;
+            const a = { neu: true, bbox_norm: rahmen };
+            if (name) a.name = name;
+            aend.push(a);
+        }
+    }
+    return { aenderungen: aend, zuViele: aend.length > 30, max: 30 };
+}
+
+/** Meldung aus der Server-Antwort von bild-rahmen. `neuLaden` = es wurde (teilweise) geschrieben. */
+function bildEditorCloudMeldung(antwort, anzahl) {
+    if (!antwort || typeof antwort !== 'object') {
+        return { ok: false, neuLaden: false, text: '⚠️ Keine verständliche Antwort vom Server — nichts bestätigt.' };
+    }
+    const fehler = (typeof antwort.fehler === 'string') ? antwort.fehler.trim() : '';
+    if (antwort.ok === true) {
+        if (antwort.geschrieben === false) {
+            return { ok: true, neuLaden: true, text: '✓ Der Server hatte schon genau diesen Stand — nichts zu ändern.' };
+        }
+        const n = Number(anzahl) || 0;
+        return { ok: true, neuLaden: true, text: '✓ ' + n + (n === 1 ? ' Änderung' : ' Änderungen') + ' gespeichert' };
+    }
+    if (antwort.teilweise === true) {
+        return { ok: false, neuLaden: true, text: '⚠️ ' + (fehler || 'Nur ein Teil wurde gespeichert.') };
+    }
+    return { ok: false, neuLaden: antwort.geschrieben === true,
+             text: '⚠️ Nicht gespeichert: ' + (fehler || 'unbekannter Fehler.') };
+}
+
+/** Die Gesichter eines Bildes vom Server holen. Wirft nie. */
+async function cloudGesichterLaden(fileid) {
+    try {
+        const r = await fetch(API_BASE + '/api/gruppen/bild-gesichter?fileid=' + encodeURIComponent(String(fileid)));
+        const d = await r.json();
+        if (d && typeof d === 'object') return d;
+    } catch (_e) {}
+    return { ok: false, fehler: 'Die Gesichter dieses Bildes sind nicht ladbar.' };
+}
+
+/** 💾 im Cloud-Weg: alle Aenderungen in EINEM bild-rahmen-Aufruf, Meldung aus der Antwort,
+ *  danach die Gesichter neu laden (neue gids uebernehmen). Wirft nie. */
+async function speichereBildCloud(btn) {
+    const e = _quizEditor || {};
+    const melde = (typeof e.melde === 'function') ? e.melde : function () {};
+    const zurueck = function (text) { try { if (btn) btn.textContent = text; } catch (_x) {} };
+    const ziel = editorSpeicherZiel(e, 0);
+    if (!ziel.ok || ziel.weg !== 'cloud') {
+        melde('⚠️ ' + (ziel.grund || 'Kein Speicherziel für dieses Bild.'), false);
+        return { ok: false, gesendet: 0, grund: ziel.grund || 'kein Cloud-Ziel' };
+    }
+    if (e.cloudSpeichert) {
+        melde('Speichern läuft noch …', true);
+        return { ok: false, gesendet: 0, grund: 'laeuft' };
+    }
+    const plan = bildEditorCloudAenderungen(e);
+    if (plan.zuViele) {
+        melde('⚠️ Zu viele Änderungen auf einmal (' + plan.aenderungen.length + ', höchstens ' + plan.max +
+              ') — mit ↩ einen Teil zurücknehmen, speichern, dann weitermachen.', false);
+        return { ok: false, gesendet: 0, grund: 'zu viele Aenderungen' };
+    }
+    if (!plan.aenderungen.length) {
+        melde('Keine Änderungen zu speichern.', true);
+        return { ok: true, gesendet: 0 };
+    }
+    e.cloudSpeichert = true;
+    zurueck('… speichere');
+    let antwort = null;
+    try {
+        const r = await fetch(API_BASE + '/api/gruppen/bild-rahmen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileid: ziel.fileid, aenderungen: plan.aenderungen }),
+        });
+        antwort = await r.json();
+    } catch (_err) {
+        antwort = { ok: false, geschrieben: false, fehler: 'Keine Verbindung zum Agenten — nichts gespeichert, die Änderungen bleiben im Editor.' };
+    }
+    const m = bildEditorCloudMeldung(antwort, plan.aenderungen.length);
+    let text = m.text;
+    if (m.neuLaden && e.fileid === ziel.fileid) {
+        let neu = await cloudGesichterLaden(ziel.fileid);
+        if ((!neu || neu.ok !== true) && antwort && Array.isArray(antwort.gesichter) && antwort.gesichter.length) {
+            neu = { ok: true, gesichter: antwort.gesichter };
+        }
+        if (neu && neu.ok === true && Array.isArray(neu.gesichter)) {
+            bildEditorCloudZustand(e, neu.gesichter, null);
+            try { if (typeof e.cloudNeuAufbauen === 'function') e.cloudNeuAufbauen(); } catch (_x) {}
+        } else {
+            text += ' (Die Anzeige konnte nicht neu geladen werden.)';
+        }
+    }
+    e.cloudSpeichert = false;
+    melde(text, m.ok);
+    zurueck(m.ok ? '✓ gespeichert' : '⚠️ Fehler');
+    setTimeout(function () { zurueck('💾 Speichern'); }, m.ok ? 1800 : 2400);
+    return { ok: m.ok, gesendet: plan.aenderungen.length };
+}
+
+/** Erkennung fuer EIN Bild ueber bild-erkennen. Liefert immer ein Objekt (bei Fehler {ok:false, fehler}). */
+async function cloudErkennenAbrufen(fileid) {
+    try {
+        const r = await fetch(API_BASE + '/api/gruppen/bild-erkennen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileid: String(fileid) }),
+        });
+        let d = null;
+        try { d = await r.json(); } catch (_x) {}
+        if (d && typeof d === 'object') {
+            if (d.ok !== true && !d.fehler) d.fehler = 'Die Erkennung ist fehlgeschlagen (HTTP ' + r.status + ').';
+            return d;
+        }
+        return { ok: false, fehler: 'Die Erkennung hat nicht lesbar geantwortet (HTTP ' + r.status + ').' };
+    } catch (_e) {
+        return { ok: false, fehler: 'Die Erkennung ist nicht erreichbar.' };
+    }
+}
+
+/** Antwort von bild-erkennen -> Vorschlaege in `e.vorschlaege` (nur neue Gesichter ohne vorhandenen
+ *  Rahmen darunter). Aendert Rahmen, Personen und Basis NICHT. -> {ok, text, neu, bekannt}. */
+function bildEditorCloudErkennung(e, antwort) {
+    e.vorschlaege = [];
+    const zahl = rahmenIndizes(e).length;
+    if (!antwort || antwort.ok !== true) {
+        const grund = (antwort && typeof antwort.fehler === 'string' && antwort.fehler) ? antwort.fehler : 'Die Erkennung ist fehlgeschlagen.';
+        return { ok: false, neu: 0, bekannt: 0,
+                 text: '🔍 ' + grund + ' — die ' + zahl + ' Rahmen bleiben unverändert.' };
+    }
+    const gefunden = Array.isArray(antwort.gesichter) ? antwort.gesichter : [];
+    let bekannt = 0, brauchbar = 0;
+    for (let i = 0; i < gefunden.length; i++) {
+        const g = gefunden[i];
+        if (!g || !Array.isArray(g.bbox_norm) || g.bbox_norm.length < 4) continue;
+        const n = g.bbox_norm.slice(0, 4).map(Number);
+        if (!n.every(function (v) { return isFinite(v); })) continue;
+        brauchbar++;
+        if (g.status === 'bekannt') { bekannt++; continue; }
+        if (g.status !== 'neu') continue;
+        let schonDa = false;
+        const live = e.bbox_norm_live || [];
+        for (let k = 0; k < live.length; k++) {
+            if (live[k] && live[k].length >= 4 && bboxUeberdeckung(live[k], n) >= 0.5) { schonDa = true; break; }
+        }
+        if (schonDa) { bekannt++; continue; }
+        const namen = [];
+        (Array.isArray(g.vorschlaege) ? g.vorschlaege : []).forEach(function (v) {
+            const nm = String((v && v.name) || '').trim();
+            if (nm && namen.indexOf(nm) === -1 && namen.length < 3) namen.push(nm);
+        });
+        e.vorschlaege.push({ bbox_norm: bboxNormClampen(n), namen: namen });
+    }
+    const neu = e.vorschlaege.length;
+    if (!neu) {
+        return { ok: true, neu: 0, bekannt: bekannt,
+                 text: '🔍 Erkennung neu gelaufen: ' + brauchbar + ' Gesicht(er) gefunden, keine neuen — alle ' + zahl + ' Rahmen bleiben unverändert.' };
+    }
+    return { ok: true, neu: neu, bekannt: bekannt,
+             text: '🔍 Erkennung neu gelaufen: ' + brauchbar + ' Gesicht(er) gefunden, ' + bekannt + ' schon vorhanden, ' +
+                   neu + ' neu — gestrichelt als Vorschlag gezeigt, antippen übernimmt sie. Bis dahin ändert sich nichts.' };
+}
+
+/** Vorschlag antippen = als neuer Rahmen (ohne Person, ohne gid) anhaengen. -> Index oder -1. */
+function bildEditorCloudVorschlagUebernehmen(e, idx) {
+    const v = (e.vorschlaege || [])[idx];
+    if (!v || !Array.isArray(v.bbox_norm)) return -1;
+    e.vorschlaege.splice(idx, 1);
+    if (!Array.isArray(e.bbox_norm_live)) e.bbox_norm_live = [];
+    const neu = e.bbox_norm_live.length;
+    e.bbox_norm_live.push(v.bbox_norm.slice());
+    if (!Array.isArray(e.personen)) e.personen = [];
+    if (!Array.isArray(e.gids)) e.gids = [];
+    if (!Array.isArray(e.basis)) e.basis = [];
+    if (!Array.isArray(e.namensvorschlaege)) e.namensvorschlaege = [];
+    e.personen[neu] = '';
+    e.gids[neu] = '';
+    e.basis[neu] = null;
+    e.namensvorschlaege[neu] = (v.namen || []).slice();
+    return neu;
+}
+
+/** Gestricheltes Vorschlags-Element ("Neu erkennen"); die Lage setzt resync(). Nur textContent. */
+function cloudVorschlagElement(vorschlag, beiTipp) {
+    const el = document.createElement('div');
+    el.className = 'vollbild-vorschlag';
+    el.setAttribute('data-vorschlag', '1');
+    el.style.cssText = 'position:absolute;border:2px dashed #7df;background:rgba(80,200,255,.12);z-index:7;box-sizing:border-box;cursor:pointer;touch-action:none;display:none';
+    const namen = (vorschlag && vorschlag.namen) || [];
+    const marke = document.createElement('div');
+    marke.className = 'vollbild-vorschlag-name';
+    marke.style.cssText = 'position:absolute;top:100%;left:-2px;margin-top:3px;padding:1px 6px;border-radius:8px;background:#12303a;border:1px solid #4aa;color:#bef;font-size:11px;white-space:nowrap';
+    marke.textContent = namen.length ? ('Vorschlag: ' + namen[0] + '?') : 'Vorschlag';
+    el.appendChild(marke);
+    el.addEventListener('click', function (ev) {
+        try { if (ev && ev.stopPropagation) ev.stopPropagation(); } catch (_x) {}
+        if (typeof beiTipp === 'function') beiTipp();
+    });
+    return el;
+}
+
+let _cloudPersonenNamen = null;   // benannte Personen (GET /api/gruppen/personen), kurz zwischengespeichert
+let _cloudPersonenZeit = 0;
+
+/** Benannte Personen laden (5 Minuten Zwischenspeicher). Wirft nie; bei Fehler bleibt der letzte Stand. */
+async function ladeCloudPersonenNamen(erzwingen) {
+    const jetzt = Date.now();
+    if (!erzwingen && _cloudPersonenNamen && (jetzt - _cloudPersonenZeit) < 300000) {
+        return _cloudPersonenNamen.slice();
+    }
+    try {
+        const res = await fetch(API_BASE + '/api/gruppen/personen');
+        const d = await res.json();
+        if (d && d.ok !== false && Array.isArray(d.personen)) {
+            const namen = [];
+            d.personen.forEach(function (p) {
+                const n = String((p && p.name) || '').trim();
+                if (n && namen.indexOf(n) === -1) namen.push(n);
+            });
+            _cloudPersonenNamen = namen;
+            _cloudPersonenZeit = jetzt;
+            return namen.slice();
+        }
+    } catch (_e) {}
+    return (_cloudPersonenNamen || []).slice();
+}
+
+/** Namen fuer das Personenmenue: Vorschlaege fuer diesen Rahmen zuerst, dann die Namen auf dem
+ *  Bild und die benannten Personen (sortiert, jeder Name einmal). */
+function cloudPersonenNamen(e, idx) {
+    const raus = [];
+    const gesehen = {};
+    const dazu = function (n) {
+        const s = String(n == null ? '' : n).trim();
+        const k = s.toLowerCase();
+        if (s && !gesehen[k]) { gesehen[k] = true; raus.push(s); }
+    };
+    ((e && e.namensvorschlaege && e.namensvorschlaege[idx]) || []).forEach(dazu);
+    const rest = [];
+    const sammeln = function (n) {
+        const s = String(n == null ? '' : n).trim();
+        const k = s.toLowerCase();
+        if (s && !gesehen[k]) { gesehen[k] = true; rest.push(s); }
+    };
+    ((e && e.gesichter) || []).forEach(function (g) { sammeln(g && g.name); });
+    (_cloudPersonenNamen || []).forEach(sammeln);
+    rest.sort(function (a, b) { return a.localeCompare(b, 'de'); });
+    return raus.concat(rest);
+}
+
+/** Text der Menue-Option fuer eine neue Person. */
+function cloudNeuePersonOptionText() {
+    // Plus-Zeichen als Escape: der Wächter der Quiz-Suche zählt das Wort samt Zeichen im Quelltext.
+    return '➕ Neue Person … (nur am Handy)';
+}
+
+/** Hinweis zu einem neu eingegebenen Namen: unbekannter Name = nur am Handy, bekannter = ''. */
+function cloudNameHinweis(e, name) {
+    const s = String(name == null ? '' : name).trim().toLowerCase();
+    if (!s) return '';
+    const bekannt = cloudPersonenNamen(e, -1).some(function (n) { return n.toLowerCase() === s; });
+    return bekannt ? '' : 'neue Person — wird nur am Handy gespeichert, nicht für die Gruppierung am PC';
+}
+// ── Ende Bild-Editor B4 ─────────────────────────────────────────────────────
 
 // ---------------------------------------------------------------------------
 // Schritt E (18.10.2026): Rahmen von Hand aufziehen — der Rahmen startet als
@@ -11194,6 +11725,25 @@ function oeffneFotoGross(kacheln, index) {
     knoepfe.appendChild(zurueck);
     knoepfe.appendChild(weiter);
     knoepfe.appendChild(diashow);
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'foto-knopf foto-gross-edit-btn';
+    editBtn.textContent = '✏️ Personen';
+    editBtn.title = 'Personen und Gesichter bearbeiten';
+    editBtn.addEventListener('click', async () => {
+        const k = _fotoGrossKacheln[_fotoGrossIndex];
+        const fid = k && (k.fileid || k.kennung || (k.thumb_gross && (k.thumb_gross.match(/fileid=([0-9]+)/) || [])[1]));
+        if (!fid) return;
+        let gesichter = [];
+        try {
+            const res = await fetch(API_BASE + '/api/gruppen/bild-gesichter?fileid=' + encodeURIComponent(fid));
+            const d = await res.json();
+            if (d && d.ok && Array.isArray(d.gesichter)) gesichter = d.gesichter;
+        } catch (_e) {}
+        const img = _fotoGrossElement('[data-foto-gross-bild="1"]');
+        zeigeBildVollbild(img, gesichter, { fileid: String(fid) });
+    });
+    knoepfe.appendChild(editBtn);
     knoepfe.appendChild(zu);
     panel.appendChild(img);
     panel.appendChild(kopf);

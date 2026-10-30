@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
@@ -626,9 +626,16 @@
                             <button id="erzaehl-vor" class="erzaehl-nav" type="button" aria-label="Vorheriges Bild">◀</button>
                             <div id="erzaehl-bild-rahmen" class="erzaehl-bild-rahmen">
                                 <img id="erzaehl-bild" alt="" hidden>
+                                <div id="erzaehl-privat-sperre" class="erzaehl-privat-sperre" hidden>
+                                    <span>🔒 Privat · Antippen zum Aufdecken</span>
+                                </div>
                                 <span id="erzaehl-bild-platzhalter" class="erzaehl-bild-platzhalter">… lädt</span>
                             </div>
                             <button id="erzaehl-weiter" class="erzaehl-nav" type="button" aria-label="Nächstes Bild">▶</button>
+                        </div>
+                        <div class="erzaehl-bild-steuerleiste">
+                            <button id="erzaehl-bild-editor-btn" class="erzaehl-steuer-btn" type="button" title="Personen und Gesichter dieses Bildes bearbeiten">✏️ Personen bearbeiten</button>
+                            <button id="erzaehl-privat-toggle" class="erzaehl-steuer-btn" type="button" title="Privat-Schutz für dieses Bild umschalten">🔒 Privat</button>
                         </div>
                         <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
                         <div id="erzaehl-bild-personen" class="erzaehl-personen" hidden>
@@ -751,9 +758,9 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261026A"></script>
+    <script src="app.js?v=20261027A"></script>
     <script src="erzaehlen.js?v=20261026B"></script>
-    <script src="gruppen_quiz.js?v=20261020D"></script>
+    <script src="gruppen_quiz.js?v=20261027A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

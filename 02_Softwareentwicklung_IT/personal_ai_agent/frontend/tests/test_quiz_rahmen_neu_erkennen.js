@@ -172,7 +172,7 @@ console.log('\n8) Quelltext-Waechter (Knopf, Route, ehrliche Engine-Luecke, Cach
     const menue = src.indexOf('// Schritt G (18.10.2026): Ziel-Personen-Menue JE RAHMEN');
     const bau = (knopf >= 0 && menue > knopf) ? src.slice(knopf, menue) : '';
     pruefe(bau.length > 0, 'der Neu-erkennen-Block steht in der Werkzeugleiste');
-    pruefe(/if \(!_quizEditor\.refKontext\) \{\n {20}const erkennBtn/.test(bau),
+    pruefe(/if \(!_quizEditor\.refKontext\) \{\r?\n {20}const erkennBtn/.test(bau),
         'der Knopf entsteht nur ausserhalb der Referenz-Nachbearbeitung');
     pruefe(/vollbild-neu-erkennen/.test(bau), 'der Knopf hat eine eigene Kennung');
     pruefe(/erkenneDiesesBildNeu\(\)/.test(bau), 'der Klick ruft die Neu-Erkennung');

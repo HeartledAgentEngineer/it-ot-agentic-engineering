@@ -1785,7 +1785,8 @@ def test_uebergabe_listen_zaehlt_namen_und_stellen(tmp_path):
     text = "\n".join(zeilen)
     assert ("Uebergabe-Listen (Deckung): termux/start-vorbereiten.sh: 2 Namen, "
             "2 Stellen (gleich)") in text
-    assert "  Dienst liest 3 Datendateinamen; auf einer Liste 2, geraeteseitig 1, ohne Liste 0" in text
+    assert ("  Dienst liest 3 Datendateinamen; auf einer Liste 2, geraeteseitig 1, "
+            "ausgeliefert 0, ohne Liste 0") in text
     assert not [l for l in luecken if "Uebergabe" in l or "keiner Uebergabe-Liste" in l]
 
 
@@ -1972,6 +1973,72 @@ def test_uebergabe_deckung_weg_bleibt_abschaltbar_und_tolerant(tmp_path):
     # Das kaputte Manifest ist eine Luecke (nicht nachvollziehbar) — die Weg-Frage
     # selbst schweigt still statt zu raten.
     assert not [l for l in luecken if "Kabelloser" in l]
+
+
+# ── Ausgelieferte Frontend-Dateien sind kein Datenbestand ───────────────────
+
+def test_frontend_liste_liest_die_positivliste_des_servers(tmp_path):
+    """Die Positivliste des Servers wird per AST gelesen — tolerant, nur Dateinamen."""
+    weg = tmp_path / "sicherheit.py"
+    weg.write_text('FRONTEND_DATEIEN = frozenset({\n'
+                   '    "index.html", "manifest.json", "icon-192.png",\n'
+                   '})\nANDERE = {"nicht_die_gesuchte.json"}\n', encoding="utf-8")
+    assert bp.frontend_dienst_liste(str(weg)) == {"manifest.json"}
+    # Tupel/Liste und ein einzelner Wert gehen ebenfalls.
+    (tmp_path / "b.py").write_text('FRONTEND_DATEIEN = ("a.json", "b.db")\n',
+                                   encoding="utf-8")
+    assert bp.frontend_dienst_liste(str(tmp_path / "b.py")) == {"a.json", "b.db"}
+    (tmp_path / "c.py").write_text('FRONTEND_DATEIEN = "nur_eine.csv"\n', encoding="utf-8")
+    assert bp.frontend_dienst_liste(str(tmp_path / "c.py")) == {"nur_eine.csv"}
+    # Falscher Konstantenname, fehlende und kaputte Quelle: leere Menge, kein Wurf.
+    assert bp.frontend_dienst_liste(str(tmp_path / "c.py"), "GIBTS_NICHT") == set()
+    assert bp.frontend_dienst_liste(str(tmp_path / "gibtsnicht.py")) == set()
+    (tmp_path / "kaputt.py").write_text("def (:\n", encoding="utf-8")
+    assert bp.frontend_dienst_liste(str(tmp_path / "kaputt.py")) == set()
+    # Die EINE Quelle im echten Projekt traegt das PWA-Manifest mit.
+    echt = os.path.join(PROJEKT, bp.STANDARD_FRONTEND_QUELLE[0])
+    assert "manifest.json" in bp.frontend_dienst_liste(echt, bp.STANDARD_FRONTEND_QUELLE[1])
+
+
+def test_uebergabe_ausgelieferte_frontend_datei_ist_keine_luecke(tmp_path):
+    """Eine ausgelieferte Frontend-Datei kommt mit dem Code: Zeile, KEINE Luecke."""
+    projekt = _weg_projekt(tmp_path, kabel=("foto_a.json",),
+                           dienst=("foto_a.json", "manifest.json"))
+    (projekt / "backend" / "app" / "sicherheit.py").write_text(
+        'FRONTEND_DATEIEN = frozenset({"manifest.json"})\n', encoding="utf-8")
+    _bestand(tmp_path)
+    dl = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",))
+    assert dl["ausgeliefert"] == {"manifest.json"} and dl["ohne_liste"] == set()
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "ausgeliefert 1" in text
+    assert ("  Vom Server ausgeliefert (kommen mit dem Code, kein Datenbestand - "
+            "kein Uebergabe-Weg noetig) (1): manifest.json") in text
+    assert "  Auf keinem Weg" not in text
+    assert not [l for l in luecken if "manifest.json" in l]
+
+
+def test_uebergabe_ausgeliefert_bleibt_abschaltbar(tmp_path):
+    """Ohne die Quelle (oder ohne die Konstante) zaehlt jeder Name wie bisher."""
+    projekt = _weg_projekt(tmp_path, kabel=("foto_a.json",),
+                           dienst=("foto_a.json", "manifest.json"))
+    (projekt / "backend" / "app" / "sicherheit.py").write_text(
+        'ANDERE_LISTE = {"manifest.json"}\n', encoding="utf-8")
+    _bestand(tmp_path)
+    # Die Konstante fehlt -> nichts wird still freigestellt, es bleibt die Luecke.
+    dl = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",))
+    assert dl["ausgeliefert"] == set() and dl["ohne_liste"] == {"manifest.json"}
+    dl2 = bp.uebergabe_deckung_pruefen(str(projekt), listen=("termux/start-vorbereiten.sh",),
+                                       frontend=None)
+    assert dl2["ausgeliefert"] == set() and dl2["ohne_liste"] == {"manifest.json"}
+    zeilen, luecken = bp.pruefen(str(tmp_path), projekt=str(projekt),
+                                 uebergabe_listen=("termux/start-vorbereiten.sh",))
+    text = "\n".join(zeilen)
+    assert "ausgeliefert 0" in text and "Vom Server ausgeliefert" not in text
+    assert ("manifest.json: der Dienst liest sie, sie kommt aber auf keinem der "
+            "beiden Uebergabe-Wege ans Geraet (keine Kabel-Liste, nicht "
+            "kabellos uebergeben)") in luecken
 
 
 # ── pCloud-Operationen: die Rueckholbarkeit in einer Pruefzeile ─────────────

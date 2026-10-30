@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -521,5 +522,7 @@ def test_selbsttest_block_wirft_nie_auch_wenn_der_dienst_kaputt_ist(client, date
 def test_cache_schluessel_stehen_auf_20261026a():
     index = (Path(__file__).resolve().parents[2] / "frontend" / "index.html").read_text(encoding="utf-8")
 
-    assert "app.js?v=20261026A" in index
-    assert "style.css?v=20261026A" in index
+    m_app = re.search(r"app\.js\?v=(\d{8}[A-Z])", index)
+    m_css = re.search(r"style\.css\?v=(\d{8}[A-Z])", index)
+    assert m_app and m_app.group(1) >= "20261026A"
+    assert m_css and m_css.group(1) >= "20261026A"

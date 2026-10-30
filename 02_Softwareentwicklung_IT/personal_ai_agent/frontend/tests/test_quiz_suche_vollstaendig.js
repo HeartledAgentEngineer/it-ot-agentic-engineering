@@ -124,8 +124,10 @@ console.log('\nC) "als neue Person anlegen" nutzt den BESTEHENDEN Weg (kein neue
   ck('Einzelbild-Formular wird vorbelegt (neuName.value = n)',
      calls.some(c => /onNeu[\s\S]*?neuName\.value = n;[\s\S]*?neuForm\.style\.display = 'block';/.test(c)), true);
 
-  ck('KEIN zusaetzliches "➕ Neue Person"-Formular erfunden (weiterhin 2 Knoepfe)',
-     (src.match(/➕ Neue Person/g) || []).length, 2);
+  // 2 Knoepfe der Quiz-Karte + 1 Menuepunkt des Cloud-Editors (Bild-Editor B4, 27.10.2026)
+  // — die Suche selbst erfindet weiterhin keinen.
+  ck('KEIN zusaetzliches "➕ Neue Person"-Formular erfunden (2 Quiz-Knoepfe + 1 Cloud-Editor-Menuepunkt)',
+     (src.match(/➕ Neue Person/g) || []).length, 3);
   ck('Suchfeld baut keinen eigenen Button/Formular', bau.indexOf('macheQuizButton') === -1, true);
 }
 
