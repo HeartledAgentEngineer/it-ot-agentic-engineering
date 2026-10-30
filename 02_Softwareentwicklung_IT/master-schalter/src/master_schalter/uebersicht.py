@@ -706,20 +706,20 @@ class Fenster:
             self._status("Aktion läuft noch – bitte warten.")
             return
 
-        def aktion() -> um.AktionErgebnis:
+        def aktion() -> um.Ergebnis:
             try:
                 from . import assistent
                 abgabe_modus = "warten" if modus == "warten" else "frist"
                 vorgang = assistent.uebergeben(thema, ziel, abgabe_modus=abgabe_modus)
-                return um.AktionErgebnis(
+                return um.Ergebnis(
                     ok=True,
-                    text=f"Übergabe für {thema} an {ziel} gestartet ({vorgang.vorgang_id}, Modus: {modus}).",
+                    text=f"Übergabe für {thema} an {ziel} gestartet ({vorgang.id}, Modus: {modus}).",
                     bericht=""
                 )
             except Exception as fehler:
-                return um.AktionErgebnis(ok=False, text=f"Übergabe fehlgeschlagen ({type(fehler).__name__})", bericht=str(fehler))
+                return um.Ergebnis(ok=False, text=f"Übergabe fehlgeschlagen ({type(fehler).__name__})", bericht=str(fehler))
 
-        self._ausfuehren(aktion)
+        self._im_hintergrund(aktion)
 
     def _knoepfe_aktualisieren(self) -> None:
         frei = not self._beschaeftigt

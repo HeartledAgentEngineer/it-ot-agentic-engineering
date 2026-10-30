@@ -5,6 +5,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Behoben
+- **Direktübergabe im Pop-up (`_uebergabe_direkt_starten`)**:
+  * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
+
 ### Hinzugefügt
 - **Tabellen-Entstörung & Spaltenbereinigung (v0.5.0)**:
   * Gelbe Unterzeilen (`row.details`) vollständig aus der Tabelle entfernt: Jede Themenzeile ist ruhig und strikt einzeilig.
