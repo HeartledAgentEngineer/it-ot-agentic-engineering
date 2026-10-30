@@ -96,6 +96,34 @@ function gruppenVideoMarke(beispiel) {
     return '🎬 ' + (h ? h + ':' + zz(m) : String(m)) + ':' + zz(sek);
 }
 
+/** Überschrift eines Lebensabschnitts (30.10.2026): Titel + Jahre + Alter. */
+function gruppenLebensabschnittTitel(phase) {
+    if (!phase) return '';
+    const teile = [];
+    if (phase.titel) teile.push(phase.titel);
+    if (phase.jahre) teile.push('(' + phase.jahre + ')');
+    if (phase.alter) teile.push('· ' + phase.alter);
+    return teile.join(' ');
+}
+
+/** Hinweistext für einen erkannten Lebensabschnitt einer offenen Gruppe (30.10.2026). */
+function gruppenPhasenVorschlagText(vorschlag) {
+    if (!vorschlag) return '';
+    const name = vorschlag.name || 'Person';
+    const titel = vorschlag.titel || '';
+    const phase = vorschlag.phase || '';
+    let text = '💡 Passt zu ' + name;
+    if (titel) text += ' · ' + titel;
+    if (phase) text += ' (' + phase + ')';
+    return text;
+}
+
+/** Begleiterliste eines Lebensabschnitts (30.10.2026). */
+function gruppenLebensabschnittBegleiterText(begleiter) {
+    if (!begleiter || !Array.isArray(begleiter) || !begleiter.length) return '';
+    return 'Häufig zusammen auf Fotos: ' + begleiter.join(', ');
+}
+
 /** Zeitraum einer Gruppe: „2016–2025", „2022" oder "" (ohne Daten). */
 function gruppenZeitraum(von, bis) {
     const a = (typeof von === 'string') ? von.slice(0, 4) : '';
@@ -1657,6 +1685,61 @@ function gruppenNotizZeit(zeit) {
         const gesichter = vorschlaege.reduce((s, v) => s + (Number(v.groesse) || 0), 0);
         el('gruppen-person-meta').textContent = gruppenZahl(gesichter) + ' Gesichter'
             + (vorschlaege.length > 1 ? ' in ' + vorschlaege.length + ' Vorschlägen' : '');
+        const laBox = el('gruppen-person-lebensabschnitte');
+        if (laBox) {
+            laBox.innerHTML = '';
+            const phasen = p.lebensabschnitte || [];
+            if (phasen.length) {
+                laBox.hidden = false;
+                const laKopf = document.createElement('h4');
+                laKopf.className = 'gruppen-abschnitt';
+                laKopf.textContent = 'Lebensabschnitte & Erinnerungen';
+                laBox.appendChild(laKopf);
+
+                if (p.lebensabschnitte_aussage) {
+                    const aussageP = document.createElement('p');
+                    aussageP.className = 'gruppen-meta lebensabschnitt-aussage';
+                    aussageP.textContent = p.lebensabschnitte_aussage;
+                    laBox.appendChild(aussageP);
+                }
+
+                phasen.forEach((ph) => {
+                    const karte = document.createElement('div');
+                    karte.className = 'gruppen-lebensabschnitt-karte';
+
+                    const kopf = document.createElement('h5');
+                    kopf.className = 'gruppen-lebensabschnitt-titel';
+                    kopf.textContent = gruppenLebensabschnittTitel(ph);
+                    karte.appendChild(kopf);
+
+                    if (ph.aussage) {
+                        const phAussage = document.createElement('p');
+                        phAussage.className = 'gruppen-meta';
+                        phAussage.textContent = ph.aussage;
+                        karte.appendChild(phAussage);
+                    }
+
+                    const begleiterTxt = gruppenLebensabschnittBegleiterText(ph.begleiter);
+                    if (begleiterTxt) {
+                        const begleiterP = document.createElement('p');
+                        begleiterP.className = 'gruppen-meta lebensabschnitt-begleiter';
+                        begleiterP.textContent = begleiterTxt;
+                        karte.appendChild(begleiterP);
+                    }
+
+                    if (ph.beispiele && ph.beispiele.length) {
+                        const kacheln = document.createElement('div');
+                        kacheln.className = 'gruppen-kacheln lebensabschnitt-kacheln';
+                        ph.beispiele.forEach((b) => kacheln.appendChild(kachel(b, false, { verzoegert: true })));
+                        karte.appendChild(kacheln);
+                    }
+
+                    laBox.appendChild(karte);
+                });
+            } else {
+                laBox.hidden = true;
+            }
+        }
         const box = el('gruppen-person-vorschlaege');
         box.innerHTML = '';
         if (vorschlaege.length) {
@@ -2155,6 +2238,34 @@ function gruppenNotizZeit(zeit) {
             kacheln.appendChild(leer);
         }
         g.beispiele.forEach((b) => kacheln.appendChild(kachel(b, false)));
+        const pv = el('gruppen-phasen-vorschlag');
+        if (pv) {
+            pv.innerHTML = '';
+            if (g.lebensabschnitt_vorschlag && g.lebensabschnitt_vorschlag.name) {
+                pv.hidden = false;
+                const vorschlag = g.lebensabschnitt_vorschlag;
+                const info = document.createElement('span');
+                info.className = 'gruppen-phasen-hinweis';
+                info.textContent = gruppenPhasenVorschlagText(vorschlag);
+                pv.appendChild(info);
+
+                const uebernehmen = document.createElement('button');
+                uebernehmen.type = 'button';
+                uebernehmen.className = 'gruppen-knopf haupt gruppen-phasen-uebernehmen';
+                uebernehmen.textContent = 'Als „' + vorschlag.name + '“ übernehmen';
+                uebernehmen.addEventListener('click', () => {
+                    const nameFeld = el('gruppen-name');
+                    if (nameFeld) {
+                        nameFeld.value = vorschlag.name;
+                        nameFeld.focus();
+                        suchen();
+                    }
+                });
+                pv.appendChild(uebernehmen);
+            } else {
+                pv.hidden = true;
+            }
+        }
         const vb = el('gruppen-verbunden');
         if (vb) {
             vb.innerHTML = '';

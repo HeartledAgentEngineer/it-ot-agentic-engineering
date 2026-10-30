@@ -199,3 +199,81 @@ def test_gruppen_quiz_person_enthaelt_lebensabschnitte(tmp_path: Path, monkeypat
     assert antwort["lebensabschnitte"][0]["titel"] == "2015"
     assert "lebensabschnitte_aussage" in antwort
     assert "2015" in antwort["lebensabschnitte_aussage"]
+
+
+def test_andocken_kandidaten(tmp_path: Path):
+    gruppen = [
+        {"kennung": "Gruppe_Offen_1", "von": "2011-04-10", "bis": "2011-04-10", "groesse": 3},
+        {"kennung": "Gruppe_Offen_2", "von": "1995-01-01", "bis": "1995-01-01", "groesse": 5},
+    ]
+    katalog = {
+        "Albrecht": [
+            {
+                "von": "2011-01-01",
+                "bis": "2013-12-31",
+                "groesse": 12,
+                "beispiele": [{"aufnahme": "2011-06-01"}],
+            }
+        ]
+    }
+    kandidaten = ls.andocken_kandidaten(katalog=katalog, gruppen=gruppen, basis_pfad=str(tmp_path))
+    assert len(kandidaten) == 1
+    assert kandidaten[0]["kennung"] == "Gruppe_Offen_1"
+    assert kandidaten[0]["name"] == "Albrecht"
+    assert kandidaten[0]["groesse"] == 3
+
+
+def test_gruppen_quiz_andocken_trocken_und_schreiben(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GRUPPEN_QUIZ_BASIS", str(tmp_path))
+
+    # Testdaten
+    (tmp_path / gq.BESTAETIGT_DATEINAME).write_text(
+        json.dumps({"bestaetigt": {"Gruppe_Bekannt": "Albrecht"}}), encoding="utf-8"
+    )
+    (tmp_path / gq.VORGABEN_DATEINAME).write_text(json.dumps({"gleich": [], "verschieden": []}), encoding="utf-8")
+    (tmp_path / gq.STAND_DATEINAME).write_text(
+        json.dumps({"spaeter": [], "unbekannt": [], "aufgeloest": []}), encoding="utf-8"
+    )
+    (tmp_path / gq.BEISPIELE_DATEINAME).write_text(
+        json.dumps({
+            "gruppen": [
+                {
+                    "kennung": "Gruppe_Bekannt",
+                    "groesse": 10,
+                    "von": "2011-01-01",
+                    "bis": "2013-12-31",
+                    "beispiele": [{"fileid": "1", "aufnahme": "2011-06-01"}],
+                },
+                {
+                    "kennung": "Gruppe_Offen_1",
+                    "groesse": 4,
+                    "von": "2012-05-10",
+                    "bis": "2012-05-10",
+                    "beispiele": [{"fileid": "2", "aufnahme": "2012-05-10"}],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    gq._CACHE.clear()
+
+    # 1. Trockenlauf
+    res_trocken = gq.andocken(trocken=True)
+    assert res_trocken["ok"] is True
+    assert res_trocken["trocken"] is True
+    assert res_trocken["anzahl"] == 1
+    assert res_trocken["gesichter"] == 4
+    # Noch nichts gespeichert
+    assert "Gruppe_Offen_1" not in gq.bestaetigt_lesen()
+
+    # 2. Schreiblauf
+    res_schreiben = gq.andocken(trocken=False)
+    assert res_schreiben["ok"] is True
+    assert res_schreiben["trocken"] is False
+    assert res_schreiben["anzahl"] == 1
+    assert "Gruppe_Offen_1" in res_schreiben["zugeordnet"]
+
+    # Jetzt bestätigt
+    bestaetigt = gq.bestaetigt_lesen()
+    assert bestaetigt.get("Gruppe_Offen_1") == "Albrecht"

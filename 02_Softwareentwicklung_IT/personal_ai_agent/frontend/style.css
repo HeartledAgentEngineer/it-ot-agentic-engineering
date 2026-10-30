@@ -1,4 +1,4 @@
-﻿/* =========================================
+/* =========================================
    Personal AI Agent – Dark Theme Styles
    ========================================= */
 
@@ -2887,6 +2887,74 @@ button.footer-note:hover {
     font-size: 0.9rem;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+
+/* ── Lebensabschnitte & Erinnerungen (30.10.2026) ────────────────────────── */
+.gruppen-phasen-vorschlag {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px solid rgba(108, 99, 255, 0.35);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(108, 99, 255, 0.12), rgba(224, 64, 251, 0.06));
+}
+
+.gruppen-phasen-vorschlag[hidden] { display: none; }
+
+.gruppen-phasen-hinweis {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.gruppen-phasen-uebernehmen {
+    margin-left: auto;
+}
+
+.gruppen-lebensabschnitte {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.gruppen-lebensabschnitte[hidden] { display: none; }
+
+.gruppen-lebensabschnitt-karte {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--accent);
+}
+
+.gruppen-lebensabschnitt-titel {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lebensabschnitt-aussage {
+    margin: 2px 0 6px;
+    font-style: italic;
+    color: var(--text-secondary);
+}
+
+.lebensabschnitt-begleiter {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.lebensabschnitt-kacheln {
+    margin-top: 4px;
 }
 
 

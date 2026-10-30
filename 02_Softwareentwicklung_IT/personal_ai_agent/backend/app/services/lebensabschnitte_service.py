@@ -180,6 +180,11 @@ def lebensabschnitte_fuer_person(name: str,
         v_jahr_von = jahr_aus(v.get("von"))
         v_jahr_bis = jahr_aus(v.get("bis"))
 
+        if v_jahr_von:
+            alle_jahre.append(v_jahr_von)
+        if v_jahr_bis and v_jahr_bis != v_jahr_von:
+            alle_jahre.append(v_jahr_bis)
+
         if beispiele:
             for b in beispiele:
                 if not isinstance(b, dict):
@@ -326,6 +331,7 @@ def lebensabschnitte_fuer_person(name: str,
 
 def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
                                  katalog: Optional[Dict[str, Any]] = None,
+                                 personen_phasen: Optional[Dict[str, List[Dict[str, Any]]]] = None,
                                  basis_pfad: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Prüft, ob eine unbenannte Gruppe zeitlich in den Lebensabschnitt einer bekannten Person passt."""
     if not isinstance(gruppe, dict):
@@ -343,31 +349,142 @@ def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
     if g_jahr is None:
         return None
 
-    # Wenn kein Katalog übergeben wurde: benannte Personen aus dem Quiz prüfen
-    if katalog is None:
-        from app.services import gruppen_quiz
-        bestaetigt = gruppen_quiz.bestaetigt_lesen()
-        namen_kandidaten = sorted(set(bestaetigt.values()))
-    else:
-        namen_kandidaten = list(katalog.keys())
+    if personen_phasen is None:
+        personen_phasen = {}
+        if katalog is None:
+            from app.services import gruppen_quiz
+            bestaetigt = gruppen_quiz.bestaetigt_lesen()
+            namen_kandidaten = sorted(set(bestaetigt.values()))
+            for n in namen_kandidaten:
+                abschnitte = lebensabschnitte_fuer_person(n, basis_pfad=basis_pfad)
+                if abschnitte.get("ok"):
+                    personen_phasen[n] = abschnitte.get("phasen") or []
+        else:
+            for n, v_liste in katalog.items():
+                abschnitte = lebensabschnitte_fuer_person(n, vorschlaege=v_liste, basis_pfad=basis_pfad)
+                if abschnitte.get("ok"):
+                    personen_phasen[n] = abschnitte.get("phasen") or []
 
-    # Nach passendem Lebensabschnitt suchen
-    for n in namen_kandidaten:
-        v_liste = katalog.get(n) if katalog else None
-        abschnitte = lebensabschnitte_fuer_person(n, vorschlaege=v_liste, basis_pfad=basis_pfad)
-        if not abschnitte.get("ok"):
-            continue
-        for p in abschnitte.get("phasen") or []:
+    # Nach passendem Lebensabschnitt in vorbereiteten Phasen suchen
+    treffer: List[Tuple[str, Dict[str, Any], bool]] = []
+    for n, phasen in personen_phasen.items():
+        for p in phasen:
             von_j = p.get("von_jahr")
             bis_j = p.get("bis_jahr")
             if von_j is not None and bis_j is not None:
-                # Toleranz von 1 Jahr für nahtlose Übergänge
-                if (von_j - 1) <= g_jahr <= (bis_j + 1):
-                    return {
-                        "name": n,
-                        "phase_id": p.get("phase_id"),
-                        "titel": p.get("titel"),
-                        "grund": f"Aufnahmejahr {g_jahr} passt zum Lebensabschnitt {p.get('titel')} von {n}.",
-                    }
+                exakt = von_j <= g_jahr <= bis_j
+                if exakt or (von_j - 1) <= g_jahr <= (bis_j + 1):
+                    treffer.append((n, p, exakt))
+                    break
 
-    return None
+    if not treffer:
+        return None
+
+    if len(treffer) == 1:
+        n, p, exakt = treffer[0]
+        sicherheit = 0.90 if exakt else 0.80
+        return {
+            "name": n,
+            "phase_id": p.get("phase_id"),
+            "phase": p.get("jahre") or f"{p.get('von_jahr')}–{p.get('bis_jahr')}",
+            "titel": p.get("titel"),
+            "aussage": p.get("aussage"),
+            "sicherheit": sicherheit,
+            "grund": f"Aufnahmejahr {g_jahr} passt eindeutig zum Lebensabschnitt {p.get('titel')} von {n}.",
+        }
+
+    # Mehrere Personen kommen für dieses Jahr in Frage (bei Unsicherheit lieber offenlassen)
+    namen_liste = [t[0] for t in treffer]
+    erste_person, erste_phase, exakt = treffer[0]
+    return {
+        "name": erste_person,
+        "phase_id": erste_phase.get("phase_id"),
+        "phase": erste_phase.get("jahre") or f"{erste_phase.get('von_jahr')}–{erste_phase.get('bis_jahr')}",
+        "titel": erste_phase.get("titel"),
+        "aussage": erste_phase.get("aussage"),
+        "sicherheit": 0.50,
+        "kandidaten": namen_liste,
+        "grund": f"Aufnahmejahr {g_jahr} liegt im gemeinsamen Zeitraum mehrerer Personen ({', '.join(namen_liste)}).",
+    }
+
+
+def andocken_kandidaten(katalog: Optional[Dict[str, Any]] = None,
+                        gruppen: Optional[List[Dict[str, Any]]] = None,
+                        min_sicherheit: float = 0.85,
+                        kennungen: Optional[List[str]] = None,
+                        ziel_name: Optional[str] = None,
+                        basis_pfad: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Findet alle offenen Gruppen, die sicher an den Lebensabschnitt einer bekannten Person andocken koennen."""
+    from app.services import gruppen_quiz
+
+    if gruppen is None:
+        alle_gruppen, _ = gruppen_quiz._gruppen_laden()
+    else:
+        alle_gruppen = gruppen
+
+    st = gruppen_quiz._stand_lesen()
+    aufgeloest = set(st.get("aufgeloest", []))
+    bestaetigt = gruppen_quiz.bestaetigt_lesen()
+
+    kandidaten: List[Dict[str, Any]] = []
+    filter_kennungen = set(kennungen) if kennungen else None
+    ziel_name_sauber = ziel_name.strip().casefold() if ziel_name else None
+
+    # Phasen aller relevanten Personen VORAB EINMAL berechnen:
+    personen_phasen: Dict[str, List[Dict[str, Any]]] = {}
+    if katalog is not None:
+        for n, v_liste in katalog.items():
+            if ziel_name_sauber and n.strip().casefold() != ziel_name_sauber:
+                continue
+            abschnitte = lebensabschnitte_fuer_person(n, vorschlaege=v_liste, basis_pfad=basis_pfad)
+            if abschnitte.get("ok"):
+                personen_phasen[n] = abschnitte.get("phasen") or []
+    else:
+        namen_kandidaten = sorted(set(bestaetigt.values()))
+        for n in namen_kandidaten:
+            if ziel_name_sauber and n.strip().casefold() != ziel_name_sauber:
+                continue
+            abschnitte = lebensabschnitte_fuer_person(n, basis_pfad=basis_pfad)
+            if abschnitte.get("ok"):
+                personen_phasen[n] = abschnitte.get("phasen") or []
+
+    for g in alle_gruppen:
+        if not isinstance(g, dict):
+            continue
+        k = g.get("kennung")
+        if not k or k in aufgeloest or k in bestaetigt:
+            continue
+        if filter_kennungen and k not in filter_kennungen:
+            continue
+
+        vorschlag = vorschlag_fuer_offene_gruppe(
+            g,
+            katalog=katalog,
+            personen_phasen=personen_phasen,
+            basis_pfad=basis_pfad,
+        )
+        if not vorschlag:
+            continue
+
+        if ziel_name_sauber and vorschlag["name"].strip().casefold() != ziel_name_sauber:
+            continue
+
+        sicherheit = float(vorschlag.get("sicherheit") or 0.0)
+        if sicherheit < min_sicherheit:
+            continue
+
+        kandidaten.append({
+            "kennung": k,
+            "name": vorschlag["name"],
+            "phase": vorschlag.get("phase"),
+            "titel": vorschlag.get("titel"),
+            "aussage": vorschlag.get("aussage"),
+            "sicherheit": sicherheit,
+            "grund": vorschlag.get("grund"),
+            "groesse": max(0, int(g.get("groesse") or 0)),
+            "bilder": max(0, int(g.get("bilder") or 0)),
+            "von": g.get("von"),
+            "bis": g.get("bis"),
+        })
+
+    return kandidaten

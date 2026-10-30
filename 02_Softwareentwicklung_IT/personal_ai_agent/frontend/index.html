@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261026A">
+    <link rel="stylesheet" href="style.css?v=20261030A">
 </head>
 <body>
     <div id="app">
@@ -387,6 +387,8 @@
                     <button id="gruppen-alle" class="gruppen-knopf" type="button">🔍 Alle Gesichter ansehen</button>
                     <!-- Per „= dieselbe Person" verbundene Vorschläge (01.10.2026):
                          der Name gilt beim Speichern für alle. -->
+                    <!-- Lebensabschnitt-Vorschlag fuer offene Gruppen (30.10.2026) -->
+                    <div id="gruppen-phasen-vorschlag" class="gruppen-phasen-vorschlag" hidden></div>
                     <div id="gruppen-verbunden" class="gruppen-verbunden"></div>
                     <div id="gruppen-zwillinge" class="gruppen-zwillinge"></div>
                     <!-- Suchfeld (02.10.2026, Issue #3 B): tippen sucht am Wortanfang in
@@ -507,6 +509,8 @@
                     <p id="gruppen-person-meta" class="gruppen-meta"></p>
                     <!-- Wischen zur naechsten/vorherigen Person (S8-Rest 3, 18.10.2026) -->
                     <p id="gruppen-person-wisch" class="gruppen-meta">Wischen nach links/rechts wechselt zur nächsten bzw. vorherigen Person – am PC gehen auch die Pfeiltasten ← und →.</p>
+                    <!-- Lebensabschnitte & Erinnerungen (30.10.2026) -->
+                    <div id="gruppen-person-lebensabschnitte" class="gruppen-lebensabschnitte" hidden></div>
                     <div id="gruppen-person-vorschlaege" class="gruppen-person-vorschlaege"></div>
                     <h4 class="gruppen-abschnitt">Name</h4>
                     <div class="gruppen-eingabe">
@@ -758,9 +762,9 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261027A"></script>
+    <script src="app.js?v=20261030A"></script>
     <script src="erzaehlen.js?v=20261026B"></script>
-    <script src="gruppen_quiz.js?v=20261027A"></script>
+    <script src="gruppen_quiz.js?v=20261030A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

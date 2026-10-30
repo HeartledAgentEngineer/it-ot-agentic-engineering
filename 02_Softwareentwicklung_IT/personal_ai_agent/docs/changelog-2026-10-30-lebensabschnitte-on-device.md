@@ -11,20 +11,34 @@ Bisher wurden alle Gesichter und Bildgruppen einer benannten Person ungeordnet d
 
 ## Geänderte & neue Dateien
 
-- **Neu:** `backend/app/services/lebensabschnitte_service.py`
+- **Neu / Erweitert:** `backend/app/services/lebensabschnitte_service.py`
   - `jahr_aus(datum)`: Sichere Extraktion des 4-stelligen Kalenderjahrs.
   - `alter_in_jahr(geburtsdatum, ziel_jahr)`: Altersberechnung.
   - `phasen_bilden_jahre(jahre)`: Algorithmische Einteilung in Lebensabschnitte.
   - `begleiter_aus_beziehungen(name, von_jahr, bis_jahr)`: Auswertung häufiger Begleitpersonen aus `beziehungen.jsonl`.
   - `lebensabschnitte_fuer_person(name, vorschlaege, profil_daten)`: Hauptfunktion zur Berechnung der Phasen und der vorlesbaren Fließtext-Aussage.
-  - `vorschlag_fuer_offene_gruppe(gruppe, katalog)`: Hypothesenbildung für offene Gruppen.
+  - `vorschlag_fuer_offene_gruppe(gruppe, katalog, personen_phasen)`: Hypothesenbildung für offene Gruppen mit Eindeutigkeitsprüfung (bei Mehrdeutigkeit reduzierter Score 0.50, um falsche Zuordnungen zu verhindern).
+  - `andocken_kandidaten(...)`: Effiziente Vorevaluierung aller offenen Gruppen mit vorberechneten Phasen (< 5 ms).
 - **Geändert:** `backend/app/services/gruppen_quiz.py`
   - `person(name)`: Ergänzt um die Schlüssel `lebensabschnitte` (Liste) und `lebensabschnitte_aussage` (String). Bestehende Felder (`vorschlaege`, `profil`) bleiben 100 % abwärtskompatibel.
   - `detail(kennung)`: Ergänzt offene Gruppen um `lebensabschnitt_vorschlag`, wenn ein passender Lebensabschnitt existiert.
-- **Neu:** `backend/tests/test_lebensabschnitte_service.py`
-  - 9 Wächtertests für alle Kernfunktionen, Randfälle, synthetische Begleiterdaten und Endpunkt-Integration.
+  - `andocken(trocken, min_sicherheit, kennungen, ziel_name)`: On-Device-Andocken offener Gruppen an Lebensabschnitte bekannter Personen (Trockenlauf zur Vorschau oder Schreibmodus mit `_antwort_anwenden`).
+- **Geändert:** `backend/app/router/gruppen.py`
+  - `POST /api/gruppen/andocken`: Route für das Andocken und die Neugruppierung.
+- **Geändert:** `frontend/index.html`, `frontend/gruppen_quiz.js`, `frontend/style.css`
+  - Visualisierung von Lebensabschnitten in der Personenansicht mit Zeiträumen, Altersstufen, belegenden Miniatur-Kacheln und häufigen Begleitern.
+  - Lebensabschnitts-Vorschlagskarte im Gruppen-Quiz mit Schnell-Übernahme-Knopf („Als X übernehmen“).
+  - Cache-Bust `20261030A`.
+- **Geändert:** `frontend/app.js` (Bildeditor)
+  - `bildEditorCloudErkennung`: Bekannte Gesichter werden nicht mehr verworfen, sondern deren Modell-Namensvorschläge werden an den jeweiligen Live-Rahmen geheftet (`e.namensvorschlaege[k]`) und stehen im Personen-Auswahlmenü direkt ganz oben.
+- **Wächtertests:**
+  - `backend/tests/test_lebensabschnitte_service.py` (11 Tests, Exit 0).
+  - `frontend/tests/test_gruppen_quiz.js` (Alle Prüfungen grün, Exit 0).
+  - `frontend/tests/test_bild_editor_b4.js` (129 Prüfungen grün, Exit 0).
 
 ## Verifikation
 
-- `pytest tests/test_lebensabschnitte_service.py` -> 9 passed (Exit 0)
-- `pytest tests/test_gruppen_quiz.py tests/test_personen_werkzeuge_quiz.py` -> 114 passed (Exit 0)
+- `pytest tests/test_lebensabschnitte_service.py` -> 11 passed (Exit 0)
+- `node frontend/tests/test_gruppen_quiz.js` -> alle Prüfungen grün (Exit 0)
+- `node frontend/tests/test_bild_editor_b4.js` -> 129 Prüfungen bestanden (Exit 0)
+- `pytest tests/test_frontend_node.py` -> 57 passed (Exit 0)

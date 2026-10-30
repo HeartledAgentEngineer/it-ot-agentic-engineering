@@ -36,7 +36,8 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gruppenKontaktText', 'gruppenRueckgaengigText', 'gruppenNotizZeit',
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
                'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
-               'gruppenVideoMarke'];
+               'gruppenVideoMarke', 'gruppenLebensabschnittTitel', 'gruppenPhasenVorschlagText',
+               'gruppenLebensabschnittBegleiterText'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -352,6 +353,24 @@ pruefe(/alleKachelVerdrahten\(raster\.lastChild, g\);/.test(src) && !/g\.video !
 pruefe(/m\.textContent = marke;/.test(src) && !/innerHTML = marke/.test(src), 'Marke nur per textContent');
 pruefe(/\.gruppen-video-marke\s*\{[^}]*position:\s*absolute/.test(css), 'Marke liegt über der Kachel');
 pruefe(vQ && vQ[1] >= '20261015A' && vS && vS[1] >= '20261014A', 'Cache-Bump 15.10. (Grund „noch ohne Standbild“)');
+
+console.log('Lebensabschnitte & Phasen-Vorschläge (30.10.2026)');
+pruefe(f.gruppenLebensabschnittTitel({ titel: 'Grundschule', jahre: '2011–2013', alter: 'ca. 6–8 Jahre' })
+    === 'Grundschule (2011–2013) · ca. 6–8 Jahre', 'Titel mit Phase, Jahren und Alter');
+pruefe(f.gruppenLebensabschnittTitel({ jahre: '2015' }) === '(2015)', 'Titel nur mit Jahr');
+pruefe(f.gruppenLebensabschnittTitel(null) === '', 'Leere Phase -> leer');
+pruefe(f.gruppenPhasenVorschlagText({ name: 'Albrecht', titel: 'Grundschule', phase: '2011–2013' })
+    === '💡 Passt zu Albrecht · Grundschule (2011–2013)', 'Phasen-Vorschlag Hinweis');
+pruefe(f.gruppenPhasenVorschlagText(null) === '', 'Leerer Vorschlag -> leer');
+pruefe(f.gruppenLebensabschnittBegleiterText(['Sebastian', 'David'])
+    === 'Häufig zusammen auf Fotos: Sebastian, David', 'Begleiter formatiert');
+pruefe(f.gruppenLebensabschnittBegleiterText([]) === '' && f.gruppenLebensabschnittBegleiterText(null) === '', 'Leere Begleiter -> leer');
+pruefe(html.includes('id="gruppen-phasen-vorschlag"'), 'index.html enthaelt #gruppen-phasen-vorschlag');
+pruefe(html.includes('id="gruppen-person-lebensabschnitte"'), 'index.html enthaelt #gruppen-person-lebensabschnitte');
+pruefe(/\.gruppen-phasen-vorschlag\s*\{/.test(css), 'style.css definiert .gruppen-phasen-vorschlag');
+pruefe(/\.gruppen-lebensabschnitte\s*\{/.test(css), 'style.css definiert .gruppen-lebensabschnitte');
+pruefe(/\.gruppen-lebensabschnitt-karte\s*\{/.test(css), 'style.css definiert .gruppen-lebensabschnitt-karte');
+pruefe(vQ && vQ[1] >= '20261030A' && vS && vS[1] >= '20261030A', 'Cache-Bump 30.10.2026A');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');

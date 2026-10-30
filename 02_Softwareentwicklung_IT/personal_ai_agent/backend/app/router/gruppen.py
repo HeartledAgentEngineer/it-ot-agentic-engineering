@@ -110,6 +110,14 @@ class AufloesenEingabe(BaseModel):
     trocken: bool = False
 
 
+class AndockenEingabe(BaseModel):
+    """Offene Gruppen an Lebensabschnitte andocken (30.10.2026)."""
+    trocken: bool = True
+    min_sicherheit: float = 0.85
+    kennungen: Optional[List[str]] = None
+    ziel_name: Optional[str] = None
+
+
 class ProfilEingabe(BaseModel):
     """Profil erweitern. Namensfelder (20.10.2026): nur die uebergebenen Felder
     aendern sich (``None`` = nicht angefasst), leer = Handfeld entfernen."""
@@ -264,3 +272,14 @@ def loesen(eingabe: LoesenEingabe) -> Dict[str, Any]:
 @router.post("/aufloesen")
 def aufloesen(eingabe: AufloesenEingabe) -> Dict[str, Any]:
     return gruppen_quiz.aufloesen(eingabe.kennung, eingabe.trocken)
+
+
+@router.post("/andocken")
+def andocken(eingabe: AndockenEingabe) -> Dict[str, Any]:
+    """Offene Gruppen an passende Lebensabschnitte bekannter Personen andocken (30.10.2026)."""
+    return gruppen_quiz.andocken(
+        trocken=eingabe.trocken,
+        min_sicherheit=eingabe.min_sicherheit,
+        kennungen=eingabe.kennungen,
+        ziel_name=eingabe.ziel_name,
+    )

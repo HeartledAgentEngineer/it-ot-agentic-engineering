@@ -4977,19 +4977,29 @@ function bildEditorCloudErkennung(e, antwort) {
         const n = g.bbox_norm.slice(0, 4).map(Number);
         if (!n.every(function (v) { return isFinite(v); })) continue;
         brauchbar++;
-        if (g.status === 'bekannt') { bekannt++; continue; }
-        if (g.status !== 'neu') continue;
-        let schonDa = false;
-        const live = e.bbox_norm_live || [];
-        for (let k = 0; k < live.length; k++) {
-            if (live[k] && live[k].length >= 4 && bboxUeberdeckung(live[k], n) >= 0.5) { schonDa = true; break; }
-        }
-        if (schonDa) { bekannt++; continue; }
         const namen = [];
         (Array.isArray(g.vorschlaege) ? g.vorschlaege : []).forEach(function (v) {
             const nm = String((v && v.name) || '').trim();
             if (nm && namen.indexOf(nm) === -1 && namen.length < 3) namen.push(nm);
         });
+        let passenderIndex = -1;
+        const live = e.bbox_norm_live || [];
+        for (let k = 0; k < live.length; k++) {
+            if (live[k] && live[k].length >= 4 && bboxUeberdeckung(live[k], n) >= 0.5) {
+                passenderIndex = k;
+                break;
+            }
+        }
+        if (passenderIndex >= 0) {
+            bekannt++;
+            if (!Array.isArray(e.namensvorschlaege)) e.namensvorschlaege = [];
+            if (namen.length) {
+                e.namensvorschlaege[passenderIndex] = namen;
+            }
+            continue;
+        }
+        if (g.status === 'bekannt') { bekannt++; continue; }
+        if (g.status !== 'neu') continue;
         e.vorschlaege.push({ bbox_norm: bboxNormClampen(n), namen: namen });
     }
     const neu = e.vorschlaege.length;

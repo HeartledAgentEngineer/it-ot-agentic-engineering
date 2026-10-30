@@ -2333,6 +2333,54 @@ def aufloesen(kennung: str, trocken: bool = False) -> Dict[str, Any]:
                 sauber, gesichter, name)
     return bericht
 
+
+def andocken(trocken: bool = True,
+             min_sicherheit: float = 0.85,
+             kennungen: Optional[List[str]] = None,
+             ziel_name: Optional[str] = None) -> Dict[str, Any]:
+    """Dockt offene Gruppen an passende Lebensabschnitte bekannter Personen an (30.10.2026).
+
+    Im Trockenmodus (trocken=True, Standard): Zaehlt nur Kandidaten und Gesichter.
+    Im Schreibmodus (trocken=False): Wendet die Zuordnung ueber _antwort_anwenden an (protokolliert, rueckgaengig machbar).
+    """
+    try:
+        from app.services import lebensabschnitte_service
+        kandidaten = lebensabschnitte_service.andocken_kandidaten(
+            min_sicherheit=min_sicherheit,
+            kennungen=kennungen,
+            ziel_name=ziel_name,
+        )
+        if trocken:
+            return {
+                "ok": True,
+                "trocken": True,
+                "anzahl": len(kandidaten),
+                "gesichter": sum(k["groesse"] for k in kandidaten),
+                "kandidaten": kandidaten,
+            }
+
+        with _SCHREIBSPERRE:
+            zugeordnet: List[str] = []
+            for k in kandidaten:
+                try:
+                    _antwort_anwenden(kennung=k["kennung"], art="name", name=k["name"], ziel=None)
+                    zugeordnet.append(k["kennung"])
+                except Exception as e:
+                    logger.warning("Andocken fuer %s fehlgeschlagen: %s", k["kennung"], e)
+
+            return {
+                "ok": True,
+                "trocken": False,
+                "anzahl": len(zugeordnet),
+                "gesichter": sum(k["groesse"] for k in kandidaten if k["kennung"] in zugeordnet),
+                "zugeordnet": zugeordnet,
+                "kandidaten": kandidaten,
+            }
+    except Exception as fehler:
+        logger.error("Andocken fehlgeschlagen: %s", fehler, exc_info=True)
+        return {"ok": False, "fehler": str(fehler)}
+
+
 # ── Antworten ────────────────────────────────────────────────────────────────
 
 def antworten(kennung: str, art: str, name: Optional[str] = None,
