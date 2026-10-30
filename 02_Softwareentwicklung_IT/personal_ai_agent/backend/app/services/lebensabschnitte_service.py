@@ -214,6 +214,7 @@ def lebensabschnitte_fuer_person(name: str,
 
     if not alle_jahre:
         # Keine Jahresangaben bekannt: 1 unbestimmte Phase
+        passende_kennungen = sorted(list(set(b["kennung"] for b in belege if b.get("kennung"))))
         phase = {
             "phase_id": "phase-unbekannt",
             "von_jahr": None,
@@ -223,6 +224,8 @@ def lebensabschnitte_fuer_person(name: str,
             "titel": "Aufnahmen ohne Datum",
             "alters_hinweis": None,
             "gesichter_anzahl": gesamt_gesichter,
+            "gruppen_anzahl": len(passende_kennungen),
+            "gruppen_kennungen": passende_kennungen,
             "beispiele": [b["beispiel"] for b in belege if b["beispiel"]][:6],
             "begleiter": begleiter_aus_beziehungen(echter_name, None, None, basis_pfad),
             "aussage": f"{gesamt_gesichter} Bild(er) ohne bekanntes Aufnahmedatum.",
@@ -284,7 +287,10 @@ def lebensabschnitte_fuer_person(name: str,
         if alter_text:
             zeit_teil += f" ({alter_text})"
 
-        satz = f"{zeit_teil} auf {anzahl} Foto(s) festgehalten"
+        passende_kennungen = sorted(list(set(b["kennung"] for b in passende_belege if b.get("kennung"))))
+        grp_anz = len(passende_kennungen)
+        grp_text = f" in {grp_anz} Gruppe{'n' if grp_anz != 1 else ''}" if grp_anz > 0 else ""
+        satz = f"{zeit_teil} auf {anzahl} Foto(s){grp_text} festgehalten"
         if begleiter:
             satz += f", am häufigsten zusammen mit {', '.join(begleiter[:2])}"
         satz += "."
@@ -299,6 +305,8 @@ def lebensabschnitte_fuer_person(name: str,
             "titel": titel,
             "alters_hinweis": alter_text,
             "gesichter_anzahl": anzahl,
+            "gruppen_anzahl": grp_anz,
+            "gruppen_kennungen": passende_kennungen,
             "beispiele": phasen_beispiele,
             "begleiter": begleiter,
             "aussage": " ".join(saetze),

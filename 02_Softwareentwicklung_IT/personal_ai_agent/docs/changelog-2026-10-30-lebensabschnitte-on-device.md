@@ -27,8 +27,10 @@ Bisher wurden alle Gesichter und Bildgruppen einer benannten Person ungeordnet d
   - `POST /api/gruppen/andocken`: Route für das Andocken und die Neugruppierung.
 - **Geändert:** `frontend/index.html`, `frontend/gruppen_quiz.js`, `frontend/style.css`
   - Visualisierung von Lebensabschnitten in der Personenansicht mit Zeiträumen, Altersstufen, belegenden Miniatur-Kacheln und häufigen Begleitern.
+  - Interaktives Andocken in der Gruppenübersicht: Knopf `⚡ Offene Gruppen andocken` ruft den Trockenlauf ab, zeigt passende Kandidaten (71 Gruppen, 825 Gesichter) und ermöglicht die direkte Übernahme (`POST /api/gruppen/andocken`).
+  - Zugeordnete Gruppen (`vorschlaege`) werden mit ihrem jeweiligen Lebensabschnitt und Alter beschriftet (`🏷️ 2011 – 2012 (ca. 11–12 Jahre)`). Lebensabschnitts-Karten heben zugehörige Gruppen per Klick hervor.
   - Lebensabschnitts-Vorschlagskarte im Gruppen-Quiz mit Schnell-Übernahme-Knopf („Als X übernehmen“).
-  - Cache-Bust `20261030A`.
+  - Cache-Bust `20261030B`.
 - **Geändert:** `frontend/app.js` (Bildeditor)
   - `bildEditorCloudErkennung`: Bekannte Gesichter werden nicht mehr verworfen, sondern deren Modell-Namensvorschläge werden an den jeweiligen Live-Rahmen geheftet (`e.namensvorschlaege[k]`) und stehen im Personen-Auswahlmenü direkt ganz oben.
 - **Wächtertests:**

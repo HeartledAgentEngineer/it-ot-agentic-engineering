@@ -2160,6 +2160,15 @@ def person(name: str) -> Dict[str, Any]:
     abschnitte = lebensabschnitte_service.lebensabschnitte_fuer_person(
         echter_name, vorschlaege=vorschlaege, profil_daten=prof
     )
+    kennung_zu_phase = {}
+    for ph in abschnitte.get("phasen", []):
+        for gk in ph.get("gruppen_kennungen", []):
+            kennung_zu_phase[gk] = ph
+    for v in vorschlaege:
+        ph = kennung_zu_phase.get(v.get("kennung"))
+        if ph:
+            v["lebensabschnitt"] = ph.get("titel")
+            v["lebensabschnitt_alter"] = ph.get("alters_hinweis")
     return {
         "ok": True,
         "name": echter_name,

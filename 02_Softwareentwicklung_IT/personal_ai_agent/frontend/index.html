@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261030A">
+    <link rel="stylesheet" href="style.css?v=20261030B">
 </head>
 <body>
     <div id="app">
@@ -441,7 +441,21 @@
                         <button id="gruppen-liste-status-aufgeloest" class="gruppen-reiter-knopf" type="button">Aufgelöst</button>
                         <button id="gruppen-liste-status-ausgeblendet" class="gruppen-reiter-knopf" type="button">Ausgeblendet</button>
                     </div>
-                    <button id="gruppen-liste-aktualisieren" class="gruppen-knopf" type="button">↻ Aktualisieren</button>
+                    <div class="gruppen-leiste">
+                        <button id="gruppen-liste-aktualisieren" class="gruppen-knopf" type="button">↻ Aktualisieren</button>
+                        <button id="gruppen-andocken-btn" class="gruppen-knopf" type="button">⚡ Offene Gruppen andocken</button>
+                    </div>
+                    <div id="gruppen-andocken-bereich" class="gruppen-andocken-bereich" hidden>
+                        <div class="gruppen-andocken-kopf">
+                            <h4>Offene Gruppen an Lebensabschnitte andocken</h4>
+                            <p id="gruppen-andocken-info" class="gruppen-meta"></p>
+                        </div>
+                        <div id="gruppen-andocken-liste" class="gruppen-andocken-liste"></div>
+                        <div class="gruppen-leiste">
+                            <button id="gruppen-andocken-ausfuehren" class="gruppen-knopf haupt" type="button">✓ Jetzt andocken</button>
+                            <button id="gruppen-andocken-schliessen" class="gruppen-knopf" type="button">Schließen</button>
+                        </div>
+                    </div>
                     <div id="gruppen-liste" class="gruppen-benannt-liste gruppen-liste" role="group" aria-label="Gruppenliste"></div>
                     <p id="gruppen-liste-seite" class="gruppen-meta"></p>
                     <div class="gruppen-liste-seiten">
@@ -762,9 +776,9 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261030A"></script>
+    <script src="app.js?v=20261030B"></script>
     <script src="erzaehlen.js?v=20261026B"></script>
-    <script src="gruppen_quiz.js?v=20261030A"></script>
+    <script src="gruppen_quiz.js?v=20261030B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN

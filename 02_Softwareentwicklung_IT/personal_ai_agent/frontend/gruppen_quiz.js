@@ -124,6 +124,24 @@ function gruppenLebensabschnittBegleiterText(begleiter) {
     return 'Häufig zusammen auf Fotos: ' + begleiter.join(', ');
 }
 
+/** Zusammenfassung für den Andocken-Vorschau-Bereich (30.10.2026). */
+function gruppenAndockenInfoText(kandidatenAnzahl, gesichterAnzahl) {
+    if (!kandidatenAnzahl) return 'Keine offenen Gruppen mit eindeutiger Zuordnung gefunden.';
+    return gruppenZahl(kandidatenAnzahl) + ' offene Gruppe' + (kandidatenAnzahl > 1 ? 'n' : '') + ' mit ' +
+        gruppenZahl(gesichterAnzahl) + ' Gesichtern passen eindeutig zu bekannten Lebensabschnitten.';
+}
+
+/** Einzelne Vorschauzeile für eine andockbare Gruppe (30.10.2026). */
+function gruppenAndockenKandidatText(k) {
+    if (!k || typeof k !== 'object') return '';
+    const groesse = gruppenZahl(k.groesse || 0);
+    const jahr = k.jahr ? ' (' + k.jahr + ')' : '';
+    const ziel = k.ziel_name || 'Unbekannt';
+    const phase = k.phase_titel ? ' · ' + k.phase_titel : '';
+    const score = k.sicherheit ? ' · ' + Math.round(k.sicherheit * 100) + ' % sicher' : '';
+    return 'Gruppe ' + (k.kennung || '?') + jahr + ': ' + groesse + ' Gesichter → ' + ziel + phase + score;
+}
+
 /** Zeitraum einer Gruppe: „2016–2025", „2022" oder "" (ohne Daten). */
 function gruppenZeitraum(von, bis) {
     const a = (typeof von === 'string') ? von.slice(0, 4) : '';
@@ -1727,6 +1745,29 @@ function gruppenNotizZeit(zeit) {
                         karte.appendChild(begleiterP);
                     }
 
+                    const infoP = document.createElement('p');
+                    infoP.className = 'gruppen-meta lebensabschnitt-gruppen-info';
+                    infoP.textContent = gruppenZahl(ph.gesichter_anzahl) + ' Gesichter' +
+                        (ph.gruppen_anzahl ? ' in ' + ph.gruppen_anzahl + ' Gruppe' + (ph.gruppen_anzahl > 1 ? 'n' : '') : '');
+                    karte.appendChild(infoP);
+
+                    if (ph.gruppen_kennungen && ph.gruppen_kennungen.length) {
+                        karte.style.cursor = 'pointer';
+                        karte.title = 'Tippen, um Gruppen dieser Phase hervorzuheben';
+                        karte.addEventListener('click', () => {
+                            const alleV = box.querySelectorAll('.gruppen-person-vorschlag');
+                            alleV.forEach((elV) => {
+                                const kid = elV.getAttribute('data-kennung');
+                                if (ph.gruppen_kennungen.includes(kid)) {
+                                    elV.style.outline = '2px solid var(--accent, #64b5f6)';
+                                    elV.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                } else {
+                                    elV.style.outline = 'none';
+                                }
+                            });
+                        });
+                    }
+
                     if (ph.beispiele && ph.beispiele.length) {
                         const kacheln = document.createElement('div');
                         kacheln.className = 'gruppen-kacheln lebensabschnitt-kacheln';
@@ -1754,9 +1795,14 @@ function gruppenNotizZeit(zeit) {
         vorschlaege.forEach((v) => {
             const teil = document.createElement('div');
             teil.className = 'gruppen-person-vorschlag';
+            teil.setAttribute('data-kennung', v.kennung);
             const kopf = document.createElement('p');
             kopf.className = 'gruppen-meta';
-            kopf.textContent = gruppenVorschlagKopf(v);
+            let kopfText = gruppenVorschlagKopf(v);
+            if (v.lebensabschnitt) {
+                kopfText += ' · 🏷️ ' + v.lebensabschnitt + (v.lebensabschnitt_alter ? ' (' + v.lebensabschnitt_alter + ')' : '');
+            }
+            kopf.textContent = kopfText;
             teil.appendChild(kopf);
             const kacheln = document.createElement('div');
             kacheln.className = 'gruppen-kacheln';
@@ -2549,6 +2595,88 @@ function gruppenNotizZeit(zeit) {
             zustand.listeRueckmeldung = '';
             gruppenListeLaden();
         });
+        const andockenBtn = el('gruppen-andocken-btn');
+        const andockenBereich = el('gruppen-andocken-bereich');
+        const andockenInfo = el('gruppen-andocken-info');
+        const andockenListe = el('gruppen-andocken-liste');
+        const andockenAusfuehren = el('gruppen-andocken-ausfuehren');
+        const andockenSchliessen = el('gruppen-andocken-schliessen');
+
+        if (andockenBtn) {
+            andockenBtn.addEventListener('click', async () => {
+                andockenBtn.disabled = true;
+                melde('Prüfe offene Gruppen auf Lebensabschnitte …', true);
+                try {
+                    const daten = await jsonFetch('/api/gruppen/andocken', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ trocken: true }),
+                    });
+                    if (!daten || !daten.ok) {
+                        melde('⚠️ ' + ((daten && daten.fehler) || 'Prüfung fehlgeschlagen.'), false);
+                        return;
+                    }
+                    const kand = daten.kandidaten || [];
+                    if (andockenBereich && andockenInfo && andockenListe) {
+                        andockenInfo.textContent = gruppenAndockenInfoText(kand.length, daten.gesamt_gesichter);
+                        andockenListe.innerHTML = '';
+                        if (kand.length > 0) {
+                            kand.slice(0, 15).forEach((k) => {
+                                const p = document.createElement('p');
+                                p.className = 'gruppen-meta andocken-kandidat-zeile';
+                                p.textContent = gruppenAndockenKandidatText(k);
+                                andockenListe.appendChild(p);
+                            });
+                            if (kand.length > 15) {
+                                const rest = document.createElement('p');
+                                rest.className = 'gruppen-meta';
+                                rest.textContent = '… und ' + (kand.length - 15) + ' weitere Gruppen.';
+                                andockenListe.appendChild(rest);
+                            }
+                            if (andockenAusfuehren) andockenAusfuehren.hidden = false;
+                        } else {
+                            if (andockenAusfuehren) andockenAusfuehren.hidden = true;
+                        }
+                        andockenBereich.hidden = false;
+                    }
+                } catch (_err) {
+                    melde('⚠️ Server nicht erreichbar.', false);
+                } finally {
+                    andockenBtn.disabled = false;
+                }
+            });
+        }
+
+        if (andockenSchliessen && andockenBereich) {
+            andockenSchliessen.addEventListener('click', () => {
+                andockenBereich.hidden = true;
+            });
+        }
+
+        if (andockenAusfuehren) {
+            andockenAusfuehren.addEventListener('click', async () => {
+                andockenAusfuehren.disabled = true;
+                melde('Docke offene Gruppen an …', true);
+                try {
+                    const daten = await jsonFetch('/api/gruppen/andocken', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ trocken: false }),
+                    });
+                    if (!daten || !daten.ok) {
+                        melde('⚠️ ' + ((daten && daten.fehler) || 'Andocken fehlgeschlagen.'), false);
+                        return;
+                    }
+                    if (andockenBereich) andockenBereich.hidden = true;
+                    melde('✓ ' + daten.zugeordnet_gruppen + ' Gruppen erfolgreich zugeordnet.', true);
+                    gruppenListeLaden();
+                } catch (_err) {
+                    melde('⚠️ Server nicht erreichbar.', false);
+                } finally {
+                    andockenAusfuehren.disabled = false;
+                }
+            });
+        }
         const listeVorher = el('gruppen-liste-vorher');
         if (listeVorher) listeVorher.addEventListener('click', () => {
             if (!listeVorher.disabled) { zustand.listeRueckmeldung = ''; gruppenListeLaden(Math.max(1, zustand.listeSeite - 1)); }

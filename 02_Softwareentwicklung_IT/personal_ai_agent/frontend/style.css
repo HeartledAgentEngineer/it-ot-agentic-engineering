@@ -3604,3 +3604,42 @@ body.anmelden-offen { overflow: hidden; }
     box-sizing: border-box;
 }
 
+
+/* Andocken & Lebensabschnitts-Zuordnung (30.10.2026B) */
+.gruppen-andocken-bereich {
+    margin: 12px 0;
+    padding: 12px;
+    background: var(--bg-karte, #1e2530);
+    border: 1px solid var(--linie, #303e54);
+    border-radius: 8px;
+}
+.gruppen-andocken-kopf h4 {
+    margin: 0 0 4px;
+    font-size: 0.95rem;
+    color: var(--text-hell, #f0f4f8);
+}
+.gruppen-andocken-liste {
+    max-height: 220px;
+    overflow-y: auto;
+    margin: 8px 0;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+}
+.andocken-kandidat-zeile {
+    margin: 4px 0;
+    font-size: 0.85rem;
+}
+.lebensabschnitt-gruppen-info {
+    font-weight: 500;
+    color: var(--accent, #64b5f6);
+}
+.gruppen-lebensabschnitt-pille {
+    display: inline-block;
+    padding: 2px 6px;
+    background: rgba(76, 175, 80, 0.15);
+    color: #81c784;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-left: 6px;
+}

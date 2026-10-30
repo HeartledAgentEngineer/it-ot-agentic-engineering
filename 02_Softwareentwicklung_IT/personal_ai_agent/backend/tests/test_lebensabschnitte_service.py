@@ -87,10 +87,14 @@ def test_lebensabschnitte_fuer_person_mit_beispielen(tmp_path: Path):
     assert p1["titel"] == "2011 – 2012"
     assert "ca. 11–12 Jahre" in (p1["alters_hinweis"] or "")
     assert "2011 bis 2012" in p1["aussage"]
+    assert p1["gruppen_anzahl"] == 1
+    assert p1["gruppen_kennungen"] == ["Person_100"]
 
     assert p2["von_jahr"] == 2018 and p2["bis_jahr"] == 2019
     assert p2["titel"] == "2018 – 2019"
     assert "ca. 18–19 Jahre" in (p2["alters_hinweis"] or "")
+    assert p2["gruppen_anzahl"] == 1
+    assert p2["gruppen_kennungen"] == ["Person_101"]
 
     assert "Insgesamt 8 Fotos in 2 Lebensabschnitten von 2011 bis 2019." in res["aussage"]
 

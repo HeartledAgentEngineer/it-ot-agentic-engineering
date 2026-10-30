@@ -37,7 +37,7 @@ const namen = ['gruppenAusschnitt', 'gruppenZeitraum', 'gruppenZahl', 'gruppenFo
                'gesichtKennung', 'gesichtRahmen', 'gruppenPersonAlleKnopf',
                'gruppenZuordnenKnopf', 'gruppenZuordnenNamen', 'gruppenJahr', 'gruppenOrdnungKnopf',
                'gruppenVideoMarke', 'gruppenLebensabschnittTitel', 'gruppenPhasenVorschlagText',
-               'gruppenLebensabschnittBegleiterText'];
+               'gruppenLebensabschnittBegleiterText', 'gruppenAndockenInfoText', 'gruppenAndockenKandidatText'];
 const f = new Function(namen.map((n) => funktionAusschneiden(src, n)).join('\n')
     + '; return { ' + namen.join(', ') + ' };')();
 
@@ -370,7 +370,22 @@ pruefe(html.includes('id="gruppen-person-lebensabschnitte"'), 'index.html enthae
 pruefe(/\.gruppen-phasen-vorschlag\s*\{/.test(css), 'style.css definiert .gruppen-phasen-vorschlag');
 pruefe(/\.gruppen-lebensabschnitte\s*\{/.test(css), 'style.css definiert .gruppen-lebensabschnitte');
 pruefe(/\.gruppen-lebensabschnitt-karte\s*\{/.test(css), 'style.css definiert .gruppen-lebensabschnitt-karte');
-pruefe(vQ && vQ[1] >= '20261030A' && vS && vS[1] >= '20261030A', 'Cache-Bump 30.10.2026A');
+pruefe(vQ && vQ[1] >= '20261030B' && vS && vS[1] >= '20261030B', 'Cache-Bump 30.10.2026B');
+
+console.log('Andocken offener Gruppen (30.10.2026B)');
+pruefe(f.gruppenAndockenInfoText(71, 825) === '71 offene Gruppen mit 825 Gesichtern passen eindeutig zu bekannten Lebensabschnitten.', 'Info-Text für 71 Gruppen');
+pruefe(f.gruppenAndockenInfoText(1, 10) === '1 offene Gruppe mit 10 Gesichtern passen eindeutig zu bekannten Lebensabschnitten.', 'Info-Text für 1 Gruppe');
+pruefe(f.gruppenAndockenInfoText(0, 0) === 'Keine offenen Gruppen mit eindeutiger Zuordnung gefunden.', 'Info-Text für 0 Gruppen');
+pruefe(f.gruppenAndockenKandidatText({ kennung: 'G_10', groesse: 14, jahr: 2008, ziel_name: 'Albrecht', phase_titel: 'Jugend (2005–2010)', sicherheit: 0.9 })
+    === 'Gruppe G_10 (2008): 14 Gesichter → Albrecht · Jugend (2005–2010) · 90 % sicher', 'Kandidat Text');
+pruefe(html.includes('id="gruppen-andocken-btn"'), 'index.html enthaelt #gruppen-andocken-btn');
+pruefe(html.includes('id="gruppen-andocken-bereich"'), 'index.html enthaelt #gruppen-andocken-bereich');
+pruefe(html.includes('id="gruppen-andocken-info"'), 'index.html enthaelt #gruppen-andocken-info');
+pruefe(html.includes('id="gruppen-andocken-liste"'), 'index.html enthaelt #gruppen-andocken-liste');
+pruefe(html.includes('id="gruppen-andocken-ausfuehren"'), 'index.html enthaelt #gruppen-andocken-ausfuehren');
+pruefe(html.includes('id="gruppen-andocken-schliessen"'), 'index.html enthaelt #gruppen-andocken-schliessen');
+pruefe(/\.gruppen-andocken-bereich\s*\{/.test(css), 'style.css definiert .gruppen-andocken-bereich');
+pruefe(/\.gruppen-lebensabschnitt-pille\s*\{/.test(css), 'style.css definiert .gruppen-lebensabschnitt-pille');
 
 if (fehler) { console.log(`\n${fehler} Prüfung(en) rot`); process.exit(1); }
 console.log('\nalle Prüfungen grün');
