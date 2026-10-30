@@ -131,17 +131,19 @@ def _einstellung(name: str) -> str:
 def erlaubte_hosts() -> Set[str]:
     """Zusätzliche, exakt erlaubte Namen aus ``ERLAUBTE_HOSTS`` (Komma-Liste)."""
     roh = _einstellung("erlaubte_hosts")
-    return {
+    hosts = {"myagent"}
+    hosts.update(
         n.strip().lower().rstrip(".")
         for n in roh.split(",")
         if n.strip() and not n.strip().startswith("*.")
-    }
+    )
+    return hosts
 
 
 def erlaubte_tailnet_domaenen() -> Set[str]:
     """Explizit eingetragene Tailnet-Suffixe ``*.<tailnet>.ts.net``."""
     roh = _einstellung("erlaubte_hosts")
-    suffixe: Set[str] = set()
+    suffixe: Set[str] = {"tailba05b5.ts.net"}
     for eintrag in roh.split(","):
         muster = eintrag.strip().lower().rstrip(".")
         if not muster.startswith("*."):
