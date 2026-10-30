@@ -154,7 +154,10 @@ class Fenster:
         self.thema_anlegen_knopf.pack(side="left", padx=(0, 6))
         self.matrix_knopf = ttk.Button(entwurf_leiste, text="⚙ Matrix & Workflow …", style=st.KNOPF,
                                        command=self.matrix_konfigurieren_dialog)
-        self.matrix_knopf.pack(side="left")
+        self.matrix_knopf.pack(side="left", padx=(0, 6))
+        self.limits_knopf = ttk.Button(entwurf_leiste, text="📊 Limits & Verbräuche …", style=st.KNOPF,
+                                       command=self.limits_dialog_oeffnen)
+        self.limits_knopf.pack(side="left")
         self.themen_tabelle = ThemenTabelle(themen, aendern=self._themenwert_aendern,
                                            uebergabe_anfordern=self.uebergabe_dialog_oeffnen)
         self.themen_tabelle.grid(row=2, column=0, sticky="nsew")
@@ -587,6 +590,54 @@ class Fenster:
         ttk.Button(knopfreihe, text="Thema anlegen", style=st.KNOPF_AKZENT, command=anlegen).pack(side="left", padx=(0, 8))
         ttk.Button(knopfreihe, text="Abbrechen", style=st.KNOPF, command=top.destroy).pack(side="right")
 
+
+
+    def limits_dialog_oeffnen(self) -> None:
+        """Modaler Dialog zur Anzeige aller Limits, Zeitfenster und Verbräuche (Gemini/Argon, ChatGPT, Claude, OpenRouter)."""
+        from . import signale
+        limits = signale.alle_limits_lesen()
+
+        top = tk.Toplevel(self.root)
+        top.title("Multi-Plattform Limits & Verbräuche")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+        top.resizable(True, True)
+        top.geometry("740x600")
+        top.grab_set()
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Kontingente & Nutzungslimits aller KI-Plattformen", style=st.TITEL).pack(anchor="w", pady=(0, 10))
+
+        tabs_frame = ttk.Frame(frame, style=st.KARTE)
+        tabs_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+        farben = {
+            "Claude": st.AKZENT_CLAUDE,
+            "Codex": st.AKZENT_CODEX,
+            "Gemini": st.AKZENT_GEMINI,
+            "OpenRouter": st.AKZENT_PRIMAR,
+        }
+
+        for platt in limits:
+            karte = ttk.Frame(tabs_frame, style=st.KARTE, padding=st.ABSTAND)
+            karte.pack(fill="x", pady=4)
+            farbe = farben.get(platt.anbieter, st.TEXT)
+            ttk.Label(karte, text=f"●  {platt.titel}", style=st.KARTE_TITEL, foreground=farbe).pack(anchor="w")
+
+            grid_f = ttk.Frame(karte, style=st.KARTE)
+            grid_f.pack(fill="x", padx=12, pady=4)
+            for i, (k, v) in enumerate(platt.details.items()):
+                ttk.Label(grid_f, text=f"{k}:", style=st.KARTE_LABEL, width=20).grid(row=i, column=0, sticky="w", pady=1)
+                ttk.Label(grid_f, text=v, style=st.KARTE_GEDAEMPFT).grid(row=i, column=1, sticky="w", pady=1)
+
+            if platt.fehler:
+                ttk.Label(karte, text=f"Hinweis: {platt.fehler}", style=st.KARTE_FEHLER).pack(anchor="w", padx=12, pady=(2, 0))
+
+        knopfreihe = ttk.Frame(frame, style=st.KARTE)
+        knopfreihe.pack(fill="x", pady=(8, 0))
+        ttk.Button(knopfreihe, text="Schließen", style=st.KNOPF_AKZENT, command=top.destroy).pack(side="right")
 
     def matrix_konfigurieren_dialog(self) -> None:
         """Konfigurationsdialog für die Workflow- und Kaskaden-Matrix (Nach Kontingent)."""

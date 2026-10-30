@@ -10,6 +10,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
+- **Multi-Plattform Limit-Monitor & Detailanzeige (`limits_dialog_oeffnen`, `alle_limits_lesen`)**:
+  * Neuer Button `📊 Limits & Verbräuche …` in der Kopfleiste.
+  * Zeigt aufgeschlüsselte Kontingente, Rolling-Windows und Modellstatus aller 4 Plattformen:
+    - Gemini / Antigravity: Argon-Limit (Agenten-Ausführung), Gemini 2.5 Pro (Thinker), Gemini 2.5 Flash (Worker), Flash Lite.
+    - OpenAI ChatGPT Plus (Codex): 5h- und Wochenfenster, GPT-6 Sol / GPT-6 Luna.
+    - Anthropic Claude Pro: 5h- und Wochenfenster, Claude Opus 5.5 / Claude Sonnet 5.5.
+    - OpenRouter API: DeepSeek V4.1 Flash für Lagen 2A, 2B und 3.
 - **Tabellen-Entstörung & Spaltenbereinigung (v0.5.0)**:
   * Gelbe Unterzeilen (`row.details`) vollständig aus der Tabelle entfernt: Jede Themenzeile ist ruhig und strikt einzeilig.
   * Spalte `Modell` aus der Tabelle entfernt: Tabelle ist übersichtlicher und bietet mehr Platz für die relevanten Spalten.

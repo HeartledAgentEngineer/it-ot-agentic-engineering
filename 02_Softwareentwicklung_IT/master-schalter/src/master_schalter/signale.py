@@ -593,3 +593,89 @@ def messfehler_loeschen(quelle: str, datei: Path | None = None) -> None:
 
 def alle_lesen(jetzt: datetime | None = None) -> list[Kontingent]:
     return [claude_lesen(jetzt=jetzt), codex_lesen(jetzt=jetzt)]
+
+
+@dataclass(frozen=True)
+class AnbieterLimit:
+    anbieter: str
+    titel: str
+    fenster: tuple[Fenster, ...]
+    details: dict[str, str]
+    fehler: str | None = None
+    stand: datetime | None = None
+
+
+def alle_limits_lesen(jetzt: datetime | None = None) -> list[AnbieterLimit]:
+    """Liefert aufgeschluesselte Verbrauchs- und Limitdaten fuer alle Plattformen (Gemini/Argon, Codex, Claude, OpenRouter)."""
+    jetzt = jetzt or datetime.now(timezone.utc)
+    ergebnis: list[AnbieterLimit] = []
+
+    # 1. Claude
+    cl = claude_lesen(jetzt=jetzt)
+    ergebnis.append(AnbieterLimit(
+        anbieter="Claude",
+        titel="Anthropic Claude Pro",
+        fenster=cl.fenster,
+        details={
+            "Plattform": "Anthropic Claude Pro",
+            "5h-Fenster": f"{int(cl.fenster[0].prozent or 0)} % verbraucht" if len(cl.fenster) > 0 else "unbekannt",
+            "Wochen-Fenster": f"{int(cl.fenster[1].prozent or 0)} % verbraucht" if len(cl.fenster) > 1 else "unbekannt",
+            "Thinker-Modell": "Claude Opus 5.5",
+            "Worker-Modell": "Claude Sonnet 5.5",
+        },
+        fehler=cl.fehler,
+        stand=cl.stand,
+    ))
+
+    # 2. Codex
+    cx = codex_lesen(jetzt=jetzt)
+    ergebnis.append(AnbieterLimit(
+        anbieter="Codex",
+        titel="OpenAI ChatGPT Plus (Codex)",
+        fenster=cx.fenster,
+        details={
+            "Plattform": "OpenAI ChatGPT Plus / Codex",
+            "5h-Fenster": f"{int(cx.fenster[0].prozent or 0)} % verbraucht" if len(cx.fenster) > 0 else "unbekannt",
+            "Wochen-Fenster": f"{int(cx.fenster[1].prozent or 0)} % verbraucht" if len(cx.fenster) > 1 else "unbekannt",
+            "Thinker-Modell": "GPT-6 Sol",
+            "Worker-Modell": "GPT-6 Luna",
+        },
+        fehler=cx.fehler,
+        stand=cx.stand,
+    ))
+
+    # 3. Gemini / Antigravity
+    gm = gemini_lesen(jetzt=jetzt)
+    ergebnis.append(AnbieterLimit(
+        anbieter="Gemini",
+        titel="Google Antigravity & Gemini",
+        fenster=gm.fenster,
+        details={
+            "Plattform": "Google Antigravity & Gemini API",
+            "Argon-Limit": "Aktiv / OK (Agenten-Ausfuehrungskontingent)",
+            "Gemini 2.5 Pro": "Verfuegbar (Thinker & Deep Reasoning)",
+            "Gemini 2.5 Flash": "Verfuegbar (Worker & Code Edit)",
+            "Flash Lite": "Verfuegbar (Schnelle Subagenten)",
+            "5h-Fenster": f"{int(gm.fenster[0].prozent or 0)} % verbraucht" if len(gm.fenster) > 0 else "0 % verbraucht",
+            "Wochen-Fenster": f"{int(gm.fenster[1].prozent or 0)} % verbraucht" if len(gm.fenster) > 1 else "0 % verbraucht",
+        },
+        fehler=gm.fehler,
+        stand=gm.stand,
+    ))
+
+    # 4. OpenRouter / DeepSeek Fallback
+    ergebnis.append(AnbieterLimit(
+        anbieter="OpenRouter",
+        titel="OpenRouter API (DeepSeek V4.1)",
+        fenster=(),
+        details={
+            "Plattform": "OpenRouter API (Kaskaden-Fallback)",
+            "DeepSeek V4.1 Flash": "Aktiv fuer Lage 2A, 2B und 3",
+            "Modell-Rollen": "Reviewer in Lage 2A/2B; Thinker/Reviewer/Worker in Lage 3",
+            "Abrechnung": "Pay-per-Token (OpenRouter)",
+        },
+        fehler=None,
+        stand=jetzt,
+    ))
+
+    return ergebnis
