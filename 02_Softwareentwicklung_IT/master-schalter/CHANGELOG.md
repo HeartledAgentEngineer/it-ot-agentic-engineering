@@ -6,6 +6,23 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Tabellen-Entstörung & Spaltenbereinigung (v0.5.0)**:
+  * Gelbe Unterzeilen (`row.details`) vollständig aus der Tabelle entfernt: Jede Themenzeile ist ruhig und strikt einzeilig.
+  * Spalte `Modell` aus der Tabelle entfernt: Tabelle ist übersichtlicher und bietet mehr Platz für die relevanten Spalten.
+  * Veralteter oberer Sammelknopf `Übernehmen ...` entfernt (Steuerung erfolgt gezielt pro Thema via `Übergabe ...`).
+  * Konkrete Anzeige in Dropdowns: `Prüfer` und `Ausführer` zeigen direkt das aufgelöste Modell (z. B. `Auto (Codex · App-Standard)`, `Workflow (Hermes · DeepSeek V4.1 Flash)`) statt nichtssagender Abstraktionen wie `Automatisch` oder `Workflow`.
+- **Workflow- & Matrix-Konfigurator („Nach Kontingent“)** (`matrix_konfiguration.py`):
+  * Neuer Button `⚙ Matrix & Workflow …` in der Kopfleiste.
+  * Modaler Konfigurationsdialog zur Definition von „Nach Kontingent“ nach den 4 Nutzungslagen aus `AGENTS.md` (Lagen 1, 2A, 2B, 3).
+  * Zuweisung von Thinker (Master), Reviewer (Prüfer), Worker (Ausführer) und Modellen sowie Gemini/Antigravity-Rolle.
+  * Persistierung in `matrix-konfiguration.json` mit Fallback auf Standardwerte.
+- **Automatische Chat-Erkennung für Themenneuanlage** (`chat_discovery.py`):
+  * Durchsucht Antigravity (`conversation_summaries.db`), Claude und Codex nach neuen Chats.
+  * Ignoriert Plattformen im Limit und filtert bereits registrierte Themen aus.
+  * `+ Thema anlegen …` schlägt neu erkannte Chats automatisch vor und belegt Name und Erst-Master vor.
+- **Erweiterte Kontingentanzeige**:
+  * Anzeige von Argon-Status (`Argon: OK`) und Modell-Verfügbarkeiten in der Gemini/Antigravity-Karte.
+
 - **Frontend-Redesign & Entrümpelung der Themenzeilen**:
   * Dropdowns im Dark-Theme mit hohem Kontrast (`Dunkel.TCombobox` mit dunklem Grund und weißer Schrift).
   * Zweizeiliger Detail-Fließtext unter jeder Zeile entfernt: Themenzeilen sind nun kompakt und einzeilig.

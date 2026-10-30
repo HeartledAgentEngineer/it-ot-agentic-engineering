@@ -435,6 +435,19 @@ def gemini_schreiben(sauber: dict, jetzt: datetime | None = None, datei: Path | 
     return True
 
 
+def gemini_initialisieren_wenn_noetig(jetzt: datetime | None = None) -> None:
+    datei = gemini_datei()
+    if not datei.exists():
+        jetzt = jetzt or datetime.now(timezone.utc)
+        gemini_schreiben({
+            "5h": {"used_percent": 0.0, "resets_at": None},
+            "Woche": {"used_percent": 0.0, "resets_at": None},
+            "argon": {"used_percent": 0.0, "status": "aktiv"},
+            "pro": {"status": "verfuegbar"},
+            "flash": {"status": "verfuegbar"},
+        }, jetzt=jetzt, datei=datei)
+
+
 def gemini_lesen(ordner: Path | None = None, jetzt: datetime | None = None, messdatei: Path | None = None) -> Kontingent:
     messdatei = messdatei or gemini_datei()
     jetzt = jetzt or datetime.now(timezone.utc)
@@ -443,6 +456,7 @@ def gemini_lesen(ordner: Path | None = None, jetzt: datetime | None = None, mess
     except FileNotFoundError:
         server_datei = daten_ordner() / "agy-server.json"
         if server_datei.exists():
+            gemini_initialisieren_wenn_noetig(jetzt)
             return Kontingent("Gemini", (Fenster("5h", 0.0, None), Fenster("Woche", 0.0, None)), stand=jetzt)
         return Kontingent("Gemini", fehler="keine Daten")
     except (OSError, ValueError):

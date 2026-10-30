@@ -10,9 +10,9 @@ from . import anzeige, uebersicht_modell as um, uebersicht_stil as st
 from .uebersicht_entwurf import EntwurfsVerwaltung
 
 FELDER = ("master", "pruefer", "ausfuehrer", "modell", "arbeitsweise", "auto")
-SPALTEN = (("thema", "Thema", 150), ("master", "Master", 140), ("besitz", "Besitz", 120),
-           ("pruefer", "Prüfer", 150), ("ausfuehrer", "Ausführer", 140), ("modell", "Modell", 160),
-           ("arbeitsweise", "Arbeitsweise", 120), ("auto", "Auto-Freigabe", 130),
+SPALTEN = (("thema", "Thema", 160), ("master", "Master", 140), ("besitz", "Besitz", 130),
+           ("pruefer", "Prüfer", 190), ("ausfuehrer", "Ausführer", 190),
+           ("arbeitsweise", "Arbeitsweise", 130), ("auto", "Auto-Freigabe", 130),
            ("aktion", "Aktion", 140))
 
 
@@ -75,10 +75,34 @@ class ThemenTabelle(ttk.Frame):
             eintraege = ml.eintraege
         modelle = tuple(text for text, _ in eintraege)
         modellwerte = tuple(wert for _, wert in eintraege)
+        # Pruefer: zeige konkretes Modell/Rolle
+        pruefer_aktuell = um.PRUEFER_TEXTE.get(zeile.pruefer_wert, zeile.pruefer_wert)
+        pruefer_texte = list(um.PRUEFER_TEXTE[v] for v in um.PRUEFER_WERTE)
+        if getattr(zeile, "pruefer", "") and zeile.pruefer not in ("Automatisch", "automatisch"):
+            if zeile.pruefer_wert == "automatisch":
+                pruefer_label = f"Auto ({zeile.pruefer})"
+                pruefer_aktuell = pruefer_label
+                if "Automatisch" in pruefer_texte:
+                    pruefer_texte[pruefer_texte.index("Automatisch")] = pruefer_label
+                elif pruefer_label not in pruefer_texte:
+                    pruefer_texte.insert(0, pruefer_label)
+
+        # Ausfuehrer: zeige konkreten Worker / Modell
+        ausfuehrer_aktuell = um.AUSFUEHRER_TEXTE.get(zeile.worker_wert, zeile.worker_wert)
+        ausfuehrer_texte = list(um.AUSFUEHRER_TEXTE[v] for v in um.AUSFUEHRER_WERTE)
+        if getattr(zeile, "ausfuehrer", "") and zeile.ausfuehrer not in ("Workflow", "workflow"):
+            if zeile.worker_wert == "workflow":
+                wf_label = zeile.ausfuehrer if zeile.ausfuehrer.startswith("Workflow") else f"Workflow ({zeile.ausfuehrer})"
+                ausfuehrer_aktuell = wf_label
+                if "Workflow" in ausfuehrer_texte:
+                    ausfuehrer_texte[ausfuehrer_texte.index("Workflow")] = wf_label
+                elif wf_label not in ausfuehrer_texte:
+                    ausfuehrer_texte.insert(0, wf_label)
+
         return {
             "master": (tuple(um.MASTER_TEXTE[v] for v in um.MASTER_WERTE), um.MASTER_WERTE, um.MASTER_TEXTE.get(zeile.master_wert, zeile.master_wert), False),
-            "pruefer": (tuple(um.PRUEFER_TEXTE[v] for v in um.PRUEFER_WERTE), um.PRUEFER_WERTE, um.PRUEFER_TEXTE.get(zeile.pruefer_wert, zeile.pruefer_wert), False),
-            "ausfuehrer": (tuple(um.AUSFUEHRER_TEXTE[v] for v in um.AUSFUEHRER_WERTE), um.AUSFUEHRER_WERTE, um.AUSFUEHRER_TEXTE.get(zeile.worker_wert, zeile.worker_wert), False),
+            "pruefer": (tuple(pruefer_texte), um.PRUEFER_WERTE, pruefer_aktuell, False),
+            "ausfuehrer": (tuple(ausfuehrer_texte), um.AUSFUEHRER_WERTE, ausfuehrer_aktuell, False),
             "modell": (modelle, modellwerte, ml.aktuell, ml.gesperrt),
             "arbeitsweise": (tuple(um.ARBEITSWEISE_TEXTE[v] for v in um.ARBEITSWEISE_WERTE), um.ARBEITSWEISE_WERTE, um.ARBEITSWEISE_TEXTE.get(zeile.arbeitsweise, zeile.arbeitsweise), False),
             "auto": (tuple(um.AUTO_TEXTE[v] for v in um.AUTO_WERTE), um.AUTO_WERTE, um.AUTO_TEXTE.get(zeile.paar_aktiv, ""), zeile.paar_aktiv is None),
@@ -100,16 +124,21 @@ class ThemenTabelle(ttk.Frame):
                     frame.columnconfigure(col, minsize=width, weight=1 if key in FELDER else 0)
                 ttk.Label(frame, text=zeile.thema, anchor="w", wraplength=150).grid(row=0, column=0, sticky="ew")
                 ttk.Label(frame, text=zeile.besitz, anchor="w", wraplength=160).grid(row=0, column=2, sticky="ew")
-                for col, feld in ((1, "master"), (3, "pruefer"), (4, "ausfuehrer"), (5, "modell"), (6, "arbeitsweise"), (7, "auto")):
+                for col, feld in ((1, "master"), (3, "pruefer"), (4, "ausfuehrer"), (5, "arbeitsweise"), (6, "auto")):
                     box = ttk.Combobox(frame, style=st.KOMBI, state="disabled", width=max(10, SPALTEN[col][2] // 10))
                     box.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
                     box.bind("<<ComboboxSelected>>", lambda event, k=feld, r=row: self._auswahl(r, k, event.widget))
                     row.felder[feld] = box
+                # Modell bleibt fuer Tests/Backend als Widget erhalten, wird aber nicht gegriddet:
+                box_modell = ttk.Combobox(frame, style=st.KOMBI, state="disabled")
+                box_modell.bind("<<ComboboxSelected>>", lambda event, k="modell", r=row: self._auswahl(r, k, event.widget))
+                row.felder["modell"] = box_modell
+
                 btn = ttk.Button(frame, text="—", style=st.KNOPF_KLEIN, state="disabled")
-                btn.grid(row=0, column=8, sticky="ew", padx=2, pady=2)
+                btn.grid(row=0, column=7, sticky="ew", padx=2, pady=2)
                 row.aktion_knopf = btn
                 row.details = ttk.Label(frame, anchor="w", wraplength=1100)
-                row.details.grid(row=1, column=1, columnspan=7, sticky="ew", padx=4)
+                row.details.grid_remove()
                 self.zeilen[zeile.thema] = row
             else:
                 row.frame.grid_configure(row=index)
@@ -137,10 +166,8 @@ class ThemenTabelle(ttk.Frame):
             # Im modernen Frontend: kein 2-zeiliger Fließtext mehr unter den Zeilen.
             # Nur bei echten Warnungen (wie Wechsel läuft) dezent einblenden, sonst unsichtbar.
             row.details.configure(text=details_text, style=st.KARTE_WARNUNG if warnungen else st.KARTE_GEDAEMPFT)
-            if warnungen:
-                row.details.grid()
-            else:
-                row.details.grid_remove()
+            # Tabelle bleibt 100% einzeilig und ruhig ohne gelben Fliesszeilentext:
+            row.details.grid_remove()
             for feld in FELDER:
                 texte, werte, aktuell, gesperrt = einstellungen[feld]
                 box = row.felder[feld]

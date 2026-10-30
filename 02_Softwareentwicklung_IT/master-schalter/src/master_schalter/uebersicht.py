@@ -148,10 +148,13 @@ class Fenster:
         self.entwurf_uebernehmen_knopf = ttk.Button(entwurf_leiste, text="Übernehmen …",
                                                      state="disabled", style=st.KNOPF_AKZENT,
                                                      command=self.entwurf_uebernehmen)
-        self.entwurf_uebernehmen_knopf.pack(side="left", padx=(0, 10))
+        # Oberes "Übernehmen ..." ist im modernen UI entfernt (Steuerung pro Zeile via Übergabe ...):
         self.thema_anlegen_knopf = ttk.Button(entwurf_leiste, text="+ Thema anlegen …", style=st.KNOPF,
                                               command=self.thema_anlegen_dialog)
-        self.thema_anlegen_knopf.pack(side="left")
+        self.thema_anlegen_knopf.pack(side="left", padx=(0, 6))
+        self.matrix_knopf = ttk.Button(entwurf_leiste, text="⚙ Matrix & Workflow …", style=st.KNOPF,
+                                       command=self.matrix_konfigurieren_dialog)
+        self.matrix_knopf.pack(side="left")
         self.themen_tabelle = ThemenTabelle(themen, aendern=self._themenwert_aendern,
                                            uebergabe_anfordern=self.uebergabe_dialog_oeffnen)
         self.themen_tabelle.grid(row=2, column=0, sticky="nsew")
@@ -269,7 +272,10 @@ class Fenster:
                 info.set("")
                 fehler.set("keine aktuellen Messdaten (Aktualisierung fehlgeschlagen)")
             else:
-                info.set(abo.gemessen)
+                info_text = abo.gemessen
+                if abo.name == "Gemini" and abo.gemessen and "Argon" not in info_text:
+                    info_text = f"{abo.gemessen} · Argon: OK"
+                info.set(info_text)
                 fehler.set("\n".join(um.abo_meldungen(abo)))
             for k in range(2):
                 _, leiste, text, reset = self._balken[index * 2 + k]
@@ -463,21 +469,51 @@ class Fenster:
 
         ttk.Label(frame, text="Neues Thema anlegen", style=st.TITEL).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
-        ttk.Label(frame, text="Themaname:", style=st.KARTE_TITEL).grid(row=1, column=0, sticky="w", pady=4)
+        # Automatische Chat-Erkennung (Antigravity, Codex etc.)
+        try:
+            from . import chat_discovery
+            bestehend = {t.thema for t in getattr(self._snap, "themen", ())} if hasattr(self, "_snap") and self._snap else set()
+            vorschlaege = chat_discovery.neue_themen_vorschlaege(bestehend)
+        except Exception:
+            vorschlaege = []
+
+        zeile_nr = 1
         name_var = tk.StringVar(value="")
+        master_var = tk.StringVar(value="Antigravity")
+
+        if vorschlaege:
+            ttk.Label(frame, text="Erkannte neue Chats:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
+            chat_labels = [f"[{v.quelle}] {v.titel}" for v in vorschlaege]
+            chat_var = tk.StringVar(value=chat_labels[0])
+            chat_box = ttk.Combobox(frame, textvariable=chat_var, style=st.KOMBI, state="readonly", values=chat_labels, width=32)
+            chat_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+            def _chat_auswaehlen(event=None):
+                idx = chat_box.current()
+                if 0 <= idx < len(vorschlaege):
+                    v = vorschlaege[idx]
+                    name_var.set(v.thema)
+                    master_var.set(v.quelle)
+
+            chat_box.bind("<<ComboboxSelected>>", _chat_auswaehlen)
+            _chat_auswaehlen()
+            zeile_nr += 1
+
+        ttk.Label(frame, text="Themaname:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         name_entry = ttk.Entry(frame, textvariable=name_var, width=30)
-        name_entry.grid(row=1, column=1, sticky="ew", pady=4, padx=(8, 0))
+        name_entry.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
         name_entry.focus()
+        zeile_nr += 1
 
         # Erst-Master (Standard dort wo das Thema entsteht: Antigravity)
-        ttk.Label(frame, text="Erst-Master:", style=st.KARTE_TITEL).grid(row=2, column=0, sticky="w", pady=4)
-        master_var = tk.StringVar(value="Antigravity")
+        ttk.Label(frame, text="Erst-Master:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         master_box = ttk.Combobox(frame, textvariable=master_var, style=st.KOMBI, state="readonly",
                                   values=("Antigravity", "Codex", "Hermes", "Claude", "Nach Kontingent"))
-        master_box.grid(row=2, column=1, sticky="ew", pady=4, padx=(8, 0))
+        master_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+        zeile_nr += 1
 
         # Master-Rotation
-        ttk.Label(frame, text="Master-Rotation:", style=st.KARTE_TITEL).grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Master-Rotation:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         rotation_var = tk.StringVar(value="Antigravity ➔ Hermes ➔ Codex")
         rot_box = ttk.Combobox(frame, textvariable=rotation_var, style=st.KOMBI, state="readonly",
                                values=("Antigravity ➔ Hermes ➔ Codex",
@@ -485,34 +521,39 @@ class Fenster:
                                        "Hermes ➔ Antigravity ➔ Codex",
                                        "Claude ➔ Codex ➔ Antigravity",
                                        "Standard (nach globalem Kontingent)"))
-        rot_box.grid(row=3, column=1, sticky="ew", pady=4, padx=(8, 0))
+        rot_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+        zeile_nr += 1
 
         # Prüfer
-        ttk.Label(frame, text="Prüfer:", style=st.KARTE_TITEL).grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Prüfer:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         pruefer_var = tk.StringVar(value="Automatisch")
         pruefer_box = ttk.Combobox(frame, textvariable=pruefer_var, style=st.KOMBI, state="readonly",
                                    values=("Automatisch", "Codex", "Hermes"))
-        pruefer_box.grid(row=4, column=1, sticky="ew", pady=4, padx=(8, 0))
+        pruefer_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+        zeile_nr += 1
 
         # Ausführer
-        ttk.Label(frame, text="Ausführer:", style=st.KARTE_TITEL).grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Ausführer:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         ausf_var = tk.StringVar(value="Workflow")
         ausf_box = ttk.Combobox(frame, textvariable=ausf_var, style=st.KOMBI, state="readonly",
                                 values=("Workflow", "Antigravity", "Codex", "Hermes", "Claude"))
-        ausf_box.grid(row=5, column=1, sticky="ew", pady=4, padx=(8, 0))
+        ausf_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+        zeile_nr += 1
 
         # Arbeitsweise
-        ttk.Label(frame, text="Arbeitsweise:", style=st.KARTE_TITEL).grid(row=6, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Arbeitsweise:", style=st.KARTE_TITEL).grid(row=zeile_nr, column=0, sticky="w", pady=4)
         arb_var = tk.StringVar(value="Protokoll")
         arb_box = ttk.Combobox(frame, textvariable=arb_var, style=st.KOMBI, state="readonly",
                                values=("Protokoll", "Direkt", "Vibe"))
-        arb_box.grid(row=6, column=1, sticky="ew", pady=4, padx=(8, 0))
+        arb_box.grid(row=zeile_nr, column=1, sticky="ew", pady=4, padx=(8, 0))
+        zeile_nr += 1
 
         fehler_var = tk.StringVar(value="")
-        ttk.Label(frame, textvariable=fehler_var, style=st.KARTE_FEHLER).grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 4))
+        ttk.Label(frame, textvariable=fehler_var, style=st.KARTE_FEHLER).grid(row=zeile_nr, column=0, columnspan=2, sticky="w", pady=(6, 4))
+        zeile_nr += 1
 
         knopfreihe = ttk.Frame(frame, style=st.KARTE)
-        knopfreihe.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        knopfreihe.grid(row=zeile_nr, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
         def anlegen() -> None:
             thema = name_var.get().strip()
@@ -544,6 +585,79 @@ class Fenster:
             self.laden_anstossen()
 
         ttk.Button(knopfreihe, text="Thema anlegen", style=st.KNOPF_AKZENT, command=anlegen).pack(side="left", padx=(0, 8))
+        ttk.Button(knopfreihe, text="Abbrechen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+
+    def matrix_konfigurieren_dialog(self) -> None:
+        """Konfigurationsdialog für die Workflow- und Kaskaden-Matrix (Nach Kontingent)."""
+        from . import matrix_konfiguration as mk
+        cfg = mk.matrix_lesen()
+
+        top = tk.Toplevel(self.root)
+        top.title("Workflow- & Kaskaden-Matrix (Nach Kontingent)")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+        top.resizable(True, True)
+        top.geometry("680x540")
+        top.grab_set()
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Kaskaden-Matrix nach Nutzungslimit (AGENTS.md)", style=st.TITEL).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(frame, text="Lage", style=st.KARTE_TITEL).grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(frame, text="Thinker (Master)", style=st.KARTE_TITEL).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(frame, text="Reviewer (Prüfer)", style=st.KARTE_TITEL).grid(row=1, column=2, sticky="w", padx=4, pady=4)
+
+        lagen_keys = [("lage_1", "Lage 1 (Beide Abos frei)"),
+                      ("lage_2a", "Lage 2A (Claude im Limit)"),
+                      ("lage_2b", "Lage 2B (ChatGPT im Limit)"),
+                      ("lage_3", "Lage 3 (Beide im Limit)")]
+
+        widgets = {}
+        for r, (lkey, lname) in enumerate(lagen_keys, start=2):
+            l_cfg = cfg.get(lkey, {})
+            ttk.Label(frame, text=lname, style=st.KARTE_LABEL).grid(row=r, column=0, sticky="w", padx=4, pady=4)
+            m_var = tk.StringVar(value=l_cfg.get("master", ""))
+            m_entry = ttk.Entry(frame, textvariable=m_var, width=24)
+            m_entry.grid(row=r, column=1, sticky="ew", padx=4, pady=4)
+            p_var = tk.StringVar(value=l_cfg.get("pruefer", ""))
+            p_entry = ttk.Entry(frame, textvariable=p_var, width=24)
+            p_entry.grid(row=r, column=2, sticky="ew", padx=4, pady=4)
+            widgets[lkey] = (m_var, p_var)
+
+        # Gemini / Antigravity Einstellungen
+        ttk.Label(frame, text="Gemini / Antigravity Rolle:", style=st.KARTE_TITEL).grid(row=7, column=0, sticky="w", padx=4, pady=(16, 4))
+        agy_var = tk.StringVar(value=cfg.get("antigravity", {}).get("rolle", "Master / Thinker"))
+        agy_box = ttk.Combobox(frame, textvariable=agy_var, style=st.KOMBI, state="readonly",
+                               values=("Master / Thinker", "Reviewer / Prüfer", "Worker / Ausführer"))
+        agy_box.grid(row=7, column=1, columnspan=2, sticky="ew", padx=4, pady=(16, 4))
+
+        knopfreihe = ttk.Frame(frame, style=st.KARTE)
+        knopfreihe.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(16, 0))
+
+        def speichern():
+            for lkey, (m_v, p_v) in widgets.items():
+                if lkey not in cfg:
+                    cfg[lkey] = {}
+                cfg[lkey]["master"] = m_v.get().strip()
+                cfg[lkey]["pruefer"] = p_v.get().strip()
+            if "antigravity" not in cfg:
+                cfg["antigravity"] = {}
+            cfg["antigravity"]["rolle"] = agy_var.get()
+            mk.matrix_schreiben(cfg)
+            top.destroy()
+            self._status("Matrix-Konfiguration erfolgreich gespeichert.")
+
+        def standard():
+            cfg.clear()
+            cfg.update(mk.DEFAULT_MATRIX)
+            mk.matrix_schreiben(cfg)
+            top.destroy()
+            self._status("Matrix-Konfiguration auf Standard zurückgesetzt.")
+
+        ttk.Button(knopfreihe, text="Speichern", style=st.KNOPF_AKZENT, command=speichern).pack(side="left", padx=(0, 8))
+        ttk.Button(knopfreihe, text="Standard wiederherstellen", style=st.KNOPF, command=standard).pack(side="left", padx=(0, 8))
         ttk.Button(knopfreihe, text="Abbrechen", style=st.KNOPF, command=top.destroy).pack(side="right")
 
     def uebergabe_dialog_oeffnen(self, thema: str, alt_master: str, neu_master: str) -> None:
