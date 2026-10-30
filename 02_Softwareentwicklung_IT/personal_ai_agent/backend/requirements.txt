@@ -13,3 +13,6 @@ python-multipart>=0.0.9
 # pdfminer.six: PDF-Text-Extraktion (optional – ohne wird nur gespeichert)
 Pillow>=10.0.0
 pdfminer.six>=20221105
+
+# Lokales RAG & Embeddings (100% CPU, ONNX-basiert)
+fastembed>=0.9.0
