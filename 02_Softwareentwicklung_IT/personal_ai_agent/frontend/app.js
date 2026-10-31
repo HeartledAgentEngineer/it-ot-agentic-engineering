@@ -3832,7 +3832,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     if (descText && descText.trim()) {
         const descBox = document.createElement('div');
         descBox.className = 'vollbild-beschreibung';
-        descBox.style.cssText = 'position:fixed;bottom:135px;left:50%;transform:translateX(-50%);max-width:92vw;background:rgba(15,25,20,0.88);color:#dcdcdc;font-size:0.82rem;line-height:1.35;padding:8px 14px;border-radius:12px;border:1px solid #2e8b57;backdrop-filter:blur(4px);pointer-events:none;z-index:99998;text-align:center;box-shadow:0 3px 12px rgba(0,0,0,0.7)';
+        descBox.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);max-width:92vw;background:rgba(15,25,20,0.88);color:#dcdcdc;font-size:0.82rem;line-height:1.35;padding:8px 14px;border-radius:12px;border:1px solid #2e8b57;backdrop-filter:blur(4px);pointer-events:none;z-index:99998;text-align:center;box-shadow:0 3px 12px rgba(0,0,0,0.7)';
         descBox.textContent = descText.trim();
         ov.appendChild(descBox);
     }
@@ -4433,6 +4433,8 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     beschrClose.addEventListener('click', (ev) => {
                         ev.stopPropagation();
                         beschrBox.style.display = 'none';
+                        const db = ov.querySelector('.vollbild-beschreibung');
+                        if (db && db.textContent.trim()) db.style.display = 'block';
                     });
 
                     beschrSave.addEventListener('click', async (ev) => {
@@ -4454,6 +4456,11 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                                 _quizEditor.beschreibung = txt;
                                 meldeEditor('✓ Bildbeschreibung gespeichert', true);
                                 beschrBox.style.display = 'none';
+                                const db = ov.querySelector('.vollbild-beschreibung');
+                                if (db) {
+                                    db.textContent = txt;
+                                    db.style.display = txt ? 'block' : 'none';
+                                }
                             } else {
                                 meldeEditor('Fehler beim Speichern', false);
                             }
@@ -4488,6 +4495,8 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             } catch (_e) {}
                         }
                         beschrArea.value = text;
+                        const db = ov.querySelector('.vollbild-beschreibung');
+                        if (db) db.style.display = 'none';
                         beschrBox.style.display = 'block';
                         setTimeout(() => { try { beschrArea.focus(); } catch (_e) {} }, 50);
                     });
@@ -8491,6 +8500,13 @@ async function sendAudioForTranscription(audioBlob) {
         const data = await res.json();
         // /critic #7: data.text muss ein String sein
         if (typeof data.text === 'string' && data.text.trim()) {
+            const rohtext = data.text.trim();
+            const befehlAusgefuehrt = await window.appSprachbefehlAusfuehren?.(rohtext);
+            if (befehlAusgefuehrt) {
+                setMicStatus('✓ Ausgeführt');
+                setTimeout(() => setMicStatus(''), 2500);
+                return;
+            }
             setMicStatus('polishing');
             // Diktat SOFORT als echte User-Blase zeigen (wie beim Tippen) —
             // egal ob es an den Agenten, in die Warteschlange oder an Hermes
@@ -8529,6 +8545,186 @@ async function sendAudioForTranscription(audioBlob) {
         setMicStatus('');
     }
 }
+
+// =========================================
+// KI-Sprachsteuerung & Live-Voice (31.10.2026, Stufe D)
+// =========================================
+
+async function appSprachbefehlAusfuehren(text) {
+    if (!text || typeof text !== 'string') return false;
+    let daten = null;
+    try {
+        const res = await fetch(`${API_BASE}/api/voice/befehl`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text }),
+        });
+        if (res.ok) {
+            daten = await res.json();
+        }
+    } catch (e) {
+        console.warn('Sprachbefehl-Analyse fehlgeschlagen:', e);
+    }
+
+    if (!daten || !daten.ist_befehl) return false;
+
+    const aktionen = daten.aktionen && daten.aktionen.length > 0
+        ? daten.aktionen
+        : [{ aktion: daten.aktion, parameter: daten.parameter }];
+
+    for (const akt of aktionen) {
+        await appAktionAusfuehren(akt);
+    }
+
+    if (daten.antwort) {
+        const hinweis = `✓ ${daten.antwort}`;
+        setMicStatus(hinweis);
+        setTimeout(() => setMicStatus(''), 2500);
+    }
+    return true;
+}
+
+async function appAktionAusfuehren(akt) {
+    if (!akt || !akt.aktion) return;
+    const name = akt.aktion;
+    const p = akt.parameter || {};
+
+    if (name === 'quiz_oeffnen') {
+        const erzaehlSheet = document.getElementById('erzaehlen-sheet');
+        if (erzaehlSheet) erzaehlSheet.hidden = true;
+        const gruppenBtn = document.getElementById('gruppen-btn');
+        if (gruppenBtn) gruppenBtn.click();
+    } else if (name === 'erzaehlen_oeffnen') {
+        const erzaehlenBtn = document.getElementById('erzaehlen-btn');
+        if (erzaehlenBtn) erzaehlenBtn.click();
+    } else if (name === 'chat_oeffnen') {
+        ['erzaehlen-sheet', 'gruppen-sheet', 'model-sheet'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.hidden = true;
+        });
+        const inp = document.getElementById('message-input');
+        if (inp) inp.focus();
+    } else if (name === 'blaettern') {
+        const anzahl = Math.max(1, p.anzahl || 1);
+        const zurueck = p.richtung === 'zurueck';
+        for (let i = 0; i < anzahl; i++) {
+            const btnId = zurueck ? 'erzaehl-zurueck' : 'erzaehl-weiter';
+            const btn = document.getElementById(btnId);
+            if (btn && !btn.hidden) btn.click();
+        }
+    } else if (name === 'event_oeffnen') {
+        const erzaehlSheet = document.getElementById('erzaehlen-sheet');
+        if (erzaehlSheet && erzaehlSheet.hidden) {
+            const btn = document.getElementById('erzaehlen-btn');
+            if (btn) btn.click();
+        }
+        const idx = Math.max(0, p.index || 0);
+        const events = document.querySelectorAll('.erzaehl-ereignis');
+        if (events.length > 0) {
+            const target = events[idx] || events[0];
+            if (target) target.click();
+        }
+    } else if (name === 'bild_oeffnen') {
+        const idx = Math.max(0, p.index || 0);
+        const kacheln = document.querySelectorAll('.erzaehl-kachel');
+        if (kacheln.length > 0) {
+            const target = kacheln[idx] || kacheln[0];
+            if (target) target.click();
+        }
+    } else if (name === 'notiz_hinzufuegen') {
+        const erzaehlText = document.getElementById('erzaehl-text');
+        if (erzaehlText) {
+            const vorh = erzaehlText.value.trim();
+            const neu = p.text || '';
+            erzaehlText.value = vorh ? (vorh + ' ' + neu) : neu;
+            erzaehlText.focus();
+        } else {
+            const chatInput = document.getElementById('message-input');
+            if (chatInput) {
+                const vorh = chatInput.value.trim();
+                const neu = p.text || '';
+                chatInput.value = vorh ? (vorh + ' ' + neu) : neu;
+                chatInput.focus();
+            }
+        }
+    } else if (name === 'geschichte_erzaehlen') {
+        const btn = document.getElementById('erzaehl-ki-geschichte-btn');
+        if (btn && !btn.hidden) btn.click();
+    } else if (name === 'neu_vorsortieren') {
+        const btn = document.getElementById('gruppen-neu-vorsortieren-btn');
+        if (btn && !btn.hidden) btn.click();
+    } else if (name === 'speichern') {
+        const btn = document.getElementById('erzaehl-speichern-btn');
+        if (btn && !btn.hidden) btn.click();
+    }
+}
+
+class LiveVoiceClient {
+    constructor() {
+        this.ws = null;
+        this.sessionId = null;
+        this.isConnected = false;
+        this.onInterrupted = null;
+        this.onBefehl = null;
+    }
+
+    connect(sessionId) {
+        this.sessionId = sessionId || ('voice_' + Math.random().toString(36).substring(2, 10));
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${proto}//${location.host}/api/voice/stream/${this.sessionId}`;
+        try {
+            this.ws = new WebSocket(url);
+            this.ws.binaryType = 'arraybuffer';
+            this.ws.onopen = () => {
+                this.isConnected = true;
+            };
+            this.ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'interrupted') {
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                        if (this.onInterrupted) this.onInterrupted();
+                    } else if (msg.type === 'befehl_ergebnis' && msg.data) {
+                        if (this.onBefehl) this.onBefehl(msg.data);
+                        else window.appSprachbefehlAusfuehren?.(msg.data.rohtext);
+                    }
+                } catch (_e) {}
+            };
+            this.ws.onclose = () => {
+                this.isConnected = false;
+            };
+            this.ws.onerror = (err) => {
+                console.warn('Live-Voice WebSocket Fehler:', err);
+            };
+        } catch (e) {
+            console.warn('Konnte WebSocket nicht öffnen:', e);
+        }
+    }
+
+    sendAudioChunk(arrayBuffer) {
+        if (this.ws && this.isConnected && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(arrayBuffer);
+        }
+    }
+
+    sendInterrupt() {
+        if (this.ws && this.isConnected && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: 'interrupt' }));
+        }
+    }
+
+    disconnect() {
+        if (this.ws) {
+            try { this.ws.close(); } catch (_) {}
+            this.ws = null;
+            this.isConnected = false;
+        }
+    }
+}
+
+window.appSprachbefehlAusfuehren = appSprachbefehlAusfuehren;
+window.appAktionAusfuehren = appAktionAusfuehren;
+window.liveVoiceClient = new LiveVoiceClient();
 
 // =========================================
 // TTS (Text-to-Speech)

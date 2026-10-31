@@ -20,6 +20,7 @@ FAEHIGKEITEN: dict = {
     "kann": [
         "chat_verstaendnis",      # Normaler Dialog, Fragen beantworten
         "gedaechtnis",            # Persönliches Gedächtnis (ChromaDB) lesen/schreiben
+        "daten_aendern",          # Persönliche Notizen, Profile, Erinnerungen, Beziehungen direkt ändern
         "websuche",               # Websuche (wenn aktiviert)
         "archiv",                 # Chat-Archive durchsuchen
         "dokument_text",          # Hochgeladene PDFs/Bilder verstehen (via LLM)
@@ -64,6 +65,14 @@ _DATEI_LESE_SIGNALE = (
 )
 
 
+_PERSOENLICHE_DATEN_SIGNALE = (
+    "notiz", "notizen", "erinnerung", "erinnerungen", "gedächtnis", "gedaechtnis",
+    "daten", "person", "personen", "profil", "profile", "beziehung", "beziehungen",
+    "kontakt", "kontakte", "geburtstag", "vorname", "nachname", "spitzname",
+    "geschichte", "geschichten", "anlass", "ereignis", "ereignisse", "fakten", "fakt",
+)
+
+
 def stoesst_an_grenze(text: str) -> bool:
     """True, wenn die Anfrage an eine Fähigkeits-Grenze stößt (→ Hermes).
 
@@ -80,6 +89,9 @@ def stoesst_an_grenze(text: str) -> bool:
         return False
     t = text.lower()
     ist_lese = any(sig in t for sig in _DATEI_LESE_SIGNALE)
+    ist_datenpflege = any(re.search(r"\b" + re.escape(sig) + r"\b", t) for sig in _PERSOENLICHE_DATEN_SIGNALE)
+    if ist_datenpflege and not any(re.search(r"\b" + re.escape(k) + r"\b", t) for k in ("terminal", "shell", "git", "commit", "push", "pull", "pip", "npm", "docker", "sps", "backend", "frontend", "quellcode", "repo", "repository")):
+        return False
     for marker in GRENZE_MARKER:
         # Datei-Lesen: das allgemeine "datei"-Wort unterdrücken.
         if ist_lese and marker == "datei":
@@ -119,6 +131,14 @@ def faehigkeits_block() -> str:
         "\n\n## DEINE FÄHIGKEITEN & GRENZEN & HERMES (Selbstbild)\n"
         "Du bist der persönliche Assistent. Du kannst:\n"
         f"- {kann}.\n\n"
+        "**PERSÖNLICHE DATEN DIREKT ÄNDERN (Chat-Pflege):**\n"
+        "Du kannst und sollst jegliche persönlichen Daten des Nutzers direkt im Chat anlegen, "
+        "ändern, anpassen oder löschen (Wunsch Sebastian: 'Jegliche Daten per Chat ändern').\n"
+        "- Fakten & Erinnerungen über Sebastian: Nutze `erinnerung_speichern` und `erinnerung_loeschen`.\n"
+        "- Personen-Profile & Notizen (Beziehung, Beruf, Vor-/Nachname): Nutze `person_profil_aendern`.\n"
+        "- Bildnotizen & Geschichten an Foto-Ereignissen: Nutze `notiz_speichern`.\n"
+        "Sage dafür NIEMALS 'Dafür brauche ich Hermes'. Hermes ist nur für Programmiercode und "
+        "Terminal-Befehle im System zuständig, NICHT für persönliche Daten.\n\n"
         "Wichtig zu Hermes: Hermes ist ein Coding-Agent mit Terminal-, "
         "Datei- und System-Zugriff — aber **kein Werkzeug in deiner "
         "Werkzeugliste**. Du kannst ihn nicht aufrufen; erfinde keinen "

@@ -331,11 +331,12 @@ function erzaehlGlaetteFuerStimme(text) {
 function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
     if (!fileid) return false;
     const fid = String(fileid).trim();
-    if (entsperrtSet && typeof entsperrtSet.has === 'function' && entsperrtSet.has(fid)) {
-        return false;
-    }
-    // Sebastian 31.10.2026: Intimer Inhalt Verdeckung deaktiviert. Automatisch Nicht privat.
+    if (entsperrtSet && typeof entsperrtSet.has === 'function' && entsperrtSet.has(fid)) return false;
     if (privSet && typeof privSet.has === 'function' && privSet.has(fid)) return true;
+    if (detail && detail.intim === true) return true;
+    if (detail && String(detail.kategorie || '').toLowerCase() === 'intim') return true;
+    const b = (bildInfo && bildInfo.bilder && bildInfo.bilder[fid] && bildInfo.bilder[fid].beschreibung) ? String(bildInfo.bilder[fid].beschreibung).toLowerCase() : '';
+    if (b && /\b(?:genitalien|geschlechtsteil|intimbereich|intimer bereich)\b/i.test(b)) return true;
     return false;
 }
 
@@ -457,6 +458,14 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
     async function jsonHolen(pfad, optionen) {
         const res = await fetch(`${apiBase()}${pfad}`, optionen || {});
         return res.json().catch(() => ({}));
+    }
+
+    async function jsonSenden(pfad, koerper) {
+        return jsonHolen(pfad, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(koerper)
+        });
     }
 
     // ---- Blatt öffnen/schließen ------------------------------------------
@@ -963,8 +972,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const text = (eintrag && typeof eintrag.beschreibung === 'string') ? eintrag.beschreibung.trim() : '';
         if (ortText) ortText.textContent = ort ? 'Ort: ' + ort : '';
         if (ortZeile) ortZeile.hidden = !ort;
-        if (beschreibung) { beschreibung.textContent = text; beschreibung.hidden = !text; }
-        if (block) block.hidden = !(ort || text);
+        if (beschreibung) {
+            beschreibung.textContent = text ? text : 'Keine Bildbeschreibung hinterlegt.';
+            beschreibung.hidden = false;
+            beschreibung.style.color = text ? 'var(--text-secondary)' : 'var(--text-muted)';
+        }
+        if (block) block.hidden = !einzel;
         const bildGross = el('erzaehl-bild');
         if (bildGross) {
             bildGross.dataset.beschreibung = text || '';
@@ -1555,7 +1568,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             }
             zustand.aufgedeckteBilder.add(dateiKennung);
             if (bild) bild.classList.remove('erzaehl-privat-verdeckt');
-            if (sperreEl) sperreEl.hidden = true;
+            if (sperreEl) {
+                sperreEl.hidden = true;
+                sperreEl.style.display = 'none';
+            }
         };
 
         const beschreibungToggleBtn = el('erzaehl-beschreibung-toggle-btn');
@@ -1576,9 +1592,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     const warVersteckt = beschreibungEditor.hidden;
                     beschreibungEditor.hidden = !warVersteckt;
                     if (warVersteckt && beschreibungInput) {
-                        const aktuell = (beschreibungTextEl ? beschreibungTextEl.textContent : '') || (bild ? bild.dataset.beschreibung : '') || '';
+                        const aktuell = (bild ? bild.dataset.beschreibung : '') || (beschreibungTextEl ? (beschreibungTextEl.textContent === 'Keine Bildbeschreibung hinterlegt.' ? '' : beschreibungTextEl.textContent) : '') || '';
                         beschreibungInput.value = aktuell;
                         beschreibungInput.focus();
+                        try { infoBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_e) {}
                     }
                 }
             };
@@ -1609,8 +1626,9 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     });
                     if (res && res.ok) {
                         if (beschreibungTextEl) {
-                            beschreibungTextEl.textContent = neuerText;
-                            beschreibungTextEl.hidden = !neuerText;
+                            beschreibungTextEl.textContent = neuerText || 'Keine Bildbeschreibung hinterlegt.';
+                            beschreibungTextEl.hidden = false;
+                            beschreibungTextEl.style.color = neuerText ? 'var(--text-secondary)' : 'var(--text-muted)';
                         }
                         if (bild) bild.dataset.beschreibung = neuerText;
                         if (zustand.bilderInfo && zustand.bilderInfo.bilder) {
@@ -1708,10 +1726,16 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
 
         if (privat && !zustand.aufgedeckteBilder.has(dateiKennung)) {
             if (bild) bild.classList.add('erzaehl-privat-verdeckt');
-            if (sperreEl) sperreEl.hidden = false;
+            if (sperreEl) {
+                sperreEl.hidden = false;
+                sperreEl.style.display = 'flex';
+            }
         } else {
             if (bild) bild.classList.remove('erzaehl-privat-verdeckt');
-            if (sperreEl) sperreEl.hidden = true;
+            if (sperreEl) {
+                sperreEl.hidden = true;
+                sperreEl.style.display = 'none';
+            }
         }
 
         if (bild) {
@@ -1958,13 +1982,18 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             if (befehl === 'weiter') { blaettern(1); }
             else if (befehl === 'zurueck') { blaettern(-1); }
             else if (befehl === 'speichern') { await geschichteSpeichern(); }
-            else if (zustand.aktuellesEreignis !== kennungVorher || zustand.ansicht !== ansichtVorher) {
-                entwurfAnhaengen(kennungVorher, ansichtVorher, text);
-            } else {
-                const feld = el('erzaehl-text');
-                if (feld) {
-                    const vorhanden = feld.value.trim();
-                    feld.value = vorhanden ? vorhanden + ' ' + text : text;
+            else {
+                const ausgefuehrt = await window.appSprachbefehlAusfuehren?.(text);
+                if (!ausgefuehrt) {
+                    if (zustand.aktuellesEreignis !== kennungVorher || zustand.ansicht !== ansichtVorher) {
+                        entwurfAnhaengen(kennungVorher, ansichtVorher, text);
+                    } else {
+                        const feld = el('erzaehl-text');
+                        if (feld) {
+                            const vorhanden = feld.value.trim();
+                            feld.value = vorhanden ? vorhanden + ' ' + text : text;
+                        }
+                    }
                 }
             }
         } catch (_e) {

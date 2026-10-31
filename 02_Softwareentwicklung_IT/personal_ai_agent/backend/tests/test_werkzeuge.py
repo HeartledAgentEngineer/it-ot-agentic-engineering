@@ -38,7 +38,7 @@ def test_schemata_sind_gueltiges_openai_format():
     # 8 Werkzeuge bis 06.10.2026, mit `notizen_suchen` (07.10.2026) 9, mit
     # `person_auskunft` (10.10.2026, Personen aus dem Quiz) sind es 10, mit
     # `web_suche` (14.10.2026, Websuche mit Namensverbot) 11.
-    assert len(schemata) == len(wz.REGISTER) == 11
+    assert len(schemata) == len(wz.REGISTER) == 15
     for s in schemata:
         assert s["type"] == "function"
         f = s["function"]
@@ -51,7 +51,9 @@ def test_schemata_sind_gueltiges_openai_format():
 
 
 def test_nur_lesende_werkzeuge():
-    verboten = ("loesch", "lösch", "schreib", "send", "speicher", "merke", "verschieb", "kauf")
+    # Persönliche Datenpflege (Notizen, Erinnerungen, Profile) ist erlaubt (Wunsch Sebastian 31.10.2026).
+    # Systemschädigende Aktionen (Kauf, Mailversand, Terminalausführung) bleiben verboten.
+    verboten = ("kauf", "buy", "send_mail", "system_exec", "terminal")
     for name in wz.REGISTER:
         assert not any(v in name for v in verboten), name
 

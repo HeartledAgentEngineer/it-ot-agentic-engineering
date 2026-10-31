@@ -151,3 +151,34 @@ def test_api_endpoints_integration():
     res_list = client.get("/api/voice/sessions")
     assert res_list.status_code == 200
     assert "sessions" in res_list.json()
+
+    # 8. Sprachbefehl-Analyse per REST testen
+    res_cmd = client.post("/api/voice/befehl", json={"text": "Öffne das Quiz"})
+    assert res_cmd.status_code == 200
+    assert res_cmd.json()["ist_befehl"] is True
+    assert res_cmd.json()["aktion"] == "quiz_oeffnen"
+
+    # 9. WebSocket-Stream testen (Audio, Ping, Befehl, Interrupt)
+    with client.websocket_connect(f"/api/voice/stream/{sid}_ws") as ws:
+        # A. Ping
+        ws.send_text('{"type": "ping"}')
+        pong = ws.receive_json()
+        assert pong["type"] == "pong"
+
+        # B. Befehl über WebSocket
+        ws.send_text('{"type": "befehl", "text": "gehe mal fünf Seiten weiter"}')
+        resp_befehl = ws.receive_json()
+        assert resp_befehl["type"] == "befehl_ergebnis"
+        assert resp_befehl["data"]["aktion"] == "blaettern"
+        assert resp_befehl["data"]["parameter"]["anzahl"] == 5
+
+        # C. Binaerer Audiochunk
+        ws.send_bytes(b"\x00" * 640)
+        resp_ack = ws.receive_json()
+        assert resp_ack["type"] == "chunk_ack"
+        assert resp_ack["bytes_received"] == 640
+
+        # D. Interrupt (Barge-In)
+        ws.send_text('{"type": "interrupt"}')
+        resp_intr = ws.receive_json()
+        assert resp_intr["type"] == "interrupted"

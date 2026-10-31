@@ -48,6 +48,7 @@ from app.router import (
     system_update,
     datenstand,
     tageslauf,
+    voice_stream,
 )
 
 # Configure logging
@@ -286,6 +287,9 @@ app.include_router(datenstand.router, dependencies=[Depends(auth.require_api_key
 # Checks-Fenster. Liest/schreibt nur die kleine Schalterdatei tageslauf.json (Datenordner
 # TAGESLAUF_DATEN, sonst ~/foto_sortierung); Bericht und Stand des Werkzeugs nur lesend.
 app.include_router(tageslauf.router, dependencies=[Depends(auth.require_api_key)])
+# Bidirektionaler Voice Mode & Telefon-Agent (2026-10-31, Stufe D):
+# Live-Audio-Streaming (WebSocket), Barge-In, Voice-Session-Manager und App-Sprachsteuerung.
+app.include_router(voice_stream.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

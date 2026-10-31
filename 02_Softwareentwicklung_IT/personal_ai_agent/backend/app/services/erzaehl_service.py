@@ -883,8 +883,15 @@ def ki_geschichte_generieren(fileid: Any,
         except Exception:
             personen = []
 
-    # 4. Ort und Datum aus Ereignis/Bilddaten ergaenzen
+    # 4. Ort, Datum und Titel aus Ereignis/Bilddaten ergaenzen
+    ereignis_titel = ""
     if ereignis_kennung:
+        try:
+            detail = ereignis_detail(ereignis_kennung)
+            if detail and detail.get("titel"):
+                ereignis_titel = str(detail["titel"]).strip()
+        except Exception:
+            pass
         if not ort or not datum:
             try:
                 b_info = bilder_info(ereignis_kennung)

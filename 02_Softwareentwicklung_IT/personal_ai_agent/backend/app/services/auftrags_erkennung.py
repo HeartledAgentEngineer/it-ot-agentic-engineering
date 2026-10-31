@@ -141,6 +141,22 @@ def ist_auftrag(nachricht: str) -> Tuple[bool, str, Optional[str], Optional[str]
             kompl = schaetze_komplexitaet(nachricht)
             return True, f"Signalpraefix '{praefix}'", kat, kompl
 
+    # 1b. Persönliche Datenpflege: Notizen, Erinnerungen, Profile und Personen
+    # sind KEINE Coding-Aufträge für Hermes (Wunsch Sebastian 31.10.2026).
+    _DATEN_PFLEGE_SIGNALE = (
+        "notiz", "notizen", "erinnerung", "erinnerungen", "gedächtnis", "gedaechtnis",
+        "profil", "profile", "beziehung", "beziehungen", "person", "personen",
+        "anlass", "geschichte", "geschichten", "fakt", "fakten", "meine daten",
+    )
+    if any(sig in text for sig in _DATEN_PFLEGE_SIGNALE):
+        _ECHTE_CODING_BEGRIFFE = (
+            "code", "repo", "git", "commit", "push", "pull", "pip", "npm",
+            "docker", "sps", "terminal", "shell", "endpoint", "route", "fastapi",
+            "pytest", "backend", "frontend", "komponente", "refactor",
+        )
+        if not any(cb in text for cb in _ECHTE_CODING_BEGRIFFE):
+            return False, "", None, None
+
     # 1b. Meta-/Gesprächs-Heuristik: Sätze, die über den Agenten/die Kommunikation
     # selber reden (Lob, Zustand, "zwischen X und Y"), sind KEINE Coding-Aufträge.
     # Ohne das würde z. B. "Super, du hast was geschafft ... Kommunikation zwischen

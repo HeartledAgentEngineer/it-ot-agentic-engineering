@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Deque, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Header, Request
+from starlette.requests import HTTPConnection
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -271,14 +272,14 @@ def _sitzung_anlegen() -> str:
     return token
 
 
-async def require_api_key(request: "Request") -> None:
-    """Globale FastAPI-Abhängigkeit: schützt ALLE /api/*-Routen.
+async def require_api_key(request: HTTPConnection) -> None:
+    """Globale FastAPI-Abhängigkeit: schützt ALLE /api/*-Routen (HTTP und WebSocket).
 
     Ist `settings.api_key` gesetzt (aus der .env), wird er von jedem
     Client über den Header `X-API-Key` verlangt — oder ein gültiges
-    Sitzungs-Cookie (H2, 14.10.2026). Ausgenommen sind nur
-    `/api/health` (Liveness) und `/api/auth` (Login). Frontend, Hermes-
-    Gateway und Tests müssen den Key dann mitschicken.
+    Sitzungs-Cookie (H2, 14.10.2026) bzw. Query-Parameter 'key'/'token'.
+    Ausgenommen sind nur `/api/health` (Liveness) und `/api/auth` (Login).
+    Frontend, Hermes-Gateway und Tests müssen den Key dann mitschicken.
 
     Ist kein `settings.api_key` gesetzt, bleibt alles ungeschützt/offen
     (Abwärtskompatibilität, lokale Entwicklung).
@@ -296,7 +297,7 @@ async def require_api_key(request: "Request") -> None:
         return
     if pfad.startswith(LOOPBACK_FREI_PFIXE) and client_ist_loopback(request.scope):
         return
-    key = request.headers.get("x-api-key")
+    key = request.headers.get("x-api-key") or request.query_params.get("key") or request.query_params.get("token")
     if _schluessel_passt(key) or sitzung_gueltig(request):
         return
     raise HTTPException(

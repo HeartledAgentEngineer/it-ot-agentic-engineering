@@ -34,15 +34,14 @@ _BILD_DATEIEN: Dict[str, Any] = {}
 
 # Kommt an den System-Prompt, wenn Werkzeuge aktiv sind.
 SYSTEM_HINWEIS = (
-    "\n\n[Werkzeuge] Du hast Werkzeuge für Sebastians Handy-Dateien, sein Gesprächsarchiv, "
-    "gemerkte Fakten, seine Fotosammlung, bekannte Personen und Tagesbelege. Wenn eine Frage "
-    "davon abhängt, schlage nach, statt zu raten - auch mehrere Werkzeuge nacheinander "
-    "(z. B. erst dateien_suchen, dann datei_ansehen, dann archiv_suchen). Für Allgemeinwissen "
-    "und Plaudern brauchst du keine Werkzeuge. Findet ein Werkzeug nichts, sag das ehrlich "
-    "und erfinde keine Dateien, Fundstellen oder Personen. "
-    "Suche im Internet nie nach Personennamen aus Sebastians Leben. Allgemeines, Orte und "
-    "Adressen darfst du mit web_suche suchen. Für Personen sind personen_liste, "
-    "person_auskunft und fotos_mit_person da."
+    "\n\n[Werkzeuge] Du hast Werkzeuge zum Nachschlagen UND zum Ändern/Speichern persönlicher Daten: "
+    "Du kannst Fakten im Langzeitgedächtnis speichern (erinnerung_speichern) oder löschen "
+    "(erinnerung_loeschen), Personen-Profile und Notizen bearbeiten (person_profil_aendern) und Notizen "
+    "zu Bildern/Ereignissen sichern (notiz_speichern). Nutze diese Werkzeuge direkt, wenn Sebastian "
+    "Daten, Fakten oder Notizen ändern, anpassen oder ergänzen möchte. Dafür brauchst du KEINEN Hermes "
+    "und verweist auch nicht auf ihn. Wenn eine Frage von bestehenden Daten abhängt, schlage nach, "
+    "statt zu raten - auch mehrere Werkzeuge nacheinander. Suche im Internet nie nach Personennamen aus "
+    "Sebastians Leben. Für Personen sind personen_liste, person_auskunft und person_profil_aendern da."
 )
 
 _BILD_ENDUNGEN = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -735,6 +734,72 @@ def _wer_war_wann(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen(text.strip()))
 
 
+def _erinnerung_speichern(args: Dict[str, Any]) -> Ergebnis:
+    from app.services.memory_service import memory_service
+
+    inhalt = str(args.get("inhalt") or "").strip()
+    if not inhalt:
+        return Ergebnis("Kein Inhalt zum Speichern übergeben.", ok=False)
+    kategorie = str(args.get("kategorie") or "general").strip()
+    res = memory_service.store_memory(content=inhalt, category=kategorie)
+    return Ergebnis(f"Erinnerung erfolgreich im Gedächtnis gespeichert: „{inhalt}“")
+
+
+def _erinnerung_loeschen(args: Dict[str, Any]) -> Ergebnis:
+    from app.services.memory_service import memory_service
+
+    mid = str(args.get("memory_id") or "").strip()
+    if not mid:
+        return Ergebnis("Keine memory_id zum Löschen übergeben.", ok=False)
+    ok = memory_service.loesche_erinnerung(mid)
+    if ok:
+        return Ergebnis(f"Erinnerung {mid} erfolgreich gelöscht.")
+    return Ergebnis(f"Erinnerung {mid} konnte nicht gefunden oder gelöscht werden.", ok=False)
+
+
+def _person_profil_aendern(args: Dict[str, Any]) -> Ergebnis:
+    from app.services import gruppen_quiz
+
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return Ergebnis("Bitte den Namen der Person angeben.", ok=False)
+    beziehung = args.get("beziehung")
+    notiz = args.get("notiz")
+    vorname = args.get("vorname")
+    nachname = args.get("nachname")
+    spitznamen = args.get("spitznamen")
+    res = gruppen_quiz.profil_ergaenzen(
+        name=name,
+        beziehung=beziehung,
+        notiz=notiz,
+        vorname=vorname,
+        nachname=nachname,
+        spitznamen=spitznamen,
+    )
+    if res.get("ok"):
+        return Ergebnis(f"Profil von {name} erfolgreich aktualisiert.")
+    return Ergebnis(f"Änderung für {name} fehlgeschlagen: {res.get('fehler')}", ok=False)
+
+
+def _notiz_speichern(args: Dict[str, Any]) -> Ergebnis:
+    from app.services import erzaehl_service
+
+    ereignis_kennung = str(args.get("ereignis_kennung") or "").strip()
+    text = str(args.get("text") or "").strip()
+    datei_kennung = args.get("datei_kennung")
+    if not ereignis_kennung or not text:
+        return Ergebnis("ereignis_kennung und text sind erforderlich.", ok=False)
+    res = erzaehl_service.geschichte_speichern(
+        ereignis_kennung=ereignis_kennung,
+        text=text,
+        quelle="chat",
+        datei_kennung=datei_kennung,
+    )
+    if res.get("ok"):
+        return Ergebnis(f"Notiz/Geschichte erfolgreich gespeichert: „{text}“")
+    return Ergebnis(f"Speichern fehlgeschlagen: {res.get('fehler')}", ok=False)
+
+
 # ── Register ───────────────────────────────────────────────────────────────
 
 def _obj(eigenschaften: Dict[str, Any], pflicht: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -870,6 +935,55 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
              ["anfrage"]),
         _web_suche_aus,
         "🌐 sucht im Internet …",
+    ),
+    Werkzeug(
+        "erinnerung_speichern",
+        "Speichert oder aktualisiert eine Erinnerung oder einen Fakt über Sebastian "
+        "(z. B. Wohnort, Vorlieben, Familie, Termine, Beruf, wichtige Angaben) dauerhaft "
+        "im Langzeitgedächtnis.",
+        _obj({
+            "inhalt": {"type": "string", "description": "Der zu merkende oder aktualisierte Fakt im Volltext"},
+            "kategorie": {"type": "string", "description": "Kategorie (optional, z. B. fakt, termin, zustand)", "default": "general"},
+        }, ["inhalt"]),
+        _erinnerung_speichern,
+        "🧠 speichert Erinnerung im Gedächtnis …",
+    ),
+    Werkzeug(
+        "erinnerung_loeschen",
+        "Löscht eine veraltete, falsche oder nicht mehr gewünschte Erinnerung aus dem Gedächtnis "
+        "anhand ihrer memory_id (die man vorher mit erinnerungen_suchen findet).",
+        _obj({
+            "memory_id": {"type": "string", "description": "ID der zu löschenden Erinnerung (z. B. mem_...)"},
+        }, ["memory_id"]),
+        _erinnerung_loeschen,
+        "🧠 löscht Erinnerung aus dem Gedächtnis …",
+    ),
+    Werkzeug(
+        "person_profil_aendern",
+        "Ändert oder ergänzt die Daten und Notizen einer bekannten Person (Beziehung, "
+        "Notizen/Beruf/Erinnerung, Vorname, Nachname, Spitznamen) dauerhaft im Profil.",
+        _obj({
+            "name": {"type": "string", "description": "Name der Person (z. B. Julian, Helga, Matthias)"},
+            "beziehung": {"type": "string", "description": "Beziehung zu Sebastian (z. B. Bruder, Zwillingsbruder, Oma, Freund)"},
+            "notiz": {"type": "string", "description": "Eigene Notiz oder Information zur Person (z. B. Beruf, Wohnort, Hobbies)"},
+            "vorname": {"type": "string", "description": "Vorname (optional)"},
+            "nachname": {"type": "string", "description": "Nachname (optional)"},
+            "spitznamen": {"type": "string", "description": "Spitzname(n) (optional)"},
+        }, ["name"]),
+        _person_profil_aendern,
+        "👥 aktualisiert Personen-Profil …",
+    ),
+    Werkzeug(
+        "notiz_speichern",
+        "Speichert eine persönliche Notiz oder Geschichte zu einem Ereignis oder Bild "
+        "in der Foto-Sammlung (Erzähl-Bereich).",
+        _obj({
+            "ereignis_kennung": {"type": "string", "description": "Kennung des Ereignisses"},
+            "text": {"type": "string", "description": "Text der Notiz oder Geschichte"},
+            "datei_kennung": {"type": "integer", "description": "Optionale Datei-ID bei Notiz zu Einzelbild"},
+        }, ["ereignis_kennung", "text"]),
+        _notiz_speichern,
+        "📖 speichert Notiz zur Foto-Sammlung …",
     ),
 ]}
 

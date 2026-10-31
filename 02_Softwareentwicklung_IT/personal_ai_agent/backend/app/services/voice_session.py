@@ -167,22 +167,23 @@ class VoiceSessionManager:
 
     def create_session(
         self,
+        session_id: Optional[str] = None,
         mode: str = "voice_chat",
         caller_id: Optional[str] = None,
         vad_sensitivity: float = 0.5,
         silence_threshold_ms: int = 500,
     ) -> VoiceSession:
         """Erzeugt und registriert eine neue Voice- oder Telefon-Session."""
-        session_id = f"voice_{uuid.uuid4().hex[:12]}"
+        sid = session_id or f"voice_{uuid.uuid4().hex[:12]}"
         session = VoiceSession(
-            session_id=session_id,
+            session_id=sid,
             mode=mode,
             caller_id=caller_id,
             vad_sensitivity=vad_sensitivity,
             silence_threshold_ms=silence_threshold_ms,
         )
-        self._sessions[session_id] = session
-        logger.info("Neue VoiceSession registriert: %s (Mode: %s)", session_id, mode)
+        self._sessions[sid] = session
+        logger.info("Neue VoiceSession registriert: %s (Mode: %s)", sid, mode)
         return session
 
     def get_session(self, session_id: str) -> Optional[VoiceSession]:

@@ -3269,8 +3269,12 @@ body.anmelden-offen { overflow: hidden; }
     touch-action: manipulation;
 }
 
+.erzaehl-privat-sperre[hidden] {
+    display: none !important;
+}
+
 .erzaehl-privat-sperre * {
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .erzaehl-privat-sperre:hover {

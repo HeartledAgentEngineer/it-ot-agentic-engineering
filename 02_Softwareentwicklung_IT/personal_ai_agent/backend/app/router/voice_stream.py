@@ -15,13 +15,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 
 from app.services.voice_session import (
     VoiceSessionState,
     voice_session_manager,
 )
+from app.services.sprachbefehl_service import analysiere_sprachbefehl
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ class TelephonyWebhookRequest(BaseModel):
 class AudioChunkRequest(BaseModel):
     data_b64: Optional[str] = Field(None, description="Base64-kodierte Audiodaten (PCM 16 Bit / 16 kHz)")
     bytes_count: int = Field(0, description="Anzahl Bytes im Chunk (fuer Metriken)")
+
+
+class BefehlAnalyseRequest(BaseModel):
+    text: str = Field(..., description="Gesprochener oder getippter Freitext zur Aktions-Erkennung")
 
 
 @router.post("/session/start", status_code=status.HTTP_201_CREATED)
@@ -131,3 +136,82 @@ async def list_voice_sessions() -> Dict[str, Any]:
         "count": len(aktive),
         "sessions": aktive,
     }
+
+
+@router.post("/befehl")
+async def sprachbefehl_analysieren(req: BefehlAnalyseRequest) -> Dict[str, Any]:
+    """Analysiert Freitext auf App-Aktionen (Navigation, Blaettern, Notizen, Bildgeschichten)."""
+    return analysiere_sprachbefehl(req.text)
+
+
+@router.websocket("/stream/{session_id}")
+async def voice_stream_websocket(websocket: WebSocket, session_id: str):
+    """Bidirektionaler WebSocket-Stream fuer Audio und Echtzeit-Ereignisse."""
+    await websocket.accept()
+    sess = voice_session_manager.get_session(session_id)
+    if not sess:
+        sess = voice_session_manager.create_session(
+            session_id=session_id,
+            mode="voice_chat",
+        )
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if "bytes" in message and message["bytes"]:
+                audio_chunk = message["bytes"]
+                res = sess.handle_audio_chunk(audio_chunk)
+                if sess.state == VoiceSessionState.LISTENING and sess.barge_in_count > 0:
+                    await websocket.send_json({
+                        "type": "interrupted",
+                        "session_id": session_id,
+                        "state": sess.state.value,
+                    })
+                else:
+                    await websocket.send_json({
+                        "type": "chunk_ack",
+                        "total_packets": res["total_packets"],
+                        "bytes_received": res["bytes_received"],
+                        "state": sess.state.value,
+                    })
+            elif "text" in message and message["text"]:
+                import json
+                try:
+                    data = json.loads(message["text"])
+                except Exception:
+                    data = {"type": "raw", "text": message["text"]}
+
+                typ = data.get("type")
+                if typ == "interrupt":
+                    sess.interrupt()
+                    await websocket.send_json({
+                        "type": "interrupted",
+                        "session_id": session_id,
+                        "new_state": sess.state.value,
+                        "barge_in_count": sess.barge_in_count,
+                    })
+                elif typ == "befehl":
+                    text = data.get("text", "")
+                    ergebnis = analysiere_sprachbefehl(text)
+                    await websocket.send_json({
+                        "type": "befehl_ergebnis",
+                        "data": ergebnis,
+                    })
+                elif typ == "ping":
+                    await websocket.send_json({"type": "pong"})
+                elif typ in ("hangup", "end"):
+                    sess.transition(VoiceSessionState.HANGUP)
+                    await websocket.send_json({
+                        "type": "ended",
+                        "session_id": session_id,
+                    })
+                    break
+    except WebSocketDisconnect:
+        logger.info("Voice-WebSocket getrennt: %s", session_id)
+    except Exception as e:
+        logger.exception("Fehler im Voice-WebSocket %s: %s", session_id, e)
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
