@@ -222,3 +222,19 @@ def titel_setzen(kennung: str, eingabe: TitelEingabe) -> Dict[str, Any]:
             status_code=400, detail=f"Titel konnte nicht gespeichert werden ({type(e).__name__})."
         ) from e
     return {"ok": True, **ergebnis}
+
+
+class BildBeschreibungEingabe(BaseModel):
+    fileid: str = Field(..., min_length=1, max_length=30)
+    beschreibung: str = Field(default="", max_length=2000)
+
+
+@router.get("/bild-beschreibung")
+def bild_beschreibung_holen(fileid: str = Query(..., min_length=1, max_length=30)) -> Dict[str, Any]:
+    text = erzaehl_service.beschreibung_holen(fileid)
+    return {"ok": True, "fileid": fileid, "beschreibung": text or ""}
+
+
+@router.post("/bild-beschreibung")
+def bild_beschreibung_speichern(eingabe: BildBeschreibungEingabe) -> Dict[str, Any]:
+    return erzaehl_service.beschreibung_speichern(eingabe.fileid, eingabe.beschreibung)

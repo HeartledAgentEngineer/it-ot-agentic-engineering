@@ -170,3 +170,29 @@ def test_bilder_info_aus_life_archive_db(tmp_path, monkeypatch):
     assert info["bilder"]["1"]["beschreibung"] == "Reiche Beschreibung am Strand"
     assert info["bilder"]["2"]["beschreibung"] == "Nur Basis"
     assert "3" not in info["bilder"]
+
+
+def test_bild_beschreibung_holen_und_speichern(tmp_path, monkeypatch):
+    _umgebung(tmp_path, monkeypatch)
+    app = FastAPI()
+    app.include_router(erzaehlen_router.router)
+    client = TestClient(app)
+
+    # 1. Bild ohne Beschreibung
+    r1 = client.get("/api/erzaehlen/bild-beschreibung?fileid=999")
+    assert r1.status_code == 200
+    assert r1.json()["beschreibung"] == ""
+
+    # 2. Beschreibung speichern
+    r2 = client.post("/api/erzaehlen/bild-beschreibung", json={"fileid": "999", "beschreibung": "Ein sonniger Tag am See."})
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is True
+    assert r2.json()["beschreibung"] == "Ein sonniger Tag am See."
+
+    # 3. Beschreibung wieder abfragen
+    r3 = client.get("/api/erzaehlen/bild-beschreibung?fileid=999")
+    assert r3.status_code == 200
+    assert r3.json()["beschreibung"] == "Ein sonniger Tag am See."
+
+    # 4. Über den Dienst direkt
+    assert erzaehl_service.beschreibung_holen(999) == "Ein sonniger Tag am See."

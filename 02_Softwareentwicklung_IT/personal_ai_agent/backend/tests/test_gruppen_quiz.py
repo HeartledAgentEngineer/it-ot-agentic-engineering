@@ -114,6 +114,21 @@ def test_hoechstens_acht_beispiele(basis):
     assert len(gq.naechste()["gruppe"]["beispiele"]) == gq.BEISPIELE_MAX
 
 
+def test_min_px_filtert_kleine_gesichter(basis):
+    # Alle vorhandenen Testbeispiele haben bbox=(10, 20, 30, 40) -> max 40px
+    # Mit min_px=50 werden diese gefiltert
+    res = gq.naechste(min_px=50)
+    assert res["ok"] and res["fertig"] and res["gruppe"] is None
+    # Ohne Filter oder mit min_px=30 wird Person_1001 gefunden
+    res30 = gq.naechste(min_px=30)
+    assert res30["ok"] and not res30["fertig"] and res30["gruppe"]["kennung"] == "Person_1001"
+    # Auch in der Liste:
+    l50 = gq.liste(status="offen", min_px=50)
+    assert l50["ok"] and l50["gesamt"] == 0
+    l30 = gq.liste(status="offen", min_px=30)
+    assert l30["ok"] and l30["gesamt"] > 0
+
+
 # ── Antworten und Dateiformat ───────────────────────────────────────────────
 
 def test_name_landet_im_format_des_gruppierers(basis):

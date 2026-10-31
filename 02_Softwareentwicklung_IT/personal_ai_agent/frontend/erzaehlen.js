@@ -1529,6 +1529,63 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             if (sperreEl) sperreEl.hidden = true;
         };
 
+        const beschreibungToggleBtn = el('erzaehl-beschreibung-toggle-btn');
+        const beschreibungEditor = el('erzaehl-beschreibung-editor');
+        const beschreibungInput = el('erzaehl-beschreibung-input');
+        const beschreibungSpeichernBtn = el('erzaehl-beschreibung-speichern-btn');
+        const beschreibungAbbrechenBtn = el('erzaehl-beschreibung-abbrechen-btn');
+        const beschreibungTextEl = el('erzaehl-bild-beschreibung');
+
+        if (beschreibungToggleBtn) {
+            beschreibungToggleBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                if (beschreibungEditor) {
+                    const warVersteckt = beschreibungEditor.hidden;
+                    beschreibungEditor.hidden = !warVersteckt;
+                    if (warVersteckt && beschreibungInput) {
+                        const aktuell = (beschreibungTextEl ? beschreibungTextEl.textContent : '') || (bild ? bild.dataset.beschreibung : '') || '';
+                        beschreibungInput.value = aktuell;
+                        beschreibungInput.focus();
+                    }
+                }
+            };
+        }
+        if (beschreibungAbbrechenBtn) {
+            beschreibungAbbrechenBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                if (beschreibungEditor) beschreibungEditor.hidden = true;
+            };
+        }
+        if (beschreibungSpeichernBtn) {
+            beschreibungSpeichernBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                if (!beschreibungInput) return;
+                const neuerText = beschreibungInput.value.trim();
+                try {
+                    const res = await jsonSenden('/api/erzaehlen/bild-beschreibung', {
+                        fileid: String(dateiKennung),
+                        beschreibung: neuerText
+                    });
+                    if (res && res.ok) {
+                        if (beschreibungTextEl) {
+                            beschreibungTextEl.textContent = neuerText;
+                            beschreibungTextEl.hidden = !neuerText;
+                        }
+                        if (bild) bild.dataset.beschreibung = neuerText;
+                        if (zustand.bilderInfo && zustand.bilderInfo.bilder) {
+                            if (!zustand.bilderInfo.bilder[String(dateiKennung)]) zustand.bilderInfo.bilder[String(dateiKennung)] = {};
+                            zustand.bilderInfo.bilder[String(dateiKennung)].beschreibung = neuerText;
+                        }
+                        const infoBlock = el('erzaehl-bild-info');
+                        if (infoBlock) infoBlock.hidden = false;
+                        if (beschreibungEditor) beschreibungEditor.hidden = true;
+                    }
+                } catch (e) {
+                    console.error('Fehler beim Speichern der Bildbeschreibung:', e);
+                }
+            };
+        }
+
         if (editorBtn) {
             editorBtn.onclick = (ev) => {
                 ev.stopPropagation();

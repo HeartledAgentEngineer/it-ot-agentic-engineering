@@ -137,8 +137,8 @@ def stand() -> Dict[str, Any]:
 
 
 @router.get("/naechste")
-def naechste() -> Dict[str, Any]:
-    return gruppen_quiz.naechste()
+def naechste(min_px: int = Query(default=0, ge=0, le=1000)) -> Dict[str, Any]:
+    return gruppen_quiz.naechste(min_px=min_px)
 
 
 @router.get("/liste")
@@ -146,8 +146,9 @@ def liste(
     status: str = Query(default="offen", pattern="^(offen|spaeter|benannt|ausgeblendet|aufgeloest)$"),
     seite: int = Query(default=1, ge=1, le=10000),
     je_seite: int = Query(default=24, ge=1, le=100),
+    min_px: int = Query(default=0, ge=0, le=1000),
 ) -> Dict[str, Any]:
-    return gruppen_quiz.liste(status, seite, je_seite)
+    return gruppen_quiz.liste(status, seite, je_seite, min_px=min_px)
 
 
 @router.get("/detail/{kennung}")

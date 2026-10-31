@@ -599,6 +599,60 @@ def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
     return ergebnis
 
 
+
+
+def beschreibung_holen(fileid: Any) -> Optional[str]:
+    """Beschreibung eines einzelnen Bildes holen (aus SQLite oder bild_beschreibungen.jsonl)."""
+    fid = _als_zahl(fileid)
+    if fid is None:
+        return None
+    db_pfad = life_archive_pfad()
+    if os.path.isfile(db_pfad):
+        beschreibungen = _zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen)
+    else:
+        jsonl_pfad = beschreibungen_pfad()
+        beschreibungen = _zwischengespeichert(jsonl_pfad, _beschreibungen_lesen)
+    return beschreibungen.get(fid)
+
+
+def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
+    """Beschreibung eines Bildes speichern/aktualisieren (an bild_beschreibungen.jsonl anhängen)."""
+    fid = _als_zahl(fileid)
+    if fid is None:
+        return {"ok": False, "fehler": "Ungültige Bildkennung."}
+    sauberer_text = " ".join((text or "").split())[:BESCHREIBUNG_MAX_LAENGE]
+
+    jsonl_pfad = beschreibungen_pfad()
+    try:
+        os.makedirs(os.path.dirname(jsonl_pfad), exist_ok=True)
+        with open(jsonl_pfad, "a", encoding="utf-8") as datei:
+            eintrag = {
+                "fileid": fid,
+                "beschreibung": sauberer_text,
+                "zeit": datetime.now().isoformat()
+            }
+            datei.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.warning("Konnte bild_beschreibungen.jsonl nicht schreiben: %s", e)
+        return {"ok": False, "fehler": f"Speichern fehlgeschlagen: {e}"}
+
+    db_pfad = life_archive_pfad()
+    if os.path.isfile(db_pfad):
+        try:
+            import sqlite3
+            with sqlite3.connect(db_pfad) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE photos SET beschreibung_reich = ?, beschreibung = ? WHERE fileid = ?",
+                    (sauberer_text, sauberer_text, fid)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning("Konnte SQLite beschreibung nicht aktualisieren: %s", e)
+
+    _BILDINFO_SPEICHER.clear()
+    return {"ok": True, "fileid": fid, "beschreibung": sauberer_text}
+
 def _bild_orte_lesen(pfad: str) -> Dict[int, Dict[str, Any]]:
     """``{fileid: {"landmarke", "art", "ort"}}`` aus ``bild_orte.csv`` — ohne Hausnummern, ohne Koordinaten."""
     import csv

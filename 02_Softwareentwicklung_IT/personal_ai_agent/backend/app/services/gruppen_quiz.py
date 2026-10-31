@@ -795,7 +795,25 @@ def _gruppen_status(kennung: str, namen: Dict[str, str], st: Dict[str, List[str]
     return "offen"
 
 
-def liste(status: str = "offen", seite: int = 1, je_seite: int = 24) -> Dict[str, Any]:
+def _hat_min_groesse(gruppe: Dict[str, Any], min_px: int) -> bool:
+    """Prüft, ob mindestens ein Beispielgesicht der Gruppe >= min_px groß ist."""
+    if min_px <= 0:
+        return True
+    beispiele = gruppe.get("beispiele") or []
+    for b in beispiele:
+        if not isinstance(b, dict):
+            continue
+        bbox = b.get("bbox")
+        if isinstance(bbox, list) and len(bbox) == 4:
+            try:
+                if max(float(bbox[2]), float(bbox[3])) >= min_px:
+                    return True
+            except (ValueError, TypeError):
+                continue
+    return False
+
+
+def liste(status: str = "offen", seite: int = 1, je_seite: int = 24, min_px: int = 0) -> Dict[str, Any]:
     """Metadatenliste aus personen_beispiele.json, ohne Gesichtsdateien zu lesen."""
     if (status not in ("offen", "spaeter", "benannt", "ausgeblendet", "aufgeloest")
             or isinstance(seite, bool) or not isinstance(seite, int) or not 1 <= seite <= 10000
@@ -808,6 +826,8 @@ def liste(status: str = "offen", seite: int = 1, je_seite: int = 24) -> Dict[str
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
     passend = [g for g in gruppen if _gruppen_status(g["kennung"], namen, st) == status]
+    if min_px > 0 and status == "offen":
+        passend = [g for g in passend if _hat_min_groesse(g, min_px)]
     passend.sort(key=lambda g: (-int(g.get("groesse") or 0), g["kennung"]))
     gesamt = len(passend)
     seiten = (gesamt + je_seite - 1) // je_seite
@@ -899,7 +919,7 @@ def _antwort_fuer_gruppe(gruppe: Dict[str, Any], gruppen: List[Dict[str, Any]],
     return ergebnis
 
 
-def naechste() -> Dict[str, Any]:
+def naechste(min_px: int = 0) -> Dict[str, Any]:
     """Die groesste offene Gruppe (unbenannt, nicht 'unbekannt'); 'spaeter' erst zum Schluss."""
     try:
         gruppen, _ = _gruppen_laden()
@@ -910,6 +930,8 @@ def naechste() -> Dict[str, Any]:
         return {"ok": False, "fehler": str(fehler)}
     unbekannt, spaeter = set(st["unbekannt"]), st["spaeter"]
     offen = [g for g in gruppen if g["kennung"] not in namen and g["kennung"] not in unbekannt]
+    if min_px > 0:
+        offen = [g for g in offen if _hat_min_groesse(g, min_px)]
     erst = [g for g in offen if g["kennung"] not in spaeter]
     if erst:
         gruppe = erst[0]

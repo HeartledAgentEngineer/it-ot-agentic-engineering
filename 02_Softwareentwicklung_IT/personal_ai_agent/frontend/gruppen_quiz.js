@@ -1347,8 +1347,10 @@ function gruppenNotizZeit(zeit) {
         const liste = el('gruppen-liste');
         if (liste) liste.innerHTML = '';
         try {
+            const minPx = (el('gruppen-filter-groesse') && el('gruppen-filter-groesse').checked) ? 50 : 0;
+            const minPxTeil = minPx > 0 ? ('&min_px=' + minPx) : '';
             const antwort = await jsonHolen('/api/gruppen/liste?status=' + encodeURIComponent(zustand.listeStatus)
-                + '&seite=' + zustand.listeSeite + '&je_seite=24');
+                + '&seite=' + zustand.listeSeite + '&je_seite=24' + minPxTeil);
             if (sequenz !== zustand.listenSequenz || !zustand.listeAktiv || el('gruppen-sheet').hidden) return;
             if (!antwort || antwort.ok !== true) {
                 gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Gruppenliste nicht ladbar.'), true);
@@ -1701,12 +1703,13 @@ function gruppenNotizZeit(zeit) {
         el('gruppen-person-titel').textContent = p.name;
         const vorschlaege = p.vorschlaege || [];
         const gesichter = vorschlaege.reduce((s, v) => s + (Number(v.groesse) || 0), 0);
+        const phasen = p.lebensabschnitte || [];
+        const phasenAnz = phasen.length;
         el('gruppen-person-meta').textContent = gruppenZahl(gesichter) + ' Gesichter'
-            + (vorschlaege.length > 1 ? ' in ' + vorschlaege.length + ' Vorschlägen' : '');
+            + (phasenAnz ? ' · ' + phasenAnz + ' Lebensabschnitt' + (phasenAnz > 1 ? 'e' : '') : (vorschlaege.length > 1 ? ' in ' + vorschlaege.length + ' Vorschlägen' : ''));
         const laBox = el('gruppen-person-lebensabschnitte');
         if (laBox) {
             laBox.innerHTML = '';
-            const phasen = p.lebensabschnitte || [];
             if (phasen.length) {
                 laBox.hidden = false;
                 const laKopf = document.createElement('h4');
@@ -1792,6 +1795,24 @@ function gruppenNotizZeit(zeit) {
             allesKnopf.addEventListener('click', () => alleOeffnenPerson(p.name));
             box.appendChild(allesKnopf);
         }
+
+        let container = box;
+        if (phasen.length > 0) {
+            const details = document.createElement('details');
+            details.className = 'gruppen-cluster-details';
+            details.style.cssText = 'margin-top:14px;border:1px solid var(--linie, #304562);border-radius:8px;padding:8px 12px;background:rgba(0,0,0,0.15);';
+            const summary = document.createElement('summary');
+            summary.className = 'gruppen-meta';
+            summary.style.cssText = 'cursor:pointer;font-weight:600;color:var(--text-gedaempft, #94a3b8);';
+            summary.textContent = '⚙️ Technische Cluster-Gruppen (' + vorschlaege.length + ') anzeigen';
+            details.appendChild(summary);
+            const innerDiv = document.createElement('div');
+            innerDiv.style.cssText = 'margin-top:10px;';
+            details.appendChild(innerDiv);
+            box.appendChild(details);
+            container = innerDiv;
+        }
+
         vorschlaege.forEach((v) => {
             const teil = document.createElement('div');
             teil.className = 'gruppen-person-vorschlag';
@@ -1823,7 +1844,7 @@ function gruppenNotizZeit(zeit) {
             knoepfe.appendChild(ansehen);
             knoepfe.appendChild(loesen);
             teil.appendChild(knoepfe);
-            box.appendChild(teil);
+            container.appendChild(teil);
         });
         const profil = p.profil || {};
         el('gruppen-person-name').value = p.name;
@@ -2367,7 +2388,8 @@ function gruppenNotizZeit(zeit) {
         const sequenz = ++zustand.quizSequenz;
         const ansicht = ansichtMerken();
         melde('… lädt');
-        const antwort = await jsonHolen('/api/gruppen/naechste').catch(() => null);
+        const minPx = (el('gruppen-filter-groesse') && el('gruppen-filter-groesse').checked) ? 50 : 0;
+        const antwort = await jsonHolen('/api/gruppen/naechste' + (minPx > 0 ? ('?min_px=' + minPx) : '')).catch(() => null);
         // Verspätete Antwort: inzwischen anderer Ansichtsstand (Detail, Übersicht, andere
         // Ansicht, geschlossen) oder neuere Anfrage – nichts ändern, zustand.gruppe bleibt.
         if (sequenz !== zustand.quizSequenz || ansichtVeraltet(ansicht)
@@ -2577,6 +2599,16 @@ function gruppenNotizZeit(zeit) {
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
         const uebersicht = el('gruppen-uebersicht');
         if (uebersicht) uebersicht.addEventListener('click', gruppenUebersichtOeffnen);
+        const filterGroesse = el('gruppen-filter-groesse');
+        if (filterGroesse) {
+            filterGroesse.addEventListener('change', () => {
+                if (zustand.listeAktiv) {
+                    gruppenListeLaden(1);
+                } else {
+                    laden();
+                }
+            });
+        }
         const detailZurueck = el('gruppen-detail-zurueck');
         if (detailZurueck) detailZurueck.addEventListener('click', gruppeDetailZurueck);
         const listeQuiz = el('gruppen-liste-quiz');

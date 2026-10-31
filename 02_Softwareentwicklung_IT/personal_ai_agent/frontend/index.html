@@ -370,6 +370,12 @@
                             role="tab" aria-selected="false">👤 Benannt</button>
                 </div>
                 <button id="gruppen-uebersicht" class="gruppen-knopf gruppen-uebersicht-knopf" type="button">☷ Gruppenübersicht</button>
+                <div class="gruppen-filter-groesse-zeile" style="margin: 6px 0; font-size: 13px;">
+                    <label class="gruppen-filter-groesse-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="gruppen-filter-groesse" checked>
+                        <span>Nur Gesichter ≥ 50 px (pixelige Mini-Gesichter ausblenden)</span>
+                    </label>
+                </div>
                 <p id="gruppen-fortschritt" class="gruppen-fortschritt"></p>
                 <!-- Außerhalb der Karte: bleibt auch sichtbar, wenn das Backend nach einer
                      Statusaktion „fertig“ meldet (Karte dann ausgeblendet). -->
@@ -656,6 +662,7 @@
                         </div>
                         <div class="erzaehl-bild-steuerleiste">
                             <button id="erzaehl-bild-editor-btn" class="erzaehl-steuer-btn" type="button" title="Personen und Gesichter dieses Bildes bearbeiten">✏️ Personen bearbeiten</button>
+                            <button id="erzaehl-beschreibung-toggle-btn" class="erzaehl-steuer-btn" type="button" title="Bildbeschreibung anzeigen und bearbeiten">📝 Beschreibung</button>
                             <button id="erzaehl-privat-toggle" class="erzaehl-steuer-btn" type="button" title="Privat-Schutz für dieses Bild umschalten">🔒 Privat</button>
                         </div>
                         <div id="erzaehl-zaehler" class="erzaehl-zaehler">0 / 0</div>
@@ -663,6 +670,13 @@
                         <div id="erzaehl-bild-info" class="erzaehl-info" hidden>
                             <div id="erzaehl-bild-ort" hidden><span aria-hidden="true">📍</span> <span id="erzaehl-bild-ort-text"></span></div>
                             <div id="erzaehl-bild-beschreibung" class="erzaehl-beschreibung" hidden></div>
+                            <div id="erzaehl-beschreibung-editor" class="erzaehl-beschreibung-editor" style="margin-top:6px" hidden>
+                                <textarea id="erzaehl-beschreibung-input" rows="2" maxlength="600" style="width:100%;box-sizing:border-box;border-radius:6px;padding:6px;background:var(--bg-feld, #1a2332);color:inherit;border:1px solid var(--linie, #304562);" placeholder="Bildbeschreibung eingeben oder anpassen..."></textarea>
+                                <div style="display:flex;gap:8px;margin-top:4px;">
+                                    <button id="erzaehl-beschreibung-speichern-btn" class="erzaehl-steuer-btn" type="button">💾 Speichern</button>
+                                    <button id="erzaehl-beschreibung-abbrechen-btn" class="erzaehl-steuer-btn" type="button">Abbrechen</button>
+                                </div>
+                            </div>
                         </div>
                         <div id="erzaehl-bild-personen" class="erzaehl-personen" hidden>
                             <span id="erzaehl-bild-personen-text"></span>
