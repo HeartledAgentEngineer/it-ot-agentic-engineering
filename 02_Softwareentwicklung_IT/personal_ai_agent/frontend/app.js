@@ -4531,6 +4531,18 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             }
                             personWahl.value = wahl;
                             personWahl.disabled = (sel < 0);
+                            if (typeof personSucheBtn !== 'undefined' && personSucheBtn) {
+                                if (sel < 0) {
+                                    personSucheBtn.textContent = '👤 Rahmen wählen …';
+                                    personSucheBtn.disabled = true;
+                                    personSucheBtn.style.opacity = '0.5';
+                                } else {
+                                    personSucheBtn.disabled = false;
+                                    personSucheBtn.style.opacity = '1';
+                                    personSucheBtn.textContent = wahl ? ('👤 ' + wahl + ' ▾') : '👤 Person suchen … ▾';
+                                    personSucheBtn.style.background = wahl ? '#1a3d28' : '#18281f';
+                                }
+                            }
                         } catch (_e) {}
                     };
                     personWahl.addEventListener('change', function (ev) {
@@ -4550,6 +4562,147 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         resync(); personWahlMalen();
                     });
                     leiste.appendChild(personWahl);
+                    const personSucheBtn = document.createElement('button');
+                    personSucheBtn.type = 'button';
+                    personSucheBtn.className = 'vollbild-person-suche-btn';
+                    personSucheBtn.title = 'Person suchen oder aus KI-Vorschlägen wählen';
+                    personSucheBtn.style.cssText = 'padding:8px 12px;border-radius:20px;background:#18281f;color:#6f6;border:1px solid #2e8b57;font-size:0.82rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;max-width:44vw;';
+                    personSucheBtn.textContent = '👤 Person suchen …';
+                    leiste.appendChild(personSucheBtn);
+
+                    const personSucheModal = document.createElement('div');
+                    personSucheModal.className = 'vollbild-person-suche-modal';
+                    personSucheModal.style.cssText = 'position:fixed;bottom:145px;left:50%;transform:translateX(-50%);width:92vw;max-width:380px;background:#121815;border:2px solid #2e8b57;border-radius:18px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,0.85);z-index:100001;display:none;flex-direction:column;gap:8px;color:#eee;box-sizing:border-box;max-height:60vh;';
+                    ov.appendChild(personSucheModal);
+
+                    function bauePersonSucheInhalt() {
+                        personSucheModal.textContent = '';
+                        const kopfZeile = document.createElement('div');
+                        kopfZeile.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+                        const kopfTitel = document.createElement('span');
+                        kopfTitel.style.cssText = 'font-weight:700;font-size:0.9rem;color:#8f8';
+                        kopfTitel.textContent = sel >= 0 ? ('👤 Person für Rahmen ' + (sel + 1) + ' zuordnen') : '👤 Person zuordnen';
+                        kopfZeile.appendChild(kopfTitel);
+                        const schliessenBtn = document.createElement('button');
+                        schliessenBtn.type = 'button';
+                        schliessenBtn.textContent = '✕';
+                        schliessenBtn.style.cssText = 'background:none;border:none;color:#aaa;font-size:1.1rem;cursor:pointer;padding:2px 6px';
+                        schliessenBtn.addEventListener('click', (ev) => { ev.stopPropagation(); personSucheModal.style.display = 'none'; });
+                        kopfZeile.appendChild(schliessenBtn);
+                        personSucheModal.appendChild(kopfZeile);
+
+                        const suchFeld = document.createElement('input');
+                        suchFeld.type = 'text';
+                        suchFeld.className = 'vollbild-person-suche-input';
+                        suchFeld.placeholder = '🔍 Name tippen (z. B. Seb, Leo...)...';
+                        suchFeld.style.cssText = 'width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;background:#1a2420;border:1px solid #3a6b4a;color:#fff;font-size:0.95rem;outline:none;';
+                        personSucheModal.appendChild(suchFeld);
+
+                        const inhaltScroll = document.createElement('div');
+                        inhaltScroll.style.cssText = 'overflow-y:auto;max-height:45vh;display:flex;flex-direction:column;gap:6px;padding-right:2px;';
+                        personSucheModal.appendChild(inhaltScroll);
+
+                        const wahlAktuell = _quizEditor.fileid
+                            ? String(((_quizEditor.personen || [])[sel]) == null ? '' : _quizEditor.personen[sel]).trim()
+                            : rahmenPersonWahl(_quizEditor, sel);
+                        const alleNamen = rahmenPersonMenueListe(
+                            _quizEditor.fileid ? cloudPersonenNamen(_quizEditor, sel) : quizKatalogNamen(), wahlAktuell);
+
+                        function setzeName(n) {
+                            if (sel < 0) return;
+                            const hinweis = _quizEditor.fileid ? cloudNameHinweis(_quizEditor, n) : '';
+                            const wert = rahmenPersonSetzen(_quizEditor, sel, n);
+                            personWahl.value = n;
+                            personSucheModal.style.display = 'none';
+                            if (wert) {
+                                meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + wert + (hinweis ? ' (' + hinweis + ')' : '') +
+                                            ' — 💾 Speichern übernimmt ihn.', true);
+                            } else {
+                                meldeEditor('Rahmen ' + (sel + 1) + ' bleibt „unbekannt".', false);
+                            }
+                            resync();
+                            personWahlMalen();
+                            zeigeAuswahlGriffe();
+                        }
+
+                        // KI-Vorschlaege fuer diesen Rahmen ganz oben (Vektor-Aehnlichkeit)
+                        const vorschlaege = (_quizEditor.namensvorschlaege && _quizEditor.namensvorschlaege[sel]) || [];
+                        if (vorschlaege.length) {
+                            const vKopf = document.createElement('div');
+                            vKopf.style.cssText = 'font-size:0.75rem;color:#8a8;font-weight:700;margin-top:4px';
+                            vKopf.textContent = '⭐ KI-VORSCHLAG (ÄHNLICHSTES GESICHT):';
+                            inhaltScroll.appendChild(vKopf);
+                            vorschlaege.forEach((vName) => {
+                                const b = document.createElement('button');
+                                b.type = 'button';
+                                b.className = 'vollbild-suche-ki-opt';
+                                b.style.cssText = 'text-align:left;padding:7px 10px;background:#1a3824;border:1px solid #44aa66;border-radius:10px;color:#9f9;font-weight:700;font-size:0.88rem;cursor:pointer';
+                                b.textContent = '⭐ ' + vName;
+                                b.addEventListener('click', (ev) => { ev.stopPropagation(); setzeName(vName); });
+                                inhaltScroll.appendChild(b);
+                            });
+                        }
+
+                        // Personenliste rendern
+                        const listeWrap = document.createElement('div');
+                        listeWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;margin-top:4px;';
+                        inhaltScroll.appendChild(listeWrap);
+
+                        function listeMalen(filter) {
+                            listeWrap.textContent = '';
+                            const q = (filter || '').toLowerCase().trim();
+                            let trefferZahl = 0;
+                            alleNamen.forEach((n) => {
+                                if (q && !n.toLowerCase().includes(q)) return;
+                                trefferZahl++;
+                                const opt = document.createElement('div');
+                                opt.className = 'vollbild-suche-zeile';
+                                opt.style.cssText = 'padding:7px 10px;cursor:pointer;border-radius:8px;font-size:0.88rem;background:#16201a;border:1px solid #233529;color:#eee';
+                                if (n === wahlAktuell) {
+                                    opt.style.borderColor = '#44aa66';
+                                    opt.style.background = '#1f3526';
+                                    opt.style.fontWeight = '700';
+                                    opt.textContent = '✓ ' + n;
+                                } else {
+                                    opt.textContent = n;
+                                }
+                                opt.addEventListener('click', (ev) => { ev.stopPropagation(); setzeName(n); });
+                                listeWrap.appendChild(opt);
+                            });
+                            if (q && _quizEditor.fileid && !alleNamen.some((n) => n.toLowerCase() === q)) {
+                                const neuOpt = document.createElement('div');
+                                neuOpt.className = 'vollbild-suche-neu-opt';
+                                neuOpt.style.cssText = 'padding:8px 10px;cursor:pointer;border-radius:8px;font-size:0.88rem;background:#281e14;border:1px solid #8a5a2a;color:#fc8;font-weight:700;margin-top:4px';
+                                neuOpt.textContent = '➕ „' + filter.trim() + '“ als neue Person anlegen (nur am Handy)';
+                                neuOpt.addEventListener('click', (ev) => { ev.stopPropagation(); setzeName(filter.trim()); });
+                                listeWrap.appendChild(neuOpt);
+                            } else if (!trefferZahl) {
+                                const leer = document.createElement('div');
+                                leer.style.cssText = 'color:#888;font-size:0.8rem;padding:6px 4px';
+                                leer.textContent = 'Keine Person gefunden.';
+                                listeWrap.appendChild(leer);
+                            }
+                        }
+
+                        listeMalen('');
+                        suchFeld.addEventListener('input', () => { listeMalen(suchFeld.value); });
+                        setTimeout(() => { try { suchFeld.focus(); } catch (_e) {} }, 60);
+                    }
+
+                    personSucheBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        if (sel < 0) {
+                            meldeEditor('Erst einen Rahmen antippen, dann eine Person zuordnen.', false);
+                            return;
+                        }
+                        if (personSucheModal.style.display === 'flex') {
+                            personSucheModal.style.display = 'none';
+                        } else {
+                            personSucheModal.style.display = 'flex';
+                            bauePersonSucheInhalt();
+                        }
+                    });
+
                     personWahlMalen();
                     // Bild-Editor B4: "Neue Person …" — Namenseingabe in der umbrechenden Werkzeugleiste.
                     if (_quizEditor.fileid) {

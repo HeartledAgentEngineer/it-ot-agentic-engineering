@@ -2144,6 +2144,20 @@ function gruppenNotizZeit(zeit) {
             ? 'Zu wem gehören die markierten Gesichter?'
             : 'Noch keine andere Person benannt – erst einen Vorschlag benennen.';
         kasten.appendChild(kopf);
+        if (namen.length > 4) {
+            const suchFeld = document.createElement('input');
+            suchFeld.type = 'text';
+            suchFeld.className = 'gruppen-namen-suche';
+            suchFeld.placeholder = '🔍 Person filtern...';
+            suchFeld.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:8px;padding:7px 10px;border-radius:10px;background:#181818;border:1px solid #444;color:#eee;font-size:0.85rem';
+            kasten.appendChild(suchFeld);
+            suchFeld.addEventListener('input', () => {
+                const q = suchFeld.value.toLowerCase().trim();
+                kasten.querySelectorAll('button.gruppen-namen-chip').forEach((ch) => {
+                    ch.style.display = (!q || ch.textContent.toLowerCase().includes(q)) ? '' : 'none';
+                });
+            });
+        }
         namen.forEach((n) => {
             const b = document.createElement('button');
             b.type = 'button';
