@@ -10,6 +10,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
+- **Neustart-Skripte & Desktop-Steuerung (`neustart.ps1`, `neustart.cmd`)**:
+  * PowerShell-Skript `neustart.ps1` (und `neustart.cmd`) zum sauberen Beenden alter Instanzen (`master-schalter.exe`, `master-leiste.exe`, `pythonw.exe`), Bereinigen verwaister Locks (`uebersicht.lock`, `leiste.lock`) und entkoppelten Neustart der Windows-Executables.
+  * Unterstützt Schalter: `-NurLeiste`, `-NurUebersicht`, `-Stop`, `-Status`.
+  * Desktop-Verknüpfung `Master-Schalter Neustart.lnk` direkt auf Sebastians Windows-Desktop bereitgestellt.
 - **Windows Executables & Autostart (`pyproject.toml`, Autostart / `shell:startup`)**:
   * Eigenständige Windows-Executables unter `.venv/Scripts/`: `master-schalter-gui.exe` (Übersicht ohne Konsolenfenster), `master-leiste-gui.exe` (Taskleisten-Tray ohne Konsolenfenster), `master-schalter.exe`, `master-leiste.exe` und `masterwechsel.exe`.
   * Autostart-Verknüpfungen für Windows Login (`shell:startup`): `Master-Schalter.lnk` startet direkt die `master-schalter-gui.exe` und `Master-Schalter-Leiste.lnk` die `master-leiste-gui.exe`.
