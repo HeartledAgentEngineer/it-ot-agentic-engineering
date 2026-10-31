@@ -89,16 +89,21 @@ def _basis_ordner(basis_pfad: Optional[str] = None) -> str:
     return gruppen_quiz.basis()
 
 
-def begleiter_aus_beziehungen(name: str, von_jahr: Optional[int], bis_jahr: Optional[int],
-                              basis_pfad: Optional[str] = None) -> List[str]:
-    """Findet häufige Begleitpersonen aus beziehungen.jsonl im Zeitraum."""
-    pfad = os.path.join(_basis_ordner(basis_pfad), "beziehungen.jsonl")
-    if not os.path.isfile(pfad):
-        return []
+_BEZIEHUNGEN_CACHE: Dict[str, Tuple[Tuple[float, int], Dict[str, List[Tuple[Optional[int], List[str]]]]]] = {}
 
-    treffer: Counter = Counter()
-    sauber_name = name.casefold()
 
+def _beziehungen_index(pfad: str) -> Dict[str, List[Tuple[Optional[int], List[str]]]]:
+    """Indexiert beziehungen.jsonl einmalig in den RAM (name.casefold -> [(jahr, andere_namen), ...])."""
+    try:
+        st = os.stat(pfad)
+        sig = (st.st_mtime, st.st_size)
+    except OSError:
+        return {}
+    cached = _BEZIEHUNGEN_CACHE.get(pfad)
+    if cached and cached[0] == sig:
+        return cached[1]
+
+    index: Dict[str, List[Tuple[Optional[int], List[str]]]] = {}
     try:
         with open(pfad, "r", encoding="utf-8") as datei:
             for zeile in datei:
@@ -112,12 +117,6 @@ def begleiter_aus_beziehungen(name: str, von_jahr: Optional[int], bis_jahr: Opti
                 if not isinstance(e, dict):
                     continue
 
-                d_jahr = jahr_aus(e.get("datum"))
-                if von_jahr is not None and d_jahr is not None and d_jahr < von_jahr:
-                    continue
-                if bis_jahr is not None and d_jahr is not None and d_jahr > bis_jahr:
-                    continue
-
                 personen = e.get("personen")
                 if not isinstance(personen, list):
                     continue
@@ -127,15 +126,42 @@ def begleiter_aus_beziehungen(name: str, von_jahr: Optional[int], bis_jahr: Opti
                     for p in personen
                     if isinstance(p, dict) and p.get("name")
                 ]
+                if len(namen_in_zeile) < 2:
+                    continue
 
-                ist_dabei = any(n.casefold() == sauber_name for n in namen_in_zeile)
-                if ist_dabei:
-                    for n in namen_in_zeile:
-                        if n.casefold() != sauber_name:
-                            treffer[n] += 1
+                d_jahr = jahr_aus(e.get("datum"))
+                for n in namen_in_zeile:
+                    n_cf = n.casefold()
+                    andere = [x for x in namen_in_zeile if x.casefold() != n_cf]
+                    index.setdefault(n_cf, []).append((d_jahr, andere))
     except Exception as fehler:
-        logger.warning("Begleiter-Suche für %s fehlgeschlagen: %s", name, fehler)
+        logger.warning("Beziehungen-Indexierung fehlgeschlagen: %s", fehler)
+        return {}
+
+    _BEZIEHUNGEN_CACHE[pfad] = (sig, index)
+    return index
+
+
+def begleiter_aus_beziehungen(name: str, von_jahr: Optional[int], bis_jahr: Optional[int],
+                              basis_pfad: Optional[str] = None) -> List[str]:
+    """Findet häufige Begleitpersonen aus beziehungen.jsonl im Zeitraum (sub-millisekundenschnell per Index)."""
+    pfad = os.path.join(_basis_ordner(basis_pfad), "beziehungen.jsonl")
+    if not os.path.isfile(pfad):
         return []
+
+    idx = _beziehungen_index(pfad)
+    eintraege = idx.get(name.casefold(), [])
+    if not eintraege:
+        return []
+
+    treffer: Counter = Counter()
+    for d_jahr, andere in eintraege:
+        if von_jahr is not None and d_jahr is not None and d_jahr < von_jahr:
+            continue
+        if bis_jahr is not None and d_jahr is not None and d_jahr > bis_jahr:
+            continue
+        for a in andere:
+            treffer[a] += 1
 
     return [p for p, _c in treffer.most_common(3)]
 
@@ -337,6 +363,52 @@ def lebensabschnitte_fuer_person(name: str,
     }
 
 
+_PHASEN_CACHE: Dict[str, Tuple[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]]] = {}
+
+
+def alle_personen_phasen(basis_pfad: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """Berechnet die Lebensabschnitte aller benannten Personen in einem schnellen Durchlauf und cached sie."""
+    from app.services import gruppen_quiz
+    b_pfad = _basis_ordner(basis_pfad)
+    pfad_bestaetigt = os.path.join(b_pfad, gruppen_quiz.BESTAETIGT_DATEINAME)
+    pfad_gruppen = os.path.join(b_pfad, gruppen_quiz.BEISPIELE_DATEINAME)
+
+    sig = []
+    for p in (pfad_bestaetigt, pfad_gruppen):
+        if os.path.isfile(p):
+            try:
+                st = os.stat(p)
+                sig.append((p, st.st_mtime, st.st_size))
+            except OSError:
+                pass
+    sig_tuple = tuple(sig)
+    cached = _PHASEN_CACHE.get(b_pfad)
+    if cached and cached[0] == sig_tuple and sig_tuple:
+        return cached[1]
+
+    try:
+        alle_gruppen, _ = gruppen_quiz._gruppen_laden()
+        bestaetigt = gruppen_quiz.bestaetigt_lesen()
+    except Exception:
+        return {}
+
+    nach_kennung = {g.get("kennung"): g for g in alle_gruppen if isinstance(g, dict) and g.get("kennung")}
+    katalog: Dict[str, List[Dict[str, Any]]] = {}
+    for k, n in bestaetigt.items():
+        if k in nach_kennung:
+            katalog.setdefault(n, []).append(nach_kennung[k])
+
+    phasen_je_person: Dict[str, List[Dict[str, Any]]] = {}
+    for n, v_liste in katalog.items():
+        res = lebensabschnitte_fuer_person(n, vorschlaege=v_liste, basis_pfad=basis_pfad)
+        if res.get("ok"):
+            phasen_je_person[n] = res.get("phasen") or []
+
+    if sig_tuple:
+        _PHASEN_CACHE[b_pfad] = (sig_tuple, phasen_je_person)
+    return phasen_je_person
+
+
 def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
                                  katalog: Optional[Dict[str, Any]] = None,
                                  personen_phasen: Optional[Dict[str, List[Dict[str, Any]]]] = None,
@@ -358,20 +430,14 @@ def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
         return None
 
     if personen_phasen is None:
-        personen_phasen = {}
-        if katalog is None:
-            from app.services import gruppen_quiz
-            bestaetigt = gruppen_quiz.bestaetigt_lesen()
-            namen_kandidaten = sorted(set(bestaetigt.values()))
-            for n in namen_kandidaten:
-                abschnitte = lebensabschnitte_fuer_person(n, basis_pfad=basis_pfad)
-                if abschnitte.get("ok"):
-                    personen_phasen[n] = abschnitte.get("phasen") or []
-        else:
+        if katalog is not None:
+            personen_phasen = {}
             for n, v_liste in katalog.items():
                 abschnitte = lebensabschnitte_fuer_person(n, vorschlaege=v_liste, basis_pfad=basis_pfad)
                 if abschnitte.get("ok"):
                     personen_phasen[n] = abschnitte.get("phasen") or []
+        else:
+            personen_phasen = alle_personen_phasen(basis_pfad=basis_pfad)
 
     # Nach passendem Lebensabschnitt in vorbereiteten Phasen suchen
     treffer: List[Tuple[str, Dict[str, Any], bool]] = []
@@ -438,7 +504,7 @@ def andocken_kandidaten(katalog: Optional[Dict[str, Any]] = None,
     filter_kennungen = set(kennungen) if kennungen else None
     ziel_name_sauber = ziel_name.strip().casefold() if ziel_name else None
 
-    # Phasen aller relevanten Personen VORAB EINMAL berechnen:
+    # Phasen aller relevanten Personen VORAB EINMAL berechnen / aus Cache holen:
     personen_phasen: Dict[str, List[Dict[str, Any]]] = {}
     if katalog is not None:
         for n, v_liste in katalog.items():
@@ -448,13 +514,11 @@ def andocken_kandidaten(katalog: Optional[Dict[str, Any]] = None,
             if abschnitte.get("ok"):
                 personen_phasen[n] = abschnitte.get("phasen") or []
     else:
-        namen_kandidaten = sorted(set(bestaetigt.values()))
-        for n in namen_kandidaten:
+        alle_phasen = alle_personen_phasen(basis_pfad=basis_pfad)
+        for n, phasen in alle_phasen.items():
             if ziel_name_sauber and n.strip().casefold() != ziel_name_sauber:
                 continue
-            abschnitte = lebensabschnitte_fuer_person(n, basis_pfad=basis_pfad)
-            if abschnitte.get("ok"):
-                personen_phasen[n] = abschnitte.get("phasen") or []
+            personen_phasen[n] = phasen
 
     for g in alle_gruppen:
         if not isinstance(g, dict):

@@ -1626,6 +1626,7 @@ button.footer-note:hover {
 }
 
 .erzaehl-bild-rahmen {
+    position: relative;
     flex: 1;
     min-height: 220px;
     max-height: 46vh;
@@ -3263,6 +3264,11 @@ body.anmelden-offen { overflow: hidden; }
     padding: 12px;
     text-align: center;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    touch-action: manipulation;
+}
+
+.erzaehl-privat-sperre * {
+    pointer-events: none;
 }
 
 .erzaehl-privat-sperre:hover {
@@ -3672,4 +3678,28 @@ body.anmelden-offen { overflow: hidden; }
     border-radius: 4px;
     font-size: 0.8rem;
     margin-left: 6px;
+}
+
+.erzaehl-privat-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.erzaehl-privat-aufdecken-btn {
+    background: #4f46e5;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    pointer-events: auto !important;
+}
+
+.erzaehl-privat-aufdecken-btn:hover {
+    background: #4338ca;
 }

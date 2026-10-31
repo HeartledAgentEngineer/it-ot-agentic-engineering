@@ -30,9 +30,9 @@ console.log('\n1) erzaehlBildIstPrivat — selektive Erkennung sensibler Inhalte
     const fnMatch = erzaehlenSrc.match(/function erzaehlBildIstPrivat\([\s\S]*?\n\}/);
     pruefe(!!fnMatch, 'erzaehlBildIstPrivat existiert in erzaehlen.js');
     
-    const erzaehlBildIstPrivat = new Function('fileid', 'bildInfo', 'detail', 'privSet', `
+    const erzaehlBildIstPrivat = new Function('fileid', 'bildInfo', 'detail', 'privSet', 'entsperrtSet', `
         ${fnMatch[0]}
-        return erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet);
+        return erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet);
     `);
 
     pruefe(erzaehlBildIstPrivat('123', null, null, new Set(['123'])) === true,
@@ -40,17 +40,21 @@ console.log('\n1) erzaehlBildIstPrivat — selektive Erkennung sensibler Inhalte
     pruefe(erzaehlBildIstPrivat('999', null, null, new Set(['123'])) === false,
         'normale fileid ohne Flag ist NICHT privat');
 
-    pruefe(erzaehlBildIstPrivat('456', null, { privat: true }, new Set()) === true,
-        'Ereignis mit privat:true ist privat');
-    pruefe(erzaehlBildIstPrivat('456', null, { titel: 'Sehr privater Anlass' }, new Set()) === true,
-        'Ereignis mit Titel "privat" ist privat');
+    pruefe(erzaehlBildIstPrivat('456', null, { intim: true }, new Set()) === true,
+        'Ereignis mit intim:true ist privat');
     pruefe(erzaehlBildIstPrivat('456', null, { kategorie: 'Intim' }, new Set()) === true,
         'Ereignis mit Kategorie "Intim" ist privat');
+    pruefe(erzaehlBildIstPrivat('456', null, { titel: 'Sehr privater Anlass' }, new Set()) === false,
+        'Normaler Ereignistitel mit Wort "privat" loest KEINEN Pauschal-Blur mehr aus');
 
     pruefe(erzaehlBildIstPrivat('789', { bilder: { '789': { beschreibung: 'Foto am Strand mit Badekleidung' } } }, null, new Set()) === false,
         'Strandfoto mit normaler Beschreibung ist NICHT privat');
-    pruefe(erzaehlBildIstPrivat('789', { bilder: { '789': { beschreibung: 'intimer Bereich, Nacktfoto' } } }, null, new Set()) === true,
+    pruefe(erzaehlBildIstPrivat('789', { bilder: { '789': { beschreibung: 'intimer Bereich, Nacktfoto mit Genitalien' } } }, null, new Set()) === true,
         'Foto mit sensiblen Schlagwoertern in Beschreibung ist privat');
+    pruefe(erzaehlBildIstPrivat('789', { bilder: { '789': { beschreibung: 'Badefoto mit nacktem Oberkörper am Pool' } } }, null, new Set()) === false,
+        'Badefoto mit nacktem Oberkoerper ist NICHT privat');
+    pruefe(erzaehlBildIstPrivat('789', { bilder: { '789': { beschreibung: 'Nacktfoto mit Genitalien' } } }, null, new Set(), new Set(['789'])) === false,
+        'Manuell entsperrtes Bild ist NIEMALS privat');
 }
 
 console.log('\n2) Verdrahtung in index.html: Sperr-Overlay und Steuerleiste');
