@@ -295,6 +295,37 @@ function erzaehlAllesText(teile) {
         .trim();
 }
 
+/** REINE Funktion: Glättet Sprechtext für das Vorlesen.
+ *  Entfernt visuelle Klick-Hinweise (z.B. „Antippen öffnet ein Bild einzeln")
+ *  und formuliert fragmentarische Zähler („12 Bilder") und Personenlisten
+ *  („Auf diesem Bild: A und B") in fließende, natürliche deutsche Sätze um. */
+function erzaehlGlaetteFuerStimme(text) {
+    if (!text || typeof text !== 'string') return '';
+    let res = text
+        .replace(/Antippen öffnet ein Bild einzeln[.]?/gi, '')
+        .replace(/Antippen zum Vergrößern[.]?/gi, '')
+        .replace(/\s*·\s*/g, '. ')
+        .replace(/\((\d+)\s+Bilder?\)/gi, function(_m, count) { return 'mit ' + count + ' Fotos'; })
+        .replace(/\b(\d+)\s+Bilder\b(?:\s*\.)?/gi, function(_m, count) { return 'Insgesamt ' + count + ' Fotos.'; })
+        .replace(/\b1\s+Bild\b(?:\s*\.)?/gi, 'Ein Foto.')
+        .replace(/Auf diesem Bild:\s*([^.]+)\./gi, function(_m, p1) {
+            const namen = p1.trim();
+            if (namen.includes(' und ') || namen.includes(',')) {
+                return 'Auf diesem Bild sind ' + namen + ' zu sehen.';
+            }
+            return 'Auf diesem Bild ist ' + namen + ' zu sehen.';
+        })
+        .replace(/Erkannt:\s*([^.]+)\./gi, function(_m, p1) {
+            const namen = p1.trim();
+            return 'Erkannt wurden ' + namen + '.';
+        })
+        .replace(/\s+/g, ' ')
+        .replace(/\s*\.\s*\./g, '.')
+        .trim();
+    return res;
+}
+
+
 /** REINE Funktion: Prüft ob ein Bild als privat / sensibel maskiert werden soll.
  *  Schützt intime Fotos vor direktem Erscheinen beim Blättern (#18, 30.10.2026). */
 function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
@@ -1174,26 +1205,22 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         await vorlesenText(erzaehlSprechtext(quelle ? quelle.textContent : ''));
     }
 
-    /** Spricht einen fertigen Text: zuerst die Browser-Stimme (bleibt auf dem
-     *  Gerät), sonst die Strecke über /api/speak (Android-WebView hat keine). */
+    /** Spricht einen fertigen Text: bevorzugt die hochwertige Cloud-Stimme
+     *  über /api/speak (Klaus / Edge-TTS), geglättet für fließenden Vortrag;
+     *  Rückfall auf die Browser-Stimme (bleibt auf dem Gerät, falls offline
+     *  oder Server-TTS fehlschlägt). */
     async function vorlesenText(sprech) {
         if (!sprech) return;
+        const geglaettet = erzaehlGlaetteFuerStimme(sprech);
+        const textZumSprechen = geglaettet || sprech;
         vorlesenStoppen();
         const hinweis = el('erzaehl-hinweis');
         if (hinweis) hinweis.textContent = '';
-        if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
-            const satz = new SpeechSynthesisUtterance(sprech);
-            satz.lang = 'de-DE';
-            const deutsch = window.speechSynthesis.getVoices().find((v) => (v.lang || '').startsWith('de'));
-            if (deutsch) satz.voice = deutsch;
-            window.speechSynthesis.speak(satz);
-            return;
-        }
         try {
             const res = await fetch(`${apiBase()}/api/speak`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: sprech.slice(0, 2000) }),
+                body: JSON.stringify({ text: textZumSprechen.slice(0, 2000) }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const url = URL.createObjectURL(await res.blob());
@@ -1202,7 +1229,19 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             audio.onerror = audio.onended;
             zustand.audio = audio;
             await audio.play();
+            return;
         } catch (_e) {
+            // Rückfall auf Browser-Stimme
+            if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
+                try {
+                    const satz = new SpeechSynthesisUtterance(textZumSprechen);
+                    satz.lang = 'de-DE';
+                    const deutsch = window.speechSynthesis.getVoices().find((v) => (v.lang || '').startsWith('de'));
+                    if (deutsch) satz.voice = deutsch;
+                    window.speechSynthesis.speak(satz);
+                    return;
+                } catch (_e2) { /* Fallback ebenfalls fehlgeschlagen */ }
+            }
             if (hinweis) hinweis.textContent = 'Vorlesen gerade nicht möglich.';
         }
     }

@@ -223,6 +223,15 @@ pruefe('Sprechtext: „·" wird Satzpause', erzaehlSprechtext('Auf diesem Bild: 
 pruefe('Sprechtext: kein Text -> leer', erzaehlSprechtext(null) === '');
 
 console.log('\n9b) Alles vorlesen — Tagebuch-Fassung des Eintrags (07.10.2026)');
+eval(extractFn('erzaehlGlaetteFuerStimme'));
+pruefe('Glätten: Klick-Hinweise entfernen',
+    erzaehlGlaetteFuerStimme('12 Bilder · Antippen öffnet ein Bild einzeln') === 'Insgesamt 12 Fotos.');
+pruefe('Glätten: Mehrere Personen zu sehen',
+    erzaehlGlaetteFuerStimme('Auf diesem Bild: A und B.') === 'Auf diesem Bild sind A und B zu sehen.');
+pruefe('Glätten: Einzelne Person zu sehen',
+    erzaehlGlaetteFuerStimme('Auf diesem Bild: Anna.') === 'Auf diesem Bild ist Anna zu sehen.');
+pruefe('Glätten: Erkannt wurden',
+    erzaehlGlaetteFuerStimme('Erkannt: Sebastian (5 Bilder).') === 'Erkannt wurden Sebastian mit 5 Fotos.');
 pruefe('Titel, Bildzahl, Personen, Notiz in dieser Reihenfolge, je als Satz',
     erzaehlAllesText(['Festival 2022', '12 Bilder · Antippen öffnet ein Bild einzeln',
         'Auf diesem Bild: A und B', 'Das war ein schöner Abend'])
@@ -243,8 +252,8 @@ pruefe('index.html: Personen-Zeilen in Übersicht und Einzelbild, versteckt bis 
 pruefe('index.html: 🔊 in beiden Zeilen', /id="erzaehl-personen-vorlesen"/.test(html) && /id="erzaehl-bild-personen-vorlesen"/.test(html));
 pruefe('lädt die Personen über die eigene Route', src.includes('/personen`') && src.includes('personenLaden(kennung)'));
 pruefe('veraltete Personen-Antwort wird verworfen', /if \(zustand\.aktuellesEreignis !== kennung\) return;/.test(src));
-pruefe('Vorlesen: zuerst Browser-Stimme, sonst /api/speak',
-    /function vorlesen[\s\S]*?speechSynthesis[\s\S]*?\/api\/speak/.test(src));
+pruefe('Vorlesen: bevorzugt /api/speak mit Rückfall auf Browser-Stimme',
+    /vorlesenText[\s\S]*?\/api\/speak[\s\S]*?speechSynthesis/.test(src));
 pruefe('Vorlesen nur auf Tipp (kein Aufruf außer in den Knopf-Handlern)',
     (src.match(/vorlesen\('/g) || []).length === 4);
 pruefe('index.html: Notizen-Kopf mit 🔊 in Übersicht und Einzelbild (versteckt)',
@@ -341,7 +350,7 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261026B', /erzaehlen\.js\?v=20261026B/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261031A', /erzaehlen\.js\?v=20261031A/.test(html));
 
 // Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
 eval(extractFn('erzaehlOrtText'));

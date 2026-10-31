@@ -72,6 +72,8 @@ POLISH_ANWEISUNG = (
     "- Die Anredeform oder den Sprechakt ändern.\n"
     "- Sätze umformulieren, kürzen oder eleganter machen.\n"
     "- Wörter hinzufügen, die nicht gesagt wurden.\n"
+    "- Maskierungs-Tokens wie [PERSON_01], [LOC_01], [ROLE_01], [PHONE_01], [EMAIL_01] "
+    "abändern oder entfernen — sie müssen unverändert im Text erhalten bleiben.\n"
     "- Erklärungen, Kommentare oder Anführungszeichen um das Ergebnis.\n\n"
     "Gib ausschließlich den bereinigten Text zurück."
 )
@@ -2038,24 +2040,37 @@ class LLMService:
         }
 
     # ── Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────────
-    def polish_text(self, raw_text: str) -> Optional[str]:
+    def polish_text(self, raw_text: str, shield: Optional[Any] = None) -> Optional[str]:
         """Glättet gesprochenen Text über die Modellkette: Füllwörter raus,
         Verhörer korrigiert — Anrede, Sprechakt und Fachbegriffe bleiben.
 
-        Scheitert ein Modell (abgekündigt, überlastet, unplausible Antwort),
-        wird das nächste versucht. Erst wenn alle scheitern, kommt None zurück
-        und der Aufrufer verwendet den Rohtext. Jeder Fehlschlag wird geloggt —
-        der frühere stille Ausfall (404 auf einem abgekündigten Modell) blieb
-        wochenlang unbemerkt.
+        PII-Shield schützt Namen, Kontakte und private Daten vor dem Senden
+        an das Cloud-LLM und stellt sie bei der Antwort deterministisch wieder her.
 
         Args:
             raw_text: Rohtext der Spracherkennung
+            shield: Optionaler PIIShield. Falls None, wird automatisch initialisiert.
 
         Returns:
             Geglätteter Text oder None bei Fehler (dann wird Rohtext verwendet)
         """
         if not self.is_configured or not raw_text:
             return None
+
+        # PII-Shield initialisieren und Prompt maskieren
+        if shield is None:
+            try:
+                from app.services.pii_shield import PIIShield
+                shield = PIIShield()
+                from app.services.werkzeuge import bekannte_namen_streng
+                bestand = bekannte_namen_streng()
+                if bestand and getattr(bestand, 'volle', None):
+                    for folge in bestand.volle:
+                        shield.register_person(" ".join(folge))
+            except Exception:
+                pass
+
+        geschuetzter_text = shield.encode(raw_text) if shield is not None else raw_text
 
         letzter_grund = "kein Modell versucht"
         for modell in POLISH_MODELS:
@@ -2065,7 +2080,7 @@ class LLMService:
                     messages=[
                         {"role": "system", "content": POLISH_ANWEISUNG},
                         {"role": "user",
-                         "content": f"Bereinige diesen gesprochenen Text:\n\n{raw_text}"},
+                         "content": f"Bereinige diesen gesprochenen Text:\n\n{geschuetzter_text}"},
                     ],
                     max_tokens=POLISH_MAX_TOKENS,
                     temperature=0.2,
@@ -2088,22 +2103,25 @@ class LLMService:
                 logger.warning("Glättung über %s lieferte leeren Text", modell)
                 continue
 
+            # PII Re-Substitution: Klarnamen und Daten deterministisch wiederherstellen
+            entmaskiert = shield.decode(polished) if shield is not None else polished
+
             # Plausibilitätsprüfung: Text darf nicht zu stark schrumpfen
             # Schwelle 0.3 statt 0.6 (legitime Kürzungen möglich, /critic #2)
             if (len(raw_text) >= PLAUSIBILITAETS_MINDESTLAENGE
-                    and len(polished) < len(raw_text) * PLAUSIBILITAETS_ANTEIL):
+                    and len(entmaskiert) < len(raw_text) * PLAUSIBILITAETS_ANTEIL):
                 letzter_grund = (f"{modell}: unplausibel "
-                                 f"({len(raw_text)} → {len(polished)} Zeichen)")
+                                 f"({len(raw_text)} → {len(entmaskiert)} Zeichen)")
                 logger.warning(
                     "Glättung über %s unplausibel (%d → %d Zeichen) – nächstes Modell",
-                    modell, len(raw_text), len(polished),
+                    modell, len(raw_text), len(entmaskiert),
                 )
                 continue
 
             if modell != POLISH_MODELS[0]:
                 logger.info("Glättung über Ausweichmodell %s gelungen", modell)
-            logger.debug("Geglättet (%d Zeichen): %s", len(polished), polished[:80])
-            return polished
+            logger.debug("Geglättet (%d Zeichen): %s", len(entmaskiert), entmaskiert[:80])
+            return entmaskiert
 
         logger.error("Keine Glättung möglich – Rohtext wird verwendet (%s)", letzter_grund)
         return None

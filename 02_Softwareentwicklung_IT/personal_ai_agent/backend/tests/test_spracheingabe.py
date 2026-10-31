@@ -235,6 +235,28 @@ def test_glattung_ohne_text_fragt_niemanden():
     assert chat.aufrufe == []
 
 
+def test_glattung_mit_pii_shield_maskiert_und_stellt_namen_wieder_her():
+    from app.services.pii_shield import PIIShield
+    shield = PIIShield()
+    shield.register_person("Sebastian")
+    shield.register_person("Leon")
+
+    # Der LLM-Chat erhält maskierten Text und antwortet mit den Tokens
+    chat = Chat({
+        POLISH_MODELS[0]: "Ich treffe [PERSON_01] und [PERSON_02] morgen.",
+    })
+    ergebnis = dienst_mit(chat=chat).polish_text("Ähm, ich treffe Sebastian und Leon morgen.", shield=shield)
+
+    # Der Prompt an OpenRouter enthielt keine echten Namen, nur Tokens
+    assert "[PERSON_01]" in chat.aufrufe[0]["text"]
+    assert "[PERSON_02]" in chat.aufrufe[0]["text"]
+    assert "Sebastian" not in chat.aufrufe[0]["text"]
+    assert "Leon" not in chat.aufrufe[0]["text"]
+
+    # Zurückgegebenes Ergebnis hat die Klarnamen deterministisch wiederhergestellt
+    assert ergebnis == "Ich treffe Sebastian und Leon morgen."
+
+
 # ── Vokabular ────────────────────────────────────────────────────────────────
 
 def test_vokabular_enthaelt_fachbegriffe_und_denglisch():

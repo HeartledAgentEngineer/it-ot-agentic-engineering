@@ -107,7 +107,7 @@ function lauf(gesicht, art, vorschlag) {
   const rumpf = extractFn('gesichtSpeichern');
   pruefe('die Weiche steht vor jedem jsonHolen-Aufruf', rumpf.indexOf('erzaehlGesichtHandHinweis') !== -1
       && rumpf.indexOf('erzaehlGesichtHandHinweis') < rumpf.indexOf('jsonHolen('));
-  pruefe('index.html lädt erzaehlen.js mit ?v=20261026B', /erzaehlen\.js\?v=20261026B/.test(html));
+  pruefe('index.html lädt erzaehlen.js mit ?v=20261031A', /erzaehlen\.js\?v=20261031A/.test(html));
 
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
   process.exit(fehler ? 1 : 0);
