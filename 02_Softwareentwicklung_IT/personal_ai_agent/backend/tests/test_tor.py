@@ -46,6 +46,12 @@ def test_finde_relevante_tests_pii():
     assert "tests/test_pii_shield.py" in tests
 
 
+def test_finde_relevante_tests_voice_session():
+    geaendert = ["02_Softwareentwicklung_IT/personal_ai_agent/backend/app/router/voice_stream.py"]
+    tests = tor.finde_relevante_tests(geaendert)
+    assert "tests/test_voice_session.py" in tests
+
+
 def test_finde_relevante_tests_kern_dateien_erzwingen_alles():
     for kern in [
         "02_Softwareentwicklung_IT/personal_ai_agent/backend/app/config.py",

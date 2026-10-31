@@ -117,6 +117,16 @@ def geaenderte_git_dateien() -> list[str]:
             res = subprocess.run(["git", "diff", "HEAD", "--name-only", "--diff-filter=ACMR"],
                                  cwd=str(WORKSPACE_ROOT), capture_output=True, text=True, check=False)
             dateien = [z.strip() for z in res.stdout.splitlines() if z.strip()]
+
+        # Neu angelegte Dateien (untracked) fuer selektive Tests erfassen
+        res_un = subprocess.run(["git", "status", "--porcelain"],
+                                cwd=str(WORKSPACE_ROOT), capture_output=True, text=True, check=False)
+        for line in res_un.stdout.splitlines():
+            if line.startswith("?? "):
+                pfad = line[3:].strip()
+                if "personal_ai_agent" in pfad and pfad not in dateien:
+                    dateien.append(pfad)
+
         return dateien
     except Exception:
         return []
