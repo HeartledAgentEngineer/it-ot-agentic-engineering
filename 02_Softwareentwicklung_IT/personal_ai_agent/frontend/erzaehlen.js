@@ -334,23 +334,8 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
     if (entsperrtSet && typeof entsperrtSet.has === 'function' && entsperrtSet.has(fid)) {
         return false;
     }
+    // Sebastian 31.10.2026: Intimer Inhalt Verdeckung deaktiviert. Automatisch Nicht privat.
     if (privSet && typeof privSet.has === 'function' && privSet.has(fid)) return true;
-    if (detail && typeof detail === 'object') {
-        if (detail.intim === true) return true;
-        const kat = String(detail.kategorie || '');
-        if (/intim|genital/i.test(kat)) return true;
-    }
-    if (bildInfo && typeof bildInfo === 'object' && bildInfo.bilder && bildInfo.bilder[fid]) {
-        const b = bildInfo.bilder[fid];
-        if (b.privat === true || b.intim === true) return true;
-        const beschr = String(b.beschreibung || b.beschreibung_reich || '');
-        if (/genital|geschlecht|penis|vagina|scham|aktfoto|erotik/i.test(beschr)) {
-            return true;
-        }
-        if (/nackt/i.test(beschr) && !/nackt\w*\s+(?:oberkörper|füße|beine|arme|schultern)/i.test(beschr)) {
-            return true;
-        }
-    }
     return false;
 }
 
@@ -926,6 +911,11 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             inhalt = einzel
                 ? erzaehlPersonenBild((zustand.personen.bilder || {})[String(aktuelleDateiKennung())])
                 : erzaehlPersonenUebersicht(zustand.personen);
+            if (einzel && inhalt) {
+                // Sebastian 31.10.2026: Keine verwirrenden "noch ohne Namen" Zeilen im Einzelbild
+                inhalt = inhalt.replace(/\s*·\s*\d+\s+Person(?:en)?\s+noch\s+ohne\s+Namen/g, '')
+                               .replace(/^Auf diesem Bild:\s*\d+\s+Person(?:en)?\s+noch\s+ohne\s+Namen$/g, '');
+            }
         } else if (zustand.personenFehler && !einzel) {
             inhalt = 'Personen: ' + zustand.personenFehler;
         }
@@ -1578,6 +1568,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (beschreibungToggleBtn) {
             beschreibungToggleBtn.onclick = (ev) => {
                 ev.stopPropagation();
+                const infoBlock = el('erzaehl-bild-info');
+                if (infoBlock) infoBlock.hidden = false;
+                const gesichtBearbeiten = el('erzaehl-gesicht-bearbeiten');
+                if (gesichtBearbeiten) gesichtBearbeiten.hidden = true;
                 if (beschreibungEditor) {
                     const warVersteckt = beschreibungEditor.hidden;
                     beschreibungEditor.hidden = !warVersteckt;
@@ -1593,6 +1587,14 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             beschreibungAbbrechenBtn.onclick = (ev) => {
                 ev.stopPropagation();
                 if (beschreibungEditor) beschreibungEditor.hidden = true;
+                const infoBlock = el('erzaehl-bild-info');
+                const ortBlock = el('erzaehl-bild-ort');
+                const textBlock = el('erzaehl-bild-beschreibung');
+                const hatOrt = ortBlock && !ortBlock.hidden && ortBlock.textContent.trim();
+                const hatText = textBlock && !textBlock.hidden && textBlock.textContent.trim();
+                if (infoBlock && !hatOrt && !hatText) {
+                    infoBlock.hidden = true;
+                }
             };
         }
         if (beschreibungSpeichernBtn) {
@@ -1621,6 +1623,63 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     }
                 } catch (e) {
                     console.error('Fehler beim Speichern der Bildbeschreibung:', e);
+                }
+            };
+        }
+
+        
+        // KI-Bildgeschichten-Generator (Ich-Form vs. Erzählersicht) (31.10.2026)
+        const kiBtn = el('erzaehl-ki-geschichte-btn');
+        const persToggle = el('erzaehl-perspektive-toggle');
+        if (persToggle) {
+            if (!zustand.perspektive) zustand.perspektive = 'ich';
+            persToggle.onclick = (ev) => {
+                ev.stopPropagation();
+                zustand.perspektive = zustand.perspektive === 'ich' ? 'erzaehler' : 'ich';
+                persToggle.textContent = zustand.perspektive === 'ich' ? '👤 Ich-Form' : '📖 Erzähler';
+                persToggle.title = zustand.perspektive === 'ich'
+                    ? 'Perspektive: Ich-Form (klicken für neutrale Erzählersicht)'
+                    : 'Perspektive: Neutrale Erzählersicht (klicken für Ich-Form)';
+            };
+        }
+
+        if (kiBtn) {
+            kiBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                kiBtn.disabled = true;
+                const altText = kiBtn.textContent;
+                kiBtn.textContent = '✨ Generiere…';
+                try {
+                    const res = await jsonSenden('/api/erzaehlen/ki-geschichte', {
+                        fileid: String(dateiKennung),
+                        perspektive: zustand.perspektive || 'ich',
+                        ereignis_kennung: zustand.aktuellesEreignis,
+                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
+                        ort: el('erzaehl-bild-ort-text') ? el('erzaehl-bild-ort-text').textContent : '',
+                        datum: (meinDetail && meinDetail.datum) || '',
+                    });
+                    if (res && res.ok && res.geschichte) {
+                        const infoBlock = el('erzaehl-bild-info');
+                        if (infoBlock) infoBlock.hidden = false;
+                        if (beschreibungTextEl) {
+                            beschreibungTextEl.textContent = res.geschichte;
+                            beschreibungTextEl.hidden = false;
+                        }
+                        if (bild) bild.dataset.beschreibung = res.geschichte;
+                        const eingabeFeld = el('erzaehl-text');
+                        if (eingabeFeld) {
+                            eingabeFeld.value = res.geschichte;
+                            eingabeFeld.focus();
+                        }
+                        await vorlesenText(res.geschichte);
+                    } else {
+                        console.error('Fehler bei der Bildgeschichte:', res && res.fehler);
+                    }
+                } catch (e) {
+                    console.error('Netzwerkfehler bei der Bildgeschichte:', e);
+                } finally {
+                    kiBtn.disabled = false;
+                    kiBtn.textContent = altText;
                 }
             };
         }

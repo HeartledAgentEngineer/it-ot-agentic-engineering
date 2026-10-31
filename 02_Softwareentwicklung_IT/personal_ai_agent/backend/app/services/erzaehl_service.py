@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -824,3 +825,162 @@ def titel_setzen(kennung: str, name: Any) -> Dict[str, Any]:
         os.fsync(datei.fileno())
     titel, eigen = _titel_fuer(ereignis, eigene_titel())
     return {"kennung": ek, "titel": titel, "titel_eigen": eigen, "titel_automatisch": _titel_aus(ereignis)}
+
+
+def format_datum_de(datum_str: Optional[str]) -> str:
+    """Wandelt '2018-07-15' oder '2018' in natuerliches Deutsch um ('am 15. Juli 2018' / 'im Jahr 2018')."""
+    if not datum_str:
+        return ""
+    s = str(datum_str).strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        jahr, monat, tag = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        monate = [
+            "Januar", "Februar", "Maerz", "April", "Mai", "Juni",
+            "Juli", "August", "September", "Oktober", "November", "Dezember"
+        ]
+        if 1 <= monat <= 12:
+            return f"am {tag}. {monate[monat - 1]} {jahr}"
+    m_jahr = re.match(r"^(\d{4})", s)
+    if m_jahr:
+        return f"im Jahr {m_jahr.group(1)}"
+    return s
+
+
+def ki_geschichte_generieren(fileid: Any,
+                             perspektive: str = "ich",
+                             ereignis_kennung: Optional[str] = None,
+                             notiz: Optional[str] = None,
+                             ort: Optional[str] = None,
+                             datum: Optional[str] = None,
+                             personen: Optional[List[str]] = None,
+                             beschreibung: Optional[str] = None) -> Dict[str, Any]:
+    """Erzeugt eine lebendige Bildgeschichte aus Bilddaten, Personen und Notizen (31.10.2026).
+    Waehlbar in 'ich'-Perspektive (Ich-Form) oder 'erzaehler' (neutrale Sicht)."""
+    fid = _als_zahl(fileid)
+    if fid is None:
+        return {"ok": False, "fehler": "Ungueltige Bildkennung."}
+
+    perspektive = "erzaehler" if str(perspektive).lower().startswith("erz") else "ich"
+
+    # 1. Bildbeschreibung ermitteln
+    if not beschreibung:
+        beschreibung = beschreibung_holen(fid) or ""
+
+    # 2. Notiz / vorhandene Geschichte ermitteln
+    if not notiz:
+        alte_geschichten = geschichten(datei_kennung=fid)
+        if alte_geschichten:
+            notiz = alte_geschichten[-1].get("text") or ""
+
+    # 3. Personen auf dem Bild ermitteln
+    if personen is None:
+        try:
+            from app.services import gruppen_quiz
+            wb = gruppen_quiz.personen_auf_bildern([str(fid)])
+            b_info = (wb.get("bilder") or {}).get(str(fid)) or {}
+            personen = b_info.get("namen") or []
+        except Exception:
+            personen = []
+
+    # 4. Ort und Datum aus Ereignis/Bilddaten ergaenzen
+    if ereignis_kennung:
+        if not ort or not datum:
+            try:
+                b_info = bilder_info(ereignis_kennung)
+                if b_info and b_info.get("bilder"):
+                    img_data = b_info["bilder"].get(str(fid)) or {}
+                    if not ort and img_data.get("ort"):
+                        ort = img_data["ort"]
+                    if not datum and img_data.get("datum"):
+                        datum = img_data["datum"]
+            except Exception:
+                pass
+        if not datum:
+            try:
+                detail = ereignis_detail(ereignis_kennung)
+                if detail:
+                    datum = detail.get("datum")
+            except Exception:
+                pass
+
+    datum_text = format_datum_de(datum)
+    ort_sauber = str(ort).strip() if ort else ""
+    pers_liste = [p.strip() for p in (personen or []) if p and p.strip()]
+
+    if pers_liste:
+        if len(pers_liste) == 1:
+            pers_text = pers_liste[0]
+        else:
+            pers_text = ", ".join(pers_liste[:-1]) + " und " + pers_liste[-1]
+    else:
+        pers_text = ""
+
+    saetze: List[str] = []
+    if perspektive == "ich":
+        if datum_text and ort_sauber:
+            saetze.append(f"Ich erinnere mich gut an diesen Moment {datum_text} in {ort_sauber}.")
+        elif datum_text:
+            saetze.append(f"Ich erinnere mich gut an diese Zeit {datum_text}.")
+        elif ort_sauber:
+            saetze.append(f"Dieses Foto entstand in {ort_sauber}.")
+        else:
+            saetze.append("Ein schoener Moment, der hier auf diesem Foto festgehalten ist.")
+
+        if pers_liste:
+            andere = [p for p in pers_liste if p.casefold() != "sebastian"]
+            if len(andere) == len(pers_liste):
+                saetze.append(f"Auf dem Bild sind {pers_text} zu sehen.")
+            elif andere:
+                andere_text = ", ".join(andere[:-1]) + " und " + andere[-1] if len(andere) > 1 else andere[0]
+                saetze.append(f"Auf dem Foto bin ich zusammen mit {andere_text} zu sehen.")
+            else:
+                saetze.append("Auf diesem Bild bin ich allein zu sehen.")
+
+        if beschreibung:
+            b_clean = beschreibung.strip()
+            saetze.append(f"Das Bild zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}." if not b_clean.startswith("Das") else b_clean)
+
+        if notiz:
+            saetze.append(f"Meine Erinnerung dazu: {notiz.strip().rstrip('.')}.")
+        elif not beschreibung and len(saetze) <= 2:
+            saetze.append("Es ist eine wertvolle Erinnerung in meiner Sammlung.")
+
+    else:  # erzaehler
+        if datum_text and ort_sauber:
+            saetze.append(f"Eine Aufnahme {datum_text} aus {ort_sauber}.")
+        elif datum_text:
+            saetze.append(f"Eine Aufnahme {datum_text}.")
+        elif ort_sauber:
+            saetze.append(f"Dieses Foto wurde in {ort_sauber} aufgenommen.")
+        else:
+            saetze.append("Ein festgehaltener Augenblick aus dem Fotoarchiv.")
+
+        if pers_liste:
+            saetze.append(f"Auf diesem Bild sind {pers_text} zu sehen.")
+
+        if beschreibung:
+            b_clean = beschreibung.strip()
+            saetze.append(f"Die Aufnahme zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}." if not b_clean.startswith("Die") else b_clean)
+
+        if notiz:
+            saetze.append(f"Dazu die persoenliche Notiz: \"{notiz.strip().rstrip('.')}\".")
+        elif not beschreibung and len(saetze) <= 2:
+            saetze.append("Ein lebendiges Zeitdokument in der Fotogalerie.")
+
+    geschichte_text = " ".join(saetze)
+
+    return {
+        "ok": True,
+        "fileid": fid,
+        "perspektive": perspektive,
+        "geschichte": geschichte_text,
+        "daten": {
+            "datum": datum,
+            "datum_lesbar": datum_text,
+            "ort": ort_sauber,
+            "personen": pers_liste,
+            "beschreibung": beschreibung,
+            "notiz": notiz or ""
+        }
+    }

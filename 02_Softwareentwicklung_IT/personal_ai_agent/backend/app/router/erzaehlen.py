@@ -19,7 +19,7 @@ Eiserne Regeln
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -238,3 +238,29 @@ def bild_beschreibung_holen(fileid: str = Query(..., min_length=1, max_length=30
 @router.post("/bild-beschreibung")
 def bild_beschreibung_speichern(eingabe: BildBeschreibungEingabe) -> Dict[str, Any]:
     return erzaehl_service.beschreibung_speichern(eingabe.fileid, eingabe.beschreibung)
+
+
+class KiGeschichteEingabe(BaseModel):
+    fileid: str = Field(..., min_length=1, max_length=50)
+    perspektive: str = Field(default="ich", pattern="^(ich|erzaehler)$")
+    ereignis_kennung: Optional[str] = Field(default=None, max_length=200)
+    notiz: Optional[str] = Field(default=None, max_length=2000)
+    ort: Optional[str] = Field(default=None, max_length=500)
+    datum: Optional[str] = Field(default=None, max_length=50)
+    personen: Optional[List[str]] = Field(default=None)
+    beschreibung: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.post("/ki-geschichte")
+def ki_geschichte(eingabe: KiGeschichteEingabe) -> Dict[str, Any]:
+    """Generiert eine lebendige Bildgeschichte in Ich-Form oder Erzaehlersicht (31.10.2026)."""
+    return erzaehl_service.ki_geschichte_generieren(
+        fileid=eingabe.fileid,
+        perspektive=eingabe.perspektive,
+        ereignis_kennung=eingabe.ereignis_kennung,
+        notiz=eingabe.notiz,
+        ort=eingabe.ort,
+        datum=eingabe.datum,
+        personen=eingabe.personen,
+        beschreibung=eingabe.beschreibung,
+    )

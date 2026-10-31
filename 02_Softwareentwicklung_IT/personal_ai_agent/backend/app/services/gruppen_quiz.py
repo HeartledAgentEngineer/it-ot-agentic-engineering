@@ -117,6 +117,16 @@ FEHLT_HINWEIS = ("Die Gruppen-Datei fehlt hier. Am PC "
 
 _SCHREIBSPERRE = threading.Lock()
 _CACHE: Dict[str, Tuple[Tuple[float, int], Any]] = {}
+
+
+def invalidiere_cache() -> None:
+    """Leert Caches im Gruppen-Quiz und Lebensabschnitts-Dienst (z. B. nach Zuordnung/Benennung)."""
+    _CACHE.clear()
+    try:
+        from app.services import lebensabschnitte_service
+        lebensabschnitte_service.invalidiere_cache()
+    except Exception:
+        pass
 _PROJEKT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
@@ -1488,6 +1498,7 @@ def ausschliessen(kennung: str, gids: Iterable[str], *, aufheben: bool = False,
                "gesamt": rest.get("gesamt", 0)}
     if aufheben:
         antwort["zuordnungen_aufgehoben"] = len(aufgehoben)
+    invalidiere_cache()
     return antwort
 
 
@@ -1776,6 +1787,7 @@ def zuordnen(name: str, eintraege: Iterable[Any], *,
     except OSError as fehler:
         logger.error("Zuordnen fehlgeschlagen: %s", fehler)
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    invalidiere_cache()
     return {"ok": True, "name": echter, "zugeordnet": len(neu)}
 
 
@@ -2282,6 +2294,7 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
     except OSError as fehler:
         logger.error("Umbenennen fehlgeschlagen: %s", fehler)
         return {"ok": False, "fehler": f"Speichern fehlgeschlagen ({fehler.__class__.__name__})."}
+    invalidiere_cache()
     erg = person(neu_s)
     erg["zusammengefuehrt"] = bool(andere)
     return erg
@@ -2568,6 +2581,7 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
         _atomar_schreiben(PROFILE_DATEINAME, profile)
     _atomar_schreiben(STAND_DATEINAME, st)
     _protokoll_anhaengen(eintrag)
+    invalidiere_cache()
     return eintrag
 
 

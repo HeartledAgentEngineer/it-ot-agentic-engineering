@@ -5191,6 +5191,13 @@ async function speichereBildCloud(btn) {
     melde(text, m.ok);
     zurueck(m.ok ? '✓ gespeichert' : '⚠️ Fehler');
     setTimeout(function () { zurueck('💾 Speichern'); }, m.ok ? 1800 : 2400);
+    if (m.ok && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        try {
+            window.dispatchEvent(new CustomEvent('bild-rahmen-gespeichert', {
+                detail: { fileid: ziel.fileid, antwort: antwort, aenderungen: plan.aenderungen }
+            }));
+        } catch (_evErr) {}
+    }
     return { ok: m.ok, gesendet: plan.aenderungen.length };
 }
 

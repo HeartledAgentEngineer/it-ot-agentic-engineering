@@ -198,7 +198,7 @@ def suche(q: str = Query(default="", max_length=60),
 def gesichter(kennung: Optional[str] = Query(default=None, min_length=1, max_length=40),
               name: Optional[str] = Query(default=None, min_length=1, max_length=120),
               seite: int = Query(default=1, ge=1, le=10000),
-              ordnung: str = Query(default="guete", pattern="^(guete|zeit)$")) -> Dict[str, Any]:
+              ordnung: str = Query(default="zeit", pattern="^(guete|zeit)$")) -> Dict[str, Any]:
     """Gesichter eines Vorschlags (``kennung``) oder einer Person über alle Vorschläge (``name``).
     ``ordnung=zeit`` (10.10.2026): nach Aufnahme sortiert, für Zeitblöcke."""
     if name:
@@ -284,3 +284,16 @@ def andocken(eingabe: AndockenEingabe) -> Dict[str, Any]:
         kennungen=eingabe.kennungen,
         ziel_name=eingabe.ziel_name,
     )
+
+
+@router.post("/neu-vorsortieren")
+def neu_vorsortieren() -> Dict[str, Any]:
+    """Leert Caches und berechnet die Phasen-Zentroide sowie Vorschlaege neu (Handy-Knopf)."""
+    from app.services import lebensabschnitte_service
+    gruppen_quiz.invalidiere_cache()
+    kandidaten = lebensabschnitte_service.andocken_kandidaten()
+    return {
+        "ok": True,
+        "kandidaten_anzahl": len(kandidaten),
+        "meldung": f"Zentroide aktualisiert. {len(kandidaten)} Vorschlaege verfuegbar."
+    }

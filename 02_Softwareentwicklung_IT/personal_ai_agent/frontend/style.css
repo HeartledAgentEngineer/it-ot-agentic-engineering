@@ -1907,6 +1907,8 @@ button.footer-note:hover {
 
 /* Was und wo (07.10.2026): Orte der Gruppe, Ort und Beschreibung je Bild. */
 .erzaehl-info {
+    position: relative;
+    z-index: 10;
     display: flex;
     flex-direction: column;
     gap: 4px;

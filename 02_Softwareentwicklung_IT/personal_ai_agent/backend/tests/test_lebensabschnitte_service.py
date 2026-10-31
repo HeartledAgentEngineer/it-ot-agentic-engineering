@@ -281,3 +281,98 @@ def test_gruppen_quiz_andocken_trocken_und_schreiben(tmp_path: Path, monkeypatch
     # Jetzt bestätigt
     bestaetigt = gq.bestaetigt_lesen()
     assert bestaetigt.get("Gruppe_Offen_1") == "Albrecht"
+
+
+def test_phasen_zentroide_und_cosinus_aehnlichkeit(tmp_path: Path):
+    v1 = [0.1] * 128
+    v2 = [-0.1] * 128
+    v_norm1 = ls.cosinus_aehnlichkeit(v1, v1)
+    assert abs(v_norm1 - 1.0) < 1e-5
+    v_opp = ls.cosinus_aehnlichkeit(v1, v2)
+    assert abs(v_opp - (-1.0)) < 1e-5
+
+    kennungen_datei = tmp_path / "kennungen.json"
+    kennungen_datei.write_text(json.dumps({
+        "kennungen": [
+            {"kennung": "Person_100", "mittelpunkt": [0.0] * 64 + [1.0] * 64},
+            {"kennung": "Person_101", "mittelpunkt": [1.0] * 64 + [0.0] * 64},
+        ]
+    }), encoding="utf-8")
+
+    vorschlaege = [
+        {
+            "kennung": "Person_100",
+            "groesse": 10,
+            "von": "2012-01-01",
+            "bis": "2012-12-31",
+            "beispiele": [{"fileid": "f1", "aufnahme": "2012-05-01"}],
+        }
+    ]
+    res = ls.lebensabschnitte_fuer_person("TestPerson", vorschlaege=vorschlaege, basis_pfad=str(tmp_path))
+    assert res["ok"] is True
+    assert len(res["phasen"]) == 1
+    phase = res["phasen"][0]
+    assert phase["zentroid"] is not None
+    assert len(phase["zentroid"]) == 128
+    norm = sum(x*x for x in phase["zentroid"]) ** 0.5
+    assert abs(norm - 1.0) < 1e-3
+
+
+def test_zwillings_trennung_vektor_und_cannot_link(tmp_path: Path):
+    seb_vec = [0.8] * 64 + [0.2] * 64
+    jul_vec = [0.2] * 64 + [0.8] * 64
+    offen_seb_nah = [0.75] * 64 + [0.25] * 64
+    offen_jul_nah = [0.25] * 64 + [0.75] * 64
+
+    kennungen_datei = tmp_path / "kennungen.json"
+    kennungen_datei.write_text(json.dumps({
+        "kennungen": [
+            {"kennung": "Gruppe_Seb", "mittelpunkt": seb_vec},
+            {"kennung": "Gruppe_Jul", "mittelpunkt": jul_vec},
+            {"kennung": "Gruppe_Offen_Seb", "mittelpunkt": offen_seb_nah},
+            {"kennung": "Gruppe_Offen_Jul", "mittelpunkt": offen_jul_nah},
+        ]
+    }), encoding="utf-8")
+
+    personen_phasen = {
+        "Sebastian": [{
+            "phase_id": "phase-2010-2012",
+            "titel": "2010 – 2012",
+            "von_jahr": 2010,
+            "bis_jahr": 2012,
+            "zentroid": seb_vec,
+            "aussage": "Sebastian in 2010-2012",
+        }],
+        "Julian": [{
+            "phase_id": "phase-2010-2012",
+            "titel": "2010 – 2012",
+            "von_jahr": 2010,
+            "bis_jahr": 2012,
+            "zentroid": jul_vec,
+            "aussage": "Julian in 2010-2012",
+        }]
+    }
+
+    # 1. Vektor-Differenzierung: Offene Gruppe ist Sebastian ähnlicher
+    gruppe_seb = {"kennung": "Gruppe_Offen_Seb", "von": "2011-06-01", "groesse": 5}
+    v_seb = ls.vorschlag_fuer_offene_gruppe(gruppe_seb, personen_phasen=personen_phasen, basis_pfad=str(tmp_path))
+    assert v_seb is not None
+    assert v_seb["name"] == "Sebastian"
+    assert v_seb["sicherheit"] == 0.85
+
+    # 2. Vektor-Differenzierung: Offene Gruppe ist Julian ähnlicher
+    gruppe_jul = {"kennung": "Gruppe_Offen_Jul", "von": "2011-06-01", "groesse": 5}
+    v_jul = ls.vorschlag_fuer_offene_gruppe(gruppe_jul, personen_phasen=personen_phasen, basis_pfad=str(tmp_path))
+    assert v_jul is not None
+    assert v_jul["name"] == "Julian"
+    assert v_jul["sicherheit"] == 0.85
+
+
+def test_invalidiere_cache():
+    ls._PHASEN_CACHE["test"] = ((), {})
+    ls._BEZIEHUNGEN_CACHE["test"] = ((), {})
+    ls._MITTELPUNKTE_CACHE["test"] = ((), {})
+    ls.invalidiere_cache()
+    assert len(ls._PHASEN_CACHE) == 0
+    assert len(ls._BEZIEHUNGEN_CACHE) == 0
+    assert len(ls._MITTELPUNKTE_CACHE) == 0

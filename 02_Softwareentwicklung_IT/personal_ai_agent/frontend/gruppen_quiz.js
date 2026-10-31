@@ -55,8 +55,13 @@ function gesichtKennung(beispiel) {
 /** Kennung des Gesichts in der Bild-Sicht des Servers (``gid`` = "<fileid>:<index>"),
  *  sonst "" (Personenvorschläge tragen keine). Bild-Editor B4 (27.10.2026). */
 function gesichtGid(beispiel) {
-    if (!beispiel || beispiel.gid == null) return '';
-    return String(beispiel.gid);
+    if (!beispiel) return '';
+    if (beispiel.gid != null && beispiel.gid !== '') return String(beispiel.gid);
+    const fid = beispiel.fileid != null ? beispiel.fileid : beispiel.bild_id;
+    if (fid != null && beispiel.index != null) {
+        return String(fid).trim() + ':' + String(beispiel.index).trim();
+    }
+    return '';
 }
 
 /** Darf der Editor dieses Foto mit den Cloud-Routen bearbeiten? Nur echte Fotos mit
@@ -890,7 +895,10 @@ function gruppenNotizZeit(zeit) {
         // genau das Gesicht, das zu dieser Gruppe gehört.
         const kennung = gesichtKennung(beispiel);
         const rahmen = gesichtRahmen(beispiel);
+        const gid = gesichtGid(beispiel);
         const box = document.createElement('button');
+        if (gid) box.dataset.gid = gid;
+        if (kennung) box.dataset.fileid = kennung;
         box.type = 'button';
         box.className = 'gruppen-kachel' + (klein ? ' klein' : '');
         box.title = beispiel.aufnahme ? ('Aufnahme ' + beispiel.aufnahme) : 'Foto';
@@ -961,7 +969,7 @@ function gruppenNotizZeit(zeit) {
     // Die Sortierung bleibt für die Sitzung gewählt, auch beim nächsten Vorschlag.
     const alle = { kennung: null, name: null, seite: 0, seiten: 0, geladen: 0, letzte: null,
                    markiert: new Set(), kennungJeGid: new Map(), laedt: false, beobachter: null,
-                   ordnung: 'guete', letztesJahr: null,
+                   ordnung: 'zeit', letztesJahr: null,
                    // S4 (16.10.2026): läuft ein Auswahlmodus, schalten kurze Klicks um,
                    // sonst öffnen sie das Bild (die Vergrößerungs-Symbole entfallen).
                    auswahlModus: false };
@@ -2609,6 +2617,37 @@ function gruppenNotizZeit(zeit) {
         if (alleOrdnung) alleOrdnung.addEventListener('click', alleOrdnungWechseln);
         const alleAuswahlEnde = el('gruppen-alle-auswahl-ende');
         if (alleAuswahlEnde) alleAuswahlEnde.addEventListener('click', alleAuswahlBeenden);
+        if (typeof window !== 'undefined') {
+            window.addEventListener('bild-rahmen-gespeichert', (ev) => {
+                const detail = ev && ev.detail;
+                if (!detail || !Array.isArray(detail.aenderungen)) return;
+                const entferntGids = new Set();
+                detail.aenderungen.forEach((a) => {
+                    if (a && a.gid && (a.entfernen || a.name)) {
+                        entferntGids.add(String(a.gid));
+                    }
+                });
+                if (!entferntGids.size) return;
+                entferntGids.forEach((gid) => {
+                    document.querySelectorAll(`.gruppen-kachel[data-gid="${gid}"]`).forEach((k) => {
+                        k.remove();
+                    });
+                });
+                const quizKarte = el('gruppen-quiz-karte');
+                if (quizKarte && !quizKarte.hidden) {
+                    const uebrig = quizKarte.querySelectorAll('.gruppen-kachel');
+                    if (!uebrig.length) {
+                        naechste();
+                    }
+                }
+                const alleAnsicht = el('gruppen-alle-ansicht');
+                if (alleAnsicht && !alleAnsicht.hidden && alle.letzte) {
+                    alle.letzte.gesamt = Math.max(0, (Number(alle.letzte.gesamt) || 0) - entferntGids.size);
+                    const infoEl = el('gruppen-alle-info');
+                    if (infoEl) infoEl.textContent = gruppenAlleInfo(alle.letzte, alle.geladen);
+                }
+            });
+        }
         const zurueckFertig = el('gruppen-zurueck-fertig');
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
         const uebersicht = el('gruppen-uebersicht');
@@ -2720,6 +2759,35 @@ function gruppenNotizZeit(zeit) {
                     melde('⚠️ Server nicht erreichbar.', false);
                 } finally {
                     andockenAusfuehren.disabled = false;
+                }
+            });
+        }
+
+        const neuVorsortierenBtn = el('gruppen-neu-vorsortieren-btn');
+        if (neuVorsortierenBtn) {
+            neuVorsortierenBtn.addEventListener('click', async () => {
+                neuVorsortierenBtn.disabled = true;
+                const altText = neuVorsortierenBtn.textContent;
+                neuVorsortierenBtn.textContent = '↻ Sortiere neu…';
+                melde('Berechne Phasen-Zentroide und sortiere neu …', true);
+                try {
+                    const daten = await jsonFetch('/api/gruppen/neu-vorsortieren', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                    if (daten && daten.ok) {
+                        melde('✓ ' + (daten.meldung || 'Neu vorsortiert.'), true);
+                        if (andockenBtn) andockenBtn.click();
+                        if (typeof gruppenListeLaden === 'function') gruppenListeLaden();
+                    } else {
+                        melde('⚠️ ' + ((daten && daten.fehler) || 'Neusortierung fehlgeschlagen.'), false);
+                    }
+                } catch (_err) {
+                    melde('⚠️ Server nicht erreichbar.', false);
+                } finally {
+                    neuVorsortierenBtn.disabled = false;
+                    neuVorsortierenBtn.textContent = altText;
                 }
             });
         }

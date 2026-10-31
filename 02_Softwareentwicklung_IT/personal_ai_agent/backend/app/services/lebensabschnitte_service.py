@@ -7,6 +7,11 @@ Warum dieses Modul:
   in chronologische Lebensabschnitte (Phasen nach Jahren), leitet belegbare
   Aussagen über Zeiträume und Begleitpersonen ab und liefert Vorschläge für
   offene Gruppen auf dem Gerät.
+  Seit 31.10.2026:
+    * 100 % aller Gesichter aus gesicht_zuordnung.jsonl werden lückenlos abgedeckt.
+    * Kontinuierliche 128-dim Phasen-Zentroide (Embedding-Mittelwert je Lebensabschnitt).
+    * Zwillings-Differenzierung (Sebastian vs. Julian) über Vektorabstand und Cannot-Link.
+    * Temporal-Filter für Kinder- und Jugendphasen.
 
 Eigenschaften:
   * Rein lokal: keine externen Netzanrufe, keine Modellkosten, nur lokale Daten.
@@ -28,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Maximale Lücke in Jahren innerhalb einer zusammenhängenden Phase
 PHASEN_LUECKE_MAX = 2
-# Maximale Zeitspanne einer Phase in Jahren, bevor bei vorhandener Lücke getrennt wird
+# Maximale Zeitspanne einer Phase in Jahren, bevor getrennt wird
 PHASEN_SPANNE_MAX = 5
 
 
@@ -71,7 +76,7 @@ def phasen_bilden_jahre(jahre: List[int]) -> List[Tuple[int, int]]:
     for j in bereinigt[1:]:
         luecke = j - akt_bis
         spanne = j - akt_von
-        if luecke > PHASEN_LUECKE_MAX or (spanne > PHASEN_SPANNE_MAX and luecke > 1):
+        if luecke > PHASEN_LUECKE_MAX or spanne >= PHASEN_SPANNE_MAX:
             phasen.append((akt_von, akt_bis))
             akt_von = j
             akt_bis = j
@@ -90,6 +95,110 @@ def _basis_ordner(basis_pfad: Optional[str] = None) -> str:
 
 
 _BEZIEHUNGEN_CACHE: Dict[str, Tuple[Tuple[float, int], Dict[str, List[Tuple[Optional[int], List[str]]]]]] = {}
+_MITTELPUNKTE_CACHE: Dict[str, Tuple[Tuple[float, int], Dict[str, List[float]]]] = {}
+_PHASEN_CACHE: Dict[str, Tuple[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]]] = {}
+
+
+def invalidiere_cache() -> None:
+    """Leert alle internen Caches für Phasen, Beziehungen und Vektoren."""
+    _PHASEN_CACHE.clear()
+    _BEZIEHUNGEN_CACHE.clear()
+    _MITTELPUNKTE_CACHE.clear()
+
+
+def _kennungen_mittelpunkte(basis_pfad: Optional[str] = None) -> Dict[str, List[float]]:
+    """Liest die 128-dimensionalen SFace-Mittelpunkte aus kennungen.json."""
+    from app.services import gruppen_quiz
+    b = _basis_ordner(basis_pfad)
+    for p in (os.path.join(b, gruppen_quiz.UNTERORDNER, "kennungen.json"), os.path.join(b, "kennungen.json")):
+        if os.path.isfile(p):
+            try:
+                st = os.stat(p)
+                sig = (st.st_mtime, st.st_size)
+            except OSError:
+                continue
+            cached = _MITTELPUNKTE_CACHE.get(p)
+            if cached and cached[0] == sig:
+                return cached[1]
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    daten = json.load(f)
+                mps: Dict[str, List[float]] = {}
+                for e in daten.get("kennungen", []) if isinstance(daten, dict) else []:
+                    if isinstance(e, dict) and e.get("kennung") and isinstance(e.get("mittelpunkt"), list):
+                        mps[str(e["kennung"])] = e["mittelpunkt"]
+                _MITTELPUNKTE_CACHE[p] = (sig, mps)
+                return mps
+            except Exception as fehler:
+                logger.warning("kennungen.json nicht lesbar: %s", fehler)
+                return {}
+    return {}
+
+
+def cosinus_aehnlichkeit(v1: Optional[List[float]], v2: Optional[List[float]]) -> float:
+    """Berechnet die Kosinus-Ähnlichkeit zweier 128-dim Vektoren."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot = 0.0
+    n1 = 0.0
+    n2 = 0.0
+    for a, b in zip(v1, v2):
+        dot += a * b
+        n1 += a * a
+        n2 += b * b
+    if n1 <= 0.0 or n2 <= 0.0:
+        return 0.0
+    return dot / ((n1 * n2) ** 0.5)
+
+
+def _alle_gesichter_fuer_person(name: str, basis_pfad: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Gibt alle bestätigten und zugeordneten Gesichter einer Person mit Aufnahme-Datum zurück.
+    Liest direkt aus gesicht_zuordnung.jsonl (über gruppen_quiz._gemerkt). Nie ein Wurf."""
+    from app.services import gruppen_quiz
+    b = _basis_ordner(basis_pfad)
+    pfad = None
+    for p in (os.path.join(b, gruppen_quiz.UNTERORDNER, gruppen_quiz.ZUORDNUNG_DATEINAME),
+              os.path.join(b, gruppen_quiz.ZUORDNUNG_DATEINAME)):
+        if os.path.isfile(p):
+            pfad = p
+            break
+    if not pfad:
+        return []
+
+    try:
+        echter, kennungen = gruppen_quiz._person_kennungen(name)
+        if not kennungen and not echter:
+            best = gruppen_quiz.bestaetigt_lesen()
+            echter = name.strip()
+            kennungen = sorted(k for k, n in best.items() if n.casefold() == echter.casefold())
+        if not echter:
+            echter = name.strip()
+
+        je = gruppen_quiz._gemerkt(pfad, gruppen_quiz._gesichter_laden)
+        aus = gruppen_quiz.ausgeschlossen_lesen()
+        zug = gruppen_quiz.zugeordnet_lesen()
+    except Exception as e:
+        logger.warning("_alle_gesichter_fuer_person fehlgeschlagen: %s", e)
+        return []
+
+    gesichter: List[Dict[str, Any]] = []
+    for k in kennungen:
+        weg = aus.get(k, set())
+        for g in je.get(k, []):
+            if g["gid"] not in weg and (zug.get(g["gid"]) or {}).get("name", echter).casefold() == echter.casefold():
+                gesichter.append(dict(g, kennung=k))
+
+    schon = {g["gid"] for g in gesichter}
+    for gid, e in zug.items():
+        if e.get("name", "").casefold() == echter.casefold() and gid not in schon:
+            k = e.get("kennung")
+            if k and k in je:
+                for g in je[k]:
+                    if g["gid"] == gid:
+                        gesichter.append(dict(g, kennung=k, zugeordnet=True))
+                        break
+
+    return gesichter
 
 
 def _beziehungen_index(pfad: str) -> Dict[str, List[Tuple[Optional[int], List[str]]]]:
@@ -170,7 +279,7 @@ def lebensabschnitte_fuer_person(name: str,
                                  vorschlaege: Optional[List[Dict[str, Any]]] = None,
                                  profil_daten: Optional[Dict[str, Any]] = None,
                                  basis_pfad: Optional[str] = None) -> Dict[str, Any]:
-    """Berechnet die chronologischen Lebensabschnitte und Aussagen für eine Person."""
+    """Berechnet die chronologischen Lebensabschnitte, Zentroide und Aussagen für eine Person."""
     from app.services import gruppen_quiz
 
     echter_name = name.strip()
@@ -198,45 +307,69 @@ def lebensabschnitte_fuer_person(name: str,
     belege: List[Dict[str, Any]] = []
     alle_jahre: List[int] = []
 
-    for v in vorschlaege:
-        if not isinstance(v, dict):
-            continue
-        v_groesse = max(0, int(v.get("groesse") or 0))
-        beispiele = v.get("beispiele") or []
-        v_jahr_von = jahr_aus(v.get("von"))
-        v_jahr_bis = jahr_aus(v.get("bis"))
+    # 100% aller Gesichter aus gesicht_zuordnung.jsonl bevorzugen
+    sichtbare_gesichter = []
+    if vorschlaege is None:
+        sichtbare_gesichter = _alle_gesichter_fuer_person(echter_name, basis_pfad)
 
-        if v_jahr_von:
-            alle_jahre.append(v_jahr_von)
-        if v_jahr_bis and v_jahr_bis != v_jahr_von:
-            alle_jahre.append(v_jahr_bis)
-
-        if beispiele:
-            for b in beispiele:
-                if not isinstance(b, dict):
-                    continue
-                b_jahr = jahr_aus(b.get("aufnahme")) or v_jahr_von or v_jahr_bis
-                if b_jahr:
-                    alle_jahre.append(b_jahr)
-                belege.append({
-                    "jahr": b_jahr,
-                    "datum": b.get("aufnahme") or v.get("von"),
-                    "beispiel": b,
-                    "kennung": v.get("kennung"),
-                })
-        elif v_jahr_von or v_jahr_bis:
-            j = v_jahr_von or v_jahr_bis
+    if sichtbare_gesichter:
+        gesamt_gesichter = len(sichtbare_gesichter)
+        for g in sichtbare_gesichter:
+            j = jahr_aus(g.get("aufnahme"))
             if j:
                 alle_jahre.append(j)
             belege.append({
                 "jahr": j,
-                "datum": v.get("von") or v.get("bis"),
-                "beispiel": None,
-                "kennung": v.get("kennung"),
-                "groesse": v_groesse,
+                "datum": g.get("aufnahme"),
+                "beispiel": g,
+                "kennung": g.get("kennung"),
+                "_guete": g.get("_guete", 0.0),
             })
+    else:
+        # Fallback auf übergebene vorschlaege
+        for v in vorschlaege:
+            if not isinstance(v, dict):
+                continue
+            v_groesse = max(0, int(v.get("groesse") or 0))
+            beispiele = v.get("beispiele") or []
+            v_jahr_von = jahr_aus(v.get("von"))
+            v_jahr_bis = jahr_aus(v.get("bis"))
 
-    gesamt_gesichter = sum(max(0, int(v.get("groesse") or 0)) for v in vorschlaege if isinstance(v, dict))
+            if v_jahr_von:
+                alle_jahre.append(v_jahr_von)
+            if v_jahr_bis and v_jahr_bis != v_jahr_von:
+                alle_jahre.append(v_jahr_bis)
+
+            if beispiele:
+                for b in beispiele:
+                    if not isinstance(b, dict):
+                        continue
+                    b_jahr = jahr_aus(b.get("aufnahme")) or v_jahr_von or v_jahr_bis
+                    if b_jahr:
+                        alle_jahre.append(b_jahr)
+                    belege.append({
+                        "jahr": b_jahr,
+                        "datum": b.get("aufnahme") or v.get("von"),
+                        "beispiel": b,
+                        "kennung": v.get("kennung"),
+                        "_guete": 0.0,
+                    })
+            elif v_jahr_von or v_jahr_bis:
+                j = v_jahr_von or v_jahr_bis
+                if j:
+                    alle_jahre.append(j)
+                belege.append({
+                    "jahr": j,
+                    "datum": v.get("von") or v.get("bis"),
+                    "beispiel": None,
+                    "kennung": v.get("kennung"),
+                    "groesse": v_groesse,
+                    "_guete": 0.0,
+                })
+
+        gesamt_gesichter = sum(max(0, int(v.get("groesse") or 0)) for v in vorschlaege if isinstance(v, dict))
+        if gesamt_gesichter == 0 and belege:
+            gesamt_gesichter = len(belege)
 
     if not alle_jahre:
         # Keine Jahresangaben bekannt: 1 unbestimmte Phase
@@ -255,6 +388,7 @@ def lebensabschnitte_fuer_person(name: str,
             "beispiele": [b["beispiel"] for b in belege if b["beispiel"]][:6],
             "begleiter": begleiter_aus_beziehungen(echter_name, None, None, basis_pfad),
             "aussage": f"{gesamt_gesichter} Bild(er) ohne bekanntes Aufnahmedatum.",
+            "zentroid": None,
         }
         return {
             "ok": True,
@@ -267,17 +401,22 @@ def lebensabschnitte_fuer_person(name: str,
             "aussage": f"{gesamt_gesichter} Fotos ohne zeitliche Einordnung.",
         }
 
+    mps = _kennungen_mittelpunkte(basis_pfad)
     gefundene_phasen_spannen = phasen_bilden_jahre(alle_jahre)
     phasen_liste: List[Dict[str, Any]] = []
 
     for von_j, bis_j in gefundene_phasen_spannen:
         passende_belege = [b for b in belege if b["jahr"] and von_j <= b["jahr"] <= bis_j]
-        # Beispiele für diese Phase
-        phasen_beispiele = [b["beispiel"] for b in passende_belege if b["beispiel"]][:6]
+        # Beste Beispiele für diese Phase nach Güte sortiert
+        sortierte_belege = sorted(
+            [b for b in passende_belege if b.get("beispiel")],
+            key=lambda x: -float(x.get("_guete") or 0.0)
+        )
+        phasen_beispiele = [b["beispiel"] for b in sortierte_belege][:6]
 
         # Wenn keine konkreten Beispiele vorhanden, Gesichterzahl aus Belegen summieren
         anzahl = sum(
-            (b.get("groesse", 1) if b["beispiel"] is None else 1)
+            (b.get("groesse", 1) if b.get("beispiel") is None else 1)
             for b in passende_belege
         )
         if anzahl == 0:
@@ -322,6 +461,20 @@ def lebensabschnitte_fuer_person(name: str,
         satz += "."
         saetze.append(satz)
 
+        # 128-dim Phasen-Zentroid berechnen
+        zentroid = None
+        k_counts = Counter(b.get("kennung") for b in passende_belege if b.get("kennung"))
+        if mps and any(k in mps for k in k_counts):
+            sum_vec = [0.0] * 128
+            for k, w in k_counts.items():
+                if k in mps and len(mps[k]) == 128:
+                    vec = mps[k]
+                    for d in range(128):
+                        sum_vec[d] += w * vec[d]
+            norm = sum(x * x for x in sum_vec) ** 0.5
+            if norm > 0.0:
+                zentroid = [round(x / norm, 6) for x in sum_vec]
+
         phasen_liste.append({
             "phase_id": f"phase-{von_j}-{bis_j}",
             "von_jahr": von_j,
@@ -336,6 +489,7 @@ def lebensabschnitte_fuer_person(name: str,
             "beispiele": phasen_beispiele,
             "begleiter": begleiter,
             "aussage": " ".join(saetze),
+            "zentroid": zentroid,
         })
 
     min_jahr = min(alle_jahre)
@@ -361,9 +515,6 @@ def lebensabschnitte_fuer_person(name: str,
         "bis_jahr": max_jahr,
         "aussage": gesamt_aussage,
     }
-
-
-_PHASEN_CACHE: Dict[str, Tuple[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]]] = {}
 
 
 def alle_personen_phasen(basis_pfad: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
@@ -413,7 +564,8 @@ def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
                                  katalog: Optional[Dict[str, Any]] = None,
                                  personen_phasen: Optional[Dict[str, List[Dict[str, Any]]]] = None,
                                  basis_pfad: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Prüft, ob eine unbenannte Gruppe zeitlich in den Lebensabschnitt einer bekannten Person passt."""
+    """Prüft, ob eine unbenannte Gruppe zeitlich und vektoriell in den Lebensabschnitt einer bekannten Person passt.
+    Berücksichtigt Phasen-Zentroide, Altersgrenzen und Zwillings-Trennung."""
     if not isinstance(gruppe, dict):
         return None
 
@@ -439,24 +591,46 @@ def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
         else:
             personen_phasen = alle_personen_phasen(basis_pfad=basis_pfad)
 
+    # 128-dim Vektor der offenen Gruppe holen
+    mps = _kennungen_mittelpunkte(basis_pfad)
+    g_k = str(gruppe.get("kennung") or "")
+    g_vec = mps.get(g_k)
+
     # Nach passendem Lebensabschnitt in vorbereiteten Phasen suchen
-    treffer: List[Tuple[str, Dict[str, Any], bool]] = []
+    treffer: List[Tuple[str, Dict[str, Any], bool, float]] = []
     for n, phasen in personen_phasen.items():
         for p in phasen:
             von_j = p.get("von_jahr")
             bis_j = p.get("bis_jahr")
             if von_j is not None and bis_j is not None:
-                exakt = von_j <= g_jahr <= bis_j
-                if exakt or (von_j - 1) <= g_jahr <= (bis_j + 1):
-                    treffer.append((n, p, exakt))
-                    break
+                # Kindheits-Filter: vor 2015 (Alter < 16) ist Zeitspanne streng
+                is_child = von_j < 2015
+                diff = 0
+                if g_jahr < von_j:
+                    diff = von_j - g_jahr
+                elif g_jahr > bis_j:
+                    diff = g_jahr - bis_j
+
+                if is_child and diff > 2:
+                    continue
+                if diff > 5:
+                    continue
+
+                exakt = (diff == 0)
+                sim = cosinus_aehnlichkeit(g_vec, p.get("zentroid")) if g_vec and p.get("zentroid") else 0.0
+                treffer.append((n, p, exakt, sim))
+                break
 
     if not treffer:
         return None
 
+    # Eindeutiger Treffer
     if len(treffer) == 1:
-        n, p, exakt = treffer[0]
+        n, p, exakt, sim = treffer[0]
         sicherheit = 0.90 if exakt else 0.80
+        grund = f"Aufnahmejahr {g_jahr} passt eindeutig zum Lebensabschnitt {p.get('titel')} von {n}."
+        if sim > 0:
+            grund += f" (Phasen-Ähnlichkeit {sim:.2f})"
         return {
             "name": n,
             "phase_id": p.get("phase_id"),
@@ -464,18 +638,105 @@ def vorschlag_fuer_offene_gruppe(gruppe: Dict[str, Any],
             "titel": p.get("titel"),
             "aussage": p.get("aussage"),
             "sicherheit": sicherheit,
-            "grund": f"Aufnahmejahr {g_jahr} passt eindeutig zum Lebensabschnitt {p.get('titel')} von {n}.",
+            "aehnlichkeit": round(sim, 4),
+            "grund": grund,
         }
 
-    # Mehrere Personen kommen für dieses Jahr in Frage (bei Unsicherheit lieber offenlassen)
+    # Mehrere Personen passen zeitlich — prüfe Vektor-Differenzierung & Zwillings-Trennung
+    treffer_namen = [t[0].casefold() for t in treffer]
+    # Spezieller Zwillings-Fall (Sebastian & Julian)
+    if "sebastian" in treffer_namen and "julian" in treffer_namen and g_vec:
+        seb_t = next(t for t in treffer if t[0].casefold() == "sebastian")
+        jul_t = next(t for t in treffer if t[0].casefold() == "julian")
+        sim_seb = seb_t[3]
+        sim_jul = jul_t[3]
+        delta = sim_seb - sim_jul
+
+        # Co-occurrence / Cannot-Link: Ist einer der Zwillinge bereits auf den Fotos dieser Gruppe?
+        from app.services import gruppen_quiz
+        b_ids = [str(b.get("fileid") or b.get("bild_id") or "") for b in gruppe.get("beispiele") or [] if b]
+        b_ids = [b for b in b_ids if b]
+        if b_ids:
+            try:
+                wb = gruppen_quiz.personen_auf_bildern(b_ids)
+                schon_drauf = set()
+                for b_info in (wb.get("bilder") or {}).values():
+                    for n_on_img in b_info.get("namen") or []:
+                        schon_drauf.add(n_on_img.casefold())
+                if "julian" in schon_drauf and "sebastian" not in schon_drauf:
+                    return {
+                        "name": seb_t[0],
+                        "phase_id": seb_t[1].get("phase_id"),
+                        "phase": seb_t[1].get("titel"),
+                        "titel": seb_t[1].get("titel"),
+                        "aussage": seb_t[1].get("aussage"),
+                        "sicherheit": 0.95,
+                        "aehnlichkeit": round(sim_seb, 4),
+                        "grund": "Julian ist bereits auf demselben Foto erkannt — Gruppe gehört daher zu Sebastian.",
+                    }
+                elif "sebastian" in schon_drauf and "julian" not in schon_drauf:
+                    return {
+                        "name": jul_t[0],
+                        "phase_id": jul_t[1].get("phase_id"),
+                        "phase": jul_t[1].get("titel"),
+                        "titel": jul_t[1].get("titel"),
+                        "aussage": jul_t[1].get("aussage"),
+                        "sicherheit": 0.95,
+                        "aehnlichkeit": round(sim_jul, 4),
+                        "grund": "Sebastian ist bereits auf demselben Foto erkannt — Gruppe gehört daher zu Julian.",
+                    }
+            except Exception:
+                pass
+
+        # Vektor-Abstand zum Phasen-Zentroid
+        if delta >= 0.04:
+            return {
+                "name": seb_t[0],
+                "phase_id": seb_t[1].get("phase_id"),
+                "phase": seb_t[1].get("titel"),
+                "titel": seb_t[1].get("titel"),
+                "aussage": seb_t[1].get("aussage"),
+                "sicherheit": 0.85,
+                "aehnlichkeit": round(sim_seb, 4),
+                "grund": f"Phasen-Zentroid {seb_t[1].get('titel')} passt signifikant besser zu Sebastian ({sim_seb:.2f} vs {sim_jul:.2f}).",
+            }
+        elif delta <= -0.04:
+            return {
+                "name": jul_t[0],
+                "phase_id": jul_t[1].get("phase_id"),
+                "phase": jul_t[1].get("titel"),
+                "titel": jul_t[1].get("titel"),
+                "aussage": jul_t[1].get("aussage"),
+                "sicherheit": 0.85,
+                "aehnlichkeit": round(sim_jul, 4),
+                "grund": f"Phasen-Zentroid {jul_t[1].get('titel')} passt signifikant besser zu Julian ({sim_jul:.2f} vs {sim_seb:.2f}).",
+            }
+
+    # Allgemeiner Fall: Sortiere Treffer nach Kosinus-Ähnlichkeit
+    treffer_sortiert = sorted(treffer, key=lambda t: -t[3])
+    beste_person, beste_phase, exakt, beste_sim = treffer_sortiert[0]
+    zweite_sim = treffer_sortiert[1][3] if len(treffer_sortiert) > 1 else 0.0
+
+    if beste_sim > 0 and (beste_sim - zweite_sim) >= 0.08:
+        return {
+            "name": beste_person,
+            "phase_id": beste_phase.get("phase_id"),
+            "phase": beste_phase.get("titel"),
+            "titel": beste_phase.get("titel"),
+            "aussage": beste_phase.get("aussage"),
+            "sicherheit": 0.85,
+            "aehnlichkeit": round(beste_sim, 4),
+            "grund": f"Phasen-Zentroid {beste_phase.get('titel')} passt deutlich am besten zu {beste_person} (Ähnlichkeit {beste_sim:.2f}).",
+        }
+
+    # Keine eindeutige Vektor-Entscheidung möglich -> mehrere Kandidaten
     namen_liste = [t[0] for t in treffer]
-    erste_person, erste_phase, exakt = treffer[0]
     return {
-        "name": erste_person,
-        "phase_id": erste_phase.get("phase_id"),
-        "phase": erste_phase.get("jahre") or f"{erste_phase.get('von_jahr')}–{erste_phase.get('bis_jahr')}",
-        "titel": erste_phase.get("titel"),
-        "aussage": erste_phase.get("aussage"),
+        "name": beste_person,
+        "phase_id": beste_phase.get("phase_id"),
+        "phase": beste_phase.get("titel"),
+        "titel": beste_phase.get("titel"),
+        "aussage": beste_phase.get("aussage"),
         "sicherheit": 0.50,
         "kandidaten": namen_liste,
         "grund": f"Aufnahmejahr {g_jahr} liegt im gemeinsamen Zeitraum mehrerer Personen ({', '.join(namen_liste)}).",
@@ -504,7 +765,7 @@ def andocken_kandidaten(katalog: Optional[Dict[str, Any]] = None,
     filter_kennungen = set(kennungen) if kennungen else None
     ziel_name_sauber = ziel_name.strip().casefold() if ziel_name else None
 
-    # Phasen aller relevanten Personen VORAB EINMAL berechnen / aus Cache holen:
+    # Phasen aller relevanten Personen VORAB EINMAL berechnen / aus Cache holen
     personen_phasen: Dict[str, List[Dict[str, Any]]] = {}
     if katalog is not None:
         for n, v_liste in katalog.items():
@@ -552,6 +813,7 @@ def andocken_kandidaten(katalog: Optional[Dict[str, Any]] = None,
             "titel": vorschlag.get("titel"),
             "aussage": vorschlag.get("aussage"),
             "sicherheit": sicherheit,
+            "aehnlichkeit": vorschlag.get("aehnlichkeit"),
             "grund": vorschlag.get("grund"),
             "groesse": max(0, int(g.get("groesse") or 0)),
             "bilder": max(0, int(g.get("bilder") or 0)),
