@@ -95,3 +95,15 @@ die den alten `app.js`-Schlüssel festhielten, vergleichen jetzt nur noch die Ve
 - Eine eigene Personenanlage im Editor: er sendet den Namen nur als `name` an `bild-rahmen`; der
   Hinweis „nur am Handy" im Menü benennt, dass ein unbekannter Name nicht in die Gruppierung am PC
   eingeht.
+
+## Nachtrag 01.11.2026 — leere Personenwahl (Hermes B4-R1 Befund 1)
+
+- Neu `cloudLeereNamenWahl(e, idx)` in `frontend/app.js`. Im Cloud-Weg (mit `fileid`) und nur bei einem Gesicht,
+  das vom Server einen Namen hat: eine leere Wahl im Personenmenü oder in der Personensuche setzt den Namen
+  wieder auf den Server-Namen und zeigt „Rahmen N bleibt „…“ — einen Namen kann man hier nicht entfernen.
+  Falsches Gesicht? Rahmen mit ✕ löschen, oder einen anderen Namen wählen.“ Grund: `bild-rahmen` kennt kein
+  Namen-Löschen; vorher meldete der Editor „bleibt unbekannt“, schickte aber nichts.
+- Ohne `fileid` (Quiz-/Referenz-Weg) und bei Gesichtern ohne Server-Namen unverändert.
+- Befund 2 (Auswahl nach dem Neuladen) war auf main bereits behoben (`cloudNeuAufbauen` nutzt `startAuswahl`).
+- Test: neuer Fall K3e in `frontend/tests/test_bild_editor_b4.js` (zuerst rot: Funktion fehlte), jetzt
+  **141 Prüfungen** grün. Cache: `app.js?v=20261101F`.

@@ -577,11 +577,17 @@ def _trocken_createfolder(ebene, name, eltern_id):
     try:
         if ebene == EBENE_EVENT:
             # Finden ODER bauen: der Ordner kann beim Vollzug schon da sein.
-            return _bewegungen.zielordner_finden_oder_bauen(
+            vorbuchung = _bewegungen.zielordner_finden_oder_bauen(
                 eltern_id, name, trocken=True)
-        return _bewegungen.ordner_anlegen(eltern_id, name, trocken=True)
+        else:
+            vorbuchung = _bewegungen.ordner_anlegen(eltern_id, name, trocken=True)
     except _bewegungen.PCloudBewegungsFehler:
         return None
+    # Ohne Uhrzeit: der Plan muss bei gleicher Eingabe gleich sein ("Plan unveraendert");
+    # die Planungszeit steht in "stand", gebucht wird erst beim Vollzug (01.11.2026).
+    if isinstance(vorbuchung, dict):
+        vorbuchung = {k: v for k, v in vorbuchung.items() if k != "zeit"}
+    return vorbuchung
 
 
 def ordnerkette(jahr, kategorie, event, bestand, ziel_ids=None) -> list[dict]:

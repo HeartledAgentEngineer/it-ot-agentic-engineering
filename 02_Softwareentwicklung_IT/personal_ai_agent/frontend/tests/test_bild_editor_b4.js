@@ -63,7 +63,7 @@ const NAMEN = ['pfadKennung', 'dateiAnzeigeName', 'rahmenPersonWahl', 'editorSpe
     'bildEditorCloudAenderungen', 'bildEditorCloudMeldung', 'cloudGesichterLaden', 'speichereBildCloud',
     'cloudErkennenAbrufen', 'bildEditorCloudErkennung', 'bildEditorCloudVorschlagUebernehmen',
     'cloudVorschlagElement', 'cloudPersonenNamen', 'ladeCloudPersonenNamen', 'cloudNeuePersonOptionText',
-    'cloudNameHinweis'];
+    'cloudNameHinweis', 'cloudLeereNamenWahl'];
 
 /** Fehlende Funktionen werden zu Attrappen, die beim Aufruf werfen — jeder Fall wird einzeln rot. */
 function quelleBauen() {
@@ -123,6 +123,7 @@ function baue(antworten) {
             ladeNamen: () => ladeCloudPersonenNamen(),
             optionText: () => cloudNeuePersonOptionText(),
             hinweis: (e, n) => cloudNameHinweis(e, n),
+            leereWahl: (e, i) => cloudLeereNamenWahl(e, i),
             gueltig: (f) => cloudFileidGueltig(f),
             bboxServer: (n) => cloudBboxFuerServer(n),
             auswahl: (g, m) => cloudStartAuswahl(g, m),
@@ -652,6 +653,24 @@ await fall('K11) Bild-Editor Verbesserungen: Alle entfernen, Beschreibungs-Vorle
     pruefe(/pointer-events:auto;/.test(zeigen), 'Bildbeschreibung ist scroll- und anklickbar (pointer-events:auto)');
     pruefe(/personWahl\.style\.cssText = 'display:none;/.test(zeigen), 'Dropdown-Select ist zugunsten der Personensuche ausgeblendet');
     pruefe(/padding-bottom:120px;/.test(zeigen), 'Bild-Wrapper haelt Abstand zur unteren Werkzeugleiste');
+});
+
+await fall('K3e) Cloud-Weg: leere Personenwahl entfernt keinen Server-Namen und meldet das ehrlich (Hermes B4-R1 Befund 1)', async () => {
+    const s = baue();
+    const e = {};
+    s.zustand(e, fuenf(), null); e.fileid = '111';
+    e.personen[1] = '';                                   // Nutzer waehlt "keine Person" bei Gesicht mit Namen
+    const text = s.leereWahl(e, 1);
+    pruefe(e.personen[1] === 'Person B', 'der Server-Name bleibt im Editor stehen', j(e.personen));
+    pruefe(/nicht entfernen/.test(text) && /✕/.test(text), 'Hinweis nennt, dass der Name hier nicht entfernt wird, und den ✕-Weg', text);
+    pruefe(s.aenderungen(e).aenderungen.length === 0, 'es wird nichts gesendet', j(s.aenderungen(e).aenderungen));
+    e.personen[0] = '';                                   // Gesicht ohne Namen: leer bleibt leer
+    pruefe(s.leereWahl(e, 0) === '' && e.personen[0] === '', 'ohne Server-Namen kein Hinweis, Wahl bleibt leer');
+    const ohneCloud = { personen: [''], basis: [{ name: 'Person B' }], bbox_norm_live: [A] };
+    pruefe(s.leereWahl(ohneCloud, 0) === '' && ohneCloud.personen[0] === '', 'ausserhalb des Cloud-Wegs (keine fileid) unveraendert');
+    const zeigen = funktionAusschneiden(src, 'zeigeBildVollbild');
+    pruefe((zeigen.match(/cloudLeereNamenWahl\(_quizEditor, sel\)/g) || []).length >= 2,
+        'Menue-Handler UND Personensuche nutzen den Abfang');
 });
 
 console.log('\n' + (fehler ? 'FEHLER: ' + fehler + ' von ' + zaehler + ' Pruefungen rot' : 'alle ' + zaehler + ' Pruefungen bestanden'));

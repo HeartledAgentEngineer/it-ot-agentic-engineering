@@ -4659,7 +4659,10 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             return;
                         }
                         var wert = rahmenPersonSetzen(_quizEditor, sel, personWahl.value);
-                        if (wert) {
+                        var leerHinweis = wert ? '' : cloudLeereNamenWahl(_quizEditor, sel);
+                        if (leerHinweis) {
+                            meldeEditor(leerHinweis, false);
+                        } else if (wert) {
                             meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + wert +
                                         ' (nur dieser Rahmen; 💾 Speichern uebernimmt ihn).', true);
                         } else {
@@ -4718,9 +4721,12 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                             if (sel < 0) return;
                             const hinweis = _quizEditor.fileid ? cloudNameHinweis(_quizEditor, n) : '';
                             const wert = rahmenPersonSetzen(_quizEditor, sel, n);
-                            personWahl.value = n;
+                            const leerHinweis = wert ? '' : cloudLeereNamenWahl(_quizEditor, sel);
+                            personWahl.value = leerHinweis ? _quizEditor.personen[sel] : n;
                             personSucheModal.style.display = 'none';
-                            if (wert) {
+                            if (leerHinweis) {
+                                meldeEditor(leerHinweis, false);
+                            } else if (wert) {
                                 meldeEditor('👤 Rahmen ' + (sel + 1) + ' → ' + wert + (hinweis ? ' (' + hinweis + ')' : '') +
                                             ' — 💾 Speichern übernimmt ihn.', true);
                             } else {
@@ -5491,6 +5497,21 @@ function cloudNameHinweis(e, name) {
     if (!s) return '';
     const bekannt = cloudPersonenNamen(e, -1).some(function (n) { return n.toLowerCase() === s; });
     return bekannt ? '' : 'neue Person — wird nur am Handy gespeichert, nicht für die Gruppierung am PC';
+}
+/** Cloud-Weg: eine LEERE Personenwahl kann einen Namen vom Server nicht entfernen (bild-rahmen kennt kein
+ *  Namen-Loeschen; ein Gruppenname gehoert der Gruppierung). Dann bleibt der Server-Name im Editor stehen und
+ *  der Rueckgabetext sagt das ehrlich (Hermes B4-R1 Befund 1). Sonst '' und nichts geaendert. */
+function cloudLeereNamenWahl(e, idx) {
+    const ed = e || {};
+    if (!ed.fileid || typeof idx !== 'number' || idx < 0) return '';
+    const jetzt = String(((ed.personen || [])[idx]) == null ? '' : ed.personen[idx]).trim();
+    const b = (ed.basis || [])[idx];
+    const alt = (b && b.name) ? String(b.name).trim() : '';
+    if (jetzt || !alt) return '';
+    if (!Array.isArray(ed.personen)) ed.personen = [];
+    ed.personen[idx] = alt;
+    return 'Rahmen ' + (idx + 1) + ' bleibt „' + alt + '“ — einen Namen kann man hier nicht entfernen. '
+        + 'Falsches Gesicht? Rahmen mit ✕ löschen, oder einen anderen Namen wählen.';
 }
 // ── Ende Bild-Editor B4 ─────────────────────────────────────────────────────
 

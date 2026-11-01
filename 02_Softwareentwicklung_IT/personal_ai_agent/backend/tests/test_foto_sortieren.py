@@ -1084,3 +1084,19 @@ def test_schreiben_im_repo_ist_gesperrt(tmp_path, capsys):
     assert "es wird NICHTS geschrieben" in ausgabe
     assert ausstieg.value.code == 2
     assert not ziel_im_repo.exists(), "im Repo darf nichts entstanden sein"
+
+
+def test_plan_haengt_nicht_an_der_uhrzeit(monkeypatch):
+    # Die trockene Ordner-Vorbuchung trug die aktuelle Uhrzeit (pcloud_bewegungen._eintrag "zeit"):
+    # sprang die Sekunde zwischen zwei Laeufen, waren die Plaene verschieden (Test oben gelegentlich rot,
+    # und "Plan unveraendert" griff nie). Die Planungszeit steht nur in "stand".
+    zeilen = [_zeile(), _zeile(anlass_id="2021-01-01_Anlass-01", datei="b.jpg")]
+    uhr = iter(["2026-11-01T10:00:00+01:00", "2026-11-01T10:00:01+01:00"] * 50)
+    monkeypatch.setattr(fs._bewegungen, "_jetzt_iso", lambda: next(uhr))
+    erst = _plan(zeilen)
+    uhr = iter(["2026-11-01T11:59:58+01:00"] * 100)
+    zweit = _plan(list(zeilen))
+    assert json.dumps(erst, sort_keys=True) == json.dumps(zweit, sort_keys=True)
+    vorbuchungen = [o["createfolder"] for o in erst["ordner"] if o.get("createfolder")]
+    assert vorbuchungen, "der Testfall braucht mindestens eine trockene Vorbuchung"
+    assert all("zeit" not in v for v in vorbuchungen)
