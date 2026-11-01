@@ -68,7 +68,7 @@ _DATEI_LESE_SIGNALE = (
 _PERSOENLICHE_DATEN_SIGNALE = (
     "notiz", "notizen", "erinnerung", "erinnerungen", "gedächtnis", "gedaechtnis",
     "daten", "person", "personen", "profil", "profile", "beziehung", "beziehungen",
-    "kontakt", "kontakte", "geburtstag", "vorname", "nachname", "spitzname",
+    "kontakt", "kontakte", "geburtstag", "vorname", "nachname", "spitzname", "telefonbuch", "handynummer", "telefon", "nummer",
     "geschichte", "geschichten", "anlass", "ereignis", "ereignisse", "fakten", "fakt",
 )
 
@@ -135,7 +135,7 @@ def faehigkeits_block() -> str:
         "Du kannst und sollst jegliche persönlichen Daten des Nutzers direkt im Chat anlegen, "
         "ändern, anpassen oder löschen (Wunsch Sebastian: 'Jegliche Daten per Chat ändern').\n"
         "- Fakten & Erinnerungen über Sebastian: Nutze `erinnerung_speichern` und `erinnerung_loeschen`.\n"
-        "- Personen-Profile & Notizen (Beziehung, Beruf, Vor-/Nachname): Nutze `person_profil_aendern`.\n"
+        "- Personen-Profile, Telefonbuch-Felder & Notizen (Geburtstag, Telefonnummern, Beziehung, Beruf, Vor-/Nachname, Spitznamen): Nutze `person_profil_aendern`. Alle Felder inklusive Telefonbuch-Auszug können damit direkt überschrieben und korrigiert werden.\n"
         "- Bildnotizen & Geschichten an Foto-Ereignissen: Nutze `notiz_speichern`.\n"
         "Sage dafür NIEMALS 'Dafür brauche ich Hermes'. Hermes ist nur für Programmiercode und "
         "Terminal-Befehle im System zuständig, NICHT für persönliche Daten.\n\n"

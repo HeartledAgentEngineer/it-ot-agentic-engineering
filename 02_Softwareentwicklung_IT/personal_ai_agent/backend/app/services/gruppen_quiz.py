@@ -582,10 +582,40 @@ def _namensfelder(eintrag: Any, name: str, alle_namen: Iterable[Any] = ()) -> Di
             "namensfelder_quelle": "profil" if (vorname or nachname) else "abgeleitet"}
 
 
+def _kontakt_eintrag_aktualisieren(kid: str, geburtstag: Optional[str] = None, nummern: Optional[List[str]] = None) -> bool:
+    pfad = _lesepfad(KONTAKTE_DATEINAME)
+    if not pfad or not os.path.isfile(pfad):
+        return False
+    try:
+        daten = _json_lesen(pfad, {})
+        liste = daten.get("kontakte")
+        if not isinstance(liste, list):
+            return False
+        geaendert = False
+        for k in liste:
+            if isinstance(k, dict) and str(k.get("id") or "").strip() == str(kid).strip():
+                if geburtstag is not None:
+                    k["geburtstag"] = geburtstag if geburtstag else None
+                    geaendert = True
+                if nummern is not None:
+                    k["nummern"] = nummern
+                    geaendert = True
+                break
+        if geaendert:
+            _atomar_schreiben(KONTAKTE_DATEINAME, daten)
+            invalidiere_cache()
+            return True
+    except Exception as e:
+        logger.warning("Konnte kontakte.json nicht aktualisieren: %s", e)
+    return False
+
+
 def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: str,
                       kennung: Optional[str], quelle: str,
                       kontakt: Optional[Dict[str, Any]] = None,
-                      felder: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                      felder: Optional[Dict[str, Any]] = None,
+                      geburtstag: Optional[str] = None,
+                      nummern: Optional[List[str]] = None) -> Dict[str, Any]:
     profile = daten["profile"]
     schluessel = _profil_schluessel(profile, name)
     eintrag = profile.setdefault(schluessel, {"beziehung": "", "notizen": []})
@@ -597,6 +627,28 @@ def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: s
     if kontakt and kontakt != eintrag.get("kontakt"):
         aenderung["kontakt_vorher"] = eintrag.get("kontakt")
         eintrag["kontakt"] = kontakt
+    if geburtstag is not None:
+        gb_wert = str(geburtstag).strip()
+        aenderung["geburtstag_vorher"] = eintrag.get("geburtstag")
+        if gb_wert:
+            eintrag["geburtstag"] = gb_wert
+            if isinstance(eintrag.get("kontakt"), dict):
+                eintrag["kontakt"]["geburtstag"] = gb_wert
+        else:
+            eintrag.pop("geburtstag", None)
+            if isinstance(eintrag.get("kontakt"), dict):
+                eintrag["kontakt"].pop("geburtstag", None)
+    if nummern is not None:
+        aenderung["nummern_vorher"] = eintrag.get("nummern")
+        nr_liste = [str(n).strip() for n in nummern if str(n).strip()]
+        if nr_liste:
+            eintrag["nummern"] = nr_liste
+            if isinstance(eintrag.get("kontakt"), dict):
+                eintrag["kontakt"]["nummern"] = nr_liste
+        else:
+            eintrag.pop("nummern", None)
+            if isinstance(eintrag.get("kontakt"), dict):
+                eintrag["kontakt"].pop("nummern", None)
     # Namensfelder von Hand (20.10.2026): leer = Handfeld weg, Ableitung greift wieder.
     # Vorher-Stand wird je Feld mitgeschrieben, damit Rueckgaengig genau zurueckstellt.
     for feld, wert in (felder or {}).items():
@@ -629,8 +681,12 @@ def profil(name: str) -> Dict[str, Any]:
         weitere = list(bestaetigt_lesen().values())
     except GruppenFehler:
         weitere = []
+    kontakt = p.get("kontakt")
+    gb = p.get("geburtstag") or (kontakt.get("geburtstag") if isinstance(kontakt, dict) else None)
+    nr = p.get("nummern") or (kontakt.get("nummern") if isinstance(kontakt, dict) else [])
     return {"ok": True, "name": schluessel, "beziehung": p.get("beziehung") or "",
-            "notizen": notizen, "kontakt": p.get("kontakt"),
+            "notizen": notizen, "kontakt": kontakt,
+            "geburtstag": gb, "nummern": nr,
             **_namensfelder(p, schluessel, weitere)}
 
 
@@ -638,10 +694,13 @@ def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional
                      kennung: Optional[str] = None,
                      kontakt_id: Optional[str] = None,
                      vorname: Optional[str] = None, nachname: Optional[str] = None,
-                     spitznamen: Optional[Any] = None) -> Dict[str, Any]:
-    """Beziehung setzen, Erinnerung anhaengen, Kontakt verknuepfen und/oder die
-    Namensfelder von Hand setzen (auch ohne Quiz, z. B. aus „Benannt"). Steht im
-    Protokoll, Rueckgaengig nimmt es zurueck. Nie ein Wurf."""
+                     spitznamen: Optional[Any] = None,
+                     geburtstag: Optional[str] = None,
+                     telefonnummer: Optional[str] = None,
+                     nummern: Optional[Any] = None) -> Dict[str, Any]:
+    """Beziehung setzen, Erinnerung anhaengen, Kontakt verknuepfen, Telefonbuch-
+    Felder (Geburtstag, Nummern) ueberschreiben und/oder Namensfelder von Hand
+    setzen. Steht im Protokoll, Rueckgaengig nimmt es zurueck. Nie ein Wurf."""
     try:
         sauber = name_saeubern(name)
         b = text_saeubern(beziehung, BEZIEHUNG_MAX)
@@ -652,13 +711,45 @@ def profil_ergaenzen(name: str, beziehung: Optional[str] = None, notiz: Optional
             if not kontakt:
                 raise GruppenFehler("Kontakt nicht (mehr) im Telefonbuch-Auszug.")
         felder = namensfelder_saeubern(vorname, nachname, spitznamen)
-        if not b and not n and not kontakt and not felder:
-            raise GruppenFehler("Bitte eine Beziehung, eine Erinnerung oder einen Namen eingeben.")
+
+        gb_sauber: Optional[str] = None
+        if geburtstag is not None:
+            gb_raw = str(geburtstag).strip()
+            if gb_raw:
+                m_de = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", gb_raw)
+                if m_de:
+                    gb_sauber = f"{int(m_de.group(3)):04d}-{int(m_de.group(2)):02d}-{int(m_de.group(1)):02d}"
+                else:
+                    gb_sauber = gb_raw
+            else:
+                gb_sauber = ""
+
+        nr_sauber: Optional[List[str]] = None
+        if telefonnummer is not None or nummern is not None:
+            rohe_nr = []
+            if telefonnummer is not None:
+                rohe_nr.extend(re.split(r"[,;]+", str(telefonnummer)))
+            if nummern is not None:
+                if isinstance(nummern, list):
+                    rohe_nr.extend(str(x) for x in nummern)
+                elif isinstance(nummern, str):
+                    rohe_nr.extend(re.split(r"[,;]+", nummern))
+            nr_sauber = [s.strip() for s in rohe_nr if s.strip()]
+
+        if not b and not n and not kontakt and not felder and gb_sauber is None and nr_sauber is None:
+            raise GruppenFehler("Bitte eine Beziehung, eine Erinnerung, einen Namen, Geburtstag oder Telefonnummer eingeben.")
         with _SCHREIBSPERRE:
             daten = _profile_laden()
             aenderung = _profil_ergaenzen(daten, sauber, b, n, kennung, "profil",
-                                          dict(kontakt) if kontakt else None, felder)
+                                          dict(kontakt) if kontakt else None, felder,
+                                          geburtstag=gb_sauber, nummern=nr_sauber)
             _atomar_schreiben(PROFILE_DATEINAME, daten)
+
+            eintrag = daten.get("profile", {}).get(_profil_schluessel(daten.get("profile", {}), sauber), {})
+            kid = kontakt_id or (eintrag.get("kontakt", {}).get("id") if isinstance(eintrag.get("kontakt"), dict) else None)
+            if kid and (gb_sauber is not None or nr_sauber is not None):
+                _kontakt_eintrag_aktualisieren(str(kid), geburtstag=gb_sauber, nummern=nr_sauber)
+
             _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
                                   "zeit": datetime.now().isoformat(timespec="seconds"),
                                   "art": "profil", "kennung": kennung or "", "profil": aenderung})
@@ -2740,6 +2831,24 @@ def _rueckgaengig_eintrag(ziel_id: Any) -> Dict[str, Any]:
                             p["kontakt"] = pr["kontakt_vorher"]
                         else:
                             p.pop("kontakt", None)
+                    if "geburtstag_vorher" in pr:
+                        if pr["geburtstag_vorher"]:
+                            p["geburtstag"] = pr["geburtstag_vorher"]
+                            if isinstance(p.get("kontakt"), dict):
+                                p["kontakt"]["geburtstag"] = pr["geburtstag_vorher"]
+                        else:
+                            p.pop("geburtstag", None)
+                            if isinstance(p.get("kontakt"), dict):
+                                p["kontakt"].pop("geburtstag", None)
+                    if "nummern_vorher" in pr:
+                        if pr["nummern_vorher"]:
+                            p["nummern"] = pr["nummern_vorher"]
+                            if isinstance(p.get("kontakt"), dict):
+                                p["kontakt"]["nummern"] = pr["nummern_vorher"]
+                        else:
+                            p.pop("nummern", None)
+                            if isinstance(p.get("kontakt"), dict):
+                                p["kontakt"].pop("nummern", None)
                     # Namensfelder von Hand (20.10.2026): genauen Vorher-Stand
                     # wiederherstellen, fehlende Schluessel wieder entfernen.
                     for feld, wert in (pr.get("felder_vorher") or {}).items():

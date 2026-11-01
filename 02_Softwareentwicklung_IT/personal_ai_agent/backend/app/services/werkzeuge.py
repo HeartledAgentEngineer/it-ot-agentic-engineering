@@ -668,8 +668,15 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     beziehung = str(profil.get("beziehung") or "").strip()
     stamm = [f"{anzeige} — Beziehung: {beziehung}." if beziehung else f"Zur Person {anzeige}."]
     kontakt = profil.get("kontakt")
-    if isinstance(kontakt, dict) and str(kontakt.get("geburtstag") or "").strip():
-        stamm.append(f"Geburtstag laut Telefonbuch: {str(kontakt['geburtstag']).strip()}.")
+    geburtstag = profil.get("geburtstag") or (kontakt.get("geburtstag") if isinstance(kontakt, dict) else None)
+    if geburtstag and str(geburtstag).strip():
+        stamm.append(f"Geburtstag: {str(geburtstag).strip()}.")
+    nummern = profil.get("nummern") or (kontakt.get("nummern") if isinstance(kontakt, dict) else None)
+    if nummern:
+        if isinstance(nummern, list) and nummern:
+            stamm.append(f"Telefon: {', '.join(str(n) for n in nummern)}.")
+        elif isinstance(nummern, str) and nummern.strip():
+            stamm.append(f"Telefon: {nummern.strip()}.")
     if len(vorschlaege) > 1:
         stamm.append(f"Erkannt auf {fotos} Fotos, verteilt auf {len(vorschlaege)} Bildgruppen.")
     else:
@@ -768,6 +775,10 @@ def _person_profil_aendern(args: Dict[str, Any]) -> Ergebnis:
     vorname = args.get("vorname")
     nachname = args.get("nachname")
     spitznamen = args.get("spitznamen")
+    geburtstag = args.get("geburtstag")
+    telefonnummer = args.get("telefonnummer")
+    nummern = args.get("nummern")
+    kontakt_id = args.get("kontakt_id")
     res = gruppen_quiz.profil_ergaenzen(
         name=name,
         beziehung=beziehung,
@@ -775,9 +786,22 @@ def _person_profil_aendern(args: Dict[str, Any]) -> Ergebnis:
         vorname=vorname,
         nachname=nachname,
         spitznamen=spitznamen,
+        geburtstag=geburtstag,
+        telefonnummer=telefonnummer,
+        nummern=nummern,
+        kontakt_id=kontakt_id,
     )
     if res.get("ok"):
-        return Ergebnis(f"Profil von {name} erfolgreich aktualisiert.")
+        teile = [f"Profil von {name} erfolgreich aktualisiert."]
+        if geburtstag:
+            teile.append(f"Geburtstag: {res.get('geburtstag') or geburtstag}.")
+        if telefonnummer or nummern:
+            nr_list = res.get("nummern")
+            nr_str = ", ".join(nr_list) if isinstance(nr_list, list) and nr_list else (telefonnummer or str(nummern))
+            teile.append(f"Telefon: {nr_str}.")
+        if beziehung:
+            teile.append(f"Beziehung: {beziehung}.")
+        return Ergebnis(" ".join(teile))
     return Ergebnis(f"Änderung für {name} fehlgeschlagen: {res.get('fehler')}", ok=False)
 
 
@@ -960,18 +984,23 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
     ),
     Werkzeug(
         "person_profil_aendern",
-        "Ändert oder ergänzt die Daten und Notizen einer bekannten Person (Beziehung, "
-        "Notizen/Beruf/Erinnerung, Vorname, Nachname, Spitznamen) dauerhaft im Profil.",
+        "Ändert oder ergänzt sämtliche Daten, Telefonbuchfelder und Notizen einer bekannten "
+        "Person (Geburtstag, Telefonnummer(n), Beziehung, Notizen/Beruf/Erinnerung, Vorname, "
+        "Nachname, Spitznamen, Kontaktverknüpfung) dauerhaft im Profil. Kann alle Telefonbuch- "
+        "und Personendaten direkt überschreiben oder korrigieren.",
         _obj({
             "name": {"type": "string", "description": "Name der Person (z. B. Julian, Helga, Matthias)"},
+            "geburtstag": {"type": "string", "description": "Geburtstag (z. B. JJJJ-MM-TT oder TT.MM.JJJJ)"},
+            "telefonnummer": {"type": "string", "description": "Telefonnummer(n) der Person (auch mehrere kommagetrennt)"},
             "beziehung": {"type": "string", "description": "Beziehung zu Sebastian (z. B. Bruder, Zwillingsbruder, Oma, Freund)"},
             "notiz": {"type": "string", "description": "Eigene Notiz oder Information zur Person (z. B. Beruf, Wohnort, Hobbies)"},
             "vorname": {"type": "string", "description": "Vorname (optional)"},
             "nachname": {"type": "string", "description": "Nachname (optional)"},
             "spitznamen": {"type": "string", "description": "Spitzname(n) (optional)"},
+            "kontakt_id": {"type": "string", "description": "Optionale ID des Telefonbuch-Kontakts"},
         }, ["name"]),
         _person_profil_aendern,
-        "👥 aktualisiert Personen-Profil …",
+        "👥 aktualisiert Personen- & Telefonbuchdaten …",
     ),
     Werkzeug(
         "notiz_speichern",

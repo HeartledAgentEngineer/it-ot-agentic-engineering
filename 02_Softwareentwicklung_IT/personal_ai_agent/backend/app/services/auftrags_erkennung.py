@@ -147,6 +147,7 @@ def ist_auftrag(nachricht: str) -> Tuple[bool, str, Optional[str], Optional[str]
         "notiz", "notizen", "erinnerung", "erinnerungen", "gedächtnis", "gedaechtnis",
         "profil", "profile", "beziehung", "beziehungen", "person", "personen",
         "anlass", "geschichte", "geschichten", "fakt", "fakten", "meine daten",
+        "telefonbuch", "kontakt", "kontakte", "geburtstag", "telefonnummer", "handynummer",
     )
     if any(sig in text for sig in _DATEN_PFLEGE_SIGNALE):
         _ECHTE_CODING_BEGRIFFE = (
