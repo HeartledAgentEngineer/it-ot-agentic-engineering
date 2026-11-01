@@ -1265,12 +1265,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const hinweis = el('erzaehl-hinweis');
         if (hinweis) hinweis.textContent = 'Liest vor…';
         try {
-            const res = await fetch(${apiBase()}/api/speak, {
+            const res = await fetch(`${apiBase()}/api/speak`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: textZumSprechen.slice(0, 2000) }),
             });
-            if (!res.ok) throw new Error(HTTP );
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const arrayBuffer = await res.arrayBuffer();
 
             // Web Audio API bevorzugen, um Mobil-Autoplay-Sperre nach async fetch zu umgehen
