@@ -585,7 +585,7 @@ def _zwischengespeichert(pfad: str, lesen) -> Dict[int, Any]:
 def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
     """``{fileid: beschreibung}`` — die Datei wächst nur an, die letzte Zeile je Bild gilt."""
     ergebnis: Dict[int, str] = {}
-    with open(pfad, "r", encoding="utf-8") as datei:
+    with open(pfad, "r", encoding="utf-8", errors="ignore") as datei:
         for zeile in datei:
             try:
                 eintrag = json.loads(zeile)
@@ -594,25 +594,59 @@ def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
             if not isinstance(eintrag, dict):
                 continue
             fileid = _als_zahl(eintrag.get("fileid"))
-            text = eintrag.get("beschreibung")
+            text = eintrag.get("beschreibung_reich") or eintrag.get("beschreibung")
             if fileid is not None and isinstance(text, str) and text.strip():
                 ergebnis[fileid] = " ".join(text.split())[:BESCHREIBUNG_MAX_LAENGE]
     return ergebnis
 
 
+def beschreibungen_alle_pfade() -> List[str]:
+    """Liefert alle vorhandenen Beschreibungsdateien (JSONL) im Foto-Ordner."""
+    ordner = os.path.dirname(ereignisse_pfad())
+    kandidaten = [
+        beschreibungen_pfad(),
+        os.path.join(ordner, "bild_beschreibungen_reich.jsonl"),
+        os.path.join(ordner, "bild_beschreibungen_papa_reich.jsonl"),
+        os.path.join(ordner, "bild_beschreibungen_rest_reich.jsonl"),
+        os.path.join(ordner, "bild_beschreibungen_altbestand_reich.jsonl"),
+    ]
+    pfade: List[str] = []
+    for p in kandidaten:
+        if os.path.isfile(p) and p not in pfade:
+            pfade.append(p)
+    return pfade
+
+
+def _beschreibungen_gesamt_lesen() -> Dict[int, str]:
+    """Liest Beschreibungen aus SQLite und allen JSONL-Dateien zusammengeführt.
+
+    Kombiniert SQLite life_archive.db und sämtliche JSONL-Bestände (reich, papa,
+    rest, altbestand). Neuere/reichere Texte überschreiben Basis-Texte.
+    """
+    ergebnis: Dict[int, str] = {}
+    db_pfad = life_archive_pfad()
+    if os.path.isfile(db_pfad):
+        try:
+            ergebnis.update(_zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen))
+        except Exception as e:
+            logger.warning("SQLite Beschreibungen fehlgeschlagen: %s", e)
+
+    for j_pfad in beschreibungen_alle_pfade():
+        try:
+            j_daten = _zwischengespeichert(j_pfad, _beschreibungen_lesen)
+            ergebnis.update(j_daten)
+        except Exception as e:
+            logger.warning("JSONL Beschreibungen (%s) fehlgeschlagen: %s", j_pfad, e)
+
+    return ergebnis
 
 
 def beschreibung_holen(fileid: Any) -> Optional[str]:
-    """Beschreibung eines einzelnen Bildes holen (aus SQLite oder bild_beschreibungen.jsonl)."""
+    """Beschreibung eines einzelnen Bildes holen (aus SQLite oder JSONL)."""
     fid = _als_zahl(fileid)
     if fid is None:
         return None
-    db_pfad = life_archive_pfad()
-    if os.path.isfile(db_pfad):
-        beschreibungen = _zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen)
-    else:
-        jsonl_pfad = beschreibungen_pfad()
-        beschreibungen = _zwischengespeichert(jsonl_pfad, _beschreibungen_lesen)
+    beschreibungen = _beschreibungen_gesamt_lesen()
     return beschreibungen.get(fid)
 
 
@@ -647,6 +681,11 @@ def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
                     "UPDATE photos SET beschreibung_reich = ?, beschreibung = ? WHERE fileid = ?",
                     (sauberer_text, sauberer_text, fid)
                 )
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        "INSERT INTO photos (fileid, beschreibung, beschreibung_reich) VALUES (?, ?, ?)",
+                        (fid, sauberer_text, sauberer_text)
+                    )
                 conn.commit()
         except Exception as e:
             logger.warning("Konnte SQLite beschreibung nicht aktualisieren: %s", e)
@@ -684,11 +723,8 @@ def bilder_info(kennung: str) -> Optional[Dict[str, Any]]:
     if ereignis is None:
         return None
     db_pfad = life_archive_pfad()
-    jsonl_pfad = beschreibungen_pfad()
-    if os.path.isfile(db_pfad):
-        beschreibungen = _zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen)
-    else:
-        beschreibungen = _zwischengespeichert(jsonl_pfad, _beschreibungen_lesen)
+    jsonl_pfade = beschreibungen_alle_pfade()
+    beschreibungen = _beschreibungen_gesamt_lesen()
     orte = _zwischengespeichert(bild_orte_pfad(), _bild_orte_lesen)
     bilder: Dict[str, Dict[str, Any]] = {}
     zaehler: Dict[str, int] = {}
@@ -706,7 +742,7 @@ def bilder_info(kennung: str) -> Optional[Dict[str, Any]]:
         "orte": [name for name, _ in haeufigste],
         "mit_beschreibung": sum(1 for b in bilder.values() if b["beschreibung"]),
         "mit_ort": sum(1 for b in bilder.values() if b["ort"]),
-        "beschreibungen_vorhanden": os.path.isfile(jsonl_pfad) or os.path.isfile(db_pfad),
+        "beschreibungen_vorhanden": bool(jsonl_pfade) or os.path.isfile(db_pfad),
         "orte_vorhanden": os.path.isfile(bild_orte_pfad()),
     }
 
@@ -946,7 +982,13 @@ def ki_geschichte_generieren(fileid: Any,
 
         if beschreibung:
             b_clean = beschreibung.strip()
-            saetze.append(f"Das Bild zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}." if not b_clean.startswith("Das") else b_clean)
+            ist_englisch = any(b_clean.startswith(w) for w in ("A ", "An ", "The ", "Two ", "Three ", "Four ", "Several ", "Close-up ", "In ")) or not any(w in b_clean.lower() for w in (" und ", " der ", " die ", " das ", " ein ", " eine "))
+            if ist_englisch:
+                saetze.append(f"Auf dem Bild zu sehen: {b_clean.rstrip('.')}.")
+            elif b_clean.startswith("Das") or b_clean.startswith("Ein"):
+                saetze.append(f"{b_clean.rstrip('.')}.")
+            else:
+                saetze.append(f"Das Bild zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}.")
 
         if notiz:
             saetze.append(f"Meine Erinnerung dazu: {notiz.strip().rstrip('.')}.")
@@ -960,6 +1002,8 @@ def ki_geschichte_generieren(fileid: Any,
             saetze.append(f"Eine Aufnahme {datum_text}.")
         elif ort_sauber:
             saetze.append(f"Dieses Foto wurde in {ort_sauber} aufgenommen.")
+        elif ereignis_titel:
+            saetze.append(f"Eine Aufnahme zum Ereignis „{ereignis_titel}“.")
         else:
             saetze.append("Ein festgehaltener Augenblick aus dem Fotoarchiv.")
 
@@ -968,7 +1012,13 @@ def ki_geschichte_generieren(fileid: Any,
 
         if beschreibung:
             b_clean = beschreibung.strip()
-            saetze.append(f"Die Aufnahme zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}." if not b_clean.startswith("Die") else b_clean)
+            ist_englisch = any(b_clean.startswith(w) for w in ("A ", "An ", "The ", "Two ", "Three ", "Four ", "Several ", "Close-up ", "In ")) or not any(w in b_clean.lower() for w in (" und ", " der ", " die ", " das ", " ein ", " eine "))
+            if ist_englisch:
+                saetze.append(f"Bildaufnahme: {b_clean.rstrip('.')}.")
+            elif b_clean.startswith("Die") or b_clean.startswith("Ein"):
+                saetze.append(f"{b_clean.rstrip('.')}.")
+            else:
+                saetze.append(f"Die Aufnahme zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}.")
 
         if notiz:
             saetze.append(f"Dazu die persoenliche Notiz: \"{notiz.strip().rstrip('.')}\".")

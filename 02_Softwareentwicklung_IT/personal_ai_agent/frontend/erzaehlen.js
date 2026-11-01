@@ -195,9 +195,10 @@ function erzaehlGesichtHandHinweis(gesicht) {
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
-function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung) {
+function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung, ersetzt) {
     const koerper = { ereignis_kennung: ereignisKennung, text, quelle: 'tippen' };
     if (dateiKennung !== null && dateiKennung !== undefined) koerper.datei_kennung = dateiKennung;
+    if (ersetzt) koerper.ersetzt = ersetzt;
     return koerper;
 }
 
@@ -924,6 +925,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 // Sebastian 31.10.2026: Keine verwirrenden "noch ohne Namen" Zeilen im Einzelbild
                 inhalt = inhalt.replace(/\s*·\s*\d+\s+Person(?:en)?\s+noch\s+ohne\s+Namen/g, '')
                                .replace(/^Auf diesem Bild:\s*\d+\s+Person(?:en)?\s+noch\s+ohne\s+Namen$/g, '');
+                // Sebastian 01.11.2026: Keine störenden "niemand erkannt" / "keine Person" Zeilen im Einzelbild
+                if (inhalt.includes('niemand erkannt') || inhalt.includes('keine Person') || !inhalt.includes('Auf diesem Bild:')) {
+                    inhalt = '';
+                }
             }
         } else if (zustand.personenFehler && !einzel) {
             inhalt = 'Personen: ' + zustand.personenFehler;
@@ -1673,22 +1678,18 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                         perspektive: zustand.perspektive || 'ich',
                         ereignis_kennung: zustand.aktuellesEreignis,
                         beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
-                        ort: el('erzaehl-bild-ort-text') ? el('erzaehl-bild-ort-text').textContent : '',
+                        notiz: (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '',
+                        ort: el('erzaehl-bild-ort-text') ? el('erzaehl-bild-ort-text').textContent.replace(/^Ort:\s*/, '') : '',
                         datum: (meinDetail && meinDetail.datum) || '',
                     });
                     if (res && res.ok && res.geschichte) {
-                        const infoBlock = el('erzaehl-bild-info');
-                        if (infoBlock) infoBlock.hidden = false;
-                        if (beschreibungTextEl) {
-                            beschreibungTextEl.textContent = res.geschichte;
-                            beschreibungTextEl.hidden = false;
-                        }
-                        if (bild) bild.dataset.beschreibung = res.geschichte;
                         const eingabeFeld = el('erzaehl-text');
                         if (eingabeFeld) {
                             eingabeFeld.value = res.geschichte;
                             eingabeFeld.focus();
                         }
+                        // Bildgeschichte direkt speichern, damit sie als Erinnerung in der Liste steht
+                        await geschichteSpeichern();
                         await vorlesenText(res.geschichte);
                     } else {
                         console.error('Fehler bei der Bildgeschichte:', res && res.fehler);
@@ -1784,13 +1785,137 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             liste.forEach((g) => {
                 const zeile = document.createElement('div');
                 zeile.className = 'erzaehl-geschichte-zeile';
+
+                // Ansichtsmodus
+                const ansicht = document.createElement('div');
+                ansicht.className = 'erzaehl-geschichte-ansicht';
+
                 const text = document.createElement('div');
+                text.className = 'erzaehl-geschichte-text';
                 text.textContent = g.text || '';
-                zeile.appendChild(text);
+                text.title = 'Tippen zum Bearbeiten dieser Erinnerung';
+                text.style.cursor = 'pointer';
+
                 const meta = document.createElement('div');
                 meta.className = 'erzaehl-geschichte-meta';
-                meta.textContent = `${g.zeit || ''} · ${g.quelle || ''}`;
-                zeile.appendChild(meta);
+                meta.style.display = 'flex';
+                meta.style.justifyContent = 'space-between';
+                meta.style.alignItems = 'center';
+
+                const metaInfo = document.createElement('span');
+                metaInfo.textContent = `${g.zeit || ''} · ${g.quelle || ''}`;
+                meta.appendChild(metaInfo);
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'erzaehl-geschichte-edit-btn';
+                editBtn.type = 'button';
+                editBtn.title = 'Erinnerung bearbeiten';
+                editBtn.textContent = '✏️';
+                editBtn.style.background = 'transparent';
+                editBtn.style.border = 'none';
+                editBtn.style.cursor = 'pointer';
+                editBtn.style.fontSize = '0.82rem';
+                editBtn.style.padding = '2px 4px';
+                meta.appendChild(editBtn);
+
+                ansicht.appendChild(text);
+                ansicht.appendChild(meta);
+                zeile.appendChild(ansicht);
+
+                // Inline-Editor
+                const editor = document.createElement('div');
+                editor.className = 'erzaehl-geschichte-editor';
+                editor.hidden = true;
+
+                const input = document.createElement('textarea');
+                input.rows = 2;
+                input.maxLength = 20000;
+                input.style.width = '100%';
+                input.style.boxSizing = 'border-box';
+                input.style.borderRadius = '6px';
+                input.style.padding = '6px';
+                input.style.background = 'var(--bg-feld, #1a2332)';
+                input.style.color = 'inherit';
+                input.style.border = '1px solid var(--linie, #304562)';
+                input.value = g.text || '';
+
+                const btnRow = document.createElement('div');
+                btnRow.style.display = 'flex';
+                btnRow.style.gap = '8px';
+                btnRow.style.marginTop = '6px';
+
+                const speicherBtn = document.createElement('button');
+                speicherBtn.className = 'erzaehl-steuer-btn';
+                speicherBtn.type = 'button';
+                speicherBtn.textContent = '💾 Speichern';
+
+                const abbrechBtn = document.createElement('button');
+                abbrechBtn.className = 'erzaehl-steuer-btn';
+                abbrechBtn.type = 'button';
+                abbrechBtn.textContent = 'Abbrechen';
+                abbrechBtn.style.background = 'transparent';
+                abbrechBtn.style.border = '1px solid var(--linie, #304562)';
+
+                btnRow.appendChild(speicherBtn);
+                btnRow.appendChild(abbrechBtn);
+                editor.appendChild(input);
+                editor.appendChild(btnRow);
+                zeile.appendChild(editor);
+
+                const bearbeitenStarten = (ev) => {
+                    if (ev) ev.stopPropagation();
+                    input.value = g.text || '';
+                    ansicht.hidden = true;
+                    editor.hidden = false;
+                    input.focus();
+                };
+
+                const bearbeitenAbbrechen = (ev) => {
+                    if (ev) ev.stopPropagation();
+                    editor.hidden = true;
+                    ansicht.hidden = false;
+                };
+
+                text.onclick = bearbeitenStarten;
+                editBtn.onclick = bearbeitenStarten;
+                abbrechBtn.onclick = bearbeitenAbbrechen;
+
+                speicherBtn.onclick = async (ev) => {
+                    if (ev) ev.stopPropagation();
+                    const neuerText = input.value.trim();
+                    if (!neuerText) return;
+                    speicherBtn.disabled = true;
+                    speicherBtn.textContent = 'Speichert…';
+                    try {
+                        const body = erzaehlGeschichteKoerper(
+                            zustand.aktuellesEreignis,
+                            neuerText,
+                            g.datei_kennung,
+                            g.id
+                        );
+                        const res = await jsonSenden('/api/erzaehlen/geschichten', body);
+                        if (res && res.ok) {
+                            if (zustand.detail && Array.isArray(zustand.detail.geschichten)) {
+                                const idx = zustand.detail.geschichten.findIndex((alt) => alt.id === g.id);
+                                if (idx !== -1) {
+                                    zustand.detail.geschichten.splice(idx, 1, res.geschichte);
+                                } else {
+                                    zustand.detail.geschichten.push(res.geschichte);
+                                }
+                            }
+                            geschichtenAnzeigen();
+                        } else {
+                            alert((res && (res.detail || res.error)) || 'Konnte nicht gespeichert werden.');
+                            speicherBtn.disabled = false;
+                            speicherBtn.textContent = '💾 Speichern';
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Aktualisieren der Geschichte:', e);
+                        speicherBtn.disabled = false;
+                        speicherBtn.textContent = '💾 Speichern';
+                    }
+                };
+
                 container.appendChild(zeile);
             });
         };
