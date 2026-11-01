@@ -137,8 +137,8 @@ pruefe(vorChat.indexOf('id="server-zustand"') === -1
     'vor dem Chat steht keiner der vier Blöcke mehr');
 pruefe(/<h2>Checks<\/h2>/.test(html) && !/<h2>Selbsttest<\/h2>/.test(html),
     'Fenster-Überschrift heißt "Checks"');
-pruefe(/id="selbsttest-btn"[^>]*title="Checks – Zustand des Systems"\s+aria-label="Checks anzeigen"/.test(html),
-    'Knopf: title und aria-label "Checks"');
+pruefe(!/id="selbsttest-btn"/.test(html) && /id="agent-face"/.test(html),
+    'Checks nur noch über das Roboter-Symbol (02.11.2026)');
 pruefe(/role="dialog"[^>]*aria-label="Checks"/.test(html), 'Fenster: aria-label "Checks"');
 pruefe(/id="system-update-status"/.test(html) && html.indexOf('id="system-update-status"') < iChat,
     '#system-update-status bleibt im Kopfbereich');

@@ -226,8 +226,8 @@ pruefe('Fehlertext -> ⚠', tlZeile({ an: null, error: 'Tagesimport nicht prüfb
   === '⚠ Tagesimport: Tagesimport nicht prüfbar (X)');
 
 console.log('\n4) Blatt in der Oberfläche (Knopf, Blatt, Laden, KEIN Auto-Polling)');
-pruefe('index.html hat den Selbsttest-Knopf in der Kopfzeile',
-  /id="selbsttest-btn"/.test(html) && html.indexOf('id="selbsttest-btn"') < html.indexOf('id="chat-sheet"'));
+pruefe('kein eigener Checks-Knopf mehr in der Kopfzeile (02.11.2026, Wunsch Sebastian: doppelt)',
+  !/id="selbsttest-btn"/.test(html));
 pruefe('index.html hat das Selbsttest-Blatt mit Textfeld und Aktualisieren',
   /id="selbsttest-sheet"/.test(html) && /id="selbsttest-text"/.test(html)
   && /id="selbsttest-reload"/.test(html) && /Aktualisieren/.test(html));
@@ -235,7 +235,8 @@ pruefe('Server-Zustand, Hintergrund-Leiste, Datenstand und Protokoll liegen im C
   ['server-zustand', 'hintergrund-leiste', 'datenstand', 'server-protokoll'].every(
     id => html.indexOf('id="' + id + '"') > html.indexOf('id="selbsttest-sheet"')
       && html.indexOf('id="' + id + '"') < html.indexOf('id="selbsttest-text"')));
-pruefe('der Knopf öffnet das Blatt', /dom\.selbsttestBtn\.addEventListener\('click', oeffneSelbsttestBlatt\)/.test(src));
+pruefe('das Roboter-Symbol öffnet das Blatt', /agentGesicht\.addEventListener\('click', oeffneSelbsttestBlatt\)/.test(src)
+  && !/selbsttestBtn/.test(src));
 pruefe('das Blatt holt GET /api/selbsttest', /fetch\(`\$\{API_BASE\}\/api\/selbsttest`\)/.test(src));
 pruefe('Anzeige läuft über selbsttestText(daten)', /zeigeSelbsttest\(selbsttestText\(daten\)\)/.test(src));
 pruefe('Anzeige per textContent (kein innerHTML -> keine Injektion)',

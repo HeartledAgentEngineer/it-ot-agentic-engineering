@@ -42,17 +42,8 @@
                 </button>
                 <!-- ZWEI Chats seit 2026-09: Haupt-Chat (conv_main) + separater
                      Coding-/Hermes-Chat (conv_code), oben umschaltbar. -->
-                <!-- Selbsttest (2026-09-25): Zustand des Systems OHNE Kabel
-                     ablesbar — Commit, Archiv-Index, Inbox-Daemon, Logs,
-                     Erinnerungen, Sprachmodelle, Serverzeit. Nötig, weil
-                     Sebastian unterwegs kein ADB hat und nur sieht, was die
-                     App selbst zeigt. -->
-                <button id="selbsttest-btn" class="icon-btn" title="Checks – Zustand des Systems"
-                        aria-label="Checks anzeigen">
-                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                        <path fill="currentColor" d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-5-5 1.41-1.41L10 15.17l7.59-7.59L19 9l-9 9z"/>
-                    </svg>
-                </button>
+                <!-- Checks: nur noch über das Roboter-Symbol (#agent-face); der eigene
+                     Knopf entfiel am 02.11.2026 (Wunsch Sebastian: doppelt, Platz in der Leiste). -->
                 <!-- Update & Neustart (2026-10-16): zieht den aktuellen Stand und startet den Server neu. -->
                 <button id="system-update-btn" class="icon-btn" type="button"
                         title="Stand holen und Server neu starten"
@@ -803,7 +794,7 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261101F"></script>
+    <script src="app.js?v=20261102A"></script>
     <script src="erzaehlen.js?v=20261101E"></script>
     <script src="gruppen_quiz.js?v=20261101G"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr

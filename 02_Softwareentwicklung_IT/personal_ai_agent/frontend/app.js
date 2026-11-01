@@ -168,7 +168,6 @@ const dom = {
     memoryList: document.getElementById('memory-list'),
     memoryHint: document.getElementById('memory-hint'),
     // Selbsttest: Blatt mit Systemzustand (Commit, Index, Daemon, Logs …).
-    selbsttestBtn: document.getElementById('selbsttest-btn'),
     selbsttestSheet: document.getElementById('selbsttest-sheet'),
     selbsttestClose: document.getElementById('selbsttest-close'),
     selbsttestText: document.getElementById('selbsttest-text'),
@@ -9644,9 +9643,8 @@ window.addEventListener('scroll', () => kontextMenueSchliessen(), true);
             if (e.target === dom.memorySheet) schliesseGedaechtnisBlatt();
         });
     }
-    // Checks-Blatt (ehem. Selbsttest): öffnen über den Knopf in der Kopfzeile, schließen über
-    // ×, Hintergrund oder Esc, aktualisieren über den Knopf im Blatt.
-    if (dom.selbsttestBtn) dom.selbsttestBtn.addEventListener('click', oeffneSelbsttestBlatt);
+    // Checks-Blatt (ehem. Selbsttest): öffnen nur über das Roboter-Symbol (eigener Knopf
+    // entfiel 02.11.2026), schließen über ×, Hintergrund oder Esc, aktualisieren im Blatt.
     // Roboter-Symbol (20.10.2026): zeigt den Serverzustand und oeffnet dasselbe
     // Checks-Fenster — per Antippen, Enter oder Leertaste.
     const agentGesicht = document.getElementById('agent-face');
