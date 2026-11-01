@@ -928,6 +928,47 @@ def format_datum_de(datum_str: Optional[str]) -> str:
     return s
 
 
+# ── Bildanalyse, Prompts & Organische Verschmelzung ──────────────────────────
+
+GESCHICHTE_SYSTEM_PROMPT = """Du bist ein warmherziger, einfühlsamer Chronist und Erzähler für ein persönliches Foto- und Familienarchiv.
+Deine Aufgabe ist es, aus Bildbeschreibungen, persönlichen Notizen/Erinnerungen und Metadaten (Personen, Ort, Zeit) eine einzige, harmonisch verschmolzene Geschichte zu weben.
+
+VERBINDLICHE REGELN:
+1. ORGANISCHE VERSCHMELZUNG: Verschmelze die sichtbare Bildszene nahtlos mit den persönlichen Gedanken und Erinnerungen der Notiz. Die Geschichte muss wie aus einem Guss klingen – als würde man sich liebevoll an diesen Moment erinnern.
+2. KEIN STACCATO, KEINE AUFZÄHLUNG: Schreibe fließende, natürliche Sätze mit melodischen Übergängen. Niemals Faktenlisten („Mit dabei waren: ...“, „Zu diesem Anlass gehören: ...“) oder abgehackte Einzelblöcke aneinanderreihen.
+3. KEINE ZITATE: Zitiere die Notiz niemals mit Anführungszeichen oder Zitat-Labels wie „Meine Notiz dazu: ...“. Übernimm die Gedanken, Emotionen und Details direkt und lebendig in die Erzählung.
+4. ECHTE BEZIEHUNGEN STATT GENERISCHER ROLLEN: Ersetze generische Begriffe aus der Bildanalyse („ein Erwachsener“, „eine Frau“, „ein Mann“, „ein Baby“) konsequent durch die echten Personen und familiären Beziehungen (z. B. „mein Papa Matthias“, „ich als kleines Baby“).
+5. PERSPEKTIVE: Halte die vorgegebene Perspektive („ich“-Form oder neutrale Erzählerperspektive) strikt ein.
+6. LÄNGE & VORLESE-QUALITÄT: 3 bis 6 wohlklingende, leicht verständliche Sätze. Keine Schachtelsätze, sondern Text, der beim Vorlesen wie eine echte Erzählung klingt."""
+
+
+def erstelle_geschichte_prompt(
+    titel: Optional[str] = None,
+    datum_lesbar: Optional[str] = None,
+    ort: Optional[str] = None,
+    personen: Optional[List[str]] = None,
+    beschreibungen: Optional[List[str]] = None,
+    notiz: Optional[str] = None,
+    anzahl_dateien: int = 1,
+    perspektive: str = "ich"
+) -> str:
+    """Erstellt den Benutzer-Prompt für eine fließende Verschmelzung durch ein LLM."""
+    pers_text = ", ".join(personen) if personen else "Nicht angegeben"
+    szenen_text = "; ".join(beschreibungen) if beschreibungen else "Keine visuelle Bildanalyse vorhanden"
+    notiz_text = notiz.strip() if notiz else "Keine persönliche Notiz vorhanden"
+
+    return f"""Hier sind die Angaben für die Geschichte:
+- Anlass/Titel: {titel or 'Ohne Titel'}
+- Datum & Ort: {datum_lesbar or 'Unbekanntes Datum'} in {ort or 'unbekanntem Ort'}
+- Beteiligte Personen: {pers_text}
+- Anzahl der Aufnahmen: {anzahl_dateien}
+- Visuelle Bildbeschreibung(en): {szenen_text}
+- Persönliche Notiz/Erinnerung: {notiz_text}
+- Gewünschte Erzählperspektive: {'Ich-Form (persönlich, emotional)' if perspektive == 'ich' else 'Erzähler (dokumentarisch, neutral)'}
+
+Bitte verfasse daraus eine lebendige, zusammenhängende Erzählung ohne Staccato oder Faktenaufzählung."""
+
+
 def deutsch_fuer_bildbeschreibung(text: str) -> str:
     """Übersetzt/glättet typische englische Gemini-Vision-Bildbeschreibungen in natürliches Deutsch (01.11.2026)."""
     if not text or not isinstance(text, str):
@@ -981,9 +1022,207 @@ def _notiz_fuer_geschichte(notiz: Optional[str]) -> str:
     """Bereinigt Notizen für die inhaltliche Übernahme (keine Zitatzeichen, keine Notiz-Labels)."""
     if not notiz:
         return ""
-    n = notiz.strip().strip('"\'„“»«')
+    n = notiz.strip().strip('"\'\u201e\u201c\u00bb\u00ab')
     n = re.sub(r'^(Meine Notiz dazu|Meine Erinnerung dazu|Dazu die persönliche Notiz|Dazugehörige Anmerkung|Notiz|Erinnerung)\s*:\s*', '', n, flags=re.IGNORECASE)
-    return n.strip().strip('"\'„“»«')
+    return n.strip().strip('"\'\u201e\u201c\u00bb\u00ab')
+
+
+def personalisiere_szene(
+    beschreibung: str,
+    personen: Optional[List[str]] = None,
+    notiz: Optional[str] = None,
+    perspektive: str = "ich"
+) -> str:
+    """Ersetzt generische Bildanalyse-Begriffe (Erwachsener, Mann, Frau, Baby) durch reale Personen."""
+    if not beschreibung:
+        return ""
+    b = deutsch_fuer_bildbeschreibung(beschreibung).strip()
+
+    personen_liste = [p.strip() for p in (personen or []) if p and p.strip()]
+    notiz_l = (notiz or "").lower()
+
+    hat_papa = any(w in notiz_l for w in ("papa", "vater")) or any("matthias" in p.lower() for p in personen_liste)
+    hat_mama = any(w in notiz_l for w in ("mama", "mutter"))
+    ist_sebastian = any("sebastian" in p.lower() for p in personen_liste)
+
+    andere_personen = [p for p in personen_liste if p.lower() not in ("sebastian", "ich")]
+    andere_text = ", ".join(andere_personen[:-1]) + " und " + andere_personen[-1] if len(andere_personen) > 1 else (andere_personen[0] if andere_personen else "")
+
+    if perspektive == "ich":
+        if hat_papa:
+            b = re.sub(r'\bEin Erwachsener\b', 'Mein Papa', b)
+            b = re.sub(r'\bDer Erwachsene\b', 'Mein Papa', b)
+            b = re.sub(r'\bEin Mann\b', 'Mein Papa', b)
+            b = re.sub(r'\bDer Mann\b', 'Mein Papa', b)
+            if "matthias" in andere_text.lower() and "papa" not in notiz_l:
+                b = re.sub(r'\bMein Papa\b', 'Mein Papa Matthias', b, count=1)
+        elif andere_text:
+            b = re.sub(r'\bEin Mann\b', andere_text, b, count=1)
+            b = re.sub(r'\bEine Frau\b', andere_text, b, count=1)
+            b = re.sub(r'\bEin Erwachsener\b', andere_text, b, count=1)
+
+        ist_baby = any(w in notiz_l for w in ("baby", "wochen alt", "monate alt", "klein")) or ("baby" in b.lower() and (hat_papa or len(andere_personen) > 0))
+        if ist_sebastian and ist_baby:
+            b = re.sub(r'\bmit einem kleinen Baby, das daneben liegt\b', 'mit mir als kleinem Baby', b)
+            b = re.sub(r'\bmit einem kleinen Baby\b', 'mit mir als kleinem Baby', b)
+            b = re.sub(r'\bwährend das Baby aufmerksam zuschaut\b', 'während ich ganz aufmerksam zu ihm aufschaue', b)
+            b = re.sub(r'\bdas Baby\b', 'ich', b)
+            b = re.sub(r'\bein Baby\b', 'mich als Baby', b)
+            b = re.sub(r'\bein kleines Baby\b', 'mich als kleines Baby', b)
+            b = re.sub(r'\bein neugeborenes Baby\b', 'mich als Neugeborenes', b)
+    else:  # erzaehler
+        if hat_papa and andere_text:
+            b = re.sub(r'\bEin Erwachsener\b', f'Vater {andere_text}', b)
+            b = re.sub(r'\bDer Erwachsene\b', 'Der Vater', b)
+        elif andere_text:
+            b = re.sub(r'\bEin Erwachsener\b', andere_text, b, count=1)
+        if ist_sebastian and any(w in notiz_l for w in ("baby", "wochen alt", "monate alt", "klein")):
+            b = re.sub(r'\bmit einem kleinen Baby, das daneben liegt\b', 'mit Sohn Sebastian als kleinem Baby', b)
+            b = re.sub(r'\bmit einem kleinen Baby\b', 'mit Sohn Sebastian als kleinem Baby', b)
+            b = re.sub(r'\bwährend das Baby aufmerksam zuschaut\b', 'während das kleine Baby aufmerksam zusieht', b)
+
+    return b
+
+
+def verschmelze_geschichte(
+    titel: Optional[str] = None,
+    datum_text: Optional[str] = None,
+    ort: Optional[str] = None,
+    personen: Optional[List[str]] = None,
+    beschreibungen: Optional[List[str]] = None,
+    notiz: Optional[str] = None,
+    anzahl_dateien: int = 1,
+    perspektive: str = "ich"
+) -> str:
+    """Verschmilzt Bildinhalt, Notizen und Metadaten zu einer fließenden Geschichte ohne Staccato."""
+    personen_liste = [p.strip() for p in (personen or []) if p and p.strip()]
+    beschr_liste = [b.strip() for b in (beschreibungen or []) if b and b.strip()]
+
+    # 1. Szenen personalisieren
+    szenen_personalisiert = [personalisiere_szene(b, personen_liste, notiz, perspektive) for b in beschr_liste]
+    hauptszene = szenen_personalisiert[0] if szenen_personalisiert else ""
+    nebenszene = szenen_personalisiert[1] if len(szenen_personalisiert) > 1 else ""
+
+    # 2. Notiz säubern
+    notiz_sauber = _notiz_fuer_geschichte(notiz)
+    titel_sauber = (titel or "").strip()
+    ort_sauber = (ort or "").strip()
+    datum_sauber = (datum_text or "").strip()
+
+    andere_personen = [p for p in personen_liste if p.lower() not in ("sebastian", "ich")]
+    andere_text = ", ".join(andere_personen[:-1]) + " und " + andere_personen[-1] if len(andere_personen) > 1 else (andere_personen[0] if andere_personen else "")
+    alle_pers_text = ", ".join(personen_liste[:-1]) + " und " + personen_liste[-1] if len(personen_liste) > 1 else (personen_liste[0] if personen_liste else "")
+
+    teile: List[str] = []
+
+    if perspektive == "ich":
+        notiz_k = notiz_sauber.lower()
+
+        # 1. Warmherziger situativer Rahmen (Ort, Datum, Titel, Personen)
+        rahmen_teile: List[str] = []
+        if titel_sauber and datum_sauber and ort_sauber:
+            rahmen_teile.append(f"Eine wunderbare Erinnerung an „{titel_sauber}“ {datum_sauber} in {ort_sauber}")
+        elif titel_sauber and datum_sauber:
+            rahmen_teile.append(f"Eine schöne Erinnerung an „{titel_sauber}“ {datum_sauber}")
+        elif titel_sauber and ort_sauber:
+            rahmen_teile.append(f"Eine Momentaufnahme zu „{titel_sauber}“ in {ort_sauber}")
+        elif titel_sauber:
+            rahmen_teile.append(f"Eine besondere Erinnerung an unseren Anlass „{titel_sauber}“")
+        elif datum_sauber and ort_sauber:
+            rahmen_teile.append(f"Ich erinnere mich gut an diesen Moment {datum_sauber} in {ort_sauber}")
+        elif datum_sauber:
+            rahmen_teile.append(f"Ich erinnere mich gut an diese Zeit {datum_sauber}")
+        elif ort_sauber:
+            rahmen_teile.append(f"Ein vertrauter Augenblick in {ort_sauber}")
+
+        if andere_text:
+            if rahmen_teile:
+                if "erinnere mich" in rahmen_teile[0].lower():
+                    rahmen_teile.append(f"mit {andere_text}")
+                else:
+                    rahmen_teile.append(f"zusammen mit {andere_text}")
+            else:
+                rahmen_teile.append(f"Ein schöner Moment zusammen mit {andere_text}")
+
+        if rahmen_teile:
+            rahmen_satz = ", ".join(rahmen_teile) + "."
+            rahmen_satz = rahmen_satz.replace(", zusammen mit ", " – festgehalten zusammen mit ")
+            teile.append(rahmen_satz)
+
+        # 2. Notiz & Bildszene organisch verschmelzen
+        if notiz_sauber:
+            saetze = [s.strip() for s in re.split(r'(?<=[.!?])\s+', notiz_sauber) if s.strip()]
+            if saetze:
+                auftakt = saetze[0]
+                rest_notiz = " ".join(saetze[1:])
+                teile.append(auftakt)
+
+                if hauptszene:
+                    if len(szenen_personalisiert) > 1:
+                        teile.append(f"Auf dem ersten Foto wird dieser Augenblick lebendig: {hauptszene.rstrip('.')}.")
+                        if nebenszene:
+                            teile.append(f"Ein weiteres Bild zeigt: {nebenszene.rstrip('.')}.")
+                    else:
+                        teile.append(f"Auf dem Foto wird dieser Augenblick lebendig: {hauptszene.rstrip('.')}.")
+
+                if rest_notiz:
+                    teile.append(rest_notiz)
+            else:
+                teile.append(notiz_sauber)
+                if hauptszene:
+                    teile.append(f"Auf der Aufnahme wird die Szene sichtbar: {hauptszene.rstrip('.')}.")
+        elif hauptszene:
+            if len(szenen_personalisiert) > 1:
+                teile.append(f"Die Aufnahmen fangen die Szenen warm ein: {hauptszene.rstrip('.')}.")
+                if nebenszene:
+                    teile.append(f"Ein weiteres Foto hält fest: {nebenszene.rstrip('.')}.")
+            else:
+                teile.append(f"Das Foto fängt diesen Moment lebendig ein: {hauptszene.rstrip('.')}.")
+
+        # 3. Runder, natürlicher Ausklang
+        if "titelbild" in notiz_k or "titel" in titel_sauber.lower():
+            teile.append("Genau dieser vertraute Moment eröffnet das Fotobuch – ein Bild voller Wärme, das man sich immer wieder gern ansieht.")
+        elif anzahl_dateien > 1:
+            teile.append("Eine lebendige Bilderreihe, die diese gemeinsamen Erinnerungen für immer bewahrt.")
+        else:
+            teile.append("Ein Augenblick voller Geborgenheit, der diese Zeit lebendig hält.")
+
+    else:  # erzaehler
+        notiz_k = notiz_sauber.lower()
+        umfang_hinweis = f" mit {anzahl_dateien} Aufnahmen" if anzahl_dateien > 1 else ""
+
+        if titel_sauber and datum_sauber and ort_sauber:
+            teile.append(f"Eine Fotodokumentation zu „{titel_sauber}“ {datum_sauber} in {ort_sauber}{umfang_hinweis}.")
+        elif titel_sauber and datum_sauber:
+            teile.append(f"Eine Momentaufnahme zu „{titel_sauber}“ {datum_sauber}{umfang_hinweis}.")
+        elif titel_sauber:
+            teile.append(f"Aufnahmen aus dem Familienarchiv zum Anlass „{titel_sauber}“{umfang_hinweis}.")
+        elif datum_sauber and ort_sauber:
+            teile.append(f"Eine Aufnahme {datum_sauber} in {ort_sauber}{umfang_hinweis}.")
+        elif datum_sauber:
+            teile.append(f"Eine Aufnahme {datum_sauber}{umfang_hinweis}.")
+        elif ort_sauber:
+            teile.append(f"Eine Aufnahme in {ort_sauber}{umfang_hinweis}.")
+        else:
+            teile.append(f"Ein festgehaltener Augenblick aus der Chronik{umfang_hinweis}.")
+
+        if alle_pers_text:
+            teile.append(f"Im Mittelpunkt stehen {alle_pers_text}.")
+
+        if hauptszene:
+            if len(szenen_personalisiert) > 1:
+                teile.append(f"Die Aufnahmen dokumentieren das Geschehen: {hauptszene.rstrip('.')}.")
+                if nebenszene:
+                    teile.append(f"Weitere Motive fangen ein: {nebenszene.rstrip('.')}.")
+            else:
+                teile.append(f"Die visuelle Aufnahme zeigt: {hauptszene.rstrip('.')}.")
+
+        if notiz_sauber:
+            teile.append(f"Aus den überlieferten Aufzeichnungen: {notiz_sauber}")
+
+        teile.append("Ein authentisches Zeitdokument, das diesen Lebensabschnitt festhält.")
+
+    return " ".join(teile)
 
 
 def ki_geschichte_generieren(fileid: Any,
@@ -996,7 +1235,7 @@ def ki_geschichte_generieren(fileid: Any,
                              beschreibung: Optional[str] = None) -> Dict[str, Any]:
     """Erzeugt eine lebendige Bildgeschichte aus Bilddaten, Personen, KI-Bildanalysen und Notizen (01.11.2026).
     Waehlbar in 'ich'-Perspektive (Ich-Form) oder 'erzaehler' (neutrale Sicht).
-    Wichtig: Erinnerungen werden inhaltlich integriert statt als Zitat wiederholt."""
+    Verschmilzt Bildinhalt und Erinnerung organisch ohne Staccato."""
     fid = _als_zahl(fileid)
     if fid is None:
         return {"ok": False, "fehler": "Ungueltige Bildkennung."}
@@ -1069,79 +1308,18 @@ def ki_geschichte_generieren(fileid: Any,
     ort_sauber = str(ort).strip() if ort else ""
     pers_liste = [p.strip() for p in (personen or []) if p and p.strip()]
 
-    if pers_liste:
-        if len(pers_liste) == 1:
-            pers_text = pers_liste[0]
-        else:
-            pers_text = ", ".join(pers_liste[:-1]) + " und " + pers_liste[-1]
-    else:
-        pers_text = ""
-
-    saetze: List[str] = []
-    if perspektive == "ich":
-        if datum_text and ort_sauber:
-            saetze.append(f"Ich erinnere mich gut an diesen Moment {datum_text} in {ort_sauber}.")
-        elif datum_text:
-            saetze.append(f"Ich erinnere mich gut an diese Zeit {datum_text}.")
-        elif ort_sauber:
-            saetze.append(f"Dieses Foto entstand in {ort_sauber}.")
-        else:
-            saetze.append("Ein schoener Moment, der hier auf diesem Foto festgehalten ist.")
-
-        if pers_liste:
-            andere = [p for p in pers_liste if p.casefold() != "sebastian"]
-            if len(andere) == len(pers_liste):
-                saetze.append(f"Auf dem Bild sind {pers_text} zu sehen.")
-            elif andere:
-                andere_text = ", ".join(andere[:-1]) + " und " + andere[-1] if len(andere) > 1 else andere[0]
-                saetze.append(f"Auf dem Foto bin ich zusammen mit {andere_text} zu sehen.")
-            else:
-                saetze.append("Auf diesem Bild bin ich allein zu sehen.")
-
-        # KI-generierte Bildanalyse einbinden
-        if beschr_sauber:
-            b_clean = beschr_sauber.rstrip(".")
-            if b_clean.startswith("Das") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
-                saetze.append(f"{b_clean}.")
-            else:
-                saetze.append(f"Das Foto fängt diesen Augenblick ein: {b_clean}.")
-
-        # Erinnerung inhaltlich übernehmen (kein Zitat)
-        if notiz_inhalt:
-            saetze.append(f"{notiz_inhalt.rstrip('.')}.")
-        elif not beschr_sauber and len(saetze) <= 2:
-            saetze.append("Es ist eine wertvolle Erinnerung in meiner Sammlung.")
-
-    else:  # erzaehler
-        if datum_text and ort_sauber:
-            saetze.append(f"Eine Aufnahme {datum_text} aus {ort_sauber}.")
-        elif datum_text:
-            saetze.append(f"Eine Aufnahme {datum_text}.")
-        elif ort_sauber:
-            saetze.append(f"Dieses Foto wurde in {ort_sauber} aufgenommen.")
-        elif ereignis_titel:
-            saetze.append(f"Eine Aufnahme zum Ereignis „{ereignis_titel}“.")
-        else:
-            saetze.append("Ein festgehaltener Augenblick aus dem Fotoarchiv.")
-
-        if pers_liste:
-            saetze.append(f"Auf diesem Bild sind {pers_text} zu sehen.")
-
-        # KI-generierte Bildanalyse einbinden
-        if beschr_sauber:
-            b_clean = beschr_sauber.rstrip(".")
-            if b_clean.startswith("Die") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
-                saetze.append(f"{b_clean}.")
-            else:
-                saetze.append(f"Die visuelle Bildanalyse dokumentiert: {b_clean}.")
-
-        # Erinnerung inhaltlich sachlich einbinden (keine Zitatzeichen)
-        if notiz_inhalt:
-            saetze.append(f"Aus den überlieferten Aufzeichnungen: {notiz_inhalt.rstrip('.')}.")
-        elif not beschr_sauber and len(saetze) <= 2:
-            saetze.append("Ein lebendiges Zeitdokument in der Fotogalerie.")
-
-    geschichte_text = " ".join(saetze)
+    # Organische Verschmelzung
+    beschr_liste = [beschr_sauber] if beschr_sauber else []
+    geschichte_text = verschmelze_geschichte(
+        titel=ereignis_titel,
+        datum_text=datum_text,
+        ort=ort_sauber,
+        personen=pers_liste,
+        beschreibungen=beschr_liste,
+        notiz=notiz_inhalt,
+        anzahl_dateien=1,
+        perspektive=perspektive
+    )
 
     return {
         "ok": True,
@@ -1174,8 +1352,7 @@ def anlass_geschichte_generieren(
 
     Verknüpft Anlasstitel, Zeitraum, Orte, beteiligte Personen, KI-Bildanalysen und Notizen
     zu einem fließenden Text. Wählbar in 'ich'-Perspektive oder neutraler 'erzaehler'-Sicht.
-    Wichtig: Bildanalysen aller Bilder fließen mit ein, Erinnerungen werden inhaltlich
-    übernommen statt zitiert.
+    Verschmilzt Bildanalysen aller Bilder organisch mit den persönlichen Notizen ohne Staccato.
     """
     detail: Optional[Dict[str, Any]] = None
     if ereignis_kennung:
@@ -1252,120 +1429,18 @@ def anlass_geschichte_generieren(
             notiz = vorhandene[-1]
     notiz_inhalt = _notiz_fuer_geschichte(notiz)
 
-    if pers_liste:
-        if len(pers_liste) == 1:
-            pers_text = pers_liste[0]
-        else:
-            pers_text = ", ".join(pers_liste[:-1]) + " und " + pers_liste[-1]
-    else:
-        pers_text = ""
+    # Organische Verschmelzung
+    geschichte_text = verschmelze_geschichte(
+        titel=titel_sauber,
+        datum_text=datum_text,
+        ort=ort_sauber,
+        personen=pers_liste,
+        beschreibungen=beschr_liste,
+        notiz=notiz_inhalt,
+        anzahl_dateien=anzahl,
+        perspektive=perspektive
+    )
 
-    saetze: List[str] = []
-    if perspektive == "ich":
-        # 1. Einleitung
-        if titel_sauber and datum_text and ort_sauber:
-            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ {datum_text} in {ort_sauber}.")
-        elif titel_sauber and datum_text:
-            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ {datum_text}.")
-        elif titel_sauber and ort_sauber:
-            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ in {ort_sauber}.")
-        elif titel_sauber:
-            saetze.append(f"Das ist die Geschichte zu unserem Anlass „{titel_sauber}“.")
-        elif datum_text and ort_sauber:
-            saetze.append(f"Ich erinnere mich gern an diese Zeit {datum_text} in {ort_sauber}.")
-        elif datum_text:
-            saetze.append(f"Ich erinnere mich gern an diese Zeit {datum_text}.")
-        elif ort_sauber:
-            saetze.append(f"Diese Aufnahmen entstanden in {ort_sauber}.")
-        else:
-            saetze.append("Das ist eine schöne Erinnerung aus meiner Sammlung.")
-
-        # 2. Umfang
-        if anzahl == 1:
-            saetze.append("Dieser Moment ist auf einem Foto festgehalten.")
-        elif anzahl > 1:
-            saetze.append(f"Zu diesem Anlass gehören {anzahl} Fotos.")
-
-        # 3. Personen
-        if pers_liste:
-            andere = [p for p in pers_liste if p.casefold() != "sebastian"]
-            if len(andere) == len(pers_liste):
-                saetze.append(f"Mit dabei waren {pers_text}.")
-            elif andere:
-                andere_text = ", ".join(andere[:-1]) + " und " + andere[-1] if len(andere) > 1 else andere[0]
-                saetze.append(f"Dort bin ich zusammen mit {andere_text} zu sehen.")
-            else:
-                saetze.append("Auf den Bildern bin ich allein zu sehen.")
-
-        # 4. Bildbeschreibungen / KI-Bildanalyse
-        if len(beschr_liste) == 1:
-            b_clean = beschr_liste[0].rstrip(".")
-            if b_clean.startswith("Das") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
-                saetze.append(f"{b_clean}.")
-            else:
-                saetze.append(f"Das Foto fängt diesen Augenblick ein: {b_clean}.")
-        elif len(beschr_liste) > 1:
-            saetze.append(f"Die Aufnahmen fangen die Szenen ein: {beschr_liste[0].rstrip('.')}.")
-            if len(beschr_liste) > 1:
-                saetze.append(f"Ein weiteres Foto zeigt: {beschr_liste[1].rstrip('.')}.")
-
-        # 5. Notiz inhaltlich übernehmen (kein Zitat)
-        if notiz_inhalt:
-            saetze.append(f"{notiz_inhalt.rstrip('.')}.")
-
-        # 6. Abschluss
-        if anzahl > 1:
-            saetze.append("Eine wunderbare Fotoserie, die diesen Anlass lebendig hält.")
-        else:
-            saetze.append("Eine wertvolle Erinnerung, die für immer bleibt.")
-
-    else:  # erzaehler
-        # 1. Einleitung
-        if titel_sauber and datum_text and ort_sauber:
-            saetze.append(f"Fotodokumentation zum Anlass „{titel_sauber}“ {datum_text} in {ort_sauber}.")
-        elif titel_sauber and datum_text:
-            saetze.append(f"Fotodokumentation zum Anlass „{titel_sauber}“ {datum_text}.")
-        elif titel_sauber and ort_sauber:
-            saetze.append(f"Fotodokumentation zu „{titel_sauber}“ in {ort_sauber}.")
-        elif titel_sauber:
-            saetze.append(f"Aufnahmen zum Anlass „{titel_sauber}“.")
-        elif datum_text and ort_sauber:
-            saetze.append(f"Fotodokumentation {datum_text} in {ort_sauber}.")
-        elif datum_text:
-            saetze.append(f"Ein historischer Fotoanlass {datum_text}.")
-        else:
-            saetze.append("Ein zusammenhängendes Ereignis aus dem Fotoarchiv.")
-
-        # 2. Umfang
-        if anzahl == 1:
-            saetze.append("Der Anlass umfasst eine Einzelaufnahme.")
-        elif anzahl > 1:
-            saetze.append(f"Die Fotoreihe umfasst {anzahl} Aufnahmen.")
-
-        # 3. Personen
-        if pers_liste:
-            saetze.append(f"Erkannte Beteiligte: {pers_text}.")
-
-        # 4. Bildbeschreibungen / KI-Bildanalyse
-        if len(beschr_liste) == 1:
-            b_clean = beschr_liste[0].rstrip(".")
-            if b_clean.startswith("Die") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
-                saetze.append(f"{b_clean}.")
-            else:
-                saetze.append(f"Die visuelle Bildanalyse dokumentiert: {b_clean}.")
-        elif len(beschr_liste) > 1:
-            saetze.append(f"Die visuelle Bildanalyse hält fest: {beschr_liste[0].rstrip('.')}.")
-            if len(beschr_liste) > 1:
-                saetze.append(f"Weitere Aufnahmen zeigen: {beschr_liste[1].rstrip('.')}.")
-
-        # 5. Notiz inhaltlich sachlich einbinden (keine Zitatzeichen)
-        if notiz_inhalt:
-            saetze.append(f"Aus den überlieferten Aufzeichnungen: {notiz_inhalt.rstrip('.')}.")
-
-        # 6. Abschluss
-        saetze.append("Ein archiviertes Kapitel im Fotobestand.")
-
-    geschichte_text = " ".join(saetze)
     return {
         "ok": True,
         "ereignis_kennung": ereignis_kennung,

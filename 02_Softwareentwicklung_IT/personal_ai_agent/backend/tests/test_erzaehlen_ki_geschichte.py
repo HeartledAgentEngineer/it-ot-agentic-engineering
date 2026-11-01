@@ -154,7 +154,7 @@ def test_anlass_geschichte_bildanalyse_und_keine_zitate():
     assert res["ok"] is True
     txt = res["geschichte"]
     # 1. Bildanalyse eingearbeitet (deutsch)
-    assert "Ein Erwachsener liegt drinnen und spielt mit einem kleinen Baby" in txt
+    assert "Mein Papa liegt drinnen und spielt mit mir als kleinem Baby" in txt
     # 2. Notiz inhaltlich übernommen, NICHT zitiert
     assert "Das ist das Titelbild meines Fotobuchs mit Papa" in txt
     assert "Meine Notiz dazu:" not in txt

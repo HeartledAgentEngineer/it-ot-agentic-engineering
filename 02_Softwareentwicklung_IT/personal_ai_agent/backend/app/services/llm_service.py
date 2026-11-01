@@ -589,13 +589,21 @@ class LLMService:
                     "„Bilder/Dateien“), z. B. `openai/gpt-5-nano` oder "
                     "`anthropic/claude-sonnet-5`."
                 )
+            if any(h in klein for h in ("key limit", "limit exceeded", "credits")):
+                return (
+                    "⚠️ **Nutzungslimit bei OpenRouter erreicht.**\n\n"
+                    "Das Ausgaben- oder Nutzungslimit dieses API-Schlüssels wurde erreicht. "
+                    "Bitte prüfe dein Limit oder Guthaben in deinen OpenRouter-Einstellungen."
+                )
             if "regional routing" in klein:
                 return (
                     "⚠️ **EU-Routing ist für dieses Konto nicht freigeschaltet.**\n\n"
                     "Es erfordert einen Enterprise-Vertrag bei OpenRouter."
                 )
 
-        return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{e}\n```"
+        import re
+        msg = re.sub(r'https://openrouter\.ai/workspaces/[^\s\'"]+', 'https://openrouter.ai/settings/keys', str(e))
+        return f"⚠️ Fehler bei der Anfrage an OpenRouter:\n```\n{msg}\n```"
 
     @staticmethod
     def _build_archiv_context(treffer: List[Dict[str, Any]]) -> str:
@@ -1621,7 +1629,15 @@ class LLMService:
                 "Sprachausgabe abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
                 e.status_code, e, body,
             )
-            self.letzter_vorlese_fehler = f"OpenRouter HTTP {e.status_code}: {e.message or body}"
+            klein = (str(e) + " " + body).lower()
+            if "key limit" in klein or "limit exceeded" in klein:
+                self.letzter_vorlese_fehler = "Nutzungslimit bei OpenRouter erreicht (Key-Limit überschritten)"
+            elif "credit" in klein:
+                self.letzter_vorlese_fehler = "OpenRouter-Guthaben aufgebraucht"
+            else:
+                import re
+                s_msg = re.sub(r'https://openrouter\.ai/workspaces/[^\s\'"]+', 'https://openrouter.ai/settings/keys', e.message or body)
+                self.letzter_vorlese_fehler = f"OpenRouter HTTP {e.status_code}: {s_msg}"
             return None
 
         except Exception as e:
