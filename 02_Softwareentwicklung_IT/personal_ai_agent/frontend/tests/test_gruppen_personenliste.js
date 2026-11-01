@@ -49,7 +49,10 @@ class Element {
         if (!this.listeners.has(type)) this.listeners.set(type, []);
         this.listeners.get(type).push(fn);
     }
-    setAttribute(key, value) { this.attributes[key] = String(value); }
+    /** Wie im Browser: ``attributes[name]`` ist ein Attr-Objekt, kein Text —
+     *  nur ``getAttribute`` liefert den Text (Handy-Befund 01.11.2026). */
+    setAttribute(key, value) { this.attributes[key] = { name: key, value: String(value) }; }
+    getAttribute(key) { return this.attributes[key] ? this.attributes[key].value : null; }
     appendChild(child) {
         child.parentNode = this;
         this.children.push(child);
@@ -358,7 +361,7 @@ async function erinnerungenNacheinanderDurchgehen() {
     let knopf = weiterKnopf(app);
     assert.equal(knopf.hidden, false, 'der Weiter-Knopf fehlt bei „Bea\"');
     assert.ok(knopf.textContent.includes('(2)'), 'Rest nicht genannt: ' + knopf.textContent);
-    assert.ok(String(knopf.attributes['aria-label'] || '').includes('Cem'), 'Ziel nicht angekuendigt');
+    assert.ok(String(knopf.getAttribute('aria-label') || '').includes('Cem'), 'Ziel nicht angekuendigt');
 
     // Weiter zum naechsten — und genau der wird geladen.
     protokoll.length = 0;
@@ -483,14 +486,14 @@ async function sortierungMeisteFotosZuerst() {
     assert.equal(leiste.hidden, true, 'bei „Meiste Fotos“ bleibt die Sprungleiste weg');
     assert.equal(leiste.children.length, 0, 'es stehen noch Sprungmarken da');
     const liste = app.el('gruppen-benannt-liste');
-    assert.equal(liste.children.some((z) => z.attributes && z.attributes['data-sprung']), false,
+    assert.equal(liste.children.some((z) => z.getAttribute('data-sprung')), false,
         'die Zeilen tragen noch Sprungmarken');
 
     sortierungWaehlen(app, '');
     assert.deepEqual(namen(app), ['Anna', 'Bea', 'Cem', 'Dana', 'Emil'], 'zurück zu alphabetisch');
     assert.ok(app.el('gruppen-benannt-info').textContent.includes('alphabetisch'));
     assert.equal(app.el('gruppen-benannt-sprung').hidden, false, 'die Sprungleiste kommt zurück');
-    assert.ok(liste.children.some((z) => z.attributes && z.attributes['data-sprung']), 'Sprungmarken fehlen wieder');
+    assert.ok(liste.children.some((z) => z.getAttribute('data-sprung')), 'Sprungmarken fehlen wieder');
     // Unsinniger Wert = alphabetisch.
     sortierungWaehlen(app, 'zufall');
     assert.deepEqual(namen(app), ['Anna', 'Bea', 'Cem', 'Dana', 'Emil']);

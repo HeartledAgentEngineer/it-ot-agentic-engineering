@@ -1617,7 +1617,8 @@ function gruppenNotizZeit(zeit) {
         if (!liste) return;
         const zeilen = Array.prototype.slice.call(liste.children);
         zeilen.forEach((z) => { if (z.classList) z.classList.remove('gruppen-sprung-ziel'); });
-        const ziel = zeilen.find((z) => z.attributes && z.attributes['data-sprung'] === buchstabe);
+        // getAttribute: ``attributes[name]`` ist im Browser ein Attr-Objekt, kein Text.
+        const ziel = zeilen.find((z) => typeof z.getAttribute === 'function' && z.getAttribute('data-sprung') === buchstabe);
         if (!ziel) return;
         if (ziel.classList) ziel.classList.add('gruppen-sprung-ziel');
         if (typeof ziel.scrollIntoView === 'function') ziel.scrollIntoView({ block: 'start' });
