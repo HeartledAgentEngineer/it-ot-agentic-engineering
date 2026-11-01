@@ -676,7 +676,10 @@
                         <!-- Was und wo (07.10.2026): Ort und Beschreibung dieses Bildes. -->
                         <div id="erzaehl-bild-info" class="erzaehl-info" hidden>
                             <div id="erzaehl-bild-ort" hidden><span aria-hidden="true">📍</span> <span id="erzaehl-bild-ort-text"></span></div>
-                            <div id="erzaehl-bild-beschreibung" class="erzaehl-beschreibung" hidden></div>
+                            <div class="erzaehl-beschreibung-zeile" style="display:flex;align-items:flex-start;gap:8px;">
+                                <div id="erzaehl-bild-beschreibung" class="erzaehl-beschreibung" hidden style="flex:1;max-height:120px;overflow-y:auto;line-height:1.4;white-space:pre-wrap;"></div>
+                                <button id="erzaehl-bild-beschreibung-vorlesen" class="erzaehl-vorlesen" type="button" title="Bildbeschreibung vorlesen" aria-label="Bildbeschreibung vorlesen" hidden>🔊</button>
+                            </div>
                             <div id="erzaehl-beschreibung-editor" class="erzaehl-beschreibung-editor" style="margin-top:6px" hidden>
                                 <textarea id="erzaehl-beschreibung-input" rows="2" maxlength="600" style="width:100%;box-sizing:border-box;border-radius:6px;padding:6px;background:var(--bg-feld, #1a2332);color:inherit;border:1px solid var(--linie, #304562);" placeholder="Bildbeschreibung eingeben oder anpassen..."></textarea>
                                 <div style="display:flex;gap:8px;margin-top:4px;">
@@ -800,8 +803,8 @@
     </section>
 
     <script src="anmelden.js?v=20261014B"></script>
-    <script src="app.js?v=20261101C"></script>
-    <script src="erzaehlen.js?v=20261101D"></script>
+    <script src="app.js?v=20261101E"></script>
+    <script src="erzaehlen.js?v=20261101E"></script>
     <script src="gruppen_quiz.js?v=20261101C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

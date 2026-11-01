@@ -103,7 +103,7 @@ pruefe((vb.match(/\/ \(\(sk[wh] \|\| 1\) \* zoom\.s\)/g) || []).length === 4,
 pruefe((vb.match(/if \(zeiger\.size > 1\) return;/g) || []).length === 2,
     'bei zwei Fingern wird kein Rahmen verschoben');
 pruefe(/overflow:hidden;width:100%;height:100%;touch-action:none/.test(vb), 'Bildbereich scrollt nicht, er verschiebt');
-pruefe(/max-width:100vw;max-height:100vh/.test(vb), 'hohe Bilder passen ganz auf den Schirm');
+pruefe(/max-width:100vw;max-height:(100vh|calc\(100vh - 160px\))/.test(vb), 'hohe Bilder passen ganz auf den Schirm');
 pruefe(!/NATIV per\s*\n?\s*\/\/\s*Zwei-Finger-Pinch/.test(src), 'falscher Kommentar „NATIV per Pinch" ist weg');
 
 console.log('Cache-Bump');

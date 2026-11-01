@@ -177,7 +177,7 @@ console.log('\n8) Quelltext-Waechter (Knopf, Route, ehrliche Engine-Luecke, Cach
     pruefe(/vollbild-neu-erkennen/.test(bau), 'der Knopf hat eine eigene Kennung');
     pruefe(/erkenneDiesesBildNeu\(\)/.test(bau), 'der Klick ruft die Neu-Erkennung');
     pruefe(/🔍 Neu erkennen/.test(bau), 'der Knopf ist sichtbar beschriftet');
-    pruefe(/leiste\.style\.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;[^']*flex-wrap:wrap[^']*max-width:96vw/.test(src),
+    pruefe(/leiste\.style\.cssText = 'position:fixed;bottom:(12|74)px;left:0;right:0;margin:0 auto;width:fit-content;[^']*flex-wrap:wrap[^']*max-width:96vw/.test(src),
         'die Werkzeugleiste bricht um und bleibt im Fenster (Knoepfe erreichbar)');
 
     const fnStart = src.indexOf('async function erkenneDiesesBildNeu()');

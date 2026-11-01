@@ -627,7 +627,7 @@ await fall('K9) Cache-Schluessel in index.html erhoeht', async () => {
 });
 
 await fall('K10) Handybreite: neue Knoepfe brechen um und bleiben im Fenster', async () => {
-    pruefe(/leiste\.style\.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;[^']*flex-wrap:wrap[^']*max-width:96vw/.test(src),
+    pruefe(/leiste\.style\.cssText = 'position:fixed;bottom:(12|74)px;left:0;right:0;margin:0 auto;width:fit-content;[^']*flex-wrap:wrap[^']*max-width:96vw/.test(src),
         'die Werkzeugleiste bricht weiter um und bleibt im Fenster');
     const zeigen = funktionAusschneiden(src, 'zeigeBildVollbild');
     const stellen = [];
@@ -642,6 +642,16 @@ await fall('K10) Handybreite: neue Knoepfe brechen um und bleiben im Fenster', a
     }
     pruefe(/leiste\.appendChild\(neuePersonFeld\)/.test(zeigen) && /leiste\.appendChild\(neuePersonOk\)/.test(zeigen),
         'die Bedienelemente haengen in der umbrechenden Werkzeugleiste');
+});
+
+await fall('K11) Bild-Editor Verbesserungen: Alle entfernen, Beschreibungs-Vorlesen & Vollbild-Einpassung', async () => {
+    const zeigen = funktionAusschneiden(src, 'zeigeBildVollbild');
+    pruefe(/vollbild-alle-entfernen/.test(zeigen), 'Button vollbild-alle-entfernen vorhanden');
+    pruefe(/🗑️ Alle entfernen/.test(zeigen), 'Button beschriftet mit 🗑️ Alle entfernen');
+    pruefe(/vollbild-beschreibung-vorlesen-btn/.test(zeigen), 'Vorlese-Knopf in Bildbeschreibung vorhanden');
+    pruefe(/pointer-events:auto;/.test(zeigen), 'Bildbeschreibung ist scroll- und anklickbar (pointer-events:auto)');
+    pruefe(/personWahl\.style\.cssText = 'display:none;/.test(zeigen), 'Dropdown-Select ist zugunsten der Personensuche ausgeblendet');
+    pruefe(/padding-bottom:120px;/.test(zeigen), 'Bild-Wrapper haelt Abstand zur unteren Werkzeugleiste');
 });
 
 console.log('\n' + (fehler ? 'FEHLER: ' + fehler + ' von ' + zaehler + ' Pruefungen rot' : 'alle ' + zaehler + ' Pruefungen bestanden'));

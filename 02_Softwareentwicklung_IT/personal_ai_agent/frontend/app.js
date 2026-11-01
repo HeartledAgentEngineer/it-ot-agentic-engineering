@@ -3681,7 +3681,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     const wrap = document.createElement('div');
     // overflow:hidden (vorher auto): das gezoomte Bild wird per transform
     // verschoben, nicht gescrollt.
-    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:hidden;width:100%;height:100%;touch-action:none;overscroll-behavior:contain';
+    wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;overflow:hidden;width:100%;height:100%;touch-action:none;overscroll-behavior:contain;box-sizing:border-box;padding-top:40px;padding-bottom:120px;';
     const bildBox = document.createElement('div');
     bildBox.style.cssText = 'position:relative;display:inline-block;line-height:0;touch-action:none;transform-origin:50% 50%';
     const big = document.createElement('img');
@@ -3689,7 +3689,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     big.alt = 'Vollbild';
     // 100vw/100vh statt 100 %: die bildBox hat keine feste Hoehe, max-height:100%
     // griff deshalb nie — hohe Bilder (Dokument-Fotos) ragten oben/unten heraus.
-    big.style.cssText = 'max-width:100vw;max-height:100vh;object-fit:contain;touch-action:none;user-select:none;-webkit-user-drag:none';
+    big.style.cssText = 'max-width:100vw;max-height:calc(100vh - 160px);object-fit:contain;touch-action:none;user-select:none;-webkit-user-drag:none';
     bildBox.appendChild(big);
     wrap.appendChild(bildBox);
     ov.appendChild(x);
@@ -3823,19 +3823,79 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     // Schritt schon 511 px / links −66). Bei breiten Fenstern ändert sich nichts
     // (eine Zeile), auf dem Handy stehen die Knoepfe jetzt in mehreren Zeilen
     // mittig im Bild.
-    leiste.style.cssText = 'position:fixed;bottom:74px;left:0;right:0;margin:0 auto;width:fit-content;z-index:99999;display:flex;flex-wrap:wrap;justify-content:center;row-gap:6px;max-width:96vw;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
+    leiste.style.cssText = 'position:fixed;bottom:12px;left:0;right:0;margin:0 auto;width:fit-content;z-index:99999;display:flex;flex-wrap:wrap;justify-content:center;row-gap:6px;max-width:96vw;gap:10px;align-items:center;background:rgba(15,25,20,.92);border:1px solid #2e8b57;border-radius:30px;padding:6px 12px;box-shadow:0 3px 12px rgba(0,0,0,.6)';
     ov.appendChild(leiste);
 
     // KI-Bildbeschreibung anzeigen (Wunsch Sebastian 30.10.2026)
     const descText = (optionen && optionen.beschreibung)
         || (imgEl && imgEl.dataset && imgEl.dataset.beschreibung)
         || '';
-    if (descText && descText.trim()) {
+    if ((descText && descText.trim()) || _quizEditor.fileid) {
         const descBox = document.createElement('div');
         descBox.className = 'vollbild-beschreibung';
-        descBox.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);max-width:92vw;background:rgba(15,25,20,0.88);color:#dcdcdc;font-size:0.82rem;line-height:1.35;padding:8px 14px;border-radius:12px;border:1px solid #2e8b57;backdrop-filter:blur(4px);pointer-events:none;z-index:99998;text-align:center;box-shadow:0 3px 12px rgba(0,0,0,0.7)';
-        descBox.textContent = descText.trim();
+        descBox.style.cssText = 'position:fixed;top:54px;left:50%;transform:translateX(-50%);max-width:92vw;width:min(92vw,560px);background:rgba(15,25,20,0.92);color:#dcdcdc;font-size:0.82rem;line-height:1.35;padding:8px 12px;border-radius:12px;border:1px solid #2e8b57;backdrop-filter:blur(4px);pointer-events:auto;z-index:99998;box-shadow:0 3px 12px rgba(0,0,0,0.7);display:' + (descText && descText.trim() ? 'flex' : 'none') + ';flex-direction:column;gap:4px;';
+        const descBoxKopf = document.createElement('div');
+        descBoxKopf.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:0.75rem;color:#8f8;font-weight:700;';
+        const descBoxTitel = document.createElement('span');
+        descBoxTitel.textContent = '📝 Bildbeschreibung';
+        descBoxKopf.appendChild(descBoxTitel);
+        const descVorlesenBtn = document.createElement('button');
+        descVorlesenBtn.type = 'button';
+        descVorlesenBtn.className = 'vollbild-beschreibung-vorlesen-btn';
+        descVorlesenBtn.textContent = '🔊 Vorlesen';
+        descVorlesenBtn.title = 'Bildbeschreibung vorlesen';
+        descVorlesenBtn.style.cssText = 'background:#1a3d28;border:1px solid #2e8b57;color:#9f9;border-radius:14px;padding:2px 8px;font-size:0.75rem;cursor:pointer;display:inline-flex;align-items:center;gap:4px;';
+        descBoxKopf.appendChild(descVorlesenBtn);
+        descBox.appendChild(descBoxKopf);
+
+        const descBoxText = document.createElement('div');
+        descBoxText.className = 'vollbild-beschreibung-text';
+        descBoxText.style.cssText = 'max-height:85px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;text-align:left;color:#e0e0e0;padding-right:2px;';
+        descBoxText.textContent = descText.trim();
+        descBox.appendChild(descBoxText);
+
+        descVorlesenBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const txt = (descBoxText.textContent || '').trim();
+            if (!txt) return;
+            if (typeof window.audioVorabFreischalten === 'function') window.audioVorabFreischalten();
+            if (typeof window.vorlesenText === 'function') {
+                window.vorlesenText(txt);
+            } else if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
+                try {
+                    window.speechSynthesis.cancel();
+                    const satz = new SpeechSynthesisUtterance(txt);
+                    satz.lang = 'de-DE';
+                    window.speechSynthesis.speak(satz);
+                } catch (_e) {}
+            }
+        });
         ov.appendChild(descBox);
+        if (!descText && _quizEditor.fileid) {
+            const fid = _quizEditor.fileid;
+            let cached = '';
+            try {
+                if (window.zustand && window.zustand.bilderInfo && window.zustand.bilderInfo.bilder && window.zustand.bilderInfo.bilder[String(fid)]) {
+                    cached = window.zustand.bilderInfo.bilder[String(fid)].beschreibung || '';
+                }
+            } catch (_e) {}
+            if (cached && cached.trim()) {
+                descBoxText.textContent = cached.trim();
+                descBox.style.display = 'flex';
+                _quizEditor.beschreibung = cached.trim();
+            } else {
+                fetch('/api/erzaehlen/bild-beschreibung?fileid=' + encodeURIComponent(fid))
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d && d.beschreibung && d.beschreibung.trim()) {
+                            descBoxText.textContent = d.beschreibung.trim();
+                            descBox.style.display = 'flex';
+                            _quizEditor.beschreibung = d.beschreibung.trim();
+                        }
+                    })
+                    .catch(() => {});
+            }
+        }
     }
     try {
         if ((gesichter && gesichter.length) || _quizEditor.fileid) {
@@ -4436,7 +4496,10 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                         ev.stopPropagation();
                         beschrBox.style.display = 'none';
                         const db = ov.querySelector('.vollbild-beschreibung');
-                        if (db && db.textContent.trim()) db.style.display = 'block';
+                        if (db) {
+                            const dbTxt = db.querySelector('.vollbild-beschreibung-text') || db;
+                            if (dbTxt && dbTxt.textContent.trim()) db.style.display = 'flex';
+                        }
                     });
 
                     beschrSave.addEventListener('click', async (ev) => {
@@ -4460,8 +4523,9 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                                 beschrBox.style.display = 'none';
                                 const db = ov.querySelector('.vollbild-beschreibung');
                                 if (db) {
-                                    db.textContent = txt;
-                                    db.style.display = txt ? 'block' : 'none';
+                                    const dbTxt = db.querySelector('.vollbild-beschreibung-text') || db;
+                                    if (dbTxt) dbTxt.textContent = txt;
+                                    db.style.display = txt ? 'flex' : 'none';
                                 }
                             } else {
                                 meldeEditor('Fehler beim Speichern', false);
@@ -4504,6 +4568,37 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     });
                     leiste.appendChild(beschrBtn);
                 }
+                // Alle Rahmen entfernen (Wunsch Sebastian 01.11.2026: alle falschen/unbekannten Gesichter verwerfen)
+                if (!_quizEditor.refKontext) {
+                    const alleEntfernenBtn = document.createElement('div');
+                    alleEntfernenBtn.className = 'vollbild-alle-entfernen';
+                    alleEntfernenBtn.textContent = '🗑️ Alle entfernen';
+                    alleEntfernenBtn.title = 'Alle Rahmen auf diesem Bild zum Entfernen markieren (💾 Speichern löscht sie dauerhaft aus dem Bild und allen Gruppen)';
+                    alleEntfernenBtn.style.cssText = 'padding:10px 14px;border-radius:22px;background:#2a2020;color:#f99;font-weight:700;font-size:0.85rem;cursor:pointer;border:1px solid #8a4a4a;white-space:nowrap';
+                    alleEntfernenBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        const live = _quizEditor.bbox_norm_live || [];
+                        let hatRahmen = false;
+                        for (let i = 0; i < live.length; i++) {
+                            if (live[i] && live[i].length >= 4) { hatRahmen = true; break; }
+                        }
+                        if (!hatRahmen) {
+                            meldeEditor('Es gibt keine Rahmen zum Entfernen.', false);
+                            return;
+                        }
+                        snapshotVorAenderung();
+                        for (let i = 0; i < live.length; i++) {
+                            _quizEditor.bbox_norm_live[i] = null;
+                        }
+                        _quizEditor.sel = -1;
+                        sel = -1;
+                        resync();
+                        personWahlMalen();
+                        if (typeof personenLeisteMalen === 'function') personenLeisteMalen();
+                        meldeEditor('🗑️ Alle Rahmen zum Entfernen markiert — tippe auf 💾 Speichern, um sie dauerhaft aus dem Bild und allen Gruppen zu löschen.', true);
+                    });
+                    leiste.appendChild(alleEntfernenBtn);
+                }
                 // Schritt G (18.10.2026): Ziel-Personen-Menue JE RAHMEN
                 // (Auftragspunkt 2, "Auswahlliste statt nur 'ist nicht <Name>'"
                 // und die Zuordnung fuer von Hand gezogene Rahmen aus Schritt E).
@@ -4513,7 +4608,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     const personWahl = document.createElement('select');
                     personWahl.className = 'vollbild-person-wahl';
                     personWahl.title = 'Person fuer den AUSGEWAEHLTEN Rahmen setzen (gilt nur fuer diesen Rahmen)';
-                    personWahl.style.cssText = 'padding:8px 10px;border-radius:20px;background:#2a2a2a;color:#eee;border:1px solid #555;font-size:0.82rem;max-width:44vw;cursor:pointer';
+                    personWahl.style.cssText = 'display:none;padding:8px 10px;border-radius:20px;background:#2a2a2a;color:#eee;border:1px solid #555;font-size:0.82rem;max-width:44vw;cursor:pointer;';
                     personWahlMalen = function () {
                         try {
                             // Bild-Editor B4: im Cloud-Weg gilt nur der eigene Eintrag des Rahmens (keine

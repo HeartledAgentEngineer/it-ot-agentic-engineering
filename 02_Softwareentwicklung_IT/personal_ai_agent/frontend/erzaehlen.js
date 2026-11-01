@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Erzähl-Diashow (Auftrag E8a, 28.09.2026)
  * -----------------------------------------
  * Sebastian wählt ein Ereignis und sieht zuerst ALLE Bilder als Raster
@@ -973,6 +973,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const ortZeile = el('erzaehl-bild-ort');
         const ortText = el('erzaehl-bild-ort-text');
         const beschreibung = el('erzaehl-bild-beschreibung');
+        const beschreibungVorlesen = el('erzaehl-bild-beschreibung-vorlesen');
         const eintrag = (einzel && info && info.bilder) ? info.bilder[String(aktuelleDateiKennung())] : null;
         const ort = eintrag ? erzaehlOrtText(eintrag.ort) : '';
         const text = (eintrag && typeof eintrag.beschreibung === 'string') ? eintrag.beschreibung.trim() : '';
@@ -982,6 +983,9 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             beschreibung.textContent = text ? text : 'Keine Bildbeschreibung hinterlegt.';
             beschreibung.hidden = false;
             beschreibung.style.color = text ? 'var(--text-secondary)' : 'var(--text-muted)';
+        }
+        if (beschreibungVorlesen) {
+            beschreibungVorlesen.hidden = !text;
         }
         if (block) block.hidden = !einzel;
         const bildGross = el('erzaehl-bild');
@@ -1363,6 +1367,11 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 hinweis.textContent = `Vorlesen nicht möglich (${serverFehler}${zusatz})`;
             }
         }
+    }
+
+    if (typeof window !== 'undefined') {
+        window.vorlesenText = vorlesenText;
+        window.audioVorabFreischalten = audioVorabFreischalten;
     }
 
     /** „Alles vorlesen" (07.10.2026): Tagebuch-Fassung des sichtbaren Eintrags
@@ -1809,6 +1818,8 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                             beschreibungTextEl.hidden = false;
                             beschreibungTextEl.style.color = neuerText ? 'var(--text-secondary)' : 'var(--text-muted)';
                         }
+                        const beschrVorlesenBtn = el('erzaehl-bild-beschreibung-vorlesen');
+                        if (beschrVorlesenBtn) beschrVorlesenBtn.hidden = !neuerText;
                         if (bild) bild.dataset.beschreibung = neuerText;
                         if (zustand.bilderInfo && zustand.bilderInfo.bilder) {
                             if (!zustand.bilderInfo.bilder[String(dateiKennung)]) zustand.bilderInfo.bilder[String(dateiKennung)] = {};
@@ -2427,6 +2438,17 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const vorlesenGeschichtenBild = el('erzaehl-geschichten-vorlesen');
         if (vorlesenGeschichtenBild) {
             vorlesenGeschichtenBild.addEventListener('click', () => vorlesen('erzaehl-geschichten'));
+        }
+        const vorlesenBeschreibung = el('erzaehl-bild-beschreibung-vorlesen');
+        if (vorlesenBeschreibung) {
+            vorlesenBeschreibung.addEventListener('click', () => {
+                const bEl = el('erzaehl-bild-beschreibung');
+                const t = bEl ? bEl.textContent.trim() : '';
+                if (t && t !== 'Keine Bildbeschreibung hinterlegt.') {
+                    audioVorabFreischalten();
+                    vorlesenText(t);
+                }
+            });
         }
         const vorlesenAlles = el('erzaehl-alles-vorlesen');
         if (vorlesenAlles) vorlesenAlles.addEventListener('click', () => allesVorlesen());
