@@ -195,10 +195,11 @@ function erzaehlGesichtHandHinweis(gesicht) {
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
-function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung, ersetzt) {
+function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung, ersetzt, abfrage) {
     const koerper = { ereignis_kennung: ereignisKennung, text, quelle: 'tippen' };
     if (dateiKennung !== null && dateiKennung !== undefined) koerper.datei_kennung = dateiKennung;
     if (ersetzt) koerper.ersetzt = ersetzt;
+    if (abfrage) koerper.abfrage = abfrage;
     return koerper;
 }
 
@@ -1192,7 +1193,44 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         }
     }
 
+    let vorleseAudioEl = null;
+    let _audioCtx = null;
+    let _audioSource = null;
+
+    function audioVorabFreischalten() {
+        try {
+            if (!_audioCtx && typeof window !== 'undefined') {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (Ctx) _audioCtx = new Ctx();
+            }
+            if (_audioCtx && _audioCtx.state === 'suspended') {
+                _audioCtx.resume();
+            }
+            if (!vorleseAudioEl && typeof document !== 'undefined') {
+                vorleseAudioEl = el('erzaehl-audio-spieler');
+                if (!vorleseAudioEl) {
+                    vorleseAudioEl = document.createElement('audio');
+                    vorleseAudioEl.id = 'erzaehl-audio-spieler';
+                    vorleseAudioEl.setAttribute('playsinline', '');
+                    document.body.appendChild(vorleseAudioEl);
+                }
+            }
+            if (vorleseAudioEl) {
+                vorleseAudioEl.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+                const p = vorleseAudioEl.play();
+                if (p && typeof p.catch === 'function') p.catch(() => {});
+            }
+        } catch (_e) {}
+    }
+
     function vorlesenStoppen() {
+        if (_audioSource) {
+            try { _audioSource.stop(); } catch (_e) {}
+            _audioSource = null;
+        }
+        if (vorleseAudioEl) {
+            try { vorleseAudioEl.pause(); } catch (_e) {}
+        }
         if (zustand.audio) {
             try { zustand.audio.pause(); } catch (_e) { /* schon aus */ }
             if (typeof zustand.audio.onended === 'function') zustand.audio.onended();
@@ -1203,49 +1241,93 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         }
     }
 
-    /** Liest die Personen-Zeile vor — nur auf ausdrücklichen Tipp auf 🔊.
-     *  Zuerst die Browser-Stimme (bleibt auf dem Gerät; am PC vorhanden). Die
-     *  App am Handy hat keine (am 06.10.2026 gemessen: speechSynthesis fehlt
-     *  in der Android-WebView) -> dieselbe Strecke wie das Vorlesen im Chat
-     *  (POST /api/speak über OpenRouter). */
     async function vorlesen(quelleId) {
-        const quelle = el(quelleId);
-        await vorlesenText(erzaehlSprechtext(quelle ? quelle.textContent : ''));
+        audioVorabFreischalten();
+        let rohtext = '';
+        if (quelleId === 'erzaehl-gruppen-geschichten' || quelleId === 'erzaehl-geschichten') {
+            rohtext = geschichtenTextSammeln();
+            if (!rohtext) {
+                const quelle = el(quelleId);
+                rohtext = quelle ? quelle.textContent : '';
+            }
+        } else {
+            const quelle = el(quelleId);
+            rohtext = quelle ? quelle.textContent : '';
+        }
+        await vorlesenText(erzaehlSprechtext(rohtext));
     }
 
-    /** Spricht einen fertigen Text: bevorzugt die hochwertige Cloud-Stimme
-     *  über /api/speak (Klaus / Edge-TTS), geglättet für fließenden Vortrag;
-     *  Rückfall auf die Browser-Stimme (bleibt auf dem Gerät, falls offline
-     *  oder Server-TTS fehlschlägt). */
     async function vorlesenText(sprech) {
         if (!sprech) return;
         const geglaettet = erzaehlGlaetteFuerStimme(sprech);
         const textZumSprechen = geglaettet || sprech;
         vorlesenStoppen();
         const hinweis = el('erzaehl-hinweis');
-        if (hinweis) hinweis.textContent = '';
+        if (hinweis) hinweis.textContent = 'Liest vor…';
         try {
-            const res = await fetch(`${apiBase()}/api/speak`, {
+            const res = await fetch(${apiBase()}/api/speak, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: textZumSprechen.slice(0, 2000) }),
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const url = URL.createObjectURL(await res.blob());
-            const audio = new Audio(url);
-            audio.onended = () => { try { URL.revokeObjectURL(url); } catch (_e) { /* schon weg */ } };
+            if (!res.ok) throw new Error(HTTP );
+            const arrayBuffer = await res.arrayBuffer();
+
+            // Web Audio API bevorzugen, um Mobil-Autoplay-Sperre nach async fetch zu umgehen
+            if (_audioCtx && typeof _audioCtx.decodeAudioData === 'function') {
+                try {
+                    if (_audioCtx.state === 'suspended') {
+                        await _audioCtx.resume();
+                    }
+                    const audioBuf = await _audioCtx.decodeAudioData(arrayBuffer.slice(0));
+                    const source = _audioCtx.createBufferSource();
+                    source.buffer = audioBuf;
+                    source.connect(_audioCtx.destination);
+                    _audioSource = source;
+                    source.onended = () => {
+                        _audioSource = null;
+                        if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+                    };
+                    source.start(0);
+                    return;
+                } catch (webAudioErr) {
+                    console.warn('WebAudio decode fehlgeschlagen, weiche auf HTMLAudio aus:', webAudioErr);
+                }
+            }
+
+            const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+            const url = URL.createObjectURL(blob);
+            let audio = vorleseAudioEl;
+            if (!audio) {
+                audio = new Audio();
+                audio.setAttribute('playsinline', '');
+                vorleseAudioEl = audio;
+            }
+            audio.src = url;
+            audio.onended = () => {
+                try { URL.revokeObjectURL(url); } catch (_e) { /* schon weg */ }
+                if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+            };
             audio.onerror = audio.onended;
             zustand.audio = audio;
             await audio.play();
             return;
         } catch (_e) {
+            console.warn('Vorlesen über Server fehlgeschlagen, weiche auf Browser-Stimme aus:', _e);
             // Rückfall auf Browser-Stimme
             if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
                 try {
+                    window.speechSynthesis.cancel();
                     const satz = new SpeechSynthesisUtterance(textZumSprechen);
                     satz.lang = 'de-DE';
-                    const deutsch = window.speechSynthesis.getVoices().find((v) => (v.lang || '').startsWith('de'));
+                    const stimmen = window.speechSynthesis.getVoices();
+                    const deutsch = stimmen.find((v) => (v.lang || '').startsWith('de'));
                     if (deutsch) satz.voice = deutsch;
+                    satz.onend = () => {
+                        if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+                    };
+                    satz.onerror = satz.onend;
+                    window.speechSynthesis.resume();
                     window.speechSynthesis.speak(satz);
                     return;
                 } catch (_e2) { /* Fallback ebenfalls fehlgeschlagen */ }
@@ -1257,6 +1339,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
     /** „Alles vorlesen" (07.10.2026): Tagebuch-Fassung des sichtbaren Eintrags
      *  — Titel, Bildzahl, Personen, Notizen/Geschichten in dieser Reihenfolge. */
     async function allesVorlesen() {
+        audioVorabFreischalten();
         const imRaster = zustand.ansicht !== 'einzel';
         const teile = [];
         const titel = el('erzaehl-titel');
@@ -1281,7 +1364,8 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (!container) return '';
         const texte = [];
         container.querySelectorAll('.erzaehl-geschichte-zeile > div:first-child').forEach((knoten) => {
-            const t = (knoten.textContent || '').trim();
+            const textKnoten = knoten.querySelector('.erzaehl-geschichte-text') || knoten;
+            const t = (textKnoten.textContent || '').trim();
             if (t) texte.push(t);
         });
         return texte.join(' ');
@@ -1673,12 +1757,14 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 const altText = kiBtn.textContent;
                 kiBtn.textContent = '✨ Generiere…';
                 try {
+                    audioVorabFreischalten();
+                    const notizText = (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '';
                     const res = await jsonSenden('/api/erzaehlen/ki-geschichte', {
                         fileid: String(dateiKennung),
                         perspektive: zustand.perspektive || 'ich',
                         ereignis_kennung: zustand.aktuellesEreignis,
                         beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
-                        notiz: (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '',
+                        notiz: notizText,
                         ort: el('erzaehl-bild-ort-text') ? el('erzaehl-bild-ort-text').textContent.replace(/^Ort:\s*/, '') : '',
                         datum: (meinDetail && meinDetail.datum) || '',
                     });
@@ -1688,8 +1774,8 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                             eingabeFeld.value = res.geschichte;
                             eingabeFeld.focus();
                         }
-                        // Bildgeschichte direkt speichern, damit sie als Erinnerung in der Liste steht
-                        await geschichteSpeichern();
+                        // Bildgeschichte direkt speichern (mit Notiz als Abfrage)
+                        await geschichteSpeichern(null, notizText || null);
                         await vorlesenText(res.geschichte);
                     } else {
                         console.error('Fehler bei der Bildgeschichte:', res && res.fehler);
@@ -1709,7 +1795,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 if (typeof zeigeBildVollbild === 'function' && bild) {
                     zeigeBildVollbild(bild, zustand.gesichter || [], {
                         fileid: dateiKennung,
-                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || ''
+                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
+                        onClose: () => {
+                            nachGesichtAenderung();
+                        }
                     });
                 }
             };
@@ -1750,7 +1839,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 if (typeof zeigeBildVollbild === 'function') {
                     zeigeBildVollbild(bild, zustand.gesichter || [], {
                         fileid: dateiKennung,
-                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || ''
+                        beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
+                        onClose: () => {
+                            nachGesichtAenderung();
+                        }
                     });
                 }
             };
@@ -1803,8 +1895,13 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 meta.style.alignItems = 'center';
 
                 const metaInfo = document.createElement('span');
-                metaInfo.textContent = `${g.zeit || ''} · ${g.quelle || ''}`;
+                const abf = g.abfrage ? ` · Abfrage: „${g.abfrage}“` : '';
+                metaInfo.textContent = `${g.zeit || ''} · ${g.quelle || ''}${abf}`;
                 meta.appendChild(metaInfo);
+
+                const metaAktionen = document.createElement('div');
+                metaAktionen.style.display = 'flex';
+                metaAktionen.style.gap = '4px';
 
                 const editBtn = document.createElement('button');
                 editBtn.className = 'erzaehl-geschichte-edit-btn';
@@ -1816,7 +1913,38 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 editBtn.style.cursor = 'pointer';
                 editBtn.style.fontSize = '0.82rem';
                 editBtn.style.padding = '2px 4px';
-                meta.appendChild(editBtn);
+                metaAktionen.appendChild(editBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'erzaehl-geschichte-delete-btn';
+                delBtn.type = 'button';
+                delBtn.title = 'Erinnerung löschen';
+                delBtn.textContent = '🗑️';
+                delBtn.style.background = 'transparent';
+                delBtn.style.border = 'none';
+                delBtn.style.cursor = 'pointer';
+                delBtn.style.fontSize = '0.82rem';
+                delBtn.style.padding = '2px 4px';
+                delBtn.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    if (!confirm('Möchtest du diese Erinnerung wirklich löschen?')) return;
+                    try {
+                        const delRes = await fetch(`${apiBase()}/api/erzaehlen/geschichten/${encodeURIComponent(g.id)}`, {
+                            method: 'DELETE',
+                        });
+                        if (!delRes.ok) throw new Error('Löschen fehlgeschlagen');
+                        if (zustand.detail && Array.isArray(zustand.detail.geschichten)) {
+                            zustand.detail.geschichten = zustand.detail.geschichten.filter(x => x && x.id !== g.id);
+                        }
+                        geschichtenAnzeigen();
+                        kachelMarkerAktualisieren();
+                    } catch (err) {
+                        alert('Fehler beim Löschen: ' + err.message);
+                    }
+                };
+                metaAktionen.appendChild(delBtn);
+
+                meta.appendChild(metaAktionen);
 
                 ansicht.appendChild(text);
                 ansicht.appendChild(meta);
@@ -1942,7 +2070,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
 
     // ---- Geschichte speichern -------------------------------------------
 
-    async function geschichteSpeichern() {
+    async function geschichteSpeichern(ersetztId = null, abfrageText = null) {
         const feld = el('erzaehl-text');
         const hinweis = el('erzaehl-hinweis');
         if (!feld) return;
@@ -1954,7 +2082,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         // Einzelansicht -> zu diesem Bild.
         const dk = zustand.ansicht === 'einzel' ? aktuelleDateiKennung() : null;
         const kennung = zustand.aktuellesEreignis;
-        const body = erzaehlGeschichteKoerper(kennung, text, dk);
+        const body = erzaehlGeschichteKoerper(kennung, text, dk, ersetztId, abfrageText);
 
         try {
             const res = await fetch(`${apiBase()}/api/erzaehlen/geschichten`, {
@@ -2240,6 +2368,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const vorBtn = el('erzaehl-vor');
         if (vorBtn) vorBtn.addEventListener('click', () => diashowSchritt(-1));
         const weiterBtn = el('erzaehl-weiter');
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('bild-rahmen-gespeichert', () => {
+                nachGesichtAenderung();
+            });
+        }
+
         if (weiterBtn) weiterBtn.addEventListener('click', () => diashowSchritt(1));
 
         const sucheFeld = el('erzaehl-suche');

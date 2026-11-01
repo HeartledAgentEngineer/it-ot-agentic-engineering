@@ -805,3 +805,12 @@ def test_foto_gesicht_mit_index_ab_1000_ergibt_klartext_statt_absturz(basis):
     r = gq.bild_rahmen("444", [{"gid": "444:1000", "bbox_norm": [0.1, 0.1, 0.2, 0.2]}])
     assert r["ok"] is False and isinstance(r.get("fehler"), str) and r["fehler"]
     assert _korrekturen(basis) is None
+
+
+def test_bild_rahmen_neue_person_erstellt_profil_eintrag(basis):
+    """Neue Person ueber bild-rahmen legt automatisch einen Eintrag in personen_profile.json an."""
+    r = gq.bild_rahmen("111", [_neu(name="Oma Hilde")])
+    assert r["ok"] is True
+    profile = gq._profile_laden()
+    assert "Oma Hilde" in profile["profile"]
+    assert profile["profile"]["Oma Hilde"]["beziehung"] == ""

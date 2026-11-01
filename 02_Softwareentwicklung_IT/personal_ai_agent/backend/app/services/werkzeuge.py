@@ -668,9 +668,14 @@ def _person_auskunft(args: Dict[str, Any]) -> Ergebnis:
     beziehung = str(profil.get("beziehung") or "").strip()
     stamm = [f"{anzeige} — Beziehung: {beziehung}." if beziehung else f"Zur Person {anzeige}."]
     kontakt = profil.get("kontakt")
-    geburtstag = profil.get("geburtstag") or (kontakt.get("geburtstag") if isinstance(kontakt, dict) else None)
-    if geburtstag and str(geburtstag).strip():
-        stamm.append(f"Geburtstag: {str(geburtstag).strip()}.")
+    geburtstag_tb = profil.get("geburtstag_kontakt") or (kontakt.get("geburtstag") if isinstance(kontakt, dict) else None)
+    geburtstag_profil = profil.get("geburtstag_direkt") or (
+        profil.get("geburtstag") if (not geburtstag_tb or profil.get("geburtstag") != geburtstag_tb) else None
+    )
+    if geburtstag_profil and str(geburtstag_profil).strip():
+        stamm.append(f"Geburtstag: {str(geburtstag_profil).strip()}.")
+    elif geburtstag_tb and str(geburtstag_tb).strip():
+        stamm.append(f"Geburtstag laut Telefonbuch: {str(geburtstag_tb).strip()}.")
     nummern = profil.get("nummern") or (kontakt.get("nummern") if isinstance(kontakt, dict) else None)
     if nummern:
         if isinstance(nummern, list) and nummern:

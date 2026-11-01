@@ -3658,6 +3658,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
     _quizEditor.cloudErkennt = false;
     _quizEditor.cloudNeuAufbauen = null;
     _quizEditor.vorschlaege = [];
+    _quizEditor.onClose = (optionen && typeof optionen.onClose === 'function') ? optionen.onClose : null;
     if (!_quizEditor.refKontext && optionen.fileid != null && cloudFileidGueltig(optionen.fileid)) {
         _quizEditor.fileid = String(optionen.fileid).trim();
         bildEditorCloudZustand(_quizEditor, gesichter, optionen.markiere);
@@ -3853,6 +3854,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 }
                 _quizEditor.px_rest = [];
                 var sel = (_quizEditor.fileid && _quizEditor.startAuswahl >= 0) ? _quizEditor.startAuswahl : -1;
+                _quizEditor.sel = sel;
                 var rahmenEls = [];
                 var vorschlagEls = [];     // Bild-Editor B4: gestrichelte Vorschlaege ("Neu erkennen", Cloud-Weg)
                 var neuePersonZeigen = function () {};
@@ -4077,7 +4079,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                 // verschiebbar ist wie die beim Oeffnen gebauten.
                 function rahmenZiehbar(reEl, idx) {
                     reEl.addEventListener('pointerdown', function(ev){
-                        sel = idx; resync(); zeigeAuswahlGriffe();
+                        sel = idx; _quizEditor.sel = sel; resync(); zeigeAuswahlGriffe();
                         snapshotVorAenderung();   // Undo-Snapshot vor Verschieben
                         var startX = ev.clientX, startY = ev.clientY;
                         var startNorm = (_quizEditor.bbox_norm_live[idx] || []).slice();
@@ -4223,7 +4225,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     if (idx < 0) { meldeEditor('Rahmen konnte nicht angelegt werden.', false); return -1; }
                     rahmenElement(idx);
                     rahmenZiehbar(rahmenEls[idx], idx);
-                    sel = idx;
+                    sel = idx; _quizEditor.sel = sel;
                     resync(); zeigeAuswahlGriffe();
                     var anzahl = rahmenIndizes(_quizEditor).length;
                     if (_quizEditor.fileid) {
@@ -5159,6 +5161,17 @@ async function speichereBildCloud(btn) {
         melde('Speichern läuft noch …', true);
         return { ok: false, gesendet: 0, grund: 'laeuft' };
     }
+    const npFeld = (typeof document !== 'undefined' && typeof document.querySelector === 'function') ? document.querySelector('.vollbild-neue-person') : null;
+    const curSel = (typeof e.sel === 'number' && e.sel >= 0) ? e.sel : (e.startAuswahl >= 0 ? e.startAuswahl : 0);
+    if (npFeld && npFeld.value && npFeld.value.trim() && (e.bbox_norm_live || []).length > 0) {
+        const val = npFeld.value.trim();
+        const targetIdx = (curSel >= 0 && curSel < (e.bbox_norm_live || []).length) ? curSel : 0;
+        rahmenPersonSetzen(e, targetIdx, val);
+        npFeld.value = '';
+        const npOk = (typeof document !== 'undefined' && typeof document.querySelector === 'function') ? document.querySelector('.vollbild-neue-person-ok') : null;
+        if (npOk) npOk.style.display = 'none';
+        npFeld.style.display = 'none';
+    }
     const plan = bildEditorCloudAenderungen(e);
     if (plan.zuViele) {
         melde('⚠️ Zu viele Änderungen auf einmal (' + plan.aenderungen.length + ', höchstens ' + plan.max +
@@ -5185,6 +5198,7 @@ async function speichereBildCloud(btn) {
     const m = bildEditorCloudMeldung(antwort, plan.aenderungen.length);
     let text = m.text;
     if (m.neuLaden && e.fileid === ziel.fileid) {
+        _cloudPersonenNamen = null;
         let neu = await cloudGesichterLaden(ziel.fileid);
         if ((!neu || neu.ok !== true) && antwort && Array.isArray(antwort.gesichter) && antwort.gesichter.length) {
             neu = { ok: true, gesichter: antwort.gesichter };
@@ -5822,6 +5836,9 @@ function speichereEditorRahmen(sel, iw, ih, btn, stillSammeln) {
 }
 
 function schliesseBildVollbild() {
+    if (_quizEditor && typeof _quizEditor.onClose === 'function') {
+        try { _quizEditor.onClose(); } catch (_e) {}
+    }
     if (_quizVollbild) {
         try { _quizVollbild.remove(); } catch (e) {}
         _quizVollbild = null;

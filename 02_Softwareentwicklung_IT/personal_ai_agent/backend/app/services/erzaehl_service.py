@@ -393,14 +393,17 @@ def _neueste_fassungen(zeilen: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     Eine Zeile gilt als ERSETZT, sobald irgendeine andere Zeile sie über
     ``ersetzt`` referenziert — unabhängig davon, an welchem Ereignis/Bild
-    sie hängt.
+    sie hängt. Zeilen mit geloescht=True gelten als gelöscht.
     """
     ersetzte_ids = {
         eintrag.get("ersetzt")
         for eintrag in zeilen
         if isinstance(eintrag.get("ersetzt"), str) and eintrag.get("ersetzt")
     }
-    return [eintrag for eintrag in zeilen if eintrag.get("id") not in ersetzte_ids]
+    return [
+        eintrag for eintrag in zeilen
+        if eintrag.get("id") not in ersetzte_ids and not eintrag.get("geloescht")
+    ]
 
 
 def geschichten(ereignis_kennung: Optional[str] = None,
@@ -755,7 +758,8 @@ class GeschichteValidierungsfehler(ValueError):
 
 def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
                          datei_kennung: Optional[int] = None,
-                         ersetzt: Optional[str] = None) -> Dict[str, Any]:
+                         ersetzt: Optional[str] = None,
+                         abfrage: Optional[str] = None) -> Dict[str, Any]:
     """Eine neue Geschichte anhängen (Schicht "mensch").
 
     Validiert nach den Regeln aus dem Auftrag; wirft
@@ -814,6 +818,7 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
         "text": text_wert,
         "quelle": quelle_wert,
         "ersetzt": ersetzt_wert,
+        "abfrage": abfrage.strip() if isinstance(abfrage, str) and abfrage.strip() else None,
     }
 
     pfad = geschichten_pfad()
@@ -828,6 +833,46 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
 
     return zeile
 
+
+
+def geschichte_loeschen(geschichte_id: str) -> Dict[str, Any]:
+    """Löscht eine Geschichte (hängt eine Zeile mit 'geloescht: True' und 'ersetzt: <id>' an).
+
+    Schreibt nur anhängend ('a' + flush + fsync) für Revisionssicherheit.
+    Wirft GeschichteValidierungsfehler, wenn die ID nicht existiert.
+    """
+    gid = geschichte_id.strip() if isinstance(geschichte_id, str) else ""
+    if not gid:
+        raise GeschichteValidierungsfehler("Geschichte-ID fehlt.")
+    alle = _neueste_fassungen(_geschichten_laden())
+    vorhanden = next((g for g in alle if g.get("id") == gid), None)
+    if not vorhanden:
+        raise GeschichteValidierungsfehler(f"Geschichte '{gid}' existiert nicht oder ist bereits gelöscht.")
+
+    zeile = {
+        "id": str(uuid.uuid4()),
+        "zeit": _jetzt_iso(),
+        "schicht": SCHICHT_MENSCH,
+        "version": SCHICHT_VERSION,
+        "ereignis_kennung": vorhanden.get("ereignis_kennung"),
+        "datei_kennung": vorhanden.get("datei_kennung"),
+        "text": "",
+        "quelle": "loeschung",
+        "ersetzt": gid,
+        "geloescht": True,
+    }
+
+    pfad = geschichten_pfad()
+    ordner = os.path.dirname(pfad)
+    if ordner:
+        os.makedirs(ordner, exist_ok=True)
+
+    with open(pfad, "a", encoding="utf-8") as datei:
+        datei.write(json.dumps(zeile, ensure_ascii=False) + "\n")
+        datei.flush()
+        os.fsync(datei.fileno())
+
+    return {"ok": True, "geloescht": gid}
 
 
 def titel_setzen(kennung: str, name: Any) -> Dict[str, Any]:

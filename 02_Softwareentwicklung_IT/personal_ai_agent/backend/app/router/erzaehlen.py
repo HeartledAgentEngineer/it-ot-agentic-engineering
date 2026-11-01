@@ -179,6 +179,7 @@ class GeschichteEingabe(BaseModel):
     quelle: str = Field(..., min_length=1, max_length=20)
     datei_kennung: Optional[int] = None
     ersetzt: Optional[str] = Field(default=None, max_length=100)
+    abfrage: Optional[str] = Field(default=None, max_length=2000)
 
 
 @router.post("/geschichten")
@@ -191,6 +192,7 @@ def geschichte_speichern(eingabe: GeschichteEingabe) -> Dict[str, Any]:
             quelle=eingabe.quelle,
             datei_kennung=eingabe.datei_kennung,
             ersetzt=eingabe.ersetzt,
+            abfrage=eingabe.abfrage,
         )
     except erzaehl_service.GeschichteValidierungsfehler as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -200,6 +202,19 @@ def geschichte_speichern(eingabe: GeschichteEingabe) -> Dict[str, Any]:
             status_code=400, detail=f"Geschichte konnte nicht gespeichert werden ({type(e).__name__})."
         ) from e
     return {"ok": True, "geschichte": zeile}
+
+
+@router.delete("/geschichten/{geschichte_id}")
+def geschichte_loeschen(geschichte_id: str) -> Dict[str, Any]:
+    """Eine Geschichte löschen (Revisionssicher via Löschmarkierung)."""
+    try:
+        ergebnis = erzaehl_service.geschichte_loeschen(geschichte_id)
+        return ergebnis
+    except erzaehl_service.GeschichteValidierungsfehler as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Geschichte löschen fehlgeschlagen: %s", e)
+        raise HTTPException(status_code=500, detail="Löschen fehlgeschlagen.") from e
 
 
 class TitelEingabe(BaseModel):

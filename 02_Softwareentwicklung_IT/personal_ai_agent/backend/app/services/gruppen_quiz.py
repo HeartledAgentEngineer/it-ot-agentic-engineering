@@ -618,9 +618,10 @@ def _profil_ergaenzen(daten: Dict[str, Any], name: str, beziehung: str, notiz: s
                       nummern: Optional[List[str]] = None) -> Dict[str, Any]:
     profile = daten["profile"]
     schluessel = _profil_schluessel(profile, name)
+    neu_angelegt = schluessel not in profile
     eintrag = profile.setdefault(schluessel, {"beziehung": "", "notizen": []})
     eintrag.setdefault("notizen", [])
-    aenderung: Dict[str, Any] = {"name": schluessel, "notiz_id": None}
+    aenderung: Dict[str, Any] = {"name": schluessel, "notiz_id": None, "neu_angelegt": neu_angelegt}
     if beziehung and beziehung != eintrag.get("beziehung"):
         aenderung["beziehung_vorher"] = eintrag.get("beziehung") or ""
         eintrag["beziehung"] = beziehung
@@ -682,11 +683,15 @@ def profil(name: str) -> Dict[str, Any]:
     except GruppenFehler:
         weitere = []
     kontakt = p.get("kontakt")
-    gb = p.get("geburtstag") or (kontakt.get("geburtstag") if isinstance(kontakt, dict) else None)
+    gb_direkt = p.get("geburtstag")
+    gb_tb = kontakt.get("geburtstag") if isinstance(kontakt, dict) else None
     nr = p.get("nummern") or (kontakt.get("nummern") if isinstance(kontakt, dict) else [])
     return {"ok": True, "name": schluessel, "beziehung": p.get("beziehung") or "",
             "notizen": notizen, "kontakt": kontakt,
-            "geburtstag": gb, "nummern": nr,
+            "geburtstag": gb_direkt or gb_tb,
+            "geburtstag_direkt": gb_direkt,
+            "geburtstag_kontakt": gb_tb,
+            "nummern": nr,
             **_namensfelder(p, schluessel, weitere)}
 
 
@@ -2044,6 +2049,7 @@ def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
     zuordnen_je_name: Dict[str, List[Dict[str, str]]] = {}
     ausschliessen_je_kennung: Dict[str, List[str]] = {}
     neue_gids: List[str] = []
+    profile_anlegen: List[str] = []
     for p in geprueft:
         if p["neu"]:
             eintrag: Dict[str, Any] = {"bbox_norm": p["bbox_norm"], "quelle": "hand", "name": p["name"]}
@@ -2051,6 +2057,8 @@ def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
             rahmen[str(naechster)] = eintrag
             neue_gids.append(f"{fileid}:{naechster}")
             naechster += 1
+            if p.get("name"):
+                profile_anlegen.append(p["name"])
             continue
         schluessel, g = str(p["index"]), sicht[p["gid"]]
         if p["index"] >= HAND_INDEX_AB:                        # Hand-Gesicht
@@ -2064,6 +2072,8 @@ def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
                 eintrag["bbox_norm"] = p["bbox_norm"]
             if p["hat_name"]:
                 eintrag["name"] = p["name"]
+                if p.get("name"):
+                    profile_anlegen.append(p["name"])
             eintrag.update({k: p[k] for k in ("breite", "hoehe") if k in p})
             continue
         if p["entfernen"]:                                      # erkanntes Gesicht entfernen
@@ -2083,6 +2093,8 @@ def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
                 eintrag["name"] = None
             else:                 # neue Person: nur am Handy, nicht fuer die Gruppierung
                 eintrag["name"] = p["name"]
+            if p.get("name"):
+                profile_anlegen.append(p["name"])
         if eintrag.get("bbox_norm") is None and not eintrag.get("name"):
             rahmen.pop(schluessel, None)
         else:
@@ -2093,7 +2105,7 @@ def _bild_rahmen_planen(fileid: str, aenderungen: List[Any], q: Dict[str, Any],
     if not neu_bild["rahmen"] and not neu_bild["entfernt"] and set(neu_bild) <= {"rahmen", "entfernt"}:
         neu_bild = None
     return {"bild": neu_bild, "neue_gids": neue_gids, "zuordnen": zuordnen_je_name,
-            "ausschliessen": ausschliessen_je_kennung}
+            "ausschliessen": ausschliessen_je_kennung, "profile_anlegen": profile_anlegen}
 
 
 def _bild_rahmen_zuruecknehmen(letzte: Dict[str, Any]) -> None:
@@ -2176,6 +2188,14 @@ def bild_rahmen(fileid: Any, aenderungen: Any) -> Dict[str, Any]:
         teile.append(teil)
     alle_ok = all(t["ok"] for t in teile)
     geschrieben = any(t["ok"] and t.get("geaendert") for t in teile)
+    if geschrieben:
+        for n in plan.get("profile_anlegen", []):
+            try:
+                profile = _profile_laden()
+                _profil_ergaenzen(profile, n, "", "", None, "bild_editor")
+                _atomar_schreiben(PROFILE_DATEINAME, profile)
+            except Exception as e:
+                logger.warning("Konnte Profil fuer '%s' nicht anlegen: %s", n, e)
     antwort: Dict[str, Any] = {"ok": alle_ok, "teilweise": (not alle_ok) and geschrieben,
                                "geschrieben": geschrieben, "fileid": s, "aktion": aktion,
                                "neu": plan["neue_gids"], "teile": teile}
@@ -2613,6 +2633,7 @@ def _antwort_anwenden(kennung: str, art: str, name: Optional[str],
             profile = _profile_laden()
             eintrag["profil"] = _profil_ergaenzen(profile, sauber, b, n, kennung, "quiz",
                                                   dict(kontakt) if kontakt else None)
+            _atomar_schreiben(PROFILE_DATEINAME, profile)
     elif art == "gleich":
         andere = str(ziel)          # oben geprueft: vorhanden und gueltig
         paar_dazu("gleich", kennung, andere)
@@ -2824,8 +2845,11 @@ def _rueckgaengig_eintrag(ziel_id: Any) -> Dict[str, Any]:
                 daten = _profile_laden()
                 p = daten["profile"].get(pr.get("name") or "")
                 if p is not None:
-                    if "beziehung_vorher" in pr:
-                        p["beziehung"] = pr["beziehung_vorher"]
+                    if pr.get("neu_angelegt") and not p.get("beziehung") and not p.get("notizen") and not p.get("kontakt"):
+                        daten["profile"].pop(pr.get("name"), None)
+                    else:
+                        if "beziehung_vorher" in pr:
+                            p["beziehung"] = pr["beziehung_vorher"]
                     if "kontakt_vorher" in pr:
                         if pr["kontakt_vorher"]:
                             p["kontakt"] = pr["kontakt_vorher"]
