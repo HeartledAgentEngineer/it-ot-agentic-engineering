@@ -40,7 +40,7 @@ graph TD
     class SSE_Gen,Script sse;
 ```
 
-Die SQLite-Datenbank (`concertify.db`, Tabelle `setlist_snapshots`) versioniert benannte Setlist-Stände. Das Schema führt `user_id` (Default `local`) von Anfang an mit, damit ein späterer Multi-User-Ausbau ohne Migration der Bestandsdaten auskommt.
+Die SQLite-Datenbank (`concertify.db`, Tabelle `setlist_snapshots`) versioniert benannte Setlist-Stände. Das Schema führt `user_id` (Default `local`) von Anfang an mit, damit ein späterer Multi-User-Ausbau ohne Migration der Bestandsdaten auskommt. Die Datei entsteht erst beim ersten Snapshot-Zugriff, nicht schon beim Import von `app.py`.
 
 ---
 

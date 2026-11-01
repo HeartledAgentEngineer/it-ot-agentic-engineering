@@ -120,9 +120,17 @@ from db.connection import create_connection
 from repositories.snapshot_repository import SnapshotRepository
 from services.snapshot_service import SnapshotService, diff_setlists
 
-_snapshot_conn    = create_connection(BASE_DIR / "concertify.db")
-_snapshot_repo    = SnapshotRepository(_snapshot_conn)
-_snapshot_service = SnapshotService(_snapshot_repo)
+# Erst beim ersten Zugriff anlegen (nicht beim Import): sonst erzeugt jeder Import
+# - Tests, CI, Hilfsskripte - eine concertify.db neben app.py.
+_snapshot_service_cache = None
+
+
+def _snapshot_service():
+    global _snapshot_service_cache
+    if _snapshot_service_cache is None:
+        conn = create_connection(BASE_DIR / "concertify.db")
+        _snapshot_service_cache = SnapshotService(SnapshotRepository(conn))
+    return _snapshot_service_cache
 
 
 def _load_concert_data() -> dict:
@@ -2850,7 +2858,7 @@ def snapshots_create():
     if entry is None:
         return jsonify({"ok": False, "error": "unknown artist"})
 
-    sid, err = _snapshot_service.create_snapshot(artist, name, entry)
+    sid, err = _snapshot_service().create_snapshot(artist, name, entry)
     if err:
         return jsonify({"ok": False, "error": err})
     return jsonify({"ok": True, "id": sid})
@@ -2862,7 +2870,7 @@ def snapshots_list():
     artist = request.args.get("artist", "").strip()
     if not artist:
         return jsonify({"ok": False, "error": "missing artist", "snapshots": []})
-    return jsonify({"ok": True, "snapshots": _snapshot_service.list_snapshots(artist)})
+    return jsonify({"ok": True, "snapshots": _snapshot_service().list_snapshots(artist)})
 
 
 @app.route("/snapshots/is_saved", methods=["GET"])
@@ -2873,7 +2881,7 @@ def snapshots_is_saved():
         return jsonify({"ok": False, "error": "missing artist", "saved": False})
     cd = _load_concert_data()
     titles = cd.get("setlist_data", {}).get(artist, {}).get("setlist_titles", [])
-    saved  = _snapshot_service.is_current_saved(artist, titles)
+    saved  = _snapshot_service().is_current_saved(artist, titles)
     return jsonify({"ok": True, "saved": saved})
 
 
@@ -2885,7 +2893,7 @@ def snapshots_restore():
     if sid is None:
         return jsonify({"ok": False, "error": "missing id"})
 
-    artist, payload, err = _snapshot_service.get_restore_payload(int(sid))
+    artist, payload, err = _snapshot_service().get_restore_payload(int(sid))
     if err:
         return jsonify({"ok": False, "error": err})
 
@@ -2905,7 +2913,7 @@ def snapshots_rename():
     name = data.get("name", "").strip()
     if sid is None or not name:
         return jsonify({"ok": False, "error": "missing fields"})
-    ok = _snapshot_service.rename_snapshot(int(sid), name)
+    ok = _snapshot_service().rename_snapshot(int(sid), name)
     return jsonify({"ok": ok})
 
 
@@ -2916,7 +2924,7 @@ def snapshots_delete():
     sid  = data.get("id")
     if sid is None:
         return jsonify({"ok": False, "error": "missing id"})
-    ok = _snapshot_service.delete_snapshot(int(sid))
+    ok = _snapshot_service().delete_snapshot(int(sid))
     return jsonify({"ok": ok})
 
 
