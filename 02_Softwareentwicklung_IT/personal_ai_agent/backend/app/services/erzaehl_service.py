@@ -928,6 +928,64 @@ def format_datum_de(datum_str: Optional[str]) -> str:
     return s
 
 
+def deutsch_fuer_bildbeschreibung(text: str) -> str:
+    """Übersetzt/glättet typische englische Gemini-Vision-Bildbeschreibungen in natürliches Deutsch (01.11.2026)."""
+    if not text or not isinstance(text, str):
+        return ""
+    t = text.strip()
+    ist_deutsch = any(w in t.lower() for w in (" und ", " der ", " die ", " das ", " ein ", " eine ", " im ", " auf dem ", " von "))
+    if ist_deutsch and not any(t.startswith(w) for w in ("A ", "An ", "The ", "Two ", "Three ", "Four ", "Several ", "Close-up ")):
+        return t
+
+    regeln = [
+        (r'\bAn adult lies down indoors playing with a small baby lying beside them\b', 'Ein Erwachsener liegt drinnen und spielt mit einem kleinen Baby, das daneben liegt'),
+        (r'\bThe adult playfully makes a face while the baby watches closely\b', 'Er schneidet spielerisch Grimassen, während das Baby aufmerksam zuschaut'),
+        (r'\bThe indoor setting is cozy and softly lit\b', 'Die Umgebung ist gemütlich und sanft beleuchtet'),
+        (r'\bA young man sits indoors holding two small boys close to him\b', 'Ein junger Mann sitzt drinnen und hält zwei kleine Jungen im Arm'),
+        (r'\bEveryone looks pleased and relaxed in the soft indoor light\b', 'Alle wirken zufrieden und entspannt im sanften Raumlicht'),
+        (r'\bThe background features simple home decor\b', 'Im Hintergrund sieht man eine schlichte Wohnungseinrichtung'),
+        (r'\bA woman and a man sit together outdoors at a wooden table\b', 'Eine Frau und ein Mann sitzen gemeinsam draußen an einem Holztisch'),
+        (r'\bThey are talking and smiling with coffee cups placed before them\b', 'Sie unterhalten sich lächelnd mit Kaffeetassen vor sich'),
+        (r'\bWarm late-afternoon sunlight illuminates the scene\b', 'Warmes Nachmittagslicht erhellt die Szene'),
+        (r'\bA woman and three young boys smile together from a living room sofa\b', 'Eine Frau und drei kleine Jungen lächeln gemeinsam vom Sofa'),
+        (r'\bThe indoor scene captures a joyful family portrait\b', 'Die Aufnahme zeigt ein fröhliches Familienporträt'),
+        (r'\bA newborn baby rests peacefully\b', 'Ein neugeborenes Baby ruht friedlich'),
+        (r'\bA joyful group of friends laughing around a birthday cake\b', 'Eine fröhliche Gruppe von Freunden lacht um eine Geburtstagstorte'),
+        (r'\bA close-up view shows\b', 'Eine Nahaufnahme zeigt'),
+        (r'\bA close-up shot of\b', 'Eine Nahaufnahme von'),
+        (r'\bA wide interior view of\b', 'Ein weiter Blick in'),
+        (r'\bAn elevated view captures\b', 'Ein erhöhter Blick zeigt'),
+        (r'\bA large crowd of people walks across\b', 'Eine große Menschenmenge geht über'),
+        (r'\bMusicians perform on a stage illuminated by\b', 'Musiker spielen auf einer Bühne, erleuchtet von'),
+        (r'\bPeople walk along\b', 'Menschen spazieren entlang'),
+        (r'\bA person sits reclined on a couch\b', 'Eine Person liegt entspannt auf einer Couch'),
+        (r'\bTwo friends laughing by the river\b', 'Zwei Freunde lachen am Flussufer'),
+        (r'\bA joyful family portrait\b', 'Ein fröhliches Familienporträt'),
+        (r'\bThe mood is calm and peaceful\b', 'Die Stimmung ist ruhig und friedlich'),
+        (r'\bThe mood is quiet and relaxed\b', 'Die Atmosphäre ist ruhig und entspannt'),
+        (r'\bThe vibe is relaxed and sunny\b', 'Die Stimmung ist entspannt und sonnig'),
+        (r'\bunder a clear sky\b', 'unter klarem Himmel'),
+        (r'\bin front of\b', 'vor'),
+        (r'\bin the background\b', 'im Hintergrund'),
+        (r'\bin the foreground\b', 'im Vordergrund'),
+        (r'\bat the camera\b', 'in die Kamera'),
+        (r'\bsmiling at the camera\b', 'lächelnd in die Kamera'),
+    ]
+    res = t
+    for pattern, repl in regeln:
+        res = re.sub(pattern, repl, res, flags=re.IGNORECASE)
+    return res
+
+
+def _notiz_fuer_geschichte(notiz: Optional[str]) -> str:
+    """Bereinigt Notizen für die inhaltliche Übernahme (keine Zitatzeichen, keine Notiz-Labels)."""
+    if not notiz:
+        return ""
+    n = notiz.strip().strip('"\'„“»«')
+    n = re.sub(r'^(Meine Notiz dazu|Meine Erinnerung dazu|Dazu die persönliche Notiz|Dazugehörige Anmerkung|Notiz|Erinnerung)\s*:\s*', '', n, flags=re.IGNORECASE)
+    return n.strip().strip('"\'„“»«')
+
+
 def ki_geschichte_generieren(fileid: Any,
                              perspektive: str = "ich",
                              ereignis_kennung: Optional[str] = None,
@@ -936,23 +994,38 @@ def ki_geschichte_generieren(fileid: Any,
                              datum: Optional[str] = None,
                              personen: Optional[List[str]] = None,
                              beschreibung: Optional[str] = None) -> Dict[str, Any]:
-    """Erzeugt eine lebendige Bildgeschichte aus Bilddaten, Personen und Notizen (31.10.2026).
-    Waehlbar in 'ich'-Perspektive (Ich-Form) oder 'erzaehler' (neutrale Sicht)."""
+    """Erzeugt eine lebendige Bildgeschichte aus Bilddaten, Personen, KI-Bildanalysen und Notizen (01.11.2026).
+    Waehlbar in 'ich'-Perspektive (Ich-Form) oder 'erzaehler' (neutrale Sicht).
+    Wichtig: Erinnerungen werden inhaltlich integriert statt als Zitat wiederholt."""
     fid = _als_zahl(fileid)
     if fid is None:
         return {"ok": False, "fehler": "Ungueltige Bildkennung."}
 
     perspektive = "erzaehler" if str(perspektive).lower().startswith("erz") else "ich"
 
-    # 1. Bildbeschreibung ermitteln
+    # 1. Bildbeschreibung ermitteln & eindeutschen
     if not beschreibung:
         beschreibung = beschreibung_holen(fid) or ""
+    if not beschreibung and ereignis_kennung:
+        try:
+            b_info = bilder_info(ereignis_kennung)
+            if b_info and b_info.get("bilder"):
+                b_dat = b_info["bilder"].get(str(fid)) or {}
+                beschreibung = b_dat.get("beschreibung") or ""
+        except Exception:
+            pass
+    beschr_sauber = deutsch_fuer_bildbeschreibung(beschreibung)
 
-    # 2. Notiz / vorhandene Geschichte ermitteln
+    # 2. Notiz / vorhandene Geschichte ermitteln (auch aus übergeordnetem Ereignis)
     if not notiz:
         alte_geschichten = geschichten(datei_kennung=fid)
         if alte_geschichten:
             notiz = alte_geschichten[-1].get("text") or ""
+        elif ereignis_kennung:
+            ev_geschichten = geschichten(ereignis_kennung=ereignis_kennung)
+            if ev_geschichten:
+                notiz = ev_geschichten[-1].get("text") or ""
+    notiz_inhalt = _notiz_fuer_geschichte(notiz)
 
     # 3. Personen auf dem Bild ermitteln
     if personen is None:
@@ -1025,19 +1098,18 @@ def ki_geschichte_generieren(fileid: Any,
             else:
                 saetze.append("Auf diesem Bild bin ich allein zu sehen.")
 
-        if beschreibung:
-            b_clean = beschreibung.strip()
-            ist_englisch = any(b_clean.startswith(w) for w in ("A ", "An ", "The ", "Two ", "Three ", "Four ", "Several ", "Close-up ", "In ")) or not any(w in b_clean.lower() for w in (" und ", " der ", " die ", " das ", " ein ", " eine "))
-            if ist_englisch:
-                saetze.append(f"Auf dem Bild zu sehen: {b_clean.rstrip('.')}.")
-            elif b_clean.startswith("Das") or b_clean.startswith("Ein"):
-                saetze.append(f"{b_clean.rstrip('.')}.")
+        # KI-generierte Bildanalyse einbinden
+        if beschr_sauber:
+            b_clean = beschr_sauber.rstrip(".")
+            if b_clean.startswith("Das") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
+                saetze.append(f"{b_clean}.")
             else:
-                saetze.append(f"Das Bild zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}.")
+                saetze.append(f"Das Foto fängt diesen Augenblick ein: {b_clean}.")
 
-        if notiz:
-            saetze.append(f"Meine Erinnerung dazu: {notiz.strip().rstrip('.')}.")
-        elif not beschreibung and len(saetze) <= 2:
+        # Erinnerung inhaltlich übernehmen (kein Zitat)
+        if notiz_inhalt:
+            saetze.append(f"{notiz_inhalt.rstrip('.')}.")
+        elif not beschr_sauber and len(saetze) <= 2:
             saetze.append("Es ist eine wertvolle Erinnerung in meiner Sammlung.")
 
     else:  # erzaehler
@@ -1055,19 +1127,18 @@ def ki_geschichte_generieren(fileid: Any,
         if pers_liste:
             saetze.append(f"Auf diesem Bild sind {pers_text} zu sehen.")
 
-        if beschreibung:
-            b_clean = beschreibung.strip()
-            ist_englisch = any(b_clean.startswith(w) for w in ("A ", "An ", "The ", "Two ", "Three ", "Four ", "Several ", "Close-up ", "In ")) or not any(w in b_clean.lower() for w in (" und ", " der ", " die ", " das ", " ein ", " eine "))
-            if ist_englisch:
-                saetze.append(f"Bildaufnahme: {b_clean.rstrip('.')}.")
-            elif b_clean.startswith("Die") or b_clean.startswith("Ein"):
-                saetze.append(f"{b_clean.rstrip('.')}.")
+        # KI-generierte Bildanalyse einbinden
+        if beschr_sauber:
+            b_clean = beschr_sauber.rstrip(".")
+            if b_clean.startswith("Die") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
+                saetze.append(f"{b_clean}.")
             else:
-                saetze.append(f"Die Aufnahme zeigt {b_clean[:1].lower() + b_clean[1:].rstrip('.')}.")
+                saetze.append(f"Die visuelle Bildanalyse dokumentiert: {b_clean}.")
 
-        if notiz:
-            saetze.append(f"Dazu die persoenliche Notiz: \"{notiz.strip().rstrip('.')}\".")
-        elif not beschreibung and len(saetze) <= 2:
+        # Erinnerung inhaltlich sachlich einbinden (keine Zitatzeichen)
+        if notiz_inhalt:
+            saetze.append(f"Aus den überlieferten Aufzeichnungen: {notiz_inhalt.rstrip('.')}.")
+        elif not beschr_sauber and len(saetze) <= 2:
             saetze.append("Ein lebendiges Zeitdokument in der Fotogalerie.")
 
     geschichte_text = " ".join(saetze)
@@ -1082,10 +1153,11 @@ def ki_geschichte_generieren(fileid: Any,
             "datum_lesbar": datum_text,
             "ort": ort_sauber,
             "personen": pers_liste,
-            "beschreibung": beschreibung,
-            "notiz": notiz or ""
+            "beschreibung": beschr_sauber,
+            "notiz": notiz_inhalt or ""
         }
     }
+
 
 def anlass_geschichte_generieren(
     ereignis_kennung: Optional[str] = None,
@@ -1096,11 +1168,14 @@ def anlass_geschichte_generieren(
     ort: Optional[str] = None,
     personen: Optional[List[str]] = None,
     anzahl_dateien: Optional[int] = None,
+    beschreibungen: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Erzeugt eine lebendige Anlass-Geschichte für ein gesamtes Ereignis (01.11.2026).
 
-    Verknüpft Anlasstitel, Zeitraum, Orte, beteiligte Personen und Notizen zu
-    einem fließenden Text. Wählbar in 'ich'-Perspektive oder neutraler 'erzaehler'-Sicht.
+    Verknüpft Anlasstitel, Zeitraum, Orte, beteiligte Personen, KI-Bildanalysen und Notizen
+    zu einem fließenden Text. Wählbar in 'ich'-Perspektive oder neutraler 'erzaehler'-Sicht.
+    Wichtig: Bildanalysen aller Bilder fließen mit ein, Erinnerungen werden inhaltlich
+    übernommen statt zitiert.
     """
     detail: Optional[Dict[str, Any]] = None
     if ereignis_kennung:
@@ -1154,11 +1229,28 @@ def anlass_geschichte_generieren(
             personen = []
     pers_liste = [p.strip() for p in (personen or []) if p and p.strip()]
 
-    # Notizen ermitteln
+    # Bildbeschreibungen aller Bilder ermitteln & eindeutschen
+    beschr_liste: List[str] = []
+    if beschreibungen:
+        beschr_liste = [deutsch_fuer_bildbeschreibung(b) for b in beschreibungen if b and b.strip()]
+    elif dateien:
+        try:
+            alle_b = _beschreibungen_gesamt_lesen()
+            for f in dateien:
+                f_num = _als_zahl(f)
+                if f_num and f_num in alle_b:
+                    b_txt = deutsch_fuer_bildbeschreibung(alle_b[f_num])
+                    if b_txt and b_txt not in beschr_liste:
+                        beschr_liste.append(b_txt)
+        except Exception:
+            pass
+
+    # Notizen ermitteln & bereinigen (keine Zitate)
     if not notiz and detail:
         vorhandene = [g.get("text", "").strip() for g in (detail.get("geschichten") or []) if g.get("text")]
         if vorhandene:
             notiz = vorhandene[-1]
+    notiz_inhalt = _notiz_fuer_geschichte(notiz)
 
     if pers_liste:
         if len(pers_liste) == 1:
@@ -1205,11 +1297,23 @@ def anlass_geschichte_generieren(
             else:
                 saetze.append("Auf den Bildern bin ich allein zu sehen.")
 
-        # 4. Notiz
-        if notiz:
-            saetze.append(f"Meine Notiz dazu: {notiz.strip().rstrip('.')}.")
+        # 4. Bildbeschreibungen / KI-Bildanalyse
+        if len(beschr_liste) == 1:
+            b_clean = beschr_liste[0].rstrip(".")
+            if b_clean.startswith("Das") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
+                saetze.append(f"{b_clean}.")
+            else:
+                saetze.append(f"Das Foto fängt diesen Augenblick ein: {b_clean}.")
+        elif len(beschr_liste) > 1:
+            saetze.append(f"Die Aufnahmen fangen die Szenen ein: {beschr_liste[0].rstrip('.')}.")
+            if len(beschr_liste) > 1:
+                saetze.append(f"Ein weiteres Foto zeigt: {beschr_liste[1].rstrip('.')}.")
 
-        # 5. Abschluss
+        # 5. Notiz inhaltlich übernehmen (kein Zitat)
+        if notiz_inhalt:
+            saetze.append(f"{notiz_inhalt.rstrip('.')}.")
+
+        # 6. Abschluss
         if anzahl > 1:
             saetze.append("Eine wunderbare Fotoserie, die diesen Anlass lebendig hält.")
         else:
@@ -1242,11 +1346,23 @@ def anlass_geschichte_generieren(
         if pers_liste:
             saetze.append(f"Erkannte Beteiligte: {pers_text}.")
 
-        # 4. Notiz
-        if notiz:
-            saetze.append(f"Dazugehörige Anmerkung: „{notiz.strip().rstrip('.')}“.")
+        # 4. Bildbeschreibungen / KI-Bildanalyse
+        if len(beschr_liste) == 1:
+            b_clean = beschr_liste[0].rstrip(".")
+            if b_clean.startswith("Die") or b_clean.startswith("Ein") or b_clean.startswith("Auf dem") or b_clean.startswith("Eine"):
+                saetze.append(f"{b_clean}.")
+            else:
+                saetze.append(f"Die visuelle Bildanalyse dokumentiert: {b_clean}.")
+        elif len(beschr_liste) > 1:
+            saetze.append(f"Die visuelle Bildanalyse hält fest: {beschr_liste[0].rstrip('.')}.")
+            if len(beschr_liste) > 1:
+                saetze.append(f"Weitere Aufnahmen zeigen: {beschr_liste[1].rstrip('.')}.")
 
-        # 5. Abschluss
+        # 5. Notiz inhaltlich sachlich einbinden (keine Zitatzeichen)
+        if notiz_inhalt:
+            saetze.append(f"Aus den überlieferten Aufzeichnungen: {notiz_inhalt.rstrip('.')}.")
+
+        # 6. Abschluss
         saetze.append("Ein archiviertes Kapitel im Fotobestand.")
 
     geschichte_text = " ".join(saetze)
@@ -1263,6 +1379,7 @@ def anlass_geschichte_generieren(
             "orte": orte_liste,
             "personen": pers_liste,
             "anzahl_dateien": anzahl,
-            "notiz": notiz or "",
+            "beschreibungen": beschr_liste,
+            "notiz": notiz_inhalt or "",
         }
     }

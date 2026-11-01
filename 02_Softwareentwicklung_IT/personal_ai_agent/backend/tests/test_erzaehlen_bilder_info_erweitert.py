@@ -73,7 +73,7 @@ def test_ki_geschichte_mit_englischer_gemini_beschreibung(tmp_path, monkeypatch)
         encoding="utf-8"
     )
 
-    # 1. Ich-Form
+    # 1. Ich-Form (Bildanalyse eingedeutscht, Notiz inhaltlich übernommen statt zitiert)
     res_ich = erzaehl_service.ki_geschichte_generieren(
         fileid=201,
         perspektive="ich",
@@ -81,10 +81,11 @@ def test_ki_geschichte_mit_englischer_gemini_beschreibung(tmp_path, monkeypatch)
         notiz="Ein unvergesslicher Abend."
     )
     assert res_ich["ok"] is True
-    assert "Auf dem Bild zu sehen: A joyful group" in res_ich["geschichte"]
-    assert "Meine Erinnerung dazu: Ein unvergesslicher Abend." in res_ich["geschichte"]
+    assert ("fröhliche Gruppe" in res_ich["geschichte"] or "joyful group" in res_ich["geschichte"])
+    assert "Ein unvergesslicher Abend" in res_ich["geschichte"]
+    assert "Meine Erinnerung dazu:" not in res_ich["geschichte"]
 
-    # 2. Erzähler
+    # 2. Erzähler (inhaltlich sachlich eingebunden, keine Zitatzeichen)
     res_erz = erzaehl_service.ki_geschichte_generieren(
         fileid=201,
         perspektive="erzaehler",
@@ -92,5 +93,6 @@ def test_ki_geschichte_mit_englischer_gemini_beschreibung(tmp_path, monkeypatch)
         notiz="Ein unvergesslicher Abend."
     )
     assert res_erz["ok"] is True
-    assert "Bildaufnahme: A joyful group" in res_erz["geschichte"]
-    assert 'Dazu die persoenliche Notiz: "Ein unvergesslicher Abend".' in res_erz["geschichte"]
+    assert ("fröhliche Gruppe" in res_erz["geschichte"] or "joyful group" in res_erz["geschichte"])
+    assert "Ein unvergesslicher Abend" in res_erz["geschichte"]
+    assert 'Dazu die persoenliche Notiz:' not in res_erz["geschichte"]

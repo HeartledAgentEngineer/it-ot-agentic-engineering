@@ -138,3 +138,24 @@ def test_anlass_geschichte_route():
     assert daten["ok"] is True
     assert "Urlaub an der Ostsee" in daten["geschichte"]
     assert "Rügen" in daten["geschichte"]
+
+def test_anlass_geschichte_bildanalyse_und_keine_zitate():
+    res = es.anlass_geschichte_generieren(
+        ereignis_kennung="ev_fotobuch_test",
+        titel="Fotobuch Sebastian - Umschlag",
+        datum="2026-10-07",
+        ort="Wohnzimmer",
+        personen=["Matthias Wenck", "Sebastian"],
+        anzahl_dateien=1,
+        beschreibungen=["An adult lies down indoors playing with a small baby lying beside them."],
+        notiz="Das ist das Titelbild meines Fotobuchs mit Papa.",
+        perspektive="ich",
+    )
+    assert res["ok"] is True
+    txt = res["geschichte"]
+    # 1. Bildanalyse eingearbeitet (deutsch)
+    assert "Ein Erwachsener liegt drinnen und spielt mit einem kleinen Baby" in txt
+    # 2. Notiz inhaltlich übernommen, NICHT zitiert
+    assert "Das ist das Titelbild meines Fotobuchs mit Papa" in txt
+    assert "Meine Notiz dazu:" not in txt
+    assert "„Das ist das Titelbild" not in txt

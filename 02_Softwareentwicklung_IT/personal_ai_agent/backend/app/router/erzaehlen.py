@@ -290,6 +290,7 @@ class AnlassGeschichteEingabe(BaseModel):
     ort: Optional[str] = Field(default=None, max_length=500)
     personen: Optional[List[str]] = Field(default=None)
     anzahl_dateien: Optional[int] = Field(default=None)
+    beschreibungen: Optional[List[str]] = Field(default=None)
 
 
 @router.post("/anlass-geschichte")
@@ -304,6 +305,7 @@ def anlass_geschichte(eingabe: AnlassGeschichteEingabe) -> Dict[str, Any]:
         ort=eingabe.ort,
         personen=eingabe.personen,
         anzahl_dateien=eingabe.anzahl_dateien,
+        beschreibungen=eingabe.beschreibungen,
     )
     if not ergebnis.get("ok"):
         raise HTTPException(
