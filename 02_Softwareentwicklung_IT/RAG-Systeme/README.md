@@ -203,3 +203,17 @@ Da das System sensible Personaldaten verarbeitet, ist die Nutzung öffentlicher,
 Bei der Entscheidung für ein lokales On-Premise-LLM muss die Gleichzeitigkeit (Concurrency) berücksichtigt werden:
 *   **Der Hardware-Engpass:** Ein lokales LLM benötigt erhebliche GPU-Ressourcen (VRAM). Während eine einzelne Consumer-GPU (z. B. RTX 4090) Anfragen eines einzelnen Nutzers flüssig verarbeitet, führt die **gleichzeitige Nutzung durch mehrere Mitarbeiter** zu massiven Latenz-Engpässen. Die GPU muss Anfragen sequenzieren oder in großen Batches verarbeiten, was ohne extrem teure Enterprise-Server-Hardware (z. B. NVIDIA A100/H100-Cluster) zu Antwortzeiten im Minutenbereich führt.
 *   **Fazit:** Für kleine und mittlere Unternehmen (KMUs) bietet die Nutzung von in der EU gehosteten, dedizierten Cloud-APIs die beste Balance aus DSGVO-Konformität, unbegrenzter Skalierbarkeit und niedrigen Infrastrukturkosten.
+
+
+## Tests
+
+Prüfbefehl (aus dem Projektordner, ohne API-Schlüssel und ohne Datenbank):
+
+```powershell
+python -m pytest -q tests
+```
+
+`tests/test_chunking.py` prüft das Absatz-Chunking (`chunking.py`): Absatzgrenzen, Satzgrenzen statt Kommas bei
+Riesenabsätzen und die Zuordnung der `[PAGE_NUM: X]`-Seitenmarker. Der erste Lauf fand einen Fehler: Ein Chunk
+bekam die Seitenzahl des nächsten Absatzes, wenn dort eine neue Seite begann. Seitdem trägt jeder Chunk die Seite,
+auf der er beginnt. `test_embeddings.py` bleibt eine manuelle Plausibilitätsprüfung gegen die Mistral-API.
