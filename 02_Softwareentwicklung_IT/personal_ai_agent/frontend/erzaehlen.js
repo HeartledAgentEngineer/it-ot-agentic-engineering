@@ -1206,6 +1206,9 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             if (_audioCtx && _audioCtx.state === 'suspended') {
                 _audioCtx.resume();
             }
+            if (typeof window !== 'undefined' && window.speechSynthesis && typeof window.speechSynthesis.resume === 'function') {
+                try { window.speechSynthesis.resume(); } catch (_syn) {}
+            }
             if (!vorleseAudioEl && typeof document !== 'undefined') {
                 vorleseAudioEl = el('erzaehl-audio-spieler');
                 if (!vorleseAudioEl) {
@@ -1270,7 +1273,16 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: textZumSprechen.slice(0, 2000) }),
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                let fehlerDetail = `Server meldet HTTP ${res.status}`;
+                try {
+                    const errData = await res.json();
+                    if (errData && errData.detail) {
+                        fehlerDetail = errData.detail;
+                    }
+                } catch (_eJson) { /* kein JSON */ }
+                throw new Error(fehlerDetail);
+            }
             const arrayBuffer = await res.arrayBuffer();
 
             // Web Audio API bevorzugen, um Mobil-Autoplay-Sperre nach async fetch zu umgehen
@@ -1313,8 +1325,11 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             await audio.play();
             return;
         } catch (_e) {
-            console.warn('Vorlesen über Server fehlgeschlagen, weiche auf Browser-Stimme aus:', _e);
+            const serverFehler = _e ? (_e.message || String(_e)) : 'Unbekannter Serverfehler';
+            console.warn('Vorlesen über Server fehlgeschlagen, weiche auf Browser-Stimme aus:', serverFehler);
+
             // Rückfall auf Browser-Stimme
+            let browserFehler = null;
             if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
                 try {
                     window.speechSynthesis.cancel();
@@ -1326,13 +1341,27 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     satz.onend = () => {
                         if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
                     };
-                    satz.onerror = satz.onend;
+                    satz.onerror = (ev) => {
+                        const code = ev && ev.error ? ev.error : 'Audiofehler';
+                        console.warn('Browser SpeechSynthesis Fehler:', code);
+                        if (hinweis) {
+                            hinweis.textContent = `Vorlesen nicht möglich (${serverFehler} · Browser-Stimme: ${code})`;
+                        }
+                    };
                     window.speechSynthesis.resume();
                     window.speechSynthesis.speak(satz);
                     return;
-                } catch (_e2) { /* Fallback ebenfalls fehlgeschlagen */ }
+                } catch (_e2) {
+                    browserFehler = _e2 ? (_e2.message || String(_e2)) : 'Ausnahme';
+                    console.warn('Browser-Stimme Ausnahme:', _e2);
+                }
+            } else {
+                browserFehler = 'Keine Browser-Stimme verfügbar';
             }
-            if (hinweis) hinweis.textContent = 'Vorlesen gerade nicht möglich.';
+            if (hinweis) {
+                const zusatz = browserFehler ? ` · ${browserFehler}` : '';
+                hinweis.textContent = `Vorlesen nicht möglich (${serverFehler}${zusatz})`;
+            }
         }
     }
 
@@ -1545,6 +1574,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         }
         personenAnzeigen();
         bildInfoAnzeigen();
+        perspektiveAktualisieren();
     }
 
     function bildOeffnen(index) {
@@ -1570,6 +1600,66 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const detail = zustand.detail;
         if (!detail || !Array.isArray(detail.datei_kennungen)) return null;
         return detail.datei_kennungen[zustand.index];
+    }
+
+    function perspektiveAktualisieren() {
+        if (!zustand.perspektive) zustand.perspektive = 'ich';
+        const p1 = el('erzaehl-perspektive-toggle');
+        const p2 = el('erzaehl-anlass-perspektive-toggle');
+        const text = zustand.perspektive === 'ich' ? '👤 Ich-Form' : '📖 Erzähler';
+        const title = zustand.perspektive === 'ich'
+            ? 'Perspektive: Ich-Form (klicken für neutrale Erzählersicht)'
+            : 'Perspektive: Neutrale Erzählersicht (klicken für Ich-Form)';
+        if (p1) { p1.textContent = text; p1.title = title; }
+        if (p2) { p2.textContent = text; p2.title = title; }
+    }
+
+    function perspektiveUmschalten(ev) {
+        if (ev) ev.stopPropagation();
+        zustand.perspektive = zustand.perspektive === 'ich' ? 'erzaehler' : 'ich';
+        perspektiveAktualisieren();
+    }
+
+    async function anlassGeschichteErstellen() {
+        if (!zustand.aktuellesEreignis) return;
+        const btn = el('erzaehl-anlass-geschichte-btn');
+        if (btn) btn.disabled = true;
+        const altText = btn ? btn.textContent : '';
+        if (btn) btn.textContent = '✨ Generiere…';
+        const hinweis = el('erzaehl-hinweis');
+        if (hinweis) hinweis.textContent = 'Erstelle Anlass-Geschichte…';
+        try {
+            audioVorabFreischalten();
+            const notizText = (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '';
+            const res = await jsonSenden('/api/erzaehlen/anlass-geschichte', {
+                ereignis_kennung: zustand.aktuellesEreignis,
+                perspektive: zustand.perspektive || 'ich',
+                notiz: notizText || null,
+            });
+            if (res && res.ok && res.geschichte) {
+                const eingabeFeld = el('erzaehl-text');
+                if (eingabeFeld) {
+                    eingabeFeld.value = res.geschichte;
+                    eingabeFeld.focus();
+                }
+                if (hinweis) {
+                    hinweis.textContent = 'Anlass-Geschichte erstellt. Tippe auf 💾 Speichern, wenn du sie dauerhaft behalten möchtest.';
+                }
+                await vorlesenText(res.geschichte);
+            } else {
+                const fehler = (res && res.fehler) || (res && res.detail) || 'Unbekannter Fehler';
+                console.error('Fehler bei Anlass-Geschichte:', fehler);
+                if (hinweis) hinweis.textContent = `Anlass-Geschichte fehlgeschlagen: ${fehler}`;
+            }
+        } catch (e) {
+            console.error('Netzwerkfehler bei Anlass-Geschichte:', e);
+            if (hinweis) hinweis.textContent = `Netzwerkfehler bei Anlass-Geschichte: ${e.message || e}`;
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = altText;
+            }
+        }
     }
 
     async function bildZeigen() {
@@ -1739,15 +1829,8 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const kiBtn = el('erzaehl-ki-geschichte-btn');
         const persToggle = el('erzaehl-perspektive-toggle');
         if (persToggle) {
-            if (!zustand.perspektive) zustand.perspektive = 'ich';
-            persToggle.onclick = (ev) => {
-                ev.stopPropagation();
-                zustand.perspektive = zustand.perspektive === 'ich' ? 'erzaehler' : 'ich';
-                persToggle.textContent = zustand.perspektive === 'ich' ? '👤 Ich-Form' : '📖 Erzähler';
-                persToggle.title = zustand.perspektive === 'ich'
-                    ? 'Perspektive: Ich-Form (klicken für neutrale Erzählersicht)'
-                    : 'Perspektive: Neutrale Erzählersicht (klicken für Ich-Form)';
-            };
+            perspektiveAktualisieren();
+            persToggle.onclick = perspektiveUmschalten;
         }
 
         if (kiBtn) {
@@ -2337,6 +2420,10 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (vorlesenGeschichtenGruppe) {
             vorlesenGeschichtenGruppe.addEventListener('click', () => vorlesen('erzaehl-gruppen-geschichten'));
         }
+        const anlassKiBtn = el('erzaehl-anlass-geschichte-btn');
+        if (anlassKiBtn) anlassKiBtn.addEventListener('click', anlassGeschichteErstellen);
+        const anlassPersToggle = el('erzaehl-anlass-perspektive-toggle');
+        if (anlassPersToggle) anlassPersToggle.addEventListener('click', perspektiveUmschalten);
         const vorlesenGeschichtenBild = el('erzaehl-geschichten-vorlesen');
         if (vorlesenGeschichtenBild) {
             vorlesenGeschichtenBild.addEventListener('click', () => vorlesen('erzaehl-geschichten'));

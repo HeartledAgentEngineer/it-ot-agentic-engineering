@@ -49,10 +49,11 @@ class SpeakRequest(BaseModel):
 def _als_mp3(audio: Optional[bytes], was: str) -> Response:
     """Gemeinsame Antwort für beide Wege."""
     if not audio:
-        logger.warning("Sprachausgabe lieferte nichts (%s)", was)
+        grund = getattr(llm_service, "letzter_vorlese_fehler", None) or "Details stehen im Server-Log"
+        logger.warning("Sprachausgabe lieferte nichts (%s): %s", was, grund)
         raise HTTPException(
             status_code=502,
-            detail="Sprachausgabe fehlgeschlagen – Details stehen im Server-Log.",
+            detail=f"Sprachausgabe fehlgeschlagen ({grund}).",
         )
     return Response(
         content=audio,

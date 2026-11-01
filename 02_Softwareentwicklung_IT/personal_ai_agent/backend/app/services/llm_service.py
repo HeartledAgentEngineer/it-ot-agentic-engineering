@@ -323,6 +323,7 @@ class LLMService:
         # Bedarf gebaut — siehe _vorlese_client().
         self._tts_client: Optional[OpenAI] = None
         self._tts_schluessel: str = ""
+        self.letzter_vorlese_fehler: Optional[str] = None
 
         if not self.api_key:
             logger.warning("No OpenRouter API key configured!")
@@ -1584,7 +1585,11 @@ class LLMService:
             MP3-Daten oder None bei Fehler.
         """
         client, schluessel_art = self._vorlese_client()
-        if client is None or not text.strip():
+        if client is None:
+            self.letzter_vorlese_fehler = "Kein OpenRouter-API-Schlüssel konfiguriert"
+            return None
+        if not text.strip():
+            self.letzter_vorlese_fehler = "Leerer Text übergeben"
             return None
 
         modell = model or settings.tts_model
@@ -1604,21 +1609,24 @@ class LLMService:
                 "Sprachausgabe erzeugt (%d Zeichen → %d Bytes, %s / %s, Schlüssel: %s)",
                 len(text), len(audio), modell, stimme, schluessel_art,
             )
+            self.letzter_vorlese_fehler = None
             return audio or None
 
         except APIStatusError as e:
             try:
-                body = e.response.text[:1000]
+                body = e.response.text[:500]
             except Exception:
                 body = "<Body nicht lesbar>"
             logger.error(
                 "Sprachausgabe abgelehnt (HTTP %s): %s | Anbieter-Antwort: %s",
                 e.status_code, e, body,
             )
+            self.letzter_vorlese_fehler = f"OpenRouter HTTP {e.status_code}: {e.message or body}"
             return None
 
         except Exception as e:
             logger.error("Sprachausgabe fehlgeschlagen: %s", e)
+            self.letzter_vorlese_fehler = f"Verbindungsfehler: {e}"
             return None
 
     # ── Modellkatalog ───────────────────────────────────────────────────────

@@ -1086,3 +1086,183 @@ def ki_geschichte_generieren(fileid: Any,
             "notiz": notiz or ""
         }
     }
+
+def anlass_geschichte_generieren(
+    ereignis_kennung: Optional[str] = None,
+    perspektive: str = "ich",
+    notiz: Optional[str] = None,
+    titel: Optional[str] = None,
+    datum: Optional[str] = None,
+    ort: Optional[str] = None,
+    personen: Optional[List[str]] = None,
+    anzahl_dateien: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Erzeugt eine lebendige Anlass-Geschichte für ein gesamtes Ereignis (01.11.2026).
+
+    Verknüpft Anlasstitel, Zeitraum, Orte, beteiligte Personen und Notizen zu
+    einem fließenden Text. Wählbar in 'ich'-Perspektive oder neutraler 'erzaehler'-Sicht.
+    """
+    detail: Optional[Dict[str, Any]] = None
+    if ereignis_kennung:
+        try:
+            detail = ereignis_detail(ereignis_kennung)
+        except Exception:
+            detail = None
+
+    if detail is None and not any([titel, datum, personen, anzahl_dateien is not None]):
+        return {"ok": False, "fehler": f"Anlass „{ereignis_kennung or ''}“ nicht gefunden."}
+
+    perspektive = "erzaehler" if str(perspektive).lower().startswith("erz") else "ich"
+
+    titel_sauber = str(titel or (detail.get("titel") if detail else "") or "").strip()
+    datum_roh = datum or (detail.get("datum") if detail else None)
+    jahr_roh = detail.get("jahr") if detail else None
+    datum_text = format_datum_de(datum_roh)
+    if not datum_text and jahr_roh:
+        datum_text = f"im Jahr {jahr_roh}"
+
+    dateien = detail.get("datei_kennungen") or [] if detail else []
+    anzahl = anzahl_dateien if anzahl_dateien is not None else (detail.get("anzahl_dateien") if detail else len(dateien))
+    if anzahl is None:
+        anzahl = len(dateien)
+
+    # Orte ermitteln
+    orte_liste: List[str] = []
+    if ort:
+        orte_liste = [ort.strip()]
+    elif ereignis_kennung:
+        try:
+            b_info = bilder_info(ereignis_kennung)
+            if b_info and b_info.get("orte"):
+                orte_liste = [str(o).strip() for o in b_info["orte"] if o and str(o).strip()]
+        except Exception:
+            pass
+    ort_sauber = ", ".join(orte_liste) if orte_liste else ""
+
+    # Personen ermitteln
+    if personen is None and dateien:
+        try:
+            from app.services import gruppen_quiz
+            wb = gruppen_quiz.personen_auf_bildern([str(fid) for fid in dateien])
+            alle_namen = set()
+            for b_fid, b_daten in (wb.get("bilder") or {}).items():
+                for n in (b_daten.get("namen") or []):
+                    if n and str(n).strip():
+                        alle_namen.add(str(n).strip())
+            personen = sorted(alle_namen)
+        except Exception:
+            personen = []
+    pers_liste = [p.strip() for p in (personen or []) if p and p.strip()]
+
+    # Notizen ermitteln
+    if not notiz and detail:
+        vorhandene = [g.get("text", "").strip() for g in (detail.get("geschichten") or []) if g.get("text")]
+        if vorhandene:
+            notiz = vorhandene[-1]
+
+    if pers_liste:
+        if len(pers_liste) == 1:
+            pers_text = pers_liste[0]
+        else:
+            pers_text = ", ".join(pers_liste[:-1]) + " und " + pers_liste[-1]
+    else:
+        pers_text = ""
+
+    saetze: List[str] = []
+    if perspektive == "ich":
+        # 1. Einleitung
+        if titel_sauber and datum_text and ort_sauber:
+            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ {datum_text} in {ort_sauber}.")
+        elif titel_sauber and datum_text:
+            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ {datum_text}.")
+        elif titel_sauber and ort_sauber:
+            saetze.append(f"Das ist die Geschichte zu „{titel_sauber}“ in {ort_sauber}.")
+        elif titel_sauber:
+            saetze.append(f"Das ist die Geschichte zu unserem Anlass „{titel_sauber}“.")
+        elif datum_text and ort_sauber:
+            saetze.append(f"Ich erinnere mich gern an diese Zeit {datum_text} in {ort_sauber}.")
+        elif datum_text:
+            saetze.append(f"Ich erinnere mich gern an diese Zeit {datum_text}.")
+        elif ort_sauber:
+            saetze.append(f"Diese Aufnahmen entstanden in {ort_sauber}.")
+        else:
+            saetze.append("Das ist eine schöne Erinnerung aus meiner Sammlung.")
+
+        # 2. Umfang
+        if anzahl == 1:
+            saetze.append("Dieser Moment ist auf einem Foto festgehalten.")
+        elif anzahl > 1:
+            saetze.append(f"Zu diesem Anlass gehören {anzahl} Fotos.")
+
+        # 3. Personen
+        if pers_liste:
+            andere = [p for p in pers_liste if p.casefold() != "sebastian"]
+            if len(andere) == len(pers_liste):
+                saetze.append(f"Mit dabei waren {pers_text}.")
+            elif andere:
+                andere_text = ", ".join(andere[:-1]) + " und " + andere[-1] if len(andere) > 1 else andere[0]
+                saetze.append(f"Dort bin ich zusammen mit {andere_text} zu sehen.")
+            else:
+                saetze.append("Auf den Bildern bin ich allein zu sehen.")
+
+        # 4. Notiz
+        if notiz:
+            saetze.append(f"Meine Notiz dazu: {notiz.strip().rstrip('.')}.")
+
+        # 5. Abschluss
+        if anzahl > 1:
+            saetze.append("Eine wunderbare Fotoserie, die diesen Anlass lebendig hält.")
+        else:
+            saetze.append("Eine wertvolle Erinnerung, die für immer bleibt.")
+
+    else:  # erzaehler
+        # 1. Einleitung
+        if titel_sauber and datum_text and ort_sauber:
+            saetze.append(f"Fotodokumentation zum Anlass „{titel_sauber}“ {datum_text} in {ort_sauber}.")
+        elif titel_sauber and datum_text:
+            saetze.append(f"Fotodokumentation zum Anlass „{titel_sauber}“ {datum_text}.")
+        elif titel_sauber and ort_sauber:
+            saetze.append(f"Fotodokumentation zu „{titel_sauber}“ in {ort_sauber}.")
+        elif titel_sauber:
+            saetze.append(f"Aufnahmen zum Anlass „{titel_sauber}“.")
+        elif datum_text and ort_sauber:
+            saetze.append(f"Fotodokumentation {datum_text} in {ort_sauber}.")
+        elif datum_text:
+            saetze.append(f"Ein historischer Fotoanlass {datum_text}.")
+        else:
+            saetze.append("Ein zusammenhängendes Ereignis aus dem Fotoarchiv.")
+
+        # 2. Umfang
+        if anzahl == 1:
+            saetze.append("Der Anlass umfasst eine Einzelaufnahme.")
+        elif anzahl > 1:
+            saetze.append(f"Die Fotoreihe umfasst {anzahl} Aufnahmen.")
+
+        # 3. Personen
+        if pers_liste:
+            saetze.append(f"Erkannte Beteiligte: {pers_text}.")
+
+        # 4. Notiz
+        if notiz:
+            saetze.append(f"Dazugehörige Anmerkung: „{notiz.strip().rstrip('.')}“.")
+
+        # 5. Abschluss
+        saetze.append("Ein archiviertes Kapitel im Fotobestand.")
+
+    geschichte_text = " ".join(saetze)
+    return {
+        "ok": True,
+        "ereignis_kennung": ereignis_kennung,
+        "titel": titel_sauber,
+        "perspektive": perspektive,
+        "geschichte": geschichte_text,
+        "daten": {
+            "datum": datum_roh,
+            "datum_lesbar": datum_text,
+            "ort": ort_sauber,
+            "orte": orte_liste,
+            "personen": pers_liste,
+            "anzahl_dateien": anzahl,
+            "notiz": notiz or "",
+        }
+    }

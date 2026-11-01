@@ -629,6 +629,10 @@
                          Geschichte zur ganzen Gruppe; Antippen öffnet ein Bild einzeln. -->
                     <div id="erzaehl-uebersicht" class="erzaehl-uebersicht">
                         <div id="erzaehl-uebersicht-kopf" class="erzaehl-zaehler"></div>
+                        <div class="erzaehl-bild-steuerleiste erzaehl-anlass-steuerleiste" style="margin-bottom: 0.5rem;">
+                            <button id="erzaehl-anlass-geschichte-btn" class="erzaehl-steuer-btn" type="button" title="Persönliche Geschichte für diesen gesamten Anlass erstellen und vorlesen">✨ Anlass-Geschichte</button>
+                            <button id="erzaehl-anlass-perspektive-toggle" class="erzaehl-steuer-btn" type="button" title="Perspektive umschalten: Ich-Form oder Erzählersicht">👤 Ich-Form</button>
+                        </div>
                         <!-- Wer ist auf den Bildern (06.10.2026): Gesichter-Zuordnung + bestätigte Namen. -->
                         <div id="erzaehl-personen" class="erzaehl-personen" hidden>
                             <span id="erzaehl-personen-text"></span>
@@ -797,7 +801,7 @@
 
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261101C"></script>
-    <script src="erzaehlen.js?v=20261101C"></script>
+    <script src="erzaehlen.js?v=20261101D"></script>
     <script src="gruppen_quiz.js?v=20261101C"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

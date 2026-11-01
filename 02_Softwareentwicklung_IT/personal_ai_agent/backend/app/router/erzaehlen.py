@@ -279,3 +279,35 @@ def ki_geschichte(eingabe: KiGeschichteEingabe) -> Dict[str, Any]:
         personen=eingabe.personen,
         beschreibung=eingabe.beschreibung,
     )
+
+class AnlassGeschichteEingabe(BaseModel):
+    """Eingabe zur Erzeugung einer zusammenhängenden Anlass-Geschichte (01.11.2026)."""
+    ereignis_kennung: str = Field(..., min_length=1, max_length=200)
+    perspektive: str = Field(default="ich", pattern="^(ich|erzaehler)$")
+    notiz: Optional[str] = Field(default=None, max_length=5000)
+    titel: Optional[str] = Field(default=None, max_length=200)
+    datum: Optional[str] = Field(default=None, max_length=50)
+    ort: Optional[str] = Field(default=None, max_length=500)
+    personen: Optional[List[str]] = Field(default=None)
+    anzahl_dateien: Optional[int] = Field(default=None)
+
+
+@router.post("/anlass-geschichte")
+def anlass_geschichte(eingabe: AnlassGeschichteEingabe) -> Dict[str, Any]:
+    """Generiert eine lebendige Anlass-Geschichte für ein gesamtes Ereignis (01.11.2026)."""
+    ergebnis = erzaehl_service.anlass_geschichte_generieren(
+        ereignis_kennung=eingabe.ereignis_kennung,
+        perspektive=eingabe.perspektive,
+        notiz=eingabe.notiz,
+        titel=eingabe.titel,
+        datum=eingabe.datum,
+        ort=eingabe.ort,
+        personen=eingabe.personen,
+        anzahl_dateien=eingabe.anzahl_dateien,
+    )
+    if not ergebnis.get("ok"):
+        raise HTTPException(
+            status_code=404 if "nicht gefunden" in (ergebnis.get("fehler") or "") else 400,
+            detail=ergebnis.get("fehler") or "Konnte Anlass-Geschichte nicht erstellen.",
+        )
+    return ergebnis

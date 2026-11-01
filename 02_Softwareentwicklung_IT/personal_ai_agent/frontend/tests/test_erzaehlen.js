@@ -174,6 +174,8 @@ pruefe('Gruppen-Geschichten und kaputte Einträge zählen nicht', Object.keys(za
 pruefe('keine Liste -> leeres Objekt (kein Wurf)', Object.keys(erzaehlGeschichtenJeBild(null)).length === 0);
 
 console.log('\n8) Verdrahtung Übersicht / Einzelansicht');
+pruefe('index.html hat Anlass-Geschichte-Knopf und Perspektive-Schalter',
+  html.includes('id="erzaehl-anlass-geschichte-btn"') && html.includes('id="erzaehl-anlass-perspektive-toggle"'));
 pruefe('index.html hat Raster, Übersicht und Einzelansicht',
     /id="erzaehl-raster"/.test(html) && /id="erzaehl-uebersicht"/.test(html) && /id="erzaehl-einzel"[^>]*hidden/.test(html));
 pruefe('index.html hat „← Alle Bilder" und den Platz für Gruppen-Geschichten',
@@ -350,7 +352,7 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261101C', /erzaehlen\.js\?v=20261101C/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261101D', /erzaehlen\.js\?v=20261101D/.test(html));
 
 // Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
 eval(extractFn('erzaehlOrtText'));

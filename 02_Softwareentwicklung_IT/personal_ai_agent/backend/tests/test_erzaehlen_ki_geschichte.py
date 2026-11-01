@@ -74,3 +74,67 @@ def test_ki_geschichte_route():
     assert daten["ok"] is True
     assert "Ich erinnere mich" in daten["geschichte"]
     assert "Berlin" in daten["geschichte"]
+
+def test_anlass_geschichte_generieren_ich():
+    res = es.anlass_geschichte_generieren(
+        ereignis_kennung="ev_fotobuch",
+        titel="Fotobuch Sebastian - Umschlag",
+        datum="2026-10-07",
+        ort="Wohnzimmer",
+        personen=["Matthias Wenck", "Sebastian"],
+        anzahl_dateien=1,
+        notiz="Das ist das Titelbild meines Fotobuchs mit Papa.",
+        perspektive="ich",
+    )
+    assert res["ok"] is True
+    assert res["perspektive"] == "ich"
+    txt = res["geschichte"]
+    assert "Fotobuch Sebastian" in txt
+    assert "am 7. Oktober 2026" in txt
+    assert "Wohnzimmer" in txt
+    assert "Matthias Wenck" in txt
+    assert "Titelbild meines Fotobuchs" in txt
+
+
+def test_anlass_geschichte_generieren_erzaehler():
+    res = es.anlass_geschichte_generieren(
+        ereignis_kennung="ev_sommerfest",
+        titel="Sommerfest 2025",
+        datum="2025-08-15",
+        ort="Stadtpark",
+        personen=["Matthias", "Sebastian"],
+        anzahl_dateien=5,
+        notiz="Großes Grillen mit allen.",
+        perspektive="erzaehler",
+    )
+    assert res["ok"] is True
+    assert res["perspektive"] == "erzaehler"
+    txt = res["geschichte"]
+    assert "Fotodokumentation" in txt
+    assert "Sommerfest 2025" in txt
+    assert "5 Aufnahmen" in txt
+    assert "Matthias und Sebastian" in txt
+
+
+def test_anlass_geschichte_route():
+    app = FastAPI()
+    app.include_router(erzaehlen_router.router)
+    client = TestClient(app)
+
+    r = client.post(
+        "/api/erzaehlen/anlass-geschichte",
+        json={
+            "ereignis_kennung": "ev_test_123",
+            "titel": "Urlaub an der Ostsee",
+            "datum": "2024-06-20",
+            "ort": "Rügen",
+            "personen": ["Sebastian"],
+            "anzahl_dateien": 3,
+            "perspektive": "ich",
+        },
+    )
+    assert r.status_code == 200
+    daten = r.json()
+    assert daten["ok"] is True
+    assert "Urlaub an der Ostsee" in daten["geschichte"]
+    assert "Rügen" in daten["geschichte"]
