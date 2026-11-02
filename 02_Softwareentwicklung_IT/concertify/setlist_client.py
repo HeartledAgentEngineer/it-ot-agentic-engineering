@@ -9,7 +9,10 @@ import time
 from datetime import date, datetime, timedelta
 
 import requests
+from pathlib import Path
+
 from matcher import normalise
+from external.setlistfm_quota import SetlistFmQuota
 
 FESTIVAL_VENUE_KEYWORDS = [
     "festival", "open air", "open-air", "rock im park", "rock am ring",
@@ -25,12 +28,32 @@ _NEW_RELEASE_CUTOFF = (date.today() - timedelta(days=365)).isoformat()
 
 
 class SetlistClient:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, quota=None):
         self.session = requests.Session()
         self.session.headers.update({
             "x-api-key": api_key,
             "Accept": "application/json",
         })
+        # Tageszaehler gegen die 1440/Tag-Sperre von setlist.fm. Per DI
+        # austauschbar (Tests); Default schreibt setlistfm_quota.json ins
+        # Arbeitsverzeichnis (Projektroot).
+        self._quota = quota if quota is not None else SetlistFmQuota(
+            Path("setlistfm_quota.json")
+        )
+
+    def _get(self, url: str, **kwargs):
+        """Zentraler setlist.fm-GET mit vorgeschaltetem Kontingent-Check.
+
+        Ist das Tageslimit erreicht, geht KEIN Request raus — stattdessen ein
+        RuntimeError("rate_limited:quota"), den die Aufrufer wie einen 429
+        behandeln. So vermeiden wir die 24h-Eskalations-Sperre. Jeder
+        tatsaechlich abgesetzte Call wird mitgezaehlt.
+        """
+        if not self._quota.can_make_request():
+            raise RuntimeError("rate_limited:quota")
+        resp = self.session.get(url, **kwargs)
+        self._quota.record_request()
+        return resp
 
     def get_setlist_tracks(
         self,
@@ -101,7 +124,7 @@ class SetlistClient:
                 rate_limited_val = ""
                 # Fetch up to 3 pages to get enough history
                 for page in range(1, 4):
-                    resp = self.session.get(
+                    resp = self._get(
                         f"{_BASE}/artist/{candidate}/setlists",
                         params={"p": page},
                         timeout=10,
@@ -222,7 +245,7 @@ class SetlistClient:
                 candidate_setlists: list = []
                 rate_limited_val = ""
                 for page in range(1, max_pages + 1):
-                    resp = self.session.get(
+                    resp = self._get(
                         f"{_BASE}/artist/{candidate}/setlists",
                         params={"p": page},
                         timeout=10,
@@ -428,7 +451,7 @@ class SetlistClient:
     def _find_mbid_candidates(self, artist_name: str) -> list[str]:
         """Search setlist.fm, return list of candidate MBIDs (best matches first)."""
         try:
-            resp = self.session.get(
+            resp = self._get(
                 f"{_BASE}/search/artists",
                 params={"artistName": artist_name, "p": 1},
                 timeout=10,
@@ -473,13 +496,15 @@ class SetlistClient:
         song_counts: dict[str, int] = {}
         concerts_with_songs = 0
         try:
-            resp = self.session.get(
+            resp = self._get(
                 f"{_BASE}/artist/{mbid}/setlists",
                 params={"p": 1},
                 timeout=10,
             )
             resp.raise_for_status()
             setlists = resp.json().get("setlist", [])
+        except RuntimeError:
+            raise  # Kontingent-Stop (rate_limited:quota) nicht verschlucken
         except Exception:
             return {}, 0
 
@@ -506,13 +531,15 @@ class SetlistClient:
         but absent from the previous 8 → probably new/unreleased live.
         """
         try:
-            resp = self.session.get(
+            resp = self._get(
                 f"{_BASE}/artist/{mbid}/setlists",
                 params={"p": 1},
                 timeout=10,
             )
             resp.raise_for_status()
             setlists = resp.json().get("setlist", [])
+        except RuntimeError:
+            raise  # Kontingent-Stop (rate_limited:quota) nicht verschlucken
         except Exception:
             return []
 

@@ -17,9 +17,10 @@ Geplant, aber NICHT umgesetzt:
     direkt ueber die *_client.py im Root. Dieser Hinweis steht hier, damit die
     Absicht dokumentiert bleibt und nicht mit dem Ist-Zustand verwechselt wird.
 
-Offene Aufgabe:
-    SetlistFmQuota ist fertig und getestet, aber an KEINER Stelle des Fetchings
-    eingehaengt — die 1440/Tag-Schutzfunktion ist also noch nicht aktiv.
+Angeschlossen:
+    SetlistFmQuota wird von SetlistClient (setlist_client.py im Root) genutzt:
+    jeder setlist.fm-Request laeuft durch einen Kontingent-Check, der bei
+    erreichtem Tageslimit stoppt, statt in die 1440/Tag-Sperre zu laufen.
 """
 
 from external.setlistfm_quota import SetlistFmQuota
