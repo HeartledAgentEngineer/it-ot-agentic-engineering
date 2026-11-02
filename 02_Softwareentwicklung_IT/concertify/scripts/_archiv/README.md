@@ -19,5 +19,11 @@ echten Produktivmodule zeigt. Bei Bedarf sind sie weiter greifbar.
 | `test_bb*`, `test_*` | **Keine pytest-Tests** — Live-Skripte, die echte APIs abfragen | `test_bb_eu`, `test_tavily` |
 | sonstige | Diverse einmalige Hilfen | `inject_bb`, `write_setlists`, `search_log` |
 
+## Toter Produktivcode
+
+| Datei | Warum hier |
+|-------|------------|
+| `bandsintown_client.py` | Echter API-Client, aber vom Live-Pfad (`app.py`, `fetch_data.py`, `main.py`) nicht mehr importiert — nur vom ebenfalls archivierten `debug_bandsintown.py`. Hierher verschoben, damit der Root nur noch aktiv genutzte Clients zeigt. Bei Reaktivierung einfach zurück in den Root holen. |
+
 > Die echten, automatisierten Tests liegen in `../../tests/` und laufen
 > über den Prüfbefehl `.venv/Scripts/python.exe -m pytest tests -q`.
