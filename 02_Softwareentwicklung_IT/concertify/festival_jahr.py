@@ -9,9 +9,13 @@ App z. B. "Rock im Park 2027", sobald der Zeitraum 2027 abdeckt.
 Reine Logik, kein IO, keine Abhaengigkeiten — bewusst klein und testbar.
 """
 
+import re
 from datetime import date
 
 _OFFENES_ENDE = "9999"
+_STANDARD_MD = "06-05"                       # Fallback-Monat-Tag (Rock im Park)
+_MD_RE = re.compile(r"^\d{2}-\d{2}$")        # "06-05"
+_FULL_RE = re.compile(r"^\d{4}-(\d{2}-\d{2})$")  # "2026-06-05"
 
 
 def ziel_jahr(date_from: str, date_to: str) -> int:
@@ -32,21 +36,25 @@ def ziel_jahr(date_from: str, date_to: str) -> int:
     return date.today().year
 
 
-def festival_datum(md_oder_datum: str, jahr: int) -> str:
+def festival_datum(md_oder_datum, jahr: int) -> str:
     """
     Baut ein volles ISO-Datum fuer das Zieljahr.
 
-    Akzeptiert sowohl ein Monat-Tag-Kuerzel ("06-05") als auch ein volles
-    Alt-Datum ("2026-06-05") — in beiden Faellen wird das Zieljahr gesetzt.
+    Akzeptiert ein Monat-Tag-Kuerzel ("06-05") oder ein volles Alt-Datum
+    ("2026-06-05") — in beiden Faellen wird das Zieljahr gesetzt. Bei
+    unerwartetem/kaputtem Format (z. B. "2026-6-05", None) greift ein sauberer
+    Standard, statt einen ungueltigen ISO-String wie "2027-2026-6-05" zu bauen.
     """
-    md = md_oder_datum.strip()
-    # Volles Datum "YYYY-MM-DD" -> nur Monat-Tag uebernehmen
-    if len(md) == 10 and md[4] == "-" and md[7] == "-":
-        md = md[5:]
+    md = md_oder_datum.strip() if isinstance(md_oder_datum, str) else ""
+    m_full = _FULL_RE.match(md)
+    if m_full:
+        md = m_full.group(1)         # volles Datum -> Monat-Tag
+    elif not _MD_RE.match(md):
+        md = _STANDARD_MD            # Fehlformat -> Fallback
     return f"{jahr:04d}-{md}"
 
 
-def jahr_aus_daten(artist_map: dict) -> int:
+def jahr_aus_daten(artist_map) -> int:
     """
     Zieljahr aus bereits gespeicherten Festival-Eintraegen ableiten.
 
@@ -54,11 +62,19 @@ def jahr_aus_daten(artist_map: dict) -> int:
     ist nichts vorhanden, gilt das aktuelle Jahr. Zweck: Endpunkte, die auf
     gespeicherten rip_artists arbeiten, brauchen kein hartes 2026.
     """
-    for info in (artist_map or {}).values():
-        for d in (info or {}).get("dates", []):
-            jahr = _jahr_aus(d)
-            if jahr is not None:
-                return jahr
+    if not isinstance(artist_map, dict):
+        return date.today().year
+    for info in artist_map.values():
+        if not isinstance(info, dict):
+            continue
+        dates = info.get("dates")
+        if not isinstance(dates, list):
+            continue
+        for d in dates:
+            if isinstance(d, str):
+                jahr = _jahr_aus(d)
+                if jahr is not None:
+                    return jahr
     return date.today().year
 
 

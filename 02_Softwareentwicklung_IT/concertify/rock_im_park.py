@@ -404,6 +404,14 @@ def _clean(text: str) -> str:
     return text
 
 
+# Monatsnamen (de/en, voll + abgekuerzt) — nur als Datums-Fragment neben einer
+# Ziffer ein Noise-Signal (sonst wuerde z. B. "As December Falls" faelschlich fliegen).
+_MONAT = r"(jan|feb|mär|maer|mar|apr|mai|may|jun|jul|aug|sep|okt|oct|nov|dez|dec)[a-zä]*\.?"
+_DATUM_RE = re.compile(rf"\b{_MONAT}\s*\d|\b\d{{1,2}}\.?\s*{_MONAT}", re.I)
+# Social / Werbung / URLs / Preise
+_WERBUNG_RE = re.compile(r"follower|following|linktr|https?:|www\.|\.com|[€$£]|\bpro for\b", re.I)
+
+
 def _plausible_artist_name(name: str) -> bool:
     """Heuristic: artist names are short and mostly alphabetic."""
     if not name or len(name) < 2 or len(name) > 50:
@@ -415,6 +423,16 @@ def _plausible_artist_name(name: str) -> bool:
     # Allow: TX2, Blink-182, Sum 41, 30 Seconds to Mars
     if re.search(r"(19|20)\d{2}|\d{4,}", name):
         return False
+    # Encoding-Muell (U+FFFD) und Doppelpunkt-Fragmente (": tbc", "Words:")
+    if "�" in name or name.startswith(":") or name.endswith(":"):
+        return False
+    # Social-Media-, Werbe- und URL-Fetzen
+    if _WERBUNG_RE.search(name):
+        return False
+    # Datums-Fragmente: Monatsname direkt neben einer Ziffer ("06 Jun 26", "June 4-6")
+    if _DATUM_RE.search(name):
+        return False
+    low = name.lower()
     noise_exact = {
         "lineup", "tickets", "more", "info", "home", "menu", "stages",
         "festival", "news", "artists", "camping", "faq", "shop", "schedule",
@@ -424,15 +442,34 @@ def _plausible_artist_name(name: str) -> bool:
         "headliners", "included", "featured", "grooveist", "songkick",
         "eventim", "jambase", "setlists", "zeppelinfeld", "update",
         "wechsle", "montreux", "tour update",
+        # Website-Navigation / UI
+        "skip to content", "festivalpilot", "de", "en", "days", "bands",
+        "timetable", "app", "playlist", "line-up", "line up", "headliner",
+        "very special guest", "this year", "pending", "tbc", "logo", "words",
+        # Fremdseite "Music Festival Wizard" & Co.
+        "about", "about us", "contact us", "contact mfw", "ftc disclosure",
+        "imprint", "submit a correction", "sign up", "password", "remember me",
+        "username or email address", "additional ticket options",
+        "official website", "buy tickets here", "music festival wizard",
+        "welcome to music festival wizard", "mfw in the news",
+        "where is this festival held", "when are the set times",
+        "set times & timetable", "bands' list", "open in youtube",
+        "the experience", "lineups", "reviews",
+        # Social
+        "facebook", "instagram", "tiktok", "youtube",
     }
-    if name.lower() in noise_exact:
+    if low in noise_exact:
         return False
     # Starts with known non-artist patterns
     noise_prefix = ("rock im park", "rock am ring", "tickets", "montreux",
                     "you are leaving", "grooveist", "com and", "endorsed",
                     "zum festival", "wechsle zu", "nuremberg", "nürnberg",
-                    "germany", "more…")
-    if any(name.lower().startswith(p.lower()) for p in noise_prefix):
+                    "germany", "more…",
+                    "logo ", "tier ", "full lineup", "welcome ", "sign ",
+                    "buy ", "official ", "additional ", "contact ", "about ",
+                    "venue", "when ", "where ", "news ", "line-up", "line up",
+                    "words", "photo")
+    if any(low.startswith(p) for p in noise_prefix):
         return False
     # Ends with city/country names typical of venue descriptions
     if re.search(r",\s*(Germany|Deutschland|Nuremberg|N.rnberg)$", name, re.I):

@@ -48,3 +48,22 @@ def test_jahr_aus_daten_liest_gespeichertes_jahr():
 def test_jahr_aus_daten_leer_ergibt_aktuelles_jahr():
     assert jahr_aus_daten({}) == date.today().year
     assert jahr_aus_daten({"X": {"dates": []}}) == date.today().year
+
+
+def test_jahr_aus_daten_robust_gegen_kaputte_daten():
+    # Befund Codex+Gemini: kaputte, nicht-leere Eintraege duerfen nicht crashen,
+    # sondern fallen aufs aktuelle Jahr zurueck.
+    jetzt = date.today().year
+    assert jahr_aus_daten({"B": {"dates": None}}) == jetzt       # dates = null
+    assert jahr_aus_daten({"B": "fehlerhaft"}) == jetzt          # Eintrag kein dict
+    assert jahr_aus_daten({"B": []}) == jetzt                    # Eintrag Liste
+    assert jahr_aus_daten({"B": {"dates": [None, 123]}}) == jetzt  # Datum kein String
+    assert jahr_aus_daten(None) == jetzt                         # Map selbst kaputt
+    assert jahr_aus_daten("quatsch") == jetzt
+
+
+def test_festival_datum_fehlformat_faellt_auf_standard_zurueck():
+    # Befund Codex: "2026-6-05" (einstelliger Monat) darf NICHT "2027-2026-6-05" ergeben.
+    assert festival_datum("2026-6-05", 2027) == "2027-06-05"
+    assert festival_datum("kaputt", 2027) == "2027-06-05"
+    assert festival_datum(None, 2027) == "2027-06-05"
