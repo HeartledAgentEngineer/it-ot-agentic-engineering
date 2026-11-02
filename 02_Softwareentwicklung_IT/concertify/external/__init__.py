@@ -1,16 +1,25 @@
 """
 external/__init__.py
 ======================
-Adapter-Schicht zu externen APIs.
+Heimat fuer eigenstaendige Helfer rund um externe APIs. NICHT die API-Clients
+selbst — die liegen weiterhin als *_client.py im Projektroot und werden direkt
+von app.py, fetch_data.py und main.py benutzt.
 
-Hier wohnen alle Klassen die mit externen Diensten reden:
-- setlist.fm (gesetzt-strukturierte Setlist-Daten)
-- Tavily, Gemini, Claude (AI-/Web-basierte Setlist-Vorhersagen)
-- Spotify, Songkick, Bandsintown (Konzert-Daten)
+Aktueller Inhalt (Ist-Zustand):
+    - SetlistFmQuota (setlistfm_quota.py): zaehlt die taeglichen setlist.fm-
+      Requests mit, um die 1440/Tag-Sperre zu vermeiden.
 
-Die alten *_client.py Dateien im Projektroot bleiben unveraendert.
-Hier sind nur duenne Wrapper die ein gemeinsames Interface herstellen
-(Strategy Pattern fuer Multi-Source-Fetching).
+Geplant, aber NICHT umgesetzt:
+    Urspruenglich war hier eine Adapter-/Wrapper-Schicht gedacht, die alle
+    Konzert-/Setlist-Quellen (Spotify, Tavily, Gemini, Claude, Songkick, …)
+    hinter ein gemeinsames Interface legt (Strategy Pattern fuer Multi-Source-
+    Fetching). Davon existiert bisher nichts; das Fetching laeuft weiterhin
+    direkt ueber die *_client.py im Root. Dieser Hinweis steht hier, damit die
+    Absicht dokumentiert bleibt und nicht mit dem Ist-Zustand verwechselt wird.
+
+Offene Aufgabe:
+    SetlistFmQuota ist fertig und getestet, aber an KEINER Stelle des Fetchings
+    eingehaengt — die 1440/Tag-Schutzfunktion ist also noch nicht aktiv.
 """
 
 from external.setlistfm_quota import SetlistFmQuota
