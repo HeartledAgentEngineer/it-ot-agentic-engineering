@@ -1,12 +1,13 @@
 {
   "name": "document-automation-engine",
   "version": "1.0.0",
-  "description": "Automated PDF and OpenXML Generation Engine for CVs and Cover Letters",
-  "main": "build_cv.js",
+  "description": "Data-driven CV generator: JSON -> validated -> escaped HTML -> A4 PDF (Puppeteer), plus PDF merging (pdf-lib)",
+  "main": "build.js",
   "scripts": {
-    "build:cv": "node build_cv.js",
-    "build:pdf": "node build_pdf.js",
-    "merge": "node merge_pdfs.js"
+    "build": "node build.js",
+    "build:html": "node build.js --nur-html",
+    "merge": "node merge_pdfs.js",
+    "test": "node --test"
   },
   "keywords": [
     "docx",
@@ -21,5 +22,8 @@
     "docx": "^8.2.0",
     "pdf-lib": "^1.17.1",
     "puppeteer": "^21.5.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

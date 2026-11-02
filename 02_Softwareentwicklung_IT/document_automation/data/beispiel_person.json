@@ -1,0 +1,26 @@
+{
+  "name": "Alex Beispiel",
+  "titel": "Automatisierungsingenieur",
+  "kontakt": {
+    "email": "alex.beispiel@example.com",
+    "ort": "Musterstadt"
+  },
+  "profil": "Erfundene Beispielperson. Plant und prüft Steuerungssoftware, baut Werkzeuge mit KI-Agenten.",
+  "stationen": [
+    {
+      "von": "2021-04",
+      "bis": null,
+      "rolle": "Inbetriebnahme-Ingenieur",
+      "firma": "Beispiel Anlagenbau GmbH",
+      "punkte": ["SPS-Programmierung nach IEC 61131-3", "Inbetriebnahme beim Kunden"]
+    },
+    {
+      "von": "2017-10",
+      "bis": "2021-03",
+      "rolle": "Studium Elektrotechnik (B.Sc.)",
+      "firma": "Hochschule Musterstadt",
+      "punkte": ["Abschlussarbeit: Simulation einer Förderanlage"]
+    }
+  ],
+  "faehigkeiten": ["Structured Text", "Python", "Testautomatisierung", "Agentic Engineering"]
+}

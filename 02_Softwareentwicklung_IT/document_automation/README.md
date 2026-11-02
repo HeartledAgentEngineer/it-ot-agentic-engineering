@@ -68,3 +68,18 @@ Hinweis zu `npm run merge`: Im Projektordner müssen drei Zeugnis-PDFs
 liegen (`muster_bachelorzeugnis.pdf`, `muster_arbeitszeugnis.pdf`,
 `muster_zertifikat.pdf`) — sie sind bewusst nicht versioniert. Für eigene
 Unterlagen die Dateinamen im `files`-Array von `merge_pdfs.js` anpassen.
+
+
+## Datengetriebener Generator (seit 02.11.2026)
+
+Daten, Prüfung, Darstellung und Ausgabe sind getrennt; das ist die Fassung im öffentlichen Portfolio:
+
+```
+data/beispiel_person.json ─▶ src/cv_model.js ─▶ src/render_html.js ─▶ build.js ─▶ output/lebenslauf.html / .pdf
+   (erfundene Person)         prüft Pflichtfelder,  maskiert jeden Wert     Puppeteer erst hier geladen
+                              Datumsformat JJJJ-MM  (kein Markup aus Daten)
+```
+
+- `node build.js [daten.json] [--nur-html]` · Exit 0 = erzeugt, 1 = Daten ungültig, 2 = Aufruf-/Druckfehler.
+- Prüfbefehl: `npm test` (node:test, keine Abhängigkeiten, kein Browser) — 10 Tests.
+- `build_cv.js`, `build_pdf.js` und die HTML-Vorlagen bleiben als ältere Fassung in der Werkstatt.
