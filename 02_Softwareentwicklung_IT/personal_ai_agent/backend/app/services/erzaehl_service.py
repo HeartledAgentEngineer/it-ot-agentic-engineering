@@ -733,6 +733,14 @@ def ereignis_detail(kennung: str) -> Optional[Dict[str, Any]]:
 BESCHREIBUNGEN_DATEINAME = "bild_beschreibungen.jsonl"
 BILD_ORTE_DATEINAME = "bild_orte.csv"
 BESCHREIBUNG_MAX_LAENGE = 600
+
+# Herkunft einer Beschreibung (G2, 02.11.2026). ``ki`` = Werkzeuge / SQLite / ``*_reich``
+# (Zeilen ohne ``quelle``); ``hand`` = von Sebastian geschrieben; ``einzel_ki`` = Vorschlag
+# für ein einzelnes Bild, von ihm übernommen. App-Zeilen tragen ``quelle`` und gehen vor.
+HERKUNFT_KI = "ki"
+QUELLE_HAND = "hand"
+QUELLE_EINZEL_KI = "einzel_ki"
+APP_BESCHREIBUNG_QUELLEN = (QUELLE_HAND, QUELLE_EINZEL_KI)
 _BILDINFO_SPEICHER: Dict[str, Tuple[Tuple[float, int], Dict[int, Any]]] = {}
 
 
@@ -787,9 +795,15 @@ def _zwischengespeichert(pfad: str, lesen) -> Dict[int, Any]:
     return daten
 
 
-def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
-    """``{fileid: beschreibung}`` — die Datei wächst nur an, die letzte Zeile je Bild gilt."""
-    ergebnis: Dict[int, str] = {}
+def _beschreibungen_lesen(pfad: str) -> Dict[int, Tuple[str, str]]:
+    """``{fileid: (text, herkunft)}`` — die Datei wächst nur an, die letzte Zeile je Bild gilt.
+
+    Herkunft (G2, 02.11.2026): ``ki`` für Zeilen ohne ``quelle`` (Werkzeuge, ``*_reich``),
+    ``hand`` / ``einzel_ki`` für Zeilen, die die App geschrieben hat (Feld ``quelle``).
+    App-Zeilen gehen vor: eine spätere Werkzeugzeile derselben Datei überschreibt sie nicht,
+    unter App-Zeilen gewinnt die neueste.
+    """
+    ergebnis: Dict[int, Tuple[str, str]] = {}
     with open(pfad, "r", encoding="utf-8", errors="ignore") as datei:
         for zeile in datei:
             try:
@@ -800,8 +814,13 @@ def _beschreibungen_lesen(pfad: str) -> Dict[int, str]:
                 continue
             fileid = _als_zahl(eintrag.get("fileid"))
             text = eintrag.get("beschreibung_reich") or eintrag.get("beschreibung")
-            if fileid is not None and isinstance(text, str) and text.strip():
-                ergebnis[fileid] = " ".join(text.split())[:BESCHREIBUNG_MAX_LAENGE]
+            if fileid is None or not isinstance(text, str) or not text.strip():
+                continue
+            quelle = eintrag.get("quelle")
+            herkunft = quelle if quelle in APP_BESCHREIBUNG_QUELLEN else HERKUNFT_KI
+            if herkunft == HERKUNFT_KI and fileid in ergebnis and ergebnis[fileid][1] != HERKUNFT_KI:
+                continue                       # App-Zeile bleibt vor späteren Werkzeugzeilen
+            ergebnis[fileid] = (" ".join(text.split())[:BESCHREIBUNG_MAX_LAENGE], herkunft)
     return ergebnis
 
 
@@ -822,28 +841,42 @@ def beschreibungen_alle_pfade() -> List[str]:
     return pfade
 
 
-def _beschreibungen_gesamt_lesen() -> Dict[int, str]:
-    """Liest Beschreibungen aus SQLite und allen JSONL-Dateien zusammengeführt.
+def _beschreibungen_mit_herkunft() -> Dict[int, Tuple[str, str]]:
+    """``{fileid: (text, herkunft)}`` aus SQLite und allen JSONL-Beständen (G2, 02.11.2026).
 
-    Kombiniert SQLite life_archive.db und sämtliche JSONL-Bestände (reich, papa,
-    rest, altbestand). Neuere/reichere Texte überschreiben Basis-Texte.
+    Reihenfolge: zuerst SQLite, dann die JSONL-Dateien (reiche Texte überschreiben Basis-Texte),
+    ZULETZT die Zeilen, die die App geschrieben hat (``quelle`` ``hand`` oder ``einzel_ki``):
+    die neueste App-Zeile gewinnt gegen alle ``*_reich``-Dateien und SQLite. Die Herkunft ist
+    die der zuletzt angewendeten Zeile — ``ki``, ``hand`` oder ``einzel_ki``.
     """
-    ergebnis: Dict[int, str] = {}
+    ergebnis: Dict[int, Tuple[str, str]] = {}
     db_pfad = life_archive_pfad()
     if os.path.isfile(db_pfad):
         try:
-            ergebnis.update(_zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen))
+            for fid, text in _zwischengespeichert(db_pfad, _beschreibungen_sqlite_lesen).items():
+                ergebnis[fid] = (text, HERKUNFT_KI)
         except Exception as e:
             logger.warning("SQLite Beschreibungen fehlgeschlagen: %s", e)
 
+    app_zeilen: Dict[int, Tuple[str, str]] = {}
     for j_pfad in beschreibungen_alle_pfade():
         try:
             j_daten = _zwischengespeichert(j_pfad, _beschreibungen_lesen)
-            ergebnis.update(j_daten)
         except Exception as e:
             logger.warning("JSONL Beschreibungen (%s) fehlgeschlagen: %s", j_pfad, e)
-
+            continue
+        for fid, (text, herkunft) in j_daten.items():
+            if herkunft == HERKUNFT_KI:
+                ergebnis[fid] = (text, herkunft)
+            else:
+                app_zeilen[fid] = (text, herkunft)
+    ergebnis.update(app_zeilen)
     return ergebnis
+
+
+def _beschreibungen_gesamt_lesen() -> Dict[int, str]:
+    """``{fileid: text}`` — dünne Hülle über :func:`_beschreibungen_mit_herkunft`."""
+    return {fid: text for fid, (text, _herkunft) in _beschreibungen_mit_herkunft().items()}
 
 
 def beschreibung_holen(fileid: Any) -> Optional[str]:
@@ -855,8 +888,17 @@ def beschreibung_holen(fileid: Any) -> Optional[str]:
     return beschreibungen.get(fid)
 
 
-def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
-    """Beschreibung eines Bildes speichern/aktualisieren (an bild_beschreibungen.jsonl anhängen)."""
+def beschreibung_mit_herkunft_holen(fileid: Any) -> Tuple[Optional[str], Optional[str]]:
+    """``(text, herkunft)`` eines Bildes — ``(None, None)`` bei unbekannter Kennung oder ohne Text."""
+    fid = _als_zahl(fileid)
+    if fid is None:
+        return None, None
+    eintrag = _beschreibungen_mit_herkunft().get(fid)
+    return eintrag if eintrag else (None, None)
+
+
+def _beschreibung_schreiben(fileid: Any, text: str, quelle: str) -> Dict[str, Any]:
+    """Eine App-Zeile (``quelle`` ``hand`` oder ``einzel_ki``) anhängen und SQLite nachziehen."""
     fid = _als_zahl(fileid)
     if fid is None:
         return {"ok": False, "fehler": "Ungültige Bildkennung."}
@@ -869,6 +911,7 @@ def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
             eintrag = {
                 "fileid": fid,
                 "beschreibung": sauberer_text,
+                "quelle": quelle,
                 "zeit": datetime.now().isoformat()
             }
             datei.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
@@ -897,6 +940,26 @@ def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
 
     _BILDINFO_SPEICHER.clear()
     return {"ok": True, "fileid": fid, "beschreibung": sauberer_text}
+
+
+def beschreibung_speichern(fileid: Any, text: str) -> Dict[str, Any]:
+    """Von Hand geschriebene Beschreibung speichern (Zeile mit ``quelle`` ``hand``).
+
+    Seit G2 gewinnt sie gegen alle ``*_reich``-Dateien. Ein leerer Text wird zwar angehängt,
+    beim Lesen aber übersprungen (er löscht nichts).
+    """
+    return _beschreibung_schreiben(fileid, text, QUELLE_HAND)
+
+
+def beschreibung_uebernehmen_ki(fileid: Any, text: str) -> Dict[str, Any]:
+    """Einen bestätigten KI-Vorschlag übernehmen (Zeile mit ``quelle`` ``einzel_ki``).
+
+    Genau eine Zeile; ein leerer Text wird nicht gespeichert.
+    """
+    if not " ".join((text or "").split()):
+        return {"ok": False, "fehler": "Eine leere Beschreibung wird nicht übernommen."}
+    return _beschreibung_schreiben(fileid, text, QUELLE_EINZEL_KI)
+
 
 def _bild_orte_lesen(pfad: str) -> Dict[int, Dict[str, Any]]:
     """``{fileid: {"landmarke", "art", "ort"}}`` aus ``bild_orte.csv`` — ohne Hausnummern, ohne Koordinaten."""
@@ -1481,6 +1544,7 @@ def ki_geschichte_generieren(fileid: Any,
                 beschreibung = b_dat.get("beschreibung") or ""
         except Exception:
             pass
+    beschreibung_gefunden = bool((beschreibung or "").strip())
     beschr_sauber = deutsch_fuer_bildbeschreibung(beschreibung)
 
     # 2. Alle eigenen Notizen sammeln (G1) — nie eine fruehere Geschichte
@@ -1552,6 +1616,7 @@ def ki_geschichte_generieren(fileid: Any,
             "ort": ort_sauber,
             "personen": pers_liste,
             "beschreibung": beschr_sauber,
+            "beschreibung_gefunden": beschreibung_gefunden,
             "notiz": notiz_inhalt or ""
         }
     }

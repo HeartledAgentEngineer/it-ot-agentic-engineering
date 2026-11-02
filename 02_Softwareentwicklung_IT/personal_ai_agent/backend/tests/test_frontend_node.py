@@ -27,6 +27,7 @@ TESTORDNER = FRONTEND / "tests"
 # Welche Quelldatei ein Test als Argument bekommt. Alle übrigen bekommen app.js;
 # Tests, die ihre Datei selbst finden, ignorieren das Argument.
 ZUORDNUNG = {
+    "test_bild_beschreibung_lesen.js": "bild_beschreibung.js",
     "test_erzaehlen.js": "erzaehlen.js",
     "test_erzaehlen_hand_gesichter.js": "erzaehlen.js",
     "test_erzaehlen_geschichte_getrennt.js": "erzaehlen.js",

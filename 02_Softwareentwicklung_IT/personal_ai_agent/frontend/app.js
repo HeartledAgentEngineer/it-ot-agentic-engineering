@@ -3855,19 +3855,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
 
         descVorlesenBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            const txt = (descBoxText.textContent || '').trim();
-            if (!txt) return;
-            if (typeof window.audioVorabFreischalten === 'function') window.audioVorabFreischalten();
-            if (typeof window.vorlesenText === 'function') {
-                window.vorlesenText(txt);
-            } else if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
-                try {
-                    window.speechSynthesis.cancel();
-                    const satz = new SpeechSynthesisUtterance(txt);
-                    satz.lang = 'de-DE';
-                    window.speechSynthesis.speak(satz);
-                } catch (_e) {}
-            }
+            bildBeschreibungVorlesen(descBoxText.textContent);
         });
         ov.appendChild(descBox);
         if (!descText && _quizEditor.fileid) {
@@ -4464,106 +4452,38 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
                     });
                     leiste.appendChild(erkennBtn);
                 }
-                // Bildbeschreibung anzeigen & bearbeiten (Wunsch Sebastian 31.10.2026)
+                // Bildbeschreibung: zuerst LESEN, dann bearbeiten oder neu beschreiben lassen (G2, 02.11.2026)
                 if (!_quizEditor.refKontext) {
                     const beschrBtn = document.createElement('div');
                     beschrBtn.className = 'vollbild-beschreibung-btn';
                     beschrBtn.textContent = '📝 Beschreibung';
-                    beschrBtn.title = 'Bildbeschreibung anzeigen und bearbeiten';
+                    beschrBtn.title = 'Bildbeschreibung anzeigen, bearbeiten oder neu beschreiben lassen';
                     beschrBtn.style.cssText = 'padding:10px 14px;border-radius:22px;background:#2a2a2a;color:#d9f;font-weight:700;font-size:0.85rem;cursor:pointer;border:1px solid #7a4a8a;white-space:nowrap';
-
-                    const beschrBox = document.createElement('div');
-                    beschrBox.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);width:min(90vw, 500px);background:#1a2332;border:1px solid #304562;border-radius:12px;padding:12px;z-index:99999;box-shadow:0 8px 24px rgba(0,0,0,0.6);display:none;';
-                    const beschrTitel = document.createElement('div');
-                    beschrTitel.style.cssText = 'font-weight:bold;margin-bottom:6px;color:#d9f;font-size:0.95rem;';
-                    beschrTitel.textContent = '📝 Bildbeschreibung';
-                    const beschrArea = document.createElement('textarea');
-                    beschrArea.rows = 3;
-                    beschrArea.maxLength = 600;
-                    beschrArea.style.cssText = 'width:100%;box-sizing:border-box;border-radius:8px;padding:8px;background:#0f172a;color:#f1f5f9;border:1px solid #334155;font-size:0.9rem;resize:vertical;';
-                    beschrArea.placeholder = 'Beschreibung für dieses Foto eingeben...';
-                    const beschrLeiste = document.createElement('div');
-                    beschrLeiste.style.cssText = 'display:flex;gap:8px;margin-top:8px;justify-content:flex-end;';
-                    const beschrSave = document.createElement('button');
-                    beschrSave.textContent = '💾 Speichern';
-                    beschrSave.style.cssText = 'padding:6px 14px;border-radius:6px;background:#2563eb;color:#fff;border:none;cursor:pointer;font-weight:bold;';
-                    const beschrClose = document.createElement('button');
-                    beschrClose.textContent = 'Schließen';
-                    beschrClose.style.cssText = 'padding:6px 12px;border-radius:6px;background:#334155;color:#fff;border:none;cursor:pointer;';
-
-                    beschrClose.addEventListener('click', (ev) => {
-                        ev.stopPropagation();
-                        beschrBox.style.display = 'none';
-                        const db = ov.querySelector('.vollbild-beschreibung');
-                        if (db) {
+                    const beschrKasten = baueBeschreibungKasten({
+                        document: document,
+                        fetch: (u, o) => fetch(u, o),
+                        fileid: () => _quizEditor.fileid,
+                        bekannterText: () => _quizEditor.beschreibung || '',
+                        vorlesen: bildBeschreibungVorlesen,
+                        melde: meldeEditor,
+                        beiText: (txt) => {
+                            _quizEditor.beschreibung = txt;
+                            const db = ov.querySelector('.vollbild-beschreibung');
+                            const dbTxt = db && (db.querySelector('.vollbild-beschreibung-text') || db);
+                            if (dbTxt) dbTxt.textContent = txt;
+                        },
+                        beiOffen: (offen) => {
+                            const db = ov.querySelector('.vollbild-beschreibung');
+                            if (!db) return;
+                            if (offen) { db.style.display = 'none'; return; }
                             const dbTxt = db.querySelector('.vollbild-beschreibung-text') || db;
-                            if (dbTxt && dbTxt.textContent.trim()) db.style.display = 'flex';
-                        }
+                            db.style.display = (dbTxt && dbTxt.textContent.trim()) ? 'flex' : 'none';
+                        },
                     });
-
-                    beschrSave.addEventListener('click', async (ev) => {
+                    ov.appendChild(beschrKasten.kasten);
+                    beschrBtn.addEventListener('click', (ev) => {
                         ev.stopPropagation();
-                        const fid = _quizEditor.fileid;
-                        const txt = beschrArea.value.trim();
-                        if (!fid) {
-                            meldeEditor('Keine Bildkennung vorhanden', false);
-                            return;
-                        }
-                        try {
-                            const resp = await fetch('/api/erzaehlen/bild-beschreibung', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ fileid: fid, beschreibung: txt })
-                            });
-                            const data = await resp.json();
-                            if (data && data.ok) {
-                                _quizEditor.beschreibung = txt;
-                                meldeEditor('✓ Bildbeschreibung gespeichert', true);
-                                beschrBox.style.display = 'none';
-                                const db = ov.querySelector('.vollbild-beschreibung');
-                                if (db) {
-                                    const dbTxt = db.querySelector('.vollbild-beschreibung-text') || db;
-                                    if (dbTxt) dbTxt.textContent = txt;
-                                    db.style.display = txt ? 'flex' : 'none';
-                                }
-                            } else {
-                                meldeEditor('Fehler beim Speichern', false);
-                            }
-                        } catch (err) {
-                            meldeEditor('Fehler beim Speichern', false);
-                        }
-                    });
-
-                    beschrBox.appendChild(beschrTitel);
-                    beschrBox.appendChild(beschrArea);
-                    beschrLeiste.appendChild(beschrClose);
-                    beschrLeiste.appendChild(beschrSave);
-                    beschrBox.appendChild(beschrLeiste);
-                    ov.appendChild(beschrBox);
-
-                    beschrBtn.addEventListener('click', async (ev) => {
-                        ev.stopPropagation();
-                        if (beschrBox.style.display === 'block') {
-                            beschrBox.style.display = 'none';
-                            return;
-                        }
-                        const fid = _quizEditor.fileid;
-                        let text = _quizEditor.beschreibung || '';
-                        if (!text && fid) {
-                            try {
-                                const resp = await fetch('/api/erzaehlen/bild-beschreibung?fileid=' + encodeURIComponent(fid));
-                                const data = await resp.json();
-                                if (data && data.beschreibung) {
-                                    text = data.beschreibung;
-                                    _quizEditor.beschreibung = text;
-                                }
-                            } catch (_e) {}
-                        }
-                        beschrArea.value = text;
-                        const db = ov.querySelector('.vollbild-beschreibung');
-                        if (db) db.style.display = 'none';
-                        beschrBox.style.display = 'block';
-                        setTimeout(() => { try { beschrArea.focus(); } catch (_e) {} }, 50);
+                        beschrKasten.oeffnen();
                     });
                     leiste.appendChild(beschrBtn);
                 }

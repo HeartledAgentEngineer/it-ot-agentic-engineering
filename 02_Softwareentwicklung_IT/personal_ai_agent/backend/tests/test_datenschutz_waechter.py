@@ -446,7 +446,7 @@ def test_regel_frontend_urls_nur_lokal():
     )
 
 
-API_BASE_LESER = ("frontend/app.js", "frontend/erzaehlen.js", "frontend/gruppen_quiz.js")
+API_BASE_LESER = ("frontend/app.js", "frontend/bild_beschreibung.js", "frontend/erzaehlen.js", "frontend/gruppen_quiz.js")
 
 
 def test_regel_frontend_liest_kein_api_base():

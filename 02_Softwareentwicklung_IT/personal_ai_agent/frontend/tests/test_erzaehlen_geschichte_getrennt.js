@@ -182,6 +182,9 @@ function baue(optionen) {
     console,
     istNotiz,
     erzaehlGeschichteKoerper, erzaehlGeschichtenJeBild, erzaehlGeschichteArtFuer, erzaehlNeuesteGeschichte,
+    // G2 (02.11.2026): reine Hilfsfunktion, wörtlich aus erzaehlen.js
+    erzaehlBeschreibungFehltHinweis: new Function(extractFn('erzaehlBeschreibungFehltHinweis')
+      + '; return erzaehlBeschreibungFehltHinweis;')(),
   };
   const eigene = ['aktuelleDateiKennung', 'leseBereichAnzeigen', 'geschichtenAnzeigen', 'kachelMarkerAktualisieren',
     'geschichteAnhaengen', 'geschichteSpeichern', 'geschichteErzeugen', 'alsGeschichteMarkieren'];
@@ -365,7 +368,7 @@ function notizTexte(knoten, id) {
   pruefe('Lese-Bereiche stehen NICHT in den Notiz-Behältern',
     html.indexOf('id="erzaehl-bildgeschichte"') < html.indexOf('id="erzaehl-geschichten"')
     && html.indexOf('id="erzaehl-anlassgeschichte"') < html.indexOf('id="erzaehl-gruppen-geschichten"'));
-  pruefe('Cache-Bump: erzaehlen.js?v=20261102B', /erzaehlen\.js\?v=20261102B/.test(html));
+  pruefe('Cache-Bump: erzaehlen.js?v=20261102D', /erzaehlen\.js\?v=20261102D/.test(html));
 
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
   process.exit(fehler ? 1 : 0);

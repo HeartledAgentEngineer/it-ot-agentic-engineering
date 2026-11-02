@@ -7,6 +7,10 @@
   POST /api/erzaehlen/geschichten           Eine Geschichte anhängen
   GET  /api/erzaehlen/geschichten           Geschichten (optional gefiltert)
   POST /api/erzaehlen/ereignisse/{kennung}/titel  Eigener Titel (06.10.2026, leer = automatisch)
+  GET  /api/erzaehlen/bild-beschreibung     Beschreibung + gefunden + quelle (G2, 02.11.2026)
+  POST /api/erzaehlen/bild-beschreibung     Von Hand speichern (quelle hand)
+  POST /api/erzaehlen/bild-beschreibung/vorschlag    Vision-Vorschlag, speichert nichts
+  POST /api/erzaehlen/bild-beschreibung/uebernehmen  Vorschlag übernehmen (quelle einzel_ki)
 
 Eiserne Regeln
 --------------
@@ -24,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.services import bild_beschreibung_vorschlag as bild_beschreibung_vorschlag_dienst
 from app.services import erzaehl_service, gruppen_quiz
 
 logger = logging.getLogger(__name__)
@@ -258,13 +263,44 @@ class BildBeschreibungEingabe(BaseModel):
 
 @router.get("/bild-beschreibung")
 def bild_beschreibung_holen(fileid: str = Query(..., min_length=1, max_length=30)) -> Dict[str, Any]:
-    text = erzaehl_service.beschreibung_holen(fileid)
-    return {"ok": True, "fileid": fileid, "beschreibung": text or ""}
+    """Beschreibung eines Bildes samt Herkunft (G2, 02.11.2026).
+
+    ``gefunden`` sagt, ob es für die fileid in irgendeiner Quelle einen Text gibt;
+    ``quelle`` ist ``ki`` | ``hand`` | ``einzel_ki`` (sonst ``null``). ``beschreibung``
+    bleibt immer ein String.
+    """
+    text, herkunft = erzaehl_service.beschreibung_mit_herkunft_holen(fileid)
+    return {
+        "ok": True,
+        "fileid": fileid,
+        "beschreibung": text or "",
+        "gefunden": bool(text),
+        "quelle": herkunft if text else None,
+    }
 
 
 @router.post("/bild-beschreibung")
 def bild_beschreibung_speichern(eingabe: BildBeschreibungEingabe) -> Dict[str, Any]:
     return erzaehl_service.beschreibung_speichern(eingabe.fileid, eingabe.beschreibung)
+
+
+class BildVorschlagEingabe(BaseModel):
+    fileid: str = Field(..., min_length=1, max_length=30)
+
+
+@router.post("/bild-beschreibung/vorschlag")
+def bild_beschreibung_vorschlag(eingabe: BildVorschlagEingabe) -> Dict[str, Any]:
+    """Vision-Vorschlag für ein Bild (G2). Speichert NICHTS; Fehler als ``{ok: false, grund}`` (HTTP 200).
+
+    Bewusst ``def`` (nicht ``async``): der Aufruf ist blockierend und läuft im Threadpool.
+    """
+    return bild_beschreibung_vorschlag_dienst.vorschlag_fuer_fileid(eingabe.fileid)
+
+
+@router.post("/bild-beschreibung/uebernehmen")
+def bild_beschreibung_uebernehmen(eingabe: BildBeschreibungEingabe) -> Dict[str, Any]:
+    """Einen bestätigten Vorschlag übernehmen: genau eine Zeile mit ``quelle`` ``einzel_ki`` (G2)."""
+    return erzaehl_service.beschreibung_uebernehmen_ki(eingabe.fileid, eingabe.beschreibung)
 
 
 class KiGeschichteEingabe(BaseModel):

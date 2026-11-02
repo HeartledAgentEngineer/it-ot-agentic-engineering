@@ -192,6 +192,17 @@ function erzaehlGesichtHandHinweis(gesicht) {
     return 'Hand-Gesicht – Bearbeitung im Bild-Editor.';
 }
 
+/** REINE Funktion (G2, 02.11.2026): Hinweistext, wenn das Backend meldet, dass es zu diesem Bild
+ *  KEINE Bildbeschreibung gefunden hat (``daten.beschreibung_gefunden === false``). Bei ``true``,
+ *  fehlendem Feld oder älterer Antwort -> '' (kein Hinweis). */
+function erzaehlBeschreibungFehltHinweis(antwort) {
+    const daten = antwort && typeof antwort === 'object' ? antwort.daten : null;
+    if (daten && typeof daten === 'object' && daten.beschreibung_gefunden === false) {
+        return 'Für dieses Bild gibt es noch keine Bildbeschreibung';
+    }
+    return '';
+}
+
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
@@ -1739,6 +1750,17 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             return { ok: false, fehler: grund || 'Unbekannter Fehler' };
         }
         if (zustand.aktuellesEreignis !== kennung) return { ok: false, fehler: 'Anlass inzwischen gewechselt.' };
+
+        // G2: fehlt die Bildbeschreibung, steht das ehrlich dort, wo sonst die Beschreibung steht.
+        const fehlHinweis = mitBild ? erzaehlBeschreibungFehltHinweis(res) : '';
+        if (fehlHinweis) {
+            const beschrFeld = el('erzaehl-bild-beschreibung');
+            if (beschrFeld) {
+                beschrFeld.textContent = fehlHinweis;
+                beschrFeld.hidden = false;
+                beschrFeld.style.color = 'var(--text-muted)';
+            }
+        }
 
         const dateiKennung = mitBild ? ctx.dateiKennung : null;
         const vorherige = erzaehlNeuesteGeschichte(zustand.detail && zustand.detail.geschichten, art, dateiKennung);
