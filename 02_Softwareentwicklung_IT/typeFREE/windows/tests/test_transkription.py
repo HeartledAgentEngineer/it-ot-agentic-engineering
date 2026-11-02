@@ -578,9 +578,31 @@ def test_modellkette_hat_mehrere_modelle():
 
 
 def test_glaettung_startet_mit_dem_schnellen_guenstigen_modell():
-    # Messung 14.10.2026: flash-lite 1,3 s Median gegen 2,8 s bei 2.5-flash.
-    assert typefree.POLISH_MODELLE[0] == 'google/gemini-2.5-flash-lite'
-    assert 'google/gemini-2.5-flash' in typefree.POLISH_MODELLE[1:]
+    # Messung 02.11.2026 (Reasoning aus): DeepSeek V4.1 Flash 0,5–1,0 s warm,
+    # günstigstes ZDR-Modell; Google-Endpunkte fallen seit 27.10. aus dem ZDR.
+    assert typefree.POLISH_MODELLE[0] == 'deepseek/deepseek-v4.1-flash'
+    assert typefree.POLISH_MODELLE_LIVE[0] == 'deepseek/deepseek-v4.1-flash'
+
+
+def _hersteller(modelle):
+    return {m.split('/', 1)[0] for m in modelle}
+
+
+def test_glaettung_haengt_nie_an_nur_einem_hersteller():
+    """27.10.2026: Alle drei Modelle waren von Google — ein Ausfall legte alles still."""
+    assert len(_hersteller(typefree.POLISH_MODELLE)) >= 2
+    assert len(_hersteller(typefree.POLISH_MODELLE_LIVE)) >= 2
+
+
+def test_glaettung_verlangt_zdr_und_schaltet_reasoning_aus(monkeypatch):
+    """ZDR je Anfrage statt nur über die Kontoeinstellung; ohne Reasoning
+    brauchte DeepSeek 3,7–14,8 s statt 0,5–1,0 s (Messung 02.11.2026)."""
+    attrappe = GlattungsAttrappe(antwort=BEREINIGT)
+    monkeypatch.setattr(typefree, 'openrouter_client', attrappe)
+    typefree.polish_text(ROHTEXT)
+    zusatz = attrappe.aufrufe[0]['extra_body']
+    assert zusatz['provider']['zdr'] is True
+    assert zusatz['reasoning'] == {'enabled': False}
 
 
 # ── Ausfall der Glättung wird gemeldet ────────────────────────────────────────
