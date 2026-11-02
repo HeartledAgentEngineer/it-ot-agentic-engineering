@@ -180,11 +180,21 @@ class GeschichteEingabe(BaseModel):
     datei_kennung: Optional[int] = None
     ersetzt: Optional[str] = Field(default=None, max_length=100)
     abfrage: Optional[str] = Field(default=None, max_length=2000)
+    # G1 (02.11.2026): ``art`` nur "bildgeschichte" | "anlassgeschichte" — ob der
+    # Wert gültig ist, prüft der Dienst (HTTP 400 mit deutschem Klartext, wie bei
+    # den anderen Prüfungen; kein generisches Pydantic-422). Ohne ``art`` ist die
+    # Zeile eine Notiz. ``notiz_bestaetigt`` = „Das ist meine Notiz".
+    art: Optional[str] = Field(default=None, max_length=40)
+    notiz_bestaetigt: bool = False
 
 
 @router.post("/geschichten")
 def geschichte_speichern(eingabe: GeschichteEingabe) -> Dict[str, Any]:
-    """Eine Geschichte anhängen. HTTP 400 mit deutschem Text bei Fehler."""
+    """Eine Geschichte anhängen. HTTP 400 mit deutschem Text bei Fehler.
+
+    Die Antwort trägt die gespeicherte Zeile samt Einordnung (``ist_notiz``,
+    ``ist_altbestand``, ``art``).
+    """
     try:
         zeile = erzaehl_service.geschichte_speichern(
             ereignis_kennung=eingabe.ereignis_kennung,
@@ -193,6 +203,8 @@ def geschichte_speichern(eingabe: GeschichteEingabe) -> Dict[str, Any]:
             datei_kennung=eingabe.datei_kennung,
             ersetzt=eingabe.ersetzt,
             abfrage=eingabe.abfrage,
+            art=eingabe.art,
+            notiz_bestaetigt=eingabe.notiz_bestaetigt,
         )
     except erzaehl_service.GeschichteValidierungsfehler as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -259,6 +271,8 @@ class KiGeschichteEingabe(BaseModel):
     fileid: str = Field(..., min_length=1, max_length=50)
     perspektive: str = Field(default="ich", pattern="^(ich|erzaehler)$")
     ereignis_kennung: Optional[str] = Field(default=None, max_length=200)
+    # Seit G1 (02.11.2026) wird ``notiz`` angenommen, aber ignoriert: Das Backend
+    # sammelt die Notizen selbst (erzaehl_service.eigene_notizen).
     notiz: Optional[str] = Field(default=None, max_length=2000)
     ort: Optional[str] = Field(default=None, max_length=500)
     datum: Optional[str] = Field(default=None, max_length=50)
@@ -273,7 +287,6 @@ def ki_geschichte(eingabe: KiGeschichteEingabe) -> Dict[str, Any]:
         fileid=eingabe.fileid,
         perspektive=eingabe.perspektive,
         ereignis_kennung=eingabe.ereignis_kennung,
-        notiz=eingabe.notiz,
         ort=eingabe.ort,
         datum=eingabe.datum,
         personen=eingabe.personen,
@@ -284,6 +297,7 @@ class AnlassGeschichteEingabe(BaseModel):
     """Eingabe zur Erzeugung einer zusammenhängenden Anlass-Geschichte (01.11.2026)."""
     ereignis_kennung: str = Field(..., min_length=1, max_length=200)
     perspektive: str = Field(default="ich", pattern="^(ich|erzaehler)$")
+    # Wie oben: angenommen, ignoriert (G1).
     notiz: Optional[str] = Field(default=None, max_length=5000)
     titel: Optional[str] = Field(default=None, max_length=200)
     datum: Optional[str] = Field(default=None, max_length=50)
@@ -299,7 +313,6 @@ def anlass_geschichte(eingabe: AnlassGeschichteEingabe) -> Dict[str, Any]:
     ergebnis = erzaehl_service.anlass_geschichte_generieren(
         ereignis_kennung=eingabe.ereignis_kennung,
         perspektive=eingabe.perspektive,
-        notiz=eingabe.notiz,
         titel=eingabe.titel,
         datum=eingabe.datum,
         ort=eingabe.ort,

@@ -195,22 +195,65 @@ function erzaehlGesichtHandHinweis(gesicht) {
 /** REINE Funktion: Rumpf für POST /api/erzaehlen/geschichten. Ohne
  *  ``dateiKennung`` (null/undefined) gilt die Geschichte der ganzen Gruppe
  *  (Übersicht), mit ihr dem einen Bild (Einzelansicht). */
-function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung, ersetzt, abfrage) {
-    const koerper = { ereignis_kennung: ereignisKennung, text, quelle: 'tippen' };
+function erzaehlGeschichteKoerper(ereignisKennung, text, dateiKennung, ersetzt, abfrage, quelle, art, notizBestaetigt) {
+    // G1 (02.11.2026): ``quelle`` (Standard 'tippen'), ``art`` ('bildgeschichte' |
+    // 'anlassgeschichte', sonst Notiz) und ``notizBestaetigt`` sind optional; die alte
+    // Signatur mit fünf Parametern bleibt gültig und erzeugt denselben Rumpf wie früher.
+    const koerper = { ereignis_kennung: ereignisKennung, text, quelle: quelle || 'tippen' };
     if (dateiKennung !== null && dateiKennung !== undefined) koerper.datei_kennung = dateiKennung;
     if (ersetzt) koerper.ersetzt = ersetzt;
     if (abfrage) koerper.abfrage = abfrage;
+    if (art) koerper.art = art;
+    if (notizBestaetigt === true) koerper.notiz_bestaetigt = true;
     return koerper;
 }
 
-/** REINE Funktion: Zahl der Geschichten je Bild (Schlüssel = datei_kennung
- *  als Text) — für das ✎ auf den Kacheln der Übersicht. Geschichten zur
- *  ganzen Gruppe (ohne Bild) und kaputte Einträge zählen nicht. */
+/** REINE Funktion (G1, 02.11.2026): Ist diese Zeile von GET /geschichten bzw. aus der
+ *  POST-Antwort eine Notiz? EINE Stelle für alle Leser (Notizliste, Vorlesen, Zähler).
+ *  Die Regel rechnet das Backend (``ist_notiz`` aus ``art``, Altbestand-Erkennung und
+ *  ``notiz_bestaetigt``); das Frontend liest nur das Feld. Fehlt es (alte Antwort),
+ *  gilt die Zeile als Notiz, wenn sie kein ``art`` trägt. Kaputte Einträge: nein. */
+function istNotiz(zeile) {
+    if (!zeile || typeof zeile !== 'object') return false;
+    if (typeof zeile.ist_notiz === 'boolean') return zeile.ist_notiz;
+    return !zeile.art;
+}
+
+/** REINE Funktion (G1): Welche ``art`` bekommt eine Zeile, die vom Knopf „Das ist keine
+ *  Notiz, sondern eine Geschichte" zur Geschichte wird? Mit Bild -> Bildgeschichte,
+ *  ohne Bild (ganze Gruppe) -> Anlassgeschichte, damit sie im passenden Bereich erscheint. */
+function erzaehlGeschichteArtFuer(zeile) {
+    if (!zeile || typeof zeile !== 'object') return 'bildgeschichte';
+    return (zeile.datei_kennung === null || zeile.datei_kennung === undefined)
+        ? 'anlassgeschichte' : 'bildgeschichte';
+}
+
+/** REINE Funktion (G1): Neueste Bild- bzw. Anlassgeschichte aus der Liste der Zeilen
+ *  (nach ``zeit``, bei Gleichstand die spätere in der Liste) — oder null. ``art`` ist
+ *  'bildgeschichte' (nur dieses Bild: ``dateiKennung``) oder 'anlassgeschichte' (nur
+ *  Zeilen ohne Bild). */
+function erzaehlNeuesteGeschichte(geschichten, art, dateiKennung) {
+    if (!Array.isArray(geschichten)) return null;
+    let beste = null;
+    geschichten.forEach((g) => {
+        if (!g || typeof g !== 'object' || g.art !== art) return;
+        const ohneBild = g.datei_kennung === null || g.datei_kennung === undefined;
+        if (art === 'anlassgeschichte' ? !ohneBild : String(g.datei_kennung) !== String(dateiKennung)) return;
+        if (!beste || String(g.zeit || '') >= String(beste.zeit || '')) beste = g;
+    });
+    return beste;
+}
+
+/** REINE Funktion: Zahl der Notizen je Bild (Schlüssel = datei_kennung
+ *  als Text) — für das ✎ auf den Kacheln der Übersicht. Notizen zur
+ *  ganzen Gruppe (ohne Bild), kaputte Einträge, Bild-/Anlassgeschichten und
+ *  Altbestand zählen nicht (G1: nur ``istNotiz``). */
 function erzaehlGeschichtenJeBild(geschichten) {
     const zaehler = {};
     if (!Array.isArray(geschichten)) return zaehler;
     geschichten.forEach((g) => {
         if (!g || g.datei_kennung === null || g.datei_kennung === undefined) return;
+        if (!istNotiz(g)) return;
         const k = String(g.datei_kennung);
         zaehler[k] = (zaehler[k] || 0) + 1;
     });
@@ -1629,6 +1672,114 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         perspektiveAktualisieren();
     }
 
+    // ---- Bild- und Anlassgeschichte erzeugen, speichern, lesen (G1, 02.11.2026) ----
+    // Die erzeugte Geschichte landet NICHT im Notizfeld und ist nie eine Notiz: sie wird als
+    // eigene Zeile mit ``art`` + ``quelle: "generiert"`` angehängt und im Lese-Bereich gezeigt.
+    // Das Backend sammelt die Notizen selbst (erzaehl_service.eigene_notizen).
+
+    /** Hängt eine Zeile an (POST /geschichten) und führt die lokale Liste nach — ohne das
+     *  Notizfeld anzufassen. Rückgabe ``{ ok, zeile, fehler }``. */
+    async function geschichteAnhaengen(koerper) {
+        try {
+            const res = await fetch(`${apiBase()}/api/erzaehlen/geschichten`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(koerper),
+            });
+            const daten = await res.json().catch(() => ({}));
+            if (!res.ok || daten.ok !== true) {
+                const grund = daten.detail || daten.error;
+                return { ok: false, fehler: typeof grund === 'string' && grund ? grund : 'Speichern fehlgeschlagen.' };
+            }
+            if (zustand.aktuellesEreignis === koerper.ereignis_kennung
+                && zustand.detail && Array.isArray(zustand.detail.geschichten)) {
+                if (koerper.ersetzt) {
+                    zustand.detail.geschichten = zustand.detail.geschichten
+                        .filter((g) => !g || g.id !== koerper.ersetzt);
+                }
+                zustand.detail.geschichten.push(daten.geschichte);
+            }
+            return { ok: true, zeile: daten.geschichte };
+        } catch (_e) {
+            return { ok: false, fehler: 'Verbindung zum Backend fehlgeschlagen.' };
+        }
+    }
+
+    /** Erzeugt die Bildgeschichte (``art`` 'bildgeschichte', ``ctx``: dateiKennung, beschreibung,
+     *  ort, datum) oder die Anlassgeschichte ('anlassgeschichte'), speichert sie (bei Neu-Erzeugen
+     *  mit ``ersetzt`` = vorherige Bild-/Anlassgeschichte) und zeigt sie im Lese-Bereich.
+     *  Ungespeicherter Text im Notizfeld wird vorher als Notiz gespeichert. Es geht keine ``notiz``
+     *  an den Server. Rückgabe ``{ ok, geschichte, zeile, fehler }``. */
+    async function geschichteErzeugen(art, ctx) {
+        const kennung = zustand.aktuellesEreignis;
+        if (!kennung) return { ok: false, fehler: 'Kein Ereignis offen.' };
+        const mitBild = art === 'bildgeschichte';
+
+        const feld = el('erzaehl-text');
+        if (feld && feld.value.trim()) {
+            const notizGespeichert = await geschichteSpeichern();
+            if (!notizGespeichert) return { ok: false, fehler: 'Die Notiz konnte nicht gespeichert werden.' };
+            if (zustand.aktuellesEreignis !== kennung) return { ok: false, fehler: 'Anlass inzwischen gewechselt.' };
+        }
+
+        const perspektive = zustand.perspektive || 'ich';
+        const anfrage = mitBild
+            ? {
+                fileid: String(ctx.dateiKennung),
+                perspektive,
+                ereignis_kennung: kennung,
+                beschreibung: ctx.beschreibung || '',
+                ort: ctx.ort || '',
+                datum: ctx.datum || '',
+            }
+            : { ereignis_kennung: kennung, perspektive };
+        const res = await jsonSenden(mitBild ? '/api/erzaehlen/ki-geschichte' : '/api/erzaehlen/anlass-geschichte', anfrage);
+        if (!(res && res.ok && res.geschichte)) {
+            const grund = res && (res.fehler || (typeof res.detail === 'string' ? res.detail : ''));
+            return { ok: false, fehler: grund || 'Unbekannter Fehler' };
+        }
+        if (zustand.aktuellesEreignis !== kennung) return { ok: false, fehler: 'Anlass inzwischen gewechselt.' };
+
+        const dateiKennung = mitBild ? ctx.dateiKennung : null;
+        const vorherige = erzaehlNeuesteGeschichte(zustand.detail && zustand.detail.geschichten, art, dateiKennung);
+        const koerper = erzaehlGeschichteKoerper(
+            kennung, res.geschichte, dateiKennung, vorherige ? vorherige.id : null, null, 'generiert', art);
+        const gespeichert = await geschichteAnhaengen(koerper);
+        if (!gespeichert.ok) return { ok: false, fehler: gespeichert.fehler, geschichte: res.geschichte };
+        leseBereichAnzeigen();
+        return { ok: true, geschichte: res.geschichte, zeile: gespeichert.zeile };
+    }
+
+    /** Lese-Bereich „Bildgeschichte" (Einzelbild) bzw. „Anlassgeschichte" (Übersicht): zeigt die
+     *  neueste erzeugte Geschichte zu diesem Bild bzw. Anlass — oder bleibt verborgen. */
+    function leseBereichAnzeigen() {
+        const einzel = zustand.ansicht === 'einzel';
+        const liste = zustand.detail && zustand.detail.geschichten;
+        const bildG = einzel ? erzaehlNeuesteGeschichte(liste, 'bildgeschichte', aktuelleDateiKennung()) : null;
+        const anlassG = einzel ? null : erzaehlNeuesteGeschichte(liste, 'anlassgeschichte', null);
+        [['erzaehl-bildgeschichte', bildG], ['erzaehl-anlassgeschichte', anlassG]].forEach(([id, g]) => {
+            const block = el(id);
+            const text = el(id + '-text');
+            if (text) text.textContent = g ? (g.text || '') : '';
+            if (block) block.hidden = !g;
+        });
+    }
+
+    /** „Das ist keine Notiz, sondern eine Geschichte": hängt GENAU eine Zeile an (ersetzt: id,
+     *  gleicher Text, ``art``, ``quelle`` 'generiert'). Die Datei wird nicht umgeschrieben. */
+    async function alsGeschichteMarkieren(zeile) {
+        if (!zeile || !zustand.aktuellesEreignis) return { ok: false, fehler: 'Keine Notiz gewählt.' };
+        const koerper = erzaehlGeschichteKoerper(
+            zustand.aktuellesEreignis, zeile.text, zeile.datei_kennung, zeile.id, null,
+            'generiert', erzaehlGeschichteArtFuer(zeile));
+        const ergebnis = await geschichteAnhaengen(koerper);
+        if (ergebnis.ok) {
+            geschichtenAnzeigen();
+            kachelMarkerAktualisieren();
+        }
+        return ergebnis;
+    }
+
     async function anlassGeschichteErstellen() {
         if (!zustand.aktuellesEreignis) return;
         const btn = el('erzaehl-anlass-geschichte-btn');
@@ -1639,26 +1790,13 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (hinweis) hinweis.textContent = 'Erstelle Anlass-Geschichte…';
         try {
             audioVorabFreischalten();
-            const notizText = (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '';
-            const res = await jsonSenden('/api/erzaehlen/anlass-geschichte', {
-                ereignis_kennung: zustand.aktuellesEreignis,
-                perspektive: zustand.perspektive || 'ich',
-                notiz: notizText || null,
-            });
-            if (res && res.ok && res.geschichte) {
-                const eingabeFeld = el('erzaehl-text');
-                if (eingabeFeld) {
-                    eingabeFeld.value = res.geschichte;
-                    eingabeFeld.focus();
-                }
-                if (hinweis) {
-                    hinweis.textContent = 'Anlass-Geschichte erstellt. Tippe auf 💾 Speichern, wenn du sie dauerhaft behalten möchtest.';
-                }
-                await vorlesenText(res.geschichte);
+            const ergebnis = await geschichteErzeugen('anlassgeschichte', {});
+            if (ergebnis.ok) {
+                if (hinweis) hinweis.textContent = 'Anlass-Geschichte erstellt und gespeichert.';
+                await vorlesenText(ergebnis.geschichte);
             } else {
-                const fehler = (res && res.fehler) || (res && res.detail) || 'Unbekannter Fehler';
-                console.error('Fehler bei Anlass-Geschichte:', fehler);
-                if (hinweis) hinweis.textContent = `Anlass-Geschichte fehlgeschlagen: ${fehler}`;
+                console.error('Fehler bei Anlass-Geschichte:', ergebnis.fehler);
+                if (hinweis) hinweis.textContent = `Anlass-Geschichte fehlgeschlagen: ${ergebnis.fehler}`;
             }
         } catch (e) {
             console.error('Netzwerkfehler bei Anlass-Geschichte:', e);
@@ -1850,29 +1988,23 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 kiBtn.disabled = true;
                 const altText = kiBtn.textContent;
                 kiBtn.textContent = '✨ Generiere…';
+                const hinweis = el('erzaehl-hinweis');
                 try {
                     audioVorabFreischalten();
-                    const notizText = (el('erzaehl-text') ? el('erzaehl-text').value.trim() : '') || '';
-                    const res = await jsonSenden('/api/erzaehlen/ki-geschichte', {
-                        fileid: String(dateiKennung),
-                        perspektive: zustand.perspektive || 'ich',
-                        ereignis_kennung: zustand.aktuellesEreignis,
+                    // G1: keine ``notiz`` mehr an den Server (das Backend sammelt sie selbst); die
+                    // erzeugte Geschichte wird als Bildgeschichte gespeichert, nicht ins Notizfeld.
+                    const ergebnis = await geschichteErzeugen('bildgeschichte', {
+                        dateiKennung: kennung,
                         beschreibung: (bild && bild.dataset ? bild.dataset.beschreibung : '') || '',
-                        notiz: notizText,
                         ort: el('erzaehl-bild-ort-text') ? el('erzaehl-bild-ort-text').textContent.replace(/^Ort:\s*/, '') : '',
                         datum: (meinDetail && meinDetail.datum) || '',
                     });
-                    if (res && res.ok && res.geschichte) {
-                        const eingabeFeld = el('erzaehl-text');
-                        if (eingabeFeld) {
-                            eingabeFeld.value = res.geschichte;
-                            eingabeFeld.focus();
-                        }
-                        // Bildgeschichte direkt speichern (mit Notiz als Abfrage)
-                        await geschichteSpeichern(null, notizText || null);
-                        await vorlesenText(res.geschichte);
+                    if (ergebnis.ok) {
+                        if (hinweis) hinweis.textContent = '';
+                        await vorlesenText(ergebnis.geschichte);
                     } else {
-                        console.error('Fehler bei der Bildgeschichte:', res && res.fehler);
+                        console.error('Fehler bei der Bildgeschichte:', ergebnis.fehler);
+                        if (hinweis) hinweis.textContent = `Bildgeschichte fehlgeschlagen: ${ergebnis.fehler}`;
                     }
                 } catch (e) {
                     console.error('Netzwerkfehler bei der Bildgeschichte:', e);
@@ -1950,6 +2082,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         // Übersicht: Geschichten zur ganzen Gruppe über dem Raster;
         // Einzelansicht: zu diesem Bild + zur ganzen Gruppe unter dem Bild.
         const imRaster = zustand.ansicht !== 'einzel';
+        leseBereichAnzeigen();   // G1: erzeugte Geschichte getrennt von den Notizen
         const container = el(imRaster ? 'erzaehl-gruppen-geschichten' : 'erzaehl-geschichten');
         const anderer = el(imRaster ? 'erzaehl-geschichten' : 'erzaehl-gruppen-geschichten');
         if (anderer) anderer.textContent = '';
@@ -1958,9 +2091,11 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const detail = zustand.detail;
         if (!detail || !Array.isArray(detail.geschichten)) return;
 
+        // G1: Die Notizliste zeigt nur Notizen (istNotiz) — keine Bild-/Anlassgeschichte, keinen Altbestand.
+        const notizen = detail.geschichten.filter((g) => g && istNotiz(g));
         const dateiKennung = aktuelleDateiKennung();
-        const zumBild = detail.geschichten.filter((g) => g && g.datei_kennung === dateiKennung);
-        const zumEreignis = detail.geschichten.filter((g) => g && g.datei_kennung == null);
+        const zumBild = notizen.filter((g) => g.datei_kennung === dateiKennung);
+        const zumEreignis = notizen.filter((g) => g.datei_kennung == null);
 
         const abschnitt = (titel, liste) => {
             if (!liste.length) return;
@@ -2008,6 +2143,25 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 editBtn.style.fontSize = '0.82rem';
                 editBtn.style.padding = '2px 4px';
                 metaAktionen.appendChild(editBtn);
+
+                const geschichteBtn = document.createElement('button');
+                geschichteBtn.className = 'erzaehl-geschichte-keine-notiz-btn';
+                geschichteBtn.type = 'button';
+                geschichteBtn.title = 'Das ist keine Notiz, sondern eine Geschichte';
+                geschichteBtn.setAttribute('aria-label', 'Das ist keine Notiz, sondern eine Geschichte');
+                geschichteBtn.textContent = '📖';
+                geschichteBtn.style.background = 'transparent';
+                geschichteBtn.style.border = 'none';
+                geschichteBtn.style.cursor = 'pointer';
+                geschichteBtn.style.fontSize = '0.82rem';
+                geschichteBtn.style.padding = '2px 4px';
+                geschichteBtn.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    if (!confirm('Diesen Text als Geschichte führen statt als Notiz? Nichts wird gelöscht.')) return;
+                    const ergebnis = await alsGeschichteMarkieren(g);
+                    if (!ergebnis.ok) alert(ergebnis.fehler || 'Konnte nicht gespeichert werden.');
+                };
+                metaAktionen.appendChild(geschichteBtn);
 
                 const delBtn = document.createElement('button');
                 delBtn.className = 'erzaehl-geschichte-delete-btn';
@@ -2113,7 +2267,11 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                             zustand.aktuellesEreignis,
                             neuerText,
                             g.datei_kennung,
-                            g.id
+                            g.id,
+                            null,
+                            'tippen',
+                            null,
+                            g.notiz_bestaetigt === true
                         );
                         const res = await jsonSenden('/api/erzaehlen/geschichten', body);
                         if (res && res.ok) {
@@ -2164,19 +2322,24 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
 
     // ---- Geschichte speichern -------------------------------------------
 
+    /** Speichert den Text des Notizfelds als Notiz (quelle "tippen", ohne ``art``).
+     *  Rückgabe: true, wenn gespeichert (oder der Anlass inzwischen gewechselt ist), sonst false. */
     async function geschichteSpeichern(ersetztId = null, abfrageText = null) {
         const feld = el('erzaehl-text');
         const hinweis = el('erzaehl-hinweis');
-        if (!feld) return;
+        if (!feld) return false;
         const text = feld.value.trim();
-        if (!text) return;
-        if (!zustand.aktuellesEreignis) return;
+        if (!text) return false;
+        if (!zustand.aktuellesEreignis) return false;
 
         // Übersicht -> Geschichte zur ganzen Gruppe (ohne Bild),
         // Einzelansicht -> zu diesem Bild.
         const dk = zustand.ansicht === 'einzel' ? aktuelleDateiKennung() : null;
         const kennung = zustand.aktuellesEreignis;
-        const body = erzaehlGeschichteKoerper(kennung, text, dk, ersetztId, abfrageText);
+        const body = erzaehlGeschichteKoerper(
+            kennung, text, dk,
+            typeof ersetztId === 'string' ? ersetztId : null,
+            typeof abfrageText === 'string' ? abfrageText : null);
 
         try {
             const res = await fetch(`${apiBase()}/api/erzaehlen/geschichten`, {
@@ -2187,25 +2350,28 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             const daten = await res.json().catch(() => ({}));
             if (!res.ok || daten.ok !== true) {
                 if (hinweis) hinweis.textContent = daten.detail || daten.error || 'Speichern fehlgeschlagen.';
-                return;
+                return false;
             }
             if (zustand.aktuellesEreignis !== kennung) {
                 // Inzwischen weitergewischt: gespeichert ist am richtigen Anlass;
                 // dessen aufgehobener Entwurf ist damit erledigt, das neue Feld bleibt.
                 zustand.entwurfJeAnlass.delete(kennung);
-                return;
+                return true;
             }
             feld.value = '';
             if (hinweis) hinweis.textContent = '';
             // Frisch anhängen, damit „Zu diesem Bild"/„Zum Ereignis" sofort
-            // die neue Geschichte zeigt — ohne kompletten Nachlade-Rundlauf.
+            // die neue Notiz zeigt — ohne kompletten Nachlade-Rundlauf. Die Antwort
+            // trägt ``ist_notiz`` (G1), die Notizliste rendert also ohne Neuladen richtig.
             if (zustand.detail && Array.isArray(zustand.detail.geschichten)) {
                 zustand.detail.geschichten.push(daten.geschichte);
             }
             geschichtenAnzeigen();
             kachelMarkerAktualisieren();
+            return true;
         } catch (_e) {
             if (hinweis) hinweis.textContent = 'Verbindung zum Backend fehlgeschlagen.';
+            return false;
         }
     }
 
@@ -2491,7 +2657,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (jahrFeld) jahrFeld.addEventListener('input', ereignislisteLaden);
 
         const speichernBtn = el('erzaehl-speichern-btn');
-        if (speichernBtn) speichernBtn.addEventListener('click', geschichteSpeichern);
+        // Als Funktion ohne Argumente aufrufen: der Click-Event darf nicht als ``ersetztId`` ankommen.
+        if (speichernBtn) speichernBtn.addEventListener('click', () => geschichteSpeichern());
+        const vorlesenBildgeschichte = el('erzaehl-bildgeschichte-vorlesen');
+        if (vorlesenBildgeschichte) vorlesenBildgeschichte.addEventListener('click', () => vorlesen('erzaehl-bildgeschichte-text'));
+        const vorlesenAnlassgeschichte = el('erzaehl-anlassgeschichte-vorlesen');
+        if (vorlesenAnlassgeschichte) vorlesenAnlassgeschichte.addEventListener('click', () => vorlesen('erzaehl-anlassgeschichte-text'));
 
         const micBtn = el('erzaehl-mic-btn');
         if (micBtn) micBtn.addEventListener('click', aufnahmeStarten);

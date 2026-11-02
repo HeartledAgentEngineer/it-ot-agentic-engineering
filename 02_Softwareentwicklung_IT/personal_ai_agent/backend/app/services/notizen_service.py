@@ -126,7 +126,7 @@ def person_finden(name: Any) -> Optional[Dict[str, Any]]:
 
 
 def geschichten() -> List[Dict[str, Any]]:
-    """Aktuelle Geschichten (nur neueste Fassung) als Klartext-Zeilen."""
+    """Aktuelle Notizen (nur neueste Fassung, nur ``ist_notiz``) als Klartext-Zeilen."""
     from app.services import erzaehl_service
 
     zeilen: List[Dict[str, Any]] = []
@@ -136,6 +136,9 @@ def geschichten() -> List[Dict[str, Any]]:
         return zeilen
     for eintrag in roh or []:
         if not isinstance(eintrag, dict):
+            continue
+        # G1 (02.11.2026): nur Notizen — keine Bild-/Anlassgeschichte, kein Altbestand.
+        if eintrag.get("ist_notiz") is not True:
             continue
         text = " ".join(str(eintrag.get("text") or "").split()).strip()[:MAX_NOTIZ_ZEICHEN]
         if not text:

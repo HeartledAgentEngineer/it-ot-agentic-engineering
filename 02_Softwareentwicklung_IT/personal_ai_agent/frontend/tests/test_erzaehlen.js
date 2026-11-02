@@ -149,6 +149,7 @@ pruefe('Antippen versteckt am Handy die Liste und zeigt die Diashow',
 // Übersicht (Wunsch 06.10.2026): erst alle Bilder der Gruppe, Geschichte zur
 // ganzen Gruppe; Antippen öffnet ein Bild einzeln mit eigener Geschichte.
 eval(extractFn('erzaehlGeschichteKoerper'));
+eval(extractFn('istNotiz'));
 eval(extractFn('erzaehlGeschichtenJeBild'));
 
 console.log('\n6) erzaehlGeschichteKoerper — Gruppe ohne Bild, Einzelbild mit Bild');
@@ -257,7 +258,7 @@ pruefe('veraltete Personen-Antwort wird verworfen', /if \(zustand\.aktuellesErei
 pruefe('Vorlesen: bevorzugt /api/speak mit Rückfall auf Browser-Stimme',
     /vorlesenText[\s\S]*?\/api\/speak[\s\S]*?speechSynthesis/.test(src));
 pruefe('Vorlesen nur auf Tipp (kein Aufruf außer in den Knopf-Handlern)',
-    (src.match(/vorlesen\('/g) || []).length === 4);
+    (src.match(/vorlesen\('/g) || []).length === 6);  // 4 Bestand + 2 neue Lese-Bereiche (Bild-/Anlassgeschichte, 02.11.2026), alle Knopf-Handler
 pruefe('index.html: Notizen-Kopf mit 🔊 in Übersicht und Einzelbild (versteckt)',
     /id="erzaehl-gruppen-geschichten-kopf"[^>]*hidden/.test(html)
     && /id="erzaehl-gruppen-geschichten-vorlesen"/.test(html)
@@ -352,7 +353,7 @@ pruefe('offener Anlass ist in der Liste markiert', /classList\.toggle\('aktiv', 
 pruefe('CSS: [hidden] wirkt auf die Anlass-Leiste', /\.erzaehl-anlass-nav\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(css));
 pruefe('CSS: senkrechtes Scrollen bleibt beim Wischen', /\.erzaehl-diashow-spalte\s*\{\s*touch-action:\s*pan-y pinch-zoom;\s*\}/.test(css));
 pruefe('CSS: Animation entfällt bei „weniger Bewegung"', /prefers-reduced-motion: reduce\)[\s\S]{0,160}animation: none/.test(css));
-pruefe('index.html lädt erzaehlen.js mit ?v=20261101E', /erzaehlen\.js\?v=20261101E/.test(html));
+pruefe('index.html lädt erzaehlen.js mit ?v=20261102B', /erzaehlen\.js\?v=20261102B/.test(html));
 
 // Was und wo (07.10.2026): Ort und Beschreibung je Bild, Orte der Gruppe.
 eval(extractFn('erzaehlOrtText'));

@@ -73,12 +73,21 @@ def test_ki_geschichte_mit_englischer_gemini_beschreibung(tmp_path, monkeypatch)
         encoding="utf-8"
     )
 
+    # Seit G1 sammelt das Backend die Notizen selbst: eine echte Notiz an diesem Bild.
+    (tmp_path / "geschichten.jsonl").write_text(
+        json.dumps({
+            "id": "n1", "zeit": "2026-11-01T10:00:00", "schicht": "mensch",
+            "ereignis_kennung": "E-Test", "datei_kennung": 201,
+            "text": "Ein unvergesslicher Abend.", "quelle": "tippen", "ersetzt": None,
+        }) + "\n",
+        encoding="utf-8"
+    )
+
     # 1. Ich-Form (Bildanalyse eingedeutscht, Notiz inhaltlich übernommen statt zitiert)
     res_ich = erzaehl_service.ki_geschichte_generieren(
         fileid=201,
         perspektive="ich",
         ereignis_kennung="E-Test",
-        notiz="Ein unvergesslicher Abend."
     )
     assert res_ich["ok"] is True
     assert ("fröhliche Gruppe" in res_ich["geschichte"] or "joyful group" in res_ich["geschichte"])
@@ -90,7 +99,6 @@ def test_ki_geschichte_mit_englischer_gemini_beschreibung(tmp_path, monkeypatch)
         fileid=201,
         perspektive="erzaehler",
         ereignis_kennung="E-Test",
-        notiz="Ein unvergesslicher Abend."
     )
     assert res_erz["ok"] is True
     assert ("fröhliche Gruppe" in res_erz["geschichte"] or "joyful group" in res_erz["geschichte"])

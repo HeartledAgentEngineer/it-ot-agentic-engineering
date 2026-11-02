@@ -53,7 +53,17 @@ SCHICHT_VERSION = 1
 # Auftrag): spätere Übernahme von Erzählungen aus Hermes. Über die
 # Oberfläche werden weiterhin nur "tippen"/"sprache" gesetzt — die
 # POST-Validierung akzeptiert zusätzlich "import".
-QUELLEN_ERLAUBT = ("tippen", "sprache", "import")
+#
+# "generiert" (G1, 02.11.2026): vom Programm erzeugte Bild-/Anlassgeschichte.
+# Sie wird nur zusammen mit einer ``art`` gespeichert und ist nie eine Notiz.
+QUELLEN_ERLAUBT = ("tippen", "sprache", "import", "generiert")
+
+# Quellen, die eine **Notiz** im Sinn von Sebastians eigenen Worten sind.
+NOTIZ_QUELLEN = ("tippen", "sprache", "import")
+
+# Erlaubte ``art`` einer Geschichten-Zeile. Eine Zeile ohne ``art`` ist eine
+# Notiz (oder Altbestand, siehe :func:`zeile_einordnen`).
+ARTEN_ERLAUBT = ("bildgeschichte", "anlassgeschichte")
 
 TEXT_MAX_LAENGE = 20_000
 
@@ -406,12 +416,202 @@ def _neueste_fassungen(zeilen: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
+# ── Notiz oder Geschichte? (G1, 02.11.2026) ─────────────────────────────────
+# Frühere Fassungen des Knopfes „Bildgeschichte" haben das erzeugte Ergebnis wie
+# eine Notiz gespeichert (``quelle: "tippen"``). Aus diesen Zeilen (Altbestand)
+# wurde beim nächsten Lauf wieder eine „Notiz", und die Geschichte verschachtelte
+# sich. Damit das nicht mehr passiert, gibt es EINE Regel an EINER Stelle:
+# :func:`zeile_einordnen`. Die Datei wird nie umgeschrieben — nur gelesen.
+#
+# Festes Wortlaut-Inventar der früheren Generator-Fassungen als Paare
+# (Satz, Stufe). Beleg je Eintrag und Commit (1da2f9f, 27466f2, 96de1fc,
+# 05db80b): ``.hermes/plans/2026-11-02_geschichte-altbestand-saetze.md``.
+#   E = eindeutig: Ein Treffer irgendwo im Text genügt.
+#   M = mehrdeutig: zählt nur am Satzanfang und erst ab ZWEI verschiedenen M.
+ALTE_GENERATOR_SAETZE: Tuple[Tuple[str, str], ...] = (
+    ("Auf dem Bild sind", "M"),
+    ("Auf dem Bild zu sehen:", "M"),
+    ("Auf dem Foto bin ich zusammen mit", "M"),
+    ("Auf dem Foto wird dieser Augenblick lebendig:", "E"),
+    ("Auf dem ersten Foto wird dieser Augenblick lebendig:", "E"),
+    ("Auf den Bildern bin ich allein zu sehen.", "M"),
+    ("Auf der Aufnahme wird die Szene sichtbar:", "E"),
+    ("Auf diesem Bild bin ich allein zu sehen.", "M"),
+    ("Auf diesem Bild sind", "M"),
+    ("Aufnahmen aus dem Familienarchiv zum Anlass „", "E"),
+    ("Aufnahmen zum Anlass „", "E"),
+    ("Aus den überlieferten Aufzeichnungen:", "E"),
+    ("Das Bild zeigt", "M"),
+    ("Das Foto fängt diesen Augenblick ein:", "E"),
+    ("Das Foto fängt diesen Moment lebendig ein:", "E"),
+    ("Das ist die Geschichte zu unserem Anlass „", "E"),
+    ("Das ist die Geschichte zu „", "E"),
+    ("Das ist eine schöne Erinnerung aus meiner Sammlung.", "E"),
+    ("Dazu die persoenliche Notiz:", "E"),
+    ("Der Anlass umfasst eine Einzelaufnahme.", "E"),
+    ("Die Aufnahme zeigt", "M"),
+    ("Die Aufnahmen dokumentieren das Geschehen:", "E"),
+    ("Die Aufnahmen fangen die Szenen ein:", "E"),
+    ("Die Aufnahmen fangen die Szenen warm ein:", "E"),
+    ("Die Fotoreihe umfasst", "M"),
+    ("Die visuelle Aufnahme zeigt:", "E"),
+    ("Die visuelle Bildanalyse dokumentiert:", "E"),
+    ("Die visuelle Bildanalyse hält fest:", "E"),
+    ("Diese Aufnahmen entstanden in", "M"),
+    ("Dieser Moment ist auf einem Foto festgehalten.", "E"),
+    ("Dieses Foto entstand in", "M"),
+    ("Dieses Foto wurde in", "M"),
+    ("Dort bin ich zusammen mit", "M"),
+    ("Ein Augenblick voller Geborgenheit, der diese Zeit lebendig hält.", "E"),
+    ("Ein archiviertes Kapitel im Fotobestand.", "E"),
+    ("Ein authentisches Zeitdokument, das diesen Lebensabschnitt festhält.", "E"),
+    ("Ein festgehaltener Augenblick aus dem Fotoarchiv.", "E"),
+    ("Ein festgehaltener Augenblick aus der Chronik", "E"),
+    ("Ein lebendiges Zeitdokument in der Fotogalerie.", "E"),
+    ("Ein schoener Moment, der hier auf diesem Foto festgehalten ist.", "E"),
+    ("Ein schöner Moment zusammen mit", "M"),
+    ("Ein vertrauter Augenblick in", "M"),
+    ("Ein weiteres Bild zeigt:", "M"),
+    ("Ein weiteres Foto hält fest:", "M"),
+    ("Ein weiteres Foto zeigt:", "M"),
+    ("Ein zusammenhängendes Ereignis aus dem Fotoarchiv.", "E"),
+    ("Eine Aufnahme in", "M"),
+    ("Eine Aufnahme zum Ereignis „", "E"),
+    ("Eine Fotodokumentation zu „", "E"),
+    ("Eine Momentaufnahme zu „", "E"),
+    ("Eine besondere Erinnerung an unseren Anlass „", "E"),
+    ("Eine lebendige Bilderreihe, die diese gemeinsamen Erinnerungen für immer bewahrt.", "E"),
+    ("Eine schöne Erinnerung an „", "M"),
+    ("Eine wertvolle Erinnerung, die für immer bleibt.", "M"),
+    ("Eine wunderbare Erinnerung an „", "M"),
+    ("Eine wunderbare Fotoserie, die diesen Anlass lebendig hält.", "E"),
+    ("Es ist eine wertvolle Erinnerung in meiner Sammlung.", "E"),
+    ("Fotodokumentation zu „", "E"),
+    ("Fotodokumentation zum Anlass „", "E"),
+    ("Genau dieser vertraute Moment eröffnet das Fotobuch – ein Bild voller Wärme, das man sich immer wieder gern ansieht.", "E"),
+    ("Ich erinnere mich gern an diese Zeit", "M"),
+    ("Ich erinnere mich gut an diese Zeit", "M"),
+    ("Ich erinnere mich gut an diesen Moment", "M"),
+    ("Im Mittelpunkt stehen", "M"),
+    ("Meine Erinnerung dazu:", "M"),
+    ("Mit dabei waren", "M"),
+    ("Weitere Aufnahmen zeigen:", "M"),
+    ("Weitere Motive fangen ein:", "E"),
+    ("Zu diesem Anlass gehören", "M"),
+)
+
+_ALT_E = tuple(satz for satz, stufe in ALTE_GENERATOR_SAETZE if stufe == "E")
+_ALT_M = tuple(satz for satz, stufe in ALTE_GENERATOR_SAETZE if stufe == "M")
+_SATZGRENZE = re.compile(r"(?<=[.!?]) ")
+
+
+def ist_erzeugt_alt(text: Any) -> bool:
+    """Stammt ``text`` aus einer früheren Generator-Fassung? (reine Lesefunktion)
+
+    Regel: mindestens ein E-Satz irgendwo im Text ODER mindestens zwei
+    verschiedene M-Sätze am Satzanfang (Textanfang oder nach ``. ``, ``! ``,
+    ``? `` bzw. einem Zeilenumbruch). Leerraum wird vor dem Vergleich
+    zusammengezogen, Groß-/Kleinschreibung bleibt.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False
+    zeilen = [" ".join(z.split()) for z in text.splitlines()]
+    zeilen = [z for z in zeilen if z]
+    gesamt = " ".join(zeilen)
+    if any(satz in gesamt for satz in _ALT_E):
+        return True
+    treffer = set()
+    for zeile in zeilen:
+        for abschnitt in _SATZGRENZE.split(zeile):
+            for satz in _ALT_M:
+                if abschnitt.startswith(satz):
+                    treffer.add(satz)
+                    if len(treffer) >= 2:
+                        return True
+    return False
+
+
+def zeile_einordnen(zeile: Any) -> Dict[str, Any]:
+    """Einordnung einer Geschichten-Zeile: ``{ist_notiz, ist_altbestand, art}``.
+
+    * Zeile mit ``art`` (Bild-/Anlassgeschichte): keine Notiz, kein Altbestand.
+    * ``notiz_bestaetigt: true``: immer Notiz, nie Altbestand („Das ist meine Notiz").
+    * Sonst Altbestand, wenn :func:`ist_erzeugt_alt` den Text erkennt.
+    * Notiz = ohne ``art``, ``quelle`` in tippen/sprache/import, kein Altbestand.
+    """
+    if not isinstance(zeile, dict):
+        return {"ist_notiz": False, "ist_altbestand": False, "art": None}
+    art = zeile.get("art")
+    art = art.strip() if isinstance(art, str) and art.strip() else None
+    if art:
+        return {"ist_notiz": False, "ist_altbestand": False, "art": art}
+    if zeile.get("notiz_bestaetigt") is True:
+        return {"ist_notiz": True, "ist_altbestand": False, "art": None}
+    if ist_erzeugt_alt(zeile.get("text")):
+        return {"ist_notiz": False, "ist_altbestand": True, "art": None}
+    return {
+        "ist_notiz": zeile.get("quelle") in NOTIZ_QUELLEN,
+        "ist_altbestand": False,
+        "art": None,
+    }
+
+
+def eigene_notizen(ereignis_kennung: Optional[str] = None,
+                   fileid: Any = None) -> List[Dict[str, Any]]:
+    """ALLE Notizen (neueste Fassungen, nach ``zeit`` sortiert) — Quelle des Generators.
+
+    Nur Zeilen mit ``ist_notiz`` — nie eine Bild-/Anlassgeschichte, nie Altbestand.
+
+    * Mit ``fileid`` (Bildweg): Notizen an diesem Bild, dazu die Notizen zur
+      ganzen Gruppe des Ereignisses (``datei_kennung`` leer), falls
+      ``ereignis_kennung`` gegeben ist.
+    * Ohne ``fileid`` (Anlassweg): alle Notizen des Ereignisses.
+    * Ohne beides: leere Liste.
+    """
+    ek = ereignis_kennung.strip() if isinstance(ereignis_kennung, str) and ereignis_kennung.strip() else None
+    fid = _als_zahl(fileid) if fileid is not None else None
+    if ek is None and fid is None:
+        return []
+    treffer: List[Dict[str, Any]] = []
+    for zeile in _neueste_fassungen(_geschichten_laden()):
+        einordnung = zeile_einordnen(zeile)
+        if not einordnung["ist_notiz"]:
+            continue
+        dk = _als_zahl(zeile.get("datei_kennung"))
+        if fid is not None:
+            if dk is not None:
+                if dk != fid:
+                    continue
+            elif ek is None or zeile.get("ereignis_kennung") != ek:
+                continue
+        elif zeile.get("ereignis_kennung") != ek:
+            continue
+        treffer.append({**zeile, **einordnung})
+    treffer.sort(key=lambda z: str(z.get("zeit") or ""))
+    return treffer
+
+
+def _notizen_zu_text(notizen: List[Dict[str, Any]]) -> str:
+    """Alle Notizen als ein Text für die Schablone (jede als eigener Satz)."""
+    teile: List[str] = []
+    for notiz in notizen:
+        sauber = _notiz_fuer_geschichte(notiz.get("text"))
+        if not sauber:
+            continue
+        if sauber[-1] not in ".!?":
+            sauber += "."
+        teile.append(sauber)
+    return " ".join(teile)
+
+
 def geschichten(ereignis_kennung: Optional[str] = None,
                 datei_kennung: Optional[int] = None) -> List[Dict[str, Any]]:
     """Geschichten (nur neueste Fassung), optional gefiltert.
 
-    Ohne Filter kommen alle aktuellen Geschichten zurück. **Wirft nie** —
-    fehlt die Datei, ist das Ergebnis eine leere Liste.
+    Jede Zeile trägt zusätzlich ``ist_notiz``, ``ist_altbestand`` und ``art``
+    (siehe :func:`zeile_einordnen`). Ohne Filter kommen alle aktuellen
+    Geschichten zurück. **Wirft nie** — fehlt die Datei, ist das Ergebnis eine
+    leere Liste.
     """
     alle = _neueste_fassungen(_geschichten_laden())
     ek = ereignis_kennung.strip() if isinstance(ereignis_kennung, str) else None
@@ -423,7 +623,7 @@ def geschichten(ereignis_kennung: Optional[str] = None,
             continue
         if dk is not None and _als_zahl(eintrag.get("datei_kennung")) != dk:
             continue
-        ergebnis.append(eintrag)
+        ergebnis.append({**eintrag, **zeile_einordnen(eintrag)})
     return ergebnis
 
 
@@ -451,6 +651,8 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
     alle_geschichten = _neueste_fassungen(_geschichten_laden())
     geschichten_je_ereignis: Dict[str, int] = {}
     for eintrag in alle_geschichten:
+        if not zeile_einordnen(eintrag)["ist_notiz"]:
+            continue  # Kachelzähler „✎ n": keine Bild-/Anlassgeschichte, kein Altbestand
         ek = eintrag.get("ereignis_kennung")
         if isinstance(ek, str) and ek:
             geschichten_je_ereignis[ek] = geschichten_je_ereignis.get(ek, 0) + 1
@@ -759,13 +961,21 @@ class GeschichteValidierungsfehler(ValueError):
 def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
                          datei_kennung: Optional[int] = None,
                          ersetzt: Optional[str] = None,
-                         abfrage: Optional[str] = None) -> Dict[str, Any]:
+                         abfrage: Optional[str] = None,
+                         art: Optional[str] = None,
+                         notiz_bestaetigt: bool = False) -> Dict[str, Any]:
     """Eine neue Geschichte anhängen (Schicht "mensch").
 
     Validiert nach den Regeln aus dem Auftrag; wirft
     :class:`GeschichteValidierungsfehler` (deutscher Text) bei ungültiger
     Eingabe. Schreibt **nur anhängend** (``"a"`` + ``flush`` + ``fsync``) und
-    liefert die geschriebene Zeile zurück.
+    liefert die geschriebene Zeile zurück, ergänzt um die Einordnung
+    (``ist_notiz``, ``ist_altbestand``, ``art`` — siehe :func:`zeile_einordnen`).
+
+    ``art`` (G1): nur ``bildgeschichte`` oder ``anlassgeschichte``; ohne ``art``
+    ist die Zeile eine Notiz. ``notiz_bestaetigt=True`` markiert eine Zeile
+    dauerhaft als Notiz („Das ist meine Notiz"), auch wenn der Text wie
+    Altbestand aussieht.
     """
     text_wert = text.strip() if isinstance(text, str) else ""
     if not text_wert:
@@ -782,6 +992,14 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
             f"Quelle '{quelle}' ist ungültig (erlaubt: "
             f"{', '.join(QUELLEN_ERLAUBT)})."
         )
+
+    art_wert: Optional[str] = None
+    if art is not None and not (isinstance(art, str) and not art.strip()):
+        art_wert = art.strip() if isinstance(art, str) else ""
+        if art_wert not in ARTEN_ERLAUBT:
+            raise GeschichteValidierungsfehler(
+                f"Art '{art}' ist ungültig (erlaubt: {', '.join(ARTEN_ERLAUBT)})."
+            )
 
     ek = ereignis_kennung.strip() if isinstance(ereignis_kennung, str) else ""
     if not ek:
@@ -820,6 +1038,11 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
         "ersetzt": ersetzt_wert,
         "abfrage": abfrage.strip() if isinstance(abfrage, str) and abfrage.strip() else None,
     }
+    # Nur gesetzte Felder stehen in der Zeile (die Datei bleibt für Notizen unverändert).
+    if art_wert:
+        zeile["art"] = art_wert
+    if notiz_bestaetigt is True:
+        zeile["notiz_bestaetigt"] = True
 
     pfad = geschichten_pfad()
     ordner = os.path.dirname(pfad)
@@ -831,7 +1054,7 @@ def geschichte_speichern(ereignis_kennung: str, text: str, quelle: str,
         datei.flush()
         os.fsync(datei.fileno())
 
-    return zeile
+    return {**zeile, **zeile_einordnen(zeile)}
 
 
 
@@ -1235,7 +1458,12 @@ def ki_geschichte_generieren(fileid: Any,
                              beschreibung: Optional[str] = None) -> Dict[str, Any]:
     """Erzeugt eine lebendige Bildgeschichte aus Bilddaten, Personen, KI-Bildanalysen und Notizen (01.11.2026).
     Waehlbar in 'ich'-Perspektive (Ich-Form) oder 'erzaehler' (neutrale Sicht).
-    Verschmilzt Bildinhalt und Erinnerung organisch ohne Staccato."""
+    Verschmilzt Bildinhalt und Erinnerung organisch ohne Staccato.
+
+    Quelle der Notizen (G1, 02.11.2026): ausschliesslich :func:`eigene_notizen`
+    (ALLE Notizen des Bildes und der Gruppe, nie eine Bild-/Anlassgeschichte).
+    Der Parameter ``notiz`` wird aus Rueckwaertsverstaendnis angenommen, aber
+    NICHT mehr als Quelle benutzt."""
     fid = _als_zahl(fileid)
     if fid is None:
         return {"ok": False, "fehler": "Ungueltige Bildkennung."}
@@ -1255,16 +1483,8 @@ def ki_geschichte_generieren(fileid: Any,
             pass
     beschr_sauber = deutsch_fuer_bildbeschreibung(beschreibung)
 
-    # 2. Notiz / vorhandene Geschichte ermitteln (auch aus übergeordnetem Ereignis)
-    if not notiz:
-        alte_geschichten = geschichten(datei_kennung=fid)
-        if alte_geschichten:
-            notiz = alte_geschichten[-1].get("text") or ""
-        elif ereignis_kennung:
-            ev_geschichten = geschichten(ereignis_kennung=ereignis_kennung)
-            if ev_geschichten:
-                notiz = ev_geschichten[-1].get("text") or ""
-    notiz_inhalt = _notiz_fuer_geschichte(notiz)
+    # 2. Alle eigenen Notizen sammeln (G1) — nie eine fruehere Geschichte
+    notiz_inhalt = _notizen_zu_text(eigene_notizen(ereignis_kennung, fid))
 
     # 3. Personen auf dem Bild ermitteln
     if personen is None:
@@ -1353,6 +1573,10 @@ def anlass_geschichte_generieren(
     Verknüpft Anlasstitel, Zeitraum, Orte, beteiligte Personen, KI-Bildanalysen und Notizen
     zu einem fließenden Text. Wählbar in 'ich'-Perspektive oder neutraler 'erzaehler'-Sicht.
     Verschmilzt Bildanalysen aller Bilder organisch mit den persönlichen Notizen ohne Staccato.
+
+    Quelle der Notizen (G1, 02.11.2026): ausschliesslich :func:`eigene_notizen`
+    des Ereignisses — nie eine Anlassgeschichte, nie Altbestand. Der Parameter
+    ``notiz`` wird angenommen, aber NICHT mehr als Quelle benutzt.
     """
     detail: Optional[Dict[str, Any]] = None
     if ereignis_kennung:
@@ -1422,12 +1646,8 @@ def anlass_geschichte_generieren(
         except Exception:
             pass
 
-    # Notizen ermitteln & bereinigen (keine Zitate)
-    if not notiz and detail:
-        vorhandene = [g.get("text", "").strip() for g in (detail.get("geschichten") or []) if g.get("text")]
-        if vorhandene:
-            notiz = vorhandene[-1]
-    notiz_inhalt = _notiz_fuer_geschichte(notiz)
+    # Alle eigenen Notizen des Anlasses sammeln & bereinigen (keine Zitate)
+    notiz_inhalt = _notizen_zu_text(eigene_notizen(ereignis_kennung, None)) if ereignis_kennung else ""
 
     # Organische Verschmelzung
     geschichte_text = verschmelze_geschichte(

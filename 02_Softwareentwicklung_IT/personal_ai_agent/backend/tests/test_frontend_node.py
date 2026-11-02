@@ -29,6 +29,7 @@ TESTORDNER = FRONTEND / "tests"
 ZUORDNUNG = {
     "test_erzaehlen.js": "erzaehlen.js",
     "test_erzaehlen_hand_gesichter.js": "erzaehlen.js",
+    "test_erzaehlen_geschichte_getrennt.js": "erzaehlen.js",
     "test_anmelden.js": "anmelden.js",
     "test_gruppen_quiz.js": "gruppen_quiz.js",
     "test_gruppen_liste.js": "gruppen_quiz.js",

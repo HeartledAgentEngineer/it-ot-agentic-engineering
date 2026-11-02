@@ -49,10 +49,11 @@ PROFILE = {
 
 GESCHICHTEN = [
     {"id": "g1", "ereignis_kennung": "E-2015-10-03_Test", "text": "Buße war ein schöner Abend.",
-     "zeit": "2026-10-01T12:00:00", "quelle": "mensch"},
-    {"id": "g2", "ereignis_kennung": "E-2015-10-03_Test", "text": "Alte Fassung.", "zeit": "x"},
+     "zeit": "2026-10-01T12:00:00", "quelle": "tippen"},
+    {"id": "g2", "ereignis_kennung": "E-2015-10-03_Test", "text": "Alte Fassung.", "zeit": "x",
+     "quelle": "tippen"},
     {"id": "g3", "ereignis_kennung": "E-2015-10-03_Test", "text": "Neue Fassung.", "zeit": "y",
-     "ersetzt": "g2"},
+     "ersetzt": "g2", "quelle": "tippen"},
 ]
 
 

@@ -633,6 +633,14 @@
                         <div id="erzaehl-orte" class="erzaehl-info" hidden>
                             <div><span aria-hidden="true">📍</span> <span id="erzaehl-orte-text"></span></div>
                         </div>
+                        <!-- Anlassgeschichte (G1, 02.11.2026): der erzeugte Text, getrennt von den Notizen. -->
+                        <div id="erzaehl-anlassgeschichte" class="erzaehl-info" hidden>
+                            <div class="erzaehl-geschichten-kopf">
+                                <span class="erzaehl-geschichten-kopf-text">Anlassgeschichte</span>
+                                <button id="erzaehl-anlassgeschichte-vorlesen" class="erzaehl-vorlesen" type="button" title="Anlassgeschichte vorlesen" aria-label="Anlassgeschichte vorlesen">🔊</button>
+                            </div>
+                            <div id="erzaehl-anlassgeschichte-text" class="erzaehl-lese-text" style="white-space:pre-wrap;"></div>
+                        </div>
                         <div id="erzaehl-gruppen-geschichten-kopf" class="erzaehl-geschichten-kopf" hidden>
                             <span class="erzaehl-geschichten-kopf-text">Notizen und Geschichten</span>
                             <button id="erzaehl-gruppen-geschichten-vorlesen" class="erzaehl-vorlesen" type="button" title="Notizen vorlesen" aria-label="Notizen und Geschichten der Gruppe vorlesen">🔊</button>
@@ -706,6 +714,15 @@
                         <div id="erzaehl-gesicht-meldung" class="erzaehl-gesicht-meldung" hidden>
                             <span id="erzaehl-gesicht-meldung-text"></span>
                             <button id="erzaehl-gesicht-rueckgaengig" class="erzaehl-back erzaehl-back-immer" type="button" hidden>↩ Rückgängig</button>
+                        </div>
+                        <!-- Bildgeschichte (G1, 02.11.2026): der erzeugte Text, getrennt von den Notizen;
+                             zeigt die neueste Bildgeschichte zu diesem Bild. -->
+                        <div id="erzaehl-bildgeschichte" class="erzaehl-info" hidden>
+                            <div class="erzaehl-geschichten-kopf">
+                                <span class="erzaehl-geschichten-kopf-text">Bildgeschichte</span>
+                                <button id="erzaehl-bildgeschichte-vorlesen" class="erzaehl-vorlesen" type="button" title="Bildgeschichte vorlesen" aria-label="Bildgeschichte vorlesen">🔊</button>
+                            </div>
+                            <div id="erzaehl-bildgeschichte-text" class="erzaehl-lese-text" style="white-space:pre-wrap;"></div>
                         </div>
                         <div id="erzaehl-geschichten-kopf" class="erzaehl-geschichten-kopf" hidden>
                             <span class="erzaehl-geschichten-kopf-text">Notizen und Geschichten</span>
@@ -795,7 +812,7 @@
 
     <script src="anmelden.js?v=20261014B"></script>
     <script src="app.js?v=20261102A"></script>
-    <script src="erzaehlen.js?v=20261101E"></script>
+    <script src="erzaehlen.js?v=20261102B"></script>
     <script src="gruppen_quiz.js?v=20261101G"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
