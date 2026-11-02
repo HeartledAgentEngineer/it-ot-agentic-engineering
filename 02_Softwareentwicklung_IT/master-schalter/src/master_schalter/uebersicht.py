@@ -18,6 +18,7 @@ Start: `python -m master_schalter.uebersicht` (ohne Konsole: `pythonw.exe -m mas
 """
 from __future__ import annotations
 
+import json
 import queue
 import sys
 import threading
