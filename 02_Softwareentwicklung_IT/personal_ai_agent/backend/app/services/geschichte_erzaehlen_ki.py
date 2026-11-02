@@ -18,6 +18,8 @@ Eiserne Regeln (wie ``bild_beschreibung_vorschlag.py``)
     Schlüssel, URL oder dem Text der Ausnahme.
   * Im Log stehen nur Modell, Dauer, Zeichenzahl und Kosten — nie der Text,
     nie Namen, nie die Erinnerung.
+  * Namen und Ort gehen nur maskiert raus (``PIIShield``, 03.11.2026); die
+    Antwort wird lokal zurückübersetzt.
   * Der Client ist einspielbar (Tests arbeiten mit Attrappen, kein Netz).
   * Es wird NICHTS gespeichert — nur der Text geht an den Aufrufer zurück;
     gespeichert wird (wie bisher) erst über ``erzaehl_service.geschichte_speichern``.
@@ -33,6 +35,7 @@ import httpx
 from app.config import settings
 from app.services.modell_router import MODELL_FLASH
 from app.services.openrouter_client import OpenRouterZDRClient
+from app.services.pii_shield import PIIShield
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,8 @@ SYSTEM_PROMPT = (
     "Du bist ein einfühlsamer Erzähler. Du schreibst kurze, warmherzige "
     "Erinnerungs-Geschichten auf Deutsch in fließender Prosa. Du hältst dich "
     "strikt an die gegebenen Angaben und erfindest keine Namen, Orte oder "
-    "Ereignisse dazu."
+    "Ereignisse dazu. Platzhalter in eckigen Klammern wie [PERSON_01] oder "
+    "[LOC_01] stehen für echte Namen und Orte: übernimm sie unverändert."
 )
 
 # Nur ein Rückfall, falls die Antwort keine Kosten nennt (für MODELL_FLASH sind
@@ -127,6 +131,23 @@ def baue_nachricht(
     return "\n".join(zeilen)
 
 
+def baue_schild(personen: Optional[List[str]] = None, ort: str = "") -> PIIShield:
+    """PII-Schild für einen Aufruf: Personen (ganzer Name + Namensteile ab 3 Zeichen) und Ort.
+
+    Namensteile werden mitregistriert, weil die Erinnerung oft nur den Vornamen nennt.
+    """
+    schild = PIIShield()
+    for name in personen or []:
+        name = (name or "").strip()
+        if not name:
+            continue
+        teile = [t for t in name.split() if len(t) >= 3 and t != name]
+        schild.register_person(name, aliases=teile)
+    if ort and ort.strip():
+        schild.register_location(ort.strip())
+    return schild
+
+
 def _kosten(antwort: Dict[str, Any], modell: str) -> Optional[float]:
     """Kosten in USD: ``usage.cost`` der Antwort, sonst aus Token und bekannten Preisen, sonst ``None``."""
     usage = antwort.get("usage") if isinstance(antwort, dict) else None
@@ -175,9 +196,10 @@ def erzaehle_geschichte(
         beschreibungen=beschreibungen, notiz=notiz, anzahl_dateien=anzahl_dateien,
         perspektive=perspektive,
     )
+    schild = baue_schild(personen, ort)
     nachrichten = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
+        {"role": "user", "content": schild.encode(user)},
     ]
 
     start = time.monotonic()
@@ -212,7 +234,7 @@ def erzaehle_geschichte(
         logger.warning("KI-Erzählung: leere Antwort, Modell %s, %.1f s", modell, dauer)
         return _fehler("Das Modell hat keine Geschichte geliefert.")
 
-    text = " ".join(roh.split())
+    text = " ".join(schild.decode(roh).split())
     kosten = _kosten(antwort, modell)
     logger.info("KI-Erzählung: Modell %s, %.1f s, %d Zeichen, Kosten %s",
                 modell, dauer, len(text), "unbekannt" if kosten is None else f"{kosten:.6f} USD")

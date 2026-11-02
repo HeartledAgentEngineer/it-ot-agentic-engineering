@@ -87,8 +87,48 @@ def test_erzaehle_geschichte_schickt_die_fakten_ans_modell():
     client = FakeClient(antwort=_antwort())
     kem.erzaehle_geschichte(client=client, **FAKTEN)
     gesendet = repr(client.aufrufe[0]["messages"])
-    assert "Taufe" in gesendet and "Matthias" in gesendet
-    assert "Papa hat mit mir gespielt" in gesendet
+    assert "Taufe" in gesendet
+    assert "hat mit mir gespielt" in gesendet
+
+
+# --- Maskierung (03.11.2026): Namen und Ort verlassen den Rechner nur als Platzhalter ---
+
+class EchoClient(FakeClient):
+    """Antwortet mit den Platzhaltern aus der Personen- und Ortszeile — wie ein Modell,
+    das die Platzhalter brav übernimmt."""
+
+    def chat_completion(self, messages, **kwargs):
+        self.aufrufe.append({"messages": messages, "kwargs": kwargs})
+        user = messages[-1]["content"]
+        personen = next(z for z in user.splitlines() if z.startswith("Personen auf dem Bild:"))
+        ort = next(z for z in user.splitlines() if z.startswith("Ort:"))
+        text = f"{personen.split(':', 1)[1].strip()} waren in {ort.split(':', 1)[1].strip()}."
+        return _antwort(text=text)
+
+
+def test_namen_und_ort_gehen_nur_maskiert_raus():
+    client = EchoClient()
+    kem.erzaehle_geschichte(client=client, **{**FAKTEN, "personen": ["Sebastian", "Matthias Beispiel"],
+                                              "notiz": "Matthias hat mit mir gespielt."})
+    gesendet = repr(client.aufrufe[0]["messages"])
+    for klar in ("Sebastian", "Matthias", "Beispiel", "Hamburg"):
+        assert klar not in gesendet, f"unmaskiert gesendet: {klar}"
+    assert "[PERSON_" in gesendet and "[LOC_" in gesendet
+
+
+def test_antwort_wird_zurueckuebersetzt():
+    client = EchoClient()
+    erg = kem.erzaehle_geschichte(client=client, **FAKTEN)
+    assert erg["ok"] is True
+    assert erg["geschichte"] == "Sebastian, Matthias waren in Hamburg."
+    assert "[PERSON_" not in erg["geschichte"]
+
+
+def test_modell_wird_angewiesen_platzhalter_zu_behalten():
+    client = EchoClient()
+    kem.erzaehle_geschichte(client=client, **FAKTEN)
+    gesendet = repr(client.aufrufe[0]["messages"])
+    assert "Platzhalter" in gesendet
 
 
 def test_ohne_schluessel_und_ohne_client_kein_netzaufruf(monkeypatch):
