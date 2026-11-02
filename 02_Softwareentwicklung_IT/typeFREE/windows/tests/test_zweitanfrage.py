@@ -379,6 +379,11 @@ class _Server:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.client = OpenAI(base_url=f'http://127.0.0.1:{self.server.server_port}/v1',
                              api_key='test')
+        # Einmalige Kaltstartkosten VOR der Zeitmessung bezahlen (SSL-Kontext, Lazy-Import
+        # der Audio-Ressource): kalt und unter Last kosteten sie mehrere Sekunden und
+        # liessen die 10-s-Frist im ersten echten Test gelegentlich reissen (02.11.2026).
+        typefree.gemeinsamer_ssl_kontext()
+        self.client.audio.transcriptions
 
     def stopp(self):
         self.server.shutdown()
