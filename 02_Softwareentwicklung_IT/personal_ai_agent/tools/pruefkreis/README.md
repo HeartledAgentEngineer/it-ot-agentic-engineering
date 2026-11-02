@@ -76,7 +76,7 @@ python tools/pruefkreis/pruefkreis.py pruefen --vorlage <datei> --thema <kennung
 | Prüfer | Aufruf | Modell |
 |---|---|---|
 | Codex (Standard) | neuestes `%LOCALAPPDATA%\OpenAI\Codex\bin\<Kennung>\codex.exe exec --ephemeral -s read-only -o <datei>` | Standardmodell der App mit `model_reasoning_effort=high`; `--gruendlich` → `gpt-6-astra` |
-| Hermes | `hermes -z <auftrag> -m deepseek/deepseek-v4.1-flash --usage-file <datei> -t file,todo --in <repo>` | DeepSeek v4.1 Flash; Sitzung und Kosten aus der Nutzungsdatei |
+| Hermes | `hermes -z <auftrag> -m deepseek/deepseek-v4.1-flash --provider openrouter --usage-file <datei> -t file,todo --in <repo>` | DeepSeek v4.1 Flash über OpenRouter (Anbieter ausdrücklich, weil Hermes' Standardanbieter Azure diese Kennung nicht kennt → HTTP 404, Befund 02.11.2026); Sitzung und Kosten aus der Nutzungsdatei |
 
 Codex läuft über das Programm der Codex-App. Die npm-CLI 0.145 scheiterte am
 12.10.2026 an der Sandbox und kannte `gpt-6.1-sol` nicht. Die Pfade lassen

@@ -67,6 +67,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
+HERMES_ANBIETER = "openrouter"   # Kennung oben ist eine OpenRouter-Kennung; ohne Anbieter nimmt Hermes seinen Standard (Azure) -> 404
 CODEX_GRUENDLICH_MODELL = "gpt-6-astra"
 ZEITGRENZE_STANDARD = 900
 MESSUNG_FRISCH_SEKUNDEN = 15 * 60   # aeltere Codex-Messung zaehlt nicht (Leiste misst alle 5 min)
@@ -252,7 +253,7 @@ def befehl_codex(programm: str, auftrag: str, ausgabe: Path, gruendlich: bool) -
 
 
 def befehl_hermes(programm: str, auftrag: str, nutzung: Path) -> list[str]:
-    return [programm, "-z", auftrag, "-m", HERMES_MODELL, "--usage-file", str(nutzung),
+    return [programm, "-z", auftrag, "-m", HERMES_MODELL, "--provider", HERMES_ANBIETER, "--usage-file", str(nutzung),
             "-t", "file,todo", "--in", str(REPO)]
 
 

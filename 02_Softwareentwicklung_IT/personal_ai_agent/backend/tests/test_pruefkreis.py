@@ -218,6 +218,8 @@ def test_sensibel_nimmt_hermes_und_gibt_nur_das_urteil_weiter(pk, vorlage, monke
     assert erg["sitzung"] == "20261012_200000_abcdef" and erg["kosten_usd"] == 0.0123
     befehl = pk.aufrufe[0]
     assert befehl[befehl.index("-m") + 1] == pk.HERMES_MODELL
+    # Modellkennung ist eine OpenRouter-Kennung: ohne Anbieter nimmt Hermes seinen Standard (Azure) -> HTTP 404.
+    assert befehl[befehl.index("--provider") + 1] == "openrouter"
     assert befehl[befehl.index("-t") + 1] == "file,todo"
     text = Path(erg["protokoll"]).read_text(encoding="utf-8")
     assert "GEHEIMNAME" not in text and "GEHEIMNAME" not in erg["ausgabe"]
