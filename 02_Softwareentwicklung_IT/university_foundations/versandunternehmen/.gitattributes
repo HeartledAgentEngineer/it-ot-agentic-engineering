@@ -1,0 +1,3 @@
+# Original student code from 2020: keep byte-exact (Windows-1252, CRLF)
+original/** -text
+*.sh text eol=lf
