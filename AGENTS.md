@@ -30,6 +30,10 @@ erklären.
   testet damit direkt am Handy, und ein Push ist jederzeit rücknehmbar
   (`git revert` / Zurücksetzen im Remote). Der Agent pusht **sofort nach** einer
   verifizierten Änderung, ohne jedes Mal nachzufragen.
+- **Branches (seit 03.11.2026):** Neue Aufgaben laufen über Issue → Branch →
+  Pull Request. `main` ist der Stand, der auf dem Handy läuft; er ändert sich
+  per Pull Request nach grünem Prüfbefehl und Codex-Prüfung. Kleine Fixes
+  dürfen weiter direkt auf `main`.
 - **Rückfrage bleibt Pflicht** (es geht um Datenverlust) bei:
   - **rotem/fehlendem Prüfbefehl** — nicht pushen, erst reparieren,
   - **Merge-/Rebase-Konflikten** oder divergierenden Historien,
