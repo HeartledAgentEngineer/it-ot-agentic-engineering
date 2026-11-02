@@ -1540,11 +1540,11 @@ async function checkHealth() {
                         setOnline(true);
                         serverWarOffline = false;
                     } else {
-                        _tryCloseTab();
+                        starteWiederverbinden('verloren');
                     }
                 })
                 .catch(() => {
-                    _tryCloseTab(); // Server immer noch weg
+                    starteWiederverbinden('verloren'); // Server immer noch weg
                 });
         }, 5000);
     }
@@ -1552,73 +1552,109 @@ async function checkHealth() {
 }
 
 /**
- * Versucht den Tab zu schließen. window.close() funktioniert nur bei
- * JS-geöffneten Tabs. Bei normalen Tabs zeigt es stattdessen eine
- * Vollbild-Warnung mit self-destruct nach 30s.
+ * Texte für den Wiederverbinden-Overlay, je Grund. Rein (ohne DOM/Netz),
+ * damit sie testbar sind. Unbekannter Grund fällt auf "verloren" zurück.
+ * Nur Klartext, keine Symbole/Emojis (Vorlese-/Screenreader-freundlich).
  */
-function _tryCloseTab() {
-    try {
-        window.close();
-        // Wenn window.close() erfolgreich war, landen wir nie hier
-    } catch (_) {}
-    // window.close() hat nicht funktioniert → Vollbild-Warnung anzeigen
-    _showCloseOverlay();
+function wiederverbindenMeldung(grund) {
+    const texte = {
+        neustart: {
+            titel: 'Der Agent wird neu gestartet',
+            text: 'Das Update läuft, das dauert ein paar Sekunden. Sobald der Server wieder '
+                + 'da ist, geht es automatisch zurück in den Chat.',
+        },
+        verloren: {
+            titel: 'Verbindung verloren',
+            text: 'Der Agent ist gerade nicht erreichbar. Es wird automatisch neu verbunden '
+                + 'und dann zurück in den Chat gewechselt.',
+        },
+        lange: {
+            titel: 'Server nicht erreichbar',
+            text: 'Der Agent meldet sich seit einer Weile nicht. Du kannst es erneut versuchen '
+                + 'oder den Tab schließen.',
+        },
+    };
+    return texte[grund] || texte.verloren;
 }
 
-function _showCloseOverlay() {
-    // Prüfen, ob bereits ein Overlay existiert
-    if (document.getElementById('hermes-close-overlay')) return;
+// Nur ein Wiederverbinden-Overlay gleichzeitig (Neustart-Knopf und der
+// Health-Check dürfen sich nicht gegenseitig überlagern).
+let _wiederverbindenLaeuft = false;
 
-    const overlay = document.createElement('div');
-    overlay.id = 'hermes-close-overlay';
-    overlay.style.cssText = `
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: #1a1a2e; color: #fff; z-index: 99999;
-        display: flex; flex-direction: column; align-items: center;
-        justify-content: center; font-family: sans-serif;
-        animation: fadeIn 0.3s ease;
-    `;
-    overlay.innerHTML = `
-        <div style="font-size:64px;margin-bottom:20px">🛑</div>
-        <h1 style="margin:0 0 10px 0;font-size:24px">Server nicht erreichbar</h1>
-        <p style="color:#aaa;margin:0 0 20px 0;text-align:center;max-width:400px">
-            Der Personal AI Agent wurde beendet oder ist nicht erreichbar.<br>
-            Bitte schließe diesen Tab manuell.
-        </p>
-        <div id="close-countdown" style="font-size:48px;font-weight:bold;color:#ff6b6b">30</div>
-        <p style="color:#888;font-size:12px;margin-top:10px">
-            Automatische Schließung in <span id="close-countdown-label">30</span>s
-        </p>
-        <button id="hermes-close-btn"
-                style="margin-top:20px;padding:10px 30px;background:#ff6b6b;color:#fff;
-                       border:none;border-radius:8px;cursor:pointer;font-size:16px">
-            Tab jetzt schließen
-        </button>
-    `;
-    document.body.innerHTML = '';
-    document.body.appendChild(overlay);
-    // Kein onclick-Attribut: Die Inhaltsrichtlinie (CSP, P0) sperrt Inline-Skripte.
-    const schliessen = document.getElementById('hermes-close-btn');
-    if (schliessen) {
-        schliessen.addEventListener('click', () => {
-            try { window.close(); } catch (_) {}
-            overlay.remove();
-        });
+/**
+ * Nicht-zerstörender Wiederverbinden-Overlay statt Tab-Tod: zeigt einen
+ * Spinner und eine Klartext-Meldung, pollt /api/health und lädt bei Rückkehr
+ * EINMAL neu -> automatisch zurück in den Chat. Der Chat bleibt im Hintergrund
+ * erhalten (kein document.body leeren, kein window.close()-Countdown). Erst
+ * nach langer Totzeit erscheinen "Erneut versuchen" und "Tab schließen" als
+ * manuelle Knöpfe; gepollt wird weiter, nie ein hängender Countdown.
+ */
+function starteWiederverbinden(grund) {
+    if (_wiederverbindenLaeuft) return;
+    _wiederverbindenLaeuft = true;
+
+    let overlay = document.getElementById('reconnect-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'reconnect-overlay';
+        const spinner = document.createElement('div');
+        spinner.className = 'reconnect-spinner';
+        const titelEl = document.createElement('h1');
+        titelEl.className = 'reconnect-titel';
+        const textEl = document.createElement('p');
+        textEl.className = 'reconnect-text';
+        const knoepfe = document.createElement('div');
+        knoepfe.className = 'reconnect-knoepfe';
+        knoepfe.hidden = true;
+        const erneutBtn = document.createElement('button');
+        erneutBtn.className = 'reconnect-knopf';
+        erneutBtn.textContent = 'Erneut versuchen';
+        erneutBtn.addEventListener('click', () => window.location.reload());
+        const schliessenBtn = document.createElement('button');
+        schliessenBtn.className = 'reconnect-knopf';
+        schliessenBtn.textContent = 'Tab schließen';
+        schliessenBtn.addEventListener('click', () => { try { window.close(); } catch (_) {} });
+        knoepfe.appendChild(erneutBtn);
+        knoepfe.appendChild(schliessenBtn);
+        overlay.appendChild(spinner);
+        overlay.appendChild(titelEl);
+        overlay.appendChild(textEl);
+        overlay.appendChild(knoepfe);
+        document.body.appendChild(overlay);
     }
+    const titelEl = overlay.querySelector('.reconnect-titel');
+    const textEl = overlay.querySelector('.reconnect-text');
+    const knoepfe = overlay.querySelector('.reconnect-knoepfe');
+    const m = wiederverbindenMeldung(grund);
+    if (titelEl) titelEl.textContent = m.titel;
+    if (textEl) textEl.textContent = m.text;
+    overlay.hidden = false;
 
-    // Countdown von 30s
-    let count = 30;
-    const counter = document.getElementById('close-countdown');
-    const label = document.getElementById('close-countdown-label');
-    const timer = setInterval(() => {
-        count--;
-        if (counter) counter.textContent = String(count);
-        if (label) label.textContent = String(count);
-        if (count <= 0) {
-            clearInterval(timer);
-            try { window.close(); } catch (_) {}
+    const start = Date.now();
+    function pollen() {
+        fetch(`${API_BASE}/api/health`)
+            .then((res) => {
+                if (res && res.ok) {
+                    // Server wieder da -> einmal neu laden, zurück in den Chat.
+                    window.location.reload();
+                    return;
+                }
+                weiter();
+            })
+            .catch(() => weiter());
+    }
+    function weiter() {
+        // Nach langer Totzeit (ca. 60 s) manuelle Knöpfe zeigen, aber weiter
+        // pollen. Der Text wechselt dann auf die "lange"-Meldung.
+        if (knoepfe && Date.now() - start > 60000 && knoepfe.hidden) {
+            knoepfe.hidden = false;
+            const spaet = wiederverbindenMeldung('lange');
+            if (titelEl) titelEl.textContent = spaet.titel;
+            if (textEl) textEl.textContent = spaet.text;
         }
-    }, 1000);
+        setTimeout(pollen, 2000);
+    }
+    pollen();
 }
 
 function updateFooterNote(memoryCount) {
@@ -3855,7 +3891,7 @@ function zeigeBildVollbild(imgEl, gesichter, opts) {
 
         descVorlesenBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            bildBeschreibungVorlesen(descBoxText.textContent);
+            bildBeschreibungVorlesen(descBoxText.textContent, descVorlesenBtn);
         });
         ov.appendChild(descBox);
         if (!descText && _quizEditor.fileid) {
@@ -11546,6 +11582,9 @@ function serverProtokollZeilenText(antwort) {
             if (statusEl) statusEl.textContent = daten.message || SERVER_PROTOKOLL_NEUSTART_MELDUNG;
             // Bei Annahme bleibt der Knopf gesperrt: sonst startet ein zweiter
             // Pull/Neustart, während der erste noch läuft.
+            // Sofort sichtbares Feedback + automatische Rückkehr in den Chat,
+            // sobald der Server nach git pull/uvicorn wieder antwortet.
+            starteWiederverbinden('neustart');
         } catch (_) {
             if (statusEl) {
                 statusEl.textContent = 'Keine Antwort vom Server. '

@@ -359,7 +359,7 @@ function notizTexte(knoten, id) {
   pruefe('Anlass-Knopf nutzt geschichteErzeugen', /geschichteErzeugen\('anlassgeschichte'/.test(src));
   pruefe('Notizliste filtert mit istNotiz', /detail\.geschichten\.filter\(\(g\) => g && istNotiz\(g\)\)/.test(src));
   pruefe('Vorlese-Knöpfe der Lese-Bereiche sind verdrahtet',
-    /vorlesen\('erzaehl-bildgeschichte-text'\)/.test(src) && /vorlesen\('erzaehl-anlassgeschichte-text'\)/.test(src));
+    /vorlesen\('erzaehl-bildgeschichte-text'/.test(src) && /vorlesen\('erzaehl-anlassgeschichte-text'/.test(src));
   ['erzaehl-bildgeschichte', 'erzaehl-bildgeschichte-text', 'erzaehl-bildgeschichte-vorlesen',
     'erzaehl-anlassgeschichte', 'erzaehl-anlassgeschichte-text', 'erzaehl-anlassgeschichte-vorlesen']
     .forEach((id) => pruefe('index.html enthält #' + id, new RegExp('id="' + id + '"').test(html)));
@@ -368,7 +368,7 @@ function notizTexte(knoten, id) {
   pruefe('Lese-Bereiche stehen NICHT in den Notiz-Behältern',
     html.indexOf('id="erzaehl-bildgeschichte"') < html.indexOf('id="erzaehl-geschichten"')
     && html.indexOf('id="erzaehl-anlassgeschichte"') < html.indexOf('id="erzaehl-gruppen-geschichten"'));
-  pruefe('Cache-Bump: erzaehlen.js?v=20261102D', /erzaehlen\.js\?v=20261102D/.test(html));
+  pruefe('Cache-Bump: erzaehlen.js?v=20261102E', /erzaehlen\.js\?v=20261102E/.test(html));
 
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
   process.exit(fehler ? 1 : 0);

@@ -20,12 +20,15 @@ function beschreibungKostenText() {
     return 'Kostet ca. ' + String(BESCHREIBUNG_KOSTEN_SCHAETZUNG_USD).replace('.', ',') + ' $ – fortfahren?';
 }
 
-/** Beschreibungstext vorlesen: vorhandener Vorlese-Weg (``window.vorlesenText``), sonst Browserstimme. */
-function bildBeschreibungVorlesen(txt) {
+/** Beschreibungstext vorlesen: Umschalter (``window.vorleseTextMitKnopf`` — zweiter Druck auf
+ *  denselben Knopf hält an), sonst der alte Vorlese-Weg, sonst Browserstimme. ``knopf`` optional. */
+function bildBeschreibungVorlesen(txt, knopf) {
     txt = String(txt || '').trim();
     if (!txt) return;
     if (typeof window.audioVorabFreischalten === 'function') window.audioVorabFreischalten();
-    if (typeof window.vorlesenText === 'function') {
+    if (typeof window.vorleseTextMitKnopf === 'function') {
+        window.vorleseTextMitKnopf(txt, knopf);
+    } else if (typeof window.vorlesenText === 'function') {
         window.vorlesenText(txt);
     } else if (window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function') {
         try {
@@ -103,8 +106,11 @@ function baueBeschreibungKasten(deps) {
         herkunft.style.cssText = 'font-size:0.75rem;color:#8f8;margin-bottom:4px;';
         const text = el('div', 'beschr-text', aktuell.text);
         text.style.cssText = 'white-space:pre-wrap;word-break:break-word;text-align:left;';
+        // Vorlese-Knopf als Umschalter: reicht sich selbst durch, damit der zweite
+        // Druck auf denselben Knopf anhält (vgl. erzaehlen.js, 02.11.2026).
+        const vorleseBtn = knopf('🔊 Vorlesen', () => { if (deps.vorlesen) deps.vorlesen(aktuell.text, vorleseBtn); }, '#1a3d28');
         zeige([herkunft, text, leiste([
-            knopf('🔊 Vorlesen', () => { if (deps.vorlesen) deps.vorlesen(aktuell.text); }, '#1a3d28'),
+            vorleseBtn,
             knopf('✏️ Bearbeiten', () => zeigeBearbeiten(aktuell.text), '#334155'),
             knopf('✨ Neu beschreiben lassen', () => zeigeKosten(), '#5b3a7a'),
             knopf('Schließen', () => schliessen(), '#334155'),

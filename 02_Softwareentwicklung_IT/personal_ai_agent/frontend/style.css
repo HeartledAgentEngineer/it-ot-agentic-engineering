@@ -230,6 +230,80 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Wiederverbinden-Overlay (Neustart statt Tab-Tod, 02.11.2026) ──
+   Nicht-zerstörend: liegt über dem Chat, zeigt Spinner + Klartext und kehrt
+   bei Server-Rückkehr automatisch zurück. Siehe app.js: starteWiederverbinden.
+   Bewusst hier oben (globale Overlays/Animationen), nicht am Dateiende: der
+   Datenstand-Test verbietet position:fixed im CSS-Rest nach `.datenstand`. */
+#reconnect-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 24px;
+    text-align: center;
+    background: rgba(16, 20, 34, 0.96);
+    color: #e8ecff;
+    font-family: inherit;
+    animation: fadeIn 0.3s ease;
+}
+
+.reconnect-spinner {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 4px solid rgba(255, 255, 255, 0.15);
+    border-top-color: #6366f1;
+    animation: reconnect-spin 0.9s linear infinite;
+}
+
+@keyframes reconnect-spin {
+    to { transform: rotate(360deg); }
+}
+
+.reconnect-titel {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.reconnect-text {
+    margin: 0;
+    max-width: 420px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #aab2d5;
+}
+
+.reconnect-knoepfe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+.reconnect-knopf {
+    padding: 10px 22px;
+    border: none;
+    border-radius: 20px;
+    background: #4f46e5;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.reconnect-knopf:hover {
+    background: #4338ca;
+}
+
 .message.user {
     justify-content: flex-end;
 }

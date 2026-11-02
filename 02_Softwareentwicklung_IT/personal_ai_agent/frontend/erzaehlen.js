@@ -1284,6 +1284,34 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         } catch (_e) {}
     }
 
+    // Vorlese-/Stopp-Umschalter (02.11.2026): Jeder Vorlese-Knopf ist ein
+    // Umschalter. ``aktiverVorleseKnopf`` merkt den gerade laufenden Knopf;
+    // starten setzt ihn auf „⏹ Stopp", Stoppen/Ende setzt ihn zurück.
+    let aktiverVorleseKnopf = null;
+
+    function erzaehlVorleseLabel(spielt, standard) {
+        return spielt ? '⏹ Stopp' : (standard || '🔊 Vorlesen');
+    }
+
+    function _knopfVorlese(knopf, spielt) {
+        if (!knopf) return;
+        if (!knopf.dataset.vorleseStandard) {
+            knopf.dataset.vorleseStandard = (knopf.textContent || '').trim();
+        }
+        knopf.textContent = erzaehlVorleseLabel(spielt, knopf.dataset.vorleseStandard);
+        if (knopf.classList) knopf.classList.toggle('vorlesen-aktiv', !!spielt);
+        knopf.setAttribute('aria-pressed', spielt ? 'true' : 'false');
+    }
+
+    function _vorleseFertig() {
+        if (aktiverVorleseKnopf) {
+            _knopfVorlese(aktiverVorleseKnopf, false);
+            aktiverVorleseKnopf = null;
+        }
+        const hinweis = el('erzaehl-hinweis');
+        if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+    }
+
     function vorlesenStoppen() {
         if (_audioSource) {
             try { _audioSource.stop(); } catch (_e) {}
@@ -1300,10 +1328,15 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (window.speechSynthesis) {
             try { window.speechSynthesis.cancel(); } catch (_e) { /* nichts zu tun */ }
         }
+        if (aktiverVorleseKnopf) {
+            _knopfVorlese(aktiverVorleseKnopf, false);
+            aktiverVorleseKnopf = null;
+        }
     }
 
-    async function vorlesen(quelleId) {
+    async function vorlesen(quelleId, knopf) {
         audioVorabFreischalten();
+        if (knopf && aktiverVorleseKnopf === knopf) { vorlesenStoppen(); return; }
         let rohtext = '';
         if (quelleId === 'erzaehl-gruppen-geschichten' || quelleId === 'erzaehl-geschichten') {
             rohtext = geschichtenTextSammeln();
@@ -1318,11 +1351,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         await vorlesenText(erzaehlSprechtext(rohtext));
     }
 
-    async function vorlesenText(sprech) {
+    async function vorlesenText(sprech, knopf) {
         if (!sprech) return;
         const geglaettet = erzaehlGlaetteFuerStimme(sprech);
         const textZumSprechen = geglaettet || sprech;
         vorlesenStoppen();
+        if (knopf) { aktiverVorleseKnopf = knopf; _knopfVorlese(knopf, true); }
         const hinweis = el('erzaehl-hinweis');
         if (hinweis) hinweis.textContent = 'Liest vor…';
         try {
@@ -1356,7 +1390,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     _audioSource = source;
                     source.onended = () => {
                         _audioSource = null;
-                        if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+                        _vorleseFertig();
                     };
                     source.start(0);
                     return;
@@ -1376,7 +1410,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             audio.src = url;
             audio.onended = () => {
                 try { URL.revokeObjectURL(url); } catch (_e) { /* schon weg */ }
-                if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+                _vorleseFertig();
             };
             audio.onerror = audio.onended;
             zustand.audio = audio;
@@ -1397,7 +1431,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     const deutsch = stimmen.find((v) => (v.lang || '').startsWith('de'));
                     if (deutsch) satz.voice = deutsch;
                     satz.onend = () => {
-                        if (hinweis && hinweis.textContent === 'Liest vor…') hinweis.textContent = '';
+                        _vorleseFertig();
                     };
                     satz.onerror = (ev) => {
                         const code = ev && ev.error ? ev.error : 'Audiofehler';
@@ -1405,6 +1439,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                         if (hinweis) {
                             hinweis.textContent = `Vorlesen nicht möglich (${serverFehler} · Browser-Stimme: ${code})`;
                         }
+                        _vorleseFertig();
                     };
                     window.speechSynthesis.resume();
                     window.speechSynthesis.speak(satz);
@@ -1420,18 +1455,29 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                 const zusatz = browserFehler ? ` · ${browserFehler}` : '';
                 hinweis.textContent = `Vorlesen nicht möglich (${serverFehler}${zusatz})`;
             }
+            if (aktiverVorleseKnopf) {
+                _knopfVorlese(aktiverVorleseKnopf, false);
+                aktiverVorleseKnopf = null;
+            }
         }
     }
 
     if (typeof window !== 'undefined') {
         window.vorlesenText = vorlesenText;
+        // Umschalter für andere Dateien (z. B. Beschreibungs-Box in
+        // bild_beschreibung.js): zweiter Druck auf denselben Knopf hält an.
+        window.vorleseTextMitKnopf = function (sprech, knopf) {
+            if (knopf && aktiverVorleseKnopf === knopf) { vorlesenStoppen(); return; }
+            vorlesenText(sprech, knopf);
+        };
         window.audioVorabFreischalten = audioVorabFreischalten;
     }
 
     /** „Alles vorlesen" (07.10.2026): Tagebuch-Fassung des sichtbaren Eintrags
      *  — Titel, Bildzahl, Personen, Notizen/Geschichten in dieser Reihenfolge. */
-    async function allesVorlesen() {
+    async function allesVorlesen(knopf) {
         audioVorabFreischalten();
+        if (knopf && aktiverVorleseKnopf === knopf) { vorlesenStoppen(); return; }
         const imRaster = zustand.ansicht !== 'einzel';
         const teile = [];
         const titel = el('erzaehl-titel');
@@ -1445,7 +1491,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         (imRaster ? ['erzaehl-orte-text'] : ['erzaehl-bild-ort-text', 'erzaehl-bild-beschreibung'])
             .forEach((id) => { const feld = el(id); if (feld) teile.push(feld.textContent); });
         teile.push(geschichtenTextSammeln());
-        await vorlesenText(erzaehlAllesText(teile));
+        await vorlesenText(erzaehlAllesText(teile), knopf);
     }
 
     /** Text aller sichtbaren Notizen/Geschichten (ohne die Überschriften
@@ -2610,14 +2656,14 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (titelZurueck) titelZurueck.addEventListener('click', () => titelSpeichern(''));
 
         const vorlesenGruppe = el('erzaehl-personen-vorlesen');
-        if (vorlesenGruppe) vorlesenGruppe.addEventListener('click', () => vorlesen('erzaehl-personen-text'));
+        if (vorlesenGruppe) vorlesenGruppe.addEventListener('click', () => vorlesen('erzaehl-personen-text', vorlesenGruppe));
         const vorlesenBild = el('erzaehl-bild-personen-vorlesen');
-        if (vorlesenBild) vorlesenBild.addEventListener('click', () => vorlesen('erzaehl-bild-personen-text'));
+        if (vorlesenBild) vorlesenBild.addEventListener('click', () => vorlesen('erzaehl-bild-personen-text', vorlesenBild));
         // Notizen und Geschichten vorlesen (07.10.2026) — je Ansicht der
         // sichtbare Block; „alles" liest den ganzen Eintrag als Tagebuch.
         const vorlesenGeschichtenGruppe = el('erzaehl-gruppen-geschichten-vorlesen');
         if (vorlesenGeschichtenGruppe) {
-            vorlesenGeschichtenGruppe.addEventListener('click', () => vorlesen('erzaehl-gruppen-geschichten'));
+            vorlesenGeschichtenGruppe.addEventListener('click', () => vorlesen('erzaehl-gruppen-geschichten', vorlesenGeschichtenGruppe));
         }
         const anlassKiBtn = el('erzaehl-anlass-geschichte-btn');
         if (anlassKiBtn) anlassKiBtn.addEventListener('click', anlassGeschichteErstellen);
@@ -2625,21 +2671,22 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         if (anlassPersToggle) anlassPersToggle.addEventListener('click', perspektiveUmschalten);
         const vorlesenGeschichtenBild = el('erzaehl-geschichten-vorlesen');
         if (vorlesenGeschichtenBild) {
-            vorlesenGeschichtenBild.addEventListener('click', () => vorlesen('erzaehl-geschichten'));
+            vorlesenGeschichtenBild.addEventListener('click', () => vorlesen('erzaehl-geschichten', vorlesenGeschichtenBild));
         }
         const vorlesenBeschreibung = el('erzaehl-bild-beschreibung-vorlesen');
         if (vorlesenBeschreibung) {
             vorlesenBeschreibung.addEventListener('click', () => {
+                if (aktiverVorleseKnopf === vorlesenBeschreibung) { vorlesenStoppen(); return; }
                 const bEl = el('erzaehl-bild-beschreibung');
                 const t = bEl ? bEl.textContent.trim() : '';
                 if (t && t !== 'Keine Bildbeschreibung hinterlegt.') {
                     audioVorabFreischalten();
-                    vorlesenText(t);
+                    vorlesenText(t, vorlesenBeschreibung);
                 }
             });
         }
         const vorlesenAlles = el('erzaehl-alles-vorlesen');
-        if (vorlesenAlles) vorlesenAlles.addEventListener('click', () => allesVorlesen());
+        if (vorlesenAlles) vorlesenAlles.addEventListener('click', () => allesVorlesen(vorlesenAlles));
 
         const gesichtOk = el('erzaehl-gesicht-speichern');
         if (gesichtOk) gesichtOk.addEventListener('click', () => gesichtSpeichern('name'));
@@ -2682,9 +2729,9 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         // Als Funktion ohne Argumente aufrufen: der Click-Event darf nicht als ``ersetztId`` ankommen.
         if (speichernBtn) speichernBtn.addEventListener('click', () => geschichteSpeichern());
         const vorlesenBildgeschichte = el('erzaehl-bildgeschichte-vorlesen');
-        if (vorlesenBildgeschichte) vorlesenBildgeschichte.addEventListener('click', () => vorlesen('erzaehl-bildgeschichte-text'));
+        if (vorlesenBildgeschichte) vorlesenBildgeschichte.addEventListener('click', () => vorlesen('erzaehl-bildgeschichte-text', vorlesenBildgeschichte));
         const vorlesenAnlassgeschichte = el('erzaehl-anlassgeschichte-vorlesen');
-        if (vorlesenAnlassgeschichte) vorlesenAnlassgeschichte.addEventListener('click', () => vorlesen('erzaehl-anlassgeschichte-text'));
+        if (vorlesenAnlassgeschichte) vorlesenAnlassgeschichte.addEventListener('click', () => vorlesen('erzaehl-anlassgeschichte-text', vorlesenAnlassgeschichte));
 
         const micBtn = el('erzaehl-mic-btn');
         if (micBtn) micBtn.addEventListener('click', aufnahmeStarten);
