@@ -120,8 +120,22 @@ Beschreibung nicht, sobald es für das Bild einen Text in einer `*_reich`-Datei 
 - `test_bild_beschreibung_lesen.js`: rot, Absturz beim Laden („Funktion nicht gefunden“).
 - Danach grün: 47 passed (die drei neuen Backend-Dateien), `test_frontend_node.py` 61 passed.
 
+## Messung Abdeckung (02.11.2026, Echtdaten, nur Zahlen)
+`tools/foto_sortierung/beschreibung_abdeckung.py` auf `~/foto_sortierung/` — rein lesend, Ausgabe nur Zahlen
+(keine fileid, kein Text, kein Netz). Direkt am PC gezählt (nicht über Hermes): Das Werkzeug gibt ausschließlich
+Aggregatzahlen aus, deshalb verlässt kein privater Inhalt den Rechner.
+- Quellen: `bild_beschreibungen.jsonl` 19.065 Zeilen, `…_reich` 17.428, `…_papa_reich` 6.336, `…_rest_reich` 984,
+  `…_altbestand_reich` 604; `life_archive.db` 19.065 Zeilen (alle mit Text).
+- Bilder mit Beschreibung gesamt: **26.241** (KI 26.241, von Hand 0, KI-Einzelvorschlag 0 — erwartet, der Hand-
+  und der Einzel-KI-Weg sind erst mit G2 neu und noch ungenutzt).
+- **Fotobuch: 78 Einträge, 842 verschiedene Bilder, davon 840 mit Beschreibung (99,8 %), 2 ohne.**
+- **Ereignisse: 2.127 Einträge, 7.616 verschiedene Bilder, davon 7.613 mit Beschreibung (100,0 %), 3 ohne.**
+
+Befund: Die Anlass-Vermutung (Fotobuch-Seiten ohne Beschreibung) bestätigt sich **nicht** — die Abdeckung ist
+praktisch vollständig. Ein eigener Nachbeschreib-Lauf wäre nur für die 2 Fotobuch- und 3 Ereignis-Bilder nötig.
+
 ## Offen
-- Messung der Abdeckung auf den echten Daten (Hermes, `--sensibel`) und Messwert ins Journal.
-- Fehlen die Fotobuch-Beschreibungen, ist das Nachbeschreiben ein eigener, später zu entscheidender Lauf mit
-  vorheriger Kostenmessung (nicht Teil von G2).
-- Sichtprüfung am Handy (Lese-Ansicht, Kostenfrage, Vorschlag).
+- ~~Messung der Abdeckung auf den echten Daten und Messwert ins Journal.~~ **Erledigt** — siehe „Messung Abdeckung" oben.
+- Nachbeschreiben der Fotobuch-Beschreibungen entfällt praktisch (nur 2 + 3 Bilder ohne); bei Bedarf eigener
+  Kleinlauf mit vorheriger Kostenmessung (nicht Teil von G2).
+- Sichtprüfung am Handy (Lese-Ansicht, Kostenfrage, Vorschlag) — offen (von Sebastian am Handy).

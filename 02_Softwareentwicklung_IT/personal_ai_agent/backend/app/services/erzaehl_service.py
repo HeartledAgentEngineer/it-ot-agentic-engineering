@@ -1511,6 +1511,50 @@ def verschmelze_geschichte(
     return " ".join(teile)
 
 
+def _erzaehle_text(
+    *,
+    titel: str = "",
+    datum_text: str = "",
+    ort: str = "",
+    personen: Optional[List[str]] = None,
+    beschreibungen: Optional[List[str]] = None,
+    notiz: str = "",
+    anzahl_dateien: int = 1,
+    perspektive: str = "ich",
+) -> Tuple[str, str, Optional[float]]:
+    """Erst das KI-Modell (ZDR) frei formulieren lassen, bei Fehler/kein Schlüssel die Vorlage.
+
+    Rückgabe ``(text, quelle, kosten_usd)`` mit ``quelle`` ∈ {"ki", "vorlage"}.
+    So wirkt die frei formulierte Fassung im Alltag (Schlüssel vorhanden), während
+    Tests und der Offline-Betrieb verlässlich die Vorlage bekommen. Die Vorlage ist
+    der sichere Rückfall — die Oberfläche bleibt nie ohne Geschichte.
+    """
+    def _vorlage() -> str:
+        return verschmelze_geschichte(
+            titel=titel, datum_text=datum_text, ort=ort, personen=personen,
+            beschreibungen=beschreibungen, notiz=notiz,
+            anzahl_dateien=anzahl_dateien, perspektive=perspektive,
+        )
+
+    try:
+        from app.services import geschichte_erzaehlen_ki as _kem
+    except Exception:
+        return _vorlage(), "vorlage", None
+    try:
+        if not _kem.verfuegbar():
+            return _vorlage(), "vorlage", None
+        erg = _kem.erzaehle_geschichte(
+            titel=titel, datum_text=datum_text, ort=ort, personen=personen,
+            beschreibungen=beschreibungen, notiz=notiz,
+            anzahl_dateien=anzahl_dateien, perspektive=perspektive,
+        )
+    except Exception:
+        return _vorlage(), "vorlage", None
+    if isinstance(erg, dict) and erg.get("ok") and (erg.get("geschichte") or "").strip():
+        return erg["geschichte"].strip(), "ki", erg.get("kosten_usd")
+    return _vorlage(), "vorlage", None
+
+
 def ki_geschichte_generieren(fileid: Any,
                              perspektive: str = "ich",
                              ereignis_kennung: Optional[str] = None,
@@ -1592,9 +1636,9 @@ def ki_geschichte_generieren(fileid: Any,
     ort_sauber = str(ort).strip() if ort else ""
     pers_liste = [p.strip() for p in (personen or []) if p and p.strip()]
 
-    # Organische Verschmelzung
+    # Frei formulierte KI-Erzählung (Vorlage als Rückfall)
     beschr_liste = [beschr_sauber] if beschr_sauber else []
-    geschichte_text = verschmelze_geschichte(
+    geschichte_text, erz_quelle, erz_kosten = _erzaehle_text(
         titel=ereignis_titel,
         datum_text=datum_text,
         ort=ort_sauber,
@@ -1602,7 +1646,7 @@ def ki_geschichte_generieren(fileid: Any,
         beschreibungen=beschr_liste,
         notiz=notiz_inhalt,
         anzahl_dateien=1,
-        perspektive=perspektive
+        perspektive=perspektive,
     )
 
     return {
@@ -1617,7 +1661,9 @@ def ki_geschichte_generieren(fileid: Any,
             "personen": pers_liste,
             "beschreibung": beschr_sauber,
             "beschreibung_gefunden": beschreibung_gefunden,
-            "notiz": notiz_inhalt or ""
+            "notiz": notiz_inhalt or "",
+            "erzaehlquelle": erz_quelle,
+            "kosten_usd": erz_kosten
         }
     }
 
@@ -1714,8 +1760,8 @@ def anlass_geschichte_generieren(
     # Alle eigenen Notizen des Anlasses sammeln & bereinigen (keine Zitate)
     notiz_inhalt = _notizen_zu_text(eigene_notizen(ereignis_kennung, None)) if ereignis_kennung else ""
 
-    # Organische Verschmelzung
-    geschichte_text = verschmelze_geschichte(
+    # Frei formulierte KI-Erzählung (Vorlage als Rückfall)
+    geschichte_text, erz_quelle, erz_kosten = _erzaehle_text(
         titel=titel_sauber,
         datum_text=datum_text,
         ort=ort_sauber,
@@ -1723,7 +1769,7 @@ def anlass_geschichte_generieren(
         beschreibungen=beschr_liste,
         notiz=notiz_inhalt,
         anzahl_dateien=anzahl,
-        perspektive=perspektive
+        perspektive=perspektive,
     )
 
     return {
@@ -1741,5 +1787,7 @@ def anlass_geschichte_generieren(
             "anzahl_dateien": anzahl,
             "beschreibungen": beschr_liste,
             "notiz": notiz_inhalt or "",
+            "erzaehlquelle": erz_quelle,
+            "kosten_usd": erz_kosten,
         }
     }

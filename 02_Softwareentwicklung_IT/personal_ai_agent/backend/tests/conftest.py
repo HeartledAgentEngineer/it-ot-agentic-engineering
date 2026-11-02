@@ -5,6 +5,25 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _keine_echten_erzaehl_modellaufrufe(monkeypatch):
+    """Kein Test ruft je das echte Erzähl-Modell (ZDR/Netz) auf.
+
+    Seit dem 02.11.2026 formuliert ``erzaehl_service`` die Geschichte per KI, sobald
+    ein OpenRouter-Schlüssel da ist (``geschichte_erzaehlen_ki.verfuegbar()``). Auf
+    einem Rechner MIT Schlüssel würden Tests sonst echte Aufrufe starten — langsam,
+    kostenpflichtig und nicht reproduzierbar. Darum gilt in Tests der sichere
+    Rückfall (die Vorlage) als Standard. Wer den KI-Pfad prüfen will, spielt
+    ``verfuegbar``/``erzaehle_geschichte`` im eigenen Test selbst ein (das überschreibt
+    diese Vorrichtung für den jeweiligen Test).
+    """
+    try:
+        from app.services import geschichte_erzaehlen_ki as _kem
+        monkeypatch.setattr(_kem, "verfuegbar", lambda: False)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _testserver_als_host_erlauben(monkeypatch):
     """Der TestClient schickt ``Host: testserver``.
 
