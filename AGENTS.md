@@ -107,6 +107,28 @@ Wurde der Befehl nicht in dieser Antwort ausgeführt, gilt er als nicht
 ausgeführt. Ein früherer Lauf, die Erfolgsmeldung eines Subagenten und
 „müsste jetzt gehen" sind keine Belege.
 
+## Auslieferung (Continuous Delivery light)
+
+Festgelegt 02.11.2026 (Sebastian): Auch Privatprojekte werden professionell
+ausgeliefert — leicht, nicht schwerfällig. Gilt für Projekte **im täglichen
+Einsatz** (typeFREE, Master-Schalter, Personal AI Agent, Concertify);
+Prototypen sind ausgenommen, bis sie dort ankommen.
+
+1. **Die Maschine baut, nicht die Hand.** Ein Versions-Tag (`<projekt>-vX.Y.Z`)
+   löst in GitHub Actions den Bau des Pakets aus (EXE, APK, Wheel) und hängt es
+   an ein Release. Kein von Hand gebautes Paket geht in den Einsatz.
+2. **Jedes Paket kennt Version und Commit** und zeigt sie an (Start-Log, Tray,
+   App-Info).
+3. **Ausgeliefert wird nur, was die CI grün gemacht hat.** Der Release-Bau
+   läuft die Tests selbst noch einmal.
+4. **Rückweg ist Pflicht:** Das vorige Release bleibt herunterladbar; der Rückweg
+   steht in der Projekt-README.
+
+Reihenfolge der Umsetzung: typeFREE zuerst (Plan
+`.hermes/plans/2026-10-14_typefree-cicd.md`), dann die übrigen nach Bedarf.
+Bis ein Projekt seine Pipeline hat, wird wie bisher ausgeliefert — die
+Projekt-README sagt ehrlich, welcher Stand gilt.
+
 ## Automatischer Durchlauf
 
 Der feste Phasen-Workflow (`/phase`) ist **abgelöst**: gearbeitet wird
