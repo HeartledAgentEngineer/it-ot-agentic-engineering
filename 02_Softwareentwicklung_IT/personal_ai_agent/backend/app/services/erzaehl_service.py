@@ -1758,7 +1758,8 @@ def anlass_geschichte_generieren(
             pass
 
     # Alle eigenen Notizen des Anlasses sammeln & bereinigen (keine Zitate)
-    notiz_inhalt = _notizen_zu_text(eigene_notizen(ereignis_kennung, None)) if ereignis_kennung else ""
+    notizen_liste = eigene_notizen(ereignis_kennung, None) if ereignis_kennung else []
+    notiz_inhalt = _notizen_zu_text(notizen_liste)
 
     # Frei formulierte KI-Erzählung (Vorlage als Rückfall)
     geschichte_text, erz_quelle, erz_kosten = _erzaehle_text(
@@ -1787,6 +1788,8 @@ def anlass_geschichte_generieren(
             "anzahl_dateien": anzahl,
             "beschreibungen": beschr_liste,
             "notiz": notiz_inhalt or "",
+            # Zählzeile am Handy (03.11.2026): nur die Zahl, kein Inhalt.
+            "anzahl_notizen": len(notizen_liste),
             "erzaehlquelle": erz_quelle,
             "kosten_usd": erz_kosten,
         }

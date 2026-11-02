@@ -52,7 +52,10 @@ pruefe(typeof label(false, '') === 'string' && label(false, '') !== '⏹ Stopp',
 
 console.log('Vorlese/Stopp: Verdrahtung in erzaehlen.js');
 pruefe(/function vorlesenText\(sprech,\s*knopf\)/.test(src), 'vorlesenText nimmt den Knopf entgegen');
-pruefe(/async function vorlesen\(quelleId,\s*knopf\)/.test(src), 'vorlesen reicht den Knopf durch');
+pruefe(/async function vorlesen\(quelleId,\s*knopf\)/.test(src), 'vorlesen nimmt den Knopf entgegen');
+// Befund 03.11.2026 (Handy): vorlesen() nahm den Knopf an, gab ihn aber nicht weiter -> kein "Stopp".
+pruefe(/vorlesenText\(erzaehlSprechtext\(rohtext\),\s*knopf\)/.test(funktionAusschneiden(src, 'vorlesen')),
+    'vorlesen reicht den Knopf an vorlesenText weiter');
 pruefe(/aktiverVorleseKnopf/.test(src), 'es gibt einen Merker für den aktiven Knopf');
 pruefe(/aktiverVorleseKnopf === knopf/.test(src), 'zweiter Druck auf denselben Knopf hält an (Umschalter)');
 pruefe(src.indexOf('function _vorleseFertig(') !== -1, 'ein zentrales Zurücksetzen (_vorleseFertig)');

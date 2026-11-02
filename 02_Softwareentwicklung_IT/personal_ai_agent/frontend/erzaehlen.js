@@ -1293,6 +1293,22 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         return spielt ? '⏹ Stopp' : (standard || '🔊 Vorlesen');
     }
 
+    /** Zählzeile unter der Anlassgeschichte (03.11.2026): woraus die Geschichte entstand —
+     *  nur Zahlen, nie Inhalte oder Namen. Ohne Daten leer. */
+    function erzaehlDatenZeile(daten) {
+        if (!daten || typeof daten !== 'object') return '';
+        const n = (v) => (typeof v === 'number' && isFinite(v) ? v : (Array.isArray(v) ? v.length : 0));
+        const wort = (zahl, eins, mehr) => zahl + ' ' + (zahl === 1 ? eins : mehr);
+        const quelle = daten.erzaehlquelle === 'ki' ? 'KI' : 'Vorlage (ohne KI)';
+        return [
+            quelle,
+            wort(n(daten.anzahl_dateien), 'Bild', 'Bilder'),
+            wort(n(daten.beschreibungen), 'Beschreibung', 'Beschreibungen'),
+            wort(n(daten.anzahl_notizen), 'Notiz', 'Notizen'),
+            wort(n(daten.personen), 'Person', 'Personen'),
+        ].join(' · ');
+    }
+
     function _knopfVorlese(knopf, spielt) {
         if (!knopf) return;
         if (!knopf.dataset.vorleseStandard) {
@@ -1348,7 +1364,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             const quelle = el(quelleId);
             rohtext = quelle ? quelle.textContent : '';
         }
-        await vorlesenText(erzaehlSprechtext(rohtext));
+        await vorlesenText(erzaehlSprechtext(rohtext), knopf);
     }
 
     async function vorlesenText(sprech, knopf) {
@@ -1815,7 +1831,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
         const gespeichert = await geschichteAnhaengen(koerper);
         if (!gespeichert.ok) return { ok: false, fehler: gespeichert.fehler, geschichte: res.geschichte };
         leseBereichAnzeigen();
-        return { ok: true, geschichte: res.geschichte, zeile: gespeichert.zeile };
+        return { ok: true, geschichte: res.geschichte, zeile: gespeichert.zeile, daten: res.daten };
     }
 
     /** Lese-Bereich „Bildgeschichte" (Einzelbild) bzw. „Anlassgeschichte" (Übersicht): zeigt die
@@ -1861,7 +1877,12 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
             const ergebnis = await geschichteErzeugen('anlassgeschichte', {});
             if (ergebnis.ok) {
                 if (hinweis) hinweis.textContent = 'Anlass-Geschichte erstellt und gespeichert.';
-                await vorlesenText(ergebnis.geschichte);
+                const datenZeile = el('erzaehl-anlassgeschichte-daten');
+                if (datenZeile) {
+                    datenZeile.textContent = erzaehlDatenZeile(ergebnis.daten);
+                    datenZeile.hidden = !datenZeile.textContent;
+                }
+                await vorlesenText(ergebnis.geschichte, el('erzaehl-anlassgeschichte-vorlesen'));
             } else {
                 console.error('Fehler bei Anlass-Geschichte:', ergebnis.fehler);
                 if (hinweis) hinweis.textContent = `Anlass-Geschichte fehlgeschlagen: ${ergebnis.fehler}`;
@@ -2069,7 +2090,7 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
                     });
                     if (ergebnis.ok) {
                         if (hinweis) hinweis.textContent = '';
-                        await vorlesenText(ergebnis.geschichte);
+                        await vorlesenText(ergebnis.geschichte, el('erzaehl-bildgeschichte-vorlesen'));
                     } else {
                         console.error('Fehler bei der Bildgeschichte:', ergebnis.fehler);
                         if (hinweis) hinweis.textContent = `Bildgeschichte fehlgeschlagen: ${ergebnis.fehler}`;

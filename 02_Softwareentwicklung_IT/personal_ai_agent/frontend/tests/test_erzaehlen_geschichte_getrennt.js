@@ -368,7 +368,8 @@ function notizTexte(knoten, id) {
   pruefe('Lese-Bereiche stehen NICHT in den Notiz-Behältern',
     html.indexOf('id="erzaehl-bildgeschichte"') < html.indexOf('id="erzaehl-geschichten"')
     && html.indexOf('id="erzaehl-anlassgeschichte"') < html.indexOf('id="erzaehl-gruppen-geschichten"'));
-  pruefe('Cache-Bump: erzaehlen.js?v=20261102E', /erzaehlen\.js\?v=20261102E/.test(html));
+  pruefe('Cache-Bump: erzaehlen.js?v= mindestens 20261102E',
+    ((html.match(/erzaehlen\.js\?v=([0-9]{8}[A-Z])/) || [])[1] || '') >= '20261102E');
 
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
   process.exit(fehler ? 1 : 0);

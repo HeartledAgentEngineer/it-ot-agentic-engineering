@@ -372,6 +372,17 @@ def test_f_anlassweg_nimmt_weder_anlassgeschichte_noch_altbestand(geschichten_pf
     assert "QQQANLASSQQQ" not in res["geschichte"] and "QQQBILDQQQ" not in res["geschichte"]
 
 
+def test_f_anlassweg_zaehlt_die_verwendeten_notizen(geschichten_pfad):
+    """Zählzeile (03.11.2026): Am Handy sichtbar, wie viele Notizen in die Geschichte flossen."""
+    _notiz("Bildnotiz eins.", dk=101)
+    _notiz("Bildnotiz zwei.", dk=102)
+    _notiz("Gruppennotiz.")
+    _anlassgeschichte("QQQANLASSQQQ zählt nicht mit.")
+    res = es.anlass_geschichte_generieren(ereignis_kennung=EK)
+    assert res["daten"]["anzahl_notizen"] == 3
+    assert res["daten"]["erzaehlquelle"] in ("ki", "vorlage")
+
+
 def test_f_anlassweg_eine_neue_notiz_erscheint_in_der_neuen_quelle(geschichten_pfad):
     _notiz("Alte Notiz.", dk=101)
     erste = es.anlass_geschichte_generieren(ereignis_kennung=EK)
