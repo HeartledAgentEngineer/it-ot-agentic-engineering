@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import date
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.services.alltag_rechnen import auswerten, dauer_text, nacht_zeile
@@ -120,7 +121,8 @@ def tag_kennzahlen(stunden: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 t[feld].append(wert)
         t["gefuehle"].update(g for g in _gefuehl_liste(e) if isinstance(g, str) and g in GRUNDGEFUEHLE)
     return {tag: {"eintraege": t["eintraege"], "stimmung": _schnitt(t["stimmung"]),
-                  "anspannung": _schnitt(t["anspannung"]), "gefuehle": t["gefuehle"].most_common(3)}
+                  "anspannung": _schnitt(t["anspannung"]), "gefuehle": t["gefuehle"].most_common(3),
+                  "gefuehle_alle": set(t["gefuehle"])}
             for tag, t in sorted(roh.items())}
 
 
@@ -135,13 +137,64 @@ def _tageszeile(tag: str, k: Dict[str, Any]) -> str:
     return " · ".join(teile)
 
 
+_SUMMEN = ("dauer_min", "schlaf_min", "wach_min", "leicht_min", "tief_min", "rem_min", "wach_phasen")
+
+
+def _nacht_zusammen(teile: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Abschnitte einer Nacht addieren; jede Lücke zwischen zwei Abschnitten ist ein Aufwachen."""
+    if len(teile) == 1:
+        return teile[0]
+    erg = dict(teile[-1])
+    for feld in _SUMMEN:
+        erg[feld] = sum(t[feld] for t in teile)
+    erg["wach_phasen"] += len(teile) - 1
+    erg["phasen_bekannt"] = all(t["phasen_bekannt"] for t in teile)
+    return erg
+
+
+def _ohne_doppelte(naechte: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Überlappende Sitzungen sind dieselbe Nacht aus zwei Quellen: nur die längere zählt.
+
+    Aufeinanderfolgende Abschnitte (unterbrochene Nacht) überlappen nie und bleiben alle erhalten.
+    """
+    gelesen = []
+    for n in naechte or []:
+        beginn = zeit_lesen(n.get("beginn")) if isinstance(n, dict) else None
+        ende = zeit_lesen(n.get("ende")) if isinstance(n, dict) else None
+        if beginn and ende and ende > beginn:
+            gelesen.append((beginn, ende, n))
+    gelesen.sort(key=lambda g: g[0])
+    erg: List[Tuple[Any, Any, Dict[str, Any]]] = []
+    for beginn, ende, n in gelesen:
+        if erg and beginn < erg[-1][1]:
+            if ende - beginn > erg[-1][1] - erg[-1][0]:
+                erg[-1] = (beginn, ende, n)
+            continue
+        erg.append((beginn, ende, n))
+    return [n for _, _, n in erg]
+
+
+def _nacht_und_tag(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]],
+                   nur_mit_phasen: bool = False) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """(Nacht, Tageskennzahlen) für jeden Tag mit Stimmung; die Nacht zählt zum Tag des Aufwachens.
+
+    Mehrere Abschnitte zum selben Tag (unterbrochene Nacht) werden zu einer Nacht zusammengezählt;
+    doppelt gemeldete (überlappende) Sitzungen zählen nur einmal.
+    """
+    teile: Dict[str, List[Dict[str, Any]]] = {}
+    for a in auswerten(_ohne_doppelte(naechte)):
+        if not a["nickerchen"]:
+            teile.setdefault(a["nacht_zum"], []).append(a)
+    nacht = {tag: n for tag, n in ((t, _nacht_zusammen(ts)) for t, ts in teile.items())
+             if n["phasen_bekannt"] or not nur_mit_phasen}
+    return [(nacht[tag], k) for tag, k in tag_kennzahlen(stunden).items()
+            if tag in nacht and k["stimmung"] is not None]
+
+
 def verknuepfung_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]]) -> str:
     """Stimmung/Anspannung nach kürzeren und längeren Nächten (Nacht zählt zum Tag des Aufwachens)."""
-    schlaf = {a["nacht_zum"]: a["schlaf_min"] for a in auswerten(naechte) if not a["nickerchen"]}
-    kennzahlen = tag_kennzahlen(stunden)
     paare: List[Tuple[int, Dict[str, Any]]] = sorted(
-        ((schlaf[tag], k) for tag, k in kennzahlen.items() if tag in schlaf and k["stimmung"] is not None),
-        key=lambda p: p[0])
+        ((n["schlaf_min"], k) for n, k in _nacht_und_tag(naechte, stunden)), key=lambda p: p[0])
     if len(paare) < MIN_TAGE_VERGLEICH:
         return (f"Schlaf und Stimmung: Zu wenige Tage mit beidem für einen Vergleich "
                 f"({len(paare)} von mindestens {MIN_TAGE_VERGLEICH}).")
@@ -160,6 +213,109 @@ def verknuepfung_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any
     return text + " Nur ein Zusammenhang über wenige Tage, kein Beweis."
 
 
+# ── S10: Tageszeiten und Schlafqualität (nur Zahlen, kein Freitext) ─────────
+
+TAGESZEITEN = (("morgens", range(5, 12)), ("nachmittags", range(12, 17)),
+               ("abends", range(17, 22)), ("nachts", (22, 23, 0, 1, 2, 3, 4)))
+MIN_EINTRAEGE_TAGESZEIT = 4
+
+
+def _mittel(werte: List[float]) -> float:
+    """Schnitt einer nicht leeren Liste, eine Nachkommastelle."""
+    return round(sum(werte) / len(werte), 1)
+
+
+def tageszeit_text(stunden: List[Dict[str, Any]]) -> Optional[str]:
+    """Stimmung und Anspannung je Tageszeit (Beginn des Eintrags, Ortszeit) — ``None`` bei zu wenig."""
+    werte: Dict[str, Dict[str, List[float]]] = {name: {"stimmung": [], "anspannung": []} for name, _ in TAGESZEITEN}
+    for e in stunden or []:
+        von = zeit_lesen(e.get("von")) if isinstance(e, dict) else None
+        if von is None:
+            continue
+        stimmung = _zahl(e.get("stimmung"), 1, 5)
+        if stimmung is None:
+            continue
+        name = next(n for n, stunden_ in TAGESZEITEN if von.hour in stunden_)
+        werte[name]["stimmung"].append(stimmung)
+        anspannung = _zahl(e.get("anspannung"), 0, 100)
+        if anspannung is not None:
+            werte[name]["anspannung"].append(anspannung)
+    belegt = [(n, w) for n, w in werte.items() if w["stimmung"]]
+    if sum(len(w["stimmung"]) for _, w in belegt) < MIN_EINTRAEGE_TAGESZEIT or len(belegt) < 2:
+        return None
+    text = "Tageszeiten, Stimmung im Schnitt (Einträge): " + " · ".join(
+        f"{n} {_komma(_mittel(w['stimmung']))} ({len(w['stimmung'])})" for n, w in belegt) + "."
+    spannung = [f"{n} {round(_mittel(w['anspannung']))}" for n, w in belegt if w["anspannung"]]
+    if spannung:
+        text += " Anspannung: " + " · ".join(spannung) + "."
+    return text
+
+
+def schlafqualitaet_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]]) -> Optional[str]:
+    """Stimmung nach Tiefschlaf (Teilung am Median) und nach Nächten mit/ohne Aufwachen.
+
+    Nur Nächte, für die die Uhr Schlafphasen geliefert hat. ``None``, wenn nichts zu vergleichen ist.
+    """
+    paare = sorted(_nacht_und_tag(naechte, stunden, nur_mit_phasen=True), key=lambda p: p[0]["tief_min"])
+    saetze: List[str] = []
+    if len(paare) >= MIN_TAGE_VERGLEICH:
+        haelfte = len(paare) // 2
+        wenig, viel = paare[:haelfte], paare[-haelfte:]
+        saetze.append(
+            f"Tiefschlaf und Stimmung ({len(paare)} Tage): Nach den Nächten mit weniger Tiefschlaf "
+            f"(bis {dauer_text(wenig[-1][0]['tief_min'])}) lag die Stimmung im Schnitt bei "
+            f"{_komma(_mittel([k['stimmung'] for _, k in wenig]))}, nach denen mit mehr bei "
+            f"{_komma(_mittel([k['stimmung'] for _, k in viel]))}.")
+    ruhig = [k["stimmung"] for n, k in paare if n["wach_phasen"] == 0]
+    unruhig = [k["stimmung"] for n, k in paare if n["wach_phasen"] > 0]
+    if len(ruhig) >= 2 and len(unruhig) >= 2:
+        saetze.append(f"Ohne nächtliches Aufwachen ({len(ruhig)} Nächte) Stimmung im Schnitt "
+                      f"{_komma(_mittel(ruhig))}, mit Aufwachen ({len(unruhig)} Nächte) "
+                      f"{_komma(_mittel(unruhig))}.")
+    if not saetze:
+        return None
+    return " ".join(saetze) + " Nur ein Zusammenhang, kein Beweis."
+
+
+# ── S11: Wochentage und Gefühle nach Schlaf (nur Zahlen und Grundgefühle) ───
+
+WOCHENTAGE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+MIN_TAGE_WOCHENTAG = 2
+
+
+def wochentag_text(stunden: List[Dict[str, Any]]) -> Optional[str]:
+    """Stimmung je Wochentag (Schnitt der Tagesschnitte), nur Wochentage mit mindestens zwei Tagen."""
+    je_wochentag: Dict[int, List[float]] = {}
+    for tag, k in tag_kennzahlen(stunden).items():
+        if k["stimmung"] is not None:
+            je_wochentag.setdefault(date.fromisoformat(tag).weekday(), []).append(k["stimmung"])
+    belegt = [(WOCHENTAGE[w], werte) for w, werte in sorted(je_wochentag.items())
+              if len(werte) >= MIN_TAGE_WOCHENTAG]
+    if len(belegt) < 2:
+        return None
+    return "Wochentage, Stimmung im Schnitt (Tage): " + " · ".join(
+        f"{n} {_komma(_mittel(w))} ({len(w)})" for n, w in belegt) + "."
+
+
+def gefuehle_nach_schlaf_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]]) -> Optional[str]:
+    """An wie vielen Tagen nach den kürzeren bzw. längeren Nächten (Median) welches Grundgefühl vorkam."""
+    paare = sorted(_nacht_und_tag(naechte, stunden), key=lambda p: p[0]["schlaf_min"])
+    if len(paare) < MIN_TAGE_VERGLEICH:
+        return None
+    haelfte = len(paare) // 2
+    kurz, lang = paare[:haelfte], paare[-haelfte:]
+    belegt = []
+    for g in GRUNDGEFUEHLE:
+        nach_kurz = sum(g in k["gefuehle_alle"] for _, k in kurz)
+        nach_lang = sum(g in k["gefuehle_alle"] for _, k in lang)
+        if nach_kurz or nach_lang:
+            belegt.append(f"{g} {nach_kurz} / {nach_lang}")
+    if not belegt:
+        return None
+    return (f"Gefühle nach kürzeren / längeren Nächten (Tage mit dem Gefühl, je {haelfte} Tage): "
+            + " · ".join(belegt) + ". Nur ein Zusammenhang, kein Beweis.")
+
+
 def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],
                    schwaerzen: Optional[Schwaerzer], einzeln: bool) -> str:
     """Klartext fürs Chat-Werkzeug: einzelne Einträge (ein Tag) oder Tageszeilen (Zeitraum)."""
@@ -168,11 +324,13 @@ def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],
         return "Keine Einträge im Alltagsprotokoll für diesen Zeitraum."
     zeilen: List[str] = []
     if einzeln:
-        zeilen += [nacht_zeile(a) for a in auswerten(naechte)]
+        zeilen += [nacht_zeile(a) for a in auswerten(_ohne_doppelte(naechte))]
         zeilen += [stunden_zeile(e, schwaerzen) for e in stunden]
     else:
         zeilen += [_tageszeile(tag, k) for tag, k in tag_kennzahlen(stunden).items()]
         zeilen.append(verknuepfung_text(naechte, stunden))
+        zeilen += [t for t in (gefuehle_nach_schlaf_text(naechte, stunden), schlafqualitaet_text(naechte, stunden),
+                               tageszeit_text(stunden), wochentag_text(stunden)) if t]
     if schwaerzen is None:
         zeilen.append("(Tätigkeiten und eigene Worte ausgeblendet: Namensliste nicht lesbar.)")
     return "\n".join(zeilen)

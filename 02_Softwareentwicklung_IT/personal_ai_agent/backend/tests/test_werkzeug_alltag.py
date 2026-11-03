@@ -56,6 +56,18 @@ def test_zeitraum_mit_tageszeilen_und_verknuepfung():
     assert "Schlaf und Stimmung" in erg.text
 
 
+def test_beschreibung_nennt_tageszeiten_und_tiefschlaf():
+    # S10: Das Modell soll wissen, dass das Werkzeug diese Fragen beantwortet.
+    beschreibung = werkzeuge.REGISTER["alltag_abfragen"].beschreibung
+    assert "Tageszeit" in beschreibung and "Tiefschlaf" in beschreibung
+
+
+def test_beschreibung_nennt_wochentage_und_gefuehle_nach_schlaf():
+    # S11
+    beschreibung = werkzeuge.REGISTER["alltag_abfragen"].beschreibung
+    assert "Wochentag" in beschreibung and "Gefühle nach" in beschreibung
+
+
 def test_falsches_datum():
     assert werkzeuge.ausfuehren("alltag_abfragen", {"datum": "irgendwann"}).ok is False
 

@@ -31,10 +31,10 @@ def test_namen_in_der_taetigkeit_werden_geschwaerzt():
 
 def test_ohne_namensliste_keine_freitexte():
     assert aw.schwaerzer(None) is None and aw.schwaerzer([]) is None
-    e = _stunde(aktivitaet="Kaffee mit Testperson", stimmung=3, gefuehle=["Ruhe", "verliebt in Testperson"])
+    e = _stunde(aktivitaet="Kaffee mit Testperson", stimmung=3, gefuehle=["Freude", "verliebt in Testperson"])
     zeile = aw.stunden_zeile(e, None)
     assert "Kaffee" not in zeile and "Testperson" not in zeile
-    assert "Stimmung mittel (3)" in zeile and "Ruhe" in zeile
+    assert "Stimmung mittel (3)" in zeile and "Freude" in zeile
 
 
 def test_eigene_gefuehlsworte_werden_geschwaerzt():
@@ -51,12 +51,12 @@ def test_originalworte_gehen_nie_raus():
 
 
 def test_tageskennzahlen():
-    stunden = [_stunde(von="09:00", bis="10:00", stimmung=4, anspannung=20, gefuehle=["Ruhe"]),
-               _stunde(von="14:00", bis="15:00", stimmung=2, anspannung=60, gefuehle=["Ärger", "Ruhe"]),
+    stunden = [_stunde(von="09:00", bis="10:00", stimmung=4, anspannung=20, gefuehle=["Freude"]),
+               _stunde(von="14:00", bis="15:00", stimmung=2, anspannung=60, gefuehle=["Ärger", "Freude"]),
                _stunde(tag="2026-11-02", stimmung=5)]
     k = aw.tag_kennzahlen(stunden)
     assert k["2026-11-03"]["stimmung"] == 3.0 and k["2026-11-03"]["anspannung"] == 40.0
-    assert k["2026-11-03"]["eintraege"] == 2 and k["2026-11-03"]["gefuehle"][0] == ("Ruhe", 2)
+    assert k["2026-11-03"]["eintraege"] == 2 and k["2026-11-03"]["gefuehle"][0] == ("Freude", 2)
     assert k["2026-11-02"]["anspannung"] is None
 
 
@@ -116,7 +116,150 @@ def test_kaputte_eintraege_brechen_nichts():
     assert "Zu wenige Tage" in aw.protokoll_text(kaputt, [], None, einzeln=False)
 
 
+# ── S10: Tageszeiten und Schlafqualität ────────────────────────────────────
+
+def test_tageszeiten_profil():
+    stunden = [_stunde(von="08:00", bis="09:00", stimmung=2, anspannung=60),
+               _stunde(von="09:00", bis="10:00", stimmung=3, anspannung=50),
+               _stunde(von="14:00", bis="15:00", stimmung=4, anspannung=30),
+               _stunde(von="15:00", bis="16:00", stimmung=4, anspannung=20),
+               _stunde(von="19:00", bis="20:00", stimmung=5),
+               _stunde(von="20:00", bis="21:00", stimmung=5, anspannung=10)]
+    text = aw.tageszeit_text(stunden)
+    assert text == ("Tageszeiten, Stimmung im Schnitt (Einträge): morgens 2,5 (2) · nachmittags 4,0 (2) · "
+                    "abends 5,0 (2). Anspannung: morgens 55 · nachmittags 25 · abends 10.")
+
+
+def test_tageszeiten_brauchen_genug_eintraege_und_zwei_zeiten():
+    assert aw.tageszeit_text([_stunde(von="08:00", bis="09:00", stimmung=3)] * 3) is None
+    assert aw.tageszeit_text([_stunde(von="08:00", bis="09:00", stimmung=3)] * 6) is None   # nur morgens
+    assert aw.tageszeit_text([{"art": "stunde", "von": "kaputt", "stimmung": 3}] * 6) is None
+
+
+def _nacht_mit_phasen(tag: str, vortag: str, tief_min: int, aufgewacht: bool):
+    p = lambda b, e, s: {"beginn": b, "ende": e, "stufe": s}  # noqa: E731
+    tief_ende = f"{tag}T00:{tief_min:02d}:00+01:00" if tief_min < 60 else f"{tag}T01:{tief_min - 60:02d}:00+01:00"
+    phasen = [p(f"{vortag}T23:00:00+01:00", f"{tag}T00:00:00+01:00", "leicht"),
+              p(f"{tag}T00:00:00+01:00", tief_ende, "tief"),
+              p(tief_ende, f"{tag}T03:00:00+01:00", "leicht")]
+    if aufgewacht:
+        phasen.append(p(f"{tag}T03:00:00+01:00", f"{tag}T03:10:00+01:00", "wach"))
+    phasen.append(p(f"{tag}T03:10:00+01:00" if aufgewacht else f"{tag}T03:00:00+01:00",
+                    f"{tag}T07:00:00+01:00", "leicht"))
+    return {"quelle_kennung": tag, "beginn": f"{vortag}T23:00:00+01:00", "ende": f"{tag}T07:00:00+01:00",
+            "phasen": phasen}
+
+
+def test_schlafqualitaet_tiefschlaf_und_aufwachen():
+    naechte, stunden = [], []
+    for tag, vortag, tief, wach, stimmung in [
+            ("2026-11-01", "2026-10-31", 30, True, 2), ("2026-11-02", "2026-11-01", 90, False, 4),
+            ("2026-11-03", "2026-11-02", 40, True, 3), ("2026-11-04", "2026-11-03", 100, False, 5)]:
+        naechte.append(_nacht_mit_phasen(tag, vortag, tief, wach))
+        stunden.append(_stunde(tag=tag, stimmung=stimmung))
+    text = aw.schlafqualitaet_text(naechte, stunden)
+    assert ("Tiefschlaf und Stimmung (4 Tage): Nach den Nächten mit weniger Tiefschlaf (bis 40 Min.) "
+            "lag die Stimmung im Schnitt bei 2,5, nach denen mit mehr bei 4,5.") in text
+    assert "Ohne nächtliches Aufwachen (2 Nächte) Stimmung im Schnitt 4,5, mit Aufwachen (2 Nächte) 2,5." in text
+    assert text.endswith("kein Beweis.")
+    # Zeitraum-Text des Werkzeugs enthält beides
+    gesamt = aw.protokoll_text(stunden, naechte, None, einzeln=False)
+    assert "Tiefschlaf und Stimmung" in gesamt
+
+
+def test_unterbrochene_nacht_wird_zusammengezaehlt():
+    # Hermes S10: Zwei Abschnitte, die zum selben Tag gehören (23–03 und 04–07 Uhr), sind eine Nacht.
+    # Vorher zählte nur der spätere (3 Std.); jetzt 4 + 3 = 7 Std. und die Lücke als Aufwachen.
+    teil1 = {"quelle_kennung": "a", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T03:00:00+01:00",
+             "phasen": []}
+    teil2 = {"quelle_kennung": "b", "beginn": "2026-11-03T04:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+             "phasen": []}
+    paare = aw._nacht_und_tag([teil1, teil2], [_stunde(stimmung=3)])
+    assert len(paare) == 1
+    nacht, _ = paare[0]
+    assert nacht["schlaf_min"] == 420 and nacht["wach_phasen"] == 1
+
+
+def test_doppelt_gemeldete_nacht_zaehlt_einmal():
+    # Zwei Quellen (z. B. zwei Apps in Health Connect) melden dieselbe Nacht mit eigener Kennung.
+    # Überlappende Abschnitte sind keine Unterbrechung: nur der längere zählt.
+    uhr = {"quelle_kennung": "uhr", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+           "phasen": []}
+    app = {"quelle_kennung": "app", "beginn": "2026-11-02T23:10:00+01:00", "ende": "2026-11-03T06:50:00+01:00",
+           "phasen": []}
+    for reihenfolge in ([uhr, app], [app, uhr]):
+        nacht, _ = aw._nacht_und_tag(reihenfolge, [_stunde(stimmung=3)])[0]
+        assert nacht["schlaf_min"] == 480 and nacht["wach_phasen"] == 0
+
+
+def test_einzeltag_zeigt_doppelt_gemeldete_nacht_einmal():
+    uhr = {"quelle_kennung": "uhr", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+           "phasen": []}
+    app = {"quelle_kennung": "app", "beginn": "2026-11-02T23:10:00+01:00", "ende": "2026-11-03T06:50:00+01:00",
+           "phasen": []}
+    text = aw.protokoll_text([_stunde(stimmung=3)], [uhr, app], aw.schwaerzer(ERFUNDEN), einzeln=True)
+    assert text.count("Nacht zum") == 1 and "23:00–07:00" in text
+
+
+def test_schlafqualitaet_ohne_phasen_schweigt():
+    naechte = [_nacht(t, "23:00", "07:00", v) for t, v in
+               [("2026-11-01", "2026-10-31"), ("2026-11-02", "2026-11-01"),
+                ("2026-11-03", "2026-11-02"), ("2026-11-04", "2026-11-03")]]
+    stunden = [_stunde(tag=n["quelle_kennung"], stimmung=3) for n in naechte]
+    assert aw.schlafqualitaet_text(naechte, stunden) is None
+
+
 def test_nickerchen_zaehlt_nicht_als_nacht():
     naechte = [{"quelle_kennung": "n", "beginn": "2026-11-03T13:00:00+01:00",
                 "ende": "2026-11-03T13:40:00+01:00", "phasen": []}]
     assert "Zu wenige Tage" in aw.verknuepfung_text(naechte, [_stunde(stimmung=3)])
+
+
+# ── S11: Wochentage und Gefühle nach Schlaf ────────────────────────────────
+
+# 02.11. und 09.11.2026 sind Montage, 03.11. und 10.11. Dienstage, 07.11. ist ein Samstag.
+WOCHE = [_stunde(tag="2026-11-02", stimmung=2), _stunde(tag="2026-11-02", von="18:00", bis="19:00", stimmung=4),
+         _stunde(tag="2026-11-09", stimmung=2), _stunde(tag="2026-11-03", stimmung=4),
+         _stunde(tag="2026-11-10", stimmung=5), _stunde(tag="2026-11-07", stimmung=1)]
+
+
+def test_wochentage_profil():
+    # Schnitt der Tagesschnitte; der Samstag kommt nur einmal vor und fehlt.
+    assert aw.wochentag_text(WOCHE) == "Wochentage, Stimmung im Schnitt (Tage): Montag 2,5 (2) · Dienstag 4,5 (2)."
+
+
+def test_wochentage_zu_wenig_schweigt():
+    stunden = [_stunde(tag="2026-11-02", stimmung=2), _stunde(tag="2026-11-09", stimmung=3),
+               _stunde(tag="2026-11-03", stimmung=4)]
+    assert aw.wochentag_text(stunden) is None
+
+
+def _vier_naechte(gefuehle_je_tag):
+    naechte, stunden = [], []
+    for (tag, vortag, ende), gefuehle in zip(
+            [("2026-11-01", "2026-10-31", "04:00"), ("2026-11-02", "2026-11-01", "07:00"),
+             ("2026-11-03", "2026-11-02", "04:00"), ("2026-11-04", "2026-11-03", "07:00")], gefuehle_je_tag):
+        naechte.append(_nacht(tag, "23:00", ende, vortag))
+        stunden.append(_stunde(tag=tag, stimmung=3, gefuehle=gefuehle))
+    return naechte, stunden
+
+
+def test_gefuehle_nach_kurzen_und_langen_naechten():
+    naechte, stunden = _vier_naechte([["Ärger", "Angst", "Testperson vermisst"], ["Freude"],
+                                      ["Ärger"], ["Freude", "Ärger"]])
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) == (
+        "Gefühle nach kürzeren / längeren Nächten (Tage mit dem Gefühl, je 2 Tage): "
+        "Freude 0 / 2 · Angst 1 / 0 · Ärger 2 / 1. Nur ein Zusammenhang, kein Beweis.")
+
+
+def test_gefuehle_nach_schlaf_schweigt_ohne_gefuehle_oder_tage():
+    naechte, stunden = _vier_naechte([[], [], [], ["eigenes Wort"]])
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) is None
+    naechte, stunden = _vier_naechte([["Freude"]] * 3)
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) is None
+
+
+def test_zeitraum_nennt_wochentage_und_gefuehle_nach_schlaf():
+    naechte, stunden = _vier_naechte([["Ärger"], ["Freude"], ["Ärger"], ["Freude"]])
+    assert "Gefühle nach kürzeren / längeren" in aw.protokoll_text(stunden, naechte, None, einzeln=False)
+    assert "Wochentage" in aw.protokoll_text(WOCHE, [], None, einzeln=False)
