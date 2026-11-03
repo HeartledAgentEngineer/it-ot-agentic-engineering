@@ -3941,13 +3941,30 @@ body.anmelden-offen { overflow: hidden; }
 
 .alltag-regler { flex: 1; min-width: 160px; accent-color: var(--accent); }
 
-.alltag-schlaf {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+.alltag-antworten .alltag-feld { flex: 1 1 160px; width: auto; }
+
+.alltag-text-leiste {
+    display: flex;
     gap: 8px;
 }
 
-.alltag-schlaf-knopf { min-height: 48px; }
+.alltag-text-leiste .alltag-primaer { flex: 1; }
+
+/* 🎙 an jedem Textfeld (S9) — rund, beim Zuhören rot pulsierend wie „Sprechen" */
+.alltag-feld-mic {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.1rem;
+}
+
+.alltag-feld-mic.alltag-hoert {
+    background: linear-gradient(135deg, hsl(0, 70%, 52%), hsl(345, 70%, 48%));
+    border-color: transparent;
+    color: #fff;
+    animation: alltag-puls 1.4s ease-in-out infinite;
+}
 
 .alltag-tag-kopf {
     display: flex;
