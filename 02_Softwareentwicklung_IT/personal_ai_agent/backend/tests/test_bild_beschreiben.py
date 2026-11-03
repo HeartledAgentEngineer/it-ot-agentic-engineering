@@ -727,6 +727,80 @@ def test_plan_fehlt_ehrlich(tmp_path, capsys):
     assert rc == 2 and "Sortierplan nicht gefunden" in capsys.readouterr().out
 
 
+# ── 8b. Video-Standbilder (--standbilder, F6 03.11.2026) ───────────────────
+#
+# Befund: Ausschnitte aus Videos hatten nie eine Beschreibung. Die Standbilder
+# liegen mit eigener fileid in pCloud (``video_standbilder.jsonl``), kamen aber
+# in keinen Beschreibungslauf: der Plan-Eingang laesst Videos aus, die CSV kennt
+# keine Standbilder. Die Karte unten ist erfunden.
+
+def _standbild_karte(pfad: Path, zeilen: list) -> Path:
+    pfad.write_text("\n".join(z if isinstance(z, str) else json.dumps(z) for z in zeilen) + "\n",
+                    encoding="utf-8")
+    return pfad
+
+
+def _karte_zeile(fileid, video="31", zeit=2.0):
+    return {"bild_id": f"{video}#t={zeit:.1f}", "video_id": video, "zeit_s": zeit,
+            "standbild_fileid": fileid, "breite": 960, "hoehe": 540, "skala": 0.5}
+
+
+def test_standbild_zeilen_mit_kennung_und_eindeutigem_namen(tmp_path):
+    karte = _standbild_karte(tmp_path / "video_standbilder.jsonl", [
+        _karte_zeile(9201, "31", 2.0),
+        _karte_zeile(9202, "31", 7.5),
+        _karte_zeile(9201, "31", 2.0),               # doppelt raus
+        {"bild_id": "40#t=1.0", "video_id": "40"},   # ohne Standbild raus
+        "{kaputt",                                   # unlesbar raus
+    ])
+    stat: dict = {}
+    zeilen = werkzeug.standbild_zeilen_lesen(str(karte), stat)
+    assert [z["fileid"] for z in zeilen] == [9201, 9202]
+    a, b = zeilen
+    assert a["datei"] == "standbild_31_2.0.jpg" and b["datei"] == "standbild_31_7.5.jpg"
+    assert a["ordner"] == werkzeug.STANDBILD_ORDNER
+    assert (a["jahr"], a["monat"], a["tag"], a["zeit"]) == (0, 0, 0, None)
+    assert stat == {"keine_kennung": 1, "doppelt": 1, "unlesbar": 1}
+
+
+def test_standbild_lauf_beschreibt_und_ist_idempotent(tmp_path, capsys):
+    karte = _standbild_karte(tmp_path / "video_standbilder.jsonl",
+                             [_karte_zeile(9300 + n, "50", float(n)) for n in range(1, 4)])
+    env = _env_schreiben(tmp_path / ".env")
+    argv = ["--standbilder", str(karte), "--ausgabe", str(tmp_path)]
+    rc = werkzeug.main(argv, sende=FakeSender(), api_abruf=Stolperfalle(),
+                       thumb_abruf=FakeThumb(), env_pfade=[str(env)])
+    assert rc == 0 and "Standbild-Karte:" in capsys.readouterr().out
+    jsonl = tmp_path / "bild_beschreibungen.jsonl"
+    zeilen = [json.loads(z) for z in jsonl.read_text(encoding="utf-8").splitlines()]
+    assert sorted(z["fileid"] for z in zeilen) == [9301, 9302, 9303]
+    rc2 = werkzeug.main(argv, sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                        thumb_abruf=Stolperfalle(), env_pfade=[str(env)])
+    assert rc2 == 0 and len(jsonl.read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_standbild_nur_liste_ohne_netz_und_ohne_schluessel(tmp_path, capsys):
+    karte = _standbild_karte(tmp_path / "video_standbilder.jsonl", [_karte_zeile(9401)])
+    rc = werkzeug.main(["--standbilder", str(karte), "--ausgabe", str(tmp_path), "--nur-liste"],
+                       sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                       thumb_abruf=Stolperfalle(), env_pfade=[])
+    assert rc == 0 and "Voraussichtlich offen: 1 Dateien" in capsys.readouterr().out
+
+
+def test_standbild_karte_fehlt_ehrlich(tmp_path, capsys):
+    rc = werkzeug.main(["--standbilder", str(tmp_path / "fehlt.jsonl"), "--ausgabe", str(tmp_path)],
+                       sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                       thumb_abruf=Stolperfalle(), env_pfade=[])
+    assert rc == 2 and "Standbild-Karte nicht gefunden" in capsys.readouterr().out
+
+
+def test_plan_und_standbilder_schliessen_sich_aus(tmp_path):
+    with pytest.raises(SystemExit):
+        werkzeug.main(["--plan", "a.json", "--standbilder", "b.jsonl", "--ausgabe", str(tmp_path)],
+                      sende=Stolperfalle(), api_abruf=Stolperfalle(),
+                      thumb_abruf=Stolperfalle(), env_pfade=[])
+
+
 # ── 9. Prompt-Varianten (--prompt-variante) ────────────────────────────────
 #
 # Der Stichwort-Prompt ist der Bestand und muss Wort fuer Wort gleich bleiben:
