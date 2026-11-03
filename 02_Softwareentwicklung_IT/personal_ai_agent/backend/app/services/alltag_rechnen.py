@@ -1,14 +1,18 @@
-"""Alltagsprotokoll S2: Rechenteil für Schlafnächte (rein, ohne Modell, 03.11.2026).
+"""Alltagsprotokoll S2: Rechenteil (rein, ohne Modell, 03.11.2026).
 
 Eine Nacht zählt zu dem Tag, an dem man aufwacht („Nacht zum 03.11."). Uhrzeiten
 bleiben in der Ortszeit, die die Uhr mitgeliefert hat. Eine Sitzung, die tagsüber
 (9–19 Uhr) beginnt und kürzer als 3 Stunden ist, gilt als Nickerchen.
+
+Dazu (S2-Rest): Stundenbereiche auf Stunden verteilen, Nächte aus den Schlaf-Knöpfen,
+letzter Stand und offene Stunden fürs Pop-up, fehlende Felder je Stunden-Eintrag.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any, Dict, List, Optional
 
-from app.services.alltag_speicher import zeit_lesen
+from app.services.alltag_speicher import MAX_NACHT, zeit_lesen
 
 WACH_STUFEN = ("wach", "aus_dem_bett")
 NICKERCHEN_MAX_MIN = 180
@@ -119,3 +123,175 @@ def schlaf_text(naechte: List[Dict[str, Any]]) -> str:
                       f"längste zum {_datum_de(z['laengste']['nacht_zum'])} "
                       f"({dauer_text(z['laengste']['schlaf_min'])}).")
     return "\n".join(zeilen)
+
+
+# ── Stunden verteilen ──────────────────────────────────────────────────────
+
+def _lokal(zeit: datetime, zone: Optional[tzinfo]) -> datetime:
+    """In ``zone`` umrechnen; ohne Zone gilt die Systemzeit (kennt die Zeitumstellung)."""
+    return zeit.astimezone(zone) if zone is not None else zeit.astimezone()
+
+
+def stunden_verteilen(von: Any, bis: Any, zone: Optional[tzinfo] = None) -> List[str]:
+    """Jede angebrochene Stunde in ``[von, bis)`` als Ortszeit ``JJJJ-MM-TTTHH:00±HH:MM``.
+
+    Gezählt wird in echten Stunden: Bei der Rückstellung erscheint 02:00 zweimal
+    (einmal mit +02:00, einmal mit +01:00) — beide Stunden wurden erlebt.
+    """
+    a, b = zeit_lesen(von), zeit_lesen(bis)
+    if not a or not b or b <= a:
+        return []
+    schritt = _lokal(a, zone).replace(minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    ende = b.astimezone(timezone.utc)
+    stunden: List[str] = []
+    while schritt < ende:
+        stunden.append(_lokal(schritt, zone).isoformat(timespec="minutes"))
+        schritt += timedelta(hours=1)
+    return stunden
+
+
+# ── Schlaf aus den Knöpfen ─────────────────────────────────────────────────
+
+def _nacht_abschliessen(beginn: datetime, ende: Optional[datetime], wach_min: int,
+                        wach_phasen: int) -> Dict[str, Any]:
+    dauer = int(round((ende - beginn).total_seconds() / 60)) if ende else 0
+    return {
+        "beginn": beginn.isoformat(timespec="seconds"),
+        "ende": ende.isoformat(timespec="seconds") if ende else None,
+        "nacht_zum": ende.date().isoformat() if ende else None,
+        "dauer_min": dauer,
+        "wach_min": wach_min if ende else 0,
+        "schlaf_min": max(0, dauer - wach_min) if ende else 0,
+        "wach_phasen": wach_phasen if ende else 0,
+        "offen": ende is None,
+    }
+
+
+def schlaf_aus_ereignissen(ereignisse: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Nächte aus „Ich gehe schlafen / Kann nicht schlafen / Gehe wieder schlafen / Ich wache auf".
+
+    Reihenfolge der Eingabe egal (nach Zeit sortiert). Verirrte Knöpfe (aufwachen ohne
+    Schlaf, wieder_schlafen ohne Wachliegen, doppeltes schlafen) werden ignoriert. Liegt ein
+    neues „schlafen" mehr als 24 Stunden nach dem Beginn, bleibt die alte Nacht offen
+    (Aufwachen vergessen) und eine neue beginnt. Wachliegen bis zum Aufstehen zählt als wach.
+    """
+    zeitlich = []
+    for e in ereignisse or []:
+        if not isinstance(e, dict):
+            continue
+        zeit = zeit_lesen(e.get("zeit"))
+        if zeit:
+            zeitlich.append((zeit, e.get("ereignis")))
+    zeitlich.sort(key=lambda z: z[0])
+
+    naechte: List[Dict[str, Any]] = []
+    beginn: Optional[datetime] = None
+    wach_seit: Optional[datetime] = None
+    wach_min = wach_phasen = 0
+
+    def wach_beenden(bis: datetime) -> None:
+        nonlocal wach_seit, wach_min
+        if wach_seit is not None:
+            wach_min += int(round((bis - wach_seit).total_seconds() / 60))
+            wach_seit = None
+
+    for zeit, ereignis in zeitlich:
+        if ereignis == "schlafen":
+            if beginn is None:
+                beginn, wach_min, wach_phasen = zeit, 0, 0
+            elif zeit - beginn > MAX_NACHT:
+                naechte.append(_nacht_abschliessen(beginn, None, 0, 0))
+                beginn, wach_seit, wach_min, wach_phasen = zeit, None, 0, 0
+            elif wach_seit is not None:
+                wach_beenden(zeit)
+        elif beginn is None:
+            continue
+        elif ereignis == "wach_liegen" and wach_seit is None:
+            wach_seit = zeit
+            wach_phasen += 1
+        elif ereignis == "wieder_schlafen":
+            wach_beenden(zeit)
+        elif ereignis == "aufwachen":
+            wach_beenden(zeit)
+            naechte.append(_nacht_abschliessen(beginn, zeit, wach_min, wach_phasen))
+            beginn = None
+    if beginn is not None:
+        naechte.append(_nacht_abschliessen(beginn, None, 0, 0))
+    return naechte
+
+
+# ── Letzter Stand und offene Stunden (für das Pop-up) ──────────────────────
+
+SCHLAEFT_EREIGNISSE = ("schlafen", "wach_liegen", "wieder_schlafen")
+
+
+def letzter_stand(eintraege: List[Dict[str, Any]], jetzt: Optional[datetime] = None) -> Dict[str, Any]:
+    """``{"letzter_eintrag": ISO | None, "schlaeft": bool}`` aus Stunden- und Schlaf-Einträgen.
+
+    Zeitpunkt eines Stunden-Eintrags ist ``bis`` (sonst ``von``), eines Schlaf-Ereignisses ``zeit``.
+    ``schlaeft`` gilt, wenn das letzte Ereignis ein Schlaf-Knopf der Nacht ist und höchstens
+    24 Stunden zurückliegt — ein späterer Stunden-Eintrag beendet den Schlaf.
+    """
+    jetzt = jetzt or datetime.now(timezone.utc)
+    letzter: Optional[tuple] = None
+    for e in eintraege or []:
+        if not isinstance(e, dict):
+            continue
+        if e.get("art") == "stunde":
+            roh = e.get("bis") or e.get("von")
+        elif e.get("art") == "schlaf":
+            roh = e.get("zeit")
+        else:
+            continue
+        zeit = zeit_lesen(roh)
+        if zeit and (letzter is None or zeit > letzter[0]):
+            letzter = (zeit, roh, e)
+    if letzter is None:
+        return {"letzter_eintrag": None, "schlaeft": False}
+    zeit, roh, e = letzter
+    schlaeft = (e.get("art") == "schlaf" and e.get("ereignis") in SCHLAEFT_EREIGNISSE
+                and jetzt - zeit <= MAX_NACHT)
+    return {"letzter_eintrag": roh, "schlaeft": bool(schlaeft)}
+
+
+def offene_stunden(letzter_eintrag: Any, jetzt: datetime, schlaeft: bool) -> int:
+    """Volle Stunden seit dem letzten Eintrag; im Schlaf 0; ohne jeden Eintrag 1."""
+    if schlaeft:
+        return 0
+    zeit = zeit_lesen(letzter_eintrag)
+    if zeit is None:
+        return 1
+    rest = jetzt - zeit
+    if rest <= timedelta(0):
+        return 0
+    return int(rest // timedelta(hours=1))
+
+
+# ── Fehlende Felder je Stunden-Eintrag ─────────────────────────────────────
+
+def _zahl_im_bereich(wert: Any, unten: float, oben: float) -> bool:
+    return (isinstance(wert, (int, float)) and not isinstance(wert, bool)
+            and unten <= wert <= oben)
+
+
+def fehlende_felder(eintrag: Dict[str, Any]) -> List[str]:
+    """Felder, nach denen die Rückfrage-Einblendung fragt (Stimmung 1–5, Anspannung 0–100).
+
+    Ungültige Werte zählen als fehlend. Schlaf-Ereignisse haben keine Rückfragen. Essen
+    fehlt bewusst: im Plan noch offen (Hermes, Runde 1, Punkt D).
+    """
+    if not isinstance(eintrag, dict) or eintrag.get("art") != "stunde":
+        return []
+    fehlt: List[str] = []
+    if not _zahl_im_bereich(eintrag.get("stimmung"), 1, 5):
+        fehlt.append("stimmung")
+    if not _zahl_im_bereich(eintrag.get("anspannung"), 0, 100):
+        fehlt.append("anspannung")
+    gefuehle = eintrag.get("gefuehle")
+    if not (isinstance(gefuehle, list)
+            and any(isinstance(g, str) and g.strip() for g in gefuehle)):
+        fehlt.append("gefuehle")
+    aktivitaet = eintrag.get("aktivitaet")
+    if not (isinstance(aktivitaet, str) and aktivitaet.strip()):
+        fehlt.append("aktivitaet")
+    return fehlt
