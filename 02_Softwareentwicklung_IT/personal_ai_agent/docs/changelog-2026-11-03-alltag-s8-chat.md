@@ -100,3 +100,8 @@ Diktat-Glättung (#19) und die Struktur (S3):
   Wortliste. Für einen Schutz ohne diesen Rest wäre Variante B nötig (Freitexte bleiben auf dem
   Gerät). Die entscheidet Sebastian.
 - 4 Tests mehr in `test_schild_namensteile.py`, 2 davon vorher rot.
+
+## Abschluss
+
+- Hermes Runde 5: FREI.
+- Volle Suite auf `9f89b61`: 6427 grün, 3 übersprungen.
