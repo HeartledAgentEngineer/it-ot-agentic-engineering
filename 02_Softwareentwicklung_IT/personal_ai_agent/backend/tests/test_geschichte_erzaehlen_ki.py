@@ -63,6 +63,78 @@ def test_baue_nachricht_enthaelt_die_fakten():
     assert "small baby" in text
 
 
+# ── Erinnerung als Kern (03.11.2026) ────────────────────────────────────────
+# Wunsch Sebastian: Der INHALT der Notiz bleibt 1:1 (jede Aussage), nur die
+# eingesprochene Sprache wird gereinigt (Füllwörter, Grammatik, abgebrochene
+# Sätze, Hörfehler) und mit Bild und Personen verwoben. Nichts dazuerfinden.
+# Gemessen vorher: Hörfehler blieben stehen, Gerüche/Wind/Tiere wurden erfunden,
+# die feste Satzzahl zwang zum Auffüllen.
+
+def _nachricht_und_system():
+    return kem.SYSTEM_PROMPT + "\n" + kem.baue_nachricht(**FAKTEN)
+
+
+def test_erinnerung_ist_kern_jede_aussage_bleibt():
+    text = _nachricht_und_system()
+    assert "jede inhaltliche Aussage" in text
+    assert "nichts weg" in text
+
+
+def test_eingesprochene_sprache_wird_geglaettet():
+    text = _nachricht_und_system()
+    for muss in ("Füllwörter", "Grammatik", "abgebrochene Sätze", "Hörfehler"):
+        assert muss in text, f"Glättungsregel fehlt: {muss}"
+
+
+def test_nichts_dazuerfinden_auch_keine_sinneseindruecke():
+    text = _nachricht_und_system()
+    for muss in ("Gerüche", "Wetter", "Gefühle"):
+        assert muss in text, f"Erfindungsverbot nennt nicht: {muss}"
+
+
+def test_handlungen_werden_personen_zugeordnet():
+    assert "Personen zu" in _nachricht_und_system()
+
+
+def test_keine_feste_mindestlaenge_mehr():
+    for anzahl in (1, 5):
+        text = kem.baue_nachricht(**{**FAKTEN, "anzahl_dateien": anzahl})
+        assert "4–8 Sätze" not in text and "6–10 Sätze" not in text
+        assert "höchstens" in text
+
+
+# ── Vorname und ganzer Name = dieselbe Person (03.11.2026) ──────────────────
+# Gemessen: Der PIIShield gibt dem Vornamen ein eigenes Kürzel ([PERSON_02]
+# neben [PERSON_01] für den ganzen Namen). Das Modell hielt sie für zwei
+# Personen („Erika … während Erika Muster") und verwechselte, wer was tat.
+
+def _gesendet(personen, notiz):
+    client = FakeClient(antwort=_antwort())
+    kem.erzaehle_geschichte(client=client, **{**FAKTEN, "personen": personen, "notiz": notiz})
+    return client.aufrufe[0]["messages"][-1]["content"]
+
+
+def test_vorname_wird_als_dieselbe_person_wie_der_ganze_name_markiert():
+    user = _gesendet(["Erika Muster"], "Erika hat Lieder gesungen.")
+    assert "Erika" not in user and "Muster" not in user          # weiter nur maskiert
+    hinweis = [z for z in user.splitlines() if "dieselbe Person" in z]
+    assert hinweis and "[PERSON_01]" in hinweis[0] and "[PERSON_02]" in hinweis[0]
+
+
+def test_geteilter_vorname_bekommt_keine_gleichsetzung():
+    user = _gesendet(["Erika Muster", "Erika Beispiel"], "Erika hat gesungen.")
+    assert "Erika" not in user                                    # trotzdem maskiert
+    erika = next(t for t in ("[PERSON_02]", "[PERSON_03]", "[PERSON_04]")
+                 if t in user.split("Meine Erinnerung dazu:", 1)[1])
+    for zeile in user.splitlines():
+        if "dieselbe Person" in zeile:
+            assert erika not in zeile, zeile
+
+
+def test_ohne_namensteile_kein_hinweis():
+    assert "dieselbe Person" not in _gesendet(["Sebastian"], "Ich war dabei.")
+
+
 def test_baue_nachricht_perspektive_unterscheidet_sich():
     ich = kem.baue_nachricht(**{**FAKTEN, "perspektive": "ich"})
     erz = kem.baue_nachricht(**{**FAKTEN, "perspektive": "erzaehler"})

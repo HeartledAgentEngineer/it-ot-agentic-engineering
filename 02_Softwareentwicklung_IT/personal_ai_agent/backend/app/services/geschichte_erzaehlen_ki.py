@@ -44,11 +44,11 @@ ZEITGRENZE_S = 45
 MAX_TOKENS = 500
 
 SYSTEM_PROMPT = (
-    "Du bist ein einfühlsamer Erzähler. Du schreibst kurze, warmherzige "
-    "Erinnerungs-Geschichten auf Deutsch in fließender Prosa. Du hältst dich "
-    "strikt an die gegebenen Angaben und erfindest keine Namen, Orte oder "
-    "Ereignisse dazu. Platzhalter in eckigen Klammern wie [PERSON_01] oder "
-    "[LOC_01] stehen für echte Namen und Orte: übernimm sie unverändert."
+    "Du bist ein sorgfältiger Erzähler für Lebenserinnerungen. Du schreibst auf "
+    "Deutsch in fließender Prosa und hältst dich strikt an die gegebenen Angaben: "
+    "Du erfindest nichts dazu — keine Namen, Orte, Handlungen, Gefühle, Gerüche, "
+    "Geräusche, Wetter oder sonstigen Einzelheiten. Platzhalter in eckigen Klammern "
+    "wie [PERSON_01] oder [LOC_01] stehen für echte Namen und Orte: übernimm sie unverändert."
 )
 
 # Nur ein Rückfall, falls die Antwort keine Kosten nennt (für MODELL_FLASH sind
@@ -96,13 +96,24 @@ def baue_nachricht(
     beschr = [b.strip() for b in (beschreibungen or []) if b and b.strip()]
     mehrere = (anzahl_dateien or 1) > 1 or len(beschr) > 1
 
-    regeln = (
-        "Regeln: fließender Fließtext (kein Stakkato, keine Aufzählung, keine "
-        "Zwischenüberschriften); verwende nur die folgenden Angaben und erfinde keine "
-        "Namen, Orte oder Ereignisse; schreibe englische Bildbeschreibungen in "
-        "natürliches Deutsch um; setze keine Anführungszeichen um meine Erinnerung; "
-        + ("6–10 Sätze." if mehrere else "4–8 Sätze.")
-    )
+    # 03.11.2026: Die Erinnerung ist der Kern (Inhalt 1:1), nur die eingesprochene
+    # Sprache wird gereinigt. Keine Mindestlänge mehr — sie zwang zum Ausschmücken.
+    regeln = "\n".join([
+        "Regeln:",
+        "- Meine Erinnerung ist der Kern: übernimm jede inhaltliche Aussage daraus "
+        "vollständig und sinngetreu — lass nichts weg und füge nichts hinzu.",
+        "- Die Erinnerung ist eingesprochen und per Spracherkennung abgetippt: glätte "
+        "die Sprache — entferne Füllwörter, korrigiere Grammatik und abgebrochene Sätze "
+        "und berichtige Hörfehler (falsch erkannte, ähnlich klingende oder getrennte "
+        "Wörter), wenn der Zusammenhang eindeutig zeigt, was gemeint ist. Übernimm "
+        "holprige Sätze nicht wörtlich.",
+        "- Verwebe die Erinnerung mit dem, was auf dem Bild zu sehen ist, und ordne die "
+        "Handlungen den genannten Personen zu.",
+        "- Schreibe englische Bildbeschreibungen in natürliches Deutsch um.",
+        "- Fließtext ohne Aufzählung, Zwischenüberschriften oder Anführungszeichen.",
+        "- Nur so lang, wie die Angaben es hergeben: lieber wenige treffende Sätze als "
+        "ausgeschmückte; höchstens " + ("10" if mehrere else "8") + " Sätze.",
+    ])
 
     auftrag = (
         "Schreibe aus den folgenden Angaben EINE zusammenhängende, warmherzige "
@@ -146,6 +157,28 @@ def baue_schild(personen: Optional[List[str]] = None, ort: str = "") -> PIIShiel
     if ort and ort.strip():
         schild.register_location(ort.strip())
     return schild
+
+
+def personen_hinweis(personen: Optional[List[str]], schild: PIIShield) -> str:
+    """Welche Kürzel dieselbe Person meinen (03.11.2026). Rein, enthält nur Kürzel.
+
+    Der Schild gibt jedem Namensteil ein eigenes Kürzel; ohne Hinweis hält das Modell
+    Vorname und ganzen Namen für zwei Personen. Ein Namensteil, den mehrere Personen
+    teilen, wird nicht gleichgesetzt (er bleibt trotzdem maskiert).
+    """
+    namen = [(n or "").strip() for n in personen or [] if (n or "").strip()]
+    zaehler: Dict[str, int] = {}
+    for name in namen:
+        for teil in set(name.split()):
+            zaehler[teil] = zaehler.get(teil, 0) + 1
+    zeilen: List[str] = []
+    for name in namen:
+        haupt = schild.plain_to_token.get(name)
+        teile = [schild.plain_to_token[t] for t in name.split()
+                 if len(t) >= 3 and t != name and zaehler.get(t) == 1 and t in schild.plain_to_token]
+        if haupt and teile:
+            zeilen.append(f"{', '.join(teile)} ist dieselbe Person wie {haupt} (Teil des Namens).")
+    return "\n".join(zeilen)
 
 
 def _kosten(antwort: Dict[str, Any], modell: str) -> Optional[float]:
@@ -197,9 +230,13 @@ def erzaehle_geschichte(
         perspektive=perspektive,
     )
     schild = baue_schild(personen, ort)
+    maskiert = schild.encode(user)
+    hinweis = personen_hinweis(personen, schild)
+    if hinweis:
+        maskiert += "\n" + hinweis
     nachrichten = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": schild.encode(user)},
+        {"role": "user", "content": maskiert},
     ]
 
     start = time.monotonic()
