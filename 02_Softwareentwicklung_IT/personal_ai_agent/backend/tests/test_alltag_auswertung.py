@@ -213,3 +213,53 @@ def test_nickerchen_zaehlt_nicht_als_nacht():
     naechte = [{"quelle_kennung": "n", "beginn": "2026-11-03T13:00:00+01:00",
                 "ende": "2026-11-03T13:40:00+01:00", "phasen": []}]
     assert "Zu wenige Tage" in aw.verknuepfung_text(naechte, [_stunde(stimmung=3)])
+
+
+# ── S11: Wochentage und Gefühle nach Schlaf ────────────────────────────────
+
+# 02.11. und 09.11.2026 sind Montage, 03.11. und 10.11. Dienstage, 07.11. ist ein Samstag.
+WOCHE = [_stunde(tag="2026-11-02", stimmung=2), _stunde(tag="2026-11-02", von="18:00", bis="19:00", stimmung=4),
+         _stunde(tag="2026-11-09", stimmung=2), _stunde(tag="2026-11-03", stimmung=4),
+         _stunde(tag="2026-11-10", stimmung=5), _stunde(tag="2026-11-07", stimmung=1)]
+
+
+def test_wochentage_profil():
+    # Schnitt der Tagesschnitte; der Samstag kommt nur einmal vor und fehlt.
+    assert aw.wochentag_text(WOCHE) == "Wochentage, Stimmung im Schnitt (Tage): Montag 2,5 (2) · Dienstag 4,5 (2)."
+
+
+def test_wochentage_zu_wenig_schweigt():
+    stunden = [_stunde(tag="2026-11-02", stimmung=2), _stunde(tag="2026-11-09", stimmung=3),
+               _stunde(tag="2026-11-03", stimmung=4)]
+    assert aw.wochentag_text(stunden) is None
+
+
+def _vier_naechte(gefuehle_je_tag):
+    naechte, stunden = [], []
+    for (tag, vortag, ende), gefuehle in zip(
+            [("2026-11-01", "2026-10-31", "04:00"), ("2026-11-02", "2026-11-01", "07:00"),
+             ("2026-11-03", "2026-11-02", "04:00"), ("2026-11-04", "2026-11-03", "07:00")], gefuehle_je_tag):
+        naechte.append(_nacht(tag, "23:00", ende, vortag))
+        stunden.append(_stunde(tag=tag, stimmung=3, gefuehle=gefuehle))
+    return naechte, stunden
+
+
+def test_gefuehle_nach_kurzen_und_langen_naechten():
+    naechte, stunden = _vier_naechte([["Ärger", "Angst", "Testperson vermisst"], ["Freude"],
+                                      ["Ärger"], ["Freude", "Ärger"]])
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) == (
+        "Gefühle nach kürzeren / längeren Nächten (Tage mit dem Gefühl, je 2 Tage): "
+        "Freude 0 / 2 · Angst 1 / 0 · Ärger 2 / 1. Nur ein Zusammenhang, kein Beweis.")
+
+
+def test_gefuehle_nach_schlaf_schweigt_ohne_gefuehle_oder_tage():
+    naechte, stunden = _vier_naechte([[], [], [], ["eigenes Wort"]])
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) is None
+    naechte, stunden = _vier_naechte([["Freude"]] * 3)
+    assert aw.gefuehle_nach_schlaf_text(naechte, stunden) is None
+
+
+def test_zeitraum_nennt_wochentage_und_gefuehle_nach_schlaf():
+    naechte, stunden = _vier_naechte([["Ärger"], ["Freude"], ["Ärger"], ["Freude"]])
+    assert "Gefühle nach kürzeren / längeren" in aw.protokoll_text(stunden, naechte, None, einzeln=False)
+    assert "Wochentage" in aw.protokoll_text(WOCHE, [], None, einzeln=False)
