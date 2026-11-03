@@ -150,14 +150,37 @@ def _nacht_zusammen(teile: List[Dict[str, Any]]) -> Dict[str, Any]:
     return erg
 
 
+def _ohne_doppelte(naechte: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Überlappende Sitzungen sind dieselbe Nacht aus zwei Quellen: nur die längere zählt.
+
+    Aufeinanderfolgende Abschnitte (unterbrochene Nacht) überlappen nie und bleiben alle erhalten.
+    """
+    gelesen = []
+    for n in naechte or []:
+        beginn = zeit_lesen(n.get("beginn")) if isinstance(n, dict) else None
+        ende = zeit_lesen(n.get("ende")) if isinstance(n, dict) else None
+        if beginn and ende and ende > beginn:
+            gelesen.append((beginn, ende, n))
+    gelesen.sort(key=lambda g: g[0])
+    erg: List[Tuple[Any, Any, Dict[str, Any]]] = []
+    for beginn, ende, n in gelesen:
+        if erg and beginn < erg[-1][1]:
+            if ende - beginn > erg[-1][1] - erg[-1][0]:
+                erg[-1] = (beginn, ende, n)
+            continue
+        erg.append((beginn, ende, n))
+    return [n for _, _, n in erg]
+
+
 def _nacht_und_tag(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]],
                    nur_mit_phasen: bool = False) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
     """(Nacht, Tageskennzahlen) für jeden Tag mit Stimmung; die Nacht zählt zum Tag des Aufwachens.
 
-    Mehrere Abschnitte zum selben Tag (unterbrochene Nacht) werden zu einer Nacht zusammengezählt.
+    Mehrere Abschnitte zum selben Tag (unterbrochene Nacht) werden zu einer Nacht zusammengezählt;
+    doppelt gemeldete (überlappende) Sitzungen zählen nur einmal.
     """
     teile: Dict[str, List[Dict[str, Any]]] = {}
-    for a in auswerten(naechte):
+    for a in auswerten(_ohne_doppelte(naechte)):
         if not a["nickerchen"]:
             teile.setdefault(a["nacht_zum"], []).append(a)
     nacht = {tag: n for tag, n in ((t, _nacht_zusammen(ts)) for t, ts in teile.items())

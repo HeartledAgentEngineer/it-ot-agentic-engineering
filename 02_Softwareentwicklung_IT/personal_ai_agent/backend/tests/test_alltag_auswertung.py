@@ -180,6 +180,18 @@ def test_unterbrochene_nacht_wird_zusammengezaehlt():
     assert nacht["schlaf_min"] == 420 and nacht["wach_phasen"] == 1
 
 
+def test_doppelt_gemeldete_nacht_zaehlt_einmal():
+    # Zwei Quellen (z. B. zwei Apps in Health Connect) melden dieselbe Nacht mit eigener Kennung.
+    # Überlappende Abschnitte sind keine Unterbrechung: nur der längere zählt.
+    uhr = {"quelle_kennung": "uhr", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+           "phasen": []}
+    app = {"quelle_kennung": "app", "beginn": "2026-11-02T23:10:00+01:00", "ende": "2026-11-03T06:50:00+01:00",
+           "phasen": []}
+    for reihenfolge in ([uhr, app], [app, uhr]):
+        nacht, _ = aw._nacht_und_tag(reihenfolge, [_stunde(stimmung=3)])[0]
+        assert nacht["schlaf_min"] == 480 and nacht["wach_phasen"] == 0
+
+
 def test_schlafqualitaet_ohne_phasen_schweigt():
     naechte = [_nacht(t, "23:00", "07:00", v) for t, v in
                [("2026-11-01", "2026-10-31"), ("2026-11-02", "2026-11-01"),

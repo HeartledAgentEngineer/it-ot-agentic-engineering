@@ -44,6 +44,11 @@ Unverändert. Die neuen Sätze enthalten nur Zahlen, Tageszeit-Namen und feste W
 
 - Hermes Runde 2: FREI.
 - Alle Alltag-Tests auf `da4384c` grün (123).
-- **Offen, kein Fehler im Code:**
-  - Melden zwei verschiedene Quellen auf dem Handy dieselbe Nacht mit eigener Kennung, würden die Abschnitte doppelt gezählt. Ein Beispiel wären zwei Schlaf-Apps, die beide in Health Connect schreiben. Gleiche Kennungen sind schon ausgeschlossen.
-  - Erst prüfen, ob das am Handy überhaupt vorkommt. Dann gegebenenfalls nur eine Quelle übernehmen.
+
+## Nachtrag: doppelt gemeldete Nächte
+
+- Melden zwei Quellen dieselbe Nacht mit eigener Kennung, würde die Nacht durch das Zusammenzählen doppelt gezählt. Ein Beispiel sind zwei Apps, die beide in Health Connect schreiben.
+- `_ohne_doppelte` erkennt solche Sitzungen daran, dass sie sich zeitlich überlappen, und lässt nur die längere zählen.
+- Aufeinanderfolgende Abschnitte einer unterbrochenen Nacht überlappen nie und werden weiter zusammengezählt.
+- Neuer Test `test_doppelt_gemeldete_nacht_zaehlt_einmal` (vorher rot, beide Reihenfolgen).
+- Ob das am Handy überhaupt vorkommt, zeigen erst echte Daten. Die Absicherung schadet nicht, wenn nicht.
