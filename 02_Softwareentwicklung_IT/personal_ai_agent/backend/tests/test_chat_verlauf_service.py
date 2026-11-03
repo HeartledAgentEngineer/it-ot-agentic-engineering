@@ -1,4 +1,5 @@
 """Tests für den extrahierten Verlauf-Service (Refactoring chat.py)."""
+import glob
 import os
 import sys
 
@@ -21,11 +22,15 @@ def verlauf():
     )
     yield chat_verlauf
     chat_verlauf.conversations.clear()
-    try:
-        os.remove(os.path.join(BACKEND, "tests", "_tmp_verlauf2.json"))
-        os.remove(os.path.join(BACKEND, "tests", "_tmp_verlauf2_alt.json"))
-    except OSError:
-        pass
+    # Auch die Rotations-Backups wegräumen: _speichere_verlauf legt je Speichern
+    # eine Datei _tmp_verlauf2.json.bak-<Zeitstempel> an (chat_verlauf.py:180-184).
+    # Ohne diese Zeilen bleibt bei jedem Testlauf eine Datei im tests/-Ordner
+    # liegen — gefunden am 03.11.2026.
+    for pfad in glob.glob(os.path.join(BACKEND, "tests", "_tmp_verlauf2*")):
+        try:
+            os.remove(pfad)
+        except OSError:
+            pass
 
 
 def test_anhaengen_mit_zeit(verlauf):
