@@ -1118,9 +1118,11 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         "(0–100) und Gefühle. Ein Tag: alle Einträge plus die Nacht davor. Zeitraum: je Tag der "
         "Schnitt, ein Vergleich von Stimmung/Anspannung nach kürzeren und längeren Nächten, nach "
         "mehr oder weniger Tiefschlaf und nach Nächten mit/ohne Aufwachen, dazu Stimmung je "
-        "Tageszeit (morgens, nachmittags, abends, nachts). Für 'wie war meine Stimmung gestern', "
+        "Tageszeit (morgens, nachmittags, abends, nachts) und je Wochentag sowie die Gefühle nach "
+        "kürzeren und längeren Nächten. Für 'wie war meine Stimmung gestern', "
         "'was habe ich heute gemacht', 'wie angespannt war ich diese Woche', 'hängt meine Stimmung "
-        "am Schlaf', 'wann am Tag geht es mir am besten'. [Name] steht für eine Person. Beschreiben, "
+        "am Schlaf', 'wann am Tag geht es mir am besten', 'an welchem Wochentag geht es mir besser', "
+        "'bin ich nach wenig Schlaf öfter gereizt'. [Name] steht für eine Person. Beschreiben, "
         "nicht bewerten; keine Diagnosen.",
         _obj({
             "datum": {"type": "string", "description": "ein Tag: heute, gestern, JJJJ-MM-TT"},
