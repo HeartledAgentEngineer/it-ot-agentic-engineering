@@ -18,16 +18,23 @@ Gefunden beim Bau von Alltagsprotokoll S3/S5; mit erfundenen Namen belegt (Test 
   `schild_aus_namen`. Scheitert der Bau, wird das protokolliert (vorher still verschluckt).
 - `alltag_struktur.baue_schild` nutzt dieselbe Funktion — eine Stelle statt zwei.
 
-## Unverändert (bewusst)
+## Nachtrag nach Hermes-Einwand (Runde 1)
 
-Gibt es keine lesbare Namensliste, glättet `polish_text` weiterhin ohne Namensschutz (der
-Rohtext enthält dann keine registrierbaren Namen). Ob die Glättung dann ganz ausfallen soll
-wie die Websuche, entscheidet Sebastian.
+- **Fail-closed:** Ist die Namensliste nicht lesbar oder leer, schickt `polish_text` **nichts**
+  mehr ans Modell und gibt `None` zurück — der Rohtext wird lokal weiterverwendet. Das gilt
+  wie bei Websuche und Alltagsprotokoll genau für den Fall „Handy ohne Namensdateien". Die
+  erste Fassung dieses Changelogs nannte das harmlos; das war falsch. **Folge:** Am Handy ohne
+  Namensdateien wird das Diktat ungeglättet übernommen.
+- **Umschrift:** Steht „Jürgen" in der Liste und „Juergen" im Satz, wird auch die Umschrift
+  maskiert (`schild_aus_namen` registriert sie mit).
+- **Tests unabhängig vom Rechner:** `test_spracheingabe.py` und `test_llm_zdr_alle.py` hingen
+  unbemerkt an den echten Namensdateien dieses PCs (742 lesbare Namen, nur gezählt). Sie
+  bekommen jetzt eine erfundene Namensliste.
 
 ## Prüfung
 
-- Neu: `test_glaettung_namen.py` (3): Vorname mit Umlaut nur maskiert und zurück in der
-  gesprochenen Schreibweise, voller Name und Nachname, ohne Namensliste weiter geglättet.
-  Vorher 2 rot.
+- Neu: `test_glaettung_namen.py` (5): Vorname mit Umlaut nur maskiert und zurück in der
+  gesprochenen Schreibweise, voller Name und Nachname, Umschrift im Satz, ohne Namensliste und
+  bei kaputter Quelle geht nichts raus. Vorher rot (erst 2, nach dem Einwand 3 weitere).
 - `test_spracheingabe.py`, `test_pii_shield.py`, `test_llm_zdr_alle.py`, `test_sprache_endpunkt.py`,
-  `test_alltag_struktur.py`, `test_alltag_router_eintrag.py` grün (66).
+  `test_alltag_struktur.py`, `test_alltag_router_eintrag.py` grün; volle Suite siehe PR.

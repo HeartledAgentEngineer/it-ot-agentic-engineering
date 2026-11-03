@@ -31,18 +31,28 @@ RE_EMAIL = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 RE_TOKEN = re.compile(r"\[([A-Z]+)_(\d+)\]")
 
 
+_UMSCHRIFT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
+
+
+def _umschrift(wort: str) -> str:
+    return wort.translate(_UMSCHRIFT)
+
+
 def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShield":
     """Schild fuer eine Namensliste in Originalschreibweise (03.11.2026).
 
-    Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname).
-    Maskiert wird ohne Ruecksicht auf Gross-/Kleinschreibung; zurueck kommt jedes Kuerzel
-    in der Schreibweise, in der es in ``text`` stand.
+    Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname),
+    dazu die Umschrift (Jürgen -> Juergen; Hermes-Einwand #19). Maskiert wird ohne
+    Ruecksicht auf Gross-/Kleinschreibung; zurueck kommt jedes Kuerzel in der Schreibweise,
+    in der es in ``text`` stand.
     """
     schild = PIIShield()
     for name in namen or []:
         name = (name or "").strip() if isinstance(name, str) else ""
         if name:
-            schild.register_person(name, aliases=[t for t in name.split() if len(t) >= 3 and t != name])
+            teile = [t for t in name.split() if len(t) >= 3 and t != name]
+            umschrift = [u for u in (_umschrift(f) for f in [name] + teile) if u not in [name] + teile]
+            schild.register_person(name, aliases=teile + umschrift)
     for klar, kuerzel in list(schild.plain_to_token.items()):
         treffer = re.search(rf"\b{re.escape(klar)}\b", text or "", flags=re.IGNORECASE)
         if treffer:

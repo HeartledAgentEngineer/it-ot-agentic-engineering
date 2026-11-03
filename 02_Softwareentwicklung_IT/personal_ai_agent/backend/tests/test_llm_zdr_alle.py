@@ -20,6 +20,13 @@ sys.path.insert(0, BACKEND)
 from app.services.llm_service import LLMService  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _erfundene_namensliste(monkeypatch):
+    """Die Glättung ist ohne Namensliste fail-closed — nie von echten Namensdateien abhängen."""
+    from app.services import werkzeuge
+    monkeypatch.setattr(werkzeuge, "namen_fuer_maskierung", lambda: ["Testperson Erfunden"])
+
+
 @pytest.fixture
 def dienst():
     aufrufe = []

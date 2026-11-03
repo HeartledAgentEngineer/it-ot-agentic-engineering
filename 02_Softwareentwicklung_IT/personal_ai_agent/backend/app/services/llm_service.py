@@ -2086,13 +2086,18 @@ class LLMService:
         if shield is None:
             # 03.11.2026: Namen in Originalschreibweise samt Namensteilen — vorher nur volle
             # Namen in Umschrift („juergen"), „Jürgen" ging so im Klartext raus.
+            # Ohne lesbare Namensliste fail-closed wie die Websuche (Hermes-Einwand #19):
+            # nichts senden, der Rohtext bleibt lokal.
             try:
                 from app.services.pii_shield import schild_aus_namen
                 from app.services.werkzeuge import namen_fuer_maskierung
-                shield = schild_aus_namen(namen_fuer_maskierung(), raw_text)
+                namen = namen_fuer_maskierung()
             except Exception:
-                logger.warning("Glättung: Namensschild nicht gebaut")
-                shield = None
+                namen = None
+            if not namen:
+                logger.warning("Glättung übersprungen: keine lesbare Namensliste")
+                return None
+            shield = schild_aus_namen(namen, raw_text)
 
         geschuetzter_text = shield.encode(raw_text) if shield is not None else raw_text
 
