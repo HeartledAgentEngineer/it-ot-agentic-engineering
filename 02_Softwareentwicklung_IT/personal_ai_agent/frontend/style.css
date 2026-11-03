@@ -1608,6 +1608,21 @@ button.footer-note:hover {
 #erzaehl-suche { flex: 1; min-width: 0; }
 #erzaehl-jahr { width: 76px; }
 
+.erzaehl-reihenfolge {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    padding: 7px 10px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.erzaehl-reihenfolge:hover { border-color: var(--accent, var(--border)); }
+.erzaehl-reihenfolge:active { transform: scale(0.97); }
+
 .erzaehl-liste {
     flex: 1;
     overflow-y: auto;

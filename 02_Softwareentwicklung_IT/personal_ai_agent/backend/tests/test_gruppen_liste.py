@@ -167,7 +167,8 @@ def test_neue_get_routen_und_parametergrenzen(basis):
     app.include_router(gruppen_router.router)
     client = TestClient(app)
 
-    assert client.get("/api/gruppen/liste").json()["gruppen"][0]["kennung"] == "G-api"
+    # Testgesichter sind klein; der Router filtert seit F2 (03.11.2026) standardmaessig ab 50 px.
+    assert client.get("/api/gruppen/liste", params={"min_px": 0}).json()["gruppen"][0]["kennung"] == "G-api"
     assert client.get("/api/gruppen/liste", params={"status": "ausgeblendet"}).status_code == 200
     assert client.get("/api/gruppen/liste", params={"status": "falsch"}).status_code == 422
     assert client.get("/api/gruppen/liste", params={"seite": 0}).status_code == 422

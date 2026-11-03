@@ -1355,10 +1355,9 @@ function gruppenNotizZeit(zeit) {
         const liste = el('gruppen-liste');
         if (liste) liste.innerHTML = '';
         try {
-            const minPx = (el('gruppen-filter-groesse') && el('gruppen-filter-groesse').checked) ? 50 : 0;
-            const minPxTeil = minPx > 0 ? ('&min_px=' + minPx) : '';
+            // Mini-Gesichter (< 50 px) filtert das Backend immer (F2, 03.11.2026).
             const antwort = await jsonHolen('/api/gruppen/liste?status=' + encodeURIComponent(zustand.listeStatus)
-                + '&seite=' + zustand.listeSeite + '&je_seite=24' + minPxTeil);
+                + '&seite=' + zustand.listeSeite + '&je_seite=24');
             if (sequenz !== zustand.listenSequenz || !zustand.listeAktiv || el('gruppen-sheet').hidden) return;
             if (!antwort || antwort.ok !== true) {
                 gruppenListeMelden('⚠️ ' + ((antwort && antwort.fehler) || 'Gruppenliste nicht ladbar.'), true);
@@ -1990,15 +1989,34 @@ function gruppenNotizZeit(zeit) {
 
     async function profilSpeichern() {
         if (!zustand.person) return;
-        const profil = zustand.person.profil || {};
-        const vorher = profil.beziehung || '';
+        // Alle Felder ZUERST lesen: umbenennen() zeichnet die Ansicht neu (F5, 03.11.2026).
         const beziehung = el('gruppen-person-beziehung').value.trim();
         const notiz = el('gruppen-person-notiz').value.trim();
         const spitzFeld = el('gruppen-person-spitznamen');
+        const vornameFeld = el('gruppen-person-vorname');
+        const nachnameFeld = el('gruppen-person-nachname');
+        const eingabe = {
+            vorname: vornameFeld ? vornameFeld.value : null,
+            nachname: nachnameFeld ? nachnameFeld.value : null,
+            spitznamen: spitzFeld ? spitzFeld.value : null,
+        };
+        // Geänderter Name im Namensfeld: mitspeichern statt still verwerfen (F5).
+        const nameFeld = el('gruppen-person-name');
+        const neuerName = nameFeld ? nameFeld.value.trim() : '';
+        const nameGeaendert = !!neuerName && neuerName !== zustand.person.name;
+        if (nameGeaendert) {
+            const alterName = zustand.person.name;
+            await umbenennen();
+            if (!zustand.person || zustand.person.name === alterName) return;   // fehlgeschlagen, umbenennen meldet
+            const notizFeld = el('gruppen-person-notiz');
+            if (notizFeld && notiz) notizFeld.value = notiz;                    // Eingabe nicht verlieren
+        }
+        const profil = zustand.person.profil || {};
+        const vorher = profil.beziehung || '';
         const namensfelder = gruppenNamensfelderKoerper(profil,
-            el('gruppen-person-vorname') ? el('gruppen-person-vorname').value : profil.vorname,
-            el('gruppen-person-nachname') ? el('gruppen-person-nachname').value : profil.nachname,
-            spitzFeld ? spitzFeld.value : (profil.spitznamen || []).join(', '));
+            eingabe.vorname !== null ? eingabe.vorname : profil.vorname,
+            eingabe.nachname !== null ? eingabe.nachname : profil.nachname,
+            eingabe.spitznamen !== null ? eingabe.spitznamen : (profil.spitznamen || []).join(', '));
         if (namensfelder.spitznamen && gruppenSpitznamenZuviele(namensfelder.spitznamen)) {
             melde('Höchstens 10 Spitznamen je Person.', false);
             return;
@@ -2008,7 +2026,10 @@ function gruppenNotizZeit(zeit) {
         if (notiz) koerper.notiz = notiz;
         const felder = Object.keys(namensfelder).length;
         Object.assign(koerper, namensfelder);
-        if (!koerper.beziehung && !koerper.notiz && !felder) { melde('Nichts geändert.', false); return; }
+        if (!koerper.beziehung && !koerper.notiz && !felder) {
+            if (!nameGeaendert) melde('Nichts geändert.', false);   // sonst steht „✓ umbenannt" schon da
+            return;
+        }
         const ansicht = ansichtMerken();
         const antwort = await bearbeiten('/api/gruppen/profil', koerper);
         if (!antwort || ansichtVeraltet(ansicht) || !zustand.person) return;
@@ -2411,8 +2432,7 @@ function gruppenNotizZeit(zeit) {
         const sequenz = ++zustand.quizSequenz;
         const ansicht = ansichtMerken();
         melde('… lädt');
-        const minPx = (el('gruppen-filter-groesse') && el('gruppen-filter-groesse').checked) ? 50 : 0;
-        const antwort = await jsonHolen('/api/gruppen/naechste' + (minPx > 0 ? ('?min_px=' + minPx) : '')).catch(() => null);
+        const antwort = await jsonHolen('/api/gruppen/naechste').catch(() => null);   // Backend filtert Mini-Gesichter
         // Verspätete Antwort: inzwischen anderer Ansichtsstand (Detail, Übersicht, andere
         // Ansicht, geschlossen) oder neuere Anfrage – nichts ändern, zustand.gruppe bleibt.
         if (sequenz !== zustand.quizSequenz || ansichtVeraltet(ansicht)
@@ -2653,16 +2673,6 @@ function gruppenNotizZeit(zeit) {
         if (zurueckFertig) zurueckFertig.addEventListener('click', rueckgaengig);
         const uebersicht = el('gruppen-uebersicht');
         if (uebersicht) uebersicht.addEventListener('click', gruppenUebersichtOeffnen);
-        const filterGroesse = el('gruppen-filter-groesse');
-        if (filterGroesse) {
-            filterGroesse.addEventListener('change', () => {
-                if (zustand.listeAktiv) {
-                    gruppenListeLaden(1);
-                } else {
-                    laden();
-                }
-            });
-        }
         const detailZurueck = el('gruppen-detail-zurueck');
         if (detailZurueck) detailZurueck.addEventListener('click', gruppeDetailZurueck);
         const listeQuiz = el('gruppen-liste-quiz');

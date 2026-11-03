@@ -84,6 +84,22 @@ function erzaehlSeite(gesamt, geladen, seitenGroesse) {
     };
 }
 
+/** REINE Funktion (F1, 03.11.2026): Abfrage für GET /api/erzaehlen/ereignisse.
+ *  Ein Jahr filtert erst, wenn es vierstellig ist — sonst lieferte das Tippen von
+ *  „2019" zwischendurch Jahr 2, 20, 201 (leere Listen). */
+function erzaehlListenParameter(o) {
+    const a = o || {};
+    const params = new URLSearchParams();
+    params.set('limit', String(Math.max(1, Number(a.limit) || 200)));
+    params.set('offset', String(Math.max(0, Number(a.offset) || 0)));
+    const jahr = String(a.jahr == null ? '' : a.jahr).trim();
+    if (/^(19|20)\d\d$/.test(jahr)) params.set('jahr', jahr);
+    const suche = String(a.suche == null ? '' : a.suche).trim();
+    if (suche) params.set('suche', suche);
+    if (a.neuesteZuerst === true) params.set('neueste_zuerst', 'true');
+    return params.toString();
+}
+
 /** REINE Funktion: nächster Diashow-Index, GEKLEMMT an den Rändern (kein
  *  Überlauf/Umlauf — am ersten Bild bleibt „zurück" auf 0, am letzten bleibt
  *  „weiter" auf n-1). richtung 1 = vor, -1 = zurück, alles andere -> 1.
@@ -568,11 +584,29 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
     // Wie viele Ereignisse stehen schon in der Liste? (Blättern, 07.10.2026)
     let ereignisGeladen = 0;
     const EREIGNIS_SEITE = 200;
+    // Nur die Antwort der neuesten Anfrage zählt (F1): schnelles Tippen startet
+    // mehrere Abrufe, eine ältere Antwort darf die Liste nicht überschreiben.
+    let listenAnfrage = 0;
+    const REIHENFOLGE_SCHLUESSEL = 'gp_erzaehl_neueste_zuerst';
+
+    function neuesteZuerst() {
+        try { return localStorage.getItem(REIHENFOLGE_SCHLUESSEL) !== '0'; } catch (_e) { return true; }
+    }
+
+    function reihenfolgeKnopfZeigen() {
+        const knopf = el('erzaehl-reihenfolge');
+        if (!knopf) return;
+        const neu = neuesteZuerst();
+        knopf.textContent = neu ? '↓ Neueste zuerst' : '↑ Älteste zuerst';
+        knopf.setAttribute('aria-pressed', neu ? 'true' : 'false');
+    }
 
     async function ereignislisteLaden(anhaengen) {
         const hinweis = el('erzaehl-liste-hinweis');
         const liste = el('erzaehl-liste');
         if (!liste) return;
+        anhaengen = anhaengen === true;
+        const anfrage = ++listenAnfrage;
         if (anhaengen) {
             const alt = el('erzaehl-mehr-knopf');
             if (alt) alt.remove();
@@ -585,18 +619,21 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
 
         const jahrFeld = el('erzaehl-jahr');
         const sucheFeld = el('erzaehl-suche');
-        const params = new URLSearchParams();
-        params.set('limit', String(EREIGNIS_SEITE));
-        params.set('offset', String(anhaengen ? ereignisGeladen : 0));
-        if (jahrFeld && jahrFeld.value.trim()) params.set('jahr', jahrFeld.value.trim());
-        if (sucheFeld && sucheFeld.value.trim()) params.set('suche', sucheFeld.value.trim());
+        const abfrage = erzaehlListenParameter({
+            jahr: jahrFeld ? jahrFeld.value : '',
+            suche: sucheFeld ? sucheFeld.value : '',
+            neuesteZuerst: neuesteZuerst(),
+            offset: anhaengen ? ereignisGeladen : 0,
+            limit: EREIGNIS_SEITE,
+        });
 
         let daten;
         try {
-            daten = await jsonHolen(`/api/erzaehlen/ereignisse?${params.toString()}`);
+            daten = await jsonHolen(`/api/erzaehlen/ereignisse?${abfrage}`);
         } catch (_e) {
             daten = { ok: false, error: 'Verbindung zum Backend fehlgeschlagen.' };
         }
+        if (anfrage !== listenAnfrage) return;     // inzwischen neuere Anfrage unterwegs
 
         if (!daten || daten.ok !== true) {
             if (hinweis) hinweis.textContent = (daten && daten.error) || 'Ereignisse nicht verfügbar.';
@@ -2741,10 +2778,26 @@ function erzaehlBildIstPrivat(fileid, bildInfo, detail, privSet, entsperrtSet) {
 
         if (weiterBtn) weiterBtn.addEventListener('click', () => diashowSchritt(1));
 
+        // F1 (03.11.2026): Das Event darf NICHT als `anhaengen` ankommen (sonst wurde
+        // nie geleert, sondern ab Versatz 200 angehängt). Kurze Tipp-Pause bündelt Abrufe.
+        let filterUhr = null;
+        const filterNeu = () => {
+            clearTimeout(filterUhr);
+            filterUhr = setTimeout(() => ereignislisteLaden(false), 300);
+        };
         const sucheFeld = el('erzaehl-suche');
-        if (sucheFeld) sucheFeld.addEventListener('input', ereignislisteLaden);
+        if (sucheFeld) sucheFeld.addEventListener('input', filterNeu);
         const jahrFeld = el('erzaehl-jahr');
-        if (jahrFeld) jahrFeld.addEventListener('input', ereignislisteLaden);
+        if (jahrFeld) jahrFeld.addEventListener('input', filterNeu);
+        const reihenfolge = el('erzaehl-reihenfolge');
+        if (reihenfolge) {
+            reihenfolgeKnopfZeigen();
+            reihenfolge.addEventListener('click', () => {
+                try { localStorage.setItem(REIHENFOLGE_SCHLUESSEL, neuesteZuerst() ? '0' : '1'); } catch (_e) { /* ohne Speicher */ }
+                reihenfolgeKnopfZeigen();
+                ereignislisteLaden(false);
+            });
+        }
 
         const speichernBtn = el('erzaehl-speichern-btn');
         // Als Funktion ohne Argumente aufrufen: der Click-Event darf nicht als ``ersetztId`` ankommen.

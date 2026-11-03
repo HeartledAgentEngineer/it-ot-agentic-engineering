@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261102A">
+    <link rel="stylesheet" href="style.css?v=20261103A">
 </head>
 <body>
     <div id="app">
@@ -372,12 +372,6 @@
                             role="tab" aria-selected="false">👤 Benannt</button>
                 </div>
                 <button id="gruppen-uebersicht" class="gruppen-knopf gruppen-uebersicht-knopf" type="button">☷ Gruppenübersicht</button>
-                <div class="gruppen-filter-groesse-zeile" style="margin: 6px 0; font-size: 13px;">
-                    <label class="gruppen-filter-groesse-label" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" id="gruppen-filter-groesse" checked>
-                        <span>Nur Gesichter ≥ 50 px (pixelige Mini-Gesichter ausblenden)</span>
-                    </label>
-                </div>
                 <p id="gruppen-fortschritt" class="gruppen-fortschritt"></p>
                 <!-- Außerhalb der Karte: bleibt auch sichtbar, wenn das Backend nach einer
                      Statusaktion „fertig“ meldet (Karte dann ausgeblendet). -->
@@ -596,6 +590,8 @@
                     <div class="erzaehl-filter">
                         <input id="erzaehl-suche" type="search" placeholder="Ereignis suchen …" autocomplete="off">
                         <input id="erzaehl-jahr" type="number" placeholder="Jahr" inputmode="numeric">
+                        <button id="erzaehl-reihenfolge" class="erzaehl-reihenfolge" type="button"
+                                aria-pressed="true" title="Reihenfolge der Anlässe umdrehen">↓ Neueste zuerst</button>
                     </div>
                     <div id="erzaehl-liste" class="erzaehl-liste" role="list"></div>
                     <p id="erzaehl-liste-hinweis" class="sheet-note"></p>
@@ -825,9 +821,9 @@
     <script src="anmelden.js?v=20261014B"></script>
     <script src="bild_beschreibung.js?v=20261102B"></script>
     <script src="app.js?v=20261103B"></script>
-    <script src="erzaehlen.js?v=20261103A"></script>
+    <script src="erzaehlen.js?v=20261103B"></script>
     <script src="schlaf.js?v=20261103B"></script>
-    <script src="gruppen_quiz.js?v=20261101G"></script>
+    <script src="gruppen_quiz.js?v=20261103A"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
          das Mikrofon in der Eingabeleiste. Gebraucht wird das Hören VON AUSSEN
