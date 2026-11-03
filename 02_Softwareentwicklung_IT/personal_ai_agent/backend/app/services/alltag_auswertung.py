@@ -145,6 +145,7 @@ def _nacht_zusammen(teile: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(teile) == 1:
         return teile[0]
     erg = dict(teile[-1])
+    erg["einschlafen"] = teile[0]["einschlafen"]  # sortiert nach Aufwachen: der erste Abschnitt beginnt die Nacht
     for feld in _SUMMEN:
         erg[feld] = sum(t[feld] for t in teile)
     erg["wach_phasen"] += len(teile) - 1
@@ -316,6 +317,34 @@ def gefuehle_nach_schlaf_text(naechte: List[Dict[str, Any]], stunden: List[Dict[
             + " · ".join(belegt) + ". Nur ein Zusammenhang, kein Beweis.")
 
 
+# ── S12: Einschlafzeit und Stimmung ─────────────────────────────────────────
+
+def _abend_minuten(uhrzeit: str) -> int:
+    """„HH:MM“ → Minuten ab 12 Uhr mittags, damit 00:30 nach 23:00 kommt."""
+    std, minute = (int(x) for x in uhrzeit.split(":"))
+    return (std * 60 + minute - 12 * 60) % (24 * 60)
+
+
+def einschlafzeit_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]]) -> Optional[str]:
+    """Stimmung/Anspannung nach früherem und späterem Einschlafen (Teilung am Median)."""
+    paare = sorted(_nacht_und_tag(naechte, stunden), key=lambda p: _abend_minuten(p[0]["einschlafen"]))
+    if len(paare) < MIN_TAGE_VERGLEICH:
+        return None
+    haelfte = len(paare) // 2
+    frueh, spaet = paare[:haelfte], paare[-haelfte:]
+
+    def schnitt(gruppe: List[Tuple[Dict[str, Any], Dict[str, Any]]], feld: str) -> Optional[float]:
+        return _schnitt([k[feld] for _, k in gruppe if k[feld] is not None])
+
+    text = (f"Einschlafzeit und Stimmung ({len(paare)} Tage): Nach früherem Einschlafen "
+            f"(bis {frueh[-1][0]['einschlafen']}) lag die Stimmung im Schnitt bei "
+            f"{_komma(schnitt(frueh, 'stimmung'))}, nach späterem bei {_komma(schnitt(spaet, 'stimmung'))}.")
+    a_frueh, a_spaet = schnitt(frueh, "anspannung"), schnitt(spaet, "anspannung")
+    if a_frueh is not None and a_spaet is not None:
+        text += f" Anspannung im Schnitt {round(a_frueh)} gegenüber {round(a_spaet)}."
+    return text + " Nur ein Zusammenhang, kein Beweis."
+
+
 def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],
                    schwaerzen: Optional[Schwaerzer], einzeln: bool) -> str:
     """Klartext fürs Chat-Werkzeug: einzelne Einträge (ein Tag) oder Tageszeilen (Zeitraum)."""
@@ -329,7 +358,8 @@ def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],
     else:
         zeilen += [_tageszeile(tag, k) for tag, k in tag_kennzahlen(stunden).items()]
         zeilen.append(verknuepfung_text(naechte, stunden))
-        zeilen += [t for t in (gefuehle_nach_schlaf_text(naechte, stunden), schlafqualitaet_text(naechte, stunden),
+        zeilen += [t for t in (einschlafzeit_text(naechte, stunden), gefuehle_nach_schlaf_text(naechte, stunden),
+                               schlafqualitaet_text(naechte, stunden),
                                tageszeit_text(stunden), wochentag_text(stunden)) if t]
     if schwaerzen is None:
         zeilen.append("(Tätigkeiten und eigene Worte ausgeblendet: Namensliste nicht lesbar.)")

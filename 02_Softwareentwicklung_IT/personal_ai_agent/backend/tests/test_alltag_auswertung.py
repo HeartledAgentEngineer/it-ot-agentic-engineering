@@ -263,3 +263,50 @@ def test_zeitraum_nennt_wochentage_und_gefuehle_nach_schlaf():
     naechte, stunden = _vier_naechte([["Ärger"], ["Freude"], ["Ärger"], ["Freude"]])
     assert "Gefühle nach kürzeren / längeren" in aw.protokoll_text(stunden, naechte, None, einzeln=False)
     assert "Wochentage" in aw.protokoll_text(WOCHE, [], None, einzeln=False)
+
+
+# ── S12: Einschlafzeit und Stimmung ────────────────────────────────────────
+
+def _nacht_ab(tag: str, vortag: str, einschlafen: str):
+    """Nacht zum ``tag`` mit 7 Std. Dauer; vor Mitternacht beginnt sie am ``vortag``."""
+    from datetime import datetime, timedelta
+    std = int(einschlafen[:2])
+    beginn = datetime.fromisoformat(f"{vortag if std >= 12 else tag}T{einschlafen}:00+01:00")
+    return {"quelle_kennung": tag, "beginn": beginn.isoformat(),
+            "ende": (beginn + timedelta(hours=7)).isoformat(), "phasen": []}
+
+
+def _einschlaf_daten(anzahl=4):
+    naechte, stunden = [], []
+    for tag, vortag, einschlafen, stimmung, spannung in [
+            ("2026-11-01", "2026-10-31", "22:30", 5, 10), ("2026-11-02", "2026-11-01", "01:00", 2, 70),
+            ("2026-11-03", "2026-11-02", "23:00", 4, 20), ("2026-11-04", "2026-11-03", "00:30", 3, 50)][:anzahl]:
+        naechte.append(_nacht_ab(tag, vortag, einschlafen))
+        stunden.append(_stunde(tag=tag, von="14:00", bis="15:00", stimmung=stimmung, anspannung=spannung))
+    return naechte, stunden
+
+
+def test_einschlafzeit_und_stimmung():
+    # Nach Mitternacht ist später als vor Mitternacht (00:30 nach 23:00).
+    assert aw.einschlafzeit_text(*_einschlaf_daten()) == (
+        "Einschlafzeit und Stimmung (4 Tage): Nach früherem Einschlafen (bis 23:00) lag die Stimmung "
+        "im Schnitt bei 4,5, nach späterem bei 2,5. Anspannung im Schnitt 15 gegenüber 60. "
+        "Nur ein Zusammenhang, kein Beweis.")
+
+
+def test_einschlafzeit_zu_wenig_schweigt():
+    assert aw.einschlafzeit_text(*_einschlaf_daten(3)) is None
+
+
+def test_unterbrochene_nacht_behaelt_erste_einschlafzeit():
+    teil1 = {"quelle_kennung": "a", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T03:00:00+01:00",
+             "phasen": []}
+    teil2 = {"quelle_kennung": "b", "beginn": "2026-11-03T04:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+             "phasen": []}
+    nacht, _ = aw._nacht_und_tag([teil2, teil1], [_stunde(stimmung=3)])[0]
+    assert nacht["einschlafen"] == "23:00" and nacht["aufwachen"] == "07:00"
+
+
+def test_zeitraum_nennt_einschlafzeit():
+    naechte, stunden = _einschlaf_daten()
+    assert "Einschlafzeit und Stimmung" in aw.protokoll_text(stunden, naechte, None, einzeln=False)

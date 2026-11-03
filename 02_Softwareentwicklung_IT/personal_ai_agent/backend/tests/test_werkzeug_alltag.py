@@ -68,6 +68,11 @@ def test_beschreibung_nennt_wochentage_und_gefuehle_nach_schlaf():
     assert "Wochentag" in beschreibung and "Gefühle nach" in beschreibung
 
 
+def test_beschreibung_nennt_einschlafzeit():
+    # S12
+    assert "Einschlafzeit" in werkzeuge.REGISTER["alltag_abfragen"].beschreibung
+
+
 def test_falsches_datum():
     assert werkzeuge.ausfuehren("alltag_abfragen", {"datum": "irgendwann"}).ok is False
 

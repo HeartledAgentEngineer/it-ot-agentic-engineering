@@ -1117,6 +1117,7 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         "Sebastians Alltagsprotokoll (Therapie): je Stunde Tätigkeit, Stimmung (1–5), Anspannung "
         "(0–100) und Gefühle. Ein Tag: alle Einträge plus die Nacht davor. Zeitraum: je Tag der "
         "Schnitt, ein Vergleich von Stimmung/Anspannung nach kürzeren und längeren Nächten, nach "
+        "früherer und späterer Einschlafzeit, nach "
         "mehr oder weniger Tiefschlaf und nach Nächten mit/ohne Aufwachen, dazu Stimmung je "
         "Tageszeit (morgens, nachmittags, abends, nachts) und je Wochentag sowie die Gefühle nach "
         "kürzeren und längeren Nächten. Für 'wie war meine Stimmung gestern', "
