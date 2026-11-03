@@ -23,3 +23,14 @@ es auf dem Bild nicht". Ausschließen und Zuordnen kannten Video-gids schon seit
 
 - Neu: `test_bild_editor_video.py` (6). Vorher 4 rot, die zwei Kontrolltests grün.
 - Nachbartests Bild-Editor B1/B2, Quiz-Video, Erzählen-Personen: 189 grün.
+
+## Nachtrag — zweite Ursache im Frontend
+
+- **Ursache 2:** `gesichtBearbeitbar` (`gruppen_quiz.js`) sperrte jedes Gesicht mit
+  `video: true` für den Editor. Ein Standbild öffnete deshalb nur die Ansicht, ohne fileid.
+  Der Backend-Fix oben kam am Handy so nie an.
+- **Behoben:** Entscheidend ist nur noch die Kennung. Eine rein numerische Kennung (Foto oder
+  fileid eines Standbilds) öffnet den Editor. `12#t=3` (Video ohne Standbild) bleibt Ansicht.
+- **Prüfung:** `test_bild_editor_b4.js` erwartet jetzt den Editor mit `{fileid: "222"}`
+  für das Standbild. Vorher 3 rot, jetzt 142 grün.
+- Cache: `gruppen_quiz.js?v=20261103B`.

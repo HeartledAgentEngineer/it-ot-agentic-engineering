@@ -569,11 +569,13 @@ await fall('K7) Gruppen-Quiz: Fotoansicht und Gesamtansicht oeffnen den Editor m
     pruefe(ed.opts && ed.opts.markiere && gleich(ed.opts.markiere.bbox_norm, [0.1, 0.1, 0.2, 0.2]) && ed.opts.markiere.gid === '111:0',
         'das Gruppengesicht bleibt markiert (bbox_norm + gid)', j(ed.opts && ed.opts.markiere));
 
-    // — Video-Standbild und kaputte Kennung: nur Ansicht wie bisher —
+    // — Video-Standbild (F3, 03.11.2026): bearbeitbar wie ein Foto, die fileid ist die des Standbilds —
+    // Vorher blieb es reine Ansicht; der Server kennt Video-Gesichter auf Standbildern jetzt.
     await kacheln[1].click(); await settle(); await settle();
     const v = a.editor[1] || {};
-    pruefe(a.editor.length === 2 && v.opts === undefined && gleich(v.gesichter && v.gesichter.length, 1), 'Video-Standbild: nur Ansicht (ohne fileid), nur das Gruppengesicht', j(v.opts));
-    pruefe(!a.aufrufe.some((c) => /bild-gesichter\?fileid=222/.test(c.pfad)), 'fuer Videos wird bild-gesichter nicht gerufen');
+    pruefe(a.editor.length === 2 && v.opts && v.opts.fileid === '222', 'Video-Standbild: Editor mit {fileid: "222"}', j(v.opts));
+    pruefe(a.aufrufe.some((c) => /^\/api\/gruppen\/bild-gesichter\?fileid=222$/.test(c.pfad)), 'fuer Standbilder wird bild-gesichter gerufen');
+    pruefe(v.opts && v.opts.markiere && v.opts.markiere.gid === '222:0', 'das Video-Gesicht bleibt markiert', j(v.opts && v.opts.markiere));
     await kacheln[2].click(); await settle(); await settle();
     pruefe(a.editor.length === 3 && a.editor[2].opts === undefined, 'nicht-numerische Kennung: nur Ansicht', j(a.editor[2] && a.editor[2].opts));
     pruefe(!a.aufrufe.some((c) => /bild-gesichter\?fileid=abc/.test(c.pfad)), 'fuer nicht-numerische Kennungen wird nichts abgerufen');

@@ -64,12 +64,12 @@ function gesichtGid(beispiel) {
     return '';
 }
 
-/** Darf der Editor dieses Foto mit den Cloud-Routen bearbeiten? Nur echte Fotos mit
- *  rein numerischer Kennung — Video-Standbilder (``video``) und Kennungen wie
- *  "12#t=3" bleiben reine Ansicht. Bild-Editor B4 (27.10.2026). */
-function gesichtBearbeitbar(kennung, beispiel) {
+/** Darf der Editor dieses Bild mit den Cloud-Routen bearbeiten? Nur rein numerische
+ *  Kennungen — Fotos und seit F3 (03.11.2026) auch Video-Standbilder, deren Kennung die
+ *  fileid des Standbilds ist (der Server kennt ihre Gesichter). Kennungen wie "12#t=3"
+ *  (Video ohne Standbild) bleiben reine Ansicht. Bild-Editor B4 (27.10.2026). */
+function gesichtBearbeitbar(kennung) {
     if (kennung == null || kennung === '' || typeof kennung === 'boolean') return false;
-    if (beispiel && beispiel.video === true) return false;
     return /^[0-9]{1,20}$/.test(String(kennung).trim());
 }
 
@@ -865,9 +865,9 @@ function gruppenNotizZeit(zeit) {
         // Daten wird nichts markiert.
         // Bild-Editor B4 (27.10.2026): bei einem echten Foto holt der Editor die Gesichter des
         // Bildes vom Server (bild-gesichter) und speichert Korrekturen ueber bild-rahmen; das
-        // Gruppengesicht bleibt markiert. Video-Standbilder und unlesbare Antworten bleiben
-        // reine Ansicht (mit ehrlicher Meldung bei einem Fehler).
-        if (gesichtBearbeitbar(fileid, beispiel)) {
+        // Gruppengesicht bleibt markiert. Video-Standbilder laufen seit F3 (03.11.2026) mit;
+        // unlesbare Antworten bleiben reine Ansicht (mit ehrlicher Meldung bei einem Fehler).
+        if (gesichtBearbeitbar(fileid)) {
             let daten = null;
             try {
                 const r = await fetch(`${apiBase()}/api/gruppen/bild-gesichter?fileid=${encodeURIComponent(String(fileid).trim())}`);
