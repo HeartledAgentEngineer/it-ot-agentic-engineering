@@ -49,6 +49,7 @@ from app.router import (
     datenstand,
     tageslauf,
     voice_stream,
+    alltag,
 )
 
 # Configure logging
@@ -290,6 +291,9 @@ app.include_router(tageslauf.router, dependencies=[Depends(auth.require_api_key)
 # Bidirektionaler Voice Mode & Telefon-Agent (2026-10-31, Stufe D):
 # Live-Audio-Streaming (WebSocket), Barge-In, Voice-Session-Manager und App-Sprachsteuerung.
 app.include_router(voice_stream.router, dependencies=[Depends(auth.require_api_key)])
+# Alltagsprotokoll (2026-11-03, Issue #12): Schlafnaechte der Uhr (Health Connect ueber
+# Hey Agent). Daten nur lokal (~/alltagsprotokoll, ALLTAGSPROTOKOLL_PFAD).
+app.include_router(alltag.router, dependencies=[Depends(auth.require_api_key)])
 
 def _lan_ip() -> Optional[str]:
     """LAN-Adresse des Geräts ermitteln, ohne Netzwerkverkehr zu erzeugen.

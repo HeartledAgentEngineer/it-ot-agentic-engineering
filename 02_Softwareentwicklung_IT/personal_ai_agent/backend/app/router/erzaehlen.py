@@ -48,6 +48,7 @@ def ereignisse(
     min_bilder: int = Query(1, description="Mindestzahl an Dateien je Ereignis"),
     limit: int = Query(200, description="Höchstzahl der Ereignisse (1…500)"),
     offset: int = Query(0, description="Versatz für Seitenblättern"),
+    neueste_zuerst: bool = Query(False, description="Neueste Anlässe zuerst"),
 ) -> Dict[str, Any]:
     """Gefilterte Ereignisliste. Antwortet immer mit HTTP 200."""
     antwort: Dict[str, Any] = {
@@ -64,6 +65,7 @@ def ereignisse(
 
         ergebnis = erzaehl_service.ereignisse_liste(
             jahr=jahr, suche=suche, min_bilder=min_bilder, limit=limit, offset=offset,
+            neueste_zuerst=neueste_zuerst,
         )
         antwort["ok"] = True
         antwort["eintraege"] = ergebnis["eintraege"]

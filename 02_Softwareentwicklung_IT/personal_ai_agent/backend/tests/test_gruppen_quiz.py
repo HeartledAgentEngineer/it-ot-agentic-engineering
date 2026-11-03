@@ -308,7 +308,8 @@ def test_routen_antworten_immer_mit_200(basis):
     app.include_router(gruppen_router.router)
     c = TestClient(app)
     assert c.get("/api/gruppen/stand").json()["gruppen"] == 4
-    assert c.get("/api/gruppen/naechste").json()["gruppe"]["kennung"] == "Person_1001"
+    # Testgesichter sind 40 px; der Router filtert seit F2 (03.11.2026) standardmaessig ab 50 px.
+    assert c.get("/api/gruppen/naechste?min_px=0").json()["gruppe"]["kennung"] == "Person_1001"
     r = c.post("/api/gruppen/antwort", json={"kennung": "Person_1001", "art": "name", "name": "Leon"})
     assert r.status_code == 200 and r.json()["gruppe"]["kennung"] == "Person_1002"
     falsch = c.post("/api/gruppen/antwort", json={"kennung": "Person_1001", "art": "name", "name": ""})

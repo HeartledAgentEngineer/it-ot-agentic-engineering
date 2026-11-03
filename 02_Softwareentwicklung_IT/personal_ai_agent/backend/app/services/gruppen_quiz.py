@@ -90,6 +90,7 @@ KONTAKTE_DATEINAME = "kontakte.json"   # Telefonbuch-Auszug (tools/handy/kontakt
 KORREKTUREN_DATEINAME = "bild_korrekturen.json"
 BILD_RAHMEN_MAX = 30       # Aenderungen je POST /api/gruppen/bild-rahmen
 HAND_INDEX_AB = 1000       # Index >= 1000 = Hand-Gesicht (vergibt nur der Server)
+MIN_GESICHT_PX = 50        # Mini-Gesichter darunter fragt das Quiz nie (F2, 03.11.2026; vorher ein Haken)
 BBOX_MIN = 0.01            # kleinster Rahmen: 1 % von Breite/Hoehe
 
 ARTEN = ("name", "gleich", "verschieden", "spaeter", "unbekannt", "offen", "aufloesen")
@@ -902,21 +903,31 @@ def _gruppen_status(kennung: str, namen: Dict[str, str], st: Dict[str, List[str]
 
 
 def _hat_min_groesse(gruppe: Dict[str, Any], min_px: int) -> bool:
-    """Prüft, ob mindestens ein Beispielgesicht der Gruppe >= min_px groß ist."""
+    """Prüft, ob mindestens ein Beispielgesicht der Gruppe >= min_px groß ist.
+
+    Gruppen ohne grosses Foto-Gesicht duerfen ueber ein darstellbares Video-Gesicht
+    (Standbild) bestehen — sonst fielen reine Video-Gruppen immer heraus (F2/F3, 03.11.2026).
+    """
     if min_px <= 0:
         return True
-    beispiele = gruppe.get("beispiele") or []
-    for b in beispiele:
-        if not isinstance(b, dict):
-            continue
-        bbox = b.get("bbox")
-        if isinstance(bbox, list) and len(bbox) == 4:
-            try:
-                if max(float(bbox[2]), float(bbox[3])) >= min_px:
-                    return True
-            except (ValueError, TypeError):
-                continue
-    return False
+
+    def gross(bbox: Any) -> bool:
+        if not (isinstance(bbox, list) and len(bbox) == 4):
+            return False
+        try:
+            return max(float(bbox[2]), float(bbox[3])) >= min_px
+        except (ValueError, TypeError):
+            return False
+
+    if any(isinstance(b, dict) and gross(b.get("bbox")) for b in gruppe.get("beispiele") or []):
+        return True
+    if not gruppe.get("videos"):
+        return False
+    try:
+        videos = _video_teil([gruppe["kennung"]])[0].get(gruppe["kennung"], [])
+    except (GruppenFehler, OSError):
+        return False
+    return any(gross(v.get("bbox")) for v in videos)
 
 
 def liste(status: str = "offen", seite: int = 1, je_seite: int = 24, min_px: int = 0) -> Dict[str, Any]:
@@ -1407,13 +1418,41 @@ def _norm_aus_pixel(bbox: Any, breite: Any, hoehe: Any) -> Optional[List[float]]
     return [round(bbox[0] / b, 6), round(bbox[1] / h, 6), round(bbox[2] / b, 6), round(bbox[3] / h, 6)]
 
 
+def _je_bild_mit_standbildern(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Foto-Gesichter je Bild plus die Video-Gesichter je Standbild (F3, 03.11.2026).
+
+    Ohne die Video-Gesichter kannte die Bildsicht auf einem Standbild kein einziges Gesicht —
+    Name, Rahmen und Entfernen scheiterten im Bild-Editor. Gemerkt, solange Gesichtsdatei
+    und Standbild-Karte dieselben Objekte liefern (beide selbst ueber ``_gemerkt``)."""
+    fotos = _gemerkt(pfad, _gesichter_je_bild_laden)
+    karte = _video_karte()
+    if not karte:
+        return fotos
+    zeilen = _gemerkt(pfad, _video_zeilen_laden)
+    alt = _STANDBILD_SICHT.get("letzte")
+    if alt and alt[0] is fotos and alt[1] is zeilen and alt[2] is karte:
+        return alt[3]
+    gesamt = {k: list(v) for k, v in fotos.items()}
+    for kennung, liste in zeilen.items():
+        for g in _video_gesichter(liste, karte)[0]:
+            gesamt.setdefault(g["fileid"], []).append({
+                "gid": g["gid"], "index": g["index"], "kennung": kennung, "bbox": g["bbox"],
+                "breite": g["breite"], "hoehe": g["hoehe"]})
+    _STANDBILD_SICHT["letzte"] = (fotos, zeilen, karte, gesamt)
+    return gesamt
+
+
+# Letzte zusammengefuehrte Sicht; gilt nur, solange dieselben (gemerkten) Objekte kommen.
+_STANDBILD_SICHT: Dict[str, Tuple[Any, Any, Any, Dict[str, List[Dict[str, Any]]]]] = {}
+
+
 def _sicht_quellen(korr: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Alles, was die Gesichtssicht braucht — gelesen, nichts geschrieben.
     Wirft ``GruppenFehler`` (fehlende Gruppen-Datei, unlesbare Datei) oder ``OSError``."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         raise GruppenFehler(FEHLT_HINWEIS)
-    return {"je_bild": _gemerkt(pfad, _gesichter_je_bild_laden), "namen": bestaetigt_lesen(),
+    return {"je_bild": _je_bild_mit_standbildern(pfad), "namen": bestaetigt_lesen(),
             "aus": ausgeschlossen_lesen(), "zug": zugeordnet_lesen(),
             "fremd": set(_stand_lesen()["unbekannt"]),
             "korr": _korrekturen_lesen() if korr is None else korr}
@@ -1906,6 +1945,41 @@ def _zuordnungen_umbenennen(daten: Dict[str, Any], alt: str, neu: str) -> List[D
     return vorher
 
 
+def _rahmen_namen_umbenennen(daten: Dict[str, Any], alt: str, neu: str) -> List[Dict[str, Any]]:
+    """Rahmen-Namen des Bild-Editors (``bild_korrekturen.json``) mitnehmen (F5, 03.11.2026).
+
+    Sie haben in Bildersicht und Bildersuche Vorrang vor dem Gruppennamen — ohne diesen
+    Schritt zeigten Rahmen und Suche nach dem Umbenennen weiter den alten Namen."""
+    vorher = []
+    for fileid, e in (daten.get("bilder") or {}).items():
+        rahmen = e.get("rahmen") if isinstance(e, dict) else None
+        if not isinstance(rahmen, dict):
+            continue
+        for index, r in rahmen.items():
+            name = _korrektur_name(r.get("name")) if isinstance(r, dict) else None
+            if name and name.casefold() == alt.casefold():
+                vorher.append({"fileid": fileid, "index": index, "name": r["name"]})
+                r["name"] = neu
+    return vorher
+
+
+def _rahmen_namen_wiederherstellen(daten: Dict[str, Any], vorher: Any, neu: str) -> bool:
+    """Nur Rahmen aus dem Umbenennungsprotokoll zuruecksetzen, die noch den neuen Namen tragen."""
+    if not isinstance(vorher, list):
+        return False
+    geaendert = False
+    for eintrag in vorher:
+        if not isinstance(eintrag, dict):
+            continue
+        e = (daten.get("bilder") or {}).get(str(eintrag.get("fileid")))
+        rahmen = e.get("rahmen") if isinstance(e, dict) else None
+        r = rahmen.get(str(eintrag.get("index"))) if isinstance(rahmen, dict) else None
+        if isinstance(r, dict) and r.get("name") == neu and isinstance(eintrag.get("name"), str):
+            r["name"] = eintrag["name"]
+            geaendert = True
+    return geaendert
+
+
 def _zuordnungen_wiederherstellen(daten: Dict[str, Any], vorher: Any, neu: str) -> bool:
     """Nur Eintraege aus dem Umbenennungsprotokoll auf ihren alten Namen setzen."""
     roh = daten.get("zugeordnet")
@@ -2351,6 +2425,10 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
             zugeordnet_vorher = _zuordnungen_umbenennen(vorgaben_daten, alt_s, neu_s)
             if zugeordnet_vorher:
                 eintrag["zugeordnet_vorher"] = zugeordnet_vorher
+            korrekturen = _korrekturen_roh()
+            rahmen_vorher = _rahmen_namen_umbenennen(korrekturen, alt_s, neu_s)
+            if rahmen_vorher:
+                eintrag["rahmen_vorher"] = rahmen_vorher
             if andere:                     # gleicher Name = dieselbe Person (wie beim Benennen)
                 paar = _paar(betroffen[0], andere[0])
                 if paar in vorgaben["verschieden"]:
@@ -2399,6 +2477,8 @@ def umbenennen(alt: str, neu: str) -> Dict[str, Any]:
                 vorgaben_daten["verschieden"] = sorted(vorgaben["verschieden"])
             if paare_geaendert or zugeordnet_vorher:
                 _atomar_schreiben(VORGABEN_DATEINAME, vorgaben_daten)
+            if rahmen_vorher:
+                _atomar_schreiben(KORREKTUREN_DATEINAME, korrekturen)
             _protokoll_anhaengen(eintrag)
     except GruppenFehler as fehler:
         return {"ok": False, "fehler": str(fehler)}
@@ -2893,6 +2973,11 @@ def _rueckgaengig_eintrag(ziel_id: Any) -> Dict[str, Any]:
                 vorgaben_daten["verschieden"] = sorted(vorgaben["verschieden"])
             if paare_geaendert or zugeordnet_geaendert:
                 _atomar_schreiben(VORGABEN_DATEINAME, vorgaben_daten)
+            if letzte.get("rahmen_vorher"):
+                korrekturen = _korrekturen_roh()
+                if _rahmen_namen_wiederherstellen(korrekturen, letzte["rahmen_vorher"],
+                                                  str(letzte.get("neu") or "")):
+                    _atomar_schreiben(KORREKTUREN_DATEINAME, korrekturen)
             _atomar_schreiben(STAND_DATEINAME, st)
             _protokoll_anhaengen({"id": uuid.uuid4().hex[:12],
                                   "zeit": datetime.now().isoformat(timespec="seconds"),

@@ -364,6 +364,57 @@ def plan_zeilen_lesen(pfad: str, statistik: dict | None = None) -> list[dict]:
     return zeilen
 
 
+STANDBILD_ORDNER = "video-standbilder"
+
+
+def standbild_zeilen_lesen(pfad: str, statistik: dict | None = None) -> list[dict]:
+    """``video_standbilder.jsonl`` -> Zeilen wie beim Plan-Eingang (F6, 03.11.2026).
+
+    Ausschnitte aus Videos hatten nie eine Beschreibung: der Plan laesst Videos
+    aus, die CSV kennt keine Standbilder. Jedes Standbild liegt aber mit eigener
+    fileid in pCloud — die Beschreibung gilt genau dieser fileid. Name
+    ``standbild_<video_id>_<zeit>.jpg`` ist je Standbild eindeutig und dient nur
+    dem Dateiabgleich in ``ist_erledigt``. Ein Datum steht in der Karte nicht,
+    es wird nichts geraten. ``statistik``: ``keine_kennung``, ``doppelt``,
+    ``unlesbar``.
+    """
+    zeilen: list[dict] = []
+    gesehen: set = set()
+    zaehler = {"keine_kennung": 0, "doppelt": 0, "unlesbar": 0}
+    with open(pfad, encoding="utf-8", errors="replace") as datei:
+        for roh in datei:
+            if not roh.strip():
+                continue
+            try:
+                eintrag = json.loads(roh)
+            except ValueError:
+                zaehler["unlesbar"] += 1
+                continue
+            if not isinstance(eintrag, dict):
+                zaehler["unlesbar"] += 1
+                continue
+            fileid = _als_int(eintrag.get("standbild_fileid"))
+            if not fileid:
+                zaehler["keine_kennung"] += 1
+                continue
+            if fileid in gesehen:
+                zaehler["doppelt"] += 1
+                continue
+            gesehen.add(fileid)
+            try:
+                zeit = f"{float(eintrag.get('zeit_s') or 0):.1f}"
+            except (TypeError, ValueError):
+                zeit = "0.0"
+            video = str(eintrag.get("video_id") or "").strip() or "unbekannt"
+            zeilen.append({
+                "fileid": fileid, "datei": f"standbild_{video}_{zeit}.jpg",
+                "ordner": STANDBILD_ORDNER, "jahr": 0, "monat": 0, "tag": 0, "zeit": None,
+            })
+    if statistik is not None:
+        statistik.update(zaehler)
+    return zeilen
+
+
 def sortierschluessel_sortieren(zeilen: list[dict]) -> list[dict]:
     """Chronologisch sortieren — deterministisch, ohne die CSV anzufassen.
 
@@ -852,9 +903,13 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
                     "bild_beschreibungen.jsonl (nur lesend).")
     zerleger.add_argument("--csv", default=STANDARD_CSV,
                           help="Sortierschluessel (CSV aus Stufe 1)")
-    zerleger.add_argument("--plan", default="",
-                          help="Sortierplan statt CSV (z. B. sortierplan_bildervideos.json): "
-                               "fileids stehen im Plan, keine Ordner-Abfrage noetig")
+    eingang = zerleger.add_mutually_exclusive_group()
+    eingang.add_argument("--plan", default="",
+                         help="Sortierplan statt CSV (z. B. sortierplan_bildervideos.json): "
+                              "fileids stehen im Plan, keine Ordner-Abfrage noetig")
+    eingang.add_argument("--standbilder", default="",
+                         help="Standbild-Karte statt CSV (video_standbilder.jsonl): "
+                              "beschreibt die Ausschnitte aus Videos")
     zerleger.add_argument("--ausgabe", default=STANDARD_AUSGABE,
                           help="Zielordner der Ausgaben (ausserhalb des Repos)")
     zerleger.add_argument("--jsonl", default="",
@@ -905,9 +960,13 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     # Das gilt fuer jeden Modus, auch --trocken und --nur-liste.
     _pruefe_ausgabe(args.ausgabe)
 
-    quelle = args.plan or args.csv
+    quelle = args.plan or args.standbilder or args.csv
+    quelle_name = ("Sortierplan" if args.plan else
+                   "Standbild-Karte" if args.standbilder else "Sortierschluessel")
+    # Plan und Standbilder bringen ihre fileids mit: keine Ordner-Abfrage.
+    kennung_bekannt = bool(args.plan or args.standbilder)
     if not os.path.exists(quelle):
-        print(f"{'Sortierplan' if args.plan else 'Sortierschluessel'} nicht gefunden: {quelle}")
+        print(f"{quelle_name} nicht gefunden: {quelle}")
         return 2
     if args.kacheln_pro_bogen < 1:
         print("--kacheln-pro-bogen muss mindestens 1 sein.")
@@ -915,12 +974,17 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
 
     start = time.time()
     jsonl = args.jsonl or os.path.join(args.ausgabe, STANDARD_JSONL_NAME)
+    plan_statistik: dict = {}
+    standbild_statistik: dict = {}
     if args.plan:
         # Plan-Eingang: fileids sind bekannt, Zeilen ohne Datum bleiben drin.
-        plan_statistik: dict = {}
         zeilen = plan_zeilen_lesen(args.plan, plan_statistik)
         vorbereitet = zeilen
         ohne_datum = sum(1 for z in zeilen if not z.get("monat"))
+    elif args.standbilder:
+        zeilen = standbild_zeilen_lesen(args.standbilder, standbild_statistik)
+        vorbereitet = zeilen
+        ohne_datum = len(zeilen)
     else:
         zeilen = zeilen_lesen(args.csv)
         vorbereitet = zeilen_vorbereiten(zeilen)
@@ -928,7 +992,7 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     erledigt = erledigtes_lesen(jsonl)
     ohne_netz_offen = [z for z in vorbereitet if not ist_erledigt(z, erledigt)]
 
-    print(f"{'Sortierplan' if args.plan else 'Sortierschluessel'}: {quelle}")
+    print(f"{quelle_name}: {quelle}")
     print(f"Zeilen: {len(zeilen)}   ohne Datum: {ohne_datum}   "
           f"schon beschrieben (Dateiabgleich): "
           f"{len(vorbereitet) - len(ohne_netz_offen)}")
@@ -937,6 +1001,10 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
               f"(nur Kennung), {plan_statistik.get('video', 0)} Videos, "
               f"{plan_statistik.get('keine_kennung', 0)} ohne Kennung, "
               f"{plan_statistik.get('doppelt', 0)} doppelt.")
+    if args.standbilder:
+        print(f"Ausgelassen: {standbild_statistik.get('keine_kennung', 0)} ohne Standbild, "
+              f"{standbild_statistik.get('doppelt', 0)} doppelt, "
+              f"{standbild_statistik.get('unlesbar', 0)} unlesbar.")
     print(f"Boegen: je {args.kacheln_pro_bogen} Kacheln   "
           f"Modell: {args.modell}   Budget: {args.budget:.2f} USD   "
           f"Prompt: {args.prompt_variante}")
@@ -974,8 +1042,8 @@ def main(argv=None, sende=None, api_abruf=None, thumb_abruf=None,
     speicher: dict = {}
     ohne_kennung = 0
     try:
-        # Mit --plan stehen die fileids schon fest — keine Ordner-Abfrage.
-        for zeile in ([] if args.plan else vorbereitet):
+        # Mit --plan/--standbilder stehen die fileids schon fest — keine Ordner-Abfrage.
+        for zeile in ([] if kennung_bekannt else vorbereitet):
             index = dateien_im_ordner(zeile.get("ordner") or "", abruf_api,
                                       speicher)
             gefunden = index.get(str(zeile.get("datei") or ""))

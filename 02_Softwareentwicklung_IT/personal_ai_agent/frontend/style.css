@@ -1608,6 +1608,21 @@ button.footer-note:hover {
 #erzaehl-suche { flex: 1; min-width: 0; }
 #erzaehl-jahr { width: 76px; }
 
+.erzaehl-reihenfolge {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    padding: 7px 10px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.erzaehl-reihenfolge:hover { border-color: var(--accent, var(--border)); }
+.erzaehl-reihenfolge:active { transform: scale(0.97); }
+
 .erzaehl-liste {
     flex: 1;
     overflow-y: auto;
@@ -3386,6 +3401,24 @@ body.anmelden-offen { overflow: hidden; }
     color: #fbb;
 }
 
+/* Alltagsprotokoll-Blatt (S6, 03.11.2026). Bewusst vor `.datenstand`: der
+   Datenstand-Test verbietet position:fixed im CSS-Rest danach (wie beim
+   Wiederverbinden-Overlay). Der übrige Alltags-Stil steht am Dateiende. */
+#alltag-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+}
+
+#alltag-sheet[hidden] { display: none; }
+/* Eigene display-Regeln (flex/grid) dürfen hidden nicht aushebeln. */
+#alltag-sheet [hidden] { display: none; }
+
 #datenstand-btn {
     flex: 0 0 auto;
     padding: 2px 8px;
@@ -3783,3 +3816,186 @@ body.anmelden-offen { overflow: hidden; }
 .erzaehl-privat-aufdecken-btn:hover {
     background: #4338ca;
 }
+
+/* ── Alltagsprotokoll (S6, 03.11.2026) ─────────────────────────────────── */
+/* Das Blatt selbst (#alltag-sheet) steht vor `.datenstand`, siehe dort. */
+
+.alltag-panel { max-height: 92vh; }
+
+.alltag-offen {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.alltag-body {
+    overflow-y: auto;
+    padding: 4px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.alltag-gross-reihe {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 10px;
+}
+
+.alltag-gross {
+    min-height: 64px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.alltag-gross:active { transform: scale(0.97); }
+
+.alltag-mic {
+    background: linear-gradient(135deg, hsl(245, 80%, 62%), hsl(265, 70%, 55%));
+    box-shadow: 0 4px 18px var(--accent-glow);
+}
+
+.alltag-mic.alltag-hoert {
+    background: linear-gradient(135deg, hsl(0, 70%, 52%), hsl(345, 70%, 48%));
+    animation: alltag-puls 1.4s ease-in-out infinite;
+}
+
+@keyframes alltag-puls {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.45); }
+    50%      { box-shadow: 0 0 0 10px rgba(244, 67, 54, 0); }
+}
+
+.alltag-tastatur { background: var(--bg-tertiary); }
+
+.alltag-status, .alltag-meldung {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    min-height: 1em;
+}
+
+.alltag-text-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.alltag-text-block textarea, .alltag-feld {
+    width: 100%;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    font: inherit;
+}
+
+.alltag-knopf {
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.alltag-knopf:hover { border-color: var(--accent); }
+
+.alltag-primaer { background: var(--accent); border-color: var(--accent); }
+.alltag-primaer:hover { background: var(--accent-hover); }
+
+.alltag-leise { background: transparent; color: var(--text-secondary); }
+
+.alltag-wahl[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.alltag-rueckfrage {
+    background: linear-gradient(160deg, rgba(108, 99, 255, 0.14), rgba(22, 33, 62, 0.6));
+    border: 1px solid rgba(108, 99, 255, 0.35);
+    border-radius: var(--radius);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: sheet-up 0.2s ease-out;
+}
+
+.alltag-frage { font-weight: 600; }
+
+.alltag-antworten {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.alltag-regler { flex: 1; min-width: 160px; accent-color: var(--accent); }
+
+.alltag-antworten .alltag-feld { flex: 1 1 160px; width: auto; }
+
+.alltag-text-leiste {
+    display: flex;
+    gap: 8px;
+}
+
+.alltag-text-leiste .alltag-primaer { flex: 1; }
+
+/* 🎙 an jedem Textfeld (S9) — rund, beim Zuhören rot pulsierend wie „Sprechen" */
+.alltag-feld-mic {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.1rem;
+}
+
+.alltag-feld-mic.alltag-hoert {
+    background: linear-gradient(135deg, hsl(0, 70%, 52%), hsl(345, 70%, 48%));
+    border-color: transparent;
+    color: #fff;
+    animation: alltag-puls 1.4s ease-in-out infinite;
+}
+
+.alltag-tag-kopf {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.alltag-tag-kopf h3 { font-size: 0.9rem; font-weight: 600; }
+
+.alltag-tag-liste {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.alltag-zeile {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.alltag-zeile-luecke { border-color: rgba(255, 152, 0, 0.5); }
+.alltag-zeile-uhr { color: var(--text-secondary); }
+.alltag-zeile-text { flex: 1 1 200px; }
+.alltag-zeile-leiste { display: flex; gap: 6px; }
+.alltag-zeile-leiste .alltag-knopf { min-height: 32px; padding: 4px 10px; font-size: 0.8rem; }

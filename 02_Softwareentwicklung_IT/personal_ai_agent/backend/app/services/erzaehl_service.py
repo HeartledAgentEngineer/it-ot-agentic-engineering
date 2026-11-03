@@ -630,12 +630,14 @@ def geschichten(ereignis_kennung: Optional[str] = None,
 # ── Ereignisliste / -detail ──────────────────────────────────────────────────
 
 def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
-                     limit: Any = LIMIT_STANDARD, offset: Any = 0) -> Dict[str, Any]:
+                     limit: Any = LIMIT_STANDARD, offset: Any = 0,
+                     neueste_zuerst: Any = False) -> Dict[str, Any]:
     """Gefilterte Ereignisliste fürs Frontend.
 
     Liefert ``{"eintraege": [...], "gesamt": n, "defekte_zeilen": n}``. Jeder
     Eintrag trägt ``kennung, datum, jahr, titel, kategorie, anzahl_dateien,
-    vorschau_kennungen (erste 4), anzahl_geschichten``. **Wirft nie.**
+    vorschau_kennungen (erste 4), anzahl_geschichten``. ``neueste_zuerst`` dreht
+    die gewohnte Reihenfolge um, bevor geblättert wird (F1, 03.11.2026). **Wirft nie.**
     """
     ereignisse, defekt = _ereignisse_laden()
 
@@ -692,6 +694,8 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
             "anzahl_geschichten": geschichten_je_ereignis.get(kennung, 0),
         })
 
+    if neueste_zuerst is True:
+        treffer.reverse()
     gesamt = len(treffer)
     seite = treffer[versatz:versatz + grenze]
     return {"eintraege": seite, "gesamt": gesamt, "defekte_zeilen": defekt}
