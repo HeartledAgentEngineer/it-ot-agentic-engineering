@@ -52,3 +52,8 @@ Unverändert. Die neuen Sätze enthalten nur Zahlen, Tageszeit-Namen und feste W
 - Aufeinanderfolgende Abschnitte einer unterbrochenen Nacht überlappen nie und werden weiter zusammengezählt.
 - Neuer Test `test_doppelt_gemeldete_nacht_zaehlt_einmal` (vorher rot, beide Reihenfolgen).
 - Ob das am Handy überhaupt vorkommt, zeigen erst echte Daten. Die Absicherung schadet nicht, wenn nicht.
+- Volle Suite auf `850d0f2`: 6439 grün, 3 übersprungen.
+- Hermes Runde 3: FREI.
+  - Resthinweis: Die Einzeltag-Ansicht listete die Rohnächte ohne diese Prüfung, also konnte dieselbe Nacht zweimal erscheinen. Sie nutzt jetzt ebenfalls `_ohne_doppelte`.
+  - Neuer Test `test_einzeltag_zeigt_doppelt_gemeldete_nacht_einmal`, vorher rot.
+  - Nicht geändert: Bei einer Kette von drei Sitzungen, die sich nacheinander überlappen, zählt nur die längste. Echte Doppelmeldungen sind fast deckungsgleich, deshalb bleibt das so.

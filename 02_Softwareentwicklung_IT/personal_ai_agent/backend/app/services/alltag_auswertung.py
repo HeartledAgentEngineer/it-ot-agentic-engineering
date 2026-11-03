@@ -283,7 +283,7 @@ def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],
         return "Keine Einträge im Alltagsprotokoll für diesen Zeitraum."
     zeilen: List[str] = []
     if einzeln:
-        zeilen += [nacht_zeile(a) for a in auswerten(naechte)]
+        zeilen += [nacht_zeile(a) for a in auswerten(_ohne_doppelte(naechte))]
         zeilen += [stunden_zeile(e, schwaerzen) for e in stunden]
     else:
         zeilen += [_tageszeile(tag, k) for tag, k in tag_kennzahlen(stunden).items()]
