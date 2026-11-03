@@ -31,10 +31,10 @@ def test_namen_in_der_taetigkeit_werden_geschwaerzt():
 
 def test_ohne_namensliste_keine_freitexte():
     assert aw.schwaerzer(None) is None and aw.schwaerzer([]) is None
-    e = _stunde(aktivitaet="Kaffee mit Testperson", stimmung=3, gefuehle=["Ruhe", "verliebt in Testperson"])
+    e = _stunde(aktivitaet="Kaffee mit Testperson", stimmung=3, gefuehle=["Freude", "verliebt in Testperson"])
     zeile = aw.stunden_zeile(e, None)
     assert "Kaffee" not in zeile and "Testperson" not in zeile
-    assert "Stimmung mittel (3)" in zeile and "Ruhe" in zeile
+    assert "Stimmung mittel (3)" in zeile and "Freude" in zeile
 
 
 def test_eigene_gefuehlsworte_werden_geschwaerzt():
@@ -51,12 +51,12 @@ def test_originalworte_gehen_nie_raus():
 
 
 def test_tageskennzahlen():
-    stunden = [_stunde(von="09:00", bis="10:00", stimmung=4, anspannung=20, gefuehle=["Ruhe"]),
-               _stunde(von="14:00", bis="15:00", stimmung=2, anspannung=60, gefuehle=["Ärger", "Ruhe"]),
+    stunden = [_stunde(von="09:00", bis="10:00", stimmung=4, anspannung=20, gefuehle=["Freude"]),
+               _stunde(von="14:00", bis="15:00", stimmung=2, anspannung=60, gefuehle=["Ärger", "Freude"]),
                _stunde(tag="2026-11-02", stimmung=5)]
     k = aw.tag_kennzahlen(stunden)
     assert k["2026-11-03"]["stimmung"] == 3.0 and k["2026-11-03"]["anspannung"] == 40.0
-    assert k["2026-11-03"]["eintraege"] == 2 and k["2026-11-03"]["gefuehle"][0] == ("Ruhe", 2)
+    assert k["2026-11-03"]["eintraege"] == 2 and k["2026-11-03"]["gefuehle"][0] == ("Freude", 2)
     assert k["2026-11-02"]["anspannung"] is None
 
 

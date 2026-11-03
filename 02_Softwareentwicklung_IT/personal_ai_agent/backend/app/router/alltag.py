@@ -87,7 +87,8 @@ def schlaf_stand() -> Dict[str, Any]:
 def offen() -> Dict[str, Any]:
     jetzt = datetime.now(timezone.utc)
     stand = alltag_rechnen.letzter_stand(
-        alltag_speicher.eintraege(art="stunde") + alltag_speicher.eintraege(art="schlaf"), jetzt=jetzt)
+        alltag_speicher.eintraege(art="stunde") + alltag_speicher.eintraege(art="schlaf")
+        + alltag_speicher.eintraege(art="schlafnacht"), jetzt=jetzt)
     return {"ok": True,
             "offene_stunden": alltag_rechnen.offene_stunden(stand["letzter_eintrag"], jetzt,
                                                             stand["schlaeft"]),

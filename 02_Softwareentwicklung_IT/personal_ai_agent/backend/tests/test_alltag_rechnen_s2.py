@@ -155,6 +155,21 @@ def test_stand_bei_gleicher_zeit_gewinnt_der_spaeter_erfasste():
     assert ar.letzter_stand([schlaf, wach], jetzt=jetzt)["schlaeft"] is False
 
 
+def test_uhr_nacht_deckt_die_schlafstunden():
+    # Ohne Schlafknöpfe (S9): Das Ende der Uhr-Nacht zählt als letzter Stand.
+    abend = {"art": "stunde", "von": "2026-11-02T21:00:00+01:00", "bis": "2026-11-02T22:00:00+01:00"}
+    nacht = {"art": "schlafnacht", "beginn": "2026-11-02T23:10:00+01:00", "ende": "2026-11-03T06:50:00+01:00"}
+    jetzt = datetime(2026, 11, 3, 8, 0, tzinfo=MEZ)
+    assert ar.letzter_stand([abend, nacht], jetzt=jetzt) == {
+        "letzter_eintrag": "2026-11-03T06:50:00+01:00", "schlaeft": False}
+    # Ein späterer Eintrag schlägt die Nacht; kaputte und künftige Nächte zählen nicht.
+    morgen = {"art": "stunde", "von": "2026-11-03T07:00:00+01:00", "bis": "2026-11-03T07:30:00+01:00"}
+    kaputt = {"art": "schlafnacht", "beginn": "2026-11-03T01:00:00+01:00"}
+    kuenftig = dict(nacht, ende="2026-11-03T09:00:00+01:00")
+    assert ar.letzter_stand([abend, nacht, morgen, kaputt], jetzt=jetzt)["letzter_eintrag"] == morgen["bis"]
+    assert ar.letzter_stand([abend, kuenftig], jetzt=jetzt)["letzter_eintrag"] == abend["bis"]
+
+
 def test_offene_stunden():
     jetzt = datetime(2026, 11, 3, 15, 40, tzinfo=MEZ)
     assert ar.offene_stunden("2026-11-03T12:00:00+01:00", jetzt, schlaeft=False) == 3

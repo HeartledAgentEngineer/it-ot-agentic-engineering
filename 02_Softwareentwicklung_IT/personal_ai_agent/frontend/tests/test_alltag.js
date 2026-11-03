@@ -1,5 +1,6 @@
 // Alltagsprotokoll S6 (03.11.2026): Oberfläche — Sprechen/Tastatur, Rückfragen je fehlendem Feld,
-// Schlaf-Schnellknöpfe, Tagesablauf mit Ergänzen/Löschen. Nur erfundene Einträge.
+// Tagesablauf mit Ergänzen/Löschen. S9: Ekman-Gefühle, Diktat in jedem Feld, keine Schlafknöpfe
+// (Schlaf kommt von der Uhr). Nur erfundene Einträge.
 //
 // Aufruf (aus dem Ordner frontend):  node tests/test_alltag.js alltag.js
 const fs = require('fs');
@@ -61,10 +62,17 @@ pruefe('Reihenfolge', JSON.stringify(rueck(['aktivitaet', 'gefuehle', 'stimmung'
 pruefe('Unbekanntes fällt weg', JSON.stringify(rueck(['essen', 'anspannung'])) === '["anspannung"]');
 pruefe('leer', rueck(undefined).length === 0);
 
-console.log('\n5) alltagGefuehle — Auswahl + eigene Worte');
+console.log('\n5) alltagGefuehle — nur Grundgefühle aus der Liste');
 const gef = fn('alltagGefuehle')();
-pruefe('Auswahl und eigene Worte', JSON.stringify(gef(['Ärger'], 'genervt, Ärger,  müde ')) === '["Ärger","genervt","müde"]');
-pruefe('zu lang fällt weg, höchstens 8', gef([], 'a,b,c,d,e,f,g,h,i,' + 'x'.repeat(41)).length === 8);
+const EKMAN = ['Freude', 'Trauer', 'Angst', 'Ärger', 'Ekel', 'Überraschung'];
+pruefe('nur erlaubte, ohne Doppelte', JSON.stringify(gef(['Ärger', 'genervt', 'Ärger', 'Angst'], EKMAN)) === '["Ärger","Angst"]');
+pruefe('ohne Liste nichts', gef(['Freude'], null).length === 0 && gef(null, EKMAN).length === 0);
+
+console.log('\n5b) alltagAnhaengen — Diktat an ein Feld anhängen');
+const anh = fn('alltagAnhaengen')();
+pruefe('leeres Feld', anh('', ' Wäsche gemacht ') === 'Wäsche gemacht');
+pruefe('anhängen mit Leerzeichen', anh('Wäsche gemacht', 'dann Kaffee') === 'Wäsche gemacht dann Kaffee');
+pruefe('nichts verstanden', anh('Wäsche', '  ') === 'Wäsche');
 
 console.log('\n6) alltagAntwortText — Meldung nach dem Eintragen');
 const antw = fn('alltagAntwortText')();
@@ -81,7 +89,7 @@ pruefe('aufnahme', gewuenscht('?alltag=aufnahme') === true);
 pruefe('anderes', gewuenscht('?alltag=tag') === false && gewuenscht('') === false);
 
 (async () => {
-  console.log('\n8) alltagSenden / alltagFeldSpeichern / alltagKnopf — API-Aufrufe');
+  console.log('\n8) alltagSenden / alltagFeldSpeichern — API-Aufrufe');
   const aufrufe = [];
   const fetchAttrappe = async (url, opt) => {
     aufrufe.push({ url, opt });
@@ -101,11 +109,6 @@ pruefe('anderes', gewuenscht('?alltag=tag') === false && gewuenscht('') === fals
     && aufrufe[0].opt.body === '{"stimmung":4}');
   pruefe('neue Kennung zurück', neu === 'neu-1');
 
-  aufrufe.length = 0;
-  const knopf = fn('alltagKnopf', 'API_BASE', 'fetch')('', fetchAttrappe);
-  await knopf('wach_liegen');
-  pruefe('POST /api/alltag/ereignis', aufrufe[0].url === '/api/alltag/ereignis' && aufrufe[0].opt.body === '{"ereignis":"wach_liegen"}');
-
   const kaputt = async () => { throw new Error('offline'); };
   pruefe('Netzfehler -> null', (await fn('alltagSenden', 'API_BASE', 'fetch')('', kaputt)('x', 'tastatur')) === null);
   pruefe('Netzfehler beim Ergänzen -> null', (await fn('alltagFeldSpeichern', 'API_BASE', 'fetch')('', kaputt)('a', 'stimmung', 1)) === null);
@@ -113,13 +116,19 @@ pruefe('anderes', gewuenscht('?alltag=tag') === false && gewuenscht('') === fals
   console.log('\n9) Verdrahtung');
   pruefe('index.html lädt alltag.js nach app.js', /<script src="app\.js\?v=\d{8}[A-Z]"><\/script>[\s\S]*<script src="alltag\.js\?v=\d{8}[A-Z]"><\/script>/.test(html));
   const ids = ['alltag-btn', 'alltag-sheet', 'alltag-close', 'alltag-offen', 'alltag-aufnahme', 'alltag-tastatur',
-    'alltag-text-block', 'alltag-text', 'alltag-senden', 'alltag-mic-status', 'alltag-schlafen', 'alltag-aufwachen',
-    'alltag-wach-liegen', 'alltag-wieder-schlafen', 'alltag-rueckfrage', 'alltag-frage', 'alltag-antworten',
+    'alltag-text-block', 'alltag-text', 'alltag-senden', 'alltag-mic-status', 'alltag-text-mic', 'alltag-rueckfrage', 'alltag-frage', 'alltag-antworten',
     'alltag-ueberspringen', 'alltag-meldung', 'alltag-tag-vor', 'alltag-datum', 'alltag-tag-weiter',
     'alltag-tag-liste', 'alltag-tag-leer'];
   for (const id of ids) pruefe('index.html hat #' + id, html.includes('id="' + id + '"'));
   pruefe('alle IDs eindeutig', ids.every((id) => html.split('id="' + id + '"').length === 2));
   pruefe('kein innerHTML', !/innerHTML/.test(src));
+  for (const weg of ['alltag-schlafen', 'alltag-aufwachen', 'alltag-wach-liegen', 'alltag-wieder-schlafen']) {
+    pruefe('Schlafknopf #' + weg + ' ist weg', !html.includes('id="' + weg + '"') && !src.includes("'" + weg + "'"));
+  }
+  pruefe('kein Schlaf-Schnellknopf mehr', !/alltagKnopf|\/api\/alltag\/ereignis/.test(src));
+  pruefe('keine eigenen Gefühlsworte', !src.includes('alltag-gefuehl-eigene'));
+  pruefe('Diktat-Knopf am Tätigkeitsfeld', src.includes("'alltag-aktivitaet-mic'"));
+  pruefe('Feld-Diktat hängt an', /alltagAnhaengen\(/.test(src.replace('function alltagAnhaengen(', '')));
   pruefe('nutzt encodeWav aus app.js', /encodeWav\(/.test(src));
   pruefe('Diktat über /api/sprache/transkript', src.includes('/api/sprache/transkript'));
   pruefe('Stand an die App (S7)', /HeyAgentAlltag/.test(src));

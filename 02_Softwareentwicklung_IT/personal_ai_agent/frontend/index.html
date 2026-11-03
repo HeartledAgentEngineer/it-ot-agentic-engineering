@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261103C">
+    <link rel="stylesheet" href="style.css?v=20261103D">
 </head>
 <body>
     <div id="app">
@@ -598,7 +598,10 @@
                     <div id="alltag-text-block" class="alltag-text-block" hidden>
                         <textarea id="alltag-text" rows="3"
                                   placeholder="Was hast du in der letzten Stunde gemacht, wie ging es dir?"></textarea>
-                        <button id="alltag-senden" class="alltag-knopf alltag-primaer" type="button">Eintragen</button>
+                        <div class="alltag-text-leiste">
+                            <button id="alltag-text-mic" class="alltag-knopf alltag-feld-mic" type="button" aria-label="Text diktieren">🎙</button>
+                            <button id="alltag-senden" class="alltag-knopf alltag-primaer" type="button">Eintragen</button>
+                        </div>
                     </div>
                 </section>
                 <section id="alltag-rueckfrage" class="alltag-rueckfrage" aria-live="polite" hidden>
@@ -607,12 +610,6 @@
                     <button id="alltag-ueberspringen" class="alltag-knopf alltag-leise" type="button">Überspringen</button>
                 </section>
                 <p id="alltag-meldung" class="alltag-meldung" role="status" aria-live="polite"></p>
-                <section class="alltag-schlaf" aria-label="Schlaf">
-                    <button id="alltag-schlafen" class="alltag-knopf alltag-schlaf-knopf" type="button" data-ereignis="schlafen">🌙 Ich gehe schlafen</button>
-                    <button id="alltag-aufwachen" class="alltag-knopf alltag-schlaf-knopf" type="button" data-ereignis="aufwachen">☀️ Ich wache auf</button>
-                    <button id="alltag-wach-liegen" class="alltag-knopf alltag-schlaf-knopf" type="button" data-ereignis="wach_liegen">😶 Kann nicht schlafen</button>
-                    <button id="alltag-wieder-schlafen" class="alltag-knopf alltag-schlaf-knopf" type="button" data-ereignis="wieder_schlafen">💤 Gehe wieder schlafen</button>
-                </section>
                 <section class="alltag-tag" aria-label="Tagesablauf">
                     <div class="alltag-tag-kopf">
                         <button id="alltag-tag-vor" class="alltag-knopf alltag-leise" type="button" aria-label="Voriger Tag">◀</button>
@@ -873,7 +870,7 @@
     <script src="app.js?v=20261103B"></script>
     <script src="erzaehlen.js?v=20261103B"></script>
     <script src="schlaf.js?v=20261103B"></script>
-    <script src="alltag.js?v=20261103C"></script>
+    <script src="alltag.js?v=20261103D"></script>
     <script src="gruppen_quiz.js?v=20261103B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur

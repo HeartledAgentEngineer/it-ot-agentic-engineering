@@ -3,8 +3,9 @@
 // Ein Blatt im Agenten: sprechen (startet sofort bei ?alltag=aufnahme aus dem Pop-up) oder über
 // den großen Knopf „Tastatur" tippen; POST /api/alltag/eintrag strukturiert und speichert.
 // Fehlt etwas, fragt eine Einblendung je Feld nach (überspringbar, PATCH je Antwort).
-// Schlaf-Schnellknöpfe gehen ohne Modell an POST /api/alltag/ereignis. Darunter der Tagesablauf
-// mit Ergänzen/Löschen und den Nächten der Uhr. Nach jedem Speichern geht der Stand aus
+// Darunter der Tagesablauf mit Ergänzen/Löschen und den Nächten der Uhr. S9: Schlaf nur noch von
+// der Uhr (keine Schlafknöpfe), Gefühle nur aus der Ekman-Liste, 🎙 an jedem Textfeld über
+// denselben Rekorder wie „Sprechen". Nach jedem Speichern geht der Stand aus
 // /api/alltag/offen an die App (window.HeyAgentAlltag, S7). Text nur über textContent.
 // Test: frontend/tests/test_alltag.js.
 
@@ -63,15 +64,21 @@ function alltagRueckfragen(fehlt) {
     return ['stimmung', 'anspannung', 'gefuehle', 'aktivitaet'].filter((f) => liste.includes(f));
 }
 
-/** Gewählte Grundgefühle + eigene Worte (kommagetrennt), ohne Doppelte, höchstens 8. */
-function alltagGefuehle(gewaehlt, eigene) {
-    const alle = (gewaehlt || []).concat(String(eigene || '').split(','));
+/** Gewählte Grundgefühle, nur aus ``erlaubt`` (Ekman, /api/alltag/vorgaben), ohne Doppelte. */
+function alltagGefuehle(gewaehlt, erlaubt) {
+    const liste = Array.isArray(erlaubt) ? erlaubt : [];
     const erg = [];
-    for (const roh of alle) {
-        const wort = String(roh || '').trim().replace(/\s+/g, ' ');
-        if (wort && wort.length <= 40 && !erg.includes(wort)) erg.push(wort);
+    for (const g of gewaehlt || []) {
+        if (liste.includes(g) && !erg.includes(g)) erg.push(g);
     }
-    return erg.slice(0, 8);
+    return erg;
+}
+
+/** Diktierten Text an ein Feld anhängen. */
+function alltagAnhaengen(alt, neu) {
+    const a = String(alt || '').trim();
+    const n = String(neu || '').trim();
+    return a && n ? a + ' ' + n : (a || n);
 }
 
 /** Meldung nach POST /api/alltag/eintrag. */
@@ -114,18 +121,6 @@ async function alltagFeldSpeichern(kennung, feld, wert) {
         });
         const daten = await res.json().catch(() => null);
         return res.ok && daten && daten.eintrag ? daten.eintrag.id : null;
-    } catch (_) { return null; }
-}
-
-/** Schlaf-Schnellknopf. */
-async function alltagKnopf(ereignis) {
-    try {
-        const res = await fetch(`${API_BASE}/api/alltag/ereignis`, {
-            method: 'POST', credentials: 'same-origin', cache: 'no-store',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ereignis: ereignis }),
-        });
-        return await res.json().catch(() => null);
     } catch (_) { return null; }
 }
 
@@ -274,6 +269,8 @@ async function _alltagHole(pfad) {
     }
 
     function naechsteFrage() {
+        const z = zustand.aufnahme && zustand.aufnahme.ziel;
+        if (z && el('alltag-antworten').contains(z)) aufnahmeAbbrechen();   // Feld verschwindet gleich
         const f = zustand.frage;
         if (!f || !f.felder.length) { rueckfrageEnde(); return; }
         const feld = f.felder.shift();
@@ -309,19 +306,17 @@ async function _alltagHole(pfad) {
                 b.setAttribute('aria-pressed', 'false');
                 box.appendChild(b);
             });
-            const eigene = document.createElement('input');
-            eigene.type = 'text'; eigene.id = 'alltag-gefuehl-eigene';
-            eigene.placeholder = 'eigene Worte, mit Komma getrennt';
-            eigene.className = 'alltag-feld';
-            box.append(eigene, knopf('alltag-gefuehle-ok', 'OK', () => {
-                const liste = alltagGefuehle(gewaehlt, eigene.value);
+            box.append(knopf('alltag-gefuehle-ok', 'OK', () => {
+                const liste = alltagGefuehle(gewaehlt, zustand.gefuehle);
                 if (liste.length) antworten('gefuehle', liste); else naechsteFrage();
             }, 'alltag-knopf alltag-primaer'));
         } else {
             const text = document.createElement('input');
             text.type = 'text'; text.id = 'alltag-aktivitaet-feld'; text.className = 'alltag-feld';
             text.placeholder = 'z. B. Wäsche gemacht';
-            box.append(text, knopf('alltag-aktivitaet-ok', 'OK', () => {
+            const mic = knopf('alltag-aktivitaet-mic', '🎙', () => aufnahmeStarten(text, mic), 'alltag-knopf alltag-feld-mic');
+            mic.setAttribute('aria-label', 'Tätigkeit diktieren');
+            box.append(text, mic, knopf('alltag-aktivitaet-ok', 'OK', () => {
                 const wert = text.value.trim();
                 if (wert) antworten('aktivitaet', wert); else naechsteFrage();
             }, 'alltag-knopf alltag-primaer'));
@@ -341,7 +336,8 @@ async function _alltagHole(pfad) {
         aktualisieren();
     }
 
-    // Aufnahme (AudioWorklet wie app.js; WAV über dessen encodeWav)
+    // Aufnahme (AudioWorklet wie app.js; WAV über dessen encodeWav). Ohne ``ziel`` wird der Text
+    // ein Eintrag; mit ``ziel`` (Textfeld) wird er dort angehängt. Immer nur eine Aufnahme.
     function aufnahmeFreigeben() {
         const a = zustand.aufnahme;
         if (!a) return;
@@ -352,11 +348,12 @@ async function _alltagHole(pfad) {
         zustand.aufnahme = null;
         el('alltag-aufnahme').textContent = '🎙 Sprechen';
         el('alltag-aufnahme').classList.remove('alltag-hoert');
+        if (a.knopf) { a.knopf.textContent = '🎙'; a.knopf.classList.remove('alltag-hoert'); }
     }
 
     function aufnahmeAbbrechen() { aufnahmeFreigeben(); micStatus(''); }
 
-    async function aufnahmeStarten() {
+    async function aufnahmeStarten(ziel, feldKnopf) {
         if (zustand.aufnahme) { aufnahmeStoppen(); return; }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             micStatus('Mikrofon nur über localhost/HTTPS — bitte „Tastatur" nehmen.');
@@ -373,10 +370,16 @@ async function _alltagHole(pfad) {
             knoten.port.onmessage = (ev) => stuecke.push(ev.data);
             quelle.connect(knoten);
             knoten.connect(ctx.destination);
-            zustand.aufnahme = { strom, ctx, quelle, knoten, stuecke };
-            el('alltag-aufnahme').textContent = '■ Fertig';
-            el('alltag-aufnahme').classList.add('alltag-hoert');
-            micStatus('Ich höre zu — erzähl von der letzten Stunde.');
+            zustand.aufnahme = { strom, ctx, quelle, knoten, stuecke, ziel: ziel || null, knopf: feldKnopf || null };
+            if (feldKnopf) {
+                feldKnopf.textContent = '■';
+                feldKnopf.classList.add('alltag-hoert');
+                micStatus('Ich höre zu — noch einmal 🎙 tippen, wenn du fertig bist.');
+            } else {
+                el('alltag-aufnahme').textContent = '■ Fertig';
+                el('alltag-aufnahme').classList.add('alltag-hoert');
+                micStatus('Ich höre zu — erzähl von der letzten Stunde.');
+            }
         } catch (err) {
             aufnahmeFreigeben();
             micStatus('Mikrofon nicht verfügbar — bitte „Tastatur" nehmen.');
@@ -388,6 +391,7 @@ async function _alltagHole(pfad) {
         if (!a) return;
         const rate = a.ctx.sampleRate || 48000;
         const stuecke = a.stuecke;
+        const ziel = a.ziel;
         aufnahmeFreigeben();
         if (!stuecke.length) { micStatus(''); return; }
         micStatus('Wird verschriftet …');
@@ -401,6 +405,12 @@ async function _alltagHole(pfad) {
         } catch (_) { /* unten gemeldet */ }
         micStatus('');
         if (!text) { meldung('Nichts verstanden — noch einmal oder „Tastatur".'); return; }
+        if (ziel) {
+            if (!ziel.isConnected) return;   // Feld ist inzwischen weg
+            ziel.value = alltagAnhaengen(ziel.value, text);
+            ziel.focus();
+            return;
+        }
         eintragen(text, 'sprache');
     }
 
@@ -415,7 +425,8 @@ async function _alltagHole(pfad) {
     el('alltag-close').addEventListener('click', () => { schliessen(); try { history.back(); } catch (_) {} });
     el('alltag-sheet').addEventListener('click', (ev) => { if (ev.target === el('alltag-sheet')) schliessen(); });
     window.addEventListener('popstate', () => { if (!el('alltag-sheet').hidden) schliessen(); });
-    el('alltag-aufnahme').addEventListener('click', aufnahmeStarten);
+    el('alltag-aufnahme').addEventListener('click', () => aufnahmeStarten());
+    el('alltag-text-mic').addEventListener('click', () => aufnahmeStarten(el('alltag-text'), el('alltag-text-mic')));
     el('alltag-tastatur').addEventListener('click', tastatur);
     el('alltag-senden').addEventListener('click', () => {
         const feld = el('alltag-text');
@@ -426,14 +437,6 @@ async function _alltagHole(pfad) {
     el('alltag-ueberspringen').addEventListener('click', naechsteFrage);
     el('alltag-tag-vor').addEventListener('click', () => tagWechseln(-1));
     el('alltag-tag-weiter').addEventListener('click', () => tagWechseln(1));
-    for (const id of ['alltag-schlafen', 'alltag-aufwachen', 'alltag-wach-liegen', 'alltag-wieder-schlafen']) {
-        const b = el(id);
-        b.addEventListener('click', async () => {
-            const antwort = await alltagKnopf(b.dataset.ereignis);
-            meldung(antwort && antwort.ok ? (ALLTAG_EREIGNIS_TEXT[b.dataset.ereignis] + ' — eingetragen.') : 'Nicht gespeichert.');
-            aktualisieren();
-        });
-    }
 
     if (alltagAufnahmeGewuenscht(window.location.search)) oeffnen(true);
 })();
