@@ -1,2 +1,3 @@
 # Zusätzlich zu requirements.txt — nur für die Tests, nicht in der EXE
 pytest>=8.0
+tiktoken>=0.12           # Token-Grenze des Whisper-Hinweises (test_transkription.py), sonst still uebersprungen

@@ -45,7 +45,7 @@ Pfade sind relativ zum Projektverzeichnis.
 | `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **3142 grün, 1 skipped**, Exit 0 (29.09.2026) |
 | `concertify` | `.venv/Scripts/python.exe -m pytest tests -q` | **180 grün**, Exit 0 (15.09.2026) |
 | `master-schalter` | `.venv/Scripts/python.exe -m pytest -q` | **37 grün**, Exit 0 (14.10.2026) |
-| `typeFREE` | `PYTHONPATH=. py -3.12 -m pytest windows/tests -q` | **654 grün**, Exit 0 (29.10.2026) |
+| `typeFREE` | `PYTHONPATH=. py -3.12 -m pytest windows/tests -q` | **656 grün**, Exit 0 (03.11.2026); läuft auch in GitHub Actions (`.github/workflows/typefree.yml`) |
 | `RAG-Systeme` | `python -m pytest -q tests` (offline: Chunking + Abfrage mit Attrappen; braucht `requirements.txt`) | **13 grün**, Exit 0 (03.11.2026) |
 | `document_automation` | `node --test` | **10 grün**, Exit 0 (02.11.2026) |
 | `university_foundations/versandunternehmen` | `CC=clang bash check.sh` (Original 2020 bauen + Charakterisierungstests) | **12 grün**, Exit 0 (02.11.2026) |

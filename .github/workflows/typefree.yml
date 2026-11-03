@@ -1,0 +1,77 @@
+# typeFREE: test on every push/PR, build a release draft on a version tag (AGENTS.md "Auslieferung").
+# Plan: .hermes/plans/2026-10-14_typefree-cicd.md (local), issue #26.
+name: typeFREE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "02_Softwareentwicklung_IT/typeFREE/**"
+      - ".github/workflows/typefree.yml"
+    tags: ["typefree-v*"]
+  pull_request:
+    paths:
+      - "02_Softwareentwicklung_IT/typeFREE/**"
+      - ".github/workflows/typefree.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typefree-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Windows, Python 3.12)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: 02_Softwareentwicklung_IT/typeFREE
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: 02_Softwareentwicklung_IT/typeFREE/windows/requirements*.txt
+      - run: python -m pip install -r windows/requirements.txt -r windows/requirements-dev.txt
+      - name: pytest
+        env:
+          PYTHONPATH: .
+        run: python -m pytest windows/tests -q
+
+  release:
+    name: Build EXE and release draft
+    if: startsWith(github.ref, 'refs/tags/typefree-v')
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write          # only this job may create the release
+    defaults:
+      run:
+        working-directory: 02_Softwareentwicklung_IT/typeFREE
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r windows/requirements.txt pyinstaller==6.19.0
+      - name: Build (version and commit are written into the EXE by typeFREE.spec)
+        env:
+          TYPEFREE_VERSION: ${{ github.ref_name }}
+          TYPEFREE_COMMIT: ${{ github.sha }}
+        run: python -m PyInstaller typeFREE.spec --noconfirm
+      - name: SHA-256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/typeFREE.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  typeFREE.exe" | Set-Content -Encoding ascii dist/typeFREE.exe.sha256
+          Get-Content dist/typeFREE.exe.sha256
+      - name: Release draft (published only by hand)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" dist/typeFREE.exe dist/typeFREE.exe.sha256
+          --draft --verify-tag --title "${{ github.ref_name }}"
+          --notes "Built by GitHub Actions from ${{ github.sha }}. Tests passed in the same run. Check: compare the SHA-256 file."
