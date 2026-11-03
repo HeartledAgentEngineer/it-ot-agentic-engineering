@@ -46,6 +46,36 @@ def _umschrift(wort: str) -> str:
     return wort.translate(_UMSCHRIFT)
 
 
+_RUECK = (("ae", "ä"), ("oe", "ö"), ("ue", "ü"), ("Ae", "Ä"), ("Oe", "Ö"), ("Ue", "Ü"))
+
+
+def _rueckumschrift(wort: str) -> List[str]:
+    """Gespeichert "Juergen", im Text "Jürgen" (Hermes S8, Runde 4): Umlaute zurück, einmal
+    ohne und einmal mit ß ("Groessling" -> Grössling, Größling). Unechte Formen ("Manüla")
+    schaden nicht - sie kommen im Text nie vor."""
+    umlaut = wort
+    for alt, neu in _RUECK:
+        umlaut = umlaut.replace(alt, neu)
+    return [f for f in dict.fromkeys([umlaut, umlaut.replace("ss", "ß")]) if f != wort]
+
+
+# Deutsche Beugung: Genitiv/Plural "Annas", "Meiers", "Wiebken" (Hermes S8, Runde 4). Erst ab
+# 4 Zeichen - "Ida" + s = "Idas" waere vertretbar, aber "Ben"/"Ins" wuerden Woerter treffen.
+ENDUNGEN = ("s", "n")
+ENDUNG_AB = 4
+
+
+def _formen(name: str, teile: List[str]) -> List[str]:
+    """Alle Schreibweisen ausser dem Namen selbst: Teile, Umschrift hin und zurueck, Endungen."""
+    basis = [name] + teile
+    for f in list(basis):
+        basis += [u for u in [_umschrift(f)] + _rueckumschrift(f) if u not in basis]
+    # -n nur nach Vokal ("Wiebken"), sonst entstuenden Unformen wie "Meiern".
+    gebeugt = [f + e for f in basis if len(f) >= ENDUNG_AB for e in ENDUNGEN
+               if not f.endswith(e) and (e == "s" or f[-1].lower() in "aeiouäöü")]
+    return [f for f in dict.fromkeys(basis[1:] + gebeugt) if f != name]
+
+
 _TEIL_TRENNER = re.compile(r"[-'’]")
 
 
@@ -72,7 +102,8 @@ def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShie
 
     Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname;
     getrennt an Leerzeichen und Bindestrich, ohne Namenszusaetze wie "von"/"der"), dazu die
-    Umschrift (Jürgen -> Juergen; Hermes-Einwand #19). Maskiert wird ohne
+    Umschrift in beide Richtungen (Jürgen <-> Juergen; Hermes-Einwand #19, S8 Runde 4) und die
+    Endungen -s/-n ab 4 Zeichen ("Annas"). Jede Form hat ihr eigenes Kuerzel. Maskiert wird ohne
     Ruecksicht auf Gross-/Kleinschreibung; zurueck kommt jedes Kuerzel in der Schreibweise,
     in der es in ``text`` stand.
     """
@@ -80,9 +111,7 @@ def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShie
     for name in namen or []:
         name = (name or "").strip() if isinstance(name, str) else ""
         if name:
-            teile = _namensteile(name)
-            umschrift = [u for u in (_umschrift(f) for f in [name] + teile) if u not in [name] + teile]
-            schild.register_person(name, aliases=teile + umschrift)
+            schild.register_person(name, aliases=_formen(name, _namensteile(name)))
     for klar, kuerzel in list(schild.plain_to_token.items()):
         treffer = re.search(rf"\b{re.escape(klar)}\b", text or "", flags=re.IGNORECASE)
         if treffer:
@@ -104,6 +133,22 @@ class PIIShield:
             "ROLE": 0,
             "ENTITY": 0,
         }
+        # Ein gemeinsames Muster fuer alle Klardaten (S8, 03.11.2026): 2.900 Formen einzeln
+        # zu ersetzen kostete 180 ms je Text; neu gebaut nur, wenn etwas dazukam.
+        self._muster: Optional[re.Pattern] = None
+        self._muster_stand = -1
+        self._klein_zu_token: Dict[str, str] = {}
+
+    def _namensmuster(self) -> Optional[re.Pattern]:
+        if self._muster_stand != len(self.plain_to_token):
+            eintraege = sorted((p for p in self.plain_to_token if p), key=len, reverse=True)
+            self._klein_zu_token = {}
+            for p in eintraege:
+                self._klein_zu_token.setdefault(p.lower(), self.plain_to_token[p])
+            self._muster = (re.compile(r"\b(?:" + "|".join(re.escape(p) for p in eintraege) + r")\b",
+                                       flags=re.IGNORECASE) if eintraege else None)
+            self._muster_stand = len(self.plain_to_token)
+        return self._muster
 
     def register_entity(self, plain_value: str, category: str = "ENTITY") -> str:
         """Registriert eine Entitaet und liefert das zugewiesene Token."""
@@ -168,15 +213,13 @@ class PIIShield:
                 token = self.register_entity(phone, category="PHONE")
                 ergebnis = ergebnis.replace(phone, token)
 
-        # 3. Registrierte Namen, Orte und Rollen nach Laenge absteigend ersetzen
-        sortierte_eintraege = sorted(self.plain_to_token.items(), key=lambda kv: len(kv[0]), reverse=True)
-        for plain, token in sortierte_eintraege:
-            if not plain:
-                continue
-            # Wortgrenzen-sicheres Ersetzen fuer reine Woerter
-            escaped = re.escape(plain)
-            muster = rf"\b{escaped}\b"
-            ergebnis = re.sub(muster, token, ergebnis, flags=re.IGNORECASE)
+        # 3. Registrierte Namen, Orte und Rollen in EINEM Durchgang ersetzen: die Alternativen
+        #    stehen nach Laenge absteigend, so gewinnt an jeder Stelle die laengste Form.
+        #    Wortgrenzen-sicher; ein eingesetztes Kuerzel wird nicht erneut durchsucht.
+        muster = self._namensmuster()
+        if muster is not None:
+            ergebnis = muster.sub(
+                lambda m: self._klein_zu_token.get(m.group(0).lower(), m.group(0)), ergebnis)
 
         return ergebnis
 

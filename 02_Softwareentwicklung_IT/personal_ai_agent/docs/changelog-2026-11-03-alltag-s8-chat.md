@@ -79,3 +79,24 @@ Fehler, die auch die Glättung (#19) und die Struktur (S3) betreffen:
   - `NAMENSZUSAETZE` (van, della, ten …) fallen nur kleingeschrieben weg, weil sie auch
     Vornamen sein können.
 - 1 Test mehr in `test_schild_namensteile.py`.
+
+## Nachtrag nach Hermes (Runde 4: EINWAND, zwei ältere Lecks)
+
+Beide Lecks steckten schon vor S8 im Namensschutz. Sie betrafen deshalb auch die
+Diktat-Glättung (#19) und die Struktur (S3):
+
+- **Beugung:** „mit Annas Hund" ging im Klartext hinaus, weil nur das genaue Wort maskiert wurde.
+  - Jetzt bekommt jede Schreibweise ab 4 Zeichen auch die Form mit **-s**.
+  - Die Form mit **-n** kommt nur nach Vokal dazu („Wiebken").
+- **Umschrift rückwärts:** Bei gespeichertem „Juergen" blieb „Jürgen" im Text stehen. Jetzt
+  entstehen auch Umlaut- und ß-Formen. Unechte Formen schaden nicht, weil sie nie im Text
+  vorkommen.
+- Jede Form hat ihr eigenes Kürzel. Die Rückübersetzung bleibt exakt.
+- **Laufzeit:** Aus 742 Namen werden 2905 Formen. Einzeln ersetzt hätte das 180 ms je Text
+  gekostet. `PIIShield.encode` ersetzt jetzt in einem Durchgang mit einem gemeinsamen Muster
+  (die längste Form zuerst) und braucht 20 ms je Text auf dem PC. Gemessen wurde mit einem
+  erfundenen Satz, ausgegeben wurden nur Zahlen.
+- **Bleibt offen:** Spitznamen, Tippfehler und Namensteile unter 3 Zeichen erkennt keine
+  Wortliste. Für einen Schutz ohne diesen Rest wäre Variante B nötig (Freitexte bleiben auf dem
+  Gerät). Die entscheidet Sebastian.
+- 4 Tests mehr in `test_schild_namensteile.py`, 2 davon vorher rot.

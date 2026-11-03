@@ -47,6 +47,31 @@ def test_teil_nach_apostroph_wird_maskiert():
     assert "Quastrien" not in schild.encode("Quastrien kam vorbei.")
 
 
+def test_genitiv_und_endung_n_werden_maskiert():
+    # Hermes Runde 4: "mit Annalias Hund" ging im Klartext hinaus.
+    schild = schild_aus_namen(["Annalia Quastmeier", "Wiebke"])
+    text = schild.encode("Mit Annalias Hund bei Quastmeiers, dann zu Wiebken.")
+    assert "Annalia" not in text and "Quastmeier" not in text and "Wiebke" not in text
+
+
+def test_genitiv_kommt_exakt_zurueck():
+    schild = schild_aus_namen(["Annalia Quastmeier"], "Mit Annalias Hund")
+    assert schild.decode(schild.encode("Mit Annalias Hund")) == "Mit Annalias Hund"
+
+
+def test_kurze_namensteile_bekommen_keine_endung():
+    # "Tim" + s = "Tims" ist selten, aber "Bens"/"Ins" wären Wörter: erst ab 4 Zeichen.
+    schild = schild_aus_namen(["Ida Quastmeier"])
+    assert schild.encode("Idas Garten.") == "Idas Garten."
+
+
+def test_umschrift_rueckwaerts():
+    # Hermes Runde 4: gespeichert "Juergen", im Text "Jürgen".
+    schild = schild_aus_namen(["Juergen Quastmeier", "Tessa Grossling", "Ruth Hoefling"])
+    text = schild.encode("Jürgen, Großling und Höfling waren da.")
+    assert "Jürgen" not in text and "Großling" not in text and "Höfling" not in text
+
+
 def test_rueckuebersetzung_bleibt_exakt():
     schild = schild_aus_namen(["Annalia-Brenda Quastmeier"], "Mit Annalia")
     assert schild.decode(schild.encode("Mit Annalia")) == "Mit Annalia"
