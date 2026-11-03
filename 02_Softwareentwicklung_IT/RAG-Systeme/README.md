@@ -216,4 +216,13 @@ python -m pytest -q tests
 `tests/test_chunking.py` prüft das Absatz-Chunking (`chunking.py`): Absatzgrenzen, Satzgrenzen statt Kommas bei
 Riesenabsätzen und die Zuordnung der `[PAGE_NUM: X]`-Seitenmarker. Der erste Lauf fand einen Fehler: Ein Chunk
 bekam die Seitenzahl des nächsten Absatzes, wenn dort eine neue Seite begann. Seitdem trägt jeder Chunk die Seite,
-auf der er beginnt. `test_embeddings.py` bleibt eine manuelle Plausibilitätsprüfung gegen die Mistral-API.
+auf der er beginnt.
+
+`tests/test_query_db.py` prüft die Abfrage (`query_db.py`) mit Attrappen für Netz und Datenbank: Abbruch ohne
+Schlüssel vor jedem Netzaufruf, Aufbau der `hybrid_search`-Abfrage und der Treffer, die Quellenangabe im Kontext
+(Kurs → Modul vor Dateiname) und die Rückfallkette lokales Modell → Gemini → Mistral. Der erste Lauf fand einen
+Fehler: Der Embedding-Aufruf an Mistral hatte als einziger Netzaufruf keine Zeitgrenze, eine hängende API ließ die
+ganze Abfrage hängen. Er hat jetzt 30 s wie die übrigen Aufrufe. Die Tests brauchen die Pakete aus
+`requirements.txt` (`pip install pytest -r requirements.txt`), aber keinen Schlüssel.
+
+`test_embeddings.py` bleibt eine manuelle Plausibilitätsprüfung gegen die Mistral-API.

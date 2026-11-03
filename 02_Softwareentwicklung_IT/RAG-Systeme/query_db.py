@@ -46,7 +46,8 @@ def generate_query_embedding(query_text):
     response = requests.post(
         "https://api.mistral.ai/v1/embeddings",
         headers=headers,
-        json=payload
+        json=payload,
+        timeout=30
     )
     if response.status_code != 200:
         raise Exception(f"Fehler bei Mistral Embeddings: {response.text}")
