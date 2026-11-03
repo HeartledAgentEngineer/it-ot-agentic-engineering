@@ -1,0 +1,34 @@
+# document_automation: lint + tests on every push/PR that touches it (issue #28).
+name: document_automation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "02_Softwareentwicklung_IT/document_automation/**"
+      - ".github/workflows/document-automation.yml"
+  pull_request:
+    paths:
+      - "02_Softwareentwicklung_IT/document_automation/**"
+      - ".github/workflows/document-automation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ESLint + node:test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 02_Softwareentwicklung_IT/document_automation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: 02_Softwareentwicklung_IT/document_automation/package-lock.json
+      # --ignore-scripts: Puppeteer would download Chromium; the tests do not need a browser.
+      - run: npm ci --ignore-scripts
+      - run: npm run check
