@@ -12,8 +12,8 @@ android {
         applicationId = "de.sebastian.heyagent"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2-schlaf"
+        versionCode = 3
+        versionName = "0.3-alltag"
     }
 
     buildTypes {
@@ -40,6 +40,8 @@ dependencies {
     // beta01 ist die letzte Version fuer compileSdk 35 / AGP 8.7 (ab beta02: compileSdk 36, AGP 8.9.1).
     implementation("androidx.health.connect:connect-client:1.1.0-beta01")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // Stuendliches Alltags-Pop-up (S7). 2.9.1: letzte Fassung fuer compileSdk 34/35.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     testImplementation("junit:junit:4.13.2")
 }

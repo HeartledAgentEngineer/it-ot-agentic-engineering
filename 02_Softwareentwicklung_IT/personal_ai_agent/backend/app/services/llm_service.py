@@ -2151,7 +2151,7 @@ class LLMService:
 
             if modell != POLISH_MODELS[0]:
                 logger.info("Glättung über Ausweichmodell %s gelungen", modell)
-            logger.debug("Geglättet (%d Zeichen): %s", len(entmaskiert), entmaskiert[:80])
+            logger.debug("Geglättet über %s (%d Zeichen)", modell, len(entmaskiert))   # kein Text ins Log
             return entmaskiert
 
         logger.error("Keine Glättung möglich – Rohtext wird verwendet (%s)", letzter_grund)

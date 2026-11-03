@@ -226,9 +226,10 @@ SCHLAEFT_EREIGNISSE = ("schlafen", "wach_liegen", "wieder_schlafen")
 
 
 def letzter_stand(eintraege: List[Dict[str, Any]], jetzt: Optional[datetime] = None) -> Dict[str, Any]:
-    """``{"letzter_eintrag": ISO | None, "schlaeft": bool}`` aus Stunden- und Schlaf-Einträgen.
+    """``{"letzter_eintrag": ISO | None, "schlaeft": bool}`` aus Stunden-, Schlaf- und Uhr-Einträgen.
 
-    Zeitpunkt eines Stunden-Eintrags ist ``bis`` (sonst ``von``), eines Schlaf-Ereignisses ``zeit``.
+    Zeitpunkt eines Stunden-Eintrags ist ``bis`` (sonst ``von``), eines Schlaf-Ereignisses ``zeit``,
+    einer Uhr-Nacht ``ende`` (S9: die Nacht deckt ihre Stunden; ein künftiges Ende zählt nicht).
     ``schlaeft`` gilt, wenn das letzte Ereignis ein Schlaf-Knopf der Nacht ist und höchstens
     24 Stunden zurückliegt — ein späterer Stunden-Eintrag beendet den Schlaf.
     """
@@ -241,14 +242,21 @@ def letzter_stand(eintraege: List[Dict[str, Any]], jetzt: Optional[datetime] = N
             roh = e.get("bis") or e.get("von")
         elif e.get("art") == "schlaf":
             roh = e.get("zeit")
+        elif e.get("art") == "schlafnacht":
+            roh = e.get("ende")
         else:
             continue
         zeit = zeit_lesen(roh)
-        if zeit and (letzter is None or zeit > letzter[0]):
-            letzter = (zeit, roh, e)
+        if e.get("art") == "schlafnacht" and zeit and zeit > jetzt:
+            continue
+        # Gleiche Zeit (Schnellknöpfe in derselben Sekunde): der später erfasste gewinnt,
+        # bei gleicher Erfassungssekunde der spätere in der Liste (Reihenfolge der Datei).
+        rang = (zeit, str(e.get("erfasst_um") or ""))
+        if zeit and (letzter is None or rang >= letzter[0]):
+            letzter = (rang, roh, e)
     if letzter is None:
         return {"letzter_eintrag": None, "schlaeft": False}
-    zeit, roh, e = letzter
+    (zeit, _), roh, e = letzter
     schlaeft = (e.get("art") == "schlaf" and e.get("ereignis") in SCHLAEFT_EREIGNISSE
                 and jetzt - zeit <= MAX_NACHT)
     return {"letzter_eintrag": roh, "schlaeft": bool(schlaeft)}

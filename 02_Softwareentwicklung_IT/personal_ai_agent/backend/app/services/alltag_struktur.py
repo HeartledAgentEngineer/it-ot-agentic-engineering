@@ -41,11 +41,15 @@ MAX_GEFUEHLE = 8
 MAX_AKTIVITAET = 300
 QUELLEN = ("sprache", "tastatur")
 
-# Vorläufig — die Liste wird noch mit der Begleitperson abgestimmt (Alignment, offener Punkt).
-GRUNDGEFUEHLE = ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung", "Scham",
-                 "Schuld", "Ruhe", "Erschöpfung")
+# Die sechs Grundemotionen nach Ekman (1992, „An argument for basic emotions“), kulturübergreifend
+# im Gesichtsausdruck belegt. Nur diese werden gespeichert (Sebastian, 03.11.2026).
+GRUNDGEFUEHLE = ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung")
+# Gängige Wörter für dasselbe Gefühl; alles andere fällt weg.
+GEFUEHL_SYNONYME = {"glück": "Freude", "traurigkeit": "Trauer", "furcht": "Angst", "wut": "Ärger",
+                    "zorn": "Ärger", "abscheu": "Ekel", "erstaunen": "Überraschung"}
 
-STIMMUNG_STUFEN = "sehr gut = 5, gut = 4, mittel = 3, schlecht = 2, sehr schlecht = 1"
+STIMMUNG = ((5, "sehr gut"), (4, "gut"), (3, "mittel"), (2, "schlecht"), (1, "sehr schlecht"))
+STIMMUNG_STUFEN = ", ".join(f"{wort} = {wert}" for wert, wort in STIMMUNG)
 
 SYSTEM_PROMPT = (
     "Du wandelst einen kurzen, oft eingesprochenen Satz aus einem Stimmungsprotokoll in JSON um. "
@@ -76,8 +80,8 @@ def baue_nachricht(text: str, jetzt: datetime) -> str:
         '- "art": "stunde" für Stimmung/Tätigkeit, "schlaf" für Schlafen gehen, Aufwachen, Wachliegen, Wiedereinschlafen.',
         f'- "stimmung": ganze Zahl 1–5 ({STIMMUNG_STUFEN}) oder null.',
         '- "anspannung": ganze Zahl 0–100 oder null.',
-        f'- "gefuehle": Liste; bevorzugt aus {", ".join(GRUNDGEFUEHLE)} (z. B. genervt → Ärger), '
-        "sonst ein eigenes kurzes Wort.",
+        f'- "gefuehle": Liste nur aus {", ".join(GRUNDGEFUEHLE)} (z. B. genervt → Ärger); '
+        "passt keins, weglassen.",
         '- "vorherrschend": das stärkste Gefühl oder null.',
         '- "aktivitaet": was getan wurde, kurz in den Worten des Satzes, oder null.',
         '- "von", "bis": Uhrzeit "HH:MM", nur wenn der Satz einen Zeitraum nennt, sonst null.',
@@ -112,7 +116,7 @@ def _gefuehl(wert: Any) -> Optional[str]:
     for grund in GRUNDGEFUEHLE:
         if wort.lower() == grund.lower():
             return grund
-    return wort
+    return GEFUEHL_SYNONYME.get(wort.lower())
 
 
 def _gefuehle(liste: Any, vorherrschend: Optional[str]) -> List[str]:
@@ -124,6 +128,16 @@ def _gefuehle(liste: Any, vorherrschend: Optional[str]) -> List[str]:
     if vorherrschend:
         worte = [vorherrschend] + [w for w in worte if w != vorherrschend]
     return worte[:MAX_GEFUEHLE]
+
+
+def gefuehle_pruefen(felder: Dict[str, Any]) -> Dict[str, Any]:
+    """Für Korrekturen (PATCH): ``gefuehle``/``vorherrschend`` nur aus ``GRUNDGEFUEHLE``."""
+    erg = dict(felder)
+    if "vorherrschend" in erg:
+        erg["vorherrschend"] = _gefuehl(erg["vorherrschend"])
+    if "gefuehle" in erg:
+        erg["gefuehle"] = _gefuehle(erg["gefuehle"], None)
+    return erg
 
 
 def _uhrzeit(wert: Any, jetzt: datetime) -> Optional[datetime]:

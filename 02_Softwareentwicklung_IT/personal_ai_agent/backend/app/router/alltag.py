@@ -6,6 +6,8 @@
 * ``GET  /api/alltag/offen``         ``{offene_stunden, schlaeft, letzter_eintrag}`` für das Pop-up (S5).
 * ``GET  /api/alltag/tag``           ``?datum=JJJJ-MM-TT`` — Einträge des Tages mit ``fehlt`` + Uhr-Nächte.
 * ``POST   /api/alltag/eintrag``      ``{text, quelle}`` → Struktur über ``alltag_struktur`` (S3) → gespeichert.
+* ``POST   /api/alltag/ereignis``     ``{ereignis}`` — Schlaf-Schnellknopf, Zeit = jetzt, ohne Modell (S6).
+* ``GET    /api/alltag/vorgaben``     Grundgefühle und Stimmungsstufen für die Rückfragen (S6).
 * ``PATCH  /api/alltag/eintrag/{id}`` Felder korrigieren (neue Fassung, append-only).
 * ``DELETE /api/alltag/eintrag/{id}`` Löschmarker.
 
@@ -85,7 +87,8 @@ def schlaf_stand() -> Dict[str, Any]:
 def offen() -> Dict[str, Any]:
     jetzt = datetime.now(timezone.utc)
     stand = alltag_rechnen.letzter_stand(
-        alltag_speicher.eintraege(art="stunde") + alltag_speicher.eintraege(art="schlaf"), jetzt=jetzt)
+        alltag_speicher.eintraege(art="stunde") + alltag_speicher.eintraege(art="schlaf")
+        + alltag_speicher.eintraege(art="schlafnacht"), jetzt=jetzt)
     return {"ok": True,
             "offene_stunden": alltag_rechnen.offene_stunden(stand["letzter_eintrag"], jetzt,
                                                             stand["schlaeft"]),
@@ -137,6 +140,31 @@ async def eintrag_aus_satz(request: Request) -> Dict[str, Any]:
     return antwort
 
 
+@router.post("/ereignis")
+async def schlaf_knopf(request: Request) -> Dict[str, Any]:
+    """Schnellknopf (S6): Schlaf-Ereignis mit der Zeit von jetzt, ohne Modell."""
+    try:
+        koerper = await request.json()
+    except Exception:  # noqa: BLE001 – kein JSON
+        raise HTTPException(status_code=400, detail="Die Anfrage ist kein JSON.")
+    ereignis = koerper.get("ereignis") if isinstance(koerper, dict) else None
+    if ereignis not in alltag_speicher.SCHLAF_EREIGNISSE:
+        raise HTTPException(status_code=400, detail="Unbekanntes Schlaf-Ereignis.")
+    jetzt = datetime.now().astimezone().isoformat(timespec="seconds")
+    erg = alltag_speicher.eintrag_anhaengen({"art": "schlaf", "ereignis": ereignis, "zeit": jetzt,
+                                            "quelle": "knopf"})
+    if not erg.get("ok"):
+        return {"ok": False, "grund": erg.get("fehler") or "Nicht gespeichert."}
+    return {"ok": True, "eintrag": erg["eintrag"]}
+
+
+@router.get("/vorgaben")
+def vorgaben() -> Dict[str, Any]:
+    """Grundgefühle und Stimmungsstufen für die Rückfragen der Oberfläche (S6)."""
+    return {"ok": True, "grundgefuehle": list(alltag_struktur.GRUNDGEFUEHLE),
+            "stimmung": [{"wert": wert, "wort": wort} for wert, wort in alltag_struktur.STIMMUNG]}
+
+
 @router.patch("/eintrag/{kennung}")
 async def eintrag_korrigieren(kennung: str, request: Request) -> Dict[str, Any]:
     try:
@@ -145,7 +173,7 @@ async def eintrag_korrigieren(kennung: str, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Die Anfrage ist kein JSON.")
     if not isinstance(felder, dict):
         raise HTTPException(status_code=400, detail="Erwartet wird ein Objekt mit Feldern.")
-    erg = alltag_speicher.korrigieren(kennung, felder)
+    erg = alltag_speicher.korrigieren(kennung, alltag_struktur.gefuehle_pruefen(felder))
     if not erg.get("ok"):
         raise HTTPException(status_code=404 if "nicht gefunden" in (erg.get("fehler") or "") else 400,
                             detail=erg.get("fehler") or "Nicht korrigiert.")
