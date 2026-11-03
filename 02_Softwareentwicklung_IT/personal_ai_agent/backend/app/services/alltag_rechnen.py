@@ -244,11 +244,14 @@ def letzter_stand(eintraege: List[Dict[str, Any]], jetzt: Optional[datetime] = N
         else:
             continue
         zeit = zeit_lesen(roh)
-        if zeit and (letzter is None or zeit > letzter[0]):
-            letzter = (zeit, roh, e)
+        # Gleiche Zeit (Schnellknöpfe in derselben Sekunde): der später erfasste gewinnt,
+        # bei gleicher Erfassungssekunde der spätere in der Liste (Reihenfolge der Datei).
+        rang = (zeit, str(e.get("erfasst_um") or ""))
+        if zeit and (letzter is None or rang >= letzter[0]):
+            letzter = (rang, roh, e)
     if letzter is None:
         return {"letzter_eintrag": None, "schlaeft": False}
-    zeit, roh, e = letzter
+    (zeit, _), roh, e = letzter
     schlaeft = (e.get("art") == "schlaf" and e.get("ereignis") in SCHLAEFT_EREIGNISSE
                 and jetzt - zeit <= MAX_NACHT)
     return {"letzter_eintrag": roh, "schlaeft": bool(schlaeft)}

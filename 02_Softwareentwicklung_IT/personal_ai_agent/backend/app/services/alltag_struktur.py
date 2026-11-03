@@ -45,7 +45,8 @@ QUELLEN = ("sprache", "tastatur")
 GRUNDGEFUEHLE = ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung", "Scham",
                  "Schuld", "Ruhe", "Erschöpfung")
 
-STIMMUNG_STUFEN = "sehr gut = 5, gut = 4, mittel = 3, schlecht = 2, sehr schlecht = 1"
+STIMMUNG = ((5, "sehr gut"), (4, "gut"), (3, "mittel"), (2, "schlecht"), (1, "sehr schlecht"))
+STIMMUNG_STUFEN = ", ".join(f"{wort} = {wert}" for wert, wort in STIMMUNG)
 
 SYSTEM_PROMPT = (
     "Du wandelst einen kurzen, oft eingesprochenen Satz aus einem Stimmungsprotokoll in JSON um. "

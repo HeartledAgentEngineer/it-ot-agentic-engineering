@@ -145,6 +145,16 @@ def test_stand_spaeterer_eintrag_beendet_schlaf_und_alter_schlaf_verfaellt():
         "letzter_eintrag": None, "schlaeft": False}
 
 
+def test_stand_bei_gleicher_zeit_gewinnt_der_spaeter_erfasste():
+    # Schnellknöpfe kurz hintereinander: gleiche Sekunde, Reihenfolge der Liste egal.
+    zeit = "2026-11-03T07:00:00+01:00"
+    wach = dict(_e(zeit, "aufwachen"), erfasst_um="2026-11-03T06:00:02+00:00")
+    schlaf = dict(_e(zeit, "schlafen"), erfasst_um="2026-11-03T06:00:01+00:00")
+    jetzt = datetime(2026, 11, 3, 7, 30, tzinfo=MEZ)
+    assert ar.letzter_stand([wach, schlaf], jetzt=jetzt)["schlaeft"] is False
+    assert ar.letzter_stand([schlaf, wach], jetzt=jetzt)["schlaeft"] is False
+
+
 def test_offene_stunden():
     jetzt = datetime(2026, 11, 3, 15, 40, tzinfo=MEZ)
     assert ar.offene_stunden("2026-11-03T12:00:00+01:00", jetzt, schlaeft=False) == 3
