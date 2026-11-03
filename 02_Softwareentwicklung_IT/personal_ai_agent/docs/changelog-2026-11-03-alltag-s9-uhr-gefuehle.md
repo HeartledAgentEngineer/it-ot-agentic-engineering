@@ -85,3 +85,8 @@ Baut auf S8 auf. Sebastians Wünsche vom 03.11.:
   - Im Browser mit nachgebautem Mikrofon geprüft: Fehler, Schließen während der Freigabe mit
     Doppeltipp, danach ein normaler Start.
 - Cache-Bump `alltag.js` auf `?v=20261103E`.
+
+## Abschluss
+
+- Hermes Runde 3: FREI.
+- Volle Suite auf `71e6ac3`: 6432 grün, 3 übersprungen.
