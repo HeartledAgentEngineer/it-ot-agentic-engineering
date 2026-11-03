@@ -276,6 +276,21 @@ class AlltagErinnerungRegelTest {
     }
 
     @Test
+    fun auchInDerSommerzeit() {
+        // Juli, +02:00: dieselben Ortszeiten gelten (Live-Schlaf ab 20:00, Nachtruhe ab 3:00, Rueckfall 11:00).
+        fun sommer(text: String): Instant = OffsetDateTime.parse("${text}+02:00").toInstant()
+        val stand = AlltagStand(sommer("2026-07-03T21:00:00"), schlaeft = false)
+        val schlaf = AlltagErinnerungRegel.eingeschlafen(
+            sommer("2026-07-03T22:40:00"), null, sommer("2026-07-03T23:30:00"), berlin,
+        )
+        assertEquals(sommer("2026-07-03T22:40:00"), schlaf)
+        assertEquals(0, AlltagErinnerungRegel.erinnerung(stand, null, sommer("2026-07-04T01:10:00"), berlin, schlaf).stunden)
+        assertEquals(0, AlltagErinnerungRegel.erinnerung(stand, null, sommer("2026-07-04T10:50:00"), berlin, schlaf).stunden)
+        assertEquals(1, AlltagErinnerungRegel.erinnerung(stand, null, sommer("2026-07-04T12:10:00"), berlin, schlaf).stunden)
+        assertNull(AlltagErinnerungRegel.eingeschlafen(sommer("2026-07-03T19:30:00"), null, sommer("2026-07-03T21:00:00"), berlin))
+    }
+
+    @Test
     fun startadresseMitAufnahmeAusDemPopup() {
         assertEquals("http://127.0.0.1:8080/?alltag=aufnahme", AlltagErinnerungRegel.startUrl(aufnahme = true))
         assertEquals("http://127.0.0.1:8080/", AlltagErinnerungRegel.startUrl(aufnahme = false))

@@ -42,7 +42,10 @@ object AlltagErinnerung {
     private const val SPEICHER = "alltag_stand"
     private const val TAG = "HeyAgent"
 
-    /** Stand von der Seite merken und das Pop-up sofort anpassen (nach dem Eintragen weg). */
+    /**
+     * Stand von der Seite merken. Danach ruft die App [aktualisieren] im Hintergrund auf (Pop-up nach
+     * dem Eintragen weg) - nicht hier, weil die Bildschirm-Abfrage nicht in den UI-Thread gehoert.
+     */
     fun standSetzen(ctx: Context, json: String): Boolean {
         val stand = AlltagErinnerungRegel.standLesen(json) ?: return false
         ctx.getSharedPreferences(SPEICHER, Context.MODE_PRIVATE).edit()
@@ -50,7 +53,6 @@ object AlltagErinnerung {
             .putLong("letzter_ms", stand.letzterEintrag?.toEpochMilli() ?: -1L)
             .putBoolean("schlaeft", stand.schlaeft)
             .apply()
-        aktualisieren(ctx)
         return true
     }
 

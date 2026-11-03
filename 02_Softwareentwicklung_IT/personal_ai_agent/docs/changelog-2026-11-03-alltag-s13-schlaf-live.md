@@ -32,6 +32,12 @@
 - **Gespeichert** wird nur der Zeitpunkt des Aufwachens. Der Live-Schlaf wird jede Stunde neu entschieden und nicht gemerkt.
 - **Version** 0.4-aufwachen (versionCode 4).
 
+## Nachbesserung nach Hermes, Runde 1
+
+- **Kein Binder-Aufruf im UI-Thread:** `standSetzen` merkt nur noch den Stand. `aktualisieren` mit der Bildschirm-Abfrage läuft jetzt im Hintergrund (`Dispatchers.IO`), ebenso nach dem Schlaf-Abgleich.
+- **Nutzungsdatenzugriff** wird auch direkt nach dem Health-Connect-Dialog angeboten, nicht erst beim zweiten Druck auf den Knopf.
+- **Neuer Test** `auchInDerSommerzeit` (+02:00).
+
 ## Grenzen
 
 - Health Connect zeigt eine Schlafsitzung erst nach dem Aufwachen und dem Abgleich der Uhr-App. Bis dahin bleibt es morgens still, längstens bis 11:00.

@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { erteilt ->
             if (erteilt.containsAll(SchlafLeser.ERLAUBNIS)) {
                 schlafLesenUndSenden()
+                bildschirmAnbieten()
             } else {
                 schlafMelden("Keine Erlaubnis für Schlafdaten. Bitte in Health Connect erlauben.")
             }
@@ -325,7 +326,10 @@ class MainActivity : AppCompatActivity() {
             if (json == null || json.length > 2000) return
             runOnUiThread {
                 if (!istBackend(Uri.parse(webView.url ?: ""))) return@runOnUiThread
-                if (AlltagErinnerung.standSetzen(this@MainActivity, json)) benachrichtigungAnfragen()
+                if (!AlltagErinnerung.standSetzen(this@MainActivity, json)) return@runOnUiThread
+                benachrichtigungAnfragen()
+                // Bildschirm-Abfrage (Binder-Aufruf) nicht im UI-Thread.
+                lifecycleScope.launch(Dispatchers.IO) { AlltagErinnerung.aktualisieren(this@MainActivity) }
             }
         }
     }
@@ -399,8 +403,11 @@ class MainActivity : AppCompatActivity() {
                 // Nur die Anzahl ins Log, keine Zeiten (Gesundheitsdaten).
                 Log.i(TAG, "Schlaf: ${naechte.size} Sitzungen an die Seite")
                 seiteAufrufen(SchlafUebertragung.jsAufruf(SchlafUebertragung.json(naechte)))
-                AlltagErinnerung.aufwachenMerken(this@MainActivity, naechte.map { it.ende })
-                AlltagErinnerung.aktualisieren(this@MainActivity)
+                // Bildschirm-Abfrage (Binder-Aufruf) nicht im UI-Thread.
+                withContext(Dispatchers.IO) {
+                    AlltagErinnerung.aufwachenMerken(this@MainActivity, naechte.map { it.ende })
+                    AlltagErinnerung.aktualisieren(this@MainActivity)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Schlaf lesen fehlgeschlagen: ${e.javaClass.simpleName}")
                 schlafMelden("Schlafdaten konnten nicht gelesen werden.")
