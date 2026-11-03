@@ -263,6 +263,11 @@ ohne weiteren Fingertipp; `/api/selbsttest` per WebView liefert 200; Log zeigt d
 
 ## Ungeprüft / bekannte offene Punkte
 
+- **Alltags-Pop-up (S7, 03.11.2026):** `testDebugUnitTest assembleDebug` Exit 0 (58 JVM-Tests,
+  davon 11 `AlltagErinnerungRegelTest`). Noch **nicht am Handy** gemessen, ob der stündliche
+  Worker unter HyperOS mit Akku-Optimierung zuverlässig läuft. Ablauf und Regel:
+  `docs/changelog-2026-11-03-alltag-s7-popup.md`.
+
 - **Aus dem Quellstand neu gebaut (10.10.2026, 08:11):** `./gradlew --offline clean assembleDebug`
   → **BUILD SUCCESSFUL in 2m57s, 34 Tasks ausgeführt** (nicht „up-to-date"), Exit 0. Ergebnis
   `app/build/outputs/apk/debug/app-debug.apk`, **9.723.147 Byte**. Kein Quellstand hatte sich seit
