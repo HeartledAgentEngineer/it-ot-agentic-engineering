@@ -7,6 +7,7 @@
 // der Uhr (keine Schlafknöpfe), Gefühle nur aus der Ekman-Liste, 🎙 an jedem Textfeld über
 // denselben Rekorder wie „Sprechen". Nach jedem Speichern geht der Stand aus
 // /api/alltag/offen an die App (window.HeyAgentAlltag, S7). Text nur über textContent.
+// S14: Darunter die Woche bis zum gewählten Tag (Stimmungsbalken, Schlaf, Erkenntnisse).
 // Test: frontend/tests/test_alltag.js.
 
 const ALLTAG_EREIGNIS_TEXT = {
@@ -92,6 +93,50 @@ function alltagAntwortText(antwort) {
     return 'Eingetragen — ' + (n === 1 ? 'eine Frage' : n + ' Fragen') + ' noch.';
 }
 
+// ── Wochenübersicht (S14, GET /api/alltag/woche) ─────────────────────────
+
+/** Schlafminuten als „7:20"; ohne Nacht ein Strich. */
+function alltagSchlafKurz(min) {
+    if (typeof min !== 'number') return '–';
+    return Math.floor(min / 60) + ':' + String(min % 60).padStart(2, '0');
+}
+
+/** Breite des Stimmungsbalkens in Prozent (1 → 8, 5 → 100); ohne Stimmung 0. */
+function alltagStimmungProzent(stimmung) {
+    if (typeof stimmung !== 'number') return 0;
+    const s = Math.min(5, Math.max(1, stimmung));
+    return Math.round(8 + (s - 1) / 4 * 92);
+}
+
+/** Zahl mit deutschem Komma. */
+function alltagKomma(wert) {
+    return String(wert).replace('.', ',');
+}
+
+/** „Di 03.11." */
+function alltagWochenTagText(t) {
+    return t.wochentag + ' ' + t.datum.slice(8, 10) + '.' + t.datum.slice(5, 7) + '.';
+}
+
+/** Werte eines Tages in der Wochenzeile. */
+function alltagWochenWerte(t) {
+    const teile = [];
+    if (typeof t.stimmung === 'number') teile.push('Stimmung ' + alltagKomma(t.stimmung));
+    if (typeof t.schlaf_min === 'number') teile.push(alltagSchlafKurz(t.schlaf_min) + ' Std. Schlaf');
+    if (t.eintraege) teile.push(t.eintraege + (t.eintraege === 1 ? ' Eintrag' : ' Einträge'));
+    return teile.length ? teile.join(' · ') : 'Nichts eingetragen';
+}
+
+/** Schnittzeile der Woche; leer, wenn es keine Werte gibt. */
+function alltagWochenSchnittText(s) {
+    if (!s) return '';
+    const teile = [];
+    if (typeof s.stimmung === 'number') teile.push('Stimmung ' + alltagKomma(s.stimmung));
+    if (typeof s.anspannung === 'number') teile.push('Anspannung ' + Math.round(s.anspannung));
+    if (typeof s.schlaf_min === 'number') teile.push(alltagSchlafKurz(s.schlaf_min) + ' Std. Schlaf');
+    return teile.length ? 'Im Schnitt: ' + teile.join(' · ') : '';
+}
+
 /** Öffnet das Pop-up der App die Seite mit ?alltag=aufnahme? */
 function alltagAufnahmeGewuenscht(suche) {
     try { return new URLSearchParams(suche || '').get('alltag') === 'aufnahme'; } catch (_) { return false; }
@@ -171,7 +216,7 @@ async function _alltagHole(pfad) {
     const el = (id) => document.getElementById(id);
     if (!el('alltag-sheet')) return;
 
-    const zustand = { datum: _heute(), stufen: { 5: 'sehr gut', 4: 'gut', 3: 'mittel', 2: 'schlecht', 1: 'sehr schlecht' },
+    const zustand = { datum: _heute(), wocheBis: _heute(), stufen: { 5: 'sehr gut', 4: 'gut', 3: 'mittel', 2: 'schlecht', 1: 'sehr schlecht' },
         stufenListe: null, gefuehle: [], aufnahme: null, frage: null };
 
     function _heute() {
@@ -226,6 +271,58 @@ async function _alltagHole(pfad) {
             try { window.HeyAgentAlltag.standSetzen(JSON.stringify(offen)); } catch (_) { /* App ohne S7 */ }
         }
         tagZeichnen(await _alltagHole('/api/alltag/tag?datum=' + zustand.datum));
+        wocheZeichnen(await _alltagHole('/api/alltag/woche?bis=' + zustand.wocheBis));
+    }
+
+    // Wochenübersicht: sieben Tage bis zum gewählten Tag, Antippen springt zum Tag
+    function wocheZeichnen(woche) {
+        const liste = el('alltag-woche-liste');
+        liste.replaceChildren();
+        const tage = woche && woche.ok && Array.isArray(woche.tage) ? woche.tage : [];
+        for (const t of tage) {
+            const li = document.createElement('li');
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.id = 'alltag-woche-tag-' + t.datum;
+            b.className = 'alltag-woche-zeile' + (t.datum === zustand.datum ? ' alltag-woche-aktiv' : '');
+            const name = document.createElement('span');
+            name.className = 'alltag-woche-name';
+            name.textContent = alltagWochenTagText(t);
+            const balken = document.createElement('span');
+            balken.className = 'alltag-balken';
+            const fuellung = document.createElement('span');
+            fuellung.className = 'alltag-balken-fuellung';
+            fuellung.style.width = alltagStimmungProzent(t.stimmung) + '%';
+            balken.appendChild(fuellung);
+            const werte = document.createElement('span');
+            werte.className = 'alltag-woche-werte';
+            werte.textContent = alltagWochenWerte(t);
+            b.append(name, balken, werte);
+            // Die Woche bleibt stehen; nur der Tagesablauf wechselt (◀ ▶ blättern die Woche mit).
+            b.addEventListener('click', () => {
+                zustand.datum = t.datum;
+                aktualisieren();
+                el('alltag-datum').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            li.appendChild(b);
+            liste.appendChild(li);
+        }
+        el('alltag-woche-schnitt').textContent = woche && woche.ok ? alltagWochenSchnittText(woche.schnitt) : '';
+        const erkenntnisse = el('alltag-woche-erkenntnisse');
+        erkenntnisse.replaceChildren();
+        const zeilen = woche && woche.ok && Array.isArray(woche.erkenntnisse) ? woche.erkenntnisse : [];
+        for (const z of zeilen) {
+            const li = document.createElement('li');
+            li.textContent = z;
+            erkenntnisse.appendChild(li);
+        }
+        if (tage.length && !zeilen.length) {
+            const li = document.createElement('li');
+            li.className = 'alltag-leise-text';
+            li.textContent = 'Zusammenhänge erscheinen ab 4 Tagen mit Stimmung und Uhr-Nacht.';
+            erkenntnisse.appendChild(li);
+        }
+        el('alltag-woche').hidden = !tage.length;
     }
 
     // Tagesablauf
@@ -278,6 +375,7 @@ async function _alltagHole(pfad) {
         const neu = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
         if (neu > _heute()) return;
         zustand.datum = neu;
+        zustand.wocheBis = neu;
         aktualisieren();
     }
 

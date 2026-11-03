@@ -3999,3 +3999,56 @@ body.anmelden-offen { overflow: hidden; }
 .alltag-zeile-text { flex: 1 1 200px; }
 .alltag-zeile-leiste { display: flex; gap: 6px; }
 .alltag-zeile-leiste .alltag-knopf { min-height: 32px; padding: 4px 10px; font-size: 0.8rem; }
+
+/* S14: Wochenübersicht – sieben Zeilen mit Stimmungsbalken, darunter Schnitt und Erkenntnisse */
+.alltag-woche { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.alltag-woche h3 { font-size: 0.9rem; font-weight: 600; }
+.alltag-woche[hidden] { display: none; }
+.alltag-woche-liste { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+
+.alltag-woche-zeile {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 4.6rem minmax(60px, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    color: inherit;
+    font: inherit;
+    font-size: 0.82rem;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.alltag-woche-zeile:hover { transform: translateY(-1px); border-color: hsla(265, 70%, 65%, 0.6); }
+.alltag-woche-aktiv { border-color: hsla(265, 70%, 65%, 0.9); box-shadow: 0 0 0 1px hsla(265, 70%, 65%, 0.35); }
+.alltag-woche-name { font-weight: 600; }
+.alltag-woche-werte { color: var(--text-secondary); white-space: nowrap; }
+
+.alltag-balken {
+    height: 8px;
+    border-radius: 999px;
+    background: hsla(230, 20%, 50%, 0.18);
+    overflow: hidden;
+}
+
+.alltag-balken-fuellung {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, hsl(210, 80%, 60%), hsl(265, 75%, 66%), hsl(150, 60%, 52%));
+    transition: width 0.4s ease;
+}
+
+.alltag-woche-schnitt { font-size: 0.85rem; font-weight: 600; }
+.alltag-woche-erkenntnisse { display: flex; flex-direction: column; gap: 6px; padding-left: 18px; font-size: 0.82rem; color: var(--text-secondary); }
+.alltag-leise-text { list-style: none; margin-left: -18px; font-style: italic; }
+
+@media (max-width: 420px) {
+    .alltag-woche-zeile { grid-template-columns: 4.2rem 1fr; }
+    .alltag-woche-werte { grid-column: 1 / -1; white-space: normal; }
+}
