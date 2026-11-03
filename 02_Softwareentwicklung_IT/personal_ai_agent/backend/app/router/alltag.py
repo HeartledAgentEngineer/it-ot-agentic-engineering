@@ -5,6 +5,7 @@
 * ``GET  /api/alltag/schlaf/stand``  Anzahl, letzte Nacht, letzter Abgleich (für das Checks-Fenster).
 * ``GET  /api/alltag/offen``         ``{offene_stunden, schlaeft, letzter_eintrag}`` für das Pop-up (S5).
 * ``GET  /api/alltag/tag``           ``?datum=JJJJ-MM-TT`` — Einträge des Tages mit ``fehlt`` + Uhr-Nächte.
+* ``GET    /api/alltag/woche``        ``?bis=JJJJ-MM-TT`` — sieben Tage, Schnitte, Erkenntnisse (S14).
 * ``POST   /api/alltag/eintrag``      ``{text, quelle}`` → Struktur über ``alltag_struktur`` (S3) → gespeichert.
 * ``POST   /api/alltag/ereignis``     ``{ereignis}`` — Schlaf-Schnellknopf, Zeit = jetzt, ohne Modell (S6).
 * ``GET    /api/alltag/vorgaben``     Grundgefühle und Stimmungsstufen für die Rückfragen (S6).
@@ -22,7 +23,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import alltag_rechnen, alltag_speicher, alltag_struktur, werkzeuge
+from app.services import alltag_auswertung, alltag_rechnen, alltag_speicher, alltag_struktur, werkzeuge
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,24 @@ def tag(datum: str) -> Dict[str, Any]:
     naechte = alltag_speicher.eintraege(art="schlafnacht", von=datum, bis=datum)
     return {"ok": True, "datum": datum, "eintraege": eintraege,
             "naechte_uhr": alltag_rechnen.auswerten(naechte)}
+
+
+@router.get("/woche")
+def woche(bis: Optional[str] = None) -> Dict[str, Any]:
+    """S14: Die sieben Tage bis ``bis`` (Standard heute) für die Wochenübersicht der Oberfläche."""
+    try:
+        ende = date.fromisoformat(bis) if bis else date.today()
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Datum als JJJJ-MM-TT angeben.")
+    von = (ende - timedelta(days=alltag_auswertung.WOCHE_TAGE - 1)).isoformat()
+    try:
+        erg = alltag_auswertung.woche(alltag_speicher.eintraege(art="stunde", von=von, bis=ende.isoformat()),
+                                      alltag_speicher.eintraege(art="schlafnacht", von=von, bis=ende.isoformat()),
+                                      ende.isoformat())
+    except Exception as e:  # noqa: BLE001 – nie 500
+        logger.warning("Woche: nicht lesbar: %s", type(e).__name__)
+        return {"ok": False, "fehler": f"Woche nicht lesbar ({type(e).__name__})."}
+    return {"ok": True, "von": von, "bis": ende.isoformat(), **erg}
 
 
 @router.post("/eintrag")

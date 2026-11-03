@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.services.alltag_rechnen import auswerten, dauer_text, nacht_zeile
@@ -182,14 +182,18 @@ def _nacht_und_tag(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]],
     Mehrere Abschnitte zum selben Tag (unterbrochene Nacht) werden zu einer Nacht zusammengezählt;
     doppelt gemeldete (überlappende) Sitzungen zählen nur einmal.
     """
+    nacht = {tag: n for tag, n in _naechte_je_tag(naechte).items() if n["phasen_bekannt"] or not nur_mit_phasen}
+    return [(nacht[tag], k) for tag, k in tag_kennzahlen(stunden).items()
+            if tag in nacht and k["stimmung"] is not None]
+
+
+def _naechte_je_tag(naechte: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Eine Nacht je Tag des Aufwachens: Doppelte einmal, Abschnitte addiert, ohne Nickerchen."""
     teile: Dict[str, List[Dict[str, Any]]] = {}
     for a in auswerten(_ohne_doppelte(naechte)):
         if not a["nickerchen"]:
             teile.setdefault(a["nacht_zum"], []).append(a)
-    nacht = {tag: n for tag, n in ((t, _nacht_zusammen(ts)) for t, ts in teile.items())
-             if n["phasen_bekannt"] or not nur_mit_phasen}
-    return [(nacht[tag], k) for tag, k in tag_kennzahlen(stunden).items()
-            if tag in nacht and k["stimmung"] is not None]
+    return {tag: _nacht_zusammen(ts) for tag, ts in teile.items()}
 
 
 def verknuepfung_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]]) -> str:
@@ -343,6 +347,54 @@ def einschlafzeit_text(naechte: List[Dict[str, Any]], stunden: List[Dict[str, An
     if a_frueh is not None and a_spaet is not None:
         text += f" Anspannung im Schnitt {round(a_frueh)} gegenüber {round(a_spaet)}."
     return text + " Nur ein Zusammenhang, kein Beweis."
+
+
+# ── S14: Wochenübersicht für die Oberfläche (nur Zahlen und Grundgefühle) ──────
+
+WOCHENTAGE_KURZ = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+WOCHE_TAGE = 7
+
+
+def woche(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]], bis: str) -> Dict[str, Any]:
+    """Die sieben Tage bis ``bis`` (JJJJ-MM-TT): je Tag Stimmung, Anspannung, Grundgefühle und die
+    Nacht der Uhr, dazu Schnitte und die Erkenntnisse wie im Chat. Kein Freitext, kein Modell.
+    """
+    ende = date.fromisoformat(bis)
+    tage = [(ende - timedelta(days=i)).isoformat() for i in range(WOCHE_TAGE - 1, -1, -1)]
+    stunden = [e for e in stunden or [] if isinstance(e, dict) and e.get("art") == "stunde" and _tag(e) in tage]
+    kennzahlen = tag_kennzahlen(stunden)
+    nacht = _naechte_je_tag(naechte)
+    zeilen: List[Dict[str, Any]] = []
+    for tag in tage:
+        k, n = kennzahlen.get(tag), nacht.get(tag)
+        zeilen.append({
+            "datum": tag, "wochentag": WOCHENTAGE_KURZ[date.fromisoformat(tag).weekday()],
+            "eintraege": k["eintraege"] if k else 0,
+            "stimmung": k["stimmung"] if k else None,
+            "anspannung": k["anspannung"] if k else None,
+            "gefuehle": [g for g, _ in k["gefuehle"]] if k else [],
+            "schlaf_min": n["schlaf_min"] if n else None,
+            "einschlafen": n["einschlafen"] if n else None,
+            "aufwachen": n["aufwachen"] if n else None,
+        })
+
+    def mittel(feld: str) -> Optional[float]:
+        return _schnitt([z[feld] for z in zeilen if z[feld] is not None])
+
+    schlaf = mittel("schlaf_min")
+    erkenntnisse: List[str] = []
+    if len(_nacht_und_tag(naechte, stunden)) >= MIN_TAGE_VERGLEICH:
+        erkenntnisse.append(verknuepfung_text(naechte, stunden))
+    erkenntnisse += [t for t in (einschlafzeit_text(naechte, stunden), gefuehle_nach_schlaf_text(naechte, stunden),
+                                 schlafqualitaet_text(naechte, stunden), tageszeit_text(stunden)) if t]
+    # Kein ``wochentag_text``: er verlangt je Wochentag mindestens zwei Tage
+    # (MIN_TAGE_WOCHENTAG). Ein Fenster von sieben aufeinanderfolgenden Tagen
+    # enthaelt jeden Wochentag genau einmal - der Baustein kann hier also nie
+    # anschlagen. Im Chat (beliebiger Zeitraum) bleibt er unveraendert.
+    return {"tage": zeilen,
+            "schnitt": {"stimmung": mittel("stimmung"), "anspannung": mittel("anspannung"),
+                        "schlaf_min": None if schlaf is None else round(schlaf)},
+            "erkenntnisse": erkenntnisse}
 
 
 def protokoll_text(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]],

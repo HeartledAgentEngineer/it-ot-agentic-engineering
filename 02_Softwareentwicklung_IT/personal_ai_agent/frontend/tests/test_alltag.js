@@ -163,6 +163,39 @@ pruefe('anderes', gewuenscht('?alltag=tag') === false && gewuenscht('') === fals
   pruefe('hidden schlägt display:flex im Blatt', /#alltag-sheet \[hidden\]\s*\{\s*display:\s*none/.test(css));
   pruefe('großer Knopf am Handy', /\.alltag-gross\s*\{[^}]*min-height:\s*(5\d|[6-9]\d)px/.test(css));
 
+  console.log('\n10) Wochenübersicht (S14)');
+  const schlafKurz = fn('alltagSchlafKurz')();
+  pruefe('Schlaf 450 min = 7:30', schlafKurz(450) === '7:30');
+  pruefe('Schlaf 425 min = 7:05', schlafKurz(425) === '7:05');
+  pruefe('ohne Nacht ein Strich', schlafKurz(null) === '–');
+  const prozent = fn('alltagStimmungProzent')();
+  pruefe('Stimmung 5 = voller Balken', prozent(5) === 100);
+  pruefe('Stimmung 1 = kleiner Rest', prozent(1) === 8);
+  pruefe('Stimmung 3 = Mitte', prozent(3) === 54);
+  pruefe('ohne Stimmung kein Balken', prozent(null) === 0);
+  const komma = fn('alltagKomma')();
+  pruefe('Komma statt Punkt', komma(3.5) === '3,5' && komma(4) === '4');
+  const tagText = fn('alltagWochenTagText')();
+  pruefe('Wochentag und Datum', tagText({ datum: '2026-11-03', wochentag: 'Di' }) === 'Di 03.11.');
+  const werte = fn('alltagWochenWerte', 'alltagSchlafKurz', 'alltagKomma')(schlafKurz, komma);
+  pruefe('Werte eines Tages', werte({ eintraege: 4, stimmung: 3.8, schlaf_min: 440 }) === 'Stimmung 3,8 · 7:20 Std. Schlaf · 4 Einträge',
+    werte({ eintraege: 4, stimmung: 3.8, schlaf_min: 440 }));
+  pruefe('ein Eintrag ohne Nacht', werte({ eintraege: 1, stimmung: 2, schlaf_min: null }) === 'Stimmung 2 · 1 Eintrag');
+  pruefe('nur Nacht', werte({ eintraege: 0, stimmung: null, schlaf_min: 480 }) === '8:00 Std. Schlaf');
+  pruefe('leerer Tag', werte({ eintraege: 0, stimmung: null, schlaf_min: null }) === 'Nichts eingetragen');
+  const schnittText = fn('alltagWochenSchnittText', 'alltagSchlafKurz', 'alltagKomma')(schlafKurz, komma);
+  pruefe('Schnitt der Woche', schnittText({ stimmung: 3.4, anspannung: 40, schlaf_min: 440 })
+    === 'Im Schnitt: Stimmung 3,4 · Anspannung 40 · 7:20 Std. Schlaf');
+  pruefe('Schnitt ohne Werte', schnittText({ stimmung: null, anspannung: null, schlaf_min: null }) === '');
+  for (const id of ['alltag-woche', 'alltag-woche-liste', 'alltag-woche-schnitt', 'alltag-woche-erkenntnisse']) {
+    pruefe('index.html hat #' + id, html.split('id="' + id + '"').length === 2);
+  }
+  pruefe('Woche über /api/alltag/woche', src.includes('/api/alltag/woche?bis='));
+  pruefe('Woche bleibt beim Antippen stehen', src.includes("'/api/alltag/woche?bis=' + zustand.wocheBis")
+    && /zustand\.wocheBis = neu/.test(src));
+  pruefe('Zeile springt zum Tag', /alltag-woche-tag-/.test(src));
+  pruefe('Balken im Stil', /\.alltag-balken\s*\{/.test(css));
+
   console.log(fehler ? `\n${fehler} FEHLER` : '\nAlle Prüfungen bestanden.');
   process.exit(fehler ? 1 : 0);
 })();
