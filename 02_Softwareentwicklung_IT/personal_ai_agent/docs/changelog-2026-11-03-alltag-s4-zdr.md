@@ -30,9 +30,12 @@ Der Hauptchat bleibt unverändert: Dort entscheidet der Schalter `no_retention` 
   `provider.data_collection`. Das dokumentierte Beispiel ist aber ein JSON-Body mit `input_audio`.
   Der Code sendet über das OpenAI-SDK multipart (`file=`). Ob das Feld dort ankommt, ist
   ungeprüft. Ohne echten Test mit Audio wird das Diktat nicht umgebaut.
-- **Fund:** `transcribe` schreibt die ersten 80 Zeichen des erkannten Textes ins Log
-  (`logger.info("Erkannt über …: %s", …, text[:80])`). Nach der Planregel gehören ins Log nur
-  Modell, Dauer und Zeichenzahl.
+
+## Nachtrag (Hermes, Runde 1, Einwand 2): kein Diktattext mehr im Log
+
+`transcribe` schrieb die ersten 80 Zeichen des erkannten Textes ins Log. Jetzt stehen dort nur
+Modell und Zeichenzahl (Planregel). Test: `test_erkennung_schreibt_keinen_diktattext_ins_log`,
+vorher rot.
 
 ## Prüfung
 

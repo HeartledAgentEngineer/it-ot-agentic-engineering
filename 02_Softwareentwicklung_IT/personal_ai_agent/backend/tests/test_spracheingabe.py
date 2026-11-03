@@ -181,6 +181,15 @@ def test_erkennung_liefert_none_wenn_alle_wege_scheitern():
     assert len(erkennung.aufrufe) == len(TRANSCRIBE_MODELS)
 
 
+def test_erkennung_schreibt_keinen_diktattext_ins_log(caplog):
+    """S4/Hermes 03.11.2026: ins Log nur Modell und Zeichenzahl, nie der Inhalt."""
+    erkennung = Erkennung({TRANSCRIBE_MODELS[0][0]: "Geheimer Testsatz Zebra."})
+    with caplog.at_level("DEBUG"):
+        assert dienst_mit(erkennung=erkennung).transcribe(WAV) == "Geheimer Testsatz Zebra."
+    assert "Zebra" not in caplog.text
+    assert "24 Zeichen" in caplog.text
+
+
 def test_erkennung_verwirft_leeren_text_und_nimmt_den_rueckfall():
     erkennung = Erkennung({
         TRANSCRIBE_MODELS[0][0]: "   ",

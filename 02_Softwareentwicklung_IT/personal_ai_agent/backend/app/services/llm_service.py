@@ -1516,7 +1516,8 @@ class LLMService:
 
             if modell != TRANSCRIBE_MODELS[0][0]:
                 logger.warning("Erkennung über Ausweichmodell %s gelungen", modell)
-            logger.info("Erkannt über %s (%d Zeichen): %s", modell, len(text), text[:80])
+            # Nur Modell und Zeichenzahl — der Diktattext gehört nicht ins Log (S4, 03.11.2026).
+            logger.info("Erkannt über %s (%d Zeichen)", modell, len(text))
             return text
 
         logger.error("Keine Erkennung möglich – kein Modell lieferte (%s)", letzter_grund)
