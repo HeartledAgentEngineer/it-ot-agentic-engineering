@@ -1,8 +1,14 @@
-"""Alltagsprotokoll: Schlafnächte der Uhr (03.11.2026).
+"""Alltagsprotokoll: Schlafnächte der Uhr und Einträge (03.11.2026).
 
 * ``POST /api/alltag/schlaf``        ``{naechte: [...]}`` von Hey Agent (Health Connect) — idempotent.
 * ``GET  /api/alltag/schlaf``        ``?von=JJJJ-MM-TT&bis=JJJJ-MM-TT`` (Standard: letzte 14 Tage).
 * ``GET  /api/alltag/schlaf/stand``  Anzahl, letzte Nacht, letzter Abgleich (für das Checks-Fenster).
+* ``GET  /api/alltag/offen``         ``{offene_stunden, schlaeft, letzter_eintrag}`` für das Pop-up (S5).
+* ``GET  /api/alltag/tag``           ``?datum=JJJJ-MM-TT`` — Einträge des Tages mit ``fehlt`` + Uhr-Nächte.
+* ``PATCH  /api/alltag/eintrag/{id}`` Felder korrigieren (neue Fassung, append-only).
+* ``DELETE /api/alltag/eintrag/{id}`` Löschmarker.
+
+``POST /api/alltag/eintrag`` (Text → Struktur) braucht das Modell aus S3 und folgt dort.
 
 Hängt in ``main.py`` am API-Key. Fachlogik: ``alltag_speicher`` (Speicher) und
 ``alltag_rechnen`` (Auswertung). Daten bleiben auf dem Gerät.
@@ -10,7 +16,7 @@ Hängt in ``main.py`` am API-Key. Fachlogik: ``alltag_speicher`` (Speicher) und
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -72,3 +78,54 @@ def schlaf_stand() -> Dict[str, Any]:
         "letzte_nacht_zum": ausgewertet[-1]["nacht_zum"] if ausgewertet else None,
         "letzter_abgleich": max(str(n.get("erfasst_um") or "") for n in naechte) or None,
     }
+
+
+# ── Einträge (S5, ohne Sprachmodell) ───────────────────────────────────────
+
+@router.get("/offen")
+def offen() -> Dict[str, Any]:
+    jetzt = datetime.now(timezone.utc)
+    stand = alltag_rechnen.letzter_stand(
+        alltag_speicher.eintraege(art="stunde") + alltag_speicher.eintraege(art="schlaf"), jetzt=jetzt)
+    return {"ok": True,
+            "offene_stunden": alltag_rechnen.offene_stunden(stand["letzter_eintrag"], jetzt,
+                                                            stand["schlaeft"]),
+            **stand}
+
+
+@router.get("/tag")
+def tag(datum: str) -> Dict[str, Any]:
+    try:
+        date.fromisoformat(datum)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Datum als JJJJ-MM-TT angeben.")
+    eintraege = [dict(e, fehlt=alltag_rechnen.fehlende_felder(e))
+                 for e in alltag_speicher.eintraege(von=datum, bis=datum)
+                 if e.get("art") in ("stunde", "schlaf")]
+    naechte = alltag_speicher.eintraege(art="schlafnacht", von=datum, bis=datum)
+    return {"ok": True, "datum": datum, "eintraege": eintraege,
+            "naechte_uhr": alltag_rechnen.auswerten(naechte)}
+
+
+@router.patch("/eintrag/{kennung}")
+async def eintrag_korrigieren(kennung: str, request: Request) -> Dict[str, Any]:
+    try:
+        felder = await request.json()
+    except Exception:  # noqa: BLE001 – kein JSON
+        raise HTTPException(status_code=400, detail="Die Anfrage ist kein JSON.")
+    if not isinstance(felder, dict):
+        raise HTTPException(status_code=400, detail="Erwartet wird ein Objekt mit Feldern.")
+    erg = alltag_speicher.korrigieren(kennung, felder)
+    if not erg.get("ok"):
+        raise HTTPException(status_code=404 if "nicht gefunden" in (erg.get("fehler") or "") else 400,
+                            detail=erg.get("fehler") or "Nicht korrigiert.")
+    return erg
+
+
+@router.delete("/eintrag/{kennung}")
+def eintrag_loeschen(kennung: str) -> Dict[str, Any]:
+    erg = alltag_speicher.loeschen(kennung)
+    if not erg.get("ok"):
+        raise HTTPException(status_code=404 if "nicht gefunden" in (erg.get("fehler") or "") else 400,
+                            detail=erg.get("fehler") or "Nicht gelöscht.")
+    return erg
