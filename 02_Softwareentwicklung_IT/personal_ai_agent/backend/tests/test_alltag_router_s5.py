@@ -53,6 +53,16 @@ def test_offen_im_schlaf_still(client):
     assert daten["schlaeft"] is True and daten["offene_stunden"] == 0
 
 
+def test_offen_zaehlt_ab_dem_aufwachen_laut_uhr(client):
+    jetzt = datetime.now().astimezone()
+    _stunde(_iso(jetzt - timedelta(hours=11)), _iso(jetzt - timedelta(hours=10)), stimmung=3)
+    ende = _iso(jetzt - timedelta(hours=1, minutes=20))
+    alltag_speicher.schlafnaechte_uebernehmen([{
+        "quelle_kennung": "hc-offen", "beginn": _iso(jetzt - timedelta(hours=9)), "ende": ende, "phasen": []}])
+    daten = client.get("/api/alltag/offen").json()
+    assert daten["letzter_eintrag"] == ende and daten["offene_stunden"] == 1
+
+
 def test_tag_mit_luecken_und_uhrnacht(client):
     _stunde("2026-11-03T09:00:00+01:00", "2026-11-03T10:00:00+01:00",
             stimmung=4, anspannung=20, gefuehle=["Ruhe"], aktivitaet="Frühstück")
@@ -84,6 +94,17 @@ def test_korrigieren_und_loeschen(client):
     assert client.delete(f"/api/alltag/eintrag/{neu['id']}").json() == {"ok": True}
     tag = client.get("/api/alltag/tag", params={"datum": "2026-11-03"}).json()
     assert tag["eintraege"] == []
+
+
+def test_korrigieren_nimmt_nur_grundgefuehle(client):
+    # S9 / Hermes-Hinweis: auch PATCH speichert nur die sechs Grundgefühle nach Ekman.
+    alt = _stunde("2026-11-03T09:00:00+01:00", "2026-11-03T10:00:00+01:00", stimmung=2)
+    r = client.patch(f"/api/alltag/eintrag/{alt['id']}",
+                     json={"gefuehle": ["wut", "Ruhe", "Angst", "Angst"], "vorherrschend": "Neid"})
+    neu = r.json()["eintrag"]
+    assert neu["gefuehle"] == ["Ärger", "Angst"] and neu["vorherrschend"] is None
+    r = client.patch(f"/api/alltag/eintrag/{neu['id']}", json={"gefuehle": "Freude"})   # Text statt Liste
+    assert r.json()["eintrag"]["gefuehle"] == []
 
 
 def test_unbekannter_eintrag_ist_404(client):

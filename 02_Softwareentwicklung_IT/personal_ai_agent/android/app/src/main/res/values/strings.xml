@@ -11,6 +11,9 @@
     <string name="mikro_hinweis">Hey Agent darf das Mikrofon nicht benutzen. Öffne die App-Einstellungen und erlaube unter „Berechtigungen“ das Mikrofon.</string>
     <string name="mikro_einstellungen">Einstellungen öffnen</string>
     <string name="mikro_abbrechen">Abbrechen</string>
+    <string name="alltag_titel">Alltagsprotokoll</string>
+    <string name="alltag_kanal">Alltagsprotokoll</string>
+    <string name="alltag_kanal_text">Stündliche Erinnerung, offene Stunden nachzutragen. Leise, eine einzige Meldung.</string>
     <string name="schlaf_erklaerung_titel">Schlaf in Hey Agent</string>
     <string name="schlaf_erklaerung">Hey Agent liest aus Health Connect nur deine Schlafsitzungen (Beginn, Ende, Schlafphasen) der letzten 30 Tage. Sie gehen ausschließlich an das Backend auf diesem Handy (127.0.0.1) und landen dort in deinem Alltagsprotokoll, damit du im Chat nach deinem Schlaf fragen kannst. Die App selbst schickt nichts ins Internet. Fragst du im Chat nach deinem Schlaf, bekommt das Sprachmodell die passenden Zeiten und Dauern (über OpenRouter, ohne Datenspeicherung). Die Erlaubnis kannst du jederzeit in Health Connect wieder entziehen.</string>
 </resources>

@@ -28,7 +28,7 @@ from app.services import alltag_rechnen
 from app.services.alltag_speicher import SCHLAF_EREIGNISSE
 from app.services.modell_router import MODELL_FLASH
 from app.services.openrouter_client import OpenRouterZDRClient
-from app.services.pii_shield import PIIShield
+from app.services.pii_shield import PIIShield, schild_aus_namen
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +41,15 @@ MAX_GEFUEHLE = 8
 MAX_AKTIVITAET = 300
 QUELLEN = ("sprache", "tastatur")
 
-# Vorläufig — die Liste wird noch mit der Begleitperson abgestimmt (Alignment, offener Punkt).
-GRUNDGEFUEHLE = ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung", "Scham",
-                 "Schuld", "Ruhe", "Erschöpfung")
+# Die sechs Grundemotionen nach Ekman (1992, „An argument for basic emotions“), kulturübergreifend
+# im Gesichtsausdruck belegt. Nur diese werden gespeichert (Sebastian, 03.11.2026).
+GRUNDGEFUEHLE = ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung")
+# Gängige Wörter für dasselbe Gefühl; alles andere fällt weg.
+GEFUEHL_SYNONYME = {"glück": "Freude", "traurigkeit": "Trauer", "furcht": "Angst", "wut": "Ärger",
+                    "zorn": "Ärger", "abscheu": "Ekel", "erstaunen": "Überraschung"}
 
-STIMMUNG_STUFEN = "sehr gut = 5, gut = 4, mittel = 3, schlecht = 2, sehr schlecht = 1"
+STIMMUNG = ((5, "sehr gut"), (4, "gut"), (3, "mittel"), (2, "schlecht"), (1, "sehr schlecht"))
+STIMMUNG_STUFEN = ", ".join(f"{wort} = {wert}" for wert, wort in STIMMUNG)
 
 SYSTEM_PROMPT = (
     "Du wandelst einen kurzen, oft eingesprochenen Satz aus einem Stimmungsprotokoll in JSON um. "
@@ -76,8 +80,8 @@ def baue_nachricht(text: str, jetzt: datetime) -> str:
         '- "art": "stunde" für Stimmung/Tätigkeit, "schlaf" für Schlafen gehen, Aufwachen, Wachliegen, Wiedereinschlafen.',
         f'- "stimmung": ganze Zahl 1–5 ({STIMMUNG_STUFEN}) oder null.',
         '- "anspannung": ganze Zahl 0–100 oder null.',
-        f'- "gefuehle": Liste; bevorzugt aus {", ".join(GRUNDGEFUEHLE)} (z. B. genervt → Ärger), '
-        "sonst ein eigenes kurzes Wort.",
+        f'- "gefuehle": Liste nur aus {", ".join(GRUNDGEFUEHLE)} (z. B. genervt → Ärger); '
+        "passt keins, weglassen.",
         '- "vorherrschend": das stärkste Gefühl oder null.',
         '- "aktivitaet": was getan wurde, kurz in den Worten des Satzes, oder null.',
         '- "von", "bis": Uhrzeit "HH:MM", nur wenn der Satz einen Zeitraum nennt, sonst null.',
@@ -89,21 +93,8 @@ def baue_nachricht(text: str, jetzt: datetime) -> str:
 
 
 def baue_schild(namen: Optional[List[str]], text: str = "") -> PIIShield:
-    """Namen samt Teilen ab 3 Zeichen registrieren (Muster ``geschichte_erzaehlen_ki``).
-
-    Der Schild maskiert ohne Rücksicht auf Groß-/Kleinschreibung; zurück kommt jedes Kürzel
-    in der Schreibweise, in der es im Satz stand.
-    """
-    schild = PIIShield()
-    for name in namen or []:
-        name = (name or "").strip()
-        if name:
-            schild.register_person(name, aliases=[t for t in name.split() if len(t) >= 3 and t != name])
-    for klar, kuerzel in list(schild.plain_to_token.items()):
-        treffer = re.search(rf"\b{re.escape(klar)}\b", text, flags=re.IGNORECASE)
-        if treffer:
-            schild.token_to_plain[kuerzel] = treffer.group(0)
-    return schild
+    """Namen samt Teilen ab 3 Zeichen; zurück in der Schreibweise des Satzes (``schild_aus_namen``)."""
+    return schild_aus_namen(namen, text)
 
 
 # ── Prüfen ─────────────────────────────────────────────────────────────────
@@ -125,7 +116,7 @@ def _gefuehl(wert: Any) -> Optional[str]:
     for grund in GRUNDGEFUEHLE:
         if wort.lower() == grund.lower():
             return grund
-    return wort
+    return GEFUEHL_SYNONYME.get(wort.lower())
 
 
 def _gefuehle(liste: Any, vorherrschend: Optional[str]) -> List[str]:
@@ -137,6 +128,16 @@ def _gefuehle(liste: Any, vorherrschend: Optional[str]) -> List[str]:
     if vorherrschend:
         worte = [vorherrschend] + [w for w in worte if w != vorherrschend]
     return worte[:MAX_GEFUEHLE]
+
+
+def gefuehle_pruefen(felder: Dict[str, Any]) -> Dict[str, Any]:
+    """Für Korrekturen (PATCH): ``gefuehle``/``vorherrschend`` nur aus ``GRUNDGEFUEHLE``."""
+    erg = dict(felder)
+    if "vorherrschend" in erg:
+        erg["vorherrschend"] = _gefuehl(erg["vorherrschend"])
+    if "gefuehle" in erg:
+        erg["gefuehle"] = _gefuehle(erg["gefuehle"], None)
+    return erg
 
 
 def _uhrzeit(wert: Any, jetzt: datetime) -> Optional[datetime]:
@@ -202,6 +203,13 @@ def pruefen(roh: Any, *, text: str, quelle: str, jetzt: datetime, schild: PIIShi
         "aktivitaet": aktivitaet or None,
         "originalworte": text, "quelle": quelle,
     }}
+
+
+def nur_originalworte(text: str, quelle: str = "tastatur", jetzt: Optional[datetime] = None) -> Dict[str, Any]:
+    """Rückfall ohne Modell: Stunden-Eintrag für die letzte Stunde, nur mit den Originalworten."""
+    von, bis = _zeitraum({}, jetzt or datetime.now().astimezone())
+    return {"art": "stunde", "von": von, "bis": bis, "originalworte": (text or "").strip()[:MAX_TEXT],
+            "quelle": quelle if quelle in QUELLEN else "tastatur"}
 
 
 def _json_lesen(inhalt: str) -> Any:
