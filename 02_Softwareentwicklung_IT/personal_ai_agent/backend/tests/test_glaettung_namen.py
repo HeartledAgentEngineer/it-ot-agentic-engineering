@@ -71,6 +71,15 @@ def test_ohne_namensliste_geht_nichts_raus(monkeypatch):
     assert chat.texte == [] and POLISH_MODELS
 
 
+def test_glaettung_schreibt_keinen_text_ins_log(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(werkzeuge, "namen_fuer_maskierung", lambda: ["Testperson Erfunden"])
+    with caplog.at_level(logging.DEBUG):
+        _dienst(Chat("Zebra ist geheim.")).polish_text("Ähm, Zebra ist geheim.")
+    assert "Zebra" not in caplog.text
+
+
 def test_kaputte_namensquelle_geht_nichts_raus(monkeypatch):
     def kaputt():
         raise RuntimeError("kaputt")
