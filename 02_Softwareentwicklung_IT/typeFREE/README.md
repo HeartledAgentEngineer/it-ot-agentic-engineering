@@ -270,3 +270,26 @@ Dieses Skript:
 3. Richtet auf Wunsch die Windows-Aufgabenplanung ein (Autostart bei Anmeldung + Aufwachen)
 
 Die EXE wird bewusst **nicht** versioniert (Binärartefakt); der Build ist über das PyInstaller-Rezept jederzeit reproduzierbar.
+
+#### Variante C: Bauen und Ausliefern über die Pipeline (CI/CD)
+
+`.github/workflows/typefree.yml` (Wurzel des Monorepos) hat zwei Jobs:
+
+| Job | Wann | Was |
+|---|---|---|
+| `test` | jeder Push auf `main` und jeder Pull Request, der `02_Softwareentwicklung_IT/typeFREE/**` berührt | Windows-Läufer, Python 3.12, `windows/requirements.txt` + `windows/requirements-dev.txt`, `python -m pytest windows/tests -q` |
+| `release` | nur bei einem Tag `typefree-vX.Y.Z`, erst wenn `test` im selben Lauf grün ist | PyInstaller 6.19.0 baut die EXE mit Version und Commit aus dem Tag, schreibt `typeFREE.exe.sha256` und legt ein GitHub-Release als **Entwurf** an |
+
+Ein Release entsteht also nur aus getestetem Code, und kein Paket wird von Hand gebaut. Der Entwurf wird erst
+öffentlich, wenn er bewusst veröffentlicht wird. Ausgelöst wird die Auslieferung so:
+
+```powershell
+git tag typefree-v1.0.0
+git push origin typefree-v1.0.0
+```
+
+**Rückweg:** Jedes frühere Release bleibt unter *Releases* herunterladbar. Zurück geht es, indem man die EXE des
+vorigen Release (Prüfsumme gegen die `.sha256`-Datei vergleichen) wieder an ihren Platz legt. Ein Updater, der das
+selbst erledigt (`update_exe.cmd zurueck`), ist geplant, aber noch nicht gebaut.
+
+Stand 03.11.2026: Bis zum ersten veröffentlichten Release gilt weiter der lokale Bau aus Variante B.
