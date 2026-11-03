@@ -5,10 +5,9 @@
 * ``GET  /api/alltag/schlaf/stand``  Anzahl, letzte Nacht, letzter Abgleich (für das Checks-Fenster).
 * ``GET  /api/alltag/offen``         ``{offene_stunden, schlaeft, letzter_eintrag}`` für das Pop-up (S5).
 * ``GET  /api/alltag/tag``           ``?datum=JJJJ-MM-TT`` — Einträge des Tages mit ``fehlt`` + Uhr-Nächte.
+* ``POST   /api/alltag/eintrag``      ``{text, quelle}`` → Struktur über ``alltag_struktur`` (S3) → gespeichert.
 * ``PATCH  /api/alltag/eintrag/{id}`` Felder korrigieren (neue Fassung, append-only).
 * ``DELETE /api/alltag/eintrag/{id}`` Löschmarker.
-
-``POST /api/alltag/eintrag`` (Text → Struktur) braucht das Modell aus S3 und folgt dort.
 
 Hängt in ``main.py`` am API-Key. Fachlogik: ``alltag_speicher`` (Speicher) und
 ``alltag_rechnen`` (Auswertung). Daten bleiben auf dem Gerät.
@@ -21,7 +20,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import alltag_rechnen, alltag_speicher
+from app.services import alltag_rechnen, alltag_speicher, alltag_struktur, werkzeuge
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +104,37 @@ def tag(datum: str) -> Dict[str, Any]:
     naechte = alltag_speicher.eintraege(art="schlafnacht", von=datum, bis=datum)
     return {"ok": True, "datum": datum, "eintraege": eintraege,
             "naechte_uhr": alltag_rechnen.auswerten(naechte)}
+
+
+@router.post("/eintrag")
+async def eintrag_aus_satz(request: Request) -> Dict[str, Any]:
+    """Satz → Struktur (S3) → gespeichert. Klappt die Struktur nicht, werden nur die Originalworte gesichert."""
+    try:
+        koerper = await request.json()
+    except Exception:  # noqa: BLE001 – kein JSON
+        raise HTTPException(status_code=400, detail="Die Anfrage ist kein JSON.")
+    text = koerper.get("text") if isinstance(koerper, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(status_code=400, detail="Erwartet wird {text, quelle}.")
+    quelle = str(koerper.get("quelle") or "tastatur")
+
+    namen = werkzeuge.namen_fuer_maskierung()
+    if namen is None:
+        erg = {"ok": False, "grund": "Die Namensliste fehlt oder ist nicht lesbar — der Satz ging nicht ans Modell."}
+    else:
+        erg = alltag_struktur.strukturieren(text, quelle=quelle, namen=namen)
+    eintrag = erg["eintrag"] if erg.get("ok") else alltag_struktur.nur_originalworte(text, quelle)
+
+    gespeichert = alltag_speicher.eintrag_anhaengen(eintrag)
+    if not gespeichert.get("ok"):
+        return {"ok": False, "grund": gespeichert.get("fehler") or "Nicht gespeichert."}
+    antwort = {"ok": bool(erg.get("ok")), "eintrag": gespeichert["eintrag"],
+               "fehlt": alltag_rechnen.fehlende_felder(gespeichert["eintrag"])}
+    if erg.get("ok"):
+        antwort.update(modell=erg.get("modell"), kosten_usd=erg.get("kosten_usd"))
+    else:
+        antwort["grund"] = erg.get("grund")
+    return antwort
 
 
 @router.patch("/eintrag/{kennung}")

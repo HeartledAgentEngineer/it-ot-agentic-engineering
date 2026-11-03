@@ -587,6 +587,22 @@ def bekannte_namen_streng():
     return bestand
 
 
+def namen_fuer_maskierung() -> Optional[List[str]]:
+    """Personen- und Kontaktnamen in Originalschreibweise für ``PIIShield`` (03.11.2026).
+
+    ``bekannte_namen_streng`` liefert normalisierte Wörter („juergen") — der Schild
+    würde damit „Jürgen" nicht finden. Gleiche Quellen und gleiche Strenge: nicht
+    lesbar oder insgesamt leer -> ``None``, und ``None`` heißt: kein Modellaufruf.
+    """
+    try:
+        namen = _personen_namen_streng() + _kontakt_namen()
+    except Exception:
+        logger.warning("namen_fuer_maskierung: Namensquelle nicht lesbar")
+        return None
+    sauber = sorted({n.strip() for n in namen if isinstance(n, str) and n.strip()})
+    return sauber or None
+
+
 def _web_suche_aus(args: Dict[str, Any]) -> Ergebnis:
     """Platzhalter im Register: sucht NIE. Die echte Suche bindet
     ``llm_service._chat_stream_mit_werkzeugen`` nur im Modus ``auto`` an

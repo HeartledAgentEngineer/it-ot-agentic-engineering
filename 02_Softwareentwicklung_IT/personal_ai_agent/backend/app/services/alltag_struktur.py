@@ -204,6 +204,13 @@ def pruefen(roh: Any, *, text: str, quelle: str, jetzt: datetime, schild: PIIShi
     }}
 
 
+def nur_originalworte(text: str, quelle: str = "tastatur", jetzt: Optional[datetime] = None) -> Dict[str, Any]:
+    """Rückfall ohne Modell: Stunden-Eintrag für die letzte Stunde, nur mit den Originalworten."""
+    von, bis = _zeitraum({}, jetzt or datetime.now().astimezone())
+    return {"art": "stunde", "von": von, "bis": bis, "originalworte": (text or "").strip()[:MAX_TEXT],
+            "quelle": quelle if quelle in QUELLEN else "tastatur"}
+
+
 def _json_lesen(inhalt: str) -> Any:
     rein = inhalt.strip()
     if rein.startswith("```"):
