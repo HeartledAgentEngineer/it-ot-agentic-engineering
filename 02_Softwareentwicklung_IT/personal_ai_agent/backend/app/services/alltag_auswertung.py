@@ -386,8 +386,11 @@ def woche(stunden: List[Dict[str, Any]], naechte: List[Dict[str, Any]], bis: str
     if len(_nacht_und_tag(naechte, stunden)) >= MIN_TAGE_VERGLEICH:
         erkenntnisse.append(verknuepfung_text(naechte, stunden))
     erkenntnisse += [t for t in (einschlafzeit_text(naechte, stunden), gefuehle_nach_schlaf_text(naechte, stunden),
-                                 schlafqualitaet_text(naechte, stunden), tageszeit_text(stunden),
-                                 wochentag_text(stunden)) if t]
+                                 schlafqualitaet_text(naechte, stunden), tageszeit_text(stunden)) if t]
+    # Kein ``wochentag_text``: er verlangt je Wochentag mindestens zwei Tage
+    # (MIN_TAGE_WOCHENTAG). Ein Fenster von sieben aufeinanderfolgenden Tagen
+    # enthaelt jeden Wochentag genau einmal - der Baustein kann hier also nie
+    # anschlagen. Im Chat (beliebiger Zeitraum) bleibt er unveraendert.
     return {"tage": zeilen,
             "schnitt": {"stimmung": mittel("stimmung"), "anspannung": mittel("anspannung"),
                         "schlaf_min": None if schlaf is None else round(schlaf)},

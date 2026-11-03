@@ -100,3 +100,27 @@ def test_router_woche_standard_heute(client):
 
 def test_router_woche_kaputtes_datum(client):
     assert client.get("/api/alltag/woche", params={"bis": "3.11."}).status_code == 400
+
+
+def test_nacht_am_fensterrand_zaehlt_zum_ersten_tag():
+    """Eine Nacht, die vor dem Fenster beginnt und am ersten Fenstertag endet, gehoert
+    zu diesem Tag: zugeordnet wird ueber das Ende (alltag_speicher.py, ``_sortzeit``).
+    """
+    naechte = [_nacht("rand", "2026-10-27T23:00", "2026-10-28T06:00")]
+    w = aw.woche([], naechte, "2026-11-03")
+    erster = w["tage"][0]
+    assert erster["datum"] == "2026-10-28"
+    assert erster["schlaf_min"] == 420
+    assert (erster["einschlafen"], erster["aufwachen"]) == ("23:00", "06:00")
+    assert all(t["schlaf_min"] is None for t in w["tage"][1:])
+
+
+def test_kein_wochentag_baustein_in_der_woche():
+    """Sieben aufeinanderfolgende Tage enthalten jeden Wochentag genau einmal — der
+    Baustein ``wochentag_text`` verlangt aber je Wochentag mindestens zwei Tage
+    (MIN_TAGE_WOCHENTAG). Er darf in der Woche deshalb gar nicht erst aufgerufen werden,
+    und die Liste darf ihn nicht behaupten.
+    """
+    stunden = [_stunde(f"2026-11-0{i}", stimmung=3, anspannung=30) for i in range(1, 6)]
+    w = aw.woche(stunden, [], "2026-11-05")
+    assert all("Wochentag" not in z and "Montag" not in z and "Dienstag" not in z for z in w["erkenntnisse"])
