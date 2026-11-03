@@ -39,3 +39,11 @@ Unverändert. Die neuen Sätze enthalten nur Zahlen, Tageszeit-Namen und feste W
   Leicht-, Tief- und REM-Schlaf). Jede Lücke zwischen zwei Abschnitten zählt als nächtliches
   Aufwachen. Die Phasen gelten nur als bekannt, wenn alle Abschnitte welche haben.
 - Neuer Test `test_unterbrochene_nacht_wird_zusammengezaehlt` (vorher rot).
+
+## Abschluss
+
+- Hermes Runde 2: FREI.
+- Alle Alltag-Tests auf `da4384c` grün (123).
+- **Offen, kein Fehler im Code:**
+  - Melden zwei verschiedene Quellen auf dem Handy dieselbe Nacht mit eigener Kennung, würden die Abschnitte doppelt gezählt. Ein Beispiel wären zwei Schlaf-Apps, die beide in Health Connect schreiben. Gleiche Kennungen sind schon ausgeschlossen.
+  - Erst prüfen, ob das am Handy überhaupt vorkommt. Dann gegebenenfalls nur eine Quelle übernehmen.
