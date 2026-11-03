@@ -113,6 +113,33 @@ pruefe('anderes', gewuenscht('?alltag=tag') === false && gewuenscht('') === fals
   pruefe('Netzfehler -> null', (await fn('alltagSenden', 'API_BASE', 'fetch')('', kaputt)('x', 'tastatur')) === null);
   pruefe('Netzfehler beim Ergänzen -> null', (await fn('alltagFeldSpeichern', 'API_BASE', 'fetch')('', kaputt)('a', 'stimmung', 1)) === null);
 
+  console.log('\n8b) alltagMikrofonOeffnen — gibt bei jedem Fehler das Mikrofon frei (Hermes S9 R2)');
+  const oeffnen = fn('alltagMikrofonOeffnen', 'alltagMikrofonSchliessen')(fn('alltagMikrofonSchliessen')());
+  function attrappen(fehlerBei) {
+    const z = { gestoppt: 0, geschlossen: 0 };
+    const medien = { getUserMedia: async () => ({ getTracks: () => [{ stop: () => z.gestoppt++ }] }) };
+    class Ctx {
+      constructor() { if (fehlerBei === 'ctx') throw new Error('ctx'); this.state = 'running'; this.destination = {};
+        this.audioWorklet = { addModule: async () => { if (fehlerBei === 'modul') throw new Error('modul'); } }; }
+      createMediaStreamSource() { return { connect() {} }; }
+      close() { z.geschlossen++; }
+    }
+    class Knoten { constructor() { if (fehlerBei === 'knoten') throw new Error('knoten'); this.port = {}; } connect() {} }
+    return { z, medien, Ctx, Knoten };
+  }
+  for (const stelle of ['ctx', 'modul', 'knoten']) {
+    const a = attrappen(stelle);
+    let geworfen = false;
+    try { await oeffnen(a.medien, a.Ctx, a.Knoten); } catch (_) { geworfen = true; }
+    pruefe('Fehler bei ' + stelle + ': Spur gestoppt, Fehler weitergereicht', geworfen && a.z.gestoppt === 1,
+      JSON.stringify(a.z));
+    if (stelle !== 'ctx') pruefe('Fehler bei ' + stelle + ': AudioContext geschlossen', a.z.geschlossen === 1);
+  }
+  const gut = attrappen(null);
+  const offen = await oeffnen(gut.medien, gut.Ctx, gut.Knoten);
+  offen.knoten.port.onmessage({ data: 'pcm' });
+  pruefe('Erfolg: nichts gestoppt, Stücke werden gesammelt', gut.z.gestoppt === 0 && offen.stuecke.length === 1);
+
   console.log('\n9) Verdrahtung');
   pruefe('index.html lädt alltag.js nach app.js', /<script src="app\.js\?v=\d{8}[A-Z]"><\/script>[\s\S]*<script src="alltag\.js\?v=\d{8}[A-Z]"><\/script>/.test(html));
   const ids = ['alltag-btn', 'alltag-sheet', 'alltag-close', 'alltag-offen', 'alltag-aufnahme', 'alltag-tastatur',

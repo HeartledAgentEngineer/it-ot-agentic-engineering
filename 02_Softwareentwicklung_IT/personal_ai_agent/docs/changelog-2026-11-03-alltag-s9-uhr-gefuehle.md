@@ -66,3 +66,22 @@ Baut auf S8 auf. Sebastians Wünsche vom 03.11.:
   - Text statt Liste ergibt eine leere Liste.
   - Ein unbekanntes `vorherrschend` wird `null`.
 - Neuer Test `test_korrigieren_nimmt_nur_grundgefuehle` (vorher rot).
+
+## Nachtrag nach Hermes (Runde 2: EINWAND, Mikrofon blieb an)
+
+- **Fehler (seit S6):** Scheiterte nach der Mikrofon-Freigabe ein Schritt (AudioContext,
+  `addModule`, AudioWorkletNode), war `zustand.aufnahme` noch leer. `aufnahmeFreigeben` stoppte dann
+  nichts, und das Mikrofon blieb an. Mit den 🎙-Knöpfen aus S9 gibt es mehr Wege dorthin.
+- **Jetzt:** `alltagMikrofonOeffnen` öffnet Mikrofon und Worklet in einem Schritt. Scheitert ein
+  Teil, gibt `alltagMikrofonSchliessen` alles schon Geöffnete frei, auch teilweise Geöffnetes. Erst
+  danach wird der Fehler gemeldet.
+- **Mitbehoben, gleiche Art:**
+  - Wird das Blatt geschlossen, während der Freigabe-Dialog noch offen ist, wird das danach
+    geöffnete Mikrofon sofort wieder freigegeben. Dasselbe gilt, wenn das Zielfeld verschwunden ist.
+  - Ein Doppeltipp während des Öffnens wird ignoriert (`zustand.oeffnet`).
+- **Prüfung:**
+  - Test 8b in `test_alltag.js` (vorher rot): Fehler an drei Stellen stoppt jeweils die Spur und
+    schließt den AudioContext. Im Normalfall bleibt alles offen.
+  - Im Browser mit nachgebautem Mikrofon geprüft: Fehler, Schließen während der Freigabe mit
+    Doppeltipp, danach ein normaler Start.
+- Cache-Bump `alltag.js` auf `?v=20261103E`.

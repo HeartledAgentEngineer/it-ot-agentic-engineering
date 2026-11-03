@@ -97,6 +97,40 @@ function alltagAufnahmeGewuenscht(suche) {
     try { return new URLSearchParams(suche || '').get('alltag') === 'aufnahme'; } catch (_) { return false; }
 }
 
+// ── Mikrofon (AudioWorklet wie app.js) ──────────────────────────────────
+
+/** Mikrofon + AudioWorklet öffnen. Scheitert ein Schritt, wird das schon Geöffnete wieder
+ *  freigegeben und der Fehler weitergereicht — sonst bliebe das Mikrofon an (Hermes S9 R2). */
+async function alltagMikrofonOeffnen(medien, AudioKontext, WorkletKnoten) {
+    let strom = null;
+    let ctx = null;
+    try {
+        strom = await medien.getUserMedia({ audio: { channelCount: 1 } });
+        ctx = new AudioKontext();
+        if (ctx.state === 'suspended') await ctx.resume();
+        await ctx.audioWorklet.addModule('pcm-recorder.js');
+        const quelle = ctx.createMediaStreamSource(strom);
+        const knoten = new WorkletKnoten(ctx, 'pcm-recorder');
+        const stuecke = [];
+        knoten.port.onmessage = (ev) => stuecke.push(ev.data);
+        quelle.connect(knoten);
+        knoten.connect(ctx.destination);
+        return { strom, ctx, quelle, knoten, stuecke };
+    } catch (err) {
+        alltagMikrofonSchliessen({ strom, ctx });
+        throw err;
+    }
+}
+
+/** Alles freigeben, was ``alltagMikrofonOeffnen`` geöffnet hat (auch teilweise). */
+function alltagMikrofonSchliessen(a) {
+    if (!a) return;
+    try { if (a.knoten) { a.knoten.port.onmessage = null; a.knoten.disconnect(); } } catch (_) {}
+    try { if (a.quelle) a.quelle.disconnect(); } catch (_) {}
+    try { if (a.ctx) a.ctx.close(); } catch (_) {}
+    try { if (a.strom) a.strom.getTracks().forEach((t) => t.stop()); } catch (_) {}
+}
+
 // ── API ─────────────────────────────────────────────────────────────────
 
 /** Satz eintragen; Antwort des Backends oder null bei Netzfehler. */
@@ -341,10 +375,7 @@ async function _alltagHole(pfad) {
     function aufnahmeFreigeben() {
         const a = zustand.aufnahme;
         if (!a) return;
-        try { a.knoten.port.onmessage = null; a.knoten.disconnect(); } catch (_) {}
-        try { a.quelle.disconnect(); } catch (_) {}
-        try { a.ctx.close(); } catch (_) {}
-        try { a.strom.getTracks().forEach((t) => t.stop()); } catch (_) {}
+        alltagMikrofonSchliessen(a);
         zustand.aufnahme = null;
         el('alltag-aufnahme').textContent = '🎙 Sprechen';
         el('alltag-aufnahme').classList.remove('alltag-hoert');
@@ -354,35 +385,36 @@ async function _alltagHole(pfad) {
     function aufnahmeAbbrechen() { aufnahmeFreigeben(); micStatus(''); }
 
     async function aufnahmeStarten(ziel, feldKnopf) {
+        if (zustand.oeffnet) return;   // Mikrofon öffnet noch (Freigabe-Dialog) — Doppeltipp ignorieren
         if (zustand.aufnahme) { aufnahmeStoppen(); return; }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             micStatus('Mikrofon nur über localhost/HTTPS — bitte „Tastatur" nehmen.');
             return;
         }
+        let offen;
+        zustand.oeffnet = true;
         try {
-            const strom = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            if (ctx.state === 'suspended') await ctx.resume();
-            await ctx.audioWorklet.addModule('pcm-recorder.js');
-            const quelle = ctx.createMediaStreamSource(strom);
-            const knoten = new AudioWorkletNode(ctx, 'pcm-recorder');
-            const stuecke = [];
-            knoten.port.onmessage = (ev) => stuecke.push(ev.data);
-            quelle.connect(knoten);
-            knoten.connect(ctx.destination);
-            zustand.aufnahme = { strom, ctx, quelle, knoten, stuecke, ziel: ziel || null, knopf: feldKnopf || null };
-            if (feldKnopf) {
-                feldKnopf.textContent = '■';
-                feldKnopf.classList.add('alltag-hoert');
-                micStatus('Ich höre zu — noch einmal 🎙 tippen, wenn du fertig bist.');
-            } else {
-                el('alltag-aufnahme').textContent = '■ Fertig';
-                el('alltag-aufnahme').classList.add('alltag-hoert');
-                micStatus('Ich höre zu — erzähl von der letzten Stunde.');
-            }
+            offen = await alltagMikrofonOeffnen(navigator.mediaDevices,
+                window.AudioContext || window.webkitAudioContext, window.AudioWorkletNode);
         } catch (err) {
-            aufnahmeFreigeben();
             micStatus('Mikrofon nicht verfügbar — bitte „Tastatur" nehmen.');
+            return;
+        } finally {
+            zustand.oeffnet = false;
+        }
+        if (el('alltag-sheet').hidden || (ziel && !ziel.isConnected)) {   // inzwischen geschlossen
+            alltagMikrofonSchliessen(offen);
+            return;
+        }
+        zustand.aufnahme = Object.assign(offen, { ziel: ziel || null, knopf: feldKnopf || null });
+        if (feldKnopf) {
+            feldKnopf.textContent = '■';
+            feldKnopf.classList.add('alltag-hoert');
+            micStatus('Ich höre zu — noch einmal 🎙 tippen, wenn du fertig bist.');
+        } else {
+            el('alltag-aufnahme').textContent = '■ Fertig';
+            el('alltag-aufnahme').classList.add('alltag-hoert');
+            micStatus('Ich höre zu — erzähl von der letzten Stunde.');
         }
     }
 
