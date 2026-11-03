@@ -58,7 +58,7 @@ Zeugnis-PDFs ─────▶ merge_pdfs.js ─▶ output/muster_bewerbungsmap
 Voraussetzung: Node.js ab Version 18.
 
 ```bash
-npm install        # docx, puppeteer, pdf-lib
+npm ci             # genau die Stände aus package-lock.json (docx, puppeteer, pdf-lib, ESLint)
 npm run build:cv   # → output/muster_lebenslauf.docx
 npm run build:pdf  # → output/muster_lebenslauf.pdf + output/muster_anschreiben.pdf
 npm run merge      # → output/muster_bewerbungsmappe.pdf
@@ -81,5 +81,6 @@ data/beispiel_person.json ─▶ src/cv_model.js ─▶ src/render_html.js ─�
 ```
 
 - `node build.js [daten.json] [--nur-html]` · Exit 0 = erzeugt, 1 = Daten ungültig, 2 = Aufruf-/Druckfehler.
-- Prüfbefehl: `npm test` (node:test, keine Abhängigkeiten, kein Browser) — 10 Tests.
+- Prüfbefehl: `npm run check` = `npm run lint` (ESLint 9, empfohlene Regeln, nur Code: `*.js`, `src/`, `test/` — `data/` und HTML-Muster nie) und `npm test` (node:test, kein Browser) — 0 Lint-Befunde, 10 Tests.
+- Bekannt offen (03.11.2026): `npm audit --omit=dev` meldet 10 Lücken der Stufe high in Puppeteer 21 (u. a. `ws`, `tar-fs`); die Behebung ist der Sprung auf Puppeteer 25 mit Breaking Changes — eigene Aufgabe (Issue #28).
 - `build_cv.js`, `build_pdf.js` und die HTML-Vorlagen bleiben als ältere Fassung in der Werkstatt.

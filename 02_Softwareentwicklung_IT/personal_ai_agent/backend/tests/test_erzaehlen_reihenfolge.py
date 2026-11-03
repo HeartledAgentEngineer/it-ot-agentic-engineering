@@ -54,6 +54,39 @@ def test_neueste_zuerst_mit_jahr_und_blaettern(tmp_path, monkeypatch):
     assert _kennungen(seite2) == ["E-2", "E-1"]
 
 
+def _fotobuch_und_rest(tmp_path, monkeypatch):
+    # Fotobuch-Seiten stehen beim Laden vorne (Buchreihenfolge), die übrigen Anlässe dahinter, unsortiert.
+    buch = tmp_path / "fotobuch.jsonl"
+    _jsonl(buch, [
+        {"kennung": "B-1", "event": "Reise", "datum": "2024-05-01", "jahr": 2024, "datei_kennungen": [11]},
+        {"kennung": "B-2", "event": "Sommer", "datum": "2016-07-01", "jahr": 2016, "datei_kennungen": [12]},
+    ])
+    ereignisse = tmp_path / "ereignisse.jsonl"
+    _jsonl(ereignisse, [
+        {"kennung": "E-1", "event": "Früh", "datum": "2015-03-01", "jahr": 2015, "datei_kennungen": [1]},
+        {"kennung": "E-2", "event": "Neu", "datum": "2025-03-01", "jahr": 2025, "datei_kennungen": [2]},
+        {"kennung": "E-3", "event": "Ohne Datum", "datei_kennungen": [3]},
+        {"kennung": "E-4", "event": "Nur Jahr", "jahr": 2016, "datei_kennungen": [4]},
+    ])
+    monkeypatch.setenv("ERZAEHL_EREIGNISSE_PFAD", str(ereignisse))
+    monkeypatch.setenv("ERZAEHL_FOTOBUCH_PFAD", str(buch))
+    monkeypatch.delenv("ERZAEHL_ORDNER_EREIGNISSE_PFAD", raising=False)
+    monkeypatch.setenv("ERZAEHL_GESCHICHTEN_PFAD", str(tmp_path / "geschichten.jsonl"))
+
+
+def test_neueste_zuerst_sortiert_ueber_alle_quellen_nach_datum(tmp_path, monkeypatch):
+    # Rückmeldung 03.11.: Ein Anlass von 2024 stand bei „neueste zuerst“ an dritter Stelle,
+    # weil die Liste nur umgedreht wurde. Ohne Datum gehört ans Ende, nicht nach oben.
+    _fotobuch_und_rest(tmp_path, monkeypatch)
+    assert _kennungen(erzaehl_service.ereignisse_liste(neueste_zuerst=True)) == ["E-2", "B-1", "E-4", "B-2",
+                                                                                 "E-1", "E-3"]
+
+
+def test_aelteste_zuerst_sortiert_ueber_alle_quellen_nach_datum(tmp_path, monkeypatch):
+    _fotobuch_und_rest(tmp_path, monkeypatch)
+    assert _kennungen(erzaehl_service.ereignisse_liste()) == ["E-1", "B-2", "E-4", "B-1", "E-2", "E-3"]
+
+
 def test_router_reicht_neueste_zuerst_durch(tmp_path, monkeypatch):
     _drei_anlaesse(tmp_path, monkeypatch)
     app = FastAPI()

@@ -12,12 +12,13 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 /**
@@ -27,6 +28,10 @@ import java.util.concurrent.TimeUnit
  * HeyAgentAlltag an die App; er liegt hier in den SharedPreferences. Der stuendliche Worker
  * rechnet daraus die offenen Stunden ([AlltagErinnerungRegel]) - ohne Backend. Gespeichert wird
  * nur der Zeitpunkt des letzten Eintrags und ob geschlafen wird, nie ein Inhalt.
+ *
+ * S13: Nachts still. Der Worker liest (wenn erlaubt) im Hintergrund die Aufwachzeit aus Health
+ * Connect; gemerkt wird nur dieser Zeitpunkt. Eine Stunde nach dem Aufwachen kommt der Morgen-Text.
+ * S13b: Abends erkennt er live am Bildschirm (und Puls der Uhr), ob Sebastian schon schlaeft.
  */
 object AlltagErinnerung {
 
@@ -37,7 +42,10 @@ object AlltagErinnerung {
     private const val SPEICHER = "alltag_stand"
     private const val TAG = "HeyAgent"
 
-    /** Stand von der Seite merken und das Pop-up sofort anpassen (nach dem Eintragen weg). */
+    /**
+     * Stand von der Seite merken. Danach ruft die App [aktualisieren] im Hintergrund auf (Pop-up nach
+     * dem Eintragen weg) - nicht hier, weil die Bildschirm-Abfrage nicht in den UI-Thread gehoert.
+     */
     fun standSetzen(ctx: Context, json: String): Boolean {
         val stand = AlltagErinnerungRegel.standLesen(json) ?: return false
         ctx.getSharedPreferences(SPEICHER, Context.MODE_PRIVATE).edit()
@@ -45,7 +53,6 @@ object AlltagErinnerung {
             .putLong("letzter_ms", stand.letzterEintrag?.toEpochMilli() ?: -1L)
             .putBoolean("schlaeft", stand.schlaeft)
             .apply()
-        aktualisieren(ctx)
         return true
     }
 
@@ -57,16 +64,70 @@ object AlltagErinnerung {
         return AlltagStand(if (ms < 0) null else Instant.ofEpochMilli(ms), p.getBoolean("schlaeft", false))
     }
 
+    private fun aufwachenHolen(ctx: Context): Instant? {
+        val ms = ctx.getSharedPreferences(SPEICHER, Context.MODE_PRIVATE).getLong("aufwachen_ms", -1L)
+        return if (ms < 0) null else Instant.ofEpochMilli(ms)
+    }
+
+    /** Aufwachzeit der letzten Nacht aus den Sitzungs-Enden merken (nur dieser Zeitpunkt). */
+    fun aufwachenMerken(ctx: Context, enden: List<Instant>) {
+        val wach = AlltagErinnerungRegel.aufwachenAus(enden, Instant.now(), ZoneId.systemDefault()) ?: return
+        ctx.getSharedPreferences(SPEICHER, Context.MODE_PRIVATE).edit()
+            .putLong("aufwachen_ms", wach.toEpochMilli())
+            .apply()
+    }
+
+    /** Im Worker: Aufwachzeit aus Health Connect, nur mit Erlaubnis fuers Hintergrund-Lesen. Wirft nie. */
+    suspend fun aufwachenAusHealthConnect(ctx: Context) {
+        if (!SchlafLeser.verfuegbar(ctx)) return
+        try {
+            val leser = SchlafLeser(ctx)
+            if (!leser.darfImHintergrund()) return
+            val enden = leser.enden()
+            // Nur die Anzahl ins Log, keine Zeiten (Gesundheitsdaten).
+            Log.i(TAG, "Alltag: ${enden.size} Schlafsitzungen im Hintergrund gelesen")
+            aufwachenMerken(ctx, enden)
+        } catch (e: Exception) {
+            Log.w(TAG, "Alltag: Schlaf im Hintergrund nicht lesbar (${e.javaClass.simpleName})")
+        }
+    }
+
+    /** S13b: Durchschnittspuls der letzten halben Stunde aus Health Connect, nur mit Erlaubnis. Wirft nie. */
+    suspend fun pulsAusHealthConnect(ctx: Context): Double? {
+        if (!SchlafLeser.verfuegbar(ctx)) return null
+        return try {
+            val leser = SchlafLeser(ctx)
+            if (!leser.darfPulsImHintergrund()) return null
+            val proben = leser.pulsProben()
+            // Nur die Anzahl ins Log, keine Werte (Gesundheitsdaten).
+            Log.i(TAG, "Alltag: ${proben.size} Pulswerte im Hintergrund gelesen")
+            AlltagErinnerungRegel.pulsSchnitt(proben, Instant.now())
+        } catch (e: Exception) {
+            Log.w(TAG, "Alltag: Puls im Hintergrund nicht lesbar (${e.javaClass.simpleName})")
+            null
+        }
+    }
+
     fun darfBenachrichtigen(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
-    /** Pop-up zeigen, aktualisieren oder entfernen - je nach offenen Stunden. */
-    fun aktualisieren(ctx: Context) {
+    /**
+     * Pop-up zeigen, aktualisieren oder entfernen - je nach offenen Stunden. S13b: Schlaeft Sebastian
+     * laut Bildschirm (und [puls], vom Worker), bleibt es still; nur dieser Moment zaehlt, nichts wird gemerkt.
+     */
+    fun aktualisieren(ctx: Context, puls: Double? = null) {
         val manager = NotificationManagerCompat.from(ctx)
         val stand = standHolen(ctx)
-        val stunden = if (stand == null) 0 else AlltagErinnerungRegel.offeneStunden(stand, Instant.now())
+        val jetzt = Instant.now()
+        val zone = ZoneId.systemDefault()
+        val erinnerung = if (stand == null) Erinnerung(0, false) else {
+            val ausSeit = AlltagErinnerungRegel.ausSeit(BildschirmLeser.wechsel(ctx, jetzt), jetzt)
+            val schlaf = AlltagErinnerungRegel.eingeschlafen(ausSeit, puls, jetzt, zone)
+            AlltagErinnerungRegel.erinnerung(stand, aufwachenHolen(ctx), jetzt, zone, eingeschlafen = schlaf)
+        }
+        val stunden = erinnerung.stunden
         if (stunden < 1) {
             manager.cancel(BENACHRICHTIGUNG_ID)
             return
@@ -85,10 +146,12 @@ object AlltagErinnerung {
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(ctx.getString(R.string.app_name))
             .build()
+        val text = AlltagErinnerungRegel.text(stunden, erinnerung.nachDemAufwachen)
         val meldung = NotificationCompat.Builder(ctx, KANAL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(ctx.getString(R.string.alltag_titel))
-            .setContentText(AlltagErinnerungRegel.text(stunden))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(oeffnen)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -119,10 +182,12 @@ object AlltagErinnerung {
     }
 }
 
-/** Stuendlicher Lauf ohne Netz und ohne Backend: nur gespeicherten Stand auswerten. */
-class AlltagErinnerungWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params) {
-    override fun doWork(): Result {
-        AlltagErinnerung.aktualisieren(applicationContext)
+/** Stuendlicher Lauf ohne Netz und ohne Backend: Aufwachzeit holen (S13), gespeicherten Stand auswerten. */
+class AlltagErinnerungWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): Result {
+        AlltagErinnerung.aufwachenAusHealthConnect(applicationContext)
+        val puls = AlltagErinnerung.pulsAusHealthConnect(applicationContext)
+        AlltagErinnerung.aktualisieren(applicationContext, puls)
         return Result.success()
     }
 }

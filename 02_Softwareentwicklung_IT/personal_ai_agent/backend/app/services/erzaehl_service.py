@@ -238,13 +238,16 @@ def ordner_ereignisse_pfad() -> str:
     return os.path.join(os.path.dirname(ereignisse_pfad()), ORDNER_EREIGNISSE_DATEINAME)
 
 
+OHNE_DATUM = "9999"
+
+
 def _zeitschluessel(ereignis: Dict[str, Any]) -> str:
     """Chronologischer Schlüssel: Datum; nur Jahr -> ans Ende des Jahres; nichts -> ganz ans Ende."""
     datum = ereignis.get("datum")
     if isinstance(datum, str) and datum.strip():
         return datum.strip()
     jahr = _als_zahl(ereignis.get("jahr"))
-    return f"{jahr:04d}-99" if jahr is not None and jahr >= 0 else "9999"
+    return f"{jahr:04d}-99" if jahr is not None and jahr >= 0 else OHNE_DATUM
 
 
 def _ereignisse_laden() -> Tuple[List[Dict[str, Any]], int]:
@@ -636,8 +639,9 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
 
     Liefert ``{"eintraege": [...], "gesamt": n, "defekte_zeilen": n}``. Jeder
     Eintrag trägt ``kennung, datum, jahr, titel, kategorie, anzahl_dateien,
-    vorschau_kennungen (erste 4), anzahl_geschichten``. ``neueste_zuerst`` dreht
-    die gewohnte Reihenfolge um, bevor geblättert wird (F1, 03.11.2026). **Wirft nie.**
+    vorschau_kennungen (erste 4), anzahl_geschichten``. Sortiert wird nach Datum über
+    alle Quellen, ``neueste_zuerst`` absteigend (F1); Anlässe ohne Datum und Jahr
+    stehen in beiden Richtungen am Ende (03.11.2026). Danach wird geblättert. **Wirft nie.**
     """
     ereignisse, defekt = _ereignisse_laden()
 
@@ -659,7 +663,7 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
         if isinstance(ek, str) and ek:
             geschichten_je_ereignis[ek] = geschichten_je_ereignis.get(ek, 0) + 1
 
-    treffer: List[Dict[str, Any]] = []
+    treffer: List[Tuple[str, Dict[str, Any]]] = []
     for ereignis in ereignisse:
         kennung = ereignis.get("kennung")
         if not isinstance(kennung, str) or not kennung.strip():
@@ -681,7 +685,7 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
                 and suche_wert not in _normalisieren(automatisch):
             continue
 
-        treffer.append({
+        treffer.append((_zeitschluessel(ereignis), {
             "kennung": kennung,
             "datum": ereignis.get("datum") if isinstance(ereignis.get("datum"), str) else None,
             "jahr": _als_zahl(ereignis.get("jahr")),
@@ -692,12 +696,14 @@ def ereignisse_liste(jahr: Any = None, suche: Any = None, min_bilder: Any = 1,
             "anzahl_dateien": anzahl_dateien,
             "vorschau_kennungen": dateien[:4],
             "anzahl_geschichten": geschichten_je_ereignis.get(kennung, 0),
-        })
+        }))
 
-    if neueste_zuerst is True:
-        treffer.reverse()
-    gesamt = len(treffer)
-    seite = treffer[versatz:versatz + grenze]
+    # Stabil sortiert: bei gleichem Datum bleibt die Reihenfolge der Quellen (auch absteigend).
+    datiert = sorted((p for p in treffer if p[0] != OHNE_DATUM), key=lambda p: p[0],
+                     reverse=neueste_zuerst is True)
+    reihe = [t for _, t in datiert] + [t for z, t in treffer if z == OHNE_DATUM]
+    gesamt = len(reihe)
+    seite = reihe[versatz:versatz + grenze]
     return {"eintraege": seite, "gesamt": gesamt, "defekte_zeilen": defekt}
 
 
