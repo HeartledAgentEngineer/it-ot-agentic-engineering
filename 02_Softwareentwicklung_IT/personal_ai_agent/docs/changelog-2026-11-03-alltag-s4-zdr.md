@@ -30,6 +30,12 @@ Der Hauptchat bleibt unverändert: Dort entscheidet der Schalter `no_retention` 
   `provider.data_collection`. Das dokumentierte Beispiel ist aber ein JSON-Body mit `input_audio`.
   Der Code sendet über das OpenAI-SDK multipart (`file=`). Ob das Feld dort ankommt, ist
   ungeprüft. Ohne echten Test mit Audio wird das Diktat nicht umgebaut.
+  **Offline-Probe (Schein-Transport, kein Netz):** Mit `extra_body` schickt das SDK das Feld als
+  Formularfeld `provider[data_collection]`. Ob OpenRouter diese Klammer-Schreibweise auswertet,
+  ignoriert oder ablehnt, ist offen. Bei Ablehnung bräche das Diktat.
+  **Sicherer Weg ohne Code:** In den OpenRouter-Datenschutzeinstellungen des Kontos „data
+  collection: deny“ als Standard setzen. Das gilt für jeden Aufruf, auch für die Spracherkennung.
+  Das muss Sebastian im Konto tun.
 
 ## Nachtrag (Hermes, Runde 1, Einwand 2): kein Diktattext mehr im Log
 
