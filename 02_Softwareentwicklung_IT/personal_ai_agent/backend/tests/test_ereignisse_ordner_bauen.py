@@ -263,13 +263,15 @@ def test_diashow_fuehrt_ordner_anlaesse_chronologisch_zusammen(tmp_path, monkeyp
     monkeypatch.delenv("ERZAEHL_ORDNER_EREIGNISSE_PFAD", raising=False)
     monkeypatch.setenv("ERZAEHL_GESCHICHTEN_PFAD", str(tmp_path / "geschichten.jsonl"))
     liste = erzaehl_service.ereignisse_liste()
-    assert [e["kennung"] for e in liste["eintraege"]] == ["fotobuch-1", "O-30", "E-1", "O-40", "O-50", "E-2"]
+    # Seit 03.11.2026: Anlässe ohne Datum und Jahr (hier die Fotobuch-Seite) stehen am Ende.
+    assert [e["kennung"] for e in liste["eintraege"]] == ["O-30", "E-1", "O-40", "O-50", "E-2", "fotobuch-1"]
     assert liste["defekte_zeilen"] == 1
     assert erzaehl_service.ereignis_detail("O-30")["datei_kennungen"] == [30, 31]
     assert [e["kennung"] for e in erzaehl_service.ereignisse_liste(jahr=2015)["eintraege"]] == ["E-1", "O-40"]
 
 
-def test_ohne_ordner_datei_bleibt_die_reihenfolge_unveraendert(tmp_path, monkeypatch):
+def test_ohne_ordner_datei_wird_trotzdem_nach_datum_sortiert(tmp_path, monkeypatch):
+    # Seit 03.11.2026 sortiert die Liste selbst; die Reihenfolge in der Datei zählt nicht mehr.
     ereignisse = tmp_path / "ereignisse.jsonl"
     _jsonl(ereignisse, [
         {"kennung": "E-2", "event": "b", "datum": "2019-03-01", "datei_kennungen": [2]},
@@ -279,7 +281,7 @@ def test_ohne_ordner_datei_bleibt_die_reihenfolge_unveraendert(tmp_path, monkeyp
     monkeypatch.delenv("ERZAEHL_FOTOBUCH_PFAD", raising=False)
     monkeypatch.delenv("ERZAEHL_ORDNER_EREIGNISSE_PFAD", raising=False)
     monkeypatch.setenv("ERZAEHL_GESCHICHTEN_PFAD", str(tmp_path / "geschichten.jsonl"))
-    assert [e["kennung"] for e in erzaehl_service.ereignisse_liste()["eintraege"]] == ["E-2", "E-1"]
+    assert [e["kennung"] for e in erzaehl_service.ereignisse_liste()["eintraege"]] == ["E-1", "E-2"]
     assert erzaehl_service.ereignisse_existiert()
 
 
