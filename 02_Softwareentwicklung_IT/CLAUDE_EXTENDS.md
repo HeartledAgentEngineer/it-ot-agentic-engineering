@@ -42,7 +42,7 @@ Pfade sind relativ zum Projektverzeichnis.
 
 | Projekt | Prüfbefehl (aus dem Projektverzeichnis) | Stand |
 |---|---|---|
-| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **3142 grün, 1 skipped**, Exit 0 (29.09.2026) |
+| `personal_ai_agent` | `backend/.venv/Scripts/python.exe -m pytest tests/ -q` | **6464 grün, 3 skipped**, Exit 0 (03.11.2026); Alltag-Reihe S1–S14 vollständig |
 | `concertify` | `.venv/Scripts/python.exe -m pytest tests -q` | **180 grün**, Exit 0 (15.09.2026) |
 | `master-schalter` | `.venv/Scripts/python.exe -m pytest -q` | **37 grün**, Exit 0 (14.10.2026) |
 | `typeFREE` | `PYTHONPATH=. py -3.12 -m pytest windows/tests -q` | **656 grün**, Exit 0 (03.11.2026); läuft auch in GitHub Actions (`.github/workflows/typefree.yml`) |
@@ -68,6 +68,18 @@ kein Projektfehler, sondern ein Aufruf-Fehler.
   als keiner.
 * Der Prüfbefehl muss **reproduzierbar** sein: mit dem Projekt-venv, aus dem
   Projektverzeichnis, ohne manuelle Vorbereitung.
+* **Frischer Arbeitsbaum, rote Zeilenenden-Prüfungen (belegt 03.11.2026):** Die
+  Repo-Konfiguration hat `core.autocrlf=true`. Ein neu angelegter Arbeitsbaum
+  (`git worktree add`) checkt dadurch Textdateien mit CRLF aus, obwohl im Index
+  LF liegt — die Prüfungen „reine LF verlangt" werden dort rot, obwohl der Code
+  in Ordnung ist, und `git status` meldet zusätzlich Dateien als geändert, die
+  unverändert sind. Arbeitsbaum auf Index-Stand bringen (Wirkung: `git status`
+  danach leer):
+  `git -c core.autocrlf=false ls-files -z | xargs -0 git -c core.autocrlf=false checkout --`
+  Einzelne Datei geht auch: erst löschen, dann
+  `git -c core.autocrlf=false checkout -- <pfad>`. Dauerhaft sauber wird es mit
+  einer `.gitattributes` (LF für Shell-Quellen, CRLF für `.bat/.cmd/.ps1`) —
+  inhaltlich Issue #8.
 
 Prüfläufe gehören an den Subagenten `tester`, damit die Logs nicht im
 Hauptkontext landen.
