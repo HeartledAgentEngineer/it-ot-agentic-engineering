@@ -121,13 +121,13 @@ if [ -d "$PROTO_DATEN" ]; then
     python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
         --quelle "$QUELLE_DATEN" \
         --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv life_archive.db \
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_beschreibungen_reich.jsonl bild_beschreibungen_papa_reich.jsonl bild_beschreibungen_rest_reich.jsonl bild_beschreibungen_altbestand_reich.jsonl bild_orte.csv life_archive.db \
         --protokoll "$PROTO_DATEN/uebergabe_letzte.txt" || true
 else
     python "$PROJEKT/tools/handy/uebergabe_uebernehmen.py" \
         --quelle "$QUELLE_DATEN" \
         --ziel "$HOME/foto_sortierung" \
-        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_orte.csv life_archive.db || true
+        --dateien fotos_dateien.json fotos_uebersicht.json ereignisse.jsonl beziehungen.jsonl beziehungen.json personen_beispiele.json gesicht_zuordnung.jsonl kontakte.json fotobuch_ereignisse.jsonl ordner_ereignisse.jsonl bild_beschreibungen.jsonl bild_beschreibungen_reich.jsonl bild_beschreibungen_papa_reich.jsonl bild_beschreibungen_rest_reich.jsonl bild_beschreibungen_altbestand_reich.jsonl bild_orte.csv life_archive.db || true
 fi
 
 # ── 5b. Rueckweg: eigene Dateien vom Handy fuer den PC bereitstellen ────────

@@ -731,6 +731,14 @@ def ereignis_detail(kennung: str) -> Optional[Dict[str, Any]]:
 # der erst bei geänderter Datei (Zeit/Größe) neu liest.
 
 BESCHREIBUNGEN_DATEINAME = "bild_beschreibungen.jsonl"
+# Reiche KI-Beschreibungen der Werkzeuge (Fotobuch u. a. stehen NUR hier); das Handy
+# muss sie mit übernehmen (03.11.2026: Fotobuch 0 von 842 beschrieben am Handy).
+REICHE_BESCHREIBUNGEN_DATEINAMEN = (
+    "bild_beschreibungen_reich.jsonl",
+    "bild_beschreibungen_papa_reich.jsonl",
+    "bild_beschreibungen_rest_reich.jsonl",
+    "bild_beschreibungen_altbestand_reich.jsonl",
+)
 BILD_ORTE_DATEINAME = "bild_orte.csv"
 BESCHREIBUNG_MAX_LAENGE = 600
 
@@ -827,13 +835,8 @@ def _beschreibungen_lesen(pfad: str) -> Dict[int, Tuple[str, str]]:
 def beschreibungen_alle_pfade() -> List[str]:
     """Liefert alle vorhandenen Beschreibungsdateien (JSONL) im Foto-Ordner."""
     ordner = os.path.dirname(ereignisse_pfad())
-    kandidaten = [
-        beschreibungen_pfad(),
-        os.path.join(ordner, "bild_beschreibungen_reich.jsonl"),
-        os.path.join(ordner, "bild_beschreibungen_papa_reich.jsonl"),
-        os.path.join(ordner, "bild_beschreibungen_rest_reich.jsonl"),
-        os.path.join(ordner, "bild_beschreibungen_altbestand_reich.jsonl"),
-    ]
+    kandidaten = [beschreibungen_pfad()] + [
+        os.path.join(ordner, name) for name in REICHE_BESCHREIBUNGEN_DATEINAMEN]
     pfade: List[str] = []
     for p in kandidaten:
         if os.path.isfile(p) and p not in pfade:

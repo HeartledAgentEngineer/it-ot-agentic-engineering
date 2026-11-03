@@ -726,13 +726,15 @@ def _erwartete_dateinamen() -> set:
         dienst_erzaehlung.ORDNER_EREIGNISSE_DATEINAME, # ordner_ereignisse.jsonl (07.10., Issue #4 A1)
         dienst_erzaehlung.BESCHREIBUNGEN_DATEINAME,    # bild_beschreibungen.jsonl (07.10., Was und wo)
         dienst_erzaehlung.BILD_ORTE_DATEINAME,         # bild_orte.csv (07.10., Was und wo)
+        # vier *_reich.jsonl (03.11.: fehlten -> Fotobuch am Handy ohne Beschreibung)
+        *dienst_erzaehlung.REICHE_BESCHREIBUNGEN_DATEINAMEN,
     }
 
 
 def test_waechter_erwartete_namen_deckt_alle_gelesenen_datendateien():
-    """Der Waechter kennt genau die zwoelf Dateien, die die Dienste lesen."""
+    """Der Waechter kennt genau die sechzehn Dateien, die die Dienste lesen."""
     namen = _erwartete_dateinamen()
-    assert len(namen) == 12, f"unerwartete Namensmenge: {sorted(namen)}"
+    assert len(namen) == 16, f"unerwartete Namensmenge: {sorted(namen)}"
     for alt in (dienst_bilder.DATEIEN_DATEINAME,
                 dienst_foto_uebersicht.UEBERSICHT_DATEINAME):
         assert alt in namen, f"vorbestehende Datei fehlt im Waechter: {alt}"
