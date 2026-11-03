@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 FRONTEND_DATEIEN = frozenset({
     "index.html", "hermes_status.html", "hermes_status.js",
     "anmelden.js", "app.js", "bild_beschreibung.js", "erzaehlen.js", "gruppen_quiz.js", "pcm-recorder.js", "sw.js",
+    "schlaf.js",
     "style.css", "manifest.json", "icon-192.png", "icon-512.png",
 })
 

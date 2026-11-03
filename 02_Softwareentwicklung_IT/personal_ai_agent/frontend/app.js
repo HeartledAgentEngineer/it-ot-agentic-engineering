@@ -11095,6 +11095,7 @@ function zeigeSelbsttest(klartext) {
 /** Holt GET /api/selbsttest und zeigt ihn als Klartext. Nur auf Knopfdruck/beim Öffnen. */
 async function ladeSelbsttest() {
     ladeTageslauf();
+    if (typeof ladeSchlaf === 'function') ladeSchlaf();   // schlaf.js (03.11.2026)
     if (!dom.selbsttestText) return;
     dom.selbsttestText.textContent = 'Prüfe …';
     if (dom.selbsttestHint) {

@@ -44,6 +44,7 @@ ZUORDNUNG = {
     "test_gruppen_zeitgrenze.js": "gruppen_quiz.js",
     "test_wecken.js": "wecken.js",
     "test_sw_schluessel.js": "sw.js",
+    "test_schlaf.js": "schlaf.js",
 }
 STANDARD = "app.js"
 

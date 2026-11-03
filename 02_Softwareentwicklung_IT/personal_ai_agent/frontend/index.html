@@ -336,6 +336,17 @@
                     <p id="tageslauf-status" class="sheet-note" role="status"
                        aria-live="polite" hidden></p>
                 </section>
+                <!-- Schlaf von der Uhr (03.11.2026, Issue #12): Hey Agent liest Health Connect,
+                     schlaf.js schickt die Naechte an POST /api/alltag/schlaf. Laedt beim Oeffnen
+                     des Fensters, KEIN Polling. -->
+                <section id="schlaf-block" class="tageslauf-block" aria-label="Schlaf von der Uhr">
+                    <div class="tageslauf-kopf">
+                        <span id="schlaf-stand">Schlaf (Uhr) wird geladen …</span>
+                    </div>
+                    <pre id="schlaf-text" class="tageslauf-text" tabindex="0"></pre>
+                    <button id="schlaf-abgleichen" type="button">Mit der Uhr abgleichen</button>
+                    <p id="schlaf-status" class="sheet-note" role="status" aria-live="polite" hidden></p>
+                </section>
                 <pre id="selbsttest-text" class="selbsttest-text">Prüfe …</pre>
             </div>
             <p id="selbsttest-hint" class="sheet-note"></p>
@@ -813,8 +824,9 @@
 
     <script src="anmelden.js?v=20261014B"></script>
     <script src="bild_beschreibung.js?v=20261102B"></script>
-    <script src="app.js?v=20261102G"></script>
+    <script src="app.js?v=20261103B"></script>
     <script src="erzaehlen.js?v=20261103A"></script>
+    <script src="schlaf.js?v=20261103A"></script>
     <script src="gruppen_quiz.js?v=20261101G"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
