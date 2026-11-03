@@ -96,6 +96,17 @@ def test_korrigieren_und_loeschen(client):
     assert tag["eintraege"] == []
 
 
+def test_korrigieren_nimmt_nur_grundgefuehle(client):
+    # S9 / Hermes-Hinweis: auch PATCH speichert nur die sechs Grundgefühle nach Ekman.
+    alt = _stunde("2026-11-03T09:00:00+01:00", "2026-11-03T10:00:00+01:00", stimmung=2)
+    r = client.patch(f"/api/alltag/eintrag/{alt['id']}",
+                     json={"gefuehle": ["wut", "Ruhe", "Angst", "Angst"], "vorherrschend": "Neid"})
+    neu = r.json()["eintrag"]
+    assert neu["gefuehle"] == ["Ärger", "Angst"] and neu["vorherrschend"] is None
+    r = client.patch(f"/api/alltag/eintrag/{neu['id']}", json={"gefuehle": "Freude"})   # Text statt Liste
+    assert r.json()["eintrag"]["gefuehle"] == []
+
+
 def test_unbekannter_eintrag_ist_404(client):
     assert client.patch("/api/alltag/eintrag/gibtsnicht", json={"stimmung": 1}).status_code == 404
     assert client.delete("/api/alltag/eintrag/gibtsnicht").status_code == 404

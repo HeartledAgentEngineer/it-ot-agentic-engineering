@@ -53,3 +53,16 @@ Baut auf S8 auf. Sebastians Wünsche vom 03.11.:
   - Feld-Diktat mit nachgebautem Mikrofon geprüft: Der Text wird angehängt, es entsteht kein Eintrag, und das Mikrofon wird freigegeben.
   - Ein Diktat ins Textfeld überlebt „Überspringen".
 - Cache-Bump `style.css` und `alltag.js` auf `?v=20261103D`.
+- Volle Suite auf `56f16d9`: 6431 grün, 3 übersprungen.
+
+## Nachtrag nach Hermes (Runde 1: FREI, ein Hinweis)
+
+- Hinweis von Hermes: `PATCH /api/alltag/eintrag/{id}` prüfte Gefühle nicht serverseitig. Über die
+  Oberfläche war das nicht erreichbar, ein direkter Aufruf hätte aber jedes Wort speichern können.
+- Jetzt läuft jede Korrektur durch `alltag_struktur.gefuehle_pruefen`, mit denselben Regeln wie die
+  Modellantwort:
+  - Synonyme werden abgebildet.
+  - Doppelte und unbekannte Wörter fallen weg.
+  - Text statt Liste ergibt eine leere Liste.
+  - Ein unbekanntes `vorherrschend` wird `null`.
+- Neuer Test `test_korrigieren_nimmt_nur_grundgefuehle` (vorher rot).

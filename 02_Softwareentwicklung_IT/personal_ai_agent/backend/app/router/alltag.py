@@ -173,7 +173,7 @@ async def eintrag_korrigieren(kennung: str, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Die Anfrage ist kein JSON.")
     if not isinstance(felder, dict):
         raise HTTPException(status_code=400, detail="Erwartet wird ein Objekt mit Feldern.")
-    erg = alltag_speicher.korrigieren(kennung, felder)
+    erg = alltag_speicher.korrigieren(kennung, alltag_struktur.gefuehle_pruefen(felder))
     if not erg.get("ok"):
         raise HTTPException(status_code=404 if "nicht gefunden" in (erg.get("fehler") or "") else 400,
                             detail=erg.get("fehler") or "Nicht korrigiert.")

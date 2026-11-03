@@ -130,6 +130,16 @@ def _gefuehle(liste: Any, vorherrschend: Optional[str]) -> List[str]:
     return worte[:MAX_GEFUEHLE]
 
 
+def gefuehle_pruefen(felder: Dict[str, Any]) -> Dict[str, Any]:
+    """Für Korrekturen (PATCH): ``gefuehle``/``vorherrschend`` nur aus ``GRUNDGEFUEHLE``."""
+    erg = dict(felder)
+    if "vorherrschend" in erg:
+        erg["vorherrschend"] = _gefuehl(erg["vorherrschend"])
+    if "gefuehle" in erg:
+        erg["gefuehle"] = _gefuehle(erg["gefuehle"], None)
+    return erg
+
+
 def _uhrzeit(wert: Any, jetzt: datetime) -> Optional[datetime]:
     """``"HH:MM"`` → der letzte solche Zeitpunkt bis ``jetzt`` (später als jetzt = gestern)."""
     treffer = _UHRZEIT.match(wert) if isinstance(wert, str) else None
