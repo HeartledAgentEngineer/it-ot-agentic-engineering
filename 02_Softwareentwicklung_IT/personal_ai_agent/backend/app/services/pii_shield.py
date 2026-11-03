@@ -34,15 +34,34 @@ RE_TOKEN = re.compile(r"\[([A-Z]+)_(\d+)\]")
 _UMSCHRIFT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
 
 
+# Namenszusaetze sind keine Namen: "von der Heide" darf nicht jedes "der" im Text maskieren
+# (Hermes-Einwand S8, 03.11.2026).
+NAMENSZUSAETZE = frozenset({"von", "van", "vom", "der", "den", "die", "das", "dem", "del", "della",
+                            "zu", "zum", "zur", "und", "ten", "ter", "de", "da", "di", "du", "la", "le"})
+
+
 def _umschrift(wort: str) -> str:
     return wort.translate(_UMSCHRIFT)
+
+
+def _namensteile(name: str) -> List[str]:
+    """Teile ab 3 Zeichen, getrennt an Leerzeichen UND Bindestrich ("Anna-Lena Meier" ->
+    Anna-Lena, Anna, Lena, Meier) - ohne Namenszusaetze und ohne den ganzen Namen."""
+    teile: List[str] = []
+    for wort in name.split():
+        for t in [wort] + (wort.split("-") if "-" in wort else []):
+            t = t.strip("-")
+            if len(t) >= 3 and t != name and t.lower() not in NAMENSZUSAETZE and t not in teile:
+                teile.append(t)
+    return teile
 
 
 def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShield":
     """Schild fuer eine Namensliste in Originalschreibweise (03.11.2026).
 
-    Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname),
-    dazu die Umschrift (Jürgen -> Juergen; Hermes-Einwand #19). Maskiert wird ohne
+    Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname;
+    getrennt an Leerzeichen und Bindestrich, ohne Namenszusaetze wie "von"/"der"), dazu die
+    Umschrift (Jürgen -> Juergen; Hermes-Einwand #19). Maskiert wird ohne
     Ruecksicht auf Gross-/Kleinschreibung; zurueck kommt jedes Kuerzel in der Schreibweise,
     in der es in ``text`` stand.
     """
@@ -50,7 +69,7 @@ def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShie
     for name in namen or []:
         name = (name or "").strip() if isinstance(name, str) else ""
         if name:
-            teile = [t for t in name.split() if len(t) >= 3 and t != name]
+            teile = _namensteile(name)
             umschrift = [u for u in (_umschrift(f) for f in [name] + teile) if u not in [name] + teile]
             schild.register_person(name, aliases=teile + umschrift)
     for klar, kuerzel in list(schild.plain_to_token.items()):

@@ -38,9 +38,22 @@ Der Chat maskiert sie nicht. Deshalb gilt im Werkzeug selbst:
 ## Prüfung
 
 - Neue Tests, vorher rot (Modul fehlte):
-  - `test_alltag_auswertung.py` (13)
+  - `test_alltag_auswertung.py` (14, mit Nachtrag)
   - `test_werkzeug_alltag.py` (7)
 - Die Werkzeugzahl in `test_werkzeuge.py` und `test_daten_aendern_werkzeuge.py` steigt auf 17.
 - `test_werkzeug_schlaf.py` ist unverändert grün.
 - Nachtrag: `test_kaputte_eintraege_brechen_nichts`, vorher rot. Kamen Gefühle als Text statt
   als Liste, wurden sie Buchstabe für Buchstabe ausgegeben. Jetzt zählen nur Listen.
+
+## Nachtrag nach Hermes (Runde 1: EINWAND)
+
+`pii_shield.schild_aus_namen` trennte Namensteile nur an Leerzeichen. Daraus folgten zwei
+Fehler, die auch die Glättung (#19) und die Struktur (S3) betreffen:
+
+- **Bindestrich-Namen:** „Anna-Lena Meier" ergab keinen Teil „Anna". Ein allein genannter
+  Vorname ging so unmaskiert hinaus. Jetzt wird zusätzlich am Bindestrich getrennt.
+- **Namenszusätze:** „von der Heide" machte „von" und „der" zu Namen, und jedes „der" im Text
+  wurde maskiert. Zusätze wie von, der, zu oder van sind jetzt ausgenommen (`NAMENSZUSAETZE`).
+- Auf diesem PC betrifft das 9 der 742 Namen (Bindestrich) und 2 (Zusatz). Gezählt wurde nur,
+  kein Name wurde ausgegeben.
+- Neue Datei `test_schild_namensteile.py` (5 Tests, vorher 3 rot).
