@@ -2084,16 +2084,15 @@ class LLMService:
 
         # PII-Shield initialisieren und Prompt maskieren
         if shield is None:
+            # 03.11.2026: Namen in Originalschreibweise samt Namensteilen — vorher nur volle
+            # Namen in Umschrift („juergen"), „Jürgen" ging so im Klartext raus.
             try:
-                from app.services.pii_shield import PIIShield
-                shield = PIIShield()
-                from app.services.werkzeuge import bekannte_namen_streng
-                bestand = bekannte_namen_streng()
-                if bestand and getattr(bestand, 'volle', None):
-                    for folge in bestand.volle:
-                        shield.register_person(" ".join(folge))
+                from app.services.pii_shield import schild_aus_namen
+                from app.services.werkzeuge import namen_fuer_maskierung
+                shield = schild_aus_namen(namen_fuer_maskierung(), raw_text)
             except Exception:
-                pass
+                logger.warning("Glättung: Namensschild nicht gebaut")
+                shield = None
 
         geschuetzter_text = shield.encode(raw_text) if shield is not None else raw_text
 

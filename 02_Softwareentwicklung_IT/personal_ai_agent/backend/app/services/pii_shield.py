@@ -31,6 +31,25 @@ RE_EMAIL = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 RE_TOKEN = re.compile(r"\[([A-Z]+)_(\d+)\]")
 
 
+def schild_aus_namen(namen: Optional[Iterable[str]], text: str = "") -> "PIIShield":
+    """Schild fuer eine Namensliste in Originalschreibweise (03.11.2026).
+
+    Registriert jeden Namen samt Namensteilen ab 3 Zeichen (oft faellt nur der Vorname).
+    Maskiert wird ohne Ruecksicht auf Gross-/Kleinschreibung; zurueck kommt jedes Kuerzel
+    in der Schreibweise, in der es in ``text`` stand.
+    """
+    schild = PIIShield()
+    for name in namen or []:
+        name = (name or "").strip() if isinstance(name, str) else ""
+        if name:
+            schild.register_person(name, aliases=[t for t in name.split() if len(t) >= 3 and t != name])
+    for klar, kuerzel in list(schild.plain_to_token.items()):
+        treffer = re.search(rf"\b{re.escape(klar)}\b", text or "", flags=re.IGNORECASE)
+        if treffer:
+            schild.token_to_plain[kuerzel] = treffer.group(0)
+    return schild
+
+
 class PIIShield:
     """Verwaltet deterministische PII-Maskierung und Stream-Rueckentschluesselung."""
 

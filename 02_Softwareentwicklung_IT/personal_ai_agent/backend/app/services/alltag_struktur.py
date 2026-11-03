@@ -28,7 +28,7 @@ from app.services import alltag_rechnen
 from app.services.alltag_speicher import SCHLAF_EREIGNISSE
 from app.services.modell_router import MODELL_FLASH
 from app.services.openrouter_client import OpenRouterZDRClient
-from app.services.pii_shield import PIIShield
+from app.services.pii_shield import PIIShield, schild_aus_namen
 
 logger = logging.getLogger(__name__)
 
@@ -89,21 +89,8 @@ def baue_nachricht(text: str, jetzt: datetime) -> str:
 
 
 def baue_schild(namen: Optional[List[str]], text: str = "") -> PIIShield:
-    """Namen samt Teilen ab 3 Zeichen registrieren (Muster ``geschichte_erzaehlen_ki``).
-
-    Der Schild maskiert ohne Rücksicht auf Groß-/Kleinschreibung; zurück kommt jedes Kürzel
-    in der Schreibweise, in der es im Satz stand.
-    """
-    schild = PIIShield()
-    for name in namen or []:
-        name = (name or "").strip()
-        if name:
-            schild.register_person(name, aliases=[t for t in name.split() if len(t) >= 3 and t != name])
-    for klar, kuerzel in list(schild.plain_to_token.items()):
-        treffer = re.search(rf"\b{re.escape(klar)}\b", text, flags=re.IGNORECASE)
-        if treffer:
-            schild.token_to_plain[kuerzel] = treffer.group(0)
-    return schild
+    """Namen samt Teilen ab 3 Zeichen; zurück in der Schreibweise des Satzes (``schild_aus_namen``)."""
+    return schild_aus_namen(namen, text)
 
 
 # ── Prüfen ─────────────────────────────────────────────────────────────────
