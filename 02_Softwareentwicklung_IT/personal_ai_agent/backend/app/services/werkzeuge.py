@@ -882,6 +882,33 @@ def _schlaf_abfragen(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(_kuerzen(alltag_rechnen.schlaf_text(naechte)))
 
 
+def _alltag_abfragen(args: Dict[str, Any]) -> Ergebnis:
+    """Stundeneinträge des Alltagsprotokolls (S8, 03.11.2026) — ein Tag oder ein Zeitraum.
+
+    Namen in Freitexten werden vorher zu „[Name]“; ohne lesbare Namensliste fehlen die
+    Freitexte ganz. Die eigenen Originalworte gehen nie ans Modell (``alltag_auswertung``).
+    """
+    from datetime import date, timedelta
+
+    from app.services import alltag_auswertung, alltag_speicher
+
+    roh = str(args.get("datum") or "").strip()
+    if roh:
+        tag = _tag_lesen(roh)
+        if not tag:
+            return Ergebnis(f"„{roh}“ ist kein gültiges Datum (heute, gestern oder JJJJ-MM-TT).", ok=False)
+        von = bis = tag
+    else:
+        tage = _ganzzahl(args.get("tage"), 7, 1, 90)
+        bis = date.today().isoformat()
+        von = (date.today() - timedelta(days=tage - 1)).isoformat()
+    stunden = alltag_speicher.eintraege(art="stunde", von=von, bis=bis)
+    naechte = alltag_speicher.eintraege(art="schlafnacht", von=von, bis=bis)
+    schwaerzen = alltag_auswertung.schwaerzer(namen_fuer_maskierung())
+    return Ergebnis(_kuerzen(alltag_auswertung.protokoll_text(stunden, naechte, schwaerzen,
+                                                               einzeln=von == bis)))
+
+
 # ── Register ───────────────────────────────────────────────────────────────
 
 def _obj(eigenschaften: Dict[str, Any], pflicht: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -1085,6 +1112,25 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         _schlaf_abfragen,
         "😴 sieht im Schlafprotokoll nach …",
     ),
+    Werkzeug(
+        "alltag_abfragen",
+        "Sebastians Alltagsprotokoll (Therapie): je Stunde Tätigkeit, Stimmung (1–5), Anspannung "
+        "(0–100) und Gefühle. Ein Tag: alle Einträge plus die Nacht davor. Zeitraum: je Tag der "
+        "Schnitt, ein Vergleich von Stimmung/Anspannung nach kürzeren und längeren Nächten, nach "
+        "mehr oder weniger Tiefschlaf und nach Nächten mit/ohne Aufwachen, dazu Stimmung je "
+        "Tageszeit (morgens, nachmittags, abends, nachts) und je Wochentag sowie die Gefühle nach "
+        "kürzeren und längeren Nächten. Für 'wie war meine Stimmung gestern', "
+        "'was habe ich heute gemacht', 'wie angespannt war ich diese Woche', 'hängt meine Stimmung "
+        "am Schlaf', 'wann am Tag geht es mir am besten', 'an welchem Wochentag geht es mir besser', "
+        "'bin ich nach wenig Schlaf öfter gereizt'. [Name] steht für eine Person. Beschreiben, "
+        "nicht bewerten; keine Diagnosen.",
+        _obj({
+            "datum": {"type": "string", "description": "ein Tag: heute, gestern, JJJJ-MM-TT"},
+            "tage": {"type": "integer", "minimum": 1, "maximum": 90, "description": "Zeitraum: die letzten N Tage"},
+        }),
+        _alltag_abfragen,
+        "📝 sieht im Alltagsprotokoll nach …",
+    ),
 ]}
 
 
@@ -1175,9 +1221,10 @@ def argument_detail(name: str, argumente: Any = None) -> str:
         elif name == "wer_war_wann":
             if args.get("datum"):
                 teile.append(f"Datum {_kurz(args.get('datum'), 20)}")
-        elif name == "schlaf_abfragen":
+        elif name in ("schlaf_abfragen", "alltag_abfragen"):
             if args.get("datum"):
-                teile.append(f"Nacht {_kurz(args.get('datum'), 20)}")
+                art = "Nacht" if name == "schlaf_abfragen" else "Tag"
+                teile.append(f"{art} {_kurz(args.get('datum'), 20)}")
             elif isinstance(args.get("tage"), int) and args["tage"] > 0:
                 teile.append(f"letzte {args['tage']} Tage")
     except Exception:  # pragma: no cover - Darstellung darf nie brechen

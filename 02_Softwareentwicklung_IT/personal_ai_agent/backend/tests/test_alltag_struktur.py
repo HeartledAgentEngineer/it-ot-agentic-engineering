@@ -110,9 +110,24 @@ def test_strenge_pruefung_verwirft_unsinn():
                             vorherrschend="Neid", aktivitaet="  ", geheim="weg", von="25:99"))
     e = st.strukturieren("irgendwas", quelle="sprache", jetzt=JETZT, client=kasten, namen=[])["eintrag"]
     assert "geheim" not in e and e["stimmung"] is None and e["anspannung"] is None
-    assert e["gefuehle"] == ["Neid", "Wut"]               # vorherrschend kommt nach vorn, Unsinn fällt weg
+    assert e["gefuehle"] == ["Ärger"]                     # Wut -> Ärger, Neid ist kein Grundgefühl
+    assert e["vorherrschend"] is None
     assert e["aktivitaet"] is None
     assert e["von"] == "2026-11-03T14:40:00+01:00"        # unlesbare Uhrzeit -> letzte Stunde
+
+
+def test_nur_die_sechs_grundgefuehle_nach_ekman():
+    assert st.GRUNDGEFUEHLE == ("Freude", "Trauer", "Angst", "Ärger", "Ekel", "Überraschung")
+    kasten = Attrappe(_json(gefuehle=["traurigkeit", "Ruhe", "verliebt", "FREUDE", "Furcht"],
+                            vorherrschend="glück", aktivitaet="Spaziert"))
+    e = st.strukturieren("x", quelle="sprache", jetzt=JETZT, client=kasten, namen=[])["eintrag"]
+    assert e["gefuehle"] == ["Freude", "Trauer", "Angst"]   # vorherrschend vorn, Rest verworfen
+    assert e["vorherrschend"] == "Freude"
+
+
+def test_aufforderung_erlaubt_keine_eigenen_worte():
+    text = st.baue_nachricht("x", JETZT)
+    assert "eigenes" not in text and "nur aus Freude, Trauer, Angst, Ärger, Ekel, Überraschung" in text
 
 
 def test_unbrauchbare_antwort_ist_ehrlicher_fehler():

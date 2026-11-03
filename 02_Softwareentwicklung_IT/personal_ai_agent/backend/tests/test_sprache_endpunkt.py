@@ -160,6 +160,19 @@ def test_alter_pfad_antwortet_weiterhin(client):
     assert antwort.json()["text"] == "Text."
 
 
+# ── Datenschutz: Diktat nicht im Log (03.11.2026) ────────────────────────────
+
+def test_diktat_steht_nicht_im_log(client, caplog):
+    """Ins Log nur Zeichenzahlen — der Text (Tagebuch, Alltagsprotokoll) bleibt draußen."""
+    import logging
+
+    with caplog.at_level(logging.DEBUG), _gemockt("roh Zebra geheim", "Glatt Zebra geheim."):
+        antwort = _post(client, NEUER_PFAD, WAV)
+    assert antwort.status_code == 200
+    assert "Zebra" not in caplog.text
+    assert "16 Zeichen" in caplog.text and "19 Zeichen" in caplog.text
+
+
 # ── Datenschutz: Audio nur im Speicher ───────────────────────────────────────
 
 def test_router_schreibt_das_audio_nicht_auf_die_platte():

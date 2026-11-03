@@ -9,6 +9,8 @@ import os
 import sys
 import types
 
+import pytest
+
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND)
 
@@ -75,6 +77,14 @@ def dienst_mit(erkennung=None, chat=None):
         chat=types.SimpleNamespace(completions=chat or Chat({})),
     )
     return dienst
+
+
+@pytest.fixture(autouse=True)
+def _erfundene_namensliste(monkeypatch):
+    """Die Glättung ist ohne Namensliste fail-closed (03.11.2026) — die Tests sollen nie von
+    echten Namensdateien auf dem Rechner abhängen."""
+    from app.services import werkzeuge
+    monkeypatch.setattr(werkzeuge, "namen_fuer_maskierung", lambda: ["Testperson Erfunden"])
 
 
 # ── Anweisung: Anrede, Sprechakt, Fachbegriffe ───────────────────────────────
