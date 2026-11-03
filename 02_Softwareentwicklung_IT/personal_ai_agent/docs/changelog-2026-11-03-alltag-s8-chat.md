@@ -68,3 +68,14 @@ Fehler, die auch die Glättung (#19) und die Struktur (S3) betreffen:
   jedes gleiche Kurzwort maskiert. Das steht jetzt im Docstring.
 - 2 Tests mehr in `test_schild_namensteile.py` (vorher rot).
 - Die volle Suite auf dem Stand von Runde 1 ergab 6420 grün und 3 übersprungen.
+
+## Nachtrag nach Hermes (Runde 3: EINWAND)
+
+- Großgeschriebene Füllwörter in gespeicherten Namen (Kontakt „Die Oma") wurden wieder zu
+  Namensteilen. Dann wurde jedes „die" im Text maskiert. Ein Leck war das nicht, der Text wurde
+  aber verstümmelt. Betroffen ist 1 der 742 Namen (nur gezählt).
+- Jetzt gibt es zwei Listen:
+  - `FUELLWOERTER` (von, der, die, das, zu, und …) fallen in jeder Schreibweise weg.
+  - `NAMENSZUSAETZE` (van, della, ten …) fallen nur kleingeschrieben weg, weil sie auch
+    Vornamen sein können.
+- 1 Test mehr in `test_schild_namensteile.py`.

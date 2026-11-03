@@ -36,8 +36,10 @@ _UMSCHRIFT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö"
 
 # Namenszusaetze sind keine Namen: "von der Heide" darf nicht jedes "der" im Text maskieren
 # (Hermes-Einwand S8, 03.11.2026).
-NAMENSZUSAETZE = frozenset({"von", "van", "vom", "der", "den", "die", "das", "dem", "del", "della",
-                            "zu", "zum", "zur", "und", "ten", "ter", "de", "da", "di", "du", "la", "le"})
+# Eindeutige deutsche Fuellwoerter fallen in jeder Schreibweise weg ("Die Oma" als Kontakt;
+# Hermes Runde 3), mehrdeutige ("Della", "Ten" sind auch Vornamen) nur kleingeschrieben.
+FUELLWOERTER = frozenset({"von", "vom", "der", "den", "die", "das", "dem", "zu", "zum", "zur", "und"})
+NAMENSZUSAETZE = frozenset({"van", "del", "della", "ten", "ter", "de", "da", "di", "du", "la", "le"})
 
 
 def _umschrift(wort: str) -> str:
@@ -51,15 +53,16 @@ def _namensteile(name: str) -> List[str]:
     """Teile ab 3 Zeichen, getrennt an Leerzeichen, Bindestrich und Apostroph ("Anna-Lena Meier"
     -> Anna-Lena, Anna, Lena, Meier; "O'Brien" -> Brien) - ohne den ganzen Namen.
 
-    Namenszusaetze fallen nur kleingeschrieben weg ("von", "der"); "Della" oder "Ten" sind
-    auch Vornamen und bleiben (Hermes S8, Runde 2). Teile unter 3 Zeichen ("Jo") werden
+    Fuellwoerter ("von", "Die") fallen immer weg, mehrdeutige Zusaetze nur kleingeschrieben;
+    "Della" oder "Ten" sind auch Vornamen und bleiben (Hermes S8, Runden 2 und 3). Teile unter 3 Zeichen ("Jo") werden
     bewusst nicht einzeln registriert - sie wuerden jedes gleiche Kurzwort im Text maskieren.
     """
     teile: List[str] = []
     for wort in name.split():
         for t in [wort] + _TEIL_TRENNER.split(wort):
             t = t.strip("-'’")
-            if len(t) >= 3 and t != name and t not in NAMENSZUSAETZE and t not in teile:
+            if (len(t) >= 3 and t != name and t.lower() not in FUELLWOERTER
+                    and t not in NAMENSZUSAETZE and t not in teile):
                 teile.append(t)
     return teile
 

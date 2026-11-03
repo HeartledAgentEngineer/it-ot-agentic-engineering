@@ -34,6 +34,14 @@ def test_grossgeschriebener_vorname_ist_kein_zusatz():
     assert "Della" not in text and "Ten" not in text
 
 
+def test_grossgeschriebene_fuellwoerter_bleiben_woerter():
+    # Hermes Runde 3: Kontakt "Die Quastoma" darf nicht jedes "die" im Text maskieren.
+    schild = schild_aus_namen(["Die Quastoma", "Von Wobbelhof"])
+    assert schild.encode("Die Katze von der Nachbarin und das Haus.") == "Die Katze von der Nachbarin und das Haus."
+    text = schild.encode("Die Katze von nebenan und Quastoma.")
+    assert text.startswith("Die Katze von nebenan und ") and "Quastoma" not in text
+
+
 def test_teil_nach_apostroph_wird_maskiert():
     schild = schild_aus_namen(["Fiona O'Quastrien"])
     assert "Quastrien" not in schild.encode("Quastrien kam vorbei.")
