@@ -135,11 +135,33 @@ def _tageszeile(tag: str, k: Dict[str, Any]) -> str:
     return " · ".join(teile)
 
 
+_SUMMEN = ("dauer_min", "schlaf_min", "wach_min", "leicht_min", "tief_min", "rem_min", "wach_phasen")
+
+
+def _nacht_zusammen(teile: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Abschnitte einer Nacht addieren; jede Lücke zwischen zwei Abschnitten ist ein Aufwachen."""
+    if len(teile) == 1:
+        return teile[0]
+    erg = dict(teile[-1])
+    for feld in _SUMMEN:
+        erg[feld] = sum(t[feld] for t in teile)
+    erg["wach_phasen"] += len(teile) - 1
+    erg["phasen_bekannt"] = all(t["phasen_bekannt"] for t in teile)
+    return erg
+
+
 def _nacht_und_tag(naechte: List[Dict[str, Any]], stunden: List[Dict[str, Any]],
                    nur_mit_phasen: bool = False) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
-    """(Nacht, Tageskennzahlen) für jeden Tag mit Stimmung; die Nacht zählt zum Tag des Aufwachens."""
-    nacht = {a["nacht_zum"]: a for a in auswerten(naechte)
-             if not a["nickerchen"] and (a["phasen_bekannt"] or not nur_mit_phasen)}
+    """(Nacht, Tageskennzahlen) für jeden Tag mit Stimmung; die Nacht zählt zum Tag des Aufwachens.
+
+    Mehrere Abschnitte zum selben Tag (unterbrochene Nacht) werden zu einer Nacht zusammengezählt.
+    """
+    teile: Dict[str, List[Dict[str, Any]]] = {}
+    for a in auswerten(naechte):
+        if not a["nickerchen"]:
+            teile.setdefault(a["nacht_zum"], []).append(a)
+    nacht = {tag: n for tag, n in ((t, _nacht_zusammen(ts)) for t, ts in teile.items())
+             if n["phasen_bekannt"] or not nur_mit_phasen}
     return [(nacht[tag], k) for tag, k in tag_kennzahlen(stunden).items()
             if tag in nacht and k["stimmung"] is not None]
 

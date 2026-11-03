@@ -28,3 +28,14 @@ Unverändert. Die neuen Sätze enthalten nur Zahlen, Tageszeit-Namen und feste W
   - in `test_alltag_auswertung.py`: Tagesprofil, Mindestmenge, Schlafqualität, Schweigen ohne Phasen.
   - in `test_werkzeug_alltag.py`: Die Beschreibung nennt Tageszeit und Tiefschlaf.
 - `test_alltag_auswertung.py`, `test_werkzeug_alltag.py` und `test_werkzeuge.py` sind grün (56).
+- Volle Suite auf `26a8d73`: 6437 grün, 3 übersprungen.
+
+## Nachtrag nach Hermes (Runde 1: FREI, ein Hinweis)
+
+- **Hinweis (seit S8):** Fielen zwei Schlafabschnitte auf denselben Tag, zählte nur der spätere.
+  Eine unterbrochene Nacht (23–3 Uhr wach, 4–7 Uhr) galt so als 3 statt 7 Stunden. Die Uhr liefert
+  solche Nächte oft als zwei Sitzungen.
+- **Jetzt:** `_nacht_zusammen` zählt die Abschnitte eines Tages zusammen (Dauer, Schlaf, Wach,
+  Leicht-, Tief- und REM-Schlaf). Jede Lücke zwischen zwei Abschnitten zählt als nächtliches
+  Aufwachen. Die Phasen gelten nur als bekannt, wenn alle Abschnitte welche haben.
+- Neuer Test `test_unterbrochene_nacht_wird_zusammengezaehlt` (vorher rot).

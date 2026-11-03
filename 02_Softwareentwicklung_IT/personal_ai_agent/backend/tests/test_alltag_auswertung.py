@@ -167,6 +167,19 @@ def test_schlafqualitaet_tiefschlaf_und_aufwachen():
     assert "Tiefschlaf und Stimmung" in gesamt
 
 
+def test_unterbrochene_nacht_wird_zusammengezaehlt():
+    # Hermes S10: Zwei Abschnitte, die zum selben Tag gehören (23–03 und 04–07 Uhr), sind eine Nacht.
+    # Vorher zählte nur der spätere (3 Std.); jetzt 4 + 3 = 7 Std. und die Lücke als Aufwachen.
+    teil1 = {"quelle_kennung": "a", "beginn": "2026-11-02T23:00:00+01:00", "ende": "2026-11-03T03:00:00+01:00",
+             "phasen": []}
+    teil2 = {"quelle_kennung": "b", "beginn": "2026-11-03T04:00:00+01:00", "ende": "2026-11-03T07:00:00+01:00",
+             "phasen": []}
+    paare = aw._nacht_und_tag([teil1, teil2], [_stunde(stimmung=3)])
+    assert len(paare) == 1
+    nacht, _ = paare[0]
+    assert nacht["schlaf_min"] == 420 and nacht["wach_phasen"] == 1
+
+
 def test_schlafqualitaet_ohne_phasen_schweigt():
     naechte = [_nacht(t, "23:00", "07:00", v) for t, v in
                [("2026-11-01", "2026-10-31"), ("2026-11-02", "2026-11-01"),
