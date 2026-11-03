@@ -829,6 +829,43 @@ def _notiz_speichern(args: Dict[str, Any]) -> Ergebnis:
     return Ergebnis(f"Speichern fehlgeschlagen: {res.get('fehler')}", ok=False)
 
 
+def _tag_lesen(roh: str) -> Optional[str]:
+    """heute / letzte nacht / gestern / JJJJ-MM-TT / TT.MM.JJJJ → JJJJ-MM-TT (sonst ``None``)."""
+    from datetime import date, datetime, timedelta
+
+    text = roh.strip().lower()
+    if text in ("", "heute", "letzte nacht", "diese nacht", "heute nacht"):
+        return date.today().isoformat()
+    if text in ("gestern", "vorletzte nacht"):
+        return (date.today() - timedelta(days=1)).isoformat()
+    for muster in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(roh.strip(), muster).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _schlaf_abfragen(args: Dict[str, Any]) -> Ergebnis:
+    """Schlafnächte der Uhr (Alltagsprotokoll, 03.11.2026) — eine Nacht oder ein Zeitraum."""
+    from datetime import date, timedelta
+
+    from app.services import alltag_rechnen, alltag_speicher
+
+    roh = str(args.get("datum") or "").strip()
+    if roh:
+        tag = _tag_lesen(roh)
+        if not tag:
+            return Ergebnis(f"„{roh}“ ist kein gültiges Datum (heute, gestern oder JJJJ-MM-TT).", ok=False)
+        von = bis = tag
+    else:
+        tage = _ganzzahl(args.get("tage"), 7, 1, 90)
+        bis = date.today().isoformat()
+        von = (date.today() - timedelta(days=tage - 1)).isoformat()
+    naechte = alltag_speicher.eintraege(art="schlafnacht", von=von, bis=bis)
+    return Ergebnis(_kuerzen(alltag_rechnen.schlaf_text(naechte)))
+
+
 # ── Register ───────────────────────────────────────────────────────────────
 
 def _obj(eigenschaften: Dict[str, Any], pflicht: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -1019,6 +1056,19 @@ REGISTER: Dict[str, Werkzeug] = {w.name: w for w in [
         _notiz_speichern,
         "📖 speichert Notiz zur Foto-Sammlung …",
     ),
+    Werkzeug(
+        "schlaf_abfragen",
+        "Sebastians Schlaf aus seiner Uhr (Alltagsprotokoll): Einschlaf-/Aufwachzeit, Schlafdauer, "
+        "Tiefschlaf, REM, Wachphasen je Nacht und den Schnitt. Für 'wie habe ich geschlafen', "
+        "'wie war die letzte Nacht', 'Schlaf der letzten Woche', 'wann bin ich am 2.11. aufgewacht'. "
+        "Eine Nacht zählt zum Tag des Aufwachens. Keine medizinischen Bewertungen.",
+        _obj({
+            "datum": {"type": "string", "description": "eine Nacht: heute (= letzte Nacht), gestern, JJJJ-MM-TT"},
+            "tage": {"type": "integer", "minimum": 1, "maximum": 90, "description": "Zeitraum: die letzten N Tage"},
+        }),
+        _schlaf_abfragen,
+        "😴 sieht im Schlafprotokoll nach …",
+    ),
 ]}
 
 
@@ -1109,6 +1159,11 @@ def argument_detail(name: str, argumente: Any = None) -> str:
         elif name == "wer_war_wann":
             if args.get("datum"):
                 teile.append(f"Datum {_kurz(args.get('datum'), 20)}")
+        elif name == "schlaf_abfragen":
+            if args.get("datum"):
+                teile.append(f"Nacht {_kurz(args.get('datum'), 20)}")
+            elif isinstance(args.get("tage"), int) and args["tage"] > 0:
+                teile.append(f"letzte {args['tage']} Tage")
     except Exception:  # pragma: no cover - Darstellung darf nie brechen
         return ""
     return ", ".join(teile)

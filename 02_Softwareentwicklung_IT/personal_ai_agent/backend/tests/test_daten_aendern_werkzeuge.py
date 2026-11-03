@@ -10,7 +10,7 @@ def test_neue_werkzeuge_registriert():
     assert "erinnerung_loeschen" in wz.REGISTER
     assert "person_profil_aendern" in wz.REGISTER
     assert "notiz_speichern" in wz.REGISTER
-    assert len(wz.REGISTER) == 15
+    assert len(wz.REGISTER) == 16  # + schlaf_abfragen (03.11.2026)
     # Parameter-Prüfung für person_profil_aendern
     props = wz.REGISTER["person_profil_aendern"].parameter["properties"]
     assert "geburtstag" in props
