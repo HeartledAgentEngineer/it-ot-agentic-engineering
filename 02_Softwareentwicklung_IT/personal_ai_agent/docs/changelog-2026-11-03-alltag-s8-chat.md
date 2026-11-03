@@ -57,3 +57,14 @@ Fehler, die auch die Glättung (#19) und die Struktur (S3) betreffen:
 - Auf diesem PC betrifft das 9 der 742 Namen (Bindestrich) und 2 (Zusatz). Gezählt wurde nur,
   kein Name wurde ausgegeben.
 - Neue Datei `test_schild_namensteile.py` (5 Tests, vorher 3 rot).
+
+## Nachtrag nach Hermes (Runde 2: EINWAND)
+
+- Die Ausnahmeliste verglich ohne Rücksicht auf Groß- und Kleinschreibung. „Della" oder „Ten",
+  die auch Vornamen sind, wurden deshalb allein nicht mehr maskiert. Diesen Weg hatte die
+  Reparatur aus Runde 1 erst geöffnet. Jetzt fallen nur **kleingeschriebene** Zusätze weg.
+- Namen werden auch am Apostroph getrennt („O'Brien" ergibt den Teil „Brien").
+- Teile unter 3 Zeichen („Jo") werden weiterhin bewusst nicht einzeln registriert, sonst würde
+  jedes gleiche Kurzwort maskiert. Das steht jetzt im Docstring.
+- 2 Tests mehr in `test_schild_namensteile.py` (vorher rot).
+- Die volle Suite auf dem Stand von Runde 1 ergab 6420 grün und 3 übersprungen.

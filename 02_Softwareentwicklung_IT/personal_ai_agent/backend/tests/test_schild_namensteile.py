@@ -27,6 +27,18 @@ def test_namenszusaetze_werden_nicht_zu_namen():
     assert "Quastheide" not in schild.encode("Bei Quastheide gewesen.")
 
 
+def test_grossgeschriebener_vorname_ist_kein_zusatz():
+    # Hermes Runde 2: "Della"/"Ten" sind auch Vornamen; nur kleingeschriebene Zusätze fallen weg.
+    schild = schild_aus_namen(["Della Quastmeier", "Ten Wobbeling"])
+    text = schild.encode("Mit Della und Ten gesprochen.")
+    assert "Della" not in text and "Ten" not in text
+
+
+def test_teil_nach_apostroph_wird_maskiert():
+    schild = schild_aus_namen(["Fiona O'Quastrien"])
+    assert "Quastrien" not in schild.encode("Quastrien kam vorbei.")
+
+
 def test_rueckuebersetzung_bleibt_exakt():
     schild = schild_aus_namen(["Annalia-Brenda Quastmeier"], "Mit Annalia")
     assert schild.decode(schild.encode("Mit Annalia")) == "Mit Annalia"

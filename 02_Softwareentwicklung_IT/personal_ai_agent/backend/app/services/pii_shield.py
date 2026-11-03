@@ -44,14 +44,22 @@ def _umschrift(wort: str) -> str:
     return wort.translate(_UMSCHRIFT)
 
 
+_TEIL_TRENNER = re.compile(r"[-'’]")
+
+
 def _namensteile(name: str) -> List[str]:
-    """Teile ab 3 Zeichen, getrennt an Leerzeichen UND Bindestrich ("Anna-Lena Meier" ->
-    Anna-Lena, Anna, Lena, Meier) - ohne Namenszusaetze und ohne den ganzen Namen."""
+    """Teile ab 3 Zeichen, getrennt an Leerzeichen, Bindestrich und Apostroph ("Anna-Lena Meier"
+    -> Anna-Lena, Anna, Lena, Meier; "O'Brien" -> Brien) - ohne den ganzen Namen.
+
+    Namenszusaetze fallen nur kleingeschrieben weg ("von", "der"); "Della" oder "Ten" sind
+    auch Vornamen und bleiben (Hermes S8, Runde 2). Teile unter 3 Zeichen ("Jo") werden
+    bewusst nicht einzeln registriert - sie wuerden jedes gleiche Kurzwort im Text maskieren.
+    """
     teile: List[str] = []
     for wort in name.split():
-        for t in [wort] + (wort.split("-") if "-" in wort else []):
-            t = t.strip("-")
-            if len(t) >= 3 and t != name and t.lower() not in NAMENSZUSAETZE and t not in teile:
+        for t in [wort] + _TEIL_TRENNER.split(wort):
+            t = t.strip("-'’")
+            if len(t) >= 3 and t != name and t not in NAMENSZUSAETZE and t not in teile:
                 teile.append(t)
     return teile
 
