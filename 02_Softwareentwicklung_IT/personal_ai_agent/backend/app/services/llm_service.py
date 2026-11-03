@@ -1038,7 +1038,7 @@ class LLMService:
                 messages=[{"role": "user", "content": extraction_prompt}],  # type: ignore
                 temperature=0.1,
                 max_tokens=500,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
 
             raw = response.choices[0].message.content or "[]"
@@ -1118,7 +1118,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=400,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             if "{" in raw:
@@ -1279,7 +1279,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=80,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             if "{" in raw:
@@ -1371,7 +1371,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=300,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             # JSON-Codeblock/unnötigen Text aufräumen: alles vor der ersten
@@ -2108,6 +2108,8 @@ class LLMService:
                     ],
                     max_tokens=POLISH_MAX_TOKENS,
                     temperature=0.2,
+                    # S4 (03.11.2026): auch die Glättung nur bei Anbietern ohne Datensammlung.
+                    extra_body=self._extra_body(no_retention=True),
                 )
             except Exception as e:
                 letzter_grund = f"{modell}: {e}"
