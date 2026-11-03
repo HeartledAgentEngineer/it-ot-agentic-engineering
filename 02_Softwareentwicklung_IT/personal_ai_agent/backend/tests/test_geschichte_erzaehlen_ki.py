@@ -83,6 +83,15 @@ def test_erzaehle_geschichte_erfolg_mit_attrappe():
     assert extra.get("provider", {}).get("data_collection") == "deny"
 
 
+def test_nachdenken_ist_abgeschaltet():
+    """03.11.2026: deepseek-v4-flash dachte 385 von 500 Tokens nach -> Text abgeschnitten,
+    bei langen Anlässen leer -> stille Vorlage. Die Erzählung braucht kein Nachdenken."""
+    client = FakeClient(antwort=_antwort())
+    kem.erzaehle_geschichte(client=client, **FAKTEN)
+    extra = client.aufrufe[0]["kwargs"].get("extra_payload") or {}
+    assert extra.get("reasoning") == {"enabled": False}
+
+
 def test_erzaehle_geschichte_schickt_die_fakten_ans_modell():
     client = FakeClient(antwort=_antwort())
     kem.erzaehle_geschichte(client=client, **FAKTEN)

@@ -209,7 +209,10 @@ def erzaehle_geschichte(
             model=modell,
             temperature=0.7,
             max_tokens=MAX_TOKENS,
-            extra_payload={"provider": {"data_collection": "deny"}, "usage": {"include": True}},
+            # reasoning aus (03.11.2026): das Denk-Modell verbrauchte sonst 385 von 500 Tokens
+            # fürs Nachdenken — Text abgeschnitten, bei langen Anlässen leer -> Vorlage.
+            extra_payload={"provider": {"data_collection": "deny"}, "usage": {"include": True},
+                           "reasoning": {"enabled": False}},
         )
     except httpx.TimeoutException:
         logger.warning("KI-Erzählung: Zeitgrenze (%s s) überschritten, Modell %s", ZEITGRENZE_S, modell)
