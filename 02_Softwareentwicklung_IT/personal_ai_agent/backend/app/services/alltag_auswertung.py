@@ -56,9 +56,15 @@ def _datum_de(iso: str) -> str:
     return f"{t}.{m}.{j}"
 
 
+def _gefuehl_liste(e: Dict[str, Any]) -> List[Any]:
+    """Gefühle nur als Liste — ein Text würde sonst in Buchstaben zerfallen."""
+    roh = e.get("gefuehle")
+    return roh if isinstance(roh, list) else []
+
+
 def _gefuehle(e: Dict[str, Any], schwaerzen: Optional[Schwaerzer]) -> List[str]:
     erg = []
-    for g in e.get("gefuehle") or []:
+    for g in _gefuehl_liste(e):
         if not isinstance(g, str) or not g.strip():
             continue
         if g in GRUNDGEFUEHLE:
@@ -112,7 +118,7 @@ def tag_kennzahlen(stunden: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             wert = _zahl(e.get(feld), unten, oben)
             if wert is not None:
                 t[feld].append(wert)
-        t["gefuehle"].update(g for g in e.get("gefuehle") or [] if g in GRUNDGEFUEHLE)
+        t["gefuehle"].update(g for g in _gefuehl_liste(e) if isinstance(g, str) and g in GRUNDGEFUEHLE)
     return {tag: {"eintraege": t["eintraege"], "stimmung": _schnitt(t["stimmung"]),
                   "anspannung": _schnitt(t["anspannung"]), "gefuehle": t["gefuehle"].most_common(3)}
             for tag, t in sorted(roh.items())}

@@ -106,6 +106,16 @@ def test_verknuepfung_braucht_vier_tage():
     assert "Zu wenige Tage" in aw.verknuepfung_text(naechte, stunden)
 
 
+def test_kaputte_eintraege_brechen_nichts():
+    kaputt = [_stunde(gefuehle="Ärger", stimmung="4", anspannung=300),
+              {"art": "stunde", "von": "gestern"}, {"art": "stunde"}, "kein dict"]
+    zeile = aw.stunden_zeile(kaputt[0], aw.schwaerzer(ERFUNDEN))
+    assert zeile == "03.11. 14:40–15:40"
+    assert aw.tag_kennzahlen(kaputt)["2026-11-03"]["stimmung"] is None
+    assert "Keine Einträge" not in aw.protokoll_text(kaputt, [], None, einzeln=True)
+    assert "Zu wenige Tage" in aw.protokoll_text(kaputt, [], None, einzeln=False)
+
+
 def test_nickerchen_zaehlt_nicht_als_nacht():
     naechte = [{"quelle_kennung": "n", "beginn": "2026-11-03T13:00:00+01:00",
                 "ende": "2026-11-03T13:40:00+01:00", "phasen": []}]

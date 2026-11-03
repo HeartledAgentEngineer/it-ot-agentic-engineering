@@ -42,3 +42,5 @@ Der Chat maskiert sie nicht. Deshalb gilt im Werkzeug selbst:
   - `test_werkzeug_alltag.py` (7)
 - Die Werkzeugzahl in `test_werkzeuge.py` und `test_daten_aendern_werkzeuge.py` steigt auf 17.
 - `test_werkzeug_schlaf.py` ist unverändert grün.
+- Nachtrag: `test_kaputte_eintraege_brechen_nichts`, vorher rot. Kamen Gefühle als Text statt
+  als Liste, wurden sie Buchstabe für Buchstabe ausgegeben. Jetzt zählen nur Listen.
