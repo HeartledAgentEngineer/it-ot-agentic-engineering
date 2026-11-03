@@ -9,6 +9,8 @@ import os
 import sys
 import types
 
+import pytest
+
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND)
 
@@ -75,6 +77,14 @@ def dienst_mit(erkennung=None, chat=None):
         chat=types.SimpleNamespace(completions=chat or Chat({})),
     )
     return dienst
+
+
+@pytest.fixture(autouse=True)
+def _erfundene_namensliste(monkeypatch):
+    """Die Glättung ist ohne Namensliste fail-closed (03.11.2026) — die Tests sollen nie von
+    echten Namensdateien auf dem Rechner abhängen."""
+    from app.services import werkzeuge
+    monkeypatch.setattr(werkzeuge, "namen_fuer_maskierung", lambda: ["Testperson Erfunden"])
 
 
 # ── Anweisung: Anrede, Sprechakt, Fachbegriffe ───────────────────────────────
@@ -179,6 +189,15 @@ def test_erkennung_liefert_none_wenn_alle_wege_scheitern():
     })
     assert dienst_mit(erkennung=erkennung).transcribe(WAV) is None
     assert len(erkennung.aufrufe) == len(TRANSCRIBE_MODELS)
+
+
+def test_erkennung_schreibt_keinen_diktattext_ins_log(caplog):
+    """S4/Hermes 03.11.2026: ins Log nur Modell und Zeichenzahl, nie der Inhalt."""
+    erkennung = Erkennung({TRANSCRIBE_MODELS[0][0]: "Geheimer Testsatz Zebra."})
+    with caplog.at_level("DEBUG"):
+        assert dienst_mit(erkennung=erkennung).transcribe(WAV) == "Geheimer Testsatz Zebra."
+    assert "Zebra" not in caplog.text
+    assert "24 Zeichen" in caplog.text
 
 
 def test_erkennung_verwirft_leeren_text_und_nimmt_den_rueckfall():

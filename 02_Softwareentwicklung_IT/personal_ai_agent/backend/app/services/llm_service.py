@@ -1038,7 +1038,7 @@ class LLMService:
                 messages=[{"role": "user", "content": extraction_prompt}],  # type: ignore
                 temperature=0.1,
                 max_tokens=500,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
 
             raw = response.choices[0].message.content or "[]"
@@ -1118,7 +1118,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=400,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             if "{" in raw:
@@ -1279,7 +1279,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=80,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             if "{" in raw:
@@ -1371,7 +1371,7 @@ class LLMService:
                 messages=[{"role": "user", "content": prompt}],  # type: ignore
                 temperature=0.0,
                 max_tokens=300,
-                extra_body={"provider": {"allow_fallbacks": True}},
+                extra_body=self._extra_body(no_retention=True),
             )
             raw = (response.choices[0].message.content or "{}").strip()
             # JSON-Codeblock/unnötigen Text aufräumen: alles vor der ersten
@@ -1516,7 +1516,8 @@ class LLMService:
 
             if modell != TRANSCRIBE_MODELS[0][0]:
                 logger.warning("Erkennung über Ausweichmodell %s gelungen", modell)
-            logger.info("Erkannt über %s (%d Zeichen): %s", modell, len(text), text[:80])
+            # Nur Modell und Zeichenzahl — der Diktattext gehört nicht ins Log (S4, 03.11.2026).
+            logger.info("Erkannt über %s (%d Zeichen)", modell, len(text))
             return text
 
         logger.error("Keine Erkennung möglich – kein Modell lieferte (%s)", letzter_grund)
@@ -2083,16 +2084,20 @@ class LLMService:
 
         # PII-Shield initialisieren und Prompt maskieren
         if shield is None:
+            # 03.11.2026: Namen in Originalschreibweise samt Namensteilen — vorher nur volle
+            # Namen in Umschrift („juergen"), „Jürgen" ging so im Klartext raus.
+            # Ohne lesbare Namensliste fail-closed wie die Websuche (Hermes-Einwand #19):
+            # nichts senden, der Rohtext bleibt lokal.
             try:
-                from app.services.pii_shield import PIIShield
-                shield = PIIShield()
-                from app.services.werkzeuge import bekannte_namen_streng
-                bestand = bekannte_namen_streng()
-                if bestand and getattr(bestand, 'volle', None):
-                    for folge in bestand.volle:
-                        shield.register_person(" ".join(folge))
+                from app.services.pii_shield import schild_aus_namen
+                from app.services.werkzeuge import namen_fuer_maskierung
+                namen = namen_fuer_maskierung()
             except Exception:
-                pass
+                namen = None
+            if not namen:
+                logger.warning("Glättung übersprungen: keine lesbare Namensliste")
+                return None
+            shield = schild_aus_namen(namen, raw_text)
 
         geschuetzter_text = shield.encode(raw_text) if shield is not None else raw_text
 
@@ -2108,6 +2113,8 @@ class LLMService:
                     ],
                     max_tokens=POLISH_MAX_TOKENS,
                     temperature=0.2,
+                    # S4 (03.11.2026): auch die Glättung nur bei Anbietern ohne Datensammlung.
+                    extra_body=self._extra_body(no_retention=True),
                 )
             except Exception as e:
                 letzter_grund = f"{modell}: {e}"
@@ -2144,7 +2151,7 @@ class LLMService:
 
             if modell != POLISH_MODELS[0]:
                 logger.info("Glättung über Ausweichmodell %s gelungen", modell)
-            logger.debug("Geglättet (%d Zeichen): %s", len(entmaskiert), entmaskiert[:80])
+            logger.debug("Geglättet über %s (%d Zeichen)", modell, len(entmaskiert))   # kein Text ins Log
             return entmaskiert
 
         logger.error("Keine Glättung möglich – Rohtext wird verwendet (%s)", letzter_grund)

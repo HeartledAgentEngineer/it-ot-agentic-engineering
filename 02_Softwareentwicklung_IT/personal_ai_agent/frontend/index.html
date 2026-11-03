@@ -15,7 +15,7 @@
     <meta name="agent-schluessel" content="">
     <title>Personal AI Agent</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261103A">
+    <link rel="stylesheet" href="style.css?v=20261103D">
 </head>
 <body>
     <div id="app">
@@ -62,6 +62,9 @@
                      Schritt 2, 01.10.2026). Eigene Datei gruppen_quiz.js. -->
                 <button id="gruppen-btn" class="icon-btn" title="Personen benennen – Gesichter-Gruppen aus deinen Fotos"
                         aria-label="Personen benennen öffnen">👥</button>
+                <!-- Alltagsprotokoll (S6, 03.11.2026): Stimmung, Anspannung, Gefühle, Schlaf. alltag.js. -->
+                <button id="alltag-btn" class="icon-btn" title="Alltagsprotokoll – die letzte Stunde eintragen"
+                        aria-label="Alltagsprotokoll öffnen">📝</button>
             </div>
         </header>
         <p id="system-update-status" class="sheet-note" role="status" aria-live="polite" hidden></p>
@@ -576,6 +579,50 @@
         </div>
     </div>
 
+    <!-- Alltagsprotokoll (S6, 03.11.2026): sprechen oder tippen, Rückfragen je fehlendem Feld,
+         Schlaf-Schnellknöpfe, Tagesablauf. Öffnet bei ?alltag=aufnahme sofort mit Mikrofon. -->
+    <div id="alltag-sheet" hidden>
+        <div class="sheet-panel alltag-panel" role="dialog" aria-modal="true" aria-label="Alltagsprotokoll">
+            <div class="sheet-head">
+                <h2>Alltag</h2>
+                <span id="alltag-offen" class="alltag-offen" aria-live="polite"></span>
+                <button id="alltag-close" class="sheet-close" title="Schließen" aria-label="Schließen">&times;</button>
+            </div>
+            <div class="alltag-body">
+                <section class="alltag-eingabe" aria-label="Eintragen">
+                    <div class="alltag-gross-reihe">
+                        <button id="alltag-aufnahme" class="alltag-gross alltag-mic" type="button">🎙 Sprechen</button>
+                        <button id="alltag-tastatur" class="alltag-gross alltag-tastatur" type="button">⌨ Tastatur</button>
+                    </div>
+                    <p id="alltag-mic-status" class="alltag-status" hidden></p>
+                    <div id="alltag-text-block" class="alltag-text-block" hidden>
+                        <textarea id="alltag-text" rows="3"
+                                  placeholder="Was hast du in der letzten Stunde gemacht, wie ging es dir?"></textarea>
+                        <div class="alltag-text-leiste">
+                            <button id="alltag-text-mic" class="alltag-knopf alltag-feld-mic" type="button" aria-label="Text diktieren">🎙</button>
+                            <button id="alltag-senden" class="alltag-knopf alltag-primaer" type="button">Eintragen</button>
+                        </div>
+                    </div>
+                </section>
+                <section id="alltag-rueckfrage" class="alltag-rueckfrage" aria-live="polite" hidden>
+                    <p id="alltag-frage" class="alltag-frage"></p>
+                    <div id="alltag-antworten" class="alltag-antworten"></div>
+                    <button id="alltag-ueberspringen" class="alltag-knopf alltag-leise" type="button">Überspringen</button>
+                </section>
+                <p id="alltag-meldung" class="alltag-meldung" role="status" aria-live="polite"></p>
+                <section class="alltag-tag" aria-label="Tagesablauf">
+                    <div class="alltag-tag-kopf">
+                        <button id="alltag-tag-vor" class="alltag-knopf alltag-leise" type="button" aria-label="Voriger Tag">◀</button>
+                        <h3 id="alltag-datum">Heute</h3>
+                        <button id="alltag-tag-weiter" class="alltag-knopf alltag-leise" type="button" aria-label="Nächster Tag">▶</button>
+                    </div>
+                    <ol id="alltag-tag-liste" class="alltag-tag-liste"></ol>
+                    <p id="alltag-tag-leer" class="sheet-note" hidden>Noch nichts eingetragen.</p>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <!-- Erzähl-Diashow (Auftrag E8a): links Ereignisliste, rechts Diashow +
          Geschichten. Am Handy (< 768 px) zwei Stufen statt nebeneinander
          (erzaehlen.js schaltet per CSS-Klasse .erzaehl-stufe-diashow um). -->
@@ -823,6 +870,7 @@
     <script src="app.js?v=20261103B"></script>
     <script src="erzaehlen.js?v=20261103B"></script>
     <script src="schlaf.js?v=20261103B"></script>
+    <script src="alltag.js?v=20261103E"></script>
     <script src="gruppen_quiz.js?v=20261103B"></script>
     <!-- Weck-Overlay (wecken.js, 30.09.2026) ist seit 01.10.2026 NICHT mehr
          eingebunden — Wunsch Sebastian: der große Sprechknopf unten doppelte nur
