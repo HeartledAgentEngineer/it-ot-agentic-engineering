@@ -118,6 +118,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Benachrichtigungen pro App-Start hoechstens einmal erfragen. */
     private var benachrichtigungGefragt = false
+    private var bildschirmGefragt = false
 
     /** Android-13-Dialog "Hey Agent darf Benachrichtigungen senden?" (erst beim Alltagsprotokoll). */
     private val benachrichtigungErlaubnis =
@@ -135,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { erteilt ->
             if (erteilt.containsAll(SchlafLeser.ERLAUBNIS)) {
                 schlafLesenUndSenden()
+                bildschirmAnbieten()
             } else {
                 schlafMelden("Keine Erlaubnis für Schlafdaten. Bitte in Health Connect erlauben.")
             }
@@ -324,7 +326,10 @@ class MainActivity : AppCompatActivity() {
             if (json == null || json.length > 2000) return
             runOnUiThread {
                 if (!istBackend(Uri.parse(webView.url ?: ""))) return@runOnUiThread
-                if (AlltagErinnerung.standSetzen(this@MainActivity, json)) benachrichtigungAnfragen()
+                if (!AlltagErinnerung.standSetzen(this@MainActivity, json)) return@runOnUiThread
+                benachrichtigungAnfragen()
+                // Bildschirm-Abfrage (Binder-Aufruf) nicht im UI-Thread.
+                lifecycleScope.launch(Dispatchers.IO) { AlltagErinnerung.aktualisieren(this@MainActivity) }
             }
         }
     }
@@ -357,11 +362,38 @@ class MainActivity : AppCompatActivity() {
                 Log.w(TAG, "Health-Connect-Erlaubnis nicht lesbar: ${e.javaClass.simpleName}")
                 false
             }
+            // S13: Auf Knopfdruck auch Puls und Hintergrund-Lesen erfragen, falls etwas davon fehlt.
+            val zusatzFehlt = fragen && !try {
+                schlafLeser.hatAlles()
+            } catch (e: Exception) {
+                true
+            }
             when {
-                erlaubt -> schlafLesenUndSenden()
-                fragen -> schlafErlaubnis.launch(SchlafLeser.ERLAUBNIS)
+                erlaubt && !zusatzFehlt -> {
+                    schlafLesenUndSenden()
+                    if (fragen) bildschirmAnbieten()
+                }
+                fragen -> schlafErlaubnis.launch(schlafLeser.anzufragen())
             }
         }
+    }
+
+    /** S13b: Einmal je App-Start den Nutzungsdatenzugriff anbieten (Bildschirm an/aus fuer den Live-Schlaf). */
+    private fun bildschirmAnbieten() {
+        if (bildschirmGefragt || BildschirmLeser.erlaubt(this)) return
+        bildschirmGefragt = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.bildschirm_titel)
+            .setMessage(R.string.bildschirm_hinweis)
+            .setPositiveButton(R.string.bildschirm_einstellungen) { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Nutzungsdaten-Einstellung nicht geoeffnet: ${e.javaClass.simpleName}")
+                }
+            }
+            .setNegativeButton(R.string.mikro_abbrechen, null)
+            .show()
     }
 
     private fun schlafLesenUndSenden() {
@@ -371,6 +403,11 @@ class MainActivity : AppCompatActivity() {
                 // Nur die Anzahl ins Log, keine Zeiten (Gesundheitsdaten).
                 Log.i(TAG, "Schlaf: ${naechte.size} Sitzungen an die Seite")
                 seiteAufrufen(SchlafUebertragung.jsAufruf(SchlafUebertragung.json(naechte)))
+                // Bildschirm-Abfrage (Binder-Aufruf) nicht im UI-Thread.
+                withContext(Dispatchers.IO) {
+                    AlltagErinnerung.aufwachenMerken(this@MainActivity, naechte.map { it.ende })
+                    AlltagErinnerung.aktualisieren(this@MainActivity)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Schlaf lesen fehlgeschlagen: ${e.javaClass.simpleName}")
                 schlafMelden("Schlafdaten konnten nicht gelesen werden.")

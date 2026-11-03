@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Lokaler Backend-Zugriff (127.0.0.1:8080) -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -12,6 +13,14 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Schlaf der Uhr aus Health Connect (nur lesen, nur Schlaf). Siehe SchlafLeser. -->
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <!-- S13: Aufwachzeit im stuendlichen Worker lesen (nur mit Erlaubnis, sonst beim Oeffnen). -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+    <!-- S13b: Puls der letzten Stunde, damit der Worker abends den Live-Schlaf erkennt. -->
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <!-- S13b: Nur "Bildschirm an/aus" (Nutzungsdatenzugriff, Nutzer erlaubt ihn in den Einstellungen). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <!-- Alltags-Pop-up "Bitte X Stunden nachtragen" (S7). Ab Android 13 fragt die App einmal,
          sobald das Alltagsprotokoll zum ersten Mal einen Stand meldet. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
