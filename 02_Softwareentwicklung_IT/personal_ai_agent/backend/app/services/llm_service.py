@@ -2084,16 +2084,20 @@ class LLMService:
 
         # PII-Shield initialisieren und Prompt maskieren
         if shield is None:
+            # 03.11.2026: Namen in Originalschreibweise samt Namensteilen — vorher nur volle
+            # Namen in Umschrift („juergen"), „Jürgen" ging so im Klartext raus.
+            # Ohne lesbare Namensliste fail-closed wie die Websuche (Hermes-Einwand #19):
+            # nichts senden, der Rohtext bleibt lokal.
             try:
-                from app.services.pii_shield import PIIShield
-                shield = PIIShield()
-                from app.services.werkzeuge import bekannte_namen_streng
-                bestand = bekannte_namen_streng()
-                if bestand and getattr(bestand, 'volle', None):
-                    for folge in bestand.volle:
-                        shield.register_person(" ".join(folge))
+                from app.services.pii_shield import schild_aus_namen
+                from app.services.werkzeuge import namen_fuer_maskierung
+                namen = namen_fuer_maskierung()
             except Exception:
-                pass
+                namen = None
+            if not namen:
+                logger.warning("Glättung übersprungen: keine lesbare Namensliste")
+                return None
+            shield = schild_aus_namen(namen, raw_text)
 
         geschuetzter_text = shield.encode(raw_text) if shield is not None else raw_text
 
@@ -2147,7 +2151,7 @@ class LLMService:
 
             if modell != POLISH_MODELS[0]:
                 logger.info("Glättung über Ausweichmodell %s gelungen", modell)
-            logger.debug("Geglättet (%d Zeichen): %s", len(entmaskiert), entmaskiert[:80])
+            logger.debug("Geglättet über %s (%d Zeichen)", modell, len(entmaskiert))   # kein Text ins Log
             return entmaskiert
 
         logger.error("Keine Glättung möglich – Rohtext wird verwendet (%s)", letzter_grund)

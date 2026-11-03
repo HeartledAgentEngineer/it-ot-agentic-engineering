@@ -113,6 +113,18 @@ class MainActivity : AppCompatActivity() {
             rueckruf?.onReceiveValue(auswahl?.toTypedArray())
         }
 
+    /** Aus dem Alltags-Pop-up geoeffnet: die Seite startet mit ?alltag=aufnahme (S7). */
+    private var alltagAufnahme = false
+
+    /** Benachrichtigungen pro App-Start hoechstens einmal erfragen. */
+    private var benachrichtigungGefragt = false
+
+    /** Android-13-Dialog "Hey Agent darf Benachrichtigungen senden?" (erst beim Alltagsprotokoll). */
+    private val benachrichtigungErlaubnis =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { erlaubt ->
+            if (erlaubt) AlltagErinnerung.aktualisieren(this)
+        }
+
     private val schlafLeser by lazy { SchlafLeser(this) }
 
     /** Schlaf wird pro App-Start einmal still abgeglichen (nur mit erteilter Erlaubnis). */
@@ -142,6 +154,8 @@ class MainActivity : AppCompatActivity() {
 
         keySpeicher = KeySpeicher(this)
         termux = TermuxLauncher(this)
+        alltagAufnahme = intent?.getBooleanExtra(AlltagErinnerung.EXTRA_AUFNAHME, false) == true
+        AlltagErinnerung.planen(this)
 
         webViewEinrichten()
 
@@ -292,6 +306,8 @@ class MainActivity : AppCompatActivity() {
         // Knopf "Mit Uhr abgleichen" der Seite (schlaf.js). Die WebView laedt nur das eigene
         // Backend (fremde Adressen gehen nach aussen); jede Antwort prueft das zusaetzlich.
         webView.addJavascriptInterface(SchlafBruecke(), "HeyAgentSchlaf")
+        // Stand des Alltagsprotokolls (alltag.js) fuer das Pop-up (S7).
+        webView.addJavascriptInterface(AlltagBruecke(), "HeyAgentAlltag")
     }
 
     private inner class SchlafBruecke {
@@ -299,6 +315,33 @@ class MainActivity : AppCompatActivity() {
         fun abgleichen() {
             runOnUiThread { schlafAbgleichen(fragen = true) }
         }
+    }
+
+    private inner class AlltagBruecke {
+        /** {ok, schlaeft, letzter_eintrag, ...} aus /api/alltag/offen - nur Zeitpunkt und Schlaf. */
+        @JavascriptInterface
+        fun standSetzen(json: String?) {
+            if (json == null || json.length > 2000) return
+            runOnUiThread {
+                if (!istBackend(Uri.parse(webView.url ?: ""))) return@runOnUiThread
+                if (AlltagErinnerung.standSetzen(this@MainActivity, json)) benachrichtigungAnfragen()
+            }
+        }
+    }
+
+    private fun benachrichtigungAnfragen() {
+        if (benachrichtigungGefragt || AlltagErinnerung.darfBenachrichtigen(this)) return
+        benachrichtigungGefragt = true
+        benachrichtigungErlaubnis.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /** Antippen des Pop-ups bei laufender App (singleTask): Seite mit Aufnahme neu laden. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (!intent.getBooleanExtra(AlltagErinnerung.EXTRA_AUFNAHME, false)) return
+        alltagAufnahme = true
+        if (ansicht == Ansicht.SEITE) seiteLaden()
     }
 
     /** Schlaf aus Health Connect holen; ohne Erlaubnis nur dann fragen, wenn [fragen] (Knopf). */
@@ -463,7 +506,9 @@ class MainActivity : AppCompatActivity() {
         val kopf = keySpeicher.holen()?.let { mapOf(AppKonfig.KEY_HEADER to it) } ?: emptyMap()
         webView.visibility = View.VISIBLE
         ladeAnsicht.visibility = View.GONE
-        webView.loadUrl(AppKonfig.START_URL, kopf)
+        val adresse = AlltagErinnerungRegel.startUrl(alltagAufnahme)
+        alltagAufnahme = false
+        webView.loadUrl(adresse, kopf)
     }
 
     private fun zeigeLaden(text: String) {

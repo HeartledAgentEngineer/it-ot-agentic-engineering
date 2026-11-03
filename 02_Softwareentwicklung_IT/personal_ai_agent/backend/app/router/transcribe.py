@@ -87,7 +87,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
         logger.warning("Whisper lieferte leeren Text")
         return {"text": None, "error": "Keine Sprache erkannt"}
 
-    logger.info("Transkribiert (%d Zeichen): %s", len(raw_text), raw_text[:100])
+    # 03.11.2026: nur Zeichenzahlen ins Log — Diktate sind Tagebuch und Alltagsprotokoll.
+    logger.info("Transkribiert (%d Zeichen)", len(raw_text))
 
     # ── 3. Text-Glättung (Füllwörter entfernen, wie TypeFREE) ──────────────
     try:
@@ -97,7 +98,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         polished = None
 
     final_text = polished if polished else raw_text
-    logger.info("Geglättet (%d Zeichen): %s", len(final_text), final_text[:100])
+    logger.info("Geglättet (%d Zeichen)%s", len(final_text), "" if polished else " - Rohtext")
 
     return {"text": final_text}
 
