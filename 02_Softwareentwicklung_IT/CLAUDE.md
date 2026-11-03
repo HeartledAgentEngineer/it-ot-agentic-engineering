@@ -58,7 +58,7 @@ Pfade sind relativ zum Projektverzeichnis.
 | `master-schalter` | `.venv/Scripts/python.exe -m pytest -q` | **37 grün**, Exit 0 (14.10.2026) |
 | `typeFREE` | `PYTHONPATH=. py -3.12 -m pytest windows/tests -q` | **656 grün**, Exit 0 (03.11.2026); läuft auch in GitHub Actions (`.github/workflows/typefree.yml`) |
 | `RAG-Systeme` | `python -m pytest -q tests` (offline: Chunking + Abfrage mit Attrappen; braucht `requirements.txt`) | **13 grün**, Exit 0 (03.11.2026) |
-| `document_automation` | `node --test` | **10 grün**, Exit 0 (02.11.2026) |
+| `document_automation` | `npm run check` (ESLint + `node --test`) | **0 Lint-Befunde, 10 grün**, Exit 0 (03.11.2026) |
 | `university_foundations/versandunternehmen` | `CC=clang bash check.sh` (Original 2020 bauen + Charakterisierungstests) | **12 grün**, Exit 0 (02.11.2026) |
 | `eichhoernchen_spiel` | **entfällt.** Einzelne HTML-Datei, Rapid-Prototyping-Demo | — |
 
