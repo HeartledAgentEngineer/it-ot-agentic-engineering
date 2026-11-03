@@ -107,6 +107,8 @@ async function schlafEmpfangen(jsonText) {
 }
 
 window.heyAgentSchlafEmpfangen = schlafEmpfangen;
+// Hinweise der App (keine Erlaubnis, Health Connect fehlt …) als Klartext unter dem Knopf.
+window.heyAgentSchlafMeldung = _schlafMeldung;
 
 (function () {
     const knopf = _schlafEl('schlaf-abgleichen');

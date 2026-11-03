@@ -80,6 +80,9 @@ console.log('\n5) schlafEmpfangen — schickt angemeldet an die API');
     pruefe('index.html hat #' + id, html.includes('id="' + id + '"'));
   }
   pruefe('Empfänger global erreichbar', /window\.heyAgentSchlafEmpfangen\s*=\s*schlafEmpfangen/.test(src));
+  pruefe('Meldungen der App erreichbar', /window\.heyAgentSchlafMeldung\s*=\s*_schlafMeldung/.test(src));
+  const v = html.match(/schlaf\.js\?v=(\d{8}[A-Z])/);
+  pruefe('schlaf.js mindestens 20261103B', v && v[1] >= '20261103B', v && v[1]);
   pruefe('Checks-Fenster lädt auch den Schlaf', /typeof ladeSchlaf === 'function'/.test(appJs));
   pruefe('kein innerHTML', !/innerHTML/.test(src));
 

@@ -143,6 +143,28 @@ holt die laufende App nach vorn). So öffnet das Widget (`start-termux.sh`) sie 
 Serverstart. `pm list packages` und `am start -n` funktionieren aus Termux nicht, weil Termux
 (`targetSdk 37`) fremde Pakete nicht sieht. Eine Adresse löst Android dagegen immer auf.
 
+## Schlaf von der Uhr (Health Connect, 03.11.2026, Issue #12)
+
+Die Uhr schreibt ihren Schlaf nach Health Connect. Nur eine Android-App darf dort lesen —
+Termux nicht. Deshalb liest Hey Agent (`SchlafLeser`, nur `READ_SLEEP`, letzte 30 Tage)
+und reicht die Nächte an die Seite weiter, die sie angemeldet an `POST /api/alltag/schlaf`
+schickt (idempotent je Sitzungskennung).
+
+- **Erster Abgleich:** Checks-Fenster → „Mit Uhr abgleichen". Die Seite ruft
+  `window.HeyAgentSchlaf.abgleichen()`; ohne Erlaubnis öffnet die App den Health-Connect-Dialog.
+- **Danach automatisch:** einmal pro App-Start nach dem Laden der Seite, still, nur wenn die
+  Erlaubnis schon erteilt ist (kein Dialog ohne Knopfdruck).
+- **Rückweg zur Seite:** `window.heyAgentSchlafEmpfangen(jsonText)` und
+  `window.heyAgentSchlafMeldung(text)` (`frontend/schlaf.js`). JavaScript geht nur in die Seite
+  des eigenen Backends (`seiteAufrufen` prüft die Adresse).
+- **Übersetzung** (Stufen, Zeiten mit Offset, JSON, JS-Maskierung) steckt in
+  `SchlafUebertragung` — JUnit-getestet (`SchlafUebertragungTest`).
+- **Pflichtseite** für Health Connect: `SchlafErklaerungActivity` (bis Android 13 über
+  `ACTION_SHOW_PERMISSIONS_RATIONALE`, ab Android 14 über den `VIEW_PERMISSION_USAGE`-Alias).
+- **Logs:** nur die Anzahl der Sitzungen, keine Zeiten.
+- **Version:** `connect-client:1.1.0-beta01` — die letzte für compileSdk 35 / AGP 8.7.
+  Ab beta02 verlangt die Bibliothek compileSdk 36 und AGP 8.9.1.
+
 ## App-Symbol
 
 Adaptives Symbol nur aus Vektoren (`res/mipmap-anydpi-v26/ic_launcher*.xml`, Teile in

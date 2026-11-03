@@ -10,10 +10,14 @@
          die Aufnahme auf manchen Geraeten. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Schlaf der Uhr aus Health Connect (nur lesen, nur Schlaf). Siehe SchlafLeser. -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
 
-    <!-- Android 11+: Paket-Sichtbarkeit, damit der Knopf "Termux oeffnen" Termux findet. -->
+    <!-- Android 11+: Paket-Sichtbarkeit, damit der Knopf "Termux oeffnen" Termux findet.
+         Health Connect als eigene App (bis Android 13). -->
     <queries>
         <package android:name="com.termux" />
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 
     <application
@@ -43,5 +47,27 @@
                 <data android:scheme="heyagent" android:host="start" />
             </intent-filter>
         </activity>
+
+        <!-- Pflicht fuer Health Connect: Seite "Wofuer braucht Hey Agent deinen Schlaf?".
+             Bis Android 13 ruft Health Connect sie ueber ACTION_SHOW_PERMISSIONS_RATIONALE auf. -->
+        <activity
+            android:name=".SchlafErklaerungActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Ab Android 14 zeigt das System dieselbe Seite ueber VIEW_PERMISSION_USAGE. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".SchlafErklaerungActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

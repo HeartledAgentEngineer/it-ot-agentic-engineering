@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.util.Log
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -33,6 +34,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.health.connect.client.PermissionController
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Vollbild-WebView auf das lokale Backend (Termux, 127.0.0.1:8080).
@@ -105,6 +111,21 @@ class MainActivity : AppCompatActivity() {
             val mehrere = if (clip == null) emptyList() else (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
             val auswahl = DateiAuswahlRegel.gewaehlt(ergebnis.resultCode == Activity.RESULT_OK, daten?.data, mehrere)
             rueckruf?.onReceiveValue(auswahl?.toTypedArray())
+        }
+
+    private val schlafLeser by lazy { SchlafLeser(this) }
+
+    /** Schlaf wird pro App-Start einmal still abgeglichen (nur mit erteilter Erlaubnis). */
+    private var schlafAutomatischVersucht = false
+
+    /** Health-Connect-Dialog "Hey Agent darf Schlaf lesen?" (nur nach Knopfdruck auf der Seite). */
+    private val schlafErlaubnis =
+        registerForActivityResult(PermissionController.createRequestPermissionResultContract()) { erteilt ->
+            if (erteilt.containsAll(SchlafLeser.ERLAUBNIS)) {
+                schlafLesenUndSenden()
+            } else {
+                schlafMelden("Keine Erlaubnis für Schlafdaten. Bitte in Health Connect erlauben.")
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,6 +221,13 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (!schlafAutomatischVersucht && istBackend(Uri.parse(url ?: ""))) {
+                    schlafAutomatischVersucht = true
+                    schlafAbgleichen(fragen = false)
+                }
+            }
+
             override fun onReceivedError(
                 view: WebView,
                 request: WebResourceRequest,
@@ -261,6 +289,57 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        // Knopf "Mit Uhr abgleichen" der Seite (schlaf.js). Die WebView laedt nur das eigene
+        // Backend (fremde Adressen gehen nach aussen); jede Antwort prueft das zusaetzlich.
+        webView.addJavascriptInterface(SchlafBruecke(), "HeyAgentSchlaf")
+    }
+
+    private inner class SchlafBruecke {
+        @JavascriptInterface
+        fun abgleichen() {
+            runOnUiThread { schlafAbgleichen(fragen = true) }
+        }
+    }
+
+    /** Schlaf aus Health Connect holen; ohne Erlaubnis nur dann fragen, wenn [fragen] (Knopf). */
+    private fun schlafAbgleichen(fragen: Boolean) {
+        if (!SchlafLeser.verfuegbar(this)) {
+            if (fragen) schlafMelden("Health Connect ist auf diesem Handy nicht verfügbar.")
+            return
+        }
+        lifecycleScope.launch {
+            val erlaubt = try {
+                schlafLeser.hatErlaubnis()
+            } catch (e: Exception) {
+                Log.w(TAG, "Health-Connect-Erlaubnis nicht lesbar: ${e.javaClass.simpleName}")
+                false
+            }
+            when {
+                erlaubt -> schlafLesenUndSenden()
+                fragen -> schlafErlaubnis.launch(SchlafLeser.ERLAUBNIS)
+            }
+        }
+    }
+
+    private fun schlafLesenUndSenden() {
+        lifecycleScope.launch {
+            try {
+                val naechte = withContext(Dispatchers.IO) { schlafLeser.naechte() }
+                // Nur die Anzahl ins Log, keine Zeiten (Gesundheitsdaten).
+                Log.i(TAG, "Schlaf: ${naechte.size} Sitzungen an die Seite")
+                seiteAufrufen(SchlafUebertragung.jsAufruf(SchlafUebertragung.json(naechte)))
+            } catch (e: Exception) {
+                Log.w(TAG, "Schlaf lesen fehlgeschlagen: ${e.javaClass.simpleName}")
+                schlafMelden("Schlafdaten konnten nicht gelesen werden.")
+            }
+        }
+    }
+
+    private fun schlafMelden(text: String) = seiteAufrufen(SchlafUebertragung.meldungAufruf(text))
+
+    /** JavaScript nur in die Seite des eigenen Backends geben. */
+    private fun seiteAufrufen(code: String) {
+        if (istBackend(Uri.parse(webView.url ?: ""))) webView.evaluateJavascript(code, null)
     }
 
     private fun istBackend(uri: Uri): Boolean =
