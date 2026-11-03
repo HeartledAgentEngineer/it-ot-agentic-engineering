@@ -1418,13 +1418,41 @@ def _norm_aus_pixel(bbox: Any, breite: Any, hoehe: Any) -> Optional[List[float]]
     return [round(bbox[0] / b, 6), round(bbox[1] / h, 6), round(bbox[2] / b, 6), round(bbox[3] / h, 6)]
 
 
+def _je_bild_mit_standbildern(pfad: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Foto-Gesichter je Bild plus die Video-Gesichter je Standbild (F3, 03.11.2026).
+
+    Ohne die Video-Gesichter kannte die Bildsicht auf einem Standbild kein einziges Gesicht —
+    Name, Rahmen und Entfernen scheiterten im Bild-Editor. Gemerkt, solange Gesichtsdatei
+    und Standbild-Karte dieselben Objekte liefern (beide selbst ueber ``_gemerkt``)."""
+    fotos = _gemerkt(pfad, _gesichter_je_bild_laden)
+    karte = _video_karte()
+    if not karte:
+        return fotos
+    zeilen = _gemerkt(pfad, _video_zeilen_laden)
+    alt = _STANDBILD_SICHT.get("letzte")
+    if alt and alt[0] is fotos and alt[1] is zeilen and alt[2] is karte:
+        return alt[3]
+    gesamt = {k: list(v) for k, v in fotos.items()}
+    for kennung, liste in zeilen.items():
+        for g in _video_gesichter(liste, karte)[0]:
+            gesamt.setdefault(g["fileid"], []).append({
+                "gid": g["gid"], "index": g["index"], "kennung": kennung, "bbox": g["bbox"],
+                "breite": g["breite"], "hoehe": g["hoehe"]})
+    _STANDBILD_SICHT["letzte"] = (fotos, zeilen, karte, gesamt)
+    return gesamt
+
+
+# Letzte zusammengefuehrte Sicht; gilt nur, solange dieselben (gemerkten) Objekte kommen.
+_STANDBILD_SICHT: Dict[str, Tuple[Any, Any, Any, Dict[str, List[Dict[str, Any]]]]] = {}
+
+
 def _sicht_quellen(korr: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Alles, was die Gesichtssicht braucht — gelesen, nichts geschrieben.
     Wirft ``GruppenFehler`` (fehlende Gruppen-Datei, unlesbare Datei) oder ``OSError``."""
     pfad = _lesepfad(ZUORDNUNG_DATEINAME)
     if not pfad:
         raise GruppenFehler(FEHLT_HINWEIS)
-    return {"je_bild": _gemerkt(pfad, _gesichter_je_bild_laden), "namen": bestaetigt_lesen(),
+    return {"je_bild": _je_bild_mit_standbildern(pfad), "namen": bestaetigt_lesen(),
             "aus": ausgeschlossen_lesen(), "zug": zugeordnet_lesen(),
             "fremd": set(_stand_lesen()["unbekannt"]),
             "korr": _korrekturen_lesen() if korr is None else korr}
