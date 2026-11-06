@@ -92,6 +92,11 @@ Auf dem Windows-Desktop liegt die Verknüpfung **`Master-Schalter.lnk`**:
 masterwechsel status            # Kompakter Terminal-Status
 masterwechsel profil <thema>    # Rollenprofil eines Themas anzeigen
 masterwechsel master-setzen <thema> <master>  # Master wechseln
+masterwechsel goal <thema>      # Versioniertes Goal abfragen
+masterwechsel goal-setzen <thema> --titel ... # Goal aktualisieren
+masterwechsel kosten [<thema>]  # Budget- und Modellkosten einsehen
+masterwechsel sprache [was-laeuft-wo|pruefungen|fragen|ansage] # Sprachausgabe
+masterwechsel mcp               # OrbitDesk MCP-Server über stdio starten
 ```
 
 ---

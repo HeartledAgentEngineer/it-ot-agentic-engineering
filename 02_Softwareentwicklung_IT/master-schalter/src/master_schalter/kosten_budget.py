@@ -271,3 +271,34 @@ def verbrauch_buchen(
         f.write(json.dumps(eintrag.als_dict(), ensure_ascii=False) + "\n")
 
     return eintrag
+
+
+def kosten_uebersicht(thema: str | None = None, basis: Path | None = None) -> str:
+    """Formatierte Textübersicht für CLI und Logs."""
+    ordner = kosten_ordner(basis)
+    if not ordner.is_dir():
+        return "OrbitDesk Budget- & Kostenstatus: Keine Verbrauchsdaten vorhanden."
+
+    themen_dateien = [p for p in sorted(ordner.glob("*.json")) if not p.name.endswith("_historie.json")]
+    if not themen_dateien:
+        return "OrbitDesk Budget- & Kostenstatus: Keine Projektdaten vorhanden."
+
+    zeilen = ["OrbitDesk Budget- & Kostenstatus:"]
+    gesamt_usd = 0.0
+    for pfad in themen_dateien:
+        t_name = pfad.stem
+        if thema and t_name != thema:
+            continue
+        try:
+            st = budget_status_lesen(t_name, basis)
+            gesamt_usd += st.verbraucht_usd
+            auslastung = (st.verbraucht_usd / st.budget_limit_usd * 100.0) if st.budget_limit_usd > 0 else 0.0
+            warnung = " ⚠ BUDGET-WARNUNG!" if st.warnung_aktiv else ""
+            zeilen.append(
+                f"  * {st.thema}: {st.verbraucht_usd:.4f} $ / {st.budget_limit_usd:.2f} $ "
+                f"({auslastung:.1f} %){warnung} | Tokens: In {st.gesamte_input_tokens:,}, Out {st.gesamte_output_tokens:,}"
+            )
+        except Exception:
+            continue
+    zeilen.append(f"Gesamtkosten: {gesamt_usd:.4f} $")
+    return "\n".join(zeilen)

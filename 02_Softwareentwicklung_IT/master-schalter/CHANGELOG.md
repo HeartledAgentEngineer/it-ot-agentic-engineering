@@ -34,6 +34,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
       - `fragen_an_sebastian()`: Blocker oder Punkte, die Sebastians Entscheidung erfordern.
       - `thema_ansage(thema)`: Kompakte Einzelzusammenfassung.
     - Vollständig abgesichert durch `tests/test_sprach_zentrale.py` (4 Tests grün).
+  * **OrbitDesk CLI-Befehle (`cli.py`, `tests/test_cli_orbitdesk.py`)**:
+    - `masterwechsel goal THEMA [--json]`: Versioniertes Goal abfragen.
+    - `masterwechsel goal-setzen THEMA [--titel ...] [--ziel ...] [--abnahme ...] [--schritt ...]`: Goal anlegen oder mutieren.
+    - `masterwechsel kosten [THEMA] [--json]`: Budget- und Modellkosten einsehen.
+    - `masterwechsel sprache [was-laeuft-wo|pruefungen|fragen|ansage] [THEMA]`: Direkte Sprachabfrage.
+    - `masterwechsel mcp`: Startet den OrbitDesk MCP-Server über stdio.
+    - Vollständig abgesichert durch `tests/test_cli_orbitdesk.py` (3 Tests grün).
 
 ### Behoben
 - **Direktübergabe im Pop-up (`_uebergabe_direkt_starten`)**:

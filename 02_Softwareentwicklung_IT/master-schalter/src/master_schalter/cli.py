@@ -614,6 +614,121 @@ def _claude_auftrag_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _goal_cli(args: argparse.Namespace) -> int:
+    from . import ziele
+    g = ziele.goal_lesen(args.thema)
+    if g is None:
+        if args.json:
+            print(json.dumps({"fehler": f"Kein Goal für '{args.thema}' gefunden"}, ensure_ascii=False))
+        else:
+            print(f"Kein Goal für Thema '{args.thema}' vorhanden.")
+        return 1
+    if args.json:
+        print(json.dumps(g.als_dict(), indent=2, ensure_ascii=False))
+    else:
+        print(f"Goal für {g.thema} (Rev {g.revision}, Status: {g.status}):")
+        print(f"  Titel: {g.titel}")
+        if g.zieltext:
+            print(f"  Ziel: {g.zieltext}")
+        if g.gewuenschte_besetzung or g.tatsaechliche_zustaendigkeit:
+            print(f"  Besetzung: {g.gewuenschte_besetzung} | Zuständig: {g.tatsaechliche_zustaendigkeit}")
+        if g.abnahmekriterien:
+            print("  Abnahmekriterien:")
+            for k in g.abnahmekriterien:
+                print(f"    - {k}")
+        if g.naechster_schritt:
+            print(f"  Nächster Schritt: {g.naechster_schritt}")
+        if g.wartegrung:
+            print(f"  Wartet auf: {g.wartegrung}")
+    return 0
+
+
+def _goal_setzen_cli(args: argparse.Namespace) -> int:
+    from . import ziele
+    kwargs = {}
+    if args.ziel is not None:
+        kwargs["zieltext"] = args.ziel
+    if args.abnahme is not None:
+        kwargs["abnahmekriterien"] = list(args.abnahme)
+    if args.entscheidung is not None:
+        kwargs["entscheidungen"] = list(args.entscheidung)
+    if args.aufgabe is not None:
+        kwargs["offene_aufgaben"] = list(args.aufgabe)
+    if args.fortschritt is not None:
+        kwargs["belegter_fortschritt"] = list(args.fortschritt)
+    if args.schritt is not None:
+        kwargs["naechster_schritt"] = args.schritt
+    if args.rolle is not None:
+        kwargs["gewuenschte_besetzung"] = {"rolle": args.rolle}
+    if args.zustaendigkeit is not None:
+        kwargs["tatsaechliche_zustaendigkeit"] = {"zustaendig": args.zustaendigkeit}
+    if args.wartegrund is not None:
+        kwargs["wartegrung"] = args.wartegrund
+    if args.status is not None:
+        kwargs["status"] = args.status
+
+    g = ziele.goal_anlegen_oder_aktualisieren(
+        args.thema,
+        titel=args.titel or args.thema,
+        **kwargs,
+    )
+    print(f"Goal für '{args.thema}' aktualisiert (Rev {g.revision}).")
+    return 0
+
+
+def _kosten_cli(args: argparse.Namespace) -> int:
+    from . import kosten_budget
+    if args.json:
+        if args.thema:
+            st = kosten_budget.budget_status_lesen(args.thema)
+            print(json.dumps(st.als_dict(), indent=2, ensure_ascii=False))
+        else:
+            ordner = kosten_budget.kosten_ordner()
+            themen_daten = {}
+            gesamt = 0.0
+            if ordner.is_dir():
+                for pfad in sorted(ordner.glob("*.json")):
+                    try:
+                        st = kosten_budget.budget_status_lesen(pfad.stem)
+                        themen_daten[pfad.stem] = st.als_dict()
+                        gesamt += st.verbraucht_usd
+                    except Exception:
+                        continue
+            ergebnisse = {
+                "gesamt_kosten_usd": round(gesamt, 6),
+                "projekte": themen_daten,
+            }
+            print(json.dumps(ergebnisse, indent=2, ensure_ascii=False))
+    else:
+        print(kosten_budget.kosten_uebersicht(args.thema))
+    return 0
+
+
+def _sprache_cli(args: argparse.Namespace) -> int:
+    from . import sprach_zentrale
+    modus = args.modus or "was-laeuft-wo"
+    if modus == "was-laeuft-wo":
+        print(sprach_zentrale.was_laeuft_wo())
+    elif modus == "pruefungen":
+        print(sprach_zentrale.offene_pruefungen_und_blocker())
+    elif modus == "fragen":
+        print(sprach_zentrale.fragen_an_sebastian())
+    elif modus == "ansage":
+        if not args.thema:
+            print("Fehler: Für 'ansage' muss ein Thema angegeben werden.")
+            return 1
+        print(sprach_zentrale.thema_ansage(args.thema))
+    else:
+        print(f"Unbekannter Sprachmodus: {modus}")
+        return 1
+    return 0
+
+
+def _mcp_cli() -> int:
+    from . import mcp_server
+    return mcp_server.main()
+
+
 def _claude_sitzungen_cli(_args: argparse.Namespace) -> int:
     zeilen = []
     for pfad in sorted(status.ordner().glob("claude-*.json")) if status.ordner().is_dir() else []:
@@ -735,6 +850,30 @@ def _parser() -> argparse.ArgumentParser:
     rueck.add_argument("--ja", action="store_true", help="wirklich wechseln und die Übergaben senden")
     rueck.add_argument("--erneut", action="store_true", help="auch senden, wenn bereits übergeben")
     rueck.add_argument("--hinweis", default=None, help="kurzer Zusatz für die Übergabenachricht")
+    goal_parser = unter.add_parser("goal", help="Versioniertes Goal eines Themas lesen")
+    goal_parser.add_argument("thema", help="Thema")
+    goal_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    goal_setzen = unter.add_parser("goal-setzen", help="Goal eines Themas anlegen oder aktualisieren")
+    goal_setzen.add_argument("thema", help="Thema")
+    goal_setzen.add_argument("--titel", default=None, help="Titel des Goals")
+    goal_setzen.add_argument("--ziel", default=None, help="Zielbeschreibung")
+    goal_setzen.add_argument("--abnahme", nargs="*", default=None, help="Abnahmekriterien")
+    goal_setzen.add_argument("--entscheidung", nargs="*", default=None, help="Getroffene Entscheidungen")
+    goal_setzen.add_argument("--aufgabe", nargs="*", default=None, help="Offene Aufgaben")
+    goal_setzen.add_argument("--fortschritt", nargs="*", default=None, help="Belegter Fortschritt")
+    goal_setzen.add_argument("--schritt", default=None, help="Nächster konkreter Schritt")
+    goal_setzen.add_argument("--rolle", default=None, help="Gewünschte Rolle")
+    goal_setzen.add_argument("--zustaendigkeit", default=None, help="Tatsächliche Zuständigkeit")
+    goal_setzen.add_argument("--wartegrund", default=None, help="Wartegrund")
+    goal_setzen.add_argument("--status", choices=("aktiv", "pausiert", "fertig", "blockiert"), default=None)
+    kosten_parser = unter.add_parser("kosten", help="Modellkosten und Budgetstatus anzeigen")
+    kosten_parser.add_argument("thema", nargs="?", default=None, help="optionales Thema")
+    kosten_parser.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
+    sprache_parser = unter.add_parser("sprache", help="Sprachzentrale (TTS-Antworten für Telefonagent)")
+    sprache_parser.add_argument("modus", nargs="?", default="was-laeuft-wo",
+                                choices=("was-laeuft-wo", "pruefungen", "fragen", "ansage"))
+    sprache_parser.add_argument("thema", nargs="?", default=None, help="Thema (für 'ansage')")
+    unter.add_parser("mcp", help="OrbitDesk MCP-Server über stdio starten")
     return p
 
 
@@ -816,6 +955,16 @@ def main(argv: list[str] | None = None) -> int:
         return _claude_auftrag_cli(args)
     if args.befehl == "claude-sitzungen":
         return _claude_sitzungen_cli(args)
+    if args.befehl == "goal":
+        return _goal_cli(args)
+    if args.befehl == "goal-setzen":
+        return _goal_setzen_cli(args)
+    if args.befehl == "kosten":
+        return _kosten_cli(args)
+    if args.befehl == "sprache":
+        return _sprache_cli(args)
+    if args.befehl == "mcp":
+        return _mcp_cli()
     return _status_cli()
 
 
