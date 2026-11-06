@@ -13,7 +13,7 @@ FELDER = ("master", "pruefer", "ausfuehrer", "modell", "arbeitsweise", "auto")
 SPALTEN = (("thema", "Thema", 160), ("master", "Master", 140), ("besitz", "Besitz", 130),
            ("pruefer", "Prüfer", 190), ("ausfuehrer", "Ausführer", 190),
            ("arbeitsweise", "Arbeitsweise", 130), ("auto", "Auto-Freigabe", 130),
-           ("aktion", "Aktion", 140))
+           ("aktion", "Aktion", 120), ("goal", "Goal (vCAS)", 180))
 
 
 @dataclass
@@ -25,16 +25,19 @@ class ThemaZeilenWidgets:
     werte: dict[str, tuple[str | bool | None, ...]] = field(default_factory=dict)
     modell_liste: um.ModellListe | None = None
     aktion_knopf: ttk.Button | None = None
+    goal_knopf: ttk.Button | None = None
 
 
 class ThemenTabelle(ttk.Frame):
     """Canvas-Tabelle; Eingaben geben immer Themenkennung, Feld und fachlichen Wert zurück."""
 
     def __init__(self, master: tk.Misc, *, aendern: Callable[[str, str, str | bool | None], None],
-                 uebergabe_anfordern: Callable[[str, str, str], None] | None = None, **kwargs) -> None:
+                 uebergabe_anfordern: Callable[[str, str, str], None] | None = None,
+                 goal_oeffnen: Callable[[str], None] | None = None, **kwargs) -> None:
         super().__init__(master, **kwargs)
         self._aendern = aendern
         self._uebergabe_anfordern = uebergabe_anfordern
+        self._goal_oeffnen = goal_oeffnen
         self.zeilen: dict[str, ThemaZeilenWidgets] = {}
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -137,6 +140,10 @@ class ThemenTabelle(ttk.Frame):
                 btn = ttk.Button(frame, text="—", style=st.KNOPF_KLEIN, state="disabled")
                 btn.grid(row=0, column=7, sticky="ew", padx=2, pady=2)
                 row.aktion_knopf = btn
+                btn_goal = ttk.Button(frame, text="🎯 Goal …", style=st.KNOPF_KLEIN,
+                                      command=lambda t=zeile.thema: self._goal_klick(t))
+                btn_goal.grid(row=0, column=8, sticky="ew", padx=2, pady=2)
+                row.goal_knopf = btn_goal
                 row.details = ttk.Label(frame, anchor="w", wraplength=1100)
                 row.details.grid_remove()
                 self.zeilen[zeile.thema] = row
@@ -192,6 +199,14 @@ class ThemenTabelle(ttk.Frame):
                         command=lambda t=zeile.thema, a=master_alt, n=master_neu: self._uebergabe_klick(t, a, n))
                 else:
                     row.aktion_knopf.configure(text="—", state="disabled", style=st.KNOPF_KLEIN, command=lambda: None)
+            if row.goal_knopf is not None:
+                if zeile.goal_titel:
+                    kurztitel = zeile.goal_titel[:14] + "…" if len(zeile.goal_titel) > 15 else zeile.goal_titel
+                    row.goal_knopf.configure(text=f"🎯 v{zeile.goal_version}: {kurztitel}",
+                                             state="normal", command=lambda t=zeile.thema: self._goal_klick(t))
+                else:
+                    row.goal_knopf.configure(text="🎯 Goal anlegen …", state="normal",
+                                             command=lambda t=zeile.thema: self._goal_klick(t))
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _auswahl(self, row: ThemaZeilenWidgets, feld: str, box: ttk.Combobox) -> None:
@@ -207,3 +222,7 @@ class ThemenTabelle(ttk.Frame):
     def _uebergabe_klick(self, thema: str, alt: str, neu: str) -> None:
         if self._uebergabe_anfordern:
             self._uebergabe_anfordern(thema, alt, neu)
+
+    def _goal_klick(self, thema: str) -> None:
+        if self._goal_oeffnen:
+            self._goal_oeffnen(thema)

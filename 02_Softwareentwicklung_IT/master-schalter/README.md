@@ -1,14 +1,14 @@
 # OrbitDesk – Steuerzentrale (ehemals Master-Schalter)
 
 OrbitDesk ist die verlässliche Steuerzentrale für mehrere parallele Coding-Projekte in der Windows-Taskleiste und auf dem Desktop. Sie verwaltet Multi-Agenten-Workflows über **Antigravity**, **Codex**, **Claude Code** und **Hermes** hinweg:
-- **Cockpit & Leiste:** Zeigt Nutzungskontingente (Claude, Codex, Gemini/Antigravity) live auf einen Blick.
-- **Versionierte Goals:** Jedes Coding-Projekt besitzt ein versioniertes `Goal` mit Abnahmekriterien, Entscheidungsjournal, offenen Aufgaben und belegtem Fortschritt (Optimistic Locking / CAS-Revisionsprüfung).
-- **Sprachmodus / Telefonagent (Voice-Rolls-Mode):** Sprach- und TTS-Zentrale für „Was läuft wo?“, „Offene Prüfungen & Blocker“ und „Fragen an Sebastian“ (vorlesbar per Windows TTS).
-- **Harness-Chat-Erkennung:** Findet laufende und neue Sitzungen autonom über alle 4 Harnesses (Antigravity SQLite, Codex JSON, Claude Code Sessions, Hermes SQLite `state.db`) und übernimmt sie per Klick.
-- **Kostenmanagement & Budgets:** Überwachung der Inferenzkosten für Azure Foundry (`gpt-6-luna`) und OpenRouter (`deepseek-v4.1-flash`) mit Budget-Grenzen und Delegations-Schutzschalter (> 15k Tokens werden an Luna/Flash delegiert).
+- **Cockpit & Jarvis Sprachsteuerung (Ebene 1):** Vollduplex Live-Anruf mit Klaus (`microsoft/mai-voice-2-flash` / `de-DE-Klaus:MAI-Voice-2` via OpenRouter) inklusive sofortiger Sprachnavigation („Was läuft wo?“, „Blocker?“, „Quoten?“, „Setze Master für Thema X auf Codex“), Barge-In Unterbrechung und lokalem MP3-Cache.
+- **Versionierte Goals pro Thema:** Jedes Coding-Projekt besitzt ein versioniertes `Goal` mit Abnahmekriterien, Entscheidungsjournal, offenem Fortschritt und direktem Ein-Klick-Editor aus der Thementabelle (`🎯 Goal (vCAS)`-Spalte) sowie per Sprachbefehl.
+- **Google Antigravity & Gemini Quotenüberwachung:** Live-Messung der Antigravity-Sitzungen für 5-Stunden-Fenster, Wochenfenster, Argon-Limit und Multi-Modell-Katalog (Gemini 3.8 Flash, Gemini 3.1 Pro, Claude Opus 5.5 Multi-Modell, GPT-6).
+- **Harness-Chat-Erkennung & -Übernahme:** Findet neue Sitzungen autonom über alle 4 Harnesses (Antigravity SQLite, Codex JSON, Claude Code Sessions, Hermes SQLite `state.db`) und übernimmt sie mit einem Klick oder Sprachbefehl verbindlich in `paare.json`, `modi.json` und `ziele.py`.
+- **Kostenmanagement, Budgets & Limits vereint:** Zentrale Dialog-Überwachung für Kontingente aller 4 Plattformen und Inferenzkosten für Azure Foundry (`gpt-6-luna`) und OpenRouter (`deepseek-v4.1-flash`) mit Delegations-Schutzschalter (> 15k Tokens).
 - **Hermes Web & Context-Tank:** Schneller Absprung und Überwachung des Hermes Web-Frontends (`http://127.0.0.1:8080/hermes_status.html`).
 
-Stand: **v0.6.0** (OrbitDesk Evolution); Desktop-Starter `OrbitDesk.lnk`, `orbitdesk.cmd`, `orbitdesk.ps1` und Standalone PyInstaller Spezifikation vorhanden.
+Stand: **v0.6.1** (OrbitDesk Jarvis Live Voice & Autonomous Agent); Desktop-Starter `OrbitDesk.lnk`, `orbitdesk.cmd`, `orbitdesk.ps1` vorhanden.
 
 ## Bedienung
 

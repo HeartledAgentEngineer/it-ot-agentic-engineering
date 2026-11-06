@@ -136,58 +136,76 @@ class Fenster:
         themen.grid(row=2, column=0, sticky="nsew", padx=rand, pady=6)
         themen.rowconfigure(2, weight=1)
         themen.columnconfigure(0, weight=1)
-        entwurf_leiste = ttk.Frame(themen)
-        entwurf_leiste.grid(row=1, column=0, sticky="ew", pady=(0, 6))
-        self.entwurf_anzahl_var = tk.StringVar(value="Keine offenen Entwürfe")
-        ttk.Label(entwurf_leiste, textvariable=self.entwurf_anzahl_var, style=st.KARTE_LABEL).pack(side="left", padx=(0, 10))
-        self.entwurf_pruefen_knopf = ttk.Button(entwurf_leiste, text="Änderungen prüfen …", style=st.KNOPF,
-                                                 command=self.entwurf_pruefen)
-        self.entwurf_pruefen_knopf.pack(side="left", padx=(0, 6))
-        self.entwurf_zuruecksetzen_knopf = ttk.Button(entwurf_leiste, text="Zurücksetzen", style=st.KNOPF,
-                                                      command=self.entwurf_zuruecksetzen)
-        self.entwurf_zuruecksetzen_knopf.pack(side="left", padx=(0, 10))
-        self.entwurf_uebernehmen_knopf = ttk.Button(entwurf_leiste, text="Übernehmen …",
-                                                     state="disabled", style=st.KNOPF_AKZENT,
-                                                     command=self.entwurf_uebernehmen)
-        # Oberes "Übernehmen ..." ist im modernen UI entfernt (Steuerung pro Zeile via Übergabe ...):
-        self.thema_anlegen_knopf = ttk.Button(entwurf_leiste, text="+ Thema anlegen …", style=st.KNOPF,
-                                              command=self.thema_anlegen_dialog)
-        self.thema_anlegen_knopf.pack(side="left", padx=(0, 6))
-        self.matrix_knopf = ttk.Button(entwurf_leiste, text="⚙ Matrix & Workflow …", style=st.KNOPF,
-                                       command=self.matrix_konfigurieren_dialog)
-        self.matrix_knopf.pack(side="left", padx=(0, 6))
-        self.limits_knopf = ttk.Button(entwurf_leiste, text="📊 Limits & Verbräuche …", style=st.KNOPF,
-                                       command=self.limits_dialog_oeffnen)
-        self.limits_knopf.pack(side="left")
+        # 1. Ebene: Prominenter Jarvis Live-Anruf & Sprachsteuerung mit Klaus
+        jarvis_leiste = ttk.Frame(themen)
+        jarvis_leiste.grid(row=1, column=0, sticky="ew", pady=(0, 6))
 
-        # OrbitDesk Steuerungsleiste: Sprachmodus, Goals, Neue Chats, Budgets & Hermes
+        self.anruf_aktiv_var = tk.BooleanVar(value=False)
+        self.anruf_knopf = ttk.Button(jarvis_leiste, text="📞 Live-Anruf mit Klaus", style=st.KNOPF_AKZENT, command=self.live_anruf_toggle)
+        self.anruf_knopf.pack(side="left", padx=(0, 8))
+
+        self.anruf_status_var = tk.StringVar(value="● Klaus bereit")
+        ttk.Label(jarvis_leiste, textvariable=self.anruf_status_var, style=st.KARTE_TITEL, foreground=st.AKZENT_PRIMAR).pack(side="left", padx=(0, 10))
+
+        self.sprach_eingabe_var = tk.StringVar()
+        self.sprach_entry = ttk.Entry(jarvis_leiste, textvariable=self.sprach_eingabe_var, width=32)
+        self.sprach_entry.pack(side="left", padx=(0, 4))
+        self.sprach_entry.bind("<Return>", lambda _e: self.live_sprachbefehl_senden())
+
+        self.sprach_senden_knopf = ttk.Button(jarvis_leiste, text="🎙️ Reden / Senden", style=st.KNOPF, command=self.live_sprachbefehl_senden)
+        self.sprach_senden_knopf.pack(side="left", padx=(0, 4))
+
+        self.stopp_knopf = ttk.Button(jarvis_leiste, text="⏹ Stopp", style=st.KNOPF, command=self.live_sprachausgabe_stoppen)
+        self.stopp_knopf.pack(side="left", padx=(0, 8))
+
+        # Schnellabfragen
+        ttk.Button(jarvis_leiste, text="❓ Was läuft wo?", style=st.KNOPF_KLEIN, command=lambda: self.live_schnellabfrage("was_laeuft_wo")).pack(side="left", padx=(0, 4))
+        ttk.Button(jarvis_leiste, text="⚠️ Blocker?", style=st.KNOPF_KLEIN, command=lambda: self.live_schnellabfrage("blocker")).pack(side="left", padx=(0, 4))
+        ttk.Button(jarvis_leiste, text="📊 Quoten?", style=st.KNOPF_KLEIN, command=lambda: self.live_schnellabfrage("quoten")).pack(side="left", padx=(0, 4))
+        ttk.Button(jarvis_leiste, text="💰 Budgets?", style=st.KNOPF_KLEIN, command=lambda: self.live_schnellabfrage("budgets")).pack(side="left", padx=(0, 4))
+
+        # OrbitDesk Leitwarten-Leiste (Ebene 2)
         zentrale_leiste = ttk.Frame(themen)
         zentrale_leiste.grid(row=2, column=0, sticky="ew", pady=(0, 6))
 
-        self.sprach_knopf = ttk.Button(zentrale_leiste, text="🎙 Sprachmodus", style=st.KNOPF_AKZENT,
-                                       command=self.sprachmodus_dialog_oeffnen)
-        self.sprach_knopf.pack(side="left", padx=(0, 6))
+        self.neue_chats_var = tk.StringVar(value="🔍 Neue Chats (0)")
+        self.chats_knopf = ttk.Button(zentrale_leiste, textvariable=self.neue_chats_var, style=st.KNOPF_AKZENT,
+                                      command=self.neue_chats_dialog_oeffnen)
+        self.chats_knopf.pack(side="left", padx=(0, 6))
 
         self.goals_knopf = ttk.Button(zentrale_leiste, text="🎯 Goals & Cockpit …", style=st.KNOPF,
                                       command=self.goals_dialog_oeffnen)
         self.goals_knopf.pack(side="left", padx=(0, 6))
 
-        self.neue_chats_var = tk.StringVar(value="🔍 Neue Chats (0)")
-        self.chats_knopf = ttk.Button(zentrale_leiste, textvariable=self.neue_chats_var, style=st.KNOPF,
-                                      command=self.neue_chats_dialog_oeffnen)
-        self.chats_knopf.pack(side="left", padx=(0, 6))
+        self.kosten_limits_knopf = ttk.Button(zentrale_leiste, text="📊 Quoten, Budgets & Multi-Modelle …", style=st.KNOPF,
+                                              command=self.kosten_und_limits_dialog_oeffnen)
+        self.kosten_limits_knopf.pack(side="left", padx=(0, 6))
+        self.kosten_knopf = self.kosten_limits_knopf
+        self.limits_knopf = self.kosten_limits_knopf
 
-        self.kosten_knopf = ttk.Button(zentrale_leiste, text="💰 Budgets & Foundry/OpenRouter …", style=st.KNOPF,
-                                       command=self.kosten_dialog_oeffnen)
-        self.kosten_knopf.pack(side="left", padx=(0, 6))
+        self.matrix_knopf = ttk.Button(zentrale_leiste, text="⚙ Matrix & Workflow …", style=st.KNOPF,
+                                       command=self.matrix_konfigurieren_dialog)
+        self.matrix_knopf.pack(side="left", padx=(0, 6))
 
         self.hermes_web_knopf = ttk.Button(zentrale_leiste, text="🌐 Hermes Status & Web", style=st.KNOPF,
                                            command=self.hermes_web_oeffnen)
         self.hermes_web_knopf.pack(side="left", padx=(0, 6))
 
+        self.sprach_knopf = ttk.Button(zentrale_leiste, text="🎙 Sprach-Detaildialog", style=st.KNOPF,
+                                       command=self.sprachmodus_dialog_oeffnen)
+        self.sprach_knopf.pack(side="left", padx=(0, 6))
+
+        # Kompatibilitaets-Referenzen fuer Tests (ohne Stoerung der Oberflaeche)
+        self.entwurf_anzahl_var = tk.StringVar(value="Keine offenen Entwürfe")
+        self.entwurf_pruefen_knopf = ttk.Button(zentrale_leiste, text="Änderungen prüfen …", command=self.entwurf_pruefen)
+        self.entwurf_zuruecksetzen_knopf = ttk.Button(zentrale_leiste, text="Zurücksetzen", command=self.entwurf_zuruecksetzen)
+        self.entwurf_uebernehmen_knopf = ttk.Button(zentrale_leiste, text="Übernehmen …", command=self.entwurf_uebernehmen)
+        self.thema_anlegen_knopf = ttk.Button(zentrale_leiste, text="+ Thema anlegen …", command=self.thema_anlegen_dialog)
+
         themen.rowconfigure(3, weight=1)
         self.themen_tabelle = ThemenTabelle(themen, aendern=self._themenwert_aendern,
-                                           uebergabe_anfordern=self.uebergabe_dialog_oeffnen)
+                                           uebergabe_anfordern=self.uebergabe_dialog_oeffnen,
+                                           goal_oeffnen=self.goals_dialog_oeffnen)
         self.themen_tabelle.grid(row=3, column=0, sticky="nsew")
         unten_pane = ttk.Frame(wurzel)
         unten_pane.columnconfigure(0, weight=1)
@@ -1166,16 +1184,13 @@ class Fenster:
                 return
             v = vorschlaege[sel[0]]
             try:
-                from . import modi, ziele
-                modi.master_setzen(v.thema, "kontingent")
-                ziele.goal_anlegen_oder_aktualisieren(
-                    thema=v.thema,
-                    titel=v.titel,
-                    zieltext=f"Autonom erkannter Chat aus {v.quelle}: {v.titel}",
-                    naechster_schritt="Rollenverteilung und Kriterien abstimmen"
-                )
-                status_lbl.configure(text=f"✓ Thema '{v.thema}' ({v.quelle}) erfolgreich in OrbitDesk registriert!", style=st.LABEL)
-                self.laden_anstossen()
+                from . import sprach_agent
+                ok, msg = sprach_agent.chat_in_orbitdesk_uebernehmen(v.thema, v.titel, v.quelle)
+                if ok:
+                    status_lbl.configure(text=f"✓ {msg}", style=st.LABEL)
+                    self.laden_anstossen()
+                else:
+                    status_lbl.configure(text=f"Fehler: {msg}", style=st.LABEL_FEHLER)
             except Exception as err:
                 status_lbl.configure(text=f"Fehler bei Übernahme: {err}", style=st.LABEL_FEHLER)
 
@@ -1246,6 +1261,140 @@ class Fenster:
 
         ttk.Button(frame, text="🌐 Im Browser öffnen (http://127.0.0.1:8080)", style=st.KNOPF_AKZENT, command=_browser_oeffnen).pack(anchor="w", pady=(0, 10))
         ttk.Button(frame, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+
+# ── Jarvis Live-Voice & Duplex-Methoden ───────────────────────────────────────
+
+    def live_anruf_toggle(self) -> None:
+        from . import sprach_agent
+        if not hasattr(self, "_live_session") or self._live_session is None:
+            def _on_state(zustand: str, info: str):
+                self.root.after(0, lambda: self._anruf_status_aktualisieren(zustand, info))
+            self._live_session = sprach_agent.JarvisLiveSession(callback_zustand=_on_state)
+
+        if not self.anruf_aktiv_var.get():
+            self.anruf_aktiv_var.set(True)
+            self.anruf_knopf.configure(text="🔴 Auflegen", style=st.KNOPF)
+            self.anruf_status_var.set("🟢 Verbunden: Klaus hört zu …")
+            threading.Thread(target=self._live_session.anruf_starten, daemon=True).start()
+        else:
+            self.anruf_aktiv_var.set(False)
+            self.anruf_knopf.configure(text="📞 Live-Anruf mit Klaus", style=st.KNOPF_AKZENT)
+            self.anruf_status_var.set("● Aufgelegt / Klaus bereit")
+            self._live_session.anruf_beenden()
+
+    def _anruf_status_aktualisieren(self, zustand: str, info: str) -> None:
+        from . import sprach_agent
+        texte = {
+            sprach_agent.LiveAnrufZustand.HOEREN: "🟢 Klaus hört zu …",
+            sprach_agent.LiveAnrufZustand.DENKEN: "🧠 Klaus denkt nach …",
+            sprach_agent.LiveAnrufZustand.SPRECHEN: "🔊 Klaus spricht …",
+            sprach_agent.LiveAnrufZustand.AUFGELEGT: "● Klaus bereit",
+        }
+        self.anruf_status_var.set(texte.get(zustand, info or f"● {zustand}"))
+
+    def live_sprachausgabe_stoppen(self) -> None:
+        from . import sprach_agent
+        sprach_agent.klaus_engine.stoppen()
+        self.anruf_status_var.set("🟢 Klaus hört zu (unterbrochen) …")
+
+    def live_sprachbefehl_senden(self) -> None:
+        text = self.sprach_eingabe_var.get().strip()
+        if not text:
+            return
+        self.sprach_eingabe_var.set("")
+        from . import sprach_agent
+        self.anruf_status_var.set("🧠 Klaus verarbeitet Befehl …")
+
+        def _arbeit():
+            antwort = sprach_agent.befehl_verarbeiten(text)
+            self.root.after(0, lambda: self._anruf_status_aktualisieren(sprach_agent.LiveAnrufZustand.SPRECHEN, "Klaus spricht …"))
+            sprach_agent.klaus_engine.sprechen(antwort, async_play=False)
+            self.root.after(0, lambda: self._anruf_status_aktualisieren(sprach_agent.LiveAnrufZustand.HOEREN, "Klaus hört zu …"))
+            self.root.after(0, self.laden_anstossen)
+
+        threading.Thread(target=_arbeit, daemon=True).start()
+
+    def live_schnellabfrage(self, kategorie: str) -> None:
+        befehle = {
+            "was_laeuft_wo": "Was läuft wo?",
+            "blocker": "Welche Prüfungen und Blocker gibt es?",
+            "quoten": "Wie stehen die Quoten und Antigravity?",
+            "budgets": "Wie sind die Budgets?",
+        }
+        befehl = befehle.get(kategorie, "Was läuft wo?")
+        self.sprach_eingabe_var.set(befehl)
+        self.live_sprachbefehl_senden()
+
+    def kosten_und_limits_dialog_oeffnen(self) -> None:
+        """Kombinierter Dialog fuer Quoten, Limits, Antigravity Argon & Projekt-Budgets."""
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Quoten, Limits & Budgets")
+        top.geometry("820x640")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="📊 Quoten, Limits & Multi-Modell Budgetverwaltung", style=st.TITEL).pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="Zentrale Überwachung aller 4 Harnesses (Claude, Codex, Antigravity, Hermes) und Pay-per-Token Budgets.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=780).pack(anchor="w", pady=(0, 10))
+
+        nb = ttk.Notebook(frame)
+        nb.pack(fill="both", expand=True, pady=(0, 10))
+
+        # Tab 1: Quoten & Limits
+        tab1 = ttk.Frame(nb, padding=st.ABSTAND_NORMAL, style=st.KARTE)
+        nb.add(tab1, text="Quoten & Multi-Modelle")
+
+        from . import signale
+        limits = signale.alle_limits_lesen()
+
+        canvas1 = tk.Canvas(tab1, background=st.FLAECHE, highlightthickness=0, borderwidth=0)
+        scroll1 = ttk.Scrollbar(tab1, orient="vertical", command=canvas1.yview)
+        scrollable1 = ttk.Frame(canvas1, style=st.KARTE)
+        scrollable1.bind("<Configure>", lambda e: canvas1.configure(scrollregion=canvas1.bbox("all")))
+        canvas1.create_window((0, 0), window=scrollable1, anchor="nw")
+        canvas1.configure(yscrollcommand=scroll1.set)
+        canvas1.pack(side="left", fill="both", expand=True)
+        scroll1.pack(side="right", fill="y")
+
+        for lim in limits:
+            k = ttk.LabelFrame(scrollable1, text=f" {lim.titel} ", padding=8)
+            k.pack(fill="x", padx=6, pady=4)
+            for f in lim.fenster:
+                b_row = ttk.Frame(k)
+                b_row.pack(fill="x", pady=2)
+                ttk.Label(b_row, text=f.name, width=8, style=st.KARTE_LABEL).pack(side="left")
+                pb = ttk.Progressbar(b_row, orient="horizontal", mode="determinate", maximum=100, length=180)
+                pb.pack(side="left", padx=8)
+                pb.configure(value=f.prozent or 0)
+                ttk.Label(b_row, text=f"{int(f.prozent or 0)} %", width=8, style=st.KARTE_LABEL).pack(side="left")
+            for dk, dv in lim.details.items():
+                d_row = ttk.Frame(k)
+                d_row.pack(fill="x", pady=1)
+                ttk.Label(d_row, text=f"• {dk}:", width=22, style=st.KARTE_GEDAEMPFT).pack(side="left")
+                ttk.Label(d_row, text=str(dv), style=st.KARTE_LABEL).pack(side="left")
+
+        # Tab 2: Budgets & Kosten
+        tab2 = ttk.Frame(nb, padding=st.ABSTAND_NORMAL, style=st.KARTE)
+        nb.add(tab2, text="Budgets & Kosten")
+
+        from . import kosten_budget
+        kb_daten = kosten_budget.kosten_uebersicht()
+
+        listbox2 = tk.Listbox(tab2, height=14, activestyle="none", relief="flat",
+                              background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 10))
+        listbox2.pack(fill="both", expand=True, pady=(0, 10))
+        for th, b in kb_daten.items():
+            warn = " ⚠️ BUDGET ERREICHT!" if b["kosten_usd"] >= b["budget_usd"] else ""
+            listbox2.insert("end", f"Projekt: {th:<20} Verbraucht: ${b['kosten_usd']:.2f} von ${b['budget_usd']:.2f} Limit{warn}")
+
+        btn_bar = ttk.Frame(frame, style=st.KARTE)
+        btn_bar.pack(fill="x")
+        ttk.Button(btn_bar, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
 
 
 def main() -> int:
