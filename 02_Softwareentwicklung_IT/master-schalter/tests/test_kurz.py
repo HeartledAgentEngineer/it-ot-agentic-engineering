@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from master_schalter import besitz, cli, kurz, modi, paare, status, uebergabe
+from master_schalter import besitz, cli, kurz, modi, paare, rollen, status, uebergabe
 from master_schalter.signale import Fenster, Kontingent
 
 UTC = timezone.utc
@@ -67,8 +67,11 @@ def test_lage_unbekannt_zeigt_keine_besetzung():
 def test_lage_bekannt_zeigt_matrix_ohne_klammern():
     zeilen = _zeilen([_k("Claude", 10, 20), _k("Codex", 99, 20)])
     assert zeilen[0].startswith("Master-Status · 20:00 · Lage 2B")
-    assert ("Matrix: Planer Claude Opus 5.5 · Prüfer DeepSeek V4.1 Flash · "
-            "Ausführer Claude Sonnet 5.5 / DeepSeek V4.1 Flash") in zeilen
+    b = rollen.besetzung("2B")
+    erwartet = (f"Matrix: Planer {kurz._ohne_klammern(b.thinker)} · "
+                f"Prüfer {kurz._ohne_klammern(b.reviewer)} · "
+                f"Ausführer {kurz._ohne_klammern(b.worker)}")
+    assert erwartet in zeilen
 
 
 def test_automatik_wirksam_nur_mit_kontingent_master_aktivem_paar_und_global_an():

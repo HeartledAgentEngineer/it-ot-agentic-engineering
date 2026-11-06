@@ -162,7 +162,8 @@ def _frist_abgelaufen(vorgang: av.Vorgang, jetzt: datetime) -> bool:
 
 def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_chat: ChatRef | None = None,
                repo: Path | None = None, jetzt: datetime | None = None,
-               transport: Transport | None = None, abgabe_modus: str = "frist",
+               transport: Transport | None = None, agy_transport: Callable[[list[str], dict[str, str], int], tuple[int, str]] | None = None,
+               abgabe_modus: str = "frist",
                git: Callable[[Path, list[str]], str] | None = None) -> av.Vorgang:
     """Einen Wechsel starten: Vorgang anlegen, dem alten Chat den Abgabe-Auftrag schicken, einmal fortsetzen.
 
@@ -213,7 +214,7 @@ def uebergeben(thema: str, ziel: str, *, von_chat: ChatRef | None = None, nach_c
         else:
             _abgabe_senden(vorgang, von_chat, laufend, transport)
         try:
-            return fortsetzen(vorgang.id, repo=repo, jetzt=jetzt, transport=transport, git=git)
+            return fortsetzen(vorgang.id, repo=repo, jetzt=jetzt, transport=transport, agy_transport=agy_transport, git=git)
         except AssistentFehler as fehler:
             # Der Vorgang steht; `masterwechsel fortsetzen` zeigt den Fehler erneut und macht weiter.
             # Nur die Fehlerklasse ins Protokoll: Ausnahmetexte können Pfade enthalten.
@@ -273,6 +274,7 @@ def _abgabe_senden(vorgang: av.Vorgang, ref: ChatRef, laufend: str, transport: T
 
 def fortsetzen(vorgang_id: str, *, repo: Path | None = None, jetzt: datetime | None = None,
                transport: Transport | None = None,
+               agy_transport: Callable[[list[str], dict[str, str], int], tuple[int, str]] | None = None,
                git: Callable[[Path, list[str]], str] | None = None) -> av.Vorgang:
     """Einen Vorgang so weit bringen, wie es jetzt sicher geht; mehrfaches Aufrufen sendet nie doppelt.
 
@@ -296,7 +298,7 @@ def fortsetzen(vorgang_id: str, *, repo: Path | None = None, jetzt: datetime | N
             raise AssistentFehler(f"Vorgang unbekannt: {vorgang_id}")
         vorgang = _frist(vorgang, repo=repo, jetzt=jetzt, transport=transport)
         vorgang = _rolle_setzen(vorgang, repo=repo, jetzt=jetzt, transport=transport, git=git)
-        vorgang = _zustellen(vorgang, repo=repo, jetzt=jetzt, transport=transport)
+        vorgang = _zustellen(vorgang, repo=repo, jetzt=jetzt, transport=transport, agy_transport=agy_transport)
     except AssistentFehler:
         raise
     except Exception as fehler:  # noqa: BLE001
@@ -442,7 +444,8 @@ def _ueberholte_verwerfen(neu: av.Vorgang) -> None:
 
 
 def _zustellen(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime,
-               transport: Transport | None) -> av.Vorgang:
+               transport: Transport | None,
+               agy_transport: Callable[[list[str], dict[str, str], int], tuple[int, str]] | None = None) -> av.Vorgang:
     ref = ChatRef.aus_dict(vorgang.nach_chat)
     if vorgang.phase != "rolle_gesetzt" or ref is None:
         return vorgang                  # ohne neuen Chat später nachholbar ("Zustellung nachholen")
@@ -485,18 +488,30 @@ def _zustellen(vorgang: av.Vorgang, *, repo: Path | None, jetzt: datetime,
         neu = av.phase_wechseln(vorgang.id, ("sende",), phase, **felder)
         protokoll.schreiben(vorgang.id, vorgang.thema, "neu_entfallen", phase)
         return neu or sende
+    weck_hinweis: str | None = None
     if ref.werkzeug == "codex":
         erg = _codex_senden(ref.kennung, text, transport)
     else:
         erg = "ok" if _postfach_legen(ref, vorgang.id, vorgang.thema, "neu") else "fehler"
-        if erg == "ok" and ref.werkzeug == "agy" and transport is None:
+        if erg == "ok" and ref.werkzeug == "agy":
             try:
                 from . import agy_senden
-                agy_senden.nachricht_senden(ref.kennung, text, titel=f"Master-Schalter: {vorgang.thema}")
+                weck_erg = agy_senden.nachricht_senden(
+                    ref.kennung, text, titel=f"Master-Schalter: {vorgang.thema}", lauf=agy_transport
+                )
+                protokoll.schreiben(vorgang.id, vorgang.thema, "weckversuch", f"agy:{weck_erg}")
+                if weck_erg != "ok":
+                    weck_hinweis = f"Chat-Wecken: {weck_erg} (Postfach bereit)"
             except Exception:  # noqa: BLE001 - Postfach liegt bereits sicher bereit
-                pass
+                protokoll.schreiben(vorgang.id, vorgang.thema, "weckversuch", "agy:ausnahme")
+                weck_hinweis = "Chat-Wecken: ausnahme (Postfach bereit)"
     phase = "im_postfach" if erg == "ok" and ref.werkzeug != "codex" else NEU_WEG[erg]
-    felder = {} if erg == "ok" else {"fehler": NEU_FEHLER[erg]}   # sonst bleibt ein früherer Grund (z. B. übersprungene Abgabe)
+    if erg != "ok":
+        felder = {"fehler": NEU_FEHLER[erg]}
+    elif weck_hinweis is not None:
+        felder = {"fehler": weck_hinweis}
+    else:
+        felder = {}
     # Vergleich-und-Setzen nur aus `sende`: hat der neue Chat schon quittiert/abgeholt, bleibt dessen Phase.
     neu = av.phase_wechseln(vorgang.id, ("sende",), phase, **felder)
     protokoll.schreiben(vorgang.id, vorgang.thema, "neu_ergebnis", phase)

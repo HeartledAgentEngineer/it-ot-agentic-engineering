@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from master_schalter import uebersicht_modell as um
+from master_schalter import uebersicht_modell as um, uebersicht_stil as st
 from master_schalter.uebersicht_tabelle import FELDER
 from master_schalter.uebersicht import Fenster
 
@@ -60,6 +60,14 @@ def _snap(*zeilen: um.ThemaZeile, wechsel: tuple[str, ...] = (), pruefbar: bool 
     object.__setattr__(snap, "wechsel_themen", wechsel)
     object.__setattr__(snap, "wechsel_pruefbar", pruefbar)
     return snap
+
+
+def test_freie_flaeche_unter_themenzeilen_ist_dunkel(wurzel) -> None:
+    fenster = Fenster(wurzel, starten=False)
+    fenster.snapshot_anwenden(_snap(_zeile("alpha")))
+    wurzel.update_idletasks()
+
+    assert fenster.themen_tabelle.canvas.cget("background") == st.FLAECHE
 
 
 def test_jede_themenzeile_hat_sechs_fachlich_gebundene_dropdowns(wurzel) -> None:

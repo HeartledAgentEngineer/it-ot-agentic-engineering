@@ -198,7 +198,8 @@ def _plan(repo: Path, technisch: list[tuple[float, Path]]) -> list[str]:
 
 def paket_bauen(von: str, nach: str, hinweis: str | None, repo: Path | None = None,
                 jetzt: datetime | None = None, git: Git | None = None, *,
-                plaene: bool = True, minimal: bool = False) -> Path:
+                plaene: bool = True, minimal: bool = False,
+                thema: str | None = None, goal: object | None = None) -> Path:
     """Schreibt das Paket und gibt seinen Pfad zurück; ein vorhandenes Paket wird nie überschrieben.
 
     Die ersten sechs Argumente bleiben unverändert (v0.2-Aufrufe behalten ihr Verhalten). Die
@@ -209,6 +210,7 @@ def paket_bauen(von: str, nach: str, hinweis: str | None, repo: Path | None = No
       Commits und die **Anzahl** uncommitteter Pfade (der Zähler für den gesperrten Ordner bleibt).
     * `plaene=False`: `_plaene` wird **gar nicht** aufgerufen – keine Plan-Datei geöffnet oder
       aufgelistet. „Offen" und „Plan" enthalten nur den festen Hinweis auf die laufende Übergabe.
+    * `thema` / `goal`: Übernimmt versionierte Goal- und Fortschrittsdaten nach `## Goal & Fortschritt`.
     """
     repo = repo or repo_wurzel()
     jetzt = jetzt or datetime.now().astimezone()
@@ -223,6 +225,21 @@ def paket_bauen(von: str, nach: str, hinweis: str | None, repo: Path | None = No
         offen, plan = _offen_hinweis(), _plan_hinweis()
         umfang = ("Umfang: nur Git-Metadaten (Zeitpunkt, HEAD, Zählwerte) – keine Betreffzeilen, "
                   "keine Dateinamen, kein Dateiinhalt.")
+
+    goal_abschnitt: list[str] = []
+    if goal is None and thema:
+        try:
+            from . import ziele
+            goal = ziele.goal_lesen(thema)
+        except Exception:  # noqa: BLE001
+            goal = None
+    if goal is not None:
+        try:
+            from . import ziele
+            goal_abschnitt = ["## Goal & Fortschritt", "", ziele.goal_zu_markdown(goal), ""]
+        except Exception:  # noqa: BLE001
+            pass
+
     text = "\n".join([
         f"# Masterwechsel {von} → {nach}", "",
         f"Zeit: {jetzt.strftime('%d.%m.%Y %H:%M:%S')}",
@@ -230,10 +247,12 @@ def paket_bauen(von: str, nach: str, hinweis: str | None, repo: Path | None = No
         *stand,
         *offen,
         *plan,
+        *goal_abschnitt,
         "## Hinweise", "", (hinweis or "").strip() or "—", "",
     ])
     ordner = repo / ".hermes" / "uebergabe"
-    basis = f"{jetzt:%Y-%m-%d_%H%M%S}_masterwechsel-{von}-{nach}"
+    suffix = f"_{thema}" if thema else ""
+    basis = f"{jetzt:%Y-%m-%d_%H%M%S}_masterwechsel-{von}-{nach}{suffix}"
     try:
         ordner.mkdir(parents=True, exist_ok=True)
         zaehler = 1

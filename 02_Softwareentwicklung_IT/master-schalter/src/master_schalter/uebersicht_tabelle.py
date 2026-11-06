@@ -38,7 +38,7 @@ class ThemenTabelle(ttk.Frame):
         self.zeilen: dict[str, ThemaZeilenWidgets] = {}
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
-        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.canvas = tk.Canvas(self, background=st.FLAECHE, highlightthickness=0, borderwidth=0)
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.ybar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.ybar.grid(row=0, column=1, sticky="ns")

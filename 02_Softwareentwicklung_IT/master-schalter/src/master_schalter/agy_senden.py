@@ -106,6 +106,16 @@ def _befehl_und_umgebung(umgebung: Mapping[str, str] | None = None,
     gespeichert = dict(umgebung) if umgebung is not None else umgebung_lesen(datei)
     if not (gespeichert.get("ANTIGRAVITY_LS_ADDRESS", "").strip()
             and gespeichert.get("ANTIGRAVITY_CSRF_TOKEN", "").strip()):
+        # Automatischer Refresh, falls im laufenden Prozess echte Antigravity-Daten vorliegen
+        if (umgebung is None and not os.environ.get("MASTER_SCHALTER_DATEN")
+                and os.environ.get("ANTIGRAVITY_LS_ADDRESS", "").strip()
+                and os.environ.get("ANTIGRAVITY_CSRF_TOKEN", "").strip()):
+            umgebung_merken(os.environ, datei)
+            gespeichert = umgebung_lesen(datei)
+        else:
+            return None
+    if not (gespeichert.get("ANTIGRAVITY_LS_ADDRESS", "").strip()
+            and gespeichert.get("ANTIGRAVITY_CSRF_TOKEN", "").strip()):
         return None
     exe = gespeichert.get("ANTIGRAVITY_AGENTAPI_EXE", "").strip()
     if not exe or not Path(exe).is_file():
@@ -171,16 +181,42 @@ def _kennung_aus_ausgabe(ausgabe: str) -> str | None:
     return _kennung_aus_daten(daten)
 
 
+STATUS_GEWECKT = "GEWECKT"
+STATUS_POSTFACH_BEREIT = "POSTFACH_BEREIT"
+STATUS_NICHT_ERREICHBAR = "NICHT_ERREICHBAR"
+STATUS_VERBINDUNG_FEHLT = "VERBINDUNG_FEHLT"
+STATUS_FEHLER = "FEHLER"
+STATUS_UNKLAER = "UNKLAER"
+
+
+def verbindungsstatus(datei: Path | None = None) -> dict[str, object]:
+    """Prüft den Status der gespeicherten Antigravity-Verbindung."""
+    env = umgebung_lesen(datei)
+    adresse = env.get("ANTIGRAVITY_LS_ADDRESS", "").strip()
+    token = bool(env.get("ANTIGRAVITY_CSRF_TOKEN", "").strip())
+    exe = env.get("ANTIGRAVITY_AGENTAPI_EXE", "").strip()
+    if not exe or not Path(exe).is_file():
+        exe = _standard_exe() or ""
+    exe_vorhanden = bool(exe and Path(exe).is_file())
+    konfiguriert = bool(adresse and token and exe_vorhanden)
+    return {
+        "konfiguriert": konfiguriert,
+        "adresse": adresse,
+        "token_vorhanden": token,
+        "exe_vorhanden": exe_vorhanden,
+    }
+
+
 def nachricht_senden(kennung: str, text: str, *, titel: str = "", lauf: Lauf | None = None,
                      umgebung: Mapping[str, str] | None = None, datei: Path | None = None) -> str:
-    """Nachricht an ein bestehendes Antigravity-Gespräch senden (`ok` | `fehler` | `unklar`)."""
+    """Nachricht an ein bestehendes Antigravity-Gespräch senden (`ok` | `verbindung_fehlt` | `nicht_erreichbar` | `fehler` | `unklar`)."""
     if not isinstance(kennung, str) or modi.VORGANG_ID_MUSTER.fullmatch(kennung) is None:
         return "fehler"
     if not isinstance(text, str) or not text.strip():
         return "fehler"
     vorbereitet = _befehl_und_umgebung(umgebung, datei)
     if vorbereitet is None and lauf is None:
-        return "fehler"
+        return "verbindung_fehlt"
     praefix, env = vorbereitet if vorbereitet is not None else (["agentapi"], dict(umgebung or {}))
     befehl = [*praefix, "send-message"]
     if titel.strip():
@@ -191,7 +227,7 @@ def nachricht_senden(kennung: str, text: str, *, titel: str = "", lauf: Lauf | N
     except subprocess.TimeoutExpired:
         return "unklar"
     except OSError:
-        return "fehler"
+        return "nicht_erreichbar"
     if code != 0:
         return "fehler"
     if ausgabe.strip():

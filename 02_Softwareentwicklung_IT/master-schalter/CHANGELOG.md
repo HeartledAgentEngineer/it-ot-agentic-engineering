@@ -5,15 +5,48 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Hinzugefügt
+- **OrbitDesk: Ausbau zur verlässlichen Multi-Agentic-Steuerzentrale**:
+  * **Chat-Weck-Automatik & Refresh (`agy_senden.py`, `assistent.py`)**:
+    - Automatischer Refresh veralteter oder abgelaufener Antigravity-Verbindungsdaten aus der Prozessumgebung in `agy-server.json`.
+    - Differenzierte Weck-Statuscodes (`GEWECKT`, `POSTFACH_BEREIT`, `NICHT_ERREICHBAR`, `VERBINDUNG_FEHLT`, `FEHLER`).
+    - Im Wechselassistenten wird das Weck-Ergebnis im Protokoll verzeichnet und bei Nichterreichbarkeit transparent als `Chat-Wecken: ... (Postfach bereit)` im Vorgang ausgewiesen, statt Weckfehler stumm zu verschlucken.
+    - Vollständig abgesichert durch `tests/test_agy_senden.py` (8 Tests grün).
+  * **Versioniertes Goal- & Fortschritts-Tracking (`ziele.py`, `uebergabe.py`)**:
+    - Neues Modul `ziele.py` zur Verwaltung strukturierter, versionierter Goal-Objekte (`titel`, `zieltext`, `abnahmekriterien`, `entscheidungen`, `offene_aufgaben`, `belegter_fortschritt`, `naechster_schritt`, `status`, `gewuenschte_besetzung`, `tatsaechliche_zustaendigkeit`, `laufende_arbeit`, `wartegrung`).
+    - Optimistic Locking / CAS (`ZielKonfliktFehler`) zur Vermeidung von Überschreibungen durch parallele Agenten.
+    - Getrennter Nachweis für Zustellung (`zustellungs_nachweis` / delivered) und Annahme (`annahme_ack` / accepted), um doppelte Ausführung verlässlich auszuschließen.
+    - Vollständige Handoff-Integration: `uebergabe.paket_bauen` übernimmt das versionierte Goal und den belegten Fortschritt in den Markdown-Abschnitt `## Goal & Fortschritt`.
+    - Vollständig abgesichert durch `tests/test_ziele.py` (6 Tests grün).
+  * **Budget-, Token- und Delegations-Schutz („Hamster-Einstellungen“, `kosten_budget.py`)**:
+    - Präzise Kosten- und Token-Erfassung für Azure Foundry Luna, OpenRouter DeepSeek Flash, Sol, Opus und Sonnet.
+    - Zwingende Delegationsregel (`DelegationsPflichtFehler`): Große Dokumenten-Scans, Datei-Durchsuchungen und Routineaufgaben (> 15.000 Tokens) dürfen nicht von teuren Modellen (GPT-6 Sol / GPT-6.1 Sol / Claude Opus) ausgeführt werden. Schützt wirksam vor 150-Euro-Token-Explosionen.
+    - Projektweites Budget-Limit mit automatischer Warnung bei 80 % und Blockade bei Erreichen des Limits.
+    - Vollständig abgesichert durch `tests/test_kosten_budget.py` (4 Tests grün).
+  * **OrbitDesk MCP-Server (`mcp_server.py`)**:
+    - Lokaler Standard-MCP-Server über JSON-RPC (`stdio`) zur nahtlosen Anbindung an den Personal AI Agent (Code-Chat und Werkzeuge).
+    - Bereitgestellte Tools: `orbitdesk_status`, `orbitdesk_goal_lesen`, `orbitdesk_goal_aktualisieren`, `orbitdesk_chat_wecken`, `orbitdesk_kosten_status`.
+    - Vollständig abgesichert durch `tests/test_mcp_server.py` (3 Tests grün).
+  * **Sprachsteuerungs-Zentrale („Telefonagent“ / Voice-Rolls-Mode, `sprach_zentrale.py`)**:
+    - Aggregiert den gesamten Leitwarten-Zustand für Text-to-Speech:
+      - `was_laeuft_wo()`: Aktuelle Worker, laufende Arbeit und nächste Schritte.
+      - `offene_pruefungen_und_blocker()`: Anstehende Prüfungen und Wartegründe.
+      - `fragen_an_sebastian()`: Blocker oder Punkte, die Sebastians Entscheidung erfordern.
+      - `thema_ansage(thema)`: Kompakte Einzelzusammenfassung.
+    - Vollständig abgesichert durch `tests/test_sprach_zentrale.py` (4 Tests grün).
+
 ### Behoben
 - **Direktübergabe im Pop-up (`_uebergabe_direkt_starten`)**:
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.
 
 ### Hinzugefügt
-- **Neustart-Skripte & Desktop-Steuerung (`neustart.ps1`, `neustart.cmd`)**:
-  * PowerShell-Skript `neustart.ps1` (und `neustart.cmd`) zum sauberen Beenden alter Instanzen (`master-schalter.exe`, `master-leiste.exe`, `pythonw.exe`), Bereinigen verwaister Locks (`uebersicht.lock`, `leiste.lock`) und entkoppelten Neustart der Windows-Executables.
+- **Status- und Integritätsdokumentation (`STATUS.md`)**:
+  * Zentrale Dokumentation der Light-Version mit Modulintegritätsübersicht (alle 52 Module fehlerfrei importierbar), Performance-Messwerten (~3 MB RAM, 0% CPU) und Start-Wegen.
+- **Start- & Steuerungs-Skripte (`masterschalter.ps1`, `masterschalter.cmd`)**:
+  * PowerShell-Skript `masterschalter.ps1` (und `masterschalter.cmd`) zum sauberen Starten, Prüfen und Neustarten der Komponenten (`master-schalter-gui.exe`, `master-leiste-gui.exe`).
   * Unterstützt Schalter: `-NurLeiste`, `-NurUebersicht`, `-Stop`, `-Status`.
-  * Desktop-Verknüpfung `Master-Schalter Neustart.lnk` direkt auf Sebastians Windows-Desktop bereitgestellt.
+  * `neustart.ps1` und `neustart.cmd` bleiben als Aliase erhalten.
+  * Desktop-Verknüpfung `Master-Schalter.lnk` direkt auf Sebastians Windows-Desktop eingerichtet.
 - **Windows Executables & Autostart (`pyproject.toml`, Autostart / `shell:startup`)**:
   * Eigenständige Windows-Executables unter `.venv/Scripts/`: `master-schalter-gui.exe` (Übersicht ohne Konsolenfenster), `master-leiste-gui.exe` (Taskleisten-Tray ohne Konsolenfenster), `master-schalter.exe`, `master-leiste.exe` und `masterwechsel.exe`.
   * Autostart-Verknüpfungen für Windows Login (`shell:startup`): `Master-Schalter.lnk` startet direkt die `master-schalter-gui.exe` und `Master-Schalter-Leiste.lnk` die `master-leiste-gui.exe`.

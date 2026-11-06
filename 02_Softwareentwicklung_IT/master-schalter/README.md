@@ -50,6 +50,7 @@ Exit 0. Es liest alle 5 Sekunden im Hintergrund-Thread (`uebersicht_modell.aufne
   Aufklappmenü „Master“ (Nach Kontingent / Claude Code / Codex / Hermes) die Rolle wählen; nach der Ja/Nein-Rückfrage
   setzt `modi.master_setzen` sie (nur die Rollenvorgabe, keine Sitzung). Das Menü „Arbeitsweise“ (Protokoll / Vibe)
   schaltet nach Rückfrage `modi.vibe_setzen`; Vibe wird vorab abgelehnt, wenn der Ausführer nicht Claude ist.
+  Auch die freie Tabellenfläche unter den Themenzeilen verwendet die dunkle Kartenfarbe.
 - **Knöpfe:** „Alle nach Kontingent“ und „Alle wie vorher“ (`alle.auf_kontingent` / `alle.zurueck`, mit Rückfrage,
   der Bericht erscheint in einem Textfeld), „Übergabe starten …“ (öffnet das Wechselfenster) und „Aktualisieren“
   (sofort neu lesen).

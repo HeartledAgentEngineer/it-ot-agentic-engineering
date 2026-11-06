@@ -31,11 +31,11 @@ BESETZUNG: dict[str, Besetzung] = {
                     "GPT-6 Luna (ChatGPT Plus)"),
     "2B": Besetzung("ChatGPT im Limit",
                     "Claude Opus 5.5 (Claude Pro)",
-                    "DeepSeek V4.1 Flash (OpenRouter)",
+                    "DeepSeek bei Claude-Ausführung; bei DeepSeek-Ausführung z. B. Gemini, sofern die Route freigegeben und verfügbar ist",
                     "Claude Sonnet 5.5 (Claude Pro) / DeepSeek V4.1 Flash (OpenRouter)"),
     "3": Besetzung("Beide im Limit",
                    "DeepSeek V4.1 Flash (OpenRouter/Hermes)",
-                   "DeepSeek V4.1 Flash (OpenRouter)",
+                   "Andere Modellfamilie, z. B. Gemini über eine freigegebene, verfügbare Route; sonst bleibt die Freigabe offen",
                    "DeepSeek V4.1 Flash (OpenRouter)"),
 }
 
