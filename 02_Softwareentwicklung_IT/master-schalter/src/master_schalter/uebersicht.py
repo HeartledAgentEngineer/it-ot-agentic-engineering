@@ -35,7 +35,7 @@ from .uebersicht_tabelle import ThemenTabelle
 INSTANZ = "uebersicht"
 TAKT_MS = 5000            # alle 5 s frisch lesen
 ABFRAGE_MS = 150          # Warteschlange des Hintergrund-Threads leeren
-TITEL = "Master-Schalter – Übersicht"
+TITEL = "OrbitDesk – Steuerzentrale"
 class Fenster:
     def __init__(self, root: tk.Tk, *, laden: Callable[[], um.Uebersicht] = um.aufnehmen,
                  frage: Callable[[str, str], bool] = dialog.frage,
@@ -83,7 +83,7 @@ class Fenster:
         kopf = ttk.Frame(wurzel, style=st.KOPF, padding=(st.ABSTAND, 10))
         kopf.grid(row=0, column=0, sticky="ew", padx=rand, pady=(rand, 6))
         kopf.columnconfigure(3, weight=1)
-        ttk.Label(kopf, text="Master-Schalter", style=st.TITEL).grid(row=0, column=0, sticky="w")
+        ttk.Label(kopf, text="OrbitDesk – Steuerzentrale", style=st.TITEL).grid(row=0, column=0, sticky="w")
         self.zeit_var, self.lage_var, self.lage_grund_var = tk.StringVar(), tk.StringVar(value="Lage ?"), tk.StringVar()
         ttk.Label(kopf, textvariable=self.zeit_var, style=st.KARTE_GEDAEMPFT).grid(row=0, column=1, padx=(12, 8))
         self.lage_pille = ttk.Label(kopf, textvariable=self.lage_var, style=st.PILLE_UNBEKANNT)
@@ -159,9 +159,36 @@ class Fenster:
         self.limits_knopf = ttk.Button(entwurf_leiste, text="📊 Limits & Verbräuche …", style=st.KNOPF,
                                        command=self.limits_dialog_oeffnen)
         self.limits_knopf.pack(side="left")
+
+        # OrbitDesk Steuerungsleiste: Sprachmodus, Goals, Neue Chats, Budgets & Hermes
+        zentrale_leiste = ttk.Frame(themen)
+        zentrale_leiste.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+
+        self.sprach_knopf = ttk.Button(zentrale_leiste, text="🎙 Sprachmodus", style=st.KNOPF_AKZENT,
+                                       command=self.sprachmodus_dialog_oeffnen)
+        self.sprach_knopf.pack(side="left", padx=(0, 6))
+
+        self.goals_knopf = ttk.Button(zentrale_leiste, text="🎯 Goals & Cockpit …", style=st.KNOPF,
+                                      command=self.goals_dialog_oeffnen)
+        self.goals_knopf.pack(side="left", padx=(0, 6))
+
+        self.neue_chats_var = tk.StringVar(value="🔍 Neue Chats (0)")
+        self.chats_knopf = ttk.Button(zentrale_leiste, textvariable=self.neue_chats_var, style=st.KNOPF,
+                                      command=self.neue_chats_dialog_oeffnen)
+        self.chats_knopf.pack(side="left", padx=(0, 6))
+
+        self.kosten_knopf = ttk.Button(zentrale_leiste, text="💰 Budgets & Foundry/OpenRouter …", style=st.KNOPF,
+                                       command=self.kosten_dialog_oeffnen)
+        self.kosten_knopf.pack(side="left", padx=(0, 6))
+
+        self.hermes_web_knopf = ttk.Button(zentrale_leiste, text="🌐 Hermes Status & Web", style=st.KNOPF,
+                                           command=self.hermes_web_oeffnen)
+        self.hermes_web_knopf.pack(side="left", padx=(0, 6))
+
+        themen.rowconfigure(3, weight=1)
         self.themen_tabelle = ThemenTabelle(themen, aendern=self._themenwert_aendern,
                                            uebergabe_anfordern=self.uebergabe_dialog_oeffnen)
-        self.themen_tabelle.grid(row=2, column=0, sticky="nsew")
+        self.themen_tabelle.grid(row=3, column=0, sticky="nsew")
         unten_pane = ttk.Frame(wurzel)
         unten_pane.columnconfigure(0, weight=1)
         unten_pane.rowconfigure(1, weight=1)
@@ -918,6 +945,307 @@ class Fenster:
             self.themen_tabelle.aktualisieren(self._snap, entwuerfe=self._entwuerfe,
                                               beschaeftigt=not frei or not schreiben)
             self._entwurf_anzahl_aktualisieren()
+            anzahl_neue = len(getattr(self._snap, "neue_chats", ()))
+            if hasattr(self, "neue_chats_var"):
+                if anzahl_neue > 0:
+                    self.neue_chats_var.set(f"🔍 Neue Chats ({anzahl_neue})")
+                    self.chats_knopf.configure(style=st.KNOPF_AKZENT)
+                else:
+                    self.neue_chats_var.set("🔍 Keine neuen Chats")
+                    self.chats_knopf.configure(style=st.KNOPF)
+
+
+
+    def sprachmodus_dialog_oeffnen(self) -> None:
+        """Telefon- / Sprachzentrale: Anzeige von 'Was läuft wo?', 'Offene Prüfungen' und 'Fragen an mich' mit Vorlesefunktion (TTS)."""
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Sprachmodus & Telefonagent")
+        top.geometry("720x640")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="🎙 Sprachmodus & Telefonagent", style=st.TITEL).pack(anchor="w", pady=(0, 6))
+        ttk.Label(frame, text="Hier kannst du per Sprache oder Klick abfragen, was gerade läuft, wo Prüfungen offen sind oder Fragen an dich warten.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=680).pack(anchor="w", pady=(0, 10))
+
+        from . import sprach_zentrale
+        snap = self._snap
+        txt_was = sprach_zentrale.was_laeuft_wo()
+        txt_pruef = sprach_zentrale.offene_pruefungen_und_blocker()
+        txt_fragen = sprach_zentrale.fragen_an_sebastian()
+
+        notebook = ttk.Notebook(frame)
+        notebook.pack(fill="both", expand=True, pady=(0, 10))
+
+        def tab_erstellen(nb, titel, inhalt):
+            tab = ttk.Frame(nb, style=st.KARTE, padding=10)
+            nb.add(tab, text=titel)
+            text_feld = tk.Text(tab, height=12, wrap="word", relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 10))
+            text_feld.insert("1.0", inhalt)
+            text_feld.configure(state="disabled")
+            text_feld.pack(fill="both", expand=True)
+            return text_feld
+
+        tab_erstellen(notebook, "1. Was läuft wo?", txt_was)
+        tab_erstellen(notebook, "2. Offene Prüfungen", txt_pruef)
+        tab_erstellen(notebook, "3. Fragen an Sebastian", txt_fragen)
+
+        gesamt_text = f"{txt_was}\n\n{txt_pruef}\n\n{txt_fragen}"
+
+        btn_bar = ttk.Frame(frame, style=st.KARTE)
+        btn_bar.pack(fill="x", pady=(0, 10))
+
+        def _tts_vorlesen():
+            import subprocess
+            escaped = gesamt_text.replace('"', '""').replace("`", "``").replace("$", "`$")
+            cmd = f'Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Speak("{escaped}")'
+            subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd])
+
+        def _in_zwischenablage():
+            top.clipboard_clear()
+            top.clipboard_append(gesamt_text)
+            self._status("Sprachansage in Zwischenablage kopiert.")
+
+        ttk.Button(btn_bar, text="🔊 Laut vorlesen (TTS)", style=st.KNOPF_AKZENT, command=_tts_vorlesen).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="📋 Ansage kopieren", style=st.KNOPF, command=_in_zwischenablage).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+    def goals_dialog_oeffnen(self, thema_vorauswahl: str | None = None) -> None:
+        """Versionierter Goal-Editor mit CAS, Abnahmekriterien und Entscheidungsjournal."""
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Goals & Cockpit-Steuerung")
+        top.geometry("780x720")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="🎯 Versionierte Projekt-Goals", style=st.TITEL).pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="Jedes Coding-Projekt besitzt ein versioniertes Goal mit Abnahmekriterien, Entscheidungen und Fortschritt.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=740).pack(anchor="w", pady=(0, 10))
+
+        from . import ziele
+        alle_themen = [t.thema for t in getattr(self._snap, "themen", ())] if self._snap else []
+        if not alle_themen:
+            alle_themen = list(ziele.alle_goals().keys()) or ["master-schalter"]
+
+        kopf_bar = ttk.Frame(frame, style=st.KARTE)
+        kopf_bar.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(kopf_bar, text="Projekt / Thema:", style=st.KARTE_LABEL).pack(side="left", padx=(0, 8))
+        thema_var = tk.StringVar(value=thema_vorauswahl if (thema_vorauswahl and thema_vorauswahl in alle_themen) else alle_themen[0])
+        thema_combo = ttk.Combobox(kopf_bar, textvariable=thema_var, values=alle_themen, state="readonly", width=25)
+        thema_combo.pack(side="left", padx=(0, 16))
+
+        ver_var = tk.StringVar(value="v1 (Rev 1)")
+        ttk.Label(kopf_bar, textvariable=ver_var, style=st.PILLE).pack(side="left")
+
+        # Eingabefelder
+        form = ttk.Frame(frame, style=st.KARTE)
+        form.pack(fill="both", expand=True, pady=(0, 10))
+
+        ttk.Label(form, text="Goal Titel:", style=st.KARTE_LABEL).grid(row=0, column=0, sticky="w", pady=(4, 2))
+        titel_entry = ttk.Entry(form, width=60)
+        titel_entry.grid(row=0, column=1, sticky="ew", pady=(4, 2), padx=(8, 0))
+
+        ttk.Label(form, text="Zieltext / Vision:", style=st.KARTE_LABEL).grid(row=1, column=0, sticky="nw", pady=(4, 2))
+        ziel_text = tk.Text(form, height=4, wrap="word", relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 9))
+        ziel_text.grid(row=1, column=1, sticky="ew", pady=(4, 2), padx=(8, 0))
+
+        ttk.Label(form, text="Abnahmekriterien:", style=st.KARTE_LABEL).grid(row=2, column=0, sticky="nw", pady=(4, 2))
+        kriterien_text = tk.Text(form, height=4, wrap="word", relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 9))
+        kriterien_text.grid(row=2, column=1, sticky="ew", pady=(4, 2), padx=(8, 0))
+
+        ttk.Label(form, text="Entscheidungen & Grenzen:", style=st.KARTE_LABEL).grid(row=3, column=0, sticky="nw", pady=(4, 2))
+        entscheidungen_text = tk.Text(form, height=3, wrap="word", relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 9))
+        entscheidungen_text.grid(row=3, column=1, sticky="ew", pady=(4, 2), padx=(8, 0))
+
+        ttk.Label(form, text="Nächster Schritt:", style=st.KARTE_LABEL).grid(row=4, column=0, sticky="w", pady=(4, 2))
+        schritt_entry = ttk.Entry(form, width=60)
+        schritt_entry.grid(row=4, column=1, sticky="ew", pady=(4, 2), padx=(8, 0))
+
+        status_lbl = ttk.Label(frame, text="", style=st.LABEL_GEDAEMPFT)
+        status_lbl.pack(anchor="w", pady=(0, 6))
+
+        aktuelles_goal = [None]
+
+        def _laden_thema(event=None):
+            th = thema_var.get()
+            g = ziele.goal_lesen(th)
+            aktuelles_goal[0] = g
+            titel_entry.delete(0, "end")
+            ziel_text.delete("1.0", "end")
+            kriterien_text.delete("1.0", "end")
+            entscheidungen_text.delete("1.0", "end")
+            schritt_entry.delete(0, "end")
+            if g:
+                ver_var.set(f"v{g.version} (Rev {g.revision})")
+                titel_entry.insert(0, g.titel)
+                ziel_text.insert("1.0", g.zieltext)
+                kriterien_text.insert("1.0", "\n".join(f"- {k}" for k in g.abnahmekriterien))
+                entscheidungen_text.insert("1.0", "\n".join(f"- {e}" for e in g.entscheidungen))
+                schritt_entry.insert(0, g.naechster_schritt)
+            else:
+                ver_var.set("v1 (Neu)")
+                titel_entry.insert(0, f"Projektziel {th}")
+                schritt_entry.insert(0, "Initialen Plan und Architektur abstimmen")
+
+        thema_combo.bind("<<ComboboxSelected>>", _laden_thema)
+        _laden_thema()
+
+        btn_bar = ttk.Frame(frame, style=st.KARTE)
+        btn_bar.pack(fill="x")
+
+        def _speichern():
+            th = thema_var.get()
+            g = aktuelles_goal[0]
+            krit = [line.strip().lstrip("-* ").strip() for line in kriterien_text.get("1.0", "end").splitlines() if line.strip()]
+            entsch = [line.strip().lstrip("-* ").strip() for line in entscheidungen_text.get("1.0", "end").splitlines() if line.strip()]
+            try:
+                ziele.goal_anlegen_oder_aktualisieren(
+                    thema=th,
+                    titel=titel_entry.get().strip() or f"Goal {th}",
+                    zieltext=ziel_text.get("1.0", "end").strip(),
+                    abnahmekriterien=krit,
+                    entscheidungen=entsch,
+                    naechster_schritt=schritt_entry.get().strip(),
+                    erwartete_revision=g.revision if g else None
+                )
+                status_lbl.configure(text=f"✓ Goal für '{th}' erfolgreich versioniert gespeichert!", style=st.LABEL)
+                _laden_thema()
+                self.laden_anstossen()
+            except ziele.ZieleFehler as err:
+                status_lbl.configure(text=f"Fehler: {err}", style=st.LABEL_FEHLER)
+
+        ttk.Button(btn_bar, text="💾 Goal versioniert speichern", style=st.KNOPF_AKZENT, command=_speichern).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+    def neue_chats_dialog_oeffnen(self) -> None:
+        """Zeigt gefundene Chats aus allen 4 Harnesses (Antigravity, Codex, Claude, Hermes) und erlaubt Übernahme."""
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Erkannte Chats & Themen")
+        top.geometry("740x520")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="🔍 Erkannte neue Chats aus allen 4 Harnesses", style=st.TITEL).pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="OrbitDesk durchsucht automatisch Antigravity, Codex, Claude Code und Hermes nach neu begonnenen Sitzungen.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=700).pack(anchor="w", pady=(0, 10))
+
+        from . import chat_discovery
+        bestehend = {t.thema for t in getattr(self._snap, "themen", ())} if self._snap else set()
+        vorschlaege = chat_discovery.neue_themen_vorschlaege(bestehend)
+
+        listbox = tk.Listbox(frame, height=12, activestyle="none", selectbackground=st.FLAECHE2, selectforeground=st.TEXT,
+                             relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 10))
+        listbox.pack(fill="both", expand=True, pady=(0, 10))
+
+        if not vorschlaege:
+            listbox.insert("end", "Keine neuen unregistrierten Chats gefunden. Alle aktiven Themen sind bereits in OrbitDesk eingebunden.")
+        else:
+            for v in vorschlaege:
+                listbox.insert("end", f"[{v.quelle.upper()}]  {v.titel}  ➔  Thema-ID: {v.thema} ({v.zeit})")
+
+        status_lbl = ttk.Label(frame, text="", style=st.LABEL_GEDAEMPFT)
+        status_lbl.pack(anchor="w", pady=(0, 6))
+
+        btn_bar = ttk.Frame(frame, style=st.KARTE)
+        btn_bar.pack(fill="x")
+
+        def _uebernehmen():
+            sel = listbox.curselection()
+            if not sel or not vorschlaege or sel[0] >= len(vorschlaege):
+                status_lbl.configure(text="Bitte zuerst einen Chat aus der Liste auswählen.", style=st.LABEL_FEHLER)
+                return
+            v = vorschlaege[sel[0]]
+            try:
+                from . import modi, ziele
+                modi.master_setzen(v.thema, "kontingent")
+                ziele.goal_anlegen_oder_aktualisieren(
+                    thema=v.thema,
+                    titel=v.titel,
+                    zieltext=f"Autonom erkannter Chat aus {v.quelle}: {v.titel}",
+                    naechster_schritt="Rollenverteilung und Kriterien abstimmen"
+                )
+                status_lbl.configure(text=f"✓ Thema '{v.thema}' ({v.quelle}) erfolgreich in OrbitDesk registriert!", style=st.LABEL)
+                self.laden_anstossen()
+            except Exception as err:
+                status_lbl.configure(text=f"Fehler bei Übernahme: {err}", style=st.LABEL_FEHLER)
+
+        if vorschlaege:
+            ttk.Button(btn_bar, text="➕ Als Thema in OrbitDesk übernehmen", style=st.KNOPF_AKZENT, command=_uebernehmen).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_bar, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+    def kosten_dialog_oeffnen(self) -> None:
+        """Kosten- und Budgetzentrale: Azure Foundry & OpenRouter Kosten nachverfolgen."""
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Kostenmanagement & Budgets")
+        top.geometry("760x520")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="💰 Kostenmanagement & Budget-Schutz", style=st.TITEL).pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="Budgetgrenzen für Azure Foundry (GPT-6 Luna) und OpenRouter (DeepSeek Flash) je Auftrag und Projekt.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=720).pack(anchor="w", pady=(0, 10))
+
+        from . import kosten_budget
+        uebersicht = kosten_budget.kosten_uebersicht()
+
+        text_feld = tk.Text(frame, height=12, wrap="word", relief="flat", background=st.FLAECHE, foreground=st.TEXT, font=(self._schrift, 10))
+        text_feld.pack(fill="both", expand=True, pady=(0, 10))
+        text_feld.insert("1.0", uebersicht)
+        text_feld.configure(state="disabled")
+
+        info_box = ttk.Label(frame, text="🛡 Delegationsschutz aktiv: Aufträge mit > 15.000 Tokens (Dokumente/Scans) werden an Luna/Flash delegiert, um GPT-6 Sol Budget zu schützen.",
+                             style=st.KARTE_WARNUNG, wraplength=720)
+        info_box.pack(fill="x", pady=(0, 10))
+
+        btn_bar = ttk.Frame(frame, style=st.KARTE)
+        btn_bar.pack(fill="x")
+        ttk.Button(btn_bar, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
+
+    def hermes_web_oeffnen(self) -> None:
+        """Hermes Status & Web Frontend Integration."""
+        import webbrowser
+        top = tk.Toplevel(self.root)
+        top.title("OrbitDesk – Hermes Status & Context")
+        top.geometry("640x380")
+        top.configure(background=st.GRUND)
+        top.transient(self.root)
+
+        frame = ttk.Frame(top, padding=st.ABSTAND_GROSS, style=st.KARTE)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="🌐 Hermes Web-Frontend & Context-Tank", style=st.TITEL).pack(anchor="w", pady=(0, 4))
+        ttk.Label(frame, text="Hermes stellt das Status-Frontend und den Context-Tank bereit. Es kann lokal aufgerufen oder im Browser geöffnet werden.",
+                  style=st.KARTE_GEDAEMPFT, wraplength=600).pack(anchor="w", pady=(0, 12))
+
+        import urllib.request
+        status_text = "Hermes Server Status: Wird geprüft …"
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:8080/hermes_status.html", timeout=1.0) as resp:
+                status_text = "✓ Hermes Live-Webserver läuft auf http://127.0.0.1:8080"
+        except Exception:
+            status_text = "ℹ Hermes Webserver auf 127.0.0.1:8080 derzeit offline (kann über 'python -m http.server 8080' im Frontend gestartet werden)."
+
+        lbl = ttk.Label(frame, text=status_text, style=st.KARTE_LABEL)
+        lbl.pack(anchor="w", pady=(0, 16))
+
+        def _browser_oeffnen():
+            webbrowser.open("http://127.0.0.1:8080/hermes_status.html")
+
+        ttk.Button(frame, text="🌐 Im Browser öffnen (http://127.0.0.1:8080)", style=st.KNOPF_AKZENT, command=_browser_oeffnen).pack(anchor="w", pady=(0, 10))
+        ttk.Button(frame, text="Schließen", style=st.KNOPF, command=top.destroy).pack(side="right")
 
 
 def main() -> int:

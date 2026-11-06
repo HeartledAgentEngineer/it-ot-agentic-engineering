@@ -1,11 +1,14 @@
-# Master-Schalter
+# OrbitDesk – Steuerzentrale (ehemals Master-Schalter)
 
-Zeigt in der Windows-Taskleiste, wie viel vom Nutzungskontingent **Claude Code** und
-**Codex** noch übrig ist — beide auf einen Blick. Der Schalter zeigt außerdem den
-aktiven Master, ordnet die Lage der Kaskaden-Matrix zu und legt beim Wechsel ein
-technisches Übergabepaket bereit.
+OrbitDesk ist die verlässliche Steuerzentrale für mehrere parallele Coding-Projekte in der Windows-Taskleiste und auf dem Desktop. Sie verwaltet Multi-Agenten-Workflows über **Antigravity**, **Codex**, **Claude Code** und **Hermes** hinweg:
+- **Cockpit & Leiste:** Zeigt Nutzungskontingente (Claude, Codex, Gemini/Antigravity) live auf einen Blick.
+- **Versionierte Goals:** Jedes Coding-Projekt besitzt ein versioniertes `Goal` mit Abnahmekriterien, Entscheidungsjournal, offenen Aufgaben und belegtem Fortschritt (Optimistic Locking / CAS-Revisionsprüfung).
+- **Sprachmodus / Telefonagent (Voice-Rolls-Mode):** Sprach- und TTS-Zentrale für „Was läuft wo?“, „Offene Prüfungen & Blocker“ und „Fragen an Sebastian“ (vorlesbar per Windows TTS).
+- **Harness-Chat-Erkennung:** Findet laufende und neue Sitzungen autonom über alle 4 Harnesses (Antigravity SQLite, Codex JSON, Claude Code Sessions, Hermes SQLite `state.db`) und übernimmt sie per Klick.
+- **Kostenmanagement & Budgets:** Überwachung der Inferenzkosten für Azure Foundry (`gpt-6-luna`) und OpenRouter (`deepseek-v4.1-flash`) mit Budget-Grenzen und Delegations-Schutzschalter (> 15k Tokens werden an Luna/Flash delegiert).
+- **Hermes Web & Context-Tank:** Schneller Absprung und Überwachung des Hermes Web-Frontends (`http://127.0.0.1:8080/hermes_status.html`).
 
-Stand: **v0.5.1** (Entwicklungsstand; Linksklick öffnet das Übersichtsfenster, das Symbol zeigt keinen globalen Master mehr): Codex-Kontingent wird aktiv gemessen (Abschnitt „Woher die Zahlen kommen“, `masterwechsel codex-messen`). Darunter **v0.5.0** (veröffentlicht): Wechselassistent samt Fenster und Automatik-Weg (Abschnitte „Bedienung (v0.5.0)“ und „Zwei Wege für den Versand“). Noch offen: neue Sitzungen starten, Hermes-Empfang, Kontingent-Wächter. v0.4.1: Claude-Katalog findet das native `claude.exe` (npm-Paket ab 2.1.3xx ohne `cli.js`). Darunter v0.4.0: Rollen und Ausführermodelle je Thema (Profil v2): Master, Ausführer und Ausführermodell getrennt wählbar, dynamische Modellkataloge von Claude Code und Codex, neue CLI (profil/master-setzen/worker-setzen/modell-setzen/modelle). Hermes-Worker bleibt DeepSeek V4.1 Flash über OpenRouter (kostenpflichtig). Enthält die v0.3.5-Reparatur: bestätigter Menüwechsel läuft außerhalb des Traycallbacks; die native Ja/Nein-Bedienung auf dem Desktop ist weiterhin nicht nachgewiesen.
+Stand: **v0.6.0** (OrbitDesk Evolution); Desktop-Starter `OrbitDesk.lnk`, `orbitdesk.cmd`, `orbitdesk.ps1` und Standalone PyInstaller Spezifikation vorhanden.
 
 ## Bedienung
 

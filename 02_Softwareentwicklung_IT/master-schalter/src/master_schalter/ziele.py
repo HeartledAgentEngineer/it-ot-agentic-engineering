@@ -51,6 +51,14 @@ class Goal:
     tatsaechliche_zustaendigkeit: dict[str, str] = field(default_factory=dict)
     laufende_arbeit: str = ""
     wartegrung: str | None = None
+
+    @property
+    def version(self) -> int:
+        return self.revision
+
+    @property
+    def version(self) -> int:
+        return self.revision
     zustellungs_nachweis: dict[str, str] | None = None
     annahme_ack: dict[str, str] | None = None
 

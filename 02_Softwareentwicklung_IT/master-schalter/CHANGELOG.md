@@ -42,6 +42,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
     - `masterwechsel mcp`: Startet den OrbitDesk MCP-Server über stdio.
     - Vollständig abgesichert durch `tests/test_cli_orbitdesk.py` (3 Tests grün).
 
+  * **OrbitDesk Cockpit-Frontend & Dialoge (`uebersicht.py`, `uebersicht_tabelle.py`, `chat_discovery.py`)**:
+    - `🎙 Sprachmodus`: Telefonagent-Dialog mit strukturierten Ansagen („Was läuft wo?“, „Offene Prüfungen“, „Fragen an Sebastian“) und Live-Vorlesefunktion (Windows SAPI5 / PowerShell TTS).
+    - `🎯 Goals & Cockpit`: Interaktiver, versionierter Goal-Editor mit Optimistic Locking (CAS), Abnahmekriterien, Entscheidungsjournal und nächstem Schritt.
+    - `🔍 Neue Chats (N)`: Automatische Erkennung aktiver Chats über alle 4 Harnesses (Antigravity SQLite, Codex JSON, Claude Code Sessions, Hermes SQLite `state.db`) mit Ein-Klick-Übernahme als neues Thema.
+    - `💰 Budgets & Foundry/OpenRouter`: Live-Kostenübersicht für Azure Foundry (`gpt-6-luna`) und OpenRouter (`deepseek-v4.1-flash`) mit Budgetgrenzen und Delegationsschutz (> 15k Tokens an Luna/Flash).
+    - `🌐 Hermes Status & Web`: Schneller Absprung und Erreichbarkeitsprüfung für das Hermes Status-Frontend (`http://127.0.0.1:8080/hermes_status.html`).
+    - Desktop-Starter: Verknüpfung `OrbitDesk.lnk` und Skripte `OrbitDesk.cmd`, `orbitdesk.ps1` auf dem Windows-Desktop bereitgestellt.
+
 ### Behoben
 - **Direktübergabe im Pop-up (`_uebergabe_direkt_starten`)**:
   * Aufruf korrigiert: `self._im_hintergrund(aktion)` statt des blockierten `_ausfuehren`, Rückgabetyp `um.Ergebnis` statt `AktionErgebnis` und Attribut `vorgang.id` statt `vorgang.vorgang_id`.

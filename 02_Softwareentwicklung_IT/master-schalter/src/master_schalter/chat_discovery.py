@@ -124,11 +124,57 @@ def claude_chats_finden(status_ordner: Path | None = None) -> list[ChatVorschlag
     return vorschlaege
 
 
+def hermes_db_pfad() -> Path:
+    return Path.home() / "AppData" / "Local" / "hermes" / "state.db"
+
+
+def hermes_chats_finden(db_datei: Path | None = None) -> list[ChatVorschlag]:
+    """Findet Chats/Sitzungen aus der lokalen Hermes SQLite-Datenbank."""
+    db_pfad = db_datei or hermes_db_pfad()
+    if not db_pfad.exists():
+        return []
+    vorschlaege: list[ChatVorschlag] = []
+    try:
+        con = sqlite3.connect(f"file:{db_pfad}?mode=ro", uri=True)
+        try:
+            cur = con.cursor()
+            cur.execute("""
+                SELECT id, title, last_activity_at
+                FROM sessions
+                WHERE title IS NOT NULL AND title != ''
+                ORDER BY last_activity_at DESC
+                LIMIT 20
+            """)
+            for sid, title, lmt in cur.fetchall():
+                if not title or not isinstance(title, str):
+                    continue
+                slug = thema_bereinigen(title)
+                zeit_str = ""
+                if lmt:
+                    try:
+                        zeit_str = datetime.fromtimestamp(float(lmt), tz=timezone.utc).isoformat()[:19]
+                    except (ValueError, TypeError, OverflowError):
+                        zeit_str = str(lmt)[:19]
+                vorschlaege.append(ChatVorschlag(
+                    thema=slug,
+                    titel=title.strip(),
+                    quelle="Hermes",
+                    sitzung_id=str(sid),
+                    zeit=zeit_str,
+                ))
+        finally:
+            con.close()
+    except (sqlite3.Error, OSError):
+        pass
+    return vorschlaege
+
+
 def neue_themen_vorschlaege(bestehende_themen: set[str],
                             db_datei: Path | None = None,
                             codex_ordner: Path | None = None,
-                            status_ordner: Path | None = None) -> list[ChatVorschlag]:
-    """Sucht neue Chats aller Institutionen (Antigravity, Codex, Claude), prüft Kontingente und filtert bereits registrierte Themen aus."""
+                            status_ordner: Path | None = None,
+                            hermes_db: Path | None = None) -> list[ChatVorschlag]:
+    """Sucht neue Chats aller 4 Institutionen (Antigravity, Codex, Claude, Hermes), prüft Kontingente und filtert bereits registrierte Themen aus."""
     kandidaten: list[ChatVorschlag] = []
     
     # Antigravity Chats prüfen (wenn nicht im Limit)
@@ -148,6 +194,12 @@ def neue_themen_vorschlaege(bestehende_themen: set[str],
     claude_frei = not claude_kont.fehler and all(f.prozent < 100 for f in claude_kont.fenster)
     if claude_frei or not claude_kont.fenster:
         kandidaten.extend(claude_chats_finden(status_ordner))
+
+    # Hermes Chats prüfen
+    if hermes_db is not None:
+        kandidaten.extend(hermes_chats_finden(hermes_db))
+    elif db_datei is None and codex_ordner is None and status_ordner is None:
+        kandidaten.extend(hermes_chats_finden())
 
     # Filtern: Nur neue Themen, die noch nicht in den bestehenden Themen vorkommen
     ergebnis: list[ChatVorschlag] = []

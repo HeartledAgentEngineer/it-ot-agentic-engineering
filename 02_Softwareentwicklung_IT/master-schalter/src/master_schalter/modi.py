@@ -59,6 +59,7 @@ WORKFLOW = "workflow"
 ZIEL_ROLLEN = ("claude", "codex", "hermes", "agy")
 VORGANG_ID_MUSTER = re.compile(r"[A-Za-z0-9_-]{1,80}")   # Vorgangs- und Sitzungskennungen des Assistenten
 HERMES_MODELL = "deepseek/deepseek-v4.1-flash"
+HERMES_MODELLE = ("deepseek/deepseek-v4.1-flash", "gpt-6-luna", "azure-foundry/gpt-6-luna")
 VERSION = 2
 VERSION_ALT = 1
 GLOBALE_FRIST = 1.0

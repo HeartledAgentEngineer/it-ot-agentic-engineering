@@ -28,6 +28,7 @@ from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Callable
 
+from . import chat_discovery, kosten_budget, ziele
 from . import (alle, anzeige, arbeitsweise, assistent_vorgaenge as wechsel_vorgaenge, kurz, modelle, modi, paare,
                pruefer_wahl, rollen, rollen_anzeige, signale, symbol, wartet)
 from .signale import Fenster, Kontingent
@@ -93,6 +94,10 @@ class ThemaZeile:
     paar_aktiv: bool | None = None               # gespeicherte Paarfreigabe; None = kein Codex-Paar
     modell_wert: str | None = None               # gespeichertes Ausführermodell des Profils (None = Standard)
     pk_master: str | None = None                 # Master, den `pruefkreis` liest; None = Besitz unklar
+    goal_titel: str = ""
+    goal_naechster_schritt: str = ""
+    goal_version: int = 0
+    kosten_text: str = "$0.00 / $10" 
 
 
 @dataclass(frozen=True)
@@ -132,6 +137,7 @@ class Uebersicht:
     kataloge: tuple[KatalogAnsicht, ...] = ()   # Modellkataloge claude/codex für die Modellliste
     wechsel_themen: tuple[str, ...] = ()
     wechsel_pruefbar: bool = False
+    neue_chats: tuple[chat_discovery.ChatVorschlag, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -230,7 +236,8 @@ def aufnehmen(jetzt: datetime | None = None, zone: tzinfo | None = None) -> Uebe
         wartet=tuple(kurz._wartet_zeile(m, jetzt, zone) for m in sorted(wartet.alle_lesen(), key=lambda m: m.zeit)),
         sitzungen=tuple(kurz._sitzung_zeile(s, jetzt, zone) for s in neueste),
         hinweise=tuple(hinweise), repo=repo, schreiben=erlaubt, schreib_hinweis="" if erlaubt else NUR_ANZEIGE,
-        kataloge=kataloge, wechsel_themen=wechsel_themen, wechsel_pruefbar=wechsel_pruefbar)
+        kataloge=kataloge, wechsel_themen=wechsel_themen, wechsel_pruefbar=wechsel_pruefbar,
+        neue_chats=tuple(chat_discovery.neue_themen_vorschlaege(bestehende_themen={t.name for t in themen})))
 
 
 def _katalog_ansicht(anbieter: str, jetzt: datetime) -> KatalogAnsicht:
@@ -246,11 +253,30 @@ def _katalog_ansicht(anbieter: str, jetzt: datetime) -> KatalogAnsicht:
 
 def _thema_zeile(t: kurz.Thema, automatik: bool, lage: str | None = None) -> ThemaZeile:
     master, besitz_text, pruefer, ausfuehrer, auto = kurz.thema_felder(t, automatik, lage)
+    g = None
+    try:
+        g = ziele.goal_lesen(t.name)
+    except Exception:
+        pass
+    g_titel = g.titel if g else ""
+    g_schritt = g.naechster_schritt if g else ""
+    g_ver = g.version if g else 0
+    
+    k_text = "$0.00 / $10"
+    try:
+        kb = kosten_budget.kosten_uebersicht().get(t.name)
+        if kb:
+            k_text = f"${kb['kosten_usd']:.2f} / ${kb['budget_usd']:.0f}"
+    except Exception:
+        pass
+
     return ThemaZeile(t.name, master, besitz_text.removeprefix("Besitz "), pruefer.removeprefix("Prüfer "),
                       ausfuehrer, auto, t.profil.master, t.arbeitsweise, t.profil.worker, t.pruefer_wahl,
                       rollen_anzeige.gleiche_familie(t.pruefkreis_master, t.pruefer_wahl, t.arbeitsweise),
                       anzeige.auto_zustand(automatik, t.paar_aktiv, t.profil.master)[0], t.paar_aktiv,
-                      t.profil.modell, t.pruefkreis_master)
+                      t.profil.modell, t.pruefkreis_master,
+                      goal_titel=g_titel, goal_naechster_schritt=g_schritt, goal_version=g_ver,
+                      kosten_text=k_text)
 
 
 def modell_liste(zeile: ThemaZeile, kataloge: tuple[KatalogAnsicht, ...]) -> ModellListe:
