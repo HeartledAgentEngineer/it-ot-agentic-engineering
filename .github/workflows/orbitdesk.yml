@@ -1,0 +1,65 @@
+# OrbitDesk: Test bei jedem Push/PR, automatischer EXE-Release-Bau bei Versions-Tags (AGENTS.md "Auslieferung").
+name: OrbitDesk CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "02_Softwareentwicklung_IT/master-schalter/**"
+      - ".github/workflows/orbitdesk.yml"
+    tags: ["orbitdesk-v*"]
+  pull_request:
+    paths:
+      - "02_Softwareentwicklung_IT/master-schalter/**"
+      - ".github/workflows/orbitdesk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbitdesk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Windows, Python 3.12)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: 02_Softwareentwicklung_IT/master-schalter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: 02_Softwareentwicklung_IT/master-schalter/pyproject.toml
+      - run: python -m pip install -e . pytest
+      - name: pytest
+        run: python -m pytest tests/test_agy_senden.py tests/test_ziele.py tests/test_kosten_budget.py tests/test_mcp_server.py tests/test_sprach_zentrale.py tests/test_cli_orbitdesk.py -v
+
+  release:
+    name: Build OrbitDesk EXE and create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/orbitdesk-v')
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: 02_Softwareentwicklung_IT/master-schalter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . pyinstaller==6.19.0
+      - name: Build Standalone EXE
+        run: pyinstaller orbitdesk.spec
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: 02_Softwareentwicklung_IT/master-schalter/dist/orbitdesk.exe
+          name: OrbitDesk ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
